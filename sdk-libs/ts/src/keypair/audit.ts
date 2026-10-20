@@ -33,6 +33,12 @@ export const RECIPIENT_KEY_DOMAIN = 0x4352_5f52;
 export const AUDIT_OUTPUT_SLOTS = 4;
 /** Rust `AUDIT_INPUT_SLOTS`, inputs are disclosed only in an anonymous ring. */
 export const AUDIT_INPUT_SLOTS = 12;
+/** Rust `BASE_ANONYMOUS_INPUT_SLOTS`, the narrow anonymous base key, the wide one opens `AUDIT_INPUT_SLOTS`. */
+export const BASE_ANONYMOUS_INPUT_SLOTS = 4;
+/** Rust `SHORT_AUDIT_MIN_INPUTS`, a two-output ring from here on proves the short disclosure. */
+export const SHORT_AUDIT_MIN_INPUTS = 17;
+/** Rust `IDENTITY_LEN`, an owner tag byte then the 32 key bytes. */
+export const ANONYMOUS_IDENTITY_LENGTH = 33;
 export const AUDIT_OUTPUT_FIELD_COUNT = 9;
 export const AUDIT_DISCLOSURE_FIELD_COUNT = AUDIT_OUTPUT_SLOTS * AUDIT_OUTPUT_FIELD_COUNT;
 /** `eph_pk(33) || ciphertext(32) || disclosure(36 * 32)`. */

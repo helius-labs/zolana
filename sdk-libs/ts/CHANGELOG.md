@@ -17,6 +17,7 @@ merge transaction alone.
 
 Breaking
 
+- `AuditedMergeRecord.nullifier` is absent for a merge of an anonymous ring, which carries the disclosed spent commitments in `inputCommitments` instead → read the nullifier only when it is set.
 - `SignatureType` no longer includes `"p256"`, and `SigningKey.generate` and `ShieldedKeypair.generate` accept only `"ed25519"` → derive PDA owners from their program and keep `P256ReaderKey` for passkey audit access.
 - `@heliuslabs/zolana/ring` leaves circuit codecs, registry proof helpers and policy primitives in `@heliuslabs/zolana/ring/advanced` → import those low-level helpers from the advanced subpath.
 - Ring transfer proving rejects absent or mismatched default-ring output markers with `CLIENT_OUTPUT_OWNER_MARKER_MISMATCH` before indexer or prover calls. Keep the confidential marker and the actual recipient owner tag on exits. Ordinary recipient ciphertext remains unproved.
@@ -185,7 +186,11 @@ Added
 - `ViewingKey.inboxSecret`, `pairKey`, `pairSendViewTag`, `ringChangeViewTag` and `ringBlindingSeed` derive the inbox secret, the per-recipient pseudonym, the pair and change view tags and the blinding seed of an anonymous ring payment, and `senderViewTag`, `sendSharedViewTag` and `recipientSharedViewTag` derive the counter and pair tags Rust wallets already scan.
 - `encodeRingAnonymous` and `decodeRingAnonymous` read and write `RingAnonymousOutputPlaintext`, the 104-byte opening `assetAddress`, `amount`, canonical `blinding` and `pairU` a recipient recomputes its commitment from, and `ringAnonymousBodyHash` gives the statement element of a published body.
 - `ViewingKey.sealAnonymousOutput` and `openAnonymousOutput` run the proven scheme-9 body cipher, keyed by `recipientStreamSecret` from the transaction key, the recipient viewing key, the salt and the slot, and `DecryptRequest.label` accepts `"ringAnonymous"`.
-- `encryptAnonymousRingTransfer` seals every slot of an anonymous ring transfer from a `RingAddress` per real output, pads the other slots with random bodies and tags in the same framing, refuses records, memos and compact padding, and returns the auditor message, the prover delivery inputs and the body hashes.
+- `encryptAnonymousRingTransfer` seals every slot of an anonymous ring transfer from a `RingAddress` per real output, seals an exit to the default ring under its owner with `assets`, pads the other slots with random bodies and tags in the same framing, refuses records, memos and compact padding, and returns the auditor message, the prover delivery inputs and the body hashes.
+- `proveAnonymousRingTransfer` and `buildAnonymousRingTransferTransaction` prove and build a transfer on an anonymous ring that pays each `AnonymousRingRecipient` by its full `RingAddress` on a first-payment or paired tag, may exit to the default ring, carries the outflow limits and the co-signer they demand, and refuses a shape, slot, tag or public signer the ring program refuses with a named `RingErrorCode` before any prover call.
+- `AnonymousSpendSigner` signs the hidden owner's `ringSpendMessage` for the proof, and `signingKeySpendSigner` and `messageSignerSpendSigner` adapt a `SigningKey` or a wallet's kit message signer.
+- `ZolanaClient.proveAnonymousRingTransact` proves the anonymous SPP spend from an `AnonymousRingTransactProofInput`, `ProverInputs` carries its `AnonymousEddsaAuthorization`, and `CircuitId` encodes the `"anonymousRingEddsa"` selector with its proof commitment like Rust.
+- `CustomRingBaseProofRequest.anonymous` and `CustomRingPolicyProofRequest.anonymous` send the hidden identities and the proven `delivery` bodies of an anonymous ring, and `ANONYMOUS_RING_SHAPES` lists the shapes its proofs cover.
 - `AnonymousTagAllocator` assigns one inbox, pair or change tag per output slot over a `TagStream`, taking the lowest index free in history and in the transaction itself, and `AnonymousRingDestination` names where each slot goes.
 - `recoverAnonymousRing` scans every scheme-9 slot of a ring's confirmed history through a stated head under every viewing key the wallet holds and fails with `WALLET_RECOVERY_INCOMPLETE` on a page limit or an incomplete response.
 - `SyncReport.pendingAssets` holds commitment-verified anonymous notes whose mint the registry does not know, and `AnonymousRingReport.badPairHints` names stored notes whose pair hint is no X25519 key.
@@ -248,6 +253,7 @@ Added
 
 Changed
 
+- `proveCustomRingTransfer` on an anonymous ring fails with `RING_ANONYMOUS_SIGNER_REQUIRED` and the delegate rail with `RING_ANONYMOUS_REFUSED`, prove those transfers with `proveAnonymousRingTransfer`.
 - `AnonymousOutputOpening` discloses only `identityTag`, `identityKey`, `nullifierPublicKey` and `viewingPublicKey`, the auditor opens amount, asset and blinding from the proven body, and an anonymous audit disclosure takes four values per output.
 - `AuditedRingTransaction` and `DecryptedRingTransaction` replace `undecryptableSlots` with `payloadErrors` → read the slot index from each entry and its `kind`.
 - `AnonymousNote.pairPublicKey` and `AnonymousRingNote.pairPublicKey` are optional, a note stays stored when its pair hint is unusable.

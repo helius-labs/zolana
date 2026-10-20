@@ -23,6 +23,8 @@ import { equal } from "../transaction/internal.js";
 import type { LatestBlockhash, SolanaRpc } from "./kit.js";
 import type { ProverHealth, ProvingKeyReport } from "./prover/client.js";
 import type {
+  AnonymousEddsaAuthorization,
+  HiddenOwnerAuthorization,
   CustomRingBaseProofRequest,
   CustomRingDepositProofRequest,
   CustomRingPolicyProofRequest,
@@ -320,6 +322,11 @@ export type IndexedProofInputs = Readonly<{
         circuit: "transfer" | "transferRing" | "transferRingAuthority";
         payload: PreparedTransferInputs;
       }>
+    | Readonly<{
+        circuit: "transferEddsaRing";
+        payload: PreparedTransferInputs;
+        authorization: AnonymousEddsaAuthorization;
+      }>
     | Readonly<{ circuit: "merge"; payload: PreparedMergeInputs }>
   );
 
@@ -455,6 +462,11 @@ export interface Prover {
     config?: RingProvingConfig,
     context?: RequestContext,
   ): Promise<ProvenRingTransact>;
+  /** The hidden owner of an anonymous ring signs `ringSpendMessage` before the proof, the proof carries its BSB22 commitment in `data.circuit`. */
+  proveAnonymousRingTransact(
+    input: AnonymousRingTransactProofInput,
+    context?: RequestContext,
+  ): Promise<ProvenRingTransact>;
   proveCustomRingPolicy(
     inputs: CustomRingPolicyProofRequest,
     context?: RequestContext,
@@ -572,6 +584,16 @@ export interface RingMergeRegistryProof {
 }
 
 /** A proved ring transfer with the tree history entries the ring statement binds. */
+export interface AnonymousRingTransactProofInput {
+  readonly proofInputs: SppProofInputs;
+  readonly ringProgramId: Address;
+  readonly owner: HiddenOwnerAuthorization;
+  /** The ring's configured co-signer, absent without one. */
+  readonly cosigner?: Address;
+  readonly keys: ProofAuthority;
+  readonly config?: RingProvingConfig;
+}
+
 export interface ProvenRingTransact {
   readonly data: TransactInstructionData;
   readonly roots: RingTransactRoots;

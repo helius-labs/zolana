@@ -143,6 +143,11 @@ export interface ClientErrorDetailsMap {
   readonly CLIENT_INVALID_INTEGER: Readonly<{ field?: string; length?: number }> | undefined;
   readonly CLIENT_INVALID_INPUT_CONTEXT: Readonly<{ index?: number }> | undefined;
   readonly CLIENT_INVALID_PROOF_INPUTS: NoDetails;
+  readonly CLIENT_ANONYMOUS_PROOF_WITHOUT_HIDDEN_INPUT: NoDetails;
+  readonly CLIENT_ANONYMOUS_MIXED_DEFAULT_AND_RING_SPEND: NoDetails;
+  readonly CLIENT_ANONYMOUS_PUBLISHED_OWNER_LEAKS_IDENTITY: IndexDetails;
+  readonly CLIENT_ANONYMOUS_SPEND_SIGNATURE_INVALID: NoDetails;
+  readonly CLIENT_ANONYMOUS_EXIT_DESTINATIONS_DIFFER: NoDetails;
   readonly CLIENT_INVALID_MERGE: NoDetails;
   readonly CLIENT_MERGE_OUTPUT_MISMATCH: NoDetails;
   readonly CLIENT_INVALID_TRANSACTION: NoDetails;
@@ -300,6 +305,11 @@ export const TYPESCRIPT_CLIENT_ERROR_CODES = Object.freeze([
   "CLIENT_PROVER_TEE_ATTESTATION",
   "CLIENT_PROVER_TEE_ENCRYPTION",
   "CLIENT_INVALID_RPC_RESPONSE",
+  "CLIENT_ANONYMOUS_PROOF_WITHOUT_HIDDEN_INPUT",
+  "CLIENT_ANONYMOUS_MIXED_DEFAULT_AND_RING_SPEND",
+  "CLIENT_ANONYMOUS_PUBLISHED_OWNER_LEAKS_IDENTITY",
+  "CLIENT_ANONYMOUS_SPEND_SIGNATURE_INVALID",
+  "CLIENT_ANONYMOUS_EXIT_DESTINATIONS_DIFFER",
 ] as const satisfies readonly ClientErrorCode[]);
 
 const CLIENT_ERROR_CODE_SET: ReadonlySet<string> = new Set([
@@ -367,6 +377,10 @@ const NO_DETAIL_CODES: ReadonlySet<ClientErrorCode> = new Set([
   "CLIENT_UNEXPECTED",
   "CLIENT_INDEXER_PROOF_DATA_NOT_READY",
   "CLIENT_PROVER_INDEXER_UNCONFIGURED",
+  "CLIENT_ANONYMOUS_PROOF_WITHOUT_HIDDEN_INPUT",
+  "CLIENT_ANONYMOUS_MIXED_DEFAULT_AND_RING_SPEND",
+  "CLIENT_ANONYMOUS_SPEND_SIGNATURE_INVALID",
+  "CLIENT_ANONYMOUS_EXIT_DESTINATIONS_DIFFER",
 ]);
 
 const OPTIONAL_DETAIL_CODES: ReadonlySet<ClientErrorCode> = new Set([
@@ -415,6 +429,7 @@ const DETAIL_SHAPES: Partial<Readonly<Record<ClientErrorCode, DetailShape>>> = {
   CLIENT_PROOF_PATH_LENGTH: { got: "number", expected: "number", index: "number", kind: "string" },
   CLIENT_PROOF_INPUT_COUNT_MISMATCH: { got: "number", expected: "number" },
   CLIENT_ADDRESS_INPUT_UNSUPPORTED: { index: "number" },
+  CLIENT_ANONYMOUS_PUBLISHED_OWNER_LEAKS_IDENTITY: { index: "number" },
   CLIENT_INVALID_ADDRESS_INPUT: { index: "number" },
   CLIENT_INVALID_CONFIG: { field: "string" },
   CLIENT_INVALID_INTEGER: { field: "string", length: "number" },

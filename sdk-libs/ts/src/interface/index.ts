@@ -71,6 +71,7 @@ export {
 } from "./program.js";
 export type { CreateTreeData, NullifierTreeParams } from "./program.js";
 export {
+  ANONYMOUS_RING_SHAPES,
   SPP_SUPPORTED_SHAPES,
   RING_POLICY_SUPPORTED_SHAPES,
   RING_POLICY_MAX_INPUTS,

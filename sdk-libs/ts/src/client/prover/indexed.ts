@@ -43,6 +43,7 @@ import {
 } from "../internal.js";
 import { asField, resolvedPublicInputHash, type InputTree } from "./assembly.js";
 import type {
+  AnonymousEddsaAuthorization,
   CircuitUtxo,
   CustomRingRecordWitness,
   TransferOutput,
@@ -83,6 +84,7 @@ export function decodeIndexedInputs(value: unknown): IndexedProofInputs {
     circuit !== "transfer" &&
     circuit !== "transferRing" &&
     circuit !== "transferRingAuthority" &&
+    circuit !== "transferEddsaRing" &&
     circuit !== "merge"
   )
     throw invalid();
@@ -141,6 +143,21 @@ export function decodeIndexedInputs(value: unknown): IndexedProofInputs {
       memberRecord: decodeMergeMemberRecord(payload["memberRecord"]),
     };
   };
+  const transfer = () => ({
+    ...common,
+    outputs: requestDecoder.list(payload["outputs"], "outputs").map(decodeOutput),
+    blindingSeed: field("blindingSeed"),
+    publicAssets: fields("publicAssets"),
+    publicAmounts: fields("publicAmounts"),
+    signerPublicKeyHashes: fields("signerPublicKeyHashes"),
+    inputFlags: field("inputFlags"),
+    cacheTreeId: field("cacheTreeId"),
+    cacheReadHashChain: field("cacheReadHashChain"),
+    cacheReadHashes: fields("cacheReadHashes"),
+    cacheIsCached: fields("cacheIsCached"),
+    cacheReadIndex: fields("cacheReadIndex"),
+    publishedOutputOwnerPublicKeyHashes: fields("publishedOutputOwnerPublicKeyHashes"),
+  });
   const result: IndexedProofInputs =
     circuit === "merge"
       ? {
@@ -161,26 +178,15 @@ export function decodeIndexedInputs(value: unknown): IndexedProofInputs {
             ...mergeRegistry(),
           },
         }
-      : {
-          ...envelope,
-          circuit,
-          payload: {
-            ...common,
-            outputs: requestDecoder.list(payload["outputs"], "outputs").map(decodeOutput),
-            blindingSeed: field("blindingSeed"),
-            publicAssets: fields("publicAssets"),
-            publicAmounts: fields("publicAmounts"),
-            signerPublicKeyHashes: fields("signerPublicKeyHashes"),
-            inputFlags: field("inputFlags"),
-            cacheTreeId: field("cacheTreeId"),
-            cacheReadHashChain: field("cacheReadHashChain"),
-            cacheReadHashes: fields("cacheReadHashes"),
-            cacheIsCached: fields("cacheIsCached"),
-            cacheReadIndex: fields("cacheReadIndex"),
-            publishedOutputOwnerPublicKeyHashes: fields("publishedOutputOwnerPublicKeyHashes"),
-          },
-        };
-  if (result.circuit === "transferRing")
+      : circuit === "transferEddsaRing"
+        ? {
+            ...envelope,
+            circuit,
+            payload: transfer(),
+            authorization: decodeAuthorization(request["authorization"]),
+          }
+        : { ...envelope, circuit, payload: transfer() };
+  if (result.circuit === "transferRing" || result.circuit === "transferEddsaRing")
     checkRingOutputOwners(
       result.payload.outputs,
       result.payload.publishedOutputOwnerPublicKeyHashes,
@@ -302,6 +308,25 @@ export function checkedContextSlot(slot: unknown): bigint | undefined {
   return slot;
 }
 
+/** The hidden owner's fields ride beside the payload, the prover re-checks the signature. */
+function decodeAuthorization(value: unknown): AnonymousEddsaAuthorization {
+  const authorization = requestDecoder.record(value, "authorization");
+  const bytes = <T extends Uint8Array>(name: string, length: 32 | 64): T =>
+    new Uint8Array(checkedBytes(authorization[name], length, name)) as T;
+  const parties = requestDecoder.list(authorization["parties"], "parties");
+  if (parties.length !== 3) throw invalid();
+  const party = (index: number): Bytes32 =>
+    new Uint8Array(checkedBytes(parties[index], 32, "parties")) as Bytes32;
+  return {
+    ownerPublicKey: bytes("ownerPublicKey", 32),
+    ownerSignature: bytes("ownerSignature", 64),
+    ringProgramAddress: bytes("ringProgramAddress", 32),
+    messageDigest: bytes("messageDigest", 32),
+    defaultOwnerPkHash: bytes("defaultOwnerPkHash", 32),
+    parties: [party(0), party(1), party(2)],
+  };
+}
+
 function decodePreparedInput(value: unknown): PreparedTransferInput {
   const input = requestDecoder.record(value, "input");
   for (const key of [
@@ -396,7 +421,9 @@ function checkStatement(inputs: IndexedProofInputs): void {
           : 14
         : inputs.circuit === "transferRingAuthority"
           ? 14
-          : 17)
+          : inputs.circuit === "transferEddsaRing"
+            ? 22
+            : 17)
   )
     throw invalid();
   if (inputs.circuit === "merge") {
@@ -436,7 +463,7 @@ function checkStatement(inputs: IndexedProofInputs): void {
     // An address slot is a real, uncached slot of an owner-signed transfer
     // with a zero nullifier secret and no state lookup.
     const address = input?.circuit.domain === BigInt(ADDRESS_DOMAIN);
-    if (address && inputs.circuit !== "transfer" && inputs.circuit !== "transferRing") {
+    if (address && inputs.circuit === "transferRingAuthority") {
       throw new ClientError("CLIENT_ADDRESS_INPUT_UNSUPPORTED", { details: { index } });
     }
     if (

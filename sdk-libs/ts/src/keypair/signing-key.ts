@@ -32,7 +32,7 @@ function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
 // does, so this helper answers the same question the runtime would: the
 // cofactorless equation compared over the compressed R bytes, with a
 // small-order R or public key refused and an unreduced y decoded, not rejected.
-function verifyEd25519Strict(
+export function verifyEd25519Strict(
   signature: Uint8Array,
   message: Uint8Array,
   publicKey: Uint8Array,

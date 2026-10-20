@@ -62,6 +62,30 @@ export const RING_POLICY_SUPPORTED_SHAPES: readonly Shape[] = Object.freeze(
       (candidate.inputs === 24 && candidate.outputs === 2),
   ),
 );
+/** Shapes an anonymous ring proves, base and policy alike, Rust `ANONYMOUS_RING_SHAPES`. */
+export const ANONYMOUS_RING_SHAPES: readonly Shape[] = Object.freeze([
+  shape(1, 2),
+  shape(1, 4),
+  shape(2, 2),
+  shape(2, 4),
+  shape(3, 2),
+  shape(3, 4),
+  shape(4, 2),
+  shape(4, 4),
+  shape(5, 2),
+  shape(5, 4),
+  shape(6, 2),
+  shape(6, 4),
+  shape(8, 2),
+  shape(12, 2),
+]);
+
+export function isAnonymousRingShape(candidate: Shape): boolean {
+  return ANONYMOUS_RING_SHAPES.some(
+    (entry) => entry.inputs === candidate.inputs && entry.outputs === candidate.outputs,
+  );
+}
+
 export const RING_POLICY_MAX_INPUTS = Math.max(
   ...RING_POLICY_SUPPORTED_SHAPES.map((entry) => entry.inputs),
 );

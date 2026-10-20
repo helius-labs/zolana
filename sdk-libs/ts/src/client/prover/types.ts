@@ -1,6 +1,7 @@
 export { RING_DEPOSIT_AUDIT_SLOTS } from "../../interface/ring-deposit-capsule.js";
 import type {
   Address,
+  Bsb22Commitment,
   Bytes16,
   Bytes32,
   Bytes64,
@@ -121,15 +122,47 @@ export interface MergeInputs {
   readonly memberRecord?: CustomRingRecordWitness;
 }
 
-export type ProverInputs = Readonly<{
-  circuit: "transfer" | "transferRing" | "transferRingAuthority";
-  payload: TransferInputs;
-}>;
+export type ProverInputs =
+  | Readonly<{
+      circuit: "transfer" | "transferRing" | "transferRingAuthority";
+      payload: TransferInputs;
+    }>
+  | Readonly<{
+      circuit: "transferEddsaRing";
+      payload: TransferInputs;
+      authorization: AnonymousEddsaAuthorization;
+    }>;
 
-/** Selects member authorization or the ring authority statement. */
+/** The hidden owner's signature over `ringSpendMessage`, made before the proof. Rust `HiddenOwnerAuthorization`. */
+export interface HiddenOwnerAuthorization {
+  readonly publicKey: Bytes32;
+  readonly signature: Bytes64;
+}
+
+/** The hidden owner fields of an anonymous ring proof, Rust `AnonymousEddsaAuthorization`. */
+export interface AnonymousEddsaAuthorization {
+  readonly ownerPublicKey: Bytes32;
+  readonly ownerSignature: Bytes64;
+  /** Preimage of the public ring id, bound inside the signed message. */
+  readonly ringProgramAddress: Bytes32;
+  readonly messageDigest: Bytes32;
+  /** Zero unless the hidden owner spends a default-ring UTXO. */
+  readonly defaultOwnerPkHash: Bytes32;
+  /** Payer, co-signer and exit destination identities, zero when absent. */
+  readonly parties: readonly [Bytes32, Bytes32, Bytes32];
+}
+
+/** Selects member authorization, the hidden owner of an anonymous ring or the ring authority statement. */
 export type TransferCircuit =
   | Readonly<{ kind: "confidential" }>
   | Readonly<{ kind: "ring"; ring: Address }>
+  | Readonly<{
+      kind: "ringAnonymous";
+      ring: Address;
+      owner: HiddenOwnerAuthorization;
+      /** The ring's configured co-signer, the circuit proves the owner apart from it. */
+      cosigner?: Address;
+    }>
   | Readonly<{ kind: "ringAuthority"; ring: Address }>;
 
 /** The tree history entries the ring statement binds. */
@@ -155,7 +188,8 @@ export interface AssembledTransfer {
   readonly rootIndexes: InputRootIndexes;
   /** The input tree's roots and positions, the pair the ring statement binds. */
   readonly roots: RingTransactRoots;
-  withProof(proof: TransactProof): TransactInstructionData;
+  /** `commitment` is required on the anonymous rail and refused on every other. */
+  withProof(proof: TransactProof, commitment?: Bsb22Commitment): TransactInstructionData;
 }
 
 /** Legacy policy witness widths, shaped policy requests use their declared capacities. */
@@ -320,10 +354,45 @@ export interface CustomRingPolicyProofRequest {
   readonly subjects: readonly (CustomRingSubjectWitness | undefined)[];
   readonly foreignRoot: Bytes32;
   readonly foreignSubjects: readonly (CustomRingSubjectWitness | undefined)[];
+  /** Present exactly on an anonymous ring. */
+  readonly anonymous?: Readonly<{
+    identities: CustomRingAnonymousIdentities;
+    delivery: CustomRingAnonymousDelivery;
+  }>;
+}
+
+/** The hidden parties an anonymous statement binds, tag byte then key, four slots each. Rust `AnonymousIdentities`. */
+export interface CustomRingAnonymousIdentities {
+  readonly sender: Uint8Array;
+  readonly recipients: readonly Uint8Array[];
+  readonly recipientViewingKeys: readonly Uint8Array[];
+}
+
+/** One published scheme-9 body the anonymous statement proves, Rust `DeliveryOutput`. */
+export interface CustomRingDeliveryOutput {
+  readonly assetAddress: Bytes32;
+  readonly pairU: Bytes32;
+  readonly ciphertext: Uint8Array;
+}
+
+/** Rust `AnonymousDelivery`, `undefined` for a default-ring exit slot. */
+export interface CustomRingAnonymousDelivery {
+  readonly ringProgramId: Address;
+  readonly outputs: readonly (CustomRingDeliveryOutput | undefined)[];
+}
+
+/** The base circuit of an anonymous ring opens every SPP slot itself, Rust `AnonymousBase`. */
+export interface CustomRingAnonymousBase {
+  readonly identities: CustomRingAnonymousIdentities;
+  /** `BASE_ANONYMOUS_INPUT_SLOTS` openings, or `AUDIT_INPUT_SLOTS` above it. */
+  readonly inputs: readonly CustomRingOpening[];
+  readonly anonymousOutputs: readonly CustomRingOpening[];
+  readonly privateTxBlinding: Bytes32;
+  readonly delivery: CustomRingAnonymousDelivery;
 }
 
 export interface CustomRingBaseProofRequest {
-  /** Published input count selects the short 24x2 auditor key above sixteen. */
+  /** Published input count selects the short 24x2 auditor key above sixteen and the wide anonymous key above four. */
   readonly nIn?: number;
   readonly publicInputHash: Bytes32;
   readonly privateTxHash: Bytes32;
@@ -333,6 +402,8 @@ export interface CustomRingBaseProofRequest {
   readonly salt: Bytes16;
   readonly nOut: number;
   readonly outputs: readonly CustomRingOpening[];
+  /** Present exactly on an anonymous ring, `nIn` is then required. */
+  readonly anonymous?: CustomRingAnonymousBase;
 }
 
 /** Proves one batch of deposit openings encrypted to the ring auditor. */

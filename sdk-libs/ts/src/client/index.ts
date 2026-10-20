@@ -100,8 +100,13 @@ export {
   outflowLimitsOff,
 } from "./prover/types.js";
 export type {
+  AnonymousEddsaAuthorization,
   CircuitUtxo,
   CompressedProof,
+  CustomRingAnonymousBase,
+  CustomRingAnonymousDelivery,
+  CustomRingAnonymousIdentities,
+  CustomRingDeliveryOutput,
   CustomRingBaseProofRequest,
   CustomRingDepositProofRequest,
   CustomRingOpening,
@@ -116,6 +121,7 @@ export type {
   CustomRingOutflowLimit,
   CustomRingOutflowLimitProofInput,
   Field,
+  HiddenOwnerAuthorization,
   MergeInputs,
   Proof,
   ProverInputs,
@@ -154,4 +160,4 @@ export type {
 } from "./rpc.js";
 export type { ErrorEnvelope } from "../errors/internal.js";
 
-export type { RingProvingConfig } from "./ports.js";
+export type { AnonymousRingTransactProofInput, RingProvingConfig } from "./ports.js";

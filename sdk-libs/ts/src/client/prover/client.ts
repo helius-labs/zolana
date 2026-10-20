@@ -30,6 +30,13 @@ import { DUMMY_DOMAIN } from "../../interface/program.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { bytesToBigInt } from "../../keypair/bytes.js";
 import { poseidon } from "../../keypair/poseidon.js";
+import {
+  ANONYMOUS_IDENTITY_LENGTH,
+  AUDIT_INPUT_SLOTS,
+  BASE_ANONYMOUS_INPUT_SLOTS,
+  SHORT_AUDIT_MIN_INPUTS,
+} from "../../keypair/audit.js";
+import { RING_ANONYMOUS_PLAINTEXT_LENGTH } from "../../transaction/serialization/codecs.js";
 
 import { InterfaceError } from "../../interface/errors.js";
 import { wireDecoder } from "../../interface/decode.js";
@@ -45,6 +52,7 @@ import { isDefaultTeeProver, isZolanaGateway } from "../../endpoint.js";
 
 import { ClientError } from "../error.js";
 import {
+  addressBytes,
   checkedBytes,
   field,
   checkedServiceUrl,
@@ -75,6 +83,9 @@ import {
   RING_OUTFLOW_LIMIT_SLOTS,
 } from "./types.js";
 import type {
+  AnonymousEddsaAuthorization,
+  CustomRingAnonymousDelivery,
+  CustomRingAnonymousIdentities,
   CustomRingBaseProofRequest,
   CustomRingDepositProofRequest,
   CustomRingOpening,
@@ -396,14 +407,7 @@ export class ProverClient {
     context?: RequestContext,
   ): Promise<Proof> {
     const body = JSON.stringify(customRingBaseProofRequest(inputs));
-    const key = provingKeyFor({
-      circuit:
-        inputs.nOut !== 2
-          ? "custom-ring-base"
-          : (inputs.nIn ?? 0) > 16
-            ? "custom-ring-base-confidential-compact"
-            : "custom-ring-base-confidential",
-    });
+    const key = provingKeyFor({ circuit: baseCircuit(inputs) });
     return parseCheckedProof(await this.#send(body, "queued", key, context), key);
   }
 
@@ -862,13 +866,9 @@ function treeSlotJson(slot: TreeSlotFields): Readonly<Record<string, unknown>> {
 export function customRingBaseProofRequest(
   inputs: CustomRingBaseProofRequest,
 ): Readonly<Record<string, unknown>> {
+  const anonymous = inputs.anonymous;
   return Object.freeze({
-    circuitType:
-      inputs.nOut !== 2
-        ? "custom-ring-base"
-        : (inputs.nIn ?? 0) > 16
-          ? "custom-ring-base-confidential-compact"
-          : "custom-ring-base-confidential",
+    circuitType: baseCircuit(inputs),
     publicInputHash: hex32(inputs.publicInputHash, "publicInputHash"),
     privateTxHash: hex32(inputs.privateTxHash, "privateTxHash"),
     txViewingSk: hex32(inputs.txViewingSecret, "txViewingSecret"),
@@ -877,6 +877,100 @@ export function customRingBaseProofRequest(
     salt: bytesHex(inputs.salt),
     nOut: u8(inputs.nOut, "nOut"),
     outputs: sized(inputs.outputs, RING_OUTPUT_SLOTS, "outputs").map(auditOpeningJson),
+    ...(anonymous === undefined
+      ? {}
+      : {
+          ...anonymousIdentitiesJson(anonymous.identities),
+          nIn: anonymousInputCount(inputs.nIn),
+          inputs: sized(
+            anonymous.inputs,
+            anonymousInputCount(inputs.nIn) > BASE_ANONYMOUS_INPUT_SLOTS
+              ? AUDIT_INPUT_SLOTS
+              : BASE_ANONYMOUS_INPUT_SLOTS,
+            "inputs",
+          ).map(openingJson),
+          anonymousOutputs: sized(anonymous.anonymousOutputs, RING_OUTPUT_SLOTS, "outputs").map(
+            openingJson,
+          ),
+          privateTxBlinding: hex32(anonymous.privateTxBlinding, "privateTxBlinding"),
+          delivery: deliveryJson(anonymous.delivery),
+        }),
+  });
+}
+
+/** Rust `BaseCircuit::select`. */
+function baseCircuit(
+  inputs: CustomRingBaseProofRequest,
+):
+  | "custom-ring-base"
+  | "custom-ring-base-anonymous-wide"
+  | "custom-ring-base-confidential"
+  | "custom-ring-base-confidential-compact" {
+  if (inputs.anonymous !== undefined)
+    return anonymousInputCount(inputs.nIn) > BASE_ANONYMOUS_INPUT_SLOTS
+      ? "custom-ring-base-anonymous-wide"
+      : "custom-ring-base";
+  if (inputs.nOut !== 2) return "custom-ring-base";
+  return (inputs.nIn ?? 0) >= SHORT_AUDIT_MIN_INPUTS
+    ? "custom-ring-base-confidential-compact"
+    : "custom-ring-base-confidential";
+}
+
+/** The anonymous statement discloses every spent note, at most `AUDIT_INPUT_SLOTS` of them. */
+function anonymousInputCount(nIn: number | undefined): number {
+  if (nIn === undefined || nIn < 1 || nIn > AUDIT_INPUT_SLOTS)
+    throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+  return u8(nIn, "nIn");
+}
+
+/** Mirrors Rust `AnonymousIdentities`, `anonymous` travels only with its fields. */
+function anonymousIdentitiesJson(
+  identities: CustomRingAnonymousIdentities,
+): Readonly<Record<string, unknown>> {
+  const identity = (value: Uint8Array, name: string): string =>
+    bytesHex(checkedBytes(value, ANONYMOUS_IDENTITY_LENGTH, name));
+  return Object.freeze({
+    anonymous: true,
+    sender: identity(identities.sender, "sender"),
+    recipients: sized(identities.recipients, RING_OUTPUT_SLOTS, "recipients").map((value) =>
+      identity(value, "recipients"),
+    ),
+    recipientViewingKeys: sized(
+      identities.recipientViewingKeys,
+      RING_OUTPUT_SLOTS,
+      "recipientViewingKeys",
+    ).map((value) => identity(value, "recipientViewingKeys")),
+  });
+}
+
+function deliveryCiphertext(ciphertext: Uint8Array | undefined): Uint8Array {
+  if (ciphertext === undefined) return new Uint8Array(RING_ANONYMOUS_PLAINTEXT_LENGTH);
+  if (!(ciphertext instanceof Uint8Array) || ciphertext.length !== RING_ANONYMOUS_PLAINTEXT_LENGTH)
+    throw new ClientError("CLIENT_INVALID_LENGTH", {
+      details: {
+        field: "ciphertext",
+        expected: RING_ANONYMOUS_PLAINTEXT_LENGTH,
+        actual: ciphertext instanceof Uint8Array ? ciphertext.length : 0,
+      },
+    });
+  return ciphertext;
+}
+
+/** Mirrors Rust `AnonymousDelivery`'s wire form, an exit slot and the unused slots send zero. */
+function deliveryJson(delivery: CustomRingAnonymousDelivery): Readonly<Record<string, unknown>> {
+  if (!Array.isArray(delivery.outputs) || delivery.outputs.length > RING_OUTPUT_SLOTS)
+    throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+  const zero = new Uint8Array(32);
+  return Object.freeze({
+    ringProgramId: bytesHex(addressBytes(delivery.ringProgramId)),
+    outputs: Array.from({ length: RING_OUTPUT_SLOTS }, (_, slot) => {
+      const output = delivery.outputs[slot];
+      return Object.freeze({
+        assetAddress: hex32(output?.assetAddress ?? zero, "assetAddress"),
+        pairU: hex32(output?.pairU ?? zero, "pairU"),
+        ciphertext: bytesHex(deliveryCiphertext(output?.ciphertext)),
+      });
+    }),
   });
 }
 
@@ -932,13 +1026,25 @@ export function customRingPolicyProofRequest(
       capacity.inputs + 2 * capacity.outputs,
       "foreignSubjects",
     ).map(subjectJson),
+    ...(inputs.anonymous === undefined
+      ? {}
+      : {
+          ...anonymousIdentitiesJson(inputs.anonymous.identities),
+          delivery: deliveryJson(inputs.anonymous.delivery),
+        }),
   });
 }
 
 function policyProofKey(inputs: CustomRingPolicyProofRequest, delegate = false): ProvingKeyCircuit {
+  const anonymous = inputs.anonymous !== undefined;
+  if (anonymous && delegate) throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
   if (inputs.shape !== undefined)
     return {
-      circuit: delegate ? "custom-ring-delegate-policy-shaped" : "custom-ring-policy-shaped",
+      circuit: delegate
+        ? "custom-ring-delegate-policy-shaped"
+        : anonymous
+          ? "custom-ring-policy-anonymous-shaped"
+          : "custom-ring-policy-shaped",
       shape: inputs.shape,
       registrySubtree: inputs.registrySubtree === true,
     };
@@ -948,7 +1054,9 @@ function policyProofKey(inputs: CustomRingPolicyProofRequest, delegate = false):
         ? "custom-ring-delegate-policy-2x3"
         : "custom-ring-delegate-policy"
       : inputs.twoByThree === true
-        ? "custom-ring-policy-2x3"
+        ? anonymous
+          ? "custom-ring-policy-2x3-anonymous"
+          : "custom-ring-policy-2x3"
         : "custom-ring-policy",
   };
 }
@@ -956,7 +1064,12 @@ function policyProofKey(inputs: CustomRingPolicyProofRequest, delegate = false):
 function policyProofName(inputs: CustomRingPolicyProofRequest, delegate = false): string {
   return inputs.shape === undefined
     ? policyProofKey(inputs, delegate).circuit
-    : shapedPolicyCircuit(inputs.shape, inputs.registrySubtree === true, delegate);
+    : shapedPolicyCircuit(
+        inputs.shape,
+        inputs.registrySubtree === true,
+        delegate,
+        inputs.anonymous !== undefined,
+      );
 }
 
 function policyWitnessCapacity(inputs: CustomRingPolicyProofRequest): Shape {
@@ -1282,9 +1395,17 @@ function sized<T>(values: readonly T[], expected: number, field: string): readon
 /** The prover circuit a transfer is proven by. */
 function transferCircuit(
   inputs: ProverInputs | Exclude<IndexedProofInputs, { circuit: "merge" }>,
-): "transfer-ring-authority" | "transfer-ring" | "transfer-confidential" {
-  if (inputs.circuit === "transferRingAuthority") return "transfer-ring-authority";
-  return inputs.circuit === "transferRing" ? "transfer-ring" : "transfer-confidential";
+): "transfer-ring-authority" | "transfer-ring" | "transfer-eddsa-ring" | "transfer-confidential" {
+  switch (inputs.circuit) {
+    case "transferRingAuthority":
+      return "transfer-ring-authority";
+    case "transferRing":
+      return "transfer-ring";
+    case "transferEddsaRing":
+      return "transfer-eddsa-ring";
+    case "transfer":
+      return "transfer-confidential";
+  }
 }
 
 function proverRequest(
@@ -1292,10 +1413,11 @@ function proverRequest(
   secret: SecretEncoder,
 ): ProverRequestBody {
   const payload = inputs.payload;
-  if (inputs.circuit === "transferRing")
+  if (inputs.circuit === "transferRing" || inputs.circuit === "transferEddsaRing")
     checkRingOutputOwners(payload.outputs, payload.publishedOutputOwnerPublicKeyHashes);
   return Object.freeze({
     circuitType: transferCircuit(inputs),
+    ...(inputs.circuit === "transferEddsaRing" ? authorizationJson(inputs.authorization) : {}),
     nInputs: payload.inputs.length,
     nOutputs: payload.outputs.length,
     inputs: payload.inputs.map((input) => inputJson(input, secret)),
@@ -1325,6 +1447,30 @@ function proverRequest(
     cacheIsCached: hexes(payload.cacheIsCached, "cacheIsCached"),
     cacheReadIndex: hexes(payload.cacheReadIndex, "cacheReadIndex"),
   });
+}
+
+/** Mirrors Rust `AnonymousEddsaAuthorization::fields`, the digest split into the prover's limbs. */
+function authorizationJson(
+  authorization: AnonymousEddsaAuthorization,
+): Readonly<Record<string, string>> {
+  const digest = checkedBytes(authorization.messageDigest, 32, "messageDigest");
+  const [payer, cosigner, exit] = authorization.parties;
+  return Object.freeze({
+    ownerPublicKey: hex32(authorization.ownerPublicKey, "ownerPublicKey"),
+    ownerSignature: bytesHex(checkedBytes(authorization.ownerSignature, 64, "ownerSignature")),
+    ringProgramAddress: hex32(authorization.ringProgramAddress, "ringProgramAddress"),
+    messageHashLow: bytesHex(digest.subarray(16)),
+    messageHashHigh: bytesHex(digest.subarray(0, 16)),
+    defaultOwnerPkHash: fieldHex(authorization.defaultOwnerPkHash, "defaultOwnerPkHash"),
+    payerPkHash: fieldHex(payer, "payerPkHash"),
+    cosignerPkHash: fieldHex(cosigner, "cosignerPkHash"),
+    exitDestinationPkHash: fieldHex(exit, "exitDestinationPkHash"),
+  });
+}
+
+/** A 32-byte field element as Rust `hex_field` writes it, without leading zeros. */
+function fieldHex(bytes: Uint8Array, name: string): string {
+  return `0x${field(bytesToBigInt(checkedBytes(bytes, 32, name)), name).toString(16)}`;
 }
 
 function inputJson(

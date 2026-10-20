@@ -318,15 +318,21 @@ export type {
   RingSetPolicySourceTransactionParams,
 } from "./policy-admin.js";
 export {
+  buildAnonymousRingTransferTransaction,
   buildRingEntryTransaction,
   buildRingExitTransaction,
   buildRingTransferTransaction,
   buildRingWithdrawalTransaction,
   frameDummyOutputs,
+  proveAnonymousRingTransfer,
   proveCustomRingTransfer,
   RING_TRANSACT_COMPUTE_UNIT_LIMIT,
 } from "./transfer.js";
+export { messageSignerSpendSigner, signingKeySpendSigner } from "./anonymous.js";
+export type { AnonymousRingRecipient, AnonymousSpendSigner } from "./anonymous.js";
 export type {
+  AnonymousRingTransferClient,
+  AnonymousRingTransferParams,
   CustomRingTransferParams,
   ProvenRingTransfer,
   RingEntryTransactionParams,

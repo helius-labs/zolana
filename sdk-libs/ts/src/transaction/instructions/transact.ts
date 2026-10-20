@@ -976,6 +976,8 @@ export interface PreparedTransfer {
   readonly compactPadding?: boolean;
   /** The seed the sender-side bundles disclose so a reader recovers every output blinding. */
   outputBlindingSeed(): Bytes32;
+  /** The same transfer with every output blinding derived from `blindingSeed`, Rust `OutputEncoder::output_blinding_seed`. */
+  withBlindingSeed(blindingSeed: Bytes32): PreparedTransfer;
   proofOutputs(): readonly ProofOutputUtxo[];
   /** Ring transacts bind the auditor message and the `RING_TRANSACT` tag into the external data hash. */
   finalize(
@@ -985,6 +987,8 @@ export interface PreparedTransfer {
       payload: readonly (Readonly<{ viewTag: Bytes32; data: Uint8Array }> | undefined)[];
       messages?: readonly Readonly<{ viewTag: Bytes32; data: Uint8Array }>[];
       instructionDiscriminator?: number;
+      /** Every slot publishes its payload inline and padding commits the zero owner, the anonymous ring rail. */
+      anonymous?: boolean;
     }>,
   ): SppProofInputs;
 }
@@ -1266,7 +1270,7 @@ type RecordPadding = Readonly<{ start: number; end: number; template?: number }>
 
 type PreparedTransferFields = Omit<
   PreparedTransfer,
-  "finalize" | "outputBlindingSeed" | "proofOutputs"
+  "finalize" | "outputBlindingSeed" | "proofOutputs" | "withBlindingSeed"
 > &
   Readonly<{ recordPadding?: RecordPadding; ringProgramId?: Address }>;
 
@@ -1378,6 +1382,22 @@ function preparedTransfer(fields: PreparedTransferFields): PreparedTransfer {
     ...fields,
     outputBlindingSeed: (): Bytes32 =>
       outputBlindingSeed(fields.firstNullifier, fields.blindingSeed),
+    withBlindingSeed: (blindingSeed: Bytes32): PreparedTransfer => {
+      const seed = copy(checked<Bytes32>(blindingSeed, 32, "blinding seed"));
+      const outputSeed = outputBlindingSeed(fields.firstNullifier, seed);
+      return preparedTransfer({
+        ...fields,
+        blindingSeed: seed,
+        outputs: Object.freeze(
+          fields.outputs.map((output, index) =>
+            createProofOutput({
+              ...outputInit(output),
+              blinding: transactOutputBlinding(fields.firstNullifier, outputSeed, index),
+            }),
+          ),
+        ),
+      });
+    },
     proofOutputs: (): readonly ProofOutputUtxo[] => Object.freeze(finalOutputPlan(fields).outputs),
     finalize: (encrypted: Parameters<PreparedTransfer["finalize"]>[0]): SppProofInputs =>
       finalizeTransfer(fields, encrypted),
@@ -1447,6 +1467,7 @@ function finalizeTransfer(
     ? { kind: "account", index: 0 }
     : { kind: "inline", value: senderResolved };
 
+  if (encrypted.anonymous === true) return finalizeAnonymousTransfer(prepared, encrypted);
   const { outputs: outputUtxos, padCount, padTag } = finalOutputPlan(prepared);
   // Random dummies join the last input tree, as the prover hashes them. Compact
   // padding takes the first: SPP reads its omitted tree index as 0.
@@ -1534,6 +1555,67 @@ function finalizeTransfer(
     inputUtxos,
     outputs: outputUtxos,
     externalData,
+    blindingSeed: prepared.blindingSeed,
+    outputTreeId: prepared.outputTreeId,
+  });
+}
+
+/** Mirrors the anonymous `OutputEncoder`, every slot carries its sealed body under its own inline tag. */
+function finalizeAnonymousTransfer(
+  prepared: PreparedTransferFields,
+  encrypted: Parameters<PreparedTransfer["finalize"]>[0],
+): SppProofInputs {
+  if (prepared.compactPadding === true) {
+    throw new TransactionError("TRANSACTION_ANONYMOUS_COMPACT_PADDING", { slotIndex: 0 });
+  }
+  const paddingTreeId = prepared.inputTreeIds.at(-1);
+  if (paddingTreeId === undefined) throw new TransactionError("TRANSACTION_NO_INPUTS");
+  const inputUtxos = [...prepared.inputs];
+  while (inputUtxos.length < prepared.shape.inputs) {
+    inputUtxos.push(ProofInputUtxo.dummy(undefined, paddingTreeId));
+  }
+  // The anonymous circuit folds the zero tag into every padding owner.
+  const outputUtxos = finalOutputPlan(prepared).outputs.map((output) =>
+    output.isDummy() ? retagDummyOutput(output, new Uint8Array(32) as Bytes32) : output,
+  );
+  if (encrypted.payload.length !== outputUtxos.length) {
+    throw new TransactionError("TRANSACTION_ANONYMOUS_SLOT_MISMATCH", {
+      reason: "slot count",
+      outputs: outputUtxos.length,
+      slots: encrypted.payload.length,
+    });
+  }
+  const outputs: TransactOutput[] = [];
+  const resolved: Bytes32[] = [];
+  outputUtxos.forEach((output, slotIndex) => {
+    const slot = encrypted.payload[slotIndex];
+    if (slot === undefined) {
+      throw new TransactionError("TRANSACTION_ANONYMOUS_SLOT_MISMATCH", {
+        reason: "payload",
+        slotIndex,
+      });
+    }
+    outputs.push({
+      utxoHash: output.hash(prepared.outputTreeId),
+      ownerTag: { kind: "inline", value: slot.viewTag },
+      data: slot.data,
+    });
+    resolved.push(slot.viewTag);
+  });
+  return new SppProofInputs({
+    payer: prepared.payer,
+    inputUtxos,
+    outputs: outputUtxos,
+    externalData: createExternalData({
+      instructionDiscriminator: encrypted.instructionDiscriminator ?? InstructionTag.transact,
+      expiryUnixTs: 0xffff_ffff_ffff_ffffn,
+      interfaceTransfers: prepared.interfaceTransfers,
+      txViewingPublicKey: encrypted.txViewingPublicKey,
+      salt: encrypted.salt,
+      outputs,
+      resolvedOwnerTags: resolved,
+      messages: encrypted.messages ?? [],
+    }),
     blindingSeed: prepared.blindingSeed,
     outputTreeId: prepared.outputTreeId,
   });

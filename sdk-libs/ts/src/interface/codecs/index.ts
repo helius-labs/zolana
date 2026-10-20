@@ -248,6 +248,8 @@ function circuitTag(value: CircuitId): number {
       return 1;
     case "ringAuthority":
       return 2;
+    case "anonymousRingEddsa":
+      return 3;
     case "confidentialEddsaCached":
       return 4;
     case "confidentialRingEddsaCached":
@@ -263,6 +265,16 @@ function writeCircuit(writer: Writer, value: CircuitId): void {
     .u8(value.inputs, "circuit.inputs")
     .u8(value.outputs, "circuit.outputs")
     .u8(value.publicAssetSlots, "circuit.publicAssetSlots");
+  if (value.kind === "anonymousRingEddsa") {
+    const { bsb22Commitment, defaultOwnerTag } = value.proofData;
+    // Rust `FixedOptionOwnerTag`, an absent tag still writes its 32 zero bytes.
+    writer
+      .bytes(bsb22Commitment.commitment, 32, "circuit.bsb22Commitment.commitment")
+      .bytes(bsb22Commitment.commitmentPok, 32, "circuit.bsb22Commitment.commitmentPok")
+      .u8(defaultOwnerTag === undefined ? 0 : 1, "circuit.defaultOwnerTag.present")
+      .bytes(defaultOwnerTag ?? new Uint8Array(32), 32, "circuit.defaultOwnerTag");
+    return;
+  }
   if (value.kind !== "confidentialEddsaCached" && value.kind !== "confidentialRingEddsaCached")
     return;
   if (!validCacheAccess(value.cacheAccess, value.inputs, value.outputs)) {

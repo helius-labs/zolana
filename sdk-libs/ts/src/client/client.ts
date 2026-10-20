@@ -57,6 +57,7 @@ import {
   type ProofResolution,
   type ProofService,
   type ProvedMerge,
+  type AnonymousRingTransactProofInput,
   type ProvenRingTransact,
   type Prover,
   type TransactionAssembler,
@@ -90,6 +91,7 @@ import type { TeePolicy } from "./prover/tee/registry.js";
 import type { AttestedProver } from "./prover/tee/verify.js";
 import { compressProof } from "./prover/proof.js";
 import type {
+  AssembledTransfer,
   CustomRingBaseProofRequest,
   CustomRingDepositProofRequest,
   CustomRingPolicyProofRequest,
@@ -893,6 +895,30 @@ export class ZolanaClient
     return this.#provingRing(() => this.#prover.proveCustomRingDelegatePolicy(inputs, context));
   }
 
+  async proveAnonymousRingTransact(
+    input: AnonymousRingTransactProofInput,
+    context?: RequestContext,
+  ): Promise<ProvenRingTransact> {
+    const candidate: unknown = input;
+    if (typeof candidate !== "object" || candidate === null)
+      throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+    checkedAddress(input.ringProgramId, "ringProgramId");
+    if (input.cosigner !== undefined) checkedAddress(input.cosigner, "cosigner");
+    return this.#proveTransfer(
+      input.proofInputs,
+      {
+        kind: "ringAnonymous",
+        ring: input.ringProgramId,
+        owner: input.owner,
+        ...(input.cosigner === undefined ? {} : { cosigner: input.cosigner }),
+      },
+      input.keys,
+      input.config?.indexer,
+      context,
+      input.config?.outputTree,
+    );
+  }
+
   async proveRingAuthorityTransact(
     proofInputs: SppProofInputs,
     ringProgramId: Address,
@@ -966,7 +992,7 @@ export class ZolanaClient
         );
         const complete = prepared.finish(trees);
         return Object.freeze({
-          data: complete.withProof(compressProof(proof).toTransactProof()),
+          data: withRailProof(complete, circuit, proof),
           roots: complete.roots,
         });
       }
@@ -974,7 +1000,7 @@ export class ZolanaClient
       const assembled = assemble(proofInputs, proofs, dummyProofs, circuit);
       const proof = await keys.prove(assembled.proverInputs, context);
       return Object.freeze({
-        data: assembled.withProof(compressProof(proof).toTransactProof()),
+        data: withRailProof(assembled, circuit, proof),
         roots: assembled.roots,
       });
     });
@@ -1159,6 +1185,23 @@ export class ZolanaClient
       ? inputs
       : { ...inputs, minContextSlot: required };
   }
+}
+
+/** The anonymous selector carries the proof's BSB22 commitment, every other rail proves plain Groth16. */
+function withRailProof(
+  assembled: Pick<AssembledTransfer, "withProof">,
+  circuit: TransferCircuit,
+  proof: Proof,
+): TransactInstructionData {
+  const compressed = compressProof(proof);
+  if (circuit.kind !== "ringAnonymous") return assembled.withProof(compressed.toTransactProof());
+  const { commitment, commitmentPok } = compressed;
+  if (commitment === undefined || commitmentPok === undefined) {
+    throw new ClientError("CLIENT_PROOF_PARSE", {
+      details: { path: "$.proof.proofCommitment", reason: "missing commitment" },
+    });
+  }
+  return assembled.withProof(compressed.toTransactProof(), { commitment, commitmentPok });
 }
 
 /** A `ProofAuthority` is a structural type; a wrong argument fails here rather than as a missing method later. */

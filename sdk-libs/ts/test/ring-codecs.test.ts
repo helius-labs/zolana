@@ -1272,7 +1272,23 @@ describe("ring rpc response validation", () => {
         allowInsecureHttp: true,
       }).getAuditedMerges({ ringProgramId: RING, signer: reader, limit: 1n }),
     ).rejects.toMatchObject({ code: "RING_RPC" });
+    // An anonymous merge discloses one spent commitment per circuit slot and no nullifier.
+    const { nullifier: _escrowed, ...disclosed } = value.opened[0]!;
+    const commitments = Array.from({ length: 8 }, (_, index) =>
+      addressOf(index < 2 ? 20 + index : 0),
+    );
+    const anonymous = await new RingRpc("http://ring.example", {
+      fetch: fetchPage({ ...value, opened: [{ ...disclosed, inputCommitments: commitments }] }),
+      allowInsecureHttp: true,
+    }).getAuditedMerges({ ringProgramId: RING, signer: reader });
+    expect(anonymous.opened[0]?.nullifier).toBeUndefined();
+    expect(anonymous.opened[0]?.inputCommitments).toHaveLength(8);
+    expect(anonymous.opened[0]?.inputCommitments?.[0]).toEqual(filled(20, 32));
+    expect(page.opened[0]?.inputCommitments).toBeUndefined();
     for (const bad of [
+      { ...value, opened: [disclosed] },
+      { ...value, opened: [{ ...value.opened[0]!, inputCommitments: commitments }] },
+      { ...value, opened: [{ ...disclosed, inputCommitments: commitments.slice(0, 2) }] },
       { ...value, opened: [{ ...value.opened[0]!, inputNullifiers: [addressOf(7)] }] },
       { ...value, opened: [{ ...value.opened[0]!, eventIndex: 65536 }] },
       { ...value, opened: [{ ...value.opened[0]!, ownerMember: addressOf(255) }] },

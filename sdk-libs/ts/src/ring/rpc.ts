@@ -20,7 +20,7 @@ import { postJsonRpc } from "../services/jsonrpc.js";
 import { TransportFailure, checkedEndpoint, checkedFetch } from "../services/transport.js";
 import { wireDecoder } from "../interface/decode.js";
 import { addressBytes, copyBytes } from "../interface/internal.js";
-import { MAX_MERGE_INPUTS } from "../interface/constants.js";
+import { MAX_MERGE_INPUTS, mergePaddedInputCount } from "../interface/constants.js";
 import { X25519PublicKey } from "../keypair/x25519.js";
 import { KeypairError } from "../keypair/error.js";
 
@@ -381,7 +381,10 @@ export interface AuditedMergeRecord {
   readonly blinding: Bytes32;
   readonly ringDataHash: Bytes32;
   readonly inputNullifiers: readonly Bytes32[];
-  readonly nullifier: Bytes32;
+  /** The merged note's nullifier from the escrowed key, absent exactly when `inputCommitments` is set. */
+  readonly nullifier?: Bytes32;
+  /** The spent commitments an anonymous merge discloses, padding zero, one per circuit slot. */
+  readonly inputCommitments?: readonly Bytes32[];
 }
 
 export interface UnresolvedMergeRecord {
@@ -657,7 +660,7 @@ export class RingRpc {
             inputNullifiers: Object.freeze(
               inputNullifiers.map((nullifier) => field(nullifier, `${path}.inputNullifiers`)),
             ),
-            nullifier: field(item["nullifier"], `${path}.nullifier`),
+            ...mergeKeys(item, inputNullifiers.length, path, field),
           });
         }),
       ),
@@ -799,7 +802,33 @@ function readResponseCursor(value: unknown, request: SignedRingRead): Uint8Array
   return cursor;
 }
 
-async function signMessage(signer: MessagePartialSigner, message: Uint8Array): Promise<Bytes64> {
+/** Rust `MergeKeys`, an escrowed merge names its nullifier and an anonymous one its spent commitments. */
+function mergeKeys(
+  item: Record<string, unknown>,
+  published: number,
+  path: string,
+  field: (input: unknown, path: string) => Bytes32,
+): Pick<AuditedMergeRecord, "nullifier" | "inputCommitments"> {
+  const absent = (value: unknown): boolean => value === undefined || value === null;
+  const nullifier = item["nullifier"];
+  const commitments = item["inputCommitments"];
+  if (absent(nullifier) === absent(commitments)) throw invalid(`${path}.nullifier`);
+  if (!absent(nullifier)) return { nullifier: field(nullifier, `${path}.nullifier`) };
+  const disclosed = list(commitments, `${path}.inputCommitments`);
+  if (disclosed.length !== mergePaddedInputCount(published))
+    throw invalid(`${path}.inputCommitments`);
+  return {
+    inputCommitments: Object.freeze(
+      disclosed.map((commitment) => field(commitment, `${path}.inputCommitments`)),
+    ),
+  };
+}
+
+/** One Ed25519 signature from a kit message signer over the raw bytes. */
+export async function signMessage(
+  signer: MessagePartialSigner,
+  message: Uint8Array,
+): Promise<Bytes64> {
   const [signatures] = await signer.signMessages([createSignableMessage(message)]);
   const signature = signatures?.[signer.address];
   if (signature === undefined) {

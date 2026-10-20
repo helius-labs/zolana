@@ -1,5 +1,5 @@
 import { RING_PROVING_KEY_SHA256S } from "./ring-proving-keys.js";
-import { validateRingPolicyShape, type Shape } from "./shape.js";
+import { isAnonymousRingShape, validateRingPolicyShape, type Shape } from "./shape.js";
 import { InterfaceError } from "./errors.js";
 
 /**
@@ -215,6 +215,11 @@ export type ProvingKeyCircuit =
       readonly nInputs: number;
       readonly nOutputs: number;
     }
+  | {
+      readonly circuit: "transfer-eddsa-ring";
+      readonly nInputs: number;
+      readonly nOutputs: number;
+    }
   | { readonly circuit: "merge"; readonly nInputs: number }
   | { readonly circuit: "merge-ring"; readonly nInputs: number }
   | {
@@ -226,6 +231,7 @@ export type ProvingKeyCircuit =
       readonly registrySubtree?: boolean;
     }
   | { readonly circuit: "custom-ring-base" }
+  | { readonly circuit: "custom-ring-base-anonymous-wide" }
   | { readonly circuit: "custom-ring-base-confidential" }
   | { readonly circuit: "custom-ring-base-confidential-compact" }
   | { readonly circuit: "custom-ring-policy" }
@@ -266,6 +272,8 @@ function provingKeyName(request: ProvingKeyCircuit): string {
       return `transfer_ring_${request.nInputs}_${request.nOutputs}.key`;
     case "transfer-ring-authority":
       return `transfer_ring_authority_${request.nInputs}_${request.nOutputs}.key`;
+    case "transfer-eddsa-ring":
+      return `transfer_eddsa_ring_${request.nInputs}_${request.nOutputs}.key`;
     case "merge":
       return `merge_${request.nInputs}_1.key`;
     case "merge-ring":
@@ -277,6 +285,7 @@ function provingKeyName(request: ProvingKeyCircuit): string {
         throw new InterfaceError("INTERFACE_INVALID_SHAPE");
       return `${shapedPolicyCircuit(request.shape, request.registrySubtree === true, request.circuit === "custom-ring-delegate-policy-shaped", request.circuit === "custom-ring-policy-anonymous-shaped").replaceAll("-", "_")}.key`;
     case "custom-ring-base":
+    case "custom-ring-base-anonymous-wide":
     case "custom-ring-base-confidential":
     case "custom-ring-base-confidential-compact":
     case "custom-ring-policy":
@@ -314,13 +323,7 @@ export function shapedPolicyCircuit(
         [2, 2],
         [4, 4],
       ].some(([n, m]) => shape.inputs === n && shape.outputs === m)) ||
-    (anonymous &&
-      ![
-        [2, 2],
-        [2, 4],
-        [3, 4],
-        [4, 2],
-      ].some(([n, m]) => shape.inputs === n && shape.outputs === m))
+    (anonymous && !isAnonymousRingShape(shape))
   )
     throw new InterfaceError("INTERFACE_INVALID_SHAPE");
   const prefix = delegate ? "custom-ring-delegate-policy" : "custom-ring-policy";

@@ -18,8 +18,12 @@ import {
   RING_ANONYMOUS_PLAINTEXT_LENGTH,
   encodeOutputData,
   encodeRingAnonymous,
+  encryptConfidential,
   ringAnonymousBodyHash,
 } from "../serialization/codecs.js";
+import type { AssetRegistry } from "../asset.js";
+import { slotOrdinal } from "../instructions/transact.js";
+import type { ShieldedAddress } from "../../keypair/shielded.js";
 import type { ProofOutputUtxo } from "../utxo.js";
 
 import type { AuditWitness, EncryptedEnvelope } from "./encrypt-rails.js";
@@ -41,8 +45,9 @@ export interface AnonymousOutputDelivery {
 export interface EncryptedAnonymousRingTransfer extends EncryptedEnvelope<readonly MessageData[]> {
   readonly auditorMessage: MessageData;
   readonly audit: AuditWitness;
-  readonly delivery: readonly AnonymousOutputDelivery[];
-  /** `hashBytes` of each 105-byte published body in slot order, the statement's body chain. */
+  /** `undefined` for an exit slot, its scheme-3 body is not a statement input. */
+  readonly delivery: readonly (AnonymousOutputDelivery | undefined)[];
+  /** `hashBytes` of each 105-byte published body in slot order, zero for an exit, the statement's body chain. */
   readonly outputBodyHashes: readonly Bytes32[];
 }
 
@@ -55,8 +60,11 @@ export interface AnonymousRingTransferInput {
   readonly auditorPublicKey: X25519PublicKey;
   /** Every slot of the shape, a padding slot is a dummy output with no entry in `slots`. */
   readonly outputs: readonly ProofOutputUtxo[];
+  /** `undefined` for a padding slot and for an exit to the default ring. */
   readonly slots: readonly (AnonymousRingSlot | undefined)[];
   readonly inputs: readonly AuditInputOpening[];
+  /** Resolves the asset id an exit's scheme-3 plaintext carries, required with an exit. */
+  readonly assets?: AssetRegistry;
 }
 
 /** Seals every slot, a padding slot carries a random body and tag in the real framing, the caller wipes the returned audit secrets after proving. */
@@ -77,7 +85,12 @@ export function encryptAnonymousRingTransfer(
     const salt = randomSalt();
     const txViewingPublicKey = tx.publicKey();
     const tags = new TagSet();
-    for (const slot of input.slots) if (slot !== undefined) tags.add(slot.tag, "duplicate tag");
+    input.outputs.forEach((output, slotIndex) => {
+      const slot = input.slots[slotIndex];
+      if (slot !== undefined) tags.add(slot.tag, "duplicate tag");
+      // Exits publish owner keys, two exits to one owner share theirs.
+      else if (isExit(output)) tags.reserve(exitOwner(output, slotIndex).confidentialViewTag());
+    });
     const sealed = input.outputs.map((output, slotIndex) =>
       sealSlot(tx, input, output, input.slots[slotIndex], slotIndex, salt, tags),
     );
@@ -111,7 +124,7 @@ export function encryptAnonymousRingTransfer(
 
 interface SealedSlot {
   readonly message: MessageData;
-  readonly delivery: AnonymousOutputDelivery;
+  readonly delivery: AnonymousOutputDelivery | undefined;
   readonly bodyHash: Bytes32;
   readonly disclosure: AnonymousOutputOpening;
 }
@@ -137,6 +150,10 @@ function sealSlot(
   if (output.isCompact()) {
     throw new TransactionError("TRANSACTION_ANONYMOUS_COMPACT_PADDING", { slotIndex });
   }
+  if (isExit(output)) {
+    if (slot !== undefined) throw mismatch("exit");
+    return sealExit(tx, input, output, slotIndex, salt);
+  }
   if (output.isDummy() !== (slot === undefined)) throw mismatch("padding");
   if (slot === undefined) {
     const ciphertext = randomBytes(RING_ANONYMOUS_PLAINTEXT_LENGTH);
@@ -158,13 +175,7 @@ function sealSlot(
   ) {
     throw mismatch("ring");
   }
-  if (
-    !output.data.isEmpty() ||
-    (output.dataHash !== undefined && !equal(output.dataHash, ZERO_32)) ||
-    (output.ringDataHash !== undefined && !equal(output.ringDataHash, ZERO_32))
-  ) {
-    throw new TransactionError("TRANSACTION_ANONYMOUS_OUTPUT_DATA", { slotIndex });
-  }
+  checkOutputData(output, slotIndex);
   checkTagShape(tag);
   const recipient = address.recipient.viewingPublicKey;
   const pair = input.sender.pairKey(recipient);
@@ -190,13 +201,83 @@ function sealSlot(
     message: { viewTag: tag, data: framed(ciphertext) },
     delivery: { assetAddress: addressBytes(output.asset) as Bytes32, pairU, ciphertext },
     bodyHash: ringAnonymousBodyHash(ciphertext),
-    disclosure: Object.freeze({
-      identityTag: SOLANA_OWNER_TAG,
-      identityKey: address.recipient.signingPublicKey.confidentialViewTag(),
-      nullifierPublicKey: address.recipient.nullifierPublicKey,
-      viewingPublicKey: recipient.toBytes(),
-    }),
+    disclosure: recipientDisclosure(address.recipient),
   };
+}
+
+/** A default-ring output, the circuit publishes its owner's Solana key. */
+function isExit(output: ProofOutputUtxo): boolean {
+  return !output.isDummy() && output.ringProgramId === undefined;
+}
+
+function exitOwner(output: ProofOutputUtxo, slotIndex: number): ShieldedAddress {
+  const owner = output.ownerAddress;
+  if (owner === undefined) {
+    throw new TransactionError("TRANSACTION_ANONYMOUS_SLOT_MISMATCH", {
+      reason: "owner",
+      slotIndex,
+    });
+  }
+  return owner;
+}
+
+/** Rust `Confidential::encode_slot`, the exit keeps the scheme-3 body of the default ring. */
+function sealExit(
+  tx: ViewingKey,
+  input: AnonymousRingTransferInput,
+  output: ProofOutputUtxo,
+  slotIndex: number,
+  salt: ReturnType<typeof randomSalt>,
+): SealedSlot {
+  const owner = exitOwner(output, slotIndex);
+  checkOutputData(output, slotIndex);
+  if (input.assets === undefined) {
+    throw new TransactionError("TRANSACTION_ANONYMOUS_SLOT_MISMATCH", {
+      reason: "exit assets",
+      slotIndex,
+    });
+  }
+  const ciphertext = encryptConfidential(
+    tx,
+    owner.viewingPublicKey,
+    {
+      assetId: input.assets.assetId(output.asset),
+      amount: output.amount,
+      blinding: output.blinding,
+      data: output.data,
+    },
+    salt,
+    slotOrdinal(slotIndex),
+  );
+  return {
+    message: {
+      viewTag: owner.signingPublicKey.confidentialViewTag(),
+      data: encodeOutputData(EncryptedScheme.confidential, ciphertext, "encrypted"),
+    },
+    delivery: undefined,
+    bodyHash: ZERO_32,
+    disclosure: recipientDisclosure(owner),
+  };
+}
+
+/** The recipient recomputes an anonymous commitment with zero data hashes. */
+function checkOutputData(output: ProofOutputUtxo, slotIndex: number): void {
+  if (
+    !output.data.isEmpty() ||
+    (output.dataHash !== undefined && !equal(output.dataHash, ZERO_32)) ||
+    (output.ringDataHash !== undefined && !equal(output.ringDataHash, ZERO_32))
+  ) {
+    throw new TransactionError("TRANSACTION_ANONYMOUS_OUTPUT_DATA", { slotIndex });
+  }
+}
+
+function recipientDisclosure(recipient: ShieldedAddress): AnonymousOutputOpening {
+  return Object.freeze({
+    identityTag: SOLANA_OWNER_TAG,
+    identityKey: recipient.signingPublicKey.confidentialViewTag(),
+    nullifierPublicKey: recipient.nullifierPublicKey,
+    viewingPublicKey: recipient.viewingPublicKey.toBytes(),
+  });
 }
 
 function framed(ciphertext: Uint8Array): Uint8Array {
@@ -221,6 +302,11 @@ class TagSet {
       throw new TransactionError("TRANSACTION_ANONYMOUS_SLOT_MISMATCH", { reason });
     }
     this.#seen.add(key);
+  }
+
+  /** A tag no padding may take, never itself checked for repeats. */
+  reserve(tag: Bytes32): void {
+    this.#seen.add(hex(tag));
   }
 
   fresh(): Bytes32 {

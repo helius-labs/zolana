@@ -215,7 +215,7 @@ export async function fetchRingConfigs(
   return Object.freeze({ hasPolicy: true, config, policy });
 }
 
-/** The transaction builders prove the non-anonymous circuit only, readers decode every mode. */
+/** Builders without an anonymous rail refuse an anonymous ring, readers decode every mode. */
 export function checkBuildableRingMode(config: RingProgramConfig, operation: string): void {
   if (config.mode === "anonymous") {
     throw new RingError("RING_CONFIG_INVALID", {
