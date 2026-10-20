@@ -8,7 +8,10 @@ use custom_ring_interface::{
 };
 use solana_account::Account;
 use solana_address::Address;
-use zolana_client::{ClientError, GetRingMemberRecordRequest, GetRingMemberRecordResponse};
+use zolana_client::{
+    ClientError, GetRingMemberRecordRequest, GetRingMemberRecordResponse,
+    GetShieldedTransactionsByTagsResponse, IndexerRpcConfig,
+};
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair, X25519Keypair};
 use zolana_ring_client::{NullifierKeyEnvelope, SealedNullifierKey};
 use zolana_ring_member_registry::MemberRegistryTree;
@@ -217,8 +220,8 @@ fn registry_account(ring: CustomRing, tree: &MemberRegistryTree) -> Account {
 }
 
 /// Serves the tree account and both registries, with the indexer's view of each.
-struct RegistryRpc {
-    accounts: Accounts,
+pub(crate) struct RegistryRpc {
+    pub(crate) accounts: Accounts,
     own: MemberRegistryTree,
     foreign: Option<MemberRegistryTree>,
     seals: HashMap<[u8; 32], SealedNullifierKey>,
@@ -226,7 +229,7 @@ struct RegistryRpc {
 }
 
 impl RegistryRpc {
-    fn new(own: MemberRegistryTree, foreign: Option<MemberRegistryTree>) -> Self {
+    pub(crate) fn new(own: MemberRegistryTree, foreign: Option<MemberRegistryTree>) -> Self {
         let mut accounts = Accounts::default()
             .with(tree(), tree_account(address_tree()))
             .with(
@@ -255,6 +258,18 @@ impl AsyncRpc for RegistryRpc {
         self.accounts.get_account(address).await
     }
 
+    async fn get_shielded_transactions_by_tags(
+        &self,
+        tags: Vec<[u8; 32]>,
+        cursor: Option<Vec<u8>>,
+        limit: Option<u32>,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
+        self.accounts
+            .get_shielded_transactions_by_tags(tags, cursor, limit, config)
+            .await
+    }
+
     async fn get_ring_member_record(
         &self,
         request: GetRingMemberRecordRequest,
@@ -276,7 +291,7 @@ impl AsyncRpc for RegistryRpc {
     }
 }
 
-fn listed(tree: &mut MemberRegistryTree, member: Member, lists: ListSet) {
+pub(crate) fn listed(tree: &mut MemberRegistryTree, member: Member, lists: ListSet) {
     let items = tree
         .list_items(&[(*member.as_bytes(), lists.record_bits())])
         .unwrap();

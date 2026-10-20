@@ -3,6 +3,7 @@ import type {
   Bytes32,
   Bytes16,
   Bytes33,
+  Bytes128,
   DepositAssetKind,
   CacheAccount,
   CircuitId,
@@ -381,6 +382,65 @@ function writeMergeData(writer: Writer, value: MergeTransactInstructionData): vo
     .option(value.cacheSlot, (output, slot) => {
       output.u8(unsigned(slot, CACHE_CAPACITY - 1, "cacheSlot"), "cacheSlot");
     });
+}
+
+function readMergeOutputEncryption(reader: Reader): MergeOutputEncryption {
+  const scheme = reader.u8("outputEncryption.scheme");
+  if (scheme !== MergeEncryptionScheme.PoseidonCtrV1) {
+    fail("INTERFACE_CODEC", { name: "outputEncryption.scheme", actual: scheme });
+  }
+  return {
+    scheme,
+    salt: reader.bytes(16, "outputEncryption.salt") as Bytes16,
+    ciphertext: [
+      reader.bytes(32, "outputEncryption.ciphertext") as Bytes32,
+      reader.bytes(32, "outputEncryption.ciphertext") as Bytes32,
+      reader.bytes(32, "outputEncryption.ciphertext") as Bytes32,
+    ],
+  };
+}
+
+/** Reads one `MergeTransactIxData` body, the caller owns the surrounding frame. */
+export function readMergeData(reader: Reader): MergeTransactInstructionData {
+  const expiryUnixTs = reader.u64("expiryUnixTs");
+  const proof = {
+    a: reader.bytes(32, "proof.a") as Bytes32,
+    b: reader.bytes(128, "proof.b") as Bytes128,
+    c: reader.bytes(32, "proof.c") as Bytes32,
+  };
+  const outputUtxoHash = reader.bytes(32, "outputUtxoHash") as Bytes32;
+  const outputEncryption = readMergeOutputEncryption(reader);
+  const privateTxHash = reader.bytes(32, "privateTxHash") as Bytes32;
+  const count = reader.u8("nullifiers.length");
+  if (count === 0 || mergePaddedInputCount(count) === undefined) {
+    fail("INTERFACE_CODEC", { name: "nullifiers.length", actual: count });
+  }
+  const nullifiers = Array.from({ length: count }, () => reader.bytes(32, "nullifier") as Bytes32);
+  const utxoTreeRootIndex = reader.u16("utxoTreeRootIndex");
+  const nullifierTreeRootIndex = reader.u16("nullifierTreeRootIndex");
+  const cacheSlot = reader.option("cacheSlot", (input) =>
+    unsigned(input.u8("cacheSlot"), CACHE_CAPACITY - 1, "cacheSlot"),
+  );
+  return {
+    expiryUnixTs,
+    proof,
+    outputUtxoHash,
+    outputEncryption,
+    privateTxHash,
+    nullifiers,
+    utxoTreeRootIndex,
+    nullifierTreeRootIndex,
+    ...(cacheSlot === undefined ? {} : { cacheSlot }),
+  };
+}
+
+export function decodeMergeTransactInstructionData(
+  bytes: Uint8Array,
+): MergeTransactInstructionData {
+  const reader = new Reader(bytes);
+  const value = readMergeData(reader);
+  reader.done();
+  return value;
 }
 
 const MERGE_FIXED_DATA_LENGTH = 383;

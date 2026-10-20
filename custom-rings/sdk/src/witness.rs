@@ -764,4 +764,4 @@ fn ring_field(ring: Option<&Address>) -> Result<[u8; 32], RingError> {
 
 #[cfg(test)]
 #[path = "tests/witness.rs"]
-mod tests;
+pub(crate) mod tests;

@@ -567,6 +567,7 @@ mod tests {
     #[test]
     fn recovery_returns_the_source_unspent_notes_and_drops_the_spent_one() {
         let source = ShieldedKeypair::new_ed25519().expect("keypair");
+        let stranger = ShieldedKeypair::new_ed25519().expect("stranger");
         let auditor = X25519Keypair::new();
         let tx_unspent = ViewingKey::new();
         let tx_spent = ViewingKey::new();
@@ -583,6 +584,13 @@ mod tests {
             source: &source,
             amount: 5,
             blinding: 0x22,
+        }
+        .seal();
+        let paid = RingNote {
+            tx_key: &tx_burn,
+            source: &stranger,
+            amount: 5,
+            blinding: 0x03,
         }
         .seal();
         let indexer = StubIndexer {
@@ -609,8 +617,8 @@ mod tests {
                     tx_key: &tx_burn,
                     auditor: &auditor,
                     signature: 3,
-                    output_slots: Vec::new(),
-                    audit_openings: Vec::new(),
+                    output_slots: vec![paid.slot.clone()],
+                    audit_openings: vec![paid.audit_opening.clone()],
                     nullifiers: vec![spent.nullifier],
                 }
                 .indexed(),

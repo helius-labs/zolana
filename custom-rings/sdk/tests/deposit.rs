@@ -20,7 +20,6 @@ use zolana_indexer_api::{
 };
 use zolana_keypair::{ShieldedKeypair, X25519Keypair};
 use zolana_ring_member_registry::{MemberRegistryTree, Opening};
-use zolana_transaction::RingDepositPlaintext;
 
 /// One mock serves both the RPC and the indexer of the client.
 fn client<R: Rpc + WitnessReader + Clone + Send + Sync + 'static>(
@@ -70,7 +69,7 @@ impl Rpc for DepositRpc {
 }
 
 #[test]
-fn disabled_deposits_keep_recipient_ciphertext_and_never_contact_the_prover() {
+fn deposit_audit_setting_of_zero_does_not_waive_the_proof() {
     let ring = CustomRing::new(Address::new_from_array([42; 32]));
     let recipient = ShieldedKeypair::new_ed25519().unwrap();
     let config = RingProgramConfig {
@@ -115,27 +114,14 @@ fn disabled_deposits_keep_recipient_ciphertext_and_never_contact_the_prover() {
         let prepared = client.block_on(deposit.prepare(client.as_async())).unwrap();
         assert_eq!(
             prepared.budget(),
-            ComputeBudgetConfig::for_instruction_count(1)
+            ComputeBudgetConfig::new(custom_ring_interface::compute_unit_limit(
+                custom_ring_interface::InstructionTag::AuditedDeposit
+            ))
         );
-        let instruction = client.block_on(prepared.prove(client.as_async())).unwrap();
-        assert_eq!(
-            instruction.data[0],
-            zolana_interface::instruction::tag::RING_DEPOSIT
-        );
-        assert_eq!(instruction.accounts[3].pubkey, ring.deposit_audit_pda());
-        let body =
-            zolana_interface::instruction::RingDepositIxData::deserialize(&instruction.data[1..])
-                .unwrap();
-        let entry = &body.deposits[0];
-        assert!(
-            custom_ring_interface::RingDepositAuditCapsule::parse(&entry.encrypted.ciphertext)
-                .unwrap()
-                .is_none()
-        );
-        let opened =
-            RingDepositPlaintext::decrypt(&entry.encrypted, &recipient.viewing_key).unwrap();
-        assert_eq!(opened.blinding, prepared.utxo().blinding);
-        assert_eq!(entry.amount, 11);
+        assert!(matches!(
+            client.block_on(prepared.prove(client.as_async())),
+            Err(RingError::Client(_))
+        ));
     }
 }
 

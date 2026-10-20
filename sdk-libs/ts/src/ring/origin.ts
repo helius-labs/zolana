@@ -6,7 +6,7 @@ import { wireDecoder } from "../interface/decode.js";
 import { Reader, sha256, addressBytes, encodeBase58 } from "../interface/internal.js";
 import { treeAddress } from "../interface/pda/index.js";
 import { INPUT_TREES } from "../interface/tree-slot.js";
-import { decodeRingDepositInstructionData } from "../interface/codecs/index.js";
+import { decodeRingDepositInstructionData, readMergeData } from "../interface/codecs/index.js";
 import { CUSTOM_RING_PROOF_LENGTH } from "../interface/custom-ring-proof.js";
 import { equal } from "../transaction/internal.js";
 import type { IndexedShieldedTransaction } from "../transaction/instructions/transact.js";
@@ -590,33 +590,19 @@ function readConfirmedEvent(
     const data = new Reader(source.data.slice(1));
     const ringDataHash = data.bytes(32, "merge.ringDataHash") as Bytes32;
     data.bytes(32, "merge.memberRegistryRoot");
-    data.u64("merge.expiry");
-    data.bytes(192, "merge.proof");
-    const hash = data.bytes(32, "merge.outputHash") as Bytes32;
-    const salt = data.bytes(16, "merge.outputCiphertextSalt") as Bytes16;
-    const ciphertext = [
-      data.bytes(32, "merge.outputCiphertext.amount") as Bytes32,
-      data.bytes(32, "merge.outputCiphertext.mintLow") as Bytes32,
-      data.bytes(32, "merge.outputCiphertext.mintHigh") as Bytes32,
-    ] as const;
-    const payload = encodeMergeOutputData({ ringDataHash, salt, ciphertext });
-    data.bytes(32, "merge.privateTxHash");
-    const nullifiers = Array.from(
-      { length: data.u8("merge.nullifiers.length") },
-      () => data.bytes(32, "merge.nullifier") as Bytes32,
-    );
-    data.bytes(4, "merge.rootIndexes");
-    data.option("merge.cacheSlot", (reader) => reader.u8("merge.cacheSlot"));
+    const merge = readMergeData(data);
     data.done();
+    const { salt, ciphertext } = merge.outputEncryption;
+    const payload = encodeMergeOutputData({ ringDataHash, salt, ciphertext });
     const location = readEventLocation(event);
     const viewTag = event.bytes(32, "merge.viewTag") as Bytes32;
     event.done();
     return {
       ...location,
       proofless: false,
-      nullifiers,
+      nullifiers: merge.nullifiers,
       messages: [],
-      outputs: [{ hash, viewTag, payload }],
+      outputs: [{ hash: merge.outputUtxoHash, viewTag, payload }],
     };
   }
   if (tag !== InstructionTag.ringDeposit) return undefined;

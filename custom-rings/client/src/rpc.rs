@@ -812,10 +812,15 @@ pub fn unix_now() -> Result<u64, RequestBuildError> {
 /// Lowercase hex, with the public key beside it in `<file>.pub`.
 pub fn read_auditor_key(path: &Path, access: Access) -> Result<X25519Keypair, KeyFileError> {
     let secret = read_hex32(&read_private(path, access, KEY_HEX_LEN)?)?;
+    auditor_keypair(&secret)
+}
+
+/// Clamping keeps every scalar off the identity, the unset all-zero secret is the only refusal.
+pub fn auditor_keypair(secret: &[u8; 32]) -> Result<X25519Keypair, KeyFileError> {
     if secret.iter().all(|byte| *byte == 0) {
         return Err(KeyFileError::ZeroAuditorKey);
     }
-    Ok(X25519Keypair::from_bytes(&secret))
+    Ok(X25519Keypair::from_bytes(secret))
 }
 
 /// Neither file remains when either cannot be written.

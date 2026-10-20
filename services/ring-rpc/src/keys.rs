@@ -2,6 +2,7 @@ use solana_address::Address;
 use solana_keypair::Keypair;
 use zeroize::Zeroizing;
 use zolana_keypair::{KeypairError, X25519Keypair};
+use zolana_ring_client::rpc::auditor_keypair;
 
 use crate::{config::RootSecret, error::RingRpcError};
 
@@ -28,7 +29,7 @@ pub(crate) fn derive_auditor_key(
     hkdf::Hkdf::<sha2::Sha256>::new(None, root.as_bytes())
         .expand(&info, secret.as_mut_slice())
         .map_err(|_| KeypairError::Hkdf)?;
-    Ok(X25519Keypair::from_bytes(&secret))
+    Ok(auditor_keypair(&secret)?)
 }
 
 pub(crate) fn service_keypair(secret: &[u8]) -> Result<Keypair, RingRpcError> {

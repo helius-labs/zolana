@@ -874,3 +874,7 @@ impl ProvenRingTransfer {
 #[cfg(test)]
 #[path = "../tests/pipeline.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../tests/privacy.rs"]
+mod privacy;

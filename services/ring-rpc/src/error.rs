@@ -2,7 +2,7 @@ use jsonrpsee::types::{error::ErrorCode, ErrorObjectOwned};
 use log::error;
 use thiserror::Error;
 use zolana_client::ClientError;
-use zolana_ring_client::AuditError;
+use zolana_ring_client::{rpc::KeyFileError, AuditError};
 
 use crate::authorize::Unauthorized;
 
@@ -18,6 +18,8 @@ pub enum RingRpcError {
     Unauthorized(#[from] Unauthorized),
     #[error("key derivation failed because {0}")]
     Derivation(#[from] zolana_keypair::KeypairError),
+    #[error("auditor key is unusable because {0}")]
+    AuditorKey(#[from] KeyFileError),
     #[error(transparent)]
     Upstream(#[from] ClientError),
     #[error(transparent)]
@@ -60,7 +62,7 @@ impl From<RingRpcError> for ErrorObjectOwned {
                 error!("indexer returned data outside the audit bounds");
                 (ErrorCode::InternalError, "indexer response is invalid")
             }
-            Derivation(_) => {
+            Derivation(_) | AuditorKey(_) => {
                 error!("auditor key derivation failed");
                 (ErrorCode::InternalError, "auditor key is unavailable")
             }

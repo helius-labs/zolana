@@ -61,6 +61,17 @@ read a registry snapshot without changing it. A changed policy hash rejects
 proofs for the old rules immediately. A list change can still leave an older
 snapshot usable until its root leaves the 32-root history.
 
+SPP accepts the cached twin of every owner-signed rail, `AnonymousRingEddsaCached`
+included. The twin names no circuit of its own. It verifies under the rail's key,
+the cache slots it reads enter the public input hash, the cache it writes enters
+the external data hash, and its nullifiers are spent like any other, a cached proof
+replays no better than an uncached one. The reference ring refuses both cached
+twins in `Rail::accepts` ([`transact.rs`](program/src/instructions/transact.rs)).
+`SppTransactAccounts::split` slices the owner and settlement accounts by count
+from the end of the SPP list and has no slot for the cache accounts, and the
+anonymous shapes were set up without cache reads. A ring that wants cached spends
+extends its account slicing and accepts the twin on its own.
+
 ## Roles
 
 The operator holds the upgrade authority keypair and the ring directory. It

@@ -578,13 +578,19 @@ fn message_encrypted_to_another_key_fails_the_integrity_check() {
     let auditor = X25519Keypair::new();
     let other_auditor = X25519Keypair::new();
     let tx_key = ViewingKey::new();
+    let recipient = ViewingKey::new();
 
     let encryption =
         AuditorEncryption::new(&tx_key, &other_auditor.pubkey()).expect("auditor encryption");
     // Tagged for `auditor`, decryptable only by `other_auditor`. The wrong key
     // yields bytes that fail the clamping check or name another viewing key.
     let mislabeled = encryption.message.to_message_data(&auditor.pubkey());
-    let tx = transaction(&tx_key, vec![], vec![mislabeled]);
+    let output = plaintext(SOL_ASSET_ID, 3, 0x61);
+    let tx = transaction(
+        &tx_key,
+        vec![confidential_slot(&tx_key, &recipient.pubkey(), &output, 0)],
+        vec![mislabeled],
+    );
 
     assert!(matches!(
         TransactionAudit {
@@ -601,10 +607,13 @@ fn message_encrypted_to_another_key_fails_the_integrity_check() {
 fn tampered_ciphertext_fails_the_integrity_check() {
     let auditor = X25519Keypair::new();
     let tx_key = ViewingKey::new();
+    let recipient = ViewingKey::new();
 
-    let mut message = auditor_message_data(&tx_key, &auditor.pubkey(), &[]);
+    let output = plaintext(SOL_ASSET_ID, 3, 0x62);
+    let slots = vec![confidential_slot(&tx_key, &recipient.pubkey(), &output, 0)];
+    let mut message = auditor_message_data(&tx_key, &auditor.pubkey(), &slots);
     message.data[33] ^= 0x01;
-    let tx = transaction(&tx_key, vec![], vec![message]);
+    let tx = transaction(&tx_key, slots, vec![message]);
 
     assert!(matches!(
         TransactionAudit {
@@ -695,17 +704,20 @@ fn two_auditor_messages_are_rejected() {
 fn missing_transaction_key_material_is_rejected() {
     let auditor = X25519Keypair::new();
     let tx_key = ViewingKey::new();
+    let recipient = ViewingKey::new();
 
+    let output = plaintext(SOL_ASSET_ID, 3, 0x63);
+    let slots = vec![confidential_slot(&tx_key, &recipient.pubkey(), &output, 0)];
     let mut no_pubkey = transaction(
         &tx_key,
-        vec![],
-        vec![auditor_message_data(&tx_key, &auditor.pubkey(), &[])],
+        slots.clone(),
+        vec![auditor_message_data(&tx_key, &auditor.pubkey(), &slots)],
     );
     no_pubkey.tx_viewing_pk = None;
     let mut no_salt = transaction(
         &tx_key,
-        vec![],
-        vec![auditor_message_data(&tx_key, &auditor.pubkey(), &[])],
+        slots.clone(),
+        vec![auditor_message_data(&tx_key, &auditor.pubkey(), &slots)],
     );
     no_salt.salt = None;
 
