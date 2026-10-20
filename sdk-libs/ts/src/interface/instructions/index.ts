@@ -468,7 +468,17 @@ async function transactAccounts(
  * also pays is listed here too: paying alone authorizes no spend, so a sponsor
  * can pay for a spend it does not own.
  */
-export async function transactInstruction(input: TransactAccountsInput): Promise<Instruction> {
+export async function transactInstruction(
+  input: Readonly<{
+    payer: SignerAccount;
+    inputTree: Address;
+    outputTree: Address;
+    ownerSigners: readonly SignerAccount[];
+    withdrawal?: TransactWithdrawal;
+    cache?: TransactCacheAccounts;
+    data: TransactInstructionData;
+  }>,
+): Promise<Instruction> {
   return instruction(
     tagged(InstructionTag.transact, encodeTransactInstructionData(input.data)),
     await transactAccounts(input, []),
@@ -481,7 +491,16 @@ export async function transactInstruction(input: TransactAccountsInput): Promise
  * signers. The program signs for those PDAs inside its CPI.
  */
 export function transactCpiAccounts(
-  input: TransactAccountsInput & Readonly<{ signerPdas: readonly Address[] }>,
+  input: Readonly<{
+    payer: SignerAccount;
+    inputTree: Address;
+    outputTree: Address;
+    ownerSigners: readonly SignerAccount[];
+    withdrawal?: TransactWithdrawal;
+    cache?: TransactCacheAccounts;
+    data: TransactInstructionData;
+    signerPdas: readonly Address[];
+  }>,
 ): Promise<readonly Meta[]> {
   return transactAccounts(input, input.signerPdas);
 }
