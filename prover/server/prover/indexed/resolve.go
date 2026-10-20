@@ -91,7 +91,7 @@ func expectedPublicInputCount(circuit common.CircuitType) int {
 	case common.TransferRingAuthorityCircuitType:
 		return 14
 	case common.TransferAnonymousRingEddsaCircuitType:
-		return 19
+		return 22
 	case common.MergeCircuitType:
 		return 12
 	case common.MergeRingCircuitType:

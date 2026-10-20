@@ -79,5 +79,7 @@
   "ZeroOutputUtxoHash": 7079,
   "TreeFeeTooHigh": 7080,
   "TreeCreationMismatch": 7081,
-  "NonCanonicalMergeCiphertext": 7082
+  "NonCanonicalMergeCiphertext": 7082,
+  "InvalidAnonymousControlTail": 7083,
+  "AnonymousExitDestinationsDiffer": 7084
 }

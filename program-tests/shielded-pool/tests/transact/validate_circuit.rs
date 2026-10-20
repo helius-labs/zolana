@@ -1,11 +1,13 @@
 use pinocchio::ProgramResult;
-use shielded_pool_program::instructions::transact::validate_circuit_type;
+use shielded_pool_program::instructions::transact::{control_cosigner, validate_circuit_type};
+use zolana_hasher::primitives::solana_owner_identity;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
         instruction_data::transact::{
-            AnonymousRingEddsaProofData, Bsb22Commitment, CircuitId, InputUtxo, OwnerTag,
-            TransactIxData, TransactIxDataRef, TransactOutput, TransactProof, TreeContext,
+            AnonymousParties, AnonymousRingEddsaProofData, Bsb22Commitment, CircuitId, InputUtxo,
+            OwnerTag, TransactIxData, TransactIxDataRef, TransactOutput, TransactProof,
+            TreeContext,
         },
         tag::InstructionTag,
     },
@@ -417,4 +419,73 @@ fn a_cached_selector_must_fit_the_inputs_the_outputs_and_the_cache() {
             "{access:?}"
         );
     }
+}
+
+fn anonymous_circuit() -> CircuitId {
+    CircuitId::AnonymousRingEddsa(
+        2,
+        2,
+        3,
+        AnonymousRingEddsaProofData {
+            bsb22_commitment: Bsb22Commitment {
+                commitment: [0u8; 32],
+                commitment_pok: [0u8; 32],
+            },
+            default_owner_tag: None,
+        },
+    )
+}
+
+/// The ring program appends its configured co-signer only on the anonymous rail.
+#[test]
+fn anonymous_control_tail_is_exactly_one_address_on_the_anonymous_rail() {
+    let tail = [7u8; 32];
+    assert_eq!(
+        control_cosigner(anonymous_circuit(), &tail).unwrap(),
+        Some(&tail)
+    );
+    for bad in [&[][..], &tail[..31], &[tail, tail].concat()[..]] {
+        assert_eq!(
+            control_cosigner(anonymous_circuit(), bad),
+            Err(ShieldedPoolError::InvalidAnonymousControlTail.into())
+        );
+    }
+    let public = CircuitId::ConfidentialRingEddsa(2, 2, 3);
+    assert_eq!(control_cosigner(public, &[]).unwrap(), None);
+    assert_eq!(
+        control_cosigner(public, &tail),
+        Err(ShieldedPoolError::InvalidAnonymousControlTail.into())
+    );
+}
+
+/// The circuit keeps the hidden owner apart from the payer, the co-signer and the
+/// one exit account. A zero co-signer is absent, two exit accounts are refused.
+#[test]
+fn anonymous_parties_publish_tagged_identities_and_one_exit() {
+    let payer = [1u8; 32];
+    let cosigner = [2u8; 32];
+    let exit = [3u8; 32];
+    let identity = |address: &[u8; 32]| solana_owner_identity(address).unwrap();
+    let parties = AnonymousParties {
+        payer: &payer,
+        cosigner: Some(&cosigner),
+        exit_destination: AnonymousParties::exit_destination([&exit, &exit].into_iter()).unwrap(),
+    };
+    assert_eq!(
+        parties.identities().unwrap(),
+        [identity(&payer), identity(&cosigner), identity(&exit)]
+    );
+    let absent = AnonymousParties {
+        payer: &payer,
+        cosigner: Some(&[0u8; 32]),
+        exit_destination: AnonymousParties::exit_destination(std::iter::empty()).unwrap(),
+    };
+    assert_eq!(
+        absent.identities().unwrap(),
+        [identity(&payer), [0u8; 32], [0u8; 32]]
+    );
+    assert_eq!(
+        AnonymousParties::exit_destination([&exit, &payer].into_iter()),
+        Err(ShieldedPoolError::AnonymousExitDestinationsDiffer)
+    );
 }

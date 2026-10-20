@@ -142,3 +142,21 @@ pub fn transact_message_hash(
 ) -> [u8; 32] {
     sha256(&[private_tx_hash.as_slice(), external_data_hash.as_slice()].concat())
 }
+
+/// Domain separation, no other message the owner key signs starts with it.
+pub const RING_SPEND_MESSAGE_PREFIX: &[u8; 20] = b"zolana ring spend v1";
+pub const RING_SPEND_MESSAGE_LEN: usize = RING_SPEND_MESSAGE_PREFIX.len() + 64;
+
+/// The bytes a hidden owner signs, the ring address keeps the signature from spending in another ring.
+pub fn ring_spend_message(
+    ring_program_id: &Address,
+    message_digest: &[u8; 32],
+) -> [u8; RING_SPEND_MESSAGE_LEN] {
+    let mut message = [0u8; RING_SPEND_MESSAGE_LEN];
+    let (prefix, rest) = message.split_at_mut(RING_SPEND_MESSAGE_PREFIX.len());
+    let (ring, digest) = rest.split_at_mut(32);
+    prefix.copy_from_slice(RING_SPEND_MESSAGE_PREFIX);
+    ring.copy_from_slice(ring_program_id.as_array());
+    digest.copy_from_slice(message_digest);
+    message
+}

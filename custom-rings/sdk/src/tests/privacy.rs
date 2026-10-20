@@ -4,7 +4,10 @@ use custom_ring_interface::{
 };
 use solana_address::Address;
 use zolana_client::{
-    prover::indexed::{IndexedTransferPreparation, IndexedTransferRail},
+    prover::{
+        indexed::{IndexedTransferPreparation, IndexedTransferRail},
+        transact::HiddenOwnerAuthorization,
+    },
     ProofInputUtxo, Shape,
 };
 use zolana_interface::tree_slot::populated_tree_slots_hash_chain;
@@ -98,7 +101,13 @@ async fn publish(
         transaction: inputs.clone(),
         rail: IndexedTransferRail::AnonymousRingEddsa {
             ring: program,
-            owner: &sender.signing_key,
+            owner: HiddenOwnerAuthorization::sign(
+                &sender.signing_key,
+                &program,
+                &inputs.message_hash().unwrap(),
+            )
+            .unwrap(),
+            cosigner: None,
         },
     }
     .prepare_with_dummy_policy(&staged.authority, true)

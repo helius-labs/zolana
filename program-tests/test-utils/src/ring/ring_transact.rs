@@ -9,9 +9,11 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
     input_utxos_from_nullifiers,
-    prover::transact::anonymous_ring_eddsa::anonymous_signer_pk_hashes, transaction_size,
-    AnonymousRingEddsaProver, ComputeBudgetConfig, ProofAuthority, ProofCompressed, Prover,
-    ProverClient, ProverExt, RingTransferProver, Shape, TransferInputUtxo,
+    prover::transact::anonymous_ring_eddsa::{
+        anonymous_signer_pk_hashes, HiddenOwnerAuthorization,
+    },
+    transaction_size, AnonymousRingEddsaProver, ComputeBudgetConfig, ProofAuthority,
+    ProofCompressed, Prover, ProverClient, ProverExt, RingTransferProver, Shape, TransferInputUtxo,
 };
 use zolana_interface::{
     error::ShieldedPoolError,
@@ -586,7 +588,7 @@ impl RingHarness {
             .collect();
 
         let tree_before = fetch_account(&self.rpc, &self.tree)?;
-        let transfer_ix = RingTransact {
+        let mut transfer_ix = RingTransact {
             payer: fee_payer.pubkey(),
             input_trees: vec![self.tree],
             output_tree: self.tree,
@@ -596,6 +598,11 @@ impl RingHarness {
             data: data.clone(),
         }
         .instruction();
+        // The test ring program forwards the data verbatim, so the anonymous
+        // control tail SPP demands is appended here, no co-signer configured.
+        if data.circuit.is_anonymous() {
+            transfer_ix.data.extend_from_slice(&[0u8; 32]);
+        }
         let instructions = [transfer_ix.clone()];
         let budget = ComputeBudgetConfig::new(1_400_000);
         self.last_transaction_size = Some(transaction_size(
@@ -697,6 +704,7 @@ impl RingHarness {
                 }
             }
             RingRail::AnonymousEddsa => {
+                // The test ring program forwards no co-signer, the tail stays zero.
                 let prover = AnonymousRingEddsaProver {
                     blinding_seed: proof_inputs.blinding_seed,
                     output_tree_id: proof_inputs.output_tree_id,
@@ -709,8 +717,14 @@ impl RingHarness {
                         &signer.signing_pubkey(),
                     )?,
                     allow_dummy_inputs: true,
-                    owner: &signer.signing_key,
-                    ring_program_id: Some(ring),
+                    owner: HiddenOwnerAuthorization::sign(
+                        &signer.signing_key,
+                        &ring,
+                        &proof_inputs.message_hash()?,
+                    )?,
+                    payer: proof_inputs.payer,
+                    cosigner: None,
+                    ring_program_id: ring,
                     shape,
                 };
                 let mut result = prover.build()?;

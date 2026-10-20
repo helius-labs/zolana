@@ -102,23 +102,27 @@ impl OwnerHashCache {
     }
 }
 
-const ASSIGNED_OUTPUT_OWNERS: u8 = 1 << 0;
-const ASSIGNED_OWNER_SIGNERS: u8 = 1 << 1;
-const ASSIGNED_PUBLIC_TRANSFERS: u8 = 1 << 2;
-const ASSIGNED_INPUT_TREES: u8 = 1 << 3;
-const ASSIGNED_EXTERNAL_DATA: u8 = 1 << 4;
-const ASSIGNED_RING_PROGRAM: u8 = 1 << 5;
-const ASSIGNED_OUTPUT_TREE: u8 = 1 << 6;
-const ASSIGNED_CACHED_INPUTS: u8 = 1 << 7;
+const ASSIGNED_OUTPUT_OWNERS: u16 = 1 << 0;
+const ASSIGNED_OWNER_SIGNERS: u16 = 1 << 1;
+const ASSIGNED_PUBLIC_TRANSFERS: u16 = 1 << 2;
+const ASSIGNED_INPUT_TREES: u16 = 1 << 3;
+const ASSIGNED_EXTERNAL_DATA: u16 = 1 << 4;
+const ASSIGNED_RING_PROGRAM: u16 = 1 << 5;
+const ASSIGNED_OUTPUT_TREE: u16 = 1 << 6;
+const ASSIGNED_CACHED_INPUTS: u16 = 1 << 7;
+const ASSIGNED_ANONYMOUS_PARTIES: u16 = 1 << 8;
 const CACHED_INPUT_FIELDS: usize = 2;
-const ALL_ASSIGNMENTS: u8 = ASSIGNED_OUTPUT_OWNERS
+/// Payer, co-signer and exit destination identities, zero when absent.
+const ANONYMOUS_PARTIES: usize = 3;
+const ALL_ASSIGNMENTS: u16 = ASSIGNED_OUTPUT_OWNERS
     | ASSIGNED_OWNER_SIGNERS
     | ASSIGNED_PUBLIC_TRANSFERS
     | ASSIGNED_INPUT_TREES
     | ASSIGNED_EXTERNAL_DATA
     | ASSIGNED_RING_PROGRAM
     | ASSIGNED_OUTPUT_TREE
-    | ASSIGNED_CACHED_INPUTS;
+    | ASSIGNED_CACHED_INPUTS
+    | ASSIGNED_ANONYMOUS_PARTIES;
 
 #[derive(Debug)]
 pub struct TransactProofInputs {
@@ -142,7 +146,9 @@ pub struct TransactProofInputs {
     /// circuit-vector tests can pin the assembly; production code writes it
     /// exclusively through `fill_owner_signer_hashes`.
     pub unique_owner_signer_count: u8,
-    assignments: u8,
+    /// Public on the anonymous rail only, the circuit proves each distinct from the hidden owner.
+    pub anonymous_parties: [[u8; 32]; ANONYMOUS_PARTIES],
+    assignments: u16,
     cached_inputs: Option<[[u8; 32]; CACHED_INPUT_FIELDS]>,
 }
 
@@ -158,6 +164,9 @@ impl TransactProofInputs {
         if matches!(circuit.uncached(), CircuitId::ConfidentialEddsa(..)) {
             assignments |= ASSIGNED_RING_PROGRAM;
         }
+        if !circuit.is_anonymous() {
+            assignments |= ASSIGNED_ANONYMOUS_PARTIES;
+        }
         Self {
             tree_slots: RefArrayVec::new(),
             output_tree_id: [0u8; 32],
@@ -169,6 +178,7 @@ impl TransactProofInputs {
             ring_program_id: [0u8; 32],
             input_flags: [0u8; 32],
             unique_owner_signer_count: 0,
+            anonymous_parties: [[0u8; 32]; ANONYMOUS_PARTIES],
             assignments,
             cached_inputs: None,
         }
@@ -177,6 +187,11 @@ impl TransactProofInputs {
     pub(crate) fn assign_ring_program_id(&mut self, ring_program_id: [u8; 32]) {
         self.ring_program_id = ring_program_id;
         self.assignments |= ASSIGNED_RING_PROGRAM;
+    }
+
+    pub(crate) fn assign_anonymous_parties(&mut self, parties: [[u8; 32]; ANONYMOUS_PARTIES]) {
+        self.anonymous_parties = parties;
+        self.assignments |= ASSIGNED_ANONYMOUS_PARTIES;
     }
 
     /// Assign the populated tree slots and the packed input flags.
@@ -476,7 +491,7 @@ impl<'a> TransactProof<'a> {
             self.ix.outputs.iter().map(|output| output.utxo_hash),
             n_out,
         )?;
-        let mut fields: ArrayVec<[[u8; 32]; 20]> = ArrayVec::new();
+        let mut fields: ArrayVec<[[u8; 32]; 24]> = ArrayVec::new();
         // The circuit's `TreeSlotsHashChain` over the populated slots followed
         // by zeroed ones: each populated slot hash folded onto the precomputed
         // zero suffix of the unused remainder.
@@ -502,6 +517,7 @@ impl<'a> TransactProof<'a> {
                 Some(owner) => solana_owner_identity(owner)?,
                 None => [0u8; 32],
             });
+            fields.extend_from_slice(&self.derived.anonymous_parties);
         }
         fields.push(self.derived.external_data_hash);
         for (asset, amount) in public_slot_assets.iter().zip(public_slot_amounts.iter()) {

@@ -40,3 +40,14 @@ pub(crate) fn approval_cosigner(
             .signer,
     )
 }
+
+/// The configured co-signer an anonymous spend publishes, the zero address without one.
+pub(crate) fn configured_cosigner(
+    program_id: &Address,
+    cosigner_pda: &AccountView,
+) -> Result<Address, ProgramError> {
+    Ok(
+        load_optional::<CoSigner, 1>(program_id, cosigner_pda, &[CoSigner::SEED])?
+            .map_or(Address::from([0u8; 32]), |cosigner| cosigner.signer),
+    )
+}

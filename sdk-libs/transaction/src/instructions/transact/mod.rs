@@ -6,8 +6,9 @@
 //! derives the change outputs and pads both inputs and outputs to a declared or
 //! automatically selected [`Shape`], then encrypts the result into [`SppProofInputs`].
 //! [`PrivateTxHash`] produces the `private_tx_hash` shared as a public input by
-//! the SPP and ring proofs, and [`transact_message_hash`] the digest an anonymous EdDSA
-//! owner signs over it and the external data hash.
+//! the SPP and ring proofs, [`transact_message_hash`] the digest over it and the
+//! external data hash, and [`ring_spend_message`] the bytes an anonymous EdDSA
+//! owner signs over that digest and its ring.
 
 mod cache;
 mod encryption;
@@ -41,7 +42,10 @@ pub use shape::{
     auto_shapes, canonical_shape, resolve_shape, Shape, MAX_SPEND_INPUTS, SPP_SUPPORTED_SHAPES,
 };
 pub(crate) use transaction::real_slot_after_dummy;
-pub use transaction::{transact_message_hash, CacheAccounts, PrivateTxHash, SppProofInputs};
+pub use transaction::{
+    ring_spend_message, transact_message_hash, CacheAccounts, PrivateTxHash, SppProofInputs,
+    RING_SPEND_MESSAGE_LEN, RING_SPEND_MESSAGE_PREFIX,
+};
 
 use ring::sender_owner_tag;
 

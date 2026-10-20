@@ -429,7 +429,7 @@ impl IndexedCircuit {
         match self {
             Self::TransferConfidential | Self::TransferRing => 17,
             Self::TransferRingAuthority => 14,
-            Self::TransferAnonymousRingEddsa => 19,
+            Self::TransferAnonymousRingEddsa => 22,
             // Tree-independent prefix, rail tail, salt and three ciphertext fields.
             Self::Merge => 12,
             // The ring statement also binds the selected member-registry root.

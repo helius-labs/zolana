@@ -1,16 +1,19 @@
 //! Anonymous custom-ring transfer proof builder. The hidden Ed25519 owner signs
-//! the transaction message digest, and the proof verifies that signature.
+//! the ring spend message over the transaction digest, and the proof verifies
+//! that signature and keeps the owner distinct from every public party.
 
 use num_bigint::BigUint;
 use serde_json::{Map, Value};
 use solana_address::Address;
 use zeroize::Zeroizing;
-use zolana_hasher::primitives::{hash_bytes, solana_owner_identity};
-use zolana_interface::instruction::instruction_data::transact::TreeContext;
+use zolana_hasher::primitives::hash_bytes;
+use zolana_interface::instruction::instruction_data::transact::{AnonymousParties, TreeContext};
 use zolana_keypair::{PublicKey, SigningKey};
 use zolana_transaction::{
-    instructions::transact::{transact_message_hash, PublicTransfers, SppProofInputs},
-    utxo::program_id_proof_input_hash,
+    instructions::transact::{
+        ring_spend_message, transact_message_hash, PublicTransfers, SettlementTransfer,
+        SppProofInputs,
+    },
     ExternalData, SppProofOutputUtxo,
 };
 
@@ -31,7 +34,44 @@ use crate::{
     },
 };
 
-pub struct AnonymousRingEddsaProver<'a> {
+/// The hidden owner's signature over the ring spend message, made before the proof.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HiddenOwnerAuthorization {
+    pub public_key: [u8; 32],
+    pub signature: [u8; 64],
+}
+
+impl HiddenOwnerAuthorization {
+    pub fn sign(
+        owner: &SigningKey,
+        ring_program_id: &Address,
+        message_digest: &[u8; 32],
+    ) -> Result<Self, ClientError> {
+        Ok(Self {
+            public_key: owner.pubkey().as_ed25519()?,
+            signature: owner.sign_message(&ring_spend_message(ring_program_id, message_digest))?,
+        })
+    }
+
+    pub fn owner(&self) -> PublicKey {
+        PublicKey::from_ed25519(&self.public_key)
+    }
+
+    /// Fails before proving, the circuit refuses the same signature.
+    pub fn verify(
+        &self,
+        ring_program_id: &Address,
+        message_digest: &[u8; 32],
+    ) -> Result<(), ClientError> {
+        let message = ring_spend_message(ring_program_id, message_digest);
+        if !self.owner().verify_message(&message, &self.signature) {
+            return Err(ClientError::AnonymousSpendSignatureInvalid);
+        }
+        Ok(())
+    }
+}
+
+pub struct AnonymousRingEddsaProver {
     pub inputs: Vec<TransferInputUtxo>,
     pub outputs: Vec<SppProofOutputUtxo>,
     /// The transaction's private random root seed. See
@@ -44,8 +84,11 @@ pub struct AnonymousRingEddsaProver<'a> {
     pub signer_pk_hashes: Vec<[u8; 32]>,
     pub allow_dummy_inputs: bool,
     /// The hidden owner. Every input it owns carries the zero owner tag.
-    pub owner: &'a SigningKey,
-    pub ring_program_id: Option<Address>,
+    pub owner: HiddenOwnerAuthorization,
+    pub payer: Address,
+    /// The ring's configured co-signer, `None` without one.
+    pub cosigner: Option<Address>,
+    pub ring_program_id: Address,
     pub shape: Shape,
 }
 
@@ -77,13 +120,17 @@ pub struct AnonymousEddsaTransferInputs {
 pub struct AnonymousEddsaAuthorization {
     pub owner_public_key: [u8; 32],
     pub owner_signature: [u8; 64],
+    /// Preimage of the public ring id, bound inside the signed message.
+    pub ring_program_address: [u8; 32],
     pub message_digest: [u8; 32],
     /// Program-derived public hash of the hidden owner when it spends a
     /// default-ring UTXO, zero otherwise.
     pub default_owner_pk_hash: [u8; 32],
+    /// Payer, co-signer and exit destination identities, zero when absent.
+    pub parties: [[u8; 32]; 3],
 }
 
-impl AnonymousRingEddsaProver<'_> {
+impl AnonymousRingEddsaProver {
     pub fn build(self) -> Result<AnonymousRingEddsaProofResult, ClientError> {
         let shape = self.shape;
         validate_shape(shape, self.inputs.len(), self.outputs.len())?;
@@ -114,7 +161,7 @@ impl AnonymousRingEddsaProver<'_> {
             &self.blinding_seed,
             self.output_tree_id,
             &cache.external_data_hash,
-            &OwnerMode::AnonymousEddsa(self.owner.pubkey()),
+            &OwnerMode::AnonymousEddsa(self.owner.owner()),
             self.allow_dummy_inputs,
         )?;
         let published_output_owner_pk_hashes =
@@ -124,14 +171,18 @@ impl AnonymousRingEddsaProver<'_> {
             default_owner_tag,
         } = AnonymousAuthorizationPreparation {
             inputs: &self.inputs,
-            owner: self.owner,
+            owner: &self.owner,
+            ring_program_id: &self.ring_program_id,
+            payer: &self.payer,
+            cosigner: self.cosigner.as_ref(),
+            external_data: &self.external_data,
             private_tx: &private_tx,
             external_data_hash: &external_data_hash,
             published_owners: &published_output_owner_pk_hashes,
         }
         .prepare()?;
 
-        let ring_program_id = program_id_proof_input_hash(&self.ring_program_id)?;
+        let ring_program_id = hash_bytes(self.ring_program_id.as_array())?;
         let public_input = PublicInputs {
             nullifiers: &assembled_inputs.nullifiers,
             output_hashes: &assembled_outputs.output_hashes,
@@ -198,9 +249,30 @@ pub fn anonymous_signer_pk_hashes(
     Ok(signers)
 }
 
+/// The account every withdrawal of the transaction leaves to, `None` without one.
+pub fn anonymous_exit_destination(
+    external_data: &ExternalData,
+) -> Result<Option<Address>, ClientError> {
+    let withdrawals = external_data
+        .interface_transfers
+        .iter()
+        .filter(|transfer| !transfer.is_deposit())
+        .map(|transfer| match transfer {
+            SettlementTransfer::Sol {
+                user_sol_account, ..
+            } => user_sol_account.as_array(),
+            SettlementTransfer::Spl { user_spl_token, .. } => user_spl_token.as_array(),
+        });
+    Ok(AnonymousParties::exit_destination(withdrawals)?.map(|exit| Address::new_from_array(*exit)))
+}
+
 pub(crate) struct AnonymousAuthorizationPreparation<'a> {
     pub inputs: &'a [TransferInputUtxo],
-    pub owner: &'a SigningKey,
+    pub owner: &'a HiddenOwnerAuthorization,
+    pub ring_program_id: &'a Address,
+    pub payer: &'a Address,
+    pub cosigner: Option<&'a Address>,
+    pub external_data: &'a ExternalData,
     pub private_tx: &'a [u8; 32],
     pub external_data_hash: &'a [u8; 32],
     pub published_owners: &'a [[u8; 32]],
@@ -213,13 +285,12 @@ pub(crate) struct PreparedAnonymousAuthorization {
 
 impl AnonymousAuthorizationPreparation<'_> {
     pub fn prepare(self) -> Result<PreparedAnonymousAuthorization, ClientError> {
-        let owner = self.owner.pubkey();
-        let owner_public_key = owner.as_ed25519()?;
+        let owner = self.owner.owner();
         // The hidden identity is published only when a default-ring UTXO of the
         // hidden owner is spent. A ring-bound hidden spend is anonymous, so it may
         // not coexist with a default-ring spend and no published output owner may
         // name the identity while it happens.
-        let owner_pk_hash = solana_owner_identity(&owner_public_key)?;
+        let owner_pk_hash = owner.owner_proof_input_hash()?;
         let spends = hidden_spend_rings(self.inputs, &owner);
         if !spends.default_ring && !spends.bound_ring {
             return Err(ClientError::AnonymousProofWithoutHiddenInput);
@@ -236,19 +307,29 @@ impl AnonymousAuthorizationPreparation<'_> {
                 return Err(ClientError::AnonymousRingEddsaPublishedOwnerLeaksIdentity { index });
             }
         }
-        let default_owner_tag = spends.default_ring.then_some(owner_public_key);
+        let default_owner_tag = spends.default_ring.then_some(self.owner.public_key);
         let default_owner_pk_hash = match default_owner_tag {
             Some(_) => owner_pk_hash,
             None => [0u8; 32],
         };
         let message_digest = transact_message_hash(self.private_tx, self.external_data_hash);
+        self.owner.verify(self.ring_program_id, &message_digest)?;
+        let exit_destination = anonymous_exit_destination(self.external_data)?;
+        let parties = AnonymousParties {
+            payer: self.payer.as_array(),
+            cosigner: self.cosigner.map(Address::as_array),
+            exit_destination: exit_destination.as_ref().map(Address::as_array),
+        }
+        .identities()?;
 
         Ok(PreparedAnonymousAuthorization {
             authorization: AnonymousEddsaAuthorization {
-                owner_public_key,
-                owner_signature: self.owner.sign_message(&message_digest)?,
+                owner_public_key: self.owner.public_key,
+                owner_signature: self.owner.signature,
+                ring_program_address: *self.ring_program_id.as_array(),
                 message_digest,
                 default_owner_pk_hash,
+                parties,
             },
             default_owner_tag,
         })
@@ -283,25 +364,36 @@ fn hidden_spend_rings(inputs: &[TransferInputUtxo], owner: &PublicKey) -> Hidden
 
 impl AnonymousEddsaAuthorization {
     /// The public input hash fields that follow `private_tx_hash`.
-    pub(crate) fn public_fields(&self) -> Result<[[u8; 32]; 2], ClientError> {
+    pub(crate) fn public_fields(&self) -> Result<[[u8; 32]; 5], ClientError> {
+        let [payer, cosigner, exit_destination] = self.parties;
         Ok([
             hash_bytes(&self.message_digest)?,
             self.default_owner_pk_hash,
+            payer,
+            cosigner,
+            exit_destination,
         ])
     }
 
     /// Encodes the same owner authorization for complete and indexed witnesses.
     pub(crate) fn fields(&self) -> Map<String, Value> {
         let (high, low) = self.message_digest.split_at(16);
+        let [payer, cosigner, exit_destination] = &self.parties;
         [
             ("ownerPublicKey", hex::encode(self.owner_public_key)),
             ("ownerSignature", hex::encode(self.owner_signature)),
+            ("ringProgramAddress", hex::encode(self.ring_program_address)),
             ("messageHashLow", hex::encode(low)),
             ("messageHashHigh", hex::encode(high)),
         ]
         .into_iter()
         .map(|(name, value)| (name, format!("0x{value}")))
-        .chain([("defaultOwnerPkHash", hex_field(&self.default_owner_pk_hash))])
+        .chain([
+            ("defaultOwnerPkHash", hex_field(&self.default_owner_pk_hash)),
+            ("payerPkHash", hex_field(payer)),
+            ("cosignerPkHash", hex_field(cosigner)),
+            ("exitDestinationPkHash", hex_field(exit_destination)),
+        ])
         .map(|(name, value)| (name.to_string(), Value::String(value)))
         .collect()
     }
@@ -362,14 +454,17 @@ mod tests {
             authorization: AnonymousEddsaAuthorization {
                 owner_public_key: [1u8; 32],
                 owner_signature: [2u8; 64],
+                ring_program_address: [5u8; 32],
                 message_digest: core::array::from_fn(|index| index as u8),
                 default_owner_pk_hash: [3u8; 32],
+                parties: [[4u8; 32], [0u8; 32], [6u8; 32]],
             },
         };
         let body: Value = serde_json::from_str(&inputs.body().unwrap()).unwrap();
         assert_eq!(body["circuitType"], "transfer-eddsa-ring");
         assert_eq!(body["ownerPublicKey"], format!("0x{}", "01".repeat(32)));
         assert_eq!(body["ownerSignature"], format!("0x{}", "02".repeat(64)));
+        assert_eq!(body["ringProgramAddress"], format!("0x{}", "05".repeat(32)));
         assert_eq!(
             body["messageHashHigh"],
             "0x000102030405060708090a0b0c0d0e0f"
@@ -378,6 +473,12 @@ mod tests {
         assert_eq!(
             body["defaultOwnerPkHash"],
             format!("0x3{}", "03".repeat(31))
+        );
+        assert_eq!(body["payerPkHash"], format!("0x4{}", "04".repeat(31)));
+        assert_eq!(body["cosignerPkHash"], "0x0");
+        assert_eq!(
+            body["exitDestinationPkHash"],
+            format!("0x6{}", "06".repeat(31))
         );
         assert_eq!(body["publishedOutputOwnerPkHashes"][0], "0xe");
 
@@ -388,5 +489,34 @@ mod tests {
         for key in request.keys() {
             assert!(body.get(key).is_some(), "{key}");
         }
+    }
+
+    /// The signature binds the ring, the digest and the owner key.
+    #[test]
+    fn hidden_owner_authorization_verifies_only_its_own_message() {
+        let owner = SigningKey::from_ed25519_bytes(&[7u8; 32]);
+        let ring = Address::new_from_array([0x5A; 32]);
+        let digest = [9u8; 32];
+        let authorization = HiddenOwnerAuthorization::sign(&owner, &ring, &digest).unwrap();
+        authorization.verify(&ring, &digest).unwrap();
+        assert!(matches!(
+            authorization.verify(&Address::new_from_array([0x5B; 32]), &digest),
+            Err(ClientError::AnonymousSpendSignatureInvalid)
+        ));
+        assert!(matches!(
+            authorization.verify(&ring, &[8u8; 32]),
+            Err(ClientError::AnonymousSpendSignatureInvalid)
+        ));
+        let other = HiddenOwnerAuthorization {
+            public_key: SigningKey::from_ed25519_bytes(&[8u8; 32])
+                .pubkey()
+                .as_ed25519()
+                .unwrap(),
+            ..authorization
+        };
+        assert!(matches!(
+            other.verify(&ring, &digest),
+            Err(ClientError::AnonymousSpendSignatureInvalid)
+        ));
     }
 }

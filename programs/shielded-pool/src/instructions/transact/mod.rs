@@ -6,4 +6,4 @@ pub(crate) mod processor;
 pub(crate) mod tree;
 pub(crate) mod verify;
 
-pub use processor::{process_transact_ix, validate_circuit_type};
+pub use processor::{control_cosigner, process_transact_ix, validate_circuit_type};

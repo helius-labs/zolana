@@ -80,8 +80,10 @@ pub fn transact_general_event(
     ) {
         return Err(EventDecodeError::UnsupportedSourceInstruction(source_tag));
     }
-    let ix = TransactIxDataRef::from_bytes(ix_bytes)
-        .map_err(|_| EventDecodeError::InvalidSourceInstructionData)?;
+    // The ring program appends its control tail after the instruction.
+    let ix = TransactIxDataRef::parse_with_tail(ix_bytes)
+        .map_err(|_| EventDecodeError::InvalidSourceInstructionData)?
+        .ix;
     let spl_transfers = settlement_transfers(
         &ix.interface_transfers,
         settlement_accounts(&ix.interface_transfers, ix.circuit, &source.accounts)

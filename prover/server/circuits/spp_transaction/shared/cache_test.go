@@ -466,7 +466,7 @@ func TestCustomRingOptionalCache(t *testing.T) {
 			t.Run(fmt.Sprintf("anonymous_%t/reads_%v", anonymous, reads), func(t *testing.T) {
 				inputs, outputs := defaultBalancedUtxos(t, shape)
 				for i := range inputs {
-					inputs[i].RingProgramID = big.NewInt(0x5A)
+					inputs[i].RingProgramID = testRingProgramID(t)
 				}
 				a := buildCircuitAssignmentFromUtxos(t, shape, inputs, outputs)
 				owner := hiddenOwnerKey(11)

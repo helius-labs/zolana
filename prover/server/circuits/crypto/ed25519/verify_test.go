@@ -47,19 +47,23 @@ func witnessFor(message []byte) *verifyCircuit {
 	}
 	return w
 }
+
+// 32 B is one SHA-512 block, 84 B (the ring spend message) is two.
 func TestVerify(t *testing.T) {
-	cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &verifyCircuit{Message: make([]frontend.Variable, 32)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Logf("32 B message: %d constraints", cs.GetNbConstraints())
-	w := witnessFor(make([]byte, 32))
-	wit, err := frontend.NewWitness(w, ecc.BN254.ScalarField())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := cs.IsSolved(wit); err != nil {
-		t.Fatal(err)
+	for _, length := range []int{32, 84} {
+		cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &verifyCircuit{Message: make([]frontend.Variable, length)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("%d B message: %d constraints", length, cs.GetNbConstraints())
+		w := witnessFor(make([]byte, length))
+		wit, err := frontend.NewWitness(w, ecc.BN254.ScalarField())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := cs.IsSolved(wit); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 

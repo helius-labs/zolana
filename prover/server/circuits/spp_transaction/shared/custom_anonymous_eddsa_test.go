@@ -49,12 +49,42 @@ func compileEddsaRing(t testing.TB, shape protocol.Shape) constraint.ConstraintS
 	return ccs
 }
 
+// testRingProgramAddress is the raw ring program id whose hash_bytes is the
+// anonymous assignments' RingProgramID.
+var testRingProgramAddress = [32]byte(bytes.Repeat([]byte{0x5A}, 32))
+
 type eddsaAuthorization struct {
 	key       [32]byte
 	signature [64]byte
 	low       *big.Int
 	high      *big.Int
 	pkHash    *big.Int
+	parties   eddsaParties
+}
+
+// eddsaParties are the public identities the hidden owner must differ from, nil is absent.
+type eddsaParties struct {
+	payer    *big.Int
+	cosigner *big.Int
+	exit     *big.Int
+}
+
+func (p eddsaParties) fields() []*big.Int {
+	fields := make([]*big.Int, 0, 3)
+	for _, party := range []*big.Int{p.payer, p.cosigner, p.exit} {
+		if party == nil {
+			party = big.NewInt(0)
+		}
+		fields = append(fields, party)
+	}
+	return fields
+}
+
+// testRingProgramID is the public ring id the circuit opens from the signed message.
+func testRingProgramID(t testing.TB) *big.Int {
+	t.Helper()
+	ringID, err := protocol.HashBytes(testRingProgramAddress[:])
+	return spptest.MustHash(t, ringID, err)
 }
 
 func (a eddsaAuthorization) digest() [32]byte {
@@ -84,6 +114,9 @@ func asCustomRingAnonymousEddsa(a *testAssignment, authorization eddsaAuthorizat
 			MessageHashLow:               authorization.low,
 			MessageHashHigh:              authorization.high,
 			DefaultOwnerPkHash:           defaultOwnerPkHash(a, authorization.pkHash),
+			PayerPkHash:                  authorization.parties.fields()[0],
+			CosignerPkHash:               authorization.parties.fields()[1],
+			ExitDestinationPkHash:        authorization.parties.fields()[2],
 			ExternalDataHash:             a.ExternalDataHash,
 			PublicAssets:                 a.PublicAssets,
 			PublicAmounts:                a.PublicAmounts,
@@ -107,6 +140,9 @@ func asCustomRingAnonymousEddsa(a *testAssignment, authorization eddsaAuthorizat
 	}
 	for i, b := range authorization.signature {
 		c.Private.OwnerSignature[i] = b
+	}
+	for i, b := range testRingProgramAddress {
+		c.Private.RingProgramAddress[i] = b
 	}
 	return c
 }
@@ -183,15 +219,28 @@ func authorizeEddsaKey(
 	signingPrivate ed25519.PrivateKey,
 ) eddsaAuthorization {
 	t.Helper()
+	return authorizeEddsaParties(t, assignment, key, signingPrivate, eddsaParties{})
+}
+
+// authorizeEddsaParties signs the ring spend message and publishes parties.
+func authorizeEddsaParties(
+	t testing.TB,
+	assignment *testAssignment,
+	key [32]byte,
+	signingPrivate ed25519.PrivateKey,
+	parties eddsaParties,
+) eddsaAuthorization {
+	t.Helper()
 	digest := eddsaDigest(assignment)
 	authorization := eddsaAuthorization{
-		key:    key,
-		low:    new(big.Int).SetBytes(digest[16:]),
-		high:   new(big.Int).SetBytes(digest[:16]),
-		pkHash: hiddenOwnerIdentity(t, key),
+		key:     key,
+		low:     new(big.Int).SetBytes(digest[16:]),
+		high:    new(big.Int).SetBytes(digest[:16]),
+		pkHash:  hiddenOwnerIdentity(t, key),
+		parties: parties,
 	}
-	copy(authorization.signature[:], ed25519.Sign(signingPrivate, digest[:]))
-	refreshCustomRingAnonymousEddsaPublicInputHash(t, assignment, digest, authorization.pkHash)
+	copy(authorization.signature[:], ed25519.Sign(signingPrivate, protocol.RingSpendMessage(testRingProgramAddress, digest)))
+	refreshCustomRingAnonymousEddsaPublicInputHash(t, assignment, digest, authorization.pkHash, parties)
 	return authorization
 }
 
@@ -200,6 +249,7 @@ func refreshCustomRingAnonymousEddsaPublicInputHash(
 	assignment *testAssignment,
 	messageDigest [32]byte,
 	hiddenOwnerPkHash *big.Int,
+	parties eddsaParties,
 ) {
 	t.Helper()
 	refreshCustomRingAnonymousEddsaPublicInputHashWithOwner(
@@ -207,6 +257,7 @@ func refreshCustomRingAnonymousEddsaPublicInputHash(
 		assignment,
 		messageDigest,
 		defaultOwnerPkHash(assignment, hiddenOwnerPkHash),
+		parties,
 	)
 }
 
@@ -218,20 +269,21 @@ func refreshCustomRingAnonymousEddsaPublicInputHashWithOwner(
 	assignment *testAssignment,
 	messageDigest [32]byte,
 	publishedOwner *big.Int,
+	parties eddsaParties,
 ) {
 	t.Helper()
 	messageHash, err := protocol.HashBytes(messageDigest[:])
 	if err != nil {
 		t.Fatalf("message hash: %v", err)
 	}
-	// The anonymous rail inserts the signed message hash and the published
-	// default owner right after private_tx_hash; every other element is the
-	// shared preimage.
+	// The anonymous rail inserts the signed message hash, the published
+	// default owner and the payer, co-signer and exit identities right after
+	// private_tx_hash; every other element is the shared preimage.
 	inputs := protocol.PublicInputs{
 		Nullifiers:                 spptest.ToBigInts(assignment.InputNullifiers()),
 		OutputUtxoHashes:           spptest.ToBigInts(assignment.OutputHashes()),
 		PrivateTxHash:              spptest.AsBigInt(assignment.PrivateTxHash),
-		PreimageAfterPrivateTxHash: []*big.Int{messageHash, publishedOwner},
+		PreimageAfterPrivateTxHash: append([]*big.Int{messageHash, publishedOwner}, parties.fields()...),
 		ExternalDataHash:           spptest.AsBigInt(assignment.ExternalDataHash),
 		RingProgramID:              spptest.AsBigInt(assignment.RingProgramID),
 		SignerPkHashes:             spptest.ToBigInts(assignment.TransactionSignerPkHashes()),
@@ -324,19 +376,27 @@ func TestCustomRingAnonymousEddsaPublicInputHashBindsEveryField(t *testing.T) {
 
 	messageDigest := authorization.digest()
 	refreshHash := func() {
-		refreshCustomRingAnonymousEddsaPublicInputHash(t, assignment, messageDigest, authorization.pkHash)
+		refreshCustomRingAnonymousEddsaPublicInputHash(t, assignment, messageDigest, authorization.pkHash, eddsaParties{})
+	}
+	party := func(name string, parties eddsaParties) publicInputHashMutation {
+		return publicInputHashMutation{name: name, run: func() {
+			refreshCustomRingAnonymousEddsaPublicInputHash(t, assignment, messageDigest, authorization.pkHash, parties)
+		}}
 	}
 	extraMutations := []publicInputHashMutation{
 		{name: "message_hash_low", run: func() {
 			changed := messageDigest
 			changed[31] ^= 1
-			refreshCustomRingAnonymousEddsaPublicInputHash(t, assignment, changed, authorization.pkHash)
+			refreshCustomRingAnonymousEddsaPublicInputHash(t, assignment, changed, authorization.pkHash, eddsaParties{})
 		}},
 		{name: "message_hash_high", run: func() {
 			changed := messageDigest
 			changed[0] ^= 1
-			refreshCustomRingAnonymousEddsaPublicInputHash(t, assignment, changed, authorization.pkHash)
+			refreshCustomRingAnonymousEddsaPublicInputHash(t, assignment, changed, authorization.pkHash, eddsaParties{})
 		}},
+		party("payer_pk_hash", eddsaParties{payer: testPayerPkHash()}),
+		party("cosigner_pk_hash", eddsaParties{cosigner: testPayerPkHash()}),
+		party("exit_destination_pk_hash", eddsaParties{exit: testPayerPkHash()}),
 		{name: "default_owner_pk_hash", run: func() {
 			original := assignment.Inputs[0].Utxo.RingProgramID
 			assignment.Inputs[0].Utxo.RingProgramID = assignment.RingProgramID
@@ -606,7 +666,7 @@ func claimingPublishedOwner(
 	authorization eddsaAuthorization,
 ) frontend.Circuit {
 	t.Helper()
-	refreshCustomRingAnonymousEddsaPublicInputHashWithOwner(t, assignment, authorization.digest(), authorization.pkHash)
+	refreshCustomRingAnonymousEddsaPublicInputHashWithOwner(t, assignment, authorization.digest(), authorization.pkHash, authorization.parties)
 	circuit := asCustomRingAnonymousEddsa(assignment, authorization)
 	circuit.Public.DefaultOwnerPkHash = authorization.pkHash
 	return circuit
@@ -676,7 +736,7 @@ func TestCustomRingAnonymousEddsaRejectsBadMessageHash(t *testing.T) {
 	rewriteInputAsHiddenOwner(t, assignment, 0, owner)
 	authorization := authorizeEddsa(t, assignment, owner, owner)
 	authorization.low = new(big.Int).Add(authorization.low, big.NewInt(1))
-	refreshCustomRingAnonymousEddsaPublicInputHash(t, assignment, authorization.digest(), authorization.pkHash)
+	refreshCustomRingAnonymousEddsaPublicInputHash(t, assignment, authorization.digest(), authorization.pkHash, authorization.parties)
 
 	checkCachedWitness(t, compileEddsaRing(t, shape), asCustomRingAnonymousEddsa(assignment, authorization), false)
 }
@@ -788,13 +848,68 @@ func TestCustomRingAnonymousEddsaRejectsTorsionAndNonCanonicalKeys(t *testing.T)
 			ccs := compileEddsaRing(t, shape)
 			a := eddsaRingAssignment(t, shape, hiddenOwnerIdentity(t, tc.key))
 			auth := authorizeEddsaKey(t, a, tc.key, owner)
-			digest := auth.digest()
-			auth.signature = lenientSignature(tc.key, tc.secret, tc.order, digest[:])
-			if !ed25519.Verify(tc.key[:], digest[:], auth.signature[:]) {
+			message := protocol.RingSpendMessage(testRingProgramAddress, auth.digest())
+			auth.signature = lenientSignature(tc.key, tc.secret, tc.order, message)
+			if !ed25519.Verify(tc.key[:], message, auth.signature[:]) {
 				t.Fatal("crypto/ed25519 rejects the forged signature, so the case proves nothing")
 			}
 			checkCachedWitness(t, ccs, asCustomRingAnonymousEddsa(a, auth), false)
 		})
+	}
+}
+
+// The payer left the signer vector, so the rail names it separately. A
+// member that pays, co-signs or receives the public exit would link itself.
+func TestCustomRingAnonymousEddsaRejectsOwnerAsPublicParty(t *testing.T) {
+	ccs, _, owner := honestEddsaRing(t)
+	identity := hiddenOwnerIdentity(t, publicKeyBytes(owner))
+	other := testPayerPkHash()
+	cases := map[string]struct {
+		parties eddsaParties
+		valid   bool
+	}{
+		"distinct parties": {eddsaParties{payer: other, cosigner: other, exit: other}, true},
+		"owner pays":       {eddsaParties{payer: identity}, false},
+		"owner co-signs":   {eddsaParties{payer: other, cosigner: identity}, false},
+		"owner exits":      {eddsaParties{payer: other, exit: identity}, false},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, a, _ := honestEddsaRing(t)
+			auth := authorizeEddsaParties(t, a, publicKeyBytes(owner), owner, tc.parties)
+			checkCachedWitness(t, ccs, asCustomRingAnonymousEddsa(a, auth), tc.valid)
+		})
+	}
+}
+
+// The signed message names the ring, a signature for another ring or over the
+// bare digest spends nothing here.
+func TestCustomRingAnonymousEddsaRejectsForeignSpendMessage(t *testing.T) {
+	ccs, a, owner := honestEddsaRing(t)
+	auth := authorizeEddsa(t, a, owner, owner)
+	checkCachedWitness(t, ccs, asCustomRingAnonymousEddsa(a, auth), true)
+
+	foreign := asCustomRingAnonymousEddsa(a, auth)
+	foreign.Private.RingProgramAddress[31] = testRingProgramAddress[31] ^ 1
+	checkCachedWitness(t, ccs, foreign, false)
+
+	digest := auth.digest()
+	bare := auth
+	copy(bare.signature[:], ed25519.Sign(owner, digest[:]))
+	checkCachedWitness(t, ccs, asCustomRingAnonymousEddsa(a, bare), false)
+
+	otherRing := auth
+	var address [32]byte
+	copy(address[:], testRingProgramAddress[:])
+	address[0] ^= 1
+	copy(otherRing.signature[:], ed25519.Sign(owner, protocol.RingSpendMessage(address, digest)))
+	checkCachedWitness(t, ccs, asCustomRingAnonymousEddsa(a, otherRing), false)
+}
+
+func TestCustomRingAnonymousEddsaConstraintCount(t *testing.T) {
+	for _, shape := range []protocol.Shape{{NInputs: 1, NOutputs: 2}, {NInputs: 2, NOutputs: 2}} {
+		ccs := compileEddsaRing(t, shape)
+		t.Logf("anonymous %dx%d: %d constraints", shape.NInputs, shape.NOutputs, ccs.GetNbConstraints())
 	}
 }
 
@@ -852,6 +967,9 @@ func eddsaRequestParameters(c *customring.CustomRingAnonymousEddsaCircuit) *tran
 		MessageHashLow:               value(c.Public.MessageHashLow),
 		MessageHashHigh:              value(c.Public.MessageHashHigh),
 		DefaultOwnerPkHash:           value(c.Public.DefaultOwnerPkHash),
+		PayerPkHash:                  value(c.Public.PayerPkHash),
+		CosignerPkHash:               value(c.Public.CosignerPkHash),
+		ExitDestinationPkHash:        value(c.Public.ExitDestinationPkHash),
 		PublicAssets:                 values(c.Public.PublicAssets[:]),
 		PublicAmounts:                values(c.Public.PublicAmounts[:]),
 		RingProgramID:                value(c.Public.RingProgramID),
@@ -872,6 +990,9 @@ func eddsaRequestParameters(c *customring.CustomRingAnonymousEddsaCircuit) *tran
 	}
 	for i := range p.OwnerSignature {
 		p.OwnerSignature[i] = c.Private.OwnerSignature[i].(byte)
+	}
+	for i := range p.RingProgramAddress {
+		p.RingProgramAddress[i] = c.Private.RingProgramAddress[i].(byte)
 	}
 	for _, slot := range c.Public.TreeSlots {
 		p.TreeSlots = append(p.TreeSlots, common.TreeSlotParams{

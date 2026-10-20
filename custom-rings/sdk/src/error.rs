@@ -130,6 +130,8 @@ pub enum RingError {
     AnonymousSignerMismatch,
     #[error("public transaction signers must differ from the hidden owner")]
     AnonymousPublicSignerLinksOwner,
+    #[error("the hidden owner's signer refused the ring spend message")]
+    AnonymousSpendSignature,
     #[error("anonymous transfers require uncached Ed25519 ring notes and noncompact inputs")]
     InvalidAnonymousSlot,
     #[error("the anonymous rail has no keys for this transaction shape")]

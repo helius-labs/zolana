@@ -250,7 +250,9 @@ fn rejects_retired_field_bearing_payload() {
         c: [3u8; 32],
     });
     let current = owned.serialize().unwrap();
-    let (_, prefix) = TransactIxDataRef::parse_with_external_data_prefix(&current).unwrap();
+    let prefix = TransactIxDataRef::parse_with_tail(&current)
+        .unwrap()
+        .external_data_prefix;
     let field_offset = prefix.len() + 32 + 5;
     let mut retired = Vec::with_capacity(current.len() + 33);
     retired.extend_from_slice(&current[..field_offset]);

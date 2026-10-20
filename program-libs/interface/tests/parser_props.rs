@@ -277,11 +277,11 @@ proptest! {
         let mut buffer = leading;
         buffer.extend_from_slice(&bytes);
         let data = buffer.get(start..).expect("instruction in buffer");
-        let (view, parsed_prefix) = TransactIxDataRef::parse_with_external_data_prefix(data)
-            .expect("parse valid encoding");
-        prop_assert_eq!(parsed_prefix, prefix);
-        prop_assert!(core::ptr::eq(parsed_prefix.as_ptr(), data.as_ptr()));
-        assert_ref_matches_owned(&view, &owned)?;
+        let parsed = TransactIxDataRef::parse_with_tail(data).expect("parse valid encoding");
+        prop_assert_eq!(parsed.external_data_prefix, prefix);
+        prop_assert!(core::ptr::eq(parsed.external_data_prefix.as_ptr(), data.as_ptr()));
+        prop_assert!(parsed.tail.is_empty());
+        assert_ref_matches_owned(&parsed.ix, &owned)?;
     }
 
     /// Truncating or extending a valid `transact` encoding never panics, and
@@ -301,14 +301,17 @@ proptest! {
             let cut_at = cut.index(bytes.len());
             let truncated = bytes.get(..cut_at).unwrap_or_default();
             prop_assert!(TransactIxData::deserialize(truncated).is_err());
-            prop_assert!(TransactIxDataRef::parse_with_external_data_prefix(truncated).is_err());
+            prop_assert!(TransactIxDataRef::parse_with_tail(truncated).is_err());
         }
 
-        // A trailing byte violates the exact-length contract of `deserialize`.
+        // A trailing byte violates the exact-length contract of `deserialize`,
+        // the tail-tolerant view returns it as the ring program's control tail.
         let mut extended = bytes.clone();
         extended.push(trailing);
         prop_assert!(TransactIxData::deserialize(&extended).is_err());
-        prop_assert!(TransactIxDataRef::parse_with_external_data_prefix(&extended).is_err());
+        prop_assert!(TransactIxDataRef::from_bytes(&extended).is_err());
+        let parsed = TransactIxDataRef::parse_with_tail(&extended).expect("tail-tolerant parse");
+        prop_assert_eq!(parsed.tail, &[trailing][..]);
 
         // A flipped byte may decode to a different message or fail; it must
         // never panic.

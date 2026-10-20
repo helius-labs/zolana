@@ -24,7 +24,7 @@ use zolana_ring_policy::ring_id_field;
 
 use crate::{
     instructions::{
-        cosign::{approval_cosigner, demanded_cosigner},
+        cosign::{approval_cosigner, configured_cosigner, demanded_cosigner},
         loader::{
             load, load_audited_config, load_curator_root, load_registry_root, validate_spp_program,
             AuditedConfig,
@@ -118,6 +118,12 @@ impl Rail {
             return Err(CustomRingError::UnexpectedApproval.into());
         }
 
+        // SPP binds the configured co-signer into the anonymous proof, the circuit
+        // proves it distinct from the hidden owner.
+        let control_tail = match config.mode {
+            RingMode::Anonymous => Some(configured_cosigner(program_id, controls.cosigner_pda)?),
+            RingMode::Off | RingMode::Registry => None,
+        };
         let spp_accounts = rest.remaining_mut()?;
         let legs = self.authorize_accounts(config.mode, transact, spp_accounts)?;
         Self::authorize_cosigner(program_id, controls, approval_required, &legs)?;
@@ -134,7 +140,7 @@ impl Rail {
         }
         .verify()?;
 
-        self.forward_spp(program_id, spp_accounts, transact)
+        self.forward_spp(program_id, spp_accounts, transact, control_tail)
     }
 
     /// Check the original instruction's signer bits before the ring PDA signs
@@ -215,6 +221,7 @@ impl Rail {
         program_id: &Address,
         spp_accounts: &[AccountView],
         transact: &TransactIxData,
+        control_tail: Option<Address>,
     ) -> ProgramResult {
         let mut instruction_data = vec![self.spp_tag()];
         instruction_data.extend_from_slice(
@@ -222,6 +229,9 @@ impl Rail {
                 .serialize()
                 .map_err(|_| CustomRingError::InvalidInstructionData)?,
         );
+        if let Some(cosigner) = control_tail {
+            instruction_data.extend_from_slice(cosigner.as_array());
+        }
         cpi_spp(program_id, spp_accounts, &instruction_data)
     }
 

@@ -110,8 +110,8 @@ fn external_data_is_the_serialized_head_of_the_instruction() {
     let prefix = prefix_of(&TransactExternalData::from(&owned));
     assert!(bytes.starts_with(&prefix));
     assert!(prefix.len() < bytes.len());
-    let (_, parsed_prefix) = TransactIxDataRef::parse_with_external_data_prefix(&bytes).unwrap();
-    assert_eq!(parsed_prefix, prefix.as_slice());
+    let parsed = TransactIxDataRef::parse_with_tail(&bytes).unwrap();
+    assert_eq!(parsed.external_data_prefix, prefix.as_slice());
 }
 
 #[test]

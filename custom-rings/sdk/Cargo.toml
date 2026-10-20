@@ -8,6 +8,8 @@ publish = false
 proofs = ["zolana-client/proofs"]
 
 [dependencies]
+async-trait = { workspace = true }
+ed25519-dalek = { workspace = true }
 zolana-event.workspace = true
 borsh = { workspace = true }
 num-bigint = { workspace = true }
@@ -48,7 +50,6 @@ zolana-tree = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 zolana-api = { workspace = true }
 zolana-client = { workspace = true, features = ["solana-rpc"] }
-async-trait = { workspace = true }
 http = { workspace = true }
 curve25519-dalek = "4.1"
 sha2 = { workspace = true }

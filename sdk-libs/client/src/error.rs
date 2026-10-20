@@ -477,6 +477,9 @@ pub enum ClientError {
     )]
     AnonymousRingEddsaPublishedOwnerLeaksIdentity { index: usize },
 
+    #[error("the hidden owner's signature does not verify over this ring's spend message")]
+    AnonymousSpendSignatureInvalid,
+
     #[error(
         "input {index} is not a real input_utxo, and this transaction forbids dummy input slots"
     )]

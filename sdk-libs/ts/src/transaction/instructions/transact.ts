@@ -636,6 +636,18 @@ export function transactMessageHash(privateTxHash: Bytes32, externalDataHash: By
   );
 }
 
+/** Domain separation, no other message the owner key signs starts with it. */
+export const RING_SPEND_MESSAGE_PREFIX = new TextEncoder().encode("zolana ring spend v1");
+
+/** The bytes a hidden owner signs, the ring address keeps the signature from spending in another ring. */
+export function ringSpendMessage(ringProgramId: Address, messageDigest: Bytes32): Uint8Array {
+  return concat(
+    RING_SPEND_MESSAGE_PREFIX,
+    decodeAddress(ringProgramId),
+    checked<Bytes32>(messageDigest, 32, "message digest"),
+  );
+}
+
 /** Refuses with `code` the first slot that is not `padding` after one that is. */
 function checkPaddingLast<Slot>(
   slots: readonly Slot[],

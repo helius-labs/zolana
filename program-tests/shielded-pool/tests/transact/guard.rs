@@ -491,8 +491,9 @@ fn transact_rejects_a_malformed_wincode_payload() {
         );
     }
     let payload = template.data.get(1..).expect("instruction payload");
-    let (_, external_data_prefix) =
-        TransactIxDataRef::parse_with_external_data_prefix(payload).expect("template parses");
+    let external_data_prefix = TransactIxDataRef::parse_with_tail(payload)
+        .expect("template parses")
+        .external_data_prefix;
     let mut bad_tag = template.data.clone();
     let circuit_tag_offset = 1 + external_data_prefix.len() + 32;
     *bad_tag

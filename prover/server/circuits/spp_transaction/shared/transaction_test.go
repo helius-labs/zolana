@@ -476,7 +476,7 @@ func buildCircuitAssignmentExact(
 		PublicAmounts:    signedAmounts,
 		// Nonzero test ring id: the custom-ring circuits assert RingProgramID
 		// != 0; the default-ring refresh overrides it back to 0.
-		RingProgramID:       spptest.Fe(0x5A),
+		RingProgramID:       testRingProgramID(t),
 		InputFlags:          testInputFlags(t, true, inputTreeSlots),
 		SignerPkHashes:      signerPkHashes,
 		BindOutputOwnerTags: true,

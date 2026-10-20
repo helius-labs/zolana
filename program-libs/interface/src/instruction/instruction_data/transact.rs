@@ -5,7 +5,7 @@ pub use zolana_event::{
     ring_anonymous_encrypted_output_body, ring_confidential_encrypted_output_body, MessageData,
     OutputUtxo,
 };
-use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
+use zolana_hasher::{primitives::solana_owner_identity, sha256::Sha256BE, Hasher, HasherError};
 
 pub use crate::verifying_keys::{
     AnonymousRingEddsaProofData, Bsb22Commitment, CacheAccess, CacheWrite, CircuitId,
@@ -317,13 +317,57 @@ pub struct TransactIxDataRef<'a> {
     pub tree_contexts: Vec<TreeContext>,
 }
 
+/// The public parties an anonymous spend proves distinct from its hidden owner.
+pub struct AnonymousParties<'a> {
+    pub payer: &'a [u8; 32],
+    /// The ring's configured co-signer, the zero address or `None` without one.
+    pub cosigner: Option<&'a [u8; 32]>,
+    pub exit_destination: Option<&'a [u8; 32]>,
+}
+
+impl AnonymousParties<'_> {
+    /// Every withdrawal leaves to one account, `None` without a withdrawal.
+    pub fn exit_destination<'a>(
+        mut withdrawals: impl Iterator<Item = &'a [u8; 32]>,
+    ) -> Result<Option<&'a [u8; 32]>, ShieldedPoolError> {
+        let exit = withdrawals.next();
+        if withdrawals.any(|destination| Some(destination) != exit) {
+            return Err(ShieldedPoolError::AnonymousExitDestinationsDiffer);
+        }
+        Ok(exit)
+    }
+
+    /// Payer, co-signer, exit destination as Solana owner identities, zero when absent.
+    pub fn identities(&self) -> Result<[[u8; 32]; 3], HasherError> {
+        let identity = |party: Option<&[u8; 32]>| match party {
+            Some(address) if *address != [0u8; 32] => solana_owner_identity(address),
+            _ => Ok([0u8; 32]),
+        };
+        Ok([
+            identity(Some(self.payer))?,
+            identity(self.cosigner)?,
+            identity(self.exit_destination)?,
+        ])
+    }
+}
+
+/// A decoded transact instruction with the two byte ranges around it.
+pub struct ParsedTransactIxData<'a> {
+    pub ix: TransactIxDataRef<'a>,
+    /// The bytes before `private_tx_hash`, the first field outside the external data.
+    pub external_data_prefix: &'a [u8],
+    /// The bytes after the instruction, the ring program's control tail.
+    pub tail: &'a [u8],
+}
+
 impl<'a> TransactIxDataRef<'a> {
-    /// Decode once and borrow the bytes before `private_tx_hash`, the first
-    /// field outside the external-data prefix. Its reference points directly
-    /// into `data`, so the boundary needs no separate schema or size calculation.
-    pub fn parse_with_external_data_prefix(data: &'a [u8]) -> Result<(Self, &'a [u8]), ReadError> {
-        let parsed = Self::from_bytes(data)?;
-        let external_data_prefix = parsed
+    /// Decode once and borrow the bytes before `private_tx_hash`. Its reference
+    /// points directly into `data`, so the boundary needs no separate schema or
+    /// size calculation.
+    pub fn parse_with_tail(data: &'a [u8]) -> Result<ParsedTransactIxData<'a>, ReadError> {
+        let mut rest = data;
+        let ix = <Self as SchemaRead<'a, RefConfig>>::get(&mut rest)?;
+        let external_data_prefix = ix
             .private_tx_hash
             .as_ptr()
             .addr()
@@ -332,7 +376,11 @@ impl<'a> TransactIxDataRef<'a> {
             .ok_or(ReadError::Custom(
                 "external data prefix is outside instruction data",
             ))?;
-        Ok((parsed, external_data_prefix))
+        Ok(ParsedTransactIxData {
+            ix,
+            external_data_prefix,
+            tail: rest,
+        })
     }
 
     pub fn from_bytes(data: &'a [u8]) -> Result<Self, ReadError> {

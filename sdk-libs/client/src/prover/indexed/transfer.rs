@@ -7,7 +7,10 @@ use crate::{
     prover::{
         field::{be, right_align_slice},
         json::{output_to_json, utxo_to_json, OutputParamsJson, UtxoParamsJson},
-        transact::assembly::{assemble_outputs, input_utxos_from_nullifiers, PublicInputs},
+        transact::{
+            anonymous_ring_eddsa::HiddenOwnerAuthorization,
+            assembly::{assemble_outputs, input_utxos_from_nullifiers, PublicInputs},
+        },
         verify::TransferProofStatement,
         ExpectedProvingKey, Proof, ProofCompressed, ProofInputUtxo, TransferInput,
     },
@@ -27,20 +30,22 @@ use zolana_transaction::{
     },
 };
 
-pub enum IndexedTransferRail<'a> {
+pub enum IndexedTransferRail {
     Confidential,
     Ring(solana_address::Address),
     RingAuthority(solana_address::Address),
-    /// Keeps the owner off chain while signing the exact root-independent statement.
+    /// Keeps the owner off chain, its signature covers the root-independent statement.
     AnonymousRingEddsa {
         ring: solana_address::Address,
-        owner: &'a zolana_keypair::SigningKey,
+        owner: HiddenOwnerAuthorization,
+        /// The ring's configured co-signer, `None` without one.
+        cosigner: Option<solana_address::Address>,
     },
 }
 
-pub struct IndexedTransferPreparation<'a> {
+pub struct IndexedTransferPreparation {
     pub transaction: SppProofInputs,
-    pub rail: IndexedTransferRail<'a>,
+    pub rail: IndexedTransferRail,
 }
 
 pub struct PreparedIndexedTransfer {
@@ -55,7 +60,7 @@ pub struct ProvenIndexedTransfer {
     pub proof: ProofCompressed,
 }
 
-impl IndexedTransferPreparation<'_> {
+impl IndexedTransferPreparation {
     pub fn prepare(
         self,
         authority: &dyn ProofAuthority,
@@ -105,7 +110,7 @@ impl IndexedTransferPreparation<'_> {
         )?;
         let authority_rail = matches!(rail, IndexedTransferRail::RingAuthority(_));
         let hidden_owner = match &rail {
-            IndexedTransferRail::AnonymousRingEddsa { owner, .. } => Some(owner.pubkey()),
+            IndexedTransferRail::AnonymousRingEddsa { owner, .. } => Some(owner.owner()),
             _ => None,
         };
         let ring = match &rail {
@@ -244,10 +249,18 @@ impl IndexedTransferPreparation<'_> {
             IndexedTransferRail::RingAuthority(_) => None,
         };
         let anonymous = match &rail {
-            IndexedTransferRail::AnonymousRingEddsa { owner, .. } => Some(
+            IndexedTransferRail::AnonymousRingEddsa {
+                ring,
+                owner,
+                cosigner,
+            } => Some(
                 crate::prover::transact::anonymous_ring_eddsa::AnonymousAuthorizationPreparation {
                     inputs: &proof_inputs,
                     owner,
+                    ring_program_id: ring,
+                    payer: &transaction.payer,
+                    cosigner: cosigner.as_ref(),
+                    external_data: &transaction.external_data,
                     private_tx: &private_tx,
                     external_data_hash: &external_hash,
                     published_owners: owners.as_deref().unwrap_or_default(),
@@ -819,6 +832,12 @@ mod tests {
                     )
                 }
                 3 => {
+                    let authorization = HiddenOwnerAuthorization::sign(
+                        &owner.signing_key,
+                        &ring.unwrap(),
+                        &transaction.message_hash().unwrap(),
+                    )
+                    .unwrap();
                     let result = crate::prover::transact::AnonymousRingEddsaProver {
                         inputs,
                         outputs: transaction.output_utxos.clone(),
@@ -828,8 +847,10 @@ mod tests {
                         public_transfers,
                         signer_pk_hashes: vec![[0; 32]; shape.signer_width()],
                         allow_dummy_inputs,
-                        owner: &owner.signing_key,
-                        ring_program_id: ring,
+                        owner: authorization.clone(),
+                        payer: transaction.payer,
+                        cosigner: None,
+                        ring_program_id: ring.unwrap(),
                         shape,
                     }
                     .build()
@@ -837,7 +858,8 @@ mod tests {
                     (
                         IndexedTransferRail::AnonymousRingEddsa {
                             ring: ring.unwrap(),
-                            owner: &owner.signing_key,
+                            owner: authorization,
+                            cosigner: None,
                         },
                         result.inputs.transfer.public_input_hash,
                     )
@@ -877,13 +899,22 @@ mod tests {
         let owner = ShieldedKeypair::new_ed25519().unwrap();
         let ring = Address::new_from_array([9; 32]);
         let transaction = fixture(&owner, Some(ring), 2);
-        let prepare = |transaction| {
+        let authorize = |transaction: &SppProofInputs| {
+            HiddenOwnerAuthorization::sign(
+                &owner.signing_key,
+                &ring,
+                &transaction.message_hash().unwrap(),
+            )
+            .unwrap()
+        };
+        let prepare = |transaction: SppProofInputs| {
             IndexedTransferPreparation {
-                transaction,
                 rail: IndexedTransferRail::AnonymousRingEddsa {
                     ring,
-                    owner: &owner.signing_key,
+                    owner: authorize(&transaction),
+                    cosigner: None,
                 },
+                transaction,
             }
             .prepare(&owner)
             .unwrap()
@@ -902,7 +933,20 @@ mod tests {
             transaction.check_shape().unwrap().signer_width()
         );
         assert!(signers.iter().all(|signer| signer == &hex_field(&[0; 32])));
-        assert_eq!(prepared.request.data.public_inputs.len(), 19);
+        assert_eq!(prepared.request.data.public_inputs.len(), 22);
+        assert_eq!(
+            witness["payerPkHash"],
+            hex_field(
+                &zolana_hasher::primitives::solana_owner_identity(transaction.payer.as_array())
+                    .unwrap()
+            )
+        );
+        assert_eq!(witness["cosignerPkHash"], "0x0");
+        assert_eq!(witness["exitDestinationPkHash"], "0x0");
+        assert_eq!(
+            witness["ringProgramAddress"],
+            format!("0x{}", hex::encode(ring.as_array()))
+        );
         let digest = zolana_transaction::instructions::transact::transact_message_hash(
             &prepared.private_tx_hash(),
             &transaction.external_data.hash().unwrap(),
@@ -915,7 +959,10 @@ mod tests {
         )
         .unwrap();
         let signature: [u8; 64] = signature.try_into().unwrap();
-        assert!(owner.signing_pubkey().verify_message(&digest, &signature));
+        let message =
+            zolana_transaction::instructions::transact::ring_spend_message(&ring, &digest);
+        assert!(owner.signing_pubkey().verify_message(&message, &signature));
+        assert!(!owner.signing_pubkey().verify_message(&digest, &signature));
         let mut changed = transaction;
         changed.external_data.expiry_unix_ts -= 1;
         assert_ne!(
@@ -934,11 +981,17 @@ mod tests {
             .hash(transaction.output_tree_id)
             .unwrap();
         let prepared = IndexedTransferPreparation {
-            transaction,
             rail: IndexedTransferRail::AnonymousRingEddsa {
                 ring,
-                owner: &owner.signing_key,
+                owner: HiddenOwnerAuthorization::sign(
+                    &owner.signing_key,
+                    &ring,
+                    &transaction.message_hash().unwrap(),
+                )
+                .unwrap(),
+                cosigner: None,
             },
+            transaction,
         }
         .prepare(&owner)
         .unwrap();
@@ -970,13 +1023,19 @@ mod tests {
         let mut transaction = fixture(&owner, Some(ring), 1);
         transaction.cache_accounts.write = Some(Address::new_from_array([12; 32]));
         transaction.output_utxos[0].cache_slot = Some(3);
-        let signature = |transaction| {
+        let signature = |transaction: SppProofInputs| {
             let prepared = IndexedTransferPreparation {
-                transaction,
                 rail: IndexedTransferRail::AnonymousRingEddsa {
                     ring,
-                    owner: &owner.signing_key,
+                    owner: HiddenOwnerAuthorization::sign(
+                        &owner.signing_key,
+                        &ring,
+                        &transaction.message_hash().unwrap(),
+                    )
+                    .unwrap(),
+                    cosigner: None,
                 },
+                transaction,
             }
             .prepare(&owner)
             .unwrap();

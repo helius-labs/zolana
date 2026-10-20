@@ -3,6 +3,7 @@
 
 use std::{collections::HashMap, sync::Arc};
 
+use async_trait::async_trait;
 use custom_ring_interface::{
     anonymous_output_body, anonymous_output_body_hash, RingMode, ANONYMOUS_OUTPUT_PLAINTEXT_LEN,
     ANONYMOUS_RING_SHAPES,
@@ -12,8 +13,8 @@ use zolana_client::{AsyncRpc, Shape, TagReservations, TagStream};
 use zolana_hasher::primitives::{hash_bytes, SOLANA_OWNER_TAG};
 use zolana_interface::instruction::instruction_data::transact::ring_anonymous_encrypted_output_body;
 use zolana_keypair::{
-    viewing_key::ViewTag, Curve, InboxSecret, KeypairError, RingAddress, ShieldedAddress,
-    SigningKey, ViewingKey, X25519Pubkey,
+    viewing_key::ViewTag, Curve, InboxSecret, KeypairError, PublicKey, RingAddress,
+    ShieldedAddress, SigningKey, ViewingKey, X25519Pubkey,
 };
 use zolana_ring_client::{AnonymousDisclosure, AnonymousOutputOpening, AuditInputOpening};
 use zolana_transaction::instructions::transact::{
@@ -26,10 +27,40 @@ use crate::{
     CustomRing, CustomRingConfig, RingError,
 };
 
+/// The hidden owner's Ed25519 key, the signature lives inside the proof so the key may live elsewhere.
+#[async_trait]
+pub trait AnonymousSpendSigner: Send + Sync {
+    fn public_key(&self) -> PublicKey;
+    /// Signs the ring spend message with RFC 8032 Ed25519.
+    async fn sign(&self, message: &[u8]) -> Result<[u8; 64], RingError>;
+}
+
+#[async_trait]
+impl AnonymousSpendSigner for SigningKey {
+    fn public_key(&self) -> PublicKey {
+        self.pubkey()
+    }
+
+    async fn sign(&self, message: &[u8]) -> Result<[u8; 64], RingError> {
+        Ok(self.sign_message(message)?)
+    }
+}
+
+#[async_trait]
+impl AnonymousSpendSigner for ed25519_dalek::SigningKey {
+    fn public_key(&self) -> PublicKey {
+        PublicKey::from_ed25519(self.verifying_key().as_bytes())
+    }
+
+    async fn sign(&self, message: &[u8]) -> Result<[u8; 64], RingError> {
+        Ok(ed25519_dalek::Signer::sign(self, message).to_bytes())
+    }
+}
+
 /// The owner's spends on an anonymous ring, no transaction signer names the owner.
 pub struct Anonymous<'a> {
     pub(super) owner: Owner<'a>,
-    pub(super) signer: &'a SigningKey,
+    pub(super) signer: &'a dyn AnonymousSpendSigner,
     viewing_key: &'a ViewingKey,
     recipients: Vec<AnonymousRecipient>,
     session: Arc<TransactSession>,
@@ -66,7 +97,7 @@ impl<'a> RingTransfer<Owner<'a>> {
     /// The hidden Ed25519 owner an anonymous ring proves, it must be the sender's signing key.
     pub fn with_anonymous_signer(
         self,
-        signer: &'a SigningKey,
+        signer: &'a dyn AnonymousSpendSigner,
         viewing_key: &'a ViewingKey,
     ) -> RingTransfer<Anonymous<'a>> {
         RingTransfer {
@@ -143,7 +174,7 @@ impl Anonymous<'_> {
             return Err(RingError::NotAnonymousRing);
         }
         let sender = self.owner.sender.address()?;
-        if self.signer.pubkey() != sender.signing_pubkey {
+        if self.signer.public_key() != sender.signing_pubkey {
             return Err(RingError::AnonymousSignerMismatch);
         }
         // A public signature by the owner would undo the hiding.

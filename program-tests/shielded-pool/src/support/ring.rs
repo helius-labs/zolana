@@ -16,7 +16,7 @@ use zolana_hasher::{
 };
 use zolana_interface::{
     instruction::{
-        instruction_data::transact::{CircuitId, TransactIxData},
+        instruction_data::transact::{AnonymousParties, CircuitId, TransactIxData},
         tag,
     },
     shape::Shape,
@@ -35,7 +35,9 @@ use zolana_test_utils::transact::{
     single_tree_slots, sol_public_slots, test_private_tx_blinding, transfer_input,
     TransferInputArgs, TransferProverInputsArgs, TEST_BLINDING_SEED,
 };
-use zolana_transaction::instructions::transact::{transact_message_hash, PrivateTxHash};
+use zolana_transaction::instructions::transact::{
+    ring_spend_message, transact_message_hash, PrivateTxHash,
+};
 
 use super::fixtures::Pool;
 use super::merge::ZeroDeposits;
@@ -77,6 +79,10 @@ impl RingTransactProof {
         }
         .instruction();
         *ix.data.first_mut().expect("instruction tag byte") = tag::RING_TRANSACT;
+        // The ring program's control tail, no co-signer configured.
+        if self.data.circuit.is_anonymous() {
+            ix.data.extend_from_slice(&[0u8; 32]);
+        }
         ix.accounts
             .insert(4, AccountMeta::new_readonly(self.ring_config, true));
         ix
@@ -239,17 +245,27 @@ impl RealRingTransact {
             RingRail::Eddsa => None,
             RingRail::AnonymousEddsa => {
                 let owner_public_key = owner_public_key.as_ed25519().expect("Ed25519 owner");
+                let ring_program_address = Address::new_from_array(ring_program.to_bytes());
                 let authorization = AnonymousEddsaAuthorization {
                     owner_public_key,
                     owner_signature: hidden_owner
-                        .sign_message(&message_digest)
+                        .sign_message(&ring_spend_message(&ring_program_address, &message_digest))
                         .expect("hidden owner signature"),
+                    ring_program_address: ring_program.to_bytes(),
                     message_digest,
                     default_owner_pk_hash: solana_owner_identity(&owner_public_key)
                         .expect("default owner identity"),
+                    parties: AnonymousParties {
+                        payer: &payer_bytes,
+                        cosigner: None,
+                        exit_destination: None,
+                    }
+                    .identities()
+                    .expect("party identities"),
                 };
                 chain.push(hash_bytes(&message_digest).expect("message proof input hash"));
                 chain.push(authorization.default_owner_pk_hash);
+                chain.extend_from_slice(&authorization.parties);
                 Some(authorization)
             }
         };

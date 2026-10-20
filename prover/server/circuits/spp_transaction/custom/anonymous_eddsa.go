@@ -4,6 +4,7 @@ import (
 	"github.com/helius-labs/zolana/prover/server/circuits/crypto/ed25519"
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
 	"github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
 
 	"github.com/consensys/gnark/frontend"
 )
@@ -11,22 +12,27 @@ import (
 // Properties:
 // 1. Public: EdDSA input owners, default-ring input and output owners, and public asset transfers.
 // 2. Private: custom-ring hidden input owners, custom-ring output owners, UTXO amounts, and UTXO assets.
-// 3. The circuit verifies the hidden owner's Ed25519 signature; the Solana runtime verifies EdDSA co-signers.
-//    The hidden owner identity shares the Solana identity hash, so it is asserted distinct from every signer.
+// 3. The circuit verifies the hidden owner's Ed25519 signature over the ring spend message; the Solana runtime verifies EdDSA co-signers.
+//    The hidden owner identity shares the Solana identity hash, so it is asserted distinct from every signer,
+//    the fee payer, the ring co-signer and the public exit destination.
 // 4. Dummy slots are indistinguishable from real UTXO and address slots.
 // 5. Input nullifiers are distinct and balances are preserved.
 
 const messageLimbBits = 128
 
 type CustomRingAnonymousEddsaPublic struct {
-	Nullifiers                   []frontend.Variable
-	OutputHashes                 []frontend.Variable
-	TreeSlots                    []shared.TreeSlot
-	OutputTreeID                 frontend.Variable
-	PrivateTxHash                frontend.Variable
-	MessageHashLow               frontend.Variable
-	MessageHashHigh              frontend.Variable
-	DefaultOwnerPkHash           frontend.Variable
+	Nullifiers         []frontend.Variable
+	OutputHashes       []frontend.Variable
+	TreeSlots          []shared.TreeSlot
+	OutputTreeID       frontend.Variable
+	PrivateTxHash      frontend.Variable
+	MessageHashLow     frontend.Variable
+	MessageHashHigh    frontend.Variable
+	DefaultOwnerPkHash frontend.Variable
+	// Zero when the party is absent.
+	PayerPkHash                  frontend.Variable
+	CosignerPkHash               frontend.Variable
+	ExitDestinationPkHash        frontend.Variable
 	ExternalDataHash             frontend.Variable
 	PublicAssets                 [shared.NPublicSlots]frontend.Variable
 	PublicAmounts                [shared.NPublicSlots]frontend.Variable
@@ -46,6 +52,8 @@ type CustomRingAnonymousEddsaPrivate struct {
 	BlindingSeed        frontend.Variable
 	OwnerPublicKey      [32]frontend.Variable
 	OwnerSignature      [64]frontend.Variable
+	// Preimage of the public RingProgramID, bound inside the signed message.
+	RingProgramAddress [32]frontend.Variable
 }
 
 type CustomRingAnonymousEddsaCircuit struct {
@@ -106,6 +114,9 @@ func (c *CustomRingAnonymousEddsaCircuit) transaction(
 		PreimageAfterPrivateTxHash: []frontend.Variable{
 			messageHash,
 			c.Public.DefaultOwnerPkHash,
+			c.Public.PayerPkHash,
+			c.Public.CosignerPkHash,
+			c.Public.ExitDestinationPkHash,
 		},
 		PreimageTail: []frontend.Variable{
 			gadget.RightHashChain4(api, c.Public.PublishedOutputOwnerPkHashes),
@@ -140,6 +151,14 @@ func (c *CustomRingAnonymousEddsaCircuit) Define(api frontend.API) error {
 	authorizedEddsa := shared.Signers(c.Public.SignerPkHashes)
 	for _, signer := range authorizedEddsa {
 		api.AssertIsDifferent(signer, hiddenOwner)
+	}
+	// The payer left the signer vector, a party that pays, approves or receives must not be the spender.
+	for _, party := range []frontend.Variable{
+		c.Public.PayerPkHash,
+		c.Public.CosignerPkHash,
+		c.Public.ExitDestinationPkHash,
+	} {
+		assertDistinctWhenPresent(api, party, hiddenOwner)
 	}
 	// ed25519.Verify asserts the signature.
 	inputOwners := shared.HiddenOwnerSigners(
@@ -194,14 +213,27 @@ func (c *CustomRingAnonymousEddsaCircuit) ownerAuthorization(
 		api.ToBinary(c.Public.MessageHashHigh, messageLimbBits)...,
 	)
 	// The message digest is not an identity, so it stays an untagged hash_bytes_32.
-	messageBytes := bytes32FromBits(api, messageBits)
+	digest := bytes32FromBits(api, messageBits)
+	message := make([]frontend.Variable, 0, len(protocol.RingSpendMessagePrefix)+64)
+	for _, b := range protocol.RingSpendMessagePrefix {
+		message = append(message, b)
+	}
+	message = append(message, c.Private.RingProgramAddress[:]...)
+	message = append(message, digest[:]...)
 	key := ed25519.Verify(api, ed25519.Inputs{
 		PublicKey: c.Private.OwnerPublicKey,
 		Signature: c.Private.OwnerSignature,
-		Message:   messageBytes[:],
+		Message:   message,
 	})
-	// Verify's SHA-512 transcript range-checks the key and message bytes.
-	return gadget.SolanaOwnerIdentityBounded(api, key), gadget.HashBoundedBytes(api, messageBytes[:])
+	// Verify's SHA-512 transcript range-checks the key, the ring address and the digest bytes.
+	api.AssertIsEqual(gadget.HashBoundedBytes(api, c.Private.RingProgramAddress[:]), c.Public.RingProgramID)
+	return gadget.SolanaOwnerIdentityBounded(api, key), gadget.HashBoundedBytes(api, digest[:])
+}
+
+// assertDistinctWhenPresent rejects party == owner, a zero party is absent.
+func assertDistinctWhenPresent(api frontend.API, party, owner frontend.Variable) {
+	present := api.Sub(1, api.IsZero(party))
+	api.AssertIsEqual(api.Mul(present, api.IsZero(api.Sub(party, owner))), 0)
 }
 
 // bytes32FromBits adapts a 256-bit little-endian bit decomposition to the

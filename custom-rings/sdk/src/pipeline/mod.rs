@@ -10,7 +10,9 @@ use solana_address::Address;
 use solana_instruction::Instruction;
 use zolana_client::{
     attach_input_proofs, input_utxos_from_nullifiers,
-    prover::transact::{AnonymousEddsaTransferInputs, AnonymousRingEddsaProver},
+    prover::transact::{
+        AnonymousEddsaTransferInputs, AnonymousRingEddsaProver, HiddenOwnerAuthorization,
+    },
     prover::{
         indexed::{
             IndexedPolicyData, IndexedPolicyRequest, IndexedTransferPreparation,
@@ -29,12 +31,12 @@ use zolana_interface::{
 };
 use zolana_keypair::{NullifierKey, ViewingKey};
 use zolana_transaction::{
-    instructions::transact::{SppProofInputs, SppProofOutputUtxo},
+    instructions::transact::{ring_spend_message, SppProofInputs, SppProofOutputUtxo},
     utxo::SppProofInputUtxo,
 };
 
 pub use self::{
-    anonymous::{Anonymous, AnonymousRecipient, AnonymousTransfer},
+    anonymous::{Anonymous, AnonymousRecipient, AnonymousSpendSigner, AnonymousTransfer},
     delegate::{ring_authority_width, DelegateOutput, DelegateTransferInput, Delegated},
     owner::{CustomRingTransferInput, Owner},
 };
@@ -514,6 +516,30 @@ impl Tier {
     }
 }
 
+/// The hidden owner's signature over this transaction and the co-signer the ring publishes.
+struct HiddenSpend {
+    owner: HiddenOwnerAuthorization,
+    cosigner: Option<Address>,
+}
+
+impl HiddenSpend {
+    /// The ring program appends its configured co-signer, the user-supplied one is not the proof's.
+    async fn sign(
+        signer: &dyn AnonymousSpendSigner,
+        ring: CustomRing,
+        client: &(impl AsyncRpc + ?Sized),
+        inputs: &SppProofInputs,
+    ) -> Result<Self, RingError> {
+        let message = ring_spend_message(&ring.program_id(), &inputs.message_hash()?);
+        let owner = HiddenOwnerAuthorization {
+            public_key: signer.public_key().as_ed25519()?,
+            signature: signer.sign(&message).await?,
+        };
+        let cosigner = ring.cosigner(client).await?.map(|cosigner| cosigner.signer);
+        Ok(Self { owner, cosigner })
+    }
+}
+
 /// The SPP half, complete with fetched proofs or prepared for the prover to fetch them.
 enum Spp {
     Complete(Box<CompleteSpp>),
@@ -559,14 +585,17 @@ impl Spp {
         let program = transfer.ring.program_id();
         let authority = staged.delegate.is_some();
         let hidden = match transfer.rail.kind() {
-            RailKind::Anonymous(rail) => Some(rail.signer),
+            RailKind::Anonymous(rail) => {
+                Some(HiddenSpend::sign(rail.signer, transfer.ring, client, inputs).await?)
+            }
             RailKind::Owner(_) | RailKind::Delegated(_) => None,
         };
         if indexed {
             let rail = match (authority, hidden) {
-                (false, Some(owner)) => IndexedTransferRail::AnonymousRingEddsa {
+                (false, Some(hidden)) => IndexedTransferRail::AnonymousRingEddsa {
                     ring: program,
-                    owner,
+                    owner: hidden.owner,
+                    cosigner: hidden.cosigner,
                 },
                 (true, _) => IndexedTransferRail::RingAuthority(program),
                 (false, None) => IndexedTransferRail::Ring(program),
@@ -593,7 +622,7 @@ impl Spp {
         )?;
         let shape = inputs.check_shape()?;
         let mut complete = match (authority, hidden) {
-            (false, Some(owner)) => {
+            (false, Some(hidden)) => {
                 let result = AnonymousRingEddsaProver {
                     inputs: spends,
                     outputs: inputs.output_utxos.clone(),
@@ -603,8 +632,10 @@ impl Spp {
                     public_transfers: inputs.public_transfers()?,
                     signer_pk_hashes: anonymous::anonymous_signers(shape.signer_width()),
                     allow_dummy_inputs: trees.allow_dummy_inputs,
-                    owner,
-                    ring_program_id: Some(program),
+                    owner: hidden.owner,
+                    payer: inputs.payer,
+                    cosigner: hidden.cosigner,
+                    ring_program_id: program,
                     shape,
                 }
                 .build()?;

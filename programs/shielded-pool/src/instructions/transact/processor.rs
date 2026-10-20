@@ -11,7 +11,8 @@ use zolana_interface::{
     event::EventKind,
     instruction::{
         instruction_data::transact::{
-            CircuitId, ExternalDataPreimage, ResolvedOutput, TransactIxDataRef,
+            AnonymousParties, CircuitId, ExternalDataPreimage, ParsedTransactIxData,
+            ResolvedOutput, TransactIxDataRef,
         },
         tag::InstructionTag,
         validate_input_tree_contexts,
@@ -50,10 +51,15 @@ pub fn process_transact_ix(
     instruction: InstructionTag,
 ) -> ProgramResult {
     // 1. Deserialize instruction data.
-    let (ix, external_data_prefix) = TransactIxDataRef::parse_with_external_data_prefix(data)
+    let ParsedTransactIxData {
+        ix,
+        external_data_prefix,
+        tail,
+    } = TransactIxDataRef::parse_with_tail(data)
         .map_err(caused_by(ProgramError::InvalidInstructionData))?;
     // 2. Validate declared circuit type and the declared input trees.
     validate_circuit_type(&ix, instruction)?;
+    let cosigner = control_cosigner(ix.circuit, tail)?;
     let tree_input_counts = validate_input_tree_contexts(&ix.inputs, &ix.tree_contexts)?;
 
     // 3. Check proof is not expired.
@@ -66,6 +72,7 @@ pub fn process_transact_ix(
         accounts,
         &ix,
         external_data_prefix,
+        cosigner,
         instruction,
         &clock,
         tree_input_counts,
@@ -78,6 +85,7 @@ fn process_resolved_transact(
     accounts: &mut [AccountView],
     ix: &TransactIxDataRef<'_>,
     external_data_prefix: &[u8],
+    cosigner: Option<&[u8; 32]>,
     instruction: InstructionTag,
     clock: &Clock,
     tree_input_counts: [usize; MAX_INPUT_TREES],
@@ -116,6 +124,23 @@ fn process_resolved_transact(
         &transact_accounts.settlements,
         usize::from(ix.circuit.num_public_asset_slots()),
     )?;
+    if ix.circuit.is_anonymous() {
+        let withdrawals = transact_accounts
+            .settlements
+            .iter()
+            .filter(|settlement| !settlement.is_deposit())
+            .map(|settlement| settlement.committed_accounts()[1].address().as_array());
+        let identities = AnonymousParties {
+            payer: transact_accounts.payer.address().as_array(),
+            cosigner,
+            exit_destination: AnonymousParties::exit_destination(withdrawals)?,
+        }
+        .identities()
+        .map_err(caused_by(
+            ShieldedPoolError::TransactProofVerificationFailed,
+        ))?;
+        proof_inputs.assign_anonymous_parties(identities);
+    }
     // 10. Resolve each input tree's roots, queue its nullifiers and create its PDAs.
     let input_tree_sequences = apply_input_trees(
         &mut transact_accounts,
@@ -238,4 +263,17 @@ pub fn validate_circuit_type(
         ShieldedPoolError::NonCanonicalPrivateTxHash,
     )?;
     validate_cache_selection(ix)
+}
+
+/// The ring program appends its configured co-signer, zero when none, after
+/// the anonymous instruction. Every other rail ends with the instruction.
+pub fn control_cosigner(
+    circuit: CircuitId,
+    tail: &[u8],
+) -> Result<Option<&[u8; 32]>, ProgramError> {
+    match (circuit.is_anonymous(), tail.try_into()) {
+        (true, Ok(cosigner)) => Ok(Some(cosigner)),
+        (false, _) if tail.is_empty() => Ok(None),
+        _ => Err(ShieldedPoolError::InvalidAnonymousControlTail.into()),
+    }
 }
