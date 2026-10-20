@@ -1,0 +1,43 @@
+[package]
+name = "zolana-instruction"
+version = "0.1.0"
+description = "SPP instructions for Solana programs and clients: shielded-pool instruction builders, the transact CPI, and the derivations a program recomputes on-chain, buildable for the SBF target."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "zolana_instruction"
+
+[features]
+# Builders for protocol operations: protocol-authority and fee-authority
+# administration, tree creation, ring activation, and the forester's nullifier
+# tree maintenance. Off by default so programs and wallets never compile them.
+protocol = []
+# The shielded pool's transact instruction as a signed CPI from a pinocchio
+# program.
+cpi = ["dep:pinocchio"]
+
+[dependencies]
+pinocchio = { workspace = true, features = ["cpi"], optional = true }
+solana-address = { workspace = true }
+solana-instruction = { workspace = true }
+solana-pubkey = { workspace = true }
+thiserror = { workspace = true }
+wincode = { workspace = true }
+zolana-hasher = { workspace = true }
+zolana-interface = { workspace = true, features = ["borsh", "tree"] }
+zolana-tree = { workspace = true }
+
+[dev-dependencies]
+borsh = { workspace = true }
+bytemuck = { workspace = true }
+serde_json = { workspace = true }
+zolana-account-checks = { workspace = true, features = ["test-only"] }
+
+[lints.rust.unexpected_cfgs]
+level = "allow"
+check-cfg = [
+    'cfg(target_os, values("solana"))',
+    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
+]

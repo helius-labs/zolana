@@ -2,8 +2,8 @@
 
 use pinocchio::{error::ProgramError, AccountView, Address};
 use zolana_account_checks::account_info::test_account_info::get_account_view;
+use zolana_instruction::cpi::{SppTransactAccounts, TransactAccountsError};
 use zolana_interface::SHIELDED_POOL_PROGRAM_ID;
-use zolana_program::cpi::{SppTransactAccounts, TransactAccountsError};
 
 const PDA: [u8; 32] = [4u8; 32];
 

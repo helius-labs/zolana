@@ -32,6 +32,7 @@ members = [
     "sdk-libs/gnark-ffi-prover/build-helper",
     "sdk-libs/event",
     "sdk-libs/indexer-api",
+    "sdk-libs/instruction",
     "sdk-libs/keypair",
     "sdk-libs/merkle-tree",
     "sdk-libs/program",
@@ -91,6 +92,7 @@ zolana-ring-policy = { path = "custom-rings/policy", version = "0.1.0" }
 zolana-ring-indexer = { path = "custom-rings/indexer", version = "0.1.0" }
 zolana-ring-key-registry = { path = "custom-rings/key-registry", version = "0.1.0" }
 zolana-keypair = { path = "sdk-libs/keypair", version = "0.1.0" }
+zolana-instruction = { path = "sdk-libs/instruction", version = "0.1.0" }
 zolana-program = { path = "sdk-libs/program", version = "0.1.0" }
 zolana-api = { path = "sdk-libs/zolana-api", version = "0.1.0", default-features = false }
 zolana-program-test = { path = "sdk-libs/program-test", version = "0.23.0" }
@@ -260,7 +262,7 @@ sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio
 syn = { version = "2.0", features = ["visit-mut", "full"] }
 tabled = "0.20"
 tar = "0.4"
-thiserror = "2.0"
+thiserror = { version = "2.0", default-features = false }
 toml = "0.8"
 toml_edit = "0.22"
 tinyvec = "1.10.0"
@@ -297,7 +299,7 @@ aws-sdk-kms = "1"
 aws-smithy-mocks = "0.3"
 criterion = "0.5"
 proptest = "1"
-wincode = { version = "0.5", features = ["derive"] }
+wincode = { version = "0.5", default-features = false, features = ["derive", "alloc"] }
 x509-cert = { version = "0.3", default-features = false }
 
 [profile.dev]

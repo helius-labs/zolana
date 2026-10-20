@@ -4,13 +4,13 @@ use common::{keypair, wallet_utxo};
 use solana_address::Address;
 use zolana_event::MessageData;
 use zolana_hasher::{sha256::Sha256BE, Hasher};
+use zolana_instruction::instruction::{
+    TransactInterfaceTransferAccounts, TransactSolTransferAccounts, TransactSplWithdrawalAccounts,
+};
 use zolana_interface::{
     instruction::instruction_data::transact::{InterfaceTransfer, OwnerTag, TransactOutput},
     ASSOCIATED_TOKEN_PROGRAM_ID, MAX_INTERFACE_TRANSFERS, N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
     SOL_ASSET_FIELD, SOL_INTERFACE, SPL_TOKEN_2022_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
-};
-use zolana_program::instruction::{
-    TransactInterfaceTransferAccounts, TransactSolTransferAccounts, TransactSplWithdrawalAccounts,
 };
 use zolana_transaction::{
     instructions::transact::{
