@@ -428,19 +428,22 @@ export function checkTransactCacheAccounts(
   }
 }
 
+type TransactAccountsInput = Readonly<{
+  payer: SignerAccount;
+  inputTree: Address;
+  outputTree: Address;
+  ownerSigners: readonly SignerAccount[];
+  withdrawal?: TransactWithdrawal;
+  cache?: TransactCacheAccounts;
+  data: TransactInstructionData;
+}>;
+
 async function transactAccounts(
-  input: Readonly<{
-    payer: SignerAccount;
-    inputTree: Address;
-    outputTree: Address;
-    ownerSigners: readonly SignerAccount[];
-    withdrawal?: TransactWithdrawal;
-    cache?: TransactCacheAccounts;
-    data: TransactInstructionData;
-  }>,
+  input: TransactAccountsInput,
+  signerPdas: readonly Address[],
 ): Promise<Meta[]> {
-  const { inputs, treeContexts } = input.data;
-  validateSingleInputTree(inputs, treeContexts);
+  checkTransactCacheAccounts(input.data.circuit, input.cache);
+  validateSingleInputTree(input.data.inputs, input.data.treeContexts);
   return [
     meta(input.payer, true, true),
     meta(input.outputTree, false, true),
@@ -449,36 +452,38 @@ async function transactAccounts(
     meta(input.inputTree, false, true),
     ...(await nullifierPdaAccounts(
       input.inputTree,
-      inputs.map((spent) => spent.nullifierHash),
+      input.data.inputs.map((utxo) => utxo.nullifierHash),
     )),
     ...input.ownerSigners.map((signer) => meta(signer, true, false)),
+    ...signerPdas.map((pda) => meta(pda, false, false)),
     ...settlementAccounts(input.withdrawal),
     ...cacheAccountMetas(input.cache),
   ];
 }
 
 /**
- * Mirrors Rust `Transact::instruction`. `ownerSigners` are the Ed25519 input
- * owners in proof signer-vector order, listed as readonly signers right after
- * the nullifier PDAs. An owner that also pays is listed here too: paying alone
- * authorizes no spend, so a sponsor can pay for a spend it does not own.
+ * Mirrors Rust `Transact::instruction`. `ownerSigners` are the Ed25519 owners
+ * of real inputs and of outputs that carry data, in proof signer-vector order,
+ * listed as readonly signers right after the nullifier PDAs. An owner that
+ * also pays is listed here too: paying alone authorizes no spend, so a sponsor
+ * can pay for a spend it does not own.
  */
-export async function transactInstruction(
-  input: Readonly<{
-    payer: SignerAccount;
-    inputTree: Address;
-    outputTree: Address;
-    ownerSigners: readonly SignerAccount[];
-    withdrawal?: TransactWithdrawal;
-    cache?: TransactCacheAccounts;
-    data: TransactInstructionData;
-  }>,
-): Promise<Instruction> {
-  checkTransactCacheAccounts(input.data.circuit, input.cache);
+export async function transactInstruction(input: TransactAccountsInput): Promise<Instruction> {
   return instruction(
     tagged(InstructionTag.transact, encodeTransactInstructionData(input.data)),
-    await transactAccounts(input),
+    await transactAccounts(input, []),
   );
+}
+
+/**
+ * Mirrors Rust `Transact::cpi_accounts`: the `transactInstruction` accounts
+ * with the calling program's signing PDAs listed, unsigned, after the owner
+ * signers. The program signs for those PDAs inside its CPI.
+ */
+export function transactCpiAccounts(
+  input: TransactAccountsInput & Readonly<{ signerPdas: readonly Address[] }>,
+): Promise<readonly Meta[]> {
+  return transactAccounts(input, input.signerPdas);
 }
 
 /**

@@ -5,11 +5,12 @@
 Proofs go encrypted to an attested Nitro Enclave prover by default. A client
 given a Helius devnet RPC URL proves through the devnet enclave prover the SDK
 pins, and any other remote prover must attest to that pin unless the caller
-opts out. One private transfer can pay several recipients. Paying a
-transaction's fee no longer authorizes a spend. A merge publishes its output's
-amount and mint encrypted for the owner with the scheme the owner's registry
-record names, so wallet sync recovers a default merge output from the merge
-transaction alone.
+opts out. One private transfer can pay several recipients, and a transaction
+can reserve an address with a non-inclusion proof instead of spending a UTXO.
+Paying a transaction's fee no longer authorizes a spend. A merge publishes its
+output's amount and mint encrypted for the owner with the scheme the owner's
+registry record names, so wallet sync recovers a default merge output from the
+merge transaction alone.
 
 Breaking
 
@@ -49,9 +50,10 @@ Breaking
   `mergeOutputKey(nullifierKey, firstNullifier)` and return fresh buffers that
   the caller can wipe.
 - `transactInstruction` (`getTransactInstructionAsync`) and
-  `buildUnsignedTransaction` require `ownerSigners`, the Ed25519 input owners
-  in first-input order, the fee payer too when it owns an input → pass the
-  input owners, or `[]` when no Ed25519 owner spends.
+  `buildUnsignedTransaction` require `ownerSigners`, the Ed25519 owners of
+  inputs and of outputs that carry data in first-occurrence order, the fee
+  payer too when it is one of them → pass those owners, or `[]` when there are
+  none.
 - `RingEntryTransitionInput` and `RingEntryTransitionProofInputs` no longer
   take `payer` → drop the field.
 - `MergeInputs` and `PreparedMergeInputs` replace `asset` with required
@@ -90,6 +92,19 @@ Added
   client that names its prover.
 - `ProverClient.hasIndexedRoute` says whether the prover reads proof data from
   its own indexer, false for the Helius gateway and `DEFAULT_TEE_PROVER_ENDPOINT`.
+- `ProofInputUtxo.address(owner, seed, treeId)` reserves a signing owner's
+  address in a transaction with a non-inclusion proof and no spent UTXO, which
+  only the default confidential transfer proves, and an invalid reservation
+  fails with `TRANSACTION_INVALID_ADDRESS_INPUT`.
+- `transactCpiAccounts(input)` and `encodeTransactInstructionData(data)` from
+  `@heliuslabs/zolana/interface` return the accounts, signing PDAs included,
+  and the instruction bytes a program forwards to `transact` through a CPI.
+- `SettlementTransfer`, the leg type of `ExternalData.interfaceTransfers`, is
+  exported from `@heliuslabs/zolana/transaction`.
+- `bytes16`, `bytes31`, `bytes32`, `bytes33`, `bytes34` and `bytes64` copy a
+  `Uint8Array` into the matching fixed-length type and refuse any other length
+  with `KEYPAIR_INVALID_LENGTH`, and `ShieldedPublicKey.fromPda` and
+  `ShieldedAddress.forPda` also take the PDA as an `Address`.
 
 Changed
 
@@ -108,7 +123,9 @@ Fixed
   wallet state and cursors instead of committing past it.
 - `Merge.fromKeypair`, wallet merge building, wallet sync and ring recovery
   now wipe temporary merge output keys on both success and failure.
-
+- A private transaction with an output that carries data did not ask that
+  output's owner to sign, so the proof the shielded pool verifies failed; the
+  owner now signs alongside the input owners.
 - `ConfidentialTransfer` encoded the padding slots of a self-paid transfer
   differently from the sender's change, so an observer could tell them apart;
   padding now uses the same encoding as change.

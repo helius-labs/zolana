@@ -670,12 +670,8 @@ export class ZolanaClient
   ): Promise<Readonly<{ proofs: SpendProof[]; dummyProofs: NonInclusionProof[] }>> {
     const commitments = proofInputs.inputContexts();
     const dummyNullifiers = proofInputs.dummyNullifiers();
-    const realTrees = proofInputs.inputUtxos.filter(
-      (input) => !input.isDummy() && input.cacheSlot === undefined,
-    );
-    const dummyTrees = proofInputs.inputUtxos.filter(
-      (input) => input.isDummy() || input.cacheSlot !== undefined,
-    );
+    const realTrees = proofInputs.inputUtxos.filter((input) => input.requiresInclusion());
+    const dummyTrees = proofInputs.inputUtxos.filter((input) => !input.requiresInclusion());
     const at = (inputs: readonly ProofInputUtxo[], treeId: number): number[] =>
       inputs.flatMap((input, index) => (input.treeId === treeId ? [index] : []));
     const spends = new Map<number, SpendProof>();
@@ -1106,7 +1102,10 @@ export class ZolanaClient
       feePayer,
       inputTree: authorized.tree,
       outputTree: this.tree,
-      ownerSigners: ownerSignerAddresses(authorized.proofInputs.inputUtxos),
+      ownerSigners: ownerSignerAddresses(
+        authorized.proofInputs.inputUtxos,
+        authorized.proofInputs.outputs,
+      ),
       setupInstructions: authorized.setupInstructions,
       ...(authorized.withdrawal === undefined ? {} : { withdrawal: authorized.withdrawal }),
       data,

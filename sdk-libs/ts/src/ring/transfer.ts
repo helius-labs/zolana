@@ -882,7 +882,8 @@ async function proveRingTransferStatement(
         inputTreeIds(proofInputs.inputUtxos).map((treeId) => inputTreeAddress(flow.client, treeId)),
       ),
       outputTree: outputTree.tree,
-      ownerSigners: flow.kind === "delegate" ? [] : ownerSignerAddresses(prepared.inputs),
+      ownerSigners:
+        flow.kind === "delegate" ? [] : ownerSignerAddresses(prepared.inputs, proofInputs.outputs),
     } as const;
 
     if (policyRound === undefined) {
