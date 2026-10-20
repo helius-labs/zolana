@@ -398,11 +398,17 @@ function sealExternalData(fields: ExternalDataFields): ExternalData {
 }
 
 /**
- * A spent UTXO carrying the nullifier public key rather than the secret, for
- * callers that hash a transaction they cannot sign.
+ * A spent UTXO or reserved address carrying the nullifier public key rather
+ * than the secret, for callers that hash a transaction they cannot sign.
+ * `createInputUtxo` builds one, and a `ProofInputUtxo` is one too.
  */
 export interface InputUtxo {
-  /** The reserved address; absent for state spends and padding. */
+  /**
+   * Set only for an address input: the address it reserves, which is the
+   * nullifier it publishes. `createEncryptedTransaction` rederives it from
+   * the other fields and refuses a mismatch. Absent for state spends and
+   * padding.
+   */
   readonly addressNullifier?: Bytes32 | undefined;
   readonly utxo: Utxo;
   readonly nullifierPublicKey: Bytes32;
@@ -422,11 +428,33 @@ export function createInputUtxo(
     treeId?: TreeId;
     ringDataHash?: Bytes32;
     dataHash?: Bytes32;
+    /**
+     * Builds an address input: the address `ProofInputUtxo.address` derives
+     * from the owner, the seed in `utxo.blinding` and the tree. Every other
+     * field must match that derivation, or this throws the code of the first
+     * field that does not.
+     */
+    addressNullifier?: Bytes32;
   }>,
 ): InputUtxo {
   const nullifierPublicKey = checked<Bytes32>(input.nullifierPublicKey, 32, "nullifier public key");
   const utxo = new Utxo(input.utxo);
   const treeId = input.treeId ?? DEFAULT_TREE_ID;
+  if (input.addressNullifier !== undefined) {
+    const reserved = addressInput(
+      { ...input, utxo, nullifierPublicKey, treeId },
+      input.addressNullifier,
+    );
+    return Object.freeze({
+      ...input,
+      utxo,
+      nullifierPublicKey,
+      treeId,
+      addressNullifier: reserved.nullifier(),
+      hash: (): Bytes32 => reserved.hash(),
+      isDummy: (): boolean => false,
+    });
+  }
   return Object.freeze({
     ...input,
     utxo,
@@ -439,6 +467,51 @@ export function createInputUtxo(
       return utxo.owner.isZero();
     },
   });
+}
+
+/** Rebuilds an address input from its fields; the `ProofInputUtxo` constructor validates it. */
+function addressInput(
+  entry: Pick<InputUtxo, "utxo" | "nullifierPublicKey" | "treeId" | "dataHash" | "ringDataHash">,
+  addressNullifier: Bytes32,
+): ProofInputUtxo {
+  return new ProofInputUtxo({
+    utxo: new Utxo(entry.utxo),
+    nullifierPublicKey: entry.nullifierPublicKey,
+    nullifier: addressNullifier,
+    treeId: entry.treeId,
+    ...(entry.dataHash === undefined ? {} : { dataHash: entry.dataHash }),
+    ...(entry.ringDataHash === undefined ? {} : { ringDataHash: entry.ringDataHash }),
+    address: true,
+  });
+}
+
+/**
+ * The address an input slot reserves, revalidated; undefined for state
+ * spends and padding. A `ProofInputUtxo` answers from its own flag, any other
+ * input is rebuilt from its fields, so a structural input cannot publish an
+ * address its fields do not derive.
+ */
+function reservedAddress(entry: InputUtxo): Bytes32 | undefined {
+  if (entry instanceof ProofInputUtxo) {
+    if (!entry.isAddress()) return undefined;
+    entry.validateAddress();
+    return entry.nullifier();
+  }
+  if (entry.addressNullifier === undefined) return undefined;
+  return addressInput(entry, entry.addressNullifier).nullifier();
+}
+
+/**
+ * One input slot of the private transaction hash: an address slot and
+ * padding contribute a zero input hash, and only an address slot contributes
+ * to the address chain.
+ */
+function privateTxInputSlot(entry: InputUtxo): Readonly<{ inputHash: Bytes32; address: Bytes32 }> {
+  const address = reservedAddress(entry);
+  return {
+    inputHash: address !== undefined || entry.isDummy() ? copy(ZERO_32) : entry.hash(),
+    address: address ?? copy(ZERO_32),
+  };
 }
 
 export interface PrivateTxHashInput {
@@ -491,16 +564,13 @@ export function privateTxAddressChain(
 }
 
 export function sppPrivateTxHashInput(proofInputs: SppProofInputs): PrivateTxHashInput {
+  const slots = proofInputs.inputUtxos.map(privateTxInputSlot);
   return Object.freeze({
-    inputHashes: proofInputs.inputUtxos.map((input) =>
-      input.isDummy() || input.isAddress() ? copy(ZERO_32) : input.hash(),
-    ),
+    inputHashes: slots.map((slot) => slot.inputHash),
     outputHashes: proofInputs.outputs.map((output) =>
       output.isDummy() ? copy(ZERO_32) : output.hash(proofInputs.outputTreeId),
     ),
-    addressNullifiers: proofInputs.inputUtxos.map(
-      (input) => input.addressNullifier ?? copy(ZERO_32),
-    ),
+    addressNullifiers: slots.map((slot) => slot.address),
     blinding: proofInputs.privateTxBlinding(),
   });
 }
@@ -536,11 +606,10 @@ export function createEncryptedTransaction(
     // An unused slot contributes a zero hash, matching the circuit and
     // `SppProofInputs.messageHash`.
     hash(): Bytes32 {
+      const slots = inputs.map(privateTxInputSlot);
       return privateTxHash({
-        inputHashes: inputs.map((entry) =>
-          entry.isDummy() || entry.addressNullifier !== undefined ? copy(ZERO_32) : entry.hash(),
-        ),
-        addressNullifiers: inputs.map((entry) => entry.addressNullifier ?? copy(ZERO_32)),
+        inputHashes: slots.map((slot) => slot.inputHash),
+        addressNullifiers: slots.map((slot) => slot.address),
         outputHashes: outputs.map((entry) =>
           entry.isDummy() ? copy(ZERO_32) : entry.hash(input.outputTreeId),
         ),
@@ -1663,7 +1732,7 @@ export function encodeConfidentialSlots(
  * encoding a throwaway output through the same path. This keeps dummy slots
  * byte-length-indistinguishable from real ones without pinning a brittle constant.
  */
-export function dummyCiphertextLength(salt: Bytes16): number {
+function dummyCiphertextLength(salt: Bytes16): number {
   const throwaway = ViewingKey.generate();
   try {
     return encodeOutputData(

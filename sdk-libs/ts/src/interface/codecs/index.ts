@@ -306,6 +306,11 @@ export function encodeTransactExternalData(value: TransactExternalData): Uint8Ar
   return encoded(value, writeTransactExternalData);
 }
 
+/**
+ * The `transact` instruction data without the leading `InstructionTag.transact`
+ * byte. A program forwarding it to the shielded pool through a CPI prepends
+ * that tag, as Rust `SppTransactAccounts::invoke` does.
+ */
 export function encodeTransactInstructionData(value: TransactInstructionData): Uint8Array {
   return encoded(value, writeTransactData);
 }

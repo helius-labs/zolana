@@ -371,15 +371,21 @@ function checkStatement(inputs: IndexedProofInputs): void {
       (cached === 1n && (input?.isDummy !== 0n || inputs.circuit === "transferRingAuthority"))
     )
       throw invalid();
+    // An address slot is a real, uncached slot of the confidential transfer
+    // with a zero nullifier secret and no state lookup.
     const address = input?.circuit.domain === BigInt(ADDRESS_DOMAIN);
+    if (address && inputs.circuit !== "transfer") {
+      throw new ClientError("CLIENT_ADDRESS_INPUT_UNSUPPORTED", { details: { index } });
+    }
     if (
       address &&
-      (inputs.circuit !== "transfer" ||
-        input.isDummy !== 0n ||
+      (input.isDummy !== 0n ||
         cached !== 0n ||
-        input.nullifierSecret !== 0n)
-    )
-      throw invalid();
+        input.nullifierSecret !== 0n ||
+        lookup.commitment !== null)
+    ) {
+      throw new ClientError("CLIENT_INVALID_ADDRESS_INPUT", { details: { index } });
+    }
     if (
       input === undefined ||
       lookup.treeSlot >= inputs.trees.length ||

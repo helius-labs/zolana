@@ -156,7 +156,8 @@ export type {
 } from "@heliuslabs/zolana/transaction";
 export type { SettlementTransfer } from "@heliuslabs/zolana/transaction";
 export { encodeTransactInstructionData, transactCpiAccounts } from "@heliuslabs/zolana/interface";
-export type { TransactInstructionData } from "@heliuslabs/zolana/interface";
+export type { TransactAccountsInput, TransactInstructionData } from "@heliuslabs/zolana/interface";
+export type { TransactAccountsInput as InstructionsTransactAccountsInput } from "@heliuslabs/zolana/instructions";
 export { bytes16, bytes31, bytes32, bytes33, bytes34, bytes64 } from "@heliuslabs/zolana/keypair";
 export type {
   RingRpcOptions as RootRingRpcOptions,

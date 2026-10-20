@@ -14,6 +14,7 @@ import { bigIntToBytes, bytes16, bytes32 } from "../src/keypair/bytes.js";
 import { P256PublicKey, ShieldedKeypair, ShieldedPublicKey } from "../src/keypair/index.js";
 import {
   Data,
+  type InputUtxo,
   PreparedMerge,
   ProofInputUtxo,
   SOL_MINT,
@@ -21,6 +22,7 @@ import {
   Utxo,
   createEncryptedTransaction,
   createExternalData,
+  createInputUtxo,
   createProofOutput,
   outputBlindingSeed,
   privateTxHash,
@@ -142,55 +144,231 @@ describe("reserved address inputs", () => {
     expect(result.proverInputs.payload.inputFlags).toBe(1n);
   });
 
+  // Each case breaks exactly one field of an otherwise valid address input,
+  // so the code names the check that refused it.
   it.each([
-    ["amount", { amount: 1n }],
-    ["asset", { asset: address("So11111111111111111111111111111111111111112") }],
-    ["data", { data: new Data([{ kind: "memo", bytes: Uint8Array.of(1) }]) }],
-    ["ring", { ringProgramId: SOL_MINT }],
-    ["noncanonical seed", { blinding: bytes32(bigIntToBytes(BN254_SCALAR_ORDER, 32)) }],
-    ["zero owner", { owner: ShieldedPublicKey.zeroed() }],
-    [
-      "P256 owner",
-      {
-        owner: ShieldedPublicKey.fromP256(
-          P256PublicKey.fromSecret(bytes32(new Uint8Array(32).fill(5))),
-        ),
-      },
-    ],
-  ] as const)("refuses an address with invalid %s", (_, change) => {
+    ["asset", { asset: address("So11111111111111111111111111111111111111112") }, "asset"],
+    ["amount", { amount: 1n }, "amount"],
+    ["data", { data: new Data([{ kind: "memo", bytes: Uint8Array.of(1) }]) }, "data"],
+    ["ring", { ringProgramId: SOL_MINT }, "ring_program_id"],
+  ] as const)("refuses an address carrying %s", (_, change, field) => {
     const { reserved } = fixture();
-    expect(
+    expect(() =>
+      addressWith(reserved, { utxo: new Utxo({ ...reserved.utxo, ...change }) }),
+    ).toThrow(
+      expect.objectContaining({
+        code: "TRANSACTION_ADDRESS_INPUT_NONEMPTY_FIELD",
+        details: { field },
+      }),
+    );
+  });
+
+  it.each([
+    ["a data hash", { dataHash: bytes32(new Uint8Array(32).fill(1)) }, "data_hash"],
+    ["a zero data hash", { dataHash: zero() }, "data_hash"],
+    ["a ring data hash", { ringDataHash: bytes32(new Uint8Array(32).fill(1)) }, "ring_data_hash"],
+    // A zero ring data hash normalizes away on a state input; an address keeps it to refuse it.
+    ["a zero ring data hash", { ringDataHash: zero() }, "ring_data_hash"],
+  ] as const)("refuses an address carrying %s", (_, change, field) => {
+    const { reserved } = fixture();
+    expect(() => addressWith(reserved, change)).toThrow(
+      expect.objectContaining({
+        code: "TRANSACTION_ADDRESS_INPUT_NONEMPTY_FIELD",
+        details: { field },
+      }),
+    );
+  });
+
+  it("refuses an address over a noncanonical seed", () => {
+    const { reserved } = fixture();
+    const seed = bytes32(bigIntToBytes(BN254_SCALAR_ORDER, 32));
+    expect(() =>
+      addressWith(reserved, { utxo: new Utxo({ ...reserved.utxo, blinding: seed }) }),
+    ).toThrow(expect.objectContaining({ code: "TRANSACTION_ADDRESS_INPUT_NONCANONICAL_SEED" }));
+    expect(() => ProofInputUtxo.address(reserved.utxo.owner, seed)).toThrow(
+      expect.objectContaining({ code: "TRANSACTION_ADDRESS_INPUT_NONCANONICAL_SEED" }),
+    );
+  });
+
+  it.each([
+    ["zero", () => ShieldedPublicKey.zeroed(), "TRANSACTION_ADDRESS_INPUT_ZERO_OWNER"],
+    [
+      "P256",
       () =>
-        new ProofInputUtxo({
-          utxo: new Utxo({ ...reserved.utxo, ...change }),
+        ShieldedPublicKey.fromP256(P256PublicKey.fromSecret(bytes32(new Uint8Array(32).fill(5)))),
+      "TRANSACTION_ADDRESS_INPUT_P256_OWNER",
+    ],
+  ] as const)("refuses an address with a %s owner", (_, owner, code) => {
+    const { reserved } = fixture();
+    expect(() =>
+      addressWith(reserved, { utxo: new Utxo({ ...reserved.utxo, owner: owner() }) }),
+    ).toThrow(expect.objectContaining({ code }));
+    expect(() => ProofInputUtxo.address(owner(), reserved.utxo.blinding)).toThrow(
+      expect.objectContaining({ code }),
+    );
+  });
+
+  it("refuses an address marked compact or cached", () => {
+    const { reserved } = fixture();
+    expect(() => addressWith(reserved, { compact: true })).toThrow(
+      expect.objectContaining({ code: "TRANSACTION_ADDRESS_INPUT_COMPACT" }),
+    );
+    expect(() => addressWith(reserved, { cacheSlot: 0 })).toThrow(
+      expect.objectContaining({ code: "TRANSACTION_ADDRESS_INPUT_CACHED" }),
+    );
+    expect(() => reserved.withCacheSlot(0)).toThrow(
+      expect.objectContaining({ code: "TRANSACTION_ADDRESS_INPUT_CACHED" }),
+    );
+  });
+
+  it("refuses an address with another nullifier key or nullifier", () => {
+    const { reserved } = fixture();
+    expect(() =>
+      addressWith(reserved, { nullifierPublicKey: bytes32(new Uint8Array(32).fill(1)) }),
+    ).toThrow(
+      expect.objectContaining({ code: "TRANSACTION_ADDRESS_INPUT_NULLIFIER_PUBLIC_KEY_MISMATCH" }),
+    );
+    expect(() => addressWith(reserved, { nullifier: bytes32(new Uint8Array(32).fill(1)) })).toThrow(
+      expect.objectContaining({ code: "TRANSACTION_ADDRESS_INPUT_NULLIFIER_MISMATCH" }),
+    );
+    // The unchanged fields rebuild the same address.
+    expect(addressWith(reserved, {}).nullifier()).toEqual(reserved.nullifier());
+  });
+
+  it("refuses a non-boolean address flag and validating a state input", () => {
+    const { reserved, padding } = fixture();
+    expect(() =>
+      Reflect.construct(ProofInputUtxo, [
+        {
+          utxo: reserved.utxo,
           nullifierPublicKey: reserved.nullifierPublicKey,
           nullifier: reserved.nullifier(),
-          address: true,
-        }),
-    ).toThrow(expect.objectContaining({ code: "TRANSACTION_INVALID_ADDRESS_INPUT" }));
+          address: "yes",
+        },
+      ]),
+    ).toThrow(
+      expect.objectContaining({ code: "TRANSACTION_DESERIALIZE", details: { field: "address" } }),
+    );
+    expect(() => padding.validateAddress()).toThrow(
+      expect.objectContaining({ code: "TRANSACTION_NOT_ADDRESS_INPUT" }),
+    );
+    expect(padding.addressNullifier).toBeUndefined();
   });
 
   it("checks an address again before using mutated public fields", () => {
-    const { proofInputs, reserved } = fixture();
-    reserved.utxo.blinding.fill(0xff);
-    expect(() => proofInputs.checkShape()).toThrow(
-      expect.objectContaining({ code: "TRANSACTION_INVALID_ADDRESS_INPUT" }),
+    const noncanonical = fixture();
+    noncanonical.reserved.utxo.blinding.fill(0xff);
+    expect(() => noncanonical.proofInputs.checkShape()).toThrow(
+      expect.objectContaining({ code: "TRANSACTION_ADDRESS_INPUT_NONCANONICAL_SEED" }),
+    );
+    const reseeded = fixture();
+    reseeded.reserved.utxo.blinding.fill(0x01);
+    expect(() => reseeded.proofInputs.checkShape()).toThrow(
+      expect.objectContaining({ code: "TRANSACTION_ADDRESS_INPUT_NULLIFIER_MISMATCH" }),
+    );
+    expect(() => reseeded.proofInputs.privateTxHash()).toThrow(
+      expect.objectContaining({ code: "TRANSACTION_ADDRESS_INPUT_NULLIFIER_MISMATCH" }),
     );
   });
 
-  it("refuses addresses outside the confidential rail before requesting proofs", () => {
-    const { proofInputs } = fixture();
-    expect(() => prepareTransfer(proofInputs, { kind: "ring", ring: SOL_MINT })).toThrow(
-      expect.objectContaining({ code: "CLIENT_INVALID_PROOF_INPUTS" }),
+  it("hashes an address input rebuilt by createInputUtxo or spread like the original", () => {
+    const { proofInputs, reserved, padding } = fixture();
+    const expected = proofInputs.privateTxHash();
+    const hashWith = (first: InputUtxo) =>
+      createEncryptedTransaction({
+        inputs: [first, padding],
+        outputs: proofInputs.outputs,
+        externalData: proofInputs.externalData,
+        outputTreeId: 0,
+        privateTxBlinding: proofInputs.privateTxBlinding(),
+      }).hash();
+    const rebuilt = createInputUtxo({
+      utxo: reserved.utxo,
+      nullifierPublicKey: reserved.nullifierPublicKey,
+      addressNullifier: reserved.nullifier(),
+    });
+    expect({
+      address: rebuilt.addressNullifier,
+      hash: rebuilt.hash(),
+      dummy: rebuilt.isDummy(),
+    }).toEqual({ address: reserved.nullifier(), hash: reserved.hash(), dummy: false });
+    expect(hashWith(rebuilt)).toEqual(expected);
+    // A spread keeps the address, so the structural input hashes as one.
+    expect(reserved.addressNullifier).toEqual(reserved.nullifier());
+    expect(hashWith(createInputUtxo({ ...reserved }))).toEqual(expected);
+    expect(hashWith({ ...reserved, hash: () => reserved.hash(), isDummy: () => false })).toEqual(
+      expected,
     );
+  });
+
+  it("refuses an address nullifier its fields do not derive", () => {
+    const { proofInputs, reserved, padding } = fixture();
+    const forged = bytes32(new Uint8Array(32).fill(1));
+    expect(() =>
+      createInputUtxo({
+        utxo: reserved.utxo,
+        nullifierPublicKey: reserved.nullifierPublicKey,
+        addressNullifier: forged,
+      }),
+    ).toThrow(expect.objectContaining({ code: "TRANSACTION_ADDRESS_INPUT_NULLIFIER_MISMATCH" }));
+    const transaction = createEncryptedTransaction({
+      inputs: [
+        {
+          ...reserved,
+          addressNullifier: forged,
+          hash: () => reserved.hash(),
+          isDummy: () => false,
+        },
+        padding,
+      ],
+      outputs: proofInputs.outputs,
+      externalData: proofInputs.externalData,
+      outputTreeId: 0,
+      privateTxBlinding: proofInputs.privateTxBlinding(),
+    });
+    expect(() => transaction.hash()).toThrow(
+      expect.objectContaining({ code: "TRANSACTION_ADDRESS_INPUT_NULLIFIER_MISMATCH" }),
+    );
+  });
+
+  it.each([
+    ["ring", { kind: "ring", ring: SOL_MINT }],
+    ["ring authority", { kind: "ringAuthority", ring: SOL_MINT }],
+  ] as const)("refuses an address on the %s rail before requesting proofs", (_, circuit) => {
+    const { proofInputs } = fixture();
+    expect(() => prepareTransfer(proofInputs, circuit)).toThrow(
+      expect.objectContaining({ code: "CLIENT_ADDRESS_INPUT_UNSUPPORTED", details: { index: 0 } }),
+    );
+  });
+
+  it("refuses an indexed request that proves an address off its rail or as another slot", () => {
+    const { proofInputs } = fixture();
     const request = prepareTransfer(proofInputs).inputs;
     expect(decodeIndexedInputs(request).lookups.map((lookup) => lookup.commitment)).toEqual([
       null,
       null,
     ]);
     expect(() => decodeIndexedInputs({ ...request, circuit: "transferRing" })).toThrow(
-      expect.objectContaining({ code: "CLIENT_INVALID_PROOF_INPUTS" }),
+      expect.objectContaining({ code: "CLIENT_ADDRESS_INPUT_UNSUPPORTED", details: { index: 0 } }),
     );
+    const [first, second] = request.payload.inputs;
+    if (first === undefined || second === undefined) throw new Error("fixture inputs missing");
+    const withFirst = (patch: object) => ({
+      ...request,
+      payload: { ...request.payload, inputs: [{ ...first, ...patch }, second] },
+    });
+    const invalidAddress = expect.objectContaining({
+      code: "CLIENT_INVALID_ADDRESS_INPUT",
+      details: { index: 0 },
+    });
+    expect(() => decodeIndexedInputs(withFirst({ isDummy: 1n }))).toThrow(invalidAddress);
+    expect(() => decodeIndexedInputs(withFirst({ nullifierSecret: 1n }))).toThrow(invalidAddress);
+    expect(() =>
+      decodeIndexedInputs({
+        ...request,
+        payload: { ...request.payload, cacheIsCached: [1n, 0n] },
+      }),
+    ).toThrow(invalidAddress);
     expect(() =>
       decodeIndexedInputs({
         ...request,
@@ -199,7 +377,7 @@ describe("reserved address inputs", () => {
           request.lookups[1],
         ],
       }),
-    ).toThrow(expect.objectContaining({ code: "CLIENT_INVALID_PROOF_INPUTS" }));
+    ).toThrow(invalidAddress);
   });
 
   it("refuses an address on the merge rail", () => {
@@ -219,7 +397,7 @@ describe("reserved address inputs", () => {
       outputTreeId: 0,
     });
     expect(() => assembleMergeWithProofs(prepared, [], treeAddress(0))).toThrow(
-      expect.objectContaining({ code: "CLIENT_INVALID_MERGE" }),
+      expect.objectContaining({ code: "CLIENT_ADDRESS_INPUT_UNSUPPORTED", details: { index: 0 } }),
     );
   });
 
@@ -286,6 +464,21 @@ describe("reserved address inputs", () => {
 });
 
 const allocatedKeypairs: ShieldedKeypair[] = [];
+
+/** The address input's own fields with `change` applied, through the public constructor. */
+function addressWith(
+  reserved: ProofInputUtxo,
+  change: Partial<ConstructorParameters<typeof ProofInputUtxo>[0]>,
+): ProofInputUtxo {
+  return new ProofInputUtxo({
+    utxo: reserved.utxo,
+    nullifierPublicKey: reserved.nullifierPublicKey,
+    nullifier: reserved.nullifier(),
+    treeId: reserved.treeId,
+    address: true,
+    ...change,
+  });
+}
 
 function fixture() {
   const keypair = ShieldedKeypair.generate();

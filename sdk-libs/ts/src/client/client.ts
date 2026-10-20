@@ -1171,7 +1171,10 @@ export async function buildUnsignedTransaction(
     feePayer: Address;
     inputTree: Address;
     outputTree: Address;
-    /** Ed25519 input owners in signer-vector order, the fee payer too when it owns an input. */
+    /**
+     * The Ed25519 and PDA owners of inputs and of outputs that carry data, in
+     * signer-vector order, the fee payer too when it is one of them.
+     */
     ownerSigners: readonly Address[];
     setupInstructions?: readonly Instruction[];
     withdrawal?: TransactWithdrawal;

@@ -102,9 +102,10 @@ let lastResolvedHash:
   | undefined;
 
 /**
- * Unique Ed25519 owners of real inputs, then of real outputs that carry data,
- * in first-occurrence order, mirrors Rust `owner_signer_pubkeys`. The fee
- * payer gets no special treatment: it is listed only when it owns one of them.
+ * Unique Ed25519 and PDA owners of real inputs, address inputs included, then
+ * of outputs that carry data, in first-occurrence order; mirrors Rust
+ * `owner_signer_pubkeys`. The fee payer gets no special treatment: it is
+ * listed only when it is one of those owners.
  */
 export function ownerSignerAddresses(
   inputs: readonly ProofInputUtxo[],
@@ -252,11 +253,9 @@ function checkedTransferPlan(proofInputs: SppProofInputs, circuit: TransferCircu
     throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
   }
   const shape = proofInputs.checkShape();
-  if (
-    circuit.kind !== "confidential" &&
-    proofInputs.inputUtxos.some((input) => input.isAddress())
-  ) {
-    throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+  const address = proofInputs.inputUtxos.findIndex((input) => input.isAddress());
+  if (circuit.kind !== "confidential" && address >= 0) {
+    throw new ClientError("CLIENT_ADDRESS_INPUT_UNSUPPORTED", { details: { index: address } });
   }
   const plan = circuitPlan(circuit, shape);
   if (
@@ -312,8 +311,8 @@ function prepareTransferUnchecked(
     transfers.amounts[index] ?? 0n,
   ]);
   // The circuit authorizes an input owner by finding its tagged identity in
-  // the vector. Owner-signed rails list the unique Ed25519 owners of inputs
-  // and of outputs that carry data, the payer only when it is one of them,
+  // the vector. Owner-signed rails list the unique Ed25519 and PDA owners of
+  // inputs and of outputs that carry data, the payer only when it is one of them,
   // matching Rust's `signer_pk_hashes`. The authority rail's width-1 vector
   // is the payer.
   const signerHashes = plan.authority
