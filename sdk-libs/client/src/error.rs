@@ -1,11 +1,12 @@
 use solana_address::Address;
 use solana_pubkey::Pubkey;
+use solana_signature::Signature;
 use thiserror::Error;
 use zolana_hasher::HasherError;
 use zolana_interface::error::ShieldedPoolError;
 use zolana_keypair::KeypairError;
 use zolana_program::instruction::DepositBuildError;
-use zolana_transaction::TransactionError;
+use zolana_transaction::{AnonymousSlotDefect, TransactionError};
 
 use crate::prover::tee::TeeError;
 
@@ -448,6 +449,23 @@ pub enum ClientError {
 
     #[error("ring {ring_program_id} history page states no scan frontier")]
     RingHistoryIncomplete { ring_program_id: Address },
+
+    #[error(
+        "ring {ring_program_id} history is indexed through slot {indexed}, short of head {head}"
+    )]
+    RingHistoryBehindHead {
+        ring_program_id: Address,
+        head: u64,
+        indexed: u64,
+    },
+
+    /// Fails the recovery scan, the tag scan reports the slot and continues.
+    #[error("ring transaction {tx_signature} slot {slot_index} carries {defect}, the ring program refuses it")]
+    RingHistoryMalformed {
+        tx_signature: Signature,
+        slot_index: u32,
+        defect: AnonymousSlotDefect,
+    },
 
     #[error("indexer did not reach slot {required} within {attempts} attempts; highest indexed slot is {indexed}")]
     IndexerNotCaughtUp {

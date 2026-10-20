@@ -39,6 +39,8 @@ const TREE = treeAddress(DEFAULT_TREE_ID);
 const SIGNATURE = "1".repeat(64) as Signature;
 const SALT = new Uint8Array(16).fill(7) as Bytes16;
 const CONTEXT = { blockTime: 1_700_000_000n, slot: 0n };
+/** Fifty bytes under the scheme-9 byte, the ring program admits only the sealed length. */
+const SHORT_BODY = encodeOutputData(EncryptedScheme.ringAnonymous, new Uint8Array(50), "encrypted");
 
 function bytes(value: number): Bytes32 {
   return new Uint8Array(32).fill(value) as Bytes32;
@@ -706,7 +708,11 @@ describe("anonymous ring sync", () => {
         pages++;
         expect(request.ringProgramId).toBe(RING);
         expect(request.tags).toEqual([]);
-        return { context: CONTEXT, transactions: history, scannedThrough: Uint8Array.of(1) };
+        return {
+          context: { ...CONTEXT, slot: 40n },
+          transactions: history,
+          scannedThrough: Uint8Array.of(1),
+        };
       },
     });
     const wallet = new Wallet({ identity: recipient.shieldedAddress() });
@@ -749,7 +755,7 @@ describe("anonymous ring sync", () => {
     );
     const client = syncReads({
       getShieldedTransactionsByTags: async () => ({
-        context: CONTEXT,
+        context: { ...CONTEXT, slot: 20n },
         transactions: [lostTx],
         scannedThrough: Uint8Array.of(1),
       }),
@@ -811,6 +817,119 @@ describe("anonymous ring sync", () => {
       recoverAnonymousRing({ wallet, keys, client: unframed, ringProgramId: RING, head: 1n }),
     ).rejects.toMatchObject({ causeCode: "WALLET_RECOVERY_INCOMPLETE" });
     expect(wallet.utxos()).toEqual([]);
+  });
+
+  it("completes recovery only once the indexer reaches the head", async () => {
+    const recipient = keypair(1);
+    const paid = inboxPayment(keypair(2), recipient, 0, 0n, 10n, 11);
+    const indexedAt = (slot: bigint) =>
+      syncReads({
+        getShieldedTransactionsByTags: async () => ({
+          context: { ...CONTEXT, slot },
+          transactions: [paid.tx],
+          scannedThrough: Uint8Array.of(1),
+        }),
+      });
+    const keys = LocalShieldedKeys.fromKeypair(recipient);
+    const behind = new Wallet({ identity: recipient.shieldedAddress() });
+
+    const lagging = await recoverAnonymousRing({
+      wallet: behind,
+      keys,
+      client: indexedAt(19n),
+      ringProgramId: RING,
+      head: 20n,
+    }).catch((error: unknown) => error);
+    expect(lagging).toMatchObject({
+      code: "WALLET_SYNC",
+      causeCode: "WALLET_RECOVERY_BEHIND_HEAD",
+    });
+    expect((lagging as { cause: { details: unknown } }).cause.details).toEqual({
+      head: "20",
+      indexed: "19",
+    });
+    expect(behind.utxos()).toEqual([]);
+    for (const slot of [20n, 21n]) {
+      const wallet = new Wallet({ identity: recipient.shieldedAddress() });
+      await recoverAnonymousRing({
+        wallet,
+        keys,
+        client: indexedAt(slot),
+        ringProgramId: RING,
+        head: 20n,
+      });
+      expect(unspentHashes(wallet)).toEqual([hex(paid.paid.hash)]);
+    }
+  });
+
+  it("fails recovery on a ring transaction without its key, salt or body", async () => {
+    const recipient = keypair(1);
+    const keys = LocalShieldedKeys.fromKeypair(recipient);
+    const { tx } = inboxPayment(keypair(2), recipient, 0, 0n, 10n, 11);
+    const { txViewingPublicKey: _key, ...keyless } = tx;
+    const { salt: _salt, ...saltless } = tx;
+    const shortBody: IndexedShieldedTransaction = {
+      ...tx,
+      outputSlots: tx.outputSlots.map((slot) => ({ ...slot, payload: SHORT_BODY })),
+    };
+    const cases = [
+      [keyless, { defect: "missingTxViewingKey" }],
+      [saltless, { defect: "missingSalt" }],
+      [shortBody, { defect: "bodyLength", length: 50 }],
+    ] as const;
+    for (const [served, defect] of cases) {
+      const client = syncReads({
+        getShieldedTransactionsByTags: async () => ({
+          context: { ...CONTEXT, slot: 20n },
+          transactions: [served],
+          scannedThrough: Uint8Array.of(1),
+        }),
+      });
+      const wallet = new Wallet({ identity: recipient.shieldedAddress() });
+      const failure = await recoverAnonymousRing({
+        wallet,
+        keys,
+        client,
+        ringProgramId: RING,
+        head: 20n,
+      }).catch((error: unknown) => error);
+      expect(failure).toMatchObject({ causeCode: "WALLET_RECOVERY_MALFORMED_SLOT" });
+      expect((failure as { cause: { details: unknown } }).cause.details).toEqual({
+        transaction: SIGNATURE,
+        slotIndex: 0,
+        ...defect,
+      });
+      expect(wallet.utxos()).toEqual([]);
+    }
+  });
+
+  it("reports a malformed routed slot on the tag path and keeps syncing", async () => {
+    const recipient = keypair(1);
+    const malformed = inboxPayment(keypair(2), recipient, 0, 0n, 10n, 11);
+    const malformedTx: IndexedShieldedTransaction = {
+      ...malformed.tx,
+      outputSlots: malformed.tx.outputSlots.map((slot) => ({ ...slot, payload: SHORT_BODY })),
+    };
+    const real = inboxPayment(keypair(3), recipient, 0, 1n, 20n, 12);
+    const { client } = indexer({ tagged: [malformedTx, real.tx] });
+    const wallet = new Wallet({ identity: recipient.shieldedAddress() });
+
+    const report = await syncWallet({
+      wallet,
+      keys: LocalShieldedKeys.fromKeypair(recipient),
+      client,
+      anonymousRing: freshState,
+    });
+
+    expect(unspentHashes(wallet)).toEqual([hex(real.paid.hash)]);
+    expect(report.anonymousRing?.malformedSlots).toEqual([
+      {
+        txSignature: SIGNATURE,
+        slotIndex: 0,
+        viewTag: inboxTag(recipient, 0, 0n),
+        defect: { kind: "bodyLength", length: 50 },
+      },
+    ]);
   });
 
   it("leaves scheme-9 slots closed without routes and without a state", async () => {

@@ -26,10 +26,11 @@ use zolana_transaction::{
         proofless::{Proofless, ProoflessEncode},
         ring_anonymous::{ring_anonymous_message, RingAnonymousOutputPlaintext, RingAnonymousSlot},
     },
-    verify_owned, verify_spendable, Address, AnonymousNote, AnonymousTagRoutes, AssetBalance,
-    AssetRegistry, Balances, Data, DataRecord, DecryptLabel, DecryptRequest, DecryptionResult,
-    DeriveRequest, EncryptedScheme, LocalShieldedKeys, Mint, OutputContext, OutputSlot, OwnerCx,
-    PairHintError, RingDepositPlaintext, RingTagRequest, ShieldedKeys, ShieldedTransaction,
+    verify_owned, verify_spendable, Address, AnonymousNote, AnonymousSlotDefect,
+    AnonymousTagRoutes, AssetBalance, AssetRegistry, Balances, Data, DataRecord, DecryptLabel,
+    DecryptRequest, DecryptionResult, DeriveRequest, EncryptedScheme, LocalShieldedKeys,
+    MalformedAnonymousSlot, Mint, OutputContext, OutputSlot, OwnerCx, PairHintError,
+    RingDepositPlaintext, RingTagRequest, ShieldedKeys, ShieldedTransaction,
     SpendableDecryptionResult, TransactionError, TransactionKeyRequest, Utxo, UtxoSerialization,
     WalletUtxo, TRANSFER_PLAINTEXT,
 };
@@ -1215,6 +1216,61 @@ fn anonymous_ring_outputs_are_accepted_only_with_their_committed_hash() {
     assert!(found.notes.is_empty());
     assert!(decrypted.utxos.is_empty());
     assert!(decrypted.pending_assets.is_empty());
+}
+
+#[test]
+fn malformed_anonymous_slots_are_reported_routed_on_the_tag_path_and_all_untagged() {
+    let owner = keypair(95);
+    let tx_key = keypair(96).viewing_key;
+    let (note, routed) = anonymous_ring_slot(&owner, owner.viewing_pubkey(), &tx_key, INBOX_TAG, 2);
+    let short = borsh::to_vec(&OutputDataEncoding::Encrypted(vec![
+        EncryptedScheme::RingAnonymous.as_byte();
+        40
+    ]))
+    .unwrap();
+    let mut unrouted = routed.clone();
+    unrouted.view_tag = [0x52; 32];
+    let slots = [routed, unrouted].map(|mut slot| {
+        slot.payload = short.clone();
+        slot
+    });
+    let tx = anonymous_ring_tx(&note, &tx_key, slots.to_vec());
+    let malformed = |slot_index: u32, defect| MalformedAnonymousSlot {
+        tx_signature: tx.tx_signature,
+        slot_index,
+        view_tag: slots[slot_index as usize].view_tag,
+        defect,
+    };
+    let short_body = AnonymousSlotDefect::BodyLength { len: 39 };
+    let mut routes = AnonymousTagRoutes::new();
+    routes.insert(INBOX_TAG, owner.viewing_pubkey());
+    let assets = AssetRegistry::default();
+
+    let tagged = DecryptionResult::default()
+        .extend_ring_anonymous(&owner, std::slice::from_ref(&tx), &assets, &routes)
+        .unwrap();
+    assert_eq!(tagged.malformed_slots, [malformed(0, short_body)]);
+    let untagged = DecryptionResult::default()
+        .extend_ring_anonymous_untagged(&owner, std::slice::from_ref(&tx), &assets)
+        .unwrap();
+    assert_eq!(
+        untagged.malformed_slots,
+        [malformed(0, short_body), malformed(1, short_body)]
+    );
+    let saltless = ShieldedTransaction {
+        salt: None,
+        ..tx.clone()
+    };
+    let untagged = DecryptionResult::default()
+        .extend_ring_anonymous_untagged(&owner, &[saltless], &assets)
+        .unwrap();
+    assert_eq!(
+        untagged.malformed_slots,
+        [
+            malformed(0, AnonymousSlotDefect::MissingSalt),
+            malformed(1, AnonymousSlotDefect::MissingSalt)
+        ]
+    );
 }
 
 /// Hits past the cap are left unopened and the tag and ring are reported.

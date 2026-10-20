@@ -2,8 +2,11 @@ import type { IndexerReader } from "../client/ports.js";
 import type { IndexerRpcConfig } from "../client/retry.js";
 import type { Address, RequestContext } from "../interface/types.js";
 import type { IndexedShieldedTransaction } from "../transaction/instructions/transact.js";
-import { EncryptedScheme, readOutputData } from "../transaction/serialization/codecs.js";
-import { AnonymousTagRoutes } from "../transaction/wallet/anonymous.js";
+import {
+  AnonymousTagRoutes,
+  malformedAnonymousSlots,
+  ringAnonymousBody,
+} from "../transaction/wallet/anonymous.js";
 import type { ShieldedKeys } from "../transaction/wallet/keys.js";
 import type { SyncReport, Wallet } from "../transaction/wallet/state.js";
 import { decryptTransactions } from "../transaction/wallet/sync.js";
@@ -37,7 +40,7 @@ export interface AnonymousRingRecoveryReport {
 const DEFAULT_PAGE_SIZE = 100;
 const DEFAULT_MAX_PAGES = 32;
 
-/** Tries every scheme-9 slot of every confirmed ring transaction through `head` under every held viewing key regardless of tag, fails on an uncovered head, trusts the indexer for completeness. */
+/** Tries every scheme-9 slot of every confirmed ring transaction through `head` under every held viewing key regardless of tag, fails on an uncovered head or a slot the ring program refuses, trusts the indexer for completeness. */
 export async function recoverAnonymousRing(
   params: AnonymousRingRecoveryParams,
   context?: RequestContext,
@@ -61,7 +64,7 @@ export async function recoverAnonymousRing(
     const routes = new AnonymousTagRoutes();
     for (const tx of transactions) {
       for (const slot of tx.outputSlots) {
-        if (isRingAnonymous(slot.payload)) {
+        if (ringAnonymousBody(slot.payload) !== undefined) {
           routes.route(slot.viewTag, viewingPublicKeys, { kind: "recovered" });
         }
       }
@@ -106,12 +109,29 @@ async function ringHistory(
     );
     for (const tx of response.transactions) {
       if (tx.proofless || tx.slot > params.head) continue;
-      if (tx.txViewingPublicKey === undefined || tx.salt === undefined) continue;
+      const malformed = malformedAnonymousSlots(tx)[0];
+      if (malformed !== undefined) {
+        throw new WalletError("WALLET_RECOVERY_MALFORMED_SLOT", {
+          details: {
+            transaction: malformed.txSignature,
+            slotIndex: malformed.slotIndex,
+            defect: malformed.defect.kind,
+            ...(malformed.defect.kind === "bodyLength" ? { length: malformed.defect.length } : {}),
+          },
+        });
+      }
       transactions.push(tx);
     }
     // Photon also returns the last row's cursor on a terminal page, only the
     // scanned-through frontier marks a complete scan.
-    if (response.scannedThrough !== undefined) return transactions;
+    if (response.scannedThrough !== undefined) {
+      if (response.context.slot < params.head) {
+        throw new WalletError("WALLET_RECOVERY_BEHIND_HEAD", {
+          details: { head: params.head, indexed: response.context.slot },
+        });
+      }
+      return transactions;
+    }
     const next = response.nextCursor;
     if (next === undefined) {
       throw new WalletError("WALLET_RECOVERY_INCOMPLETE", {
@@ -128,13 +148,4 @@ async function ringHistory(
   throw new WalletError("WALLET_RECOVERY_INCOMPLETE", {
     details: { reason: "page limit", maxPages },
   });
-}
-
-function isRingAnonymous(payload: Uint8Array): boolean {
-  try {
-    const frame = readOutputData(payload);
-    return frame.encoding === "encrypted" && frame.scheme === EncryptedScheme.ringAnonymous;
-  } catch {
-    return false;
-  }
 }

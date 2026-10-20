@@ -22,9 +22,9 @@ use zolana_transaction::{
     serialization::ring_anonymous::{
         ring_anonymous_message, RingAnonymousOutputPlaintext, RingAnonymousSlot,
     },
-    AssetRegistry, Data, DecryptRequest, DeriveRequest, EncryptedScheme, Mint,
-    RingDepositPlaintext, RingTagRequest, ShieldedKeys, TransactionError, TransactionKeyRequest,
-    Utxo,
+    AnonymousSlotDefect, AssetRegistry, Data, DecryptRequest, DeriveRequest, EncryptedScheme,
+    MalformedAnonymousSlot, Mint, RingDepositPlaintext, RingTagRequest, ShieldedKeys,
+    TransactionError, TransactionKeyRequest, Utxo,
 };
 
 const TREE: u16 = 2;
@@ -42,6 +42,8 @@ struct Indexer {
     ring_page: Option<usize>,
     /// The last history page states no frontier.
     incomplete_history: bool,
+    /// The slot history pages report, past every head when unset.
+    indexed_slot: Option<u64>,
     queried_tags: RefCell<Vec<Vec<ViewTag>>>,
     history_reads: RefCell<usize>,
 }
@@ -123,7 +125,10 @@ impl Rpc for Indexer {
         let end = start.saturating_add(page).min(self.ring_history.len());
         let last = end == self.ring_history.len();
         Ok(GetShieldedTransactionsByTagsResponse {
-            context: CONTEXT,
+            context: Context {
+                block_time: 0,
+                slot: self.indexed_slot.unwrap_or(u64::MAX),
+            },
             output_tree_id: Some(TREE),
             transactions: self.ring_history[start..end].to_vec(),
             next_cursor: (!last).then(|| vec![u8::try_from(end).unwrap()]),
@@ -593,6 +598,115 @@ fn recovery_fails_on_an_incomplete_page_and_on_the_page_limit() {
         Err(ClientError::RingHistoryPageLimit { ring_program_id, pages: 1 })
             if ring_program_id == RING
     ));
+}
+
+#[test]
+fn recovery_completes_only_once_the_indexer_reaches_the_head() {
+    let recipient = keypair(1);
+    let (tx, paid) = inbox_payment(&keypair(2), &recipient, 0, 0, 10, 11);
+    let assets = AssetRegistry::default();
+    let indexed_at = |slot| Indexer {
+        ring_history: vec![tx.clone()],
+        indexed_slot: Some(slot),
+        ..Indexer::default()
+    };
+
+    assert!(matches!(
+        RingRecovery::new(&recipient, &assets, RING, 100).fetch(&indexed_at(99)),
+        Err(ClientError::RingHistoryBehindHead { ring_program_id, head: 100, indexed: 99 })
+            if ring_program_id == RING
+    ));
+    for slot in [100, 101] {
+        let result = RingRecovery::new(&recipient, &assets, RING, 100)
+            .fetch(&indexed_at(slot))
+            .unwrap();
+        assert_eq!(result.report.notes[0].utxo_hash, paid.hash);
+        assert_eq!(result.report.checkpoint, Some(FRONTIER.to_vec()));
+    }
+}
+
+/// `body_len` bytes under the scheme-9 byte, the ring program admits only the sealed length.
+fn malformed_payload(body_len: usize) -> Vec<u8> {
+    let blob = [
+        vec![EncryptedScheme::RingAnonymous.as_byte()],
+        vec![0; body_len],
+    ]
+    .concat();
+    borsh::to_vec(&OutputDataEncoding::Encrypted(blob)).unwrap()
+}
+
+#[test]
+fn recovery_fails_on_a_ring_transaction_without_its_key_salt_or_body() {
+    let recipient = keypair(1);
+    let assets = AssetRegistry::default();
+    let (no_key, _) = inbox_payment(&keypair(2), &recipient, 0, 0, 10, 11);
+    let (no_salt, _) = inbox_payment(&keypair(2), &recipient, 0, 1, 10, 12);
+    let (short_body, _) = inbox_payment(&keypair(2), &recipient, 0, 2, 10, 13);
+    let cases = [
+        (
+            ShieldedTransaction {
+                tx_viewing_pk: None,
+                ..no_key
+            },
+            AnonymousSlotDefect::MissingTxViewingKey,
+        ),
+        (
+            ShieldedTransaction {
+                salt: None,
+                ..no_salt
+            },
+            AnonymousSlotDefect::MissingSalt,
+        ),
+        (
+            {
+                let mut tx = short_body;
+                tx.output_slots[0].payload = malformed_payload(50);
+                tx
+            },
+            AnonymousSlotDefect::BodyLength { len: 50 },
+        ),
+    ];
+    for (tx, want) in cases {
+        let signature = tx.tx_signature;
+        let indexer = Indexer {
+            ring_history: vec![tx],
+            ..Indexer::default()
+        };
+        assert!(matches!(
+            RingRecovery::new(&recipient, &assets, RING, 100).fetch(&indexer),
+            Err(ClientError::RingHistoryMalformed { tx_signature, slot_index: 0, defect })
+                if tx_signature == signature && defect == want
+        ));
+    }
+}
+
+#[test]
+fn the_tag_scan_reports_a_malformed_routed_slot_and_keeps_scanning() {
+    let recipient = keypair(1);
+    let (mut malformed_tx, _) = inbox_payment(&keypair(2), &recipient, 0, 0, 10, 11);
+    malformed_tx.output_slots[0].payload = malformed_payload(50);
+    let malformed_tag = malformed_tx.output_slots[0].view_tag;
+    let (paid_tx, paid) = inbox_payment(&keypair(3), &recipient, 0, 1, 20, 12);
+    let indexer = Indexer {
+        tagged: vec![malformed_tx, paid_tx],
+        ..Indexer::default()
+    };
+    let assets = AssetRegistry::default();
+    let result = UtxoScan::new(&recipient, &assets)
+        .with_anonymous_ring(AnonymousRingState::default())
+        .fetch(&indexer)
+        .unwrap();
+
+    assert_eq!(found_hashes(&result), BTreeSet::from([paid.hash]));
+    assert_eq!(
+        result.anonymous.unwrap().malformed_slots,
+        [MalformedAnonymousSlot {
+            tx_signature: Signature::from([11; 64]),
+            slot_index: 0,
+            view_tag: malformed_tag,
+            defect: AnonymousSlotDefect::BodyLength { len: 50 },
+        }]
+    );
 }
 
 #[test]

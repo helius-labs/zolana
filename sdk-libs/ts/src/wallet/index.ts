@@ -65,7 +65,9 @@ export type {
   AnonymousRingNote,
   AnonymousRingReport,
   AnonymousRingState,
+  AnonymousSlotDefect,
   AnonymousStream,
+  MalformedAnonymousSlot,
   PendingAnonymousNote,
 } from "../transaction/wallet/anonymous.js";
 export {

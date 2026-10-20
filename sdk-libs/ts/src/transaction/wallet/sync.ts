@@ -24,7 +24,6 @@ import {
   decodeRingAnonymous,
   decodeSplitBundle,
   decodeConfidential,
-  RING_ANONYMOUS_PLAINTEXT_LENGTH,
   decryptConfidentialAsSender,
   prooflessUtxo,
   plaintextTransferUtxos,
@@ -40,7 +39,11 @@ import {
 } from "../serialization/ring-deposit.js";
 import { decryptMergeOutput, readMergeOutputBody } from "../serialization/merge.js";
 import { Utxo } from "../utxo.js";
-import type { AnonymousTagRoutes, PendingAnonymousNote } from "./anonymous.js";
+import {
+  anonymousSlotDefect,
+  type AnonymousTagRoutes,
+  type PendingAnonymousNote,
+} from "./anonymous.js";
 import { KeyMemo } from "./key-memo.js";
 import {
   LocalShieldedKeys,
@@ -1132,8 +1135,19 @@ class SyncPass {
       this.undecryptableCandidates++;
       return;
     }
-    if (frame.body.length !== RING_ANONYMOUS_PLAINTEXT_LENGTH || tx.ringProgramId === undefined) {
+    if (tx.ringProgramId === undefined) {
       this.undecryptableCandidates++;
+      return;
+    }
+    const defect = anonymousSlotDefect(tx, frame.body);
+    if (defect !== undefined) {
+      this.undecryptableCandidates++;
+      routes.malformed({
+        txSignature: tx.txSignature,
+        slotIndex: site.slot,
+        viewTag: copy(slot.viewTag) as Bytes32,
+        defect,
+      });
       return;
     }
     const tag = hex(slot.viewTag);

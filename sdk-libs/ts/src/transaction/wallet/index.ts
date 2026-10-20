@@ -15,7 +15,9 @@ export {
   type AnonymousRingNote,
   type AnonymousRingReport,
   type AnonymousRingState,
+  type AnonymousSlotDefect,
   type AnonymousStream,
+  type MalformedAnonymousSlot,
   type PendingAnonymousNote,
 } from "./anonymous.js";
 export {

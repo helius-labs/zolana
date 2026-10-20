@@ -1,9 +1,9 @@
 import type { Bytes32, RequestContext } from "../interface/types.js";
 import type { X25519PublicKey } from "../keypair/x25519.js";
 import type { IndexedShieldedTransaction } from "../transaction/instructions/transact.js";
-import { EncryptedScheme, readOutputData } from "../transaction/serialization/codecs.js";
 import {
   AnonymousTagRoutes,
+  ringAnonymousBody,
   type AnonymousRingNote,
   type AnonymousRingReport,
   type AnonymousRingState,
@@ -46,14 +46,7 @@ function request(window: Window, viewingPublicKey: X25519PublicKey, index: bigin
 }
 
 function hasRingAnonymousSlot(tx: IndexedShieldedTransaction): boolean {
-  return tx.outputSlots.some((slot) => {
-    try {
-      const frame = readOutputData(slot.payload);
-      return frame.encoding === "encrypted" && frame.scheme === EncryptedScheme.ringAnonymous;
-    } catch {
-      return false;
-    }
-  });
+  return tx.outputSlots.some((slot) => ringAnonymousBody(slot.payload) !== undefined);
 }
 
 /** @internal */
@@ -206,6 +199,7 @@ export class AnonymousStreams {
       depositNext: this.#depositNext,
       addressesUnderAttack: Object.freeze([...this.#attacked].sort((left, right) => left - right)),
       badPairHints: Object.freeze([...this.routes.badPairHints()]),
+      malformedSlots: Object.freeze([...this.routes.malformedSlots()]),
     });
   }
 

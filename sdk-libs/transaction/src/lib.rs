@@ -29,8 +29,8 @@ pub use asset::{AssetBalance, AssetRegistry, Balances, Mint, SOL_ASSET_ID, SOL_M
 pub use data::{Data, DataRecord};
 pub use decrypt::{
     decrypt, decrypt_spendable, verify_owned, verify_spendable, AnonymousDecryption, AnonymousNote,
-    AnonymousTagRoutes, DecryptionResult, OwnedUtxos, PairHintError, PendingNote, ResolvedNote,
-    SpendableDecryptionResult,
+    AnonymousSlotDefect, AnonymousTagRoutes, DecryptionResult, MalformedAnonymousSlot, OwnedUtxos,
+    PairHintError, PendingNote, ResolvedNote, SpendableDecryptionResult,
 };
 pub use error::{AddressInputError, TransactionError};
 pub use history::{History, HistoryEntry, HistoryKind};

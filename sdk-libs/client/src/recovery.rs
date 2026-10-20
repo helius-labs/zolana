@@ -122,6 +122,13 @@ impl<'a, K: ShieldedKeys + ?Sized> RingRecovery<'a, K> {
             &history.transactions,
             self.assets,
         )?;
+        if let Some(malformed) = found.malformed_slots.first() {
+            return Err(ClientError::RingHistoryMalformed {
+                tx_signature: malformed.tx_signature,
+                slot_index: malformed.slot_index,
+                defect: malformed.defect,
+            });
+        }
         Ok(Recovered {
             transactions: history.transactions,
             report: RingRecoveryReport {
@@ -135,7 +142,8 @@ impl<'a, K: ShieldedKeys + ?Sized> RingRecovery<'a, K> {
     }
 
     /// Stops at the first page past `head` and checkpoints that page, fails
-    /// without a stated frontier or past the page limit.
+    /// without a stated frontier, on a frontier short of `head` or past the
+    /// page limit.
     fn history<I: Rpc + ?Sized>(&self, indexer: &I) -> Result<RingHistory, ClientError> {
         let mut transactions = Vec::new();
         let mut cursor = self.checkpoint.clone();
@@ -150,6 +158,7 @@ impl<'a, K: ShieldedKeys + ?Sized> RingRecovery<'a, K> {
                 self.indexer_config,
             )?;
             pages += 1;
+            let indexed = page.context.slot;
             let past_head = page.transactions.iter().position(|tx| tx.slot > self.head);
             let through_head = &page.transactions[..past_head.unwrap_or(page.transactions.len())];
             transactions.extend(
@@ -177,6 +186,13 @@ impl<'a, K: ShieldedKeys + ?Sized> RingRecovery<'a, K> {
                     let frontier = frontier.ok_or(ClientError::RingHistoryIncomplete {
                         ring_program_id: self.ring_program_id,
                     })?;
+                    if indexed < self.head {
+                        return Err(ClientError::RingHistoryBehindHead {
+                            ring_program_id: self.ring_program_id,
+                            head: self.head,
+                            indexed,
+                        });
+                    }
                     return Ok(RingHistory {
                         transactions,
                         checkpoint: Some(frontier),

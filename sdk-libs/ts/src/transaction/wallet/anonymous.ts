@@ -1,6 +1,11 @@
 import type { Bytes32, Signature } from "../../interface/types.js";
 import type { X25519PublicKey } from "../../keypair/x25519.js";
-import type { OutputContext } from "../instructions/transact.js";
+import type { IndexedShieldedTransaction, OutputContext } from "../instructions/transact.js";
+import {
+  EncryptedScheme,
+  RING_ANONYMOUS_PLAINTEXT_LENGTH,
+  readOutputData,
+} from "../serialization/codecs.js";
 import type { Utxo } from "../utxo.js";
 
 import { hex } from "./state.js";
@@ -32,6 +37,58 @@ export interface PendingAnonymousNote {
   readonly pairU: Bytes32;
 }
 
+export type AnonymousSlotDefect =
+  | Readonly<{ kind: "missingTxViewingKey" }>
+  | Readonly<{ kind: "missingSalt" }>
+  | Readonly<{ kind: "bodyLength"; length: number }>;
+
+/** A scheme-9 slot of a ring transaction the ring program refuses, left unopened. */
+export interface MalformedAnonymousSlot {
+  readonly txSignature: Signature;
+  readonly slotIndex: number;
+  readonly viewTag: Bytes32;
+  readonly defect: AnonymousSlotDefect;
+}
+
+/** The body after the scheme-9 byte, `undefined` for any other frame. */
+export function ringAnonymousBody(payload: Uint8Array): Uint8Array | undefined {
+  try {
+    const frame = readOutputData(payload);
+    return frame.encoding === "encrypted" && frame.scheme === EncryptedScheme.ringAnonymous
+      ? frame.body
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** `undefined` for a scheme-9 body of a ring transaction the ring program admits. */
+export function anonymousSlotDefect(
+  tx: IndexedShieldedTransaction,
+  body: Uint8Array,
+): AnonymousSlotDefect | undefined {
+  if (tx.txViewingPublicKey === undefined) return { kind: "missingTxViewingKey" };
+  if (tx.salt === undefined) return { kind: "missingSalt" };
+  if (body.length !== RING_ANONYMOUS_PLAINTEXT_LENGTH) {
+    return { kind: "bodyLength", length: body.length };
+  }
+  return undefined;
+}
+
+/** Every refused scheme-9 slot of a ring transaction in slot order, none outside a ring. */
+export function malformedAnonymousSlots(
+  tx: IndexedShieldedTransaction,
+): readonly MalformedAnonymousSlot[] {
+  if (tx.ringProgramId === undefined) return [];
+  return tx.outputSlots.flatMap((slot, slotIndex) => {
+    const body = ringAnonymousBody(slot.payload);
+    const defect = body === undefined ? undefined : anonymousSlotDefect(tx, body);
+    return defect === undefined
+      ? []
+      : [{ txSignature: tx.txSignature, slotIndex, viewTag: slot.viewTag, defect }];
+  });
+}
+
 export interface AnonymousRingState {
   /** Ring addresses handed out, scanned whole before the gap rule applies. */
   readonly issuedAddresses: number;
@@ -58,6 +115,8 @@ export interface AnonymousRingReport {
   readonly addressesUnderAttack: readonly number[];
   /** Commitments of stored notes whose pair hint names no counterparty. */
   readonly badPairHints: readonly Bytes32[];
+  /** Slots under a derived tag the ring program refuses, the indexer served them wrongly. */
+  readonly malformedSlots: readonly MalformedAnonymousSlot[];
 }
 
 interface Route {
@@ -71,6 +130,7 @@ export class AnonymousTagRoutes {
   readonly #notes = new Map<string, AnonymousNote>();
   readonly #capped = new Map<string, Bytes32>();
   readonly #badPairHints = new Map<string, Bytes32>();
+  readonly #malformed = new Map<string, MalformedAnonymousSlot>();
   readonly #decryptionsPerTag: number;
 
   /** Openings per tag per `decryptTransactions` call before the tag is flagged, every hit still opens. */
@@ -116,6 +176,11 @@ export class AnonymousTagRoutes {
     this.#badPairHints.set(hex(utxoHash), utxoHash);
   }
 
+  /** @internal */
+  malformed(slot: MalformedAnonymousSlot): void {
+    this.#malformed.set(`${slot.txSignature}:${String(slot.slotIndex)}`, slot);
+  }
+
   notes(): readonly AnonymousNote[] {
     return [...this.#notes.values()];
   }
@@ -128,5 +193,9 @@ export class AnonymousTagRoutes {
   /** Stored notes whose pair hint is not a canonical X25519 key. */
   badPairHints(): readonly Bytes32[] {
     return [...this.#badPairHints.values()];
+  }
+
+  malformedSlots(): readonly MalformedAnonymousSlot[] {
+    return [...this.#malformed.values()];
   }
 }

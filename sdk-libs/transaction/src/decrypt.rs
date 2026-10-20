@@ -250,6 +250,25 @@ pub struct PairHintError {
     pub pair_u: [u8; 32],
 }
 
+/// A scheme-9 slot of a ring transaction the ring program refuses, left unopened.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MalformedAnonymousSlot {
+    pub tx_signature: Signature,
+    pub slot_index: u32,
+    pub view_tag: ViewTag,
+    pub defect: AnonymousSlotDefect,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum AnonymousSlotDefect {
+    #[error("no transaction viewing key")]
+    MissingTxViewingKey,
+    #[error("no salt")]
+    MissingSalt,
+    #[error("a body of {len} bytes")]
+    BodyLength { len: usize },
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AnonymousDecryption {
     pub notes: Vec<AnonymousNote>,
@@ -258,6 +277,8 @@ pub struct AnonymousDecryption {
     /// Rings a capped tag was published in, the recovery scan covers them.
     pub capped_rings: BTreeSet<Address>,
     pub bad_pair_hints: Vec<PairHintError>,
+    /// Routed slots on the tag path, every slot on the untagged path.
+    pub malformed_slots: Vec<MalformedAnonymousSlot>,
 }
 
 /// Decrypts and verifies notes against the supplied transactions.
@@ -351,26 +372,36 @@ impl DecryptionResult {
         let mut opened: HashMap<ViewTag, usize> = HashMap::new();
         let mut sites = Vec::new();
         for tx in transactions {
-            let Some(context) = AnonymousTx::new(tx) else {
+            let Some(ring_tx) = RingAnonymousTx::new(tx)? else {
                 continue;
             };
             let mut by_key: HashMap<X25519Pubkey, Vec<AnonymousSlot<'_>>> = HashMap::new();
-            for (position, slot) in tx.output_slots.iter().enumerate() {
-                let Some(viewing_pubkey) = routes.viewing_pubkey(&slot.view_tag) else {
+            for slot in ring_tx.slots {
+                let view_tag = slot
+                    .as_ref()
+                    .map_or_else(|malformed| malformed.view_tag, |slot| slot.slot.view_tag);
+                let Some(viewing_pubkey) = routes.viewing_pubkey(&view_tag) else {
                     continue;
                 };
-                let Some(candidate) = AnonymousSlot::new(slot, position)? else {
-                    continue;
+                let candidate = match slot {
+                    Ok(candidate) => candidate,
+                    Err(malformed) => {
+                        decryption.malformed_slots.push(malformed);
+                        continue;
+                    }
                 };
-                let count = opened.entry(slot.view_tag).or_default();
+                let count = opened.entry(view_tag).or_default();
                 if !routes.allows(*count) {
-                    decryption.capped_tags.insert(slot.view_tag);
-                    decryption.capped_rings.insert(context.ring);
+                    decryption.capped_tags.insert(view_tag);
+                    decryption.capped_rings.insert(ring_tx.ring);
                     continue;
                 }
                 *count += 1;
                 by_key.entry(viewing_pubkey).or_default().push(candidate);
             }
+            let Some(context) = ring_tx.context else {
+                continue;
+            };
             sites.extend(by_key.into_iter().map(|(viewing_pubkey, slots)| OpenSite {
                 tx,
                 context,
@@ -394,18 +425,19 @@ impl DecryptionResult {
         let mut decryption = AnonymousDecryption::default();
         let mut sites = Vec::new();
         for tx in transactions {
-            let Some(context) = AnonymousTx::new(tx) else {
+            let Some(ring_tx) = RingAnonymousTx::new(tx)? else {
                 continue;
             };
-            let slots = tx
-                .output_slots
-                .iter()
-                .enumerate()
-                .filter_map(|(position, slot)| AnonymousSlot::new(slot, position).transpose())
-                .collect::<Result<Vec<_>, _>>()?;
-            if slots.is_empty() {
-                continue;
+            let mut slots = Vec::new();
+            for slot in ring_tx.slots {
+                match slot {
+                    Ok(slot) => slots.push(slot),
+                    Err(malformed) => decryption.malformed_slots.push(malformed),
+                }
             }
+            let Some(context) = ring_tx.context.filter(|_| !slots.is_empty()) else {
+                continue;
+            };
             sites.extend(viewing_pubkeys.iter().map(|&viewing_pubkey| OpenSite {
                 tx,
                 context,
@@ -609,13 +641,61 @@ struct AnonymousTx {
     ring: Address,
 }
 
-impl AnonymousTx {
-    fn new(tx: &ShieldedTransaction) -> Option<Self> {
-        Some(Self {
-            tx_viewing_pubkey: tx.tx_viewing_pk?,
-            salt: tx.salt?,
-            ring: tx.ring_program_id?,
-        })
+struct RingAnonymousTx<'a> {
+    ring: Address,
+    /// `None` when the transaction lacks its key or salt, every slot is then malformed.
+    context: Option<AnonymousTx>,
+    slots: Vec<Result<AnonymousSlot<'a>, MalformedAnonymousSlot>>,
+}
+
+impl<'a> RingAnonymousTx<'a> {
+    /// `None` outside a ring.
+    fn new(tx: &'a ShieldedTransaction) -> Result<Option<Self>, TransactionError> {
+        let Some(ring) = tx.ring_program_id else {
+            return Ok(None);
+        };
+        let context = tx
+            .tx_viewing_pk
+            .ok_or(AnonymousSlotDefect::MissingTxViewingKey)
+            .and_then(|tx_viewing_pubkey| {
+                Ok(AnonymousTx {
+                    tx_viewing_pubkey,
+                    salt: tx.salt.ok_or(AnonymousSlotDefect::MissingSalt)?,
+                    ring,
+                })
+            });
+        let mut slots = Vec::new();
+        for (position, slot) in tx.output_slots.iter().enumerate() {
+            let Some(body) = slot.encrypted_body(EncryptedScheme::RingAnonymous) else {
+                continue;
+            };
+            let slot_index =
+                u32::try_from(position).map_err(|_| TransactionError::TooManyOutputs)?;
+            let len = body.len();
+            let ciphertext = context.and_then(|_| {
+                <[u8; ANONYMOUS_OUTPUT_PLAINTEXT_LEN]>::try_from(body)
+                    .map_err(|_| AnonymousSlotDefect::BodyLength { len })
+            });
+            slots.push(
+                ciphertext
+                    .map(|ciphertext| AnonymousSlot {
+                        slot,
+                        slot_index,
+                        ciphertext,
+                    })
+                    .map_err(|defect| MalformedAnonymousSlot {
+                        tx_signature: tx.tx_signature,
+                        slot_index,
+                        view_tag: slot.view_tag,
+                        defect,
+                    }),
+            );
+        }
+        Ok(Some(Self {
+            ring,
+            context: context.ok(),
+            slots,
+        }))
     }
 }
 
@@ -625,22 +705,6 @@ struct AnonymousSlot<'a> {
     slot: &'a OutputSlot,
     slot_index: u32,
     ciphertext: [u8; ANONYMOUS_OUTPUT_PLAINTEXT_LEN],
-}
-
-impl<'a> AnonymousSlot<'a> {
-    fn new(slot: &'a OutputSlot, position: usize) -> Result<Option<Self>, TransactionError> {
-        let Some(body) = slot.encrypted_body(EncryptedScheme::RingAnonymous) else {
-            return Ok(None);
-        };
-        let Ok(ciphertext) = <[u8; ANONYMOUS_OUTPUT_PLAINTEXT_LEN]>::try_from(body) else {
-            return Ok(None);
-        };
-        Ok(Some(Self {
-            slot,
-            slot_index: u32::try_from(position).map_err(|_| TransactionError::TooManyOutputs)?,
-            ciphertext,
-        }))
-    }
 }
 
 /// The slots of one transaction opened under one viewing key.

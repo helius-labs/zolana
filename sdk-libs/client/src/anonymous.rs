@@ -8,8 +8,8 @@ use std::{
 use solana_address::Address;
 use zolana_keypair::{viewing_key::ViewTag, X25519Pubkey};
 use zolana_transaction::{
-    anonymous_slot_index, AnonymousDecryption, AnonymousTagRoutes, EncryptedScheme, PairHintError,
-    RingTagRequest, ShieldedKeys, TransactionError,
+    anonymous_slot_index, AnonymousDecryption, AnonymousTagRoutes, EncryptedScheme,
+    MalformedAnonymousSlot, PairHintError, RingTagRequest, ShieldedKeys, TransactionError,
 };
 
 use crate::{
@@ -72,6 +72,8 @@ pub struct AnonymousRingReport {
     /// scan of their ring opened what the cap left.
     pub capped_streams: HashSet<AnonymousStream>,
     pub bad_pair_hints: Vec<PairHintError>,
+    /// Slots under a derived tag the ring program refuses, the indexer served them wrongly.
+    pub malformed_slots: Vec<MalformedAnonymousSlot>,
     /// One per ring a capped tag was published in.
     pub recoveries: Vec<RingRecoveryReport>,
 }
@@ -330,6 +332,9 @@ impl<'a, K: ShieldedKeys + ?Sized> AnonymousStreams<'a, K> {
         }
         self.capped_rings.extend(decrypted.capped_rings);
         self.report.bad_pair_hints.extend(decrypted.bad_pair_hints);
+        self.report
+            .malformed_slots
+            .extend(decrypted.malformed_slots);
         self.open_addresses();
     }
 
