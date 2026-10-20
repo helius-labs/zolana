@@ -274,7 +274,7 @@ Changed
 
 Fixed
 
-- `syncWallet` aborted on an anonymous note whose pair hint is a low-order X25519 key, now the note is kept and the hint is reported in `badPairHints`. It also checked every output against tree 0, so a merge into another tree failed with `TRANSACTION_MERGE_OUTPUT_UNDECRYPTABLE` or was dropped, now each output is checked against its indexed tree id.
+- `syncWallet` aborted on an anonymous note whose pair hint is a low-order X25519 key, now the note is kept and the hint is reported in `badPairHints`. `auditRingTransaction` reports the same hint as a `pairHint` payload error. It also checked every output against tree 0, so a merge into another tree failed with `TRANSACTION_MERGE_OUTPUT_UNDECRYPTABLE` or was dropped, now each output is checked against its indexed tree id.
 - `syncWallet` failed with `CLIENT_INVALID_RPC_RESPONSE` on any indexed transaction whose published viewing key is not a valid X25519 key, now such a transaction is read without a viewing key and its outputs count as undecryptable, as do outputs under a small-order transaction key.
 - `RingRpc` rejects incomplete, repeated or oversized signed audit pages instead of silently treating them as complete.
 - `auditRingMerges` now surfaces registry read failures instead of reporting members as merely unavailable.

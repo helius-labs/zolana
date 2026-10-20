@@ -652,7 +652,11 @@ describe("anonymous ring audit", () => {
     ).toThrow("RING_AUDIT_OUTPUT_MISMATCH");
   });
 
-  it("reports a pair hint outside the X25519 encoding beside the stored output", () => {
+  it.each([
+    ["outside the X25519 encoding", new Uint8Array(32).fill(0xff)],
+    ["of low order zero", new Uint8Array(32)],
+    ["of low order one", Uint8Array.of(1, ...new Uint8Array(31))],
+  ])("reports a pair hint %s beside the stored output", (_, pairU) => {
     const encrypted = encryptTransactionViewingSecret(tx.secretBytes(), auditor.publicKey(), {
       salt,
       anonymous: disclosure,
@@ -664,7 +668,7 @@ describe("anonymous ring audit", () => {
         assetAddress: SOL_MINT,
         amount: 42n,
         blinding,
-        pairU: new Uint8Array(32).fill(0xff) as Bytes32,
+        pairU: pairU as Bytes32,
       }),
       salt,
       0,

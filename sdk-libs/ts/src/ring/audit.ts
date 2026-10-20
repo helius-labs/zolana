@@ -27,7 +27,7 @@ import { bigIntToBytes, concatBytes } from "../keypair/bytes.js";
 import { clampViewingSecret } from "../keypair/derivation.js";
 import { ownerHash } from "../keypair/hash.js";
 import { ViewingKey } from "../keypair/viewing-key.js";
-import { X25519PublicKey, X25519Keypair } from "../keypair/x25519.js";
+import { X25519PublicKey, X25519Keypair, pairHintKey } from "../keypair/x25519.js";
 import {
   bytesToBigInt,
   commitmentPoseidon,
@@ -469,12 +469,8 @@ function anonymousAuditOutput(
   slot: OutputSlot,
   slotIndex: number,
 ): AuditedOutput {
-  const errors: OutputPayloadErrorKind[] = [];
-  try {
-    X25519PublicKey.fromU(body.note.pairU);
-  } catch {
-    errors.push("pairHint");
-  }
+  const errors: OutputPayloadErrorKind[] =
+    pairHintKey(body.note.pairU) === undefined ? ["pairHint"] : [];
   return {
     output: Object.freeze({
       slotIndex,

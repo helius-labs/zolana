@@ -2,7 +2,7 @@ import { ringDepositRecipientCiphertext } from "../../interface/ring-deposit-cap
 import { mergePaddedInputCount } from "../../interface/constants.js";
 import type { Address, Bytes16, Bytes32, Bytes33, RequestContext } from "../../interface/types.js";
 import { type ShieldedPublicKey } from "../../keypair/public-key.js";
-import { X25519PublicKey, isSmallOrder } from "../../keypair/x25519.js";
+import { X25519PublicKey, isSmallOrder, pairHintKey } from "../../keypair/x25519.js";
 import type { ShieldedAddress, ShieldedKeypair } from "../../keypair/shielded.js";
 import type { ViewingKey } from "../../keypair/viewing-key.js";
 
@@ -78,15 +78,6 @@ function outputTreeId(context: OutputContext): TreeId {
 }
 
 /** `undefined` for a pair hint no X25519 agreement accepts, the note itself stays verified. */
-function pairKeyOf(pairU: Bytes32): X25519PublicKey | undefined {
-  try {
-    const key = X25519PublicKey.fromU(pairU);
-    return isSmallOrder(key) ? undefined : key;
-  } catch {
-    return undefined;
-  }
-}
-
 /** The nullifier every seed-disclosing bundle of `tx` derives its blindings from. */
 function firstNullifierOf(tx: IndexedShieldedTransaction): Bytes32 {
   const firstNullifier = tx.nullifiers[0];
@@ -1206,7 +1197,7 @@ class SyncPass {
     this.#pendingAssetsBySite.delete(siteKey);
     if (this.#store(utxo, outputContext, undefined, undefined) === "pending") return;
     this.#processedSlots.add(siteKey);
-    const pairPublicKey = pairKeyOf(plaintext.pairU);
+    const pairPublicKey = pairHintKey(plaintext.pairU);
     if (pairPublicKey === undefined) routes.badPairHint(copy(outputContext.hash) as Bytes32);
     routes.found({
       viewTag: copy(slot.viewTag) as Bytes32,
