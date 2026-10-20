@@ -134,6 +134,21 @@ Log in with `aws sso login --profile AdministratorAccess-558215002830` when the 
    ```
 
    Omit `INDEXER_URL` for clients that send their own proof data.
+   For the Aeglos CPU prover, fetch the locked Aeglos archive with Git access to the private repository and build with two more arguments:
+
+   ```sh
+   tools/gpu/fetch-aeglos.sh target/aeglos-source cpu
+   docker buildx build --platform linux/amd64 -f prover/server/Dockerfile.nitro \
+     --build-arg BACKEND=aeglos-cpu --build-context aeglos_source=target/aeglos-source \
+     --build-arg INDEXER_URL=https://INDEXER \
+     --build-arg KEY_SOURCE=kms --build-arg KMS_KEY_ARN="$kms_key" \
+     -t "$registry/zolana-prover-nitro:TAG" --push .
+   ```
+
+   The image names its backend in `/etc/zolana-nitro/backend`, and the entrypoint gives half of the prover memory to the Aeglos engine.
+   A batch collects while the previous one proves, so full batches of the default `--batch-max 4` need `CONCURRENCY=8`.
+   A test image from a local Aeglos checkout takes the extracted tree as `aeglos_source` and `--build-arg AEGLOS_UNPINNED=1`.
+   `--build-arg REQUEST_TIMING=on` lets a client that sends `X-Prover-Timing: true` read the prover's stage timings from response headers outside the encryption.
 
 3. Resolve the pushed digest.
    The digest, not the tag, identifies the image from here on.
