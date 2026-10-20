@@ -5,7 +5,7 @@ use solana_address::Address;
 use solana_signature::Signature;
 use zolana_client::GetShieldedTransactionsByTagsResponse;
 use zolana_indexer_api::{Base64String, Limit};
-use zolana_keypair::{X25519Pubkey, X25519Secret};
+use zolana_keypair::{X25519Keypair, X25519Pubkey};
 use zolana_ring_client::{
     auditor_view_tag,
     rpc::{
@@ -38,7 +38,7 @@ pub struct Page {
 
 pub struct AuditService<S> {
     ring: Address,
-    auditor: X25519Secret,
+    auditor: X25519Keypair,
     view_tag: [u8; 32],
     shared: Arc<Shared<S>>,
 }
@@ -88,7 +88,7 @@ impl Page {
 }
 
 impl<S: TransactionSource> AuditService<S> {
-    pub(crate) fn new(ring: Address, auditor: X25519Secret, shared: Arc<Shared<S>>) -> Self {
+    pub(crate) fn new(ring: Address, auditor: X25519Keypair, shared: Arc<Shared<S>>) -> Self {
         Self {
             ring,
             view_tag: auditor_view_tag(&auditor.pubkey()),

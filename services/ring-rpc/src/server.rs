@@ -310,7 +310,7 @@ mod tests {
     use solana_address::Address;
     use solana_signature::Signature;
     use zolana_client::{ClientError, GetShieldedTransactionsByTagsResponse};
-    use zolana_keypair::X25519Secret;
+    use zolana_keypair::X25519Keypair;
     use zolana_ring_client::{
         rpc::{KeyMode, DEPOSITS_PAGE_LIMIT},
         AuditError, RingOrigin,
@@ -351,7 +351,7 @@ mod tests {
         async fn merge_audit_page(
             &self,
             _ring: Address,
-            _auditor: &X25519Secret,
+            _auditor: &X25519Keypair,
             _cursor: Option<Vec<u8>>,
             _limit: std::num::NonZeroU32,
         ) -> Result<zolana_ring_client::MergeAuditPage, AuditError> {
@@ -424,7 +424,7 @@ mod tests {
     }
 
     fn hub(mut source: TestSource, origins: Origins) -> Arc<Hub<TestSource>> {
-        let auditor = X25519Secret::new();
+        let auditor = X25519Keypair::new();
         source.config = Some(RingConfiguration {
             auditor_pubkey: auditor.pubkey(),
             authority: Address::new_from_array([2; 32]),

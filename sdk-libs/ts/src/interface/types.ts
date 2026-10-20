@@ -146,7 +146,7 @@ export type CircuitId =
       publicAssetSlots: number;
     }>
   | Readonly<{
-      kind: "ringEddsa";
+      kind: "confidentialRingEddsa";
       inputs: number;
       outputs: number;
       publicAssetSlots: number;
@@ -165,7 +165,7 @@ export type CircuitId =
       cacheAccess: CacheAccess;
     }>
   | Readonly<{
-      kind: "ringEddsaCached";
+      kind: "confidentialRingEddsaCached";
       inputs: number;
       outputs: number;
       publicAssetSlots: number;
@@ -297,7 +297,6 @@ export interface MergeTransactInstructionData {
    */
   readonly outputCiphertextSalt: Bytes16;
   readonly outputCiphertext: readonly [Bytes32, Bytes32, Bytes32];
-  readonly eddsaOwner: boolean;
   readonly privateTxHash: Bytes32;
   readonly nullifiers: readonly Bytes32[];
   readonly utxoTreeRootIndex: number;

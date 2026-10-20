@@ -3,9 +3,9 @@ package base
 import (
 	"github.com/consensys/gnark/frontend"
 
+	"github.com/helius-labs/zolana/prover/server/circuits/crypto/x25519"
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
 	"github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/x25519"
 )
 
 const (

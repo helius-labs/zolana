@@ -337,7 +337,6 @@ fn create_config_stores_an_anonymous_ring() {
         .expect("config account in result");
     let config = bytemuck::from_bytes::<RingProgramConfig>(&written.data);
     assert_eq!(config.mode(), Some(RingMode::Anonymous));
-    assert!(!config.has_legacy_auditor_key());
 }
 
 #[test]

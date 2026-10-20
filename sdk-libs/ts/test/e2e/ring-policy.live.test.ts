@@ -45,7 +45,6 @@ describe("ring policy", () => {
       const deposit = await buildRingDepositTransaction({
         client,
         ringProgramId,
-        depositor: sender.signer.address,
         feePayer: sender.signer.address,
         recipient: sender.keypair.shieldedAddress(),
         amount: deposited,

@@ -1,7 +1,7 @@
 pub mod instruction;
 pub mod state;
 
-pub use state::{ReservedOwnerKey, UserRecord};
+pub use state::UserRecord;
 
 pub const USER_REGISTRY_PROGRAM_ID: [u8; 32] =
     pubkey_array!("regyS5rkAcw2YzDJCmTwCTHs2s246FXxbmuRZ42u2PD");

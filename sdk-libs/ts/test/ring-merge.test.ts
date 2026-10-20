@@ -24,7 +24,7 @@ import {
 } from "../src/interface/pda/index.js";
 import type { Address, Bytes32, Bytes128, Signature } from "../src/interface/types.js";
 import { ShieldedKeypair } from "../src/keypair/shielded.js";
-import { X25519Secret } from "../src/keypair/x25519.js";
+import { X25519Keypair } from "../src/keypair/x25519.js";
 import {
   mergeDummyNullifier,
   mergeOutputBlinding,
@@ -61,7 +61,7 @@ function field(value: number): Bytes32 {
 }
 const owner = ShieldedKeypair.generate();
 await initializePoseidon();
-const mergeAuditor = X25519Secret.generate();
+const mergeAuditor = X25519Keypair.generate();
 const ownerNullifierKey = owner.nullifierKey();
 const mergeRegistry = oneMemberRegistry({
   member: memberOfIdentity(owner.signingPublicKey().ownerProofInputHash()),

@@ -77,4 +77,4 @@ export {
 export type Signature = import("./bytes.js").Bytes64;
 export type { ErrorEnvelope } from "../errors/internal.js";
 
-export { X25519PublicKey, X25519Secret } from "./x25519.js";
+export { X25519PublicKey, X25519Keypair } from "./x25519.js";

@@ -81,7 +81,7 @@ pub struct AuditedConfig {
     pub mode: RingMode,
 }
 
-/// Refuses an unknown mode and a legacy auditor key, which no circuit encrypts to.
+/// Refuses an unknown mode.
 #[inline(always)]
 pub fn load_audited_config(
     program_id: &Address,
@@ -89,9 +89,6 @@ pub fn load_audited_config(
 ) -> Result<AuditedConfig, ProgramError> {
     let config = load::<RingProgramConfig>(program_id, account)?;
     let mode = config.mode().ok_or(CustomRingError::InvalidRingMode)?;
-    if config.has_legacy_auditor_key() {
-        return Err(CustomRingError::LegacyAuditorKey.into());
-    }
     Ok(AuditedConfig {
         auditor_pubkey: config.auditor_pubkey,
         has_policy: config.has_policy != 0,

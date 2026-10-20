@@ -72,28 +72,15 @@ export async function actor(client: ZolanaClient, seedByte: number): Promise<Act
 }
 
 export async function signerFromWalletFile(path: string): Promise<KeyPairSigner> {
-  const parsed: unknown = JSON.parse(await readFile(path, "utf8"));
-  if (
-    typeof parsed !== "object" ||
-    parsed === null ||
-    !("version" in parsed) ||
-    parsed.version !== 3 ||
-    "mode" in parsed ||
-    !("signing_key_hex" in parsed) ||
-    typeof parsed.signing_key_hex !== "string" ||
-    !/^[0-9a-f]{64}$/u.test(parsed.signing_key_hex)
-  ) {
-    throw new Error("test authority wallet has no owner secret");
+  const parsed = JSON.parse(await readFile(path, "utf8")) as {
+    funding_secret_hex?: unknown;
+  };
+  if (typeof parsed.funding_secret_hex !== "string") {
+    throw new Error("test authority wallet has no funding secret");
   }
-  const seed = Uint8Array.from(Buffer.from(parsed.signing_key_hex, "hex"));
-  if (seed.length !== 32) throw new Error("test authority owner secret must be 32 bytes");
-  const keypair = Uint8Array.of(...seed, ...ed25519.getPublicKey(seed));
-  try {
-    return await createKeyPairSignerFromBytes(keypair);
-  } finally {
-    seed.fill(0);
-    keypair.fill(0);
-  }
+  const seed = Uint8Array.from(Buffer.from(parsed.funding_secret_hex, "hex"));
+  if (seed.length !== 32) throw new Error("test authority funding secret must be 32 bytes");
+  return createKeyPairSignerFromBytes(Uint8Array.of(...seed, ...ed25519.getPublicKey(seed)));
 }
 
 export async function liveHarness(proofDataSource?: ProofDataSource): Promise<LiveHarness> {

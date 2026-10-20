@@ -105,24 +105,17 @@ function subscriptionsUrl(rpcUrl: string): string {
 }
 
 async function senderKeypair(): Promise<ShieldedKeypair> {
-  const wallet: unknown = JSON.parse(
+  const wallet = JSON.parse(
     await readFile(requiredEnv("ZOLANA_TEST_AUTHORITY_WALLET"), "utf8"),
-  );
-  if (
-    typeof wallet !== "object" ||
-    wallet === null ||
-    !("version" in wallet) ||
-    wallet.version !== 3 ||
-    "mode" in wallet ||
-    !("signing_key_hex" in wallet) ||
-    typeof wallet.signing_key_hex !== "string" ||
-    !/^[0-9a-f]{64}$/u.test(wallet.signing_key_hex)
-  ) {
-    throw new Error("the TypeScript SDK example authority has no owner secret");
+  ) as {
+    funding_secret_hex?: unknown;
+  };
+  if (typeof wallet.funding_secret_hex !== "string") {
+    throw new Error("the TypeScript SDK example authority has no funding secret");
   }
-  const seed = Uint8Array.from(Buffer.from(wallet.signing_key_hex, "hex")) as Bytes32;
+  const seed = Uint8Array.from(Buffer.from(wallet.funding_secret_hex, "hex")) as Bytes32;
   if (seed.length !== 32) {
-    throw new Error("the TypeScript SDK example authority owner seed must be 32 bytes");
+    throw new Error("the TypeScript SDK example authority seed must be 32 bytes");
   }
   try {
     return ShieldedKeypair.fromKeypair(SigningKey.fromEd25519Bytes(seed));

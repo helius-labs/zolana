@@ -44,7 +44,7 @@ pub fn transact_ix(
     TransactIxData {
         expiry_unix_ts: 0,
         private_tx_hash: [7u8; 32],
-        circuit: CircuitId::ConfidentialEd25519(
+        circuit: CircuitId::ConfidentialEddsa(
             u8::try_from(inputs.len()).expect("test shape"),
             u8::try_from(outputs.len()).expect("test shape"),
             0,
@@ -92,7 +92,6 @@ pub fn merge_ix(output_utxo_hash: [u8; 32]) -> MergeTransactIxData {
         output_utxo_hash,
         output_ciphertext_salt: MERGE_CIPHERTEXT_SALT,
         output_ciphertext: MERGE_CIPHERTEXT,
-        eddsa_owner: true,
         private_tx_hash: [7u8; 32],
         nullifiers: (0..MERGE_DEFAULT_INPUT_COUNT)
             .map(|i| [0x40 + u8::try_from(i).expect("test shape"); 32])

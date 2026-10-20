@@ -29,7 +29,7 @@ pub fn keypair_from_index(index: u16) -> ShieldedKeypair {
     viewing_bytes[0] = 0x20;
     viewing_bytes[1..3].copy_from_slice(&index.to_be_bytes());
     let signing = SigningKey::from_ed25519_bytes(&signing_bytes);
-    let viewing = ViewingKey::from_bytes(&viewing_bytes).unwrap();
+    let viewing = ViewingKey::from_bytes(&viewing_bytes);
     ShieldedKeypair::with_viewing_key(signing, viewing).unwrap()
 }
 

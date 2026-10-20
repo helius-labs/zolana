@@ -428,7 +428,7 @@ When choosing the length encoding for a wincode `containers::Vec<T, FixIntLen<..
 
 ## SPP Transaction Proving Keys & Verifying Keys
 
-The runtime-authorized transfer and anonymous Ed25519 ownership
+The runtime-authorized transfer and anonymous EdDSA ownership
 circuits live in `prover/server/circuits/spp_transaction/`. Their proving
 systems are per-shape (`<nInputs>x<nOutputs>`); the supported shape set is
 duplicated in places that MUST stay in sync: Rust
@@ -450,10 +450,10 @@ merge widths (8, 24 and 52) live in `MERGE_SUPPORTED_INPUT_COUNTS`
 prover/server/scripts/generate_keys_transfer.sh
 
 # One shape directly (--circuit flag = transfer-confidential | transfer-ring |
-# transfer-ed25519-ring | transfer-ring-authority). Key files mirror the vk modules.
+# transfer-eddsa-ring | transfer-ring-authority). Key files mirror the vk modules.
 cd prover/server && go build -o light-prover .
-./light-prover setup-transfer --circuit transfer-ed25519-ring --n-inputs 2 --n-outputs 2 \
-    --output proving-keys/transfer_ed25519_ring_2_2.key
+./light-prover setup-transfer --circuit transfer-eddsa-ring --n-inputs 2 --n-outputs 2 \
+    --output proving-keys/transfer_eddsa_ring_2_2.key
 ```
 
 `setup-transfer` runs `groth16.Setup` and writes the full `TransferProofSystem`
@@ -562,26 +562,28 @@ key set fails before a transaction is built instead of on-chain:
 
 ### BSB22 commitments (the two rails differ on purpose)
 
-- **transfer_ed25519_ring:** the signature gadget adds one BSB22 commitment over
+- **transfer_eddsa_ring:** the signature gadget adds one BSB22 commitment over
   private wires. Its vk has `vk_commitment_g2: Some(..)` and `vk_ic.len() ==
   public_inputs + 2`. Proofs include `proofCommitment` + `proofCommitmentPok`.
   Verify with `Groth16Verifier::new_with_commitment`.
-- **transfer (eddsa, Solana-only):** standard Groth16, zero commitments. Its vk
-  has `vk_commitment_g2: None` and `vk_ic.len() == public_inputs + 1`. Verify
-  with `Groth16Verifier::new`.
+- **transfer (runtime-authorized EdDSA, Solana-only):** standard Groth16,
+  zero commitments. Its vk has `vk_commitment_g2: None` and `vk_ic.len() ==
+  public_inputs + 1`. Verify with `Groth16Verifier::new`.
 
 Both verify in one binary built with the `bsb22` feature: `verify_common` runs
 the standard Groth16 pairing for every proof and only adds the Pedersen PoK
 pairing when a commitment is present. Dispatch on `vk.vk_commitment_g2.is_some()`
 (or the rail). The Go prover marshals `proofCommitment` as `omitempty`, so it is
-absent for the eddsa rail and present for the anonymous Ed25519 rail.
+absent for the runtime-authorized EdDSA rails and present for the anonymous
+EdDSA rail.
 
 NOTE: the parser/verifier support a single commitment over **private** wires
 only (empty `committed_wires`). Committing a **public** input (e.g.
 `committer.Commit(c.PublicInputHash)`) records that wire in
 `PublicAndCommitmentCommitted` and the parser rejects it with
-`Bsb22UnsupportedMultiCommitment`. The eddsa rail must therefore stay standard
-Groth16 (no explicit `Commit`), not force a public-wire commitment.
+`Bsb22UnsupportedMultiCommitment`. The runtime-authorized EdDSA rails must
+therefore stay standard Groth16 (no explicit `Commit`), not force a public-wire
+commitment.
 
 ## Releasing The TypeScript SDK
 

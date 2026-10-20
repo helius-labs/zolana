@@ -191,7 +191,6 @@ func TestSolanaPkFieldMatchesSpecFormula(t *testing.T) {
 	if untagged := mustHashBytes(t, pubkey[:]); got.Cmp(untagged) == 0 {
 		t.Fatal("solana owner identity equals the untagged byte hash")
 	}
-
 }
 
 // An asset is not an identity: mints stay untagged, so the asset field of a

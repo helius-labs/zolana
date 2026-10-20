@@ -158,7 +158,7 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 	if inputCount == 0 {
 		inputCount = defaultFixtureInputs
 	}
-	// Merge binds the same tagged Solana owner identity as ordinary spends.
+	// Owner identity: Solana signing key + shared nullifier secret.
 	var solanaPubkey [32]byte
 	solanaPubkey[31] = 0x2a
 	ownerKeyHash, err := protocol.SolanaPkField(solanaPubkey)

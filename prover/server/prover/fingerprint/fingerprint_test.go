@@ -27,7 +27,7 @@ import (
 	customring "github.com/helius-labs/zolana/prover/server/prover/custom_ring"
 	mergeprover "github.com/helius-labs/zolana/prover/server/prover/merge"
 	nulltree "github.com/helius-labs/zolana/prover/server/prover/nullifier_tree"
-	eddsaprover "github.com/helius-labs/zolana/prover/server/prover/transfer_eddsa_only"
+	eddsaprover "github.com/helius-labs/zolana/prover/server/prover/transfer_eddsa"
 )
 
 type fingerprint struct {
@@ -62,8 +62,8 @@ func compileFingerprints(t *testing.T) map[string]fingerprint {
 	ringAuthority, err := eddsaprover.R1CSTransfer(2, 2, eddsaprover.RingAuthorityVariant)
 	add("transfer_ring_authority_2_2", ringAuthority, err)
 
-	anonymousRing, err := eddsaprover.R1CSAnonymousEd25519Transfer(2, 2)
-	add("transfer_ed25519_ring_2_2", anonymousRing, err)
+	anonymousRing, err := eddsaprover.R1CSAnonymousEddsaTransfer(2, 4)
+	add("transfer_eddsa_ring_2_4", anonymousRing, err)
 
 	for _, ring := range customring.RingCircuits {
 		// The shape matrix is checked against each installed serialized key
@@ -105,7 +105,7 @@ var expectedFingerprints = map[string]fingerprint{
 	"merge_24_1":                       {constraints: 527688, public: 2},
 	"merge_ring_24_1":                  {constraints: 533506, public: 2},
 	"transfer_confidential_2_4":        {constraints: 57558, public: 2},
-	"transfer_ed25519_ring_2_2":        {constraints: 112284, public: 2},
+	"transfer_eddsa_ring_2_4":          {constraints: 109378, public: 2},
 	"transfer_ring_2_4":                {constraints: 57684, public: 2},
 	"transfer_ring_authority_2_2":      {constraints: 51913, public: 2},
 }

@@ -19,7 +19,7 @@ use crate::{
     },
     encryption,
     error::KeypairError,
-    x25519::{X25519Pubkey, X25519Secret},
+    x25519::{X25519Keypair, X25519Pubkey},
 };
 
 pub type ViewTag = [u8; VIEW_TAG_LEN];
@@ -31,7 +31,7 @@ pub type Salt = [u8; SALT_LEN];
 /// transaction viewing keys are requested. Encryption uses the key directly.
 #[derive(Clone)]
 pub struct ViewingKey {
-    secret: X25519Secret,
+    secret: X25519Keypair,
     view_root: OnceLock<Zeroizing<[u8; 32]>>,
 }
 
@@ -53,24 +53,23 @@ pub fn random_blinding() -> [u8; 32] {
 impl ViewingKey {
     /// Generates a viewing key from the OS RNG.
     pub fn new() -> Self {
-        Self::from_secret_key(X25519Secret::new())
+        Self::from_secret_key(X25519Keypair::new())
     }
 
     /// Canonicalizes a viewing secret so its encrypted bytes identify one key.
     /// Generic envelope secrets retain their original RFC 7748 byte strings.
-    pub fn from_secret_key(secret: X25519Secret) -> Self {
+    pub fn from_secret_key(secret: X25519Keypair) -> Self {
         let mut bytes = secret.secret_bytes();
         bytes[0] &= 248;
         bytes[31] = (bytes[31] & 127) | 64;
         Self {
-            secret: X25519Secret::from_bytes(&bytes).expect("clamped bytes remain valid"),
+            secret: X25519Keypair::from_bytes(&bytes),
             view_root: OnceLock::new(),
         }
     }
 
-    pub fn from_bytes(bytes: &[u8; 32]) -> Result<Self, KeypairError> {
-        let secret = X25519Secret::from_bytes(bytes)?;
-        Ok(Self::from_secret_key(secret))
+    pub fn from_bytes(bytes: &[u8; 32]) -> Self {
+        Self::from_secret_key(X25519Keypair::from_bytes(bytes))
     }
 
     /// Accepts only the unique clamped byte encoding committed by the circuit.
@@ -80,7 +79,7 @@ impl ViewingKey {
         if bytes[0] & 7 != 0 || bytes[31] & 0xc0 != 0x40 {
             return Err(KeypairError::InvalidSecretKey);
         }
-        Self::from_bytes(bytes)
+        Ok(Self::from_bytes(bytes))
     }
 
     pub fn secret_bytes(&self) -> Zeroizing<[u8; 32]> {
@@ -120,7 +119,7 @@ impl ViewingKey {
     }
 
     /// `tx_viewing_secret`, the seed for transaction viewing keys
-    /// (`info = "TSPP/tx_viewing"`).
+    /// (`info = "TSPP/tx_viewing/x25519/v1"`).
     pub(crate) fn tx_viewing_secret(&self) -> Result<[u8; 32], KeypairError> {
         self.derive_secret32(INFO_TX_VIEWING_X25519)
     }
@@ -192,7 +191,7 @@ impl ViewingKey {
             &[INFO_TX_VIEWING_X25519],
             okm.as_mut_slice(),
         )?;
-        Self::from_bytes(&okm)
+        Ok(Self::from_bytes(&okm))
     }
 
     fn encrypt_utxo(
@@ -282,14 +281,11 @@ mod tests {
 
     #[test]
     fn viewing_secrets_are_canonical() {
-        let key = ViewingKey::from_bytes(&[0; 32]).unwrap();
+        let key = ViewingKey::from_bytes(&[0; 32]);
         let secret = key.secret_bytes();
         assert_eq!(secret[0], 0);
         assert_eq!(secret[31], 64);
-        assert_eq!(
-            key.pubkey(),
-            ViewingKey::from_bytes(&secret).unwrap().pubkey()
-        );
+        assert_eq!(key.pubkey(), ViewingKey::from_bytes(&secret).pubkey());
     }
 
     #[test]
@@ -299,7 +295,7 @@ mod tests {
         use sha2::Sha256;
         use solana_address::Address;
 
-        let key = ViewingKey::from_bytes(&[7; 32]).unwrap();
+        let key = ViewingKey::from_bytes(&[7; 32]);
         assert_eq!(
             hex::encode(**key.view_root()),
             "f8f47fe6e0dee526f6e95d87ba0d52687c8729581443c14d0c928c69769cff2a"

@@ -90,8 +90,8 @@ pub enum IndexedCircuit {
     TransferRing,
     TransferRingAuthority,
     // Preserve the prover protocol identifier while naming the privacy mode.
-    #[serde(rename = "transfer-ed25519-ring")]
-    TransferAnonymousRingEd25519,
+    #[serde(rename = "transfer-eddsa-ring")]
+    TransferAnonymousRingEddsa,
     Merge,
     MergeRing,
 }
@@ -240,7 +240,6 @@ impl IndexedProofRequest {
                     || matches!(
                         metadata.circuit_type,
                         IndexedCircuit::TransferRingAuthority
-                            | IndexedCircuit::TransferAnonymousRingEd25519
                             | IndexedCircuit::Merge
                             | IndexedCircuit::MergeRing
                     ))
@@ -279,8 +278,8 @@ impl IndexedProofRequest {
             IndexedCircuit::TransferRingAuthority => {
                 ExpectedProvingKey::transfer_ring_authority(n_inputs, n_outputs)?
             }
-            IndexedCircuit::TransferAnonymousRingEd25519 => {
-                ExpectedProvingKey::transfer_anonymous_ring_ed25519(n_inputs, n_outputs)?
+            IndexedCircuit::TransferAnonymousRingEddsa => {
+                ExpectedProvingKey::transfer_anonymous_ring_eddsa(n_inputs, n_outputs)?
             }
             IndexedCircuit::Merge => ExpectedProvingKey::merge(n_inputs)?,
             IndexedCircuit::MergeRing => ExpectedProvingKey::merge_ring(n_inputs)?,
@@ -430,7 +429,7 @@ impl IndexedCircuit {
         match self {
             Self::TransferConfidential | Self::TransferRing => 17,
             Self::TransferRingAuthority => 14,
-            Self::TransferAnonymousRingEd25519 => 19,
+            Self::TransferAnonymousRingEddsa => 19,
             // Tree-independent prefix, rail tail, salt and three ciphertext fields.
             Self::Merge => 12,
             // The ring statement also binds the selected member-registry root.
@@ -578,9 +577,9 @@ mod tests {
 
     #[test]
     fn anonymous_transfer_keeps_existing_wire_identifier() {
-        let circuit = IndexedCircuit::TransferAnonymousRingEd25519;
+        let circuit = IndexedCircuit::TransferAnonymousRingEddsa;
         let encoded = serde_json::to_string(&circuit).unwrap();
-        assert_eq!(encoded, "\"transfer-ed25519-ring\"");
+        assert_eq!(encoded, "\"transfer-eddsa-ring\"");
         assert_eq!(
             serde_json::from_str::<IndexedCircuit>(&encoded).unwrap(),
             circuit

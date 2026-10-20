@@ -13,7 +13,7 @@ import (
 )
 
 // The record and its successor ride the sender's own transact, the PDA signs as one more owner.
-func TestCustomRingConfidentialEd25519CarriesANamespaceOwnedRecordSlot(t *testing.T) {
+func TestCustomRingConfidentialEddsaCarriesANamespaceOwnedRecordSlot(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
 		recordRing *big.Int
@@ -25,13 +25,13 @@ func TestCustomRingConfidentialEd25519CarriesANamespaceOwnedRecordSlot(t *testin
 			assert := test.NewAssert(t)
 			shape := protocol.Shape{NInputs: 2, NOutputs: 2}
 			assignment := recordAssignment(t, shape, tc.recordRing)
-			circuit := MustNewCustomRingConfidentialEd25519Circuit(Shape(shape))
-			assert.SolvingSucceeded(circuit, asCustomRingConfidentialEd25519(assignment), test.WithCurves(ecc.BN254))
+			circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+			assert.SolvingSucceeded(circuit, asCustomRingConfidentialEddsa(assignment), test.WithCurves(ecc.BN254))
 		})
 	}
 }
 
-func TestCustomRingConfidentialEd25519RefusesAnUnsignedRecordSlot(t *testing.T) {
+func TestCustomRingConfidentialEddsaRefusesAnUnsignedRecordSlot(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
 	assignment := recordAssignment(t, shape, big.NewInt(0))
@@ -41,8 +41,8 @@ func TestCustomRingConfidentialEd25519RefusesAnUnsignedRecordSlot(t *testing.T) 
 		}
 	}
 	refreshPublicInputHash(t, assignment)
-	circuit := MustNewCustomRingConfidentialEd25519Circuit(Shape(shape))
-	assert.SolvingFailed(circuit, asCustomRingConfidentialEd25519(assignment), test.WithCurves(ecc.BN254))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	assert.SolvingFailed(circuit, asCustomRingConfidentialEddsa(assignment), test.WithCurves(ecc.BN254))
 }
 
 func recordNamespace(t testing.TB) *big.Int {

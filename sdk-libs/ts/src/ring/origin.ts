@@ -600,7 +600,6 @@ function readConfirmedEvent(
       data.bytes(32, "merge.outputCiphertext.mintHigh") as Bytes32,
     ] as const;
     const payload = encodeMergeOutputData({ ringDataHash, salt, ciphertext });
-    data.bool("merge.eddsaOwner");
     data.bytes(32, "merge.privateTxHash");
     const nullifiers = Array.from(
       { length: data.u8("merge.nullifiers.length") },
@@ -848,11 +847,17 @@ function readTransferData(reader: Reader, accounts: readonly Address[]): Confirm
   reader.bytes(32, "privateTxHash");
   // CircuitId's u16 tags and payloads match the Rust wire format.
   const circuit = reader.u16("circuit.kind");
-  if (circuit !== 1 && circuit !== 2 && circuit !== 5) {
+  if (circuit !== 1 && circuit !== 2 && circuit !== 3 && circuit !== 5 && circuit !== 6) {
     throw invalid("circuit.kind");
   }
   reader.bytes(3, "circuit.shape");
-  const hasCache = circuit === 5;
+  if (circuit === 3 || circuit === 6) {
+    reader.bytes(64, "circuit.bsb22Commitment");
+    const present = reader.bool("circuit.defaultOwnerTag.present");
+    const tag = reader.bytes(32, "circuit.defaultOwnerTag");
+    if (!present && tag.some((byte) => byte !== 0)) throw invalid("circuit.defaultOwnerTag");
+  }
+  const hasCache = circuit === 5 || circuit === 6;
   let cacheAccountCount = 0;
   if (hasCache) {
     const reads = reader.u64("circuit.cacheAccess.readBitmap");

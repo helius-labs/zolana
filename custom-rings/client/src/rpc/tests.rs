@@ -109,7 +109,7 @@ fn a_deposits_cursor_is_exactly_one_signature() {
 /// The JSON clients parse, pinned byte for byte.
 #[test]
 fn a_decrypted_page_keeps_its_wire_json() {
-    let viewing = ViewingKey::from_bytes(&[3; 32]).expect("key").pubkey();
+    let viewing = ViewingKey::from_bytes(&[3; 32]).pubkey();
     let opening = zolana_client::ProofInputUtxo::new(
         [2; 32],
         &Address::new_from_array([4; 32]),
@@ -246,7 +246,7 @@ fn keygen_writes_a_secret_the_loader_reads_and_a_matching_public_key() {
 fn public_key_files_round_trip_and_reject_other_lengths() {
     let dir = temp_dir("pubkey");
     let path = dir.join("nested").join("auditor.key.pub");
-    let key = X25519Secret::new();
+    let key = X25519Keypair::new();
     write_auditor_pubkey(&path, &key.pubkey()).expect("write");
     assert_eq!(read_auditor_pubkey(&path).expect("read"), key.pubkey());
     let short = dir.join("short.pub");
@@ -259,12 +259,14 @@ fn public_key_files_round_trip_and_reject_other_lengths() {
 }
 
 #[test]
-fn a_malformed_auditor_secret_is_refused_and_a_zero_one_clamps() {
+fn malformed_and_zero_auditor_secrets_are_refused() {
     let dir = temp_dir("zero");
     let zero = dir.join("zero.key");
     create_new(&zero, "00".repeat(32).as_bytes(), Visibility::Secret).expect("zero");
-    let key = read_auditor_key(&zero, Access::OwnerOnly).expect("RFC 7748 clamps zero");
-    assert_ne!(key.pubkey().u(), [0; 32]);
+    assert!(matches!(
+        read_auditor_key(&zero, Access::OwnerOnly),
+        Err(KeyFileError::ZeroAuditorKey)
+    ));
     let upper = dir.join("upper.key");
     create_new(&upper, "AA".repeat(32).as_bytes(), Visibility::Secret).expect("upper");
     assert!(matches!(

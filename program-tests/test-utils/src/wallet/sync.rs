@@ -2256,16 +2256,12 @@ mod tests {
         // Same signing and nullifier roles, two viewing keys: the wallet before
         // and after a rotation. The UTXO owner and nullifiers are unchanged, so
         // the pre-rotation transaction is still this wallet's to decode.
-        let retired = ShieldedKeypair::with_viewing_key(
-            signing.clone(),
-            ViewingKey::from_bytes(&[21u8; 32]).expect("retired viewing key"),
-        )
-        .expect("pre-rotation keypair");
-        let current = ShieldedKeypair::with_viewing_key(
-            signing,
-            ViewingKey::from_bytes(&[22u8; 32]).expect("current viewing key"),
-        )
-        .expect("post-rotation keypair");
+        let retired =
+            ShieldedKeypair::with_viewing_key(signing.clone(), ViewingKey::from_bytes(&[21u8; 32]))
+                .expect("pre-rotation keypair");
+        let current =
+            ShieldedKeypair::with_viewing_key(signing, ViewingKey::from_bytes(&[22u8; 32]))
+                .expect("post-rotation keypair");
 
         let mut wallet = wallet_with_utxo(&current, SOL_MINT, 100, 12);
         let funded = wallet

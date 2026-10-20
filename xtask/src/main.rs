@@ -576,7 +576,7 @@ fn tx_size(args: Vec<String>) {
             proof,
             expiry_unix_ts: 0,
             private_tx_hash: [0u8; 32],
-            circuit: CircuitId::ConfidentialEd25519(
+            circuit: CircuitId::ConfidentialEddsa(
                 n as u8,
                 outputs.len() as u8,
                 N_PUBLIC_SLOTS as u8,
@@ -599,7 +599,7 @@ fn tx_size(args: Vec<String>) {
     // Output 0 is the sender's change under the sender's tag, every other output
     // a recipient under an Inline tag, and each output carries its own
     // ciphertext of `data_len` bytes. The sender tag is Account(0) when the
-    // owner is the payer and Inline(..) for a relayed Ed25519 transfer.
+    // owner is the payer and Inline(..) for a relayed EdDSA transfer.
     let confidential_layout =
         |m: usize, sender_tag: OwnerTag, data_len: usize| -> Vec<(OwnerTag, usize)> {
             (0..m)
@@ -762,7 +762,7 @@ fn tx_size(args: Vec<String>) {
     }
 
     // Sender owner-tag sensitivity: Account(0) is compact when the owner is the
-    // payer; Inline is the relayed-Ed25519 case.
+    // payer; Inline is the relayed-EdDSA case.
     println!();
     println!("Sender owner-tag sensitivity (3 in 4 out, confidential rail, 1 change output):");
     println!(
@@ -851,7 +851,7 @@ fn tx_size(args: Vec<String>) {
             input.nullifier_hash = [index as u8 + 1; 32];
         }
         data.circuit =
-            CircuitId::ConfidentialEd25519(circuit_n as u8, circuit_m as u8, N_PUBLIC_SLOTS as u8);
+            CircuitId::ConfidentialEddsa(circuit_n as u8, circuit_m as u8, N_PUBLIC_SLOTS as u8);
         zolana_program::instruction::Transact {
             payer: payer_pk,
             input_trees: vec![tree],
@@ -886,8 +886,22 @@ fn tx_size(args: Vec<String>) {
         .instruction()
     };
     let slots = N_PUBLIC_SLOTS as u8;
-    let ring_eddsa =
-        |n: usize, m: usize| CircuitId::ConfidentialRingEd25519(n as u8, m as u8, slots);
+    let ring_eddsa = |n: usize, m: usize| CircuitId::ConfidentialRingEddsa(n as u8, m as u8, slots);
+    let anonymous = |n: usize, m: usize| {
+        use zolana_interface::verifying_keys::{AnonymousRingEddsaProofData, Bsb22Commitment};
+        CircuitId::AnonymousRingEddsa(
+            n as u8,
+            m as u8,
+            slots,
+            AnonymousRingEddsaProofData {
+                bsb22_commitment: Bsb22Commitment {
+                    commitment: [0u8; 32],
+                    commitment_pok: [0u8; 32],
+                },
+                default_owner_tag: None,
+            },
+        )
+    };
     // The widest shape of every output count: 49x2, 24x4, 16x8 and 8x16.
     for (n, m) in [
         (2usize, 4usize),
@@ -917,21 +931,32 @@ fn tx_size(args: Vec<String>) {
             format!("ring transact eddsa {n} in {m} out"),
             ring_transact_ix(n, m, ring_eddsa(n, m)),
         );
+        transact_row(
+            format!("ring transact anonymous {n} in {m} out"),
+            ring_transact_ix(n, m, anonymous(n, m)),
+        );
     }
-    // Every 49x2 slot fits as a real input on the confidential rail. Ring
-    // transactions need compact padding to fit both ceilings.
+    // Every 49x2 slot fits as a real input on the confidential rail; the ring
+    // rails send fewer with compact padding, each row the most real inputs
+    // that still fit both ceilings.
     let most_inputs_that_fit = |build: &dyn Fn(usize) -> Instruction| -> usize {
         (1..=MAX_TRANSACT_INPUTS)
             .rev()
             .find(|&n| v1_tx_size(&[build(n)]).fits())
             .expect("one real input fits")
     };
-    let build = |n| ring_transact_ix(n, 2, ring_eddsa(MAX_TRANSACT_INPUTS, 2));
-    let n = most_inputs_that_fit(&build);
-    transact_row(
-        format!("ring transact eddsa {n} in 2 out, 49x2 compact"),
-        build(n),
-    );
+    let widest: [(&str, &dyn Fn(usize) -> Instruction); 2] = [
+        ("ring transact eddsa", &|n| {
+            ring_transact_ix(n, 2, ring_eddsa(MAX_TRANSACT_INPUTS, 2))
+        }),
+        ("ring transact anonymous", &|n| {
+            ring_transact_ix(n, 2, anonymous(MAX_TRANSACT_INPUTS, 2))
+        }),
+    ];
+    for (label, build) in widest {
+        let n = most_inputs_that_fit(build);
+        transact_row(format!("{label} {n} in 2 out, 49x2 compact"), build(n));
+    }
     // A count below its circuit width is a merge with compact padding. A ring
     // merge of every widest slot misses the limit; one input fewer fits.
     for input_count in
@@ -951,7 +976,6 @@ fn tx_size(args: Vec<String>) {
             output_utxo_hash: [0u8; 32],
             output_ciphertext_salt: [0u8; 16],
             output_ciphertext: [[0u8; 32]; 3],
-            eddsa_owner: true,
             private_tx_hash: [0u8; 32],
             nullifiers,
             utxo_tree_root_index: 0,
@@ -959,14 +983,12 @@ fn tx_size(args: Vec<String>) {
         };
         let settings = Pubkey::new_unique();
         let vault = zolana_smart_account_client::smart_account_pda(&settings, 0).0;
-        let mut ring_data = data.clone();
-        ring_data.eddsa_owner = false;
         let ring_merge_ix = MergeRing {
             input_tree: tree,
             output_tree: tree,
             ring_program_id: ring_config,
             payer: payer_pk,
-            data: ring_data,
+            data: data.clone(),
             output_ring_data_hash: [0u8; 32],
             member_registry_root: [1u8; 32],
             cache: None,

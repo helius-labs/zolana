@@ -65,7 +65,7 @@ pub(crate) fn secret_roundtrip(world: &mut KeypairWorld, key: String) {
     assert_eq!(*bytes, *restored.secret_bytes());
 }
 
-/// `new_ed25519` produces a genuine ed25519 key: it reports the ed25519 rail,
+/// `new_ed25519` produces a genuine ed25519 key: it reports the eddsa rail,
 /// signs and verifies a message (which an off-curve key could not), and its
 /// confidential view tag is the raw 32-byte ed25519 public key.
 pub(crate) fn new_ed25519_is_a_working_ed25519_key() {

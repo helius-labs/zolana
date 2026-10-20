@@ -51,7 +51,7 @@ impl RingAuthorityHarness {
 /// #1: one real zero-value Solana-owned ring input + dummy padding, dummy outputs.
 fn shape_sweep(n: usize) -> (RingAuthorityProver, Vec<NullifierKey>) {
     let mut indexer = TestIndexer::new();
-    let (mut inputs, keys) = build_real_inputs(&mut indexer, &[(eddsa_keypair(), 0)]);
+    let (mut inputs, keys) = build_real_inputs(&mut indexer, &[(ed25519_keypair(), 0)]);
     for _ in 1..n {
         inputs.push(dummy_input());
     }
@@ -65,11 +65,11 @@ fn multi_real() -> (RingAuthorityProver, Vec<NullifierKey>) {
     let mut indexer = TestIndexer::new();
     let (mut inputs, keys) = build_real_inputs(
         &mut indexer,
-        &[(eddsa_keypair(), 100), (eddsa_keypair(), 150)],
+        &[(ed25519_keypair(), 100), (ed25519_keypair(), 150)],
     );
     inputs.push(dummy_input());
     inputs.push(dummy_input());
-    let recipient = eddsa_keypair();
+    let recipient = ed25519_keypair();
     let outputs = vec![
         real_output(&recipient, 250),
         dummy_output(),
@@ -79,7 +79,7 @@ fn multi_real() -> (RingAuthorityProver, Vec<NullifierKey>) {
     (assemble_prover(inputs, outputs, 4, 4), keys)
 }
 
-/// #3: one real independent Ed25519 ring input + dummy input and outputs (shape 2x2).
+/// #3: one real independent EdDSA ring input + dummy input and outputs (shape 2x2).
 /// Exercises the pubkey-agnostic owner mode (no signature).
 fn independent_input() -> (RingAuthorityProver, Vec<NullifierKey>) {
     let mut indexer = TestIndexer::new();
@@ -96,7 +96,7 @@ fn mixed_owners() -> (RingAuthorityProver, Vec<NullifierKey>) {
     let mut indexer = TestIndexer::new();
     let (inputs, keys) = build_real_inputs(
         &mut indexer,
-        &[(eddsa_keypair(), 0), (independent_keypair(), 0)],
+        &[(ed25519_keypair(), 0), (independent_keypair(), 0)],
     );
     (
         assemble_prover(inputs, vec![dummy_output(), dummy_output()], 2, 2),
@@ -272,10 +272,10 @@ fn ring_program() -> Address {
     Address::new_from_array([9u8; 32])
 }
 
-fn eddsa_keypair() -> ShieldedKeypair {
+fn ed25519_keypair() -> ShieldedKeypair {
     let mut seed = [0u8; 32];
     seed.copy_from_slice(&random_blinding());
-    ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&seed)).expect("eddsa keypair")
+    ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&seed)).expect("ed25519 keypair")
 }
 
 fn independent_keypair() -> ShieldedKeypair {

@@ -6,7 +6,7 @@ import type {
 } from "../client/ports.js";
 import { ClientError } from "../client/error.js";
 import type { Address, Bytes32, RequestContext, Signature } from "../interface/types.js";
-import type { X25519Secret } from "../keypair/x25519.js";
+import type { X25519Keypair } from "../keypair/x25519.js";
 import type { ShieldedAddress } from "../keypair/shielded.js";
 import type { NullifierKey } from "../keypair/nullifier-key.js";
 import { initializePoseidon } from "../hasher/index.js";
@@ -83,7 +83,7 @@ export async function auditRingMerges(
   input: Readonly<{
     client: RingMergeAuditReader;
     ringProgramId: Address;
-    auditor: X25519Secret;
+    auditor: X25519Keypair;
     members?: readonly ShieldedAddress[];
     origin?: TransactionOrigin;
     cursor?: Uint8Array;

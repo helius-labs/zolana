@@ -214,7 +214,6 @@ fn write_merging_record(harness: &mut ZolanaProgramTest, owner: Pubkey, wallet: 
     let record = UserRecord {
         owner,
         bump,
-        reserved_owner: Default::default(),
         nullifier_pubkey: wallet.nullifier_key.pubkey().expect("nullifier pubkey"),
         viewing_pubkey: *wallet.viewing_pubkey().as_bytes(),
         merging_enabled: true,

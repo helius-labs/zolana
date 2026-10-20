@@ -52,8 +52,7 @@ impl SeedBasedShieldedKeypair {
         Self {
             signing_key: SigningKey::from_ed25519_bytes(&signing_bytes),
             nullifier_key: NullifierKey::from_secret(nullifier_secret(&nullifier_node)),
-            viewing_key: ViewingKey::from_bytes(&viewing_node)
-                .expect("X25519 viewing key accepts hardened node bytes"),
+            viewing_key: ViewingKey::from_bytes(&viewing_node),
         }
     }
 }
@@ -135,8 +134,7 @@ fn seed_based_keypair_matches_reference_parts() {
         &seed,
         &tspp_path(0, 1),
     )));
-    let viewing_reference = ViewingKey::from_bytes(&derive_node_bytes(&seed, &tspp_path(0, 2)))
-        .expect("X25519 viewing key accepts hardened node bytes");
+    let viewing_reference = ViewingKey::from_bytes(&derive_node_bytes(&seed, &tspp_path(0, 2)));
 
     assert_eq!(keypair.signing_pubkey(), signing_reference.pubkey());
     assert_eq!(keypair.viewing_pubkey(), viewing_reference.pubkey());
@@ -254,8 +252,7 @@ fn seed_based_viewing_key_matches_pinned_vectors() {
             address_hash
         );
         let node = derive_node_bytes(&seed, &tspp_path(account, 2));
-        let viewing =
-            ViewingKey::from_bytes(&node).expect("X25519 viewing key accepts hardened node bytes");
+        let viewing = ViewingKey::from_bytes(&node);
         assert_eq!(
             hex::encode(viewing.secret_bytes().as_slice()),
             viewing_secret

@@ -229,7 +229,7 @@ fn make_and_take_verifiable_encryption() -> Result<()> {
             .try_into()
             .map_err(|_| anyhow!("take transaction must have two outputs"))?;
         let destination_ciphertext = order_utxo
-            .destination_ciphertext(&destination_output, localnet.tree_id)
+            .destination_ciphertext(&destination_output)
             .map_err(|e| anyhow!("destination ciphertext: {e:?}"))?;
         let source_output_hash = source_output
             .hash(localnet.tree_id)

@@ -4,7 +4,7 @@
 
 use custom_ring_sdk::{to_instruction_proof, CustomRingProofParams, EncryptedAudit, RingError};
 use zolana_client::{Proof, ProofInputUtxo};
-use zolana_keypair::{ViewingKey, X25519Pubkey, X25519Secret};
+use zolana_keypair::{ViewingKey, X25519Keypair, X25519Pubkey};
 use zolana_ring_client::AuditorMessage;
 
 /// The `custom-rings/sdk/tests/go_vectors.rs` fixture, which is the Go
@@ -22,8 +22,7 @@ fn hex_bytes<const N: usize>(hex_str: &str) -> [u8; N] {
 
 fn encrypt(auditor_pk: X25519Pubkey) -> EncryptedAudit {
     CustomRingProofParams {
-        tx_viewing_key: ViewingKey::from_bytes(&hex_bytes::<32>(TX_SK))
-            .expect("valid X25519 viewing secret"),
+        tx_viewing_key: ViewingKey::from_bytes(&hex_bytes::<32>(TX_SK)),
         auditor_pk,
         salt: [0; 16],
         outputs: vec![ProofInputUtxo::default()],
@@ -32,8 +31,8 @@ fn encrypt(auditor_pk: X25519Pubkey) -> EncryptedAudit {
     .expect("encrypt to the auditor")
 }
 
-fn auditor() -> X25519Secret {
-    X25519Secret::from_bytes(&hex_bytes::<32>(AUDITOR_SK)).expect("any 32 bytes")
+fn auditor() -> X25519Keypair {
+    X25519Keypair::from_bytes(&hex_bytes::<32>(AUDITOR_SK))
 }
 
 /// `(ephemeral, auditor_pk)` fixes the AES-256-CTR keystream, so two encryptions

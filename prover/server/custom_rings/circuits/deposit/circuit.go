@@ -7,9 +7,8 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 
+	ve "github.com/helius-labs/zolana/prover/server/circuits/encryption"
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
-	checked "github.com/helius-labs/zolana/prover/server/circuits/gadget/v2"
-	ve "github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
 )
@@ -59,7 +58,7 @@ func (c *CustomRingDepositCircuit) Define(api frontend.API) error {
 		abstractor.CallVoid(api, gadget.AssertEqualWhen{Cond: escrowed, A: c.Members[i].EscrowKey, B: key})
 		anonymous := api.Mul(c.Anonymous, count.Active[i])
 		// SolanaOwnerIdentity bounds the key bytes the envelope encrypts.
-		identity := checked.SolanaOwnerIdentity(api, c.OwnerKeys[i])
+		identity := gadget.SolanaOwnerIdentity(api, c.OwnerKeys[i])
 		api.AssertIsEqual(api.Mul(anonymous, api.Sub(c.OwnerPkHashes[i], identity)), 0)
 		for _, b := range c.OwnerKeys[i] {
 			api.AssertIsEqual(api.Mul(api.Sub(1, anonymous), b), 0)

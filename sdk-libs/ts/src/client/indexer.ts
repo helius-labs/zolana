@@ -546,13 +546,15 @@ function convertEncryptedUtxoMatch(
   method: string,
   path: string,
 ): EncryptedUtxoMatch {
+  const txViewingPk =
+    item.txViewingPk === undefined
+      ? undefined
+      : decodeTransactionX25519(item.txViewingPk, `${path}.tx_viewing_pk`);
   return Object.freeze({
     slot: item.slot,
     txSignature: item.txSignature,
     outputSlot: convertOutputSlot(item.outputSlot),
-    ...(item.txViewingPk === undefined
-      ? {}
-      : { txViewingPk: decodeX25519(item.txViewingPk, method, `${path}.tx_viewing_pk`) }),
+    ...(txViewingPk === undefined ? {} : { txViewingPk }),
     ...(item.salt === undefined ? {} : { salt: decodeSalt(item.salt, method, `${path}.salt`) }),
   });
 }
@@ -603,15 +605,15 @@ function convertShieldedTransaction(
   method: string,
   path: string,
 ): IndexedShieldedTransaction {
+  const txViewingPublicKey =
+    item.txViewingPk === undefined
+      ? undefined
+      : decodeTransactionX25519(item.txViewingPk, `${path}.tx_viewing_pk`);
   return Object.freeze({
     slot: item.slot,
     txSignature: item.txSignature,
     ...(item.eventIndex === undefined ? {} : { eventIndex: item.eventIndex }),
-    ...(item.txViewingPk === undefined
-      ? {}
-      : {
-          txViewingPublicKey: decodeX25519(item.txViewingPk, method, `${path}.tx_viewing_pk`),
-        }),
+    ...(txViewingPublicKey === undefined ? {} : { txViewingPublicKey }),
     ...(item.salt === undefined ? {} : { salt: decodeSalt(item.salt, method, `${path}.salt`) }),
     outputSlots: Object.freeze(item.outputSlots.map(convertOutputSlot)),
     messages: Object.freeze(
@@ -652,6 +654,20 @@ function decodeX25519(value: string, method: string, path: string): X25519Public
   } catch (cause) {
     if (!(cause instanceof KeypairError)) throw cause;
     throw invalidResponse(method, path);
+  }
+}
+
+/** Chosen by the sender, a malformed transaction key reads as absent and leaves its outputs undecryptable. */
+function decodeTransactionX25519(value: string, path: string): X25519PublicKey | undefined {
+  const bytes = decodeBase64(value, path);
+  if (bytes.length !== 33) return undefined;
+  try {
+    return X25519PublicKey.fromBytes(bytes as Bytes33);
+  } catch (error) {
+    if (error instanceof KeypairError && error.code === "KEYPAIR_INVALID_PUBLIC_KEY") {
+      return undefined;
+    }
+    throw error;
   }
 }
 

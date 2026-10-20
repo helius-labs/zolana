@@ -308,7 +308,7 @@ fn withdrawal_sets_external_data_and_change() {
 }
 
 #[test]
-fn default_transact_uses_ed25519() {
+fn default_transact_uses_eddsa() {
     let sender = test_keypair();
     let tx = transaction(&sender, 10);
     prover_of(sign(tx, &sender, Shape::IN1_OUT2).unwrap())

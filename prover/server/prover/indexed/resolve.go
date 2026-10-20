@@ -90,7 +90,7 @@ func expectedPublicInputCount(circuit common.CircuitType) int {
 	switch circuit {
 	case common.TransferRingAuthorityCircuitType:
 		return 14
-	case common.TransferAnonymousRingEd25519CircuitType:
+	case common.TransferAnonymousRingEddsaCircuitType:
 		return 19
 	case common.MergeCircuitType:
 		return 12

@@ -9,7 +9,7 @@ use custom_ring_interface::{
 use solana_account::Account;
 use solana_address::Address;
 use zolana_client::{ClientError, GetRingMemberRecordRequest, GetRingMemberRecordResponse};
-use zolana_keypair::{ShieldedAddress, ShieldedKeypair, X25519Secret};
+use zolana_keypair::{ShieldedAddress, ShieldedKeypair, X25519Keypair};
 use zolana_ring_client::{NullifierKeyEnvelope, SealedNullifierKey};
 use zolana_ring_member_registry::MemberRegistryTree;
 use zolana_ring_policy::{ListSet, RuleTable};
@@ -510,7 +510,7 @@ async fn escrow_requires_the_output_owner_to_register_the_key_it_uses() {
         escrowed(&policy, &inputs, &outputs).build(&rpc, false).await,
         Err(RingError::UnregisteredOutputKey { owner }) if owner == member
     ));
-    let auditor = X25519Secret::new();
+    let auditor = X25519Keypair::new();
     let envelope = NullifierKeyEnvelope::new(&recipient.nullifier_key, &auditor.pubkey()).unwrap();
     let escrow_key = EscrowKey {
         nullifier_pk: &envelope.nullifier_pk,

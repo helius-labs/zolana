@@ -13,7 +13,7 @@ use zolana_event::{
 };
 use zolana_event_parser::decode_encrypted_ring_deposit_output_data;
 use zolana_indexer_api::PAGE_LIMIT;
-use zolana_keypair::{NullifierKey, ShieldedAddress, X25519Secret};
+use zolana_keypair::{NullifierKey, ShieldedAddress, X25519Keypair};
 use zolana_transaction::{
     instructions::merge::{
         merge_circuit_width, merge_output_blinding, merge_output_key, MergeOutputPlaintext,
@@ -37,7 +37,7 @@ const DEFAULT_PAGE_SIZE: NonZeroU32 = NonZeroU32::new(1000).unwrap();
 #[must_use = "run the recovery explicitly"]
 pub struct RingRecovery<'a> {
     ring_program_id: Address,
-    auditor: &'a X25519Secret,
+    auditor: &'a X25519Keypair,
     mode: RingMode,
     page_size: NonZeroU32,
     max_pages: NonZeroUsize,
@@ -74,7 +74,7 @@ pub struct RecoveredNotes {
 }
 
 impl<'a> RingRecovery<'a> {
-    pub fn new(ring_program_id: Address, auditor: &'a X25519Secret) -> Self {
+    pub fn new(ring_program_id: Address, auditor: &'a X25519Keypair) -> Self {
         Self {
             ring_program_id,
             auditor,
@@ -363,12 +363,15 @@ impl<'a> MemberRecovery<'a> {
                 let capsule = RingDepositAuditCapsule::parse(&output.encrypted.ciphertext)
                     .map_err(|_| AuditError::DepositOpeningMismatch)?
                     .ok_or(AuditError::DepositOpeningMismatch)?;
-                let opening = open_deposit(
+                let Ok(opening) = open_deposit(
                     &capsule,
                     self.recovery.auditor,
                     &output.owner_utxo_hash,
                     binding,
-                )?;
+                ) else {
+                    unsupported.push(context.hash);
+                    continue;
+                };
                 if opening.owner_hash != owner_hash {
                     continue;
                 }

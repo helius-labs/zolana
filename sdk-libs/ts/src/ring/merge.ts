@@ -49,8 +49,7 @@ export interface RingMergeTransactionParams {
   readonly ringProgramId: Address;
   readonly wallet: Wallet;
   readonly keys: WalletKeys;
-  /** Defaults to the owner. */
-  readonly feePayer?: Address;
+  readonly feePayer: Address;
   readonly asset?: Address;
   /** The most notes merged, smallest first, from 2 through `MAX_RING_MERGE_INPUTS`, default `MERGE_INPUT_COUNT`. */
   readonly maxInputs?: number;
@@ -145,7 +144,6 @@ async function buildRingMerge(
     const key = escrow.keys[0];
     if (key === undefined) throw new RingError("RING_UNREGISTERED_OUTPUT_KEY");
     const ringRegistry = { root: escrow.root, key };
-    const feePayer = params.feePayer ?? owner.solanaAddress();
     const inputs = entries.map((entry) => ringProofInput(entry, owner, params.client));
     const prepared = await prepareMerge(
       {
@@ -163,14 +161,14 @@ async function buildRingMerge(
       lifetime: LatestBlockhash,
     ): Promise<Transaction> =>
       compileUnsignedTransaction({
-        feePayer,
+        feePayer: params.feePayer,
         lifetime,
         instructions: [
           await ringMergeInstruction({
             ringProgramId: params.ringProgramId,
             inputTree: params.client.tree,
             outputTree: outputTree.tree,
-            payer: feePayer,
+            payer: params.feePayer,
             data,
             outputRingDataHash: prepared.output.ringDataHash ?? ZERO_32,
             memberRegistryRootIndex: escrow.rootIndex,
@@ -206,7 +204,7 @@ async function buildRingMerge(
       throw ringIntentMismatch("retryIntent");
     retry.intent = planned;
     const approval = await (params.approve ?? approveUnattended)({
-      solanaPublicKey: ownerSolanaAccount(owner, feePayer),
+      solanaPublicKey: ownerSolanaAccount(owner, params.feePayer),
       intent,
       summary: `merge ${String(inputs.length)} inputs in ring ${params.ringProgramId}`,
     });

@@ -20,12 +20,12 @@ import (
 func BenchmarkPaymentProofs(b *testing.B) {
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	b.Run("default_ring", func(b *testing.B) {
-		a := buildDefaultRingConfidentialEd25519Assignment(b, shape)
-		benchmarkPaymentProof(b, MustNewDefaultRingConfidentialEd25519Circuit(Shape(shape)), asDefaultRingConfidentialEd25519(a))
+		a := buildDefaultRingConfidentialEddsaAssignment(b, shape)
+		benchmarkPaymentProof(b, MustNewDefaultRingConfidentialEddsaCircuit(Shape(shape)), asDefaultRingConfidentialEddsa(a))
 	})
 	b.Run("custom_ring_settlement", func(b *testing.B) {
 		a := buildCircuitAssignment(b, shape)
-		benchmarkPaymentProof(b, MustNewCustomRingConfidentialEd25519Circuit(Shape(shape)), asCustomRingConfidentialEd25519(a))
+		benchmarkPaymentProof(b, MustNewCustomRingConfidentialEddsaCircuit(Shape(shape)), asCustomRingConfidentialEddsa(a))
 	})
 	b.Run("custom_ring_auditor", func(b *testing.B) {
 		a := buildCircuitAssignment(b, shape)
@@ -55,12 +55,12 @@ func BenchmarkPaymentProofs(b *testing.B) {
 func BenchmarkTwoByThreeSettlement(b *testing.B) {
 	shape := protocol.Shape{NInputs: 2, NOutputs: 4}
 	b.Run("default_ring", func(b *testing.B) {
-		a := buildDefaultRingConfidentialEd25519Assignment(b, shape)
-		benchmarkPaymentProof(b, MustNewDefaultRingConfidentialEd25519Circuit(Shape(shape)), asDefaultRingConfidentialEd25519(a))
+		a := buildDefaultRingConfidentialEddsaAssignment(b, shape)
+		benchmarkPaymentProof(b, MustNewDefaultRingConfidentialEddsaCircuit(Shape(shape)), asDefaultRingConfidentialEddsa(a))
 	})
 	b.Run("custom_ring", func(b *testing.B) {
 		a := buildCircuitAssignment(b, shape)
-		benchmarkPaymentProof(b, MustNewCustomRingConfidentialEd25519Circuit(Shape(shape)), asCustomRingConfidentialEd25519(a))
+		benchmarkPaymentProof(b, MustNewCustomRingConfidentialEddsaCircuit(Shape(shape)), asCustomRingConfidentialEddsa(a))
 	})
 }
 

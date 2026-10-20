@@ -432,7 +432,7 @@ fn optional_tx_viewing_pk(bytes: &[u8; 33]) -> Option<X25519Pubkey> {
     if bytes.iter().all(|byte| *byte == 0) {
         return None;
     }
-    Some(X25519Pubkey::from_bytes(*bytes).expect("event transaction viewing key is canonical"))
+    X25519Pubkey::from_bytes(*bytes).ok()
 }
 
 /// Recompute the UTXO commitment through the shared transaction helper. A

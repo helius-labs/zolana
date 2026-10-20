@@ -130,7 +130,7 @@ interface CircuitPlan {
   readonly ring: Address | undefined;
   readonly authority: boolean;
   readonly prover: ProverInputs["circuit"];
-  readonly data: "confidentialEddsa" | "ringEddsa" | "ringAuthority";
+  readonly data: "confidentialEddsa" | "confidentialRingEddsa" | "ringAuthority";
   readonly signerSlots: number;
   readonly owners: "every" | "confidentialMarked" | "none";
 }
@@ -151,7 +151,7 @@ function circuitPlan(circuit: TransferCircuit, shape: Shape): CircuitPlan {
         ring: circuit.ring,
         authority: false,
         prover: "transferRing",
-        data: "ringEddsa",
+        data: "confidentialRingEddsa",
         signerSlots: signerWidth(shape),
         owners: "confidentialMarked",
       };
@@ -611,9 +611,9 @@ function transferCircuit(
         publicAssetSlots: 3,
         cacheAccess: cache.access,
       });
-    case "ringEddsa":
+    case "confidentialRingEddsa":
       return Object.freeze({
-        kind: "ringEddsaCached",
+        kind: "confidentialRingEddsaCached",
         inputs,
         outputs,
         publicAssetSlots: 3,

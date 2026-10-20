@@ -651,7 +651,7 @@ func TestBuildProofAssignmentBindsTreeIDs(t *testing.T) {
 	if built.publicInputs.OutputTreeID.Cmp(big.NewInt(outputTreeID)) != 0 {
 		t.Fatalf("output tree id = %s, want %d", built.publicInputs.OutputTreeID, outputTreeID)
 	}
-	witness, ok := built.witness.(*customring.CustomRingConfidentialEd25519Circuit)
+	witness, ok := built.witness.(*customring.CustomRingConfidentialEddsaCircuit)
 	if !ok {
 		t.Fatalf("witness type = %T", built.witness)
 	}

@@ -212,9 +212,9 @@ pub fn assemble_with_dummy_policy(
     let (n_inputs, n_outputs) = (shape.n_inputs() as u8, shape.n_outputs() as u8);
     let circuit_id = match result.cache_access {
         Some(access) => {
-            CircuitId::ConfidentialEd25519Cached(n_inputs, n_outputs, N_PUBLIC_SLOTS as u8, access)
+            CircuitId::ConfidentialEddsaCached(n_inputs, n_outputs, N_PUBLIC_SLOTS as u8, access)
         }
-        None => CircuitId::ConfidentialEd25519(n_inputs, n_outputs, N_PUBLIC_SLOTS as u8),
+        None => CircuitId::ConfidentialEddsa(n_inputs, n_outputs, N_PUBLIC_SLOTS as u8),
     };
     let prover_inputs = result.inputs;
     let public_input_hash = result.public_input_hash;
@@ -320,7 +320,7 @@ mod tests {
         let owner = ShieldedKeypair::from_keypair(zolana_keypair::SigningKey::from_ed25519_bytes(
             &[3u8; 32],
         ))
-        .expect("eddsa keypair");
+        .expect("ed25519 keypair");
         let cached: SppProofInputUtxo = wallet_input(
             Utxo {
                 owner: owner.signing_pubkey(),

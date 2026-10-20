@@ -120,7 +120,6 @@ pub fn build_register_ix(
         *owner,
         *owner,
         RegisterData {
-            reserved_owner: Default::default(),
             nullifier_pubkey,
             viewing_pubkey,
         },
@@ -142,7 +141,6 @@ pub fn build_update_keys_ix(
         user_record,
         *owner,
         UpdateKeysData {
-            reserved_owner: Default::default(),
             nullifier_pubkey,
             viewing_pubkey,
         },

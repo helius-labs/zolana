@@ -40,7 +40,7 @@ type RailVectors = Readonly<{
 }>;
 
 type KeyDerivationVectors = Readonly<{
-  ed25519_rail: RailVectors;
+  eddsa_rail: RailVectors;
   tx_viewing: Readonly<{
     viewing_secret: string;
     first_nullifier: string;
@@ -87,7 +87,15 @@ type KeyDerivationVectors = Readonly<{
     message: string;
     is_derivation_input: boolean;
   }>[];
+  counter_view_tags: readonly Readonly<{
+    viewing_secret: string;
+    viewing_pubkey: string;
+    sender_view_tags: readonly CounterTag[];
+    recipient_request_view_tags: readonly CounterTag[];
+  }>[];
 }>;
+
+type CounterTag = Readonly<{ counter: string; tag: string }>;
 
 const vectors = JSON.parse(
   readFileSync(new URL("../../../test-vectors/key_derivation.json", import.meta.url), "utf8"),
@@ -117,8 +125,8 @@ describe("shared key-derivation vectors (test-vectors/key_derivation.json)", () 
     );
   });
 
-  it("derives the ed25519 rail", () => {
-    const section = vectors.ed25519_rail;
+  it("derives the eddsa rail", () => {
+    const section = vectors.eddsa_rail;
     const signing = SigningKey.fromEd25519Bytes(bytes(section.signing_secret) as Bytes32);
     const signerPubkey = signing.publicKey().ed25519();
     expect(hex(signerPubkey)).toBe(section.signer_pubkey);

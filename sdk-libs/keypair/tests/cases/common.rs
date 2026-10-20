@@ -7,7 +7,7 @@ pub(crate) fn random_viewing_key(world: &mut KeypairWorld, name: String) {
 }
 
 pub(crate) fn viewing_key_from_scalar(world: &mut KeypairWorld, name: String, n: u8) {
-    let vk = ViewingKey::from_bytes(&scalar_bytes(n)).unwrap();
+    let vk = ViewingKey::from_bytes(&scalar_bytes(n));
     world.viewing.insert(name, vk);
 }
 

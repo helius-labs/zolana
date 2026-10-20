@@ -8,7 +8,7 @@ use std::{
 };
 
 use anyhow::{bail, ensure, Context as _, Result};
-use custom_ring_interface::RingProgramConfig;
+use custom_ring_interface::{RingProgramConfig, VIEWING_PUBKEY_TAG};
 use custom_ring_sdk::PolicyConfig;
 use sha2::{Digest, Sha256};
 use solana_account::Account;
@@ -253,9 +253,7 @@ fn ensure_ring_config_compatible(program: Address, account: Option<&Account>) ->
         "program {program} has an incompatible ring config, migrate its notes before deploying a fresh ring"
     );
     ensure!(
-        !config
-            .expect("validated ring config")
-            .has_legacy_auditor_key(),
+        config.is_some_and(|config| config.auditor_pubkey[0] == VIEWING_PUBKEY_TAG),
         "program {program} keeps a legacy auditor key, migrate its notes before upgrading"
     );
     Ok(())

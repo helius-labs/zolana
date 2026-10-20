@@ -241,13 +241,13 @@ function circuitTag(value: CircuitId): number {
   switch (value.kind) {
     case "confidentialEddsa":
       return 0;
-    case "ringEddsa":
+    case "confidentialRingEddsa":
       return 1;
     case "ringAuthority":
       return 2;
     case "confidentialEddsaCached":
       return 4;
-    case "ringEddsaCached":
+    case "confidentialRingEddsaCached":
       return 5;
     default:
       return fail("INTERFACE_CODEC", { name: "circuit.kind" });
@@ -260,7 +260,8 @@ function writeCircuit(writer: Writer, value: CircuitId): void {
     .u8(value.inputs, "circuit.inputs")
     .u8(value.outputs, "circuit.outputs")
     .u8(value.publicAssetSlots, "circuit.publicAssetSlots");
-  if (value.kind !== "confidentialEddsaCached" && value.kind !== "ringEddsaCached") return;
+  if (value.kind !== "confidentialEddsaCached" && value.kind !== "confidentialRingEddsaCached")
+    return;
   if (!validCacheAccess(value.cacheAccess, value.inputs, value.outputs)) {
     fail("INTERFACE_INVALID_SHAPE", {
       name: "circuit.cacheAccess",
@@ -361,7 +362,6 @@ function writeMergeData(writer: Writer, value: MergeTransactInstructionData): vo
   }
   for (const element of value.outputCiphertext) writer.bytes(element, 32, "outputCiphertext");
   writer
-    .bool(value.eddsaOwner, "eddsaOwner")
     .bytes(value.privateTxHash, 32, "privateTxHash")
     .u8(value.nullifiers.length, "nullifiers.length");
   for (const nullifier of value.nullifiers) writer.bytes(nullifier, 32, "nullifier");
@@ -373,7 +373,7 @@ function writeMergeData(writer: Writer, value: MergeTransactInstructionData): vo
     });
 }
 
-const MERGE_FIXED_DATA_LENGTH = 383;
+const MERGE_FIXED_DATA_LENGTH = 382;
 
 export function encodeMergeTransactInstructionData(
   value: MergeTransactInstructionData,

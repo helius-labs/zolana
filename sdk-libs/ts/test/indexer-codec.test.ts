@@ -19,7 +19,7 @@ import { treeAddress } from "../src/interface/pda/index.js";
 import { hash } from "../src/indexer/scalars.js";
 import { ZolanaApi } from "../src/api/index.js";
 import { ZolanaIndexer } from "../src/client/indexer.js";
-import { X25519Secret } from "../src/keypair/x25519.js";
+import { X25519Keypair } from "../src/keypair/x25519.js";
 import type { Bytes32 } from "../src/interface/types.js";
 
 // base58 of 32 zero bytes.
@@ -192,11 +192,10 @@ describe("user records wire", () => {
     "hex",
   ).toString("base64");
   const X25519 = Buffer.from(
-    X25519Secret.fromBytes(new Uint8Array(32).fill(7)).publicKey().toBytes(),
+    X25519Keypair.fromBytes(new Uint8Array(32).fill(7)).publicKey().toBytes(),
   ).toString("base64");
   const record = {
     owner: RING,
-    ownerP256: null,
     nullifierPubkey: TAG,
     viewingPubkey: X25519,
     mergingEnabled: true,
@@ -211,11 +210,9 @@ describe("user records wire", () => {
         null,
       ],
     });
-    expect(() =>
-      decodeUserRecordsResponse({ ...page, records: [{ ...record, ownerP256: P256 }] }),
-    ).toThrow("Invalid value at $.records[0].ownerP256");
     for (const changed of [
       { records: [{ ...record, bump: 1 }] },
+      { records: [{ ...record, ownerP256: null }] },
       { records: [{ ...record, mergingEnabled: "yes" }] },
       { records: [{ ...record, nullifierPubkey: P256 }] },
       { records: [{ owner: RING }] },

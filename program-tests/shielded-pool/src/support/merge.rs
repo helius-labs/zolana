@@ -55,14 +55,12 @@ pub fn write_user_record(
     merging_enabled: bool,
 ) -> Pubkey {
     let viewing_pubkey = *zolana_keypair::ViewingKey::from_bytes(&[7; 32])
-        .unwrap()
         .pubkey()
         .as_bytes();
     let (address, bump) = user_record_pda(&owner);
     let record = UserRecord {
         owner,
         bump,
-        reserved_owner: Default::default(),
         nullifier_pubkey: ShieldedKeypair::from_keypair(&rpc.payer)
             .expect("fixture keypair")
             .nullifier_key()
@@ -712,7 +710,6 @@ impl RealRingMergeProof {
         }
         .build_registered(registration)
         .expect("build ring merge witness");
-        assert!(!result.eddsa_owner, "ring merge owner stays private");
         assert_eq!(
             result.nullifiers.len(),
             input_count,

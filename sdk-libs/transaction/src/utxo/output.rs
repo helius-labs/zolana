@@ -159,16 +159,16 @@ impl SppProofOutputUtxo {
         Ok(message)
     }
 
-    /// The owner's message inside an anonymous ring. It publishes neither the
-    /// recipient viewing key nor a scan tag, the ring auditor learns both from its disclosure.
+    /// The owner's message inside an anonymous ring, without the recipient viewing key.
     pub fn seal_ring_anonymous(
         &self,
         slot_index: u32,
         tx: &ViewingKey,
         salt: [u8; SALT_LEN],
+        view_tag: [u8; 32],
     ) -> Result<MessageData, TransactionError> {
         let (_, plaintext, cx) = self.confidential_parts(slot_index, tx, salt)?;
-        Confidential::encode_ring_anonymous_plaintext(&plaintext, &cx)
+        Confidential::encode_ring_anonymous_plaintext(&plaintext, view_tag, &cx)
     }
 
     fn confidential_parts(

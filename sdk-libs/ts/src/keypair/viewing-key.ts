@@ -15,7 +15,7 @@ import { applyTransferCipher } from "./encryption.js";
 import { KeypairError } from "./error.js";
 import { type ViewTag } from "./public-key.js";
 import type { ViewingKeyLike } from "./shielded.js";
-import { X25519PublicKey, X25519Secret } from "./x25519.js";
+import { X25519PublicKey, X25519Keypair } from "./x25519.js";
 
 export type Salt = Bytes16;
 
@@ -68,7 +68,7 @@ export class ViewingKey implements ViewingKeyLike {
 
   publicKey(): X25519PublicKey {
     this.#assertUsable();
-    const secret = X25519Secret.fromBytes(this.#secret);
+    const secret = X25519Keypair.fromBytes(this.#secret);
     try {
       return secret.publicKey();
     } finally {

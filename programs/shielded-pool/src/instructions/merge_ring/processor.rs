@@ -27,11 +27,6 @@ pub fn process_merge_ring_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
     let ix = MergeRingIxDataRef::from_bytes(data)
         .map_err(caused_by(ShieldedPoolError::InvalidMergeShape))?;
     let merge = &ix.merge;
-    // The ring proof derives ownership privately. The registry owner selector
-    // belongs to the default merge rail and has no meaning here.
-    if merge.eddsa_owner {
-        return Err(ShieldedPoolError::InvalidMergeShape.into());
-    }
     validate_field_elements(merge)?;
     check_field_element(
         ix.output_ring_data_hash,

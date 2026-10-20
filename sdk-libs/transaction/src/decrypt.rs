@@ -3,7 +3,9 @@ use std::collections::{hash_map::Entry, BTreeSet, HashMap, HashSet};
 use borsh::BorshDeserialize;
 use solana_address::Address;
 use zolana_event::{split_merge_output_body, EncryptedRingDepositOutput, OutputDataEncoding};
-use zolana_keypair::{shielded::ShieldedAddress, x25519::X25519_PUBKEY_LEN, X25519Pubkey};
+use zolana_keypair::{
+    shielded::ShieldedAddress, x25519::X25519_PUBKEY_LEN, KeypairError, X25519Pubkey,
+};
 
 use crate::{
     asset::{AssetBalance, AssetRegistry, Balances, Mint},
@@ -367,9 +369,7 @@ fn decode_slot<K: ShieldedKeys + ?Sized>(
                     };
                     (ciphertext, vec![viewing_pubkey])
                 }
-                EncryptedScheme::AnonymousRecipient | EncryptedScheme::RingAnonymous => {
-                    (body, shielded_keys.viewing_public_keys())
-                }
+                EncryptedScheme::AnonymousRecipient => (body, shielded_keys.viewing_public_keys()),
                 _ => return Ok(None),
             };
             let (Some(tx_viewing_pubkey), Some(salt)) = (tx.tx_viewing_pk, tx.salt) else {
@@ -386,36 +386,16 @@ fn decode_slot<K: ShieldedKeys + ?Sized>(
                     label: DecryptLabel::Utxo,
                 })
                 .collect();
-            if requests.is_empty() {
+            let Some(plaintexts) = trial_decrypt(shielded_keys, &requests)? else {
                 return Ok(None);
-            }
-            let plaintexts = shielded_keys.decrypt(&requests)?;
-            if plaintexts.len() != requests.len() {
-                return Err(TransactionError::IncompleteDecryption {
-                    got: plaintexts.len(),
-                    want: requests.len(),
-                });
-            }
-            let mut unresolved_asset = None;
+            };
             for bytes in plaintexts {
                 let utxos = match scheme {
-                    EncryptedScheme::Confidential
-                    | EncryptedScheme::RingConfidential
-                    | EncryptedScheme::RingAnonymous => {
+                    EncryptedScheme::Confidential | EncryptedScheme::RingConfidential => {
                         let Ok(plaintext) = Confidential::deserialize(&bytes) else {
                             continue;
                         };
-                        match Confidential::into_utxos(plaintext, &owner_cx) {
-                            Ok(utxos) => utxos,
-                            Err(error) if scheme != EncryptedScheme::RingAnonymous => {
-                                return Err(error)
-                            }
-                            Err(TransactionError::UnknownAsset(asset)) => {
-                                unresolved_asset = Some(asset);
-                                continue;
-                            }
-                            Err(_) => continue,
-                        }
+                        Confidential::into_utxos(plaintext, &owner_cx)?
                     }
                     EncryptedScheme::AnonymousRecipient => {
                         let Ok(plaintext) = AnonymousRecipient::deserialize(&bytes) else {
@@ -428,30 +408,11 @@ fn decode_slot<K: ShieldedKeys + ?Sized>(
                     }
                     _ => return Ok(None),
                 };
-                // Trial decryption has no authentication tag. A parseable wrong-key
-                // plaintext must not hide a later key's committed note.
-                if scheme == EncryptedScheme::RingAnonymous
-                    && !utxos.iter().any(|utxo| {
-                        utxo.hash(
-                            &address.nullifier_pubkey,
-                            &[0; 32],
-                            &[0; 32],
-                            slot.output_context.tree_id,
-                        )
-                        .ok()
-                            == Some(slot.output_context.hash)
-                    })
-                {
-                    continue;
-                }
                 return Ok(Some(DecodedSlot {
                     utxos,
                     data_hash: None,
                     ring_data_hash: None,
                 }));
-            }
-            if let Some(asset) = unresolved_asset {
-                return Err(TransactionError::UnknownAsset(asset));
             }
             Ok(None)
         }
@@ -561,16 +522,9 @@ fn decode_ring_deposit<K: ShieldedKeys + ?Sized>(
             label: DecryptLabel::RingDeposit,
         })
         .collect();
-    if requests.is_empty() {
+    let Some(plaintexts) = trial_decrypt(shielded_keys, &requests)? else {
         return Ok(None);
-    }
-    let plaintexts = shielded_keys.decrypt(&requests)?;
-    if plaintexts.len() != requests.len() {
-        return Err(TransactionError::IncompleteDecryption {
-            got: plaintexts.len(),
-            want: requests.len(),
-        });
-    }
+    };
     let owner_hash = address.owner_hash()?;
     for bytes in plaintexts {
         let Ok(plaintext) = wincode::deserialize_exact::<RingDepositPlaintext>(&bytes) else {
@@ -592,6 +546,29 @@ fn decode_ring_deposit<K: ShieldedKeys + ?Sized>(
         }));
     }
     Ok(None)
+}
+
+/// `None` when no viewing key can open the requests.
+fn trial_decrypt<K: ShieldedKeys + ?Sized>(
+    shielded_keys: &K,
+    requests: &[DecryptRequest<'_>],
+) -> Result<Option<Vec<Vec<u8>>>, TransactionError> {
+    if requests.is_empty() {
+        return Ok(None);
+    }
+    let plaintexts = match shielded_keys.decrypt(requests) {
+        Ok(plaintexts) => plaintexts,
+        // The sender picks `tx_viewing_pk`, a low-order one opens under no key.
+        Err(TransactionError::Keypair(KeypairError::NonContributoryKey)) => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    if plaintexts.len() != requests.len() {
+        return Err(TransactionError::IncompleteDecryption {
+            got: plaintexts.len(),
+            want: requests.len(),
+        });
+    }
+    Ok(Some(plaintexts))
 }
 
 fn assign_nullifiers<K: ShieldedKeys + ?Sized>(

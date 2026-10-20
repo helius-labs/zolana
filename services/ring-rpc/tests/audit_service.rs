@@ -12,7 +12,7 @@ use std::{
     },
     time::Duration,
 };
-use zolana_keypair::{X25519Pubkey, X25519Secret};
+use zolana_keypair::{X25519Keypair, X25519Pubkey};
 
 use p256::ecdsa::signature::hazmat::PrehashSigner;
 use sha2::Digest;
@@ -336,7 +336,7 @@ impl TransactionSource for StaticSource {
     async fn merge_audit_page(
         &self,
         _ring: Address,
-        _auditor: &X25519Secret,
+        _auditor: &X25519Keypair,
         _cursor: Option<Vec<u8>>,
         _limit: NonZeroU32,
     ) -> Result<MergeAuditPage, AuditError> {
@@ -599,7 +599,7 @@ fn transaction(
 }
 
 struct Fixture {
-    auditor: X25519Secret,
+    auditor: X25519Keypair,
     recipient: X25519Pubkey,
     audited: ShieldedTransaction,
     foreign_key: ShieldedTransaction,
@@ -608,7 +608,7 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Self {
-        let auditor = X25519Secret::new();
+        let auditor = X25519Keypair::new();
         let auditor_pk = auditor.pubkey();
         let recipient = ViewingKey::new().pubkey();
         let tx = ViewingKey::new();
@@ -631,7 +631,7 @@ impl Fixture {
         let tx = ViewingKey::new();
         let mut message = auditor_message(
             &tx,
-            &X25519Secret::new().pubkey(),
+            &X25519Keypair::new().pubkey(),
             &[proof_output(SOL_ASSET_ID, 9, 0)],
         );
         message.view_tag = auditor_view_tag(&auditor_pk);
@@ -857,6 +857,7 @@ async fn passkey_reader_opens_anonymous_spend_trace() {
                 ring_program_id: None,
                 data: Data::default(),
             },
+            fixture.recipient.u(),
             &ConfidentialEncode {
                 tx: tx_key.clone(),
                 recipient_pubkey: fixture.recipient,
@@ -1159,7 +1160,7 @@ async fn only_granted_readers_with_the_configured_auditor_key_can_read() {
     source.configs.insert(
         RING,
         RingConfiguration {
-            auditor_pubkey: X25519Secret::new().pubkey(),
+            auditor_pubkey: X25519Keypair::new().pubkey(),
             authority: authority().pubkey(),
             mode: RingMode::Off,
         },

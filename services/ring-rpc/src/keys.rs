@@ -1,7 +1,7 @@
 use solana_address::Address;
 use solana_keypair::Keypair;
 use zeroize::Zeroizing;
-use zolana_keypair::{KeypairError, X25519Secret};
+use zolana_keypair::{KeypairError, X25519Keypair};
 
 use crate::{config::RootSecret, error::RingRpcError};
 
@@ -12,7 +12,7 @@ const SERVICE_KEY_INFO: &[u8] = b"zolana/ring-rpc-service/v1";
 pub(crate) enum KeySource {
     Local {
         ring: Address,
-        auditor: X25519Secret,
+        auditor: X25519Keypair,
     },
     Derived(RootSecret),
 }
@@ -22,13 +22,13 @@ pub(crate) fn derive_auditor_key(
     root: &RootSecret,
     genesis_hash: &[u8; 32],
     ring: Address,
-) -> Result<X25519Secret, RingRpcError> {
+) -> Result<X25519Keypair, RingRpcError> {
     let info = [DERIVATION_INFO, genesis_hash, ring.as_ref(), &[0]].concat();
     let mut secret = Zeroizing::new([0u8; 32]);
     hkdf::Hkdf::<sha2::Sha256>::new(None, root.as_bytes())
         .expand(&info, secret.as_mut_slice())
         .map_err(|_| KeypairError::Hkdf)?;
-    Ok(X25519Secret::from_bytes(&secret)?)
+    Ok(X25519Keypair::from_bytes(&secret))
 }
 
 pub(crate) fn service_keypair(secret: &[u8]) -> Result<Keypair, RingRpcError> {

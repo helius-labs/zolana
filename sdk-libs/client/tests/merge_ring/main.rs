@@ -13,7 +13,7 @@ use zolana_transaction::instructions::merge::{MAX_MERGE_INPUTS, MERGE_DEFAULT_IN
 
 #[test]
 #[serial_test::serial]
-fn ed25519_merge_proofs_cover_padding_and_wide_shapes() {
+fn eddsa_merge_proofs_cover_padding_and_wide_shapes() {
     for real_inputs in [
         1,
         2,

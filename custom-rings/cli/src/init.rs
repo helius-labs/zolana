@@ -339,7 +339,7 @@ mod tests {
 
     #[test]
     fn a_config_wins_over_the_file_and_the_service() {
-        let pinned = zolana_keypair::X25519Secret::new().pubkey();
+        let pinned = zolana_keypair::X25519Keypair::new().pubkey();
         for file_present in [true, false] {
             for hosted_rpc in [true, false] {
                 for local_auditor in [true, false] {

@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use anyhow::Result;
-use zolana_keypair::X25519Secret;
+use zolana_keypair::X25519Keypair;
 use zolana_ring_client::rpc::{read_auditor_key, write_auditor_key};
 use zolana_secret_file::Access;
 
@@ -29,6 +29,6 @@ pub(crate) fn ensure(key_file: &Path) -> Result<()> {
     run(key_file, true)
 }
 
-pub(crate) fn read(path: &Path) -> Result<X25519Secret> {
+pub(crate) fn read(path: &Path) -> Result<X25519Keypair> {
     Ok(read_auditor_key(path, Access::OwnerOnly)?)
 }

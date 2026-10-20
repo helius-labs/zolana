@@ -389,10 +389,14 @@ deposits, so the pause names the amount instead of failing inside the deploy.
 Anonymous mode hides Ed25519 owners and discloses them to the auditor. Deposit
 amounts remain public. The default ring stays nonanonymous. Rust anonymous
 builders exclude delegates, merges, caches and direct outputs to the default
-ring. Outflow limits remain supported. Auditor and viewing keys use canonical
-X25519 encodings. P-256 ownership and historical viewing data require migration
-before upgrading. Deployment checks the existing config before uploading. It
-rejects a legacy auditor key layout and names the required migration.
+ring. Outflow limits remain supported. Anonymous outputs publish view tags as
+owner tags and carry no data or ring data. `with_anonymous_signer` takes the
+sender's `AnonymousViewTags`. An anonymous `RingDeposit` needs a nonzero
+`anonymous_view_tag` other than the recipient's bootstrap tag. Auditor and
+viewing keys use canonical X25519 encodings. P-256 ownership and historical
+viewing data require migration before upgrading. Deployment checks the existing
+config before uploading. It rejects a legacy auditor key layout and names the
+required migration.
 
 The dedicated auditor disclosure encrypts the note fields the circuit uses to
 compute commitments. Anonymous disclosure also binds the sender, spent notes

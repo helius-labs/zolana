@@ -91,7 +91,7 @@ const PRIVATE_TX_HASH: [u8; 32] = [
     0xbe, 0x21, 0x83, 0xd9, 0x96, 0x54, 0xc4, 0x60, 0xac, 0x21, 0xf9, 0x38, 0xe8, 0xd4, 0x25, 0xcd,
 ];
 
-/// `sha256(PRIVATE_TX_HASH || EXTERNAL_DATA_HASH)`, the digest anonymous Ed25519 ownership signs and
+/// `sha256(PRIVATE_TX_HASH || EXTERNAL_DATA_HASH)`, the digest anonymous EdDSA ownership signs and
 /// `SppProofInputs::message_hash()` returns.
 const MESSAGE_HASH: [u8; 32] = [
     0x65, 0xe5, 0x8d, 0x99, 0x1f, 0xf9, 0xdf, 0xcb, 0x00, 0x7d, 0x5e, 0x99, 0xd9, 0x15, 0x82, 0x47,
@@ -622,7 +622,7 @@ fn pinned_input_and_output_vectors_rebuild_the_pinned_private_tx_hash() {
 // ---------------------------------------------------------------------------
 
 /// `SppProofInputs::message_hash()` in zolana-transaction and the digest
-/// `AnonymousRingEd25519Prover::build` derives from the assembled `private_tx_hash`
+/// `AnonymousRingEddsaProver::build` derives from the assembled `private_tx_hash`
 /// must stay bit-identical: `validate_authorization` checks a signature against
 /// the second and the wallet signs the first.
 #[test]

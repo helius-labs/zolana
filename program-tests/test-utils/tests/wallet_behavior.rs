@@ -38,8 +38,7 @@ impl SyncWorld {
     fn fresh_keypair(&self, name: &str) -> ShieldedKeypair {
         let keypair = self.kp(name);
         let signing = SigningKey::from_ed25519_bytes(&keypair.signing_key.secret_bytes());
-        let viewing = ViewingKey::from_bytes(&keypair.viewing_key.secret_bytes())
-            .expect("viewing key round-trip");
+        let viewing = ViewingKey::from_bytes(&keypair.viewing_key.secret_bytes());
         ShieldedKeypair::with_viewing_key(signing, viewing).expect("keypair rebuild")
     }
 }

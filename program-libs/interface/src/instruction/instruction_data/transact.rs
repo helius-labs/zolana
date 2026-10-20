@@ -8,7 +8,8 @@ pub use zolana_event::{
 use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
 
 pub use crate::verifying_keys::{
-    Bsb22Commitment, CacheAccess, CacheWrite, CircuitId, MAX_CACHE_WRITES,
+    AnonymousRingEddsaProofData, Bsb22Commitment, CacheAccess, CacheWrite, CircuitId,
+    MAX_CACHE_WRITES,
 };
 use crate::{error::ShieldedPoolError, MAX_INPUT_TREES, MAX_INTERFACE_TRANSFERS, MAX_OUTPUTS};
 

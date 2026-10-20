@@ -14,7 +14,7 @@ use zolana_hasher::primitives::{BN254_SCALAR_MODULUS_BE, SOLANA_OWNER_TAG};
 use zolana_interface::instruction::MessageData;
 use zolana_keypair::{
     hash::{poseidon, right_align},
-    symmetric_apply, symmetric_apply_audit, NullifierKey, ViewingKey, X25519Pubkey, X25519Secret,
+    symmetric_apply, symmetric_apply_audit, NullifierKey, ViewingKey, X25519Keypair, X25519Pubkey,
 };
 use zolana_transaction::field::{field_add, field_sub};
 
@@ -63,7 +63,7 @@ pub(crate) fn shared_secret(
 
 /// Seals `data` from an ephemeral key to the auditor.
 pub(crate) fn seal_stream(
-    ephemeral: &X25519Secret,
+    ephemeral: &X25519Keypair,
     auditor: &X25519Pubkey,
     info: &[u8; 10],
     data: &mut [u8],
@@ -72,7 +72,7 @@ pub(crate) fn seal_stream(
 }
 
 fn open_stream(
-    auditor: &X25519Secret,
+    auditor: &X25519Keypair,
     ephemeral: &X25519Pubkey,
     info: &[u8; 10],
     data: &mut [u8],
@@ -82,7 +82,7 @@ fn open_stream(
 
 /// `local` is the ephemeral key when sealing and the auditor key when opening.
 fn auditor_stream(
-    local: &X25519Secret,
+    local: &X25519Keypair,
     remote: &X25519Pubkey,
     sealing: bool,
     info: &[u8; 10],
@@ -178,7 +178,7 @@ impl AuditorMessage {
     }
 
     /// The transaction viewing secret, unchecked as a scalar.
-    pub fn decrypt(&self, auditor: &X25519Secret) -> Result<Zeroizing<[u8; 32]>> {
+    pub fn decrypt(&self, auditor: &X25519Keypair) -> Result<Zeroizing<[u8; 32]>> {
         let mut plaintext = Zeroizing::new(self.ciphertext);
         open_stream(auditor, &self.eph_pk, AUDIT_ENC_INFO, &mut *plaintext)?;
         Ok(plaintext)
@@ -334,7 +334,7 @@ impl AuditorMessage {
 
 impl AuditorEncryption {
     pub fn new(tx_viewing_key: &ViewingKey, auditor_pk: &X25519Pubkey) -> Result<Self> {
-        let ephemeral = X25519Secret::new();
+        let ephemeral = X25519Keypair::new();
         let mut ciphertext = tx_viewing_key.secret_bytes();
         seal_stream(&ephemeral, auditor_pk, AUDIT_ENC_INFO, &mut *ciphertext)?;
         Ok(Self {
@@ -576,13 +576,13 @@ pub struct SealedNullifierKey {
 
 impl NullifierKeyEnvelope {
     pub fn new(nullifier_key: &NullifierKey, auditor_pk: &X25519Pubkey) -> Result<Self> {
-        Self::seal(nullifier_key, auditor_pk, X25519Secret::new())
+        Self::seal(nullifier_key, auditor_pk, X25519Keypair::new())
     }
 
     fn seal(
         nullifier_key: &NullifierKey,
         auditor_pk: &X25519Pubkey,
-        ephemeral: X25519Secret,
+        ephemeral: X25519Keypair,
     ) -> Result<Self> {
         let mut ciphertext = Zeroizing::new(right_align(&nullifier_key.secret()));
         seal_stream(&ephemeral, auditor_pk, NF_KEY_ENC_INFO, &mut *ciphertext)?;
@@ -599,7 +599,7 @@ impl NullifierKeyEnvelope {
 
 impl SealedNullifierKey {
     /// The pad alone does not authenticate the key against its registry leaf.
-    pub fn open(&self, auditor: &X25519Secret) -> Result<NullifierKey> {
+    pub fn open(&self, auditor: &X25519Keypair) -> Result<NullifierKey> {
         let mut plaintext = Zeroizing::new(self.ciphertext);
         open_stream(auditor, &self.eph_pk, NF_KEY_ENC_INFO, &mut *plaintext)?;
         if plaintext[0] != 0 {
@@ -633,13 +633,13 @@ pub fn seal_deposits(
     openings: &[DepositOpening],
     auditor_pk: &X25519Pubkey,
 ) -> Result<DepositEncryption> {
-    seal_deposits_with(openings, auditor_pk, X25519Secret::new())
+    seal_deposits_with(openings, auditor_pk, X25519Keypair::new())
 }
 
 fn seal_deposits_with(
     openings: &[DepositOpening],
     auditor_pk: &X25519Pubkey,
-    ephemeral: X25519Secret,
+    ephemeral: X25519Keypair,
 ) -> Result<DepositEncryption> {
     if openings.is_empty() || openings.len() > MAX_RING_DEPOSIT_AUDIT_SLOTS {
         return Err(AuditError::DepositCount(openings.len()));
@@ -668,7 +668,7 @@ fn seal_deposits_with(
 /// Opens a capsule only after binding every ciphertext byte to its confirmed deposit proof.
 pub fn open_deposit(
     capsule: &RingDepositAuditCapsule<'_>,
-    auditor: &X25519Secret,
+    auditor: &X25519Keypair,
     owner_utxo_hash: &[u8; 32],
     confirmed: &crate::ConfirmedDeposit,
 ) -> Result<DepositOpening> {
@@ -754,10 +754,10 @@ mod tests {
 
     #[test]
     fn shared_secret_binds_both_keys_and_the_ecdh_value() {
-        let auditor_key = X25519Secret::new().pubkey();
-        let other_auditor_key = X25519Secret::new().pubkey();
-        let ephemeral_key = X25519Secret::new().pubkey();
-        let other_ephemeral_key = X25519Secret::new().pubkey();
+        let auditor_key = X25519Keypair::new().pubkey();
+        let other_auditor_key = X25519Keypair::new().pubkey();
+        let ephemeral_key = X25519Keypair::new().pubkey();
+        let other_ephemeral_key = X25519Keypair::new().pubkey();
         let derive = |dh, eph, auditor| shared_secret(dh, eph, auditor).expect("shared secret");
         let secret = derive(&[7u8; 32], &ephemeral_key, &auditor_key);
         assert_ne!(secret, derive(&[8u8; 32], &ephemeral_key, &auditor_key));
@@ -773,7 +773,7 @@ mod tests {
 
     #[test]
     fn nullifier_key_envelope_round_trips_through_the_auditor() {
-        let auditor = X25519Secret::new();
+        let auditor = X25519Keypair::new();
         let nullifier_key = NullifierKey::from_secret([7u8; 31]);
         let envelope =
             NullifierKeyEnvelope::new(&nullifier_key, &auditor.pubkey()).expect("encrypt");
@@ -790,8 +790,8 @@ mod tests {
 
     #[test]
     fn a_stranger_auditor_cannot_recover_the_nullifier_key() {
-        let auditor = X25519Secret::new();
-        let stranger = X25519Secret::new();
+        let auditor = X25519Keypair::new();
+        let stranger = X25519Keypair::new();
         let nullifier_key = NullifierKey::from_secret([9u8; 31]);
         let envelope =
             NullifierKeyEnvelope::new(&nullifier_key, &auditor.pubkey()).expect("encrypt");
@@ -819,9 +819,9 @@ mod tests {
 
     #[test]
     fn the_sealed_key_and_its_registration_statement_match_the_pinned_vector() {
-        let auditor = X25519Secret::from_bytes(&bytes(AUDITOR_SK)).expect("auditor");
+        let auditor = X25519Keypair::from_bytes(&bytes(AUDITOR_SK));
         let nullifier_key = NullifierKey::from_secret(bytes(NULLIFIER_SECRET));
-        let ephemeral = X25519Secret::from_bytes(&bytes(EPHEMERAL_SK)).expect("ephemeral");
+        let ephemeral = X25519Keypair::from_bytes(&bytes(EPHEMERAL_SK));
         let envelope =
             NullifierKeyEnvelope::seal(&nullifier_key, &auditor.pubkey(), ephemeral).expect("seal");
         assert_eq!(envelope.nullifier_pk, bytes(NULLIFIER_PK));
@@ -881,7 +881,7 @@ mod tests {
 
     #[test]
     fn anonymous_disclosure_round_trips_with_the_hidden_recipient_key() {
-        let auditor = X25519Secret::new();
+        let auditor = X25519Keypair::new();
         let tx = ViewingKey::new();
         let disclosure = AnonymousDisclosure {
             sender: [7; 32],
@@ -959,7 +959,7 @@ mod tests {
 
     #[test]
     fn compact_ordinary_disclosure_round_trips_exactly_two_outputs() {
-        let auditor = X25519Secret::new();
+        let auditor = X25519Keypair::new();
         let tx = ViewingKey::new();
         let mut outputs = vec![ProofInputUtxo::default(); 2];
         outputs[0].amount[31] = 7;
@@ -993,8 +993,8 @@ mod tests {
 
     #[test]
     fn deposit_encryption_and_public_hash_match_the_typescript_vector() {
-        let auditor = X25519Secret::from_bytes(&[0x11; 32]).unwrap();
-        let ephemeral = X25519Secret::from_bytes(&[0x22; 32]).unwrap();
+        let auditor = X25519Keypair::from_bytes(&[0x11; 32]);
+        let ephemeral = X25519Keypair::from_bytes(&[0x22; 32]);
         let word = |value| {
             let mut bytes = [0; 32];
             bytes[31] = value;
@@ -1056,7 +1056,7 @@ mod tests {
 
     #[test]
     fn every_slot_uses_its_batch_stream_offset() {
-        let auditor = X25519Secret::new();
+        let auditor = X25519Keypair::new();
         let openings: Vec<_> = (0..MAX_RING_DEPOSIT_AUDIT_SLOTS)
             .map(|index| DepositOpening {
                 owner_hash: [index as u8; 32],
@@ -1110,7 +1110,7 @@ mod tests {
 
     #[test]
     fn empty_and_oversized_batches_are_rejected() {
-        let auditor = X25519Secret::new().pubkey();
+        let auditor = X25519Keypair::new().pubkey();
         assert!(matches!(
             seal_deposits(&[], &auditor),
             Err(AuditError::DepositCount(0))

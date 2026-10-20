@@ -59,9 +59,6 @@ impl Forward {
                     .ok_or(CustomRingError::InvalidInstructionData)?,
             )
             .map_err(|_| CustomRingError::InvalidInstructionData)?;
-            if request.merge.eddsa_owner {
-                return Err(CustomRingError::InvalidInstructionData.into());
-            }
             Some(request)
         } else {
             None
@@ -111,7 +108,7 @@ impl Forward {
                 deposit
                     .deposits
                     .iter()
-                    .any(|entry| entry.view_tag != &[0; 32] || entry.ring_data_hash != &[0; 32])
+                    .any(|entry| entry.ring_data_hash != &[0; 32])
             })
         {
             return Err(CustomRingError::InvalidAnonymousOutput.into());

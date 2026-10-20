@@ -87,7 +87,6 @@ fn register_charges_rent_to_a_separate_payer() {
             owner.pubkey(),
             rent_payer.pubkey(),
             RegisterData {
-                reserved_owner: Default::default(),
                 nullifier_pubkey: value.nullifier,
                 viewing_pubkey: value.viewing,
             },
@@ -101,7 +100,6 @@ fn register_charges_rent_to_a_separate_payer() {
         UserRecord {
             owner: owner.pubkey(),
             bump,
-            reserved_owner: Default::default(),
             nullifier_pubkey: value.nullifier,
             viewing_pubkey: value.viewing,
             merging_enabled: false,
@@ -140,7 +138,6 @@ fn register_tops_up_a_prefunded_pda_from_a_separate_payer() {
             owner.pubkey(),
             rent_payer.pubkey(),
             RegisterData {
-                reserved_owner: Default::default(),
                 nullifier_pubkey: value.nullifier,
                 viewing_pubkey: value.viewing,
             },
@@ -154,7 +151,6 @@ fn register_tops_up_a_prefunded_pda_from_a_separate_payer() {
         UserRecord {
             owner: owner.pubkey(),
             bump,
-            reserved_owner: Default::default(),
             nullifier_pubkey: value.nullifier,
             viewing_pubkey: value.viewing,
             merging_enabled: false,
@@ -201,13 +197,7 @@ fn update_keys_changes_only_the_viewing_key() {
         .expect("record");
     assert_eq!(account.data.len(), UserRecord::SIZE);
     let body_len = borsh::to_vec(&after).expect("serialized record").len();
-    assert_eq!(
-        body_len + UserRecord::DISCRIMINATOR_LEN + 33,
-        UserRecord::SIZE
-    );
-    assert!(account.data[body_len + UserRecord::DISCRIMINATOR_LEN..]
-        .iter()
-        .all(|byte| *byte == 0));
+    assert_eq!(body_len + UserRecord::DISCRIMINATOR_LEN, UserRecord::SIZE);
 }
 
 #[test]

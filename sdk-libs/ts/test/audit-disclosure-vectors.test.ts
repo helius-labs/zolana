@@ -11,7 +11,7 @@ import {
   type AuditOutputOpening,
 } from "../src/keypair/audit.js";
 import type { Bytes16, Bytes32 } from "../src/keypair/bytes.js";
-import { X25519Secret } from "../src/keypair/x25519.js";
+import { X25519Keypair } from "../src/keypair/x25519.js";
 import { hashChain4 } from "../src/transaction/internal.js";
 
 function bytes<T extends Uint8Array>(value: string, length: number): T {
@@ -59,7 +59,7 @@ describe("shared audit disclosure vector (test-vectors/audit-disclosure.json)", 
   const ciphertext = fields(vector.ciphertext);
   const disclosureHash = bytes<Bytes32>(vector.disclosure_hash, 32);
   const seal = (outputs: readonly AuditOutputOpening[]) =>
-    encryptTransactionViewingSecret(key, X25519Secret.generate().publicKey(), { salt, outputs })
+    encryptTransactionViewingSecret(key, X25519Keypair.generate().publicKey(), { salt, outputs })
       .message.disclosure;
 
   it("derives the pad, the ciphertext of all-zero fields", () => {

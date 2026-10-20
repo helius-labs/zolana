@@ -29,8 +29,9 @@ func Poseidon(api frontend.API, inputs ...frontend.Variable) frontend.Variable {
 
 // HashBytes is zolana_hasher's hash_bytes of a fixed-length byte string, one
 // variable per byte: 31-byte big-endian chunks folded left to right.
+// Bit checks, the std range checker adds a BSB22 commitment.
 func HashBytes(api frontend.API, bytes []frontend.Variable) frontend.Variable {
-	return gadget.HashBytes(api, bytes)
+	return gadget.HashBytesWith(api, gadget.BitChecker{API: api}, bytes)
 }
 
 // PrivateTxHash is the private transaction hash of a transaction that creates

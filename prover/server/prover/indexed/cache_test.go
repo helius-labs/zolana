@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	"github.com/helius-labs/zolana/prover/server/prover/common"
-	transfer "github.com/helius-labs/zolana/prover/server/prover/transfer_eddsa_only"
+	transfer "github.com/helius-labs/zolana/prover/server/prover/transfer_eddsa"
 )
 
 func cachedRequest(t *testing.T, request Request) Request {

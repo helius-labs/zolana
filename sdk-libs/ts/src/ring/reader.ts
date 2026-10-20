@@ -66,13 +66,6 @@ export class P256ReaderKey {
   }
 }
 
-/** Legacy derivation points remain excluded from passkey access. */
-export const RESERVED_READER_KEY_HEX = Object.freeze([
-  "030e4df946bce14b95292f13e133d2b0c64e898b5644f620a5bed25a061a42fcdb",
-  "039ef16592429da1403eaa29058eb7d9d5ad15a2ea557174f7b01ff7fe484eeeaf",
-  "038a31d53c5ad20d1cd7ee1fbb9927bd0cdfb61b1b89f6b2c5a94a5f081fe16b5b",
-]);
-
 /** Rust `tag::GRANT_READ_ACCESS` and `tag::REVOKE_READ_ACCESS`. */
 const GRANT_READ_ACCESS_TAG = 4;
 const REVOKE_READ_ACCESS_TAG = 5;
@@ -105,9 +98,6 @@ export function checkedReaderKey(reader: ReaderKey): ReaderKey {
     }
     if (!canonical) throw new RingError("RING_READER_KEY", { details: { reader } });
     return reader;
-  }
-  if (RESERVED_READER_KEY_HEX.includes(bytesToHex(reader.toBytes()))) {
-    throw new RingError("RING_READER_KEY", { details: { reader: readerKeyToString(reader) } });
   }
   return reader;
 }

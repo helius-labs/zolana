@@ -403,7 +403,7 @@ export function checkTransactCacheAccounts(
   cache: TransactCacheAccounts | undefined,
 ): void {
   const access =
-    circuit.kind === "confidentialEddsaCached" || circuit.kind === "ringEddsaCached"
+    circuit.kind === "confidentialEddsaCached" || circuit.kind === "confidentialRingEddsaCached"
       ? circuit.cacheAccess
       : undefined;
   const expected = cacheRoles(

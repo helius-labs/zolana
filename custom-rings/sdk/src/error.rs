@@ -134,10 +134,16 @@ pub enum RingError {
     InvalidAnonymousSlot,
     #[error("the anonymous rail has no keys for this transaction shape")]
     AnonymousShapeUnsupported,
+    #[error("anonymous outputs carry no data or ring data")]
+    AnonymousOutputData,
     #[error("the anonymous disclosure does not match the transaction shape")]
     AnonymousDisclosureShape,
     #[error("an anonymous ring requires an Ed25519 recipient")]
     AnonymousRecipient,
+    #[error("an anonymous deposit requires a nonzero view tag")]
+    MissingAnonymousViewTag,
+    #[error("an anonymous deposit must not carry the recipient's bootstrap view tag")]
+    AnonymousBootstrapViewTag,
     #[error("merge inputs belong to another tree")]
     InputTreeMismatch,
     #[error("the member's nullifier key does not derive its address")]

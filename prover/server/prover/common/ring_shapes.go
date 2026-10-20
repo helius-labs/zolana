@@ -30,9 +30,27 @@ func (s RingPolicyShape) CircuitType() CircuitType {
 	return CircuitType(name)
 }
 
+// AnonymousRingShapes mirrors ANONYMOUS_RING_SHAPES in custom-rings/interface/src/disclosure.rs.
+var AnonymousRingShapes = []protocol.Shape{
+	{NInputs: 1, NOutputs: 2},
+	{NInputs: 1, NOutputs: 4},
+	{NInputs: 2, NOutputs: 2},
+	{NInputs: 2, NOutputs: 4},
+	{NInputs: 3, NOutputs: 2},
+	{NInputs: 3, NOutputs: 4},
+	{NInputs: 4, NOutputs: 2},
+	{NInputs: 4, NOutputs: 4},
+	{NInputs: 5, NOutputs: 2},
+	{NInputs: 5, NOutputs: 4},
+	{NInputs: 6, NOutputs: 2},
+	{NInputs: 6, NOutputs: 4},
+	{NInputs: 8, NOutputs: 2},
+	{NInputs: 12, NOutputs: 2},
+}
+
 var RingPolicyShapes = func() []RingPolicyShape {
 	var out []RingPolicyShape
-	for rail, shapes := range [][]protocol.Shape{protocol.SupportedShapes, protocol.AnonymousRingEd25519Shapes, {{NInputs: 2, NOutputs: 2}, {NInputs: 4, NOutputs: 4}}} {
+	for rail, shapes := range [][]protocol.Shape{protocol.SupportedShapes, AnonymousRingShapes, {{NInputs: 2, NOutputs: 2}, {NInputs: 4, NOutputs: 4}}} {
 		for _, shape := range shapes {
 			// Larger shapes exceed the current inline-audit transaction envelope.
 			if shape.NOutputs > 4 || shape.NInputs > 16 && !(rail == 0 && shape.NInputs == 24 && shape.NOutputs == 2) {

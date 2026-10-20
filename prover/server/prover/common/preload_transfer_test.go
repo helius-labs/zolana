@@ -27,8 +27,8 @@ func TestTransferPreloadSelection(t *testing.T) {
 	if err != nil || !matched || len(paths) != 1 || filepath.Base(paths[0]) != "transfer_confidential_2_4.key" {
 		t.Fatalf("selection %v %v", paths, err)
 	}
-	paths, matched, err = manager.selectedTransferPaths("transfer-ed25519-ring")
-	if err != nil || !matched || len(paths) != len(ringEd25519Shapes) {
+	paths, matched, err = manager.selectedTransferPaths("transfer-eddsa-ring")
+	if err != nil || !matched || len(paths) != len(transferSupportedShapes) {
 		t.Fatalf("anonymous ring selection %v %v", paths, err)
 	}
 	paths, matched, err = manager.selectedTransferPaths("merge")

@@ -22,7 +22,7 @@ import {
 import { ZERO_32, bigIntBytes } from "../src/transaction/internal.js";
 import { registryFixture, memberRegistryRootData } from "./helpers/member-registry.js";
 import { ownedAccount, ringProgramConfigData } from "./helpers/ring-accounts.js";
-import { X25519Secret } from "../src/keypair/x25519.js";
+import { X25519Keypair } from "../src/keypair/x25519.js";
 import { BLOCKHASH } from "./helpers/clients.js";
 const filled = (byte: number) => new Uint8Array(32).fill(byte) as Bytes32;
 const address = (byte: number) => getAddressDecoder().decode(filled(byte));
@@ -46,7 +46,7 @@ async function fixture(records: Parameters<typeof registryFixture>[0] = []) {
             RING,
             ringProgramConfigData({
               authority: AUTHORITY,
-              auditorPublicKey: X25519Secret.fromBytes(filled(3)).publicKey().toBytes(),
+              auditorPublicKey: X25519Keypair.fromBytes(filled(3)).publicKey().toBytes(),
               hasPolicy: false,
               bump,
             }),

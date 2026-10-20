@@ -47,7 +47,7 @@ describe("ring transaction shape transport", () => {
       const data: TransactInstructionData = {
         expiryUnixTs: 1_800_000_000n,
         privateTxHash: bytes(1),
-        circuit: { kind: "ringEddsa", ...shape, publicAssetSlots: 3 },
+        circuit: { kind: "confidentialRingEddsa", ...shape, publicAssetSlots: 3 },
         txViewingPk: new Uint8Array(33) as Bytes33,
         salt: new Uint8Array(16) as Bytes16,
         proof: { a: bytes(1), b: new Uint8Array(128) as Bytes128, c: bytes(1) },

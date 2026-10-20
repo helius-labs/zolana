@@ -10,7 +10,7 @@ use std::{
 use custom_ring_interface::RingMode;
 use solana_address::Address;
 use zolana_client::{next_page, AsyncRpc, ClientError, IndexerRpcConfig};
-use zolana_keypair::{X25519Pubkey, X25519Secret};
+use zolana_keypair::{X25519Keypair, X25519Pubkey};
 use zolana_transaction::{AssetRegistry, ShieldedTransaction};
 
 use crate::{
@@ -170,7 +170,7 @@ impl RingScan {
     /// Scans the tag of `auditor` and opens every match with it.
     pub async fn audit<I: AsyncRpc, O: TransactionOrigin>(
         mut self,
-        auditor: &X25519Secret,
+        auditor: &X25519Keypair,
         indexer: &I,
         origin: &O,
         assets: &AssetRegistry,

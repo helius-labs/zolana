@@ -11,7 +11,7 @@ import (
 	nullifiertree "github.com/helius-labs/zolana/prover/server/prover/nullifier_tree"
 	"github.com/helius-labs/zolana/prover/server/prover/request"
 	"github.com/helius-labs/zolana/prover/server/prover/timing"
-	transfereddsaonly "github.com/helius-labs/zolana/prover/server/prover/transfer_eddsa_only"
+	transfereddsa "github.com/helius-labs/zolana/prover/server/prover/transfer_eddsa"
 )
 
 var (
@@ -46,8 +46,8 @@ func (p circuitProver) dispatch(circuit common.CircuitType, payload []byte) (*co
 		common.MergeCircuitType,
 		common.MergeRingCircuitType:
 		return p.request(payload)
-	case common.TransferAnonymousRingEd25519CircuitType:
-		return p.ed25519Transfer(payload)
+	case common.TransferAnonymousRingEddsaCircuitType:
+		return p.eddsaTransfer(payload)
 	}
 	return nil, malformedBodyError(fmt.Errorf("unknown circuit type: %s", circuit))
 }
@@ -71,21 +71,21 @@ func (p circuitProver) request(payload []byte) (*common.Proof, *Error) {
 	return proved(req.Prove(ps, backend.Prover(p.trace)))
 }
 
-func (p circuitProver) ed25519Transfer(payload []byte) (*common.Proof, *Error) {
-	var params transfereddsaonly.AnonymousEd25519TransferParameters
+func (p circuitProver) eddsaTransfer(payload []byte) (*common.Proof, *Error) {
+	var params transfereddsa.AnonymousEddsaTransferParameters
 	if failure := p.decode(payload, &params); failure != nil {
 		return nil, failure
 	}
-	if failure := p.admission.admit(common.TransferKeyFile(common.TransferAnonymousRingEd25519CircuitType, params.NInputs, params.NOutputs)); failure != nil {
+	if failure := p.admission.admit(common.TransferKeyFile(common.TransferAnonymousRingEddsaCircuitType, params.NInputs, params.NOutputs)); failure != nil {
 		return nil, failure
 	}
 	finishKeys := p.trace.Start("keys")
-	ps, err := p.keys.GetTransferSystem(common.TransferAnonymousRingEd25519CircuitType, params.NInputs, params.NOutputs)
+	ps, err := p.keys.GetTransferSystem(common.TransferAnonymousRingEddsaCircuitType, params.NInputs, params.NOutputs)
 	finishKeys()
 	if err != nil {
-		return nil, provingError(fmt.Errorf("transfer-ed25519: %w", err))
+		return nil, provingError(fmt.Errorf("transfer-eddsa: %w", err))
 	}
-	return proved(transfereddsaonly.AnonymousEd25519Proof{System: ps, Parameters: &params, Prover: backend.Prover(p.trace)}.Prove())
+	return proved(transfereddsa.AnonymousEddsaProof{System: ps, Parameters: &params, Prover: backend.Prover(p.trace)}.Prove())
 }
 
 func (p circuitProver) ring(circuit common.CircuitType, payload []byte) (*common.Proof, *Error) {

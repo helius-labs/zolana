@@ -49,7 +49,7 @@ struct GovernedRing<'a> {
     env: &'a TestEnv,
     ring: CustomRing,
     mode: Mode,
-    auditor: X25519Secret,
+    auditor: X25519Keypair,
     delegate: Keypair,
 }
 
@@ -279,7 +279,10 @@ impl GovernedRing<'_> {
             if self.mode.anonymous() {
                 env.run(
                     transfer
-                        .with_anonymous_signer(&env.sender.keypair.signing_key)
+                        .with_anonymous_signer(
+                            &env.sender.keypair.signing_key,
+                            AnonymousViewTags::new(env.sender.keypair.get_sender_view_tag(0)?),
+                        )
                         .prove(client.as_async()),
                 )
             } else {
@@ -400,7 +403,7 @@ fn every_shipped_policy_shape_settles_with_general_and_subtree_proofs() -> Resul
             env: &env,
             ring: CustomRing::new(program),
             mode,
-            auditor: X25519Secret::new(),
+            auditor: X25519Keypair::new(),
             delegate: Keypair::new(),
         };
         ring.configure()?;
@@ -441,7 +444,7 @@ fn exact_two_by_three_policy_keys_settle_for_every_mode() -> Result<()> {
             env: &env,
             ring: CustomRing::new(program),
             mode,
-            auditor: X25519Secret::new(),
+            auditor: X25519Keypair::new(),
             delegate: Keypair::new(),
         };
         ring.configure()?;
@@ -471,7 +474,7 @@ fn ordinary_two_by_two_settles_after_key_rotation() -> Result<()> {
         env: &env,
         ring: CustomRing::new(custom_ring_program_id()?),
         mode: Mode::Member,
-        auditor: X25519Secret::new(),
+        auditor: X25519Keypair::new(),
         delegate: Keypair::new(),
     };
     ring.configure()?;
@@ -488,7 +491,7 @@ fn settle_matching_key_mode(mode: Mode, expected_capacities: usize) -> Result<()
         env: &env,
         ring: CustomRing::new(program),
         mode,
-        auditor: X25519Secret::new(),
+        auditor: X25519Keypair::new(),
         delegate: Keypair::new(),
     };
     ring.configure()?;

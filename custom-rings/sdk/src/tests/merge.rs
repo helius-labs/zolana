@@ -9,7 +9,7 @@ use zolana_interface::{
     },
     pda,
 };
-use zolana_keypair::{ShieldedKeypair, X25519Secret};
+use zolana_keypair::{ShieldedKeypair, X25519Keypair};
 use zolana_transaction::Mint;
 
 use super::support::{account, no_witnesses, note, tree_account, Accounts};
@@ -70,7 +70,6 @@ fn instruction_targets_the_same_ring_and_uses_its_authority() {
             utxo_tree_root_index: 0,
             nullifier_tree_root_index: 0,
             private_tx_hash: [0; 32],
-            eddsa_owner: false,
         },
     };
     let cosigner = Address::new_from_array([4; 32]);
@@ -116,7 +115,7 @@ fn config() -> RingProgramConfig {
     RingProgramConfig {
         discriminator: RING_PROGRAM_CONFIG,
         authority: Address::new_from_array([3; 32]),
-        auditor_pubkey: *X25519Secret::new().pubkey().as_bytes(),
+        auditor_pubkey: *X25519Keypair::new().pubkey().as_bytes(),
         bump: Address::find_program_address(&[RingProgramConfig::SEED], &ring().program_id()).1,
         has_policy: 0,
         mode: 0,

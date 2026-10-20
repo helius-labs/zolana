@@ -1,4 +1,4 @@
-import { X25519Secret } from "../keypair/x25519.js";
+import { X25519Keypair } from "../keypair/x25519.js";
 import type { Address } from "@solana/kit";
 
 import type { IndexerReader } from "../client/ports.js";
@@ -43,7 +43,7 @@ export type RingRecoveryClient = RingAuditReader &
 export interface RingRecoveryParams {
   readonly client: RingRecoveryClient;
   readonly ringProgramId: Address;
-  readonly auditor: X25519Secret;
+  readonly auditor: X25519Keypair;
   readonly source: ShieldedAddress;
   readonly nullifierKey: NullifierKey;
   readonly assets: AssetRegistry;

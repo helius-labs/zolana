@@ -35,7 +35,6 @@ fn merge_data(cache_slot: Option<u8>) -> MergeTransactIxData {
         utxo_tree_root_index: 0,
         nullifier_tree_root_index: 0,
         private_tx_hash: [0u8; 32],
-        eddsa_owner: true,
     }
 }
 

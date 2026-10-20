@@ -12,7 +12,6 @@ export type KeypairErrorCode =
   | "KEYPAIR_INVALID_PUBLIC_KEY"
   | "KEYPAIR_INVALID_SECRET_KEY"
   | "KEYPAIR_NON_CONTRIBUTORY_KEY"
-  | "KEYPAIR_ZERO_SCALAR"
   | "KEYPAIR_INVALID_SIGNATURE_TYPE"
   | "KEYPAIR_HKDF"
   | "KEYPAIR_POSEIDON"
@@ -29,7 +28,6 @@ export const KEYPAIR_ERROR_RUST_VARIANT: Readonly<Record<KeypairErrorCode, strin
     KEYPAIR_INVALID_PUBLIC_KEY: "InvalidPublicKey",
     KEYPAIR_INVALID_SECRET_KEY: "InvalidSecretKey",
     KEYPAIR_NON_CONTRIBUTORY_KEY: "NonContributoryKey",
-    KEYPAIR_ZERO_SCALAR: "ZeroScalar",
     KEYPAIR_INVALID_SIGNATURE_TYPE: "InvalidSignatureType",
     KEYPAIR_HKDF: "Hkdf",
     KEYPAIR_POSEIDON: "Poseidon",

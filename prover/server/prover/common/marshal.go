@@ -312,6 +312,6 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 	ps.CircuitType = circuitType
 	ps.Confidential = circuitType == TransferConfidentialCircuitType ||
 		circuitType == TransferRingCircuitType ||
-		circuitType == TransferAnonymousRingEd25519CircuitType
+		circuitType == TransferAnonymousRingEddsaCircuitType
 	return ps, nil
 }

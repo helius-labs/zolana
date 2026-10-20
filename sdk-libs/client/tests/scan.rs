@@ -26,7 +26,6 @@ use zolana_transaction::{
         MERGE_DEFAULT_INPUT_COUNT,
     },
     owner_utxo_hash,
-    serialization::confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
     serialization::proofless::{Proofless, ProoflessEncode},
     AssetRegistry, Data, EncryptedScheme, HistoryKind, Mint, OwnerCx, RingDepositPlaintext,
     TransactionError, Utxo, UtxoSerialization, SOL_ASSET_ID, SOL_MINT,
@@ -399,7 +398,7 @@ fn fetch_follows_spends_the_wallet_tags_do_not_reach() {
     );
     assert_eq!(
         indexer.queried_tags.borrow().first(),
-        Some(&vec![owner_tag, address.viewing_pubkey.u(), [0; 32]])
+        Some(&vec![owner_tag, address.viewing_pubkey.u()])
     );
     // Each round queries only the UTXOs found since the last one.
     let queried = indexer.queried_nullifiers.borrow();
@@ -407,56 +406,6 @@ fn fetch_follows_spends_the_wallet_tags_do_not_reach() {
     unique.sort();
     unique.dedup();
     assert_eq!(unique.len(), queried.len(), "a nullifier was queried twice");
-}
-
-#[test]
-fn zero_tag_anonymous_ring_output_is_found_without_treating_zero_as_our_tag() {
-    let owner = keypair(84);
-    let ring = Address::new_from_array([85; 32]);
-    let mut utxo = sol(&owner, 27, 1);
-    utxo.ring_program_id = Some(ring);
-    let owned = note(&owner, utxo, [0; 32]);
-    let tx_key = owner.viewing_key.clone();
-    let payload = Confidential::encode_ring_anonymous_plaintext(
-        &ConfidentialOutputPlaintext {
-            asset_id: SOL_ASSET_ID,
-            amount: owned.utxo.amount,
-            blinding: owned.utxo.blinding,
-            ring_program_id: Some(ring),
-            data: Data::default(),
-        },
-        &ConfidentialEncode {
-            tx: tx_key.clone(),
-            recipient_pubkey: owner.viewing_pubkey(),
-            salt: [7; 16],
-            slot_index: 0,
-        },
-    )
-    .unwrap();
-    let tx = ShieldedTransaction {
-        slot: 1,
-        tx_signature: Signature::from([84; 64]),
-        event_index: Some(0),
-        tx_viewing_pk: Some(tx_key.pubkey()),
-        salt: Some([7; 16]),
-        output_slots: vec![output_slot([0; 32], owned.hash, 1, payload.data)],
-        messages: Vec::new(),
-        nullifiers: vec![[86; 32]],
-        proofless: false,
-        ring_config: None,
-        ring_program_id: Some(ring),
-    };
-    let indexer = Indexer {
-        tagged: vec![tx],
-        ..Indexer::default()
-    };
-    let assets = AssetRegistry::default();
-    let result = UtxoScan::new(&owner, &assets).fetch(&indexer).unwrap();
-    assert_eq!(
-        result.spendable.utxos().next().unwrap().utxo_hash,
-        owned.hash
-    );
-    assert!(!result.history.view_tags.contains(&[0; 32]));
 }
 
 #[test]

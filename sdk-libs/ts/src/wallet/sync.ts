@@ -49,7 +49,6 @@ import {
 const addressEncoder = getAddressEncoder();
 const base64Decoder = getBase64Decoder();
 const base64Encoder = getBase64Encoder();
-const ANONYMOUS_RING_TAG = new Uint8Array(32) as Bytes32;
 
 /** Kit access is required only when the wallet holds a mint the registry cannot resolve. */
 export interface SyncClient extends Pick<
@@ -155,8 +154,8 @@ function positiveInteger(value: number, field: string, maximum = Number.MAX_SAFE
 /**
  * The stable tags a wallet asks the indexer about: one shielded-identity
  * signing tag for confidential transactions and one bootstrap tag per held
- * viewing key for deposits and key rotation. The zero tag fetches anonymous
- * ring outputs for trial decryption under every held viewing key.
+ * viewing key for deposits and key rotation. The bootstrap tag is the key's
+ * u-coordinate, so the public keys are enough to derive it.
  *
  * Keys that do not belong to this wallet are refused here rather than by the
  * decrypt pass further down, because a tag is a query the indexer sees: a
@@ -172,7 +171,6 @@ function walletQueryTags(wallet: Wallet, keys: ShieldedKeys): readonly Bytes32[]
   };
   add(wallet.identity.signingPublicKey.confidentialViewTag());
   for (const key of held) add(key.x());
-  add(ANONYMOUS_RING_TAG);
   return [...tags.values()];
 }
 

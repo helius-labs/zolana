@@ -7,7 +7,7 @@ use curve25519_dalek::constants::{ED25519_BASEPOINT_POINT, EIGHT_TORSION};
 use custom_ring_interface::{
     AuditedDepositPrefix, CreateConfigIxData, CustomRingTransactIxData, PlainGroth16Proof,
     PolicyTableIxData, ReaderIxData, SetCoSignerIxData, SetPausedIxData, SourceSpec,
-    CONFIG_PDA_SEED, READ_ACCESS_RECORD_PDA_SEED,
+    ANONYMOUS_RING_SHAPES, CONFIG_PDA_SEED, READ_ACCESS_RECORD_PDA_SEED,
 };
 use custom_ring_sdk::{
     compute_unit_limit, tag, CoSignScope, CoSignThreshold, CustomRing, CustomRingDelegateTransact,
@@ -26,7 +26,7 @@ use zolana_interface::{
     },
     pda, BPF_LOADER_UPGRADEABLE_ID, N_PUBLIC_SLOTS, RING_AUTH_PDA_SEED,
 };
-use zolana_keypair::{SigningKey, X25519Pubkey, X25519Secret};
+use zolana_keypair::{SigningKey, X25519Keypair, X25519Pubkey};
 use zolana_program::instruction::{
     DepositAsset, DepositSplAccounts, RingAssetDeposit, TransactInterfaceTransferAccounts,
     TransactSolTransferAccounts,
@@ -53,7 +53,7 @@ fn authority() -> Address {
 }
 
 fn auditor_pubkey() -> X25519Pubkey {
-    X25519Secret::new().pubkey()
+    X25519Keypair::new().pubkey()
 }
 
 fn sol_deposit_entry() -> RingAssetDeposit {
@@ -737,14 +737,14 @@ fn sample_proof() -> CustomRingProof {
     }
 }
 
-/// Representative confidential `ConfidentialRingEd25519` content carrying the auditor message
+/// Representative confidential `ConfidentialRingEddsa` content carrying the auditor message
 /// the ring proof commits to.
 fn transact_data(interface_transfers: Vec<InterfaceTransfer>) -> TransactIxData {
     TransactIxData {
         proof: TransactProof::zeroed(),
         expiry_unix_ts: u64::MAX,
         private_tx_hash: [61; 32],
-        circuit: CircuitId::ConfidentialRingEd25519(2, 3, N_PUBLIC_SLOTS as u8),
+        circuit: CircuitId::ConfidentialRingEddsa(2, 3, N_PUBLIC_SLOTS as u8),
         tx_viewing_pk: [62; 33],
         salt: [63; 16],
         inputs: Vec::new(),
@@ -1415,7 +1415,7 @@ fn measured_policy_shape(
         slot_index: 0,
     };
     let ciphertext = if rail == 1 {
-        Confidential::encode_ring_anonymous_plaintext(&plaintext, &cx)
+        Confidential::encode_ring_anonymous_plaintext(&plaintext, [0; 32], &cx)
     } else {
         Confidential::encode_plaintext(&plaintext, [2; 32], &cx)
     }
@@ -1423,17 +1423,20 @@ fn measured_policy_shape(
     .data;
     let mut transact = transact_data(Vec::new());
     transact.circuit = match rail {
-        1 => CircuitId::AnonymousRingEd25519(
+        1 => CircuitId::AnonymousRingEddsa(
             inputs as u8,
             outputs as u8,
             N_PUBLIC_SLOTS as u8,
-            zolana_interface::verifying_keys::Bsb22Commitment {
-                commitment: [0; 32],
-                commitment_pok: [0; 32],
+            zolana_interface::verifying_keys::AnonymousRingEddsaProofData {
+                bsb22_commitment: zolana_interface::verifying_keys::Bsb22Commitment {
+                    commitment: [0; 32],
+                    commitment_pok: [0; 32],
+                },
+                default_owner_tag: None,
             },
         ),
         2 => CircuitId::RingAuthority(inputs as u8, outputs as u8, N_PUBLIC_SLOTS as u8),
-        _ => CircuitId::ConfidentialRingEd25519(inputs as u8, outputs as u8, N_PUBLIC_SLOTS as u8),
+        _ => CircuitId::ConfidentialRingEddsa(inputs as u8, outputs as u8, N_PUBLIC_SLOTS as u8),
     };
     transact.inputs = (0..inputs)
         .map(|index| InputUtxo {
@@ -1580,7 +1583,7 @@ fn anonymous_transaction_size_matrix() {
         }
         let minimum = measured_policy_shape(shape.n_inputs(), shape.n_outputs(), false, 1);
         let full = measured_policy_shape(shape.n_inputs(), shape.n_outputs(), true, 1);
-        assert_eq!(minimum.fits(), shape.is_anonymous_ring_ed25519());
+        assert_eq!(minimum.fits(), ANONYMOUS_RING_SHAPES.contains(&shape));
         if (shape.n_inputs(), shape.n_outputs()) == (12, 2) {
             assert!(!full.fits());
         }

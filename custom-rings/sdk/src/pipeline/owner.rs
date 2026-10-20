@@ -10,7 +10,7 @@ use zolana_keypair::{NullifierKey, ViewingKey};
 use zolana_program::instruction::TransactInterfaceTransferAccounts;
 use zolana_ring_policy::{Member, OutflowLimit};
 use zolana_transaction::{
-    instructions::transact::{ConfidentialTransaction, SppProofOutputUtxo},
+    instructions::transact::{AnonymousViewTags, ConfidentialTransaction, SppProofOutputUtxo},
     keys::TransactionKeyRequest,
     serialization::confidential::ConfidentialOutputPlaintext,
     utxo::SppProofInputUtxo,
@@ -110,7 +110,7 @@ impl Owner<'_> {
         if config.mode == RingMode::Anonymous {
             return Err(RingError::MissingAnonymousSigner);
         }
-        self.stage_with(ring, client, config, false).await
+        self.stage_with(ring, client, config, None).await
     }
 
     /// The auditor ciphertext precedes every hash over the external data.
@@ -119,8 +119,9 @@ impl Owner<'_> {
         ring: CustomRing,
         client: &(impl AsyncRpc + ?Sized),
         config: &CustomRingConfig,
-        anonymous: bool,
+        view_tags: Option<&AnonymousViewTags>,
     ) -> Result<Box<Staged>, RingError> {
+        let anonymous = view_tags.is_some();
         let sender = self.sender.address()?;
         let member = Member::from_bytes(sender.signing_pubkey.owner_proof_input_hash()?)?;
         let pinned = match config.has_policy {
@@ -147,11 +148,13 @@ impl Owner<'_> {
         }
         .validate()?;
         let tx_viewing_key = transaction_key(self.sender, *transaction.first_nullifier())?;
-        let mut proof_inputs = match anonymous {
-            true => transaction
-                .clone()
-                .encrypt_anonymous_with_viewing_key(&sender, &tx_viewing_key)?,
-            false => transaction
+        let mut proof_inputs = match view_tags {
+            Some(view_tags) => transaction.clone().encrypt_anonymous_with_viewing_key(
+                &sender,
+                &tx_viewing_key,
+                view_tags,
+            )?,
+            None => transaction
                 .clone()
                 .encrypt_with_viewing_key(&sender, &tx_viewing_key)?,
         };
@@ -185,7 +188,7 @@ impl Owner<'_> {
             anonymous,
         )?;
         if anonymous {
-            // The proof binds every hidden recipient, no published slot names an owner.
+            // The anonymous circuit commits a zero owner for every output.
             for output in &mut proof_inputs.output_utxos {
                 output.owner_tag = Some([0; 32]);
             }

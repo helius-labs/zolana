@@ -1,28 +1,28 @@
 //! Test helpers for the Squads smart-account program.
 //!
-//! The client surface (program id, PDA derivations, and the
-//! `create_smart_account_ix` / `execute_sync_ix` builders) lives in
-//! `zolana-smart-account-client` and is re-exported here so existing test
-//! imports keep working. This module adds the localnet `ProgramConfig` fixture
-//! and the standard five-role account layout the SPP tests share, built on the
-//! role table in [`roles`]: the localnet fixture `ProgramConfig` starts at
+//! The client surface (program id, PDA derivations, the `execute_sync_ix`
+//! builder, and the role table) lives in `zolana-smart-account-client` and is
+//! re-exported here so existing test imports keep working. This module adds
+//! the localnet `ProgramConfig` fixture and the standard five-role account
+//! layout the SPP tests share: the localnet fixture `ProgramConfig` starts at
 //! index 0, so the roles sit at seeds 1..=5 in `Role::ALL` creation order
-//! (protocol, tree, ring, merge, forester). `xtask init-protocol` deploys the
-//! same roles in the same order without sharing this table -- see [`roles`].
+//! (protocol, tree, ring, merge, forester), with the same thresholds
+//! `xtask init-protocol` deploys.
 
 use std::{fs, path::Path};
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use solana_instruction::Instruction;
+use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
-pub mod roles;
+use solana_signer::Signer;
+use zolana_smart_account_client::{create_role_smart_account_ix, roles::Role};
 pub mod settings;
 
-pub use roles::Role;
 pub use settings::settings_member_keys;
 pub use zolana_smart_account_client::{
-    create_smart_account_ix, execute_sync_each, execute_sync_ix, program_config_pda, settings_pda,
-    smart_account_pda, treasury_pda, Permissions, SmartAccountSigner, SMART_ACCOUNT_PROGRAM_ID,
+    execute_sync_each, execute_sync_ix, program_config_pda, settings_pda, smart_account_pda,
+    treasury_pda, Permissions, SmartAccountSigner, SMART_ACCOUNT_PROGRAM_ID,
 };
 
 // Anchor account discriminator: sha256("account:ProgramConfig")[0..8]
@@ -67,9 +67,48 @@ pub struct StandardAccounts {
     pub ring_vault: Pubkey,
 }
 
+/// The members of the protocol smart account. The fixture sets its threshold
+/// to `Role::Protocol.threshold()` (2) and Squads rejects a threshold above the
+/// member count, so every transaction through the protocol vault is signed by
+/// both keypairs.
+pub struct ProtocolSigners([Keypair; 2]);
+
+impl ProtocolSigners {
+    pub fn new() -> Self {
+        Self([Keypair::new(), Keypair::new()])
+    }
+
+    pub fn pubkeys(&self) -> [Pubkey; 2] {
+        self.0.each_ref().map(Keypair::pubkey)
+    }
+
+    /// `fee_payer` followed by both members: the signer list of a transaction
+    /// wrapping an `execute_sync_ix` against the protocol settings.
+    pub fn with_fee_payer<'a>(&'a self, fee_payer: &'a Keypair) -> [&'a Keypair; 3] {
+        let [first, second] = &self.0;
+        [fee_payer, first, second]
+    }
+
+    /// [`Self::with_fee_payer`] as trait objects, for `Rpc::create_and_send_transaction`.
+    pub fn dyn_with_fee_payer<'a>(&'a self, fee_payer: &'a Keypair) -> [&'a dyn Signer; 3] {
+        self.with_fee_payer(fee_payer).map(|key| key as &dyn Signer)
+    }
+
+    /// Wrap `inner` so the protocol vault executes it, naming both members.
+    pub fn execute_sync(&self, settings: &Pubkey, inner: &[Instruction]) -> Instruction {
+        execute_sync_ix(settings, 0, &self.pubkeys(), inner)
+    }
+}
+
+impl Default for ProtocolSigners {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct StandardSigners {
-    pub protocol: Pubkey,
+    pub protocol: [Pubkey; 2],
     pub forester: Pubkey,
     pub merge: Pubkey,
     pub tree: Pubkey,
@@ -112,25 +151,34 @@ impl StandardAccounts {
     /// authority), the rest are controlled by the protocol vault.
     pub fn create_ixs(&self, creator: &Pubkey, signers: StandardSigners) -> Vec<Instruction> {
         let treasury = treasury_pda();
+        let [protocol_first, protocol_second] = signers.protocol;
         [
-            (Role::Protocol, None, signers.protocol),
-            (Role::Tree, Some(self.protocol_vault), signers.tree),
-            (Role::Ring, Some(self.protocol_vault), signers.ring),
-            (Role::Merge, Some(self.protocol_vault), signers.merge),
-            (Role::Forester, Some(self.protocol_vault), signers.forester),
+            (Role::Protocol, None, vec![protocol_first, protocol_second]),
+            (Role::Tree, Some(self.protocol_vault), vec![signers.tree]),
+            (Role::Ring, Some(self.protocol_vault), vec![signers.ring]),
+            (Role::Merge, Some(self.protocol_vault), vec![signers.merge]),
+            (
+                Role::Forester,
+                Some(self.protocol_vault),
+                vec![signers.forester],
+            ),
         ]
         .into_iter()
-        .map(|(role, settings_authority, signer)| {
-            create_smart_account_ix(
+        .map(|(role, settings_authority, members)| {
+            let members: Vec<SmartAccountSigner> = members
+                .into_iter()
+                .map(|key| SmartAccountSigner {
+                    key,
+                    permissions: Permissions::all(),
+                })
+                .collect();
+            create_role_smart_account_ix(
                 creator,
                 &treasury,
                 role.seed(0),
                 settings_authority,
-                &[SmartAccountSigner {
-                    key: signer,
-                    permissions: Permissions::all(),
-                }],
-                1,
+                &members,
+                role,
                 0,
             )
         })

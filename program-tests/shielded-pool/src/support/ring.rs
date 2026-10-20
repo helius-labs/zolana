@@ -3,7 +3,10 @@ use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{prover::field::be, ProverClient, ProverExt, TransferOutput};
+use zolana_client::{
+    prover::{field::be, transact::AnonymousEddsaAuthorization},
+    AnonymousEddsaTransferInputs, ProofCompressed, Prover, ProverClient, ProverExt, TransferOutput,
+};
 use zolana_hasher::{
     hash_chain::{
         create_hash_chain_4_from_slice, create_right_hash_chain_4_from_slice,
@@ -19,9 +22,10 @@ use zolana_interface::{
     shape::Shape,
     state::{cache::empty_cached_input_fields, discriminator::RING_CONFIG, RingConfig},
     tree_slot::{pack_input_flags, tree_id_field, tree_slots_hash_chain},
+    verifying_keys::AnonymousRingEddsaProofData,
     N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::{pubkey::PublicKey, NullifierKey};
+use zolana_keypair::{pubkey::PublicKey, NullifierKey, SigningKey};
 use zolana_program::instruction::Transact;
 use zolana_program_test::RING_TEST_PROGRAM_ID;
 use zolana_test_utils::transact::{
@@ -31,11 +35,26 @@ use zolana_test_utils::transact::{
     single_tree_slots, sol_public_slots, test_private_tx_blinding, transfer_input,
     TransferInputArgs, TransferProverInputsArgs, TEST_BLINDING_SEED,
 };
-use zolana_transaction::instructions::transact::PrivateTxHash;
+use zolana_transaction::instructions::transact::{transact_message_hash, PrivateTxHash};
 
 use super::fixtures::Pool;
 use super::merge::ZeroDeposits;
 use super::transact::write_ring_config_account;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RingRail {
+    Eddsa,
+    AnonymousEddsa,
+}
+
+impl RingRail {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Eddsa => "ring eddsa",
+            Self::AnonymousEddsa => "ring anonymous eddsa",
+        }
+    }
+}
 
 pub struct RingTransactProof {
     pub data: TransactIxData,
@@ -65,6 +84,7 @@ impl RingTransactProof {
 }
 
 pub struct RealRingTransact {
+    pub rail: RingRail,
     pub n_inputs: usize,
     pub n_outputs: usize,
     pub ring_config: Pubkey,
@@ -73,6 +93,7 @@ pub struct RealRingTransact {
 impl RealRingTransact {
     pub fn build(self, pool: &mut Pool) -> RingTransactProof {
         let RealRingTransact {
+            rail,
             n_inputs,
             n_outputs,
             ring_config,
@@ -107,8 +128,11 @@ impl RealRingTransact {
         );
         let ring_field = hash_bytes(&ring_program.to_bytes()).expect("ring program field");
 
-        let owner_public_key = PublicKey::from_ed25519(&payer_bytes);
-        let input_owner_pk_hash = payer_hash;
+        let hidden_owner = SigningKey::from_ed25519_bytes(&[7u8; 32]);
+        let (owner_public_key, input_owner_pk_hash) = match rail {
+            RingRail::Eddsa => (PublicKey::from_ed25519(&payer_bytes), payer_hash),
+            RingRail::AnonymousEddsa => (hidden_owner.pubkey(), zero),
+        };
 
         let nullifier_key = NullifierKey::from_secret([9u8; 31]);
         let deposits = ZeroDeposits {
@@ -210,6 +234,25 @@ impl RealRingTransact {
             tree_id_field(tree_id),
             private_tx,
         ];
+        let message_digest = transact_message_hash(&private_tx, &external_data_hash);
+        let authorization = match rail {
+            RingRail::Eddsa => None,
+            RingRail::AnonymousEddsa => {
+                let owner_public_key = owner_public_key.as_ed25519().expect("Ed25519 owner");
+                let authorization = AnonymousEddsaAuthorization {
+                    owner_public_key,
+                    owner_signature: hidden_owner
+                        .sign_message(&message_digest)
+                        .expect("hidden owner signature"),
+                    message_digest,
+                    default_owner_pk_hash: solana_owner_identity(&owner_public_key)
+                        .expect("default owner identity"),
+                };
+                chain.push(hash_bytes(&message_digest).expect("message proof input hash"));
+                chain.push(authorization.default_owner_pk_hash);
+                Some(authorization)
+            }
+        };
         chain.push(external_data_hash);
         for (asset, amount) in public_slot_assets.iter().zip(public_slot_amounts.iter()) {
             chain.push(*asset);
@@ -233,41 +276,70 @@ impl RealRingTransact {
         let n_in = u8::try_from(n_inputs).expect("supported ring input count");
         let n_out = u8::try_from(n_outputs).expect("supported ring output count");
         let n_slots = N_PUBLIC_SLOTS as u8;
-        let (proof, circuit) = {
-            let mut prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
-                inputs,
-                outputs,
-                tree_slots,
-                output_tree_id: tree_id,
-                blinding_seed: TEST_BLINDING_SEED,
-                external_data_hash,
-                private_tx_hash: private_tx,
-                public_slot_assets,
-                public_slot_amounts,
-                signer_pk_hashes: signer_pk_hashes.clone(),
-                public_input_hash,
-            });
-            prover_inputs.ring_program_id = be(&ring_field);
-            prover_inputs.published_output_owner_pk_hashes =
-                published_output_owner_pk_hashes.iter().map(be).collect();
-            let proof = ProverClient::local()
-                .prove_transfer_ring(&prover_inputs)
-                .unwrap_or_else(|error| {
-                    panic!("prove ring transfer {n_inputs}x{n_outputs}: {error}")
-                });
-            let circuit = CircuitId::ConfidentialRingEd25519(n_in, n_out, n_slots);
-            let public_inputs = [public_input_hash];
-            let verifying_key = circuit
-                .verifying_key()
-                .expect("supported ring verifying key");
-            Groth16Verifier::new(&proof.a, &proof.b, &proof.c, &public_inputs, verifying_key)
-                .expect("construct ring verifier")
-                .verify()
-                .expect("ring proof verifies locally");
-            (
-                pack_transact_proof(&proof).expect("pack ring proof"),
-                circuit,
-            )
+        let mut prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
+            inputs,
+            outputs,
+            tree_slots,
+            output_tree_id: tree_id,
+            blinding_seed: TEST_BLINDING_SEED,
+            external_data_hash,
+            private_tx_hash: private_tx,
+            public_slot_assets,
+            public_slot_amounts,
+            signer_pk_hashes: signer_pk_hashes.clone(),
+            public_input_hash,
+        });
+        prover_inputs.ring_program_id = be(&ring_field);
+        prover_inputs.published_output_owner_pk_hashes =
+            published_output_owner_pk_hashes.iter().map(be).collect();
+        let (proof, circuit) = match authorization {
+            None => {
+                let proof = ProverClient::local()
+                    .prove_transfer_ring(&prover_inputs)
+                    .unwrap_or_else(|error| {
+                        panic!("prove ring transfer {n_inputs}x{n_outputs}: {error}")
+                    });
+                let circuit = CircuitId::ConfidentialRingEddsa(n_in, n_out, n_slots);
+                let public_inputs = [public_input_hash];
+                let verifying_key = circuit
+                    .verifying_key()
+                    .expect("supported ring verifying key");
+                Groth16Verifier::new(&proof.a, &proof.b, &proof.c, &public_inputs, verifying_key)
+                    .expect("construct ring verifier")
+                    .verify()
+                    .expect("ring proof verifies locally");
+                (
+                    pack_transact_proof(&proof).expect("pack ring proof"),
+                    circuit,
+                )
+            }
+            Some(authorization) => {
+                let default_owner_tag = Some(authorization.owner_public_key);
+                let proof = ProverClient::local()
+                    .prove(&AnonymousEddsaTransferInputs {
+                        transfer: prover_inputs,
+                        authorization,
+                    })
+                    .unwrap_or_else(|error| {
+                        panic!("prove anonymous ring transfer {n_inputs}x{n_outputs}: {error}")
+                    });
+                let (compressed_proof, bsb22_commitment) = ProofCompressed::try_from(proof)
+                    .expect("compress anonymous ring proof")
+                    .into_committed_transact_parts()
+                    .expect("split anonymous ring proof");
+                (
+                    compressed_proof,
+                    CircuitId::AnonymousRingEddsa(
+                        n_in,
+                        n_out,
+                        n_slots,
+                        AnonymousRingEddsaProofData {
+                            bsb22_commitment,
+                            default_owner_tag,
+                        },
+                    ),
+                )
+            }
         };
         transact_ix_data.proof = proof;
         transact_ix_data.private_tx_hash = private_tx;

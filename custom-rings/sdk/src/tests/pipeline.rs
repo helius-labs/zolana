@@ -11,11 +11,11 @@ use zolana_interface::instruction::{
     },
     tag::{RING_AUTHORITY_TRANSACT, RING_TRANSACT},
 };
-use zolana_keypair::{random_blinding, ShieldedKeypair, ViewingKey, X25519Secret};
+use zolana_keypair::{random_blinding, ShieldedKeypair, ViewingKey, X25519Keypair};
 use zolana_program::instruction::TransactSolTransferAccounts;
 use zolana_ring_policy::{OutflowLimit, RuleTable};
 use zolana_transaction::{
-    instructions::transact::ConfidentialTransaction,
+    instructions::transact::{AnonymousViewTags, ConfidentialTransaction},
     keys::{LocalShieldedKeys, TransactionKeyRequest},
     serialization::confidential::ConfidentialOutputPlaintext,
     AssetRegistry, Data, EncryptedScheme, Mint, ShieldedKeys, TransactionError, SOL_MINT,
@@ -39,7 +39,7 @@ fn program() -> Address {
 fn audit_only() -> CustomRingConfig {
     CustomRingConfig {
         authority: Address::new_from_array([3; 32]),
-        auditor_pubkey: X25519Secret::new().pubkey(),
+        auditor_pubkey: X25519Keypair::new().pubkey(),
         has_policy: false,
         mode: RingMode::Off,
     }
@@ -729,7 +729,7 @@ fn anonymous() -> CustomRingConfig {
 #[test]
 fn anonymous_signer_slots_exclude_the_fee_payer_for_every_shape() {
     for shape in zolana_client::SPP_SUPPORTED_SHAPES {
-        if shape.is_anonymous_ring_ed25519() {
+        if ANONYMOUS_RING_SHAPES.contains(&shape) {
             assert_eq!(
                 anonymous::anonymous_signers(shape.signer_width()),
                 vec![[0; 32]; shape.signer_width()],
@@ -768,7 +768,8 @@ async fn an_anonymous_ring_refuses_a_public_owner() {
 async fn the_hidden_owner_is_the_sender_on_an_anonymous_ring() {
     let (sender, prepared) = prepared_transfer(4);
     let other = ShieldedKeypair::new_ed25519().unwrap();
-    let transfer = owner_transfer(&sender, prepared).with_anonymous_signer(&other.signing_key);
+    let transfer = owner_transfer(&sender, prepared)
+        .with_anonymous_signer(&other.signing_key, AnonymousViewTags::new([3; 32]));
     assert!(matches!(
         transfer
             .rail
@@ -777,7 +778,8 @@ async fn the_hidden_owner_is_the_sender_on_an_anonymous_ring() {
         Err(RingError::AnonymousSignerMismatch)
     ));
     let (sender, prepared) = prepared_transfer(4);
-    let transfer = owner_transfer(&sender, prepared).with_anonymous_signer(&sender.signing_key);
+    let transfer = owner_transfer(&sender, prepared)
+        .with_anonymous_signer(&sender.signing_key, AnonymousViewTags::new([3; 32]));
     assert!(matches!(
         transfer
             .rail
@@ -807,8 +809,8 @@ async fn the_hidden_owner_never_signs_in_public() {
             }
             false => prepared,
         };
-        let mut transfer =
-            owner_transfer(&sender, prepared).with_anonymous_signer(&sender.signing_key);
+        let mut transfer = owner_transfer(&sender, prepared)
+            .with_anonymous_signer(&sender.signing_key, AnonymousViewTags::new([3; 32]));
         if as_cosigner {
             transfer = transfer.with_cosigner(owner);
         }
@@ -827,7 +829,7 @@ async fn the_hidden_owner_never_signs_in_public() {
     }
 }
 
-/// RingEd25519 keeps every note in the ring and refuses a slot it cannot prove.
+/// AnonymousRingEddsa keeps every note in the ring and refuses a slot it cannot prove.
 #[test]
 fn anonymous_slots_stay_in_the_ring_with_ed25519_owners() {
     let sender = ShieldedKeypair::new_ed25519().unwrap();
@@ -846,10 +848,21 @@ fn anonymous_slots_stay_in_the_ring_with_ed25519_owners() {
     let key = transaction_key(&sender, *transaction.first_nullifier()).unwrap();
     let address = sender.shielded_address().unwrap();
     let inputs = transaction
-        .encrypt_anonymous_with_viewing_key(&address, &key)
+        .encrypt_anonymous_with_viewing_key(&address, &key, &AnonymousViewTags::new([3; 32]))
         .unwrap();
     let shape = inputs.check_shape().unwrap();
     anonymous::check_anonymous_slots(program(), shape, &inputs).unwrap();
+    for attach in [
+        |output: &mut SppProofOutputUtxo| output.data_hash = Some([2; 32]),
+        |output: &mut SppProofOutputUtxo| output.ring_data_hash = Some([2; 32]),
+    ] {
+        let mut attached = inputs.clone();
+        attach(&mut attached.output_utxos[0]);
+        assert!(matches!(
+            anonymous::check_anonymous_slots(program(), shape, &attached),
+            Err(RingError::AnonymousOutputData)
+        ));
+    }
     let mut compact = inputs.clone();
     compact.output_utxos[1] = SppProofOutputUtxo {
         compact: true,
@@ -881,7 +894,7 @@ fn anonymous_slots_stay_in_the_ring_with_ed25519_owners() {
         ));
     }
     assert!(matches!(
-        anonymous::check_anonymous_slots(program(), Shape::new(4, 4), &inputs),
+        anonymous::check_anonymous_slots(program(), Shape::IN2_OUT8, &inputs),
         Err(RingError::AnonymousShapeUnsupported)
     ));
     let mut foreign = inputs.clone();

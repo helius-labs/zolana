@@ -4,7 +4,7 @@
 use std::path::PathBuf;
 
 use zolana_hasher::primitives::right_align;
-use zolana_keypair::{ViewingKey, X25519Pubkey, X25519Secret};
+use zolana_keypair::{ViewingKey, X25519Keypair, X25519Pubkey};
 
 /// The Go circuit tests' scalars, byte `i` is `seed ^ i` and byte 0 is 1.
 pub(crate) const TX_SK: [u8; 32] = scalar(0x11);
@@ -23,13 +23,11 @@ const fn scalar(seed: u8) -> [u8; 32] {
 }
 
 pub(crate) fn key(secret: [u8; 32]) -> ViewingKey {
-    ViewingKey::from_bytes(&secret).expect("canonical scalar")
+    ViewingKey::from_bytes(&secret)
 }
 
 pub(crate) fn auditor() -> X25519Pubkey {
-    X25519Secret::from_bytes(&AUDITOR_SK)
-        .expect("any 32 bytes")
-        .pubkey()
+    X25519Keypair::from_bytes(&AUDITOR_SK).pubkey()
 }
 
 /// A field element below the BN254 modulus that differs per `seed`.
@@ -61,7 +59,7 @@ mod bodies {
     use solana_address::Address;
     use zeroize::Zeroizing;
     use zolana_client::{prover::ProveRequest, ProofInputUtxo};
-    use zolana_keypair::{NullifierKey, X25519Secret};
+    use zolana_keypair::{NullifierKey, X25519Keypair};
     use zolana_ring_client::{NullifierKeyEnvelope, SealedNullifierKey};
     use zolana_ring_member_registry::MemberRegistryTree;
     use zolana_ring_policy::{ListId, Member, OutflowLimit, PolicySource};
@@ -115,12 +113,7 @@ mod bodies {
             identity[0] = zolana_hasher::primitives::SOLANA_OWNER_TAG;
             identity
         };
-        let viewing = |seed: u8| {
-            *X25519Secret::from_bytes(&[seed; 32])
-                .unwrap()
-                .pubkey()
-                .as_bytes()
-        };
+        let viewing = |seed: u8| *X25519Keypair::from_bytes(&[seed; 32]).pubkey().as_bytes();
         AnonymousIdentities {
             flag: AnonymousFlag,
             sender: identity(0x41),
@@ -410,7 +403,7 @@ mod bodies {
         let envelope = NullifierKeyEnvelope {
             ephemeral_sk: Zeroizing::new(EPH_SK),
             sealed: SealedNullifierKey {
-                eph_pk: X25519Secret::from_bytes(&EPH_SK).unwrap().pubkey(),
+                eph_pk: X25519Keypair::from_bytes(&EPH_SK).pubkey(),
                 ciphertext: [0x2a; 32],
             },
             nullifier_pk: nullifier_key.pubkey().unwrap(),

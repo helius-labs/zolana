@@ -12,7 +12,7 @@ use zeroize::Zeroizing;
 use zolana_indexer_api::{
     Base64String, Context, Hash, Limit, SerializablePubkey, SerializableSignature,
 };
-use zolana_keypair::{KeypairError, X25519Pubkey, X25519Secret};
+use zolana_keypair::{KeypairError, X25519Keypair, X25519Pubkey};
 use zolana_secret_file::{
     create_new, create_pair, read_hex32, read_private, Access, SecretFileError, Visibility,
 };
@@ -504,7 +504,9 @@ pub enum KeyFileError {
     PubkeyEncoding,
     #[error("key path must name a file")]
     InvalidPath,
-    #[error("auditor key is not a valid X25519 secret key because {0}")]
+    #[error("auditor key cannot be zero")]
+    ZeroAuditorKey,
+    #[error("auditor public key is invalid because {0}")]
     Key(#[from] KeypairError),
 }
 
@@ -808,15 +810,18 @@ pub fn unix_now() -> Result<u64, RequestBuildError> {
 }
 
 /// Lowercase hex, with the public key beside it in `<file>.pub`.
-pub fn read_auditor_key(path: &Path, access: Access) -> Result<X25519Secret, KeyFileError> {
+pub fn read_auditor_key(path: &Path, access: Access) -> Result<X25519Keypair, KeyFileError> {
     let secret = read_hex32(&read_private(path, access, KEY_HEX_LEN)?)?;
-    Ok(X25519Secret::from_bytes(&secret)?)
+    if secret.iter().all(|byte| *byte == 0) {
+        return Err(KeyFileError::ZeroAuditorKey);
+    }
+    Ok(X25519Keypair::from_bytes(&secret))
 }
 
 /// Neither file remains when either cannot be written.
-pub fn write_auditor_key(out: &Path) -> Result<X25519Secret, KeyFileError> {
+pub fn write_auditor_key(out: &Path) -> Result<X25519Keypair, KeyFileError> {
     let public_path = public_key_path(out)?;
-    let key = X25519Secret::new();
+    let key = X25519Keypair::new();
     let secret = Zeroizing::new(hex::encode(*key.secret_bytes()));
     let public = hex::encode(key.pubkey().as_bytes());
     create_pair((out, secret.as_bytes()), (&public_path, public.as_bytes()))?;

@@ -46,17 +46,17 @@ impl X25519Pubkey {
 
 /// An RFC 7748 secret. Multiplication clamps it.
 #[derive(Clone)]
-pub struct X25519Secret(StaticSecret);
+pub struct X25519Keypair(StaticSecret);
 
-impl X25519Secret {
+impl X25519Keypair {
     pub fn new() -> Self {
         let mut bytes = Zeroizing::new([0u8; 32]);
         OsRng.fill_bytes(bytes.as_mut());
         Self(StaticSecret::from(*bytes))
     }
 
-    pub fn from_bytes(bytes: &[u8; 32]) -> Result<Self, KeypairError> {
-        Ok(Self(StaticSecret::from(*bytes)))
+    pub fn from_bytes(bytes: &[u8; 32]) -> Self {
+        Self(StaticSecret::from(*bytes))
     }
 
     /// Unclamped secret bytes, the circuit witness encoding.
@@ -80,7 +80,7 @@ impl X25519Secret {
     }
 }
 
-impl Default for X25519Secret {
+impl Default for X25519Keypair {
     fn default() -> Self {
         Self::new()
     }
@@ -91,7 +91,7 @@ mod tests {
     use super::*;
     #[test]
     fn canonical_tagged_keys_reject_p256_and_coordinate_aliases() {
-        let key = X25519Secret::from_bytes(&[7; 32]).unwrap().pubkey();
+        let key = X25519Keypair::from_bytes(&[7; 32]).pubkey();
         assert_eq!(X25519Pubkey::from_bytes(*key.as_bytes()).unwrap(), key);
         for tag in [0, 2, 3, 5] {
             let mut bytes = *key.as_bytes();
@@ -111,8 +111,8 @@ mod tests {
 
     #[test]
     fn clamping_accepts_zero_secrets_but_rejects_noncontributory_peers() {
-        let key = X25519Secret::from_bytes(&[0; 32]).unwrap();
-        let peer = X25519Secret::from_bytes(&[9; 32]).unwrap();
+        let key = X25519Keypair::from_bytes(&[0; 32]);
+        let peer = X25519Keypair::from_bytes(&[9; 32]);
         assert_eq!(
             *key.ecdh(&peer.pubkey()).unwrap(),
             *peer.ecdh(&key.pubkey()).unwrap()

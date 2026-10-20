@@ -1,0 +1,173 @@
+package customring
+
+import (
+	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
+	"github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
+
+	"github.com/consensys/gnark/frontend"
+)
+
+// Properties:
+// 1. Public: EdDSA input owners, default-ring output owners, and public asset transfers.
+// 2. Private: custom-ring output owners, UTXO amounts, and UTXO assets.
+// 3. The Solana runtime verifies EdDSA signatures; the circuit binds each real input owner to the public signer set.
+// 4. Dummy slots are indistinguishable from real UTXO and address slots.
+// 5. Input nullifiers are distinct and balances are preserved.
+
+type CustomRingConfidentialEddsaPublic struct {
+	// Nullifiers for UTXO, address, and dummy input slots.
+	Nullifiers []frontend.Variable
+	// New output UTXO hashes.
+	OutputHashes []frontend.Variable
+	// Input tree slots: each tree's raw u16 id and both roots, selected as a
+	// unit by every input's private tree slot.
+	TreeSlots []shared.TreeSlot
+	// Raw u16 id of the output tree.
+	OutputTreeID frontend.Variable
+	// Blinded hash of input and output commitments and address nullifiers.
+	// External data is bound separately by the outer public-input hash.
+	// Dummy UTXOs are represented as zero.
+	PrivateTxHash frontend.Variable
+	// Hash that ties arbitrary data to the proof.
+	ExternalDataHash frontend.Variable
+	// Assets in public asset transfers.
+	PublicAssets [shared.NPublicSlots]frontend.Variable
+	// Signed amounts in public asset transfers.
+	PublicAmounts [shared.NPublicSlots]frontend.Variable
+	// Program ID of the ring program.
+	RingProgramID frontend.Variable
+	// Packed input flags: bit 0 says whether dummy input UTXOs are allowed, and
+	// input i's tree index occupies the shared.TreeIndexBits bits starting at
+	// 1+shared.TreeIndexBits*i. Dummy input UTXOs are not allowed once the
+	// nullifier tree capacity is less than remaining state tree capacity, to
+	// ensure that every new UTXO can be nullified.
+	InputFlags frontend.Variable
+	// Hashed EdDSA owner-signer pubkeys, deduplicated and zero-padded. The
+	// fee payer is not one unless it is also listed as an owner signer.
+	SignerPkHashes []frontend.Variable
+	// Default-ring real outputs publish owner pubkey hashes; custom-ring real outputs
+	// publish zero. Marked dummy outputs may publish a constrained participant.
+	PublishedOutputOwnerPkHashes []frontend.Variable
+	PublicInputHash              frontend.Variable `gnark:",public"`
+}
+
+type CustomRingConfidentialEddsaPrivate struct {
+	Inputs              []shared.Input
+	InputOwnerPkHashes  []frontend.Variable
+	Outputs             []shared.UtxoCircuitFields
+	OutputOwnerPkHashes []frontend.Variable
+	OutputNullifierPks  []frontend.Variable
+	BlindingSeed        frontend.Variable
+}
+
+type CustomRingConfidentialEddsaCircuit struct {
+	CachedInputs shared.CachedInputs
+
+	Shape   shared.Shape `gnark:"-"`
+	Public  CustomRingConfidentialEddsaPublic
+	Private CustomRingConfidentialEddsaPrivate
+}
+
+func NewCustomRingConfidentialEddsaCircuit(shape shared.Shape) (*CustomRingConfidentialEddsaCircuit, error) {
+	if err := shape.Validate(); err != nil {
+		return nil, err
+	}
+	return &CustomRingConfidentialEddsaCircuit{
+		CachedInputs: shared.NewCachedInputs(shape.NInputs),
+		Shape:        shape,
+		Public: CustomRingConfidentialEddsaPublic{
+			Nullifiers:                   make([]frontend.Variable, shape.NInputs),
+			OutputHashes:                 make([]frontend.Variable, shape.NOutputs),
+			TreeSlots:                    shared.NewTreeSlots(),
+			SignerPkHashes:               make([]frontend.Variable, shape.SignerWidth()),
+			PublishedOutputOwnerPkHashes: make([]frontend.Variable, shape.NOutputs),
+		},
+		Private: CustomRingConfidentialEddsaPrivate{
+			Inputs:              shared.NewInputs(shape.NInputs),
+			InputOwnerPkHashes:  make([]frontend.Variable, shape.NInputs),
+			Outputs:             make([]shared.UtxoCircuitFields, shape.NOutputs),
+			OutputOwnerPkHashes: make([]frontend.Variable, shape.NOutputs),
+			OutputNullifierPks:  make([]frontend.Variable, shape.NOutputs),
+		},
+	}, nil
+}
+
+func (c *CustomRingConfidentialEddsaCircuit) transaction(api frontend.API) shared.Transaction {
+	return shared.Transaction{
+		CachedInputs:      &c.CachedInputs,
+		Shape:             c.Shape,
+		Nullifiers:        c.Public.Nullifiers,
+		OutputHashes:      c.Public.OutputHashes,
+		OutputIsCompact:   shared.CompactSlots(api, c.Public.OutputHashes),
+		TreeSlots:         c.Public.TreeSlots,
+		OutputTreeID:      c.Public.OutputTreeID,
+		Inputs:            c.Private.Inputs,
+		Outputs:           c.Private.Outputs,
+		BlindingSeed:      c.Private.BlindingSeed,
+		PrivateTxHash:     c.Public.PrivateTxHash,
+		ExternalDataHash:  c.Public.ExternalDataHash,
+		PublicAssets:      c.Public.PublicAssets,
+		PublicAmounts:     c.Public.PublicAmounts,
+		RingProgramID:     c.Public.RingProgramID,
+		SignerPkHashChain: gadget.RightHashChain(api, c.Public.SignerPkHashes),
+		InputFlags:        c.Public.InputFlags,
+		PublicInputHash:   c.Public.PublicInputHash,
+		PreimageTail: []frontend.Variable{
+			gadget.RightHashChain4(api, c.Public.PublishedOutputOwnerPkHashes),
+		},
+	}
+}
+
+func (c *CustomRingConfidentialEddsaCircuit) Define(api frontend.API) error {
+	tx := c.transaction(api)
+	if err := tx.ValidateLayout(
+		shared.LengthCheck{Name: "signer pk hash", Got: len(c.Public.SignerPkHashes), Want: c.Shape.SignerWidth()},
+		shared.LengthCheck{Name: "input owner pk hash", Got: len(c.Private.InputOwnerPkHashes), Want: c.Shape.NInputs},
+		shared.LengthCheck{Name: "output owner pk hash", Got: len(c.Private.OutputOwnerPkHashes), Want: c.Shape.NOutputs},
+		shared.LengthCheck{Name: "output nullifier pk", Got: len(c.Private.OutputNullifierPks), Want: c.Shape.NOutputs},
+		shared.LengthCheck{Name: "published output owner pk hash", Got: len(c.Public.PublishedOutputOwnerPkHashes), Want: c.Shape.NOutputs},
+	); err != nil {
+		return err
+	}
+
+	shared.AssertRingMemberOrFree(api, tx.Inputs, tx.Outputs, c.Public.RingProgramID)
+	api.AssertIsDifferent(c.Public.RingProgramID, 0)
+	if err := shared.AssertOutputOwnerTags(
+		api,
+		tx.Outputs,
+		c.Private.OutputOwnerPkHashes,
+		c.Private.OutputNullifierPks,
+	); err != nil {
+		return err
+	}
+
+	authorized := shared.Signers(c.Public.SignerPkHashes)
+	inputOwners := shared.AuthorizedEddsaInputOwners(
+		api,
+		tx.Inputs,
+		c.Private.InputOwnerPkHashes,
+		authorized,
+	)
+	// If an output UTXO holds data the input must have signed a transaction.
+	outputPubkeyIsSigner := authorized.ContainsEach(api, c.Private.OutputOwnerPkHashes)
+
+	if err := shared.AssertPublishedOutputOwners(
+		api,
+		tx.Outputs,
+		c.Private.OutputOwnerPkHashes,
+		c.Public.PublishedOutputOwnerPkHashes,
+	); err != nil {
+		return err
+	}
+	if err := shared.AssertMaskedDummyOutputTags(
+		api,
+		tx.Outputs,
+		tx.OutputIsCompact,
+		c.Public.PublishedOutputOwnerPkHashes,
+		authorized,
+	); err != nil {
+		return err
+	}
+
+	return tx.Constrain(api, inputOwners, outputPubkeyIsSigner)
+}

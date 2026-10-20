@@ -210,7 +210,7 @@ fn derivation_shaped_payloads_are_refused_before_signing() {
 fn historical_viewing_keys_are_carried_through() {
     let software = software_keypair();
     let remote = RemoteKeypair::mirroring(&software);
-    let retired = ViewingKey::from_bytes(&[9u8; 32]).expect("viewing key");
+    let retired = ViewingKey::from_bytes(&[9u8; 32]);
 
     let authority = KeypairWalletAuthority::with_viewing_keys(
         Address::default(),
@@ -236,7 +236,7 @@ fn historical_viewing_keys_are_carried_through() {
 fn viewing_keys_must_contain_the_keypairs_own() {
     let software = software_keypair();
     let remote = RemoteKeypair::mirroring(&software);
-    let unrelated = ViewingKey::from_bytes(&[4u8; 32]).expect("viewing key");
+    let unrelated = ViewingKey::from_bytes(&[4u8; 32]);
 
     assert!(matches!(
         KeypairWalletAuthority::with_viewing_keys(

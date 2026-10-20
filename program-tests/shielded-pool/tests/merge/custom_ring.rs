@@ -146,7 +146,7 @@ fn registered_merge_rejects_bad_roots_then_settles_through_spp() {
     let error = pool
         .rpc
         .create_and_send_default_payer_transaction_with_budget(
-            &[ix.clone()],
+            std::slice::from_ref(&ix),
             &[],
             ComputeBudgetConfig::new(MERGE_CU_LIMIT),
         )
@@ -163,7 +163,7 @@ fn registered_merge_rejects_bad_roots_then_settles_through_spp() {
     let error = pool
         .rpc
         .create_and_send_default_payer_transaction_with_budget(
-            &[ix.clone()],
+            std::slice::from_ref(&ix),
             &[],
             ComputeBudgetConfig::new(MERGE_CU_LIMIT),
         )

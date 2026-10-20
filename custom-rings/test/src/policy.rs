@@ -17,7 +17,7 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{prover::indexed::ProofDataSource, ProverClient, SolanaRpc, ZolanaClient};
 use zolana_interface::SOL_ASSET_FIELD;
-use zolana_keypair::{ShieldedKeypair, X25519Secret};
+use zolana_keypair::{ShieldedKeypair, X25519Keypair};
 use zolana_ring_policy::{ListId, ListSet, Member, OutflowLimit, Rule, RuleTable, Subject};
 use zolana_test_utils::test_validator_asserts::wait_for_merkle_proof;
 use zolana_transaction::{
@@ -92,7 +92,7 @@ impl CuratedRings {
         RegisterRing {
             ring: curator,
             payer: &env.payer,
-            auditor_pubkey: X25519Secret::new().pubkey(),
+            auditor_pubkey: X25519Keypair::new().pubkey(),
             tier: Tier::policy(&BLOCK_ONLY, env.tree),
         }
         .send(env.client.rpc())?;
@@ -123,8 +123,9 @@ impl RingNotes<'_> {
     pub fn deposit_from(self, payer: &(dyn Signer + Sync)) -> Result<Vec<Utxo>> {
         let env = self.env;
         let indexer = env.client.indexer();
-        (0..self.count)
-            .map(|_| {
+        (0u64..)
+            .take(self.count)
+            .map(|request_count| {
                 let deposit = RingDeposit {
                     ring: self.ring,
                     payer,
@@ -133,6 +134,9 @@ impl RingNotes<'_> {
                     asset: DepositAsset::Sol,
                     amount: self.amount,
                     cosigner: None,
+                    anonymous_view_tag: Some(
+                        self.owner.get_recipient_request_view_tag(request_count)?,
+                    ),
                 };
                 let RingDepositReceipt { utxo, .. } =
                     env.run(deposit.send(env.client.as_async()))?;

@@ -50,6 +50,6 @@ pub fn pda_shielded_address(pda: &Address) -> Result<ShieldedAddress> {
     Ok(ShieldedAddress {
         signing_pubkey: PublicKey::from_pda(pda),
         nullifier_pubkey: zero_nullifier_key().pubkey()?,
-        viewing_pubkey: ViewingKey::from_bytes(&[5u8; 32])?.pubkey(),
+        viewing_pubkey: ViewingKey::from_bytes(&[5u8; 32]).pubkey(),
     })
 }

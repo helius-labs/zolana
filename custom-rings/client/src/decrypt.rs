@@ -10,7 +10,7 @@ use zolana_hasher::{
     Hasher, Poseidon,
 };
 use zolana_interface::{event::OutputDataEncoding, tree_slot::tree_id_field};
-use zolana_keypair::{constants::SALT_LEN, ViewingKey, X25519Pubkey, X25519Secret};
+use zolana_keypair::{constants::SALT_LEN, ViewingKey, X25519Keypair, X25519Pubkey};
 use zolana_transaction::{
     serialization::confidential::Confidential,
     utxo::{program_id_proof_input_hash, UTXO_DOMAIN},
@@ -28,7 +28,7 @@ use crate::{
 /// Checks disclosure against the supplied commitments. [`crate::RingScan::audit`]
 /// also authenticates those commitments against confirmed settlement.
 pub struct TransactionAudit<'a> {
-    pub auditor: &'a X25519Secret,
+    pub auditor: &'a X25519Keypair,
     pub transaction: &'a ShieldedTransaction,
     pub assets: &'a AssetRegistry,
 }
@@ -177,7 +177,7 @@ fn anonymous_opening(
 
 /// The circuit pins the clamped encoding, so an alias with the same public key is refused.
 pub fn recover_tx_viewing_key(
-    auditor: &X25519Secret,
+    auditor: &X25519Keypair,
     message: &AuditorMessage,
 ) -> Result<ViewingKey, AuditError> {
     ViewingKey::from_canonical_bytes(&*message.decrypt(auditor)?)
@@ -269,8 +269,8 @@ mod tests {
 
     /// Seals raw bytes as the transaction secret, no clamping runs on the way in.
     fn recover(secret: [u8; 32]) -> Result<ViewingKey, AuditError> {
-        let auditor = X25519Secret::new();
-        let ephemeral = X25519Secret::new();
+        let auditor = X25519Keypair::new();
+        let ephemeral = X25519Keypair::new();
         let mut ciphertext = secret;
         seal_stream(
             &ephemeral,
@@ -287,14 +287,14 @@ mod tests {
 
     #[test]
     fn the_canonical_secret_opens_byte_for_byte() {
-        let canonical = *ViewingKey::from_bytes(&[0x48; 32]).unwrap().secret_bytes();
+        let canonical = *ViewingKey::from_bytes(&[0x48; 32]).secret_bytes();
         assert_eq!(*recover(canonical).unwrap().secret_bytes(), canonical);
     }
 
     /// Clamping maps every alias onto the published key, so only the clamped bytes may open.
     #[test]
     fn an_unclamped_alias_of_the_published_key_is_refused() {
-        let key = ViewingKey::from_bytes(&[0x48; 32]).unwrap();
+        let key = ViewingKey::from_bytes(&[0x48; 32]);
         let mut low_bit = *key.secret_bytes();
         low_bit[0] |= 1;
         let mut high_bit = *key.secret_bytes();
@@ -303,7 +303,7 @@ mod tests {
         cleared[31] &= !0x40;
         for alias in [low_bit, high_bit, cleared] {
             assert_eq!(
-                ViewingKey::from_bytes(&alias).unwrap().pubkey(),
+                ViewingKey::from_bytes(&alias).pubkey(),
                 key.pubkey(),
                 "alias must clamp onto the published key"
             );

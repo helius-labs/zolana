@@ -27,7 +27,7 @@ import { bigIntToBytes, concatBytes } from "../keypair/bytes.js";
 import { clampViewingSecret } from "../keypair/derivation.js";
 import { ownerHash } from "../keypair/hash.js";
 import { ViewingKey } from "../keypair/viewing-key.js";
-import { X25519PublicKey, X25519Secret } from "../keypair/x25519.js";
+import { X25519PublicKey, X25519Keypair } from "../keypair/x25519.js";
 import {
   bytesToBigInt,
   commitmentPoseidon,
@@ -154,7 +154,7 @@ export function auditorMessage(
  * encoding and keys the disclosure stream with these exact bytes, so an alias is refused.
  */
 export function recoverTransactionViewingKey(
-  auditor: X25519Secret,
+  auditor: X25519Keypair,
   message: AuditorMessage,
 ): ViewingKey {
   const recovered = decryptTransactionViewingSecret(auditor, message);
@@ -181,7 +181,7 @@ export function recoverTransactionViewingKey(
  */
 export function auditRingTransaction(
   input: Readonly<{
-    auditor: X25519Secret;
+    auditor: X25519Keypair;
     transaction: IndexedShieldedTransaction;
     assets: AssetRegistry;
     mode?: RingMode;
@@ -294,7 +294,7 @@ export type RingAuditReader = KitRpcAccess & Pick<IndexerReader, "getShieldedTra
 export async function auditRing(
   input: Readonly<{
     client: RingAuditReader;
-    auditor: X25519Secret;
+    auditor: X25519Keypair;
     ringProgramId: Address;
     assets: AssetRegistry;
     /** The ring's on-chain mode, `"off"` when omitted. */

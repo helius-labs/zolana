@@ -2,7 +2,7 @@
 
 use custom_ring_interface::{pack_2fe, FieldPair};
 use zolana_interface::instruction::MessageData;
-use zolana_keypair::{KeypairError, ViewingKey, X25519Secret};
+use zolana_keypair::{KeypairError, ViewingKey, X25519Keypair};
 use zolana_ring_client::{
     auditor_view_tag, AuditError, AuditorEncryption, AuditorMessage, AUDITOR_MESSAGE_LEN,
 };
@@ -17,7 +17,7 @@ fn tx_viewing_sk() -> [u8; 32] {
 }
 
 fn tx_viewing_key() -> ViewingKey {
-    ViewingKey::from_bytes(&tx_viewing_sk()).expect("valid viewing key")
+    ViewingKey::from_bytes(&tx_viewing_sk())
 }
 
 fn hex_bytes<const N: usize>(hex_str: &str) -> [u8; N] {
@@ -27,7 +27,7 @@ fn hex_bytes<const N: usize>(hex_str: &str) -> [u8; N] {
 
 #[test]
 fn encrypt_decrypt_recovers_the_scalar() {
-    let auditor = X25519Secret::new();
+    let auditor = X25519Keypair::new();
     let auditor_pk = auditor.pubkey();
     let scalar = tx_viewing_sk();
 
@@ -42,7 +42,7 @@ fn encrypt_decrypt_recovers_the_scalar() {
 
 #[test]
 fn each_encryption_uses_a_fresh_ephemeral_key() {
-    let auditor_pk = X25519Secret::new().pubkey();
+    let auditor_pk = X25519Keypair::new().pubkey();
 
     let first = AuditorEncryption::new(&tx_viewing_key(), &auditor_pk).expect("first");
     let second = AuditorEncryption::new(&tx_viewing_key(), &auditor_pk).expect("second");
@@ -58,8 +58,8 @@ fn each_encryption_uses_a_fresh_ephemeral_key() {
 
 #[test]
 fn wrong_auditor_key_does_not_recover_the_scalar() {
-    let auditor = X25519Secret::new();
-    let impostor = X25519Secret::new();
+    let auditor = X25519Keypair::new();
+    let impostor = X25519Keypair::new();
     let scalar = tx_viewing_sk();
 
     let sealed = AuditorEncryption::new(&tx_viewing_key(), &auditor.pubkey()).expect("encrypt");
@@ -72,8 +72,8 @@ fn wrong_auditor_key_does_not_recover_the_scalar() {
 
 #[test]
 fn ecdh_is_symmetric_so_the_auditor_can_decrypt() {
-    let auditor = X25519Secret::new();
-    let ephemeral = X25519Secret::new();
+    let auditor = X25519Keypair::new();
+    let ephemeral = X25519Keypair::new();
 
     let sender_dh = ephemeral.ecdh(&auditor.pubkey()).expect("sender ecdh");
     let auditor_dh = auditor.ecdh(&ephemeral.pubkey()).expect("auditor ecdh");
@@ -83,7 +83,7 @@ fn ecdh_is_symmetric_so_the_auditor_can_decrypt() {
 
 #[test]
 fn message_data_round_trip() {
-    let auditor_pk = X25519Secret::new().pubkey();
+    let auditor_pk = X25519Keypair::new().pubkey();
     let sealed = AuditorEncryption::new(&tx_viewing_key(), &auditor_pk).expect("encrypt");
 
     let message = sealed.message.to_message_data(&auditor_pk);
@@ -107,8 +107,8 @@ fn message_data_round_trip() {
 
 #[test]
 fn parse_rejects_a_foreign_view_tag() {
-    let auditor_pk = X25519Secret::new().pubkey();
-    let other_pk = X25519Secret::new().pubkey();
+    let auditor_pk = X25519Keypair::new().pubkey();
+    let other_pk = X25519Keypair::new().pubkey();
     let sealed = AuditorEncryption::new(&tx_viewing_key(), &auditor_pk).expect("encrypt");
 
     let message = sealed.message.to_message_data(&other_pk);
@@ -120,7 +120,7 @@ fn parse_rejects_a_foreign_view_tag() {
 
 #[test]
 fn parse_rejects_wrong_data_lengths() {
-    let auditor_pk = X25519Secret::new().pubkey();
+    let auditor_pk = X25519Keypair::new().pubkey();
     let sealed = AuditorEncryption::new(&tx_viewing_key(), &auditor_pk).expect("encrypt");
     let valid = sealed.message.to_message_data(&auditor_pk);
 
@@ -148,7 +148,7 @@ fn parse_rejects_wrong_data_lengths() {
 
 #[test]
 fn parse_rejects_an_invalid_ephemeral_key() {
-    let auditor_pk = X25519Secret::new().pubkey();
+    let auditor_pk = X25519Keypair::new().pubkey();
     let sealed = AuditorEncryption::new(&tx_viewing_key(), &auditor_pk).expect("encrypt");
     let mut message = sealed.message.to_message_data(&auditor_pk);
     message.data[..33].fill(0);

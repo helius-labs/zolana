@@ -10,7 +10,7 @@
 //! in either language fails this file.
 
 use custom_ring_interface::{pack_2fe, FieldPair};
-use zolana_keypair::{ViewingKey, X25519Pubkey, X25519Secret};
+use zolana_keypair::{ViewingKey, X25519Keypair, X25519Pubkey};
 use zolana_ring_client::AuditorMessage;
 
 const TX_SK: &str = "001013121514171619181b1a1d1c1f1e010003020504070609080b0a0d0c0f4e";
@@ -105,8 +105,8 @@ fn ciphertext_from_go_decrypts() {
     assert_eq!(*recovered, hex_bytes::<32>(TX_SK));
 }
 
-fn envelope_key(s: &str) -> X25519Secret {
-    X25519Secret::from_bytes(&hex_bytes::<32>(s)).unwrap()
+fn envelope_key(s: &str) -> X25519Keypair {
+    X25519Keypair::from_bytes(&hex_bytes::<32>(s))
 }
 fn envelope_pubkey(s: &str) -> X25519Pubkey {
     X25519Pubkey::from_bytes(hex_bytes::<33>(s)).unwrap()

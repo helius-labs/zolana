@@ -86,7 +86,7 @@ await syncWallet({
 
 const deposit = await buildDepositTransaction({
   client,
-  depositor: feePayer.address,
+  feePayer: feePayer.address,
   recipient: keypair.shieldedAddress(),
   amount: 100_000_000n,
 });
@@ -189,7 +189,7 @@ depositor's source token account:
 ```ts
 const deposit = await buildDepositTransaction({
   client,
-  depositor: feePayer.address,
+  feePayer: feePayer.address,
   recipient: keypair.shieldedAddress(),
   asset: mint,
   splTokenAccount: sourceTokenAccount,

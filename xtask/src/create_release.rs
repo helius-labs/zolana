@@ -1089,8 +1089,7 @@ mod tests {
             .filter(|file| file.starts_with("custom_ring_"))
             .cloned()
             .collect();
-        let sources: Vec<_> = RingKey::ALL.into_iter().collect();
-        assert_eq!(sources.len(), 58);
+        let sources = RingKey::ALL;
         assert_eq!(
             sources
                 .iter()

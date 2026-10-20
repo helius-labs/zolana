@@ -3,7 +3,6 @@ use crate::{
     error::KeypairError,
 };
 
-pub(crate) const SIGNATURE_TYPE_P256: u8 = 0x00;
 pub(crate) const SIGNATURE_TYPE_ED25519: u8 = 0x01;
 pub(crate) const SIGNATURE_TYPE_PDA: u8 = 0x02;
 
@@ -31,7 +30,6 @@ impl TryFrom<u8> for Curve {
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
-            SIGNATURE_TYPE_P256 => Err(KeypairError::InvalidSignatureType(value)),
             SIGNATURE_TYPE_ED25519 => Ok(Curve::Ed25519),
             SIGNATURE_TYPE_PDA => Ok(Curve::Pda),
             other => Err(KeypairError::InvalidSignatureType(other)),
@@ -59,8 +57,8 @@ impl PublicKey {
 
     /// All-zero owner of a padding (dummy) UTXO. `owner = 0` is permanently
     /// unspendable, so a real input never has it; it is the canonical dummy marker.
-    /// Byte 0 reads as `SIGNATURE_TYPE_P256`, so this value must never reach
-    /// [`Self::curve`]; gate on [`Self::is_zero`] first.
+    /// Byte 0 names no owner scheme, so [`Self::curve`] rejects this value;
+    /// gate on [`Self::is_zero`] first.
     pub fn zeroed() -> Self {
         Self([0u8; PUBLIC_KEY_LEN])
     }

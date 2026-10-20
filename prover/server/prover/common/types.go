@@ -15,9 +15,9 @@ const (
 	// TransferRingCircuitType is the confidential policy-ring transfer.
 	TransferRingCircuitType CircuitType = "transfer-ring"
 
-	// TransferAnonymousRingEd25519CircuitType hides senders, recipients, amounts
-	// and assets in custom-ring transfers. The wire identifier remains stable.
-	TransferAnonymousRingEd25519CircuitType CircuitType = "transfer-ed25519-ring"
+	// TransferAnonymousRingEddsaCircuitType is the custom-ring transfer with an
+	// in-circuit Ed25519 authorization shared by every hidden-owner input.
+	TransferAnonymousRingEddsaCircuitType CircuitType = "transfer-eddsa-ring"
 
 	// TransferRingAuthorityCircuitType is the anonymous policy-ring transfer used by
 	// ring_authority_transact: the ring authority controls its ring-owned UTXOs, so

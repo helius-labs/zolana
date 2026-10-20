@@ -7,8 +7,8 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 	"github.com/consensys/gnark/std/rangecheck"
+	ve "github.com/helius-labs/zolana/prover/server/circuits/encryption"
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
-	ve "github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption"
 )
 
 // These cumulative compilations include deferred lookup costs. Their differences

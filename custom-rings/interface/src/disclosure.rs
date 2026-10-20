@@ -2,6 +2,7 @@
 //! 31-byte big-endian chunks and masks each chunk with the disclosure stream.
 
 use zolana_hasher::primitives::{pack_be_chunks, PACK_BE_CHUNK_BYTES};
+use zolana_interface::shape::Shape;
 
 /// The hidden owner's tagged Ed25519 key, zero padded to two 31-byte chunks.
 pub const DISCLOSURE_SENDER_LEN: usize = 62;
@@ -15,6 +16,23 @@ pub const AUDIT_INPUT_SLOTS: usize = 12;
 pub const AUDIT_OUTPUT_SLOTS: usize = 4;
 /// More than sixteen spent notes select the 24x2 capacity and its short audit format.
 pub const SHORT_AUDIT_MIN_INPUTS: usize = 17;
+/// Shapes at which an anonymous ring's audit disclosure fits a transaction.
+pub const ANONYMOUS_RING_SHAPES: [Shape; 14] = [
+    Shape::IN1_OUT2,
+    Shape::IN1_OUT4,
+    Shape::IN2_OUT2,
+    Shape::IN2_OUT4,
+    Shape::IN3_OUT2,
+    Shape::IN3_OUT4,
+    Shape::IN4_OUT2,
+    Shape::IN4_OUT4,
+    Shape::IN5_OUT2,
+    Shape::IN5_OUT4,
+    Shape::IN6_OUT2,
+    Shape::IN6_OUT4,
+    Shape::IN8_OUT2,
+    Shape::IN12_OUT2,
+];
 
 /// The published slots of one disclosure. Inputs are disclosed only in an
 /// anonymous ring.

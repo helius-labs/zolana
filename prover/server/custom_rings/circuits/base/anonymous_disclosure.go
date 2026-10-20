@@ -5,18 +5,18 @@ import (
 
 	"github.com/consensys/gnark/frontend"
 
+	"github.com/helius-labs/zolana/prover/server/circuits/crypto/x25519"
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
-	checked "github.com/helius-labs/zolana/prover/server/circuits/gadget/v2"
 	"github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
 )
 
 // Published field j is chunk j of the header, the first NIn input slots and the first NOut output slots, each
 // slot zero padded to whole 31-byte chunks, test-vectors/audit-disclosure-anonymous.json spells the bytes.
 const (
-	auditHeaderChunks     = 2
-	auditInputChunks      = 3
-	auditOutputChunks     = 8
-	solanaOwnerTag        = 0x53
+	auditHeaderChunks = 2
+	auditInputChunks  = 3
+	auditOutputChunks = 8
+	solanaOwnerTag    = 0x53
 )
 
 // AuditUtxoWires opens one transaction slot, the owner is Poseidon(OwnerPkHash, NullifierPk).
@@ -65,7 +65,7 @@ type layout struct {
 func (a Audit) anonymousLayout(api frontend.API, rc frontend.Rangechecker, tx AuditTx) layout {
 	anonymous := a.Anonymous
 	// The auditor parser reads the Ed25519 sender tag only, another tag would leave an unreadable trace.
-	senderPkHash := checked.HashBytes(api, a.Sender[:])
+	senderPkHash := gadget.HashBytes(api, a.Sender[:])
 	api.AssertIsEqual(api.Mul(anonymous, api.Sub(a.Sender[0], solanaOwnerTag)), 0)
 	for _, b := range a.Sender {
 		api.AssertIsEqual(api.Mul(api.Sub(1, anonymous), b), 0)
@@ -120,9 +120,9 @@ func (a Audit) anonymousLayout(api frontend.API, rc frontend.Rangechecker, tx Au
 		if tx.Compact {
 			assertCanonicalX25519Compact(api, u)
 		} else {
-			assertCanonicalX25519(api, u)
+			x25519.AssertCanonical(api, u)
 		}
-		api.AssertIsEqual(api.Mul(disclosed, api.Sub(w.OwnerPkHash, checked.HashBytes(api, recipient))), 0)
+		api.AssertIsEqual(api.Mul(disclosed, api.Sub(w.OwnerPkHash, gadget.HashBytes(api, recipient))), 0)
 		outputs[i] = chunks(api, slices.Concat(
 			recipient, viewing[:], fieldBytes(api, w.NullifierPk), uintBytes(api, api.Mul(disclosed, w.Amount), 8),
 			fieldBytes(api, w.Asset), fieldBytes(api, w.Blinding), fieldBytes(api, w.DataHash), fieldBytes(api, w.RingDataHash),
@@ -131,7 +131,7 @@ func (a Audit) anonymousLayout(api frontend.API, rc frontend.Rangechecker, tx Au
 	}
 
 	// The output region starts after the selected input prefix, so the layout is a sum over input counts.
-	out := layout{chunks: make([]frontend.Variable, auditHeaderChunks + len(tx.Inputs)*auditInputChunks + AuditOutputSlots*auditOutputChunks)}
+	out := layout{chunks: make([]frontend.Variable, auditHeaderChunks+len(tx.Inputs)*auditInputChunks+AuditOutputSlots*auditOutputChunks)}
 	copy(out.chunks, header)
 	selectedSum := frontend.Variable(0)
 	for n := range tx.Inputs {
@@ -177,12 +177,17 @@ func chunks(api frontend.API, bytes []frontend.Variable, n int, disclosed fronte
 		padded[i] = 0
 	}
 	copy(padded, bytes)
-	out := gadget.PackBytesBE(api, padded)
+	out := gadget.PackBytesBEWith(api, boundedBytes{}, padded)
 	for i := range out {
 		out[i] = api.Mul(disclosed, out[i])
 	}
 	return out
 }
+
+// boundedBytes skips the byte check, every chunk byte is bounded where it is produced.
+type boundedBytes struct{}
+
+func (boundedBytes) Check(frontend.Variable, int) {}
 
 // fieldBytes is the unique native field encoding, so no alias changes a trace.
 func fieldBytes(api frontend.API, value frontend.Variable) []frontend.Variable {
@@ -191,5 +196,5 @@ func fieldBytes(api frontend.API, value frontend.Variable) []frontend.Variable {
 
 // uintBytes bounds an unsigned integer to n bytes.
 func uintBytes(api frontend.API, value frontend.Variable, n int) []frontend.Variable {
-	return checked.BitsToBytesBE(api, api.ToBinary(value, 8*n))
+	return gadget.BitsToBytesBE(api, api.ToBinary(value, 8*n))
 }

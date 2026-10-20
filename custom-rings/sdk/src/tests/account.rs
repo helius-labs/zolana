@@ -6,7 +6,7 @@ use custom_ring_interface::{
 };
 use solana_account::Account;
 use solana_address::Address;
-use zolana_keypair::X25519Secret;
+use zolana_keypair::X25519Keypair;
 use zolana_ring_client::ReaderKey;
 use zolana_ring_policy::{
     ListId, ListSet, PolicyHashError, Rule, RuleTable, RuleTableError, Subject, MAX_RULES,
@@ -40,7 +40,7 @@ fn config() -> RingProgramConfig {
     RingProgramConfig {
         discriminator: RING_PROGRAM_CONFIG,
         authority: Address::new_from_array([3; 32]),
-        auditor_pubkey: *X25519Secret::new().pubkey().as_bytes(),
+        auditor_pubkey: *X25519Keypair::new().pubkey().as_bytes(),
         bump: Address::find_program_address(&[RingProgramConfig::SEED], &program()).1,
         has_policy: 1,
         mode: 0,

@@ -4,7 +4,8 @@ use custom_ring_interface::{
     delegate_policy_verifying_key, policy_2x3_anonymous_verifying_key, policy_2x3_verifying_key,
     policy_verifying_key, AuditorMessage, CustomRingBasePublicInput, CustomRingError,
     CustomRingPolicyPublicInput, CustomRingProof, CustomRingTransactIxData, DisclosureShape,
-    PolicyConfig, PolicyProofKind, RingMode, N_FOREIGN, TAGGED_X25519_KEY_LEN,
+    PolicyConfig, PolicyProofKind, RingMode, ANONYMOUS_RING_SHAPES, N_FOREIGN,
+    TAGGED_X25519_KEY_LEN,
 };
 use groth16_solana::groth16::Groth16Verifyingkey;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
@@ -12,7 +13,7 @@ use zolana_account_checks::AccountIterator;
 use zolana_interface::instruction::{
     instruction_data::transact::{
         confidential_encrypted_output_body, ring_anonymous_encrypted_output_body,
-        ring_confidential_encrypted_output_body, OwnerTag,
+        ring_confidential_encrypted_output_body,
     },
     tag, CircuitId, MessageData, TransactIxData,
 };
@@ -147,20 +148,12 @@ impl Rail {
         if !spp.payer.is_signer() {
             return Err(CustomRingError::MissingFundingSigner.into());
         }
-        if mode == RingMode::Anonymous {
-            if spp_accounts[1..]
+        if mode == RingMode::Anonymous
+            && spp_accounts[1..]
                 .iter()
                 .any(|account| account.is_signer() && account.address() != spp.payer.address())
-            {
-                return Err(CustomRingError::InvalidAnonymousSigner.into());
-            }
-            if transact
-                .outputs
-                .iter()
-                .any(|output| output.owner_tag != OwnerTag::Inline([0; 32]))
-            {
-                return Err(CustomRingError::InvalidAnonymousOutput.into());
-            }
+        {
+            return Err(CustomRingError::InvalidAnonymousSigner.into());
         }
         if self == Rail::Member && spp.owners.iter().any(|account| !account.is_signer()) {
             return Err(CustomRingError::MissingOwnerSigner.into());
@@ -234,9 +227,15 @@ impl Rail {
     fn accepts(self, circuit: CircuitId, mode: RingMode) -> bool {
         match (self, mode) {
             (Self::Member, RingMode::Anonymous) => {
-                matches!(circuit, CircuitId::AnonymousRingEd25519(..)) && circuit.is_supported()
+                let shape = zolana_interface::shape::Shape::new(
+                    circuit.num_inputs() as usize,
+                    circuit.num_outputs() as usize,
+                );
+                matches!(circuit, CircuitId::AnonymousRingEddsa(..))
+                    && circuit.is_supported()
+                    && ANONYMOUS_RING_SHAPES.contains(&shape)
             }
-            (Self::Member, _) => matches!(circuit, CircuitId::ConfidentialRingEd25519(..)),
+            (Self::Member, _) => matches!(circuit, CircuitId::ConfidentialRingEddsa(..)),
             (Self::Delegate, RingMode::Anonymous) => false,
             (Self::Delegate, _) => matches!(circuit, CircuitId::RingAuthority(..)),
         }
@@ -764,30 +763,33 @@ mod tests {
     #[test]
     fn the_rails_follow_the_ring_mode() {
         let slots = zolana_interface::N_PUBLIC_SLOTS as u8;
-        let eddsa = CircuitId::ConfidentialRingEd25519(2, 2, slots);
+        let confidential = CircuitId::ConfidentialRingEddsa(2, 2, slots);
         let authority = CircuitId::RingAuthority(2, 2, slots);
         let hidden = |n_in, n_out| {
-            CircuitId::AnonymousRingEd25519(
+            CircuitId::AnonymousRingEddsa(
                 n_in,
                 n_out,
                 slots,
-                zolana_interface::verifying_keys::Bsb22Commitment {
-                    commitment: [0; 32],
-                    commitment_pok: [0; 32],
+                zolana_interface::verifying_keys::AnonymousRingEddsaProofData {
+                    bsb22_commitment: zolana_interface::verifying_keys::Bsb22Commitment {
+                        commitment: [0; 32],
+                        commitment_pok: [0; 32],
+                    },
+                    default_owner_tag: None,
                 },
             )
         };
         for mode in [RingMode::Off, RingMode::Registry] {
-            assert!(Rail::Member.accepts(eddsa, mode));
+            assert!(Rail::Member.accepts(confidential, mode));
             assert!(!Rail::Member.accepts(hidden(2, 2), mode));
             assert!(Rail::Delegate.accepts(authority, mode));
         }
         let anonymous = RingMode::Anonymous;
-        assert!(!Rail::Member.accepts(eddsa, anonymous));
+        assert!(!Rail::Member.accepts(confidential, anonymous));
         assert!(!Rail::Delegate.accepts(authority, anonymous));
         for (n_in, n_out) in [(2, 2), (2, 4), (3, 4), (4, 2)] {
             assert!(Rail::Member.accepts(hidden(n_in, n_out), anonymous));
         }
-        assert!(!Rail::Member.accepts(hidden(1, 2), anonymous));
+        assert!(!Rail::Member.accepts(hidden(2, 8), anonymous));
     }
 }

@@ -1,4 +1,4 @@
-import { X25519PublicKey, X25519Secret } from "../src/keypair/x25519.js";
+import { X25519PublicKey, X25519Keypair } from "../src/keypair/x25519.js";
 import { readFileSync } from "node:fs";
 import { wireDecoder } from "../src/interface/decode.js";
 import { SOLANA_OWNER_TAG, hashBytes, initializePoseidon } from "../src/hasher/index.js";
@@ -83,10 +83,10 @@ const PAD_SALT = Uint8Array.from({ length: 16 }, (_, index) => index + 1) as Byt
 
 describe("ring audit encryption", () => {
   it("matches the Go vectors", () => {
-    const ephemeral = X25519Secret.fromBytes(EPH_SK);
+    const ephemeral = X25519Keypair.fromBytes(EPH_SK);
     const auditor = X25519PublicKey.fromBytes(AUDITOR_PK);
     expect(ephemeral.publicKey().toBytes()).toEqual(EPH_PK);
-    expect(X25519Secret.fromBytes(AUDITOR_SK).publicKey().toBytes()).toEqual(AUDITOR_PK);
+    expect(X25519Keypair.fromBytes(AUDITOR_SK).publicKey().toBytes()).toEqual(AUDITOR_PK);
     const dh = ephemeral.ecdh(auditor);
     expect(dh).toEqual(DH);
     expect(auditSharedSecret(dh, ephemeral.publicKey(), auditor)).toEqual(SHARED_SECRET);
@@ -95,13 +95,13 @@ describe("ring audit encryption", () => {
       ciphertext: CIPHERTEXT,
       disclosure: ZERO_DISCLOSURE,
     };
-    expect(decryptTransactionViewingSecret(X25519Secret.fromBytes(AUDITOR_SK), message)).toEqual(
+    expect(decryptTransactionViewingSecret(X25519Keypair.fromBytes(AUDITOR_SK), message)).toEqual(
       TX_SK,
     );
   });
 
   it("round-trips under a fresh ephemeral key and publishes the complete audit message", () => {
-    const auditor = X25519Secret.generate();
+    const auditor = X25519Keypair.generate();
     const encrypted = encryptTransactionViewingSecret(TX_SK, auditor.publicKey());
     expect(decryptTransactionViewingSecret(auditor, encrypted.message)).toEqual(TX_SK);
     const data = auditorMessageData(encrypted.message, auditor.publicKey());
@@ -250,7 +250,7 @@ describe("ring audit encryption", () => {
   });
 
   it("masks each disclosure field with the chained two-input Poseidon pad", () => {
-    const auditor = X25519Secret.generate();
+    const auditor = X25519Keypair.generate();
     const zero = new Uint8Array(32) as Bytes32;
     const blank: AuditOutputOpening = {
       domain: zero,
@@ -287,7 +287,7 @@ describe("ring audit encryption", () => {
 await initializePoseidon();
 
 describe("ring audit outputs", () => {
-  const auditor = X25519Secret.generate();
+  const auditor = X25519Keypair.generate();
   const tx = ViewingKey.generate();
   const viewTag = new Uint8Array(32).fill(0x77) as Bytes32;
   const blinding = new Uint8Array(32).fill(6) as Bytes32;
@@ -379,7 +379,7 @@ function auditOpeningHash(opening: AuditOutputOpening): Bytes32 {
 
 describe("anonymous ring audit", () => {
   const RING = address("9vyTbYGyh3cwxkAQpjjFQGXmdJP6p9B6YcQ5pNuXPNbh");
-  const auditor = X25519Secret.generate();
+  const auditor = X25519Keypair.generate();
   const tx = ViewingKey.generate();
   const member = ShieldedKeypair.generate();
   const source = member.shieldedAddress();

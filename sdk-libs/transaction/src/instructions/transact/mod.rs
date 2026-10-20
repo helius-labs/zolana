@@ -6,7 +6,7 @@
 //! derives the change outputs and pads both inputs and outputs to a declared or
 //! automatically selected [`Shape`], then encrypts the result into [`SppProofInputs`].
 //! [`PrivateTxHash`] produces the `private_tx_hash` shared as a public input by
-//! the SPP and ring proofs, and [`transact_message_hash`] the digest an anonymous Ed25519
+//! the SPP and ring proofs, and [`transact_message_hash`] the digest an anonymous EdDSA
 //! owner signs over it and the external data hash.
 
 mod cache;
@@ -29,7 +29,7 @@ use zolana_program::instruction::{
 pub use crate::indexer_types::{OutputContext, OutputSlot, ShieldedTransaction};
 pub use crate::utxo::SppProofOutputUtxo;
 pub use cache::{cache_bound_external_data_hash, cache_write_slots};
-pub use encryption::ResolvedOwnerTag;
+pub use encryption::{AnonymousViewTags, ResolvedOwnerTag};
 pub use external_data::{ExternalData, SettlementTransfer};
 pub use inputs::pad_input_utxos;
 pub use outputs::Recipient;

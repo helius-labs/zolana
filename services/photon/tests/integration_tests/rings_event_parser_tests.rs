@@ -2132,7 +2132,7 @@ fn transact_source_data(
     let ix = TransactIxData {
         expiry_unix_ts: 0,
         private_tx_hash: [0; 32],
-        circuit: CircuitId::ConfidentialEd25519(
+        circuit: CircuitId::ConfidentialEddsa(
             u8::try_from(expected.inputs.len()).expect("shape"),
             u8::try_from(outputs.len()).expect("shape"),
             0,
@@ -2286,7 +2286,6 @@ fn merge_transaction_info() -> TransactionInfo {
         output_utxo_hash: [0x66; 32],
         output_ciphertext_salt: [0x5a; 16],
         output_ciphertext: [[0x61; 32], [0x62; 32], [0x63; 32]],
-        eddsa_owner: true,
         private_tx_hash: [0; 32],
         nullifiers: (0..MERGE_DEFAULT_INPUT_COUNT)
             .map(|i| [0x50 + u8::try_from(i).expect("shape"); 32])

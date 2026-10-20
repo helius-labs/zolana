@@ -1,11 +1,12 @@
-pub mod anonymous_ring_ed25519;
+pub mod anonymous_ring_eddsa;
 pub(crate) mod assembly;
 pub mod eddsa;
 pub mod ring_eddsa;
 pub mod witness;
 
-pub use anonymous_ring_ed25519::{
-    AnonymousEd25519TransferInputs, AnonymousRingEd25519ProofResult, AnonymousRingEd25519Prover,
+pub use anonymous_ring_eddsa::{
+    AnonymousEddsaAuthorization, AnonymousEddsaTransferInputs, AnonymousRingEddsaProofResult,
+    AnonymousRingEddsaProver,
 };
 pub use assembly::{input_utxos_from_nullifiers, PublicInputs, TransferInputUtxo};
 pub use eddsa::{TransferProofResult, TransferProver};

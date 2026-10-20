@@ -39,7 +39,7 @@ use zolana_test_utils::wallet::Wallet;
 use zolana_test_utils::{
     localnet::{isolated_temp_path, localnet_indexer_url, localnet_rpc_url, WorkspaceArtifacts},
     prover::spawn_workspace_prover,
-    smart_account::{self, StandardSigners},
+    smart_account::{self, ProtocolSigners, StandardSigners},
     spl::{create_mint, RegisterSplAsset},
 };
 use zolana_transaction::AssetRegistry;
@@ -177,7 +177,7 @@ impl TestEnv {
     }
 }
 
-/// Each actor is one ed25519 identity: `ShieldedKeypair` implements
+/// Each actor is one eddsa identity: `ShieldedKeypair` implements
 /// `solana_signer::Signer` over the same key, so it is both the shielded owner
 /// and the Solana fee payer for its own transactions.
 pub struct TestWallet {
@@ -419,13 +419,15 @@ pub fn setup_with_extra_rings(extra_ring_programs: &[Address]) -> Result<TestEnv
     let mut rpc = SolanaRpc::new(rpc_url.clone());
     let indexer = ZolanaIndexer::new(indexer_url.clone());
 
-    let authority = Keypair::new();
+    let authority = ProtocolSigners::new();
     let forester_authority = Keypair::new();
     let merge_authority = Keypair::new();
     let tree_creation_authority = Keypair::new();
     let ring_creation_authority = Keypair::new();
     rpc.airdrop(&payer.pubkey(), PAYER_AIRDROP)?;
-    rpc.airdrop(&authority.pubkey(), SIGNER_AIRDROP)?;
+    for member in authority.pubkeys() {
+        rpc.airdrop(&member, SIGNER_AIRDROP)?;
+    }
     rpc.airdrop(&forester_authority.pubkey(), SIGNER_AIRDROP)?;
     rpc.airdrop(&merge_authority.pubkey(), SIGNER_AIRDROP)?;
     rpc.airdrop(&tree_creation_authority.pubkey(), SIGNER_AIRDROP)?;
@@ -434,7 +436,7 @@ pub fn setup_with_extra_rings(extra_ring_programs: &[Address]) -> Result<TestEnv
     for ix in accounts.create_ixs(
         &payer.pubkey(),
         StandardSigners {
-            protocol: authority.pubkey(),
+            protocol: authority.pubkeys(),
             forester: forester_authority.pubkey(),
             merge: merge_authority.pubkey(),
             tree: tree_creation_authority.pubkey(),
@@ -470,16 +472,12 @@ pub fn setup_with_extra_rings(extra_ring_programs: &[Address]) -> Result<TestEnv
         spl_interface_creation_is_permissionless: false,
     }
     .instruction();
-    let create_config_sync = smart_account::execute_sync_ix(
-        &accounts.protocol_settings,
-        0,
-        &[authority.pubkey()],
-        &[create_config_ix],
-    );
+    let create_config_sync =
+        authority.execute_sync(&accounts.protocol_settings, &[create_config_ix]);
     rpc.create_and_send_transaction(
         &[create_config_sync],
         payer_address,
-        &[&payer, &authority],
+        &authority.dyn_with_fee_payer(&payer),
         ComputeBudgetConfig::for_instruction_count(1),
     )?;
 
@@ -557,7 +555,7 @@ pub fn ring_program_so() -> String {
         .unwrap_or_else(|_| artifacts.path("target/deploy/custom_ring_program.so"))
 }
 
-/// A fresh ed25519 actor: one keypair funded on chain, its shielded address,
+/// A fresh eddsa actor: one keypair funded on chain, its shielded address,
 /// and an empty wallet over the shared asset registry.
 fn new_actor(rpc: &mut SolanaRpc, assets: &AssetRegistry) -> Result<TestWallet> {
     let keypair = ShieldedKeypair::new_ed25519()?;

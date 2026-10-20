@@ -31,8 +31,8 @@ func refreshStateEntry(t *testing.T, tx *ProofTransactionRequest, i int) {
 }
 
 // mustNewSolanaCircuit builds the Solana-only circuit and panics on error.
-func mustNewSolanaCircuit(shape txcircuit.Shape) *customring.CustomRingConfidentialEd25519Circuit {
-	circuit, err := customring.NewCustomRingConfidentialEd25519Circuit(shape)
+func mustNewSolanaCircuit(shape txcircuit.Shape) *customring.CustomRingConfidentialEddsaCircuit {
+	circuit, err := customring.NewCustomRingConfidentialEddsaCircuit(shape)
 	if err != nil {
 		panic(err)
 	}

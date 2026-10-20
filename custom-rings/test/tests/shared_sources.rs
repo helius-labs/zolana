@@ -13,7 +13,7 @@ use custom_ring_test_validator::{
     shared::{send, RegisterRing, Tier},
 };
 use solana_signer::Signer;
-use zolana_keypair::X25519Secret;
+use zolana_keypair::X25519Keypair;
 use zolana_ring_policy::ListId;
 use zolana_transaction::Utxo;
 
@@ -41,7 +41,7 @@ fn a_curator_sourced_blocklist_governs_the_subscriber_ring() -> Result<()> {
     RegisterRing {
         ring: subscriber,
         payer: &env.payer,
-        auditor_pubkey: X25519Secret::new().pubkey(),
+        auditor_pubkey: X25519Keypair::new().pubkey(),
         tier: Tier::Policy {
             address_tree: env.tree,
             rules: &BLOCK_ONLY,

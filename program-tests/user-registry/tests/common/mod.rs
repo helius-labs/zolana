@@ -4,7 +4,7 @@
 use solana_keypair::Keypair;
 use solana_signer::Signer;
 use user_registry_tests::{build_register_ix, UserRegistryTestRig};
-use zolana_keypair::X25519Secret;
+use zolana_keypair::X25519Keypair;
 
 pub const OWNER_LAMPORTS: u64 = 5_000_000_000;
 
@@ -19,10 +19,7 @@ pub fn keys(tag: u8) -> Keys {
     *nullifier.last_mut().expect("nullifier byte") = tag;
     Keys {
         nullifier,
-        viewing: *X25519Secret::from_bytes(&[tag; 32])
-            .expect("viewing secret")
-            .pubkey()
-            .as_bytes(),
+        viewing: *X25519Keypair::from_bytes(&[tag; 32]).pubkey().as_bytes(),
     }
 }
 

@@ -1018,7 +1018,7 @@ func TestWorkerSelectionLogic(t *testing.T) {
 		},
 		{
 			name:          "Unrelated circuits only",
-			circuits:      []string{"transfer", "transfer-ed25519-ring"},
+			circuits:      []string{"transfer", "transfer-eddsa-ring"},
 			expectAddress: false,
 		},
 		{
@@ -1069,7 +1069,7 @@ func TestBatchOperationsAlwaysUseQueue(t *testing.T) {
 	// Transfer circuits queue too: they route to the shared transfer queue.
 	transferTests := []common.CircuitType{
 		common.TransferConfidentialCircuitType,
-		common.TransferAnonymousRingEd25519CircuitType,
+		common.TransferAnonymousRingEddsaCircuitType,
 	}
 
 	for _, circuitType := range transferTests {

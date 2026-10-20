@@ -65,7 +65,6 @@ mod tests {
                 output_utxo_hash: [1; 32],
                 output_ciphertext_salt: [2; 16],
                 output_ciphertext: [[3; 32]; 3],
-                eddsa_owner: false,
                 private_tx_hash: [4; 32],
                 nullifiers: vec![[5; 32]],
                 utxo_tree_root_index: 0,

@@ -214,7 +214,7 @@ fn find_decrypted(
 mod tests {
     use std::cell::Cell;
 
-    use zolana_keypair::X25519Secret;
+    use zolana_keypair::X25519Keypair;
     use zolana_ring_client::rpc::{SkippedReason, SkippedTransaction};
 
     use super::*;
@@ -230,7 +230,7 @@ mod tests {
 
     #[test]
     fn trust_accepts_the_pinned_key_or_an_explicit_waiver() {
-        let auditor_pk = X25519Secret::new().pubkey();
+        let auditor_pk = X25519Keypair::new().pubkey();
         let required = |trust| attested(auditor_pk).require(trust);
         assert_eq!(
             required(Trust::Pinned(SERVICE)).expect("pinned"),

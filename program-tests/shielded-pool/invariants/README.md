@@ -4,8 +4,8 @@ Test-coverage checklist derived from the program source. Detailed invariants
 live in the per-instruction files; `docs/spec.md` remains the protocol source
 of truth.
 
-P-256 ownership and its selectors are retired. Runtime Ed25519 ownership and
-anonymous Ed25519 proofs are distinct authorization paths. Historical IDs below
+P-256 ownership and its selectors are retired. Runtime EdDSA ownership and
+anonymous EdDSA proofs are distinct authorization paths. Historical IDs below
 remain stable, with retired coverage identified in the per-instruction files.
 
 Marker legend: `- [x]` covered by tests on this branch; `- [ ]` partial or
@@ -56,7 +56,7 @@ from all three rows. The same holds for `Deposit`/`RingDeposit`
 | EmitEvent (10) | `event.md` | INV-EMIT-EVENT-03 | INV-EMIT-EVENT-02 | permissionless by design (INV-EMIT-EVENT-01 bounds the risk) | INV-EMIT-EVENT-02, INV-EMIT-EVENT-04 | INV-XC-04 | INV-EMIT-EVENT-01 |
 | Deposit (11) | `deposit.md` | INV-DEPOSIT-01..09, INV-DEPOSIT-20, INV-DEPOSIT-23, INV-DEPOSIT-24 | INV-DEPOSIT-10, INV-DEPOSIT-11, INV-DEPOSIT-18, INV-DEPOSIT-19, INV-DEPOSIT-21, INV-DEPOSIT-22 | INV-DEPOSIT-01, INV-DEPOSIT-03, INV-DEPOSIT-05 | INV-DEPOSIT-12..16, INV-DEPOSIT-25 | INV-XC-04 | INV-DEPOSIT-17 |
 | Transact (12) | `transact.md` | INV-TRANSACT-01..04, INV-TRANSACT-13..16, INV-TRANSACT-40, INV-TRANSACT-41, INV-TRANSACT-43, INV-TRANSACT-48, INV-XC-24 | INV-TRANSACT-07..12, INV-TRANSACT-31..38, INV-XC-02 | INV-TRANSACT-04..06, INV-TRANSACT-20, INV-TRANSACT-39 | INV-TRANSACT-23..28, INV-TRANSACT-42, INV-TRANSACT-44, INV-TRANSACT-46, INV-TRANSACT-47, INV-TRANSACT-49, INV-XC-18, INV-XC-27 | INV-XC-04, INV-XC-05, INV-TRANSACT-50 | INV-TRANSACT-29, INV-TRANSACT-30 |
-| MergeTransact (13) | `merge.md` | INV-MERGE-01..03, INV-MERGE-17, INV-MERGE-18, INV-TRANSACT-48 | INV-MERGE-06, INV-MERGE-07, INV-MERGE-16, INV-MERGE-30 | INV-MERGE-02, INV-MERGE-04, INV-MERGE-05, INV-MERGE-08 | INV-MERGE-13, INV-MERGE-14, INV-MERGE-19, INV-MERGE-29, INV-MERGE-31, INV-TRANSACT-46, INV-TRANSACT-47, INV-TRANSACT-49 | INV-XC-04, INV-XC-05, INV-TRANSACT-50 | INV-MERGE-15 |
+| MergeTransact (13) | `merge.md` | INV-MERGE-01..03, INV-MERGE-17, INV-MERGE-18, INV-TRANSACT-48 | INV-MERGE-06, INV-MERGE-07, INV-MERGE-16, INV-MERGE-30 | INV-MERGE-02, INV-MERGE-04, INV-MERGE-08 | INV-MERGE-13, INV-MERGE-14, INV-MERGE-19, INV-MERGE-29, INV-MERGE-31, INV-TRANSACT-46, INV-TRANSACT-47, INV-TRANSACT-49 | INV-XC-04, INV-XC-05, INV-TRANSACT-50 | INV-MERGE-15 |
 | RingDeposit (14) | `deposit.md` | INV-RING-DEPOSIT-01..04 | INV-RING-DEPOSIT-05, INV-DEPOSIT-11, INV-DEPOSIT-18..25 | INV-RING-DEPOSIT-01, INV-RING-DEPOSIT-03, INV-RING-DEPOSIT-09, INV-XC-26 | INV-RING-DEPOSIT-06..08, INV-RING-DEPOSIT-10 | INV-XC-04 | INV-DEPOSIT-17 |
 | RingTransact (15) | `transact.md` | INV-RING-TRANSACT-01, INV-RING-TRANSACT-02, INV-TRANSACT-48 | INV-TRANSACT-07..12, INV-TRANSACT-31..38 | INV-RING-TRANSACT-01, INV-RING-TRANSACT-03, INV-RING-TRANSACT-07, INV-RING-TRANSACT-08, INV-XC-26 | INV-RING-TRANSACT-03..06, INV-TRANSACT-23..28 | INV-XC-04, INV-XC-05 | INV-TRANSACT-30 |
 | RingMergeTransact (16) | `merge.md` | INV-RING-MERGE-01..03, INV-MERGE-18, INV-TRANSACT-48 | INV-RING-MERGE-05, INV-MERGE-30 | INV-RING-MERGE-01, INV-RING-MERGE-04, INV-RING-MERGE-14, INV-XC-26 | INV-RING-MERGE-09..13, INV-MERGE-29, INV-MERGE-31 | INV-XC-04, INV-XC-05 | INV-MERGE-15 |
@@ -88,9 +88,9 @@ apply to every row. INV-XC-12 tracks the anonymous commitment proof boundary.
   - event.md: 4
   - cross-cutting.md: 33
 - Critical (funds/double-spend/authority takeover): 106
-- High: 110
+- High: 109
 - Medium: 77
-- Not applicable post-PR164: 5 (the both-amounts gate (INV-TRANSACT-12) and the merge ciphertext/`merge_view_tag` entries, of which the merge ciphertext entries returned on 2026-10-15 as INV-MERGE-29..31; the P256 entries returned with PR172 and are re-scoped, not N/A; IDs retained, never renumbered)
+- Not applicable post-PR164: 6 (the both-amounts gate (INV-TRANSACT-12), the merge ciphertext/`merge_view_tag` entries, of which the merge ciphertext entries returned on 2026-10-15 as INV-MERGE-29..31, and the merge owner scheme (INV-MERGE-05); the P256 entries returned with PR172 and are re-scoped, not N/A; IDs retained, never renumbered)
 - SPEC_DIVERGENCE items: all 8 originally flagged items were resolved by updating
   `docs/spec.md` to match the code (items 1 and 3 were re-corrected on 2026-07-28
   after an audit found the first resolution had not actually landed):
@@ -147,8 +147,8 @@ manage a cache account holding up to 36 UTXO hashes, set by verified merges and
 transacts that its immutable write authority signs. Every owner-signed transact
 circuit includes a cache selection in its public input hash whether or not a
 cache is supplied, so a cached spend verifies against its rail's ordinary key
-through one cached `CircuitId` twin per rail (`ConfidentialEd25519Cached`,
-`ConfidentialRingEd25519Cached`); `RingAuthority` binds no selection.
+through one cached `CircuitId` twin per rail (`ConfidentialEddsaCached`,
+`ConfidentialRingEddsaCached`); `RingAuthority` binds no selection.
 INV-MERGE-20..28 added (9, all covered). The counts below include them.
 
 Merge output ciphertext sync (2026-10-15, Certora M-03): the merge proof
@@ -159,7 +159,7 @@ INV-RING-MERGE-08/-13 restated. The counts below include them.
 
 Post-PR172 sync (2026-07-31):
 
-- Covered: 271 / 298
+- Covered: 270 / 298
 - Covered on companion security branches (#175, #176): 2 (the `- [~]` entries:
   INV-CREATE-AC-07, INV-BATCH-NULL-07 — behavior and tests land with those
   branches)
@@ -167,11 +167,11 @@ Post-PR172 sync (2026-07-31):
 - Pointer: 1 (INV-XC-30, by design: it documents reachability and defers to INV-XC-31 / INV-TRANSACT-44 for coverage; it is counted in cross-cutting's 6 partial+untested below)
 - Not covered: 0
 
-(271 + 2 + 19 + 1 + 5 = 298. The per-file partial+untested column sums to 20
+(270 + 2 + 19 + 1 + 6 = 298. The per-file partial+untested column sums to 20
 because it includes the pointer.)
 
 Per file (covered / partial+untested / companion / not-applicable):
-transact 57/2/0/1, deposit 35/0/0/0, merge 35/6/0/4, tree 50/4/1/0,
+transact 57/2/0/1, deposit 35/0/0/0, merge 34/6/0/5, tree 50/4/1/0,
 protocol-config 18/0/0/0, ring-config 24/2/0/0, spl 21/0/1/0, event 4/0/0/0,
 cross-cutting 27/6/0/0.
 

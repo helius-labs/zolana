@@ -138,16 +138,16 @@ func buildRingAddressAssignment(t testing.TB) (*testAssignment, *big.Int, *big.I
 func TestAddressSlotRingSolves(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEd25519Circuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
 	assignment, _, _ := buildRingAddressAssignment(t)
-	assert.SolvingSucceeded(circuit, asCustomRingConfidentialEd25519(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingSucceeded(circuit, asCustomRingConfidentialEddsa(assignment), test.WithCurves(ecc.BN254))
 }
 
 func TestAddressSlotConfidentialSolves(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	solAsset := protocol.SolAsset()
-	circuit := MustNewDefaultRingConfidentialEd25519Circuit(Shape(shape))
+	circuit := MustNewDefaultRingConfidentialEddsaCircuit(Shape(shape))
 
 	assignment := buildCircuitAssignmentFromUtxos(
 		t,
@@ -163,7 +163,7 @@ func TestAddressSlotConfidentialSolves(t *testing.T) {
 	makeAddressSlot(t, assignment, 0, addressOwnerPkHash(t), spptest.Fe(0xABCDEF))
 	finalizeAddressAssignment(t, assignment, true)
 
-	assert.SolvingSucceeded(circuit, asDefaultRingConfidentialEd25519(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingSucceeded(circuit, asDefaultRingConfidentialEddsa(assignment), test.WithCurves(ecc.BN254))
 }
 
 // An address slot inserts a nullifier without spending a UTXO leaf, so it
@@ -172,38 +172,38 @@ func TestAddressSlotConfidentialSolves(t *testing.T) {
 func TestAddressSlotRejectedWhenPolicyDisabled(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEd25519Circuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
 	assignment, _, _ := buildRingAddressAssignment(t)
 
 	setAllowDummyInputs(t, assignment, false)
 	finalizeAddressAssignment(t, assignment, false)
 
-	assert.SolvingFailed(circuit, asCustomRingConfidentialEd25519(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomRingConfidentialEddsa(assignment), test.WithCurves(ecc.BN254))
 }
 
 func TestAddressSlotRejectsWrongOwner(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEd25519Circuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
 	assignment, _, _ := buildRingAddressAssignment(t)
 
 	assignment.Inputs[0].Utxo.Owner = testSolanaPkFieldSeed(t, 0x77)
 	assignment.Inputs[0].Nullifier = addressNullifier(t, assignment.Inputs[0].Utxo, spptest.Fe(99))
 	finalizeAddressAssignment(t, assignment, false)
 
-	assert.SolvingFailed(circuit, asCustomRingConfidentialEd25519(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomRingConfidentialEddsa(assignment), test.WithCurves(ecc.BN254))
 }
 
 func TestAddressSlotRejectsWrongNullifier(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEd25519Circuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
 	assignment, _, _ := buildRingAddressAssignment(t)
 
 	assignment.Inputs[0].Nullifier = spptest.Fe(0xDEAD)
 	finalizeAddressAssignment(t, assignment, false)
 
-	assert.SolvingFailed(circuit, asCustomRingConfidentialEd25519(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomRingConfidentialEddsa(assignment), test.WithCurves(ecc.BN254))
 }
 
 func TestAddressSlotRejectsUnpinnedField(t *testing.T) {
@@ -222,14 +222,14 @@ func TestAddressSlotRejectsUnpinnedField(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			assert := test.NewAssert(t)
 			shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-			circuit := MustNewCustomRingConfidentialEd25519Circuit(Shape(shape))
+			circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
 			assignment, _, _ := buildRingAddressAssignment(t)
 
 			tc.set(&assignment.Inputs[0])
 			assignment.Inputs[0].Nullifier = addressNullifier(t, assignment.Inputs[0].Utxo, spptest.Fe(99))
 			finalizeAddressAssignment(t, assignment, false)
 
-			assert.SolvingFailed(circuit, asCustomRingConfidentialEd25519(assignment), test.WithCurves(ecc.BN254))
+			assert.SolvingFailed(circuit, asCustomRingConfidentialEddsa(assignment), test.WithCurves(ecc.BN254))
 		})
 	}
 }
@@ -238,7 +238,7 @@ func TestAddressSlotRejectsDuplicate(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
 	solAsset := protocol.SolAsset()
-	circuit := MustNewCustomRingConfidentialEd25519Circuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
 
 	assignment := buildCircuitAssignmentFromUtxos(
 		t,
@@ -255,17 +255,17 @@ func TestAddressSlotRejectsDuplicate(t *testing.T) {
 	makeAddressSlot(t, assignment, 1, ownerPkHash, seed)
 	finalizeAddressAssignment(t, assignment, false)
 
-	assert.SolvingFailed(circuit, asCustomRingConfidentialEd25519(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomRingConfidentialEddsa(assignment), test.WithCurves(ecc.BN254))
 }
 
 func TestPaddingDummyRejectsNonZeroOwner(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEd25519Circuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
 	assignment := buildDummyInputShield(t, 125)
 
 	assignment.Inputs[0].Utxo.Owner = testSolanaPkFieldSeed(t, 0x33)
 	refreshPublicInputHash(t, assignment)
 
-	assert.SolvingFailed(circuit, asCustomRingConfidentialEd25519(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomRingConfidentialEddsa(assignment), test.WithCurves(ecc.BN254))
 }

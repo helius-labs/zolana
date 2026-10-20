@@ -1,11 +1,11 @@
-use custom_ring_interface::{CustomRingError, CustomRingMergeIxData};
+use custom_ring_interface::CustomRingError;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
 use crate::common::{
     anonymous_config_account, auditor_pubkey, authority, escrowed_config_account,
-    initialized_config_account, legacy_auditor_pubkey, member_registry_root_account, merge_fixture,
-    merge_fixture_with, merge_ring_data, ring_auth_pda, setup_mollusk,
+    initialized_config_account, member_registry_root_account, merge_fixture, merge_fixture_with,
+    merge_ring_data, ring_auth_pda, setup_mollusk,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
@@ -54,17 +54,6 @@ fn merge_rejects_trailing_or_truncated_compact_data() {
 }
 
 #[test]
-fn merge_rejects_the_default_owner_registry_flag() {
-    let (mollusk, _) = setup_mollusk();
-    let mut fixture = merge_fixture();
-    let mut request = CustomRingMergeIxData::deserialize(&fixture.instruction().data[1..]).unwrap();
-    request.merge.eddsa_owner = true;
-    let tag = fixture.instruction().data[0];
-    *fixture.data_mut() = [vec![tag], request.serialize().unwrap()].concat();
-    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidInstructionData));
-}
-
-#[test]
 fn merge_rejects_an_impostor_spp_program() {
     let (mollusk, _) = setup_mollusk();
     let mut fixture = merge_fixture();
@@ -106,16 +95,6 @@ fn an_anonymous_merge_is_rejected() {
     recipient[9] ^= 1;
     *other.data_mut() = merge_ring_data(Some(recipient));
     other.expect_err(&mollusk, custom(CustomRingError::InvalidMergeDisclosure));
-}
-
-#[test]
-fn a_legacy_auditor_key_refuses_the_merge_exactly() {
-    let (mollusk, _) = setup_mollusk();
-    merge_fixture_with(initialized_config_account(
-        authority(),
-        legacy_auditor_pubkey(),
-    ))
-    .expect_err(&mollusk, custom(CustomRingError::LegacyAuditorKey));
 }
 
 /// A ring PDA cannot sign on entry, so naming `ring_auth` as the merge payer

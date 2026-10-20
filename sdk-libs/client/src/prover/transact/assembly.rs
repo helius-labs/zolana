@@ -140,12 +140,12 @@ pub(crate) fn confidential_marked_output_owner_pk_hashes(
 /// privacy: confidential owners use public signers; anonymous owners sign in ZK.
 pub(crate) enum OwnerMode {
     /// Public signer identities, used by both default and confidential custom rings.
-    ConfidentialEd25519,
+    ConfidentialEddsa,
     Merge,
     RingAuthority,
-    /// Hidden senders and recipients. Inputs of this owner use the zero sentinel;
-    /// the anonymous circuit also hides output owners.
-    AnonymousEd25519(PublicKey),
+    /// Inputs of this hidden owner use the zero sentinel the circuit's signature
+    /// check consumes. Other inputs keep their public owner hash.
+    AnonymousEddsa(PublicKey),
 }
 
 /// One tree a set of padded inputs is spent from: the raw id its UTXOs are
@@ -315,10 +315,7 @@ pub(crate) fn assemble_inputs(
 ) -> Result<AssembledInputs, ClientError> {
     for (index, input) in input_utxos.iter().enumerate() {
         if input.utxo.cache_slot.is_some()
-            && matches!(
-                owner_mode,
-                OwnerMode::Merge | OwnerMode::RingAuthority | OwnerMode::AnonymousEd25519(_)
-            )
+            && matches!(owner_mode, OwnerMode::Merge | OwnerMode::RingAuthority)
         {
             return Err(ClientError::CachedInputUnsupported { index });
         }
@@ -395,7 +392,7 @@ pub(crate) fn assemble_inputs(
         let nullifier = input_utxo.utxo.nullifier;
 
         let owner_pk_hash = match owner_mode {
-            OwnerMode::AnonymousEd25519(hidden) if input_utxo.utxo.utxo.owner == *hidden => [0; 32],
+            OwnerMode::AnonymousEddsa(hidden) if input_utxo.utxo.utxo.owner == *hidden => [0; 32],
             _ => input_utxo.utxo.utxo.owner.owner_proof_input_hash()?,
         };
 
@@ -782,7 +779,7 @@ mod tests {
 
     fn keypair(seed: u8) -> ShieldedKeypair {
         ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&[seed; 32]))
-            .expect("eddsa keypair")
+            .expect("ed25519 keypair")
     }
 
     fn merkle_proof(tree_id: u16, root: u8, root_index: u16) -> MerkleProof {
@@ -955,8 +952,8 @@ mod tests {
     fn a_tree_read_only_from_a_cache_publishes_no_utxo_root() {
         let input_utxos = [cached_in(1, 0, 4, 0x33), dummy(Some((0x33, 7)))];
 
-        let assembled = assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEd25519)
-            .expect("assemble inputs");
+        let assembled =
+            assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEddsa).expect("assemble inputs");
 
         assert_eq!(
             assembled.tree_contexts,
@@ -987,7 +984,7 @@ mod tests {
             [cached_in(1, 0, 4, 0x33), input_utxo(2, 0x12, 3, 0x33)],
             [input_utxo(2, 0x12, 3, 0x33), cached_in(1, 0, 4, 0x33)],
         ] {
-            let assembled = assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEd25519)
+            let assembled = assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEddsa)
                 .expect("assemble inputs");
 
             assert_eq!(
@@ -1008,8 +1005,8 @@ mod tests {
     fn each_tree_decides_on_its_own_utxo_root() {
         let input_utxos = [input_utxo_in(1, 0, 0x11, 3, 0x33), cached_in(2, 1, 0, 0x34)];
 
-        let assembled = assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEd25519)
-            .expect("assemble inputs");
+        let assembled =
+            assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEddsa).expect("assemble inputs");
 
         assert_eq!(
             assembled.tree_contexts,
@@ -1032,14 +1029,14 @@ mod tests {
         let mut missing = cached_in(1, 0, 4, 0x33);
         missing.nullifier_proof = None;
         assert!(matches!(
-            assemble_inputs(&[missing], &OwnerMode::ConfidentialEd25519),
+            assemble_inputs(&[missing], &OwnerMode::ConfidentialEddsa),
             Err(ClientError::MissingCachedNullifierProof { index: 0 })
         ));
 
         let mut spent = cached_in(1, 0, 4, 0x33);
         spent.proof = input_utxo(1, 0x11, 3, 0x33).proof;
         assert!(matches!(
-            assemble_inputs(&[spent], &OwnerMode::ConfidentialEd25519),
+            assemble_inputs(&[spent], &OwnerMode::ConfidentialEddsa),
             Err(ClientError::UnexpectedInputProof { index: 0 })
         ));
     }
@@ -1049,7 +1046,7 @@ mod tests {
         let input_utxos = [input_utxo(1, 0x11, 3, 0x33), cached_in(2, 0, 4, 0x34)];
 
         assert!(matches!(
-            assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEd25519),
+            assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEddsa),
             Err(ClientError::NullifierRootMismatch)
         ));
     }
@@ -1062,7 +1059,7 @@ mod tests {
         assert!(matches!(
             assemble_inputs(
                 &[input_utxo(1, 0x11, 3, 0x33), padding],
-                &OwnerMode::ConfidentialEd25519
+                &OwnerMode::ConfidentialEddsa
             ),
             Err(ClientError::CachedDummyInput { index: 1 })
         ));
@@ -1262,8 +1259,8 @@ mod tests {
             input_utxo(2, 0x11, 3, 0x33),
         ];
 
-        let assembled = assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEd25519)
-            .expect("assemble inputs");
+        let assembled =
+            assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEddsa).expect("assemble inputs");
 
         assert_eq!(
             assembled.tree_contexts,
@@ -1300,8 +1297,8 @@ mod tests {
             dummy_in(1, Some((0x34, 7))),
         ];
 
-        let assembled = assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEd25519)
-            .expect("assemble inputs");
+        let assembled =
+            assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEddsa).expect("assemble inputs");
 
         assert_eq!(
             assembled.tree_contexts,
@@ -1354,7 +1351,7 @@ mod tests {
                 input_utxo_in(2, 1, 0x12, 4, 0x34),
                 last,
             ];
-            let assembled = assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEd25519)
+            let assembled = assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEddsa)
                 .expect("assemble interleaved inputs");
             assert_eq!(assembled.tree_ids, vec![4, 1]);
             assert_eq!(assembled.input_tree_indexes, vec![0, 1, 0]);
@@ -1372,7 +1369,7 @@ mod tests {
             .collect();
 
         assert!(matches!(
-            assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEd25519),
+            assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEddsa),
             Err(ClientError::TooManyInputTrees { got, max }) if got == MAX_INPUT_TREES + 1 && max == MAX_INPUT_TREES
         ));
     }
@@ -1382,7 +1379,7 @@ mod tests {
         let input_utxos = [input_utxo(1, 0x11, 3, 0x33), dummy_in(9, Some((0x33, 7)))];
 
         assert!(matches!(
-            assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEd25519),
+            assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEddsa),
             Err(ClientError::InputTreeUnresolved { tree_id: 9 })
         ));
     }
@@ -1392,7 +1389,7 @@ mod tests {
         let input_utxos = [input_utxo(1, 0x11, 3, 0x33), input_utxo(2, 0x12, 3, 0x33)];
 
         assert!(matches!(
-            assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEd25519),
+            assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEddsa),
             Err(ClientError::InputTreeRootMismatch)
         ));
     }
@@ -1402,7 +1399,7 @@ mod tests {
         let input_utxos = [input_utxo(1, 0x11, 3, 0x33), input_utxo(2, 0x11, 4, 0x33)];
 
         assert!(matches!(
-            assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEd25519),
+            assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEddsa),
             Err(ClientError::InputTreeRootMismatch)
         ));
     }
@@ -1412,7 +1409,7 @@ mod tests {
         let input_utxos = [input_utxo(1, 0x11, 3, 0x33), input_utxo(2, 0x11, 3, 0x34)];
 
         assert!(matches!(
-            assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEd25519),
+            assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEddsa),
             Err(ClientError::NullifierRootMismatch)
         ));
     }
@@ -1422,7 +1419,7 @@ mod tests {
         let input_utxos = [input_utxo(1, 0x11, 3, 0x33), dummy(Some((0x33, 8)))];
 
         assert!(matches!(
-            assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEd25519),
+            assemble_inputs(&input_utxos, &OwnerMode::ConfidentialEddsa),
             Err(ClientError::NullifierRootMismatch)
         ));
     }
@@ -1430,7 +1427,7 @@ mod tests {
     #[test]
     fn padding_without_a_real_input_has_no_slot_zero() {
         assert!(matches!(
-            assemble_inputs(&[dummy(Some((0x33, 7)))], &OwnerMode::ConfidentialEd25519),
+            assemble_inputs(&[dummy(Some((0x33, 7)))], &OwnerMode::ConfidentialEddsa),
             Err(ClientError::NoInputs)
         ));
     }

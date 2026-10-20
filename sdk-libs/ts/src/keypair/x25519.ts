@@ -37,23 +37,35 @@ export class X25519PublicKey {
   }
 }
 
+const SMALL_ORDER_PROBE = new Uint8Array(32).fill(1);
+
+/** X25519 maps a small-order key to zero under every clamped scalar, any viewing key included. */
+export function isSmallOrder(key: X25519PublicKey): boolean {
+  try {
+    x25519.getSharedSecret(SMALL_ORDER_PROBE, key.u()).fill(0);
+    return false;
+  } catch {
+    return true;
+  }
+}
+
 /** RFC 7748 secret for X25519 agreement. ViewingKey clamps its own byte form. */
-export class X25519Secret {
+export class X25519Keypair {
   #secret: Bytes32 | undefined;
   private constructor(secret: Bytes32) {
     this.#secret = secret;
   }
 
-  static generate(): X25519Secret {
+  static generate(): X25519Keypair {
     const secret = randomBytes(32);
     try {
-      return X25519Secret.fromBytes(secret);
+      return X25519Keypair.fromBytes(secret);
     } finally {
       secret.fill(0);
     }
   }
-  static fromBytes(bytes: Uint8Array): X25519Secret {
-    return new X25519Secret(checkedBytes<Bytes32>(bytes, 32, "X25519 secret"));
+  static fromBytes(bytes: Uint8Array): X25519Keypair {
+    return new X25519Keypair(checkedBytes<Bytes32>(bytes, 32, "X25519 secret"));
   }
   #usable(): Bytes32 {
     if (this.#secret === undefined) throw new KeypairError("KEYPAIR_INVALID_SECRET_KEY");
@@ -67,8 +79,8 @@ export class X25519Secret {
   secretBytes(): Bytes32 {
     return checkedBytes<Bytes32>(this.#usable(), 32, "X25519 secret");
   }
-  clone(): X25519Secret {
-    return X25519Secret.fromBytes(this.#usable());
+  clone(): X25519Keypair {
+    return X25519Keypair.fromBytes(this.#usable());
   }
   ecdh(peer: X25519PublicKey): Bytes32 {
     const secret = this.#usable();

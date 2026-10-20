@@ -43,7 +43,7 @@ pub trait TransactionSource: Send + Sync {
     fn merge_audit_page<'a>(
         &'a self,
         ring: Address,
-        auditor: &'a zolana_keypair::X25519Secret,
+        auditor: &'a zolana_keypair::X25519Keypair,
         cursor: Option<Vec<u8>>,
         limit: NonZeroU32,
     ) -> impl Future<Output = Result<MergeAuditPage, AuditError>> + Send + 'a;
@@ -269,7 +269,7 @@ impl TransactionSource for ChainSource {
     async fn merge_audit_page<'a>(
         &'a self,
         ring: Address,
-        auditor: &'a zolana_keypair::X25519Secret,
+        auditor: &'a zolana_keypair::X25519Keypair,
         cursor: Option<Vec<u8>>,
         limit: NonZeroU32,
     ) -> Result<MergeAuditPage, AuditError> {
@@ -578,7 +578,7 @@ mod tests {
     fn config_accounts_require_the_canonical_layout() {
         let ring = Address::new_from_array([9; 32]);
         let bump = Address::find_program_address(&[CONFIG_PDA_SEED], &ring).1;
-        let key = zolana_keypair::X25519Secret::new().pubkey();
+        let key = zolana_keypair::X25519Keypair::new().pubkey();
         let valid = config_account(ring, *key.as_bytes(), bump);
         let config = configuration(&valid, ring, bump).expect("config");
         assert_eq!(config.auditor_pubkey, key);

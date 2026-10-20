@@ -18,7 +18,7 @@ use crate::{
     nullifier_key::NullifierKey,
     pubkey::Curve,
     viewing_key::{ViewTag, ViewingKey},
-    x25519::{X25519Pubkey, X25519Secret},
+    x25519::{X25519Keypair, X25519Pubkey},
 };
 
 pub(crate) const DST_X25519_VIEW_ROOT: &[u8] = b"TSPP/view_root/x25519/v1";
@@ -57,7 +57,7 @@ pub const TSPP_APPLICATION_DOMAIN: [u8; 32] = [
 
 /// Solana off-chain message v0: magic || version=0 || application_domain ||
 /// format=0 (restricted ASCII) || signer_count=1 || signer || len u16 LE ||
-/// payload. This is the exact byte string the ed25519 rail signs.
+/// payload. This is the exact byte string the eddsa rail signs.
 pub fn ed25519_derivation_message(signer_pubkey: &[u8; 32]) -> Vec<u8> {
     let payload = ED25519_DERIVATION_MSG;
     let mut message = Vec::with_capacity(85 + payload.len());
@@ -120,7 +120,7 @@ pub const ENC_INFO_RING_DEPOSIT: &[u8] = b"TSPP/ring_deposit";
 pub const MERGE_INFO: &[u8; 10] = b"TSPP/merge";
 
 /// Domain separators (32-bit ASCII tags) for the Poseidon key schedule,
-/// mirroring `circuits/verifiable-encryption/poseidon_kdf.go`.
+/// mirroring `circuits/encryption/poseidon_kdf.go`.
 pub const DOM_SEP_SILO: u32 = 0x544d_5349; // "TMSI"
 pub const DOM_SEP_KEY: u32 = 0x544d_534b; // "TMSK" (key_1 = DOM_SEP_KEY + 1 = "TMSL")
 pub const DOM_SEP_NONCE: u32 = 0x544d_534e; // "TMSN"
@@ -197,7 +197,7 @@ pub(crate) fn shared_view_tag(
 /// Derives viewing roles from the canonical secret with a dedicated salt.
 /// Raw ECDH cannot reveal this input. Fixed-peer ECDH roots are unsafe because
 /// a caller can query a multiple of the peer and invert that multiplication.
-pub(crate) fn view_root(secret: &X25519Secret) -> Zeroizing<[u8; 32]> {
+pub(crate) fn view_root(secret: &X25519Keypair) -> Zeroizing<[u8; 32]> {
     let ikm = secret.secret_bytes();
     let (prk, _) = Hkdf::<Sha256>::extract(Some(DST_X25519_VIEW_ROOT), ikm.as_slice());
     let mut out = Zeroizing::new([0u8; 32]);
@@ -285,7 +285,7 @@ impl RoleExpansion {
             &[self.rail.viewing_info()],
             okm.as_mut_slice(),
         )?;
-        ViewingKey::from_bytes(&okm)
+        Ok(ViewingKey::from_bytes(&okm))
     }
 }
 
@@ -322,6 +322,6 @@ impl PdaRoleExpansion {
             &[INFO_PDA_VIEW_KEY, &self.pda],
             okm.as_mut_slice(),
         )?;
-        ViewingKey::from_bytes(&okm)
+        Ok(ViewingKey::from_bytes(&okm))
     }
 }

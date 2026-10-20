@@ -38,8 +38,7 @@ Commands:
 ```bash
 zolana config get
 zolana config set --keypair ~/.config/zolana/pid.json --rpc-url http://127.0.0.1:8899 --indexer-url http://127.0.0.1:8784 --prover-url http://127.0.0.1:3001
-zolana wallet new --airdrop-lamports 1000000000
-zolana wallet register
+zolana wallet init --airdrop-lamports 1000000000
 zolana dev pool create-tree --airdrop-lamports 100000000000
 zolana sync --indexer-url http://127.0.0.1:8784
 zolana balance --indexer-url http://127.0.0.1:8784
@@ -48,27 +47,16 @@ zolana transfer --to <RECIPIENT_SOLANA_PUBKEY> --amount 300000000 --mint SOL
 zolana withdraw --to <PUBLIC_SOL_PUBKEY> --amount 200000000 --mint SOL
 ```
 
-Wallet files store one Ed25519 owner seed, which derives the viewing and
-nullifier keys. Transactions default to the owner as fee payer. Use
-`--fee-payer <FILE>` to sponsor an operation. Deposits debit the owner unless
-`--asset-source <FILE>` selects another source. Both options accept Solana
-keypair files or wallet files and leave the wallet identity unchanged.
-
-`wallet new` writes the wallet offline. `wallet register` publishes its shielded
-keys. `deposit` shields assets into the registered local wallet by default.
-`deposit --to <PUBKEY>`
+Wallet commands use the wallet file's Solana funding key for fees/public SOL
+deposits and its shielded keypair for private ownership. `wallet init` creates
+or loads the wallet file and registers its shielded keys in the on-chain
+user-registry program. `deposit` shields public SOL into the local wallet by
+default and requires that wallet to be registered; `deposit --to <PUBKEY>`
 resolves the recipient from the on-chain user registry and never reads the
 recipient's wallet secrets. `transfer --to <PUBKEY>` resolves registered
 recipients from the on-chain user registry; if the registry record is absent,
 the transfer is built as a public SOL withdrawal to that pubkey. `withdraw --to
 <PUBKEY>` always uses a regular public Solana destination.
-
-Import an owner from a Solana keypair or convert a v2 development wallet while
-preserving its identity and leaving the original file untouched:
-
-```bash
-zolana wallet new --owner-keypair old-wallet.json --outfile owner.json
-```
 
 CLI-wide defaults live at `~/.config/zolana/config.json`. Explicit flags win
 over config values, and config values win over built-in localnet defaults. The

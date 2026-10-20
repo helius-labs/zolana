@@ -8,9 +8,9 @@
 import { expand, extract, hkdf } from "@noble/hashes/hkdf.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 
-import type { Bytes31, Bytes32 } from "./bytes.js";
+import { type Bytes31, type Bytes32 } from "./bytes.js";
 import { KeypairError } from "./error.js";
-import { X25519PublicKey, X25519Secret } from "./x25519.js";
+import { X25519PublicKey, X25519Keypair } from "./x25519.js";
 
 const encoder = new TextEncoder();
 
@@ -65,7 +65,7 @@ const DERIVATION_PAYLOAD_PREFIX_BYTES = encoder.encode(DERIVATION_PAYLOAD_PREFIX
 /**
  * Solana off-chain message v0: magic || version=0 || application_domain ||
  * format=0 (restricted ASCII) || signer_count=1 || signer || len u16 LE ||
- * payload. This is the exact byte string the ed25519 rail signs.
+ * payload. This is the exact byte string the eddsa rail signs.
  */
 export function ed25519DerivationMessage(signerPublicKey: Bytes32): Uint8Array {
   const payload = encoder.encode(ED25519_DERIVATION_MSG);
@@ -142,7 +142,7 @@ function checkedViewingSecret(secret: Uint8Array): Bytes32 {
 
 /** ECDH rejects low-order peers through Noble's all-zero check. */
 export function x25519Ecdh(secret: Uint8Array, peer: X25519PublicKey): Uint8Array {
-  const key = X25519Secret.fromBytes(secret);
+  const key = X25519Keypair.fromBytes(secret);
   try {
     return key.ecdh(peer);
   } finally {
@@ -189,6 +189,7 @@ export function viewRoot(secret: Uint8Array): Uint8Array {
   }
 }
 
+/** A zero byte then 31 HKDF bytes, `info = prefix || u64_be(counter)`. */
 export type Rail = "ed25519";
 
 /** An ed25519 `derivationSeed` is the RFC 8032 signature over the derivation message. */

@@ -29,13 +29,11 @@ pub struct ResolvedAddress {
     pub view_tag: ViewTag,
 }
 
-/// Publish the Solana owner's nullifier and viewing keys.
-fn register_fields(owner: Pubkey, address: &ShieldedAddress) -> Result<RegisterData, ClientError> {
-    if address.signing_pubkey.confidential_view_tag()? != owner.to_bytes() {
-        return Err(ClientError::UserRegistryKeysMismatch { owner });
-    }
+/// Derive the on-chain registry record fields from a shielded keypair: the
+/// nullifier pubkey and viewing pubkey. Returns the exact `RegisterData` the
+/// register/update instructions take.
+fn register_fields(address: &ShieldedAddress) -> Result<RegisterData, ClientError> {
     Ok(RegisterData {
-        reserved_owner: Default::default(),
         nullifier_pubkey: address.nullifier_pubkey,
         viewing_pubkey: *address.viewing_pubkey.as_bytes(),
     })
@@ -57,25 +55,27 @@ fn check_nullifier_unchanged(
 }
 
 /// Publish `keypair`'s shielded keys to the on-chain user-registry directory
-/// under its Ed25519 owner pubkey, so senders who know that address route
+/// under `funding`'s pubkey, so senders who know only that Solana address route
 /// transfers to the shielded path (rather than falling back to a public
 /// withdrawal). Registration is optional for receiving a confidential transfer
 /// to a known shielded address; it is the pubkey-addressability directory.
 ///
 /// Idempotent: registers if no record exists, updates the record on a key
 /// change, and returns `Ok(None)` if the record already matches (no transaction
-/// sent). The funding signer sponsors rent and transaction fees.
+/// sent). The record lives at `user_record_pda(&funding.pubkey()).0`.
 ///
-/// The keypair signs as the record owner and funding signs as payer.
+/// `funding` must sign — the registry keys the record under its pubkey and the
+/// program requires the owner's signature, so only the record's owner can
+/// publish or update it.
 pub fn ensure_registered<R: Rpc>(
     rpc: &R,
     funding: &dyn Signer,
     keypair: &ShieldedKeypair,
 ) -> Result<Option<Signature>, ClientError> {
-    let owner = keypair.pubkey();
-    let data = register_fields(owner, &keypair.shielded_address()?)?;
+    let owner = funding.pubkey();
+    let data = register_fields(&keypair.shielded_address()?)?;
     let (user_record, _bump) = user_record_pda(&owner);
-    let owner_address = Address::new_from_array(funding.pubkey().to_bytes());
+    let owner_address = Address::new_from_array(owner.to_bytes());
 
     if let Some(record) = fetch_user_record_optional_checked(rpc, owner)? {
         if holds_keys(&record, &data) {
@@ -86,17 +86,17 @@ pub fn ensure_registered<R: Rpc>(
         return Ok(Some(rpc.create_and_send_transaction(
             &ixs,
             owner_address,
-            &[funding, keypair],
+            &[funding],
             ComputeBudgetConfig::for_instruction_count(ixs.len()),
         )?));
     }
 
-    let payer = funding.pubkey();
+    let payer = owner;
     let ixs = register_instructions(user_record, owner, payer, data)?;
     Ok(Some(rpc.create_and_send_transaction(
         &ixs,
         owner_address,
-        &[funding, keypair],
+        &[funding],
         ComputeBudgetConfig::for_instruction_count(ixs.len()),
     )?))
 }
@@ -118,21 +118,22 @@ pub enum StrictRegistration {
     Mismatch,
 }
 
-/// Register `keypair`'s shielded keys under its Ed25519 pubkey with strict
+/// Register `keypair`'s shielded keys under `funding`'s pubkey with strict
 /// semantics: write the record only when absent, treat an exactly matching
 /// record as a no-op, and report a differing record as
 /// [`StrictRegistration::Mismatch`] without ever calling `update_keys`. The
 /// nullifier key never rotates, so overwriting a differing record would silently
 /// replace an existing on-chain identity.
 ///
-/// The keypair signs as owner and funding sponsors the transaction.
+/// `funding` must sign: the program keys the record under, and requires the
+/// signature of, its owner pubkey.
 pub fn register_if_absent<R: Rpc>(
     rpc: &R,
     funding: &dyn Signer,
     keypair: &ShieldedKeypair,
 ) -> Result<StrictRegistration, ClientError> {
-    let owner = keypair.pubkey();
-    let data = register_fields(owner, &keypair.shielded_address()?)?;
+    let owner = funding.pubkey();
+    let data = register_fields(&keypair.shielded_address()?)?;
     let (user_record, _bump) = user_record_pda(&owner);
 
     if let Some(record) = fetch_user_record_optional_checked(rpc, owner)? {
@@ -143,12 +144,12 @@ pub fn register_if_absent<R: Rpc>(
         });
     }
 
-    let payer = funding.pubkey();
+    let payer = owner;
     let ixs = register_instructions(user_record, owner, payer, data)?;
     let signature = rpc.create_and_send_transaction(
         &ixs,
-        Address::new_from_array(funding.pubkey().to_bytes()),
-        &[funding, keypair],
+        Address::new_from_array(owner.to_bytes()),
+        &[funding],
         ComputeBudgetConfig::for_instruction_count(ixs.len()),
     )?;
     Ok(StrictRegistration::Written(signature))
@@ -172,7 +173,7 @@ pub async fn build_registration_transaction<R: AsyncRpc>(
     payer: Option<Pubkey>,
 ) -> Result<Option<VersionedMessage>, ClientError> {
     let payer = payer.unwrap_or(owner);
-    let data = register_fields(owner, address)?;
+    let data = register_fields(address)?;
     let existing = fetch_user_record_optional_checked_async(rpc, owner).await?;
     let Some(instructions) = registration_instructions(owner, payer, data, existing)? else {
         return Ok(None);
@@ -189,7 +190,7 @@ pub fn build_registration_transaction_sync<R: Rpc>(
     payer: Option<Pubkey>,
 ) -> Result<Option<VersionedMessage>, ClientError> {
     let payer = payer.unwrap_or(owner);
-    let data = register_fields(owner, address)?;
+    let data = register_fields(address)?;
     let existing = fetch_user_record_optional_checked(rpc, owner)?;
     let Some(instructions) = registration_instructions(owner, payer, data, existing)? else {
         return Ok(None);
@@ -215,7 +216,7 @@ pub async fn build_key_update_transaction<R: AsyncRpc>(
     address: &ShieldedAddress,
     payer: Option<Pubkey>,
 ) -> Result<Option<VersionedMessage>, ClientError> {
-    let data = register_fields(owner, address)?;
+    let data = register_fields(address)?;
     let record = fetch_user_record_optional_checked_async(rpc, owner).await?;
     let Some(instructions) = key_update_instructions(owner, &data, record)? else {
         return Ok(None);
@@ -231,7 +232,7 @@ pub fn build_key_update_transaction_sync<R: Rpc>(
     address: &ShieldedAddress,
     payer: Option<Pubkey>,
 ) -> Result<Option<VersionedMessage>, ClientError> {
-    let data = register_fields(owner, address)?;
+    let data = register_fields(address)?;
     let record = fetch_user_record_optional_checked(rpc, owner)?;
     let Some(instructions) = key_update_instructions(owner, &data, record)? else {
         return Ok(None);
@@ -302,7 +303,6 @@ fn update_key_instructions(
         user_record,
         owner,
         UpdateKeysData {
-            reserved_owner: Default::default(),
             nullifier_pubkey: data.nullifier_pubkey,
             viewing_pubkey: data.viewing_pubkey,
         },
@@ -370,8 +370,7 @@ pub async fn fetch_user_record_optional_checked_async<R: AsyncRpc>(
     )?))
 }
 
-/// Best-effort index of current viewing keys. Malformed and unmigrated records are skipped.
-/// The registry allows duplicate viewing keys, so this metadata is not proof of ownership.
+/// Reads the whole registry. A record this version cannot decode is skipped.
 pub fn fetch_viewing_key_owners<R: Rpc>(
     rpc: &R,
 ) -> Result<HashMap<[u8; X25519_PUBKEY_LEN], Pubkey>, ClientError> {
@@ -394,23 +393,16 @@ pub async fn fetch_viewing_key_owners_async<R: AsyncRpc>(
 fn index_viewing_keys(
     accounts: Vec<(Address, solana_account::Account)>,
 ) -> HashMap<[u8; X25519_PUBKEY_LEN], Pubkey> {
-    let mut owners = HashMap::new();
-    for (_, account) in accounts {
-        if account.data.first() != Some(&UserRecord::DISCRIMINATOR) {
-            continue;
-        }
-        let Ok(record) = decode_user_record_account(&account) else {
-            continue;
-        };
-        let Ok(viewing) = X25519Pubkey::from_bytes(record.viewing_pubkey) else {
-            continue;
-        };
-        owners.insert(
-            *viewing.as_bytes(),
-            Pubkey::new_from_array(record.owner.to_bytes()),
-        );
-    }
-    owners
+    accounts
+        .iter()
+        .filter_map(|(_, account)| decode_user_record_account(account).ok())
+        .map(|record| {
+            (
+                record.viewing_pubkey,
+                Pubkey::new_from_array(record.owner.to_bytes()),
+            )
+        })
+        .collect()
 }
 
 pub fn decode_user_record_account(
@@ -455,10 +447,7 @@ pub fn validate_registered_keypair<R: Rpc>(
     let record = fetch_user_record_checked(rpc, owner)?;
     let expected_nullifier = keypair.nullifier_key.pubkey()?;
     let expected_viewing = *keypair.viewing_pubkey().as_bytes();
-    if keypair.signing_pubkey().as_ed25519()? != owner.to_bytes()
-        || record.nullifier_pubkey != expected_nullifier
-        || record.viewing_pubkey != expected_viewing
-    {
+    if record.nullifier_pubkey != expected_nullifier || record.viewing_pubkey != expected_viewing {
         return Err(ClientError::AddressResolution(format!(
             "user registry record for {owner} does not match the local wallet"
         )));
@@ -523,10 +512,13 @@ pub async fn recipient_confidential_view_tag<R: AsyncRpc>(
     rpc: &R,
     recipient: Pubkey,
 ) -> Result<ViewTag, ClientError> {
-    let Some(record) = fetch_user_record_optional_checked_async(rpc, recipient).await? else {
+    if fetch_user_record_optional_checked_async(rpc, recipient)
+        .await?
+        .is_none()
+    {
         return Ok([0u8; 32]);
-    };
-    signing_pubkey_from_record(recipient, &record)?
+    }
+    signing_pubkey_from_record(recipient)
         .confidential_view_tag()
         .map_err(|err| ClientError::AddressResolution(err.to_string()))
 }
@@ -536,27 +528,23 @@ pub fn recipient_confidential_view_tag_sync<R: Rpc>(
     rpc: &R,
     recipient: Pubkey,
 ) -> Result<ViewTag, ClientError> {
-    let Some(record) = fetch_user_record_optional_checked(rpc, recipient)? else {
+    if fetch_user_record_optional_checked(rpc, recipient)?.is_none() {
         return Ok([0u8; 32]);
-    };
-    signing_pubkey_from_record(recipient, &record)?
+    }
+    signing_pubkey_from_record(recipient)
         .confidential_view_tag()
         .map_err(|err| ClientError::AddressResolution(err.to_string()))
 }
 
-fn signing_pubkey_from_record(
-    owner: Pubkey,
-    record: &UserRecord,
-) -> Result<PublicKey, ClientError> {
-    let _ = record;
-    Ok(PublicKey::from_ed25519(&owner.to_bytes()))
+fn signing_pubkey_from_record(owner: Pubkey) -> PublicKey {
+    PublicKey::from_ed25519(&owner.to_bytes())
 }
 
 pub fn resolved_address_from_record(
     owner: Pubkey,
     record: &UserRecord,
 ) -> Result<ResolvedAddress, ClientError> {
-    let signing_pubkey = signing_pubkey_from_record(owner, record)?;
+    let signing_pubkey = signing_pubkey_from_record(owner);
     let viewing_pubkey = X25519Pubkey::from_bytes(record.viewing_pubkey)?;
     Ok(ResolvedAddress {
         owner,
@@ -620,7 +608,6 @@ mod tests {
         UserRecord {
             owner: owner.to_bytes().into(),
             bump,
-            reserved_owner: Default::default(),
             nullifier_pubkey: [3u8; 32],
             viewing_pubkey: [4u8; 33],
             merging_enabled: false,
@@ -641,7 +628,6 @@ mod tests {
         UserRecord {
             owner: owner.to_bytes().into(),
             bump,
-            reserved_owner: Default::default(),
             nullifier_pubkey: keypair.nullifier_key.pubkey().unwrap(),
             viewing_pubkey: *keypair.viewing_pubkey().as_bytes(),
             merging_enabled: false,
@@ -692,8 +678,8 @@ mod tests {
 
     #[test]
     fn registration_builder_returns_unsigned_message_for_external_signer() {
+        let owner = Pubkey::new_unique();
         let keypair = ShieldedKeypair::new_ed25519().expect("shielded keypair");
-        let owner = keypair.pubkey();
         let message = build_registration_transaction_sync(
             &MockRpc::default(),
             owner,
@@ -734,7 +720,6 @@ mod tests {
         let record = UserRecord {
             owner: owner.to_bytes().into(),
             bump,
-            reserved_owner: Default::default(),
             nullifier_pubkey: data.nullifier_pubkey,
             viewing_pubkey: data.viewing_pubkey,
             merging_enabled: false,
@@ -761,19 +746,9 @@ mod tests {
     }
 
     #[test]
-    fn registration_builder_rejects_another_owner() {
-        let address = ed25519_address(7);
-        let owner = Pubkey::new_unique();
-        assert!(matches!(
-            build_registration_transaction_sync(&MockRpc::default(), owner, &address, None),
-            Err(ClientError::UserRegistryKeysMismatch { .. })
-        ));
-    }
-
-    #[test]
     fn registration_builder_never_replaces_other_keys() {
+        let owner = Pubkey::new_unique();
         let address = ed25519_address(7);
-        let owner = Pubkey::new_from_array(address.signing_pubkey.as_ed25519().unwrap());
         let other = registry_holding(owner, fields(&ed25519_address(8)));
 
         let error = build_registration_transaction_sync(&other, owner, &address, None)
@@ -807,8 +782,8 @@ mod tests {
 
     #[test]
     fn key_update_builder_replaces_keys() {
+        let owner = Pubkey::new_unique();
         let address = ed25519_address(7);
-        let owner = Pubkey::new_from_array(address.signing_pubkey.as_ed25519().unwrap());
 
         let error = build_key_update_transaction_sync(&MockRpc::default(), owner, &address, None)
             .expect_err("no record to update");
@@ -849,17 +824,13 @@ mod tests {
     }
 
     fn fields(address: &ShieldedAddress) -> RegisterData {
-        register_fields(
-            Pubkey::new_from_array(address.signing_pubkey.as_ed25519().unwrap()),
-            address,
-        )
-        .expect("register fields")
+        register_fields(address).expect("register fields")
     }
 
     #[tokio::test]
     async fn async_registration_builder_returns_sendable_unsigned_message() {
+        let owner = Pubkey::new_unique();
         let keypair = ShieldedKeypair::new_ed25519().expect("shielded keypair");
-        let owner = keypair.pubkey();
         let rpc = MockRpc::default();
         let address = keypair.shielded_address().expect("shielded address");
         let future = build_registration_transaction(&rpc, owner, &address, None);
@@ -1006,7 +977,6 @@ mod tests {
         let record = UserRecord {
             owner: owner.to_bytes().into(),
             bump,
-            reserved_owner: Default::default(),
             nullifier_pubkey: keypair.nullifier_key.pubkey().unwrap(),
             viewing_pubkey: *keypair.viewing_pubkey().as_bytes(),
             merging_enabled: false,
@@ -1155,7 +1125,7 @@ mod tests {
     fn ensure_registered_noops_when_current() {
         let funding = Keypair::new();
         let keypair = ShieldedKeypair::new_ed25519().unwrap();
-        let owner = keypair.pubkey();
+        let owner = funding.pubkey();
         let (_pda, bump) = user_record_pda(&owner);
         let record = registered_record(owner, bump, &keypair);
         let rpc = SendMockRpc {
@@ -1171,10 +1141,10 @@ mod tests {
     fn ensure_registered_updates_when_rotatable_keys_changed() {
         let funding = Keypair::new();
         let keypair = ShieldedKeypair::new_ed25519().unwrap();
-        let owner = keypair.pubkey();
+        let owner = funding.pubkey();
         let (_pda, bump) = user_record_pda(&owner);
         // Record exists with stale keys, but the same nullifier pubkey: only the
-        // The viewing key rotates while the owner stays fixed.
+        // viewing key rotates.
         let mut stale = registered_record(owner, bump, &ShieldedKeypair::new_ed25519().unwrap());
         stale.nullifier_pubkey = keypair.nullifier_key.pubkey().unwrap();
         let rpc = SendMockRpc {
@@ -1199,7 +1169,7 @@ mod tests {
     fn ensure_registered_refuses_a_rotated_nullifier_pubkey() {
         let funding = Keypair::new();
         let keypair = ShieldedKeypair::new_ed25519().unwrap();
-        let owner = keypair.pubkey();
+        let owner = funding.pubkey();
         let (_pda, bump) = user_record_pda(&owner);
         let stale = registered_record(owner, bump, &ShieldedKeypair::new_ed25519().unwrap());
         let rpc = SendMockRpc {
@@ -1235,7 +1205,7 @@ mod tests {
     fn register_if_absent_is_current_when_matching() {
         let funding = Keypair::new();
         let keypair = ShieldedKeypair::new_ed25519().unwrap();
-        let owner = keypair.pubkey();
+        let owner = funding.pubkey();
         let (_pda, bump) = user_record_pda(&owner);
         let record = registered_record(owner, bump, &keypair);
         let rpc = SendMockRpc {
@@ -1251,7 +1221,7 @@ mod tests {
     fn register_if_absent_reports_mismatch_without_sending() {
         let funding = Keypair::new();
         let keypair = ShieldedKeypair::new_ed25519().unwrap();
-        let owner = keypair.pubkey();
+        let owner = funding.pubkey();
         let (_pda, bump) = user_record_pda(&owner);
         // A record exists but with a different identity's keys. Strict semantics
         // must surface the conflict and never send an update_keys transaction.
@@ -1303,12 +1273,6 @@ mod tests {
     fn fetch_viewing_key_owners_indexes_every_readable_record() {
         let first = Pubkey::new_unique();
         let second = Pubkey::new_unique();
-        let viewing = |seed| {
-            *zolana_keypair::X25519Secret::from_bytes(&[seed; 32])
-                .unwrap()
-                .pubkey()
-                .as_bytes()
-        };
         let unreadable = Account {
             lamports: 1,
             data: vec![0u8; UserRecord::SIZE],
@@ -1318,8 +1282,8 @@ mod tests {
         };
         let rpc = RegistryRpc {
             accounts: vec![
-                listed(account_for(&record_with_viewing_key(first, viewing(7)))),
-                listed(account_for(&record_with_viewing_key(second, viewing(8)))),
+                listed(account_for(&record_with_viewing_key(first, [7u8; 33]))),
+                listed(account_for(&record_with_viewing_key(second, [8u8; 33]))),
                 listed(unreadable),
             ],
         };
@@ -1328,38 +1292,7 @@ mod tests {
 
         // The record the discriminator rejects names no owner, the rest do.
         assert_eq!(owners.len(), 2);
-        assert_eq!(owners.get(&viewing(7)), Some(&first));
-        assert_eq!(owners.get(&viewing(8)), Some(&second));
-    }
-
-    #[test]
-    fn viewing_key_index_skips_unrelated_invalid_records() {
-        let owner = Pubkey::new_unique();
-        let other = Pubkey::new_unique();
-        let keypair = ShieldedKeypair::new_ed25519().unwrap();
-        let viewing = *keypair.viewing_pubkey().as_bytes();
-        let current = account_for(&record_with_viewing_key(owner, viewing));
-        let mut legacy_owner = account_for(&record_with_viewing_key(other, viewing));
-        legacy_owner.data[34] = 1;
-        assert!(decode_user_record_account(&legacy_owner).is_err());
-        let legacy_viewing = account_for(&record_with_viewing_key(other, [2; 33]));
-        // Bulk discovery skips this row, but resolving its owner still requires migration.
-        let record = decode_user_record_account(&legacy_viewing).unwrap();
-        assert!(resolved_address_from_record(other, &record).is_err());
-        let malformed_viewing = account_for(&record_with_viewing_key(other, [0; 33]));
-        let mut truncated = current.clone();
-        truncated.data.truncate(35);
-        let rpc = RegistryRpc {
-            accounts: vec![
-                listed(legacy_owner),
-                listed(current),
-                listed(legacy_viewing),
-                listed(malformed_viewing),
-                listed(truncated),
-            ],
-        };
-        let owners = fetch_viewing_key_owners(&rpc).unwrap();
-        assert_eq!(owners.len(), 1);
-        assert_eq!(owners.get(&viewing), Some(&owner));
+        assert_eq!(owners.get(&[7u8; 33]), Some(&first));
+        assert_eq!(owners.get(&[8u8; 33]), Some(&second));
     }
 }

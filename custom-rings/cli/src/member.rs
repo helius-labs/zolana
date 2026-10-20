@@ -103,7 +103,7 @@ mod tests {
         Base64String, Context as RegistryContext, GetRingMemberRecordRequest,
         GetRingMemberRecordResponse, Hash, RingLowRecordView, RingMemberRecordView,
     };
-    use zolana_keypair::X25519Secret;
+    use zolana_keypair::X25519Keypair;
     use zolana_ring_client::{NullifierKeyEnvelope, SealedNullifierKey};
     use zolana_ring_member_registry::{MemberRegistryTree, Opening};
 
@@ -251,7 +251,7 @@ mod tests {
         key_holder: &ShieldedKeypair,
     ) -> (RegistryRpc, StubIndexer) {
         let envelope =
-            NullifierKeyEnvelope::new(&key_holder.nullifier_key, &X25519Secret::new().pubkey())
+            NullifierKeyEnvelope::new(&key_holder.nullifier_key, &X25519Keypair::new().pubkey())
                 .unwrap();
         let escrow_key = EscrowKey {
             nullifier_pk: &envelope.nullifier_pk,

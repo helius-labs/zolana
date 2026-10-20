@@ -65,7 +65,7 @@ fn policy_hash(request: &Value) -> [u8; 32] {
 
 fn statement_hash(request: &Value) -> ([u8; 32], Value) {
     let tx = ViewingKey::from_canonical_bytes(&bytes::<32>(&request["txViewingSk"])).unwrap();
-    let ephemeral = X25519Secret::from_bytes(&bytes::<32>(&request["ephSk"])).unwrap();
+    let ephemeral = X25519Keypair::from_bytes(&bytes::<32>(&request["ephSk"]));
     let mut auditor_bytes = [4; 33];
     auditor_bytes[1..].copy_from_slice(&bytes::<32>(&request["auditorPk"]));
     let auditor = X25519Pubkey::from_bytes(auditor_bytes).unwrap();

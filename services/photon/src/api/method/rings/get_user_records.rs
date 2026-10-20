@@ -150,18 +150,15 @@ mod tests {
         UserRecordAccount {
             owner: owner.0,
             bump: user_record_pda(&owner.0).1,
-            reserved_owner: Default::default(),
             nullifier_pubkey: [3; 32],
             viewing_pubkey: [4; 33],
             merging_enabled: true,
         }
     }
 
-    /// The record preserves its fixed allocation and zero-padded tail.
     fn record_data(record: &UserRecordAccount) -> Vec<u8> {
         let mut data = vec![UserRecordAccount::DISCRIMINATOR];
         data.extend(borsh::to_vec(record).unwrap());
-        data.resize(UserRecordAccount::SIZE, 0);
         data
     }
 
@@ -274,20 +271,6 @@ mod tests {
             user_record(&owner, address, bump, &truncated),
             Err(PhotonApiError::UnexpectedError(message)) if message.contains("malformed")
         ));
-    }
-
-    #[test]
-    fn legacy_owner_records_are_errors_not_unregistered_owners() {
-        let owner = owner(1);
-        let (address, bump) = user_record_pda(&owner.0);
-        let mut legacy = record_account(&registered(&owner));
-        for reserved in [1, 2, 255] {
-            legacy.data[34] = reserved;
-            assert!(matches!(
-                user_record(&owner, address, bump, &legacy),
-                Err(PhotonApiError::UnexpectedError(message)) if message.contains("malformed")
-            ));
-        }
     }
 
     #[test]

@@ -199,7 +199,7 @@ impl LifecycleHarness {
             .actor(from)
             .solana_signer
             .as_ref()
-            .expect("lifecycle actors are eddsa-owned")
+            .expect("lifecycle actors are ed25519-owned")
             .insecure_clone();
         let payer_address = Address::new_from_array(fee_payer.pubkey().to_bytes());
         let sender_view_tag = from_keypair.signing_pubkey().confidential_view_tag()?;

@@ -24,9 +24,9 @@ func (signers Signers) ContainsEach(api frontend.API, identities []frontend.Vari
 	return signed
 }
 
-// ConfidentialEd25519Signers returns the private owner identities of content-bearing
+// ConfidentialEddsaSigners returns the private owner identities of content-bearing
 // inputs. Dummy inputs contribute zero.
-func ConfidentialEd25519Signers(api frontend.API, inputs []Input, ownerPkHashes []frontend.Variable) Signers {
+func ConfidentialEddsaSigners(api frontend.API, inputs []Input, ownerPkHashes []frontend.Variable) Signers {
 	signers := make(Signers, len(inputs))
 	for i, in := range inputs {
 		carriesContent := in.isUtxoOrAddress(api)
@@ -37,16 +37,16 @@ func ConfidentialEd25519Signers(api frontend.API, inputs []Input, ownerPkHashes 
 	return signers
 }
 
-// AuthorizedEd25519InputOwners resolves the private per-input owner identities and
+// AuthorizedEddsaInputOwners resolves the private per-input owner identities and
 // requires every content-bearing input to be authorized by the deduplicated
 // owner-signer vector. Paying fees alone does not authorize an input.
-func AuthorizedEd25519InputOwners(
+func AuthorizedEddsaInputOwners(
 	api frontend.API,
 	inputs []Input,
 	ownerPkHashes []frontend.Variable,
 	authorized Signers,
 ) Signers {
-	owners := ConfidentialEd25519Signers(api, inputs, ownerPkHashes)
+	owners := ConfidentialEddsaSigners(api, inputs, ownerPkHashes)
 	for i, in := range inputs {
 		carriesContent := in.isUtxoOrAddress(api)
 		assertZeroWhen(api, api.Sub(1, carriesContent), ownerPkHashes[i])
@@ -55,14 +55,15 @@ func AuthorizedEd25519InputOwners(
 	return owners
 }
 
-// HiddenOwnerSigners resolves a zero owner tag to the signature-checked hidden
-// owner. Nonzero tags must remain authorized public Solana signer identities.
+// HiddenOwnerSigners resolves the zero owner-tag sentinel to the hidden owner.
+// Non-zero tags remain Solana signer identities.
 func HiddenOwnerSigners(
 	api frontend.API,
 	inputs []Input,
 	ownerPkHashes []frontend.Variable,
 	authorizedEddsa Signers,
 	hiddenOwnerPkHash frontend.Variable,
+	hiddenSignatureValid frontend.Variable,
 ) Signers {
 	signers := make(Signers, len(inputs))
 	hasHiddenInput := frontend.Variable(0)
@@ -72,9 +73,7 @@ func HiddenOwnerSigners(
 		assertZeroWhen(api, api.Sub(1, carriesContent), ownerPkHashes[i])
 		pkHash := api.Select(isHidden, hiddenOwnerPkHash, ownerPkHashes[i])
 		AssertWhen(api, carriesContent, api.Sub(1, api.IsZero(pkHash)))
-		// The caller has already verified the hidden signature. This equality
-		// remains in the pinned circuit until its proving keys rotate.
-		AssertWhen(api, api.Mul(carriesContent, isHidden), 1)
+		AssertWhen(api, api.Mul(carriesContent, isHidden), hiddenSignatureValid)
 		AssertWhen(
 			api,
 			api.Mul(carriesContent, api.Sub(1, isHidden)),
@@ -83,27 +82,51 @@ func HiddenOwnerSigners(
 		hasHiddenInput = api.Add(hasHiddenInput, api.Mul(carriesContent, isHidden))
 		signers[i] = api.Mul(carriesContent, pkHash)
 	}
-	// This rail needs at least one hidden-owner input. Transfers with only
-	// public Solana signers use the confidential ring rail.
+	// AnonymousRingEddsa needs a hidden-owner input. Transactions with only
+	// public signers use ConfidentialRingEddsa.
 	api.AssertIsDifferent(hasHiddenInput, 0)
 	return signers
 }
 
-// AssertHiddenRingOwner keeps the hidden owner out of public data. An address
-// nullifier is computable from (owner, seed), so no slot may create an address.
-func AssertHiddenRingOwner(
+// AssertDefaultHiddenOwner publishes the hidden identity iff at least one
+// spent hidden-owner UTXO belongs to the default ring. Ring-only hidden inputs
+// keep the owner private and require the public field to be zero.
+//
+// A ring hidden input is an anonymous spend, so the identity must stay out of
+// the transaction's public data: no default-ring hidden input may force it
+// into defaultOwnerPkHash, and no published output owner tag may equal it.
+// Publishing the identity without a ring hidden input is allowed; moving a
+// default-ring UTXO into the ring names the depositor, not a ring spender.
+//
+// Address slots count as neither. An address has RingProgramID 0
+// (checkAddress), so treating it as a default-ring input would publish the
+// identity of a ring spender who creates an address in the same proof and
+// would forbid that combination. Creating an address spends nothing, so it
+// does not force the identity into public data; an address-only proof
+// publishes zero.
+func AssertDefaultHiddenOwner(
 	api frontend.API,
 	inputs []Input,
 	ownerPkHashes []frontend.Variable,
-	signers Signers,
-	hiddenOwner frontend.Variable,
+	publishedOutputOwnerPkHashes []frontend.Variable,
+	hiddenOwnerPkHash frontend.Variable,
+	defaultOwnerPkHash frontend.Variable,
 ) {
+	hasDefaultHidden := frontend.Variable(0)
+	hasRingHidden := frontend.Variable(0)
 	for i, in := range inputs {
-		api.AssertIsDifferent(in.Utxo.Domain, AddressDomain)
-		hidden := api.Mul(in.isUtxo(api), api.IsZero(ownerPkHashes[i]))
-		AssertWhen(api, hidden, api.Sub(1, api.IsZero(in.Utxo.RingProgramID)))
+		isHidden := api.IsZero(ownerPkHashes[i])
+		isDefaultRing := api.IsZero(in.Utxo.RingProgramID)
+		realHidden := api.Mul(in.isUtxo(api), isHidden)
+		hasDefaultHidden = api.Add(hasDefaultHidden, api.Mul(realHidden, isDefaultRing))
+		hasRingHidden = api.Add(hasRingHidden, api.Mul(realHidden, api.Sub(1, isDefaultRing)))
 	}
-	for _, signer := range signers {
-		api.AssertIsDifferent(signer, hiddenOwner)
+	hasDefaultHidden = api.Sub(1, api.IsZero(hasDefaultHidden))
+	hasRingHidden = api.Sub(1, api.IsZero(hasRingHidden))
+	api.AssertIsEqual(defaultOwnerPkHash, api.Mul(hasDefaultHidden, hiddenOwnerPkHash))
+
+	api.AssertIsEqual(api.Mul(hasRingHidden, hasDefaultHidden), 0)
+	for _, published := range publishedOutputOwnerPkHashes {
+		assertZeroWhen(api, hasRingHidden, api.IsZero(api.Sub(published, hiddenOwnerPkHash)))
 	}
 }

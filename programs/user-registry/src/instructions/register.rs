@@ -46,7 +46,6 @@ pub fn process_register(
     let state = UserRecord {
         owner: (*owner_address.as_array()).into(),
         bump,
-        reserved_owner: data.reserved_owner,
         nullifier_pubkey: data.nullifier_pubkey,
         viewing_pubkey: data.viewing_pubkey,
         merging_enabled: false,

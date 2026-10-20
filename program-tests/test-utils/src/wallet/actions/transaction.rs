@@ -1141,7 +1141,6 @@ mod tests {
         let record = UserRecord {
             owner: owner.to_bytes().into(),
             bump,
-            reserved_owner: Default::default(),
             nullifier_pubkey: recipient.nullifier_key.pubkey().unwrap(),
             viewing_pubkey: *recipient.viewing_pubkey().as_bytes(),
             merging_enabled: false,
@@ -1186,7 +1185,6 @@ mod tests {
         let record = UserRecord {
             owner: owner.to_bytes().into(),
             bump,
-            reserved_owner: Default::default(),
             nullifier_pubkey: recipient.nullifier_key.pubkey().unwrap(),
             viewing_pubkey: *recipient.viewing_pubkey().as_bytes(),
             merging_enabled: false,
@@ -2060,7 +2058,6 @@ mod tests {
         let record = UserRecord {
             owner: owner.to_bytes().into(),
             bump,
-            reserved_owner: Default::default(),
             nullifier_pubkey: recipient.nullifier_key.pubkey().unwrap(),
             viewing_pubkey: *recipient.viewing_pubkey().as_bytes(),
             merging_enabled: false,

@@ -56,14 +56,8 @@ so a full merge still fits one transaction with the ciphertext.
   - Severity: High
   - Suggested test: negative; harness: mollusk unit
 
-- [x] **INV-MERGE-05: retired owner scheme is rejected**
-  - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `merge_rejects_the_reserved_owner_rail`
-  - Kind: precondition
-  - Statement: the retained `eddsa_owner` flag must be true. Registry records with a nonzero reserved owner byte are rejected.
-  - Location: `programs/shielded-pool/src/instructions/merge/account.rs:77-79` (`fn load_user_record`)
-  - Error: `ShieldedPoolError::InvalidUserRecord = 7018`
-  - Severity: High
-  - Suggested test: negative; harness: mollusk unit
+- [ ] **INV-MERGE-05: retired owner scheme is rejected**
+  - Not applicable post-PR164, the registry record holds only the Ed25519 `owner` and merge instruction data selects no owner scheme.
 
 - [x] **INV-MERGE-18: merge account layout — two trees, signer payer, system program**
   - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `rejects_invalid_system_program_with_specific_error`
@@ -351,7 +345,7 @@ is supplied, so a cached spend verifies against its rail's ordinary verifying ke
 and no standalone cached circuit exists
 (`program-libs/interface/src/verifying_keys/circuit.rs`, `fn CircuitId::uncached`).
 `CircuitId` carries one cached twin per owner-signed rail --
-`ConfidentialEd25519Cached`, `ConfidentialRingEd25519Cached` -- and
+`ConfidentialEddsaCached`, `ConfidentialRingEddsaCached` -- and
 `RingAuthority` has none, because its circuit binds no selection. INV-MERGE-23
 records why the spend needs no identity check; its `CacheSlotEmpty`,
 `InvalidCacheBitmap` and `InvalidCacheRootIndex` legs are pinned there rather

@@ -9,7 +9,7 @@ use zolana_indexer_api::{
     Base64String, Context, GetRingMemberRecordResponse, Hash, RingLowRecordView,
     RingMemberRecordView,
 };
-use zolana_keypair::{NullifierKey, X25519Secret};
+use zolana_keypair::{NullifierKey, X25519Keypair};
 use zolana_ring_client::{NullifierKeyEnvelope, SealedNullifierKey};
 use zolana_ring_member_registry::{MemberRegistryTree, Opening};
 use zolana_ring_policy::{ListId, ListSet, Member};
@@ -165,7 +165,7 @@ fn a_substituted_record_root_or_path_is_refused() {
 
 #[test]
 fn a_registered_key_opens_to_the_auditor_and_verifies_by_public_key() {
-    let auditor = X25519Secret::new();
+    let auditor = X25519Keypair::new();
     let nullifier_key = NullifierKey::from_secret([7; 31]);
     let envelope = NullifierKeyEnvelope::new(&nullifier_key, &auditor.pubkey()).unwrap();
     let escrow_key = EscrowKey {
@@ -196,7 +196,7 @@ fn a_registered_key_opens_to_the_auditor_and_verifies_by_public_key() {
         Err(RingError::InvalidRecordOpening)
     ));
     assert!(matches!(
-        entry.open(&X25519Secret::new()),
+        entry.open(&X25519Keypair::new()),
         Err(RingError::Audit(_) | RingError::InvalidRecordOpening)
     ));
 }
@@ -290,7 +290,7 @@ fn writes_that_change_nothing_or_conflict_are_refused() {
 
 #[test]
 fn a_registration_inserts_or_rewrites_as_the_reference_tree_does() {
-    let auditor = X25519Secret::new();
+    let auditor = X25519Keypair::new();
     let nullifier_key = NullifierKey::from_secret([7; 31]);
     let envelope = NullifierKeyEnvelope::new(&nullifier_key, &auditor.pubkey()).unwrap();
     let escrow_key = EscrowKey {
@@ -341,7 +341,7 @@ fn a_registration_inserts_or_rewrites_as_the_reference_tree_does() {
 
 #[test]
 fn a_second_registration_is_refused_before_proving() {
-    let auditor = X25519Secret::new();
+    let auditor = X25519Keypair::new();
     let nullifier_key = NullifierKey::from_secret([7; 31]);
     let envelope = NullifierKeyEnvelope::new(&nullifier_key, &auditor.pubkey()).unwrap();
     let mut tree = MemberRegistryTree::new().unwrap();

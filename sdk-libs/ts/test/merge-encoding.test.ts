@@ -32,7 +32,6 @@ const data: MergeTransactInstructionData = {
   outputUtxoHash: field(9),
   outputCiphertextSalt: copyBytes(new Uint8Array(16).fill(5), 16) as Bytes16,
   outputCiphertext: [field(6), field(7), field(8)],
-  eddsaOwner: false,
   privateTxHash: field(3),
   nullifiers: Array.from({ length: MERGE_INPUT_COUNT }, (_, index) => field(index)),
   utxoTreeRootIndex: 4,
@@ -46,7 +45,7 @@ describe("shared merge encoding", () => {
       ...data,
       cacheSlot: vector.cached.cache_slot,
     });
-    expect(encoded).toHaveLength(1152);
+    expect(encoded).toHaveLength(1151);
     expect(Array.from(encoded.slice(-2))).toEqual([1, vector.cached.cache_slot]);
     expect(hex(sha256(encoded))).toBe(vector.cached.instruction_sha256);
     expect(
@@ -81,7 +80,7 @@ describe("shared merge encoding", () => {
 
   it("matches the Rust plain-merge encoding and external hash", () => {
     const encoded = encodeMergeTransactInstructionData(data);
-    expect(encoded).toHaveLength(1151);
+    expect(encoded).toHaveLength(1150);
     expect(encoded.at(-1)).toBe(0);
     expect(hex(sha256(encoded))).toBe(vector.instruction_sha256);
     expect(

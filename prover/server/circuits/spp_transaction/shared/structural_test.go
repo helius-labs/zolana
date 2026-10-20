@@ -34,21 +34,21 @@ func structuralRails(t testing.TB) []structuralRail {
 	key := publicKeyBytes(owner)
 	rails := []structuralRail{
 		{name: "default", new: func(t testing.TB) *testAssignment {
-			return buildDefaultRingConfidentialEd25519Assignment(t, shape)
+			return buildDefaultRingConfidentialEddsaAssignment(t, shape)
 		}, statement: func(t testing.TB, a *testAssignment) frontend.Circuit {
 			refreshDefaultRingPublicInputHash(t, a)
-			return asDefaultRingConfidentialEd25519(a)
+			return asDefaultRingConfidentialEddsa(a)
 		}},
 		{name: "custom", new: func(t testing.TB) *testAssignment {
 			return buildCircuitAssignment(t, shape)
 		}, statement: func(t testing.TB, a *testAssignment) frontend.Circuit {
 			refreshPublicInputHash(t, a)
-			return asCustomRingConfidentialEd25519(a)
+			return asCustomRingConfidentialEddsa(a)
 		}},
 		{name: "anonymous", anonymous: true, new: func(t testing.TB) *testAssignment {
-			return ed25519RingAssignment(t, shape, hiddenOwnerIdentity(t, key))
+			return eddsaRingAssignment(t, shape, hiddenOwnerIdentity(t, key))
 		}, statement: func(t testing.TB, a *testAssignment) frontend.Circuit {
-			return asCustomRingAnonymousEd25519(a, authorizeEd25519(t, a, key, owner))
+			return asCustomRingAnonymousEddsa(a, authorizeEddsaKey(t, a, key, owner))
 		}},
 		{name: "authority", authority: true, new: func(t testing.TB) *testAssignment {
 			return buildRingAuthorityAssignment(t, shape)
@@ -60,15 +60,15 @@ func structuralRails(t testing.TB) []structuralRail {
 	for i := range rails {
 		rail := &rails[i]
 		if rail.anonymous {
-			rail.ccs = compileEd25519Ring(t, shape)
+			rail.ccs = compileEddsaRing(t, shape)
 			continue
 		}
 		var c frontend.Circuit
 		switch rail.name {
 		case "default":
-			c = MustNewDefaultRingConfidentialEd25519Circuit(Shape(shape))
+			c = MustNewDefaultRingConfidentialEddsaCircuit(Shape(shape))
 		case "custom":
-			c = MustNewCustomRingConfidentialEd25519Circuit(Shape(shape))
+			c = MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
 		case "authority":
 			c = MustNewCustomRingAuthorityCircuit(Shape(shape))
 		}
@@ -216,7 +216,7 @@ func TestTransferStructuralInvariantsAcrossRails(t *testing.T) {
 				t.Run("message_hash_limb_canonicality", func(t *testing.T) {
 					for _, high := range []bool{false, true} {
 						a := rail.new(t)
-						c := rail.statement(t, a).(*customring.CustomRingAnonymousEd25519Circuit)
+						c := rail.statement(t, a).(*customring.CustomRingAnonymousEddsaCircuit)
 						limb := &c.Public.MessageHashLow
 						if high {
 							limb = &c.Public.MessageHashHigh

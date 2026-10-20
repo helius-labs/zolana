@@ -25,7 +25,7 @@ func TestExportAeglosTransferFixtures(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, shape := range protocol.SupportedShapes {
-		for _, family := range []string{"transfer_ring", "transfer_confidential", "transfer_ring_authority"} {
+		for _, family := range []string{"transfer_ring", "transfer_confidential", "transfer_eddsa_ring", "transfer_ring_authority"} {
 			name := fmt.Sprintf("%s_%d_%d.key", family, shape.NInputs, shape.NOutputs)
 			if _, ok := manifest.Keys[name]; !ok {
 				continue
@@ -34,7 +34,7 @@ func TestExportAeglosTransferFixtures(t *testing.T) {
 				var assignment *testAssignment
 				switch family {
 				case "transfer_confidential":
-					assignment = buildDefaultRingConfidentialEd25519Assignment(t, shape)
+					assignment = buildDefaultRingConfidentialEddsaAssignment(t, shape)
 				case "transfer_ring_authority":
 					assignment = buildRingAuthorityAssignment(t, shape)
 				default:
@@ -45,16 +45,23 @@ func TestExportAeglosTransferFixtures(t *testing.T) {
 				var circuit frontend.Circuit
 				switch family {
 				case "transfer_ring":
-					circuit = asCustomRingConfidentialEd25519(assignment)
-					circuit.(*customring.CustomRingConfidentialEd25519Circuit).Shape = assignment.Shape
+					circuit = asCustomRingConfidentialEddsa(assignment)
+					circuit.(*customring.CustomRingConfidentialEddsaCircuit).Shape = assignment.Shape
 				case "transfer_confidential":
 					refreshDefaultRingPublicInputHash(t, assignment)
-					circuit = asDefaultRingConfidentialEd25519(assignment)
-					circuit.(*defaultring.DefaultRingConfidentialEd25519Circuit).Shape = assignment.Shape
+					circuit = asDefaultRingConfidentialEddsa(assignment)
+					circuit.(*defaultring.DefaultRingConfidentialEddsaCircuit).Shape = assignment.Shape
 				case "transfer_ring_authority":
 					refreshRingAuthorityPublicInputHash(t, assignment)
 					circuit = asCustomRingAuthority(assignment)
 					circuit.(*customring.CustomRingAuthorityCircuit).Shape = assignment.Shape
+				case "transfer_eddsa_ring":
+					owner := hiddenOwnerKey(11)
+					rewriteInputAsHiddenOwner(t, assignment, 0, owner)
+					authorization := authorizeEddsa(t, assignment, owner, owner)
+					anonymous := asCustomRingAnonymousEddsa(assignment, authorization)
+					anonymous.Shape = assignment.Shape
+					circuit = anonymous
 				}
 				aeglosfixture.Write(t, name, variant, circuit)
 			}

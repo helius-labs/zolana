@@ -8,7 +8,7 @@ use zolana_ring_policy::{
     SourceMapError,
 };
 
-use crate::{error::CustomRingError, ReaderKeyBytes, TAGGED_X25519_KEY_LEN, VIEWING_PUBKEY_TAG};
+use crate::{error::CustomRingError, ReaderKeyBytes, TAGGED_X25519_KEY_LEN};
 
 pub const MAX_CO_SIGNER_THRESHOLDS: usize = 8;
 /// Roots a transfer proof may bind, registrations in between leave it provable.
@@ -180,11 +180,6 @@ impl RingProgramConfig {
             2 => Some(RingMode::Anonymous),
             _ => None,
         }
-    }
-
-    /// Only an X25519 auditor key can receive a proven disclosure.
-    pub const fn has_legacy_auditor_key(&self) -> bool {
-        self.auditor_pubkey[0] != VIEWING_PUBKEY_TAG
     }
 }
 

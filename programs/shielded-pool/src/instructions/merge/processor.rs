@@ -72,7 +72,7 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
     let merge_accounts =
         MergeTransactAccounts::validate_and_parse(accounts, ix.nullifiers.len(), ix.cache_slot)?;
 
-    let pk_fields = load_user_record(merge_accounts.user_record, ix.eddsa_owner)?;
+    let pk_fields = load_user_record(merge_accounts.user_record)?;
 
     // Per-user merge opt-in: the owner must have enabled merging. Any caller may
     // then run the merge.

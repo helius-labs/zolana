@@ -190,7 +190,6 @@ impl PreparedCustomRingMerge {
                     output_utxo_hash: [0; 32],
                     output_ciphertext_salt: self.inner.output_ciphertext_salt,
                     output_ciphertext: self.inner.output_ciphertext,
-                    eddsa_owner: false,
                     private_tx_hash: [0; 32],
                     nullifiers: self
                         .inner

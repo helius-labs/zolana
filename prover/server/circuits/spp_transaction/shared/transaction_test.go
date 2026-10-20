@@ -211,10 +211,10 @@ func (a *testAssignment) outputNullifierPks() []frontend.Variable {
 	return out
 }
 
-func asCustomRingConfidentialEd25519(a *testAssignment) frontend.Circuit {
-	return &customring.CustomRingConfidentialEd25519Circuit{
+func asCustomRingConfidentialEddsa(a *testAssignment) frontend.Circuit {
+	return &customring.CustomRingConfidentialEddsaCircuit{
 		CachedInputs: a.CachedInputs,
-		Public: customring.CustomRingConfidentialEd25519Public{
+		Public: customring.CustomRingConfidentialEddsaPublic{
 			Nullifiers:                   a.InputNullifiers(),
 			OutputHashes:                 a.OutputHashes(),
 			TreeSlots:                    a.TreeSlots,
@@ -229,7 +229,7 @@ func asCustomRingConfidentialEd25519(a *testAssignment) frontend.Circuit {
 			PublishedOutputOwnerPkHashes: a.PublishedOutputOwnerPkHashes(),
 			PublicInputHash:              a.PublicInputHash,
 		},
-		Private: customring.CustomRingConfidentialEd25519Private{
+		Private: customring.CustomRingConfidentialEddsaPrivate{
 			Inputs:              a.coreInputs(),
 			InputOwnerPkHashes:  a.InputOwnerPkHashes(),
 			Outputs:             a.outputUtxos(),
@@ -265,10 +265,10 @@ func asCustomRingAuthority(a *testAssignment) frontend.Circuit {
 	}
 }
 
-func asDefaultRingConfidentialEd25519(a *testAssignment) frontend.Circuit {
-	return &defaultring.DefaultRingConfidentialEd25519Circuit{
+func asDefaultRingConfidentialEddsa(a *testAssignment) frontend.Circuit {
+	return &defaultring.DefaultRingConfidentialEddsaCircuit{
 		CachedInputs: a.CachedInputs,
-		Public: defaultring.DefaultRingConfidentialEd25519Public{
+		Public: defaultring.DefaultRingConfidentialEddsaPublic{
 			Nullifiers:          a.InputNullifiers(),
 			OutputHashes:        a.OutputHashes(),
 			TreeSlots:           a.TreeSlots,
@@ -282,7 +282,7 @@ func asDefaultRingConfidentialEd25519(a *testAssignment) frontend.Circuit {
 			OutputOwnerPkHashes: a.OutputOwnerPkHashes(),
 			PublicInputHash:     a.PublicInputHash,
 		},
-		Private: defaultring.DefaultRingConfidentialEd25519Private{
+		Private: defaultring.DefaultRingConfidentialEddsaPrivate{
 			Inputs:             a.coreInputs(),
 			InputOwnerPkHashes: a.InputOwnerPkHashes(),
 			Outputs:            a.outputUtxos(),

@@ -260,19 +260,10 @@ export function decodeUserRecordsResponse(value: unknown): GetUserRecordsRespons
 function userRecord(value: unknown, path: string): UserRecord {
   const record = object(value, path, [
     "owner",
-    "ownerP256",
     "nullifierPubkey",
     "viewingPubkey",
     "mergingEnabled",
   ]);
-  if (record["ownerP256"] !== undefined && record["ownerP256"] !== null) {
-    return schemaFailure(
-      "INDEXER_SCHEMA_INVALID_TYPE",
-      `${path}.ownerP256`,
-      "null",
-      record["ownerP256"],
-    );
-  }
   return {
     owner: checkedAddress(record["owner"], `${path}.owner`),
     nullifierPubkey: checkedHash(record["nullifierPubkey"], `${path}.nullifierPubkey`),

@@ -56,7 +56,6 @@ fn record_account(owner: Address, keypair: &ShieldedKeypair) -> Account {
     let record = UserRecord {
         owner,
         bump: user_record_pda(&owner).1,
-        reserved_owner: Default::default(),
         nullifier_pubkey: address.nullifier_pubkey,
         viewing_pubkey: *address.viewing_pubkey.as_bytes(),
         merging_enabled: true,
@@ -112,7 +111,7 @@ fn witnesses(state: Address, nullifier: Address, dummy: Address) -> InputWitness
 #[test]
 fn a_witness_proof_from_another_tree_than_the_inputs_is_refused() {
     let sender = ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&[7u8; 32]))
-        .expect("eddsa sender keypair");
+        .expect("ed25519 sender keypair");
     let address = sender.shielded_address().expect("address");
     let owner = Address::new_from_array(address.signing_pubkey.as_ed25519().expect("ed25519"));
     let inputs = (0..2)

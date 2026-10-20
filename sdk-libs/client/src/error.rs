@@ -185,10 +185,8 @@ pub enum ClientError {
     #[error("input {index} is not Solana-owned")]
     EddsaInputNotSolanaOwned { index: usize },
 
-    /// The anonymous rail publishes no output owner, so a real output outside
-    /// the signing ring is only provable as an unspendable burn.
-    #[error("anonymous ring output {index} is not a note of the signing ring")]
-    AnonymousOutputNotInRing { index: usize },
+    #[error("the anonymous ring proof requires at least one real input of the hidden owner")]
+    AnonymousProofWithoutHiddenInput,
 
     #[error(
         "outputs and resolved owner tags must have equal lengths: {outputs} outputs, {owner_tags} owner tags"
@@ -456,6 +454,16 @@ pub enum ClientError {
 
     #[error("an input is hashed under pool tree id {tree_id}, which no input tree of this proof resolves roots for")]
     InputTreeUnresolved { tree_id: u16 },
+
+    #[error(
+        "a proof cannot input_utxo both a default-ring and a ring-bound UTXO of the hidden owner: the ring input_utxo would name the hidden owner"
+    )]
+    AnonymousRingEddsaMixedDefaultAndRingSpend,
+
+    #[error(
+        "published output owner {index} equals the hidden owner identity while a ring-bound UTXO of the hidden owner is spent"
+    )]
+    AnonymousRingEddsaPublishedOwnerLeaksIdentity { index: usize },
 
     #[error(
         "input {index} is not a real input_utxo, and this transaction forbids dummy input slots"

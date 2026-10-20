@@ -16,7 +16,7 @@ import (
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 	"github.com/helius-labs/zolana/prover/server/prover/common"
-	transfer "github.com/helius-labs/zolana/prover/server/prover/transfer_eddsa_only"
+	transfer "github.com/helius-labs/zolana/prover/server/prover/transfer_eddsa"
 )
 
 const requestFixture = "../../../prover/request/testdata/transfer-2x2.json"
@@ -26,11 +26,11 @@ const requestFixture = "../../../prover/request/testdata/transfer-2x2.json"
 //	UPDATE_REQUEST_FIXTURE=1 go test ./circuits/spp_transaction/shared -run TestRequestFixture
 func TestRequestFixture(t *testing.T) {
 	cryptotest.SetGlobalRandom(t, 0)
-	assignment := buildDefaultRingConfidentialEd25519Assignment(t, protocol.Shape{NInputs: 2, NOutputs: 2})
+	assignment := buildDefaultRingConfidentialEddsaAssignment(t, protocol.Shape{NInputs: 2, NOutputs: 2})
 	assignment.BlindingSeed = big.NewInt(800)
 	rebuildAfterOwnerChange(t, assignment)
 	refreshDefaultRingPublicInputHash(t, assignment)
-	circuit := asDefaultRingConfidentialEd25519(assignment).(*defaultring.DefaultRingConfidentialEd25519Circuit)
+	circuit := asDefaultRingConfidentialEddsa(assignment).(*defaultring.DefaultRingConfidentialEddsaCircuit)
 	circuit.Shape = assignment.Shape
 
 	data, err := json.Marshal(requestParameters(circuit))
@@ -68,7 +68,7 @@ func TestRequestFixture(t *testing.T) {
 }
 
 // requestParameters inverts TransferParameters.CreateWitness for the default ring.
-func requestParameters(c *defaultring.DefaultRingConfidentialEd25519Circuit) *transfer.TransferParameters {
+func requestParameters(c *defaultring.DefaultRingConfidentialEddsaCircuit) *transfer.TransferParameters {
 	value := spptest.AsBigInt
 	values := spptest.ToBigInts
 	p := &transfer.TransferParameters{

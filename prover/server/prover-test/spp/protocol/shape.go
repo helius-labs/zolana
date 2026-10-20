@@ -78,25 +78,6 @@ var SupportedShapes = []Shape{
 	{NInputs: 49, NOutputs: 2},
 }
 
-// AnonymousRingEd25519Shapes are the shapes the anonymous ring rail has keys for,
-// mirroring ANONYMOUS_RING_ED25519_SHAPES in program-libs/interface/src/shape.rs.
-var AnonymousRingEd25519Shapes = []Shape{
-	{NInputs: 1, NOutputs: 2},
-	{NInputs: 1, NOutputs: 4},
-	{NInputs: 2, NOutputs: 2},
-	{NInputs: 2, NOutputs: 4},
-	{NInputs: 3, NOutputs: 2},
-	{NInputs: 3, NOutputs: 4},
-	{NInputs: 4, NOutputs: 2},
-	{NInputs: 4, NOutputs: 4},
-	{NInputs: 5, NOutputs: 2},
-	{NInputs: 5, NOutputs: 4},
-	{NInputs: 6, NOutputs: 2},
-	{NInputs: 6, NOutputs: 4},
-	{NInputs: 8, NOutputs: 2},
-	{NInputs: 12, NOutputs: 2},
-}
-
 // AutoShapes is the smallest-fit search order. Every supported shape is
 // reachable by automatic selection, so it is the full SupportedShapes list.
 var AutoShapes = SupportedShapes

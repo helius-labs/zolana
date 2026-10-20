@@ -12,7 +12,7 @@ import (
 
 	"github.com/helius-labs/zolana/prover/server/prover/common"
 	"github.com/helius-labs/zolana/prover/server/prover/indexed"
-	transfer "github.com/helius-labs/zolana/prover/server/prover/transfer_eddsa_only"
+	transfer "github.com/helius-labs/zolana/prover/server/prover/transfer_eddsa"
 )
 
 func servedKeys(t *testing.T, patterns ...string) *ServedKeys {
@@ -35,6 +35,7 @@ func TestServedKeysMatchPatternsOverKeyNames(t *testing.T) {
 	served := servedKeys(t, "*_49_*", "*_52_*", "batch_address-append_40_4999")
 	for file, want := range map[string]bool{
 		"transfer_old_ring_49_2.key":       false,
+		"transfer_eddsa_ring_49_2.key":     true,
 		"merge_52_1.key":                   true,
 		"batch_address-append_40_4999.key": true,
 		"transfer_confidential_1_2.key":    false,

@@ -30,8 +30,8 @@ use zolana_hasher::{
 };
 use zolana_interface::{
     instruction::instruction_data::transact::{
-        Bsb22Commitment, CircuitId, InputUtxo, OwnerTag, TransactIxData, TransactIxDataRef,
-        TransactOutput, TransactProof as ProofData, TreeContext,
+        AnonymousRingEddsaProofData, Bsb22Commitment, CircuitId, InputUtxo, OwnerTag,
+        TransactIxData, TransactIxDataRef, TransactOutput, TransactProof as ProofData, TreeContext,
     },
     state::cache::empty_cached_input_fields,
     tree_slot::{tree_id_field, tree_slots_hash_chain, TreeSlot},
@@ -249,7 +249,7 @@ fn ix_data(circuit: CircuitId) -> TransactIxData {
 
 fn derived_inputs(unique_signers: u8) -> TransactProofInputs {
     let mut derived =
-        TransactProofInputs::new(CircuitId::ConfidentialEd25519(2, 3, N_PUBLIC_SLOTS as u8));
+        TransactProofInputs::new(CircuitId::ConfidentialEddsa(2, 3, N_PUBLIC_SLOTS as u8));
     derived.external_data_hash = small_fe(0x62);
     derived.ring_program_id = small_fe(0x64);
     derived.input_flags = small_fe(1);
@@ -281,11 +281,11 @@ fn derived_inputs(unique_signers: u8) -> TransactProofInputs {
 #[test]
 fn program_assembly_matches_the_go_ordering_on_every_variant() {
     for (circuit, signer_width, unique_signers, binds_output_owners) in [
-        (CircuitId::ConfidentialEd25519(2, 4, 3), 3usize, 2u8, true),
-        (CircuitId::ConfidentialRingEd25519(2, 4, 3), 3, 2, true),
+        (CircuitId::ConfidentialEddsa(2, 4, 3), 3usize, 2u8, true),
+        (CircuitId::ConfidentialRingEddsa(2, 4, 3), 3, 2, true),
         (CircuitId::RingAuthority(2, 2, 3), 1, 1, false),
-        (CircuitId::ConfidentialEd25519(32, 2, 3), 29, 29, true),
-        (CircuitId::ConfidentialRingEd25519(49, 2, 3), 12, 1, true),
+        (CircuitId::ConfidentialEddsa(32, 2, 3), 29, 29, true),
+        (CircuitId::ConfidentialRingEddsa(49, 2, 3), 12, 1, true),
     ] {
         let owned = ix_data(circuit);
         let bytes = owned.serialize().expect("serialize transact ix");
@@ -362,7 +362,7 @@ fn program_assembly_matches_the_go_ordering_on_every_variant() {
 /// leaves zero for unsent outputs.
 #[test]
 fn compact_program_assembly_matches_the_go_ordering() {
-    let circuit = CircuitId::ConfidentialEd25519(2, 3, 3);
+    let circuit = CircuitId::ConfidentialEddsa(2, 3, 3);
     let mut owned = ix_data(circuit);
     owned.inputs.truncate(1);
     owned.outputs.truncate(1);
@@ -434,13 +434,12 @@ fn compact_program_assembly_matches_the_go_ordering() {
     assert_eq!(proof.public_input_hash().expect("assembly"), clone.hash());
 }
 
-/// The program assembles the AnonymousRingEd25519 public input hash the circuit proves
-/// for the committed Go request of `TestCustomRingAnonymousEd25519RequestFixture`, including
-/// the zero default owner and zero published output owners.
+/// The program assembles the AnonymousRingEddsa public input hash the circuit proves
+/// for the committed Go request of `TestCustomRingAnonymousEddsaRequestFixture`.
 #[test]
-fn anonymous_ring_ed25519_assembly_matches_the_go_request_fixture() {
+fn anonymous_ring_eddsa_assembly_matches_the_go_request_fixture() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../prover/server/prover/transfer_eddsa_only/testdata/ed25519-ring-2x2.json");
+        .join("../../prover/server/prover/transfer_eddsa/testdata/eddsa-ring-2x2.json");
     let request: Value = serde_json::from_str(&fs::read_to_string(&path).expect("read fixture"))
         .expect("parse fixture");
     let entries = |key: &str| -> Vec<Value> {
@@ -450,13 +449,21 @@ fn anonymous_ring_ed25519_assembly_matches_the_go_request_fixture() {
             .unwrap_or_else(|| panic!("fixture list {key}"))
             .clone()
     };
-    let circuit = CircuitId::AnonymousRingEd25519(
+    let default_owner_tag = request
+        .get("defaultOwnerPkHash")
+        .map(fe)
+        .filter(|hash| *hash != [0u8; 32])
+        .map(|_| fe_at(&request, "ownerPublicKey"));
+    let circuit = CircuitId::AnonymousRingEddsa(
         2,
         2,
         3,
-        Bsb22Commitment {
-            commitment: [0u8; 32],
-            commitment_pok: [0u8; 32],
+        AnonymousRingEddsaProofData {
+            bsb22_commitment: Bsb22Commitment {
+                commitment: [0u8; 32],
+                commitment_pok: [0u8; 32],
+            },
+            default_owner_tag,
         },
     );
     let private_tx_hash = fe_at(&request, "privateTxHash");

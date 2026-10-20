@@ -36,7 +36,7 @@ use zolana_interface::{
     event::{ring_confidential_encrypted_output_body, OutputDataEncoding},
     instruction::MessageData,
 };
-use zolana_keypair::{constants::SALT_LEN, ViewingKey, X25519Pubkey, X25519Secret};
+use zolana_keypair::{constants::SALT_LEN, ViewingKey, X25519Keypair, X25519Pubkey};
 use zolana_ring_client::{
     auditor_view_tag, AnonymousDisclosure, AnonymousOutputOpening, AuditError, AuditInputOpening,
     AuditedOutput, AuditedTransaction, AuditorEncryption, RingOrigin, RingScan, TransactionAudit,
@@ -237,7 +237,7 @@ fn free_form_message() -> MessageData {
 
 #[test]
 fn audit_returns_the_amounts_assets_and_blindings_that_were_encrypted() {
-    let auditor = X25519Secret::new();
+    let auditor = X25519Keypair::new();
     let tx_key = ViewingKey::new();
     let recipient_one = ViewingKey::new();
     let recipient_two = ViewingKey::new();
@@ -308,7 +308,7 @@ fn audit_returns_the_amounts_assets_and_blindings_that_were_encrypted() {
 
 #[test]
 fn anonymous_audit_recovers_the_hidden_recipient_and_checks_the_commitment() {
-    let auditor = X25519Secret::new();
+    let auditor = X25519Keypair::new();
     let tx_key = ViewingKey::new();
     let recipient = ViewingKey::new();
     let ring = Address::new_from_array([9u8; 32]);
@@ -334,6 +334,7 @@ fn anonymous_audit_recovers_the_hidden_recipient_and_checks_the_commitment() {
     .expect("ring opening");
     let message = Confidential::encode_ring_anonymous_plaintext(
         &plaintext,
+        recipient.pubkey().u(),
         &ConfidentialEncode {
             tx: tx_key.clone(),
             recipient_pubkey: recipient.pubkey(),
@@ -343,7 +344,7 @@ fn anonymous_audit_recovers_the_hidden_recipient_and_checks_the_commitment() {
     )
     .expect("anonymous output");
     let slot = OutputSlot {
-        view_tag: [0; 32],
+        view_tag: message.view_tag,
         output_context: output_context(&opening, 0),
         payload: message.data,
     };
@@ -407,7 +408,7 @@ fn anonymous_audit_recovers_the_hidden_recipient_and_checks_the_commitment() {
 
 #[test]
 fn ring_owned_output_keeps_its_ring_program_id() {
-    let auditor = X25519Secret::new();
+    let auditor = X25519Keypair::new();
     let tx_key = ViewingKey::new();
     let recipient = ViewingKey::new();
     let ring_program_id = Address::new_from_array([0x5a; 32]);
@@ -449,7 +450,7 @@ fn ring_owned_output_keeps_its_ring_program_id() {
 /// `output_slots` counted over ALL slots, exactly as the encoder counts it.
 #[test]
 fn dummy_and_foreign_slots_are_reported_not_fatal() {
-    let auditor = X25519Secret::new();
+    let auditor = X25519Keypair::new();
     let tx_key = ViewingKey::new();
     let recipient_one = ViewingKey::new();
     let recipient_two = ViewingKey::new();
@@ -509,7 +510,7 @@ fn dummy_and_foreign_slots_are_reported_not_fatal() {
 /// why the counting rule above is load bearing.
 #[test]
 fn slot_encrypted_at_another_index_does_not_decrypt() {
-    let auditor = X25519Secret::new();
+    let auditor = X25519Keypair::new();
     let tx_key = ViewingKey::new();
     let recipient = ViewingKey::new();
 
@@ -539,8 +540,8 @@ fn slot_encrypted_at_another_index_does_not_decrypt() {
 
 #[test]
 fn another_auditor_key_finds_no_message() {
-    let auditor = X25519Secret::new();
-    let stranger = X25519Secret::new();
+    let auditor = X25519Keypair::new();
+    let stranger = X25519Keypair::new();
     let tx_key = ViewingKey::new();
     let recipient = ViewingKey::new();
 
@@ -568,8 +569,8 @@ fn another_auditor_key_finds_no_message() {
 /// it.
 #[test]
 fn message_encrypted_to_another_key_fails_the_integrity_check() {
-    let auditor = X25519Secret::new();
-    let other_auditor = X25519Secret::new();
+    let auditor = X25519Keypair::new();
+    let other_auditor = X25519Keypair::new();
     let tx_key = ViewingKey::new();
 
     let encryption =
@@ -592,7 +593,7 @@ fn message_encrypted_to_another_key_fails_the_integrity_check() {
 
 #[test]
 fn tampered_ciphertext_fails_the_integrity_check() {
-    let auditor = X25519Secret::new();
+    let auditor = X25519Keypair::new();
     let tx_key = ViewingKey::new();
 
     let mut message = auditor_message_data(&tx_key, &auditor.pubkey(), &[]);
@@ -612,7 +613,7 @@ fn tampered_ciphertext_fails_the_integrity_check() {
 
 #[test]
 fn transaction_without_auditor_message_is_rejected() {
-    let auditor = X25519Secret::new();
+    let auditor = X25519Keypair::new();
     let tx_key = ViewingKey::new();
     let recipient = ViewingKey::new();
 
@@ -636,7 +637,7 @@ fn transaction_without_auditor_message_is_rejected() {
 
 #[test]
 fn auditor_message_must_be_the_last_message() {
-    let auditor = X25519Secret::new();
+    let auditor = X25519Keypair::new();
     let tx_key = ViewingKey::new();
 
     let tx = transaction(
@@ -661,7 +662,7 @@ fn auditor_message_must_be_the_last_message() {
 
 #[test]
 fn two_auditor_messages_are_rejected() {
-    let auditor = X25519Secret::new();
+    let auditor = X25519Keypair::new();
     let tx_key = ViewingKey::new();
 
     let tx = transaction(
@@ -686,7 +687,7 @@ fn two_auditor_messages_are_rejected() {
 
 #[test]
 fn missing_transaction_key_material_is_rejected() {
-    let auditor = X25519Secret::new();
+    let auditor = X25519Keypair::new();
     let tx_key = ViewingKey::new();
 
     let mut no_pubkey = transaction(
@@ -726,7 +727,7 @@ fn missing_transaction_key_material_is_rejected() {
 /// A missing asset preimage cannot hide the verified asset field and amount.
 #[test]
 fn unknown_asset_keeps_the_authoritative_opening() {
-    let auditor = X25519Secret::new();
+    let auditor = X25519Keypair::new();
     let tx_key = ViewingKey::new();
     let recipient = ViewingKey::new();
 
@@ -752,7 +753,7 @@ fn unknown_asset_keeps_the_authoritative_opening() {
 
 #[test]
 fn recipient_delivery_cannot_erase_or_replace_verified_disclosure() {
-    let auditor = X25519Secret::new();
+    let auditor = X25519Keypair::new();
     let tx_key = ViewingKey::new();
     let recipient = ViewingKey::new();
     let output = plaintext(SOL_ASSET_ID, 42, 0x31);
@@ -903,7 +904,7 @@ fn with_signature(mut tx: ShieldedTransaction, byte: u8) -> ShieldedTransaction 
 #[tokio::test]
 async fn scan_walks_every_page_and_keeps_only_ring_transactions_tagged_for_the_auditor() {
     let ring = Address::new_from_array([9u8; 32]);
-    let auditor = X25519Secret::new();
+    let auditor = X25519Keypair::new();
     let auditor_pk = auditor.pubkey();
     let tx_key_one = ViewingKey::new();
     let tx_key_two = ViewingKey::new();
@@ -1040,7 +1041,7 @@ async fn scan_walks_every_page_and_keeps_only_ring_transactions_tagged_for_the_a
 #[tokio::test]
 async fn a_confirmed_ring_match_without_mandatory_disclosure_is_incomplete() {
     let ring = Address::new_from_array([9; 32]);
-    let auditor = X25519Secret::new();
+    let auditor = X25519Keypair::new();
     let tx = transaction(&ViewingKey::new(), Vec::new(), Vec::new());
     let origin = KnownOrigins {
         ring,
@@ -1064,7 +1065,7 @@ async fn a_confirmed_ring_match_without_mandatory_disclosure_is_incomplete() {
 #[tokio::test]
 async fn scan_fails_when_an_origin_is_unavailable() {
     let ring = Address::new_from_array([9u8; 32]);
-    let auditor = X25519Secret::new();
+    let auditor = X25519Keypair::new();
     let auditor_pk = auditor.pubkey();
     let tx = transaction(
         &ViewingKey::new(),
@@ -1142,7 +1143,7 @@ fn signatures(transactions: &[ShieldedTransaction]) -> Vec<Signature> {
 #[tokio::test]
 async fn the_page_size_is_asked_for_on_every_round_trip() {
     let ring = Address::new_from_array([9u8; 32]);
-    let auditor_pk = X25519Secret::new().pubkey();
+    let auditor_pk = X25519Keypair::new().pubkey();
     let pages = paged_history(&auditor_pk, 3);
     let origin = ring_origins(ring, &pages);
     let indexer = indexer(&auditor_pk, pages.clone());
@@ -1166,7 +1167,7 @@ async fn the_page_size_is_asked_for_on_every_round_trip() {
 #[tokio::test]
 async fn a_scan_stopped_by_max_pages_resumes_where_it_stopped() {
     let ring = Address::new_from_array([9u8; 32]);
-    let auditor_pk = X25519Secret::new().pubkey();
+    let auditor_pk = X25519Keypair::new().pubkey();
     let pages = paged_history(&auditor_pk, 3);
     let origin = ring_origins(ring, &pages);
     let indexer = indexer(&auditor_pk, pages.clone());
@@ -1195,7 +1196,7 @@ async fn a_scan_stopped_by_max_pages_resumes_where_it_stopped() {
 #[tokio::test]
 async fn an_empty_page_does_not_end_the_scan() {
     let ring = Address::new_from_array([9u8; 32]);
-    let auditor_pk = X25519Secret::new().pubkey();
+    let auditor_pk = X25519Keypair::new().pubkey();
     let last = paged_history(&auditor_pk, 1);
     let pages = vec![Vec::new(), last[0].clone()];
     let origin = ring_origins(ring, &pages);
@@ -1214,7 +1215,7 @@ async fn an_empty_page_does_not_end_the_scan() {
 #[tokio::test]
 async fn a_cursor_at_the_end_of_history_returns_an_empty_page() {
     let ring = Address::new_from_array([9u8; 32]);
-    let auditor_pk = X25519Secret::new().pubkey();
+    let auditor_pk = X25519Keypair::new().pubkey();
     let pages = paged_history(&auditor_pk, 2);
     let origin = ring_origins(ring, &pages);
     let indexer = indexer(&auditor_pk, pages);

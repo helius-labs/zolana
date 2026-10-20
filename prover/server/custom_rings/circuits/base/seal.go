@@ -5,10 +5,10 @@ import (
 
 	"github.com/consensys/gnark/frontend"
 
+	"github.com/helius-labs/zolana/prover/server/circuits/crypto/aes"
+	"github.com/helius-labs/zolana/prover/server/circuits/crypto/x25519"
+	ve "github.com/helius-labs/zolana/prover/server/circuits/encryption"
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
-	ve "github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption"
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/aes"
-	"github.com/helius-labs/zolana/prover/server/circuits/verifiable-encryption/x25519"
 )
 
 // DomSepCRShared is "CR_S", the shared secret tag the Rust host derivation also uses.

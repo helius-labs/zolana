@@ -8,7 +8,7 @@ import (
 	"github.com/helius-labs/zolana/prover/server/prover/common"
 	ring "github.com/helius-labs/zolana/prover/server/prover/custom_ring"
 	merge "github.com/helius-labs/zolana/prover/server/prover/merge"
-	transfer "github.com/helius-labs/zolana/prover/server/prover/transfer_eddsa_only"
+	transfer "github.com/helius-labs/zolana/prover/server/prover/transfer_eddsa"
 )
 
 type inputTarget struct {
@@ -80,10 +80,10 @@ func decodePrepared(request Request) (*preparedProof, error) {
 			return nil, err
 		}
 		prepared = preparedProof{value: &value, inputs: inputs, slots: &value.TreeSlots, hash: &value.PublicInputHash}
-	case common.TransferAnonymousRingEd25519CircuitType:
-		var value transfer.AnonymousEd25519TransferParameters
+	case common.TransferAnonymousRingEddsaCircuitType:
+		var value transfer.AnonymousEddsaTransferParameters
 		if json.Unmarshal(request.Prepared, &value) != nil {
-			return nil, fmt.Errorf("invalid prepared Ed25519 transfer")
+			return nil, fmt.Errorf("invalid prepared EdDSA transfer")
 		}
 		if int(value.NInputs) != len(value.Inputs) || int(value.NOutputs) != len(value.Outputs) {
 			return nil, fmt.Errorf("prepared counts mismatch")

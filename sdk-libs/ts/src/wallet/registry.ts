@@ -48,6 +48,7 @@ const RECORD_SEED = new TextEncoder().encode("zolana/registry/v0");
 const REGISTER = 0;
 const SET_MERGING_ENABLED = 1;
 const UPDATE_KEYS = 2;
+const USER_RECORD_SIZE = 100;
 const addressDecoder = getAddressDecoder();
 const addressEncoder = getAddressEncoder();
 
@@ -59,7 +60,6 @@ function checkedBytesEncoder(size: number, name: string) {
 
 const registryKeysDataEncoder = getStructEncoder([
   ["discriminator", getU8Encoder()],
-  ["reservedOwner", getU8Encoder()],
   ["nullifierPublicKey", checkedBytesEncoder(32, "nullifierPublicKey")],
   ["viewingPublicKey", checkedBytesEncoder(33, "viewingPublicKey")],
 ]);
@@ -170,11 +170,11 @@ class Reader {
 }
 
 function decodeRecordBody(data: Uint8Array): DecodedUserRecord {
+  if (data.length !== USER_RECORD_SIZE) throw new WalletError("WALLET_INVALID_USER_RECORD");
   const reader = new Reader(data);
   if (reader.u8() !== 1) throw new WalletError("WALLET_INVALID_USER_RECORD");
   const owner = addressDecoder.decode(reader.bytes(32));
   const bump = reader.u8();
-  if (reader.u8() !== 0) throw new WalletError("WALLET_INVALID_USER_RECORD");
   const nullifierPublicKey = reader.bytes(32) as Bytes32;
   const viewingPublicKey = reader.bytes(33) as Bytes33;
   const mergingEnabled = reader.u8();
@@ -280,8 +280,8 @@ export function viewingKeyIndex(viewingPublicKey: Uint8Array | X25519PublicKey):
 }
 
 /**
- * Best-effort discovery index of valid current keys. Multiple owners may register
- * the same viewing key, so the selected owner is not authenticated attribution.
+ * Reads the whole registry in one call. Records this version cannot decode are
+ * skipped.
  */
 export async function fetchViewingKeyOwners(
   input: Readonly<{ rpc: ProgramAccountReader }>,
@@ -290,15 +290,13 @@ export async function fetchViewingKeyOwners(
   const accounts = await input.rpc.getProgramAccounts(USER_REGISTRY_PROGRAM_ID, context);
   const owners = new Map<string, Address>();
   for (const { account } of accounts) {
-    if (account.data[0] !== 1) continue;
+    let record: UserRecord;
     try {
-      const record = decodeUserRecordAccount(account);
-      const viewing = X25519PublicKey.fromBytes(record.viewingPublicKey);
-      owners.set(viewingKeyIndex(viewing), record.owner);
+      record = decodeUserRecordAccount(account);
     } catch {
-      // Anyone can register invalid metadata. One row must not disable the index.
       continue;
     }
+    owners.set(viewingKeyIndex(record.viewingPublicKey), record.owner);
   }
   return owners;
 }
@@ -355,11 +353,6 @@ export async function validateRegisteredKeypair(
   input: Readonly<{ rpc: AccountReader; owner: Address; keypair: ShieldedKeypair }>,
   context?: RequestContext,
 ): Promise<void> {
-  if (input.keypair.shieldedAddress().solanaAddress() !== input.owner) {
-    throw new WalletError("WALLET_REGISTERED_KEYPAIR_MISMATCH", {
-      details: { owner: input.owner },
-    });
-  }
   const record = await fetchUserRecordChecked({ rpc: input.rpc, owner: input.owner }, context);
   if (
     !equalBytes(record.nullifierPublicKey, input.keypair.nullifierPublicKey()) ||
@@ -386,8 +379,9 @@ export async function recipientConfidentialViewTag(
 }
 
 /**
- * Matching privacy keys need no transaction. Changing them requires the
- * explicit update path, after the caller binds the signing owner.
+ * The two published fields the registry keys a record by. A record matching
+ * both needs no transaction; one differing in either is an identity change,
+ * which only the rotating path may write.
  */
 function publishedKeysMatch(record: UserRecord, address: ShieldedAddress): boolean {
   return (
@@ -413,10 +407,6 @@ export async function buildRegistrationTransaction(
   context?: RequestContext,
 ): Promise<Transaction | undefined> {
   try {
-    if (input.address.solanaAddress() !== input.owner)
-      throw new WalletError("WALLET_USER_RECORD_KEYS_MISMATCH", {
-        details: { owner: input.owner },
-      });
     const pda = await userRecordAddress(input.owner);
     const existing = await fetchDecodedUserRecordAt(
       { rpc: input.client, owner: input.owner, pda },
@@ -456,10 +446,6 @@ export async function buildKeyUpdateTransaction(
   context?: RequestContext,
 ): Promise<Transaction | undefined> {
   try {
-    if (input.address.solanaAddress() !== input.owner)
-      throw new WalletError("WALLET_USER_RECORD_KEYS_MISMATCH", {
-        details: { owner: input.owner },
-      });
     const pda = await userRecordAddress(input.owner);
     const existing = await fetchDecodedUserRecordAt(
       { rpc: input.client, owner: input.owner, pda },
@@ -483,7 +469,6 @@ export async function buildSetMergingEnabledTransaction(
   input: Readonly<{
     client: BlockhashProvider;
     owner: Address;
-    payer?: Address;
     enabled: boolean;
   }>,
   context?: RequestContext,
@@ -494,7 +479,7 @@ export async function buildSetMergingEnabledTransaction(
       input.client.getLatestBlockhash(context),
     ]);
     return compileUnsignedTransaction({
-      feePayer: input.payer ?? input.owner,
+      feePayer: input.owner,
       lifetime,
       computeUnitLimit: DEFAULT_COMPUTE_UNIT_LIMIT,
       instructions: [instruction],
@@ -558,7 +543,6 @@ export async function registerInstruction(
     ],
     data: registryKeysDataEncoder.encode({
       discriminator: REGISTER,
-      reservedOwner: 0,
       nullifierPublicKey: input.nullifierPublicKey,
       viewingPublicKey: input.viewingPublicKey,
     }),
@@ -598,7 +582,6 @@ async function updateKeysInstruction(
     ],
     data: registryKeysDataEncoder.encode({
       discriminator: UPDATE_KEYS,
-      reservedOwner: 0,
       nullifierPublicKey: input.nullifierPublicKey,
       viewingPublicKey: input.viewingPublicKey,
     }),

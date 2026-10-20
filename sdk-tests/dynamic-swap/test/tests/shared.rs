@@ -41,7 +41,7 @@ pub const DESTINATION_ASSET_ID: u64 = 1; // SOL_ASSET_ID
 pub const USER_SPL_SHIELD: u64 = 1_000_000_000;
 pub const AUTHORITY_SOL_SHIELD: u64 = 2_000_000_000;
 
-/// Each actor is one ed25519 identity: the wallet's signing key doubles as the
+/// Each actor is one eddsa identity: the wallet's signing key doubles as the
 /// Solana fee payer (`to_solana_keypair`), and the wallet holds the asset
 /// registry and (for real, non-PDA actors) synced spendable notes.
 pub struct TestWallet {

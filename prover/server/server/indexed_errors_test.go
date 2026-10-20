@@ -11,7 +11,7 @@ import (
 
 	"github.com/helius-labs/zolana/prover/server/prover/common"
 	"github.com/helius-labs/zolana/prover/server/prover/indexed"
-	transfer "github.com/helius-labs/zolana/prover/server/prover/transfer_eddsa_only"
+	transfer "github.com/helius-labs/zolana/prover/server/prover/transfer_eddsa"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
 )

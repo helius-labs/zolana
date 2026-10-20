@@ -4,7 +4,7 @@
 # Zolana environment (localnet or devnet): the shielded-pool program, pool tree,
 # prover, and Photon indexer must all be reachable. Runs every CLI operation once,
 # in dependency order, asserting each step, and exercises both the SOL and SPL
-# asset rails on the supported ed25519 wallet rail. Replaces the older
+# asset rails on the supported eddsa wallet rail. Replaces the older
 # pingpong.sh / pingpong_parallel.sh soak scripts, which targeted a superseded
 # wallet-name/SOL-float CLI surface.
 #
@@ -23,10 +23,10 @@
 #                DEFAULT_TREE_ADDRESS (the canonical deployed tree)
 #   ZOLANA_BIN   path to the zolana binary (default: ./target/release/zolana)
 #   RPC          Solana RPC URL           (default: https://api.devnet.solana.com)
-#   FUNDER       Solana keypair that tops up wallet owners and receives the
+#   FUNDER       Solana keypair that tops up wallet funding keys and receives the
 #                withdrawal (default: ~/.config/solana/id.json)
 #   WORKDIR      isolated config+wallet dir (default: ./.cli-smoke; reused across runs)
-#   FUND_SOL     SOL sent to each wallet owner   (default: 1.0)
+#   FUND_SOL     SOL sent to each wallet funding key   (default: 1.0)
 #   DEPOSIT      lamports deposited per wallet          (default: 200000000 = 0.2 SOL)
 #   TRANSFER     lamports per shielded transfer         (default: 20000000  = 0.02 SOL)
 #   WITHDRAW     lamports per withdrawal                (default: 10000000  = 0.01 SOL)
@@ -35,7 +35,7 @@
 #   MAX_RETRIES RETRY_DELAY  shielded-op retry policy   (default: 6 / 3)
 #   CLUSTER      explorer cluster for tx links          (default: devnet)
 #
-# The SPL section is best-effort: `dev pool test-mint` requires the owner to
+# The SPL section is best-effort: `dev pool test-mint` requires the funding key to
 # satisfy the deployment's SPL-creation policy (protocol authority, or a
 # permissionless policy). If it is not permitted, the SPL steps are SKIPPED with a
 # warning rather than failing the run; the SOL rail always executes.
@@ -66,8 +66,8 @@ TREE="${ZOLANA_TREE:-}"
 # WORKDIR so the run never touches the operator's ~/.config/zolana.
 export ZOLANA_CONFIG_DIR="$WORKDIR"
 
-ALICE="$WORKDIR/alice.json"   # ed25519 rail, primary actor
-BOB="$WORKDIR/bob.json"       # ed25519 rail, transfer recipient
+ALICE="$WORKDIR/alice.json"   # eddsa rail, primary actor
+BOB="$WORKDIR/bob.json"       # eddsa rail, transfer recipient
 
 PASS=0 FAIL=0 SKIP=0
 LAST_OUT=""
@@ -176,7 +176,7 @@ summary() {
 }
 
 # --- funding (FUNDER keypair, devnet-airdrop fallback) -----------------------
-owner_pubkey() { z wallet address --public-key --keypair "$1"; printf '%s\n' "$LAST_OUT"; }
+funding_pubkey() { z wallet address --funding --keypair "$1"; printf '%s\n' "$LAST_OUT"; }
 
 # Fund a public key to at least FUND_SOL via FUNDER; fall back to a devnet airdrop.
 fund_pubkey() {
@@ -242,12 +242,12 @@ new_wallet "wallet new alice (ed25519)" "$ALICE"
 new_wallet "wallet new bob (ed25519)"   "$BOB"
 
 step "wallet address alice (owner hash)"  - wallet address --keypair "$ALICE"
-ALICE_FUND="$(owner_pubkey "$ALICE")"
-BOB_FUND="$(owner_pubkey "$BOB")"
-log "  alice owner=$ALICE_FUND"
-log "  bob   owner=$BOB_FUND"
+ALICE_FUND="$(funding_pubkey "$ALICE")"
+BOB_FUND="$(funding_pubkey "$BOB")"
+log "  alice funding=$ALICE_FUND"
+log "  bob   funding=$BOB_FUND"
 
-# --- 3. fund owners, then register on-chain ----------------------------
+# --- 3. fund funding keys, then register on-chain ----------------------------
 for a in "$ALICE_FUND" "$BOB_FUND"; do fund_pubkey "$a"; done
 
 step "register alice" register wallet register --keypair "$ALICE"

@@ -166,7 +166,7 @@ mod tests {
         ShieldedTransaction,
     };
     use zolana_client::{ProverClient, ZolanaClient};
-    use zolana_keypair::{constants::SALT_LEN, ShieldedKeypair, ViewingKey, X25519Secret};
+    use zolana_keypair::{constants::SALT_LEN, ShieldedKeypair, ViewingKey, X25519Keypair};
     use zolana_ring_client::{AuditError, AuditorEncryption, RingOrigin, TransactionOrigin};
     use zolana_transaction::{
         serialization::confidential::{
@@ -426,7 +426,7 @@ mod tests {
 
     struct RingTx<'a> {
         tx_key: &'a ViewingKey,
-        auditor: &'a X25519Secret,
+        auditor: &'a X25519Keypair,
         signature: u8,
         output_slots: Vec<OutputSlot>,
         audit_openings: Vec<ProofInputUtxo>,
@@ -546,7 +546,7 @@ mod tests {
 
     fn recover(
         indexer: &StubIndexer,
-        auditor: &X25519Secret,
+        auditor: &X25519Keypair,
         source: SourceMember<'_>,
     ) -> Result<Vec<WalletUtxo>, AuditError> {
         let stub = StubIndexer {
@@ -567,7 +567,7 @@ mod tests {
     #[test]
     fn recovery_returns_the_source_unspent_notes_and_drops_the_spent_one() {
         let source = ShieldedKeypair::new_ed25519().expect("keypair");
-        let auditor = X25519Secret::new();
+        let auditor = X25519Keypair::new();
         let tx_unspent = ViewingKey::new();
         let tx_spent = ViewingKey::new();
         let tx_burn = ViewingKey::new();
@@ -646,7 +646,7 @@ mod tests {
         assert!(matches!(
             recover(
                 &indexer,
-                &X25519Secret::new(),
+                &X25519Keypair::new(),
                 SourceMember {
                     address: &address,
                     nullifier_key: &stranger.nullifier_key,

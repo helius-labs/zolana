@@ -12,7 +12,7 @@ pub(crate) fn ecdh_symmetric(world: &mut KeypairWorld, a: String, b: String) {
 pub(crate) fn viewing_roundtrip(world: &mut KeypairWorld, name: String) {
     let vk = world.vk(&name);
     let bytes = vk.secret_bytes();
-    let restored = ViewingKey::from_bytes(&bytes).unwrap();
+    let restored = ViewingKey::from_bytes(&bytes);
     assert_eq!(vk.pubkey(), restored.pubkey());
     assert_eq!(*bytes, *restored.secret_bytes());
 }

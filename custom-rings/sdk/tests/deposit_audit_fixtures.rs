@@ -14,7 +14,7 @@ use zeroize::Zeroizing;
 use zolana_client::{
     prover::ExpectedProvingKey, ClientError, ProveRequest, Prover, ProverClient, ProverLaunch,
 };
-use zolana_keypair::{random_blinding, ShieldedKeypair, SigningKey, X25519Secret};
+use zolana_keypair::{random_blinding, ShieldedKeypair, SigningKey, X25519Keypair};
 use zolana_program::instruction::{RingAssetDeposit, RingDeposit};
 use zolana_ring_client::{seal_deposits, DepositOpening};
 use zolana_transaction::{owner_utxo_hash, RingDepositPlaintext};
@@ -51,9 +51,7 @@ fn audited_deposit(prover: &ProverClient, count: usize) -> Vec<u8> {
     let ring = CustomRing::new(Address::new_from_array(RING));
     let tree = Address::new_from_array(TREE);
     let depositor = Address::new_from_array(DEPOSITOR);
-    let auditor = X25519Secret::from_bytes(&AUDITOR_SECRET)
-        .expect("auditor key")
-        .pubkey();
+    let auditor = X25519Keypair::from_bytes(&AUDITOR_SECRET).pubkey();
     // 1. Deposit to one recipient per slot, each output keeps its recipient
     // ciphertext behind the auditor capsule.
     let mut owner_pk_hashes = [[0; 32]; MAX_RING_DEPOSIT_AUDIT_SLOTS];

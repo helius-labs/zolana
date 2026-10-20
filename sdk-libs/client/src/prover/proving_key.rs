@@ -8,7 +8,10 @@
 
 use serde::Deserialize;
 use zolana_interface::{
-    verifying_keys::{Bsb22Commitment, CircuitId, PROVING_KEY_SHA256S as TRANSACT_KEYS},
+    verifying_keys::{
+        AnonymousRingEddsaProofData, Bsb22Commitment, CircuitId,
+        PROVING_KEY_SHA256S as TRANSACT_KEYS,
+    },
     N_PUBLIC_SLOTS,
 };
 use zolana_tree::nullifier_tree::verify::verifying_keys::PROVING_KEY_SHA256S as ADDRESS_APPEND_KEYS;
@@ -163,7 +166,7 @@ impl ExpectedProvingKey {
             "transfer_confidential",
             n_inputs,
             n_outputs,
-            CircuitId::ConfidentialEd25519,
+            CircuitId::ConfidentialEddsa,
         )
     }
 
@@ -172,7 +175,7 @@ impl ExpectedProvingKey {
             "transfer_ring",
             n_inputs,
             n_outputs,
-            CircuitId::ConfidentialRingEd25519,
+            CircuitId::ConfidentialRingEddsa,
         )
     }
 
@@ -188,20 +191,23 @@ impl ExpectedProvingKey {
         )
     }
 
-    pub(crate) fn transfer_anonymous_ring_ed25519(
+    pub(crate) fn transfer_anonymous_ring_eddsa(
         n_inputs: usize,
         n_outputs: usize,
     ) -> Result<Self, ClientError> {
-        // Only rail and shape select the key, never the commitment.
-        let commitment = Bsb22Commitment {
-            commitment: [0; 32],
-            commitment_pok: [0; 32],
+        // The proof data does not select the key; only rail and shape do.
+        let proof_data = AnonymousRingEddsaProofData {
+            bsb22_commitment: Bsb22Commitment {
+                commitment: [0; 32],
+                commitment_pok: [0; 32],
+            },
+            default_owner_tag: None,
         };
         Self::transfer(
-            "transfer_ed25519_ring",
+            "transfer_eddsa_ring",
             n_inputs,
             n_outputs,
-            |n_in, n_out, slots| CircuitId::AnonymousRingEd25519(n_in, n_out, slots, commitment),
+            |n_in, n_out, slots| CircuitId::AnonymousRingEddsa(n_in, n_out, slots, proof_data),
         )
     }
 

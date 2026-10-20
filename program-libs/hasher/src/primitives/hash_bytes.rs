@@ -29,12 +29,17 @@ pub fn hash_bytes<const N: usize>(bytes: &[u8; N]) -> Result<[u8; 32], HasherErr
 
 /// Owner identity of a Solana key: `hash_bytes_33(SOLANA_OWNER_TAG || pk)`.
 ///
-/// The tag identifies the algorithm within the owner encoding. It does not
-/// make this namespace disjoint from arbitrary untagged byte commitments.
+/// Owner identities are algorithm tagged so they never collide with the
+/// untagged `hash_bytes` of the same 32 bytes.
+/// Mirrors Go `gadget/hash_bytes.go`.
 pub fn solana_owner_identity(pk: &[u8; 32]) -> Result<[u8; 32], HasherError> {
+    tagged_identity(SOLANA_OWNER_TAG, pk)
+}
+
+fn tagged_identity(tag: u8, key: &[u8; 32]) -> Result<[u8; 32], HasherError> {
     let mut tagged = [0u8; 33];
-    tagged[0] = SOLANA_OWNER_TAG;
-    tagged[1..].copy_from_slice(pk);
+    tagged[0] = tag;
+    tagged[1..].copy_from_slice(key);
     hash_bytes(&tagged)
 }
 

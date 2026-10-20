@@ -64,7 +64,6 @@ fn error_codes_are_stable() {
         (TooManyPublicLegs as u32, 8178),
         (InvalidAuditedDeposit as u32, 8179),
         (InvalidDepositData as u32, 8180),
-        (LegacyAuditorKey as u32, 8183),
         (InvalidRingMode as u32, 8184),
         (AnonymousRingRefused as u32, 8185),
         (InvalidAnonymousOutput as u32, 8186),
@@ -145,7 +144,6 @@ fn every_variant_is_pinned(error: custom_ring_interface::CustomRingError) {
         | TooManyPublicLegs
         | InvalidAuditedDeposit
         | InvalidDepositData
-        | LegacyAuditorKey
         | InvalidRingMode
         | AnonymousRingRefused
         | InvalidAnonymousOutput

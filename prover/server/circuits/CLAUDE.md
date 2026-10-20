@@ -4,3 +4,4 @@
 4. github.com/helius-labs/zolana/prover/server/prover defines marshall and proving system glue code
 5. prover/server/server implements the prover server that clients call to get proofs
 6. non _test.go files must not contain any code that is only used in tests
+7. crypto/ holds generic cryptography and never imports protocol packages

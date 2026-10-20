@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { X25519PublicKey, X25519Secret } from "../src/keypair/x25519.js";
+import { X25519PublicKey, X25519Keypair, isSmallOrder } from "../src/keypair/x25519.js";
 
 describe("custom-ring X25519 envelope keys", () => {
   it("rejects key aliases and P-256 tags", () => {
@@ -21,8 +21,8 @@ describe("custom-ring X25519 envelope keys", () => {
     expect(() => X25519PublicKey.fromBytes(basepoint)).toThrow("KEYPAIR_INVALID_PUBLIC_KEY");
   });
   it("clamps byte secrets, rejects zero DH, and destroys secrets", () => {
-    const a = X25519Secret.fromBytes(new Uint8Array(32));
-    const b = X25519Secret.fromBytes(new Uint8Array(32).fill(9));
+    const a = X25519Keypair.fromBytes(new Uint8Array(32));
+    const b = X25519Keypair.fromBytes(new Uint8Array(32).fill(9));
     try {
       const ab = a.ecdh(b.publicKey());
       const ba = b.ecdh(a.publicKey());
@@ -42,5 +42,37 @@ describe("custom-ring X25519 envelope keys", () => {
     }
     expect(() => a.secretBytes()).toThrow("KEYPAIR_INVALID_SECRET_KEY");
     expect(() => a.publicKey()).toThrow("KEYPAIR_INVALID_SECRET_KEY");
+  });
+  it("flags exactly the keys every secret's ECDH rejects", () => {
+    const p = (1n << 255n) - 19n;
+    const smallOrder = [
+      0n,
+      1n,
+      p - 1n,
+      325606250916557431795983626356110631294008115727848805560023387167927233504n,
+      39382357235489614581723060781553021112529911719440698176882885853963445705823n,
+    ];
+    const key = (u: bigint) =>
+      X25519PublicKey.fromBytes(
+        Uint8Array.of(
+          4,
+          ...Array.from({ length: 32 }, (_, i) => Number((u >> BigInt(8 * i)) & 255n)),
+        ),
+      );
+    const secrets = [X25519Keypair.generate(), X25519Keypair.generate()];
+    try {
+      for (const u of smallOrder) {
+        expect(isSmallOrder(key(u))).toBe(true);
+        for (const secret of secrets) {
+          expect(() => secret.ecdh(key(u))).toThrow("KEYPAIR_NON_CONTRIBUTORY_KEY");
+        }
+      }
+      for (const u of [9n, 2n]) {
+        expect(isSmallOrder(key(u))).toBe(false);
+        for (const secret of secrets) secret.ecdh(key(u)).fill(0);
+      }
+    } finally {
+      for (const secret of secrets) secret.destroy();
+    }
   });
 });

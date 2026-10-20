@@ -5,11 +5,12 @@ mod anonymous;
 mod delegate;
 mod owner;
 
+use custom_ring_interface::ANONYMOUS_RING_SHAPES;
 use solana_address::Address;
 use solana_instruction::Instruction;
 use zolana_client::{
     attach_input_proofs, input_utxos_from_nullifiers,
-    prover::transact::{AnonymousEd25519TransferInputs, AnonymousRingEd25519Prover},
+    prover::transact::{AnonymousEddsaTransferInputs, AnonymousRingEddsaProver},
     prover::{
         indexed::{
             IndexedPolicyData, IndexedPolicyRequest, IndexedTransferPreparation,
@@ -23,6 +24,7 @@ use zolana_client::{
 };
 use zolana_interface::{
     instruction::{instruction_data::transact::TreeContext, CircuitId, TransactIxData},
+    verifying_keys::{AnonymousRingEddsaProofData, Bsb22Commitment},
     N_PUBLIC_SLOTS,
 };
 use zolana_keypair::{NullifierKey, ViewingKey};
@@ -367,7 +369,7 @@ impl PolicyStatement {
             let supported = if delegate {
                 self.shape.is_ring_authority()
             } else if anonymous {
-                self.shape.is_anonymous_ring_ed25519()
+                ANONYMOUS_RING_SHAPES.contains(&self.shape)
             } else {
                 self.shape.is_supported()
             };
@@ -530,14 +532,17 @@ enum SppInputs {
     Ring(TransferInputs),
     Authority(TransferInputs),
     /// The hidden owner's key, signature and signed digest ride along.
-    Anonymous(Box<AnonymousEd25519TransferInputs>),
+    Anonymous {
+        inputs: Box<AnonymousEddsaTransferInputs>,
+        default_owner_tag: Option<[u8; 32]>,
+    },
 }
 
 impl SppInputs {
     fn transfer(&mut self) -> &mut TransferInputs {
         match self {
             Self::Ring(inputs) | Self::Authority(inputs) => inputs,
-            Self::Anonymous(inputs) => &mut inputs.transfer,
+            Self::Anonymous { inputs, .. } => &mut inputs.transfer,
         }
     }
 }
@@ -559,7 +564,7 @@ impl Spp {
         };
         if indexed {
             let rail = match (authority, hidden) {
-                (false, Some(owner)) => IndexedTransferRail::AnonymousRingEd25519 {
+                (false, Some(owner)) => IndexedTransferRail::AnonymousRingEddsa {
                     ring: program,
                     owner,
                 },
@@ -589,7 +594,7 @@ impl Spp {
         let shape = inputs.check_shape()?;
         let mut complete = match (authority, hidden) {
             (false, Some(owner)) => {
-                let result = AnonymousRingEd25519Prover {
+                let result = AnonymousRingEddsaProver {
                     inputs: spends,
                     outputs: inputs.output_utxos.clone(),
                     blinding_seed: inputs.blinding_seed,
@@ -604,7 +609,10 @@ impl Spp {
                 }
                 .build()?;
                 CompleteSpp {
-                    inputs: SppInputs::Anonymous(Box::new(result.inputs)),
+                    inputs: SppInputs::Anonymous {
+                        inputs: Box::new(result.inputs),
+                        default_owner_tag: result.default_owner_tag,
+                    },
                     nullifiers: result.nullifiers,
                     input_tree_indexes: result.input_tree_indexes,
                     tree_contexts: result.tree_contexts,
@@ -681,15 +689,20 @@ impl Spp {
             N_PUBLIC_SLOTS as u8,
         );
         let circuit = match complete.inputs {
-            SppInputs::Ring(_) => CircuitId::ConfidentialRingEd25519(n, m, p),
+            SppInputs::Ring(_) => CircuitId::ConfidentialRingEddsa(n, m, p),
             SppInputs::Authority(_) => CircuitId::RingAuthority(n, m, p),
-            SppInputs::Anonymous(_) => CircuitId::AnonymousRingEd25519(
+            SppInputs::Anonymous {
+                default_owner_tag, ..
+            } => CircuitId::AnonymousRingEddsa(
                 n,
                 m,
                 p,
-                zolana_interface::verifying_keys::Bsb22Commitment {
-                    commitment: [0; 32],
-                    commitment_pok: [0; 32],
+                AnonymousRingEddsaProofData {
+                    bsb22_commitment: Bsb22Commitment {
+                        commitment: [0; 32],
+                        commitment_pok: [0; 32],
+                    },
+                    default_owner_tag,
                 },
             ),
         };
@@ -744,7 +757,7 @@ impl Spp {
                     .prove_request(&requests::ring_authority(inputs)?)
                     .await?
             }
-            SppInputs::Anonymous(inputs) => client.prove_request(inputs.as_ref()).await?,
+            SppInputs::Anonymous { inputs, .. } => client.prove_request(inputs.as_ref()).await?,
         };
         let proof = ProofCompressed::try_from(proof)?;
         let shape = transaction.check_shape()?;
@@ -755,7 +768,7 @@ impl Spp {
         );
         let (circuit, proof) = match &complete.inputs {
             SppInputs::Ring(_) => (
-                CircuitId::ConfidentialRingEd25519(width.0, width.1, width.2),
+                CircuitId::ConfidentialRingEddsa(width.0, width.1, width.2),
                 proof.to_transact_proof(),
             ),
             SppInputs::Authority(_) => (
@@ -763,10 +776,20 @@ impl Spp {
                 proof.to_transact_proof(),
             ),
             // The selector carries the emulated-field commitment the verifier checks.
-            SppInputs::Anonymous(_) => {
-                let (proof, commitment) = proof.into_committed_transact_parts()?;
+            SppInputs::Anonymous {
+                default_owner_tag, ..
+            } => {
+                let (proof, bsb22_commitment) = proof.into_committed_transact_parts()?;
                 (
-                    CircuitId::AnonymousRingEd25519(width.0, width.1, width.2, commitment),
+                    CircuitId::AnonymousRingEddsa(
+                        width.0,
+                        width.1,
+                        width.2,
+                        AnonymousRingEddsaProofData {
+                            bsb22_commitment,
+                            default_owner_tag: *default_owner_tag,
+                        },
+                    ),
                     proof,
                 )
             }

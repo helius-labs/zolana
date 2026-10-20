@@ -772,14 +772,6 @@ pub fn disclosed_message_len(shape: DisclosureShape) -> usize {
     AUDITOR_MESSAGE_PREFIX_LEN + 32 * shape.field_count().expect("disclosed shape")
 }
 
-/// A SEC1-compressed P256 key, the auditor key of a ring created before X25519.
-pub fn legacy_auditor_pubkey() -> [u8; 33] {
-    hex::decode("039dc51b59006b13f143944d4e432db7c032241ceb3698a6cc0cdabadf29b71dec")
-        .expect("valid hex")
-        .try_into()
-        .expect("compressed key")
-}
-
 pub fn policy_config_pda() -> (Pubkey, u8) {
     policy_config_pda_of(program_id())
 }
@@ -1641,7 +1633,6 @@ pub fn merge_ring_data(recipient: Option<[u8; 33]>) -> Vec<u8> {
                 output_utxo_hash: [1; 32],
                 output_ciphertext_salt: [2; 16],
                 output_ciphertext: [[3; 32]; 3],
-                eddsa_owner: false,
                 private_tx_hash: [3; 32],
                 nullifiers: vec![[5; 32]; 8],
                 utxo_tree_root_index: 0,

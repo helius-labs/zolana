@@ -11,7 +11,7 @@ import { wireDecoder } from "../src/interface/decode.js";
 import { ringMemberRegistryRootPda, treeAddress } from "../src/interface/pda/index.js";
 import { SHIELDED_POOL_PROGRAM_ID } from "../src/interface/program.js";
 import type { Bytes32, Signature } from "../src/interface/types.js";
-import { X25519Secret } from "../src/keypair/x25519.js";
+import { X25519Keypair } from "../src/keypair/x25519.js";
 import { auditRingMerges } from "../src/ring/audit-merge.js";
 import type { IndexedShieldedTransaction } from "../src/transaction/instructions/transact.js";
 
@@ -164,7 +164,7 @@ function scanClient(
 describe("auditRingMerges confirmed scan", () => {
   it("authenticates two registry pages and two transaction pages, retaining an unopened merge", async () => {
     const { client, memberPages, transactionPages, getTransaction } = scanClient();
-    const auditor = X25519Secret.generate();
+    const auditor = X25519Keypair.generate();
     try {
       const result = await auditRingMerges({
         client,
@@ -195,7 +195,7 @@ describe("auditRingMerges confirmed scan", () => {
     ["pagination gap", { gap: true }, "RING_MEMBER_REGISTRY_INVALID"],
   ] as const)("rejects a %s before opening a merge", async (_, changes, code) => {
     const { client, getTransaction } = scanClient(changes);
-    const auditor = X25519Secret.generate();
+    const auditor = X25519Keypair.generate();
     try {
       await expect(
         auditRingMerges({ client, ringProgramId: ring, auditor, memberPageSize: 1 }),
@@ -208,7 +208,7 @@ describe("auditRingMerges confirmed scan", () => {
 
   it("rejects a duplicate confirmed event across history pages", async () => {
     const { client } = scanClient({ duplicate: true });
-    const auditor = X25519Secret.generate();
+    const auditor = X25519Keypair.generate();
     try {
       await expect(
         auditRingMerges({ client, ringProgramId: ring, auditor, memberPageSize: 1 }),

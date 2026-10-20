@@ -33,7 +33,7 @@ Breaking
 - `ViewingKey`, shielded addresses and custom-ring auditor envelopes use X25519
   keys for every transfer and ring deposit, old auditor envelopes are
   unsupported, and `DST_VIEW_ROOT_P_CONST` is no longer exported → create a new
-  auditor configuration with `X25519Secret`/`X25519PublicKey`, migrate P-256
+  auditor configuration with `X25519Keypair`/`X25519PublicKey`, migrate P-256
   viewing keys and historical wallet data, and drop the
   `DST_VIEW_ROOT_P_CONST` import.
 - `encryptTransactionViewingSecret` and `openAuditOutputDisclosure` mask the
@@ -42,12 +42,11 @@ Breaking
   mode, so a ring proof or auditor message of the previous release does not
   verify or open → prove and audit with the ring program and prover of this
   release.
-- `ShieldedPoolError.RingEd25519OutputOwnerTag` is renamed → use `ShieldedPoolError.AnonymousRingEd25519OutputOwnerTag`, which retains error code 7085.
-- `buildDepositTransaction` and `buildRingDepositTransaction` require `depositor` → pass the asset source explicitly and omit `feePayer` when it also pays fees.
 - `SigningKey` and `ShieldedPublicKey` accept only Ed25519 ownership and PDA public keys → migrate P-256-owned notes and registry records before upgrading, use `P256ReaderKey` from `@heliuslabs/zolana/ring` for passkey audit access.
+- `UserRecord` and `RegistryRecord` drop `ownerP256`, and `getRegisterInstructionAsync`, `decodeUserRecordAccount` and `fetchUserRecord` write and read the registry record without a P-256 owner key → register again on a registry program built from this version, a record in the earlier layout fails with `WALLET_INVALID_USER_RECORD`.
+- `MergeTransactInstructionData` drops `eddsaOwner` → remove it from merge data you build and send merge instructions built by this version, the program refuses the earlier layout.
 - `openRingDepositOpening` requires a `ConfirmedDeposit` → obtain it from the confirmed audited transaction or `RpcTransactionOrigin.confirmedDeposits`, and supply `depositSource` when recovery uses a custom confirmation provider.
-
-- Custom-ring auditor envelopes use X25519 keys → create a new auditor configuration with `X25519Secret`/`X25519PublicKey` before using this version.
+- Custom-ring auditor envelopes use X25519 keys → create a new auditor configuration with `X25519Keypair`/`X25519PublicKey` before using this version.
 - `ViewingKey` and shielded addresses use X25519 for new transfers and ring deposits → migrate P-256 viewing keys and historical wallet data before using this version.
 - `DST_VIEW_ROOT_P_CONST` is no longer exported from `@heliuslabs/zolana/keypair` → drop the import, X25519 viewing keys derive their view root without it.
 - `ProverClient` and `ZolanaClient` now require a remote prover other than the
@@ -116,6 +115,9 @@ Breaking
   `buildUnsignedTransaction` require `ownerSigners`, the Ed25519 input owners
   in first-input order, the fee payer too when it owns an input → pass the
   input owners, or `[]` when no Ed25519 owner spends.
+- `KeypairErrorCode` drops `KEYPAIR_ZERO_SCALAR`, X25519 viewing keys are clamped and cannot be zero → remove it from exhaustive matches.
+- `KeypairErrorCode` drops `KEYPAIR_INVALID_PREHASH_LENGTH` with P-256 signing → remove it from exhaustive matches.
+- `CircuitId` kinds `ringEddsa` and `ringEddsaCached` are now `confidentialRingEddsa` and `confidentialRingEddsaCached` → rename them in matches and hand-built instruction data, the encoded bytes are unchanged.
 
 Added
 
@@ -125,9 +127,6 @@ Added
   `openAnonymousAuditDisclosure`, `auditDisclosureLength`,
   `anonymousAuditDisclosureShape` and `isDummyAnonymousOutput` open and size
   the auditor disclosure of an anonymous ring.
-- `syncWallet` discovers anonymous ring deposits and transfers under the zero
-  view tag and verifies decrypted outputs against their committed UTXO hashes,
-  while transaction builders reject anonymous ring configurations.
 - `buildMultiTransferTransaction(params)` pays up to fifteen recipients of
   one asset in one private transfer, each a `TransferPayment` in order (a
   single payment stays a `transfer` intent), and accepts a `feePayer` other
@@ -155,8 +154,6 @@ Changed
 - `RingDelegateTransferParams.compactPadding` lets ordinary and recovered delegate builders omit unused public slots, revealing actual counts and allowing the exact 2×3 policy proof when the registry paths share a subtree, while the default keeps padded counts.
 
 - `ProverClient` validates custom-ring proving keys against the regenerated circuit keys, including the member-update key.
-
-- Wallet and ring spend builders default `feePayer` to the owner, and `buildSetMergingEnabledTransaction` accepts an optional sponsor as `payer`.
 - `defaultTeePolicy()` now returns the devnet enclave deployment the SDK pins,
   its measurements and encryption key included, where it threw before.
 - Transfers, withdrawals, splits and custom ring transfers list an input owner
@@ -165,6 +162,7 @@ Changed
 
 Fixed
 
+- `syncWallet` failed with `CLIENT_INVALID_RPC_RESPONSE` on any indexed transaction whose published viewing key is not a valid X25519 key, now such a transaction is read without a viewing key and its outputs count as undecryptable, as do outputs under a small-order transaction key.
 - `RingRpc` rejects incomplete, repeated or oversized signed audit pages instead of silently treating them as complete.
 - `auditRingMerges` now surfaces registry read failures instead of reporting members as merely unavailable.
 - `RingProgramError.missingOwnerSigner` reports an owner account that did not sign before the ring forwards a transfer, and public deposit sources must also sign before the ring PDA signs for SPP.

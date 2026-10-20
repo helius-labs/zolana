@@ -13,7 +13,7 @@ use zolana_client::{
     AsyncIndexer, AsyncRpc, AsyncZolanaClient, ComputeBudgetConfig,
 };
 use zolana_interface::merge_utils::ciphertext_hash;
-use zolana_keypair::{random_blinding, Curve, ShieldedKeypair, X25519Pubkey};
+use zolana_keypair::{random_blinding, viewing_key::ViewTag, Curve, ShieldedKeypair, X25519Pubkey};
 use zolana_program::instruction::{DepositAsset, DepositBuildError, RingAssetDeposit};
 use zolana_ring_client::{seal_deposits, DepositEncryption, DepositOpening};
 use zolana_ring_policy::Member;
@@ -41,6 +41,8 @@ pub struct RingDeposit<'a> {
     pub amount: u64,
     /// The ring's co-signer when its scope covers deposits.
     pub cosigner: Option<&'a (dyn Signer + Sync)>,
+    /// Required in an anonymous ring, never the recipient's bootstrap tag.
+    pub anonymous_view_tag: Option<ViewTag>,
 }
 
 pub struct RingDepositReceipt {
@@ -124,14 +126,16 @@ impl RingDeposit<'_> {
                 return Err(RingError::AnonymousPublicSignerLinksOwner);
             }
         }
+        let bootstrap = self.recipient.recipient_bootstrap_view_tag();
+        let view_tag = match anonymous {
+            true => anonymous_deposit_view_tag(bootstrap, self.anonymous_view_tag)?,
+            false => bootstrap,
+        };
         let blinding = random_blinding();
         let owner_hash = self.recipient.owner_hash()?;
         let mut deposit = RingAssetDeposit {
             asset: self.asset,
-            view_tag: match anonymous {
-                true => [0; 32],
-                false => self.recipient.recipient_bootstrap_view_tag(),
-            },
+            view_tag,
             owner_utxo_hash: owner_utxo_hash(&owner_hash, &blinding)?,
             amount: self.amount,
             ring_data_hash: [0; 32],
@@ -445,5 +449,43 @@ impl Deposit {
         prefix.extend(self.escrow.meta(self.ring));
         instruction.accounts.splice(0..0, prefix);
         Ok(instruction)
+    }
+}
+
+fn anonymous_deposit_view_tag(
+    bootstrap: ViewTag,
+    requested: Option<ViewTag>,
+) -> Result<ViewTag, RingError> {
+    match requested.filter(|tag| *tag != [0; 32]) {
+        None => Err(RingError::MissingAnonymousViewTag),
+        Some(tag) if tag == bootstrap => Err(RingError::AnonymousBootstrapViewTag),
+        Some(tag) => Ok(tag),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn anonymous_deposits_take_a_caller_tag_other_than_the_bootstrap_tag() {
+        let bootstrap = [1; 32];
+        let tag = [2; 32];
+        assert_eq!(
+            anonymous_deposit_view_tag(bootstrap, Some(tag)).unwrap(),
+            tag
+        );
+        assert!(matches!(
+            anonymous_deposit_view_tag(bootstrap, None),
+            Err(RingError::MissingAnonymousViewTag)
+        ));
+        assert!(matches!(
+            anonymous_deposit_view_tag(bootstrap, Some([0; 32])),
+            Err(RingError::MissingAnonymousViewTag)
+        ));
+        assert!(matches!(
+            anonymous_deposit_view_tag(bootstrap, Some(bootstrap)),
+            Err(RingError::AnonymousBootstrapViewTag)
+        ));
     }
 }

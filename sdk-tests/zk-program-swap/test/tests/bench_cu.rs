@@ -778,7 +778,7 @@ fn bench_take(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark) {
         .try_into()
         .expect("take transaction has two outputs");
     let destination_ciphertext = order_utxo
-        .destination_ciphertext(&destination_output, BENCH_TREE_ID)
+        .destination_ciphertext(&destination_output)
         .expect("destination ciphertext");
     let transaction_viewing_key =
         get_transaction_viewing_key(&taker, &input_utxos).expect("take transaction viewing key");

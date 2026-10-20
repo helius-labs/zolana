@@ -18,9 +18,6 @@ pub enum KeypairError {
     #[error("invalid secret key")]
     InvalidSecretKey,
 
-    #[error("derived scalar is zero")]
-    ZeroScalar,
-
     #[error("invalid signature-type prefix: {0}")]
     InvalidSignatureType(u8),
 

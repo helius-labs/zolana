@@ -2,7 +2,7 @@ import { auditOpeningHash } from "../src/ring/audit.js";
 import { hashBytes, initializePoseidon } from "../src/hasher/index.js";
 import { bigIntBytes, ZERO_32 } from "../src/transaction/internal.js";
 import { UTXO_DOMAIN } from "../src/interface/program.js";
-import { X25519PublicKey, X25519Secret } from "../src/keypair/x25519.js";
+import { X25519PublicKey, X25519Keypair } from "../src/keypair/x25519.js";
 import { ringDepositInstruction } from "../src/ring/deposit-instruction.js";
 import { memberOfTag } from "../src/ring/policy.js";
 import { ed25519 } from "@noble/curves/ed25519.js";
@@ -84,7 +84,6 @@ import {
   revokeReadAccessInstruction,
   type ReaderKey,
 } from "../src/ring/reader.js";
-import { RESERVED_READER_KEY_HEX } from "../src/ring/reader.js";
 import { addressBytes, sha256 } from "../src/interface/internal.js";
 import { P256ReaderKey } from "../src/ring/reader.js";
 import {
@@ -345,7 +344,7 @@ describe("ring transact settlement", () => {
 
 describe("ring config", () => {
   const AUTHORITY = addressOf(12);
-  const AUDITOR = X25519Secret.fromBytes(new Uint8Array(32).fill(9)).publicKey();
+  const AUDITOR = X25519Keypair.fromBytes(new Uint8Array(32).fill(9)).publicKey();
 
   it("builds create config like Rust `CreateConfig`", async () => {
     const instruction = await createRingConfigInstruction({
@@ -375,9 +374,7 @@ describe("ring config", () => {
   });
 
   it("rejects P-256 keys at the auditor key boundary", () => {
-    for (const reserved of RESERVED_READER_KEY_HEX.map(hex)) {
-      expect(() => X25519PublicKey.fromBytes(reserved)).toThrow("KEYPAIR_INVALID_PUBLIC_KEY");
-    }
+    expect(() => X25519PublicKey.fromBytes(hex(P256_HEX))).toThrow("KEYPAIR_INVALID_PUBLIC_KEY");
   });
 
   it("builds init SPP ring config like Rust `InitSppRingConfig`", async () => {
@@ -898,7 +895,7 @@ describe("ring status", () => {
         ringProgramId: addressOf(7),
         state: "foreignAuditor",
         configAuditorPubkey: Buffer.from(
-          X25519Secret.fromBytes(new Uint8Array(32).fill(9)).publicKey().toBytes(),
+          X25519Keypair.fromBytes(new Uint8Array(32).fill(9)).publicKey().toBytes(),
         ).toString("base64"),
         servicePubkey: addressOf(22),
       },
@@ -913,7 +910,7 @@ describe("ring status", () => {
 
     expect(status.state).toBe("foreignAuditor");
     expect(status.configAuditorPublicKey?.toBytes()).toEqual(
-      X25519Secret.fromBytes(new Uint8Array(32).fill(9)).publicKey().toBytes(),
+      X25519Keypair.fromBytes(new Uint8Array(32).fill(9)).publicKey().toBytes(),
     );
     expect(status.servicePublicKey).toBe(addressOf(22));
   });
@@ -1348,7 +1345,7 @@ describe("ring transact", () => {
     expiryUnixTs: 0xffff_ffff_ffff_ffffn,
     privateTxHash: filled(41, 32) as Bytes32,
     circuit: {
-      kind: "ringEddsa",
+      kind: "confidentialRingEddsa",
       inputs: 2,
       outputs: 3,
       publicAssetSlots: 3,
@@ -1378,7 +1375,7 @@ describe("ring transact", () => {
     const data = {
       ...transactData(),
       circuit: {
-        kind: "ringEddsa",
+        kind: "confidentialRingEddsa",
         inputs: 2,
         outputs: 4,
         publicAssetSlots: 3,
@@ -1663,7 +1660,7 @@ describe("ring transact", () => {
 // The P-256 key of the scalar [46; 32], its record printed by the Rust builders.
 const P256_HEX = "02039b852db622408abe58a18c0f056631a6ca4b2cfeec198aae25017cad09d4e8";
 const X25519_HEX = Buffer.from(
-  X25519Secret.fromBytes(new Uint8Array(32).fill(7)).publicKey().toBytes(),
+  X25519Keypair.fromBytes(new Uint8Array(32).fill(7)).publicKey().toBytes(),
 ).toString("hex");
 
 describe("ring reader delegation", () => {
@@ -1713,11 +1710,6 @@ describe("ring reader delegation", () => {
     expect(() => checkedReaderKey(getAddressDecoder().decode(mixedTorsion))).toThrow(
       "RING_READER_KEY",
     );
-    for (const reserved of RESERVED_READER_KEY_HEX.map(hex)) {
-      expect(() => checkedReaderKey(P256ReaderKey.fromBytes(reserved as Bytes33))).toThrow(
-        "RING_READER_KEY",
-      );
-    }
     const scheme = hex(`01${"17".repeat(32)}00`);
     scheme[0] = 2;
     expect(() => readerKeyFromBytes(scheme)).toThrow("RING_READER_KEY");
@@ -2336,7 +2328,7 @@ describe("ring read request", () => {
 
   const serviceSecret = filled(9, 32);
   const servicePublicKey = getAddressDecoder().decode(ed25519.getPublicKey(serviceSecret));
-  const auditor = X25519Secret.fromBytes(new Uint8Array(32).fill(9)).publicKey();
+  const auditor = X25519Keypair.fromBytes(new Uint8Array(32).fill(9)).publicKey();
   const genesisHash = filled(4, 32) as Bytes32;
   const auditorKeyResult = (signature: Uint8Array) => ({
     ringProgramId: RING,

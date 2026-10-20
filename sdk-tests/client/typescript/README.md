@@ -39,7 +39,7 @@ the test fixtures and invoke the npm script directly:
 ```bash
 ZOLANA_TEST_MINT=<mint> \
 ZOLANA_TEST_TOKEN_ACCOUNT=<funded-token-account> \
-ZOLANA_TEST_AUTHORITY_WALLET=<v3 wallet.json with signing_key_hex> \
+ZOLANA_TEST_AUTHORITY_WALLET=<wallet.json with funding_secret_hex> \
 npm run test:ts:example
 ```
 

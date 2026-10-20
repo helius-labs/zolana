@@ -27,7 +27,7 @@ use zolana_indexer_api::{
     MAX_RING_MEMBER_PAGE_LIMIT,
 };
 use zolana_interface::instruction::instruction_data::merge_transact::merge_circuit_width;
-use zolana_keypair::{NullifierKey, X25519Pubkey, X25519Secret};
+use zolana_keypair::{NullifierKey, X25519Keypair, X25519Pubkey};
 use zolana_ring_policy::Member;
 use zolana_transaction::instructions::merge::{
     merge_output_blinding, merge_output_key, MergeOutputPlaintext,
@@ -92,7 +92,7 @@ pub struct MergeAuditPage {
 #[must_use = "run or discard the merge audit explicitly"]
 pub struct MergeAudit<'a> {
     ring: Address,
-    auditor: &'a X25519Secret,
+    auditor: &'a X25519Keypair,
     cursor: Option<Vec<u8>>,
     page_size: NonZeroU32,
     max_pages: NonZeroUsize,
@@ -163,7 +163,7 @@ impl PendingMerge {
 }
 
 impl<'a> MergeAudit<'a> {
-    pub fn new(ring: Address, auditor: &'a X25519Secret) -> Self {
+    pub fn new(ring: Address, auditor: &'a X25519Keypair) -> Self {
         Self {
             ring,
             auditor,
@@ -639,7 +639,7 @@ mod tests {
     #[tokio::test]
     async fn authenticated_opening_stops_before_unneeded_registry_pages() {
         let ring = Address::new_from_array([9; 32]);
-        let auditor = X25519Secret::new();
+        let auditor = X25519Keypair::new();
         let key = NullifierKey::from_secret([7; 31]);
         let envelope = crate::NullifierKeyEnvelope::new(&key, &auditor.pubkey()).unwrap();
         let escrow_key = EscrowKey {

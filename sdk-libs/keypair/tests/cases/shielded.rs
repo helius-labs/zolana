@@ -34,7 +34,7 @@ pub(crate) fn from_parts_keeps_detached_viewing_key(
     viewing: String,
 ) {
     let signing_clone = SigningKey::from_ed25519_bytes(&world.sig_key(&signing).secret_bytes());
-    let viewing_clone = ViewingKey::from_bytes(&world.vk(&viewing).secret_bytes()).unwrap();
+    let viewing_clone = ViewingKey::from_bytes(&world.vk(&viewing).secret_bytes());
     let derived = ShieldedKeypair::from_keypair(signing_clone.clone()).unwrap();
     let kp = ShieldedKeypair::with_viewing_key(signing_clone, viewing_clone).unwrap();
     assert_eq!(*kp.nullifier_key.secret(), *derived.nullifier_key.secret());

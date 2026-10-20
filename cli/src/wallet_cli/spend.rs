@@ -3,7 +3,7 @@
 //! The CLI holds the whole keypair, so a spend is: pick notes from the
 //! wallet's spendable UTXOs, add the outputs to a `ConfidentialTransaction`, encrypt it with the
 //! keypair, let the client fetch the input proofs and prove, then sign with the
-//! owner and fee payer and send.
+//! funding key and send.
 
 use anyhow::Result;
 use solana_signature::Signature;
@@ -26,7 +26,7 @@ pub(super) enum Send {
     Checked,
 }
 
-/// Encrypt, prove, sign with the owner and fee payer, send and wait for the indexer.
+/// Encrypt, prove, sign with the funding key, send and wait for the indexer.
 pub(super) fn send_private(
     ctx: &SyncContext,
     client: &ZolanaClient<SolanaRpc>,
@@ -39,9 +39,9 @@ pub(super) fn send_private(
         transaction: transaction.encrypt(keypair)?,
         settlement_transfers,
     };
-    let unsigned = Submission::new(&signed, ctx.material.fee_payer.pubkey(), keypair)
+    let unsigned = Submission::new(&signed, ctx.material.funding.pubkey(), keypair)
         .finish_unsigned_sync(client)?;
-    let transaction = sign_transaction(unsigned.message, &[&ctx.material.fee_payer, keypair])?;
+    let transaction = sign_transaction(unsigned.message, &[&ctx.material.funding])?;
     let signature = match send {
         Send::Fast => client.rpc().send_transaction_with_config(
             &transaction,

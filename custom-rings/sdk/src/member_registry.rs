@@ -16,7 +16,7 @@ use zolana_indexer_api::{
     GetRingMemberRecordRequest, GetRingMemberRecordResponse, GetRingMemberRegistryRootRequest,
     Hash, SerializablePubkey,
 };
-use zolana_keypair::{NullifierKey, X25519Pubkey, X25519Secret};
+use zolana_keypair::{NullifierKey, X25519Keypair, X25519Pubkey};
 use zolana_ring_client::SealedNullifierKey;
 use zolana_ring_member_registry::{check_batch, RegistryOverlay};
 use zolana_ring_policy::{ListId, ListSet, Member, Writer};
@@ -112,7 +112,7 @@ impl SealedKeyEntry {
     }
 
     /// The opened key must reproduce the escrow key the record carries.
-    pub fn open(&self, auditor: &X25519Secret) -> Result<NullifierKey, RingError> {
+    pub fn open(&self, auditor: &X25519Keypair) -> Result<NullifierKey, RingError> {
         let nullifier_key = self.sealed.open(auditor)?;
         self.verify_nullifier_pubkey(&nullifier_key.pubkey()?)?;
         Ok(nullifier_key)

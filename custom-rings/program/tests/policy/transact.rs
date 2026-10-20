@@ -56,7 +56,7 @@ pub(crate) fn transact_data() -> TransactIxData {
     TransactIxData {
         expiry_unix_ts: u64::MAX,
         private_tx_hash: [3u8; 32],
-        circuit: CircuitId::ConfidentialRingEd25519(1, 2, N_PUBLIC_SLOTS as u8),
+        circuit: CircuitId::ConfidentialRingEddsa(1, 2, N_PUBLIC_SLOTS as u8),
         tx_viewing_pk: auditor_pubkey(4),
         salt: [0u8; 16],
         proof: TransactProof::zeroed(),
@@ -576,7 +576,7 @@ fn five_policy_trees_and_the_registry_fit_the_transaction_budget() {
 fn the_fixed_policy_verifier_fits_the_transaction_budget() {
     let (mollusk, _) = setup_mollusk();
     let mut transact = transact_data();
-    transact.circuit = CircuitId::ConfidentialRingEd25519(2, 4, N_PUBLIC_SLOTS as u8);
+    transact.circuit = CircuitId::ConfidentialRingEddsa(2, 4, N_PUBLIC_SLOTS as u8);
     transact.inputs = vec![
         InputUtxo {
             nullifier_hash: [1; 32],
@@ -616,7 +616,7 @@ fn both_shaped_policy_keys_reach_the_pairing_within_the_budget() {
     let (mollusk, _) = setup_mollusk();
     for tag in [tag::TRANSACT_SHAPED, tag::TRANSACT_SHAPED_SUBTREE] {
         let mut transact = transact_data();
-        transact.circuit = CircuitId::ConfidentialRingEd25519(16, 4, N_PUBLIC_SLOTS as u8);
+        transact.circuit = CircuitId::ConfidentialRingEddsa(16, 4, N_PUBLIC_SLOTS as u8);
         transact.inputs = (1..=16)
             .map(|i| InputUtxo {
                 nullifier_hash: [i; 32],
@@ -656,8 +656,7 @@ fn shaped_tags_reject_audit_only_rings_and_unshipped_or_overfull_shapes() {
         audit.expect_err(&mollusk, custom(CustomRingError::UnsupportedCircuit));
         for (capacity, actual) in [(1, 2), (24, 24)] {
             let mut transact = transact_data();
-            transact.circuit =
-                CircuitId::ConfidentialRingEd25519(capacity, 2, N_PUBLIC_SLOTS as u8);
+            transact.circuit = CircuitId::ConfidentialRingEddsa(capacity, 2, N_PUBLIC_SLOTS as u8);
             transact.inputs = (1..=actual)
                 .map(|i| InputUtxo {
                     nullifier_hash: [i; 32],

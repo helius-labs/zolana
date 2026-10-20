@@ -1,4 +1,4 @@
-import { X25519Secret } from "../src/keypair/x25519.js";
+import { X25519Keypair } from "../src/keypair/x25519.js";
 import { getAddressDecoder } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 
@@ -52,7 +52,7 @@ describe("LocalShieldedKeys on the ring rail", () => {
   it("seals the transaction viewing secret to the auditor in a custom-ring transfer", async () => {
     const keypair = ShieldedKeypair.fromKeypair(SigningKey.fromEd25519Bytes(seed(8)));
     const keys = LocalShieldedKeys.fromKeypair(keypair);
-    const auditor = X25519Secret.generate();
+    const auditor = X25519Keypair.generate();
     const firstNullifier = seed(9);
     const encrypted = await withTransactionKey(keys, firstNullifier, (tx) =>
       encryptCustomRingTransfer(tx, {

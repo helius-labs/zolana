@@ -14,9 +14,8 @@ use zolana_interface::{
 
 use crate::common::{
     account, anonymous_config_account, audit_only_config_account, auditor_pubkey, authority,
-    config_pda, deposit_fixture, escrowed_config_account, initialized_config_account,
-    legacy_auditor_pubkey, member_registry_root_slot, payer, program_id, setup_mollusk,
-    system_program_slot, Fixture, Slot,
+    config_pda, deposit_fixture, escrowed_config_account, member_registry_root_slot, payer,
+    program_id, setup_mollusk, system_program_slot, Fixture, Slot,
 };
 
 fn audit_account(required: u8) -> Account {
@@ -402,18 +401,6 @@ fn a_sec1_capsule_key_is_rejected_exactly() {
     fixture.expect_err(&mollusk, custom(CustomRingError::InvalidDepositDisclosure));
 }
 
-#[test]
-fn a_legacy_auditor_key_refuses_every_deposit_exactly() {
-    let (mollusk, _) = setup_mollusk();
-    let legacy = || initialized_config_account(authority(), legacy_auditor_pubkey());
-    let mut plain = deposit_fixture();
-    plain.set_account("config", legacy());
-    plain.expect_err(&mollusk, custom(CustomRingError::LegacyAuditorKey));
-    let mut audited = audited_fixture(1);
-    audited.set_account("config", legacy());
-    audited.expect_err(&mollusk, custom(CustomRingError::LegacyAuditorKey));
-}
-
 fn anonymous_fixture() -> Fixture {
     let mut fixture = audited_fixture(2);
     fixture.set_account("config", anonymous_config_account());
@@ -426,7 +413,7 @@ fn anonymous_fixture() -> Fixture {
 }
 
 #[test]
-fn an_anonymous_ring_takes_only_audited_deposits_without_metadata() {
+fn an_anonymous_ring_takes_only_audited_deposits_without_ring_data() {
     let (mollusk, _) = setup_mollusk();
     anonymous_fixture().expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
     let mut plain = deposit_fixture();
@@ -436,7 +423,7 @@ fn an_anonymous_ring_takes_only_audited_deposits_without_metadata() {
     mutate_deposit(&mut tagged, |deposit| {
         deposit.deposits[1].view_tag = [1; 32]
     });
-    tagged.expect_err(&mollusk, custom(CustomRingError::InvalidAnonymousOutput));
+    tagged.expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
     let mut ring_data = anonymous_fixture();
     mutate_deposit(&mut ring_data, |deposit| {
         deposit.deposits[0].ring_data_hash = [1; 32]

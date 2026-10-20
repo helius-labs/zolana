@@ -50,12 +50,11 @@ impl LifecycleHarness {
             .actor(name)
             .solana_signer
             .as_ref()
-            .expect("lifecycle actors are eddsa-owned")
+            .expect("lifecycle actors are ed25519-owned")
             .insecure_clone();
         self.rpc.airdrop(&owner.pubkey(), 1_000_000_000)?;
 
         let register_data = RegisterData {
-            reserved_owner: Default::default(),
             nullifier_pubkey: keypair.nullifier_key.pubkey()?,
             viewing_pubkey: *keypair.viewing_pubkey().as_bytes(),
         };

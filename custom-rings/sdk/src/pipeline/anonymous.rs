@@ -1,13 +1,13 @@
 //! The hidden owner's rail of an anonymous ring. The owner signs inside the
-//! RingEd25519 proof and the auditor disclosure names every hidden party.
+//! AnonymousRingEddsa proof and the auditor disclosure names every hidden party.
 
-use custom_ring_interface::RingMode;
+use custom_ring_interface::{RingMode, ANONYMOUS_RING_SHAPES};
 use solana_address::Address;
 use zolana_client::{AsyncRpc, Shape};
 use zolana_hasher::primitives::{hash_bytes, SOLANA_OWNER_TAG};
 use zolana_keypair::{Curve, ShieldedAddress, SigningKey};
 use zolana_ring_client::{AnonymousDisclosure, AnonymousOutputOpening, AuditInputOpening};
-use zolana_transaction::instructions::transact::SppProofInputs;
+use zolana_transaction::instructions::transact::{AnonymousViewTags, SppProofInputs};
 
 use super::{sealed, Owner, Rail, RailKind, RingTransfer, Staged};
 use crate::{CustomRing, CustomRingConfig, RingError};
@@ -16,6 +16,7 @@ use crate::{CustomRing, CustomRingConfig, RingError};
 pub struct Anonymous<'a> {
     pub(super) owner: Owner<'a>,
     pub(super) signer: &'a SigningKey,
+    view_tags: AnonymousViewTags,
 }
 
 pub type AnonymousTransfer<'a> = RingTransfer<Anonymous<'a>>;
@@ -30,12 +31,17 @@ impl Rail for Anonymous<'_> {
 
 impl<'a> RingTransfer<Owner<'a>> {
     /// The hidden Ed25519 owner an anonymous ring proves, it must be the sender's signing key.
-    pub fn with_anonymous_signer(self, signer: &'a SigningKey) -> RingTransfer<Anonymous<'a>> {
+    pub fn with_anonymous_signer(
+        self,
+        signer: &'a SigningKey,
+        view_tags: AnonymousViewTags,
+    ) -> RingTransfer<Anonymous<'a>> {
         RingTransfer {
             ring: self.ring,
             rail: Anonymous {
                 owner: self.rail,
                 signer,
+                view_tags,
             },
             cosigner: self.cosigner,
         }
@@ -62,17 +68,19 @@ impl Anonymous<'_> {
         if owner == self.owner.transaction.payer() || cosigner == Some(owner) {
             return Err(RingError::AnonymousPublicSignerLinksOwner);
         }
-        self.owner.stage_with(ring, client, config, true).await
+        self.owner
+            .stage_with(ring, client, config, Some(&self.view_tags))
+            .await
     }
 }
 
-/// RingEd25519 keeps its notes in this ring and its owners hidden. Only outputs may use compact padding.
+/// AnonymousRingEddsa keeps its notes in this ring and its owners hidden. Only outputs may use compact padding.
 pub(super) fn check_anonymous_slots(
     program: Address,
     shape: Shape,
     inputs: &SppProofInputs,
 ) -> Result<(), RingError> {
-    if !shape.is_anonymous_ring_ed25519() {
+    if !ANONYMOUS_RING_SHAPES.contains(&shape) {
         return Err(RingError::AnonymousShapeUnsupported);
     }
     let input_open = inputs
@@ -87,10 +95,19 @@ pub(super) fn check_anonymous_slots(
                         address.signing_pubkey.curve().ok() != Some(Curve::Ed25519)
                     })))
     });
-    match input_open || output_open {
-        true => Err(RingError::InvalidAnonymousSlot),
-        false => Ok(()),
+    if input_open || output_open {
+        return Err(RingError::InvalidAnonymousSlot);
     }
+    // The recipient recomputes an anonymous commitment with zero data hashes.
+    if inputs.output_utxos.iter().any(|output| {
+        output.data_hash.is_some_and(|hash| hash != [0; 32])
+            || output.ring_data_hash.is_some_and(|hash| hash != [0; 32])
+            || output.data.utxo_data().is_some()
+            || output.data.ring_data().is_some()
+    }) {
+        return Err(RingError::AnonymousOutputData);
+    }
+    Ok(())
 }
 
 /// Each published slot's opening, the proof checks it against its commitment.
