@@ -2,15 +2,12 @@
 //! the `private_tx_hash` the audit proof binds, so the two are separate steps.
 
 use custom_ring_interface::{
-    CustomRingBasePublicInput, CustomRingPolicyPublicInput, DisclosureShape, AUDIT_INPUT_SLOTS,
-    TAGGED_X25519_KEY_LEN,
+    BaseCircuit, CustomRingBasePublicInput, CustomRingPolicyPublicInput, DisclosureShape,
+    AUDIT_INPUT_SLOTS, BASE_ANONYMOUS_INPUT_SLOTS, SHORT_AUDIT_MIN_INPUTS, TAGGED_X25519_KEY_LEN,
 };
 use zeroize::Zeroizing;
 use zolana_client::{prover::indexed::IndexedPolicyData, ProofInputUtxo};
-use zolana_hasher::{
-    hash_chain::create_hash_chain_from_slice,
-    primitives::{is_canonical_bn254_scalar_be, SOLANA_OWNER_TAG},
-};
+use zolana_hasher::primitives::{is_canonical_bn254_scalar_be, SOLANA_OWNER_TAG};
 use zolana_keypair::{ViewingKey, X25519Pubkey};
 use zolana_ring_client::{AnonymousDisclosure, AuditorEncryption, AuditorMessage};
 use zolana_ring_policy::POLICY_OUTPUT_SLOTS;
@@ -51,6 +48,8 @@ pub struct PendingCustomRingProof {
     message: AuditorMessage,
     salt: [u8; 16],
     outputs: Vec<ProofInputUtxo>,
+    /// Spent notes of an ordinary transfer, unknown through `encrypt`.
+    inputs: Option<usize>,
     anonymous: Option<AnonymousSeal>,
 }
 
@@ -74,9 +73,6 @@ impl CustomRingProofParams {
 
     /// Uses the short, fully proved two-output disclosure for a 24x2 transfer.
     pub fn encrypt_for_input_count(self, inputs: usize) -> Result<EncryptedAudit, RingError> {
-        if inputs <= 16 {
-            return self.encrypt();
-        }
         self.encrypt_with(None, Some(inputs))
     }
 
@@ -114,18 +110,20 @@ impl CustomRingProofParams {
                 self.salt,
                 &seal.disclosure,
             )?,
-            (None, Some(inputs)) => AuditorEncryption::new_with_outputs_for_shape(
-                &self.tx_viewing_key,
-                &self.auditor_pk,
-                self.salt,
-                &self.outputs,
-                DisclosureShape {
-                    anonymous: false,
-                    inputs,
-                    outputs: self.outputs.len(),
-                },
-            )?,
-            (None, None) => AuditorEncryption::new_with_outputs(
+            (None, Some(inputs)) if inputs >= SHORT_AUDIT_MIN_INPUTS => {
+                AuditorEncryption::new_with_outputs_for_shape(
+                    &self.tx_viewing_key,
+                    &self.auditor_pk,
+                    self.salt,
+                    &self.outputs,
+                    DisclosureShape {
+                        anonymous: false,
+                        inputs,
+                        outputs: self.outputs.len(),
+                    },
+                )?
+            }
+            (None, _) => AuditorEncryption::new_with_outputs(
                 &self.tx_viewing_key,
                 &self.auditor_pk,
                 self.salt,
@@ -141,6 +139,7 @@ impl CustomRingProofParams {
                 message: message.clone(),
                 salt: self.salt,
                 outputs: self.outputs,
+                inputs: ordinary_inputs,
                 anonymous,
             },
             message,
@@ -179,30 +178,15 @@ impl PendingCustomRingProof {
             (Some(seal), Some(slots)) => Some(self.anonymous_base(slots, seal.delivery.clone())?),
             _ => return Err(RingError::AnonymousDisclosureShape),
         };
-        let circuit_type = if anonymous
-            .as_ref()
-            .is_some_and(|disclosure| disclosure.n_in > 4)
-        {
-            RingCircuit::BaseWideAnonymous
-        } else if anonymous.is_some() || self.outputs.len() != 2 {
-            RingCircuit::Base
-        } else if self.message.disclosure().len()
-            == 2 * custom_ring_interface::AUDIT_OUTPUT_FIELD_COUNT
-        {
-            RingCircuit::BaseCompactConfidential
-        } else {
-            RingCircuit::BaseConfidential
+        let inputs = match &anonymous {
+            Some(disclosure) => usize::from(disclosure.n_in),
+            None => self.inputs.unwrap_or_default(),
         };
+        let circuit = BaseCircuit::select(anonymous.is_some(), inputs, self.outputs.len());
         let statement = self.statement(&private_tx_hash, &output_hashes, &output_body_hashes);
-        // The confidential keys prove the audit elements without the body chain.
-        let public_input_hash = match circuit_type {
-            RingCircuit::BaseConfidential | RingCircuit::BaseCompactConfidential => {
-                create_hash_chain_from_slice(&statement.audit_elements()?)?
-            }
-            _ => statement.hash()?,
-        };
+        let public_input_hash = circuit.public_input_hash(&statement)?;
         Ok(BaseBody {
-            circuit_type,
+            circuit_type: circuit.into(),
             public_input_hash,
             n_out: self.outputs.len() as u8,
             outputs: self.outputs,
@@ -230,10 +214,10 @@ impl PendingCustomRingProof {
             n_in: inputs.len() as u8,
             inputs: vec![
                 CustomRingOpening::default();
-                if inputs.len() > 4 {
+                if inputs.len() > BASE_ANONYMOUS_INPUT_SLOTS {
                     AUDIT_INPUT_SLOTS
                 } else {
-                    4
+                    BASE_ANONYMOUS_INPUT_SLOTS
                 }
             ],
             anonymous_outputs: Default::default(),

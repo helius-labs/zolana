@@ -3,7 +3,8 @@ use custom_ring_interface::{
     base_confidential_verifying_key, base_verifying_key, delegate_policy_2x3_verifying_key,
     delegate_policy_verifying_key, deposit_verifying_key, policy_2x3_anonymous_verifying_key,
     policy_2x3_verifying_key, policy_verifying_key, register_key_verifying_key,
-    update_members_verifying_key, CustomRingProof, PlainGroth16Proof, PROVING_KEY_SHA256S,
+    update_members_verifying_key, BaseCircuit, CustomRingProof, PlainGroth16Proof,
+    PROVING_KEY_SHA256S,
 };
 use serde::{Serialize, Serializer};
 use zeroize::Zeroizing;
@@ -35,6 +36,17 @@ pub(crate) enum RingCircuit {
     Deposit,
     RegisterKey,
     UpdateMembers,
+}
+
+impl From<BaseCircuit> for RingCircuit {
+    fn from(circuit: BaseCircuit) -> Self {
+        match circuit {
+            BaseCircuit::Base => Self::Base,
+            BaseCircuit::WideAnonymous => Self::BaseWideAnonymous,
+            BaseCircuit::Confidential => Self::BaseConfidential,
+            BaseCircuit::CompactConfidential => Self::BaseCompactConfidential,
+        }
+    }
 }
 
 impl RingCircuit {

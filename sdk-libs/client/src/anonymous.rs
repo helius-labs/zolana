@@ -273,7 +273,8 @@ impl<'a, K: ShieldedKeys + ?Sized> AnonymousStreams<'a, K> {
                 continue;
             }
             for slot in 0..tx.output_slots.len() {
-                let slot = u8::try_from(slot).map_err(|_| TransactionError::TooManyOutputs)?;
+                let slot = u8::try_from(slot)
+                    .map_err(|_| TransactionError::AnonymousSlotIndex { slot_index: slot })?;
                 requests.push(RingTagRequest::Change {
                     viewing_pubkey: self.viewing_pubkey,
                     first_nullifier,

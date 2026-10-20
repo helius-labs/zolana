@@ -5,13 +5,52 @@ use zolana_hasher::{
 };
 use zolana_interface::merge_utils::ciphertext_hash;
 
-use crate::{AUDIT_CIPHERTEXT_LEN, TAGGED_X25519_KEY_LEN};
+use crate::{AUDIT_CIPHERTEXT_LEN, SHORT_AUDIT_MIN_INPUTS, TAGGED_X25519_KEY_LEN};
 
-/// The audit statement the policy circuits extend.
+/// The audit statement the confidential base keys prove.
 pub const AUDIT_PUBLIC_INPUT_ELEMENTS: usize = 12;
 /// The base statement, the audit elements with the output body chain at `BODY_CHAIN_INDEX`.
 pub const BASE_PUBLIC_INPUT_ELEMENTS: usize = AUDIT_PUBLIC_INPUT_ELEMENTS + 1;
 pub const BODY_CHAIN_INDEX: usize = 8;
+/// Spent notes the narrow anonymous base key opens, the wide key opens `AUDIT_INPUT_SLOTS`.
+pub const BASE_ANONYMOUS_INPUT_SLOTS: usize = 4;
+
+/// The base key the ring mode and the settled shape select, the program and the SDK
+/// pick through this one table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BaseCircuit {
+    Base,
+    WideAnonymous,
+    Confidential,
+    CompactConfidential,
+}
+
+impl BaseCircuit {
+    pub const fn select(anonymous: bool, inputs: usize, outputs: usize) -> Self {
+        if anonymous && inputs > BASE_ANONYMOUS_INPUT_SLOTS {
+            Self::WideAnonymous
+        } else if anonymous || outputs != 2 {
+            Self::Base
+        } else if inputs >= SHORT_AUDIT_MIN_INPUTS {
+            Self::CompactConfidential
+        } else {
+            Self::Confidential
+        }
+    }
+
+    /// The confidential keys prove the audit elements without the body chain.
+    pub fn public_input_hash(
+        self,
+        statement: &CustomRingBasePublicInput<'_>,
+    ) -> Result<[u8; 32], HasherError> {
+        match self {
+            Self::Confidential | Self::CompactConfidential => {
+                create_hash_chain_from_slice(&statement.audit_elements()?)
+            }
+            Self::Base | Self::WideAnonymous => statement.hash(),
+        }
+    }
+}
 
 /// The audit statement, each value from the forwarded SPP content, the ring
 /// config or the published message, so a proof binds only this transaction.
@@ -58,7 +97,7 @@ impl CustomRingBasePublicInput<'_> {
         Ok(elements)
     }
 
-    /// The chain order of `base.Audit.Define`, the prefix of the policy statement.
+    /// The chain order of `base.Audit.Define`, the statement the confidential base keys prove.
     pub fn audit_elements(&self) -> Result<[[u8; 32]; AUDIT_PUBLIC_INPUT_ELEMENTS], HasherError> {
         let tx = pack_2fe(self.tx_viewing_pk);
         let auditor = pack_2fe(self.auditor_pk);

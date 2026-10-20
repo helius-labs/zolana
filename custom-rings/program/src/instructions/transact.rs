@@ -3,15 +3,14 @@ use custom_ring_interface::{
     base_confidential_compact_verifying_key, base_confidential_verifying_key, base_verifying_key,
     delegate_policy_2x3_verifying_key, delegate_policy_verifying_key,
     policy_2x3_anonymous_verifying_key, policy_2x3_verifying_key, policy_verifying_key,
-    AuditorMessage, CustomRingBasePublicInput, CustomRingError, CustomRingPolicyPublicInput,
-    CustomRingProof, CustomRingTransactIxData, DisclosureShape, PolicyConfig, PolicyProofKind,
-    RingMode, ANONYMOUS_OUTPUT_BODY_LEN, ANONYMOUS_OUTPUT_SCHEME, ANONYMOUS_RING_SHAPES, N_FOREIGN,
-    TAGGED_X25519_KEY_LEN,
+    AuditorMessage, BaseCircuit, CustomRingBasePublicInput, CustomRingError,
+    CustomRingPolicyPublicInput, CustomRingProof, CustomRingTransactIxData, DisclosureShape,
+    PolicyConfig, PolicyProofKind, RingMode, ANONYMOUS_OUTPUT_BODY_LEN, ANONYMOUS_OUTPUT_SCHEME,
+    ANONYMOUS_RING_SHAPES, N_FOREIGN, TAGGED_X25519_KEY_LEN,
 };
 use groth16_solana::groth16::Groth16Verifyingkey;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_account_checks::AccountIterator;
-use zolana_hasher::hash_chain::create_hash_chain_from_slice;
 use zolana_interface::instruction::{
     instruction_data::transact::{
         confidential_encrypted_output_body, ring_anonymous_encrypted_output_body,
@@ -327,29 +326,24 @@ impl RingStatement<'_> {
     /// The confidential keys prove the audit elements alone, without the body chain.
     #[inline(never)]
     fn verify_base(&self, audit: CustomRingBasePublicInput<'_>, anonymous: bool) -> ProgramResult {
-        let (public_input, key) = if anonymous && self.transact.inputs.len() > 4 {
-            (
-                audit.hash(),
-                &base_anonymous_wide_verifying_key::VERIFYINGKEY,
-            )
-        } else if anonymous || self.transact.outputs.len() != 2 {
-            (audit.hash(), &base_verifying_key::VERIFYINGKEY)
-        } else {
-            let audit = audit
-                .audit_elements()
-                .and_then(|elements| create_hash_chain_from_slice(&elements));
-            if self.transact.inputs.len() > 16 {
-                (
-                    audit,
-                    &base_confidential_compact_verifying_key::VERIFYINGKEY,
-                )
-            } else {
-                (audit, &base_confidential_verifying_key::VERIFYINGKEY)
+        let circuit = BaseCircuit::select(
+            anonymous,
+            self.transact.inputs.len(),
+            self.transact.outputs.len(),
+        );
+        let key = match circuit {
+            BaseCircuit::Base => &base_verifying_key::VERIFYINGKEY,
+            BaseCircuit::WideAnonymous => &base_anonymous_wide_verifying_key::VERIFYINGKEY,
+            BaseCircuit::Confidential => &base_confidential_verifying_key::VERIFYINGKEY,
+            BaseCircuit::CompactConfidential => {
+                &base_confidential_compact_verifying_key::VERIFYINGKEY
             }
         };
         verify_groth16(
             self.proof,
-            public_input.map_err(CustomRingError::from)?,
+            circuit
+                .public_input_hash(&audit)
+                .map_err(CustomRingError::from)?,
             key,
         )
     }
@@ -669,6 +663,7 @@ mod tests {
     use custom_ring_interface::{
         pack_2fe, AUDITOR_MESSAGE_PREFIX_LEN, AUDIT_DISCLOSURE_FIELD_COUNT, VIEWING_PUBKEY_TAG,
     };
+    use zolana_hasher::hash_chain::create_hash_chain_from_slice;
     use zolana_interface::merge_utils::ciphertext_hash;
 
     /// Fixture of the circuit's Go test

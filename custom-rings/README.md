@@ -218,6 +218,25 @@ SPP binds these messages to the transfer. A valid transfer cannot hide its
 committed outputs behind a different auditor ciphertext. Ordinary recipient
 ciphertexts remain wallet-side and are outside this guarantee.
 
+An anonymous ring also proves delivery. A payment names its recipient by a full
+`RingAddress`, and the proof binds the encrypted note to the signing identity,
+the nullifier key and the viewing key in that address, so whoever holds the three
+matching secrets recovers the note from ring history, opens it, checks it against
+the on-chain commitment and spends it under the ring's policy. The proof does not
+show that the sender chose the address it intended or that anyone holds the keys
+of an arbitrary address, it speaks about the address the sender used. The auditor
+opens every real output from the enveloped transaction secret and the disclosed
+recipient keys, and nothing a sender controls outside the proof changes what the
+auditor reads.
+
+A recipient wallet that misses a tag recovers by walking the ring's confirmed
+history, one key agreement per transaction and one trial opening per scheme-9
+slot, and accepts an output on commitment equality. The scan fails on a
+pagination limit or a page without a scan frontier. It cannot see a transaction
+the indexer silently omits, so its completeness is the indexer's completeness.
+The report carries the confirmed head it scanned through and the indexer
+frontier it stopped at, the checkpoint of the next recovery.
+
 The order is fixed by the hashes. SPP hashes the messages into
 `external_data_hash`, which the SPP proof commits to, and `private_tx_hash` is
 a public input of the custom-ring circuit. `CustomRingTransfer::prove`
@@ -417,12 +436,16 @@ whose plaintext is wholly known or low-entropy, and a key rotation does not
 change that.
 Ordinary recipient encryption stays wallet-side. A sender can make their own
 payment unreadable, but cannot use that to bypass conservation or double-spend
-checks. Protocols that rely on delivery, such as swaps, need a separate proof
-of the recipient ciphertext and its binding to the intended recipient's key.
+checks. On an ordinary ring, protocols that rely on delivery, such as swaps,
+need a separate proof of the recipient ciphertext and its binding to the
+intended recipient's key. An anonymous ring proves that binding in its base
+circuit.
 
 Ordinary rings without policy rules use `custom-ring-base-confidential` for
 two-output auditor disclosure and `custom-ring-base` for other output counts.
-Anonymous rings use `custom-ring-base`. The configured ring mode and settled
+Anonymous rings use `custom-ring-base`, or `custom-ring-base-anonymous-wide`
+above four inputs. `BaseCircuit::select` in the interface crate is the one
+table the program and the SDK pick from. The configured ring mode and settled
 output count select the verifying key. The optimized circuits require the
 matching program, proving keys and clients. One Go catalog drives the Rust
 release catalog and TypeScript pins. `just check-custom-ring-keys` checks those

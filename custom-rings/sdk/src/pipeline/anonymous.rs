@@ -1,7 +1,7 @@
 //! The hidden owner's rail of an anonymous ring. The owner signs inside the
 //! AnonymousRingEddsa proof and the auditor disclosure names every hidden party.
 
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use custom_ring_interface::{
     anonymous_output_body, anonymous_output_body_hash, RingMode, ANONYMOUS_OUTPUT_PLAINTEXT_LEN,
@@ -12,12 +12,12 @@ use zolana_client::{AsyncRpc, Shape, TagReservations, TagStream};
 use zolana_hasher::primitives::{hash_bytes, SOLANA_OWNER_TAG};
 use zolana_interface::instruction::instruction_data::transact::ring_anonymous_encrypted_output_body;
 use zolana_keypair::{
-    viewing_key::ViewTag, Curve, KeypairError, RingAddress, ShieldedAddress, SigningKey,
-    ViewingKey, X25519Pubkey,
+    viewing_key::ViewTag, Curve, InboxSecret, KeypairError, RingAddress, ShieldedAddress,
+    SigningKey, ViewingKey, X25519Pubkey,
 };
 use zolana_ring_client::{AnonymousDisclosure, AnonymousOutputOpening, AuditInputOpening};
 use zolana_transaction::instructions::transact::{
-    AnonymousViewTags, ConfidentialTransaction, SppProofInputs,
+    AnonymousViewTags, ConfidentialTransaction, SppProofInputs, TransactSession,
 };
 
 use super::{sealed, Owner, Rail, RailKind, RingTransfer, Staged};
@@ -32,6 +32,7 @@ pub struct Anonymous<'a> {
     pub(super) signer: &'a SigningKey,
     viewing_key: &'a ViewingKey,
     recipients: Vec<AnonymousRecipient>,
+    session: Arc<TransactSession>,
 }
 
 /// Where a payment to an address is tagged, the address itself is always carried.
@@ -75,6 +76,7 @@ impl<'a> RingTransfer<Owner<'a>> {
                 signer,
                 viewing_key,
                 recipients: Vec::new(),
+                session: Arc::default(),
             },
             cosigner: self.cosigner,
         }
@@ -88,6 +90,13 @@ impl RingTransfer<Anonymous<'_>> {
         self.rail.recipients.push(recipient);
         self
     }
+
+    /// The wallet's sealed streams, a transfer without one seals under its own.
+    #[must_use = "use the updated transfer"]
+    pub fn with_session(mut self, session: Arc<TransactSession>) -> Self {
+        self.rail.session = session;
+        self
+    }
 }
 
 /// A tag stream of one transaction, two addresses on one viewing key share the pair stream.
@@ -95,6 +104,31 @@ impl RingTransfer<Anonymous<'_>> {
 enum StreamKey {
     Inbox([u8; 32]),
     Pair(X25519Pubkey),
+}
+
+/// The stream a recipient slot takes its tag from.
+enum Stream<'a> {
+    Inbox(&'a InboxSecret),
+    Pair {
+        sender: &'a ViewingKey,
+        recipient: X25519Pubkey,
+    },
+}
+
+impl Stream<'_> {
+    fn key(&self) -> StreamKey {
+        match self {
+            Self::Inbox(inbox) => StreamKey::Inbox(*inbox.as_bytes()),
+            Self::Pair { recipient, .. } => StreamKey::Pair(*recipient),
+        }
+    }
+
+    fn tag_at(&self, index: u64) -> Result<ViewTag, KeypairError> {
+        match self {
+            Self::Inbox(inbox) => inbox.view_tag(index),
+            Self::Pair { sender, recipient } => sender.pair_send_view_tag(recipient, index),
+        }
+    }
 }
 
 impl Anonymous<'_> {
@@ -145,7 +179,8 @@ impl Anonymous<'_> {
         }
         let stream = TagStream::new(client);
         let mut reservations: HashMap<StreamKey, TagReservations> = HashMap::new();
-        let mut view_tags = AnonymousViewTags::new(self.viewing_key);
+        let mut view_tags =
+            AnonymousViewTags::new(self.viewing_key).with_session(Arc::clone(&self.session));
         for (slot, output) in transaction.outputs().iter().enumerate() {
             let Some(owner) = output.owner_address else {
                 continue;
@@ -161,26 +196,19 @@ impl Anonymous<'_> {
                 continue;
             };
             let address = recipient.address();
-            let (key, tag_at): (
-                StreamKey,
-                Box<dyn Fn(u64) -> Result<ViewTag, KeypairError> + Send + Sync>,
-            ) = match recipient {
-                AnonymousRecipient::Address(address) => (
-                    StreamKey::Inbox(*address.inbox_secret.as_bytes()),
-                    Box::new(|j| address.inbox_secret.view_tag(j)),
-                ),
-                AnonymousRecipient::Paired(address) => {
-                    let viewing_pk = address.recipient.viewing_pubkey;
-                    (
-                        StreamKey::Pair(viewing_pk),
-                        Box::new(move |k| self.viewing_key.pair_send_view_tag(&viewing_pk, k)),
-                    )
-                }
+            let tags = match recipient {
+                AnonymousRecipient::Address(address) => Stream::Inbox(&address.inbox_secret),
+                AnonymousRecipient::Paired(address) => Stream::Pair {
+                    sender: self.viewing_key,
+                    recipient: address.recipient.viewing_pubkey,
+                },
             };
             let index = stream
-                .reserve_index(reservations.entry(key).or_default(), &tag_at)
+                .reserve_index(reservations.entry(tags.key()).or_default(), |index| {
+                    tags.tag_at(index)
+                })
                 .await?;
-            view_tags = view_tags.with_slot(slot, address, tag_at(index)?)?;
+            view_tags = view_tags.with_slot(slot, address, tags.tag_at(index)?)?;
         }
         Ok(view_tags)
     }

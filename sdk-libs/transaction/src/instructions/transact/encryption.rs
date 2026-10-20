@@ -1,6 +1,6 @@
 use std::{
-    collections::{BTreeMap, BTreeSet, HashSet},
-    sync::{Mutex, PoisonError},
+    collections::{btree_map::Entry, BTreeMap, HashSet},
+    sync::{Arc, Mutex, PoisonError},
 };
 
 use solana_address::Address;
@@ -24,8 +24,44 @@ use crate::{
     Data, SOL_ASSET_ID,
 };
 
-/// `(tx_viewing_pk, salt)` pairs sealed in the current process, a repeat would key every slot stream twice.
-static SEALED_STREAMS: Mutex<BTreeSet<([u8; 33], [u8; SALT_LEN])>> = Mutex::new(BTreeSet::new());
+/// The anonymous streams one sender sealed, one salt per transaction viewing key.
+#[derive(Default)]
+pub struct TransactSession {
+    streams: Mutex<BTreeMap<[u8; 33], SealedStream>>,
+}
+
+struct SealedStream {
+    salt: [u8; SALT_LEN],
+    output_hashes: Vec<[u8; 32]>,
+}
+
+impl TransactSession {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// A repeat of the same outputs keeps its salt, other outputs under a sealed key would
+    /// key every slot stream twice.
+    fn seal(
+        &self,
+        tx_viewing_pk: &X25519Pubkey,
+        output_hashes: Vec<[u8; 32]>,
+    ) -> Result<[u8; SALT_LEN], TransactionError> {
+        let mut streams = self.streams.lock().unwrap_or_else(PoisonError::into_inner);
+        match streams.entry(*tx_viewing_pk.as_bytes()) {
+            Entry::Occupied(sealed) if sealed.get().output_hashes == output_hashes => {
+                Ok(sealed.get().salt)
+            }
+            Entry::Occupied(_) => Err(TransactionError::AnonymousStreamReuse),
+            Entry::Vacant(stream) => Ok(stream
+                .insert(SealedStream {
+                    salt: random_salt(),
+                    output_hashes,
+                })
+                .salt),
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ResolvedOwnerTag {
@@ -46,6 +82,7 @@ pub struct AnonymousOutputKeys {
 pub struct AnonymousViewTags {
     sender: ViewingKey,
     slots: BTreeMap<usize, AnonymousSlotKeys>,
+    session: Arc<TransactSession>,
 }
 
 #[derive(Clone, Copy)]
@@ -59,7 +96,14 @@ impl AnonymousViewTags {
         Self {
             sender: sender.clone(),
             slots: BTreeMap::new(),
+            session: Arc::default(),
         }
+    }
+
+    /// Shares the sender's sealed streams across transactions.
+    pub fn with_session(mut self, session: Arc<TransactSession>) -> Self {
+        self.session = session;
+        self
     }
 
     /// `tag` is reserved on a stream of `address` for output slot `slot`.
@@ -138,7 +182,8 @@ impl AnonymousViewTags {
             return Err(TransactionError::AnonymousOutputData { slot_index });
         }
         if owner.signing_pubkey == sender.signing_pubkey {
-            let slot = u8::try_from(slot_index).map_err(|_| TransactionError::TooManyOutputs)?;
+            let slot = u8::try_from(slot_index)
+                .map_err(|_| TransactionError::AnonymousSlotIndex { slot_index })?;
             return Ok(AnonymousSlot::Hidden(
                 self.change_keys(first_nullifier, slot)?,
             ));
@@ -201,20 +246,6 @@ enum AnonymousSlot {
     /// A default-ring note, the circuit publishes its owner's Solana key.
     Exit,
     Padding,
-}
-
-/// Refuses a transaction key and salt the current process already sealed under.
-fn reserve_stream(
-    tx_viewing_pk: &X25519Pubkey,
-    salt: [u8; SALT_LEN],
-) -> Result<(), TransactionError> {
-    let mut sealed = SEALED_STREAMS
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner);
-    match sealed.insert((*tx_viewing_pk.as_bytes(), salt)) {
-        true => Ok(()),
-        false => Err(TransactionError::AnonymousStreamReuse),
-    }
 }
 
 impl ConfidentialTransaction {
@@ -328,10 +359,21 @@ impl ConfidentialTransaction {
         let interface_transfers = self.interface_transfers()?;
 
         // 4. Encrypt each real output with a fresh OS RNG salt.
-        let salt = random_salt();
-        if anonymous.is_some() {
-            reserve_stream(&tx_viewing_key.pubkey(), salt)?;
-        }
+        let output_hashes = self
+            .outputs
+            .iter()
+            .map(|output| match output.is_compact() {
+                true => Ok(None),
+                false => output.hash(self.output_tree_id).map(Some),
+            })
+            .collect::<Result<Vec<_>, TransactionError>>()?;
+        let salt = match anonymous {
+            Some(view_tags) => view_tags.session.seal(
+                &tx_viewing_key.pubkey(),
+                output_hashes.iter().flatten().copied().collect(),
+            )?,
+            None => random_salt(),
+        };
         let slot_kinds: Vec<Option<AnonymousSlot>> = match anonymous_slots {
             Some(slots) => slots.into_iter().map(Some).collect(),
             None => vec![None; self.outputs.len()],
@@ -372,13 +414,16 @@ impl ConfidentialTransaction {
         // 5. Check owner tags and assemble commitments and ciphertexts in order.
         let mut transact_outputs = Vec::with_capacity(slots.len());
         let mut resolved_owner_tags = Vec::with_capacity(slots.len());
-        for (slot_index, ((output, owner_tag), slot)) in
-            self.outputs.iter().zip(owner_tags).zip(slots).enumerate()
+        for (slot_index, ((utxo_hash, owner_tag), slot)) in output_hashes
+            .into_iter()
+            .zip(owner_tags)
+            .zip(slots)
+            .enumerate()
         {
             // Compact padding is the trailing suffix SPP fills back in.
-            if output.is_compact() {
+            let Some(utxo_hash) = utxo_hash else {
                 continue;
-            }
+            };
             let data = match slot {
                 Some(slot) if slot.view_tag != owner_tag.resolved => {
                     return Err(TransactionError::OwnerTagMismatch { slot_index });
@@ -390,7 +435,7 @@ impl ConfidentialTransaction {
                     .collect(),
             };
             transact_outputs.push(TransactOutput {
-                utxo_hash: output.hash(self.output_tree_id)?,
+                utxo_hash,
                 owner_tag: owner_tag.tag,
                 data: Some(data),
             });

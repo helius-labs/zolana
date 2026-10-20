@@ -4,7 +4,7 @@ mod common;
 use borsh::BorshDeserialize;
 use common::{keypair, wallet_utxo};
 use solana_address::Address;
-use std::cell::RefCell;
+use std::{cell::RefCell, sync::Arc};
 use zolana_event::OutputDataEncoding;
 use zolana_interface::{
     instruction::instruction_data::transact::OwnerTag, MAX_INPUT_TREES, N_PUBLIC_SLOTS,
@@ -17,7 +17,7 @@ use zolana_transaction::{
     instructions::transact::{
         canonical_shape, pad_input_utxos, resolve_shape, AnonymousViewTags,
         ConfidentialTransaction, PublicTransferRequest, SettlementTarget, Shape, SppProofInputs,
-        SppProofOutputUtxo, SPP_SUPPORTED_SHAPES,
+        SppProofOutputUtxo, TransactSession, SPP_SUPPORTED_SHAPES,
     },
     keys::{DecryptRequest, DeriveRequest, RingTagRequest, ShieldedKeys, TransactionKeyRequest},
     serialization::{confidential::Confidential, ring_anonymous::RingAnonymousSlot},
@@ -1304,6 +1304,58 @@ fn two_payments_to_one_address_publish_their_own_reserved_tags() {
             second: 1
         })
     );
+}
+
+/// A retry of the same outputs keeps its salt, other outputs under the sealed key are refused.
+#[test]
+fn a_session_seals_one_stream_per_transaction_key() {
+    let owner = keypair(1);
+    let recipient = keypair(2);
+    let sender = owner.shielded_address().unwrap();
+    let receiver = recipient.shielded_address().unwrap();
+    let ring = Address::new_from_array([42; 32]);
+    let address = RingAddress {
+        recipient: receiver,
+        ring_program_id: ring,
+        inbox_secret: recipient.viewing_key.inbox_secret(0).unwrap(),
+    };
+    let input = wallet_utxo(&owner, Mint::SOL, 10, 7, 1);
+    let key = owner
+        .viewing_key
+        .get_transaction_viewing_key(&input.nullifier)
+        .unwrap();
+    let tags = |session: &Arc<TransactSession>| {
+        AnonymousViewTags::new(&owner.viewing_key)
+            .with_slot(0, &address, address.inbox_secret.view_tag(4).unwrap())
+            .unwrap()
+            .with_session(Arc::clone(session))
+    };
+    let session = Arc::new(TransactSession::new());
+    let mut tx =
+        ConfidentialTransaction::new_with_ring(vec![input.clone()], payer(&owner), ring).unwrap();
+    tx.transfer_sol(&receiver, 3).unwrap();
+    let first = tx
+        .clone()
+        .encrypt_anonymous_with_viewing_key(&sender, &key, &tags(&session))
+        .unwrap();
+    let retry = tx
+        .encrypt_anonymous_with_viewing_key(&sender, &key, &tags(&session))
+        .unwrap();
+    assert_eq!(retry.external_data.salt, first.external_data.salt);
+    let mut other =
+        ConfidentialTransaction::new_with_ring(vec![input], payer(&owner), ring).unwrap();
+    other.transfer_sol(&receiver, 4).unwrap();
+    assert_eq!(
+        other
+            .clone()
+            .encrypt_anonymous_with_viewing_key(&sender, &key, &tags(&session))
+            .err(),
+        Some(E::AnonymousStreamReuse)
+    );
+    let fresh = other
+        .encrypt_anonymous_with_viewing_key(&sender, &key, &tags(&Arc::default()))
+        .unwrap();
+    assert_ne!(fresh.external_data.salt, first.external_data.salt);
 }
 
 #[test]

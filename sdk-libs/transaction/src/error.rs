@@ -297,8 +297,11 @@ pub enum TransactionError {
     #[error("anonymous outputs {first} and {second} publish one tag")]
     DuplicateAnonymousTag { first: usize, second: usize },
 
-    #[error("the transaction key and salt already sealed anonymous outputs in this process")]
+    #[error("the transaction key already sealed other anonymous outputs in this session")]
     AnonymousStreamReuse,
+
+    #[error("anonymous slot {slot_index} exceeds the 255 slots a change tag indexes")]
+    AnonymousSlotIndex { slot_index: usize },
 
     #[error(transparent)]
     AnonymousOutput(#[from] custom_ring_interface::AnonymousOutputError),
