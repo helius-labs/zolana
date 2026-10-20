@@ -158,15 +158,19 @@ impl<'a, K: ShieldedKeys + ?Sized> RingRecovery<'a, K> {
                 self.indexer_config,
             )?;
             pages += 1;
+            if let Some(foreign) = page
+                .transactions
+                .iter()
+                .find(|tx| tx.ring_program_id != Some(self.ring_program_id))
+            {
+                return Err(ClientError::RingHistoryForeignRow {
+                    tx_signature: foreign.tx_signature,
+                });
+            }
             let indexed = page.context.slot;
             let past_head = page.transactions.iter().position(|tx| tx.slot > self.head);
             let through_head = &page.transactions[..past_head.unwrap_or(page.transactions.len())];
-            transactions.extend(
-                through_head
-                    .iter()
-                    .filter(|tx| tx.ring_program_id == Some(self.ring_program_id))
-                    .cloned(),
-            );
+            transactions.extend_from_slice(through_head);
             if past_head.is_some() {
                 return Ok(RingHistory {
                     transactions,

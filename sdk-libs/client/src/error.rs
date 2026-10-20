@@ -467,6 +467,9 @@ pub enum ClientError {
         defect: AnonymousSlotDefect,
     },
 
+    #[error("ring history row {tx_signature} names another ring or none")]
+    RingHistoryForeignRow { tx_signature: Signature },
+
     #[error("indexer did not reach slot {required} within {attempts} attempts; highest indexed slot is {indexed}")]
     IndexerNotCaughtUp {
         required: u64,

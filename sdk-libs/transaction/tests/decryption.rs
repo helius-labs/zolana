@@ -1400,6 +1400,55 @@ fn an_unknown_asset_keeps_the_verified_note_pending_until_registered() {
 }
 
 #[test]
+fn a_failed_resolution_keeps_every_pending_note_and_a_success_removes_only_the_resolved() {
+    let owner = keypair(107);
+    let tx_key = keypair(108).viewing_key;
+    let (note, slot) = anonymous_ring_note(
+        &owner,
+        Mint::new(UNREGISTERED_MINT, 0),
+        owner.viewing_pubkey(),
+        &tx_key,
+        INBOX_TAG,
+        11,
+        0,
+    );
+    let tx = anonymous_ring_tx(&note, &tx_key, vec![slot]);
+    let mut routes = AnonymousTagRoutes::new();
+    routes.insert(INBOX_TAG, owner.viewing_pubkey());
+    let mut decrypted = DecryptionResult::default();
+    decrypted
+        .extend_ring_anonymous(&owner, &[tx], &AssetRegistry::default(), &routes)
+        .unwrap();
+    let mut unresolved = decrypted.pending_assets[0].clone();
+    unresolved.asset_address = Address::new_from_array([0xbb; 32]);
+    decrypted.pending_assets.push(unresolved.clone());
+    let pending = decrypted.pending_assets.clone();
+    let registered = AssetRegistry::new([(7, UNREGISTERED_MINT)]).unwrap();
+
+    let mut failing = RecordingKeys::new(&owner);
+    failing.fail = Some("derive");
+    assert_eq!(
+        decrypted.resolve_pending(&failing, &registered),
+        Err(TransactionError::Authority("derive".into()))
+    );
+    assert_eq!(decrypted.pending_assets, pending);
+    let mut short = RecordingKeys::new(&owner);
+    short.derivations = Some(vec![]);
+    assert_eq!(
+        decrypted.resolve_pending(&short, &registered),
+        Err(TransactionError::IncompleteDerivation { got: 0, want: 1 })
+    );
+    assert_eq!(decrypted.pending_assets, pending);
+    assert!(decrypted.utxos.is_empty());
+
+    let resolved = decrypted.resolve_pending(&owner, &registered).unwrap();
+    assert_eq!(resolved.len(), 1);
+    assert_eq!(resolved[0].utxo.utxo_hash, note.utxo_hash);
+    assert_eq!(decrypted.pending_assets, [unresolved]);
+    assert_eq!(decrypted.utxos.len(), 1);
+}
+
+#[test]
 fn a_pending_note_resolved_after_its_spend_is_reported_spent() {
     let owner = keypair(105);
     let tx_key = keypair(106).viewing_key;

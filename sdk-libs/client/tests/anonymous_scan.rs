@@ -625,6 +625,42 @@ fn recovery_completes_only_once_the_indexer_reaches_the_head() {
     }
 }
 
+#[test]
+fn recovery_fails_on_a_row_of_another_ring_or_none() {
+    let recipient = keypair(1);
+    let (own_tx, paid) = inbox_payment(&keypair(2), &recipient, 0, 0, 10, 11);
+    let (stray, _) = inbox_payment(&keypair(2), &recipient, 0, 1, 10, 12);
+    let assets = AssetRegistry::default();
+    for ring_program_id in [Some(Address::new_from_array([5; 32])), None] {
+        let foreign = ShieldedTransaction {
+            ring_program_id,
+            ..stray.clone()
+        };
+        let signature = foreign.tx_signature;
+        let indexer = Indexer {
+            ring_history: vec![own_tx.clone(), foreign],
+            ..Indexer::default()
+        };
+        assert!(matches!(
+            RingRecovery::new(&recipient, &assets, RING, 100).fetch(&indexer),
+            Err(ClientError::RingHistoryForeignRow { tx_signature }) if tx_signature == signature
+        ));
+    }
+    let indexer = Indexer {
+        ring_history: vec![own_tx, stray],
+        ..Indexer::default()
+    };
+    let result = RingRecovery::new(&recipient, &assets, RING, 100)
+        .fetch(&indexer)
+        .unwrap();
+    assert_eq!(result.transactions.len(), 2);
+    assert!(result
+        .report
+        .notes
+        .iter()
+        .any(|note| note.utxo_hash == paid.hash));
+}
+
 /// `body_len` bytes under the scheme-9 byte, the ring program admits only the sealed length.
 fn malformed_payload(body_len: usize) -> Vec<u8> {
     let blob = [

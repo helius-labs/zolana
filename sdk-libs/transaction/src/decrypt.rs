@@ -456,16 +456,20 @@ impl DecryptionResult {
         shielded_keys: &K,
         assets: &AssetRegistry,
     ) -> Result<Vec<ResolvedNote>, TransactionError> {
-        let mut admitted = Vec::new();
-        let mut pending = Vec::new();
-        for note in std::mem::take(&mut self.pending_assets) {
-            match note.resolve(assets)? {
-                Some(utxo) => admitted.push(utxo),
-                None => pending.push(note),
-            }
-        }
-        self.pending_assets = pending;
+        let resolutions = self
+            .pending_assets
+            .iter()
+            .map(|note| note.resolve(assets))
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut keep = resolutions
+            .iter()
+            .map(Option::is_none)
+            .collect::<Vec<_>>()
+            .into_iter();
+        let mut admitted: Vec<WalletUtxo> = resolutions.into_iter().flatten().collect();
+        // A failed step returns before any note leaves `pending_assets`.
         assign_nullifiers(shielded_keys, &mut admitted)?;
+        self.pending_assets.retain(|_| keep.next().unwrap_or(true));
         let resolved: Vec<ResolvedNote> = admitted
             .into_iter()
             .map(|utxo| ResolvedNote {
