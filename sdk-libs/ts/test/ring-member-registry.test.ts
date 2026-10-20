@@ -843,8 +843,10 @@ describe("ring member recovery", () => {
       });
       expect(audited.outputOpenings).toHaveLength(1);
       expect(audited.outputContexts[0]).toEqual(transaction.outputSlots[0]?.outputContext);
-      expect(audited.undecryptableSlots).toEqual(
-        corruption === "wrongRecipient" || corruption === "unprovedData" ? [] : [0],
+      expect(audited.payloadErrors).toEqual(
+        corruption === "wrongRecipient" || corruption === "unprovedData"
+          ? []
+          : [{ slotIndex: 0, kind: corruption === "malformed" ? "unreadable" : "openingMismatch" }],
       );
       if (corruption === "unprovedData") expect(audited.outputs[0]?.data.records()).toHaveLength(2);
       const getProgramAccounts = vi.fn(() => ({ send: async () => [] }));

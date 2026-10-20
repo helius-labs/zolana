@@ -33,6 +33,8 @@ import { poseidon } from "./poseidon.js";
 export const AUDIT_ENC_INFO = new TextEncoder().encode("CRING/adt1");
 /** `"CR_S"`, Rust `DOM_SEP_CR_SHARED`. */
 const DOM_SEP_CR_SHARED = 0x4352_5f53;
+/** `"CR_R"`, Rust `RECIPIENT_KEY_DOMAIN`, the only separation between a recipient stream and the auditor envelope. */
+export const RECIPIENT_KEY_DOMAIN = 0x4352_5f52;
 export const AUDIT_OUTPUT_SLOTS = 4;
 /** Rust `AUDIT_INPUT_SLOTS`, inputs are disclosed only in an anonymous ring. */
 export const AUDIT_INPUT_SLOTS = 12;
@@ -75,12 +77,11 @@ const DISCLOSURE_SENDER_LEN = 62;
 /** `tree_id(2) || amount(8) || asset(32) || blinding(32)`, zero padded to three chunks. */
 const DISCLOSURE_INPUT_LEN = 93;
 const DISCLOSURE_INPUT_BYTES = 74;
-/**
- * `identity(33) || viewing_pk(33) || nullifier_pk(32) || amount(8) || asset(32) ||
- * blinding(32) || data_hash(32) || ring_data_hash(32) || ring_note(1)`, zero padded to eight chunks.
- */
-const DISCLOSURE_OUTPUT_LEN = 248;
-const DISCLOSURE_OUTPUT_BYTES = 235;
+/** `identity(33) || nullifier_pk(32) || viewing_pk(33)`, zero padded to four chunks. Rust `DISCLOSURE_OUTPUT_LEN`. */
+const DISCLOSURE_OUTPUT_LEN = 124;
+const DISCLOSURE_OUTPUT_BYTES = 98;
+/** Position of the output body chain in the thirteen-element base statement, Rust `BODY_CHAIN_INDEX`. */
+const BODY_CHAIN_INDEX = 8;
 const U16_MAX = 0xffff;
 const U64_MAX = 0xffff_ffff_ffff_ffffn;
 
@@ -99,20 +100,16 @@ export interface AuditInputOpening {
   readonly blinding: Bytes32;
 }
 
-/** The owner identity and note data disclosed for one anonymous output, Rust `AnonymousOutputOpening`. A dummy slot is all zero. */
+/**
+ * The recipient address disclosed for one anonymous output, the auditor opens the note
+ * itself from the proven body. A padding slot is all zero.
+ */
 export interface AnonymousOutputOpening {
   readonly identityTag: number;
   readonly identityKey: Bytes32;
+  readonly nullifierPublicKey: Bytes32;
   /** Kept in the auditor capsule so the public output hides the recipient. */
   readonly viewingPublicKey: Bytes33;
-  readonly nullifierPublicKey: Bytes32;
-  readonly amount: bigint;
-  readonly asset: Bytes32;
-  readonly blinding: Bytes32;
-  readonly dataHash: Bytes32;
-  readonly ringDataHash: Bytes32;
-  /** Set when the note is bound to the ring program. */
-  readonly ringNote: boolean;
 }
 
 /** The hidden sender, spent notes and recipients bound by an anonymous proof, Rust `AnonymousDisclosure`. */
@@ -190,6 +187,57 @@ export function auditSharedSecret(
   } finally {
     dhLow.fill(0);
     dhHigh.fill(0);
+  }
+}
+
+/** The slot stream of one anonymous output, bound to both keys, the salt and the slot. */
+export interface AnonymousOutputStream {
+  readonly txViewingPublicKey: X25519PublicKey;
+  readonly recipientViewingPublicKey: X25519PublicKey;
+  readonly salt: Bytes16;
+  readonly slotIndex: number;
+}
+
+/**
+ * Mirrors Rust `recipient_stream_secret` and the circuit's recipient key. A wrong
+ * slot index or salt yields a stream the circuit refuses, a shared `dh` across two
+ * slots never shares a keystream.
+ */
+export function recipientStreamSecret(dh: Bytes32, stream: AnonymousOutputStream): Bytes32 {
+  if (!Number.isInteger(stream.slotIndex) || stream.slotIndex < 0 || stream.slotIndex > 0xff)
+    throw new RangeError("anonymous output slot index is out of range");
+  const [dhLow, dhHigh] = pack32(checkedBytes<Bytes32>(dh, 32, "shared secret"));
+  try {
+    const [txLow, txHigh] = pack33(stream.txViewingPublicKey.toBytes());
+    const [recipientLow, recipientHigh] = pack33(stream.recipientViewingPublicKey.toBytes());
+    return poseidon([
+      rightAlign(u32be(RECIPIENT_KEY_DOMAIN)),
+      dhLow,
+      dhHigh,
+      txLow,
+      txHigh,
+      recipientLow,
+      recipientHigh,
+      rightAlign(checkedBytes<Bytes16>(stream.salt, 16, "salt")),
+      rightAlign(Uint8Array.of(stream.slotIndex)),
+    ]) as Bytes32;
+  } finally {
+    dhLow.fill(0);
+    dhHigh.fill(0);
+  }
+}
+
+/** Seals or opens one scheme-9 body, AES-256-CTR under the recipient stream secret. */
+export function applyAnonymousOutputStream(
+  dh: Bytes32,
+  stream: AnonymousOutputStream,
+  body: Uint8Array,
+): Uint8Array {
+  const secret = recipientStreamSecret(dh, stream);
+  try {
+    return symmetricAuditApply(secret, body);
+  } finally {
+    secret.fill(0);
   }
 }
 
@@ -295,12 +343,31 @@ export interface CustomRingBasePublicInput {
   readonly auditorPublicKey: X25519PublicKey;
   readonly message: AuditorMessage;
   readonly outputHashes: readonly Bytes32[];
+  /**
+   * `hashBytes` of each published 105-byte scheme-9 body in slot order, one per
+   * output hash. Absent for a ring that is not anonymous, every slot then chains zero.
+   */
+  readonly outputBodyHashes?: readonly Bytes32[];
   readonly salt: Bytes16;
   /** Binds an anonymous statement when true. Ordinary rings are the default. */
   readonly anonymous?: boolean;
 }
 
-/** The twelve-element prefix binds the disclosure and the ring mode. */
+/** The thirteen elements of the base statement, Rust `CustomRingBasePublicInput::elements`. */
+function baseChainElements(input: CustomRingBasePublicInput): readonly Bytes32[] {
+  const bodyHashes =
+    input.outputBodyHashes ?? input.outputHashes.map(() => new Uint8Array(32) as Bytes32);
+  if (bodyHashes.length !== input.outputHashes.length)
+    throw new RangeError("one output body hash per output hash");
+  const audit = auditChainElements(input);
+  return [
+    ...audit.slice(0, BODY_CHAIN_INDEX),
+    hashChain4(bodyHashes),
+    ...audit.slice(BODY_CHAIN_INDEX),
+  ];
+}
+
+/** The twelve audit elements the body chain is spliced into, Rust `audit_elements`. */
 function auditChainElements(input: CustomRingBasePublicInput): readonly Bytes32[] {
   const [txLow, txHigh] = pack33(input.txViewingPublicKey.toBytes());
   const [auditorLow, auditorHigh] = pack33(input.auditorPublicKey.toBytes());
@@ -492,21 +559,11 @@ export function anonymousAuditDisclosureShape(
   return { anonymous: true, inputs: disclosure.inputs.length, outputs: disclosure.outputs.length };
 }
 
-/** A dummy output slot discloses all-zero bytes, Rust `AnonymousOutputOpening::default`. */
+/** A padding slot discloses all-zero bytes, Rust `AnonymousOutputOpening::default`. */
 export function isDummyAnonymousOutput(output: AnonymousOutputOpening): boolean {
   return (
     output.identityTag === 0 &&
-    output.amount === 0n &&
-    !output.ringNote &&
-    [
-      output.identityKey,
-      output.viewingPublicKey,
-      output.nullifierPublicKey,
-      output.asset,
-      output.blinding,
-      output.dataHash,
-      output.ringDataHash,
-    ].every(isZero)
+    [output.identityKey, output.nullifierPublicKey, output.viewingPublicKey].every(isZero)
   );
 }
 
@@ -565,14 +622,8 @@ export function encodeAnonymousAuditDisclosure(disclosure: AnonymousAuditDisclos
       throw new RangeError("identityTag is out of range");
     bytes[offset] = output.identityTag;
     bytes.set(checkedBytes(output.identityKey, 32, "identityKey"), offset + 1);
-    bytes.set(checkedBytes(output.viewingPublicKey, 33, "viewingPublicKey"), offset + 33);
-    bytes.set(checkedBytes(output.nullifierPublicKey, 32, "nullifierPublicKey"), offset + 66);
-    bytes.set(bigIntToBytes(checkedUnsigned(output.amount, U64_MAX, "amount"), 8), offset + 98);
-    bytes.set(checkedBytes(output.asset, 32, "asset"), offset + 106);
-    bytes.set(checkedBytes(output.blinding, 32, "blinding"), offset + 138);
-    bytes.set(checkedBytes(output.dataHash, 32, "dataHash"), offset + 170);
-    bytes.set(checkedBytes(output.ringDataHash, 32, "ringDataHash"), offset + 202);
-    bytes[offset + 234] = output.ringNote ? 1 : 0;
+    bytes.set(checkedBytes(output.nullifierPublicKey, 32, "nullifierPublicKey"), offset + 33);
+    bytes.set(checkedBytes(output.viewingPublicKey, 33, "viewingPublicKey"), offset + 65);
     offset += DISCLOSURE_OUTPUT_LEN;
   }
   return bytes;
@@ -608,21 +659,14 @@ export function decodeAnonymousAuditDisclosure(
   const outputs: AnonymousOutputOpening[] = [];
   for (let index = 0; index < shape.outputs; index += 1) {
     const slot = bytes.subarray(offset, offset + DISCLOSURE_OUTPUT_LEN);
-    const ringNote = slot[234] ?? 0;
-    if (ringNote > 1 || !isZero(slot.subarray(DISCLOSURE_OUTPUT_BYTES)))
+    if (!isZero(slot.subarray(DISCLOSURE_OUTPUT_BYTES)))
       throw new RangeError("invalid audit disclosure padding");
     outputs.push(
       Object.freeze({
         identityTag: slot[0] ?? 0,
         identityKey: slot.slice(1, 33) as Bytes32,
-        viewingPublicKey: slot.slice(33, 66) as Bytes33,
-        nullifierPublicKey: slot.slice(66, 98) as Bytes32,
-        amount: bytesToBigInt(slot.subarray(98, 106)),
-        asset: slot.slice(106, 138) as Bytes32,
-        blinding: slot.slice(138, 170) as Bytes32,
-        dataHash: slot.slice(170, 202) as Bytes32,
-        ringDataHash: slot.slice(202, 234) as Bytes32,
-        ringNote: ringNote === 1,
+        nullifierPublicKey: slot.slice(33, 65) as Bytes32,
+        viewingPublicKey: slot.slice(65, 98) as Bytes33,
       }),
     );
     offset += DISCLOSURE_OUTPUT_LEN;
@@ -653,12 +697,12 @@ function unpackDisclosure(values: readonly Bytes32[], length: number): Uint8Arra
   return plaintext;
 }
 
-/** Input order binds the audit statement, Rust `CustomRingBasePublicInput::hash`. */
+/** Input order binds the base statement, Rust `CustomRingBasePublicInput::hash`. */
 export function auditPublicInputHash(input: CustomRingBasePublicInput): Bytes32 {
-  return hashChain(auditChainElements(input));
+  return hashChain(baseChainElements(input));
 }
 
-/** The audit prefix then the policy tail, Rust `CustomRingPolicyPublicInput::hash`. */
+/** The thirteen-element base statement then the policy tail, Rust `CustomRingPolicyPublicInput::hash`. */
 export function policyPublicInputHash(
   input: CustomRingBasePublicInput &
     Readonly<{
@@ -688,7 +732,7 @@ export function policyIndexedInputs(
   input: Parameters<typeof policyPublicInputHash>[0],
 ): readonly Bytes32[] {
   return [
-    hashChain([...auditChainElements(input), checkedBytes(input.policyHash, 32, "policy hash")]),
+    hashChain([...baseChainElements(input), checkedBytes(input.policyHash, 32, "policy hash")]),
     treeIdField(input.addressTreeId),
     checkedBytes(input.ringId, 32, "ring id"),
     checkedBytes(input.namespaceOwnerHash, 32, "namespace owner hash"),

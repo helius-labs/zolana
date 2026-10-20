@@ -1391,12 +1391,17 @@ fn measured_policy_shape(
     curated: bool,
     rail: u8,
 ) -> zolana_client::TransactionSize {
+    use custom_ring_interface::{
+        DisclosureShape, AUDIT_OUTPUT_FIELD_COUNT, DISCLOSURE_INPUT_LEN, DISCLOSURE_OUTPUT_LEN,
+        DISCLOSURE_SENDER_LEN,
+    };
+    use zolana_hasher::primitives::pack_be_chunks;
     use zolana_interface::instruction::{OwnerTag, TransactOutput};
     use zolana_keypair::ViewingKey;
     use zolana_transaction::{
         serialization::{
             confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
-            ring_anonymous::{RingAnonymous, RingAnonymousOutputPlaintext},
+            ring_anonymous::ring_anonymous_padding,
             UtxoSerialization,
         },
         Data, SOL_ASSET_ID,
@@ -1415,12 +1420,9 @@ fn measured_policy_shape(
         salt: [0; 16],
         slot_index: 0,
     };
+    // Every anonymous slot carries the fixed scheme-9 body, a padding slot measures it.
     let ciphertext = if rail == 1 {
-        let plaintext = RingAnonymousOutputPlaintext {
-            output: plaintext,
-            pair_pk: cx.recipient_pubkey,
-        };
-        RingAnonymous::encode_plaintext(&plaintext, [0; 32], &cx)
+        ring_anonymous_padding([0; 32])
     } else {
         Confidential::encode_plaintext(&plaintext, [2; 32], &cx)
     }
@@ -1456,17 +1458,23 @@ fn measured_policy_shape(
             data: Some(ciphertext.clone()),
         })
         .collect();
-    let fields = if rail == 1 {
-        // The serialized disclosure grows by three fields per input and eight
-        // per output. Measure even capacities the current catalog rejects.
-        2 + 3 * inputs + 8 * outputs
-    } else {
-        if inputs > 16 && outputs == 2 {
-            18
-        } else {
-            9 * outputs.max(4)
-        }
+    let shape = DisclosureShape {
+        anonymous: rail == 1,
+        inputs,
+        outputs,
     };
+    // Capacities the circuit does not disclose are measured at the same per-slot growth.
+    let fields = shape.field_count().unwrap_or_else(|| {
+        if rail == 1 {
+            pack_be_chunks(
+                DISCLOSURE_SENDER_LEN
+                    + inputs * DISCLOSURE_INPUT_LEN
+                    + outputs * DISCLOSURE_OUTPUT_LEN,
+            )
+        } else {
+            AUDIT_OUTPUT_FIELD_COUNT * outputs.max(4)
+        }
+    });
     transact.messages[0].data = vec![0; 65 + 32 * fields];
     let instruction = if rail == 2 {
         CustomRingDelegateTransact {
@@ -1572,11 +1580,11 @@ fn anonymous_and_delegate_shapes_fit_without_payload_changes() {
     ] {
         let minimum = measured_policy_shape(n, m, false, rail);
         let full = measured_policy_shape(n, m, true, rail);
-        assert!(minimum.fits() && full.fits());
         println!(
             "POLICY_RAIL_SIZE {rail} {n} {m} {} {} {} {}",
             minimum.bytes, minimum.addresses, full.bytes, full.addresses
         );
+        assert!(minimum.fits() && full.fits(), "{n}x{m} rail {rail}");
     }
 }
 
@@ -1588,9 +1596,9 @@ fn anonymous_transaction_size_matrix() {
         }
         let minimum = measured_policy_shape(shape.n_inputs(), shape.n_outputs(), false, 1);
         let full = measured_policy_shape(shape.n_inputs(), shape.n_outputs(), true, 1);
-        assert_eq!(minimum.fits(), ANONYMOUS_RING_SHAPES.contains(&shape));
-        if (shape.n_inputs(), shape.n_outputs()) == (12, 2) {
-            assert!(!full.fits());
+        // The catalog lists shapes with keys, the fixed body leaves room for more.
+        if ANONYMOUS_RING_SHAPES.contains(&shape) {
+            assert!(minimum.fits(), "{shape:?}");
         }
         println!(
             "ANONYMOUS_SIZE {} {} {} {} {} {}",

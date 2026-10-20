@@ -105,6 +105,12 @@ ring_errors! {
     MemberBatchTooLarge = 8190 => "member batch is empty or exceeds the proof width",
     MemberRecordMismatch = 8191 => "member record does not match the signer or the sealed key",
     MissingOwnerSigner = 8192 => "forwarded owner signer must sign on entry",
+    InvalidAnonymousOutputBody = 8193 => "an anonymous output body is not one framed scheme-9 body",
+    InvalidAnonymousTag = 8194 =>
+        "an anonymous output tag must be inline, nonzero and start with a zero byte",
+    DuplicateAnonymousTag = 8195 => "two anonymous outputs publish one tag",
+    InvalidAnonymousOutputHash = 8196 => "an anonymous output hash is zero",
+    AnonymousOutputCount = 8197 => "an anonymous transaction publishes every output slot of its shape",
 }
 
 impl From<CustomRingError> for ProgramError {

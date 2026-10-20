@@ -155,10 +155,10 @@ func (s *statement) policyChainElements(t *testing.T) []*big.Int {
 	)
 }
 
-// Chain positions after the twelve audit elements.
+// Chain positions after the thirteen base elements.
 const (
-	chainMemberRegistryRoot = 19
-	chainForeignRoot        = 20
+	chainMemberRegistryRoot = 20
+	chainForeignRoot        = 21
 )
 
 // rebind recomputes the statement over the roots the assignment carries, so only the openings can reject.
@@ -172,10 +172,11 @@ func (s *statement) rebind(t *testing.T, c *CustomRingPolicyCircuit) {
 
 func (s *statement) auditChainElements(t *testing.T) []*big.Int {
 	t.Helper()
-	return s.keys.ChainElementsFor(t, s.auditStatement(t))
+	return s.keys.BaseChainElementsFor(t, s.auditStatement(t))
 }
 
-// auditStatement discloses the outputs, or in an anonymous ring every slot and its owner identity.
+// auditStatement discloses the outputs, or in an anonymous ring every slot and its owner
+// identity, and delivers every ring note's body to its recipient.
 func (s *statement) auditStatement(t *testing.T) ringaudit.Statement {
 	t.Helper()
 	statement := s.keys.Statement(s.privateTxHash)
@@ -205,16 +206,35 @@ func (s *statement) auditStatement(t *testing.T) ringaudit.Statement {
 		statement.Inputs[i] = base.AuditUtxoWires(input)
 	}
 	viewing := ringaudit.Tagged(ringaudit.XPrivateKey(t, ringaudit.Scalar(0x55)).PublicKey().Bytes())
+	statement.RingProgramID = s.ringProgramID
 	for i, output := range s.outputs {
 		statement.Notes[i] = base.AuditUtxoWires(output)
-		if output.Domain.(*big.Int).Int64() == protocol.UtxoDomain {
-			setIdentity(statement.Audit.Recipients[i][:], s.recipientKeys[i])
-			for j, b := range viewing {
-				statement.Audit.RecipientViewingKeys[i][j] = int(b)
-			}
+		if output.Domain.(*big.Int).Int64() != protocol.UtxoDomain {
+			continue
+		}
+		setIdentity(statement.Audit.Recipients[i][:], s.recipientKeys[i])
+		for j, b := range viewing {
+			statement.Audit.RecipientViewingKeys[i][j] = int(b)
+		}
+		if spptest.AsBigInt(output.RingProgramID).Cmp(s.ringID) == 0 {
+			statement.Deliveries[i] = ringaudit.Delivery{AssetAddress: s.assetAddress(t, output.Asset), PairU: ringaudit.Repeat(0xc5 + byte(i))}
+		}
+	}
+	for i := range s.outputs {
+		if statement.Deliveries[i].AssetAddress != [32]byte{} {
+			statement.Deliveries[i].Ciphertext = s.keys.SealOutput(t, statement, i, i, ringaudit.OutputPlaintext(statement, i))
 		}
 	}
 	return statement
+}
+
+func (s *statement) assetAddress(t *testing.T, asset frontend.Variable) [32]byte {
+	t.Helper()
+	address, ok := s.assets[spptest.AsBigInt(asset).String()]
+	if !ok {
+		t.Fatalf("output asset %s has no mint address to deliver", spptest.AsBigInt(asset))
+	}
+	return address
 }
 
 func setIdentity(dst []frontend.Variable, key [32]byte) {

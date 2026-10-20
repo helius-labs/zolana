@@ -26,7 +26,7 @@ use zolana_client::{
     error::ClientError,
     rpc::{AsyncRpc, EncryptedUtxoMatch, Rpc, ShieldedTransaction as RpcShieldedTransaction},
     rpc::{IndexerPollConfig, IndexerRpcConfig},
-    AnonymousStream, UtxoScan,
+    AnonymousRingNote, AnonymousStream, RingRecovery, RingRecoveryReport, UtxoScan,
 };
 
 const DEFAULT_TAG_QUERY_CHUNK: usize = 64;
@@ -311,8 +311,68 @@ fn scan_anonymous_ring<I: Rpc + Sync>(
             .iter()
             .flat_map(|tx| tx.nullifiers.iter().copied()),
     );
+    let recovered = anonymous.recoveries.iter().flat_map(|recovery| {
+        recovery.notes.iter().map(|note| AnonymousRingNote {
+            utxo_hash: note.utxo_hash,
+            pair_pk: note.pair_pk,
+            stream: AnonymousStream::Untagged,
+        })
+    });
+    let notes: Vec<AnonymousRingNote> = anonymous.notes.iter().copied().chain(recovered).collect();
+    Ok(store_anonymous_notes(wallet, &result.history.utxos, &notes))
+}
+
+/// Opens every scheme-9 slot of `ring_program_id` through the confirmed slot
+/// `head` without tags and stores the wallet's notes, the full scan a wallet
+/// runs when its tags cannot be trusted.
+pub fn recover_wallet<A, I>(
+    wallet: &mut Wallet,
+    authority: &A,
+    indexer: &I,
+    ring_program_id: Address,
+    head: u64,
+) -> Result<RingRecoveryReport, ClientError>
+where
+    A: SyncWalletAuthority + ?Sized,
+    I: Rpc + Sync,
+{
+    let material = authority.sync_material()?;
+    let keys = LocalShieldedKeys::new(
+        material.identity,
+        material.viewing_keys.clone(),
+        material.nullifier_key.clone(),
+    )?;
+    let result =
+        RingRecovery::new(&keys, &wallet.registry, ring_program_id, head).fetch(indexer)?;
+    wallet.nullifiers.extend(
+        result
+            .transactions
+            .iter()
+            .flat_map(|tx| tx.nullifiers.iter().copied()),
+    );
+    let notes: Vec<AnonymousRingNote> = result
+        .report
+        .notes
+        .iter()
+        .map(|note| AnonymousRingNote {
+            utxo_hash: note.utxo_hash,
+            pair_pk: note.pair_pk,
+            stream: AnonymousStream::Untagged,
+        })
+        .collect();
+    store_anonymous_notes(wallet, &result.owned.utxos, &notes);
+    Ok(result.report)
+}
+
+/// Stores the notes the wallet does not hold yet, a payment under any stream
+/// but the change stream becomes an inbound row.
+fn store_anonymous_notes(
+    wallet: &mut Wallet,
+    owned: &[zolana_transaction::WalletUtxo],
+    notes: &[AnonymousRingNote],
+) -> usize {
     let mut stored = 0;
-    for note in anonymous.notes {
+    for note in notes {
         if wallet
             .utxos
             .iter()
@@ -320,12 +380,7 @@ fn scan_anonymous_ring<I: Rpc + Sync>(
         {
             continue;
         }
-        let Some(held) = result
-            .history
-            .utxos
-            .iter()
-            .find(|held| held.utxo_hash == note.utxo_hash)
-        else {
+        let Some(held) = owned.iter().find(|held| held.utxo_hash == note.utxo_hash) else {
             continue;
         };
         if !matches!(note.stream, AnonymousStream::Change { .. }) {
@@ -340,13 +395,13 @@ fn scan_anonymous_ring<I: Rpc + Sync>(
                 status: PrivateTransactionStatus::Confirmed,
                 asset: held.utxo.asset.asset,
                 amount: held.utxo.amount,
-                counterparty_viewing_pubkey: Some(note.pair_pk),
+                counterparty_viewing_pubkey: note.pair_pk,
             });
         }
         wallet.utxos.push(held.clone());
         stored += 1;
     }
-    Ok(stored)
+    stored
 }
 
 pub async fn sync_wallet_async<A, I>(
@@ -2354,8 +2409,15 @@ mod tests {
                     .get_transaction_viewing_key(&first_nullifier)
                     .expect("tx key"),
                 &AnonymousViewTags::new(&alice.viewing_key)
-                    .with_inbox_recipient(&bob_ring_address, 0)
-                    .expect("inbox tag"),
+                    .with_slot(
+                        0,
+                        &bob_ring_address,
+                        bob_ring_address
+                            .inbox_secret
+                            .view_tag(0)
+                            .expect("inbox tag"),
+                    )
+                    .expect("slot tag"),
             )
             .expect("encrypt");
         let indexer = MockIndexer {

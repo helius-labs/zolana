@@ -125,8 +125,17 @@ func anonymousBaseParams(t *testing.T) *BaseParams {
 	p.NIn, p.Inputs, p.AnonymousOutputs = uint8(statement.NIn), &inputs, &outputs
 	blinding := fb(statement.PrivateTxBlinding)
 	p.PrivateTxBlinding = &blinding
-	p.PublicInputHash = fb(spptest.MustHashChain(t, keys.ChainElementsFor(t, statement)))
+	p.Delivery = deliveryParams(statement)
+	p.PublicInputHash = fb(spptest.MustHashChain(t, keys.BaseChainElementsFor(t, statement)))
 	return p
+}
+
+func deliveryParams(statement ringaudit.Statement) *DeliveryParams {
+	d := &DeliveryParams{RingProgramID: statement.RingProgramID[:], Outputs: make([]DeliveryOutput, base.AuditOutputSlots)}
+	for i, delivery := range statement.Deliveries {
+		d.Outputs[i] = DeliveryOutput{AssetAddress: delivery.AssetAddress[:], PairU: delivery.PairU[:], Ciphertext: delivery.Ciphertext[:]}
+	}
+	return d
 }
 
 func wireBytes(values []frontend.Variable) Bytes {
@@ -249,7 +258,7 @@ func bindRulesFreeStatement(t *testing.T, p *PolicyParams) {
 		preimage = append(preimage, row.Asset.Int, row.Cap.Int, row.CosignAbove.Int)
 	}
 	policyHash := spptest.MustHashChain(t, preimage)
-	elements := ringaudit.DefaultKeys(t).ChainElementsFor(t, policyAuditStatement(t, p))
+	elements := ringaudit.DefaultKeys(t).BaseChainElementsFor(t, policyAuditStatement(t, p))
 	slots := make([]protocol.TreeSlot, len(p.TreeSlots))
 	for i, slot := range p.TreeSlots {
 		slots[i] = protocol.TreeSlot{ID: slot.ID, UtxoRoot: slot.UtxoRoot, NullifierRoot: slot.NullifierRoot}

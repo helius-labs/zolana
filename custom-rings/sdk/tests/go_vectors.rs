@@ -123,16 +123,22 @@ fn base_public_input_includes_the_ring_mode() {
         auditor_pk: &hex_bytes::<33>(AUDITOR_PK),
         eph_pk: &hex_bytes::<33>(EPH_PK),
         ciphertext: &hex_bytes::<32>(CIPHERTEXT),
+        output_body_hashes: &[[0; 32]],
         output_hashes: &[[0; 32]],
         salt: &[0; 16],
         disclosure: &[[0; 32]; custom_ring_interface::AUDIT_DISCLOSURE_FIELD_COUNT],
         anonymous: false,
     };
-    let hash = statement.hash().unwrap();
+    // The audit elements alone are the confidential key's statement.
+    let hash = zolana_hasher::hash_chain::create_hash_chain_from_slice(
+        &statement.audit_elements().unwrap(),
+    )
+    .unwrap();
     assert_eq!(
         hash,
         hex_bytes::<32>("291c6025244409748c719079f396ec892db1764098323df8f3a685ae5d7a3a22")
     );
+    assert_ne!(statement.hash().unwrap(), hash);
     assert_ne!(
         hash,
         custom_ring_interface::CustomRingBasePublicInput {

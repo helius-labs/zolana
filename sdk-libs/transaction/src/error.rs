@@ -286,6 +286,23 @@ pub enum TransactionError {
     #[error("anonymous view tags were derived from another wallet's viewing key")]
     AnonymousViewTagsSenderMismatch,
 
+    #[error("anonymous output {slot_index} carries data records, the fixed body has no room")]
+    AnonymousOutputData { slot_index: usize },
+
+    #[error(
+        "anonymous output {slot_index} is compact padding, every slot of the shape is published"
+    )]
+    AnonymousCompactPadding { slot_index: usize },
+
+    #[error("anonymous outputs {first} and {second} publish one tag")]
+    DuplicateAnonymousTag { first: usize, second: usize },
+
+    #[error("the transaction key and salt already sealed anonymous outputs in this process")]
+    AnonymousStreamReuse,
+
+    #[error(transparent)]
+    AnonymousOutput(#[from] custom_ring_interface::AnonymousOutputError),
+
     /// A request named a viewing key this holder does not have. Distinct from
     /// [`Self::AuthorityViewingKeyMismatch`], which is raised when the holder is
     /// built rather than when it is asked for something.

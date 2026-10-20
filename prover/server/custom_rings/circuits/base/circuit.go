@@ -10,7 +10,14 @@ import (
 )
 
 // Properties: the published key is 0x04 || X25519(TxViewingSk) with TxViewingSk clamped, sealed to AuditorPk, with the
-// first NOut outputs disclosed, or in an anonymous ring the sender, its NIn spent notes and every recipient.
+// first NOut outputs disclosed, or in an anonymous ring the sender, its NIn spent notes and every recipient, and every
+// real ring output body is the recipient's encryption of its committed note.
+
+// BaseElements is the base statement, the audit elements with the output body chain at BodyChainIndex.
+const (
+	BaseElements   = AuditElements + 1
+	BodyChainIndex = 8
+)
 
 type CustomRingBaseCircuit struct {
 	PublicInputHash frontend.Variable `gnark:",public"`
@@ -22,11 +29,12 @@ type CustomRingBaseCircuit struct {
 	Inputs            [AuditInputSlots]AuditUtxoWires
 	AnonymousOutputs  [AuditOutputSlots]AuditUtxoWires
 	PrivateTxBlinding frontend.Variable
+	Delivery          Delivery
 }
 
 func (c *CustomRingBaseCircuit) Define(api frontend.API) error {
 	return defineBase(api, c.PublicInputHash, c.Audit, c.NOut, c.Outputs,
-		c.NIn, c.Inputs[:], c.AnonymousOutputs, c.PrivateTxBlinding)
+		c.NIn, c.Inputs[:], c.AnonymousOutputs, c.PrivateTxBlinding, c.Delivery)
 }
 
 // CustomRingWideBaseCircuit keeps audit-only anonymous transfers usable above
@@ -40,18 +48,19 @@ type CustomRingWideBaseCircuit struct {
 	Inputs            [12]AuditUtxoWires
 	AnonymousOutputs  [AuditOutputSlots]AuditUtxoWires
 	PrivateTxBlinding frontend.Variable
+	Delivery          Delivery
 }
 
 func (c *CustomRingWideBaseCircuit) Define(api frontend.API) error {
 	api.AssertIsEqual(c.Anonymous, 1)
 	return defineBase(api, c.PublicInputHash, c.Audit, c.NOut, c.Outputs,
-		c.NIn, c.Inputs[:], c.AnonymousOutputs, c.PrivateTxBlinding)
+		c.NIn, c.Inputs[:], c.AnonymousOutputs, c.PrivateTxBlinding, c.Delivery)
 }
 
 func defineBase(api frontend.API, publicHash frontend.Variable, audit Audit, nOut frontend.Variable,
 	outputs [AuditOutputSlots]AuditOutputWires, nInValue frontend.Variable,
 	inputs []AuditUtxoWires, notes [AuditOutputSlots]AuditUtxoWires,
-	privateBlinding frontend.Variable) error {
+	privateBlinding frontend.Variable, delivery Delivery) error {
 	nIn := SelectCount(api, nInValue, 0, len(inputs)+1)
 	api.AssertIsEqual(nIn.OneHot[0], api.Sub(1, audit.Anonymous))
 	tx := AuditTx{
@@ -73,7 +82,7 @@ func defineBase(api frontend.API, publicHash frontend.Variable, audit Audit, nOu
 	}
 	opened := shared.PrivateTxHashCircuit(api, inputHashes, outputHashes, nil, privateBlinding)
 	api.AssertIsEqual(api.Mul(audit.Anonymous, api.Sub(audit.PrivateTxHash, opened)), 0)
-	elements := audit.Define(api, rangecheck.New(api), tx)
-	api.AssertIsEqual(publicHash, gadget.HashChain(api, elements[:]))
+	statement := audit.Statement(api, rangecheck.New(api), tx, delivery)
+	api.AssertIsEqual(publicHash, gadget.HashChain(api, statement[:]))
 	return nil
 }

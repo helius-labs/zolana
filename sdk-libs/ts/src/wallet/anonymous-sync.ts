@@ -176,11 +176,12 @@ export class AnonymousStreams {
       this.#recorded.add(key);
       this.#notes.push({
         utxoHash: note.utxoHash,
-        pairPublicKey: note.pairPublicKey,
+        ...(note.pairPublicKey === undefined ? {} : { pairPublicKey: note.pairPublicKey }),
         stream: note.stream,
       });
       if (note.stream.kind !== "inbox") continue;
       this.#usedAddresses = Math.max(this.#usedAddresses, note.stream.addressIndex + 1);
+      if (note.pairPublicKey === undefined) continue;
       const counterparty = bytesKey(note.pairPublicKey.toBytes());
       if (!this.#counterparties.has(counterparty)) {
         this.#counterparties.set(counterparty, note.pairPublicKey);
@@ -204,6 +205,7 @@ export class AnonymousStreams {
       pairNext: Object.freeze([...this.#pairNext.values()]),
       depositNext: this.#depositNext,
       addressesUnderAttack: Object.freeze([...this.#attacked].sort((left, right) => left - right)),
+      badPairHints: Object.freeze([...this.routes.badPairHints()]),
     });
   }
 

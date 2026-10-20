@@ -2,9 +2,11 @@
 //! files pin them, and `registry` is the one place the record openings are spelled.
 
 use custom_ring_interface::{
-    MemberUpdate, MAX_MEMBER_BATCH, MAX_RING_DEPOSIT_AUDIT_SLOTS, TAGGED_X25519_KEY_LEN,
+    MemberUpdate, ANONYMOUS_OUTPUT_PLAINTEXT_LEN, MAX_MEMBER_BATCH, MAX_RING_DEPOSIT_AUDIT_SLOTS,
+    TAGGED_X25519_KEY_LEN,
 };
 use serde::{ser::SerializeStruct, Serialize, Serializer};
+use solana_address::Address;
 use zeroize::Zeroizing;
 use zolana_client::ProofInputUtxo;
 use zolana_keypair::{ViewingKey, X25519Pubkey};
@@ -323,6 +325,59 @@ pub(crate) struct AnonymousBase {
     pub anonymous_outputs: [CustomRingOpening; POLICY_OUTPUT_SLOTS],
     #[serde(with = "fe")]
     pub private_tx_blinding: [u8; 32],
+    pub delivery: AnonymousDelivery,
+}
+
+/// The published scheme-9 bodies of an anonymous ring, one per output slot in slot order.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct AnonymousDelivery {
+    pub ring_program_id: Address,
+    /// `None` for a scheme-3 exit slot, the circuit chains zero for it.
+    pub outputs: Vec<Option<DeliveryOutput>>,
+}
+
+/// A padding slot sends its random ciphertext with a zero asset address and pair key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct DeliveryOutput {
+    pub asset_address: [u8; 32],
+    pub pair_u: [u8; 32],
+    pub ciphertext: [u8; ANONYMOUS_OUTPUT_PLAINTEXT_LEN],
+}
+
+impl DeliveryOutput {
+    pub const ZERO: Self = Self {
+        asset_address: [0; 32],
+        pair_u: [0; 32],
+        ciphertext: [0; ANONYMOUS_OUTPUT_PLAINTEXT_LEN],
+    };
+}
+
+impl Serialize for AnonymousDelivery {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut state = serializer.serialize_struct("Delivery", 2)?;
+        state.serialize_field("ringProgramId", &Hex(self.ring_program_id.as_array()))?;
+        let slots: Vec<DeliveryOutput> = (0..POLICY_OUTPUT_SLOTS)
+            .map(|slot| {
+                self.outputs
+                    .get(slot)
+                    .copied()
+                    .flatten()
+                    .unwrap_or(DeliveryOutput::ZERO)
+            })
+            .collect();
+        state.serialize_field("outputs", &slots)?;
+        state.end()
+    }
+}
+
+impl Serialize for DeliveryOutput {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut state = serializer.serialize_struct("DeliveryOutput", 3)?;
+        state.serialize_field("assetAddress", &Hex(self.asset_address))?;
+        state.serialize_field("pairU", &Hex(self.pair_u))?;
+        state.serialize_field("ciphertext", &Hex(self.ciphertext))?;
+        state.end()
+    }
 }
 
 #[derive(Serialize)]
@@ -352,6 +407,9 @@ pub(crate) struct PolicyBody {
     pub anonymous: Option<AnonymousIdentities>,
     #[serde(flatten)]
     pub witness: Box<CustomRingWitness>,
+    /// The published bodies of an anonymous ring, absent otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delivery: Option<AnonymousDelivery>,
 }
 
 /// The delegate circuit reads the policy body under `policy`.

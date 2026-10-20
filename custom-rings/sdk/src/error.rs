@@ -140,6 +140,8 @@ pub enum RingError {
     AnonymousDisclosureShape,
     #[error("an anonymous ring requires an Ed25519 recipient")]
     AnonymousRecipient,
+    #[error("a published anonymous output is not a scheme-9 body of the proven length")]
+    InvalidAnonymousBody,
     #[error("merge inputs belong to another tree")]
     InputTreeMismatch,
     #[error("the member's nullifier key does not derive its address")]

@@ -137,6 +137,7 @@ fn finish_binds_the_public_input_the_program_recomputes() {
             auditor_pk: auditor().as_bytes(),
             eph_pk: message.ephemeral_pubkey_bytes(),
             ciphertext: message.ciphertext(),
+            output_body_hashes: &[[0; 32]],
             output_hashes: &[outputs[0].hash().unwrap()],
             salt: &[3; 16],
             disclosure: message.disclosure(),
@@ -184,20 +185,28 @@ fn the_base_statement_binds_the_same_audit_fields() {
         .iter()
         .map(|output| output.hash().unwrap())
         .collect();
-    let expected = CustomRingBasePublicInput {
+    let tx_viewing_pk = key(TX_SK).pubkey();
+    let auditor_pk = auditor();
+    let statement = CustomRingBasePublicInput {
         private_tx_hash: &private_tx_hash(),
-        tx_viewing_pk: key(TX_SK).pubkey().as_bytes(),
-        auditor_pk: auditor().as_bytes(),
+        tx_viewing_pk: tx_viewing_pk.as_bytes(),
+        auditor_pk: auditor_pk.as_bytes(),
         eph_pk: message.ephemeral_pubkey_bytes(),
         ciphertext: message.ciphertext(),
+        output_body_hashes: &[[0; 32]; 2],
         output_hashes: &hashes,
         salt: &[3; 16],
         disclosure: message.disclosure(),
         anonymous: false,
-    }
-    .hash()
+    };
+    // The confidential key proves the twelve audit elements.
+    let expected = zolana_hasher::hash_chain::create_hash_chain_from_slice(
+        &statement.audit_elements().unwrap(),
+    )
     .unwrap();
+    assert_eq!(body.circuit_type, RingCircuit::BaseConfidential);
     assert_eq!(body.public_input_hash, expected);
+    assert_ne!(statement.hash().unwrap(), expected);
     assert_eq!(body.n_out, 2);
 }
 

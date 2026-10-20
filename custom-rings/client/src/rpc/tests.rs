@@ -142,7 +142,7 @@ fn a_decrypted_page_keeps_its_wire_json() {
         output_contexts: vec![context],
         output_openings: vec![opening],
         anonymous: None,
-        undecryptable_slots: Vec::new(),
+        payload_errors: Vec::new(),
     };
     let withdrawal = RingWithdrawal {
         recipient: Address::new_from_array([10; 32]),

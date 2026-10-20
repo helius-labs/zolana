@@ -28,3 +28,5 @@ check-cfg = ['cfg(target_os, values("solana"))']
 
 [dev-dependencies]
 serde_json = { workspace = true }
+zolana-keypair = { workspace = true }
+hex = { workspace = true }

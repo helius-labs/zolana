@@ -373,8 +373,8 @@ fn read_back(ctx: &Context, reader: &Keypair, signature: Signature) -> Result<()
             output.amount
         );
     }
-    if !opened.undecryptable_slots.is_empty() {
-        println!("  undecryptable slots {:?}", opened.undecryptable_slots);
+    for error in &opened.payload_errors {
+        println!("  slot {} payload {:?}", error.slot_index, error.kind);
     }
     Ok(())
 }

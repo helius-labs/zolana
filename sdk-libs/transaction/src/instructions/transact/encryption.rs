@@ -1,27 +1,31 @@
-use std::collections::HashMap;
+use std::{
+    collections::{BTreeMap, BTreeSet, HashSet},
+    sync::{Mutex, PoisonError},
+};
 
 use solana_address::Address;
 use zolana_interface::instruction::instruction_data::transact::{OwnerTag, TransactOutput};
 use zolana_keypair::{
-    constants::SALT_LEN, random_blinding, random_salt, viewing_key::ViewTag, PublicKey,
-    RingAddress, ShieldedAddress, ViewingKey, X25519Pubkey,
+    constants::SALT_LEN, random_salt, viewing_key::ViewTag, PublicKey, RingAddress,
+    ShieldedAddress, ViewingKey, X25519Pubkey,
 };
 
 use super::{sender_owner_tag, ConfidentialTransaction};
 use crate::{
     error::TransactionError,
-    instructions::transact::{
-        shape::canonical_shape, ExternalData, SppProofInputs, SppProofOutputUtxo,
-    },
+    instructions::transact::{ExternalData, SppProofInputs, SppProofOutputUtxo},
     keys::{ShieldedKeys, TransactionKeyRequest},
     serialization::{
         confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
-        ring_anonymous::{RingAnonymous, RingAnonymousOutputPlaintext},
+        ring_anonymous::{ring_anonymous_padding, ring_anonymous_padding_tag},
         UtxoSerialization,
     },
     utxo::{derive_output_blinding_seed, derive_transact_output_blinding},
     Data, SOL_ASSET_ID,
 };
+
+/// `(tx_viewing_pk, salt)` pairs sealed in the current process, a repeat would key every slot stream twice.
+static SEALED_STREAMS: Mutex<BTreeSet<([u8; 33], [u8; SALT_LEN])>> = Mutex::new(BTreeSet::new());
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ResolvedOwnerTag {
@@ -36,47 +40,46 @@ pub struct AnonymousOutputKeys {
     pub pair_pk: X25519Pubkey,
 }
 
+/// The tags of a transaction's hidden outputs, one per output slot once the slot order is fixed.
 #[must_use]
 #[derive(Clone)]
 pub struct AnonymousViewTags {
     sender: ViewingKey,
-    recipients: HashMap<X25519Pubkey, AnonymousOutputKeys>,
+    slots: BTreeMap<usize, AnonymousSlotKeys>,
+}
+
+#[derive(Clone, Copy)]
+struct AnonymousSlotKeys {
+    recipient: ShieldedAddress,
+    keys: AnonymousOutputKeys,
 }
 
 impl AnonymousViewTags {
     pub fn new(sender: &ViewingKey) -> Self {
         Self {
             sender: sender.clone(),
-            recipients: HashMap::new(),
+            slots: BTreeMap::new(),
         }
     }
 
-    /// `j` is the first free index of the address's inbox stream.
-    pub fn with_inbox_recipient(
+    /// `tag` is reserved on a stream of `address` for output slot `slot`.
+    pub fn with_slot(
         mut self,
+        slot: usize,
         address: &RingAddress,
-        j: u64,
-    ) -> Result<Self, TransactionError> {
-        let recipient = address.recipient.viewing_pubkey;
-        let keys = AnonymousOutputKeys {
-            tag: address.inbox_secret.view_tag(j)?,
-            pair_pk: self.pair_pk(&recipient)?,
-        };
-        self.recipients.insert(recipient, keys);
-        Ok(self)
-    }
-
-    /// `k` is the first free index of the pair stream toward `recipient`.
-    pub fn with_paired_recipient(
-        mut self,
-        recipient: X25519Pubkey,
-        k: u64,
+        tag: ViewTag,
     ) -> Result<Self, TransactionError> {
         let keys = AnonymousOutputKeys {
-            tag: self.sender.pair_send_view_tag(&recipient, k)?,
-            pair_pk: self.pair_pk(&recipient)?,
+            tag,
+            pair_pk: self.pair_pk(&address.recipient.viewing_pubkey)?,
         };
-        self.recipients.insert(recipient, keys);
+        self.slots.insert(
+            slot,
+            AnonymousSlotKeys {
+                recipient: address.recipient,
+                keys,
+            },
+        );
         Ok(self)
     }
 
@@ -95,6 +98,22 @@ impl AnonymousViewTags {
         Ok(self.sender.ring_blinding_seed(first_nullifier)?)
     }
 
+    /// The tag and pseudonym a hidden slot publishes, `None` for an exit or a padding slot.
+    pub fn slot_keys(
+        &self,
+        output: &SppProofOutputUtxo,
+        sender: &ShieldedAddress,
+        first_nullifier: &[u8; 32],
+        slot_index: usize,
+    ) -> Result<Option<AnonymousOutputKeys>, TransactionError> {
+        Ok(
+            match self.resolve(output, sender, first_nullifier, slot_index)? {
+                AnonymousSlot::Hidden(keys) => Some(keys),
+                AnonymousSlot::Exit | AnonymousSlot::Padding => None,
+            },
+        )
+    }
+
     fn pair_pk(&self, recipient: &X25519Pubkey) -> Result<X25519Pubkey, TransactionError> {
         Ok(self.sender.pair_key(recipient)?.pubkey())
     }
@@ -107,13 +126,16 @@ impl AnonymousViewTags {
         slot_index: usize,
     ) -> Result<AnonymousSlot, TransactionError> {
         if output.is_compact() {
-            return Ok(AnonymousSlot::Compact);
+            return Err(TransactionError::AnonymousCompactPadding { slot_index });
         }
         let Some(owner) = output.owner_address else {
-            return Ok(AnonymousSlot::Padding(random_blinding()));
+            return Ok(AnonymousSlot::Padding);
         };
         if output.ring_program_id.is_none() {
             return Ok(AnonymousSlot::Exit);
+        }
+        if !output.data.is_empty() {
+            return Err(TransactionError::AnonymousOutputData { slot_index });
         }
         if owner.signing_pubkey == sender.signing_pubkey {
             let slot = u8::try_from(slot_index).map_err(|_| TransactionError::TooManyOutputs)?;
@@ -121,11 +143,55 @@ impl AnonymousViewTags {
                 self.change_keys(first_nullifier, slot)?,
             ));
         }
-        self.recipients
-            .get(&owner.viewing_pubkey)
-            .copied()
-            .map(AnonymousSlot::Hidden)
-            .ok_or(TransactionError::UnknownAnonymousRecipient { slot_index })
+        match self.slots.get(&slot_index) {
+            Some(slot) if slot.recipient == owner => Ok(AnonymousSlot::Hidden(slot.keys)),
+            _ => Err(TransactionError::UnknownAnonymousRecipient { slot_index }),
+        }
+    }
+
+    /// Every slot's tag in order, a padding tag drawn from `sample` until it differs from
+    /// every other tag of the transaction.
+    fn published_tags(
+        slots: &[AnonymousSlot],
+        owner_tags: &[ResolvedOwnerTag],
+        mut sample: impl FnMut() -> ViewTag,
+    ) -> Result<Vec<ViewTag>, TransactionError> {
+        let mut taken: HashSet<ViewTag> = HashSet::new();
+        let mut tags = Vec::with_capacity(slots.len());
+        for (index, (slot, owner_tag)) in slots.iter().zip(owner_tags).enumerate() {
+            let tag = match slot {
+                AnonymousSlot::Hidden(keys) => keys.tag,
+                // Exits publish owner keys, two exits to one owner share theirs.
+                AnonymousSlot::Exit => {
+                    taken.insert(owner_tag.resolved);
+                    tags.push(owner_tag.resolved);
+                    continue;
+                }
+                AnonymousSlot::Padding => {
+                    tags.push([0; 32]);
+                    continue;
+                }
+            };
+            if !taken.insert(tag) {
+                let first = tags
+                    .iter()
+                    .position(|earlier| *earlier == tag)
+                    .unwrap_or(index);
+                return Err(TransactionError::DuplicateAnonymousTag {
+                    first,
+                    second: index,
+                });
+            }
+            tags.push(tag);
+        }
+        for (tag, slot) in tags.iter_mut().zip(slots) {
+            if matches!(slot, AnonymousSlot::Padding) {
+                *tag = std::iter::repeat_with(&mut sample)
+                    .find(|candidate| taken.insert(*candidate))
+                    .unwrap_or_default();
+            }
+        }
+        Ok(tags)
     }
 }
 
@@ -134,18 +200,20 @@ enum AnonymousSlot {
     Hidden(AnonymousOutputKeys),
     /// A default-ring note, the circuit publishes its owner's Solana key.
     Exit,
-    Padding(ViewTag),
-    Compact,
+    Padding,
 }
 
-impl AnonymousSlot {
-    /// `None` keeps the confidential tag.
-    fn published_tag(self) -> Option<ViewTag> {
-        match self {
-            Self::Hidden(keys) => Some(keys.tag),
-            Self::Padding(tag) => Some(tag),
-            Self::Exit | Self::Compact => None,
-        }
+/// Refuses a transaction key and salt the current process already sealed under.
+fn reserve_stream(
+    tx_viewing_pk: &X25519Pubkey,
+    salt: [u8; SALT_LEN],
+) -> Result<(), TransactionError> {
+    let mut sealed = SEALED_STREAMS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    match sealed.insert((*tx_viewing_pk.as_bytes(), salt)) {
+        true => Ok(()),
+        false => Err(TransactionError::AnonymousStreamReuse),
     }
 }
 
@@ -220,19 +288,7 @@ impl ConfidentialTransaction {
             self.blinding_seed = view_tags.blinding_seed(&self.first_nullifier)?;
         }
         // 1. Select a shape and finalize the input and output slots if needed.
-        if self.padded_inputs.is_none() {
-            let n_in = self.inputs.len();
-            let mut n_out = self.outputs.len();
-            for asset in self.assets(&self.outputs)? {
-                if self.change(&asset)? > 0 {
-                    n_out = n_out
-                        .checked_add(1)
-                        .ok_or(TransactionError::TooManyOutputs)?;
-                }
-            }
-            let shape = canonical_shape(n_in, n_out)?;
-            self.pad_utxos(shape, sender)?;
-        }
+        self.pad_to_canonical_shape(sender)?;
         // 2. Derive and assign output blindings using the final slot order.
         let output_blinding_seed =
             derive_output_blinding_seed(&self.first_nullifier, &self.blinding_seed)?;
@@ -258,11 +314,13 @@ impl ConfidentialTransaction {
             .transpose()?;
         let mut owner_tags = self.owner_tags(&sender.signing_pubkey)?;
         if let Some(slots) = &anonymous_slots {
-            for (owner_tag, slot) in owner_tags.iter_mut().zip(slots) {
-                if let Some(resolved) = slot.published_tag() {
+            let tags =
+                AnonymousViewTags::published_tags(slots, &owner_tags, ring_anonymous_padding_tag)?;
+            for ((owner_tag, slot), tag) in owner_tags.iter_mut().zip(slots).zip(tags) {
+                if !matches!(slot, AnonymousSlot::Exit) {
                     *owner_tag = ResolvedOwnerTag {
-                        tag: OwnerTag::Inline(resolved),
-                        resolved,
+                        tag: OwnerTag::Inline(tag),
+                        resolved: tag,
                     };
                 }
             }
@@ -271,6 +329,9 @@ impl ConfidentialTransaction {
 
         // 4. Encrypt each real output with a fresh OS RNG salt.
         let salt = random_salt();
+        if anonymous.is_some() {
+            reserve_stream(&tx_viewing_key.pubkey(), salt)?;
+        }
         let slot_kinds: Vec<Option<AnonymousSlot>> = match anonymous_slots {
             Some(slots) => slots.into_iter().map(Some).collect(),
             None => vec![None; self.outputs.len()],
@@ -279,14 +340,17 @@ impl ConfidentialTransaction {
             .outputs
             .iter()
             .zip(slot_kinds)
+            .zip(&owner_tags)
             .enumerate()
-            .map(|(slot_index, (output, kind))| {
+            .map(|(slot_index, ((output, kind), owner_tag))| {
                 let slot_index = slot_index as u32;
                 match kind {
                     Some(AnonymousSlot::Hidden(keys)) => output
                         .seal_ring_anonymous(slot_index, tx_viewing_key, salt, keys)
                         .map(Some),
-                    Some(AnonymousSlot::Padding(_) | AnonymousSlot::Compact) => Ok(None),
+                    Some(AnonymousSlot::Padding) => {
+                        ring_anonymous_padding(owner_tag.resolved).map(Some)
+                    }
                     Some(AnonymousSlot::Exit) | None => output
                         .owner_address
                         .map(|_| output.seal(slot_index, tx_viewing_key, salt))
@@ -294,16 +358,13 @@ impl ConfidentialTransaction {
                 }
             })
             .collect::<Result<Vec<_>, TransactionError>>()?;
-        let dummy_len = if self
-            .outputs
-            .iter()
-            .any(|output| output.is_dummy() && !output.is_compact())
+        let dummy_len = if anonymous.is_none()
+            && self
+                .outputs
+                .iter()
+                .any(|output| output.is_dummy() && !output.is_compact())
         {
-            let template = DummyTemplate::new(self.ring_program_id, salt);
-            match anonymous {
-                Some(_) => template.ring_anonymous_len()?,
-                None => template.confidential_len()?,
-            }
+            DummyTemplate::new(self.ring_program_id, salt).confidential_len()?
         } else {
             0
         };
@@ -433,16 +494,62 @@ impl DummyTemplate {
                 .len(),
         )
     }
+}
 
-    fn ring_anonymous_len(self) -> Result<usize, TransactionError> {
-        let plaintext = RingAnonymousOutputPlaintext {
-            pair_pk: self.cx.recipient_pubkey,
-            output: self.output,
-        };
-        Ok(
-            RingAnonymous::encode_plaintext(&plaintext, [0u8; 32], &self.cx)?
-                .data
-                .len(),
-        )
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn resolved(tag: ViewTag) -> ResolvedOwnerTag {
+        ResolvedOwnerTag {
+            tag: OwnerTag::Inline(tag),
+            resolved: tag,
+        }
+    }
+
+    fn hidden(tag: ViewTag) -> AnonymousSlot {
+        AnonymousSlot::Hidden(AnonymousOutputKeys {
+            tag,
+            pair_pk: ViewingKey::new().pubkey(),
+        })
+    }
+
+    /// A padding tag equal to a hidden, exit or earlier padding tag is drawn again.
+    #[test]
+    fn padding_tags_are_resampled_on_collision() {
+        let real = [1; 32];
+        let exit = [2; 32];
+        let slots = [
+            hidden(real),
+            AnonymousSlot::Exit,
+            AnonymousSlot::Padding,
+            AnonymousSlot::Padding,
+        ];
+        let owner_tags = [
+            resolved([0; 32]),
+            resolved(exit),
+            resolved([0; 32]),
+            resolved([0; 32]),
+        ];
+        let mut draws = [real, exit, [3; 32], [3; 32], [4; 32]].into_iter();
+        let tags = AnonymousViewTags::published_tags(&slots, &owner_tags, || {
+            draws.next().expect("a draw per attempt")
+        })
+        .unwrap();
+        assert_eq!(tags, [real, exit, [3; 32], [4; 32]]);
+        assert!(draws.next().is_none());
+    }
+
+    #[test]
+    fn two_hidden_slots_never_share_a_tag() {
+        let slots = [hidden([1; 32]), hidden([1; 32])];
+        let owner_tags = [resolved([0; 32]); 2];
+        assert!(matches!(
+            AnonymousViewTags::published_tags(&slots, &owner_tags, ring_anonymous_padding_tag),
+            Err(TransactionError::DuplicateAnonymousTag {
+                first: 0,
+                second: 1
+            })
+        ));
     }
 }

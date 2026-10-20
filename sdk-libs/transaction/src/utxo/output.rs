@@ -15,7 +15,7 @@ use crate::{
     instructions::transact::AnonymousOutputKeys,
     serialization::{
         confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
-        ring_anonymous::{RingAnonymous, RingAnonymousOutputPlaintext},
+        ring_anonymous::{ring_anonymous_message, RingAnonymousOutputPlaintext, RingAnonymousSlot},
         UtxoSerialization,
     },
     EncryptedScheme, Mint,
@@ -161,7 +161,7 @@ impl SppProofOutputUtxo {
         Ok(message)
     }
 
-    /// The owner's message inside an anonymous ring, without the recipient viewing key.
+    /// The owner's note inside an anonymous ring, the recipient viewing key stays off the wire.
     pub fn seal_ring_anonymous(
         &self,
         slot_index: u32,
@@ -169,12 +169,26 @@ impl SppProofOutputUtxo {
         salt: [u8; SALT_LEN],
         keys: AnonymousOutputKeys,
     ) -> Result<MessageData, TransactionError> {
-        let (_, output, cx) = self.confidential_parts(slot_index, tx, salt)?;
-        let plaintext = RingAnonymousOutputPlaintext {
-            output,
-            pair_pk: keys.pair_pk,
+        let slot_index = slot_index as usize;
+        let address = self
+            .owner_address
+            .ok_or(TransactionError::OutputWithoutOwner { slot_index })?;
+        if !self.data.is_empty() {
+            return Err(TransactionError::AnonymousOutputData { slot_index });
+        }
+        let slot = RingAnonymousSlot {
+            tx_viewing_pk: tx.pubkey(),
+            recipient_pk: address.viewing_pubkey,
+            salt,
+            slot: u8::try_from(slot_index).map_err(|_| TransactionError::TooManyOutputs)?,
         };
-        RingAnonymous::encode_plaintext(&plaintext, keys.tag, &cx)
+        let opening = RingAnonymousOutputPlaintext {
+            asset_address: *self.asset.asset.as_array(),
+            amount: self.amount,
+            blinding: self.blinding,
+            pair_u: keys.pair_pk.u(),
+        };
+        ring_anonymous_message(&slot.seal(tx, &opening)?, keys.tag)
     }
 
     fn confidential_parts(

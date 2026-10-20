@@ -1,16 +1,30 @@
 //! The hidden owner's rail of an anonymous ring. The owner signs inside the
 //! AnonymousRingEddsa proof and the auditor disclosure names every hidden party.
 
-use custom_ring_interface::{RingMode, ANONYMOUS_RING_SHAPES};
+use std::collections::HashMap;
+
+use custom_ring_interface::{
+    anonymous_output_body, anonymous_output_body_hash, RingMode, ANONYMOUS_OUTPUT_PLAINTEXT_LEN,
+    ANONYMOUS_RING_SHAPES,
+};
 use solana_address::Address;
-use zolana_client::{AsyncRpc, Shape, TagStream};
+use zolana_client::{AsyncRpc, Shape, TagReservations, TagStream};
 use zolana_hasher::primitives::{hash_bytes, SOLANA_OWNER_TAG};
-use zolana_keypair::{Curve, RingAddress, ShieldedAddress, SigningKey, ViewingKey, X25519Pubkey};
+use zolana_interface::instruction::instruction_data::transact::ring_anonymous_encrypted_output_body;
+use zolana_keypair::{
+    viewing_key::ViewTag, Curve, KeypairError, RingAddress, ShieldedAddress, SigningKey,
+    ViewingKey, X25519Pubkey,
+};
 use zolana_ring_client::{AnonymousDisclosure, AnonymousOutputOpening, AuditInputOpening};
-use zolana_transaction::instructions::transact::{AnonymousViewTags, SppProofInputs};
+use zolana_transaction::instructions::transact::{
+    AnonymousViewTags, ConfidentialTransaction, SppProofInputs,
+};
 
 use super::{sealed, Owner, Rail, RailKind, RingTransfer, Staged};
-use crate::{CustomRing, CustomRingConfig, RingError};
+use crate::{
+    request::{AnonymousDelivery, DeliveryOutput},
+    CustomRing, CustomRingConfig, RingError,
+};
 
 /// The owner's spends on an anonymous ring, no transaction signer names the owner.
 pub struct Anonymous<'a> {
@@ -20,12 +34,21 @@ pub struct Anonymous<'a> {
     recipients: Vec<AnonymousRecipient>,
 }
 
+/// Where a payment to an address is tagged, the address itself is always carried.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AnonymousRecipient {
     /// A first payment, on the inbox stream of the shared address.
     Address(RingAddress),
-    /// A recipient paid or received from before, on the pair stream toward it.
-    Paired(X25519Pubkey),
+    /// A recipient paid or received from before, on the pair stream toward its viewing key.
+    Paired(RingAddress),
+}
+
+impl AnonymousRecipient {
+    pub fn address(&self) -> &RingAddress {
+        match self {
+            Self::Address(address) | Self::Paired(address) => address,
+        }
+    }
 }
 
 pub type AnonymousTransfer<'a> = RingTransfer<Anonymous<'a>>;
@@ -67,6 +90,13 @@ impl RingTransfer<Anonymous<'_>> {
     }
 }
 
+/// A tag stream of one transaction, two addresses on one viewing key share the pair stream.
+#[derive(Clone, PartialEq, Eq, Hash)]
+enum StreamKey {
+    Inbox([u8; 32]),
+    Pair(X25519Pubkey),
+}
+
 impl Anonymous<'_> {
     pub(super) async fn stage(
         &self,
@@ -87,43 +117,76 @@ impl Anonymous<'_> {
         if owner == self.owner.transaction.payer() || cosigner == Some(owner) {
             return Err(RingError::AnonymousPublicSignerLinksOwner);
         }
-        let view_tags = self.view_tags(ring, client).await?;
+        // Tags bind slots, the slot order is fixed before any stream is read.
+        let mut transaction = self.owner.transaction.clone();
+        transaction.pad_to_canonical_shape(&sender)?;
+        let view_tags = self.view_tags(ring, client, &sender, &transaction).await?;
         self.owner
-            .stage_with(ring, client, config, Some(&view_tags))
+            .stage_with(ring, client, config, transaction, Some(&view_tags))
             .await
     }
 
+    /// One window read per stream, every slot takes the lowest index free in history and
+    /// not reserved by an earlier slot of the same transaction.
     async fn view_tags(
         &self,
         ring: CustomRing,
         client: &(impl AsyncRpc + ?Sized),
+        sender: &ShieldedAddress,
+        transaction: &ConfidentialTransaction,
     ) -> Result<AnonymousViewTags, RingError> {
+        if let Some(foreign) = self
+            .recipients
+            .iter()
+            .map(|recipient| recipient.address().ring_program_id)
+            .find(|program| *program != ring.program_id())
+        {
+            return Err(RingError::ForeignRing(foreign));
+        }
         let stream = TagStream::new(client);
+        let mut reservations: HashMap<StreamKey, TagReservations> = HashMap::new();
         let mut view_tags = AnonymousViewTags::new(self.viewing_key);
-        for recipient in &self.recipients {
-            view_tags = match recipient {
-                AnonymousRecipient::Address(address) => {
-                    if address.ring_program_id != ring.program_id() {
-                        return Err(RingError::ForeignRing(address.ring_program_id));
-                    }
-                    let j = stream
-                        .first_free_index(0, |j| address.inbox_secret.view_tag(j))
-                        .await?;
-                    view_tags.with_inbox_recipient(address, j)?
-                }
-                AnonymousRecipient::Paired(recipient) => {
-                    let k = stream
-                        .first_free_index(0, |k| self.viewing_key.pair_send_view_tag(recipient, k))
-                        .await?;
-                    view_tags.with_paired_recipient(*recipient, k)?
+        for (slot, output) in transaction.outputs().iter().enumerate() {
+            let Some(owner) = output.owner_address else {
+                continue;
+            };
+            if output.ring_program_id.is_none() || owner.signing_pubkey == sender.signing_pubkey {
+                continue;
+            }
+            let Some(recipient) = self
+                .recipients
+                .iter()
+                .find(|recipient| recipient.address().recipient == owner)
+            else {
+                continue;
+            };
+            let address = recipient.address();
+            let (key, tag_at): (
+                StreamKey,
+                Box<dyn Fn(u64) -> Result<ViewTag, KeypairError> + Send + Sync>,
+            ) = match recipient {
+                AnonymousRecipient::Address(address) => (
+                    StreamKey::Inbox(*address.inbox_secret.as_bytes()),
+                    Box::new(|j| address.inbox_secret.view_tag(j)),
+                ),
+                AnonymousRecipient::Paired(address) => {
+                    let viewing_pk = address.recipient.viewing_pubkey;
+                    (
+                        StreamKey::Pair(viewing_pk),
+                        Box::new(move |k| self.viewing_key.pair_send_view_tag(&viewing_pk, k)),
+                    )
                 }
             };
+            let index = stream
+                .reserve_index(reservations.entry(key).or_default(), &tag_at)
+                .await?;
+            view_tags = view_tags.with_slot(slot, address, tag_at(index)?)?;
         }
         Ok(view_tags)
     }
 }
 
-/// AnonymousRingEddsa keeps its owners hidden, a note leaves only to the default ring. Only outputs may use compact padding.
+/// AnonymousRingEddsa keeps its owners hidden, a note leaves only to the default ring.
 pub(super) fn check_anonymous_slots(
     shape: Shape,
     inputs: &SppProofInputs,
@@ -137,6 +200,7 @@ pub(super) fn check_anonymous_slots(
         .any(|input| input.cache_slot.is_some() || input.is_compact());
     let output_open = inputs.output_utxos.iter().any(|output| {
         output.cache_slot.is_some()
+            || output.is_compact()
             || (!output.is_dummy()
                 && output.owner_address.is_none_or(|address| {
                     address.signing_pubkey.curve().ok() != Some(Curve::Ed25519)
@@ -149,15 +213,14 @@ pub(super) fn check_anonymous_slots(
     if inputs.output_utxos.iter().any(|output| {
         output.data_hash.is_some_and(|hash| hash != [0; 32])
             || output.ring_data_hash.is_some_and(|hash| hash != [0; 32])
-            || output.data.utxo_data().is_some()
-            || output.data.ring_data().is_some()
+            || !output.data.is_empty()
     }) {
         return Err(RingError::AnonymousOutputData);
     }
     Ok(())
 }
 
-/// Each published slot's opening, the proof checks it against its commitment.
+/// Each published slot's recipient, the proof checks it against its commitment.
 pub(crate) fn anonymous_disclosure(
     sender: &ShieldedAddress,
     proof: &SppProofInputs,
@@ -179,23 +242,16 @@ pub(crate) fn anonymous_disclosure(
     let outputs = proof
         .output_utxos
         .iter()
-        .filter(|output| !output.is_compact())
         .map(|output| {
             let Some(owner) = output.owner_address else {
                 return Ok(AnonymousOutputOpening::default());
             };
-            let identity_tag = SOLANA_OWNER_TAG;
             Ok(AnonymousOutputOpening {
-                identity_tag,
+                identity_tag: SOLANA_OWNER_TAG,
                 identity_key: owner.signing_pubkey.confidential_view_tag()?,
                 viewing_pk: *owner.viewing_pubkey.as_bytes(),
                 nullifier_pk: owner.nullifier_pubkey,
-                amount: output.amount,
-                asset: hash_bytes(output.asset.asset.as_array())?,
-                blinding: output.blinding,
-                data_hash: output.data_hash.unwrap_or_default(),
-                ring_data_hash: output.ring_data_hash.unwrap_or_default(),
-                ring_note: u8::from(output.ring_program_id.is_some()),
+                ..AnonymousOutputOpening::default()
             })
         })
         .collect::<Result<_, RingError>>()?;
@@ -204,6 +260,65 @@ pub(crate) fn anonymous_disclosure(
         inputs,
         outputs,
     })
+}
+
+/// The sealed bodies the base circuit proves, read back from the published slots.
+pub(crate) fn anonymous_delivery(
+    ring: Address,
+    sender: &ShieldedAddress,
+    first_nullifier: &[u8; 32],
+    view_tags: &AnonymousViewTags,
+    proof: &SppProofInputs,
+) -> Result<AnonymousDelivery, RingError> {
+    let outputs = proof
+        .output_utxos
+        .iter()
+        .zip(&proof.external_data.outputs)
+        .enumerate()
+        .map(|(slot, (output, published))| {
+            let body = published
+                .data
+                .as_deref()
+                .and_then(ring_anonymous_encrypted_output_body);
+            let Some(body) = body else {
+                return Ok(None);
+            };
+            let ciphertext: [u8; ANONYMOUS_OUTPUT_PLAINTEXT_LEN] = body
+                .try_into()
+                .map_err(|_| RingError::InvalidAnonymousBody)?;
+            let keys = view_tags.slot_keys(output, sender, first_nullifier, slot)?;
+            Ok(Some(match keys {
+                Some(keys) => DeliveryOutput {
+                    asset_address: *output.asset.asset.as_array(),
+                    pair_u: keys.pair_pk.u(),
+                    ciphertext,
+                },
+                None => DeliveryOutput {
+                    ciphertext,
+                    ..DeliveryOutput::ZERO
+                },
+            }))
+        })
+        .collect::<Result<Vec<_>, RingError>>()?;
+    Ok(AnonymousDelivery {
+        ring_program_id: ring,
+        outputs,
+    })
+}
+
+impl AnonymousDelivery {
+    /// The body hash per slot in slot order, zero for an exit slot.
+    pub(crate) fn output_body_hashes(&self) -> Result<Vec<[u8; 32]>, RingError> {
+        self.outputs
+            .iter()
+            .map(|output| match output {
+                Some(output) => Ok(anonymous_output_body_hash(&anonymous_output_body(
+                    &output.ciphertext,
+                ))?),
+                None => Ok([0; 32]),
+            })
+            .collect()
+    }
 }
 
 /// The hidden owner signs inside the proof. SPP excludes the fee payer from

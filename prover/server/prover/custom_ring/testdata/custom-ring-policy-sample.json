@@ -1,6 +1,6 @@
 {
   "circuitType": "custom-ring-policy",
-  "publicInputHash": "0x00e330fb84b9217dbb7437def96c42cdda2e56a8acc2d0392c20a35f1d87baf5",
+  "publicInputHash": "0x1df0ff90ff795b047fd7cb73325861b9705feff124f23a0f57f8bdfaca092eb2",
   "privateTxHash": "0x1d1d343fa87cf91e8f8d857550f792bb9ea34711b28f6ed59cfee0daa6b5b879",
   "txViewingSk": "0x001013121514171619181b1a1d1c1f1e010003020504070609080b0a0d0c0f4e",
   "ephSk": "0x01232021262724252a2b28292e2f2c2d32333031363734353a3b38393e3f3c3d",

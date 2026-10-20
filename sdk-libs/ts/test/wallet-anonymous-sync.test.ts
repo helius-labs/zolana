@@ -1,4 +1,4 @@
-import { address, type Signature } from "@solana/kit";
+import { address, type Address, type Signature } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 
 import { DEFAULT_TREE_ID, type Bytes16, type Bytes32 } from "../src/interface/index.js";
@@ -9,7 +9,7 @@ import {
   ViewingKey,
   type X25519PublicKey,
 } from "../src/keypair/index.js";
-import { SOL_ASSET_ID, SOL_MINT } from "../src/transaction/asset.js";
+import { SOL_MINT } from "../src/transaction/asset.js";
 import { Data } from "../src/transaction/data.js";
 import type { IndexedShieldedTransaction } from "../src/transaction/instructions/transact.js";
 import { equal } from "../src/transaction/internal.js";
@@ -18,7 +18,6 @@ import {
   encodeOutputData,
   encodeProofless,
   encodeRingAnonymous,
-  encryptAnonymous,
 } from "../src/transaction/serialization/codecs.js";
 import { Utxo } from "../src/transaction/utxo.js";
 import { AnonymousTagRoutes } from "../src/transaction/wallet/anonymous.js";
@@ -29,6 +28,7 @@ import {
 } from "../src/transaction/wallet/keys.js";
 import { Wallet } from "../src/transaction/wallet/state.js";
 import { decryptTransactions } from "../src/transaction/wallet/sync.js";
+import { recoverAnonymousRing } from "../src/wallet/anonymous-recovery.js";
 import { ADDRESS_GAP, DECRYPTIONS_PER_INDEX } from "../src/wallet/anonymous-sync.js";
 import { syncWallet } from "../src/wallet/sync.js";
 import { DEFAULT_TAG_WINDOW, TagStream } from "../src/wallet/tag-stream.js";
@@ -49,12 +49,12 @@ function keypair(seed: number): ShieldedKeypair {
 }
 
 /** A ring note of `owner` with its commitment and nullifier. */
-function note(owner: ShieldedKeypair, amount: bigint, nonce: number) {
+function note(owner: ShieldedKeypair, amount: bigint, nonce: number, asset: Address = SOL_MINT) {
   const blinding = new Uint8Array(32) as Bytes32;
   blinding[31] = nonce;
   const utxo = new Utxo({
     owner: owner.signingPublicKey(),
-    asset: SOL_MINT,
+    asset,
     amount,
     blinding,
     ringProgramId: RING,
@@ -74,20 +74,26 @@ function anonymousSlot(
   slotIndex: number,
 ) {
   const pair = payer.pairKey(recipient);
-  const pairPublicKey = pair.publicKey();
+  const pairU = pair.publicKey().u();
   pair.destroy();
-  const body = encryptAnonymous(
-    tx,
+  return anonymousSlotWithHint(tx, recipient, paid, tag, slotIndex, pairU);
+}
+
+function anonymousSlotWithHint(
+  tx: ViewingKey,
+  recipient: X25519PublicKey,
+  paid: ReturnType<typeof note>,
+  tag: Bytes32,
+  slotIndex: number,
+  pairU: Bytes32,
+) {
+  const body = tx.sealAnonymousOutput(
     recipient,
     encodeRingAnonymous({
-      output: {
-        assetId: SOL_ASSET_ID,
-        amount: paid.utxo.amount,
-        blinding: paid.utxo.blinding,
-        ringProgramId: RING,
-        data: new Data(),
-      },
-      pairPublicKey,
+      assetAddress: paid.utxo.asset,
+      amount: paid.utxo.amount,
+      blinding: paid.utxo.blinding,
+      pairU,
     }),
     SALT,
     slotIndex,
@@ -294,7 +300,7 @@ describe("anonymous ring sync", () => {
     ]);
   });
 
-  it("advances past a spammed inbox index and flags the address", async () => {
+  it("opens every hit under a spammed inbox index and flags the address", async () => {
     const recipient = keypair(1);
     const spammer = keypair(4);
     const tagged: IndexedShieldedTransaction[] = [];
@@ -309,7 +315,8 @@ describe("anonymous ring sync", () => {
         })),
       });
     }
-    const real = inboxPayment(keypair(2), recipient, 0, 1n, 10n, 11);
+    // The real payment sits past the cap under the same index and still opens.
+    const real = inboxPayment(keypair(2), recipient, 0, 0n, 10n, 50);
     tagged.push(real.tx);
     const { client } = indexer({ tagged });
     const wallet = new Wallet({ identity: recipient.shieldedAddress() });
@@ -323,8 +330,97 @@ describe("anonymous ring sync", () => {
 
     expect(unspentHashes(wallet)).toEqual([hex(real.paid.hash)]);
     expect(report.anonymousRing?.addressesUnderAttack).toEqual([0]);
-    expect(report.anonymousRing?.inboxNext.get(0)).toBe(2n);
+    expect(report.anonymousRing?.inboxNext.get(0)).toBe(1n);
     expect(report.anonymousRing?.usedAddresses).toBe(1);
+  });
+
+  it("stores a note whose pair hint is no X25519 key and reports the hint", async () => {
+    const recipient = keypair(1);
+    const paid = note(recipient, 10n, 11);
+    const txKey = keypair(11).viewingKey();
+    const tx = transaction(
+      txKey,
+      11,
+      [bytes(11)],
+      [
+        anonymousSlotWithHint(
+          txKey,
+          recipient.viewingPublicKey(),
+          paid,
+          inboxTag(recipient, 0, 0n),
+          0,
+          new Uint8Array(32).fill(0xff) as Bytes32,
+        ),
+      ],
+    );
+    const { client } = indexer({ tagged: [tx] });
+    const wallet = new Wallet({ identity: recipient.shieldedAddress() });
+
+    const report = await syncWallet({
+      wallet,
+      keys: LocalShieldedKeys.fromKeypair(recipient),
+      client,
+      anonymousRing: freshState,
+    });
+
+    expect(unspentHashes(wallet)).toEqual([hex(paid.hash)]);
+    const ring = report.anonymousRing!;
+    expect(ring.badPairHints.map(hex)).toEqual([hex(paid.hash)]);
+    expect(ring.newCounterparties).toEqual([]);
+    expect(ring.notes[0]?.pairPublicKey).toBeUndefined();
+    expect(wallet.privateTransactions().map((row) => row.direction)).toEqual(["inbound"]);
+  });
+
+  it("holds a verified note with an unknown mint until the mint is registered", async () => {
+    const recipient = keypair(1);
+    const mint = address("So11111111111111111111111111111111111111112");
+    const paid = note(recipient, 10n, 12, mint);
+    const { tx } = inboxPayment(keypair(2), recipient, 0, 0n, 10n, 12);
+    const payment = {
+      ...tx,
+      outputSlots: [
+        anonymousSlotWithHint(
+          keypair(12).viewingKey(),
+          recipient.viewingPublicKey(),
+          paid,
+          inboxTag(recipient, 0, 0n),
+          0,
+          pairPublicKeyOf(keypair(2), recipient).u(),
+        ),
+      ],
+    };
+    const wallet = new Wallet({ identity: recipient.shieldedAddress() });
+    const keys = LocalShieldedKeys.fromKeypair(recipient);
+    const routes = new AnonymousTagRoutes();
+    routes.route(inboxTag(recipient, 0, 0n), recipient.viewingPublicKey(), {
+      kind: "inbox",
+      addressIndex: 0,
+    });
+
+    const held = await decryptTransactions({
+      wallet,
+      keys,
+      transactions: [payment],
+      anonymous: routes,
+    });
+    expect(wallet.utxos()).toEqual([]);
+    expect(held.pendingAssets).toHaveLength(1);
+    const pending = held.pendingAssets[0]!;
+    expect(pending.utxo.asset).toBe(mint);
+    expect(pending.utxo.amount).toBe(10n);
+    expect(pending.outputContext.hash).toEqual(paid.hash);
+    expect(pending.txSignature).toBe(SIGNATURE);
+    expect(pending.slotIndex).toBe(0);
+
+    wallet.registerAsset(7n, mint);
+    const stored = await decryptTransactions({
+      wallet,
+      keys,
+      transactions: [payment],
+      anonymous: routes,
+    });
+    expect(stored.pendingAssets).toEqual([]);
+    expect(unspentHashes(wallet)).toEqual([hex(paid.hash)]);
   });
 
   it("finds change from the nullifiers of a fresh wallet", async () => {
@@ -405,25 +501,20 @@ describe("anonymous ring sync", () => {
     );
   });
 
-  it("treats a scheme-9 slot with an unknown asset as a failed match", async () => {
+  it("treats a scheme-9 slot whose opening misses the commitment as a failed match", async () => {
     const recipient = keypair(1);
     const payer = keypair(2);
     const spam = inboxPayment(payer, recipient, 0, 0n, 1n, 21);
     const txKey = keypair(21).viewingKey();
     const garbage = encodeOutputData(
       EncryptedScheme.ringAnonymous,
-      encryptAnonymous(
-        txKey,
+      txKey.sealAnonymousOutput(
         recipient.viewingPublicKey(),
         encodeRingAnonymous({
-          output: {
-            assetId: 987_654_321n,
-            amount: 1n,
-            blinding: bytes(21),
-            ringProgramId: RING,
-            data: new Data(),
-          },
-          pairPublicKey: pairPublicKeyOf(payer, recipient),
+          assetAddress: address("So11111111111111111111111111111111111111112"),
+          amount: 1n,
+          blinding: bytes(21),
+          pairU: pairPublicKeyOf(payer, recipient).u(),
         }),
         SALT,
         0,
@@ -447,6 +538,7 @@ describe("anonymous ring sync", () => {
 
     expect(unspentHashes(wallet)).toEqual([hex(real.paid.hash)]);
     expect(report.unknownAssetIds).toEqual([]);
+    expect(report.pendingAssets).toEqual([]);
     expect(report.anonymousRing?.inboxNext.get(0)).toBe(2n);
   });
 
@@ -593,6 +685,89 @@ describe("anonymous ring sync", () => {
       hex(recipient.viewingPublicKey().toBytes()),
     ]);
     expect(asked(bytes(9))).toBe(false);
+  });
+
+  it("recovers a note under a tag the wallet never derived from ring history through a head", async () => {
+    const recipient = keypair(1);
+    const payer = keypair(2);
+    const lost = note(recipient, 99n, 15);
+    const txKey = keypair(15).viewingKey();
+    const lostTx = transaction(
+      txKey,
+      15,
+      [bytes(15)],
+      [anonymousSlot(payer.viewingKey(), txKey, recipient.viewingPublicKey(), lost, bytes(9), 0)],
+    );
+    const later = inboxPayment(payer, recipient, 0, 0n, 5n, 40);
+    const history = [lostTx, later.tx];
+    let pages = 0;
+    const client = syncReads({
+      getShieldedTransactionsByTags: async (request) => {
+        pages++;
+        expect(request.ringProgramId).toBe(RING);
+        expect(request.tags).toEqual([]);
+        return { context: CONTEXT, transactions: history, scannedThrough: Uint8Array.of(1) };
+      },
+    });
+    const wallet = new Wallet({ identity: recipient.shieldedAddress() });
+    const keys = LocalShieldedKeys.fromKeypair(recipient);
+
+    const partial = await recoverAnonymousRing({
+      wallet,
+      keys,
+      client,
+      ringProgramId: RING,
+      head: 20n,
+    });
+    expect(partial.scannedTransactions).toBe(1);
+    expect(unspentHashes(wallet)).toEqual([hex(lost.hash)]);
+
+    const full = await recoverAnonymousRing({
+      wallet,
+      keys,
+      client,
+      ringProgramId: RING,
+      head: 40n,
+    });
+    expect(full.scannedTransactions).toBe(2);
+    expect(full.head).toBe(40n);
+    expect(unspentHashes(wallet)).toEqual([hex(lost.hash), hex(later.paid.hash)].sort());
+    expect(pages).toBe(2);
+  });
+
+  it("fails recovery on a page limit and on a cursor that does not advance", async () => {
+    const recipient = keypair(1);
+    const wallet = new Wallet({ identity: recipient.shieldedAddress() });
+    const keys = LocalShieldedKeys.fromKeypair(recipient);
+    const endless = syncReads({
+      getShieldedTransactionsByTags: async () => ({
+        context: CONTEXT,
+        transactions: [],
+        nextCursor: Uint8Array.of(1),
+      }),
+    });
+    await expect(
+      recoverAnonymousRing({
+        wallet,
+        keys,
+        client: endless,
+        ringProgramId: RING,
+        head: 1n,
+        maxPages: 1,
+      }),
+    ).rejects.toMatchObject({ code: "WALLET_SYNC", causeCode: "WALLET_RECOVERY_INCOMPLETE" });
+    let cursor = 0;
+    const stuck = syncReads({
+      getShieldedTransactionsByTags: async () => ({
+        context: CONTEXT,
+        transactions: [],
+        nextCursor: Uint8Array.of(cursor++ === 0 ? 1 : 1),
+      }),
+    });
+    await expect(
+      recoverAnonymousRing({ wallet, keys, client: stuck, ringProgramId: RING, head: 1n }),
+    ).rejects.toMatchObject({ causeCode: "WALLET_RECOVERY_INCOMPLETE" });
+    expect(wallet.utxos()).toEqual([]);
   });
 
   it("leaves scheme-9 slots closed without routes and without a state", async () => {

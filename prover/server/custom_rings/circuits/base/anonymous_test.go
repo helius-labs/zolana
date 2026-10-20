@@ -76,10 +76,10 @@ func TestWideAnonymousDisclosureBindsLastInput(t *testing.T) {
 	}
 	statement.Rebind(t)
 	valid := base.CustomRingWideBaseCircuit{
-		PublicInputHash: spptest.MustHashChain(t, keys.ChainElementsFor(t, statement)),
+		PublicInputHash: spptest.MustHashChain(t, keys.BaseChainElementsFor(t, statement)),
 		Audit:           statement.Audit, NOut: statement.Count, Outputs: statement.Outputs,
 		NIn: statement.NIn, AnonymousOutputs: statement.Notes,
-		PrivateTxBlinding: statement.PrivateTxBlinding,
+		PrivateTxBlinding: statement.PrivateTxBlinding, Delivery: statement.DeliveryWires(),
 	}
 	copy(valid.Inputs[:], statement.Inputs)
 	cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder,

@@ -17,6 +17,9 @@
 //! place: proving. That capability lives on the client layer, next to the
 //! witness types that need it, and is deliberately absent here.
 
+use std::collections::{hash_map::Entry, HashMap};
+
+use custom_ring_interface::ANONYMOUS_OUTPUT_PLAINTEXT_LEN;
 use zolana_keypair::{
     shielded::{ShieldedAddress, ShieldedKeypair},
     viewing_key::{Salt, ViewTag},
@@ -28,6 +31,7 @@ use crate::{
     instructions::merge::{
         merge_dummy_nullifier, merge_output_blinding, merge_output_key, merge_private_tx_blinding,
     },
+    serialization::ring_anonymous::RingAnonymousSlot,
 };
 
 /// Which cipher opened a slot. A ring deposit publishes one ciphertext and no
@@ -36,6 +40,8 @@ use crate::{
 pub enum DecryptLabel {
     Utxo,
     RingDeposit,
+    /// The scheme-9 ciphertext after its scheme byte, opened under its slot stream.
+    RingAnonymous,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -194,26 +200,52 @@ impl ShieldedKeys for LocalShieldedKeys {
     }
 
     fn decrypt(&self, requests: &[DecryptRequest<'_>]) -> Result<Vec<Vec<u8>>, TransactionError> {
-        requests
-            .iter()
-            .map(|request| {
-                let viewing = self.viewing_key(&request.viewing_pubkey)?;
-                let plaintext = match request.label {
-                    DecryptLabel::Utxo => viewing.decrypt_utxo(
-                        request.ciphertext,
-                        &request.tx_viewing_pubkey,
-                        request.salt,
-                        request.slot_index,
-                    ),
-                    DecryptLabel::RingDeposit => viewing.decrypt_ring_deposit(
-                        request.ciphertext,
-                        &request.tx_viewing_pubkey,
-                        request.salt,
-                    ),
-                }?;
-                Ok(plaintext)
-            })
-            .collect()
+        let mut agreements: HashMap<(X25519Pubkey, X25519Pubkey), [u8; 32]> = HashMap::new();
+        let mut plaintexts = Vec::with_capacity(requests.len());
+        for request in requests {
+            let viewing = self.viewing_key(&request.viewing_pubkey)?;
+            let plaintext = match request.label {
+                DecryptLabel::Utxo => viewing.decrypt_utxo(
+                    request.ciphertext,
+                    &request.tx_viewing_pubkey,
+                    request.salt,
+                    request.slot_index,
+                )?,
+                DecryptLabel::RingDeposit => viewing.decrypt_ring_deposit(
+                    request.ciphertext,
+                    &request.tx_viewing_pubkey,
+                    request.salt,
+                )?,
+                DecryptLabel::RingAnonymous => {
+                    let dh = match agreements
+                        .entry((request.viewing_pubkey, request.tx_viewing_pubkey))
+                    {
+                        Entry::Occupied(known) => *known.get(),
+                        Entry::Vacant(vacant) => {
+                            *vacant.insert(viewing.ecdh(&request.tx_viewing_pubkey)?)
+                        }
+                    };
+                    let mut body: [u8; ANONYMOUS_OUTPUT_PLAINTEXT_LEN] = request
+                        .ciphertext
+                        .try_into()
+                        .map_err(|_| TransactionError::InvalidLength {
+                            expected: ANONYMOUS_OUTPUT_PLAINTEXT_LEN,
+                            actual: request.ciphertext.len(),
+                        })?;
+                    RingAnonymousSlot {
+                        tx_viewing_pk: request.tx_viewing_pubkey,
+                        recipient_pk: request.viewing_pubkey,
+                        salt: request.salt,
+                        slot: u8::try_from(request.slot_index)
+                            .map_err(|_| TransactionError::TooManyOutputs)?,
+                    }
+                    .apply(&dh, &mut body)?;
+                    body.to_vec()
+                }
+            };
+            plaintexts.push(plaintext);
+        }
+        Ok(plaintexts)
     }
 
     fn derive(&self, requests: &[DeriveRequest]) -> Result<Vec<[u8; 32]>, TransactionError> {

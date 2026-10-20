@@ -27,6 +27,7 @@ import {
   viewRoot,
   x25519Ecdh,
 } from "./derivation.js";
+import { applyAnonymousOutputStream } from "./audit.js";
 import { applyTransferCipher } from "./encryption.js";
 import { KeypairError } from "./error.js";
 import { type ViewTag } from "./public-key.js";
@@ -298,6 +299,60 @@ export class ViewingKey implements ViewingKeyLike {
     slotIndex: number,
   ): Uint8Array {
     return this.encryptSlot(recipientPublicKey, ciphertext, salt, slotIndex);
+  }
+
+  /** Scheme-9 body cipher from the transaction key side, Rust `recipient_stream_secret` keys it. */
+  sealAnonymousOutput(
+    recipientPublicKey: X25519PublicKey,
+    body: Uint8Array,
+    salt: Salt,
+    slotIndex: number,
+  ): Uint8Array {
+    return this.#anonymousOutputStream(
+      recipientPublicKey,
+      { txViewingPublicKey: this.publicKey(), recipientViewingPublicKey: recipientPublicKey },
+      body,
+      salt,
+      slotIndex,
+    );
+  }
+
+  /** The recipient side of `sealAnonymousOutput`, the stream is symmetric. */
+  openAnonymousOutput(
+    ciphertext: Uint8Array,
+    txViewingPublicKey: X25519PublicKey,
+    salt: Salt,
+    slotIndex: number,
+  ): Uint8Array {
+    return this.#anonymousOutputStream(
+      txViewingPublicKey,
+      { txViewingPublicKey, recipientViewingPublicKey: this.publicKey() },
+      ciphertext,
+      salt,
+      slotIndex,
+    );
+  }
+
+  #anonymousOutputStream(
+    counterparty: X25519PublicKey,
+    keys: Readonly<{
+      txViewingPublicKey: X25519PublicKey;
+      recipientViewingPublicKey: X25519PublicKey;
+    }>,
+    body: Uint8Array,
+    salt: Salt,
+    slotIndex: number,
+  ): Uint8Array {
+    const dh = this.ecdh(counterparty);
+    try {
+      return applyAnonymousOutputStream(
+        dh,
+        { ...keys, salt: checkedBytes<Bytes16>(salt, 16, "salt"), slotIndex },
+        body,
+      );
+    } finally {
+      dh.fill(0);
+    }
   }
 
   destroy(): void {

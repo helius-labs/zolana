@@ -1906,7 +1906,7 @@ describe("ring read request", () => {
                       ringProgramId: RING,
                     },
                   ],
-                  undecryptableSlots: [0],
+                  payloadErrors: [{ slotIndex: 0, kind: "unreadable" }],
                   nullifiers: [addressOf(3)],
                   signers: [addressOf(11)],
                   withdrawals: [],
@@ -1958,7 +1958,7 @@ describe("ring read request", () => {
     const item = page.items[0];
     expect(item?.slot).toBe(8n);
     expect(item?.txViewingPublicKey.toBytes()).toEqual(hex(X25519_HEX));
-    expect(item?.undecryptableSlots).toEqual([0]);
+    expect(item?.payloadErrors).toEqual([{ slotIndex: 0, kind: "unreadable" }]);
     expect(item?.nullifiers).toEqual([filled(3, 32)]);
     expect(item?.outputs[0]).toMatchObject({
       slotIndex: 1,
@@ -2020,7 +2020,7 @@ describe("ring read request", () => {
                       amount: 7,
                     },
                   ],
-                  undecryptableSlots: [],
+                  payloadErrors: [],
                   nullifiers: [],
                   signers: [addressOf(11), addressOf(12)],
                   withdrawals: [],
@@ -2069,7 +2069,7 @@ describe("ring read request", () => {
                   txViewingPk: Buffer.from(hex(X25519_HEX)).toString("base64"),
                   outputOpenings: openings,
                   outputs,
-                  undecryptableSlots: [],
+                  payloadErrors: [],
                   nullifiers: [],
                   signers: [],
                   withdrawals,
@@ -2116,7 +2116,7 @@ describe("ring read request", () => {
       amount: 9n,
       ringProgramId: addressOf(7),
     });
-    expect(item?.undecryptableSlots).toEqual([]);
+    expect(item?.payloadErrors).toEqual([]);
   });
 
   it("requires proof-bound openings and rejects malformed or substituted fields", async () => {

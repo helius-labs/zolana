@@ -24,12 +24,12 @@ import { TransactionError } from "../error.js";
 import { equal } from "../internal.js";
 
 /**
- * Which cipher label a ciphertext was sealed under. Every UTXO ciphertext a
- * wallet can open is the transfer cipher keyed by ECDH between the wallet's
- * viewing key and the transaction's viewing key; only the ring-deposit
- * envelope uses its own label.
+ * Which cipher a ciphertext was sealed under. Every cipher is keyed by ECDH
+ * between the wallet's viewing key and the transaction's viewing key: the
+ * transfer cipher for ordinary slots, the ring-deposit envelope with its own
+ * label, and the proven recipient stream of a scheme-9 anonymous ring output.
  */
-export type DecryptLabel = "transfer" | "ringDeposit";
+export type DecryptLabel = "transfer" | "ringDeposit" | "ringAnonymous";
 
 export interface DecryptRequest {
   readonly ciphertext: Uint8Array;
@@ -37,7 +37,7 @@ export interface DecryptRequest {
   readonly viewingPublicKey: X25519PublicKey;
   readonly txViewingPublicKey: X25519PublicKey;
   readonly salt: Bytes16;
-  /** Zero for a ring deposit, which carries one envelope. */
+  /** Zero for a ring deposit, which carries one envelope, below 256 for an anonymous ring output. */
   readonly slotIndex: number;
   readonly label: DecryptLabel;
 }
@@ -262,14 +262,28 @@ export class LocalShieldedKeys implements RingTagKeys {
   decryptOne(request: DecryptRequest): Uint8Array {
     checkDecryptRequest(request);
     const viewing = this.#viewingKey(request.viewingPublicKey);
-    return request.label === "ringDeposit"
-      ? viewing.decryptRingDeposit(request.ciphertext, request.txViewingPublicKey, request.salt)
-      : viewing.decryptUtxo(
+    switch (request.label) {
+      case "ringDeposit":
+        return viewing.decryptRingDeposit(
+          request.ciphertext,
+          request.txViewingPublicKey,
+          request.salt,
+        );
+      case "ringAnonymous":
+        return viewing.openAnonymousOutput(
           request.ciphertext,
           request.txViewingPublicKey,
           request.salt,
           request.slotIndex,
         );
+      case "transfer":
+        return viewing.decryptUtxo(
+          request.ciphertext,
+          request.txViewingPublicKey,
+          request.salt,
+          request.slotIndex,
+        );
+    }
   }
 
   deriveOne(request: DeriveRequest): Bytes32 {
@@ -389,7 +403,18 @@ function checkDecryptRequest(request: DecryptRequest): void {
     throw new TransactionError("TRANSACTION_DESERIALIZE", { field: "txViewingPublicKey" });
   }
   checkedBytes<Bytes16>(request.salt, 16, "salt");
-  checkSlotIndex(request.slotIndex, request.label === "ringDeposit" ? 0 : 0xffff_ffff);
+  checkSlotIndex(request.slotIndex, maxSlotIndex(request.label));
+}
+
+function maxSlotIndex(label: DecryptLabel): number {
+  switch (label) {
+    case "ringDeposit":
+      return 0;
+    case "ringAnonymous":
+      return 0xff;
+    case "transfer":
+      return 0xffff_ffff;
+  }
 }
 
 function checkSlotIndex(slotIndex: number, max: number): void {

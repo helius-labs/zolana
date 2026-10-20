@@ -138,6 +138,7 @@ function reportRow(value: unknown): SyncReport {
     // These fixtures predate merge-field recovery; no case contains an
     // unresolved merge asset.
     unknownAssetFields: [],
+    pendingAssets: [],
   };
 }
 

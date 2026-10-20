@@ -38,11 +38,14 @@ export { ownerHash, sha256Be, sha256Bytes, splitBigEndian128 } from "./hash.js";
 export { mergePrivateTxBlinding, symmetricApply } from "./merge/index.js";
 export { outputBlindingSeed, privateTxBlinding, transactOutputBlinding } from "./transact/index.js";
 export {
+  RECIPIENT_KEY_DOMAIN,
+  applyAnonymousOutputStream,
   auditorMessageData,
   auditorViewTag,
   auditDisclosureLength,
   anonymousAuditDisclosureShape,
   policyPublicInputHash,
+  recipientStreamSecret,
   decryptTransactionViewingSecret,
   encryptTransactionViewingSecret,
   isDummyAnonymousOutput,
@@ -53,6 +56,7 @@ export {
 export type {
   AnonymousAuditDisclosure,
   AnonymousOutputOpening,
+  AnonymousOutputStream,
   AuditDisclosureInput,
   AuditDisclosureShape,
   AuditInputOpening,

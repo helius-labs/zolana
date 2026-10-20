@@ -1,5 +1,6 @@
 /** Circuit-facing codecs, registry proofs, and policy primitives. */
 export {
+  applyAnonymousOutputStream,
   auditorMessageData,
   auditorViewTag,
   auditDisclosureLength,
@@ -9,7 +10,9 @@ export {
   AUDIT_ENC_INFO,
   AUDIT_INPUT_SLOTS,
   AUDITOR_MESSAGE_LENGTH,
+  RECIPIENT_KEY_DOMAIN,
   anonymousAuditDisclosureShape,
+  recipientStreamSecret,
   decryptTransactionViewingSecret,
   encryptTransactionViewingSecret,
   isDummyAnonymousOutput,
@@ -20,6 +23,7 @@ export {
 export type {
   AnonymousAuditDisclosure,
   AnonymousOutputOpening,
+  AnonymousOutputStream,
   AuditDisclosureInput,
   AuditDisclosureShape,
   AuditInputOpening,

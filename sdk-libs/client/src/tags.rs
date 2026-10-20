@@ -60,6 +60,31 @@ impl TagWindow {
     }
 }
 
+/// One stream's window read and the indices a transaction took from it.
+#[derive(Clone, Debug, Default)]
+pub struct TagReservations {
+    start: u64,
+    /// The occupied indices of the window at `start`, `None` before its read.
+    occupied: Option<BTreeSet<u64>>,
+    reserved: BTreeSet<u64>,
+}
+
+impl From<u64> for TagReservations {
+    /// Starts the stream at `start`, the lowest index the caller still considers free.
+    fn from(start: u64) -> Self {
+        Self {
+            start,
+            ..Self::default()
+        }
+    }
+}
+
+impl TagReservations {
+    pub fn reserved(&self) -> &BTreeSet<u64> {
+        &self.reserved
+    }
+}
+
 pub struct TagStream<'a, I: ?Sized> {
     indexer: &'a I,
     config: Option<IndexerRpcConfig>,
@@ -85,15 +110,39 @@ impl<'a, I: AsyncRpc + ?Sized> TagStream<'a, I> {
         start: u64,
         tag_at: impl Fn(u64) -> Result<ViewTag, KeypairError>,
     ) -> Result<u64, ClientError> {
-        let mut start = start;
+        self.reserve_index(&mut TagReservations::from(start), tag_at)
+            .await
+    }
+
+    /// The lowest index free in history and not yet reserved, recorded in `reservations`.
+    pub async fn reserve_index(
+        &self,
+        reservations: &mut TagReservations,
+        tag_at: impl Fn(u64) -> Result<ViewTag, KeypairError>,
+    ) -> Result<u64, ClientError> {
         loop {
-            let occupied = self.occupied_indices(start, &tag_at).await?;
-            if let Some(free) = TagWindow::first_free(start, &occupied) {
-                return Ok(free);
+            let occupied = match &reservations.occupied {
+                Some(occupied) => occupied,
+                None => {
+                    let occupied = self.occupied_indices(reservations.start, &tag_at).await?;
+                    reservations.occupied.insert(occupied)
+                }
+            };
+            let free = indices(reservations.start)
+                .find(|index| !occupied.contains(index) && !reservations.reserved.contains(index));
+            match free {
+                Some(index) => {
+                    reservations.reserved.insert(index);
+                    return Ok(index);
+                }
+                None => {
+                    reservations.start = reservations
+                        .start
+                        .checked_add(DEFAULT_TAG_WINDOW)
+                        .ok_or(ClientError::TagStreamExhausted)?;
+                    reservations.occupied = None;
+                }
             }
-            start = start
-                .checked_add(DEFAULT_TAG_WINDOW)
-                .ok_or(ClientError::TagStreamExhausted)?;
         }
     }
 

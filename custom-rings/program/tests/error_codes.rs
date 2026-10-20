@@ -73,6 +73,11 @@ fn error_codes_are_stable() {
         (MemberBatchTooLarge as u32, 8190),
         (MemberRecordMismatch as u32, 8191),
         (MissingOwnerSigner as u32, 8192),
+        (InvalidAnonymousOutputBody as u32, 8193),
+        (InvalidAnonymousTag as u32, 8194),
+        (DuplicateAnonymousTag as u32, 8195),
+        (InvalidAnonymousOutputHash as u32, 8196),
+        (AnonymousOutputCount as u32, 8197),
     ];
     for (got, want) in table {
         assert_eq!(got, want, "error code drifted");
@@ -152,6 +157,11 @@ fn every_variant_is_pinned(error: custom_ring_interface::CustomRingError) {
         | MemberBatchOrder
         | MemberBatchTooLarge
         | MemberRecordMismatch
-        | MissingOwnerSigner => {}
+        | MissingOwnerSigner
+        | InvalidAnonymousOutputBody
+        | InvalidAnonymousTag
+        | DuplicateAnonymousTag
+        | InvalidAnonymousOutputHash
+        | AnonymousOutputCount => {}
     }
 }

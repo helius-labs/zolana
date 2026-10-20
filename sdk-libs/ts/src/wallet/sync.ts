@@ -192,6 +192,15 @@ function walletQueryNullifiers(wallet: Wallet): readonly Bytes32[] {
   return [...nullifiers.values()];
 }
 
+/** A pending anonymous note names its mint, the registry backfill registers it. */
+function unresolvedAssets(report: SyncReport): boolean {
+  return (
+    report.unknownAssetIds.length > 0 ||
+    report.unknownAssetFields.length > 0 ||
+    report.pendingAssets.length > 0
+  );
+}
+
 function walletHasUnknownMint(wallet: Wallet): boolean {
   const registry = wallet.registry;
   for (const entry of wallet.utxos()) {
@@ -575,11 +584,7 @@ async function runWalletSync(
       context,
     });
     let registryRefreshed = false;
-    if (
-      report.unknownAssetIds.length > 0 ||
-      report.unknownAssetFields.length > 0 ||
-      walletHasUnknownMint(session.staging)
-    ) {
+    if (unresolvedAssets(report) || walletHasUnknownMint(session.staging)) {
       registryRefreshed = true;
       if ((await backfillSessionRegistry(session, input.client, context)) > 0) {
         report = await decryptTransactions({
@@ -613,9 +618,7 @@ async function runWalletSync(
       });
       if (
         !registryRefreshed &&
-        (report.unknownAssetIds.length > 0 ||
-          report.unknownAssetFields.length > 0 ||
-          walletHasUnknownMint(session.staging))
+        (unresolvedAssets(report) || walletHasUnknownMint(session.staging))
       ) {
         if ((await backfillSessionRegistry(session, input.client, context)) > 0) {
           report = await decryptTransactions({
@@ -694,13 +697,12 @@ async function runWalletSync(
     }
     // An unresolved asset means a fetched UTXO was not stored. A commit would
     // advance the cursors past it and lose the UTXO until a full rescan.
-    if (
-      report.unknownAssetIds.length > 0 ||
-      report.unknownAssetFields.length > 0 ||
-      walletHasUnknownMint(session.staging)
-    ) {
+    if (unresolvedAssets(report) || walletHasUnknownMint(session.staging)) {
       throw new WalletError("WALLET_UNRESOLVED_ASSET", {
-        details: { unknownAssetIds: report.unknownAssetIds.map(String) },
+        details: {
+          unknownAssetIds: report.unknownAssetIds.map(String),
+          pendingMints: report.pendingAssets.map((note) => note.utxo.asset),
+        },
       });
     }
     input.wallet._commitSync(sealSyncDelta(session), session.baseRevision);

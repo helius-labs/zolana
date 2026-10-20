@@ -263,7 +263,7 @@ mod tests {
             tx_viewing_pk: Vec::new().into(),
             outputs: Vec::new(),
             output_openings: Vec::new(),
-            undecryptable_slots: Vec::new(),
+            payload_errors: Vec::new(),
             nullifiers: Vec::new(),
             signers: Vec::new(),
             withdrawals: Vec::new(),

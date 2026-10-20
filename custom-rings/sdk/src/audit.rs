@@ -7,7 +7,10 @@ use custom_ring_interface::{
 };
 use zeroize::Zeroizing;
 use zolana_client::{prover::indexed::IndexedPolicyData, ProofInputUtxo};
-use zolana_hasher::primitives::{is_canonical_bn254_scalar_be, SOLANA_OWNER_TAG};
+use zolana_hasher::{
+    hash_chain::create_hash_chain_from_slice,
+    primitives::{is_canonical_bn254_scalar_be, SOLANA_OWNER_TAG},
+};
 use zolana_keypair::{ViewingKey, X25519Pubkey};
 use zolana_ring_client::{AnonymousDisclosure, AuditorEncryption, AuditorMessage};
 use zolana_ring_policy::POLICY_OUTPUT_SLOTS;
@@ -16,8 +19,8 @@ use zolana_transaction::instructions::transact::SppProofInputs;
 use crate::{
     prover::RingCircuit,
     request::{
-        AnonymousBase, AnonymousFlag, AnonymousIdentities, AuditSecrets, BaseBody,
-        CustomRingOpening, PolicyBody, IDENTITY_LEN,
+        AnonymousBase, AnonymousDelivery, AnonymousFlag, AnonymousIdentities, AuditSecrets,
+        BaseBody, CustomRingOpening, PolicyBody, IDENTITY_LEN,
     },
     witness::{input_opening, output_opening, CustomRingWitness},
     RingError,
@@ -48,8 +51,13 @@ pub struct PendingCustomRingProof {
     message: AuditorMessage,
     salt: [u8; 16],
     outputs: Vec<ProofInputUtxo>,
-    /// The hidden sender and slot openings of an anonymous ring.
-    anonymous: Option<AnonymousDisclosure>,
+    anonymous: Option<AnonymousSeal>,
+}
+
+/// The hidden parties an anonymous ring discloses and the bodies it delivers.
+struct AnonymousSeal {
+    disclosure: AnonymousDisclosure,
+    delivery: AnonymousDelivery,
 }
 
 /// The policy body and, on the indexed route, what the prover resolves for it.
@@ -72,28 +80,39 @@ impl CustomRingProofParams {
         self.encrypt_with(None, Some(inputs))
     }
 
-    /// Seals the hidden sender and the slot openings under the capsule of the viewing key.
-    pub fn encrypt_anonymous(
+    /// Seals the hidden parties under the capsule of the viewing key, `delivery` carries the
+    /// published bodies the base statement chains.
+    pub(crate) fn encrypt_anonymous(
         self,
         disclosure: AnonymousDisclosure,
+        delivery: AnonymousDelivery,
     ) -> Result<EncryptedAudit, RingError> {
-        self.encrypt_with(Some(disclosure), None)
+        if disclosure.outputs.len() != delivery.outputs.len() {
+            return Err(RingError::AnonymousDisclosureShape);
+        }
+        self.encrypt_with(
+            Some(AnonymousSeal {
+                disclosure,
+                delivery,
+            }),
+            None,
+        )
     }
 
     fn encrypt_with(
         self,
-        anonymous: Option<AnonymousDisclosure>,
+        anonymous: Option<AnonymousSeal>,
         ordinary_inputs: Option<usize>,
     ) -> Result<EncryptedAudit, RingError> {
         let AuditorEncryption {
             ephemeral_sk,
             message,
         } = match (&anonymous, ordinary_inputs) {
-            (Some(disclosure), _) => AuditorEncryption::new_with_anonymous(
+            (Some(seal), _) => AuditorEncryption::new_with_anonymous(
                 &self.tx_viewing_key,
                 &self.auditor_pk,
                 self.salt,
-                disclosure,
+                &seal.disclosure,
             )?,
             (None, Some(inputs)) => AuditorEncryption::new_with_outputs_for_shape(
                 &self.tx_viewing_key,
@@ -154,27 +173,36 @@ impl PendingCustomRingProof {
     ) -> Result<BaseBody, RingError> {
         let audit = self.secrets(private_tx_hash)?;
         let output_hashes = self.output_hashes()?;
-        let public_input_hash = self.statement(&private_tx_hash, &output_hashes).hash()?;
-        let anonymous = match (self.anonymous.is_some(), slots) {
-            (false, None) => None,
-            (true, Some(slots)) => Some(self.anonymous_base(slots)?),
+        let output_body_hashes = self.output_body_hashes()?;
+        let anonymous = match (&self.anonymous, slots) {
+            (None, None) => None,
+            (Some(seal), Some(slots)) => Some(self.anonymous_base(slots, seal.delivery.clone())?),
             _ => return Err(RingError::AnonymousDisclosureShape),
         };
+        let circuit_type = if anonymous
+            .as_ref()
+            .is_some_and(|disclosure| disclosure.n_in > 4)
+        {
+            RingCircuit::BaseWideAnonymous
+        } else if anonymous.is_some() || self.outputs.len() != 2 {
+            RingCircuit::Base
+        } else if self.message.disclosure().len()
+            == 2 * custom_ring_interface::AUDIT_OUTPUT_FIELD_COUNT
+        {
+            RingCircuit::BaseCompactConfidential
+        } else {
+            RingCircuit::BaseConfidential
+        };
+        let statement = self.statement(&private_tx_hash, &output_hashes, &output_body_hashes);
+        // The confidential keys prove the audit elements without the body chain.
+        let public_input_hash = match circuit_type {
+            RingCircuit::BaseConfidential | RingCircuit::BaseCompactConfidential => {
+                create_hash_chain_from_slice(&statement.audit_elements()?)?
+            }
+            _ => statement.hash()?,
+        };
         Ok(BaseBody {
-            circuit_type: if anonymous
-                .as_ref()
-                .is_some_and(|disclosure| disclosure.n_in > 4)
-            {
-                RingCircuit::BaseWideAnonymous
-            } else if anonymous.is_some() || self.outputs.len() != 2 {
-                RingCircuit::Base
-            } else if self.message.disclosure().len()
-                == 2 * custom_ring_interface::AUDIT_OUTPUT_FIELD_COUNT
-            {
-                RingCircuit::BaseCompactConfidential
-            } else {
-                RingCircuit::BaseConfidential
-            },
+            circuit_type,
             public_input_hash,
             n_out: self.outputs.len() as u8,
             outputs: self.outputs,
@@ -183,9 +211,16 @@ impl PendingCustomRingProof {
         })
     }
 
-    fn anonymous_base(&self, slots: &SppProofInputs) -> Result<AnonymousBase, RingError> {
+    fn anonymous_base(
+        &self,
+        slots: &SppProofInputs,
+        delivery: AnonymousDelivery,
+    ) -> Result<AnonymousBase, RingError> {
         let (inputs, outputs) = (&slots.input_utxos, &slots.output_utxos);
-        if inputs.len() > AUDIT_INPUT_SLOTS || outputs.len() > POLICY_OUTPUT_SLOTS {
+        if inputs.len() > AUDIT_INPUT_SLOTS
+            || outputs.len() > POLICY_OUTPUT_SLOTS
+            || outputs.len() != delivery.outputs.len()
+        {
             return Err(RingError::AnonymousDisclosureShape);
         }
         let mut base = AnonymousBase {
@@ -203,6 +238,7 @@ impl PendingCustomRingProof {
             ],
             anonymous_outputs: Default::default(),
             private_tx_blinding: slots.private_tx_blinding()?,
+            delivery,
         };
         for (slot, input) in base.inputs.iter_mut().zip(inputs) {
             *slot = input_opening(input)?;
@@ -222,10 +258,11 @@ impl PendingCustomRingProof {
     ) -> Result<PolicyProof, RingError> {
         let audit = self.secrets(private_tx_hash)?;
         let output_hashes = self.output_hashes()?;
+        let output_body_hashes = self.output_body_hashes()?;
         let anonymous = self.identities(usize::from(witness.n_in))?;
         let tree_slots = witness.tree_slots();
         let statement = CustomRingPolicyPublicInput {
-            audit: self.statement(&private_tx_hash, &output_hashes),
+            audit: self.statement(&private_tx_hash, &output_hashes, &output_body_hashes),
             policy_hash,
             tree_slots: &tree_slots,
             address_tree_id: witness.address_tree_id,
@@ -253,6 +290,7 @@ impl PendingCustomRingProof {
                 audit,
                 anonymous,
                 witness,
+                delivery: self.anonymous.map(|seal| seal.delivery),
             },
             indexed,
         })
@@ -260,7 +298,7 @@ impl PendingCustomRingProof {
 
     /// The tagged hidden identities, checked against the slot counts the statement opens.
     fn identities(&self, n_in: usize) -> Result<Option<AnonymousIdentities>, RingError> {
-        let Some(disclosure) = &self.anonymous else {
+        let Some(AnonymousSeal { disclosure, .. }) = &self.anonymous else {
             return Ok(None);
         };
         if disclosure.inputs.len() != n_in || disclosure.outputs.len() != self.outputs.len() {
@@ -298,10 +336,19 @@ impl PendingCustomRingProof {
             .collect::<Result<_, _>>()?)
     }
 
+    /// Zero per slot outside an anonymous ring, as the program chains it.
+    fn output_body_hashes(&self) -> Result<Vec<[u8; 32]>, RingError> {
+        match &self.anonymous {
+            Some(seal) => seal.delivery.output_body_hashes(),
+            None => Ok(vec![[0; 32]; self.outputs.len()]),
+        }
+    }
+
     fn statement<'a>(
         &'a self,
         private_tx_hash: &'a [u8; 32],
         output_hashes: &'a [[u8; 32]],
+        output_body_hashes: &'a [[u8; 32]],
     ) -> CustomRingBasePublicInput<'a> {
         CustomRingBasePublicInput {
             private_tx_hash,
@@ -309,6 +356,7 @@ impl PendingCustomRingProof {
             auditor_pk: self.auditor_pk.as_bytes(),
             eph_pk: self.message.ephemeral_pubkey_bytes(),
             ciphertext: self.message.ciphertext(),
+            output_body_hashes,
             output_hashes,
             salt: &self.salt,
             disclosure: self.message.disclosure(),

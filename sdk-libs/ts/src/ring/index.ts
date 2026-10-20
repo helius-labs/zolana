@@ -241,6 +241,8 @@ export {
 export type {
   AuditedRingOutput,
   AuditedRingTransaction,
+  OutputPayloadError,
+  OutputPayloadErrorKind,
   RingAuditPage,
   RingAuditReader,
 } from "./audit.js";

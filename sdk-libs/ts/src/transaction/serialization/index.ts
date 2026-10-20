@@ -1,5 +1,7 @@
 export {
   EncryptedScheme,
+  RING_ANONYMOUS_BODY_LENGTH,
+  RING_ANONYMOUS_PLAINTEXT_LENGTH,
   anonymousRecipientFromUtxos,
   anonymousRecipientUtxo,
   anonymousSenderFromUtxos,
@@ -38,6 +40,7 @@ export {
   plaintextTransferUtxos,
   prooflessFromUtxos,
   prooflessUtxo,
+  ringAnonymousBodyHash,
   splitBundleFromUtxos,
   splitBundleUtxos,
   type AnonymousRecipientPlaintext,

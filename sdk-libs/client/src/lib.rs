@@ -24,6 +24,7 @@ pub mod error;
 pub mod indexer;
 pub mod program_data;
 pub mod prover;
+pub mod recovery;
 pub mod rpc;
 pub mod scan;
 pub mod tags;
@@ -61,6 +62,9 @@ pub use prover::{
 };
 #[cfg(feature = "reqwest")]
 pub use prover::{spawn_prover, ProverLaunch};
+pub use recovery::{
+    RingRecovery, RingRecoveryReport, RingRecoveryResult, DEFAULT_RECOVERY_PAGE_LIMIT,
+};
 #[cfg(feature = "solana-rpc")]
 pub use rpc::solana_rpc::{
     AsyncSolanaRpc, ConfirmedInstructionGroups, ProgramAccountsFilter, SolanaRpc,
@@ -83,7 +87,7 @@ pub use rpc::{
 };
 pub use rpc::{IndexerPollConfig, IndexerRpcConfig};
 pub use scan::{fetch_asset_id, fetch_asset_id_async, next_page, UtxoScan, UtxoScanResult};
-pub use tags::{TagStream, TagWindow, DEFAULT_TAG_WINDOW};
+pub use tags::{TagReservations, TagStream, TagWindow, DEFAULT_TAG_WINDOW};
 pub use zolana_api::BlockingInsideRuntime;
 // `SolanaRpc::send_transaction_with_config` is public but names this type,
 // so callers outside the crate need it to call the method at all.

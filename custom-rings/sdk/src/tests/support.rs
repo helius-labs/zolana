@@ -16,7 +16,10 @@ use zolana_interface::{
 };
 use zolana_keypair::{random_blinding, NullifierKey, ShieldedKeypair};
 use zolana_ring_policy::{ListNamespace, ListSet, Member, RuleTable};
-use zolana_transaction::{utxo::SppProofInputUtxo, Data, Mint, Utxo, WalletUtxo};
+use zolana_transaction::{
+    utxo::SppProofInputUtxo, Data, Mint, OutputContext, OutputSlot, ShieldedTransaction, Utxo,
+    WalletUtxo,
+};
 use zolana_tree::TreeAccount;
 
 use crate::{account::source_map, CustomRing, PoolTree};
@@ -244,6 +247,61 @@ impl AsyncRpc for Accounts {
             },
             output_tree_id: None,
             transactions: Vec::new(),
+            next_cursor: None,
+            scanned_through: None,
+        })
+    }
+}
+
+/// An indexer with one output under each occupied tag, every stream read is recorded.
+#[derive(Default)]
+pub(crate) struct OccupiedTags {
+    pub occupied: Vec<[u8; 32]>,
+    pub queries: Mutex<Vec<Vec<[u8; 32]>>>,
+}
+
+#[async_trait]
+impl AsyncRpc for OccupiedTags {
+    async fn get_shielded_transactions_by_tags(
+        &self,
+        tags: Vec<[u8; 32]>,
+        _cursor: Option<Vec<u8>>,
+        _limit: Option<u32>,
+        _config: Option<IndexerRpcConfig>,
+    ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
+        let slots = tags
+            .iter()
+            .filter(|tag| self.occupied.contains(tag))
+            .map(|tag| OutputSlot {
+                view_tag: *tag,
+                output_context: OutputContext {
+                    hash: [1; 32],
+                    tree_id: 0,
+                    leaf_index: 0,
+                },
+                payload: Vec::new(),
+            })
+            .collect();
+        self.queries.lock().unwrap().push(tags);
+        Ok(GetShieldedTransactionsByTagsResponse {
+            context: Context {
+                block_time: 0,
+                slot: 0,
+            },
+            output_tree_id: None,
+            transactions: vec![ShieldedTransaction {
+                slot: 0,
+                tx_signature: solana_signature::Signature::default(),
+                event_index: None,
+                tx_viewing_pk: None,
+                salt: None,
+                output_slots: slots,
+                messages: Vec::new(),
+                nullifiers: Vec::new(),
+                proofless: false,
+                ring_config: None,
+                ring_program_id: None,
+            }],
             next_cursor: None,
             scanned_through: None,
         })

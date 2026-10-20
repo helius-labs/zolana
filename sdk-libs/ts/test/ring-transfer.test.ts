@@ -1096,7 +1096,7 @@ describe("ring audit", () => {
     );
     expect(audited.outputs.every((output) => output.ringProgramId === RING)).toBe(true);
     // Three real outputs fill the 1x4 shape; its padding slot carries random bytes.
-    expect(audited.undecryptableSlots).toEqual([3]);
+    expect(audited.payloadErrors).toEqual([{ slotIndex: 3, kind: "unreadable" }]);
   });
 
   it("accepts the auditor message only as the unique last entry", async () => {

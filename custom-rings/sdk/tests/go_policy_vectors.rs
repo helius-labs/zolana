@@ -134,7 +134,7 @@ fn the_inline_asset_member_is_the_utxo_asset_field() {
     assert_eq!(member.as_bytes(), &ASSET_MEMBERS[0]);
 }
 
-/// Twenty-one elements, the audit prefix then the policy tail the Go circuit appends.
+/// Twenty-two elements, the base statement then the policy tail the Go circuit appends.
 #[test]
 fn the_public_input_chain_extends_the_audit_chain() {
     let audit = CustomRingBasePublicInput {
@@ -143,6 +143,7 @@ fn the_public_input_chain_extends_the_audit_chain() {
         auditor_pk: &[3u8; 33],
         eph_pk: &[4u8; 33],
         ciphertext: &[5u8; 32],
+        output_body_hashes: &[[0u8; 32]; 4],
         output_hashes: &[[0u8; 32]; 4],
         salt: &[0u8; 16],
         disclosure: &[[0u8; 32]; custom_ring_interface::AUDIT_DISCLOSURE_FIELD_COUNT],
@@ -176,16 +177,16 @@ fn the_public_input_chain_extends_the_audit_chain() {
         [11u8; 32],
         [12u8; 32],
     ]);
-    assert_eq!(expected.len(), 21);
+    assert_eq!(expected.len(), 22);
     let chain = zolana_hasher::hash_chain::create_hash_chain_from_slice(&expected).expect("chain");
     assert_eq!(policy.hash().expect("policy input"), chain);
     let indexed = policy.indexed_inputs().expect("indexed inputs");
     assert_eq!(indexed.len(), 8);
     assert_eq!(
         indexed[0],
-        zolana_hasher::hash_chain::create_hash_chain_from_slice(&expected[..13]).expect("fold")
+        zolana_hasher::hash_chain::create_hash_chain_from_slice(&expected[..14]).expect("fold")
     );
-    assert_eq!(&indexed[1..], &expected[14..]);
+    assert_eq!(&indexed[1..], &expected[15..]);
 }
 
 /// The program reads the policy config out of the prefix, so the builder must

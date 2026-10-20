@@ -38,7 +38,7 @@ import {
 import { addressBytes, encodeBase58 } from "../interface/internal.js";
 import { UTXO_DOMAIN } from "../interface/program.js";
 import { treeIdField } from "../interface/tree-slot.js";
-import type { Data } from "../transaction/data.js";
+import { Data } from "../transaction/data.js";
 import type {
   IndexedShieldedTransaction,
   OutputContext,
@@ -46,10 +46,12 @@ import type {
 } from "../transaction/instructions/transact.js";
 import {
   EncryptedScheme,
+  RING_ANONYMOUS_PLAINTEXT_LENGTH,
   decodeRingAnonymous,
   decryptConfidentialAsSender,
   readOutputData,
   type ConfidentialOutputPlaintext,
+  type RingAnonymousOutputPlaintext,
 } from "../transaction/serialization/codecs.js";
 import type { AssetRegistry } from "../transaction/asset.js";
 
@@ -87,6 +89,26 @@ export interface AuditedRingOutput {
   readonly ringProgramId?: Address;
 }
 
+/**
+ * Why a slot's recipient payload yields no `AuditedRingOutput`, Rust `OutputPayloadErrorKind`.
+ * `unreadable` is a ciphertext this audit cannot open, `openingMismatch` a plaintext that
+ * disagrees with the proven opening, `unknownAsset` a proven asset the registry lacks and
+ * `pairHint` a pair hint outside the canonical X25519 encoding beside a stored output.
+ */
+export type OutputPayloadErrorKind = "unreadable" | "openingMismatch" | "unknownAsset" | "pairHint";
+
+export const OUTPUT_PAYLOAD_ERROR_KINDS: readonly OutputPayloadErrorKind[] = Object.freeze([
+  "unreadable",
+  "openingMismatch",
+  "unknownAsset",
+  "pairHint",
+]);
+
+export interface OutputPayloadError {
+  readonly slotIndex: number;
+  readonly kind: OutputPayloadErrorKind;
+}
+
 /** Verified disclosure survives missing or invalid recipient delivery metadata. */
 export interface AuditedRingTransaction {
   readonly signature: Signature;
@@ -100,7 +122,8 @@ export interface AuditedRingTransaction {
   readonly outputContexts: readonly OutputContext[];
   /** Present exactly for a transaction audited as `"anonymous"`. */
   readonly anonymous?: DecryptedAnonymousRingTrace;
-  readonly undecryptableSlots: readonly number[];
+  /** Slot order, a padding slot of an anonymous ring is not an error. */
+  readonly payloadErrors: readonly OutputPayloadError[];
 }
 
 export interface RingAuditPage {
@@ -216,18 +239,15 @@ export function auditRingTransaction(
     const txSecret = txKey.secretBytes();
     let outputOpenings: readonly AuditOutputOpening[];
     let disclosure: AnonymousAuditDisclosure | undefined;
+    let bodies: readonly (AnonymousBody | undefined)[] = [];
     try {
       if (anonymous) {
         disclosure = openAnonymousDisclosure(txSecret, salt, message.disclosure, shape);
         const opened = disclosure;
-        outputOpenings = transaction.outputSlots.map((slot, slotIndex) =>
-          anonymousOutputOpening(
-            opened.outputs[slotIndex],
-            slot,
-            transaction.ringProgramId,
-            slotIndex,
-          ),
+        bodies = transaction.outputSlots.map((slot, slotIndex) =>
+          openAnonymousBody(txKey, salt, opened.outputs[slotIndex], slot, transaction, slotIndex),
         );
+        outputOpenings = bodies.map((body) => body?.opening ?? ZERO_OPENING);
       } else {
         outputOpenings = openAuditOutputDisclosure(txSecret, salt, message.disclosure).slice(
           0,
@@ -237,35 +257,29 @@ export function auditRingTransaction(
     } finally {
       txSecret.fill(0);
     }
-    const trace = disclosure === undefined ? undefined : anonymousTrace(disclosure);
-    const undecryptableSlots: number[] = [];
+    const trace = disclosure === undefined ? undefined : anonymousTrace(disclosure, bodies);
+    const payloadErrors: OutputPayloadError[] = [];
     transaction.outputSlots.forEach((slot, slotIndex) => {
       const opening = outputOpenings[slotIndex];
-      const anonymousOutput = disclosure?.outputs[slotIndex];
-      // A dummy slot of an anonymous ring carries no blinding to reconstruct.
-      const dummy = anonymousOutput !== undefined && isDummyAnonymousOutput(anonymousOutput);
-      if (
-        opening === undefined ||
-        (!dummy && !equal(auditOpeningHash(opening), slot.outputContext.hash))
-      ) {
+      if (opening === undefined) {
+        throw new RingError("RING_AUDIT_OUTPUT_MISMATCH", {
+          details: { reason: "count", slotIndex },
+        });
+      }
+      // A padding slot of an anonymous ring opens to zero and commits to nothing the auditor rebuilds.
+      if (anonymous && bodies[slotIndex] === undefined) return;
+      if (!equal(auditOpeningHash(opening), slot.outputContext.hash)) {
         throw new RingError("RING_AUDIT_OUTPUT_MISMATCH", {
           details: { reason: "commitment", slotIndex },
         });
       }
-      const output = auditOutput(
-        txKey,
-        slot,
-        salt,
-        slotIndex,
-        input.assets,
-        opening,
-        anonymousOutput,
-      );
-      if (output !== undefined) {
-        outputs.push(output);
-        return;
-      }
-      undecryptableSlots.push(slotIndex);
+      const body = bodies[slotIndex];
+      const output =
+        body === undefined
+          ? auditOutput(txKey, slot, salt, slotIndex, input.assets, opening)
+          : anonymousAuditOutput(body, slot, slotIndex);
+      for (const kind of output.errors) payloadErrors.push({ slotIndex, kind });
+      if (output.output !== undefined) outputs.push(output.output);
     });
     return Object.freeze({
       signature: transaction.txSignature,
@@ -275,7 +289,7 @@ export function auditRingTransaction(
       outputOpenings: Object.freeze(outputOpenings),
       outputContexts: Object.freeze(transaction.outputSlots.map((slot) => slot.outputContext)),
       ...(trace === undefined ? {} : { anonymous: trace }),
-      undecryptableSlots: Object.freeze(undecryptableSlots),
+      payloadErrors: Object.freeze(payloadErrors),
     });
   } finally {
     txKey.destroy();
@@ -387,10 +401,12 @@ export async function auditRing(
   });
 }
 
-/**
- * `undefined` for a slot this audit cannot open, Rust `OutputAudit::run`. An
- * anonymous slot omits the recipient key, the proved disclosure supplies it.
- */
+/** A slot's recipient view, or the reasons it has none, Rust `OutputAudit::run`. */
+interface AuditedOutput {
+  readonly output?: AuditedRingOutput;
+  readonly errors: readonly OutputPayloadErrorKind[];
+}
+
 function auditOutput(
   txKey: ViewingKey,
   slot: OutputSlot,
@@ -398,61 +414,79 @@ function auditOutput(
   slotIndex: number,
   assets: AssetRegistry,
   opening: AuditOutputOpening,
-  anonymousOutput: AnonymousOutputOpening | undefined,
-): AuditedRingOutput | undefined {
+): AuditedOutput {
   let plaintext: ConfidentialOutputPlaintext;
   let recipient: X25519PublicKey;
-  let ownerTag: Bytes32;
   try {
     const frame = readOutputData(slot.payload);
-    if (frame.encoding !== "encrypted") return undefined;
-    if (frame.scheme === EncryptedScheme.ringAnonymous) {
-      if (anonymousOutput === undefined || isDummyAnonymousOutput(anonymousOutput))
-        return undefined;
-      recipient = X25519PublicKey.fromBytes(anonymousOutput.viewingPublicKey);
-      plaintext = decodeRingAnonymous(
-        txKey.decryptSlotEphemeral(recipient, frame.body, salt, slotIndex),
-      ).output;
-      ownerTag = anonymousOutput.identityKey;
-    } else if (
-      frame.scheme === EncryptedScheme.confidential ||
-      frame.scheme === EncryptedScheme.ringConfidential
-    ) {
-      recipient = X25519PublicKey.fromBytes(frame.body.slice(0, 33) as Bytes33);
-      plaintext = decryptConfidentialAsSender(txKey, frame.body, salt, slotIndex);
-      ownerTag = slot.viewTag;
-    } else {
-      return undefined;
-    }
+    if (
+      frame.encoding !== "encrypted" ||
+      (frame.scheme !== EncryptedScheme.confidential &&
+        frame.scheme !== EncryptedScheme.ringConfidential)
+    )
+      return { errors: ["unreadable"] };
+    recipient = X25519PublicKey.fromBytes(frame.body.slice(0, 33) as Bytes33);
+    plaintext = decryptConfidentialAsSender(txKey, frame.body, salt, slotIndex);
   } catch {
-    return undefined;
+    return { errors: ["unreadable"] };
   }
   // The proved asset selects the mint. An unproved asset id cannot make the audit fail.
   const asset = assets.addressForField(opening.asset);
-  if (asset === undefined || assets.assetId(asset) !== plaintext.assetId) return undefined;
+  if (asset === undefined) return { errors: ["unknownAsset"] };
   const ringProgramId =
     plaintext.ringProgramId === undefined
       ? ZERO_32
       : (hashBytes(addressBytes(plaintext.ringProgramId, "ringProgramId")) as Bytes32);
   if (
-    !equal(hashBytes(addressBytes(asset, "asset")), opening.asset) ||
+    assets.assetId(asset) !== plaintext.assetId ||
     !equal(rightAlign(bigIntToBytes(plaintext.amount, 8)), opening.amount) ||
     !equal(plaintext.blinding, opening.blinding) ||
     !equal(ringProgramId, opening.ringProgramId)
   ) {
-    return undefined;
+    return { errors: ["openingMismatch"] };
   }
-  return Object.freeze({
-    slotIndex,
-    outputContext: slot.outputContext,
-    recipientViewingPublicKey: recipient,
-    ownerTag,
-    asset,
-    amount: plaintext.amount,
-    blinding: plaintext.blinding,
-    data: plaintext.data,
-    ...(plaintext.ringProgramId === undefined ? {} : { ringProgramId: plaintext.ringProgramId }),
-  });
+  return {
+    output: Object.freeze({
+      slotIndex,
+      outputContext: slot.outputContext,
+      recipientViewingPublicKey: recipient,
+      ownerTag: slot.viewTag,
+      asset,
+      amount: plaintext.amount,
+      blinding: plaintext.blinding,
+      data: plaintext.data,
+      ...(plaintext.ringProgramId === undefined ? {} : { ringProgramId: plaintext.ringProgramId }),
+    }),
+    errors: [],
+  };
+}
+
+/** The note the proven body opens to, its asset is the raw address and needs no registry. */
+function anonymousAuditOutput(
+  body: AnonymousBody,
+  slot: OutputSlot,
+  slotIndex: number,
+): AuditedOutput {
+  const errors: OutputPayloadErrorKind[] = [];
+  try {
+    X25519PublicKey.fromBytes(concatBytes(Uint8Array.of(4), body.note.pairU));
+  } catch {
+    errors.push("pairHint");
+  }
+  return {
+    output: Object.freeze({
+      slotIndex,
+      outputContext: slot.outputContext,
+      recipientViewingPublicKey: body.recipient,
+      ownerTag: body.identityKey,
+      asset: body.note.assetAddress,
+      amount: body.note.amount,
+      blinding: body.note.blinding,
+      data: new Data(),
+      ringProgramId: body.ringProgramId,
+    }),
+    errors,
+  };
 }
 
 function openAnonymousDisclosure(
@@ -480,46 +514,84 @@ const ZERO_OPENING: AuditOutputOpening = Object.freeze({
   ringProgramId: ZERO_32,
 });
 
+/** A real anonymous output as the auditor reads it, the disclosed address and the opened body. */
+interface AnonymousBody {
+  readonly opening: AuditOutputOpening;
+  readonly note: RingAnonymousOutputPlaintext;
+  readonly recipient: X25519PublicKey;
+  readonly identityKey: Bytes32;
+  readonly ringProgramId: Address;
+}
+
 /**
- * Rebuilds a real output's proof opening from its disclosed identity and ring
- * flag, Rust `anonymous_output_opening`. The tree id is not disclosed, so the
- * indexed context must carry it.
+ * Opens the proven scheme-9 body under the recipient stream the transaction key
+ * and the disclosed viewing key derive, Rust `anonymous_output_opening`. The
+ * proof binds the body to the committed note, so a body that does not open is a
+ * mismatch, not a payload error. `undefined` for a padding slot.
  */
-function anonymousOutputOpening(
+function openAnonymousBody(
+  txKey: ViewingKey,
+  salt: Bytes16,
   output: AnonymousOutputOpening | undefined,
   slot: OutputSlot,
-  ring: Address | undefined,
+  transaction: IndexedShieldedTransaction,
   slotIndex: number,
-): AuditOutputOpening {
+): AnonymousBody | undefined {
   const mismatch = (reason: string): RingError =>
     new RingError("RING_AUDIT_OUTPUT_MISMATCH", { details: { reason, slotIndex } });
   if (output === undefined) throw mismatch("count");
-  if (isDummyAnonymousOutput(output)) return ZERO_OPENING;
+  if (isDummyAnonymousOutput(output)) return undefined;
   const treeId = slot.outputContext.treeId;
   if (treeId === undefined) throw mismatch("treeId");
-  let ringProgramId: Bytes32 = ZERO_32;
-  if (output.ringNote) {
-    if (ring === undefined) throw mismatch("ring");
-    ringProgramId = hashBytes(addressBytes(ring, "ringProgramId")) as Bytes32;
+  const ring = transaction.ringProgramId;
+  if (ring === undefined) throw mismatch("ring");
+  let recipient: X25519PublicKey;
+  let note: RingAnonymousOutputPlaintext;
+  try {
+    const frame = readOutputData(slot.payload);
+    if (
+      frame.encoding !== "encrypted" ||
+      frame.scheme !== EncryptedScheme.ringAnonymous ||
+      frame.body.length !== RING_ANONYMOUS_PLAINTEXT_LENGTH
+    )
+      throw mismatch("body");
+    recipient = X25519PublicKey.fromBytes(output.viewingPublicKey);
+    note = decodeRingAnonymous(txKey.sealAnonymousOutput(recipient, frame.body, salt, slotIndex));
+  } catch (cause) {
+    if (cause instanceof RingError) throw cause;
+    throw new RingError("RING_AUDIT_OUTPUT_MISMATCH", {
+      details: { reason: "body", slotIndex },
+      cause,
+    });
   }
   const identity = hashBytes(concatBytes(Uint8Array.of(output.identityTag), output.identityKey));
-  return Object.freeze({
-    domain: rightAlign(Uint8Array.of(UTXO_DOMAIN)),
-    treeId: treeIdField(treeId),
-    ownerHash: ownerHash(identity, output.nullifierPublicKey) as Bytes32,
-    asset: output.asset,
-    amount: rightAlign(bigIntToBytes(output.amount, 8)),
-    blinding: output.blinding,
-    dataHash: output.dataHash,
-    ringDataHash: output.ringDataHash,
-    ringProgramId,
-  });
+  return {
+    opening: Object.freeze({
+      domain: rightAlign(Uint8Array.of(UTXO_DOMAIN)),
+      treeId: treeIdField(treeId),
+      ownerHash: ownerHash(identity, output.nullifierPublicKey) as Bytes32,
+      asset: hashBytes(addressBytes(note.assetAddress, "assetAddress")) as Bytes32,
+      amount: rightAlign(bigIntToBytes(note.amount, 8)),
+      blinding: note.blinding,
+      dataHash: ZERO_32,
+      ringDataHash: ZERO_32,
+      ringProgramId: hashBytes(addressBytes(ring, "ringProgramId")) as Bytes32,
+    }),
+    note,
+    recipient,
+    identityKey: output.identityKey,
+    ringProgramId: ring,
+  };
 }
 
 /** The reader-facing trace, the same shape `RingRpc.getDecryptedTransactions` returns. */
-function anonymousTrace(disclosure: AnonymousAuditDisclosure): DecryptedAnonymousRingTrace {
+function anonymousTrace(
+  disclosure: AnonymousAuditDisclosure,
+  bodies: readonly (AnonymousBody | undefined)[],
+): DecryptedAnonymousRingTrace {
   const recipients = disclosure.outputs.flatMap((output, slotIndex) => {
-    if (isDummyAnonymousOutput(output)) return [];
+    const body = bodies[slotIndex];
+    if (body === undefined) return [];
     const { identityTag } = output;
     if (identityTag !== SOLANA_OWNER_TAG) {
       throw new RingError("RING_AUDIT_OUTPUT_MISMATCH", {
@@ -532,8 +604,8 @@ function anonymousTrace(disclosure: AnonymousAuditDisclosure): DecryptedAnonymou
         identityTag,
         identityKey: output.identityKey,
         nullifierPk: output.nullifierPublicKey,
-        amount: output.amount,
-        asset: output.asset,
+        amount: body.note.amount,
+        asset: body.opening.asset,
       }),
     ];
   });

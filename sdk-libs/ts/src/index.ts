@@ -114,6 +114,7 @@ export {
   type AnonymousRingReport,
   type AnonymousRingState,
   type AnonymousStream,
+  type PendingAnonymousNote,
   type SyncClient,
   type SyncPersistedWalletResult,
   type SyncWalletConfig,

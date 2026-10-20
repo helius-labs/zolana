@@ -7,6 +7,7 @@ import (
 	"crypto/ecdh"
 	"encoding/binary"
 	"math/big"
+	"slices"
 	"testing"
 
 	"github.com/consensys/gnark-crypto/ecc"
@@ -99,6 +100,10 @@ func (k Keys) TxSk() [32]byte {
 	return k.txSk
 }
 
+func (k Keys) TxPk() [33]byte {
+	return k.txPk
+}
+
 func (k Keys) EphSk() [32]byte {
 	return k.ephSk
 }
@@ -118,10 +123,23 @@ type Sealed struct {
 // Mirrors base.Envelope.Seal.
 func (k Keys) Seal(t testing.TB, plaintext []byte, info string) Sealed {
 	t.Helper()
+	ephLo, ephHi := pack33(k.ephPk)
+	auditorLo, auditorHi := pack33(Tagged(k.auditorPk[:]))
+	return Sealed{
+		AuditorLo:      auditorLo,
+		AuditorHi:      auditorHi,
+		EphLo:          ephLo,
+		EphHi:          ephHi,
+		CiphertextHash: HashBytes(t, k.EnvelopeCiphertext(t, plaintext, info)),
+	}
+}
+
+// EnvelopeCiphertext is the auditor envelope of plaintext under the ephemeral key.
+func (k Keys) EnvelopeCiphertext(t testing.TB, plaintext []byte, info string) []byte {
+	t.Helper()
 	dhLo, dhHi := pack32(k.dh)
 	ephLo, ephHi := pack33(k.ephPk)
 	auditorLo, auditorHi := pack33(Tagged(k.auditorPk[:]))
-
 	sharedSecret := spptest.MustPoseidon(t, 8, []*big.Int{
 		tag(base.DomSepCRShared),
 		dhLo, dhHi,
@@ -129,14 +147,7 @@ func (k Keys) Seal(t testing.TB, plaintext []byte, info string) Sealed {
 		auditorLo, auditorHi,
 	})
 	key, nonce := keySchedule(t, sharedSecret, info)
-	ciphertext, err := protocol.HashBytes(ctrEncrypt(t, key, nonce, plaintext))
-	return Sealed{
-		AuditorLo:      auditorLo,
-		AuditorHi:      auditorHi,
-		EphLo:          ephLo,
-		EphHi:          ephHi,
-		CiphertextHash: spptest.MustHash(t, ciphertext, err),
-	}
+	return ctrEncrypt(t, key, nonce, plaintext)
 }
 
 // Statement is the audit witness with the slots it discloses.
@@ -150,6 +161,16 @@ type Statement struct {
 	ShortOrdinary     bool
 	Notes             [base.AuditOutputSlots]base.AuditUtxoWires
 	PrivateTxBlinding *big.Int
+	// The base circuits also prove delivery of every ring output body.
+	RingProgramID [32]byte
+	Deliveries    [base.AuditOutputSlots]Delivery
+}
+
+// Delivery is the published body of one output slot and the plaintext parts its note does not commit.
+type Delivery struct {
+	AssetAddress [32]byte
+	PairU        [32]byte
+	Ciphertext   [base.AnonymousOutputPlaintextLen]byte
 }
 
 // Statement discloses one zero output.
@@ -190,19 +211,23 @@ func (k Keys) AnonymousStatement(t testing.TB) Statement {
 	setBytes(s.Audit.Recipients[0][:], recipient[:])
 	viewing := Tagged(XPrivateKey(t, Scalar(0x55)).PublicKey().Bytes())
 	setBytes(s.Audit.RecipientViewingKeys[0][:], viewing[:])
+	s.RingProgramID = Repeat(0x90)
+	ring := HashBytes(t, s.RingProgramID[:])
+	asset := Repeat(0x0a)
 	s.Inputs[0] = base.AuditUtxoWires{
 		Domain: big.NewInt(protocol.UtxoDomain), TreeID: big.NewInt(3),
 		OwnerPkHash: senderHash, NullifierPk: spptest.MustNullifierPk(t, big.NewInt(7)),
-		Asset: big.NewInt(10), Amount: big.NewInt(100), Blinding: big.NewInt(51),
-		DataHash: big.NewInt(0), RingDataHash: big.NewInt(77), RingProgramID: big.NewInt(90),
+		Asset: HashBytes(t, asset[:]), Amount: big.NewInt(100), Blinding: big.NewInt(51),
+		DataHash: big.NewInt(0), RingDataHash: big.NewInt(77), RingProgramID: ring,
 	}
 	s.Notes[0] = base.AuditUtxoWires{
 		Domain: big.NewInt(protocol.UtxoDomain), TreeID: big.NewInt(9),
 		OwnerPkHash: recipientHash, NullifierPk: spptest.MustNullifierPk(t, big.NewInt(20)),
-		Asset: big.NewInt(10), Amount: big.NewInt(100), Blinding: big.NewInt(61),
-		DataHash: big.NewInt(0), RingDataHash: big.NewInt(78), RingProgramID: big.NewInt(90),
+		Asset: HashBytes(t, asset[:]), Amount: big.NewInt(100), Blinding: big.NewInt(61),
+		DataHash: big.NewInt(0), RingDataHash: big.NewInt(0), RingProgramID: ring,
 	}
-	s.Rebind(t)
+	s.Deliveries[0] = Delivery{AssetAddress: asset, PairU: Repeat(0xc5)}
+	k.Deliver(t, &s)
 	return s
 }
 
@@ -223,17 +248,117 @@ func (s *Statement) Rebind(t testing.TB) {
 	s.Audit.PrivateTxHash = spptest.MustPrivateTxHash(t, inputs, outputs, nil, s.PrivateTxBlinding)
 }
 
+// Deliver encrypts every real ring output to its disclosed viewing key, then rebinds private_tx_hash.
+func (k Keys) Deliver(t testing.TB, s *Statement) {
+	t.Helper()
+	for i := range s.Count {
+		if isRingNote(s.Notes[i]) {
+			s.Deliveries[i].Ciphertext = k.SealOutput(t, *s, i, i, OutputPlaintext(*s, i))
+		}
+	}
+	s.Rebind(t)
+}
+
+// OutputPlaintext is asset_address || amount || blinding || pair_u of slot i, the body before encryption.
+func OutputPlaintext(s Statement, i int) [base.AnonymousOutputPlaintextLen]byte {
+	var out [base.AnonymousOutputPlaintextLen]byte
+	delivery, note := s.Deliveries[i], s.Notes[i]
+	copy(out[:32], delivery.AssetAddress[:])
+	binary.BigEndian.PutUint64(out[32:40], spptest.AsBigInt(note.Amount).Uint64())
+	spptest.AsBigInt(note.Blinding).FillBytes(out[40:72])
+	copy(out[72:], delivery.PairU[:])
+	return out
+}
+
+// RecipientStream mirrors base.Delivery.Define, the stream of a slot keyed to one recipient viewing key.
+type RecipientStream struct {
+	Dh     [32]byte
+	Secret *big.Int
+	Key    [32]byte
+	Nonce  [12]byte
+}
+
+func (k Keys) RecipientStream(t testing.TB, viewing [33]byte, salt [16]byte, slot int) RecipientStream {
+	t.Helper()
+	peer, err := ecdh.X25519().NewPublicKey(viewing[1:])
+	if err != nil {
+		t.Fatal(err)
+	}
+	dh, err := XPrivateKey(t, k.txSk).ECDH(peer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream := RecipientStream{Dh: [32]byte(dh)}
+	dhLo, dhHi := pack32(stream.Dh)
+	txLo, txHi := pack33(k.txPk)
+	viewingLo, viewingHi := pack33(viewing)
+	stream.Secret = spptest.MustPoseidon(t, 10, []*big.Int{
+		new(big.Int).SetUint64(base.RecipientKeyDomain), dhLo, dhHi, txLo, txHi, viewingLo, viewingHi,
+		new(big.Int).SetBytes(salt[:]), big.NewInt(int64(slot)),
+	})
+	stream.Key, stream.Nonce = keySchedule(t, stream.Secret, auditEncInfo)
+	return stream
+}
+
+// SealOutput encrypts plaintext to the viewing key of slot recipient under the stream index of slot keyed.
+func (k Keys) SealOutput(t testing.TB, s Statement, recipient, keyed int, plaintext [base.AnonymousOutputPlaintextLen]byte) [base.AnonymousOutputPlaintextLen]byte {
+	t.Helper()
+	stream := k.RecipientStream(t, [33]byte(bytesOf(s.Audit.RecipientViewingKeys[recipient][:])), s.Salt(), keyed)
+	return [base.AnonymousOutputPlaintextLen]byte(ctrEncrypt(t, stream.Key, stream.Nonce, plaintext[:]))
+}
+
+// Salt is the 16 witnessed salt bytes.
+func (s Statement) Salt() [16]byte {
+	return [16]byte(bytesOf(s.Audit.Salt[:]))
+}
+
+// Body is the published scheme-9 payload, the scheme byte then the ciphertext.
+func Body(ciphertext [base.AnonymousOutputPlaintextLen]byte) [base.AnonymousOutputBodyLen]byte {
+	var body [base.AnonymousOutputBodyLen]byte
+	body[0] = base.AnonymousOutputScheme
+	copy(body[1:], ciphertext[:])
+	return body
+}
+
+// BodyHashes is one HashBytes per published slot, zero for a scheme-3 exit and outside an anonymous ring.
+func BodyHashes(t testing.TB, s Statement) []*big.Int {
+	t.Helper()
+	hashes := make([]*big.Int, s.Count)
+	anonymous := spptest.AsBigInt(s.Audit.Anonymous).Sign() != 0
+	for i := range hashes {
+		hashes[i] = big.NewInt(0)
+		if anonymous && !isExit(s.Notes[i]) {
+			body := Body(s.Deliveries[i].Ciphertext)
+			hashes[i] = HashBytes(t, body[:])
+		}
+	}
+	return hashes
+}
+
+// DeliveryWires is the base circuit witness of the published bodies.
+func (s Statement) DeliveryWires() base.Delivery {
+	var d base.Delivery
+	setBytes(d.RingProgramID[:], s.RingProgramID[:])
+	for i, delivery := range s.Deliveries {
+		setBytes(d.Outputs[i].AssetAddress[:], delivery.AssetAddress[:])
+		setBytes(d.Outputs[i].PairU[:], delivery.PairU[:])
+		setBytes(d.Outputs[i].Ciphertext[:], delivery.Ciphertext[:])
+	}
+	return d
+}
+
 // Circuit is the base assignment that proves the statement.
 func (k Keys) Circuit(t testing.TB, s Statement) *base.CustomRingBaseCircuit {
 	t.Helper()
 	c := &base.CustomRingBaseCircuit{
-		PublicInputHash:   spptest.MustHashChain(t, k.ChainElementsFor(t, s)),
+		PublicInputHash:   spptest.MustHashChain(t, k.BaseChainElementsFor(t, s)),
 		Audit:             s.Audit,
 		NOut:              s.Count,
 		Outputs:           s.Outputs,
 		NIn:               s.NIn,
 		AnonymousOutputs:  s.Notes,
 		PrivateTxBlinding: s.PrivateTxBlinding,
+		Delivery:          s.DeliveryWires(),
 	}
 	copy(c.Inputs[:], s.Inputs)
 	return c
@@ -241,9 +366,16 @@ func (k Keys) Circuit(t testing.TB, s Statement) *base.CustomRingBaseCircuit {
 
 // ChainElements returns the base chain of a one-slot zero-output statement.
 func (k Keys) ChainElements(t testing.TB, privateTxHash *big.Int) []*big.Int {
-	return k.ChainElementsFor(t, k.Statement(privateTxHash))
+	return k.BaseChainElementsFor(t, k.Statement(privateTxHash))
 }
 
+// BaseChainElementsFor inserts the output body chain into the audit chain, as defineBase does.
+func (k Keys) BaseChainElementsFor(t testing.TB, s Statement) []*big.Int {
+	t.Helper()
+	return slices.Insert(k.ChainElementsFor(t, s), base.BodyChainIndex, spptest.MustHashChain4(t, BodyHashes(t, s)))
+}
+
+// ChainElementsFor returns the audit chain the policy circuits extend.
 func (k Keys) ChainElementsFor(t testing.TB, s Statement) []*big.Int {
 	t.Helper()
 	txLo, txHi := pack33(k.txPk)
@@ -297,7 +429,7 @@ func (k Keys) ChainElementsFor(t testing.TB, s Statement) []*big.Int {
 const (
 	HeaderBytes = 62
 	InputBytes  = 93
-	OutputBytes = 248
+	OutputBytes = 124
 )
 
 // AnonymousPlaintext mirrors the anonymous slot layout of package base, a dummy slot is all zero.
@@ -318,18 +450,9 @@ func AnonymousPlaintext(s Statement) []byte {
 	for i, output := range s.Notes[:s.Count] {
 		slot := make([]byte, OutputBytes)
 		if isUtxo(output) {
-			v := spptest.AsBigInt
 			copy(slot, bytesOf(s.Audit.Recipients[i][:]))
-			copy(slot[33:], bytesOf(s.Audit.RecipientViewingKeys[i][:]))
-			v(output.NullifierPk).FillBytes(slot[66:98])
-			binary.BigEndian.PutUint64(slot[98:], v(output.Amount).Uint64())
-			v(output.Asset).FillBytes(slot[106:138])
-			v(output.Blinding).FillBytes(slot[138:170])
-			v(output.DataHash).FillBytes(slot[170:202])
-			v(output.RingDataHash).FillBytes(slot[202:234])
-			if v(output.RingProgramID).Sign() != 0 {
-				slot[234] = 1
-			}
+			spptest.AsBigInt(output.NullifierPk).FillBytes(slot[33:65])
+			copy(slot[65:], bytesOf(s.Audit.RecipientViewingKeys[i][:]))
 		}
 		out = append(out, slot...)
 	}
@@ -374,6 +497,31 @@ func Identity(t testing.TB, seed byte) ([base.IdentityLen]byte, *big.Int) {
 
 func isUtxo(w base.AuditUtxoWires) bool {
 	return spptest.AsBigInt(w.Domain).Int64() == protocol.UtxoDomain
+}
+
+func isRingNote(w base.AuditUtxoWires) bool {
+	return isUtxo(w) && spptest.AsBigInt(w.RingProgramID).Sign() != 0
+}
+
+// isExit is a note leaving the ring, published as a scheme-3 output without a body.
+func isExit(w base.AuditUtxoWires) bool {
+	return isUtxo(w) && spptest.AsBigInt(w.RingProgramID).Sign() == 0
+}
+
+// HashBytes is protocol.HashBytes with the test failing on a hashing error.
+func HashBytes(t testing.TB, bytes []byte) *big.Int {
+	t.Helper()
+	hash, err := protocol.HashBytes(bytes)
+	return spptest.MustHash(t, hash, err)
+}
+
+// Repeat is 32 copies of one byte.
+func Repeat(value byte) [32]byte {
+	var out [32]byte
+	for i := range out {
+		out[i] = value
+	}
+	return out
 }
 
 func zeroUtxo() base.AuditUtxoWires {

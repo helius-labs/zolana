@@ -3,6 +3,7 @@ import { mergePaddedInputCount } from "../../interface/constants.js";
 import type { Address, Bytes16, Bytes32, Bytes33, RequestContext } from "../../interface/types.js";
 import { type ShieldedPublicKey } from "../../keypair/public-key.js";
 import { X25519PublicKey, isSmallOrder } from "../../keypair/x25519.js";
+import { concatBytes } from "../../keypair/bytes.js";
 import type { ShieldedAddress, ShieldedKeypair } from "../../keypair/shielded.js";
 import type { ViewingKey } from "../../keypair/viewing-key.js";
 
@@ -24,6 +25,7 @@ import {
   decodeRingAnonymous,
   decodeSplitBundle,
   decodeConfidential,
+  RING_ANONYMOUS_PLAINTEXT_LENGTH,
   decryptConfidentialAsSender,
   prooflessUtxo,
   plaintextTransferUtxos,
@@ -39,7 +41,7 @@ import {
 } from "../serialization/ring-deposit.js";
 import { decryptMergeOutput, readMergeOutputBody } from "../serialization/merge.js";
 import { Utxo } from "../utxo.js";
-import type { AnonymousTagRoutes } from "./anonymous.js";
+import type { AnonymousTagRoutes, PendingAnonymousNote } from "./anonymous.js";
 import { KeyMemo } from "./key-memo.js";
 import {
   LocalShieldedKeys,
@@ -75,6 +77,15 @@ const U64_MAX = 0xffff_ffff_ffff_ffffn;
  * TODO(tree-id): resolve the tree id from the tree account.
  */
 const SYNC_TREE_ID = DEFAULT_TREE_ID;
+
+/** `undefined` for a pair hint outside the canonical X25519 encoding, the note itself stays verified. */
+function pairKeyOf(pairU: Bytes32): X25519PublicKey | undefined {
+  try {
+    return X25519PublicKey.fromBytes(concatBytes(Uint8Array.of(4), pairU));
+  } catch {
+    return undefined;
+  }
+}
 
 /** The nullifier every seed-disclosing bundle of `tx` derives its blindings from. */
 function firstNullifierOf(tx: IndexedShieldedTransaction): Bytes32 {
@@ -259,6 +270,7 @@ class SyncPass {
   readonly #processedSlots = new Set<string>();
   readonly #processedOutbound = new Set<number>();
   readonly #anonymousOpened = new Map<string, number>();
+  readonly #pendingAssetsBySite = new Map<string, PendingAnonymousNote>();
   readonly #unknownAssetsBySite = new Map<
     string,
     Readonly<{ ids: Set<bigint>; fields: Map<string, Bytes32> }>
@@ -310,6 +322,10 @@ class SyncPass {
       for (const id of candidate.ids) ids.add(id);
     }
     return [...ids].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
+  }
+
+  pendingAssets(): readonly PendingAnonymousNote[] {
+    return [...this.#pendingAssetsBySite.values()];
   }
 
   unknownAssetFields(): readonly Bytes32[] {
@@ -1042,6 +1058,7 @@ class SyncPass {
     ciphertext: Uint8Array,
     slotIndex: number,
     siteKey: string,
+    label: DecryptRequest["label"] = "transfer",
   ): Uint8Array | undefined {
     let envelope: Readonly<{ txViewingPublicKey: X25519PublicKey; salt: Bytes16 }>;
     try {
@@ -1056,7 +1073,7 @@ class SyncPass {
       txViewingPublicKey: envelope.txViewingPublicKey,
       salt: envelope.salt,
       slotIndex,
-      label: "transfer",
+      label,
     });
   }
 
@@ -1093,6 +1110,11 @@ class SyncPass {
     }
   }
 
+  /**
+   * The body is proven to be the recipient's stream over the committed note, so
+   * the commitment recompute with the raw asset address decides before any
+   * registry lookup. Every hit under a tag opens, the cap only flags the tag.
+   */
   #decodeRingAnonymousSlot(
     viewingPublicKey: X25519PublicKey,
     site: Site,
@@ -1114,40 +1136,81 @@ class SyncPass {
       this.undecryptableCandidates++;
       return;
     }
-    const tag = hex(slot.viewTag);
-    const opened = this.#anonymousOpened.get(tag) ?? 0;
-    if (!routes.allows(opened)) {
-      routes.capped(slot.viewTag);
+    if (frame.body.length !== RING_ANONYMOUS_PLAINTEXT_LENGTH || tx.ringProgramId === undefined) {
+      this.undecryptableCandidates++;
       return;
     }
+    const tag = hex(slot.viewTag);
+    const opened = this.#anonymousOpened.get(tag) ?? 0;
     this.#anonymousOpened.set(tag, opened + 1);
-    const decrypted = this.#decryptSlot(viewingPublicKey, tx, frame.body, site.slot, siteKey);
+    if (!routes.allows(opened)) routes.capped(slot.viewTag);
+    const decrypted = this.#decryptSlot(
+      viewingPublicKey,
+      tx,
+      frame.body,
+      site.slot,
+      siteKey,
+      "ringAnonymous",
+    );
     if (decrypted === undefined) return;
-    let utxo: Utxo;
-    let pairPublicKey: X25519PublicKey;
-    // An unknown asset is a failed match, spam under a public tag never stalls a sync.
+    let plaintext: ReturnType<typeof decodeRingAnonymous>;
     try {
-      const plaintext = decodeRingAnonymous(decrypted);
-      pairPublicKey = plaintext.pairPublicKey;
-      utxo = confidentialUtxo(plaintext.output, this.#owner, this.#assets);
+      plaintext = decodeRingAnonymous(decrypted);
     } catch {
       this.undecryptableCandidates++;
       return;
     }
     const { outputContext } = slot;
-    if (!equal(utxo.hash(this.#nullifierPublicKey, SYNC_TREE_ID), outputContext.hash)) {
+    const utxo = new Utxo({
+      owner: this.#owner,
+      asset: plaintext.assetAddress,
+      amount: plaintext.amount,
+      blinding: plaintext.blinding,
+      ringProgramId: tx.ringProgramId,
+    });
+    const treeId = outputContext.treeId ?? SYNC_TREE_ID;
+    if (!equal(utxo.hash(this.#nullifierPublicKey, treeId), outputContext.hash)) {
       this.undecryptableCandidates++;
       return;
     }
+    if (!this.#knowsMint(utxo.asset)) {
+      this.#pendingAssetsBySite.set(
+        siteKey,
+        Object.freeze({
+          utxo,
+          outputContext,
+          txSignature: tx.txSignature,
+          slot: tx.slot,
+          slotIndex: site.slot,
+          pairU: copy(plaintext.pairU),
+        }),
+      );
+      return;
+    }
+    this.#pendingAssetsBySite.delete(siteKey);
     if (this.#store(utxo, outputContext, undefined, undefined) === "pending") return;
     this.#processedSlots.add(siteKey);
+    const pairPublicKey = pairKeyOf(plaintext.pairU);
+    if (pairPublicKey === undefined) routes.badPairHint(copy(outputContext.hash) as Bytes32);
     routes.found({
       viewTag: copy(slot.viewTag) as Bytes32,
       utxoHash: copy(outputContext.hash) as Bytes32,
-      pairPublicKey,
+      ...(pairPublicKey === undefined ? {} : { pairPublicKey }),
       stream: route.stream,
     });
     if (route.stream.kind !== "change") this.#recordReceived(tx, site.slot, pairPublicKey, utxo);
+  }
+
+  #knowsMint(mint: Address): boolean {
+    try {
+      this.#assets.assetId(mint);
+      return true;
+    } catch (error) {
+      if (error instanceof TransactionError && error.code === "TRANSACTION_UNKNOWN_MINT") {
+        return false;
+      }
+      throw error;
+    }
   }
 
   /**
@@ -1270,6 +1333,7 @@ function commitPass(
     undecryptableCandidates: pass.undecryptableCandidates,
     unknownAssetIds: pass.unknownAssetIds(),
     unknownAssetFields: pass.unknownAssetFields(),
+    pendingAssets: pass.pendingAssets(),
   });
 }
 

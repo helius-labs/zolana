@@ -28,7 +28,13 @@ import { MAX_MERGE_INPUTS } from "../interface/constants.js";
 import { X25519PublicKey } from "../keypair/x25519.js";
 import { KeypairError } from "../keypair/error.js";
 
-import { auditOpeningHash, type DecryptedAnonymousRingTrace } from "./audit.js";
+import {
+  OUTPUT_PAYLOAD_ERROR_KINDS,
+  auditOpeningHash,
+  type DecryptedAnonymousRingTrace,
+  type OutputPayloadError,
+  type OutputPayloadErrorKind,
+} from "./audit.js";
 import type { AuditOutputOpening } from "../keypair/audit.js";
 import { bytesToBigInt, equal, ZERO_32 } from "../transaction/internal.js";
 import { RingError } from "./error.js";
@@ -330,7 +336,7 @@ export interface DecryptedRingTransaction {
   /** Authoritative disclosure in published slot order, independent of recipient encryption. */
   readonly outputOpenings: readonly DecryptedRingOpening[];
   readonly anonymous?: DecryptedAnonymousRingTrace;
-  readonly undecryptableSlots: readonly number[];
+  readonly payloadErrors: readonly OutputPayloadError[];
   readonly nullifiers: readonly Bytes32[];
   /** Required signers, fee payer first. */
   readonly signers: readonly Address[];
@@ -342,7 +348,11 @@ export interface DecryptedRingOpening extends AuditOutputOpening {
   readonly outputContext: Readonly<{ treeId: number; leafIndex: bigint; hash: Bytes32 }>;
 }
 
-export type { DecryptedAnonymousRingTrace } from "./audit.js";
+export type {
+  DecryptedAnonymousRingTrace,
+  OutputPayloadError,
+  OutputPayloadErrorKind,
+} from "./audit.js";
 
 /** Mirrors Rust `SkippedReason`. */
 export type SkippedReason = "missingAuditorMessage" | "invalidAuditData";
@@ -814,10 +824,14 @@ function decodeTransaction(wire: Record<string, unknown>): DecryptedRingTransact
       decodeOutput(record(entry, `outputs[${index}]`)),
     ),
   );
-  const undecryptableSlots = Object.freeze(
-    list(wire["undecryptableSlots"], "undecryptableSlots").map((slot) =>
-      u32(slot, "undecryptableSlots"),
-    ),
+  const payloadErrors = Object.freeze(
+    list(wire["payloadErrors"], "payloadErrors").map((entry) => {
+      const error = record(entry, "payloadErrors");
+      return Object.freeze({
+        slotIndex: u32(error["slotIndex"], "payloadErrors.slotIndex"),
+        kind: payloadErrorKind(error["kind"]),
+      });
+    }),
   );
   const seen = new Set<number>();
   for (const output of outputs) {
@@ -834,9 +848,13 @@ function decodeTransaction(wire: Record<string, unknown>): DecryptedRingTransact
       throw invalid("outputs.opening");
     seen.add(output.slotIndex);
   }
-  for (const index of undecryptableSlots) {
-    if (outputOpenings[index] === undefined || seen.has(index)) throw invalid("undecryptableSlots");
-    seen.add(index);
+  // A slot without an output carries at most one error, a stored output only a pair hint.
+  const errored = new Set<number>();
+  for (const error of payloadErrors) {
+    if (outputOpenings[error.slotIndex] === undefined || errored.has(error.slotIndex))
+      throw invalid("payloadErrors");
+    if (seen.has(error.slotIndex) !== (error.kind === "pairHint")) throw invalid("payloadErrors");
+    errored.add(error.slotIndex);
   }
   return Object.freeze({
     slot: integer(wire["slot"], "slot"),
@@ -848,7 +866,7 @@ function decodeTransaction(wire: Record<string, unknown>): DecryptedRingTransact
       : {}),
     outputs,
     outputOpenings,
-    undecryptableSlots,
+    payloadErrors,
     nullifiers: Object.freeze(
       list(wire["nullifiers"], "nullifiers").map((nullifier) => hash(nullifier, "nullifiers")),
     ),
@@ -937,6 +955,12 @@ function decodeAnonymousTrace(wire: Record<string, unknown>): DecryptedAnonymous
     inputs: Object.freeze(inputs),
     recipients: Object.freeze(recipients),
   });
+}
+
+function payloadErrorKind(value: unknown): OutputPayloadErrorKind {
+  const kind = OUTPUT_PAYLOAD_ERROR_KINDS.find((candidate) => candidate === value);
+  if (kind === undefined) throw invalid("payloadErrors.kind");
+  return kind;
 }
 
 /** A slot index, rejected outside the u32 range. */

@@ -56,7 +56,7 @@ func TestOrdinaryBaseFallbackAcceptsEverySettledOutputCount(t *testing.T) {
 		keys := ringaudit.DefaultKeys(t)
 		statement := keys.Statement(params.PrivateTxHash.Int)
 		statement.Count = count
-		params.PublicInputHash = fb(spptest.MustHashChain(t, keys.ChainElementsFor(t, statement)))
+		params.PublicInputHash = fb(spptest.MustHashChain(t, keys.BaseChainElementsFor(t, statement)))
 		assignment, err := Assign(common.CustomRingBaseCircuitType, params)
 		if err != nil {
 			t.Fatal(err)

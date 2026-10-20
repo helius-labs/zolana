@@ -1,8 +1,9 @@
-//! `UtxoScan::with_anonymous_ring` against an in-memory indexer.
+//! `UtxoScan::with_anonymous_ring` and `RingRecovery` against an in-memory indexer.
 
 use std::{
     cell::RefCell,
     collections::{BTreeSet, HashSet},
+    num::NonZeroUsize,
 };
 
 use solana_address::Address;
@@ -10,16 +11,16 @@ use solana_signature::Signature;
 use zolana_client::{
     rpc::GetShieldedTransactionsByNullifiersResponse, AnonymousRingState, AnonymousStream,
     ClientError, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
-    GetShieldedTransactionsByTagsResponse, IndexerRpcConfig, OutputContext, OutputSlot, Rpc,
-    ShieldedTransaction, UtxoScan, ADDRESS_GAP, DECRYPTIONS_PER_INDEX,
+    GetShieldedTransactionsByTagsResponse, IndexerRpcConfig, OutputContext, OutputSlot,
+    RingHistoryOptions, RingRecovery, Rpc, ShieldedTransaction, UtxoScan, ADDRESS_GAP,
+    DECRYPTIONS_PER_INDEX,
 };
 use zolana_event::{EncryptedRingDepositOutput, OutputDataEncoding};
 use zolana_keypair::{viewing_key::ViewTag, ShieldedKeypair, SigningKey, ViewingKey, X25519Pubkey};
 use zolana_transaction::{
     owner_utxo_hash,
-    serialization::{
-        confidential::ConfidentialEncode,
-        ring_anonymous::{RingAnonymous, RingAnonymousOutputPlaintext},
+    serialization::ring_anonymous::{
+        ring_anonymous_message, RingAnonymousOutputPlaintext, RingAnonymousSlot,
     },
     AssetRegistry, Data, DecryptRequest, DeriveRequest, EncryptedScheme, Mint,
     RingDepositPlaintext, RingTagRequest, ShieldedKeys, TransactionError, TransactionKeyRequest,
@@ -29,13 +30,20 @@ use zolana_transaction::{
 const TREE: u16 = 2;
 const RING: Address = Address::new_from_array([4; 32]);
 const SALT: [u8; 16] = [7; 16];
+const FRONTIER: [u8; 1] = [0xf0];
 
 #[derive(Default)]
 struct Indexer {
     tagged: Vec<ShieldedTransaction>,
     deposits: Vec<EncryptedUtxoMatch>,
     spends: Vec<ShieldedTransaction>,
+    /// Every transaction of the ring, paged by `ring_page` when set.
+    ring_history: Vec<ShieldedTransaction>,
+    ring_page: Option<usize>,
+    /// The last history page states no frontier.
+    incomplete_history: bool,
     queried_tags: RefCell<Vec<Vec<ViewTag>>>,
+    history_reads: RefCell<usize>,
 }
 
 impl Indexer {
@@ -97,6 +105,29 @@ impl Rpc for Indexer {
                 .collect(),
             next_cursor: None,
             scanned_through: None,
+        })
+    }
+
+    fn get_shielded_transactions_by_ring(
+        &self,
+        options: RingHistoryOptions,
+        _config: Option<IndexerRpcConfig>,
+    ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
+        assert_eq!(options.ring_program_id, RING);
+        *self.history_reads.borrow_mut() += 1;
+        let page = self.ring_page.unwrap_or(usize::MAX);
+        let start = options
+            .cursor
+            .as_deref()
+            .map_or(0, |cursor| usize::from(cursor[0]));
+        let end = start.saturating_add(page).min(self.ring_history.len());
+        let last = end == self.ring_history.len();
+        Ok(GetShieldedTransactionsByTagsResponse {
+            context: CONTEXT,
+            output_tree_id: Some(TREE),
+            transactions: self.ring_history[start..end].to_vec(),
+            next_cursor: (!last).then(|| vec![u8::try_from(end).unwrap()]),
+            scanned_through: (last && !self.incomplete_history).then(|| FRONTIER.to_vec()),
         })
     }
 
@@ -200,17 +231,19 @@ fn anonymous_slot(
     tag: ViewTag,
     slot_index: u32,
 ) -> OutputSlot {
-    let message = RingAnonymous::encode_plaintext(
+    let body = RingAnonymousSlot {
+        tx_viewing_pk: tx.pubkey(),
+        recipient_pk: recipient,
+        salt: SALT,
+        slot: slot_index as u8,
+    }
+    .seal(
+        tx,
         &RingAnonymousOutputPlaintext {
-            output: note.utxo.to_confidential_output_plaintext(),
-            pair_pk: payer.pair_key(&recipient).unwrap().pubkey(),
-        },
-        tag,
-        &ConfidentialEncode {
-            tx: tx.clone(),
-            recipient_pubkey: recipient,
-            salt: SALT,
-            slot_index,
+            asset_address: note.utxo.asset.asset.to_bytes(),
+            amount: note.utxo.amount,
+            blinding: note.utxo.blinding,
+            pair_u: payer.pair_key(&recipient).unwrap().pubkey().u(),
         },
     )
     .unwrap();
@@ -221,7 +254,7 @@ fn anonymous_slot(
             tree_id: TREE,
             leaf_index: u64::from(slot_index),
         },
-        payload: message.data,
+        payload: ring_anonymous_message(&body, tag).unwrap().data,
     }
 }
 
@@ -367,7 +400,7 @@ fn two_payers_on_one_inbox_index_are_both_found() {
     assert_eq!(report.new_counterparties, pair_keys);
     assert_eq!(report.used_addresses, 1);
     assert_eq!(report.inbox_next.get(&0), Some(&1));
-    assert!(report.addresses_under_attack.is_empty());
+    assert!(report.capped_streams.is_empty());
     assert!(report
         .notes
         .iter()
@@ -382,12 +415,14 @@ fn two_payers_on_one_inbox_index_are_both_found() {
     }
 }
 
+/// A tag past its cap flags the stream and runs the recovery scan of its ring,
+/// so the payment the cap hid and a payment under a wrong tag are both found.
 #[test]
-fn a_spammed_inbox_index_advances_the_stream_and_flags_the_address() {
+fn a_spammed_inbox_index_advances_the_stream_and_runs_the_recovery_scan() {
     let recipient = keypair(1);
     let spammer = keypair(4);
     let mut tagged = Vec::new();
-    for nonce in 0..=u8::try_from(DECRYPTIONS_PER_INDEX.get()).unwrap() {
+    for nonce in 0..u8::try_from(DECRYPTIONS_PER_INDEX.get()).unwrap() {
         // Sealed to the spammer's own key, so nothing opens, under the recipient's tag.
         let (mut tx, _) = inbox_payment(&spammer, &spammer, 0, 0, 1, 20 + nonce);
         tx.output_slots[0].view_tag = recipient
@@ -398,10 +433,18 @@ fn a_spammed_inbox_index_advances_the_stream_and_flags_the_address() {
             .unwrap();
         tagged.push(tx);
     }
+    // The payment past the cap, under the spammed tag.
+    let (hidden_tx, hidden) = inbox_payment(&keypair(3), &recipient, 0, 0, 5, 50);
+    tagged.push(hidden_tx);
     let (real_tx, real) = inbox_payment(&keypair(2), &recipient, 0, 1, 10, 11);
     tagged.push(real_tx);
+    let (mut wrong_tag_tx, wrong_tag) = inbox_payment(&keypair(2), &recipient, 0, 7, 12, 13);
+    wrong_tag_tx.output_slots[0].view_tag = [9; 32];
+    let mut ring_history = tagged.clone();
+    ring_history.push(wrong_tag_tx);
     let indexer = Indexer {
         tagged,
+        ring_history,
         ..Indexer::default()
     };
     let assets = AssetRegistry::default();
@@ -410,11 +453,98 @@ fn a_spammed_inbox_index_advances_the_stream_and_flags_the_address() {
         .fetch(&indexer)
         .unwrap();
 
-    assert_eq!(found_hashes(&result), BTreeSet::from([real.hash]));
+    assert_eq!(
+        found_hashes(&result),
+        BTreeSet::from([real.hash, hidden.hash, wrong_tag.hash])
+    );
     let report = result.anonymous.unwrap();
-    assert_eq!(report.addresses_under_attack, BTreeSet::from([0]));
+    assert_eq!(
+        report.capped_streams,
+        HashSet::from([AnonymousStream::Inbox { address_index: 0 }])
+    );
     assert_eq!(report.inbox_next.get(&0), Some(&2));
     assert_eq!(report.used_addresses, 1);
+    assert_eq!(report.recoveries.len(), 1);
+    assert_eq!(report.recoveries[0].ring_program_id, RING);
+    assert_eq!(report.recoveries[0].checkpoint, FRONTIER.to_vec());
+    assert_eq!(*indexer.history_reads.borrow(), 1);
+    assert!(!indexer.queried(&[9; 32]));
+}
+
+#[test]
+fn recovery_finds_a_note_under_a_wrong_tag_and_resumes_at_the_frontier() {
+    let recipient = keypair(1);
+    let payer = keypair(2);
+    let (mut wrong_tag_tx, paid) = inbox_payment(&payer, &recipient, 0, 0, 10, 11);
+    wrong_tag_tx.output_slots[0].view_tag = [9; 32];
+    let (other_tx, _) = inbox_payment(&payer, &keypair(5), 0, 0, 3, 12);
+    let (mut late_tx, _) = inbox_payment(&payer, &recipient, 0, 1, 4, 13);
+    late_tx.slot = 1_000;
+    let indexer = Indexer {
+        ring_history: vec![wrong_tag_tx, other_tx, late_tx],
+        ring_page: Some(1),
+        ..Indexer::default()
+    };
+    let assets = AssetRegistry::default();
+    let result = RingRecovery::new(&recipient, &assets, RING, 100)
+        .fetch(&indexer)
+        .unwrap();
+
+    assert_eq!(
+        result
+            .spendable
+            .utxos()
+            .map(|utxo| utxo.utxo_hash)
+            .collect::<Vec<_>>(),
+        [paid.hash]
+    );
+    assert_eq!(result.report.notes.len(), 1);
+    assert_eq!(result.report.notes[0].utxo_hash, paid.hash);
+    assert_eq!(
+        result.report.notes[0].pair_pk,
+        Some(
+            payer
+                .viewing_key
+                .pair_key(&recipient.viewing_pubkey())
+                .unwrap()
+                .pubkey()
+        )
+    );
+    assert_eq!(result.report.head, 100);
+    assert_eq!(result.report.checkpoint, FRONTIER.to_vec());
+    assert_eq!(result.transactions.len(), 2);
+    assert_eq!(*indexer.history_reads.borrow(), 3);
+}
+
+#[test]
+fn recovery_fails_on_an_incomplete_page_and_on_the_page_limit() {
+    let recipient = keypair(1);
+    let (tx, _) = inbox_payment(&keypair(2), &recipient, 0, 0, 10, 11);
+    let (second, _) = inbox_payment(&keypair(2), &recipient, 0, 1, 10, 12);
+    let assets = AssetRegistry::default();
+
+    let incomplete = Indexer {
+        ring_history: vec![tx.clone()],
+        incomplete_history: true,
+        ..Indexer::default()
+    };
+    assert!(matches!(
+        RingRecovery::new(&recipient, &assets, RING, 100).fetch(&incomplete),
+        Err(ClientError::RingHistoryIncomplete { ring_program_id }) if ring_program_id == RING
+    ));
+
+    let paged = Indexer {
+        ring_history: vec![tx, second],
+        ring_page: Some(1),
+        ..Indexer::default()
+    };
+    assert!(matches!(
+        RingRecovery::new(&recipient, &assets, RING, 100)
+            .with_page_limit(NonZeroUsize::new(1).unwrap())
+            .fetch(&paged),
+        Err(ClientError::RingHistoryPageLimit { ring_program_id, pages: 1 })
+            if ring_program_id == RING
+    ));
 }
 
 #[test]

@@ -7,6 +7,12 @@ use zolana_interface::merge_utils::ciphertext_hash;
 
 use crate::{AUDIT_CIPHERTEXT_LEN, TAGGED_X25519_KEY_LEN};
 
+/// The audit statement the policy circuits extend.
+pub const AUDIT_PUBLIC_INPUT_ELEMENTS: usize = 12;
+/// The base statement, the audit elements with the output body chain at `BODY_CHAIN_INDEX`.
+pub const BASE_PUBLIC_INPUT_ELEMENTS: usize = AUDIT_PUBLIC_INPUT_ELEMENTS + 1;
+pub const BODY_CHAIN_INDEX: usize = 8;
+
 /// The audit statement, each value from the forwarded SPP content, the ring
 /// config or the published message, so a proof binds only this transaction.
 pub struct CustomRingBasePublicInput<'a> {
@@ -15,6 +21,10 @@ pub struct CustomRingBasePublicInput<'a> {
     pub auditor_pk: &'a [u8; TAGGED_X25519_KEY_LEN],
     pub eph_pk: &'a [u8; TAGGED_X25519_KEY_LEN],
     pub ciphertext: &'a [u8; AUDIT_CIPHERTEXT_LEN],
+    /// One entry per published output in slot order, `hash_bytes` of the exact
+    /// 105-byte scheme-9 body in an anonymous ring, zero for a scheme-3 slot and
+    /// for every slot of a ring that is not anonymous. Same length as `output_hashes`.
+    pub output_body_hashes: &'a [[u8; 32]],
     /// Folded with `HashChain4`, which does not hash the length: `[a, b]` and
     /// `[a, b, 0]` hash alike. Distinct lists stay distinct only because every
     /// entry is a published SPP output hash, which SPP rejects when zero
@@ -39,7 +49,17 @@ impl CustomRingBasePublicInput<'_> {
     }
 
     /// The chain order of `prover/server/custom_rings/circuits/base/circuit.go`.
-    pub fn elements(&self) -> Result<[[u8; 32]; 12], HasherError> {
+    pub fn elements(&self) -> Result<[[u8; 32]; BASE_PUBLIC_INPUT_ELEMENTS], HasherError> {
+        let audit = self.audit_elements()?;
+        let mut elements = [[0u8; 32]; BASE_PUBLIC_INPUT_ELEMENTS];
+        elements[..BODY_CHAIN_INDEX].copy_from_slice(&audit[..BODY_CHAIN_INDEX]);
+        elements[BODY_CHAIN_INDEX] = create_hash_chain_4_from_slice(self.output_body_hashes)?;
+        elements[BODY_CHAIN_INDEX + 1..].copy_from_slice(&audit[BODY_CHAIN_INDEX..]);
+        Ok(elements)
+    }
+
+    /// The chain order of `base.Audit.Define`, the prefix of the policy statement.
+    pub fn audit_elements(&self) -> Result<[[u8; 32]; AUDIT_PUBLIC_INPUT_ELEMENTS], HasherError> {
         let tx = pack_2fe(self.tx_viewing_pk);
         let auditor = pack_2fe(self.auditor_pk);
         let eph = pack_2fe(self.eph_pk);

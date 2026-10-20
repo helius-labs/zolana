@@ -219,6 +219,7 @@ pub fn to_plain_proof(proof: Proof) -> Result<PlainGroth16Proof, RingError> {
 
 /// Field elements and byte strings as `0x` lowercase hex, integers right aligned to 32 bytes.
 pub(crate) mod fe {
+    use custom_ring_interface::ANONYMOUS_OUTPUT_PLAINTEXT_LEN;
     use serde::{ser::Error, Serialize, Serializer};
     use zeroize::{Zeroize, Zeroizing};
     use zolana_hasher::primitives::right_align;
@@ -226,9 +227,10 @@ pub(crate) mod fe {
 
     const HEX: &[u8; 16] = b"0123456789abcdef";
 
-    /// A stack buffer, so a secret never lands in a heap string of its own. A tagged key takes 33 bytes.
+    /// A stack buffer, so a secret never lands in a heap string of its own. The longest
+    /// value is a published anonymous output ciphertext.
     pub(crate) fn bytes<S: Serializer>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error> {
-        let mut buffer = [0u8; 2 + 2 * 33];
+        let mut buffer = [0u8; 2 + 2 * ANONYMOUS_OUTPUT_PLAINTEXT_LEN];
         let len = 2 + 2 * bytes.len();
         let out = buffer
             .get_mut(..len)

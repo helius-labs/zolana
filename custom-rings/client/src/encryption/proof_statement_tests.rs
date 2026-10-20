@@ -4,6 +4,7 @@ use super::*;
 use custom_ring_interface::{CustomRingBasePublicInput, CustomRingPolicyPublicInput};
 use serde_json::Value;
 use zolana_client::{prover::verify_proof_inputs, Proof};
+use zolana_hasher::primitives::hash_bytes;
 use zolana_interface::tree_slot::TreeSlot;
 use zolana_ring_policy::{EncodedRuleTable, PolicySource, SourceMap};
 
@@ -89,22 +90,14 @@ fn statement_hash(request: &Value) -> ([u8; 32], Value) {
                     blinding: bytes(&input["blinding"]),
                 })
                 .collect(),
-            outputs: outputs
-                .iter()
-                .enumerate()
-                .map(|(i, output)| {
+            outputs: (0..n_out)
+                .map(|i| {
                     let identity = bytes::<33>(&request["recipients"][i]);
                     AnonymousOutputOpening {
                         identity_tag: identity[0],
                         identity_key: identity[1..].try_into().unwrap(),
-                        viewing_pk: bytes(&request["recipientViewingKeys"][i]),
                         nullifier_pk: bytes(&request["outputs"][i]["nullifierPk"]),
-                        amount: amount(&request["outputs"][i]["amount"]),
-                        asset: output.asset,
-                        blinding: output.blinding,
-                        data_hash: output.data_hash,
-                        ring_data_hash: output.ring_data_hash,
-                        ring_note: u8::from(output.ring_program_id != [0; 32]),
+                        viewing_pk: bytes(&request["recipientViewingKeys"][i]),
                     }
                 })
                 .collect(),
@@ -131,6 +124,21 @@ fn statement_hash(request: &Value) -> ([u8; 32], Value) {
             )
         })
         .collect();
+    // A real ring output publishes its scheme-9 body, an exit slot and every slot
+    // of a ring that is not anonymous chain zero.
+    let output_body_hashes: Vec<[u8; 32]> = outputs
+        .iter()
+        .enumerate()
+        .map(|(i, output)| {
+            if !anonymous || output.ring_program_id == [0; 32] {
+                return [0; 32];
+            }
+            let ciphertext = bytes::<104>(&request["delivery"]["outputs"][i]["ciphertext"]);
+            let mut body = [0x09u8; 105];
+            body[1..].copy_from_slice(&ciphertext);
+            hash_bytes(&body).unwrap()
+        })
+        .collect();
     let hash = CustomRingPolicyPublicInput {
         audit: CustomRingBasePublicInput {
             private_tx_hash: &bytes(&request["privateTxHash"]),
@@ -138,6 +146,7 @@ fn statement_hash(request: &Value) -> ([u8; 32], Value) {
             auditor_pk: auditor.as_bytes(),
             eph_pk: ephemeral.pubkey().as_bytes(),
             ciphertext: &ciphertext,
+            output_body_hashes: &output_body_hashes,
             output_hashes: &outputs
                 .iter()
                 .map(|output| output.hash().unwrap())
@@ -165,6 +174,7 @@ fn statement_hash(request: &Value) -> ([u8; 32], Value) {
         "auditorPk": hex(auditor.as_bytes()),
         "ephPk": hex(ephemeral.pubkey().as_bytes()),
         "ciphertext": hex(&*ciphertext),
+        "outputBodyHashes": output_body_hashes.iter().map(|body| hex(body)).collect::<Vec<_>>(),
         "outputHashes": outputs.iter().map(|output| hex(&output.hash().unwrap())).collect::<Vec<_>>(),
         "salt": hex(&salt),
         "disclosure": message.disclosure().iter().map(|field| hex(field)).collect::<Vec<_>>(),

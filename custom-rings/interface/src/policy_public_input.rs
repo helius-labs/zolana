@@ -3,15 +3,16 @@ use zolana_hasher::{
 };
 use zolana_interface::tree_slot::{populated_tree_slots_hash_chain, tree_id_field, TreeSlot};
 
-use crate::base_public_input::CustomRingBasePublicInput;
+use crate::base_public_input::{CustomRingBasePublicInput, BASE_PUBLIC_INPUT_ELEMENTS};
 
-const AUDIT_LEN: usize = 12;
-const POLICY_LEN: usize = 21;
-/// The folded audit prefix and policy hash, then the tail without the tree commitment.
-pub const POLICY_INDEXED_INPUTS: usize = POLICY_LEN - AUDIT_LEN - 1;
+const BASE_LEN: usize = BASE_PUBLIC_INPUT_ELEMENTS;
+pub const POLICY_PUBLIC_INPUT_ELEMENTS: usize = BASE_LEN + 9;
+/// The folded base prefix and policy hash, then the tail without the tree commitment.
+pub const POLICY_INDEXED_INPUTS: usize = POLICY_PUBLIC_INPUT_ELEMENTS - BASE_LEN - 1;
 
 /// Binds audited transaction openings to the pinned rules, the member registry roots and
-/// outflow limits.
+/// outflow limits. The prefix is the base statement, a ring that is not anonymous sets
+/// one zero body hash per output.
 pub struct CustomRingPolicyPublicInput<'a> {
     pub audit: CustomRingBasePublicInput<'a>,
     pub policy_hash: &'a [u8; 32],
@@ -34,12 +35,12 @@ pub struct CustomRingPolicyPublicInput<'a> {
 }
 
 impl CustomRingPolicyPublicInput<'_> {
-    /// The audit prefix and policy tail share one circuit-defined field order.
-    fn elements(&self) -> Result<[[u8; 32]; POLICY_LEN], HasherError> {
-        let audit = self.audit.elements()?;
-        let mut elements = [[0u8; 32]; POLICY_LEN];
-        elements[..AUDIT_LEN].copy_from_slice(&audit);
-        elements[AUDIT_LEN..].copy_from_slice(&[
+    /// The chain order of `policy.CustomRingPolicyCircuit.constrain`, the base statement then the tail.
+    pub fn elements(&self) -> Result<[[u8; 32]; POLICY_PUBLIC_INPUT_ELEMENTS], HasherError> {
+        let base = self.audit.elements()?;
+        let mut elements = [[0u8; 32]; POLICY_PUBLIC_INPUT_ELEMENTS];
+        elements[..BASE_LEN].copy_from_slice(&base);
+        elements[BASE_LEN..].copy_from_slice(&[
             *self.policy_hash,
             populated_tree_slots_hash_chain(self.tree_slots)?,
             tree_id_field(self.address_tree_id),
@@ -61,8 +62,8 @@ impl CustomRingPolicyPublicInput<'_> {
         let elements = self.elements()?;
         let mut indexed = [[0u8; 32]; POLICY_INDEXED_INPUTS];
         // The folded prefix ends immediately before the tree commitment.
-        indexed[0] = create_hash_chain_from_slice(&elements[..AUDIT_LEN + 1])?;
-        indexed[1..].copy_from_slice(&elements[AUDIT_LEN + 2..]);
+        indexed[0] = create_hash_chain_from_slice(&elements[..BASE_LEN + 1])?;
+        indexed[1..].copy_from_slice(&elements[BASE_LEN + 2..]);
         Ok(indexed)
     }
 }

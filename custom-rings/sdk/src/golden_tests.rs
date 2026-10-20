@@ -71,9 +71,9 @@ mod bodies {
         pipeline::PolicyRequest,
         prover::{RingCircuit, RingRequest},
         request::{
-            AnonymousBase, AnonymousFlag, AnonymousIdentities, AuditSecrets, BaseBody,
-            CustomRingOpening, CustomRingOutputOpening, DepositBody, PolicyBody, RecordWitness,
-            SubjectWitness, IDENTITY_LEN,
+            AnonymousBase, AnonymousDelivery, AnonymousFlag, AnonymousIdentities, AuditSecrets,
+            BaseBody, CustomRingOpening, CustomRingOutputOpening, DeliveryOutput, DepositBody,
+            PolicyBody, RecordWitness, SubjectWitness, IDENTITY_LEN,
         },
         trees::TransactRoots,
         witness::{CustomRingWitness, PolicyTree},
@@ -163,6 +163,19 @@ mod bodies {
         policy_with(None)
     }
 
+    /// One real body, one padding body, the trailing slots stay zero.
+    fn delivery() -> AnonymousDelivery {
+        let slot = |seed: u8, real: bool| DeliveryOutput {
+            asset_address: if real { [seed; 32] } else { [0; 32] },
+            pair_u: if real { [seed + 1; 32] } else { [0; 32] },
+            ciphertext: [seed + 2; 104],
+        };
+        AnonymousDelivery {
+            ring_program_id: Address::new_from_array([0x90; 32]),
+            outputs: vec![Some(slot(0x60, true)), Some(slot(0x70, false))],
+        }
+    }
+
     fn policy_with(anonymous: Option<AnonymousIdentities>) -> PolicyBody {
         let two = |index: usize, value: [u8; 32]| if index < 2 { value } else { [0; 32] };
         let mut subjects: [Option<SubjectWitness>; 13] = Default::default();
@@ -175,6 +188,7 @@ mod bodies {
             circuit_type: RingCircuit::Policy,
             public_input_hash: field(1),
             audit: secrets(5),
+            delivery: anonymous.as_ref().map(|_| delivery()),
             anonymous,
             witness: Box::new(CustomRingWitness {
                 indexed: None,
@@ -300,6 +314,7 @@ mod bodies {
                 .collect(),
             anonymous_outputs: core::array::from_fn(|index| opening(1_100 + 16 * index as u64)),
             private_tx_blinding: field(3),
+            delivery: delivery(),
         });
         assert_golden(
             "custom-ring-base-anonymous",

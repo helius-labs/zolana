@@ -76,6 +76,7 @@ export {
   decryptToBalances,
   decryptTransactions,
   deserializeWallet,
+  encryptAnonymousRingTransfer,
   encryptAnonymousTransfer,
   encryptConfidentialTransfer,
   encryptCustomRingTransfer,
@@ -92,11 +93,16 @@ export {
   type TransactionIntent,
 } from "./wallet/index.js";
 export type {
+  AnonymousOutputDelivery,
   AnonymousRecipientSlot,
   AnonymousRingNote,
   AnonymousRingReport,
+  AnonymousRingSlot,
   AnonymousRingState,
+  AnonymousRingTransferInput,
   AnonymousStream,
+  EncryptedAnonymousRingTransfer,
+  PendingAnonymousNote,
   ApprovalRequest,
   AssetBalance,
   AuditWitness,
@@ -133,9 +139,12 @@ export type {
 export { MERGE, SPLIT, TRANSFER, TRANSFER_PLAINTEXT } from "./serialization/codecs.js";
 export {
   EncryptedScheme,
+  RING_ANONYMOUS_BODY_LENGTH,
+  RING_ANONYMOUS_PLAINTEXT_LENGTH,
   anonymousRecipientFromUtxos,
   anonymousSenderFromUtxos,
   decodeContextForSlot,
+  ringAnonymousBodyHash,
   encryptedSchemeFromByte,
   encryptedSchemeToByte,
   outputDataEncoding,

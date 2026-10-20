@@ -114,7 +114,7 @@ func TestDisclosurePadIndexesAreIndependent(t *testing.T) {
 // solvePinned solves the circuit only when its disclosure hash is the pinned one.
 func solvePinned(t *testing.T, keys ringaudit.Keys, statement ringaudit.Statement, pinnedHex string) {
 	t.Helper()
-	elements := keys.ChainElementsFor(t, statement)
+	elements := keys.BaseChainElementsFor(t, statement)
 	pinned, err := hex.DecodeString(pinnedHex)
 	if err != nil {
 		t.Fatal(err)
@@ -125,17 +125,17 @@ func solvePinned(t *testing.T, keys ringaudit.Keys, statement ringaudit.Statemen
 	solve(t, testConstraintSystem(t), circuit)
 }
 
-const chainDisclosureHash = 10
+const chainDisclosureHash = 11
 
 const anonymousVectorPath = "../../../../../test-vectors/audit-disclosure-anonymous.json"
 
 const anonymousVectorDescription = "Known-answer vector for the anonymous ring audit disclosure. " +
-	"key and salt are the ones of audit-disclosure.json and the pad shares its seed, so its first 36 entries are that vector's pad. " +
+	"key and salt are the ones of audit-disclosure.json and the pad shares its seed, so it is a prefix of that vector's pad. " +
 	"plaintext is the published slots, the sender identity padded to 62 bytes, then n_in input slots of 93 bytes " +
-	"(tree id u16, amount u64, asset, blinding) and n_out output slots of 248 bytes (recipient identity, recipient viewing pk, " +
-	"nullifier pk, amount u64, asset, blinding, data hash, ring data hash, ring note flag), all big-endian and a dummy slot all zero. " +
+	"(tree id u16, amount u64, asset, blinding) and n_out output slots of 124 bytes (recipient identity, nullifier pk, " +
+	"recipient viewing pk), all big-endian and a dummy slot all zero. " +
 	"fields[j] is plaintext[31j..31j+31] read big-endian, ciphertext[j] = (fields[j] + pad[j]) mod r and " +
-	"disclosure_hash = hash_chain_4(ciphertext) over the 2 + 3 n_in + 8 n_out published fields. " +
+	"disclosure_hash = hash_chain_4(ciphertext) over the 2 + 3 n_in + 4 n_out published fields. " +
 	"Produced by prover/server/custom_rings/circuits/base/disclosure_test.go with WRITE_AUDIT_VECTORS=1."
 
 type anonymousVector struct {
@@ -182,8 +182,9 @@ func anonymousVectorStatement(t *testing.T) (ringaudit.Keys, ringaudit.Statement
 	statement.Audit.Recipients[3] = statement.Audit.Recipients[0]
 	statement.Audit.RecipientViewingKeys[2] = statement.Audit.RecipientViewingKeys[0]
 	statement.Audit.RecipientViewingKeys[3] = statement.Audit.RecipientViewingKeys[0]
+	statement.Deliveries[3] = statement.Deliveries[0]
 	statement.Count = base.AuditOutputSlots
-	statement.Rebind(t)
+	keys.Deliver(t, &statement)
 	return keys, statement
 }
 
@@ -205,7 +206,7 @@ func TestAnonymousDisclosureVectorPinsHostAndCircuit(t *testing.T) {
 		Ciphertext:     hexFields(t, ciphertext),
 		DisclosureHash: hexFields(t, []*big.Int{hash})[0],
 	}
-	if len(fields) != 2+3*statement.NIn+8*statement.Count {
+	if len(fields) != 2+3*statement.NIn+4*statement.Count {
 		t.Fatalf("%d published fields", len(fields))
 	}
 	var got anonymousVector
@@ -215,8 +216,8 @@ func TestAnonymousDisclosureVectorPinsHostAndCircuit(t *testing.T) {
 	}
 	var legacy disclosureVector
 	readVector(t, disclosureVectorPath, nil, &legacy)
-	if len(got.Pad) <= len(legacy.Pad) || !reflect.DeepEqual(got.Pad[:len(legacy.Pad)], legacy.Pad) {
-		t.Fatal("the anonymous pad does not extend the legacy pad")
+	if len(got.Pad) > len(legacy.Pad) || !reflect.DeepEqual(legacy.Pad[:len(got.Pad)], got.Pad) {
+		t.Fatal("the anonymous pad is not a prefix of the legacy pad")
 	}
 	solvePinned(t, keys, statement, got.DisclosureHash)
 }

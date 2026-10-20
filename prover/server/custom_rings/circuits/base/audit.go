@@ -1,6 +1,8 @@
 package base
 
 import (
+	"slices"
+
 	"github.com/consensys/gnark/frontend"
 
 	"github.com/helius-labs/zolana/prover/server/circuits/crypto/x25519"
@@ -92,8 +94,24 @@ type AuditTx struct {
 	Notes  [AuditOutputSlots]AuditUtxoWires
 }
 
-// Define returns the chain elements in CustomRingBasePublicInput order.
-func (a Audit) Define(api frontend.API, rc frontend.Rangechecker, tx AuditTx) [12]frontend.Variable {
+// AuditElements is the confidential statement, the base and policy statements insert
+// the output body chain after the auditor ciphertext hash.
+const AuditElements = 12
+
+// Define returns the confidential statement, the audit elements without a body chain.
+func (a Audit) Define(api frontend.API, rc frontend.Rangechecker, tx AuditTx) [AuditElements]frontend.Variable {
+	elements, _ := a.define(api, rc, tx)
+	return elements
+}
+
+// Statement returns the base statement, the audit elements with the delivered body chain at BodyChainIndex.
+func (a Audit) Statement(api frontend.API, rc frontend.Rangechecker, tx AuditTx, d Delivery) [BaseElements]frontend.Variable {
+	elements, keys := a.define(api, rc, tx)
+	chain := d.Define(api, rc, keys, a, tx)
+	return [BaseElements]frontend.Variable(slices.Insert(elements[:], BodyChainIndex, chain))
+}
+
+func (a Audit) define(api frontend.API, rc frontend.Rangechecker, tx AuditTx) ([AuditElements]frontend.Variable, auditKeys) {
 	// 1. Bind one canonical viewing secret to its public key and auditor envelope.
 	api.AssertIsBoolean(a.Anonymous)
 	CheckBytes(rc, a.Salt[:])
@@ -116,7 +134,9 @@ func (a Audit) Define(api frontend.API, rc frontend.Rangechecker, tx AuditTx) [1
 	if ordinary && tx.ShortOrdinary {
 		outputSlots = 2
 	}
-	chunkCount := auditHeaderChunks + len(tx.Inputs)*auditInputChunks + AuditOutputSlots*auditOutputChunks
+	// A witnessed mode pads the shorter layout to the other, both share the pad stream.
+	chunkCount := max(auditHeaderChunks+len(tx.Inputs)*auditInputChunks+AuditOutputSlots*auditOutputChunks,
+		AuditOutputSlots*AuditOutputFieldCount)
 	if ordinary {
 		chunkCount = 1 + 3*chainGroups(outputSlots*AuditOutputFieldCount)
 	}
@@ -198,7 +218,14 @@ func (a Audit) Define(api frontend.API, rc frontend.Rangechecker, tx AuditTx) [1
 	}
 
 	// 4. Bind the same ordered output commitments the program passes to SPP.
-	var outputHash frontend.Variable
+	return [AuditElements]frontend.Variable{
+		a.PrivateTxHash, txPk[0], txPk[1], sealed.Auditor[0], sealed.Auditor[1], sealed.Eph[0], sealed.Eph[1],
+		gadget.HashBytes(api, sealed.Ciphertext), prefixChain(api, tx, tx.Hashes[:]), salt, disclosure, a.Anonymous,
+	}, auditKeys{txSk: a.TxViewingSk, txPk: txPk, salt: salt}
+}
+
+// prefixChain is HashChain4 over the first NOut values, a pinned count folds a fixed prefix.
+func prefixChain(api frontend.API, tx AuditTx, values []frontend.Variable) frontend.Variable {
 	if tx.Compact {
 		selectedCount := -1
 		for i, selected := range tx.NOut.OneHot {
@@ -215,16 +242,10 @@ func (a Audit) Define(api frontend.API, rc frontend.Rangechecker, tx AuditTx) [1
 			}
 		}
 		if selectedCount != -1 {
-			outputHash = gadget.HashChain4(api, tx.Hashes[:selectedCount])
+			return gadget.HashChain4(api, values[:selectedCount])
 		}
 	}
-	if outputHash == nil {
-		outputHash = HashPrefix4(api, tx.Hashes[:], tx.NOut)
-	}
-	return [12]frontend.Variable{
-		a.PrivateTxHash, txPk[0], txPk[1], sealed.Auditor[0], sealed.Auditor[1], sealed.Eph[0], sealed.Eph[1],
-		gadget.HashBytes(api, sealed.Ciphertext), outputHash, salt, disclosure, a.Anonymous,
-	}
+	return HashPrefix4(api, values, tx.NOut)
 }
 
 func constantZero(api frontend.API, value frontend.Variable) bool {

@@ -47,7 +47,7 @@ use zolana_ring_rpc::{
 use zolana_transaction::{
     serialization::{
         confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
-        ring_anonymous::{RingAnonymous, RingAnonymousOutputPlaintext},
+        ring_anonymous::{ring_anonymous_message, RingAnonymousOutputPlaintext, RingAnonymousSlot},
     },
     AssetRegistry, Data, OutputContext, OutputSlot, ShieldedTransaction, UtxoSerialization,
     SOL_ASSET_ID, SOL_MINT,
@@ -838,40 +838,34 @@ async fn passkey_reader_opens_anonymous_spend_trace() {
     let sender = delegate().pubkey().to_bytes();
     let mut outputs = Vec::new();
     let mut slots = Vec::new();
+    let mut sol_asset = [0; 32];
     for index in 0..2u32 {
         let identity_key = [20 + index as u8; 32];
         let nullifier_pk = [30 + index as u8; 32];
         let owner = zolana_keypair::PublicKey::from_ed25519(&identity_key);
         let owner_hash =
             zolana_keypair::hash::owner_hash(&owner, &nullifier_pk).expect("owner hash");
-        let opening = ProofInputUtxo::new(
-            owner_hash,
-            &SOL_MINT,
-            500 + index as u64,
-            &[index as u8; 32],
-            TREE_ID,
-        )
-        .expect("output opening");
-        let encoded = RingAnonymous::encode_plaintext(
-            &RingAnonymousOutputPlaintext {
-                output: ConfidentialOutputPlaintext {
-                    asset_id: SOL_ASSET_ID,
-                    amount: 500 + index as u64,
-                    blinding: [index as u8; 32],
-                    ring_program_id: None,
-                    data: Data::default(),
-                },
-                pair_pk: fixture.recipient,
-            },
-            fixture.recipient.u(),
-            &ConfidentialEncode {
-                tx: tx_key.clone(),
-                recipient_pubkey: fixture.recipient,
-                salt: SALT,
-                slot_index: index,
-            },
-        )
-        .expect("anonymous output");
+        let note = RingAnonymousOutputPlaintext {
+            asset_address: SOL_MINT.to_bytes(),
+            amount: 500 + index as u64,
+            blinding: [index as u8; 32],
+            pair_u: fixture.recipient.u(),
+        };
+        let opening =
+            ProofInputUtxo::new(owner_hash, &SOL_MINT, note.amount, &note.blinding, TREE_ID)
+                .expect("output opening")
+                .with_ring([0; 32], &Some(RING))
+                .expect("ring opening");
+        sol_asset = opening.asset;
+        let body = RingAnonymousSlot {
+            tx_viewing_pk: tx_key.pubkey(),
+            recipient_pk: fixture.recipient,
+            salt: SALT,
+            slot: index as u8,
+        }
+        .seal(&tx_key, &note)
+        .expect("anonymous body");
+        let encoded = ring_anonymous_message(&body, fixture.recipient.u()).expect("message");
         slots.push(OutputSlot {
             view_tag: encoded.view_tag,
             output_context: OutputContext {
@@ -884,14 +878,8 @@ async fn passkey_reader_opens_anonymous_spend_trace() {
         outputs.push(AnonymousOutputOpening {
             identity_tag: 0x53,
             identity_key,
-            viewing_pk: *fixture.recipient.as_bytes(),
             nullifier_pk,
-            amount: 500 + index as u64,
-            asset: opening.asset,
-            blinding: opening.blinding,
-            data_hash: opening.data_hash,
-            ring_data_hash: opening.ring_data_hash,
-            ring_note: 0,
+            viewing_pk: *fixture.recipient.as_bytes(),
         });
     }
     let disclosure = AnonymousDisclosure {
@@ -900,7 +888,7 @@ async fn passkey_reader_opens_anonymous_spend_trace() {
             AuditInputOpening {
                 tree_id: TREE_ID,
                 amount: 900,
-                asset: outputs[0].asset,
+                asset: sol_asset,
                 blinding: [7; 32],
             },
             AuditInputOpening::default(),
@@ -940,8 +928,10 @@ async fn passkey_reader_opens_anonymous_spend_trace() {
     assert_eq!(trace.inputs.len(), 1);
     assert_eq!(trace.inputs[0].amount, 900);
     assert_eq!(trace.recipients.len(), 2);
-    assert_eq!(trace.recipients[1].amount, 501);
+    assert_eq!(trace.recipients[1].identity_key.0, [21; 32]);
     assert_eq!(item.outputs.len(), 2);
+    assert_eq!(item.outputs[1].amount, 501);
+    assert!(item.payload_errors.is_empty());
     assert!(response.value.skipped.is_empty());
 }
 
@@ -1017,7 +1007,8 @@ async fn recipient_metadata_cannot_poison_an_audit_page_or_trigger_registry_refr
             item.output_openings[0].owner_hash,
             opening.owner_hash.into()
         );
-        assert_eq!(item.undecryptable_slots, vec![0]);
+        assert_eq!(item.payload_errors.len(), 1);
+        assert_eq!(item.payload_errors[0].slot_index, 0);
     }
     assert_eq!(response.value.skipped.len(), 1);
     assert_eq!(

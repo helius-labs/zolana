@@ -5,14 +5,16 @@ use std::{
     num::NonZeroUsize,
 };
 
+use solana_address::Address;
 use zolana_keypair::{viewing_key::ViewTag, X25519Pubkey};
 use zolana_transaction::{
-    AnonymousDecryption, AnonymousTagRoutes, EncryptedScheme, RingTagRequest, ShieldedKeys,
-    TransactionError,
+    AnonymousDecryption, AnonymousTagRoutes, EncryptedScheme, PairHintError, RingTagRequest,
+    ShieldedKeys, TransactionError,
 };
 
 use crate::{
     error::ClientError,
+    recovery::RingRecoveryReport,
     rpc::{IndexerRpcConfig, Rpc, ShieldedTransaction},
     scan::{tagged_transactions, PAGE_LIMIT},
     tags::{indices, TagWindow, DEFAULT_TAG_WINDOW},
@@ -34,16 +36,25 @@ pub struct AnonymousRingState {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum AnonymousStream {
-    Inbox { address_index: u32 },
-    Pair { counterparty: X25519Pubkey },
+    Inbox {
+        address_index: u32,
+    },
+    Pair {
+        counterparty: X25519Pubkey,
+    },
     Deposit,
-    Change { first_nullifier: [u8; 32] },
+    Change {
+        first_nullifier: [u8; 32],
+    },
+    /// Found by a [`crate::RingRecovery`], its tag was not derived.
+    Untagged,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AnonymousRingNote {
     pub utxo_hash: [u8; 32],
-    pub pair_pk: X25519Pubkey,
+    /// `None` for a bad pair hint, the note is kept.
+    pub pair_pk: Option<X25519Pubkey>,
     pub stream: AnonymousStream,
 }
 
@@ -57,8 +68,12 @@ pub struct AnonymousRingReport {
     pub inbox_next: BTreeMap<u32, u64>,
     pub pair_next: HashMap<X25519Pubkey, u64>,
     pub deposit_next: u64,
-    /// Addresses with an inbox index past [`DECRYPTIONS_PER_INDEX`] outputs.
-    pub addresses_under_attack: BTreeSet<u32>,
+    /// Streams with a tag past [`DECRYPTIONS_PER_INDEX`] outputs, the recovery
+    /// scan of their ring opened what the cap left.
+    pub capped_streams: HashSet<AnonymousStream>,
+    pub bad_pair_hints: Vec<PairHintError>,
+    /// One per ring a capped tag was published in.
+    pub recoveries: Vec<RingRecoveryReport>,
 }
 
 /// Change tags come from spends, not windows.
@@ -120,6 +135,7 @@ pub(crate) struct AnonymousStreams<'a, K: ?Sized> {
     sources: HashMap<ViewTag, AnonymousStream>,
     change_routed: HashSet<[u8; 32]>,
     used_tags: BTreeSet<ViewTag>,
+    capped_rings: BTreeSet<Address>,
     report: AnonymousRingReport,
 }
 
@@ -143,6 +159,7 @@ impl<'a, K: ShieldedKeys + ?Sized> AnonymousStreams<'a, K> {
             sources: HashMap::new(),
             change_routed: HashSet::new(),
             used_tags: BTreeSet::new(),
+            capped_rings: BTreeSet::new(),
             report: AnonymousRingReport {
                 used_addresses: state.issued_addresses,
                 ..AnonymousRingReport::default()
@@ -165,6 +182,15 @@ impl<'a, K: ShieldedKeys + ?Sized> AnonymousStreams<'a, K> {
 
     pub(crate) fn used_tags(&self) -> impl Iterator<Item = ViewTag> + '_ {
         self.used_tags.iter().copied()
+    }
+
+    /// The rings whose capped tags still wait for a recovery scan, each taken once.
+    pub(crate) fn take_capped_rings(&mut self) -> BTreeSet<Address> {
+        std::mem::take(&mut self.capped_rings)
+    }
+
+    pub(crate) fn record_recovery(&mut self, report: RingRecoveryReport) {
+        self.report.recoveries.push(report);
     }
 
     /// A window with no occupied index closes its stream.
@@ -290,17 +316,21 @@ impl<'a, K: ShieldedKeys + ?Sized> AnonymousStreams<'a, K> {
                     .report
                     .used_addresses
                     .max(address_index.saturating_add(1));
-                if self.counterparties.insert(note.pair_pk) {
-                    self.report.new_counterparties.insert(note.pair_pk);
-                    self.open_pair(note.pair_pk);
+                if let Some(pair_pk) = note.pair_pk {
+                    if self.counterparties.insert(pair_pk) {
+                        self.report.new_counterparties.insert(pair_pk);
+                        self.open_pair(pair_pk);
+                    }
                 }
             }
         }
         for tag in decrypted.capped_tags {
-            if let Some(AnonymousStream::Inbox { address_index }) = self.sources.get(&tag) {
-                self.report.addresses_under_attack.insert(*address_index);
+            if let Some(stream) = self.sources.get(&tag) {
+                self.report.capped_streams.insert(*stream);
             }
         }
+        self.capped_rings.extend(decrypted.capped_rings);
+        self.report.bad_pair_hints.extend(decrypted.bad_pair_hints);
         self.open_addresses();
     }
 

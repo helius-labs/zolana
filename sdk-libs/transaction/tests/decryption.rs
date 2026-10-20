@@ -11,7 +11,7 @@ use solana_signature::Signature;
 use zolana_event::{
     encode_merge_output_data, EncryptedRingDepositOutput, MergeOutputDataRef, OutputDataEncoding,
 };
-use zolana_keypair::{ShieldedAddress, ShieldedKeypair, ViewingKey, X25519Pubkey};
+use zolana_keypair::{PublicKey, ShieldedAddress, ShieldedKeypair, ViewingKey, X25519Pubkey};
 use zolana_transaction::{
     decrypt, decrypt_spendable,
     instructions::merge::{
@@ -21,15 +21,15 @@ use zolana_transaction::{
     owner_utxo_hash,
     serialization::{
         anonymous::{AnonymousRecipient, AnonymousRecipientEncode},
-        confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
+        confidential::{Confidential, ConfidentialEncode},
         plaintext::{PlaintextTransfer, TransferPlaintextUtxos},
         proofless::{Proofless, ProoflessEncode},
-        ring_anonymous::{RingAnonymous, RingAnonymousOutputPlaintext},
+        ring_anonymous::{ring_anonymous_message, RingAnonymousOutputPlaintext, RingAnonymousSlot},
     },
     verify_owned, verify_spendable, Address, AnonymousNote, AnonymousTagRoutes, AssetBalance,
     AssetRegistry, Balances, Data, DataRecord, DecryptLabel, DecryptRequest, DecryptionResult,
     DeriveRequest, EncryptedScheme, LocalShieldedKeys, Mint, OutputContext, OutputSlot, OwnerCx,
-    RingDepositPlaintext, RingTagRequest, ShieldedKeys, ShieldedTransaction,
+    PairHintError, RingDepositPlaintext, RingTagRequest, ShieldedKeys, ShieldedTransaction,
     SpendableDecryptionResult, TransactionError, TransactionKeyRequest, Utxo, UtxoSerialization,
     WalletUtxo, TRANSFER_PLAINTEXT,
 };
@@ -980,8 +980,58 @@ fn anonymous_ring_outputs_are_skipped_by_the_wallet_scan() {
 
 const RING: Address = Address::new_from_array([94; 32]);
 const INBOX_TAG: [u8; 32] = [0x51; 32];
+const UNREGISTERED_MINT: Address = Address::new_from_array([0xaa; 32]);
+const VECTOR: &str = include_str!("../../../test-vectors/anonymous_recipient_encryption.json");
 
-/// A scheme-9 note of `owner` sealed to `recipient` under `tag`.
+/// The sender's sealing of `note` toward `recipient` in slot `slot_index`.
+fn seal_anonymous(
+    note: &WalletUtxo,
+    recipient: X25519Pubkey,
+    tx: &ViewingKey,
+    pair_u: [u8; 32],
+    tag: [u8; 32],
+    slot_index: u32,
+) -> OutputSlot {
+    let body = RingAnonymousSlot {
+        tx_viewing_pk: tx.pubkey(),
+        recipient_pk: recipient,
+        salt: [7; 16],
+        slot: slot_index as u8,
+    }
+    .seal(
+        tx,
+        &RingAnonymousOutputPlaintext {
+            asset_address: note.utxo.asset.asset.to_bytes(),
+            amount: note.utxo.amount,
+            blinding: note.utxo.blinding,
+            pair_u,
+        },
+    )
+    .unwrap();
+    let mut slot = slot(note, ring_anonymous_message(&body, tag).unwrap().data);
+    slot.view_tag = tag;
+    slot
+}
+
+/// A scheme-9 note of `owner` in `mint` sealed to `recipient` under `tag`.
+fn anonymous_ring_note(
+    owner: &ShieldedKeypair,
+    mint: Mint,
+    recipient: X25519Pubkey,
+    tx: &ViewingKey,
+    tag: [u8; 32],
+    nonce: u8,
+    slot_index: u32,
+) -> (WalletUtxo, OutputSlot) {
+    let mut note = wallet_utxo(owner, mint, 17, 2, nonce);
+    note.utxo.ring_program_id = Some(RING);
+    note.slot_index = slot_index;
+    refresh_commitment(owner, &mut note);
+    let pair_u = keypair(nonce).viewing_pubkey().u();
+    let slot = seal_anonymous(&note, recipient, tx, pair_u, tag, slot_index);
+    (note, slot)
+}
+
 fn anonymous_ring_slot(
     owner: &ShieldedKeypair,
     recipient: X25519Pubkey,
@@ -989,26 +1039,7 @@ fn anonymous_ring_slot(
     tag: [u8; 32],
     nonce: u8,
 ) -> (WalletUtxo, OutputSlot) {
-    let mut note = wallet_utxo(owner, Mint::SOL, 17, 2, nonce);
-    note.utxo.ring_program_id = Some(RING);
-    refresh_commitment(owner, &mut note);
-    let message = RingAnonymous::encode_plaintext(
-        &RingAnonymousOutputPlaintext {
-            output: note.utxo.to_confidential_output_plaintext(),
-            pair_pk: keypair(nonce).viewing_pubkey(),
-        },
-        tag,
-        &ConfidentialEncode {
-            tx: tx.clone(),
-            recipient_pubkey: recipient,
-            salt: [7; 16],
-            slot_index: 0,
-        },
-    )
-    .unwrap();
-    let mut slot = slot(&note, message.data);
-    slot.view_tag = tag;
-    (note, slot)
+    anonymous_ring_note(owner, Mint::SOL, recipient, tx, tag, nonce, 0)
 }
 
 fn anonymous_ring_tx(
@@ -1019,7 +1050,84 @@ fn anonymous_ring_tx(
     let mut publication = publication(note, slots);
     publication.tx_viewing_pk = Some(tx.pubkey());
     publication.salt = Some([7; 16]);
+    publication.ring_program_id = Some(RING);
     publication
+}
+
+fn hex_bytes<const N: usize>(value: &serde_json::Value) -> [u8; N] {
+    let decoded = hex::decode(value.as_str().expect("hex string")).expect("hex");
+    decoded.try_into().expect("length")
+}
+
+/// The Go vector's real slot opens under the recipient's viewing key and its
+/// recomputed commitment is the statement's first output hash.
+#[test]
+fn anonymous_ring_output_opens_against_the_go_vector() {
+    let v: serde_json::Value = serde_json::from_str(VECTOR).unwrap();
+    let viewing = ViewingKey::from_bytes(&hex_bytes::<32>(&v["recipient_viewing_sk"]));
+    let identity = hex_bytes::<33>(&v["signing_identity"]);
+    let address = ShieldedAddress {
+        signing_pubkey: PublicKey::from_ed25519(&identity[1..].try_into().unwrap()),
+        nullifier_pubkey: hex_bytes::<32>(&v["nullifier_pk"]),
+        viewing_pubkey: viewing.pubkey(),
+    };
+    let keys =
+        LocalShieldedKeys::new(address, vec![viewing], keypair(1).nullifier_key.clone()).unwrap();
+    let tx_pk = X25519Pubkey::from_bytes(hex_bytes::<33>(&v["tx_pk"])).unwrap();
+    let ring = Address::new_from_array(hex_bytes::<32>(&v["ring_program_id"]));
+    let utxo_hash = hex_bytes::<32>(&v["statement"]["output_hashes"][0]);
+    // The Go statement commits the real note under tree 9.
+    let tree_id = 9;
+    let tx = ShieldedTransaction {
+        slot: 1,
+        tx_signature: Signature::from([1; 64]),
+        event_index: Some(0),
+        tx_viewing_pk: Some(tx_pk),
+        salt: Some(hex_bytes::<16>(&v["salt"])),
+        output_slots: vec![OutputSlot {
+            view_tag: INBOX_TAG,
+            output_context: OutputContext {
+                hash: utxo_hash,
+                tree_id,
+                leaf_index: 0,
+            },
+            payload: ring_anonymous_message(&hex_bytes::<105>(&v["body"]), INBOX_TAG)
+                .unwrap()
+                .data,
+        }],
+        messages: Vec::new(),
+        nullifiers: vec![[2; 32]],
+        proofless: false,
+        ring_config: None,
+        ring_program_id: Some(ring),
+    };
+    let mut routes = AnonymousTagRoutes::new();
+    routes.insert(INBOX_TAG, address.viewing_pubkey);
+    let mut decrypted = DecryptionResult::default();
+    let found = decrypted
+        .extend_ring_anonymous(&keys, &[tx], &AssetRegistry::default(), &routes)
+        .unwrap();
+    assert_eq!(found.notes.len(), 1);
+    assert_eq!(found.notes[0].utxo_hash, utxo_hash);
+    assert!(found.notes[0].pending);
+    // The vector's pair hint is a constant byte pattern, no curve point.
+    assert_eq!(found.notes[0].pair_pk, None);
+    assert_eq!(
+        found.bad_pair_hints,
+        [PairHintError {
+            utxo_hash,
+            pair_u: hex_bytes::<32>(&v["pair_u"]),
+        }]
+    );
+    let pending = &decrypted.pending_assets[0];
+    assert_eq!(
+        pending.asset_address.to_bytes(),
+        hex_bytes::<32>(&v["asset_address"])
+    );
+    assert_eq!(pending.amount, v["amount"].as_u64().unwrap());
+    assert_eq!(pending.blinding, hex_bytes::<32>(&v["blinding"]));
+    assert_eq!(pending.ring_program_id, ring);
+    assert_eq!(pending.tree_id, tree_id);
 }
 
 #[test]
@@ -1053,7 +1161,8 @@ fn anonymous_ring_outputs_open_only_under_the_key_their_tag_is_routed_to() {
         [AnonymousNote {
             view_tag: INBOX_TAG,
             utxo_hash: note.utxo_hash,
-            pair_pk: keypair(1).viewing_pubkey(),
+            pair_pk: Some(keypair(1).viewing_pubkey()),
+            pending: false,
         }]
     );
     assert_eq!(decrypted.utxos.len(), 1);
@@ -1063,6 +1172,7 @@ fn anonymous_ring_outputs_open_only_under_the_key_their_tag_is_routed_to() {
     assert_eq!(calls.len(), 1);
     assert_eq!(calls[0].len(), 1);
     assert_eq!(calls[0][0].viewing_pubkey, retired.pubkey());
+    assert_eq!(calls[0][0].label, DecryptLabel::RingAnonymous);
     drop(calls);
     assert_eq!(
         verify_spendable(&keys, &decrypted).unwrap().utxos().count(),
@@ -1115,15 +1225,17 @@ fn anonymous_ring_outputs_are_accepted_only_with_their_committed_hash() {
         .unwrap();
     assert!(found.notes.is_empty());
     assert!(decrypted.utxos.is_empty());
+    assert!(decrypted.pending_assets.is_empty());
 }
 
+/// Hits past the cap are left unopened and the tag and ring are reported.
 #[test]
 fn anonymous_ring_decryptions_are_capped_per_tag() {
     let owner = keypair(97);
     let tx_key = keypair(98).viewing_key;
     let spam = keypair(99).viewing_pubkey();
     let (first, first_slot) = anonymous_ring_slot(&owner, spam, &tx_key, INBOX_TAG, 3);
-    let (_, second_slot) = anonymous_ring_slot(&owner, spam, &tx_key, INBOX_TAG, 4);
+    let (_, second_slot) = anonymous_ring_note(&owner, Mint::SOL, spam, &tx_key, INBOX_TAG, 4, 1);
     let (real, real_slot) =
         anonymous_ring_slot(&owner, owner.viewing_pubkey(), &tx_key, INBOX_TAG, 5);
     let spam_tx = anonymous_ring_tx(&first, &tx_key, vec![first_slot, second_slot]);
@@ -1139,7 +1251,12 @@ fn anonymous_ring_decryptions_are_capped_per_tag() {
         .unwrap();
     assert!(found.notes.is_empty());
     assert_eq!(found.capped_tags, BTreeSet::from([INBOX_TAG]));
-    assert_eq!(keys.decrypt_calls.borrow().len(), 2);
+    assert_eq!(found.capped_rings, BTreeSet::from([RING]));
+    // One batch per transaction and key, both spam slots in it.
+    let calls = keys.decrypt_calls.borrow();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].len(), 2);
+    drop(calls);
 
     let unlimited = {
         let mut routes = AnonymousTagRoutes::new();
@@ -1153,64 +1270,179 @@ fn anonymous_ring_decryptions_are_capped_per_tag() {
     assert_eq!(found.notes.len(), 1);
     assert_eq!(found.notes[0].utxo_hash, real.utxo_hash);
     assert!(found.capped_tags.is_empty());
+    assert!(found.capped_rings.is_empty());
 }
 
+/// Every scheme-9 slot opens whatever its tag, one batch per transaction.
 #[test]
-fn anonymous_ring_spam_with_an_unknown_asset_is_a_failed_match_that_counts_toward_the_cap() {
+fn untagged_opening_finds_a_note_under_a_foreign_tag() {
+    let owner = keypair(102);
+    let tx_key = keypair(103).viewing_key;
+    let (note, slot) = anonymous_ring_slot(&owner, owner.viewing_pubkey(), &tx_key, [9; 32], 8);
+    let (other, other_slot) = anonymous_ring_note(
+        &owner,
+        Mint::SOL,
+        keypair(104).viewing_pubkey(),
+        &tx_key,
+        [8; 32],
+        9,
+        1,
+    );
+    let tx = anonymous_ring_tx(&note, &tx_key, vec![slot, other_slot]);
+    let keys = RecordingKeys::new(&owner);
+    let mut decrypted = DecryptionResult::default();
+    let found = decrypted
+        .extend_ring_anonymous_untagged(&keys, &[tx], &AssetRegistry::default())
+        .unwrap();
+    assert_eq!(found.notes.len(), 1);
+    assert_eq!(found.notes[0].utxo_hash, note.utxo_hash);
+    assert_ne!(found.notes[0].utxo_hash, other.utxo_hash);
+    let calls = keys.decrypt_calls.borrow();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].len(), 2);
+}
+
+/// The commitment decides before the asset id is looked up, the note waits.
+#[test]
+fn an_unknown_asset_keeps_the_verified_note_pending_until_registered() {
     let owner = keypair(100);
     let tx_key = keypair(101).viewing_key;
-    let (carrier, _) = anonymous_ring_slot(&owner, owner.viewing_pubkey(), &tx_key, INBOX_TAG, 6);
-    let message = RingAnonymous::encode_plaintext(
-        &RingAnonymousOutputPlaintext {
-            output: ConfidentialOutputPlaintext {
-                asset_id: 999_999,
-                amount: 1,
-                blinding: [6; 32],
-                ring_program_id: Some(RING),
-                data: Data::default(),
-            },
-            pair_pk: keypair(6).viewing_pubkey(),
-        },
+    let mint = Mint::new(UNREGISTERED_MINT, 0);
+    let (note, slot) = anonymous_ring_note(
+        &owner,
+        mint,
+        owner.viewing_pubkey(),
+        &tx_key,
         INBOX_TAG,
-        &ConfidentialEncode {
-            tx: tx_key.clone(),
-            recipient_pubkey: owner.viewing_pubkey(),
-            salt: [7; 16],
-            slot_index: 0,
-        },
-    )
-    .unwrap();
-    let mut spam_slot = slot(&carrier, message.data);
-    spam_slot.view_tag = INBOX_TAG;
-    let spam_tx = anonymous_ring_tx(&carrier, &tx_key, vec![spam_slot]);
-    let (real, real_slot) =
-        anonymous_ring_slot(&owner, owner.viewing_pubkey(), &tx_key, INBOX_TAG, 7);
-    let real_tx = anonymous_ring_tx(&real, &tx_key, vec![real_slot]);
-    let assets = AssetRegistry::default();
+        6,
+        0,
+    );
+    let tx = anonymous_ring_tx(&note, &tx_key, vec![slot]);
     let mut routes = AnonymousTagRoutes::new();
     routes.insert(INBOX_TAG, owner.viewing_pubkey());
     let mut decrypted = DecryptionResult::default();
     let found = decrypted
-        .extend_ring_anonymous(
-            &owner,
-            &[spam_tx.clone(), real_tx.clone()],
-            &assets,
-            &routes,
-        )
+        .extend_ring_anonymous(&owner, &[tx], &AssetRegistry::default(), &routes)
         .unwrap();
     assert_eq!(found.notes.len(), 1);
-    assert_eq!(found.notes[0].utxo_hash, real.utxo_hash);
-    assert!(decrypted.unknown_asset_ids.is_empty());
+    assert!(found.notes[0].pending);
+    assert!(decrypted.utxos.is_empty());
+    assert!(decrypted.unknown_mints.is_empty());
+    assert_eq!(decrypted.pending_assets.len(), 1);
+    let pending = &decrypted.pending_assets[0];
+    assert_eq!(pending.asset_address, UNREGISTERED_MINT);
+    assert_eq!(pending.utxo_hash, note.utxo_hash);
+    assert_eq!(pending.blinding, note.utxo.blinding);
+    assert_eq!(pending.owner, owner.signing_pubkey());
+    assert_eq!(pending.nullifier_pk, note.nullifier_pubkey);
 
-    let mut capped =
-        AnonymousTagRoutes::new().with_decryptions_per_tag(NonZeroUsize::new(1).unwrap());
-    capped.insert(INBOX_TAG, owner.viewing_pubkey());
+    // Still unknown, nothing moves.
+    assert!(decrypted
+        .resolve_pending(&owner, &AssetRegistry::default())
+        .unwrap()
+        .is_empty());
+    assert_eq!(decrypted.pending_assets.len(), 1);
+
+    let registered = AssetRegistry::new([(7, UNREGISTERED_MINT)]).unwrap();
+    let resolved = decrypted.resolve_pending(&owner, &registered).unwrap();
+    assert_eq!(resolved.len(), 1);
+    assert!(!resolved[0].spent);
+    assert_eq!(resolved[0].utxo.utxo.asset, Mint::new(UNREGISTERED_MINT, 7));
+    assert_eq!(resolved[0].utxo.nullifier, note.nullifier);
+    assert!(decrypted.pending_assets.is_empty());
+    let spendable = verify_spendable(&owner, &decrypted).unwrap();
+    assert_eq!(spendable.utxos().count(), 1);
+    assert!(spendable.pending_assets.is_empty());
+}
+
+#[test]
+fn a_pending_note_resolved_after_its_spend_is_reported_spent() {
+    let owner = keypair(105);
+    let tx_key = keypair(106).viewing_key;
+    let mint = Mint::new(UNREGISTERED_MINT, 0);
+    let (note, slot) = anonymous_ring_note(
+        &owner,
+        mint,
+        owner.viewing_pubkey(),
+        &tx_key,
+        INBOX_TAG,
+        10,
+        0,
+    );
+    let tx = anonymous_ring_tx(&note, &tx_key, vec![slot]);
+    let mut spend = publication(&note, vec![]);
+    spend.nullifiers = vec![note.nullifier];
+    let mut routes = AnonymousTagRoutes::new();
+    routes.insert(INBOX_TAG, owner.viewing_pubkey());
+    let mut decrypted = DecryptionResult::default();
+    decrypted
+        .extend_ring_anonymous(&owner, &[tx], &AssetRegistry::default(), &routes)
+        .unwrap();
+    decrypted
+        .extend(&owner, &[spend], &AssetRegistry::default())
+        .unwrap();
+    let registered = AssetRegistry::new([(7, UNREGISTERED_MINT)]).unwrap();
+    let resolved = decrypted.resolve_pending(&owner, &registered).unwrap();
+    assert_eq!(resolved.len(), 1);
+    assert!(resolved[0].spent);
+    let owned = verify_owned(&owner, &decrypted).unwrap();
+    assert_eq!(owned.utxos.len(), 1);
+    assert_eq!(owned.spent, HashSet::from([note.nullifier]));
+    assert_eq!(
+        verify_spendable(&owner, &decrypted)
+            .unwrap()
+            .utxos()
+            .count(),
+        0
+    );
+}
+
+/// `pair_u` is proven encrypted, not proven derived, a bad hint is a report.
+#[test]
+fn a_bad_pair_hint_is_reported_and_the_note_kept() {
+    let owner = keypair(107);
+    let tx_key = keypair(108).viewing_key;
+    let mut note = wallet_utxo(&owner, Mint::SOL, 17, 2, 11);
+    note.utxo.ring_program_id = Some(RING);
+    refresh_commitment(&owner, &mut note);
+    let slot = seal_anonymous(
+        &note,
+        owner.viewing_pubkey(),
+        &tx_key,
+        [0xff; 32],
+        INBOX_TAG,
+        0,
+    );
+    let tx = anonymous_ring_tx(&note, &tx_key, vec![slot]);
+    let mut routes = AnonymousTagRoutes::new();
+    routes.insert(INBOX_TAG, owner.viewing_pubkey());
     let mut decrypted = DecryptionResult::default();
     let found = decrypted
-        .extend_ring_anonymous(&owner, &[spam_tx, real_tx], &assets, &capped)
+        .extend_ring_anonymous(&owner, &[tx], &AssetRegistry::default(), &routes)
         .unwrap();
-    assert!(found.notes.is_empty());
-    assert_eq!(found.capped_tags, BTreeSet::from([INBOX_TAG]));
+    assert_eq!(
+        found.notes,
+        [AnonymousNote {
+            view_tag: INBOX_TAG,
+            utxo_hash: note.utxo_hash,
+            pair_pk: None,
+            pending: false,
+        }]
+    );
+    assert_eq!(
+        found.bad_pair_hints,
+        [PairHintError {
+            utxo_hash: note.utxo_hash,
+            pair_u: [0xff; 32],
+        }]
+    );
+    assert_eq!(
+        verify_spendable(&owner, &decrypted)
+            .unwrap()
+            .utxos()
+            .count(),
+        1
+    );
 }
 
 #[test]

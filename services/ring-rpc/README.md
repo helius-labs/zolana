@@ -54,7 +54,7 @@ Accepted nonces are held in process memory for the timestamp window. Run one pro
 
 `outputOpenings` carries the verified auditor disclosure for every output slot. Each entry contains its note fields and published tree context. The client checks their commitments. These openings remain available when recipient ciphertext is missing, corrupt or misleading.
 
-`outputs` carries optional recipient metadata. `undecryptableSlots` names recipient payloads that could not be opened or disagreed with the proved note. Neither field replaces `outputOpenings`. Unknown asset fields stay in the verified openings. The service attempts to resolve them from the asset registry without dropping the disclosure when a refresh fails.
+`outputs` carries optional recipient metadata. `payloadErrors` names each slot without an entry there and why, a frame, decrypt, commitment, asset or pair-hint failure. Neither field replaces `outputOpenings`. Unknown asset fields stay in the verified openings. The service attempts to resolve them from the asset registry without dropping the disclosure when a refresh fails.
 
 Mandatory auditor encryption is proved against the committed notes. Ordinary recipient ciphertext is not proved. Anonymous disclosure also reveals the checked sender, spent notes and recipients to the auditor. A malformed mandatory disclosure is reported as a skipped transaction with a reason. It cannot be presented as a successfully opened payment.
 

@@ -425,6 +425,15 @@ pub enum ClientError {
     #[error("indexer returned the cursor it was given; paging would not end")]
     IndexerCursorNotAdvanced,
 
+    #[error("ring {ring_program_id} history did not end within {pages} page(s)")]
+    RingHistoryPageLimit {
+        ring_program_id: Address,
+        pages: usize,
+    },
+
+    #[error("ring {ring_program_id} history page states no scan frontier")]
+    RingHistoryIncomplete { ring_program_id: Address },
+
     #[error("indexer did not reach slot {required} within {attempts} attempts; highest indexed slot is {indexed}")]
     IndexerNotCaughtUp {
         required: u64,

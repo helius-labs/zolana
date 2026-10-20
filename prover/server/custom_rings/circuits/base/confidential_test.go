@@ -18,8 +18,9 @@ func TestConfidentialAuditBindsDisclosureAndMode(t *testing.T) {
 	statement.Count = 2
 	statement.Outputs[0].Domain, statement.Outputs[0].Amount = 3, 100
 	full := keys.Circuit(t, statement)
+	// The confidential statement has no output body chain, the base assignment supplies the rest.
 	valid := base.CustomRingConfidentialCircuit{
-		PublicInputHash: full.PublicInputHash, PrivateTxHash: full.PrivateTxHash,
+		PublicInputHash: spptest.MustHashChain(t, keys.ChainElementsFor(t, statement)), PrivateTxHash: full.PrivateTxHash,
 		TxViewingSk: full.TxViewingSk, EphSk: full.EphSk, AuditorPk: full.AuditorPk,
 		Salt: full.Salt, NOut: full.NOut, Outputs: full.Outputs,
 	}

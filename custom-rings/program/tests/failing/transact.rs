@@ -7,17 +7,17 @@
 //! the recomputed public-input hash path is reached.
 
 use custom_ring_interface::CustomRingError;
-use custom_ring_interface::{tag, CustomRingProof, DisclosureShape, PlainGroth16Proof};
+use custom_ring_interface::{
+    anonymous_output_body, tag, CustomRingProof, DisclosureShape, PlainGroth16Proof,
+    ANONYMOUS_OUTPUT_BODY_LEN, ANONYMOUS_OUTPUT_PLAINTEXT_LEN,
+};
 use solana_account::Account;
 use solana_instruction::AccountMeta;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 use zolana_account_checks::AccountError;
 use zolana_interface::{
-    event::{
-        CONFIDENTIAL_ENCRYPTED_SCHEME_TAG, RING_ANONYMOUS_ENCRYPTED_SCHEME_TAG,
-        RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
-    },
+    event::{CONFIDENTIAL_ENCRYPTED_SCHEME_TAG, RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG},
     instruction::{
         instruction_data::transact::InputUtxo, CircuitId, MessageData, OwnerTag, TransactIxData,
         TransactOutput, TransactProof, TreeContext,
@@ -521,10 +521,24 @@ fn a_stale_policy_registry_index_without_key_escrow_is_rejected_exactly() {
     fixture.expect_err(&mollusk, custom(CustomRingError::StaleMemberRegistryRoot));
 }
 
-fn hidden_output() -> TransactOutput {
+/// The framed data of a scheme-9 body, `OutputDataEncoding::Encrypted`.
+fn framed(body: &[u8]) -> Vec<u8> {
+    let mut data = vec![1];
+    data.extend_from_slice(&(body.len() as u32).to_le_bytes());
+    data.extend_from_slice(body);
+    data
+}
+
+/// A scheme-9 slot, its tag starts with the zero byte every derived tag carries.
+fn hidden_output(seed: u8) -> TransactOutput {
+    let mut tag = [seed + 1; 32];
+    tag[0] = 0;
     TransactOutput {
-        owner_tag: OwnerTag::Inline([0; 32]),
-        ..encrypted_output(RING_ANONYMOUS_ENCRYPTED_SCHEME_TAG)
+        utxo_hash: [seed + 1; 32],
+        owner_tag: OwnerTag::Inline(tag),
+        data: Some(framed(&anonymous_output_body(
+            &[seed; ANONYMOUS_OUTPUT_PLAINTEXT_LEN],
+        ))),
     }
 }
 
@@ -543,7 +557,7 @@ fn anonymous_transact(inputs: u8, outputs: u8) -> TransactIxData {
             tree_index: 0,
         })
         .collect();
-    data.outputs = (0..outputs).map(|_| hidden_output()).collect();
+    data.outputs = (0..outputs).map(hidden_output).collect();
     data
 }
 
@@ -622,16 +636,111 @@ fn an_anonymous_exit_needs_a_published_owner() {
         .expect_err(&mollusk, custom(CustomRingError::UnsupportedOutputScheme));
 }
 
-/// An anonymous output's owner tag is its view tag, bound by the SPP proof.
+/// An anonymous output's owner tag is its view tag, inline, nonzero, zero first byte and
+/// unique among the scheme-9 slots.
 #[test]
-fn an_anonymous_output_view_tag_reaches_the_proof() {
+fn an_anonymous_output_tag_is_checked_before_the_proof() {
     let (mollusk, _) = setup_mollusk();
-    for (index, tag) in [(1, OwnerTag::Inline([5; 32])), (0, OwnerTag::Account(0))] {
+    let mut nonzero_first = [0; 32];
+    nonzero_first[0] = 5;
+    nonzero_first[1] = 5;
+    for tag in [
+        OwnerTag::Inline([0; 32]),
+        OwnerTag::Inline(nonzero_first),
+        OwnerTag::Account(0),
+    ] {
         let mut data = anonymous_transact(2, 2);
-        data.outputs[index].owner_tag = tag;
+        data.outputs[1].owner_tag = tag;
+        anonymous_fixture(data).expect_err(&mollusk, custom(CustomRingError::InvalidAnonymousTag));
+    }
+    let mut duplicate = anonymous_transact(2, 2);
+    duplicate.outputs[1].owner_tag = duplicate.outputs[0].owner_tag;
+    anonymous_fixture(duplicate)
+        .expect_err(&mollusk, custom(CustomRingError::DuplicateAnonymousTag));
+}
+
+/// Every scheme-9 slot carries one framed body length.
+#[test]
+fn an_anonymous_output_body_has_one_length_and_framing() {
+    let (mollusk, _) = setup_mollusk();
+    let body = anonymous_output_body(&[7; ANONYMOUS_OUTPUT_PLAINTEXT_LEN]);
+    for data in [
+        framed(&body[..ANONYMOUS_OUTPUT_BODY_LEN - 1]),
+        framed(&[body.as_slice(), &[7]].concat()),
+        framed(&body[..1]),
+    ] {
+        let mut transact = anonymous_transact(2, 2);
+        transact.outputs[1].data = Some(data);
+        anonymous_fixture(transact).expect_err(
+            &mollusk,
+            custom(CustomRingError::InvalidAnonymousOutputBody),
+        );
+    }
+    for data in [None, Some(body.to_vec())] {
+        let mut transact = anonymous_transact(2, 2);
+        transact.outputs[1].data = data;
+        anonymous_fixture(transact)
+            .expect_err(&mollusk, custom(CustomRingError::UnsupportedOutputScheme));
+    }
+}
+
+#[test]
+fn an_anonymous_transaction_publishes_every_slot_with_a_commitment() {
+    let (mollusk, _) = setup_mollusk();
+    let mut zero_hash = anonymous_transact(2, 2);
+    zero_hash.outputs[1].utxo_hash = [0; 32];
+    anonymous_fixture(zero_hash).expect_err(
+        &mollusk,
+        custom(CustomRingError::InvalidAnonymousOutputHash),
+    );
+    // Compact padding leaves a trailing slot out, the shape names four.
+    let mut compact = anonymous_transact(2, 4);
+    compact.outputs.pop();
+    anonymous_fixture(compact).expect_err(&mollusk, custom(CustomRingError::AnonymousOutputCount));
+    let mut extra = anonymous_transact(2, 2);
+    extra.outputs.push(hidden_output(9));
+    anonymous_fixture(extra).expect_err(&mollusk, custom(CustomRingError::AnonymousOutputCount));
+}
+
+/// The program parses a real body and a padding body alike, the shared vector supplies both.
+#[test]
+fn a_real_and_a_padding_slot_are_indistinguishable_to_the_program() {
+    let (mollusk, _) = setup_mollusk();
+    let vector: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../test-vectors/anonymous_recipient_encryption.json"
+    ))
+    .expect("vector");
+    let body = |value: &serde_json::Value| -> Vec<u8> {
+        hex::decode(value.as_str().expect("hex")).expect("hex")
+    };
+    let real = body(&vector["body"]);
+    let padding = body(&vector["statement"]["padding_body"]);
+    assert_eq!(real.len(), ANONYMOUS_OUTPUT_BODY_LEN);
+    assert_eq!(real.len(), padding.len());
+    assert_eq!(real[0], padding[0]);
+    for (first, second) in [(&real, &padding), (&padding, &real)] {
+        let mut data = anonymous_transact(2, 2);
+        data.outputs[0].data = Some(framed(first));
+        data.outputs[1].data = Some(framed(second));
+        assert_eq!(
+            data.outputs[0].data.as_ref().map(Vec::len),
+            data.outputs[1].data.as_ref().map(Vec::len)
+        );
+        assert!(data
+            .outputs
+            .iter()
+            .all(|output| matches!(output.owner_tag, OwnerTag::Inline(tag) if tag[0] == 0 && tag != [0; 32])));
+        assert!(data
+            .outputs
+            .iter()
+            .all(|output| output.utxo_hash != [0; 32]));
         anonymous_fixture(data)
             .expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
     }
+    let mut prefix = anonymous_transact(2, 2);
+    prefix.outputs.truncate(1);
+    prefix.outputs[0].data = Some(framed(&padding));
+    anonymous_fixture(prefix).expect_err(&mollusk, custom(CustomRingError::AnonymousOutputCount));
 }
 
 /// Any signer besides the payer would publish an owner the hidden rail hides.

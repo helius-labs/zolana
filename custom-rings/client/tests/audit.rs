@@ -39,13 +39,14 @@ use zolana_interface::{
 use zolana_keypair::{constants::SALT_LEN, ViewingKey, X25519Keypair, X25519Pubkey};
 use zolana_ring_client::{
     auditor_view_tag, AnonymousDisclosure, AnonymousOutputOpening, AuditError, AuditInputOpening,
-    AuditedOutput, AuditedTransaction, AuditorEncryption, RingOrigin, RingScan, TransactionAudit,
-    TransactionOrigin, AUDITOR_MESSAGE_LEN,
+    AuditedOutput, AuditedTransaction, AuditorEncryption, OutputPayloadError,
+    OutputPayloadErrorKind, RingOrigin, RingScan, TransactionAudit, TransactionOrigin,
+    AUDITOR_MESSAGE_LEN,
 };
 use zolana_transaction::{
     serialization::{
         confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
-        ring_anonymous::{RingAnonymous, RingAnonymousOutputPlaintext},
+        ring_anonymous::{ring_anonymous_message, RingAnonymousOutputPlaintext, RingAnonymousSlot},
     },
     AssetRegistry, Data, EncryptedScheme, OutputContext, OutputSlot, SppProofOutputUtxo,
     UtxoSerialization, SOL_ASSET_ID, SOL_MINT,
@@ -231,6 +232,14 @@ fn auditor_message_data(
     message
 }
 
+fn payload_error(slot_index: u32, kind: OutputPayloadErrorKind) -> OutputPayloadError {
+    OutputPayloadError { slot_index, kind }
+}
+
+fn error_slots(errors: &[OutputPayloadError]) -> Vec<u32> {
+    errors.iter().map(|error| error.slot_index).collect()
+}
+
 fn free_form_message() -> MessageData {
     MessageData {
         view_tag: [0x11; 32],
@@ -304,13 +313,21 @@ fn audit_returns_the_amounts_assets_and_blindings_that_were_encrypted() {
                 .collect(),
             output_openings: vec![proof_output(&sol_output, 0), proof_output(&token_output, 1),],
             anonymous: None,
-            undecryptable_slots: vec![],
+            payload_errors: vec![],
         }
     );
 }
 
-#[test]
-fn anonymous_audit_recovers_the_hidden_recipient_and_checks_the_commitment() {
+/// One real anonymous slot, the body sealed to `recipient` as the sender does.
+struct AnonymousFixture {
+    auditor: X25519Keypair,
+    recipient: ViewingKey,
+    opening: ProofInputUtxo,
+    disclosure: AnonymousDisclosure,
+    tx: ShieldedTransaction,
+}
+
+fn anonymous_fixture() -> AnonymousFixture {
     let auditor = X25519Keypair::new();
     let tx_key = ViewingKey::new();
     let recipient = ViewingKey::new();
@@ -321,34 +338,25 @@ fn anonymous_audit_recovers_the_hidden_recipient_and_checks_the_commitment() {
     tagged_key[1..].copy_from_slice(&owner_key);
     let identity = hash_bytes(&tagged_key).expect("owner identity");
     let owner_hash = Poseidon::hashv(&[&identity, &nullifier_pk]).expect("owner hash");
-    let plaintext = ConfidentialOutputPlaintext {
-        ring_program_id: Some(ring),
-        ..plaintext(SOL_ASSET_ID, 42, 8)
+    let note = RingAnonymousOutputPlaintext {
+        asset_address: SOL_MINT.to_bytes(),
+        amount: 42,
+        blinding: field(8),
+        pair_u: recipient.pubkey().u(),
     };
-    let opening = ProofInputUtxo::new(
-        owner_hash,
-        &SOL_MINT,
-        plaintext.amount,
-        &plaintext.blinding,
-        TREE_ID,
-    )
-    .expect("output opening")
-    .with_ring([0; 32], &Some(ring))
-    .expect("ring opening");
-    let message = RingAnonymous::encode_plaintext(
-        &RingAnonymousOutputPlaintext {
-            output: plaintext.clone(),
-            pair_pk: recipient.pubkey(),
-        },
-        recipient.pubkey().u(),
-        &ConfidentialEncode {
-            tx: tx_key.clone(),
-            recipient_pubkey: recipient.pubkey(),
-            salt: SALT,
-            slot_index: 0,
-        },
-    )
-    .expect("anonymous output");
+    let opening = ProofInputUtxo::new(owner_hash, &SOL_MINT, note.amount, &note.blinding, TREE_ID)
+        .expect("output opening")
+        .with_ring([0; 32], &Some(ring))
+        .expect("ring opening");
+    let body = RingAnonymousSlot {
+        tx_viewing_pk: tx_key.pubkey(),
+        recipient_pk: recipient.pubkey(),
+        salt: SALT,
+        slot: 0,
+    }
+    .seal(&tx_key, &note)
+    .expect("anonymous body");
+    let message = ring_anonymous_message(&body, recipient.pubkey().u()).expect("message");
     let slot = OutputSlot {
         view_tag: message.view_tag,
         output_context: output_context(&opening, 0),
@@ -360,56 +368,133 @@ fn anonymous_audit_recovers_the_hidden_recipient_and_checks_the_commitment() {
         outputs: vec![AnonymousOutputOpening {
             identity_tag: SOLANA_OWNER_TAG,
             identity_key: owner_key,
-            viewing_pk: *recipient.pubkey().as_bytes(),
             nullifier_pk,
-            amount: plaintext.amount,
-            asset: opening.asset,
-            blinding: plaintext.blinding,
-            data_hash: [0; 32],
-            ring_data_hash: [0; 32],
-            ring_note: 1,
+            viewing_pk: *recipient.pubkey().as_bytes(),
         }],
     };
     let sealed =
         AuditorEncryption::new_with_anonymous(&tx_key, &auditor.pubkey(), SALT, &disclosure)
             .expect("auditor capsule");
-    let mut tx = transaction(
+    let tx = transaction(
         &tx_key,
         vec![slot],
         vec![sealed.message.to_message_data(&auditor.pubkey())],
     );
-    let audit = |tx: &ShieldedTransaction| {
+    AnonymousFixture {
+        auditor,
+        recipient,
+        opening,
+        disclosure,
+        tx,
+    }
+}
+
+impl AnonymousFixture {
+    fn audit(&self, tx: &ShieldedTransaction) -> Result<AuditedTransaction, AuditError> {
         TransactionAudit {
-            auditor: &auditor,
+            auditor: &self.auditor,
             transaction: tx,
             assets: &registry(),
         }
         .run_with_mode(RingMode::Anonymous)
-    };
-    let audited = audit(&tx).expect("anonymous audit");
-    assert_eq!(audited.output_openings, vec![opening]);
-    assert_eq!(audited.outputs.len(), 1);
-    assert_eq!(audited.outputs[0].recipient_viewing_pk, recipient.pubkey());
-    assert_eq!(audited.outputs[0].owner_tag, owner_key);
-    assert_eq!(audited.outputs[0].amount, 42);
-    assert_eq!(audited.undecryptable_slots, Vec::<u32>::new());
-    assert_eq!(audited.anonymous, Some(disclosure));
+    }
+
+    /// Flips `mask` into ciphertext byte `index` of slot 0, past the scheme byte.
+    fn tamper_body(&self, index: usize, mask: u8) -> ShieldedTransaction {
+        let mut tx = self.tx.clone();
+        let OutputDataEncoding::Encrypted(mut blob) =
+            OutputDataEncoding::try_from_slice(&tx.output_slots[0].payload).expect("encrypted")
+        else {
+            panic!("encrypted output")
+        };
+        blob[1 + index] ^= mask;
+        tx.output_slots[0].payload =
+            borsh::to_vec(&OutputDataEncoding::Encrypted(blob)).expect("payload");
+        tx
+    }
+}
+
+#[test]
+fn anonymous_audit_opens_the_note_from_the_proven_body() {
+    let fixture = anonymous_fixture();
+    let audited = fixture.audit(&fixture.tx).expect("anonymous audit");
+    assert_eq!(audited.output_openings, vec![fixture.opening.clone()]);
+    assert_eq!(
+        audited.outputs,
+        vec![AuditedOutput {
+            slot_index: 0,
+            recipient_viewing_pk: fixture.recipient.pubkey(),
+            owner_tag: [4u8; 32],
+            asset: SOL_MINT,
+            amount: 42,
+            blinding: Zeroizing::new(field(8)),
+            ring_program_id: Some(Address::new_from_array([9u8; 32])),
+            data: Data::default(),
+        }]
+    );
+    assert_eq!(audited.payload_errors, vec![]);
+    assert_eq!(audited.anonymous, Some(fixture.disclosure.clone()));
 
     // The regular layout never parses an anonymous disclosure.
     assert!(matches!(
         TransactionAudit {
-            auditor: &auditor,
-            transaction: &tx,
+            auditor: &fixture.auditor,
+            transaction: &fixture.tx,
             assets: &registry(),
         }
         .run(),
         Err(AuditError::MessageLength(_))
     ));
-    tx.output_slots[0].output_context.hash[0] ^= 1;
-    assert!(matches!(
-        audit(&tx),
-        Err(AuditError::OutputCommitmentMismatch(0))
-    ));
+}
+
+/// A body of another note, or a slot whose commitment was swapped, loses its
+/// opening and nothing else: the recipient trace stays.
+#[test]
+fn a_tampered_anonymous_body_is_a_payload_error_with_the_trace_intact() {
+    let fixture = anonymous_fixture();
+    // Asset address byte zero, the opening still parses and hashes elsewhere.
+    let tampered = fixture.tamper_body(0, 1);
+    let audited = fixture.audit(&tampered).expect("tamper is not fatal");
+    assert_eq!(
+        audited.payload_errors,
+        vec![payload_error(0, OutputPayloadErrorKind::Commitment)]
+    );
+    assert_eq!(audited.output_openings, vec![ProofInputUtxo::default()]);
+    assert!(audited.outputs.is_empty());
+    assert_eq!(audited.anonymous, Some(fixture.disclosure.clone()));
+
+    // Blinding byte zero, the opened alias sits above the modulus.
+    let tampered = fixture.tamper_body(40, 0xff);
+    let audited = fixture.audit(&tampered).expect("tamper is not fatal");
+    assert_eq!(
+        audited.payload_errors,
+        vec![payload_error(0, OutputPayloadErrorKind::Decrypt)]
+    );
+    assert_eq!(audited.anonymous, Some(fixture.disclosure.clone()));
+
+    let mut swapped = fixture.tx.clone();
+    swapped.output_slots[0].output_context.hash[0] ^= 1;
+    let audited = fixture.audit(&swapped).expect("mismatch is not fatal");
+    assert_eq!(
+        audited.payload_errors,
+        vec![payload_error(0, OutputPayloadErrorKind::Commitment)]
+    );
+    assert_eq!(audited.anonymous, Some(fixture.disclosure));
+}
+
+/// A pair hint that is no curve point is reported and the output is kept.
+#[test]
+fn a_bad_anonymous_pair_hint_keeps_the_output() {
+    let fixture = anonymous_fixture();
+    // The top bit of the little-endian u coordinate, set only above the field.
+    let tx = fixture.tamper_body(103, 0x80);
+    let audited = fixture.audit(&tx).expect("pair hint is not fatal");
+    assert_eq!(
+        audited.payload_errors,
+        vec![payload_error(0, OutputPayloadErrorKind::PairHint)]
+    );
+    assert_eq!(audited.outputs.len(), 1);
+    assert_eq!(audited.output_openings, vec![fixture.opening.clone()]);
 }
 
 #[test]
@@ -483,7 +568,7 @@ fn dummy_and_foreign_slots_are_reported_not_fatal() {
     .run()
     .expect("audit");
     assert_eq!(
-        (audited.outputs, audited.undecryptable_slots),
+        (audited.outputs, audited.payload_errors),
         (
             vec![
                 AuditedOutput {
@@ -507,7 +592,10 @@ fn dummy_and_foreign_slots_are_reported_not_fatal() {
                     data: Data::default(),
                 },
             ],
-            vec![1, 3]
+            vec![
+                payload_error(1, OutputPayloadErrorKind::Frame),
+                payload_error(3, OutputPayloadErrorKind::Frame),
+            ]
         )
     );
 }
@@ -539,8 +627,11 @@ fn slot_encrypted_at_another_index_does_not_decrypt() {
     .run()
     .expect("audit");
     assert_eq!(
-        (audited.outputs, audited.undecryptable_slots),
-        (vec![], vec![0])
+        (audited.outputs, audited.payload_errors),
+        (
+            vec![],
+            vec![payload_error(0, OutputPayloadErrorKind::Decrypt)]
+        )
     );
 }
 
@@ -766,7 +857,10 @@ fn unknown_asset_keeps_the_authoritative_opening() {
     .unwrap();
     assert!(audit.outputs.is_empty());
     assert_eq!(audit.output_openings, vec![proof_output(&output, 0)]);
-    assert_eq!(audit.undecryptable_slots, vec![0]);
+    assert_eq!(
+        audit.payload_errors,
+        vec![payload_error(0, OutputPayloadErrorKind::Asset)]
+    );
 }
 
 #[test]
@@ -827,7 +921,7 @@ fn recipient_delivery_cannot_erase_or_replace_verified_disclosure() {
         );
         assert_eq!(audited.outputs.len(), 1);
         assert_eq!(audited.outputs[0].slot_index, 1);
-        assert_eq!(audited.undecryptable_slots, vec![0]);
+        assert_eq!(error_slots(&audited.payload_errors), vec![0]);
         let wire =
             zolana_ring_client::rpc::DecryptedTransaction::new(audited, 0, vec![], vec![], vec![]);
         assert_eq!(wire.output_openings.len(), 2);

@@ -4,30 +4,30 @@ use std::{
 };
 
 use borsh::BorshDeserialize;
+use custom_ring_interface::ANONYMOUS_OUTPUT_PLAINTEXT_LEN;
 use solana_address::Address;
+use solana_signature::Signature;
 use zolana_event::{split_merge_output_body, EncryptedRingDepositOutput, OutputDataEncoding};
 use zolana_keypair::{
-    shielded::ShieldedAddress, viewing_key::ViewTag, x25519::X25519_PUBKEY_LEN, KeypairError,
-    X25519Pubkey,
+    shielded::ShieldedAddress,
+    viewing_key::{Salt, ViewTag},
+    x25519::X25519_PUBKEY_LEN,
+    KeypairError, PublicKey, X25519Pubkey,
 };
 
 use crate::{
     asset::{AssetBalance, AssetRegistry, Balances, Mint},
+    data::Data,
     error::TransactionError,
     indexer_types::{OutputSlot, ShieldedTransaction},
     instructions::merge::MergeOutputPlaintext,
     keys::{DecryptLabel, DecryptRequest, DeriveRequest, ShieldedKeys},
     serialization::{
-        anonymous::AnonymousRecipient,
-        confidential::Confidential,
-        plaintext::PlaintextTransfer,
-        proofless::Proofless,
-        ring_anonymous::{RingAnonymousOutput, RingAnonymousOutputPlaintext},
-        ring_deposit::RingDepositPlaintext,
-        scheme::EncryptedScheme,
-        OwnerCx, UtxoSerialization,
+        anonymous::AnonymousRecipient, confidential::Confidential, plaintext::PlaintextTransfer,
+        proofless::Proofless, ring_anonymous::RingAnonymousOutputPlaintext,
+        ring_deposit::RingDepositPlaintext, scheme::EncryptedScheme, OwnerCx, UtxoSerialization,
     },
-    utxo::{owner_utxo_hash, Utxo, WalletUtxo},
+    utxo::{owner_utxo_hash, Blinding, Utxo, WalletUtxo},
 };
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -43,6 +43,9 @@ pub struct DecryptionResult {
     /// asset registry has no id for. Those outputs are left out. Register the
     /// mints and decrypt again.
     pub unknown_mints: BTreeSet<Address>,
+    /// Anonymous ring notes whose commitment matched in a mint the registry has
+    /// no id for, [`Self::resolve_pending`] admits them without a rescan.
+    pub pending_assets: Vec<PendingNote>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -53,6 +56,64 @@ pub struct SpendableDecryptionResult {
     pub unknown_asset_ids: BTreeSet<u64>,
     /// As on [`DecryptionResult`].
     pub unknown_mints: BTreeSet<Address>,
+    /// As on [`DecryptionResult`].
+    pub pending_assets: Vec<PendingNote>,
+}
+
+/// A commitment-verified anonymous ring note held back until its mint is registered.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PendingNote {
+    pub asset_address: Address,
+    pub amount: u64,
+    pub blinding: Blinding,
+    pub owner: PublicKey,
+    pub nullifier_pk: [u8; 32],
+    pub ring_program_id: Address,
+    pub utxo_hash: [u8; 32],
+    pub tree_id: u16,
+    pub leaf_index: u64,
+    pub slot: u64,
+    pub tx_signature: Signature,
+    pub slot_index: u32,
+}
+
+impl PendingNote {
+    /// `None` while the registry still lacks the mint.
+    pub fn resolve(&self, assets: &AssetRegistry) -> Result<Option<WalletUtxo>, TransactionError> {
+        let asset = match assets.mint(&self.asset_address) {
+            Ok(asset) => asset,
+            Err(TransactionError::UnknownMint(_)) => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        Ok(Some(WalletUtxo {
+            utxo: Utxo {
+                owner: self.owner,
+                asset,
+                amount: self.amount,
+                blinding: self.blinding,
+                ring_program_id: Some(self.ring_program_id),
+                data: Data::default(),
+            },
+            nullifier_pubkey: self.nullifier_pk,
+            utxo_hash: self.utxo_hash,
+            nullifier: [0; 32],
+            data_hash: None,
+            ring_data_hash: None,
+            tree_id: self.tree_id,
+            leaf_index: self.leaf_index,
+            slot: self.slot,
+            tx_signature: self.tx_signature,
+            slot_index: self.slot_index,
+        }))
+    }
+}
+
+/// A pending note admitted by [`DecryptionResult::resolve_pending`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResolvedNote {
+    pub utxo: WalletUtxo,
+    /// Its nullifier was among the spent ones before it was admitted.
+    pub spent: bool,
 }
 
 impl SpendableDecryptionResult {
@@ -117,7 +178,17 @@ impl AnonymousTagRoutes {
 pub struct AnonymousNote {
     pub view_tag: ViewTag,
     pub utxo_hash: [u8; 32],
-    pub pair_pk: X25519Pubkey,
+    /// `None` when the body's pair hint is no curve point, the note stays.
+    pub pair_pk: Option<X25519Pubkey>,
+    /// Held in `pending_assets` until its mint is registered.
+    pub pending: bool,
+}
+
+/// A verified note whose `pair_u` names no X25519 point, the note itself is kept.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PairHintError {
+    pub utxo_hash: [u8; 32],
+    pub pair_u: [u8; 32],
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -125,6 +196,9 @@ pub struct AnonymousDecryption {
     pub notes: Vec<AnonymousNote>,
     /// Tags with more outputs than the routes open.
     pub capped_tags: BTreeSet<ViewTag>,
+    /// Rings a capped tag was published in, the recovery scan covers them.
+    pub capped_rings: BTreeSet<Address>,
+    pub bad_pair_hints: Vec<PairHintError>,
 }
 
 /// Decrypts and verifies notes against the supplied transactions.
@@ -205,7 +279,8 @@ impl DecryptionResult {
         )
     }
 
-    /// A routed scheme-9 output is kept only when its recomputed commitment matches the published hash.
+    /// A routed scheme-9 output is kept only on commitment equality, hits past
+    /// the per-tag cap stay unopened and name their tag and ring for the recovery scan.
     pub fn extend_ring_anonymous<K: ShieldedKeys + ?Sized>(
         &mut self,
         shielded_keys: &K,
@@ -213,43 +288,217 @@ impl DecryptionResult {
         assets: &AssetRegistry,
         routes: &AnonymousTagRoutes,
     ) -> Result<AnonymousDecryption, TransactionError> {
-        let address = shielded_keys.address()?;
-        let mut found = Vec::new();
         let mut decryption = AnonymousDecryption::default();
         let mut opened: HashMap<ViewTag, usize> = HashMap::new();
+        let mut sites = Vec::new();
         for tx in transactions {
+            let Some(context) = AnonymousTx::new(tx) else {
+                continue;
+            };
+            let mut by_key: HashMap<X25519Pubkey, Vec<AnonymousSlot<'_>>> = HashMap::new();
             for (position, slot) in tx.output_slots.iter().enumerate() {
                 let Some(viewing_pubkey) = routes.viewing_pubkey(&slot.view_tag) else {
                     continue;
                 };
-                let Some(body) = slot.encrypted_body(EncryptedScheme::RingAnonymous) else {
+                let Some(candidate) = AnonymousSlot::new(slot, position)? else {
                     continue;
                 };
                 let count = opened.entry(slot.view_tag).or_default();
                 if !routes.allows(*count) {
                     decryption.capped_tags.insert(slot.view_tag);
+                    decryption.capped_rings.insert(context.ring);
                     continue;
                 }
                 *count += 1;
-                let slot_index =
-                    u32::try_from(position).map_err(|_| TransactionError::TooManyOutputs)?;
-                let site = Site {
-                    address: &address,
-                    tx,
-                    slot,
-                    slot_index,
-                };
-                let Some(output) =
-                    site.decode_ring_anonymous(shielded_keys, &body, assets, viewing_pubkey)?
+                by_key.entry(viewing_pubkey).or_default().push(candidate);
+            }
+            sites.extend(by_key.into_iter().map(|(viewing_pubkey, slots)| OpenSite {
+                tx,
+                context,
+                viewing_pubkey,
+                slots,
+            }));
+        }
+        self.open_anonymous(shielded_keys, assets, transactions, sites, &mut decryption)?;
+        Ok(decryption)
+    }
+
+    /// Every scheme-9 slot of `transactions` under every held viewing key
+    /// whatever its tag, one key agreement per transaction and key.
+    pub fn extend_ring_anonymous_untagged<K: ShieldedKeys + ?Sized>(
+        &mut self,
+        shielded_keys: &K,
+        transactions: &[ShieldedTransaction],
+        assets: &AssetRegistry,
+    ) -> Result<AnonymousDecryption, TransactionError> {
+        let viewing_pubkeys = shielded_keys.viewing_public_keys();
+        let mut decryption = AnonymousDecryption::default();
+        let mut sites = Vec::new();
+        for tx in transactions {
+            let Some(context) = AnonymousTx::new(tx) else {
+                continue;
+            };
+            let slots = tx
+                .output_slots
+                .iter()
+                .enumerate()
+                .filter_map(|(position, slot)| AnonymousSlot::new(slot, position).transpose())
+                .collect::<Result<Vec<_>, _>>()?;
+            if slots.is_empty() {
+                continue;
+            }
+            sites.extend(viewing_pubkeys.iter().map(|&viewing_pubkey| OpenSite {
+                tx,
+                context,
+                viewing_pubkey,
+                slots: slots.clone(),
+            }));
+        }
+        self.open_anonymous(shielded_keys, assets, transactions, sites, &mut decryption)?;
+        Ok(decryption)
+    }
+
+    /// Admits every pending note the registry now resolves, each one's spent
+    /// state read before it joins `utxos`.
+    pub fn resolve_pending<K: ShieldedKeys + ?Sized>(
+        &mut self,
+        shielded_keys: &K,
+        assets: &AssetRegistry,
+    ) -> Result<Vec<ResolvedNote>, TransactionError> {
+        let mut admitted = Vec::new();
+        let mut pending = Vec::new();
+        for note in std::mem::take(&mut self.pending_assets) {
+            match note.resolve(assets)? {
+                Some(utxo) => admitted.push(utxo),
+                None => pending.push(note),
+            }
+        }
+        self.pending_assets = pending;
+        assign_nullifiers(shielded_keys, &mut admitted)?;
+        let resolved: Vec<ResolvedNote> = admitted
+            .into_iter()
+            .map(|utxo| ResolvedNote {
+                spent: self.spent_nullifiers.contains(&utxo.nullifier),
+                utxo,
+            })
+            .collect();
+        self.utxos
+            .extend(resolved.iter().map(|note| note.utxo.clone()));
+        sort_by_publication(&mut self.utxos);
+        Ok(resolved)
+    }
+
+    /// One batch per site and acceptance on commitment equality before the asset
+    /// id is looked up, the commitment binds the wallet's keys, the public ring
+    /// and the on-chain tree id.
+    fn open_anonymous<K: ShieldedKeys + ?Sized>(
+        &mut self,
+        shielded_keys: &K,
+        assets: &AssetRegistry,
+        transactions: &[ShieldedTransaction],
+        sites: Vec<OpenSite<'_>>,
+        decryption: &mut AnonymousDecryption,
+    ) -> Result<(), TransactionError> {
+        let address = shielded_keys.address()?;
+        let mut found = Vec::new();
+        let mut pending = Vec::new();
+        for site in &sites {
+            let requests: Vec<DecryptRequest<'_>> = site
+                .slots
+                .iter()
+                .map(|slot| DecryptRequest {
+                    ciphertext: &slot.ciphertext,
+                    viewing_pubkey: site.viewing_pubkey,
+                    tx_viewing_pubkey: site.context.tx_viewing_pubkey,
+                    salt: site.context.salt,
+                    slot_index: slot.slot_index,
+                    label: DecryptLabel::RingAnonymous,
+                })
+                .collect();
+            let Some(plaintexts) = trial_decrypt(shielded_keys, &requests)? else {
+                continue;
+            };
+            for (slot, plaintext) in site.slots.iter().zip(plaintexts) {
+                let Some(opening) =
+                    <&[u8; ANONYMOUS_OUTPUT_PLAINTEXT_LEN]>::try_from(plaintext.as_slice())
+                        .ok()
+                        .and_then(|bytes| RingAnonymousOutputPlaintext::from_bytes(bytes).ok())
                 else {
                     continue;
                 };
+                let asset_address = Address::new_from_array(opening.asset_address);
+                let utxo = Utxo {
+                    owner: address.signing_pubkey,
+                    asset: Mint::new(asset_address, 0),
+                    amount: opening.amount,
+                    blinding: opening.blinding,
+                    ring_program_id: Some(site.context.ring),
+                    data: Data::default(),
+                };
+                let context = &slot.slot.output_context;
+                if utxo.hash(
+                    &address.nullifier_pubkey,
+                    &[0; 32],
+                    &[0; 32],
+                    context.tree_id,
+                )? != context.hash
+                {
+                    continue;
+                }
+                let pair_pk = X25519Pubkey::from_u(opening.pair_u).ok();
+                if pair_pk.is_none() {
+                    decryption.bad_pair_hints.push(PairHintError {
+                        utxo_hash: context.hash,
+                        pair_u: opening.pair_u,
+                    });
+                }
+                let published = Site {
+                    address: &address,
+                    tx: site.tx,
+                    slot: slot.slot,
+                    slot_index: slot.slot_index,
+                };
+                let mut wallet_utxo = published.wallet_utxo(utxo, None, None);
+                let is_pending = match assets.mint(&asset_address) {
+                    Ok(asset) => {
+                        wallet_utxo.utxo.asset = asset;
+                        found.push(wallet_utxo);
+                        false
+                    }
+                    Err(TransactionError::UnknownMint(_)) => {
+                        pending.push(PendingNote {
+                            asset_address,
+                            amount: opening.amount,
+                            blinding: opening.blinding,
+                            owner: address.signing_pubkey,
+                            nullifier_pk: address.nullifier_pubkey,
+                            ring_program_id: site.context.ring,
+                            utxo_hash: context.hash,
+                            tree_id: context.tree_id,
+                            leaf_index: context.leaf_index,
+                            slot: site.tx.slot,
+                            tx_signature: site.tx.tx_signature,
+                            slot_index: slot.slot_index,
+                        });
+                        true
+                    }
+                    Err(error) => return Err(error),
+                };
                 decryption.notes.push(AnonymousNote {
-                    view_tag: slot.view_tag,
-                    utxo_hash: slot.output_context.hash,
-                    pair_pk: output.pair_pk,
+                    view_tag: slot.slot.view_tag,
+                    utxo_hash: context.hash,
+                    pair_pk,
+                    pending: is_pending,
                 });
-                found.push(site.wallet_utxo(output.utxo, None, None));
+            }
+        }
+        for note in pending {
+            if !self
+                .pending_assets
+                .iter()
+                .any(|held| held.utxo_hash == note.utxo_hash)
+            {
+                self.pending_assets.push(note);
             }
         }
         self.absorb(
@@ -258,8 +507,7 @@ impl DecryptionResult {
             transactions,
             BTreeSet::new(),
             BTreeSet::new(),
-        )?;
-        Ok(decryption)
+        )
     }
 
     fn absorb<K: ShieldedKeys + ?Sized>(
@@ -273,13 +521,7 @@ impl DecryptionResult {
         assign_nullifiers(shielded_keys, &mut found)?;
         let mut utxos = self.utxos.clone();
         utxos.extend(found);
-        utxos.sort_by_key(|utxo| {
-            (
-                utxo.slot,
-                utxo.tx_signature.as_ref().to_vec(),
-                utxo.slot_index,
-            )
-        });
+        sort_by_publication(&mut utxos);
         self.utxos = utxos;
         self.spent_nullifiers.extend(
             transactions
@@ -290,6 +532,66 @@ impl DecryptionResult {
         self.unknown_mints.extend(unknown_mints);
         Ok(())
     }
+}
+
+fn sort_by_publication(utxos: &mut [WalletUtxo]) {
+    utxos.sort_by_key(|utxo| {
+        (
+            utxo.slot,
+            utxo.tx_signature.as_ref().to_vec(),
+            utxo.slot_index,
+        )
+    });
+}
+
+/// The public values every scheme-9 slot of one transaction is keyed by.
+#[derive(Clone, Copy)]
+struct AnonymousTx {
+    tx_viewing_pubkey: X25519Pubkey,
+    salt: Salt,
+    ring: Address,
+}
+
+impl AnonymousTx {
+    fn new(tx: &ShieldedTransaction) -> Option<Self> {
+        Some(Self {
+            tx_viewing_pubkey: tx.tx_viewing_pk?,
+            salt: tx.salt?,
+            ring: tx.ring_program_id?,
+        })
+    }
+}
+
+/// A slot carrying exactly the scheme-9 body length, the only shape the ring program admits.
+#[derive(Clone, Copy)]
+struct AnonymousSlot<'a> {
+    slot: &'a OutputSlot,
+    slot_index: u32,
+    ciphertext: [u8; ANONYMOUS_OUTPUT_PLAINTEXT_LEN],
+}
+
+impl<'a> AnonymousSlot<'a> {
+    fn new(slot: &'a OutputSlot, position: usize) -> Result<Option<Self>, TransactionError> {
+        let Some(body) = slot.encrypted_body(EncryptedScheme::RingAnonymous) else {
+            return Ok(None);
+        };
+        let Ok(ciphertext) = <[u8; ANONYMOUS_OUTPUT_PLAINTEXT_LEN]>::try_from(body) else {
+            return Ok(None);
+        };
+        Ok(Some(Self {
+            slot,
+            slot_index: u32::try_from(position).map_err(|_| TransactionError::TooManyOutputs)?,
+            ciphertext,
+        }))
+    }
+}
+
+/// The slots of one transaction opened under one viewing key.
+struct OpenSite<'a> {
+    tx: &'a ShieldedTransaction,
+    context: AnonymousTx,
+    viewing_pubkey: X25519Pubkey,
+    slots: Vec<AnonymousSlot<'a>>,
 }
 
 #[derive(Clone, Copy)]
@@ -321,53 +623,6 @@ impl Site<'_> {
             slot_index: self.slot_index,
         }
     }
-
-    /// Unauthenticated cipher, only the commitment recompute proves the routed key sealed the output.
-    /// An unknown asset is a failed match, spam under a public tag never stalls a sync.
-    fn decode_ring_anonymous<K: ShieldedKeys + ?Sized>(
-        &self,
-        shielded_keys: &K,
-        body: &[u8],
-        assets: &AssetRegistry,
-        viewing_pubkey: X25519Pubkey,
-    ) -> Result<Option<RingAnonymousOutput>, TransactionError> {
-        let (Some(tx_viewing_pubkey), Some(salt)) = (self.tx.tx_viewing_pk, self.tx.salt) else {
-            return Ok(None);
-        };
-        let request = DecryptRequest {
-            ciphertext: body,
-            viewing_pubkey,
-            tx_viewing_pubkey,
-            salt,
-            slot_index: self.slot_index,
-            label: DecryptLabel::Utxo,
-        };
-        let Some(plaintexts) = trial_decrypt(shielded_keys, &[request])? else {
-            return Ok(None);
-        };
-        let Some(plaintext) = plaintexts
-            .first()
-            .and_then(|bytes| RingAnonymousOutputPlaintext::deserialize(bytes).ok())
-        else {
-            return Ok(None);
-        };
-        let output = match plaintext.into_output(self.address.signing_pubkey, assets) {
-            Ok(output) => output,
-            Err(TransactionError::UnknownAsset(_)) => return Ok(None),
-            Err(error) => return Err(error),
-        };
-        let context = &self.slot.output_context;
-        let hash = output
-            .utxo
-            .hash(
-                &self.address.nullifier_pubkey,
-                &[0; 32],
-                &[0; 32],
-                context.tree_id,
-            )
-            .ok();
-        Ok((hash == Some(context.hash)).then_some(output))
-    }
 }
 
 /// Skips unresolved, mismatched and spent notes; spend status covers the supplied batch.
@@ -390,6 +645,8 @@ pub struct OwnedUtxos {
     pub unknown_asset_ids: BTreeSet<u64>,
     /// As on [`DecryptionResult`].
     pub unknown_mints: BTreeSet<Address>,
+    /// As on [`DecryptionResult`].
+    pub pending_assets: Vec<PendingNote>,
 }
 
 impl OwnedUtxos {
@@ -432,19 +689,14 @@ impl OwnedUtxos {
             .map(|balance| &mut balance.utxos)
             .chain(std::iter::once(&mut utxos_with_data))
         {
-            utxos.sort_by_key(|utxo| {
-                (
-                    utxo.slot,
-                    utxo.tx_signature.as_ref().to_vec(),
-                    utxo.slot_index,
-                )
-            });
+            sort_by_publication(utxos);
         }
         SpendableDecryptionResult {
             balances: Balances { assets: balances },
             utxos_with_data,
             unknown_asset_ids: self.unknown_asset_ids.clone(),
             unknown_mints: self.unknown_mints.clone(),
+            pending_assets: self.pending_assets.clone(),
         }
     }
 }
@@ -492,6 +744,7 @@ pub fn verify_owned<K: ShieldedKeys + ?Sized>(
         spent,
         unknown_asset_ids: decrypted.unknown_asset_ids.clone(),
         unknown_mints: decrypted.unknown_mints.clone(),
+        pending_assets: decrypted.pending_assets.clone(),
     })
 }
 

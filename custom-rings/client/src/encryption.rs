@@ -120,35 +120,27 @@ pub struct AuditInputOpening {
     pub blinding: [u8; 32],
 }
 
-/// The owner identity and note an anonymous output discloses, all zero for a dummy.
+/// The address an anonymous output discloses, all zero for a padding slot, the
+/// auditor reads the note from the proven body under its viewing key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AnonymousOutputOpening {
     pub identity_tag: u8,
     pub identity_key: [u8; 32],
+    pub nullifier_pk: [u8; 32],
     /// The published slot omits the recipient key, only the auditor reads it.
     pub viewing_pk: [u8; TAGGED_X25519_KEY_LEN],
-    pub nullifier_pk: [u8; 32],
-    pub amount: u64,
-    pub asset: [u8; 32],
-    pub blinding: [u8; 32],
-    pub data_hash: [u8; 32],
-    pub ring_data_hash: [u8; 32],
-    pub ring_note: u8,
 }
+
+/// `identity_tag(1) || identity_key(32) || nullifier_pk(32) || viewing_pk(33)` inside a slot.
+const DISCLOSURE_OUTPUT_FIELDS_LEN: usize = 98;
 
 impl Default for AnonymousOutputOpening {
     fn default() -> Self {
         Self {
             identity_tag: 0,
             identity_key: [0; 32],
-            viewing_pk: [0; TAGGED_X25519_KEY_LEN],
             nullifier_pk: [0; 32],
-            amount: 0,
-            asset: [0; 32],
-            blinding: [0; 32],
-            data_hash: [0; 32],
-            ring_data_hash: [0; 32],
-            ring_note: 0,
+            viewing_pk: [0; TAGGED_X25519_KEY_LEN],
         }
     }
 }
@@ -448,14 +440,8 @@ impl AnonymousDisclosure {
             let end = bytes.len() + DISCLOSURE_OUTPUT_LEN;
             bytes.push(output.identity_tag);
             bytes.extend_from_slice(&output.identity_key);
-            bytes.extend_from_slice(&output.viewing_pk);
             bytes.extend_from_slice(&output.nullifier_pk);
-            bytes.extend_from_slice(&output.amount.to_be_bytes());
-            bytes.extend_from_slice(&output.asset);
-            bytes.extend_from_slice(&output.blinding);
-            bytes.extend_from_slice(&output.data_hash);
-            bytes.extend_from_slice(&output.ring_data_hash);
-            bytes.push(output.ring_note);
+            bytes.extend_from_slice(&output.viewing_pk);
             bytes.resize(end, 0);
         }
         Ok(bytes)
@@ -492,20 +478,17 @@ impl AnonymousDisclosure {
         let mut outputs = Vec::with_capacity(shape.outputs);
         for _ in 0..shape.outputs {
             let slot = take(DISCLOSURE_OUTPUT_LEN)?;
-            if slot[235..].iter().any(|byte| *byte != 0) || slot[234] > 1 {
+            if slot[DISCLOSURE_OUTPUT_FIELDS_LEN..]
+                .iter()
+                .any(|byte| *byte != 0)
+            {
                 return Err(AuditError::DisclosurePadding);
             }
             outputs.push(AnonymousOutputOpening {
                 identity_tag: slot[0],
                 identity_key: disclosure_bytes(slot, 1)?,
-                viewing_pk: disclosure_bytes(slot, 33)?,
-                nullifier_pk: disclosure_bytes(slot, 66)?,
-                amount: u64::from_be_bytes(disclosure_bytes(slot, 98)?),
-                asset: disclosure_bytes(slot, 106)?,
-                blinding: disclosure_bytes(slot, 138)?,
-                data_hash: disclosure_bytes(slot, 170)?,
-                ring_data_hash: disclosure_bytes(slot, 202)?,
-                ring_note: slot[234],
+                nullifier_pk: disclosure_bytes(slot, 33)?,
+                viewing_pk: disclosure_bytes(slot, 65)?,
             });
         }
         if !rest.is_empty() {
@@ -895,19 +878,14 @@ mod tests {
                 AnonymousOutputOpening {
                     identity_tag: SOLANA_OWNER_TAG,
                     identity_key: [8; 32],
-                    viewing_pk: *ViewingKey::new().pubkey().as_bytes(),
                     nullifier_pk: [9; 32],
-                    amount: 12,
-                    asset: [3; 32],
-                    blinding: [4; 32],
-                    ring_note: 1,
-                    ..Default::default()
+                    viewing_pk: *ViewingKey::new().pubkey().as_bytes(),
                 };
                 4
             ],
         };
         let shape = disclosure.shape();
-        assert_eq!(shape.field_count(), Some(40));
+        assert_eq!(shape.field_count(), Some(24));
         let sealed =
             AuditorEncryption::new_with_anonymous(&tx, &auditor.pubkey(), [2; 16], &disclosure)
                 .expect("seal");
@@ -942,7 +920,7 @@ mod tests {
             .collect();
         wide.outputs.truncate(2);
         let shape = wide.shape();
-        assert_eq!(shape.field_count(), Some(54));
+        assert_eq!(shape.field_count(), Some(46));
         let sealed = AuditorEncryption::new_with_anonymous(&tx, &auditor.pubkey(), [2; 16], &wide)
             .expect("seal wide");
         let parsed = AuditorMessage::parse_with_shape(
@@ -1161,7 +1139,7 @@ mod tests {
         }
     }
 
-    /// Chain element 10 of the audit statement.
+    /// Chain element 11 of the base statement, after the output body chain.
     fn disclosure_hash_element(disclosure: &[[u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT]) -> [u8; 32] {
         CustomRingBasePublicInput {
             private_tx_hash: &[0; 32],
@@ -1169,13 +1147,67 @@ mod tests {
             auditor_pk: &[0; 33],
             eph_pk: &[0; 33],
             ciphertext: &[0; 32],
+            output_body_hashes: &[[0; 32]],
             output_hashes: &[[0; 32]],
             salt: &[0; 16],
             disclosure,
             anonymous: false,
         }
         .elements()
-        .expect("audit elements")[10]
+        .expect("audit elements")[11]
+    }
+
+    /// Written by the Go circuit tests from the anonymous layout, four chunks per output.
+    const ANONYMOUS_DISCLOSURE_VECTOR: &str =
+        include_str!("../../../test-vectors/audit-disclosure-anonymous.json");
+
+    #[test]
+    fn the_anonymous_disclosure_layout_matches_the_go_vector() {
+        let vector: serde_json::Value =
+            serde_json::from_str(ANONYMOUS_DISCLOSURE_VECTOR).expect("vector json");
+        let hex = |name: &str| vector[name].as_str().expect(name);
+        let fields = |name: &str| -> Vec<[u8; 32]> {
+            vector[name]
+                .as_array()
+                .expect(name)
+                .iter()
+                .map(|field| bytes(field.as_str().expect("hex field")))
+                .collect()
+        };
+        let shape = DisclosureShape {
+            anonymous: true,
+            inputs: vector["n_in"].as_u64().expect("n_in") as usize,
+            outputs: vector["n_out"].as_u64().expect("n_out") as usize,
+        };
+        let plaintext = hex::decode(hex("plaintext")).expect("plaintext");
+        assert_eq!(shape.plaintext_len(), Some(plaintext.len()));
+        let disclosure = AnonymousDisclosure::decode(&plaintext, shape).expect("decode");
+        assert_eq!(disclosure.encode().expect("encode"), plaintext);
+        assert_eq!(
+            disclosure.sender,
+            bytes("a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1")
+        );
+        assert_eq!(disclosure.inputs[0].tree_id, 3);
+        assert_eq!(disclosure.inputs[0].amount, 100);
+        assert_eq!(disclosure.inputs[1], AuditInputOpening::default());
+        assert_eq!(disclosure.outputs[0].identity_tag, SOLANA_OWNER_TAG);
+        assert_eq!(disclosure.outputs[0].identity_key, [0xb2; 32]);
+        assert_eq!(
+            disclosure.outputs[0].viewing_pk,
+            bytes::<33>("0425884d18d7d920b659ef8e4dfb469618bd863b8ea42960420de1ed79834c3406")
+        );
+        assert_eq!(disclosure.outputs[1], AnonymousOutputOpening::default());
+        assert_eq!(pack_disclosure(&plaintext), fields("fields"));
+        let key: [u8; 32] = bytes(hex("key"));
+        let salt: [u8; 16] = bytes(hex("salt"));
+        assert_eq!(
+            disclosure_stream(&key, salt, &fields("fields"), true).expect("seal"),
+            fields("ciphertext")
+        );
+        assert_eq!(
+            create_hash_chain_4_from_slice(&fields("ciphertext")).expect("hash chain 4"),
+            bytes::<32>(hex("disclosure_hash"))
+        );
     }
 
     /// A fully known chunk unmasks its own pad and nothing else.

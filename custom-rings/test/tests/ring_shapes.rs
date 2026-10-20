@@ -378,7 +378,7 @@ impl GovernedRing<'_> {
             total,
             "{label}"
         );
-        assert!(audited.undecryptable_slots.is_empty(), "{label}");
+        assert!(audited.payload_errors.is_empty(), "{label}");
         assert_eq!(
             audited.anonymous.is_some(),
             self.mode.anonymous(),

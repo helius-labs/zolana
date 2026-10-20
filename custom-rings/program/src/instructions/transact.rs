@@ -1,15 +1,17 @@
 use custom_ring_interface::{
-    base_anonymous_wide_verifying_key, base_confidential_compact_verifying_key,
-    base_confidential_verifying_key, base_verifying_key, delegate_policy_2x3_verifying_key,
-    delegate_policy_verifying_key, policy_2x3_anonymous_verifying_key, policy_2x3_verifying_key,
-    policy_verifying_key, AuditorMessage, CustomRingBasePublicInput, CustomRingError,
-    CustomRingPolicyPublicInput, CustomRingProof, CustomRingTransactIxData, DisclosureShape,
-    PolicyConfig, PolicyProofKind, RingMode, ANONYMOUS_RING_SHAPES, N_FOREIGN,
+    anonymous_output_body_hash, base_anonymous_wide_verifying_key,
+    base_confidential_compact_verifying_key, base_confidential_verifying_key, base_verifying_key,
+    delegate_policy_2x3_verifying_key, delegate_policy_verifying_key,
+    policy_2x3_anonymous_verifying_key, policy_2x3_verifying_key, policy_verifying_key,
+    AuditorMessage, CustomRingBasePublicInput, CustomRingError, CustomRingPolicyPublicInput,
+    CustomRingProof, CustomRingTransactIxData, DisclosureShape, PolicyConfig, PolicyProofKind,
+    RingMode, ANONYMOUS_OUTPUT_BODY_LEN, ANONYMOUS_OUTPUT_SCHEME, ANONYMOUS_RING_SHAPES, N_FOREIGN,
     TAGGED_X25519_KEY_LEN,
 };
 use groth16_solana::groth16::Groth16Verifyingkey;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_account_checks::AccountIterator;
+use zolana_hasher::hash_chain::create_hash_chain_from_slice;
 use zolana_interface::instruction::{
     instruction_data::transact::{
         confidential_encrypted_output_body, ring_anonymous_encrypted_output_body,
@@ -277,24 +279,18 @@ struct RingStatement<'a> {
 
 impl RingStatement<'_> {
     /// The base proof opens the auditor ciphertext and ties disclosed notes to
-    /// `private_tx_hash` and the output commitments in the SPP transaction.
+    /// `private_tx_hash` and the output commitments in the SPP transaction. An
+    /// anonymous ring also chains the hash of every scheme-9 body, each proven
+    /// to be the recipient's encryption of its note.
     /// A policy proof extends that statement with the stored rule table and
-    /// authenticated member registry roots. Recipient delivery ciphertext is
-    /// outside this proof obligation.
+    /// authenticated member registry roots.
     #[inline(never)]
     fn verify(self) -> ProgramResult {
         let anonymous = self.config.mode == RingMode::Anonymous;
         if !self.rail.accepts(self.transact.circuit, self.config.mode) {
             return Err(CustomRingError::UnsupportedCircuit.into());
         }
-        if self
-            .transact
-            .outputs
-            .iter()
-            .any(|output| !is_valid_confidential_output(output, anonymous))
-        {
-            return Err(CustomRingError::UnsupportedOutputScheme.into());
-        }
+        let output_body_hashes = output_body_hashes(self.transact, anonymous)?;
         let message = select_auditor_message(
             &self.transact.messages,
             &self.config.auditor_pubkey,
@@ -316,27 +312,46 @@ impl RingStatement<'_> {
             auditor_pk: &self.config.auditor_pubkey,
             eph_pk: message.eph_pk,
             ciphertext: message.ciphertext,
+            output_body_hashes: &output_body_hashes,
             output_hashes: &output_hashes,
             salt: &self.transact.salt,
             disclosure: message.disclosure,
             anonymous,
         };
-        match self.policy.as_ref() {
-            Some(policy) => self.verify_policy(audit, policy),
-            None => verify_groth16(
-                self.proof,
-                audit.hash().map_err(CustomRingError::from)?,
-                if anonymous && self.transact.inputs.len() > 4 {
-                    &base_anonymous_wide_verifying_key::VERIFYINGKEY
-                } else if anonymous || self.transact.outputs.len() != 2 {
-                    &base_verifying_key::VERIFYINGKEY
-                } else if self.transact.inputs.len() > 16 {
-                    &base_confidential_compact_verifying_key::VERIFYINGKEY
-                } else {
-                    &base_confidential_verifying_key::VERIFYINGKEY
-                },
-            ),
-        }
+        let Some(policy) = self.policy.as_ref() else {
+            return self.verify_base(audit, anonymous);
+        };
+        self.verify_policy(audit, policy)
+    }
+
+    /// The confidential keys prove the audit elements alone, without the body chain.
+    #[inline(never)]
+    fn verify_base(&self, audit: CustomRingBasePublicInput<'_>, anonymous: bool) -> ProgramResult {
+        let (public_input, key) = if anonymous && self.transact.inputs.len() > 4 {
+            (
+                audit.hash(),
+                &base_anonymous_wide_verifying_key::VERIFYINGKEY,
+            )
+        } else if anonymous || self.transact.outputs.len() != 2 {
+            (audit.hash(), &base_verifying_key::VERIFYINGKEY)
+        } else {
+            let audit = audit
+                .audit_elements()
+                .and_then(|elements| create_hash_chain_from_slice(&elements));
+            if self.transact.inputs.len() > 16 {
+                (
+                    audit,
+                    &base_confidential_compact_verifying_key::VERIFYINGKEY,
+                )
+            } else {
+                (audit, &base_confidential_verifying_key::VERIFYINGKEY)
+            }
+        };
+        verify_groth16(
+            self.proof,
+            public_input.map_err(CustomRingError::from)?,
+            key,
+        )
     }
 
     /// Choose the key for the declared rail and shape. Rules come from this
@@ -574,25 +589,78 @@ fn select_auditor_message<'a>(
     }
 }
 
-fn is_valid_confidential_output(output: &TransactOutput, anonymous: bool) -> bool {
-    let Some(data) = output.data.as_deref() else {
-        return false;
-    };
-    if anonymous && ring_anonymous_encrypted_output_body(data).is_some_and(|body| !body.is_empty())
-    {
-        return true;
+/// One statement element per published output, every anonymous slot runs the same parse.
+#[inline(never)]
+fn output_body_hashes(
+    transact: &TransactIxData,
+    anonymous: bool,
+) -> Result<Vec<[u8; 32]>, CustomRingError> {
+    if anonymous && transact.outputs.len() != usize::from(transact.circuit.num_outputs()) {
+        return Err(CustomRingError::AnonymousOutputCount);
     }
-    // An exit to the default ring publishes its owner through the inline tag.
-    if anonymous && !matches!(output.owner_tag, OwnerTag::Inline(tag) if tag != [0; 32]) {
-        return false;
+    let mut hashes = Vec::with_capacity(transact.outputs.len());
+    let mut tags: Vec<[u8; 32]> = Vec::with_capacity(transact.outputs.len());
+    for output in &transact.outputs {
+        let hash = match anonymous_output_body(output, anonymous)? {
+            Some(body) => {
+                let OwnerTag::Inline(tag) = output.owner_tag else {
+                    return Err(CustomRingError::InvalidAnonymousTag);
+                };
+                if tag[0] != 0 || tag == [0; 32] {
+                    return Err(CustomRingError::InvalidAnonymousTag);
+                }
+                if tags.contains(&tag) {
+                    return Err(CustomRingError::DuplicateAnonymousTag);
+                }
+                tags.push(tag);
+                anonymous_output_body_hash(body)?
+            }
+            None => [0; 32],
+        };
+        if anonymous && output.utxo_hash == [0; 32] {
+            return Err(CustomRingError::InvalidAnonymousOutputHash);
+        }
+        hashes.push(hash);
+    }
+    Ok(hashes)
+}
+
+/// The scheme-9 body of a slot, `None` for a confidential slot with a canonical
+/// recipient key and a ciphertext.
+fn anonymous_output_body(
+    output: &TransactOutput,
+    anonymous: bool,
+) -> Result<Option<&[u8; ANONYMOUS_OUTPUT_BODY_LEN]>, CustomRingError> {
+    let data = output
+        .data
+        .as_deref()
+        .ok_or(CustomRingError::UnsupportedOutputScheme)?;
+    if anonymous {
+        if ring_anonymous_encrypted_output_body(data).is_some() {
+            // The framed body ends the data, the helper pinned its declared length.
+            let (_, body) = data
+                .split_last_chunk::<ANONYMOUS_OUTPUT_BODY_LEN>()
+                .filter(|(_, body)| body[0] == ANONYMOUS_OUTPUT_SCHEME)
+                .ok_or(CustomRingError::InvalidAnonymousOutputBody)?;
+            return Ok(Some(body));
+        }
+        // An exit to the default ring publishes its owner through the inline tag.
+        if !matches!(output.owner_tag, OwnerTag::Inline(tag) if tag != [0; 32]) {
+            return Err(CustomRingError::UnsupportedOutputScheme);
+        }
     }
     let body = match anonymous {
         true => confidential_encrypted_output_body(data),
         false => confidential_encrypted_output_body(data)
             .or_else(|| ring_confidential_encrypted_output_body(data)),
     };
-    body.and_then(|body| body.split_first_chunk::<TAGGED_X25519_KEY_LEN>())
-        .is_some_and(|(key, ciphertext)| is_x25519_viewing_key(key) && !ciphertext.is_empty())
+    let valid = body
+        .and_then(|body| body.split_first_chunk::<TAGGED_X25519_KEY_LEN>())
+        .is_some_and(|(key, ciphertext)| is_x25519_viewing_key(key) && !ciphertext.is_empty());
+    match valid {
+        true => Ok(None),
+        false => Err(CustomRingError::UnsupportedOutputScheme),
+    }
 }
 
 #[cfg(test)]
@@ -655,25 +723,37 @@ mod tests {
     }
 
     /// The gate that keeps the program and the circuit on the same statement: the
-    /// full eight-element chain over the Go fixture must produce the exact public
-    /// input the Go side computed and the circuit was solved against. A reordered
-    /// or differently packed chain element changes this value.
+    /// audit elements over the Go fixture must produce the exact public input the
+    /// confidential circuit was solved against, the base statement chains the body
+    /// hashes after the auditor ciphertext hash.
     #[test]
     fn public_input_hash_matches_go_fixture() {
-        let hash = CustomRingBasePublicInput {
+        let statement = CustomRingBasePublicInput {
             private_tx_hash: &bytes::<32>(PRIVATE_TX_HASH),
             tx_viewing_pk: &bytes::<33>(TX_PK),
             auditor_pk: &bytes::<33>(AUDITOR_PK),
             eph_pk: &bytes::<33>(EPH_PK),
             ciphertext: &bytes::<32>(CIPHERTEXT),
+            output_body_hashes: &[[0u8; 32]],
             output_hashes: &[[0u8; 32]],
             salt: &[0u8; 16],
             disclosure: &[[0u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT],
             anonymous: false,
-        }
-        .hash()
-        .expect("public input hash");
-        assert_eq!(hash, bytes::<32>(PUBLIC_INPUT_HASH));
+        };
+        let audit = create_hash_chain_from_slice(&statement.audit_elements().expect("audit"))
+            .expect("audit hash");
+        assert_eq!(audit, bytes::<32>(PUBLIC_INPUT_HASH));
+        let base = statement.elements().expect("base elements");
+        assert_eq!(
+            base.len(),
+            custom_ring_interface::BASE_PUBLIC_INPUT_ELEMENTS
+        );
+        assert_eq!(
+            base[custom_ring_interface::BODY_CHAIN_INDEX],
+            zolana_hasher::hash_chain::create_hash_chain_4_from_slice(&[[0u8; 32]])
+                .expect("body chain")
+        );
+        assert_ne!(statement.hash().expect("base hash"), audit);
     }
 
     const SHAPE: DisclosureShape = DisclosureShape {

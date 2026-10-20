@@ -15,7 +15,9 @@
 //  6. Bound member outflow and derive approval. Delegates keep their explicit
 //     outflow exemption but require escrow and separate on-chain authorization.
 //  7. Bind each escrow-required output to its owner's registered commitment.
-//  8. Encrypt auditor disclosure and bind it, the table and roots to verification.
+//  8. Encrypt auditor disclosure, in an anonymous ring prove every ring output body is
+//     the recipient's encryption of its note, and bind them, the table and roots to
+//     verification.
 //
 // PublicTable replaces repeated hashing with direct verifier inputs. Its trust
 // boundary is the program-owned PolicyConfig account. Authorized policy writes

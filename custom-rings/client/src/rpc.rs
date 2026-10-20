@@ -18,8 +18,8 @@ use zolana_secret_file::{
 };
 
 use crate::{
-    AnonymousDisclosure, AuditInputOpening, AuditedTransaction, MergeAuditPage, ReaderKey,
-    ReaderKeyError, RingWithdrawal,
+    AnonymousDisclosure, AuditInputOpening, AuditedTransaction, MergeAuditPage,
+    OutputPayloadErrorKind, ReaderKey, ReaderKeyError, RingWithdrawal,
 };
 
 pub const HEALTH: &str = "health";
@@ -341,12 +341,20 @@ pub struct DecryptedTransaction {
     /// Proven hidden sender and spent note metadata in an anonymous ring.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub anonymous: Option<DecryptedAnonymousTrace>,
-    pub undecryptable_slots: Vec<u32>,
+    /// Slots without an entry in `outputs`, the verified openings stay.
+    pub payload_errors: Vec<DecryptedPayloadError>,
     pub nullifiers: Vec<Hash>,
     /// Required signers, fee payer first. The sender matches an output owner tag.
     pub signers: Vec<SerializablePubkey>,
     /// Public settlement legs, where value left the ring.
     pub withdrawals: Vec<DecryptedWithdrawal>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct DecryptedPayloadError {
+    pub slot_index: u32,
+    pub kind: OutputPayloadErrorKind,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -427,8 +435,6 @@ pub struct DecryptedAnonymousRecipient {
     pub identity_tag: u8,
     pub identity_key: Hash,
     pub nullifier_pk: Hash,
-    pub amount: u64,
-    pub asset: Hash,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -579,7 +585,14 @@ impl DecryptedTransaction {
                 .map(Into::into)
                 .collect(),
             anonymous: audited.anonymous.map(DecryptedAnonymousTrace::from),
-            undecryptable_slots: audited.undecryptable_slots,
+            payload_errors: audited
+                .payload_errors
+                .into_iter()
+                .map(|error| DecryptedPayloadError {
+                    slot_index: error.slot_index,
+                    kind: error.kind,
+                })
+                .collect(),
             nullifiers: nullifiers.into_iter().map(Into::into).collect(),
             signers: signers
                 .into_iter()
@@ -613,8 +626,6 @@ impl From<AnonymousDisclosure> for DecryptedAnonymousTrace {
                     identity_tag: output.identity_tag,
                     identity_key: output.identity_key.into(),
                     nullifier_pk: output.nullifier_pk.into(),
-                    amount: output.amount,
-                    asset: output.asset.into(),
                 })
                 .collect(),
         }

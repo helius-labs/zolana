@@ -18,7 +18,7 @@ import (
 // Chain positions that open the member's note.
 const (
 	chainPrivateTxHash  = 0
-	chainDisclosureHash = 10
+	chainDisclosureHash = 11
 )
 
 func memberStatement(t *testing.T, members [][32]byte, sender [32]byte) *statement {

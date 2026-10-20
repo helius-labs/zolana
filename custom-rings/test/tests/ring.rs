@@ -906,7 +906,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         ],
         "auditor-decrypted outputs equal what the sender sent, recipients and blindings included"
     );
-    assert!(audited.undecryptable_slots.is_empty());
+    assert!(audited.payload_errors.is_empty());
 
     // 9. Normal operation is undisturbed: the recipient still discovers its
     //    output through `Wallet::sync` on its own view tag, with no auditor key.

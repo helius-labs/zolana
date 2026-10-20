@@ -1,6 +1,6 @@
 use custom_ring_interface::{
-    AuditorMessage, CustomRingBasePublicInput, CustomRingPolicyPublicInput, DisclosureShape,
-    RingMode,
+    anonymous_output_body_hash, AuditorMessage, CustomRingBasePublicInput,
+    CustomRingPolicyPublicInput, DisclosureShape, RingMode, ANONYMOUS_OUTPUT_BODY_LEN,
 };
 use solana_address::Address;
 use zolana_client::{
@@ -8,7 +8,7 @@ use zolana_client::{
     ProofInputUtxo, Shape,
 };
 use zolana_interface::tree_slot::populated_tree_slots_hash_chain;
-use zolana_keypair::{ShieldedKeypair, X25519Keypair};
+use zolana_keypair::{RingAddress, ShieldedKeypair, X25519Keypair};
 use zolana_ring_member_registry::MemberRegistryTree;
 use zolana_ring_policy::{ListId, ListSet, Member, Rule, RuleTable, Subject};
 use zolana_transaction::instructions::transact::ConfidentialTransaction;
@@ -35,10 +35,11 @@ const TX_VIEWING_PK: [usize; 2] = [1, 2];
 const AUDITOR_PK: [usize; 2] = [3, 4];
 const EPH_PK: [usize; 2] = [5, 6];
 const CIPHERTEXT_HASH: usize = 7;
-const OUTPUT_HASHES: usize = 8;
-const SALT: usize = 9;
-const DISCLOSURE_HASH: usize = 10;
-const ANONYMOUS: usize = 11;
+const OUTPUT_BODY_HASHES: usize = 8;
+const OUTPUT_HASHES: usize = 9;
+const SALT: usize = 10;
+const DISCLOSURE_HASH: usize = 11;
+const ANONYMOUS: usize = 12;
 
 fn member_of(keypair: &ShieldedKeypair) -> Member {
     Member::from_bytes(keypair.signing_pubkey().owner_proof_input_hash().unwrap()).unwrap()
@@ -46,7 +47,7 @@ fn member_of(keypair: &ShieldedKeypair) -> Member {
 
 struct Published {
     public_input_hash: [u8; 32],
-    audit: [[u8; 32]; 12],
+    audit: [[u8; 32]; custom_ring_interface::BASE_PUBLIC_INPUT_ELEMENTS],
     policy_hash: [u8; 32],
     tree_hash: [u8; 32],
     /// `indexed_inputs` without the folded audit prefix.
@@ -82,7 +83,11 @@ async fn publish(
         transaction,
     })
     .with_anonymous_signer(&sender.signing_key, &sender.viewing_key)
-    .with_recipient(AnonymousRecipient::Paired(receiver.viewing_pubkey));
+    .with_recipient(AnonymousRecipient::Paired(RingAddress {
+        recipient: receiver,
+        ring_program_id: program,
+        inbox_secret: recipient.viewing_key.inbox_secret(0).unwrap(),
+    }));
     let staged: Box<Staged> = transfer
         .rail
         .stage(ring(), rpc, config, None)
@@ -128,6 +133,16 @@ async fn publish(
                 .unwrap()
         })
         .collect();
+    let output_body_hashes: Vec<[u8; 32]> = inputs
+        .external_data
+        .outputs
+        .iter()
+        .map(|output| {
+            let body: [u8; ANONYMOUS_OUTPUT_BODY_LEN] =
+                output.data.as_deref().unwrap()[5..].try_into().unwrap();
+            anonymous_output_body_hash(&body).unwrap()
+        })
+        .collect();
     let proof = staged
         .pending
         .finish(private_tx_hash, witness, &policy.config.policy_hash)
@@ -141,6 +156,7 @@ async fn publish(
             auditor_pk: config.auditor_pubkey.as_bytes(),
             eph_pk: message.eph_pk,
             ciphertext: message.ciphertext,
+            output_body_hashes: &output_body_hashes,
             output_hashes: &output_hashes,
             salt: &inputs.external_data.salt,
             disclosure: message.disclosure,
@@ -224,6 +240,7 @@ async fn two_members_publish_the_same_policy_statement() {
     [
         PRIVATE_TX_HASH,
         CIPHERTEXT_HASH,
+        OUTPUT_BODY_HASHES,
         OUTPUT_HASHES,
         SALT,
         DISCLOSURE_HASH,

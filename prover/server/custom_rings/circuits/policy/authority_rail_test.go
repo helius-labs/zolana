@@ -12,7 +12,7 @@ import (
 func TestPolicyStatementBindsTheAuthorityRailPreimage(t *testing.T) {
 	cs := testConstraintSystem(t)
 	s := newStatement(t, defaultFixture())
-	ring := big.NewInt(0x5a)
+	ring := s.ringID
 	for i := range s.inputs {
 		if s.inputs[i].Domain.(*big.Int).Int64() == protocol.UtxoDomain {
 			s.inputs[i].RingProgramID = ring

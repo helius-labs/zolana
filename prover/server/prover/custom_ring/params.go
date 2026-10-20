@@ -43,12 +43,26 @@ type BaseParams struct {
 	CircuitType     string `json:"circuitType"`
 	PublicInputHash Field  `json:"publicInputHash"`
 	AuditParams
-	NOut              uint8          `json:"nOut"`
-	Outputs           []AuditOpening `json:"outputs"`
-	NIn               uint8          `json:"nIn,omitempty"`
-	Inputs            *[]Opening     `json:"inputs,omitempty"`
-	AnonymousOutputs  *[]Opening     `json:"anonymousOutputs,omitempty"`
-	PrivateTxBlinding *Field         `json:"privateTxBlinding,omitempty"`
+	NOut              uint8           `json:"nOut"`
+	Outputs           []AuditOpening  `json:"outputs"`
+	NIn               uint8           `json:"nIn,omitempty"`
+	Inputs            *[]Opening      `json:"inputs,omitempty"`
+	AnonymousOutputs  *[]Opening      `json:"anonymousOutputs,omitempty"`
+	PrivateTxBlinding *Field          `json:"privateTxBlinding,omitempty"`
+	Delivery          *DeliveryParams `json:"delivery,omitempty"`
+}
+
+// DeliveryParams carries the published scheme-9 bodies of an anonymous ring, one per output slot.
+type DeliveryParams struct {
+	RingProgramID Bytes            `json:"ringProgramId"`
+	Outputs       []DeliveryOutput `json:"outputs"`
+}
+
+// A padding slot sends its random body with zero asset address and pair key.
+type DeliveryOutput struct {
+	AssetAddress Bytes `json:"assetAddress"`
+	PairU        Bytes `json:"pairU"`
+	Ciphertext   Bytes `json:"ciphertext"`
 }
 
 type Opening struct {
@@ -112,6 +126,7 @@ type PolicyParams struct {
 	Outputs            []OutputOpening  `json:"outputs"`
 	AddressChain       Field            `json:"addressChain"`
 	PrivateTxBlinding  Field            `json:"privateTxBlinding"`
+	Delivery           *DeliveryParams  `json:"delivery,omitempty"`
 	Sources            []Source         `json:"sources"`
 	PolicyLen          uint8            `json:"policyLen"`
 	Rules              []Field          `json:"ruleEnc"`

@@ -27,6 +27,7 @@ import {
   openAuditOutputDisclosure,
   openAnonymousAuditDisclosure,
   parseAuditorMessage,
+  symmetricAuditApply,
   type AnonymousAuditDisclosure,
   type AnonymousOutputOpening,
   type AuditOutputOpening,
@@ -37,14 +38,20 @@ import { recoverRingMemberNotes } from "../src/ring/recover.js";
 import { Utxo } from "../src/transaction/utxo.js";
 import { ringAuditReader, transactionsPage } from "./helpers/clients.js";
 import { AssetRegistry, SOL_ASSET_ID, SOL_MINT } from "../src/transaction/asset.js";
-import { commitmentPoseidon, rightAlign, ZERO_32 } from "../src/transaction/internal.js";
+import {
+  bytesToBigInt,
+  commitmentPoseidon,
+  rightAlign,
+  ZERO_32,
+} from "../src/transaction/internal.js";
 import { Data } from "../src/transaction/data.js";
 import {
   EncryptedScheme,
+  RING_ANONYMOUS_PLAINTEXT_LENGTH,
   encodeOutputData,
   encodeRingAnonymous,
-  encryptAnonymous,
   encryptConfidential,
+  ringAnonymousBodyHash,
 } from "../src/transaction/serialization/codecs.js";
 import type { IndexedShieldedTransaction } from "../src/transaction/instructions/transact.js";
 
@@ -75,7 +82,6 @@ const TX_PK = hex("043632fe89228ea5215eea45a56704f569e3929868a8573363d015e39609f
 const PRIVATE_TX_HASH = hex(
   "0000000000000000000000000000000000000000000000000000000000abcdef",
 ) as Bytes32;
-const PUBLIC_INPUT_HASH = hex("291c6025244409748c719079f396ec892db1764098323df8f3a685ae5d7a3a22");
 const ZERO_DISCLOSURE = Array.from({ length: 36 }, () => new Uint8Array(32) as Bytes32);
 
 const PAD_KEY = Uint8Array.from({ length: 32 }, (_, index) => 0x40 ^ index) as Bytes32;
@@ -114,23 +120,101 @@ describe("ring audit encryption", () => {
     );
   });
 
-  it("hashes the audit statement like Rust `CustomRingBasePublicInput::hash`", () => {
+  /** The prover requests the Go tests prove, every value a wallet publishes derived here from the secrets they carry. */
+  function goRequest(name: string): Record<string, unknown> {
+    const decoder = wireDecoder((path) => new Error(`invalid fixture ${path}`));
+    return decoder.record(
+      JSON.parse(
+        readFileSync(
+          new URL(`../../../prover/server/prover/custom_ring/testdata/${name}`, import.meta.url),
+          "utf8",
+        ),
+      ),
+      name,
+    );
+  }
+
+  function fixtureBytes(value: unknown, length: number): Uint8Array {
+    if (typeof value !== "string" || !/^0x(?:[0-9a-f]{2})+$/u.test(value))
+      throw new Error("invalid fixture hex");
+    const decoded = hex(value.slice(2));
+    if (decoded.length !== length) throw new Error("invalid fixture byte length");
+    return decoded;
+  }
+
+  const fixtureField = (value: unknown): Bytes32 => fixtureBytes(value, 32) as Bytes32;
+
+  function fixtureCount(value: unknown): number {
+    if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > 4)
+      throw new Error("invalid fixture slot count");
+    return value;
+  }
+
+  function fixtureOpening(value: unknown): AuditOutputOpening {
+    const decoder = wireDecoder((path) => new Error(`invalid fixture ${path}`));
+    const opening = decoder.record(value, "opening");
+    return {
+      domain: fixtureField(opening["domain"]),
+      treeId: fixtureField(opening["treeId"]),
+      ownerHash: fixtureField(opening["ownerHash"]),
+      asset: fixtureField(opening["asset"]),
+      amount: fixtureField(opening["amount"]),
+      blinding: fixtureField(opening["blinding"]),
+      dataHash: fixtureField(opening["dataHash"]),
+      ringDataHash: fixtureField(opening["ringDataHash"]),
+      ringProgramId: fixtureField(opening["ringProgramId"]),
+    };
+  }
+
+  /** The envelope the request's secrets seal, the auditor key is the bare u coordinate on the wire. */
+  function fixtureEnvelope(
+    wire: Record<string, unknown>,
+    disclosure: Parameters<typeof encryptTransactionViewingSecret>[2],
+  ): Readonly<{
+    txViewingPublicKey: X25519PublicKey;
+    auditorPublicKey: X25519PublicKey;
+    message: Parameters<typeof auditPublicInputHash>[0]["message"];
+  }> {
+    const txSecret = fixtureField(wire["txViewingSk"]);
+    const ephemeral = X25519Keypair.fromBytes(fixtureField(wire["ephSk"]));
+    const auditorPublicKey = X25519PublicKey.fromBytes(
+      Uint8Array.of(4, ...fixtureBytes(wire["auditorPk"], 32)),
+    );
+    const dh = ephemeral.ecdh(auditorPublicKey);
+    const shared = auditSharedSecret(dh, ephemeral.publicKey(), auditorPublicKey);
+    const txViewingPublicKey = X25519Keypair.fromBytes(txSecret).publicKey();
+    const sealed = encryptTransactionViewingSecret(txSecret, auditorPublicKey, disclosure);
+    return {
+      txViewingPublicKey,
+      auditorPublicKey,
+      message: {
+        ephemeralPublicKey: ephemeral.publicKey(),
+        ciphertext: symmetricAuditApply(shared, txSecret) as Bytes32,
+        disclosure: sealed.message.disclosure,
+      },
+    };
+  }
+
+  it("hashes the base statement of the Go `custom-ring-base` request with a zero body chain", () => {
+    const wire = goRequest("custom-ring-base.json");
+    const decoder = wireDecoder((path) => new Error(`invalid fixture ${path}`));
+    const salt = fixtureBytes(wire["salt"], 16) as Bytes16;
+    const outputs = decoder.list(wire["outputs"], "outputs").map(fixtureOpening);
+    const nOut = fixtureCount(wire["nOut"]);
+    const envelope = fixtureEnvelope(wire, { salt, outputs });
+    const input = {
+      ...envelope,
+      privateTxHash: fixtureField(wire["privateTxHash"]),
+      outputHashes: outputs.slice(0, nOut).map(auditOpeningHash),
+      salt,
+    };
+    expect(auditPublicInputHash(input)).toEqual(fixtureField(wire["publicInputHash"]));
+    expect(auditPublicInputHash({ ...input, outputBodyHashes: [ZERO_32] })).toEqual(
+      fixtureField(wire["publicInputHash"]),
+    );
     expect(
-      Buffer.from(
-        auditPublicInputHash({
-          privateTxHash: PRIVATE_TX_HASH,
-          txViewingPublicKey: X25519PublicKey.fromBytes(TX_PK),
-          auditorPublicKey: X25519PublicKey.fromBytes(AUDITOR_PK),
-          message: {
-            ephemeralPublicKey: X25519PublicKey.fromBytes(EPH_PK),
-            ciphertext: CIPHERTEXT,
-            disclosure: ZERO_DISCLOSURE,
-          },
-          outputHashes: [new Uint8Array(32) as Bytes32],
-          salt: new Uint8Array(16) as Bytes16,
-        }),
-      ).toString("hex"),
-    ).toBe(Buffer.from(PUBLIC_INPUT_HASH).toString("hex"));
+      auditPublicInputHash({ ...input, outputBodyHashes: [filled(1) as Bytes32] }),
+    ).not.toEqual(fixtureField(wire["publicInputHash"]));
   });
 
   it("extends the audit chain like the member-registry policy transcript", () => {
@@ -147,13 +231,16 @@ describe("ring audit encryption", () => {
         field(1n),
         filled(0x0b),
         filled(0x0c),
-      ].reduce((chain, element) => poseidon([chain, element]), PUBLIC_INPUT_HASH);
+      ].reduce<Uint8Array>(
+        (chain, element) => poseidon([chain, element]),
+        auditPublicInputHash(base),
+      );
     const treeSlots = [
       { id: 9, utxoRoot: filled(6), nullifierRoot: filled(7) },
       { id: 1, utxoRoot: filled(4), nullifierRoot: filled(5) },
       { id: 2, utxoRoot: filled(2), nullifierRoot: filled(3) },
     ];
-    const input = {
+    const base = {
       privateTxHash: PRIVATE_TX_HASH,
       txViewingPublicKey: X25519PublicKey.fromBytes(TX_PK),
       auditorPublicKey: X25519PublicKey.fromBytes(AUDITOR_PK),
@@ -164,6 +251,9 @@ describe("ring audit encryption", () => {
       },
       outputHashes: [new Uint8Array(32) as Bytes32],
       salt: new Uint8Array(16) as Bytes16,
+    };
+    const input = {
+      ...base,
       policyHash: filled(0x2a),
       treeSlots,
       addressTreeId: 9,
@@ -182,74 +272,70 @@ describe("ring audit encryption", () => {
     );
   });
 
-  it("reconstructs the public statement of the real Go anonymous 3x4 proof", () => {
+  it("reconstructs the statement of the Go `custom-ring-base` anonymous request from its secrets", () => {
+    const wire = goRequest("custom-ring-base-anonymous.json");
     const decoder = wireDecoder((path) => new Error(`invalid fixture ${path}`));
-    const wire = decoder.record(
-      JSON.parse(
-        readFileSync(
-          new URL(
-            "../../../custom-rings/client/tests/fixtures/anonymous-statement.json",
-            import.meta.url,
-          ),
-          "utf8",
-        ),
-      ),
-      "statement",
-    );
-    const bytes = (value: unknown, length: number): Uint8Array => {
-      const valueHex = decoder.string(value, "hex");
-      if (!/^0x(?:[0-9a-f]{2})+$/u.test(valueHex)) throw new Error("invalid fixture hex");
-      const decoded = hex(valueHex.slice(2));
-      if (decoded.length !== length) throw new Error("invalid fixture byte length");
-      return decoded;
+    const salt = fixtureBytes(wire["salt"], 16) as Bytes16;
+    const nOut = fixtureCount(wire["nOut"]);
+    const nIn = fixtureCount(wire["nIn"]);
+    const notes = decoder.list(wire["anonymousOutputs"], "anonymousOutputs").map((value) => {
+      const note = decoder.record(value, "note");
+      return {
+        ...fixtureOpening({ ...note, ownerHash: "0x" + "00".repeat(32) }),
+        ownerHash: poseidon([
+          fixtureField(note["ownerPkHash"]),
+          fixtureField(note["nullifierPk"]),
+        ]) as Bytes32,
+        nullifierPk: fixtureField(note["nullifierPk"]),
+      };
+    });
+    const inputs = decoder.list(wire["inputs"], "inputs").map((value) => {
+      const note = decoder.record(value, "note");
+      return {
+        treeId: Number(bytesToBigInt(fixtureField(note["treeId"]))),
+        amount: bytesToBigInt(fixtureField(note["amount"])),
+        asset: fixtureField(note["asset"]),
+        blinding: fixtureField(note["blinding"]),
+      };
+    });
+    const recipients = decoder
+      .list(wire["recipients"], "recipients")
+      .map((value) => fixtureBytes(value, 33));
+    const viewingKeys = decoder
+      .list(wire["recipientViewingKeys"], "recipientViewingKeys")
+      .map((value) => fixtureBytes(value, 33) as Bytes33);
+    const delivery = decoder.record(wire["delivery"], "delivery");
+    const bodies = decoder
+      .list(delivery["outputs"], "delivery.outputs")
+      .map((value) =>
+        fixtureBytes(decoder.record(value, "slot")["ciphertext"], RING_ANONYMOUS_PLAINTEXT_LENGTH),
+      );
+    const disclosure: AnonymousAuditDisclosure = {
+      sender: fixtureBytes(wire["sender"], 33).slice(1) as Bytes32,
+      inputs: inputs.slice(0, nIn),
+      outputs: notes.slice(0, nOut).map((note, index) => ({
+        identityTag: recipients[index]![0]!,
+        identityKey: recipients[index]!.slice(1) as Bytes32,
+        nullifierPublicKey: note.nullifierPk,
+        viewingPublicKey: viewingKeys[index]!,
+      })),
     };
-    const field = (value: unknown): Bytes32 => bytes(value, 32) as Bytes32;
-    const u16 = (value: unknown): number => {
-      const integer = BigInt(decoder.string(value, "u16"));
-      if (integer < 0n || integer > 0xffffn) throw new Error("invalid fixture u16");
-      return Number(integer);
-    };
+    const envelope = fixtureEnvelope(wire, { salt, anonymous: disclosure });
     const input = {
-      privateTxHash: field(wire["privateTxHash"]),
-      txViewingPublicKey: X25519PublicKey.fromBytes(bytes(wire["txViewingPk"], 33)),
-      auditorPublicKey: X25519PublicKey.fromBytes(bytes(wire["auditorPk"], 33)),
-      message: {
-        ephemeralPublicKey: X25519PublicKey.fromBytes(bytes(wire["ephPk"], 33)),
-        ciphertext: field(wire["ciphertext"]),
-        disclosure: decoder.list(wire["disclosure"], "disclosure").map(field),
-      },
-      outputHashes: decoder.list(wire["outputHashes"], "outputHashes").map(field),
-      salt: bytes(wire["salt"], 16) as Bytes16,
-      anonymous: decoder.boolean(wire["anonymous"], "anonymous"),
-      policyHash: field(wire["policyHash"]),
-      treeSlots: decoder.list(wire["treeSlots"], "treeSlots").map((value) => {
-        const slot = decoder.record(value, "slot");
-        return {
-          id: u16(slot["id"]),
-          utxoRoot: field(slot["utxoRoot"]),
-          nullifierRoot: field(slot["nullifierRoot"]),
-        };
-      }),
-      addressTreeId: u16(wire["addressTreeId"]),
-      ringId: field(wire["ringId"]),
-      namespaceOwnerHash: field(wire["namespaceOwnerHash"]),
-      approvalRequired: decoder.boolean(wire["approvalRequired"], "approvalRequired"),
-      keyEscrow: decoder.boolean(wire["keyEscrow"], "keyEscrow"),
-      memberRegistryRoot: field(wire["memberRegistryRoot"]),
-      foreignRoot: field(wire["foreignRoot"]),
+      ...envelope,
+      privateTxHash: fixtureField(wire["privateTxHash"]),
+      outputHashes: notes.slice(0, nOut).map(auditOpeningHash),
+      outputBodyHashes: bodies.slice(0, nOut).map(ringAnonymousBodyHash),
+      salt,
+      anonymous: true,
     };
-    const expected = field(wire["publicInputHash"]);
-    expect(policyPublicInputHash(input)).toEqual(expected);
-    expect(policyPublicInputHash({ ...input, anonymous: false })).not.toEqual(expected);
-    expect(
-      policyPublicInputHash({
-        ...input,
-        message: { ...input.message, disclosure: [...input.message.disclosure, ZERO_32] },
-      }),
-    ).not.toEqual(expected);
+    const expected = fixtureField(wire["publicInputHash"]);
+    expect(auditPublicInputHash(input)).toEqual(expected);
+    expect(auditPublicInputHash({ ...input, anonymous: false })).not.toEqual(expected);
+    expect(auditPublicInputHash({ ...input, outputBodyHashes: [ZERO_32] })).not.toEqual(expected);
   });
 
-  it("masks each disclosure field with the chained two-input Poseidon pad", () => {
+  it("masks each disclosure field with a pad no other pad derives", () => {
     const auditor = X25519Keypair.generate();
     const zero = new Uint8Array(32) as Bytes32;
     const blank: AuditOutputOpening = {
@@ -268,8 +354,9 @@ describe("ring audit encryption", () => {
       outputs: [blank, blank, blank, blank],
     }).message.disclosure;
     expect(pad).toHaveLength(36);
+    expect(new Set(pad.map((mask) => Buffer.from(mask).toString("hex"))).size).toBe(36);
     pad.slice(1).forEach((mask, index) => {
-      expect(mask).toEqual(poseidon([pad[index]!, bigIntToBytes(BigInt(index + 1), 32)]));
+      expect(mask).not.toEqual(poseidon([pad[index]!, bigIntToBytes(BigInt(index + 1), 32)]));
     });
     const opened = openAuditOutputDisclosure(PAD_KEY, PAD_SALT, pad);
     expect(opened).toHaveLength(4);
@@ -340,13 +427,13 @@ describe("ring audit outputs", () => {
   it("opens the slot the transaction key seals", () => {
     const audited = audit(transaction({ amount: 5n }));
     expect(audited.outputs.map((output) => output.amount)).toEqual([5n]);
-    expect(audited.undecryptableSlots).toHaveLength(0);
+    expect(audited.payloadErrors).toEqual([]);
   });
 
   it("retains verified disclosure when recipient plaintext disagrees", () => {
     const audited = audit(transaction({ amount: 5n, committedAmount: 0n }));
     expect(audited.outputs).toEqual([]);
-    expect(audited.undecryptableSlots).toEqual([0]);
+    expect(audited.payloadErrors).toEqual([{ slotIndex: 0, kind: "openingMismatch" }]);
     expect(audited.outputOpenings[0]?.amount).toEqual(ZERO_32);
   });
 });
@@ -394,29 +481,18 @@ describe("anonymous ring audit", () => {
     ringProgramId: RING,
   });
   const commitment = utxo.hash(source.nullifierPublicKey, 0);
+  const pairU = X25519Keypair.fromBytes(EPH_SK).publicKey().u();
   const recipient: AnonymousOutputOpening = Object.freeze({
     identityTag: SOLANA_OWNER_TAG,
     identityKey: source.confidentialViewTag() as Bytes32,
-    viewingPublicKey: source.viewingPublicKey.toBytes(),
     nullifierPublicKey: source.nullifierPublicKey,
-    amount: 42n,
-    asset: solAsset,
-    blinding,
-    dataHash: ZERO_32,
-    ringDataHash: ZERO_32,
-    ringNote: true,
+    viewingPublicKey: source.viewingPublicKey.toBytes(),
   });
   const dummy: AnonymousOutputOpening = Object.freeze({
     identityTag: 0,
     identityKey: ZERO_32,
-    viewingPublicKey: new Uint8Array(33) as Bytes33,
     nullifierPublicKey: ZERO_32,
-    amount: 0n,
-    asset: ZERO_32,
-    blinding: ZERO_32,
-    dataHash: ZERO_32,
-    ringDataHash: ZERO_32,
-    ringNote: false,
+    viewingPublicKey: new Uint8Array(33) as Bytes33,
   });
   const disclosure: AnonymousAuditDisclosure = Object.freeze({
     sender: filled(3) as Bytes32,
@@ -433,22 +509,13 @@ describe("anonymous ring audit", () => {
       salt,
       anonymous: opening,
     });
-    const body = encryptAnonymous(
-      tx,
+    const body = tx.sealAnonymousOutput(
       source.viewingPublicKey,
-      encodeRingAnonymous({
-        output: {
-          assetId: SOL_ASSET_ID,
-          amount: 42n,
-          blinding,
-          ringProgramId: RING,
-          data: new Data(),
-        },
-        pairPublicKey: X25519Keypair.fromBytes(EPH_SK).publicKey(),
-      }),
+      encodeRingAnonymous({ assetAddress: SOL_MINT, amount: 42n, blinding, pairU }),
       salt,
       0,
     );
+    const padding = new Uint8Array(RING_ANONYMOUS_PLAINTEXT_LENGTH).fill(0xd0);
     return {
       slot: 1n,
       txSignature: "1".repeat(87) as Signature,
@@ -470,7 +537,7 @@ describe("anonymous ring audit", () => {
             treeId: 0,
             leafIndex: 1n,
           },
-          payload: new Uint8Array(0),
+          payload: encodeOutputData(EncryptedScheme.ringAnonymous, padding, "encrypted"),
         },
       ],
       messages: [auditorMessageData(encrypted.message, auditor.publicKey())],
@@ -479,15 +546,15 @@ describe("anonymous ring audit", () => {
     };
   }
 
-  it("seals a 2x2 disclosure into 833 bytes and opens it with the same stream", () => {
-    expect(auditDisclosureLength(shape)).toBe(24);
-    expect(auditDisclosureLength({ anonymous: true, inputs: 3, outputs: 4 })).toBe(43);
+  it("seals a 2x2 disclosure into sixteen chunks and opens it with the same stream", () => {
+    expect(auditDisclosureLength(shape)).toBe(16);
+    expect(auditDisclosureLength({ anonymous: true, inputs: 3, outputs: 4 })).toBe(27);
     expect(auditDisclosureLength({ anonymous: false, inputs: 0, outputs: 1 })).toBe(36);
     expect(auditDisclosureLength({ anonymous: true, inputs: 0, outputs: 2 })).toBeUndefined();
-    expect(auditDisclosureLength({ anonymous: true, inputs: 5, outputs: 2 })).toBe(33);
+    expect(auditDisclosureLength({ anonymous: true, inputs: 5, outputs: 2 })).toBe(25);
     expect(auditDisclosureLength({ anonymous: true, inputs: 13, outputs: 2 })).toBeUndefined();
     const message = transaction().messages[0]!;
-    expect(message.data).toHaveLength(65 + 32 * 24);
+    expect(message.data).toHaveLength(65 + 32 * 16);
     const parsed = parseAuditorMessage(message.data, shape);
     expect(openAnonymousAuditDisclosure(tx.secretBytes(), salt, parsed.disclosure, shape)).toEqual(
       disclosure,
@@ -512,16 +579,15 @@ describe("anonymous ring audit", () => {
     ).toThrow(RangeError);
   });
 
-  it("rejects nonzero slot padding, a foreign sender tag and a ring flag above one", () => {
+  it("rejects nonzero slot padding and a foreign sender tag", () => {
     const plaintext = encodeAnonymousAuditDisclosure(disclosure);
-    expect(plaintext).toHaveLength(62 + 2 * 93 + 2 * 248);
+    expect(plaintext).toHaveLength(62 + 2 * 93 + 2 * 124);
     expect(decodeAnonymousAuditDisclosure(plaintext, shape)).toEqual(disclosure);
     for (const [index, value] of [
       [33, 1],
       [0, 0x50],
       [62 + 74, 1],
-      [62 + 2 * 93 + 234, 2],
-      [62 + 2 * 93 + 235, 1],
+      [62 + 2 * 93 + 98, 1],
     ] as const) {
       const corrupted = plaintext.slice();
       corrupted[index] = value;
@@ -530,7 +596,7 @@ describe("anonymous ring audit", () => {
     expect(() => decodeAnonymousAuditDisclosure(plaintext.subarray(1), shape)).toThrow(RangeError);
   });
 
-  it("audits the hidden sender, inputs and recipients and rebuilds the real commitment", () => {
+  it("opens the proven body under the recipient stream and rebuilds the real commitment", () => {
     const audited = auditRingTransaction({
       auditor,
       transaction: transaction(),
@@ -561,7 +627,66 @@ describe("anonymous ring audit", () => {
     expect(audited.outputOpenings[0]?.ownerHash).toEqual(source.ownerHash());
     expect(auditOpeningHash(audited.outputOpenings[0]!)).toEqual(commitment);
     expect(audited.outputOpenings[1]?.ownerHash).toEqual(ZERO_32);
-    expect(audited.undecryptableSlots).toEqual([1]);
+    expect(audited.payloadErrors).toEqual([]);
+    expect(audited.outputs[0]?.asset).toBe(SOL_MINT);
+    expect(audited.outputs[0]?.blinding).toEqual(blinding);
+  });
+
+  it("refuses a real body the disclosed viewing key does not open", () => {
+    const valid = transaction();
+    const slot = valid.outputSlots[0]!;
+    // Frame header 6 bytes, then the scheme byte, the blinding sits at body offset 40.
+    const frame = slot.payload.slice();
+    const flipped = 6 + 1 + 40;
+    frame[flipped] = (frame[flipped] ?? 0) ^ 1;
+    expect(() =>
+      auditRingTransaction({
+        auditor,
+        assets: new AssetRegistry(),
+        mode: "anonymous",
+        transaction: {
+          ...valid,
+          outputSlots: [{ ...slot, payload: frame }, valid.outputSlots[1]!],
+        },
+      }),
+    ).toThrow("RING_AUDIT_OUTPUT_MISMATCH");
+  });
+
+  it("reports a pair hint outside the X25519 encoding beside the stored output", () => {
+    const encrypted = encryptTransactionViewingSecret(tx.secretBytes(), auditor.publicKey(), {
+      salt,
+      anonymous: disclosure,
+    });
+    const valid = transaction();
+    const body = tx.sealAnonymousOutput(
+      source.viewingPublicKey,
+      encodeRingAnonymous({
+        assetAddress: SOL_MINT,
+        amount: 42n,
+        blinding,
+        pairU: new Uint8Array(32).fill(0xff) as Bytes32,
+      }),
+      salt,
+      0,
+    );
+    const audited = auditRingTransaction({
+      auditor,
+      assets: new AssetRegistry(),
+      mode: "anonymous",
+      transaction: {
+        ...valid,
+        outputSlots: [
+          {
+            ...valid.outputSlots[0]!,
+            payload: encodeOutputData(EncryptedScheme.ringAnonymous, body, "encrypted"),
+          },
+          valid.outputSlots[1]!,
+        ],
+        messages: [auditorMessageData(encrypted.message, auditor.publicKey())],
+      },
+    });
+    expect(audited.outputs.map((output) => output.amount)).toEqual([42n]);
+    expect(audited.payloadErrors).toEqual([{ slotIndex: 0, kind: "pairHint" }]);
   });
 
   it("fails closed without the anonymous mode, on a wrong commitment and without a tree id", () => {

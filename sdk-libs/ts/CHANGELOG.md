@@ -171,8 +171,15 @@ Added
 - `WalletErrorCode` adds `WALLET_TAG_STREAM_EXHAUSTED` for a tag stream with no free index below 2^64.
 - `RingAddress` and `RingPaymentRequest` encode and parse the `zolana:` payment request a ring member shares off chain, with its checksum, amount, mint and label, and `InboxSecret.viewTag` gives a payer the tag of each first payment to that address.
 - `ViewingKey.inboxSecret`, `pairKey`, `pairSendViewTag`, `ringChangeViewTag` and `ringBlindingSeed` derive the inbox secret, the per-recipient pseudonym, the pair and change view tags and the blinding seed of an anonymous ring payment, and `senderViewTag`, `sendSharedViewTag` and `recipientSharedViewTag` derive the counter and pair tags Rust wallets already scan.
-- `encodeRingAnonymous` and `decodeRingAnonymous` read and write `RingAnonymousOutputPlaintext`, the confidential fields followed by `pairPublicKey`, the payer's pseudonym toward the recipient.
+- `encodeRingAnonymous` and `decodeRingAnonymous` read and write `RingAnonymousOutputPlaintext`, the 104-byte opening `assetAddress`, `amount`, canonical `blinding` and `pairU` a recipient recomputes its commitment from, and `ringAnonymousBodyHash` gives the statement element of a published body.
+- `ViewingKey.sealAnonymousOutput` and `openAnonymousOutput` run the proven scheme-9 body cipher, keyed by `recipientStreamSecret` from the transaction key, the recipient viewing key, the salt and the slot, and `DecryptRequest.label` accepts `"ringAnonymous"`.
+- `encryptAnonymousRingTransfer` seals every slot of an anonymous ring transfer from a `RingAddress` per real output, pads the other slots with random bodies and tags in the same framing, refuses records, memos and compact padding, and returns the auditor message, the prover delivery inputs and the body hashes.
+- `AnonymousTagAllocator` assigns one inbox, pair or change tag per output slot over a `TagStream`, taking the lowest index free in history and in the transaction itself, and `AnonymousRingDestination` names where each slot goes.
+- `recoverAnonymousRing` scans every scheme-9 slot of a ring's confirmed history through a stated head under the wallet's viewing key and fails with `WALLET_RECOVERY_INCOMPLETE` on a page limit or an incomplete response.
+- `SyncReport.pendingAssets` holds commitment-verified anonymous notes whose mint the registry does not know, and `AnonymousRingReport.badPairHints` names stored notes whose pair hint is no X25519 key.
+- `AuditedRingTransaction.payloadErrors` and `DecryptedRingTransaction.payloadErrors` carry one `OutputPayloadError` with a kind per slot whose recipient payload gave no output.
 - `auditPublicInputHash` and `policyPublicInputHash` accept `anonymous: true` to bind anonymous statements, matching the Go and Rust transcripts.
+- `CustomRingBasePublicInput.outputBodyHashes` binds the published scheme-9 bodies, `auditPublicInputHash` and `policyPublicInputHash` chain thirteen base elements, a ring that is not anonymous chains one zero per output.
 - `RingRpc.getDecryptedTransactions` returns hidden senders, inputs and
   recipients in `anonymous` for authorized anonymous-ring audit readers, and
   `openAnonymousAuditDisclosure`, `auditDisclosureLength`,
@@ -214,6 +221,10 @@ Added
 
 Changed
 
+- `AnonymousOutputOpening` discloses only `identityTag`, `identityKey`, `nullifierPublicKey` and `viewingPublicKey`, the auditor opens amount, asset and blinding from the proven body, and an anonymous audit disclosure takes four values per output.
+- `AuditedRingTransaction` and `DecryptedRingTransaction` replace `undecryptableSlots` with `payloadErrors` → read the slot index from each entry and its `kind`.
+- `AnonymousNote.pairPublicKey` and `AnonymousRingNote.pairPublicKey` are optional, a note stays stored when its pair hint is unusable.
+- `syncWallet` opens every output under a spammed inbox index and still reports the address in `addressesUnderAttack`.
 - `RingDelegateTransferParams.compactPadding` lets ordinary and recovered delegate builders omit unused public slots, revealing actual counts and allowing the exact 2×3 policy proof when the registry paths share a subtree, while the default keeps padded counts.
 
 - `ProverClient` validates custom-ring proving keys against the regenerated circuit keys, including the member-update key.

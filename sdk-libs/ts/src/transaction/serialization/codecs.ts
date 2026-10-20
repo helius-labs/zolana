@@ -7,7 +7,19 @@ import type { ViewingKey } from "../../keypair/viewing-key.js";
 
 import { Data, type DataRecord } from "../data.js";
 import { TransactionError } from "../error.js";
-import { checked, concat, copy, decodeAddress, encodeAddress, equal } from "../internal.js";
+import { BN254_SCALAR_ORDER } from "../../hasher/index.js";
+import {
+  bigIntBytes,
+  bytesToBigInt,
+  checkU64,
+  checked,
+  concat,
+  copy,
+  decodeAddress,
+  encodeAddress,
+  equal,
+  hashBytes,
+} from "../internal.js";
 import { SOL_MINT, type AssetRegistry } from "../asset.js";
 import { SPP_SUPPORTED_SHAPES } from "../../interface/shape.js";
 import { Utxo, resolveRingProgramId, transactOutputBlinding } from "../utxo.js";
@@ -102,11 +114,20 @@ export interface ConfidentialOutputPlaintext {
   readonly data: Data;
 }
 
-/** Scheme 9, the scheme-3 fields followed by the payer pseudonym toward the recipient. */
+/** Scheme 9, the opened note a recipient recomputes its commitment from, Rust `AnonymousOutputPlaintext`. */
 export interface RingAnonymousOutputPlaintext {
-  readonly output: ConfidentialOutputPlaintext;
-  readonly pairPublicKey: X25519PublicKey;
+  readonly assetAddress: Address;
+  readonly amount: bigint;
+  /** Canonical big-endian field element, an alias above the modulus never opens a note. */
+  readonly blinding: Bytes32;
+  /** The payer's pseudonym toward the recipient, the X25519 u coordinate of its pair key. */
+  readonly pairU: Bytes32;
 }
+
+/** `asset_address(32) || amount(8) || blinding(32) || pair_u(32)`, Rust `ANONYMOUS_OUTPUT_PLAINTEXT_LEN`. */
+export const RING_ANONYMOUS_PLAINTEXT_LENGTH = 104;
+/** The scheme byte and the ciphertext, the exact bytes every scheme-9 slot carries. */
+export const RING_ANONYMOUS_BODY_LENGTH = RING_ANONYMOUS_PLAINTEXT_LENGTH + 1;
 
 export interface AnonymousRecipientPlaintext {
   readonly ownerPublicKey: ShieldedPublicKey;
@@ -426,21 +447,45 @@ export function confidentialPlaintextFromUtxo(
 }
 
 export function encodeRingAnonymous(value: RingAnonymousOutputPlaintext): Uint8Array {
-  return concat(encodeConfidential(value.output), value.pairPublicKey.toBytes());
+  return concat(
+    decodeAddress(value.assetAddress),
+    bigIntBytes(checkU64(value.amount, "amount"), 8),
+    canonicalBlinding(value.blinding),
+    checked<Bytes32>(value.pairU, 32, "pairU"),
+  );
 }
 
 export function decodeRingAnonymous(bytes: Uint8Array): RingAnonymousOutputPlaintext {
-  if (bytes.length < 33) {
+  if (bytes.length !== RING_ANONYMOUS_PLAINTEXT_LENGTH) {
     throw new TransactionError("TRANSACTION_INVALID_LENGTH", {
-      expected: 33,
+      expected: RING_ANONYMOUS_PLAINTEXT_LENGTH,
       actual: bytes.length,
     });
   }
-  const split = bytes.length - 33;
   return {
-    output: decodeConfidential(bytes.subarray(0, split)),
-    pairPublicKey: inTransactionCategory(() => X25519PublicKey.fromBytes(bytes.subarray(split))),
+    assetAddress: encodeAddress(bytes.subarray(0, 32)),
+    amount: bytesToBigInt(bytes.subarray(32, 40)),
+    blinding: canonicalBlinding(bytes.subarray(40, 72)),
+    pairU: bytes.slice(72) as Bytes32,
   };
+}
+
+function canonicalBlinding(bytes: Uint8Array): Bytes32 {
+  const blinding = checked<Bytes32>(bytes, 32, "blinding");
+  if (bytesToBigInt(blinding) >= BN254_SCALAR_ORDER) {
+    throw new TransactionError("TRANSACTION_INVALID_BLINDING");
+  }
+  return blinding;
+}
+
+/** The statement element of one slot, `hashBytes` of the scheme byte and the ciphertext. */
+export function ringAnonymousBodyHash(ciphertext: Uint8Array): Bytes32 {
+  return hashBytes(
+    concat(
+      Uint8Array.of(EncryptedScheme.ringAnonymous),
+      checked<Uint8Array>(ciphertext, RING_ANONYMOUS_PLAINTEXT_LENGTH, "ciphertext"),
+    ),
+  ) as Bytes32;
 }
 
 export function encodeAnonymousRecipient(value: AnonymousRecipientPlaintext): Uint8Array {

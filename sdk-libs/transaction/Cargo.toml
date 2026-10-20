@@ -8,6 +8,7 @@ repository.workspace = true
 
 [dependencies]
 zolana-interface = { workspace = true }
+custom-ring-interface = { workspace = true }
 zolana-event = { workspace = true }
 zolana-hasher = { workspace = true }
 zolana-keypair = { workspace = true }

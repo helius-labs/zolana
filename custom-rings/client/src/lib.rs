@@ -36,6 +36,6 @@ pub use crate::{
     },
     recover::{MemberRecovery, RecoveredNotes, RingRecovery, SourceMember},
     scan::{AuditedPage, RingScan, RingScanPage, ScanPage},
-    types::{AuditedOutput, AuditedTransaction},
+    types::{AuditedOutput, AuditedTransaction, OutputPayloadError, OutputPayloadErrorKind},
 };
 pub use custom_ring_interface::AUDITOR_MESSAGE_LEN;

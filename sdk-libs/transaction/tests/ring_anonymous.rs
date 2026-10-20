@@ -1,164 +1,140 @@
-//! `test-vectors/ring_anonymous_plaintext.json` pins the scheme-9 layout for TS.
+//! `test-vectors/anonymous_recipient_encryption.json` pins the scheme-9 body, Go and TS share it.
 
 use borsh::BorshDeserialize;
 use serde::Deserialize;
 use solana_address::Address;
 use zolana_event::OutputDataEncoding;
-use zolana_keypair::{x25519::X25519_PUBKEY_LEN, PublicKey, ViewingKey, X25519Keypair};
+use zolana_keypair::{PublicKey, ViewingKey, X25519Pubkey};
 use zolana_transaction::{
-    serialization::{
-        confidential::{ConfidentialEncode, ConfidentialOutputPlaintext},
-        ring_anonymous::{RingAnonymous, RingAnonymousOutputPlaintext},
+    serialization::ring_anonymous::{
+        ring_anonymous_message, RingAnonymousOutput, RingAnonymousOutputPlaintext,
+        RingAnonymousSlot,
     },
-    AssetRegistry, Data, EncryptedScheme, TransactionError,
+    AssetRegistry, EncryptedScheme, TransactionError,
 };
 
 #[derive(Deserialize)]
 struct Vector {
-    asset_id: u64,
+    tx_sk: String,
+    tx_pk: String,
+    recipient_viewing_sk: String,
+    recipient_viewing_pk: String,
+    ring_program_id: String,
+    salt: String,
+    slot: u8,
+    asset_address: String,
     amount: u64,
     blinding: String,
-    ring_program_id: String,
-    pair_secret: String,
-    pair_pk: String,
+    pair_u: String,
     plaintext: String,
+    body: String,
 }
 
 fn vector() -> Vector {
     serde_json::from_str(include_str!(
-        "../../../test-vectors/ring_anonymous_plaintext.json"
+        "../../../test-vectors/anonymous_recipient_encryption.json"
     ))
     .unwrap()
 }
 
-fn bytes32(hex: &str) -> [u8; 32] {
+fn bytes<const N: usize>(hex: &str) -> [u8; N] {
     hex::decode(hex).unwrap().try_into().unwrap()
 }
 
-fn plaintext(vector: &Vector) -> RingAnonymousOutputPlaintext {
+fn opening(vector: &Vector) -> RingAnonymousOutputPlaintext {
     RingAnonymousOutputPlaintext {
-        output: ConfidentialOutputPlaintext {
-            asset_id: vector.asset_id,
-            amount: vector.amount,
-            blinding: bytes32(&vector.blinding),
-            ring_program_id: Some(Address::new_from_array(bytes32(&vector.ring_program_id))),
-            data: Data::default(),
-        },
-        pair_pk: X25519Keypair::from_bytes(&bytes32(&vector.pair_secret)).pubkey(),
+        asset_address: bytes(&vector.asset_address),
+        amount: vector.amount,
+        blinding: bytes(&vector.blinding),
+        pair_u: bytes(&vector.pair_u),
+    }
+}
+
+fn slot(vector: &Vector) -> RingAnonymousSlot {
+    RingAnonymousSlot {
+        tx_viewing_pk: X25519Pubkey::from_bytes(bytes(&vector.tx_pk)).unwrap(),
+        recipient_pk: X25519Pubkey::from_bytes(bytes(&vector.recipient_viewing_pk)).unwrap(),
+        salt: bytes(&vector.salt),
+        slot: vector.slot,
     }
 }
 
 #[test]
-fn plaintext_matches_the_shared_vector() {
+fn sealing_and_opening_follow_the_shared_vector() {
     let vector = vector();
-    let plaintext = plaintext(&vector);
-    assert_eq!(hex::encode(plaintext.pair_pk.as_bytes()), vector.pair_pk);
-    let bytes = plaintext.serialize().unwrap();
-    assert_eq!(hex::encode(&bytes), vector.plaintext);
+    let tx = ViewingKey::from_bytes(&bytes(&vector.tx_sk));
+    let recipient = ViewingKey::from_bytes(&bytes(&vector.recipient_viewing_sk));
+    let slot = slot(&vector);
+    assert_eq!(tx.pubkey(), slot.tx_viewing_pk);
+    assert_eq!(recipient.pubkey(), slot.recipient_pk);
+
+    let opening = opening(&vector);
     assert_eq!(
-        RingAnonymousOutputPlaintext::deserialize(&bytes).unwrap(),
-        plaintext
+        opening.to_bytes().to_vec(),
+        hex::decode(&vector.plaintext).unwrap()
     );
+    let body = slot.seal(&tx, &opening).unwrap();
+    assert_eq!(body.to_vec(), hex::decode(&vector.body).unwrap());
+    assert_eq!(body[0], EncryptedScheme::RingAnonymous.as_byte());
+
+    assert_eq!(slot.open(&recipient, &body[1..]).unwrap(), opening);
+    assert_eq!(slot.open_with_tx_key(&tx, &body[1..]).unwrap(), opening);
+    // Another slot index keys another stream.
+    let other = RingAnonymousSlot {
+        slot: vector.slot + 1,
+        ..slot
+    };
+    assert_ne!(other.open(&recipient, &body[1..]).ok(), Some(opening));
 }
 
 #[test]
-fn scheme_3_layout_is_unchanged() {
-    let plaintext = plaintext(&vector());
-    let scheme_3 = plaintext.output.serialize().unwrap();
-    let scheme_9 = plaintext.serialize().unwrap();
-    assert_eq!(scheme_9.len(), scheme_3.len() + X25519_PUBKEY_LEN);
-    assert_eq!(&scheme_9[..scheme_3.len()], &scheme_3[..]);
-    assert!(ConfidentialOutputPlaintext::deserialize(&scheme_9).is_err());
-    assert!(RingAnonymousOutputPlaintext::deserialize(&scheme_3).is_err());
-}
-
-#[test]
-fn pair_key_must_be_a_tagged_canonical_x25519_key() {
-    let mut bytes = plaintext(&vector()).serialize().unwrap();
-    let tag = bytes.len() - X25519_PUBKEY_LEN;
-    bytes[tag] = 0x05;
-    assert!(matches!(
-        RingAnonymousOutputPlaintext::deserialize(&bytes),
-        Err(TransactionError::Keypair(_))
-    ));
-}
-
-struct Sealed {
-    tx: ViewingKey,
-    recipient: ViewingKey,
-    body: Vec<u8>,
-}
-
-fn sealed(plaintext: &RingAnonymousOutputPlaintext) -> Sealed {
-    let tx = ViewingKey::new();
-    let recipient = ViewingKey::new();
-    let message = RingAnonymous::encode_plaintext(
-        plaintext,
-        [0; 32],
-        &ConfidentialEncode {
-            tx: tx.clone(),
-            recipient_pubkey: recipient.pubkey(),
-            salt: [7; 16],
-            slot_index: 2,
-        },
-    )
-    .unwrap();
+fn the_message_frames_the_body_under_the_anonymous_scheme() {
+    let vector = vector();
+    let body: [u8; 105] = bytes(&vector.body);
+    let message = ring_anonymous_message(&body, [9; 32]).unwrap();
+    assert_eq!(message.view_tag, [9; 32]);
     let OutputDataEncoding::Encrypted(blob) =
         OutputDataEncoding::try_from_slice(&message.data).unwrap()
     else {
         panic!("encrypted output")
     };
-    let (&scheme, body) = blob.split_first().unwrap();
-    assert_eq!(scheme, EncryptedScheme::RingAnonymous.as_byte());
-    Sealed {
-        tx,
-        recipient,
-        body: body.to_vec(),
-    }
+    assert_eq!(blob, body.to_vec());
 }
 
 #[test]
-fn recipient_and_auditor_both_read_the_pair_key() {
-    let plaintext = plaintext(&vector());
-    let Sealed {
-        tx,
-        recipient,
-        body,
-    } = sealed(&plaintext);
-    // No recipient key rides in front of the ciphertext.
-    assert_eq!(body.len(), plaintext.serialize().unwrap().len());
-    let opened = RingAnonymous::decrypt(&recipient, &body, &tx.pubkey(), [7; 16], 2).unwrap();
-    assert_eq!(opened, plaintext);
-    let audited =
-        RingAnonymous::decrypt_with_tx_key(&tx, &recipient.pubkey(), &body, [7; 16], 2).unwrap();
-    assert_eq!(audited, plaintext);
-    let output = opened
-        .into_output(PublicKey::zeroed(), &AssetRegistry::default())
-        .unwrap();
-    assert_eq!(output.utxo.amount, plaintext.output.amount);
-    assert_eq!(
-        output.utxo.ring_program_id,
-        plaintext.output.ring_program_id
-    );
-    assert_eq!(output.pair_pk, plaintext.pair_pk);
-}
-
-#[test]
-fn truncated_body_is_rejected() {
-    let plaintext = plaintext(&vector());
-    let Sealed {
-        tx,
-        recipient,
-        body,
-    } = sealed(&plaintext);
-    let truncated = &body[..body.len() - 1];
-    assert!(RingAnonymous::decrypt(&recipient, truncated, &tx.pubkey(), [7; 16], 2).is_err());
-    let short = &body[..X25519_PUBKEY_LEN - 1];
+fn the_opening_resolves_the_asset_by_address_and_the_pair_key() {
+    let vector = vector();
+    let ring = Address::new_from_array(bytes(&vector.ring_program_id));
+    let mut opening = opening(&vector);
+    let assets = AssetRegistry::default();
     assert!(matches!(
-        RingAnonymous::decrypt(&recipient, short, &tx.pubkey(), [7; 16], 2),
-        Err(TransactionError::InvalidLength {
-            expected: X25519_PUBKEY_LEN,
-            actual: 32,
-        })
+        RingAnonymousOutput::from_opening(opening, PublicKey::zeroed(), ring, &assets),
+        Err(TransactionError::UnknownMint(_))
     ));
+    opening.asset_address = [0; 32];
+    // The vector's pair hint is a byte pattern, not a curve point, the note still opens.
+    let output =
+        RingAnonymousOutput::from_opening(opening, PublicKey::zeroed(), ring, &assets).unwrap();
+    assert_eq!(output.utxo.amount, vector.amount);
+    assert_eq!(output.utxo.ring_program_id, Some(ring));
+    assert_eq!(output.pair_pk, None);
+    assert!(output.utxo.data.is_empty());
+    let pair = ViewingKey::new().pubkey();
+    opening.pair_u = pair.u();
+    let output =
+        RingAnonymousOutput::from_opening(opening, PublicKey::zeroed(), ring, &assets).unwrap();
+    assert_eq!(output.pair_pk, Some(pair));
+}
+
+#[test]
+fn a_body_of_another_length_is_rejected() {
+    let vector = vector();
+    let body: [u8; 105] = bytes(&vector.body);
+    let recipient = ViewingKey::from_bytes(&bytes(&vector.recipient_viewing_sk));
+    for ciphertext in [&body[1..104], &body[..]] {
+        assert!(matches!(
+            slot(&vector).open(&recipient, ciphertext),
+            Err(TransactionError::InvalidLength { expected: 104, .. })
+        ));
+    }
 }

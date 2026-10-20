@@ -1,5 +1,7 @@
 //! What an audit returns, the decrypted values themselves.
 
+#[cfg(feature = "rpc")]
+use serde::{Deserialize, Serialize};
 use solana_address::Address;
 use solana_signature::Signature;
 use std::fmt;
@@ -55,8 +57,31 @@ pub struct AuditedTransaction {
     pub output_openings: Vec<ProofInputUtxo>,
     /// The proven hidden sender, spent notes and recipients of an anonymous ring.
     pub anonymous: Option<AnonymousDisclosure>,
-    /// Slots whose optional recipient payload is unavailable or disagrees with the disclosure.
-    pub undecryptable_slots: Vec<u32>,
+    /// Slots without an [`AuditedOutput`], one error per slot.
+    pub payload_errors: Vec<OutputPayloadError>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OutputPayloadError {
+    pub slot_index: u32,
+    pub kind: OutputPayloadErrorKind,
+}
+
+/// Why a slot gave no [`AuditedOutput`], the verified openings and the anonymous trace stay.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "rpc", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "rpc", serde(rename_all = "camelCase"))]
+pub enum OutputPayloadErrorKind {
+    /// No encrypted body of a known scheme and length.
+    Frame,
+    /// The body does not open to a well-formed plaintext.
+    Decrypt,
+    /// The opened note does not hash to the published commitment.
+    Commitment,
+    /// The note's mint is not in the asset registry.
+    Asset,
+    /// The opened `pair_u` is no X25519 point, the output is kept.
+    PairHint,
 }
 
 impl AuditedTransaction {

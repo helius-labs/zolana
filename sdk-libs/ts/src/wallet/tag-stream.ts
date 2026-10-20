@@ -1,7 +1,11 @@
 import type { IndexerReader } from "../client/ports.js";
 import type { IndexerRpcConfig } from "../client/retry.js";
 import type { Bytes32, RequestContext } from "../interface/types.js";
+import type { RingAddress } from "../keypair/ring-address.js";
+import type { ViewingKey } from "../keypair/viewing-key.js";
+import type { X25519PublicKey } from "../keypair/x25519.js";
 import type { IndexedShieldedTransaction } from "../transaction/instructions/transact.js";
+import type { AnonymousRingSlot } from "../transaction/wallet/anonymous-ring.js";
 
 import { WalletError } from "./error.js";
 import { bytesKey } from "./internal.js";
@@ -111,5 +115,105 @@ export class TagStream {
       return { nextCursor: response.nextCursor, scannedThrough: response.scannedThrough };
     });
     return occupied;
+  }
+}
+
+/**
+ * Where one real output of an anonymous ring transfer goes. A paired payment
+ * still names the full address, its viewing key must be the paired counterparty.
+ * Change is the spender's own address under the change tag of the slot.
+ */
+export type AnonymousRingDestination =
+  | Readonly<{ kind: "inbox"; address: RingAddress; start?: bigint }>
+  | Readonly<{ kind: "pair"; address: RingAddress; counterparty: X25519PublicKey; start?: bigint }>
+  | Readonly<{ kind: "change"; address: RingAddress }>;
+
+interface StreamCursor {
+  readonly tagAt: (index: bigint) => Bytes32;
+  from: bigint;
+  occupied: ReadonlySet<bigint> | undefined;
+  readonly reserved: Set<bigint>;
+}
+
+/**
+ * Assigns one tag per real slot after the output order is fixed. Per stream the
+ * lowest index absent from confirmed history and from this transaction's own
+ * reservations wins, so two payments to one address take two indices and two
+ * addresses sharing a viewing key never publish one pair tag twice. Concurrent
+ * senders can still pick the same first free index before either confirms.
+ */
+export class AnonymousTagAllocator {
+  readonly #stream: TagStream;
+  readonly #sender: ViewingKey;
+  readonly #firstNullifier: Bytes32;
+  readonly #cursors = new Map<string, StreamCursor>();
+
+  constructor(input: Readonly<{ stream: TagStream; sender: ViewingKey; firstNullifier: Bytes32 }>) {
+    this.#stream = input.stream;
+    this.#sender = input.sender;
+    this.#firstNullifier = input.firstNullifier;
+  }
+
+  /** `undefined` entries are padding slots, the sealing draws their random tags. */
+  async assign(
+    destinations: readonly (AnonymousRingDestination | undefined)[],
+    context?: RequestContext,
+  ): Promise<readonly (AnonymousRingSlot | undefined)[]> {
+    const slots: (AnonymousRingSlot | undefined)[] = [];
+    for (const [slotIndex, destination] of destinations.entries()) {
+      if (destination === undefined) {
+        slots.push(undefined);
+        continue;
+      }
+      const tag =
+        destination.kind === "change"
+          ? this.#sender.ringChangeViewTag(this.#firstNullifier, slotIndex)
+          : await this.#next(destination, context);
+      slots.push({ address: destination.address, tag });
+    }
+    return slots;
+  }
+
+  async #next(
+    destination: Exclude<AnonymousRingDestination, { kind: "change" }>,
+    context?: RequestContext,
+  ): Promise<Bytes32> {
+    const cursor = this.#cursor(destination);
+    for (;;) {
+      cursor.occupied ??= await this.#stream.occupiedIndices(cursor.from, cursor.tagAt, context);
+      for (const index of windowIndices(cursor.from)) {
+        if (cursor.occupied.has(index) || cursor.reserved.has(index)) continue;
+        cursor.reserved.add(index);
+        return cursor.tagAt(index);
+      }
+      cursor.from += DEFAULT_TAG_WINDOW;
+      cursor.occupied = undefined;
+      if (cursor.from > U64_MAX) throw new WalletError("WALLET_TAG_STREAM_EXHAUSTED");
+    }
+  }
+
+  #cursor(destination: Exclude<AnonymousRingDestination, { kind: "change" }>): StreamCursor {
+    const recipient = destination.address.recipient.viewingPublicKey;
+    let key: string;
+    let tagAt: (index: bigint) => Bytes32;
+    if (destination.kind === "inbox") {
+      const { inboxSecret } = destination.address;
+      key = `inbox:${bytesKey(inboxSecret.toBytes())}`;
+      tagAt = (index) => inboxSecret.viewTag(index);
+    } else {
+      if (!recipient.equals(destination.counterparty)) {
+        throw new WalletError("WALLET_INVALID_RING_DESTINATION", {
+          details: { reason: "paired viewing key" },
+        });
+      }
+      key = `pair:${bytesKey(recipient.toBytes())}`;
+      tagAt = (index) => this.#sender.pairSendViewTag(recipient, index);
+    }
+    let cursor = this.#cursors.get(key);
+    if (cursor === undefined) {
+      cursor = { tagAt, from: destination.start ?? 0n, occupied: undefined, reserved: new Set() };
+      this.#cursors.set(key, cursor);
+    }
+    return cursor;
   }
 }

@@ -656,9 +656,12 @@ type statement struct {
 	limits          []limitRow
 	policyHash      *big.Int
 
-	// The ring id every change output stays in.
-	ringID   *big.Int
-	approval bool
+	// The ring every recipient note and change output stays in, ringID is HashBytes of it.
+	ringProgramID [32]byte
+	ringID        *big.Int
+	approval      bool
+	// assets maps an output asset field back to the mint address its body delivers.
+	assets map[string][32]byte
 
 	sender *big.Int
 	// members is the ring's own registry, curator the one its curator sources read.
@@ -669,8 +672,8 @@ type statement struct {
 	// Aligned with outputs, nil for an output without an escrowed key.
 	ctHashes []*big.Int
 
-	inputs  []UtxoWires
-	outputs []UtxoWires
+	inputs     []UtxoWires
+	outputs    []UtxoWires
 	shortAudit bool
 
 	addressChain      *big.Int
@@ -760,7 +763,8 @@ func newStatement(t *testing.T, f fixture) *statement {
 		s.inlineAssets = nil
 		s.sources = emptySources()
 	}
-	s.ringID = big.NewInt(0x5a)
+	s.ringProgramID = ringaudit.Repeat(0x5a)
+	s.ringID = ringaudit.HashBytes(t, s.ringProgramID[:])
 	if v := f.limits; v != nil {
 		s.approval = v.approval
 		s.limits = append([]limitRow{{asset: asset, cap: v.cap, cosign: v.cosignAbove}}, v.rows...)
@@ -772,8 +776,10 @@ func newStatement(t *testing.T, f fixture) *statement {
 		s.keys = f.keys(s.keys)
 	}
 	secondAsset := asset
+	s.assets = map[string][32]byte{asset.String(): f.transferred}
 	if f.secondTransferred != [32]byte{} {
 		secondAsset = assetField(t, f.secondTransferred)
+		s.assets[secondAsset.String()] = f.secondTransferred
 	}
 	s.senderKey = senderKey
 	s.recipientKeys = [NOutputs][32]byte{f.recipient, f.recipient}
@@ -875,7 +881,7 @@ func (s *statement) buildTransaction(
 		Blinding:      big.NewInt(0x52),
 		DataHash:      big.NewInt(0),
 		RingDataHash:  big.NewInt(0),
-		RingProgramID: big.NewInt(0),
+		RingProgramID: s.ringID,
 	}
 	s.inputs = []UtxoWires{spent, dummyOpening(t, 0x53)}
 	// A second real output to the same recipient exercises the per-recipient
@@ -892,7 +898,7 @@ func (s *statement) buildTransaction(
 			Blinding:      big.NewInt(0x55),
 			DataHash:      big.NewInt(0),
 			RingDataHash:  big.NewInt(0),
-			RingProgramID: big.NewInt(0),
+			RingProgramID: s.ringID,
 		}
 	}
 	s.outputs = []UtxoWires{created, second}
@@ -911,11 +917,13 @@ func buildAssignment(t *testing.T, f fixture) *CustomRingPolicyCircuit {
 func (s *statement) assignment(t *testing.T) *CustomRingPolicyCircuit {
 	t.Helper()
 	s.updateHashes(t)
+	audit := s.auditStatement(t)
 	c := &CustomRingPolicyCircuit{
 		PublicInputHash:    s.publicInputHash,
-		Audit:              s.auditStatement(t).Audit,
+		Audit:              audit.Audit,
 		AddressChain:       s.addressChain,
 		PrivateTxBlinding:  s.privateTxBlinding,
+		Delivery:           audit.DeliveryWires(),
 		AddressTreeID:      big.NewInt(addressTreeID),
 		RingID:             s.ringID,
 		NamespaceOwnerHash: s.ownOwnerHash,

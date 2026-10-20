@@ -20,7 +20,7 @@ use zolana_transaction::{
         SppProofOutputUtxo, SPP_SUPPORTED_SHAPES,
     },
     keys::{DecryptRequest, DeriveRequest, RingTagRequest, ShieldedKeys, TransactionKeyRequest},
-    serialization::{confidential::Confidential, ring_anonymous::RingAnonymous},
+    serialization::{confidential::Confidential, ring_anonymous::RingAnonymousSlot},
     utxo::{derive_output_blinding_seed, derive_transact_output_blinding, SppProofInputUtxo},
     AssetRegistry, Data, DataRecord, DecodeCx, EncryptedScheme, Mint, TransactionError as E,
     UtxoSerialization, WalletUtxo,
@@ -987,22 +987,15 @@ fn anonymous_ring_encryption_publishes_derived_view_tags() {
         .pair_key(&owner.viewing_pubkey())
         .unwrap()
         .pubkey();
-    let inbox = AnonymousViewTags::new(&owner.viewing_key)
-        .with_inbox_recipient(&address, 3)
+    let inbox_tag = address.inbox_secret.view_tag(3).unwrap();
+    let pair_tag = owner
+        .viewing_key
+        .pair_send_view_tag(&receiver.viewing_pubkey, 5)
         .unwrap();
-    let paired = AnonymousViewTags::new(&owner.viewing_key)
-        .with_paired_recipient(receiver.viewing_pubkey, 5)
-        .unwrap();
-    for (view_tags, recipient_tag) in [
-        (inbox, address.inbox_secret.view_tag(3).unwrap()),
-        (
-            paired,
-            owner
-                .viewing_key
-                .pair_send_view_tag(&receiver.viewing_pubkey, 5)
-                .unwrap(),
-        ),
-    ] {
+    for recipient_tag in [inbox_tag, pair_tag] {
+        let view_tags = AnonymousViewTags::new(&owner.viewing_key)
+            .with_slot(0, &address, recipient_tag)
+            .unwrap();
         let input = wallet_utxo(&owner, Mint::SOL, 10, 7, 1);
         let first_nullifier = input.nullifier;
         let key = owner
@@ -1040,17 +1033,19 @@ fn anonymous_ring_encryption_publishes_derived_view_tags() {
                 panic!("encrypted output")
             };
             assert_eq!(blob[0], EncryptedScheme::RingAnonymous.as_byte());
-            let recovered = RingAnonymous::decrypt(
-                &reader.viewing_key,
-                &blob[1..],
-                &key.pubkey(),
-                proof.external_data.salt,
-                index as u32,
-            )
+            assert_eq!(blob.len(), 105);
+            let recovered = RingAnonymousSlot {
+                tx_viewing_pk: key.pubkey(),
+                recipient_pk: reader.viewing_pubkey(),
+                salt: proof.external_data.salt,
+                slot: index as u8,
+            }
+            .open(&reader.viewing_key, &blob[1..])
             .unwrap();
-            assert_eq!(recovered.output.amount, amount);
-            assert_eq!(recovered.output.ring_program_id, Some(ring));
-            assert_eq!(recovered.pair_pk, pair_pk);
+            assert_eq!(recovered.amount, amount);
+            assert_eq!(recovered.asset_address, [0; 32]);
+            assert_eq!(recovered.blinding, proof.output_utxos[index].blinding);
+            assert_eq!(recovered.pair_u, pair_pk.u());
         }
     }
 }
@@ -1079,10 +1074,26 @@ fn anonymous_ring_padding_publishes_random_tags() {
             )
             .unwrap();
         let solana_key = sender.signing_pubkey.confidential_view_tag().unwrap();
+        let real_len = slot_len(&proof, 0);
         for index in 2..4 {
             let tag = proof.external_data.resolved_owner_tags[index];
             assert_ne!(tag, solana_key);
             assert_eq!(tag[0], 0);
+            assert_ne!(tag, [0; 32]);
+            assert_eq!(
+                proof.external_data.outputs[index].owner_tag,
+                OwnerTag::Inline(tag)
+            );
+            // A padding slot shares the real slot's framing, length and scheme byte.
+            assert_eq!(slot_len(&proof, index), real_len);
+            let OutputDataEncoding::Encrypted(blob) = OutputDataEncoding::try_from_slice(
+                proof.external_data.outputs[index].data.as_ref().unwrap(),
+            )
+            .unwrap() else {
+                panic!("encrypted output")
+            };
+            assert_eq!(blob[0], EncryptedScheme::RingAnonymous.as_byte());
+            assert_eq!(blob.len(), 105);
             tags.push(tag);
         }
     }
@@ -1144,11 +1155,6 @@ fn anonymous_change_tags_and_blinding_seed_follow_the_key_derivation_vectors() {
             .unwrap(),
     )
     .unwrap();
-    let paired = view_tags.with_paired_recipient(recipient, 0).unwrap();
-    assert_eq!(
-        paired.change_keys(&first_nullifier, 0).unwrap().pair_pk,
-        sender.pair_key(&sender.pubkey()).unwrap().pubkey()
-    );
     assert_eq!(
         sender.pair_key(&recipient).unwrap().pubkey().as_bytes()[..],
         hex::decode(&ring.pair_pubkey).unwrap()[..]
@@ -1198,6 +1204,150 @@ fn anonymous_ring_encryption_refuses_another_wallets_viewing_key() {
         ),
         Err(E::AnonymousViewTagsSenderMismatch)
     ));
+}
+
+/// The slot owner must be the address the tag was reserved for.
+#[test]
+fn anonymous_slot_tags_bind_the_recipient_address_to_its_slot() {
+    let owner = keypair(1);
+    let recipient = keypair(2);
+    let sender = owner.shielded_address().unwrap();
+    let receiver = recipient.shielded_address().unwrap();
+    let ring = Address::new_from_array([42; 32]);
+    let address = RingAddress {
+        recipient: receiver,
+        ring_program_id: ring,
+        inbox_secret: recipient.viewing_key.inbox_secret(0).unwrap(),
+    };
+    let other = RingAddress {
+        recipient: keypair(3).shielded_address().unwrap(),
+        ..address.clone()
+    };
+    let tag = address.inbox_secret.view_tag(0).unwrap();
+    for (slot, address, expected) in [
+        (
+            1,
+            &address,
+            Some(E::UnknownAnonymousRecipient { slot_index: 0 }),
+        ),
+        (
+            0,
+            &other,
+            Some(E::UnknownAnonymousRecipient { slot_index: 0 }),
+        ),
+        (0, &address, None),
+    ] {
+        let input = wallet_utxo(&owner, Mint::SOL, 10, 7, 1);
+        let key = owner
+            .viewing_key
+            .get_transaction_viewing_key(&input.nullifier)
+            .unwrap();
+        let mut tx =
+            ConfidentialTransaction::new_with_ring(vec![input], payer(&owner), ring).unwrap();
+        tx.transfer_sol(&receiver, 3).unwrap();
+        let view_tags = AnonymousViewTags::new(&owner.viewing_key)
+            .with_slot(slot, address, tag)
+            .unwrap();
+        let result = tx.encrypt_anonymous_with_viewing_key(&sender, &key, &view_tags);
+        match expected {
+            Some(error) => assert_eq!(result.err(), Some(error)),
+            None => assert_eq!(result.unwrap().external_data.resolved_owner_tags[0], tag),
+        }
+    }
+}
+
+/// Two payments to one address take the two tags the sender reserved, one per slot.
+#[test]
+fn two_payments_to_one_address_publish_their_own_reserved_tags() {
+    let owner = keypair(1);
+    let recipient = keypair(2);
+    let sender = owner.shielded_address().unwrap();
+    let receiver = recipient.shielded_address().unwrap();
+    let ring = Address::new_from_array([42; 32]);
+    let address = RingAddress {
+        recipient: receiver,
+        ring_program_id: ring,
+        inbox_secret: recipient.viewing_key.inbox_secret(0).unwrap(),
+    };
+    let input = wallet_utxo(&owner, Mint::SOL, 10, 7, 1);
+    let key = owner
+        .viewing_key
+        .get_transaction_viewing_key(&input.nullifier)
+        .unwrap();
+    let mut tx = ConfidentialTransaction::new_with_ring(vec![input], payer(&owner), ring).unwrap();
+    tx.transfer_sol(&receiver, 3).unwrap();
+    tx.transfer_sol(&receiver, 2).unwrap();
+    let tags = [
+        address.inbox_secret.view_tag(4).unwrap(),
+        address.inbox_secret.view_tag(5).unwrap(),
+    ];
+    let view_tags = AnonymousViewTags::new(&owner.viewing_key)
+        .with_slot(0, &address, tags[0])
+        .unwrap()
+        .with_slot(1, &address, tags[1])
+        .unwrap();
+    let proof = tx
+        .clone()
+        .encrypt_anonymous_with_viewing_key(&sender, &key, &view_tags)
+        .unwrap();
+    assert_eq!(&proof.external_data.resolved_owner_tags[..2], &tags);
+    let same = AnonymousViewTags::new(&owner.viewing_key)
+        .with_slot(0, &address, tags[0])
+        .unwrap()
+        .with_slot(1, &address, tags[0])
+        .unwrap();
+    assert_eq!(
+        tx.encrypt_anonymous_with_viewing_key(&sender, &key, &same)
+            .err(),
+        Some(E::DuplicateAnonymousTag {
+            first: 0,
+            second: 1
+        })
+    );
+}
+
+#[test]
+fn anonymous_ring_encryption_refuses_memos_and_compact_padding() {
+    let owner = keypair(1);
+    let sender = owner.shielded_address().unwrap();
+    let ring = Address::new_from_array([42; 32]);
+    let input = wallet_utxo(&owner, Mint::SOL, 10, 7, 1);
+    let key = owner
+        .viewing_key
+        .get_transaction_viewing_key(&input.nullifier)
+        .unwrap();
+    let mut tx =
+        ConfidentialTransaction::new_with_ring(vec![input.clone()], payer(&owner), ring).unwrap();
+    tx.add_output_utxo(
+        SppProofOutputUtxo::new(Mint::SOL, 3, sender)
+            .unwrap()
+            .with_ring_program_id(ring)
+            .with_memo(vec![1, 2, 3]),
+    )
+    .unwrap();
+    assert_eq!(
+        tx.encrypt_anonymous_with_viewing_key(
+            &sender,
+            &key,
+            &AnonymousViewTags::new(&owner.viewing_key)
+        )
+        .err(),
+        Some(E::AnonymousOutputData { slot_index: 0 })
+    );
+    let mut compact =
+        ConfidentialTransaction::new_compact_with_ring(vec![input], payer(&owner), ring).unwrap();
+    compact.transfer_sol(&sender, 3).unwrap();
+    compact.pad_utxos(Shape::IN2_OUT4, &sender).unwrap();
+    assert_eq!(
+        compact
+            .encrypt_anonymous_with_viewing_key(
+                &sender,
+                &key,
+                &AnonymousViewTags::new(&owner.viewing_key)
+            )
+            .err(),
+        Some(E::AnonymousCompactPadding { slot_index: 2 })
+    );
 }
 
 #[test]

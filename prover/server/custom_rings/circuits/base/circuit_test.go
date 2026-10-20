@@ -255,8 +255,8 @@ func TestCircuitAcceptsClampedEphemeralSecrets(t *testing.T) {
 		solve(t, cs, buildAssignment(t, keys.WithEphScalar(t, secret)))
 	}
 	statement := keys.Statement(big.NewInt(0xabcdef))
-	if spptest.MustHashChain(t, keys.ChainElementsFor(t, statement)).Cmp(
-		spptest.MustHashChain(t, keys.WithEphScalar(t, alias).ChainElementsFor(t, statement))) != 0 {
+	if spptest.MustHashChain(t, keys.BaseChainElementsFor(t, statement)).Cmp(
+		spptest.MustHashChain(t, keys.WithEphScalar(t, alias).BaseChainElementsFor(t, statement))) != 0 {
 		t.Fatal("an ephemeral alias changed the public statement")
 	}
 }

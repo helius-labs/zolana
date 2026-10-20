@@ -31,6 +31,7 @@ use zolana_transaction::{
 use crate::{
     anonymous::{AnonymousRingReport, AnonymousRingState, AnonymousStreams},
     error::ClientError,
+    recovery::RingRecovery,
     rpc::{AsyncRpc, EncryptedUtxoMatch, IndexerRpcConfig, Rpc, ShieldedTransaction},
 };
 
@@ -105,7 +106,9 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
     /// outputs carry, and with each held viewing key's tag, which deposits
     /// carry, then the transactions that spent what they hold. With
     /// [`with_anonymous_ring`](Self::with_anonymous_ring) it also walks the
-    /// anonymous ring streams and opens the change of every spend it finds.
+    /// anonymous ring streams, opens the change of every spend it finds and
+    /// runs a [`RingRecovery`] through the highest slot read for every ring a
+    /// tag was capped in.
     pub fn fetch<I: Rpc + ?Sized>(&self, indexer: &I) -> Result<UtxoScanResult, ClientError> {
         let fetched = self.fetch_rounds(indexer)?;
         Ok(UtxoScanResult {
@@ -183,6 +186,28 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
                 batch.extend(self.unseen(&mut seen, streams.read(indexer)?)?);
             }
             if batch.is_empty() && anonymous.as_ref().is_none_or(AnonymousStreams::is_done) {
+                if let Some(streams) = &mut anonymous {
+                    let rings = streams.take_capped_rings();
+                    if !rings.is_empty() {
+                        let head = self
+                            .indexer_config
+                            .and_then(|config| config.require_slot)
+                            .or_else(|| transactions.iter().map(|tx| tx.slot).max())
+                            .unwrap_or_default();
+                        for ring in rings {
+                            let mut recovery =
+                                RingRecovery::new(self.keys, self.assets, ring, head);
+                            if let Some(config) = self.indexer_config {
+                                recovery = recovery.with_indexer_config(config);
+                            }
+                            let recovered = recovery.open_into(indexer, &mut decrypted)?;
+                            transactions.extend(self.unseen(&mut seen, recovered.transactions)?);
+                            streams.record_recovery(recovered.report);
+                        }
+                        // The recovered notes' spends are read like any other round's.
+                        continue;
+                    }
+                }
                 tags.extend(anonymous.iter().flat_map(AnonymousStreams::used_tags));
                 return Ok(Fetched {
                     tags,

@@ -2089,6 +2089,7 @@ version = "0.1.0"
 dependencies = [
  "bytemuck",
  "groth16-solana",
+ "hex",
  "serde_json",
  "solana-address 2.6.1",
  "solana-program-error",
@@ -2096,6 +2097,7 @@ dependencies = [
  "wincode",
  "zolana-hasher",
  "zolana-interface",
+ "zolana-keypair",
  "zolana-ring-policy",
 ]
 
@@ -2113,6 +2115,7 @@ dependencies = [
  "mollusk-svm",
  "pinocchio 0.11.2",
  "pinocchio-system",
+ "serde_json",
  "solana-account 4.3.2",
  "solana-curve25519 4.0.1",
  "solana-instruction",
@@ -11900,6 +11903,7 @@ version = "0.1.0"
 dependencies = [
  "borsh",
  "criterion",
+ "custom-ring-interface",
  "hex",
  "num-bigint 0.4.8",
  "serde",

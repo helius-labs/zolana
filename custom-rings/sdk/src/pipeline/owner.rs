@@ -12,15 +12,13 @@ use zolana_ring_policy::{Member, OutflowLimit};
 use zolana_transaction::{
     instructions::transact::{AnonymousViewTags, ConfidentialTransaction, SppProofOutputUtxo},
     keys::TransactionKeyRequest,
-    serialization::{
-        confidential::ConfidentialOutputPlaintext, ring_anonymous::RingAnonymousOutputPlaintext,
-    },
+    serialization::confidential::ConfidentialOutputPlaintext,
     utxo::SppProofInputUtxo,
     Data, EncryptedScheme, ShieldedKeys, TransactionError,
 };
 
 use super::{
-    anonymous::{anonymous_disclosure, check_anonymous_slots},
+    anonymous::{anonymous_delivery, anonymous_disclosure, check_anonymous_slots},
     pinned_policy, sealed, Rail, RailKind, RingTransfer, Staged, TransferAuthority,
 };
 use crate::{
@@ -112,15 +110,18 @@ impl Owner<'_> {
         if config.mode == RingMode::Anonymous {
             return Err(RingError::MissingAnonymousSigner);
         }
-        self.stage_with(ring, client, config, None).await
+        self.stage_with(ring, client, config, self.transaction.clone(), None)
+            .await
     }
 
     /// The auditor ciphertext precedes every hash over the external data.
+    /// `transaction` is `self.transaction`, padded first on the anonymous rail.
     pub(super) async fn stage_with(
         &self,
         ring: CustomRing,
         client: &(impl AsyncRpc + ?Sized),
         config: &CustomRingConfig,
+        transaction: ConfidentialTransaction,
         view_tags: Option<&AnonymousViewTags>,
     ) -> Result<Box<Staged>, RingError> {
         let anonymous = view_tags.is_some();
@@ -137,7 +138,6 @@ impl Owner<'_> {
             ),
             _ => Limit::Unbounded,
         };
-        let transaction = &self.transaction;
         let program = ring.program_id();
         let transfers: Vec<_> = transaction
             .interface_transfers()?
@@ -149,16 +149,15 @@ impl Owner<'_> {
             accounts: &self.interface_transfer_accounts,
         }
         .validate()?;
-        let tx_viewing_key = transaction_key(self.sender, *transaction.first_nullifier())?;
+        let first_nullifier = *transaction.first_nullifier();
+        let tx_viewing_key = transaction_key(self.sender, first_nullifier)?;
         let mut proof_inputs = match view_tags {
-            Some(view_tags) => transaction.clone().encrypt_anonymous_with_viewing_key(
+            Some(view_tags) => transaction.encrypt_anonymous_with_viewing_key(
                 &sender,
                 &tx_viewing_key,
                 view_tags,
             )?,
-            None => transaction
-                .clone()
-                .encrypt_with_viewing_key(&sender, &tx_viewing_key)?,
+            None => transaction.encrypt_with_viewing_key(&sender, &tx_viewing_key)?,
         };
         check_membership(
             program,
@@ -184,11 +183,13 @@ impl Owner<'_> {
                 Some(bound(limits, &outflows, *identity)?)
             }
         };
-        frame_dummies(
-            &proof_inputs.output_utxos,
-            &mut proof_inputs.external_data.outputs,
-            anonymous,
-        )?;
+        // Anonymous padding already carries the uniform scheme-9 body.
+        if !anonymous {
+            frame_dummy_outputs(
+                &proof_inputs.output_utxos,
+                &mut proof_inputs.external_data.outputs,
+            )?;
+        }
         if anonymous {
             // The anonymous circuit commits a zero owner for every output.
             for output in &mut proof_inputs.output_utxos {
@@ -207,9 +208,12 @@ impl Owner<'_> {
                 .map(|output| ProofInputUtxo::try_from((output, proof_inputs.output_tree_id)))
                 .collect::<Result<_, _>>()?,
         };
-        let EncryptedAudit { pending, message } = match anonymous {
-            true => params.encrypt_anonymous(anonymous_disclosure(&sender, &proof_inputs)?)?,
-            false => params.encrypt_for_input_count(proof_inputs.input_utxos.len())?,
+        let EncryptedAudit { pending, message } = match view_tags {
+            Some(view_tags) => params.encrypt_anonymous(
+                anonymous_disclosure(&sender, &proof_inputs)?,
+                anonymous_delivery(program, &sender, &first_nullifier, view_tags, &proof_inputs)?,
+            )?,
+            None => params.encrypt_for_input_count(proof_inputs.input_utxos.len())?,
         };
         proof_inputs.external_data.messages = vec![message.to_message_data(&config.auditor_pubkey)];
         // The external data hash binds the instruction tag.
@@ -263,15 +267,6 @@ pub(crate) fn frame_dummy_outputs(
     outputs: &[SppProofOutputUtxo],
     encoded: &mut [TransactOutput],
 ) -> Result<(), RingError> {
-    frame_dummies(outputs, encoded, false)
-}
-
-/// An anonymous dummy carries no recipient key, like every anonymous slot.
-pub(super) fn frame_dummies(
-    outputs: &[SppProofOutputUtxo],
-    encoded: &mut [TransactOutput],
-    anonymous: bool,
-) -> Result<(), RingError> {
     let templates: Vec<(bool, usize)> = outputs
         .iter()
         .zip(encoded.iter())
@@ -291,10 +286,7 @@ pub(super) fn frame_dummies(
         }
         let in_ring = output.ring_program_id.is_some();
         let throwaway = ViewingKey::new().pubkey();
-        let key = match anonymous {
-            true => &[][..],
-            false => throwaway.as_bytes(),
-        };
+        let key = throwaway.as_bytes();
         let template = templates
             .iter()
             .find(|(ring, _)| *ring == in_ring)
@@ -304,29 +296,19 @@ pub(super) fn frame_dummies(
                 .checked_sub(1 + 4 + 1 + key.len())
                 .filter(|len| *len > 0)
                 .ok_or(RingError::InvalidDummyOutput)?,
-            None => {
-                let output = ConfidentialOutputPlaintext {
-                    asset_id: zolana_transaction::SOL_ASSET_ID,
-                    amount: 0,
-                    blinding: [0; 32],
-                    ring_program_id: output.ring_program_id,
-                    data: Data::default(),
-                };
-                match anonymous {
-                    true => RingAnonymousOutputPlaintext {
-                        output,
-                        pair_pk: throwaway,
-                    }
-                    .serialize()?,
-                    false => output.serialize()?,
-                }
-                .len()
+            None => ConfidentialOutputPlaintext {
+                asset_id: zolana_transaction::SOL_ASSET_ID,
+                amount: 0,
+                blinding: [0; 32],
+                ring_program_id: output.ring_program_id,
+                data: Data::default(),
             }
+            .serialize()?
+            .len(),
         };
-        let scheme = match (anonymous, in_ring) {
-            (true, _) => EncryptedScheme::RingAnonymous,
-            (false, true) => EncryptedScheme::RingConfidential,
-            (false, false) => EncryptedScheme::Confidential,
+        let scheme = match in_ring {
+            true => EncryptedScheme::RingConfidential,
+            false => EncryptedScheme::Confidential,
         };
         let mut body = vec![scheme.as_byte()];
         body.extend_from_slice(key);

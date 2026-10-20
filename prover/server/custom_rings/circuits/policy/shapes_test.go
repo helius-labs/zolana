@@ -50,7 +50,8 @@ func shapeAssignment(t *testing.T, s *statement, shape common.RingPolicyShape) *
 	s.inputs, s.outputs, s.ctHashes = inputs, outputs, ctHashes
 	s.updateHashes(t)
 	p.PublicInputHash, p.PrivateTxHash = s.publicInputHash, s.privateTxHash
-	p.Audit = s.auditStatement(t).Audit
+	audit := s.auditStatement(t)
+	p.Audit, p.Delivery = audit.Audit, audit.DeliveryWires()
 	p.NIn, p.NOut = len(inputs), len(outputs)
 	c := NewShapeCircuit(shape.NInputs, shape.NOutputs, shape.Anonymous, shape.Delegate, shape.Subtree)
 	c.Policy = *p

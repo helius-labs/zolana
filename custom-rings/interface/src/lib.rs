@@ -1,6 +1,7 @@
 //! Account layouts, instruction data, errors and statement hashes of the
 //! custom ring program, shared by the program, the SDK and the services.
 
+pub mod anonymous_output;
 pub mod base_public_input;
 pub mod deposit;
 pub mod deposit_audit;
@@ -29,6 +30,7 @@ pub fn proving_key_hashes() -> impl Iterator<Item = (&'static str, [u8; 32])> {
         .copied()
 }
 
+pub use anonymous_output::*;
 pub use base_public_input::*;
 pub use deposit::*;
 pub use deposit_audit::*;
@@ -37,7 +39,9 @@ pub use error::CustomRingError;
 pub use instruction::*;
 pub use member_registry::*;
 pub use merge::*;
-pub use policy_public_input::{CustomRingPolicyPublicInput, POLICY_INDEXED_INPUTS};
+pub use policy_public_input::{
+    CustomRingPolicyPublicInput, POLICY_INDEXED_INPUTS, POLICY_PUBLIC_INPUT_ELEMENTS,
+};
 pub use public_table::*;
 pub use state::*;
 

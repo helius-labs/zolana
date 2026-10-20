@@ -1,9 +1,10 @@
 //! A child of `pipeline`, both rails stage through private items.
 
-use custom_ring_interface::RingMode;
+use std::sync::Mutex;
+
+use custom_ring_interface::{RingMode, ANONYMOUS_OUTPUT_BODY_LEN};
 use solana_address::Address;
 use zolana_client::Shape;
-use zolana_interface::event::OutputDataEncoding;
 use zolana_interface::instruction::{
     instruction_data::transact::{
         confidential_encrypted_output_body, ring_anonymous_encrypted_output_body,
@@ -18,17 +19,17 @@ use zolana_transaction::{
     instructions::transact::{AnonymousViewTags, ConfidentialTransaction},
     keys::{LocalShieldedKeys, TransactionKeyRequest},
     serialization::confidential::ConfidentialOutputPlaintext,
-    AssetRegistry, Data, EncryptedScheme, Mint, ShieldedKeys, TransactionError, SOL_MINT,
+    AssetRegistry, Data, Mint, ShieldedKeys, TransactionError, SOL_MINT,
 };
 
 use super::{
     anonymous,
     delegate::{check_balance, pad},
-    owner::{self, check_membership, transaction_key},
+    owner::{check_membership, transaction_key},
     *,
 };
 use crate::{
-    tests::support::{account, input, no_witnesses, note, pinned, ring, Accounts},
+    tests::support::{account, input, no_witnesses, note, pinned, ring, Accounts, OccupiedTags},
     CustomRingConfig, PoolTree,
 };
 
@@ -846,10 +847,7 @@ async fn anonymous_staging_derives_every_tag_from_the_sender_key() {
         .unwrap();
     for (recipient, tag) in [
         (AnonymousRecipient::Address(address.clone()), inbox_tag),
-        (
-            AnonymousRecipient::Paired(receiver.viewing_pubkey),
-            pair_tag,
-        ),
+        (AnonymousRecipient::Paired(address.clone()), pair_tag),
     ] {
         let mut transaction = ConfidentialTransaction::new_with_ring(
             vec![note(&sender, 10, 0, Some(program()))],
@@ -995,11 +993,9 @@ fn anonymous_slots_carry_ed25519_owners_in_the_ring_or_the_default_ring() {
         ..Default::default()
     };
     compact.check_shape().unwrap();
-    anonymous::check_anonymous_slots(shape, &compact).unwrap();
-    compact.output_utxos.swap(0, 1);
     assert!(matches!(
-        compact.check_shape(),
-        Err(TransactionError::RealOutputAfterDummy { index: 1 })
+        anonymous::check_anonymous_slots(shape, &compact),
+        Err(RingError::InvalidAnonymousSlot)
     ));
     let mut compact_input = inputs.clone();
     compact_input.input_utxos[1] = SppProofInputUtxo::compact(0).unwrap();
@@ -1038,33 +1034,182 @@ fn anonymous_slots_carry_ed25519_owners_in_the_ring_or_the_default_ring() {
     ));
 }
 
-/// Every anonymous dummy publishes the anonymous scheme without a recipient key.
-#[test]
-fn anonymous_dummies_frame_without_a_recipient_key() {
-    let real = SppProofOutputUtxo {
-        ring_program_id: Some(program()),
-        owner_address: Some(
-            ShieldedKeypair::new_ed25519()
+/// Each stream is read once per window, every slot takes the lowest index free in history
+/// and not taken by an earlier slot, two addresses on one viewing key share the pair stream.
+#[tokio::test]
+async fn anonymous_slots_reserve_distinct_indices_per_stream() {
+    let sender = ShieldedKeypair::new_ed25519().unwrap();
+    let recipient = ShieldedKeypair::new_ed25519().unwrap();
+    let other = ShieldedKeypair::new_ed25519().unwrap();
+    let receiver = recipient.shielded_address().unwrap();
+    // A second address on the recipient's viewing key.
+    let sibling = zolana_keypair::ShieldedAddress {
+        viewing_pubkey: receiver.viewing_pubkey,
+        ..other.shielded_address().unwrap()
+    };
+    let address = RingAddress {
+        recipient: receiver,
+        ring_program_id: program(),
+        inbox_secret: recipient.viewing_key.inbox_secret(0).unwrap(),
+    };
+    let inbox = |j| address.inbox_secret.view_tag(j).unwrap();
+    let pair = |k| {
+        sender
+            .viewing_key
+            .pair_send_view_tag(&receiver.viewing_pubkey, k)
+            .unwrap()
+    };
+    let indexer = OccupiedTags {
+        occupied: vec![inbox(0), inbox(2), pair(0)],
+        queries: Mutex::default(),
+    };
+    let mut transaction = ConfidentialTransaction::new_with_ring(
+        vec![note(&sender, 20, 0, Some(program()))],
+        Address::new_from_array([7; 32]),
+        program(),
+    )
+    .unwrap();
+    transaction.transfer_sol(&receiver, 2).unwrap();
+    transaction.transfer_sol(&receiver, 3).unwrap();
+    transaction.transfer_sol(&sibling, 4).unwrap();
+    let transfer = owner_transfer(&sender, transaction)
+        .with_anonymous_signer(&sender.signing_key, &sender.viewing_key)
+        .with_recipient(AnonymousRecipient::Address(address.clone()))
+        .with_recipient(AnonymousRecipient::Paired(RingAddress {
+            recipient: sibling,
+            ..address.clone()
+        }));
+    let staged = transfer
+        .rail
+        .stage(ring(), &indexer, &anonymous(), None)
+        .await
+        .unwrap();
+    let tags = &staged.proof_inputs.external_data.resolved_owner_tags;
+    // Slots 0 and 1 pay the address, slot 2 the sibling on the pair stream, slot 3 is change.
+    assert_eq!(&tags[..3], &[inbox(1), inbox(3), pair(1)]);
+    assert_eq!(indexer.queries.lock().unwrap().len(), 2);
+
+    // A paired recipient on the same viewing key competes for the same pair indices.
+    let indexer = OccupiedTags::default();
+    let mut transaction = ConfidentialTransaction::new_with_ring(
+        vec![note(&sender, 20, 0, Some(program()))],
+        Address::new_from_array([7; 32]),
+        program(),
+    )
+    .unwrap();
+    transaction.transfer_sol(&receiver, 2).unwrap();
+    transaction.transfer_sol(&sibling, 3).unwrap();
+    let transfer = owner_transfer(&sender, transaction)
+        .with_anonymous_signer(&sender.signing_key, &sender.viewing_key)
+        .with_recipient(AnonymousRecipient::Paired(address.clone()))
+        .with_recipient(AnonymousRecipient::Paired(RingAddress {
+            recipient: sibling,
+            ..address
+        }));
+    let staged = transfer
+        .rail
+        .stage(ring(), &indexer, &anonymous(), None)
+        .await
+        .unwrap();
+    let tags = &staged.proof_inputs.external_data.resolved_owner_tags;
+    assert_eq!(&tags[..2], &[pair(0), pair(1)]);
+    assert_eq!(indexer.queries.lock().unwrap().len(), 1);
+}
+
+/// A padding slot and a real slot differ in no public byte class, the program parses both alike.
+#[tokio::test]
+async fn anonymous_padding_is_framed_like_a_real_slot() {
+    let sender = ShieldedKeypair::new_ed25519().unwrap();
+    let mut transaction = ConfidentialTransaction::new_with_ring(
+        vec![note(&sender, 10, 0, Some(program()))],
+        Address::new_from_array([7; 32]),
+        program(),
+    )
+    .unwrap();
+    transaction
+        .transfer_sol(&sender.shielded_address().unwrap(), 4)
+        .unwrap();
+    transaction
+        .pad_utxos(Shape::IN2_OUT4, &sender.shielded_address().unwrap())
+        .unwrap();
+    let transfer = owner_transfer(&sender, transaction)
+        .with_anonymous_signer(&sender.signing_key, &sender.viewing_key);
+    let staged = transfer
+        .rail
+        .stage(ring(), &Accounts::default(), &anonymous(), None)
+        .await
+        .unwrap();
+    let outputs = &staged.proof_inputs.external_data.outputs;
+    assert_eq!(outputs.len(), 4);
+    let mut tags = Vec::new();
+    for output in outputs {
+        let data = output.data.as_deref().unwrap();
+        assert_eq!(data.len(), 1 + 4 + ANONYMOUS_OUTPUT_BODY_LEN);
+        assert_eq!(
+            ring_anonymous_encrypted_output_body(data).map(<[u8]>::len),
+            Some(ANONYMOUS_OUTPUT_BODY_LEN - 1)
+        );
+        let OwnerTag::Inline(tag) = output.owner_tag else {
+            panic!("inline tag");
+        };
+        assert_eq!(tag[0], 0);
+        assert_ne!(tag, [0; 32]);
+        assert_ne!(output.utxo_hash, [0; 32]);
+        tags.push(tag);
+    }
+    tags.sort_unstable();
+    tags.dedup();
+    assert_eq!(tags.len(), 4);
+}
+
+/// A memo has no room in the fixed body, compact padding would leave a slot unpublished.
+#[tokio::test]
+async fn anonymous_staging_refuses_memos_and_compact_padding() {
+    let sender = ShieldedKeypair::new_ed25519().unwrap();
+    let receiver = sender.shielded_address().unwrap();
+    let mut with_memo = ConfidentialTransaction::new_with_ring(
+        vec![note(&sender, 10, 0, Some(program()))],
+        Address::new_from_array([7; 32]),
+        program(),
+    )
+    .unwrap();
+    with_memo
+        .add_output_utxo(
+            SppProofOutputUtxo::new(Mint::SOL, 4, receiver)
                 .unwrap()
-                .shielded_address()
-                .unwrap(),
-        ),
-        ..Default::default()
-    };
-    let outputs = vec![real, SppProofOutputUtxo::default()];
-    let slot = |data| TransactOutput {
-        utxo_hash: [0; 32],
-        owner_tag: OwnerTag::Inline([0; 32]),
-        data,
-    };
-    let mut encoded = vec![slot(Some(vec![0; 120])), slot(None)];
-    owner::frame_dummies(&outputs, &mut encoded, true).unwrap();
-    let data = encoded[1].data.as_ref().unwrap();
-    assert_eq!(data.len(), 120);
-    let OutputDataEncoding::Encrypted(body) =
-        <OutputDataEncoding as borsh::BorshDeserialize>::try_from_slice(data).unwrap()
-    else {
-        panic!("a dummy publishes an encrypted body");
-    };
-    assert_eq!(body[0], EncryptedScheme::RingAnonymous.as_byte());
+                .with_ring_program_id(program())
+                .with_memo(vec![1, 2, 3]),
+        )
+        .unwrap();
+    let transfer = owner_transfer(&sender, with_memo)
+        .with_anonymous_signer(&sender.signing_key, &sender.viewing_key);
+    assert!(matches!(
+        transfer
+            .rail
+            .stage(ring(), &Accounts::default(), &anonymous(), None)
+            .await,
+        Err(RingError::Transaction(
+            TransactionError::AnonymousOutputData { slot_index: 0 }
+        ))
+    ));
+
+    let mut compact = ConfidentialTransaction::new_compact_with_ring(
+        vec![note(&sender, 10, 0, Some(program()))],
+        Address::new_from_array([7; 32]),
+        program(),
+    )
+    .unwrap();
+    compact.transfer_sol(&receiver, 4).unwrap();
+    compact.pad_utxos(Shape::IN2_OUT4, &receiver).unwrap();
+    let transfer = owner_transfer(&sender, compact)
+        .with_anonymous_signer(&sender.signing_key, &sender.viewing_key);
+    assert!(matches!(
+        transfer
+            .rail
+            .stage(ring(), &Accounts::default(), &anonymous(), None)
+            .await,
+        Err(RingError::Transaction(
+            TransactionError::AnonymousCompactPadding { slot_index: 2 }
+        ))
+    ));
 }

@@ -16,7 +16,15 @@ export {
   type AnonymousRingReport,
   type AnonymousRingState,
   type AnonymousStream,
+  type PendingAnonymousNote,
 } from "./anonymous.js";
+export {
+  encryptAnonymousRingTransfer,
+  type AnonymousOutputDelivery,
+  type AnonymousRingSlot,
+  type AnonymousRingTransferInput,
+  type EncryptedAnonymousRingTransfer,
+} from "./anonymous-ring.js";
 export {
   encryptAnonymousTransfer,
   encryptConfidentialTransfer,

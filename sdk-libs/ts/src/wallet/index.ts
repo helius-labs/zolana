@@ -66,8 +66,28 @@ export type {
   AnonymousRingReport,
   AnonymousRingState,
   AnonymousStream,
+  PendingAnonymousNote,
 } from "../transaction/wallet/anonymous.js";
-export { DEFAULT_TAG_WINDOW, TagStream, TagWindow } from "./tag-stream.js";
+export {
+  encryptAnonymousRingTransfer,
+  type AnonymousOutputDelivery,
+  type AnonymousRingSlot,
+  type AnonymousRingTransferInput,
+  type EncryptedAnonymousRingTransfer,
+} from "../transaction/wallet/anonymous-ring.js";
+export {
+  recoverAnonymousRing,
+  type AnonymousRecoveryClient,
+  type AnonymousRingRecoveryParams,
+  type AnonymousRingRecoveryReport,
+} from "./anonymous-recovery.js";
+export {
+  AnonymousTagAllocator,
+  DEFAULT_TAG_WINDOW,
+  TagStream,
+  TagWindow,
+  type AnonymousRingDestination,
+} from "./tag-stream.js";
 export {
   loadPersistedWallet,
   savePersistedWallet,

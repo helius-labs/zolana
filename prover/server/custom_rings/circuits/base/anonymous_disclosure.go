@@ -15,7 +15,8 @@ import (
 const (
 	auditHeaderChunks = 2
 	auditInputChunks  = 3
-	auditOutputChunks = 8
+	// An output discloses its recipient address only, the auditor opens the note from the proven body.
+	auditOutputChunks = 4
 	solanaOwnerTag    = 0x53
 )
 
@@ -123,11 +124,7 @@ func (a Audit) anonymousLayout(api frontend.API, rc frontend.Rangechecker, tx Au
 			x25519.AssertCanonical(api, u)
 		}
 		api.AssertIsEqual(api.Mul(disclosed, api.Sub(w.OwnerPkHash, gadget.HashBytes(api, recipient))), 0)
-		outputs[i] = chunks(api, slices.Concat(
-			recipient, viewing[:], fieldBytes(api, w.NullifierPk), uintBytes(api, api.Mul(disclosed, w.Amount), 8),
-			fieldBytes(api, w.Asset), fieldBytes(api, w.Blinding), fieldBytes(api, w.DataHash), fieldBytes(api, w.RingDataHash),
-			[]frontend.Variable{ringNote},
-		), auditOutputChunks, disclosed)
+		outputs[i] = chunks(api, slices.Concat(recipient, fieldBytes(api, w.NullifierPk), viewing[:]), auditOutputChunks, disclosed)
 	}
 
 	// The output region starts after the selected input prefix, so the layout is a sum over input counts.
