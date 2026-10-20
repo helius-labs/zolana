@@ -98,23 +98,12 @@ impl TryFrom<&SppProofInputUtxo> for ProofInputUtxo {
     // A dummy carries only its domain tag and blinding: the circuit classifies
     // slots by domain and requires every other dummy field to be zero.
     fn try_from(input_utxo: &SppProofInputUtxo) -> Result<Self, Self::Error> {
+        // An address slot hashes its owner and seed (the blinding) under the
+        // address domain and its tree, every other field zero. On chain,
+        // `zolana_program::compression::NewAddress::derive` computes the same
+        // hash; a test pins the two together.
         if input_utxo.is_address() {
-            use zolana_hasher::primitives::is_canonical_bn254_scalar_be;
-            if input_utxo.is_dummy()
-                || input_utxo.is_compact()
-                || input_utxo.cache_slot.is_some()
-                || input_utxo.utxo.owner.curve()? == zolana_keypair::Curve::P256
-                || input_utxo.utxo.amount != 0
-                || input_utxo.utxo.asset != crate::Mint::SOL
-                || !input_utxo.utxo.data.is_empty()
-                || input_utxo.data_hash.is_some()
-                || input_utxo.ring_data_hash.is_some()
-                || input_utxo.utxo.ring_program_id.is_some()
-                || !is_canonical_bn254_scalar_be(&input_utxo.utxo.blinding)
-                || input_utxo.nullifier_pubkey != zolana_interface::ZERO_NULLIFIER_PUBKEY
-            {
-                return Err(TransactionError::InvalidAddressInput);
-            }
+            input_utxo.check_address_fields()?;
             return Ok(Self {
                 domain: right_align(&zolana_interface::ADDRESS_DOMAIN.to_be_bytes()),
                 tree_id: tree_id_field(input_utxo.tree_id),

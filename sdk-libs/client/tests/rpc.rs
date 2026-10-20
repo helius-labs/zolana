@@ -8,7 +8,7 @@ use zolana_client::rpc::{
 };
 
 #[tokio::test]
-async fn blocking_transaction_witnesses_use_the_custom_reader() {
+async fn blocking_transaction_proofs_use_the_custom_reader() {
     use std::thread::{self, ThreadId};
     use zolana_client::{
         rpc::{Blocking, IndexerRpcConfig, Rpc},
@@ -23,7 +23,7 @@ async fn blocking_transaction_witnesses_use_the_custom_reader() {
     impl Rpc for CustomReader {}
 
     impl WitnessReader for CustomReader {
-        fn transaction_witnesses(
+        fn transaction_proofs(
             &self,
             inputs: &[SppProofInputUtxo],
             config: Option<IndexerRpcConfig>,
@@ -46,7 +46,7 @@ async fn blocking_transaction_witnesses_use_the_custom_reader() {
         SppProofInputUtxo::dummy_with_blinding([0; 32], 9).unwrap(),
     ];
     let witnesses = reader
-        .transaction_witnesses(&inputs, Some(IndexerRpcConfig::at_slot(42)))
+        .transaction_proofs(&inputs, Some(IndexerRpcConfig::at_slot(42)))
         .await
         .expect("custom witnesses must not require individual proof RPCs");
     assert!(witnesses.spend_proofs.is_empty());

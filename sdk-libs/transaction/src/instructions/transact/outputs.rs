@@ -1,9 +1,6 @@
 use solana_address::Address;
 use zolana_interface::N_PUBLIC_SLOTS;
-use zolana_keypair::{
-    shielded::{ShieldedAddress, ShieldedKeypair},
-    Curve,
-};
+use zolana_keypair::{shielded::ShieldedAddress, Curve};
 
 use super::{inputs::pad_inputs, ConfidentialTransaction};
 use crate::{
@@ -29,6 +26,8 @@ impl ConfidentialTransaction {
         self.output_tree_id
     }
 
+    /// Append the outputs to `output_tree_id`. Without this, they go to the
+    /// first real input's [`latest_tree_id`](crate::WalletUtxo::latest_tree_id), else tree 0.
     pub fn with_output_tree_id(mut self, output_tree_id: u16) -> Result<Self, TransactionError> {
         if self.padded_inputs.is_some() {
             return Err(TransactionError::OutputUtxosAlreadyPadded);
@@ -82,9 +81,12 @@ impl ConfidentialTransaction {
     }
 
     /// Pad like [`Self::pad_utxos`] for a transaction whose outputs a circuit
-    /// fixes: no output is added beyond nonzero change, so a transaction
-    /// naming no participant tags its dummies for a keypair nobody holds
-    /// instead of keeping a zero-amount change.
+    /// fixes: no output is added beyond nonzero change. The circuit requires
+    /// every dummy tag to name an owner signer or a real output owner, so a
+    /// transaction naming no such participant (for example a self-paid full
+    /// withdrawal) is refused with
+    /// [`TransactionError::NoDummyOwnerTagParticipant`] instead of keeping a
+    /// zero-amount change.
     pub fn pad_utxos_with_empty_outputs(
         &mut self,
         shape: Shape,
@@ -139,12 +141,8 @@ impl ConfidentialTransaction {
         // 4. Check output capacity, append dummy outputs and verify balance.
         let dummy_owner_tag = match self.dummy_owner_tag(&outputs, sender)? {
             Some(tag) => tag,
-            // A circuit fixes the outputs, so no change can carry the tag: take
-            // the tag of a keypair nobody holds, which reads as an unknown
-            // recipient's.
-            None if fixed_outputs => ShieldedKeypair::new_ed25519()?
-                .shielded_address()?
-                .confidential_view_tag()?,
+            // A circuit fixes the outputs, so no change can carry the tag.
+            None if fixed_outputs => return Err(TransactionError::NoDummyOwnerTagParticipant),
             None => {
                 outputs.push(SppProofOutputUtxo {
                     owner_address: Some(*sender),
@@ -230,17 +228,20 @@ impl ConfidentialTransaction {
         Ok(Some(owner.signing_pubkey.confidential_view_tag()?))
     }
 
-    /// The first input owner other than the fee payer. A dummy output may name
-    /// any owner signer; skipping the payer keeps a self-paid transaction's
-    /// dummies naming its change output.
+    /// The first owner signer other than the fee payer, in input slot order:
+    /// address owners, then real input owners. Address owners authorize SPP
+    /// like input owners, so they are owner signers too. A dummy output may
+    /// name any owner signer; skipping the payer keeps a self-paid
+    /// transaction's dummies naming its change output.
     fn named_input_owner_tag(&self) -> Result<Option<[u8; 32]>, TransactionError> {
         let payer = self.payer.to_bytes();
-        for input in self
-            .inputs
-            .iter()
-            .filter(|input| !input.utxo.owner.is_zero())
+        let address_owners = self.addresses.iter().map(|address| &address.utxo.owner);
+        let input_owners = self.inputs.iter().map(|input| &input.utxo.owner);
+        for owner in address_owners
+            .chain(input_owners)
+            .filter(|owner| !owner.is_zero())
         {
-            let tag = input.utxo.owner.confidential_view_tag()?;
+            let tag = owner.confidential_view_tag()?;
             if tag != payer {
                 return Ok(Some(tag));
             }

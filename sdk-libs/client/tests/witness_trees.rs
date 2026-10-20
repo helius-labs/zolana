@@ -170,7 +170,7 @@ fn padding_without_a_real_input_is_refused() {
 }
 
 #[test]
-fn blocking_transaction_witnesses_fetch_all_tree_proofs_concurrently() {
+fn blocking_transaction_proofs_fetch_all_tree_proofs_concurrently() {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock indexer");
     let url = format!(
         "http://{}",
@@ -194,8 +194,7 @@ fn blocking_transaction_witnesses_fetch_all_tree_proofs_concurrently() {
         input.utxo.owner = owner;
     }
     let expected = inputs.clone();
-    let reader =
-        thread::spawn(move || ZolanaIndexer::new(url).transaction_witnesses(&inputs, None));
+    let reader = thread::spawn(move || ZolanaIndexer::new(url).transaction_proofs(&inputs, None));
 
     // Two proof kinds for each tree must arrive before any response is sent.
     // A sequential reader stalls here waiting for its first response.
@@ -377,7 +376,7 @@ fn address_only_transactions_fetch_non_inclusion_from_each_named_tree() {
             .unwrap()
         })
         .collect();
-    let witnesses = indexer.transaction_witnesses(&inputs, None).unwrap();
+    let witnesses = indexer.transaction_proofs(&inputs, None).unwrap();
     assert!(witnesses.spend_proofs.is_empty());
     assert_eq!(
         witnesses
@@ -398,7 +397,7 @@ async fn async_address_only_transaction_fetches_its_tree() {
     let owner = zolana_keypair::PublicKey::from_pda(&Address::new_from_array([7; 32]));
     let input = SppProofInputUtxo::new_address(owner, [0; 32], 7).unwrap();
     let witnesses = indexer
-        .transaction_witnesses(std::slice::from_ref(&input), None)
+        .transaction_proofs(std::slice::from_ref(&input), None)
         .await
         .unwrap();
     assert!(witnesses.spend_proofs.is_empty());

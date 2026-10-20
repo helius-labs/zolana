@@ -103,6 +103,8 @@ where
     let mut txs: Vec<ShieldedTransaction> = Vec::new();
 
     let mut freshness_gate = indexer_rpc_config(config);
+    // The newest output tree the indexer named during this sync.
+    let mut latest_tree_id = None;
 
     let _total = timing::Phase::start("sync_wallet_total", 0);
     for round in 0..config.rounds {
@@ -192,7 +194,7 @@ where
                 nullifier_result.unwrap_or_else(|payload| resume_unwind(payload));
             let proofless_result =
                 proofless_result.unwrap_or_else(|payload| resume_unwind(payload));
-            tag_result?;
+            latest_tree_id = tag_result?.or(latest_tree_id);
             nullifier_result?;
             proofless_result?;
 
@@ -264,6 +266,7 @@ where
     if refreshed > 0 {
         report = wallet.sync_with_material(&material, &txs, now_unix_ts(), config.tag_window)?;
     }
+    wallet.set_latest_tree_id(latest_tree_id);
 
     Ok(report)
 }
@@ -304,6 +307,8 @@ where
     let mut nullifier_scanned_to_tip: HashSet<CursorStream> = HashSet::new();
     let mut report = SyncReport::default();
     let mut txs = Vec::new();
+    // The newest output tree the indexer named during this sync.
+    let mut latest_tree_id = None;
 
     for _ in 0..config.rounds {
         let before = (transactions.len(), proofless_deposits.len());
@@ -354,7 +359,7 @@ where
             Ok(())
         };
         wallet.cursors = cursors;
-        fetched?;
+        latest_tree_id = fetched?.or(latest_tree_id);
         nullifiers_fetched?;
         fetched_proofless?;
 
@@ -392,6 +397,7 @@ where
     if refreshed > 0 {
         report = wallet.sync_with_material(&material, &txs, now_unix_ts(), config.tag_window)?;
     }
+    wallet.set_latest_tree_id(latest_tree_id);
 
     Ok(report)
 }
@@ -677,6 +683,10 @@ fn advance(furthest: &mut Option<Vec<u8>>, page: Page) -> Option<Vec<u8>> {
 /// wallet's tag set is derived from a local counter plus a window of 64, and a
 /// second device spending further ahead than that window makes the counter lag by
 /// more than the window can absorb.
+///
+/// Returns the output tree the last page read named
+/// (`GetShieldedTransactionsByTagsResponse::output_tree_id`), `None` when no
+/// page was read or the indexer named none.
 fn fetch_shielded_transactions_incremental<I: Rpc>(
     indexer: &I,
     keys: &[CursorStream],
@@ -685,7 +695,8 @@ fn fetch_shielded_transactions_incremental<I: Rpc>(
     rpc_config: Option<IndexerRpcConfig>,
     cursors: &mut HashMap<CursorStream, Vec<u8>>,
     scanned_to_tip: &mut HashSet<CursorStream>,
-) -> Result<(), ClientError> {
+) -> Result<Option<u16>, ClientError> {
+    let mut output_tree_id = None;
     for (start, group) in group_by_resume_point(keys, cursors, scanned_to_tip) {
         for chunk in group.chunks(config.tag_query_chunk) {
             let furthest = read_chunk(start.clone(), |cursor| {
@@ -695,6 +706,7 @@ fn fetch_shielded_transactions_incremental<I: Rpc>(
                     Some(config.page_limit),
                     rpc_config,
                 )?;
+                output_tree_id = response.output_tree_id;
                 for tx in response.transactions {
                     if tx.proofless || tx.tx_viewing_pk.is_none() || tx.salt.is_none() {
                         continue;
@@ -711,7 +723,7 @@ fn fetch_shielded_transactions_incremental<I: Rpc>(
             record_chunk(chunk, furthest, cursors, scanned_to_tip);
         }
     }
-    Ok(())
+    Ok(output_tree_id)
 }
 
 /// Async twin of [`fetch_shielded_transactions_incremental`]. Drives its own
@@ -724,7 +736,8 @@ async fn fetch_shielded_transactions_incremental_async<I: AsyncRpc>(
     rpc_config: Option<IndexerRpcConfig>,
     cursors: &mut HashMap<CursorStream, Vec<u8>>,
     scanned_to_tip: &mut HashSet<CursorStream>,
-) -> Result<(), ClientError> {
+) -> Result<Option<u16>, ClientError> {
+    let mut output_tree_id = None;
     for (start, group) in group_by_resume_point(keys, cursors, scanned_to_tip) {
         for chunk in group.chunks(config.tag_query_chunk) {
             let mut cursor = start.clone();
@@ -738,6 +751,7 @@ async fn fetch_shielded_transactions_incremental_async<I: AsyncRpc>(
                         rpc_config,
                     )
                     .await?;
+                output_tree_id = response.output_tree_id;
                 for tx in response.transactions {
                     if tx.proofless || tx.tx_viewing_pk.is_none() || tx.salt.is_none() {
                         continue;
@@ -758,7 +772,7 @@ async fn fetch_shielded_transactions_incremental_async<I: AsyncRpc>(
             record_chunk(chunk, furthest, cursors, scanned_to_tip);
         }
     }
-    Ok(())
+    Ok(output_tree_id)
 }
 
 /// Fetches spends of `nullifiers`, resuming each from where it was last checked.
@@ -2067,6 +2081,15 @@ mod tests {
             },
         )
         .expect("sync funding");
+        // The sync stamps every held UTXO with the output tree the indexer named.
+        assert_eq!(
+            wallet
+                .utxos
+                .iter()
+                .map(|utxo| utxo.latest_tree_id)
+                .collect::<Vec<_>>(),
+            vec![Some(TEST_TREE_ID)]
+        );
         assert_eq!(wallet.private_transactions().len(), 1);
         let inbound = wallet.private_transactions().first().expect("inbound");
         assert_eq!(inbound.kind, PrivateTransactionKind::PrivateTransfer);

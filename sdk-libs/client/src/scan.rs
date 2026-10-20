@@ -14,7 +14,9 @@
 //! reports the others as unknown; [`fetch_asset_id`] reads the id the pool
 //! registered for a mint, to add it. An indexer that lags misses the latest
 //! spends; [`UtxoScan::with_indexer_config`] makes every read wait for a
-//! slot first.
+//! slot first. Every spendable UTXO carries the output tree the indexer
+//! named on the last page read, as its
+//! [`latest_tree_id`](zolana_transaction::WalletUtxo::latest_tree_id).
 
 use std::collections::HashSet;
 
@@ -111,10 +113,12 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
         let mut tags = vec![address.signing_pubkey.confidential_view_tag()?];
         tags.extend(self.keys.viewing_public_keys().iter().map(P256Pubkey::x));
 
+        // The output tree the last page read named; every page reports it.
+        let mut output_tree_id = None;
         let mut seen = HashSet::new();
         let mut batch = self.unseen(
             &mut seen,
-            tagged_transactions(indexer, &tags, self.indexer_config)?,
+            tagged_transactions(indexer, &tags, self.indexer_config, &mut output_tree_id)?,
         )?;
         let mut transactions = Vec::new();
         let mut decrypted = DecryptionResult::default();
@@ -132,14 +136,19 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
                 .collect();
             batch = self.unseen(
                 &mut seen,
-                spending_transactions(indexer, &nullifiers, self.indexer_config)?,
+                spending_transactions(
+                    indexer,
+                    &nullifiers,
+                    self.indexer_config,
+                    &mut output_tree_id,
+                )?,
             )?;
             if batch.is_empty() {
                 return Ok(Fetched {
                     tags,
                     transactions,
                     owned,
-                    spendable,
+                    spendable: spendable.with_latest_tree_id(output_tree_id),
                 });
             }
         }
@@ -215,11 +224,13 @@ struct Fetched {
 
 /// The transactions tagged with any of `tags`. Deposits come from the
 /// encrypted-output stream, one transaction per output: a deposit transaction
-/// can shield several outputs.
+/// can shield several outputs. Each page read sets `output_tree_id` to the
+/// output tree it names.
 fn tagged_transactions<I: Rpc + ?Sized>(
     indexer: &I,
     tags: &[[u8; 32]],
     config: Option<IndexerRpcConfig>,
+    output_tree_id: &mut Option<u16>,
 ) -> Result<Vec<ShieldedTransaction>, ClientError> {
     let mut transactions = Vec::new();
     let mut cursor = None;
@@ -230,6 +241,7 @@ fn tagged_transactions<I: Rpc + ?Sized>(
             Some(PAGE_LIMIT),
             config,
         )?;
+        *output_tree_id = page.output_tree_id;
         transactions.extend(page.transactions.into_iter().filter(|tx| !tx.proofless));
         match next_page(&cursor, page.next_cursor, &page.scanned_through)? {
             Some(next) => cursor = Some(next),
@@ -244,6 +256,7 @@ fn tagged_transactions<I: Rpc + ?Sized>(
             Some(PAGE_LIMIT),
             config,
         )?;
+        *output_tree_id = page.output_tree_id;
         transactions.extend(
             page.matches
                 .into_iter()
@@ -257,11 +270,13 @@ fn tagged_transactions<I: Rpc + ?Sized>(
     Ok(transactions)
 }
 
-/// The transactions that spent any of `nullifiers`.
+/// The transactions that spent any of `nullifiers`. Each page read sets
+/// `output_tree_id` to the output tree it names.
 fn spending_transactions<I: Rpc + ?Sized>(
     indexer: &I,
     nullifiers: &[[u8; 32]],
     config: Option<IndexerRpcConfig>,
+    output_tree_id: &mut Option<u16>,
 ) -> Result<Vec<ShieldedTransaction>, ClientError> {
     let mut transactions = Vec::new();
     for chunk in nullifiers.chunks(PAGE_LIMIT as usize) {
@@ -273,6 +288,7 @@ fn spending_transactions<I: Rpc + ?Sized>(
                 Some(PAGE_LIMIT),
                 config,
             )?;
+            *output_tree_id = page.output_tree_id;
             transactions.extend(page.transactions);
             match next_page(&cursor, page.next_cursor, &page.scanned_through)? {
                 Some(next) => cursor = Some(next),

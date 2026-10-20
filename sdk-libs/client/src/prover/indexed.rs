@@ -772,6 +772,43 @@ mod tests {
         }
     }
 
+    /// An address slot proves only non-inclusion, so its lookup carries no
+    /// commitment, and only the confidential EdDSA circuit takes one. Each
+    /// refused request differs from the accepted one in a single field.
+    #[test]
+    fn address_lookups_need_no_commitment_and_the_confidential_circuit() {
+        let address_domain = format!("0x{:x}", zolana_interface::ADDRESS_DOMAIN);
+        let request = |circuit_type: &str, commitment: Option<[u8; 32]>| {
+            let mut data = request_data();
+            let mut wire: serde_json::Value = serde_json::from_str(&data.witness).unwrap();
+            wire["circuitType"] = json!(circuit_type);
+            wire["inputs"] = json!([{"treeSlot":"0x0", "isDummy":"0x0",
+                "utxo": {"domain": address_domain}}]);
+            *data.witness = wire.to_string();
+            if let Some(lookup) = data.inputs.first_mut() {
+                lookup.commitment = commitment;
+            }
+            IndexedProofRequest::new(data)
+        };
+        request("transfer-confidential", None).expect("address on the confidential circuit");
+        // The ring circuit takes the same public input count, so only the
+        // address rule refuses it.
+        IndexedProofRequest::new({
+            let mut data = request_data();
+            let mut wire: serde_json::Value = serde_json::from_str(&data.witness).unwrap();
+            wire["circuitType"] = json!("transfer-ring");
+            *data.witness = wire.to_string();
+            data
+        })
+        .expect("a spend on the ring circuit");
+        for refused in [
+            request("transfer-confidential", Some(scalar_one())),
+            request("transfer-ring", None),
+        ] {
+            assert!(matches!(refused, Err(ClientError::InvalidIndexedRequest)));
+        }
+    }
+
     #[test]
     fn cached_lookup_flags_must_be_complete_bits() {
         for flags in [json!(["0x2"]), json!(["0x1", "0x0"]), json!([])] {

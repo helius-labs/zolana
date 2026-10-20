@@ -6,7 +6,10 @@ use super::{SppProofInputUtxo, Utxo};
 use crate::error::TransactionError;
 
 /// A decrypted note with indexer context. Missing data hashes require reconstruction.
-#[derive(Clone, Debug, PartialEq, Eq)]
+///
+/// `Debug` is written by hand so a log line never prints
+/// [`Self::tx_viewing_key`].
+#[derive(Clone, PartialEq, Eq)]
 #[cfg_attr(
     feature = "serde",
     derive(serde::Serialize, serde::Deserialize),
@@ -76,9 +79,13 @@ pub struct WalletUtxo {
     /// Position of `utxo_hash` in its tree, which the inclusion proof is
     /// fetched by.
     pub leaf_index: u64,
-    /// The newest tree the indexer knew when it returned this UTXO: where a
-    /// transaction that spends it can append its outputs. `None` until the
-    /// indexer reports it.
+    /// The newest unpaused tree the indexer knew when it returned this UTXO
+    /// (the `output_tree_id` of the page it came from): where a transaction
+    /// that spends it appends its outputs unless the builder is told another
+    /// tree. A sync stamps it with
+    /// [`SpendableDecryptionResult::with_latest_tree_id`](crate::SpendableDecryptionResult::with_latest_tree_id).
+    /// `None` until the indexer reports one; a transaction spending it then
+    /// keeps the default output tree 0.
     #[cfg_attr(
         feature = "serde",
         serde(default, skip_serializing_if = "Option::is_none")
@@ -99,6 +106,42 @@ pub struct WalletUtxo {
     #[cfg_attr(feature = "serde", serde(default))]
     #[cfg_attr(feature = "tsify", tsify(optional))]
     pub slot_index: u32,
+}
+
+impl core::fmt::Debug for WalletUtxo {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        // Destructured so a new field cannot be left out silently.
+        let Self {
+            utxo,
+            nullifier_pubkey,
+            utxo_hash,
+            nullifier,
+            tx_viewing_key,
+            data_hash,
+            ring_data_hash,
+            tree_id,
+            leaf_index,
+            latest_tree_id,
+            slot,
+            tx_signature,
+            slot_index,
+        } = self;
+        f.debug_struct("WalletUtxo")
+            .field("utxo", utxo)
+            .field("nullifier_pubkey", nullifier_pubkey)
+            .field("utxo_hash", utxo_hash)
+            .field("nullifier", nullifier)
+            .field("tx_viewing_key", &tx_viewing_key.map(|_| "<redacted>"))
+            .field("data_hash", data_hash)
+            .field("ring_data_hash", ring_data_hash)
+            .field("tree_id", tree_id)
+            .field("leaf_index", leaf_index)
+            .field("latest_tree_id", latest_tree_id)
+            .field("slot", slot)
+            .field("tx_signature", tx_signature)
+            .field("slot_index", slot_index)
+            .finish()
+    }
 }
 
 impl WalletUtxo {
@@ -132,6 +175,16 @@ impl WalletUtxo {
 
     pub fn tree_id(&self) -> u16 {
         self.tree_id
+    }
+
+    /// The output tree a transaction spending `inputs` uses unless it is told
+    /// another: the first real input's [`Self::latest_tree_id`], else tree 0.
+    pub(crate) fn default_output_tree_id(inputs: &[Self]) -> u16 {
+        inputs
+            .iter()
+            .find(|input| !input.utxo.owner.is_zero())
+            .and_then(|input| input.latest_tree_id)
+            .unwrap_or(0)
     }
 
     /// Whether the default-ring circuit can spend it. A ring-bound UTXO's

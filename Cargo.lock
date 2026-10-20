@@ -12203,6 +12203,7 @@ dependencies = [
  "zolana-instruction",
  "zolana-interface",
  "zolana-keypair",
+ "zolana-program",
 ]
 
 [[package]]

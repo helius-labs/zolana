@@ -1,10 +1,11 @@
-use zolana_interface::state::cache::CACHE_CAPACITY;
+use zolana_hasher::primitives::is_canonical_bn254_scalar_be;
+use zolana_interface::{state::cache::CACHE_CAPACITY, ZERO_NULLIFIER_PUBKEY};
 use zolana_keypair::{
-    constants::BLINDING_LEN, viewing_key::random_blinding, NullifierKey, PublicKey,
+    constants::BLINDING_LEN, viewing_key::random_blinding, Curve, NullifierKey, PublicKey,
 };
 
 use super::{dummy_utxo_hash, Utxo};
-use crate::{Data, Mint, TransactionError};
+use crate::{AddressInputError, Data, Mint, TransactionError};
 
 /// An input UTXO with every value the transaction and the prover read from it
 /// already computed, so nothing downstream holds key material. Convert from
@@ -106,39 +107,117 @@ pub struct SppProofInputUtxo {
 impl SppProofInputUtxo {
     /// Reserve an address scoped by a signing owner, seed and tree. The seed
     /// should include the application's program id and account identifier.
+    ///
+    /// The slot's UTXO hash and nullifier (the address) are derived as in
+    /// [`Self::validate_address`], the one derivation both sites share.
     pub fn new_address(
         owner: PublicKey,
         seed: [u8; 32],
         tree_id: u16,
     ) -> Result<Self, TransactionError> {
-        use zolana_hasher::primitives::is_canonical_bn254_scalar_be;
-        if owner.is_zero()
-            || owner.curve()? == zolana_keypair::Curve::P256
-            || !is_canonical_bn254_scalar_be(&seed)
-        {
-            return Err(TransactionError::InvalidAddressInput);
-        }
-        let zero_key = NullifierKey::from_secret([0u8; BLINDING_LEN]);
-        let mut input = Self::dummy_with_blinding(seed, tree_id)?;
-        input.address = true;
-        input.utxo.owner = owner;
-        input.nullifier_pubkey = zolana_interface::ZERO_NULLIFIER_PUBKEY;
-        input.utxo_hash = super::ProofInputUtxo::try_from(&input)?.hash()?;
-        input.nullifier = zero_key.nullifier(&input.utxo_hash, &seed)?;
+        let mut input = Self {
+            address: true,
+            utxo: Utxo {
+                owner,
+                asset: Mint::SOL,
+                amount: 0,
+                blinding: seed,
+                ring_program_id: None,
+                data: Data::default(),
+            },
+            nullifier_pubkey: ZERO_NULLIFIER_PUBKEY,
+            utxo_hash: [0u8; 32],
+            nullifier: [0u8; 32],
+            data_hash: None,
+            ring_data_hash: None,
+            tree_id,
+            leaf_index: 0,
+            cache_slot: None,
+            compact: false,
+        };
+        let (utxo_hash, nullifier) = input.derive_address()?;
+        input.utxo_hash = utxo_hash;
+        input.nullifier = nullifier;
         Ok(input)
     }
 
-    /// Validate a public address-slot descriptor before building or proving it.
+    /// Validate a public address-slot descriptor before building or proving it:
+    /// its fields, and its UTXO hash and nullifier against the derivation.
     pub fn validate_address(&self) -> Result<(), TransactionError> {
-        if !self.is_address() || self.leaf_index != 0 {
-            return Err(TransactionError::InvalidAddressInput);
+        if !self.is_address() {
+            return Err(AddressInputError::NotAnAddress.into());
         }
-        let hash = super::ProofInputUtxo::try_from(self)?.hash()?;
-        let key = NullifierKey::from_secret([0u8; BLINDING_LEN]);
-        if hash != self.utxo_hash || key.nullifier(&hash, &self.utxo.blinding)? != self.nullifier {
-            return Err(TransactionError::InvalidAddressInput);
+        if self.leaf_index != 0 {
+            return Err(AddressInputError::NonZeroLeafIndex.into());
+        }
+        let (utxo_hash, nullifier) = self.derive_address()?;
+        if utxo_hash != self.utxo_hash {
+            return Err(AddressInputError::HashMismatch.into());
+        }
+        if nullifier != self.nullifier {
+            return Err(AddressInputError::NullifierMismatch.into());
         }
         Ok(())
+    }
+
+    /// The address slot's UTXO hash and nullifier, which is the address. The
+    /// nullifier key is the zero secret's and the seed is the blinding.
+    fn derive_address(&self) -> Result<([u8; 32], [u8; 32]), TransactionError> {
+        let utxo_hash = super::ProofInputUtxo::try_from(self)?.hash()?;
+        let nullifier = NullifierKey::from_secret([0u8; BLINDING_LEN])
+            .nullifier(&utxo_hash, &self.utxo.blinding)?;
+        Ok((utxo_hash, nullifier))
+    }
+
+    /// The field rules of an address slot: a Solana signing owner, a
+    /// canonical seed, the zero nullifier key, and nothing else.
+    pub(crate) fn check_address_fields(&self) -> Result<(), TransactionError> {
+        let utxo = &self.utxo;
+        let fault = if self.is_dummy() {
+            AddressInputError::MissingOwner
+        } else if utxo.owner.curve()? == Curve::P256 {
+            AddressInputError::P256Owner
+        } else if !is_canonical_bn254_scalar_be(&utxo.blinding) {
+            AddressInputError::NonCanonicalSeed
+        } else if self.nullifier_pubkey != ZERO_NULLIFIER_PUBKEY {
+            AddressInputError::NonZeroNullifierKey
+        } else if utxo.amount != 0 {
+            AddressInputError::NonZeroAmount
+        } else if utxo.asset != Mint::SOL {
+            AddressInputError::NonZeroAsset
+        } else if !utxo.data.is_empty() || self.data_hash.is_some() {
+            AddressInputError::CarriesData
+        } else if utxo.ring_program_id.is_some() || self.ring_data_hash.is_some() {
+            AddressInputError::CarriesRing
+        } else if self.is_compact() {
+            AddressInputError::Compact
+        } else if self.cache_slot.is_some() {
+            AddressInputError::CacheSlot
+        } else {
+            return Ok(());
+        };
+        Err(fault.into())
+    }
+
+    /// This slot's entry in the private transaction hash's input chain: the
+    /// commitment of a spent UTXO, 0 for padding and address slots, which spend
+    /// no leaf.
+    pub fn private_tx_input_hash(&self) -> [u8; 32] {
+        if self.is_dummy() || self.is_address() {
+            [0u8; 32]
+        } else {
+            self.utxo_hash
+        }
+    }
+
+    /// This slot's entry in the private transaction hash's address-nullifier
+    /// chain: the address of an address slot, 0 for every other slot.
+    pub fn private_tx_address_nullifier(&self) -> [u8; 32] {
+        if self.is_address() {
+            self.nullifier
+        } else {
+            [0u8; 32]
+        }
     }
 
     pub fn requires_inclusion(&self) -> bool {
@@ -197,7 +276,7 @@ impl SppProofInputUtxo {
             return Err(TransactionError::CacheSlotOutOfRange { slot });
         }
         if self.is_address() {
-            return Err(TransactionError::InvalidAddressInput);
+            return Err(AddressInputError::CacheSlot.into());
         }
         if self.is_dummy() {
             return Err(TransactionError::CachedDummyInput);

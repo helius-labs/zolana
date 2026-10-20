@@ -217,13 +217,13 @@ impl ConfidentialTransaction {
             .ok_or(TransactionError::NoInputs)?;
 
         Ok(Self {
+            output_tree_id: WalletUtxo::default_output_tree_id(&inputs),
             inputs,
             addresses,
             outputs: Vec::new(),
             public_transfers: Vec::new(),
             payer,
             blinding_seed: random_blinding(),
-            output_tree_id: 0,
             first_nullifier,
             input_tree_ids,
             ring_program_id: None,

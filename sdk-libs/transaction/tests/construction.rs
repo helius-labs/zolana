@@ -1769,7 +1769,7 @@ fn wallet_dummy_pads_a_slot_between_real_inputs() {
 
 /// Fixed-output padding never adds a zero-amount change: a relayed full
 /// withdrawal tags its dummies with the input owner, and a self-paid one, which
-/// names no participant, with a keypair nobody holds.
+/// names no participant, is refused with `NoDummyOwnerTagParticipant`.
 #[test]
 fn fixed_output_padding_takes_a_participant_tag_and_adds_no_output() {
     let owner = keypair(1);
@@ -1787,9 +1787,55 @@ fn fixed_output_padding_takes_a_participant_tag_and_adds_no_output() {
             },
         )
         .unwrap();
-        tx.pad_utxos_with_empty_outputs(Shape::IN1_OUT2, &sender)
-            .unwrap();
+        tx.pad_utxos_with_empty_outputs(Shape::IN1_OUT2, &sender)?;
         let proof = tx.encrypt(&owner).unwrap();
+        Ok::<_, E>((
+            proof
+                .output_utxos
+                .iter()
+                .map(SppProofOutputUtxo::is_dummy)
+                .collect::<Vec<_>>(),
+            proof
+                .external_data
+                .outputs
+                .iter()
+                .map(|output| output.owner_tag)
+                .collect::<Vec<_>>(),
+        ))
+    };
+    let sender_tag = sender.confidential_view_tag().unwrap();
+
+    // A self-paid full withdrawal names no owner signer other than the fee
+    // payer and no real output owner, and the outputs are fixed, so no change
+    // can name the sender either.
+    assert_eq!(
+        withdrawal(payer(&owner)),
+        Err(E::NoDummyOwnerTagParticipant)
+    );
+    // With a third-party payer the input owner is an owner signer.
+    assert_eq!(
+        withdrawal(Address::new_from_array([99; 32])),
+        Ok((vec![true, true], vec![OwnerTag::Inline(sender_tag); 2]))
+    );
+}
+
+/// Address owners authorize SPP like input owners, so an address-only
+/// transaction's dummies name the address owner.
+#[test]
+fn fixed_output_padding_names_an_address_owner() {
+    let owner = keypair(1);
+    let sender = owner.shielded_address().unwrap();
+    let address = SppProofInputUtxo::new_address(owner.signing_pubkey(), [7; 32], 7).unwrap();
+    let mut tx = ConfidentialTransaction::new_with_addresses(
+        Vec::new(),
+        vec![address],
+        Address::new_from_array([99; 32]),
+    )
+    .unwrap();
+    tx.pad_utxos_with_empty_outputs(Shape::IN1_OUT2, &sender)
+        .unwrap();
+    let proof = tx.encrypt(&owner).unwrap();
+    assert_eq!(
         (
             proof
                 .output_utxos
@@ -1802,24 +1848,11 @@ fn fixed_output_padding_takes_a_participant_tag_and_adds_no_output() {
                 .iter()
                 .map(|output| output.owner_tag)
                 .collect::<Vec<_>>(),
-        )
-    };
-    let sender_tag = sender.confidential_view_tag().unwrap();
-
-    let (self_paid_dummies, self_paid_tags) = withdrawal(payer(&owner));
-    let throwaway = self_paid_tags.first().copied().unwrap();
-    assert_eq!(
-        (
-            self_paid_dummies,
-            self_paid_tags,
-            throwaway == OwnerTag::Inline(sender_tag),
         ),
-        (vec![true, true], vec![throwaway; 2], false)
-    );
-    assert!(matches!(throwaway, OwnerTag::Inline(_)));
-    assert_eq!(
-        withdrawal(Address::new_from_array([99; 32])),
-        (vec![true, true], vec![OwnerTag::Inline(sender_tag); 2])
+        (
+            vec![true, true],
+            vec![OwnerTag::Inline(sender.confidential_view_tag().unwrap()); 2]
+        )
     );
 }
 #[test]
@@ -1938,4 +1971,35 @@ fn finalized_transaction_encrypts_like_the_one_shot_path() {
     assert_eq!(ciphertext_independent(&encrypted), expected);
     assert_eq!(ciphertext_independent(&one_shot), expected);
     assert_ne!(encrypted.external_data.salt, one_shot.external_data.salt);
+}
+
+/// The output tree defaults to the first real input's `latest_tree_id`, an
+/// explicit output tree wins, and without one the default stays tree 0.
+#[test]
+fn output_tree_defaults_to_the_first_inputs_latest_tree() {
+    let owner = keypair(1);
+    let payer = payer(&owner);
+    let note = |latest_tree_id: Option<u16>, nonce: u8| WalletUtxo {
+        latest_tree_id,
+        ..wallet_utxo(&owner, Mint::SOL, 3, 7, nonce)
+    };
+    let output_tree = |inputs: Vec<WalletUtxo>| {
+        ConfidentialTransaction::new(inputs, payer)
+            .unwrap()
+            .output_tree_id()
+    };
+    assert_eq!(output_tree(vec![note(Some(9), 1), note(Some(4), 2)]), 9);
+    assert_eq!(output_tree(vec![note(None, 1), note(Some(4), 2)]), 0);
+    assert_eq!(
+        ConfidentialTransaction::new(vec![note(Some(9), 1)], payer)
+            .unwrap()
+            .with_output_tree_id(5)
+            .unwrap()
+            .output_tree_id(),
+        5
+    );
+    let mut tx = ConfidentialTransaction::new(vec![note(Some(9), 1)], payer).unwrap();
+    tx.withdraw_sol(3, payer).unwrap();
+    let proof = tx.encrypt(&owner).unwrap();
+    assert_eq!(proof.output_tree_id, 9);
 }

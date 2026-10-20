@@ -393,6 +393,19 @@ pub enum ClientError {
         nullifier: usize,
     },
 
+    /// A tree's proofs for whole transaction slots: state proofs cover only
+    /// the inputs that need inclusion, nullifier proofs cover every slot.
+    #[error(
+        "indexer returned incomplete proofs for tree {tree_id}: expected {expected_state} state and {expected_nullifier} nullifier proofs, got {state} and {nullifier}"
+    )]
+    IncompleteTransactionProofs {
+        tree_id: u16,
+        expected_state: usize,
+        state: usize,
+        expected_nullifier: usize,
+        nullifier: usize,
+    },
+
     #[error("state proof {index} does not match its requested UTXO commitment")]
     StateProofLeafMismatch { index: usize },
 

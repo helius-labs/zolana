@@ -210,16 +210,8 @@ impl IndexedTransferPreparation {
                 nullifier: input.is_compact().then_some(input.nullifier),
             });
             indexes.push(tree_slot);
-            input_hashes.push(if input.is_dummy() || input.is_address() {
-                [0; 32]
-            } else {
-                hash
-            });
-            address_nullifiers.push(if input.is_address() {
-                nullifier
-            } else {
-                [0; 32]
-            });
+            input_hashes.push(input.private_tx_input_hash());
+            address_nullifiers.push(input.private_tx_address_nullifier());
             nullifiers.push(nullifier);
         }
         authority.complete_inputs(&mut local_inputs)?;
@@ -842,9 +834,8 @@ mod tests {
             Err(ClientError::InvalidP256Authorization(_))
         ));
     }
-    #[test]
-    fn address_only_preparation_uses_non_inclusion_and_commits_the_address() {
-        let owner = ShieldedKeypair::new_ed25519().unwrap();
+    /// An address-only transaction of `owner`, with one zero-amount output.
+    fn address_only_transaction(owner: &ShieldedKeypair) -> SppProofInputs {
         let sender = owner.shielded_address().unwrap();
         let payer = sender.solana_address().unwrap();
         let address = SppProofInputUtxo::new_address(
@@ -853,19 +844,84 @@ mod tests {
             3,
         )
         .unwrap();
-        let nullifier = address.nullifier;
-        let keys = zolana_transaction::LocalShieldedKeys::from_keypair(&owner).unwrap();
-        let mut transaction = zolana_transaction::instructions::transact::ConfidentialTransaction::new_with_addresses(
-            Vec::new(), vec![address], payer,
-        ).unwrap();
+        let keys = zolana_transaction::LocalShieldedKeys::from_keypair(owner).unwrap();
+        let mut transaction =
+            zolana_transaction::instructions::transact::ConfidentialTransaction::new_with_addresses(
+                Vec::new(),
+                vec![address],
+                payer,
+            )
+            .unwrap();
         transaction
             .add_output_utxo(SppProofOutputUtxo::new(Mint::SOL, 0, sender).unwrap())
             .unwrap();
-        let transaction = transaction
+        transaction
             .finalize(&sender)
             .unwrap()
             .encrypt_with_keys(&keys)
-            .unwrap();
+            .unwrap()
+    }
+
+    /// Address inputs are proven only on the confidential EdDSA rail.
+    #[test]
+    fn address_inputs_are_refused_off_the_confidential_rail() {
+        let owner = ShieldedKeypair::new_ed25519().unwrap();
+        let ring = solana_address::Address::new_from_array([5; 32]);
+        for rail in [
+            IndexedTransferRail::Ring(ring),
+            IndexedTransferRail::RingAuthority(ring),
+        ] {
+            assert!(matches!(
+                IndexedTransferPreparation {
+                    transaction: address_only_transaction(&owner),
+                    rail,
+                }
+                .prepare(&owner),
+                Err(ClientError::AddressInputUnsupported { index: 0 })
+            ));
+        }
+    }
+
+    /// The direct ring EdDSA prover refuses address inputs like the indexed
+    /// ring rail does.
+    #[test]
+    fn the_direct_ring_prover_refuses_address_inputs() {
+        let owner = ShieldedKeypair::new_ed25519().unwrap();
+        let transaction = address_only_transaction(&owner);
+        let shape = transaction.check_shape().unwrap();
+        let result = crate::RingTransferProver {
+            inputs: transaction
+                .input_utxos
+                .iter()
+                .cloned()
+                .map(|utxo| crate::prover::TransferInputUtxo {
+                    utxo,
+                    proof: None,
+                    nullifier_proof: None,
+                })
+                .collect(),
+            outputs: transaction.output_utxos.clone(),
+            blinding_seed: transaction.blinding_seed,
+            output_tree_id: transaction.output_tree_id,
+            external_data: transaction.external_data.clone(),
+            public_transfers: transaction.public_transfers().unwrap(),
+            signer_pk_hashes: transaction.signer_pk_hashes(shape.signer_width()).unwrap(),
+            allow_dummy_inputs: true,
+            ring_program_id: Some(solana_address::Address::new_from_array([5; 32])),
+            shape,
+        }
+        .build();
+        assert!(matches!(
+            result,
+            Err(ClientError::AddressInputUnsupported { index: 0 })
+        ));
+    }
+
+    #[test]
+    fn address_only_preparation_uses_non_inclusion_and_commits_the_address() {
+        let owner = ShieldedKeypair::new_ed25519().unwrap();
+        let transaction = address_only_transaction(&owner);
+        let nullifier = transaction.input_utxos.first().unwrap().nullifier;
         let expected = transaction.padding_independent_private_tx_hash().unwrap();
         let mut corrupted = transaction.clone();
         let nullifier_byte = corrupted
@@ -883,7 +939,9 @@ mod tests {
             }
             .prepare(&owner),
             Err(ClientError::Transaction(
-                zolana_transaction::TransactionError::InvalidAddressInput
+                zolana_transaction::TransactionError::InvalidAddressInput(
+                    zolana_transaction::AddressInputError::NullifierMismatch
+                )
             ))
         ));
         let prepared = IndexedTransferPreparation {

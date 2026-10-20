@@ -388,6 +388,10 @@ fn fetch_follows_spends_the_wallet_tags_do_not_reach() {
 
     let utxos: Vec<_> = spendable.utxos().map(|utxo| utxo.utxo_hash).collect();
     assert_eq!(utxos, vec![merged.hash]);
+    // Every spendable UTXO carries the output tree the indexer's pages name.
+    assert!(spendable
+        .utxos()
+        .all(|utxo| utxo.latest_tree_id == Some(TREE)));
     assert_eq!(
         spendable
             .balances
@@ -587,6 +591,10 @@ fn a_merge_found_before_one_of_its_inputs_decrypts_from_its_own_transaction() {
 
     let utxos: Vec<_> = spendable.utxos().map(|utxo| utxo.utxo_hash).collect();
     assert_eq!(utxos, vec![merged.hash]);
+    // Every spendable UTXO carries the output tree the indexer's pages name.
+    assert!(spendable
+        .utxos()
+        .all(|utxo| utxo.latest_tree_id == Some(TREE)));
     assert_eq!(
         spendable
             .balances

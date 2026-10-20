@@ -142,8 +142,12 @@ pub(crate) fn confidential_marked_output_owner_pk_hashes(
 /// ed25519-owned input always uses its own `owner_pk_field()`.
 pub(crate) enum OwnerMode {
     /// Confidential Solana-only rail: P256-owned inputs are rejected (the rail has
-    /// no P256 gadget); ed25519 uses its `pk_field`.
+    /// no P256 gadget); ed25519 uses its `pk_field`. The only rail that takes
+    /// address inputs.
     ConfidentialEddsa,
+    /// Custom-ring Solana-only rail: owners as on [`Self::ConfidentialEddsa`],
+    /// but address inputs are refused.
+    RingEddsa,
     /// Custom-ring P256 rail: P256-owned inputs contribute the zero sentinel
     /// consumed by the circuit's shared P256 authorization; ed25519 inputs keep
     /// their normal public owner hash.
@@ -284,7 +288,7 @@ fn resolve_input_trees(input_utxos: &[TransferInputUtxo]) -> Result<InputTrees, 
         });
     }
     // The input trees supply the ids every dummy is hashed under, so a proof
-    // without a real input has nothing to anchor its padding to.
+    // without a real input or an address has nothing to anchor its padding to.
     if trees.is_empty() {
         return Err(ClientError::NoInputs);
     }
@@ -314,12 +318,14 @@ fn resolve_input_trees(input_utxos: &[TransferInputUtxo]) -> Result<InputTrees, 
 
 /// Convert the already-padded inputs into circuit witness fields. Makes no
 /// padding decisions: each slot with a [`SpendProof`] is a real input hashed
-/// under its own tree's id; each slot without one is a dummy hashed under the
-/// tree it was assigned, with a zero private owner hash and its own nullifier
-/// non-inclusion witness. Inputs from different trees may interleave.
-/// Assembly preserves the order committed by the signing hash. A transaction
-/// must spend at least one real input, because the input trees come from the
-/// real ones.
+/// under its own tree's id; a cached input or an address carries only its
+/// nullifier non-inclusion witness; each other slot is a dummy hashed under
+/// the tree it was assigned, with a zero private owner hash and its own
+/// nullifier non-inclusion witness. Inputs from different trees may
+/// interleave. Assembly preserves the order committed by the signing hash. A
+/// transaction must hold at least one real input or address, because the
+/// input trees come from those. Address inputs are refused on every rail but
+/// [`OwnerMode::ConfidentialEddsa`].
 pub(crate) fn assemble_inputs(
     input_utxos: &[TransferInputUtxo],
     owner_mode: &OwnerMode,
@@ -357,11 +363,7 @@ pub(crate) fn assemble_inputs(
             });
         }
         input_tree_indexes.push(tree_index);
-        address_nullifiers.push(if input_utxo.utxo.is_address() {
-            input_utxo.utxo.nullifier
-        } else {
-            [0; 32]
-        });
+        address_nullifiers.push(input_utxo.utxo.private_tx_address_nullifier());
         // A dummy witnesses non-inclusion of its derived nullifier whether or
         // not it publishes it: compact padding publishes 0 instead, and SPP
         // never receives the slot.
@@ -409,10 +411,9 @@ pub(crate) fn assemble_inputs(
             };
 
         let utxo_inputs = ProofInputUtxo::try_from(&input_utxo.utxo)?;
-        // Both arrive computed on the input UTXO. Recomputing them would give a
-        // second source for one value, and a disagreement would only surface as
-        // a proof that does not verify.
-        let utxo_hash = input_utxo.utxo.utxo_hash;
+        // The commitment and nullifier arrive computed on the input UTXO.
+        // Recomputing them would give a second source for one value, and a
+        // disagreement would only surface as a proof that does not verify.
         let nullifier = input_utxo.utxo.nullifier;
 
         let is_p256 = input_utxo.utxo.utxo.owner.curve()? == Curve::P256;
@@ -421,7 +422,7 @@ pub(crate) fn assemble_inputs(
         // its own pk_field.
         let owner_pk_hash = match (owner_mode, is_p256) {
             (OwnerMode::Merge | OwnerMode::RingP256, true) => [0u8; 32],
-            (OwnerMode::ConfidentialEddsa, true) => {
+            (OwnerMode::ConfidentialEddsa | OwnerMode::RingEddsa, true) => {
                 return Err(ClientError::EddsaInputNotSolanaOwned { index })
             }
             (OwnerMode::RingAuthority, true) => {
@@ -445,14 +446,11 @@ pub(crate) fn assemble_inputs(
             // A real input proves ownership from the secret itself, and this is
             // the one witness field no input UTXO carries. It stays absent
             // until the owner's authority completes the witness, so assembly
-            // never touches key material.
+            // never touches key material. An address is derived under the
+            // zero nullifier key, so it carries a genuine zero.
             nullifier_secret: input_utxo.utxo.is_address().then_some(BigUint::ZERO),
         });
-        input_hashes.push(if input_utxo.utxo.is_address() {
-            [0; 32]
-        } else {
-            utxo_hash
-        });
+        input_hashes.push(input_utxo.utxo.private_tx_input_hash());
         nullifiers.push(nullifier);
     }
 
@@ -1107,6 +1105,51 @@ mod tests {
             ),
             Err(ClientError::CachedDummyInput { index: 1 })
         ));
+    }
+
+    /// An address slot of `seed`'s owner under tree 0, with its own
+    /// non-inclusion witness.
+    fn address_in(seed: u8, nullifier_root: u8) -> TransferInputUtxo {
+        let utxo =
+            SppProofInputUtxo::new_address(keypair(seed).signing_pubkey(), [seed; 32], 0).unwrap();
+        let mut nullifier = non_inclusion_proof(nullifier_root, 7);
+        nullifier.leaf = utxo.nullifier;
+        nullifier.merkle_context.tree = zolana_interface::pda::tree(0);
+        TransferInputUtxo {
+            utxo,
+            proof: None,
+            nullifier_proof: Some(nullifier),
+        }
+    }
+
+    /// Address inputs are proven only on the confidential EdDSA rail; the
+    /// ring EdDSA rail shares its owner handling but refuses them.
+    #[test]
+    fn only_the_confidential_eddsa_rail_takes_address_inputs() {
+        let inputs = [input_utxo(1, 0x11, 3, 0x33), address_in(2, 0x33)];
+        let assembled = assemble_inputs(&inputs, &OwnerMode::ConfidentialEddsa)
+            .expect("address on the confidential rail");
+        assert_eq!(
+            (
+                assembled.input_hashes.get(1).copied(),
+                assembled.address_nullifiers,
+            ),
+            (
+                Some([0u8; 32]),
+                vec![[0u8; 32], inputs.get(1).expect("address").utxo.nullifier],
+            )
+        );
+        for owner_mode in [
+            OwnerMode::RingEddsa,
+            OwnerMode::RingP256,
+            OwnerMode::Merge,
+            OwnerMode::RingAuthority,
+        ] {
+            assert!(matches!(
+                assemble_inputs(&inputs, &owner_mode),
+                Err(ClientError::AddressInputUnsupported { index: 1 })
+            ));
+        }
     }
 
     #[test]

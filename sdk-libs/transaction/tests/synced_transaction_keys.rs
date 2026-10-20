@@ -326,3 +326,16 @@ fn a_synced_key_that_is_not_a_p256_scalar_is_rejected() {
     ));
     assert!(keys.calls().is_empty());
 }
+
+#[test]
+fn wallet_utxo_debug_redacts_the_synced_transaction_key() {
+    let owner = keypair(47);
+    let mut input = wallet_utxo(&owner, Mint::SOL, 3, 7, 1);
+    let secret = *keypair(48).viewing_key.secret_bytes();
+    input.tx_viewing_key = Some(secret);
+    let printed = format!("{input:?}");
+    assert!(!printed.contains(&format!("{secret:?}")));
+    assert!(printed.contains("tx_viewing_key: Some(\"<redacted>\")"));
+    input.tx_viewing_key = None;
+    assert!(format!("{input:?}").contains("tx_viewing_key: None"));
+}

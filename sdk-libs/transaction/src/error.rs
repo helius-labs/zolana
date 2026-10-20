@@ -2,10 +2,49 @@ use solana_address::Address;
 use thiserror::Error;
 use zolana_keypair::KeypairError;
 
+/// Why an address input was refused. An address slot carries only a Solana
+/// signing owner and a canonical seed (its blinding), hashed under the address
+/// domain with a zero nullifier key; every other field must be empty.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum AddressInputError {
+    #[error("the slot is not an address input")]
+    NotAnAddress,
+    #[error("the address has no owner")]
+    MissingOwner,
+    #[error("the owner is a P256 key, but an address owner must be a Solana signer")]
+    P256Owner,
+    #[error("the seed is not a canonical BN254 scalar")]
+    NonCanonicalSeed,
+    #[error("the nullifier pubkey is not the zero nullifier key's")]
+    NonZeroNullifierKey,
+    #[error("the amount is not zero")]
+    NonZeroAmount,
+    #[error("the asset is not the zero (SOL) mint")]
+    NonZeroAsset,
+    #[error("the address carries data")]
+    CarriesData,
+    #[error("the address carries a ring binding")]
+    CarriesRing,
+    #[error("an address cannot be compact padding")]
+    Compact,
+    #[error("an address cannot be read from a cache slot")]
+    CacheSlot,
+    #[error("the leaf index is not zero")]
+    NonZeroLeafIndex,
+    #[error("the UTXO hash does not match the address derivation")]
+    HashMismatch,
+    #[error("the nullifier does not match the address derivation")]
+    NullifierMismatch,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum TransactionError {
-    #[error("an address input must contain only a Solana signing owner and a canonical seed, with a zero nullifier secret")]
-    InvalidAddressInput,
+    #[error("invalid address input: {0}")]
+    InvalidAddressInput(AddressInputError),
+    #[error(
+        "no owner signer or real output owner can name the padding outputs, and the outputs are fixed"
+    )]
+    NoDummyOwnerTagParticipant,
     #[error("unexpected discriminator: {0}")]
     BadDiscriminator(u8),
 
@@ -305,6 +344,12 @@ pub enum TransactionError {
 
     #[error("wallet authority error: {0}")]
     Authority(String),
+}
+
+impl From<AddressInputError> for TransactionError {
+    fn from(e: AddressInputError) -> Self {
+        Self::InvalidAddressInput(e)
+    }
 }
 
 impl From<zolana_hasher::HasherError> for TransactionError {

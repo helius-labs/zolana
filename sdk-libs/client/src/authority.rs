@@ -21,8 +21,9 @@ use crate::{
 /// Completes a witness whose real inputs it owns.
 ///
 /// Assembly leaves every real input without a secret
-/// ([`TransferInput::nullifier_secret`] is `None`); a padding slot carries a
-/// genuine zero, and an input belonging to another owner arrives complete. So no
+/// ([`TransferInput::nullifier_secret`] is `None`); a padding or address slot
+/// carries a genuine zero, and an input belonging to another owner arrives
+/// complete. So no
 /// type on the assembly path holds key material, and the secret enters the
 /// witness here, one call before it goes on the wire.
 ///
@@ -63,7 +64,7 @@ fn complete_owned_inputs(
     let secret = right_align_slice(&*nullifier_key.secret())?;
     let secret = be(&secret);
     for (index, input) in inputs.iter_mut().enumerate() {
-        // A padding slot and another owner's input both arrive complete; only an
+        // Padding, an address and another owner's input arrive complete; only an
         // input waiting for this authority is absent.
         if input.nullifier_secret.is_some() {
             continue;

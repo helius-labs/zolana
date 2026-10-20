@@ -34,6 +34,8 @@ criterion = { workspace = true }
 hex = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+# Pins the client address derivation to the on-chain `NewAddress::derive`.
+zolana-program = { workspace = true, features = ["compression"] }
 
 [[test]]
 name = "behavior"

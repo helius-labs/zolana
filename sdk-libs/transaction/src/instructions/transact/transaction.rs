@@ -150,36 +150,21 @@ pub(super) fn padding_independent_private_tx_hash(
     blinding_seed: &[u8; 32],
 ) -> Result<[u8; 32], TransactionError> {
     check_dummies_last(input_utxos, output_utxos)?;
-    let addresses: Vec<_> = input_utxos
+    let input_hashes: Vec<_> = input_utxos
         .iter()
-        .map(|input| {
-            if input.is_address() {
-                input.nullifier
-            } else {
-                [0; 32]
-            }
-        })
+        .map(SppProofInputUtxo::private_tx_input_hash)
+        .collect();
+    let address_nullifiers: Vec<_> = input_utxos
+        .iter()
+        .map(SppProofInputUtxo::private_tx_address_nullifier)
         .collect();
     Ok(PrivateTxHash {
-        input_hashes: &input_hashes(input_utxos),
+        input_hashes: &input_hashes,
         output_hashes: &output_hashes(output_utxos, output_tree_id)?,
-        address_nullifiers: Some(&addresses),
+        address_nullifiers: Some(&address_nullifiers),
         blinding: &private_tx_blinding(input_utxos, blinding_seed)?,
     }
     .hash()?)
-}
-
-fn input_hashes(input_utxos: &[SppProofInputUtxo]) -> Vec<[u8; 32]> {
-    input_utxos
-        .iter()
-        .map(|input_utxo| {
-            if input_utxo.is_dummy() || input_utxo.is_address() {
-                [0u8; 32]
-            } else {
-                input_utxo.hash()
-            }
-        })
-        .collect()
 }
 
 pub(super) fn output_hashes(

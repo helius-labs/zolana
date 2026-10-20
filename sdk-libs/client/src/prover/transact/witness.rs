@@ -72,11 +72,12 @@ pub(crate) fn validate_nullifier_proof(
     Ok(())
 }
 
-/// Attach the fetched Merkle proofs to the proof inputs positionally: each real
-/// input (non-zero owner) consumes the next spend proof, each dummy slot,
-/// compact padding included, consumes the next dummy non-inclusion proof (the
-/// transact circuit checks non-inclusion for every slot). Shared by every
-/// witness builder (transact, merge, merge-ring, ring-authority).
+/// Attach the fetched Merkle proofs to the proof inputs positionally: each slot
+/// that spends a state leaf (a real, uncached input) consumes the next spend
+/// proof; every other slot (padding, compact padding included, a cached input
+/// or an address) consumes the next non-inclusion proof (the transact circuit
+/// checks non-inclusion for every slot). Shared by every witness builder
+/// (transact, merge, merge-ring, ring-authority).
 ///
 /// No secret comes in here: a real input's nullifier secret is filled in by its
 /// owner's [`ProofAuthority`](crate::authority::ProofAuthority), one call before

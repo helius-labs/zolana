@@ -93,8 +93,8 @@ impl SppProofInputs {
     }
 
     /// The Solana signers the shielded pool lists as owner signers: the
-    /// Ed25519 and PDA owners of real inputs, then of outputs that carry data,
-    /// deduplicated in that order. The circuit requires an output's owner to
+    /// Ed25519 and PDA owners of real inputs and address slots, in slot order,
+    /// then of outputs that carry data, deduplicated in that order. The circuit requires an output's owner to
     /// sign when its data hash is set. The fee payer is listed only when it is
     /// one of those owners.
     pub fn owner_signer_pubkeys(&self) -> Result<Vec<Address>, TransactionError> {
@@ -153,9 +153,11 @@ impl SppProofInputs {
         Ok(hashes)
     }
 
-    /// The nullifiers to fetch non-inclusion witnesses for besides the real
-    /// spends: every dummy, compact padding included, and every cached input.
-    /// Compact padding publishes 0 but proves its derived nullifier absent.
+    /// The nullifiers of the slots that prove only non-inclusion, in slot
+    /// order: every dummy (compact padding included), every cached input and
+    /// every address slot, whose nullifier is the address. Compact padding
+    /// publishes 0 but proves its derived nullifier absent. Every other slot
+    /// is in [`Self::input_utxo_hashes`].
     pub fn dummy_nullifiers(&self) -> Vec<[u8; 32]> {
         self.input_utxos
             .iter()

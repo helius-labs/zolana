@@ -79,7 +79,7 @@ impl<R: AsyncRpc, I: AsyncIndexer> AsyncZolanaClient<R, I> {
         }
         let witnesses = self
             .indexer
-            .transaction_witnesses(&proof_inputs.input_utxos, config)
+            .transaction_proofs(&proof_inputs.input_utxos, config)
             .await?;
         let mut assembled = assemble(
             proof_inputs,
@@ -198,7 +198,7 @@ impl<'a> Submission<'a> {
             (prover, _) => {
                 let witnesses = client
                     .indexer
-                    .transaction_witnesses(&self.signed.transaction.input_utxos, None)
+                    .transaction_proofs(&self.signed.transaction.input_utxos, None)
                     .await?;
                 let mut assembled = assemble(
                     self.signed.transaction.clone(),

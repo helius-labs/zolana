@@ -53,6 +53,24 @@ impl SpendableDecryptionResult {
             .flat_map(|balance| &balance.utxos)
             .chain(&self.utxos_with_data)
     }
+
+    /// Stamp every spendable UTXO with the newest output tree the indexer
+    /// reported on the pages it came from (`output_tree_id`), so a
+    /// transaction spending one appends its outputs there by default. `None`
+    /// means the indexer named no unpaused tree.
+    #[must_use]
+    pub fn with_latest_tree_id(mut self, latest_tree_id: Option<u16>) -> Self {
+        for utxo in self
+            .balances
+            .assets
+            .iter_mut()
+            .flat_map(|balance| &mut balance.utxos)
+            .chain(&mut self.utxos_with_data)
+        {
+            utxo.latest_tree_id = latest_tree_id;
+        }
+        self
+    }
 }
 
 /// Decrypts and verifies notes against the supplied transactions.

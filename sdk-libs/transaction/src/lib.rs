@@ -33,7 +33,7 @@ pub use decrypt::{
     decrypt, decrypt_spendable, verify_owned, verify_spendable, DecryptionResult, OwnedUtxos,
     SpendableDecryptionResult,
 };
-pub use error::TransactionError;
+pub use error::{AddressInputError, TransactionError};
 pub use history::{History, HistoryEntry, HistoryKind};
 pub use indexer_types::{DepositPayload, OutputContext, OutputSlot, ShieldedTransaction};
 pub use instructions::transact::{ExternalData, SppProofOutputUtxo};
