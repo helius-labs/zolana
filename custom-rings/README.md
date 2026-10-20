@@ -20,7 +20,8 @@ release it was built from. One released binary serves every ring, the rules
 are data `init` pins from `ring.toml`.
 
 See the [change overview](changes-overview.md), [proof costs](proof-costs.md) and
-[audit map](audit-readiness.md) for the current guarantees and their tests.
+[audit map](audit-readiness.md) for the current guarantees and their tests, and
+the [anonymous ring guide](docs/anonymous-rings.md) for anonymous mode.
 
 ## Reading the proof boundary
 
@@ -227,7 +228,8 @@ show that the sender chose the address it intended or that anyone holds the keys
 of an arbitrary address, it speaks about the address the sender used. The auditor
 opens every real output from the enveloped transaction secret and the disclosed
 recipient keys, and nothing a sender controls outside the proof changes what the
-auditor reads.
+auditor reads. The [anonymous ring guide](docs/anonymous-rings.md) covers
+addresses, tags, sync and this proof boundary.
 
 A recipient wallet that misses a tag recovers by walking the ring's confirmed
 history, one key agreement per transaction and one trial opening per scheme-9
@@ -418,11 +420,10 @@ deposits, so the pause names the amount instead of failing inside the deploy.
 
 Anonymous mode hides Ed25519 owners and discloses them to the auditor. Deposit
 amounts remain public. The default ring stays nonanonymous. Rust anonymous
-builders exclude delegates, merges, caches and direct outputs to the default
-ring. Outflow limits remain supported. Anonymous outputs publish view tags as
-owner tags and carry no data or ring data. `with_anonymous_signer` takes the
-sender's `AnonymousViewTags`. An anonymous `RingDeposit` needs a nonzero
-`anonymous_view_tag` other than the recipient's bootstrap tag. Auditor and
+builders exclude delegates, merges and caches. Outflow limits remain supported.
+Anonymous outputs publish view tags as owner tags and carry no data or ring
+data. `with_anonymous_signer` takes the hidden owner's signer and viewing key. An anonymous `RingDeposit` takes the
+lowest free tag of the recipient keypair's deposit stream. Auditor and
 viewing keys use canonical X25519 encodings. P-256 ownership and historical
 viewing data require migration before upgrading. Deployment checks the existing
 config before uploading. It rejects a legacy auditor key layout and names the
@@ -471,7 +472,7 @@ The exact keys require two published inputs, three published outputs and shared
 registry paths. Compact padding omits trailing dummy slots and reveals those
 counts. Delegate builders opt in with Rust's `.with_compact_padding()` or
 TypeScript's `compactPadding: true`. Defaults retain padded counts. Anonymous
-transfers allow a compact output suffix but reject compact inputs and caches.
+transfers reject compact padding and caches.
 SPP still receives a full padded witness. Before PR #427, all 51 specialized policy keys passed live settlement
 and auditor recovery checks. After PR #427, all 29 anonymous cases and five delegate cases passed again with valid proofs.
 The other 39 specialized cases still need matching ordinary settlement keys.

@@ -14,6 +14,7 @@
   - [Policy Rings](#policy-rings)
 - [Glossary](#glossary)
 - [Shielded Address](#shielded-address)
+  - [Ring Address](#ring-address)
 - [Shielded Keypair](#shielded-keypair)
   - [Signing Key](#signing-key)
   - [Nullifier Key](#nullifier-key)
@@ -36,6 +37,7 @@
   - [Blinding Seed](#blinding-seed)
   - [Output Blinding](#output-blinding)
 - [Output UTXO Serialization](#output-utxo-serialization)
+  - [Ring Anonymous outputs](#ring-anonymous-outputs)
   - [UTXO Data](#utxo-data)
   - [Transfer](#transfer-2)
     - [Plaintext Layout](#plaintext-layout)
@@ -130,7 +132,7 @@ Operations 1-4 run against the default ring via [`transact`](#transact) (or [`de
 | 1 | deposit | Deposit SPL tokens into the shielded pool; existing UTXOs can be merged in the same transaction. | sender + amount visible; recipient visible |
 | 2 | deposit | Public deposit without a proof. Allows depositing dynamic amounts, for example for the flow withdraw, swap, deposit. | sender + amount visible; recipient `owner` visible |
 | 3 | withdraw | Withdraw SPL tokens from the shielded pool to a public account. | sender visible (or hidden via an optional relayer); recipient + amount visible |
-| 4 | shielded transfer | Transfer value between shielded balances. | confidential: amount hidden; sender + recipient visible (anonymous in a policy ring) |
+| 4 | shielded transfer | Transfer value between shielded balances. | confidential: amount hidden; sender + recipient visible (hidden in an [anonymous ring](../custom-rings/docs/anonymous-rings.md)) |
 
 ### Protocol
 
@@ -273,6 +275,29 @@ In compressed form the signing and nullifier public keys are compressed in an ow
 
 `CompressedShieldedAddress = (owner_hash, viewing_pk)`
 
+The 99-byte `ShieldedAddress` encoding is `signing_pk (34) || nullifier_pk (32) || viewing_pk (33)`.
+
+<a id="ring-address"></a>
+## Ring Address
+
+A ring address names a recipient inside one anonymous custom ring. It carries
+the shielded address, the ring program id and the
+[inbox secret](#derived-secrets) of address index `i`. Holding it lets a payer
+derive the inbox tags of that address, so a wallet shares it only with payers.
+
+```
+ring_address = 0x01 || shielded_address (99) || ring_program_id (32) || inbox_secret (32) || checksum (4)
+checksum     = SHA-256("zolana/ring-addr/v1" || every byte before it)[0..4]
+text         = "zolana:" || base58(ring_address) [ "?" query ]
+query        = key=value pairs joined by "&", keys amount (u64 decimal), mint (base58), label (percent-encoded UTF-8)
+```
+
+Rule. A decoder rejects another version byte, a length other than 168 bytes and
+a wrong checksum. It rejects a shielded address the
+[Shielded Address](#shielded-address) decoder rejects, an unknown query key and
+a repeated query key. The checksum
+does not cover the query. `test-vectors/ring_address.json` pins the encoding.
+
 ## Fixed-byte proof-input encoding
 
 Raw fixed-size values use `hash_bytes_N` everywhere they enter a field-level
@@ -339,7 +364,7 @@ The client-side triple behind a [Shielded Address](#shielded-address): a
 **Methods:**
 
 - `pubkey() -> PublicKey` — the scheme-tagged public key ([Glossary](#glossary)).
-- `sign_message(msg) -> Result<Signature>` — Ed25519 over the raw bytes (RFC 8032, delegated to the host Solana wallet). PDA: error. On the `AnonymousRingEddsa` rail the owner signs the digest `SHA-256(private_tx_hash || external_data_hash)` with this method, and the proof verifies the signature.
+- `sign_message(msg) -> Result<Signature>` — Ed25519 over the raw bytes (RFC 8032, delegated to the host Solana wallet). PDA: error. On the `AnonymousRingEddsa` rail the owner signs the [ring spend message](#ring-spend-message) with this method, and the proof verifies the signature.
 
 ## Nullifier Key
 
@@ -374,6 +399,20 @@ Secrets derive from `view_root`.
 - `recipient_view_tag_secret := HKDF-Expand(view_root, "TSPP/recipient_view_tag", L=32)`
 - `tx_viewing_secret         := HKDF-Expand(view_root, "TSPP/tx_viewing/x25519/v1", L=32)` — seeds the transaction viewing keys.
 
+The anonymous ring secrets:
+
+```
+inbox_secret(i)                     := HKDF-Expand(view_root, "TSPP/ring_inbox/" || u32_be(i), L=32)
+pair_sk(R)                          := HKDF-Expand(view_root, "TSPP/ring_pair/" || R.viewing_pk, L=32)
+pair_pk(R)                          := 0x04 || X25519(pair_sk(R), 9)
+ring_blinding_seed(first_nullifier) := HKDF-Expand(view_root, "TSPP/ring_blinding_seed/" || first_nullifier, L=32), byte 0 set to 0
+```
+
+`inbox_secret(i)` belongs to [ring address](#ring-address) index `i`. `pair_sk(R)`
+is the sender's X25519 pseudonym toward recipient `R` only.
+`ring_blinding_seed` is the [blinding seed](#blinding-seed) of an anonymous ring
+transaction.
+
 ### Transaction Viewing Key
 
 The transaction viewing key is a single use keypair (ephemeral key) that is deterministically derived for every private transaction.
@@ -394,53 +433,46 @@ This way the transaction viewing key can decrypt both the sender's change and re
 
 ### View Tags
 
-The view-tag types in this section (`sender_view_tag`, `recipient_shared_view_tag`, `recipient_request_view_tag`, `recipient_bootstrap_view_tag`) apply to **anonymous policy rings only**. In the confidential [default ring](#default-ring) every output — sender change, recipients, and the [`merge_transact`](#merge_transact) output — is tagged by its Ed25519 owner pubkey, so a wallet syncs by querying the indexer for its own owner pubkey.
+A view tag is a 32-byte value attached to an output or message. A wallet queries the indexer by exact tag. In the confidential [default ring](#default-ring) every output carries its Ed25519 owner pubkey as its tag. Sender change, recipients and the [`merge_transact`](#merge_transact) output follow the same rule, and a wallet syncs by its own owner pubkey.
 
-Policy rings hide the recipient, so a wallet cannot find its outputs by owner pubkey as in the [default ring](#default-ring). Instead a view tag, a 32-byte value attached to a ciphertext, lets wallets sync by querying the indexer for exact view-tag matches and decrypt only their own transactions. Derivation splits into two cases — tags the sender derives for themselves to discover their own change UTXOs, and tags the sender derives for the recipient to discover incoming transfers.
+An [anonymous ring](../custom-rings/docs/anonymous-rings.md) hides the owner, so every [scheme-9](#ring-anonymous-outputs) output carries a derived tag in its `owner_tag` instead. Each tag is index `n` of one stream. A [ring address](#ring-address) has an inbox stream, a sender and a recipient share a pair stream, and a viewing key has a deposit stream. A spend also derives one change tag per output slot.
 
-A recipients wallet cannot pre-derive shared tags for every possible sender. Therefore the wallet needs to know which senders to derive view tags for. The first transfer between a new sender-recipient pair uses a tag the recipient can find without prior knowledge of the sender: either `recipient_request_view_tag` (recipient minted, shared out-of-band) or `recipient_bootstrap_view_tag = recipient.viewing_pk` (no coordination required). This first transfer establishes the pair: on decryption the recipient reads `sender_pubkey` from the ciphertext and derives the shared ECDH key, and subsequent transfers from this sender use a shared tag (`recipient_shared_view_tag`) to find transaction. `sender → recipient` and `recipient → sender` produce disjoint tags.
+**Encoding.** A derived tag is `expand_view_tag(IKM, info) := 0x00 || HKDF-SHA256(salt = ∅, IKM, info, L = 31)`. SPP and the indexer do not check the leading byte. The ring program checks it on scheme-9 slots, see [Anonymous outputs](#anonymous-outputs).
 
-Custom-ring anonymous outputs (scheme `9`, [Output UTXO Serialization](#output-utxo-serialization)) carry no `sender_pubkey`, so they establish no pair.
-
-**Uniqueness.** View tags should not be reused. The indexer must handle the case that these may be used multiple times erroneously and return all ciphertexts matching a single tag value.
-
-**Encoding.**  all view tags are constant length 32 bytes. Shorter view tags are prefixed with 0s.
+**Uniqueness.** View tags should not be reused. The indexer must handle the case that these may be used multiple times erroneously and return all ciphertexts matching a single tag value. A stream index is occupied when any output carries its tag, whether or not a wallet can open it.
 
 #### Sender View Tag
 
-1. **`sender_view_tag`**
-  - Derived by: the sender, to index her change utxos.
-  - Tx sent by: the sender
-  - Indexed by: the sender
-  - Derivation: `HKDF-SHA256(salt=∅, IKM=sender_view_tag_secret, info="TSPP/sender_view_tag/" || u64_be(tx_count), L=31)`.
+```
+sender_view_tag(n)                        = expand_view_tag(sender_view_tag_secret, "TSPP/sender_view_tag/" || u64_be(n))
+ring_change_view_tag(first_nullifier, s)  = expand_view_tag(sender_view_tag_secret, "TSPP/ring_change_tag/" || first_nullifier || u8(s))
+```
+
+1. **`sender_view_tag(n)`** is the deposit stream. An anonymous [`ring_deposit`](#ring_deposit) takes the lowest free `n` of the receiving keypair.
+2. **`ring_change_view_tag(first_nullifier, s)`** tags the spender's own output in output slot `s`. `first_nullifier` is the first nullifier of the spending transaction.
 
 #### Recipient view tag
 
-2. **`recipient_shared_view_tag`**
-    - Derived by: the sender and recipient independently. Sender via `get_send_shared_view_tag` to send the tx, the recipient via `get_recipient_shared_view_tag` to index the tx.
-    - Tx sent by: the sender.
-    - Indexed by: the recipient.
-    - Derivation: two chained HKDFs over the ECDH shared secret.
+```
+inbox_view_tag(i, j)          = expand_view_tag(inbox_secret(i), "TSPP/ring_inbox_tag/" || u64_be(j))
+recipient_request_view_tag(n) = expand_view_tag(recipient_view_tag_secret, "TSPP/recipient_request_view_tag/" || u64_be(n))
+```
+
+3. **`inbox_view_tag(i, j)`** is the inbox stream of ring address `i`. A payer holding the address takes the lowest free `j` for a first payment.
+4. **`recipient_shared_view_tag`** chains two HKDFs over an ECDH shared secret:
 
       ```
       shared := ECDH(self.viewing_sk, counterparty_pubkey)
       domain := HKDF-SHA256(salt = ∅, IKM = shared,
                            info = "TSPP/pair-domain/" || R_pubkey, L = 32)
-      return    HKDF-SHA256(salt = ∅, IKM = domain,
-                           info = "TSPP/pair-hint/"   || u64_be(i), L = 31)
+      return    expand_view_tag(domain, "TSPP/pair-hint/" || u64_be(k))
       ```
 
-      `R_pubkey` is the recipient of the direction: `counterparty_pubkey` on the sender side (`get_send_shared_view_tag`), `self.viewing_pk` on the recipient side (`get_recipient_shared_view_tag`). ECDH symmetry plus the matched direction label produces the same byte value across the pair.
-3. **`recipient_request_view_tag`**
-    - Derived by: the recipient. The recipient shares the tag with the sender out-of-band as a `PaymentRequest`.
-    - Tx sent by: the sender.
-    - Indexed by: the recipient. Once the recipient decrypts this transfer, subsequent transfers from the same sender can be indexed by `recipient_shared_view_tag`.
-    - Derivation: `HKDF-SHA256(salt=∅, IKM=recipient_view_tag_secret, info="TSPP/recipient_request_view_tag/" || u64_be(request_count), L=31)`.
-4. **`recipient_bootstrap_view_tag`**
-    - Derived by: anyone — the 32-byte `u` coordinate of `recipient.viewing_pk` (the 33-byte key without its `0x04` tag).
-    - Tx sent by: the sender.
-    - Indexed by: the recipient. Once the recipient decrypts this transfer, subsequent transfers from the same sender can be indexed by `recipient_shared_view_tag`.
-    - [Plaintext Transfer](#plaintext-transfer): sender bundles and recipient slots are indexed by the 32-byte owner tag in place of `viewing_pk`. The slot contains no `sender_pubkey`, so `known_senders` / `known_recipients` are not updated and the next encrypted transfer between the pair is again a first transfer.
+      `R_pubkey` is the recipient of the direction. It is `counterparty_pubkey` on the sender side (`get_send_shared_view_tag`) and `self.viewing_pk` on the recipient side (`get_recipient_shared_view_tag`). ECDH symmetry plus the matched direction label produces the same byte value across the pair. The pair stream toward recipient `R` takes the sender's pseudonym as the sender key. The sender evaluates it with `pair_sk(R)` and `counterparty_pubkey = R.viewing_pk`. The recipient evaluates it with `counterparty_pubkey = pair_pk(R)`.
+5. **`recipient_request_view_tag(n)`** is a recipient-minted stream.
+6. **`recipient_bootstrap_view_tag`** is the 32-byte `u` coordinate of `recipient.viewing_pk`, the key without its `0x04` tag. It tags a [`ring_deposit`](#ring_deposit) outside anonymous mode. [Plaintext Transfer](#plaintext-transfer) sender bundles and recipient slots are indexed by the 32-byte owner tag in place of `viewing_pk`.
+
+A recipient learns `pair_pk(R)` from the `pair_u` of a first payment on its inbox stream, see [Ring Anonymous outputs](#ring-anonymous-outputs). The pair stream therefore reaches the fast path only after one inbox payment from that sender.
 
 
 #### Merge output indexing (removed merge view tag)
@@ -449,26 +481,28 @@ The single-use `merge_view_tag` stream — `merge_view_tag_secret`, a per-user `
 
 #### View Tag Selection
 
-In the [default ring](#default-ring) every output is tagged by its recipient owner pubkey, so the selection below applies only to anonymous policy rings. `merge_transact` outputs are tagged by the owner signing pubkey like every other default-ring output; `merge_ring` outputs are indexed by the first input's published nullifier, not by a view tag. Wallets select recipient tags as follows:
+In the [default ring](#default-ring) every output is tagged by its recipient owner pubkey, a `merge_transact` output included. A `merge_ring` output is indexed by the first input's published nullifier, not by a view tag. An anonymous ring builder fixes the output slot order, then tags each slot:
 
-```mermaid
-flowchart TD
-    Start([prefix recipient]) --> Q1{"wallet has a prior transfer with the recipient? (recipient_pubkey ∈ wallet.known_recipients)"}
-    Q1 -->|Yes| Case22[2. recipient_shared_view_tag]
-    Q1 -->|No| Q2{"request view tag from recipient?"}
-    Q2 -->|Yes| Case211[3. recipient_request_view_tag]
-    Q2 -->|No| Case212[4. recipient_bootstrap_view_tag]
-```
+1. A first payment to a ring address takes `inbox_view_tag(i, j)`.
+2. A payment to a paired recipient `R` takes the pair stream tag at `k`.
+3. An output to the spender itself takes `ring_change_view_tag(first_nullifier, s)`.
+4. A padding slot takes `0x00 || 31 random bytes`, drawn again until it differs from every other tag of the transaction.
+5. An exit to the default ring keeps its owner pubkey tag.
+
+For each stream the builder reads the occupied indices of one window of 64 indices. Each slot takes the lowest index free in history and not taken by an earlier slot of the transaction. An exhausted window moves the stream to the next window. Two senders that pick the same free index before either confirms publish one tag twice. The shared tag links the two outputs publicly.
 
 ### Methods
 
 1. `decrypt(ciphertext, tx_viewing_pk) -> Result<Plaintext>` — AES-CTR decryption with key `KDF(ECDH(viewing_sk, tx_viewing_pk))`.
-2. `get_sender_view_tag(tx_count)` — policy-ring anonymous transfers only; tags the sender's own change UTXOs. The default ring tags change by the sender's owner pubkey.
-3. `get_recipient_request_view_tag(request_count)` — used by the recipient to create a view tag for a `PaymentRequest` shared with the sender out-of-band.
-4. `get_send_shared_view_tag(counterparty_pubkey, i)` — sender-side `recipient_shared_view_tag`; used for transfers to a recipient the sender has already paired with.
-5. `get_recipient_shared_view_tag(counterparty_pubkey, i)` — recipient-side `recipient_shared_view_tag`; used during sync to scan transfers from each known sender.
+2. `get_sender_view_tag(n)` returns `sender_view_tag(n)`, the deposit stream of an anonymous ring. The default ring tags change by the sender's owner pubkey.
+3. `get_recipient_request_view_tag(n)` returns `recipient_request_view_tag(n)`.
+4. `get_send_shared_view_tag(counterparty_pubkey, k)` returns the sender-side `recipient_shared_view_tag`.
+5. `get_recipient_shared_view_tag(counterparty_pubkey, k)` returns the recipient-side `recipient_shared_view_tag`. Sync evaluates it with each known `pair_pk`.
 6. `merge_output_blinding(first_nullifier)` / `merge_dummy_nullifier(first_nullifier, slot_index)` / `merge_output_key(first_nullifier)` — deterministic merge derivations from the owner's nullifier secret (domain-separated Poseidon; the key is defined under [Merge](#merge)); used by the merge prover when building [`merge_transact`](#merge_transact) / [`merge_ring`](#merge_ring) and by the owner during sync to decrypt merged outputs. Replaces the removed `get_merge_view_tag(merge_count)`.
 7. `get_transaction_viewing_key(first_nullifier: [u8; 32]) -> X25519Keypair` — the per-transaction [X25519 keypair](#transaction-viewing-key) for ECDH encryption to recipients.
+8. `inbox_secret(i)`, `pair_key(R)` and `ring_blinding_seed(first_nullifier)` return the anonymous ring [derived secrets](#derived-secrets).
+9. `pair_send_view_tag(R, k)` returns the sender's pair stream tag toward `R`, `get_send_shared_view_tag` evaluated with `pair_sk(R)`.
+10. `ring_change_view_tag(first_nullifier, s)` returns the spender's own output tag.
 
 ## Derivation seed
 
@@ -669,7 +703,7 @@ Schemes:
 2. UTXO Split — one ciphertext for M equal-amount outputs under the same owner.
 3. Merge — scheme byte `6`, verifiably encrypted: the merge proof binds the merged output's amount and mint, encrypted for the owner under a key derived from the owner's nullifier secret (`output_encryption`, see [Merge](#merge)).
 4. Plaintext Transfer — the Transfer layout with unencrypted payloads.
-5. Ring Anonymous — scheme byte `9`: a custom-ring output in anonymous mode. The body after the scheme byte is the 104-byte opening `asset_address(32) || amount(8, big-endian) || blinding(32) || pair_u(32)`, so every slot is 105 bytes, padding included, and it names no owner, sender or recipient viewing key. The slot stream is keyed by `ECDH(tx_viewing_sk, recipient_viewing_pk)`, `tx_viewing_pk`, `recipient_viewing_pk`, the transaction `salt` and the slot index. The owner tag is a per-slot [view tag](#view-tags) the sender derives for that recipient or for its own change. Wallets open scheme-9 outputs by their commitment and recover them from the ring history (the custom-rings docs give the stream and tag derivations).
+5. Ring Anonymous, scheme byte `9`, is a custom-ring output in anonymous mode. Real and padding slots both carry a 105-byte body, see [Ring Anonymous outputs](#ring-anonymous-outputs).
 
 ## AES Key derivation
 
@@ -689,9 +723,43 @@ ciphertext = AES-256-CTR(key, nonce, plaintext)             // first counter blo
 ```
 
 A [`ring_deposit`](#ring_deposit) ciphertext uses the label
-`"TSPP/ring_deposit"` in place of `"TSPP/tx"` and slot `0`.
+`"TSPP/ring_deposit"` in place of `"TSPP/tx"` and slot `0`. A scheme-9 body uses
+the Poseidon schedule of [Ring Anonymous outputs](#ring-anonymous-outputs) in
+place of this derivation.
 
 Integrity is verified by recomputing the UTXO hash from the decrypted plaintext fields and comparing against the covered output's `utxo_hash`. Those hashes are proof-verified on-chain commitments, so a mismatch — from a wrong decryption key or a corrupted ciphertext — is detected with overwhelming probability.
+
+<a id="ring-anonymous-outputs"></a>
+## Ring Anonymous outputs
+
+Let `tx_viewing_sk` and `tx_viewing_pk` be as in [Transaction Viewing Key](#transaction-viewing-key), `salt` the 16-byte transaction salt, and `pair_pk` as in [Derived secrets](#derived-secrets). The [anonymous ring guide](../custom-rings/docs/anonymous-rings.md) explains the flows built on this layout.
+
+Every output slot of an anonymous ring transaction except a default-ring exit carries `data = Encrypted(0x09 || c)`. `c` is exactly 104 bytes, so the body is 105 bytes. A real slot encrypts the opening:
+
+```
+opening = asset_address (32) || amount (8) || blinding (32) || pair_u (32)
+```
+
+`asset_address` is the mint address, the preimage of the [UTXO hash](#utxo-hash) `asset`. `amount` is a big-endian `u64`. `blinding` is the big-endian encoding of the committed field element, and a decoder rejects a value at or above the BN254 modulus. `pair_u` is the `u` coordinate of `pair_pk(R)` toward recipient `R`, where `R` is the spender's own viewing key for its own output. An opening carries no data record, so `data_hash = 0` and `ring_data_hash = 0`.
+
+For output slot `i`, the output index as one byte, the body key derives from the transaction viewing key and the recipient viewing key `R.viewing_pk`:
+
+```
+dh_i       = ECDH(tx_viewing_sk, R.viewing_pk)                 // recipient: ECDH(R.viewing_sk, tx_viewing_pk)
+secret_i   = Poseidon(CR_R, dh_lo, dh_hi, tx_pk_lo, tx_pk_hi, r_lo, r_hi, salt, i)
+c          = AES-256-CTR(key_i, nonce_i, opening)
+CR_R       = 0x43525f52                                         // ASCII "CR_R"
+```
+
+`tx_pk` is `tx_viewing_pk` and `r` is `R.viewing_pk`, both 33-byte tagged keys. `x_lo` is the first 31 bytes of `x` and `x_hi` its remaining bytes, each read as a big-endian field element. `salt` and `i` are each one big-endian field element. `key_i || nonce_i` follow the stream schedule of [Auditor encryption](#auditor-envelope) with `secret_i` in place of `shared` and the same label `"CRING/adt1"`. `test-vectors/anonymous_recipient_encryption.json` pins the schedule and the layout.
+
+A padding slot carries 104 random bytes as `c` and the tag `0x00 || 31 random bytes`. A default-ring exit slot uses the Transfer layout of scheme `3`.
+
+Rule. A reader recomputes the [UTXO hash](#utxo-hash) from the opening and its own `owner_hash`. It sets `data_hash = 0`, `ring_data_hash = 0`, the transaction's ring program id and the output's `tree_id`. It accepts the opening only when that hash equals the published `utxo_hash`. A `pair_u` that is not a valid X25519 `u` coordinate does not reject the opening.
+
+Security requirement. One `(key_i, nonce_i)` pair encrypts at most one opening, two openings under one pair leak their XOR. The proof does not enforce the bound. It proves `tx_viewing_sk` clamped and equal to the secret of `tx_viewing_pk`. It does not prove the derivation from the first nullifier or a fresh `salt`. A builder derives `tx_viewing_sk` from the first nullifier and draws a fresh `salt` per transaction viewing key. A shared session refuses a second output set under one transaction viewing key.
+
+The custom-ring circuits prove `c` for every real slot, see [Anonymous outputs](#anonymous-outputs).
 
 
 ## UTXO Data
@@ -732,8 +800,7 @@ Fields packed in declaration order. Byte vectors are prefixed with a `u16_le` le
 /// 50 B plaintext for confidential transfers with an empty `data` field and no
 /// `ring_program_id`. Anonymous transfers add `owner_pubkey: PublicKey` (34 B)
 /// and `sender_pubkey: X25519Pubkey` (33 B) before `asset_id` and omit
-/// `ring_program_id`. Ring Anonymous outputs (scheme `9`) use the confidential
-/// form. Each populated data record adds `3 + len` bytes. See
+/// `ring_program_id`. Each populated data record adds `3 + len` bytes. See
 /// [UTXO Data](#utxo-data).
 struct TransferRecipientPlaintext {
     /// `1` for SOL; SPL via per-mint Asset registry (`asset_id ≥ 2`).
@@ -1065,8 +1132,11 @@ input could be zero-padded to look like a fixed-length one. The same applies to
 | `tree_slot_chain` | commitment to the five input tree slots; see [Tree Slot Chain](#tree-slot-chain). SPP populates one slot per declared `tree_contexts` entry |
 | `output_tree_id` | raw `u16` id of `output_tree`; hashed into each output `utxo_hash` |
 | `private_tx_hash` | instruction data; see [Private transaction hash](#private-transaction-hash) |
-| message hash (`AnonymousRingEddsa` only) | `hash_bytes_32(SHA-256(private_tx_hash || external_data_hash))`; SPP computes the digest, the circuit only hashes it |
+| message hash (`AnonymousRingEddsa` only) | `hash_bytes_32(SHA-256(private_tx_hash || external_data_hash))`; SPP computes the digest, the circuit verifies the hidden owner's signature over the [ring spend message](#ring-spend-message) that carries it |
 | `default_owner_pk_hash` (`AnonymousRingEddsa` only) | `hash_bytes_33(0x53 || owner_pk)` when a spent UTXO of the hidden owner belongs to the default ring, otherwise `0`. SPP derives it from `CircuitId::AnonymousRingEddsa.default_owner_tag`; the circuit checks it against the verified hidden Ed25519 key. Address slots do not force publication. |
+| `payer_pk_hash` (`AnonymousRingEddsa` only) | `owner_proof_input_hash(payer)` of the fee payer account. |
+| `cosigner_pk_hash` (`AnonymousRingEddsa` only) | `owner_proof_input_hash(cosigner)` of the 32-byte co-signer address the ring program appends after the instruction data, `0` for the zero address. SPP rejects an anonymous instruction without exactly that 32-byte tail. |
+| `exit_destination_pk_hash` (`AnonymousRingEddsa` only) | `owner_proof_input_hash` of the destination account of the withdrawal legs, `0` without one. SPP rejects withdrawals to two different accounts. |
 | `external_data_hash` | recomputed by SPP from the instruction data prefix and the committed accounts; see [external_data_hash](#external_data_hash). A separate public input, not part of the private transaction hash. |
 | public asset/amount slots (`N_PUBLIC_SLOTS = 3`) | six fields: `asset_0, amount_0, asset_1, amount_1, asset_2, amount_2`. SPP aggregates settlement legs by asset in first-appearance order, drops zero-net groups, and pads with `(0, 0)`. Assets use `hash_bytes_32(mint)`, including `Address::default()` for SOL. Each net magnitude fits `u64`; deposits are positive and withdrawals negative in the BN254 field. |
 | `ring_program_id` | `pk_field(ring_config.program_id)` for a policy ring; `0` for default `transact` |
@@ -1074,6 +1144,20 @@ input could be zero-padded to look like a fixed-length one. The same applies to
 | `input_flags` | the dummy-input policy and every input's tree slot index, packed into one field element; see [input_flags](#input-flags) |
 | published output owner hash chain (owner-signed variants) | `RightHashChain4` over per-output tagged Solana identities. `ConfidentialEddsa` includes every resolved owner tag. `ConfidentialRingEddsa` and `AnonymousRingEddsa` use `hash_bytes_33(0x53 || fetch_tag)` for confidential-encrypted slots (scheme byte `3`), and `0` for other encodings. `RingAuthority` omits this field. |
 | cache selection (owner-signed variants) | the cache's raw `u16` `tree_id` and `RightHashChain4` over the UTXO hashes of the cache slots `read_bitmap` selects, in ascending slot order, zero-padded to `n_inputs`. Without a cache read the tree id is `0` and the chain is over `n_inputs` zeros. Selected inputs skip UTXO inclusion. `RingAuthority` omits these fields. |
+
+<a id="ring-spend-message"></a>
+**Ring spend message.** The hidden owner of an `AnonymousRingEddsa` spend signs
+84 bytes with Ed25519:
+
+```
+ring_spend_message = "zolana ring spend v1" (20) || ring_program_id (32) || SHA-256(private_tx_hash || external_data_hash) (32)
+```
+
+The circuit verifies the signature and asserts `hash_bytes_32(ring_program_id)`
+equal to the public `ring_program_id`. It asserts the hidden owner's identity
+different from every signer identity and from each nonzero `payer_pk_hash`,
+`cosigner_pk_hash` and `exit_destination_pk_hash`.
+`test-vectors/ring_spend_message.json` pins the message.
 
 An `AnonymousRingEddsa` proof spending a policy-ring UTXO of the hidden owner must
 keep the hidden identity private: it cannot also spend a default-ring UTXO of the
@@ -2487,7 +2571,7 @@ A configured policy
 reads its own registry and any curator registry in every mode. Registry mode
 also requires every real output owner's escrowed key to match the note's
 nullifier public key. Anonymous transfers allow only the payer as a public
-signer, zero output owner tags and the anonymous output encoding.
+signer and the output encoding of [Anonymous outputs](#anonymous-outputs).
 
 The reference policy supports 19 ordinary capacities with at most 16 inputs and
 four outputs or 24 inputs and two outputs, 14 anonymous capacities and two delegate capacities. Each has
@@ -2523,14 +2607,16 @@ transaction secret and derives its published X25519 public key. `head` and
 big-endian integer. Packing a key or shared secret puts its first 31 bytes in
 one field and its remaining bytes in another.
 
-The dedicated disclosure uses a keyed field stream.
+The dedicated disclosure uses a keyed field pad. The seed is never published,
+so a known field reveals no other pad.
 
 ```
-state = Poseidon("CR_OD", sk_lo, sk_hi, salt)
-for each field j
-  state = Poseidon(state, j)
-  ciphertext[j] = plaintext[j] + state mod Fr
+seed = Poseidon("CR_OD", sk_lo, sk_hi, salt)
+pad[j] = Poseidon(seed, j)
+ciphertext[j] = plaintext[j] + pad[j] mod Fr
 ```
+
+`sk` is `tx_viewing_sk`, packed as above, and `salt` is the transaction salt.
 
 Both modes bind `HashChain4(ciphertext)` and the ordered output commitments.
 An ordinary transfer normally discloses four slots of nine fields. Unused slots are zero
@@ -2544,29 +2630,100 @@ opening. Ordinary recipient ciphertext remains wallet delivery data. It is not
 covered by this guarantee. Auditor clients recover notes from dedicated
 openings even if the recipient payload is malformed or inconsistent.
 
-The base statement is `HashChain` over twelve fields in order: `private_tx_hash`,
+The audit statement is `HashChain` over twelve fields in order: `private_tx_hash`,
 transaction key low and high, auditor key low and high, ephemeral key low and
 high, `hash_bytes_32(sealed_viewing_secret)`, the output commitment `HashChain4`,
-`salt`, the disclosure `HashChain4`, and the anonymous mode bit. A policy proof
-extends this with the policy hash, resolved tree anchors, ring context, approval
-and escrow flags, and registry roots. Shaped keys expose the validated policy
+`salt`, the disclosure `HashChain4`, and the anonymous mode bit. The
+confidential base keys prove it. The base statement has thirteen fields. It
+inserts `output_body_chain` after `hash_bytes_32(sealed_viewing_secret)`:
+
+```
+output_body_chain = HashChain4(body_hash_0, .., body_hash_{n_out - 1})
+body_hash_i       = hash_bytes_105(0x09 || c_i)   for a scheme-9 slot of an anonymous ring
+body_hash_i       = 0                              for a scheme-3 slot and every slot outside anonymous mode
+```
+
+The ring program computes every `body_hash_i` from the published slot bytes.
+The policy statement appends nine fields to the thirteen base fields, in this
+order:
+
+```
+policy_hash, tree_slot_chain, address_tree_id, ring_id, namespace_owner_hash,
+approval_required, key_escrow, member_registry_root, foreign_root
+```
+
+Shaped keys expose the validated policy
 table as public inputs read from the on-chain `PolicyConfig`.
 
 <a id="anonymous-disclosure"></a>
 **Anonymous disclosure**
 
-Anonymous mode encrypts the sender identity, spent note fields and recipient
-identities as part of the same proof. The circuit reopens `private_tx_hash` from
-those inputs and outputs. The auditor sees the transaction whose policy was
-checked.
+Anonymous mode encrypts the sender identity, the spent note fields and the
+recipient addresses in the same proof. The circuit reopens
+`private_tx_hash` from those inputs and outputs. The auditor sees the
+transaction whose policy was checked.
 
-The fixed layout uses a 33-byte sender identity, 74 bytes per input and
-235 bytes per output. Each slot is padded to a multiple of 31 bytes and packed into
-field elements. An input contains its tree ID, amount, asset and blinding. An
-output contains recipient identity, viewing key, nullifier public key, amount,
-asset, blinding, data hash, ring data hash and ring flag. The encrypted field
-count is `2 + 3*n_in + 8*n_out`. Anonymous dummy slots disclose zeros. This
-layout applies only to the supported anonymous settlement shapes.
+Each region is zero padded to whole 31-byte chunks, one field per chunk:
+
+```
+sender  = 0x53 || owner_key (32)                                       2 fields
+input   = tree_id (2) || amount (8) || asset (32) || blinding (32)      3 fields per input slot
+output  = identity (33) || nullifier_pk (32) || viewing_pk (33)      4 fields per output slot
+fields  = 2 + 3 * n_in + 4 * n_out
+```
+
+Integers are big-endian, `asset` and `blinding` are canonical field encodings.
+`identity` is the tagged Solana identity, `0x53 || owner_key` for a ring
+output. The disclosed sender owns every real input. An input dummy and a padding output
+disclose zeros. The output region names only the address. The auditor opens
+the amount, mint and blinding of a real output from its scheme-9 body. The key
+derives from the disclosed `viewing_pk` and the recovered `tx_viewing_sk`, see
+[Ring Anonymous outputs](#ring-anonymous-outputs).
+`test-vectors/audit-disclosure-anonymous.json` pins the layout. This layout
+applies only to the supported anonymous settlement shapes.
+
+<a id="anonymous-outputs"></a>
+**Anonymous outputs**
+
+The reference ring accepts a transfer in anonymous mode only on the
+`AnonymousRingEddsa` rail and only at a shape in `ANONYMOUS_RING_SHAPES`. Its
+validation of the output slots:
+
+1. The transaction carries `num_outputs` slots of its `CircuitId`, so compact
+   output padding is refused.
+2. Every slot carries `data`. A scheme-9 slot ends with the 105-byte body
+   `0x09 || c`, `c` 104 bytes.
+3. A scheme-9 slot has an inline owner tag with `tag[0] = 0` and `tag != 0`.
+4. No two scheme-9 slots of one transaction carry the same tag.
+5. No slot carries a zero `utxo_hash`.
+6. Every other slot is a scheme-3 exit with a nonzero inline tag, a canonical
+   X25519 recipient key and a non-empty ciphertext.
+7. The program hashes every scheme-9 body into `output_body_chain`.
+
+Does not check that a tag derives from a stream or that earlier transactions
+did not use it. Does not check that a body is a real encryption, the proof
+covers that property.
+
+The base and policy circuits certify, per output slot `i` with
+`real_i = anonymous * active_i * is_utxo_i * (ring_program_id_i != 0)`:
+
+```
+real_i => note_i.ring_program_id = hash_bytes_32(ring_program_id)
+real_i => note_i.data_hash = 0 and note_i.ring_data_hash = 0
+real_i => note_i.asset = hash_bytes_32(asset_address_i)
+real_i => c_i = AES-256-CTR(key_i, nonce_i, asset_address_i || u64_be(amount_i) || be(blinding_i) || pair_u_i)
+anonymous * active_i * is_utxo_i => note_i.owner_pk_hash = hash_bytes_33(recipient_i)
+body_hash_i = anonymous * (1 - exit_i) * hash_bytes_105(0x09 || c_i)
+```
+
+`recipient_i` and `viewing_pk_i` are the disclosed output address, `key_i` and
+`nonce_i` derive from `viewing_pk_i` as in
+[Ring Anonymous outputs](#ring-anonymous-outputs), and `exit_i` marks a
+default-ring output. A slot that is not real agrees with the X25519 base point,
+so the gadget stays satisfiable, and its body hash is still bound. The proof
+does not check that the sender chose the address it intended. It does not check
+that any party holds the keys of an address, or that `pair_u_i` derives from
+the sender's keys.
 
 <a id="deposit-audit"></a>
 **Deposit audit and key registration**
@@ -3018,16 +3175,17 @@ The same flow can be used to resync a wallet or poll.
 ViewingKeyEntry {
     key:                ViewingKey,
     created_at:         i64,
-    tx_count:           u64,
-    request_count:      u64,
-    known_senders:      map<sender_pubkey    → u64>,
-    known_recipients:   map<recipient_pubkey → u64>,
+}
+
+AnonymousRingState {
+    issued_addresses:     u32,                  // ring addresses handed out
+    known_counterparties: set<X25519Pubkey>,    // keys the pair streams scan
 }
 
 Wallet {
     signing_key:        SigningKey,
     viewing_history:    Vec<ViewingKeyEntry>,   // locally retained keys, oldest first
-    known_rings:        map<ring_program_id → ring_rpc_url>,
+    anonymous:          AnonymousRingState,
     Utxos:              Vec<Utxo>,
     last_synced:        Timestamp,
 }
@@ -3043,49 +3201,23 @@ Wallet {
 
     1. **Default-ring sync (confidential).** One call: `indexer.getShieldedTransactionsByTags` with the wallet's `owner_pubkey` tag; matches the wallet's encrypted change bundles, encrypted recipient slots, and [plaintext transfer](#plaintext-transfer) slots. Try the locally retained viewing keys against each encrypted ciphertext (plaintext slots need none); store the UTXOs with each transaction's `nullifiers`. The tag derives from the signing key, so discovery does not depend on the viewing key.
 
-    2. **Anonymous-ring sync — for each anonymous ring in `known_rings`, for each viewing key `k` in parallel:**
-        1. **Phase 1 — scan own view tags (concurrent within `k`).**
-            1. **Fetch loop**, scoped to `k`'s `[created_at, next.created_at)` window. Three parallel streams, each calling `indexer.getShieldedTransactionsByTags(tags)`:
-                - `wallet.get_sender_view_tag(n)` under `k`,
-                - `wallet.get_recipient_request_view_tag(n)` under `k`,
-                - the single `recipient_bootstrap_view_tag` for `k` (one call, not a range).
-
-                A counter stream ends once the 64 counters after its highest counter in use match no transaction.
-            2. For each `ring_program_id` in `known_rings`, fetch ciphertexts or decrypted UTXOs from that ring's RPC.
-            3. **Decrypt and store.** Decrypt each ciphertext via the `k`-th viewing key. Store the UTXOs along with the transaction's `nullifiers` array. Track `max(observed index)` per stream.
-        2. **Phase 2 — scan `known_senders` and `known_recipients` view tags.** Depends on Phase 1 (the maps are populated from decrypted ciphertexts there).
-            1. **Fetch loop**, each counter stream ending by the Phase 1 rule:
-                1. for each known sender `s`, derive `wallet.get_recipient_shared_view_tag(s, n)`, then fetch matching ciphertexts.
-                2. for each known recipient `r`, derive `wallet.get_send_shared_view_tag(r, n)`, then fetch matching ciphertexts.
-            2. **Decrypt and store.** Decrypt and store UTXOs.
+    2. **Anonymous-ring sync, under the current viewing key, across every ring.** The [anonymous ring guide](../custom-rings/docs/anonymous-rings.md#wallet-sync) explains the rules.
+        1. Open the deposit stream and the pair stream of every known counterparty. Open the inbox stream of every address index below `issued_addresses + ADDRESS_GAP`, with `ADDRESS_GAP = 20`.
+        2. **Fetch loop.** Each round derives the 64 tags of the current window of every open stream and calls `indexer.getShieldedTransactionsByTags(tags)`. A window with no occupied index closes its stream, otherwise the next window opens.
+        3. **Open and store.** Open each scheme-9 slot under a queried tag, at most `DECRYPTIONS_PER_INDEX = 16` per tag. Keep a slot only on the commitment rule of [Ring Anonymous outputs](#ring-anonymous-outputs). A verified note in an unregistered mint stays pending until the mint is registered.
+        4. An inbox note at address index `i` raises the used address count to `i + 1`. Its `pair_u` adds `pair_pk` to the counterparties and opens that pair stream.
+        5. Take every transaction that publishes a nullifier of an owned note and carries a scheme-9 slot. Derive `ring_change_view_tag(first_nullifier, s)` for each of its output slots `s` and open the matching slots.
+        6. **Recovery.** A tag past the cap marks its ring. Once the streams close, the wallet scans that ring's confirmed history through the highest slot read. It tries every scheme-9 slot under every retained viewing key, one ECDH per transaction and key, and continues the loop with the recovered notes. The scan fails on its page limit or on a page without a stated frontier. It cannot detect a transaction the indexer omits.
 
     3. **Merge outputs.** On the default rail the event tags the output with the owner signing pubkey, so merges surface in the owner-pubkey fetch above. `merge_ring` indexes the output by the first input's published nullifier; `getShieldedTransactionsByNullifiers` returns a transaction for any of its nullifiers, so the wallet finds a ring merge whenever it holds any of its inputs. For each merge transaction, decrypt the output as defined under [Merge](#merge): derive `merge_output_key` and `merge_output_blinding` from the nullifier key and the first nullifier, decrypt the amount and mint, rebuild the UTXO, and check its hash against the published output commitment. The wallet needs none of the merge's inputs; a merge that spends none of its notes is income. Store the rebuilt UTXO with the transaction's `nullifiers`.
 
-3. **Merge** UTXOs, observed transaction nullifier sets, `known_senders`, `known_recipients` across viewing keys.
+3. **Merge** UTXOs and observed transaction nullifier sets across viewing keys.
 
 4. **Mark spent utxos.** For each owned UTXO, compute `nullifier = nullifier_key.nullifier(utxo)` using the wallet-wide [NullifierKey](#nullifierkey) (the call uses `utxo.hash` and `utxo.blinding`), and build the local map `nullifier → utxo`. For every observed transaction nullifier from step 2, look it up; mark matches as spent. One sweep across all decrypted UTXOs.
 
-5. **Set wallet state**: `Utxos`, `known_senders`, `known_recipients`, per-key counters `tx_count`, `request_count` (= `max(observed index) + 1`) from step 2, `last_synced = current_timestamp()`.
+5. **Set wallet state.** Store `Utxos`, extend `anonymous.known_counterparties` by the counterparties step 2 found, and set `last_synced = current_timestamp()`.
 
-**Sync Time Estimates**
-
-Assumptions:
-
-1. Indexer request size: `10 000` view tags per `view_tag IN (...)` query.
-2. Indexer RTT: 100 ms.
-3. X25519 per ciphertext: 100 μs.
-4. Per-key scans run concurrently. Within a key, Phase 1 (`sender_view_tag`, `recipient_request_view_tag`, `recipient_bootstrap_view_tag`) runs concurrently, and Phase 2 per-sender / per-recipient scans run concurrently.
-5. Each known sender has < 10 000 incoming transfers per key; each known recipient has < 10 000 outgoing transfers per key.
-
-Figures below are per locally retained viewing key.
-
-| Tx history | Known senders | Phase 1 RTTs | Phase 2 RTTs | Total RTTs | Decrypt (sequential) | Total (sequential) | Total (parallel, ≥10 threads) |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| 10 | 1 | 2 | 2 | 4 | < 1 ms | ~400 ms | ~400 ms |
-| 1 000 | 100 | 2 | 2 | 4 | ~100 ms | ~500 ms | ~400 ms |
-| 10 000 | 1 000 | 2 | 2 | 4 | ~1 s | ~1.4 s | ~500 ms |
-| 100 000 | 10 000 | 11 | 2 | 13 | ~10 s | ~11 s | ~1.5 s |
-| 1 000 000 | 100 000 | 101 | 2 | 103 | ~100 s | ~110 s | ~12 s |
+**Sync cost.** Anonymous stream lookups grow with issued addresses, known counterparties and owned spends, not with ring traffic. A recovery scan grows with the ring's history.
 
 ## Merge Flow
 
