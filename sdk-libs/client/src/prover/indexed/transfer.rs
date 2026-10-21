@@ -40,6 +40,8 @@ pub enum IndexedTransferRail {
         owner: HiddenOwnerAuthorization,
         /// The ring's configured co-signer, `None` without one.
         cosigner: Option<solana_address::Address>,
+        /// The owner SPP reads from the SPL withdrawal's token account, `None` without one.
+        exit_token_owner: Option<solana_address::Address>,
     },
 }
 
@@ -271,6 +273,7 @@ impl IndexedTransferPreparation {
                 ring,
                 owner,
                 cosigner,
+                exit_token_owner,
             } => Some(
                 crate::prover::transact::anonymous_ring_eddsa::AnonymousAuthorizationPreparation {
                     inputs: &proof_inputs,
@@ -278,6 +281,7 @@ impl IndexedTransferPreparation {
                     ring_program_id: ring,
                     payer: &transaction.payer,
                     cosigner: cosigner.as_ref(),
+                    exit_token_owner: exit_token_owner.as_ref(),
                     external_data: &transaction.external_data,
                     private_tx: &private_tx,
                     external_data_hash: &external_hash,
@@ -870,6 +874,7 @@ mod tests {
                         owner: authorization.clone(),
                         payer: transaction.payer,
                         cosigner: None,
+                        exit_token_owner: None,
                         ring_program_id: ring.unwrap(),
                         shape,
                     }
@@ -880,6 +885,7 @@ mod tests {
                             ring: ring.unwrap(),
                             owner: authorization,
                             cosigner: None,
+                            exit_token_owner: None,
                         },
                         result.inputs.transfer.public_input_hash,
                     )
@@ -933,6 +939,7 @@ mod tests {
                     ring,
                     owner: authorize(&transaction),
                     cosigner: None,
+                    exit_token_owner: None,
                 },
                 transaction,
             }
@@ -1010,6 +1017,7 @@ mod tests {
                 )
                 .unwrap(),
                 cosigner: None,
+                exit_token_owner: None,
             },
             transaction,
         }
@@ -1054,6 +1062,7 @@ mod tests {
                     )
                     .unwrap(),
                     cosigner: None,
+                    exit_token_owner: None,
                 },
                 transaction,
             }

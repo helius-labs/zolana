@@ -15,9 +15,15 @@ import (
 const (
 	auditHeaderChunks = 2
 	auditInputChunks  = 3
-	// An output discloses its recipient address only, the auditor opens the note from the proven body.
-	auditOutputChunks = 4
+	// An exit's opening sets the width, a ring slot pads to it.
+	auditOutputChunks = 5
 	solanaOwnerTag    = 0x53
+)
+
+// The kind byte leads a disclosed output slot and selects its layout, a padding slot is all zero.
+const (
+	OutputKindRing = 1
+	OutputKindExit = 2
 )
 
 // AuditUtxoWires opens one transaction slot, the owner is Poseidon(OwnerPkHash, NullifierPk).
@@ -107,24 +113,9 @@ func (a Audit) anonymousLayout(api frontend.API, rc frontend.Rangechecker, tx Au
 			continue
 		}
 		disclosed := api.Mul(anonymous, tx.NOut.Active[i], isDomain(api, w.Domain, shared.UtxoDomain))
-		recipient, viewing := a.Recipients[i][:], a.RecipientViewingKeys[i]
-		CheckBytes(rc, viewing[:])
-		// A ring note must stay spendable by the Ed25519 rail.
-		ringNote := NonZero(api, w.RingProgramID)
-		api.AssertIsEqual(api.Mul(disclosed, ringNote, api.Sub(recipient[0], solanaOwnerTag)), 0)
-		// A disclosed viewing key takes the unique tagged X25519 encoding the host derives.
-		api.AssertIsEqual(api.Mul(disclosed, api.Sub(viewing[0], 4)), 0)
-		var u [32]frontend.Variable
-		for j := range u {
-			u[j] = api.Mul(disclosed, viewing[j+1])
-		}
-		if tx.Compact {
-			assertCanonicalX25519Compact(api, u)
-		} else {
-			x25519.AssertCanonical(api, u)
-		}
-		api.AssertIsEqual(api.Mul(disclosed, api.Sub(w.OwnerPkHash, gadget.HashBytes(api, recipient))), 0)
-		outputs[i] = chunks(api, slices.Concat(recipient, FieldBytes(api, w.NullifierPk), viewing[:]), auditOutputChunks, disclosed)
+		outputs[i] = discloseOutput(api, rc, outputSlot{
+			opening: w, recipient: a.Recipients[i][:], viewing: a.RecipientViewingKeys[i], disclosed: disclosed, compact: tx.Compact,
+		})
 	}
 
 	// The output region starts after the selected input prefix, so the layout is a sum over input counts.
@@ -158,6 +149,57 @@ func (a Audit) anonymousLayout(api frontend.API, rc frontend.Rangechecker, tx Au
 		}
 	}
 	return out
+}
+
+type outputSlot struct {
+	opening   AuditUtxoWires
+	recipient []frontend.Variable
+	viewing   [33]frontend.Variable
+	// disclosed is set for a UTXO below the output count of an anonymous ring.
+	disclosed frontend.Variable
+	compact   bool
+}
+
+// A ring note discloses its owner and viewing key, an exit its owner and the rest of its opening.
+func discloseOutput(api frontend.API, rc frontend.Rangechecker, s outputSlot) []frontend.Variable {
+	w := s.opening
+	// 1. A disclosed output stays in the ring or exits to the default ring, its ring id decides.
+	ringNote := NonZero(api, w.RingProgramID)
+	ring, exit := api.Mul(s.disclosed, ringNote), api.Mul(s.disclosed, api.Sub(1, ringNote))
+
+	// 2. The disclosed identity is the owner the note's utxo_hash binds.
+	assertWhen(api, s.disclosed, api.Sub(w.OwnerPkHash, gadget.HashBytes(api, s.recipient)))
+	// Every disclosed owner takes the 0x53 Solana owner tag of an Ed25519 key or a PDA, both auditor parsers refuse another tag.
+	assertWhen(api, s.disclosed, api.Sub(s.recipient[0], solanaOwnerTag))
+
+	// 3. A ring note's viewing key keys its proven body, an exit discloses no viewing key.
+	// Viewing bytes stay below 256, the chunk packer skips its byte check.
+	CheckBytes(rc, s.viewing[:])
+	// A disclosed viewing key takes the unique tagged X25519 encoding the host derives.
+	assertWhen(api, ring, api.Sub(s.viewing[0], 4))
+	var u [32]frontend.Variable
+	for j := range u {
+		u[j] = api.Mul(ring, s.viewing[j+1])
+	}
+	if s.compact {
+		assertCanonicalX25519Compact(api, u)
+	} else {
+		x25519.AssertCanonical(api, u)
+	}
+
+	// 4. Zero data hashes let the disclosure and the tree id rebuild an exit's utxo_hash.
+	assertWhen(api, exit, w.DataHash)
+	assertWhen(api, exit, w.RingDataHash)
+
+	// 5. Ring and exit exclude each other, so the summed tail holds one layout.
+	tail := slices.Concat(
+		uintBytes(api, api.Mul(exit, w.Amount), 8), FieldBytes(api, api.Mul(exit, w.Asset)), FieldBytes(api, api.Mul(exit, w.Blinding)),
+	)
+	for j, b := range s.viewing {
+		tail[j] = api.Add(tail[j], api.Mul(ring, b))
+	}
+	kind := api.Add(api.Mul(ring, OutputKindRing), api.Mul(exit, OutputKindExit))
+	return chunks(api, slices.Concat([]frontend.Variable{kind}, s.recipient, FieldBytes(api, w.NullifierPk), tail), auditOutputChunks, s.disclosed)
 }
 
 func isDomain(api frontend.API, domain frontend.Variable, want int) frontend.Variable {

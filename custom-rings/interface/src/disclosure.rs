@@ -8,9 +8,8 @@ use zolana_interface::shape::Shape;
 pub const DISCLOSURE_SENDER_LEN: usize = 62;
 /// `tree_id(2) || amount(8) || asset(32) || blinding(32)`, zero padded.
 pub const DISCLOSURE_INPUT_LEN: usize = 93;
-/// `identity_tag(1) || identity_key(32) || nullifier_pk(32) || viewing_pk(33)`, zero
-/// padded, the auditor opens the note from the proven scheme-9 body.
-pub const DISCLOSURE_OUTPUT_LEN: usize = 124;
+/// An exit's opening sets the width, a ring slot zero pads to it.
+pub const DISCLOSURE_OUTPUT_LEN: usize = 155;
 pub const AUDIT_INPUT_SLOTS: usize = 12;
 pub const AUDIT_OUTPUT_SLOTS: usize = 4;
 /// More than sixteen spent notes select the 24x2 capacity and its short audit format.
@@ -130,12 +129,12 @@ mod tests {
         assert_eq!(shape(false, 24, 2).field_count(), Some(18));
         assert_eq!(shape(false, 25, 2).field_count(), None);
         assert_eq!(shape(false, 0, 1).field_count(), Some(36));
-        assert_eq!(shape(true, 2, 2).field_count(), Some(16));
-        assert_eq!(shape(true, 3, 4).field_count(), Some(27));
-        assert_eq!(shape(true, 4, 2).field_count(), Some(22));
+        assert_eq!(shape(true, 2, 2).field_count(), Some(18));
+        assert_eq!(shape(true, 3, 4).field_count(), Some(31));
+        assert_eq!(shape(true, 4, 2).field_count(), Some(24));
         assert_eq!(shape(true, 0, 2).field_count(), None);
-        assert_eq!(shape(true, 5, 2).field_count(), Some(25));
-        assert_eq!(shape(true, 12, 2).field_count(), Some(46));
+        assert_eq!(shape(true, 5, 2).field_count(), Some(27));
+        assert_eq!(shape(true, 12, 2).field_count(), Some(48));
         assert_eq!(shape(true, 13, 2).field_count(), None);
         assert_eq!(shape(false, 2, 0).field_count(), None);
         assert_eq!(shape(false, 2, 5).field_count(), None);

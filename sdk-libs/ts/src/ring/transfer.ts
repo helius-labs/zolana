@@ -121,6 +121,7 @@ import {
 import { fetchRingCoSigner, fetchRingConfigs } from "./config.js";
 import {
   anonymousAuditInputs,
+  anonymousExitTokenOwner,
   anonymousIdentities,
   anonymousSlotTags,
   checkAnonymousOutputs,
@@ -861,6 +862,8 @@ interface AnonymousStage {
   readonly slots: Awaited<ReturnType<typeof anonymousSlotTags>>;
   /** The ring's configured co-signer, the proof binds it apart from the owner. */
   readonly cosigner: Address | undefined;
+  /** The owner SPP reads from the SPL withdrawal's token account. */
+  readonly exitTokenOwner: Address | undefined;
 }
 
 /** The sealed slots and the audit secrets, one shape for every rail. */
@@ -1244,6 +1247,9 @@ async function railCircuit(
         ring: ringProgramId,
         owner: { publicKey: rail.staged.owner, signature },
         ...(rail.staged.cosigner === undefined ? {} : { cosigner: rail.staged.cosigner }),
+        ...(rail.staged.exitTokenOwner === undefined
+          ? {}
+          : { exitTokenOwner: rail.staged.exitTokenOwner }),
       };
     }
   }
@@ -1285,6 +1291,9 @@ function proveRailSpend(
           ringProgramId,
           owner: circuit.owner,
           ...(circuit.cosigner === undefined ? {} : { cosigner: circuit.cosigner }),
+          ...(circuit.exitTokenOwner === undefined
+            ? {}
+            : { exitTokenOwner: circuit.exitTokenOwner }),
           keys: rail.keys,
           config: { outputTree },
         },
@@ -1309,6 +1318,10 @@ async function stageAnonymous(
     cosigner: supplied === undefined ? undefined : signerAddress(supplied),
   });
   checkAnonymousSlots(input.prepared);
+  const exitTokenOwner = await anonymousExitTokenOwner(
+    { client: flow.client, transfers: input.prepared.interfaceTransfers, hiddenOwner: owner },
+    context,
+  );
   // The recipient and the sender's own recovery rederive every blinding from the viewing key.
   const prepared = input.prepared.withBlindingSeed(
     flow.viewingKey.ringBlindingSeed(input.prepared.firstNullifier),
@@ -1326,7 +1339,7 @@ async function stageAnonymous(
     ),
     fetchRingCoSigner(flow.client, input.ringProgramId, context),
   ]);
-  return Object.freeze({ prepared, owner, slots, cosigner: configured?.signer });
+  return Object.freeze({ prepared, owner, slots, cosigner: configured?.signer, exitTokenOwner });
 }
 
 /** Rust `BaseCircuit::select`, the wide anonymous key opens every disclosed input. */

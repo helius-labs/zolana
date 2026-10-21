@@ -1,4 +1,5 @@
 use pinocchio::AccountView;
+use zolana_interface::token_account::TokenAccountControl;
 
 /// Settlement account shape shared by every public-amount rail. Built by each
 /// instruction's account parser and consumed by `settle_sol` /
@@ -32,4 +33,5 @@ pub struct SplWithdrawalAccounts<'a> {
     pub spl_interface_account: &'a AccountView,
     pub user_token_account: &'a AccountView,
     pub token_program_account: &'a AccountView,
+    pub user_token_account_control: TokenAccountControl,
 }

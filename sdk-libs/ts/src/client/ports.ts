@@ -602,6 +602,8 @@ export interface AnonymousRingTransactProofInput {
   readonly owner: HiddenOwnerAuthorization;
   /** The ring's configured co-signer, absent without one. */
   readonly cosigner?: Address;
+  /** The owner SPP reads from the SPL withdrawal's token account, absent without one. */
+  readonly exitTokenOwner?: Address;
   readonly keys: ProofAuthority;
   readonly config?: RingProvingConfig;
 }

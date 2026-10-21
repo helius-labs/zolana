@@ -14,7 +14,12 @@ import type {
   RequestContext,
   Signature,
 } from "../interface/types.js";
-import { SOLANA_OWNER_TAG, hashBytes, initializePoseidon } from "../hasher/index.js";
+import {
+  SOLANA_OWNER_TAG,
+  hashBytes,
+  initializePoseidon,
+  solanaOwnerIdentity,
+} from "../hasher/index.js";
 import { isCanonicalField } from "../interface/canonical-field.js";
 import { postJsonRpc } from "../services/jsonrpc.js";
 import { TransportFailure, checkedEndpoint, checkedFetch } from "../services/transport.js";
@@ -23,9 +28,9 @@ import { addressBytes, copyBytes } from "../interface/internal.js";
 import { MAX_MERGE_INPUTS, mergePaddedInputCount } from "../interface/constants.js";
 import { X25519PublicKey } from "../keypair/x25519.js";
 import { KeypairError } from "../keypair/error.js";
+import { ownerHash } from "../keypair/hash.js";
 
 import {
-  OUTPUT_PAYLOAD_ERROR_KINDS,
   auditOpeningHash,
   type DecryptedAnonymousRingTrace,
   type OutputPayloadError,
@@ -849,15 +854,13 @@ function decodeTransaction(wire: Record<string, unknown>): DecryptedRingTransact
       decodeOutput(record(entry, `outputs[${index}]`)),
     ),
   );
-  const payloadErrors = Object.freeze(
-    list(wire["payloadErrors"], "payloadErrors").map((entry) => {
-      const error = record(entry, "payloadErrors");
-      return Object.freeze({
-        slotIndex: u32(error["slotIndex"], "payloadErrors.slotIndex"),
-        kind: payloadErrorKind(error["kind"]),
-      });
-    }),
-  );
+  const wireErrors = list(wire["payloadErrors"], "payloadErrors").map((entry) => {
+    const error = record(entry, "payloadErrors");
+    return {
+      slotIndex: u32(error["slotIndex"], "payloadErrors.slotIndex"),
+      kind: payloadErrorKind(error["kind"]),
+    };
+  });
   const seen = new Set<number>();
   for (const output of outputs) {
     const opening = outputOpenings[output.slotIndex];
@@ -873,21 +876,21 @@ function decodeTransaction(wire: Record<string, unknown>): DecryptedRingTransact
       throw invalid("outputs.opening");
     seen.add(output.slotIndex);
   }
-  // A slot without an output carries at most one error, a stored output only a pair hint.
-  const errored = new Set<number>();
-  for (const error of payloadErrors) {
-    if (outputOpenings[error.slotIndex] === undefined || errored.has(error.slotIndex))
-      throw invalid("payloadErrors");
-    if (seen.has(error.slotIndex) !== (error.kind === "pairHint")) throw invalid("payloadErrors");
-    errored.add(error.slotIndex);
-  }
+  checkPayloadErrors(wireErrors, { openings: outputOpenings, stored: seen, anonymous });
+  const payloadErrors = Object.freeze(
+    wireErrors.map(({ slotIndex, kind }) =>
+      Object.freeze({ slotIndex, kind: auditPayloadErrorKind(kind) }),
+    ),
+  );
   return Object.freeze({
     slot: integer(wire["slot"], "slot"),
     signature: signature(wire["txSignature"], "txSignature"),
     eventIndex: u16(wire["eventIndex"], "eventIndex"),
     txViewingPublicKey: x25519Key(wire["txViewingPk"], "txViewingPk"),
     ...(anonymous
-      ? { anonymous: decodeAnonymousTrace(record(wire["anonymous"], "anonymous")) }
+      ? {
+          anonymous: decodeAnonymousTrace(record(wire["anonymous"], "anonymous"), outputOpenings),
+        }
       : {}),
     outputs,
     outputOpenings,
@@ -934,7 +937,7 @@ function decodeOpening(wire: Record<string, unknown>, anonymous: boolean): Decry
     leafIndex: u64(context["leafIndex"], "outputOpenings.outputContext.leafIndex"),
     hash: hash(context["hash"], "outputOpenings.outputContext.hash"),
   });
-  const dummy = anonymous && Object.values(opening).every((value) => equal(value, ZERO_32));
+  const dummy = anonymous && isZeroOpening(opening);
   if (
     !dummy &&
     (!equal(auditOpeningHash(opening), outputContext.hash) ||
@@ -944,8 +947,26 @@ function decodeOpening(wire: Record<string, unknown>, anonymous: boolean): Decry
   return Object.freeze({ ...opening, outputContext });
 }
 
-/** Checks owner encodings and canonical recipient slot order before exposing a trace. */
-function decodeAnonymousTrace(wire: Record<string, unknown>): DecryptedAnonymousRingTrace {
+/** A padding slot of an anonymous ring opens to zero. */
+function isZeroOpening(opening: AuditOutputOpening): boolean {
+  return [
+    opening.domain,
+    opening.treeId,
+    opening.ownerHash,
+    opening.asset,
+    opening.amount,
+    opening.blinding,
+    opening.dataHash,
+    opening.ringDataHash,
+    opening.ringProgramId,
+  ].every((value) => equal(value, ZERO_32));
+}
+
+/** Every opened slot has a recipient, the owner its commitment binds. */
+function decodeAnonymousTrace(
+  wire: Record<string, unknown>,
+  openings: readonly AuditOutputOpening[],
+): DecryptedAnonymousRingTrace {
   // Decode bounded input openings without narrowing an unchecked integer.
   const inputs = list(wire["inputs"], "anonymous.inputs").map((entry) => {
     const input = record(entry, "anonymous.inputs");
@@ -962,19 +983,25 @@ function decodeAnonymousTrace(wire: Record<string, unknown>): DecryptedAnonymous
   const recipients = list(wire["recipients"], "anonymous.recipients").map((entry) => {
     const output = record(entry, "anonymous.recipients");
     const slotIndex = u32(output["slotIndex"], "anonymous.recipients.slotIndex");
-    if (slotIndex <= previous) throw invalid("anonymous.recipients.slotIndex");
+    const opening = openings[slotIndex];
+    if (slotIndex <= previous || opening === undefined)
+      throw invalid("anonymous.recipients.slotIndex");
     const identityTag = output["identityTag"];
     if (identityTag !== SOLANA_OWNER_TAG) throw invalid("anonymous.recipients.identityTag");
     previous = slotIndex;
-    return Object.freeze({
-      slotIndex,
-      identityTag,
-      identityKey: hash(output["identityKey"], "anonymous.recipients.identityKey"),
-      nullifierPk: hash(output["nullifierPk"], "anonymous.recipients.nullifierPk"),
-      amount: u64(output["amount"], "anonymous.recipients.amount"),
-      asset: hash(output["asset"], "anonymous.recipients.asset"),
-    });
+    const identityKey = hash(output["identityKey"], "anonymous.recipients.identityKey");
+    const nullifierPk = hash(output["nullifierPk"], "anonymous.recipients.nullifierPk");
+    if (!isCanonicalField(nullifierPk)) throw invalid("anonymous.recipients.nullifierPk");
+    if (
+      !isZeroOpening(opening) &&
+      !equal(ownerHash(solanaOwnerIdentity(identityKey), nullifierPk), opening.ownerHash)
+    )
+      throw invalid("anonymous.recipients.owner");
+    return Object.freeze({ slotIndex, identityTag, identityKey, nullifierPk });
   });
+  const named = new Set(recipients.map((recipient) => recipient.slotIndex));
+  if (openings.some((opening, slotIndex) => !isZeroOpening(opening) && !named.has(slotIndex)))
+    throw invalid("anonymous.recipients");
   return Object.freeze({
     sender: address(wire["sender"], "anonymous.sender"),
     inputs: Object.freeze(inputs),
@@ -982,10 +1009,59 @@ function decodeAnonymousTrace(wire: Record<string, unknown>): DecryptedAnonymous
   });
 }
 
-function payloadErrorKind(value: unknown): OutputPayloadErrorKind {
-  const kind = OUTPUT_PAYLOAD_ERROR_KINDS.find((candidate) => candidate === value);
+/** Rust `OutputPayloadErrorKind` as the ring rpc serializes it. */
+const RPC_PAYLOAD_ERROR_KINDS = ["frame", "decrypt", "commitment", "asset", "pairHint"] as const;
+
+type RpcPayloadErrorKind = (typeof RPC_PAYLOAD_ERROR_KINDS)[number];
+
+function payloadErrorKind(value: unknown): RpcPayloadErrorKind {
+  const kind = RPC_PAYLOAD_ERROR_KINDS.find((candidate) => candidate === value);
   if (kind === undefined) throw invalid("payloadErrors.kind");
   return kind;
+}
+
+function auditPayloadErrorKind(kind: RpcPayloadErrorKind): OutputPayloadErrorKind {
+  switch (kind) {
+    case "frame":
+    case "decrypt":
+      return "unreadable";
+    case "commitment":
+      return "openingMismatch";
+    case "asset":
+      return "unknownAsset";
+    case "pairHint":
+      return "pairHint";
+  }
+}
+
+/** Rust `TransactionAudit`, one cause replaces an output and a pair hint flags an opened ring note. */
+function checkPayloadErrors(
+  errors: readonly Readonly<{ slotIndex: number; kind: RpcPayloadErrorKind }>[],
+  slots: Readonly<{
+    openings: readonly AuditOutputOpening[];
+    stored: ReadonlySet<number>;
+    anonymous: boolean;
+  }>,
+): void {
+  const bySlot = new Map<number, Set<RpcPayloadErrorKind>>();
+  for (const { slotIndex, kind } of errors) {
+    const opening = slots.openings[slotIndex];
+    const kinds = bySlot.get(slotIndex) ?? new Set<RpcPayloadErrorKind>();
+    if (opening === undefined || kinds.has(kind)) throw invalid("payloadErrors");
+    if (kind === "pairHint" && (!slots.anonymous || equal(opening.ringProgramId, ZERO_32)))
+      throw invalid("payloadErrors");
+    bySlot.set(slotIndex, kinds.add(kind));
+  }
+  for (const [slotIndex, kinds] of bySlot) {
+    const causes = [...kinds].filter((kind) => kind !== "pairHint");
+    const stored = slots.stored.has(slotIndex);
+    if (
+      causes.length > 1 ||
+      stored !== (causes.length === 0) ||
+      (kinds.has("pairHint") && !stored && causes[0] !== "asset")
+    )
+      throw invalid("payloadErrors");
+  }
 }
 
 /** A slot index, rejected outside the u32 range. */

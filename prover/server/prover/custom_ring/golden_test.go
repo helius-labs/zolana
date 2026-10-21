@@ -27,6 +27,12 @@ func TestGoldenRequestsAssignTheRecordedWitness(t *testing.T) {
 	if err != nil || len(files) == 0 {
 		t.Fatalf("no fixtures: %v", err)
 	}
+	// The Rust SDK writes testdata/rust in its own key order, so only this solve covers those bytes.
+	rust, err := filepath.Glob("testdata/rust/*.json")
+	if err != nil || len(rust) == 0 {
+		t.Fatalf("no Rust-built fixtures: %v", err)
+	}
+	files = append(files, rust...)
 	digests := map[string]string{}
 	systems := map[common.CircuitType]constraint.ConstraintSystem{}
 	for _, file := range files {

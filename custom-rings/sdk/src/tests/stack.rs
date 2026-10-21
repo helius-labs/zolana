@@ -23,7 +23,10 @@ use zolana_client::{
     GetRingMemberRecordRequest, GetRingMemberRecordResponse, IndexerRpcConfig, InputWitnesses,
     Shape,
 };
-use zolana_keypair::{ShieldedKeypair, X25519Keypair};
+use zolana_keypair::{random_blinding, ShieldedKeypair, X25519Keypair};
+use zolana_program::instruction::{
+    TransactInterfaceTransferAccounts, TransactSolTransferAccounts, TransactSplWithdrawalAccounts,
+};
 use zolana_ring_client::{
     AuditError, RingOrigin, RingRecovery, RingScan, SourceMember, TransactionOrigin,
 };
@@ -31,15 +34,17 @@ use zolana_ring_member_registry::MemberRegistryTree;
 use zolana_ring_policy::Member;
 use zolana_ring_policy::{ListId, RuleTable};
 use zolana_transaction::{
-    instructions::transact::ConfidentialTransaction, utxo::SppProofInputUtxo, AssetRegistry,
-    SOL_MINT,
+    instructions::transact::ConfidentialTransaction, utxo::SppProofInputUtxo, AssetRegistry, Data,
+    Mint, Utxo, SOL_MINT,
 };
 
-use super::support::{account, member, note, pinned, ring, tree_account, Accounts};
+use super::support::{
+    account, member, note, pinned, ring, tree_account, wallet as wallet_utxo, Accounts,
+};
 use crate::{
     CustomRingMerge, CustomRingTransfer, CustomRingTransferInput, DelegateOutput, DelegateTransfer,
     DelegateTransferInput, DepositAsset, MemberWrite, MergeProofInput, PoolTree, RegisterKey,
-    RingDeposit, RingOperation, RingSubmission, UpdateMembers,
+    RingDeposit, RingError, RingOperation, RingSubmission, UpdateMembers,
 };
 
 /// A blocking caller and each Tokio frame under it hold the future by value.
@@ -348,4 +353,75 @@ fn a_deposit_submission_polls_within_a_bounded_stack() {
         polled <= MAX_POLL_DEPTH,
         "a deposit submission polls {polled} bytes deep"
     );
+}
+
+/// A co-signed 16x4 transfer reaches the prover, a SOL and an SPL withdrawal push it past the
+/// v1 size limit.
+#[test]
+fn withdrawals_past_the_transaction_limit_never_reach_the_prover() {
+    let sender = ShieldedKeypair::new_ed25519().unwrap();
+    let recipient = ShieldedKeypair::new_ed25519().unwrap();
+    let mint = Address::new_from_array([0x62; 32]);
+    let wallet = Address::new_from_array([0x63; 32]);
+    let token_account = zolana_interface::pda::associated_token_address(&wallet, &mint);
+    for withdraw in [false, true] {
+        let mut notes: Vec<_> = (0..15)
+            .map(|_| note(&sender, 2, 0, Some(ring().program_id())))
+            .collect();
+        notes.push(wallet_utxo(
+            Utxo {
+                owner: sender.signing_pubkey(),
+                asset: Mint::new(mint, 2),
+                amount: 10,
+                blinding: random_blinding(),
+                ring_program_id: Some(ring().program_id()),
+                data: Data::default(),
+            },
+            &sender.nullifier_key,
+            0,
+            0,
+            None,
+            None,
+        ));
+        let mut transaction =
+            ConfidentialTransaction::new(notes, solana_signer::Signer::pubkey(&sender)).unwrap();
+        transaction
+            .transfer_sol(&recipient.shielded_address().unwrap(), 4)
+            .unwrap();
+        let mut legs = Vec::new();
+        if withdraw {
+            transaction.withdraw_sol(3, wallet).unwrap();
+            transaction.withdraw(mint, 3, token_account).unwrap();
+            legs = vec![
+                TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
+                    recipient: wallet,
+                }),
+                TransactInterfaceTransferAccounts::SplWithdrawal(TransactSplWithdrawalAccounts {
+                    mint,
+                    spl_interface: zolana_interface::pda::spl_interface(&mint),
+                    user_token_account: token_account,
+                    token_program: zolana_interface::pda::spl_token_program_id(),
+                }),
+            ];
+        }
+        transaction
+            .pad_utxos(Shape::IN16_OUT4, &sender.shielded_address().unwrap())
+            .unwrap();
+        let transfer = CustomRingTransfer::new(CustomRingTransferInput {
+            ring: ring(),
+            sender: &sender,
+            nullifier_key: Some(&sender.nullifier_key),
+            transaction,
+        })
+        .with_interface_transfer_accounts(legs)
+        .with_cosigner(Address::new_from_array([0x64; 32]));
+        let depth = Depth::new();
+        let client = client(policy_ring(), &depth);
+        let (_, result) = poll_depth(&depth, transfer.prove(&client));
+        assert_eq!(
+            matches!(result, Err(RingError::TransactionTooLarge { .. })),
+            withdraw
+        );
+        assert_eq!(depth.prover_calls.load(Ordering::Relaxed) == 0, withdraw);
+    }
 }

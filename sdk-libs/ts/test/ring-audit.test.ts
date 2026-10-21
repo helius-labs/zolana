@@ -30,6 +30,7 @@ import {
   symmetricAuditApply,
   type AnonymousAuditDisclosure,
   type AnonymousOutputOpening,
+  type AnonymousOutputOwner,
   type AuditOutputOpening,
 } from "../src/keypair/audit.js";
 import { bigIntToBytes } from "../src/keypair/bytes.js";
@@ -41,6 +42,7 @@ import { AssetRegistry, SOL_ASSET_ID, SOL_MINT } from "../src/transaction/asset.
 import {
   bytesToBigInt,
   commitmentPoseidon,
+  equal,
   rightAlign,
   ZERO_32,
 } from "../src/transaction/internal.js";
@@ -313,12 +315,25 @@ describe("ring audit encryption", () => {
     const disclosure: AnonymousAuditDisclosure = {
       sender: fixtureBytes(wire["sender"], 33).slice(1) as Bytes32,
       inputs: inputs.slice(0, nIn),
-      outputs: notes.slice(0, nOut).map((note, index) => ({
-        identityTag: recipients[index]![0]!,
-        identityKey: recipients[index]!.slice(1) as Bytes32,
-        nullifierPublicKey: note.nullifierPk,
-        viewingPublicKey: viewingKeys[index]!,
-      })),
+      outputs: notes.slice(0, nOut).map((note, index): AnonymousOutputOpening => {
+        if (bytesToBigInt(note.domain) !== BigInt(UTXO_DOMAIN)) return { kind: "padding" };
+        const identity = recipients[index]!;
+        expect(identity[0]).toBe(SOLANA_OWNER_TAG);
+        const owner: AnonymousOutputOwner = {
+          identityTag: SOLANA_OWNER_TAG,
+          identityKey: identity.slice(1) as Bytes32,
+          nullifierPublicKey: note.nullifierPk,
+        };
+        if (!equal(note.ringProgramId, ZERO_32))
+          return { kind: "ring", ...owner, viewingPublicKey: viewingKeys[index]! };
+        return {
+          kind: "exit",
+          ...owner,
+          amount: bytesToBigInt(note.amount),
+          asset: note.asset,
+          blinding: note.blinding,
+        };
+      }),
     };
     const envelope = fixtureEnvelope(wire, { salt, anonymous: disclosure });
     const input = {
@@ -483,17 +498,13 @@ describe("anonymous ring audit", () => {
   const commitment = utxo.hash(source.nullifierPublicKey, 0);
   const pairU = X25519Keypair.fromBytes(EPH_SK).publicKey().u();
   const recipient: AnonymousOutputOpening = Object.freeze({
+    kind: "ring",
     identityTag: SOLANA_OWNER_TAG,
     identityKey: source.confidentialViewTag() as Bytes32,
     nullifierPublicKey: source.nullifierPublicKey,
     viewingPublicKey: source.viewingPublicKey.toBytes(),
   });
-  const dummy: AnonymousOutputOpening = Object.freeze({
-    identityTag: 0,
-    identityKey: ZERO_32,
-    nullifierPublicKey: ZERO_32,
-    viewingPublicKey: new Uint8Array(33) as Bytes33,
-  });
+  const dummy: AnonymousOutputOpening = Object.freeze({ kind: "padding" });
   const disclosure: AnonymousAuditDisclosure = Object.freeze({
     sender: filled(3) as Bytes32,
     inputs: [
@@ -546,15 +557,15 @@ describe("anonymous ring audit", () => {
     };
   }
 
-  it("seals a 2x2 disclosure into sixteen chunks and opens it with the same stream", () => {
-    expect(auditDisclosureLength(shape)).toBe(16);
-    expect(auditDisclosureLength({ anonymous: true, inputs: 3, outputs: 4 })).toBe(27);
+  it("seals a 2x2 disclosure into eighteen chunks and opens it with the same stream", () => {
+    expect(auditDisclosureLength(shape)).toBe(18);
+    expect(auditDisclosureLength({ anonymous: true, inputs: 3, outputs: 4 })).toBe(31);
     expect(auditDisclosureLength({ anonymous: false, inputs: 0, outputs: 1 })).toBe(36);
     expect(auditDisclosureLength({ anonymous: true, inputs: 0, outputs: 2 })).toBeUndefined();
-    expect(auditDisclosureLength({ anonymous: true, inputs: 5, outputs: 2 })).toBe(25);
+    expect(auditDisclosureLength({ anonymous: true, inputs: 5, outputs: 2 })).toBe(27);
     expect(auditDisclosureLength({ anonymous: true, inputs: 13, outputs: 2 })).toBeUndefined();
     const message = transaction().messages[0]!;
-    expect(message.data).toHaveLength(65 + 32 * 16);
+    expect(message.data).toHaveLength(65 + 32 * 18);
     const parsed = parseAuditorMessage(message.data, shape);
     expect(openAnonymousAuditDisclosure(tx.secretBytes(), salt, parsed.disclosure, shape)).toEqual(
       disclosure,
@@ -579,15 +590,21 @@ describe("anonymous ring audit", () => {
     ).toThrow(RangeError);
   });
 
-  it("rejects nonzero slot padding and a foreign sender tag", () => {
+  it("rejects nonzero slot padding and a foreign sender or recipient tag", () => {
     const plaintext = encodeAnonymousAuditDisclosure(disclosure);
-    expect(plaintext).toHaveLength(62 + 2 * 93 + 2 * 124);
+    expect(plaintext).toHaveLength(62 + 2 * 93 + 2 * 155);
     expect(decodeAnonymousAuditDisclosure(plaintext, shape)).toEqual(disclosure);
+    const foreign = Object.assign({}, recipient, { identityTag: 0x50 });
+    expect(() =>
+      encodeAnonymousAuditDisclosure({ ...disclosure, outputs: [foreign, dummy] }),
+    ).toThrow(RangeError);
     for (const [index, value] of [
       [33, 1],
       [0, 0x50],
+      [62 + 2 * 93 + 1, 0x50],
       [62 + 74, 1],
-      [62 + 2 * 93 + 98, 1],
+      [62 + 2 * 93 + 99, 1],
+      [62 + 2 * 93 + 155 + 9, 1],
     ] as const) {
       const corrupted = plaintext.slice();
       corrupted[index] = value;
@@ -612,8 +629,6 @@ describe("anonymous ring audit", () => {
           identityTag: SOLANA_OWNER_TAG,
           identityKey: source.confidentialViewTag(),
           nullifierPk: source.nullifierPublicKey,
-          amount: 42n,
-          asset: solAsset,
         },
       ],
     });
@@ -729,6 +744,124 @@ describe("anonymous ring audit", () => {
         },
       }),
     ).toThrow("RING_AUDIT_OUTPUT_MISMATCH");
+  });
+
+  const exitAddress = ShieldedKeypair.generate().shieldedAddress();
+  const exitBlinding = filled(11, 0) as Bytes32;
+  const exitUtxoHash = new Utxo({
+    owner: exitAddress.signingPublicKey,
+    asset: SOL_MINT,
+    amount: 17n,
+    blinding: exitBlinding,
+  }).hash(exitAddress.nullifierPublicKey, 0);
+  const exit: AnonymousOutputOpening = Object.freeze({
+    kind: "exit",
+    identityTag: SOLANA_OWNER_TAG,
+    identityKey: exitAddress.confidentialViewTag() as Bytes32,
+    nullifierPublicKey: exitAddress.nullifierPublicKey,
+    amount: 17n,
+    asset: solAsset,
+    blinding: exitBlinding,
+  });
+
+  /** Slot 1 exits to the default ring, its scheme-3 body carries `delivered` and `data`. */
+  function exitTransaction(
+    body: Readonly<{ disclosed?: AnonymousOutputOpening; delivered?: bigint; data?: Data }> = {},
+  ): IndexedShieldedTransaction {
+    const valid = transaction({ ...disclosure, outputs: [recipient, body.disclosed ?? exit] });
+    const sealed = encryptConfidential(
+      tx,
+      exitAddress.viewingPublicKey,
+      {
+        assetId: SOL_ASSET_ID,
+        amount: body.delivered ?? 17n,
+        blinding: exitBlinding,
+        data: body.data ?? new Data(),
+      },
+      salt,
+      1,
+    );
+    return {
+      ...valid,
+      outputSlots: [
+        valid.outputSlots[0]!,
+        {
+          viewTag: exitAddress.confidentialViewTag() as Bytes32,
+          outputContext: { hash: exitUtxoHash, tree: treeAddress(0), treeId: 0, leafIndex: 1n },
+          payload: encodeOutputData(EncryptedScheme.confidential, sealed, "encrypted"),
+        },
+      ],
+    };
+  }
+
+  const auditExit = (transaction: IndexedShieldedTransaction) =>
+    auditRingTransaction({ auditor, transaction, assets: new AssetRegistry(), mode: "anonymous" });
+
+  it("audits a page holding an exit and opens it from its proven disclosure", async () => {
+    const indexed = exitTransaction();
+    const page = await auditRing({
+      client: ringAuditReader({
+        getShieldedTransactionsByTags: async () =>
+          transactionsPage({ transactions: [indexed], scannedThrough: Uint8Array.of(1) }),
+      }),
+      auditor,
+      ringProgramId: RING,
+      assets: new AssetRegistry(),
+      mode: "anonymous",
+      origin: {
+        ringInvoked: async () => true,
+        confirmedTransaction: async (transaction: IndexedShieldedTransaction) => transaction,
+      },
+    });
+    expect(page.transactions).toHaveLength(1);
+    const audited = page.transactions[0]!;
+    expect(auditOpeningHash(audited.outputOpenings[1]!)).toEqual(exitUtxoHash);
+    expect(audited.payloadErrors).toEqual([]);
+    expect(
+      audited.outputs.map((output) => [output.slotIndex, output.amount, output.ringProgramId]),
+    ).toEqual([
+      [0, 42n, RING],
+      [1, 17n, undefined],
+    ]);
+    expect(audited.anonymous?.recipients[1]).toEqual({
+      slotIndex: 1,
+      identityTag: SOLANA_OWNER_TAG,
+      identityKey: exitAddress.confidentialViewTag(),
+      nullifierPk: exitAddress.nullifierPublicKey,
+    });
+    expect(audited.outputOpenings[1]).toMatchObject({
+      amount: rightAlign(bigIntToBytes(17n, 8)),
+      asset: solAsset,
+    });
+  });
+
+  it("opens an exit whose unproven scheme-3 body names another amount", () => {
+    const audited = auditExit(exitTransaction({ delivered: 16n }));
+    expect(auditOpeningHash(audited.outputOpenings[1]!)).toEqual(exitUtxoHash);
+    expect(audited.anonymous?.recipients.map((recipient) => recipient.slotIndex)).toEqual([0, 1]);
+    expect(bytesToBigInt(audited.outputOpenings[1]!.amount)).toBe(17n);
+    expect(audited.outputs.map((output) => output.slotIndex)).toEqual([0]);
+    expect(audited.payloadErrors).toEqual([{ slotIndex: 1, kind: "openingMismatch" }]);
+  });
+
+  it("reports an exit whose scheme-3 body carries data the proven opening does not bind", () => {
+    const data = new Data([{ kind: "utxoData", bytes: Uint8Array.of(7) }]);
+    const audited = auditExit(exitTransaction({ data }));
+    expect(auditOpeningHash(audited.outputOpenings[1]!)).toEqual(exitUtxoHash);
+    expect(audited.outputs.map((output) => output.slotIndex)).toEqual([0]);
+    expect(audited.payloadErrors).toEqual([{ slotIndex: 1, kind: "openingMismatch" }]);
+  });
+
+  it.each([
+    ["amount", { amount: 18n }],
+    ["asset", { asset: filled(2, 0) as Bytes32 }],
+    ["blinding", { blinding: filled(12, 0) as Bytes32 }],
+    ["owner", { identityKey: source.confidentialViewTag() as Bytes32 }],
+    ["nullifier key", { nullifierPublicKey: source.nullifierPublicKey }],
+  ])("refuses an exit disclosure whose %s the published utxo_hash does not bind", (_, edit) => {
+    expect(() => auditExit(exitTransaction({ disclosed: { ...exit, ...edit } }))).toThrow(
+      "RING_AUDIT_OUTPUT_MISMATCH",
+    );
   });
 
   it("retains a zero-value input whose blinding distinguishes it from padding", () => {

@@ -35,7 +35,7 @@ tokio = { workspace = true, features = ["time"] }
 wincode = { workspace = true }
 zeroize = { workspace = true }
 zolana-client = { workspace = true }
-zolana-interface = { workspace = true }
+zolana-interface = { workspace = true, features = ["token-account"] }
 zolana-program = { workspace = true }
 zolana-hasher = { workspace = true }
 zolana-indexer-api = { workspace = true }
@@ -57,6 +57,7 @@ sha2 = { workspace = true }
 hex = { workspace = true }
 solana-rpc-client = { workspace = true }
 solana-rpc-client-api = { workspace = true }
+spl-token-2022-interface = { workspace = true }
 
 [[test]]
 name = "deposit_audit_fixtures"

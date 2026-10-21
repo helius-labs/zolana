@@ -1069,10 +1069,9 @@ fn an_issued_count_is_scanned_whole_and_a_known_counterparty_from_the_start() {
     assert!(found_hashes(&fresh).is_empty());
 
     let result = UtxoScan::new(&recipient, &assets)
-        .with_anonymous_ring(AnonymousRingState {
-            issued_addresses: far + 1,
-            known_counterparties: BTreeSet::from([pair_pk]),
-        })
+        .with_anonymous_ring(
+            AnonymousRingState::restore(far + 1, BTreeSet::from([pair_pk])).unwrap(),
+        )
         .fetch(&indexer)
         .unwrap();
     assert_eq!(

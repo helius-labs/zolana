@@ -12,6 +12,7 @@ pub(crate) use validate::{
 };
 
 use pinocchio::{error::ProgramError, AccountView, ProgramResult};
+use zolana_interface::{error::ShieldedPoolError, token_account::TokenAccountControl};
 
 impl<'a> Settlement<'a> {
     pub(crate) fn committed_accounts(&self) -> [&'a AccountView; 2] {
@@ -35,6 +36,33 @@ impl<'a> Settlement<'a> {
 
     pub(crate) fn is_deposit(&self) -> bool {
         matches!(self, Self::SolDeposit(_) | Self::SplDeposit(_))
+    }
+
+    /// The one key an anonymous withdrawal may name, `None` for a deposit.
+    pub(crate) fn anonymous_exit(&self) -> Result<Option<&[u8; 32]>, ShieldedPoolError> {
+        match self {
+            Self::SolDeposit(_) | Self::SplDeposit(_) => Ok(None),
+            Self::SolWithdrawal(accounts) => {
+                let recipient = accounts.recipient_account;
+                // Data or a program owner could name a second key.
+                if !recipient.owned_by(&pinocchio_system::ID) || !recipient.is_data_empty() {
+                    return Err(ShieldedPoolError::AnonymousExitAccountHasData);
+                }
+                Ok(Some(recipient.address().as_array()))
+            }
+            Self::SplWithdrawal(accounts) => {
+                // The circuit binds the owner only, a keypair address could be the hidden owner's.
+                if accounts.user_token_account.address().is_on_curve() {
+                    return Err(ShieldedPoolError::AnonymousExitTokenAccountOnCurve);
+                }
+                match &accounts.user_token_account_control {
+                    TokenAccountControl::SoleOwner(owner) => Ok(Some(owner)),
+                    TokenAccountControl::Shared(_) => {
+                        Err(ShieldedPoolError::AnonymousExitTokenAccountShared)
+                    }
+                }
+            }
+        }
     }
 
     pub(crate) fn spl_asset(&self) -> Result<Option<[u8; 32]>, ProgramError> {

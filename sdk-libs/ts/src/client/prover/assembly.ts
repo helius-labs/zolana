@@ -830,7 +830,7 @@ function anonymousAuthorization(
     !verifyEd25519Strict(signature, ringSpendMessage(circuit.ring, messageDigest), ownerPublicKey)
   )
     throw new ClientError("CLIENT_ANONYMOUS_SPEND_SIGNATURE_INVALID");
-  const exit = anonymousExitDestination(proofInputs.externalData);
+  const exit = anonymousExitDestination(proofInputs.externalData, circuit.exitTokenOwner);
   return Object.freeze({
     authorization: Object.freeze({
       ownerPublicKey,
@@ -848,13 +848,20 @@ function anonymousAuthorization(
   });
 }
 
-/** Rust `anonymous_exit_destination`, every withdrawal of one transaction leaves to one account. */
-function anonymousExitDestination(external: ExternalData): Address | undefined {
-  const destinations = external.interfaceTransfers
-    .filter((transfer) => !transfer.isDeposit)
-    .map((transfer) => (transfer.kind === "sol" ? transfer.userSolAccount : transfer.tokenAccount));
-  const [exit] = destinations;
-  if (destinations.some((destination) => destination !== exit))
+/** Rust `anonymous_exit_destination`, all withdrawals of one transaction name the same key. */
+function anonymousExitDestination(
+  external: ExternalData,
+  exitTokenOwner: Address | undefined,
+): Address | undefined {
+  const withdrawals = external.interfaceTransfers.filter((transfer) => !transfer.isDeposit);
+  if (withdrawals.some((transfer) => transfer.kind === "spl") !== (exitTokenOwner !== undefined))
+    throw new ClientError("CLIENT_ANONYMOUS_EXIT_TOKEN_OWNER_MISMATCH");
+  // SPP binds an SPL leg's token account owner, never the token account address.
+  const keys = withdrawals.map((transfer) =>
+    transfer.kind === "sol" ? transfer.userSolAccount : exitTokenOwner,
+  );
+  const [exit] = keys;
+  if (keys.some((key) => key !== exit))
     throw new ClientError("CLIENT_ANONYMOUS_EXIT_DESTINATIONS_DIFFER");
   return exit;
 }

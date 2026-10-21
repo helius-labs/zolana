@@ -236,6 +236,7 @@ impl Owner<'_> {
             key_escrow: config.mode == RingMode::Registry,
             interface_transfer_accounts: self.interface_transfer_accounts.clone(),
             delegate: None,
+            exit_token_owner: None,
         }))
     }
 }

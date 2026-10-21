@@ -1343,7 +1343,7 @@ fn audit_only_lifecycle(anonymous: bool) -> Result<()> {
                 (SOL_MINT, RING_CHANGE, Some(ring_program)),
             ]
         );
-        assert_eq!(fresh_sender.anonymous_ring.issued_addresses, 1);
+        assert_eq!(fresh_sender.anonymous_ring.issued_addresses(), 1);
 
         // A payment under a tag no issued address derives reaches the recipient
         // only through the untagged recovery scan.

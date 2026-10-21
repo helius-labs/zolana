@@ -132,6 +132,16 @@ pub enum RingError {
     AnonymousSignerMismatch,
     #[error("public transaction signers must differ from the hidden owner")]
     AnonymousPublicSignerLinksOwner,
+    #[error("withdrawal destination {0} names the hidden owner")]
+    AnonymousExitLinksOwner(Address),
+    #[error("withdrawal token account {0} has a delegate or a close authority")]
+    AnonymousExitTokenAccountShared(Address),
+    #[error("withdrawal token account {0} is at a keypair address, SPP takes an ATA or a PDA")]
+    AnonymousExitTokenAccountOnCurve(Address),
+    #[error("withdrawal destination {0} is not a system account without data")]
+    AnonymousExitAccountHasData(Address),
+    #[error("withdrawal token account {0} is missing or not an initialized account of its mint")]
+    AnonymousExitTokenAccountInvalid(Address),
     #[error("the hidden owner's signer refused the ring spend message")]
     AnonymousSpendSignature,
     #[error("anonymous transfers require uncached Ed25519 ring notes and noncompact inputs")]

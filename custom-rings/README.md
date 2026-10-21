@@ -226,9 +226,10 @@ matching secrets recovers the note from ring history, opens it, checks it agains
 the on-chain commitment and spends it under the ring's policy. The proof does not
 show that the sender chose the address it intended or that anyone holds the keys
 of an arbitrary address, it speaks about the address the sender used. The auditor
-opens every real output from the enveloped transaction secret and the disclosed
-recipient keys, and nothing a sender controls outside the proof changes what the
-auditor reads. The [anonymous ring guide](docs/anonymous-rings.md) covers
+opens every ring output from the transaction secret sealed to it and the disclosed
+recipient keys. It opens every exit from the opening the proof discloses. Nothing
+a sender controls outside the proof changes the openings the auditor reads.
+The [anonymous ring guide](docs/anonymous-rings.md) covers
 addresses, tags, sync and this proof boundary.
 
 A recipient wallet that misses a tag recovers by walking the ring's confirmed

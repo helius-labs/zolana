@@ -59,8 +59,7 @@ every transaction.
 A **chain observer** sees the ring, the shape, the fee payer, the co-signer,
 the Solana slot, every tag and every public deposit and withdrawal. Nothing it
 sees names the recipient of a scheme-9 output. The hidden owner shows when a
-transfer spends its default-ring notes, withdraws to its own token account or
-pays fees with its key.
+transfer spends its default-ring notes or pays fees with its key.
 
 ## Creating an anonymous ring
 
@@ -76,8 +75,14 @@ a ring's mode, and it refuses an anonymous ring.
 
 A `RingAddress` is a shielded address, the ring program id and one inbox
 secret. `ViewingKey::inbox_secret(i)` derives the inbox secret of address
-index `i`. A wallet issues indices in order from `0` and records how many it
-issued. Two addresses of one wallet carry the same three public keys, so
+index `i`. A wallet issues indices in order from `0`. It records each index
+with `AnonymousRingState::issue` and stores the state before a payer receives
+the address. The fast path reads only `ADDRESS_GAP` addresses past the highest
+recorded or used one. Every scan opens the inbox stream of each issued address,
+so `issue` refuses an index at or above `MAX_ISSUED_ADDRESSES` and
+`AnonymousRingState::restore` refuses a stored count above it, both with
+`TooManyIssuedAddresses`.
+Two addresses of one wallet carry the same three public keys, so
 anyone who compares them sees one recipient. Separate inbox secrets only stop
 one payer from deriving the inbox tags of another payer's address. A wallet
 therefore gives each payer its own index.
@@ -91,10 +96,14 @@ address and an optional query of `amount`, `mint` and `label`. The address
 carries a checksum, and the parser rejects an unknown or a repeated query key.
 The checksum does not cover the query, so a payer treats it as a suggestion.
 
-`zolana-ring address` prints the payment request for the ring of the CLI
-workspace. Without `--keypair` it uses the CLI's sender keypair and creates one
-when the file is missing. It does not read the ring's mode, so it also prints a
-request for a confidential ring.
+`zolana-ring address` issues the keypair's next index, records it under
+`keys/anonymous-ring/` and then prints the payment request for the ring of the
+CLI workspace. It prints the index to stderr. `--index` prints an issued
+address again or issues one of the `ADDRESS_GAP` indices past the issued ones.
+A farther index needs `--beyond-gap`, and a state file above
+`MAX_ISSUED_ADDRESSES` fails to load. Without `--keypair` it uses the CLI's
+sender keypair and creates one when the file is missing. It does not read the
+ring's mode, so it also prints a request for a confidential ring.
 
 ## Tags
 
@@ -249,10 +258,13 @@ hidden owner:
 1. The SPP payer account.
 2. The ring's configured co-signer, or the zero address when the ring has
    none. The ring program appends it to the SPP instruction data.
-3. The withdrawal destination account, or zero when the transaction has none.
-   SPP refuses withdrawals to two different accounts. For an SPL withdrawal
-   the destination is the token account, so the proof does not cover that
-   account's owner.
+3. The key every withdrawal names, or zero when the transaction has none. A
+   SOL withdrawal names its recipient, and SPP refuses a recipient other than
+   a system account without data. An SPL withdrawal names the owner of its
+   token account, and SPP refuses a token account with a delegate or a close
+   authority, or one at an address on the ed25519 curve. An associated token
+   account and every PDA are off the curve. SPP refuses withdrawals that name
+   two different keys.
 
 A transfer can spend the hidden owner's default-ring notes in place of ring
 notes. It then publishes the owner's key as its default owner tag, and the
@@ -261,7 +273,12 @@ proof refuses to mix the two kinds of notes in one transfer.
 The ring program refuses any signer other than the payer among the SPP
 accounts. The SDKs refuse a payer or a supplied co-signer equal to the hidden
 owner before they prove, with `AnonymousPublicSignerLinksOwner` in Rust and
-`RING_ANONYMOUS_SIGNER_LINKS_OWNER` in TypeScript.
+`RING_ANONYMOUS_SIGNER_LINKS_OWNER` in TypeScript. They also read every
+withdrawal destination before they prove. They refuse a destination SPP would
+refuse, and one whose address or token account owner is the hidden owner or
+that is the hidden owner's associated token account, with
+`AnonymousExitLinksOwner` in Rust and `RING_ANONYMOUS_EXIT_LINKS_OWNER` in
+TypeScript.
 
 `AnonymousSpendSigner` produces the signature, so the hidden owner's Ed25519
 key can live outside the process that builds the proof. In Rust `SigningKey`
@@ -274,10 +291,11 @@ message signer.
 
 An exit is an output to the default ring. It uses the confidential scheme 3
 and publishes its owner's Solana key as its tag. Its body enters the statement
-as a zero hash, so the delivery proof does not cover it. The circuit refuses
-an exit to the hidden owner while the transaction spends a ring note of that
-owner. A withdrawal publishes its amount, its mint and its destination
-account.
+as a zero hash, so the delivery proof does not cover it. The
+[auditor disclosure](#auditor-disclosure) carries the exit's opening instead.
+The circuit refuses an exit to the hidden owner while the transaction spends a
+ring note of that owner. A withdrawal publishes its amount, its mint and its
+destination account.
 
 The Rust `RingDeposit` takes the recipient's keypair, because the
 deposit-stream tag needs its viewing secret. It tags the note at the first
@@ -297,9 +315,13 @@ viewing key next to the default-ring scan. It takes an `AnonymousRingState`,
 which holds the count of issued addresses and the known counterparties. The
 wallet keeps that state between scans. Tags derive through `ShieldedKeys`, so
 a wallet whose keys live in a remote key holder syncs the same way.
+`zolana-ring merge`, `transact` and `transfer` read the sender's notes through
+the fast path. Each scan stores the addresses and counterparties it finds in
+the state under `keys/anonymous-ring/`.
 
 1. The scan opens the deposit stream, the inbox stream of every issued address
-   plus `ADDRESS_GAP` more, and the pair stream of every known counterparty.
+   plus `ADDRESS_GAP` more below `MAX_ISSUED_ADDRESSES`, and the pair stream of
+   every known counterparty.
 2. Each round reads one `DEFAULT_TAG_WINDOW` window per open stream. A window
    with no occupied index closes its stream.
 3. A note on the inbox stream of address `i` raises the used count to `i + 1`
@@ -389,16 +411,17 @@ to whole 31-byte chunks, one field per chunk:
 - The hidden owner's tagged Ed25519 key fills two fields.
 - Each input slot packs its tree id, amount, asset and blinding into three
   fields.
-- Each output slot packs its tagged identity, nullifier public key and viewing
-  key into four fields.
+- Each output slot fills five fields with a kind byte, the tagged identity and
+  the nullifier public key. A ring output adds its viewing key, an exit adds its
+  amount, asset and blinding.
 
 An input dummy and a padding output disclose zeros. Each field `j` has its own
 pad `Poseidon(seed, j)`. The seed derives from the transaction secret and the
 salt and is never published, so a known field reveals no other field.
 `test-vectors/audit-disclosure-anonymous.json` pins the layout.
 
-The output region names only the address. The auditor reads the mint, amount
-and blinding of a real output from its scheme-9 body. It runs the key
+A ring output's slot names only the address. The auditor reads the mint,
+amount and blinding of a ring output from its scheme-9 body. It runs the key
 agreement between the recovered transaction secret and the disclosed viewing
 key, opens the body and checks the recomputed commitment.
 `TransactionAudit::run_with_mode` reports a slot that fails in
@@ -406,8 +429,14 @@ key, opens the body and checks the recomputed commitment.
 payload error in both auditors. Nothing a sender controls outside the proof
 changes what the auditor reads from a real scheme-9 slot.
 
-The Rust auditor audits an exit as a default-ring output. The disclosure names
-its owner and the scheme-3 body supplies the rest of the opening.
+An exit has no proven body. The circuit requires its data hash and ring data
+hash to be zero, and its ring program id is zero. Its slot carries the owner,
+amount, asset and blinding, so both auditors rebuild its `utxo_hash` from the
+slot and the published tree id. A slot that does not match fails the audit of
+its transaction, with `OutputCommitmentMismatch` in Rust and
+`RING_AUDIT_OUTPUT_MISMATCH` in TypeScript. The scheme-3 body only supplies
+delivery metadata. A body that disagrees with the opening is a payload error,
+and the opening stays.
 
 Every audit scan fails closed on a page that names neither a next cursor nor a
 frontier, in Rust and in TypeScript.
@@ -495,16 +524,16 @@ the rule grammar.
 
 1. Keep an `AnonymousRingState` with the keys and persist it after every scan.
    It decides which inbox and pair streams the next scan opens.
-2. To receive, take the next index `i`, raise `issued_addresses` and build a
+2. To receive, take the next index `i`, record it with
+   `AnonymousRingState::issue(i)` and persist the state. Then build a
    `RingAddress` from the shielded address, the ring program id and
-   `inbox_secret(i)`. Hand the payer the `RingPaymentRequest` text. The raised
-   count keeps the scan reading that address.
+   `inbox_secret(i)`, and hand the payer the `RingPaymentRequest` text. The
+   recorded count keeps the scan reading that address.
 3. To sync, run `UtxoScan::new(&keys, &assets)` with
    `with_anonymous_ring(state)`. Add
    `with_ring_deposit_payload(ring, zolana_ring_client::deposit_payload)` to
    read the ring's deposits and `with_indexer_config` to wait for a recent
-   slot. Raise `issued_addresses` to `used_addresses` and add
-   `new_counterparties` to `known_counterparties`.
+   slot. Pass the result's `anonymous` report to `AnonymousRingState::absorb`.
 4. To pay, wrap a `ConfidentialTransaction::new_with_ring` in a
    `CustomRingTransfer` and call `with_anonymous_signer` with the hidden
    owner's signer and viewing key. Add one `with_payment` per recipient,
@@ -525,6 +554,8 @@ the rule grammar.
    both from `report.anonymousRing`.
 2. Issue addresses with `viewingKey.inboxSecret(i)`, a `RingAddress` and a
    `RingPaymentRequest`. A payer reads one with `RingPaymentRequest.parse`.
+   Raise `issuedAddresses` to at least `i + 1` and store the state before the
+   payer receives the address.
 3. To pay, prepare the transfer and its payments with
    `AnonymousPreparedTransfer.prepare`, then prove with
    `proveAnonymousRingTransfer` or `buildAnonymousRingTransferTransaction`.
@@ -563,20 +594,30 @@ TypeScript also share the address vector and the anonymous settlement.
 - `ANONYMOUS_RING_SHAPES` holds fourteen shapes, 1 through 6 inputs with 2 or
   4 outputs, 8×2 and 12×2. The size gate in
   `custom-rings/sdk/tests/instruction_builders.rs` asserts that each fits a
-  transaction with a lean and with a full account set.
+  transaction with a lean and with a full account set. The full set adds a
+  co-signer, an approval, a curator registry and a second policy tree. The
+  gate also adds a SOL or an SPL withdrawal to each shape. Every shape keeps
+  room for either withdrawal with the lean set, and every shape but 12×2 with
+  the full set. The SDKs measure the actual transaction before they prove and
+  refuse one past the limit, with `TransactionTooLarge` in Rust and
+  `INTERFACE_TRANSACTION_TOO_LARGE` in TypeScript. TypeScript counts the
+  withdrawal accounts only when they come in `transaction.withdrawal`.
 - The build has no verifying keys for the anonymous merge circuits, and
   `proving-keys.lock` pins no proving key for them.
   `merge_anonymous_verifying_key` returns none for every width, so the ring
   program refuses every anonymous merge with `UnsupportedCircuit`.
 - An outflow limit bounds each transfer alone, and the ring keeps no counter
   across transactions. A sender can move up to `cap` in every transfer.
-- An SPL withdrawal to a token account the hidden owner owns publishes the
-  owner, and no check refuses it.
+- SPP cannot see the hidden key. It refuses an SPL token account at any
+  keypair address, the hidden owner's included, but only the SDKs refuse the
+  hidden owner's associated token account after a change of owner. No check
+  sees a SOL recipient address derived from the hidden key, such as an
+  unfunded associated token account.
 - The TypeScript SDK builds no anonymous ring deposit.
   `buildRingDepositTransaction` refuses an anonymous ring with
   `RING_BUILD_DEPOSIT`, cause `RING_CONFIG_INVALID`.
-- The TypeScript auditor opens every disclosed output of an anonymous transfer
-  as a scheme-9 body. `auditRing` stops with `RING_AUDIT_OUTPUT_MISMATCH` at
-  the first transfer with an exit or with a body that does not open.
+- The TypeScript `auditRing` stops with `RING_AUDIT_OUTPUT_MISMATCH` at the
+  first transfer whose scheme-9 body does not open. The Rust auditor reports
+  that slot in `payload_errors`.
 - Fast-path cost grows with issued addresses, known counterparties and owned
   spends. Recovery cost grows with ring history.

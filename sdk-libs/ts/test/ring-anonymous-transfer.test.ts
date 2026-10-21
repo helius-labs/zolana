@@ -1,9 +1,12 @@
 import { readFileSync } from "node:fs";
+import { AccountState, getTokenEncoder } from "@solana-program/token";
 import {
   AccountRole,
   address,
   getAddressDecoder,
   getProgramDerivedAddress,
+  none,
+  some,
   type Address,
 } from "@solana/kit";
 import { describe, expect, it } from "vitest";
@@ -24,19 +27,31 @@ import type {
 } from "../src/client/prover/types.js";
 import type { AnonymousRingTransactProofInput } from "../src/client/ports.js";
 import { LocalKeys } from "../src/client/keys.js";
-import { SOLANA_OWNER_TAG, initializePoseidon } from "../src/hasher/index.js";
+import type { RpcAccount } from "../src/client/rpc.js";
+import { SOLANA_OWNER_TAG, initializePoseidon, solanaOwnerIdentity } from "../src/hasher/index.js";
 import { encodeTransactInstructionData } from "../src/interface/codecs/index.js";
 import { wireDecoder } from "../src/interface/decode.js";
-import { treeAddress } from "../src/interface/pda/index.js";
-import { InstructionTag } from "../src/interface/program.js";
-import type {
-  Bytes16,
-  Bytes32,
-  Bytes33,
-  Bytes64,
-  Bytes128,
-  TransactInstructionData,
-  TransactOutput,
+import { SYSTEM_PROGRAM } from "../src/interface/instructions/index.js";
+import { addressBytes } from "../src/interface/internal.js";
+import {
+  associatedTokenAddress,
+  splInterfaceWithBump,
+  treeAddress,
+} from "../src/interface/pda/index.js";
+import {
+  InstructionTag,
+  SPL_TOKEN_2022_PROGRAM_ID,
+  SPL_TOKEN_PROGRAM_ID,
+} from "../src/interface/program.js";
+import {
+  TransactWithdrawal,
+  type Bytes16,
+  type Bytes32,
+  type Bytes33,
+  type Bytes64,
+  type Bytes128,
+  type TransactInstructionData,
+  type TransactOutput,
 } from "../src/interface/types.js";
 import { auditPublicInputHash, parseAuditorMessage } from "../src/keypair/audit.js";
 import { RingAddress } from "../src/keypair/ring-address.js";
@@ -45,6 +60,8 @@ import { SigningKey } from "../src/keypair/signing-key.js";
 import { X25519Keypair } from "../src/keypair/x25519.js";
 import {
   AnonymousPreparedTransfer,
+  anonymousExitTokenOwner,
+  anonymousIdentities,
   checkAnonymousOutputs,
   signingKeySpendSigner,
   type AnonymousRingPayment,
@@ -59,6 +76,7 @@ import { AssetRegistry, SOL_MINT } from "../src/transaction/asset.js";
 import {
   ConfidentialTransfer,
   SppProofInputs,
+  WithdrawalTarget,
   createExternalData,
   ringSpendMessage,
 } from "../src/transaction/instructions/transact.js";
@@ -67,7 +85,7 @@ import {
   readOutputData,
   ringAnonymousBodyHash,
 } from "../src/transaction/serialization/codecs.js";
-import { ProofInputUtxo, Utxo } from "../src/transaction/utxo.js";
+import { ProofInputUtxo, Utxo, createProofOutput } from "../src/transaction/utxo.js";
 import { ringTransferClient, transactionsPage } from "./helpers/clients.js";
 
 await initializePoseidon();
@@ -502,16 +520,20 @@ async function configAccount(mode: number) {
 interface Captured {
   spp?: AnonymousRingTransactProofInput;
   base?: CustomRingBaseProofRequest;
+  /** Payer, co-signer and exit identities the SPP proof binds. */
+  parties?: readonly Bytes32[];
 }
 
 async function anonymousClient(
   mode = 2,
   captured: Captured = {},
+  accounts: ReadonlyMap<Address, RpcAccount> = new Map(),
 ): Promise<AnonymousRingTransferClient> {
+  const config = await configAccount(mode);
   return {
     ...ringTransferClient({
       tree: TREE,
-      getAccount: await configAccount(mode),
+      getAccount: async (account) => accounts.get(account) ?? config(account),
       proveCustomRingBase: async (request) => {
         captured.base = request;
         return new Uint8Array(192);
@@ -525,8 +547,12 @@ async function anonymousClient(
         ring: input.ringProgramId,
         owner: input.owner,
         ...(input.cosigner === undefined ? {} : { cosigner: input.cosigner }),
+        ...(input.exitTokenOwner === undefined ? {} : { exitTokenOwner: input.exitTokenOwner }),
       };
-      const finished = prepareTransfer(input.proofInputs, circuit).finish([
+      const assembly = prepareTransfer(input.proofInputs, circuit);
+      if ("authorization" in assembly.inputs)
+        captured.parties = assembly.inputs.authorization?.parties;
+      const finished = assembly.finish([
         {
           treeId: 0,
           slot: { id: 0, utxoRoot: seed(1), nullifierRoot: seed(2) },
@@ -568,6 +594,36 @@ async function transfer(
 }
 
 describe("anonymous ring transfer", () => {
+  it("sends a viewing key for a ring output only, an exit and padding send zeros", () => {
+    const ring = createProofOutput({
+      ownerAddress: RECIPIENT.shieldedAddress(),
+      asset: SOL_MINT,
+      amount: 4n,
+      blinding: seed(1),
+      ringProgramId: RING,
+    });
+    const exit = createProofOutput({
+      ownerAddress: keypair(10).shieldedAddress(),
+      asset: SOL_MINT,
+      amount: 3n,
+      blinding: seed(2),
+    });
+    const padding = createProofOutput({ asset: SOL_MINT, amount: 0n, ringProgramId: RING });
+    const identities = anonymousIdentities(SENDER.shieldedAddress(), [ring, exit, padding]);
+    expect(identities.recipientViewingKeys).toEqual([
+      RECIPIENT.shieldedAddress().viewingPublicKey.toBytes(),
+      new Uint8Array(33),
+      new Uint8Array(33),
+      new Uint8Array(33),
+    ]);
+    expect(identities.recipients.map((identity) => identity[0])).toEqual([
+      SOLANA_OWNER_TAG,
+      SOLANA_OWNER_TAG,
+      0,
+      0,
+    ]);
+  });
+
   it("seals a 2x2 transfer the recipient opens and binds the hidden owner's signature", async () => {
     const captured: Captured = {};
     const proven = await transfer({}, captured);
@@ -849,3 +905,227 @@ function shortBody(data: Uint8Array): Uint8Array {
   out.set(body, 6);
   return out;
 }
+
+const MINT = address("So11111111111111111111111111111111111111112");
+const HIDDEN = SENDER.shieldedAddress().solanaAddress();
+const STRANGER = keypair(10).shieldedAddress().solanaAddress();
+/** A keypair address, on the ed25519 curve. */
+const DESTINATION = keypair(11).shieldedAddress().solanaAddress();
+const TOKEN_ACCOUNT = await associatedTokenAddress(STRANGER, MINT, SPL_TOKEN_PROGRAM_ID);
+
+function withdrawal(asset: Address, target: WithdrawalTarget): AnonymousPreparedTransfer {
+  const spend = ProofInputUtxo.fromKeypair(
+    new Utxo({
+      owner: SENDER.signingPublicKey(),
+      asset,
+      amount: 10n,
+      blinding: seed(6),
+      ringProgramId: RING,
+    }),
+    SENDER,
+  );
+  const transfer = new ConfidentialTransfer(SENDER.shieldedAddress(), [spend], PAYER)
+    .withRingProgramId(RING)
+    .withShape({ inputs: 2, outputs: 2 });
+  transfer.withdraw(asset, 4n, target);
+  return AnonymousPreparedTransfer.prepare(transfer, []);
+}
+
+async function splWithdrawal(destination: Address) {
+  const [splTokenInterface, splInterfaceBump] = await splInterfaceWithBump(MINT);
+  return {
+    prepared: withdrawal(
+      MINT,
+      WithdrawalTarget.spl({
+        recipientTokenAccount: destination,
+        splTokenInterface,
+        splInterfaceBump,
+      }),
+    ),
+    transaction: {
+      withdrawal: TransactWithdrawal.spl({
+        mint: MINT,
+        splTokenInterface,
+        recipientTokenAccount: destination,
+        tokenProgram: SPL_TOKEN_PROGRAM_ID,
+      }),
+    },
+  };
+}
+
+function tokenAccount(
+  owner: Address,
+  others: Readonly<{ mint?: Address; delegate?: Address; closeAuthority?: Address }> = {},
+): RpcAccount {
+  const key = (value: Address | undefined) => (value === undefined ? none<Address>() : some(value));
+  return {
+    owner: SPL_TOKEN_PROGRAM_ID,
+    lamports: 1n,
+    data: new Uint8Array(
+      getTokenEncoder().encode({
+        mint: others.mint ?? MINT,
+        owner,
+        amount: 0n,
+        delegate: key(others.delegate),
+        state: AccountState.Initialized,
+        isNative: none(),
+        delegatedAmount: 0n,
+        closeAuthority: key(others.closeAuthority),
+      }),
+    ),
+  };
+}
+
+describe("anonymous ring withdrawal destination", () => {
+  it("refuses an SPL destination naming the hidden owner or a second key before proving", async () => {
+    const associated = await associatedTokenAddress(HIDDEN, MINT, SPL_TOKEN_PROGRAM_ID);
+    const refusals: readonly (readonly [Address, RpcAccount | undefined, string])[] = [
+      [TOKEN_ACCOUNT, tokenAccount(HIDDEN), "RING_ANONYMOUS_EXIT_LINKS_OWNER"],
+      [HIDDEN, tokenAccount(STRANGER), "RING_ANONYMOUS_EXIT_LINKS_OWNER"],
+      [associated, tokenAccount(STRANGER), "RING_ANONYMOUS_EXIT_LINKS_OWNER"],
+      [DESTINATION, tokenAccount(STRANGER), "RING_ANONYMOUS_EXIT_TOKEN_ACCOUNT_ON_CURVE"],
+      [
+        TOKEN_ACCOUNT,
+        tokenAccount(STRANGER, { delegate: STRANGER }),
+        "RING_ANONYMOUS_EXIT_TOKEN_ACCOUNT_SHARED",
+      ],
+      [
+        TOKEN_ACCOUNT,
+        tokenAccount(STRANGER, { closeAuthority: STRANGER }),
+        "RING_ANONYMOUS_EXIT_TOKEN_ACCOUNT_SHARED",
+      ],
+      [TOKEN_ACCOUNT, undefined, "RING_ANONYMOUS_EXIT_TOKEN_ACCOUNT_INVALID"],
+      [
+        TOKEN_ACCOUNT,
+        tokenAccount(STRANGER, { mint: STRANGER }),
+        "RING_ANONYMOUS_EXIT_TOKEN_ACCOUNT_INVALID",
+      ],
+    ];
+    for (const [destination, account, code] of refusals) {
+      const captured: Captured = {};
+      const accounts = new Map(account === undefined ? [] : [[destination, account] as const]);
+      await expect(
+        transfer({
+          ...(await splWithdrawal(destination)),
+          client: await anonymousClient(2, captured, accounts),
+        }),
+      ).rejects.toMatchObject({ code, details: { destination } });
+      expect(captured).toEqual({});
+    }
+  });
+
+  it("refuses a SOL recipient that is the hidden owner or holds data before proving", async () => {
+    for (const [recipient, account, code] of [
+      [HIDDEN, undefined, "RING_ANONYMOUS_EXIT_LINKS_OWNER"],
+      [DESTINATION, tokenAccount(STRANGER), "RING_ANONYMOUS_EXIT_ACCOUNT_HAS_DATA"],
+      [
+        DESTINATION,
+        { owner: SYSTEM_PROGRAM, lamports: 1n, data: new Uint8Array(80) },
+        "RING_ANONYMOUS_EXIT_ACCOUNT_HAS_DATA",
+      ],
+    ] as const) {
+      const captured: Captured = {};
+      const accounts = new Map(account === undefined ? [] : [[recipient, account] as const]);
+      await expect(
+        transfer({
+          prepared: withdrawal(SOL_MINT, WithdrawalTarget.sol({ recipient })),
+          transaction: { withdrawal: TransactWithdrawal.sol({ recipient }) },
+          client: await anonymousClient(2, captured, accounts),
+        }),
+      ).rejects.toMatchObject({ code, details: { destination: recipient } });
+      expect(captured).toEqual({});
+    }
+  });
+
+  const tokenOwnerOf = (account: RpcAccount) =>
+    anonymousExitTokenOwner({
+      client: { getAccount: async (key) => (key === TOKEN_ACCOUNT ? account : undefined) },
+      transfers: [
+        {
+          kind: "spl",
+          mint: MINT,
+          isDeposit: false,
+          amount: 4n,
+          tokenAccount: TOKEN_ACCOUNT,
+          splInterfaceBump: 255,
+        },
+      ],
+      hiddenOwner: addressBytes(HIDDEN) as Bytes32,
+    });
+
+  const token2022 = (
+    tail: readonly number[],
+    edit: (data: Uint8Array) => void = () => undefined,
+  ) => {
+    const base = tokenAccount(STRANGER);
+    const data = Uint8Array.from([...base.data, ...tail]);
+    edit(data);
+    return { ...base, owner: SPL_TOKEN_2022_PROGRAM_ID, data };
+  };
+
+  it("reads a Token-2022 account with extensions as SPP unpacks it", async () => {
+    // Account type `Account`, then an ImmutableOwner entry of type 7 and length 0.
+    await expect(tokenOwnerOf(token2022([2, 7, 0, 0, 0]))).resolves.toBe(STRANGER);
+  });
+
+  it.each<readonly [string, RpcAccount, string]>([
+    [
+      "an extension tail that is not an account",
+      token2022([1, 7, 0, 0, 0]),
+      "RING_ANONYMOUS_EXIT_TOKEN_ACCOUNT_INVALID",
+    ],
+    [
+      "the multisig length",
+      token2022([2, ...new Uint8Array(189)]),
+      "RING_ANONYMOUS_EXIT_TOKEN_ACCOUNT_INVALID",
+    ],
+    [
+      "a frozen state",
+      token2022([], (data) => (data[108] = AccountState.Frozen)),
+      "RING_ANONYMOUS_EXIT_TOKEN_ACCOUNT_INVALID",
+    ],
+    [
+      "a delegate tag above one",
+      token2022([], (data) => (data[72] = 2)),
+      "RING_ANONYMOUS_EXIT_TOKEN_ACCOUNT_SHARED",
+    ],
+  ])("refuses a token account with %s", async (_, account, code) => {
+    await expect(tokenOwnerOf(account)).rejects.toMatchObject({
+      code,
+      details: { destination: TOKEN_ACCOUNT },
+    });
+  });
+
+  it("binds the SPL token account owner or the SOL recipient, never the token account", async () => {
+    const spl: Captured = {};
+    await transfer({
+      ...(await splWithdrawal(TOKEN_ACCOUNT)),
+      client: await anonymousClient(2, spl, new Map([[TOKEN_ACCOUNT, tokenAccount(STRANGER)]])),
+    });
+    expect(spl.spp?.exitTokenOwner).toBe(STRANGER);
+    expect(spl.parties?.[2]).toEqual(solanaOwnerIdentity(addressBytes(STRANGER)));
+    const sol: Captured = {};
+    await transfer({
+      prepared: withdrawal(SOL_MINT, WithdrawalTarget.sol({ recipient: DESTINATION })),
+      transaction: { withdrawal: TransactWithdrawal.sol({ recipient: DESTINATION }) },
+      client: await anonymousClient(2, sol),
+    });
+    expect(sol.spp?.exitTokenOwner).toBeUndefined();
+    expect(sol.parties?.[2]).toEqual(solanaOwnerIdentity(addressBytes(DESTINATION)));
+    // The builder takes the token owner exactly when an SPL leg withdraws.
+    for (const [run, exitTokenOwner] of [
+      [spl, undefined],
+      [sol, STRANGER],
+    ] as const) {
+      const spp = run.spp!;
+      expect(() =>
+        prepareTransfer(spp.proofInputs, {
+          kind: "ringAnonymous",
+          ring: RING,
+          owner: spp.owner,
+          ...(exitTokenOwner === undefined ? {} : { exitTokenOwner }),
+        }),
+      ).toThrow("CLIENT_ANONYMOUS_EXIT_TOKEN_OWNER_MISMATCH");
+    }
+  });
+});

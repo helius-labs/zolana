@@ -39,6 +39,10 @@ pub enum AuditError {
     DisclosureShape,
     #[error("disclosure padding is not zero")]
     DisclosurePadding,
+    #[error("disclosed output slot kind {0} is unknown")]
+    DisclosureOutputKind(u8),
+    #[error("disclosed output identity tag {0} is not the Solana owner tag")]
+    DisclosureIdentityTag(u8),
     #[error("output count must be between one and four, got {0}")]
     OutputCount(usize),
     #[error("nullifier ciphertext did not decrypt to a zero-padded secret")]

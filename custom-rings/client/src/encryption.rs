@@ -10,13 +10,18 @@ use custom_ring_interface::{
 };
 use zeroize::Zeroizing;
 use zolana_client::ProofInputUtxo;
-use zolana_hasher::primitives::{BN254_SCALAR_MODULUS_BE, SOLANA_OWNER_TAG};
-use zolana_interface::instruction::MessageData;
+use zolana_hasher::primitives::{
+    hash_bytes, is_canonical_bn254_scalar_be, BN254_SCALAR_MODULUS_BE, SOLANA_OWNER_TAG,
+};
+use zolana_interface::{instruction::MessageData, tree_slot::tree_id_field};
 use zolana_keypair::{
     hash::{poseidon, right_align},
     symmetric_apply, symmetric_apply_audit, NullifierKey, ViewingKey, X25519Keypair, X25519Pubkey,
 };
-use zolana_transaction::field::{field_add, field_sub};
+use zolana_transaction::{
+    field::{field_add, field_sub},
+    utxo::UTXO_DOMAIN,
+};
 
 use crate::AuditError;
 
@@ -128,27 +133,150 @@ pub struct AuditInputOpening {
     pub blinding: [u8; 32],
 }
 
-/// All zero for a padding slot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AnonymousOutputOpening {
+    #[default]
+    Padding,
+    Ring(AnonymousRingOutput),
+    Exit(AnonymousExit),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct AnonymousOutputOpening {
+pub struct AnonymousOwner {
     pub identity_tag: u8,
     pub identity_key: [u8; 32],
     pub nullifier_pk: [u8; 32],
+}
+
+/// A ring note, the auditor opens its proven scheme-9 body under `viewing_pk`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AnonymousRingOutput {
+    pub owner: AnonymousOwner,
     /// The published slot omits the recipient key, only the auditor reads it.
     pub viewing_pk: [u8; TAGGED_X25519_KEY_LEN],
 }
 
-/// `identity_tag(1) || identity_key(32) || nullifier_pk(32) || viewing_pk(33)` inside a slot.
-const DISCLOSURE_OUTPUT_FIELDS_LEN: usize = 98;
+/// A default-ring exit has no proven body, the disclosure carries the rest of its opening.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AnonymousExit {
+    pub owner: AnonymousOwner,
+    pub amount: u64,
+    pub asset: [u8; 32],
+    pub blinding: [u8; 32],
+}
 
-impl Default for AnonymousOutputOpening {
-    fn default() -> Self {
-        Self {
-            identity_tag: 0,
-            identity_key: [0; 32],
-            nullifier_pk: [0; 32],
-            viewing_pk: [0; TAGGED_X25519_KEY_LEN],
+const OUTPUT_KIND_PADDING: u8 = 0;
+const OUTPUT_KIND_RING: u8 = 1;
+const OUTPUT_KIND_EXIT: u8 = 2;
+const OUTPUT_OWNER_END: usize = 1 + 33 + 32;
+const RING_OUTPUT_END: usize = OUTPUT_OWNER_END + TAGGED_X25519_KEY_LEN;
+const EXIT_OUTPUT_END: usize = OUTPUT_OWNER_END + 8 + 32 + 32;
+
+impl AnonymousOwner {
+    pub(crate) fn owner_hash(&self) -> Result<[u8; 32]> {
+        let mut identity = [self.identity_tag; 33];
+        identity[1..].copy_from_slice(&self.identity_key);
+        Ok(poseidon(&[&hash_bytes(&identity)?, &self.nullifier_pk])?)
+    }
+}
+
+impl AnonymousExit {
+    /// Zero data hashes and ring id, the circuit refuses an exit with either data hash set.
+    pub(crate) fn opening(&self, tree_id: u16) -> Result<ProofInputUtxo> {
+        Ok(ProofInputUtxo {
+            domain: right_align(&UTXO_DOMAIN.to_be_bytes()),
+            tree_id: tree_id_field(tree_id),
+            owner_hash: self.owner.owner_hash()?,
+            asset: self.asset,
+            amount: right_align(&self.amount.to_be_bytes()),
+            blinding: self.blinding,
+            ..ProofInputUtxo::default()
+        })
+    }
+}
+
+impl AnonymousOutputOpening {
+    pub fn owner(&self) -> Option<&AnonymousOwner> {
+        match self {
+            Self::Padding => None,
+            Self::Ring(AnonymousRingOutput { owner, .. })
+            | Self::Exit(AnonymousExit { owner, .. }) => Some(owner),
         }
+    }
+
+    fn kind(&self) -> u8 {
+        match self {
+            Self::Padding => OUTPUT_KIND_PADDING,
+            Self::Ring(_) => OUTPUT_KIND_RING,
+            Self::Exit(_) => OUTPUT_KIND_EXIT,
+        }
+    }
+
+    fn encode(&self, bytes: &mut Vec<u8>) {
+        bytes.push(self.kind());
+        if let Some(owner) = self.owner() {
+            bytes.push(owner.identity_tag);
+            bytes.extend_from_slice(&owner.identity_key);
+            bytes.extend_from_slice(&owner.nullifier_pk);
+        }
+        match self {
+            Self::Padding => {}
+            Self::Ring(ring) => bytes.extend_from_slice(&ring.viewing_pk),
+            Self::Exit(exit) => {
+                bytes.extend_from_slice(&exit.amount.to_be_bytes());
+                bytes.extend_from_slice(&exit.asset);
+                bytes.extend_from_slice(&exit.blinding);
+            }
+        }
+    }
+
+    /// Bytes past the kind's layout must be zero, so each opening has one encoding.
+    fn decode(slot: &[u8]) -> Result<Self> {
+        let [kind, identity_tag] = disclosure_bytes(slot, 0)?;
+        if kind == OUTPUT_KIND_PADDING {
+            return match slot.iter().all(|byte| *byte == 0) {
+                true => Ok(Self::Padding),
+                false => Err(AuditError::DisclosurePadding),
+            };
+        }
+        if identity_tag != SOLANA_OWNER_TAG {
+            return Err(AuditError::DisclosureIdentityTag(identity_tag));
+        }
+        let owner = AnonymousOwner {
+            identity_tag,
+            identity_key: disclosure_bytes(slot, 2)?,
+            nullifier_pk: canonical_disclosed(disclosure_bytes(slot, 34)?)?,
+        };
+        let (opening, end) = match kind {
+            OUTPUT_KIND_RING => {
+                let viewing_pk = disclosure_bytes(slot, OUTPUT_OWNER_END)?;
+                let ring = AnonymousRingOutput { owner, viewing_pk };
+                (Self::Ring(ring), RING_OUTPUT_END)
+            }
+            OUTPUT_KIND_EXIT => {
+                let exit = AnonymousExit {
+                    owner,
+                    amount: u64::from_be_bytes(disclosure_bytes(slot, OUTPUT_OWNER_END)?),
+                    asset: canonical_disclosed(disclosure_bytes(slot, OUTPUT_OWNER_END + 8)?)?,
+                    blinding: canonical_disclosed(disclosure_bytes(slot, OUTPUT_OWNER_END + 40)?)?,
+                };
+                (Self::Exit(exit), EXIT_OUTPUT_END)
+            }
+            other => return Err(AuditError::DisclosureOutputKind(other)),
+        };
+        let padding = slot.get(end..).ok_or(AuditError::DisclosureShape)?;
+        match padding.iter().all(|byte| *byte == 0) {
+            true => Ok(opening),
+            false => Err(AuditError::DisclosurePadding),
+        }
+    }
+}
+
+/// The circuit discloses canonical field encodings.
+fn canonical_disclosed(value: [u8; 32]) -> Result<[u8; 32]> {
+    match is_canonical_bn254_scalar_be(&value) {
+        true => Ok(value),
+        false => Err(AuditError::DisclosureField),
     }
 }
 
@@ -445,10 +573,7 @@ impl AnonymousDisclosure {
         }
         for output in &self.outputs {
             let end = bytes.len() + DISCLOSURE_OUTPUT_LEN;
-            bytes.push(output.identity_tag);
-            bytes.extend_from_slice(&output.identity_key);
-            bytes.extend_from_slice(&output.nullifier_pk);
-            bytes.extend_from_slice(&output.viewing_pk);
+            output.encode(&mut bytes);
             bytes.resize(end, 0);
         }
         Ok(bytes)
@@ -484,19 +609,9 @@ impl AnonymousDisclosure {
         }
         let mut outputs = Vec::with_capacity(shape.outputs);
         for _ in 0..shape.outputs {
-            let slot = take(DISCLOSURE_OUTPUT_LEN)?;
-            if slot[DISCLOSURE_OUTPUT_FIELDS_LEN..]
-                .iter()
-                .any(|byte| *byte != 0)
-            {
-                return Err(AuditError::DisclosurePadding);
-            }
-            outputs.push(AnonymousOutputOpening {
-                identity_tag: slot[0],
-                identity_key: disclosure_bytes(slot, 1)?,
-                nullifier_pk: disclosure_bytes(slot, 33)?,
-                viewing_pk: disclosure_bytes(slot, 65)?,
-            });
+            outputs.push(AnonymousOutputOpening::decode(take(
+                DISCLOSURE_OUTPUT_LEN,
+            )?)?);
         }
         if !rest.is_empty() {
             return Err(AuditError::DisclosureShape);
@@ -885,6 +1000,15 @@ mod tests {
     fn anonymous_disclosure_round_trips_with_the_hidden_recipient_key() {
         let auditor = X25519Keypair::new();
         let tx = ViewingKey::new();
+        let owner = AnonymousOwner {
+            identity_tag: SOLANA_OWNER_TAG,
+            identity_key: [8; 32],
+            nullifier_pk: [9; 32],
+        };
+        let ring = AnonymousOutputOpening::Ring(AnonymousRingOutput {
+            owner,
+            viewing_pk: *ViewingKey::new().pubkey().as_bytes(),
+        });
         let disclosure = AnonymousDisclosure {
             sender: [7; 32],
             inputs: vec![
@@ -897,17 +1021,22 @@ mod tests {
                 AuditInputOpening::default(),
             ],
             outputs: vec![
-                AnonymousOutputOpening {
-                    identity_tag: SOLANA_OWNER_TAG,
-                    identity_key: [8; 32],
-                    nullifier_pk: [9; 32],
-                    viewing_pk: *ViewingKey::new().pubkey().as_bytes(),
-                };
-                4
+                ring,
+                AnonymousOutputOpening::Exit(AnonymousExit {
+                    owner: AnonymousOwner {
+                        identity_key: [6; 32],
+                        ..owner
+                    },
+                    amount: 77,
+                    asset: [4; 32],
+                    blinding: [2; 32],
+                }),
+                AnonymousOutputOpening::Padding,
+                ring,
             ],
         };
         let shape = disclosure.shape();
-        assert_eq!(shape.field_count(), Some(24));
+        assert_eq!(shape.field_count(), Some(28));
         let sealed =
             AuditorEncryption::new_with_anonymous(&tx, &auditor.pubkey(), [2; 16], &disclosure)
                 .expect("seal");
@@ -925,11 +1054,36 @@ mod tests {
             parsed.open_outputs(&tx, [2; 16]),
             Err(AuditError::DisclosureShape)
         ));
-        let mut plaintext = disclosure.encode().unwrap();
-        plaintext[33] = 1;
+        let plaintext = disclosure.encode().unwrap();
+        let exit = DISCLOSURE_SENDER_LEN + 2 * DISCLOSURE_INPUT_LEN + DISCLOSURE_OUTPUT_LEN;
+        let padding = exit + DISCLOSURE_OUTPUT_LEN;
+        // The sender padding, the bytes past an exit's blinding and a padding slot stay zero.
+        for index in [33, exit + 138, padding + 70] {
+            let mut corrupted = plaintext.clone();
+            corrupted[index] = 1;
+            assert!(matches!(
+                AnonymousDisclosure::decode(&corrupted, shape),
+                Err(AuditError::DisclosurePadding)
+            ));
+        }
+        let mut unknown = plaintext.clone();
+        unknown[exit] = 3;
         assert!(matches!(
-            AnonymousDisclosure::decode(&plaintext, shape),
-            Err(AuditError::DisclosurePadding)
+            AnonymousDisclosure::decode(&unknown, shape),
+            Err(AuditError::DisclosureOutputKind(3))
+        ));
+        let mut tagged = plaintext.clone();
+        tagged[exit + 1] = 0x50;
+        assert!(matches!(
+            AnonymousDisclosure::decode(&tagged, shape),
+            Err(AuditError::DisclosureIdentityTag(0x50))
+        ));
+        // A 0xff lead byte puts the exit blinding above the modulus.
+        let mut alias = plaintext;
+        alias[exit + 106] = 0xff;
+        assert!(matches!(
+            AnonymousDisclosure::decode(&alias, shape),
+            Err(AuditError::DisclosureField)
         ));
 
         let mut wide = disclosure.clone();
@@ -942,7 +1096,7 @@ mod tests {
             .collect();
         wide.outputs.truncate(2);
         let shape = wide.shape();
-        assert_eq!(shape.field_count(), Some(46));
+        assert_eq!(shape.field_count(), Some(48));
         let sealed = AuditorEncryption::new_with_anonymous(&tx, &auditor.pubkey(), [2; 16], &wide)
             .expect("seal wide");
         let parsed = AuditorMessage::parse_with_shape(
@@ -1179,7 +1333,7 @@ mod tests {
         .expect("audit elements")[11]
     }
 
-    /// Written by the Go circuit tests from the anonymous layout, four chunks per output.
+    /// The Go circuit tests generate it from the anonymous layout.
     const ANONYMOUS_DISCLOSURE_VECTOR: &str =
         include_str!("../../../test-vectors/audit-disclosure-anonymous.json");
 
@@ -1212,13 +1366,26 @@ mod tests {
         assert_eq!(disclosure.inputs[0].tree_id, 3);
         assert_eq!(disclosure.inputs[0].amount, 100);
         assert_eq!(disclosure.inputs[1], AuditInputOpening::default());
-        assert_eq!(disclosure.outputs[0].identity_tag, SOLANA_OWNER_TAG);
-        assert_eq!(disclosure.outputs[0].identity_key, [0xb2; 32]);
+        let AnonymousOutputOpening::Ring(ring) = disclosure.outputs[0] else {
+            panic!("slot 0 is a ring note");
+        };
+        assert_eq!(ring.owner.identity_tag, SOLANA_OWNER_TAG);
+        assert_eq!(ring.owner.identity_key, [0xb2; 32]);
         assert_eq!(
-            disclosure.outputs[0].viewing_pk,
+            ring.viewing_pk,
             bytes::<33>("0425884d18d7d920b659ef8e4dfb469618bd863b8ea42960420de1ed79834c3406")
         );
-        assert_eq!(disclosure.outputs[1], AnonymousOutputOpening::default());
+        assert_eq!(disclosure.outputs[1], AnonymousOutputOpening::Padding);
+        let AnonymousOutputOpening::Exit(exit) = disclosure.outputs[2] else {
+            panic!("slot 2 exits the ring");
+        };
+        assert_eq!(
+            (exit.owner.identity_tag, exit.owner.identity_key),
+            (SOLANA_OWNER_TAG, [0xd4; 32])
+        );
+        assert_eq!(exit.amount, 100);
+        assert_eq!(exit.asset, hash_bytes(&[0x0a; 32]).expect("asset"));
+        assert_eq!(exit.blinding, right_align(&[62]));
         assert_eq!(pack_disclosure(&plaintext), fields("fields"));
         let key: [u8; 32] = bytes(hex("key"));
         let salt: [u8; 16] = bytes(hex("salt"));

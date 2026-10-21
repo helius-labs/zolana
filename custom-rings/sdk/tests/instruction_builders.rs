@@ -24,7 +24,9 @@ use zolana_interface::{
         MessageData, RingDepositEntry, RingDepositIxData, TransactIxData, TransactProof,
         TreeContext,
     },
-    pda, BPF_LOADER_UPGRADEABLE_ID, N_PUBLIC_SLOTS, RING_AUTH_PDA_SEED,
+    pda,
+    shape::Shape,
+    BPF_LOADER_UPGRADEABLE_ID, N_PUBLIC_SLOTS, RING_AUTH_PDA_SEED,
 };
 use zolana_keypair::{SigningKey, X25519Keypair, X25519Pubkey};
 use zolana_program::instruction::{
@@ -1383,178 +1385,294 @@ fn the_cosigner_slot_signs_only_when_set() {
     );
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Rail {
+    Confidential,
+    Anonymous,
+    Delegate,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Withdrawal {
+    Sol,
+    Spl,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum WithdrawalRoom {
+    Any,
+    /// The full account set leaves room for the shorter SOL leg only.
+    SolWhenCurated,
+    /// Room for either leg with the lean account set only.
+    Lean,
+    None,
+}
+
+impl WithdrawalRoom {
+    fn of(rail: Rail, shape: Shape) -> Self {
+        match (rail, shape.n_inputs(), shape.n_outputs()) {
+            (Rail::Anonymous, 12, 2) | (Rail::Confidential, 12, 4) => Self::Lean,
+            (Rail::Confidential, 16, 2) => Self::SolWhenCurated,
+            (Rail::Confidential, 16, 4) => Self::None,
+            _ => Self::Any,
+        }
+    }
+
+    fn fits(self, curated: bool, withdrawal: Withdrawal) -> bool {
+        match self {
+            Self::Any => true,
+            Self::SolWhenCurated => !curated || withdrawal == Withdrawal::Sol,
+            Self::Lean => !curated,
+            Self::None => false,
+        }
+    }
+}
+
+/// Worst-case bytes, the SDKs refuse an actual transaction past the limit before they prove.
+fn assert_withdrawal_room(rail: Rail, shape: Shape) {
+    let room = WithdrawalRoom::of(rail, shape);
+    for curated in [false, true] {
+        for withdrawal in [Withdrawal::Sol, Withdrawal::Spl] {
+            let size = MeasuredTransfer {
+                withdrawal: Some(withdrawal),
+                curated,
+                ..MeasuredTransfer::lean(shape.n_inputs(), shape.n_outputs(), rail)
+            }
+            .size();
+            assert_eq!(
+                size.fits(),
+                room.fits(curated, withdrawal),
+                "{shape:?} {rail:?} {withdrawal:?} curated {curated}, {} bytes",
+                size.bytes
+            );
+        }
+    }
+}
+
 /// The real v1 serializer, both proofs, all nullifiers and a full auditor message.
-/// All notes stay in the ring, one input tree, one owner, no memo or extra data.
-fn measured_policy_shape(
+/// One input tree, one owner, no memo or extra data.
+#[derive(Clone, Copy)]
+struct MeasuredTransfer {
     inputs: usize,
     outputs: usize,
+    rail: Rail,
+    /// The full account set, every optional signer and policy read present.
     curated: bool,
-    rail: u8,
-) -> zolana_client::TransactionSize {
-    use custom_ring_interface::{
-        DisclosureShape, AUDIT_OUTPUT_FIELD_COUNT, DISCLOSURE_INPUT_LEN, DISCLOSURE_OUTPUT_LEN,
-        DISCLOSURE_SENDER_LEN,
-    };
-    use zolana_hasher::primitives::pack_be_chunks;
-    use zolana_interface::instruction::{OwnerTag, TransactOutput};
-    use zolana_keypair::ViewingKey;
-    use zolana_transaction::{
-        serialization::{
-            confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
-            ring_anonymous::ring_anonymous_padding,
-            UtxoSerialization,
-        },
-        Data, SOL_ASSET_ID,
-    };
-    let key = ViewingKey::new();
-    let plaintext = ConfidentialOutputPlaintext {
-        asset_id: SOL_ASSET_ID,
-        amount: u64::MAX,
-        blinding: [0; 32],
-        ring_program_id: Some(ring().program_id()),
-        data: Data::default(),
-    };
-    let cx = ConfidentialEncode {
-        recipient_pubkey: key.pubkey(),
-        tx: key,
-        salt: [0; 16],
-        slot_index: 0,
-    };
-    // Every anonymous slot carries the fixed scheme-9 body, a padding slot measures it.
-    let ciphertext = if rail == 1 {
-        ring_anonymous_padding([0; 32])
-    } else {
-        Confidential::encode_plaintext(&plaintext, [2; 32], &cx)
+    withdrawal: Option<Withdrawal>,
+}
+
+impl MeasuredTransfer {
+    fn lean(inputs: usize, outputs: usize, rail: Rail) -> Self {
+        Self {
+            inputs,
+            outputs,
+            rail,
+            curated: false,
+            withdrawal: None,
+        }
     }
-    .unwrap()
-    .data;
-    let mut transact = transact_data(Vec::new());
-    transact.circuit = match rail {
-        1 => CircuitId::AnonymousRingEddsa(
-            inputs as u8,
-            outputs as u8,
-            N_PUBLIC_SLOTS as u8,
-            zolana_interface::verifying_keys::AnonymousRingEddsaProofData {
-                bsb22_commitment: zolana_interface::verifying_keys::Bsb22Commitment {
-                    commitment: [0; 32],
-                    commitment_pok: [0; 32],
-                },
-                default_owner_tag: None,
+
+    fn size(self) -> zolana_client::TransactionSize {
+        use custom_ring_interface::{
+            DisclosureShape, AUDIT_OUTPUT_FIELD_COUNT, DISCLOSURE_INPUT_LEN, DISCLOSURE_OUTPUT_LEN,
+            DISCLOSURE_SENDER_LEN,
+        };
+        use zolana_hasher::primitives::pack_be_chunks;
+        use zolana_interface::instruction::{OwnerTag, TransactOutput};
+        use zolana_keypair::ViewingKey;
+        use zolana_program::instruction::TransactSplWithdrawalAccounts;
+        use zolana_transaction::{
+            serialization::{
+                confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
+                ring_anonymous::ring_anonymous_padding,
+                UtxoSerialization,
             },
-        ),
-        2 => CircuitId::RingAuthority(inputs as u8, outputs as u8, N_PUBLIC_SLOTS as u8),
-        _ => CircuitId::ConfidentialRingEddsa(inputs as u8, outputs as u8, N_PUBLIC_SLOTS as u8),
-    };
-    transact.inputs = (0..inputs)
-        .map(|index| InputUtxo {
-            nullifier_hash: [index as u8 + 1; 32],
-            tree_index: 0,
-        })
-        .collect();
-    transact.outputs = (0..outputs)
-        .map(|index| TransactOutput {
-            utxo_hash: [index as u8 + 1; 32],
-            owner_tag: OwnerTag::Inline([index as u8 + 60; 32]),
-            data: Some(ciphertext.clone()),
-        })
-        .collect();
-    let shape = DisclosureShape {
-        anonymous: rail == 1,
-        inputs,
-        outputs,
-    };
-    // Capacities the circuit does not disclose are measured at the same per-slot growth.
-    let fields = shape.field_count().unwrap_or_else(|| {
-        if rail == 1 {
-            pack_be_chunks(
-                DISCLOSURE_SENDER_LEN
-                    + inputs * DISCLOSURE_INPUT_LEN
-                    + outputs * DISCLOSURE_OUTPUT_LEN,
-            )
+            Data, SOL_ASSET_ID,
+        };
+        let Self {
+            inputs,
+            outputs,
+            rail,
+            curated,
+            withdrawal,
+        } = self;
+        assert!(rail != Rail::Delegate || withdrawal.is_none());
+        let key = ViewingKey::new();
+        let plaintext = ConfidentialOutputPlaintext {
+            asset_id: SOL_ASSET_ID,
+            amount: u64::MAX,
+            blinding: [0; 32],
+            ring_program_id: Some(ring().program_id()),
+            data: Data::default(),
+        };
+        let cx = ConfidentialEncode {
+            recipient_pubkey: key.pubkey(),
+            tx: key,
+            salt: [0; 16],
+            slot_index: 0,
+        };
+        // Every anonymous slot carries the fixed scheme-9 body, a padding slot measures it.
+        let ciphertext = if rail == Rail::Anonymous {
+            ring_anonymous_padding([0; 32])
         } else {
-            AUDIT_OUTPUT_FIELD_COUNT * outputs.max(4)
+            Confidential::encode_plaintext(&plaintext, [2; 32], &cx)
         }
-    });
-    transact.messages[0].data = vec![0; 65 + 32 * fields];
-    let instruction = if rail == 2 {
-        CustomRingDelegateTransact {
-            ring: ring(),
-            payer: payer(),
-            cosigner: if curated { Some(authority()) } else { None },
-            input_trees: vec![input_tree()],
-            output_tree: input_tree(),
-            policy: if curated {
-                curated_reads()
-            } else {
-                address_tree_reads()
-            },
-            delegate: if curated { owner_signer() } else { payer() },
-            proof: sample_proof(),
-            approval_required: curated,
-            transact,
-        }
-        .instruction_with_policy_kind(custom_ring_interface::PolicyProofKind::General)
         .unwrap()
-    } else {
-        CustomRingTransact {
-            ring: ring(),
-            payer: payer(),
-            cosigner: if curated { Some(authority()) } else { None },
-            input_trees: vec![input_tree()],
-            output_tree: input_tree(),
-            policy: Some(if curated {
-                curated_reads()
+        .data;
+        let mint = Address::new_from_array([70; 32]);
+        let (legs, leg_accounts) = match withdrawal {
+            None => (Vec::new(), Vec::new()),
+            Some(Withdrawal::Sol) => (
+                vec![InterfaceTransfer::SolWithdrawal { amount: u64::MAX }],
+                vec![TransactInterfaceTransferAccounts::Sol(
+                    TransactSolTransferAccounts {
+                        recipient: Address::new_from_array([71; 32]),
+                    },
+                )],
+            ),
+            Some(Withdrawal::Spl) => (
+                vec![InterfaceTransfer::SplWithdrawal {
+                    amount: u64::MAX,
+                    spl_interface_bump: u8::MAX,
+                }],
+                vec![TransactInterfaceTransferAccounts::SplWithdrawal(
+                    TransactSplWithdrawalAccounts {
+                        mint,
+                        spl_interface: pda::spl_interface(&mint),
+                        user_token_account: pda::associated_token_address(
+                            &Address::new_from_array([72; 32]),
+                            &mint,
+                        ),
+                        token_program: pda::spl_token_program_id(),
+                    },
+                )],
+            ),
+        };
+        let mut transact = transact_data(legs);
+        transact.circuit = match rail {
+            Rail::Anonymous => CircuitId::AnonymousRingEddsa(
+                inputs as u8,
+                outputs as u8,
+                N_PUBLIC_SLOTS as u8,
+                zolana_interface::verifying_keys::AnonymousRingEddsaProofData {
+                    bsb22_commitment: zolana_interface::verifying_keys::Bsb22Commitment {
+                        commitment: [0; 32],
+                        commitment_pok: [0; 32],
+                    },
+                    default_owner_tag: None,
+                },
+            ),
+            Rail::Delegate => {
+                CircuitId::RingAuthority(inputs as u8, outputs as u8, N_PUBLIC_SLOTS as u8)
+            }
+            Rail::Confidential => {
+                CircuitId::ConfidentialRingEddsa(inputs as u8, outputs as u8, N_PUBLIC_SLOTS as u8)
+            }
+        };
+        transact.inputs = (0..inputs)
+            .map(|index| InputUtxo {
+                nullifier_hash: [index as u8 + 1; 32],
+                tree_index: 0,
+            })
+            .collect();
+        transact.outputs = (0..outputs)
+            .map(|index| TransactOutput {
+                utxo_hash: [index as u8 + 1; 32],
+                owner_tag: OwnerTag::Inline([index as u8 + 60; 32]),
+                data: Some(ciphertext.clone()),
+            })
+            .collect();
+        let shape = DisclosureShape {
+            anonymous: rail == Rail::Anonymous,
+            inputs,
+            outputs,
+        };
+        // Capacities the circuit does not disclose are measured at the same per-slot growth.
+        let fields = shape.field_count().unwrap_or_else(|| {
+            if rail == Rail::Anonymous {
+                pack_be_chunks(
+                    DISCLOSURE_SENDER_LEN
+                        + inputs * DISCLOSURE_INPUT_LEN
+                        + outputs * DISCLOSURE_OUTPUT_LEN,
+                )
             } else {
-                address_tree_reads()
-            }),
-            owner_signers: if rail == 1 {
-                Vec::new()
-            } else if curated {
-                vec![owner_signer()]
-            } else {
-                vec![payer()]
-            },
-            interface_transfer_accounts: Vec::new(),
-            proof: sample_proof(),
-            approval_required: curated,
-            transact,
-        }
-        .instruction_with_policy_kind(custom_ring_interface::PolicyProofKind::General)
+                AUDIT_OUTPUT_FIELD_COUNT * outputs.max(4)
+            }
+        });
+        transact.messages[0].data = vec![0; 65 + 32 * fields];
+        let policy = if curated {
+            curated_reads()
+        } else {
+            address_tree_reads()
+        };
+        let instruction = if rail == Rail::Delegate {
+            CustomRingDelegateTransact {
+                ring: ring(),
+                payer: payer(),
+                cosigner: curated.then(authority),
+                input_trees: vec![input_tree()],
+                output_tree: input_tree(),
+                policy,
+                delegate: if curated { owner_signer() } else { payer() },
+                proof: sample_proof(),
+                approval_required: curated,
+                transact,
+            }
+            .instruction_with_policy_kind(custom_ring_interface::PolicyProofKind::General)
+            .unwrap()
+        } else {
+            CustomRingTransact {
+                ring: ring(),
+                payer: payer(),
+                cosigner: curated.then(authority),
+                input_trees: vec![input_tree()],
+                output_tree: input_tree(),
+                policy: Some(policy),
+                owner_signers: if rail == Rail::Anonymous {
+                    Vec::new()
+                } else if curated {
+                    vec![owner_signer()]
+                } else {
+                    vec![payer()]
+                },
+                interface_transfer_accounts: leg_accounts,
+                proof: sample_proof(),
+                approval_required: curated,
+                transact,
+            }
+            .instruction_with_policy_kind(custom_ring_interface::PolicyProofKind::General)
+            .unwrap()
+        };
+        transaction_size(
+            &payer(),
+            &[instruction],
+            ComputeBudgetConfig::new(1_400_000).with_priority_fee(u64::MAX),
+        )
         .unwrap()
-    };
-    transaction_size(
-        &payer(),
-        &[instruction],
-        ComputeBudgetConfig::new(1_400_000).with_priority_fee(u64::MAX),
-    )
-    .unwrap()
+    }
 }
 
 #[test]
 fn policy_shape_transaction_size_matrix() {
     for shape in zolana_interface::shape::SPP_SUPPORTED_SHAPES {
-        let minimum = measured_policy_shape(shape.n_inputs(), shape.n_outputs(), false, 0);
-        let full = measured_policy_shape(shape.n_inputs(), shape.n_outputs(), true, 0);
-        assert_eq!(
-            minimum.fits(),
-            custom_ring_interface::policy_shape_supported(
-                shape.n_inputs(),
-                shape.n_outputs(),
-                false,
-                false
-            )
-        );
-        if (shape.n_inputs(), shape.n_outputs()) == (16, 4) {
+        let (n, m) = (shape.n_inputs(), shape.n_outputs());
+        let minimum = MeasuredTransfer::lean(n, m, Rail::Confidential).size();
+        let full = MeasuredTransfer {
+            curated: true,
+            ..MeasuredTransfer::lean(n, m, Rail::Confidential)
+        }
+        .size();
+        let supported = custom_ring_interface::policy_shape_supported(n, m, false, false);
+        assert_eq!(minimum.fits(), supported);
+        if (n, m) == (16, 4) {
             assert!(!full.fits());
         }
+        if supported {
+            assert_withdrawal_room(Rail::Confidential, shape);
+        }
         println!(
-            "POLICY_SIZE {} {} {} {} {} {}",
-            shape.n_inputs(),
-            shape.n_outputs(),
-            minimum.bytes,
-            minimum.addresses,
-            full.bytes,
-            full.addresses
+            "POLICY_SIZE {n} {m} {} {} {} {}",
+            minimum.bytes, minimum.addresses, full.bytes, full.addresses
         );
     }
 }
@@ -1563,7 +1681,7 @@ fn policy_shape_transaction_size_matrix() {
 fn anonymous_and_delegate_shapes_fit_without_payload_changes() {
     let anonymous = ANONYMOUS_RING_SHAPES
         .iter()
-        .map(|shape| (shape.n_inputs(), shape.n_outputs(), 1));
+        .map(|shape| (shape.n_inputs(), shape.n_outputs(), Rail::Anonymous));
     let delegate = zolana_interface::shape::SPP_SUPPORTED_SHAPES
         .iter()
         .filter(|shape| {
@@ -1574,15 +1692,19 @@ fn anonymous_and_delegate_shapes_fit_without_payload_changes() {
                 true,
             )
         })
-        .map(|shape| (shape.n_inputs(), shape.n_outputs(), 2));
+        .map(|shape| (shape.n_inputs(), shape.n_outputs(), Rail::Delegate));
     for (n, m, rail) in anonymous.chain(delegate) {
-        let minimum = measured_policy_shape(n, m, false, rail);
-        let full = measured_policy_shape(n, m, true, rail);
+        let minimum = MeasuredTransfer::lean(n, m, rail).size();
+        let full = MeasuredTransfer {
+            curated: true,
+            ..MeasuredTransfer::lean(n, m, rail)
+        }
+        .size();
         println!(
-            "POLICY_RAIL_SIZE {rail} {n} {m} {} {} {} {}",
+            "POLICY_RAIL_SIZE {rail:?} {n} {m} {} {} {} {}",
             minimum.bytes, minimum.addresses, full.bytes, full.addresses
         );
-        assert!(minimum.fits() && full.fits(), "{n}x{m} rail {rail}");
+        assert!(minimum.fits() && full.fits(), "{n}x{m} {rail:?}");
     }
 }
 
@@ -1665,8 +1787,13 @@ fn anonymous_transaction_size_matrix() {
         if shape.n_outputs() > 4 {
             continue;
         }
-        let minimum = measured_policy_shape(shape.n_inputs(), shape.n_outputs(), false, 1);
-        let full = measured_policy_shape(shape.n_inputs(), shape.n_outputs(), true, 1);
+        let (n, m) = (shape.n_inputs(), shape.n_outputs());
+        let minimum = MeasuredTransfer::lean(n, m, Rail::Anonymous).size();
+        let full = MeasuredTransfer {
+            curated: true,
+            ..MeasuredTransfer::lean(n, m, Rail::Anonymous)
+        }
+        .size();
         // The catalog lists shapes with keys, the fixed body leaves room for more.
         println!(
             "ANONYMOUS_SIZE {} {} {} {} {} {}",
@@ -1679,6 +1806,7 @@ fn anonymous_transaction_size_matrix() {
         );
         if ANONYMOUS_RING_SHAPES.contains(&shape) {
             assert!(minimum.fits() && full.fits(), "{shape:?}");
+            assert_withdrawal_room(Rail::Anonymous, shape);
         }
     }
 }

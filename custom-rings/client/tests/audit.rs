@@ -38,18 +38,18 @@ use zolana_interface::{
 };
 use zolana_keypair::{constants::SALT_LEN, ViewingKey, X25519Keypair, X25519Pubkey};
 use zolana_ring_client::{
-    auditor_view_tag, AnonymousDisclosure, AnonymousOutputOpening, AuditError, AuditInputOpening,
-    AuditedOutput, AuditedTransaction, AuditorEncryption, OutputPayloadError,
-    OutputPayloadErrorKind, RingOrigin, RingScan, TransactionAudit, TransactionOrigin,
-    AUDITOR_MESSAGE_LEN,
+    auditor_view_tag, AnonymousDisclosure, AnonymousExit, AnonymousOutputOpening, AnonymousOwner,
+    AnonymousRingOutput, AuditError, AuditInputOpening, AuditedOutput, AuditedTransaction,
+    AuditorEncryption, OutputPayloadError, OutputPayloadErrorKind, RingOrigin, RingScan,
+    TransactionAudit, TransactionOrigin, AUDITOR_MESSAGE_LEN,
 };
 use zolana_transaction::{
     serialization::{
         confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
         ring_anonymous::{ring_anonymous_message, RingAnonymousOutputPlaintext, RingAnonymousSlot},
     },
-    AssetRegistry, Data, EncryptedScheme, OutputContext, OutputSlot, SppProofOutputUtxo,
-    UtxoSerialization, SOL_ASSET_ID, SOL_MINT,
+    AssetRegistry, Data, DataRecord, EncryptedScheme, OutputContext, OutputSlot,
+    SppProofOutputUtxo, UtxoSerialization, SOL_ASSET_ID, SOL_MINT,
 };
 
 const SALT: [u8; SALT_LEN] = [3u8; SALT_LEN];
@@ -371,12 +371,14 @@ fn anonymous_fixture() -> AnonymousFixture {
     let disclosure = AnonymousDisclosure {
         sender: [3; 32],
         inputs: vec![AuditInputOpening::default()],
-        outputs: vec![AnonymousOutputOpening {
-            identity_tag: SOLANA_OWNER_TAG,
-            identity_key: owner_key,
-            nullifier_pk,
+        outputs: vec![AnonymousOutputOpening::Ring(AnonymousRingOutput {
+            owner: AnonymousOwner {
+                identity_tag: SOLANA_OWNER_TAG,
+                identity_key: owner_key,
+                nullifier_pk,
+            },
             viewing_pk: *recipient.pubkey().as_bytes(),
-        }],
+        })],
     };
     let sealed =
         AuditorEncryption::new_with_anonymous(&tx_key, &auditor.pubkey(), SALT, &disclosure)
@@ -542,9 +544,9 @@ fn a_bad_anonymous_pair_hint_keeps_the_output() {
     }
 }
 
-/// A scheme 3 exit of an anonymous ring opens from the disclosed owner and the confidential body.
+/// An exit has no proven body, its scheme 3 body only describes the disclosed opening.
 #[test]
-fn an_anonymous_exit_is_audited_as_a_default_ring_output() {
+fn an_anonymous_exit_opens_from_its_disclosure() {
     let auditor = X25519Keypair::new();
     let tx_key = ViewingKey::new();
     let recipient = ViewingKey::new();
@@ -559,35 +561,42 @@ fn an_anonymous_exit_is_audited_as_a_default_ring_output() {
         TREE_ID,
     )
     .expect("exit opening");
-    let encoded = Confidential::encode_plaintext(
-        &exit,
-        owner_key,
-        &ConfidentialEncode {
-            tx: tx_key.clone(),
-            recipient_pubkey: recipient.pubkey(),
-            salt: SALT,
-            slot_index: 0,
-        },
-    )
-    .expect("encode exit slot");
-    let slot = OutputSlot {
-        view_tag: encoded.view_tag,
-        output_context: output_context(&opening, 0),
-        payload: encoded.data,
+    let slot = |plaintext: &ConfidentialOutputPlaintext| {
+        let encoded = Confidential::encode_plaintext(
+            plaintext,
+            owner_key,
+            &ConfidentialEncode {
+                tx: tx_key.clone(),
+                recipient_pubkey: recipient.pubkey(),
+                salt: SALT,
+                slot_index: 0,
+            },
+        )
+        .expect("encode exit slot");
+        OutputSlot {
+            view_tag: encoded.view_tag,
+            output_context: output_context(&opening, 0),
+            payload: encoded.data,
+        }
     };
-    let disclosed = |owner_key| AnonymousDisclosure {
-        sender: [3; 32],
-        inputs: vec![AuditInputOpening::default()],
-        outputs: vec![AnonymousOutputOpening {
+    let disclosed = AnonymousExit {
+        owner: AnonymousOwner {
             identity_tag: SOLANA_OWNER_TAG,
             identity_key: owner_key,
             nullifier_pk,
-            viewing_pk: *recipient.pubkey().as_bytes(),
-        }],
+        },
+        amount: exit.amount,
+        asset: opening.asset,
+        blinding: exit.blinding,
     };
-    let audit = |disclosure: &AnonymousDisclosure| {
+    let audit = |slot: &OutputSlot, exit: AnonymousExit| {
+        let disclosure = AnonymousDisclosure {
+            sender: [3; 32],
+            inputs: vec![AuditInputOpening::default()],
+            outputs: vec![AnonymousOutputOpening::Exit(exit)],
+        };
         let sealed =
-            AuditorEncryption::new_with_anonymous(&tx_key, &auditor.pubkey(), SALT, disclosure)
+            AuditorEncryption::new_with_anonymous(&tx_key, &auditor.pubkey(), SALT, &disclosure)
                 .expect("auditor capsule");
         let tx = transaction(
             &tx_key,
@@ -600,12 +609,12 @@ fn an_anonymous_exit_is_audited_as_a_default_ring_output() {
             assets: &registry(),
         }
         .run_with_mode(RingMode::Anonymous)
-        .expect("anonymous audit")
     };
 
-    let audited = audit(&disclosed(owner_key));
+    let honest = slot(&exit);
+    let audited = audit(&honest, disclosed).expect("anonymous audit");
     assert_eq!(audited.payload_errors, vec![]);
-    assert_eq!(audited.output_openings, vec![opening]);
+    assert_eq!(audited.output_openings, vec![opening.clone()]);
     assert_eq!(
         audited.outputs,
         vec![AuditedOutput {
@@ -620,14 +629,53 @@ fn an_anonymous_exit_is_audited_as_a_default_ring_output() {
         }]
     );
 
-    // The proven owner decides, a body under another disclosed owner opens nothing.
-    let audited = audit(&disclosed([6u8; 32]));
-    assert_eq!(
-        audited.payload_errors,
-        vec![payload_error(0, OutputPayloadErrorKind::Commitment)]
-    );
-    assert_eq!(audited.output_openings, vec![ProofInputUtxo::default()]);
-    assert!(audited.outputs.is_empty());
+    // A body the sender sealed for another amount or with data cannot hide the exit.
+    let mut with_data = plaintext(TOKEN_ASSET_ID, 77, 0x23);
+    with_data.data = Data::new(vec![DataRecord::UtxoData(vec![7; 4])]);
+    for misdelivered in [slot(&plaintext(TOKEN_ASSET_ID, 76, 0x23)), slot(&with_data)] {
+        let audited = audit(&misdelivered, disclosed).expect("delivery is not fatal");
+        assert_eq!(audited.output_openings, vec![opening.clone()]);
+        assert!(audited.outputs.is_empty());
+        assert_eq!(
+            audited.payload_errors,
+            vec![payload_error(0, OutputPayloadErrorKind::Commitment)]
+        );
+    }
+
+    let owner = disclosed.owner;
+    for tampered in [
+        AnonymousExit {
+            amount: 78,
+            ..disclosed
+        },
+        AnonymousExit {
+            asset: field(1),
+            ..disclosed
+        },
+        AnonymousExit {
+            blinding: field(0x24),
+            ..disclosed
+        },
+        AnonymousExit {
+            owner: AnonymousOwner {
+                identity_key: [6; 32],
+                ..owner
+            },
+            ..disclosed
+        },
+        AnonymousExit {
+            owner: AnonymousOwner {
+                nullifier_pk: field(10),
+                ..owner
+            },
+            ..disclosed
+        },
+    ] {
+        assert!(matches!(
+            audit(&honest, tampered),
+            Err(AuditError::OutputCommitmentMismatch(0))
+        ));
+    }
 }
 
 #[test]

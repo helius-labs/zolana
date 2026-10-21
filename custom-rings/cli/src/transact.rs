@@ -11,7 +11,6 @@ use solana_address::Address;
 use solana_keypair::Keypair;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{IndexerRpcConfig, Rpc, UtxoScan};
 use zolana_interface::pda;
 use zolana_keypair::{shielded::ShieldedAddress, RingAddress, ShieldedKeypair};
 use zolana_ring_client::ReaderKey;
@@ -341,11 +340,7 @@ fn deposited_notes(
     receipts: &[RingDepositReceipt],
 ) -> Result<Vec<WalletUtxo>> {
     let registry = ctx.rpc().asset_registry()?;
-    let scanned = UtxoScan::new(sender, &registry)
-        .with_ring_deposit_payload(ctx.ring.program_id(), zolana_ring_client::deposit_payload)
-        .with_indexer_config(IndexerRpcConfig::at_slot(ctx.rpc().get_slot()?))
-        .fetch(ctx.zolana.indexer())?
-        .spendable;
+    let scanned = ctx.spendable_utxos(sender, &registry)?;
     let notes: Vec<WalletUtxo> = receipts
         .iter()
         .filter_map(|receipt| {

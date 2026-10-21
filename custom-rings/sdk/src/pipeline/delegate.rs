@@ -228,6 +228,7 @@ impl Delegated<'_> {
             owner_signers: Vec::new(),
             interface_transfer_accounts: Vec::new(),
             delegate: Some(self.delegate),
+            exit_token_owner: None,
         }))
     }
 }

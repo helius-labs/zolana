@@ -1136,7 +1136,7 @@ input could be zero-padded to look like a fixed-length one. The same applies to
 | `default_owner_pk_hash` (`AnonymousRingEddsa` only) | `hash_bytes_33(0x53 || owner_pk)` when a spent UTXO of the hidden owner belongs to the default ring, otherwise `0`. SPP derives it from `CircuitId::AnonymousRingEddsa.default_owner_tag`; the circuit checks it against the verified hidden Ed25519 key. Address slots do not force publication. |
 | `payer_pk_hash` (`AnonymousRingEddsa` only) | `owner_proof_input_hash(payer)` of the fee payer account. |
 | `cosigner_pk_hash` (`AnonymousRingEddsa` only) | `owner_proof_input_hash(cosigner)` of the 32-byte co-signer address the ring program appends after the instruction data, `0` for the zero address. SPP rejects an anonymous instruction without exactly that 32-byte tail. |
-| `exit_destination_pk_hash` (`AnonymousRingEddsa` only) | `owner_proof_input_hash` of the destination account of the withdrawal legs, `0` without one. SPP rejects withdrawals to two different accounts. |
+| `exit_destination_pk_hash` (`AnonymousRingEddsa` only) | `owner_proof_input_hash` of the key every withdrawal leg names, `0` without a withdrawal. A SOL leg names its recipient, and SPP rejects a recipient other than a system account without data. An SPL leg names the owner of its token account, and SPP rejects a token account with a delegate or a close authority or at an address on the ed25519 curve. SPP rejects legs that name two different keys. |
 | `external_data_hash` | recomputed by SPP from the instruction data prefix and the committed accounts; see [external_data_hash](#external_data_hash). A separate public input, not part of the private transaction hash. |
 | public asset/amount slots (`N_PUBLIC_SLOTS = 3`) | six fields: `asset_0, amount_0, asset_1, amount_1, asset_2, amount_2`. SPP aggregates settlement legs by asset in first-appearance order, drops zero-net groups, and pads with `(0, 0)`. Assets use `hash_bytes_32(mint)`, including `Address::default()` for SOL. Each net magnitude fits `u64`; deposits are positive and withdrawals negative in the BN254 field. |
 | `ring_program_id` | `pk_field(ring_config.program_id)` for a policy ring; `0` for default `transact` |
@@ -2668,17 +2668,25 @@ Each region is zero padded to whole 31-byte chunks, one field per chunk:
 ```
 sender  = 0x53 || owner_key (32)                                       2 fields
 input   = tree_id (2) || amount (8) || asset (32) || blinding (32)      3 fields per input slot
-output  = identity (33) || nullifier_pk (32) || viewing_pk (33)      4 fields per output slot
-fields  = 2 + 3 * n_in + 4 * n_out
+output  = kind (1) || identity (33) || nullifier_pk (32) || tail        5 fields per output slot
+tail    = viewing_pk (33)                                               kind 1, a ring output
+tail    = amount (8) || asset (32) || blinding (32)                     kind 2, an exit
+fields  = 2 + 3 * n_in + 5 * n_out
 ```
 
 Integers are big-endian, `asset` and `blinding` are canonical field encodings.
-`identity` is the tagged Solana identity, `0x53 || owner_key` for a ring
+`identity` is the tagged Solana identity `0x53 || owner_key` of every disclosed
 output. The disclosed sender owns every real input. An input dummy and a padding output
-disclose zeros. The output region names only the address. The auditor opens
-the amount, mint and blinding of a real output from its scheme-9 body. The key
-derives from the disclosed `viewing_pk` and the recovered `tx_viewing_sk`, see
-[Ring Anonymous outputs](#ring-anonymous-outputs).
+disclose zeros, the kind byte included. A reader rejects a kind above 2 and a
+nonzero byte past the layout of the slot's kind. It also rejects an output
+`nullifier_pk` and an exit `asset` or `blinding` at or above the field modulus.
+A ring output's slot names only the address. The auditor opens the amount,
+mint and blinding of a ring output from its scheme-9 body. The key derives from
+the disclosed `viewing_pk` and the recovered `tx_viewing_sk`, see
+[Ring Anonymous outputs](#ring-anonymous-outputs). An exit publishes no proven
+body, so its slot carries the rest of its opening. The auditor recomputes an
+exit's `utxo_hash` from the slot, the published tree id, zero data hashes and a
+zero ring program id.
 `test-vectors/audit-disclosure-anonymous.json` pins the layout. This layout
 applies only to the supported anonymous settlement shapes.
 
@@ -2704,22 +2712,27 @@ Does not check that a tag derives from a stream or that earlier transactions
 did not use it. Does not check that a body is a real encryption, the proof
 covers that property.
 
-The base and policy circuits certify, per output slot `i` with
-`real_i = anonymous * active_i * is_utxo_i * (ring_program_id_i != 0)`:
+The base and policy circuits certify, per output slot `i`:
 
 ```
+real_i = anonymous * active_i * is_utxo_i * (ring_program_id_i != 0)
+exit_i = anonymous * active_i * is_utxo_i * (ring_program_id_i = 0)
 real_i => note_i.ring_program_id = hash_bytes_32(ring_program_id)
 real_i => note_i.data_hash = 0 and note_i.ring_data_hash = 0
 real_i => note_i.asset = hash_bytes_32(asset_address_i)
 real_i => c_i = AES-256-CTR(key_i, nonce_i, asset_address_i || u64_be(amount_i) || be(blinding_i) || pair_u_i)
-anonymous * active_i * is_utxo_i => note_i.owner_pk_hash = hash_bytes_33(recipient_i)
-body_hash_i = anonymous * (1 - exit_i) * hash_bytes_105(0x09 || c_i)
+exit_i => note_i.data_hash = 0 and note_i.ring_data_hash = 0
+exit_i => tail_i = u64_be(note_i.amount) || be(note_i.asset) || be(note_i.blinding)
+anonymous * active_i * is_utxo_i => recipient_i[0] = 0x53 and note_i.owner_pk_hash = hash_bytes_33(recipient_i)
+body_hash_i = anonymous * (1 - is_utxo_i * (ring_program_id_i = 0)) * hash_bytes_105(0x09 || c_i)
 ```
 
-`recipient_i` and `viewing_pk_i` are the disclosed output address, `key_i` and
-`nonce_i` derive from `viewing_pk_i` as in
-[Ring Anonymous outputs](#ring-anonymous-outputs), and `exit_i` marks a
-default-ring output. A slot that is not real agrees with the X25519 base point,
+`recipient_i` is the disclosed output identity and `viewing_pk_i` the viewing key
+a ring output's slot discloses. `tail_i` is the tail of output slot `i` in the
+[anonymous disclosure](#anonymous-disclosure).
+`key_i` and `nonce_i` derive from `viewing_pk_i` as in
+[Ring Anonymous outputs](#ring-anonymous-outputs). A slot that is not real
+agrees with the X25519 base point,
 so the gadget stays satisfiable, and its body hash is still bound. The proof
 does not check that the sender chose the address it intended. It does not check
 that any party holds the keys of an address, or that `pair_u_i` derives from

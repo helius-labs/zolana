@@ -193,8 +193,16 @@ pub enum ShieldedPoolError {
         "the anonymous rail needs a 32-byte co-signer tail after the instruction, other rails none"
     )]
     InvalidAnonymousControlTail = 7083,
-    #[error("every withdrawal of an anonymous spend must leave to one destination account")]
+    #[error("all withdrawals of an anonymous spend must name the same destination key")]
     AnonymousExitDestinationsDiffer = 7084,
+    #[error(
+        "an anonymous SPL withdrawal's token account must have no delegate and no close authority"
+    )]
+    AnonymousExitTokenAccountShared = 7085,
+    #[error("an anonymous SOL withdrawal must leave to a system account without data")]
+    AnonymousExitAccountHasData = 7086,
+    #[error("an anonymous SPL withdrawal's token account address must be off the ed25519 curve")]
+    AnonymousExitTokenAccountOnCurve = 7087,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -326,6 +334,9 @@ mod tests {
                 NonCanonicalMergeCiphertext => 7082,
                 InvalidAnonymousControlTail => 7083,
                 AnonymousExitDestinationsDiffer => 7084,
+                AnonymousExitTokenAccountShared => 7085,
+                AnonymousExitAccountHasData => 7086,
+                AnonymousExitTokenAccountOnCurve => 7087,
             }
         }
 
@@ -415,6 +426,9 @@ mod tests {
             NonCanonicalMergeCiphertext,
             InvalidAnonymousControlTail,
             AnonymousExitDestinationsDiffer,
+            AnonymousExitTokenAccountShared,
+            AnonymousExitAccountHasData,
+            AnonymousExitTokenAccountOnCurve,
         ];
         let codes = (7000_u32..).filter(|code| *code != 7063 && *code != 7072);
         for (variant, code) in variants.into_iter().zip(codes) {
@@ -426,7 +440,7 @@ mod tests {
             assert_eq!(variant as u32, code, "error codes must be contiguous");
         }
         // The list above must contain every live variant.
-        assert_eq!(variants.len(), 83, "variant count drifted");
+        assert_eq!(variants.len(), 86, "variant count drifted");
 
         let expected: std::collections::BTreeMap<String, u32> = serde_json::from_str(include_str!(
             "../../../test-vectors/shielded_pool_errors.json"

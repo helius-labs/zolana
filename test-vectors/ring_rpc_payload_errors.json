@@ -1,0 +1,8 @@
+{
+  "description": "Payload errors of a DecryptedTransaction as the ring rpc serializes them. kinds names every OutputPayloadErrorKind. unknown_asset_bad_pair_hint holds the errors of one anonymous slot whose opened note names a mint the asset registry lacks. Its pair hint names no contributory X25519 key, and the Rust audit reports both errors for the slot. Pinned by the custom-rings/client rpc tests and decoded by the TypeScript RingRpc tests.",
+  "kinds": ["frame", "decrypt", "commitment", "asset", "pairHint"],
+  "unknown_asset_bad_pair_hint": [
+    { "slotIndex": 0, "kind": "asset" },
+    { "slotIndex": 0, "kind": "pairHint" }
+  ]
+}

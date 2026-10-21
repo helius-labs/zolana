@@ -36,8 +36,9 @@ use zolana_ring_client::{
         WebAuthnAssertion, CREATE_AUDITOR_KEY, GET_AUDITED_MERGES, GET_DECRYPTED_TRANSACTIONS,
         HEALTH, RING_DEPOSITS, RING_STATUS,
     },
-    AnonymousDisclosure, AnonymousOutputOpening, AuditError, AuditInputOpening, AuditorEncryption,
-    MergeAuditPage, MergeAuditResult, ReaderKey, RingOrigin, RingWithdrawal,
+    AnonymousDisclosure, AnonymousOutputOpening, AnonymousOwner, AnonymousRingOutput, AuditError,
+    AuditInputOpening, AuditorEncryption, MergeAuditPage, MergeAuditResult, ReaderKey, RingOrigin,
+    RingWithdrawal,
 };
 use zolana_ring_rpc::{
     check_read, rpc_module, AuditRead, Clock, DepositHistory, DepositPage, Hub, OriginPolicy,
@@ -876,12 +877,14 @@ async fn passkey_reader_opens_anonymous_spend_trace() {
             },
             payload: encoded.data,
         });
-        outputs.push(AnonymousOutputOpening {
-            identity_tag: 0x53,
-            identity_key,
-            nullifier_pk,
+        outputs.push(AnonymousOutputOpening::Ring(AnonymousRingOutput {
+            owner: AnonymousOwner {
+                identity_tag: 0x53,
+                identity_key,
+                nullifier_pk,
+            },
             viewing_pk: *fixture.recipient.as_bytes(),
-        });
+        }));
     }
     let disclosure = AnonymousDisclosure {
         sender,

@@ -11,17 +11,30 @@ use custom_ring_interface::{
     anonymous_output_body, anonymous_output_body_hash, RingMode, ANONYMOUS_OUTPUT_PLAINTEXT_LEN,
     ANONYMOUS_RING_SHAPES,
 };
+use solana_account::Account;
 use solana_address::Address;
 use zolana_client::{AsyncRpc, Shape, TagReservations, TagStream};
 use zolana_hasher::primitives::{hash_bytes, SOLANA_OWNER_TAG};
-use zolana_interface::instruction::instruction_data::transact::ring_anonymous_encrypted_output_body;
+use zolana_interface::{
+    error::ShieldedPoolError,
+    instruction::instruction_data::transact::ring_anonymous_encrypted_output_body,
+    pda,
+    token_account::{TokenAccountControl, TokenAccountState},
+    SPL_TOKEN_2022_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
+};
 use zolana_keypair::{
     viewing_key::ViewTag, Curve, InboxSecret, KeypairError, PublicKey, RingAddress,
     ShieldedAddress, SigningKey, ViewingKey, X25519Pubkey,
 };
-use zolana_ring_client::{AnonymousDisclosure, AnonymousOutputOpening, AuditInputOpening};
+use zolana_ring_client::{
+    AnonymousDisclosure, AnonymousExit, AnonymousOutputOpening, AnonymousOwner,
+    AnonymousRingOutput, AuditInputOpening,
+};
 use zolana_ring_transaction::{AnonymousViewTags, TransactSession};
-use zolana_transaction::{instructions::transact::SppProofInputs, Mint};
+use zolana_transaction::{
+    instructions::transact::{SettlementTransfer, SppProofInputs},
+    Mint,
+};
 
 use super::{sealed, Owner, Rail, RailKind, RingTransfer, Staged};
 use crate::{
@@ -209,13 +222,22 @@ impl Anonymous<'_> {
         if owner == self.owner.transaction.payer() || cosigner == Some(owner) {
             return Err(RingError::AnonymousPublicSignerLinksOwner);
         }
+        let exit_token_owner = AnonymousExits {
+            transfers: &self.owner.transaction.interface_transfers()?,
+            hidden_owner: &owner,
+        }
+        .token_owner(client)
+        .await?;
         // Tags bind slots, the slot order is fixed before any stream is read.
         let mut transaction = self.owner.transaction.clone();
         transaction.pad_to_canonical_shape(&sender)?;
         let view_tags = self.view_tags(ring, client).await?;
-        self.owner
+        let mut staged = self
+            .owner
             .stage_with(ring, client, config, transaction, Some(&view_tags))
-            .await
+            .await?;
+        staged.exit_token_owner = exit_token_owner;
+        Ok(staged)
     }
 
     /// One window read per stream, every payment slot takes the lowest index free in history
@@ -255,6 +277,85 @@ impl Anonymous<'_> {
         }
         Ok(view_tags)
     }
+}
+
+struct AnonymousExits<'a> {
+    transfers: &'a [SettlementTransfer],
+    hidden_owner: &'a Address,
+}
+
+impl AnonymousExits<'_> {
+    /// The owner SPP binds for the SPL withdrawal, `None` without one.
+    async fn token_owner(
+        self,
+        client: &(impl AsyncRpc + ?Sized),
+    ) -> Result<Option<Address>, RingError> {
+        let hidden = *self.hidden_owner;
+        let mut token_owner = None;
+        for transfer in self
+            .transfers
+            .iter()
+            .filter(|transfer| !transfer.is_deposit())
+        {
+            match *transfer {
+                SettlementTransfer::Sol {
+                    user_sol_account: recipient,
+                    ..
+                } => {
+                    if recipient == hidden {
+                        return Err(RingError::AnonymousExitLinksOwner(recipient));
+                    }
+                    // Data or a program owner could name a second key, SPP refuses both.
+                    if client.get_account(recipient).await?.is_some_and(|account| {
+                        account.owner != Address::default() || !account.data.is_empty()
+                    }) {
+                        return Err(RingError::AnonymousExitAccountHasData(recipient));
+                    }
+                }
+                SettlementTransfer::Spl {
+                    mint,
+                    user_spl_token: token_account,
+                    ..
+                } => {
+                    let invalid = || RingError::AnonymousExitTokenAccountInvalid(token_account);
+                    let account = client
+                        .get_account(token_account)
+                        .await?
+                        .ok_or_else(invalid)?;
+                    let state = token_account_state(&account, &mint).ok_or_else(invalid)?;
+                    let owner = Address::new_from_array(*state.control.owner());
+                    // An associated token account stays derivable from its first owner.
+                    let associated =
+                        pda::associated_token_address_with_program(&hidden, &mint, &account.owner);
+                    if [token_account, owner].contains(&hidden) || associated == token_account {
+                        return Err(RingError::AnonymousExitLinksOwner(token_account));
+                    }
+                    if token_account.is_on_curve() {
+                        return Err(RingError::AnonymousExitTokenAccountOnCurve(token_account));
+                    }
+                    if let TokenAccountControl::Shared(_) = state.control {
+                        return Err(RingError::AnonymousExitTokenAccountShared(token_account));
+                    }
+                    if token_owner
+                        .replace(owner)
+                        .is_some_and(|previous| previous != owner)
+                    {
+                        return Err(ShieldedPoolError::AnonymousExitDestinationsDiffer.into());
+                    }
+                }
+            }
+        }
+        Ok(token_owner)
+    }
+}
+
+fn token_account_state(account: &Account, mint: &Address) -> Option<TokenAccountState> {
+    if ![SPL_TOKEN_PROGRAM_ID, SPL_TOKEN_2022_PROGRAM_ID].contains(account.owner.as_array()) {
+        return None;
+    }
+    TokenAccountState::unpack(&account.data)
+        .ok()
+        .filter(|state| state.mint == mint.to_bytes())
 }
 
 /// AnonymousRingEddsa keeps its owners hidden, a note leaves only to the default ring.
@@ -314,14 +415,25 @@ pub(crate) fn anonymous_disclosure(
         .output_utxos
         .iter()
         .map(|output| {
-            let Some(owner) = output.owner_address else {
-                return Ok(AnonymousOutputOpening::default());
+            let Some(address) = output.owner_address else {
+                return Ok(AnonymousOutputOpening::Padding);
             };
-            Ok(AnonymousOutputOpening {
+            let owner = AnonymousOwner {
                 identity_tag: SOLANA_OWNER_TAG,
-                identity_key: owner.signing_pubkey.confidential_view_tag()?,
-                viewing_pk: *owner.viewing_pubkey.as_bytes(),
-                nullifier_pk: owner.nullifier_pubkey,
+                identity_key: address.signing_pubkey.confidential_view_tag()?,
+                nullifier_pk: address.nullifier_pubkey,
+            };
+            Ok(match output.ring_program_id {
+                Some(_) => AnonymousOutputOpening::Ring(AnonymousRingOutput {
+                    owner,
+                    viewing_pk: *address.viewing_pubkey.as_bytes(),
+                }),
+                None => AnonymousOutputOpening::Exit(AnonymousExit {
+                    owner,
+                    amount: output.amount,
+                    asset: hash_bytes(output.asset.asset.as_array())?,
+                    blinding: output.blinding,
+                }),
             })
         })
         .collect::<Result<_, RingError>>()?;

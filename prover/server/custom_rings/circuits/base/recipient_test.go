@@ -338,8 +338,8 @@ func TestRecipientEncryptionRefusals(t *testing.T) {
 // A note leaving the ring is a scheme-3 output, its slot chains zero and carries no body.
 func TestRecipientEncryptionSkipsExits(t *testing.T) {
 	keys, s := twoByTwo(t)
-	other := append([]byte{0x50}, make32(0xd4)...)
-	s.Notes[0].OwnerPkHash = ringaudit.HashBytes(t, other)
+	other, owner := ringaudit.Identity(t, 0xd4)
+	s.Notes[0].OwnerPkHash = owner
 	s.Notes[0].RingProgramID = big.NewInt(0)
 	for i, b := range other {
 		s.Audit.Recipients[0][i] = int(b)

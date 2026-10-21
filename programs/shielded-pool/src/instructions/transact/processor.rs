@@ -1,4 +1,5 @@
 use crate::instructions::shared::caused_by;
+use arrayvec::ArrayVec;
 use light_program_profiler::profile;
 use pinocchio::{
     error::ProgramError,
@@ -17,7 +18,7 @@ use zolana_interface::{
         tag::InstructionTag,
         validate_input_tree_contexts,
     },
-    MAX_INPUT_TREES, N_PUBLIC_SLOTS,
+    MAX_INPUT_TREES, MAX_INTERFACE_TRANSFERS, N_PUBLIC_SLOTS,
 };
 
 use super::{
@@ -68,112 +69,119 @@ pub fn process_transact_ix(
 
     // 4. Resolve output tags from accounts.
     let resolved_outputs = resolve_outputs(accounts, &ix)?;
-    process_resolved_transact(
-        accounts,
-        &ix,
+    ResolvedTransact {
+        ix: &ix,
         external_data_prefix,
         cosigner,
         instruction,
-        &clock,
+        clock: &clock,
         tree_input_counts,
-        &resolved_outputs,
-    )
+        resolved_outputs: &resolved_outputs,
+    }
+    .process(accounts)
 }
 
-#[inline(never)]
-fn process_resolved_transact(
-    accounts: &mut [AccountView],
-    ix: &TransactIxDataRef<'_>,
-    external_data_prefix: &[u8],
-    cosigner: Option<&[u8; 32]>,
+struct ResolvedTransact<'a, 'ix> {
+    ix: &'a TransactIxDataRef<'ix>,
+    external_data_prefix: &'a [u8],
+    cosigner: Option<&'a [u8; 32]>,
     instruction: InstructionTag,
-    clock: &Clock,
+    clock: &'a Clock,
     tree_input_counts: [usize; MAX_INPUT_TREES],
-    resolved_outputs: &[ResolvedOutput<'_>],
-) -> ProgramResult {
-    let mut proof_inputs = Box::new(TransactProofInputs::new(ix.circuit));
-    let mut owner_hashes = Box::new(OwnerHashCache::new());
-    // 5. Check accounts.
-    let mut transact_accounts = if ix.circuit.is_ring() {
-        let (transact_accounts, ring_program_id) =
-            RingTransactAccounts::validate_and_parse(accounts, ix, ix.circuit.is_authority())?;
-        proof_inputs.assign_ring_program_id(hash_bytes(&ring_program_id)?);
-        transact_accounts
-    } else {
-        TransactAccounts::validate_and_parse(accounts, ix)?
-    };
-    // 6. Load the cache once, checking its writer and expiry before the proof.
-    let cache = TransactCache::load(transact_accounts.cache.take(), clock.unix_timestamp)?;
-    // 7. Hash all signers before output owners: cache hits deduplicate signers.
-    proof_inputs.fill_owner_signer_hashes(
-        ix.circuit.requires_input_signatures(),
-        transact_accounts.payer,
-        transact_accounts.owner_signers,
-        &mut owner_hashes,
-    )?;
-    // 8. Derive the circuit-specific fixed-width output-owner commitment.
-    proof_inputs.fill_output_owner_pk_hashes(
-        ix.circuit.output_owner_mode(),
-        resolved_outputs,
-        &mut owner_hashes,
-    )?;
+    resolved_outputs: &'a [ResolvedOutput<'ix>],
+}
 
-    // 9. Process sol and spl transfers.
-    proof_inputs.assign_public_amounts_and_assets(
-        &ix.interface_transfers,
-        &transact_accounts.settlements,
-        usize::from(ix.circuit.num_public_asset_slots()),
-    )?;
-    if ix.circuit.is_anonymous() {
-        let withdrawals = transact_accounts
-            .settlements
-            .iter()
-            .filter(|settlement| !settlement.is_deposit())
-            .map(|settlement| settlement.committed_accounts()[1].address().as_array());
-        let identities = AnonymousParties {
-            payer: transact_accounts.payer.address().as_array(),
+impl ResolvedTransact<'_, '_> {
+    #[inline(never)]
+    fn process(self, accounts: &mut [AccountView]) -> ProgramResult {
+        let Self {
+            ix,
+            external_data_prefix,
             cosigner,
-            exit_destination: AnonymousParties::exit_destination(withdrawals)?,
+            instruction,
+            clock,
+            tree_input_counts,
+            resolved_outputs,
+        } = self;
+        let mut proof_inputs = Box::new(TransactProofInputs::new(ix.circuit));
+        let mut owner_hashes = Box::new(OwnerHashCache::new());
+        // 5. Check accounts.
+        let mut transact_accounts = if ix.circuit.is_ring() {
+            let (transact_accounts, ring_program_id) =
+                RingTransactAccounts::validate_and_parse(accounts, ix, ix.circuit.is_authority())?;
+            proof_inputs.assign_ring_program_id(hash_bytes(&ring_program_id)?);
+            transact_accounts
+        } else {
+            TransactAccounts::validate_and_parse(accounts, ix)?
+        };
+        // 6. Load the cache once, checking its writer and expiry before the proof.
+        let cache = TransactCache::load(transact_accounts.cache.take(), clock.unix_timestamp)?;
+        // 7. Hash all signers before output owners: cache hits deduplicate signers.
+        proof_inputs.fill_owner_signer_hashes(
+            ix.circuit.requires_input_signatures(),
+            transact_accounts.payer,
+            transact_accounts.owner_signers,
+            &mut owner_hashes,
+        )?;
+        // 8. Derive the circuit-specific fixed-width output-owner commitment.
+        proof_inputs.fill_output_owner_pk_hashes(
+            ix.circuit.output_owner_mode(),
+            resolved_outputs,
+            &mut owner_hashes,
+        )?;
+
+        // 9. Process sol and spl transfers.
+        proof_inputs.assign_public_amounts_and_assets(
+            &ix.interface_transfers,
+            &transact_accounts.settlements,
+            usize::from(ix.circuit.num_public_asset_slots()),
+        )?;
+        if ix.circuit.is_anonymous() {
+            let identities = AnonymousParties {
+                payer: transact_accounts.payer.address().as_array(),
+                cosigner,
+                exit_destination: anonymous_exit_destination(&transact_accounts.settlements)?,
+            }
+            .identities()
+            .map_err(caused_by(
+                ShieldedPoolError::TransactProofVerificationFailed,
+            ))?;
+            proof_inputs.assign_anonymous_parties(identities);
         }
-        .identities()
-        .map_err(caused_by(
-            ShieldedPoolError::TransactProofVerificationFailed,
-        ))?;
-        proof_inputs.assign_anonymous_parties(identities);
+        // 10. Resolve each input tree's roots, queue its nullifiers and create its PDAs.
+        let input_tree_sequences = apply_input_trees(
+            &mut transact_accounts,
+            ix,
+            tree_input_counts,
+            &mut proof_inputs,
+        )?;
+        bind_cached_inputs(cache.as_ref(), ix, &mut proof_inputs)?;
+        // 11. Append new utxo hashes.
+        let tree_write = apply_output_tree(transact_accounts.output_tree, ix, clock.slot)?;
+        check_cache_output_tree(cache.as_ref(), tree_write.output_tree_id)?;
+        proof_inputs.assign_output_tree_id(tree_write.output_tree_id);
+
+        let tag = [instruction as u8];
+        let external_data_hash = hash_external_data(
+            &tag,
+            external_data_prefix,
+            ix,
+            &transact_accounts.settlements,
+            resolved_outputs,
+        )?;
+        let external_data_hash = bind_cache_write(cache.as_ref(), ix, external_data_hash)?;
+        proof_inputs.assign_external_data_hash(external_data_hash);
+        proof_inputs.ensure_complete()?;
+
+        TransactProof::new(ix, &proof_inputs).verify()?;
+
+        write_cached_outputs(cache, ix)?;
+
+        settle_interface_transfers(&ix.interface_transfers, &transact_accounts.settlements)?;
+
+        let event = build_transact_event(tree_write, &input_tree_sequences);
+        emit_event(EventKind::Transact, &event)
     }
-    // 10. Resolve each input tree's roots, queue its nullifiers and create its PDAs.
-    let input_tree_sequences = apply_input_trees(
-        &mut transact_accounts,
-        ix,
-        tree_input_counts,
-        &mut proof_inputs,
-    )?;
-    bind_cached_inputs(cache.as_ref(), ix, &mut proof_inputs)?;
-    // 11. Append new utxo hashes.
-    let tree_write = apply_output_tree(transact_accounts.output_tree, ix, clock.slot)?;
-    check_cache_output_tree(cache.as_ref(), tree_write.output_tree_id)?;
-    proof_inputs.assign_output_tree_id(tree_write.output_tree_id);
-
-    let tag = [instruction as u8];
-    let external_data_hash = hash_external_data(
-        &tag,
-        external_data_prefix,
-        ix,
-        &transact_accounts.settlements,
-        resolved_outputs,
-    )?;
-    let external_data_hash = bind_cache_write(cache.as_ref(), ix, external_data_hash)?;
-    proof_inputs.assign_external_data_hash(external_data_hash);
-    proof_inputs.ensure_complete()?;
-
-    TransactProof::new(ix, &proof_inputs).verify()?;
-
-    write_cached_outputs(cache, ix)?;
-
-    settle_interface_transfers(&ix.interface_transfers, &transact_accounts.settlements)?;
-
-    let event = build_transact_event(tree_write, &input_tree_sequences);
-    emit_event(EventKind::Transact, &event)
 }
 
 #[inline(never)]
@@ -263,6 +271,21 @@ pub fn validate_circuit_type(
         ShieldedPoolError::NonCanonicalPrivateTxHash,
     )?;
     validate_cache_selection(ix)
+}
+
+/// The one key every withdrawal names, the circuit proves it apart from the hidden owner.
+pub fn anonymous_exit_destination<'a>(
+    settlements: &'a [Settlement<'_>],
+) -> Result<Option<&'a [u8; 32]>, ShieldedPoolError> {
+    let mut exits = ArrayVec::<&[u8; 32], MAX_INTERFACE_TRANSFERS>::new();
+    for settlement in settlements {
+        if let Some(exit) = settlement.anonymous_exit()? {
+            exits
+                .try_push(exit)
+                .map_err(|_| ShieldedPoolError::TooManyInterfaceTransfers)?;
+        }
+    }
+    AnonymousParties::exit_destination(exits.into_iter())
 }
 
 /// The ring program appends its configured co-signer, zero when none, after

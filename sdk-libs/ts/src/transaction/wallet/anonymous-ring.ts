@@ -1,10 +1,12 @@
 import { addressBytes } from "../../interface/internal.js";
 import type { Address, Bytes32, MessageData } from "../../interface/types.js";
-import { SOLANA_OWNER_TAG } from "../../hasher/index.js";
+import { SOLANA_OWNER_TAG, hashBytes } from "../../hasher/index.js";
 import {
+  ANONYMOUS_PADDING_OUTPUT,
   auditorMessageData,
   encryptTransactionViewingSecret,
   type AnonymousOutputOpening,
+  type AnonymousOutputOwner,
   type AuditInputOpening,
 } from "../../keypair/audit.js";
 import { randomBytes, randomSalt } from "../../keypair/bytes.js";
@@ -129,13 +131,6 @@ interface SealedSlot {
   readonly disclosure: AnonymousOutputOpening;
 }
 
-const PADDING_DISCLOSURE: AnonymousOutputOpening = Object.freeze({
-  identityTag: 0,
-  identityKey: ZERO_32,
-  nullifierPublicKey: ZERO_32,
-  viewingPublicKey: new Uint8Array(33) as AnonymousOutputOpening["viewingPublicKey"],
-});
-
 function sealSlot(
   tx: ViewingKey,
   input: AnonymousRingTransferInput,
@@ -161,7 +156,7 @@ function sealSlot(
       message: { viewTag: tags.fresh(), data: framed(ciphertext) },
       delivery: { assetAddress: ZERO_32, pairU: ZERO_32, ciphertext },
       bodyHash: ringAnonymousBodyHash(ciphertext),
-      disclosure: PADDING_DISCLOSURE,
+      disclosure: ANONYMOUS_PADDING_OUTPUT,
     };
   }
   const { address, tag } = slot;
@@ -201,7 +196,11 @@ function sealSlot(
     message: { viewTag: tag, data: framed(ciphertext) },
     delivery: { assetAddress: addressBytes(output.asset) as Bytes32, pairU, ciphertext },
     bodyHash: ringAnonymousBodyHash(ciphertext),
-    disclosure: recipientDisclosure(address.recipient),
+    disclosure: Object.freeze({
+      kind: "ring",
+      ...disclosedOwner(address.recipient),
+      viewingPublicKey: address.recipient.viewingPublicKey.toBytes(),
+    }),
   };
 }
 
@@ -256,7 +255,13 @@ function sealExit(
     },
     delivery: undefined,
     bodyHash: ZERO_32,
-    disclosure: recipientDisclosure(owner),
+    disclosure: Object.freeze({
+      kind: "exit",
+      ...disclosedOwner(owner),
+      amount: output.amount,
+      asset: hashBytes(addressBytes(output.asset)) as Bytes32,
+      blinding: output.blinding,
+    }),
   };
 }
 
@@ -271,13 +276,12 @@ function checkOutputData(output: ProofOutputUtxo, slotIndex: number): void {
   }
 }
 
-function recipientDisclosure(recipient: ShieldedAddress): AnonymousOutputOpening {
-  return Object.freeze({
+function disclosedOwner(owner: ShieldedAddress): AnonymousOutputOwner {
+  return {
     identityTag: SOLANA_OWNER_TAG,
-    identityKey: recipient.signingPublicKey.confidentialViewTag(),
-    nullifierPublicKey: recipient.nullifierPublicKey,
-    viewingPublicKey: recipient.viewingPublicKey.toBytes(),
-  });
+    identityKey: owner.signingPublicKey.confidentialViewTag(),
+    nullifierPublicKey: owner.nullifierPublicKey,
+  };
 }
 
 function framed(ciphertext: Uint8Array): Uint8Array {

@@ -1,6 +1,6 @@
 {
   "circuitType": "custom-ring-base",
-  "publicInputHash": "0x2c4fdfb6a87c55c11240e8133cd97ea15a1b7f502ab2ba4374b937f63ffd698c",
+  "publicInputHash": "0x2a11c5f71a0f7165ab1e116b7adadb3300fb0f965f1eb47c06859458c8ac3c35",
   "privateTxHash": "0x0ecd96aec19858bed4dba935b8b9da109991c32b91594b7a744f1b58dfdcfa0c",
   "anonymous": true,
   "txViewingSk": "0x001013121514171619181b1a1d1c1f1e010003020504070609080b0a0d0c0f4e",

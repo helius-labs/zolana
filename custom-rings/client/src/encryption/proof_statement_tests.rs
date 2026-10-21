@@ -92,13 +92,28 @@ fn statement_hash(request: &Value) -> ([u8; 32], Value) {
                 .collect(),
             outputs: (0..n_out)
                 .map(|i| {
+                    let requested = &request["outputs"][i];
                     let identity = bytes::<33>(&request["recipients"][i]);
-                    AnonymousOutputOpening {
+                    let owner = AnonymousOwner {
                         identity_tag: identity[0],
                         identity_key: identity[1..].try_into().unwrap(),
-                        nullifier_pk: bytes(&request["outputs"][i]["nullifierPk"]),
-                        viewing_pk: bytes(&request["recipientViewingKeys"][i]),
+                        nullifier_pk: bytes(&requested["nullifierPk"]),
+                    };
+                    if outputs[i].domain != right_align(&UTXO_DOMAIN.to_be_bytes()) {
+                        return AnonymousOutputOpening::Padding;
                     }
+                    if outputs[i].ring_program_id == [0; 32] {
+                        return AnonymousOutputOpening::Exit(AnonymousExit {
+                            owner,
+                            amount: amount(&requested["amount"]),
+                            asset: bytes(&requested["asset"]),
+                            blinding: bytes(&requested["blinding"]),
+                        });
+                    }
+                    AnonymousOutputOpening::Ring(AnonymousRingOutput {
+                        owner,
+                        viewing_pk: bytes(&request["recipientViewingKeys"][i]),
+                    })
                 })
                 .collect(),
         };

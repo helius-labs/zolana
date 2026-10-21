@@ -125,6 +125,8 @@ pub(crate) struct Staged {
     pub owner_signers: Vec<Address>,
     pub interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
     pub delegate: Option<Address>,
+    /// The owner SPP reads from an anonymous SPL withdrawal's token account.
+    pub exit_token_owner: Option<Address>,
 }
 
 /// `None` only for an all-padding transfer, which completes no input.
@@ -598,6 +600,7 @@ impl Spp {
                     ring: program,
                     owner: hidden.owner,
                     cosigner: hidden.cosigner,
+                    exit_token_owner: staged.exit_token_owner,
                 },
                 (true, _) => IndexedTransferRail::RingAuthority(program),
                 (false, None) => IndexedTransferRail::Ring(program),
@@ -637,6 +640,7 @@ impl Spp {
                     owner: hidden.owner,
                     payer: inputs.payer,
                     cosigner: hidden.cosigner,
+                    exit_token_owner: staged.exit_token_owner,
                     ring_program_id: program,
                     shape,
                 }

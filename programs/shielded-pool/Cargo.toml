@@ -33,9 +33,10 @@ zolana-hasher = { workspace = true }
 light-program-profiler = { workspace = true }
 pinocchio-system = { workspace = true }
 pinocchio = { workspace = true, features = ["account-resize"] }
+solana-address = { workspace = true, features = ["curve25519"] }
 spl-token-2022-interface = { workspace = true }
 tinyvec = { workspace = true }
-zolana-interface = { workspace = true, features = ["borsh"] }
+zolana-interface = { workspace = true, features = ["borsh", "token-account"] }
 zolana-tree = { workspace = true, features = ["account-view", "verify"] }
 zolana-user-registry-interface = { workspace = true }
 

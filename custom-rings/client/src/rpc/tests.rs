@@ -1,10 +1,14 @@
 use solana_keypair::Keypair;
 use zeroize::Zeroizing;
+use zolana_hasher::primitives::SOLANA_OWNER_TAG;
 use zolana_keypair::ViewingKey;
 use zolana_transaction::Data;
 
 use super::*;
-use crate::AuditedOutput;
+use crate::{
+    AnonymousExit, AnonymousOutputOpening, AnonymousOwner, AnonymousRingOutput, AuditedOutput,
+    OutputPayloadErrorKind::{self, Asset, Commitment, Decrypt, Frame, PairHint},
+};
 
 fn temp_dir(label: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("ring-rpc-{label}-{}", std::process::id()));
@@ -176,6 +180,146 @@ fn a_decrypted_page_keeps_its_wire_json() {
     assert_eq!(
         serde_json::from_str::<GetDecryptedTransactionsResponse>(&json).expect("parses"),
         page
+    );
+}
+
+/// The TypeScript decoder reads the same page.
+#[test]
+fn an_anonymous_decrypted_page_keeps_its_wire_json() {
+    let ring = Address::new_from_array([7; 32]);
+    let mint = Address::new_from_array([4; 32]);
+    let owner = |seed: u8| AnonymousOwner {
+        identity_tag: SOLANA_OWNER_TAG,
+        identity_key: [seed; 32],
+        nullifier_pk: [seed + 1; 32],
+    };
+    let recipient = ViewingKey::from_bytes(&[3; 32]).pubkey();
+    let ring_owner = owner(0x21);
+    let exit = AnonymousExit {
+        owner: owner(0x23),
+        amount: 4,
+        asset: zolana_hasher::primitives::hash_bytes(mint.as_array()).expect("asset"),
+        blinding: [6; 32],
+    };
+    let ring_opening = zolana_client::ProofInputUtxo::new(
+        ring_owner.owner_hash().expect("owner"),
+        &mint,
+        9,
+        &[5; 32],
+        4,
+    )
+    .expect("opening")
+    .with_ring([0; 32], &Some(ring))
+    .expect("ring");
+    let openings = vec![
+        ring_opening,
+        exit.opening(4).expect("exit"),
+        zolana_client::ProofInputUtxo::default(),
+    ];
+    let contexts = (0u64..)
+        .zip(&openings)
+        .map(|(leaf_index, opening)| zolana_transaction::OutputContext {
+            hash: match opening.domain == [0; 32] {
+                true => [9; 32],
+                false => opening.hash().expect("hash"),
+            },
+            tree_id: 4,
+            leaf_index,
+        })
+        .collect();
+    let output = |slot_index: u32, owner: &AnonymousOwner, amount, ring_program_id| AuditedOutput {
+        slot_index,
+        recipient_viewing_pk: recipient,
+        owner_tag: owner.identity_key,
+        asset: mint,
+        amount,
+        blinding: Zeroizing::new([5; 32]),
+        ring_program_id,
+        data: Data::default(),
+    };
+    let audited = AuditedTransaction {
+        tx_signature: Signature::from([1; 64]),
+        slot: 42,
+        tx_viewing_pk: ViewingKey::from_bytes(&[2; 32]).pubkey(),
+        outputs: vec![
+            output(0, &ring_owner, 9, Some(ring)),
+            AuditedOutput {
+                blinding: Zeroizing::new(exit.blinding),
+                ..output(1, &exit.owner, 4, None)
+            },
+        ],
+        output_contexts: contexts,
+        output_openings: openings,
+        anonymous: Some(AnonymousDisclosure {
+            sender: [0x20; 32],
+            inputs: vec![
+                AuditInputOpening {
+                    tree_id: 4,
+                    amount: 13,
+                    asset: exit.asset,
+                    blinding: [8; 32],
+                },
+                AuditInputOpening::default(),
+            ],
+            outputs: vec![
+                AnonymousOutputOpening::Ring(AnonymousRingOutput {
+                    owner: ring_owner,
+                    viewing_pk: *recipient.as_bytes(),
+                }),
+                AnonymousOutputOpening::Exit(exit),
+                AnonymousOutputOpening::Padding,
+            ],
+        }),
+        payload_errors: Vec::new(),
+    };
+    let page = GetDecryptedTransactionsResponse {
+        context: Context {
+            block_time: 1,
+            slot: 43,
+        },
+        value: DecryptedTransactionsPage {
+            items: vec![DecryptedTransaction::new(
+                audited,
+                0,
+                vec![[12; 32], [11; 32]],
+                vec![Address::new_from_array([13; 32])],
+                Vec::new(),
+            )],
+            skipped: Vec::new(),
+            cursor: None,
+        },
+    };
+    assert_eq!(
+        serde_json::to_string(&page).expect("json"),
+        include_str!("decrypted_anonymous_page.json").trim_end()
+    );
+}
+
+/// The TypeScript decoder reads the same vector.
+#[test]
+fn payload_errors_keep_the_encoding_of_the_shared_vector() {
+    #[derive(Deserialize)]
+    struct Vector {
+        kinds: serde_json::Value,
+        unknown_asset_bad_pair_hint: serde_json::Value,
+    }
+    let vector: Vector = serde_json::from_str(include_str!(
+        "../../../../test-vectors/ring_rpc_payload_errors.json"
+    ))
+    .expect("vector");
+    // A new kind fails to compile here, `kinds` and the vector must then name it.
+    let named = |kind: OutputPayloadErrorKind| match kind {
+        Frame | Decrypt | Commitment | Asset | PairHint => kind,
+    };
+    let kinds = [Frame, Decrypt, Commitment, Asset, PairHint].map(named);
+    assert_eq!(serde_json::to_value(kinds).unwrap(), vector.kinds);
+    let one_slot = [Asset, PairHint].map(|kind| DecryptedPayloadError {
+        slot_index: 0,
+        kind,
+    });
+    assert_eq!(
+        serde_json::to_value(one_slot).unwrap(),
+        vector.unknown_asset_bad_pair_hint
     );
 }
 

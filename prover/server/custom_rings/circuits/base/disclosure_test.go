@@ -132,10 +132,13 @@ const anonymousVectorPath = "../../../../../test-vectors/audit-disclosure-anonym
 const anonymousVectorDescription = "Known-answer vector for the anonymous ring audit disclosure. " +
 	"key and salt are the ones of audit-disclosure.json and the pad shares its seed, so it is a prefix of that vector's pad. " +
 	"plaintext is the published slots, the sender identity padded to 62 bytes, then n_in input slots of 93 bytes " +
-	"(tree id u16, amount u64, asset, blinding) and n_out output slots of 124 bytes (recipient identity, nullifier pk, " +
-	"recipient viewing pk), all big-endian and a dummy slot all zero. " +
+	"(tree id u16, amount u64, asset, blinding) and n_out output slots of 155 bytes. " +
+	"An output slot is the kind byte, the recipient identity and the nullifier pk. " +
+	"Kind 1, a ring note, adds the recipient viewing pk. " +
+	"Kind 2, an exit to the default ring, adds the amount u64, the asset and the blinding. " +
+	"Integers are big-endian and a dummy slot is all zero. " +
 	"fields[j] is plaintext[31j..31j+31] read big-endian, ciphertext[j] = (fields[j] + pad[j]) mod r and " +
-	"disclosure_hash = hash_chain_4(ciphertext) over the 2 + 3 n_in + 4 n_out published fields. " +
+	"disclosure_hash = hash_chain_4(ciphertext) over the 2 + 3 n_in + 5 n_out published fields. " +
 	"Produced by prover/server/custom_rings/circuits/base/disclosure_test.go with WRITE_AUDIT_VECTORS=1."
 
 type anonymousVector struct {
@@ -169,12 +172,8 @@ func anonymousVectorStatement(t *testing.T) (ringaudit.Keys, ringaudit.Statement
 	statement.Notes[1].Domain = big.NewInt(protocol.DummyDomain)
 	leaving := ring
 	leaving.Amount, leaving.Blinding, leaving.RingProgramID, leaving.RingDataHash = big.NewInt(100), big.NewInt(62), big.NewInt(0), big.NewInt(0)
-	other := append([]byte{0x50}, make32(0xd4)...)
-	hash, err := protocol.HashBytes(other)
-	if err != nil {
-		t.Fatal(err)
-	}
-	leaving.OwnerPkHash = hash
+	other, owner := ringaudit.Identity(t, 0xd4)
+	leaving.OwnerPkHash = owner
 	statement.Notes[2], statement.Notes[3] = leaving, ring
 	for i, b := range other {
 		statement.Audit.Recipients[2][i] = int(b)
@@ -206,7 +205,7 @@ func TestAnonymousDisclosureVectorPinsHostAndCircuit(t *testing.T) {
 		Ciphertext:     hexFields(t, ciphertext),
 		DisclosureHash: hexFields(t, []*big.Int{hash})[0],
 	}
-	if len(fields) != 2+3*statement.NIn+4*statement.Count {
+	if len(fields) != 2+3*statement.NIn+5*statement.Count {
 		t.Fatalf("%d published fields", len(fields))
 	}
 	var got anonymousVector

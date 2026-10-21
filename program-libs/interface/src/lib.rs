@@ -12,6 +12,8 @@ pub mod merge_utils;
 pub mod pda;
 pub mod shape;
 pub mod state;
+#[cfg(feature = "token-account")]
+pub mod token_account;
 pub mod tree_slot;
 pub mod verifying_keys;
 

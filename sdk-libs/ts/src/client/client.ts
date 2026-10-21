@@ -904,6 +904,7 @@ export class ZolanaClient
       throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
     checkedAddress(input.ringProgramId, "ringProgramId");
     if (input.cosigner !== undefined) checkedAddress(input.cosigner, "cosigner");
+    if (input.exitTokenOwner !== undefined) checkedAddress(input.exitTokenOwner, "exitTokenOwner");
     return this.#proveTransfer(
       input.proofInputs,
       {
@@ -911,6 +912,7 @@ export class ZolanaClient
         ring: input.ringProgramId,
         owner: input.owner,
         ...(input.cosigner === undefined ? {} : { cosigner: input.cosigner }),
+        ...(input.exitTokenOwner === undefined ? {} : { exitTokenOwner: input.exitTokenOwner }),
       },
       input.keys,
       input.config?.indexer,

@@ -1,5 +1,11 @@
 import { auditOpeningHash } from "../src/ring/audit.js";
-import { hashBytes, initializePoseidon } from "../src/hasher/index.js";
+import {
+  SOLANA_OWNER_TAG,
+  hashBytes,
+  initializePoseidon,
+  solanaOwnerIdentity,
+} from "../src/hasher/index.js";
+import { ownerHash } from "../src/keypair/hash.js";
 import { bigIntBytes, ZERO_32 } from "../src/transaction/internal.js";
 import { UTXO_DOMAIN } from "../src/interface/program.js";
 import { X25519PublicKey, X25519Keypair } from "../src/keypair/x25519.js";
@@ -119,12 +125,27 @@ function signatureOf(byte: number) {
   return getBase58Decoder().decode(filled(byte, 64));
 }
 
+/** An anonymous slot's Ed25519 owner, `seed` up to 0x2f keeps the nullifier key canonical. */
+function anonymousOwner(seed: number) {
+  const identityKey = filled(seed, 32);
+  const nullifierPk = filled(seed + 1, 32);
+  return {
+    ownerHash: ownerHash(solanaOwnerIdentity(identityKey), nullifierPk) as Bytes32,
+    recipient: (slotIndex: number) => ({
+      slotIndex,
+      identityTag: SOLANA_OWNER_TAG,
+      identityKey: getBase58Decoder().decode(identityKey),
+      nullifierPk: getBase58Decoder().decode(nullifierPk),
+    }),
+  };
+}
+
 /** Proof-bound fields use the same base58 encoding as Rust ProofInputUtxo. */
-function auditOpeningWire(amount: bigint, ring?: Address) {
+function auditOpeningWire(amount: bigint, ring?: Address, owner: Bytes32 = ZERO_32) {
   const opening = {
     domain: bigIntBytes(BigInt(UTXO_DOMAIN), 32) as Bytes32,
     treeId: ZERO_32,
-    ownerHash: ZERO_32,
+    ownerHash: owner,
     asset: hashBytes(addressBytes(SOL_MINT)) as Bytes32,
     amount: bigIntBytes(amount, 32) as Bytes32,
     blinding: ZERO_32,
@@ -1922,7 +1943,7 @@ describe("ring read request", () => {
                       ringProgramId: RING,
                     },
                   ],
-                  payloadErrors: [{ slotIndex: 0, kind: "unreadable" }],
+                  payloadErrors: [{ slotIndex: 0, kind: "decrypt" }],
                   nullifiers: [addressOf(3)],
                   signers: [addressOf(11)],
                   withdrawals: [],
@@ -2064,7 +2085,6 @@ describe("ring read request", () => {
 
   const withdrawalPage = (
     withdrawals: readonly Record<string, unknown>[],
-    anonymous?: unknown,
     openings: unknown = [],
     outputs: readonly Record<string, unknown>[] = [],
     eventIndex: unknown = 0,
@@ -2089,7 +2109,6 @@ describe("ring read request", () => {
                   nullifiers: [],
                   signers: [],
                   withdrawals,
-                  ...(anonymous === undefined ? {} : { anonymous }),
                 },
               ],
               skipped: [],
@@ -2139,7 +2158,7 @@ describe("ring read request", () => {
     const signer = await anyReader();
     const opening = auditOpeningWire(7n);
     const valid = await new RingRpc("http://ring.example", {
-      fetch: withdrawalPage([], undefined, [opening]),
+      fetch: withdrawalPage([], [opening]),
       allowInsecureHttp: true,
     }).getDecryptedTransactions({ ringProgramId: RING, signer });
     expect(valid.items[0]?.outputOpenings[0]?.amount).toEqual(bigIntBytes(7n, 32));
@@ -2147,7 +2166,7 @@ describe("ring read request", () => {
     for (const eventIndex of [null, -1, 65536, 1.5]) {
       await expect(
         new RingRpc("http://ring.example", {
-          fetch: withdrawalPage([], undefined, [opening], [], eventIndex),
+          fetch: withdrawalPage([], [opening], [], eventIndex),
           allowInsecureHttp: true,
         }).getDecryptedTransactions({ ringProgramId: RING, signer }),
       ).rejects.toMatchObject({ code: "RING_RPC" });
@@ -2165,7 +2184,7 @@ describe("ring read request", () => {
     ]) {
       await expect(
         new RingRpc("http://ring.example", {
-          fetch: withdrawalPage([], undefined, [opening], [output]),
+          fetch: withdrawalPage([], [opening], [output]),
           allowInsecureHttp: true,
         }).getDecryptedTransactions({ ringProgramId: RING, signer }),
       ).rejects.toMatchObject({ code: "RING_RPC" });
@@ -2187,8 +2206,8 @@ describe("ring read request", () => {
     ]) {
       const fetch =
         invalidOpenings === undefined
-          ? withdrawalPage([], undefined, null)
-          : withdrawalPage([], undefined, invalidOpenings);
+          ? withdrawalPage([], null)
+          : withdrawalPage([], invalidOpenings);
       await expect(
         new RingRpc("http://ring.example", {
           fetch,
@@ -2198,77 +2217,287 @@ describe("ring read request", () => {
     }
   });
 
-  const anonymousTrace = () => ({
-    sender: addressOf(21),
-    inputs: [{ treeId: 65535, amount: "18446744073709551615", asset: addressOf(22) }],
-    recipients: [
-      {
-        slotIndex: 1,
-        identityTag: 0x53,
-        identityKey: addressOf(23),
-        nullifierPk: addressOf(24),
-        amount: 7,
-        asset: addressOf(22),
-      },
-    ],
+  type RustAnonymousItem = {
+    anonymous: { inputs: Record<string, unknown>[]; recipients: Record<string, unknown>[] };
+  };
+
+  const RUST_ANONYMOUS_PAGE = JSON.parse(
+    readFileSync(
+      new URL(
+        "../../../custom-rings/client/src/rpc/decrypted_anonymous_page.json",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  ) as { value: { items: RustAnonymousItem[] } };
+
+  /** The Rust page with one edit to its item, every other value left as Rust wrote it. */
+  const readAnonymousPage = async (edit: (item: RustAnonymousItem) => void = () => undefined) => {
+    await initializePoseidon();
+    const page = structuredClone(RUST_ANONYMOUS_PAGE);
+    edit(page.value.items[0]!);
+    return new RingRpc("http://ring.example", {
+      fetch: capturingFetch(page).fetch,
+      allowInsecureHttp: true,
+    }).getDecryptedTransactions({ ringProgramId: addressOf(7), signer: await anyReader() });
+  };
+
+  it("reads a Rust anonymous page and takes amounts and assets from the opening by slot", async () => {
+    const item = (await readAnonymousPage()).items[0]!;
+    const mint = hashBytes(addressBytes(addressOf(4)));
+    expect(item.anonymous).toEqual({
+      sender: addressOf(0x20),
+      inputs: [{ treeId: 4, amount: 13n, asset: mint }],
+      recipients: [
+        {
+          slotIndex: 0,
+          identityTag: SOLANA_OWNER_TAG,
+          identityKey: filled(0x21, 32),
+          nullifierPk: filled(0x22, 32),
+        },
+        {
+          slotIndex: 1,
+          identityTag: SOLANA_OWNER_TAG,
+          identityKey: filled(0x23, 32),
+          nullifierPk: filled(0x24, 32),
+        },
+      ],
+    });
+    const [ring, exit, padding] = item.outputOpenings;
+    expect(ring).toMatchObject({
+      amount: bigIntBytes(9n, 32),
+      asset: mint,
+      ringProgramId: hashBytes(addressBytes(addressOf(7))),
+    });
+    expect(exit).toMatchObject({
+      amount: bigIntBytes(4n, 32),
+      asset: mint,
+      blinding: filled(6, 32),
+      ringProgramId: ZERO_32,
+    });
+    expect(padding).toMatchObject({ domain: ZERO_32, ownerHash: ZERO_32, amount: ZERO_32 });
+    expect(
+      item.outputs.map((output) => [output.slotIndex, output.amount, output.ringProgramId]),
+    ).toEqual([
+      [0, 9n, addressOf(7)],
+      [1, 4n, undefined],
+    ]);
+    expect(item.payloadErrors).toEqual([]);
   });
 
-  it.each([0x53])(
-    "retains anonymous audit identities with tag %i and exact amounts",
-    async (identityTag) => {
-      const trace = anonymousTrace();
-      trace.recipients[0]!.identityTag = identityTag;
-      const page = await new RingRpc("http://ring.example", {
-        fetch: withdrawalPage([], trace),
-        allowInsecureHttp: true,
-      }).getDecryptedTransactions({
-        ringProgramId: addressOf(7),
-        signer: await anyReader(),
-      });
-      expect(page.items[0]?.anonymous).toEqual({
-        sender: addressOf(21),
-        inputs: [
-          {
-            treeId: 65535,
-            amount: 18446744073709551615n,
-            asset: filled(22, 32),
-          },
-        ],
-        recipients: [
-          {
-            slotIndex: 1,
-            identityTag,
-            identityKey: filled(23, 32),
-            nullifierPk: filled(24, 32),
-            amount: 7n,
-            asset: filled(22, 32),
-          },
-        ],
-      });
-    },
-  );
+  it("retains a u64 input amount and the widest tree id of a Rust anonymous page", async () => {
+    const item = (
+      await readAnonymousPage((wire) => {
+        wire.anonymous.inputs[0] = {
+          ...wire.anonymous.inputs[0],
+          treeId: 65535,
+          amount: "18446744073709551615",
+        };
+      })
+    ).items[0]!;
+    expect(item.anonymous?.inputs[0]).toMatchObject({
+      treeId: 65535,
+      amount: 18446744073709551615n,
+    });
+  });
 
-  it("rejects malformed anonymous traces instead of silently dropping them", async () => {
-    const trace = anonymousTrace();
-    const recipient = trace.recipients[0]!;
-    const input = trace.inputs[0]!;
-    for (const anonymous of [
-      { ...trace, inputs: [{ ...input, treeId: 65536 }] },
-      { ...trace, inputs: [{ ...input, amount: "18446744073709551616" }] },
-      { ...trace, recipients: [{ ...recipient, identityTag: 1 }] },
-      { ...trace, recipients: [{ ...recipient, identityTag: 0x50 }] },
-      { ...trace, recipients: [recipient, recipient] },
-      { ...trace, recipients: [{ ...recipient, nullifierPk: "invalid" }] },
-    ]) {
-      await expect(
-        new RingRpc("http://ring.example", {
-          fetch: withdrawalPage([], anonymous),
-          allowInsecureHttp: true,
-        }).getDecryptedTransactions({
-          ringProgramId: addressOf(7),
-          signer: await anyReader(),
-        }),
-      ).rejects.toMatchObject({ code: "RING_RPC" });
+  it.each<readonly [string, (item: RustAnonymousItem) => void, string]>([
+    [
+      "an input tree id past u16",
+      (item) => {
+        item.anonymous.inputs[0]!["treeId"] = 65536;
+      },
+      "anonymous.inputs.treeId",
+    ],
+    [
+      "an input amount past u64",
+      (item) => {
+        item.anonymous.inputs[0]!["amount"] = "18446744073709551616";
+      },
+      "anonymous.inputs.amount",
+    ],
+    [
+      "an identity tag of no owner",
+      (item) => {
+        item.anonymous.recipients[0]!["identityTag"] = 1;
+      },
+      "anonymous.recipients.identityTag",
+    ],
+    [
+      "the retired P-256 identity tag",
+      (item) => {
+        item.anonymous.recipients[0]!["identityTag"] = 0x50;
+      },
+      "anonymous.recipients.identityTag",
+    ],
+    [
+      "a repeated recipient slot",
+      (item) => {
+        item.anonymous.recipients[1]!["slotIndex"] = item.anonymous.recipients[0]!["slotIndex"];
+      },
+      "anonymous.recipients.slotIndex",
+    ],
+    [
+      "a recipient slot past the openings",
+      (item) => {
+        item.anonymous.recipients[1]!["slotIndex"] = 3;
+      },
+      "anonymous.recipients.slotIndex",
+    ],
+    [
+      "an undecodable nullifier key",
+      (item) => {
+        item.anonymous.recipients[0]!["nullifierPk"] = "invalid";
+      },
+      "anonymous.recipients.nullifierPk",
+    ],
+    [
+      "a nullifier key past the field modulus",
+      (item) => {
+        item.anonymous.recipients[0]!["nullifierPk"] = getBase58Decoder().decode(filled(255, 32));
+      },
+      "anonymous.recipients.nullifierPk",
+    ],
+    [
+      "a recipient whose identity the opening's owner does not bind",
+      (item) => {
+        item.anonymous.recipients[0]!["identityKey"] = item.anonymous.recipients[1]!["identityKey"];
+      },
+      "anonymous.recipients.owner",
+    ],
+    [
+      "an opened slot without a recipient",
+      (item) => {
+        item.anonymous.recipients.pop();
+      },
+      "anonymous.recipients",
+    ],
+  ])("rejects a Rust anonymous page with %s", async (_, edit, path) => {
+    await expect(readAnonymousPage(edit)).rejects.toMatchObject({
+      code: "RING_RPC",
+      details: { reason: "invalid response", path },
+    });
+  });
+
+  const RUST_PAYLOAD_ERRORS = JSON.parse(
+    readFileSync(
+      new URL("../../../test-vectors/ring_rpc_payload_errors.json", import.meta.url),
+      "utf8",
+    ),
+  ) as Readonly<{ kinds: readonly string[]; unknown_asset_bad_pair_hint: unknown }>;
+
+  const payloadErrorPage = (
+    payloadErrors: unknown,
+    slot: Readonly<{ stored?: boolean; confidential?: boolean; exit?: boolean }> = {},
+  ) => {
+    const owner = anonymousOwner(0x11);
+    const anonymous = slot.confidential !== true;
+    return capturingFetch({
+      context: { blockTime: 1_700_000_000, slot: 9 },
+      value: {
+        items: [
+          {
+            slot: 8,
+            txSignature: signatureOf(1),
+            eventIndex: 0,
+            txViewingPk: Buffer.from(hex(X25519_HEX)).toString("base64"),
+            outputOpenings: [
+              auditOpeningWire(
+                7n,
+                slot.exit === true ? undefined : RING,
+                anonymous ? owner.ownerHash : ZERO_32,
+              ),
+            ],
+            outputs:
+              slot.stored === true
+                ? [
+                    {
+                      slotIndex: 0,
+                      recipientViewingPk: Buffer.from(hex(X25519_HEX)).toString("base64"),
+                      ownerTag: addressOf(11),
+                      asset: SOL_MINT,
+                      amount: 7,
+                      ...(slot.exit === true ? {} : { ringProgramId: RING }),
+                    },
+                  ]
+                : [],
+            payloadErrors,
+            nullifiers: [],
+            signers: [],
+            withdrawals: [],
+            ...(anonymous
+              ? {
+                  anonymous: {
+                    sender: addressOf(21),
+                    inputs: [],
+                    recipients: [owner.recipient(0)],
+                  },
+                }
+              : {}),
+          },
+        ],
+        skipped: [],
+        cursor: null,
+      },
+    }).fetch;
+  };
+
+  const readPayloadErrors = async (fetch: typeof globalThis.fetch) =>
+    (
+      await new RingRpc("http://ring.example", {
+        fetch,
+        allowInsecureHttp: true,
+      }).getDecryptedTransactions({ ringProgramId: RING, signer: await anyReader() })
+    ).items[0]?.payloadErrors;
+
+  it("reads every payload error the Rust ring rpc writes, two kinds on one slot included", async () => {
+    expect(
+      await readPayloadErrors(payloadErrorPage(RUST_PAYLOAD_ERRORS.unknown_asset_bad_pair_hint)),
+    ).toEqual([
+      { slotIndex: 0, kind: "unknownAsset" },
+      { slotIndex: 0, kind: "pairHint" },
+    ]);
+    const causes = {
+      frame: "unreadable",
+      decrypt: "unreadable",
+      commitment: "openingMismatch",
+      asset: "unknownAsset",
+    };
+    expect([...Object.keys(causes), "pairHint"]).toEqual(RUST_PAYLOAD_ERRORS.kinds);
+    for (const [kind, audited] of Object.entries(causes)) {
+      expect(await readPayloadErrors(payloadErrorPage([{ slotIndex: 0, kind }]))).toEqual([
+        { slotIndex: 0, kind: audited },
+      ]);
+    }
+    expect(
+      await readPayloadErrors(
+        payloadErrorPage([{ slotIndex: 0, kind: "pairHint" }], { stored: true }),
+      ),
+    ).toEqual([{ slotIndex: 0, kind: "pairHint" }]);
+    expect(await readPayloadErrors(payloadErrorPage([], { stored: true, exit: true }))).toEqual([]);
+    expect(
+      await readPayloadErrors(payloadErrorPage([{ slotIndex: 0, kind: "asset" }], { exit: true })),
+    ).toEqual([{ slotIndex: 0, kind: "unknownAsset" }]);
+  });
+
+  it("rejects payload errors the Rust ring rpc never writes", async () => {
+    const error = (kind: string, slotIndex = 0) => ({ slotIndex, kind });
+    for (const [payloadErrors, slot] of [
+      [[error("asset"), error("asset")], {}],
+      [[error("pairHint")], {}],
+      [[error("frame"), error("pairHint")], {}],
+      [[error("frame"), error("decrypt")], {}],
+      [[error("asset")], { stored: true }],
+      [[error("pairHint")], { stored: true, confidential: true }],
+      [[error("pairHint")], { stored: true, exit: true }],
+      [[error("asset"), error("pairHint")], { exit: true }],
+      [[error("unknownAsset")], {}],
+      [[error("asset", 1)], {}],
+    ] as const) {
+      await expect(readPayloadErrors(payloadErrorPage(payloadErrors, slot))).rejects.toMatchObject({
+        code: "RING_RPC",
+        details: { path: expect.stringMatching(/^payloadErrors/) },
+      });
     }
   });
 

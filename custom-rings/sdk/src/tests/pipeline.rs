@@ -3,26 +3,33 @@
 use std::sync::Mutex;
 
 use custom_ring_interface::{RingMode, ANONYMOUS_OUTPUT_BODY_LEN};
+use solana_account::Account;
 use solana_address::Address;
+use spl_token_2022_interface::pod::{PodAccount, PodCOption};
 use zolana_client::Shape;
-use zolana_interface::instruction::{
-    instruction_data::transact::{
-        confidential_encrypted_output_body, ring_anonymous_encrypted_output_body,
-        ring_confidential_encrypted_output_body, OwnerTag, TransactOutput,
+use zolana_hasher::primitives::{hash_bytes, SOLANA_OWNER_TAG};
+use zolana_interface::{
+    instruction::{
+        instruction_data::transact::{
+            confidential_encrypted_output_body, ring_anonymous_encrypted_output_body,
+            ring_confidential_encrypted_output_body, OwnerTag, TransactOutput,
+        },
+        tag::{RING_AUTHORITY_TRANSACT, RING_TRANSACT},
     },
-    tag::{RING_AUTHORITY_TRANSACT, RING_TRANSACT},
+    pda, SPL_TOKEN_ACCOUNT_INITIALIZED, SPL_TOKEN_PROGRAM_ID,
 };
 use zolana_keypair::{
     random_blinding, RingAddress, ShieldedAddress, ShieldedKeypair, ViewingKey, X25519Keypair,
 };
-use zolana_program::instruction::TransactSolTransferAccounts;
+use zolana_program::instruction::{TransactSolTransferAccounts, TransactSplWithdrawalAccounts};
+use zolana_ring_client::{AnonymousExit, AnonymousOutputOpening, AnonymousOwner};
 use zolana_ring_policy::{OutflowLimit, RuleTable};
 use zolana_ring_transaction::{AnonymousViewTags, RingAnonymousSlot};
 use zolana_transaction::{
     instructions::transact::{ConfidentialTransaction, OutputEncryption},
     keys::{LocalShieldedKeys, TransactionKeyRequest},
     serialization::confidential::ConfidentialOutputPlaintext,
-    AssetRegistry, Data, Mint, ShieldedKeys, TransactionError, SOL_MINT,
+    AssetRegistry, Data, Mint, ShieldedKeys, TransactionError, Utxo, WalletUtxo, SOL_MINT,
 };
 
 use super::{
@@ -32,7 +39,10 @@ use super::{
     *,
 };
 use crate::{
-    tests::support::{account, input, no_witnesses, note, pinned, ring, Accounts, OccupiedTags},
+    tests::support::{
+        account, empty, input, no_witnesses, note, pinned, ring, tree_account, wallet, Accounts,
+        OccupiedTags,
+    },
     CustomRingConfig, PoolTree,
 };
 
@@ -965,6 +975,26 @@ async fn an_anonymous_exit_publishes_the_default_ring_owner() {
         staged.proof_inputs.output_utxos[1].ring_program_id,
         Some(program())
     );
+    let disclosure =
+        anonymous::anonymous_disclosure(&sender.shielded_address().unwrap(), &staged.proof_inputs)
+            .unwrap();
+    assert_eq!(
+        disclosure.outputs[0],
+        AnonymousOutputOpening::Exit(AnonymousExit {
+            owner: AnonymousOwner {
+                identity_tag: SOLANA_OWNER_TAG,
+                identity_key: owner_key,
+                nullifier_pk: receiver.nullifier_pubkey,
+            },
+            amount: 4,
+            asset: hash_bytes(SOL_MINT.as_array()).unwrap(),
+            blinding: staged.proof_inputs.output_utxos[0].blinding,
+        })
+    );
+    assert!(matches!(
+        disclosure.outputs[1],
+        AnonymousOutputOpening::Ring(_)
+    ));
 }
 
 /// AnonymousRingEddsa keeps every note in the ring and refuses a slot it cannot prove.
@@ -1376,4 +1406,269 @@ async fn anonymous_staging_refuses_memos_and_compact_padding() {
             TransactionError::AnonymousCompactPadding { slot_index: 2 }
         ))
     ));
+}
+
+fn spl_ring_note(owner: &ShieldedKeypair, mint: Address) -> WalletUtxo {
+    wallet(
+        Utxo {
+            owner: owner.signing_pubkey(),
+            asset: Mint::new(mint, 2),
+            amount: 10,
+            blinding: random_blinding(),
+            ring_program_id: Some(program()),
+            data: Data::default(),
+        },
+        &owner.nullifier_key,
+        0,
+        0,
+        None,
+        None,
+    )
+}
+
+fn token_state(mint: Address, owner: Address) -> PodAccount {
+    PodAccount {
+        mint: mint.to_bytes().into(),
+        owner: owner.to_bytes().into(),
+        state: SPL_TOKEN_ACCOUNT_INITIALIZED,
+        ..PodAccount::default()
+    }
+}
+
+fn token_account(state: PodAccount) -> Account {
+    account(Address::new_from_array(SPL_TOKEN_PROGRAM_ID), &state)
+}
+
+/// The SDK refuses a missing, foreign-mint, shared or on-curve token account and one that names
+/// the hidden owner.
+#[tokio::test]
+async fn an_anonymous_spl_exit_names_neither_the_hidden_owner_nor_a_second_key() {
+    let sender = &ShieldedKeypair::new_ed25519().unwrap();
+    let hidden = solana_signer::Signer::pubkey(sender);
+    let mint = Address::new_from_array([0x31; 32]);
+    let stranger = Address::new_from_array([0x32; 32]);
+    let token_program = Address::new_from_array(SPL_TOKEN_PROGRAM_ID);
+    let destination = pda::associated_token_address_with_program(&stranger, &mint, &token_program);
+    let associated = pda::associated_token_address_with_program(&hidden, &mint, &token_program);
+    let withdraw = |to: Address| {
+        let mut transaction = ConfidentialTransaction::new_with_ring(
+            vec![spl_ring_note(sender, mint)],
+            Address::new_from_array([7; 32]),
+            program(),
+        )
+        .unwrap();
+        transaction.withdraw(mint, 4, to).unwrap();
+        owner_transfer(sender, transaction).with_interface_transfer_accounts(vec![
+            TransactInterfaceTransferAccounts::SplWithdrawal(TransactSplWithdrawalAccounts {
+                mint,
+                spl_interface: pda::spl_interface(&mint),
+                user_token_account: to,
+                token_program,
+            }),
+        ])
+    };
+    let stage = |to: Address, rpc: Accounts| async move {
+        withdraw(to)
+            .with_anonymous_signer(&sender.signing_key, &sender.viewing_key)
+            .rail
+            .stage(ring(), &rpc, &anonymous(), None)
+            .await
+    };
+    for (to, owner) in [
+        (destination, hidden),
+        (hidden, stranger),
+        (associated, stranger),
+    ] {
+        let rpc = Accounts::default().with(to, token_account(token_state(mint, owner)));
+        let refused = stage(to, rpc).await;
+        assert!(
+            matches!(refused, Err(RingError::AnonymousExitLinksOwner(exit)) if exit == to),
+            "{to} owned by {owner}"
+        );
+    }
+    let key = PodCOption::some(stranger.to_bytes().into());
+    for state in [
+        PodAccount {
+            delegate: key,
+            ..token_state(mint, stranger)
+        },
+        PodAccount {
+            close_authority: key,
+            ..token_state(mint, stranger)
+        },
+    ] {
+        let rpc = Accounts::default().with(destination, token_account(state));
+        assert!(matches!(
+            stage(destination, rpc).await,
+            Err(RingError::AnonymousExitTokenAccountShared(exit)) if exit == destination
+        ));
+    }
+    for rpc in [
+        Accounts::default(),
+        Accounts::default().with(destination, token_account(token_state(stranger, stranger))),
+    ] {
+        assert!(matches!(
+            stage(destination, rpc).await,
+            Err(RingError::AnonymousExitTokenAccountInvalid(exit)) if exit == destination
+        ));
+    }
+    let keypair_address = Address::new_from_array([0x33; 32]);
+    assert!(keypair_address.is_on_curve());
+    let rpc = Accounts::default().with(keypair_address, token_account(token_state(mint, stranger)));
+    assert!(matches!(
+        stage(keypair_address, rpc).await,
+        Err(RingError::AnonymousExitTokenAccountOnCurve(exit)) if exit == keypair_address
+    ));
+    let rpc = Accounts::default().with(destination, token_account(token_state(mint, stranger)));
+    let staged = stage(destination, rpc).await.unwrap();
+    assert_eq!(staged.exit_token_owner, Some(stranger));
+}
+
+/// SPP binds a SOL exit's recipient alone, a program owner, data or the hidden owner there is
+/// refused before proving.
+#[tokio::test]
+async fn an_anonymous_sol_exit_leaves_to_a_wallet_other_than_the_hidden_owner() {
+    let sender = &ShieldedKeypair::new_ed25519().unwrap();
+    let hidden = solana_signer::Signer::pubkey(sender);
+    let stage = |to: Address, rpc: Accounts| async move {
+        let mut transaction = ring_transaction(sender, 10);
+        transaction.withdraw_sol(4, to).unwrap();
+        owner_transfer(sender, transaction)
+            .with_interface_transfer_accounts(vec![TransactInterfaceTransferAccounts::Sol(
+                TransactSolTransferAccounts { recipient: to },
+            )])
+            .with_anonymous_signer(&sender.signing_key, &sender.viewing_key)
+            .rail
+            .stage(ring(), &rpc, &anonymous(), None)
+            .await
+    };
+    assert!(matches!(
+        stage(hidden, Accounts::default()).await,
+        Err(RingError::AnonymousExitLinksOwner(exit)) if exit == hidden
+    ));
+    let wallet = Address::new_from_array([0x34; 32]);
+    let token_program = Address::new_from_array(SPL_TOKEN_PROGRAM_ID);
+    let mut nonce = empty(Address::default());
+    nonce.data = vec![0; 80];
+    for account in [empty(token_program), nonce] {
+        assert!(matches!(
+            stage(wallet, Accounts::default().with(wallet, account)).await,
+            Err(RingError::AnonymousExitAccountHasData(exit)) if exit == wallet
+        ));
+    }
+    for rpc in [
+        Accounts::default(),
+        Accounts::default().with(wallet, empty(Address::default())),
+    ] {
+        assert_eq!(stage(wallet, rpc).await.unwrap().exit_token_owner, None);
+    }
+}
+
+/// The Go golden test solves `custom-ring-base-anonymous-exit.json`, `UPDATE_PROVER_JSON=1`
+/// rewrites it and `UPDATE_RING_GOLDENS=1` its digest.
+#[tokio::test]
+async fn the_go_fixture_is_the_anonymous_base_request_of_an_exit_a_payment_and_padding() {
+    let keys = |seed: u8| {
+        ShieldedKeypair::from_keypair(zolana_keypair::SigningKey::from_ed25519_bytes(&[seed; 32]))
+            .unwrap()
+    };
+    let (sender, recipient, exit_owner) = (keys(1), keys(2), keys(3));
+    let mut transaction = ring_transaction(&sender, 10);
+    transaction
+        .transfer_with_ring(&exit_owner.shielded_address().unwrap(), Mint::SOL, 3, None)
+        .unwrap();
+    let address = RingAddress {
+        recipient: recipient.shielded_address().unwrap(),
+        ring_program_id: program(),
+        inbox_secret: recipient.viewing_key.inbox_secret(0).unwrap(),
+    };
+    let transfer = owner_transfer(&sender, transaction)
+        .with_anonymous_signer(&sender.signing_key, &sender.viewing_key)
+        .with_payment(sol_payment(AnonymousRecipient::Address(address), 4))
+        .unwrap()
+        .with_shape(Shape::IN1_OUT4)
+        .unwrap();
+    let tree = PoolTree::from_id(0);
+    let rpc = Accounts::default().with(tree.address, tree_account(tree));
+    let staged = transfer
+        .rail
+        .stage(ring(), &rpc, &anonymous(), None)
+        .await
+        .unwrap();
+    let inputs = &staged.proof_inputs;
+    let trees = crate::trees::spend_trees(&rpc, &inputs.input_utxos, inputs.output_tree_id)
+        .await
+        .unwrap();
+    let client = zolana_client::AsyncZolanaClient::new(
+        rpc,
+        NoRpc,
+        zolana_client::AsyncProverClient::local(),
+    );
+    let spp = Spp::witness(&transfer, &client, &staged, &trees, true)
+        .await
+        .unwrap();
+    let Staged {
+        pending,
+        proof_inputs,
+        ..
+    } = *staged;
+    let body = pending
+        .finish_anonymous_base(spp.private_tx_hash(), &proof_inputs)
+        .unwrap();
+    let request: serde_json::Value = serde_json::to_value(&body).unwrap();
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
+        "../../prover/server/prover/custom_ring/testdata/rust/custom-ring-base-anonymous-exit.json",
+    );
+    if std::env::var_os("UPDATE_PROVER_JSON").is_some() {
+        std::fs::write(&path, serde_json::to_string_pretty(&body).unwrap() + "\n").unwrap();
+    }
+    let pinned: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(slot_layout(&request), slot_layout(&pinned));
+    assert_eq!(
+        slot_layout(&request)["outputs"],
+        serde_json::json!([
+            ["exit", true, false],
+            ["ring", true, true],
+            ["ring", true, true],
+            ["padding", false, false]
+        ])
+    );
+}
+
+/// The bytes vary per run, the slot layout does not.
+fn slot_layout(request: &serde_json::Value) -> serde_json::Value {
+    let nonzero = |value: &serde_json::Value| {
+        value
+            .as_str()
+            .unwrap()
+            .trim_start_matches("0x")
+            .bytes()
+            .any(|digit| digit != b'0')
+    };
+    let outputs: Vec<_> = (0..4)
+        .map(|slot| {
+            let opening = &request["anonymousOutputs"][slot];
+            let kind = match (
+                nonzero(&opening["ownerPkHash"]),
+                nonzero(&opening["ringProgramId"]),
+            ) {
+                (false, _) => "padding",
+                (true, false) => "exit",
+                (true, true) => "ring",
+            };
+            serde_json::json!([
+                kind,
+                nonzero(&request["recipients"][slot]),
+                nonzero(&request["recipientViewingKeys"][slot]),
+            ])
+        })
+        .collect();
+    serde_json::json!({
+        "circuitType": request["circuitType"],
+        "anonymous": request["anonymous"],
+        "nIn": request["nIn"],
+        "nOut": request["nOut"],
+        "outputs": outputs,
+    })
 }

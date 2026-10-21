@@ -22,9 +22,9 @@ pub use crate::{
     deposit::{deposit_payload, ring_deposits_in, RingDeposit},
     encryption::{
         auditor_view_tag, open_deposit, open_merge_disclosure, seal_deposits, AnonymousDisclosure,
-        AnonymousOutputOpening, AuditInputOpening, AuditorEncryption, AuditorMessage,
-        DepositEncryption, DepositOpening, MergeDisclosureEncryption, MergeOpening,
-        NullifierKeyEnvelope, SealedNullifierKey,
+        AnonymousExit, AnonymousOutputOpening, AnonymousOwner, AnonymousRingOutput,
+        AuditInputOpening, AuditorEncryption, AuditorMessage, DepositEncryption, DepositOpening,
+        MergeDisclosureEncryption, MergeOpening, NullifierKeyEnvelope, SealedNullifierKey,
     },
     error::AuditError,
     merge_audit::{

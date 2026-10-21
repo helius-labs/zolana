@@ -1,12 +1,11 @@
 //! Dedicated disclosure supplies the verified note openings. Recipient ciphertexts
 //! supply optional delivery metadata and cannot erase those openings when malformed.
-//! In an anonymous ring a ring body is proven, the auditor opens the note from it.
+//! In an anonymous ring a ring note opens from its proven body and an exit from its disclosure.
 
 use custom_ring_interface::{DisclosureShape, RingMode, AUDIT_OUTPUT_SLOTS};
 use solana_address::Address;
 use zeroize::Zeroizing;
 use zolana_client::ProofInputUtxo;
-use zolana_hasher::{primitives::hash_bytes, Hasher, Poseidon};
 use zolana_interface::event::OutputDataEncoding;
 use zolana_keypair::{constants::SALT_LEN, ViewingKey, X25519Keypair, X25519Pubkey};
 use zolana_transaction::{
@@ -18,7 +17,7 @@ use zolana_transaction::{
 };
 
 use crate::{
-    encryption::{auditor_view_tag, AnonymousOutputOpening, AuditorMessage},
+    encryption::{auditor_view_tag, AnonymousOutputOpening, AnonymousRingOutput, AuditorMessage},
     opening::NoteOpening,
     types::{AuditedOutput, AuditedTransaction, OutputPayloadError, OutputPayloadErrorKind},
     AuditError,
@@ -79,41 +78,32 @@ impl TransactionAudit<'_> {
                 tx.output_slots.iter().zip(&disclosure.outputs).enumerate()
             {
                 let slot_index = position as u32;
-                // A padding slot discloses no address and carries no note.
-                if *disclosed == AnonymousOutputOpening::default() {
-                    audited.output_openings.push(ProofInputUtxo::default());
-                    continue;
-                }
-                if let Some(body) = slot.encrypted_body(EncryptedScheme::Confidential) {
-                    let exit = OutputAudit {
-                        tx_key: &tx_key,
-                        slot,
-                        salt,
-                        slot_index,
-                        assets: self.assets,
+                let recipient = match disclosed {
+                    AnonymousOutputOpening::Padding => {
+                        audited.output_openings.push(ProofInputUtxo::default());
+                        continue;
                     }
-                    .run_exit(&body, disclosed);
-                    match exit {
-                        Ok((opening, output)) => {
-                            audited.output_openings.push(opening);
-                            audited.outputs.push(output);
+                    AnonymousOutputOpening::Exit(exit) => {
+                        OutputAudit {
+                            tx_key: &tx_key,
+                            slot,
+                            salt,
+                            slot_index,
+                            assets: self.assets,
+                            mode,
                         }
-                        Err(kind) => {
-                            audited.output_openings.push(ProofInputUtxo::default());
-                            audited
-                                .payload_errors
-                                .push(OutputPayloadError { slot_index, kind });
-                        }
+                        .record(exit.opening(slot.output_context.tree_id)?, &mut audited)?;
+                        continue;
                     }
-                    continue;
-                }
+                    AnonymousOutputOpening::Ring(recipient) => recipient,
+                };
                 let opened = AnonymousSlotAudit {
                     tx_key: &tx_key,
                     slot,
                     salt,
                     slot_index,
                     ring,
-                    disclosed,
+                    disclosed: recipient,
                 }
                 .open();
                 match opened {
@@ -145,25 +135,15 @@ impl TransactionAudit<'_> {
         }
         let openings = message.open_outputs_for_shape(&tx_key, salt, shape)?;
         for (position, (slot, opening)) in tx.output_slots.iter().zip(openings).enumerate() {
-            let slot_index = position as u32;
-            if opening.hash().ok() != Some(slot.output_context.hash) {
-                return Err(AuditError::OutputCommitmentMismatch(slot_index));
-            }
-            let opened = OutputAudit {
+            OutputAudit {
                 tx_key: &tx_key,
                 slot,
                 salt,
-                slot_index,
+                slot_index: position as u32,
                 assets: self.assets,
+                mode,
             }
-            .run(&opening);
-            audited.output_openings.push(opening);
-            match opened {
-                Ok(output) => audited.outputs.push(output),
-                Err(kind) => audited
-                    .payload_errors
-                    .push(OutputPayloadError { slot_index, kind }),
-            }
+            .record(opening, &mut audited)?;
         }
         Ok(audited)
     }
@@ -211,7 +191,7 @@ struct AnonymousSlotAudit<'a> {
     salt: [u8; SALT_LEN],
     slot_index: u32,
     ring: Address,
-    disclosed: &'a AnonymousOutputOpening,
+    disclosed: &'a AnonymousRingOutput,
 }
 
 /// A body that opened to the published commitment.
@@ -250,7 +230,7 @@ impl AnonymousSlotAudit<'_> {
             TransactionError::InvalidLength { .. } => Frame,
             _ => Decrypt,
         })?;
-        let owner_hash = disclosed_owner_hash(self.disclosed)?;
+        let owner_hash = self.disclosed.owner.owner_hash().map_err(|_| Commitment)?;
         let asset_address = Address::new_from_array(opened.asset_address);
         let opening = ProofInputUtxo::new(
             owner_hash,
@@ -268,7 +248,7 @@ impl AnonymousSlotAudit<'_> {
             slot_index: self.slot_index,
             opening,
             recipient_viewing_pk,
-            identity_key: self.disclosed.identity_key,
+            identity_key: self.disclosed.owner.identity_key,
             asset_address,
             amount: opened.amount,
             blinding: opened.blinding,
@@ -296,17 +276,6 @@ impl AnonymousNote {
     }
 }
 
-/// The owner hash the commitment binds, from the proven disclosure.
-fn disclosed_owner_hash(
-    disclosed: &AnonymousOutputOpening,
-) -> Result<[u8; 32], OutputPayloadErrorKind> {
-    let mut identity = [disclosed.identity_tag; 33];
-    identity[1..].copy_from_slice(&disclosed.identity_key);
-    hash_bytes(&identity)
-        .and_then(|identity| Poseidon::hashv(&[&identity, &disclosed.nullifier_pk]))
-        .map_err(|_| OutputPayloadErrorKind::Commitment)
-}
-
 #[must_use]
 struct OutputAudit<'a> {
     tx_key: &'a ViewingKey,
@@ -314,6 +283,7 @@ struct OutputAudit<'a> {
     salt: [u8; SALT_LEN],
     slot_index: u32,
     assets: &'a AssetRegistry,
+    mode: RingMode,
 }
 
 /// A confidential body is not proven, only a matching opening makes it a note.
@@ -323,6 +293,26 @@ struct ConfidentialBody {
 }
 
 impl OutputAudit<'_> {
+    /// The proof binds `opening` to the slot's `utxo_hash`, the recipient body only describes it.
+    fn record(
+        self,
+        opening: ProofInputUtxo,
+        audited: &mut AuditedTransaction,
+    ) -> Result<(), AuditError> {
+        if opening.hash().ok() != Some(self.slot.output_context.hash) {
+            return Err(AuditError::OutputCommitmentMismatch(self.slot_index));
+        }
+        match self.run(&opening) {
+            Ok(output) => audited.outputs.push(output),
+            Err(kind) => audited.payload_errors.push(OutputPayloadError {
+                slot_index: self.slot_index,
+                kind,
+            }),
+        }
+        audited.output_openings.push(opening);
+        Ok(())
+    }
+
     fn run(&self, opening: &ProofInputUtxo) -> Result<AuditedOutput, OutputPayloadErrorKind> {
         use OutputPayloadErrorKind::Frame;
         let Some(OutputDataEncoding::Encrypted(blob)) = self.slot.output_data() else {
@@ -336,37 +326,6 @@ impl OutputAudit<'_> {
             return Err(Frame);
         }
         self.check(self.open(body)?, opening)
-    }
-
-    /// An anonymous exit discloses its owner, the body supplies the rest of a default-ring opening.
-    fn run_exit(
-        &self,
-        body: &[u8],
-        disclosed: &AnonymousOutputOpening,
-    ) -> Result<(ProofInputUtxo, AuditedOutput), OutputPayloadErrorKind> {
-        use OutputPayloadErrorKind::{Asset, Commitment};
-        let body = self.open(body)?;
-        // The opening binds a zero data hash.
-        if !body.plaintext.data.is_empty() {
-            return Err(Commitment);
-        }
-        let mint = self
-            .assets
-            .resolve(body.plaintext.asset_id)
-            .map_err(|_| Asset)?;
-        let opening = ProofInputUtxo::new(
-            disclosed_owner_hash(disclosed)?,
-            &mint.asset,
-            body.plaintext.amount,
-            &body.plaintext.blinding,
-            self.slot.output_context.tree_id,
-        )
-        .map_err(|_| Commitment)?;
-        if opening.hash().ok() != Some(self.slot.output_context.hash) {
-            return Err(Commitment);
-        }
-        let output = self.check(body, &opening)?;
-        Ok((opening, output))
     }
 
     fn open(&self, body: &[u8]) -> Result<ConfidentialBody, OutputPayloadErrorKind> {
@@ -395,9 +354,12 @@ impl OutputAudit<'_> {
         } = body;
         let opening = NoteOpening::new(opening).ok_or(Commitment)?;
         let asset = opening.mint(self.assets).map_err(|_| Asset)?.ok_or(Asset)?;
+        // An anonymous output binds zero data hashes, a body with data describes another note.
+        let unbound_data = self.mode == RingMode::Anonymous && !plaintext.data.is_empty();
         if asset.asset_id != plaintext.asset_id
             || plaintext.amount != opening.amount
             || plaintext.blinding != opening.fields.blinding
+            || unbound_data
             || !opening
                 .belongs_to_ring(plaintext.ring_program_id)
                 .map_err(|_| Commitment)?

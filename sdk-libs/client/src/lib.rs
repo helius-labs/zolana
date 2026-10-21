@@ -32,7 +32,7 @@ pub mod user_registry;
 
 pub use anonymous::{
     AnonymousRingNote, AnonymousRingReport, AnonymousRingState, AnonymousStream, ADDRESS_GAP,
-    DECRYPTIONS_PER_INDEX,
+    DECRYPTIONS_PER_INDEX, MAX_ISSUED_ADDRESSES,
 };
 pub use authority::ProofAuthority;
 pub use client::{

@@ -28,6 +28,7 @@ pub mod status;
 pub mod tool;
 pub mod transact;
 pub mod ui;
+pub mod wallet;
 pub mod wizard;
 mod workspace;
 
@@ -166,7 +167,7 @@ pub enum Command {
     Policy(PolicyCommand),
     /// Print the local auditor key's public key, or create the key file.
     AuditorKey(AuditorKeyArgs),
-    /// Print the member's `zolana:` address, what an anonymous ring pays.
+    /// Issue a `zolana:` address of the member, what an anonymous ring pays.
     Address(AddressArgs),
 }
 
@@ -350,9 +351,12 @@ pub struct AuditorKeyArgs {
 
 #[derive(Debug, Args)]
 pub struct AddressArgs {
-    /// Issue indices in order from 0, a new index per payer keeps payers apart.
-    #[arg(long, default_value_t = 0)]
-    pub index: u32,
+    /// An issued index to print again or one inside the discovery gap, the next index by default.
+    #[arg(long)]
+    pub index: Option<u32>,
+    /// Issue `--index` past the discovery gap, every later scan reads each index below it.
+    #[arg(long, requires = "index")]
+    pub beyond_gap: bool,
     /// The member's Solana keypair, `keys/sender-keypair.json` by default.
     #[arg(long)]
     pub keypair: Option<PathBuf>,

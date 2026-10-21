@@ -724,6 +724,7 @@ impl RingHarness {
                     )?,
                     payer: proof_inputs.payer,
                     cosigner: None,
+                    exit_token_owner: None,
                     ring_program_id: ring,
                     shape,
                 };

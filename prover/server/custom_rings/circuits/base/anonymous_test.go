@@ -2,6 +2,7 @@ package base_test
 
 import (
 	"math/big"
+	"slices"
 	"testing"
 
 	"github.com/consensys/gnark-crypto/ecc"
@@ -114,7 +115,7 @@ func TestWideAnonymousDisclosureBindsLastInput(t *testing.T) {
 	}
 }
 
-// Every disclosed input must be the sender's, and a ring output the Ed25519 rail's.
+// Every disclosed input must be the sender's, and every disclosed output owner must carry the Solana owner tag.
 func TestAnonymousDisclosureRejectsForeignOwners(t *testing.T) {
 	keys := ringaudit.DefaultKeys(t)
 	cs := testConstraintSystem(t)
@@ -134,6 +135,14 @@ func TestAnonymousDisclosureRejectsForeignOwners(t *testing.T) {
 		"only a dummy input": func(s *ringaudit.Statement) {
 			s.Inputs[0].Domain = big.NewInt(protocol.DummyDomain)
 		},
+		"exit to an invalid owner tag": func(s *ringaudit.Statement) {
+			s.Audit.Recipients[0][0] = 0x50
+			hash, err := protocol.HashBytes(append([]byte{0x50}, make32(0xb2)...))
+			if err != nil {
+				t.Fatal(err)
+			}
+			s.Notes[0].OwnerPkHash, s.Notes[0].RingProgramID = hash, big.NewInt(0)
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			statement := keys.AnonymousStatement(t)
@@ -142,16 +151,78 @@ func TestAnonymousDisclosureRejectsForeignOwners(t *testing.T) {
 			reject(t, cs, keys.Circuit(t, statement))
 		})
 	}
-	// A note that leaves the ring may go to any owner.
-	statement := keys.AnonymousStatement(t)
-	statement.Audit.Recipients[0][0] = 0x50
-	hash, err := protocol.HashBytes(append([]byte{0x50}, make32(0xb2)...))
-	if err != nil {
-		t.Fatal(err)
+}
+
+// exitStatement spends one note into a ring note, an exit to the default ring and a padding slot.
+func exitStatement(t *testing.T) (ringaudit.Keys, ringaudit.Statement) {
+	t.Helper()
+	keys := ringaudit.DefaultKeys(t)
+	s := keys.AnonymousStatement(t)
+	identity, owner := ringaudit.Identity(t, 0xe5)
+	exit := s.Notes[0]
+	exit.OwnerPkHash, exit.NullifierPk = owner, spptest.MustNullifierPk(t, big.NewInt(23))
+	exit.Amount, exit.Blinding, exit.RingProgramID = big.NewInt(40), big.NewInt(63), big.NewInt(0)
+	s.Notes[1] = exit
+	for i, b := range identity {
+		s.Audit.Recipients[1][i] = int(b)
 	}
-	statement.Notes[0].OwnerPkHash, statement.Notes[0].RingProgramID = hash, big.NewInt(0)
-	statement.Rebind(t)
-	solve(t, cs, keys.Circuit(t, statement))
+	s.Notes[2].Domain = big.NewInt(protocol.DummyDomain)
+	s.Count = 3
+	keys.Deliver(t, &s)
+	return keys, s
+}
+
+// An exit discloses its opening where a ring note discloses its viewing key, a padding slot stays zero.
+func TestAnonymousExitDisclosesItsOpening(t *testing.T) {
+	keys, s := exitStatement(t)
+	cs := testConstraintSystem(t)
+	solve(t, cs, keys.Circuit(t, s))
+
+	plaintext := ringaudit.AnonymousPlaintext(s)
+	slot := func(i int) []byte {
+		start := ringaudit.HeaderBytes + s.NIn*ringaudit.InputBytes + i*ringaudit.OutputBytes
+		return plaintext[start : start+ringaudit.OutputBytes]
+	}
+	ring, exit, padding := slot(0), slot(1), slot(2)
+	if ring[0] != base.OutputKindRing || ring[66] != 4 || exit[0] != base.OutputKindExit || exit[73] != 40 || exit[137] != 63 {
+		t.Fatal("the ring and exit slots do not lead with their kind and layout")
+	}
+	if !slices.Equal(padding, make([]byte, ringaudit.OutputBytes)) {
+		t.Fatal("a padding slot discloses bytes")
+	}
+
+	// The proof refuses a disclosure that differs from the exit's opening.
+	for name, edit := range map[string]func(*ringaudit.Statement){
+		"amount":        func(o *ringaudit.Statement) { o.Notes[1].Amount = big.NewInt(41) },
+		"asset":         func(o *ringaudit.Statement) { o.Notes[1].Asset = big.NewInt(7) },
+		"blinding":      func(o *ringaudit.Statement) { o.Notes[1].Blinding = big.NewInt(64) },
+		"owner":         func(o *ringaudit.Statement) { o.Audit.Recipients[1][2] = 0xe6 },
+		"nullifier key": func(o *ringaudit.Statement) { o.Notes[1].NullifierPk = spptest.MustNullifierPk(t, big.NewInt(24)) },
+		"ring kind":     func(o *ringaudit.Statement) { o.Notes[1].RingProgramID = o.Notes[0].RingProgramID },
+	} {
+		t.Run(name, func(t *testing.T) {
+			other := s
+			edit(&other)
+			elements := keys.BaseChainElementsFor(t, s)
+			elements[chainDisclosureHash] = keys.BaseChainElementsFor(t, other)[chainDisclosureHash]
+			circuit := keys.Circuit(t, s)
+			circuit.PublicInputHash = spptest.MustHashChain(t, elements)
+			reject(t, cs, circuit)
+		})
+	}
+
+	// The proof refuses an exit with a data hash the auditor cannot rebuild.
+	for name, edit := range map[string]func(*base.AuditUtxoWires){
+		"data hash":      func(w *base.AuditUtxoWires) { w.DataHash = big.NewInt(5) },
+		"ring data hash": func(w *base.AuditUtxoWires) { w.RingDataHash = big.NewInt(5) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			withData := s
+			edit(&withData.Notes[1])
+			withData.Rebind(t)
+			reject(t, cs, keys.Circuit(t, withData))
+		})
+	}
 }
 
 func make32(seed byte) []byte {

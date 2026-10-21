@@ -165,6 +165,8 @@ export type TransferCircuit =
       owner: HiddenOwnerAuthorization;
       /** The ring's configured co-signer, the circuit proves the owner apart from it. */
       cosigner?: Address;
+      /** The owner SPP reads from the SPL withdrawal's token account. */
+      exitTokenOwner?: Address;
     }>
   | Readonly<{ kind: "ringAuthority"; ring: Address }>;
 

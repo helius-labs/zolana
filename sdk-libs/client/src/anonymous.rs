@@ -26,10 +26,13 @@ pub const ADDRESS_GAP: u32 = 20;
 /// Outputs opened under one inbox index, the rest are spam.
 pub const DECRYPTIONS_PER_INDEX: NonZeroUsize = NonZeroUsize::new(16).unwrap();
 
+/// Every scan opens the inbox stream of each issued address, so the count bounds its cost.
+pub const MAX_ISSUED_ADDRESSES: u32 = 1 << 10;
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AnonymousRingState {
     /// Ring addresses handed out, scanned whole before the gap rule applies.
-    pub issued_addresses: u32,
+    issued_addresses: u32,
     /// Pair keys of payers and viewing keys of recipients paid before.
     pub known_counterparties: BTreeSet<X25519Pubkey>,
 }
@@ -76,6 +79,46 @@ pub struct AnonymousRingReport {
     pub malformed_slots: Vec<MalformedAnonymousSlot>,
     /// One per ring a capped tag was published in.
     pub recoveries: Vec<RingRecoveryReport>,
+}
+
+impl AnonymousRingState {
+    /// A stored state, refused above [`MAX_ISSUED_ADDRESSES`].
+    pub fn restore(
+        issued_addresses: u32,
+        known_counterparties: BTreeSet<X25519Pubkey>,
+    ) -> Result<Self, ClientError> {
+        Ok(Self {
+            issued_addresses: issued_count(issued_addresses.into())?,
+            known_counterparties,
+        })
+    }
+
+    pub fn issued_addresses(&self) -> u32 {
+        self.issued_addresses
+    }
+
+    /// Every later scan opens the inbox streams of `index` and of each index below it.
+    pub fn issue(&mut self, index: u32) -> Result<(), ClientError> {
+        let issued = issued_count(u64::from(index) + 1)?;
+        self.issued_addresses = self.issued_addresses.max(issued);
+        Ok(())
+    }
+
+    /// The next scan opens the inbox and pair streams `report` found.
+    pub fn absorb(&mut self, report: &AnonymousRingReport) -> Result<(), ClientError> {
+        let issued = issued_count(report.used_addresses.into())?;
+        self.issued_addresses = self.issued_addresses.max(issued);
+        self.known_counterparties
+            .extend(report.new_counterparties.iter().copied());
+        Ok(())
+    }
+}
+
+fn issued_count(count: u64) -> Result<u32, ClientError> {
+    u32::try_from(count)
+        .ok()
+        .filter(|issued| *issued <= MAX_ISSUED_ADDRESSES)
+        .ok_or(ClientError::TooManyIssuedAddresses { count })
 }
 
 /// Change tags come from spends, not windows.
@@ -367,7 +410,11 @@ impl<'a, K: ShieldedKeys + ?Sized> AnonymousStreams<'a, K> {
     }
 
     fn open_addresses(&mut self) {
-        let end = self.report.used_addresses.saturating_add(ADDRESS_GAP);
+        let end = self
+            .report
+            .used_addresses
+            .saturating_add(ADDRESS_GAP)
+            .min(MAX_ISSUED_ADDRESSES);
         while self.opened_addresses < end {
             self.open.push(OpenStream {
                 window: Window::Inbox(self.opened_addresses),
@@ -382,5 +429,29 @@ impl<'a, K: ShieldedKeys + ?Sized> AnonymousStreams<'a, K> {
             window: Window::Pair(counterparty),
             start: 0,
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_issued_count_stops_at_its_maximum() {
+        let mut state = AnonymousRingState::default();
+        state.issue(MAX_ISSUED_ADDRESSES - 1).unwrap();
+        assert_eq!(state.issued_addresses(), MAX_ISSUED_ADDRESSES);
+        for index in [MAX_ISSUED_ADDRESSES, u32::MAX] {
+            assert!(matches!(
+                state.issue(index),
+                Err(ClientError::TooManyIssuedAddresses { count }) if count == u64::from(index) + 1
+            ));
+        }
+        assert_eq!(state.issued_addresses(), MAX_ISSUED_ADDRESSES);
+        assert!(matches!(
+            AnonymousRingState::restore(MAX_ISSUED_ADDRESSES + 1, BTreeSet::new()),
+            Err(ClientError::TooManyIssuedAddresses { count })
+                if count == u64::from(MAX_ISSUED_ADDRESSES) + 1
+        ));
     }
 }

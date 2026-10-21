@@ -12,14 +12,17 @@ import { describe, expect, it, vi } from "vitest";
 import { treeAddress } from "../src/interface/pda/index.js";
 import { InstructionTag, SHIELDED_POOL_PROGRAM_ID } from "../src/interface/program.js";
 import { StateDiscriminator } from "../src/interface/state.js";
-import type {
-  Bytes16,
-  Bytes32,
-  Bytes33,
-  Bytes128,
-  Signature,
-  TransactInstructionData,
+import {
+  TransactWithdrawal,
+  type Bytes16,
+  type Bytes32,
+  type Bytes33,
+  type Bytes128,
+  type Signature,
+  type TransactInstructionData,
 } from "../src/interface/types.js";
+import { InterfaceError } from "../src/interface/errors.js";
+import { TRANSACTION_SIZE_LIMIT } from "../src/interface/transaction-size.js";
 import { solanaOwnerIdentity } from "../src/hasher/index.js";
 import {
   auditPublicInputHash,
@@ -88,6 +91,7 @@ import {
 import {
   ConfidentialTransfer,
   SppProofInputs,
+  WithdrawalTarget,
   privateTxAddressChain,
   prepareRingAuthorityTransfer,
   createExternalData,
@@ -1421,6 +1425,68 @@ describe("ring proof folded fields", () => {
     });
     expect(proveRingTransact).not.toHaveBeenCalled();
     expect(proveCustomRingPolicy).not.toHaveBeenCalled();
+  });
+
+  it("counts the withdrawal settlement accounts in the size check before either proof", async () => {
+    const accounts = await ringAccounts(X25519Keypair.generate(), true);
+    const proveRingTransact = vi.fn(async () => ({
+      data: ringInstructionData(scalar(91)),
+      roots: SPP_ROOTS,
+    }));
+    const proveCustomRingPolicy = vi.fn(async () => new Uint8Array(192));
+    const client = ringTransferClient({
+      tree: ACTIVE_TREE,
+      getAccount: accounts.getAccount,
+      proveRingTransact,
+      proveCustomRingPolicy,
+    });
+    const sender = actor(3);
+    const input = ownedInput(sender, {
+      owner: sender.keypair.signingPublicKey(),
+      asset: SOL_MINT,
+      amount: 10n,
+      blinding: scalar(6),
+      ringProgramId: RING,
+    });
+    const transfer = new ConfidentialTransfer(
+      sender.address,
+      [input],
+      sender.address.solanaAddress(),
+    ).withRingProgramId(RING);
+    transfer.send(actor(4).address, SOL_MINT, 4n);
+    const recipient = actor(41).address.solanaAddress();
+    transfer.withdraw(SOL_MINT, 3n, WithdrawalTarget.sol({ recipient }));
+    const prepared = transfer.prepare();
+    const prove = (setupBytes: number, withdrawal?: TransactWithdrawal) =>
+      proveCustomRingTransfer({
+        client,
+        ringProgramId: RING,
+        prepared,
+        keys: walletKeys(sender),
+        assets: new AssetRegistry(),
+        tree: ACTIVE_TREE,
+        transaction: {
+          setupInstructions: [
+            { programAddress: actor(40).address.solanaAddress(), data: new Uint8Array(setupBytes) },
+          ],
+          ...(withdrawal === undefined ? {} : { withdrawal }),
+        },
+      });
+    // Shortening the setup by the measured excess makes the transfer without settlement accounts exactly fill the limit.
+    const measured = await prove(4000).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    if (!(measured instanceof InterfaceError) || typeof measured.details?.["size"] !== "number")
+      throw new Error("expected a measured oversize transaction");
+    const fits = 4000 - (measured.details["size"] - TRANSACTION_SIZE_LIMIT);
+    await expect(prove(fits, TransactWithdrawal.sol({ recipient }))).rejects.toMatchObject({
+      code: "INTERFACE_TRANSACTION_TOO_LARGE",
+    });
+    expect(proveRingTransact).not.toHaveBeenCalled();
+    expect(proveCustomRingPolicy).not.toHaveBeenCalled();
+    await prove(fits);
+    expect(proveRingTransact).toHaveBeenCalledOnce();
   });
 
   it.each([1, 2])(

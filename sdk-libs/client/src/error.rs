@@ -436,6 +436,12 @@ pub enum ClientError {
     #[error("every index of the tag stream is occupied")]
     TagStreamExhausted,
 
+    #[error(
+        "{count} issued ring addresses pass the maximum of {max}",
+        max = crate::anonymous::MAX_ISSUED_ADDRESSES
+    )]
+    TooManyIssuedAddresses { count: u64 },
+
     /// The indexer answered a full page with the cursor it was given, so
     /// paging on would read the same page forever.
     #[error("indexer returned the cursor it was given; paging would not end")]
@@ -515,6 +521,9 @@ pub enum ClientError {
 
     #[error("the hidden owner's signature does not verify over this ring's spend message")]
     AnonymousSpendSignatureInvalid,
+
+    #[error("an anonymous spend takes an exit token owner exactly when it withdraws SPL")]
+    AnonymousExitTokenOwnerMismatch,
 
     #[error(
         "input {index} is not a real input_utxo, and this transaction forbids dummy input slots"

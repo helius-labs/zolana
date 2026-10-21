@@ -9,7 +9,9 @@ use zeroize::Zeroizing;
 use zolana_client::{prover::indexed::IndexedPolicyData, ProofInputUtxo};
 use zolana_hasher::primitives::{is_canonical_bn254_scalar_be, SOLANA_OWNER_TAG};
 use zolana_keypair::{ViewingKey, X25519Pubkey};
-use zolana_ring_client::{AnonymousDisclosure, AuditorEncryption, AuditorMessage};
+use zolana_ring_client::{
+    AnonymousDisclosure, AnonymousOutputOpening, AuditorEncryption, AuditorMessage,
+};
 use zolana_ring_policy::POLICY_OUTPUT_SLOTS;
 use zolana_transaction::instructions::transact::SppProofInputs;
 
@@ -302,9 +304,13 @@ impl PendingCustomRingProof {
             .zip(&mut identities.recipient_viewing_keys)
             .zip(&disclosure.outputs)
         {
-            identity[0] = output.identity_tag;
-            identity[1..].copy_from_slice(&output.identity_key);
-            *viewing_key = output.viewing_pk;
+            if let Some(owner) = output.owner() {
+                identity[0] = owner.identity_tag;
+                identity[1..].copy_from_slice(&owner.identity_key);
+            }
+            if let AnonymousOutputOpening::Ring(ring) = output {
+                *viewing_key = ring.viewing_pk;
+            }
         }
         Ok(Some(identities))
     }

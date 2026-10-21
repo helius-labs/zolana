@@ -327,7 +327,7 @@ pub struct AnonymousParties<'a> {
 }
 
 impl AnonymousParties<'_> {
-    /// Every withdrawal leaves to one account, `None` without a withdrawal.
+    /// All withdrawals name the same key, `None` without a withdrawal.
     pub fn exit_destination<'a>(
         mut withdrawals: impl Iterator<Item = &'a [u8; 32]>,
     ) -> Result<Option<&'a [u8; 32]>, ShieldedPoolError> {

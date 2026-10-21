@@ -1,10 +1,16 @@
 /** The hidden owner's rail of an anonymous ring, mirrors Rust `pipeline::anonymous`. */
-import type { MessagePartialSigner } from "@solana/kit";
+import { AccountState, getTokenDecoder, getTokenSize, type Token } from "@solana-program/token";
+import { isOffCurveAddress, type MessagePartialSigner } from "@solana/kit";
 
-import type { IndexerReader } from "../client/ports.js";
+import { ClientError } from "../client/error.js";
+import type { ChainReader, IndexerReader } from "../client/ports.js";
 import type { CustomRingAnonymousIdentities } from "../client/prover/types.js";
+import type { RpcAccount } from "../client/rpc.js";
 import { SOLANA_OWNER_TAG, hashBytes } from "../hasher/index.js";
-import { addressBytes } from "../interface/internal.js";
+import { SYSTEM_PROGRAM } from "../interface/instructions/index.js";
+import { addressBytes, encodeBase58 } from "../interface/internal.js";
+import { associatedTokenAddress } from "../interface/pda/index.js";
+import { SPL_TOKEN_2022_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID } from "../interface/program.js";
 import { isAnonymousRingShape } from "../interface/shape.js";
 import type { Address, Bytes32, Bytes64, RequestContext } from "../interface/types.js";
 import { AUDIT_OUTPUT_SLOTS, type AuditInputOpening } from "../keypair/audit.js";
@@ -17,6 +23,7 @@ import { X25519PublicKey } from "../keypair/x25519.js";
 import type {
   ConfidentialTransfer,
   PreparedTransfer,
+  SettlementTransfer,
   SppProofInputs,
 } from "../transaction/instructions/transact.js";
 import {
@@ -34,7 +41,7 @@ import {
 
 import { equalBytes } from "../wallet/internal.js";
 
-import { RingError } from "./error.js";
+import { RingError, type RingErrorCode } from "./error.js";
 import { signMessage } from "./rpc.js";
 
 /** The hidden owner's Ed25519 key, the signature lives inside the proof so the key may live in a wallet. Rust `AnonymousSpendSigner`. */
@@ -138,6 +145,91 @@ export function checkAnonymousSigner(
   )
     throw new RingError("RING_ANONYMOUS_SIGNER_LINKS_OWNER");
   return owner;
+}
+
+/** Rust `AnonymousExits::token_owner`, the owner SPP binds for the SPL withdrawal. */
+export async function anonymousExitTokenOwner(
+  input: Readonly<{
+    client: Pick<ChainReader, "getAccount">;
+    transfers: readonly SettlementTransfer[];
+    hiddenOwner: Bytes32;
+  }>,
+  context?: RequestContext,
+): Promise<Address | undefined> {
+  const hidden = encodeBase58(input.hiddenOwner);
+  let tokenOwner: Address | undefined;
+  for (const transfer of input.transfers) {
+    if (transfer.isDeposit) continue;
+    if (transfer.kind === "sol") {
+      const recipient = transfer.userSolAccount;
+      if (recipient === hidden) throw exitRefused("RING_ANONYMOUS_EXIT_LINKS_OWNER", recipient);
+      const account = await input.client.getAccount(recipient, context);
+      // Data or a program owner could name a second key, SPP refuses both.
+      if (account !== undefined && (account.owner !== SYSTEM_PROGRAM || account.data.length > 0))
+        throw exitRefused("RING_ANONYMOUS_EXIT_ACCOUNT_HAS_DATA", recipient);
+      continue;
+    }
+    const destination = transfer.tokenAccount;
+    const account = await input.client.getAccount(destination, context);
+    const control = account === undefined ? undefined : tokenAccountControl(account, transfer.mint);
+    if (account === undefined || control === undefined)
+      throw exitRefused("RING_ANONYMOUS_EXIT_TOKEN_ACCOUNT_INVALID", destination);
+    // An associated token account stays derivable from its first owner.
+    const associated = await associatedTokenAddress(hidden, transfer.mint, account.owner);
+    if ([destination, control.owner].includes(hidden) || associated === destination)
+      throw exitRefused("RING_ANONYMOUS_EXIT_LINKS_OWNER", destination);
+    // An off-curve address has no keypair, so it is never the hidden owner's key.
+    if (!isOffCurveAddress(destination))
+      throw exitRefused("RING_ANONYMOUS_EXIT_TOKEN_ACCOUNT_ON_CURVE", destination);
+    if (control.kind === "shared")
+      throw exitRefused("RING_ANONYMOUS_EXIT_TOKEN_ACCOUNT_SHARED", destination);
+    if (tokenOwner !== undefined && tokenOwner !== control.owner)
+      throw new ClientError("CLIENT_ANONYMOUS_EXIT_DESTINATIONS_DIFFER");
+    tokenOwner = control.owner;
+  }
+  return tokenOwner;
+}
+
+function exitRefused(
+  code: Extract<RingErrorCode, `RING_ANONYMOUS_EXIT_${string}`>,
+  destination: Address,
+): RingError {
+  return new RingError(code, { details: { destination } });
+}
+
+/** Rust `TokenAccountControl`. */
+type TokenAccountControl = Readonly<{ kind: "soleOwner" | "shared"; owner: Address }>;
+
+/** spl `Multisig::LEN`, an account of that length is a multisig. */
+const MULTISIG_LENGTH = 355;
+/** spl `AccountType::Account`, the byte after the base state of an account with extensions. */
+const ACCOUNT_TYPE_ACCOUNT = 2;
+const DELEGATE_TAG_OFFSET = 72;
+const CLOSE_AUTHORITY_TAG_OFFSET = 129;
+
+/** Rust `TokenAccountState::unpack` over an initialized `mint` account of either token program. */
+function tokenAccountControl(account: RpcAccount, mint: Address): TokenAccountControl | undefined {
+  const { data } = account;
+  const base = getTokenSize();
+  if (
+    (account.owner !== SPL_TOKEN_PROGRAM_ID && account.owner !== SPL_TOKEN_2022_PROGRAM_ID) ||
+    data.length < base ||
+    data.length === MULTISIG_LENGTH ||
+    (data.length > base && data[base] !== ACCOUNT_TYPE_ACCOUNT)
+  )
+    return undefined;
+  let token: Token;
+  try {
+    token = getTokenDecoder().decode(data.subarray(0, base));
+  } catch {
+    return undefined;
+  }
+  if (token.state !== AccountState.Initialized || token.mint !== mint) return undefined;
+  // SPP counts any nonzero option tag as set, the kit decoder reads a tag above one as none.
+  const sole = [DELEGATE_TAG_OFFSET, CLOSE_AUTHORITY_TAG_OFFSET].every((offset) =>
+    data.subarray(offset, offset + 4).every((byte) => byte === 0),
+  );
+  return Object.freeze({ kind: sole ? "soleOwner" : "shared", owner: token.owner });
 }
 
 /** Rust `check_anonymous_slots` over the prepared transfer, before any stream is read. */
@@ -255,9 +347,10 @@ export function anonymousIdentities(
         ? new Uint8Array(33)
         : tagged(owner.signingPublicKey.confidentialViewTag());
     }),
-    recipientViewingKeys: Array.from(
-      { length: AUDIT_OUTPUT_SLOTS },
-      (_, index) => slot(index)?.viewingPublicKey.toBytes() ?? new Uint8Array(33),
+    recipientViewingKeys: Array.from({ length: AUDIT_OUTPUT_SLOTS }, (_, index) =>
+      outputs[index]?.ringProgramId === undefined
+        ? new Uint8Array(33)
+        : (slot(index)?.viewingPublicKey.toBytes() ?? new Uint8Array(33)),
     ),
   });
 }

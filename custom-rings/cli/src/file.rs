@@ -43,3 +43,15 @@ pub fn write_keypair(keypair: &Keypair, path: &Path) -> Result<()> {
     create_new(path, json.as_bytes(), Visibility::Secret)
         .with_context(|| format!("cannot write keypair {}", path.display()))
 }
+
+/// Owner-only, a crash leaves the previous contents whole.
+pub fn replace_private(path: &Path, contents: impl AsRef<[u8]>) -> Result<()> {
+    let part = path.with_extension(format!("{}.part", std::process::id()));
+    create_new(&part, contents.as_ref(), Visibility::Secret)
+        .with_context(|| format!("cannot write {}", part.display()))?;
+    fs::rename(&part, path)
+        .inspect_err(|_| {
+            let _ = fs::remove_file(&part);
+        })
+        .with_context(|| format!("cannot write {}", path.display()))
+}

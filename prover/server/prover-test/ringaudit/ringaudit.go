@@ -433,17 +433,17 @@ func (k Keys) ChainElementsFor(t testing.TB, s Statement) []*big.Int {
 const (
 	HeaderBytes = 62
 	InputBytes  = 93
-	OutputBytes = 124
+	OutputBytes = 155
 )
 
 // AnonymousPlaintext mirrors the anonymous slot layout of package base, a dummy slot is all zero.
 func AnonymousPlaintext(s Statement) []byte {
 	out := make([]byte, HeaderBytes, HeaderBytes+s.NIn*InputBytes+s.Count*OutputBytes)
 	copy(out, bytesOf(s.Audit.Sender[:]))
+	v := spptest.AsBigInt
 	for _, input := range s.Inputs[:s.NIn] {
 		slot := make([]byte, InputBytes)
 		if isUtxo(input) {
-			v := spptest.AsBigInt
 			binary.BigEndian.PutUint16(slot, uint16(v(input.TreeID).Uint64()))
 			binary.BigEndian.PutUint64(slot[2:], v(input.Amount).Uint64())
 			v(input.Asset).FillBytes(slot[10:42])
@@ -454,9 +454,17 @@ func AnonymousPlaintext(s Statement) []byte {
 	for i, output := range s.Notes[:s.Count] {
 		slot := make([]byte, OutputBytes)
 		if isUtxo(output) {
-			copy(slot, bytesOf(s.Audit.Recipients[i][:]))
-			spptest.AsBigInt(output.NullifierPk).FillBytes(slot[33:65])
-			copy(slot[65:], bytesOf(s.Audit.RecipientViewingKeys[i][:]))
+			copy(slot[1:], bytesOf(s.Audit.Recipients[i][:]))
+			v(output.NullifierPk).FillBytes(slot[34:66])
+			if isExit(output) {
+				slot[0] = base.OutputKindExit
+				binary.BigEndian.PutUint64(slot[66:], v(output.Amount).Uint64())
+				v(output.Asset).FillBytes(slot[74:106])
+				v(output.Blinding).FillBytes(slot[106:138])
+			} else {
+				slot[0] = base.OutputKindRing
+				copy(slot[66:], bytesOf(s.Audit.RecipientViewingKeys[i][:]))
+			}
 		}
 		out = append(out, slot...)
 	}

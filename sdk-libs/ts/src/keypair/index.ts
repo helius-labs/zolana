@@ -65,6 +65,7 @@ export {
 export type {
   AnonymousAuditDisclosure,
   AnonymousOutputOpening,
+  AnonymousOutputOwner,
   AnonymousOutputStream,
   AuditDisclosureInput,
   AuditDisclosureShape,

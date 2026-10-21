@@ -6,7 +6,6 @@ use anyhow::{anyhow, ensure, Result};
 use custom_ring_sdk::{CoSignScope, CustomRingMerge, MergeProofInput, RingMergeOperation};
 use solana_address::Address;
 use solana_signer::Signer;
-use zolana_client::{IndexerRpcConfig, Rpc, UtxoScan};
 use zolana_interface::pda;
 use zolana_keypair::ShieldedKeypair;
 use zolana_transaction::{select_merge_where, SpendableDecryptionResult, WalletUtxo, SOL_MINT};
@@ -18,11 +17,8 @@ pub fn run(ctx: &Context, args: MergeArgs) -> Result<()> {
     let mint = args.mint.map_or(SOL_MINT, |mint| mint.0);
     let registry = assets::resolve(ctx.rpc(), mint)?.registry;
     let cosigner = transact::cosigner(ctx, &args.cosigner, CoSignScope::TRANSFERS)?;
-    let scan = UtxoScan::new(&sender, &registry)
-        .with_ring_deposit_payload(ctx.ring.program_id(), zolana_ring_client::deposit_payload)
-        .with_indexer_config(IndexerRpcConfig::at_slot(ctx.rpc().get_slot()?));
     println!("reading the sender's notes");
-    let spendable = scan.fetch(ctx.zolana.indexer())?.spendable;
+    let spendable = ctx.spendable_utxos(&sender, &registry)?;
     if !spendable.unknown_asset_ids.is_empty() {
         line("unregistered asset ids", spendable.unknown_asset_ids.len());
     }
@@ -51,7 +47,7 @@ pub fn run(ctx: &Context, args: MergeArgs) -> Result<()> {
     let signers: Vec<&(dyn Signer + Sync)> = cosigner.iter().map(|keypair| keypair as _).collect();
     let signature = ctx.submit(merge, payer, &signers)?;
     ctx.wait_for_indexed(signature)?;
-    let merged = scan.fetch(ctx.zolana.indexer())?.spendable;
+    let merged = ctx.spendable_utxos(&sender, &registry)?;
     ensure!(
         merged.utxos().any(|entry| entry.utxo_hash == output_hash),
         "the indexer did not reconstruct merged output {output_hash:?}"
@@ -99,10 +95,15 @@ fn mergeable(entry: &WalletUtxo, ring: Address) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use solana_signature::Signature;
     use zolana_transaction::{Data, DataRecord, Mint, Utxo};
 
     use super::*;
+    use crate::wallet::fixtures::{
+        self, inbox_tag, keypair, AnonymousTransfer, Indexer, Member, Paid, RingUtxo,
+    };
 
     const RING: Address = Address::new_from_array([9; 32]);
 
@@ -180,5 +181,65 @@ mod tests {
         assert!(refused
             .to_string()
             .starts_with("found only 0 mergeable notes"));
+    }
+
+    #[test]
+    fn the_merge_scan_finds_an_anonymous_payment_and_anonymous_change() {
+        let sender = Member::new(1, "merge-scan");
+        let (bob, carol) = (keypair(2), keypair(3));
+        let spent = RingUtxo::new(&sender.keys, 10);
+        let paid = RingUtxo::new(&sender.keys, 7);
+        let change = RingUtxo::new(&sender.keys, 6);
+        let to_carol = RingUtxo::new(&carol, 4);
+        let from_bob = AnonymousTransfer {
+            payer: &bob,
+            nullifiers: vec![[21; 32]],
+            outputs: vec![Paid {
+                to: &sender.keys,
+                output: &spent,
+                tag: inbox_tag(&sender.keys, 0),
+            }],
+        }
+        .transaction();
+        let from_carol = AnonymousTransfer {
+            payer: &carol,
+            nullifiers: vec![[22; 32]],
+            outputs: vec![Paid {
+                to: &sender.keys,
+                output: &paid,
+                tag: inbox_tag(&sender.keys, 1),
+            }],
+        }
+        .transaction();
+        let change_tag = sender
+            .keys
+            .viewing_key
+            .ring_change_view_tag(&spent.nullifier, 1)
+            .unwrap();
+        let spend = AnonymousTransfer {
+            payer: &sender.keys,
+            nullifiers: vec![spent.nullifier],
+            outputs: vec![
+                Paid {
+                    to: &carol,
+                    output: &to_carol,
+                    tag: inbox_tag(&carol, 0),
+                },
+                Paid {
+                    to: &sender.keys,
+                    output: &change,
+                    tag: change_tag,
+                },
+            ],
+        }
+        .transaction();
+        let indexer = Indexer(vec![from_bob, from_carol, spend]);
+
+        let selected = select(&sender.scan(&indexer), fixtures::RING, SOL_MINT, 2).unwrap();
+        let merged: BTreeSet<_> = selected.iter().map(|entry| entry.utxo_hash).collect();
+        assert_eq!(merged, BTreeSet::from([paid.hash, change.hash]));
+        let state = sender.store.load().unwrap();
+        assert_eq!(state.issued_addresses(), 2);
+        assert_eq!(state.known_counterparties.len(), 2);
     }
 }

@@ -80,9 +80,14 @@ const DISCLOSURE_SENDER_LEN = 62;
 /** `tree_id(2) || amount(8) || asset(32) || blinding(32)`, zero padded to three chunks. */
 const DISCLOSURE_INPUT_LEN = 93;
 const DISCLOSURE_INPUT_BYTES = 74;
-/** `identity(33) || nullifier_pk(32) || viewing_pk(33)`, zero padded to four chunks, Rust `DISCLOSURE_OUTPUT_LEN`. */
-const DISCLOSURE_OUTPUT_LEN = 124;
-const DISCLOSURE_OUTPUT_BYTES = 98;
+/** An exit's opening sets the width, a ring slot zero pads to it, Rust `DISCLOSURE_OUTPUT_LEN`. */
+const DISCLOSURE_OUTPUT_LEN = 155;
+const OUTPUT_OWNER_END = 1 + 33 + 32;
+const RING_OUTPUT_END = OUTPUT_OWNER_END + 33;
+const EXIT_OUTPUT_END = OUTPUT_OWNER_END + 8 + 32 + 32;
+const OUTPUT_KIND_PADDING = 0;
+const OUTPUT_KIND_RING = 1;
+const OUTPUT_KIND_EXIT = 2;
 /** Position of the output body chain in the thirteen-element base statement, Rust `BODY_CHAIN_INDEX`. */
 const BODY_CHAIN_INDEX = 8;
 const U16_MAX = 0xffff;
@@ -103,14 +108,33 @@ export interface AuditInputOpening {
   readonly blinding: Bytes32;
 }
 
-/** The recipient address disclosed for one anonymous output, all zero in a padding slot. */
-export interface AnonymousOutputOpening {
-  readonly identityTag: number;
+/** Rust `AnonymousOwner`. */
+export interface AnonymousOutputOwner {
+  readonly identityTag: typeof SOLANA_OWNER_TAG;
   readonly identityKey: Bytes32;
   readonly nullifierPublicKey: Bytes32;
-  /** Kept in the auditor capsule so the public output hides the recipient. */
-  readonly viewingPublicKey: Bytes33;
 }
+
+/** Rust `AnonymousOutputOpening`. */
+export type AnonymousOutputOpening =
+  | Readonly<{ kind: "padding" }>
+  | Readonly<
+      AnonymousOutputOwner & {
+        /** The auditor opens the proven body under `viewingPublicKey`. */
+        kind: "ring";
+        /** Kept in the auditor capsule so the public output hides the recipient. */
+        viewingPublicKey: Bytes33;
+      }
+    >
+  | Readonly<
+      AnonymousOutputOwner & {
+        /** An exit to the default ring has no proven body, the disclosure carries the rest of its opening. */
+        kind: "exit";
+        amount: bigint;
+        asset: Bytes32;
+        blinding: Bytes32;
+      }
+    >;
 
 /** The hidden sender, spent notes and recipients bound by an anonymous proof, Rust `AnonymousDisclosure`. */
 export interface AnonymousAuditDisclosure {
@@ -557,12 +581,9 @@ export function anonymousAuditDisclosureShape(
   return { anonymous: true, inputs: disclosure.inputs.length, outputs: disclosure.outputs.length };
 }
 
-/** A padding slot discloses all-zero bytes, Rust `AnonymousOutputOpening::default`. */
+/** A padding slot discloses all-zero bytes, Rust `AnonymousOutputOpening::Padding`. */
 export function isDummyAnonymousOutput(output: AnonymousOutputOpening): boolean {
-  return (
-    output.identityTag === 0 &&
-    [output.identityKey, output.nullifierPublicKey, output.viewingPublicKey].every(isZero)
-  );
+  return output.kind === "padding";
 }
 
 function isSlotCount(count: number): boolean {
@@ -612,19 +633,30 @@ export function encodeAnonymousAuditDisclosure(disclosure: AnonymousAuditDisclos
     offset += DISCLOSURE_INPUT_LEN;
   }
   for (const output of disclosure.outputs) {
-    if (
-      !Number.isInteger(output.identityTag) ||
-      output.identityTag < 0 ||
-      output.identityTag > 0xff
-    )
-      throw new RangeError("identityTag is out of range");
-    bytes[offset] = output.identityTag;
-    bytes.set(checkedBytes(output.identityKey, 32, "identityKey"), offset + 1);
-    bytes.set(checkedBytes(output.nullifierPublicKey, 32, "nullifierPublicKey"), offset + 33);
-    bytes.set(checkedBytes(output.viewingPublicKey, 33, "viewingPublicKey"), offset + 65);
+    encodeAnonymousOutput(output, bytes.subarray(offset, offset + DISCLOSURE_OUTPUT_LEN));
     offset += DISCLOSURE_OUTPUT_LEN;
   }
   return bytes;
+}
+
+/** Expects a zeroed `slot`, Rust `AnonymousOutputOpening::encode`. */
+function encodeAnonymousOutput(output: AnonymousOutputOpening, slot: Uint8Array): void {
+  if (output.kind === "padding") return;
+  if (output.kind !== "ring" && output.kind !== "exit")
+    throw new RangeError("unknown anonymous output kind");
+  if (output.identityTag !== SOLANA_OWNER_TAG)
+    throw new RangeError("identityTag is not the Solana owner tag");
+  slot[0] = output.kind === "ring" ? OUTPUT_KIND_RING : OUTPUT_KIND_EXIT;
+  slot[1] = output.identityTag;
+  slot.set(checkedBytes(output.identityKey, 32, "identityKey"), 2);
+  slot.set(checkedBytes(output.nullifierPublicKey, 32, "nullifierPublicKey"), 34);
+  if (output.kind === "ring") {
+    slot.set(checkedBytes(output.viewingPublicKey, 33, "viewingPublicKey"), OUTPUT_OWNER_END);
+    return;
+  }
+  slot.set(bigIntToBytes(checkedUnsigned(output.amount, U64_MAX, "amount"), 8), OUTPUT_OWNER_END);
+  slot.set(checkedBytes(output.asset, 32, "asset"), OUTPUT_OWNER_END + 8);
+  slot.set(checkedBytes(output.blinding, 32, "blinding"), OUTPUT_OWNER_END + 40);
 }
 
 /** Rejects nonzero padding so each accepted disclosure has one byte layout, Rust `AnonymousDisclosure::decode`. */
@@ -656,20 +688,54 @@ export function decodeAnonymousAuditDisclosure(
   }
   const outputs: AnonymousOutputOpening[] = [];
   for (let index = 0; index < shape.outputs; index += 1) {
-    const slot = bytes.subarray(offset, offset + DISCLOSURE_OUTPUT_LEN);
-    if (!isZero(slot.subarray(DISCLOSURE_OUTPUT_BYTES)))
-      throw new RangeError("invalid audit disclosure padding");
-    outputs.push(
-      Object.freeze({
-        identityTag: slot[0] ?? 0,
-        identityKey: slot.slice(1, 33) as Bytes32,
-        nullifierPublicKey: slot.slice(33, 65) as Bytes32,
-        viewingPublicKey: slot.slice(65, 98) as Bytes33,
-      }),
-    );
+    outputs.push(decodeAnonymousOutput(bytes.subarray(offset, offset + DISCLOSURE_OUTPUT_LEN)));
     offset += DISCLOSURE_OUTPUT_LEN;
   }
   return Object.freeze({ sender, inputs: Object.freeze(inputs), outputs: Object.freeze(outputs) });
+}
+
+export const ANONYMOUS_PADDING_OUTPUT: AnonymousOutputOpening = Object.freeze({ kind: "padding" });
+
+/** Bytes past the kind's layout must be zero, Rust `AnonymousOutputOpening::decode`. */
+function decodeAnonymousOutput(slot: Uint8Array): AnonymousOutputOpening {
+  const kind = slot[0];
+  if (kind === OUTPUT_KIND_PADDING) {
+    if (!isZero(slot)) throw new RangeError("invalid audit disclosure padding");
+    return ANONYMOUS_PADDING_OUTPUT;
+  }
+  if (slot[1] !== SOLANA_OWNER_TAG) throw new RangeError("invalid audit disclosure identity tag");
+  const owner: AnonymousOutputOwner = {
+    identityTag: SOLANA_OWNER_TAG,
+    identityKey: slot.slice(2, 34) as Bytes32,
+    nullifierPublicKey: canonicalDisclosed(slot.slice(34, OUTPUT_OWNER_END) as Bytes32),
+  };
+  let output: AnonymousOutputOpening;
+  let end: number;
+  if (kind === OUTPUT_KIND_RING) {
+    const viewingPublicKey = slot.slice(OUTPUT_OWNER_END, RING_OUTPUT_END) as Bytes33;
+    output = Object.freeze({ kind: "ring", ...owner, viewingPublicKey });
+    end = RING_OUTPUT_END;
+  } else if (kind === OUTPUT_KIND_EXIT) {
+    const asset = canonicalDisclosed(
+      slot.slice(OUTPUT_OWNER_END + 8, OUTPUT_OWNER_END + 40) as Bytes32,
+    );
+    const blinding = canonicalDisclosed(
+      slot.slice(OUTPUT_OWNER_END + 40, EXIT_OUTPUT_END) as Bytes32,
+    );
+    const amount = bytesToBigInt(slot.subarray(OUTPUT_OWNER_END, OUTPUT_OWNER_END + 8));
+    output = Object.freeze({ kind: "exit", ...owner, amount, asset, blinding });
+    end = EXIT_OUTPUT_END;
+  } else {
+    throw new RangeError("unknown anonymous output kind");
+  }
+  if (!isZero(slot.subarray(end))) throw new RangeError("invalid audit disclosure padding");
+  return output;
+}
+
+/** The circuit discloses canonical field encodings, Rust `canonical_disclosed`. */
+function canonicalDisclosed(field: Bytes32): Bytes32 {
+  if (!isCanonicalField(field)) throw new RangeError("non-canonical audit disclosure field");
+  return field;
 }
 
 /** Splits the plaintext into right-aligned 31-byte chunks exactly as the circuit packs it, Rust `pack_disclosure`. */

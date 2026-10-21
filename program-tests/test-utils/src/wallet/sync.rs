@@ -289,7 +289,7 @@ fn scan_anonymous_ring<I: Rpc + Sync>(
 ) -> Result<usize, ClientError> {
     let _t = timing::Phase::start("scan_anonymous_ring", 0);
     let result = AnonymousRingScan::new(wallet, material, config).fetch(indexer)?;
-    Ok(store_anonymous_scan(wallet, result))
+    store_anonymous_scan(wallet, result)
 }
 
 /// The client scan is blocking, its indexer calls run on the caller's runtime.
@@ -316,7 +316,7 @@ async fn scan_anonymous_ring_async<I: AsyncRpc + Clone + 'static>(
             )))
         }
     };
-    Ok(store_anonymous_scan(wallet, result))
+    store_anonymous_scan(wallet, result)
 }
 
 /// Owned, so the async sync moves it to a blocking task.
@@ -414,18 +414,11 @@ impl<I: AsyncRpc> Rpc for OnRuntime<I> {
     }
 }
 
-fn store_anonymous_scan(wallet: &mut Wallet, result: UtxoScanResult) -> usize {
+fn store_anonymous_scan(wallet: &mut Wallet, result: UtxoScanResult) -> Result<usize, ClientError> {
     let Some(anonymous) = result.anonymous else {
-        return 0;
+        return Ok(0);
     };
-    wallet
-        .anonymous_ring
-        .known_counterparties
-        .extend(anonymous.new_counterparties);
-    wallet.anonymous_ring.issued_addresses = wallet
-        .anonymous_ring
-        .issued_addresses
-        .max(anonymous.used_addresses);
+    wallet.anonymous_ring.absorb(&anonymous)?;
     wallet.nullifiers.extend(
         result
             .history
@@ -441,7 +434,7 @@ fn store_anonymous_scan(wallet: &mut Wallet, result: UtxoScanResult) -> usize {
         })
     });
     let notes: Vec<AnonymousRingNote> = anonymous.notes.iter().copied().chain(recovered).collect();
-    store_anonymous_notes(wallet, &result.history.utxos, &notes)
+    Ok(store_anonymous_notes(wallet, &result.history.utxos, &notes))
 }
 
 /// Opens every scheme-9 slot of the ring through `head` without tags, the scan for a wallet whose tags cannot be trusted.
@@ -2609,7 +2602,7 @@ mod tests {
             .pair_key(&bob.viewing_pubkey())
             .expect("pair key")
             .pubkey();
-        assert_eq!(bob_wallet.anonymous_ring.issued_addresses, 1);
+        assert_eq!(bob_wallet.anonymous_ring.issued_addresses(), 1);
         assert!(bob_wallet
             .anonymous_ring
             .known_counterparties
@@ -2657,7 +2650,7 @@ mod tests {
             .pair_key(&bob.viewing_pubkey())
             .expect("pair key")
             .pubkey();
-        assert_eq!(wallet.anonymous_ring.issued_addresses, 1);
+        assert_eq!(wallet.anonymous_ring.issued_addresses(), 1);
         assert_eq!(
             wallet.anonymous_ring.known_counterparties,
             BTreeSet::from([pair_pk])

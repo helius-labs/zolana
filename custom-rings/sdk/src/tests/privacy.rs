@@ -111,6 +111,7 @@ async fn publish(
             )
             .unwrap(),
             cosigner: None,
+            exit_token_owner: None,
         },
     }
     .prepare_with_dummy_policy(&staged.authority, true)

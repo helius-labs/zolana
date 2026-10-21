@@ -199,6 +199,7 @@ describe("anonymous ring sealing", () => {
 
   function indexed(
     encrypted: ReturnType<typeof encryptAnonymousRingTransfer>,
+    sealed: readonly ProofOutputUtxo[] = outputs,
   ): IndexedShieldedTransaction {
     return {
       slot: 1n,
@@ -207,7 +208,7 @@ describe("anonymous ring sealing", () => {
       txViewingPublicKey: encrypted.txViewingPublicKey,
       salt: encrypted.salt,
       ringProgramId: RING,
-      outputSlots: outputs.map((output, slotIndex) => ({
+      outputSlots: sealed.map((output, slotIndex) => ({
         viewTag: encrypted.payload[slotIndex]!.viewTag,
         outputContext: {
           hash: output.hash(TREE_ID),
@@ -358,6 +359,38 @@ describe("anonymous ring sealing", () => {
     expect(audited.payloadErrors).toEqual([]);
     expect(audited.anonymous?.recipients.map((entry) => entry.slotIndex)).toEqual([0, 2]);
     expect(audited.outputOpenings[1]?.ownerHash).toEqual(new Uint8Array(32));
+    encrypted.audit.txViewingSecret.fill(0);
+    encrypted.audit.ephemeralSecret.fill(0);
+  });
+
+  it("discloses an exit's opening and the auditor opens it beside the ring notes", () => {
+    const exit = createProofOutput({
+      ownerAddress: keypair(3).shieldedAddress(),
+      asset: SOL_MINT,
+      amount: 4n,
+      blinding: bytes(4),
+    });
+    const exiting = [paid, exit, change, padding()];
+    const encrypted = encryptAnonymousRingTransfer(tx, {
+      ...input,
+      outputs: exiting,
+      slots: [slots[0], undefined, slots[2], undefined],
+      assets: new AssetRegistry(),
+    });
+    expect(encrypted.outputBodyHashes[1]).toEqual(new Uint8Array(32));
+    const audited = auditRingTransaction({
+      auditor,
+      transaction: indexed(encrypted, exiting),
+      assets: new AssetRegistry(),
+      mode: "anonymous",
+    });
+    expect(audited.outputs.map((output) => [output.slotIndex, output.amount])).toEqual([
+      [0, 10n],
+      [1, 4n],
+      [2, 5n],
+    ]);
+    expect(audited.payloadErrors).toEqual([]);
+    expect(audited.anonymous?.recipients.map((entry) => entry.slotIndex)).toEqual([0, 1, 2]);
     encrypted.audit.txViewingSecret.fill(0);
     encrypted.audit.ephemeralSecret.fill(0);
   });

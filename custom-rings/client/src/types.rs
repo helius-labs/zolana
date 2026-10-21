@@ -57,7 +57,7 @@ pub struct AuditedTransaction {
     pub output_openings: Vec<ProofInputUtxo>,
     /// The proven hidden sender, spent notes and recipients of an anonymous ring.
     pub anonymous: Option<AnonymousDisclosure>,
-    /// Slots without an [`AuditedOutput`], one error per slot.
+    /// One cause per slot that lost its [`AuditedOutput`], a `PairHint` beside an opened ring note.
     pub payload_errors: Vec<OutputPayloadError>,
 }
 
@@ -67,7 +67,7 @@ pub struct OutputPayloadError {
     pub kind: OutputPayloadErrorKind,
 }
 
-/// Why a slot gave no [`AuditedOutput`], the verified openings and the anonymous trace stay.
+/// A `PairHint` keeps the slot's [`AuditedOutput`], every other kind replaces it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "rpc", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "rpc", serde(rename_all = "camelCase"))]

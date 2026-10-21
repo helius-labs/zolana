@@ -88,6 +88,8 @@ pub struct AnonymousRingEddsaProver {
     pub payer: Address,
     /// The ring's configured co-signer, `None` without one.
     pub cosigner: Option<Address>,
+    /// The owner SPP reads from the SPL withdrawal's token account, `None` without one.
+    pub exit_token_owner: Option<Address>,
     pub ring_program_id: Address,
     pub shape: Shape,
 }
@@ -175,6 +177,7 @@ impl AnonymousRingEddsaProver {
             ring_program_id: &self.ring_program_id,
             payer: &self.payer,
             cosigner: self.cosigner.as_ref(),
+            exit_token_owner: self.exit_token_owner.as_ref(),
             external_data: &self.external_data,
             private_tx: &private_tx,
             external_data_hash: &external_data_hash,
@@ -249,21 +252,33 @@ pub fn anonymous_signer_pk_hashes(
     Ok(signers)
 }
 
-/// The account every withdrawal of the transaction leaves to, `None` without one.
+/// The key every withdrawal of the transaction names, `None` without one.
 pub fn anonymous_exit_destination(
     external_data: &ExternalData,
+    exit_token_owner: Option<&Address>,
 ) -> Result<Option<Address>, ClientError> {
     let withdrawals = external_data
         .interface_transfers
         .iter()
-        .filter(|transfer| !transfer.is_deposit())
+        .filter(|transfer| !transfer.is_deposit());
+    let spl = withdrawals
+        .clone()
+        .any(|transfer| matches!(transfer, SettlementTransfer::Spl { .. }));
+    if spl != exit_token_owner.is_some() {
+        return Err(ClientError::AnonymousExitTokenOwnerMismatch);
+    }
+    // SPP binds an SPL leg's token account owner, never the token account address.
+    let keys = withdrawals
         .map(|transfer| match transfer {
             SettlementTransfer::Sol {
                 user_sol_account, ..
-            } => user_sol_account.as_array(),
-            SettlementTransfer::Spl { user_spl_token, .. } => user_spl_token.as_array(),
-        });
-    Ok(AnonymousParties::exit_destination(withdrawals)?.map(|exit| Address::new_from_array(*exit)))
+            } => Some(user_sol_account.as_array()),
+            SettlementTransfer::Spl { .. } => exit_token_owner.map(Address::as_array),
+        })
+        .collect::<Option<Vec<_>>>()
+        .ok_or(ClientError::AnonymousExitTokenOwnerMismatch)?;
+    Ok(AnonymousParties::exit_destination(keys.into_iter())?
+        .map(|exit| Address::new_from_array(*exit)))
 }
 
 pub(crate) struct AnonymousAuthorizationPreparation<'a> {
@@ -272,6 +287,7 @@ pub(crate) struct AnonymousAuthorizationPreparation<'a> {
     pub ring_program_id: &'a Address,
     pub payer: &'a Address,
     pub cosigner: Option<&'a Address>,
+    pub exit_token_owner: Option<&'a Address>,
     pub external_data: &'a ExternalData,
     pub private_tx: &'a [u8; 32],
     pub external_data_hash: &'a [u8; 32],
@@ -314,7 +330,8 @@ impl AnonymousAuthorizationPreparation<'_> {
         };
         let message_digest = transact_message_hash(self.private_tx, self.external_data_hash);
         self.owner.verify(self.ring_program_id, &message_digest)?;
-        let exit_destination = anonymous_exit_destination(self.external_data)?;
+        let exit_destination =
+            anonymous_exit_destination(self.external_data, self.exit_token_owner)?;
         let parties = AnonymousParties {
             payer: self.payer.as_array(),
             cosigner: self.cosigner.map(Address::as_array),
@@ -489,6 +506,59 @@ mod tests {
         for key in request.keys() {
             assert!(body.get(key).is_some(), "{key}");
         }
+    }
+
+    /// The proof binds the key SPP reads, an SPL leg's token account owner.
+    #[test]
+    fn the_exit_key_is_the_sol_recipient_or_the_token_account_owner() {
+        let recipient = Address::new_from_array([1; 32]);
+        let token_account = Address::new_from_array([2; 32]);
+        let owner = Address::new_from_array([3; 32]);
+        let sol = SettlementTransfer::Sol {
+            is_deposit: false,
+            amount: 1,
+            user_sol_account: recipient,
+        };
+        let spl = SettlementTransfer::Spl {
+            mint: Address::new_from_array([4; 32]),
+            is_deposit: false,
+            amount: 1,
+            user_spl_token: token_account,
+        };
+        let exit = |legs: Vec<SettlementTransfer>, token_owner: Option<&Address>| {
+            let external_data = ExternalData {
+                instruction_discriminator: 0,
+                expiry_unix_ts: 0,
+                interface_transfers: legs,
+                data_hash: None,
+                ring_data_hash: None,
+                tx_viewing_pk: [0; 33],
+                salt: [0; 16],
+                outputs: Vec::new(),
+                resolved_owner_tags: Vec::new(),
+                messages: Vec::new(),
+            };
+            anonymous_exit_destination(&external_data, token_owner)
+        };
+        assert_eq!(exit(vec![sol], None).unwrap(), Some(recipient));
+        assert_eq!(exit(vec![spl], Some(&owner)).unwrap(), Some(owner));
+        assert_eq!(
+            exit(vec![sol, spl], Some(&recipient)).unwrap(),
+            Some(recipient)
+        );
+        assert_eq!(exit(Vec::new(), None).unwrap(), None);
+        for (legs, token_owner) in [(vec![spl], None), (vec![sol], Some(&owner))] {
+            assert!(matches!(
+                exit(legs, token_owner),
+                Err(ClientError::AnonymousExitTokenOwnerMismatch)
+            ));
+        }
+        assert!(matches!(
+            exit(vec![sol, spl], Some(&owner)),
+            Err(ClientError::ShieldedPool(
+                zolana_interface::error::ShieldedPoolError::AnonymousExitDestinationsDiffer
+            ))
+        ));
     }
 
     /// The signature binds the ring, the digest and the owner key.

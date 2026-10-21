@@ -638,13 +638,14 @@ impl From<AnonymousDisclosure> for DecryptedAnonymousTrace {
                 })
                 .collect(),
             recipients: (0u32..)
-                .zip(disclosure.outputs)
-                .filter(|(_, output)| output.identity_tag != 0)
-                .map(|(slot_index, output)| DecryptedAnonymousRecipient {
-                    slot_index,
-                    identity_tag: output.identity_tag,
-                    identity_key: output.identity_key.into(),
-                    nullifier_pk: output.nullifier_pk.into(),
+                .zip(&disclosure.outputs)
+                .filter_map(|(slot_index, output)| {
+                    output.owner().map(|owner| DecryptedAnonymousRecipient {
+                        slot_index,
+                        identity_tag: owner.identity_tag,
+                        identity_key: owner.identity_key.into(),
+                        nullifier_pk: owner.nullifier_pk.into(),
+                    })
                 })
                 .collect(),
         }
