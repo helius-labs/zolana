@@ -53,12 +53,10 @@ pub use prover::{
 #[cfg(feature = "reqwest")]
 pub use prover::{spawn_prover, ProverLaunch};
 #[cfg(feature = "solana-rpc")]
-pub use rpc::solana_rpc::{
-    AsyncSolanaRpc, ConfirmedInstructionGroups, ProgramAccountsFilter, SolanaRpc,
-};
+pub use rpc::solana_rpc::{AsyncSolanaRpc, ConfirmedInstructionGroups, SolanaRpc};
 pub use rpc::Blocking;
 pub use rpc::SettlementAccountValidation;
-pub use rpc::{compile_message, sign_transaction, ComputeBudgetConfig};
+pub use rpc::{compile_message, sign_transaction, ComputeBudgetConfig, ProgramAccountsFilter};
 pub use rpc::{transaction_size, TransactionSize};
 pub use rpc::{
     AsyncRpc, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
@@ -72,7 +70,7 @@ pub use rpc::{
     NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 pub use rpc::{IndexerPollConfig, IndexerRpcConfig};
-pub use scan::{fetch_asset_id, UtxoScan, UtxoScanResult};
+pub use scan::{fetch_asset_id, fetch_spl_asset_registrations, UtxoScan, UtxoScanResult};
 // `SolanaRpc::send_transaction_with_config` is public but names this type,
 // so callers outside the crate need it to call the method at all.
 pub use solana_rpc_client_api::config::RpcSendTransactionConfig;

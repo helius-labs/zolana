@@ -17,8 +17,8 @@ use crate::{
         GetRingKeyRegistryRegisterProofResponse, GetRingSpendRecordResponse,
         GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
         GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, IndexerRpcConfig,
-        ProveResult, RingHistoryOptions, RingMemberProofRequest, RingSpendRecordRequest, Rpc,
-        ShieldedTransactionStream,
+        ProgramAccountsFilter, ProveResult, RingHistoryOptions, RingMemberProofRequest,
+        RingSpendRecordRequest, Rpc, ShieldedTransactionStream,
     },
 };
 
@@ -26,6 +26,17 @@ use super::{BlockingIndexer, BlockingRpc, ZolanaClient};
 
 /// Every call is the `async` client's, run to completion.
 impl<R: BlockingRpc, I: BlockingIndexer> Rpc for ZolanaClient<R, I> {
+    fn get_program_accounts_filtered(
+        &self,
+        program_id: Address,
+        filter: &ProgramAccountsFilter,
+    ) -> Result<Vec<(Address, Account)>, ClientError> {
+        self.block_on(
+            self.client
+                .get_program_accounts_filtered(program_id, filter),
+        )
+    }
+
     fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
         self.block_on(self.client.get_account(address))
     }

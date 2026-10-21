@@ -12,7 +12,9 @@
 //!
 //! It reads UTXOs only in the assets of the [`AssetRegistry`] it is given and
 //! reports the others as unknown; [`fetch_asset_id`] reads the id the pool
-//! registered for a mint, to add it. An indexer that lags misses the latest
+//! registered for a mint, to add it. Opt into [`UtxoScan::with_asset_discovery`]
+//! to learn registered SPL assets and decrypt the fetched transactions again,
+//! without repeating the indexer reads. An indexer that lags misses the latest
 //! spends; [`UtxoScan::with_indexer_config`] makes every read wait for a
 //! slot first. Every spendable UTXO carries the output tree the indexer
 //! named on the last page read, as its
@@ -22,16 +24,20 @@ use std::collections::HashSet;
 
 use solana_address::Address;
 use solana_signature::Signature;
-use zolana_interface::{pda, state::SplAssetRegistry, PROGRAM_ID_PUBKEY};
+use zolana_interface::{
+    pda,
+    state::{discriminator::SPL_ASSET_REGISTRY, SplAssetRegistry},
+    PROGRAM_ID_PUBKEY,
+};
 use zolana_keypair::X25519Pubkey;
 use zolana_transaction::{
-    verify_owned, AssetRegistry, DecryptionResult, DepositPayload, History, OwnedUtxos,
+    verify_owned, AssetRegistry, DecryptionResult, DepositPayload, History, Mint, OwnedUtxos,
     ShieldedKeys, SpendableDecryptionResult, SOL_ASSET_ID, SOL_MINT,
 };
 
 use crate::{
     error::ClientError,
-    rpc::{EncryptedUtxoMatch, IndexerRpcConfig, Rpc, ShieldedTransaction},
+    rpc::{EncryptedUtxoMatch, IndexerRpcConfig, ProgramAccountsFilter, Rpc, ShieldedTransaction},
 };
 
 const PAGE_LIMIT: u32 = 1_000;
@@ -39,6 +45,9 @@ const PAGE_LIMIT: u32 = 1_000;
 /// What [`UtxoScan::fetch`] read.
 #[derive(Clone, Debug)]
 pub struct UtxoScanResult {
+    /// The registry used to decrypt this scan, including mappings learned by
+    /// asset discovery. Reuse it on the next scan to avoid another lookup.
+    pub asset_registry: AssetRegistry,
     /// The UTXOs not spent, and the balances they add up to.
     pub spendable: SpendableDecryptionResult,
     /// Every transaction read, every UTXO the wallet owns among them, spent or
@@ -54,6 +63,7 @@ pub struct UtxoScan<'a, K: ?Sized> {
     assets: &'a AssetRegistry,
     ring_deposit_payload: Option<(Address, DepositPayload)>,
     indexer_config: Option<IndexerRpcConfig>,
+    discover_assets: bool,
 }
 
 impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
@@ -63,6 +73,7 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
             assets,
             ring_deposit_payload: None,
             indexer_config: None,
+            discover_assets: false,
         }
     }
 
@@ -75,6 +86,21 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
     #[must_use]
     pub fn with_indexer_config(mut self, config: IndexerRpcConfig) -> Self {
         self.indexer_config = Some(config);
+        self
+    }
+
+    /// Resolve unknown asset ids and mints through the pool's on-chain SPL
+    /// registrations. Requires [`Rpc::get_program_accounts_filtered`].
+    ///
+    /// At most one filtered registry read is made, only when an unknown
+    /// asset is encountered. Already fetched transactions are decrypted
+    /// again and newly discovered nullifiers are followed normally. Assets
+    /// still unknown after discovery fail with [`ClientError::UnresolvedAssets`].
+    /// The supplied registry is unchanged; the result carries the updated
+    /// registry. Leave this disabled to scan an explicit asset allowlist.
+    #[must_use]
+    pub fn with_asset_discovery(mut self) -> Self {
+        self.discover_assets = true;
         self
     }
 
@@ -97,6 +123,7 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
     pub fn fetch<I: Rpc + ?Sized>(&self, indexer: &I) -> Result<UtxoScanResult, ClientError> {
         let fetched = self.fetch_rounds(indexer)?;
         Ok(UtxoScanResult {
+            asset_registry: fetched.asset_registry,
             spendable: fetched.spendable,
             history: History {
                 utxos: fetched.owned.utxos,
@@ -109,6 +136,8 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
     }
 
     fn fetch_rounds<I: Rpc + ?Sized>(&self, indexer: &I) -> Result<Fetched, ClientError> {
+        let mut assets = self.assets.clone();
+        let mut registry_refreshed = false;
         let address = self.keys.address()?;
         let mut tags = vec![address.signing_pubkey.confidential_view_tag()?];
         tags.extend(self.keys.viewing_public_keys().iter().map(X25519Pubkey::u));
@@ -124,8 +153,32 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
         let mut decrypted = DecryptionResult::default();
         let mut queried = HashSet::new();
         loop {
-            decrypted.extend(self.keys, &batch, self.assets)?;
+            decrypted.extend(self.keys, &batch, &assets)?;
             transactions.append(&mut batch);
+            if self.discover_assets && has_unknown_assets(&decrypted) {
+                if !registry_refreshed {
+                    for mint in fetch_spl_asset_registrations(indexer)? {
+                        match assets.asset_id(&mint.asset) {
+                            Ok(asset_id) if asset_id == mint.asset_id => continue,
+                            Ok(_) => {
+                                return Err(ClientError::InvalidSplAssetRegistry {
+                                    mint: mint.asset,
+                                })
+                            }
+                            Err(_) => assets.insert(mint.asset_id, mint.asset)?,
+                        }
+                    }
+                    registry_refreshed = true;
+                    decrypted = DecryptionResult::default();
+                    decrypted.extend(self.keys, &transactions, &assets)?;
+                }
+                if has_unknown_assets(&decrypted) {
+                    return Err(ClientError::UnresolvedAssets {
+                        asset_ids: decrypted.unknown_asset_ids.iter().copied().collect(),
+                        mints: decrypted.unknown_mints.iter().copied().collect(),
+                    });
+                }
+            }
             let owned = verify_owned(self.keys, &decrypted)?;
             let spendable = owned.spendable();
             // The spends of a UTXO queried in an earlier round are fetched.
@@ -145,6 +198,7 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
             )?;
             if batch.is_empty() {
                 return Ok(Fetched {
+                    asset_registry: assets,
                     tags,
                     transactions,
                     owned,
@@ -191,6 +245,38 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
     }
 }
 
+fn has_unknown_assets(decrypted: &DecryptionResult) -> bool {
+    !(decrypted.unknown_asset_ids.is_empty() && decrypted.unknown_mints.is_empty())
+}
+
+/// Every SPL asset registration held by the shielded pool. The request is
+/// filtered by account size and discriminator; every returned account is
+/// checked again, including its owner and canonical mint PDA. A malformed,
+/// conflicting or unsupported listing fails instead of reading as empty.
+pub fn fetch_spl_asset_registrations<R: Rpc + ?Sized>(rpc: &R) -> Result<Vec<Mint>, ClientError> {
+    let filter =
+        ProgramAccountsFilter::new(SplAssetRegistry::SIZE).with_memcmp(0, [SPL_ASSET_REGISTRY]);
+    let accounts = rpc.get_program_accounts_filtered(PROGRAM_ID_PUBKEY, &filter)?;
+    let mut assets = AssetRegistry::default();
+    let mut registrations = Vec::with_capacity(accounts.len());
+    for (address, account) in accounts {
+        let invalid = || ClientError::InvalidSplAssetRegistration { address };
+        if account.owner != PROGRAM_ID_PUBKEY || !filter.matches(&account.data) {
+            return Err(invalid());
+        }
+        let registration =
+            SplAssetRegistry::from_account_bytes(&account.data).map_err(|_| invalid())?;
+        if address != pda::spl_asset_registry(&registration.mint) || registration.mint == SOL_MINT {
+            return Err(invalid());
+        }
+        assets
+            .insert(registration.asset_id, registration.mint)
+            .map_err(|_| invalid())?;
+        registrations.push(Mint::new(registration.mint, registration.asset_id));
+    }
+    Ok(registrations)
+}
+
 /// The asset id the shielded pool uses for `asset`: [`SOL_ASSET_ID`] for SOL,
 /// without a request, and for an SPL mint the id in the registry account the
 /// pool wrote when it registered the mint.
@@ -217,6 +303,7 @@ pub fn fetch_asset_id<R: Rpc + ?Sized>(rpc: &R, asset: Address) -> Result<u64, C
 
 /// What the rounds of one fetch read and decrypted.
 struct Fetched {
+    asset_registry: AssetRegistry,
     tags: Vec<[u8; 32]>,
     transactions: Vec<ShieldedTransaction>,
     /// The final round's [`verify_owned`], spent UTXOs included.

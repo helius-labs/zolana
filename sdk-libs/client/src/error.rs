@@ -136,6 +136,17 @@ pub enum ClientError {
     #[error("the shielded pool's asset registry account for mint {mint} is invalid")]
     InvalidSplAssetRegistry { mint: Address },
 
+    #[error("invalid SPL asset registration account {address}")]
+    InvalidSplAssetRegistration { address: Address },
+
+    /// Discovery could not resolve every asset the scan encountered. The
+    /// scan must not be used as a complete wallet balance or history.
+    #[error("unresolved scan assets: asset ids {asset_ids:?}, mints {mints:?}")]
+    UnresolvedAssets {
+        asset_ids: Vec<u64>,
+        mints: Vec<Address>,
+    },
+
     #[error("address resolution error: {0}")]
     AddressResolution(String),
 

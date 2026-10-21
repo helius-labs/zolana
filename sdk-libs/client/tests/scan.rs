@@ -11,22 +11,26 @@ use solana_account::Account;
 use solana_address::Address;
 use solana_signature::Signature;
 use zolana_client::{
-    fetch_asset_id, rpc::GetShieldedTransactionsByNullifiersResponse, ClientError, Context,
-    EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse, GetShieldedTransactionsByTagsResponse,
-    IndexerRpcConfig, OutputContext, OutputSlot, Rpc, ShieldedTransaction, UtxoScan,
+    fetch_asset_id, fetch_spl_asset_registrations,
+    rpc::GetShieldedTransactionsByNullifiersResponse, ClientError, Context, EncryptedUtxoMatch,
+    GetEncryptedUtxosByTagsResponse, GetShieldedTransactionsByTagsResponse, IndexerRpcConfig,
+    OutputContext, OutputSlot, ProgramAccountsFilter, Rpc, ShieldedTransaction, UtxoScan,
 };
 use zolana_event::{
     encode_merge_output_data, EncryptedRingDepositOutput, MergeOutputDataRef, OutputDataEncoding,
 };
 use zolana_interface::{pda, state::SplAssetRegistry, PROGRAM_ID_PUBKEY};
-use zolana_keypair::{ShieldedKeypair, SigningKey};
+use zolana_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
 use zolana_transaction::{
     instructions::merge::{
         merge_dummy_nullifier, merge_output_blinding, merge_output_key, MergeOutputPlaintext,
         MERGE_DEFAULT_INPUT_COUNT,
     },
     owner_utxo_hash,
-    serialization::proofless::{Proofless, ProoflessEncode},
+    serialization::{
+        confidential::{Confidential, ConfidentialEncode},
+        proofless::{Proofless, ProoflessEncode},
+    },
     AssetRegistry, Data, EncryptedScheme, HistoryKind, Mint, OwnerCx, RingDepositPlaintext,
     ShieldedKeys, TransactionError, TransactionKeyRequest, Utxo, UtxoSerialization, SOL_ASSET_ID,
     SOL_MINT,
@@ -36,6 +40,9 @@ const TREE: u16 = 2;
 
 #[derive(Default)]
 struct Indexer {
+    registrations: Vec<(Address, Account)>,
+    registry_reads: RefCell<usize>,
+    registry_fails: bool,
     /// Served by the view tags of their outputs.
     tagged: Vec<ShieldedTransaction>,
     deposits: Vec<EncryptedUtxoMatch>,
@@ -103,6 +110,26 @@ const CONTEXT: Context = Context {
 };
 
 impl Rpc for Indexer {
+    fn get_program_accounts_filtered(
+        &self,
+        program_id: Address,
+        filter: &ProgramAccountsFilter,
+    ) -> Result<Vec<(Address, Account)>, ClientError> {
+        assert_eq!(program_id, PROGRAM_ID_PUBKEY);
+        assert_eq!(
+            *filter,
+            ProgramAccountsFilter::new(SplAssetRegistry::SIZE).with_memcmp(
+                0,
+                [zolana_interface::state::discriminator::SPL_ASSET_REGISTRY]
+            )
+        );
+        *self.registry_reads.borrow_mut() += 1;
+        if self.registry_fails {
+            return Err(ClientError::Rpc("registry unavailable".into()));
+        }
+        Ok(self.registrations.clone())
+    }
+
     fn get_shielded_transactions_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
@@ -253,9 +280,23 @@ fn output_slot(
 
 /// A proofless deposit of `amount` SOL, tagged with the owner's viewing key.
 fn deposit(owner: &ShieldedKeypair, amount: u64, nonce: u8) -> (EncryptedUtxoMatch, Note) {
+    asset_deposit(owner, Mint::SOL, amount, nonce)
+}
+
+fn asset_deposit(
+    owner: &ShieldedKeypair,
+    mint: Mint,
+    amount: u64,
+    nonce: u8,
+) -> (EncryptedUtxoMatch, Note) {
     let address = owner.shielded_address().unwrap();
-    let assets = AssetRegistry::default();
-    let deposited = note(owner, sol(owner, amount, nonce), [0; 32]);
+    let mut assets = AssetRegistry::default();
+    if mint != Mint::SOL {
+        assets.insert(mint.asset_id, mint.asset).unwrap();
+    }
+    let mut utxo = sol(owner, amount, nonce);
+    utxo.asset = mint;
+    let deposited = note(owner, utxo, [0; 32]);
     let message = Proofless::encode(
         std::slice::from_ref(&deposited.utxo),
         &OwnerCx {
@@ -719,6 +760,292 @@ fn a_framed_ring_deposit_opens_only_with_its_own_rings_payload() {
 
 const MINT: Address = Address::new_from_array([7; 32]);
 const OTHER_PROGRAM: Address = Address::new_from_array([9; 32]);
+
+fn registration(mint: Mint) -> (Address, Account) {
+    (
+        pda::spl_asset_registry(&mint.asset),
+        Account {
+            lamports: 1,
+            data: SplAssetRegistry::account_bytes(mint.asset, mint.asset_id).to_vec(),
+            owner: PROGRAM_ID_PUBKEY,
+            executable: false,
+            rent_epoch: 0,
+        },
+    )
+}
+
+fn confidential(owner: &ShieldedKeypair, mint: Mint, nonce: u8) -> (ShieldedTransaction, Note) {
+    let mut utxo = sol(owner, 19, nonce);
+    utxo.asset = mint;
+    let received = note(owner, utxo, [0; 32]);
+    let tx = ViewingKey::from_bytes(&[nonce; 32]);
+    let salt = [nonce; 16];
+    let assets = AssetRegistry::default();
+    let message = Confidential::encode(
+        std::slice::from_ref(&received.utxo),
+        &OwnerCx {
+            owner: owner.signing_pubkey(),
+            assets: &assets,
+            ring_program_id: None,
+            first_nullifier: None,
+        },
+        [0; 32],
+        &ConfidentialEncode {
+            tx: tx.clone(),
+            recipient_pubkey: owner.viewing_pubkey(),
+            salt,
+            slot_index: 0,
+        },
+    )
+    .unwrap();
+    (
+        ShieldedTransaction {
+            slot: u64::from(nonce),
+            tx_signature: Signature::from([nonce; 64]),
+            event_index: Some(0),
+            tx_viewing_pk: Some(tx.pubkey()),
+            salt: Some(salt),
+            output_slots: vec![output_slot(
+                owner.signing_pubkey().confidential_view_tag().unwrap(),
+                received.hash,
+                u64::from(nonce),
+                message.data,
+            )],
+            messages: Vec::new(),
+            nullifiers: Vec::new(),
+            proofless: false,
+            ring_config: None,
+            ring_program_id: None,
+        },
+        received,
+    )
+}
+
+#[test]
+fn discovery_reuses_pages_and_follows_newly_resolved_nullifiers() {
+    let owner = keypair(7);
+    let first_mint = Mint::new(MINT, 2);
+    let second_mint = Mint::new(OTHER_PROGRAM, 3);
+    let (deposit, first) = asset_deposit(&owner, first_mint, 30, 1);
+    let (mut transfer, second) = confidential(&owner, second_mint, 2);
+    // Reached by the first note's nullifier rather than an owner tag. Its
+    // asset was not present in the first batch, but one registry read covers
+    // every subsequent round as well.
+    transfer.output_slots[0].view_tag = [99; 32];
+    transfer.nullifiers = vec![first.nullifier];
+    let indexer = Indexer {
+        deposits: vec![deposit],
+        spends: vec![transfer, spend(&owner, &second, 3)],
+        registrations: vec![registration(first_mint), registration(second_mint)],
+        page_size: 100,
+        ..Indexer::default()
+    };
+    let original = AssetRegistry::default();
+    let scan = UtxoScan::new(&owner, &original)
+        .with_indexer_config(IndexerRpcConfig::at_slot(42))
+        .with_asset_discovery()
+        .fetch(&indexer)
+        .unwrap();
+    assert!(
+        scan.spendable.utxos().next().is_none(),
+        "both discovered notes were already spent"
+    );
+    assert_eq!(scan.history.utxos.len(), 2);
+    assert_eq!(scan.history.transactions.len(), 3);
+    assert!(scan.history.unknown_asset_ids.is_empty());
+    assert!(scan.history.unknown_mints.is_empty());
+    assert_eq!(scan.asset_registry.asset_id(&MINT).unwrap(), 2);
+    assert_eq!(scan.asset_registry.asset_id(&OTHER_PROGRAM).unwrap(), 3);
+    assert!(
+        original.asset_id(&MINT).is_err(),
+        "the caller owns its registry"
+    );
+    assert_eq!(*indexer.registry_reads.borrow(), 1);
+    assert_eq!(indexer.reads_of("get_shielded_transactions_by_tags"), 1);
+    assert_eq!(indexer.reads_of("get_encrypted_utxos_by_tags"), 1);
+    assert_eq!(
+        *indexer.queried_nullifiers.borrow(),
+        vec![first.nullifier, second.nullifier]
+    );
+    assert!(indexer
+        .required_slots
+        .borrow()
+        .iter()
+        .all(|slot| *slot == Some(42)));
+    UtxoScan::new(&owner, &scan.asset_registry)
+        .with_asset_discovery()
+        .fetch(&indexer)
+        .unwrap();
+    assert_eq!(
+        *indexer.registry_reads.borrow(),
+        1,
+        "the returned registry avoids another lookup"
+    );
+}
+
+#[test]
+fn discovery_reports_unresolved_asset_ids_and_mints() {
+    let owner = keypair(7);
+    let mint = Mint::new(MINT, 2);
+    let (deposit, _) = asset_deposit(&owner, mint, 30, 1);
+    let (transfer, _) = confidential(&owner, mint, 2);
+    let indexer = Indexer {
+        deposits: vec![deposit],
+        tagged: vec![transfer],
+        page_size: 100,
+        ..Indexer::default()
+    };
+    let original = AssetRegistry::default();
+    let error = UtxoScan::new(&owner, &original)
+        .with_asset_discovery()
+        .fetch(&indexer)
+        .unwrap_err();
+    assert!(
+        matches!(error, ClientError::UnresolvedAssets { asset_ids, mints } if asset_ids == vec![2] && mints == vec![MINT])
+    );
+    assert_eq!(*indexer.registry_reads.borrow(), 1);
+    assert!(original.asset_id(&MINT).is_err());
+}
+
+#[test]
+fn a_registry_failure_is_not_a_successful_partial_scan() {
+    let owner = keypair(7);
+    let (deposit, _) = asset_deposit(&owner, Mint::new(MINT, 2), 30, 1);
+    let indexer = Indexer {
+        deposits: vec![deposit],
+        registry_fails: true,
+        page_size: 100,
+        ..Indexer::default()
+    };
+    let original = AssetRegistry::default();
+    assert!(
+        matches!(UtxoScan::new(&owner, &original).with_asset_discovery().fetch(&indexer), Err(ClientError::Rpc(message)) if message == "registry unavailable")
+    );
+}
+
+#[test]
+fn an_unknown_asset_in_a_later_round_fails_without_repeating_discovery() {
+    let owner = keypair(7);
+    let first_mint = Mint::new(MINT, 2);
+    let (deposit, first) = asset_deposit(&owner, first_mint, 30, 1);
+    let (mut transfer, _) = confidential(&owner, Mint::new(OTHER_PROGRAM, 3), 2);
+    transfer.output_slots[0].view_tag = [99; 32];
+    transfer.nullifiers = vec![first.nullifier];
+    let indexer = Indexer {
+        deposits: vec![deposit],
+        spends: vec![transfer],
+        registrations: vec![registration(first_mint)],
+        page_size: 100,
+        ..Indexer::default()
+    };
+    let assets = AssetRegistry::default();
+    assert!(matches!(
+        UtxoScan::new(&owner, &assets).with_asset_discovery().fetch(&indexer),
+        Err(ClientError::UnresolvedAssets { asset_ids, mints }) if asset_ids == vec![3] && mints.is_empty()
+    ));
+    assert_eq!(*indexer.registry_reads.borrow(), 1);
+    assert_eq!(indexer.reads_of("get_encrypted_utxos_by_tags"), 1);
+}
+
+#[test]
+fn discovery_does_not_overwrite_a_conflicting_cached_mapping() {
+    let owner = keypair(7);
+    let (deposit, _) = asset_deposit(&owner, Mint::new(OTHER_PROGRAM, 3), 30, 1);
+    let indexer = Indexer {
+        deposits: vec![deposit],
+        registrations: vec![registration(Mint::new(MINT, 2))],
+        page_size: 100,
+        ..Indexer::default()
+    };
+    let assets = AssetRegistry::new([(4, MINT)]).unwrap();
+    assert!(matches!(
+        UtxoScan::new(&owner, &assets).with_asset_discovery().fetch(&indexer),
+        Err(ClientError::InvalidSplAssetRegistry { mint }) if mint == MINT
+    ));
+    assert_eq!(assets.asset_id(&MINT).unwrap(), 4);
+}
+
+#[test]
+fn explicit_assets_stay_an_allowlist_and_known_assets_need_no_lookup() {
+    let owner = keypair(7);
+    let (deposit, _) = asset_deposit(&owner, Mint::new(MINT, 2), 30, 1);
+    let indexer = Indexer {
+        deposits: vec![deposit],
+        page_size: 100,
+        ..Indexer::default()
+    };
+    let original = AssetRegistry::default();
+    let scan = UtxoScan::new(&owner, &original).fetch(&indexer).unwrap();
+    assert_eq!(scan.history.unknown_mints, BTreeSet::from([MINT]));
+    assert!(scan.spendable.utxos().next().is_none());
+    assert_eq!(*indexer.registry_reads.borrow(), 0);
+    let known = AssetRegistry::new([(2, MINT)]).unwrap();
+    let scan = UtxoScan::new(&owner, &known)
+        .with_asset_discovery()
+        .fetch(&indexer)
+        .unwrap();
+    assert_eq!(
+        scan.spendable.balances.get_balance(MINT).unwrap().amount,
+        30
+    );
+    assert_eq!(*indexer.registry_reads.borrow(), 0);
+}
+
+#[test]
+fn invalid_or_conflicting_registry_listings_fail() {
+    let mint = Mint::new(MINT, 2);
+    let valid = registration(mint);
+    let mut wrong_owner = valid.clone();
+    wrong_owner.1.owner = OTHER_PROGRAM;
+    let mut wrong_pda = valid.clone();
+    wrong_pda.0 = OTHER_PROGRAM;
+    let mut truncated = valid.clone();
+    truncated.1.data.pop();
+    let mut wrong_discriminator = valid.clone();
+    wrong_discriminator.1.data[0] ^= 1;
+    let mut invalid_data = valid.clone();
+    invalid_data.1.data[8] ^= 1;
+    for registrations in [
+        vec![wrong_owner],
+        vec![wrong_pda],
+        vec![truncated],
+        vec![wrong_discriminator],
+        vec![invalid_data],
+        vec![registration(Mint::new(MINT, SOL_ASSET_ID))],
+        vec![valid.clone(), registration(Mint::new(OTHER_PROGRAM, 2))],
+        vec![valid.clone(), registration(Mint::new(MINT, 3))],
+    ] {
+        let indexer = Indexer {
+            registrations,
+            ..Indexer::default()
+        };
+        assert!(matches!(
+            fetch_spl_asset_registrations(&indexer),
+            Err(ClientError::InvalidSplAssetRegistration { .. })
+        ));
+    }
+    let indexer = Indexer {
+        registrations: vec![valid],
+        ..Indexer::default()
+    };
+    assert_eq!(fetch_spl_asset_registrations(&indexer).unwrap(), vec![mint]);
+}
+
+#[test]
+fn filtered_registry_reads_cannot_fall_back_to_an_unfiltered_listing() {
+    struct Unfiltered;
+    impl Rpc for Unfiltered {
+        fn get_program_accounts(&self, _: Address) -> Result<Vec<(Address, Account)>, ClientError> {
+            panic!("asset discovery must send a filtered query")
+        }
+    }
+    assert!(matches!(
+        fetch_spl_asset_registrations(&Unfiltered),
+        Err(ClientError::UnsupportedRpcMethod(
+            "get_program_accounts_filtered"
+        ))
+    ));
+}
 
 /// Accounts by address; `get_account` is the only request it answers.
 #[derive(Default)]

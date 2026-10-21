@@ -148,6 +148,31 @@ context slot for `ZolanaClient` transactions; `UtxoScan::with_indexer_config`
 applies it to wallet discovery, so a spend another client just made is read.
 Wallet discovery and chain account reads still use the SDK's configured services.
 
+`UtxoScan` scans the assets in the supplied `AssetRegistry` by default and
+reports other asset ids and mints as unknown. Opt into on-chain SPL asset
+discovery when the wallet should hold every registered asset:
+
+```rust
+let scan = UtxoScan::new(&keys, &assets)
+    .with_indexer_config(IndexerRpcConfig::at_slot(confirmed_slot))
+    .with_asset_discovery()
+    .fetch(&client)?;
+assets = scan.asset_registry;
+```
+
+An unknown asset triggers one filtered `getProgramAccounts` read of the
+pool's SPL registrations, validated by owner, layout and mint PDA. The scan
+decrypts its already fetched transactions again and follows newly resolved
+nullifiers without repeating tag queries. `fetch_spl_asset_registrations`
+exposes the same validated lookup separately. Reuse the returned registry to
+cache the mappings across scans; the input registry is unchanged, including
+on failure. A failed lookup or an asset still unresolved after discovery
+fails the scan (`ClientError::UnresolvedAssets` names the remaining ids and
+mints), rather than returning a partial balance. Leave discovery disabled
+for an explicit asset allowlist. Custom `Rpc` implementations must support
+`get_program_accounts_filtered`; discovery never falls back to an unfiltered
+program listing.
+
 `IndexedTransferPreparation` selects confidential, ring, ring-authority or
 anonymous EdDSA authorization. `IndexedMergePreparation` supports both merge rails and
 cache outputs. Pass the prepared request to `prove_indexed`, which checks the

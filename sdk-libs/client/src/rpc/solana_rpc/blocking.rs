@@ -165,6 +165,14 @@ impl SolanaRpc {
 }
 
 impl Rpc for SolanaRpc {
+    fn get_program_accounts_filtered(
+        &self,
+        program_id: Address,
+        filter: &ProgramAccountsFilter,
+    ) -> Result<Vec<(Address, Account)>, ClientError> {
+        SolanaRpc::get_program_accounts_filtered(self, program_id, filter)
+    }
+
     fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
         let pubkey = pubkey_from_address(&address);
         self.client

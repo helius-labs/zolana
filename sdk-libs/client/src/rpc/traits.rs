@@ -24,6 +24,7 @@ use super::{
         GetUserRecordsResponse, ProveResult, RingHistoryOptions, RingMemberProofRequest,
         RingSpendRecordRequest, ShieldedTransactionStream,
     },
+    ProgramAccountsFilter,
 };
 
 /// Combined Solana RPC, SPP indexer, and proving surface used by clients.
@@ -47,6 +48,16 @@ pub trait Rpc {
         program_id: Address,
     ) -> Result<Vec<(Address, Account)>, ClientError> {
         Err(unsupported("get_program_accounts"))
+    }
+
+    /// Every returned account must satisfy `filter`. Unsupported filtered
+    /// reads fail; they do not fall back to listing every program account.
+    fn get_program_accounts_filtered(
+        &self,
+        program_id: Address,
+        filter: &ProgramAccountsFilter,
+    ) -> Result<Vec<(Address, Account)>, ClientError> {
+        Err(unsupported("get_program_accounts_filtered"))
     }
 
     // ===== Chain state =====
@@ -281,6 +292,14 @@ pub trait Rpc {
 #[async_trait]
 #[allow(unused_variables)]
 pub trait AsyncRpc: Send + Sync {
+    /// As [`Rpc::get_program_accounts_filtered`].
+    async fn get_program_accounts_filtered(
+        &self,
+        program_id: Address,
+        filter: &ProgramAccountsFilter,
+    ) -> Result<Vec<(Address, Account)>, ClientError> {
+        Err(unsupported("get_program_accounts_filtered"))
+    }
     async fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
         Err(unsupported("get_account"))
     }
