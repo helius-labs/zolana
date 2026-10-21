@@ -5,7 +5,6 @@ use std::{collections::BTreeSet, str::FromStr};
 use anyhow::{bail, Result};
 use solana_address::Address;
 use zolana_client::SolanaRpc;
-use zolana_interface::pda;
 use zolana_transaction::SOL_MINT;
 
 use crate::{
@@ -225,10 +224,7 @@ impl Wizard<'_> {
     }
 
     fn policy(&mut self, target: Target, rpc_url: &str) -> Result<Option<PolicySpec>> {
-        let mut spec = PolicySpec {
-            address_tree: Some(Base58Address(pda::tree(0))),
-            ..Default::default()
-        };
+        let mut spec = PolicySpec::default();
         ui::heading(icon::POLICY, "policy options");
         ui::hint("pick no option for an audit-only ring");
         let options = labels(POLICY_OPTIONS);
@@ -303,13 +299,13 @@ impl Wizard<'_> {
             return Ok(());
         }
         ui::heading(icon::LISTS, "list sources");
-        let tree = spec.address_tree();
-        line("tree", tree);
-        ui::hint("a discovered curator is offered only when it serves the list and pins this tree");
+        ui::hint(
+            "a discovered curator is offered only when it serves the list from its own registry",
+        );
         let catalogue = (self.curators)(target, rpc_url);
         for list in referenced {
             let curated: Vec<(String, Base58Address)> = catalogue
-                .serving(target, list, tree)
+                .serving(target, list)
                 .map(|(name, curator)| {
                     let program = curator.program;
                     let named = match name == program.to_string() {
@@ -528,7 +524,7 @@ pub(crate) mod tests {
         }
     }
 
-    /// A catalogue serving Block from `CURATOR` on the default tree of both clusters.
+    /// A catalogue serving Block from `CURATOR` on both clusters.
     pub(crate) fn fixed(target: Target, _rpc_url: &str) -> Catalogue {
         let mut catalogue = Catalogue::default();
         catalogue.merge(
@@ -536,7 +532,6 @@ pub(crate) mod tests {
             [Curator {
                 program: Base58Address(CURATOR),
                 lists: vec!["block".parse().expect("list")],
-                address_tree: Base58Address(pda::tree(0)),
             }],
         );
         catalogue
@@ -663,11 +658,10 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn configure_later_records_an_empty_policy_and_the_default_tree() {
+    fn configure_later_records_an_empty_policy() {
         let answers = run(script(&[Answer::from("configure policy later")])).expect("wizard");
         let policy = answers.policy.expect("policy tier");
         assert!(policy.rules.is_empty());
-        assert_eq!(policy.address_tree, Some(Base58Address(pda::tree(0))));
     }
 
     #[test]
@@ -687,7 +681,6 @@ pub(crate) mod tests {
                 .rule(Rule::forbid(Subject::OutputOwner, ListId::Block))
                 .build()
         );
-        assert_eq!(compiled.address_tree, pda::tree(0));
     }
 
     #[test]

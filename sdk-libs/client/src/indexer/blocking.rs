@@ -17,9 +17,12 @@ use crate::{
     error::ClientError,
     rpc::{
         AsyncRpc, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
-        GetNonInclusionProofsResponse, GetRingMemberRecordRequest, GetRingMemberRecordResponse,
+        GetNonInclusionProofsResponse, GetRingApplyProofInputsRequest,
+        GetRingApplyProofInputsResponse, GetRingMemberOpeningsRequest,
+        GetRingMemberOpeningsResponse, GetRingMemberRecordRequest, GetRingMemberRecordResponse,
         GetRingMemberRecordsRequest, GetRingMemberRecordsResponse,
         GetRingMemberRegistryRootRequest, GetRingMemberRegistryRootResponse,
+        GetRingRecordQueueRequest, GetRingRecordQueueResponse,
         GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
         GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, IndexerRpcConfig,
         RingHistoryOptions, Rpc,
@@ -218,6 +221,27 @@ impl Rpc for ZolanaIndexer {
         request: GetRingMemberRegistryRootRequest,
     ) -> Result<GetRingMemberRegistryRootResponse, ClientError> {
         self.block_on(self.indexer.get_ring_member_registry_root(request))
+    }
+
+    fn get_ring_member_openings(
+        &self,
+        request: GetRingMemberOpeningsRequest,
+    ) -> Result<GetRingMemberOpeningsResponse, ClientError> {
+        self.block_on(self.indexer.get_ring_member_openings(request))
+    }
+
+    fn get_ring_record_queue(
+        &self,
+        request: GetRingRecordQueueRequest,
+    ) -> Result<GetRingRecordQueueResponse, ClientError> {
+        self.block_on(self.indexer.get_ring_record_queue(request))
+    }
+
+    fn get_ring_apply_proof_inputs(
+        &self,
+        request: GetRingApplyProofInputsRequest,
+    ) -> Result<GetRingApplyProofInputsResponse, ClientError> {
+        self.block_on(self.indexer.get_ring_apply_proof_inputs(request))
     }
 
     fn get_user_records(

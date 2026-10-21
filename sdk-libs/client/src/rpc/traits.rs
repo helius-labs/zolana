@@ -18,11 +18,14 @@ use super::{
     transaction::{compile_message, sign_transaction},
     types::{
         GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse, GetNonInclusionProofsResponse,
-        GetRingMemberRecordRequest, GetRingMemberRecordResponse, GetRingMemberRecordsRequest,
-        GetRingMemberRecordsResponse, GetRingMemberRegistryRootRequest,
-        GetRingMemberRegistryRootResponse, GetShieldedTransactionsByNullifiersResponse,
-        GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
-        GetUserRecordsResponse, ProveResult, RingHistoryOptions, ShieldedTransactionStream,
+        GetRingApplyProofInputsRequest, GetRingApplyProofInputsResponse,
+        GetRingMemberOpeningsRequest, GetRingMemberOpeningsResponse, GetRingMemberRecordRequest,
+        GetRingMemberRecordResponse, GetRingMemberRecordsRequest, GetRingMemberRecordsResponse,
+        GetRingMemberRegistryRootRequest, GetRingMemberRegistryRootResponse,
+        GetRingRecordQueueRequest, GetRingRecordQueueResponse,
+        GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
+        GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, ProveResult,
+        RingHistoryOptions, ShieldedTransactionStream,
     },
 };
 
@@ -239,6 +242,27 @@ pub trait Rpc {
         request: GetRingMemberRegistryRootRequest,
     ) -> Result<GetRingMemberRegistryRootResponse, ClientError> {
         Err(unsupported("get_ring_member_registry_root"))
+    }
+
+    fn get_ring_member_openings(
+        &self,
+        request: GetRingMemberOpeningsRequest,
+    ) -> Result<GetRingMemberOpeningsResponse, ClientError> {
+        Err(unsupported("get_ring_member_openings"))
+    }
+
+    fn get_ring_record_queue(
+        &self,
+        request: GetRingRecordQueueRequest,
+    ) -> Result<GetRingRecordQueueResponse, ClientError> {
+        Err(unsupported("get_ring_record_queue"))
+    }
+
+    fn get_ring_apply_proof_inputs(
+        &self,
+        request: GetRingApplyProofInputsRequest,
+    ) -> Result<GetRingApplyProofInputsResponse, ClientError> {
+        Err(unsupported("get_ring_apply_proof_inputs"))
     }
 
     /// Registry records for up to `MAX_USER_RECORD_OWNERS` owners, read at one
@@ -477,6 +501,27 @@ pub trait AsyncRpc: Send + Sync {
         request: GetRingMemberRegistryRootRequest,
     ) -> Result<GetRingMemberRegistryRootResponse, ClientError> {
         Err(unsupported("get_ring_member_registry_root"))
+    }
+
+    async fn get_ring_member_openings(
+        &self,
+        request: GetRingMemberOpeningsRequest,
+    ) -> Result<GetRingMemberOpeningsResponse, ClientError> {
+        Err(unsupported("get_ring_member_openings"))
+    }
+
+    async fn get_ring_record_queue(
+        &self,
+        request: GetRingRecordQueueRequest,
+    ) -> Result<GetRingRecordQueueResponse, ClientError> {
+        Err(unsupported("get_ring_record_queue"))
+    }
+
+    async fn get_ring_apply_proof_inputs(
+        &self,
+        request: GetRingApplyProofInputsRequest,
+    ) -> Result<GetRingApplyProofInputsResponse, ClientError> {
+        Err(unsupported("get_ring_apply_proof_inputs"))
     }
 
     /// See [`Rpc::get_user_records`].

@@ -4,9 +4,11 @@ use futures::Stream;
 use solana_address::Address;
 use solana_signature::Signature;
 pub use zolana_indexer_api::{
-    GetRingMemberRecordRequest, GetRingMemberRecordResponse, GetRingMemberRecordsRequest,
-    GetRingMemberRecordsResponse, GetRingMemberRegistryRootRequest,
-    GetRingMemberRegistryRootResponse, MAX_USER_RECORD_OWNERS,
+    GetRingApplyProofInputsRequest, GetRingApplyProofInputsResponse, GetRingMemberOpeningsRequest,
+    GetRingMemberOpeningsResponse, GetRingMemberRecordRequest, GetRingMemberRecordResponse,
+    GetRingMemberRecordsRequest, GetRingMemberRecordsResponse, GetRingMemberRegistryRootRequest,
+    GetRingMemberRegistryRootResponse, GetRingRecordQueueRequest, GetRingRecordQueueResponse,
+    MAX_USER_RECORD_OWNERS,
 };
 use zolana_keypair::X25519Pubkey;
 pub use zolana_transaction::{OutputContext, OutputSlot, ShieldedTransaction};
@@ -161,7 +163,7 @@ pub struct MerkleProof {
 }
 
 impl MerkleProof {
-    /// The proof is for `leaf` in `tree` along a full path; `index` names the proof in errors.
+    /// A path short of the tree height is refused too, `index` names the proof in errors.
     pub fn check_leaf(
         &self,
         leaf: &[u8; 32],
@@ -203,7 +205,7 @@ pub struct NonInclusionProof {
 }
 
 impl NonInclusionProof {
-    /// The proof is for `leaf` in `tree` along a full path; `index` names the proof in errors.
+    /// A path short of the tree height is refused too, `index` names the proof in errors.
     pub fn check_leaf(
         &self,
         leaf: &[u8; 32],

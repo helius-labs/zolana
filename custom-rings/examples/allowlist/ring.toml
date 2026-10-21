@@ -1,6 +1,5 @@
 # A closed ring, only owners on the allow list may send or receive. A frozen
-# sender is refused even while it stays on the allow list. Transfers bind the
-# tree named here instead of the default tree.
+# sender is refused even while it stays on the allow list.
 
 name = "allowlist"
 target = "localnet"
@@ -22,8 +21,6 @@ ring_rpc = "https://d24brah9h1i4q9.cloudfront.net"
 ring_rpc_pubkey = "C8TeRCdueRdXj3y4uFDtNywYThc3qeiH2ZGfcbYZzVSs"
 
 [policy]
-# every policy transfer binds the named address tree
-address_tree = "Dn4cftC4fvAdQQgzNrr2r6MGt9HjBB8FxguBbcBFJXZn"
 
 # the sender must be on the allow list
 [[policy.rules]]

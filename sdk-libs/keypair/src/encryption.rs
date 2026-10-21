@@ -70,9 +70,7 @@ pub fn symmetric_apply(
     Ok(())
 }
 
-/// Auditor-only stream schedule. Two Poseidon outputs supply 31 and 13 bytes.
-/// The proof uses the same tags and exact field encodings. Keep this separate
-/// from symmetric_apply, which remains the transfer and registry schedule.
+/// The stream schedule the audit circuits prove, for the envelope and every delivered body.
 pub fn symmetric_apply_audit(
     shared_secret: &[u8; 32],
     info: &[u8; 10],

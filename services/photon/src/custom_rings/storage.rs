@@ -1,30 +1,81 @@
-use anyhow::{bail, Context, Result};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    ops::Range,
+};
+
+use anyhow::{Context, Result};
+use custom_ring_interface::{MemberRegistry, QueueEntry, RecordQueue, ROOT_HISTORY};
 use sea_orm::{ConnectionTrait, DatabaseTransaction, QueryResult, Statement, Value};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use solana_pubkey::Pubkey;
-use thiserror::Error;
-use zolana_hasher::HasherError;
 use zolana_indexer_api::Hash;
-
-use super::member_registry::MemberRecordRow;
-use crate::{
-    common::rings_tree::RingsTreeKind,
-    ingester::{
-        persist::{persist_leaf_nodes, LeafNode},
-        typedefs::block_info::BlockMetadata,
-    },
+use zolana_ring_indexer::{
+    records::{QueuedWrite, RegistryAccounts, SealedKey},
+    tree::{IndexedRecord, MemberRecord, NodePosition},
 };
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub(crate) struct RingRoot {
+use crate::{ingester::typedefs::block_info::BlockMetadata, metric};
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct RegistryState {
     pub program: [u8; 32],
-    pub address: [u8; 32],
-    pub root: [u8; 32],
-    pub next_index: u64,
-    /// The on-chain history slot of `root`, one step per applied batch.
-    pub history_cursor: u8,
+    pub registry_address: [u8; 32],
+    pub queue_address: [u8; 32],
+    /// The record fields, the policy fields stay zero.
+    #[serde(with = "account_image")]
+    pub registry: Box<MemberRegistry>,
+    #[serde(with = "account_image")]
+    pub queue: Box<RecordQueue>,
     /// Cleared only by a rollback.
     pub fault: Option<String>,
+}
+
+impl RegistryState {
+    pub fn accounts(&self) -> RegistryAccounts {
+        RegistryAccounts {
+            registry: self.registry_address.into(),
+            queue: self.queue_address.into(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct HistoryRoot {
+    pub root: [u8; 32],
+    /// Every row carries the position that wrote it, a read at a root takes the newest at or below.
+    pub applied: u64,
+    pub next_index: u64,
+    pub slot: u64,
+    pub history_index: u8,
+}
+
+impl HistoryRoot {
+    pub fn newest(state: &RegistryState) -> Self {
+        let index = state.registry.history_cursor;
+        let entry = state.registry.history[usize::from(index)];
+        Self {
+            root: entry.root,
+            applied: entry.applied(),
+            next_index: state.registry.next_index().into(),
+            slot: entry.slot(),
+            history_index: index,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct StoredRecord {
+    pub record: IndexedRecord,
+    pub seal: Option<SealedKey>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct StoredEntry {
+    pub position: u64,
+    pub write: QueuedWrite,
+    pub slot: u64,
+    /// `chain(position)`.
+    pub chain: [u8; 32],
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -32,8 +83,6 @@ pub(crate) struct CustomRingCursor {
     pub start_slot: u64,
     pub scanned_slot: u64,
     pub tip: Option<BlockMetadata>,
-    /// Rollback writes must increase the storage sequence.
-    pub revision: u64,
     ready: bool,
 }
 
@@ -43,7 +92,6 @@ impl CustomRingCursor {
             start_slot,
             scanned_slot: start_slot,
             tip: None,
-            revision: 0,
             ready: false,
         }
     }
@@ -65,65 +113,23 @@ impl CustomRingCursor {
         self.ready = true;
         save_cursor(conn, self).await
     }
-
-    pub fn advance_revision(&mut self) -> Result<u64> {
-        self.revision = self
-            .revision
-            .checked_add(1)
-            .filter(|revision| i64::try_from(*revision).is_ok())
-            .context("custom ring storage revision exhausted")?;
-        Ok(self.revision)
-    }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub(crate) struct LeafWrite {
-    pub index: u64,
-    pub hash: [u8; 32],
-}
-
-impl LeafWrite {
-    pub fn of(row: &MemberRecordRow) -> Result<Self, HasherError> {
-        Ok(Self {
-            index: row.index,
-            hash: row.hash()?,
-        })
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub(crate) struct MemberRestore {
-    pub member: [u8; 32],
-    pub before: Option<MemberRecordRow>,
-}
-
+/// Rows of one ring newer than `before`, `None` for a registry the block created.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct Undo {
     pub program: [u8; 32],
-    pub before: Option<RingRoot>,
-    pub members: Vec<MemberRestore>,
-    pub leaves: Vec<LeafWrite>,
-}
-
-impl Undo {
-    pub fn root(program: [u8; 32], before: Option<RingRoot>) -> Self {
-        Self {
-            program,
-            before,
-            members: vec![],
-            leaves: vec![],
-        }
-    }
+    pub before: Option<RegistryState>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub(crate) struct BlockUndo {
-    pub member_registry: Vec<Undo>,
+    pub records: Vec<Undo>,
 }
 
 impl BlockUndo {
     pub fn extend(&mut self, other: Self) {
-        self.member_registry.extend(other.member_registry);
+        self.records.extend(other.records);
     }
 }
 
@@ -143,25 +149,20 @@ pub(crate) struct PendingRing {
     pub replayed_tip: Option<BlockMetadata>,
 }
 
-#[derive(Debug, Error)]
-pub(crate) enum PredecessorError {
-    #[error("member is not absent")]
-    NotAbsent,
-    #[error(transparent)]
-    Storage(#[from] anyhow::Error),
-}
-
-const DELETE_MEMBER: &str =
-    "DELETE FROM ring_member_registry_members WHERE program=$1 AND member=$2";
+/// Every table a ring's records project into, keyed by `program` first.
+const RECORD_TABLES: [&str; 5] = [
+    "ring_registries",
+    "ring_registry_roots",
+    "ring_records",
+    "ring_record_nodes",
+    "ring_record_queue",
+];
+const RECORD_COLUMNS: &str = "leaf_index, member, next_member, lists, escrow_key, seal";
 
 pub(crate) async fn save_pending<C: ConnectionTrait>(conn: &C, value: &PendingRing) -> Result<()> {
     let sql = "INSERT INTO custom_ring_pending(program,slot,state) VALUES($1,$2,$3) \
                ON CONFLICT(program) DO NOTHING";
-    let values = vec![
-        value.program.to_vec().into(),
-        int(value.slot)?,
-        json(value)?,
-    ];
+    let values = vec![bytes(&value.program), int(value.slot)?, json(value)?];
     exec(conn, sql, values).await
 }
 
@@ -174,7 +175,7 @@ pub(crate) async fn pending_ring<C: ConnectionTrait>(
     program: &[u8; 32],
 ) -> Result<Option<PendingRing>> {
     let sql = "SELECT state FROM custom_ring_pending WHERE program=$1";
-    read_json(conn, sql, vec![program.to_vec().into()]).await
+    read_json(conn, sql, vec![bytes(program)]).await
 }
 
 pub(crate) async fn checkpoint_pending<C: ConnectionTrait>(
@@ -182,13 +183,13 @@ pub(crate) async fn checkpoint_pending<C: ConnectionTrait>(
     pending: &PendingRing,
 ) -> Result<()> {
     let sql = "UPDATE custom_ring_pending SET state=$2 WHERE program=$1";
-    let values = vec![pending.program.to_vec().into(), json(pending)?];
+    let values = vec![bytes(&pending.program), json(pending)?];
     exec(conn, sql, values).await
 }
 
 pub(crate) async fn delete_pending<C: ConnectionTrait>(conn: &C, program: &[u8; 32]) -> Result<()> {
     let sql = "DELETE FROM custom_ring_pending WHERE program=$1";
-    exec(conn, sql, vec![program.to_vec().into()]).await
+    exec(conn, sql, vec![bytes(program)]).await
 }
 
 pub(crate) async fn cursor<C: ConnectionTrait>(conn: &C) -> Result<Option<CustomRingCursor>> {
@@ -222,17 +223,26 @@ pub(crate) async fn save_journal<C: ConnectionTrait>(
     exec(conn, sql, vec![int(journal.metadata.slot)?, json(journal)?]).await
 }
 
-pub(crate) async fn prune_journal<C: ConnectionTrait>(conn: &C, below: u64) -> Result<()> {
-    let sql = "DELETE FROM custom_ring_blocks WHERE slot<$1";
-    exec(conn, sql, vec![int(below)?]).await
+/// Blocks below `below` never roll back.
+pub(crate) async fn prune<C: ConnectionTrait>(conn: &C, below: u64) -> Result<()> {
+    exec(
+        conn,
+        "DELETE FROM custom_ring_blocks WHERE slot<$1",
+        vec![int(below)?],
+    )
+    .await?;
+    let programs = statement(conn, "SELECT program FROM ring_registries", vec![]);
+    for row in conn.query_all(programs).await? {
+        let program = field(&row, "program")?;
+        RegistryStore::new(conn, program)
+            .prune_history(below)
+            .await?;
+    }
+    Ok(())
 }
 
-pub(crate) async fn roots<C: ConnectionTrait>(conn: &C) -> Result<Vec<RingRoot>> {
-    read_all(
-        conn,
-        "SELECT state FROM ring_member_registry_roots ORDER BY program",
-    )
-    .await
+pub(crate) async fn registries<C: ConnectionTrait>(conn: &C) -> Result<Vec<RegistryState>> {
+    read_all(conn, "SELECT state FROM ring_registries ORDER BY program").await
 }
 
 pub(crate) async fn rollback(
@@ -247,9 +257,15 @@ pub(crate) async fn rollback(
         .await?
         .context("custom ring index journal gap")?;
     let slot = vec![int(journal.metadata.slot)?];
-    let sql = "DELETE FROM custom_ring_pending WHERE slot=$1";
-    exec(tx, sql, slot.clone()).await?;
-    restore(tx, cursor, &journal.undo.member_registry).await?;
+    exec(
+        tx,
+        "DELETE FROM custom_ring_pending WHERE slot=$1",
+        slot.clone(),
+    )
+    .await?;
+    for undo in journal.undo.records.iter().rev() {
+        RegistryStore::new(tx, undo.program).restore(undo).await?;
+    }
     // Partial replay must rewind with the block that advanced it.
     for mut candidate in pending(tx).await? {
         if candidate
@@ -270,174 +286,366 @@ pub(crate) async fn rollback(
     cursor.suspend(tx).await
 }
 
-async fn restore(
-    tx: &DatabaseTransaction,
-    cursor: &mut CustomRingCursor,
-    undos: &[Undo],
-) -> Result<()> {
-    for undo in undos.iter().rev() {
-        let store = RingStore::new(tx, undo.program);
-        let Some(before) = &undo.before else {
-            let created = store
-                .root()
-                .await?
-                .context("created member registry missing on rollback")?;
-            let sql = "DELETE FROM state_trees WHERE tree=$1 AND tree_kind=$2";
-            let kind = i32::from(RingsTreeKind::MemberRegistry);
-            exec(tx, sql, vec![created.address.to_vec().into(), kind.into()]).await?;
-            let tables = ["ring_member_registry_members", "ring_member_registry_roots"];
-            store.delete_rows(&tables).await?;
-            continue;
-        };
-        if !undo.leaves.is_empty() {
-            let revision = cursor.advance_revision()?;
-            let root = store.write_leaves(&before.address, &undo.leaves, revision);
-            if root.await? != before.root {
-                bail!("member registry rollback root mismatch");
-            }
-        }
-        store.save_root(before).await?;
-        for restore in &undo.members {
-            let member = vec![restore.member.to_vec().into()];
-            match &restore.before {
-                Some(leaf) => store.save_member(leaf).await?,
-                None => store.exec(DELETE_MEMBER, member).await?,
-            }
-        }
-    }
-    Ok(())
-}
-
-/// One ring's rows across both projected families.
-pub(crate) struct RingStore<'c, C> {
-    pub(super) conn: &'c C,
+/// One ring's projected registry, every statement binds the program as `$1`.
+pub(crate) struct RegistryStore<'c, C> {
+    conn: &'c C,
     pub(super) program: [u8; 32],
 }
 
-impl<'c, C: ConnectionTrait> RingStore<'c, C> {
+impl<'c, C: ConnectionTrait> RegistryStore<'c, C> {
     pub fn new(conn: &'c C, program: [u8; 32]) -> Self {
         Self { conn, program }
     }
 
-    /// Binds the program as `$1` ahead of `values`.
-    pub(super) fn statement(&self, sql: &str, values: Vec<Value>) -> Statement {
-        let program = std::iter::once(self.program.to_vec().into());
+    pub async fn state(&self) -> Result<Option<RegistryState>> {
+        let sql = "SELECT state FROM ring_registries WHERE program=$1";
+        let row = self.query_one(sql, vec![]).await?;
+        row.as_ref().map(stored_state).transpose()
+    }
+
+    pub async fn save_state(&self, value: &RegistryState) -> Result<()> {
+        let sql = "INSERT INTO ring_registries(program,state) VALUES($1,$2) \
+                   ON CONFLICT(program) DO UPDATE SET state=excluded.state";
+        self.exec(sql, vec![json(value)?]).await
+    }
+
+    /// Stops the ring's projection, a rollback of the block resumes it.
+    pub async fn quarantine(&self, before: RegistryState, reason: String) -> Result<Undo> {
+        log::error!(
+            "custom ring {} stopped projecting its member registry ({reason})",
+            Pubkey::new_from_array(self.program)
+        );
+        metric! {
+            cadence_macros::statsd_count!("custom_ring_registry_stopped", 1);
+        }
+        self.save_state(&RegistryState {
+            fault: Some(reason),
+            ..before.clone()
+        })
+        .await?;
+        Ok(self.undo(Some(before)))
+    }
+
+    pub fn undo(&self, before: Option<RegistryState>) -> Undo {
+        Undo {
+            program: self.program,
+            before,
+        }
+    }
+
+    pub async fn root(&self, applied: u64) -> Result<Option<HistoryRoot>> {
+        let sql = "SELECT root, applied, next_index, slot, history_index FROM ring_registry_roots \
+                   WHERE program=$1 AND applied=$2";
+        let row = self.query_one(sql, vec![int(applied)?]).await?;
+        row.as_ref().map(history_root).transpose()
+    }
+
+    pub async fn save_root(&self, entry: &HistoryRoot) -> Result<()> {
+        let sql =
+            "INSERT INTO ring_registry_roots(program,applied,root,next_index,slot,history_index) \
+                   VALUES($1,$2,$3,$4,$5,$6)";
+        let values = vec![
+            int(entry.applied)?,
+            bytes(&entry.root),
+            int(entry.next_index)?,
+            int(entry.slot)?,
+            int(entry.history_index.into())?,
+        ];
+        self.exec(sql, values).await
+    }
+
+    pub async fn record(&self, member: &[u8; 32], applied: u64) -> Result<Option<StoredRecord>> {
+        let sql = format!(
+            "SELECT {RECORD_COLUMNS} FROM ring_records WHERE program=$1 AND member=$2 \
+             AND applied<=$3 ORDER BY applied DESC LIMIT 1"
+        );
+        let values = vec![bytes(member), int(applied)?];
+        let row = self.query_one(&sql, values).await?;
+        row.as_ref().map(stored_record).transpose()
+    }
+
+    pub async fn low_record(&self, member: &[u8; 32], applied: u64) -> Result<StoredRecord> {
+        let sql = format!(
+            "SELECT {RECORD_COLUMNS} FROM ring_records WHERE program=$1 AND member<$2 \
+             AND applied<=$3 ORDER BY member DESC, applied DESC LIMIT 1"
+        );
+        let values = vec![bytes(member), int(applied)?];
+        let row = self.query_one(&sql, values).await?;
+        stored_record(&row.context("member registry has no sentinel")?)
+    }
+
+    /// A gap shortens the result.
+    pub async fn records_by_index(
+        &self,
+        leaves: Range<u64>,
+        applied: u64,
+    ) -> Result<Vec<StoredRecord>> {
+        let sql = format!(
+            "SELECT {RECORD_COLUMNS} FROM ring_records AS r WHERE program=$1 \
+             AND leaf_index>=$2 AND leaf_index<$3 AND applied=(SELECT MAX(applied) \
+             FROM ring_records AS m WHERE m.program=r.program AND m.leaf_index=r.leaf_index \
+             AND m.applied<=$4) ORDER BY leaf_index"
+        );
+        let values = vec![int(leaves.start)?, int(leaves.end)?, int(applied)?];
+        let rows = self.query_all(&sql, values).await?;
+        rows.iter().map(stored_record).collect()
+    }
+
+    pub async fn save_records(&self, records: &[StoredRecord], applied: u64) -> Result<()> {
+        for stored in records {
+            let record = &stored.record.record;
+            let sql = "INSERT INTO ring_records(program,leaf_index,applied,member,next_member,\
+                       lists,escrow_key,seal) VALUES($1,$2,$3,$4,$5,$6,$7,$8)";
+            let values = vec![
+                int(stored.record.index)?,
+                int(applied)?,
+                bytes(&record.member),
+                bytes(&record.next),
+                int(record.lists)?,
+                bytes(&record.escrow_key),
+                seal_value(stored.seal.as_ref())?,
+            ];
+            self.exec(sql, values).await?;
+        }
+        Ok(())
+    }
+
+    pub async fn nodes(
+        &self,
+        keys: &BTreeSet<NodePosition>,
+        applied: u64,
+    ) -> Result<BTreeMap<NodePosition, [u8; 32]>> {
+        let mut by_level = BTreeMap::<usize, Vec<u64>>::new();
+        for key in keys {
+            by_level.entry(key.level).or_default().push(key.position);
+        }
+        let mut values = vec![int(applied)?];
+        let mut levels = Vec::new();
+        for (level, positions) in by_level {
+            values.push(int(u64::try_from(level)?)?);
+            let level_param = values.len() + 1;
+            let mut params = Vec::with_capacity(positions.len());
+            for position in positions {
+                values.push(int(position)?);
+                params.push(format!("${}", values.len() + 1));
+            }
+            levels.push(format!(
+                "(level=${level_param} AND position IN ({}))",
+                params.join(",")
+            ));
+        }
+        if levels.is_empty() {
+            return Ok(BTreeMap::new());
+        }
+        let sql = format!(
+            "SELECT level, position, hash FROM ring_record_nodes AS n WHERE program=$1 \
+             AND applied=(SELECT MAX(applied) FROM ring_record_nodes AS m \
+             WHERE m.program=n.program AND m.level=n.level AND m.position=n.position \
+             AND m.applied<=$2) AND ({})",
+            levels.join(" OR ")
+        );
+        let rows = self.query_all(&sql, values).await?;
+        rows.iter()
+            .map(|row| {
+                let at = NodePosition {
+                    level: usize::try_from(uint(row, "level")?)?,
+                    position: uint(row, "position")?,
+                };
+                Ok((at, field(row, "hash")?))
+            })
+            .collect()
+    }
+
+    pub async fn save_nodes(
+        &self,
+        nodes: &BTreeMap<NodePosition, [u8; 32]>,
+        applied: u64,
+    ) -> Result<()> {
+        for (at, hash) in nodes {
+            let sql = "INSERT INTO ring_record_nodes(program,level,position,applied,hash) \
+                       VALUES($1,$2,$3,$4,$5)";
+            let values = vec![
+                int(u64::try_from(at.level)?)?,
+                int(at.position)?,
+                int(applied)?,
+                bytes(hash),
+            ];
+            self.exec(sql, values).await?;
+        }
+        Ok(())
+    }
+
+    /// Fails on a gap in `positions`.
+    pub async fn entries(&self, positions: Range<u64>) -> Result<Vec<StoredEntry>> {
+        let sql = "SELECT position, member, mask, value, escrow_key, slot, chain, seal \
+                   FROM ring_record_queue WHERE program=$1 AND position>=$2 AND position<$3 \
+                   ORDER BY position";
+        let values = vec![int(positions.start)?, int(positions.end)?];
+        let rows = self.query_all(sql, values).await?;
+        let entries = rows.iter().map(stored_entry).collect::<Result<Vec<_>>>()?;
+        let contiguous = entries.iter().map(|entry| entry.position).eq(positions);
+        anyhow::ensure!(contiguous, "record queue projection has a gap");
+        Ok(entries)
+    }
+
+    pub async fn save_entry(&self, entry: &StoredEntry) -> Result<()> {
+        let sql = "INSERT INTO ring_record_queue(program,position,member,mask,value,escrow_key,\
+                   slot,chain,seal) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)";
+        let QueueEntry {
+            member,
+            mask,
+            value,
+            escrow_key,
+        } = entry.write.entry;
+        let values = vec![
+            int(entry.position)?,
+            bytes(&member),
+            int(mask)?,
+            int(value)?,
+            bytes(&escrow_key),
+            int(entry.slot)?,
+            bytes(&entry.chain),
+            seal_value(entry.write.seal.as_ref())?,
+        ];
+        self.exec(sql, values).await
+    }
+
+    async fn restore(&self, undo: &Undo) -> Result<()> {
+        let Some(before) = &undo.before else {
+            for table in RECORD_TABLES {
+                self.exec(&format!("DELETE FROM {table} WHERE program=$1"), vec![])
+                    .await?;
+            }
+            return Ok(());
+        };
+        let applied = vec![int(before.queue.head())?];
+        for table in ["ring_registry_roots", "ring_records", "ring_record_nodes"] {
+            let sql = format!("DELETE FROM {table} WHERE program=$1 AND applied>$2");
+            self.exec(&sql, applied.clone()).await?;
+        }
+        let sql = "DELETE FROM ring_record_queue WHERE program=$1 AND position>=$2";
+        self.exec(sql, vec![int(before.queue.tail())?]).await?;
+        self.save_state(before).await
+    }
+
+    /// Keeps what the history after the deepest possible rollback still reads.
+    async fn prune_history(&self, below: u64) -> Result<()> {
+        let sql = "SELECT pruned FROM ring_registries WHERE program=$1";
+        let row = self.query_one(sql, vec![]).await?;
+        let pruned = uint(&row.context("pruned ring has no registry row")?, "pruned")?;
+        let sql = format!(
+            "SELECT applied FROM ring_registry_roots WHERE program=$1 AND slot<$2 \
+             ORDER BY applied DESC LIMIT {ROOT_HISTORY}"
+        );
+        let rows = self.query_all(&sql, vec![int(below)?]).await?;
+        let finals = rows
+            .iter()
+            .map(|row| uint(row, "applied"))
+            .collect::<Result<Vec<_>>>()?;
+        let (Some(&final_head), Some(&oldest)) = (finals.first(), finals.get(ROOT_HISTORY - 1))
+        else {
+            return Ok(());
+        };
+        if oldest <= pruned {
+            return Ok(());
+        }
+        let sql = "DELETE FROM ring_registry_roots WHERE program=$1 AND applied<$2";
+        self.exec(sql, vec![int(oldest)?]).await?;
+        let window = vec![int(pruned)?, int(oldest)?];
+        let sql =
+            "DELETE FROM ring_record_nodes WHERE program=$1 AND (level, position, applied) IN \
+                   (SELECT old.level, old.position, old.applied FROM ring_record_nodes AS newer \
+                   JOIN ring_record_nodes AS old ON old.program=newer.program \
+                   AND old.level=newer.level AND old.position=newer.position \
+                   AND old.applied<newer.applied \
+                   WHERE newer.program=$1 AND newer.applied>$2 AND newer.applied<=$3)";
+        self.exec(sql, window.clone()).await?;
+        let sql = "DELETE FROM ring_records WHERE program=$1 AND (leaf_index, applied) IN \
+                   (SELECT old.leaf_index, old.applied FROM ring_records AS newer \
+                   JOIN ring_records AS old ON old.program=newer.program \
+                   AND old.leaf_index=newer.leaf_index AND old.applied<newer.applied \
+                   WHERE newer.program=$1 AND newer.applied>$2 AND newer.applied<=$3)";
+        self.exec(sql, window).await?;
+        let sql = "DELETE FROM ring_record_queue WHERE program=$1 AND position<$2";
+        self.exec(sql, vec![int(final_head)?]).await?;
+        let sql = "UPDATE ring_registries SET pruned=$2 WHERE program=$1";
+        self.exec(sql, vec![int(oldest)?]).await
+    }
+
+    fn statement(&self, sql: &str, values: Vec<Value>) -> Statement {
+        let program = std::iter::once(bytes(&self.program));
         statement(self.conn, sql, program.chain(values).collect())
     }
 
-    pub(super) async fn exec(&self, sql: &str, values: Vec<Value>) -> Result<()> {
+    async fn exec(&self, sql: &str, values: Vec<Value>) -> Result<()> {
         self.conn.execute(self.statement(sql, values)).await?;
         Ok(())
     }
 
-    async fn read<T: DeserializeOwned>(&self, sql: &str, values: Vec<Value>) -> Result<Option<T>> {
-        let row = self.conn.query_one(self.statement(sql, values)).await?;
-        row.as_ref().map(state).transpose()
+    async fn query_one(&self, sql: &str, values: Vec<Value>) -> Result<Option<QueryResult>> {
+        Ok(self.conn.query_one(self.statement(sql, values)).await?)
     }
 
-    pub(super) async fn delete_rows(&self, tables: &[&str]) -> Result<()> {
-        for table in tables {
-            self.exec(&format!("DELETE FROM {table} WHERE program=$1"), vec![])
-                .await?;
-        }
-        Ok(())
-    }
-
-    pub async fn root(&self) -> Result<Option<RingRoot>> {
-        let sql = "SELECT state FROM ring_member_registry_roots WHERE program=$1";
-        self.read(sql, vec![]).await
-    }
-
-    pub async fn save_root(&self, root: &RingRoot) -> Result<()> {
-        let sql = "INSERT INTO ring_member_registry_roots(program,state) VALUES($1,$2) \
-                   ON CONFLICT(program) DO UPDATE SET state=excluded.state";
-        self.exec(sql, vec![json(root)?]).await
-    }
-
-    pub async fn quarantine_root(&self, root: RingRoot, reason: String) -> Result<Undo> {
-        let program = Pubkey::new_from_array(self.program);
-        log::warn!("member registry of ring {program} quarantined ({reason})");
-        let faulted = RingRoot {
-            fault: Some(reason),
-            ..root.clone()
-        };
-        self.save_root(&faulted).await?;
-        Ok(Undo::root(root.program, Some(root)))
-    }
-
-    pub async fn member(&self, member: &[u8; 32]) -> Result<Option<MemberRecordRow>> {
-        let sql = "SELECT state FROM ring_member_registry_members WHERE program=$1 AND member=$2";
-        self.read(sql, vec![member.to_vec().into()]).await
-    }
-
-    /// Current member leaves in `[start, end)`, ordered by their append index.
-    /// The caller checks that every requested index is present before replying.
-    pub async fn members_by_index(&self, start: u64, end: u64) -> Result<Vec<MemberRecordRow>> {
-        let sql = "SELECT state FROM ring_member_registry_members \
-                   WHERE program=$1 AND leaf_index >= $2 AND leaf_index < $3 \
-                   ORDER BY leaf_index";
-        let rows = self
-            .conn
-            .query_all(self.statement(sql, vec![int(start)?, int(end)?]))
-            .await?;
-        rows.iter().map(state).collect()
-    }
-
-    pub async fn predecessor(
-        &self,
-        member: &[u8; 32],
-    ) -> Result<MemberRecordRow, PredecessorError> {
-        let sql = "SELECT state FROM ring_member_registry_members WHERE program=$1 AND member<$2 \
-                   ORDER BY member DESC LIMIT 1";
-        let low: MemberRecordRow = self
-            .read(sql, vec![member.to_vec().into()])
-            .await?
-            .context("no covering predecessor")?;
-        if !(low.member < *member && *member < low.next) {
-            return Err(PredecessorError::NotAbsent);
-        }
-        Ok(low)
-    }
-
-    pub async fn save_member(&self, leaf: &MemberRecordRow) -> Result<()> {
-        let sql = "INSERT INTO ring_member_registry_members(program,member,leaf_index,state) \
-                   VALUES($1,$2,$3,$4) ON CONFLICT(program,member) \
-                   DO UPDATE SET leaf_index=excluded.leaf_index,state=excluded.state";
-        let values = vec![leaf.member.to_vec().into(), int(leaf.index)?, json(leaf)?];
-        self.exec(sql, values).await
+    async fn query_all(&self, sql: &str, values: Vec<Value>) -> Result<Vec<QueryResult>> {
+        Ok(self.conn.query_all(self.statement(sql, values)).await?)
     }
 }
 
-impl RingStore<'_, DatabaseTransaction> {
-    pub async fn write_leaves(
-        &self,
-        tree: &[u8; 32],
-        leaves: &[LeafWrite],
-        revision: u64,
-    ) -> Result<[u8; 32]> {
-        let kind = RingsTreeKind::MemberRegistry;
-        let leaves = leaves
-            .iter()
-            .map(|leaf| LeafNode {
-                tree: tree.to_vec(),
-                tree_kind: kind,
-                leaf_index: leaf.index,
-                hash: Hash(leaf.hash),
-                seq: Some(revision),
-            })
-            .collect();
-        persist_leaf_nodes(self.conn, leaves, kind.tree_height() + 1).await?;
-        let sql = "SELECT hash FROM state_trees WHERE tree=$1 AND tree_kind=$2 AND node_idx=1";
-        let values = vec![tree.to_vec().into(), i32::from(kind).into()];
-        let row = self
-            .conn
-            .query_one(statement(self.conn, sql, values))
-            .await?;
-        let row = row.context("member registry root missing")?;
-        let hash: Vec<u8> = row.try_get("", "hash")?;
-        hash.try_into()
-            .map_err(|_| anyhow::anyhow!("invalid member registry root length"))
-    }
+fn history_root(row: &QueryResult) -> Result<HistoryRoot> {
+    Ok(HistoryRoot {
+        root: field(row, "root")?,
+        applied: uint(row, "applied")?,
+        next_index: uint(row, "next_index")?,
+        slot: uint(row, "slot")?,
+        history_index: u8::try_from(uint(row, "history_index")?)?,
+    })
+}
+
+fn stored_record(row: &QueryResult) -> Result<StoredRecord> {
+    Ok(StoredRecord {
+        record: IndexedRecord {
+            index: uint(row, "leaf_index")?,
+            record: MemberRecord {
+                member: field(row, "member")?,
+                next: field(row, "next_member")?,
+                lists: uint(row, "lists")?,
+                escrow_key: field(row, "escrow_key")?,
+            },
+        },
+        seal: seal(row)?,
+    })
+}
+
+fn stored_entry(row: &QueryResult) -> Result<StoredEntry> {
+    Ok(StoredEntry {
+        position: uint(row, "position")?,
+        write: QueuedWrite {
+            entry: QueueEntry {
+                member: field(row, "member")?,
+                mask: uint(row, "mask")?,
+                value: uint(row, "value")?,
+                escrow_key: field(row, "escrow_key")?,
+            },
+            seal: seal(row)?,
+        },
+        slot: uint(row, "slot")?,
+        chain: field(row, "chain")?,
+    })
+}
+
+fn seal(row: &QueryResult) -> Result<Option<SealedKey>> {
+    let text = row.try_get::<Option<String>>("", "seal")?;
+    Ok(text.as_deref().map(serde_json::from_str).transpose()?)
+}
+
+fn field(row: &QueryResult, column: &str) -> Result<[u8; 32]> {
+    row.try_get::<Vec<u8>>("", column)?
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("{column} is not 32 bytes"))
+}
+
+fn uint(row: &QueryResult, column: &str) -> Result<u64> {
+    Ok(u64::try_from(row.try_get::<i64>("", column)?)?)
 }
 
 fn statement<C: ConnectionTrait>(conn: &C, sql: &str, values: Vec<Value>) -> Statement {
@@ -449,12 +657,20 @@ async fn exec<C: ConnectionTrait>(conn: &C, sql: &str, values: Vec<Value>) -> Re
     Ok(())
 }
 
+fn bytes(value: &[u8; 32]) -> Value {
+    value.to_vec().into()
+}
+
 fn json<T: Serialize>(value: &T) -> Result<Value> {
     Ok(serde_json::to_string(value)?.into())
 }
 
-pub(super) fn int(value: u64) -> Result<Value> {
+fn int(value: u64) -> Result<Value> {
     Ok(i64::try_from(value)?.into())
+}
+
+fn seal_value(seal: Option<&SealedKey>) -> Result<Value> {
+    Ok(seal.map(json).transpose()?.unwrap_or(Value::String(None)))
 }
 
 async fn read_json<T: DeserializeOwned, C: ConnectionTrait>(
@@ -463,14 +679,41 @@ async fn read_json<T: DeserializeOwned, C: ConnectionTrait>(
     values: Vec<Value>,
 ) -> Result<Option<T>> {
     let row = conn.query_one(statement(conn, sql, values)).await?;
-    row.as_ref().map(state).transpose()
+    row.as_ref().map(stored_state).transpose()
 }
 
 async fn read_all<T: DeserializeOwned, C: ConnectionTrait>(conn: &C, sql: &str) -> Result<Vec<T>> {
     let rows = conn.query_all(statement(conn, sql, vec![])).await?;
-    rows.iter().map(state).collect()
+    rows.iter().map(stored_state).collect()
 }
 
-fn state<T: DeserializeOwned>(row: &QueryResult) -> Result<T> {
+fn stored_state<T: DeserializeOwned>(row: &QueryResult) -> Result<T> {
     Ok(serde_json::from_str(&row.try_get::<String>("", "state")?)?)
+}
+
+/// An account image as base64 of its bytes, decoded through the account's own checks.
+mod account_image {
+    use std::ops::Deref;
+
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    use custom_ring_interface::RingAccount;
+    use serde::{de::Error, Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer, A: Deref<Target = T>, T: RingAccount>(
+        value: &A,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&STANDARD.encode(bytemuck::bytes_of(&**value)))
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>, T: RingAccount>(
+        deserializer: D,
+    ) -> Result<Box<T>, D::Error> {
+        let bytes = STANDARD
+            .decode(String::deserialize(deserializer)?)
+            .map_err(D::Error::custom)?;
+        T::from_data(&bytes)
+            .map(|account| Box::new(*account))
+            .ok_or_else(|| D::Error::custom("invalid account image"))
+    }
 }

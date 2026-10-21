@@ -10,7 +10,10 @@
 use std::path::PathBuf;
 
 use anyhow::{anyhow, Context, Result};
-use custom_ring_sdk::{compute_unit_limit, CustomRing, InstructionTag, RingError};
+use custom_ring_sdk::{
+    compute_unit_limit, CustomRing, InstructionTag, MemberRecords, PendingFirstContact, RingError,
+    RingOperation, RingSetup, RingSubmission, SettledSubmission,
+};
 use solana_address::Address;
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
@@ -34,7 +37,8 @@ use zolana_program_test::{
     create_tree_instructions,
     localnet::{LocalnetPorts, LocalnetValidator, UpgradeableProgram},
 };
-use zolana_ring_policy::{ListId, RuleTable};
+use zolana_ring_client::MemberOpeningRead;
+use zolana_ring_policy::{ListId, Member, RuleTable};
 use zolana_test_utils::wallet::Wallet;
 use zolana_test_utils::{
     localnet::{isolated_temp_path, localnet_indexer_url, localnet_rpc_url, WorkspaceArtifacts},
@@ -175,6 +179,53 @@ impl TestEnv {
         self.fund(keypair.pubkey(), SIGNER_AIRDROP)?;
         Ok(keypair)
     }
+
+    pub fn member_record(&self, ring: CustomRing, member: Member) -> Result<MemberOpeningRead> {
+        let records = MemberRecords {
+            ring,
+            members: &[member],
+        };
+        let [read] = <[_; 1]>::try_from(self.run(records.read(self.client.as_async()))?)
+            .map_err(|reads| anyhow!("{} records of {member:?}", reads.len()))?;
+        Ok(read)
+    }
+}
+
+#[must_use]
+pub struct Landing<'a> {
+    pub operation: RingOperation<'a>,
+    pub payer: &'a (dyn Signer + Sync),
+    pub signers: &'a [&'a (dyn Signer + Sync)],
+}
+
+pub struct Landed {
+    pub signature: Signature,
+    pub first_contacts: Vec<PendingFirstContact>,
+}
+
+impl Landing<'_> {
+    /// A failed operation is an error.
+    pub fn settle(self, env: &TestEnv) -> Result<Landed> {
+        let mut submission = RingSubmission::new(self.operation);
+        let settled = env.run(submission.send_until_settled(
+            env.client.as_async(),
+            self.payer,
+            self.signers,
+        ))?;
+        match settled {
+            SettledSubmission::Confirmed {
+                signature,
+                first_contacts,
+                ..
+            } => Ok(Landed {
+                signature,
+                first_contacts,
+            }),
+            SettledSubmission::Failed { signature, error } => {
+                Err(RingError::Rejected { signature, error }.into())
+            }
+        }
+    }
 }
 
 /// Each actor is one eddsa identity: `ShieldedKeypair` implements
@@ -202,7 +253,10 @@ pub enum Tier {
     AuditOnly,
     AnonymousAuditOnly,
     Policy {
-        address_tree: Address,
+        rules: &'static RuleTable,
+        shared_sources: Vec<(ListId, CustomRing)>,
+    },
+    AnonymousPolicy {
         rules: &'static RuleTable,
         shared_sources: Vec<(ListId, CustomRing)>,
     },
@@ -210,12 +264,29 @@ pub enum Tier {
 
 impl Tier {
     /// Every referenced list served from the ring's own registry.
-    pub fn policy(rules: &'static RuleTable, address_tree: Address) -> Self {
+    pub fn policy(rules: &'static RuleTable) -> Self {
         Self::Policy {
-            address_tree,
             rules,
             shared_sources: Vec::new(),
         }
+    }
+
+    pub fn anonymous_policy(rules: &'static RuleTable) -> Self {
+        Self::AnonymousPolicy {
+            rules,
+            shared_sources: Vec::new(),
+        }
+    }
+
+    fn has_policy(&self) -> bool {
+        matches!(self, Self::Policy { .. } | Self::AnonymousPolicy { .. })
+    }
+
+    fn anonymous(&self) -> bool {
+        matches!(
+            self,
+            Self::AnonymousAuditOnly | Self::AnonymousPolicy { .. }
+        )
     }
 }
 
@@ -249,17 +320,19 @@ impl<'a> RegisterRing<'a> {
         self.configure(rpc)?.pin(rpc)
     }
 
+    /// A policy ring also gets its registry, the policy lives there.
     pub fn configure(self, rpc: &SolanaRpc) -> Result<ConfiguredRing<'a>> {
         let authority = self.payer.pubkey();
-        let has_policy = matches!(self.tier, Tier::Policy { .. });
-        let ring = self.ring;
-        let instruction = match self.tier {
-            Tier::AnonymousAuditOnly => {
-                ring.create_anonymous_config(authority, authority, self.auditor_pubkey, has_policy)?
-            }
-            _ => ring.create_config(authority, authority, self.auditor_pubkey, has_policy)?,
+        let setup = RingSetup {
+            auditor_pubkey: self.auditor_pubkey,
+            has_policy: self.tier.has_policy(),
+            anonymous: self.tier.anonymous(),
         };
-        send(rpc, self.payer, &[instruction])?;
+        let mut instructions = vec![self.ring.create_config(authority, authority, setup)?];
+        if setup.has_policy {
+            instructions.push(self.ring.create_member_registry(authority, authority));
+        }
+        send(rpc, self.payer, &instructions)?;
         Ok(ConfiguredRing {
             ring: self.ring,
             payer: self.payer,
@@ -272,35 +345,25 @@ impl<'a> ConfiguredRing<'a> {
     /// The program refuses it for a policy ring until the policy is pinned.
     pub fn registration(&self) -> Instruction {
         let authority = self.payer.pubkey();
-        let has_policy = matches!(self.tier, Tier::Policy { .. });
         self.ring
-            .init_spp_ring_config(authority, authority, has_policy)
+            .init_spp_ring_config(authority, authority, self.tier.has_policy())
     }
 
     pub fn pin(self, rpc: &SolanaRpc) -> Result<PinnedRing<'a>> {
         let registration = self.registration();
-        let authority = self.payer.pubkey();
         if let Tier::Policy {
-            address_tree,
+            rules,
+            shared_sources,
+        }
+        | Tier::AnonymousPolicy {
             rules,
             shared_sources,
         } = self.tier
         {
-            // Every policy transfer binds the ring's member registry.
-            send(
-                rpc,
-                self.payer,
-                &[
-                    self.ring.create_member_registry_root(authority, authority),
-                    self.ring.create_policy(
-                        authority,
-                        authority,
-                        address_tree,
-                        rules,
-                        &shared_sources,
-                    )?,
-                ],
-            )?;
+            let pin = self
+                .ring
+                .create_policy(self.payer.pubkey(), rules, &shared_sources)?;
+            send(rpc, self.payer, &[pin])?;
         }
         Ok(PinnedRing {
             payer: self.payer,

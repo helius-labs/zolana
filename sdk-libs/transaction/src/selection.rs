@@ -37,8 +37,7 @@ pub fn select_spend<'a>(
     )
 }
 
-/// [`select_spend`] over the UTXOs `keep` admits, at most `max_inputs` of them
-/// (capped at [`MAX_SPEND_INPUTS`]), such as the UTXOs of one ring.
+/// [`select_spend`] over the UTXOs `keep` admits, at most `max_inputs` up to [`MAX_SPEND_INPUTS`].
 pub fn select_spend_where<'a>(
     utxos: impl IntoIterator<Item = &'a WalletUtxo>,
     asset: Address,

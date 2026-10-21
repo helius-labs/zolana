@@ -1,11 +1,15 @@
-//! Unit tests by area. `member_registry`, `pipeline`, `submission` and `witness`
-//! reach private items, their modules declare them as children.
-
 mod account;
-mod audit;
+mod deposit;
 mod merge;
-mod request;
-mod stack;
+mod records;
+mod register_key;
 pub(crate) mod support;
-mod transact_ix;
-mod trees;
+
+/// A table every fixture member satisfies on the allow list.
+pub(crate) fn pipeline_rules() -> zolana_ring_policy::RuleTable {
+    use zolana_ring_policy::{ListId, Rule, RuleTable, Subject};
+    RuleTable::builder()
+        .rule(Rule::require(Subject::Sender, ListId::Allow))
+        .rule(Rule::require(Subject::OutputOwner, ListId::Allow))
+        .build()
+}

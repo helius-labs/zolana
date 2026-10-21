@@ -140,6 +140,10 @@ name = "ring_config_update_owner"
 path = "tests/ring_config/update_owner.rs"
 
 [[test]]
+name = "ring_config_account_indexes"
+path = "tests/ring_config/account_indexes.rs"
+
+[[test]]
 name = "deposit_functional"
 path = "tests/deposit/functional.rs"
 

@@ -59,7 +59,7 @@ pub use error::KeypairError;
 pub use nullifier_key::NullifierKey;
 pub use pda::ShieldedPda;
 pub use pubkey::{Curve, PublicKey};
-pub use ring_address::{InboxSecret, RingAddress, RingPaymentRequest};
+pub use ring_address::{Pairing, PairingRow, RingAddress, RingPaymentRequest};
 pub use shielded::{
     CompressedShieldedAddress, ShieldedAddress, ShieldedKeypair, SHIELDED_ADDRESS_LEN,
 };

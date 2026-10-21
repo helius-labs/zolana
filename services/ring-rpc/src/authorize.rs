@@ -53,46 +53,84 @@ pub enum Unauthorized {
     NotRingAuthority,
 }
 
-/// The reader whose key signed `attestation`. The reader key tag picks the verifier.
-pub fn check_read(
-    auth: &ReadAuth,
-    attestation: &[u8],
-    now: u64,
-    origins: &Origins,
-) -> Result<ReaderKey, Unauthorized> {
-    fresh(now, auth.timestamp)?;
-    let reader = <[u8; 34]>::try_from(auth.reader.0.as_slice())
-        .ok()
-        .and_then(|tagged| ReaderKey::from_bytes(tagged).ok())
-        .ok_or(Unauthorized::UnknownReaderKey)?;
-    let signature = &auth.signature.0;
-    match (reader, &auth.webauthn) {
-        (ReaderKey::Ed25519(_), Some(_)) => return Err(Unauthorized::UnexpectedAssertion),
-        (ReaderKey::P256(_), None) => return Err(Unauthorized::PasskeyNeedsAssertion),
-        (ReaderKey::Ed25519(key), None) => verify_ed25519(key.address(), signature, attestation)?,
-        (ReaderKey::P256(key), Some(assertion)) => {
-            webauthn::verify(assertion, signature, &key, attestation, origins)?
-        }
-    }
-    Ok(reader)
+/// The reader whose key signed `attestation`, its tag picks the verifier.
+#[must_use]
+pub struct ReadCheck<'a> {
+    pub auth: &'a ReadAuth,
+    pub attestation: &'a [u8],
+    pub now: u64,
+    pub origins: &'a Origins,
 }
 
-/// The signing authority and nonce. The service signs its own ring and cluster into
-/// the attestation, a client names them but never chooses them.
-pub(crate) fn check_authority(
-    auth: &AuthorityAuth,
-    ring: Address,
-    genesis_hash: [u8; 32],
-    now: u64,
-) -> Result<(Address, [u8; 32]), Unauthorized> {
-    fresh(now, auth.timestamp)?;
-    if auth.genesis_hash.0 != genesis_hash {
-        return Err(Unauthorized::ClusterMismatch);
+/// The service binds its own ring and cluster, a client names them but never chooses them.
+#[must_use]
+pub(crate) struct AuthorityCheck<'a> {
+    pub auth: &'a AuthorityAuth,
+    pub ring: Address,
+    pub genesis_hash: [u8; 32],
+    pub now: u64,
+}
+
+#[must_use]
+pub(crate) struct AuthorityClaim {
+    pub authority: Address,
+    pub nonce: [u8; 32],
+}
+
+impl ReadCheck<'_> {
+    pub fn decide(self) -> Result<ReaderKey, Unauthorized> {
+        let Self {
+            auth,
+            attestation,
+            now,
+            origins,
+        } = self;
+        fresh(now, auth.timestamp)?;
+        let reader = <[u8; 34]>::try_from(auth.reader.0.as_slice())
+            .ok()
+            .and_then(|tagged| ReaderKey::from_bytes(tagged).ok())
+            .ok_or(Unauthorized::UnknownReaderKey)?;
+        let signature = &auth.signature.0;
+        match (reader, &auth.webauthn) {
+            (ReaderKey::Ed25519(_), Some(_)) => return Err(Unauthorized::UnexpectedAssertion),
+            (ReaderKey::P256(_), None) => return Err(Unauthorized::PasskeyNeedsAssertion),
+            (ReaderKey::Ed25519(key), None) => {
+                verify_ed25519(key.address(), signature, attestation)?
+            }
+            (ReaderKey::P256(key), Some(assertion)) => webauthn::Verification {
+                assertion,
+                signature_der: signature,
+                pubkey: &key,
+                attestation,
+                origins,
+            }
+            .verify()?,
+        }
+        Ok(reader)
     }
-    let nonce = nonce(&auth.nonce)?;
-    let attestation = AuditorKeyAttestation { ring, genesis_hash }.message(auth.timestamp, &nonce);
-    verify_ed25519(auth.authority.0, &auth.signature.0, &attestation)?;
-    Ok((auth.authority.0, nonce))
+}
+
+impl AuthorityCheck<'_> {
+    pub(crate) fn decide(self) -> Result<AuthorityClaim, Unauthorized> {
+        let Self {
+            auth,
+            ring,
+            genesis_hash,
+            now,
+        } = self;
+        fresh(now, auth.timestamp)?;
+        if auth.genesis_hash.0 != genesis_hash {
+            return Err(Unauthorized::ClusterMismatch);
+        }
+        let nonce = nonce(&auth.nonce)?;
+        let attestation =
+            AuditorKeyAttestation { ring, genesis_hash }.message(auth.timestamp, &nonce);
+        verify_ed25519(auth.authority.0, &auth.signature.0, &attestation)?;
+        Ok(AuthorityClaim {
+            authority: auth.authority.0,
+            nonce,
+        })
+    }
 }
 
 fn verify_ed25519(signer: Address, signature: &[u8], message: &[u8]) -> Result<(), Unauthorized> {
@@ -102,7 +140,6 @@ fn verify_ed25519(signer: Address, signature: &[u8], message: &[u8]) -> Result<(
         .ok_or(Unauthorized::BadSignature)
 }
 
-/// One clock reading serves the skew rule and the nonce eviction window.
 fn fresh(now: u64, timestamp: u64) -> Result<(), Unauthorized> {
     if now.abs_diff(timestamp) > AUTH_SKEW.as_secs() {
         return Err(Unauthorized::StaleTimestamp);
@@ -153,7 +190,13 @@ mod tests {
             limit: None,
         }
         .message(auth.timestamp, &nonce);
-        check_read(auth, &attestation, now, &Origins::default())
+        ReadCheck {
+            auth,
+            attestation: &attestation,
+            now,
+            origins: &Origins::default(),
+        }
+        .decide()
     }
 
     fn assertion() -> zolana_ring_client::rpc::WebAuthnAssertion {

@@ -1,13 +1,13 @@
 use bytemuck::{Pod, Zeroable};
 use thiserror::Error;
 use wincode::{SchemaRead, SchemaWrite};
-use zolana_hasher::hash_chain::create_hash_chain_from_slice;
+use zolana_hasher::{primitives::right_align, Hasher, HasherError, Poseidon};
 
-use crate::{field_u64, field_u8, ListId, ListSet, POLICY_TABLE_DOMAIN};
+use crate::{field_u8, ListId, ListSet};
 
 /// Rule slots compiled into the circuit, a new value rotates the proving key.
 pub const MAX_RULES: usize = 16;
-/// Mint threshold slots per table, a circuit width. This is not a screening allowlist.
+/// Mint threshold slots per table, a circuit width.
 pub const MAX_INLINE_ASSETS: usize = 8;
 /// Source slots, one per list the enum can name.
 pub const MAX_SOURCES: usize = 8;
@@ -15,17 +15,23 @@ pub const MAX_SOURCES: usize = 8;
 pub const N_FOREIGN: usize = 1;
 /// Outflow limit slots per table, a circuit width.
 pub const MAX_OUTFLOW_LIMITS: usize = 8;
-/// Input slots in legacy policy witnesses. Shaped witnesses use their SPP capacity.
-pub const POLICY_INPUT_SLOTS: usize = 5;
-/// Output slots in legacy policy witnesses and the ordinary audit disclosure.
-pub const POLICY_OUTPUT_SLOTS: usize = 4;
 /// Enters `policy_hash`, bump it with any change of the encoding below.
-pub const POLICY_VERSION: u8 = 10;
+pub const POLICY_TABLE_VERSION: u8 = 11;
+/// `"CRTB"`, the first field of the table hash, `domain::POLICY_TABLE` of the interface.
+pub const POLICY_TABLE_DOMAIN: u32 = 0x4352_5442;
+pub const POLICY_TABLE_FIELDS: usize =
+    5 + 2 * MAX_SOURCES + MAX_RULES + 2 * MAX_INLINE_ASSETS + 3 * MAX_OUTFLOW_LIMITS;
+/// Fields absorbed per Poseidon call beside the accumulator, the 12-input syscall maximum.
+pub const POLICY_TABLE_RATE: usize = 11;
 
-/// One list and the registry serving it, zero for the ring's own, list id 0 marks an empty slot.
+const _: () =
+    assert!(POLICY_TABLE_FIELDS == 77 && POLICY_TABLE_FIELDS.is_multiple_of(POLICY_TABLE_RATE));
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PolicySource {
+    /// Zero marks an empty slot.
     pub list_id: u8,
+    /// A curator's `registry_field`, zero for the ring's own.
     pub registry: [u8; 32],
 }
 
@@ -46,14 +52,13 @@ pub enum SourceMapError {
     SeveralCurators,
 }
 
+/// A table the program refuses to store.
 #[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
-pub enum PolicyHashError {
-    #[error("hashing failed")]
-    Hashing,
-    #[error("no source for the list")]
+pub enum PolicyTableError {
+    #[error("no source serves a list a rule reads")]
     MissingSource(ListId),
     #[error(transparent)]
-    Table(RuleTableError),
+    Table(#[from] RuleTableError),
 }
 
 macro_rules! rule_errors {
@@ -101,6 +106,7 @@ rule_errors! {
     ZeroLimitAsset => "an outflow limit names no mint",
     DuplicateLimitAsset => "outflow limit mints must be unique",
     LimitWithoutBound => "an outflow limit needs a cap or a cosign threshold",
+    MemberWrittenList => "a rule reads a list its members write",
 }
 
 impl SourceMap {
@@ -506,8 +512,7 @@ impl RuleTable {
         encoded
     }
 
-    /// The map binds each referenced list to one registry, an uncovered rule fails closed.
-    pub fn hash(&self, sources: &SourceMap) -> Result<[u8; 32], PolicyHashError> {
+    pub fn hash(&self, sources: &SourceMap) -> Result<[u8; 32], HasherError> {
         self.encode().hash(sources)
     }
 }
@@ -701,7 +706,12 @@ pub struct TableParts<'a> {
 
 impl TableParts<'_> {
     pub fn encode(self) -> Result<EncodedRuleTable, RuleTableError> {
-        let (rows, inline, limits) = (self.rows, self.inline_assets, self.inline_limits);
+        let Self {
+            rows,
+            inline_assets: inline,
+            inline_limits: limits,
+            limits: outflow,
+        } = self;
         if rows.len() > MAX_RULES {
             return Err(RuleTableError::TooManyRules);
         }
@@ -711,13 +721,13 @@ impl TableParts<'_> {
         if limits.len() != inline.len() {
             return Err(RuleTableError::MissingAssetLimit);
         }
-        if self.limits.len() > MAX_OUTFLOW_LIMITS {
+        if outflow.len() > MAX_OUTFLOW_LIMITS {
             return Err(RuleTableError::TooManyOutflowLimits);
         }
         let mut encoded = EncodedRuleTable {
             rule_count: rows.len() as u8,
             inline_count: inline.len() as u8,
-            limit_count: self.limits.len() as u8,
+            limit_count: outflow.len() as u8,
             ..EncodedRuleTable::default()
         };
         encoded.rules[..rows.len()].copy_from_slice(rows);
@@ -725,7 +735,7 @@ impl TableParts<'_> {
         for (dst, limit) in encoded.inline_limits.iter_mut().zip(limits) {
             *dst = limit.to_be_bytes();
         }
-        encoded.write_limit_columns(self.limits);
+        encoded.write_limit_columns(outflow);
         Ok(encoded)
     }
 }
@@ -733,13 +743,17 @@ impl TableParts<'_> {
 impl EncodedRuleTable {
     pub const SIZE: usize = core::mem::size_of::<Self>();
 
-    /// Nonzero exactly when the table bounds a transfer's outflow.
+    /// The table bounds a transfer's outflow.
     pub const fn has_limits(&self) -> bool {
         self.limit_count != 0
     }
 
     pub fn decode(&self) -> Result<RuleTable, RuleTableError> {
-        let (rows, members, limits) = self.counted()?;
+        let Counted {
+            rows,
+            members,
+            limits,
+        } = self.counted()?;
         if !zero_past(&self.rules, rows.len())
             || !zero_past(&self.inline_assets, members.len())
             || !zero_past(&self.inline_limits, limits.len())
@@ -776,56 +790,92 @@ impl EncodedRuleTable {
             .fold(ListSet::EMPTY, ListSet::union)
     }
 
-    /// The map binds each referenced list to one registry, an uncovered rule fails closed.
-    pub fn hash(&self, sources: &SourceMap) -> Result<[u8; 32], PolicyHashError> {
-        let (rows, members, limits) = self.counted().map_err(PolicyHashError::Table)?;
-        if let Some(list_id) = self
-            .referenced()
+    /// The table a policy write stores, every check the circuit leaves to the program.
+    pub fn validate(&self, sources: &SourceMap) -> Result<RuleTable, PolicyTableError> {
+        let table = self.decode()?;
+        let referenced = self.referenced();
+        if !referenced.is_subset(ListSet::AUTHORITY_WRITES) {
+            return Err(RuleTableError::MemberWrittenList.into());
+        }
+        match referenced
             .iter()
             .find(|list_id| sources.registry(*list_id).is_none())
         {
-            return Err(PolicyHashError::MissingSource(list_id));
+            Some(list_id) => Err(PolicyTableError::MissingSource(list_id)),
+            None => Ok(table),
         }
-        let outflow = self.outflow_limits().map_err(PolicyHashError::Table)?;
-        let mut elements = Vec::with_capacity(
-            5 + 2 * MAX_SOURCES + rows.len() + 2 * members.len() + 3 * outflow.len(),
-        );
-        elements.push(POLICY_TABLE_DOMAIN);
-        elements.push(field_u8(POLICY_VERSION));
-        for slot in sources.slots() {
-            elements.push(field_u8(slot.list_id));
-            elements.push(slot.registry);
+    }
+
+    /// Every slot past a count enters as stored, `validate` keeps it zero.
+    pub fn fields(&self, sources: &SourceMap) -> [[u8; 32]; POLICY_TABLE_FIELDS] {
+        let header = [
+            right_align(&POLICY_TABLE_DOMAIN.to_be_bytes()),
+            field_u8(POLICY_TABLE_VERSION),
+        ];
+        let counts = [
+            field_u8(self.rule_count),
+            field_u8(self.inline_count),
+            field_u8(self.limit_count),
+        ];
+        let values = header
+            .into_iter()
+            .chain(
+                sources
+                    .slots()
+                    .iter()
+                    .flat_map(|slot| [field_u8(slot.list_id), slot.registry]),
+            )
+            .chain(counts)
+            .chain(self.rules.iter().copied())
+            .chain(self.inline_assets.iter().copied())
+            .chain(self.inline_limits.iter().map(right_align))
+            .chain(
+                self.limit_assets
+                    .iter()
+                    .zip(&self.limit_caps)
+                    .zip(&self.limit_cosign)
+                    .flat_map(|((asset, cap), cosign)| {
+                        [*asset, right_align(cap), right_align(cosign)]
+                    }),
+            );
+        let mut fields = [[0u8; 32]; POLICY_TABLE_FIELDS];
+        for (field, value) in fields.iter_mut().zip(values) {
+            *field = value;
         }
-        // Counts make the variable length sections unambiguous.
-        elements.push(field_u8(self.rule_count));
-        elements.push(field_u8(self.inline_count));
-        elements.push(field_u8(self.limit_count));
-        elements.extend_from_slice(rows);
-        for (member, limit) in members.iter().zip(limits) {
-            elements.push(*member);
-            elements.push(field_u64(u64::from_be_bytes(*limit)));
+        fields
+    }
+
+    /// `acc = Poseidon(acc, fields[11c..11c + 11])` from `acc = 0`, mirror
+    /// `prover/server/custom_rings/circuits/policy`.
+    pub fn hash(&self, sources: &SourceMap) -> Result<[u8; 32], HasherError> {
+        let fields = self.fields(sources);
+        let mut acc = [0u8; 32];
+        for chunk in fields.as_chunks::<POLICY_TABLE_RATE>().0 {
+            let mut inputs: [&[u8]; POLICY_TABLE_RATE + 1] = [&[]; POLICY_TABLE_RATE + 1];
+            inputs[0] = &acc;
+            for (input, field) in inputs[1..].iter_mut().zip(chunk) {
+                *input = field;
+            }
+            acc = Poseidon::hashv(&inputs)?;
         }
-        for limit in &outflow {
-            elements.push(limit.asset);
-            elements.push(field_u64(limit.cap));
-            elements.push(field_u64(limit.cosign_above));
-        }
-        create_hash_chain_from_slice(&elements).map_err(|_| PolicyHashError::Hashing)
+        Ok(acc)
     }
 
     fn counted(&self) -> Result<Counted<'_>, RuleTableError> {
-        let members = usize::from(self.inline_count);
-        Ok((
-            self.rules
+        Ok(Counted {
+            rows: self
+                .rules
                 .get(..usize::from(self.rule_count))
                 .ok_or(RuleTableError::TooManyRules)?,
-            self.inline_assets
-                .get(..members)
+            members: self
+                .inline_assets
+                .get(..usize::from(self.inline_count))
                 .ok_or(RuleTableError::TooManyInlineAssets)?,
-            self.inline_limits
-                .get(..members)
+            limits: self
+                .inline_limits
+                .get(..usize::from(self.inline_count))
                 .ok_or(RuleTableError::TooManyInlineAssets)?,
-        ))
+        })
     }
 
     fn outflow_limits(&self) -> Result<Vec<OutflowLimit>, RuleTableError> {
@@ -859,8 +909,11 @@ impl EncodedRuleTable {
     }
 }
 
-/// Rows, inline members and their limits up to the counts.
-type Counted<'a> = (&'a [[u8; 32]], &'a [[u8; 32]], &'a [[u8; 8]]);
+struct Counted<'a> {
+    rows: &'a [[u8; 32]],
+    members: &'a [[u8; 32]],
+    limits: &'a [[u8; 8]],
+}
 
 fn zero_past<const N: usize>(slots: &[[u8; N]], len: usize) -> bool {
     slots[len..].iter().all(|slot| *slot == [0u8; N])
@@ -891,13 +944,6 @@ mod tests {
             Subject::OutputOwner,
             ListSet::of(&[ListId::Allow, ListId::Frozen]),
         ))
-        .build();
-
-    const RELEASED: RuleTable = RuleTable::builder()
-        .rule(Rule::require(Subject::OutputOwner, ListId::Allow))
-        .rule(Rule::require(Subject::Sender, ListId::Allow))
-        .rule(Rule::forbid(Subject::OutputOwner, ListId::Block))
-        .rule(Rule::forbid(Subject::Sender, ListId::Frozen))
         .build();
 
     const LIMIT: OutflowLimit = OutflowLimit {
@@ -1207,13 +1253,13 @@ mod tests {
     }
 
     #[test]
-    fn a_group_hash_binds_every_listed_source() {
+    fn validation_needs_a_source_for_every_list_of_a_group() {
         let both = sources(&[(ListId::Allow, [0u8; 32]), (ListId::Frozen, [5u8; 32])]);
-        assert!(GROUP.hash(&both).is_ok());
+        assert_eq!(GROUP.encode().validate(&both), Ok(GROUP));
         let only_one = sources(&[(ListId::Allow, [0u8; 32])]);
         assert_eq!(
-            GROUP.hash(&only_one),
-            Err(PolicyHashError::MissingSource(ListId::Frozen))
+            GROUP.encode().validate(&only_one),
+            Err(PolicyTableError::MissingSource(ListId::Frozen))
         );
     }
 
@@ -1294,30 +1340,84 @@ mod tests {
     }
 
     #[test]
-    fn the_table_hash_is_the_image_hash() {
-        let map = sources(&[
-            (ListId::Allow, [4u8; 32]),
-            (ListId::Block, [0u8; 32]),
-            (ListId::Frozen, [4u8; 32]),
-        ]);
-        for table in [TABLE, EMPTY, GROUP, RELEASED] {
-            assert_eq!(table.hash(&map), table.encode().hash(&map));
-        }
+    fn validation_refuses_an_overlong_count_and_a_rule_without_a_source() {
+        let map = sources(&[(ListId::Allow, [4u8; 32]), (ListId::Frozen, [4u8; 32])]);
+        assert_eq!(TABLE.encode().validate(&map), Ok(TABLE));
         let mut overflowing = TABLE.encode();
         overflowing.rule_count = MAX_RULES as u8 + 1;
         assert_eq!(
-            overflowing.hash(&map),
-            Err(PolicyHashError::Table(RuleTableError::TooManyRules))
+            overflowing.validate(&map),
+            Err(PolicyTableError::Table(RuleTableError::TooManyRules))
+        );
+        let allow_only = sources(&[(ListId::Allow, [4u8; 32])]);
+        assert_eq!(
+            TABLE.encode().validate(&allow_only),
+            Err(PolicyTableError::MissingSource(ListId::Frozen))
         );
     }
 
     #[test]
-    fn a_records_rule_without_a_source_fails_closed() {
+    fn validation_refuses_a_rule_over_a_list_its_members_write() {
+        for list_id in [ListId::RingViewing, ListId::Recovery, ListId::Escrow] {
+            let map = sources(&[(ListId::Allow, [0u8; 32]), (list_id, [0u8; 32])]);
+            let required = RuleTable::builder()
+                .rule(Rule::require(Subject::OutputOwner, list_id))
+                .build();
+            let alternative = RuleTable::builder()
+                .rule(Rule::any_of(
+                    Subject::Sender,
+                    ListSet::single(ListId::Allow),
+                    ListSet::single(list_id),
+                ))
+                .build();
+            for table in [required, alternative] {
+                assert_eq!(
+                    table.encode().validate(&map),
+                    Err(PolicyTableError::Table(RuleTableError::MemberWrittenList)),
+                    "{list_id:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn table_fields_follow_the_circuit_order() {
+        const FULL: RuleTable = RuleTable::builder()
+            .rule(Rule::require(Subject::OutputOwner, ListId::Allow).above_by_asset())
+            .inline_assets(&[[3u8; 32]])
+            .inline_limits(&[9])
+            .limits(&[LIMIT])
+            .build();
         let map = sources(&[(ListId::Allow, [4u8; 32])]);
+        let fields = FULL.encode().fields(&map);
+        assert_eq!(fields[0], right_align(b"CRTB"));
+        assert_eq!(fields[1], field_u8(POLICY_TABLE_VERSION));
+        assert_eq!((fields[2], fields[3]), (field_u8(1), [4u8; 32]));
+        assert_eq!(fields[4], [0u8; 32]);
+        assert_eq!(fields[18..21], [field_u8(1), field_u8(1), field_u8(1)]);
+        assert_eq!(fields[21], FULL.rules()[0].encoded());
+        assert_eq!(fields[37], [3u8; 32]);
+        assert_eq!(fields[45], right_align(&9u64.to_be_bytes()));
         assert_eq!(
-            TABLE.hash(&map),
-            Err(PolicyHashError::MissingSource(ListId::Frozen))
+            fields[53..56],
+            [
+                LIMIT.asset,
+                right_align(&1000u64.to_be_bytes()),
+                right_align(&400u64.to_be_bytes())
+            ]
         );
+        assert!(fields[56..].iter().all(|field| *field == [0u8; 32]));
+    }
+
+    #[test]
+    fn the_hash_absorbs_the_last_source_and_the_last_limit_field() {
+        let map = SourceMap::default();
+        let baseline = LIMITED.hash(&map).unwrap();
+        let last_source = sources(&[(ListId::Escrow, [6u8; 32])]);
+        assert_ne!(baseline, LIMITED.hash(&last_source).unwrap());
+        let mut last_cosign = LIMITED.encode();
+        last_cosign.limit_cosign[MAX_OUTFLOW_LIMITS - 1] = 1u64.to_be_bytes();
+        assert_ne!(baseline, last_cosign.hash(&map).unwrap());
     }
 
     #[test]
@@ -1583,12 +1683,10 @@ mod tests {
         let mut limit_count = LIMITED.encode();
         limit_count.limit_count = MAX_OUTFLOW_LIMITS as u8 + 1;
         assert_eq!(
-            limit_count.decode(),
-            Err(RuleTableError::TooManyOutflowLimits)
-        );
-        assert_eq!(
-            limit_count.hash(&map),
-            Err(PolicyHashError::Table(RuleTableError::TooManyOutflowLimits))
+            limit_count.validate(&map),
+            Err(PolicyTableError::Table(
+                RuleTableError::TooManyOutflowLimits
+            ))
         );
     }
 
@@ -1709,18 +1807,7 @@ mod tests {
             .rule(Rule::require(Subject::OutputOwner, ListId::Allow).above(7))
             .build();
         assert_eq!(table.rules().len(), 1);
-        // Mixed-mint transfers are rejected by the evaluator.
-    }
-
-    #[test]
-    fn an_owner_guard_cannot_reintroduce_an_inline_allowlist() {
-        assert_eq!(
-            RuleTable::builder()
-                .rule(Rule::require(Subject::OutputOwner, ListId::Allow).above(7))
-                .inline_assets(&[[3u8; 32], [4u8; 32]])
-                .try_build(),
-            Err(RuleTableError::PoolWithoutInlineRule)
-        );
+        // The circuit refuses a transfer of two assets under a scalar owner guard.
     }
 
     #[test]
@@ -1733,7 +1820,7 @@ mod tests {
     }
 
     #[test]
-    fn asset_rules_read_lists_and_reject_the_old_inline_encoding() {
+    fn an_asset_rule_reads_lists_and_refuses_an_empty_mask() {
         let rule = Rule::require(Subject::Asset, ListId::Approval).above(7);
         let table = RuleTable::builder().rule(rule).build();
         assert_eq!(table.rules(), &[rule]);

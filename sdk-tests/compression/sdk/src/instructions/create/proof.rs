@@ -196,6 +196,7 @@ impl CreateProofInputParams {
             tree_slots: zolana_client::TreeSlotFields::encode_all(&tree_slots),
             output_tree_id: BigUint::from(tree_id),
             blinding_seed: be(&ACCOUNT_BLINDING_SEED),
+            ring_secrets: Vec::new(),
             external_data_hash: be(&external_hash),
             private_tx_hash: be(&private_tx),
             public_assets: core::array::from_fn(|_| BigUint::ZERO),

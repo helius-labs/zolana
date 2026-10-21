@@ -20,9 +20,8 @@ use zolana_interface::instruction::instruction_data::merge_transact::MERGE_OUTPU
 /// The ciphertext elements a merge instruction carries.
 pub type MergeOutputCiphertext = [[u8; 32]; MERGE_OUTPUT_CIPHERTEXT_ELEMENTS];
 
-/// The amount and mint that a merge proof encrypts for the owner.
-/// Ownership and blinding derive from the owner's keys and the first nullifier.
-/// The authenticated publication supplies the ring program and ring data hash.
+/// The two output fields a merge proof encrypts for the owner; every other
+/// field derives from the owner's keys and the first nullifier.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MergeOutputPlaintext {
     pub amount: u64,
@@ -54,8 +53,7 @@ impl MergeOutputPlaintext {
                 return Err(TransactionError::NonCanonicalMergeCiphertext { index });
             }
         }
-        // Almost every wrong key produces a field element that cannot be a u64.
-        // Reject it before deriving the two mint pads for this candidate.
+        // A wrong key almost always opens an amount above u64, refused before the mint pads.
         let amount = split_low::<8>(&field_sub(&ciphertext[0], &pad(key, &salt, 0)?), 0)?;
         let chunk_0 = field_sub(&ciphertext[1], &pad(key, &salt, 1)?);
         let chunk_1 = field_sub(&ciphertext[2], &pad(key, &salt, 2)?);

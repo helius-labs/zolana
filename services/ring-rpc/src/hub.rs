@@ -1,6 +1,6 @@
 use std::{
-    collections::HashSet,
-    sync::{Arc, Mutex},
+    collections::{HashMap, HashSet},
+    sync::{Arc, Mutex, PoisonError},
     time::{Duration, Instant},
 };
 
@@ -20,15 +20,16 @@ use zolana_ring_client::{
 use zolana_transaction::AssetRegistry;
 
 use crate::{
-    audit::{AuditService, ASSET_REFRESH_INTERVAL},
+    audit::{AuditService, AuditServiceInit, ASSET_REFRESH_INTERVAL},
     authorize::Unauthorized,
     config::RootSecret,
     error::RingRpcError,
-    keys::{derive_auditor_key, service_keypair, KeySource},
+    keys::{service_keypair, AuditorKeyDerivation, KeySource},
     limits::{
         PublicRequest, RequestRate, MAX_CONCURRENT_AUTHENTICATIONS, MAX_CONCURRENT_DEPOSIT_SCANS,
         MAX_CONCURRENT_READS,
     },
+    notes::AuditStore,
     origins::Origins,
     replay::ReplayGuard,
     upstream::{DepositHistory, DepositPage, TransactionSource},
@@ -91,7 +92,7 @@ pub(crate) enum Lane {
     Public,
     Deposits(usize),
     Authentication,
-    /// Held for a whole decrypting page, which no other method needs.
+    /// Held for a whole transfer or merge page.
     Read,
 }
 
@@ -115,18 +116,37 @@ pub(crate) struct Shared<S> {
     pub(crate) active_readers: Mutex<HashSet<(Address, ReaderKey)>>,
     lanes: [(RequestRate, Option<Semaphore>); 4],
     readiness: AsyncMutex<ReadinessCache>,
+    /// One per ring an authorized read or the backfill opened.
+    stores: Mutex<HashMap<Address, Arc<AuditStore>>>,
 }
 
 struct AssetCache {
     registry: AssetRegistry,
-    /// When the last refresh started and whether it succeeded.
-    refreshed: Option<(Instant, bool)>,
+    refresh: RefreshState,
+}
+
+enum RefreshState {
+    Never,
+    Succeeded(Instant),
+    Failed(Instant),
 }
 
 struct ReadinessCache {
     checked_at: Option<Instant>,
     status: ReadinessStatus,
     in_flight: Option<watch::Receiver<Option<ReadinessStatus>>>,
+}
+
+impl<S> Shared<S> {
+    pub(crate) fn store(&self, ring: Address) -> Arc<AuditStore> {
+        let mut stores = self.stores.lock().unwrap_or_else(PoisonError::into_inner);
+        stores.entry(ring).or_default().clone()
+    }
+
+    fn store_rings(&self) -> Vec<Address> {
+        let stores = self.stores.lock().unwrap_or_else(PoisonError::into_inner);
+        stores.keys().copied().collect()
+    }
 }
 
 impl<S: TransactionSource> Shared<S> {
@@ -137,16 +157,18 @@ impl<S: TransactionSource> Shared<S> {
     /// At most one registry read per interval, a failed one blocks retries until it ends.
     pub(crate) async fn refresh_assets(&self) -> Result<AssetRegistry, RingRpcError> {
         let mut cache = self.assets.lock().await;
-        match cache.refreshed {
-            Some((at, true)) if at.elapsed() < ASSET_REFRESH_INTERVAL => {}
-            Some((at, false)) if at.elapsed() < ASSET_REFRESH_INTERVAL => {
-                return Err(ClientError::Rpc("asset registry is unavailable".to_owned()).into());
+        let refresh_due = match cache.refresh {
+            RefreshState::Never => true,
+            RefreshState::Succeeded(at) | RefreshState::Failed(at) => {
+                at.elapsed() >= ASSET_REFRESH_INTERVAL
             }
-            _ => {
-                cache.refreshed = Some((Instant::now(), false));
-                cache.registry = self.source.asset_registry().await?;
-                cache.refreshed = Some((Instant::now(), true));
-            }
+        };
+        if refresh_due {
+            cache.refresh = RefreshState::Failed(Instant::now());
+            cache.registry = self.source.asset_registry().await?;
+            cache.refresh = RefreshState::Succeeded(Instant::now());
+        } else if matches!(cache.refresh, RefreshState::Failed(_)) {
+            return Err(ClientError::Rpc("asset registry is unavailable".to_owned()).into());
         }
         Ok(cache.registry.clone())
     }
@@ -222,11 +244,21 @@ impl<S: TransactionSource> Hub<S> {
             }
             KeySource::Derived(root) => {
                 let ring = ring.ok_or(RingRpcError::RingRequired)?;
-                let auditor = derive_auditor_key(root, &self.shared.genesis_hash, ring)?;
+                let auditor = AuditorKeyDerivation {
+                    root,
+                    genesis_hash: &self.shared.genesis_hash,
+                    ring,
+                }
+                .derive()?;
                 (ring, auditor)
             }
         };
-        Ok(AuditService::new(ring, auditor, self.shared.clone()))
+        Ok(AuditServiceInit {
+            ring,
+            auditor,
+            shared: self.shared.clone(),
+        }
+        .build())
     }
 
     pub(crate) fn validate_ring(&self, ring: Address) -> Result<(), RingRpcError> {
@@ -236,6 +268,33 @@ impl<S: TransactionSource> Hub<S> {
             }
             _ => Ok(()),
         }
+    }
+
+    /// Every `interval`, the first at once, backfills the local ring and every ring a read opened.
+    pub async fn run_note_backfill(self: Arc<Self>, interval: Duration) {
+        let mut ticks = tokio::time::interval(interval);
+        loop {
+            ticks.tick().await;
+            for ring in self.backfill_rings() {
+                let backfill = match self.service(Some(ring)) {
+                    Ok(service) => service.backfill_notes().await,
+                    Err(error) => Err(error),
+                };
+                if let Err(error) = backfill {
+                    log::warn!("note backfill of ring {ring} failed because {error}");
+                }
+            }
+        }
+    }
+
+    fn backfill_rings(&self) -> Vec<Address> {
+        let mut rings = self.shared.store_rings();
+        if let KeySource::Local { ring, .. } = &self.keys {
+            if !rings.contains(ring) {
+                rings.push(*ring);
+            }
+        }
+        rings
     }
 
     /// Local mode holds one key for one ring, so it also checks the config.
@@ -349,7 +408,7 @@ impl<S: TransactionSource> HubBuilder<S> {
             clock: self.clock,
             assets: AsyncMutex::new(AssetCache {
                 registry: self.assets,
-                refreshed: None,
+                refresh: RefreshState::Never,
             }),
             origins: self.origins,
             replay: ReplayGuard::default(),
@@ -365,6 +424,7 @@ impl<S: TransactionSource> HubBuilder<S> {
                 status: ReadinessStatus::Unavailable("not checked"),
                 in_flight: None,
             }),
+            stores: Mutex::new(HashMap::new()),
         };
         Hub {
             signer,

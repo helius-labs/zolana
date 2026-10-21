@@ -1,46 +1,60 @@
+use std::collections::BTreeSet;
+
+use custom_ring_interface::RingMode;
 use solana_address::Address;
-use zolana_client::{AsyncRpc, ProofInputUtxo};
-use zolana_interface::{
-    instruction::{
-        instruction_data::transact::{OwnerTag, TransactOutput},
-        tag::RING_AUTHORITY_TRANSACT,
-    },
-    shape::RING_AUTHORITY_WIDTHS,
-};
-use zolana_keypair::{random_blinding, random_salt, NullifierKey, ShieldedAddress, ViewingKey};
+use zolana_client::{AsyncIndexer, AsyncRpc, AsyncZolanaClient};
+use zolana_interface::shape::{ring_authority_shapes, Shape};
+use zolana_keypair::{NullifierKey, ShieldedAddress, ViewingKey};
+use zolana_ring_transaction::RingOutputRail;
 use zolana_transaction::{
-    instructions::transact::{SppProofInputs, SppProofOutputUtxo},
-    utxo::{derive_output_blinding_seed, derive_transact_output_blinding, SppProofInputUtxo},
-    AssetRegistry, ExternalData, Mint, TransactionError,
+    instructions::transact::{ConfidentialTransaction, SppProofOutputUtxo},
+    select_spend_where, AssetRegistry, TransactionError, WalletUtxo,
 };
 
 use super::{
-    frame_dummy_outputs, owner::check_membership, pinned_policy, sealed, Rail, RailKind,
-    RingTransfer, Staged, TransferAuthority,
+    packed_or_delivered, sealed, Rail, RailKind, RingTransfer, Spend, Staged, TransferAuthority,
 };
-use custom_ring_interface::RingMode;
+use crate::{projection::retry_projection_lag, CustomRing, CustomRingConfig, RingError};
 
-use crate::{
-    heap::boxed, CustomRing, CustomRingConfig, CustomRingProofParams, EncryptedAudit, RingError,
-};
-
-#[derive(Clone)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DelegateOutput {
     pub recipient: ShieldedAddress,
     pub asset: Address,
     pub amount: u64,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DelegatePayment {
+    pub recipient: ShieldedAddress,
+    pub amount: u64,
+}
+
+#[must_use = "select the notes of the move"]
+pub struct DelegateMove<'a> {
+    pub ring: CustomRing,
+    pub delegate: Address,
+    pub payer: Address,
+    pub source: ShieldedAddress,
+    pub source_nullifier_key: &'a NullifierKey,
+    /// The source's notes on any tree.
+    pub notes: &'a [WalletUtxo],
+    pub mint: Address,
+    /// The change returns to the source.
+    pub payments: Vec<DelegatePayment>,
+    pub assets: &'a AssetRegistry,
+}
+
 /// The delegate moves a member's notes with the recovered key, the member does not sign.
 pub struct Delegated<'a> {
     delegate: Address,
     payer: Address,
-    source: NullifierKey,
-    inputs: Vec<SppProofInputUtxo>,
+    source: ShieldedAddress,
+    source_key: NullifierKey,
+    inputs: Vec<WalletUtxo>,
     outputs: Vec<DelegateOutput>,
     output_tree_id: Option<u16>,
+    shape: Option<Shape>,
     assets: Option<&'a AssetRegistry>,
-    compact_padding: bool,
 }
 
 pub struct DelegateTransferInput<'a> {
@@ -48,11 +62,15 @@ pub struct DelegateTransferInput<'a> {
     /// Signs the transaction beside the payer.
     pub delegate: Address,
     pub payer: Address,
-    /// The recovered key of the source member completes the ownership witnesses.
+    /// The member whose notes move, its change returns to it.
+    pub source: ShieldedAddress,
+    /// Recovered from escrow, the proof spends the member's notes with it.
     pub source_nullifier_key: &'a NullifierKey,
-    pub inputs: Vec<SppProofInputUtxo>,
+    pub inputs: Vec<WalletUtxo>,
     pub outputs: Vec<DelegateOutput>,
 }
+
+pub type DelegateTransfer<'a> = RingTransfer<Delegated<'a>>;
 
 impl sealed::Sealed for Delegated<'_> {}
 
@@ -69,18 +87,18 @@ impl<'a> RingTransfer<Delegated<'a>> {
             rail: Delegated {
                 delegate: input.delegate,
                 payer: input.payer,
-                source: input.source_nullifier_key.clone(),
+                source: input.source,
+                source_key: input.source_nullifier_key.clone(),
                 inputs: input.inputs,
                 outputs: input.outputs,
                 output_tree_id: None,
+                shape: None,
                 assets: None,
-                compact_padding: false,
             },
-            cosigner: None,
         }
     }
 
-    /// The outputs land in the first input's tree unless moved here.
+    /// Unset, the first input's `latest_tree_id` takes the outputs, else tree 0.
     #[must_use = "use the updated move"]
     pub fn with_output_tree_id(mut self, tree_id: u16) -> Self {
         self.rail.output_tree_id = Some(tree_id);
@@ -93,221 +111,174 @@ impl<'a> RingTransfer<Delegated<'a>> {
         self
     }
 
-    /// Omit trailing dummy slots, revealing the actual public input and output counts.
-    /// Disabled by default, as in the ordinary transfer builder.
-    #[must_use = "use the updated move"]
-    pub fn with_compact_padding(mut self) -> Self {
-        self.rail.compact_padding = true;
-        self
+    /// Unset, staging pads to the cheapest supported shape.
+    pub fn with_shape(mut self, shape: Shape) -> Result<Self, RingError> {
+        if !shape.is_ring_authority() {
+            return Err(RingError::ShapeUnkeyed { rail: "delegate" });
+        }
+        self.rail.shape = Some(shape);
+        Ok(self)
     }
 }
 
-/// The smallest square ring authority circuit with at least `slots` inputs and outputs.
-pub fn ring_authority_width(slots: usize) -> Option<usize> {
-    RING_AUTHORITY_WIDTHS
-        .into_iter()
-        .find(|&width| width >= slots)
+impl<'a> DelegateMove<'a> {
+    /// The fewest notes of one tree funding the payments whose assembled move fits one transaction.
+    pub async fn select<P: AsyncRpc, I: AsyncIndexer>(
+        self,
+        client: &AsyncZolanaClient<P, I>,
+    ) -> Result<DelegateTransfer<'a>, RingError> {
+        let amount = self
+            .payments
+            .iter()
+            .try_fold(0u64, |total, payment| total.checked_add(payment.amount))
+            .ok_or(RingError::OutflowOverflow)?;
+        if amount == 0 {
+            return Err(TransactionError::ZeroSpendAmount.into());
+        }
+        // The shape holds a change slot, the selection may leave none.
+        let outputs = self.payments.len() + 1;
+        let shapes = || ring_authority_shapes().filter(move |shape| shape.n_outputs() >= outputs);
+        let unkeyed = || RingError::ShapeUnkeyed { rail: "delegate" };
+        let max_inputs = shapes()
+            .map(|shape| shape.n_inputs())
+            .max()
+            .ok_or_else(unkeyed)?;
+        let trees: BTreeSet<u16> = self.notes.iter().map(|note| note.tree_id).collect();
+        let mut candidates: Vec<_> = trees
+            .into_iter()
+            .filter_map(|tree| {
+                let notes = select_spend_where(self.notes, self.mint, amount, max_inputs, |note| {
+                    self.spends(note, tree)
+                })
+                .ok()?;
+                let total: u128 = notes.iter().map(|note| u128::from(note.utxo.amount)).sum();
+                Some(((notes.len(), total, tree), notes))
+            })
+            .collect();
+        candidates.sort_unstable_by_key(|(order, _)| *order);
+        let mut oversized = None;
+        for ((count, _, _), notes) in candidates {
+            let shape = shapes()
+                .find(|shape| shape.n_inputs() >= count)
+                .ok_or_else(unkeyed)?;
+            let transfer = self.transfer(notes).with_shape(shape)?;
+            match retry_projection_lag(|| transfer.assemble(client)).await {
+                Ok(_) => return Ok(transfer),
+                Err(
+                    error @ (RingError::TransactionTooLarge { .. }
+                    | RingError::TooManyAddresses { .. }),
+                ) => {
+                    oversized.get_or_insert(error);
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        Err(oversized.unwrap_or(RingError::DelegateMoveUnfunded {
+            mint: self.mint,
+            amount,
+            max_inputs,
+        }))
+    }
+
+    fn spends(&self, note: &WalletUtxo, tree: u16) -> bool {
+        note.tree_id == tree
+            && note.utxo.owner == self.source.signing_pubkey
+            && note.utxo.ring_program_id == Some(self.ring.program_id())
+    }
+
+    fn transfer(&self, notes: Vec<WalletUtxo>) -> DelegateTransfer<'a> {
+        DelegateTransfer::new(DelegateTransferInput {
+            ring: self.ring,
+            delegate: self.delegate,
+            payer: self.payer,
+            source: self.source,
+            source_nullifier_key: self.source_nullifier_key,
+            inputs: notes,
+            outputs: self
+                .payments
+                .iter()
+                .map(|payment| DelegateOutput {
+                    recipient: payment.recipient,
+                    asset: self.mint,
+                    amount: payment.amount,
+                })
+                .collect(),
+        })
+        .with_assets(self.assets)
+    }
 }
 
 impl Delegated<'_> {
-    /// The auditor message joins the external data ahead of every hash over it.
-    pub(super) async fn stage(
+    pub(super) async fn stage<R: AsyncRpc + ?Sized>(
         &self,
         ring: CustomRing,
-        client: &(impl AsyncRpc + ?Sized),
+        _client: &R,
         config: &CustomRingConfig,
-    ) -> Result<Box<Staged>, RingError> {
-        let stored = ring
-            .delegate(client)
-            .await?
-            .ok_or(RingError::MissingDelegate)?;
-        if stored != self.delegate {
-            return Err(RingError::UnauthorizedDelegate(stored));
+    ) -> Result<Staged<'_>, RingError> {
+        match config.delegate {
+            None => return Err(RingError::MissingDelegate),
+            Some(stored) if stored != self.delegate => {
+                return Err(custom_ring_interface::CustomRingError::UnauthorizedDelegate.into())
+            }
+            Some(_) => {}
         }
-        if config.mode != RingMode::Registry {
+        if config.mode != RingMode::Registry || !config.has_policy {
             return Err(RingError::DelegateRequiresEscrow);
         }
-        let pinned = boxed(|| pinned_policy(ring, client)).await?;
+        if self.source_key.pubkey()? != self.source.nullifier_pubkey {
+            return Err(RingError::NullifierKeyMismatch);
+        }
+        if let Some(index) = self
+            .inputs
+            .iter()
+            .position(|input| input.utxo.owner != self.source.signing_pubkey)
+        {
+            return Err(RingError::MixedOwners { index });
+        }
         let assets = self.assets.ok_or(RingError::MissingAssetRegistry)?;
         let program = ring.program_id();
-        let first = self.inputs.first().ok_or(TransactionError::NoInputs)?;
-        let output_tree_id = self.output_tree_id.unwrap_or(first.tree_id);
-        let mut outputs = self
-            .outputs
-            .iter()
-            .map(|output| {
-                Ok(SppProofOutputUtxo {
-                    owner_tag: Some(output.recipient.signing_pubkey.confidential_view_tag()?),
-                    owner_address: Some(output.recipient),
-                    asset: assets.mint(&output.asset)?,
-                    amount: output.amount,
-                    ring_program_id: Some(program),
-                    ..Default::default()
-                })
-            })
-            .collect::<Result<Vec<_>, RingError>>()?;
-        check_membership(program, &self.inputs, &outputs)?;
-        check_balance(&self.inputs, &outputs)?;
-        let mut inputs = self.inputs.clone();
-        pad(&mut inputs, &mut outputs, program)?;
-        if self.compact_padding {
-            for input in &mut inputs[self.inputs.len()..] {
-                *input = SppProofInputUtxo::compact(input.tree_id)?;
-            }
-            for output in &mut outputs[self.outputs.len()..] {
-                output.compact = true;
-            }
+        let mut transaction =
+            ConfidentialTransaction::new_with_ring(self.inputs.clone(), self.payer, program)?;
+        if let Some(tree_id) = self.output_tree_id {
+            transaction = transaction.with_output_tree_id(tree_id)?;
         }
-        let tx_viewing_key = ViewingKey::new();
-        let salt = random_salt();
-        let blinding_seed = random_blinding();
-        let first_nullifier = inputs[0].nullifier();
-        let output_seed = derive_output_blinding_seed(&first_nullifier, &blinding_seed)?;
-        let mut external_outputs = Vec::with_capacity(outputs.len());
-        let mut resolved_owner_tags = Vec::with_capacity(outputs.len());
-        let dummy_tag = outputs[0].owner_tag.unwrap_or_default();
-        for (slot, output) in outputs.iter_mut().enumerate() {
-            let slot = u32::try_from(slot).map_err(|_| TransactionError::TooManyOutputs)?;
-            output.blinding =
-                derive_transact_output_blinding(&first_nullifier, &output_seed, slot)?;
-            if output.is_compact() {
-                continue;
-            }
-            let (tag, data) = match output.owner_address {
-                Some(_) => {
-                    let sealed = output.seal(slot, &tx_viewing_key, salt)?;
-                    (sealed.view_tag, Some(sealed.data))
-                }
-                None => (dummy_tag, None),
-            };
-            external_outputs.push(TransactOutput {
-                utxo_hash: output.hash(output_tree_id)?,
-                owner_tag: OwnerTag::Inline(tag),
-                data,
-            });
-            resolved_owner_tags.push(tag);
+        for output in &self.outputs {
+            transaction.add_output_utxo(
+                SppProofOutputUtxo::new(
+                    assets.mint(&output.asset)?,
+                    output.amount,
+                    output.recipient,
+                )?
+                .with_ring_program_id(program),
+            )?;
         }
-        let EncryptedAudit { pending, message } = CustomRingProofParams {
-            tx_viewing_key: tx_viewing_key.clone(),
-            auditor_pk: config.auditor_pubkey,
-            salt,
-            outputs: outputs
-                .iter()
-                .filter(|output| !output.is_compact())
-                .map(|output| ProofInputUtxo::try_from((output, output_tree_id)))
-                .collect::<Result<_, _>>()?,
-        }
-        .encrypt()?;
-        frame_dummy_outputs(&outputs, &mut external_outputs)?;
-        let mut external_data = ExternalData::new(
-            *tx_viewing_key.pubkey().as_bytes(),
-            salt,
-            external_outputs,
-            resolved_owner_tags,
-            vec![message.to_message_data(&config.auditor_pubkey)],
+        match self.shape {
+            Some(shape) => transaction.pad_utxos(shape, &self.source)?,
+            None => transaction.pad_to_canonical_shape(&self.source)?,
+        };
+        let delivery = packed_or_delivered(transaction.outputs().len(), "delegate")?;
+        // The delegate holds no viewing key of the member, a fresh transaction key seals the move.
+        let rail = RingOutputRail::new(ViewingKey::new(), delivery);
+        let proof_inputs = rail.encrypt(transaction, &self.source)?;
+        let shape = Shape::new(
+            proof_inputs.input_utxos.len(),
+            proof_inputs.output_utxos.len(),
         );
-        external_data.instruction_discriminator = RING_AUTHORITY_TRANSACT;
-        Ok(Box::new(Staged {
-            proof_inputs: SppProofInputs {
-                input_utxos: inputs,
-                output_utxos: outputs,
-                blinding_seed,
-                output_tree_id,
-                external_data,
-                payer: self.payer,
-                cache_accounts: Default::default(),
-            },
-            pending,
-            tx_viewing_key,
-            pinned: Some(pinned),
-            limits: None,
+        if !shape.is_ring_authority() {
+            return Err(RingError::ShapeUnkeyed { rail: "delegate" });
+        }
+        Ok(Staged {
+            proof_inputs,
+            rail,
+            sender: self.source,
             authority: TransferAuthority {
-                owner: Some(self.source.clone()),
+                owner: Some(self.source_key.clone()),
             },
-            key_escrow: true,
             owner_signers: Vec::new(),
             interface_transfer_accounts: Vec::new(),
-            delegate: Some(self.delegate),
-            exit_token_owner: None,
-        }))
-    }
-}
-
-/// Pads to the smallest square width, dummy outputs name a recipient and the ring,
-/// dummy inputs sit under the last declared tree.
-pub(super) fn pad(
-    inputs: &mut Vec<SppProofInputUtxo>,
-    outputs: &mut Vec<SppProofOutputUtxo>,
-    program: Address,
-) -> Result<(), RingError> {
-    if inputs.first().is_none_or(SppProofInputUtxo::is_dummy) {
-        return Err(TransactionError::NoInputs.into());
-    }
-    if outputs.is_empty() || outputs.iter().any(SppProofOutputUtxo::is_dummy) {
-        return Err(TransactionError::MissingOutput.into());
-    }
-    let width = ring_authority_width(inputs.len().max(outputs.len())).ok_or(
-        TransactionError::UnsupportedShape {
-            n_in: inputs.len(),
-            n_out: outputs.len(),
-        },
-    )?;
-    let dummy_tag = outputs[0].owner_tag;
-    outputs.resize_with(width, || SppProofOutputUtxo {
-        owner_tag: dummy_tag,
-        ring_program_id: Some(program),
-        ..Default::default()
-    });
-    let mut padding_tree = inputs[0].tree_id;
-    for (index, input) in inputs.iter().enumerate() {
-        if !input.is_dummy()
-            && inputs[..index]
-                .iter()
-                .all(|earlier| earlier.tree_id != input.tree_id)
-        {
-            padding_tree = input.tree_id;
-        }
-    }
-    while inputs.len() < width {
-        inputs.push(SppProofInputUtxo::dummy(padding_tree)?);
-    }
-    if let Some((index, input)) = inputs
-        .iter()
-        .enumerate()
-        .find(|(_, input)| input.is_dummy() && input.tree_id != padding_tree)
-    {
-        return Err(TransactionError::PaddingInUndeclaredTree {
-            index,
-            tree_id: input.tree_id,
-        }
-        .into());
-    }
-    Ok(())
-}
-
-/// Every asset moved in equals the asset moved out.
-pub(super) fn check_balance(
-    inputs: &[SppProofInputUtxo],
-    outputs: &[SppProofOutputUtxo],
-) -> Result<(), RingError> {
-    let real = inputs.iter().filter(|input| !input.is_dummy());
-    let moved = real
-        .clone()
-        .map(|input| (input.utxo.asset, i128::from(input.utxo.amount)))
-        .chain(
-            outputs
-                .iter()
-                .map(|output| (output.asset, -i128::from(output.amount))),
-        );
-    let mut balances: Vec<(Mint, i128)> = Vec::new();
-    for (asset, amount) in moved {
-        match balances.iter_mut().find(|(known, _)| *known == asset) {
-            Some((_, balance)) => *balance += amount,
-            None => balances.push((asset, amount)),
-        }
-    }
-    match balances.into_iter().find(|(_, balance)| *balance != 0) {
-        Some((asset, _)) => Err(RingError::UnbalancedMove(asset.asset)),
-        None => Ok(()),
+            spend: Spend::Delegate {
+                delegate: self.delegate,
+            },
+        })
     }
 }

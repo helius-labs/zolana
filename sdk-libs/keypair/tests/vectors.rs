@@ -14,6 +14,7 @@
 //! `sdk-libs/transaction/tests/merge.rs` asserts it.
 
 use serde::{Deserialize, Serialize};
+use solana_address::Address;
 use zolana_keypair::{
     derivation::{ed25519_derivation_message, is_derivation_input, MERGE_INFO},
     symmetric_apply, ShieldedKeypair, SigningKey, ViewingKey,
@@ -125,26 +126,23 @@ struct RingDerivation {
     viewing_pubkey: String,
     recipient_viewing_secret: String,
     recipient_viewing_pubkey: String,
-    inbox_secrets: Vec<InboxSecretCase>,
-    pair_pubkey: String,
-    pair_view_tags: Vec<CounterTag>,
+    ring_program_id: String,
+    address_keys: Vec<RingAddressKeyCase>,
+    change_key: RingKeyCase,
     shared_view_tags: Vec<CounterTag>,
-    first_nullifier: String,
-    change_view_tags: Vec<SlotTag>,
-    blinding_seed: String,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
-struct InboxSecretCase {
+struct RingAddressKeyCase {
     index: u32,
-    secret: String,
-    view_tags: Vec<CounterTag>,
+    #[serde(flatten)]
+    key: RingKeyCase,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
-struct SlotTag {
-    slot: u8,
-    tag: String,
+struct RingKeyCase {
+    secret: String,
+    pubkey: String,
 }
 
 fn scalar_bytes(n: u8) -> [u8; 32] {
@@ -299,41 +297,14 @@ fn compute_ring_derivation() -> RingDerivation {
     let recipient_viewing_secret = [0x22u8; 32];
     let key = ViewingKey::from_bytes(&viewing_secret);
     let recipient = ViewingKey::from_bytes(&recipient_viewing_secret);
-    let first_nullifier = scalar_bytes(13);
-    let counter_tags = |derive: &dyn Fn(u64) -> [u8; 32], counters: &[u64]| {
-        counters
-            .iter()
-            .map(|&counter| CounterTag {
-                counter: counter.to_string(),
-                tag: hex::encode(derive(counter)),
-            })
-            .collect::<Vec<_>>()
+    let ring = Address::new_from_array([0x11; 32]);
+    let key_case = |derived: ViewingKey| RingKeyCase {
+        secret: hex::encode(derived.secret_bytes().as_slice()),
+        pubkey: hex::encode(derived.pubkey().as_bytes()),
     };
-    let inbox_secrets = [0u32, 1]
+    let shared_view_tags = [0u64, 1]
         .into_iter()
-        .map(|index| {
-            let secret = key.inbox_secret(index).unwrap();
-            InboxSecretCase {
-                index,
-                secret: hex::encode(secret.as_bytes()),
-                view_tags: counter_tags(&|j| secret.view_tag(j).unwrap(), &[0, 1, 64]),
-            }
-        })
-        .collect();
-    let pair_pubkey = key.pair_key(&recipient.pubkey()).unwrap().pubkey();
-    let pair_view_tags = counter_tags(
-        &|k| {
-            let sent = key.pair_send_view_tag(&recipient.pubkey(), k).unwrap();
-            let received = recipient
-                .get_recipient_shared_view_tag(&pair_pubkey, k)
-                .unwrap();
-            assert_eq!(sent, received);
-            sent
-        },
-        &[0, 1],
-    );
-    let shared_view_tags = counter_tags(
-        &|k| {
+        .map(|k| {
             let sent = key
                 .get_send_shared_view_tag(&recipient.pubkey(), k)
                 .unwrap();
@@ -341,28 +312,27 @@ fn compute_ring_derivation() -> RingDerivation {
                 .get_recipient_shared_view_tag(&key.pubkey(), k)
                 .unwrap();
             assert_eq!(sent, received);
-            sent
-        },
-        &[0, 1],
-    );
+            CounterTag {
+                counter: k.to_string(),
+                tag: hex::encode(sent),
+            }
+        })
+        .collect();
     RingDerivation {
         viewing_secret: hex::encode(viewing_secret),
         viewing_pubkey: hex::encode(key.pubkey().as_bytes()),
         recipient_viewing_secret: hex::encode(recipient_viewing_secret),
         recipient_viewing_pubkey: hex::encode(recipient.pubkey().as_bytes()),
-        inbox_secrets,
-        pair_pubkey: hex::encode(pair_pubkey.as_bytes()),
-        pair_view_tags,
-        shared_view_tags,
-        first_nullifier: hex::encode(first_nullifier),
-        change_view_tags: [0u8, 1]
+        ring_program_id: ring.to_string(),
+        address_keys: [0u32, 1, u32::MAX]
             .into_iter()
-            .map(|slot| SlotTag {
-                slot,
-                tag: hex::encode(key.ring_change_view_tag(&first_nullifier, slot).unwrap()),
+            .map(|index| RingAddressKeyCase {
+                index,
+                key: key_case(key.ring_address_key(&ring, index).unwrap()),
             })
             .collect(),
-        blinding_seed: hex::encode(key.ring_blinding_seed(&first_nullifier).unwrap()),
+        change_key: key_case(key.ring_change_key(&ring).unwrap()),
+        shared_view_tags,
     }
 }
 

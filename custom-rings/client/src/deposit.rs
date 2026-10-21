@@ -1,10 +1,8 @@
 //! Deposits publish asset, amount and ring in the clear, only the blinding and memo stay sealed.
 
 use borsh::BorshDeserialize;
-use custom_ring_interface::RingDepositAuditCapsule;
 use solana_address::Address;
 use zolana_event::{EncryptedRingDepositOutput, OutputDataEncoding, ENCRYPTED_RING_DEPOSIT_SCHEME};
-use zolana_transaction::error::TransactionError;
 
 /// One deposit slot of a transaction.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -42,17 +40,12 @@ fn deposit_of(view_tag: &[u8; 32], payload: &[u8], ring: Address) -> Option<Ring
     })
 }
 
-/// The recipient's ciphertext inside a deposit's audit capsule, `None` without a capsule.
-pub fn deposit_payload(bytes: &[u8]) -> Result<Option<&[u8]>, TransactionError> {
-    RingDepositAuditCapsule::parse(bytes)
-        .map(|capsule| capsule.map(|capsule| capsule.recipient_ciphertext))
-        .map_err(|error| TransactionError::Deserialize(error.to_string()))
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use custom_ring_interface::RingDepositAuditCapsule;
     use zolana_keypair::ViewingKey;
+
+    use crate::deposit_payload;
     use zolana_transaction::serialization::ring_deposit::RingDepositPlaintext;
 
     #[test]

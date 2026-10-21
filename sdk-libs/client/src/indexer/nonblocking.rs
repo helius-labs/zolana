@@ -9,9 +9,12 @@ use crate::{
     error::ClientError,
     rpc::{
         AsyncRpc, Context, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
-        GetNonInclusionProofsResponse, GetRingMemberRecordRequest, GetRingMemberRecordResponse,
+        GetNonInclusionProofsResponse, GetRingApplyProofInputsRequest,
+        GetRingApplyProofInputsResponse, GetRingMemberOpeningsRequest,
+        GetRingMemberOpeningsResponse, GetRingMemberRecordRequest, GetRingMemberRecordResponse,
         GetRingMemberRecordsRequest, GetRingMemberRecordsResponse,
         GetRingMemberRegistryRootRequest, GetRingMemberRegistryRootResponse,
+        GetRingRecordQueueRequest, GetRingRecordQueueResponse,
         GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
         GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, IndexerRpcConfig,
         RingHistoryOptions,
@@ -338,6 +341,36 @@ impl AsyncRpc for AsyncZolanaIndexer {
     ) -> Result<GetRingMemberRegistryRootResponse, ClientError> {
         self.api
             .get_ring_member_registry_root(request)
+            .await
+            .map_err(indexer_error)
+    }
+
+    async fn get_ring_member_openings(
+        &self,
+        request: GetRingMemberOpeningsRequest,
+    ) -> Result<GetRingMemberOpeningsResponse, ClientError> {
+        self.api
+            .get_ring_member_openings(request)
+            .await
+            .map_err(indexer_error)
+    }
+
+    async fn get_ring_record_queue(
+        &self,
+        request: GetRingRecordQueueRequest,
+    ) -> Result<GetRingRecordQueueResponse, ClientError> {
+        self.api
+            .get_ring_record_queue(request)
+            .await
+            .map_err(indexer_error)
+    }
+
+    async fn get_ring_apply_proof_inputs(
+        &self,
+        request: GetRingApplyProofInputsRequest,
+    ) -> Result<GetRingApplyProofInputsResponse, ClientError> {
+        self.api
+            .get_ring_apply_proof_inputs(request)
             .await
             .map_err(indexer_error)
     }

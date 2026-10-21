@@ -25,11 +25,13 @@ use zolana_interface::{
     },
     verifying_keys::{AnonymousRingEddsaProofData, Bsb22Commitment},
 };
+use zolana_keypair::ShieldedKeypair;
 use zolana_program::instruction::{
     RingTransact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
     TransactSplWithdrawalAccounts,
 };
 use zolana_program_test::Rejection;
+use zolana_ring_transaction::{RingDelivery, RingOutputRail};
 use zolana_transaction::instructions::transact::ConfidentialTransaction;
 use zolana_transaction::instructions::transact::SppProofInputs;
 use zolana_transaction::utxo::SppProofInputUtxo;
@@ -477,11 +479,17 @@ impl RingHarness {
             .iter()
             .map(|k| k.shielded_address())
             .collect::<std::result::Result<Vec<_>, _>>()?;
-        let to_view_tag = recipient_keypairs
-            .first()
-            .map(|k| k.signing_pubkey().confidential_view_tag())
-            .transpose()?;
-        let sender_view_tag = from_keypair.signing_pubkey().confidential_view_tag()?;
+        let ring = Address::new_from_array(self.ring_program_id.to_bytes());
+        let output_ring = rail.output_ring(ring);
+        // A ring output publishes its owner's viewing key, a default-ring output its signing key.
+        let owner_tag = |keypair: &ShieldedKeypair| -> Result<[u8; 32]> {
+            Ok(match output_ring {
+                Some(_) => keypair.viewing_pubkey().u(),
+                None => keypair.signing_pubkey().confidential_view_tag()?,
+            })
+        };
+        let to_view_tag = recipient_keypairs.first().map(owner_tag).transpose()?;
+        let sender_view_tag = owner_tag(&from_keypair)?;
 
         // An eddsa actor pays and signs its own spend; a hidden owner falls back
         // to the harness payer because ownership is proven inside the proof.
@@ -497,7 +505,6 @@ impl RingHarness {
         // ciphertexts, external_data) exactly as a confidential transact; the ring
         // rail differs only in the prover and the instruction, plus the public
         // ring_program_id and the rebound discriminator.
-        let ring = Address::new_from_array(self.ring_program_id.to_bytes());
         let nullifier_pk = from_keypair.nullifier_key.pubkey()?;
         let hashes = inputs
             .iter()
@@ -526,7 +533,7 @@ impl RingHarness {
             Some(shape) => shape,
             None => canonical_shape(notes.len(), 2 + to_addresses.len())?,
         };
-        let mut transfer = match (rail.output_ring(ring), compact_shape.is_some()) {
+        let mut transfer = match (output_ring, compact_shape.is_some()) {
             (Some(ring), false) => {
                 ConfidentialTransaction::new_with_ring(notes, payer_address, ring)?
             }
@@ -564,8 +571,22 @@ impl RingHarness {
                 return Err(anyhow!("a ring transfer needs a recipient or a withdrawal"));
             }
         }
-        transfer.pad_utxos(shape, &from_keypair.shielded_address()?)?;
-        let mut proof_inputs = transfer.encrypt(&from_keypair)?;
+        let sender = from_keypair.shielded_address()?;
+        transfer.pad_utxos(shape, &sender)?;
+        let mut proof_inputs = match output_ring {
+            // Ring outputs blind under packed rail ring secrets of the transaction viewing key.
+            Some(_) => {
+                let first_nullifier = *transfer.first_nullifier();
+                RingOutputRail::new(
+                    from_keypair
+                        .viewing_key
+                        .get_transaction_viewing_key(&first_nullifier)?,
+                    RingDelivery::Packed,
+                )
+                .encrypt(transfer, &sender)?
+            }
+            None => transfer.encrypt(&from_keypair)?,
+        };
         // Rebind the discriminator to RING_TRANSACT before anything commits to
         // external_data: it is folded into external_data_hash and private_tx_hash, so
         // the proof and the on-chain recompute must agree on it.
@@ -598,8 +619,7 @@ impl RingHarness {
             data: data.clone(),
         }
         .instruction();
-        // The test ring program forwards the data verbatim, so the anonymous
-        // control tail SPP demands is appended here, no co-signer configured.
+        // The test ring program forwards the data verbatim, SPP's anonymous tail names no co-signer.
         if data.circuit.is_anonymous() {
             transfer_ix.data.extend_from_slice(&[0u8; 32]);
         }

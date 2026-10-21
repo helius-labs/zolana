@@ -106,17 +106,17 @@ pub enum TransactionError {
     #[error("output slot {slot_index} carries no owner address to encrypt to")]
     OutputWithoutOwner { slot_index: usize },
 
+    #[error("ring output slot {slot_index} carries no ring secret to derive its blinding from")]
+    MissingRingSecret { slot_index: usize },
+
+    #[error("output slot {slot_index} is not a ring output but carries a ring secret")]
+    UnexpectedRingSecret { slot_index: usize },
+
     #[error("dummy output slot {slot_index} carries no owner tag to publish")]
     DummyOutputWithoutOwnerTag { slot_index: usize },
 
     #[error("output slot {slot_index} is encrypted to an owner other than the one it publishes")]
     OwnerTagMismatch { slot_index: usize },
-
-    #[error("anonymous output slot {slot_index} pays a recipient with no view tag and pair key")]
-    UnknownAnonymousRecipient { slot_index: usize },
-
-    #[error("anonymous payment slot {slot_index} holds no ring output")]
-    AnonymousPaymentSlot { slot_index: usize },
 
     #[error(
         "ring transfer output {index} has an encryption marker incompatible with its ring binding"
@@ -312,7 +312,7 @@ pub enum TransactionError {
     #[error("selected balance overflow")]
     SelectedBalanceOverflow,
 
-    #[error("merge input {index} carries data unsupported by this merge rail")]
+    #[error("merge input {index} carries data the merge rail does not support")]
     MergeInputHasData { index: usize },
 
     #[error("keypair error: {0}")]
@@ -333,28 +333,28 @@ pub enum TransactionError {
     #[error("viewing keys do not include the keypair's own, so this authority would encrypt to one key and scan with another")]
     AuthorityViewingKeyMismatch,
 
-    #[error("anonymous view tags were derived from another wallet's viewing key")]
-    AnonymousViewTagsSenderMismatch,
+    #[error("delivered ring output {slot_index} carries data, its fixed body has no room")]
+    DeliveredOutputData { slot_index: usize },
 
-    #[error("anonymous output {slot_index} carries data records, the fixed body has no room")]
-    AnonymousOutputData { slot_index: usize },
+    #[error("output {slot_index} is compact padding, a delivered rail publishes every slot")]
+    DeliveredCompactPadding { slot_index: usize },
+
+    #[error("ring tag index {index} is outside its stream")]
+    RingTagIndex { index: u8 },
+
+    #[error("output {slot_index} does not frame as its ring rail publishes it")]
+    RingOutputFraming { slot_index: usize },
+
+    #[error("anonymous payment slot {slot_index} is taken, holds no ring output to its key, or repeats a tag or the pair stream")]
+    RingPaymentSlot { slot_index: usize },
+
+    #[error("anonymous ring output {slot_index} pays another owner without a stream slot")]
+    UnplannedRingOutput { slot_index: usize },
 
     #[error(
-        "anonymous output {slot_index} is compact padding, every slot of the shape is published"
+        "exit {slot_index} names a ring address viewing key, its scheme 3 body would publish it"
     )]
-    AnonymousCompactPadding { slot_index: usize },
-
-    #[error("anonymous outputs {first} and {second} publish one tag")]
-    DuplicateAnonymousTag { first: usize, second: usize },
-
-    #[error("the transaction key already sealed other anonymous outputs in this session")]
-    AnonymousStreamReuse,
-
-    #[error("anonymous slot {slot_index} exceeds the 255 slots a change tag indexes")]
-    AnonymousSlotIndex { slot_index: usize },
-
-    #[error(transparent)]
-    AnonymousOutput(#[from] custom_ring_interface::AnonymousOutputError),
+    RingAddressExit { slot_index: usize },
 
     /// A request named a viewing key this holder does not have. Distinct from
     /// [`Self::AuthorityViewingKeyMismatch`], which is raised when the holder is
@@ -386,6 +386,18 @@ pub enum TransactionError {
 impl From<AddressInputError> for TransactionError {
     fn from(e: AddressInputError) -> Self {
         Self::InvalidAddressInput(e)
+    }
+}
+
+impl From<custom_ring_interface::stream::StreamError> for TransactionError {
+    fn from(error: custom_ring_interface::stream::StreamError) -> Self {
+        use custom_ring_interface::stream::StreamError;
+        match error {
+            StreamError::IndexOutOfRange(index) => Self::RingTagIndex { index },
+            StreamError::NoncanonicalField => Self::NonCanonicalField,
+            StreamError::UntaggedKey => Self::Keypair(KeypairError::InvalidPublicKey),
+            StreamError::Hasher(error) => error.into(),
+        }
     }
 }
 

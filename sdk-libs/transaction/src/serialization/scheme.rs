@@ -12,6 +12,8 @@ pub enum EncryptedScheme {
     PlaintextTransfer = 7,
     RingDeposit = 8,
     RingAnonymous = 9,
+    RingConfidentialDelivered = 10,
+    RingConfidentialPacked = 11,
 }
 
 impl EncryptedScheme {
@@ -26,6 +28,8 @@ impl EncryptedScheme {
             7 => Ok(Self::PlaintextTransfer),
             8 => Ok(Self::RingDeposit),
             9 => Ok(Self::RingAnonymous),
+            10 => Ok(Self::RingConfidentialDelivered),
+            11 => Ok(Self::RingConfidentialPacked),
             other => Err(TransactionError::BadDiscriminator(other)),
         }
     }

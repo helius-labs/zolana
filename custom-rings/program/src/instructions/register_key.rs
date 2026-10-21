@@ -1,95 +1,69 @@
 use custom_ring_interface::{
-    register_key_verifying_key, CustomRingError, EscrowKey, MemberRegistryRoot, RegisterKeyIxData,
-    RegisterKeyPublicInput, RingMode, VIEWING_PUBKEY_TAG,
+    key_catalog::RingCircuit, CustomRingError, EscrowKey, QueueEntry, RegisterKeyIxData,
+    RegisterKeyStatement, RingMode,
 };
 use pinocchio::{AccountView, Address, ProgramResult};
 use zolana_account_checks::AccountIterator;
-use zolana_ring_policy::Member;
+use zolana_hasher::primitives::solana_owner_identity;
 
-use crate::{
-    instructions::{
-        loader::{load_audited_config, load_mut},
-        shared::parse,
-        verifier::verify_groth16,
-    },
-    state::RootTransition,
+use crate::instructions::{
+    insert_fee::{InsertFeeAccounts, MemberWrite},
+    loader::{load_config, load_queue_mut, load_registry},
+    verifier::{ring_key, RingProof},
 };
 
-/// `[member, config, member_registry_root]`, the member signs for its own record.
+/// Queues the escrow write for the next application.
 #[inline(never)]
 pub fn process_register_key_ix(
     program_id: &Address,
     accounts: &mut [AccountView],
     data: &[u8],
 ) -> ProgramResult {
-    let ix: RegisterKeyIxData = parse(data)?;
+    let ix = RegisterKeyIxData::parse(data)?;
     let mut iter = AccountIterator::new(accounts);
-    let member_signer = iter.next_signer("member")?;
+    let member = iter.next_signer("member")?;
     let config = iter.next_account("config")?;
-    let root_account = iter.next_mut("member_registry_root")?;
+    let registry = iter.next_account("registry")?;
+    let queue = iter.next_mut("queue")?;
 
-    let member = Member::owner_tag(member_signer.address().as_array())
-        .map_err(|_| CustomRingError::HashingFailed)?;
-    let config = load_audited_config(program_id, config)?;
+    let config = load_config(program_id, config)?;
     // An anonymous ring escrows no key, its auditor already sees every opening.
-    if config.mode == RingMode::Anonymous {
+    if config.mode()? == RingMode::Anonymous {
         return Err(CustomRingError::AnonymousRingRefused.into());
     }
-    if ix.eph_pk[0] != VIEWING_PUBKEY_TAG {
-        return Err(CustomRingError::InvalidAuditorMessage.into());
-    }
-    let item = &ix.item;
-    let escrow_key = EscrowKey {
-        nullifier_pk: &ix.nullifier_pk,
-        ciphertext: &ix.ciphertext,
-    }
-    .hash()
-    .map_err(CustomRingError::from)?;
-    // A registered key is never overwritten and the lists stay as they are.
-    if item.member != *member.as_bytes()
-        || item.old_escrow_key != [0; 32]
-        || item.lists != item.old_lists
-        || item.escrow_key != escrow_key
-    {
-        return Err(CustomRingError::MemberRecordMismatch.into());
-    }
-    let mut root = load_mut::<MemberRegistryRoot>(program_id, root_account)?;
-    let next_index = root.next_index();
-    let inserts = if item.inserts(next_index) {
-        if item.index != next_index {
-            return Err(CustomRingError::InvalidMemberRegistryCursor.into());
-        }
-        if item.old_lists != 0 {
-            return Err(CustomRingError::MemberRecordMismatch.into());
-        }
-        1
-    } else {
-        0
-    };
-    let transition = RootTransition {
-        old_root_index: ix.old_root_index,
-        new_root: ix.new_root,
-        inserts,
-    }
-    .check(&root)?;
-    let public_input = RegisterKeyPublicInput {
-        registry_old_root: transition.old_root(),
-        registry_new_root: &ix.new_root,
-        member: member.as_bytes(),
-        nullifier_pk: &ix.nullifier_pk,
-        auditor_pk: &config.auditor_pubkey,
-        eph_pk: &ix.eph_pk,
-        ciphertext: &ix.ciphertext,
-        index: item.index,
-    }
-    .hash()
-    .map_err(CustomRingError::from)?;
-    verify_groth16(
-        &ix.proof,
-        public_input,
-        &register_key_verifying_key::VERIFYINGKEY,
+    let identity =
+        solana_owner_identity(member.address().as_array()).map_err(CustomRingError::from)?;
+    let entry = QueueEntry::escrow(
+        identity,
+        &EscrowKey {
+            nullifier_pk: &ix.nullifier_pk,
+            ciphertext: &ix.ciphertext,
+        },
     )?;
-    // The registry moves only after the proof verifies.
-    transition.apply(&mut root);
-    Ok(())
+    let mut queue = load_queue_mut(program_id, queue)?;
+    queue.admit_member_write(&*load_registry(program_id, registry)?)?;
+    let statement = RegisterKeyStatement {
+        member: &identity,
+        nullifier_pk: &ix.nullifier_pk,
+        auditor_pubkey: &config.auditor_pubkey,
+        eph_u: &ix.eph_u,
+        ciphertext: &ix.ciphertext,
+    }
+    .hash()
+    .map_err(CustomRingError::from)?;
+    RingProof {
+        proof: &ix.proof,
+        statement,
+        key: ring_key(RingCircuit::RegisterKey)?,
+    }
+    .verify()?;
+    let write = MemberWrite {
+        config: &config,
+        writer: member.address(),
+        entry: &entry,
+    };
+    if let Some(lamports) = write.fee() {
+        InsertFeeAccounts::validate_and_parse(&mut iter, &config)?.pay(lamports)?;
+    }
+    write.push(&mut queue)
 }

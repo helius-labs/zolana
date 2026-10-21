@@ -10,6 +10,7 @@ use zolana_ring_client::{
 use zolana_ring_rpc::{
     read_root_secret, run_server, write_root_secret, ChainSource, Cli, Command, Hub, KeyKind,
     KeygenArgs, OriginPolicy, ServeArgs, ServerOptions, TransactionSource, Upstreams,
+    NOTE_BACKFILL_INTERVAL,
 };
 
 #[tokio::main]
@@ -102,6 +103,7 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
             args.bind, args.port
         ),
     }
+    tokio::spawn(hub.clone().run_note_backfill(NOTE_BACKFILL_INTERVAL));
     let handle = run_server(hub, options).await?;
     tokio::signal::ctrl_c().await?;
     info!("stopping");

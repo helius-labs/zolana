@@ -21,14 +21,20 @@ pub use merge_output::{
 pub use output_data::MessageData;
 pub use output_utxo::OutputUtxo;
 pub use proofless::{
-    confidential_encrypted_output_body, encode_encrypted_ring_deposit_output,
-    encode_encrypted_ring_deposit_output_ref, encode_output_data, encode_output_data_ref,
+    confidential_encrypted_output_body, encode_confidential_output,
+    encode_encrypted_ring_deposit_output, encode_encrypted_ring_deposit_output_ref,
+    encode_output_data, encode_output_data_ref, encode_ring_anonymous_output,
+    encode_ring_confidential_delivered_output, encode_ring_confidential_packed_output,
     is_confidential_encrypted_output, ring_anonymous_encrypted_output_body,
-    ring_confidential_encrypted_output_body, EncryptedRingDepositData, EncryptedRingDepositDataRef,
+    ring_confidential_delivered_output_body, ring_confidential_encrypted_output_body,
+    ring_confidential_packed_output_body, EncryptedRingDepositData, EncryptedRingDepositDataRef,
     EncryptedRingDepositOutput, EncryptedRingDepositOutputRef, OutputDataEncoding, ProoflessOutput,
-    ProoflessOutputRef, CONFIDENTIAL_ENCRYPTED_SCHEME_TAG, ENCRYPTED_RING_DEPOSIT_OUTPUT_FIXED_LEN,
-    ENCRYPTED_RING_DEPOSIT_SCHEME, PLAINTEXT_OUTPUT_FIXED_LEN, RING_ANONYMOUS_ENCRYPTED_SCHEME_TAG,
-    RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
+    ProoflessOutputRef, RingPackedBody, CONFIDENTIAL_DATA_FREE_BODY_LEN,
+    CONFIDENTIAL_ENCRYPTED_SCHEME_TAG, ENCRYPTED_RING_DEPOSIT_OUTPUT_FIXED_LEN,
+    ENCRYPTED_RING_DEPOSIT_SCHEME, PLAINTEXT_OUTPUT_FIXED_LEN, RECIPIENT_KEY_LEN,
+    RING_ANONYMOUS_ENCRYPTED_SCHEME_TAG, RING_CONFIDENTIAL_DELIVERED_SCHEME_TAG,
+    RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG, RING_CONFIDENTIAL_PACKED_SCHEME_TAG,
+    RING_DELIVERED_BODY_LEN, RING_PACKED_DATA_FREE_BODY_LEN,
 };
 
 /// The indexer-facing view of one state-changing instruction (spec: General
@@ -43,9 +49,8 @@ pub struct GeneralEvent {
     /// Published data slots bound to no output position, republished from
     /// `TransactIxData::messages`.
     pub messages: Vec<MessageData>,
-    /// Tagged X25519 viewing key (`0x04 || u`) shared by every output ciphertext, so an
-    /// indexer can decrypt without parsing the per-output `data`. Zeroed for
-    /// proofless deposits, which have no shared viewing key.
+    /// Tagged canonical X25519 viewing key shared by every output ciphertext.
+    /// Zeroed for proofless deposits, which carry their own viewing keys.
     pub tx_viewing_pk: [u8; 33],
     /// Per-transaction encryption salt shared by every output ciphertext, so a
     /// wallet can derive the AES key/nonce without parsing the per-output `data`.

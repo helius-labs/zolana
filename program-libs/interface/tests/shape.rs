@@ -1,6 +1,6 @@
 use zolana_interface::shape::{
-    owner_signer_slots, Shape, FIXED_TRANSACT_ADDRESSES, MAX_SIGNERS, MAX_TRANSACTION_ADDRESSES,
-    RING_AUTHORITY_WIDTHS, SPP_SUPPORTED_SHAPES,
+    owner_signer_slots, ring_authority_shapes, Shape, FIXED_TRANSACT_ADDRESSES, MAX_SIGNERS,
+    MAX_TRANSACTION_ADDRESSES, SPP_SUPPORTED_SHAPES,
 };
 
 /// The width bound rests on the number of addresses one transaction can
@@ -124,14 +124,23 @@ fn is_supported_is_membership_in_the_supported_shapes() {
     }
 }
 
+/// prover-test/spp/protocol/shape_test.go pins `RingAuthorityShapes` to the same vector.
 #[test]
-fn ring_authority_shapes_are_square_at_the_listed_widths() {
-    assert_eq!(RING_AUTHORITY_WIDTHS, [2, 4]);
-    for n_inputs in 0..=8 {
-        for n_outputs in 0..=8 {
+fn ring_authority_shapes_are_the_shared_vector() {
+    let vector: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../test-vectors/ring_authority_shapes.json"
+    ))
+    .unwrap();
+    let pinned: Vec<[usize; 2]> = serde_json::from_value(vector["shapes"].clone()).unwrap();
+    let shapes: Vec<[usize; 2]> = ring_authority_shapes()
+        .map(|shape| [shape.n_inputs(), shape.n_outputs()])
+        .collect();
+    assert_eq!(shapes, pinned);
+    for n_inputs in 0..=60 {
+        for n_outputs in 0..=20 {
             assert_eq!(
                 Shape::new(n_inputs, n_outputs).is_ring_authority(),
-                n_inputs == n_outputs && RING_AUTHORITY_WIDTHS.contains(&n_inputs),
+                pinned.contains(&[n_inputs, n_outputs]),
                 "{n_inputs}x{n_outputs}"
             );
         }

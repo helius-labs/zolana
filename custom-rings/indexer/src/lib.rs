@@ -1,5 +1,5 @@
-pub mod member_registry;
-pub mod proof;
+pub mod records;
+pub mod tree;
 
 use solana_address::Address;
 

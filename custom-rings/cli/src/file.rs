@@ -3,7 +3,6 @@
 use std::{fs, path::Path};
 
 use anyhow::{anyhow, Context as _, Result};
-use serde::de::DeserializeOwned;
 use solana_keypair::Keypair;
 use zolana_secret_file::{create_new, Visibility};
 
@@ -17,10 +16,6 @@ pub fn write(path: &Path, contents: impl AsRef<[u8]>) -> Result<()> {
 
 pub fn create_dir_all(path: &Path) -> Result<()> {
     fs::create_dir_all(path).with_context(|| format!("cannot write {}", path.display()))
-}
-
-pub fn parse_toml<T: DeserializeOwned>(path: &Path) -> Result<T> {
-    toml::from_str(&read(path)?).with_context(|| format!("cannot parse {}", path.display()))
 }
 
 pub fn read_keypair(path: &Path) -> Result<Keypair> {
@@ -42,16 +37,4 @@ pub fn write_keypair(keypair: &Keypair, path: &Path) -> Result<()> {
     let json = serde_json::to_string(&keypair.to_bytes().to_vec())?;
     create_new(path, json.as_bytes(), Visibility::Secret)
         .with_context(|| format!("cannot write keypair {}", path.display()))
-}
-
-/// Owner-only, a crash leaves the previous contents whole.
-pub fn replace_private(path: &Path, contents: impl AsRef<[u8]>) -> Result<()> {
-    let part = path.with_extension(format!("{}.part", std::process::id()));
-    create_new(&part, contents.as_ref(), Visibility::Secret)
-        .with_context(|| format!("cannot write {}", part.display()))?;
-    fs::rename(&part, path)
-        .inspect_err(|_| {
-            let _ = fs::remove_file(&part);
-        })
-        .with_context(|| format!("cannot write {}", path.display()))
 }

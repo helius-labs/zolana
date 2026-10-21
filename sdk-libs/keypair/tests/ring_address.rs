@@ -1,19 +1,13 @@
-//! Shared cross-language ring address vectors.
-//!
-//! `test-vectors/ring_address.json` pins the `zolana:` payment request form
-//! for every implementation. Regenerate with:
-//!
-//! ```bash
-//! cargo test -p zolana-keypair --test ring_address print_ring_address_vectors -- --ignored --nocapture
-//! ```
+//! `test-vectors/ring_address.json` pins the `zolana:` payment request form for every
+//! implementation, the ignored `print_ring_address_vectors` regenerates it.
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use solana_address::Address;
 use zolana_keypair::{
-    ring_address::{RING_ADDRESS_CHECKSUM_DOMAIN, RING_ADDRESS_PAYLOAD_LEN},
-    InboxSecret, KeypairError, RingAddress, RingPaymentRequest, ShieldedKeypair, SigningKey,
-    ViewingKey,
+    ring_address::{RING_ADDRESS_CHECKSUM_DOMAIN, RING_ADDRESS_VERSION},
+    KeypairError, Pairing, PairingRow, RingAddress, RingPaymentRequest, ShieldedAddress,
+    ShieldedKeypair, SigningKey, ViewingKey,
 };
 
 const VECTORS_JSON: &str = include_str!("../../../test-vectors/ring_address.json");
@@ -30,10 +24,17 @@ struct ValidCase {
     uri: String,
     recipient: String,
     ring_program_id: String,
-    inbox_secret: String,
+    pairing: Vec<PairingCase>,
     amount: Option<String>,
     mint: Option<String>,
     label: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+struct PairingCase {
+    mint: String,
+    /// A decimal string, a TypeScript number rounds a u64 past `Number.MAX_SAFE_INTEGER`.
+    min_amount: String,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
@@ -43,16 +44,45 @@ struct RejectedCase {
     error: String,
 }
 
-fn fixture_address() -> RingAddress {
-    let recipient = ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&[7u8; 32]))
+const RING: Address = Address::new_from_array([0x11; 32]);
+
+/// The wallet's signing and nullifier keys beside the key of its address 0 in `RING`.
+fn fixture_address(pairing: Pairing) -> RingAddress {
+    let wallet = ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&[7u8; 32]))
         .unwrap()
         .shielded_address()
         .unwrap();
+    let address_key = ViewingKey::from_bytes(&[0x21; 32])
+        .ring_address_key(&RING, 0)
+        .unwrap()
+        .pubkey();
     RingAddress {
-        recipient,
-        ring_program_id: Address::new_from_array([0x11; 32]),
-        inbox_secret: ViewingKey::from_bytes(&[0x21; 32]).inbox_secret(0).unwrap(),
+        recipient: ShieldedAddress {
+            viewing_pubkey: address_key,
+            ..wallet
+        },
+        ring_program_id: RING,
+        pairing,
     }
+}
+
+fn rows() -> Pairing {
+    Pairing::new(vec![
+        PairingRow {
+            mint: Address::new_from_array([0x33; 32]),
+            min_amount: 1_000_000,
+        },
+        PairingRow {
+            mint: Address::new_from_array([0x44; 32]),
+            min_amount: u64::MAX,
+        },
+        PairingRow::ANY,
+        PairingRow {
+            mint: Address::new_from_array([0x55; 32]),
+            min_amount: 0,
+        },
+    ])
+    .unwrap()
 }
 
 fn valid_case(name: &str, request: &RingPaymentRequest) -> ValidCase {
@@ -61,15 +91,25 @@ fn valid_case(name: &str, request: &RingPaymentRequest) -> ValidCase {
         uri: request.to_string(),
         recipient: hex::encode(request.address.recipient.to_bytes()),
         ring_program_id: request.address.ring_program_id.to_string(),
-        inbox_secret: hex::encode(request.address.inbox_secret.as_bytes()),
+        pairing: request
+            .address
+            .pairing
+            .rows()
+            .iter()
+            .map(|row| PairingCase {
+                mint: row.mint.to_string(),
+                min_amount: row.min_amount.to_string(),
+            })
+            .collect(),
         amount: request.amount.map(|amount| amount.to_string()),
         mint: request.mint.map(|mint| mint.to_string()),
         label: request.label.clone(),
     }
 }
 
-fn with_checksum(mut payload: [u8; RING_ADDRESS_PAYLOAD_LEN]) -> [u8; RING_ADDRESS_PAYLOAD_LEN] {
-    let body_len = RING_ADDRESS_PAYLOAD_LEN - 4;
+/// `payload` with its checksum recomputed over the bytes before it.
+fn with_checksum(mut payload: Vec<u8>) -> Vec<u8> {
+    let body_len = payload.len() - 4;
     let digest = Sha256::new()
         .chain_update(RING_ADDRESS_CHECKSUM_DOMAIN)
         .chain_update(&payload[..body_len])
@@ -84,7 +124,7 @@ fn variant_name(error: KeypairError) -> String {
 }
 
 fn compute() -> RingAddressVectors {
-    let address = fixture_address();
+    let address = fixture_address(Pairing::default());
     let bare = RingPaymentRequest::new(address.clone());
     let full = RingPaymentRequest {
         amount: Some(1_500_000),
@@ -100,34 +140,46 @@ fn compute() -> RingAddressVectors {
         valid_case("bare", &bare),
         valid_case("amount_mint_label", &full),
         valid_case("label_only", &labelled),
+        valid_case(
+            "pairing_off",
+            &RingPaymentRequest::new(fixture_address(Pairing::off())),
+        ),
+        valid_case(
+            "pairing_rows",
+            &RingPaymentRequest::new(fixture_address(rows())),
+        ),
     ];
 
     let payload = address.to_bytes();
     let base58 = address.to_base58();
     let uri = |payload: &[u8]| format!("zolana:{}", bs58::encode(payload).into_string());
-    let mut wrong_version = payload;
-    wrong_version[0] = 2;
-    let mut bad_checksum = payload;
-    bad_checksum[RING_ADDRESS_PAYLOAD_LEN - 1] ^= 1;
-    let mut bad_viewing_key = payload;
+    let mut wrong_version = payload.clone();
+    wrong_version[0] = RING_ADDRESS_VERSION - 1;
+    let mut bad_checksum = payload.clone();
+    *bad_checksum.last_mut().unwrap() ^= 1;
+    let mut bad_viewing_key = payload.clone();
     bad_viewing_key[1 + 34 + 32] = 5;
+    let count_at = payload.len() - 4 - 40 - 1;
+    let mut five_rows = payload.clone();
+    five_rows[count_at] = 5;
+    let mut row_short = payload.clone();
+    row_short[count_at] = 2;
     let rejected = vec![
         ("missing_scheme", base58.clone()),
         ("non_base58", format!("zolana:0{}", &base58[1..])),
-        (
-            "short_payload",
-            uri(&payload[..RING_ADDRESS_PAYLOAD_LEN - 1]),
-        ),
+        ("short_payload", uri(&payload[..payload.len() - 1])),
         ("long_payload", uri(&[payload.as_slice(), &[0]].concat())),
+        ("row_count_past_rows", uri(&with_checksum(row_short))),
+        ("five_pairing_rows", uri(&with_checksum(five_rows))),
         ("unknown_version", uri(&with_checksum(wrong_version))),
         ("bad_checksum", uri(&bad_checksum)),
         ("bad_viewing_key", uri(&with_checksum(bad_viewing_key))),
-        ("unknown_query_key", format!("{}?memo=hi", bare)),
-        ("duplicate_query_key", format!("{}?amount=1&amount=2", bare)),
-        ("fractional_amount", format!("{}?amount=1.5", bare)),
-        ("signed_amount", format!("{}?amount=+1", bare)),
-        ("bad_mint", format!("{}?mint=notAnAddress", bare)),
-        ("bad_label_escape", format!("{}?label=%zz", bare)),
+        ("unknown_query_key", format!("{bare}?memo=hi")),
+        ("duplicate_query_key", format!("{bare}?amount=1&amount=2")),
+        ("fractional_amount", format!("{bare}?amount=1.5")),
+        ("signed_amount", format!("{bare}?amount=+1")),
+        ("bad_mint", format!("{bare}?mint=notAnAddress")),
+        ("bad_label_escape", format!("{bare}?label=%zz")),
     ]
     .into_iter()
     .map(|(name, uri)| RejectedCase {
@@ -155,10 +207,6 @@ fn shared_vectors_match() {
             case.ring_program_id
         );
         assert_eq!(
-            request.address.inbox_secret,
-            InboxSecret::from_bytes(hex::decode(&case.inbox_secret).unwrap().try_into().unwrap())
-        );
-        assert_eq!(
             request.address,
             RingAddress::from_base58(&request.address.to_base58()).unwrap()
         );
@@ -168,6 +216,8 @@ fn shared_vectors_match() {
         ("non_base58", "InvalidRingAddressBase58"),
         ("short_payload", "InvalidRingAddressLength"),
         ("long_payload", "InvalidRingAddressLength"),
+        ("row_count_past_rows", "InvalidRingAddressLength"),
+        ("five_pairing_rows", "InvalidRingAddressPairing"),
         ("unknown_version", "UnknownRingAddressVersion"),
         ("bad_checksum", "InvalidRingAddressChecksum"),
         ("bad_viewing_key", "InvalidPublicKey"),
@@ -187,7 +237,7 @@ fn shared_vectors_match() {
 #[test]
 fn request_round_trips_every_field() {
     let request = RingPaymentRequest {
-        address: fixture_address(),
+        address: fixture_address(rows()),
         amount: Some(u64::MAX),
         mint: Some(Address::new_from_array([0x44; 32])),
         label: Some("a=b&c?d/é".into()),

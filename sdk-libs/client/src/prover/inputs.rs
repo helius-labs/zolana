@@ -111,14 +111,10 @@ pub struct MergeInputs {
     /// Policy-ring merge only: the ring program's `pk_field`, the merge-ring
     /// circuit's top-level public input. `0` for the default merge.
     pub ring_program_id: BigUint,
-    /// A ring merge proves the owner's auditor-recoverable nullifier key is
-    /// registered under this authenticated root. Absent on the default rail.
+    /// `None` on the default rail.
     pub registration: Option<MergeRegistration>,
 }
 
-/// The private member opening and public root of a registered merge owner.
-/// The ciphertext hash is committed by the member record. Registration proves
-/// that its ciphertext opens to the same nullifier key used by the merge.
 #[derive(Debug, Clone)]
 pub struct MergeRegistration {
     pub root: [u8; 32],
@@ -132,6 +128,19 @@ pub struct MergeRegistration {
 }
 
 impl MergeRegistration {
+    /// An anonymous ring binds a zero root and opens no record.
+    pub fn anonymous() -> Self {
+        Self {
+            root: [0; 32],
+            ciphertext_hash: None,
+            next: [0; 32],
+            lists: 0,
+            escrow_key: [0; 32],
+            index: 0,
+            path: Vec::new(),
+        }
+    }
+
     pub fn binding(&self) -> crate::prover::merge::MergeRegistryBinding {
         crate::prover::merge::MergeRegistryBinding {
             root: self.root,
@@ -176,6 +185,8 @@ pub struct TransferInputs {
     /// output blinding seed and the private transaction blinding from it, so
     /// neither is sent.
     pub blinding_seed: BigUint,
+    /// One per output slot on a ring rail, zero for an exit or a dummy, empty on the default rail.
+    pub ring_secrets: Vec<BigUint>,
     pub external_data_hash: BigUint,
     pub private_tx_hash: BigUint,
     /// Uniform public transfer slots (slot 0 = SOL leg, slot 1 = SPL leg); idle

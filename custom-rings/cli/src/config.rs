@@ -6,10 +6,10 @@ use std::{
     str::FromStr,
 };
 
-use anyhow::{anyhow, ensure, Context as _, Result};
+use anyhow::{anyhow, bail, ensure, Context as _, Result};
 use custom_ring_interface::RingMode;
 use custom_ring_sdk::CoSignScope;
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use solana_address::{error::ParseAddressError, Address};
 use solana_keypair::Keypair;
 use toml_edit::{DocumentMut, Item};
@@ -23,10 +23,6 @@ use crate::{
 };
 
 pub const RING_TOML: &str = "ring.toml";
-
-const fn required_deposit_audit() -> bool {
-    true
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -50,9 +46,6 @@ pub struct RingConfig {
     /// Applied by `cosigner set` without flags.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cosigner: Option<CoSignerSpec>,
-    /// Retained for older ring.toml files. A false value is normalized at init.
-    #[serde(default = "required_deposit_audit")]
-    pub deposit_audit: bool,
     pub localnet: Urls,
     pub devnet: Urls,
 }
@@ -145,10 +138,11 @@ pub struct Urls {
 }
 
 impl ModeName {
-    pub const fn mode(self) -> RingMode {
-        match self {
-            Self::Confidential => RingMode::Off,
-            Self::Anonymous => RingMode::Anonymous,
+    /// Key escrow is a confidential ring after `delegate set`.
+    pub const fn of(mode: RingMode) -> Self {
+        match mode {
+            RingMode::Off | RingMode::Registry => Self::Confidential,
+            RingMode::Anonymous => Self::Anonymous,
         }
     }
 }
@@ -292,7 +286,7 @@ impl Urls {
 impl RingConfig {
     /// `.env` next to ring.toml fills `${NAME}` placeholders, the environment wins.
     pub fn load(path: &Path) -> Result<Self> {
-        let mut config: Self = file::parse_toml(path)?;
+        let mut config: Self = parse_ring_toml(path)?;
         load_dotenv(&path.with_file_name(".env"))?;
         for urls in [&mut config.localnet, &mut config.devnet] {
             for url in [
@@ -336,14 +330,6 @@ impl RingConfig {
                 path.display()
             );
             document["target"] = toml_edit::value(target.as_str());
-            Ok(())
-        })
-    }
-
-    pub fn set_deposit_audit(path: &Path, required: bool) -> Result<()> {
-        ensure!(required, "deposit auditing is mandatory");
-        edit(path, |document| {
-            document["deposit_audit"] = toml_edit::value(required);
             Ok(())
         })
     }
@@ -419,6 +405,76 @@ pub fn expand_tilde(path: &Path) -> Result<PathBuf> {
     };
     let home = std::env::var_os("HOME").context("HOME is not set")?;
     Ok(PathBuf::from(home).join(rest))
+}
+
+#[derive(Clone, Copy, Debug)]
+struct RemovedKey {
+    table: Option<&'static str>,
+    key: &'static str,
+}
+
+const REMOVED_KEYS: [RemovedKey; 3] = [
+    RemovedKey {
+        table: None,
+        key: "deposit_audit",
+    },
+    RemovedKey {
+        table: Some("policy"),
+        key: "address_tree",
+    },
+    RemovedKey {
+        table: Some("policy"),
+        key: "velocity",
+    },
+];
+
+/// Refuses a removed key by name, whatever `T` accepts.
+pub(crate) fn parse_ring_toml<T: DeserializeOwned>(path: &Path) -> Result<T> {
+    let text = file::read(path)?;
+    let removed = removed_keys(&text);
+    if !removed.is_empty() {
+        let (noun, pronoun) = match removed.len() {
+            1 => ("key", "it"),
+            _ => ("keys", "them"),
+        };
+        bail!(
+            "{} keeps the removed {noun} {}, delete {pronoun}",
+            path.display(),
+            removed.join(" and ")
+        );
+    }
+    toml::from_str(&text).with_context(|| format!("cannot parse {}", path.display()))
+}
+
+/// Unparsable text names none, the typed parse reports it.
+fn removed_keys(text: &str) -> Vec<String> {
+    let Ok(document) = toml::from_str::<toml::Table>(text) else {
+        return Vec::new();
+    };
+    REMOVED_KEYS
+        .into_iter()
+        .filter(|removed| removed.set_in(&document))
+        .map(|removed| removed.to_string())
+        .collect()
+}
+
+impl RemovedKey {
+    fn set_in(self, document: &toml::Table) -> bool {
+        let table = match self.table {
+            None => Some(document),
+            Some(name) => document.get(name).and_then(toml::Value::as_table),
+        };
+        table.is_some_and(|table| table.contains_key(self.key))
+    }
+}
+
+impl fmt::Display for RemovedKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.table {
+            None => write!(f, "`{}`", self.key),
+            Some(table) => write!(f, "`[{table}] {}`", self.key),
+        }
+    }
 }
 
 /// Never overrides a variable already set.
@@ -514,6 +570,34 @@ ring_rpc = "http://127.0.0.1:8785"
     }
 
     #[test]
+    fn a_removed_key_is_named_before_the_unknown_field_error() {
+        assert!(removed_keys(EXAMPLE).is_empty());
+        let tree = Address::new_from_array([3; 32]);
+        let earlier = format!(
+            "deposit_audit = true\n{EXAMPLE}\n[policy]\naddress_tree = \"{tree}\"\n\n\
+             [policy.velocity]\nwindow_slots = 216000\nrows = []\n"
+        );
+        assert_eq!(
+            removed_keys(&earlier),
+            [
+                "`deposit_audit`",
+                "`[policy] address_tree`",
+                "`[policy] velocity`"
+            ]
+        );
+        let path = std::env::temp_dir().join(format!("ring-removed-{}.toml", std::process::id()));
+        file::write(&path, format!("deposit_audit = true\n{EXAMPLE}")).unwrap();
+        let refused = parse_ring_toml::<RingConfig>(&path)
+            .unwrap_err()
+            .to_string();
+        let _ = std::fs::remove_file(&path);
+        assert!(
+            refused.ends_with("keeps the removed key `deposit_audit`, delete it"),
+            "{refused}"
+        );
+    }
+
+    #[test]
     fn parses_the_recorded_answers_and_round_trips() {
         let config: RingConfig = toml::from_str(EXAMPLE).expect("parse");
         assert_eq!(config.target, Target::Localnet);
@@ -536,7 +620,7 @@ ring_rpc = "http://127.0.0.1:8785"
     fn an_anonymous_ring_records_its_mode() {
         let text = format!("mode = \"anonymous\"\n{EXAMPLE}");
         let config: RingConfig = toml::from_str(&text).expect("parse");
-        assert_eq!(config.mode.mode(), RingMode::Anonymous);
+        assert_eq!(config.mode, ModeName::of(RingMode::Anonymous));
         let rendered = config.render().expect("render");
         assert!(rendered.contains("mode = \"anonymous\""));
         assert_eq!(
@@ -548,16 +632,10 @@ ring_rpc = "http://127.0.0.1:8785"
     }
 
     #[test]
-    fn deposit_audit_defaults_required_and_old_false_configs_still_decode() {
-        let config: RingConfig = toml::from_str(EXAMPLE).unwrap();
-        assert!(config.deposit_audit);
-        assert!(config.render().unwrap().contains("deposit_audit = true"));
-        let enabled = format!("deposit_audit = true\n{EXAMPLE}");
-        let config: RingConfig = toml::from_str(&enabled).unwrap();
-        assert!(config.deposit_audit);
-        let historical = format!("deposit_audit = false\n{EXAMPLE}");
-        let config: RingConfig = toml::from_str(&historical).unwrap();
-        assert!(!config.deposit_audit);
+    fn key_escrow_reads_as_the_confidential_ring_it_was_created_as() {
+        assert_eq!(ModeName::of(RingMode::Off), ModeName::Confidential);
+        assert_eq!(ModeName::of(RingMode::Registry), ModeName::Confidential);
+        assert_eq!(ModeName::of(RingMode::Anonymous), ModeName::Anonymous);
     }
 
     #[test]
@@ -568,16 +646,10 @@ ring_rpc = "http://127.0.0.1:8785"
         assert!(policy.rules.is_empty());
         assert!(policy.sources.is_empty());
         let rendered = config.render().expect("render");
-        assert!(rendered.contains(&format!(
-            "[policy]\n# every policy transfer binds the named address tree\naddress_tree = \"{}\"",
-            zolana_interface::pda::tree(0)
-        )));
-        let mut normalized = config;
-        normalized.policy.as_mut().expect("policy").address_tree =
-            Some(Base58Address(zolana_interface::pda::tree(0)));
+        assert!(rendered.contains("[policy]"), "{rendered}");
         assert_eq!(
             toml::from_str::<RingConfig>(&rendered).expect("reparse"),
-            normalized
+            config
         );
     }
 

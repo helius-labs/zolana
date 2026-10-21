@@ -22,6 +22,7 @@ pub mod new;
 pub mod pipeline;
 pub mod policy;
 pub mod probe;
+mod records;
 pub mod release;
 pub mod ring_rpc;
 pub mod status;
@@ -44,8 +45,8 @@ use anyhow::{bail, ensure, Context as _, Result};
 use clap::{Args, FromArgMatches, Parser, Subcommand};
 use custom_ring_interface::{compute_unit_limit, CustomRingError, InstructionTag};
 use custom_ring_sdk::{
-    CustomRing, RingError, RingOperation, RingSubmission, SettledSubmission,
-    MERGE_DEFAULT_INPUT_COUNT,
+    CustomRing, CustomRingConfig, PendingFirstContact, RingError, RingOperation, RingSubmission,
+    SettledSubmission, MERGE_DEFAULT_INPUT_COUNT,
 };
 use solana_address::Address;
 use solana_instruction::{error::InstructionError, Instruction};
@@ -62,10 +63,12 @@ use zolana_keypair::ShieldedAddress;
 use zolana_ring_client::ReaderKey;
 
 pub use crate::{
+    address::PairingRowArg,
     config::{CoSignClass, Mint, ModeName, RingConfig, Service, Target, ThresholdSpec, RING_TOML},
-    list::MemberArg,
+    list::{MemberArgs, MemberList},
     policy::ListName,
     ring_rpc::{RingRpcClient, Trust},
+    transact::{Funding, Recipient},
     ui::{line, Ask},
 };
 
@@ -89,12 +92,6 @@ const INDEXER_POLL: IndexerPollConfig = IndexerPollConfig {
     delay_ms: 500,
     max_delay_ms: 4_000,
 };
-
-fn require_deposit_audit(value: &str) -> std::result::Result<bool, String> {
-    (value == "true")
-        .then_some(true)
-        .ok_or_else(|| "deposit auditing is mandatory, only `true` is accepted".to_owned())
-}
 
 #[derive(Debug, Parser)]
 #[command(name = "zolana-ring", about = "Operate a custom ring")]
@@ -135,8 +132,10 @@ pub enum Command {
     Pipeline(DeployArgs),
     /// Two ring deposits and one custom-ring transfer, read back from the ring RPC.
     Transact(TransactArgs),
-    /// Deposit an amount and send all of it to a shielded address inside the ring.
+    /// Pay recipients inside the ring from fresh deposits or from the sender's notes.
     Transfer(TransferArgs),
+    /// Deposit into the sender's ring balance, every deposit carries its audit proof.
+    Deposit(DepositArgs),
     /// Consolidate existing notes of one asset into one note.
     Merge(MergeArgs),
     /// Confirm the ring RPC in `ring.toml` is up and holds the ring's auditor key.
@@ -150,16 +149,16 @@ pub enum Command {
     /// Set, clear or show the ring's co-signer.
     #[command(subcommand)]
     Cosigner(CoSignerCommand),
-    /// Require an auditor disclosure proof for new direct deposits.
+    /// Set or show the lamports a member's record write pays the config authority.
     #[command(subcommand)]
-    DepositAudit(DepositAuditCommand),
+    InsertFee(InsertFeeCommand),
     /// Set or show the permanent delegate, or move a note as the delegate.
     #[command(subcommand)]
     Delegate(DelegateCommand),
     /// Escrow the member's nullifier key in its record of the ring member registry.
     #[command(subcommand)]
     Key(KeyCommand),
-    /// Read and write the list bits of member records.
+    /// Read and write the list bits of member records and apply the record queue.
     #[command(subcommand)]
     List(ListCommand),
     /// Read, check and replace the pinned rule table.
@@ -173,11 +172,11 @@ pub enum Command {
 
 #[derive(Debug, Subcommand)]
 pub enum ListCommand {
-    /// Set the list bit of the member's record.
+    /// Set the list bit of each member's record, the pending writes apply in the same proof.
     Add(EntryArgs),
-    /// Clear the list bit of the member's record.
+    /// Clear the list bit of each member's record.
     Clear(EntryArgs),
-    /// Print whether the member's record carries the list.
+    /// Print whether each member's record carries the list.
     Show(EntryArgs),
     /// Point the list at the ring's own registry or a curator ring's.
     SetSource {
@@ -190,6 +189,18 @@ pub enum ListCommand {
         #[arg(long)]
         own: bool,
     },
+    /// Apply the queued member writes once the queue is full or aged, anyone may.
+    Apply,
+    /// Set a list the sender writes on its own record, it applies with the queue.
+    Join {
+        #[arg(value_enum)]
+        list: MemberList,
+    },
+    /// Clear a list the sender writes on its own record.
+    Leave {
+        #[arg(value_enum)]
+        list: MemberList,
+    },
 }
 
 #[derive(Debug, Args)]
@@ -197,16 +208,16 @@ pub struct EntryArgs {
     #[arg(value_enum)]
     pub list_id: ListName,
     #[command(flatten)]
-    pub member: MemberArg,
+    pub members: MemberArgs,
 }
 
 #[derive(Debug, Subcommand)]
 pub enum PolicyCommand {
-    /// The pinned rows, hash, generation, tree and sources.
+    /// The pinned rows, hash, generation and sources.
     Show,
     /// Compare ring.toml with the chain, exits non-zero on a difference.
     Check,
-    /// Replace the pinned table with ring.toml under the upgrade authority.
+    /// Replace the pinned table with ring.toml under the config authority.
     Set {
         /// Confirms the replacement, proofs built against the old table are refused from now on.
         #[arg(long)]
@@ -234,6 +245,15 @@ pub enum CoSignerCommand {
 }
 
 #[derive(Debug, Subcommand)]
+pub enum InsertFeeCommand {
+    /// Zero lets members write their records free.
+    Set {
+        lamports: u64,
+    },
+    Show,
+}
+
+#[derive(Debug, Subcommand)]
 pub enum DelegateCommand {
     /// Set the delegate once, signed by the upgrade authority holding the ring auditor key.
     Set {
@@ -241,14 +261,15 @@ pub enum DelegateCommand {
         delegate: Address,
     },
     Show,
-    /// Move a source member's ring balance to a shielded address over the delegate rail.
+    /// Move a source member's ring balance to shielded addresses over the delegate rail.
     Move(Box<DelegateMoveArgs>),
 }
 
 #[derive(Debug, Args)]
 pub struct DelegateMoveArgs {
-    /// The recipient's base58 shielded address.
-    pub to: ShieldedAddress,
+    /// Each recipient's base58 shielded address, every one receives the amount.
+    #[arg(required = true, num_args = 1..)]
+    pub to: Vec<ShieldedAddress>,
     /// The source member's base58 shielded address, its ring notes fund the move.
     #[arg(long)]
     pub source: ShieldedAddress,
@@ -360,6 +381,13 @@ pub struct AddressArgs {
     /// The member's Solana keypair, `keys/sender-keypair.json` by default.
     #[arg(long)]
     pub keypair: Option<PathBuf>,
+    /// A first contact of the mint at or above the amount opens a pair stream, `any:<min>`
+    /// for every mint, at most four, a new address takes `any:0`.
+    #[arg(long, value_name = "MINT:MIN")]
+    pub pairing: Vec<PairingRowArg>,
+    /// Every payment to the address takes the inbox stream.
+    #[arg(long, conflicts_with = "pairing")]
+    pub no_pairing: bool,
     /// Requested amount in base units, unauthenticated like the mint and label.
     #[arg(long)]
     pub amount: Option<u64>,
@@ -371,9 +399,6 @@ pub struct AddressArgs {
 
 #[derive(Debug, Args)]
 pub struct DeployArgs {
-    /// Normalize the retained setting to true. All deposits require an audit proof.
-    #[arg(long, num_args = 0..=1, default_missing_value = "true", value_parser = require_deposit_audit)]
-    pub deposit_audit: Option<bool>,
     /// A local binary instead of the released ring program.
     #[arg(long)]
     pub program_so: Option<PathBuf>,
@@ -381,22 +406,8 @@ pub struct DeployArgs {
     pub program_keypair: PathBuf,
 }
 
-#[derive(Debug, Subcommand)]
-pub enum DepositAuditCommand {
-    /// Normalize the retained setting to true. All deposits require an audit proof.
-    Set {
-        #[arg(long, action = clap::ArgAction::Set, required = true, value_parser = require_deposit_audit)]
-        required: bool,
-    },
-    /// Read the stored legacy setting from the ring.
-    Show,
-}
-
 #[derive(Debug, Args)]
 pub struct InitArgs {
-    /// Normalize the retained setting to true. All deposits require an audit proof.
-    #[arg(long, num_args = 0..=1, default_missing_value = "true", value_parser = require_deposit_audit)]
-    pub deposit_audit: Option<bool>,
     /// Hex tagged X25519 auditor key, created by the ring RPC and written here when absent.
     #[arg(long, default_value = AUDITOR_PUBKEY_FILE)]
     pub auditor_pubkey_file: PathBuf,
@@ -420,10 +431,38 @@ pub struct TransactArgs {
 
 #[derive(Debug, Args)]
 pub struct TransferArgs {
-    /// The recipient's base58 shielded address, `signing_pk || nullifier_pk || viewing_pk`.
-    pub to: ShieldedAddress,
-    /// Recipient amount in base units, funded by the authority.
-    #[arg(long, default_value_t = DEFAULT_TRANSACT_AMOUNT)]
+    /// Each recipient, a base58 shielded address on a confidential ring, a `zolana:` request
+    /// on an anonymous one.
+    #[arg(required = true, num_args = 1..)]
+    pub to: Vec<Recipient>,
+    /// Base units each recipient receives, a request's own amount or the default when absent.
+    #[arg(long)]
+    pub amount: Option<u64>,
+    /// Registered mint, a request's own mint or `sol` when absent.
+    #[arg(long)]
+    pub mint: Option<Mint>,
+    /// Payer's SPL funding account, its ATA by default.
+    #[arg(long)]
+    pub token_account: Option<Address>,
+    /// `deposit` funds the payments with two fresh deposits, `held` spends the sender's notes
+    /// of the ring and of the default ring.
+    #[arg(long, value_enum, default_value_t = Funding::Deposit)]
+    pub funding: Funding,
+    /// The fewest output slots, dummies fill what the payments and the change leave.
+    #[arg(long)]
+    pub outputs: Option<usize>,
+    #[command(flatten)]
+    pub cosigner: CosignerArg,
+}
+
+#[derive(Debug, Args)]
+pub struct DepositArgs {
+    /// Base units the authority deposits into the sender's ring balance.
+    #[arg(
+        long,
+        default_value_t = DEFAULT_TRANSACT_AMOUNT,
+        value_parser = clap::value_parser!(u64).range(1..)
+    )]
     pub amount: u64,
     /// Registered mint, `sol` by default.
     #[arg(long)]
@@ -477,6 +516,11 @@ pub enum Probe<T> {
     Retry(anyhow::Error),
 }
 
+pub(crate) struct Landed {
+    pub signature: Signature,
+    pub first_contacts: Vec<PendingFirstContact>,
+}
+
 impl Context {
     pub fn new(
         config_path: PathBuf,
@@ -526,6 +570,11 @@ impl Context {
         future: impl std::future::Future<Output = Result<T, E>>,
     ) -> Result<T, E> {
         self.zolana.block_on(future)
+    }
+
+    pub fn ring_config(&self) -> Result<CustomRingConfig> {
+        self.block(self.ring.config(self.chain()))?
+            .context("the ring has no config, run `zolana-ring init` first")
     }
 
     /// The config authority, read once.
@@ -603,9 +652,25 @@ impl Context {
         payer: &(dyn Signer + Sync),
         signers: &[&(dyn Signer + Sync)],
     ) -> Result<Signature> {
+        Ok(self.land(operation, payer, signers)?.signature)
+    }
+
+    pub(crate) fn land<'a>(
+        &self,
+        operation: impl Into<RingOperation<'a>>,
+        payer: &(dyn Signer + Sync),
+        signers: &[&(dyn Signer + Sync)],
+    ) -> Result<Landed> {
         let mut submission = RingSubmission::new(operation);
         match self.block(submission.send_until_settled(self.chain(), payer, signers))? {
-            SettledSubmission::Confirmed { signature, .. } => Ok(signature),
+            SettledSubmission::Confirmed {
+                signature,
+                first_contacts,
+                ..
+            } => Ok(Landed {
+                signature,
+                first_contacts,
+            }),
             SettledSubmission::Failed { signature, error } => {
                 Err(RingError::Rejected { signature, error }.into())
             }
@@ -687,6 +752,7 @@ fn hint(error: &ClientError) -> Option<&'static str> {
         (CustomRingError::UnauthorizedInitializer as u32, "the program was deployed with an upgrade authority and only that key may create the config"),
         (CustomRingError::UnauthorizedAuthority as u32, "the config is held by another authority, `status` shows it"),
         (CustomRingError::InvalidPolicyRules as u32, "the program refuses the compiled rows, the program log names the refusal"),
+        (CustomRingError::QueueFull as u32, "the record queue holds its member share, `zolana-ring list apply` applies it once it is due"),
         (ShieldedPoolError::UnauthorizedCaller as u32, "ring creation on this cluster is gated by the SPP ring creation authority"),
     ]
     .into_iter()
@@ -770,12 +836,13 @@ fn dispatch(ctx: &mut Context, command: Command) -> Result<()> {
         Command::Pipeline(args) => pipeline::run(ctx, args),
         Command::Transact(args) => transact::run(ctx, args),
         Command::Transfer(args) => transact::run_transfer(ctx, args),
+        Command::Deposit(args) => transact::run_deposit(ctx, args),
         Command::Merge(args) => merge::run(ctx, args),
         Command::RpcCheck => ring_rpc::run_check(ctx),
         Command::Authority(command) => authority::run(ctx, command),
         Command::Reader(command) => controls::reader(ctx, command),
         Command::Cosigner(command) => controls::cosigner(ctx, command),
-        Command::DepositAudit(command) => controls::deposit_audit(ctx, command),
+        Command::InsertFee(command) => controls::insert_fee(ctx, command),
         Command::Delegate(command) => controls::delegate(ctx, command),
         Command::Key(command) => member::key(ctx, command),
         Command::List(command) => list::run(ctx, command),
@@ -822,53 +889,6 @@ mod tests {
     }
 
     #[test]
-    fn deposit_audit_flag_only_accepts_required() {
-        let parse = |args| Cli::try_parse_from(args).unwrap().command;
-        assert!(matches!(
-            parse(vec!["zolana-ring", "deploy"]),
-            Command::Deploy(DeployArgs {
-                deposit_audit: None,
-                ..
-            })
-        ));
-        assert!(matches!(
-            parse(vec!["zolana-ring", "deploy", "--deposit-audit"]),
-            Command::Deploy(DeployArgs {
-                deposit_audit: Some(true),
-                ..
-            })
-        ));
-        assert!(matches!(
-            parse(vec!["zolana-ring", "init", "--deposit-audit=true"]),
-            Command::Init(InitArgs {
-                deposit_audit: Some(true),
-                ..
-            })
-        ));
-        assert!(matches!(
-            parse(vec![
-                "zolana-ring",
-                "deposit-audit",
-                "set",
-                "--required",
-                "true"
-            ]),
-            Command::DepositAudit(DepositAuditCommand::Set { required: true })
-        ));
-        assert!(Cli::try_parse_from(["zolana-ring", "init", "--deposit-audit=false"]).is_err());
-        assert!(Cli::try_parse_from(["zolana-ring", "deploy", "--deposit-audit=false"]).is_err());
-        assert!(Cli::try_parse_from([
-            "zolana-ring",
-            "deposit-audit",
-            "set",
-            "--required",
-            "false"
-        ])
-        .is_err());
-        assert!(Cli::try_parse_from(["zolana-ring", "deposit-audit", "set"]).is_err());
-    }
-
-    #[test]
     fn dev_uses_the_localnet_command() {
         assert!(matches!(
             Cli::try_parse_from(["zolana-ring", "dev", "--no-start"])
@@ -903,32 +923,64 @@ mod tests {
     }
 
     #[test]
-    fn transfer_accepts_registered_mint_and_funding_account() {
+    fn transfer_takes_several_recipients_a_mint_and_its_funding() {
         let mint = Address::new_from_array([7; 32]);
         let token = Address::new_from_array([8; 32]);
-        let to = zolana_keypair::ShieldedKeypair::new_ed25519()
+        let to = |seed: u8| {
+            zolana_keypair::ShieldedKeypair::from_keypair(
+                zolana_keypair::SigningKey::from_ed25519_bytes(&[seed; 32]),
+            )
             .unwrap()
             .shielded_address()
-            .unwrap();
-        let Command::Transfer(args) = Cli::try_parse_from([
-            "zolana-ring",
-            "transfer",
-            &to.to_string(),
+            .unwrap()
+        };
+        let parse = |args: &[&str]| {
+            let argv = ["zolana-ring", "transfer"].iter().chain(args).copied();
+            match Cli::try_parse_from(argv).map(|cli| cli.command) {
+                Ok(Command::Transfer(args)) => Ok(args),
+                Ok(_) => panic!("transfer"),
+                Err(error) => Err(error),
+            }
+        };
+        let (first, second) = (to(1).to_string(), to(2).to_string());
+        let args = parse(&[
+            &first,
+            &second,
             "--amount",
             "123",
             "--mint",
             &mint.to_string(),
             "--token-account",
             &token.to_string(),
+            "--outputs",
+            "8",
         ])
-        .unwrap()
-        .command
-        else {
-            panic!("transfer");
-        };
+        .expect("parses");
+        assert_eq!(
+            args.to,
+            [Recipient::Shielded(to(1)), Recipient::Shielded(to(2))]
+        );
         assert_eq!(args.mint, Some(Mint(mint)));
         assert_eq!(args.token_account, Some(token));
-        assert_eq!(args.amount, 123);
+        assert_eq!((args.amount, args.outputs), (Some(123), Some(8)));
+        assert_eq!(args.funding, Funding::Deposit);
+        let held = parse(&[&first, "--funding", "held"]).expect("held");
+        assert_eq!((held.funding, held.amount), (Funding::Held, None));
+        assert!(parse(&[]).is_err(), "a transfer names a recipient");
+        assert!(parse(&[&first, "--funding", "faucet"]).is_err());
+    }
+
+    #[test]
+    fn a_deposit_moves_a_nonzero_amount() {
+        let deposit = |amount: &str| {
+            Cli::try_parse_from(["zolana-ring", "deposit", "--amount", amount])
+                .map(|cli| cli.command)
+        };
+        assert!(deposit("0").is_err());
+        assert!(matches!(
+            deposit("1"),
+            Ok(Command::Deposit(DepositArgs { amount: 1, .. }))
+        ));
     }
 
     #[test]

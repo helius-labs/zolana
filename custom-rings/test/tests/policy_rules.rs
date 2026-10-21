@@ -11,11 +11,11 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
-use custom_ring_sdk::{policy_config_table, CustomRing, ReadMemberRecord};
+use custom_ring_sdk::CustomRing;
 use custom_ring_test_validator::{
     cli::{merged, ListWrite, RingProject, RingToml},
     policy::{
-        owner_member, policy_config, PolicyTransfer, RegistryWrite, RingNotes, DEPOSIT, RELEASED,
+        owner_member, policy_registry, PolicyTransfer, RegistryWrite, RingNotes, DEPOSIT, RELEASED,
         TRANSFER_AMOUNT,
     },
     shared::{custom_ring_program_id, setup, RegisterRing, TestEnv, Tier, ACTOR_AIRDROP},
@@ -24,7 +24,7 @@ use solana_address::Address;
 use solana_signer::Signer;
 use zolana_client::{IndexerRpcConfig, Rpc, UtxoScan};
 use zolana_keypair::{ShieldedKeypair, X25519Keypair};
-use zolana_ring_client::{AuditedTransaction, RingScan};
+use zolana_ring_client::{AuditedTransaction, OutputOpening, RingScan};
 use zolana_ring_policy::{ListId, Member};
 use zolana_ring_rpc::{
     run_server, BindPolicy, ChainSource, Hub, ServerOptions, TransactionSource, Upstreams,
@@ -60,12 +60,12 @@ fn allow_frozen_and_block_rows_govern_every_transfer() -> Result<()> {
         ring,
         payer: &env.payer,
         auditor_pubkey: X25519Keypair::new().pubkey(),
-        tier: Tier::policy(&RELEASED, env.tree),
+        tier: Tier::policy(&RELEASED),
     }
     .send(rpc)?;
-    let pinned = policy_config(ring, &env)?;
+    let pinned = policy_registry(ring, &env)?;
     assert_eq!(
-        policy_config_table(&pinned)?,
+        pinned.rule_table()?,
         RELEASED,
         "the stored rows reproduce the pinned hash"
     );
@@ -152,12 +152,8 @@ fn the_cli_pins_the_released_rows_and_governs_its_demo_transfers() -> Result<()>
         "the config authority holds the config"
     );
     assert!(config.has_policy, "policy tier");
-    let policy = policy_config(ring, &env)?;
-    assert_eq!(
-        policy.address_tree, demo.tree,
-        "the policy pins the cli's default tree"
-    );
-    assert_eq!(policy_config_table(&policy)?, RELEASED);
+    let policy = policy_registry(ring, &env)?;
+    assert_eq!(policy.rule_table()?, RELEASED);
     assert_eq!(policy.generation(), 1);
     assert!(policy.generation_slot() > 0);
 
@@ -175,21 +171,19 @@ fn the_cli_pins_the_released_rows_and_governs_its_demo_transfers() -> Result<()>
             transactions.len()
         ));
     };
-    assert_eq!(transfer.outputs.len(), 2, "change and recipient");
-    for output in &transfer.outputs {
-        assert_eq!(output.ring_program_id, Some(ring.program_id()));
-        let read = ReadMemberRecord {
-            ring,
-            member: Member::owner_tag(&output.owner_tag)?,
-        };
-        let record = env
-            .run(read.read(env.client.as_async()))?
-            .ok_or_else(|| anyhow!("member registry of slot {}", output.slot_index))?;
-        assert!(
-            record.opening.list_set().contains(ListId::Allow),
-            "slot {} is enrolled",
-            output.slot_index
-        );
+    assert!(transfer.payload_errors.is_empty(), "every slot opens");
+    let owners: Vec<(u32, [u8; 32])> = transfer
+        .outputs
+        .iter()
+        .filter_map(|output| match &output.opening {
+            OutputOpening::Ring { note, .. } => Some((output.slot_index, note.owner_key)),
+            OutputOpening::Exit(_) | OutputOpening::Dummy => None,
+        })
+        .collect();
+    assert_eq!(owners.len(), 2, "change and recipient stay in the ring");
+    for (slot_index, owner_key) in owners {
+        let read = env.member_record(ring, Member::owner_tag(&owner_key)?)?;
+        assert!(read.listed(ListId::Allow), "slot {slot_index} is enrolled");
     }
 
     // 3. A Frozen demo sender is refused until `list clear` releases it.
@@ -235,7 +229,6 @@ impl<'a> Egress<'a> {
 struct DemoRing<'a> {
     env: &'a TestEnv,
     ring: CustomRing,
-    tree: Address,
     auditor: X25519Keypair,
     project: RingProject,
     _ring_rpc: LocalRingRpc,
@@ -244,9 +237,6 @@ struct DemoRing<'a> {
 impl<'a> DemoRing<'a> {
     fn init(env: &'a TestEnv, policy: &str) -> Result<Self> {
         let ring = CustomRing::new(custom_ring_program_id()?);
-        // Without `address_tree` the block pins the cli's default tree, the demo
-        // deposits there too.
-        let tree = env.register_default_tree()?;
         let auditor = X25519Keypair::new();
         let ring_rpc = RingRpcSpec {
             env,
@@ -267,7 +257,6 @@ impl<'a> DemoRing<'a> {
         Ok(Self {
             env,
             ring,
-            tree,
             auditor,
             project,
             _ring_rpc: ring_rpc,
@@ -321,16 +310,14 @@ impl<'a> DemoRing<'a> {
             "transact landed under a refusing rule"
         );
         let text = merged(&refused);
-        assert!(
-            text.contains("a policy rule refuses the transfer")
-                || text.contains("indexed proof request failed"),
-            "{text}"
-        );
-        // The demo deposits two fresh notes before requesting its transfer proof.
-        // A refused transfer leaves those and every previously held note unspent.
+        assert!(text.contains("the policy refuses the transfer"), "{text}");
         let after = unspent()?;
-        assert!(before.is_subset(&after));
-        assert_eq!(after.len(), before.len() + 2);
+        assert!(before.is_subset(&after), "every earlier note stays unspent");
+        assert_eq!(
+            after.len(),
+            before.len() + 2,
+            "the refused demo keeps its two deposits"
+        );
         assert_eq!(self.audited()?.len(), audited_before);
         Ok(())
     }

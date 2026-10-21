@@ -518,11 +518,11 @@ covers the whole group) and referenced from the coverage matrix.
 
 ### Proof Binding
 
-- [x] **INV-RING-AUTH-04: ring-authority verifying keys cover exactly the square shapes**
-  - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `ring_authority_transact_rejects_a_non_square_shape`, `program-tests/shielded-pool/tests/transact/functional.rs` `ring_authority_transact_accepts_the_maximum_square_shape`
+- [x] **INV-RING-AUTH-04: ring-authority shapes are the supported shapes up to `RING_AUTHORITY_MAX_INPUTS` inputs**
+  - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `ring_authority_transact_rejects_an_unsupported_shape`, `program-tests/shielded-pool/tests/transact/validate_circuit.rs` `selector_dimensions_are_fail_closed`, `program-tests/shielded-pool/tests/transact/functional.rs` `ring_authority_transact_accepts_the_maximum_square_shape`
   - Kind: precondition
-  - Statement: `ring_authority_transact` verifies only for shapes `(1,1)`, `(2,2)`, `(3,3)`, `(4,4)`; every other `(inputs.len(), outputs.len())` returns Err.
-  - Location: `program-libs/interface/src/verifying_keys/circuit.rs:92-94` (`fn is_supported`, `RingAuthority` arm)
+  - Statement: `ring_authority_transact` verifies only for the shapes `Shape::is_ring_authority` accepts; every other `(inputs.len(), outputs.len())` returns Err.
+  - Location: `program-libs/interface/src/shape.rs` (`Shape::is_ring_authority`)
   - Error: `ShieldedPoolError::InvalidTransactShape = 7006`
   - Severity: High
   - Suggested test: negative; harness: mollusk unit

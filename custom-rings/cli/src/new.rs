@@ -8,7 +8,7 @@ use solana_keypair::Keypair;
 use solana_signer::Signer;
 
 use crate::{
-    config::{expand_tilde, Base58Address, RingConfig, Target, Urls},
+    config::{expand_tilde, parse_ring_toml, Base58Address, RingConfig, Target, Urls},
     file, line,
     policy::PolicySpec,
     ui::{self, icon, Ask},
@@ -64,7 +64,6 @@ pub fn run(args: NewArgs, ask: &mut dyn Ask, catalogue: Option<&str>) -> Result<
         mode: answers.mode,
         policy: answers.policy,
         cosigner: None,
-        deposit_audit: true,
         localnet: answers.localnet,
         devnet: answers.devnet,
     };
@@ -93,7 +92,7 @@ pub fn run(args: NewArgs, ask: &mut dyn Ask, catalogue: Option<&str>) -> Result<
 
 /// Compiled for every cluster before it is taken.
 pub(crate) fn read_policy(path: &Path) -> Result<PolicySpec> {
-    let file: PolicyFile = file::parse_toml(path)?;
+    let file: PolicyFile = parse_ring_toml(path)?;
     file.policy.check()?;
     Ok(file.policy)
 }
@@ -239,14 +238,6 @@ mod tests {
         assert_eq!(config.target, Target::Devnet);
         assert_eq!(config.mode, ModeName::Anonymous);
         let written_policy = config.policy.expect("policy tier");
-        assert_eq!(
-            written_policy.address_tree(),
-            zolana_interface::pda::tree(0)
-        );
-        assert!(
-            written_policy.address_tree.is_some(),
-            "the default is written explicitly"
-        );
         let compiled = written_policy.compile(Target::Devnet).expect("compiles");
         assert_eq!(
             compiled.rules,

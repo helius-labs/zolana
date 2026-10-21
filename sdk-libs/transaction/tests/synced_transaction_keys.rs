@@ -11,7 +11,7 @@ use zolana_transaction::{
     instructions::transact::ConfidentialTransaction,
     serialization::proofless::{Proofless, ProoflessEncode},
     Address, AssetRegistry, DecryptRequest, DeriveRequest, LocalShieldedKeys, Mint, OutputContext,
-    OutputSlot, OwnerCx, RingTagRequest, ShieldedKeys, ShieldedTransaction,
+    OutputSlot, OwnerCx, RingDeliveryRequest, ShieldedKeys, ShieldedTransaction,
     SpendableDecryptionResult, TransactionError, TransactionKeyRequest, UtxoSerialization,
     WalletUtxo,
 };
@@ -66,11 +66,24 @@ impl ShieldedKeys for CountingKeys {
         self.local.transaction_keys(requests)
     }
 
-    fn ring_view_tags(
+    fn ring_address_keys(
         &self,
-        requests: &[RingTagRequest],
-    ) -> Result<Vec<ViewTag>, TransactionError> {
-        self.local.ring_view_tags(requests)
+        ring: &Address,
+        indexes: &[u32],
+    ) -> Result<Vec<X25519Pubkey>, TransactionError> {
+        self.local.ring_address_keys(ring, indexes)
+    }
+    fn ring_delivery_secrets(
+        &self,
+        requests: &[RingDeliveryRequest],
+    ) -> Result<Vec<[u8; 32]>, TransactionError> {
+        self.local.ring_delivery_secrets(requests)
+    }
+    fn ring_change_key(&self, ring: &Address) -> Result<X25519Pubkey, TransactionError> {
+        self.local.ring_change_key(ring)
+    }
+    fn sender_view_tags(&self, counters: &[u64]) -> Result<Vec<ViewTag>, TransactionError> {
+        self.local.sender_view_tags(counters)
     }
 }
 

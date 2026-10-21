@@ -1,25 +1,30 @@
-//! The ring rpc wire: requests, responses, the signed attestations and the auditor key files.
+//! The ring rpc wire, its signed attestations and the auditor key files.
 
 use std::path::{Path, PathBuf};
 
+use custom_ring_interface::{MemberRegistry, RecordQueue, RingAccount, RootEntry};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use solana_address::Address;
 use solana_signature::Signature;
 use solana_signer::{Signer, SignerError};
 use thiserror::Error;
 use zeroize::Zeroizing;
+use zolana_client::{AsyncRpc, ClientError};
 use zolana_indexer_api::{
     Base64String, Context, Hash, Limit, SerializablePubkey, SerializableSignature,
 };
+use zolana_interface::{state::RingConfig, RING_AUTH_PDA_SEED, SHIELDED_POOL_PROGRAM_ID};
 use zolana_keypair::{KeypairError, X25519Keypair, X25519Pubkey};
 use zolana_secret_file::{
     create_new, create_pair, read_hex32, read_private, Access, SecretFileError, Visibility,
 };
 
 use crate::{
-    AnonymousDisclosure, AuditInputOpening, AuditedTransaction, MergeAuditPage, MergeKeys,
-    OutputPayloadErrorKind, ReaderKey, ReaderKeyError, RingWithdrawal,
+    AuditedInput, AuditedNote, AuditedOutput, AuditedTransaction, InputRing, KnownNote,
+    MergeAuditPage, MergeKeys, OutputOpening, OutputPayloadErrorKind, ReaderKey, ReaderKeyError,
+    RingWithdrawal,
 };
 
 pub const HEALTH: &str = "health";
@@ -28,6 +33,9 @@ pub const RING_STATUS: &str = "ringStatus";
 pub const RING_DEPOSITS: &str = "ringDeposits";
 pub const GET_DECRYPTED_TRANSACTIONS: &str = "getDecryptedTransactions";
 pub const GET_AUDITED_MERGES: &str = "getAuditedMerges";
+pub const GET_AUDITED_NOTES: &str = "getAuditedNotes";
+/// The most UTXO hashes one `getAuditedNotes` request names.
+pub const AUDITED_NOTES_LIMIT: usize = 100;
 pub const AUDIT_CURSOR_LIMIT: usize = 256;
 pub const AUDIT_PAGE_LIMIT: u64 = 100;
 pub const DEPOSITS_PAGE_LIMIT: u32 = 50;
@@ -36,6 +44,7 @@ const KEY_HEX_LEN: u64 = 64;
 const ATTESTATION_DOMAIN: &[u8] = b"zolana/ring-auditor-key/v1";
 const READ_DOMAIN: &str = "zolana/ring-rpc-read/v1";
 const AUDITOR_KEY_REQUEST_DOMAIN: &str = "zolana/ring-rpc-auditor-key-request/v1";
+const AUDITED_NOTES_DOMAIN: &str = "zolana/ring-rpc-audited-notes/v1";
 
 /// One cursor rule for the request builder, the page and the indexer response check.
 pub fn cursor_in_bounds(cursor: &[u8]) -> bool {
@@ -44,6 +53,11 @@ pub fn cursor_in_bounds(cursor: &[u8]) -> bool {
 
 pub fn limit_in_bounds(limit: &Limit) -> bool {
     limit.value() <= AUDIT_PAGE_LIMIT
+}
+
+/// One count rule for the note request builder and the service.
+pub fn notes_in_bounds(utxo_hashes: &[Hash]) -> bool {
+    (1..=AUDITED_NOTES_LIMIT).contains(&utxo_hashes.len())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -94,7 +108,7 @@ pub struct CreateAuditorKeyResponse {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct RingDepositsRequest {
     pub ring_program_id: SerializablePubkey,
-    /// Signatures examined, which is not the number of deposits found.
+    /// Signatures examined, not deposits found.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<u32>,
     /// Opaque, taken from the previous page.
@@ -102,7 +116,7 @@ pub struct RingDepositsRequest {
     pub cursor: Option<Base64String>,
 }
 
-/// A deposit publishes its asset and amount, so this needs no auditor key.
+/// A deposit publishes its asset and amount, reading it takes no auditor key.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct DepositRecord {
@@ -132,7 +146,7 @@ pub struct RingStatusRequest {
     pub ring_program_id: SerializablePubkey,
 }
 
-/// Unsigned, so it carries only the key the chain already publishes.
+/// Unsigned, so it carries only what the chain already publishes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct RingStatusResponse {
@@ -142,16 +156,62 @@ pub struct RingStatusResponse {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub config_auditor_pubkey: Option<AuditorPubkey>,
     pub service_pubkey: SerializablePubkey,
+    /// Absent until SPP holds a config for the ring.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub activation: Option<RingActivation>,
+    /// Absent until the ring creates its member registry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub registry: Option<RegistryStatus>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct RingActivation {
+    pub activated: bool,
+    pub paused: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct RegistryStatus {
+    /// Entry `i` sits at history slot `i`, `null` for a slot never written.
+    pub history: Vec<Option<RegistryRoot>>,
+    /// The history slot of the newest root.
+    pub history_cursor: u8,
+    pub next_index: u32,
+    /// The applied position every own-ring root must reach.
+    pub floor: u64,
+    pub prior_floor: u64,
+    /// The slot of the last floor raise.
+    pub floor_slot: u64,
+    /// Queue positions `head..tail` wait for an application.
+    pub queue_head: u64,
+    pub queue_tail: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct RegistryRoot {
+    pub root: Hash,
+    /// The queue head right after the application that pushed the root.
+    pub applied: u64,
+    pub slot: u64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RingChainStatus {
+    pub activation: Option<RingActivation>,
+    pub registry: Option<RegistryStatus>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum RingState {
-    /// The config names this service's key, reads work.
+    /// The config names the service's key, reads work.
     Served,
-    /// The config names another auditor for good, so this service never opens the ring.
+    /// The config names another auditor for good, the service never opens the ring.
     ForeignAuditor,
-    /// No config yet, so `init` is free to pin this service's key.
+    /// No config yet, `init` is free to pin the service's key.
     Uninitialized,
 }
 
@@ -185,6 +245,44 @@ pub struct GetAuditedMergesResponse {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct GetAuditedNotesRequest {
+    /// Required for derived keys.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ring_program_id: Option<SerializablePubkey>,
+    /// UTXO hashes with their tree id, `1..=AUDITED_NOTES_LIMIT` of them.
+    pub utxo_hashes: Vec<Hash>,
+    pub auth: ReadAuth,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct GetAuditedNotesResponse {
+    /// The backfill's newest page, a later note reads `null` until the backfill passes it.
+    pub context: Context,
+    pub value: AuditedNotesPage,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct AuditedNotesPage {
+    /// In request order, `null` for a note the auditor has not opened.
+    pub notes: Vec<Option<AuditedNoteView>>,
+}
+
+/// A note the auditor opened, with the transaction that created it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct AuditedNoteView {
+    pub utxo_hash: Hash,
+    pub note: DecryptedNote,
+    pub slot: u64,
+    pub tx_signature: SerializableSignature,
+    pub event_index: u16,
+    pub slot_index: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct AuditedMergesPage {
     pub opened: Vec<AuditedMergeRecord>,
     pub unresolved: Vec<UnresolvedMergeRecord>,
@@ -197,7 +295,7 @@ pub struct AuditedMergeRecord {
     pub tx_signature: SerializableSignature,
     pub event_index: u16,
     pub output_commitment: Hash,
-    /// Authenticated registry member hash. The event does not reveal its public signing key.
+    /// The authenticated registry member hash, the event names no signing key.
     pub owner_member: Hash,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner_pubkey: Option<SerializablePubkey>,
@@ -327,6 +425,8 @@ pub enum ReadBuildError {
     Cursor,
     #[error("audit page limit is invalid")]
     Limit,
+    #[error("a note read names 1 to {AUDITED_NOTES_LIMIT} UTXO hashes")]
+    Notes,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -349,24 +449,34 @@ pub struct DecryptedTransactionsPage {
 pub struct DecryptedTransaction {
     pub slot: u64,
     pub tx_signature: SerializableSignature,
-    /// The ring event within a Solana transaction. A signature can contain several events.
+    /// The ring event within a Solana transaction, one signature can carry several.
     pub event_index: u16,
     /// Canonical tagged X25519 transaction viewing key.
     pub tx_viewing_pk: Base64String,
-    /// Optional recipient payload metadata, never the authoritative inventory of notes.
+    /// Every slot whose rebuilt opening reaches its published commitment, in published order.
     pub outputs: Vec<DecryptedOutput>,
-    /// Every verified dedicated opening and its published commitment, in slot order.
-    pub output_openings: Vec<DecryptedOutputOpening>,
-    /// Proven hidden sender and spent note metadata in an anonymous ring.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub anonymous: Option<DecryptedAnonymousTrace>,
-    /// Slots without an entry in `outputs`, the verified openings stay.
     pub payload_errors: Vec<DecryptedPayloadError>,
+    /// The hidden sender of an anonymous ring.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sender: Option<DecryptedSender>,
+    /// One per published nullifier of an anonymous ring.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub inputs: Vec<DecryptedInput>,
     pub nullifiers: Vec<Hash>,
-    /// Required signers, fee payer first. The sender matches an output owner tag.
+    /// Required signers, fee payer first.
     pub signers: Vec<SerializablePubkey>,
     /// Public settlement legs, where value left the ring.
     pub withdrawals: Vec<DecryptedWithdrawal>,
+}
+
+/// The public legs and nullifiers come from the confirmed transaction.
+#[must_use]
+pub struct ConfirmedAudit {
+    pub audited: AuditedTransaction,
+    pub event_index: u16,
+    pub nullifiers: Vec<[u8; 32]>,
+    pub signers: Vec<Address>,
+    pub withdrawals: Vec<RingWithdrawal>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -384,76 +494,87 @@ pub struct DecryptedOutputContext {
     pub hash: Hash,
 }
 
-/// Exact field encodings preserve unknown assets and dummy slots without trusting wallet data.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct DecryptedOutputOpening {
+pub struct DecryptedOutput {
+    pub slot_index: u32,
     pub output_context: DecryptedOutputContext,
-    pub domain: Hash,
-    pub tree_id: Hash,
-    pub owner_hash: Hash,
+    pub kind: DecryptedOutputKind,
+    /// Absent for a dummy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<DecryptedNote>,
+    /// The recipient's X25519 u of a ring output.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recipient_u: Option<Hash>,
+    /// `0x00 || tag`, the published owner tag of an anonymous ring output.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tag: Option<Hash>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DecryptedOutputKind {
+    Ring,
+    Exit,
+    Dummy,
+}
+
+/// Exact field encodings keep an unknown asset readable.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct DecryptedNote {
+    /// Base58 of it is the owner's Solana address.
+    pub owner_key: SerializablePubkey,
+    /// Absent for a deposit, its capsule discloses the owner hash.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nullifier_pk: Option<Hash>,
     pub asset: Hash,
-    pub amount: Hash,
+    /// Absent while the asset registry does not know the asset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mint: Option<SerializablePubkey>,
+    pub amount: u64,
     pub blinding: Hash,
     pub data_hash: Hash,
     pub ring_data_hash: Hash,
-    pub ring_program_id: Hash,
-}
-
-impl
-    From<(
-        zolana_client::ProofInputUtxo,
-        zolana_transaction::OutputContext,
-    )> for DecryptedOutputOpening
-{
-    fn from(
-        (opening, context): (
-            zolana_client::ProofInputUtxo,
-            zolana_transaction::OutputContext,
-        ),
-    ) -> Self {
-        Self {
-            output_context: DecryptedOutputContext {
-                tree_id: context.tree_id,
-                leaf_index: context.leaf_index,
-                hash: context.hash.into(),
-            },
-            domain: opening.domain.into(),
-            tree_id: opening.tree_id.into(),
-            owner_hash: opening.owner_hash.into(),
-            asset: opening.asset.into(),
-            amount: opening.amount.into(),
-            blinding: opening.blinding.into(),
-            data_hash: opening.data_hash.into(),
-            ring_data_hash: opening.ring_data_hash.into(),
-            ring_program_id: opening.ring_program_id.into(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct DecryptedAnonymousTrace {
-    pub sender: SerializablePubkey,
-    pub inputs: Vec<DecryptedAnonymousInput>,
-    pub recipients: Vec<DecryptedAnonymousRecipient>,
+pub struct DecryptedSender {
+    pub owner_key: SerializablePubkey,
+    /// Absent when spent note 0 is a deposit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nullifier_pk: Option<Hash>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct DecryptedAnonymousInput {
-    pub tree_id: u16,
-    pub amount: u64,
+pub struct DecryptedInput {
+    pub nullifier: Hash,
+    /// Absent for a dummy input.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opening: Option<DecryptedInputOpening>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct DecryptedInputOpening {
     pub asset: Hash,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mint: Option<SerializablePubkey>,
+    pub amount: u64,
+    pub blinding: Hash,
+    /// Absent without the input's tree id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ring: Option<DecryptedInputRing>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct DecryptedAnonymousRecipient {
-    pub slot_index: u32,
-    pub identity_tag: u8,
-    pub identity_key: Hash,
-    pub nullifier_pk: Hash,
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum DecryptedInputRing {
+    Ring { commitment: Hash },
+    Default { commitment: Hash },
+    Unresolved { ring: Hash, default: Hash },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -463,18 +584,6 @@ pub struct DecryptedWithdrawal {
     pub recipient: SerializablePubkey,
     pub asset: SerializablePubkey,
     pub amount: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct DecryptedOutput {
-    pub slot_index: u32,
-    pub recipient_viewing_pk: Base64String,
-    /// Base58 of it is the Solana address of an Ed25519 or PDA owner.
-    pub owner_tag: Hash,
-    pub asset: SerializablePubkey,
-    pub amount: u64,
-    pub ring_program_id: Option<SerializablePubkey>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -491,6 +600,8 @@ pub struct SkippedTransaction {
 pub enum SkippedReason {
     MissingAuditorMessage,
     InvalidAuditData,
+    /// An anonymous input names a note the service has not opened yet.
+    UnseenInput,
 }
 
 /// What a signed request covers, besides its timestamp and nonce.
@@ -511,6 +622,14 @@ pub struct AuditorKeyAttestation {
     pub genesis_hash: [u8; 32],
 }
 
+/// A note read binds the hashes it names through their digest.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AuditedNotesAttestation {
+    pub ring: Address,
+    /// sha256 of the requested hashes, concatenated in request order.
+    pub notes: [u8; 32],
+}
+
 #[must_use]
 pub struct SignedRequest<A> {
     attestation: A,
@@ -520,6 +639,12 @@ pub struct SignedRequest<A> {
 
 pub type ReadRequest = SignedRequest<ReadAttestation>;
 pub type AuditorKeyRequest = SignedRequest<AuditorKeyAttestation>;
+
+#[must_use]
+pub struct AuditedNotesRequest {
+    signed: SignedRequest<AuditedNotesAttestation>,
+    utxo_hashes: Vec<Hash>,
+}
 
 #[derive(Debug, Error)]
 pub enum KeyFileError {
@@ -567,43 +692,21 @@ impl RingDepositsRequest {
     }
 }
 
-impl DecryptedTransaction {
-    /// The opened values with the indexed nullifiers and the transaction's public legs.
-    pub fn new(
-        audited: AuditedTransaction,
-        event_index: u16,
-        nullifiers: Vec<[u8; 32]>,
-        signers: Vec<Address>,
-        withdrawals: Vec<RingWithdrawal>,
-    ) -> Self {
-        let outputs = audited.outputs.into_iter().map(|output| DecryptedOutput {
-            slot_index: output.slot_index,
-            recipient_viewing_pk: output.recipient_viewing_pk.as_bytes().to_vec().into(),
-            owner_tag: output.owner_tag.into(),
-            asset: output.asset.to_bytes().into(),
-            amount: output.amount,
-            ring_program_id: output.ring_program_id.map(|id| id.to_bytes().into()),
-        });
-        let withdrawals = withdrawals
-            .into_iter()
-            .map(|withdrawal| DecryptedWithdrawal {
-                recipient: withdrawal.recipient.to_bytes().into(),
-                asset: withdrawal.asset.to_bytes().into(),
-                amount: withdrawal.amount,
-            });
+impl From<ConfirmedAudit> for DecryptedTransaction {
+    fn from(confirmed: ConfirmedAudit) -> Self {
+        let ConfirmedAudit {
+            audited,
+            event_index,
+            nullifiers,
+            signers,
+            withdrawals,
+        } = confirmed;
         Self {
             slot: audited.slot,
             tx_signature: audited.tx_signature.into(),
             event_index,
             tx_viewing_pk: audited.tx_viewing_pk.as_bytes().to_vec().into(),
-            outputs: outputs.collect(),
-            output_openings: audited
-                .output_openings
-                .into_iter()
-                .zip(audited.output_contexts)
-                .map(Into::into)
-                .collect(),
-            anonymous: audited.anonymous.map(DecryptedAnonymousTrace::from),
+            outputs: audited.outputs.into_iter().map(Into::into).collect(),
             payload_errors: audited
                 .payload_errors
                 .into_iter()
@@ -612,42 +715,191 @@ impl DecryptedTransaction {
                     kind: error.kind,
                 })
                 .collect(),
+            sender: audited.sender.map(|sender| DecryptedSender {
+                owner_key: sender.owner_key.into(),
+                nullifier_pk: sender.nullifier_pk.map(Into::into),
+            }),
+            inputs: audited.inputs.into_iter().map(Into::into).collect(),
             nullifiers: nullifiers.into_iter().map(Into::into).collect(),
             signers: signers
                 .into_iter()
                 .map(|key| key.to_bytes().into())
                 .collect(),
-            withdrawals: withdrawals.collect(),
+            withdrawals: withdrawals
+                .into_iter()
+                .map(|withdrawal| DecryptedWithdrawal {
+                    recipient: withdrawal.recipient.to_bytes().into(),
+                    asset: withdrawal.asset.to_bytes().into(),
+                    amount: withdrawal.amount,
+                })
+                .collect(),
         }
     }
 }
 
-/// Dummy inputs and recipients carry no note and stay out of the trace.
-impl From<AnonymousDisclosure> for DecryptedAnonymousTrace {
-    fn from(disclosure: AnonymousDisclosure) -> Self {
+impl From<AuditedOutput> for DecryptedOutput {
+    fn from(output: AuditedOutput) -> Self {
+        let (kind, note, recipient_u, tag) = match output.opening {
+            OutputOpening::Ring {
+                note,
+                recipient_u,
+                tag,
+            } => (
+                DecryptedOutputKind::Ring,
+                Some(note),
+                Some(recipient_u.into()),
+                tag.map(|tag| tag.field().into()),
+            ),
+            OutputOpening::Exit(note) => (DecryptedOutputKind::Exit, Some(note), None, None),
+            OutputOpening::Dummy => (DecryptedOutputKind::Dummy, None, None, None),
+        };
         Self {
-            sender: Address::new_from_array(disclosure.sender).into(),
-            inputs: disclosure
-                .inputs
-                .into_iter()
-                .filter(|input| *input != AuditInputOpening::default())
-                .map(|input| DecryptedAnonymousInput {
-                    tree_id: input.tree_id,
-                    amount: input.amount,
-                    asset: input.asset.into(),
-                })
+            slot_index: output.slot_index,
+            output_context: DecryptedOutputContext {
+                tree_id: output.context.tree_id,
+                leaf_index: output.context.leaf_index,
+                hash: output.context.hash.into(),
+            },
+            kind,
+            note: note.map(Into::into),
+            recipient_u,
+            tag,
+        }
+    }
+}
+
+impl From<AuditedNote> for DecryptedNote {
+    fn from(note: AuditedNote) -> Self {
+        KnownNote::from(note).into()
+    }
+}
+
+impl From<KnownNote> for DecryptedNote {
+    fn from(note: KnownNote) -> Self {
+        Self {
+            owner_key: note.owner_key.into(),
+            nullifier_pk: note.nullifier_pk.map(Into::into),
+            asset: note.asset.into(),
+            mint: note.mint.map(Into::into),
+            amount: note.amount,
+            blinding: note.blinding.into(),
+            data_hash: note.data_hash.into(),
+            ring_data_hash: note.ring_data_hash.into(),
+        }
+    }
+}
+
+impl From<AuditedInput> for DecryptedInput {
+    fn from(input: AuditedInput) -> Self {
+        Self {
+            nullifier: input.nullifier.into(),
+            opening: input.opening.map(|opening| DecryptedInputOpening {
+                asset: opening.asset.into(),
+                mint: opening.mint.map(Into::into),
+                amount: opening.amount,
+                blinding: opening.blinding.into(),
+                ring: opening.ring.map(|ring| match ring {
+                    InputRing::Ring { commitment } => DecryptedInputRing::Ring {
+                        commitment: commitment.into(),
+                    },
+                    InputRing::Default { commitment } => DecryptedInputRing::Default {
+                        commitment: commitment.into(),
+                    },
+                    InputRing::Unresolved { ring, default } => DecryptedInputRing::Unresolved {
+                        ring: ring.into(),
+                        default: default.into(),
+                    },
+                }),
+            }),
+        }
+    }
+}
+
+impl RegistryStatus {
+    pub fn new(registry: &MemberRegistry, queue: &RecordQueue) -> Self {
+        Self {
+            history: registry
+                .history
+                .iter()
+                .map(|entry| (entry.root != [0; 32]).then(|| RegistryRoot::from(entry)))
                 .collect(),
-            recipients: (0u32..)
-                .zip(&disclosure.outputs)
-                .filter_map(|(slot_index, output)| {
-                    output.owner().map(|owner| DecryptedAnonymousRecipient {
-                        slot_index,
-                        identity_tag: owner.identity_tag,
-                        identity_key: owner.identity_key.into(),
-                        nullifier_pk: owner.nullifier_pk.into(),
+            history_cursor: registry.history_cursor,
+            next_index: registry.next_index(),
+            floor: registry.floor(),
+            prior_floor: registry.prior_floor(),
+            floor_slot: registry.floor_slot(),
+            queue_head: queue.head(),
+            queue_tail: queue.tail(),
+        }
+    }
+}
+
+impl From<&RootEntry> for RegistryRoot {
+    fn from(entry: &RootEntry) -> Self {
+        Self {
+            root: entry.root.into(),
+            applied: entry.applied(),
+            slot: entry.slot(),
+        }
+    }
+}
+
+impl RingChainStatus {
+    /// An account of another owner reads as absent, a malformed one of the ring is an error.
+    pub async fn read<R: AsyncRpc + ?Sized>(rpc: &R, ring: Address) -> Result<Self, ClientError> {
+        let pool = Address::new_from_array(SHIELDED_POOL_PROGRAM_ID);
+        let (config, config_bump) = Address::find_program_address(&[RING_AUTH_PDA_SEED], &ring);
+        let (registry, registry_bump) =
+            Address::find_program_address(&[MemberRegistry::SEED], &ring);
+        let (queue, queue_bump) = Address::find_program_address(&[RecordQueue::SEED], &ring);
+        let accounts = rpc
+            .get_multiple_accounts(vec![config, registry, queue])
+            .await?;
+        let [config, registry, queue] = <[_; 3]>::try_from(accounts)
+            .map_err(|_| ClientError::Rpc("ring status accounts are missing".to_owned()))?;
+        let invalid = |name: &str| ClientError::Rpc(format!("ring {name} account is invalid"));
+        let activation = config
+            .filter(|account| account.owner == pool)
+            .map(|account| {
+                bytemuck::try_from_bytes::<RingConfig>(&account.data)
+                    .ok()
+                    .filter(|config| {
+                        config.has_discriminator()
+                            && config.program_id == ring
+                            && config.bump == config_bump
                     })
-                })
-                .collect(),
+                    .map(RingActivation::from)
+                    .ok_or_else(|| invalid("SPP config"))
+            })
+            .transpose()?;
+        let registry = match (
+            registry.filter(|account| account.owner == ring),
+            queue.filter(|account| account.owner == ring),
+        ) {
+            (Some(registry), Some(queue)) => {
+                let registry = MemberRegistry::decode(&registry.owner, &ring, &registry.data)
+                    .filter(|registry| registry.bump == registry_bump)
+                    .ok_or_else(|| invalid("member registry"))?;
+                let queue = RecordQueue::decode(&queue.owner, &ring, &queue.data)
+                    .filter(|queue| queue.bump == queue_bump)
+                    .ok_or_else(|| invalid("record queue"))?;
+                Some(RegistryStatus::new(&registry, &queue))
+            }
+            (None, None) => None,
+            _ => return Err(invalid("member registry")),
+        };
+        Ok(Self {
+            activation,
+            registry,
+        })
+    }
+}
+
+impl From<&RingConfig> for RingActivation {
+    fn from(config: &RingConfig) -> Self {
+        Self {
+            activated: config.is_activated(),
+            paused: config.is_paused(),
         }
     }
 }
@@ -678,6 +930,31 @@ impl Attestation for AuditorKeyAttestation {
     }
 }
 
+impl AuditedNotesAttestation {
+    pub fn new(ring: Address, utxo_hashes: &[Hash]) -> Self {
+        let mut digest = Sha256::new();
+        for hash in utxo_hashes {
+            digest.update(hash.0);
+        }
+        Self {
+            ring,
+            notes: digest.finalize().into(),
+        }
+    }
+}
+
+impl Attestation for AuditedNotesAttestation {
+    fn message(&self, timestamp: u64, nonce: &[u8; 32]) -> Vec<u8> {
+        format!(
+            "{AUDITED_NOTES_DOMAIN}\nring: {}\ntimestamp: {timestamp}\nnonce: {}\nnotes: {}",
+            self.ring,
+            base64(nonce),
+            base64(&self.notes),
+        )
+        .into_bytes()
+    }
+}
+
 impl<A: Attestation> SignedRequest<A> {
     pub fn new(attestation: A) -> Self {
         let mut nonce = [0u8; 32];
@@ -697,6 +974,25 @@ impl<A: Attestation> SignedRequest<A> {
     fn message(&self) -> Result<(u64, Vec<u8>), RequestBuildError> {
         let timestamp = self.timestamp.map_or_else(unix_now, Ok)?;
         Ok((timestamp, self.attestation.message(timestamp, &self.nonce)))
+    }
+
+    /// The reader's signature over the attestation, a passkey's with its assertion.
+    fn read_auth<S: ReadSigner + ?Sized>(&self, signer: &S) -> Result<ReadAuth, ReadBuildError> {
+        let (timestamp, message) = self.message()?;
+        let (signature, webauthn) = match signer.sign(&message)? {
+            ReadSignature::Ed25519(raw) => (raw.to_vec(), None),
+            ReadSignature::WebAuthn {
+                signature_der,
+                assertion,
+            } => (signature_der, Some(assertion)),
+        };
+        Ok(ReadAuth {
+            reader: signer.reader()?.to_bytes().to_vec().into(),
+            timestamp,
+            nonce: self.nonce.to_vec().into(),
+            signature: signature.into(),
+            webauthn,
+        })
     }
 }
 
@@ -721,14 +1017,7 @@ impl ReadRequest {
         self,
         signer: &S,
     ) -> Result<GetDecryptedTransactionsRequest, ReadBuildError> {
-        let (timestamp, message) = self.message()?;
-        let (signature, webauthn) = match signer.sign(&message)? {
-            ReadSignature::Ed25519(raw) => (raw.to_vec(), None),
-            ReadSignature::WebAuthn {
-                signature_der,
-                assertion,
-            } => (signature_der, Some(assertion)),
-        };
+        let auth = self.read_auth(signer)?;
         let ReadAttestation {
             ring,
             cursor,
@@ -738,13 +1027,27 @@ impl ReadRequest {
             ring_program_id: Some(ring.to_bytes().into()),
             cursor,
             limit,
-            auth: ReadAuth {
-                reader: signer.reader()?.to_bytes().to_vec().into(),
-                timestamp,
-                nonce: self.nonce.to_vec().into(),
-                signature: signature.into(),
-                webauthn,
-            },
+            auth,
+        })
+    }
+}
+
+impl AuditedNotesRequest {
+    pub fn at(self, timestamp: u64) -> Self {
+        Self {
+            signed: self.signed.at(timestamp),
+            ..self
+        }
+    }
+
+    pub fn sign<S: ReadSigner + ?Sized>(
+        self,
+        signer: &S,
+    ) -> Result<GetAuditedNotesRequest, ReadBuildError> {
+        Ok(GetAuditedNotesRequest {
+            ring_program_id: Some(self.signed.attestation.ring.to_bytes().into()),
+            auth: self.signed.read_auth(signer)?,
+            utxo_hashes: self.utxo_hashes,
         })
     }
 }
@@ -778,6 +1081,22 @@ impl GetDecryptedTransactionsRequest {
             ring,
             cursor: None,
             limit: None,
+        })
+    }
+}
+
+impl GetAuditedNotesRequest {
+    /// Refuses an empty or oversized read before it is signed.
+    pub fn read(
+        ring: Address,
+        utxo_hashes: Vec<Hash>,
+    ) -> Result<AuditedNotesRequest, ReadBuildError> {
+        if !notes_in_bounds(&utxo_hashes) {
+            return Err(ReadBuildError::Notes);
+        }
+        Ok(AuditedNotesRequest {
+            signed: SignedRequest::new(AuditedNotesAttestation::new(ring, &utxo_hashes)),
+            utxo_hashes,
         })
     }
 }

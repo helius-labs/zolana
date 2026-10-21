@@ -9,6 +9,8 @@ use anyhow::{ensure, Context as _, Result};
 use serde::Deserialize;
 use zolana_cli_common::release::{ensure_at, ensure_cached, Asset, BinaryAsset};
 
+pub use custom_ring_interface::key_catalog::{RingKey, RING_KEYS};
+
 const LOCK_JSON: &str = include_str!("../release-artifacts.lock");
 
 /// Every asset is optional, a missing one fails at use.
@@ -27,20 +29,17 @@ pub struct RingProgram {
     pub asset: Asset,
 }
 
-pub use custom_ring_interface::key_catalog::RingKey;
-
 impl RingRelease {
+    /// The release pins every key the compiled verifiers check, or nothing downloads.
     pub fn from_lock() -> Result<Self> {
         let release = Self::parse(LOCK_JSON)?;
-        release.validate_keys()?;
+        release.validate_keys(custom_ring_interface::proving_key_hashes())?;
         Ok(release)
     }
 
-    /// Reject a partial or differently pinned release before downloading or deploying it.
-    /// The program and all clients must use the same complete proving-key generation.
-    fn validate_keys(&self) -> Result<()> {
-        for (name, expected) in custom_ring_interface::proving_key_hashes() {
-            let key = RingKey::ALL
+    fn validate_keys<'a>(&self, pins: impl IntoIterator<Item = (&'a str, [u8; 32])>) -> Result<()> {
+        for (name, expected) in pins {
+            let key = RING_KEYS
                 .iter()
                 .find(|key| key.file_name() == name)
                 .with_context(|| format!("no ring catalog entry for {name}"))?;
@@ -66,11 +65,10 @@ impl RingRelease {
     }
 
     pub fn key(&self, key: RingKey) -> Result<&Asset> {
-        self.assets.get(key.section).with_context(|| {
+        self.assets.get(&key.section()).with_context(|| {
             format!(
                 "release {} ships no key for {}, use a complete custom-rings release",
-                self.tag,
-                key.circuit()
+                self.tag, key.name
             )
         })
     }
@@ -126,35 +124,25 @@ mod tests {
     const FULL_LOCK: &str = r#"{
         "release_tag": "v1",
         "ring_program": {"asset": "custom-ring-program-v1.so", "size": 1, "sha256": "x"},
-        "proving_key": {"asset": "custom-ring-key-v1.key", "size": 1, "sha256": "x"},
-        "audit_key": {"asset": "custom-ring-audit-key-v1.key", "size": 1, "sha256": "x"}
+        "audit_packed_2_key": {"asset": "custom-ring-audit-packed-2-key-v1.key", "size": 1, "sha256": "x"},
+        "register_key": {"asset": "custom-ring-register-key-v1.key", "size": 1, "sha256": "x"}
     }"#;
 
     #[test]
     fn release_keys_must_be_complete_and_match_the_compiled_verifiers() {
+        let packed = RING_KEYS[0];
+        let file = packed.file_name();
+        let pins = |hash: [u8; 32]| [(file.as_str(), hash)];
         let mut lock: serde_json::Value = serde_json::from_str(FULL_LOCK).unwrap();
-        for (file, hash) in custom_ring_interface::proving_key_hashes() {
-            let key = RingKey::ALL
-                .iter()
-                .find(|key| key.file_name() == file)
-                .unwrap();
-            lock[key.section] =
-                serde_json::json!({"asset": file, "size": 1, "sha256": hex::encode(hash)});
-        }
-        RingRelease::parse(&lock.to_string())
-            .unwrap()
-            .validate_keys()
-            .unwrap();
-        let section = RingKey::CONFIDENTIAL_AUDIT.section;
-        lock[section]["sha256"] = serde_json::json!("00".repeat(32));
-        assert!(RingRelease::parse(&lock.to_string())
-            .unwrap()
-            .validate_keys()
-            .is_err());
-        lock.as_object_mut().unwrap().remove(section);
-        assert!(RingRelease::parse(&lock.to_string())
-            .unwrap()
-            .validate_keys()
+        lock[packed.section()]["sha256"] = serde_json::json!(hex::encode([5; 32]));
+        let release = RingRelease::parse(&lock.to_string()).unwrap();
+        release.validate_keys(pins([5; 32])).unwrap();
+        assert!(release.validate_keys(pins([6; 32])).is_err());
+        lock.as_object_mut().unwrap().remove(&packed.section());
+        let partial = RingRelease::parse(&lock.to_string()).unwrap();
+        assert!(partial.validate_keys(pins([5; 32])).is_err());
+        assert!(release
+            .validate_keys([("custom_ring_unknown.key", [5; 32])])
             .is_err());
     }
 
@@ -166,16 +154,11 @@ mod tests {
             program,
             "release v1 ships no ring program, pass --program-so"
         );
-        let key = release
-            .key(
-                *RingKey::ALL
-                    .iter()
-                    .find(|key| key.section == "audit_key")
-                    .unwrap(),
-            )
-            .expect_err("no key")
-            .to_string();
-        assert!(key.contains("ships no key for custom-ring-base"), "{key}");
+        let key = release.key(RING_KEYS[0]).expect_err("no key").to_string();
+        assert!(
+            key.contains("ships no key for custom-ring-audit-packed-2"),
+            "{key}"
+        );
         assert_eq!(
             release
                 .binary("ring_rpc", "linux", "x64")
@@ -189,25 +172,27 @@ mod tests {
     #[test]
     fn every_ring_key_is_served_or_named_as_missing() {
         let mut lock: serde_json::Value = serde_json::from_str(FULL_LOCK).expect("json");
-        for key in RingKey::ALL {
-            lock[key.section] =
-                serde_json::json!({"asset": key.file_name(), "size": 1, "sha256": "x"});
+        for key in RING_KEYS {
+            lock[key.section()] =
+                serde_json::json!({"asset": key.asset("v1"), "size": 1, "sha256": "x"});
         }
         let release = RingRelease::parse(&lock.to_string()).expect("parses");
-        for key in RingKey::ALL {
-            assert_eq!(release.key(key).expect("served").name, key.file_name());
+        for key in RING_KEYS {
+            assert_eq!(release.key(key).expect("served").name, key.asset("v1"));
         }
         let partial = RingRelease::parse(FULL_LOCK).expect("parses");
         assert_eq!(
             partial.program().expect("program").name,
             "custom-ring-program-v1.so"
         );
-        for missing in RingKey::ALL
-            .into_iter()
-            .filter(|key| !matches!(key.section, "proving_key" | "audit_key"))
-        {
+        for missing in RING_KEYS.into_iter().filter(|key| {
+            !matches!(
+                key.section().as_str(),
+                "audit_packed_2_key" | "register_key"
+            )
+        }) {
             let error = partial.key(missing).expect_err("missing").to_string();
-            assert!(error.contains(missing.circuit()), "{error}");
+            assert!(error.contains(missing.name), "{error}");
         }
     }
 

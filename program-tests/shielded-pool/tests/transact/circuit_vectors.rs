@@ -15,9 +15,7 @@
 use std::{fs, path::Path};
 
 use serde_json::Value;
-use shielded_pool_program::testing::{
-    amount_field, solana_owner_identity, TransactProof, TransactProofInputs,
-};
+use shielded_pool_program::testing::{solana_owner_identity, TransactProof, TransactProofInputs};
 use zolana_hasher::zero_suffix_hash_chain::create_padded_right_hash_chain_4;
 use zolana_hasher::{
     hash_chain::{
@@ -30,7 +28,7 @@ use zolana_hasher::{
 };
 use zolana_interface::{
     instruction::instruction_data::transact::{
-        AnonymousRingEddsaProofData, Bsb22Commitment, CircuitId, InputUtxo, OwnerTag,
+        amount_field, AnonymousRingEddsaProofData, Bsb22Commitment, CircuitId, InputUtxo, OwnerTag,
         TransactIxData, TransactIxDataRef, TransactOutput, TransactProof as ProofData, TreeContext,
     },
     state::cache::empty_cached_input_fields,

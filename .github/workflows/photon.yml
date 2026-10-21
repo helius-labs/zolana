@@ -113,10 +113,11 @@ jobs:
                 ('custom_ring_cursor'),
                 ('custom_ring_blocks'),
                 ('custom_ring_pending'),
-                ('ring_spend_record_rings'),
-                ('ring_spend_records'),
-                ('ring_member_registry_roots'),
-                ('ring_member_registry_members')
+                ('ring_registries'),
+                ('ring_registry_roots'),
+                ('ring_records'),
+                ('ring_record_nodes'),
+                ('ring_record_queue')
             )
             SELECT bool_and(to_regclass('public.' || name) IS NOT NULL)
             FROM required;

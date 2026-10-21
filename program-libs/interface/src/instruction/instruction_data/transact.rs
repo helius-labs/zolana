@@ -1,18 +1,28 @@
 use alloc::vec::Vec;
 use arrayvec::ArrayVec;
+use solana_program_error::ProgramError;
+use thiserror::Error;
 use wincode::{containers, len::FixIntLen, ReadError, SchemaRead, SchemaWrite};
 pub use zolana_event::{
     confidential_encrypted_output_body, is_confidential_encrypted_output,
-    ring_anonymous_encrypted_output_body, ring_confidential_encrypted_output_body, MessageData,
-    OutputUtxo,
+    ring_anonymous_encrypted_output_body, ring_confidential_delivered_output_body,
+    ring_confidential_encrypted_output_body, ring_confidential_packed_output_body, MessageData,
+    OutputUtxo, RingPackedBody,
 };
-use zolana_hasher::{primitives::solana_owner_identity, sha256::Sha256BE, Hasher, HasherError};
+use zolana_hasher::{
+    primitives::{hash_bytes, right_align, solana_owner_identity, BN254_SCALAR_MODULUS_BE},
+    sha256::Sha256BE,
+    Hasher, HasherError,
+};
 
 pub use crate::verifying_keys::{
     AnonymousRingEddsaProofData, Bsb22Commitment, CacheAccess, CacheWrite, CircuitId,
     MAX_CACHE_WRITES,
 };
-use crate::{error::ShieldedPoolError, MAX_INPUT_TREES, MAX_INTERFACE_TRANSFERS, MAX_OUTPUTS};
+use crate::{
+    error::ShieldedPoolError, MAX_INPUT_TREES, MAX_INTERFACE_TRANSFERS, MAX_OUTPUTS,
+    N_PUBLIC_SLOTS, SOL_ASSET_ADDRESS, SOL_ASSET_FIELD,
+};
 
 /// The Groth16 proof carried by a `transact` instruction: `a` and `c` are
 /// compressed G1 points (32 bytes each), `b` is the raw big-endian G2 point
@@ -96,6 +106,15 @@ impl InterfaceTransfer {
         matches!(self, Self::SolDeposit { .. } | Self::SplDeposit { .. })
     }
 
+    fn signed_amount(self) -> i128 {
+        let amount = i128::from(self.amount());
+        if self.is_deposit() {
+            amount
+        } else {
+            -amount
+        }
+    }
+
     /// Accounts in this leg's settlement group. Settlement groups terminate a
     /// `transact` account list, in leg order, except for the cache and, when
     /// writing, its signing writer that a cached selector appends after them;
@@ -119,6 +138,15 @@ impl InterfaceTransfer {
             Self::SolDeposit { .. } | Self::SolWithdrawal { .. } => None,
             Self::SplDeposit { .. } => Some(0),
             Self::SplWithdrawal { .. } => Some(1),
+        }
+    }
+
+    /// Position of the signer a deposit moves funds from, `None` for a withdrawal.
+    pub const fn funder_account_position(self) -> Option<usize> {
+        match self {
+            Self::SolDeposit { .. } => Some(1),
+            Self::SplDeposit { .. } => Some(2),
+            Self::SolWithdrawal { .. } | Self::SplWithdrawal { .. } => None,
         }
     }
 }
@@ -146,6 +174,29 @@ pub fn settlement_accounts<'a, T>(
     accounts.get(end.checked_sub(total)?..end)
 }
 
+/// `groups` is the window [`settlement_accounts`] returns.
+pub fn settlement_mints<'a, T>(
+    transfers: &'a [InterfaceTransfer],
+    groups: &'a [T],
+) -> impl Iterator<Item = Result<Option<&'a T>, ShieldedPoolError>> + 'a {
+    let mut start = 0usize;
+    transfers.iter().map(move |transfer| {
+        let group = start
+            .checked_add(transfer.settlement_account_count())
+            .and_then(|end| groups.get(start..end))
+            .ok_or(ShieldedPoolError::InvalidSettlementAccounts)?;
+        start += group.len();
+        transfer
+            .mint_account_position()
+            .map(|position| {
+                group
+                    .get(position)
+                    .ok_or(ShieldedPoolError::InvalidSettlementAccounts)
+            })
+            .transpose()
+    })
+}
+
 pub fn validate_interface_transfers(
     transfers: &[InterfaceTransfer],
 ) -> Result<(), ShieldedPoolError> {
@@ -156,6 +207,145 @@ pub fn validate_interface_transfers(
         return Err(ShieldedPoolError::ZeroInterfaceTransferAmount);
     }
     Ok(())
+}
+
+/// Assets in first-seen leg order.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PublicSlots {
+    slots: ArrayVec<PublicSlot, N_PUBLIC_SLOTS>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct PublicSlot {
+    asset: [u8; 32],
+    net: i128,
+}
+
+/// A refused fold, `asset` the zero address for SOL.
+#[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
+pub enum PublicSlotError {
+    #[error("an asset needs a public slot past the last")]
+    TooManyAssets { asset: [u8; 32] },
+    #[error("the net public amount of an asset exceeds a u64 magnitude")]
+    AmountOverflow { asset: [u8; 32] },
+    #[error("the interface transfers of an asset net to zero")]
+    ZeroNet { asset: [u8; 32] },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PublicLeg {
+    pub transfer: InterfaceTransfer,
+    /// The raw mint address, never an asset field, `None` for SOL.
+    pub mint: Option<[u8; 32]>,
+}
+
+impl PublicSlots {
+    pub fn fold<E: From<PublicSlotError>>(
+        legs: impl IntoIterator<Item = Result<PublicLeg, E>>,
+    ) -> Result<Self, E> {
+        let mut slots = Self::default();
+        for leg in legs {
+            let PublicLeg { transfer, mint } = leg?;
+            slots.add(mint.unwrap_or(SOL_ASSET_ADDRESS), transfer.signed_amount())?;
+        }
+        if let Some(slot) = slots.slots.iter().find(|slot| slot.net == 0) {
+            return Err(PublicSlotError::ZeroNet { asset: slot.asset }.into());
+        }
+        Ok(slots)
+    }
+
+    pub fn len(&self) -> usize {
+        self.slots.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.slots.is_empty()
+    }
+
+    /// Zero past the used slots.
+    pub fn asset_fields(&self) -> Result<[[u8; 32]; N_PUBLIC_SLOTS], HasherError> {
+        let mut fields = [[0u8; 32]; N_PUBLIC_SLOTS];
+        for (field, slot) in fields.iter_mut().zip(&self.slots) {
+            *field = match slot.asset {
+                SOL_ASSET_ADDRESS => SOL_ASSET_FIELD,
+                mint => hash_bytes(&mint)?,
+            };
+        }
+        Ok(fields)
+    }
+
+    /// Zero past the used slots.
+    pub fn amounts(&self) -> [i128; N_PUBLIC_SLOTS] {
+        core::array::from_fn(|index| self.slots.get(index).map_or(0, |slot| slot.net))
+    }
+
+    /// Zero past the used slots.
+    pub fn amount_fields(&self) -> Result<[[u8; 32]; N_PUBLIC_SLOTS], PublicSlotError> {
+        let mut fields = [[0u8; 32]; N_PUBLIC_SLOTS];
+        for (field, slot) in fields.iter_mut().zip(&self.slots) {
+            *field = amount_field(slot.net)
+                .map_err(|_| PublicSlotError::AmountOverflow { asset: slot.asset })?;
+        }
+        Ok(fields)
+    }
+
+    fn add(&mut self, asset: [u8; 32], amount: i128) -> Result<(), PublicSlotError> {
+        match self.slots.iter_mut().find(|slot| slot.asset == asset) {
+            Some(slot) => *slot = slot.credit(amount)?,
+            None => self
+                .slots
+                .try_push(PublicSlot { asset, net: 0 }.credit(amount)?)
+                .map_err(|_| PublicSlotError::TooManyAssets { asset })?,
+        }
+        Ok(())
+    }
+}
+
+impl PublicSlot {
+    fn credit(self, amount: i128) -> Result<Self, PublicSlotError> {
+        // The circuit range-checks each public amount to a u64 magnitude.
+        let net = self
+            .net
+            .checked_add(amount)
+            .filter(|net| u64::try_from(net.unsigned_abs()).is_ok())
+            .ok_or(PublicSlotError::AmountOverflow { asset: self.asset })?;
+        Ok(Self { net, ..self })
+    }
+}
+
+impl From<PublicSlotError> for ShieldedPoolError {
+    fn from(error: PublicSlotError) -> Self {
+        match error {
+            PublicSlotError::TooManyAssets { .. } => Self::TooManyPublicAssets,
+            PublicSlotError::AmountOverflow { .. } => Self::PublicAssetAmountOverflow,
+            PublicSlotError::ZeroNet { .. } => Self::ZeroNetInterfaceTransferAmount,
+        }
+    }
+}
+
+impl From<PublicSlotError> for ProgramError {
+    fn from(error: PublicSlotError) -> Self {
+        ShieldedPoolError::from(error).into()
+    }
+}
+
+/// Low half of the BN254 scalar modulus, above every u64 magnitude.
+const MODULUS_LOW: u128 = match BN254_SCALAR_MODULUS_BE.last_chunk() {
+    Some(low) => u128::from_be_bytes(*low),
+    None => 0,
+};
+const _: () = assert!(MODULUS_LOW > u64::MAX as u128);
+
+/// A signed public amount as a field element, a withdrawal as `q - |amount|`.
+pub fn amount_field(amount: i128) -> Result<[u8; 32], ShieldedPoolError> {
+    let magnitude = u64::try_from(amount.unsigned_abs())
+        .map_err(|_| ShieldedPoolError::PublicAssetAmountOverflow)?;
+    if !amount.is_negative() {
+        return Ok(right_align(&magnitude.to_be_bytes()));
+    }
+    let mut field = BN254_SCALAR_MODULUS_BE;
+    field[16..].copy_from_slice(&(MODULUS_LOW - u128::from(magnitude)).to_be_bytes());
+    Ok(field)
 }
 
 /// Validate the declared input trees against the inputs that reference them and
@@ -318,10 +508,12 @@ pub struct TransactIxDataRef<'a> {
     pub tree_contexts: Vec<TreeContext>,
 }
 
+/// Payer, co-signer and exit destination, the circuit's party order.
+pub const ANONYMOUS_PARTIES: usize = 3;
+
 /// The public parties an anonymous spend proves distinct from its hidden owner.
 pub struct AnonymousParties<'a> {
     pub payer: &'a [u8; 32],
-    /// The ring's configured co-signer, the zero address or `None` without one.
     pub cosigner: Option<&'a [u8; 32]>,
     pub exit_destination: Option<&'a [u8; 32]>,
 }
@@ -338,12 +530,10 @@ impl AnonymousParties<'_> {
         Ok(exit)
     }
 
-    /// Payer, co-signer, exit destination as Solana owner identities, zero when absent.
-    pub fn identities(&self) -> Result<[[u8; 32]; 3], HasherError> {
-        let identity = |party: Option<&[u8; 32]>| match party {
-            Some(address) if *address != [0u8; 32] => solana_owner_identity(address),
-            _ => Ok([0u8; 32]),
-        };
+    /// Solana owner identities, zero for an absent party.
+    pub fn identities(&self) -> Result<[[u8; 32]; ANONYMOUS_PARTIES], HasherError> {
+        let identity =
+            |party: Option<&[u8; 32]>| party.map_or(Ok([0u8; 32]), solana_owner_identity);
         Ok([
             identity(Some(self.payer))?,
             identity(self.cosigner)?,
@@ -352,7 +542,6 @@ impl AnonymousParties<'_> {
     }
 }
 
-/// A decoded transact instruction with the two byte ranges around it.
 pub struct ParsedTransactIxData<'a> {
     pub ix: TransactIxDataRef<'a>,
     /// The bytes before `private_tx_hash`, the first field outside the external data.
@@ -362,9 +551,7 @@ pub struct ParsedTransactIxData<'a> {
 }
 
 impl<'a> TransactIxDataRef<'a> {
-    /// Decode once and borrow the bytes before `private_tx_hash`. Its reference
-    /// points directly into `data`, so the boundary needs no separate schema or
-    /// size calculation.
+    /// Decodes once, the prefix ends where the borrowed `private_tx_hash` starts.
     pub fn parse_with_tail(data: &'a [u8]) -> Result<ParsedTransactIxData<'a>, ReadError> {
         let mut rest = data;
         let ix = <Self as SchemaRead<'a, RefConfig>>::get(&mut rest)?;

@@ -2,7 +2,7 @@ use solana_address::Address;
 use zolana_event::{is_confidential_encrypted_output, MessageData};
 use zolana_instruction::{SettlementAccounts, TransactExternalData};
 use zolana_interface::instruction::{
-    instruction_data::transact::{InterfaceTransfer, TransactOutput},
+    instruction_data::transact::{InterfaceTransfer, PublicLeg, TransactOutput},
     tag,
 };
 use zolana_interface::pda;
@@ -10,8 +10,7 @@ use zolana_interface::{MAX_INTERFACE_TRANSFERS, SOL_INTERFACE};
 
 use crate::{error::TransactionError, SppProofOutputUtxo, SOL_MINT};
 
-/// One live ring-rail output publishes its owner exactly when it exits to the
-/// default ring. `None` means the wire marker publishes no owner identity.
+/// A live ring-rail output publishes its owner exactly when it exits, `None` publishes none.
 pub fn validate_ring_output_owner(
     index: usize,
     ring_bound: bool,
@@ -116,6 +115,16 @@ impl SettlementTransfer {
         }
     }
 
+    pub fn public_leg(self) -> PublicLeg {
+        PublicLeg {
+            transfer: self.interface_transfer(),
+            mint: match self {
+                Self::Sol { .. } => None,
+                Self::Spl { mint, .. } => Some(mint.to_bytes()),
+            },
+        }
+    }
+
     pub fn interface_transfer(self) -> InterfaceTransfer {
         match self {
             Self::Sol {
@@ -172,10 +181,7 @@ pub struct ExternalData {
 }
 
 impl ExternalData {
-    /// Match each live output's public owner marker to its committed ring.
-    /// A default-ring exit must publish its actual owner. An unmarked exit
-    /// instead forces a zero owner identity in the ring circuit and burns it.
-    /// Ring outputs keep that identity private. Genuine padding is exempt.
+    /// A default-ring exit publishes its actual owner, the ring circuit burns an unmarked one.
     pub fn validate_ring_output_markers(
         &self,
         outputs: &[SppProofOutputUtxo],
@@ -308,12 +314,18 @@ impl ExternalData {
     }
 }
 
-fn validate_settlement_transfers(transfers: &[SettlementTransfer]) -> Result<(), TransactionError> {
+/// SPP refuses a zero amount on any leg before it reads a settlement account.
+pub(super) fn validate_settlement_transfers(
+    transfers: &[SettlementTransfer],
+) -> Result<(), TransactionError> {
     if transfers.len() > MAX_INTERFACE_TRANSFERS {
         return Err(TransactionError::TooManyInterfaceTransfers {
             got: transfers.len(),
             max: MAX_INTERFACE_TRANSFERS,
         });
+    }
+    if transfers.iter().any(|transfer| transfer.amount() == 0) {
+        return Err(TransactionError::ZeroInterfaceTransferAmount);
     }
     for transfer in transfers {
         validate_settlement_transfer(*transfer)?;

@@ -1,24 +1,32 @@
 //! Validation coverage for interface transfers. Invalid shapes fail before
 //! proof verification and leave settlement balances unchanged.
 
-use shielded_pool_tests::support::fixtures::{register_mint, Pool};
+use shielded_pool_tests::support::{
+    fixtures::{register_mint, Pool},
+    transact::write_ring_config,
+};
 
+use solana_account::Account;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
+use spl_token_2022_interface::pod::{PodAccount, PodCOption};
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::instruction_data::transact::{
-        CircuitId, InterfaceTransfer, TransactIxData, TransactProof,
+        AnonymousRingEddsaProofData, Bsb22Commitment, CircuitId, InterfaceTransfer, TransactIxData,
+        TransactProof,
     },
-    pda, N_PUBLIC_SLOTS,
+    pda,
+    state::discriminator::RING_CONFIG,
+    N_PUBLIC_SLOTS, SPL_TOKEN_ACCOUNT_INITIALIZED,
 };
 use zolana_program::instruction::{
-    Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
-    TransactSplDepositAccounts, TransactSplWithdrawalAccounts,
+    CreateAssociatedTokenAccount, RingTransact, Transact, TransactInterfaceTransferAccounts,
+    TransactSolTransferAccounts, TransactSplDepositAccounts, TransactSplWithdrawalAccounts,
 };
-use zolana_program_test::{Rejection, ZolanaProgramTest};
+use zolana_program_test::{Rejection, ZolanaProgramTest, RING_TEST_PROGRAM_ID};
 use zolana_test_utils::transact::{fe, inline_output, input_utxo, single_tree_context};
 
 /// Two-input/three-output transact data with a zeroed proof carrying the
@@ -479,4 +487,228 @@ fn four_distinct_public_assets_are_rejected() {
     for (vault, before) in vaults.iter().zip(vault_balances) {
         assert_eq!(pool.rpc.token_balance(vault).unwrap_or(0), before);
     }
+}
+
+struct AnonymousWithdrawal {
+    transfer: InterfaceTransfer,
+    accounts: TransactInterfaceTransferAccounts,
+    before: Vec<Instruction>,
+}
+
+impl AnonymousWithdrawal {
+    fn spl(accounts: TransactSplWithdrawalAccounts) -> Self {
+        Self {
+            transfer: InterfaceTransfer::SplWithdrawal {
+                amount: 1,
+                spl_interface_bump: pda::spl_interface_with_bump(&accounts.mint).1,
+            },
+            accounts: TransactInterfaceTransferAccounts::SplWithdrawal(accounts),
+            before: Vec::new(),
+        }
+    }
+
+    fn sol(recipient: Pubkey) -> Self {
+        Self {
+            transfer: InterfaceTransfer::SolWithdrawal { amount: 1 },
+            accounts: TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
+                recipient,
+            }),
+            before: Vec::new(),
+        }
+    }
+
+    #[must_use]
+    fn after(mut self, instruction: Instruction) -> Self {
+        self.before.push(instruction);
+        self
+    }
+
+    #[track_caller]
+    fn expect_rejection(self, pool: &mut Pool, expected: ShieldedPoolError) {
+        let Self {
+            transfer,
+            accounts,
+            mut before,
+        } = self;
+        let ring_config = write_ring_config(
+            pool,
+            pda::shielded_pool_program_id(),
+            RING_CONFIG,
+            false,
+            false,
+        );
+        let mut data = ix_data(vec![transfer]);
+        data.circuit = CircuitId::AnonymousRingEddsa(
+            2,
+            2,
+            N_PUBLIC_SLOTS as u8,
+            AnonymousRingEddsaProofData {
+                bsb22_commitment: Bsb22Commitment {
+                    commitment: [0u8; 32],
+                    commitment_pok: [0u8; 32],
+                },
+                default_owner_tag: None,
+            },
+        );
+        data.outputs.truncate(2);
+        let mut ix = RingTransact {
+            payer: pool.rpc.payer.pubkey(),
+            input_trees: vec![pool.tree],
+            output_tree: pool.tree,
+            ring_program_id: Pubkey::new_from_array(RING_TEST_PROGRAM_ID),
+            owner_signers: Vec::new(),
+            interface_transfer_accounts: vec![accounts],
+            data,
+        }
+        .cpi_instruction();
+        ix.accounts.get_mut(4).expect("ring config meta").pubkey = ring_config.pubkey();
+        // The ring program's control tail, no co-signer configured.
+        ix.data.extend_from_slice(&[0u8; 32]);
+        let index = u8::try_from(before.len()).expect("few setup instructions");
+        before.push(ix);
+        let payer = pool.rpc.payer.pubkey();
+        let error = pool
+            .rpc
+            .create_and_send_default_payer_transaction(&before, &[&ring_config])
+            .expect_err("anonymous withdrawal must be rejected");
+        Rejection::pool(expected).at(index).assert_litesvm(error);
+        pool.rpc
+            .last_transaction_trace()
+            .expect("rejected transact trace")
+            .assert_rolled_back_except(&[payer]);
+    }
+}
+
+struct SplExit {
+    pool: Pool,
+    mint: Pubkey,
+    vault: Pubkey,
+}
+
+impl SplExit {
+    fn new() -> Self {
+        let mut pool = Pool::initialized();
+        let (mint, _, vault) = register_mint(&mut pool);
+        Self { pool, mint, vault }
+    }
+
+    /// The associated token account of a fresh owner, its state as the token program writes it.
+    fn associated_account(&mut self, edit: impl FnOnce(&mut PodAccount)) -> Pubkey {
+        let owner = Pubkey::new_unique();
+        let address = pda::associated_token_address(&owner, &self.mint);
+        let mut state = PodAccount {
+            mint: self.mint.to_bytes().into(),
+            owner: owner.to_bytes().into(),
+            state: SPL_TOKEN_ACCOUNT_INITIALIZED,
+            ..PodAccount::default()
+        };
+        edit(&mut state);
+        self.pool
+            .rpc
+            .svm
+            .set_account(
+                address,
+                Account {
+                    lamports: 1_000_000_000,
+                    data: bytemuck::bytes_of(&state).to_vec(),
+                    owner: ZolanaProgramTest::token_program_id(),
+                    executable: false,
+                    rent_epoch: 0,
+                },
+            )
+            .expect("write associated token account");
+        address
+    }
+
+    fn withdrawal(&self, token_account: Pubkey) -> AnonymousWithdrawal {
+        AnonymousWithdrawal::spl(TransactSplWithdrawalAccounts {
+            mint: self.mint,
+            spl_interface: self.vault,
+            user_token_account: token_account,
+            token_program: ZolanaProgramTest::token_program_id(),
+        })
+    }
+
+    #[track_caller]
+    fn expect_rejection(mut self, token_account: Pubkey, expected: ShieldedPoolError) {
+        self.withdrawal(token_account)
+            .expect_rejection(&mut self.pool, expected);
+    }
+}
+
+#[test]
+fn an_anonymous_spl_exit_to_a_sole_owner_associated_account_reaches_proof_verification() {
+    let mut exit = SplExit::new();
+    let associated = exit.associated_account(|_| {});
+    exit.expect_rejection(
+        associated,
+        ShieldedPoolError::TransactProofVerificationFailed,
+    );
+}
+
+#[test]
+fn an_anonymous_spl_exit_to_an_associated_account_created_in_the_same_transaction_reaches_proof_verification(
+) {
+    let mut exit = SplExit::new();
+    let create = CreateAssociatedTokenAccount {
+        payer: exit.pool.rpc.payer.pubkey(),
+        owner: Pubkey::new_unique(),
+        mint: exit.mint,
+        token_program: ZolanaProgramTest::token_program_id(),
+    };
+    assert!(exit.pool.rpc.svm.get_account(&create.address()).is_none());
+    exit.withdrawal(create.address())
+        .after(create.instruction())
+        .expect_rejection(
+            &mut exit.pool,
+            ShieldedPoolError::TransactProofVerificationFailed,
+        );
+}
+
+#[test]
+fn an_anonymous_spl_exit_to_a_keypair_address_token_account_is_refused() {
+    let mut exit = SplExit::new();
+    let keypair_address = exit
+        .pool
+        .rpc
+        .create_token_account(&exit.mint, &Pubkey::new_unique())
+        .expect("create token account");
+    assert!(keypair_address.is_on_curve());
+    exit.expect_rejection(
+        keypair_address,
+        ShieldedPoolError::AnonymousExitTokenAccountOnCurve,
+    );
+}
+
+#[test]
+fn an_anonymous_spl_exit_to_an_associated_account_with_a_delegate_is_refused() {
+    let mut exit = SplExit::new();
+    let associated = exit.associated_account(|state| {
+        state.delegate = PodCOption::some(Pubkey::new_unique().to_bytes().into());
+    });
+    exit.expect_rejection(
+        associated,
+        ShieldedPoolError::AnonymousExitTokenAccountShared,
+    );
+}
+
+#[test]
+fn an_anonymous_sol_exit_to_a_system_account_with_data_is_refused() {
+    let mut pool = Pool::initialized();
+    let recipient = Pubkey::new_unique();
+    pool.rpc
+        .svm
+        .set_account(
+            recipient,
+            Account {
+                lamports: 1_000_000_000,
+                data: vec![0u8; 80],
+                owner: Pubkey::default(),
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .expect("write recipient");
+    AnonymousWithdrawal::sol(recipient)
+        .expect_rejection(&mut pool, ShieldedPoolError::AnonymousExitAccountHasData);
 }

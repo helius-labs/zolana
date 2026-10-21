@@ -1,30 +1,34 @@
-//! Off chain address of an anonymous ring member and its `zolana:` payment request form.
+//! An anonymous ring member's address, its pairing policy and its `zolana:` request form.
 
 use std::{fmt, str::FromStr};
 
 use percent_encoding::{percent_decode_str, utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
 use sha2::{Digest, Sha256};
 use solana_address::Address;
-use subtle::ConstantTimeEq;
-use zeroize::Zeroizing;
 
 use crate::{
-    derivation,
     error::KeypairError,
     shielded::{ShieldedAddress, SHIELDED_ADDRESS_LEN},
-    viewing_key::ViewTag,
 };
 
-pub const RING_ADDRESS_VERSION: u8 = 1;
+pub const RING_ADDRESS_VERSION: u8 = 2;
 
-pub const RING_ADDRESS_CHECKSUM_DOMAIN: &[u8] = b"zolana/ring-addr/v1";
+pub const RING_ADDRESS_CHECKSUM_DOMAIN: &[u8] = b"zolana/ring-addr/v2";
 
 pub const RING_PAYMENT_SCHEME: &str = "zolana:";
 
+pub const MAX_PAIRING_ROWS: usize = 4;
+
+/// `mint(32) ‖ u64be(min_amount)`.
+const PAIRING_ROW_LEN: usize = 40;
+
 const CHECKSUM_LEN: usize = 4;
 
-/// `version || recipient || ring_program_id || inbox_secret || checksum`.
-pub const RING_ADDRESS_PAYLOAD_LEN: usize = 1 + SHIELDED_ADDRESS_LEN + 32 + 32 + CHECKSUM_LEN;
+/// `version ‖ recipient ‖ ring_program_id ‖ pairing count`.
+const HEADER_LEN: usize = 1 + SHIELDED_ADDRESS_LEN + 32 + 1;
+
+pub const MAX_RING_ADDRESS_PAYLOAD_LEN: usize =
+    HEADER_LEN + MAX_PAIRING_ROWS * PAIRING_ROW_LEN + CHECKSUM_LEN;
 
 /// RFC 3986 unreserved characters stay literal, everything else is percent-encoded.
 const LABEL_ENCODE_SET: &AsciiSet = &NON_ALPHANUMERIC
@@ -33,86 +37,132 @@ const LABEL_ENCODE_SET: &AsciiSet = &NON_ALPHANUMERIC
     .remove(b'_')
     .remove(b'~');
 
-/// Holding it lets a payer derive the recipient's inbox tags.
-#[derive(Clone)]
-pub struct InboxSecret(Zeroizing<[u8; 32]>);
+/// A first contact of `mint` worth `min_amount` or more anchors a pair stream, a zero mint any.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PairingRow {
+    pub mint: Address,
+    pub min_amount: u64,
+}
 
-impl PartialEq for InboxSecret {
-    fn eq(&self, other: &Self) -> bool {
-        self.0.ct_eq(&*other.0).into()
+impl PairingRow {
+    /// Every asset at any amount, the row a new address carries.
+    pub const ANY: Self = Self {
+        mint: Address::new_from_array([0; 32]),
+        min_amount: 0,
+    };
+
+    fn admits(&self, mint: &Address, amount: u64) -> bool {
+        (self.mint == Self::ANY.mint || self.mint == *mint) && amount >= self.min_amount
     }
 }
 
-impl Eq for InboxSecret {}
+/// The first contacts a recipient keeps a pair stream for, a note the recipient never scans for is lost.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Pairing(Vec<PairingRow>);
 
-impl InboxSecret {
-    pub fn from_bytes(bytes: [u8; 32]) -> Self {
-        Self(Zeroizing::new(bytes))
+impl Pairing {
+    /// No pair streams, every payment takes the inbox stream.
+    pub const fn off() -> Self {
+        Self(Vec::new())
     }
 
-    pub fn as_bytes(&self) -> &[u8; 32] {
+    pub fn new(rows: Vec<PairingRow>) -> Result<Self, KeypairError> {
+        if rows.len() > MAX_PAIRING_ROWS {
+            return Err(KeypairError::InvalidRingAddressPairing(rows.len()));
+        }
+        Ok(Self(rows))
+    }
+
+    pub fn rows(&self) -> &[PairingRow] {
         &self.0
     }
 
-    /// Tag of the `j`th first payment to the address.
-    pub fn view_tag(&self, j: u64) -> Result<ViewTag, KeypairError> {
-        derivation::inbox_view_tag(&self.0, j)
+    pub fn is_off(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn admits(&self, mint: &Address, amount: u64) -> bool {
+        self.0.iter().any(|row| row.admits(mint, amount))
     }
 }
 
-impl fmt::Debug for InboxSecret {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("InboxSecret(..)")
+impl Default for Pairing {
+    fn default() -> Self {
+        Self(vec![PairingRow::ANY])
     }
 }
 
-/// Shared off chain, never published.
+/// `recipient.viewing_pubkey` is the per-address key the inbox stream derives from.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct RingAddress {
     pub recipient: ShieldedAddress,
     pub ring_program_id: Address,
-    pub inbox_secret: InboxSecret,
+    pub pairing: Pairing,
 }
 
 impl RingAddress {
-    pub fn to_bytes(&self) -> [u8; RING_ADDRESS_PAYLOAD_LEN] {
-        let mut bytes = [0u8; RING_ADDRESS_PAYLOAD_LEN];
-        let (body, checksum) = bytes.split_at_mut(RING_ADDRESS_PAYLOAD_LEN - CHECKSUM_LEN);
-        let (version, rest) = body.split_at_mut(1);
-        let (recipient, rest) = rest.split_at_mut(SHIELDED_ADDRESS_LEN);
-        let (program, inbox) = rest.split_at_mut(32);
-        version[0] = RING_ADDRESS_VERSION;
-        recipient.copy_from_slice(&self.recipient.to_bytes());
-        program.copy_from_slice(self.ring_program_id.as_array());
-        inbox.copy_from_slice(self.inbox_secret.as_bytes());
-        checksum.copy_from_slice(&Self::checksum(body));
+    /// `version ‖ recipient ‖ ring_program_id ‖ count ‖ rows ‖ checksum`.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(MAX_RING_ADDRESS_PAYLOAD_LEN);
+        bytes.push(RING_ADDRESS_VERSION);
+        bytes.extend_from_slice(&self.recipient.to_bytes());
+        bytes.extend_from_slice(self.ring_program_id.as_array());
+        // `Pairing::new` bounds the count by `MAX_PAIRING_ROWS`.
+        bytes.push(self.pairing.0.len() as u8);
+        for row in &self.pairing.0 {
+            bytes.extend_from_slice(row.mint.as_array());
+            bytes.extend_from_slice(&row.min_amount.to_be_bytes());
+        }
+        let checksum = checksum(&bytes);
+        bytes.extend_from_slice(&checksum);
         bytes
     }
 
-    pub fn from_bytes(bytes: &[u8; RING_ADDRESS_PAYLOAD_LEN]) -> Result<Self, KeypairError> {
-        let (body, checksum) = bytes.split_at(RING_ADDRESS_PAYLOAD_LEN - CHECKSUM_LEN);
-        let (version, rest) = body.split_at(1);
-        let (recipient, rest) = rest.split_at(SHIELDED_ADDRESS_LEN);
-        let (program, inbox) = rest.split_at(32);
-        if version[0] != RING_ADDRESS_VERSION {
-            return Err(KeypairError::UnknownRingAddressVersion(version[0]));
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, KeypairError> {
+        let (body, checksum_bytes) = bytes
+            .split_last_chunk::<CHECKSUM_LEN>()
+            .ok_or(KeypairError::InvalidRingAddressLength)?;
+        let (header, rows) = body
+            .split_at_checked(HEADER_LEN)
+            .ok_or(KeypairError::InvalidRingAddressLength)?;
+        let (&version, header) = header
+            .split_first()
+            .ok_or(KeypairError::InvalidRingAddressLength)?;
+        if version != RING_ADDRESS_VERSION {
+            return Err(KeypairError::UnknownRingAddressVersion(version));
         }
-        if checksum != Self::checksum(body) {
+        let (recipient, header) = header
+            .split_first_chunk::<SHIELDED_ADDRESS_LEN>()
+            .ok_or(KeypairError::InvalidRingAddressLength)?;
+        let (program, count) = header
+            .split_first_chunk::<32>()
+            .ok_or(KeypairError::InvalidRingAddressLength)?;
+        let count = usize::from(count[0]);
+        if count > MAX_PAIRING_ROWS {
+            return Err(KeypairError::InvalidRingAddressPairing(count));
+        }
+        if rows.len() != count * PAIRING_ROW_LEN {
+            return Err(KeypairError::InvalidRingAddressLength);
+        }
+        if *checksum_bytes != checksum(body) {
             return Err(KeypairError::InvalidRingAddressChecksum);
         }
-        let recipient: &[u8; SHIELDED_ADDRESS_LEN] = recipient
-            .try_into()
-            .map_err(|_| KeypairError::InvalidRingAddressLength)?;
-        let program: [u8; 32] = program
-            .try_into()
-            .map_err(|_| KeypairError::InvalidRingAddressLength)?;
-        let inbox: [u8; 32] = inbox
-            .try_into()
-            .map_err(|_| KeypairError::InvalidRingAddressLength)?;
+        let rows = rows
+            .as_chunks::<PAIRING_ROW_LEN>()
+            .0
+            .iter()
+            .map(|row| {
+                let (mint, min_amount) = row.split_at(32);
+                PairingRow {
+                    mint: Address::new_from_array(core::array::from_fn(|i| mint[i])),
+                    min_amount: u64::from_be_bytes(core::array::from_fn(|i| min_amount[i])),
+                }
+            })
+            .collect();
         Ok(Self {
             recipient: ShieldedAddress::from_bytes(recipient)?,
-            ring_program_id: Address::new_from_array(program),
-            inbox_secret: InboxSecret::from_bytes(inbox),
+            ring_program_id: Address::new_from_array(*program),
+            pairing: Pairing(rows),
         })
     }
 
@@ -121,28 +171,24 @@ impl RingAddress {
     }
 
     pub fn from_base58(text: &str) -> Result<Self, KeypairError> {
-        let mut bytes = [0u8; RING_ADDRESS_PAYLOAD_LEN];
+        let mut bytes = [0u8; MAX_RING_ADDRESS_PAYLOAD_LEN];
         let len = bs58::decode(text)
             .onto(&mut bytes)
             .map_err(|error| match error {
                 bs58::decode::Error::BufferTooSmall => KeypairError::InvalidRingAddressLength,
                 _ => KeypairError::InvalidRingAddressBase58,
             })?;
-        if len != RING_ADDRESS_PAYLOAD_LEN {
-            return Err(KeypairError::InvalidRingAddressLength);
-        }
-        Self::from_bytes(&bytes)
+        Self::from_bytes(&bytes[..len])
     }
+}
 
-    fn checksum(body: &[u8]) -> [u8; CHECKSUM_LEN] {
-        let digest = Sha256::new()
-            .chain_update(RING_ADDRESS_CHECKSUM_DOMAIN)
-            .chain_update(body)
-            .finalize();
-        let mut checksum = [0u8; CHECKSUM_LEN];
-        checksum.copy_from_slice(&digest[..CHECKSUM_LEN]);
-        checksum
-    }
+/// The first 4 bytes of `SHA256(domain ‖ body)`.
+fn checksum(body: &[u8]) -> [u8; CHECKSUM_LEN] {
+    let digest = Sha256::new()
+        .chain_update(RING_ADDRESS_CHECKSUM_DOMAIN)
+        .chain_update(body)
+        .finalize();
+    core::array::from_fn(|i| digest[i])
 }
 
 /// `zolana:<address>?amount=&mint=&label=`, the query part is unauthenticated.
@@ -283,5 +329,22 @@ mod tests {
             );
         }
         assert_eq!(parse_amount("18446744073709551615").unwrap(), u64::MAX);
+    }
+
+    /// The zero mint is SOL's address too, so a SOL-only row cannot be written.
+    #[test]
+    fn a_row_admits_its_mint_at_or_above_its_minimum_and_the_zero_mint_every_asset() {
+        let usdc = Address::new_from_array([7; 32]);
+        let other = Address::new_from_array([8; 32]);
+        let pairing = Pairing::new(vec![PairingRow {
+            mint: usdc,
+            min_amount: 100,
+        }])
+        .unwrap();
+        assert!(pairing.admits(&usdc, 100));
+        assert!(!pairing.admits(&usdc, 99));
+        assert!(!pairing.admits(&other, 1_000));
+        assert!(Pairing::default().admits(&other, 0));
+        assert!(!Pairing::off().admits(&usdc, u64::MAX));
     }
 }

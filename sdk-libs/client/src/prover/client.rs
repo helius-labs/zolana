@@ -475,14 +475,6 @@ fn typed_failure(body: &serde_json::Value) -> Option<ClientError> {
     Some(match body.get("code")?.as_str()? {
         "indexer_not_ready" => ClientError::IndexerProofDataNotReady,
         "indexer_unconfigured" => ClientError::ProverIndexerUnconfigured,
-        "registry_member_missing" => ClientError::RegistryMemberMissing {
-            member: body
-                .get("member")?
-                .as_str()?
-                .parse::<solana_address::Address>()
-                .ok()?
-                .to_bytes(),
-        },
         _ => return None,
     })
 }
@@ -2826,21 +2818,9 @@ mod tests {
         }
     }
 
-    fn refusal(member: [u8; 32]) -> Value {
-        json!({
-            "code": "registry_member_missing",
-            "message": "registry member missing",
-            "member": solana_address::Address::new_from_array(member).to_string(),
-        })
-    }
-
     #[test]
     fn error_codes_map_to_typed_failures() {
-        let member = [9; 32];
-        let mut malformed = refusal(member);
-        malformed["member"] = json!("0x09");
         for (status, body, expected) in [
-            (422, refusal(member), "RegistryMemberMissing"),
             (
                 503,
                 json!({"code": "indexer_not_ready"}),
@@ -2851,7 +2831,6 @@ mod tests {
                 json!({"code": "indexer_unconfigured"}),
                 "ProverIndexerUnconfigured",
             ),
-            (422, malformed, "ProverServer"),
             (409, json!({"code": "unknown_code"}), "ProverServer"),
         ] {
             let server = MockServer::respond_with(vec![MockResponse::json(status, body)]);
@@ -2859,9 +2838,6 @@ mod tests {
                 .send("{}", Delivery::InResponse, &test_key())
                 .unwrap_err();
             assert!(format!("{error:?}").starts_with(expected), "{error:?}");
-            if let ClientError::RegistryMemberMissing { member: reported } = error {
-                assert_eq!(reported, member);
-            }
         }
     }
 
@@ -2906,10 +2882,13 @@ mod tests {
     #[test]
     fn indexed_requests_keep_typed_refusals() {
         let (request, _) = indexed_fixture();
-        let server = MockServer::respond_with(vec![MockResponse::json(422, refusal([9; 32]))]);
+        let server = MockServer::respond_with(vec![MockResponse::json(
+            503,
+            json!({"code": "indexer_not_ready"}),
+        )]);
         assert!(matches!(
             queued_prover_client(server.url()).prove_indexed(&request),
-            Err(ClientError::RegistryMemberMissing { member: [9, ..] })
+            Err(ClientError::IndexerProofDataNotReady)
         ));
     }
 
@@ -2925,7 +2904,6 @@ mod tests {
     #[test]
     fn failed_jobs_map_codes_on_both_clients() {
         for (code, expected) in [
-            (refusal([9; 32]), "RegistryMemberMissing"),
             (
                 json!({"code": "indexer_not_ready"}),
                 "IndexerProofDataNotReady",

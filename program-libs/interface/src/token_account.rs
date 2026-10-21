@@ -1,9 +1,10 @@
 //! The token account state SPP settles against, one reading for the program and the SDKs.
 
+use solana_address::Address;
 use solana_program_error::ProgramError;
 use spl_token_2022_interface::{extension::PodStateWithExtensions, pod::PodAccount};
 
-use crate::SPL_TOKEN_ACCOUNT_INITIALIZED;
+use crate::{error::ShieldedPoolError, SPL_TOKEN_ACCOUNT_INITIALIZED, SYSTEM_PROGRAM_ID};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TokenAccountControl {
@@ -18,6 +19,19 @@ pub struct TokenAccountState {
     pub control: TokenAccountControl,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub enum AnonymousExitDestination<'a> {
+    Sol {
+        recipient: &'a Address,
+        owner: &'a Address,
+        data_len: usize,
+    },
+    Spl {
+        token_account: &'a Address,
+        control: &'a TokenAccountControl,
+    },
+}
+
 impl TokenAccountState {
     pub fn unpack(data: &[u8]) -> Result<Self, ProgramError> {
         let state = PodStateWithExtensions::<PodAccount>::unpack(data)?;
@@ -25,9 +39,10 @@ impl TokenAccountState {
             return Err(ProgramError::InvalidAccountData);
         }
         let owner = state.base.owner.to_bytes();
-        let control = match state.base.delegate.is_none() && state.base.close_authority.is_none() {
-            true => TokenAccountControl::SoleOwner(owner),
-            false => TokenAccountControl::Shared(owner),
+        let control = if state.base.delegate.is_none() && state.base.close_authority.is_none() {
+            TokenAccountControl::SoleOwner(owner)
+        } else {
+            TokenAccountControl::Shared(owner)
         };
         Ok(Self {
             mint: state.base.mint.to_bytes(),
@@ -44,6 +59,38 @@ impl TokenAccountControl {
     }
 }
 
+impl<'a> AnonymousExitDestination<'a> {
+    /// The key the circuit proves apart from the hidden owner.
+    pub fn named_key(self) -> Result<&'a [u8; 32], ShieldedPoolError> {
+        match self {
+            // Data or a program owner could name a second key.
+            Self::Sol {
+                recipient,
+                owner,
+                data_len,
+            } => {
+                if *owner == SYSTEM_PROGRAM_ID && data_len == 0 {
+                    Ok(recipient.as_array())
+                } else {
+                    Err(ShieldedPoolError::AnonymousExitAccountHasData)
+                }
+            }
+            // The circuit binds the owner only, a keypair address could be the hidden owner's.
+            Self::Spl { token_account, .. } if token_account.is_on_curve() => {
+                Err(ShieldedPoolError::AnonymousExitTokenAccountOnCurve)
+            }
+            Self::Spl {
+                control: TokenAccountControl::SoleOwner(owner),
+                ..
+            } => Ok(owner),
+            Self::Spl {
+                control: TokenAccountControl::Shared(_),
+                ..
+            } => Err(ShieldedPoolError::AnonymousExitTokenAccountShared),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use alloc::vec::Vec;
@@ -51,7 +98,7 @@ mod tests {
     use spl_token_2022_interface::pod::PodCOption;
 
     use super::*;
-    use crate::SPL_TOKEN_ACCOUNT_LEN;
+    use crate::{SPL_TOKEN_ACCOUNT_LEN, SPL_TOKEN_PROGRAM_ID};
 
     const MINT: [u8; 32] = [1; 32];
     const OWNER: [u8; 32] = [2; 32];
@@ -101,6 +148,50 @@ mod tests {
         let frozen = account(|state| state.state = 2);
         for refused in [&base[..164], &mint_typed, &multisig, &frozen] {
             assert!(TokenAccountState::unpack(refused).is_err());
+        }
+    }
+
+    #[test]
+    fn an_anonymous_exit_names_one_key_or_the_refusal_spp_returns() {
+        let (sole, shared) = (
+            TokenAccountControl::SoleOwner(OWNER),
+            TokenAccountControl::Shared(OWNER),
+        );
+        let wallet = Address::new_from_array([5; 32]);
+        let token_program = Address::new_from_array(SPL_TOKEN_PROGRAM_ID);
+        let off_curve = Address::new_from_array([0x44; 32]);
+        let on_curve = Address::new_from_array([0x55; 32]);
+        assert!(!off_curve.is_on_curve() && on_curve.is_on_curve());
+        let sol = |owner, data_len| AnonymousExitDestination::Sol {
+            recipient: &wallet,
+            owner,
+            data_len,
+        };
+        let spl = |token_account, control| AnonymousExitDestination::Spl {
+            token_account,
+            control,
+        };
+        for (exit, named) in [
+            (sol(&SYSTEM_PROGRAM_ID, 0), Ok([5; 32])),
+            (spl(&off_curve, &sole), Ok(OWNER)),
+            (
+                sol(&SYSTEM_PROGRAM_ID, 80),
+                Err(ShieldedPoolError::AnonymousExitAccountHasData),
+            ),
+            (
+                sol(&token_program, 0),
+                Err(ShieldedPoolError::AnonymousExitAccountHasData),
+            ),
+            (
+                spl(&on_curve, &sole),
+                Err(ShieldedPoolError::AnonymousExitTokenAccountOnCurve),
+            ),
+            (
+                spl(&off_curve, &shared),
+                Err(ShieldedPoolError::AnonymousExitTokenAccountShared),
+            ),
+        ] {
+            assert_eq!(exit.named_key().copied(), named, "{exit:?}");
         }
     }
 }

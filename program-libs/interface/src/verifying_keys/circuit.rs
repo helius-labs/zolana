@@ -57,8 +57,42 @@ macro_rules! circuit_key_item {
                 (49, 2) => transfer_confidential_49_2, transfer_ring_49_2, transfer_eddsa_ring_49_2;
             }
             authority {
+                (1, 2) => transfer_ring_authority_1_2;
+                (1, 4) => transfer_ring_authority_1_4;
+                (1, 8) => transfer_ring_authority_1_8;
                 (2, 2) => transfer_ring_authority_2_2;
+                (2, 4) => transfer_ring_authority_2_4;
+                (1, 16) => transfer_ring_authority_1_16;
+                (2, 8) => transfer_ring_authority_2_8;
+                (3, 2) => transfer_ring_authority_3_2;
+                (3, 4) => transfer_ring_authority_3_4;
+                (2, 16) => transfer_ring_authority_2_16;
+                (3, 8) => transfer_ring_authority_3_8;
+                (4, 2) => transfer_ring_authority_4_2;
                 (4, 4) => transfer_ring_authority_4_4;
+                (4, 8) => transfer_ring_authority_4_8;
+                (5, 2) => transfer_ring_authority_5_2;
+                (5, 4) => transfer_ring_authority_5_4;
+                (4, 16) => transfer_ring_authority_4_16;
+                (5, 8) => transfer_ring_authority_5_8;
+                (6, 2) => transfer_ring_authority_6_2;
+                (6, 4) => transfer_ring_authority_6_4;
+                (5, 16) => transfer_ring_authority_5_16;
+                (6, 8) => transfer_ring_authority_6_8;
+                (8, 2) => transfer_ring_authority_8_2;
+                (8, 4) => transfer_ring_authority_8_4;
+                (8, 8) => transfer_ring_authority_8_8;
+                (8, 16) => transfer_ring_authority_8_16;
+                (12, 2) => transfer_ring_authority_12_2;
+                (12, 4) => transfer_ring_authority_12_4;
+                (12, 8) => transfer_ring_authority_12_8;
+                (16, 2) => transfer_ring_authority_16_2;
+                (16, 4) => transfer_ring_authority_16_4;
+                (16, 8) => transfer_ring_authority_16_8;
+                (24, 2) => transfer_ring_authority_24_2;
+                (24, 4) => transfer_ring_authority_24_4;
+                (32, 2) => transfer_ring_authority_32_2;
+                (40, 2) => transfer_ring_authority_40_2;
             }
         )
     };

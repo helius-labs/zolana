@@ -35,17 +35,13 @@ pub enum MergeOwnerBinding {
         output_encryption: MergeOutputEncryption,
     },
     /// Policy-ring merge (`merge_ring`): `pk_field(ring_program_id)` from the
-    /// calling `ring_config`, plus the carried output `ring_data_hash`. The
-    /// proof binds that hash to the output and every real input. Consolidation
-    /// preserves ring state without a separate policy proof. Verified against
-    /// `merge_ring_<n_inputs>_1`.
+    /// calling `ring_config`, plus the output `ring_data_hash` the ring program
+    /// selected; the proof asserts it against the output's
+    /// `Output.Utxo.RingDataHash`. Verified against `merge_ring_<n_inputs>_1`.
     Ring {
         ring_program_id: [u8; 32],
         output_ring_data_hash: [u8; 32],
-        /// A root selected from the calling ring's authenticated history.
-        /// The ring proof opens the owner's registered recovery key under it.
         member_registry_root: [u8; 32],
-        /// Only the signing ring program sets it, the proof then skips the escrow key.
         anonymous: bool,
     },
 }
@@ -145,15 +141,14 @@ impl<'a> MergeProof<'a> {
     ///
     /// Both variants share the same 7 leading elements (nullifier chain, output
     /// hash, tree slot chain, output tree id, private tx hash, external data
-    /// hash, dummy-input policy); the default merge then appends the owner's
-    /// signing identity and nullifier public key (from the registry), while the
-    /// policy-ring merge proves a member record for that identity under its
-    /// registry root and appends the output `ring_data_hash`, `ring_program_id`
-    /// authenticated root and anonymous flag. Both end with the scheme's ciphertext elements
-    /// (PoseidonCtrV1: the salt and the three ciphertext elements). The
-    /// 7-element prefix is 1 + 3 + 3, so it ends on a complete HashChain4 group
-    /// without padding. Continuing from its hash with the variant tail folds
-    /// all elements into the same hash chain.
+    /// hash, dummy-input policy). The default merge then appends the owner's
+    /// signing identity and nullifier public key (from the registry) and its
+    /// scheme's ciphertext elements (PoseidonCtrV1: the salt and the three
+    /// ciphertext elements). The policy-ring merge appends its ring binding,
+    /// then the same ciphertext elements. The 7-element prefix is 1 + 3 + 3,
+    /// so it ends on a complete HashChain4 group without padding. Continuing
+    /// from its hash with the tail is therefore equivalent to folding all
+    /// elements together.
     pub fn public_input_hash(&self) -> Result<[u8; 32], ProgramError> {
         // The circuit's `TreeSlotsHashChain` over `[slot0, 0, 0, 0, 0]`: one
         // slot hash folded onto the precomputed four-slot zero suffix.

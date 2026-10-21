@@ -1,69 +1,72 @@
-//! One transfer pipeline for every rail. The owner signs its spends, the hidden owner of an
-//! anonymous ring signs inside its proof, the delegate moves notes with the recovered key.
+//! One transfer pipeline for every rail, a rail only stages the transfer and seals its outputs.
 
 mod anonymous;
+mod audit;
+mod compact;
 mod delegate;
 mod owner;
+mod policy;
+mod spp;
+#[cfg(test)]
+#[path = "../tests/pipeline.rs"]
+mod tests;
 
-use custom_ring_interface::ANONYMOUS_RING_SHAPES;
+use custom_ring_interface::{
+    compute_unit_limit,
+    stream::{tag_epoch, SenderCommitment},
+    AuditBinding, CoSignScope, CustomRingError, CustomRingProof, InputTrees, InstructionTag,
+    ParsedTransact, PlainGroth16Proof, RingMode, RingProgramConfig, RingRail, Settlement,
+    DELIVERED_AUDIT_CAPACITIES, PACKED_AUDIT_CAPACITIES,
+};
 use solana_address::Address;
 use solana_instruction::Instruction;
 use zolana_client::{
-    attach_input_proofs, input_utxos_from_nullifiers,
-    prover::transact::{
-        AnonymousEddsaTransferInputs, AnonymousRingEddsaProver, HiddenOwnerAuthorization,
-    },
-    prover::{
-        indexed::{
-            IndexedPolicyData, IndexedPolicyRequest, IndexedTransferPreparation,
-            IndexedTransferRail, PreparedIndexedTransfer,
-        },
-        requests,
-    },
-    AsyncIndexer, AsyncRpc, AsyncWitnessReader, AsyncZolanaClient, ClientError, Proof,
-    ProofAuthority, ProofCompressed, ProveRequest, RingAuthorityProver, RingTransferProver,
-    TransferInput, TransferInputs,
+    AsyncIndexer, AsyncRpc, AsyncZolanaClient, ClientError, ComputeBudgetConfig, ProofAuthority,
+    TransferInput,
 };
-use zolana_interface::{
-    instruction::{instruction_data::transact::TreeContext, CircuitId, TransactIxData},
-    verifying_keys::{AnonymousRingEddsaProofData, Bsb22Commitment},
-    N_PUBLIC_SLOTS,
-};
-use zolana_keypair::{NullifierKey, ViewingKey};
+use zolana_interface::{instruction::TreeContext, N_PUBLIC_SLOTS, SOL_ASSET_ADDRESS};
+use zolana_keypair::{NullifierKey, ShieldedAddress, ViewingKey, X25519Pubkey};
+use zolana_program::instruction::TransactInterfaceTransferAccounts;
+use zolana_ring_transaction::{PublishedSlot, RingDelivery, RingOutputRail};
 use zolana_transaction::{
-    instructions::transact::{ring_spend_message, SppProofInputs, SppProofOutputUtxo},
+    instructions::transact::{SettlementTransfer, SppProofInputs, SppProofOutputUtxo},
     utxo::SppProofInputUtxo,
 };
 
 pub use self::{
     anonymous::{
-        Anonymous, AnonymousPayment, AnonymousRecipient, AnonymousSpendSigner, AnonymousTransfer,
+        Anonymous, AnonymousPayment, AnonymousSpendSigner, AnonymousTransfer, PendingFirstContact,
+        ANCHOR_DECOYS,
     },
-    delegate::{ring_authority_width, DelegateOutput, DelegateTransferInput, Delegated},
-    owner::{CustomRingTransferInput, Owner},
+    delegate::{
+        DelegateMove, DelegateOutput, DelegatePayment, DelegateTransfer, DelegateTransferInput,
+        Delegated,
+    },
+    owner::{CustomRingTransfer, CustomRingTransferInput, Owner},
 };
-pub(crate) use owner::frame_dummy_outputs;
 
+pub(crate) use self::anonymous::HiddenOwner;
+
+use self::{
+    anonymous::AnonymousSpend,
+    audit::{AnonymousStatement, AuditProving, AuditSeal, SealedAudit},
+    compact::{OwnedOutput, OwnedPolicyProof, TransactAccounts, TransactParts},
+    policy::{PolicyInputs, PolicyProving, PolicyRead},
+    spp::{Spp, SppWitness},
+};
 use crate::{
-    audit::{PendingCustomRingProof, PolicyProof},
     heap::boxed,
     projection::retry_projection_lag,
-    prover::{RingCircuit, RingRequest},
-    request::{BaseBody, PolicyEnvelope},
-    submission::BoundRoot,
-    to_instruction_proof,
-    trees::{spend_trees, SpendTrees},
-    witness::WitnessInput,
-    CustomRing, CustomRingDelegateTransact, CustomRingProof, CustomRingTransact,
-    OutflowLimitProofInput, PinnedPolicy, PolicyReads, PolicyTreeContext, RingError, RingIdentity,
+    submission::{check_transaction_size, BoundPolicy, BoundState},
+    trees::spend_trees,
+    CustomRing, CustomRingConfig, RingError,
 };
-use zolana_program::instruction::TransactInterfaceTransferAccounts;
 
 mod sealed {
     pub trait Sealed {}
 }
 
-/// Who authorizes the spends, the owner, the hidden owner or the delegate with the recovered key.
+/// Who authorizes the spends, the owner, the hidden owner or the delegate.
 pub trait Rail: sealed::Sealed + Send + Sync {
     #[doc(hidden)]
     fn kind(&self) -> RailKind<'_>;
@@ -80,56 +83,54 @@ pub enum RailKind<'a> {
 pub struct RingTransfer<R: Rail> {
     ring: CustomRing,
     rail: R,
-    cosigner: Option<Address>,
 }
-
-pub type CustomRingTransfer<'a> = RingTransfer<Owner<'a>>;
-pub type DelegateTransfer<'a> = RingTransfer<Delegated<'a>>;
 
 #[must_use = "build or submit the proven transfer"]
 pub struct ProvenRingTransfer {
-    policy_kind: custom_ring_interface::PolicyProofKind,
+    ring: CustomRing,
+    config: Box<RingProgramConfig>,
+    parts: TransactParts,
+    accounts: TransactAccounts,
+    bound: BoundState,
     pub tx_viewing_key: ViewingKey,
-    pub data: TransactIxData,
-    pub proof: CustomRingProof,
-    /// `None` on an audit-only ring.
-    pub policy: Option<PolicyReads>,
-    pub cosigner: Option<Address>,
-    /// The outflow limits demand the co-signer, the caller signs with it.
-    pub approval_required: bool,
     /// Padding included.
     pub outputs: Vec<SppProofOutputUtxo>,
-    /// The eddsa owners of the spent UTXOs, empty on the delegate and anonymous rails.
-    pub owner_signers: Vec<Address>,
-    pub interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
-    payer: Address,
-    delegate: Option<Address>,
-    trees: SpendTrees,
-    ring: CustomRing,
+    /// The co-signer the config demands, it signs the transaction.
+    pub co_signer: Option<Address>,
+    /// The anonymous statement's epoch.
+    pub epoch: Option<u64>,
+    /// Each goes to [`zolana_client::AnonymousRingState::record_first_contact`] once it lands.
+    pub first_contacts: Vec<PendingFirstContact>,
 }
 
-pub type ProvenTransfer = ProvenRingTransfer;
-pub type ProvenDelegateTransfer = ProvenRingTransfer;
-
-/// A transfer past auditor encryption, the auditor message already in `messages`.
-pub(crate) struct Staged {
+/// A transfer past its outputs' sealing, ready for its statements.
+pub(crate) struct Staged<'a> {
     pub proof_inputs: SppProofInputs,
-    pub pending: PendingCustomRingProof,
-    pub tx_viewing_key: ViewingKey,
-    pub pinned: Option<Box<PinnedPolicy>>,
-    /// `None` commits the pinned limits without bounding the transfer.
-    pub limits: Option<OutflowLimitProofInput>,
+    pub rail: RingOutputRail,
+    pub sender: ShieldedAddress,
     pub authority: TransferAuthority,
-    /// Every live output owner's record must escrow the key the output uses.
-    pub key_escrow: bool,
     pub owner_signers: Vec<Address>,
     pub interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
-    pub delegate: Option<Address>,
-    /// The owner SPP reads from an anonymous SPL withdrawal's token account.
-    pub exit_token_owner: Option<Address>,
+    pub spend: Spend<'a>,
 }
 
-/// `None` only for an all-padding transfer, which completes no input.
+pub(crate) enum Spend<'a> {
+    Owner,
+    Anonymous(Box<AnonymousSpend<'a>>),
+    Delegate { delegate: Address },
+}
+
+impl Spend<'_> {
+    fn rail(&self) -> RingRail {
+        match self {
+            Self::Owner => RingRail::Confidential,
+            Self::Anonymous(_) => RingRail::Anonymous,
+            Self::Delegate { .. } => RingRail::Delegate,
+        }
+    }
+}
+
+/// `None` only when every input is padding.
 pub(crate) struct TransferAuthority {
     pub owner: Option<NullifierKey>,
 }
@@ -144,187 +145,602 @@ impl ProofAuthority for TransferAuthority {
 }
 
 impl<R: Rail> RingTransfer<R> {
-    #[must_use = "use the updated transfer"]
-    pub fn with_cosigner(mut self, cosigner: Address) -> Self {
-        self.cosigner = Some(cosigner);
-        self
+    pub fn ring(&self) -> CustomRing {
+        self.ring
     }
 
     pub async fn prove<P: AsyncRpc, I: AsyncIndexer>(
         &self,
         client: &AsyncZolanaClient<P, I>,
     ) -> Result<ProvenRingTransfer, RingError> {
-        retry_projection_lag(|| self.prove_once(client)).await
+        retry_projection_lag(|| async {
+            let assembled = boxed(|| self.assemble(client)).await?;
+            boxed(|| assembled.prove(client)).await
+        })
+        .await
     }
 
-    async fn prove_once<P: AsyncRpc, I: AsyncIndexer>(
+    /// Every chain value is read once.
+    pub(crate) async fn assemble<P: AsyncRpc, I: AsyncIndexer>(
         &self,
         client: &AsyncZolanaClient<P, I>,
-    ) -> Result<ProvenRingTransfer, RingError> {
-        let config = self
-            .ring
-            .config(client)
-            .await?
-            .ok_or(RingError::MissingRingConfig)?;
+    ) -> Result<Assembled, RingError> {
+        let config = self.ring.require_config(client).await?;
+        self.ring.require_active(client).await?;
         let staged = match self.rail.kind() {
             RailKind::Owner(owner) => boxed(|| owner.stage(self.ring, client, &config)).await?,
-            RailKind::Anonymous(rail) => {
-                boxed(|| rail.stage(self.ring, client, &config, self.cosigner)).await?
-            }
+            RailKind::Anonymous(rail) => boxed(|| rail.stage(self.ring, client, &config)).await?,
             RailKind::Delegated(delegated) => {
                 boxed(|| delegated.stage(self.ring, client, &config)).await?
             }
         };
-        check_distinct(&staged.proof_inputs.input_utxos)?;
-        let inputs = &staged.proof_inputs;
-        // A missing or foreign tree fails before the indexer serves proofs against it.
-        let trees = spend_trees(client, &inputs.input_utxos, inputs.output_tree_id).await?;
-        let indexed = client.indexed_prover().is_some();
-        let spp = Spp::witness(self, client, &staged, &trees, indexed).await?;
-        let policy = match &staged.pinned {
-            Some(pinned) => Some(boxed(|| self.policy(client, &staged, pinned, indexed)).await?),
-            None => None,
+        boxed(|| {
+            Pipeline {
+                ring: self.ring,
+                config: &config,
+                staged,
+            }
+            .assemble(client)
+        })
+        .await
+    }
+}
+
+struct Pipeline<'c, 'a> {
+    ring: CustomRing,
+    config: &'c CustomRingConfig,
+    staged: Staged<'a>,
+}
+
+/// A transfer whose compact data is final but for its proofs.
+pub(crate) struct Assembled {
+    ring: CustomRing,
+    config: Box<RingProgramConfig>,
+    auditor: X25519Pubkey,
+    ring_id: [u8; 32],
+    proof_inputs: SppProofInputs,
+    rail: RingOutputRail,
+    sender: ShieldedAddress,
+    sealed: SealedAudit,
+    spp: Spp,
+    published_inputs: usize,
+    audit_public_input_hash: [u8; 32],
+    anonymous: Option<AnonymousStatement>,
+    policy: Option<PolicyInputs>,
+    private_tx_hash: [u8; 32],
+    private_tx_blinding: [u8; 32],
+    policy_sender: [u8; 32],
+    sender_pk_hash: [u8; 32],
+    public_assets: [[u8; 32]; N_PUBLIC_SLOTS],
+    public_amount_fields: [[u8; 32]; N_PUBLIC_SLOTS],
+    parts: TransactParts,
+    accounts: TransactAccounts,
+    co_signer: Option<Address>,
+    epoch: Option<u64>,
+    bound: BoundState,
+    first_contacts: Vec<PendingFirstContact>,
+}
+
+impl Pipeline<'_, '_> {
+    async fn assemble<P: AsyncRpc, I: AsyncIndexer>(
+        self,
+        client: &AsyncZolanaClient<P, I>,
+    ) -> Result<Assembled, RingError> {
+        let Staged {
+            mut proof_inputs,
+            rail,
+            sender,
+            authority,
+            owner_signers,
+            interface_transfer_accounts,
+            spend,
+        } = self.staged;
+        let program = self.ring.program_id();
+        let ring_rail = spend.rail();
+        // The compact data carries a u32 expiry, an unbounded one keeps its farthest value.
+        let expiry_unix_ts =
+            u32::try_from(proof_inputs.external_data.expiry_unix_ts).unwrap_or(u32::MAX);
+        proof_inputs.external_data.expiry_unix_ts = u64::from(expiry_unix_ts);
+        check_distinct(&proof_inputs.input_utxos)?;
+        check_membership(
+            program,
+            &proof_inputs.input_utxos,
+            &proof_inputs.output_utxos,
+        )?;
+        let trees = spend_trees(
+            client,
+            &proof_inputs.input_utxos,
+            proof_inputs.output_tree_id,
+        )
+        .await?;
+        let shape = proof_inputs.check_shape()?;
+        let n_in = shape_byte(shape.n_inputs())?;
+        let n_out = shape_byte(shape.n_outputs())?;
+        let published_inputs = proof_inputs
+            .input_utxos
+            .iter()
+            .filter(|input| !input.is_compact())
+            .count();
+        let ring_id = self.ring.ring_id()?;
+        let auditor = self.config.auditor_pubkey;
+        let key_escrow = self.config.mode == RingMode::Registry;
+        let preview = |proof_inputs: &SppProofInputs| -> Result<TransactParts, RingError> {
+            Ok(preview_parts(PreviewParts {
+                rail: ring_rail,
+                key_escrow,
+                n_in,
+                n_out,
+                inputs: proof_inputs,
+                published: &rail.published_slots(proof_inputs, &sender)?,
+                trees: trees.inputs.len(),
+                expiry_unix_ts,
+                tx_viewing_u: rail.tx_viewing_key().pubkey().u(),
+            }))
         };
-        if policy
-            .as_ref()
-            .is_some_and(|policy| policy.approval_required)
-            && self.cosigner.is_none()
-        {
-            return Err(RingError::ApprovalWithoutCoSigner);
+
+        // The auditor message precedes every hash over the external data.
+        let unsealed = preview(&proof_inputs)?;
+        let sealed = AuditSeal {
+            rail: &rail,
+            layout: unsealed.data().disclosure_layout()?,
+            flags: unsealed.data().audit_layout(),
+            published: &rail.published_slots(&proof_inputs, &sender)?,
+            inputs: &proof_inputs,
+            sender: &sender,
+            auditor: &auditor,
         }
-        let preview = ProvenRingTransfer {
-            policy_kind: custom_ring_interface::PolicyProofKind::Base,
-            tx_viewing_key: staged.tx_viewing_key.clone(),
-            data: spp.preview(inputs)?,
-            proof: CustomRingProof {
-                groth16: custom_ring_interface::PlainGroth16Proof {
-                    proof_a: [0; 32],
-                    proof_b: [0; 64],
-                    proof_c: [0; 32],
-                },
+        .seal()?;
+        proof_inputs.external_data.messages = vec![sealed.message(&auditor)];
+        proof_inputs.external_data.instruction_discriminator = ring_rail.spp_tag();
+
+        let public = zolana_transaction::instructions::transact::public_slots(
+            &proof_inputs.external_data.interface_transfers,
+        )?;
+        let public_assets = public.asset_fields()?;
+        let public_amounts = public.amounts();
+        let public_amount_fields = public.amount_fields()?;
+        let private_tx_blinding = proof_inputs.private_tx_blinding()?;
+        let sender_pk_hash = sender.signing_pubkey.owner_proof_input_hash()?;
+        let policy = match self.config.has_policy {
+            true => Some(
+                PolicyRead {
+                    ring: self.ring,
+                    config: self.config,
+                    rail: ring_rail,
+                    inputs: &proof_inputs,
+                    sender: sender_pk_hash,
+                    public_assets: &public_assets,
+                    public_amounts: &public_amounts,
+                }
+                .read(client)
+                .await?,
+            ),
+            false => None,
+        };
+        let approval_required = policy
+            .as_ref()
+            .is_some_and(|policy| policy.approval_required);
+        let transfers = &proof_inputs.external_data.interface_transfers;
+        let co_signer = self.config.account().demanded_co_signer(
+            approval_required,
+            classes(transfers),
+            withdrawals(transfers)
+                .iter()
+                .map(|(mint, total)| (mint, *total)),
+        )?;
+        if co_signer.is_some_and(|co_signer| owner_signers.contains(&co_signer)) {
+            return Err(CustomRingError::CoSignerIsOwner.into());
+        }
+        let (hidden, anonymous) = match &spend {
+            Spend::Anonymous(anonymous) => {
+                let hidden = anonymous
+                    .sign(self.ring, self.config, &proof_inputs)
+                    .await?;
+                (Some(hidden), Some(anonymous))
+            }
+            Spend::Owner | Spend::Delegate { .. } => (None, None),
+        };
+        let anchor = anonymous.and_then(|anonymous| anonymous.bound_anchor());
+        let spp = SppWitness {
+            ring: program,
+            rail: ring_rail,
+            inputs: &proof_inputs,
+            trees: &trees,
+            authority: &authority,
+            hidden,
+        }
+        .build(client)
+        .await?;
+        let private_tx_hash = spp.private_tx_hash();
+        let sender_commitment = match (anonymous.is_some(), &policy) {
+            (true, Some(_)) => Some(
+                SenderCommitment {
+                    sender_pk_hash,
+                    private_tx_blinding,
+                }
+                .derive()?,
+            ),
+            _ => None,
+        };
+        let accounts = TransactAccounts {
+            payer: proof_inputs.payer,
+            input_trees: trees.inputs.clone(),
+            output_tree: trees.output,
+            owner_signers,
+            interface_transfer_accounts,
+            registry: self.config.has_policy.then(|| self.ring.registry_pda()),
+            curator: policy
+                .as_ref()
+                .and_then(|policy| policy.curator.map(|curator| curator.address)),
+            co_signer,
+            delegate: match spend {
+                Spend::Delegate { delegate } => Some(delegate),
+                Spend::Owner | Spend::Anonymous(_) => None,
+            },
+            anchor_tree: anchor.map(|anchor| anchor.tree),
+        };
+        let mut parts = preview(&proof_inputs)?;
+        parts.eph_u = sealed.eph_u;
+        parts.sealed = sealed.sealed;
+        parts.disclosure = sealed.fields.clone();
+        parts.private_tx_hash = private_tx_hash;
+        parts.approval_required = approval_required;
+        parts.policy = policy.as_ref().map(|policy| OwnedPolicyProof {
+            proof: zeroed_proof(),
+            own_root_index: policy.own.index,
+            curator_root_index: policy.curator.map(|curator| curator.root.index),
+            sender_commitment,
+        });
+        if let Some(anonymous) = anonymous {
+            parts.anchor = anonymous.anchor_root(accounts.anchor_slot());
+            parts.anonymous = Some(compact::OwnedAnonymousProofData {
                 commitment: [0; 32],
                 commitment_pok: [0; 32],
-            },
-            policy: policy.as_ref().map(|policy| policy.reads.clone()),
-            cosigner: self.cosigner,
-            approval_required: policy
-                .as_ref()
-                .is_some_and(|policy| policy.approval_required),
-            outputs: Vec::new(),
-            owner_signers: staged.owner_signers.clone(),
-            interface_transfer_accounts: staged.interface_transfer_accounts.clone(),
-            payer: inputs.payer,
-            delegate: staged.delegate,
-            trees: trees.clone(),
-            ring: self.ring,
-        };
-        crate::submission::check_transaction_size(&inputs.payer, &preview.instruction()?)?;
-        let private_tx_hash = spp.private_tx_hash();
-        let tier = match policy {
-            Some(policy) => Tier::Policy(Box::new(policy.finish(staged.pending, private_tx_hash)?)),
-            None => Tier::Base(Box::new(match staged.pending.is_anonymous() {
-                true => staged
-                    .pending
-                    .finish_anonymous_base(private_tx_hash, &staged.proof_inputs)?,
-                false => staged.pending.finish_base(private_tx_hash)?,
-            })),
-        };
-        // Neither proof is an input to the other, the requests go out together.
-        let ((data, outputs), (proof, policy, approval_required, policy_kind)) = futures::try_join!(
-            boxed(|| spp.prove(client, &staged.proof_inputs)),
-            boxed(|| tier.prove(client)),
-        )?;
-        Ok(ProvenRingTransfer {
-            policy_kind,
-            tx_viewing_key: staged.tx_viewing_key,
-            data,
-            proof: to_instruction_proof(proof)?,
-            policy,
-            cosigner: self.cosigner,
-            approval_required,
-            outputs,
-            owner_signers: staged.owner_signers,
-            interface_transfer_accounts: staged.interface_transfer_accounts,
-            payer: staged.proof_inputs.payer,
-            delegate: staged.delegate,
-            trees,
-            ring: self.ring,
-        })
-    }
-
-    async fn policy<P: AsyncRpc, I: AsyncIndexer>(
-        &self,
-        client: &AsyncZolanaClient<P, I>,
-        staged: &Staged,
-        pinned: &PinnedPolicy,
-        indexed: bool,
-    ) -> Result<PolicyStatement, RingError> {
-        let inputs = &staged.proof_inputs;
-        let shape = inputs.check_shape()?;
-        if !custom_ring_interface::policy_shape_supported(
-            shape.n_inputs(),
-            shape.n_outputs(),
-            staged.pending.is_anonymous(),
-            staged.delegate.is_some(),
-        ) {
-            return Err(RingError::PolicyShapeUnsupported);
+                // SPP publishes the hidden owner's key exactly when it spends a default-ring note.
+                default_owner_tag: parts
+                    .full_openings
+                    .then(|| sender.signing_pubkey.as_ed25519())
+                    .transpose()?,
+            });
         }
-        let limits = match staged.limits {
-            Some(limits) => limits,
-            None => committed(self.ring, pinned)?,
-        };
-        let witness = WitnessInput {
-            ring: self.ring,
-            pinned,
-            inputs: &inputs.input_utxos,
-            outputs: &inputs.output_utxos,
-            output_tree_id: inputs.output_tree_id,
-            private_tx_blinding: inputs.private_tx_blinding()?,
-            limits,
-            key_escrow: staged.key_escrow,
+        let settlements: Vec<_> = transfers
+            .iter()
+            .map(|transfer| transfer.settlement_accounts())
+            .collect();
+        let settlement_views: Vec<Settlement<'_>> = settlements
+            .iter()
+            .map(|[asset_account, user_account]| Settlement {
+                asset_account,
+                user_account,
+            })
+            .collect();
+        if parts
+            .data()
+            .external_data_hash(self.config.account(), &settlement_views)?
+            != proof_inputs.external_data.hash()?
+        {
+            return Err(RingError::ExternalDataMismatch);
         }
-        .build(client, indexed)
-        .await?;
-        let circuit = match staged.delegate {
-            Some(_) => RingCircuit::DelegatePolicy,
-            None => RingCircuit::Policy,
-        };
-        Ok(PolicyStatement {
-            approval_required: witness.limits.approval_required,
-            reads: witness.reads(),
-            witness,
-            policy_hash: pinned.config.policy_hash,
-            circuit,
-            shape: zolana_interface::shape::Shape::new(
-                inputs.input_utxos.len(),
-                inputs.output_utxos.len(),
-            ),
-            published_inputs: inputs
-                .input_utxos
+        let epoch = anonymous.map(|anonymous| anonymous.epoch);
+        let first_contact_root = anchor.map_or([0; 32], |anchor| anchor.root);
+        let audit_public_input_hash = ParsedTransact::new(parts.data())?
+            .audit_statement(AuditBinding {
+                ring_id: &ring_id,
+                auditor_pubkey: auditor.as_bytes(),
+                epoch: epoch.unwrap_or_default(),
+                first_contact_root: &first_contact_root,
+                key_escrow,
+            })?
+            .hash()?;
+        let statement = anonymous.map(|anonymous| AnonymousStatement {
+            private_tx_hash,
+            private_tx_blinding,
+            sender_commitment: sender_commitment.unwrap_or_default(),
+            epoch: anonymous.epoch,
+            first_contact_root,
+            anchor: anonymous.anchor_witness(),
+        });
+        let first_contacts = anonymous
+            .map(|anonymous| anonymous.first_contacts.clone())
+            .unwrap_or_default();
+        let bound = BoundState {
+            roots: policy
                 .iter()
-                .filter(|input| !input.is_compact())
-                .count(),
+                .flat_map(|policy| {
+                    core::iter::once(policy.own).chain(policy.curator.map(|curator| curator.root))
+                })
+                .collect(),
+            policy: policy.as_ref().map(|policy| BoundPolicy {
+                ring: self.ring,
+                hash: policy.policy_hash,
+            }),
+            anchor,
+            queue: None,
+            epoch,
+        };
+        let assembled = Assembled {
+            ring: self.ring,
+            config: Box::new(*self.config.account()),
+            auditor,
+            ring_id,
+            policy_sender: match (ring_rail, sender_commitment) {
+                (RingRail::Delegate, _) => [0; 32],
+                (_, Some(commitment)) => commitment,
+                (_, None) => sender_pk_hash,
+            },
+            proof_inputs,
+            rail,
+            sender,
+            sealed,
+            spp,
+            published_inputs,
+            audit_public_input_hash,
+            anonymous: statement,
+            policy,
+            private_tx_hash,
+            private_tx_blinding,
+            sender_pk_hash,
+            public_assets,
+            public_amount_fields,
+            parts,
+            accounts,
+            co_signer,
+            epoch,
+            bound,
+            first_contacts,
+        };
+        check_transaction_size(
+            &assembled.proof_inputs.payer,
+            &assembled.instruction()?,
+            ComputeBudgetConfig::new(compute_unit_limit(match ring_rail {
+                RingRail::Delegate => InstructionTag::DelegateTransact,
+                RingRail::Confidential | RingRail::Anonymous => InstructionTag::Transact,
+            })),
+        )?;
+        Ok(assembled)
+    }
+}
+
+impl Assembled {
+    /// The instruction under zeroed proofs, the size of the proven one.
+    pub(crate) fn instruction(&self) -> Result<Instruction, RingError> {
+        self.accounts
+            .instruction(self.ring, &self.config, &self.parts)
+    }
+
+    pub(crate) fn audit(&self) -> Result<AuditProving<'_>, RingError> {
+        Ok(AuditProving {
+            rail: &self.rail,
+            sealed: &self.sealed,
+            published: self
+                .rail
+                .published_slots(&self.proof_inputs, &self.sender)?,
+            inputs: &self.proof_inputs,
+            sender: &self.sender,
+            auditor: &self.auditor,
+            ring_id: self.ring_id,
+            public_input_hash: self.audit_public_input_hash,
+            anonymous: self.anonymous.as_ref(),
+        })
+    }
+
+    async fn prove<P: AsyncRpc, I: AsyncIndexer>(
+        self,
+        client: &AsyncZolanaClient<P, I>,
+    ) -> Result<ProvenRingTransfer, RingError> {
+        let audit = self.audit()?;
+        let policy_proving = PolicyProving {
+            ring_id: self.ring_id,
+            rail: self.parts.rail,
+            inputs: &self.proof_inputs,
+            private_tx_hash: self.private_tx_hash,
+            private_tx_blinding: self.private_tx_blinding,
+            sender: self.policy_sender,
+            sender_pk_hash: self.sender_pk_hash,
+            public_assets: self.public_assets,
+            public_amount_fields: self.public_amount_fields,
+        };
+        let policy_proof = async {
+            match &self.policy {
+                Some(policy) => Ok(Some(policy.prove(client, &policy_proving).await?)),
+                None => Ok::<_, RingError>(None),
+            }
+        };
+        // No proof is an input to another, every request goes out at once.
+        let (proven_spp, audit_proof, policy_proof) = futures::try_join!(
+            boxed(|| self.spp.prove(client, self.published_inputs)),
+            boxed(|| audit.prove(client)),
+            boxed(|| policy_proof),
+        )?;
+        let mut parts = self.parts;
+        parts.audit_proof = audit_proof;
+        if let (Some(owned), Some(proof)) = (parts.policy.as_mut(), policy_proof) {
+            owned.proof = proof;
+        }
+        parts.spp_proof = proven_spp.proof;
+        parts.nullifiers = proven_spp.nullifiers;
+        parts.input_trees = proven_spp.input_trees;
+        if parts.anonymous.is_some() {
+            parts.anonymous = proven_spp.anonymous;
+        }
+        Ok(ProvenRingTransfer {
+            ring: self.ring,
+            config: self.config,
+            bound: self.bound,
+            parts,
+            accounts: self.accounts,
+            tx_viewing_key: self.rail.tx_viewing_key().clone(),
+            outputs: self.proof_inputs.output_utxos,
+            co_signer: self.co_signer,
+            epoch: self.epoch,
+            first_contacts: self.first_contacts,
         })
     }
 }
 
-/// Boxed, staging holds the pinned table across its later reads.
-async fn pinned_policy(
-    ring: CustomRing,
-    client: &(impl AsyncRpc + ?Sized),
-) -> Result<Box<PinnedPolicy>, RingError> {
-    let pinned = ring.pinned_policy(client).await?;
-    Ok(Box::new(pinned.ok_or(RingError::MissingPolicyConfig)?))
+impl ProvenRingTransfer {
+    pub(crate) fn bound(&self) -> BoundState {
+        self.bound.clone()
+    }
+
+    /// The instruction landing in the proof's own epoch.
+    pub fn instruction(&self) -> Result<Instruction, RingError> {
+        self.accounts
+            .instruction(self.ring, &self.config, &self.parts)
+    }
+
+    /// An anonymous transfer at `slot` one epoch late names the previous epoch, a later one fails.
+    pub fn instruction_at(&self, slot: u64) -> Result<Instruction, RingError> {
+        let Some(proof_epoch) = self.epoch else {
+            return self.instruction();
+        };
+        let current_epoch = tag_epoch(slot);
+        let previous_epoch = match current_epoch.checked_sub(proof_epoch) {
+            Some(0) => false,
+            Some(1) => true,
+            _ => {
+                return Err(RingError::EpochPassed {
+                    proof_epoch,
+                    current_epoch,
+                })
+            }
+        };
+        let parts = TransactParts {
+            previous_epoch,
+            ..self.parts.clone()
+        };
+        self.accounts.instruction(self.ring, &self.config, &parts)
+    }
 }
 
-/// The delegate rail commits the pinned limits without bounding its move.
-fn committed(ring: CustomRing, pinned: &PinnedPolicy) -> Result<OutflowLimitProofInput, RingError> {
-    let limits = pinned.table.limits();
-    let mut input =
-        OutflowLimitProofInput::none(RingIdentity::new(ring, pinned.config.namespace_owner_hash)?);
-    input.limit_count = limits.len() as u8;
-    input.limits[..limits.len()].copy_from_slice(limits);
-    Ok(input)
+/// The compact data before any proof, sized and hashed as the proven one.
+struct PreviewParts<'a> {
+    rail: RingRail,
+    key_escrow: bool,
+    n_in: u8,
+    n_out: u8,
+    inputs: &'a SppProofInputs,
+    published: &'a [PublishedSlot<'a>],
+    trees: usize,
+    expiry_unix_ts: u32,
+    tx_viewing_u: [u8; 32],
+}
+
+fn preview_parts(preview: PreviewParts<'_>) -> TransactParts {
+    let external = &preview.inputs.external_data;
+    let nullifiers = preview
+        .inputs
+        .input_utxos
+        .iter()
+        .filter(|input| !input.is_compact())
+        .map(SppProofInputUtxo::nullifier)
+        .collect();
+    let context = TreeContext {
+        utxo_tree_root_index: 0,
+        nullifier_tree_root_index: 0,
+    };
+    TransactParts {
+        rail: preview.rail,
+        n_in: preview.n_in,
+        n_out: preview.n_out,
+        audit_proof: zeroed_proof(),
+        policy: None,
+        approval_required: false,
+        previous_epoch: false,
+        anchor: None,
+        expiry_unix_ts: preview.expiry_unix_ts,
+        tx_viewing_u: preview.tx_viewing_u,
+        salt: external.salt,
+        interface_transfers: external
+            .interface_transfers
+            .iter()
+            .map(|transfer| transfer.interface_transfer())
+            .collect(),
+        data_hash: external.data_hash,
+        ring_data_hash: external.ring_data_hash,
+        data_free: preview
+            .inputs
+            .output_utxos
+            .iter()
+            .all(|output| output.data.is_empty()),
+        key_escrow: preview.key_escrow,
+        full_openings: preview.rail == RingRail::Anonymous
+            && spends_default_ring(&preview.inputs.input_utxos),
+        outputs: preview
+            .published
+            .iter()
+            .map(|slot| OwnedOutput::of(slot.wire))
+            .collect(),
+        eph_u: [0; 32],
+        sealed: [0; 32],
+        disclosure: Vec::new(),
+        private_tx_hash: [0; 32],
+        anonymous: None,
+        spp_proof: PlainGroth16Proof {
+            proof_a: [0; 32],
+            proof_b: [0; 64],
+            proof_c: [0; 32],
+        },
+        nullifiers,
+        input_trees: match preview.trees {
+            1 => InputTrees::One(context),
+            _ => InputTrees::Two {
+                first: context,
+                second: context,
+                second_inputs: 0,
+            },
+        },
+    }
+}
+
+fn zeroed_proof() -> CustomRingProof {
+    bytemuck::Zeroable::zeroed()
+}
+
+fn spends_default_ring(inputs: &[SppProofInputUtxo]) -> bool {
+    inputs
+        .iter()
+        .any(|input| !input.is_dummy() && input.utxo.ring_program_id.is_none())
+}
+
+fn packed_or_delivered(outputs: usize, rail: &'static str) -> Result<RingDelivery, RingError> {
+    match outputs {
+        n if PACKED_AUDIT_CAPACITIES.contains(&n) => Ok(RingDelivery::Packed),
+        n if DELIVERED_AUDIT_CAPACITIES.contains(&n) => Ok(RingDelivery::Delivered),
+        _ => Err(RingError::ShapeUnkeyed { rail }),
+    }
+}
+
+fn shape_byte(count: usize) -> Result<u8, RingError> {
+    u8::try_from(count).map_err(|_| RingError::ShapeUnkeyed { rail: "spp" })
+}
+
+/// A transact is a transfer, each public leg adds its class.
+fn classes(transfers: &[SettlementTransfer]) -> CoSignScope {
+    transfers
+        .iter()
+        .fold(CoSignScope::TRANSFERS, |classes, transfer| {
+            classes
+                | match transfer.is_deposit() {
+                    true => CoSignScope::DEPOSITS,
+                    false => CoSignScope::WITHDRAWALS,
+                }
+        })
+}
+
+fn withdrawals(transfers: &[SettlementTransfer]) -> Vec<(Address, u128)> {
+    let mut totals: Vec<(Address, u128)> = Vec::new();
+    for transfer in transfers.iter().filter(|transfer| !transfer.is_deposit()) {
+        let mint = match transfer {
+            SettlementTransfer::Sol { .. } => Address::new_from_array(SOL_ASSET_ADDRESS),
+            SettlementTransfer::Spl { mint, .. } => *mint,
+        };
+        match totals.iter_mut().find(|(known, _)| *known == mint) {
+            Some((_, total)) => *total += u128::from(transfer.amount()),
+            None => totals.push((mint, u128::from(transfer.amount()))),
+        }
+    }
+    totals
 }
 
 /// Each real input spends once, a repeated nullifier fails on chain after proving.
@@ -342,576 +758,37 @@ fn check_distinct(inputs: &[SppProofInputUtxo]) -> Result<(), RingError> {
     }
 }
 
-struct PolicyStatement {
-    witness: Box<crate::witness::CustomRingWitness>,
-    reads: PolicyReads,
-    approval_required: bool,
-    policy_hash: [u8; 32],
-    circuit: RingCircuit,
-    shape: zolana_interface::shape::Shape,
-    published_inputs: usize,
-}
-
-impl PolicyStatement {
-    fn finish(
-        self,
-        pending: PendingCustomRingProof,
-        private_tx_hash: [u8; 32],
-    ) -> Result<PolicyRequest, RingError> {
-        let PolicyProof { mut body, indexed } =
-            pending.finish(private_tx_hash, self.witness, &self.policy_hash)?;
-        let circuit = if indexed.is_none()
-            && self.published_inputs == 2
-            && body.witness.supports_two_by_three()
-        {
-            match (self.circuit, body.anonymous.is_some()) {
-                (RingCircuit::DelegatePolicy, _) => RingCircuit::DelegatePolicyTwoByThree,
-                (_, true) => RingCircuit::AnonymousPolicyTwoByThree,
-                (_, false) => RingCircuit::PolicyTwoByThree,
-            }
-        } else {
-            let delegate = self.circuit == RingCircuit::DelegatePolicy;
-            let anonymous = body.anonymous.is_some();
-            let supported = if delegate {
-                self.shape.is_ring_authority()
-            } else if anonymous {
-                ANONYMOUS_RING_SHAPES.contains(&self.shape)
-            } else {
-                self.shape.is_supported()
-            };
-            if !supported {
-                return Err(RingError::PolicyShapeUnsupported);
-            }
-            let subtree = indexed.is_none() && body.witness.shared_subtree();
-            body.witness
-                .reshape(self.shape.n_inputs(), self.shape.n_outputs())?;
-            RingCircuit::Shaped {
-                inputs: self.shape.n_inputs() as u8,
-                outputs: self.shape.n_outputs() as u8,
-                anonymous,
-                delegate,
-                subtree,
-            }
-        };
-        let public_table = if circuit.proof_kind().public_table() {
-            body.circuit_type = circuit;
-            Some(
-                body.witness
-                    .public_table_inputs(body.public_input_hash, self.policy_hash)?,
-            )
-        } else {
-            None
-        };
-        Ok(PolicyRequest {
-            public_table,
-            body,
-            indexed,
-            reads: self.reads,
-            approval_required: self.approval_required,
-            circuit,
-        })
-    }
-}
-
-pub(crate) struct PolicyRequest {
-    pub public_table: Option<Box<custom_ring_interface::PolicyTableInputs>>,
-    pub body: crate::request::PolicyBody,
-    pub indexed: Option<IndexedPolicyData>,
-    pub reads: PolicyReads,
-    pub approval_required: bool,
-    pub circuit: RingCircuit,
-}
-
-impl PolicyRequest {
-    fn envelope(&self) -> PolicyEnvelope<'_> {
-        PolicyEnvelope {
-            circuit_type: self.circuit,
-            policy: &self.body,
-        }
-    }
-
-    /// The prover's request body, the member circuit takes the body unwrapped.
-    pub(crate) fn request(
-        &self,
-    ) -> Result<zolana_client::prover::requests::CircuitRequest, ClientError> {
-        match self.circuit {
-            RingCircuit::Policy
-            | RingCircuit::PolicyTwoByThree
-            | RingCircuit::AnonymousPolicyTwoByThree
-            | RingCircuit::Shaped {
-                delegate: false, ..
-            } => requests::CircuitRequest::of(&RingRequest(&self.body)),
-            _ => requests::CircuitRequest::of(&RingRequest(&self.envelope())),
-        }
-    }
-
-    async fn prove<P: AsyncRpc, I: AsyncIndexer>(
-        mut self,
-        client: &AsyncZolanaClient<P, I>,
-    ) -> Result<(Proof, PolicyReads), RingError> {
-        let request = self.request()?;
-        let Some((prover, data)) = client.indexed_prover().zip(self.indexed.take()) else {
-            let proof = client.prove_request(&request).await?;
-            if let Some(inputs) = &self.public_table {
-                self.circuit.verify_table(&proof, inputs)?;
-            }
-            return Ok((proof, self.reads));
-        };
-        let indexed = IndexedPolicyRequest::new(request.body()?, request.proving_key()?, data)?;
-        let proof = prover.prove_indexed(&indexed).await?;
-        // The resolved roots enter the transaction only after the statement verifies.
-        if let Some(inputs) = &self.public_table {
-            // Indexed policy resolution must reproduce the pinned trees and statement.
-            if inputs[0] != proof.resolution.public_input_hash {
-                return Err(RingError::Client(ClientError::ProofVerification(
-                    "resolved policy statement differs".to_owned(),
-                )));
-            }
-            self.circuit.verify_table(&proof.proof, inputs)?;
-        } else {
-            self.circuit
-                .verify(&proof.proof, proof.resolution.public_input_hash)?;
-        }
-        self.reads.trees = proof
-            .resolution
-            .trees
-            .into_iter()
-            .map(|tree| PolicyTreeContext {
-                tree: tree.tree,
-                context: tree.context,
-            })
-            .collect();
-        Ok((proof.proof, self.reads))
-    }
-}
-
-enum Tier {
-    Base(Box<BaseBody>),
-    Policy(Box<PolicyRequest>),
-}
-
-impl Tier {
-    async fn prove<P: AsyncRpc, I: AsyncIndexer>(
-        self,
-        client: &AsyncZolanaClient<P, I>,
-    ) -> Result<
-        (
-            Proof,
-            Option<PolicyReads>,
-            bool,
-            custom_ring_interface::PolicyProofKind,
-        ),
-        RingError,
-    > {
-        match self {
-            Self::Base(body) => Ok((
-                client.prove_request(&RingRequest(&*body)).await?,
-                None,
-                false,
-                custom_ring_interface::PolicyProofKind::Base,
-            )),
-            Self::Policy(request) => {
-                let approval_required = request.approval_required;
-                let policy_kind = request.circuit.proof_kind();
-                let (proof, reads) = boxed(|| request.prove(client)).await?;
-                Ok((proof, Some(reads), approval_required, policy_kind))
-            }
-        }
-    }
-}
-
-/// The hidden owner's signature over this transaction and the co-signer the ring publishes.
-struct HiddenSpend {
-    owner: HiddenOwnerAuthorization,
-    cosigner: Option<Address>,
-}
-
-impl HiddenSpend {
-    /// The ring program appends its configured co-signer, the user-supplied one is not the proof's.
-    async fn sign(
-        signer: &dyn AnonymousSpendSigner,
-        ring: CustomRing,
-        client: &(impl AsyncRpc + ?Sized),
-        inputs: &SppProofInputs,
-    ) -> Result<Self, RingError> {
-        let message = ring_spend_message(&ring.program_id(), &inputs.message_hash()?);
-        let owner = HiddenOwnerAuthorization {
-            public_key: signer.public_key().as_ed25519()?,
-            signature: signer.sign(&message).await?,
-        };
-        let cosigner = ring.cosigner(client).await?.map(|cosigner| cosigner.signer);
-        Ok(Self { owner, cosigner })
-    }
-}
-
-/// The SPP half, complete with fetched proofs or prepared for the prover to fetch them.
-enum Spp {
-    Complete(Box<CompleteSpp>),
-    Indexed(Box<PreparedIndexedTransfer>),
-}
-
-struct CompleteSpp {
-    inputs: SppInputs,
-    nullifiers: Vec<[u8; 32]>,
-    input_tree_indexes: Vec<u8>,
-    tree_contexts: Vec<TreeContext>,
-    private_tx_hash: [u8; 32],
-}
-
-enum SppInputs {
-    Ring(TransferInputs),
-    Authority(TransferInputs),
-    /// The hidden owner's key, signature and signed digest ride along.
-    Anonymous {
-        inputs: Box<AnonymousEddsaTransferInputs>,
-        default_owner_tag: Option<[u8; 32]>,
-    },
-}
-
-impl SppInputs {
-    fn transfer(&mut self) -> &mut TransferInputs {
-        match self {
-            Self::Ring(inputs) | Self::Authority(inputs) => inputs,
-            Self::Anonymous { inputs, .. } => &mut inputs.transfer,
-        }
-    }
-}
-
-impl Spp {
-    async fn witness<R: Rail, P: AsyncRpc, I: AsyncIndexer>(
-        transfer: &RingTransfer<R>,
-        client: &AsyncZolanaClient<P, I>,
-        staged: &Staged,
-        trees: &SpendTrees,
-        indexed: bool,
-    ) -> Result<Self, RingError> {
-        let inputs = &staged.proof_inputs;
-        let program = transfer.ring.program_id();
-        let authority = staged.delegate.is_some();
-        let hidden = match transfer.rail.kind() {
-            RailKind::Anonymous(rail) => {
-                Some(HiddenSpend::sign(rail.signer, transfer.ring, client, inputs).await?)
-            }
-            RailKind::Owner(_) | RailKind::Delegated(_) => None,
-        };
-        if indexed {
-            let rail = match (authority, hidden) {
-                (false, Some(hidden)) => IndexedTransferRail::AnonymousRingEddsa {
-                    ring: program,
-                    owner: hidden.owner,
-                    cosigner: hidden.cosigner,
-                    exit_token_owner: staged.exit_token_owner,
-                },
-                (true, _) => IndexedTransferRail::RingAuthority(program),
-                (false, None) => IndexedTransferRail::Ring(program),
-            };
-            let prepared = IndexedTransferPreparation {
-                transaction: inputs.clone(),
-                rail,
-            }
-            .prepare_with_dummy_policy(&staged.authority, trees.allow_dummy_inputs)?;
-            return Ok(Self::Indexed(Box::new(prepared)));
-        }
-        let commitments = inputs.input_utxo_hashes()?;
-        let witnesses = AsyncWitnessReader::input_witnesses(
-            client.indexer(),
-            &commitments,
-            &inputs.dummy_nullifiers(),
-            None,
-        )
-        .await?;
-        let spends = attach_input_proofs(
-            inputs.input_utxos.clone(),
-            &witnesses.spend_proofs,
-            &witnesses.dummy_nullifier_proofs,
-        )?;
-        let shape = inputs.check_shape()?;
-        let mut complete = match (authority, hidden) {
-            (false, Some(hidden)) => {
-                let result = AnonymousRingEddsaProver {
-                    inputs: spends,
-                    outputs: inputs.output_utxos.clone(),
-                    blinding_seed: inputs.blinding_seed,
-                    output_tree_id: inputs.output_tree_id,
-                    external_data: inputs.external_data.clone(),
-                    public_transfers: inputs.public_transfers()?,
-                    signer_pk_hashes: anonymous::anonymous_signers(shape.signer_width()),
-                    allow_dummy_inputs: trees.allow_dummy_inputs,
-                    owner: hidden.owner,
-                    payer: inputs.payer,
-                    cosigner: hidden.cosigner,
-                    exit_token_owner: staged.exit_token_owner,
-                    ring_program_id: program,
-                    shape,
-                }
-                .build()?;
-                CompleteSpp {
-                    inputs: SppInputs::Anonymous {
-                        inputs: Box::new(result.inputs),
-                        default_owner_tag: result.default_owner_tag,
-                    },
-                    nullifiers: result.nullifiers,
-                    input_tree_indexes: result.input_tree_indexes,
-                    tree_contexts: result.tree_contexts,
-                    private_tx_hash: result.private_tx_hash,
-                }
-            }
-            (false, None) => {
-                let result = RingTransferProver {
-                    inputs: spends,
-                    outputs: inputs.output_utxos.clone(),
-                    blinding_seed: inputs.blinding_seed,
-                    output_tree_id: inputs.output_tree_id,
-                    external_data: inputs.external_data.clone(),
-                    public_transfers: inputs.public_transfers()?,
-                    signer_pk_hashes: inputs.signer_pk_hashes(shape.signer_width())?,
-                    allow_dummy_inputs: trees.allow_dummy_inputs,
-                    ring_program_id: Some(program),
-                    shape,
-                }
-                .build()?;
-                CompleteSpp {
-                    inputs: SppInputs::Ring(result.inputs),
-                    nullifiers: result.nullifiers,
-                    input_tree_indexes: result.input_tree_indexes,
-                    tree_contexts: result.tree_contexts,
-                    private_tx_hash: result.private_tx_hash,
-                }
-            }
-            (true, _) => {
-                let result = RingAuthorityProver {
-                    inputs: spends,
-                    outputs: inputs.output_utxos.clone(),
-                    blinding_seed: inputs.blinding_seed,
-                    output_tree_id: inputs.output_tree_id,
-                    external_data: inputs.external_data.clone(),
-                    public_transfers: inputs.public_transfers()?,
-                    payer: inputs.payer,
-                    allow_dummy_inputs: trees.allow_dummy_inputs,
-                    ring_program_id: Some(program),
-                    shape,
-                }
-                .build()?;
-                CompleteSpp {
-                    inputs: SppInputs::Authority(result.inputs),
-                    nullifiers: result.nullifiers,
-                    input_tree_indexes: result.input_tree_indexes,
-                    tree_contexts: result.tree_contexts,
-                    private_tx_hash: result.private_tx_hash,
-                }
-            }
-        };
-        staged
-            .authority
-            .complete_inputs(&mut complete.inputs.transfer().inputs)?;
-        Ok(Self::Complete(Box::new(complete)))
-    }
-
-    fn private_tx_hash(&self) -> [u8; 32] {
-        match self {
-            Self::Complete(complete) => complete.private_tx_hash,
-            Self::Indexed(prepared) => prepared.private_tx_hash(),
-        }
-    }
-
-    fn preview(&self, transaction: &SppProofInputs) -> Result<TransactIxData, RingError> {
-        let complete = match self {
-            Self::Indexed(prepared) => return Ok(prepared.transaction_template().clone()),
-            Self::Complete(complete) => complete,
-        };
-        let shape = transaction.check_shape()?;
-        let (n, m, p) = (
-            shape.n_inputs() as u8,
-            shape.n_outputs() as u8,
-            N_PUBLIC_SLOTS as u8,
-        );
-        let circuit = match complete.inputs {
-            SppInputs::Ring(_) => CircuitId::ConfidentialRingEddsa(n, m, p),
-            SppInputs::Authority(_) => CircuitId::RingAuthority(n, m, p),
-            SppInputs::Anonymous {
-                default_owner_tag, ..
-            } => CircuitId::AnonymousRingEddsa(
-                n,
-                m,
-                p,
-                AnonymousRingEddsaProofData {
-                    bsb22_commitment: Bsb22Commitment {
-                        commitment: [0; 32],
-                        commitment_pok: [0; 32],
-                    },
-                    default_owner_tag,
-                },
-            ),
-        };
-        let external = &transaction.external_data;
-        Ok(TransactIxData {
-            proof: zolana_interface::instruction::TransactProof::zeroed(),
-            expiry_unix_ts: external.expiry_unix_ts,
-            private_tx_hash: complete.private_tx_hash,
-            circuit,
-            inputs: input_utxos_from_nullifiers(
-                &complete.nullifiers,
-                &complete.input_tree_indexes,
-            )?,
-            tree_contexts: complete.tree_contexts.clone(),
-            interface_transfers: external
-                .interface_transfers
+/// Every ring field names the transfer's ring, only a ring note carries ring data.
+pub(crate) fn check_membership(
+    program: Address,
+    inputs: &[SppProofInputUtxo],
+    outputs: &[SppProofOutputUtxo],
+) -> Result<(), RingError> {
+    let slots = inputs
+        .iter()
+        .map(|input| (input.utxo.ring_program_id, input.ring_data_hash))
+        .chain(
+            outputs
                 .iter()
-                .map(|leg| leg.interface_transfer())
-                .collect(),
-            data_hash: external.data_hash,
-            ring_data_hash: external.ring_data_hash,
-            tx_viewing_pk: external.tx_viewing_pk,
-            salt: external.salt,
-            outputs: external.outputs.clone(),
-            messages: external.messages.clone(),
-        })
-    }
-
-    async fn prove<P: AsyncRpc, I: AsyncIndexer>(
-        &self,
-        client: &AsyncZolanaClient<P, I>,
-        transaction: &SppProofInputs,
-    ) -> Result<(TransactIxData, Vec<SppProofOutputUtxo>), RingError> {
-        let outputs = transaction.output_utxos.clone();
-        let complete = match self {
-            Self::Indexed(prepared) => {
-                let prover = client
-                    .indexed_prover()
-                    .ok_or(ClientError::InvalidIndexedRequest)?;
-                return Ok((prover.prove_indexed(prepared.as_ref()).await?.data, outputs));
-            }
-            Self::Complete(complete) => complete,
-        };
-        let proof = match &complete.inputs {
-            SppInputs::Ring(inputs) => {
-                client
-                    .prove_request(&requests::transfer_ring(inputs)?)
-                    .await?
-            }
-            SppInputs::Authority(inputs) => {
-                client
-                    .prove_request(&requests::ring_authority(inputs)?)
-                    .await?
-            }
-            SppInputs::Anonymous { inputs, .. } => client.prove_request(inputs.as_ref()).await?,
-        };
-        let proof = ProofCompressed::try_from(proof)?;
-        let shape = transaction.check_shape()?;
-        let width = (
-            shape.n_inputs() as u8,
-            shape.n_outputs() as u8,
-            N_PUBLIC_SLOTS as u8,
+                .map(|output| (output.ring_program_id, output.ring_data_hash)),
         );
-        let (circuit, proof) = match &complete.inputs {
-            SppInputs::Ring(_) => (
-                CircuitId::ConfidentialRingEddsa(width.0, width.1, width.2),
-                proof.to_transact_proof(),
-            ),
-            SppInputs::Authority(_) => (
-                CircuitId::RingAuthority(width.0, width.1, width.2),
-                proof.to_transact_proof(),
-            ),
-            // The selector carries the emulated-field commitment the verifier checks.
-            SppInputs::Anonymous {
-                default_owner_tag, ..
-            } => {
-                let (proof, bsb22_commitment) = proof.into_committed_transact_parts()?;
-                (
-                    CircuitId::AnonymousRingEddsa(
-                        width.0,
-                        width.1,
-                        width.2,
-                        AnonymousRingEddsaProofData {
-                            bsb22_commitment,
-                            default_owner_tag: *default_owner_tag,
-                        },
-                    ),
-                    proof,
-                )
-            }
-        };
-        let inputs =
-            input_utxos_from_nullifiers(&complete.nullifiers, &complete.input_tree_indexes)?;
-        let published_inputs = transaction
-            .input_utxos
-            .iter()
-            .filter(|input| !input.is_compact())
-            .count();
-        if complete.nullifiers.len() != usize::from(circuit.num_inputs())
-            || inputs.len() != published_inputs
-        {
-            return Err(RingError::IncompleteProofSet);
-        }
-        let external = &transaction.external_data;
-        let data = TransactIxData {
-            proof,
-            expiry_unix_ts: external.expiry_unix_ts,
-            private_tx_hash: complete.private_tx_hash,
-            circuit,
-            inputs,
-            tree_contexts: complete.tree_contexts.clone(),
-            interface_transfers: external
-                .interface_transfers
-                .iter()
-                .map(|transfer| transfer.interface_transfer())
-                .collect(),
-            data_hash: external.data_hash,
-            ring_data_hash: external.ring_data_hash,
-            tx_viewing_pk: external.tx_viewing_pk,
-            salt: external.salt,
-            outputs: external.outputs.clone(),
-            messages: external.messages.clone(),
-        };
-        Ok((data, outputs))
-    }
-}
-
-impl ProvenRingTransfer {
-    pub(crate) fn bound_root(&self) -> Option<BoundRoot> {
-        Some(BoundRoot::registry(
-            self.ring,
-            self.policy.as_ref()?.registry,
-        ))
-    }
-
-    pub fn instruction(&self) -> Result<Instruction, RingError> {
-        match self.delegate {
-            None => CustomRingTransact {
-                ring: self.ring,
-                payer: self.payer,
-                input_trees: self.trees.inputs.clone(),
-                output_tree: self.trees.output,
-                policy: self.policy.clone(),
-                cosigner: self.cosigner,
-                owner_signers: self.owner_signers.clone(),
-                interface_transfer_accounts: self.interface_transfer_accounts.clone(),
-                proof: self.proof,
-                transact: self.data.clone(),
-                approval_required: self.approval_required,
-            }
-            .instruction_with_policy_kind(self.policy_kind),
-            Some(delegate) => CustomRingDelegateTransact {
-                ring: self.ring,
-                payer: self.payer,
-                input_trees: self.trees.inputs.clone(),
-                output_tree: self.trees.output,
-                policy: self.policy.clone().ok_or(RingError::MissingPolicyConfig)?,
-                cosigner: self.cosigner,
-                delegate,
-                proof: self.proof,
-                transact: self.data.clone(),
-                approval_required: self.approval_required,
-            }
-            .instruction_with_policy_kind(self.policy_kind),
+    for (ring, data) in slots {
+        match ring {
+            Some(ring) if ring != program => return Err(RingError::ForeignRing(ring)),
+            None if data.is_some() => return Err(RingError::RingDataOutsideRing),
+            _ => {}
         }
     }
+    Ok(())
 }
 
-#[cfg(test)]
-#[path = "../tests/pipeline.rs"]
-mod tests;
-
-#[cfg(test)]
-#[path = "../tests/privacy.rs"]
-mod privacy;
+pub(crate) fn transaction_key(
+    sender: &(dyn zolana_transaction::ShieldedKeys + Send + Sync),
+    first_nullifier: [u8; 32],
+) -> Result<ViewingKey, RingError> {
+    let keys = sender.transaction_keys(&[zolana_transaction::TransactionKeyRequest {
+        viewing_pubkey: sender.address()?.viewing_pubkey,
+        first_nullifier,
+    }])?;
+    Ok(zolana_transaction::exactly_one(keys)?)
+}

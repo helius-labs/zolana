@@ -23,6 +23,14 @@ pub struct ResolvedOwnerTag {
     pub resolved: [u8; 32],
 }
 
+/// `output.blinding` is not derived yet.
+pub struct RingOutputSlot<'a> {
+    pub output: &'a SppProofOutputUtxo,
+    pub sender: &'a ShieldedAddress,
+    pub first_nullifier: [u8; 32],
+    pub slot_index: u32,
+}
+
 /// One real output slot in its final position, about to be sealed.
 pub struct SlotEncode<'a> {
     pub output: &'a SppProofOutputUtxo,
@@ -37,14 +45,11 @@ pub struct SlotEncode<'a> {
 
 /// The output rail of a transaction, [`Confidential`] is the default ring's.
 pub trait OutputEncoder {
-    /// `None` keeps the seed the transaction was built with.
-    fn output_blinding_seed(
-        &self,
-        transaction: &ConfidentialTransaction,
-        sender: &ShieldedAddress,
-    ) -> Result<Option<[u8; 32]>, TransactionError> {
-        let _ = (transaction, sender);
-        Ok(None)
+    /// Refuses with `MissingRingSecret` unless a ring rail's encoder overrides it.
+    fn ring_secret(&self, slot: &RingOutputSlot<'_>) -> Result<[u8; 32], TransactionError> {
+        Err(TransactionError::MissingRingSecret {
+            slot_index: slot.slot_index as usize,
+        })
     }
 
     /// One tag per output slot, in slot order.
@@ -230,8 +235,7 @@ impl FinalizedTransaction {
     /// Steps:
     /// 1. Require one owner tag per output slot.
     /// 2. Hash every real output and draw the transaction salt.
-    /// 3. Seal each real slot in output order and check its published owner
-    ///    tag. Compact padding is left out.
+    /// 3. Seal each real slot in output order and check its published owner tag, padding stays out.
     /// 4. Build the external data and return the assembled proof inputs.
     pub fn encrypt_with_viewing_key(
         self,
@@ -253,8 +257,7 @@ impl FinalizedTransaction {
             });
         }
 
-        // 2. Hash every real output and draw the salt. Compact padding is the
-        // trailing suffix SPP fills back in.
+        // 2. Hash every real output and draw the salt, SPP fills the compact padding back in.
         let output_hashes = self
             .output_utxos
             .iter()

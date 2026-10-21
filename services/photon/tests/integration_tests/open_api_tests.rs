@@ -8,11 +8,17 @@ const METHODS: &[&str] = &[
     "getNonInclusionProofs",
     "getNullifierQueueElements",
     #[cfg(feature = "custom-rings")]
+    "getRingApplyProofInputs",
+    #[cfg(feature = "custom-rings")]
+    "getRingMemberOpenings",
+    #[cfg(feature = "custom-rings")]
     "getRingMemberRecord",
     #[cfg(feature = "custom-rings")]
     "getRingMemberRecords",
     #[cfg(feature = "custom-rings")]
     "getRingMemberRegistryRoot",
+    #[cfg(feature = "custom-rings")]
+    "getRingRecordQueue",
     "getShieldedTransactionsByNullifiers",
     "getShieldedTransactionsBySignature",
     "getShieldedTransactionsByTags",

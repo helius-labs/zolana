@@ -306,6 +306,8 @@ impl RealRingTransact {
             public_input_hash,
         });
         prover_inputs.ring_program_id = be(&ring_field);
+        // Dummy outputs carry no ring secret.
+        prover_inputs.ring_secrets = vec![be(&zero); n_outputs];
         prover_inputs.published_output_owner_pk_hashes =
             published_output_owner_pk_hashes.iter().map(be).collect();
         let (proof, circuit) = match authorization {

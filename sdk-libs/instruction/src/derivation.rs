@@ -12,6 +12,9 @@ use zolana_hasher::{primitives::right_align, Hasher, HasherError, Poseidon};
 /// This must match `OutputBlindingDomainV1` in the Go circuit.
 pub const DOMAIN_TRANSACT_OUTPUT_BLINDING_V1: u32 = 0x5458_4f42;
 
+/// ASCII `"TXRB"`, the Go `RingOutputBlindingDomainV1`.
+pub const DOMAIN_TRANSACT_RING_OUTPUT_BLINDING_V1: u32 = 0x5458_5242;
+
 /// Domain separator for the SPP transaction output blinding seed: ASCII
 /// `"TXOS"`. This must match `OutputBlindingSeedDomainV1` in the Go circuit.
 pub const DOMAIN_TRANSACT_OUTPUT_BLINDING_SEED_V1: u32 = 0x5458_4f53;
@@ -63,10 +66,49 @@ pub fn derive_transact_output_blinding(
     seed: &[u8; 32],
     output_index: u32,
 ) -> Result<[u8; 32], HasherError> {
-    Poseidon::hashv(&[
-        &right_align(&DOMAIN_TRANSACT_OUTPUT_BLINDING_V1.to_be_bytes()),
+    SlotBlinding {
+        domain: DOMAIN_TRANSACT_OUTPUT_BLINDING_V1,
         first_nullifier,
-        &right_align(seed),
-        &right_align(&output_index.to_be_bytes()),
-    ])
+        secret: seed,
+        output_index,
+    }
+    .derive()
+}
+
+/// `Poseidon(TXRB, first_nullifier, ring_secret, output_index)`, `ring_secret`
+/// bound by the ring's audit proof and never by SPP.
+pub struct RingOutputBlinding {
+    pub first_nullifier: [u8; 32],
+    pub ring_secret: [u8; 32],
+    pub output_index: u32,
+}
+
+impl RingOutputBlinding {
+    pub fn derive(self) -> Result<[u8; 32], HasherError> {
+        SlotBlinding {
+            domain: DOMAIN_TRANSACT_RING_OUTPUT_BLINDING_V1,
+            first_nullifier: &self.first_nullifier,
+            secret: &self.ring_secret,
+            output_index: self.output_index,
+        }
+        .derive()
+    }
+}
+
+struct SlotBlinding<'a> {
+    domain: u32,
+    first_nullifier: &'a [u8; 32],
+    secret: &'a [u8; 32],
+    output_index: u32,
+}
+
+impl SlotBlinding<'_> {
+    fn derive(self) -> Result<[u8; 32], HasherError> {
+        Poseidon::hashv(&[
+            &right_align(&self.domain.to_be_bytes()),
+            self.first_nullifier,
+            self.secret,
+            &right_align(&self.output_index.to_be_bytes()),
+        ])
+    }
 }

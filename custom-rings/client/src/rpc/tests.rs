@@ -1,13 +1,12 @@
+use custom_ring_interface::stream::RingTag;
 use solana_keypair::Keypair;
-use zeroize::Zeroizing;
-use zolana_hasher::primitives::SOLANA_OWNER_TAG;
 use zolana_keypair::ViewingKey;
-use zolana_transaction::Data;
+use zolana_transaction::OutputContext;
 
 use super::*;
 use crate::{
-    AnonymousExit, AnonymousOutputOpening, AnonymousOwner, AnonymousRingOutput, AuditedOutput,
-    OutputPayloadErrorKind::{self, Asset, Commitment, Decrypt, Frame, PairHint},
+    AuditedInputOpening, AuditedSender, OutputPayloadError,
+    OutputPayloadErrorKind::{self, Commitment, EscrowUnknown, Frame, RecipientKey},
 };
 
 fn temp_dir(label: &str) -> PathBuf {
@@ -54,6 +53,48 @@ fn read_attestation_is_stable() {
         String::from_utf8(message).expect("text"),
         "zolana/ring-rpc-read/v1\nring: US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx\ntimestamp: 1700000000\nnonce: BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=\nlimit: 5\ncursor: AQID"
     );
+}
+
+#[test]
+fn audited_notes_attestation_is_stable() {
+    let message = AuditedNotesAttestation::new(
+        Address::new_from_array([7; 32]),
+        &[Hash([1; 32]), Hash([2; 32])],
+    )
+    .message(1_700_000_000, &[4; 32]);
+    assert_eq!(
+        String::from_utf8(message).expect("text"),
+        "zolana/ring-rpc-audited-notes/v1\nring: US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx\ntimestamp: 1700000000\nnonce: BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=\nnotes: +Biv03ptw7yS+0RzEBEncAbbTvpukCPNdGjAIzXSKk0="
+    );
+}
+
+#[test]
+fn a_signed_note_read_carries_the_hashes_it_signed() {
+    let reader = Keypair::new();
+    let ring = Address::new_from_array([7; 32]);
+    let hashes = vec![Hash([1; 32]), Hash([2; 32])];
+    let request = GetAuditedNotesRequest::read(ring, hashes.clone())
+        .expect("note read")
+        .at(1_700_000_000)
+        .sign(&reader)
+        .expect("signed");
+    assert_eq!(request.utxo_hashes, hashes);
+    assert_eq!(request.ring_program_id, Some(ring.to_bytes().into()));
+    let nonce = request.auth.nonce.0.clone().try_into().expect("nonce");
+    let signature = Signature::try_from(request.auth.signature.0.as_slice()).expect("signature");
+    let signed =
+        |hashes: &[Hash]| AuditedNotesAttestation::new(ring, hashes).message(1_700_000_000, &nonce);
+    assert!(signature.verify(reader.pubkey().as_ref(), &signed(&hashes)));
+    assert!(!signature.verify(
+        reader.pubkey().as_ref(),
+        &signed(&[Hash([2; 32]), Hash([1; 32])])
+    ));
+    for count in [0, AUDITED_NOTES_LIMIT + 1] {
+        assert!(matches!(
+            GetAuditedNotesRequest::read(ring, vec![Hash([1; 32]); count]),
+            Err(ReadBuildError::Notes)
+        ));
+    }
 }
 
 /// `Limit` cannot hold zero, so the smallest audit page the wire carries is one.
@@ -110,62 +151,54 @@ fn a_deposits_cursor_is_exactly_one_signature() {
     }
 }
 
-/// The JSON clients parse, pinned byte for byte.
-#[test]
-fn a_decrypted_page_keeps_its_wire_json() {
-    let viewing = ViewingKey::from_bytes(&[3; 32]).pubkey();
-    let opening = zolana_client::ProofInputUtxo::new(
-        [2; 32],
-        &Address::new_from_array([4; 32]),
-        9,
-        &[5; 32],
-        4,
-    )
-    .unwrap()
-    .with_ring([0; 32], &Some(Address::new_from_array([7; 32])))
-    .unwrap();
-    let context = zolana_transaction::OutputContext {
-        hash: opening.hash().unwrap(),
-        tree_id: 4,
-        leaf_index: 1,
-    };
-    let audited = AuditedTransaction {
-        tx_signature: Signature::from([1; 64]),
-        slot: 42,
-        tx_viewing_pk: viewing,
-        outputs: vec![AuditedOutput {
-            slot_index: 0,
-            recipient_viewing_pk: viewing,
-            owner_tag: [2; 32],
-            asset: Address::new_from_array([4; 32]),
-            amount: 9,
-            blinding: Zeroizing::new([5; 32]),
-            ring_program_id: Some(Address::new_from_array([7; 32])),
-            data: Data::default(),
-        }],
-        output_contexts: vec![context],
-        output_openings: vec![opening],
-        anonymous: None,
-        payload_errors: Vec::new(),
-    };
+fn note(seed: u8, mint: Option<Address>) -> AuditedNote {
+    AuditedNote {
+        owner_key: [seed; 32],
+        nullifier_pk: [seed + 1; 32],
+        asset: [seed + 2; 32],
+        mint,
+        amount: u64::from(seed),
+        blinding: [seed + 3; 32],
+        data_hash: [seed + 4; 32],
+        ring_data_hash: [seed + 5; 32],
+    }
+}
+
+fn output(slot_index: u32, opening: OutputOpening) -> AuditedOutput {
+    AuditedOutput {
+        slot_index,
+        context: OutputContext {
+            hash: [0x40 + slot_index as u8; 32],
+            tree_id: 4,
+            leaf_index: u64::from(slot_index) + 1,
+        },
+        opening,
+    }
+}
+
+fn page(
+    audited: AuditedTransaction,
+    nullifiers: Vec<[u8; 32]>,
+) -> GetDecryptedTransactionsResponse {
     let withdrawal = RingWithdrawal {
         recipient: Address::new_from_array([10; 32]),
         asset: Address::new_from_array([4; 32]),
         amount: 5,
     };
-    let page = GetDecryptedTransactionsResponse {
+    GetDecryptedTransactionsResponse {
         context: Context {
             block_time: 1,
             slot: 43,
         },
         value: DecryptedTransactionsPage {
-            items: vec![DecryptedTransaction::new(
+            items: vec![ConfirmedAudit {
                 audited,
-                7,
-                vec![[12; 32]],
-                vec![Address::new_from_array([13; 32])],
-                vec![withdrawal],
-            )],
+                event_index: 7,
+                nullifiers,
+                signers: vec![Address::new_from_array([13; 32])],
+                withdrawals: vec![withdrawal],
+            }
+            .into()],
             skipped: vec![SkippedTransaction {
                 slot: 40,
                 tx_signature: Signature::from([14; 64]).into(),
@@ -174,7 +207,36 @@ fn a_decrypted_page_keeps_its_wire_json() {
             }],
             cursor: Some(vec![15].into()),
         },
+    }
+}
+
+/// The JSON clients parse, pinned byte for byte.
+#[test]
+fn a_decrypted_page_keeps_its_wire_json() {
+    let audited = AuditedTransaction {
+        tx_signature: Signature::from([1; 64]),
+        slot: 42,
+        tx_viewing_pk: ViewingKey::from_bytes(&[3; 32]).pubkey(),
+        outputs: vec![
+            output(
+                0,
+                OutputOpening::Ring {
+                    note: note(0x10, Some(Address::new_from_array([4; 32]))),
+                    recipient_u: [6; 32],
+                    tag: None,
+                },
+            ),
+            output(1, OutputOpening::Exit(note(0x20, None))),
+            output(2, OutputOpening::Dummy),
+        ],
+        payload_errors: vec![OutputPayloadError {
+            slot_index: 3,
+            kind: Commitment,
+        }],
+        sender: None,
+        inputs: Vec::new(),
     };
+    let page = page(audited, vec![[12; 32]]);
     let json = serde_json::to_string(&page).expect("json");
     assert_eq!(json, include_str!("decrypted_page.json").trim_end());
     assert_eq!(
@@ -186,112 +248,89 @@ fn a_decrypted_page_keeps_its_wire_json() {
 /// The TypeScript decoder reads the same page.
 #[test]
 fn an_anonymous_decrypted_page_keeps_its_wire_json() {
-    let ring = Address::new_from_array([7; 32]);
-    let mint = Address::new_from_array([4; 32]);
-    let owner = |seed: u8| AnonymousOwner {
-        identity_tag: SOLANA_OWNER_TAG,
-        identity_key: [seed; 32],
-        nullifier_pk: [seed + 1; 32],
-    };
-    let recipient = ViewingKey::from_bytes(&[3; 32]).pubkey();
-    let ring_owner = owner(0x21);
-    let exit = AnonymousExit {
-        owner: owner(0x23),
-        amount: 4,
-        asset: zolana_hasher::primitives::hash_bytes(mint.as_array()).expect("asset"),
-        blinding: [6; 32],
-    };
-    let ring_opening = zolana_client::ProofInputUtxo::new(
-        ring_owner.owner_hash().expect("owner"),
-        &mint,
-        9,
-        &[5; 32],
-        4,
-    )
-    .expect("opening")
-    .with_ring([0; 32], &Some(ring))
-    .expect("ring");
-    let openings = vec![
-        ring_opening,
-        exit.opening(4).expect("exit"),
-        zolana_client::ProofInputUtxo::default(),
-    ];
-    let contexts = (0u64..)
-        .zip(&openings)
-        .map(|(leaf_index, opening)| zolana_transaction::OutputContext {
-            hash: match opening.domain == [0; 32] {
-                true => [9; 32],
-                false => opening.hash().expect("hash"),
-            },
-            tree_id: 4,
-            leaf_index,
-        })
-        .collect();
-    let output = |slot_index: u32, owner: &AnonymousOwner, amount, ring_program_id| AuditedOutput {
-        slot_index,
-        recipient_viewing_pk: recipient,
-        owner_tag: owner.identity_key,
-        asset: mint,
-        amount,
-        blinding: Zeroizing::new([5; 32]),
-        ring_program_id,
-        data: Data::default(),
+    let opening = |seed: u8, ring| AuditedInputOpening {
+        asset: [seed; 32],
+        mint: Some(Address::new_from_array([4; 32])),
+        amount: u64::from(seed),
+        blinding: [seed + 1; 32],
+        ring,
     };
     let audited = AuditedTransaction {
         tx_signature: Signature::from([1; 64]),
         slot: 42,
         tx_viewing_pk: ViewingKey::from_bytes(&[2; 32]).pubkey(),
         outputs: vec![
-            output(0, &ring_owner, 9, Some(ring)),
-            AuditedOutput {
-                blinding: Zeroizing::new(exit.blinding),
-                ..output(1, &exit.owner, 4, None)
+            output(
+                0,
+                OutputOpening::Ring {
+                    note: AuditedNote {
+                        data_hash: [0; 32],
+                        ring_data_hash: [0; 32],
+                        ..note(0x10, Some(Address::new_from_array([4; 32])))
+                    },
+                    recipient_u: [6; 32],
+                    tag: Some(RingTag::from_bytes([0x31; 31])),
+                },
+            ),
+            output(1, OutputOpening::Exit(note(0x20, None))),
+            output(2, OutputOpening::Dummy),
+        ],
+        payload_errors: Vec::new(),
+        sender: Some(AuditedSender {
+            owner_key: [0x50; 32],
+            nullifier_pk: Some([0x51; 32]),
+        }),
+        inputs: vec![
+            AuditedInput {
+                nullifier: [12; 32],
+                opening: Some(opening(
+                    0x60,
+                    Some(InputRing::Ring {
+                        commitment: [0x62; 32],
+                    }),
+                )),
+            },
+            AuditedInput {
+                nullifier: [11; 32],
+                opening: Some(opening(
+                    0x70,
+                    Some(InputRing::Unresolved {
+                        ring: [0x72; 32],
+                        default: [0x73; 32],
+                    }),
+                )),
+            },
+            AuditedInput {
+                nullifier: [10; 32],
+                opening: Some(opening(
+                    0x80,
+                    Some(InputRing::Default {
+                        commitment: [0x82; 32],
+                    }),
+                )),
+            },
+            AuditedInput {
+                nullifier: [9; 32],
+                opening: Some(opening(0x90, None)),
+            },
+            AuditedInput {
+                nullifier: [8; 32],
+                opening: None,
             },
         ],
-        output_contexts: contexts,
-        output_openings: openings,
-        anonymous: Some(AnonymousDisclosure {
-            sender: [0x20; 32],
-            inputs: vec![
-                AuditInputOpening {
-                    tree_id: 4,
-                    amount: 13,
-                    asset: exit.asset,
-                    blinding: [8; 32],
-                },
-                AuditInputOpening::default(),
-            ],
-            outputs: vec![
-                AnonymousOutputOpening::Ring(AnonymousRingOutput {
-                    owner: ring_owner,
-                    viewing_pk: *recipient.as_bytes(),
-                }),
-                AnonymousOutputOpening::Exit(exit),
-                AnonymousOutputOpening::Padding,
-            ],
-        }),
-        payload_errors: Vec::new(),
     };
-    let page = GetDecryptedTransactionsResponse {
-        context: Context {
-            block_time: 1,
-            slot: 43,
-        },
-        value: DecryptedTransactionsPage {
-            items: vec![DecryptedTransaction::new(
-                audited,
-                0,
-                vec![[12; 32], [11; 32]],
-                vec![Address::new_from_array([13; 32])],
-                Vec::new(),
-            )],
-            skipped: Vec::new(),
-            cursor: None,
-        },
-    };
+    let page = page(
+        audited,
+        vec![[12; 32], [11; 32], [10; 32], [9; 32], [8; 32]],
+    );
+    let json = serde_json::to_string(&page).expect("json");
     assert_eq!(
-        serde_json::to_string(&page).expect("json"),
+        json,
         include_str!("decrypted_anonymous_page.json").trim_end()
+    );
+    assert_eq!(
+        serde_json::from_str::<GetDecryptedTransactionsResponse>(&json).expect("parses"),
+        page
     );
 }
 
@@ -301,7 +340,7 @@ fn payload_errors_keep_the_encoding_of_the_shared_vector() {
     #[derive(Deserialize)]
     struct Vector {
         kinds: serde_json::Value,
-        unknown_asset_bad_pair_hint: serde_json::Value,
+        foreign_body_and_low_order_key: serde_json::Value,
     }
     let vector: Vector = serde_json::from_str(include_str!(
         "../../../../test-vectors/ring_rpc_payload_errors.json"
@@ -309,18 +348,54 @@ fn payload_errors_keep_the_encoding_of_the_shared_vector() {
     .expect("vector");
     // A new kind fails to compile here, `kinds` and the vector must then name it.
     let named = |kind: OutputPayloadErrorKind| match kind {
-        Frame | Decrypt | Commitment | Asset | PairHint => kind,
+        Frame | RecipientKey | Commitment | EscrowUnknown => kind,
     };
-    let kinds = [Frame, Decrypt, Commitment, Asset, PairHint].map(named);
+    let kinds = [Frame, RecipientKey, Commitment, EscrowUnknown].map(named);
     assert_eq!(serde_json::to_value(kinds).unwrap(), vector.kinds);
-    let one_slot = [Asset, PairHint].map(|kind| DecryptedPayloadError {
-        slot_index: 0,
-        kind,
-    });
+    let slots = [(2, Commitment), (5, RecipientKey)]
+        .map(|(slot_index, kind)| DecryptedPayloadError { slot_index, kind });
     assert_eq!(
-        serde_json::to_value(one_slot).unwrap(),
-        vector.unknown_asset_bad_pair_hint
+        serde_json::to_value(slots).unwrap(),
+        vector.foreign_body_and_low_order_key
     );
+}
+
+/// A root history slot never written reads as absent.
+#[test]
+fn ring_status_reads_the_registry_history_and_queue() {
+    let mut registry = MemberRegistry::new(7, 100);
+    registry.push_root([5; 32], 3, 120);
+    registry.raise_floor(3, 120);
+    let mut queue = RecordQueue::new(9);
+    queue.head = 3u64.to_le_bytes();
+    queue.tail = 5u64.to_le_bytes();
+    let status = RegistryStatus::new(&registry, &queue);
+    assert_eq!(status.history.len(), custom_ring_interface::ROOT_HISTORY);
+    assert_eq!(
+        status.history[..3],
+        [
+            Some(RegistryRoot {
+                root: custom_ring_interface::MEMBER_REGISTRY_EMPTY_ROOT.into(),
+                applied: 0,
+                slot: 100,
+            }),
+            Some(RegistryRoot {
+                root: [5; 32].into(),
+                applied: 3,
+                slot: 120,
+            }),
+            None,
+        ]
+    );
+    assert_eq!(
+        (status.history_cursor, status.next_index),
+        (1, registry.next_index())
+    );
+    assert_eq!(
+        (status.floor, status.prior_floor, status.floor_slot),
+        (3, 0, 120)
+    );
+    assert_eq!((status.queue_head, status.queue_tail), (3, 5));
 }
 
 #[test]

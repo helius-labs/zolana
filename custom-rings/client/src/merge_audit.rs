@@ -1,16 +1,11 @@
-//! Opens every confirmed ring merge with keys authenticated by the member registry.
-//! A registry leaf names only the owner's proof hash, so this API returns raw
-//! openings. A wallet that knows the signing key can turn one into a spendable note.
+//! Opens every confirmed ring merge with keys the member registry authenticates.
 
 use std::{
     collections::HashSet,
     num::{NonZeroU32, NonZeroUsize},
 };
 
-use custom_ring_interface::{
-    EscrowKey, MemberOpening, MemberRecord, MemberRegistryRoot, MerklePath, RingAccount,
-    MEMBER_REGISTRY_CAPACITY,
-};
+use custom_ring_interface::{EscrowKey, MemberRegistry, RingAccount, MEMBER_REGISTRY_CAPACITY};
 use solana_address::Address;
 use solana_signature::Signature;
 use zolana_client::{
@@ -23,11 +18,11 @@ use zolana_event::{
 };
 use zolana_hasher::{primitives::is_canonical_bn254_scalar_be, Hasher, Poseidon};
 use zolana_indexer_api::{
-    Context, GetRingMemberRecordsRequest, GetRingMemberRecordsResponse, Hash, SerializablePubkey,
-    MAX_RING_MEMBER_PAGE_LIMIT,
+    Context, GetRingMemberRecordsRequest, Hash, SerializablePubkey, MAX_RING_MEMBER_PAGE_LIMIT,
 };
 use zolana_interface::instruction::instruction_data::merge_transact::merge_circuit_width;
 use zolana_keypair::{NullifierKey, X25519Keypair, X25519Pubkey};
+use zolana_ring_member_registry::RecordOpening;
 use zolana_ring_policy::Member;
 use zolana_transaction::{
     instructions::merge::{merge_output_blinding, merge_output_key, MergeOutputPlaintext},
@@ -35,8 +30,9 @@ use zolana_transaction::{
 };
 
 use crate::{
-    encryption::{open_merge_disclosure, MergeOpening, SealedNullifierKey},
+    encryption::{open_merge_disclosure, MergeOpening},
     origin::{ConfirmedEventKind, ConfirmedMergeDisclosure, TransactionOrigin},
+    records::{complete_member_page, member_record, quad_path, sealed_key, RegistryTip},
     scan::PageEnd,
     AuditError,
 };
@@ -53,8 +49,7 @@ pub struct AuditedMerge {
     pub event_index: u16,
     pub output_commitment: [u8; 32],
     pub owner_member: [u8; 32],
-    /// RegisterKey's confirmed signer tag, absent in older indexer projections.
-    /// The merge proof does not disclose whether the shielded key used Ed25519 or a PDA.
+    /// The confirmed `RegisterKey` signer, absent in older indexer projections.
     pub owner_pubkey: Option<Address>,
     pub mint: Address,
     pub amount: u64,
@@ -73,8 +68,7 @@ pub enum MergeKeys {
     Disclosed { input_commitments: Vec<[u8; 32]> },
 }
 
-/// A confirmed merge that no authenticated current registration opened.
-/// It remains visible rather than disappearing from the audit result.
+/// A confirmed merge no authenticated registration opened, reported rather than dropped.
 pub struct UnresolvedMerge {
     pub tx_signature: Signature,
     pub event_index: u16,
@@ -87,19 +81,14 @@ pub struct MergeAuditResult {
     pub unresolved: Vec<UnresolvedMerge>,
 }
 
-/// One bounded history page. The cursor belongs to the ring-history scan,
-/// including non-merge rows the page examined.
+/// The cursor names a ring history position past every row the page examined.
 pub struct MergeAuditPage {
     pub context: Context,
     pub result: MergeAuditResult,
     pub next_cursor: Option<Vec<u8>>,
 }
 
-/// Scans ring history and opens merges using authenticated auditor keys.
-/// Registry keys are final, so the current authenticated leaves cover earlier
-/// merges. The ciphertext carries no owner hint, so an unresolved output may
-/// require trying every registered key. A changed root or incomplete scan
-/// aborts instead of returning partial coverage.
+/// Registry keys are final so current leaves open earlier merges, an incomplete scan aborts.
 #[must_use = "run or discard the merge audit explicitly"]
 pub struct MergeAudit<'a> {
     ring: Address,
@@ -125,8 +114,6 @@ struct MergeFields {
     nullifier: [u8; 32],
 }
 
-/// A confirmed output retains only the data needed to try one registered key.
-/// The history page bounds this vector, while registry keys are discarded after use.
 struct PendingMerge {
     tx_signature: Signature,
     event_index: u16,
@@ -209,9 +196,7 @@ impl<'a> MergeAudit<'a> {
         self
     }
 
-    /// Fail closed before trying more than this many key/output pairs. The
-    /// default scans the complete registry, so offline callers can exhaustively
-    /// audit a large ring. An RPC server can set a smaller per-request budget.
+    /// Fails closed past `limit` key and output attempts, unbounded by default.
     pub fn with_max_candidate_attempts(mut self, limit: NonZeroUsize) -> Self {
         self.max_candidate_attempts = Some(limit);
         self
@@ -227,14 +212,14 @@ impl<'a> MergeAudit<'a> {
         indexer: &I,
         origin: &O,
     ) -> Result<MergeAuditResult, AuditError> {
-        let registry = self.registry_root(indexer).await?;
+        let registry = self.registry_tip(indexer).await?;
         let mut cursor = self.cursor.clone();
         let mut result = MergeAuditResult::default();
         let mut seen = HashSet::new();
         for _ in 0..self.max_pages.get() {
             let (response, next_cursor) = self.read_history_page(indexer, &cursor).await?;
             let page = self
-                .open_transactions(response.transactions, &registry, indexer, origin, &mut seen)
+                .open_transactions(response.transactions, registry, indexer, origin, &mut seen)
                 .await?;
             result.opened.extend(page.opened);
             result.unresolved.extend(page.unresolved);
@@ -252,11 +237,11 @@ impl<'a> MergeAudit<'a> {
         indexer: &I,
         origin: &O,
     ) -> Result<MergeAuditPage, AuditError> {
-        let registry = self.registry_root(indexer).await?;
+        let registry = self.registry_tip(indexer).await?;
         let (response, next_cursor) = self.read_history_page(indexer, &self.cursor).await?;
         let mut seen = HashSet::new();
         let result = self
-            .open_transactions(response.transactions, &registry, indexer, origin, &mut seen)
+            .open_transactions(response.transactions, registry, indexer, origin, &mut seen)
             .await?;
         Ok(MergeAuditPage {
             context: Context {
@@ -297,7 +282,7 @@ impl<'a> MergeAudit<'a> {
     async fn open_transactions<I: AsyncRpc, O: TransactionOrigin>(
         &self,
         transactions: Vec<ShieldedTransaction>,
-        registry: &MemberRegistryRoot,
+        registry: RegistryTip,
         indexer: &I,
         origin: &O,
         seen: &mut HashSet<(Signature, u16)>,
@@ -314,48 +299,19 @@ impl<'a> MergeAudit<'a> {
             }
             confirmed.bind_transaction(&mut tx, self.ring)?;
             remember_merge(seen, tx.tx_signature, event_index)?;
-            let slot = tx.output_slots.first().ok_or_else(invalid_merge)?;
-            let first_nullifier = tx.nullifiers.first().ok_or_else(invalid_merge)?;
-            if tx.output_slots.len() != 1 || merge_circuit_width(tx.nullifiers.len()).is_none() {
-                return Err(invalid_merge());
-            }
-            let Some(OutputDataEncoding::VerifiablyEncrypted(blob)) = slot.output_data() else {
-                return Err(invalid_merge());
-            };
-            let Some((&MERGE_OUTPUT_SCHEME, body)) = blob.split_first() else {
-                return Err(invalid_merge());
-            };
-            let Some((Some(&ring_data_hash), encrypted)) = split_merge_output_body(body) else {
-                return Err(invalid_merge());
-            };
-            validate_confirmed_merge_fields(
-                first_nullifier,
-                &slot.output_context.hash,
-                &ring_data_hash,
-                encrypted,
-            )?;
+            let output = MergeOutput::of(&tx)?;
             if let Some(disclosure) = &confirmed.merge_disclosure {
-                let opening = DisclosedMerge {
-                    auditor: self.auditor,
-                    disclosure,
-                    salt: *encrypted.first_chunk().ok_or_else(invalid_merge)?,
-                    width: merge_circuit_width(tx.nullifiers.len()).ok_or_else(invalid_merge)?,
-                    ring_program_id: program_id_proof_input_hash(&Some(self.ring))?,
-                    ring_data_hash,
-                    tree_id: slot.output_context.tree_id,
-                    output_commitment: slot.output_context.hash,
-                }
-                .open()?;
+                let opening = output.disclose(self.auditor, disclosure, self.ring)?;
                 disclosed.push(AuditedMerge {
                     tx_signature: tx.tx_signature,
                     event_index,
-                    output_commitment: slot.output_context.hash,
+                    output_commitment: output.commitment,
                     owner_member: *Member::owner_tag(&opening.owner_key)?.as_bytes(),
                     owner_pubkey: Some(Address::new_from_array(opening.owner_key)),
                     mint: Address::new_from_array(opening.mint),
                     amount: opening.amount,
                     blinding: opening.output_blinding,
-                    ring_data_hash,
+                    ring_data_hash: output.ring_data_hash,
                     input_nullifiers: tx.nullifiers,
                     keys: MergeKeys::Disclosed {
                         input_commitments: opening.input_commitments,
@@ -366,12 +322,12 @@ impl<'a> MergeAudit<'a> {
             pending.push(PendingMerge {
                 tx_signature: tx.tx_signature,
                 event_index,
-                output_commitment: slot.output_context.hash,
-                tree_id: slot.output_context.tree_id,
-                ring_data_hash,
-                first_nullifier: *first_nullifier,
+                output_commitment: output.commitment,
+                tree_id: output.tree_id,
+                ring_data_hash: output.ring_data_hash,
+                first_nullifier: output.first_nullifier,
                 input_nullifiers: tx.nullifiers,
-                encrypted: encrypted.to_vec(),
+                encrypted: output.encrypted,
                 opened: None,
             });
         }
@@ -410,63 +366,51 @@ impl<'a> MergeAudit<'a> {
         Ok(result)
     }
 
-    async fn registry_root<I: AsyncRpc>(
-        &self,
-        indexer: &I,
-    ) -> Result<MemberRegistryRoot, AuditError> {
-        let (pda, bump) = Address::find_program_address(&[MemberRegistryRoot::SEED], &self.ring);
+    async fn registry_tip<I: AsyncRpc>(&self, indexer: &I) -> Result<RegistryTip, AuditError> {
+        let (pda, bump) = Address::find_program_address(&[MemberRegistry::SEED], &self.ring);
         let account = indexer
             .get_account(pda)
             .await?
             .ok_or(AuditError::InvalidMemberRegistry)?;
-        let state = MemberRegistryRoot::decode(&account.owner, &self.ring, &account.data)
-            .filter(|state| state.bump == bump && state.next_index() <= MEMBER_REGISTRY_CAPACITY)
+        let registry = MemberRegistry::decode(&account.owner, &self.ring, &account.data)
+            .filter(|registry| registry.bump == bump)
             .ok_or(AuditError::InvalidMemberRegistry)?;
-        state.root().ok_or(AuditError::InvalidMemberRegistry)?;
-        Ok(state)
+        Ok(RegistryTip {
+            root: registry.current_root(),
+            root_index: registry.history_cursor,
+            next_index: u64::from(registry.next_index()),
+        })
     }
 
-    /// Authenticate leaves at one chain-pinned root until every merge opens or
-    /// the registry ends. The caller may stop only after it has authenticated
-    /// a key that opens each settled output.
+    /// Records read at one chain-pinned root, `visit` ends the scan once every merge opened.
     async fn scan_registry<I: AsyncRpc>(
         &self,
         indexer: &I,
-        state: &MemberRegistryRoot,
+        tip: RegistryTip,
         mut visit: impl FnMut(&RegisteredKey) -> Result<bool, AuditError>,
     ) -> Result<(), AuditError> {
-        let root = state.root().ok_or(AuditError::InvalidMemberRegistry)?;
-        let next_index = state.next_index();
         let mut start_index = 1;
         let mut pages_read = 0;
-        while start_index < next_index {
+        while start_index < tip.next_index {
             if pages_read == self.max_member_pages.get() {
                 return Err(AuditError::MergeAuditWorkBudget);
             }
             let response = indexer
                 .get_ring_member_records(GetRingMemberRecordsRequest {
                     ring_program_id: SerializablePubkey(self.ring),
-                    expected_root: Hash(root),
-                    expected_next_index: next_index,
+                    expected_root: Hash(tip.root),
+                    expected_next_index: tip.next_index,
                     start_index,
                     limit: MAX_RING_MEMBER_PAGE_LIMIT,
                 })
                 .await?;
-            if !complete_member_page(
-                &response,
-                &root,
-                state.history_cursor,
-                next_index,
-                start_index,
-            ) {
+            if !complete_member_page(&response, tip, start_index) {
                 return Err(AuditError::InvalidMemberRegistry);
             }
-            for row in response.records {
-                let member = row.record.member.0;
-                let owner_pubkey = row
-                    .record
-                    .owner_pubkey
-                    .map(|pubkey| Address::new_from_array(pubkey.0.to_bytes()));
+            for row in &response.records {
+                let record = member_record(&row.record);
+                let member = record.member;
+                let owner_pubkey = row.record.owner_pubkey.as_ref().map(|owner| owner.0);
                 if owner_pubkey.is_some_and(|owner| {
                     Member::owner_tag(owner.as_array())
                         .map(|tag| *tag.as_bytes() != member)
@@ -474,40 +418,15 @@ impl<'a> MergeAudit<'a> {
                 }) {
                     return Err(AuditError::InvalidMemberRegistry);
                 }
-                let path: Vec<_> = row.path.into_iter().map(|hash| hash.0).collect();
-                let record = MemberRecord {
-                    member,
-                    next: row.record.next.0,
-                    lists: row.record.lists,
-                    escrow_key: row.record.escrow_key.0,
-                };
-                MemberOpening::Present {
+                RecordOpening::Present {
                     record,
-                    path: MerklePath {
-                        index: row.index,
-                        siblings: &path,
-                    },
+                    path: quad_path(&row.path)?,
                 }
-                .verify(&root, &member)
+                .verify(&tip.root, &member)
                 .map_err(|_| AuditError::InvalidMemberRegistry)?;
                 if record.escrow_key != [0; 32] {
-                    let (Some(eph_pk), Some(ciphertext)) =
-                        (row.record.eph_pk, row.record.ciphertext)
-                    else {
-                        return Err(AuditError::InvalidMemberRegistry);
-                    };
-                    let eph_pk: [u8; 33] = eph_pk
-                        .0
-                        .try_into()
-                        .map_err(|_| AuditError::InvalidMemberRegistry)?;
-                    let ciphertext: [u8; 32] = ciphertext
-                        .0
-                        .try_into()
-                        .map_err(|_| AuditError::InvalidMemberRegistry)?;
-                    let sealed = SealedNullifierKey {
-                        eph_pk: X25519Pubkey::from_bytes(eph_pk)?,
-                        ciphertext,
-                    };
+                    let sealed =
+                        sealed_key(&row.record)?.ok_or(AuditError::InvalidMemberRegistry)?;
                     let key = sealed.open(self.auditor)?;
                     let escrow_hash = EscrowKey {
                         nullifier_pk: &key.pubkey()?,
@@ -548,38 +467,11 @@ fn try_registered_key(
         *attempts += 1;
         merge.try_open(registered, ring)?;
     }
-    // Each opening is checked against the settled commitment. Later leaves
-    // cannot change the result once every merge opened.
+    // Every opening matched its settled commitment, later leaves change nothing.
     Ok(pending.iter().all(|merge| merge.opened.is_some()))
 }
 
-/// A short, oversized or gapped page cannot silently reduce registry coverage.
-fn complete_member_page(
-    response: &GetRingMemberRecordsResponse,
-    root: &[u8; 32],
-    root_index: u8,
-    next_index: u64,
-    start_index: u64,
-) -> bool {
-    if start_index >= next_index {
-        return false;
-    }
-    let end_index = start_index + (next_index - start_index).min(MAX_RING_MEMBER_PAGE_LIMIT);
-    response.root.0 == *root
-        && response.root_index == root_index
-        && response.next_index == next_index
-        && response.records.len() == (end_index - start_index) as usize
-        && response
-            .records
-            .iter()
-            .enumerate()
-            .all(|(offset, row)| row.index == start_index + offset as u64)
-        && response.next_leaf_index == (end_index < next_index).then_some(end_index)
-}
-
-/// Malformed fields in a confirmed output are an audit error, not a key miss.
-/// Once these public fields are valid, a failed candidate commitment can only
-/// be caused by decrypted data that does not belong to that registered key.
+/// A malformed confirmed field is an audit error, a commitment miss after it is a key miss.
 fn validate_confirmed_merge_fields(
     first_nullifier: &[u8; 32],
     output_commitment: &[u8; 32],
@@ -601,8 +493,7 @@ fn validate_confirmed_merge_fields(
     Ok(())
 }
 
-/// The ciphertext is unauthenticated by itself. Only the settled commitment
-/// decides whether an opened amount and mint belong to this member.
+/// The ciphertext is unauthenticated, the settled commitment alone decides the opening.
 fn open_candidate(
     registered: &RegisteredKey,
     first_nullifier: &[u8; 32],
@@ -637,6 +528,70 @@ fn open_candidate(
         blinding,
         nullifier: registered.key.nullifier(&output_commitment, &blinding)?,
     }))
+}
+
+pub(crate) struct MergeOutput {
+    pub(crate) commitment: [u8; 32],
+    pub(crate) tree_id: u16,
+    pub(crate) first_nullifier: [u8; 32],
+    pub(crate) width: usize,
+    pub(crate) ring_data_hash: [u8; 32],
+    pub(crate) encrypted: Vec<u8>,
+}
+
+impl MergeOutput {
+    /// `tx` is bound to its confirmed merge event.
+    pub(crate) fn of(tx: &ShieldedTransaction) -> Result<Self, AuditError> {
+        let ([slot], Some(first_nullifier), Some(width)) = (
+            tx.output_slots.as_slice(),
+            tx.nullifiers.first(),
+            merge_circuit_width(tx.nullifiers.len()),
+        ) else {
+            return Err(invalid_merge());
+        };
+        let Some(OutputDataEncoding::VerifiablyEncrypted(blob)) = slot.output_data() else {
+            return Err(invalid_merge());
+        };
+        let Some((&MERGE_OUTPUT_SCHEME, body)) = blob.split_first() else {
+            return Err(invalid_merge());
+        };
+        let Some((Some(&ring_data_hash), encrypted)) = split_merge_output_body(body) else {
+            return Err(invalid_merge());
+        };
+        validate_confirmed_merge_fields(
+            first_nullifier,
+            &slot.output_context.hash,
+            &ring_data_hash,
+            encrypted,
+        )?;
+        Ok(Self {
+            commitment: slot.output_context.hash,
+            tree_id: slot.output_context.tree_id,
+            first_nullifier: *first_nullifier,
+            width,
+            ring_data_hash,
+            encrypted: encrypted.to_vec(),
+        })
+    }
+
+    pub(crate) fn disclose(
+        &self,
+        auditor: &X25519Keypair,
+        disclosure: &ConfirmedMergeDisclosure,
+        ring: Address,
+    ) -> Result<MergeOpening, AuditError> {
+        DisclosedMerge {
+            auditor,
+            disclosure,
+            salt: *self.encrypted.first_chunk().ok_or_else(invalid_merge)?,
+            width: self.width,
+            ring_program_id: program_id_proof_input_hash(&Some(ring))?,
+            ring_data_hash: self.ring_data_hash,
+            tree_id: self.tree_id,
+            output_commitment: self.commitment,
+        }
+        .open()
+    }
 }
 
 /// An anonymous ring merge and the settled leaf its disclosure must reproduce.
@@ -705,10 +660,17 @@ fn remember_merge(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use custom_ring_interface::QueueEntry;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use zolana_hasher::primitives::right_align;
-    use zolana_indexer_api::{Base64String, RingIndexedMemberRecordView, RingMemberRecordView};
-    use zolana_ring_member_registry::MemberRegistryTree;
+    use zolana_indexer_api::{
+        Base64String, GetRingMemberRecordsResponse, RingIndexedMemberRecordView,
+        RingMemberRecordView, RingRecordPathView, RingRegistryRootView,
+    };
+    use zolana_ring_member_registry::{
+        MemberRecord, MemberRegistryTree, QuadPath, RecordStore, RecordTree,
+    };
+    use zolana_ring_policy::ListId;
 
     use crate::encryption::{MergeDisclosureEncryption, MergeVector};
 
@@ -733,73 +695,88 @@ mod tests {
         }
     }
 
+    fn record_view(record: &MemberRecord) -> RingMemberRecordView {
+        RingMemberRecordView {
+            member: Hash(record.member),
+            next: Hash(record.next),
+            lists: record.lists,
+            escrow_key: Hash(record.escrow_key),
+            owner_pubkey: None,
+            nullifier_pk: None,
+            eph_pk: None,
+            ciphertext: None,
+        }
+    }
+
+    fn path_view(path: &QuadPath) -> RingRecordPathView {
+        RingRecordPathView {
+            index: path.index,
+            siblings: path.siblings.iter().map(|level| level.map(Hash)).collect(),
+        }
+    }
+
     #[tokio::test]
     async fn authenticated_opening_stops_before_unneeded_registry_pages() {
         let ring = Address::new_from_array([9; 32]);
         let auditor = X25519Keypair::new();
         let key = NullifierKey::from_secret([7; 31]);
         let envelope = crate::NullifierKeyEnvelope::new(&key, &auditor.pubkey()).unwrap();
-        let escrow_key = EscrowKey {
+        let escrow = EscrowKey {
             nullifier_pk: &envelope.nullifier_pk,
             ciphertext: &envelope.sealed.ciphertext,
-        }
-        .hash()
-        .unwrap();
+        };
+        let member = |index: u64| right_align(&index.to_be_bytes());
+        let list = ListId::ALL[0].record_bit();
+        let entries = (1u64..=101)
+            .map(|index| match index {
+                1 => QueueEntry::escrow(member(index), &escrow),
+                _ => Ok(QueueEntry {
+                    member: member(index),
+                    mask: list,
+                    value: list,
+                    escrow_key: [0; 32],
+                }),
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
         let mut tree = MemberRegistryTree::new().unwrap();
-        for index in 1u64..=101 {
-            let member = right_align(&index.to_be_bytes());
-            let item = tree
-                .register_item(&member, if index == 1 { escrow_key } else { [0; 32] })
-                .unwrap();
-            tree.apply(&[item]).unwrap();
-        }
-        let records = (1..=100)
+        tree.apply([0; 32], &entries).unwrap();
+        let tip = RegistryTip {
+            root: tree.root().unwrap(),
+            root_index: 0,
+            next_index: tree.next_index().unwrap(),
+        };
+        let records = (1..=100u64)
             .map(|index| {
-                let record = tree.records()[index];
-                let sealed = (index == 1).then_some(&envelope.sealed);
+                let record = tree.records()[index as usize];
+                let sealed = (record.escrow_key != [0; 32]).then_some(&envelope.sealed);
                 RingIndexedMemberRecordView {
-                    index: index as u64,
                     record: RingMemberRecordView {
-                        member: Hash(record.member),
-                        next: Hash(record.next),
-                        lists: record.lists,
-                        escrow_key: Hash(record.escrow_key),
-                        owner_pubkey: None,
                         eph_pk: sealed
                             .map(|sealed| Base64String(sealed.eph_pk.as_bytes().to_vec())),
                         ciphertext: sealed.map(|sealed| Base64String(sealed.ciphertext.to_vec())),
+                        ..record_view(&record)
                     },
-                    path: tree
-                        .path(index as u64)
-                        .unwrap()
-                        .into_iter()
-                        .map(Hash)
-                        .collect(),
+                    path: path_view(&tree.path(index).unwrap()),
                 }
             })
             .collect();
-        let mut history = [[0; 32]; custom_ring_interface::MEMBER_REGISTRY_ROOT_HISTORY];
-        history[0] = tree.root();
-        let state = MemberRegistryRoot {
-            discriminator: 0,
-            next_index: tree.next_index().to_le_bytes(),
-            bump: 0,
-            history_cursor: 0,
-            history,
-        };
         let pages = RegistryPages {
             first: GetRingMemberRecordsResponse {
                 context: Context::default(),
-                root: Hash(tree.root()),
-                root_index: 0,
-                next_index: tree.next_index(),
+                root: RingRegistryRootView {
+                    root: Hash(tip.root),
+                    root_index: tip.root_index,
+                    applied: 0,
+                    next_index: tip.next_index,
+                },
                 records,
                 next_leaf_index: Some(101),
             },
             requests: AtomicUsize::new(0),
         };
         MergeAudit::new(ring, &auditor)
-            .scan_registry(&pages, &state, |registered| {
+            .scan_registry(&pages, tip, |registered| {
                 assert_eq!(registered.key.secret(), key.secret());
                 Ok(true)
             })
@@ -810,49 +787,54 @@ mod tests {
 
     #[test]
     fn member_page_must_be_complete_and_contiguous() {
-        let root = [4; 32];
+        let tip = RegistryTip {
+            root: [4; 32],
+            root_index: 7,
+            next_index: 8,
+        };
         let record = RingMemberRecordView {
             member: Hash([1; 32]),
             next: Hash([2; 32]),
             lists: 0,
             escrow_key: Hash([0; 32]),
             owner_pubkey: None,
+            nullifier_pk: None,
             eph_pk: None,
             ciphertext: None,
+        };
+        let row = |index| RingIndexedMemberRecordView {
+            record: record.clone(),
+            path: RingRecordPathView {
+                index,
+                siblings: Vec::new(),
+            },
         };
         let mut response = GetRingMemberRecordsResponse {
             context: Context {
                 slot: 1,
                 block_time: 0,
             },
-            root: Hash(root),
-            root_index: 7,
-            next_index: 8,
-            records: (5..8)
-                .map(|index| RingIndexedMemberRecordView {
-                    index,
-                    record: record.clone(),
-                    path: Vec::new(),
-                })
-                .collect(),
+            root: RingRegistryRootView {
+                root: Hash(tip.root),
+                root_index: 7,
+                applied: 0,
+                next_index: 8,
+            },
+            records: (5..8).map(row).collect(),
             next_leaf_index: None,
         };
-        assert!(complete_member_page(&response, &root, 7, 8, 5));
-        response.records[1].index = 8;
-        assert!(!complete_member_page(&response, &root, 7, 8, 5));
-        response.records[1].index = 6;
+        assert!(complete_member_page(&response, tip, 5));
+        response.records[1].path.index = 8;
+        assert!(!complete_member_page(&response, tip, 5));
+        response.records[1].path.index = 6;
         response.records.pop();
-        assert!(!complete_member_page(&response, &root, 7, 8, 5));
-        response.records.push(RingIndexedMemberRecordView {
-            index: 7,
-            record,
-            path: Vec::new(),
-        });
+        assert!(!complete_member_page(&response, tip, 5));
+        response.records.push(row(7));
         response.next_leaf_index = Some(8);
-        assert!(!complete_member_page(&response, &root, 7, 8, 5));
+        assert!(!complete_member_page(&response, tip, 5));
         response.next_leaf_index = None;
-        response.root = Hash([9; 32]);
-        assert!(!complete_member_page(&response, &root, 7, 8, 5));
+        response.root.root = Hash([9; 32]);
+        assert!(!complete_member_page(&response, tip, 5));
     }
 
     struct TerminalHistory {

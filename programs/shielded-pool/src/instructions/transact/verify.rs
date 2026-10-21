@@ -1,6 +1,4 @@
 use crate::instructions::shared::caused_by;
-use ark_bn254::Fr;
-use ark_ff::PrimeField;
 use arrayvec::ArrayVec as RefArrayVec;
 use light_array_map::pubkey_eq;
 use light_program_profiler::profile;
@@ -16,14 +14,14 @@ use zolana_hasher::{
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::instruction_data::transact::{
-        is_confidential_encrypted_output, CircuitId, InterfaceTransfer, ResolvedOutput,
-        TransactIxDataRef,
+        amount_field, is_confidential_encrypted_output, CircuitId, InterfaceTransfer, PublicLeg,
+        PublicSlots, ResolvedOutput, TransactIxDataRef, ANONYMOUS_PARTIES,
     },
     shape::Shape,
     state::cache::{cached_input_fields, empty_cached_input_fields, CacheAccount},
     tree_slot::{populated_tree_slots_hash_chain, tree_id_field, TreeSlot},
     verifying_keys::OutputOwnerMode,
-    INPUT_TREES, MAX_TRANSACT_INPUTS, N_PUBLIC_SLOTS, SOL_ASSET_FIELD,
+    INPUT_TREES, MAX_TRANSACT_INPUTS, N_PUBLIC_SLOTS,
 };
 
 use crate::instructions::{settlement::Settlement, verifier};
@@ -112,8 +110,12 @@ const ASSIGNED_OUTPUT_TREE: u16 = 1 << 6;
 const ASSIGNED_CACHED_INPUTS: u16 = 1 << 7;
 const ASSIGNED_ANONYMOUS_PARTIES: u16 = 1 << 8;
 const CACHED_INPUT_FIELDS: usize = 2;
-/// Payer, co-signer and exit destination identities, zero when absent.
-const ANONYMOUS_PARTIES: usize = 3;
+/// Fields `public_input_hash` folds on the widest rail.
+const PUBLIC_INPUT_FIELDS: usize = 24;
+const _: () = assert!(
+    PUBLIC_INPUT_FIELDS
+        >= 5 + 2 + ANONYMOUS_PARTIES + 1 + 2 * N_PUBLIC_SLOTS + 3 + 1 + CACHED_INPUT_FIELDS
+);
 const ALL_ASSIGNMENTS: u16 = ASSIGNED_OUTPUT_OWNERS
     | ASSIGNED_OWNER_SIGNERS
     | ASSIGNED_PUBLIC_TRANSFERS
@@ -332,59 +334,18 @@ impl TransactProofInputs {
         {
             return Err(ShieldedPoolError::InvalidTransactShape.into());
         }
-
-        let mut used_slots = 0usize;
-        for (transfer, settlement) in interface_transfers.iter().zip(settlements.iter()) {
-            let amount = signed_amount(*transfer);
-            if amount == 0 || transfer.is_deposit() != settlement.is_deposit() {
-                return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
-            }
-
-            let hashed_mint = match settlement.spl_asset()? {
-                Some(mint) => hash_bytes(&mint)?,
-                None => SOL_ASSET_FIELD,
-            };
-            match self.public_slot_assets[..used_slots]
-                .iter()
-                .position(|slot_asset| *slot_asset == hashed_mint)
-            {
-                Some(index) => {
-                    let net = self.public_slot_amounts[index]
-                        .checked_add(amount)
-                        .ok_or(ShieldedPoolError::PublicAssetAmountOverflow)?;
-                    self.public_slot_amounts[index] = checked_slot_amount(net)?;
-                }
-                None => {
-                    if used_slots == num_public_asset_slots {
-                        return Err(ShieldedPoolError::TooManyPublicAssets.into());
-                    }
-                    self.public_slot_assets[used_slots] = hashed_mint;
-                    self.public_slot_amounts[used_slots] = checked_slot_amount(amount)?;
-                    used_slots += 1;
-                }
-            }
-        }
-        if self.public_slot_amounts[..used_slots].contains(&0) {
-            return Err(ShieldedPoolError::ZeroNetInterfaceTransferAmount.into());
-        }
+        let slots = PublicSlots::fold(interface_transfers.iter().zip(settlements).map(
+            |(transfer, settlement)| {
+                settlement.spl_asset().map(|mint| PublicLeg {
+                    transfer: *transfer,
+                    mint,
+                })
+            },
+        ))?;
+        self.public_slot_assets = slots.asset_fields()?;
+        self.public_slot_amounts = slots.amounts();
         self.assignments |= ASSIGNED_PUBLIC_TRANSFERS;
         Ok(())
-    }
-}
-
-fn checked_slot_amount(net: i128) -> Result<i128, ProgramError> {
-    if u64::try_from(net.unsigned_abs()).is_err() {
-        return Err(ShieldedPoolError::PublicAssetAmountOverflow.into());
-    }
-    Ok(net)
-}
-
-fn signed_amount(transfer: InterfaceTransfer) -> i128 {
-    let amount = i128::from(transfer.amount());
-    if transfer.is_deposit() {
-        amount
-    } else {
-        -amount
     }
 }
 
@@ -491,7 +452,7 @@ impl<'a> TransactProof<'a> {
             self.ix.outputs.iter().map(|output| output.utxo_hash),
             n_out,
         )?;
-        let mut fields: ArrayVec<[[u8; 32]; 24]> = ArrayVec::new();
+        let mut fields: ArrayVec<[[u8; 32]; PUBLIC_INPUT_FIELDS]> = ArrayVec::new();
         // The circuit's `TreeSlotsHashChain` over the populated slots followed
         // by zeroed ones: each populated slot hash folded onto the precomputed
         // zero suffix of the unused remainder.
@@ -724,26 +685,4 @@ pub fn fixed_signer_hash_chain(
             ))?;
     }
     Ok(chain)
-}
-
-pub fn amount_field(amount: i128) -> Result<[u8; 32], ProgramError> {
-    let magnitude = u64::try_from(amount.unsigned_abs())
-        .map_err(|_| ShieldedPoolError::PublicAssetAmountOverflow)?;
-    let value = Fr::from(magnitude);
-    let limbs = if amount.is_negative() {
-        (-value).into_bigint().0
-    } else {
-        value.into_bigint().0
-    };
-    let mut out = [0u8; 32];
-    for (target, limb) in out
-        .as_chunks_mut::<8>()
-        .0
-        .iter_mut()
-        .rev()
-        .zip(limbs.iter())
-    {
-        target.copy_from_slice(&limb.to_be_bytes());
-    }
-    Ok(out)
 }

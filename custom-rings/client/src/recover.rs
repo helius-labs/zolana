@@ -1,7 +1,7 @@
 //! Rebuilds a source member's unspent ring notes from what the auditor sees.
 
 use std::{
-    collections::{BTreeSet, HashSet},
+    collections::{BTreeSet, HashMap, HashSet},
     num::{NonZeroU32, NonZeroUsize},
 };
 
@@ -25,9 +25,9 @@ use zolana_transaction::{
 use crate::{
     decrypt::TransactionAudit,
     encryption::open_deposit,
-    opening::NoteOpening,
-    origin::TransactionOrigin,
+    origin::{RingOrigin, TransactionOrigin},
     scan::{pages, RingScan},
+    types::{OutputOpening, OutputPayloadErrorKind},
     AuditError,
 };
 
@@ -69,7 +69,7 @@ pub struct RecoveredNotes {
     pub unopened: Vec<[u8; 32]>,
     /// Tagged deposits whose ownership and spentness are unknown.
     pub unsupported_deposits: Vec<[u8; 32]>,
-    /// Verified merge mints missing from the asset registry. Their notes remain unresolved.
+    /// Verified merge mints the asset registry lacks, their notes stay unresolved.
     pub unknown_mints: BTreeSet<Address>,
 }
 
@@ -90,7 +90,7 @@ impl<'a> RingRecovery<'a> {
         self
     }
 
-    /// The ring's mode selects the disclosure layout the audit parses.
+    /// The rail a ring `Transact` frame parses under.
     pub fn with_mode(mut self, mode: RingMode) -> Self {
         self.mode = mode;
         self
@@ -189,14 +189,14 @@ impl<'a> MemberRecovery<'a> {
             .with_page_size(recovery.page_size)
             .with_max_pages(recovery.max_pages)
             .indexer_config(recovery.indexer_config)
-            .run(indexer, origin)
+            .confirmed(indexer, origin)
             .await?;
         if page.next_cursor.is_some() {
             return Err(AuditError::IncompleteScan);
         }
         let mut found = Found::default();
-        for transaction in &page.transactions {
-            self.audited_notes(transaction, owner_hash, assets, &mut found)?;
+        for confirmed in &page.transactions {
+            self.audited_notes(confirmed, owner_hash, assets, &mut found)?;
         }
         let deposits = self.deposit_history(indexer, origin).await?;
         let unsupported_deposits = self.deposited_notes(&deposits, assets, &mut found)?;
@@ -227,60 +227,70 @@ impl<'a> MemberRecovery<'a> {
         })
     }
 
-    /// The source's outputs in one audited transaction, proof-bound hashes first.
+    /// The source's ring outputs in one audited transaction, every opening already proof-bound.
     fn audited_notes(
         &self,
-        transaction: &ShieldedTransaction,
+        (transaction, origin): &(ShieldedTransaction, RingOrigin),
         owner_hash: [u8; 32],
         assets: &AssetRegistry,
         found: &mut Found,
     ) -> Result<(), AuditError> {
-        let audited = TransactionAudit {
-            auditor: self.recovery.auditor,
-            transaction,
-            assets,
-        }
-        .run_with_mode(self.recovery.mode)?;
-        for (slot_index, (fields, context)) in audited
-            .output_openings
+        let layout = origin.disclosure_layout(self.recovery.mode)?;
+        let source_key = HashMap::from([(
+            self.source.address.signing_pubkey.confidential_view_tag()?,
+            self.source.address.nullifier_pubkey,
+        )]);
+        let audited = TransactionAudit::new(transaction, layout)
+            .with_escrowed_keys(&source_key)
+            .run(self.recovery.auditor, assets)?;
+        // Any unopened slot but another owner's escrow miss could hide a source note.
+        if let Some(error) = audited
+            .payload_errors
             .iter()
-            .zip(&audited.output_contexts)
-            .enumerate()
+            .find(|error| error.kind != OutputPayloadErrorKind::EscrowUnknown)
         {
-            let Some(opening) = NoteOpening::new(fields) else {
+            return Err(AuditError::UnopenedOutput {
+                slot: error.slot_index,
+                kind: error.kind,
+            });
+        }
+        for output in &audited.outputs {
+            let OutputOpening::Ring { note, .. } = &output.opening else {
                 continue;
             };
-            if fields.owner_hash != owner_hash
-                || !opening.belongs_to_ring(Some(self.recovery.ring_program_id))?
-            {
+            let context = &output.context;
+            if note.owner_hash()? != owner_hash || !found.seen.insert(context.hash) {
                 continue;
             }
-            if !found.seen.insert(context.hash) {
-                continue;
-            }
-            let Some(mint) = opening.mint(assets)? else {
+            let mint = match note.mint.map(|mint| assets.mint(&mint)).transpose() {
+                Ok(mint) => mint,
+                Err(TransactionError::UnknownMint(mint)) => {
+                    found.unknown_mints.insert(mint);
+                    None
+                }
+                Err(error) => return Err(error.into()),
+            };
+            let Some(mint) = mint else {
                 // Ownership and spentness remain known even without the asset preimage.
                 found.unresolved.push((
                     context.hash,
                     self.source
                         .nullifier_key
-                        .nullifier(&context.hash, &fields.blinding)?,
+                        .nullifier(&context.hash, &note.blinding)?,
                 ));
                 continue;
             };
             let hashes = NoteDataHashes {
-                data_hash: Some(fields.data_hash).filter(|hash| *hash != [0; 32]),
-                ring_data_hash: Some(fields.ring_data_hash).filter(|hash| *hash != [0; 32]),
+                data_hash: Some(note.data_hash).filter(|hash| *hash != [0; 32]),
+                ring_data_hash: Some(note.ring_data_hash).filter(|hash| *hash != [0; 32]),
             };
-            // Recipient metadata is unproved. Only the disclosure's data hashes
-            // may determine which spending operations this note permits.
             let utxo = Utxo {
                 ring_program_id: Some(self.recovery.ring_program_id),
-                ..self.source.utxo(mint, opening.amount, fields.blinding)
+                ..self.source.utxo(mint, note.amount, note.blinding)
             };
             match self
                 .source
-                .note(utxo, context, hashes, transaction, slot_index as u32)?
+                .note(utxo, context, hashes, transaction, output.slot_index)?
             {
                 (note, true) => found.candidates.push(note),
                 (note, false) => found.unresolved.push((context.hash, note.nullifier)),
@@ -378,8 +388,7 @@ impl<'a> MemberRecovery<'a> {
                     continue;
                 }
                 let asset = Address::new_from_array(output.asset);
-                // The deposit proof binds the raw mint. Verify its note commitment
-                // even when the local asset registry has not learned its ID yet.
+                // The deposit proof binds the raw mint, the commitment verifies without a registry id.
                 let mint = match assets.mint(&asset) {
                     Ok(mint) => Some(mint),
                     Err(TransactionError::UnknownMint(_)) => None,
@@ -415,8 +424,7 @@ impl<'a> MemberRecovery<'a> {
         Ok(unsupported)
     }
 
-    /// Spent nullifiers and the ring merges that spent the source's notes, every rebuilt
-    /// merge successor checked for its own spend.
+    /// Spent nullifiers and the merges that spent the source's notes, each successor checked too.
     async fn follow_spends<I: AsyncRpc, O: TransactionOrigin>(
         &self,
         indexer: &I,
@@ -536,14 +544,16 @@ impl<'a> MemberRecovery<'a> {
     }
 }
 
-fn deposit_output(slot: &OutputSlot, ring: Address) -> Option<EncryptedRingDepositOutput> {
+pub(crate) fn deposit_output(
+    slot: &OutputSlot,
+    ring: Address,
+) -> Option<EncryptedRingDepositOutput> {
     decode_encrypted_ring_deposit_output_data(&slot.payload)
         .ok()
         .filter(|output| output.ring_program_id == ring.to_bytes())
 }
 
-/// Decrypts the proof-bound merge opening without needing any input plaintext.
-/// A temporary asset ID permits commitment verification before registry lookup.
+/// A temporary asset id verifies the commitment before the registry lookup.
 fn merge_successor(
     source: &SourceMember<'_>,
     transaction: &ShieldedTransaction,

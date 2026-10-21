@@ -31,9 +31,7 @@ use zolana_transaction::{
 };
 
 use crate::{
-    anonymous::{AnonymousRingReport, AnonymousRingState, AnonymousStreams},
     error::ClientError,
-    recovery::RingRecovery,
     rpc::{AsyncRpc, EncryptedUtxoMatch, IndexerRpcConfig, Rpc, ShieldedTransaction},
 };
 
@@ -48,8 +46,6 @@ pub struct UtxoScanResult {
     /// not, and the tags they were read by. [`History::entries`] classifies
     /// them.
     pub history: History,
-    /// Present with [`UtxoScan::with_anonymous_ring`].
-    pub anonymous: Option<AnonymousRingReport>,
 }
 
 /// One read of a wallet's UTXOs and history: configure it, then
@@ -59,7 +55,6 @@ pub struct UtxoScan<'a, K: ?Sized> {
     assets: &'a AssetRegistry,
     ring_deposit_payload: Option<(Address, DepositPayload)>,
     indexer_config: Option<IndexerRpcConfig>,
-    anonymous: Option<AnonymousRingState>,
 }
 
 impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
@@ -69,15 +64,7 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
             assets,
             ring_deposit_payload: None,
             indexer_config: None,
-            anonymous: None,
         }
-    }
-
-    /// Streams of the current viewing key only.
-    #[must_use]
-    pub fn with_anonymous_ring(mut self, state: AnonymousRingState) -> Self {
-        self.anonymous = Some(state);
-        self
     }
 
     /// Every indexer read waits, as `config` says, until the indexer has
@@ -106,11 +93,8 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
 
     /// Reads the transactions tagged with the owner tag, which confidential
     /// outputs carry, and with each held viewing key's tag, which deposits
-    /// carry, then the transactions that spent what they hold. With
-    /// [`with_anonymous_ring`](Self::with_anonymous_ring) it also walks the
-    /// anonymous ring streams, opens the change of every spend it finds and
-    /// runs a [`RingRecovery`] through the highest slot read for every ring a
-    /// tag was capped in.
+    /// carry, then the transactions that spent what they hold. Anonymous ring
+    /// streams are read by [`crate::AnonymousRingSync`].
     pub fn fetch<I: Rpc + ?Sized>(&self, indexer: &I) -> Result<UtxoScanResult, ClientError> {
         let fetched = self.fetch_rounds(indexer)?;
         Ok(UtxoScanResult {
@@ -122,7 +106,6 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
                 unknown_mints: fetched.owned.unknown_mints,
                 view_tags: fetched.tags.into_iter().collect(),
             },
-            anonymous: fetched.anonymous,
         })
     }
 
@@ -130,11 +113,6 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
         let address = self.keys.address()?;
         let mut tags = vec![address.signing_pubkey.confidential_view_tag()?];
         tags.extend(self.keys.viewing_public_keys().iter().map(X25519Pubkey::u));
-        let mut anonymous = self
-            .anonymous
-            .as_ref()
-            .map(|state| AnonymousStreams::new(self.keys, state, self.indexer_config))
-            .transpose()?;
 
         // The output tree the last page read named; every page reports it.
         let mut output_tree_id = None;
@@ -143,38 +121,13 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
             &mut seen,
             tagged_transactions(indexer, &tags, self.indexer_config, &mut output_tree_id)?,
         )?;
-        if let Some(streams) = &mut anonymous {
-            batch.extend(self.unseen(&mut seen, streams.read(indexer)?)?);
-        }
         let mut transactions = Vec::new();
         let mut decrypted = DecryptionResult::default();
         let mut queried = HashSet::new();
         loop {
             decrypted.extend(self.keys, &batch, self.assets)?;
-            if let Some(streams) = &mut anonymous {
-                let found = decrypted.extend_ring_anonymous(
-                    self.keys,
-                    &batch,
-                    self.assets,
-                    streams.routes(),
-                )?;
-                streams.record(found);
-            }
             transactions.append(&mut batch);
-            let mut owned = verify_owned(self.keys, &decrypted)?;
-            if let Some(streams) = &mut anonymous {
-                let nullifiers = owned.utxos.iter().map(|utxo| utxo.nullifier).collect();
-                if let Some(change) = streams.route_change(&transactions, &nullifiers)? {
-                    let found = decrypted.extend_ring_anonymous(
-                        self.keys,
-                        &change.spends,
-                        self.assets,
-                        &change.routes,
-                    )?;
-                    streams.record(found);
-                    owned = verify_owned(self.keys, &decrypted)?;
-                }
-            }
+            let owned = verify_owned(self.keys, &decrypted)?;
             let spendable = owned.spendable();
             // The spends of a UTXO queried in an earlier round are fetched.
             let nullifiers: Vec<_> = spendable
@@ -191,36 +144,7 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
                     &mut output_tree_id,
                 )?,
             )?;
-            if let Some(streams) = &mut anonymous {
-                batch.extend(self.unseen(&mut seen, streams.read(indexer)?)?);
-            }
-            if batch.is_empty() && anonymous.as_ref().is_none_or(AnonymousStreams::is_done) {
-                if let Some(streams) = &mut anonymous {
-                    let rings = streams.take_capped_rings();
-                    if !rings.is_empty() {
-                        let head = self
-                            .indexer_config
-                            .and_then(|config| config.require_slot)
-                            .or_else(|| transactions.iter().map(|tx| tx.slot).max())
-                            .unwrap_or_default();
-                        for ring in rings {
-                            let mut recovery =
-                                RingRecovery::new(self.keys, self.assets, ring, head);
-                            if let Some(config) = self.indexer_config {
-                                recovery = recovery.with_indexer_config(config);
-                            }
-                            let recovered =
-                                recovery.open_into(indexer, &mut decrypted, |history| {
-                                    self.unseen(&mut seen, history)
-                                })?;
-                            transactions.extend(recovered.transactions);
-                            streams.record_recovery(recovered.report);
-                        }
-                        // The recovered notes' spends are read like any other round's.
-                        continue;
-                    }
-                }
-                tags.extend(anonymous.iter().flat_map(AnonymousStreams::used_tags));
+            if batch.is_empty() {
                 return Ok(Fetched {
                     tags,
                     transactions,
@@ -228,7 +152,6 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
                     spendable: spendable
                         .with_latest_tree_id(output_tree_id)
                         .with_transaction_keys(self.keys)?,
-                    anonymous: anonymous.map(AnonymousStreams::finish),
                 });
             }
         }
@@ -320,7 +243,6 @@ struct Fetched {
     /// The final round's [`verify_owned`], spent UTXOs included.
     owned: OwnedUtxos,
     spendable: SpendableDecryptionResult,
-    anonymous: Option<AnonymousRingReport>,
 }
 
 /// The transactions tagged with any of `tags`. Deposits come from the

@@ -123,7 +123,7 @@ impl RingProject {
         Ok(())
     }
 
-    /// Re-pins under the upgrade authority.
+    /// Re-pins under the config authority.
     pub fn policy_set(&self, block: &str) -> Result<String> {
         let path = self.dir.join("ring.toml");
         let text = std::fs::read_to_string(&path)?;

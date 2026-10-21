@@ -1,5 +1,5 @@
 use borsh::BorshSerialize;
-use custom_ring_interface::member_registry::EscrowKey;
+use custom_ring_interface::member_registry::{EscrowKey, QueueEntry};
 use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
 use num_bigint::BigUint;
 use solana_account::Account;
@@ -30,7 +30,7 @@ use zolana_merkle_tree::indexed::{
 use zolana_merkle_tree::MerkleTree;
 use zolana_program::instruction::{CacheWriteAccounts, MergeRing, MergeTransact};
 use zolana_program_test::{test_blinding, ZolanaProgramTest, RING_TEST_PROGRAM_ID};
-use zolana_ring_member_registry::{MemberRegistryTree, Opening};
+use zolana_ring_member_registry::{MemberRegistryTree, RecordOpening, RecordTree};
 use zolana_test_utils::transact::nullifier_tree;
 use zolana_transaction::{instructions::merge::merge_dummy_nullifier, Data, Mint, Utxo};
 use zolana_user_registry_interface::{
@@ -675,36 +675,34 @@ impl RealRingMergeProof {
         // Build a real authenticated opening for the proof and its public input.
         let ciphertext = [7u8; 32];
         let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
-        let escrow_key = EscrowKey {
-            nullifier_pk: &nullifier_pk,
-            ciphertext: &ciphertext,
-        }
-        .hash()
-        .expect("escrow commitment");
         let member = owner_public_key
             .owner_proof_input_hash()
             .expect("owner member hash");
+        let registration = QueueEntry::escrow(
+            member,
+            &EscrowKey {
+                nullifier_pk: &nullifier_pk,
+                ciphertext: &ciphertext,
+            },
+        )
+        .expect("registration entry");
         let mut members = MemberRegistryTree::new().expect("member registry");
-        let item = members
-            .register_item(&member, escrow_key)
-            .expect("registration item");
-        members.apply(&[item]).expect("registered member");
-        let Opening::Present {
-            record,
-            index,
-            path,
-        } = members.opening(&member).expect("member opening")
+        members
+            .apply([0u8; 32], &[registration])
+            .expect("registered member");
+        let RecordOpening::Present { record, path } =
+            members.opening(&member).expect("member opening")
         else {
             panic!("registered member must be present");
         };
         let registration = MergeRegistration {
-            root: members.root(),
+            root: members.root().expect("registry root"),
             ciphertext_hash: Some(ciphertext_hash(&ciphertext).expect("ciphertext hash")),
             next: record.next,
             lists: record.lists,
             escrow_key: record.escrow_key,
-            index,
-            path,
+            index: path.index,
+            path: path.siblings.iter().flatten().copied().collect(),
         };
 
         let result = MergeProver {

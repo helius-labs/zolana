@@ -38,7 +38,7 @@ fn absorb(preimage: &mut Vec<u8>, name: &str, vk: &Groth16Verifyingkey) {
 
 #[test]
 fn verifying_key_fingerprint_is_pinned() {
-    let keys: [(&str, &Groth16Verifyingkey); 122] = vks![
+    let keys: [(&str, &Groth16Verifyingkey); 156] = vks![
         merge_8_1,
         merge_24_1,
         merge_52_1,
@@ -159,8 +159,42 @@ fn verifying_key_fingerprint_is_pinned() {
         transfer_ring_40_2,
         transfer_ring_48_2,
         transfer_ring_49_2,
+        transfer_ring_authority_1_2,
+        transfer_ring_authority_1_4,
+        transfer_ring_authority_1_8,
         transfer_ring_authority_2_2,
+        transfer_ring_authority_2_4,
+        transfer_ring_authority_1_16,
+        transfer_ring_authority_2_8,
+        transfer_ring_authority_3_2,
+        transfer_ring_authority_3_4,
+        transfer_ring_authority_2_16,
+        transfer_ring_authority_3_8,
+        transfer_ring_authority_4_2,
         transfer_ring_authority_4_4,
+        transfer_ring_authority_4_8,
+        transfer_ring_authority_5_2,
+        transfer_ring_authority_5_4,
+        transfer_ring_authority_4_16,
+        transfer_ring_authority_5_8,
+        transfer_ring_authority_6_2,
+        transfer_ring_authority_6_4,
+        transfer_ring_authority_5_16,
+        transfer_ring_authority_6_8,
+        transfer_ring_authority_8_2,
+        transfer_ring_authority_8_4,
+        transfer_ring_authority_8_8,
+        transfer_ring_authority_8_16,
+        transfer_ring_authority_12_2,
+        transfer_ring_authority_12_4,
+        transfer_ring_authority_12_8,
+        transfer_ring_authority_16_2,
+        transfer_ring_authority_16_4,
+        transfer_ring_authority_16_8,
+        transfer_ring_authority_24_2,
+        transfer_ring_authority_24_4,
+        transfer_ring_authority_32_2,
+        transfer_ring_authority_40_2,
     ];
 
     let mut preimage = Vec::new();
@@ -173,7 +207,7 @@ fn verifying_key_fingerprint_is_pinned() {
     // `Sha256BE` zeroes the leading byte (field-element convention), so the
     // fingerprint always starts with `00`.
     assert_eq!(
-        fingerprint, "00ec9d1b28babf3f4195b9af914cb162c8b0f1178c669097cd40f27ad46117bd",
+        fingerprint, "006e4ee65ba5004d37ed873017ea344fc3fb7857e3c5519aff8380a854c7bdb5",
         "verifying keys changed; if this rotation is intentional, re-pin the fingerprint"
     );
 }

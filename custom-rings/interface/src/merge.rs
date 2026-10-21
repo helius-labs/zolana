@@ -1,23 +1,26 @@
 use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 use zolana_hasher::{
     hash_chain::{create_hash_chain_4_from_slice, create_hash_chain_from_slice},
-    primitives::{hash_bytes, pack_be_chunks, right_align},
+    primitives::{hash_bytes, pack_be, pack_be_chunks, right_align},
     HasherError,
 };
-use zolana_interface::instruction::instruction_data::merge_transact::{
-    MergeTransactIxData, MergeTransactIxDataRef,
-};
+use zolana_interface::instruction::instruction_data::merge_transact::MergeTransactIxData;
 
-use crate::{pack_2fe, CustomRingProof, AUDIT_CIPHERTEXT_LEN, TAGGED_X25519_KEY_LEN};
+use crate::{
+    bytes::Bytes, error::CustomRingError, CustomRingProof, AUDIT_CIPHERTEXT_LEN,
+    TAGGED_X25519_KEY_LEN,
+};
 
 /// Owner key, nullifier pk, mint, amount and output blinding ahead of the input commitments.
 pub const MERGE_DISCLOSURE_HEADER_LEN: usize = 32 + 32 + 32 + 8 + 32;
 pub const MERGE_DISCLOSURE_INFO: &[u8; 10] = b"CRING/mrg1";
-pub const MERGE_ANONYMOUS_PUBLIC_INPUT_ELEMENTS: usize = 13;
+pub const MERGE_ANONYMOUS_PUBLIC_INPUT_ELEMENTS: usize = 12;
 const MERGE_ANONYMOUS_DOMAIN: &[u8; 4] = b"CRMG";
 
 /// SPP merge widths whose anonymous merge, disclosure and nullifier accounts fit one v1 transaction.
 pub const ANONYMOUS_MERGE_WIDTHS: [usize; 2] = [8, 24];
+/// `expiry_unix_ts u64 || proof.a` open the SPP merge body ahead of `proof.b`.
+const MERGE_B_OFFSET: usize = core::mem::size_of::<u64>() + 32;
 
 /// Plaintext bytes of the disclosure of a merge of `width` circuit slots.
 pub const fn merge_disclosure_len(width: usize) -> usize {
@@ -29,9 +32,8 @@ pub const fn merge_disclosure_field_count(width: usize) -> usize {
     pack_be_chunks(merge_disclosure_len(width))
 }
 
-/// Compact ring-program merge request. The ring program replaces the root
-/// history index with the authenticated root before forwarding to SPP.
-#[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+/// The SPP merge body with `proof.b` compressed, the program resolves `registry_root_index` to its root.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CustomRingMergeIxData {
     pub registry_root_index: u8,
     pub output_ring_data_hash: [u8; 32],
@@ -50,25 +52,44 @@ pub struct MergeDisclosure {
     pub fields: Vec<[u8; 32]>,
 }
 
+#[cfg(not(target_os = "solana"))]
 impl CustomRingMergeIxData {
-    pub fn serialize(&self) -> Result<Vec<u8>, wincode::Error> {
-        Ok(wincode::serialize(self)?)
-    }
-
-    pub fn deserialize(data: &[u8]) -> Result<Self, wincode::Error> {
-        Ok(wincode::deserialize_exact(data)?)
+    /// The bytes after the instruction tag.
+    pub fn serialize(&self) -> Result<Vec<u8>, CustomRingError> {
+        let body = self.merge.serialize().map_err(invalid_data)?;
+        let (head, rest) = body
+            .split_at_checked(MERGE_B_OFFSET)
+            .ok_or(CustomRingError::InvalidInstructionData)?;
+        let tail = rest
+            .get(self.merge.proof.b.len()..)
+            .ok_or(CustomRingError::InvalidInstructionData)?;
+        let b = solana_bn254::compression::prelude::alt_bn128_g2_compress_be(&self.merge.proof.b)
+            .map_err(|_| CustomRingError::InvalidSppProofPoint)?;
+        Ok([
+            &[self.registry_root_index][..],
+            &self.output_ring_data_hash,
+            &wincode::serialize(&self.disclosure).map_err(invalid_data)?,
+            head,
+            &b,
+            tail,
+        ]
+        .concat())
     }
 }
 
-/// Borrowed view of the compact request. The merge body and proof alias the
-/// instruction buffer, including the variable-length nullifier list.
+#[cfg(not(target_os = "solana"))]
+fn invalid_data<E>(_: E) -> CustomRingError {
+    CustomRingError::InvalidInstructionData
+}
+
+/// Borrowed view of the compact request, the SPP merge body read around its compressed `b`.
 pub struct CustomRingMergeIxDataRef<'a> {
     pub registry_root_index: u8,
     pub output_ring_data_hash: &'a [u8; 32],
     pub disclosure: Option<MergeDisclosureRef<'a>>,
-    pub merge: MergeTransactIxDataRef<'a>,
-    /// Exact serialized SPP merge body, reused when forwarding the instruction.
-    pub merge_body: &'a [u8],
+    head: &'a [u8; MERGE_B_OFFSET],
+    compressed_b: &'a [u8; 64],
+    tail: &'a [u8],
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -80,52 +101,49 @@ pub struct MergeDisclosureRef<'a> {
 }
 
 impl<'a> CustomRingMergeIxDataRef<'a> {
-    pub fn from_bytes(data: &'a [u8]) -> Result<Self, wincode::ReadError> {
-        let (registry_root_index, body) = data
-            .split_first()
-            .ok_or(wincode::ReadError::Custom("missing root index"))?;
-        let (output_ring_data_hash, body) = body
-            .split_first_chunk::<32>()
-            .ok_or(wincode::ReadError::Custom("missing ring data hash"))?;
-        let (disclosure, body) = MergeDisclosureRef::parse(body)?;
+    pub fn from_bytes(data: &'a [u8]) -> Result<Self, CustomRingError> {
+        let mut bytes = Bytes::new(data, CustomRingError::InvalidInstructionData);
+        let registry_root_index = bytes.byte()?;
+        let output_ring_data_hash = bytes.array()?;
+        let disclosure = MergeDisclosureRef::read(&mut bytes)?;
+        let head = bytes.array()?;
+        let compressed_b = bytes.array()?;
         Ok(Self {
-            registry_root_index: *registry_root_index,
+            registry_root_index,
             output_ring_data_hash,
             disclosure,
-            merge: MergeTransactIxDataRef::from_bytes(body)?,
-            merge_body: body,
+            head,
+            compressed_b,
+            tail: bytes.rest(),
         })
+    }
+
+    /// The SPP merge body the program forwards, `proof.b` decompressed, SPP's parser reads the rest.
+    pub fn spp_merge_body(&self) -> Result<Vec<u8>, CustomRingError> {
+        let b = groth16_solana::decompression::decompress_g2(self.compressed_b)
+            .map_err(|_| CustomRingError::InvalidSppProofPoint)?;
+        Ok([&self.head[..], &b, self.tail].concat())
     }
 }
 
 impl<'a> MergeDisclosureRef<'a> {
-    /// Reads the wincode option ahead of the SPP body.
-    fn parse(data: &'a [u8]) -> Result<(Option<Self>, &'a [u8]), wincode::ReadError> {
-        let truncated = || wincode::ReadError::Custom("truncated merge disclosure");
-        let (present, data) = data.split_first().ok_or_else(truncated)?;
-        match present {
-            0 => return Ok((None, data)),
+    /// The wincode option ahead of the SPP body.
+    fn read(bytes: &mut Bytes<'a>) -> Result<Option<Self>, CustomRingError> {
+        match bytes.byte()? {
+            0 => return Ok(None),
             1 => {}
-            _ => return Err(wincode::ReadError::Custom("invalid merge disclosure tag")),
+            _ => return Err(CustomRingError::InvalidInstructionData),
         }
-        let (proof, data) = data
-            .split_first_chunk::<{ CustomRingProof::SIZE }>()
-            .ok_or_else(truncated)?;
-        let (eph_pk, data) = data.split_first_chunk().ok_or_else(truncated)?;
-        let (ciphertext, data) = data.split_first_chunk().ok_or_else(truncated)?;
-        let (count, data) = data.split_first().ok_or_else(truncated)?;
-        let (fields, data) = data
-            .split_at_checked(32 * usize::from(*count))
-            .ok_or_else(truncated)?;
-        Ok((
-            Some(Self {
-                proof: bytemuck::from_bytes(proof),
-                eph_pk,
-                ciphertext,
-                fields: fields.as_chunks().0,
-            }),
-            data,
-        ))
+        let proof = bytes.pod()?;
+        let eph_pk = bytes.array()?;
+        let ciphertext = bytes.array()?;
+        let count = bytes.byte()?;
+        Ok(Some(Self {
+            proof,
+            eph_pk,
+            ciphertext,
+            fields: bytes.fields(usize::from(count))?,
+        }))
     }
 }
 
@@ -136,7 +154,6 @@ pub struct MergeAnonymousPublicInput<'a> {
     pub first_nullifier: &'a [u8; 32],
     /// `hash_bytes` of the ring program id, the value the merged notes commit.
     pub ring_id: &'a [u8; 32],
-    pub member_registry_root: &'a [u8; 32],
     pub auditor_pk: &'a [u8; TAGGED_X25519_KEY_LEN],
     pub eph_pk: &'a [u8; TAGGED_X25519_KEY_LEN],
     pub ciphertext: &'a [u8; AUDIT_CIPHERTEXT_LEN],
@@ -153,19 +170,18 @@ impl MergeAnonymousPublicInput<'_> {
     pub fn elements(
         &self,
     ) -> Result<[[u8; 32]; MERGE_ANONYMOUS_PUBLIC_INPUT_ELEMENTS], HasherError> {
-        let auditor = pack_2fe(self.auditor_pk);
-        let eph = pack_2fe(self.eph_pk);
+        let [auditor_lo, auditor_hi] = pack_be(self.auditor_pk);
+        let [eph_lo, eph_hi] = pack_be(self.eph_pk);
         Ok([
             right_align(MERGE_ANONYMOUS_DOMAIN),
             *self.private_tx_hash,
             *self.output_utxo_hash,
             *self.first_nullifier,
             *self.ring_id,
-            *self.member_registry_root,
-            auditor.lo,
-            auditor.hi,
-            eph.lo,
-            eph.hi,
+            auditor_lo,
+            auditor_hi,
+            eph_lo,
+            eph_hi,
             hash_bytes(self.ciphertext)?,
             right_align(self.salt),
             create_hash_chain_4_from_slice(self.fields)?,
@@ -176,74 +192,6 @@ impl MergeAnonymousPublicInput<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::PlainGroth16Proof;
-    use zolana_interface::instruction::instruction_data::merge_transact::{
-        MergeOutputEncryption, MergeProof,
-    };
-
-    fn request(disclosure: Option<MergeDisclosure>) -> CustomRingMergeIxData {
-        CustomRingMergeIxData {
-            registry_root_index: 3,
-            output_ring_data_hash: [8; 32],
-            disclosure,
-            merge: MergeTransactIxData {
-                expiry_unix_ts: 42,
-                proof: MergeProof::zeroed(),
-                output_utxo_hash: [1; 32],
-                output_encryption: MergeOutputEncryption::PoseidonCtrV1 {
-                    salt: [2; 16],
-                    ciphertext: [[3; 32]; 3],
-                },
-                private_tx_hash: [4; 32],
-                nullifiers: vec![[5; 32]],
-                utxo_tree_root_index: 0,
-                nullifier_tree_root_index: 0,
-                cache_slot: None,
-            },
-        }
-    }
-
-    #[test]
-    fn the_view_reads_the_owned_layout_and_keeps_the_exact_spp_body() {
-        let disclosure = MergeDisclosure {
-            proof: CustomRingProof {
-                groth16: PlainGroth16Proof {
-                    proof_a: [9; 32],
-                    proof_b: [10; 64],
-                    proof_c: [11; 32],
-                },
-                commitment: [12; 32],
-                commitment_pok: [13; 32],
-            },
-            eph_pk: [4; 33],
-            ciphertext: [14; 32],
-            fields: vec![[15; 32]; merge_disclosure_field_count(8)],
-        };
-        for disclosure in [None, Some(disclosure)] {
-            let request = request(disclosure);
-            let mut bytes = request.serialize().unwrap();
-            let view = CustomRingMergeIxDataRef::from_bytes(&bytes).unwrap();
-            assert_eq!(view.registry_root_index, 3);
-            assert_eq!(view.output_ring_data_hash, &[8; 32]);
-            assert_eq!(view.merge.nullifiers, request.merge.nullifiers);
-            assert_eq!(view.merge_body, request.merge.serialize().unwrap());
-            match (&view.disclosure, &request.disclosure) {
-                (Some(view), Some(owned)) => {
-                    assert_eq!(view.proof, &owned.proof);
-                    assert_eq!(view.eph_pk, &owned.eph_pk);
-                    assert_eq!(view.ciphertext, &owned.ciphertext);
-                    assert_eq!(view.fields, owned.fields);
-                }
-                (None, None) => {}
-                _ => panic!("the view changed the disclosure presence"),
-            }
-            bytes.push(0);
-            assert!(CustomRingMergeIxDataRef::from_bytes(&bytes).is_err());
-        }
-        let mut invalid = request(None).serialize().unwrap();
-        invalid[33] = 2;
-        assert!(CustomRingMergeIxDataRef::from_bytes(&invalid).is_err());
-    }
 
     #[test]
     fn the_statement_matches_the_go_vector() {
@@ -267,7 +215,6 @@ mod tests {
             output_utxo_hash: &array(&request["outputUtxoHash"]),
             first_nullifier: &array(&request["firstNullifier"]),
             ring_id: &array(&request["ringProgramId"]),
-            member_registry_root: &array(&request["memberRegistryRoot"]),
             auditor_pk: &bytes(&vector["auditor_pk"]).try_into().unwrap(),
             eph_pk: &bytes(&vector["eph_pk"]).try_into().unwrap(),
             ciphertext: &array(&vector["envelope_ciphertext"]),

@@ -1,12 +1,11 @@
 use solana_address::Address;
 use solana_pubkey::Pubkey;
-use solana_signature::Signature;
 use thiserror::Error;
 use zolana_hasher::HasherError;
 use zolana_interface::error::ShieldedPoolError;
 use zolana_keypair::KeypairError;
 use zolana_program::instruction::DepositBuildError;
-use zolana_transaction::{AnonymousSlotDefect, TransactionError};
+use zolana_transaction::TransactionError;
 
 use crate::prover::tee::TeeError;
 
@@ -20,6 +19,8 @@ pub enum ClientError {
     RingRegistryPageGap,
     #[error("the member has no record in the ring member registry")]
     RingMemberUnregistered,
+    #[error("the ring record queue moved under the request")]
+    RingRecordQueueChanged,
     #[error("address input {index} is not supported by merge or ring authority proofs")]
     AddressInputUnsupported { index: usize },
     #[error("deposit builder error: {0}")]
@@ -258,9 +259,6 @@ pub enum ClientError {
     #[error("the prover has no indexer for indexed proofs")]
     ProverIndexerUnconfigured,
 
-    #[error("the ring member registry holds no matching nullifier key for member {member:?}")]
-    RegistryMemberMissing { member: [u8; 32] },
-
     #[error("invalid indexed proof request")]
     InvalidIndexedRequest,
 
@@ -436,45 +434,31 @@ pub enum ClientError {
     #[error("every index of the tag stream is occupied")]
     TagStreamExhausted,
 
+    #[error("every inbox index of epoch {epoch} is used, the payment waits for the next epoch")]
+    InboxStreamFull { epoch: u64 },
+
+    #[error("the ring address names ring {address_ring}, the payment is in ring {ring}")]
+    ForeignRingAddress {
+        address_ring: Address,
+        ring: Address,
+    },
+
     #[error(
         "{count} issued ring addresses pass the maximum of {max}",
         max = crate::anonymous::MAX_ISSUED_ADDRESSES
     )]
     TooManyIssuedAddresses { count: u64 },
 
+    #[error("anonymous ring state version {version} needs a rescan from the ring's creation")]
+    AnonymousRingStateVersion { version: u32 },
+
+    #[error("anonymous ring state does not parse because {0}")]
+    AnonymousRingState(String),
+
     /// The indexer answered a full page with the cursor it was given, so
     /// paging on would read the same page forever.
     #[error("indexer returned the cursor it was given; paging would not end")]
     IndexerCursorNotAdvanced,
-
-    #[error("ring {ring_program_id} history did not end within {pages} page(s)")]
-    RingHistoryPageLimit {
-        ring_program_id: Address,
-        pages: usize,
-    },
-
-    #[error("ring {ring_program_id} history page states no scan frontier")]
-    RingHistoryIncomplete { ring_program_id: Address },
-
-    #[error(
-        "ring {ring_program_id} history is indexed through slot {indexed}, short of head {head}"
-    )]
-    RingHistoryBehindHead {
-        ring_program_id: Address,
-        head: u64,
-        indexed: u64,
-    },
-
-    /// Fails the recovery scan, the tag scan reports the slot and continues.
-    #[error("ring transaction {tx_signature} slot {slot_index} carries {defect}, the ring program refuses it")]
-    RingHistoryMalformed {
-        tx_signature: Signature,
-        slot_index: u32,
-        defect: AnonymousSlotDefect,
-    },
-
-    #[error("ring history row {tx_signature} names another ring or none")]
-    RingHistoryForeignRow { tx_signature: Signature },
 
     #[error("indexer did not reach slot {required} within {attempts} attempts; highest indexed slot is {indexed}")]
     IndexerNotCaughtUp {
@@ -519,7 +503,7 @@ pub enum ClientError {
     )]
     AnonymousRingEddsaPublishedOwnerLeaksIdentity { index: usize },
 
-    #[error("the hidden owner's signature does not verify over this ring's spend message")]
+    #[error("the hidden owner's signature does not verify over the ring's spend message")]
     AnonymousSpendSignatureInvalid,
 
     #[error("an anonymous spend takes an exit token owner exactly when it withdraws SPL")]
@@ -551,6 +535,12 @@ impl ClientError {
             Self::Rpc(message) => Self::Rpc(format!("{signature}: {message}")),
             other => other,
         }
+    }
+}
+
+impl From<custom_ring_interface::stream::StreamError> for ClientError {
+    fn from(error: custom_ring_interface::stream::StreamError) -> Self {
+        Self::Transaction(error.into())
     }
 }
 

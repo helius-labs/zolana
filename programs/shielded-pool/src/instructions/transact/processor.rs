@@ -288,15 +288,19 @@ pub fn anonymous_exit_destination<'a>(
     AnonymousParties::exit_destination(exits.into_iter())
 }
 
-/// The ring program appends its configured co-signer, zero when none, after
-/// the anonymous instruction. Every other rail ends with the instruction.
+/// The co-signer the ring program appends to an anonymous instruction, zero for none.
 pub fn control_cosigner(
     circuit: CircuitId,
     tail: &[u8],
 ) -> Result<Option<&[u8; 32]>, ProgramError> {
-    match (circuit.is_anonymous(), tail.try_into()) {
-        (true, Ok(cosigner)) => Ok(Some(cosigner)),
-        (false, _) if tail.is_empty() => Ok(None),
-        _ => Err(ShieldedPoolError::InvalidAnonymousControlTail.into()),
+    if circuit.is_anonymous() {
+        let cosigner: &[u8; 32] = tail
+            .try_into()
+            .map_err(|_| ShieldedPoolError::InvalidAnonymousControlTail)?;
+        Ok((*cosigner != [0u8; 32]).then_some(cosigner))
+    } else if tail.is_empty() {
+        Ok(None)
+    } else {
+        Err(ProgramError::InvalidInstructionData)
     }
 }

@@ -20,12 +20,14 @@ use crate::{
     },
     rpc::{
         GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse, GetNonInclusionProofsResponse,
-        GetRingMemberRecordRequest, GetRingMemberRecordResponse, GetRingMemberRecordsRequest,
-        GetRingMemberRecordsResponse, GetRingMemberRegistryRootRequest,
-        GetRingMemberRegistryRootResponse, GetShieldedTransactionsByNullifiersResponse,
-        GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
-        GetUserRecordsResponse, IndexerRpcConfig, ProveResult, RingHistoryOptions,
-        ShieldedTransactionStream,
+        GetRingApplyProofInputsRequest, GetRingApplyProofInputsResponse,
+        GetRingMemberOpeningsRequest, GetRingMemberOpeningsResponse, GetRingMemberRecordRequest,
+        GetRingMemberRecordResponse, GetRingMemberRecordsRequest, GetRingMemberRecordsResponse,
+        GetRingMemberRegistryRootRequest, GetRingMemberRegistryRootResponse,
+        GetRingRecordQueueRequest, GetRingRecordQueueResponse,
+        GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
+        GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, IndexerRpcConfig,
+        ProveResult, RingHistoryOptions, ShieldedTransactionStream,
     },
 };
 
@@ -281,6 +283,27 @@ impl<R: AsyncRpc, I: AsyncIndexer> AsyncRpc for AsyncZolanaClient<R, I> {
         request: GetRingMemberRegistryRootRequest,
     ) -> Result<GetRingMemberRegistryRootResponse, ClientError> {
         self.indexer.get_ring_member_registry_root(request).await
+    }
+
+    async fn get_ring_member_openings(
+        &self,
+        request: GetRingMemberOpeningsRequest,
+    ) -> Result<GetRingMemberOpeningsResponse, ClientError> {
+        self.indexer.get_ring_member_openings(request).await
+    }
+
+    async fn get_ring_record_queue(
+        &self,
+        request: GetRingRecordQueueRequest,
+    ) -> Result<GetRingRecordQueueResponse, ClientError> {
+        self.indexer.get_ring_record_queue(request).await
+    }
+
+    async fn get_ring_apply_proof_inputs(
+        &self,
+        request: GetRingApplyProofInputsRequest,
+    ) -> Result<GetRingApplyProofInputsResponse, ClientError> {
+        self.indexer.get_ring_apply_proof_inputs(request).await
     }
 
     async fn get_user_records(

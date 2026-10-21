@@ -338,12 +338,12 @@ impl<R, I> ZolanaClient<R, I> {
         self.client.indexer.inner()
     }
 
-    /// The `async` client this one runs, for a blocking caller of an `async` API.
+    /// The `async` client underneath, for a blocking caller of an `async` API.
     pub fn as_async(&self) -> &AsyncZolanaClient<Blocking<R>, Blocking<I>> {
         &self.client
     }
 
-    /// Runs `future` on this client's runtime.
+    /// Runs `future` on the runtime the blocking client owns.
     pub fn block_on<T, E: From<zolana_api::BlockingInsideRuntime>>(
         &self,
         future: impl std::future::Future<Output = Result<T, E>>,

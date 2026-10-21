@@ -20,7 +20,7 @@ use zolana_cli_common::{
 use crate::{
     config::{RingConfig, Target, Urls},
     file, keys, line, probe,
-    release::{RingKey, RingRelease},
+    release::{RingKey, RingRelease, RING_KEYS},
     tool::{Tool, SOLANA_TEST_VALIDATOR, ZOLANA},
     ui::{self, icon},
     workspace::{Workspace, WRONG_TARGET},
@@ -73,7 +73,7 @@ fn bring_up(config: &RingConfig, auditor_key: &Path, replace: bool) -> Result<()
         ZOLANA.check_installed()?;
         SOLANA_TEST_VALIDATOR.check_installed()?;
         let keys_dir = prover_keys_dir()?;
-        for key in RingKey::ALL {
+        for key in RING_KEYS {
             release.ensure_as(release.key(key)?, &keys_dir.join(key.file_name()))?;
         }
         line("validator", "zolana dev start");
@@ -193,7 +193,7 @@ fn serve(binary: &Path, config: &RingConfig, port: u16, auditor_key: &Path) -> C
     command
 }
 
-/// Receipts of the services this cli started, the task scope when one is set.
+/// Receipts of the services the cli started, the task scope when one is set.
 fn scope() -> Result<PathBuf> {
     if let Some(scope) = process_scope()? {
         return Ok(scope);
@@ -203,7 +203,7 @@ fn scope() -> Result<PathBuf> {
     Ok(scope)
 }
 
-/// Replaces a ring rpc this cli started, a listener it did not start is refused.
+/// Replaces a ring rpc the cli started, a listener it did not start is refused.
 fn start_ring_rpc(
     mut command: Command,
     config: &RingConfig,
@@ -247,10 +247,10 @@ fn check_prover_serves_custom_ring(prover_url: &str) -> Result<()> {
         .and_then(reqwest::blocking::Response::error_for_status)
         .and_then(reqwest::blocking::Response::json)
         .with_context(|| format!("cannot read the prover health at {url}"))?;
-    let serves = |key: &RingKey| health.circuits.iter().any(|name| name == key.circuit());
+    let serves = |key: &RingKey| health.circuits.iter().any(|name| name == key.name);
     let newer = "install the zolana cli of a newer localnet release";
     ensure!(
-        RingKey::ALL.iter().all(serves),
+        RING_KEYS.iter().all(serves),
         "the prover at {url} serves no custom-ring circuit, {newer}"
     );
     Ok(())

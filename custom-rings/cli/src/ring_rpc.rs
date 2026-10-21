@@ -171,8 +171,6 @@ impl RingRpcClient {
     }
 }
 
-/// Walks pages until the requested event appears. A page error is a retry.
-/// A repeated cursor is an error.
 fn find_decrypted(
     signature: Signature,
     event_index: u16,
@@ -256,14 +254,14 @@ mod tests {
 
     fn opened(signature: Signature) -> DecryptedTransaction {
         DecryptedTransaction {
-            anonymous: None,
             slot: 1,
             tx_signature: signature.into(),
             event_index: 0,
             tx_viewing_pk: Vec::new().into(),
             outputs: Vec::new(),
-            output_openings: Vec::new(),
             payload_errors: Vec::new(),
+            sender: None,
+            inputs: Vec::new(),
             nullifiers: Vec::new(),
             signers: Vec::new(),
             withdrawals: Vec::new(),

@@ -50,7 +50,13 @@ zolana-interface = { workspace = true }
 zolana-keypair = { workspace = true }
 zolana-secret-file = { workspace = true }
 zolana-ring-client = { workspace = true, features = ["rpc", "solana-rpc"] }
+zolana-ring-policy = { workspace = true }
 zolana-transaction = { workspace = true }
 
 [dev-dependencies]
+borsh = { workspace = true }
 bytemuck = { workspace = true }
+zolana-event = { workspace = true }
+zolana-event-parser = { workspace = true }
+zolana-hasher = { workspace = true }
+zolana-ring-member-registry = { workspace = true }

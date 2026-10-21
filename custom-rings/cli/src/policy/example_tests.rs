@@ -5,8 +5,7 @@ use std::path::{Path, PathBuf};
 use zolana_ring_policy::{Guard, Subject};
 
 use crate::{
-    config::{RingConfig, Target},
-    file,
+    config::{parse_ring_toml, RingConfig, Target},
     new::read_policy,
     policy::SourceSpec,
 };
@@ -36,7 +35,6 @@ struct Forms {
     assets: bool,
     above: bool,
     per_cluster_source: bool,
-    address_tree: bool,
     empty_table: bool,
     audit_only: bool,
     limits: bool,
@@ -48,7 +46,7 @@ fn every_example_loads_and_compiles_on_both_clusters() {
     for name in EXAMPLES {
         let path = path(name);
         let config: RingConfig =
-            file::parse_toml(&path).unwrap_or_else(|error| panic!("{name} parses, {error}"));
+            parse_ring_toml(&path).unwrap_or_else(|error| panic!("{name} parses, {error}"));
         assert_eq!(config.name, name);
         let Some(policy) = config.policy.as_ref() else {
             assert!(read_policy(&path).is_err(), "{name} holds no policy table");
@@ -73,7 +71,6 @@ fn every_example_loads_and_compiles_on_both_clusters() {
             forms.limits |= !compiled.rules.limits().is_empty();
         }
         forms.empty_table |= policy.rules.is_empty();
-        forms.address_tree |= policy.address_tree.is_some();
         forms.per_cluster_source |= Target::ALL
             .into_iter()
             .all(|target| !policy.sources.get(target).is_empty());
@@ -103,7 +100,6 @@ fn every_example_loads_and_compiles_on_both_clusters() {
         forms.per_cluster_source,
         "an example names a curator per cluster"
     );
-    assert!(forms.address_tree, "an example names its tree");
     assert!(forms.empty_table, "an example pins an empty table");
     assert!(forms.audit_only, "an example carries no policy table");
     assert!(forms.limits, "an example bounds each transfer's outflow");

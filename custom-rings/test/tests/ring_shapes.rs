@@ -1,557 +1,523 @@
-//! Every shipped policy key executes both proofs and the SPP state transition.
+//! Every ring proving key lands on localnet, and every keyed shape of every rail settles or is
+//! refused before proving as too large.
 
 use super::*;
-use custom_ring_interface::{policy_shape_supported, tag};
-use custom_ring_test_validator::policy::{owner_member, RegistryWrite, RingNotes};
-use custom_ring_test_validator::shared::setup_with_extra_rings;
-use zolana_interface::shape::{Shape, SPP_SUPPORTED_SHAPES};
-use zolana_ring_client::TransactionAudit;
-use zolana_ring_policy::{ListId, OutflowLimit, Rule, RuleTable, Subject};
-use zolana_test_utils::test_validator_asserts::{assert_ring_transact, RingTransactAssertArgs};
+use custom_ring_interface::{
+    anonymous_audit_class,
+    key_catalog::{RingCircuit, RING_KEYS},
+    ParsedTransact, ANONYMOUS_ENTRY_OUTPUTS, ANONYMOUS_MERGE_WIDTHS,
+};
+use custom_ring_test_validator::{policy::RingNotes, shared::setup_with_extra_rings};
+use zolana_client::{Shape, SPP_SUPPORTED_SHAPES};
 
 const NOTE_AMOUNT: u64 = 1_000_000;
 
-fn payment_amount(shape: Shape, output_count: usize) -> u64 {
-    NOTE_AMOUNT * shape.n_inputs() as u64 / (2 * output_count as u64)
-}
-
-#[derive(Clone, Copy, Debug)]
-enum Mode {
-    Member,
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Column {
+    Confidential,
+    ConfidentialPolicy,
     Anonymous,
+    AnonymousPolicy,
     Delegate,
 }
 
-impl Mode {
-    fn anonymous(self) -> bool {
-        matches!(self, Self::Anonymous)
-    }
+impl Column {
+    const ALL: [Self; 5] = [
+        Self::Confidential,
+        Self::ConfidentialPolicy,
+        Self::Anonymous,
+        Self::AnonymousPolicy,
+        Self::Delegate,
+    ];
 
-    fn delegate(self) -> bool {
-        matches!(self, Self::Delegate)
-    }
-
-    fn ring_mode(self) -> RingMode {
-        if self.anonymous() {
-            RingMode::Anonymous
-        } else {
-            RingMode::Registry
+    fn tier(self) -> Tier {
+        match self {
+            Self::Confidential => Tier::AuditOnly,
+            Self::ConfidentialPolicy | Self::Delegate => Tier::policy(&EMPTY),
+            Self::Anonymous => Tier::AnonymousAuditOnly,
+            Self::AnonymousPolicy => Tier::anonymous_policy(&EMPTY),
         }
     }
 
-    fn tag(self, subtree: bool) -> u8 {
-        match (self.delegate(), subtree) {
-            (false, false) => tag::TRANSACT_SHAPED,
-            (false, true) => tag::TRANSACT_SHAPED_SUBTREE,
-            (true, false) => tag::DELEGATE_TRANSACT_SHAPED,
-            (true, true) => tag::DELEGATE_TRANSACT_SHAPED_SUBTREE,
+    fn rail(self) -> RingRail {
+        match self {
+            Self::Confidential | Self::ConfidentialPolicy => RingRail::Confidential,
+            Self::Anonymous | Self::AnonymousPolicy => RingRail::Anonymous,
+            Self::Delegate => RingRail::Delegate,
+        }
+    }
+
+    fn keyed(self, shape: Shape) -> bool {
+        match self.rail() {
+            RingRail::Confidential => true,
+            RingRail::Anonymous => {
+                anonymous_audit_class(shape.n_inputs(), shape.n_outputs()).is_some()
+            }
+            RingRail::Delegate => shape.is_ring_authority(),
         }
     }
 }
 
-struct GovernedRing<'a> {
+#[derive(Default)]
+struct Coverage {
+    circuits: Vec<RingCircuit>,
+}
+
+impl Coverage {
+    fn cover(&mut self, circuit: RingCircuit) {
+        if !self.circuits.contains(&circuit) {
+            self.circuits.push(circuit);
+        }
+    }
+
+    fn assert_every_key(&self) {
+        let missing: Vec<RingCircuit> = RING_KEYS
+            .iter()
+            .map(|key| key.circuit)
+            .filter(|circuit| !self.circuits.contains(circuit))
+            .collect();
+        assert!(missing.is_empty(), "no landed operation proved {missing:?}");
+        assert_eq!(self.circuits.len(), RING_KEYS.len());
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+enum Padding {
+    Published,
+    /// Padded input slots stay unpublished, the anonymous class counts real inputs alone.
+    Compact,
+}
+
+struct ShapeTransfer {
+    shape: Shape,
+    inputs: Vec<WalletUtxo>,
+    padding: Padding,
+}
+
+enum Proven {
+    Transfer(Box<ProvenRingTransfer>),
+    TooLarge { bytes: usize },
+}
+
+enum Settlement {
+    Settled,
+    TooLarge,
+}
+
+#[must_use]
+struct ColumnSetup<'a> {
+    env: &'a TestEnv,
+    column: Column,
+    program: Address,
+}
+
+struct ShapeRing<'a> {
     env: &'a TestEnv,
     ring: CustomRing,
-    mode: Mode,
+    column: Column,
     auditor: X25519Keypair,
+    /// Signs and pays every move of the delegate rail.
     delegate: Keypair,
+    mode: RingMode,
+    sender: AnonymousRingState,
+    escrowed: HashMap<[u8; 32], [u8; 32]>,
 }
 
-impl GovernedRing<'_> {
-    fn configure(&self) -> Result<()> {
+impl<'a> ColumnSetup<'a> {
+    fn configure(self, coverage: &mut Coverage) -> Result<ShapeRing<'a>> {
         let env = self.env;
-        let authority = env.payer.pubkey();
-        let create = if self.mode.anonymous() {
-            self.ring
-                .create_anonymous_config(authority, authority, self.auditor.pubkey(), true)?
-        } else {
-            self.ring
-                .create_config(authority, authority, self.auditor.pubkey(), true)?
-        };
-        send(env.client.rpc(), &env.payer, &[create])?;
-        let rules = RuleTable::builder()
-            .rule(Rule::require(Subject::Sender, ListId::Allow))
-            .rule(Rule::require(Subject::OutputOwner, ListId::Allow))
-            .rule(Rule::require(Subject::Asset, ListId::Allow))
-            .rule(Rule::forbid(Subject::Sender, ListId::Frozen))
-            .limits(&[OutflowLimit {
-                asset: zolana_interface::SOL_ASSET_FIELD,
-                cap: 16 * NOTE_AMOUNT,
-                cosign_above: 0,
-            }])
-            .build();
-        send(
-            env.client.rpc(),
-            &env.payer,
-            &[
-                self.ring.create_member_registry_root(authority, authority),
-                self.ring
-                    .create_policy(authority, authority, env.tree, &rules, &[])?,
-            ],
-        )?;
-        send(
-            env.client.rpc(),
-            &env.payer,
-            &[self.ring.init_spp_ring_config(authority, authority, true)],
-        )?;
-        if !self.mode.anonymous() {
-            EscrowedDelegate {
-                ring: self.ring,
-                delegate: self.delegate.pubkey(),
-                members: &[&env.sender.keypair, &env.recipient.keypair],
+        let ring = CustomRing::new(self.program);
+        let auditor = X25519Keypair::new();
+        RegisterRing {
+            ring,
+            payer: &env.payer,
+            auditor_pubkey: auditor.pubkey(),
+            tier: self.column.tier(),
+        }
+        .send(env.client.rpc())?;
+        let delegate = env.funded_keypair()?;
+        let members = [&env.sender.keypair, &env.recipient.keypair];
+        let queue = QueueHead { env, ring };
+        let applied = match self.column {
+            Column::ConfidentialPolicy => Some(queue.applied_by(|| {
+                register_key(env, ring, &env.sender.keypair)?;
+                apply_records(env, ring)
+            })?),
+            Column::Delegate => {
+                let applied = queue.applied_by(|| {
+                    EscrowedDelegate {
+                        ring,
+                        delegate: delegate.pubkey(),
+                        members: &members,
+                    }
+                    .set(env)
+                })?;
+                env.enable_authority_rail(ring)?;
+                Some(applied)
             }
-            .set(env)?;
-        }
-        if self.mode.delegate() {
-            env.enable_authority_rail(self.ring)?;
-        }
-        for member in [
-            owner_member(&env.sender.keypair)?,
-            owner_member(&env.recipient.keypair)?,
-            Member::asset(&SOL_MINT)?,
-        ] {
-            RegistryWrite {
-                ring: self.ring,
-                list_id: ListId::Allow,
-                member,
-                present: true,
-                env,
-            }
-            .send()?;
-        }
-        Ok(())
-    }
-
-    fn owner_transfer(
-        &self,
-        shape: Shape,
-        output_count: usize,
-        inputs: Vec<WalletUtxo>,
-        payer: Address,
-    ) -> Result<CustomRingTransfer<'_>> {
-        let env = self.env;
-        let mut tx = self.ring_transaction(shape, output_count, inputs, payer)?;
-        for _ in 1..output_count {
-            tx.transfer_sol(
-                &env.recipient.keypair.shielded_address()?,
-                payment_amount(shape, output_count),
-            )?;
-        }
-        tx.pad_utxos(shape, &env.sender.keypair.shielded_address()?)?;
-        Ok(self.ring_transfer(tx))
-    }
-
-    /// The anonymous rail builds each payment slot from the ring address.
-    fn anonymous_transfer(
-        &self,
-        shape: Shape,
-        output_count: usize,
-        inputs: Vec<WalletUtxo>,
-        payer: Address,
-    ) -> Result<custom_ring_sdk::AnonymousTransfer<'_>> {
-        let env = self.env;
-        let address = RingAddress {
-            recipient: env.recipient.keypair.shielded_address()?,
-            ring_program_id: self.ring.program_id(),
-            inbox_secret: env.recipient.keypair.viewing_key.inbox_secret(0)?,
+            Column::Confidential | Column::Anonymous | Column::AnonymousPolicy => None,
         };
-        let mut transfer = self
-            .ring_transfer(self.ring_transaction(shape, output_count, inputs, payer)?)
-            .with_anonymous_signer(
-                &env.sender.keypair.signing_key,
-                &env.sender.keypair.viewing_key,
-            );
-        for _ in 1..output_count {
-            transfer = transfer.with_payment(custom_ring_sdk::AnonymousPayment {
-                to: AnonymousRecipient::Address(address.clone()),
-                asset: Mint::SOL,
-                amount: payment_amount(shape, output_count),
-            })?;
+        if let Some(applied) = applied {
+            coverage.cover(RingCircuit::RegisterKey);
+            coverage.cover(RingCircuit::apply_records(applied));
         }
-        Ok(transfer.with_shape(shape)?)
-    }
-
-    fn ring_transaction(
-        &self,
-        shape: Shape,
-        output_count: usize,
-        inputs: Vec<WalletUtxo>,
-        payer: Address,
-    ) -> Result<ConfidentialTransaction> {
-        let env = self.env;
-        Ok(if output_count < shape.n_outputs() {
-            ConfidentialTransaction::new_compact_with_ring(inputs, payer, self.ring.program_id())?
-        } else {
-            ConfidentialTransaction::new_with_ring(inputs, payer, self.ring.program_id())?
-        }
-        .with_output_tree_id(env.tree_id(env.tree)?)?)
-    }
-
-    fn ring_transfer(&self, transaction: ConfidentialTransaction) -> CustomRingTransfer<'_> {
-        let env = self.env;
-        CustomRingTransfer::new(CustomRingTransferInput {
-            ring: self.ring,
-            sender: &env.sender.keypair,
-            nullifier_key: Some(&env.sender.keypair.nullifier_key),
-            transaction,
+        let config = env.run(ring.require_config(env.client.as_async()))?;
+        let escrowed = match config.mode {
+            RingMode::Registry => members
+                .into_iter()
+                .map(|member| {
+                    let nullifier_pk = env
+                        .member_record(ring, owner_member(member)?)?
+                        .nullifier_pk
+                        .context("the member's record escrows no nullifier key")?;
+                    Ok((
+                        member.signing_pubkey().confidential_view_tag()?,
+                        nullifier_pk,
+                    ))
+                })
+                .collect::<Result<_>>()?,
+            RingMode::Off | RingMode::Anonymous => HashMap::new(),
+        };
+        Ok(ShapeRing {
+            env,
+            ring,
+            column: self.column,
+            auditor,
+            delegate,
+            mode: config.mode,
+            sender: AnonymousRingState::new(self.program, config.creation_epoch()),
+            escrowed,
         })
     }
+}
 
-    fn reject_oversized_cosigned_transfer(&self, inputs: &[WalletUtxo]) -> Result<()> {
-        let env = self.env;
-        let authority = env.payer.pubkey();
-        let cosigner = env.funded_keypair()?;
-        send(
-            env.client.rpc(),
-            &env.payer,
-            &[self.ring.set_cosigner(
-                authority,
-                authority,
-                cosigner.pubkey(),
-                CoSignScope::TRANSFERS,
-                &[],
-            )?],
-        )?;
-        let unreachable = env.client_with(
-            ProverClient::new("http://127.0.0.1:1".into())
-                .with_proof_data_source(ProofDataSource::Client),
-        );
-        let tree_before = fetch_account(env.client.rpc(), &env.tree)?;
-        let mut sizes = Vec::new();
-        for _ in 0..2 {
-            let transfer = self
-                .owner_transfer(Shape::IN16_OUT4, 4, inputs.to_vec(), env.payer.pubkey())?
-                .with_cosigner(cosigner.pubkey());
-            match env.run(transfer.prove(unreachable.as_async())) {
-                Err(RingError::TransactionTooLarge { bytes, limit }) => {
-                    assert_eq!(limit, MAX_TRANSACTION_SIZE);
-                    assert!(bytes > limit);
-                    sizes.push(bytes);
-                }
-                Err(error) => {
-                    return Err(anyhow!("expected pre-proof size rejection, got {error}"))
-                }
-                Ok(_) => return Err(anyhow!("oversized co-signed transfer was proved")),
+struct QueueHead<'a> {
+    env: &'a TestEnv,
+    ring: CustomRing,
+}
+
+impl QueueHead<'_> {
+    /// The writes `apply` moved the record queue head past.
+    fn applied_by(self, apply: impl FnOnce() -> Result<()>) -> Result<u64> {
+        let head = || -> Result<u64> {
+            Ok(self
+                .env
+                .run(self.ring.require_queue(self.env.client.as_async()))?
+                .head())
+        };
+        let before = head()?;
+        apply()?;
+        Ok(head()? - before)
+    }
+}
+
+impl ShapeRing<'_> {
+    fn sweep(&self, coverage: &mut Coverage) -> Result<()> {
+        let mut too_large = Vec::new();
+        for shape in SPP_SUPPORTED_SHAPES
+            .into_iter()
+            .filter(|shape| self.column.keyed(*shape))
+        {
+            let transfer = ShapeTransfer {
+                shape,
+                inputs: self.notes(1, coverage)?,
+                padding: Padding::Published,
+            };
+            if let Settlement::TooLarge = self.settle(transfer, coverage)? {
+                too_large.push(shape);
             }
         }
-        assert_eq!(
-            sizes[0], sizes[1],
-            "size rejection is independent of encryption randomness"
-        );
-        assert_account_unchanged(env.client.rpc(), &env.tree, &tree_before)?;
-        send(
-            env.client.rpc(),
-            &env.payer,
-            &[self.ring.clear_cosigner(authority, authority)],
-        )?;
-        println!(
-            "POLICY_SIZE_REJECTION Member 16x4 cosigner=true separate_payer=true bytes={}",
-            sizes[0]
-        );
+        println!("RING_SHAPES {:?} too_large={too_large:?}", self.column);
         Ok(())
     }
 
-    fn transfer(&self, shape: Shape, subtree: bool) -> Result<()> {
-        self.transfer_with_outputs(shape, shape.n_outputs(), subtree)
+    /// The commitment classes no full shape fits, reached with fewer published inputs.
+    fn compact_classes(&self, coverage: &mut Coverage) -> Result<()> {
+        for (shape, published) in [(Shape::IN16_OUT8, 13), (Shape::IN32_OUT2, 25)] {
+            let transfer = ShapeTransfer {
+                shape,
+                inputs: self.notes(published, coverage)?,
+                padding: Padding::Compact,
+            };
+            self.settled(transfer, coverage)?;
+        }
+        Ok(())
     }
 
-    fn transfer_with_outputs(
-        &self,
-        shape: Shape,
-        output_count: usize,
-        subtree: bool,
-    ) -> Result<()> {
+    /// A spend of a default-ring note opens every input under the entry keys.
+    fn entries(&self, coverage: &mut Coverage) -> Result<()> {
         let env = self.env;
-        let label = format!(
-            "{:?} {}x{} subtree={subtree}",
-            self.mode,
-            shape.n_inputs(),
-            output_count
-        );
-        let client = env.client_with(ProverClient::new(prover_url()).with_proof_data_source(
-            if subtree {
-                ProofDataSource::Client
-            } else {
-                ProofDataSource::Prover
-            },
-        ));
-        let inputs = RingNotes {
+        for outputs in ANONYMOUS_ENTRY_OUTPUTS {
+            let note = DefaultRingDeposit {
+                depositor: &env.sender.keypair,
+                tree: env.tree,
+                asset: DepositAsset::Sol,
+                amount: NOTE_AMOUNT,
+            }
+            .send(env.client.rpc(), env.client.indexer(), &env.assets)?;
+            let transfer = ShapeTransfer {
+                shape: Shape::new(1, outputs),
+                inputs: vec![note.input_utxo(env)?],
+                padding: Padding::Published,
+            };
+            self.settled(transfer, coverage)?;
+        }
+        Ok(())
+    }
+
+    /// Each merge takes one note more than the next narrower width holds.
+    fn merges(&self, coverage: &mut Coverage) -> Result<()> {
+        let env = self.env;
+        let tree_id = env.tree_id(env.tree)?;
+        let mut count = 2;
+        for width in ANONYMOUS_MERGE_WIDTHS {
+            let prepared = CustomRingMerge::new(self.ring, self.notes(count, coverage)?, None)?
+                .with_output_tree_id(tree_id)
+                .encrypt(&env.sender.keypair)?;
+            let proved = u8::try_from(prepared.inputs().len())?;
+            assert_eq!(
+                usize::from(proved),
+                width,
+                "{count} notes merge at width {width}"
+            );
+            let merge = RingMergeOperation::new(
+                prepared,
+                MergeProofInput {
+                    nullifier_key: env.sender.keypair.nullifier_key.clone(),
+                    input_tree: env.tree,
+                    output_tree: env.tree,
+                },
+            );
+            land(env, merge, &env.payer, &[])?;
+            coverage.cover(RingCircuit::AnonymousMerge { width: proved });
+            count = width + 1;
+        }
+        Ok(())
+    }
+
+    /// Each deposit proves under the deposit key.
+    fn notes(&self, count: usize, coverage: &mut Coverage) -> Result<Vec<WalletUtxo>> {
+        let env = self.env;
+        let notes = RingNotes {
             ring: self.ring,
             owner: &env.sender.keypair,
             amount: NOTE_AMOUNT,
-            count: shape.n_inputs(),
+            count,
             env,
-        }
-        .deposit_from(&env.payer)?
-        .into_iter()
-        .map(|note| indexed_note(note, &env.sender.keypair, env, env.tree))
-        .collect::<Result<Vec<_>>>()?;
-        if matches!(self.mode, Mode::Member) && shape == Shape::IN16_OUT4 && !subtree {
-            self.reject_oversized_cosigned_transfer(&inputs)?;
-        }
-        let input_nullifiers: Vec<_> = inputs.iter().map(|input| input.nullifier).collect();
-        let total = NOTE_AMOUNT * shape.n_inputs() as u64;
-        let payer: &(dyn Signer + Sync) = if matches!(self.mode, Mode::Member) {
-            &env.sender.keypair
-        } else {
-            &env.payer
         };
-        let proven = if self.mode.delegate() {
-            let mut transfer = DelegateTransfer::new(DelegateTransferInput {
-                ring: self.ring,
-                delegate: self.delegate.pubkey(),
-                payer: payer.pubkey(),
-                source_nullifier_key: &env.sender.keypair.nullifier_key,
-                inputs: inputs.into_iter().map(SppProofInputUtxo::from).collect(),
-                outputs: (0..output_count)
-                    .map(|index| {
-                        Ok(DelegateOutput {
-                            recipient: env.recipient.keypair.shielded_address()?,
-                            asset: SOL_MINT,
-                            amount: total / output_count as u64
-                                + if index + 1 == output_count {
-                                    total % output_count as u64
-                                } else {
-                                    0
-                                },
-                        })
-                    })
-                    .collect::<Result<Vec<_>>>()?,
-            })
-            .with_assets(&env.assets);
-            if output_count < shape.n_outputs() {
-                transfer = transfer.with_compact_padding();
-            }
-            env.run(transfer.prove(client.as_async()))
-        } else if self.mode.anonymous() {
-            let transfer = self.anonymous_transfer(shape, output_count, inputs, payer.pubkey())?;
-            env.run(transfer.prove(client.as_async()))
-        } else {
-            let transfer = self.owner_transfer(shape, output_count, inputs, payer.pubkey())?;
-            env.run(transfer.prove(client.as_async()))
-        }
-        .with_context(|| format!("prove {label}"))?;
-        let instruction = proven.instruction()?;
-        let expected_tag = if shape.n_inputs() == 2 && output_count == 3 {
-            assert!(subtree, "the exact 2x3 keys require a shared subtree");
-            if self.mode.delegate() {
-                tag::DELEGATE_TRANSACT_TWO_BY_THREE
-            } else {
-                tag::TRANSACT_TWO_BY_THREE
-            }
-        } else {
-            self.mode.tag(subtree)
+        let deposited = match self.column.rail() {
+            RingRail::Anonymous => notes.deposit_hidden_from(&env.payer)?,
+            RingRail::Confidential | RingRail::Delegate => notes.deposit_from(&env.payer)?,
         };
-        assert_eq!(instruction.data[0], expected_tag, "{label}");
-        assert_eq!(proven.data.inputs.len(), shape.n_inputs(), "{label}");
-        assert_eq!(proven.data.outputs.len(), output_count, "{label}");
-        assert_eq!(
-            proven
-                .data
-                .inputs
-                .iter()
-                .map(|input| input.nullifier_hash)
-                .collect::<Vec<_>>(),
-            input_nullifiers,
-            "{label}: every real input must be consumed",
+        coverage.cover(RingCircuit::Deposit);
+        deposited
+            .into_iter()
+            .map(|utxo| indexed_note(utxo, &env.sender.keypair, env, env.tree))
+            .collect()
+    }
+
+    fn settled(&self, transfer: ShapeTransfer, coverage: &mut Coverage) -> Result<()> {
+        let shape = transfer.shape;
+        match self.settle(transfer, coverage)? {
+            Settlement::Settled => Ok(()),
+            Settlement::TooLarge => Err(anyhow!("{:?} {shape:?} must fit", self.column)),
+        }
+    }
+
+    fn settle(&self, transfer: ShapeTransfer, coverage: &mut Coverage) -> Result<Settlement> {
+        let env = self.env;
+        let rpc = env.client.rpc();
+        let label = format!(
+            "{:?} {}x{} {:?} inputs={}",
+            self.column,
+            transfer.shape.n_inputs(),
+            transfer.shape.n_outputs(),
+            transfer.padding,
+            transfer.inputs.len()
         );
+        let proven = match self
+            .prove(transfer)
+            .with_context(|| format!("prove {label}"))?
+        {
+            Proven::Transfer(proven) => proven,
+            Proven::TooLarge { bytes } => {
+                println!("RING_TOO_LARGE {label} bytes={bytes}");
+                return Ok(Settlement::TooLarge);
+            }
+        };
+        let instruction = proven.instruction_at(rpc.get_slot()?)?;
+        let parsed = ParsedTransact::new(frame(&instruction, self.column.rail())?)?;
+        let data = parsed.data();
+        coverage.cover(RingCircuit::audit(parsed.layout(), data.n_out));
+        if data.policy.is_some() {
+            coverage.cover(RingCircuit::policy(data.rail, data.n_in, data.n_out));
+        }
+        let tag = instruction
+            .data
+            .first()
+            .context("a tagged ring instruction")?;
+        let budget = ComputeBudgetConfig::new(compute_unit_limit(InstructionTag::try_from(*tag)?));
+        let payer = self.payer();
         let size = zolana_client::transaction_size(
             &payer.pubkey(),
             std::slice::from_ref(&instruction),
-            ComputeBudgetConfig::new(compute_unit_limit(InstructionTag::Transact)),
+            budget,
         )?;
-        assert!(
-            size.bytes <= MAX_TRANSACTION_SIZE,
-            "{label}: {} bytes",
-            size.bytes
-        );
-        let tree_before = fetch_account(env.client.rpc(), &env.tree)?;
-        let signers: Vec<&(dyn Signer + Sync)> = if self.mode.delegate() {
-            vec![&self.delegate]
-        } else {
-            Vec::new()
-        };
-        let signature = land(env, instruction, payer, &signers)?;
+        let signature = land(env, instruction, payer, &[])?;
         let units = assert_transaction_compute_units(
-            env.client.rpc(),
+            rpc,
             &signature,
             &label,
-            u64::from(compute_unit_limit(InstructionTag::Transact)),
+            CUSTOM_RING_TRANSACT_CU_LIMIT,
         )?;
-        let auditor_tag = auditor_view_tag(&self.auditor.pubkey());
-        assert_ring_transact(
-            env.client.rpc(),
-            env.client.indexer(),
-            RingTransactAssertArgs {
-                tree: &env.tree,
-                data: &proven.data,
-                signature,
-                fetch_view_tag: auditor_tag,
-                tree_before: &tree_before,
-            },
-        )?;
-        let indexed = wait_for_indexed_transaction(env.client.indexer(), auditor_tag, signature);
-        let audited = TransactionAudit {
+        let audited = AuditLookup {
+            scan: RingScan::new(self.ring.program_id(), self.auditor.pubkey())
+                .with_mode(self.mode)
+                .with_escrowed_keys(self.escrowed.clone()),
             auditor: &self.auditor,
-            transaction: &indexed,
-            assets: &env.assets,
+            signature,
         }
-        .run_with_mode(self.mode.ring_mode())?;
-        assert_eq!(audited.output_openings.len(), output_count, "{label}");
-        for (opening, output) in audited.output_openings.iter().zip(&proven.data.outputs) {
-            assert_eq!(
-                opening.hash()?,
-                output.utxo_hash,
-                "{label}: auditor sees settled commitments"
-            );
-        }
-        assert_eq!(
-            audited
-                .outputs
-                .iter()
-                .map(|output| output.amount)
-                .sum::<u64>(),
-            total,
-            "{label}"
-        );
-        assert!(audited.payload_errors.is_empty(), "{label}");
-        assert_eq!(
-            audited.anonymous.is_some(),
-            self.mode.anonymous(),
-            "{label}"
-        );
+        .run(env)?;
+        assert_eq!(opened(&audited), ring_openings(&proven.outputs)?, "{label}");
         println!(
-            "POLICY_SETTLEMENT {label} bytes={} addresses={} cu={units}",
+            "RING_SETTLEMENT {label} bytes={} addresses={} cu={units}",
             size.bytes, size.addresses
         );
-        Ok(())
+        Ok(Settlement::Settled)
     }
-}
 
-#[test]
-fn every_shipped_policy_shape_settles_with_general_and_subtree_proofs() -> Result<()> {
-    let anonymous_program = Keypair::new().pubkey();
-    let delegate_program = Keypair::new().pubkey();
-    let env = setup_with_extra_rings(&[anonymous_program, delegate_program])?;
-    println!("POLICY_FIXTURE tree={} mint={}", env.tree, env.usdc_mint);
-    let mut covered = 0;
-    for (mode, program) in [
-        (Mode::Anonymous, anonymous_program),
-        (Mode::Delegate, delegate_program),
-        (Mode::Member, custom_ring_program_id()?),
-    ] {
-        let ring = GovernedRing {
-            env: &env,
-            ring: CustomRing::new(program),
-            mode,
-            auditor: X25519Keypair::new(),
-            delegate: Keypair::new(),
-        };
-        ring.configure()?;
-        // Exercise each rail's largest payload before the smaller shapes.
-        for shape in SPP_SUPPORTED_SHAPES.into_iter().rev() {
-            if !policy_shape_supported(
-                shape.n_inputs(),
-                shape.n_outputs(),
-                mode.anonymous(),
-                mode.delegate(),
-            ) {
-                continue;
+    /// Anonymous payments go to fresh recipients, no inbox stream of one address fills.
+    fn prove(&self, transfer: ShapeTransfer) -> Result<Proven> {
+        let env = self.env;
+        let client = env.client.as_async();
+        let sender = &env.sender.keypair;
+        let program = self.ring.program_id();
+        let ShapeTransfer {
+            shape,
+            inputs,
+            padding,
+        } = transfer;
+        let total: u64 = inputs.iter().map(|input| input.utxo.amount).sum();
+        let amount = total / (2 * shape.n_outputs() as u64);
+        let payments = 1..shape.n_outputs();
+        let transaction = |payer: Address| match padding {
+            Padding::Published => {
+                ConfidentialTransaction::new_with_ring(inputs.clone(), payer, program)
             }
-            for subtree in [false, true] {
-                ring.transfer(shape, subtree)?;
-                covered += 1;
+            Padding::Compact => {
+                ConfidentialTransaction::new_compact_with_ring(inputs.clone(), payer, program)
             }
-        }
-    }
-    assert_eq!(
-        covered,
-        custom_ring_interface::shaped_verifying_keys::SHAPED_PROVING_KEY_SHA256S.len()
-    );
-    Ok(())
-}
-
-#[test]
-fn exact_two_by_three_policy_keys_settle_for_every_mode() -> Result<()> {
-    let anonymous_program = Keypair::new().pubkey();
-    let delegate_program = Keypair::new().pubkey();
-    let env = setup_with_extra_rings(&[anonymous_program, delegate_program])?;
-    for (mode, program) in [
-        (Mode::Member, custom_ring_program_id()?),
-        (Mode::Anonymous, anonymous_program),
-        (Mode::Delegate, delegate_program),
-    ] {
-        let ring = GovernedRing {
-            env: &env,
-            ring: CustomRing::new(program),
-            mode,
-            auditor: X25519Keypair::new(),
-            delegate: Keypair::new(),
         };
-        ring.configure()?;
-        ring.transfer_with_outputs(Shape::IN2_OUT4, 3, true)?;
-    }
-    Ok(())
-}
-
-/// The anonymous settlement keys still match the post-427 program. Keep these
-/// cases runnable while ordinary owner-signed keys await publication.
-#[test]
-fn anonymous_shapes_settle_with_current_keys() -> Result<()> {
-    settle_matching_key_mode(Mode::Anonymous, 28)
-}
-
-/// The ring-authority settlement keys also match the post-427 program.
-#[test]
-fn delegate_shapes_settle_with_current_keys() -> Result<()> {
-    settle_matching_key_mode(Mode::Delegate, 4)
-}
-
-#[test]
-#[ignore = "requires post-427 ordinary SPP transfer proving keys"]
-fn ordinary_two_by_two_settles_after_key_rotation() -> Result<()> {
-    let env = setup_with_extra_rings(&[])?;
-    let ring = GovernedRing {
-        env: &env,
-        ring: CustomRing::new(custom_ring_program_id()?),
-        mode: Mode::Member,
-        auditor: X25519Keypair::new(),
-        delegate: Keypair::new(),
-    };
-    ring.configure()?;
-    for subtree in [false, true] {
-        ring.transfer(Shape::IN2_OUT2, subtree)?;
-    }
-    Ok(())
-}
-
-fn settle_matching_key_mode(mode: Mode, expected_capacities: usize) -> Result<()> {
-    let program = Keypair::new().pubkey();
-    let env = setup_with_extra_rings(&[program])?;
-    let ring = GovernedRing {
-        env: &env,
-        ring: CustomRing::new(program),
-        mode,
-        auditor: X25519Keypair::new(),
-        delegate: Keypair::new(),
-    };
-    ring.configure()?;
-    let mut covered = 0;
-    for shape in SPP_SUPPORTED_SHAPES {
-        if !policy_shape_supported(
-            shape.n_inputs(),
-            shape.n_outputs(),
-            mode.anonymous(),
-            mode.delegate(),
-        ) {
-            continue;
-        }
-        for subtree in [false, true] {
-            ring.transfer(shape, subtree)?;
-            covered += 1;
+        let owner_transfer = |transaction| {
+            CustomRingTransfer::new(CustomRingTransferInput {
+                ring: self.ring,
+                sender,
+                nullifier_key: Some(&sender.nullifier_key),
+                transaction,
+            })
+        };
+        let proven = match self.column.rail() {
+            RingRail::Confidential => {
+                let recipient = env.recipient.keypair.shielded_address()?;
+                let mut transaction = transaction(sender.pubkey())?;
+                for _ in payments {
+                    transaction.transfer_sol(&recipient, amount)?;
+                }
+                transaction.pad_utxos(shape, &sender.shielded_address()?)?;
+                env.run(owner_transfer(transaction).prove(client))
+            }
+            RingRail::Anonymous => {
+                let mut anonymous = owner_transfer(transaction(env.payer.pubkey())?)
+                    .with_anonymous_signer(&sender.signing_key, &self.sender);
+                for _ in payments {
+                    anonymous = anonymous.with_payment(custom_ring_sdk::AnonymousPayment {
+                        to: ring_address(&ShieldedKeypair::new_ed25519()?, program, 0)?,
+                        asset: Mint::SOL,
+                        amount,
+                    })?;
+                }
+                env.run(anonymous.with_shape(shape)?.prove(client))
+            }
+            RingRail::Delegate => {
+                let recipient = env.recipient.keypair.shielded_address()?;
+                let delegated = DelegateTransfer::new(DelegateTransferInput {
+                    ring: self.ring,
+                    delegate: self.delegate.pubkey(),
+                    payer: self.delegate.pubkey(),
+                    source: sender.shielded_address()?,
+                    source_nullifier_key: &sender.nullifier_key,
+                    inputs,
+                    outputs: payments
+                        .map(|_| DelegateOutput {
+                            recipient,
+                            asset: SOL_MINT,
+                            amount,
+                        })
+                        .collect(),
+                })
+                .with_assets(&env.assets)
+                .with_shape(shape)?;
+                env.run(delegated.prove(client))
+            }
+        };
+        match proven {
+            Ok(proven) => Ok(Proven::Transfer(Box::new(proven))),
+            Err(RingError::TransactionTooLarge { bytes, .. }) => Ok(Proven::TooLarge { bytes }),
+            Err(error) => Err(error.into()),
         }
     }
-    assert_eq!(covered, expected_capacities);
-    ring.transfer_with_outputs(Shape::IN2_OUT4, 3, true)?;
+
+    /// The anonymous rail's owner never signs, the payer alone does.
+    fn payer(&self) -> &(dyn Signer + Sync) {
+        match self.column.rail() {
+            RingRail::Confidential => &self.env.sender.keypair,
+            RingRail::Anonymous => &self.env.payer,
+            RingRail::Delegate => &self.delegate,
+        }
+    }
+}
+
+/// What the auditor must open for every output the proof binds, padding left out.
+fn ring_openings(outputs: &[SppProofOutputUtxo]) -> Result<Vec<Opened>> {
+    outputs
+        .iter()
+        .enumerate()
+        .filter_map(|(slot, output)| output.owner_address.map(|owner| (slot, output, owner)))
+        .map(|(slot, output, owner)| {
+            Ok(Opened {
+                slot_index: u32::try_from(slot)?,
+                exit: false,
+                owner_key: owner.signing_pubkey.confidential_view_tag()?,
+                mint: Some(output.asset.asset),
+                amount: output.amount,
+                blinding: output.blinding,
+            })
+        })
+        .collect()
+}
+
+#[test]
+fn every_ring_key_lands_and_every_keyed_shape_settles() -> Result<()> {
+    let extra: Vec<Address> = (1..Column::ALL.len())
+        .map(|_| Keypair::new().pubkey())
+        .collect();
+    let env = setup_with_extra_rings(&extra)?;
+    let programs = core::iter::once(custom_ring_program_id()?).chain(extra);
+    let mut coverage = Coverage::default();
+    for (column, program) in Column::ALL.into_iter().zip(programs) {
+        let ring = ColumnSetup {
+            env: &env,
+            column,
+            program,
+        }
+        .configure(&mut coverage)?;
+        ring.sweep(&mut coverage)?;
+        if column == Column::Anonymous {
+            ring.compact_classes(&mut coverage)?;
+            ring.entries(&mut coverage)?;
+            ring.merges(&mut coverage)?;
+        }
+    }
+    coverage.assert_every_key();
     Ok(())
 }

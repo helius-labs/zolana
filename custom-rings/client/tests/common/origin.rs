@@ -1,5 +1,4 @@
-//! Synthetic trusted chain data for client and service tests.
-//! Production reconstructs this independently from confirmed SPP instructions.
+//! Synthetic trusted chain data, production rebuilds it from confirmed SPP instructions.
 
 use zolana_interface::event::{GeneralEvent, Input, OutputUtxo};
 use zolana_ring_client::{ConfirmedEvent, ConfirmedEventKind};
@@ -14,14 +13,18 @@ pub fn event(transaction: &ShieldedTransaction) -> ConfirmedEvent {
         ConfirmedEventKind::Transfer
     };
     let first = transaction.output_slots.first();
+    let output_tree = first.map_or([0; 32], |slot| {
+        zolana_interface::pda::tree(slot.output_context.tree_id).to_bytes()
+    });
     ConfirmedEvent::new(
         kind,
         GeneralEvent {
+            // Every input spends from the output tree.
             inputs: transaction
                 .nullifiers
                 .iter()
                 .map(|nullifier| Input {
-                    tree: [0; 32],
+                    tree: output_tree,
                     input_queue_seq: 0,
                     nullifier: *nullifier,
                 })
@@ -43,9 +46,7 @@ pub fn event(transaction: &ShieldedTransaction) -> ConfirmedEvent {
                 .unwrap_or([0; 33]),
             salt: transaction.salt.unwrap_or_default(),
             first_output_leaf_index: first.map_or(0, |slot| slot.output_context.leaf_index),
-            output_tree: first.map_or([0; 32], |slot| {
-                zolana_interface::pda::tree(slot.output_context.tree_id).to_bytes()
-            }),
+            output_tree,
             spl_transfers: Vec::new(),
         },
     )

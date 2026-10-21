@@ -1,10 +1,3 @@
-mod deposit;
-pub use deposit::IndexedDepositRequest;
-mod policy;
-pub use policy::{
-    IndexedPolicyData, IndexedPolicyRequest, IndexedRegistry, MAX_REGISTRY_NEXT_INDEX,
-    POLICY_PUBLIC_INPUTS,
-};
 mod batch;
 pub use batch::{BatchAnchor, IndexedBatchRequest, ProvenIndexedBatch};
 mod merge;

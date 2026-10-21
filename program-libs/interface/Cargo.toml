@@ -12,7 +12,7 @@ borsh = ["dep:borsh", "solana-address/borsh"]
 events = []
 verifying-keys = ["dep:groth16-solana"]
 tree = ["dep:zolana-tree"]
-token-account = ["dep:spl-token-2022-interface"]
+token-account = ["dep:spl-token-2022-interface", "solana-address/curve25519"]
 
 [dependencies]
 arrayvec = { workspace = true }

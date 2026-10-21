@@ -32,13 +32,15 @@ use zolana_keypair::{shielded::ShieldedAddress, viewing_key::random_blinding};
 pub use crate::indexer_types::{OutputContext, OutputSlot, ShieldedTransaction};
 pub use crate::utxo::SppProofOutputUtxo;
 pub use cache::{cache_bound_external_data_hash, cache_write_slots};
-pub use encryption::{OutputEncoder, OutputEncryption, ResolvedOwnerTag, SlotEncode};
+pub use encryption::{
+    OutputEncoder, OutputEncryption, ResolvedOwnerTag, RingOutputSlot, SlotEncode,
+};
 pub use external_data::{ExternalData, SettlementTransfer};
 pub use finalized::FinalizedTransaction;
 pub use inputs::pad_input_utxos;
 pub use outputs::Recipient;
 pub use settlement::{
-    asset_field, signed_magnitude_to_field, PublicTransferRequest, PublicTransfers,
+    asset_field, public_slots, signed_magnitude_to_field, PublicTransferRequest, PublicTransfers,
     SettlementTarget, BN254_MODULUS_DEC,
 };
 pub use shape::{

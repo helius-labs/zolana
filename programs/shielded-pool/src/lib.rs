@@ -5,8 +5,10 @@ pub mod instructions;
 /// need, nothing more.
 #[cfg(feature = "test-sbf")]
 pub mod testing {
+    pub use crate::instructions::deposit::account::DepositAccounts;
     pub use crate::instructions::hash::solana_owner_identity;
     pub use crate::instructions::merge::account::MergeTransactAccounts;
+    pub use crate::instructions::merge_ring::account::MergeRingAccounts;
     pub use crate::instructions::ring_config::{
         loader::load_ring_config, update_owner::process_update_ring_config_owner,
     };
@@ -14,11 +16,11 @@ pub mod testing {
     pub use crate::instructions::shared::{
         check_reimbursement_recipient, pay_reimbursement_with_rent_minimum, tree_error,
     };
-    pub use crate::instructions::transact::account::TransactAccounts;
+    pub use crate::instructions::transact::account::{RingTransactAccounts, TransactAccounts};
     pub use crate::instructions::transact::processor::hash_external_data;
     pub use crate::instructions::transact::verify::{
-        amount_field, fixed_signer_hash_chain, OwnerHashCache, TransactProof, TransactProofInputs,
-        MAX_SIGNERS, SIGNER_ZERO_SUFFIX_CHAINS,
+        fixed_signer_hash_chain, OwnerHashCache, TransactProof, TransactProofInputs, MAX_SIGNERS,
+        SIGNER_ZERO_SUFFIX_CHAINS,
     };
 }
 

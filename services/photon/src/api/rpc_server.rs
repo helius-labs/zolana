@@ -199,10 +199,37 @@ fn build_rpc_module(api_and_indexer: PhotonApi) -> Result<RpcModule<PhotonApi>, 
             },
         )?;
         module.register_async_method(
+            zolana_indexer_api::GET_RING_MEMBER_OPENINGS,
+            |params, context, _| async move {
+                context
+                    .get_ring_member_openings(params.parse()?)
+                    .await
+                    .map_err(ErrorObjectOwned::from)
+            },
+        )?;
+        module.register_async_method(
             zolana_indexer_api::GET_RING_MEMBER_REGISTRY_ROOT,
             |params, context, _| async move {
                 context
                     .get_ring_member_registry_root(params.parse()?)
+                    .await
+                    .map_err(ErrorObjectOwned::from)
+            },
+        )?;
+        module.register_async_method(
+            zolana_indexer_api::GET_RING_RECORD_QUEUE,
+            |params, context, _| async move {
+                context
+                    .get_ring_record_queue(params.parse()?)
+                    .await
+                    .map_err(ErrorObjectOwned::from)
+            },
+        )?;
+        module.register_async_method(
+            zolana_indexer_api::GET_RING_APPLY_PROOF_INPUTS,
+            |params, context, _| async move {
+                context
+                    .get_ring_apply_proof_inputs(params.parse()?)
                     .await
                     .map_err(ErrorObjectOwned::from)
             },
@@ -255,10 +282,13 @@ mod tests {
         }
     }
 
-    const CUSTOM_RING_METHODS: [&str; 3] = [
+    const CUSTOM_RING_METHODS: [&str; 6] = [
         "getRingMemberRecord",
         "getRingMemberRecords",
+        "getRingMemberOpenings",
         "getRingMemberRegistryRoot",
+        "getRingRecordQueue",
+        "getRingApplyProofInputs",
     ];
 
     async fn test_api() -> PhotonApi {

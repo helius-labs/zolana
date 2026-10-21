@@ -40,9 +40,6 @@ pub fn process_merge_ring_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
         None,
         ShieldedPoolError::NonCanonicalRoot,
     )?;
-    if ix.member_registry_root == &[0; 32] {
-        return Err(ShieldedPoolError::InvalidMergeShape.into());
-    }
     let clock = Clock::get()?;
     check_not_expired(merge.expiry_unix_ts, &clock)?;
 
@@ -50,10 +47,7 @@ pub fn process_merge_ring_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
         MergeRingAccounts::validate_and_parse(accounts, merge.nullifiers.len(), merge.cache_slot)?;
     let cache = load_merge_cache(merge_accounts.cache, clock.unix_timestamp)?;
 
-    // The ring merge proof binds the signing ring program, its accepted member
-    // registry root, and the output ring-data hash. It proves the member record
-    // privately under that root, so no owner identity appears in this statement.
-    // The declared input count selects the `merge_ring_<n_inputs>_1` key.
+    // The binding names no owner, a non-anonymous proof opens the owner's record under the root.
     let ring_program_id = hash_bytes(merge_accounts.ring_program_id.as_array())?;
     let owner_binding = MergeOwnerBinding::Ring {
         ring_program_id,

@@ -25,9 +25,10 @@ use tower_http::cors::{AllowOrigin, CorsLayer};
 
 use zolana_ring_client::rpc::{
     auditor_key_attestation, CreateAuditorKeyRequest, CreateAuditorKeyResponse,
-    GetDecryptedTransactionsRequest, HealthResponse, RingDepositsRequest, RingDepositsResponse,
-    RingState, RingStatusRequest, RingStatusResponse, CREATE_AUDITOR_KEY, GET_AUDITED_MERGES,
-    GET_DECRYPTED_TRANSACTIONS, HEALTH, RING_DEPOSITS, RING_STATUS,
+    GetAuditedNotesRequest, GetDecryptedTransactionsRequest, HealthResponse, RingDepositsRequest,
+    RingDepositsResponse, RingState, RingStatusRequest, RingStatusResponse, CREATE_AUDITOR_KEY,
+    GET_AUDITED_MERGES, GET_AUDITED_NOTES, GET_DECRYPTED_TRANSACTIONS, HEALTH, RING_DEPOSITS,
+    RING_STATUS,
 };
 
 use crate::{
@@ -92,6 +93,8 @@ pub async fn run_server<S: TransactionSource + 'static>(
     let server = ServerBuilder::default()
         .set_config(
             ServerConfig::builder()
+                // A WebSocket call runs outside the timeout layer and the CORS check.
+                .http_only()
                 .max_connections(options.max_connections)
                 .max_request_body_size(MAX_REQUEST_BODY_SIZE)
                 .max_response_body_size(MAX_RESPONSE_BODY_SIZE)
@@ -173,6 +176,7 @@ pub fn rpc_module<S: TransactionSource + 'static>(
             hub.admit(Lane::Public)?;
             let service = hub.service(Some(request.ring_program_id.0))?;
             let configured = service.configured_auditor().await?;
+            let chain = service.chain_status().await?;
             let state = match configured {
                 None => RingState::Uninitialized,
                 Some(key) if key == service.auditor_pubkey() => RingState::Served,
@@ -183,6 +187,8 @@ pub fn rpc_module<S: TransactionSource + 'static>(
                 state,
                 config_auditor_pubkey: configured.map(Into::into),
                 service_pubkey: hub.service_pubkey().into(),
+                activation: chain.activation,
+                registry: chain.registry,
             })
         },
     )?;
@@ -217,6 +223,15 @@ pub fn rpc_module<S: TransactionSource + 'static>(
             drop(authentication);
             let _slot = hub.admit(Lane::Read)?;
             read.execute_merges().await
+        },
+    )?;
+    method(
+        &mut module,
+        GET_AUDITED_NOTES,
+        |hub, request: GetAuditedNotesRequest| async move {
+            let _authentication = hub.admit(Lane::Authentication)?;
+            let service = hub.service(request.ring_program_id.map(|ring| ring.0))?;
+            service.audited_notes(&request).await
         },
     )?;
     Ok(module)
@@ -312,7 +327,7 @@ mod tests {
     use zolana_client::{ClientError, GetShieldedTransactionsByTagsResponse};
     use zolana_keypair::X25519Keypair;
     use zolana_ring_client::{
-        rpc::{KeyMode, DEPOSITS_PAGE_LIMIT},
+        rpc::{KeyMode, RingChainStatus, DEPOSITS_PAGE_LIMIT},
         AuditError, RingOrigin,
     };
     use zolana_transaction::AssetRegistry;
@@ -325,7 +340,10 @@ mod tests {
             MAX_REQUEST_UNITS_PER_SECOND,
         },
         origins::OriginPolicy,
-        upstream::{DepositHistory, ReaderGrant, RingConfiguration, TransactionPage},
+        upstream::{
+            DepositHistory, MergeAuditRequest, ReaderGrant, RingConfiguration, RingHistoryPage,
+            TransactionPage,
+        },
     };
 
     use super::*;
@@ -348,12 +366,16 @@ mod tests {
             Err(ClientError::Rpc("unused source".to_owned()))
         }
 
+        async fn ring_history(
+            &self,
+            _request: RingHistoryPage<'_>,
+        ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
+            Err(ClientError::Rpc("unused source".to_owned()))
+        }
+
         async fn merge_audit_page(
             &self,
-            _ring: Address,
-            _auditor: &X25519Keypair,
-            _cursor: Option<Vec<u8>>,
-            _limit: std::num::NonZeroU32,
+            _request: MergeAuditRequest<'_>,
         ) -> Result<zolana_ring_client::MergeAuditPage, AuditError> {
             Err(AuditError::InvalidMemberRegistry)
         }
@@ -383,6 +405,17 @@ mod tests {
             _ring: Address,
         ) -> Result<Option<RingConfiguration>, ClientError> {
             Ok(self.config)
+        }
+
+        async fn ring_chain_status(&self, _ring: Address) -> Result<RingChainStatus, ClientError> {
+            Ok(RingChainStatus::default())
+        }
+
+        async fn ring_member_records(
+            &self,
+            _request: zolana_indexer_api::GetRingMemberRecordsRequest,
+        ) -> Result<zolana_indexer_api::GetRingMemberRecordsResponse, ClientError> {
+            Err(ClientError::Rpc("unused source".to_owned()))
         }
 
         async fn reader_granted(&self, _request: ReaderGrant) -> Result<bool, ClientError> {
@@ -559,6 +592,29 @@ mod tests {
             .await
             .expect("ready");
         assert_eq!(ready.status(), StatusCode::OK);
+        handle.stop().expect("stop");
+        handle.stopped().await;
+    }
+
+    #[tokio::test]
+    async fn server_refuses_a_websocket_upgrade() {
+        let server_port = port();
+        let handle = run_server(
+            hub(source(), Origins::default()),
+            options(server_port, Duration::from_secs(1)),
+        )
+        .await
+        .expect("server");
+        let upgrade = reqwest::Client::new()
+            .get(format!("http://127.0.0.1:{server_port}/"))
+            .header("connection", "upgrade")
+            .header("upgrade", "websocket")
+            .header("sec-websocket-version", "13")
+            .header("sec-websocket-key", "dGhlIHNhbXBsZSBub25jZQ==")
+            .send()
+            .await
+            .expect("upgrade response");
+        assert_ne!(upgrade.status(), StatusCode::SWITCHING_PROTOCOLS);
         handle.stop().expect("stop");
         handle.stopped().await;
     }

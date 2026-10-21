@@ -45,10 +45,11 @@ zolana-indexer-api = { workspace = true }
 zolana-interface = { workspace = true }
 zolana-keypair = { workspace = true }
 zolana-ring-client = { workspace = true, features = ["rpc", "solana-rpc"] }
+zolana-ring-member-registry = { workspace = true }
 zolana-ring-policy = { workspace = true }
 zolana-secret-file = { workspace = true }
-zolana-transaction = { workspace = true }
+zolana-transaction = { workspace = true, features = ["serde"] }
 
 [dev-dependencies]
 solana-rpc-client-api = { workspace = true }
-zolana-ring-member-registry = { workspace = true }
+zolana-event = { workspace = true }

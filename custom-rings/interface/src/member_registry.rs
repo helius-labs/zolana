@@ -1,68 +1,56 @@
-//! The member registry, an indexed Merkle tree keyed by owner tag. Each record carries
-//! the member's list bitmap and, when the ring escrows keys, its sealed nullifier key.
+//! Record tree constants and the queued record writes the program chains, the tree
+//! lives in `zolana-ring-member-registry`.
 
-use thiserror::Error;
 use zolana_hasher::{
-    hash_chain::create_hash_chain_from_slice,
-    primitives::{is_canonical_bn254_scalar_be, right_align, BN254_SCALAR_MODULUS_BE},
+    primitives::{hash_bytes, right_align, BN254_SCALAR_MODULUS_BE},
     Hasher, HasherError, Poseidon,
 };
-use zolana_interface::merge_utils::ciphertext_hash;
+use zolana_ring_policy::ListId;
 
-use crate::{instruction::MemberUpdate, pack_2fe, AUDIT_CIPHERTEXT_LEN, TAGGED_X25519_KEY_LEN};
+use crate::{domain, error::CustomRingError, AUDIT_CIPHERTEXT_LEN};
 
-/// Matches the circuit height and the on-chain tree.
-pub const MEMBER_REGISTRY_HEIGHT: usize = 20;
-pub const MEMBER_REGISTRY_CAPACITY: u64 = 1 << MEMBER_REGISTRY_HEIGHT;
-/// Items one update proof rewrites, a circuit width.
-pub const MAX_MEMBER_BATCH: usize = 16;
-/// Curator registries one policy reads, a circuit width.
-pub const N_FOREIGN: usize = zolana_ring_policy::N_FOREIGN;
+pub const QUAD_ARITY: usize = 4;
+pub const QUAD_HEIGHT: usize = 10;
+pub const MEMBER_REGISTRY_CAPACITY: u64 = 1 << (2 * QUAD_HEIGHT);
+/// Writes the larger apply key proves.
+pub const APPLY_BATCH: usize = 16;
+/// Member writes pending at once, the rest of a batch is the authority's reserve.
+pub const MEMBER_QUEUE_LIMIT: u64 = 8;
+/// The last leaves, kept for authority writes once members fill the rest.
+pub const AUTHORITY_RESERVED_LEAVES: u64 = 1 << 16;
+/// The insert fee of a new ring, enough to open an empty authority account.
+pub const DEFAULT_INSERT_FEE: u64 = 1_000_000;
+pub const QUEUE_CAPACITY: usize = APPLY_BATCH;
+/// Slots before anyone applies a partial queue, and between two permissionless applications.
+pub const APPLY_DELAY_SLOTS: u64 = 150;
+/// Slots a curator root below the floor stays admissible after the floor rose.
+pub const GRACE_SLOTS: u64 = 750;
 
-/// BN254 scalar field order minus one, the sentinel high member closing the list.
+/// `q - 1`, the sentinel's next, every member sorts strictly below it.
 pub const FIELD_MAX: [u8; 32] = {
     let mut max = BN254_SCALAR_MODULUS_BE;
     max[31] -= 1;
     max
 };
 
-/// Root of the sentinel-only registry, the value a fresh registry initializes to.
+/// Root of the tree holding only the sentinel, the first history entry of a registry.
 pub const MEMBER_REGISTRY_EMPTY_ROOT: [u8; 32] = [
-    0x27, 0x47, 0x2d, 0x6d, 0x13, 0x03, 0x74, 0x8e, 0x81, 0x79, 0x95, 0x7c, 0xa7, 0xc4, 0x14, 0x99,
-    0xa1, 0x35, 0x16, 0xf1, 0x56, 0x08, 0x8e, 0x45, 0x50, 0xb9, 0x69, 0xf2, 0x50, 0x9a, 0xf2, 0x1c,
+    0x26, 0xbe, 0xcf, 0x71, 0x2d, 0xb6, 0x19, 0xda, 0x22, 0x3e, 0xcf, 0x9b, 0x8f, 0xd6, 0xc1, 0x9a,
+    0x6f, 0x81, 0xf2, 0x81, 0xe4, 0xd7, 0xac, 0xec, 0x9d, 0x6a, 0xb3, 0xaf, 0x79, 0x72, 0x29, 0x46,
 ];
 
-/// One leaf, `Poseidon(member, next, lists, escrow_key)`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct MemberRecord {
-    pub member: [u8; 32],
-    pub next: [u8; 32],
-    /// Bit `i` marks list id `i + 1`.
-    pub lists: u64,
-    /// `EscrowKey::hash`, zero until the member registers a key.
-    pub escrow_key: [u8; 32],
-}
+const _: () = assert!(QUEUE_CAPACITY as u64 == 2 * MEMBER_QUEUE_LIMIT);
 
-impl MemberRecord {
-    /// Leaf 0, every member sorts between it and `FIELD_MAX`.
-    pub const SENTINEL: Self = Self {
-        member: [0; 32],
-        next: FIELD_MAX,
-        lists: 0,
-        escrow_key: [0; 32],
-    };
-
-    pub fn hash(&self) -> Result<[u8; 32], HasherError> {
-        Poseidon::hashv(&[
-            &self.member,
-            &self.next,
-            &right_align(&self.lists.to_be_bytes()),
-            &self.escrow_key,
-        ])
+/// The sentinel `(0, q - 1)` brackets every member in `[1, q - 2]` strictly.
+pub fn check_member(member: &[u8; 32]) -> Result<(), CustomRingError> {
+    if *member == [0; 32] || *member >= FIELD_MAX {
+        return Err(CustomRingError::MemberOutOfRange);
     }
+    Ok(())
 }
 
-/// The record field a registered key sets, `Poseidon(nullifier_pk, ct_hash)`.
+/// The record field a registered key sets, `Poseidon(nullifier_pk, hash_bytes(ciphertext))`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct EscrowKey<'a> {
     pub nullifier_pk: &'a [u8; 32],
     pub ciphertext: &'a [u8; AUDIT_CIPHERTEXT_LEN],
@@ -70,230 +58,92 @@ pub struct EscrowKey<'a> {
 
 impl EscrowKey<'_> {
     pub fn hash(&self) -> Result<[u8; 32], HasherError> {
-        let ct_hash = ciphertext_hash(self.ciphertext)?;
-        Poseidon::hashv(&[self.nullifier_pk, &ct_hash])
+        Poseidon::hashv(&[self.nullifier_pk, &hash_bytes(self.ciphertext)?])
     }
 }
 
-#[derive(Debug, Clone, Copy, Error, PartialEq, Eq)]
-pub enum MemberRegistryVerifyError {
-    #[error("member registry hashing failed")]
-    Hashing,
-    #[error("member registry path has the wrong length")]
-    PathLength,
-    #[error("member registry index or field is out of range")]
-    OutOfRange,
-    #[error("member registry path does not reach the root")]
-    RootMismatch,
-    #[error("the low record does not bracket the member")]
-    NotBracketed,
+/// One queued masked write, `lists' = (lists & !mask) | value`, the escrow key fills once.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct QueueEntry {
+    pub member: [u8; 32],
+    pub mask: u64,
+    pub value: u64,
+    pub escrow_key: [u8; 32],
 }
 
-impl From<HasherError> for MemberRegistryVerifyError {
-    fn from(_: HasherError) -> Self {
-        Self::Hashing
-    }
-}
-
-/// Leaf position and sibling hashes reconstructing a root.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct MerklePath<'a> {
-    pub index: u64,
-    pub siblings: &'a [[u8; 32]],
-}
-
-impl MerklePath<'_> {
-    pub fn root_of(&self, leaf: [u8; 32]) -> Result<[u8; 32], MemberRegistryVerifyError> {
-        self.check()?;
-        let mut index = self.index;
-        let mut node = leaf;
-        for sibling in self.siblings {
-            node = if index & 1 == 0 {
-                Poseidon::hashv(&[&node[..], &sibling[..]])?
-            } else {
-                Poseidon::hashv(&[&sibling[..], &node[..]])?
-            };
-            index >>= 1;
-        }
-        Ok(node)
+impl QueueEntry {
+    pub fn escrow(member: [u8; 32], key: &EscrowKey<'_>) -> Result<Self, CustomRingError> {
+        check_member(&member)?;
+        let bit = ListId::Escrow.record_bit();
+        Ok(Self {
+            member,
+            mask: bit,
+            value: bit,
+            escrow_key: key.hash()?,
+        })
     }
 
-    fn check(&self) -> Result<(), MemberRegistryVerifyError> {
-        if self.siblings.len() != MEMBER_REGISTRY_HEIGHT {
-            return Err(MemberRegistryVerifyError::PathLength);
-        }
-        if self.index >= MEMBER_REGISTRY_CAPACITY {
-            return Err(MemberRegistryVerifyError::OutOfRange);
-        }
-        if self
-            .siblings
-            .iter()
-            .any(|s| !is_canonical_bn254_scalar_be(s))
-        {
-            return Err(MemberRegistryVerifyError::OutOfRange);
-        }
-        Ok(())
-    }
-}
-
-/// A member's state under one root, the record itself or the low record bracketing an absent member.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum MemberOpening<'a> {
-    Present {
-        record: MemberRecord,
-        path: MerklePath<'a>,
-    },
-    Absent {
-        low: MemberRecord,
-        path: MerklePath<'a>,
-    },
-}
-
-impl MemberOpening<'_> {
-    /// The lists and escrow key of `member` under `root`, zero when absent.
-    pub fn verify(
-        &self,
-        root: &[u8; 32],
-        member: &[u8; 32],
-    ) -> Result<(u64, [u8; 32]), MemberRegistryVerifyError> {
-        let (leaf, path, resolved) = match self {
-            Self::Present { record, path } => {
-                if record.member != *member {
-                    return Err(MemberRegistryVerifyError::NotBracketed);
-                }
-                (*record, *path, (record.lists, record.escrow_key))
-            }
-            Self::Absent { low, path } => {
-                if !(low.member < *member && *member < low.next) {
-                    return Err(MemberRegistryVerifyError::NotBracketed);
-                }
-                (*low, *path, (0, [0; 32]))
-            }
-        };
-        for field in [&leaf.member, &leaf.next, &leaf.escrow_key, member] {
-            if !is_canonical_bn254_scalar_be(field) {
-                return Err(MemberRegistryVerifyError::OutOfRange);
-            }
-        }
-        if path.root_of(leaf.hash()?)? != *root {
-            return Err(MemberRegistryVerifyError::RootMismatch);
-        }
-        Ok(resolved)
-    }
-}
-
-/// Binds encrypted nullifier-key enrollment to the member, auditor and registry transition.
-pub struct RegisterKeyPublicInput<'a> {
-    pub registry_old_root: &'a [u8; 32],
-    pub registry_new_root: &'a [u8; 32],
-    pub member: &'a [u8; 32],
-    pub nullifier_pk: &'a [u8; 32],
-    pub auditor_pk: &'a [u8; TAGGED_X25519_KEY_LEN],
-    pub eph_pk: &'a [u8; TAGGED_X25519_KEY_LEN],
-    pub ciphertext: &'a [u8; AUDIT_CIPHERTEXT_LEN],
-    /// The member's record index, the append slot on a first registration.
-    pub index: u64,
-}
-
-impl RegisterKeyPublicInput<'_> {
+    /// `Poseidon(CRQW, member, mask, value, escrow_key)`, mirror
+    /// `prover/server/custom_rings/circuits/registry/apply.go`.
     pub fn hash(&self) -> Result<[u8; 32], HasherError> {
-        let auditor = pack_2fe(self.auditor_pk);
-        let eph = pack_2fe(self.eph_pk);
-        create_hash_chain_from_slice(&[
-            *self.registry_old_root,
-            *self.registry_new_root,
-            *self.member,
-            *self.nullifier_pk,
-            auditor.lo,
-            auditor.hi,
-            eph.lo,
-            eph.hi,
-            ciphertext_hash(self.ciphertext)?,
-            right_align(&self.index.to_be_bytes()),
+        Poseidon::hashv(&[
+            &domain::field(domain::QUEUE_WRITE),
+            &self.member,
+            &right_align(&self.mask.to_be_bytes()),
+            &right_align(&self.value.to_be_bytes()),
+            &self.escrow_key,
         ])
     }
 }
 
-/// Binds a batch of record rewrites to the registry transition, items past the count hash as zeros.
-pub struct UpdateMembersPublicInput<'a> {
-    pub old_root: &'a [u8; 32],
-    pub new_root: &'a [u8; 32],
-    pub items: &'a [MemberUpdate],
-}
-
-impl UpdateMembersPublicInput<'_> {
-    pub fn hash(&self) -> Result<[u8; 32], HasherError> {
-        if !(1..=MAX_MEMBER_BATCH).contains(&self.items.len()) {
-            return Err(HasherError::InvalidNumFields);
-        }
-        let mut items = [[0u8; 32]; 1 + MAX_MEMBER_BATCH * 6];
-        items[0] = right_align(&(self.items.len() as u64).to_be_bytes());
-        for (slot, item) in self.items.iter().enumerate() {
-            items[1 + slot * 6..7 + slot * 6].copy_from_slice(&[
-                item.member,
-                right_align(&item.old_lists.to_be_bytes()),
-                item.old_escrow_key,
-                right_align(&item.lists.to_be_bytes()),
-                item.escrow_key,
-                right_align(&item.index.to_be_bytes()),
-            ]);
-        }
-        create_hash_chain_from_slice(&[
-            *self.old_root,
-            *self.new_root,
-            create_hash_chain_from_slice(&items)?,
-        ])
-    }
+/// `chain(p) = Poseidon(chain(p - 1), entry_p)` from `chain(-1) = 0`.
+pub fn queue_chain(previous: &[u8; 32], entry: &QueueEntry) -> Result<[u8; 32], HasherError> {
+    Poseidon::hashv(&[previous, &entry.hash()?])
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn the_empty_root_is_the_sentinel_under_zero_siblings() {
-        let zero = Poseidon::zero_bytes();
-        let path = MerklePath {
-            index: 0,
-            siblings: &zero[..MEMBER_REGISTRY_HEIGHT],
-        };
-        assert_eq!(
-            path.root_of(MemberRecord::SENTINEL.hash().unwrap()),
-            Ok(MEMBER_REGISTRY_EMPTY_ROOT)
-        );
+    fn member(byte: u8) -> [u8; 32] {
+        right_align(&[byte])
     }
 
     #[test]
-    fn the_batch_statement_takes_one_to_sixteen_items() {
-        let item = MemberUpdate {
-            member: right_align(&[1]),
-            old_lists: 0,
-            old_escrow_key: [0; 32],
-            lists: 1,
-            escrow_key: [0; 32],
-            index: 1,
-        };
-        let input = UpdateMembersPublicInput {
-            old_root: &[1; 32],
-            new_root: &[2; 32],
-            items: &[],
-        };
-        assert_eq!(input.hash(), Err(HasherError::InvalidNumFields));
-        let full = vec![item; MAX_MEMBER_BATCH];
-        assert!(UpdateMembersPublicInput {
-            items: &full,
-            ..input
+    fn members_lie_strictly_between_the_sentinel_bounds() {
+        // `q - 2`, the modulus ends in `f0000001`.
+        let mut below_max = FIELD_MAX;
+        below_max[28] -= 1;
+        below_max[29..].fill(0xff);
+        assert_eq!(check_member(&member(1)), Ok(()));
+        assert_eq!(check_member(&below_max), Ok(()));
+        for outside in [[0; 32], FIELD_MAX, BN254_SCALAR_MODULUS_BE] {
+            assert_eq!(
+                check_member(&outside),
+                Err(CustomRingError::MemberOutOfRange)
+            );
         }
-        .hash()
-        .is_ok());
-        let over = vec![item; MAX_MEMBER_BATCH + 1];
+    }
+
+    #[test]
+    fn an_escrow_entry_sets_the_escrow_bit_and_the_key() {
+        let key = EscrowKey {
+            nullifier_pk: &member(4),
+            ciphertext: &[5; AUDIT_CIPHERTEXT_LEN],
+        };
+        let entry = QueueEntry::escrow(member(3), &key).unwrap();
+        let bit = ListId::Escrow.record_bit();
         assert_eq!(
-            UpdateMembersPublicInput {
-                items: &over,
-                ..input
+            (entry.mask, entry.value, entry.escrow_key),
+            (bit, bit, key.hash().unwrap())
+        );
+        assert_ne!(
+            entry.hash(),
+            QueueEntry {
+                escrow_key: [0; 32],
+                ..entry
             }
-            .hash(),
-            Err(HasherError::InvalidNumFields)
+            .hash()
         );
     }
 }

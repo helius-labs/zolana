@@ -24,15 +24,16 @@ pub mod error;
 pub mod indexer;
 pub mod program_data;
 pub mod prover;
-pub mod recovery;
 pub mod rpc;
 pub mod scan;
 pub mod tags;
 pub mod user_registry;
 
 pub use anonymous::{
-    AnonymousRingNote, AnonymousRingReport, AnonymousRingState, AnonymousStream, ADDRESS_GAP,
-    DECRYPTIONS_PER_INDEX, MAX_ISSUED_ADDRESSES,
+    audit_capsule_payload, AnonymousRingNote, AnonymousRingScan, AnonymousRingState,
+    AnonymousRingSync, AnonymousStream, DecoyLeaf, IssuedAddress, PaymentStream, PaymentTag,
+    ReceivedAnchor, SentFirstContact, TagAllocation, ADDRESS_GAP, ANONYMOUS_RING_STATE_VERSION,
+    DECOYS_PER_TREE, MAX_ISSUED_ADDRESSES,
 };
 pub use authority::ProofAuthority;
 pub use client::{
@@ -62,9 +63,6 @@ pub use prover::{
 };
 #[cfg(feature = "reqwest")]
 pub use prover::{spawn_prover, ProverLaunch};
-pub use recovery::{
-    RingRecovery, RingRecoveryReport, RingRecoveryResult, DEFAULT_RECOVERY_PAGE_LIMIT,
-};
 #[cfg(feature = "solana-rpc")]
 pub use rpc::solana_rpc::{
     AsyncSolanaRpc, ConfirmedInstructionGroups, ProgramAccountsFilter, SolanaRpc,
@@ -76,9 +74,11 @@ pub use rpc::{compile_message, sign_transaction, ComputeBudgetConfig};
 pub use rpc::{transaction_size, TransactionSize};
 pub use rpc::{
     AsyncRpc, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
-    GetMerkleProofsResponse, GetNonInclusionProofsResponse, GetRingMemberRecordRequest,
-    GetRingMemberRecordResponse, GetRingMemberRecordsRequest, GetRingMemberRecordsResponse,
-    GetRingMemberRegistryRootRequest, GetRingMemberRegistryRootResponse,
+    GetMerkleProofsResponse, GetNonInclusionProofsResponse, GetRingApplyProofInputsRequest,
+    GetRingApplyProofInputsResponse, GetRingMemberOpeningsRequest, GetRingMemberOpeningsResponse,
+    GetRingMemberRecordRequest, GetRingMemberRecordResponse, GetRingMemberRecordsRequest,
+    GetRingMemberRecordsResponse, GetRingMemberRegistryRootRequest,
+    GetRingMemberRegistryRootResponse, GetRingRecordQueueRequest, GetRingRecordQueueResponse,
     GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
     GetUserRecordsResponse, IndexedShieldedTransaction, MerkleContext, MerkleProof,
     NonInclusionProof, OutputContext, OutputSlot, ProveResult, RingHistoryOptions, Rpc,
@@ -87,7 +87,9 @@ pub use rpc::{
 };
 pub use rpc::{IndexerPollConfig, IndexerRpcConfig};
 pub use scan::{fetch_asset_id, fetch_asset_id_async, next_page, UtxoScan, UtxoScanResult};
-pub use tags::{TagReservations, TagStream, TagWindow, DEFAULT_TAG_WINDOW};
+pub use tags::{
+    IndexerReads, TagReservations, TagStream, TagWindow, DEFAULT_TAG_WINDOW, TAGS_PER_REQUEST,
+};
 pub use zolana_api::BlockingInsideRuntime;
 // `SolanaRpc::send_transaction_with_config` is public but names this type,
 // so callers outside the crate need it to call the method at all.

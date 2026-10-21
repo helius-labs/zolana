@@ -7,7 +7,7 @@ use anyhow::Result;
 use custom_ring_sdk::{ListRegistry, SourceOwner};
 use custom_ring_test_validator::{
     policy::{
-        owner_member, policy_config, CuratedRings, PolicyTransfer, RegistryWrite, RingNotes,
+        owner_member, policy_registry, CuratedRings, PolicyTransfer, RegistryWrite, RingNotes,
         BLOCK_ONLY, DEPOSIT, TRANSFER_AMOUNT,
     },
     shared::{send, RegisterRing, Tier},
@@ -43,16 +43,15 @@ fn a_curator_sourced_blocklist_governs_the_subscriber_ring() -> Result<()> {
         payer: &env.payer,
         auditor_pubkey: X25519Keypair::new().pubkey(),
         tier: Tier::Policy {
-            address_tree: env.tree,
             rules: &BLOCK_ONLY,
             shared_sources: vec![(ListId::Block, curator)],
         },
     }
     .send(rpc)?;
-    let stored = policy_config(subscriber, &env)?;
+    let stored = policy_registry(subscriber, &env)?;
     assert_eq!(
         stored.registry_for(ListId::Block),
-        Some(ListRegistry::Curator(curator.member_registry_root_pda())),
+        Some(ListRegistry::Curator(curator.registry_pda())),
         "the Block slot names the curator registry"
     );
     assert_eq!(stored.generation(), 1);
@@ -71,7 +70,7 @@ fn a_curator_sourced_blocklist_governs_the_subscriber_ring() -> Result<()> {
     //    the absence proof against it.
     transfer(&notes[0]).land()?;
 
-    // 4. One curator write refuses the next transfer at witness build.
+    // 4. One curator write refuses the next transfer before proving.
     let member = owner_member(&env.recipient.keypair)?;
     let curator_block = |present| RegistryWrite {
         ring: curator,
@@ -83,9 +82,8 @@ fn a_curator_sourced_blocklist_governs_the_subscriber_ring() -> Result<()> {
     curator_block(true).send()?;
     transfer(&notes[1]).expect_refusal()?;
 
-    // 5. Clearing the bit re-admits the transfer, the refused note is still
-    //    unspent. An unrelated deposit rotates the state root between the
-    //    record read and the proof.
+    // 5. Clearing the bit re-admits the refused note, an unrelated deposit
+    //    moves the state root between the record read and the proof.
     curator_block(false).send()?;
     RingNotes {
         ring: subscriber,
@@ -105,7 +103,7 @@ fn a_curator_sourced_blocklist_governs_the_subscriber_ring() -> Result<()> {
         &env.payer,
         &[subscriber.set_source_owner(authority, ListId::Block, SourceOwner::Own)?],
     )?;
-    let repointed = policy_config(subscriber, &env)?;
+    let repointed = policy_registry(subscriber, &env)?;
     assert_eq!(
         repointed.registry_for(ListId::Block),
         Some(ListRegistry::Own),

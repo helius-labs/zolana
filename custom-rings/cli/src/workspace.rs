@@ -10,7 +10,7 @@ use zolana_cli_common::{
     release::{verify, Asset},
 };
 
-use crate::{release::RingKey, tool::Tool};
+use crate::{release::RING_KEYS, tool::Tool};
 
 const WORKSPACE_ENV: &str = "ZOLANA_RING_WORKSPACE";
 pub(crate) const WRONG_TARGET: &str = "workspace artifacts are only supported on localnet";
@@ -125,7 +125,7 @@ impl Workspace {
         }
         let lock: serde_json::Value =
             serde_json::from_slice(&fs::read(self.artifact(PROVING_KEYS_LOCK)?)?)?;
-        for key in RingKey::ALL {
+        for key in RING_KEYS {
             let name = key.file_name();
             let pin = &lock["keys"][&name];
             let pinned = Asset {

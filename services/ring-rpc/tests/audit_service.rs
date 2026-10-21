@@ -1,18 +1,23 @@
+#[path = "../../../custom-rings/client/tests/common/deposit.rs"]
+mod deposit_fixture;
 #[path = "../../../custom-rings/client/tests/common/origin.rs"]
 mod origin_fixture;
+#[path = "../../../custom-rings/client/tests/common/transfer.rs"]
+pub mod transfer;
 
-use custom_ring_interface::RingMode;
+use custom_ring_interface::{stream::RingTag, EscrowKey, RingMode};
 use std::{
     collections::{HashMap, HashSet},
     future::Future,
-    num::NonZeroU32,
     sync::{
         atomic::{AtomicUsize, Ordering},
-        Arc,
+        Arc, Mutex,
     },
     time::Duration,
 };
 use zolana_keypair::{X25519Keypair, X25519Pubkey};
+use zolana_ring_member_registry::{MemberRecord, MemberRegistryTree, RecordTree};
+use zolana_ring_policy::Member;
 
 use p256::ecdsa::signature::hazmat::PrehashSigner;
 use sha2::Digest;
@@ -20,41 +25,49 @@ use solana_address::Address;
 use solana_keypair::Keypair;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{ClientError, Context, GetShieldedTransactionsByTagsResponse, ProofInputUtxo};
-use zolana_indexer_api::{Base64String, Hash, Limit};
-use zolana_interface::instruction::MessageData;
-use zolana_keypair::{constants::SALT_LEN, ViewingKey};
+use zolana_client::{ClientError, Context, GetShieldedTransactionsByTagsResponse};
+use zolana_event::encode_ring_confidential_delivered_output;
+use zolana_hasher::primitives::right_align;
+use zolana_indexer_api::{
+    Base64String, GetRingMemberRecordsRequest, GetRingMemberRecordsResponse, Hash, Limit,
+    RingIndexedMemberRecordView, RingMemberRecordView, RingRecordPathView, RingRegistryRootView,
+};
+use zolana_keypair::ViewingKey;
 use zolana_ring_client::P256ReaderKey;
 use zolana_ring_client::{
-    auditor_view_tag,
+    auditor_view_tag, ring_event_origin_in,
     rpc::{
         auditor_key_attestation, unix_now, Attestation, CreateAuditorKeyRequest,
-        CreateAuditorKeyResponse, DecryptedWithdrawal, DepositRecord, GetAuditedMergesResponse,
-        GetDecryptedTransactionsRequest, GetDecryptedTransactionsResponse, HealthResponse, KeyMode,
-        ReadAttestation, ReadAuth, ReadBuildError, ReadSignature, ReadSigner, RingDepositsRequest,
-        RingDepositsResponse, RingState, RingStatusRequest, RingStatusResponse, SkippedReason,
-        WebAuthnAssertion, CREATE_AUDITOR_KEY, GET_AUDITED_MERGES, GET_DECRYPTED_TRANSACTIONS,
+        CreateAuditorKeyResponse, DecryptedInputRing, DecryptedPayloadError, DecryptedSender,
+        DecryptedTransaction, DecryptedWithdrawal, DepositRecord, GetAuditedMergesResponse,
+        GetAuditedNotesRequest, GetAuditedNotesResponse, GetDecryptedTransactionsRequest,
+        GetDecryptedTransactionsResponse, HealthResponse, KeyMode, ReadAttestation, ReadAuth,
+        ReadBuildError, ReadSignature, ReadSigner, RegistryRoot, RegistryStatus, RingActivation,
+        RingChainStatus, RingDepositsRequest, RingDepositsResponse, RingState, RingStatusRequest,
+        RingStatusResponse, SkippedReason, WebAuthnAssertion, AUDITED_NOTES_LIMIT,
+        CREATE_AUDITOR_KEY, GET_AUDITED_MERGES, GET_AUDITED_NOTES, GET_DECRYPTED_TRANSACTIONS,
         HEALTH, RING_DEPOSITS, RING_STATUS,
     },
-    AnonymousDisclosure, AnonymousOutputOpening, AnonymousOwner, AnonymousRingOutput, AuditError,
-    AuditInputOpening, AuditorEncryption, MergeAuditPage, MergeAuditResult, ReaderKey, RingOrigin,
+    seal_deposits, AnonymousInputs, AuditDisclosure, AuditError, ConfirmedDeposit, DepositOpening,
+    MergeAuditPage, MergeAuditResult, OutputPayloadErrorKind, ReaderKey, RingOrigin,
     RingWithdrawal,
 };
 use zolana_ring_rpc::{
-    check_read, rpc_module, AuditRead, Clock, DepositHistory, DepositPage, Hub, OriginPolicy,
-    Origins, Page, ReaderGrant, RingConfiguration, RingRpcError, RootSecret, TransactionPage,
-    TransactionSource, Unauthorized, AUTH_SKEW,
+    rpc_module, AuditRead, AuditService, Clock, DepositHistory, DepositPage, Hub,
+    MergeAuditRequest, OriginPolicy, Origins, Page, ReadCheck, ReaderGrant, RingConfiguration,
+    RingHistoryPage, RingRpcError, RootSecret, TransactionPage, TransactionSource, Unauthorized,
+    AUTH_SKEW,
 };
 use zolana_transaction::{
-    serialization::{
-        confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
-        ring_anonymous::{ring_anonymous_message, RingAnonymousOutputPlaintext, RingAnonymousSlot},
-    },
-    AssetRegistry, Data, OutputContext, OutputSlot, ShieldedTransaction, UtxoSerialization,
-    SOL_ASSET_ID, SOL_MINT,
+    derive_output_blinding_seed, serialization::RingDeliveredBody, AssetRegistry,
+    ShieldedTransaction, SOL_MINT,
 };
 
-const SALT: [u8; SALT_LEN] = [3; SALT_LEN];
+use transfer::{
+    data_free, field, input_opening, x25519_u, Frame, Note, Output, Placement, Publish, Rail,
+    Transfer,
+};
+
 /// Raw id of the tree these fixtures publish into. A slot names the id, not the
 /// account; the account is `pda::tree(TREE_ID)` wherever one is needed.
 const TREE_ID: u16 = 4;
@@ -221,7 +234,13 @@ fn decide_now(auth: &ReadAuth, origins: &Origins) -> Result<ReaderKey, Unauthori
         limit: None,
     }
     .message(auth.timestamp, nonce);
-    check_read(auth, &attestation, unix_now().expect("clock"), origins)
+    ReadCheck {
+        auth,
+        attestation: &attestation,
+        now: unix_now().expect("clock"),
+        origins,
+    }
+    .decide()
 }
 
 #[test]
@@ -288,17 +307,24 @@ fn passkeys_require_canonical_same_origin_assertions() {
     }
 }
 
+type Frames = Arc<Mutex<HashMap<Signature, Vec<u8>>>>;
+
 #[derive(Clone)]
 struct StaticSource {
     transactions: Vec<ShieldedTransaction>,
     origins: HashMap<(Signature, u16), bool>,
+    frames: Frames,
     /// Confirmed deposits and merges do not carry transfer auditor messages.
     confirmed_events: HashMap<(Signature, u16), zolana_ring_client::ConfirmedEvent>,
+    /// The capsule bindings of each audited deposit.
+    deposits: HashMap<Signature, Vec<ConfirmedDeposit>>,
     next_cursor: Option<Vec<u8>>,
     scanned_through: Option<Vec<u8>>,
     /// Per ring, so a read can never be authorized against another ring's
     /// config.
     configs: HashMap<Address, RingConfiguration>,
+    /// Per ring, the default where SPP and the registry hold nothing.
+    chain: HashMap<Address, RingChainStatus>,
     /// Per auditor view tag, empty when every read shares `transactions`.
     by_tag: HashMap<[u8; 32], Vec<ShieldedTransaction>>,
     granted: HashSet<ReaderKey>,
@@ -311,6 +337,19 @@ struct StaticSource {
     /// Ring history, newest first.
     history: Vec<Examined>,
     examined_limit: Arc<AtomicUsize>,
+    /// Per request cursor, empty when every read shares one page.
+    pages: HashMap<Option<Vec<u8>>, Paged>,
+    /// The member records leaf 1 onward, every read answering the same root.
+    records: Vec<RingIndexedMemberRecordView>,
+    record_reads: Arc<AtomicUsize>,
+}
+
+/// The indexer page one cursor reads.
+#[derive(Clone)]
+struct Paged {
+    transactions: Vec<ShieldedTransaction>,
+    next_cursor: Option<Vec<u8>>,
+    scanned_through: Option<Vec<u8>>,
 }
 
 /// One ring signature and the deposits it made.
@@ -336,13 +375,40 @@ impl StaticSource {
     }
 }
 
+impl StaticSource {
+    /// The page `page` names, else every transaction the source holds under `tagged`.
+    fn page_at(
+        &self,
+        page: &Page,
+        tagged: Option<&Vec<ShieldedTransaction>>,
+    ) -> GetShieldedTransactionsByTagsResponse {
+        assert!(page.limit().get() <= 100);
+        let paged = self
+            .pages
+            .get(&page.cursor().map(ToOwned::to_owned))
+            .cloned()
+            .unwrap_or_else(|| Paged {
+                transactions: tagged.cloned().unwrap_or_else(|| self.transactions.clone()),
+                next_cursor: self.next_cursor.clone(),
+                scanned_through: self.scanned_through.clone(),
+            });
+        GetShieldedTransactionsByTagsResponse {
+            context: Context {
+                block_time: 0,
+                slot: 99,
+            },
+            transactions: paged.transactions,
+            next_cursor: paged.next_cursor,
+            scanned_through: paged.scanned_through,
+            output_tree_id: Some(TREE_ID),
+        }
+    }
+}
+
 impl TransactionSource for StaticSource {
     async fn merge_audit_page(
         &self,
-        _ring: Address,
-        _auditor: &X25519Keypair,
-        _cursor: Option<Vec<u8>>,
-        _limit: NonZeroU32,
+        _request: MergeAuditRequest<'_>,
     ) -> Result<MergeAuditPage, AuditError> {
         Ok(MergeAuditPage {
             context: zolana_indexer_api::Context {
@@ -362,22 +428,16 @@ impl TransactionSource for StaticSource {
         request: TransactionPage<'_>,
     ) -> impl Future<Output = Result<GetShieldedTransactionsByTagsResponse, ClientError>> + Send
     {
-        assert!(request.page.limit().get() <= 100);
-        let transactions = self
-            .by_tag
-            .get(&request.tag)
-            .cloned()
-            .unwrap_or_else(|| self.transactions.clone());
-        let response = GetShieldedTransactionsByTagsResponse {
-            context: Context {
-                block_time: 0,
-                slot: 99,
-            },
-            transactions,
-            next_cursor: self.next_cursor.clone(),
-            scanned_through: self.scanned_through.clone(),
-            output_tree_id: Some(TREE_ID),
-        };
+        let response = self.page_at(request.page, self.by_tag.get(&request.tag));
+        async move { Ok(response) }
+    }
+
+    fn ring_history(
+        &self,
+        request: RingHistoryPage<'_>,
+    ) -> impl Future<Output = Result<GetShieldedTransactionsByTagsResponse, ClientError>> + Send
+    {
+        let response = self.page_at(request.page, None);
         async move { Ok(response) }
     }
 
@@ -410,8 +470,9 @@ impl TransactionSource for StaticSource {
                     }),
                 ring_invoked,
                 signers: vec![SENDER],
-                deposits: Vec::new(),
+                deposits: self.deposits.get(&signature).cloned().unwrap_or_default(),
                 merge_disclosure: None,
+                transact: self.frames.lock().unwrap().get(&signature).cloned(),
                 withdrawals: vec![
                     RingWithdrawal {
                         recipient: RECIPIENT,
@@ -471,6 +532,45 @@ impl TransactionSource for StaticSource {
         async move { Ok(config) }
     }
 
+    fn ring_chain_status(
+        &self,
+        ring: Address,
+    ) -> impl Future<Output = Result<RingChainStatus, ClientError>> + Send {
+        let status = self.chain.get(&ring).cloned().unwrap_or_default();
+        async move { Ok(status) }
+    }
+
+    fn ring_member_records(
+        &self,
+        request: GetRingMemberRecordsRequest,
+    ) -> impl Future<Output = Result<GetRingMemberRecordsResponse, ClientError>> + Send {
+        self.record_reads.fetch_add(1, Ordering::Relaxed);
+        let first = usize::try_from(request.start_index - 1).expect("leaf");
+        let records: Vec<_> = self
+            .records
+            .iter()
+            .skip(first)
+            .take(usize::try_from(request.limit).expect("limit"))
+            .cloned()
+            .collect();
+        let end = request.start_index + records.len() as u64;
+        let response = GetRingMemberRecordsResponse {
+            context: zolana_indexer_api::Context {
+                block_time: 0,
+                slot: 99,
+            },
+            root: RingRegistryRootView {
+                root: request.expected_root,
+                root_index: 0,
+                applied: 0,
+                next_index: request.expected_next_index,
+            },
+            records,
+            next_leaf_index: (end < request.expected_next_index).then_some(end),
+        };
+        async move { Ok(response) }
+    }
+
     fn reader_granted(
         &self,
         request: ReaderGrant,
@@ -512,150 +612,189 @@ impl TransactionSource for StaticSource {
     }
 }
 
-fn confidential_slot(
-    tx: &ViewingKey,
-    recipient: &X25519Pubkey,
-    amount: u64,
-    slot_index: u32,
-) -> OutputSlot {
-    confidential_asset_slot(tx, recipient, SOL_ASSET_ID, amount, slot_index)
-}
-
-fn confidential_asset_slot(
-    tx: &ViewingKey,
-    recipient: &X25519Pubkey,
-    asset_id: u64,
-    amount: u64,
-    slot_index: u32,
-) -> OutputSlot {
-    let plaintext = ConfidentialOutputPlaintext {
-        asset_id,
-        amount,
-        blinding: [slot_index as u8; 32],
-        ring_program_id: None,
-        data: Data::default(),
-    };
-    let encoded = Confidential::encode_plaintext(
-        &plaintext,
-        [slot_index as u8 | 0x80; 32],
-        &ConfidentialEncode {
-            tx: tx.clone(),
-            recipient_pubkey: *recipient,
-            salt: SALT,
-            slot_index,
-        },
-    )
-    .expect("confidential slot");
-    OutputSlot {
-        view_tag: encoded.view_tag,
-        output_context: OutputContext {
-            hash: proof_output(asset_id, amount, slot_index)
-                .hash()
-                .expect("output commitment"),
-            tree_id: TREE_ID,
-            leaf_index: u64::from(slot_index),
-        },
-        payload: encoded.data,
+/// The transfer whose first nullifier, keys and salt derive from `seed`.
+fn ring_transfer(seed: u8) -> Transfer {
+    let first_nullifier = field(seed);
+    let blinding_seed = right_align(&[seed]);
+    Transfer {
+        tx_key: ViewingKey::from_bytes(&[seed; 32]),
+        ring: RING,
+        first_nullifier,
+        salt: [seed; 16],
+        blinding_seed,
+        seed_out: derive_output_blinding_seed(&first_nullifier, &blinding_seed)
+            .expect("output seed"),
+        tree_id: TREE_ID,
+        nullifiers: vec![first_nullifier],
     }
 }
 
-fn proof_output(asset_id: u64, amount: u64, slot_index: u32) -> ProofInputUtxo {
-    let asset = match asset_id {
-        SOL_ASSET_ID => SOL_MINT,
-        2 => Address::new_from_array([8; 32]),
-        _ => Address::new_from_array([asset_id as u8; 32]),
-    };
-    let mut owner_hash = [0u8; 32];
-    owner_hash[31] = slot_index as u8 + 1;
-    ProofInputUtxo::new(owner_hash, &asset, amount, &[slot_index as u8; 32], TREE_ID)
-        .expect("proof output")
+fn note(owner: u8, asset_address: Address, amount: u64) -> Note {
+    Note {
+        owner_key: [owner; 32],
+        nullifier_pk: field(owner ^ 0x80),
+        asset_address,
+        amount,
+        ..Note::default()
+    }
 }
 
-fn auditor_message(
-    tx: &ViewingKey,
-    auditor_pk: &X25519Pubkey,
-    outputs: &[ProofInputUtxo],
-) -> MessageData {
-    AuditorEncryption::new_with_outputs(tx, auditor_pk, SALT, outputs)
-        .expect("auditor encryption")
-        .message
-        .to_message_data(auditor_pk)
+fn sol(owner: u8, amount: u64) -> Note {
+    note(owner, SOL_MINT, amount)
 }
 
-fn transaction(
-    signature_byte: u8,
-    tx: &ViewingKey,
-    output_slots: Vec<OutputSlot>,
-    messages: Vec<MessageData>,
-) -> ShieldedTransaction {
-    ShieldedTransaction {
-        slot: 42,
-        tx_signature: Signature::from([signature_byte; 64]),
-        event_index: Some(0),
-        tx_viewing_pk: Some(tx.pubkey()),
-        salt: Some(SALT),
-        output_slots,
-        messages,
-        nullifiers: vec![[signature_byte; 32]],
-        proofless: false,
-        ring_config: None,
-        ring_program_id: Some(RING),
+/// A confidential ring output, its recipient published as the owner tag.
+fn paid(note: Note, recipient_u: [u8; 32]) -> Output {
+    Output::Ring {
+        note,
+        recipient_u,
+        tag: None,
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Spend {
+    note: Note,
+    blinding: [u8; 32],
+}
+
+struct Indexed<'a> {
+    transfer: &'a Transfer,
+    outputs: &'a [Output],
+    auditor: &'a X25519Pubkey,
+    signature: u8,
+    frames: &'a Frames,
+}
+
+impl Indexed<'_> {
+    fn packed(self) -> ShieldedTransaction {
+        self.packed_with(false)
+    }
+
+    /// Under key escrow every output nullifier key leaves the disclosure.
+    fn packed_with(self, key_escrow: bool) -> ShieldedTransaction {
+        let disclosure = self
+            .transfer
+            .disclosure(Rail::Packed, self.outputs, key_escrow);
+        self.publish(Rail::Packed, &disclosure)
+    }
+
+    fn delivered(self) -> ShieldedTransaction {
+        let disclosure = self
+            .transfer
+            .disclosure(Rail::Delivered, self.outputs, false);
+        self.publish(Rail::Delivered, &disclosure)
+    }
+
+    /// The entry key's disclosure, the first spent note's owner the sender.
+    fn anonymous(self, spent: &[Option<Spend>]) -> ShieldedTransaction {
+        let sender = spent.iter().flatten().next().expect("a spent note").note;
+        let inputs = AnonymousInputs::Openings {
+            sender_nullifier_pk: sender.nullifier_pk,
+            inputs: spent
+                .iter()
+                .map(|spend| spend.map(|spend| input_opening(&spend.note, spend.blinding)))
+                .collect(),
+        };
+        self.anonymous_with(sender.owner_key, inputs)
+    }
+
+    /// The commitment key's disclosure, each published input named by its UTXO hash.
+    fn anonymous_commitments(
+        self,
+        sender: Note,
+        spent: &[Option<[u8; 32]>],
+    ) -> ShieldedTransaction {
+        self.anonymous_with(
+            sender.owner_key,
+            AnonymousInputs::Commitments(spent.to_vec()),
+        )
+    }
+
+    fn anonymous_with(self, sender_key: [u8; 32], inputs: AnonymousInputs) -> ShieldedTransaction {
+        let disclosure = self
+            .transfer
+            .anonymous_disclosure(sender_key, self.outputs, inputs);
+        self.publish(Rail::Anonymous, &disclosure)
+    }
+
+    fn publish(self, rail: Rail, disclosure: &AuditDisclosure) -> ShieldedTransaction {
+        let mut transaction = self.transfer.publish(Publish {
+            slots: self
+                .transfer
+                .slots(rail, self.outputs)
+                .into_iter()
+                .map(|slot| slot.output)
+                .collect(),
+            disclosure,
+            auditor: self.auditor,
+        });
+        transaction.slot = 42;
+        transaction.tx_signature = Signature::from([self.signature; 64]);
+        let frame = self.transfer.frame(Frame {
+            tx: &transaction,
+            layout: disclosure.layout(),
+            data_free: data_free(self.outputs),
+        });
+        self.frames
+            .lock()
+            .unwrap()
+            .insert(transaction.tx_signature, frame);
+        transaction
     }
 }
 
 struct Fixture {
     auditor: X25519Keypair,
-    recipient: X25519Pubkey,
+    recipient_u: [u8; 32],
     audited: ShieldedTransaction,
     foreign_key: ShieldedTransaction,
     missing_message: ShieldedTransaction,
+    frames: Frames,
 }
 
 impl Fixture {
     fn new() -> Self {
         let auditor = X25519Keypair::new();
         let auditor_pk = auditor.pubkey();
-        let recipient = ViewingKey::new().pubkey();
-        let tx = ViewingKey::new();
-        let audited = transaction(
-            1,
-            &tx,
-            vec![
-                confidential_slot(&tx, &recipient, 500, 0),
-                confidential_slot(&tx, &recipient, 7, 1),
+        let recipient_u = x25519_u(0x40);
+        let frames = Frames::default();
+        let audited = Indexed {
+            transfer: &ring_transfer(1),
+            outputs: &[
+                paid(sol(0xb0, 500), recipient_u),
+                paid(sol(0xb1, 7), recipient_u),
             ],
-            vec![auditor_message(
-                &tx,
-                &auditor_pk,
-                &[
-                    proof_output(SOL_ASSET_ID, 500, 0),
-                    proof_output(SOL_ASSET_ID, 7, 1),
-                ],
-            )],
-        );
-        let tx = ViewingKey::new();
-        let mut message = auditor_message(
-            &tx,
-            &X25519Keypair::new().pubkey(),
-            &[proof_output(SOL_ASSET_ID, 9, 0)],
-        );
-        message.view_tag = auditor_view_tag(&auditor_pk);
-        let foreign_key = transaction(
-            2,
-            &tx,
-            vec![confidential_slot(&tx, &recipient, 9, 0)],
-            vec![message],
-        );
-        let tx = ViewingKey::new();
-        let mut slot = confidential_slot(&tx, &recipient, 11, 0);
-        slot.view_tag = auditor_view_tag(&auditor_pk);
-        let missing_message = transaction(3, &tx, vec![slot], Vec::new());
+            auditor: &auditor_pk,
+            signature: 1,
+            frames: &frames,
+        }
+        .packed();
+        let mut foreign_key = Indexed {
+            transfer: &ring_transfer(2),
+            outputs: &[paid(sol(0xb2, 9), recipient_u)],
+            auditor: &X25519Keypair::new().pubkey(),
+            signature: 2,
+            frames: &frames,
+        }
+        .packed();
+        foreign_key.messages[0].view_tag = auditor_view_tag(&auditor_pk);
+        let mut missing_message = Indexed {
+            transfer: &ring_transfer(3),
+            outputs: &[paid(sol(0xb3, 11), recipient_u)],
+            auditor: &auditor_pk,
+            signature: 3,
+            frames: &frames,
+        }
+        .packed();
+        missing_message.messages.clear();
         Self {
             auditor,
-            recipient,
+            recipient_u,
             audited,
             foreign_key,
             missing_message,
+            frames,
         }
     }
 
@@ -663,7 +802,9 @@ impl Fixture {
         let source = StaticSource {
             transactions: Vec::new(),
             origins: HashMap::new(),
+            frames: self.frames.clone(),
             confirmed_events: HashMap::new(),
+            deposits: HashMap::new(),
             next_cursor: Some(vec![7, 7]),
             scanned_through: None,
             configs: HashMap::from([(
@@ -674,6 +815,7 @@ impl Fixture {
                     mode: RingMode::Off,
                 },
             )]),
+            chain: HashMap::new(),
             by_tag: HashMap::new(),
             granted: HashSet::from([
                 ReaderKey::ed25519(delegate().pubkey()).expect("delegate reader"),
@@ -686,6 +828,9 @@ impl Fixture {
             asset_delay: None,
             history: Vec::new(),
             examined_limit: Arc::new(AtomicUsize::new(0)),
+            pages: HashMap::new(),
+            records: Vec::new(),
+            record_reads: Arc::new(AtomicUsize::new(0)),
         };
         source.with_transactions(vec![
             self.audited.clone(),
@@ -708,6 +853,30 @@ impl Fixture {
             .local(RING, self.auditor.clone())
             .expect("hub")
     }
+
+    async fn read_anonymous(
+        &self,
+        transactions: Vec<ShieldedTransaction>,
+    ) -> GetDecryptedTransactionsResponse {
+        let mut source = self.source().with_transactions(transactions);
+        source.configs.get_mut(&RING).expect("config").mode = RingMode::Anonymous;
+        self.hub(source)
+            .service(None)
+            .expect("service")
+            .read(AuditRead {
+                auth: &auth(&delegate()),
+                page: &page(),
+            })
+            .await
+            .expect("read")
+    }
+}
+
+fn amounts(item: &DecryptedTransaction) -> Vec<u64> {
+    item.outputs
+        .iter()
+        .map(|output| output.note.as_ref().expect("note").amount)
+        .collect()
 }
 
 fn page() -> Page {
@@ -736,13 +905,13 @@ async fn granted_reader_opens_audited_transfers_and_reports_the_rest() {
     let [item] = response.value.items.as_slice() else {
         panic!("expected one audited transaction");
     };
-    assert_eq!(item.outputs.len(), 2);
-    assert_eq!(item.outputs[0].amount, 500);
-    assert_eq!(item.outputs[1].amount, 7);
-    assert_eq!(item.outputs[0].asset.0.to_bytes(), SOL_MINT.to_bytes());
-    // The slot's own tag, not anything recovered from the ciphertext.
-    assert_eq!(item.outputs[0].owner_tag.0, [0x80; 32]);
-    assert_eq!(item.outputs[1].owner_tag.0, [0x81; 32]);
+    assert_eq!(amounts(item), [500, 7]);
+    for output in &item.outputs {
+        let mint = output.note.as_ref().and_then(|note| note.mint.as_ref());
+        assert_eq!(mint.map(|mint| mint.0), Some(SOL_MINT));
+        // The published owner tag, nothing recovered from the recipient's ciphertext.
+        assert_eq!(output.recipient_u, Some(Hash(fixture.recipient_u)));
+    }
     assert_eq!(item.signers, vec![SENDER.to_bytes().into()]);
     assert_eq!(
         item.withdrawals,
@@ -758,10 +927,6 @@ async fn granted_reader_opens_audited_transfers_and_reports_the_rest() {
                 amount: SPL_WITHDRAWN,
             }
         ]
-    );
-    assert_eq!(
-        item.outputs[0].recipient_viewing_pk,
-        Base64String(fixture.recipient.as_bytes().to_vec())
     );
     assert_eq!(item.nullifiers.len(), 1);
     let reasons: Vec<(Signature, SkippedReason)> = response
@@ -836,80 +1001,33 @@ async fn events_in_one_signature_keep_distinct_ordinals() {
 #[tokio::test]
 async fn passkey_reader_opens_anonymous_spend_trace() {
     let fixture = Fixture::new();
-    let tx_key = ViewingKey::new();
-    let sender = delegate().pubkey().to_bytes();
-    let mut outputs = Vec::new();
-    let mut slots = Vec::new();
-    let mut sol_asset = [0; 32];
-    for index in 0..2u32 {
-        let identity_key = [20 + index as u8; 32];
-        let nullifier_pk = [30 + index as u8; 32];
-        let owner = zolana_keypair::PublicKey::from_ed25519(&identity_key);
-        let owner_hash =
-            zolana_keypair::hash::owner_hash(&owner, &nullifier_pk).expect("owner hash");
-        let note = RingAnonymousOutputPlaintext {
-            asset_address: SOL_MINT.to_bytes(),
-            amount: 500 + index as u64,
-            blinding: [index as u8; 32],
-            pair_u: fixture.recipient.u(),
-        };
-        let opening =
-            ProofInputUtxo::new(owner_hash, &SOL_MINT, note.amount, &note.blinding, TREE_ID)
-                .expect("output opening")
-                .with_ring([0; 32], &Some(RING))
-                .expect("ring opening");
-        sol_asset = opening.asset;
-        let body = RingAnonymousSlot {
-            tx_viewing_pk: tx_key.pubkey(),
-            recipient_pk: fixture.recipient,
-            salt: SALT,
-            slot: index as u8,
-        }
-        .seal(&tx_key, &note)
-        .expect("anonymous body");
-        let encoded = ring_anonymous_message(&body, fixture.recipient.u()).expect("message");
-        slots.push(OutputSlot {
-            view_tag: encoded.view_tag,
-            output_context: OutputContext {
-                hash: opening.hash().expect("commitment"),
-                tree_id: TREE_ID,
-                leaf_index: u64::from(index),
-            },
-            payload: encoded.data,
-        });
-        outputs.push(AnonymousOutputOpening::Ring(AnonymousRingOutput {
-            owner: AnonymousOwner {
-                identity_tag: 0x53,
-                identity_key,
-                nullifier_pk,
-            },
-            viewing_pk: *fixture.recipient.as_bytes(),
-        }));
-    }
-    let disclosure = AnonymousDisclosure {
-        sender,
-        inputs: vec![
-            AuditInputOpening {
-                tree_id: TREE_ID,
-                amount: 900,
-                asset: sol_asset,
-                blinding: [7; 32],
-            },
-            AuditInputOpening::default(),
-        ],
-        outputs,
+    let mut transfer = ring_transfer(70);
+    transfer.nullifiers.push(field(0x71));
+    let sender = Spend {
+        note: sol(0xa1, 900),
+        blinding: field(0x60),
     };
-    let message = AuditorEncryption::new_with_anonymous(
-        &tx_key,
-        &fixture.auditor.pubkey(),
-        SALT,
-        &disclosure,
-    )
-    .expect("anonymous disclosure")
-    .message
-    .to_message_data(&fixture.auditor.pubkey());
-    let mut tx = transaction(70, &tx_key, slots, vec![message]);
-    tx.nullifiers.push([71; 32]);
+    let tag = RingTag::from_bytes([0x53; 31]);
+    let outputs = [
+        Output::Ring {
+            note: sol(0xb5, 500),
+            recipient_u: x25519_u(0x50),
+            tag: Some(RingTag::from_bytes([0x51; 31])),
+        },
+        Output::Ring {
+            note: sol(0xb6, 501),
+            recipient_u: x25519_u(0x52),
+            tag: Some(tag),
+        },
+    ];
+    let tx = Indexed {
+        transfer: &transfer,
+        outputs: &outputs,
+        auditor: &fixture.auditor.pubkey(),
+        signature: 70,
+        frames: &fixture.frames,
+    }
+    .anonymous(&[Some(sender), None]);
     let mut source = fixture.source().with_transactions(vec![tx]);
     source.configs.get_mut(&RING).expect("config").mode = RingMode::Anonymous;
     let module = rpc_module(Arc::new(fixture.hub(source))).expect("module");
@@ -927,16 +1045,694 @@ async fn passkey_reader_opens_anonymous_spend_trace() {
     let [item] = response.value.items.as_slice() else {
         panic!("anonymous transaction must be readable")
     };
-    let trace = item.anonymous.as_ref().expect("anonymous trace");
-    assert_eq!(trace.sender.0, Address::new_from_array(sender));
-    assert_eq!(trace.inputs.len(), 1);
-    assert_eq!(trace.inputs[0].amount, 900);
-    assert_eq!(trace.recipients.len(), 2);
-    assert_eq!(trace.recipients[1].identity_key.0, [21; 32]);
-    assert_eq!(item.outputs.len(), 2);
-    assert_eq!(item.outputs[1].amount, 501);
+    assert_eq!(
+        item.sender,
+        Some(DecryptedSender {
+            owner_key: sender.note.owner_key.into(),
+            nullifier_pk: Some(sender.note.nullifier_pk.into()),
+        })
+    );
+    let [spent, dummy] = item.inputs.as_slice() else {
+        panic!("one input per published nullifier")
+    };
+    assert_eq!(
+        spent.opening.as_ref().map(|opening| opening.amount),
+        Some(900)
+    );
+    assert_eq!(dummy.opening, None);
+    assert_eq!(amounts(item), [500, 501]);
+    assert_eq!(item.outputs[1].tag, Some(Hash(tag.field())));
     assert!(item.payload_errors.is_empty());
     assert!(response.value.skipped.is_empty());
+}
+
+#[tokio::test]
+async fn an_input_spending_a_note_the_page_opened_resolves_its_ring() {
+    let fixture = Fixture::new();
+    let notes = SpentNote::new(&fixture);
+    let opened = Some(DecryptedInputRing::Ring {
+        commitment: notes.commitment.into(),
+    });
+    for spent in [&notes.entry, &notes.spent] {
+        let page = fixture
+            .read_anonymous(vec![notes.paid.clone(), spent.clone()])
+            .await;
+        assert_eq!(input_ring(&page), opened);
+    }
+    // The entry key opens the input itself, only its ring stays open.
+    assert!(matches!(
+        input_ring(&fixture.read_anonymous(vec![notes.entry.clone()]).await),
+        Some(DecryptedInputRing::Unresolved { .. })
+    ));
+    let alone = fixture.read_anonymous(vec![notes.spent.clone()]).await;
+    assert!(alone.value.items.is_empty());
+    let reasons: Vec<SkippedReason> = alone
+        .value
+        .skipped
+        .iter()
+        .map(|skipped| skipped.reason)
+        .collect();
+    assert_eq!(reasons, [SkippedReason::UnseenInput]);
+}
+
+/// A member paid on an anonymous ring, then two transfers that spend the member's note.
+struct SpentNote {
+    paid: ShieldedTransaction,
+    /// The commitment key's spend, the input named by its UTXO hash.
+    spent: ShieldedTransaction,
+    /// The entry key's spend, the input opened in full.
+    entry: ShieldedTransaction,
+    /// The paid output as the spending input names it.
+    commitment: [u8; 32],
+    member: Note,
+}
+
+impl SpentNote {
+    fn new(fixture: &Fixture) -> Self {
+        let auditor = &fixture.auditor.pubkey();
+        let member = sol(0xa4, 70);
+        let paying = ring_transfer(80);
+        let payment = [
+            Output::Ring {
+                note: member,
+                recipient_u: x25519_u(0x54),
+                tag: Some(RingTag::from_bytes([0x55; 31])),
+            },
+            Output::Dummy,
+        ];
+        let paid = Indexed {
+            transfer: &paying,
+            outputs: &payment,
+            auditor,
+            signature: 80,
+            frames: &fixture.frames,
+        }
+        .anonymous(&[Some(Spend {
+            note: sol(0xa5, 70),
+            blinding: field(0x65),
+        })]);
+        let received = paying.slot(Rail::Anonymous, 0, &payment[0]);
+        let commitment = received.output.output_context.hash;
+        let exit = [Output::Exit(sol(0xe8, 70)), Output::Dummy];
+        let spent = Indexed {
+            transfer: &ring_transfer(81),
+            outputs: &exit,
+            auditor,
+            signature: 81,
+            frames: &fixture.frames,
+        }
+        .anonymous_commitments(member, &[Some(commitment)]);
+        let entry = Indexed {
+            transfer: &ring_transfer(82),
+            outputs: &exit,
+            auditor,
+            signature: 82,
+            frames: &fixture.frames,
+        }
+        .anonymous(&[Some(Spend {
+            note: member,
+            blinding: received.blinding,
+        })]);
+        Self {
+            paid,
+            spent,
+            entry,
+            commitment,
+            member,
+        }
+    }
+
+    /// The anonymous ring serving `pages` by cursor.
+    fn source(&self, fixture: &Fixture, pages: [(Option<Vec<u8>>, Paged); 2]) -> StaticSource {
+        let mut source = fixture.source().with_transactions(vec![
+            self.paid.clone(),
+            self.spent.clone(),
+            self.entry.clone(),
+        ]);
+        source.configs.get_mut(&RING).expect("config").mode = RingMode::Anonymous;
+        source.pages = HashMap::from(pages);
+        source
+    }
+}
+
+fn paged(transactions: Vec<ShieldedTransaction>, next: Option<u8>, frontier: Option<u8>) -> Paged {
+    Paged {
+        transactions,
+        next_cursor: next.map(|byte| vec![byte]),
+        scanned_through: frontier.map(|byte| vec![byte]),
+    }
+}
+
+fn input_ring(response: &GetDecryptedTransactionsResponse) -> Option<DecryptedInputRing> {
+    response
+        .value
+        .items
+        .last()
+        .expect("spending transfer")
+        .inputs[0]
+        .opening
+        .as_ref()
+        .expect("opening")
+        .ring
+        .clone()
+}
+
+/// A read of the page `cursor` names, the attestation covers the cursor.
+async fn read_at(
+    service: &AuditService<StaticSource>,
+    cursor: Option<u8>,
+) -> GetDecryptedTransactionsResponse {
+    let page = Page::new(cursor.map(|byte| vec![byte].into()), None).expect("page");
+    let request = match cursor {
+        Some(byte) => GetDecryptedTransactionsRequest::read(RING)
+            .with_cursor(vec![byte].into())
+            .expect("cursor"),
+        None => GetDecryptedTransactionsRequest::read(RING),
+    }
+    .sign(&delegate())
+    .expect("request");
+    service
+        .read(AuditRead {
+            auth: &request.auth,
+            page: &page,
+        })
+        .await
+        .expect("read")
+}
+
+fn notes_request(hashes: Vec<Hash>) -> GetAuditedNotesRequest {
+    GetAuditedNotesRequest::read(RING, hashes)
+        .expect("note read")
+        .sign(&delegate())
+        .expect("signed note read")
+}
+
+#[tokio::test]
+async fn an_input_whose_note_an_earlier_page_opened_resolves_through_the_store() {
+    let fixture = Fixture::new();
+    let notes = SpentNote::new(&fixture);
+    let source = notes.source(
+        &fixture,
+        [
+            (None, paged(vec![notes.paid.clone()], Some(1), None)),
+            (
+                Some(vec![1]),
+                paged(vec![notes.spent.clone()], None, Some(2)),
+            ),
+        ],
+    );
+    let service = fixture.hub(source).service(None).expect("service");
+    read_at(&service, None).await;
+    assert_eq!(
+        input_ring(&read_at(&service, Some(1)).await),
+        Some(DecryptedInputRing::Ring {
+            commitment: notes.commitment.into(),
+        })
+    );
+}
+
+#[tokio::test]
+async fn a_backfill_fills_the_store_before_any_page_read() {
+    let fixture = Fixture::new();
+    let notes = SpentNote::new(&fixture);
+    let mut source = notes.source(
+        &fixture,
+        [
+            (None, paged(vec![notes.paid.clone()], Some(1), None)),
+            (Some(vec![1]), paged(Vec::new(), None, Some(2))),
+        ],
+    );
+    source.pages.insert(
+        Some(vec![9]),
+        paged(vec![notes.spent.clone()], None, Some(10)),
+    );
+    let service = fixture.hub(source).service(None).expect("service");
+    service.backfill_notes().await.expect("backfill");
+    let found = service
+        .audited_notes(&notes_request(vec![notes.commitment.into()]))
+        .await
+        .expect("note read");
+    let [Some(view)] = found.value.notes.as_slice() else {
+        panic!("the backfill opened the paid note, {:?}", found.value.notes);
+    };
+    assert_eq!(found.context.slot, 99);
+    assert_eq!(
+        (view.note.amount, view.note.owner_key.0.to_bytes()),
+        (notes.member.amount, notes.member.owner_key)
+    );
+    assert_eq!(view.tx_signature.0, notes.paid.tx_signature);
+    assert_eq!(
+        input_ring(&read_at(&service, Some(9)).await),
+        Some(DecryptedInputRing::Ring {
+            commitment: notes.commitment.into(),
+        })
+    );
+}
+
+/// The audited deposit of `member` into the ring at `blinding`, its capsule sealed to `auditor`.
+fn audited_deposit(
+    auditor: &X25519Pubkey,
+    member: &Note,
+    blinding: [u8; 32],
+) -> (ShieldedTransaction, Vec<ConfirmedDeposit>) {
+    let opening = DepositOpening {
+        owner_hash: member.owner_hash(),
+        blinding: zeroize::Zeroizing::new(blinding),
+        owner_key: Some(member.owner_key),
+    };
+    let owner_utxo_hash =
+        zolana_transaction::owner_utxo_hash(&opening.owner_hash, &opening.blinding).unwrap();
+    let sealed = seal_deposits(&[opening], auditor).unwrap();
+    let capsule = custom_ring_interface::RingDepositAuditCapsule {
+        slot_index: 0,
+        eph_pk: sealed.ephemeral_pk.as_bytes(),
+        ciphertext: &sealed.ciphertexts[0],
+        recipient_ciphertext: &[],
+    }
+    .encode();
+    let group = deposit_fixture::group(RING, true, vec![(owner_utxo_hash, capsule.clone())]);
+    let commitment = member.commitment(Placement {
+        blinding,
+        ring: Some(RING),
+        tree_id: TREE_ID,
+    });
+    let deposit = ShieldedTransaction {
+        slot: 40,
+        tx_signature: Signature::from([79; 64]),
+        event_index: Some(0),
+        tx_viewing_pk: None,
+        salt: None,
+        output_slots: vec![zolana_transaction::OutputSlot {
+            view_tag: field(0x56),
+            output_context: zolana_transaction::OutputContext {
+                hash: commitment,
+                tree_id: TREE_ID,
+                leaf_index: 3,
+            },
+            payload: zolana_event::encode_encrypted_ring_deposit_output(
+                zolana_event::EncryptedRingDepositOutput {
+                    owner_utxo_hash,
+                    asset: member.asset_address.to_bytes(),
+                    amount: member.amount,
+                    data_hash: None,
+                    ring_program_id: RING.to_bytes(),
+                    ring_data_hash: [0; 32],
+                    encrypted: zolana_event::EncryptedRingDepositData {
+                        tx_viewing_pk: [0; 33],
+                        salt: [0; 16],
+                        ciphertext: capsule,
+                    },
+                },
+            ),
+        }],
+        messages: Vec::new(),
+        nullifiers: Vec::new(),
+        proofless: true,
+        ring_config: None,
+        ring_program_id: Some(RING),
+    };
+    let bindings = ring_event_origin_in(&[group], 0, RING).unwrap().deposits;
+    (deposit, bindings)
+}
+
+#[tokio::test]
+async fn a_backfill_opens_a_deposited_note_a_later_spend_names() {
+    let fixture = Fixture::new();
+    let member = sol(0xa6, 64);
+    let blinding = field(0x66);
+    let (deposit, bindings) = audited_deposit(&fixture.auditor.pubkey(), &member, blinding);
+    let commitment = deposit.output_slots[0].output_context.hash;
+    let exit = [Output::Exit(sol(0xe9, 64)), Output::Dummy];
+    let spent = Indexed {
+        transfer: &ring_transfer(83),
+        outputs: &exit,
+        auditor: &fixture.auditor.pubkey(),
+        signature: 83,
+        frames: &fixture.frames,
+    }
+    .anonymous_commitments(member, &[Some(commitment)]);
+    let mut source = fixture
+        .source()
+        .with_transactions(vec![deposit.clone(), spent.clone()]);
+    source.configs.get_mut(&RING).expect("config").mode = RingMode::Anonymous;
+    source.deposits.insert(deposit.tx_signature, bindings);
+    source.pages = HashMap::from([
+        (None, paged(vec![deposit, spent.clone()], Some(1), None)),
+        (Some(vec![1]), paged(Vec::new(), None, Some(2))),
+        (Some(vec![9]), paged(vec![spent], None, Some(10))),
+    ]);
+    let service = fixture.hub(source).service(None).expect("service");
+    let before = read_at(&service, Some(9)).await;
+    assert_eq!(
+        before
+            .value
+            .skipped
+            .iter()
+            .map(|row| row.reason)
+            .collect::<Vec<_>>(),
+        [SkippedReason::UnseenInput]
+    );
+    service.backfill_notes().await.expect("backfill");
+    let found = service
+        .audited_notes(&notes_request(vec![commitment.into()]))
+        .await
+        .expect("note read");
+    let [Some(view)] = found.value.notes.as_slice() else {
+        panic!("the backfill opened the deposit, {:?}", found.value.notes);
+    };
+    assert_eq!(
+        (view.note.amount, view.note.nullifier_pk.clone()),
+        (64, None)
+    );
+    let after = read_at(&service, Some(9)).await;
+    assert_eq!(
+        input_ring(&after),
+        Some(DecryptedInputRing::Ring {
+            commitment: commitment.into(),
+        })
+    );
+    assert_eq!(
+        after.value.items[0].sender.as_ref().unwrap().nullifier_pk,
+        None
+    );
+}
+
+#[tokio::test]
+async fn audited_notes_answer_in_request_order_with_null_for_an_unseen_hash() {
+    let fixture = Fixture::new();
+    let hub = Arc::new(fixture.hub(fixture.source()));
+    let service = hub.service(None).expect("service");
+    read_at(&service, None).await;
+    let outputs: Vec<[u8; 32]> = fixture
+        .audited
+        .output_slots
+        .iter()
+        .map(|slot| slot.output_context.hash)
+        .collect();
+    let unseen = Hash([0x77; 32]);
+    let request = notes_request(vec![outputs[1].into(), unseen, outputs[0].into()]);
+    let module = rpc_module(hub).expect("module");
+    let response: GetAuditedNotesResponse = module
+        .call(GET_AUDITED_NOTES, as_object(&request))
+        .await
+        .expect("note read");
+    let amounts: Vec<Option<u64>> = response
+        .value
+        .notes
+        .iter()
+        .map(|view| view.as_ref().map(|view| view.note.amount))
+        .collect();
+    assert_eq!(amounts, [Some(7), None, Some(500)]);
+    // A page read opens notes, only the backfill vouches for the history before its context.
+    assert_eq!(response.context.slot, 0);
+    let wire = as_object(response.value.notes[0].as_ref().expect("opened note"));
+    let keys: HashSet<&str> = wire.keys().map(String::as_str).collect();
+    assert_eq!(
+        keys,
+        HashSet::from([
+            "utxoHash",
+            "note",
+            "slot",
+            "txSignature",
+            "eventIndex",
+            "slotIndex",
+        ])
+    );
+    assert_eq!(
+        wire["utxoHash"],
+        serde_json::json!(Hash(outputs[1]).to_base58())
+    );
+    assert_eq!(wire["slotIndex"], serde_json::json!(1));
+}
+
+#[tokio::test]
+async fn audited_notes_refuse_an_ungranted_reader_a_bad_count_a_changed_hash_and_a_replay() {
+    let fixture = Fixture::new();
+    let service = fixture
+        .hub(fixture.source())
+        .service(None)
+        .expect("service");
+    let hashes = vec![Hash([0x77; 32])];
+    let stranger_request = GetAuditedNotesRequest::read(RING, hashes.clone())
+        .expect("note read")
+        .sign(&stranger())
+        .expect("signed note read");
+    assert!(matches!(
+        service.audited_notes(&stranger_request).await,
+        Err(RingRpcError::Unauthorized(Unauthorized::NotGranted))
+    ));
+    for count in [0, AUDITED_NOTES_LIMIT + 1] {
+        let hashes = vec![Hash([0x77; 32]); count];
+        assert!(matches!(
+            GetAuditedNotesRequest::read(RING, hashes.clone()),
+            Err(ReadBuildError::Notes)
+        ));
+        let request = GetAuditedNotesRequest {
+            utxo_hashes: hashes,
+            ..notes_request(vec![Hash([0x77; 32])])
+        };
+        assert!(matches!(
+            service.audited_notes(&request).await,
+            Err(RingRpcError::InvalidNoteRequest)
+        ));
+    }
+    let mut changed = notes_request(hashes.clone());
+    changed.utxo_hashes = vec![Hash([0x78; 32])];
+    assert!(matches!(
+        service.audited_notes(&changed).await,
+        Err(RingRpcError::Unauthorized(Unauthorized::BadSignature))
+    ));
+    let request = notes_request(hashes);
+    assert!(service.audited_notes(&request).await.is_ok());
+    assert!(matches!(
+        service.audited_notes(&request).await,
+        Err(RingRpcError::Unauthorized(Unauthorized::Replay))
+    ));
+}
+
+/// Each owner's record escrowing its nullifier key under one registry root.
+struct EscrowRegistry {
+    root: [u8; 32],
+    records: Vec<RingIndexedMemberRecordView>,
+}
+
+impl EscrowRegistry {
+    fn new(owners: &[Note]) -> Self {
+        let sealed = [0x5a; 32];
+        let eph_pk = X25519Keypair::new().pubkey();
+        let mut members: Vec<([u8; 32], Note)> = owners
+            .iter()
+            .map(|note| {
+                let member = Member::owner_tag(&note.owner_key).expect("owner tag");
+                (*member.as_bytes(), *note)
+            })
+            .collect();
+        members.sort_by_key(|(member, _)| *member);
+        let next = |position: usize| {
+            members
+                .get(position)
+                .map_or(MemberRecord::SENTINEL.next, |(member, _)| *member)
+        };
+        let mut records = vec![MemberRecord {
+            next: next(0),
+            ..MemberRecord::SENTINEL
+        }];
+        let mut views = Vec::new();
+        for (position, (member, note)) in members.iter().enumerate() {
+            let escrow_key = EscrowKey {
+                nullifier_pk: &note.nullifier_pk,
+                ciphertext: &sealed,
+            }
+            .hash()
+            .expect("escrow key");
+            records.push(MemberRecord {
+                member: *member,
+                next: next(position + 1),
+                lists: 0,
+                escrow_key,
+            });
+            views.push(RingMemberRecordView {
+                member: Hash(*member),
+                next: Hash(next(position + 1)),
+                lists: 0,
+                escrow_key: Hash(escrow_key),
+                owner_pubkey: Some(Address::new_from_array(note.owner_key).into()),
+                nullifier_pk: Some(Hash(note.nullifier_pk)),
+                eph_pk: Some(Base64String(eph_pk.as_bytes().to_vec())),
+                ciphertext: Some(Base64String(sealed.to_vec())),
+            });
+        }
+        let tree = MemberRegistryTree::from_records(records).expect("record tree");
+        let records = views
+            .into_iter()
+            .zip(1u64..)
+            .map(|(record, index)| {
+                let path = tree.path(index).expect("path");
+                RingIndexedMemberRecordView {
+                    record,
+                    path: RingRecordPathView {
+                        index,
+                        siblings: path.siblings.iter().map(|level| level.map(Hash)).collect(),
+                    },
+                }
+            })
+            .collect();
+        Self {
+            root: tree.root().expect("root"),
+            records,
+        }
+    }
+
+    fn chain(&self) -> RingChainStatus {
+        RingChainStatus {
+            activation: None,
+            registry: Some(RegistryStatus {
+                history: vec![Some(RegistryRoot {
+                    root: Hash(self.root),
+                    applied: 0,
+                    slot: 40,
+                })],
+                history_cursor: 0,
+                next_index: self.records.len() as u32 + 1,
+                floor: 0,
+                prior_floor: 0,
+                floor_slot: 0,
+                queue_head: 0,
+                queue_tail: 0,
+            }),
+        }
+    }
+}
+
+/// A packed transfer of a Registry-mode ring, its owners' nullifier keys left to the registry.
+fn escrowed_source(fixture: &Fixture, owners: &[Note], registered: &[Note]) -> StaticSource {
+    let audited = Indexed {
+        transfer: &ring_transfer(90),
+        outputs: &owners
+            .iter()
+            .map(|note| paid(*note, fixture.recipient_u))
+            .collect::<Vec<_>>(),
+        auditor: &fixture.auditor.pubkey(),
+        signature: 90,
+        frames: &fixture.frames,
+    }
+    .packed_with(true);
+    let mut source = fixture.source().with_transactions(vec![audited]);
+    source.configs.get_mut(&RING).expect("config").mode = RingMode::Registry;
+    let registry = EscrowRegistry::new(registered);
+    source.chain.insert(RING, registry.chain());
+    source.records = registry.records;
+    source
+}
+
+#[tokio::test]
+async fn an_escrowed_ring_opens_its_outputs_with_the_keys_its_registry_holds() {
+    let fixture = Fixture::new();
+    let owners = [sol(0xc0, 30), sol(0xc1, 12)];
+    let source = escrowed_source(&fixture, &owners, &owners);
+    let record_reads = source.record_reads.clone();
+    let service = fixture.hub(source).service(None).expect("service");
+    let page = read_at(&service, None).await;
+    let [item] = page.value.items.as_slice() else {
+        panic!("one escrowed transfer, {:?}", page.value.skipped);
+    };
+    assert!(item.payload_errors.is_empty(), "{:?}", item.payload_errors);
+    assert_eq!(amounts(item), [30, 12]);
+    let keys: Vec<Option<Hash>> = item
+        .outputs
+        .iter()
+        .map(|output| output.note.as_ref().expect("note").nullifier_pk.clone())
+        .collect();
+    assert_eq!(keys, owners.map(|note| Some(Hash(note.nullifier_pk))));
+    // One refresh reads the registry, the unchanged root serves the next page from the map.
+    assert_eq!(record_reads.load(Ordering::Relaxed), 1);
+    read_at(&service, None).await;
+    assert_eq!(record_reads.load(Ordering::Relaxed), 1);
+}
+
+#[tokio::test]
+async fn an_owner_the_registry_never_escrowed_reports_its_slot() {
+    let fixture = Fixture::new();
+    let owners = [sol(0xc0, 30), sol(0xc1, 12)];
+    let source = escrowed_source(&fixture, &owners, &owners[..1]);
+    let service = fixture.hub(source).service(None).expect("service");
+    let page = read_at(&service, None).await;
+    let [item] = page.value.items.as_slice() else {
+        panic!("one escrowed transfer, {:?}", page.value.skipped);
+    };
+    assert_eq!(amounts(item), [30]);
+    assert_eq!(
+        item.payload_errors,
+        [DecryptedPayloadError {
+            slot_index: 1,
+            kind: OutputPayloadErrorKind::EscrowUnknown,
+        }]
+    );
+}
+
+/// A page short of a record keeps no partial key map, the next read refreshes again.
+#[tokio::test]
+async fn a_registry_page_short_of_a_record_escrows_no_key() {
+    let fixture = Fixture::new();
+    let owners = [sol(0xc0, 30), sol(0xc1, 12)];
+    let mut source = escrowed_source(&fixture, &owners, &owners);
+    source.records.remove(0);
+    let record_reads = source.record_reads.clone();
+    let service = fixture.hub(source).service(None).expect("service");
+    let page = read_at(&service, None).await;
+    let [item] = page.value.items.as_slice() else {
+        panic!("one escrowed transfer, {:?}", page.value.skipped);
+    };
+    assert_eq!(
+        item.payload_errors
+            .iter()
+            .map(|error| error.kind)
+            .collect::<Vec<_>>(),
+        [OutputPayloadErrorKind::EscrowUnknown; 2]
+    );
+    let refreshed = record_reads.load(Ordering::Relaxed);
+    read_at(&service, None).await;
+    assert!(record_reads.load(Ordering::Relaxed) > refreshed);
+}
+
+#[tokio::test]
+async fn the_backfill_reads_the_escrowed_keys_before_its_first_page() {
+    let fixture = Fixture::new();
+    let owners = [sol(0xc0, 30)];
+    let mut source = escrowed_source(&fixture, &owners, &owners);
+    let audited = source.transactions.clone();
+    source.pages = HashMap::from([(None, paged(audited, None, Some(1)))]);
+    let record_reads = source.record_reads.clone();
+    let service = fixture.hub(source).service(None).expect("service");
+    service.backfill_notes().await.expect("backfill");
+    assert_eq!(record_reads.load(Ordering::Relaxed), 1);
+    let hash = fixture_output_hash(&service, &owners[0]).await;
+    let found = service
+        .audited_notes(&notes_request(vec![hash]))
+        .await
+        .expect("note read");
+    assert_eq!(
+        found.value.notes[0].as_ref().map(|view| view.note.amount),
+        Some(30)
+    );
+}
+
+/// The commitment of `owner`'s output on the ring's audited page.
+async fn fixture_output_hash(service: &AuditService<StaticSource>, owner: &Note) -> Hash {
+    let page = read_at(service, None).await;
+    page.value.items[0]
+        .outputs
+        .iter()
+        .find(|output| {
+            output
+                .note
+                .as_ref()
+                .is_some_and(|note| note.owner_key.0.to_bytes() == owner.owner_key)
+        })
+        .expect("owner output")
+        .output_context
+        .hash
+        .clone()
 }
 
 #[tokio::test]
@@ -970,28 +1766,45 @@ async fn confirmed_deposit_and_merge_tag_collisions_do_not_poison_an_audit_page(
 }
 
 #[tokio::test]
-async fn recipient_metadata_cannot_poison_an_audit_page_or_trigger_registry_refresh() {
+async fn recipient_bodies_cannot_poison_an_audit_page_or_trigger_registry_refresh() {
     let fixture = Fixture::new();
-    let key = ViewingKey::new();
-    let opening = proof_output(SOL_ASSET_ID, 42, 0);
-    let slot = confidential_slot(&key, &fixture.recipient, 42, 0);
-    let message = auditor_message(
-        &key,
-        &fixture.auditor.pubkey(),
-        std::slice::from_ref(&opening),
-    );
-    let mut corrupted = slot.clone();
-    *corrupted.payload.last_mut().unwrap() ^= 1;
-    let mut false_asset = confidential_asset_slot(&key, &fixture.recipient, 99, 42, 0);
-    false_asset.output_context = slot.output_context.clone();
-    let mut invalid_disclosure = transaction(10, &key, vec![slot], vec![message.clone()]);
-    // Corrupt the first published opening, past the 33-byte key and 32-byte envelope.
-    invalid_disclosure.messages[0].data[65 + 31] ^= 1;
-    let mut source = fixture.source().with_transactions(vec![
-        transaction(8, &key, vec![corrupted], vec![message.clone()]),
-        transaction(9, &key, vec![false_asset], vec![message]),
-        invalid_disclosure,
-    ]);
+    let auditor = fixture.auditor.pubkey();
+    let outputs: Vec<Output> = (0u8..6)
+        .map(|k| paid(sol(0xb0 + k, 10 + u64::from(k)), x25519_u(0x40 + k)))
+        .chain([Output::Dummy, Output::Dummy])
+        .collect();
+    let delivered = |seed: u8| {
+        Indexed {
+            transfer: &ring_transfer(seed),
+            outputs: &outputs,
+            auditor: &auditor,
+            signature: seed,
+            frames: &fixture.frames,
+        }
+        .delivered()
+    };
+    // The body is a stream cipher, a flipped bit changes the amount the commitment binds.
+    let mut corrupted = delivered(8);
+    *corrupted.output_slots[1]
+        .payload
+        .last_mut()
+        .expect("delivered body") ^= 1;
+    let mut unknown_mint = delivered(9);
+    let secret = ring_transfer(9).delivered_secret(&x25519_u(0x42), 2);
+    let body = RingDeliveredBody {
+        asset_address: Address::new_from_array([0x99; 32]),
+        amount: 12,
+    }
+    .seal(&secret)
+    .expect("delivered body");
+    unknown_mint.output_slots[2].payload = encode_ring_confidential_delivered_output(&body);
+    let mut invalid_disclosure = delivered(10);
+    // The first disclosure field, past the tagged ephemeral key and the sealed key.
+    invalid_disclosure.messages[0].data[65] = 0xff;
+    let mut source =
+        fixture
+            .source()
+            .with_transactions(vec![corrupted, unknown_mint, invalid_disclosure]);
     source.assets = None;
     let reads = source.asset_reads.clone();
     let service = fixture.hub(source).service(None).unwrap();
@@ -1003,16 +1816,15 @@ async fn recipient_metadata_cannot_poison_an_audit_page_or_trigger_registry_refr
         .await
         .unwrap();
     assert_eq!(response.value.items.len(), 2);
-    for item in response.value.items {
-        assert!(item.outputs.is_empty());
-        assert_eq!(item.output_openings.len(), 1);
-        assert_eq!(item.output_openings[0].amount, opening.amount.into());
+    for (item, slot_index) in response.value.items.iter().zip([1, 2]) {
+        assert_eq!(item.outputs.len(), outputs.len() - 1);
         assert_eq!(
-            item.output_openings[0].owner_hash,
-            opening.owner_hash.into()
+            item.payload_errors,
+            [DecryptedPayloadError {
+                slot_index,
+                kind: OutputPayloadErrorKind::Commitment,
+            }]
         );
-        assert_eq!(item.payload_errors.len(), 1);
-        assert_eq!(item.payload_errors[0].slot_index, 0);
     }
     assert_eq!(response.value.skipped.len(), 1);
     assert_eq!(
@@ -1025,27 +1837,17 @@ async fn recipient_metadata_cannot_poison_an_audit_page_or_trigger_registry_refr
 #[tokio::test]
 async fn unknown_assets_share_refresh_and_back_off_after_failure() {
     const ASSET_ID: u64 = 2;
+    let asset = Address::new_from_array([8; 32]);
     let fixture = Fixture::new();
-    let tx = ViewingKey::new();
-    let mut source = fixture.source().with_transactions(vec![transaction(
-        8,
-        &tx,
-        vec![confidential_asset_slot(
-            &tx,
-            &fixture.recipient,
-            ASSET_ID,
-            13,
-            0,
-        )],
-        vec![auditor_message(
-            &tx,
-            &fixture.auditor.pubkey(),
-            &[proof_output(ASSET_ID, 13, 0)],
-        )],
-    )]);
-    source.assets = Some(
-        AssetRegistry::new([(ASSET_ID, Address::new_from_array([8; 32]))]).expect("asset registry"),
-    );
+    let mut source = fixture.source().with_transactions(vec![Indexed {
+        transfer: &ring_transfer(8),
+        outputs: &[paid(note(0xb8, asset, 13), fixture.recipient_u)],
+        auditor: &fixture.auditor.pubkey(),
+        signature: 8,
+        frames: &fixture.frames,
+    }
+    .packed()]);
+    source.assets = Some(AssetRegistry::new([(ASSET_ID, asset)]).expect("asset registry"));
     let unknown_transactions = source.transactions.clone();
     let reads = source.asset_reads.clone();
     let service = fixture.hub(source).service(None).expect("service");
@@ -1062,10 +1864,12 @@ async fn unknown_assets_share_refresh_and_back_off_after_failure() {
             page: &page,
         })
     );
-    let asset = Address::new_from_array([8; 32]);
+    let mint = |response: &GetDecryptedTransactionsResponse| {
+        let note = response.value.items[0].outputs[0].note.as_ref();
+        note.and_then(|note| note.mint.as_ref()).map(|mint| mint.0)
+    };
     for result in [first, second] {
-        let response = result.expect("refreshed read");
-        assert_eq!(response.value.items[0].outputs[0].asset.0, asset);
+        assert_eq!(mint(&result.expect("refreshed read")), Some(asset));
     }
     assert_eq!(reads.load(Ordering::Relaxed), 1);
 
@@ -1075,27 +1879,18 @@ async fn unknown_assets_share_refresh_and_back_off_after_failure() {
     source.assets = None;
     let reads = source.asset_reads.clone();
     let service = fixture.hub(source).service(None).expect("service");
-    let first = auth(&delegate());
-    let response = service
-        .read(AuditRead {
-            auth: &first,
-            page: &page,
-        })
-        .await
-        .unwrap();
-    assert_eq!(response.value.items[0].output_openings.len(), 1);
-    assert!(response.value.items[0].outputs.is_empty());
-    assert!(response.value.skipped.is_empty());
-    let second = auth(&Passkey::new(46));
-    let response = service
-        .read(AuditRead {
-            auth: &second,
-            page: &page,
-        })
-        .await
-        .unwrap();
-    assert_eq!(response.value.items[0].output_openings.len(), 1);
-    assert!(response.value.skipped.is_empty());
+    for signer in [&delegate() as &dyn ReadSigner, &Passkey::new(46)] {
+        let response = service
+            .read(AuditRead {
+                auth: &auth(signer),
+                page: &page,
+            })
+            .await
+            .unwrap();
+        assert_eq!(response.value.items[0].outputs.len(), 1);
+        assert_eq!(mint(&response), None);
+        assert!(response.value.skipped.is_empty());
+    }
     assert_eq!(reads.load(Ordering::Relaxed), 1);
 
     let mut source = fixture.source().with_transactions(unknown_transactions);
@@ -1120,7 +1915,7 @@ async fn unknown_assets_share_refresh_and_back_off_after_failure() {
         })
         .await
         .unwrap();
-    assert_eq!(response.value.items[0].output_openings.len(), 1);
+    assert_eq!(mint(&response), None);
     assert!(response.value.skipped.is_empty());
     assert_eq!(reads.load(Ordering::Relaxed), 1);
 }
@@ -1803,7 +2598,31 @@ async fn ring_status_reports_the_state_of_each_ring() {
             .expect("hub"),
     );
     let derived = hub.service(Some(served)).expect("service").auditor_pubkey();
+    let chain = RingChainStatus {
+        activation: Some(RingActivation {
+            activated: true,
+            paused: false,
+        }),
+        registry: Some(RegistryStatus {
+            history: vec![
+                Some(RegistryRoot {
+                    root: Hash([1; 32]),
+                    applied: 3,
+                    slot: 40,
+                }),
+                None,
+            ],
+            history_cursor: 0,
+            next_index: 3,
+            floor: 3,
+            prior_floor: 0,
+            floor_slot: 40,
+            queue_head: 3,
+            queue_tail: 5,
+        }),
+    };
     let mut source = fixture.source();
+    source.chain = HashMap::from([(served, chain.clone())]);
     source.configs = HashMap::from([
         (
             served,
@@ -1847,6 +2666,14 @@ async fn ring_status_reports_the_state_of_each_ring() {
         assert_eq!(status.state, state);
         assert_eq!(status.ring_program_id.0, ring);
         assert_eq!(status.service_pubkey.0, hub.service_pubkey());
+        let expected = match ring == served {
+            true => chain.clone(),
+            false => RingChainStatus::default(),
+        };
+        assert_eq!(
+            (status.activation, status.registry),
+            (expected.activation, expected.registry)
+        );
     }
 
     let object = as_object(RingStatusRequest {
@@ -1858,6 +2685,21 @@ async fn ring_status_reports_the_state_of_each_ring() {
     assert!(raw.get("auditorPubkey").is_none());
     assert!(raw.get("auditorViewTag").is_none());
     assert!(raw.get("configAuditorPubkey").is_some());
+    assert_eq!(
+        raw.get("activation"),
+        Some(&serde_json::json!({ "activated": true, "paused": false }))
+    );
+    let raw: serde_json::Value = module
+        .call(
+            RING_STATUS,
+            as_object(RingStatusRequest {
+                ring_program_id: uninitialized.to_bytes().into(),
+            }),
+        )
+        .await
+        .expect("status");
+    assert!(raw.get("activation").is_none());
+    assert!(raw.get("registry").is_none());
 }
 
 /// One instance, two rings: each read must use its own derived key, its own
@@ -1884,30 +2726,28 @@ async fn two_rings_read_only_their_own_transactions() {
         .auditor_pubkey();
     assert_ne!(key_a, key_b);
 
-    let tx_a = ViewingKey::new();
-    let mut audited_a = transaction(
-        11,
-        &tx_a,
-        vec![confidential_slot(&tx_a, &fixture.recipient, 500, 0)],
-        vec![auditor_message(
-            &tx_a,
-            &key_a,
-            &[proof_output(SOL_ASSET_ID, 500, 0)],
-        )],
-    );
-    audited_a.ring_program_id = Some(ring_a);
-    let tx_b = ViewingKey::new();
-    let mut audited_b = transaction(
-        12,
-        &tx_b,
-        vec![confidential_slot(&tx_b, &fixture.recipient, 7, 0)],
-        vec![auditor_message(
-            &tx_b,
-            &key_b,
-            &[proof_output(SOL_ASSET_ID, 7, 0)],
-        )],
-    );
-    audited_b.ring_program_id = Some(ring_b);
+    let audited_a = Indexed {
+        transfer: &Transfer {
+            ring: ring_a,
+            ..ring_transfer(11)
+        },
+        outputs: &[paid(sol(0xb0, 500), fixture.recipient_u)],
+        auditor: &key_a,
+        signature: 11,
+        frames: &fixture.frames,
+    }
+    .packed();
+    let audited_b = Indexed {
+        transfer: &Transfer {
+            ring: ring_b,
+            ..ring_transfer(12)
+        },
+        outputs: &[paid(sol(0xb0, 7), fixture.recipient_u)],
+        auditor: &key_b,
+        signature: 12,
+        frames: &fixture.frames,
+    }
+    .packed();
     let mut source = fixture.source();
     source.origins = HashMap::from([
         ((audited_a.tx_signature, 0), true),
@@ -1957,7 +2797,7 @@ async fn two_rings_read_only_their_own_transactions() {
             panic!("expected one audited transaction for {ring}");
         };
         assert_eq!(item.tx_signature.0, expected);
-        assert_eq!(item.outputs[0].amount, amount);
+        assert_eq!(amounts(item), [amount]);
     }
 }
 
@@ -2084,6 +2924,12 @@ async fn an_indexer_forgery_is_reported_without_hiding_other_verified_outputs() 
     forged.output_slots[0].output_context.leaf_index += 1;
     let mut valid = confirmed.clone();
     valid.tx_signature = Signature::from([44; 64]);
+    let frame = fixture.frames.lock().unwrap()[&confirmed.tx_signature].clone();
+    fixture
+        .frames
+        .lock()
+        .unwrap()
+        .insert(valid.tx_signature, frame);
     let mut source = fixture.source().with_transactions(vec![forged, valid]);
     source.confirmed_events.insert(
         (confirmed.tx_signature, confirmed.event_index.unwrap()),

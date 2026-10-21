@@ -1,6 +1,8 @@
 use bytemuck::{Pod, Zeroable};
 use thiserror::Error;
 
+use crate::TAGGED_X25519_KEY_LEN;
+
 pub const MAX_RING_DEPOSIT_AUDIT_SLOTS: usize = 8;
 /// One opening is `owner_hash || blinding || owner_key`. The owner key is the
 /// Ed25519 key of an anonymous ring deposit and zero otherwise.
@@ -11,13 +13,12 @@ pub const RING_DEPOSIT_AUDIT_INFO: &[u8; 10] = b"CRING/dep1";
 
 const MAGIC: &[u8; 8] = b"CRDEP001";
 
-/// The auditor's half of an audited deposit output, ahead of the recipient ciphertext.
 #[derive(Clone, Copy, Pod, Zeroable)]
 #[repr(C)]
 struct CapsuleHeader {
     magic: [u8; 8],
     slot_index: u8,
-    eph_pk: [u8; 33],
+    eph_pk: [u8; TAGGED_X25519_KEY_LEN],
     ciphertext: [u8; RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN],
 }
 

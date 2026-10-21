@@ -18,9 +18,11 @@ pub use transaction::{compile_message, sign_transaction, SettlementAccountValida
 pub use transaction_size::{transaction_size, TransactionSize};
 pub use types::{
     Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
-    GetNonInclusionProofsResponse, GetRingMemberRecordRequest, GetRingMemberRecordResponse,
-    GetRingMemberRecordsRequest, GetRingMemberRecordsResponse, GetRingMemberRegistryRootRequest,
-    GetRingMemberRegistryRootResponse, GetShieldedTransactionsByNullifiersResponse,
+    GetNonInclusionProofsResponse, GetRingApplyProofInputsRequest, GetRingApplyProofInputsResponse,
+    GetRingMemberOpeningsRequest, GetRingMemberOpeningsResponse, GetRingMemberRecordRequest,
+    GetRingMemberRecordResponse, GetRingMemberRecordsRequest, GetRingMemberRecordsResponse,
+    GetRingMemberRegistryRootRequest, GetRingMemberRegistryRootResponse, GetRingRecordQueueRequest,
+    GetRingRecordQueueResponse, GetShieldedTransactionsByNullifiersResponse,
     GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
     GetUserRecordsResponse, IndexedShieldedTransaction, MerkleContext, MerkleProof,
     NonInclusionProof, OutputContext, OutputSlot, ProveResult, RingHistoryOptions,

@@ -37,8 +37,8 @@ pub mod private_tx;
 
 pub use derivation::{
     derive_output_blinding_seed, derive_private_tx_blinding, derive_transact_output_blinding,
-    DOMAIN_PRIVATE_TX_BLINDING_V1, DOMAIN_TRANSACT_OUTPUT_BLINDING_SEED_V1,
-    DOMAIN_TRANSACT_OUTPUT_BLINDING_V1,
+    RingOutputBlinding, DOMAIN_PRIVATE_TX_BLINDING_V1, DOMAIN_TRANSACT_OUTPUT_BLINDING_SEED_V1,
+    DOMAIN_TRANSACT_OUTPUT_BLINDING_V1, DOMAIN_TRANSACT_RING_OUTPUT_BLINDING_V1,
 };
 pub use external_data::{
     ExternalDataHashError, SettlementAccounts, TransactExternalData, TransactInputs,

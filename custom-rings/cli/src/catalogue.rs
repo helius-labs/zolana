@@ -3,8 +3,8 @@
 use std::{collections::BTreeMap, path::Path};
 
 use anyhow::{ensure, Context as _, Result};
-use custom_ring_interface::RingAccount;
-use custom_ring_sdk::{CustomRing, ListRegistry, PolicyConfig};
+use custom_ring_interface::{MemberRegistry, RingAccount};
+use custom_ring_sdk::{CustomRing, ListRegistry};
 use serde::{Deserialize, Serialize};
 use solana_address::Address;
 use zolana_client::{ProgramAccountsFilter, Rpc, SolanaRpc};
@@ -17,7 +17,7 @@ use zolana_ring_policy::ListId;
 use crate::{
     config::{Base58Address, PerCluster, Target},
     file,
-    policy::ListName,
+    policy::{ListName, Pinned},
     Context,
 };
 
@@ -35,7 +35,6 @@ pub struct Curator {
     pub program: Base58Address,
     /// Served from the curator's own entries.
     pub lists: Vec<ListName>,
-    pub address_tree: Base58Address,
 }
 
 impl Catalogue {
@@ -63,7 +62,7 @@ impl Catalogue {
         self.curators.get(target)
     }
 
-    /// The chain's lists and tree win, a ring without a bundled name joins under its program id.
+    /// The chain's lists win, a ring without a bundled name joins under its program id.
     pub fn merge(&mut self, target: Target, discovered: impl IntoIterator<Item = Curator>) {
         let curators = self.curators.get_mut(target);
         for curator in discovered {
@@ -79,13 +78,10 @@ impl Catalogue {
         &self,
         target: Target,
         list: ListName,
-        tree: Address,
     ) -> impl Iterator<Item = (&str, &Curator)> {
         self.curators(target)
             .iter()
-            .filter(move |(_, curator)| {
-                curator.lists.contains(&list) && curator.address_tree.0 == tree
-            })
+            .filter(move |(_, curator)| curator.lists.contains(&list))
             .map(|(name, curator)| (name.as_str(), curator))
     }
 
@@ -110,11 +106,16 @@ pub fn discover(rpc: &SolanaRpc) -> Result<Vec<Curator>> {
         .map(|(address, account)| (*address, &account.data[..]));
     let mut curators = Vec::new();
     for ring in registered_rings(data)?.into_iter().map(CustomRing::new) {
-        let (address, program) = (ring.policy_config_pda(), ring.program_id());
-        if let Some(account) = rpc.get_account(address)? {
-            let config = PolicyConfig::decode(&account.owner, &program, &account.data);
-            let invalid = || format!("{address} is not a policy config of {program}");
-            curators.push(curator_of(ring, &config.with_context(invalid)?));
+        let Some(account) = rpc.get_account(ring.registry_pda())? else {
+            continue;
+        };
+        // A registry of another layout is no curator.
+        let program = ring.program_id();
+        let Some(registry) = MemberRegistry::decode(&account.owner, &program, &account.data) else {
+            continue;
+        };
+        if let Ok(Some(pinned)) = Pinned::of(Box::new(registry)) {
+            curators.push(curator_of(ring, &pinned.registry));
         }
     }
     Ok(curators)
@@ -137,29 +138,31 @@ pub fn registered_rings<'a>(
 }
 
 /// The lists a ring serves from its own registry.
-pub fn curator_of(ring: CustomRing, config: &PolicyConfig) -> Curator {
+pub fn curator_of(ring: CustomRing, registry: &MemberRegistry) -> Curator {
     Curator {
         program: Base58Address(ring.program_id()),
         lists: ListName::ALL
             .into_iter()
-            .filter(|list| config.registry_for(list.id()) == Some(ListRegistry::Own))
+            .filter(|list| registry.registry_for(list.id()) == Some(ListRegistry::Own))
             .collect(),
-        address_tree: Base58Address(config.address_tree),
     }
 }
 
-/// The curator must hold a member registry and serve `list` from it.
+/// The curator must pin a policy that serves `list` from its own registry.
 pub fn check_curator(ctx: &Context, curator: CustomRing, list: ListId) -> Result<()> {
     let program = curator.program_id();
     let deployed = ctx.rpc().get_account(program)?.is_some();
     ensure!(deployed, "curator {program} is not deployed");
-    ctx.block(curator.member_registry_root(ctx.chain()))?
+    let registry = ctx
+        .block(curator.registry(ctx.chain()))?
         .with_context(|| format!("curator {program} has no member registry"))?;
-    let config = ctx
-        .block(curator.policy_config(ctx.chain()))?
-        .with_context(|| format!("curator {program} has no policy config"))?;
+    let pinned = Pinned::of(registry)
+        .with_context(|| {
+            format!("curator {program} pins a policy its registry does not reproduce")
+        })?
+        .with_context(|| format!("curator {program} pins no policy"))?;
     ensure!(
-        config.registry_for(list) == Some(ListRegistry::Own),
+        pinned.registry.registry_for(list) == Some(ListRegistry::Own),
         "curator {program} does not serve the {} list from its own registry",
         list.name()
     );
@@ -168,26 +171,23 @@ pub fn check_curator(ctx: &Context, curator: CustomRing, list: ListId) -> Result
 
 #[cfg(test)]
 mod tests {
-    use custom_ring_interface::{SourceSlot, N_SOURCE_SLOTS, POLICY_CONFIG};
-    use zolana_ring_policy::EncodedRuleTable;
+    use custom_ring_interface::SourceSlot;
 
     use super::*;
 
     const RING: Address = Address::new_from_array([7u8; 32]);
-    const TREE: Address = Address::new_from_array([5u8; 32]);
 
     fn catalogue(text: &str) -> Catalogue {
         toml::from_str(text).expect("catalogue")
     }
 
-    fn curator(program: Address, lists: &[&str], tree: Address) -> Curator {
+    fn curator(program: Address, lists: &[&str]) -> Curator {
         Curator {
             program: Base58Address(program),
             lists: lists
                 .iter()
                 .map(|list| list.parse().expect("list"))
                 .collect(),
-            address_tree: Base58Address(tree),
         }
     }
 
@@ -202,14 +202,14 @@ mod tests {
     #[test]
     fn discovered_rings_join_the_bundled_names_and_resolve_both_ways() {
         let mut catalogue = catalogue(&format!(
-            "[devnet.desk]\nprogram = \"{RING}\"\nlists = [\"block\"]\naddress_tree = \"{TREE}\"\n\n[localnet]\n"
+            "[devnet.desk]\nprogram = \"{RING}\"\nlists = [\"block\"]\n\n[localnet]\n"
         ));
         let other = Address::new_from_array([8u8; 32]);
         catalogue.merge(
             Target::Devnet,
             [
-                curator(RING, &["block", "frozen"], TREE),
-                curator(other, &["approval"], TREE),
+                curator(RING, &["block", "frozen"]),
+                curator(other, &["approval"]),
             ],
         );
         let desk = &catalogue.curators(Target::Devnet)["desk"];
@@ -223,17 +223,13 @@ mod tests {
             .contains_key(&other.to_string()));
         assert_eq!(
             catalogue
-                .serving(Target::Devnet, "frozen".parse().expect("list"), TREE)
+                .serving(Target::Devnet, "frozen".parse().expect("list"))
                 .map(|(name, _)| name)
                 .collect::<Vec<_>>(),
             ["desk"]
         );
         assert!(catalogue
-            .serving(
-                Target::Devnet,
-                "block".parse().expect("list"),
-                Address::new_from_array([6u8; 32])
-            )
+            .serving(Target::Localnet, "frozen".parse().expect("list"))
             .next()
             .is_none());
         assert_eq!(
@@ -263,7 +259,7 @@ mod tests {
     fn a_catalogue_with_an_unknown_key_is_refused() {
         assert!(toml::from_str::<Catalogue>("[mainnet]\n").is_err());
         assert!(toml::from_str::<Catalogue>(&format!(
-            "[devnet.desk]\nprogram = \"{RING}\"\nlists = [\"escrow\"]\naddress_tree = \"{TREE}\"\n"
+            "[devnet.desk]\nprogram = \"{RING}\"\nlists = [\"escrow\"]\n"
         ))
         .is_err());
     }
@@ -296,34 +292,18 @@ mod tests {
         );
         assert!(registered_rings([(address, &bytes[1..])]).is_err());
 
-        let mut sources = [SourceSlot {
-            list_id: 0,
-            registry: Address::default(),
-        }; N_SOURCE_SLOTS];
-        sources[ListId::Block.slot()] = SourceSlot {
+        let mut registry = MemberRegistry::new(0, 0);
+        registry.sources[ListId::Block.slot()] = SourceSlot {
             list_id: ListId::Block as u8,
             registry: Address::default(),
         };
-        sources[ListId::Frozen.slot()] = SourceSlot {
+        registry.sources[ListId::Frozen.slot()] = SourceSlot {
             list_id: ListId::Frozen as u8,
             registry: Address::new_from_array([9u8; 32]),
         };
-        let config = PolicyConfig {
-            discriminator: POLICY_CONFIG,
-            policy_hash: [0u8; 32],
-            address_tree: TREE,
-            address_tree_id: [0; 2],
-            namespace_bump: 0,
-            namespace_owner_hash: [0u8; 32],
-            bump: 0,
-            sources,
-            rules: EncodedRuleTable::default(),
-            generation: 1u32.to_le_bytes(),
-            generation_slot: [0u8; 8],
-        };
         assert_eq!(
-            curator_of(ring, &config),
-            curator(RING, &["block"], TREE),
+            curator_of(ring, &registry),
+            curator(RING, &["block"]),
             "a list read from another curator is not served"
         );
     }

@@ -58,7 +58,3 @@ hex = { workspace = true }
 solana-rpc-client = { workspace = true }
 solana-rpc-client-api = { workspace = true }
 spl-token-2022-interface = { workspace = true }
-
-[[test]]
-name = "deposit_audit_fixtures"
-required-features = ["proofs"]

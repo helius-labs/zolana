@@ -2,7 +2,10 @@ use jsonrpsee::types::{error::ErrorCode, ErrorObjectOwned};
 use log::error;
 use thiserror::Error;
 use zolana_client::ClientError;
-use zolana_ring_client::{rpc::KeyFileError, AuditError};
+use zolana_ring_client::{
+    rpc::{KeyFileError, AUDITED_NOTES_LIMIT},
+    AuditError,
+};
 
 use crate::authorize::Unauthorized;
 
@@ -14,6 +17,8 @@ pub enum RingRpcError {
     RingNotServed,
     #[error("audit page is invalid")]
     InvalidPage,
+    #[error("a note read names 1 to {AUDITED_NOTES_LIMIT} UTXO hashes")]
+    InvalidNoteRequest,
     #[error("request is unauthorized because {0}")]
     Unauthorized(#[from] Unauthorized),
     #[error("key derivation failed because {0}")]
@@ -37,7 +42,7 @@ impl From<RingRpcError> for ErrorObjectOwned {
     fn from(failure: RingRpcError) -> Self {
         use RingRpcError::*;
         let (code, message) = match &failure {
-            RingRequired | RingNotServed | InvalidPage | Unauthorized(_) => {
+            RingRequired | RingNotServed | InvalidPage | InvalidNoteRequest | Unauthorized(_) => {
                 let message = failure.to_string();
                 return ErrorObjectOwned::owned(
                     ErrorCode::InvalidRequest.code(),

@@ -9,7 +9,9 @@ use crate::{
         json::{output_to_json, utxo_to_json, OutputParamsJson, UtxoParamsJson},
         transact::{
             anonymous_ring_eddsa::HiddenOwnerAuthorization,
-            assembly::{assemble_outputs, input_utxos_from_nullifiers, PublicInputs},
+            assembly::{
+                assemble_outputs, input_utxos_from_nullifiers, ring_secret_bytes, PublicInputs,
+            },
         },
         verify::TransferProofStatement,
         ExpectedProvingKey, Proof, ProofCompressed, ProofInputUtxo, TransferInput,
@@ -25,9 +27,7 @@ use zolana_interface::{
 };
 use zolana_transaction::{
     instructions::transact::{PrivateTxHash, SppProofInputs},
-    utxo::{
-        derive_output_blinding_seed, derive_private_tx_blinding, derive_transact_output_blinding,
-    },
+    utxo::{derive_output_blinding_seed, derive_private_tx_blinding, OutputSlotBlinding},
 };
 
 pub enum IndexedTransferRail {
@@ -131,7 +131,7 @@ impl IndexedTransferPreparation {
             | IndexedTransferRail::AnonymousRingEddsa { ring, .. } => Some(*ring),
         };
         if authority_rail
-            && (shape.n_inputs() != shape.n_outputs()
+            && (!shape.is_ring_authority()
                 || cache.access.is_some()
                 || !transaction.external_data.interface_transfers.is_empty()
                 || transaction
@@ -229,8 +229,14 @@ impl IndexedTransferPreparation {
         let first = nullifiers.first().ok_or(ClientError::NoInputs)?;
         let seed = derive_output_blinding_seed(first, &transaction.blinding_seed)?;
         for (index, output) in transaction.output_utxos.iter().enumerate() {
-            let slot = u32::try_from(index).map_err(|_| super::invalid())?;
-            if output.blinding != derive_transact_output_blinding(first, &seed, slot)? {
+            let expected = OutputSlotBlinding {
+                output,
+                first_nullifier: first,
+                output_blinding_seed: &seed,
+                slot_index: u32::try_from(index).map_err(|_| super::invalid())?,
+            }
+            .derive()?;
+            if output.blinding != expected {
                 return Err(ClientError::OutputBlindingMismatch { index });
             }
         }
@@ -332,6 +338,12 @@ impl IndexedTransferPreparation {
             outputs: outputs.outputs.iter().map(output_to_json).collect(),
             output_tree_id: format!("0x{:x}", transaction.output_tree_id),
             blinding_seed: SecretField(Zeroizing::new(transaction.blinding_seed)),
+            ring_secrets: match ring {
+                Some(_) => ring_secret_bytes(&transaction.output_utxos)
+                    .map(|secret| SecretField(Zeroizing::new(secret)))
+                    .collect(),
+                None => Vec::new(),
+            },
             external_data_hash: hex_field(&external_hash),
             private_tx_hash: hex_field(&private_tx),
             public_assets: public_transfers.assets.iter().map(hex_field).collect(),
@@ -424,8 +436,7 @@ impl PreparedIndexedTransfer {
         self.data.private_tx_hash
     }
 
-    /// Fixed-size proof placeholders and the exact accounts and ciphertexts.
-    /// Used to reject transactions that cannot fit before requesting a proof.
+    /// Proof placeholders of the final size, a transaction that cannot fit fails before proving.
     pub fn transaction_template(&self) -> &TransactIxData {
         &self.data
     }
@@ -539,6 +550,7 @@ struct PreparedTransferJson {
     outputs: Vec<OutputParamsJson>,
     output_tree_id: String,
     blinding_seed: SecretField,
+    ring_secrets: Vec<SecretField>,
     external_data_hash: String,
     private_tx_hash: String,
     public_assets: Vec<String>,
@@ -557,7 +569,8 @@ mod tests {
     use zolana_interface::instruction::{OwnerTag, TransactOutput, TreeContext};
     use zolana_keypair::ShieldedKeypair;
     use zolana_transaction::{
-        utxo::SppProofInputUtxo, Data, ExternalData, Mint, SppProofOutputUtxo, Utxo, WalletUtxo,
+        utxo::{derive_transact_output_blinding, SppProofInputUtxo},
+        Data, ExternalData, Mint, SppProofOutputUtxo, Utxo, WalletUtxo,
     };
 
     fn fixture(owner: &ShieldedKeypair, ring: Option<Address>, n_inputs: usize) -> SppProofInputs {
@@ -592,15 +605,13 @@ mod tests {
         };
         let seed = [7; 32];
         let output_seed = derive_output_blinding_seed(&nullifier, &seed).unwrap();
-        let mut output =
+        let output =
             SppProofOutputUtxo::new(Mint::SOL, 10, owner.shielded_address().unwrap()).unwrap();
-        output.ring_program_id = ring;
-        output.blinding = derive_transact_output_blinding(&nullifier, &output_seed, 0).unwrap();
         let mut external = ExternalData::new(
             [0; 33],
             [0; 16],
             vec![TransactOutput {
-                utxo_hash: output.hash(4).unwrap(),
+                utxo_hash: [0; 32],
                 owner_tag: OwnerTag::Inline([0; 32]),
                 data: None,
             }],
@@ -610,7 +621,7 @@ mod tests {
         external.resolved_owner_tags = vec![[0; 32]];
         let mut input_utxos = vec![SppProofInputUtxo::from(input)];
         input_utxos.resize(n_inputs, SppProofInputUtxo::compact(3).unwrap());
-        SppProofInputs {
+        let mut transaction = SppProofInputs {
             input_utxos,
             output_utxos: vec![
                 output,
@@ -625,7 +636,29 @@ mod tests {
             external_data: external,
             payer: Address::new_from_array([5; 32]),
             cache_accounts: Default::default(),
+        };
+        route_output(&mut transaction, ring);
+        transaction
+    }
+
+    /// Moves output 0 into `ring` under the blinding SPP derives for it there.
+    fn route_output(transaction: &mut SppProofInputs, ring: Option<Address>) {
+        let first_nullifier = transaction.first_nullifier().unwrap();
+        let seed =
+            derive_output_blinding_seed(&first_nullifier, &transaction.blinding_seed).unwrap();
+        let output = &mut transaction.output_utxos[0];
+        output.ring_program_id = ring;
+        output.ring_secret = ring.map(|_| [9; 32]);
+        output.blinding = OutputSlotBlinding {
+            output,
+            first_nullifier: &first_nullifier,
+            output_blinding_seed: &seed,
+            slot_index: 0,
         }
+        .derive()
+        .unwrap();
+        transaction.external_data.outputs[0].utxo_hash =
+            output.hash(transaction.output_tree_id).unwrap();
     }
 
     fn complete_inputs(transaction: &SppProofInputs) -> Vec<TransferInputUtxo> {
@@ -683,7 +716,7 @@ mod tests {
         let owner = ShieldedKeypair::new_ed25519().unwrap();
         let ring = Address::new_from_array([9; 32]);
         let mut transaction = fixture(&owner, Some(ring), 2);
-        transaction.output_utxos[0].ring_program_id = None;
+        route_output(&mut transaction, None);
         let complete = |transaction: SppProofInputs| {
             let shape = transaction.check_shape().unwrap();
             crate::RingTransferProver {
@@ -802,7 +835,7 @@ mod tests {
             let inputs = complete_inputs(&transaction);
             let public_transfers = transaction.public_transfers().unwrap();
             let signers = transaction.signer_pk_hashes(shape.signer_width()).unwrap();
-            let (mode, expected) = match rail {
+            let (mode, expected, ring_secrets) = match rail {
                 0 => {
                     let result = crate::prover::transact::witness::assemble(
                         transaction.clone(),
@@ -813,6 +846,7 @@ mod tests {
                     (
                         IndexedTransferRail::Confidential,
                         result.prover_inputs.public_input_hash,
+                        result.prover_inputs.ring_secrets,
                     )
                 }
                 1 => {
@@ -833,6 +867,7 @@ mod tests {
                     (
                         IndexedTransferRail::Ring(ring.unwrap()),
                         result.inputs.public_input_hash,
+                        result.inputs.ring_secrets,
                     )
                 }
                 2 => {
@@ -853,6 +888,7 @@ mod tests {
                     (
                         IndexedTransferRail::RingAuthority(ring.unwrap()),
                         result.inputs.public_input_hash,
+                        result.inputs.ring_secrets,
                     )
                 }
                 3 => {
@@ -888,6 +924,7 @@ mod tests {
                             exit_token_owner: None,
                         },
                         result.inputs.transfer.public_input_hash,
+                        result.inputs.transfer.ring_secrets,
                     )
                 }
                 _ => unreachable!(),
@@ -918,6 +955,22 @@ mod tests {
                 crate::prover::field::right_align_slice(&expected.to_bytes_be()).unwrap(),
                 "rail {rail}"
             );
+            let expected_secrets = match ring {
+                Some(_) => vec![be(&[9; 32]), num_bigint::BigUint::ZERO],
+                None => Vec::new(),
+            };
+            assert_eq!(ring_secrets, expected_secrets, "rail {rail}");
+            let witness: serde_json::Value =
+                serde_json::from_str(&prepared.request.data.witness).unwrap();
+            let sent: Vec<serde_json::Value> = ring_secrets
+                .iter()
+                .map(|secret| serde_json::Value::String(format!("0x{secret:x}")))
+                .collect();
+            let indexed = witness
+                .get("ringSecrets")
+                .and_then(serde_json::Value::as_array)
+                .unwrap_or_else(|| panic!("rail {rail} sends no ringSecrets"));
+            assert_eq!(indexed, &sent, "rail {rail}");
         }
     }
     #[test]
@@ -1003,10 +1056,7 @@ mod tests {
         let owner = ShieldedKeypair::new_ed25519().unwrap();
         let ring = Address::new_from_array([9; 32]);
         let mut transaction = fixture(&owner, None, 1);
-        transaction.output_utxos[0].ring_program_id = Some(ring);
-        transaction.external_data.outputs[0].utxo_hash = transaction.output_utxos[0]
-            .hash(transaction.output_tree_id)
-            .unwrap();
+        route_output(&mut transaction, Some(ring));
         let prepared = IndexedTransferPreparation {
             rail: IndexedTransferRail::AnonymousRingEddsa {
                 ring,

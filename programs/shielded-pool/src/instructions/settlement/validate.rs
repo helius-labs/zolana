@@ -8,11 +8,10 @@ use zolana_interface::{
     error::ShieldedPoolError,
     token_account::{TokenAccountControl, TokenAccountState},
     SHIELDED_POOL_CPI_AUTHORITY, SOL_INTERFACE, SPL_INTERFACE_PDA_SEED, SPL_TOKEN_2022_PROGRAM_ID,
-    SPL_TOKEN_PROGRAM_ID,
+    SPL_TOKEN_PROGRAM_ID, SYSTEM_PROGRAM_ID,
 };
 
 const SPL_TOKEN_MINT_DECIMALS_OFFSET: usize = 44;
-const SYSTEM_PROGRAM_ID: Address = Address::new_from_array([0u8; 32]);
 
 #[derive(Clone, Copy)]
 struct TokenMintState {

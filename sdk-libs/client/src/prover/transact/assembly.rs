@@ -14,9 +14,7 @@ use zolana_keypair::PublicKey;
 use zolana_transaction::{
     instructions::transact::{PrivateTxHash, PublicTransfers, Shape},
     utxo::SppProofInputUtxo,
-    utxo::{
-        derive_output_blinding_seed, derive_private_tx_blinding, derive_transact_output_blinding,
-    },
+    utxo::{derive_output_blinding_seed, derive_private_tx_blinding, OutputSlotBlinding},
     ExternalData, SppProofOutputUtxo,
 };
 
@@ -135,6 +133,21 @@ pub(crate) fn confidential_marked_output_owner_pk_hashes(
         .collect::<Result<Vec<_>, ClientError>>()?;
     hashes.resize(n_outputs, [0u8; 32]);
     Ok(hashes)
+}
+
+/// The ring rails' `ringSecrets`, zero for every slot that is not a ring output.
+pub(crate) fn ring_secret_bytes(
+    outputs: &[SppProofOutputUtxo],
+) -> impl Iterator<Item = [u8; 32]> + '_ {
+    outputs
+        .iter()
+        .map(|output| output.ring_secret.unwrap_or_default())
+}
+
+pub(crate) fn ring_secrets(outputs: &[SppProofOutputUtxo]) -> Vec<BigUint> {
+    ring_secret_bytes(outputs)
+        .map(|secret| be(&secret))
+        .collect()
 }
 
 /// Selects how input ownership is authorized. Ring membership is separate from
@@ -726,12 +739,17 @@ pub(crate) fn assemble_transaction(
     let first_nullifier = inputs.nullifiers.first().ok_or(ClientError::NoInputs)?;
     let output_seed = derive_output_blinding_seed(first_nullifier, blinding_seed)?;
     for (index, output) in outputs.iter().enumerate() {
-        let output_index = u32::try_from(index).map_err(|_| ClientError::TooManyOutputs {
+        let slot_index = u32::try_from(index).map_err(|_| ClientError::TooManyOutputs {
             got: outputs.len(),
             max: u32::MAX as usize,
         })?;
-        let expected =
-            derive_transact_output_blinding(first_nullifier, &output_seed, output_index)?;
+        let expected = OutputSlotBlinding {
+            output,
+            first_nullifier,
+            output_blinding_seed: &output_seed,
+            slot_index,
+        }
+        .derive()?;
         if output.blinding != expected {
             return Err(ClientError::OutputBlindingMismatch { index });
         }

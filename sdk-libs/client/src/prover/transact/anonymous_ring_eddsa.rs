@@ -7,7 +7,9 @@ use serde_json::{Map, Value};
 use solana_address::Address;
 use zeroize::Zeroizing;
 use zolana_hasher::primitives::hash_bytes;
-use zolana_interface::instruction::instruction_data::transact::{AnonymousParties, TreeContext};
+use zolana_interface::instruction::instruction_data::transact::{
+    AnonymousParties, TreeContext, ANONYMOUS_PARTIES,
+};
 use zolana_keypair::{PublicKey, SigningKey};
 use zolana_transaction::{
     instructions::transact::{
@@ -27,8 +29,8 @@ use crate::{
         json::to_json_ring,
         proving_key::ExpectedProvingKey,
         transact::assembly::{
-            assemble_transaction, confidential_marked_output_owner_pk_hashes, validate_shape,
-            AssembledTransaction, OwnerMode, PublicInputs, TransferInputUtxo,
+            assemble_transaction, confidential_marked_output_owner_pk_hashes, ring_secrets,
+            validate_shape, AssembledTransaction, OwnerMode, PublicInputs, TransferInputUtxo,
         },
         Shape, TransferInputs, TreeSlotFields,
     },
@@ -129,7 +131,7 @@ pub struct AnonymousEddsaAuthorization {
     /// default-ring UTXO, zero otherwise.
     pub default_owner_pk_hash: [u8; 32],
     /// Payer, co-signer and exit destination identities, zero when absent.
-    pub parties: [[u8; 32]; 3],
+    pub parties: [[u8; 32]; ANONYMOUS_PARTIES],
 }
 
 impl AnonymousRingEddsaProver {
@@ -208,6 +210,7 @@ impl AnonymousRingEddsaProver {
             tree_slots: TreeSlotFields::encode_all(&assembled_inputs.tree_slots),
             output_tree_id: BigUint::from(self.output_tree_id),
             blinding_seed: be(&self.blinding_seed),
+            ring_secrets: ring_secrets(&self.outputs),
             external_data_hash: be(&external_data_hash),
             private_tx_hash: be(&private_tx),
             public_assets: self.public_transfers.assets.map(|asset| be(&asset)),
@@ -457,6 +460,7 @@ mod tests {
                 tree_slots: Default::default(),
                 output_tree_id: BigUint::ZERO,
                 blinding_seed: BigUint::from(1u8),
+                ring_secrets: vec![BigUint::from(7u8)],
                 external_data_hash: BigUint::ZERO,
                 private_tx_hash: BigUint::ZERO,
                 public_assets: Default::default(),
@@ -498,6 +502,7 @@ mod tests {
             format!("0x6{}", "06".repeat(31))
         );
         assert_eq!(body["publishedOutputOwnerPkHashes"][0], "0xe");
+        assert_eq!(body["ringSecrets"][0], "0x7");
 
         let request: Map<String, Value> = serde_json::from_str(include_str!(
             "../../../../../prover/server/prover/transfer_eddsa/testdata/eddsa-ring-2x2.json"

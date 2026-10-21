@@ -1,242 +1,186 @@
-//! Seals a member's nullifier key to the ring auditor and sets it as the escrow key of
-//! the member's record, inserting the record when the member has none.
+//! Escrows a member's nullifier key to the ring auditor, the proof covers the encryption alone.
 
 use custom_ring_interface::{
-    tag, CustomRingProof, EscrowKey, MemberRecord, MemberUpdate, RegisterKeyIxData,
-    RegisterKeyPublicInput, RingMode,
+    key_catalog::RingCircuit, tag, CustomRingError, RegisterKeyIxData, RegisterKeyStatement,
+    RingMode,
 };
 use solana_address::Address;
-use solana_instruction::{AccountMeta, Instruction};
+use solana_instruction::Instruction;
 use zeroize::Zeroizing;
 use zolana_client::{AsyncIndexer, AsyncRpc, AsyncZolanaClient};
-use zolana_hasher::primitives::right_align;
-use zolana_keypair::{ShieldedKeypair, X25519Pubkey};
+use zolana_hasher::primitives::{right_align, solana_owner_identity};
+use zolana_keypair::{NullifierKey, ShieldedAddress, ShieldedKeypair, X25519Pubkey};
 use zolana_ring_client::NullifierKeyEnvelope;
-use zolana_ring_member_registry::RegistryOverlay;
 use zolana_ring_policy::Member;
 
 use crate::{
-    member_registry::{verify, MemberRecordRead, ReadMemberRecord, RecordOpening, RegistryTip},
-    projection::retry_projection_lag,
-    prover::{RingCircuit, RingRequest},
-    request::{RecordUpdate, RegisterKeyBody},
+    prover::{to_instruction_proof, RingRequest},
+    records::{MemberRead, MemberWriteAccounts, OwnerRead, RecordReads},
+    request::KeyRegister,
     submission::BoundRoot,
-    to_instruction_proof, CustomRing, RegistryBinding, RingError,
+    CustomRing, RingError,
 };
 
 #[must_use]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EscrowedRecipients<'a> {
+    pub ring: CustomRing,
+    pub recipients: &'a [ShieldedAddress],
+}
+
+impl EscrowedRecipients<'_> {
+    /// Under key escrow the first recipient without an escrowed nullifier key is refused.
+    pub async fn check(self, rpc: &(impl AsyncRpc + ?Sized)) -> Result<(), RingError> {
+        if self.ring.require_config(rpc).await?.mode != RingMode::Registry {
+            return Ok(());
+        }
+        let owners = self
+            .recipients
+            .iter()
+            .map(|recipient| recipient.signing_pubkey.owner_proof_input_hash())
+            .collect::<Result<Vec<_>, _>>()?;
+        let reads = RecordReads {
+            root: BoundRoot::newest(self.ring, rpc).await?,
+            members: &owners,
+        }
+        .read(rpc)
+        .await?;
+        for ((recipient, owner), read) in self.recipients.iter().zip(owners).zip(&reads) {
+            OwnerRead { owner, read }.escrowed(&recipient.nullifier_pubkey)?;
+        }
+        Ok(())
+    }
+}
+
+/// Hands out the nullifier secret in `seal`, one call before the prover request is sent.
+pub trait KeyEscrowAuthority: Send + Sync {
+    fn nullifier_pubkey(&self) -> Result<[u8; 32], RingError>;
+
+    fn seal(&self, auditor: &X25519Pubkey) -> Result<SealedEscrow, RingError>;
+}
+
+/// Dropped once the prover request is sent.
+pub struct SealedEscrow {
+    pub envelope: NullifierKeyEnvelope,
+    pub nullifier_secret: Zeroizing<[u8; 32]>,
+}
+
+impl KeyEscrowAuthority for NullifierKey {
+    fn nullifier_pubkey(&self) -> Result<[u8; 32], RingError> {
+        Ok(self.pubkey()?)
+    }
+
+    fn seal(&self, auditor: &X25519Pubkey) -> Result<SealedEscrow, RingError> {
+        Ok(SealedEscrow {
+            envelope: NullifierKeyEnvelope::new(self, auditor)?,
+            nullifier_secret: Zeroizing::new(right_align(&self.secret())),
+        })
+    }
+}
+
+impl KeyEscrowAuthority for ShieldedKeypair {
+    fn nullifier_pubkey(&self) -> Result<[u8; 32], RingError> {
+        self.nullifier_key.nullifier_pubkey()
+    }
+
+    fn seal(&self, auditor: &X25519Pubkey) -> Result<SealedEscrow, RingError> {
+        self.nullifier_key.seal(auditor)
+    }
+}
+
+#[must_use]
 pub struct RegisterKey<'a> {
     pub ring: CustomRing,
-    /// Also the payer, the member identity derives from it.
-    pub member: &'a ShieldedKeypair,
+    /// Its signing key signs the instruction, its nullifier key is the one escrowed.
+    pub member: ShieldedAddress,
+    /// Pays the insert fee the config charges a member.
+    pub payer: Address,
+    pub authority: &'a dyn KeyEscrowAuthority,
 }
 
 #[must_use]
 pub struct ProvenKeyRegistration {
-    ring: CustomRing,
-    member: Address,
-    old_root: RegistryBinding,
-    new_root: [u8; 32],
-    item: MemberUpdate,
-    envelope: NullifierKeyEnvelope,
-    proof: CustomRingProof,
+    pub instruction: Instruction,
 }
 
 impl RegisterKey<'_> {
-    /// Proves key disclosure under the current root, it authorizes no transfer.
+    /// Refuses a member whose record already escrows a key, a second key never replaces it.
     pub async fn prove<R: AsyncRpc, I: AsyncIndexer>(
-        self,
+        &self,
         client: &AsyncZolanaClient<R, I>,
     ) -> Result<ProvenKeyRegistration, RingError> {
-        let config = self
-            .ring
-            .config(client)
-            .await?
-            .ok_or(RingError::MissingRingConfig)?;
+        let config = self.ring.require_config(client).await?;
         if config.mode == RingMode::Anonymous {
-            return Err(RingError::AnonymousRingRefused);
+            return Err(CustomRingError::AnonymousRingRefused.into());
         }
-        let auditor = config.auditor_pubkey;
-        let member = Address::new_from_array(self.member.signing_pubkey().as_ed25519()?);
-        let nullifier_key = &self.member.nullifier_key;
-        if nullifier_key.pubkey()? != self.member.shielded_address()?.nullifier_pubkey {
+        let nullifier_pk = self.authority.nullifier_pubkey()?;
+        if nullifier_pk != self.member.nullifier_pubkey {
             return Err(RingError::NullifierKeyMismatch);
         }
-        let owner = Member::owner_tag(member.as_array())?;
-        let (envelope, body, item, root) = retry_projection_lag(|| async {
-            let tip = RegistryTip::fetch(self.ring, client).await?;
-            let read = ReadMemberRecord {
-                ring: self.ring,
-                member: owner,
-            };
-            let record = read.read_at(client, tip.root).await?;
-            let envelope = NullifierKeyEnvelope::new(nullifier_key, &auditor)?;
-            let secret = Zeroizing::new(right_align(&nullifier_key.secret()));
-            let (body, item) = register(&envelope, auditor, secret, &tip, &record)?;
-            Ok((envelope, body, item, tip.root))
-        })
+        let signer = self.member.solana_address()?;
+        let identity = solana_owner_identity(signer.as_array())?;
+        let registry = self.ring.require_registry(client).await?;
+        self.ring
+            .require_queue(client)
+            .await?
+            .admit_member_write(&registry)?;
+        let read = MemberRead {
+            root: BoundRoot::current(self.ring, &registry),
+            member: identity,
+        }
+        .read(client)
         .await?;
-        let proof = client.prove_request(&RingRequest(&body)).await?;
-        Ok(ProvenKeyRegistration {
-            ring: self.ring,
-            member,
-            old_root: RegistryBinding::of(root),
-            new_root: body.registry_new_root,
-            item,
+        if read
+            .record()
+            .is_some_and(|record| record.escrow_key != [0; 32])
+        {
+            return Err(RingError::KeyAlreadyRegistered {
+                member: Member::from_bytes(identity)?,
+            });
+        }
+        let SealedEscrow {
             envelope,
-            proof: to_instruction_proof(proof)?,
-        })
-    }
-}
-
-/// The record keeps its lists and gains the escrow key, a registered key is final.
-pub(crate) fn register(
-    envelope: &NullifierKeyEnvelope,
-    auditor: X25519Pubkey,
-    secret: Zeroizing<[u8; 32]>,
-    tip: &RegistryTip,
-    record: &MemberRecordRead,
-) -> Result<(RegisterKeyBody, MemberUpdate), RingError> {
-    // An absence proof names its predecessor, so retain the queried member
-    // separately and authenticate the opening before constructing its record.
-    let member = record.member;
-    if record.root != tip.root {
-        return Err(RingError::InvalidRecordOpening);
-    }
-    let opening = &record.opening;
-    verify(opening, &tip.root.root, member.as_bytes())?;
-    let escrow_key = EscrowKey {
-        nullifier_pk: &envelope.nullifier_pk,
-        ciphertext: &envelope.sealed.ciphertext,
-    }
-    .hash()?;
-    let tree_error = |_| RingError::InvalidRecordOpening;
-    let mut overlay =
-        RegistryOverlay::new(tip.root.next_index, tip.append_path.clone()).map_err(tree_error)?;
-    let (item, update, new_root) = match opening {
-        RecordOpening::Present {
-            record,
-            index,
-            path,
-            ..
-        } => {
-            if record.escrow_key != [0; 32] {
-                return Err(RingError::KeyAlreadyRegistered { member });
-            }
-            let after = MemberRecord {
-                escrow_key,
-                ..*record
-            };
-            let new_root = overlay
-                .write(*index, after.hash()?, path)
-                .map_err(tree_error)?;
-            let item = MemberUpdate {
-                member: record.member,
-                old_lists: record.lists,
-                old_escrow_key: [0; 32],
-                lists: record.lists,
-                escrow_key,
-                index: *index,
-            };
-            (
-                item,
-                RecordUpdate::rewrite(record.next, *index, path.clone()),
-                new_root,
-            )
+            nullifier_secret,
+        } = self.authority.seal(&config.auditor_pubkey)?;
+        let eph_u = envelope.sealed.eph_pk.u();
+        let public_input_hash = RegisterKeyStatement {
+            member: &identity,
+            nullifier_pk: &nullifier_pk,
+            auditor_pubkey: config.auditor_pubkey.as_bytes(),
+            eph_u: &eph_u,
+            ciphertext: &envelope.sealed.ciphertext,
         }
-        RecordOpening::Absent {
-            low,
-            low_index,
-            path: low_path,
-        } => {
-            let index = tip.root.next_index;
-            let relinked = MemberRecord {
-                next: *member.as_bytes(),
-                ..*low
-            };
-            overlay
-                .write(*low_index, relinked.hash()?, low_path)
-                .map_err(tree_error)?;
-            let path = overlay.path(index, None).map_err(tree_error)?;
-            let record = MemberRecord {
-                member: *member.as_bytes(),
-                next: low.next,
-                lists: 0,
-                escrow_key,
-            };
-            let new_root = overlay
-                .write(index, record.hash()?, &path)
-                .map_err(tree_error)?;
-            let item = MemberUpdate {
-                member: *member.as_bytes(),
-                old_lists: 0,
-                old_escrow_key: [0; 32],
-                lists: 0,
-                escrow_key,
-                index,
-            };
-            (
-                item,
-                RecordUpdate::insert(low, *low_index, low_path.clone(), index, path),
-                new_root,
-            )
-        }
-    };
-    let public_input_hash = RegisterKeyPublicInput {
-        registry_old_root: &tip.root.root,
-        registry_new_root: &new_root,
-        member: member.as_bytes(),
-        nullifier_pk: &envelope.nullifier_pk,
-        auditor_pk: auditor.as_bytes(),
-        eph_pk: envelope.sealed.eph_pk.as_bytes(),
-        ciphertext: &envelope.sealed.ciphertext,
-        index: item.index,
-    }
-    .hash()?;
-    let body = RegisterKeyBody {
-        circuit_type: RingCircuit::RegisterKey,
-        public_input_hash,
-        registry_old_root: tip.root.root,
-        registry_new_root: new_root,
-        member: *member.as_bytes(),
-        lists: item.lists,
-        update,
-        nullifier_secret: secret,
-        eph_sk: envelope.ephemeral_sk.clone(),
-        auditor_pk: auditor,
-    };
-    Ok((body, item))
-}
-
-impl ProvenKeyRegistration {
-    pub fn item(&self) -> &MemberUpdate {
-        &self.item
-    }
-
-    pub(crate) fn bound_root(&self) -> Option<BoundRoot> {
-        Some(BoundRoot::registry(self.ring, self.old_root))
-    }
-
-    pub fn instruction(self) -> Result<Instruction, RingError> {
+        .hash()?;
+        let body = KeyRegister {
+            public_input_hash,
+            member: identity,
+            nullifier_secret,
+            eph_sk: envelope.ephemeral_sk.clone(),
+            auditor_pk: config.auditor_pubkey,
+        };
+        let proof = RingRequest::new(RingCircuit::RegisterKey, &body)?
+            .prove(client, public_input_hash)
+            .await?;
         let mut data = vec![tag::REGISTER_KEY];
-        data.extend(wincode::serialize(&RegisterKeyIxData {
-            proof: self.proof,
-            old_root_index: self.old_root.root_index,
-            new_root: self.new_root,
-            item: self.item,
-            nullifier_pk: self.envelope.nullifier_pk,
-            eph_pk: *self.envelope.sealed.eph_pk.as_bytes(),
-            ciphertext: self.envelope.sealed.ciphertext,
-        })?);
-        Ok(Instruction {
-            program_id: self.ring.program_id(),
-            accounts: vec![
-                AccountMeta::new_readonly(self.member, true),
-                AccountMeta::new_readonly(self.ring.config_pda(), false),
-                AccountMeta::new(self.ring.member_registry_root_pda(), false),
-            ],
-            data,
+        data.extend_from_slice(bytemuck::bytes_of(&RegisterKeyIxData {
+            proof: to_instruction_proof(proof)?,
+            nullifier_pk,
+            eph_u,
+            ciphertext: envelope.sealed.ciphertext,
+        }));
+        let accounts = MemberWriteAccounts {
+            ring: self.ring,
+            config: &config,
+            member: signer,
+            payer: self.payer,
+        }
+        .metas();
+        Ok(ProvenKeyRegistration {
+            instruction: Instruction {
+                program_id: self.ring.program_id(),
+                accounts,
+                data,
+            },
         })
     }
 }

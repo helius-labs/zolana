@@ -2,23 +2,41 @@ use alloc::vec::Vec;
 use wincode::{SchemaRead, SchemaWrite};
 
 use super::merge_transact::{MergeTransactIxData, MergeTransactIxDataRef, RefConfig};
+use crate::instruction::tag::RING_MERGE_TRANSACT;
 
 /// `merge_ring` instruction data (spec: SPP `merge_ring`): the
-/// [`MergeTransactIxData`] body plus the output `ring_data_hash` and an
-/// authenticated member-registry root selected by the calling ring program.
-/// The merge proof asserts the hash against `Output.Utxo.RingDataHash` and
-/// proves owner-key escrow under that root; both enter the public-input hash. The
-/// wallet reads it from the event to reconstruct the merged ring output.
+/// [`MergeTransactIxData`] body plus the ring fields the calling ring program selects.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct MergeRingIxData {
     pub output_ring_data_hash: [u8; 32],
-    /// Recent member-registry root proving that the owner nullifier key was
-    /// registered with an auditor-recoverable escrow ciphertext.
+    /// The proof opens the owner's escrowed key under this root.
     pub member_registry_root: [u8; 32],
-    /// Set by the signing ring program from its own mode, the proof skips the
-    /// escrow relation under it and binds it in the public input.
+    /// Set from the signing ring's mode, the proof skips the escrow relation under it.
     pub anonymous: bool,
     pub merge: MergeTransactIxData,
+}
+
+/// The [`MergeRingIxData`] fields a ring program writes before the merge body it forwards.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MergeRingPrefix<'a> {
+    pub output_ring_data_hash: &'a [u8; 32],
+    pub member_registry_root: &'a [u8; 32],
+    pub anonymous: bool,
+}
+
+impl MergeRingPrefix<'_> {
+    pub const LEN: usize = 32 + 32 + 1;
+
+    /// The tagged SPP instruction data, `merge` a serialized [`MergeTransactIxData`].
+    pub fn instruction_data(self, merge: &[u8]) -> Vec<u8> {
+        let mut data = Vec::with_capacity(1 + Self::LEN + merge.len());
+        data.push(RING_MERGE_TRANSACT);
+        data.extend_from_slice(self.output_ring_data_hash);
+        data.extend_from_slice(self.member_registry_root);
+        data.push(u8::from(self.anonymous));
+        data.extend_from_slice(merge);
+        data
+    }
 }
 
 impl MergeRingIxData {

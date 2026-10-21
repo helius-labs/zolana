@@ -9,6 +9,8 @@ use crate::{config::RootSecret, error::RingRpcError};
 /// The auditor and service domains must stay distinct.
 const DERIVATION_INFO: &[u8] = b"zolana/ring-auditor/v1";
 const SERVICE_KEY_INFO: &[u8] = b"zolana/ring-rpc-service/v1";
+/// Part of the pinned derivation info of every registered auditor key.
+const DERIVATION_SUFFIX: &[u8] = &[0];
 
 pub(crate) enum KeySource {
     Local {
@@ -18,18 +20,30 @@ pub(crate) enum KeySource {
     Derived(RootSecret),
 }
 
-/// The cluster and ring bind each key, the trailing zero byte keeps the first derivation's info.
-pub(crate) fn derive_auditor_key(
-    root: &RootSecret,
-    genesis_hash: &[u8; 32],
-    ring: Address,
-) -> Result<X25519Keypair, RingRpcError> {
-    let info = [DERIVATION_INFO, genesis_hash, ring.as_ref(), &[0]].concat();
-    let mut secret = Zeroizing::new([0u8; 32]);
-    hkdf::Hkdf::<sha2::Sha256>::new(None, root.as_bytes())
-        .expand(&info, secret.as_mut_slice())
-        .map_err(|_| KeypairError::Hkdf)?;
-    Ok(auditor_keypair(&secret)?)
+/// The cluster and ring bind each auditor key.
+#[must_use]
+pub(crate) struct AuditorKeyDerivation<'a> {
+    pub root: &'a RootSecret,
+    pub genesis_hash: &'a [u8; 32],
+    pub ring: Address,
+}
+
+impl AuditorKeyDerivation<'_> {
+    pub fn derive(self) -> Result<X25519Keypair, RingRpcError> {
+        let mut secret = Zeroizing::new([0u8; 32]);
+        hkdf::Hkdf::<sha2::Sha256>::new(None, self.root.as_bytes())
+            .expand_multi_info(
+                &[
+                    DERIVATION_INFO,
+                    self.genesis_hash,
+                    self.ring.as_ref(),
+                    DERIVATION_SUFFIX,
+                ],
+                secret.as_mut_slice(),
+            )
+            .map_err(|_| KeypairError::Hkdf)?;
+        Ok(auditor_keypair(&secret)?)
+    }
 }
 
 pub(crate) fn service_keypair(secret: &[u8]) -> Result<Keypair, RingRpcError> {
@@ -50,8 +64,13 @@ mod tests {
     #[test]
     fn derived_keys_are_pinned_to_their_derivation_domain() {
         let root = RootSecret::from_bytes([7; 32]).expect("root secret");
-        let auditor = derive_auditor_key(&root, &[9; 32], Address::new_from_array([5; 32]))
-            .expect("auditor key");
+        let auditor = AuditorKeyDerivation {
+            root: &root,
+            genesis_hash: &[9; 32],
+            ring: Address::new_from_array([5; 32]),
+        }
+        .derive()
+        .expect("auditor key");
 
         assert_eq!(
             hex::encode(auditor.pubkey().as_bytes()),

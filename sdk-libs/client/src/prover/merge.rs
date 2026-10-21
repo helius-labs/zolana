@@ -82,24 +82,23 @@ pub struct MergeProofResult {
     pub output_ring_data_hash: [u8; 32],
     pub output_ciphertext_salt: Salt,
     pub output_ciphertext: MergeOutputCiphertext,
-    /// Public-hash preimage retained so ring registration can be bound after
-    /// the common SPP merge statement is assembled.
+    /// The public hash preimage, the ring registration joins it after the common statement.
     hash_elements: Vec<[u8; 32]>,
 }
 
 impl MergeProofResult {
-    /// Bind the ring proof to the owner's auditor-recoverable registered key.
-    /// The ring SDK verifies the record against the selected chain root before
-    /// passing it here. The circuit repeats that membership and key relation.
+    /// The caller verified the record under a chain-selected root, the circuit proves it again.
     pub fn with_registration(
         mut self,
         registration: MergeRegistration,
     ) -> Result<Self, ClientError> {
-        if self.ring_program_id.is_none() || registration.root == [0; 32] {
+        // An escrow merge binds the registry root, an anonymous one the zero root.
+        if self.ring_program_id.is_none()
+            || (registration.root == [0; 32]) != registration.ciphertext_hash.is_none()
+        {
             return Err(ClientError::RingMemberUnregistered);
         }
-        // The first seven common elements are followed by ring data and the
-        // ring program ID. Insert the root and mode before the salt and ciphertext.
+        // The root and mode follow the seven common elements, the ring data and the ring program.
         self.hash_elements
             .splice(9..9, registration.binding().elements());
         self.public_input_hash = create_hash_chain_4_from_slice(&self.hash_elements)?;

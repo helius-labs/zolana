@@ -1,4 +1,4 @@
-use zolana_keypair::{random_salt, viewing_key::Salt, ShieldedAddress};
+use zolana_keypair::{random_salt, ShieldedAddress};
 
 use super::{
     inputs::{pad_with_compact, validate_merge_owner},
@@ -63,19 +63,17 @@ impl MergeTransaction {
                 blinding: *blinding,
                 key: *key,
             },
-            random_salt(),
             dummy_nullifiers,
         )
     }
 
     /// `dummy_nullifiers` holds each padding slot's derived merge dummy
-    /// nullifier in slot order; the compact slot proves it absent. `salt` must
-    /// be fresh per proof.
+    /// nullifier in slot order; the compact slot proves it absent. Each call
+    /// generates a fresh output ciphertext salt.
     pub fn encrypt_with_derived(
         self,
         sender: &ShieldedAddress,
         secrets: MergeOutputSecrets,
-        salt: Salt,
         dummy_nullifiers: &[[u8; 32]],
     ) -> Result<MergeProofInputs, TransactionError> {
         let Self {
@@ -98,6 +96,7 @@ impl MergeTransaction {
             };
         }
         output_utxo.blinding = secrets.blinding;
+        let salt = random_salt();
         let output_ciphertext = MergeOutputPlaintext {
             amount: output_utxo.amount,
             mint: output_utxo.asset.asset,

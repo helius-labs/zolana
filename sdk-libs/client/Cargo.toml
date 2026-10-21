@@ -22,6 +22,7 @@ client = ["solana-rpc"]
 proofs = ["reqwest"]
 
 [dependencies]
+custom-ring-interface = { workspace = true }
 zolana-interface = { workspace = true }
 zolana-program = { workspace = true }
 zolana-indexer-api = { workspace = true }
@@ -29,6 +30,7 @@ zolana-event = { workspace = true }
 zolana-event-parser = { workspace = true }
 zolana-hasher = { workspace = true, features = ["std"] }
 zolana-keypair = { workspace = true }
+zolana-ring-policy = { workspace = true }
 zolana-transaction = { workspace = true }
 zolana-user-registry-interface = { workspace = true, features = ["solana"] }
 zeroize = { workspace = true }
@@ -103,7 +105,7 @@ name = "tags"
 
 # Hermetic: the anonymous ring streams against an in-memory indexer.
 [[test]]
-name = "anonymous_scan"
+name = "anonymous_sync"
 
 [[test]]
 name = "rpc"

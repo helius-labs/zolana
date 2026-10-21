@@ -11,8 +11,8 @@ use zolana_transaction::{
         MAX_MERGE_INPUTS,
     },
     utxo::{SppProofInputUtxo, Utxo},
-    Address, AssetRegistry, Data, DataRecord, DecryptRequest, DeriveRequest, Mint, RingTagRequest,
-    ShieldedKeys, TransactionError, TransactionKeyRequest, WalletUtxo,
+    Address, AssetRegistry, Data, DataRecord, DecryptRequest, DeriveRequest, Mint,
+    RingDeliveryRequest, ShieldedKeys, TransactionError, TransactionKeyRequest, WalletUtxo,
 };
 
 fn inputs(owner: &ShieldedKeypair, count: u8) -> Vec<WalletUtxo> {
@@ -430,7 +430,7 @@ fn merge_rejects_foreign_owner_and_nullifier_key() {
         assert_eq!(
             MergeTransaction::new(notes)
                 .unwrap()
-                .encrypt_with_derived(&sender, secrets, [0; 16], &[])
+                .encrypt_with_derived(&sender, secrets, &[])
                 .err(),
             Some(error)
         );
@@ -515,11 +515,24 @@ impl ShieldedKeys for RecordingKeys {
         self.keys.borrow_mut().extend_from_slice(requests);
         self.owner.transaction_keys(requests)
     }
-    fn ring_view_tags(
+    fn ring_address_keys(
         &self,
-        requests: &[RingTagRequest],
+        ring: &Address,
+        indexes: &[u32],
+    ) -> Result<Vec<X25519Pubkey>, TransactionError> {
+        self.owner.ring_address_keys(ring, indexes)
+    }
+    fn ring_delivery_secrets(
+        &self,
+        requests: &[RingDeliveryRequest],
     ) -> Result<Vec<[u8; 32]>, TransactionError> {
-        self.owner.ring_view_tags(requests)
+        self.owner.ring_delivery_secrets(requests)
+    }
+    fn ring_change_key(&self, ring: &Address) -> Result<X25519Pubkey, TransactionError> {
+        self.owner.ring_change_key(ring)
+    }
+    fn sender_view_tags(&self, counters: &[u64]) -> Result<Vec<[u8; 32]>, TransactionError> {
+        self.owner.sender_view_tags(counters)
     }
 }
 
@@ -620,11 +633,9 @@ fn ring_merge_preserves_spl_and_explicit_output_context() {
                 blinding,
                 key: merge_output_key(&owner.nullifier_key, &first_nullifier).unwrap(),
             },
-            [9; 16],
             &dummy_nullifiers,
         )
         .unwrap();
-    assert_eq!(result.output_ciphertext_salt, [9; 16]);
     let assets = zolana_transaction::AssetRegistry::new([(77, mint.asset)]).unwrap();
     let recovered = recover(&result, &owner, &assets);
     assert_eq!(
@@ -881,6 +892,32 @@ fn ring_merges_preserve_common_committed_data_and_exempt_only_padding() {
         zolana_transaction::instructions::transact::asset_field(&Mint::SOL.asset).unwrap(),
         [0; 32]
     );
+}
+
+#[test]
+fn encrypt_with_derived_generates_a_fresh_salt_for_each_attempt() {
+    let owner = keypair(7);
+    let notes = inputs(&owner, 8);
+    let first_nullifier = notes.first().unwrap().nullifier;
+    let sender = owner.shielded_address().unwrap();
+    let secrets = MergeOutputSecrets {
+        blinding: merge_output_blinding(&owner.nullifier_key, &first_nullifier).unwrap(),
+        key: merge_output_key(&owner.nullifier_key, &first_nullifier).unwrap(),
+    };
+    let encrypt = || {
+        MergeTransaction::new(notes.clone())
+            .unwrap()
+            .encrypt_with_derived(&sender, secrets, &[])
+            .unwrap()
+    };
+    let first = encrypt();
+    let second = encrypt();
+    assert_ne!(first.output_ciphertext_salt, second.output_ciphertext_salt);
+    assert_ne!(first.output_ciphertext, second.output_ciphertext);
+    let assets = AssetRegistry::default();
+    let recovered = recover(&first, &owner, &assets);
+    assert_eq!(recover(&second, &owner, &assets), recovered);
+    assert_eq!((recovered.amount, recovered.asset), (16, Mint::SOL));
 }
 
 #[test]

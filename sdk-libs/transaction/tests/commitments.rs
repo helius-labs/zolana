@@ -30,6 +30,7 @@ fn output() -> SppProofOutputUtxo {
         asset: Mint::new(address(4), 5),
         amount: 123,
         blinding: field(3),
+        ring_secret: None,
         ring_program_id: Some(address(5)),
         ring_data_hash: Some(field(6)),
         data_hash: Some(field(7)),

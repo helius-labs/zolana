@@ -15,9 +15,6 @@ pub fn render(spec: &PolicySpec) -> Result<Table, PolicyError> {
     } else {
         "\n# Every rule below must hold, `zolana-ring policy set` replaces them on a live ring.\n"
     });
-    let tree = spec.address_tree().to_string();
-    let comment = "every policy transfer binds the named address tree";
-    commented(&mut policy, "address_tree", tree, comment);
     let mut sources = Table::new();
     sources.set_implicit(true);
     for target in Target::ALL {
@@ -145,8 +142,6 @@ mod tests {
     fn the_rendered_table_carries_a_comment_per_rule_and_per_source_and_reads_back() {
         let spec: PolicySpec = toml::from_str(&format!(
             r#"
-address_tree = "{CURATOR}"
-
 [sources.devnet]
 block = "{CURATOR}"
 
@@ -167,7 +162,6 @@ above = 1000000
         .expect("parses");
         let text = document(&spec);
         for expected in [
-            "# every policy transfer binds the named address tree\naddress_tree = ",
             "[policy.sources.devnet]\n# the block list reads the member registry of the named curator ring\nblock = ",
             "# each output owner must be on the approval list or must not be on the block list\n[[policy.rules]]\nsubject = \"output-owner\"\nany = [{ forbid = \"block\" }, { require = \"approval\" }]\n",
             "# each asset must be on the allow list\n[[policy.rules]]\nsubject = \"asset\"\nrequire = \"allow\"",
@@ -201,7 +195,7 @@ above = 1000000
         let text = document(&PolicySpec::default());
         assert!(
             text.contains(
-                "# No rule is pinned yet, `zolana-ring policy set` adds rules on a live ring.\n[policy]\n# every policy transfer binds the named address tree\naddress_tree = "
+                "# No rule is pinned yet, `zolana-ring policy set` adds rules on a live ring.\n[policy]\n"
             ),
             "{text}"
         );

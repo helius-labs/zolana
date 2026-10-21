@@ -7,9 +7,7 @@ use super::{
 use crate::{error::TransactionError, WalletUtxo};
 
 impl MergeTransaction {
-    /// Merge notes without changing their ring state. Every input must carry
-    /// the same committed ring-data hash. Omit the output hash to inherit it,
-    /// or supply that same hash explicitly. Missing hashes mean zero.
+    /// `None` inherits the inputs' common ring data hash, `Some` must equal it.
     pub fn new_with_ring(
         inputs: Vec<WalletUtxo>,
         ring_program_id: Address,

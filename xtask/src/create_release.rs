@@ -5,7 +5,7 @@ use std::{
 };
 
 use anyhow::{anyhow, bail, ensure, Context, Result};
-use custom_ring_interface::key_catalog::RingKey;
+use custom_ring_interface::key_catalog::RING_KEYS;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use zolana_program_test::fixture::write_protocol_snapshot;
@@ -271,7 +271,7 @@ fn custom_rings_lock(options: &Options, staging: &Path, host: (&str, &str)) -> R
         "release_tag": options.tag,
         "ring_program": stage_program(&RING_PROGRAM_SOURCE, &path, &options.tag, staging)?,
     });
-    for source in RingKey::ALL.into_iter() {
+    for source in RING_KEYS {
         let file_name = source.file_name();
         let key_source = repo.join(PROVING_KEYS_DIR).join(&file_name);
         require_file(&key_source, "run `just ensure-custom-ring-live-keys` first")?;
@@ -285,7 +285,7 @@ fn custom_rings_lock(options: &Options, staging: &Path, host: (&str, &str)) -> R
                 staged.sha256
             );
         }
-        lock[source.section] = json!({
+        lock[source.section()] = json!({
             "asset": asset,
             "size": staged.size,
             "sha256": staged.sha256,
@@ -318,7 +318,7 @@ fn validate_ring_key_pins(prover_lock: &Value) -> Result<()> {
         keys.keys()
             .filter(|name| name.starts_with("custom_ring_"))
             .count()
-            == RingKey::ALL.len(),
+            == RING_KEYS.len(),
         "ring key catalog differs from this release tool, rebuild xtask"
     );
     for (file, hash) in custom_ring_interface::proving_key_hashes() {
@@ -612,11 +612,11 @@ fn staged_asset_paths(staging: &Path, lock: &Value) -> Vec<PathBuf> {
     if let Some(programs) = lock.get("programs").and_then(Value::as_array) {
         names.extend(programs.iter().filter_map(asset_name));
     }
-    for key in std::iter::once("ring_program")
-        .chain(RingKey::ALL.into_iter().map(|source| source.section))
-        .chain(std::iter::once("accounts"))
+    for key in std::iter::once("ring_program".to_owned())
+        .chain(RING_KEYS.iter().map(|source| source.section()))
+        .chain(std::iter::once("accounts".to_owned()))
     {
-        if let Some(name) = lock.get(key).and_then(asset_name) {
+        if let Some(name) = lock.get(&key).and_then(asset_name) {
             names.push(name);
         }
     }
@@ -879,6 +879,8 @@ fn print_help() {
 
 #[cfg(test)]
 mod tests {
+    use custom_ring_interface::key_catalog::RingCircuit;
+
     use super::*;
 
     #[test]
@@ -888,7 +890,11 @@ mod tests {
             lock["keys"][file] = json!({"sha256": hex::encode(hash)});
         }
         validate_ring_key_pins(&lock).unwrap();
-        let file = RingKey::CONFIDENTIAL_AUDIT.file_name();
+        let file = RING_KEYS
+            .iter()
+            .find(|key| key.circuit == RingCircuit::PackedAudit { outputs: 2 })
+            .unwrap()
+            .file_name();
         let original = lock["keys"][&file].clone();
         lock["keys"][&file]["sha256"] = json!("00".repeat(32));
         assert!(validate_ring_key_pins(&lock)
@@ -1068,14 +1074,14 @@ mod tests {
             "ring_program": {"asset": "custom-ring-program-v1.so", "size": 1, "sha256": "x"},
             "binaries": [{"role": "ring_rpc", "os": "linux", "arch": "x64", "asset": "ring-rpc-linux-x64-v1", "size": 1, "sha256": "x"}],
         });
-        for source in RingKey::ALL.into_iter() {
-            lock[source.section] = json!({"asset": source.asset("v1"), "size": 1, "sha256": "x"});
+        for source in RING_KEYS {
+            lock[source.section()] = json!({"asset": source.asset("v1"), "size": 1, "sha256": "x"});
         }
-        for section in std::iter::once("ring_program")
-            .chain(RingKey::ALL.into_iter().map(|source| source.section))
+        for section in std::iter::once("ring_program".to_owned())
+            .chain(RING_KEYS.iter().map(|source| source.section()))
         {
             for key in ["asset", "size", "sha256"] {
-                assert!(lock[section].get(key).is_some(), "{section} missing {key}");
+                assert!(lock[&section].get(key).is_some(), "{section} missing {key}");
             }
         }
         let pinned: Value = serde_json::from_str(include_str!(
@@ -1089,7 +1095,7 @@ mod tests {
             .filter(|file| file.starts_with("custom_ring_"))
             .cloned()
             .collect();
-        let sources = RingKey::ALL;
+        let sources = RING_KEYS;
         assert_eq!(
             sources
                 .iter()
@@ -1100,7 +1106,7 @@ mod tests {
         assert_eq!(
             sources
                 .iter()
-                .map(|source| source.section)
+                .map(|source| source.section())
                 .collect::<std::collections::BTreeSet<_>>()
                 .len(),
             sources.len()

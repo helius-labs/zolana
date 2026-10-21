@@ -1,9 +1,12 @@
-use zolana_interface::instruction::instruction_data::{
-    merge_ring::{MergeRingIxData, MergeRingIxDataRef},
-    merge_transact::{
-        MergeOutputEncryption, MergeProof, MergeTransactIxData, MAX_MERGE_INPUTS,
-        MERGE_DEFAULT_INPUT_COUNT,
+use zolana_interface::instruction::{
+    instruction_data::{
+        merge_ring::{MergeRingIxData, MergeRingIxDataRef, MergeRingPrefix},
+        merge_transact::{
+            MergeOutputEncryption, MergeProof, MergeTransactIxData, MAX_MERGE_INPUTS,
+            MERGE_DEFAULT_INPUT_COUNT,
+        },
     },
+    tag::RING_MERGE_TRANSACT,
 };
 
 fn data() -> MergeRingIxData {
@@ -45,4 +48,28 @@ fn rejects_empty_and_oversized_nullifier_lists() {
             "{count} nullifiers"
         );
     }
+}
+
+#[test]
+fn the_prefix_writer_lays_out_the_tagged_merge_ring_data() {
+    let data = MergeRingIxData {
+        anonymous: true,
+        ..data()
+    };
+    let merge = data.merge.serialize().unwrap();
+    let written = MergeRingPrefix {
+        output_ring_data_hash: &data.output_ring_data_hash,
+        member_registry_root: &data.member_registry_root,
+        anonymous: data.anonymous,
+    }
+    .instruction_data(&merge);
+    let (tag, body) = written.split_first().unwrap();
+    assert_eq!(*tag, RING_MERGE_TRANSACT);
+    assert_eq!(body, data.serialize().unwrap());
+    assert_eq!(body.len(), MergeRingPrefix::LEN + merge.len());
+    assert_eq!(written.capacity(), written.len());
+    assert_eq!(
+        MergeRingIxDataRef::from_bytes(body).unwrap().anonymous,
+        data.anonymous
+    );
 }

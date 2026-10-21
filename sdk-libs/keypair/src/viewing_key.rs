@@ -12,16 +12,16 @@ use std::sync::OnceLock;
 use rand::{rngs::OsRng, RngCore};
 use zeroize::Zeroizing;
 
+use solana_address::Address;
+
 use crate::{
     constants::{SALT_LEN, VIEW_TAG_LEN},
     derivation::{
-        self, INFO_RECIPIENT_VIEW_TAG_SECRET, INFO_RING_BLINDING_SEED_PREFIX,
-        INFO_RING_INBOX_PREFIX, INFO_RING_PAIR_PREFIX, INFO_SENDER_VIEW_TAG_SECRET,
-        INFO_TX_VIEWING_X25519,
+        self, INFO_RECIPIENT_VIEW_TAG_SECRET, INFO_RING_ADDRESS_KEY_PREFIX,
+        INFO_RING_CHANGE_KEY_PREFIX, INFO_SENDER_VIEW_TAG_SECRET, INFO_TX_VIEWING_X25519,
     },
     encryption,
     error::KeypairError,
-    ring_address::InboxSecret,
     x25519::{X25519Keypair, X25519Pubkey},
 };
 
@@ -127,43 +127,21 @@ impl ViewingKey {
         self.derive_secret32(&[INFO_TX_VIEWING_X25519])
     }
 
-    /// Inbox secret of ring address `i`, shared with payers inside a [`crate::RingAddress`].
-    pub fn inbox_secret(&self, i: u32) -> Result<InboxSecret, KeypairError> {
-        self.derive_secret32(&[INFO_RING_INBOX_PREFIX, &i.to_be_bytes()])
-            .map(InboxSecret::from_bytes)
+    /// The key of ring address `index` in `ring`, the recipient key its inbox stream derives from.
+    pub fn ring_address_key(&self, ring: &Address, index: u32) -> Result<Self, KeypairError> {
+        let secret = Zeroizing::new(self.derive_secret32(&[
+            INFO_RING_ADDRESS_KEY_PREFIX,
+            ring.as_array(),
+            &index.to_be_bytes(),
+        ])?);
+        Ok(Self::from_bytes(&secret))
     }
 
-    /// Pseudonym used toward `recipient` only.
-    pub fn pair_key(&self, recipient: &X25519Pubkey) -> Result<X25519Keypair, KeypairError> {
+    /// The key a sender's change in `ring` is delivered to, found from the sender's own spends.
+    pub fn ring_change_key(&self, ring: &Address) -> Result<Self, KeypairError> {
         let secret =
-            Zeroizing::new(self.derive_secret32(&[INFO_RING_PAIR_PREFIX, recipient.as_bytes()])?);
-        Ok(X25519Keypair::from_bytes(&secret))
-    }
-
-    /// Pair tag `k` toward `recipient`, equal to its [`Self::get_recipient_shared_view_tag`] on the pair public key.
-    pub fn pair_send_view_tag(
-        &self,
-        recipient: &X25519Pubkey,
-        k: u64,
-    ) -> Result<ViewTag, KeypairError> {
-        Self::from_secret_key(self.pair_key(recipient)?).get_send_shared_view_tag(recipient, k)
-    }
-
-    /// Blinding seed of the anonymous ring transaction with `first_nullifier`, below the BN254 modulus.
-    pub fn ring_blinding_seed(&self, first_nullifier: &[u8; 32]) -> Result<[u8; 32], KeypairError> {
-        let mut seed = self.derive_secret32(&[INFO_RING_BLINDING_SEED_PREFIX, first_nullifier])?;
-        seed[0] = 0;
-        Ok(seed)
-    }
-
-    /// View tag of the spender's own output in `slot` of the ring transaction with `first_nullifier`.
-    pub fn ring_change_view_tag(
-        &self,
-        first_nullifier: &[u8; 32],
-        slot: u8,
-    ) -> Result<ViewTag, KeypairError> {
-        let secret = self.sender_view_tag_secret()?;
-        derivation::ring_change_view_tag(&secret, first_nullifier, slot)
+            Zeroizing::new(self.derive_secret32(&[INFO_RING_CHANGE_KEY_PREFIX, ring.as_array()])?);
+        Ok(Self::from_bytes(&secret))
     }
 
     /// Sender-derived view tag for the sender's own change UTXO at `tx_count`;

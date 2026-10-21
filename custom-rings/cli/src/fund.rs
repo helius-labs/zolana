@@ -3,16 +3,43 @@
 
 use anyhow::{bail, Result};
 use solana_address::Address;
+use solana_keypair::Keypair;
+use solana_signer::Signer;
 use zolana_client::Rpc;
 
-use crate::ui::{self, line, Ask};
+use crate::{
+    ui::{self, line, Ask},
+    Context,
+};
 
-/// Fees and the rent of the config, the ring registration and one reader.
+/// Fees and the rent of every account `init` creates and of one reader.
 pub const MIN_AUTHORITY_BALANCE: u64 = 50_000_000;
 
 const LAMPORTS_PER_SOL: u64 = 1_000_000_000;
 /// `solana airdrop` shares this quota and is rate limited to refusing.
 const FAUCET: &str = "https://faucet.solana.com";
+
+#[must_use]
+pub(crate) struct TopUp<'a> {
+    pub funder: &'a Keypair,
+    pub who: Address,
+    pub lamports: u64,
+}
+
+impl TopUp<'_> {
+    /// Sends only what `who` lacks of `lamports`.
+    pub(crate) fn send(self, ctx: &Context) -> Result<()> {
+        let short = self
+            .lamports
+            .saturating_sub(ctx.rpc().get_balance(self.who)?);
+        if short == 0 {
+            return Ok(());
+        }
+        let transfer =
+            solana_system_interface::instruction::transfer(&self.funder.pubkey(), &self.who, short);
+        ctx.send(&[self.funder], &[transfer]).map(drop)
+    }
+}
 
 /// Rechecks as long as the operator answers, without a terminal it fails instead of hanging.
 pub fn wait_for_balance<R: Rpc>(

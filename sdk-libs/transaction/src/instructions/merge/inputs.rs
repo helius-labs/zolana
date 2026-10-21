@@ -51,8 +51,7 @@ fn validate_merge_asset(asset: Mint) -> Result<(), TransactionError> {
     Ok(())
 }
 
-/// A merge preserves one common committed ring-data hash. Missing means zero.
-/// Construction may infer that hash, while an already-built witness must match it.
+/// The inputs' common ring data hash, a missing one reads as zero.
 pub fn merge_ring_data_hash(
     mut inputs: impl Iterator<Item = (usize, Option<[u8; 32]>)>,
     output_override: Option<[u8; 32]>,

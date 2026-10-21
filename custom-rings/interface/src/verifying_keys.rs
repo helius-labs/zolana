@@ -8,23 +8,335 @@ macro_rules! verifying_keys {
     };
 }
 verifying_keys! {
-    base_confidential_verifying_key => "custom_ring_base_confidential.key",
-    base_confidential_compact_verifying_key => "custom_ring_base_confidential_compact.key",
-    base_anonymous_wide_verifying_key => "custom_ring_base_anonymous_wide.key",
-    policy_verifying_key => "custom_ring_policy.key",
-    base_verifying_key => "custom_ring_base.key",
-    delegate_policy_verifying_key => "custom_ring_delegate_policy.key",
-    policy_2x3_verifying_key => "custom_ring_policy_2x3.key",
-    policy_2x3_anonymous_verifying_key => "custom_ring_policy_2x3_anonymous.key",
-    delegate_policy_2x3_verifying_key => "custom_ring_delegate_policy_2x3.key",
+    audit_packed_2_verifying_key => "custom_ring_audit_packed_2.key",
+    audit_packed_4_verifying_key => "custom_ring_audit_packed_4.key",
+    audit_delivered_8_verifying_key => "custom_ring_audit_delivered_8.key",
+    audit_delivered_16_verifying_key => "custom_ring_audit_delivered_16.key",
+    audit_anonymous_4_2_verifying_key => "custom_ring_audit_anonymous_4_2.key",
+    audit_anonymous_8_2_verifying_key => "custom_ring_audit_anonymous_8_2.key",
+    audit_anonymous_12_2_verifying_key => "custom_ring_audit_anonymous_12_2.key",
+    audit_anonymous_16_2_verifying_key => "custom_ring_audit_anonymous_16_2.key",
+    audit_anonymous_24_2_verifying_key => "custom_ring_audit_anonymous_24_2.key",
+    audit_anonymous_28_2_verifying_key => "custom_ring_audit_anonymous_28_2.key",
+    audit_anonymous_4_4_verifying_key => "custom_ring_audit_anonymous_4_4.key",
+    audit_anonymous_8_4_verifying_key => "custom_ring_audit_anonymous_8_4.key",
+    audit_anonymous_12_4_verifying_key => "custom_ring_audit_anonymous_12_4.key",
+    audit_anonymous_16_4_verifying_key => "custom_ring_audit_anonymous_16_4.key",
+    audit_anonymous_24_4_verifying_key => "custom_ring_audit_anonymous_24_4.key",
+    audit_anonymous_4_8_verifying_key => "custom_ring_audit_anonymous_4_8.key",
+    audit_anonymous_8_8_verifying_key => "custom_ring_audit_anonymous_8_8.key",
+    audit_anonymous_12_8_verifying_key => "custom_ring_audit_anonymous_12_8.key",
+    audit_anonymous_16_8_verifying_key => "custom_ring_audit_anonymous_16_8.key",
+    audit_anonymous_entry_8_2_verifying_key => "custom_ring_audit_anonymous_entry_8_2.key",
+    audit_anonymous_entry_8_4_verifying_key => "custom_ring_audit_anonymous_entry_8_4.key",
+    audit_anonymous_entry_8_8_verifying_key => "custom_ring_audit_anonymous_entry_8_8.key",
+    policy_member_2_verifying_key => "custom_ring_policy_member_2.key",
+    policy_member_4_verifying_key => "custom_ring_policy_member_4.key",
+    policy_member_8_verifying_key => "custom_ring_policy_member_8.key",
+    policy_member_16_verifying_key => "custom_ring_policy_member_16.key",
+    policy_delegate_1x2_verifying_key => "custom_ring_policy_delegate_1x2.key",
+    policy_delegate_1x4_verifying_key => "custom_ring_policy_delegate_1x4.key",
+    policy_delegate_1x8_verifying_key => "custom_ring_policy_delegate_1x8.key",
+    policy_delegate_2x2_verifying_key => "custom_ring_policy_delegate_2x2.key",
+    policy_delegate_2x4_verifying_key => "custom_ring_policy_delegate_2x4.key",
+    policy_delegate_1x16_verifying_key => "custom_ring_policy_delegate_1x16.key",
+    policy_delegate_2x8_verifying_key => "custom_ring_policy_delegate_2x8.key",
+    policy_delegate_3x2_verifying_key => "custom_ring_policy_delegate_3x2.key",
+    policy_delegate_3x4_verifying_key => "custom_ring_policy_delegate_3x4.key",
+    policy_delegate_2x16_verifying_key => "custom_ring_policy_delegate_2x16.key",
+    policy_delegate_3x8_verifying_key => "custom_ring_policy_delegate_3x8.key",
+    policy_delegate_4x2_verifying_key => "custom_ring_policy_delegate_4x2.key",
+    policy_delegate_4x4_verifying_key => "custom_ring_policy_delegate_4x4.key",
+    policy_delegate_4x8_verifying_key => "custom_ring_policy_delegate_4x8.key",
+    policy_delegate_5x2_verifying_key => "custom_ring_policy_delegate_5x2.key",
+    policy_delegate_5x4_verifying_key => "custom_ring_policy_delegate_5x4.key",
+    policy_delegate_4x16_verifying_key => "custom_ring_policy_delegate_4x16.key",
+    policy_delegate_5x8_verifying_key => "custom_ring_policy_delegate_5x8.key",
+    policy_delegate_6x2_verifying_key => "custom_ring_policy_delegate_6x2.key",
+    policy_delegate_6x4_verifying_key => "custom_ring_policy_delegate_6x4.key",
+    policy_delegate_5x16_verifying_key => "custom_ring_policy_delegate_5x16.key",
+    policy_delegate_6x8_verifying_key => "custom_ring_policy_delegate_6x8.key",
+    policy_delegate_8x2_verifying_key => "custom_ring_policy_delegate_8x2.key",
+    policy_delegate_8x4_verifying_key => "custom_ring_policy_delegate_8x4.key",
+    policy_delegate_8x8_verifying_key => "custom_ring_policy_delegate_8x8.key",
+    policy_delegate_8x16_verifying_key => "custom_ring_policy_delegate_8x16.key",
+    policy_delegate_12x2_verifying_key => "custom_ring_policy_delegate_12x2.key",
+    policy_delegate_12x4_verifying_key => "custom_ring_policy_delegate_12x4.key",
+    policy_delegate_12x8_verifying_key => "custom_ring_policy_delegate_12x8.key",
+    policy_delegate_16x2_verifying_key => "custom_ring_policy_delegate_16x2.key",
+    policy_delegate_16x4_verifying_key => "custom_ring_policy_delegate_16x4.key",
+    policy_delegate_16x8_verifying_key => "custom_ring_policy_delegate_16x8.key",
+    policy_delegate_24x2_verifying_key => "custom_ring_policy_delegate_24x2.key",
+    policy_delegate_24x4_verifying_key => "custom_ring_policy_delegate_24x4.key",
+    policy_delegate_32x2_verifying_key => "custom_ring_policy_delegate_32x2.key",
+    policy_delegate_40x2_verifying_key => "custom_ring_policy_delegate_40x2.key",
+    apply_records_1_verifying_key => "custom_ring_apply_records_1.key",
+    apply_records_16_verifying_key => "custom_ring_apply_records_16.key",
     register_key_verifying_key => "custom_ring_register_key.key",
     deposit_verifying_key => "custom_ring_deposit.key",
-    update_members_verifying_key => "custom_ring_update_members.key",
+    merge_anonymous_8_verifying_key => "custom_ring_merge_anonymous_8.key",
+    merge_anonymous_24_verifying_key => "custom_ring_merge_anonymous_24.key",
 }
 
-/// The anonymous ring merge key of one SPP merge width, filled by the key rotation.
-pub fn merge_anonymous_verifying_key(
-    _width: usize,
+/// The key `circuit` verifies under, filled by the key rotation.
+pub fn verifying_key(
+    circuit: key_catalog::RingCircuit,
 ) -> Option<&'static groth16_solana::groth16::Groth16Verifyingkey<'static>> {
-    None
+    match circuit {
+        key_catalog::RingCircuit::PackedAudit { outputs: 2 } => {
+            Some(&audit_packed_2_verifying_key::VERIFYINGKEY)
+        }
+        key_catalog::RingCircuit::PackedAudit { outputs: 4 } => {
+            Some(&audit_packed_4_verifying_key::VERIFYINGKEY)
+        }
+        key_catalog::RingCircuit::DeliveredAudit { outputs: 8 } => {
+            Some(&audit_delivered_8_verifying_key::VERIFYINGKEY)
+        }
+        key_catalog::RingCircuit::DeliveredAudit { outputs: 16 } => {
+            Some(&audit_delivered_16_verifying_key::VERIFYINGKEY)
+        }
+        key_catalog::RingCircuit::AnonymousAudit {
+            class: 4,
+            outputs: 2,
+        } => Some(&audit_anonymous_4_2_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::AnonymousAudit {
+            class: 8,
+            outputs: 2,
+        } => Some(&audit_anonymous_8_2_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::AnonymousAudit {
+            class: 12,
+            outputs: 2,
+        } => Some(&audit_anonymous_12_2_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::AnonymousAudit {
+            class: 16,
+            outputs: 2,
+        } => Some(&audit_anonymous_16_2_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::AnonymousAudit {
+            class: 24,
+            outputs: 2,
+        } => Some(&audit_anonymous_24_2_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::AnonymousAudit {
+            class: 28,
+            outputs: 2,
+        } => Some(&audit_anonymous_28_2_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::AnonymousAudit {
+            class: 4,
+            outputs: 4,
+        } => Some(&audit_anonymous_4_4_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::AnonymousAudit {
+            class: 8,
+            outputs: 4,
+        } => Some(&audit_anonymous_8_4_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::AnonymousAudit {
+            class: 12,
+            outputs: 4,
+        } => Some(&audit_anonymous_12_4_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::AnonymousAudit {
+            class: 16,
+            outputs: 4,
+        } => Some(&audit_anonymous_16_4_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::AnonymousAudit {
+            class: 24,
+            outputs: 4,
+        } => Some(&audit_anonymous_24_4_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::AnonymousAudit {
+            class: 4,
+            outputs: 8,
+        } => Some(&audit_anonymous_4_8_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::AnonymousAudit {
+            class: 8,
+            outputs: 8,
+        } => Some(&audit_anonymous_8_8_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::AnonymousAudit {
+            class: 12,
+            outputs: 8,
+        } => Some(&audit_anonymous_12_8_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::AnonymousAudit {
+            class: 16,
+            outputs: 8,
+        } => Some(&audit_anonymous_16_8_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::AnonymousEntryAudit {
+            class: 8,
+            outputs: 2,
+        } => Some(&audit_anonymous_entry_8_2_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::AnonymousEntryAudit {
+            class: 8,
+            outputs: 4,
+        } => Some(&audit_anonymous_entry_8_4_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::AnonymousEntryAudit {
+            class: 8,
+            outputs: 8,
+        } => Some(&audit_anonymous_entry_8_8_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::MemberPolicy { outputs: 2 } => {
+            Some(&policy_member_2_verifying_key::VERIFYINGKEY)
+        }
+        key_catalog::RingCircuit::MemberPolicy { outputs: 4 } => {
+            Some(&policy_member_4_verifying_key::VERIFYINGKEY)
+        }
+        key_catalog::RingCircuit::MemberPolicy { outputs: 8 } => {
+            Some(&policy_member_8_verifying_key::VERIFYINGKEY)
+        }
+        key_catalog::RingCircuit::MemberPolicy { outputs: 16 } => {
+            Some(&policy_member_16_verifying_key::VERIFYINGKEY)
+        }
+        key_catalog::RingCircuit::DelegatePolicy {
+            inputs: 1,
+            outputs: 2,
+        } => Some(&policy_delegate_1x2_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::DelegatePolicy {
+            inputs: 1,
+            outputs: 4,
+        } => Some(&policy_delegate_1x4_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::DelegatePolicy {
+            inputs: 1,
+            outputs: 8,
+        } => Some(&policy_delegate_1x8_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::DelegatePolicy {
+            inputs: 2,
+            outputs: 2,
+        } => Some(&policy_delegate_2x2_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::DelegatePolicy {
+            inputs: 2,
+            outputs: 4,
+        } => Some(&policy_delegate_2x4_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::DelegatePolicy {
+            inputs: 1,
+            outputs: 16,
+        } => Some(&policy_delegate_1x16_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::DelegatePolicy {
+            inputs: 2,
+            outputs: 8,
+        } => Some(&policy_delegate_2x8_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::DelegatePolicy {
+            inputs: 3,
+            outputs: 2,
+        } => Some(&policy_delegate_3x2_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::DelegatePolicy {
+            inputs: 3,
+            outputs: 4,
+        } => Some(&policy_delegate_3x4_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::DelegatePolicy {
+            inputs: 2,
+            outputs: 16,
+        } => Some(&policy_delegate_2x16_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::DelegatePolicy {
+            inputs: 3,
+            outputs: 8,
+        } => Some(&policy_delegate_3x8_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::DelegatePolicy {
+            inputs: 4,
+            outputs: 2,
+        } => Some(&policy_delegate_4x2_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::DelegatePolicy {
+            inputs: 4,
+            outputs: 4,
+        } => Some(&policy_delegate_4x4_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::DelegatePolicy {
+            inputs: 4,
+            outputs: 8,
+        } => Some(&policy_delegate_4x8_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::DelegatePolicy {
+            inputs: 5,
+            outputs: 2,
+        } => Some(&policy_delegate_5x2_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::DelegatePolicy {
+            inputs: 5,
+            outputs: 4,
+        } => Some(&policy_delegate_5x4_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::DelegatePolicy {
+            inputs: 4,
+            outputs: 16,
+        } => Some(&policy_delegate_4x16_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::DelegatePolicy {
+            inputs: 5,
+            outputs: 8,
+        } => Some(&policy_delegate_5x8_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::DelegatePolicy {
+            inputs: 6,
+            outputs: 2,
+        } => Some(&policy_delegate_6x2_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::DelegatePolicy {
+            inputs: 6,
+            outputs: 4,
+        } => Some(&policy_delegate_6x4_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::DelegatePolicy {
+            inputs: 5,
+            outputs: 16,
+        } => Some(&policy_delegate_5x16_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::DelegatePolicy {
+            inputs: 6,
+            outputs: 8,
+        } => Some(&policy_delegate_6x8_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::DelegatePolicy {
+            inputs: 8,
+            outputs: 2,
+        } => Some(&policy_delegate_8x2_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::DelegatePolicy {
+            inputs: 8,
+            outputs: 4,
+        } => Some(&policy_delegate_8x4_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::DelegatePolicy {
+            inputs: 8,
+            outputs: 8,
+        } => Some(&policy_delegate_8x8_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::DelegatePolicy {
+            inputs: 8,
+            outputs: 16,
+        } => Some(&policy_delegate_8x16_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::DelegatePolicy {
+            inputs: 12,
+            outputs: 2,
+        } => Some(&policy_delegate_12x2_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::DelegatePolicy {
+            inputs: 12,
+            outputs: 4,
+        } => Some(&policy_delegate_12x4_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::DelegatePolicy {
+            inputs: 12,
+            outputs: 8,
+        } => Some(&policy_delegate_12x8_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::DelegatePolicy {
+            inputs: 16,
+            outputs: 2,
+        } => Some(&policy_delegate_16x2_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::DelegatePolicy {
+            inputs: 16,
+            outputs: 4,
+        } => Some(&policy_delegate_16x4_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::DelegatePolicy {
+            inputs: 16,
+            outputs: 8,
+        } => Some(&policy_delegate_16x8_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::DelegatePolicy {
+            inputs: 24,
+            outputs: 2,
+        } => Some(&policy_delegate_24x2_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::DelegatePolicy {
+            inputs: 24,
+            outputs: 4,
+        } => Some(&policy_delegate_24x4_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::DelegatePolicy {
+            inputs: 32,
+            outputs: 2,
+        } => Some(&policy_delegate_32x2_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::DelegatePolicy {
+            inputs: 40,
+            outputs: 2,
+        } => Some(&policy_delegate_40x2_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::ApplyRecords { writes: 1 } => {
+            Some(&apply_records_1_verifying_key::VERIFYINGKEY)
+        }
+        key_catalog::RingCircuit::ApplyRecords { writes: 16 } => {
+            Some(&apply_records_16_verifying_key::VERIFYINGKEY)
+        }
+        key_catalog::RingCircuit::RegisterKey => Some(&register_key_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::Deposit => Some(&deposit_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::AnonymousMerge { width: 8 } => {
+            Some(&merge_anonymous_8_verifying_key::VERIFYINGKEY)
+        }
+        key_catalog::RingCircuit::AnonymousMerge { width: 24 } => {
+            Some(&merge_anonymous_24_verifying_key::VERIFYINGKEY)
+        }
+        _ => None,
+    }
 }

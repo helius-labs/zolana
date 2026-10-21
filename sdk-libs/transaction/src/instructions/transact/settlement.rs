@@ -1,10 +1,12 @@
 use solana_address::Address;
-use zolana_interface::{MAX_INTERFACE_TRANSFERS, N_PUBLIC_SLOTS, SOL_ASSET_FIELD};
+use zolana_interface::{
+    instruction::instruction_data::transact::{amount_field, PublicSlotError, PublicSlots},
+    N_PUBLIC_SLOTS,
+};
 
-use super::ConfidentialTransaction;
+use super::{external_data::validate_settlement_transfers, ConfidentialTransaction};
 use crate::{
     error::TransactionError,
-    field::field_sub,
     instructions::transact::{SettlementTransfer, SppProofInputs},
     Mint, SOL_MINT,
 };
@@ -132,12 +134,9 @@ pub const BN254_MODULUS_DEC: &str =
     "21888242871839275222246405745257275088548364400416034343698204186575808495617";
 
 pub fn signed_magnitude_to_field(is_deposit: bool, amount: u64) -> [u8; 32] {
-    let magnitude = zolana_hasher::primitives::right_align(&amount.to_be_bytes());
-    if is_deposit {
-        magnitude
-    } else {
-        field_sub(&[0u8; 32], &magnitude)
-    }
+    let magnitude = i128::from(amount);
+    amount_field(if is_deposit { magnitude } else { -magnitude })
+        .expect("a u64 magnitude lies inside the range amount_field accepts")
 }
 
 pub fn asset_field(asset: &Address) -> Result<[u8; 32], TransactionError> {
@@ -164,69 +163,34 @@ impl PublicTransfers {
 }
 
 impl SppProofInputs {
+    /// Every refusal is the one SPP's fold would make.
     pub fn public_transfers(&self) -> Result<PublicTransfers, TransactionError> {
-        if self.external_data.interface_transfers.len() > MAX_INTERFACE_TRANSFERS {
-            return Err(TransactionError::TooManyInterfaceTransfers {
-                got: self.external_data.interface_transfers.len(),
-                max: MAX_INTERFACE_TRANSFERS,
-            });
-        }
+        let settlements = &self.external_data.interface_transfers;
+        validate_settlement_transfers(settlements)?;
+        let slots = public_slots(settlements).map_err(public_slot_error)?;
+        Ok(PublicTransfers {
+            assets: slots.asset_fields()?,
+            amounts: slots.amount_fields().map_err(public_slot_error)?,
+        })
+    }
+}
 
-        let mut aggregated: Vec<(Address, i128)> = Vec::new();
-        for transfer in &self.external_data.interface_transfers {
-            let asset = transfer.asset();
-            let amount = transfer.amount();
-            if amount == 0 {
-                return Err(TransactionError::ZeroInterfaceTransferAmount);
-            }
-            if transfer.interface_transfer().is_spl() && asset == SOL_MINT {
-                return Err(TransactionError::SettlementTargetMismatch { asset });
-            }
-            let magnitude = i128::from(amount);
-            let signed = if transfer.is_deposit() {
-                magnitude
-            } else {
-                -magnitude
-            };
-            if let Some((_, total)) = aggregated
-                .iter_mut()
-                .find(|(existing, _)| *existing == asset)
-            {
-                *total = total
-                    .checked_add(signed)
-                    .ok_or(TransactionError::PublicTransferOverflow { asset })?;
-                u64::try_from(total.unsigned_abs())
-                    .map_err(|_| TransactionError::PublicTransferOverflow { asset })?;
-            } else {
-                aggregated.push((asset, signed));
-            }
-        }
-        if let Some((asset, _)) = aggregated.iter().find(|(_, total)| *total == 0) {
-            return Err(TransactionError::ZeroNetInterfaceTransferAmount { asset: *asset });
-        }
-        if aggregated.len() > N_PUBLIC_SLOTS {
-            return Err(TransactionError::TooManyPublicAssets {
-                got: aggregated.len(),
-                max: N_PUBLIC_SLOTS,
-            });
-        }
+/// SPP's fold of the settlement legs into its public slots.
+pub fn public_slots(transfers: &[SettlementTransfer]) -> Result<PublicSlots, PublicSlotError> {
+    PublicSlots::fold(transfers.iter().map(|transfer| Ok(transfer.public_leg())))
+}
 
-        let mut transfers = PublicTransfers::default();
-        for ((asset_slot, amount_slot), (asset, amount)) in transfers
-            .assets
-            .iter_mut()
-            .zip(transfers.amounts.iter_mut())
-            .zip(aggregated)
-        {
-            let magnitude = u64::try_from(amount.unsigned_abs())
-                .map_err(|_| TransactionError::PublicTransferOverflow { asset })?;
-            *asset_slot = if asset == SOL_MINT {
-                SOL_ASSET_FIELD
-            } else {
-                asset_field(&asset)?
-            };
-            *amount_slot = signed_magnitude_to_field(amount > 0, magnitude);
-        }
-        Ok(transfers)
+fn public_slot_error(error: PublicSlotError) -> TransactionError {
+    match error {
+        PublicSlotError::TooManyAssets { .. } => TransactionError::TooManyPublicAssets {
+            got: N_PUBLIC_SLOTS + 1,
+            max: N_PUBLIC_SLOTS,
+        },
+        PublicSlotError::AmountOverflow { asset } => TransactionError::PublicTransferOverflow {
+            asset: Address::new_from_array(asset),
+        },
+        PublicSlotError::ZeroNet { asset } => TransactionError::ZeroNetInterfaceTransferAmount {
+            asset: Address::new_from_array(asset),
+        },
     }
 }

@@ -1,457 +1,297 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
-use custom_ring_interface::{MEMBER_REGISTRY_CAPACITY, MEMBER_REGISTRY_ROOT_HISTORY};
-use sea_orm::DatabaseTransaction;
-
-use super::{
-    fault, instruction_view, proof,
-    storage::{LeafWrite, MemberRestore, PredecessorError, RingRoot, RingStore, Undo},
-    ApplyError, Invocation,
+use custom_ring_interface::{
+    ApplyRecordsIxData, CustomRingError, MemberRegistry, PendingApplication, QueueEntry,
+    RecordQueue, MEMBER_REGISTRY_CAPACITY,
+};
+use sea_orm::ConnectionTrait;
+use zolana_indexer_api::Hash;
+use zolana_ring_indexer::{
+    records::{CanonicalAccounts, QueuedWrite, RecordAction, RecordChange, SealedKey},
+    tree::{node_keys, LoadedTree, MemberRead, MemberRecord, ReadRows, WrittenRows},
 };
 
-pub(crate) use super::api::{member_record, member_records, registry_root};
-pub(crate) use zolana_ring_indexer::member_registry::{Batch, MemberRecordRow};
+use super::{
+    fault, from_storage,
+    storage::{HistoryRoot, RegistryState, RegistryStore, StoredEntry, StoredRecord},
+    ApplyError,
+};
 
-pub(crate) fn transition(invocation: &Invocation<'_>) -> Result<Option<Batch>, ApplyError> {
-    zolana_ring_indexer::member_registry::batch(instruction_view(invocation.instruction))
-        .map_err(|error| fault(format!("{error:#}")))
+pub(crate) use super::api::{
+    apply_proof_inputs, member_openings, member_record, member_records, record_queue, registry_root,
+};
+
+/// `stored` keeps the sealed keys the tree does not hold.
+pub(crate) struct LoadedRegistry {
+    pub tree: LoadedTree,
+    pub stored: BTreeMap<[u8; 32], StoredRecord>,
 }
 
-/// Applies the batch in item order against the stored rows, then writes each touched
-/// leaf once. The computed root must be the proven one before anything is published.
-pub(crate) async fn apply(
-    store: &RingStore<'_, DatabaseTransaction>,
-    root: &RingRoot,
-    batch: Batch,
-    revision: u64,
-) -> Result<Undo, ApplyError> {
-    let mut rows = Rows::default();
-    let mut undo = Undo::root(root.program, Some(root.clone()));
-    let mut next_index = root.next_index;
-    for item in &batch.items {
-        match rows.load(store, &item.member).await? {
-            Some(existing) => {
-                if existing.index != item.index
-                    || (batch.seal.is_none() && existing.lists != item.old_lists)
-                    || existing.escrow_key != item.old_escrow_key
-                {
-                    return Err(fault("record mismatch"));
-                }
-                rows.capture(&mut undo, &existing)?;
-                let mut written = existing.clone();
-                // Registration proves that list bits stay unchanged but does not
-                // expose them as public inputs. Use the authenticated stored row.
-                // List-update batches bind their wire values to the proven root.
-                if batch.seal.is_none() {
-                    written.lists = item.lists;
-                }
-                written.escrow_key = item.escrow_key;
-                if item.escrow_key != item.old_escrow_key {
-                    written.seal = batch.seal.clone();
-                }
-                rows.put(written);
-            }
-            None => {
-                if item.index != next_index
-                    || next_index >= MEMBER_REGISTRY_CAPACITY
-                    || item.old_lists != 0
-                    || item.old_escrow_key != [0; 32]
-                {
-                    return Err(fault("append cursor mismatch"));
-                }
-                if proof::path(store.conn, root, next_index).await?.leaf != [0; 32] {
-                    return Err(fault("append slot occupied"));
-                }
-                let low = rows.predecessor(store, &item.member).await?;
-                rows.capture(&mut undo, &low)?;
-                let added = MemberRecordRow {
-                    member: item.member,
-                    index: next_index,
-                    next: low.next,
-                    lists: item.lists,
-                    escrow_key: item.escrow_key,
-                    seal: batch.seal.clone(),
-                };
-                undo.members.push(MemberRestore {
-                    member: item.member,
-                    before: None,
-                });
-                undo.leaves.push(LeafWrite {
-                    index: next_index,
-                    hash: [0; 32],
-                });
-                let mut relinked = low;
-                relinked.next = item.member;
-                rows.put(relinked);
-                rows.put(added);
-                next_index += 1;
-            }
+pub(crate) struct TreeRead<'r> {
+    pub root: &'r HistoryRoot,
+    pub records: RecordRead,
+    /// Empty leaves past `next_index` the read loads for new records.
+    pub inserts: u64,
+}
+
+pub(crate) enum RecordRead {
+    /// Each member's record, the low record of an absent member.
+    Members(BTreeSet<[u8; 32]>),
+    Leaves(Vec<StoredRecord>),
+}
+
+impl<'r> TreeRead<'r> {
+    /// Reads for applying `entries`, each entry may insert a record.
+    pub fn batch(root: &'r HistoryRoot, entries: &[QueueEntry]) -> Self {
+        Self {
+            root,
+            records: RecordRead::Members(entries.iter().map(|entry| entry.member).collect()),
+            inserts: entries.len() as u64,
         }
     }
-    let leaves = rows
-        .touched
-        .values()
-        .map(LeafWrite::of)
-        .collect::<Result<Vec<_>, _>>()?;
-    let computed = store.write_leaves(&root.address, &leaves, revision).await?;
-    if computed != batch.new_root {
-        return Err(fault("new root mismatch"));
-    }
-    for row in rows.touched.values() {
-        store.save_member(row).await?;
-    }
-    let history_cursor = (root.history_cursor as usize + 1) % MEMBER_REGISTRY_ROOT_HISTORY;
-    store
-        .save_root(&RingRoot {
-            root: batch.new_root,
+
+    pub async fn load<C: ConnectionTrait>(
+        self,
+        store: &RegistryStore<'_, C>,
+    ) -> anyhow::Result<LoadedRegistry> {
+        let applied = self.root.applied;
+        let mut reads = Vec::new();
+        let mut stored = BTreeMap::new();
+        match self.records {
+            RecordRead::Members(members) => {
+                for member in members {
+                    let read = match store.record(&member, applied).await? {
+                        Some(record) => {
+                            stored.insert(member, record);
+                            MemberRead::Present(record.record)
+                        }
+                        None => {
+                            let low = store.low_record(&member, applied).await?;
+                            stored.insert(low.record.record.member, low);
+                            MemberRead::Absent {
+                                member,
+                                low: low.record,
+                            }
+                        }
+                    };
+                    reads.push(read);
+                }
+            }
+            RecordRead::Leaves(rows) => {
+                for row in rows {
+                    reads.push(MemberRead::Present(row.record));
+                    stored.insert(row.record.record.member, row);
+                }
+            }
+        }
+        let next_index = self.root.next_index;
+        let appended = next_index..(next_index + self.inserts).min(MEMBER_REGISTRY_CAPACITY);
+        let leaves = stored.values().map(|record| record.record.index);
+        let nodes = store
+            .nodes(&node_keys(leaves.chain(appended))?, applied)
+            .await?;
+        let rows = ReadRows {
             next_index,
-            history_cursor: history_cursor as u8,
-            ..root.clone()
+            reads,
+            nodes,
+        };
+        Ok(LoadedRegistry {
+            tree: rows.into_tree(),
+            stored,
         })
-        .await?;
-    Ok(undo)
+    }
 }
 
-/// Rows the batch reads and writes, earlier items are visible to later ones.
-#[derive(Default)]
-struct Rows {
-    touched: BTreeMap<[u8; 32], MemberRecordRow>,
-    captured: Vec<[u8; 32]>,
+/// The accounts as `CreateMemberRegistry` writes them at `slot`.
+pub(crate) fn created(program: [u8; 32], slot: u64) -> RegistryState {
+    let canonical = CanonicalAccounts::of(&program.into());
+    RegistryState {
+        program,
+        registry_address: canonical.accounts.registry.to_bytes(),
+        queue_address: canonical.accounts.queue.to_bytes(),
+        registry: Box::new(MemberRegistry::new(canonical.registry_bump, slot)),
+        queue: Box::new(RecordQueue::new(canonical.queue_bump)),
+        fault: None,
+    }
 }
 
-impl Rows {
-    async fn load(
-        &self,
-        store: &RingStore<'_, DatabaseTransaction>,
-        member: &[u8; 32],
-    ) -> Result<Option<MemberRecordRow>, ApplyError> {
-        if let Some(row) = self.touched.get(member) {
-            return Ok(Some(row.clone()));
+pub(crate) async fn create<C: ConnectionTrait>(
+    store: &RegistryStore<'_, C>,
+    state: &RegistryState,
+) -> anyhow::Result<()> {
+    let rows = WrittenRows::fresh()?;
+    let records = rows
+        .records
+        .values()
+        .map(|record| StoredRecord {
+            record: *record,
+            seal: None,
+        })
+        .collect::<Vec<_>>();
+    store.save_records(&records, 0).await?;
+    store.save_nodes(&rows.nodes, 0).await?;
+    store.save_root(&HistoryRoot::newest(state)).await?;
+    store.save_state(state).await
+}
+
+pub(crate) struct Projection<'p, 'c, C> {
+    pub store: &'p RegistryStore<'c, C>,
+    pub state: &'p mut RegistryState,
+    pub slot: u64,
+}
+
+#[derive(Clone, Copy)]
+enum Settlement {
+    Permissionless,
+    Authority,
+}
+
+impl<C: ConnectionTrait> Projection<'_, '_, C> {
+    /// A refusal of the program's own admission checks means the projection drifted.
+    pub async fn project(mut self, change: RecordChange) -> Result<(), ApplyError> {
+        if change.accounts != self.state.accounts() {
+            return Err(fault("record instruction names another registry or queue"));
         }
-        Ok(store.member(member).await?)
+        let state = &*self.state;
+        match change.action {
+            RecordAction::Queue(write) => {
+                admitted(state.queue.admit_member_write(&state.registry))?;
+                self.queue(write).await
+            }
+            RecordAction::AuthorityWrite { writes, apply } => {
+                let count = writes.len() as u64;
+                admitted(state.queue.admit_authority_writes(count))?;
+                for entry in writes {
+                    self.queue(QueuedWrite { entry, seal: None }).await?;
+                }
+                self.apply(&apply, Settlement::Authority).await
+            }
+            RecordAction::Apply(apply) => {
+                admitted(state.queue.apply_due(self.slot))?;
+                self.apply(&apply, Settlement::Permissionless).await
+            }
+        }
     }
 
-    /// The stored predecessor loses to a touched record that sits closer below `member`.
-    async fn predecessor(
-        &self,
-        store: &RingStore<'_, DatabaseTransaction>,
-        member: &[u8; 32],
-    ) -> Result<MemberRecordRow, ApplyError> {
-        let stored = match store.predecessor(member).await {
-            Ok(low) => Some(low),
-            Err(PredecessorError::NotAbsent) => None,
-            Err(PredecessorError::Storage(error)) => return Err(error.into()),
+    async fn queue(&mut self, write: QueuedWrite) -> Result<(), ApplyError> {
+        let position = self.state.queue.tail();
+        self.state
+            .queue
+            .push(&write.entry, self.slot)
+            .map_err(|error| fault(format!("queue chain failed ({error})")))?;
+        let entry = StoredEntry {
+            position,
+            write,
+            slot: self.slot,
+            chain: self.state.queue.chain_tail(),
         };
-        let touched = self
-            .touched
-            .range(..*member)
-            .next_back()
-            .map(|(_, row)| row);
-        let low = match (stored, touched) {
-            (Some(stored), Some(touched)) if touched.member > stored.member => touched.clone(),
-            (Some(stored), _) => self.touched.get(&stored.member).cloned().unwrap_or(stored),
-            (None, Some(touched)) => touched.clone(),
-            (None, None) => return Err(fault("no covering predecessor")),
-        };
-        if !(low.member < *member && *member < low.next) {
-            return Err(fault("member is not absent"));
-        }
-        Ok(low)
-    }
-
-    /// Rollback restores the first state of each touched row.
-    fn capture(&mut self, undo: &mut Undo, before: &MemberRecordRow) -> Result<(), ApplyError> {
-        if self.captured.contains(&before.member) {
-            return Ok(());
-        }
-        self.captured.push(before.member);
-        undo.members.push(MemberRestore {
-            member: before.member,
-            before: Some(before.clone()),
-        });
-        undo.leaves.push(LeafWrite::of(before)?);
+        self.store.save_entry(&entry).await?;
         Ok(())
     }
 
-    fn put(&mut self, row: MemberRecordRow) {
-        self.touched.insert(row.member, row);
+    /// The projected root must be the one the program recorded.
+    async fn apply(
+        &mut self,
+        recorded: &ApplyRecordsIxData,
+        settlement: Settlement,
+    ) -> Result<(), ApplyError> {
+        let pending = self.state.queue.head()..self.state.queue.tail();
+        if pending.is_empty() {
+            return Err(fault(
+                "the program applied a queue the projection holds empty",
+            ));
+        }
+        let rows = self
+            .store
+            .entries(pending.clone())
+            .await
+            .map_err(from_storage)?;
+        let entries = rows.iter().map(|row| row.write.entry).collect::<Vec<_>>();
+        let base = HistoryRoot::newest(self.state);
+        let loaded = TreeRead::batch(&base, &entries)
+            .load(self.store)
+            .await
+            .map_err(from_storage)?;
+        let batch = loaded
+            .tree
+            .apply_batch(self.state.queue.chain_head, &entries)
+            .map_err(|error| fault(format!("records do not apply ({error})")))?;
+        let inputs = &batch.inputs;
+        let recorded_next_index = u64::from(recorded.new_next_index());
+        if inputs.new_root != recorded.new_root || inputs.new_next_index != recorded_next_index {
+            return Err(fault(format!(
+                "applied root mismatch at position {}, projected {} at {}, program {} at {}",
+                pending.end,
+                Hash(inputs.new_root),
+                inputs.new_next_index,
+                Hash(recorded.new_root),
+                recorded_next_index
+            )));
+        }
+        let sealing = Sealing {
+            base: &loaded.stored,
+            pending: &rows,
+        };
+        let records = batch
+            .rows
+            .records
+            .values()
+            .map(|record| {
+                Ok(StoredRecord {
+                    record: *record,
+                    seal: sealing.seal(&record.record)?,
+                })
+            })
+            .collect::<Result<Vec<_>, ApplyError>>()?;
+        self.store.save_records(&records, pending.end).await?;
+        self.store
+            .save_nodes(&batch.rows.nodes, pending.end)
+            .await?;
+        let application = PendingApplication {
+            registry: &mut self.state.registry,
+            queue: &mut self.state.queue,
+        };
+        match settlement {
+            Settlement::Permissionless => application.settle_permissionless(recorded, self.slot),
+            Settlement::Authority => application.settle_authority(recorded, self.slot),
+        }
+        self.store
+            .save_root(&HistoryRoot::newest(self.state))
+            .await?;
+        Ok(())
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{
-        api::error::{CustomRingError, PhotonApiError},
-        custom_rings::{
-            proof,
-            storage::{self, BlockJournal, BlockUndo},
-            tests::{field, fixture, member},
-        },
-        ingester::typedefs::block_info::BlockMetadata,
-        rpc::RpcClient,
-    };
-    use custom_ring_interface::{EscrowKey, MemberUpdate};
-    use sea_orm::TransactionTrait;
-    use solana_pubkey::Pubkey;
-    use zolana_indexer_api::{GetRingMemberRecordRequest, Hash};
-    use zolana_ring_indexer::member_registry::SealedKey;
-    use zolana_ring_member_registry::MemberRegistryTree;
+fn admitted(admission: Result<(), CustomRingError>) -> Result<(), ApplyError> {
+    admission.map_err(|error| fault(format!("the projected queue refuses the change ({error})")))
+}
 
-    fn escrow_key(seed: u8) -> [u8; 32] {
-        EscrowKey {
-            nullifier_pk: &field(seed),
-            ciphertext: &[seed; 32],
+struct Sealing<'a> {
+    base: &'a BTreeMap<[u8; 32], StoredRecord>,
+    pending: &'a [StoredEntry],
+}
+
+impl Sealing<'_> {
+    /// A record keeps its sealed key, an escrow key the batch filled takes the seal of its entry.
+    fn seal(&self, record: &MemberRecord) -> Result<Option<SealedKey>, ApplyError> {
+        if record.escrow_key == [0; 32] {
+            return Ok(None);
         }
-        .hash()
-        .unwrap()
-    }
-
-    fn batch(items: Vec<MemberUpdate>, new_root: [u8; 32]) -> Batch {
-        Batch {
-            new_root,
-            items,
-            seal: None,
+        if let Some(kept) = self
+            .base
+            .get(&record.member)
+            .filter(|stored| stored.record.record.escrow_key == record.escrow_key)
+        {
+            return Ok(kept.seal);
         }
-    }
-
-    #[tokio::test]
-    async fn batches_follow_the_reference_tree_through_inserts_and_rewrites() {
-        let (db, mut root, mut cursor) = fixture().await;
-        let mut reference = MemberRegistryTree::new().unwrap();
-        let writes: [Vec<([u8; 32], u64)>; 3] = [
-            vec![(member(5), 1), (member(9), 2)],
-            vec![(member(2), 1), (member(5), 3), (member(8), 1)],
-            vec![(member(9), 0)],
-        ];
-        for writes in writes {
-            let items = reference.list_items(&writes).unwrap();
-            reference.apply(&items).unwrap();
-            let tx = db.begin().await.unwrap();
-            let store = RingStore::new(&tx, root.program);
-            apply(
-                &store,
-                &root,
-                batch(items, reference.root()),
-                cursor.advance_revision().unwrap(),
-            )
-            .await
-            .unwrap();
-            tx.commit().await.unwrap();
-            root = RingStore::new(&db, root.program)
-                .root()
-                .await
-                .unwrap()
-                .unwrap();
-            assert_eq!(root.root, reference.root());
-            assert_eq!(root.next_index, reference.next_index());
-        }
-        assert_eq!(root.history_cursor, 3);
-        let store = RingStore::new(&db, root.program);
-        let five = store.member(&member(5)).await.unwrap().unwrap();
-        assert_eq!(five.lists, 3);
-        assert_eq!(five.next, reference.find(&member(5)).unwrap().1.next);
-        let tx = db.begin().await.unwrap();
-        let path = proof::path(&tx, &root, five.index).await.unwrap();
-        assert_eq!(path.leaf, five.hash().unwrap());
-    }
-
-    #[tokio::test]
-    async fn a_registration_keeps_the_seal_with_its_record() {
-        let (db, root, mut cursor) = fixture().await;
-        let mut reference = MemberRegistryTree::new().unwrap();
-        let item = reference.register_item(&member(5), escrow_key(5)).unwrap();
-        reference.apply(&[item]).unwrap();
-        let tx = db.begin().await.unwrap();
-        apply(
-            &RingStore::new(&tx, root.program),
-            &root,
-            Batch {
-                new_root: reference.root(),
-                items: vec![item],
-                seal: Some(SealedKey {
-                    eph_pk: [5; 33],
-                    ciphertext: [5; 32],
-                    owner_pubkey: None,
-                }),
-            },
-            cursor.advance_revision().unwrap(),
-        )
-        .await
-        .unwrap();
-        tx.commit().await.unwrap();
-        let row = RingStore::new(&db, root.program)
-            .member(&member(5))
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(row.escrow_key, escrow_key(5));
-        assert_eq!(row.seal.unwrap().ciphertext, [5; 32]);
-    }
-
-    #[tokio::test]
-    async fn registration_reconstructs_lists_from_the_authenticated_record() {
-        let (db, mut root, mut cursor) = fixture().await;
-        let mut reference = MemberRegistryTree::new().unwrap();
-        let subject = member(5);
-        let items = reference.list_items(&[(subject, 3)]).unwrap();
-        reference.apply(&items).unwrap();
-        let tx = db.begin().await.unwrap();
-        apply(
-            &RingStore::new(&tx, root.program),
-            &root,
-            batch(items, reference.root()),
-            cursor.advance_revision().unwrap(),
-        )
-        .await
-        .unwrap();
-        tx.commit().await.unwrap();
-        root = RingStore::new(&db, root.program)
-            .root()
-            .await
-            .unwrap()
-            .unwrap();
-
-        let mut item = reference.register_item(&subject, escrow_key(5)).unwrap();
-        reference.apply(&[item]).unwrap();
-        // These redundant fields are not in the registration's public inputs.
-        // This storage fixture has no proof. The proven root authenticates the
-        // reconstructed row, including its existing list membership.
-        item.old_lists = 0;
-        item.lists = 0;
-        let tx = db.begin().await.unwrap();
-        let store = RingStore::new(&tx, root.program);
-        apply(
-            &store,
-            &root,
-            Batch {
-                new_root: reference.root(),
-                items: vec![item],
-                seal: Some(SealedKey {
-                    eph_pk: [5; 33],
-                    ciphertext: [5; 32],
-                    owner_pubkey: None,
-                }),
-            },
-            cursor.advance_revision().unwrap(),
-        )
-        .await
-        .unwrap();
-        let row = store.member(&subject).await.unwrap().unwrap();
-        assert_eq!(row.lists, 3);
-        assert_eq!(row.escrow_key, escrow_key(5));
-        assert_eq!(row.seal.unwrap().ciphertext, [5; 32]);
-        assert_eq!(store.root().await.unwrap().unwrap().root, reference.root());
-        tx.commit().await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn failed_batches_roll_back_and_committed_blocks_rewind_and_replay() {
-        let (db, root, mut cursor) = fixture().await;
-        let subject = member(8);
-        let mut reference = MemberRegistryTree::new().unwrap();
-        let items = reference.list_items(&[(subject, 1)]).unwrap();
-        reference.apply(&items).unwrap();
-        let tx = db.begin().await.unwrap();
-        assert!(apply(
-            &RingStore::new(&tx, root.program),
-            &root,
-            batch(items.clone(), field(99)),
-            2,
-        )
-        .await
-        .is_err());
-        tx.rollback().await.unwrap();
-        let store = RingStore::new(&db, root.program);
-        assert!(store.member(&subject).await.unwrap().is_none());
-        assert_eq!(store.root().await.unwrap().unwrap().root, root.root);
-
-        let tx = db.begin().await.unwrap();
-        let undo = apply(
-            &RingStore::new(&tx, root.program),
-            &root,
-            batch(items.clone(), reference.root()),
-            cursor.advance_revision().unwrap(),
-        )
-        .await
-        .unwrap();
-        let metadata = BlockMetadata {
-            slot: 3,
-            blockhash: Hash(field(3)),
-            ..Default::default()
-        };
-        storage::save_journal(
-            &tx,
-            &BlockJournal {
-                metadata: metadata.clone(),
-                previous_tip: None,
-                undo: BlockUndo {
-                    member_registry: vec![undo],
-                },
-            },
-        )
-        .await
-        .unwrap();
-        cursor.tip = Some(metadata);
-        cursor.scanned_slot = 3;
-        storage::save_cursor(&tx, &cursor).await.unwrap();
-        tx.commit().await.unwrap();
-
-        let mut restarted = storage::cursor(&db).await.unwrap().unwrap();
-        let tx = db.begin().await.unwrap();
-        storage::rollback(&tx, &mut restarted).await.unwrap();
-        tx.commit().await.unwrap();
-        assert!(store.member(&subject).await.unwrap().is_none());
-        assert_eq!(store.root().await.unwrap().unwrap().root, root.root);
-        assert!(restarted.tip.is_none());
-        assert!(!restarted.is_ready());
-
-        let tx = db.begin().await.unwrap();
-        let path = proof::path(&tx, &root, 0).await.unwrap();
-        let sentinel = RingStore::new(&tx, root.program)
-            .member(&[0; 32])
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(sentinel.hash().unwrap(), path.leaf);
-        assert_eq!(path.root(0).unwrap(), root.root);
-        apply(
-            &RingStore::new(&tx, root.program),
-            &root,
-            batch(items, reference.root()),
-            restarted.advance_revision().unwrap(),
-        )
-        .await
-        .unwrap();
-        tx.commit().await.unwrap();
-        assert_eq!(store.root().await.unwrap().unwrap().root, reference.root());
-    }
-
-    #[tokio::test]
-    async fn record_reads_fail_closed_before_rpc_when_projection_or_root_is_stale() {
-        let (db, root, mut cursor) = fixture().await;
-        let rpc = RpcClient::new("http://127.0.0.1:1".into());
-        let request = GetRingMemberRecordRequest {
-            ring_program_id: Pubkey::new_from_array(root.program).into(),
-            member: Hash(member(4)),
-            expected_root: Hash(root.root),
-            expected_next_index: 1,
-        };
-        assert!(matches!(
-            member_record(&db, &rpc, request.clone()).await,
-            Err(PhotonApiError::CustomRing(CustomRingError::OutOfSync(_)))
-        ));
-        cursor.resume(&db).await.unwrap();
-        let mut stale = request.clone();
-        stale.expected_next_index = 2;
-        assert_eq!(
-            member_record(&db, &rpc, stale).await,
-            Err(CustomRingError::RootChanged.into())
-        );
-        // The read succeeds up to the chain confirmation, which the dead RPC refuses.
-        assert!(matches!(
-            member_record(&db, &rpc, request).await,
-            Err(PhotonApiError::CustomRing(CustomRingError::OutOfSync(_)))
-        ));
+        self.pending
+            .iter()
+            .map(|pending| pending.write)
+            .find(|write| {
+                write.entry.member == record.member && write.entry.escrow_key == record.escrow_key
+            })
+            .and_then(|write| write.seal)
+            .map(Some)
+            .ok_or_else(|| fault("an escrow key has no registration in its batch"))
     }
 }

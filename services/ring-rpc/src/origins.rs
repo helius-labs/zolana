@@ -61,10 +61,10 @@ impl OriginPolicy {
     }
 
     pub fn build(self) -> Result<Origins, OriginError> {
-        let insecure = self.transport == OriginTransport::InsecureHttp;
+        let transport = self.transport;
         // `*` opens CORS to every page, only the insecure test transport may ask for it.
         if self.origins.iter().any(|origin| origin == "*") {
-            if !insecure || self.origins.len() != 1 {
+            if transport != OriginTransport::InsecureHttp || self.origins.len() != 1 {
                 return Err(OriginError::InvalidOrigin);
             }
             return Ok(Origins {
@@ -75,7 +75,7 @@ impl OriginPolicy {
         let parsed = self
             .origins
             .iter()
-            .map(|origin| parse_origin(origin, insecure))
+            .map(|origin| parse_origin(origin, transport))
             .collect::<Result<Vec<_>, _>>()?;
         if parsed.is_empty() {
             return Ok(Origins::default());
@@ -89,11 +89,11 @@ impl OriginPolicy {
                 || (!exact_host(&relying_party_id)
                     && host.ends_with(&format!(".{relying_party_id}")))
         };
-        if !parsed.iter().all(|(_, host)| covered(host)) {
+        if !parsed.iter().all(|origin| covered(&origin.host)) {
             return Err(OriginError::RelyingPartyMismatch);
         }
         Ok(Origins {
-            allowed: parsed.into_iter().map(|(origin, _)| origin).collect(),
+            allowed: parsed.into_iter().map(|origin| origin.serialized).collect(),
             relying_party_id: Some(relying_party_id),
             any: false,
         })
@@ -125,8 +125,12 @@ impl Origins {
     }
 }
 
-/// The serialized origin and its host.
-fn parse_origin(value: &str, insecure: bool) -> Result<(String, String), OriginError> {
+struct AllowedOrigin {
+    serialized: String,
+    host: String,
+}
+
+fn parse_origin(value: &str, transport: OriginTransport) -> Result<AllowedOrigin, OriginError> {
     let url = reqwest::Url::parse(value).map_err(|_| OriginError::InvalidOrigin)?;
     if url.cannot_be_a_base()
         || url.username() != ""
@@ -146,10 +150,14 @@ fn parse_origin(value: &str, insecure: bool) -> Result<(String, String), OriginE
         || host
             .parse::<IpAddr>()
             .is_ok_and(|address| address.is_loopback());
-    if url.scheme() != "https" && !(url.scheme() == "http" && (loopback || insecure)) {
+    let plain_allowed = loopback || transport == OriginTransport::InsecureHttp;
+    if url.scheme() != "https" && !(url.scheme() == "http" && plain_allowed) {
         return Err(OriginError::InsecureOrigin);
     }
-    Ok((url.origin().ascii_serialization(), host))
+    Ok(AllowedOrigin {
+        serialized: url.origin().ascii_serialization(),
+        host,
+    })
 }
 
 /// Hosts a relying party ID covers only when equal, never through a subdomain.

@@ -1,10 +1,14 @@
 use std::sync::Arc;
 #[cfg(feature = "custom-rings")]
 use zolana_indexer_api::{
-    method::{GetRingMemberRecord, GetRingMemberRecords, GetRingMemberRegistryRoot},
-    GetRingMemberRecordRequest, GetRingMemberRecordResponse, GetRingMemberRecordsRequest,
-    GetRingMemberRecordsResponse, GetRingMemberRegistryRootRequest,
-    GetRingMemberRegistryRootResponse,
+    method::{
+        GetRingApplyProofInputs, GetRingMemberOpenings, GetRingMemberRecord, GetRingMemberRecords,
+        GetRingMemberRegistryRoot, GetRingRecordQueue,
+    },
+    GetRingApplyProofInputsRequest, GetRingApplyProofInputsResponse, GetRingMemberOpeningsRequest,
+    GetRingMemberOpeningsResponse, GetRingMemberRecordRequest, GetRingMemberRecordResponse,
+    GetRingMemberRecordsRequest, GetRingMemberRecordsResponse, GetRingMemberRegistryRootRequest,
+    GetRingMemberRegistryRootResponse, GetRingRecordQueueRequest, GetRingRecordQueueResponse,
 };
 
 use crate::api::root_index_cache::RootIndexCache;
@@ -207,11 +211,35 @@ impl PhotonApi {
     }
 
     #[cfg(feature = "custom-rings")]
+    pub async fn get_ring_member_openings(
+        &self,
+        request: GetRingMemberOpeningsRequest,
+    ) -> Result<GetRingMemberOpeningsResponse, PhotonApiError> {
+        member_registry::member_openings(&self.db_conn, &self.rpc_client, request).await
+    }
+
+    #[cfg(feature = "custom-rings")]
     pub async fn get_ring_member_registry_root(
         &self,
         request: GetRingMemberRegistryRootRequest,
     ) -> Result<GetRingMemberRegistryRootResponse, PhotonApiError> {
         member_registry::registry_root(&self.db_conn, &self.rpc_client, request).await
+    }
+
+    #[cfg(feature = "custom-rings")]
+    pub async fn get_ring_record_queue(
+        &self,
+        request: GetRingRecordQueueRequest,
+    ) -> Result<GetRingRecordQueueResponse, PhotonApiError> {
+        member_registry::record_queue(&self.db_conn, &self.rpc_client, request).await
+    }
+
+    #[cfg(feature = "custom-rings")]
+    pub async fn get_ring_apply_proof_inputs(
+        &self,
+        request: GetRingApplyProofInputsRequest,
+    ) -> Result<GetRingApplyProofInputsResponse, PhotonApiError> {
+        member_registry::apply_proof_inputs(&self.db_conn, &self.rpc_client, request).await
     }
 
     pub fn rings_method_api_specs() -> Vec<OpenApiSpec> {
@@ -229,7 +257,13 @@ impl PhotonApi {
             #[cfg(feature = "custom-rings")]
             method_api_spec::<GetRingMemberRecords>(),
             #[cfg(feature = "custom-rings")]
+            method_api_spec::<GetRingMemberOpenings>(),
+            #[cfg(feature = "custom-rings")]
             method_api_spec::<GetRingMemberRegistryRoot>(),
+            #[cfg(feature = "custom-rings")]
+            method_api_spec::<GetRingRecordQueue>(),
+            #[cfg(feature = "custom-rings")]
+            method_api_spec::<GetRingApplyProofInputs>(),
         ]
     }
 }

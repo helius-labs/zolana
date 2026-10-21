@@ -1,5 +1,5 @@
 use zolana_interface::{
-    shape::{RING_AUTHORITY_WIDTHS, SPP_SUPPORTED_SHAPES},
+    shape::SPP_SUPPORTED_SHAPES,
     verifying_keys::{
         AnonymousRingEddsaProofData, Bsb22Commitment, CacheAccess, CircuitId, OutputOwnerMode,
     },
@@ -122,12 +122,15 @@ fn supported_shapes_are_fail_closed() {
     assert!(CircuitId::ConfidentialRingEddsa(49, 2, 3).is_supported());
     assert!(CircuitId::AnonymousRingEddsa(49, 2, 3, PROOF_DATA).is_supported());
     assert!(CircuitId::ConfidentialEddsa(8, 16, 3).is_supported());
+    assert!(CircuitId::RingAuthority(2, 4, 3).is_supported());
+    assert!(CircuitId::RingAuthority(40, 2, 3).is_supported());
+    assert!(!CircuitId::RingAuthority(48, 2, 3).is_supported());
     assert!(!CircuitId::RingAuthority(49, 2, 3).is_supported());
     assert!(!CircuitId::ConfidentialEddsa(49, 4, 3).is_supported());
     assert!(!CircuitId::ConfidentialEddsa(51, 2, 3).is_supported());
     assert!(!CircuitId::ConfidentialEddsa(6, 6, 3).is_supported());
     assert!(!CircuitId::ConfidentialRingEddsa(2, 4, 2).is_supported());
-    assert!(!CircuitId::RingAuthority(2, 4, 3).is_supported());
+    assert!(!CircuitId::RingAuthority(2, 4, 2).is_supported());
     for (n_inputs, n_outputs) in [(1, 1), (2, 3), (3, 3), (4, 3), (5, 3), (36, 2)] {
         assert!(
             !CircuitId::ConfidentialEddsa(n_inputs, n_outputs, 3).is_supported(),
@@ -186,11 +189,15 @@ fn every_supported_shape_resolves_exactly_one_key() {
             ));
         }
     }
-    for width in RING_AUTHORITY_WIDTHS {
-        let n = u8::try_from(width).expect("fits u8");
-        let circuit = CircuitId::RingAuthority(n, n, PUBLIC_ASSET_SLOTS);
-        assert!(circuit.is_supported());
-        assert!(circuit.verifying_key().is_some());
+    for shape in zolana_interface::shape::ring_authority_shapes() {
+        let n_inputs = u8::try_from(shape.n_inputs()).expect("fits u8");
+        let n_outputs = u8::try_from(shape.n_outputs()).expect("fits u8");
+        assert!(
+            CircuitId::RingAuthority(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS)
+                .verifying_key()
+                .is_some(),
+            "{shape:?}"
+        );
     }
     assert!(CircuitId::ConfidentialEddsa(2, 3, PUBLIC_ASSET_SLOTS - 1)
         .verifying_key()

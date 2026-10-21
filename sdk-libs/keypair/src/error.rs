@@ -60,6 +60,9 @@ pub enum KeypairError {
     #[error("ring address checksum mismatch")]
     InvalidRingAddressChecksum,
 
+    #[error("ring address names {0} pairing rows, at most 4 fit")]
+    InvalidRingAddressPairing(usize),
+
     #[error("unknown ring payment query key")]
     UnknownRingPaymentKey,
 

@@ -51,6 +51,17 @@ pub struct SppProofOutputUtxo {
     )]
     #[cfg_attr(feature = "tsify", tsify(type = "Uint8Array"))]
     pub blinding: Blinding,
+    /// Ring outputs only, the audit proof binds it.
+    #[cfg_attr(
+        feature = "serde",
+        serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            with = "zolana_keypair::serde_helpers::bytes"
+        )
+    )]
+    #[cfg_attr(feature = "tsify", tsify(optional, type = "Uint8Array"))]
+    pub ring_secret: Option<[u8; 32]>,
     #[cfg_attr(
         feature = "serde",
         serde(
@@ -299,6 +310,10 @@ impl SppProofOutputUtxo {
 
     pub fn is_dummy(&self) -> bool {
         self.owner_address.is_none()
+    }
+
+    pub fn is_ring_output(&self) -> bool {
+        !self.is_dummy() && self.ring_program_id.is_some()
     }
 
     pub fn is_compact(&self) -> bool {

@@ -1,272 +1,378 @@
-//! The anonymous ring's output rail: scheme-9 slots sealed per recipient stream, one derived
-//! tag per slot, framed padding, and one salt per sealed transaction viewing key.
+//! Ring output rails as the ring program expands them, mirrored by Go `custom_rings/circuits/base`.
 
-use std::{
-    collections::{btree_map::Entry, BTreeMap, HashSet},
-    sync::{Arc, Mutex, PoisonError},
+mod published;
+
+use std::collections::{BTreeMap, BTreeSet};
+
+use custom_ring_interface::{
+    stream::{DeliveredSlot, PackedSlot, RingSecret, RingTag, SlotSecret, TagIndex},
+    RingOutput, RING_DELIVERED_BODY_LEN,
 };
-
+use rand::{rngs::OsRng, RngCore};
 use zolana_event::MessageData;
-use zolana_interface::instruction::instruction_data::transact::OwnerTag;
-use zolana_keypair::{
-    constants::SALT_LEN, random_salt, viewing_key::ViewTag, RingAddress, ShieldedAddress,
-    ViewingKey, X25519Pubkey,
-};
-pub use zolana_transaction::serialization::ring_anonymous::{
-    anonymous_slot_index, ring_anonymous_message, ring_anonymous_padding,
-    ring_anonymous_padding_tag, RingAnonymousOutput, RingAnonymousOutputPlaintext,
-    RingAnonymousSlot,
-};
+use zolana_interface::{instruction::instruction_data::transact::OwnerTag, MAX_OUTPUTS};
+use zolana_keypair::{random_salt, viewing_key::Salt, ShieldedAddress, ViewingKey, X25519Pubkey};
 use zolana_transaction::{
     instructions::transact::{
-        ConfidentialTransaction, OutputEncoder, ResolvedOwnerTag, SlotEncode, SppProofOutputUtxo,
+        ConfidentialTransaction, OutputEncoder, OutputEncryption, ResolvedOwnerTag, RingOutputSlot,
+        SlotEncode, SppProofInputs, SppProofOutputUtxo,
     },
-    serialization::confidential::Confidential,
-    TransactionError,
+    serialization::{
+        confidential::{Confidential, ConfidentialEncode},
+        RingDeliveredBody, RingPacked, RingPackedPlaintext, UtxoSerialization,
+    },
+    Data, TransactionError, SOL_ASSET_ID,
 };
 
-/// The anonymous streams one sender sealed, one salt per transaction viewing key.
-#[derive(Default)]
-pub struct TransactSession {
-    streams: Mutex<BTreeMap<[u8; 33], SealedStream>>,
+pub use published::PublishedSlot;
+
+#[derive(Clone, Debug)]
+pub enum RingDelivery {
+    /// Scheme 11 sealed to the owner's viewing key, at `PACKED_AUDIT_CAPACITIES`.
+    Packed,
+    /// Scheme 10 delivered to the owner's viewing key, at `DELIVERED_AUDIT_CAPACITIES`.
+    Delivered,
+    /// Scheme 9 under a stream tag, each payment delivered to its ring address key.
+    Anonymous(Box<AnonymousSlots>),
 }
 
-struct SealedStream {
-    salt: [u8; SALT_LEN],
-    output_hashes: Vec<[u8; 32]>,
-}
-
-impl TransactSession {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// A repeat of the same outputs keeps its salt, other outputs under a sealed key would
-    /// key every slot stream twice.
-    fn seal(
-        &self,
-        tx_viewing_pk: &X25519Pubkey,
-        output_hashes: &[[u8; 32]],
-    ) -> Result<[u8; SALT_LEN], TransactionError> {
-        let mut streams = self.streams.lock().unwrap_or_else(PoisonError::into_inner);
-        match streams.entry(*tx_viewing_pk.as_bytes()) {
-            Entry::Occupied(sealed) if sealed.get().output_hashes == output_hashes => {
-                Ok(sealed.get().salt)
-            }
-            Entry::Occupied(_) => Err(TransactionError::AnonymousStreamReuse),
-            Entry::Vacant(stream) => Ok(stream
-                .insert(SealedStream {
-                    salt: random_salt(),
-                    output_hashes: output_hashes.to_vec(),
-                })
-                .salt),
-        }
-    }
-}
-
-/// The tag an anonymous output publishes and the payer pseudonym its plaintext carries.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct AnonymousOutputKeys {
-    pub tag: ViewTag,
-    pub pair_pk: X25519Pubkey,
+pub enum StreamPosition {
+    Inbox(TagIndex),
+    /// The one pair-anchored payment of a transfer.
+    Pair(TagIndex),
 }
 
-/// The tags of a transaction's hidden outputs, one per output slot once the slot order is fixed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StreamPayment {
+    /// The ring address key the body opens under.
+    pub recipient: X25519Pubkey,
+    pub tag: RingTag,
+    pub position: StreamPosition,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AnonymousSlot {
+    Payment(StreamPayment),
+    /// Under a free tag, delivered to the sender's ring change key.
+    Change {
+        tag: RingTag,
+    },
+    Exit,
+    /// Under a free tag.
+    Dummy {
+        tag: RingTag,
+    },
+}
+
+/// The payments of an anonymous transfer by final slot index.
 #[must_use]
-#[derive(Clone)]
-pub struct AnonymousViewTags {
-    sender: ViewingKey,
-    slots: BTreeMap<usize, AnonymousSlotKeys>,
-    session: Arc<TransactSession>,
+#[derive(Clone, Debug)]
+pub struct AnonymousSlots {
+    change_key: X25519Pubkey,
+    payments: BTreeMap<u32, StreamPayment>,
+    ring_address_keys: BTreeSet<X25519Pubkey>,
+    /// Drawn ahead, a change slot's ring secret binds its tag before the owner tags resolve.
+    free_tags: [RingTag; MAX_OUTPUTS],
 }
 
-#[derive(Clone, Copy)]
-struct AnonymousSlotKeys {
-    recipient: ShieldedAddress,
-    keys: AnonymousOutputKeys,
-}
-
-impl AnonymousViewTags {
-    pub fn new(sender: &ViewingKey) -> Self {
+impl AnonymousSlots {
+    /// `change_key` is the sender's ring change key, the sender finds its change through its spends.
+    pub fn new(change_key: X25519Pubkey) -> Self {
         Self {
-            sender: sender.clone(),
-            slots: BTreeMap::new(),
-            session: Arc::default(),
+            change_key,
+            payments: BTreeMap::new(),
+            ring_address_keys: BTreeSet::new(),
+            free_tags: core::array::from_fn(|_| free_tag()),
         }
     }
 
-    /// Shares the sender's sealed streams across transactions.
-    pub fn with_session(mut self, session: Arc<TransactSession>) -> Self {
-        self.session = session;
-        self
-    }
-
-    /// `tag` is reserved on a stream of `address` for output slot `slot`.
-    pub fn with_slot(
+    /// Refuses a taken slot, a repeated tag and a second pair payment.
+    pub fn with_payment(
         mut self,
-        slot: usize,
-        address: &RingAddress,
-        tag: ViewTag,
+        slot_index: u32,
+        payment: StreamPayment,
     ) -> Result<Self, TransactionError> {
-        let keys = AnonymousOutputKeys {
-            tag,
-            pair_pk: self.pair_pk(&address.recipient.viewing_pubkey)?,
-        };
-        self.slots.insert(
-            slot,
-            AnonymousSlotKeys {
-                recipient: address.recipient,
-                keys,
-            },
-        );
+        let paired = |payment: &StreamPayment| matches!(payment.position, StreamPosition::Pair(_));
+        if self.payments.contains_key(&slot_index)
+            || self.payments.values().any(|other| other.tag == payment.tag)
+            || (paired(&payment) && self.payments.values().any(paired))
+        {
+            return Err(TransactionError::RingPaymentSlot {
+                slot_index: slot_index as usize,
+            });
+        }
+        self.ring_address_keys.insert(payment.recipient);
+        self.payments.insert(slot_index, payment);
         Ok(self)
     }
 
-    pub fn change_keys(
-        &self,
-        first_nullifier: &[u8; 32],
-        slot: u8,
-    ) -> Result<AnonymousOutputKeys, TransactionError> {
-        Ok(AnonymousOutputKeys {
-            tag: self.sender.ring_change_view_tag(first_nullifier, slot)?,
-            pair_pk: self.pair_pk(&self.sender.pubkey())?,
-        })
+    /// The sender's own ring address keys, no exit may name one.
+    pub fn with_ring_address_keys(mut self, keys: impl IntoIterator<Item = X25519Pubkey>) -> Self {
+        self.ring_address_keys.extend(keys);
+        self
     }
 
-    pub fn blinding_seed(&self, first_nullifier: &[u8; 32]) -> Result<[u8; 32], TransactionError> {
-        Ok(self.sender.ring_blinding_seed(first_nullifier)?)
+    pub fn change_key(&self) -> X25519Pubkey {
+        self.change_key
     }
 
-    /// The tag and pseudonym a hidden slot publishes, `None` for an exit or a padding slot.
-    pub fn slot_keys(
+    pub fn payment(&self, slot_index: u32) -> Option<StreamPayment> {
+        self.payments.get(&slot_index).copied()
+    }
+
+    fn slot(
         &self,
         output: &SppProofOutputUtxo,
         sender: &ShieldedAddress,
-        first_nullifier: &[u8; 32],
-        slot_index: usize,
-    ) -> Result<Option<AnonymousOutputKeys>, TransactionError> {
-        Ok(
-            match self.resolve(output, sender, first_nullifier, slot_index)? {
-                AnonymousSlot::Hidden(keys) => Some(keys),
-                AnonymousSlot::Exit | AnonymousSlot::Padding => None,
-            },
-        )
-    }
-
-    fn pair_pk(&self, recipient: &X25519Pubkey) -> Result<X25519Pubkey, TransactionError> {
-        Ok(self.sender.pair_key(recipient)?.pubkey())
-    }
-
-    fn resolve(
-        &self,
-        output: &SppProofOutputUtxo,
-        sender: &ShieldedAddress,
-        first_nullifier: &[u8; 32],
-        slot_index: usize,
+        slot_index: u32,
     ) -> Result<AnonymousSlot, TransactionError> {
-        if output.is_compact() {
-            return Err(TransactionError::AnonymousCompactPadding { slot_index });
-        }
-        let Some(owner) = output.owner_address else {
-            return Ok(AnonymousSlot::Padding);
-        };
-        if output.ring_program_id.is_none() {
-            return Ok(AnonymousSlot::Exit);
-        }
-        if !output.data.is_empty() {
-            return Err(TransactionError::AnonymousOutputData { slot_index });
-        }
-        match self.slots.get(&slot_index) {
-            Some(slot) if slot.recipient == owner => Ok(AnonymousSlot::Hidden(slot.keys)),
-            None if owner == *sender => Ok(AnonymousSlot::Hidden(
-                self.change_keys(first_nullifier, anonymous_slot_index(slot_index)?)?,
-            )),
-            _ => Err(TransactionError::UnknownAnonymousRecipient { slot_index }),
-        }
-    }
-
-    fn resolve_all(
-        &self,
-        transaction: &ConfidentialTransaction,
-        sender: &ShieldedAddress,
-    ) -> Result<Vec<AnonymousSlot>, TransactionError> {
-        let slots = transaction
-            .outputs()
-            .iter()
-            .enumerate()
-            .map(|(slot_index, output)| {
-                self.resolve(output, sender, transaction.first_nullifier(), slot_index)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        match self
-            .slots
-            .keys()
-            .find(|slot_index| !matches!(slots.get(**slot_index), Some(AnonymousSlot::Hidden(_))))
-        {
-            Some(&slot_index) => Err(TransactionError::AnonymousPaymentSlot { slot_index }),
-            None => Ok(slots),
-        }
-    }
-
-    /// Every slot's tag in order, a padding tag drawn from `sample` until it differs from
-    /// every other tag of the transaction.
-    fn published_tags(
-        slots: &[AnonymousSlot],
-        owner_tags: &[ResolvedOwnerTag],
-        mut sample: impl FnMut() -> ViewTag,
-    ) -> Result<Vec<ViewTag>, TransactionError> {
-        let mut taken: HashSet<ViewTag> = HashSet::new();
-        let mut tags = Vec::with_capacity(slots.len());
-        for (index, (slot, owner_tag)) in slots.iter().zip(owner_tags).enumerate() {
-            let tag = match slot {
-                AnonymousSlot::Hidden(keys) => keys.tag,
-                // Exits publish owner keys, two exits to one owner share theirs.
-                AnonymousSlot::Exit => {
-                    taken.insert(owner_tag.resolved);
-                    tags.push(owner_tag.resolved);
-                    continue;
+        let index = slot_index as usize;
+        let payment = self.payments.get(&slot_index);
+        let Some(owner) = output
+            .owner_address
+            .filter(|_| output.ring_program_id.is_some())
+        else {
+            if payment.is_some() {
+                return Err(TransactionError::RingPaymentSlot { slot_index: index });
+            }
+            return match output.owner_address {
+                Some(owner) if self.ring_address_keys.contains(&owner.viewing_pubkey) => {
+                    Err(TransactionError::RingAddressExit { slot_index: index })
                 }
-                AnonymousSlot::Padding => {
-                    tags.push([0; 32]);
-                    continue;
-                }
+                Some(_) => Ok(AnonymousSlot::Exit),
+                None => Ok(AnonymousSlot::Dummy {
+                    tag: self.free_tag(index)?,
+                }),
             };
-            if !taken.insert(tag) {
-                let first = tags
-                    .iter()
-                    .position(|earlier| *earlier == tag)
-                    .unwrap_or(index);
-                return Err(TransactionError::DuplicateAnonymousTag {
-                    first,
-                    second: index,
-                });
+        };
+        match payment {
+            Some(payment) if payment.recipient == owner.viewing_pubkey => {
+                Ok(AnonymousSlot::Payment(*payment))
             }
-            tags.push(tag);
+            Some(_) => Err(TransactionError::RingPaymentSlot { slot_index: index }),
+            None if owner == *sender => Ok(AnonymousSlot::Change {
+                tag: self.free_tag(index)?,
+            }),
+            None => Err(TransactionError::UnplannedRingOutput { slot_index: index }),
         }
-        for (tag, slot) in tags.iter_mut().zip(slots) {
-            if matches!(slot, AnonymousSlot::Padding) {
-                *tag = loop {
-                    let candidate = sample();
-                    if taken.insert(candidate) {
-                        break candidate;
-                    }
-                };
-            }
+    }
+
+    fn free_tag(&self, slot_index: usize) -> Result<RingTag, TransactionError> {
+        self.free_tags
+            .get(slot_index)
+            .copied()
+            .ok_or(TransactionError::TooManyOutputs)
+    }
+
+    fn check_planned(&self, slots: usize) -> Result<(), TransactionError> {
+        match self.payments.keys().find(|index| **index as usize >= slots) {
+            Some(index) => Err(TransactionError::RingPaymentSlot {
+                slot_index: *index as usize,
+            }),
+            None => Ok(()),
         }
-        Ok(tags)
     }
 }
 
-impl OutputEncoder for AnonymousViewTags {
-    fn output_blinding_seed(
-        &self,
-        transaction: &ConfidentialTransaction,
-        sender: &ShieldedAddress,
-    ) -> Result<Option<[u8; 32]>, TransactionError> {
-        if self.sender.pubkey() != sender.viewing_pubkey {
-            return Err(TransactionError::AnonymousViewTagsSenderMismatch);
+#[must_use]
+#[derive(Clone)]
+pub struct RingOutputRail {
+    tx_viewing_key: ViewingKey,
+    salt: Salt,
+    delivery: RingDelivery,
+}
+
+#[derive(Clone, Copy)]
+enum Slot {
+    Ring {
+        recipient: X25519Pubkey,
+        tag: Option<RingTag>,
+    },
+    Exit,
+    Dummy {
+        tag: Option<RingTag>,
+    },
+    Compact,
+}
+
+impl RingOutputRail {
+    /// A fresh salt per rail, a resent attempt under the same first nullifier repeats no keystream.
+    pub fn new(tx_viewing_key: ViewingKey, delivery: RingDelivery) -> Self {
+        Self {
+            tx_viewing_key,
+            salt: random_salt(),
+            delivery,
         }
-        Ok(Some(self.blinding_seed(transaction.first_nullifier())?))
+    }
+
+    pub fn encrypt(
+        &self,
+        transaction: ConfidentialTransaction,
+        sender: &ShieldedAddress,
+    ) -> Result<SppProofInputs, TransactionError> {
+        OutputEncryption {
+            sender,
+            tx_viewing_key: &self.tx_viewing_key,
+            encoder: self,
+        }
+        .encrypt(transaction)
+    }
+
+    pub fn tx_viewing_key(&self) -> &ViewingKey {
+        &self.tx_viewing_key
+    }
+
+    pub fn salt(&self) -> Salt {
+        self.salt
+    }
+
+    pub fn delivery(&self) -> &RingDelivery {
+        &self.delivery
+    }
+
+    /// The root of the blinding and body key of the ring output at `slot_index`.
+    pub fn slot_secret(
+        &self,
+        recipient: &X25519Pubkey,
+        first_nullifier: &[u8; 32],
+        slot_index: u32,
+    ) -> Result<SlotSecret, TransactionError> {
+        Ok(match self.delivery {
+            RingDelivery::Packed => PackedSlot {
+                tx_viewing_secret: &self.tx_viewing_key.secret_bytes(),
+                salt: &self.salt,
+                output_index: slot_index,
+                first_nullifier,
+            }
+            .secret()?,
+            RingDelivery::Delivered | RingDelivery::Anonymous(_) => DeliveredSlot {
+                agreement: &self.tx_viewing_key.ecdh(recipient)?,
+                tx_viewing_pk: self.tx_viewing_key.pubkey().as_bytes(),
+                recipient_viewing_pk: recipient.as_bytes(),
+                salt: &self.salt,
+                output_index: slot_index,
+                first_nullifier,
+            }
+            .secret()?,
+        })
+    }
+
+    fn slot(
+        &self,
+        output: &SppProofOutputUtxo,
+        sender: &ShieldedAddress,
+        slot_index: u32,
+    ) -> Result<Slot, TransactionError> {
+        let index = slot_index as usize;
+        let delivered = !matches!(self.delivery, RingDelivery::Packed);
+        if output.is_compact() {
+            return match delivered {
+                true => Err(TransactionError::DeliveredCompactPadding { slot_index: index }),
+                false => Ok(Slot::Compact),
+            };
+        }
+        let carries_data = !output.data.is_empty()
+            || output.data_hash.is_some()
+            || output.ring_data_hash.is_some();
+        if delivered && !output.is_dummy() && carries_data {
+            return Err(TransactionError::DeliveredOutputData { slot_index: index });
+        }
+        let owner = || {
+            output
+                .owner_address
+                .map(|owner| owner.viewing_pubkey)
+                .ok_or(TransactionError::OutputWithoutOwner { slot_index: index })
+        };
+        Ok(match &self.delivery {
+            RingDelivery::Anonymous(slots) => match slots.slot(output, sender, slot_index)? {
+                AnonymousSlot::Payment(payment) => Slot::Ring {
+                    recipient: payment.recipient,
+                    tag: Some(payment.tag),
+                },
+                AnonymousSlot::Change { tag } => Slot::Ring {
+                    recipient: slots.change_key,
+                    tag: Some(tag),
+                },
+                AnonymousSlot::Exit => Slot::Exit,
+                AnonymousSlot::Dummy { tag } => Slot::Dummy { tag: Some(tag) },
+            },
+            RingDelivery::Packed | RingDelivery::Delivered => match output.is_dummy() {
+                true => Slot::Dummy { tag: None },
+                false if output.is_ring_output() => Slot::Ring {
+                    recipient: owner()?,
+                    tag: None,
+                },
+                false => Slot::Exit,
+            },
+        })
+    }
+
+    fn ring_secret_of(
+        &self,
+        recipient: &X25519Pubkey,
+        tag: Option<&RingTag>,
+        first_nullifier: &[u8; 32],
+        slot_index: u32,
+    ) -> Result<RingSecret, TransactionError> {
+        let secret = self.slot_secret(recipient, first_nullifier, slot_index)?;
+        Ok(match tag {
+            Some(tag) => RingSecret::anonymous(&secret, tag)?,
+            None => RingSecret::confidential(&secret)?,
+        })
+    }
+
+    /// The published bytes of a slot through the ring program's own expansion.
+    fn framed(
+        output: RingOutput<'_>,
+        owner_tag: &ResolvedOwnerTag,
+        slot_index: usize,
+    ) -> Result<MessageData, TransactionError> {
+        let framing = || TransactionError::RingOutputFraming { slot_index };
+        let expanded = output.transact_output();
+        if expanded.owner_tag != owner_tag.tag {
+            return Err(framing());
+        }
+        Ok(MessageData {
+            view_tag: owner_tag.resolved,
+            data: expanded.data.ok_or_else(framing)?,
+        })
+    }
+
+    fn dummy_ciphertext(&self, slot: &SlotEncode<'_>) -> Result<Vec<u8>, TransactionError> {
+        let plaintext = RingPackedPlaintext {
+            asset_id: SOL_ASSET_ID,
+            amount: 0,
+            blinding: [0; 32],
+            data: Data::default(),
+        }
+        .serialize()?;
+        Ok(self.tx_viewing_key.encrypt_slot(
+            &ViewingKey::new().pubkey(),
+            &plaintext,
+            self.salt,
+            slot.slot_index,
+        )?)
+    }
+}
+
+impl OutputEncoder for RingOutputRail {
+    fn ring_secret(&self, slot: &RingOutputSlot<'_>) -> Result<[u8; 32], TransactionError> {
+        match self.slot(slot.output, slot.sender, slot.slot_index)? {
+            Slot::Ring { recipient, tag } => Ok(*self
+                .ring_secret_of(
+                    &recipient,
+                    tag.as_ref(),
+                    &slot.first_nullifier,
+                    slot.slot_index,
+                )?
+                .as_bytes()),
+            Slot::Exit | Slot::Dummy { .. } | Slot::Compact => {
+                Err(TransactionError::UnexpectedRingSecret {
+                    slot_index: slot.slot_index as usize,
+                })
+            }
+        }
     }
 
     fn owner_tags(
@@ -274,125 +380,131 @@ impl OutputEncoder for AnonymousViewTags {
         transaction: &ConfidentialTransaction,
         sender: &ShieldedAddress,
     ) -> Result<Vec<ResolvedOwnerTag>, TransactionError> {
-        let slots = self.resolve_all(transaction, sender)?;
+        if let RingDelivery::Anonymous(slots) = &self.delivery {
+            slots.check_planned(transaction.outputs().len())?;
+        }
         let mut owner_tags = transaction.owner_tags(&sender.signing_pubkey)?;
-        let tags = Self::published_tags(&slots, &owner_tags, ring_anonymous_padding_tag)?;
-        for ((owner_tag, slot), tag) in owner_tags.iter_mut().zip(&slots).zip(tags) {
-            if !matches!(slot, AnonymousSlot::Exit) {
-                *owner_tag = ResolvedOwnerTag {
-                    tag: OwnerTag::Inline(tag),
-                    resolved: tag,
-                };
-            }
+        for (index, (output, owner_tag)) in transaction
+            .outputs()
+            .iter()
+            .zip(&mut owner_tags)
+            .enumerate()
+        {
+            let slot_index = u32::try_from(index).map_err(|_| TransactionError::TooManyOutputs)?;
+            let resolved = match self.slot(output, sender, slot_index)? {
+                Slot::Compact => continue,
+                Slot::Exit => owner_tag.resolved,
+                Slot::Ring { tag: Some(tag), .. } | Slot::Dummy { tag: Some(tag) } => tag.field(),
+                Slot::Ring {
+                    recipient,
+                    tag: None,
+                } => recipient.u(),
+                // A random key publishes as a real recipient's would.
+                Slot::Dummy { tag: None } => ViewingKey::new().pubkey().u(),
+            };
+            *owner_tag = ResolvedOwnerTag {
+                tag: OwnerTag::Inline(resolved),
+                resolved,
+            };
         }
         Ok(owner_tags)
     }
 
     fn salt(
         &self,
-        tx_viewing_pk: &X25519Pubkey,
-        output_hashes: &[[u8; 32]],
-    ) -> Result<[u8; SALT_LEN], TransactionError> {
-        self.session.seal(tx_viewing_pk, output_hashes)
+        _tx_viewing_pk: &X25519Pubkey,
+        _output_hashes: &[[u8; 32]],
+    ) -> Result<Salt, TransactionError> {
+        Ok(self.salt)
     }
 
     fn encode_slot(&self, slot: &SlotEncode<'_>) -> Result<MessageData, TransactionError> {
         let slot_index = slot.slot_index as usize;
-        match self.resolve(slot.output, slot.sender, &slot.first_nullifier, slot_index)? {
-            AnonymousSlot::Hidden(keys) => seal_hidden(slot, keys),
-            AnonymousSlot::Padding => ring_anonymous_padding(slot.owner_tag.resolved),
-            AnonymousSlot::Exit => Confidential.encode_slot(slot),
+        // The expansion ignores the hash, only the published bytes are kept.
+        let hash = [0; 32];
+        let owner_tag = &slot.owner_tag;
+        match self.slot(slot.output, slot.sender, slot.slot_index)? {
+            Slot::Compact => Err(TransactionError::DeliveredCompactPadding { slot_index }),
+            Slot::Exit => Confidential.encode_slot(slot),
+            Slot::Ring {
+                recipient,
+                tag: None,
+            } if matches!(self.delivery, RingDelivery::Packed) => RingPacked::encode_plaintext(
+                &RingPackedPlaintext::from(slot.output),
+                recipient.u(),
+                &ConfidentialEncode {
+                    tx: self.tx_viewing_key.clone(),
+                    recipient_pubkey: recipient,
+                    salt: self.salt,
+                    slot_index: slot.slot_index,
+                },
+            ),
+            Slot::Ring { recipient, tag } => {
+                let secret =
+                    self.slot_secret(&recipient, &slot.first_nullifier, slot.slot_index)?;
+                let body = RingDeliveredBody {
+                    asset_address: slot.output.asset.asset,
+                    amount: slot.output.amount,
+                }
+                .seal(&secret)?;
+                let output = match tag {
+                    Some(tag) => RingOutput::Anonymous {
+                        hash: &hash,
+                        tag,
+                        body: &body,
+                    },
+                    None => RingOutput::Delivered {
+                        hash: &hash,
+                        u: &owner_tag.resolved,
+                        body: &body,
+                    },
+                };
+                Self::framed(output, owner_tag, slot_index)
+            }
+            Slot::Dummy { tag } => {
+                let body = random_body();
+                let ciphertext;
+                let output = match (tag, &self.delivery) {
+                    (Some(tag), _) => RingOutput::Anonymous {
+                        hash: &hash,
+                        tag,
+                        body: &body,
+                    },
+                    (None, RingDelivery::Packed) => {
+                        ciphertext = self.dummy_ciphertext(slot)?;
+                        RingOutput::Packed {
+                            hash: &hash,
+                            u: &owner_tag.resolved,
+                            ciphertext: &ciphertext,
+                        }
+                    }
+                    (None, _) => RingOutput::Delivered {
+                        hash: &hash,
+                        u: &owner_tag.resolved,
+                        body: &body,
+                    },
+                };
+                Self::framed(output, owner_tag, slot_index)
+            }
         }
     }
 }
 
-#[derive(Clone, Copy)]
-enum AnonymousSlot {
-    Hidden(AnonymousOutputKeys),
-    /// A default-ring note, the circuit publishes its owner's Solana key.
-    Exit,
-    Padding,
-}
-
-/// The owner's note inside an anonymous ring, the recipient viewing key stays off the wire.
-fn seal_hidden(
-    slot: &SlotEncode<'_>,
-    keys: AnonymousOutputKeys,
-) -> Result<MessageData, TransactionError> {
-    let slot_index = slot.slot_index as usize;
-    let output = slot.output;
-    let address = output
-        .owner_address
-        .ok_or(TransactionError::OutputWithoutOwner { slot_index })?;
-    let stream = RingAnonymousSlot {
-        tx_viewing_pk: slot.tx_viewing_key.pubkey(),
-        recipient_pk: address.viewing_pubkey,
-        salt: slot.salt,
-        slot: anonymous_slot_index(slot_index)?,
-    };
-    let opening = RingAnonymousOutputPlaintext {
-        asset_address: *output.asset.asset.as_array(),
-        amount: output.amount,
-        blinding: output.blinding,
-        pair_u: keys.pair_pk.u(),
-    };
-    ring_anonymous_message(&stream.seal(slot.tx_viewing_key, &opening)?, keys.tag)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn resolved(tag: ViewTag) -> ResolvedOwnerTag {
-        ResolvedOwnerTag {
-            tag: OwnerTag::Inline(tag),
-            resolved: tag,
+/// `low248` of a uniform field element, distributed as every stream-derived tag.
+fn free_tag() -> RingTag {
+    loop {
+        let mut value = [0u8; 32];
+        OsRng.fill_bytes(&mut value);
+        // Uniform below 2^254, `from_field` rejects the draws at or above the modulus.
+        value[0] &= 0x3f;
+        if let Ok(tag) = RingTag::from_field(&value) {
+            return tag;
         }
     }
+}
 
-    fn hidden(tag: ViewTag) -> AnonymousSlot {
-        AnonymousSlot::Hidden(AnonymousOutputKeys {
-            tag,
-            pair_pk: ViewingKey::new().pubkey(),
-        })
-    }
-
-    /// A padding tag equal to a hidden, exit or earlier padding tag is drawn again.
-    #[test]
-    fn padding_tags_are_resampled_on_collision() {
-        let real = [1; 32];
-        let exit = [2; 32];
-        let slots = [
-            hidden(real),
-            AnonymousSlot::Exit,
-            AnonymousSlot::Padding,
-            AnonymousSlot::Padding,
-        ];
-        let owner_tags = [
-            resolved([0; 32]),
-            resolved(exit),
-            resolved([0; 32]),
-            resolved([0; 32]),
-        ];
-        let mut draws = [real, exit, [3; 32], [3; 32], [4; 32]].into_iter();
-        let tags = AnonymousViewTags::published_tags(&slots, &owner_tags, || {
-            draws.next().expect("a draw per attempt")
-        })
-        .unwrap();
-        assert_eq!(tags, [real, exit, [3; 32], [4; 32]]);
-        assert!(draws.next().is_none());
-    }
-
-    #[test]
-    fn two_hidden_slots_never_share_a_tag() {
-        let slots = [hidden([1; 32]), hidden([1; 32])];
-        let owner_tags = [resolved([0; 32]); 2];
-        assert!(matches!(
-            AnonymousViewTags::published_tags(&slots, &owner_tags, ring_anonymous_padding_tag),
-            Err(TransactionError::DuplicateAnonymousTag {
-                first: 0,
-                second: 1
-            })
-        ));
-    }
+fn random_body() -> [u8; RING_DELIVERED_BODY_LEN] {
+    let mut body = [0u8; RING_DELIVERED_BODY_LEN];
+    OsRng.fill_bytes(&mut body);
+    body
 }

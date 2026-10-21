@@ -1,7 +1,9 @@
+//! Sends a ring operation and proves it again when the chain moved under its proof.
+
 use std::time::Duration;
 
 use custom_ring_interface::{
-    compute_unit_limit, CustomRingError, InstructionTag, MemberRegistryRoot, RingMode,
+    compute_unit_limit, stream::tag_epoch, CustomRingError, InstructionTag, MemberRegistry,
 };
 use solana_address::Address;
 use solana_commitment_config::CommitmentLevel;
@@ -18,20 +20,16 @@ use zolana_client::{
 };
 
 use crate::{
-    heap::boxed, CustomRing, CustomRingTransfer, DelegateTransfer, EscrowBinding, MergeProofInput,
-    PreparedCustomRingMerge, PreparedRingDeposit, RegisterKey, RegistryBinding, RingError,
-    UpdateMembers,
+    heap::boxed, records::BoundQueue, trees::BoundAnchor, AnonymousTransfer, AuthorityListWrite,
+    CustomRing, CustomRingTransfer, DelegateTransfer, PendingFirstContact, PreparedRingDeposit,
+    RecordApplication, RegisterKey, RingError, RingMergeOperation,
 };
 
-/// The default transfer budget, before any proving request is sent.
-pub(crate) fn check_transaction_size(
-    payer: &Address,
-    instruction: &Instruction,
-) -> Result<(), RingError> {
-    check_transaction_size_with_budget(payer, instruction, ComputeBudgetConfig::new(1_400_000))
-}
+#[cfg(test)]
+#[path = "tests/submission.rs"]
+mod tests;
 
-fn check_transaction_size_with_budget(
+pub(crate) fn check_transaction_size(
     payer: &Address,
     instruction: &Instruction,
     budget: ComputeBudgetConfig,
@@ -44,13 +42,10 @@ fn check_transaction_size_with_budget(
         });
     }
     if size.addresses > usize::from(solana_message::v1::MAX_ADDRESSES) {
-        return Err(RingError::Client(
-            zolana_client::ClientError::TransactionCompile(format!(
-                "transaction has {} addresses, maximum is {}",
-                size.addresses,
-                solana_message::v1::MAX_ADDRESSES
-            )),
-        ));
+        return Err(RingError::TooManyAddresses {
+            addresses: size.addresses,
+            limit: usize::from(solana_message::v1::MAX_ADDRESSES),
+        });
     }
     Ok(())
 }
@@ -63,6 +58,8 @@ pub enum SubmissionStatus {
     Confirmed {
         signature: Signature,
         slot: u64,
+        /// Those of the attempt that landed.
+        first_contacts: Vec<PendingFirstContact>,
     },
     Failed {
         signature: Signature,
@@ -73,12 +70,12 @@ pub enum SubmissionStatus {
     },
 }
 
-/// A [`SubmissionStatus`] past its pending state.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SettledSubmission {
     Confirmed {
         signature: Signature,
         slot: u64,
+        first_contacts: Vec<PendingFirstContact>,
     },
     Failed {
         signature: Signature,
@@ -88,35 +85,16 @@ pub enum SettledSubmission {
 
 pub enum RingOperation<'a> {
     Transfer(Box<CustomRingTransfer<'a>>),
+    Anonymous(Box<AnonymousTransfer<'a>>),
     Delegate(Box<DelegateTransfer<'a>>),
-    RegisterKey(RegisterKey<'a>),
-    UpdateMembers(Box<UpdateMembers>),
+    RegisterKey(Box<RegisterKey<'a>>),
+    /// One batch, [`AuthorityListWrite::batches`] splits a larger write.
+    AuthorityListWrite(Box<AuthorityListWrite>),
+    RecordApplication(RecordApplication),
     Merge(Box<RingMergeOperation>),
     Deposit(Box<PreparedRingDeposit>),
     /// A built instruction, sent as is, its budget from its tag.
     Instruction(Instruction),
-}
-
-pub struct RingMergeOperation {
-    prepared: PreparedCustomRingMerge,
-    input: MergeProofInput,
-    cosigner: Option<Address>,
-}
-
-impl RingMergeOperation {
-    pub fn new(prepared: PreparedCustomRingMerge, input: MergeProofInput) -> Self {
-        Self {
-            prepared,
-            input,
-            cosigner: None,
-        }
-    }
-
-    #[must_use]
-    pub fn with_cosigner(mut self, cosigner: Address) -> Self {
-        self.cosigner = Some(cosigner);
-        self
-    }
 }
 
 macro_rules! operations {
@@ -131,65 +109,155 @@ macro_rules! operations {
 
 operations! {
     Transfer(CustomRingTransfer<'a>) => Box::new,
+    Anonymous(AnonymousTransfer<'a>) => Box::new,
     Delegate(DelegateTransfer<'a>) => Box::new,
-    RegisterKey(RegisterKey<'a>) => core::convert::identity,
-    UpdateMembers(UpdateMembers) => Box::new,
+    RegisterKey(RegisterKey<'a>) => Box::new,
+    AuthorityListWrite(AuthorityListWrite) => Box::new,
+    RecordApplication(RecordApplication) => core::convert::identity,
     Merge(RingMergeOperation) => Box::new,
     Deposit(PreparedRingDeposit) => Box::new,
     Instruction(Instruction) => core::convert::identity,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct BoundRoot {
+    pub ring: CustomRing,
+    /// The history slot the statement names.
+    pub index: u8,
+    pub root: [u8; 32],
+}
+
+impl BoundRoot {
+    pub(crate) fn registry(ring: CustomRing, index: u8, root: [u8; 32]) -> Self {
+        Self { ring, index, root }
+    }
+
+    /// The newest root, never below the floor when read.
+    pub(crate) fn current(ring: CustomRing, registry: &MemberRegistry) -> Self {
+        Self::registry(ring, registry.history_cursor, registry.current_root())
+    }
+
+    pub(crate) async fn newest(
+        ring: CustomRing,
+        rpc: &(impl AsyncRpc + ?Sized),
+    ) -> Result<Self, RingError> {
+        Ok(Self::current(ring, &*ring.require_registry(rpc).await?))
+    }
+
+    /// `true` once the history wraps over the slot, the program then reads another root.
+    async fn replaced(self, client: &(impl AsyncRpc + ?Sized)) -> Result<bool, RingError> {
+        let registry = self.ring.require_registry(client).await?;
+        Ok(registry.history[usize::from(self.index)].root != self.root)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct BoundPolicy {
+    pub ring: CustomRing,
+    pub hash: [u8; 32],
+}
+
+/// Every value a proof binds that the chain can move before it lands.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct BoundState {
+    pub roots: Vec<BoundRoot>,
+    pub policy: Option<BoundPolicy>,
+    pub anchor: Option<BoundAnchor>,
+    pub queue: Option<BoundQueue>,
+    pub epoch: Option<u64>,
+}
+
+impl BoundState {
+    /// A failed verification counts only once a bound value moved.
+    async fn reproof_fixes(
+        &self,
+        error: &TransactionError,
+        client: &(impl AsyncRpc + ?Sized),
+    ) -> Result<bool, RingError> {
+        let Some(code) = ring_error(error) else {
+            return Ok(matches!(error, TransactionError::BlockhashNotFound));
+        };
+        if code == CustomRingError::ProofVerificationFailed as u32 {
+            return self.moved(client).await;
+        }
+        Ok([
+            CustomRingError::RootBelowFloor,
+            CustomRingError::CuratorRootStale,
+            CustomRingError::RootIndexEmpty,
+            CustomRingError::AuthorityBatchTooLarge,
+        ]
+        .into_iter()
+        .any(|stale| code == stale as u32))
+    }
+
+    /// `true` once a bound value moved or the epoch the proof binds passed.
+    async fn moved(&self, client: &(impl AsyncRpc + ?Sized)) -> Result<bool, RingError> {
+        for root in &self.roots {
+            if root.replaced(client).await? {
+                return Ok(true);
+            }
+        }
+        if let Some(policy) = self.policy {
+            if policy.ring.require_registry(client).await?.policy_hash != policy.hash {
+                return Ok(true);
+            }
+        }
+        if let Some(anchor) = self.anchor {
+            if !anchor.holds(client).await? {
+                return Ok(true);
+            }
+        }
+        if let Some(queue) = &self.queue {
+            let registry = queue.ring.require_registry(client).await?;
+            let current = queue.ring.require_queue(client).await?;
+            if current.tail() != queue.tail
+                || current.chain_tail() != queue.chain_tail
+                || registry.current_root() != queue.root
+            {
+                return Ok(true);
+            }
+        }
+        if let Some(epoch) = self.epoch {
+            if tag_epoch(client.get_slot().await?) > epoch {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+}
+
 struct Proved {
     instruction: Instruction,
     budget: ComputeBudgetConfig,
-    bound: Option<BoundRoot>,
+    bound: BoundState,
+    first_contacts: Vec<PendingFirstContact>,
+}
+
+impl Proved {
+    fn with_first_contacts(self, first_contacts: Vec<PendingFirstContact>) -> Self {
+        Self {
+            first_contacts,
+            ..self
+        }
+    }
 }
 
 struct Attempt {
     transaction: VersionedTransaction,
-    bound: Option<BoundRoot>,
+    bound: BoundState,
+    first_contacts: Vec<PendingFirstContact>,
     last_valid_block_height: u64,
-}
-
-/// The registry history slot an escrowed statement names and the root it proved against.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct BoundRoot {
-    ring: CustomRing,
-    index: u8,
-    root: [u8; 32],
-}
-
-impl BoundRoot {
-    pub(crate) fn of(ring: CustomRing, escrow: EscrowBinding) -> Option<Self> {
-        match escrow {
-            EscrowBinding::Off => None,
-            EscrowBinding::Registry(binding) => Some(Self::registry(ring, binding)),
-        }
-    }
-
-    pub(crate) fn registry(ring: CustomRing, binding: RegistryBinding) -> Self {
-        Self {
-            ring,
-            index: binding.root_index,
-            root: binding.root,
-        }
-    }
-
-    /// Later batches wrapped the history over the slot, so the program read another root.
-    async fn replaced(self, client: &(impl AsyncRpc + ?Sized)) -> Result<bool, RingError> {
-        let registry = self
-            .ring
-            .read::<MemberRegistryRoot>(client, &[MemberRegistryRoot::SEED], true)
-            .await?;
-        Ok(registry.is_some_and(|registry| registry.root_at(self.index) != Some(self.root)))
-    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
 enum Outcome {
     Unknown,
-    Confirmed { slot: u64 },
+    Confirmed {
+        slot: u64,
+    },
     Failed(TransactionError),
+    /// A fresh proof fixes the failure.
+    Stale(TransactionError),
 }
 
 #[must_use]
@@ -235,15 +303,11 @@ impl<'a> RingSubmission<'a> {
             return Ok(terminal.clone());
         }
         loop {
-            let failure = match &self.pending {
-                Some(_) => None,
+            let (attempt, failure) = match self.pending.take() {
+                Some(attempt) => (attempt, None),
                 None => {
                     let proved = boxed(|| self.operation.prove(client, payer.pubkey())).await?;
-                    check_transaction_size_with_budget(
-                        &payer.pubkey(),
-                        &proved.instruction,
-                        proved.budget,
-                    )?;
+                    check_transaction_size(&payer.pubkey(), &proved.instruction, proved.budget)?;
                     let (blockhash, last_valid_block_height) =
                         client.get_latest_blockhash().await?;
                     let message = compile_message(
@@ -268,31 +332,28 @@ impl<'a> RingSubmission<'a> {
                         .await
                         .err()
                         .and_then(|error| error.transaction_error());
-                    self.pending = Some(Attempt {
+                    let attempt = Attempt {
                         transaction,
                         bound: proved.bound,
+                        first_contacts: proved.first_contacts,
                         last_valid_block_height,
-                    });
-                    failure
+                    };
+                    (attempt, failure)
                 }
             };
-            let attempt = self.pending.as_ref().ok_or(RingError::IncompleteProofSet)?;
+            let attempt = self.pending.insert(attempt);
             let signature = attempt.transaction.signatures[0];
-            let bound = attempt.bound;
             let outcome = match failure {
                 Some(error) => Outcome::Failed(error),
                 None => outcome(client, signature, attempt.last_valid_block_height).await?,
             };
-            let root_replaced = match (&outcome, bound) {
-                (Outcome::Failed(error), Some(bound))
-                    if ring_error(error)
-                        == Some(CustomRingError::ProofVerificationFailed as u32) =>
-                {
-                    bound.replaced(client).await?
+            let outcome = match outcome {
+                Outcome::Failed(error) if attempt.bound.reproof_fixes(&error, client).await? => {
+                    Outcome::Stale(error)
                 }
-                _ => false,
+                outcome => outcome,
             };
-            if let Some(status) = self.settle(signature, outcome, root_replaced) {
+            if let Some(status) = self.settle(signature, outcome) {
                 return Ok(status);
             }
         }
@@ -306,8 +367,16 @@ impl<'a> RingSubmission<'a> {
     ) -> Result<SettledSubmission, RingError> {
         loop {
             match boxed(|| self.send(client, payer, signers)).await? {
-                SubmissionStatus::Confirmed { signature, slot } => {
-                    return Ok(SettledSubmission::Confirmed { signature, slot })
+                SubmissionStatus::Confirmed {
+                    signature,
+                    slot,
+                    first_contacts,
+                } => {
+                    return Ok(SettledSubmission::Confirmed {
+                        signature,
+                        slot,
+                        first_contacts,
+                    })
                 }
                 SubmissionStatus::Failed { signature, error } => {
                     return Ok(SettledSubmission::Failed { signature, error })
@@ -317,25 +386,31 @@ impl<'a> RingSubmission<'a> {
         }
     }
 
-    /// `None` re-proves a retryable failure below the attempt limit.
-    fn settle(
-        &mut self,
-        signature: Signature,
-        outcome: Outcome,
-        root_replaced: bool,
-    ) -> Option<SubmissionStatus> {
+    /// `None` proves again after a stale failure below the attempt limit.
+    fn settle(&mut self, signature: Signature, outcome: Outcome) -> Option<SubmissionStatus> {
         let terminal = match outcome {
             Outcome::Unknown => return Some(SubmissionStatus::Pending { signature }),
-            Outcome::Confirmed { slot } => SubmissionStatus::Confirmed { signature, slot },
+            Outcome::Confirmed { slot } => SubmissionStatus::Confirmed {
+                signature,
+                slot,
+                first_contacts: self
+                    .pending
+                    .take()
+                    .map(|attempt| attempt.first_contacts)
+                    .unwrap_or_default(),
+            },
             Outcome::Failed(error) => {
                 self.pending = None;
-                if retryable(&error, root_replaced) && self.attempts < MAX_ATTEMPTS {
+                SubmissionStatus::Failed { signature, error }
+            }
+            Outcome::Stale(error) => {
+                self.pending = None;
+                if self.attempts < MAX_ATTEMPTS {
                     return None;
                 }
                 SubmissionStatus::Failed { signature, error }
             }
         };
-        self.pending = None;
         self.terminal = Some(terminal.clone());
         Some(terminal)
     }
@@ -351,80 +426,96 @@ impl RingOperation<'_> {
             instruction,
             budget: ComputeBudgetConfig::new(compute_unit_limit(tag)),
             bound,
+            first_contacts: Vec::new(),
         };
         Ok(match self {
             Self::Transfer(transfer) => {
                 let proven = boxed(|| transfer.prove(client)).await?;
-                let bound = proven.bound_root();
-                proved(proven.instruction()?, InstructionTag::Transact, bound)
+                let instruction = proven.instruction_at(client.get_slot().await?)?;
+                proved(instruction, InstructionTag::Transact, proven.bound())
+            }
+            Self::Anonymous(transfer) => {
+                let proven = boxed(|| transfer.prove(client)).await?;
+                let instruction = proven.instruction_at(client.get_slot().await?)?;
+                proved(instruction, InstructionTag::Transact, proven.bound())
+                    .with_first_contacts(proven.first_contacts)
             }
             Self::Delegate(transfer) => {
                 let proven = boxed(|| transfer.prove(client)).await?;
-                let bound = proven.bound_root();
+                let instruction = proven.instruction_at(client.get_slot().await?)?;
                 proved(
-                    proven.instruction()?,
+                    instruction,
                     InstructionTag::DelegateTransact,
-                    bound,
+                    proven.bound(),
                 )
             }
             Self::RegisterKey(registration) => {
                 let proven = boxed(|| registration.prove(client)).await?;
-                let bound = proven.bound_root();
-                proved(proven.instruction()?, InstructionTag::RegisterKey, bound)
+                proved(
+                    proven.instruction,
+                    InstructionTag::RegisterKey,
+                    BoundState::default(),
+                )
             }
-            Self::UpdateMembers(update) => {
-                let proven = boxed(|| update.prove(client)).await?;
-                let bound = proven.bound_root();
-                proved(proven.instruction()?, InstructionTag::UpdateMembers, bound)
+            Self::AuthorityListWrite(write) => {
+                let proven = boxed(|| write.prove(client)).await?;
+                proved(
+                    proven.instruction,
+                    InstructionTag::AuthorityWriteRecords,
+                    BoundState {
+                        queue: Some(proven.bound),
+                        ..BoundState::default()
+                    },
+                )
+            }
+            Self::RecordApplication(application) => {
+                let proven = boxed(|| application.prove(client))
+                    .await?
+                    .ok_or(RingError::ApplicationNotDue)?;
+                proved(
+                    proven.instruction,
+                    InstructionTag::ApplyRecords,
+                    BoundState {
+                        queue: Some(proven.bound),
+                        ..BoundState::default()
+                    },
+                )
             }
             Self::Merge(operation) => {
                 let budget = ComputeBudgetConfig::new(compute_unit_limit(InstructionTag::Merge));
-                check_transaction_size_with_budget(
+                let config = operation.prepared.ring().require_config(client).await?;
+                operation.prepared.check_public_signers(payer, &config)?;
+                check_transaction_size(
                     &payer,
-                    &operation.prepared.preview_instruction(
-                        &operation.input,
-                        payer,
-                        operation.cosigner,
-                    ),
+                    &operation.preview_instruction(payer, &config)?,
                     budget,
                 )?;
-                let mode = operation
-                    .prepared
-                    .ring()
-                    .config(client)
-                    .await?
-                    .ok_or(RingError::MissingRingConfig)?
-                    .mode;
-                if mode == RingMode::Anonymous {
-                    check_transaction_size_with_budget(
-                        &payer,
-                        &operation.prepared.anonymous_preview_instruction(
-                            &operation.input,
-                            payer,
-                            operation.cosigner,
-                        )?,
-                        budget,
-                    )?;
-                }
-                let mut proven = boxed(|| {
+                let proven = boxed(|| {
                     operation
                         .prepared
                         .clone()
                         .prove(operation.input.clone(), client)
                 })
                 .await?;
-                if let Some(cosigner) = operation.cosigner {
-                    proven = proven.with_cosigner(cosigner);
-                }
-                proved(proven.instruction(payer), InstructionTag::Merge, None)
+                proved(
+                    proven.instruction(payer)?,
+                    InstructionTag::Merge,
+                    BoundState {
+                        roots: proven.bound_root().into_iter().collect(),
+                        ..BoundState::default()
+                    },
+                )
             }
             Self::Deposit(deposit) => {
-                let (instruction, bound) = boxed(|| deposit.prove_bound(client)).await?;
-                Proved {
-                    instruction,
-                    budget: deposit.budget(),
-                    bound,
-                }
+                let proven = boxed(|| deposit.prove_bound(client)).await?;
+                proved(
+                    proven.instruction,
+                    InstructionTag::AuditedDeposit,
+                    BoundState {
+                        roots: proven.root.into_iter().collect(),
+                        ..BoundState::default()
+                    },
+                )
             }
             Self::Instruction(instruction) => {
                 let tag = instruction
@@ -432,7 +523,7 @@ impl RingOperation<'_> {
                     .first()
                     .and_then(|tag| InstructionTag::try_from(*tag).ok())
                     .ok_or(CustomRingError::InvalidInstructionData)?;
-                proved(instruction.clone(), tag, None)
+                proved(instruction.clone(), tag, BoundState::default())
             }
         })
     }
@@ -491,16 +582,3 @@ fn ring_error(error: &TransactionError) -> Option<u32> {
         _ => None,
     }
 }
-
-/// A fresh proof fixes each of these, a failed proof only over an overwritten registry slot.
-fn retryable(error: &TransactionError, root_replaced: bool) -> bool {
-    let stale = |code| {
-        code == CustomRingError::StaleMemberRegistryRoot as u32
-            || (root_replaced && code == CustomRingError::ProofVerificationFailed as u32)
-    };
-    matches!(error, TransactionError::BlockhashNotFound) || ring_error(error).is_some_and(stale)
-}
-
-#[cfg(test)]
-#[path = "tests/submission.rs"]
-mod tests;

@@ -1,5 +1,4 @@
-//! The auditor scans for its view tag, which Photon matches on output and message tags alike,
-//! so the message match is re-applied and each match is attributed through its call stack.
+//! Photon matches the auditor tag on outputs and messages alike, the message match is re-applied.
 
 use std::{
     collections::HashMap,
@@ -14,8 +13,11 @@ use zolana_keypair::{X25519Keypair, X25519Pubkey};
 use zolana_transaction::{AssetRegistry, ShieldedTransaction};
 
 use crate::{
-    decrypt::TransactionAudit, encryption::auditor_view_tag, origin::TransactionOrigin,
-    types::AuditedTransaction, AuditError,
+    decrypt::TransactionAudit,
+    encryption::auditor_view_tag,
+    origin::{RingOrigin, TransactionOrigin},
+    types::{AuditedTransaction, KnownNote},
+    AuditError,
 };
 
 /// One bounded read, `next_cursor` is live only when the page cap stopped it.
@@ -30,8 +32,7 @@ pub type AuditedPage = ScanPage<AuditedTransaction>;
 /// One indexer page with its transactions, the next cursor and where the scan reached.
 pub(crate) type Page = (Vec<ShieldedTransaction>, Option<Vec<u8>>, Option<Vec<u8>>);
 
-/// Reads from `cursor` until `scanned_through` or the cap, a stalled cursor or a terminal page
-/// without a frontier fails.
+/// Reads until the frontier or the cap, a stalled cursor or a frontierless terminal page fails.
 pub(crate) async fn pages<F, Fut>(
     mut cursor: Option<Vec<u8>>,
     max_pages: NonZeroUsize,
@@ -80,9 +81,9 @@ impl PageEnd {
 }
 
 pub(crate) const DEFAULT_PAGE_SIZE: NonZeroU32 = NonZeroU32::new(100).unwrap();
-const DEFAULT_MAX_PAGES: NonZeroUsize = NonZeroUsize::new(32).unwrap();
+pub(crate) const DEFAULT_MAX_PAGES: NonZeroUsize = NonZeroUsize::new(32).unwrap();
 
-/// Confirmed ring transfers in the auditor tag scan. Missing mandatory disclosure fails closed.
+/// A confirmed ring transfer without its mandatory disclosure fails the scan.
 #[must_use = "run or discard the scan explicitly"]
 pub struct RingScan {
     ring_program_id: Address,
@@ -92,6 +93,8 @@ pub struct RingScan {
     page_size: NonZeroU32,
     max_pages: NonZeroUsize,
     indexer_config: Option<IndexerRpcConfig>,
+    known: HashMap<[u8; 32], KnownNote>,
+    escrowed: HashMap<[u8; 32], [u8; 32]>,
 }
 
 impl RingScan {
@@ -104,10 +107,12 @@ impl RingScan {
             page_size: DEFAULT_PAGE_SIZE,
             max_pages: DEFAULT_MAX_PAGES,
             indexer_config: None,
+            known: HashMap::new(),
+            escrowed: HashMap::new(),
         }
     }
 
-    /// The ring's mode selects the disclosure layout an audit parses.
+    /// The rail a ring `Transact` frame parses under.
     pub fn with_mode(mut self, mode: RingMode) -> Self {
         self.mode = mode;
         self
@@ -134,6 +139,18 @@ impl RingScan {
         self
     }
 
+    /// Notes opened before by commitment, earlier pages and [`crate::CreatedNotes`] alike.
+    pub fn with_known_notes(mut self, notes: HashMap<[u8; 32], KnownNote>) -> Self {
+        self.known = notes;
+        self
+    }
+
+    /// Each owner key's nullifier key as the ring's escrow records hold it.
+    pub fn with_escrowed_keys(mut self, keys: HashMap<[u8; 32], [u8; 32]>) -> Self {
+        self.escrowed = keys;
+        self
+    }
+
     pub(crate) fn indexer_config(mut self, config: Option<IndexerRpcConfig>) -> Self {
         self.indexer_config = config;
         self
@@ -144,8 +161,55 @@ impl RingScan {
         indexer: &I,
         origin: &O,
     ) -> Result<RingScanPage, AuditError> {
+        let page = self.confirmed(indexer, origin).await?;
+        Ok(ScanPage {
+            transactions: page
+                .transactions
+                .into_iter()
+                .map(|(transaction, _)| transaction)
+                .collect(),
+            next_cursor: page.next_cursor,
+        })
+    }
+
+    /// An input resolves within the page and the known notes.
+    pub async fn audit<I: AsyncRpc, O: TransactionOrigin>(
+        mut self,
+        auditor: &X25519Keypair,
+        indexer: &I,
+        origin: &O,
+        assets: &AssetRegistry,
+    ) -> Result<AuditedPage, AuditError> {
+        self.auditor_key = auditor.pubkey();
+        let mode = self.mode;
+        let mut known = core::mem::take(&mut self.known);
+        let escrowed = core::mem::take(&mut self.escrowed);
+        let page = self.confirmed(indexer, origin).await?;
+        let mut transactions = Vec::with_capacity(page.transactions.len());
+        for (transaction, confirmed) in &page.transactions {
+            let trees = confirmed.event.input_tree_ids(transaction);
+            let audited = TransactionAudit::new(transaction, confirmed.disclosure_layout(mode)?)
+                .with_input_trees(&trees)?
+                .with_known_notes(&known)
+                .with_escrowed_keys(&escrowed)
+                .run(auditor, assets)?;
+            known.extend(audited.notes());
+            transactions.push(audited);
+        }
+        Ok(ScanPage {
+            transactions,
+            next_cursor: page.next_cursor,
+        })
+    }
+
+    /// The page's ring transfers that require an audit, each bound to its confirmed event.
+    pub(crate) async fn confirmed<I: AsyncRpc, O: TransactionOrigin>(
+        self,
+        indexer: &I,
+        origin: &O,
+    ) -> Result<ScanPage<(ShieldedTransaction, RingOrigin)>, AuditError> {
         let view_tag = auditor_view_tag(&self.auditor_key);
-        let (mut page, _) = pages(self.cursor, self.max_pages, |cursor| async move {
+        let (page, _) = pages(self.cursor, self.max_pages, |cursor| async move {
             let page = indexer
                 .get_shielded_transactions_by_tags(
                     vec![view_tag],
@@ -157,12 +221,12 @@ impl RingScan {
             Ok((page.transactions, page.next_cursor, page.scanned_through))
         })
         .await?;
-        let mut invoked = HashMap::<_, crate::RingOrigin>::new();
+        let mut invoked = HashMap::<_, RingOrigin>::new();
         let mut transactions = Vec::new();
         for mut tx in page.transactions {
             let event_index = tx.event_index.ok_or(AuditError::MissingEventIndex)?;
             let key = (tx.tx_signature, event_index);
-            let confirmed: crate::RingOrigin = match invoked.get(&key) {
+            let confirmed = match invoked.get(&key) {
                 Some(known) => known.clone(),
                 None => {
                     let origin = origin
@@ -180,37 +244,11 @@ impl RingScan {
                 {
                     return Err(AuditError::MissingAuditorMessage);
                 }
-                transactions.push(tx);
+                transactions.push((tx, confirmed));
             }
         }
-        page.transactions = transactions;
-        Ok(page)
-    }
-
-    /// Scans the tag of `auditor` and opens every match with it.
-    pub async fn audit<I: AsyncRpc, O: TransactionOrigin>(
-        mut self,
-        auditor: &X25519Keypair,
-        indexer: &I,
-        origin: &O,
-        assets: &AssetRegistry,
-    ) -> Result<AuditedPage, AuditError> {
-        self.auditor_key = auditor.pubkey();
-        let mode = self.mode;
-        let page = self.run(indexer, origin).await?;
         Ok(ScanPage {
-            transactions: page
-                .transactions
-                .iter()
-                .map(|transaction| {
-                    TransactionAudit {
-                        auditor,
-                        transaction,
-                        assets,
-                    }
-                    .run_with_mode(mode)
-                })
-                .collect::<Result<_, _>>()?,
+            transactions,
             next_cursor: page.next_cursor,
         })
     }

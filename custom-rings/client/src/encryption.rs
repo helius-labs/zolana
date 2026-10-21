@@ -1,45 +1,26 @@
-//! Host mirror of the ring circuits' auditor crypto (`prover/server/custom_rings/circuits/base`).
-//! Every stream is keyed by `Poseidon(CR_S, dh, eph_pk, auditor_pk)` over the packed X25519 values.
+//! Mirrors `custom_rings/circuits/base`, each stream keyed by `Poseidon(CR_S, dh, eph_pk, auditor_pk)`.
 
 use custom_ring_interface::{
-    pack_2fe, pack_disclosure, unpack_disclosure, DisclosureShape, FieldPair,
-    RingDepositAuditCapsule, AUDIT_CIPHERTEXT_LEN, AUDIT_DISCLOSURE_FIELD_COUNT,
-    AUDIT_OUTPUT_FIELD_COUNT, AUDIT_OUTPUT_SLOTS, DISCLOSURE_INPUT_LEN, DISCLOSURE_OUTPUT_LEN,
-    DISCLOSURE_SENDER_LEN, MAX_RING_DEPOSIT_AUDIT_SLOTS, RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN,
-    RING_DEPOSIT_AUDIT_INFO, RING_DEPOSIT_AUDIT_OWNER_KEY_OFFSET, TAGGED_X25519_KEY_LEN,
+    RingDepositAuditCapsule, AUDIT_CIPHERTEXT_LEN, AUDIT_STREAM_INFO, MAX_RING_DEPOSIT_AUDIT_SLOTS,
+    RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN, RING_DEPOSIT_AUDIT_INFO,
+    RING_DEPOSIT_AUDIT_OWNER_KEY_OFFSET,
 };
 use zeroize::Zeroizing;
-use zolana_client::ProofInputUtxo;
-use zolana_hasher::primitives::{
-    hash_bytes, is_canonical_bn254_scalar_be, BN254_SCALAR_MODULUS_BE, SOLANA_OWNER_TAG,
+use zolana_hasher::{
+    primitives::{pack_be, right_align},
+    Hasher, Poseidon,
 };
-use zolana_interface::{instruction::MessageData, tree_slot::tree_id_field};
 use zolana_keypair::{
-    hash::{poseidon, right_align},
-    symmetric_apply, symmetric_apply_audit, NullifierKey, ViewingKey, X25519Keypair, X25519Pubkey,
-};
-use zolana_transaction::{
-    field::{field_add, field_sub},
-    utxo::UTXO_DOMAIN,
+    symmetric_apply, symmetric_apply_audit, NullifierKey, X25519Keypair, X25519Pubkey,
 };
 
 use crate::AuditError;
 
-/// Equals the Go `auditEncInfo`.
-pub(crate) const AUDIT_ENC_INFO: &[u8; 10] = b"CRING/adt1";
+type Result<T> = core::result::Result<T, AuditError>;
+
 const NF_KEY_ENC_INFO: &[u8; 10] = b"CRING/nfk1";
 /// ASCII "CR_S", the Go `DomSepCRShared`.
 const DOM_SEP_CR_SHARED: u32 = 0x4352_5f53;
-/// ASCII "CR_OD", the Go `OutputDisclosureDomain` seeding the output disclosure pad.
-const DISCLOSURE_DOMAIN: u64 = 0x4352_5f4f44;
-/// ASCII "CR_MD", the Go `MergeDisclosureDomain`, a merge pad never repeats an output pad.
-const MERGE_DISCLOSURE_DOMAIN: u64 = 0x4352_5f4d44;
-
-type Result<T> = core::result::Result<T, AuditError>;
-
-#[cfg(test)]
-#[path = "encryption/proof_statement_tests.rs"]
-mod proof_statement_tests;
 
 #[path = "encryption/merge_disclosure.rs"]
 mod merge_disclosure;
@@ -52,25 +33,30 @@ pub fn auditor_view_tag(pk: &X25519Pubkey) -> [u8; 32] {
     pk.u()
 }
 
-/// Binds the X25519 output to both keys that produced it, in the order `pack.go` hashes.
+/// The key schedule of a sealed stream, the envelope and every delivered body share `Audit`.
+#[derive(Clone, Copy)]
+pub(crate) enum StreamSchedule {
+    Audit,
+    Labelled(&'static [u8; 10]),
+}
+
+/// Binds the X25519 output to both keys that produced it, in the order `seal.go` hashes.
 pub(crate) fn shared_secret(
     dh: &[u8; 32],
     ephemeral: &X25519Pubkey,
     auditor: &X25519Pubkey,
 ) -> Result<Zeroizing<[u8; 32]>> {
-    let [dh, ephemeral, auditor] = [
-        pack_2fe(dh),
-        pack_2fe(ephemeral.as_bytes()),
-        pack_2fe(auditor.as_bytes()),
-    ];
-    Ok(Zeroizing::new(poseidon(&[
+    let [dh0, dh1] = pack_be(dh);
+    let [eph0, eph1] = pack_be(ephemeral.as_bytes());
+    let [aud0, aud1] = pack_be(auditor.as_bytes());
+    Ok(Zeroizing::new(Poseidon::hashv(&[
         &right_align(&DOM_SEP_CR_SHARED.to_be_bytes()),
-        &dh.lo,
-        &dh.hi,
-        &ephemeral.lo,
-        &ephemeral.hi,
-        &auditor.lo,
-        &auditor.hi,
+        &dh0,
+        &dh1,
+        &eph0,
+        &eph1,
+        &aud0,
+        &aud1,
     ])?))
 }
 
@@ -78,604 +64,29 @@ pub(crate) fn shared_secret(
 pub(crate) fn seal_stream(
     ephemeral: &X25519Keypair,
     auditor: &X25519Pubkey,
-    info: &[u8; 10],
+    schedule: StreamSchedule,
     data: &mut [u8],
 ) -> Result<()> {
-    auditor_stream(ephemeral, auditor, true, info, data)
+    let secret = shared_secret(&*ephemeral.ecdh(auditor)?, &ephemeral.pubkey(), auditor)?;
+    apply_stream(&secret, schedule, data)
 }
 
-fn open_stream(
+pub(crate) fn open_stream(
     auditor: &X25519Keypair,
     ephemeral: &X25519Pubkey,
-    info: &[u8; 10],
+    schedule: StreamSchedule,
     data: &mut [u8],
 ) -> Result<()> {
-    auditor_stream(auditor, ephemeral, false, info, data)
+    let secret = shared_secret(&*auditor.ecdh(ephemeral)?, ephemeral, &auditor.pubkey())?;
+    apply_stream(&secret, schedule, data)
 }
 
-/// `local` is the ephemeral key when sealing and the auditor key when opening.
-fn auditor_stream(
-    local: &X25519Keypair,
-    remote: &X25519Pubkey,
-    sealing: bool,
-    info: &[u8; 10],
-    data: &mut [u8],
-) -> Result<()> {
-    let dh = local.ecdh(remote)?;
-    let local_pk = local.pubkey();
-    let (ephemeral, auditor) = match sealing {
-        true => (&local_pk, remote),
-        false => (remote, &local_pk),
-    };
-    let secret = shared_secret(&dh, ephemeral, auditor)?;
-    if info == AUDIT_ENC_INFO {
-        Ok(symmetric_apply_audit(&secret, info, data)?)
-    } else {
-        Ok(symmetric_apply(&secret, info, data)?)
+fn apply_stream(secret: &[u8; 32], schedule: StreamSchedule, data: &mut [u8]) -> Result<()> {
+    match schedule {
+        StreamSchedule::Audit => symmetric_apply_audit(secret, AUDIT_STREAM_INFO, data),
+        StreamSchedule::Labelled(info) => symmetric_apply(secret, info, data),
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AuditorMessage {
-    eph_pk: X25519Pubkey,
-    /// AES-256-CTR ciphertext of the transaction viewing secret key.
-    ciphertext: [u8; AUDIT_CIPHERTEXT_LEN],
-    /// The ring mode and the published slot counts fix the field count.
-    disclosure: Vec<[u8; 32]>,
-}
-
-/// One spent note of an anonymous ring. The indexer resolves the leaf index.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct AuditInputOpening {
-    pub tree_id: u16,
-    pub amount: u64,
-    pub asset: [u8; 32],
-    pub blinding: [u8; 32],
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum AnonymousOutputOpening {
-    #[default]
-    Padding,
-    Ring(AnonymousRingOutput),
-    Exit(AnonymousExit),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct AnonymousOwner {
-    pub identity_tag: u8,
-    pub identity_key: [u8; 32],
-    pub nullifier_pk: [u8; 32],
-}
-
-/// A ring note, the auditor opens its proven scheme-9 body under `viewing_pk`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct AnonymousRingOutput {
-    pub owner: AnonymousOwner,
-    /// The published slot omits the recipient key, only the auditor reads it.
-    pub viewing_pk: [u8; TAGGED_X25519_KEY_LEN],
-}
-
-/// A default-ring exit has no proven body, the disclosure carries the rest of its opening.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct AnonymousExit {
-    pub owner: AnonymousOwner,
-    pub amount: u64,
-    pub asset: [u8; 32],
-    pub blinding: [u8; 32],
-}
-
-const OUTPUT_KIND_PADDING: u8 = 0;
-const OUTPUT_KIND_RING: u8 = 1;
-const OUTPUT_KIND_EXIT: u8 = 2;
-const OUTPUT_OWNER_END: usize = 1 + 33 + 32;
-const RING_OUTPUT_END: usize = OUTPUT_OWNER_END + TAGGED_X25519_KEY_LEN;
-const EXIT_OUTPUT_END: usize = OUTPUT_OWNER_END + 8 + 32 + 32;
-
-impl AnonymousOwner {
-    pub(crate) fn owner_hash(&self) -> Result<[u8; 32]> {
-        let mut identity = [self.identity_tag; 33];
-        identity[1..].copy_from_slice(&self.identity_key);
-        Ok(poseidon(&[&hash_bytes(&identity)?, &self.nullifier_pk])?)
-    }
-}
-
-impl AnonymousExit {
-    /// Zero data hashes and ring id, the circuit refuses an exit with either data hash set.
-    pub(crate) fn opening(&self, tree_id: u16) -> Result<ProofInputUtxo> {
-        Ok(ProofInputUtxo {
-            domain: right_align(&UTXO_DOMAIN.to_be_bytes()),
-            tree_id: tree_id_field(tree_id),
-            owner_hash: self.owner.owner_hash()?,
-            asset: self.asset,
-            amount: right_align(&self.amount.to_be_bytes()),
-            blinding: self.blinding,
-            ..ProofInputUtxo::default()
-        })
-    }
-}
-
-impl AnonymousOutputOpening {
-    pub fn owner(&self) -> Option<&AnonymousOwner> {
-        match self {
-            Self::Padding => None,
-            Self::Ring(AnonymousRingOutput { owner, .. })
-            | Self::Exit(AnonymousExit { owner, .. }) => Some(owner),
-        }
-    }
-
-    fn kind(&self) -> u8 {
-        match self {
-            Self::Padding => OUTPUT_KIND_PADDING,
-            Self::Ring(_) => OUTPUT_KIND_RING,
-            Self::Exit(_) => OUTPUT_KIND_EXIT,
-        }
-    }
-
-    fn encode(&self, bytes: &mut Vec<u8>) {
-        bytes.push(self.kind());
-        if let Some(owner) = self.owner() {
-            bytes.push(owner.identity_tag);
-            bytes.extend_from_slice(&owner.identity_key);
-            bytes.extend_from_slice(&owner.nullifier_pk);
-        }
-        match self {
-            Self::Padding => {}
-            Self::Ring(ring) => bytes.extend_from_slice(&ring.viewing_pk),
-            Self::Exit(exit) => {
-                bytes.extend_from_slice(&exit.amount.to_be_bytes());
-                bytes.extend_from_slice(&exit.asset);
-                bytes.extend_from_slice(&exit.blinding);
-            }
-        }
-    }
-
-    /// Bytes past the kind's layout must be zero, so each opening has one encoding.
-    fn decode(slot: &[u8]) -> Result<Self> {
-        let [kind, identity_tag] = disclosure_bytes(slot, 0)?;
-        if kind == OUTPUT_KIND_PADDING {
-            return match slot.iter().all(|byte| *byte == 0) {
-                true => Ok(Self::Padding),
-                false => Err(AuditError::DisclosurePadding),
-            };
-        }
-        if identity_tag != SOLANA_OWNER_TAG {
-            return Err(AuditError::DisclosureIdentityTag(identity_tag));
-        }
-        let owner = AnonymousOwner {
-            identity_tag,
-            identity_key: disclosure_bytes(slot, 2)?,
-            nullifier_pk: canonical_disclosed(disclosure_bytes(slot, 34)?)?,
-        };
-        let (opening, end) = match kind {
-            OUTPUT_KIND_RING => {
-                let viewing_pk = disclosure_bytes(slot, OUTPUT_OWNER_END)?;
-                let ring = AnonymousRingOutput { owner, viewing_pk };
-                (Self::Ring(ring), RING_OUTPUT_END)
-            }
-            OUTPUT_KIND_EXIT => {
-                let exit = AnonymousExit {
-                    owner,
-                    amount: u64::from_be_bytes(disclosure_bytes(slot, OUTPUT_OWNER_END)?),
-                    asset: canonical_disclosed(disclosure_bytes(slot, OUTPUT_OWNER_END + 8)?)?,
-                    blinding: canonical_disclosed(disclosure_bytes(slot, OUTPUT_OWNER_END + 40)?)?,
-                };
-                (Self::Exit(exit), EXIT_OUTPUT_END)
-            }
-            other => return Err(AuditError::DisclosureOutputKind(other)),
-        };
-        let padding = slot.get(end..).ok_or(AuditError::DisclosureShape)?;
-        match padding.iter().all(|byte| *byte == 0) {
-            true => Ok(opening),
-            false => Err(AuditError::DisclosurePadding),
-        }
-    }
-}
-
-/// The circuit discloses canonical field encodings.
-fn canonical_disclosed(value: [u8; 32]) -> Result<[u8; 32]> {
-    match is_canonical_bn254_scalar_be(&value) {
-        true => Ok(value),
-        false => Err(AuditError::DisclosureField),
-    }
-}
-
-/// The hidden sender, spent notes and recipients an anonymous proof binds.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct AnonymousDisclosure {
-    pub sender: [u8; 32],
-    pub inputs: Vec<AuditInputOpening>,
-    pub outputs: Vec<AnonymousOutputOpening>,
-}
-
-/// The standard constructor draws a fresh ephemeral scalar. Reusing one with
-/// the same auditor key reuses the CTR keystream.
-pub struct AuditorEncryption {
-    pub ephemeral_sk: Zeroizing<[u8; 32]>,
-    pub message: AuditorMessage,
-}
-
-impl AuditorMessage {
-    pub fn new(eph_pk: X25519Pubkey, ciphertext: [u8; AUDIT_CIPHERTEXT_LEN]) -> Self {
-        Self {
-            eph_pk,
-            ciphertext,
-            disclosure: vec![[0u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT],
-        }
-    }
-
-    /// The transaction viewing secret, unchecked as a scalar.
-    pub fn decrypt(&self, auditor: &X25519Keypair) -> Result<Zeroizing<[u8; 32]>> {
-        let mut plaintext = Zeroizing::new(self.ciphertext);
-        open_stream(auditor, &self.eph_pk, AUDIT_ENC_INFO, &mut *plaintext)?;
-        Ok(plaintext)
-    }
-
-    pub fn to_message_data(&self, auditor_pk: &X25519Pubkey) -> MessageData {
-        let mut data = Vec::with_capacity(
-            TAGGED_X25519_KEY_LEN + AUDIT_CIPHERTEXT_LEN + 32 * self.disclosure.len(),
-        );
-        data.extend_from_slice(self.eph_pk.as_bytes());
-        data.extend_from_slice(&self.ciphertext);
-        data.extend(self.disclosure.iter().flatten());
-        MessageData {
-            view_tag: auditor_view_tag(auditor_pk),
-            data,
-        }
-    }
-
-    pub fn parse(message: &MessageData, auditor_pk: &X25519Pubkey) -> Result<Self> {
-        Self::parse_fields(message, auditor_pk, AUDIT_DISCLOSURE_FIELD_COUNT)
-    }
-
-    /// The ring mode and the published slot counts fix the accepted length.
-    pub fn parse_with_shape(
-        message: &MessageData,
-        auditor_pk: &X25519Pubkey,
-        shape: DisclosureShape,
-    ) -> Result<Self> {
-        let count = shape.field_count().ok_or(AuditError::DisclosureShape)?;
-        Self::parse_fields(message, auditor_pk, count)
-    }
-
-    fn parse_fields(
-        message: &MessageData,
-        auditor_pk: &X25519Pubkey,
-        count: usize,
-    ) -> Result<Self> {
-        if message.view_tag != auditor_view_tag(auditor_pk) {
-            return Err(AuditError::ViewTagMismatch);
-        }
-        let data = message.data.as_slice();
-        if data.len() != TAGGED_X25519_KEY_LEN + AUDIT_CIPHERTEXT_LEN + 32 * count {
-            return Err(AuditError::MessageLength(data.len()));
-        }
-        let (eph_pk, body) = data.split_at(TAGGED_X25519_KEY_LEN);
-        let (ciphertext, disclosure) = body.split_at(AUDIT_CIPHERTEXT_LEN);
-        let fields = disclosure
-            .as_chunks::<32>()
-            .0
-            .iter()
-            .map(|bytes| match *bytes < BN254_SCALAR_MODULUS_BE {
-                true => Ok(*bytes),
-                false => Err(AuditError::DisclosureField),
-            })
-            .collect::<Result<_>>()?;
-        let mut key = [0u8; TAGGED_X25519_KEY_LEN];
-        key.copy_from_slice(eph_pk);
-        let mut message = Self::new(X25519Pubkey::from_bytes(key)?, [0; AUDIT_CIPHERTEXT_LEN]);
-        message.ciphertext.copy_from_slice(ciphertext);
-        message.disclosure = fields;
-        Ok(message)
-    }
-
-    pub fn ephemeral_pubkey(&self) -> X25519Pubkey {
-        self.eph_pk
-    }
-
-    pub fn ephemeral_pubkey_bytes(&self) -> &[u8; TAGGED_X25519_KEY_LEN] {
-        self.eph_pk.as_bytes()
-    }
-
-    pub fn ciphertext(&self) -> &[u8; AUDIT_CIPHERTEXT_LEN] {
-        &self.ciphertext
-    }
-
-    pub fn disclosure(&self) -> &[[u8; 32]] {
-        &self.disclosure
-    }
-
-    pub fn open_outputs(
-        &self,
-        tx_viewing_key: &ViewingKey,
-        salt: [u8; 16],
-    ) -> Result<[ProofInputUtxo; AUDIT_OUTPUT_SLOTS]> {
-        let openings = self.open_outputs_for_shape(
-            tx_viewing_key,
-            salt,
-            DisclosureShape {
-                anonymous: false,
-                inputs: 0,
-                outputs: AUDIT_OUTPUT_SLOTS,
-            },
-        )?;
-        openings.try_into().map_err(|_| AuditError::DisclosureShape)
-    }
-
-    /// Opens exactly the fields selected by the settlement shape.
-    pub fn open_outputs_for_shape(
-        &self,
-        tx_viewing_key: &ViewingKey,
-        salt: [u8; 16],
-        shape: DisclosureShape,
-    ) -> Result<Vec<ProofInputUtxo>> {
-        if shape.anonymous || shape.field_count() != Some(self.disclosure.len()) {
-            return Err(AuditError::DisclosureShape);
-        }
-        let fields = disclosure_stream(
-            &tx_viewing_key.secret_bytes(),
-            salt,
-            &self.disclosure,
-            false,
-        )?;
-        Ok((0..self.disclosure.len() / AUDIT_OUTPUT_FIELD_COUNT)
-            .map(|slot| {
-                let field = |index: usize| fields[slot * AUDIT_OUTPUT_FIELD_COUNT + index];
-                ProofInputUtxo {
-                    domain: field(0),
-                    tree_id: field(1),
-                    owner_hash: field(2),
-                    asset: field(3),
-                    amount: field(4),
-                    blinding: field(5),
-                    data_hash: field(6),
-                    ring_data_hash: field(7),
-                    ring_program_id: field(8),
-                }
-            })
-            .collect())
-    }
-
-    /// Unmasks the slot-padded chunks the anonymous circuit binds to its sender and slots.
-    pub fn open_anonymous(
-        &self,
-        tx_viewing_key: &ViewingKey,
-        salt: [u8; 16],
-        shape: DisclosureShape,
-    ) -> Result<AnonymousDisclosure> {
-        if !shape.anonymous || shape.field_count() != Some(self.disclosure.len()) {
-            return Err(AuditError::DisclosureShape);
-        }
-        let len = shape.plaintext_len().ok_or(AuditError::DisclosureShape)?;
-        let fields = disclosure_stream(
-            &tx_viewing_key.secret_bytes(),
-            salt,
-            &self.disclosure,
-            false,
-        )?;
-        let plaintext =
-            Zeroizing::new(unpack_disclosure(&fields, len).ok_or(AuditError::DisclosurePadding)?);
-        AnonymousDisclosure::decode(&plaintext, shape)
-    }
-}
-
-impl AuditorEncryption {
-    pub fn new(tx_viewing_key: &ViewingKey, auditor_pk: &X25519Pubkey) -> Result<Self> {
-        let ephemeral = X25519Keypair::new();
-        let mut ciphertext = tx_viewing_key.secret_bytes();
-        seal_stream(&ephemeral, auditor_pk, AUDIT_ENC_INFO, &mut *ciphertext)?;
-        Ok(Self {
-            ephemeral_sk: ephemeral.secret_bytes(),
-            message: AuditorMessage::new(ephemeral.pubkey(), *ciphertext),
-        })
-    }
-
-    pub fn new_with_outputs(
-        tx_viewing_key: &ViewingKey,
-        auditor_pk: &X25519Pubkey,
-        salt: [u8; 16],
-        outputs: &[ProofInputUtxo],
-    ) -> Result<Self> {
-        Self::new_with_outputs_for_shape(
-            tx_viewing_key,
-            auditor_pk,
-            salt,
-            outputs,
-            DisclosureShape {
-                anonymous: false,
-                inputs: 0,
-                outputs: outputs.len(),
-            },
-        )
-    }
-
-    pub fn new_with_outputs_for_shape(
-        tx_viewing_key: &ViewingKey,
-        auditor_pk: &X25519Pubkey,
-        salt: [u8; 16],
-        outputs: &[ProofInputUtxo],
-        shape: DisclosureShape,
-    ) -> Result<Self> {
-        if outputs.is_empty() || outputs.len() > AUDIT_OUTPUT_SLOTS {
-            return Err(AuditError::OutputCount(outputs.len()));
-        }
-        if shape.anonymous || shape.outputs != outputs.len() {
-            return Err(AuditError::DisclosureShape);
-        }
-        let count = shape.field_count().ok_or(AuditError::DisclosureShape)?;
-        let mut sealed = Self::new(tx_viewing_key, auditor_pk)?;
-        let mut plaintext = vec![[0u8; 32]; count];
-        let (slots, _) = plaintext.as_chunks_mut::<AUDIT_OUTPUT_FIELD_COUNT>();
-        for (slot, output) in slots.iter_mut().zip(outputs) {
-            *slot = [
-                output.domain,
-                output.tree_id,
-                output.owner_hash,
-                output.asset,
-                output.amount,
-                output.blinding,
-                output.data_hash,
-                output.ring_data_hash,
-                output.ring_program_id,
-            ];
-        }
-        sealed.message.disclosure =
-            disclosure_stream(&tx_viewing_key.secret_bytes(), salt, &plaintext, true)?;
-        Ok(sealed)
-    }
-
-    /// Seals the anonymous opening under the same fresh capsule and disclosure stream.
-    pub fn new_with_anonymous(
-        tx_viewing_key: &ViewingKey,
-        auditor_pk: &X25519Pubkey,
-        salt: [u8; 16],
-        disclosure: &AnonymousDisclosure,
-    ) -> Result<Self> {
-        let plaintext = Zeroizing::new(disclosure.encode()?);
-        let mut sealed = Self::new(tx_viewing_key, auditor_pk)?;
-        sealed.message.disclosure = disclosure_stream(
-            &tx_viewing_key.secret_bytes(),
-            salt,
-            &pack_disclosure(&plaintext),
-            true,
-        )?;
-        Ok(sealed)
-    }
-}
-
-impl AnonymousDisclosure {
-    /// The published input and output prefixes of this opening.
-    pub fn shape(&self) -> DisclosureShape {
-        DisclosureShape {
-            anonymous: true,
-            inputs: self.inputs.len(),
-            outputs: self.outputs.len(),
-        }
-    }
-
-    /// Slot padding keeps the circuit's 31-byte chunk boundaries fixed.
-    fn encode(&self) -> Result<Vec<u8>> {
-        let len = self
-            .shape()
-            .plaintext_len()
-            .ok_or(AuditError::DisclosureShape)?;
-        let mut bytes = Vec::with_capacity(len);
-        bytes.push(SOLANA_OWNER_TAG);
-        bytes.extend_from_slice(&self.sender);
-        bytes.resize(DISCLOSURE_SENDER_LEN, 0);
-        for input in &self.inputs {
-            let end = bytes.len() + DISCLOSURE_INPUT_LEN;
-            bytes.extend_from_slice(&input.tree_id.to_be_bytes());
-            bytes.extend_from_slice(&input.amount.to_be_bytes());
-            bytes.extend_from_slice(&input.asset);
-            bytes.extend_from_slice(&input.blinding);
-            bytes.resize(end, 0);
-        }
-        for output in &self.outputs {
-            let end = bytes.len() + DISCLOSURE_OUTPUT_LEN;
-            output.encode(&mut bytes);
-            bytes.resize(end, 0);
-        }
-        Ok(bytes)
-    }
-
-    /// Nonzero padding is refused, so every accepted disclosure has one byte layout.
-    fn decode(bytes: &[u8], shape: DisclosureShape) -> Result<Self> {
-        let (header, mut rest) = bytes
-            .split_at_checked(DISCLOSURE_SENDER_LEN)
-            .ok_or(AuditError::DisclosureShape)?;
-        if header[0] != SOLANA_OWNER_TAG || header[33..].iter().any(|byte| *byte != 0) {
-            return Err(AuditError::DisclosurePadding);
-        }
-        let mut take = |len: usize| {
-            let (slot, tail) = rest
-                .split_at_checked(len)
-                .ok_or(AuditError::DisclosureShape)?;
-            rest = tail;
-            Ok::<_, AuditError>(slot)
-        };
-        let mut inputs = Vec::with_capacity(shape.inputs);
-        for _ in 0..shape.inputs {
-            let slot = take(DISCLOSURE_INPUT_LEN)?;
-            if slot[74..].iter().any(|byte| *byte != 0) {
-                return Err(AuditError::DisclosurePadding);
-            }
-            inputs.push(AuditInputOpening {
-                tree_id: u16::from_be_bytes([slot[0], slot[1]]),
-                amount: u64::from_be_bytes(disclosure_bytes(slot, 2)?),
-                asset: disclosure_bytes(slot, 10)?,
-                blinding: disclosure_bytes(slot, 42)?,
-            });
-        }
-        let mut outputs = Vec::with_capacity(shape.outputs);
-        for _ in 0..shape.outputs {
-            outputs.push(AnonymousOutputOpening::decode(take(
-                DISCLOSURE_OUTPUT_LEN,
-            )?)?);
-        }
-        if !rest.is_empty() {
-            return Err(AuditError::DisclosureShape);
-        }
-        Ok(Self {
-            sender: disclosure_bytes(header, 1)?,
-            inputs,
-            outputs,
-        })
-    }
-}
-
-/// Reads a fixed-width field only after the disclosure shape has been checked.
-fn disclosure_bytes<const N: usize>(slot: &[u8], at: usize) -> Result<[u8; N]> {
-    slot.get(at..at + N)
-        .and_then(|bytes| bytes.try_into().ok())
-        .ok_or(AuditError::DisclosureShape)
-}
-
-/// The circuit's disclosure keystream, `Poseidon(seed, i)` per field, a known pad reveals no other.
-fn disclosure_pad(
-    domain: u64,
-    secret: &[u8; 32],
-    salt: [u8; 16],
-    count: usize,
-) -> Result<Vec<[u8; 32]>> {
-    let FieldPair { lo, hi } = pack_2fe(secret);
-    let seed = Zeroizing::new(poseidon(&[
-        &right_align(&domain.to_be_bytes()),
-        &lo,
-        &hi,
-        &right_align(&salt),
-    ])?);
-    (0..count as u64)
-        .map(|index| Ok(poseidon(&[&*seed, &right_align(&index.to_be_bytes())])?))
-        .collect()
-}
-
-fn disclosure_stream(
-    secret: &[u8; 32],
-    salt: [u8; 16],
-    fields: &[[u8; 32]],
-    encrypt: bool,
-) -> Result<Vec<[u8; 32]>> {
-    domain_stream(DISCLOSURE_DOMAIN, secret, salt, fields, encrypt)
-}
-
-/// Adds or removes the keystream of each disclosure field modulo the BN254 order.
-fn domain_stream(
-    domain: u64,
-    secret: &[u8; 32],
-    salt: [u8; 16],
-    fields: &[[u8; 32]],
-    encrypt: bool,
-) -> Result<Vec<[u8; 32]>> {
-    let pad = disclosure_pad(domain, secret, salt, fields.len())?;
-    let mut out = vec![[0u8; 32]; fields.len()];
-    for ((field, mask), result) in fields.iter().zip(&pad).zip(out.iter_mut()) {
-        *result = match encrypt {
-            true => field_add(field, mask),
-            false => field_sub(field, mask),
-        };
-    }
-    Ok(out)
+    .map_err(Into::into)
 }
 
 /// A nullifier key sealed to the ring auditor, plaintext byte zero is the pad the circuit pins.
@@ -702,7 +113,12 @@ impl NullifierKeyEnvelope {
         ephemeral: X25519Keypair,
     ) -> Result<Self> {
         let mut ciphertext = Zeroizing::new(right_align(&nullifier_key.secret()));
-        seal_stream(&ephemeral, auditor_pk, NF_KEY_ENC_INFO, &mut *ciphertext)?;
+        seal_stream(
+            &ephemeral,
+            auditor_pk,
+            StreamSchedule::Labelled(NF_KEY_ENC_INFO),
+            &mut *ciphertext,
+        )?;
         Ok(Self {
             ephemeral_sk: ephemeral.secret_bytes(),
             sealed: SealedNullifierKey {
@@ -715,16 +131,20 @@ impl NullifierKeyEnvelope {
 }
 
 impl SealedNullifierKey {
-    /// The pad alone does not authenticate the key against its registry leaf.
+    /// The pad alone does not authenticate the key against its registry record.
     pub fn open(&self, auditor: &X25519Keypair) -> Result<NullifierKey> {
         let mut plaintext = Zeroizing::new(self.ciphertext);
-        open_stream(auditor, &self.eph_pk, NF_KEY_ENC_INFO, &mut *plaintext)?;
-        if plaintext[0] != 0 {
+        open_stream(
+            auditor,
+            &self.eph_pk,
+            StreamSchedule::Labelled(NF_KEY_ENC_INFO),
+            &mut *plaintext,
+        )?;
+        let [pad, secret @ ..] = &*plaintext;
+        if *pad != 0 {
             return Err(AuditError::NullifierPad);
         }
-        let mut key = Zeroizing::new([0u8; 31]);
-        key.copy_from_slice(&plaintext[1..]);
-        Ok(NullifierKey::from_secret(*key))
+        Ok(NullifierKey::from_secret(*secret))
     }
 }
 
@@ -744,6 +164,7 @@ pub struct DepositEncryption {
 }
 
 const DEPOSIT_STREAM_LEN: usize = RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN * MAX_RING_DEPOSIT_AUDIT_SLOTS;
+const DEPOSIT_SCHEDULE: StreamSchedule = StreamSchedule::Labelled(RING_DEPOSIT_AUDIT_INFO);
 
 /// Seals deposit openings to the ring's pinned auditor key.
 pub fn seal_deposits(
@@ -769,12 +190,7 @@ fn seal_deposits_with(
         slot[RING_DEPOSIT_AUDIT_OWNER_KEY_OFFSET..]
             .copy_from_slice(&opening.owner_key.unwrap_or_default());
     }
-    seal_stream(
-        &ephemeral,
-        auditor_pk,
-        RING_DEPOSIT_AUDIT_INFO,
-        &mut *plaintext,
-    )?;
+    seal_stream(&ephemeral, auditor_pk, DEPOSIT_SCHEDULE, &mut *plaintext)?;
     Ok(DepositEncryption {
         ephemeral_sk: ephemeral.secret_bytes(),
         ephemeral_pk: ephemeral.pubkey(),
@@ -803,7 +219,7 @@ pub fn open_deposit(
     open_stream(
         auditor,
         &X25519Pubkey::from_bytes(*capsule.eph_pk)?,
-        RING_DEPOSIT_AUDIT_INFO,
+        DEPOSIT_SCHEDULE,
         &mut *plaintext,
     )?;
     let mut opening = DepositOpening {
@@ -821,7 +237,7 @@ pub fn open_deposit(
     let mut owner_key = [0u8; 32];
     owner_key.copy_from_slice(&plaintext[key_offset..opened.end]);
     opening.owner_key = (owner_key != [0; 32]).then_some(owner_key);
-    if poseidon(&[&opening.owner_hash, opening.blinding.as_slice()])? != *owner_utxo_hash {
+    if Poseidon::hashv(&[&opening.owner_hash, opening.blinding.as_slice()])? != *owner_utxo_hash {
         return Err(AuditError::DepositOpeningMismatch);
     }
     Ok(opening)
@@ -829,12 +245,7 @@ pub fn open_deposit(
 
 #[cfg(test)]
 mod tests {
-    use custom_ring_interface::{
-        CustomRingBasePublicInput, EscrowKey, RegisterKeyPublicInput, MEMBER_REGISTRY_EMPTY_ROOT,
-    };
-    use zolana_hasher::hash_chain::create_hash_chain_4_from_slice;
-    use zolana_ring_member_registry::MemberRegistryTree;
-    use zolana_ring_policy::Member;
+    use custom_ring_interface::EscrowKey;
 
     use super::*;
     mod deposit_fixture {
@@ -928,14 +339,13 @@ mod tests {
     const AUDITOR_SK: &str = "01323130373635343b3a39383f3e3d3c23222120272625242b2a29282f2e2d2c";
     const EPHEMERAL_SK: &str = "011013121514171619181b1a1d1c1f1e010003020504070609080b0a0d0c0f0e";
     const NULLIFIER_SECRET: &str = "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
-    const MEMBER_TAG: [u8; 32] = [9u8; 32];
     const NULLIFIER_PK: &str = "2d1faf6cf358763421511eb637adf7b6609443d38edc4ed2b042dfbf834b03f5";
     const EPH_PK: &str = "043632fe89228ea5215eea45a56704f569e3929868a8573363d015e39609f0eb63";
     const CIPHERTEXT: &str = "2c2a1650e3a2a0d012a0d438341ff610ad99bd3c1cde0dd169179174880e755d";
     const KEY_HASH: &str = "1c73c14786dd7354525c98368bca8dbc5f836e957c45f552f377c84e266546c4";
 
     #[test]
-    fn the_sealed_key_and_its_registration_statement_match_the_pinned_vector() {
+    fn the_sealed_key_and_its_escrow_key_match_the_pinned_vector() {
         let auditor = X25519Keypair::from_bytes(&bytes(AUDITOR_SK));
         let nullifier_key = NullifierKey::from_secret(bytes(NULLIFIER_SECRET));
         let ephemeral = X25519Keypair::from_bytes(&bytes(EPHEMERAL_SK));
@@ -953,7 +363,6 @@ mod tests {
                 .as_slice(),
             &bytes::<31>(NULLIFIER_SECRET)
         );
-
         let key = EscrowKey {
             nullifier_pk: &envelope.nullifier_pk,
             ciphertext: &envelope.sealed.ciphertext,
@@ -961,185 +370,6 @@ mod tests {
         .hash()
         .expect("key hash");
         assert_eq!(key, bytes(KEY_HASH));
-
-        let member = Member::owner_tag(&MEMBER_TAG).expect("member");
-        // The first registration inserts the record at index 1 above the sentinel.
-        let mut registry = MemberRegistryTree::new().expect("empty registry");
-        let item = registry
-            .register_item(member.as_bytes(), key)
-            .expect("registration item");
-        assert_eq!(registry.root(), MEMBER_REGISTRY_EMPTY_ROOT);
-        assert_eq!(item.index, 1);
-        assert_eq!(item.escrow_key, key);
-        registry.apply(&[item]).expect("first registration");
-        assert_ne!(registry.root(), MEMBER_REGISTRY_EMPTY_ROOT);
-
-        let public_input = RegisterKeyPublicInput {
-            registry_old_root: &MEMBER_REGISTRY_EMPTY_ROOT,
-            registry_new_root: &registry.root(),
-            member: member.as_bytes(),
-            nullifier_pk: &envelope.nullifier_pk,
-            auditor_pk: auditor.pubkey().as_bytes(),
-            eph_pk: envelope.sealed.eph_pk.as_bytes(),
-            ciphertext: &envelope.sealed.ciphertext,
-            index: item.index,
-        }
-        .hash()
-        .expect("public input");
-        assert_eq!(
-            registry.root(),
-            bytes("133b1a84f6508b81465d8c2388be5210ec4171ef8347193f9dcad621953c5015")
-        );
-        assert_eq!(
-            public_input,
-            bytes("2b36575112a72041181227ef0313db6e9d340e56e378dd9e4368eaf9c50c8bfb")
-        );
-    }
-
-    #[test]
-    fn anonymous_disclosure_round_trips_with_the_hidden_recipient_key() {
-        let auditor = X25519Keypair::new();
-        let tx = ViewingKey::new();
-        let owner = AnonymousOwner {
-            identity_tag: SOLANA_OWNER_TAG,
-            identity_key: [8; 32],
-            nullifier_pk: [9; 32],
-        };
-        let ring = AnonymousOutputOpening::Ring(AnonymousRingOutput {
-            owner,
-            viewing_pk: *ViewingKey::new().pubkey().as_bytes(),
-        });
-        let disclosure = AnonymousDisclosure {
-            sender: [7; 32],
-            inputs: vec![
-                AuditInputOpening {
-                    tree_id: 4,
-                    amount: 9,
-                    asset: [3; 32],
-                    blinding: [5; 32],
-                },
-                AuditInputOpening::default(),
-            ],
-            outputs: vec![
-                ring,
-                AnonymousOutputOpening::Exit(AnonymousExit {
-                    owner: AnonymousOwner {
-                        identity_key: [6; 32],
-                        ..owner
-                    },
-                    amount: 77,
-                    asset: [4; 32],
-                    blinding: [2; 32],
-                }),
-                AnonymousOutputOpening::Padding,
-                ring,
-            ],
-        };
-        let shape = disclosure.shape();
-        assert_eq!(shape.field_count(), Some(28));
-        let sealed =
-            AuditorEncryption::new_with_anonymous(&tx, &auditor.pubkey(), [2; 16], &disclosure)
-                .expect("seal");
-        let parsed = AuditorMessage::parse_with_shape(
-            &sealed.message.to_message_data(&auditor.pubkey()),
-            &auditor.pubkey(),
-            shape,
-        )
-        .expect("parse");
-        assert_eq!(
-            parsed.open_anonymous(&tx, [2; 16], shape).unwrap(),
-            disclosure
-        );
-        assert!(matches!(
-            parsed.open_outputs(&tx, [2; 16]),
-            Err(AuditError::DisclosureShape)
-        ));
-        let plaintext = disclosure.encode().unwrap();
-        let exit = DISCLOSURE_SENDER_LEN + 2 * DISCLOSURE_INPUT_LEN + DISCLOSURE_OUTPUT_LEN;
-        let padding = exit + DISCLOSURE_OUTPUT_LEN;
-        // The sender padding, the bytes past an exit's blinding and a padding slot stay zero.
-        for index in [33, exit + 138, padding + 70] {
-            let mut corrupted = plaintext.clone();
-            corrupted[index] = 1;
-            assert!(matches!(
-                AnonymousDisclosure::decode(&corrupted, shape),
-                Err(AuditError::DisclosurePadding)
-            ));
-        }
-        let mut unknown = plaintext.clone();
-        unknown[exit] = 3;
-        assert!(matches!(
-            AnonymousDisclosure::decode(&unknown, shape),
-            Err(AuditError::DisclosureOutputKind(3))
-        ));
-        let mut tagged = plaintext.clone();
-        tagged[exit + 1] = 0x50;
-        assert!(matches!(
-            AnonymousDisclosure::decode(&tagged, shape),
-            Err(AuditError::DisclosureIdentityTag(0x50))
-        ));
-        // A 0xff lead byte puts the exit blinding above the modulus.
-        let mut alias = plaintext;
-        alias[exit + 106] = 0xff;
-        assert!(matches!(
-            AnonymousDisclosure::decode(&alias, shape),
-            Err(AuditError::DisclosureField)
-        ));
-
-        let mut wide = disclosure.clone();
-        wide.inputs = (0..12)
-            .map(|index| AuditInputOpening {
-                tree_id: index + 1,
-                amount: u64::from(index) + 9,
-                ..AuditInputOpening::default()
-            })
-            .collect();
-        wide.outputs.truncate(2);
-        let shape = wide.shape();
-        assert_eq!(shape.field_count(), Some(48));
-        let sealed = AuditorEncryption::new_with_anonymous(&tx, &auditor.pubkey(), [2; 16], &wide)
-            .expect("seal wide");
-        let parsed = AuditorMessage::parse_with_shape(
-            &sealed.message.to_message_data(&auditor.pubkey()),
-            &auditor.pubkey(),
-            shape,
-        )
-        .expect("parse wide");
-        assert_eq!(parsed.open_anonymous(&tx, [2; 16], shape).unwrap(), wide);
-    }
-
-    #[test]
-    fn compact_ordinary_disclosure_round_trips_exactly_two_outputs() {
-        let auditor = X25519Keypair::new();
-        let tx = ViewingKey::new();
-        let mut outputs = vec![ProofInputUtxo::default(); 2];
-        outputs[0].amount[31] = 7;
-        outputs[1].amount[31] = 9;
-        let shape = DisclosureShape {
-            anonymous: false,
-            inputs: 24,
-            outputs: 2,
-        };
-        assert_eq!(shape.field_count(), Some(18));
-        let sealed = AuditorEncryption::new_with_outputs_for_shape(
-            &tx,
-            &auditor.pubkey(),
-            [3; 16],
-            &outputs,
-            shape,
-        )
-        .expect("seal compact");
-        let parsed = AuditorMessage::parse_with_shape(
-            &sealed.message.to_message_data(&auditor.pubkey()),
-            &auditor.pubkey(),
-            shape,
-        )
-        .expect("parse compact");
-        assert_eq!(
-            parsed.open_outputs_for_shape(&tx, [3; 16], shape).unwrap(),
-            outputs
-        );
-        assert!(parsed.open_outputs(&tx, [3; 16]).is_err());
     }
 
     #[test]
@@ -1277,169 +507,5 @@ mod tests {
             seal_deposits(&openings, &auditor),
             Err(AuditError::DepositCount(9))
         ));
-    }
-
-    /// Written by the Go circuit tests from the circuit's own gadgets.
-    const SHARED_DISCLOSURE_VECTOR: &str =
-        include_str!("../../../test-vectors/audit-disclosure.json");
-
-    struct DisclosureVector {
-        key: [u8; 32],
-        salt: [u8; 16],
-        fields: [[u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT],
-        pad: [[u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT],
-        ciphertext: [[u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT],
-        disclosure_hash: [u8; 32],
-    }
-
-    fn shared_vector() -> DisclosureVector {
-        let vector: serde_json::Value =
-            serde_json::from_str(SHARED_DISCLOSURE_VECTOR).expect("vector json");
-        let hex = |name: &str| vector[name].as_str().expect(name);
-        let fields = |name: &str| -> [[u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT] {
-            let fields: Vec<[u8; 32]> = vector[name]
-                .as_array()
-                .expect(name)
-                .iter()
-                .map(|field| bytes(field.as_str().expect("hex field")))
-                .collect();
-            fields.try_into().expect("36 fields")
-        };
-        DisclosureVector {
-            key: bytes(hex("key")),
-            salt: bytes(hex("salt")),
-            fields: fields("fields"),
-            pad: fields("pad"),
-            ciphertext: fields("ciphertext"),
-            disclosure_hash: bytes(hex("disclosure_hash")),
-        }
-    }
-
-    /// Chain element 11 of the base statement, after the output body chain.
-    fn disclosure_hash_element(disclosure: &[[u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT]) -> [u8; 32] {
-        CustomRingBasePublicInput {
-            private_tx_hash: &[0; 32],
-            tx_viewing_pk: &[0; 33],
-            auditor_pk: &[0; 33],
-            eph_pk: &[0; 33],
-            ciphertext: &[0; 32],
-            output_body_hashes: &[[0; 32]],
-            output_hashes: &[[0; 32]],
-            salt: &[0; 16],
-            disclosure,
-            anonymous: false,
-        }
-        .elements()
-        .expect("audit elements")[11]
-    }
-
-    /// The Go circuit tests generate it from the anonymous layout.
-    const ANONYMOUS_DISCLOSURE_VECTOR: &str =
-        include_str!("../../../test-vectors/audit-disclosure-anonymous.json");
-
-    #[test]
-    fn the_anonymous_disclosure_layout_matches_the_go_vector() {
-        let vector: serde_json::Value =
-            serde_json::from_str(ANONYMOUS_DISCLOSURE_VECTOR).expect("vector json");
-        let hex = |name: &str| vector[name].as_str().expect(name);
-        let fields = |name: &str| -> Vec<[u8; 32]> {
-            vector[name]
-                .as_array()
-                .expect(name)
-                .iter()
-                .map(|field| bytes(field.as_str().expect("hex field")))
-                .collect()
-        };
-        let shape = DisclosureShape {
-            anonymous: true,
-            inputs: vector["n_in"].as_u64().expect("n_in") as usize,
-            outputs: vector["n_out"].as_u64().expect("n_out") as usize,
-        };
-        let plaintext = hex::decode(hex("plaintext")).expect("plaintext");
-        assert_eq!(shape.plaintext_len(), Some(plaintext.len()));
-        let disclosure = AnonymousDisclosure::decode(&plaintext, shape).expect("decode");
-        assert_eq!(disclosure.encode().expect("encode"), plaintext);
-        assert_eq!(
-            disclosure.sender,
-            bytes("a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1")
-        );
-        assert_eq!(disclosure.inputs[0].tree_id, 3);
-        assert_eq!(disclosure.inputs[0].amount, 100);
-        assert_eq!(disclosure.inputs[1], AuditInputOpening::default());
-        let AnonymousOutputOpening::Ring(ring) = disclosure.outputs[0] else {
-            panic!("slot 0 is a ring note");
-        };
-        assert_eq!(ring.owner.identity_tag, SOLANA_OWNER_TAG);
-        assert_eq!(ring.owner.identity_key, [0xb2; 32]);
-        assert_eq!(
-            ring.viewing_pk,
-            bytes::<33>("0425884d18d7d920b659ef8e4dfb469618bd863b8ea42960420de1ed79834c3406")
-        );
-        assert_eq!(disclosure.outputs[1], AnonymousOutputOpening::Padding);
-        let AnonymousOutputOpening::Exit(exit) = disclosure.outputs[2] else {
-            panic!("slot 2 exits the ring");
-        };
-        assert_eq!(
-            (exit.owner.identity_tag, exit.owner.identity_key),
-            (SOLANA_OWNER_TAG, [0xd4; 32])
-        );
-        assert_eq!(exit.amount, 100);
-        assert_eq!(exit.asset, hash_bytes(&[0x0a; 32]).expect("asset"));
-        assert_eq!(exit.blinding, right_align(&[62]));
-        assert_eq!(pack_disclosure(&plaintext), fields("fields"));
-        let key: [u8; 32] = bytes(hex("key"));
-        let salt: [u8; 16] = bytes(hex("salt"));
-        assert_eq!(
-            disclosure_stream(&key, salt, &fields("fields"), true).expect("seal"),
-            fields("ciphertext")
-        );
-        assert_eq!(
-            create_hash_chain_4_from_slice(&fields("ciphertext")).expect("hash chain 4"),
-            bytes::<32>(hex("disclosure_hash"))
-        );
-    }
-
-    /// A fully known chunk unmasks its own pad and nothing else.
-    #[test]
-    fn the_disclosure_pad_indexes_are_independent() {
-        let vector = shared_vector();
-        let zero = [[0u8; 32]; AUDIT_DISCLOSURE_FIELD_COUNT];
-        let pad = disclosure_stream(&vector.key, vector.salt, &zero, true).expect("pad");
-        assert_eq!(pad, vector.pad);
-        for (index, window) in pad.windows(2).enumerate() {
-            let chained = poseidon(&[&window[0], &right_align(&(index as u64 + 1).to_be_bytes())])
-                .expect("chain step");
-            assert_ne!(window[1], chained);
-        }
-        assert_eq!(
-            disclosure_stream(&vector.key, vector.salt, &pad, false).expect("open"),
-            zero
-        );
-    }
-
-    #[test]
-    fn the_disclosure_stream_matches_the_shared_vector() {
-        let vector = shared_vector();
-        assert_eq!(
-            disclosure_stream(&vector.key, vector.salt, &vector.fields, true).expect("seal"),
-            vector.ciphertext
-        );
-        assert_eq!(
-            disclosure_stream(&vector.key, vector.salt, &vector.ciphertext, false).expect("open"),
-            vector.fields
-        );
-    }
-
-    #[test]
-    fn the_disclosure_hash_is_the_4_ary_chain_of_the_ciphertext() {
-        let vector = shared_vector();
-        assert_eq!(
-            create_hash_chain_4_from_slice(&vector.ciphertext).expect("hash chain 4"),
-            vector.disclosure_hash
-        );
-        assert_eq!(
-            disclosure_hash_element(&vector.ciphertext),
-            vector.disclosure_hash
-        );
     }
 }

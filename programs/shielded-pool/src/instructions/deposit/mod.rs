@@ -1,4 +1,4 @@
-mod account;
+pub(crate) mod account;
 mod event;
 mod processor;
 

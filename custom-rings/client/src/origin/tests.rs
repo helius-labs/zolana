@@ -704,22 +704,11 @@ fn a_failed_transaction_grants_no_origin() {
 }
 
 #[test]
-fn shaped_policy_outer_tags_preserve_confirmed_ring_origin() {
+fn ring_transfer_outer_tags_preserve_confirmed_ring_origin() {
     for (outer_tag, inner_tag) in [
+        (custom_ring_interface::tag::TRANSACT, tag::RING_TRANSACT),
         (
-            custom_ring_interface::tag::TRANSACT_SHAPED,
-            tag::RING_TRANSACT,
-        ),
-        (
-            custom_ring_interface::tag::DELEGATE_TRANSACT_SHAPED,
-            tag::RING_AUTHORITY_TRANSACT,
-        ),
-        (
-            custom_ring_interface::tag::TRANSACT_SHAPED_SUBTREE,
-            tag::RING_TRANSACT,
-        ),
-        (
-            custom_ring_interface::tag::DELEGATE_TRANSACT_SHAPED_SUBTREE,
+            custom_ring_interface::tag::DELEGATE_TRANSACT,
             tag::RING_AUTHORITY_TRANSACT,
         ),
     ] {

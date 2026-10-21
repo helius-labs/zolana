@@ -30,9 +30,9 @@ use zeroize::Zeroizing;
 use zolana_indexer_api::{
     method::{
         GetEncryptedUtxosByTags, GetMerkleProofs, GetNonInclusionProofs, GetNullifierQueueElements,
-        GetRingMemberRecord, GetRingMemberRecords, GetRingMemberRegistryRoot,
-        GetShieldedTransactionsByNullifiers, GetShieldedTransactionsBySignature,
-        GetShieldedTransactionsByTags, GetUserRecords,
+        GetRingApplyProofInputs, GetRingMemberOpenings, GetRingMemberRecord, GetRingMemberRecords,
+        GetRingMemberRegistryRoot, GetRingRecordQueue, GetShieldedTransactionsByNullifiers,
+        GetShieldedTransactionsBySignature, GetShieldedTransactionsByTags, GetUserRecords,
     },
     RpcMethod,
 };
@@ -41,9 +41,12 @@ pub use zolana_indexer_api::{
     Base64String, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
     GetMerkleProofsRequest, GetMerkleProofsResponse, GetNonInclusionProofsRequest,
     GetNonInclusionProofsResponse, GetNullifierQueueElementsRequest,
-    GetNullifierQueueElementsResponse, GetRingMemberRecordRequest, GetRingMemberRecordResponse,
-    GetRingMemberRecordsRequest, GetRingMemberRecordsResponse, GetRingMemberRegistryRootRequest,
-    GetRingMemberRegistryRootResponse, GetRingsByNullifiersRequest, GetRingsByTagsRequest,
+    GetNullifierQueueElementsResponse, GetRingApplyProofInputsRequest,
+    GetRingApplyProofInputsResponse, GetRingMemberOpeningsRequest, GetRingMemberOpeningsResponse,
+    GetRingMemberRecordRequest, GetRingMemberRecordResponse, GetRingMemberRecordsRequest,
+    GetRingMemberRecordsResponse, GetRingMemberRegistryRootRequest,
+    GetRingMemberRegistryRootResponse, GetRingRecordQueueRequest, GetRingRecordQueueResponse,
+    GetRingsByNullifiersRequest, GetRingsByTagsRequest,
     GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureRequest,
     GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
     GetUserRecordsRequest, GetUserRecordsResponse, Hash, IndexedShieldedTransaction, Limit,
@@ -651,6 +654,27 @@ impl ZolanaApi {
         self.call::<GetRingMemberRegistryRoot>(request).await
     }
 
+    pub async fn get_ring_member_openings(
+        &self,
+        request: GetRingMemberOpeningsRequest,
+    ) -> Result<GetRingMemberOpeningsResponse, ApiError> {
+        self.call::<GetRingMemberOpenings>(request).await
+    }
+
+    pub async fn get_ring_record_queue(
+        &self,
+        request: GetRingRecordQueueRequest,
+    ) -> Result<GetRingRecordQueueResponse, ApiError> {
+        self.call::<GetRingRecordQueue>(request).await
+    }
+
+    pub async fn get_ring_apply_proof_inputs(
+        &self,
+        request: GetRingApplyProofInputsRequest,
+    ) -> Result<GetRingApplyProofInputsResponse, ApiError> {
+        self.call::<GetRingApplyProofInputs>(request).await
+    }
+
     pub async fn get_non_inclusion_proofs(
         &self,
         tree_account: SerializablePubkey,
@@ -858,6 +882,30 @@ impl BlockingZolanaApi {
     ) -> Result<GetRingMemberRegistryRootResponse, ApiError> {
         self.runtime
             .block_on(self.api.get_ring_member_registry_root(request))
+    }
+
+    pub fn get_ring_member_openings(
+        &self,
+        request: GetRingMemberOpeningsRequest,
+    ) -> Result<GetRingMemberOpeningsResponse, ApiError> {
+        self.runtime
+            .block_on(self.api.get_ring_member_openings(request))
+    }
+
+    pub fn get_ring_record_queue(
+        &self,
+        request: GetRingRecordQueueRequest,
+    ) -> Result<GetRingRecordQueueResponse, ApiError> {
+        self.runtime
+            .block_on(self.api.get_ring_record_queue(request))
+    }
+
+    pub fn get_ring_apply_proof_inputs(
+        &self,
+        request: GetRingApplyProofInputsRequest,
+    ) -> Result<GetRingApplyProofInputsResponse, ApiError> {
+        self.runtime
+            .block_on(self.api.get_ring_apply_proof_inputs(request))
     }
 
     pub fn get_non_inclusion_proofs(

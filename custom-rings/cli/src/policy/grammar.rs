@@ -6,7 +6,6 @@ use custom_ring_sdk::CustomRing;
 use serde::{Deserialize, Serialize};
 use solana_address::Address;
 use thiserror::Error;
-use zolana_interface::pda;
 use zolana_ring_policy::{
     Guard, ListId, ListSet, Member, MemberError, Mode, OutflowLimit, Rule, RuleSource, RuleTable,
     RuleTableError, Subject, Writer, MAX_INLINE_ASSETS, MAX_OUTFLOW_LIMITS, MAX_RULES,
@@ -20,8 +19,6 @@ use crate::{
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PolicySpec {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub address_tree: Option<Base58Address>,
     /// Curator program ids by list name, an absent list reads the ring's own registry.
     #[serde(default, skip_serializing_if = "PerCluster::is_empty")]
     pub sources: PerCluster<Sources>,
@@ -92,7 +89,6 @@ named_enum! {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CompiledPolicy {
     pub rules: RuleTable,
-    pub address_tree: Address,
     pub shared_sources: Vec<(ListId, CustomRing)>,
 }
 
@@ -440,10 +436,6 @@ fn merge<T: Clone + PartialEq>(
 }
 
 impl PolicySpec {
-    pub fn address_tree(&self) -> Address {
-        self.address_tree.map_or(pda::tree(0), |tree| tree.0)
-    }
-
     pub(crate) fn rows(&self) -> Result<PolicyRows, PolicyError> {
         let count = self.rules.len();
         if count > MAX_RULES {
@@ -482,7 +474,6 @@ impl PolicySpec {
             .collect::<Result<Vec<_>, _>>()?;
         Ok(CompiledPolicy {
             rules,
-            address_tree: self.address_tree(),
             shared_sources,
         })
     }
@@ -640,7 +631,6 @@ mod tests {
     fn limits_bound_each_transfer() {
         let policy = compiled(&format!(
             r#"
-address_tree = "{CURATOR}"
 limits = [{{ asset = "{MINT}", cap = 1000 }}]
 "#
         ))
@@ -654,7 +644,6 @@ limits = [{{ asset = "{MINT}", cap = 1000 }}]
     fn a_limit_without_a_bound_is_refused() {
         let error = compiled(&format!(
             r#"
-address_tree = "{CURATOR}"
 limits = [{{ asset = "{MINT}" }}]
 "#
         ))
@@ -685,8 +674,6 @@ limits = [{{ asset = "{MINT}" }}]
     fn every_form_parses_and_compiles() {
         let policy = compiled(&format!(
             r#"
-address_tree = "{CURATOR}"
-
 [sources.devnet]
 block = "{CURATOR}"
 
@@ -726,7 +713,6 @@ above = 1000000
             Rule::require(Subject::OutputOwner, ListId::Allow).above(1_000_000)
         );
         assert!(policy.rules.inline_assets().is_empty());
-        assert_eq!(policy.address_tree, Address::from_str_const(CURATOR));
         assert_eq!(
             policy.shared_sources,
             vec![(
@@ -739,10 +725,9 @@ above = 1000000
     }
 
     #[test]
-    fn an_empty_table_is_a_legal_policy_with_the_default_tree() {
+    fn an_empty_table_is_a_legal_policy() {
         let policy = compiled("").expect("empty table");
         assert!(policy.rules.is_empty());
-        assert_eq!(policy.address_tree, pda::tree(0));
         assert!(policy.shared_sources.is_empty());
     }
 

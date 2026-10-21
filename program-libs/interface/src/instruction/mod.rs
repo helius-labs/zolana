@@ -9,11 +9,11 @@ pub use instruction_data::{
     CreateProtocolConfigData, CreateRingConfigData, DepositAssetKind, DepositEntry,
     DepositEntryRef, DepositIxData, DepositIxDataRef, EncryptedRingDepositData,
     EncryptedRingDepositDataRef, ExternalDataPreimage, InputUtxo, InterfaceTransfer,
-    MergeExternalDataHash, MergeRingIxData, MergeRingIxDataRef, MergeTransactIxData,
-    MergeTransactIxDataRef, MessageData, OutputDataRef, OutputUtxo, OwnerTag, PauseTreeData,
-    ResolvedOutput, RingDepositEntry, RingDepositEntryRef, RingDepositIxData, RingDepositIxDataRef,
-    SetRingActivationData, TransactIxData, TransactIxDataRef, TransactOutput, TransactOutputRef,
-    TransactProof, TreeContext, UpdateProtocolConfigData, UpdateRingConfigData,
+    MergeExternalDataHash, MergeRingIxData, MergeRingIxDataRef, MergeRingPrefix,
+    MergeTransactIxData, MergeTransactIxDataRef, MessageData, OutputDataRef, OutputUtxo, OwnerTag,
+    PauseTreeData, ResolvedOutput, RingDepositEntry, RingDepositEntryRef, RingDepositIxData,
+    RingDepositIxDataRef, SetRingActivationData, TransactIxData, TransactIxDataRef, TransactOutput,
+    TransactOutputRef, TransactProof, TreeContext, UpdateProtocolConfigData, UpdateRingConfigData,
     DEPOSIT_BLINDING_DOMAIN, MAX_DEPOSIT_ASSETS,
 };
 #[cfg(feature = "tree")]

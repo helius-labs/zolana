@@ -1,3 +1,4 @@
+use custom_ring_interface::stream::StreamError;
 use solana_signature::Signature;
 use thiserror::Error;
 use zolana_client::{BlockingInsideRuntime, ClientError};
@@ -5,6 +6,8 @@ use zolana_hasher::HasherError;
 use zolana_keypair::KeypairError;
 use zolana_ring_policy::MemberError;
 use zolana_transaction::TransactionError;
+
+use crate::OutputPayloadErrorKind;
 
 #[derive(Debug, Error)]
 pub enum AuditError {
@@ -15,36 +18,39 @@ pub enum AuditError {
     /// The program accepts the auditor message only as the last message.
     #[error("auditor message is at index {index} of {count} messages, expected the last")]
     AuditorMessageNotLast { index: usize, count: usize },
+    #[error("auditor message of {0} bytes does not fit the disclosure layout")]
+    AuditorMessageLength(usize),
     #[error("transaction publishes no tx_viewing_pk")]
     MissingTxViewingPk,
     #[error("transaction publishes no salt")]
     MissingSalt,
+    #[error("transaction publishes no nullifier")]
+    MissingNullifier,
+    #[error("transaction names no ring program")]
+    MissingRingProgram,
     #[error("recovered transaction viewing key does not match the published tx_viewing_pk")]
     TxViewingKeyMismatch,
     #[error("recovered transaction viewing secret is not the canonical clamped X25519 encoding")]
     NonCanonicalViewingKey,
-    #[error("transaction has {0} output slots, but the audit proof supports four")]
-    OutputDisclosureCount(usize),
-    #[error("proof-bound opening does not match output commitment at slot {0}")]
-    OutputCommitmentMismatch(u32),
-    #[error("ring transaction event index is unavailable")]
-    MissingEventIndex,
-    #[error("message view tag is not the auditor view tag")]
-    ViewTagMismatch,
-    #[error("auditor message data of {0} bytes does not fit the disclosure shape")]
-    MessageLength(usize),
-    #[error("output disclosure contains a value at or above the field modulus")]
+    #[error("disclosure field lies at or above the field modulus")]
     DisclosureField,
-    #[error("disclosure shape does not match the transaction")]
-    DisclosureShape,
+    #[error("disclosure does not fit its layout")]
+    DisclosureLayout,
     #[error("disclosure padding is not zero")]
     DisclosurePadding,
-    #[error("disclosed output slot kind {0} is unknown")]
-    DisclosureOutputKind(u8),
-    #[error("disclosed output identity tag {0} is not the Solana owner tag")]
-    DisclosureIdentityTag(u8),
-    #[error("output count must be between one and four, got {0}")]
-    OutputCount(usize),
+    #[error("{trees} input trees do not match {inputs} published inputs")]
+    InputTreeCount { trees: usize, inputs: usize },
+    #[error("spent UTXO {commitment:?} is in no output the auditor opened")]
+    UnseenInput { commitment: [u8; 32] },
+    #[error("the transfer names no ring Transact frame its audit layout is bound to")]
+    MissingRingTransact,
+    #[error("output slot {slot} does not open, {kind:?}")]
+    UnopenedOutput {
+        slot: u32,
+        kind: OutputPayloadErrorKind,
+    },
+    #[error("ring transaction event index is unavailable")]
+    MissingEventIndex,
     #[error("nullifier ciphertext did not decrypt to a zero-padded secret")]
     NullifierPad,
     #[error("deposit count must be between one and eight, got {0}")]
@@ -65,8 +71,6 @@ pub enum AuditError {
     MergeDisclosureMismatch,
     #[error("merge audit exceeded its key-search work budget")]
     MergeAuditWorkBudget,
-    #[error("audited output slot index {0} is absent from its transaction")]
-    MissingOutputSlot(u32),
     #[error("transaction {signature} is unavailable {message}")]
     Unavailable {
         signature: Signature,
@@ -96,6 +100,8 @@ pub enum AuditError {
     Member(#[from] MemberError),
     #[error(transparent)]
     Hasher(#[from] HasherError),
+    #[error(transparent)]
+    Stream(#[from] StreamError),
 }
 
 impl From<BlockingInsideRuntime> for AuditError {

@@ -12,53 +12,91 @@ pub use grammar::{
 pub use render::render;
 
 use anyhow::{ensure, Context as _, Result};
-use custom_ring_sdk::{client_rules_match, CustomRing, ListRegistry, PolicyConfig};
+use custom_ring_interface::{ListRegistry, MemberRegistry};
+use custom_ring_sdk::{CustomRing, PinnedPolicy};
 use solana_signer::Signer;
 use zolana_ring_policy::RuleTable;
 
 use crate::{
     catalogue::check_curator,
-    fund::MIN_AUTHORITY_BALANCE,
     line,
     ui::{self, icon},
     Context, PolicyCommand,
 };
 
+const NO_POLICY: &str =
+    "the ring pins no policy, `zolana-ring init` pins the table of a policy ring";
+
+pub(crate) struct Pinned {
+    pub registry: Box<MemberRegistry>,
+    pub policy: PinnedPolicy,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct Line {
+    label: String,
+    text: String,
+}
+
 pub fn run(ctx: &Context, command: PolicyCommand) -> Result<()> {
     match command {
         PolicyCommand::Show => {
-            let config = pinned(ctx)?;
-            let title = format!("policy {}", ctx.ring.policy_config_pda());
+            let pinned = pinned(ctx)?;
+            let title = format!("policy {}", ctx.ring.registry_pda());
             ui::heading(icon::POLICY, &title);
-            print_pinned(ctx.ring, &config);
+            print_pinned(ctx.ring, &pinned);
         }
         PolicyCommand::Check => {
-            let (compiled, config) = (compiled(ctx)?, pinned(ctx)?);
-            verify_rows(&compiled, &config)?;
-            verify_sources(ctx.ring, &compiled, &config)?;
+            let (compiled, pinned) = (compiled(ctx)?, pinned(ctx)?);
+            verify_rows(&compiled, &pinned)?;
+            verify_sources(ctx.ring, &compiled, &pinned)?;
             line("policy", "matches ring.toml");
-            line("generation", config.generation());
+            line("generation", pinned.registry.generation());
         }
         PolicyCommand::Set { yes } => set(ctx, yes)?,
     }
     Ok(())
 }
 
-/// Rows, hash and tree, what a source re-point never changes.
-pub fn verify_rows(compiled: &CompiledPolicy, config: &PolicyConfig) -> Result<()> {
-    client_rules_match(&compiled.rules, config)
-        .context("the pinned table differs from ring.toml")?;
-    verify_tree(compiled, config)
+pub(crate) fn pinned(ctx: &Context) -> Result<Pinned> {
+    pinned_if_any(ctx)?.context(NO_POLICY)
+}
+
+/// `None` on an audit-only ring and before `init` pins the table.
+pub(crate) fn pinned_if_any(ctx: &Context) -> Result<Option<Pinned>> {
+    match ctx.block(ctx.ring.registry(ctx.chain()))? {
+        Some(registry) => Pinned::of(registry),
+        None => Ok(None),
+    }
+}
+
+impl Pinned {
+    /// `None` before the first policy write.
+    pub(crate) fn of(registry: Box<MemberRegistry>) -> Result<Option<Self>> {
+        if registry.policy_hash().is_err() {
+            return Ok(None);
+        }
+        let policy = PinnedPolicy::of(&registry)?;
+        Ok(Some(Self { registry, policy }))
+    }
+}
+
+/// The rows and their hash, what a source re-point never changes.
+pub(crate) fn verify_rows(compiled: &CompiledPolicy, pinned: &Pinned) -> Result<()> {
+    pinned
+        .policy
+        .matches(&compiled.rules)
+        .context("the pinned table differs from ring.toml")
 }
 
 /// Every referenced list reads the registry ring.toml names.
-pub fn verify_sources(
+pub(crate) fn verify_sources(
     ring: CustomRing,
     compiled: &CompiledPolicy,
-    config: &PolicyConfig,
+    pinned: &Pinned,
 ) -> Result<()> {
     let registry = |source: Option<ListRegistry>| match source {
-        Some(ListRegistry::Own) => ring.member_registry_root_pda(),
+        Some(ListRegistry::Own) => ring.registry_pda(),
         Some(ListRegistry::Curator(registry)) => registry,
         None => Default::default(),
     };
@@ -66,9 +104,9 @@ pub fn verify_sources(
         let expected = compiled
             .curator(list_id)
             .map_or(ListRegistry::Own, |curator| {
-                ListRegistry::Curator(curator.member_registry_root_pda())
+                ListRegistry::Curator(curator.registry_pda())
             });
-        let chain = config.registry_for(list_id);
+        let chain = pinned.registry.registry_for(list_id);
         ensure!(
             chain == Some(expected),
             "the {} list reads registry {} on chain, ring.toml expects {}",
@@ -80,40 +118,24 @@ pub fn verify_sources(
     Ok(())
 }
 
-/// No re-pin moves the tree, it is fixed at init.
-fn verify_tree(compiled: &CompiledPolicy, config: &PolicyConfig) -> Result<()> {
-    ensure!(
-        config.address_tree == compiled.address_tree,
-        "ring.toml names address tree {}, the policy config pins {}, it is fixed at init",
-        compiled.address_tree,
-        config.address_tree
-    );
-    Ok(())
-}
-
-pub fn print_pinned(ring: CustomRing, config: &PolicyConfig) {
-    ui::heading(icon::TREE, &format!("tree {}", config.address_tree));
-    let (generation, slot) = (config.generation(), config.generation_slot());
+pub(crate) fn print_pinned(ring: CustomRing, pinned: &Pinned) {
+    let registry = &pinned.registry;
+    let (generation, slot) = (registry.generation(), registry.generation_slot());
     line("generation", format_args!("{generation} at slot {slot}"));
-    line("hash", hex::encode(config.policy_hash));
-    match config.rule_table() {
-        Ok(table) if table.is_empty() => line("rules", "none, an empty table"),
-        Ok(table) => {
-            for (index, rule) in table.rules().iter().enumerate() {
-                line(&format!("rule {}", index + 1), describe(rule));
-            }
-            print_amount_guards(&table);
-            print_limits(&table);
-        }
-        Err(error) => line("rules", format_args!("undecodable ({error})")),
+    line("hash", hex::encode(pinned.policy.policy_hash));
+    let table = &pinned.policy.table;
+    let rows = table_lines(table);
+    if rows.is_empty() {
+        line("rules", "none, an empty table");
     }
-    let referenced = config.rules.referenced();
-    if referenced.iter().next().is_some() {
+    rows.iter().for_each(Line::print);
+    let referenced = table.referenced();
+    if !referenced.is_empty() {
         ui::heading(icon::LISTS, "sources");
     }
     for list_id in referenced.iter() {
-        let source = match config.registry_for(list_id) {
-            Some(ListRegistry::Own) => format!("own registry {}", ring.member_registry_root_pda()),
+        let source = match registry.registry_for(list_id) {
+            Some(ListRegistry::Own) => format!("own registry {}", ring.registry_pda()),
             Some(ListRegistry::Curator(registry)) => format!("curator registry {registry}"),
             None => "no source".to_owned(),
         };
@@ -127,17 +149,11 @@ fn compiled(ctx: &Context) -> Result<CompiledPolicy> {
     Ok(spec.compile(ctx.config.target)?)
 }
 
-fn pinned(ctx: &Context) -> Result<PolicyConfig> {
-    ctx.block(ctx.ring.policy_config(ctx.chain()))?
-        .context("the ring has no policy config, run `zolana-ring init` first")
-}
-
 fn set(ctx: &Context, yes: bool) -> Result<()> {
     let program = ctx.ring.program_id();
-    let (compiled, config) = (compiled(ctx)?, pinned(ctx)?);
-    verify_tree(&compiled, &config)?;
-    let verified =
-        verify_rows(&compiled, &config).and_then(|()| verify_sources(ctx.ring, &compiled, &config));
+    let (compiled, current) = (compiled(ctx)?, pinned(ctx)?);
+    let verified = verify_rows(&compiled, &current)
+        .and_then(|()| verify_sources(ctx.ring, &compiled, &current));
     if verified.is_ok() {
         line("policy", "already present");
         return Ok(());
@@ -146,10 +162,7 @@ fn set(ctx: &Context, yes: bool) -> Result<()> {
         check_curator(ctx, *curator, *list_id)?;
     }
     ui::heading(icon::PIN, &format!("re-pin the table of {program}"));
-    match config.rule_table() {
-        Ok(old) => print_diff(&old, &compiled.rules),
-        Err(error) => line("rules", format_args!("undecodable on chain ({error})")),
-    }
+    print_diff(&current.policy.table, &compiled.rules);
     for (list_id, curator) in &compiled.shared_sources {
         let curator = curator.program_id();
         line(list_id.name(), format_args!("curator {curator}"));
@@ -161,37 +174,61 @@ fn set(ctx: &Context, yes: bool) -> Result<()> {
         format_args!("pass --yes to replace the table of {program}, proofs built against the old table are refused from now on"),
         format_args!("the table of {program} stays, the change was not confirmed"),
     )?;
-    let authority = ctx.config.upgrade_authority()?;
-    ctx.fund(authority.pubkey(), MIN_AUTHORITY_BALANCE)?;
+    let authority = ctx.funded_authority()?;
     let replace = ctx.ring.set_policy_rules(
         authority.pubkey(),
         &compiled.rules,
         &compiled.shared_sources(),
     )?;
-    ctx.send(&[&authority], &[replace])?;
-    let (before, after) = (config.generation(), pinned(ctx)?.generation());
+    ctx.send(&[authority], &[replace])?;
+    let (before, after) = (
+        current.registry.generation(),
+        pinned(ctx)?.registry.generation(),
+    );
     line("policy", "replaced");
     line("generation", format_args!("{after} replaces {before}"));
     Ok(())
 }
 
-fn print_amount_guards(table: &RuleTable) {
-    line(
-        "amount guards",
-        format_args!("{} mint thresholds", table.inline_assets().len()),
-    );
-    for (asset, threshold) in table.inline_assets().iter().zip(table.inline_limits()) {
-        line(
-            "guard",
-            format_args!("asset {} above {threshold}", hex::encode(asset)),
-        );
+fn table_lines(table: &RuleTable) -> Vec<Line> {
+    let mut lines: Vec<Line> = table
+        .rules()
+        .iter()
+        .enumerate()
+        .map(|(index, rule)| Line {
+            label: format!("rule {}", index + 1),
+            text: describe(rule),
+        })
+        .collect();
+    if !table.is_empty() {
+        lines.extend(amount_guard_lines(table));
     }
+    lines.extend(limit_lines(table));
+    lines
 }
 
-fn print_limits(table: &RuleTable) {
-    for limit in table.limits() {
-        line("limit", describe_limit(limit));
-    }
+fn amount_guard_lines(table: &RuleTable) -> Vec<Line> {
+    let count = Line {
+        label: "amount guards".to_owned(),
+        text: format!("{} mint thresholds", table.inline_assets().len()),
+    };
+    let guard = |(asset, threshold): (&[u8; 32], &u64)| Line {
+        label: "guard".to_owned(),
+        text: format!("asset {} above {threshold}", hex::encode(asset)),
+    };
+    let guards = table.inline_assets().iter().zip(table.inline_limits());
+    std::iter::once(count).chain(guards.map(guard)).collect()
+}
+
+fn limit_lines(table: &RuleTable) -> Vec<Line> {
+    table
+        .limits()
+        .iter()
+        .map(|limit| Line {
+            label: "limit".to_owned(),
+            text: describe_limit(limit),
+        })
+        .collect()
 }
 
 fn print_diff(old: &RuleTable, new: &RuleTable) {
@@ -205,9 +242,49 @@ fn print_diff(old: &RuleTable, new: &RuleTable) {
         }
     }
     if old.inline_assets() != new.inline_assets() || old.inline_limits() != new.inline_limits() {
-        print_amount_guards(new);
+        amount_guard_lines(new).iter().for_each(Line::print);
     }
     if old.limits() != new.limits() {
-        print_limits(new);
+        limit_lines(new).iter().for_each(Line::print);
+    }
+}
+
+impl Line {
+    fn print(&self) {
+        line(&self.label, &self.text);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use zolana_ring_policy::{ListId, OutflowLimit, Rule, Subject};
+
+    use super::*;
+
+    #[test]
+    fn a_table_of_outflow_limits_alone_lists_each_limit() {
+        let limit = OutflowLimit {
+            asset: [3; 32],
+            cap: 1000,
+            cosign_above: 0,
+        };
+        let limits_only = RuleTable::builder().limits(&[limit]).build();
+        assert_eq!(
+            table_lines(&limits_only),
+            [Line {
+                label: "limit".to_owned(),
+                text: describe_limit(&limit),
+            }]
+        );
+        let with_rule = RuleTable::builder()
+            .rule(Rule::forbid(Subject::Sender, ListId::Frozen))
+            .limits(&[limit])
+            .build();
+        let labels: Vec<String> = table_lines(&with_rule)
+            .into_iter()
+            .map(|line| line.label)
+            .collect();
+        assert_eq!(labels, ["rule 1", "amount guards", "limit"]);
+        assert!(table_lines(&RuleTable::empty()).is_empty());
     }
 }

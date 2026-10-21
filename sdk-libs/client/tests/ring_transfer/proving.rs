@@ -222,6 +222,7 @@ fn real_output(recipient: &ShieldedKeypair, amount: u64) -> SppProofOutputUtxo {
         asset: Mint::SOL,
         amount,
         blinding: random_blinding(),
+        ring_secret: Some(random_blinding()),
         ring_program_id: Some(ring_program()),
         ring_data_hash: None,
         data_hash: None,

@@ -1,13 +1,18 @@
+use bytemuck::Zeroable;
 use custom_ring_interface::{
-    CreateConfigIxData, CustomRingError, RingMode, RingProgramConfig, RING_PROGRAM_CONFIG,
+    CreateConfigIxData, CustomRingError, RingMode, RingProgramConfig, DEFAULT_INSERT_FEE,
+    RING_PROGRAM_CONFIG,
 };
-use pinocchio::{AccountView, Address, ProgramResult};
+use pinocchio::{
+    sysvars::{clock::Clock, Sysvar},
+    AccountView, Address, ProgramResult,
+};
 use zolana_account_checks::AccountIterator;
 
 use crate::{
     instructions::{
-        loader::check_upgrade_authority,
-        shared::{check_system_program, create_pda, parse},
+        loader::UpgradeAuthorityCheck,
+        shared::{check_system_program, parse, Pda},
     },
     state::{is_x25519_key, Init},
 };
@@ -34,13 +39,22 @@ pub fn process_create_config_ix(
     let program_data = iter.next_account("program_data")?;
 
     check_system_program(system_program)?;
-    check_upgrade_authority(program_id, authority, program, program_data)?;
+    UpgradeAuthorityCheck {
+        program_id,
+        authority,
+        program,
+        program_data,
+    }
+    .verify()?;
     // The envelope proves agreement with this tagged canonical X25519 key.
     if !is_x25519_key(&auditor_pubkey) {
         return Err(CustomRingError::InvalidAuditorPubkey.into());
     }
-    let bump =
-        create_pda::<RingProgramConfig, 1>(program_id, payer, config, &[RingProgramConfig::SEED])?;
+    let bump = Pda {
+        program_id,
+        seeds: &[RingProgramConfig::SEED],
+    }
+    .create::<RingProgramConfig>(payer, config)?;
     Init(&RingProgramConfig {
         discriminator: RING_PROGRAM_CONFIG,
         authority: *authority.address(),
@@ -48,10 +62,13 @@ pub fn process_create_config_ix(
         bump,
         has_policy: u8::from(has_policy),
         mode: if anonymous {
-            RingMode::Anonymous as u8
+            RingMode::Anonymous
         } else {
-            RingMode::Off as u8
-        },
+            RingMode::Off
+        } as u8,
+        insert_fee: DEFAULT_INSERT_FEE.to_le_bytes(),
+        created_slot: Clock::get()?.slot.to_le_bytes(),
+        ..RingProgramConfig::zeroed()
     })
     .init(config)
 }

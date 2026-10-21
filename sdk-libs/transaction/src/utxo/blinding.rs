@@ -1,3 +1,6 @@
+use zolana_instruction::RingOutputBlinding;
+
+use super::SppProofOutputUtxo;
 use crate::error::TransactionError;
 
 /// A UTXO blinding: a 32-byte big-endian BN254 field element. Poseidon-derived
@@ -12,6 +15,35 @@ pub use zolana_instruction::derivation::{
     DOMAIN_PRIVATE_TX_BLINDING_V1, DOMAIN_TRANSACT_OUTPUT_BLINDING_SEED_V1,
     DOMAIN_TRANSACT_OUTPUT_BLINDING_V1,
 };
+
+/// Mirrors the Go `Transaction.outputBlinding` for one output slot.
+pub struct OutputSlotBlinding<'a> {
+    pub output: &'a SppProofOutputUtxo,
+    pub first_nullifier: &'a [u8; 32],
+    pub output_blinding_seed: &'a Blinding,
+    pub slot_index: u32,
+}
+
+impl OutputSlotBlinding<'_> {
+    pub fn derive(self) -> Result<Blinding, TransactionError> {
+        let slot_index = self.slot_index as usize;
+        match (self.output.is_ring_output(), self.output.ring_secret) {
+            (true, Some(ring_secret)) => Ok(RingOutputBlinding {
+                first_nullifier: *self.first_nullifier,
+                ring_secret,
+                output_index: self.slot_index,
+            }
+            .derive()?),
+            (false, None) => derive_transact_output_blinding(
+                self.first_nullifier,
+                self.output_blinding_seed,
+                self.slot_index,
+            ),
+            (true, None) => Err(TransactionError::MissingRingSecret { slot_index }),
+            (false, Some(_)) => Err(TransactionError::UnexpectedRingSecret { slot_index }),
+        }
+    }
+}
 
 /// `Poseidon(TXOS, first_nullifier, blinding_seed)`: the seed every physical output
 /// blinding of one transaction comes from. `blinding_seed` is the transaction's

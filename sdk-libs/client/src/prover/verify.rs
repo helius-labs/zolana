@@ -148,8 +148,7 @@ impl StatementVerification {
     }
 }
 
-/// Verify every public field under the expected key. The caller constructs
-/// these fields from authenticated state and the transaction it authorized.
+/// Every public field comes from authenticated state and the transaction it authorized.
 pub fn verify_proof_inputs<const N: usize>(
     proof: &Proof,
     public_inputs: &[[u8; 32]; N],

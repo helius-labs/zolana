@@ -1,8 +1,8 @@
-use zolana_hasher::{primitives::solana_owner_identity, Hasher, HasherError, Poseidon};
+use thiserror::Error;
 
 use crate::MAX_SOURCES;
 
-/// Who may change a member's bit of a list, the sole authorization axis the program gates on.
+/// The sole axis the program authorizes a list write on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Writer {
     Authority,
@@ -22,7 +22,6 @@ macro_rules! lists {
             /// Source-slot order, the id of `ALL[i]` is `i + 1`.
             pub const ALL: [Self; MAX_SOURCES] = [$(Self::$variant,)*];
 
-            /// The program's only authorization axis for list writes.
             pub const fn writer(self) -> Writer {
                 match self {
                     $(Self::$variant => Writer::$writer,)*
@@ -62,7 +61,7 @@ impl ListId {
 
     /// The bit of a member record's `lists` bitmap.
     pub const fn record_bit(self) -> u64 {
-        1 << self.slot()
+        ListSet::single(self).record_bits()
     }
 
     /// The list of record bit `bit`, `None` past the lists the enum names.
@@ -79,6 +78,30 @@ pub struct ListSet(u8);
 
 impl ListSet {
     pub const EMPTY: Self = Self(0);
+    /// A member's own record write, its escrow bit comes only from a registered key.
+    pub const MEMBER_WRITES: Self =
+        Self::written_by(Writer::Member).difference(Self::single(ListId::Escrow));
+    pub const AUTHORITY_WRITES: Self = Self::written_by(Writer::Authority);
+
+    pub const fn written_by(writer: Writer) -> Self {
+        let mut set = Self::EMPTY;
+        let mut i = 0;
+        while i < MAX_SOURCES {
+            if ListId::ALL[i].writer() as u8 == writer as u8 {
+                set = set.union(Self::single(ListId::ALL[i]));
+            }
+            i += 1;
+        }
+        set
+    }
+
+    /// `None` when a record bit at or above 8 is set, no list owns it.
+    pub const fn from_record_bits(bits: u64) -> Option<Self> {
+        if bits > u8::MAX as u64 {
+            return None;
+        }
+        Some(Self(bits as u8))
+    }
 
     pub const fn of(lists: &[ListId]) -> Self {
         let mut set = Self::EMPTY;
@@ -113,6 +136,14 @@ impl ListSet {
 
     pub const fn union(self, other: Self) -> Self {
         Self(self.0 | other.0)
+    }
+
+    pub const fn difference(self, other: Self) -> Self {
+        Self(self.0 & !other.0)
+    }
+
+    pub const fn is_subset(self, other: Self) -> bool {
+        self.0 & !other.0 == 0
     }
 
     pub const fn intersects(self, other: Self) -> bool {
@@ -156,26 +187,57 @@ impl TryFrom<u8> for ListId {
     }
 }
 
-/// Seed of the dataless PDA whose owner hash the policy statement binds.
-pub const NAMESPACE_PDA_SEED: &[u8] = b"policy_records";
-
-/// `Poseidon(0)`, the nullifier public key of the zero secret.
-pub const ZERO_NULLIFIER_PK: [u8; 32] = [
-    0x2a, 0x09, 0xa9, 0xfd, 0x93, 0xc5, 0x90, 0xc2, 0x6b, 0x91, 0xef, 0xfb, 0xb2, 0x49, 0x9f, 0x07,
-    0xe8, 0xf7, 0xaa, 0x12, 0xe2, 0xb4, 0x94, 0x0a, 0x3a, 0xed, 0x24, 0x11, 0xcb, 0x65, 0xe1, 0x1c,
-];
-
-/// The shielded owner no transfer slot may open to, derived from the ring's namespace PDA.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ListNamespace {
-    pub owner_hash: [u8; 32],
+pub struct ListWrite {
+    set: ListSet,
+    clear: ListSet,
 }
 
-impl ListNamespace {
-    pub fn new(pda: &[u8; 32]) -> Result<Self, HasherError> {
-        let owner_pk_field = solana_owner_identity(pda)?;
-        let owner_hash = Poseidon::hashv(&[&owner_pk_field, &ZERO_NULLIFIER_PK])?;
-        Ok(Self { owner_hash })
+#[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
+pub enum ListWriteError {
+    #[error("a list write changes no list")]
+    Empty,
+    #[error("a list is both set and cleared")]
+    SetAndCleared,
+}
+
+impl ListWrite {
+    pub const fn new(set: ListSet, clear: ListSet) -> Result<Self, ListWriteError> {
+        if set.union(clear).is_empty() {
+            return Err(ListWriteError::Empty);
+        }
+        if set.intersects(clear) {
+            return Err(ListWriteError::SetAndCleared);
+        }
+        Ok(Self { set, clear })
+    }
+
+    pub const fn set(self) -> ListSet {
+        self.set
+    }
+
+    pub const fn clear(self) -> ListSet {
+        self.clear
+    }
+
+    pub const fn mask(self) -> u64 {
+        self.set.union(self.clear).record_bits()
+    }
+
+    pub const fn value(self) -> u64 {
+        self.set.record_bits()
+    }
+
+    /// The signer every touched list admits, `None` across both writers or for the escrow bit.
+    pub const fn writer(self) -> Option<Writer> {
+        let lists = self.set.union(self.clear);
+        if lists.is_subset(ListSet::MEMBER_WRITES) {
+            Some(Writer::Member)
+        } else if lists.is_subset(ListSet::AUTHORITY_WRITES) {
+            Some(Writer::Authority)
+        } else {
+            None
+        }
     }
 }
 
@@ -184,8 +246,65 @@ mod tests {
     use super::*;
 
     #[test]
-    fn zero_nullifier_pk_is_the_poseidon_of_zero() {
-        assert_eq!(Poseidon::hashv(&[&[0u8; 32]]).unwrap(), ZERO_NULLIFIER_PK);
+    fn record_writes_split_the_lists_between_the_member_and_the_authority() {
+        assert_eq!(
+            ListSet::MEMBER_WRITES,
+            ListSet::of(&[ListId::RingViewing, ListId::Recovery])
+        );
+        assert_eq!(
+            ListSet::AUTHORITY_WRITES,
+            ListSet::of(&[
+                ListId::Allow,
+                ListId::Block,
+                ListId::Frozen,
+                ListId::Reader,
+                ListId::Approval,
+            ])
+        );
+        assert!(!ListSet::MEMBER_WRITES.intersects(ListSet::AUTHORITY_WRITES));
+        assert!(!ListSet::MEMBER_WRITES
+            .union(ListSet::AUTHORITY_WRITES)
+            .contains(ListId::Escrow));
+    }
+
+    #[test]
+    fn a_list_write_masks_both_sets_and_values_only_the_set() {
+        let write = ListWrite::new(
+            ListSet::single(ListId::Allow),
+            ListSet::single(ListId::Block),
+        )
+        .unwrap();
+        assert_eq!((write.mask(), write.value()), (0b11, 0b01));
+        assert_eq!(write.writer(), Some(Writer::Authority));
+        let member = ListWrite::new(ListSet::EMPTY, ListSet::single(ListId::Recovery)).unwrap();
+        assert_eq!((member.mask(), member.value()), (0b1_0000, 0));
+        assert_eq!(member.writer(), Some(Writer::Member));
+    }
+
+    #[test]
+    fn a_list_write_refuses_no_list_both_sets_and_mixed_or_escrow_writers() {
+        assert_eq!(
+            ListWrite::new(ListSet::EMPTY, ListSet::EMPTY),
+            Err(ListWriteError::Empty)
+        );
+        let allow = ListSet::single(ListId::Allow);
+        assert_eq!(
+            ListWrite::new(allow, allow),
+            Err(ListWriteError::SetAndCleared)
+        );
+        let mixed = ListWrite::new(allow, ListSet::single(ListId::Recovery)).unwrap();
+        assert_eq!(mixed.writer(), None);
+        let escrow = ListWrite::new(ListSet::single(ListId::Escrow), ListSet::EMPTY).unwrap();
+        assert_eq!(escrow.writer(), None);
+    }
+
+    #[test]
+    fn record_bits_past_the_named_lists_have_no_set() {
+        assert_eq!(
+            ListSet::from_record_bits(0xff),
+            Some(ListSet::from_bits(0xff))
+        );
+        assert_eq!(ListSet::from_record_bits(0x100), None);
     }
 
     #[test]

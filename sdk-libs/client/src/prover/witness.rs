@@ -224,8 +224,7 @@ fn group_by_tree<'a>(inputs: &[&'a SppProofInputUtxo]) -> Vec<TreeGroup<'a>> {
     groups
 }
 
-/// The tree padding is hashed under: the last input tree, or the first for
-/// compact padding (`pad_inputs`). Without a real input there is no tree at all.
+/// The last input tree, the first under compact padding.
 fn padding_tree_id(
     groups: &[TreeGroup],
     dummy_nullifiers: &[[u8; 32]],

@@ -16,20 +16,13 @@ const HEALTH_TIMEOUT: Duration = Duration::from_secs(5);
 /// Steps already on chain are skipped, a rerun resumes where it stopped.
 pub fn run(ctx: &mut Context, args: DeployArgs) -> Result<()> {
     localnet::ensure(ctx)?;
-    let deposit_audit = args.deposit_audit;
     deploy::run(ctx, args)?;
     let hosted = !ctx.config.urls().ring_rpc_is_local();
     if hosted {
         // A hosted service that cannot serve the ring must fail before `init` pins the auditor for good.
         ring_rpc::run_check(ctx)?;
     }
-    init::run(
-        ctx,
-        InitArgs {
-            deposit_audit,
-            ..defaults()
-        },
-    )?;
+    init::run(ctx, defaults::<InitArgs>())?;
     if !hosted {
         // Started before `deploy`, it may have died since.
         let base = &ctx.config.urls().ring_rpc;

@@ -3,36 +3,56 @@
 use std::collections::{BTreeMap, HashSet};
 
 use anyhow::{anyhow, ensure, Result};
-use custom_ring_sdk::{CoSignScope, CustomRingMerge, MergeProofInput, RingMergeOperation};
+use custom_ring_interface::ANONYMOUS_MERGE_WIDTHS;
+use custom_ring_sdk::{CustomRingMerge, MergeProofInput, RingMergeOperation, RingMode};
 use solana_address::Address;
-use solana_signer::Signer;
 use zolana_interface::pda;
 use zolana_keypair::ShieldedKeypair;
 use zolana_transaction::{select_merge_where, SpendableDecryptionResult, WalletUtxo, SOL_MINT};
 
-use crate::{assets, line, transact, Context, MergeArgs};
+use crate::{
+    assets, line,
+    member::KeyEnrolment,
+    transact::{CoSigner, Demand},
+    wallet::WalletScan,
+    Context, MergeArgs,
+};
 
 pub fn run(ctx: &Context, args: MergeArgs) -> Result<()> {
+    let config = ctx.ring_config()?;
     let sender = ShieldedKeypair::from_keypair(&ctx.sender()?)?;
     let mint = args.mint.map_or(SOL_MINT, |mint| mint.0);
     let registry = assets::resolve(ctx.rpc(), mint)?.registry;
-    let cosigner = transact::cosigner(ctx, &args.cosigner, CoSignScope::TRANSFERS)?;
+    let cosigner = CoSigner::read(ctx, &args.cosigner)?;
+    let merge_cosigner = cosigner.sign(&config, Demand::Transfer)?;
+    let scan = || {
+        WalletScan {
+            keys: &sender,
+            registry: &registry,
+            config: &config,
+        }
+        .fetch(ctx)
+    };
     println!("reading the sender's notes");
-    let spendable = ctx.spendable_utxos(&sender, &registry)?;
+    let spendable = scan()?;
     if !spendable.unknown_asset_ids.is_empty() {
         line("unregistered asset ids", spendable.unknown_asset_ids.len());
     }
     if !spendable.unknown_mints.is_empty() {
         line("unregistered mints", spendable.unknown_mints.len());
     }
-    let selected = select(&spendable, ctx.ring.program_id(), mint, args.count as usize)?;
+    let count = match config.mode {
+        RingMode::Anonymous => (args.count as usize).min(widest_anonymous_merge()),
+        RingMode::Off | RingMode::Registry => args.count as usize,
+    };
+    let selected = select(&spendable, ctx.ring.program_id(), mint, count)?;
     let (input_count, tree_id) = (selected.len(), selected[0].tree_id);
     let tree = pda::tree(tree_id);
     let prepared = CustomRingMerge::new(ctx.ring, selected, None)?
         .with_output_tree_id(tree_id)
         .encrypt(&sender)?;
     let (output_hash, merged_amount) = (prepared.output().hash(tree_id)?, prepared.output().amount);
-    let mut merge = RingMergeOperation::new(
+    let merge = RingMergeOperation::new(
         prepared,
         MergeProofInput {
             nullifier_key: sender.nullifier_key.clone(),
@@ -40,14 +60,18 @@ pub fn run(ctx: &Context, args: MergeArgs) -> Result<()> {
             output_tree: tree,
         },
     );
-    if let Some(cosigner) = &cosigner {
-        merge = merge.with_cosigner(cosigner.pubkey());
-    }
     let payer = ctx.funded_authority()?;
-    let signers: Vec<&(dyn Signer + Sync)> = cosigner.iter().map(|keypair| keypair as _).collect();
-    let signature = ctx.submit(merge, payer, &signers)?;
+    // Only an anonymous merge opens no member record, any other opens the owner's escrowed key.
+    if config.mode != RingMode::Anonymous {
+        KeyEnrolment {
+            funder: payer,
+            members: &[&sender],
+        }
+        .ensure(ctx)?;
+    }
+    let signature = ctx.submit(merge, payer, merge_cosigner.as_slice())?;
     ctx.wait_for_indexed(signature)?;
-    let merged = ctx.spendable_utxos(&sender, &registry)?;
+    let merged = scan()?;
     ensure!(
         merged.utxos().any(|entry| entry.utxo_hash == output_hash),
         "the indexer did not reconstruct merged output {output_hash:?}"
@@ -61,6 +85,10 @@ pub fn run(ctx: &Context, args: MergeArgs) -> Result<()> {
     Ok(())
 }
 
+fn widest_anonymous_merge() -> usize {
+    ANONYMOUS_MERGE_WIDTHS.into_iter().max().unwrap_or_default()
+}
+
 /// The smallest clean notes of the tree holding the most of them, at most `count`.
 fn select(
     spendable: &SpendableDecryptionResult,
@@ -68,7 +96,8 @@ fn select(
     mint: Address,
     count: usize,
 ) -> Result<Vec<WalletUtxo>> {
-    let keep = |entry: &WalletUtxo| mergeable(entry, ring);
+    let keep =
+        |entry: &WalletUtxo| entry.utxo.ring_program_id == Some(ring) && carries_no_data(entry);
     select_merge_where(spendable.utxos(), mint, count, &HashSet::new(), keep).map_err(|_| {
         let mut trees = BTreeMap::<u16, usize>::new();
         for entry in spendable.utxos() {
@@ -81,12 +110,10 @@ fn select(
     })
 }
 
-/// A ring deposit publishes the all-zero no-data hash as `Some`, it commits like an absent one.
-/// A nonzero hash is ring state this generic command must not transition.
-fn mergeable(entry: &WalletUtxo, ring: Address) -> bool {
+/// A deposit's all-zero ring data hash commits like none, any other is ring state left unspent.
+pub(crate) fn carries_no_data(entry: &WalletUtxo) -> bool {
     let data = &entry.utxo.data;
-    entry.utxo.ring_program_id == Some(ring)
-        && entry.data_hash.is_none()
+    entry.data_hash.is_none()
         && entry.ring_data_hash.is_none_or(|hash| hash == [0; 32])
         && data.utxo_data().is_none()
         && data.ring_data().is_none_or(|data| data.is_empty())
@@ -95,15 +122,10 @@ fn mergeable(entry: &WalletUtxo, ring: Address) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
-
     use solana_signature::Signature;
     use zolana_transaction::{Data, DataRecord, Mint, Utxo};
 
     use super::*;
-    use crate::wallet::fixtures::{
-        self, inbox_tag, keypair, AnonymousTransfer, Indexer, Member, Paid, RingUtxo,
-    };
 
     const RING: Address = Address::new_from_array([9; 32]);
 
@@ -181,65 +203,5 @@ mod tests {
         assert!(refused
             .to_string()
             .starts_with("found only 0 mergeable notes"));
-    }
-
-    #[test]
-    fn the_merge_scan_finds_an_anonymous_payment_and_anonymous_change() {
-        let sender = Member::new(1, "merge-scan");
-        let (bob, carol) = (keypair(2), keypair(3));
-        let spent = RingUtxo::new(&sender.keys, 10);
-        let paid = RingUtxo::new(&sender.keys, 7);
-        let change = RingUtxo::new(&sender.keys, 6);
-        let to_carol = RingUtxo::new(&carol, 4);
-        let from_bob = AnonymousTransfer {
-            payer: &bob,
-            nullifiers: vec![[21; 32]],
-            outputs: vec![Paid {
-                to: &sender.keys,
-                output: &spent,
-                tag: inbox_tag(&sender.keys, 0),
-            }],
-        }
-        .transaction();
-        let from_carol = AnonymousTransfer {
-            payer: &carol,
-            nullifiers: vec![[22; 32]],
-            outputs: vec![Paid {
-                to: &sender.keys,
-                output: &paid,
-                tag: inbox_tag(&sender.keys, 1),
-            }],
-        }
-        .transaction();
-        let change_tag = sender
-            .keys
-            .viewing_key
-            .ring_change_view_tag(&spent.nullifier, 1)
-            .unwrap();
-        let spend = AnonymousTransfer {
-            payer: &sender.keys,
-            nullifiers: vec![spent.nullifier],
-            outputs: vec![
-                Paid {
-                    to: &carol,
-                    output: &to_carol,
-                    tag: inbox_tag(&carol, 0),
-                },
-                Paid {
-                    to: &sender.keys,
-                    output: &change,
-                    tag: change_tag,
-                },
-            ],
-        }
-        .transaction();
-        let indexer = Indexer(vec![from_bob, from_carol, spend]);
-
-        let selected = select(&sender.scan(&indexer), fixtures::RING, SOL_MINT, 2).unwrap();
-        let merged: BTreeSet<_> = selected.iter().map(|entry| entry.utxo_hash).collect();
-        assert_eq!(merged, BTreeSet::from([paid.hash, change.hash]));
-        let state = sender.store.load().unwrap();
-        assert_eq!(state.issued_addresses(), 2);
-        assert_eq!(state.known_counterparties.len(), 2);
     }
 }

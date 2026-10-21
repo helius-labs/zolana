@@ -255,6 +255,24 @@ fn public_slots_reject_zero_net_intermediate_overflow_and_excess_assets() {
 }
 
 #[test]
+fn public_slots_report_the_refusal_spp_makes_first() {
+    let fourth_asset = |mut legs: Vec<SettlementTransfer>| {
+        legs.splice(0..0, (1..=3).map(|byte| spl(byte, true, 1)));
+        legs.insert(3, sol(true, 1));
+        proof(legs).public_transfers()
+    };
+    for later in [vec![sol(false, 1)], vec![spl(1, true, u64::MAX)]] {
+        assert!(
+            matches!(fourth_asset(later), Err(TransactionError::TooManyPublicAssets { got, max }) if got == N_PUBLIC_SLOTS + 1 && max == N_PUBLIC_SLOTS)
+        );
+    }
+    assert!(matches!(
+        proof(vec![spl(0, true, 1), sol(true, 0)]).public_transfers(),
+        Err(TransactionError::ZeroInterfaceTransferAmount)
+    ));
+}
+
+#[test]
 fn zero_amount_and_spl_sol_alias_are_rejected_by_external_data_and_public_slots() {
     for deposit in [true, false] {
         for invalid in [sol(deposit, 0), spl(4, deposit, 0)] {
@@ -326,6 +344,37 @@ fn signed_field_amounts_match_literal_bn254_boundaries_and_interleave_all_slots(
         values.interleaved(),
         [[1; 32], [4; 32], [2; 32], [5; 32], [3; 32], [6; 32]]
     );
+}
+
+#[test]
+fn signed_magnitude_to_field_matches_the_go_signed_amount_vector() {
+    let vector: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../prover/server/prover-test/spp/testdata/field_derivation_vector.json"
+    ))
+    .unwrap();
+    let withdrawn = |amount: u64| -> [u8; 32] {
+        let entry = vector["negative_u64"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["amount"] == amount)
+            .unwrap();
+        let digits = format!(
+            "{:0>64}",
+            entry["field"].as_str().unwrap().trim_start_matches("0x")
+        );
+        hex::decode(digits).unwrap().try_into().unwrap()
+    };
+    for is_deposit in [true, false] {
+        assert_eq!(signed_magnitude_to_field(is_deposit, 0), [0u8; 32]);
+    }
+    for amount in [0, 1, u64::MAX] {
+        assert_eq!(
+            signed_magnitude_to_field(false, amount),
+            withdrawn(amount),
+            "{amount}"
+        );
+    }
 }
 
 #[test]

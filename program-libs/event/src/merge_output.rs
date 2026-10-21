@@ -1,9 +1,11 @@
 use alloc::vec::Vec;
 
-use crate::OutputDataEncoding;
+use crate::{
+    proofless::{encode_framed_output, Framing},
+    OutputDataEncoding,
+};
 
-/// Scheme byte inside [`OutputDataEncoding::VerifiablyEncrypted`] for a merge
-/// output: its ciphertext is bound by the merge proof.
+/// Scheme byte of a merge output, its ciphertext bound by the merge proof.
 pub const MERGE_OUTPUT_SCHEME: u8 = 6;
 
 /// Bytes of the per-proof salt the merge output ciphertext is padded under.
@@ -21,26 +23,23 @@ pub const MERGE_OUTPUT_BODY_LEN: usize = MERGE_OUTPUT_SALT_LEN + MERGE_OUTPUT_CI
 pub struct MergeOutputDataRef<'a> {
     pub salt: &'a [u8; MERGE_OUTPUT_SALT_LEN],
     pub ciphertext: &'a [[u8; 32]; 3],
-    /// The output `ring_data_hash` a `merge_ring` binds; `None` on
-    /// `merge_transact`.
+    /// `None` on `merge_transact`.
     pub ring_data_hash: Option<&'a [u8; 32]>,
 }
 
-/// Encodes a merge output's data slot:
-/// `VerifiablyEncrypted(scheme || [ring_data_hash ||] salt || ciphertext)`.
-/// The ring data hash leads, as it does in the `merge_ring` instruction data.
+/// `VerifiablyEncrypted(scheme || [ring_data_hash ||] salt || ciphertext)`, in `merge_ring` order.
 pub fn encode_merge_output_data(data: MergeOutputDataRef<'_>) -> Vec<u8> {
-    let mut blob = Vec::with_capacity(1 + 32 + MERGE_OUTPUT_BODY_LEN);
-    blob.push(MERGE_OUTPUT_SCHEME);
-    if let Some(ring_data_hash) = data.ring_data_hash {
-        blob.extend_from_slice(ring_data_hash);
-    }
-    blob.extend_from_slice(data.salt);
-    for element in data.ciphertext {
-        blob.extend_from_slice(element);
-    }
-    borsh::to_vec(&OutputDataEncoding::VerifiablyEncrypted(blob))
-        .expect("borsh serialization into a Vec cannot fail")
+    encode_framed_output(
+        Framing {
+            encoding_tag: OutputDataEncoding::VERIFIABLY_ENCRYPTED_TAG,
+            scheme: MERGE_OUTPUT_SCHEME,
+        },
+        &[
+            data.ring_data_hash.map_or(&[][..], |hash| &hash[..]),
+            data.salt,
+            data.ciphertext.as_flattened(),
+        ],
+    )
 }
 
 /// Splits a merge output body (after the scheme byte) into the `merge_ring`

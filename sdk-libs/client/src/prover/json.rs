@@ -117,6 +117,8 @@ pub(crate) struct TransferInputsJson {
     pub private_tx_hash: String,
     #[serde(rename = "blindingSeed")]
     pub blinding_seed: String,
+    #[serde(rename = "ringSecrets")]
+    pub ring_secrets: Vec<String>,
     #[serde(rename = "publicAssets")]
     pub public_assets: Vec<String>,
     #[serde(rename = "publicAmounts")]
@@ -339,7 +341,8 @@ pub(crate) struct MergeRegistrationJson {
     member_registry_root: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     registered_ciphertext_hash: Option<String>,
-    member_record: MergeMemberRecordJson,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    member_record: Option<MergeMemberRecordJson>,
     #[serde(skip_serializing_if = "core::ops::Not::not")]
     anonymous: bool,
 }
@@ -360,17 +363,20 @@ pub(crate) fn merge_registration_to_json(
     MergeRegistrationJson {
         member_registry_root: fe_to_string(&registration.root),
         registered_ciphertext_hash: registration.ciphertext_hash.as_ref().map(fe_to_string),
-        member_record: MergeMemberRecordJson {
-            next: canonical_field_to_string(&registration.next),
-            lists: registration.lists,
-            escrow_key: canonical_field_to_string(&registration.escrow_key),
-            index: registration.index,
-            path: registration
-                .path
-                .iter()
-                .map(canonical_field_to_string)
-                .collect(),
-        },
+        member_record: registration
+            .ciphertext_hash
+            .is_some()
+            .then(|| MergeMemberRecordJson {
+                next: canonical_field_to_string(&registration.next),
+                lists: registration.lists,
+                escrow_key: canonical_field_to_string(&registration.escrow_key),
+                index: registration.index,
+                path: registration
+                    .path
+                    .iter()
+                    .map(canonical_field_to_string)
+                    .collect(),
+            }),
         anonymous: registration.ciphertext_hash.is_none(),
     }
 }
@@ -526,6 +532,7 @@ fn transfer_inputs_json(
         external_data_hash: big_uint_to_string(&inputs.external_data_hash),
         private_tx_hash: big_uint_to_string(&inputs.private_tx_hash),
         blinding_seed: big_uint_to_string(&inputs.blinding_seed),
+        ring_secrets: inputs.ring_secrets.iter().map(big_uint_to_string).collect(),
         public_assets: inputs
             .public_assets
             .iter()
@@ -776,6 +783,17 @@ mod merge_tests {
         }
     }
 
+    #[test]
+    fn an_anonymous_merge_ring_request_binds_a_zero_root_and_sends_no_member_record() {
+        let mut inputs = sample_merge_inputs();
+        inputs.registration = Some(crate::prover::MergeRegistration::anonymous());
+        let value: serde_json::Value = serde_json::from_str(&to_json_merge_ring(&inputs)).unwrap();
+        assert_eq!(value["anonymous"], true);
+        assert_eq!(value["memberRegistryRoot"], fe_to_string(&[0; 32]));
+        assert!(value.get("memberRecord").is_none());
+        assert!(value.get("registeredCiphertextHash").is_none());
+    }
+
     // The field names match the Go parser, including its independent merge ciphertext.
     #[test]
     fn to_json_merge_shape() {
@@ -857,6 +875,7 @@ mod merge_tests {
             tree_slots: sample_tree_slots(),
             output_tree_id: BigUint::from(3u8),
             blinding_seed: BigUint::from(10u8),
+            ring_secrets: vec![BigUint::from(0x52u8)],
             external_data_hash: BigUint::from(6u8),
             private_tx_hash: BigUint::from(7u8),
             public_assets: core::array::from_fn(|_| BigUint::ZERO),
@@ -883,6 +902,7 @@ mod merge_tests {
             "externalDataHash",
             "privateTxHash",
             "blindingSeed",
+            "ringSecrets",
             "publicAssets",
             "publicAmounts",
             "ringProgramId",
@@ -903,6 +923,7 @@ mod merge_tests {
         );
         assert_tree_slot_contract(&value);
         assert_eq!(value["blindingSeed"], "0xa");
+        assert_eq!(value["ringSecrets"][0], "0x52");
         assert_eq!(value["ringProgramId"], "0x55");
         assert_eq!(value["nInputs"], 1);
     }
@@ -922,6 +943,7 @@ mod merge_tests {
             tree_slots: sample_tree_slots(),
             output_tree_id: BigUint::ZERO,
             blinding_seed: BigUint::ZERO,
+            ring_secrets: Vec::new(),
             external_data_hash: BigUint::ZERO,
             private_tx_hash: BigUint::ZERO,
             public_assets: core::array::from_fn(|_| BigUint::ZERO),

@@ -5,7 +5,6 @@
 # [devnet.compliance-desk]
 # program = "<ring program id>"
 # lists = ["block", "frozen"]
-# address_tree = "<address tree>"
 
 [localnet]
 
