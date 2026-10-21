@@ -11,6 +11,10 @@ const POLICY_PREFIX_LEN: usize = 21;
 const POLICY_LEN: usize = POLICY_PREFIX_LEN + ANSWER_SLOTS;
 const COMPRESSED_POLICY_LEN: usize = POLICY_LEN + 1;
 const REVOCATION_TREE_INDEX_BITS: usize = 3;
+const LINKED_GROUP_STARTS: [usize; 4] = [0, 3, 6, 8];
+const LINKED_GROUP_DOMAIN: &[u8; 27] = b"zolana:ring-policy:group:v1";
+const LINKED_CORE_DOMAIN: &[u8; 26] = b"zolana:ring-policy:core:v1";
+const LINKED_ESCROW_DOMAIN: &[u8; 28] = b"zolana:ring-policy:escrow:v1";
 const _: () = assert!(ANSWER_SLOTS * REVOCATION_TREE_INDEX_BITS <= u64::BITS as usize);
 
 /// Binds audited transaction openings to the pinned rules, list roots and
@@ -34,6 +38,57 @@ pub struct CustomRingPolicyPublicInput<'a> {
     /// Per fact slot, the index into `tree_slots` its revocation target lives in.
     pub revocation_tree_indexes: &'a [u8; ANSWER_SLOTS],
     pub revocation_targets: &'a [[u8; 32]; ANSWER_SLOTS],
+}
+
+/// Public digests shared by the four fact proofs, policy core and escrow proof.
+/// The program derives every public hash from one trusted transaction context.
+pub struct LinkedMemberPolicyPublicInput<'a> {
+    pub policy: CustomRingPolicyPublicInput<'a>,
+    pub group_digests: &'a [[u8; 32]; 4],
+    pub output_digest: &'a [u8; 32],
+}
+
+impl LinkedMemberPolicyPublicInput<'_> {
+    /// Bind one ordered fact group to the transaction and selected tree roots.
+    pub fn group_hash(&self, group: usize) -> Result<[u8; 32], HasherError> {
+        let start = *LINKED_GROUP_STARTS
+            .get(group)
+            .ok_or(HasherError::IntegerOverflow)?;
+        let elements = self.policy.elements()?;
+        create_hash_chain_from_slice(&[
+            right_align(LINKED_GROUP_DOMAIN),
+            elements[0],
+            right_align(&(start as u64).to_be_bytes()),
+            self.group_digests[group],
+            elements[12],
+            elements[13],
+        ])
+    }
+
+    /// Bind rule evaluation to all ten authenticated facts and the escrowed
+    /// output keys under the same transaction and policy fields.
+    pub fn core_hash(&self) -> Result<[u8; 32], HasherError> {
+        let elements = self.policy.elements()?;
+        let mut chain = Vec::with_capacity(2 + POLICY_LEN - AUDIT_LEN + 5);
+        chain.extend_from_slice(&[right_align(LINKED_CORE_DOMAIN), elements[0]]);
+        chain.extend_from_slice(&elements[AUDIT_LEN..]);
+        chain.extend_from_slice(self.group_digests);
+        chain.push(*self.output_digest);
+        create_hash_chain_from_slice(&chain)
+    }
+
+    /// Bind output-key enrollment to the same transaction and policy registry.
+    pub fn escrow_hash(&self) -> Result<[u8; 32], HasherError> {
+        let elements = self.policy.elements()?;
+        create_hash_chain_from_slice(&[
+            right_align(LINKED_ESCROW_DOMAIN),
+            elements[0],
+            *self.output_digest,
+            elements[15],
+            elements[18],
+            elements[19],
+        ])
+    }
 }
 
 impl CustomRingPolicyPublicInput<'_> {

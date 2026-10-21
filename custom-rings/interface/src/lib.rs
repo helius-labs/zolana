@@ -76,7 +76,9 @@ pub use key_registry::{
     KeyRegistryInsert, KeyRegistryLeaf, KeyRegistryVerifyError, MerklePath, RegisterKeyPublicInput,
     RegisteredKey, KEY_REGISTRY_CAPACITY, KEY_REGISTRY_HEIGHT,
 };
-pub use policy_public_input::{CompressedPolicyPublicInput, CustomRingPolicyPublicInput};
+pub use policy_public_input::{
+    CompressedPolicyPublicInput, CustomRingPolicyPublicInput, LinkedMemberPolicyPublicInput,
+};
 pub use state::{
     CoSignScope, CoSigner, Delegate, FixedWindow, KeyEscrow, KeyRegistryRoot, PolicyConfig,
     ReadAccessRecord, RingProgramConfig, SourceSlot, SpendWindow, WithdrawalThresholdRow,
