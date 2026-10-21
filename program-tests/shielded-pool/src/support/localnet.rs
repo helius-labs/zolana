@@ -128,7 +128,7 @@ fn funded_pool_signers(rpc: &mut SolanaRpc) -> Result<(Keypair, Keypair)> {
     };
     print_signature(
         "airdrop payer",
-        &rpc.airdrop(&payer.pubkey(), 100_000_000_000)?,
+        &rpc.airdrop(&payer.pubkey(), 10_000_000_000_000)?,
     );
     print_signature(
         "airdrop authority",

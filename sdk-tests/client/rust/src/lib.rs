@@ -91,7 +91,8 @@ pub fn setup() -> Result<SetupContext> {
     let merge_authority = Keypair::new();
     let tree_creation_authority = Keypair::new();
     let ring_creation_authority = Keypair::new();
-    rpc.airdrop(&payer.pubkey(), 100_000_000_000)?;
+    // Fund tree working capital as well as bootstrap accounts and deposits.
+    rpc.airdrop(&payer.pubkey(), 10_000_000_000_000)?;
     for member in authority.pubkeys() {
         rpc.airdrop(&member, 1_000_000_000)?;
     }

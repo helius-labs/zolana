@@ -263,7 +263,8 @@ impl<D> LocalnetHarness<D> {
         let merge_key = Keypair::new();
         let tree_key = Keypair::new();
         let ring_key = Keypair::new();
-        rpc.airdrop(&payer.pubkey(), 500_000_000_000)?;
+        // A production tree reserves about 1,451 SOL in nullifier-PDA rent.
+        rpc.airdrop(&payer.pubkey(), 10_000_000_000_000)?;
         for member in authority.pubkeys() {
             rpc.airdrop(&member, 1_000_000_000)?;
         }
