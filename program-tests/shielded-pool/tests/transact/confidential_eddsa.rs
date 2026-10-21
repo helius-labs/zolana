@@ -4,7 +4,7 @@
 //! selector naming another owner key, and a spend mixing an in-circuit owner
 //! with a Solana co-signer.
 //!
-//! Requires `cargo build-sbf -p shielded-pool-program`.
+//! Requires the `proofs` feature and `just build-programs build-prover-server build-cli`.
 
 use num_bigint::BigUint;
 use shielded_pool_tests::support::{

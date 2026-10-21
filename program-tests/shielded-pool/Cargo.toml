@@ -299,6 +299,7 @@ path = "tests/transact/validate_circuit.rs"
 [[test]]
 name = "transact_confidential_eddsa"
 path = "tests/transact/confidential_eddsa.rs"
+required-features = ["proofs"]
 
 [[test]]
 name = "spl_interface_validation"
