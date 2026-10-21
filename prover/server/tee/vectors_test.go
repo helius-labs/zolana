@@ -47,6 +47,10 @@ var aadTargets = [][2]string{
 	{"GET", "/tee/v1/attestation?nonce=ab&api-key=k1&api-key=k2"},
 	{"GET", "/prove/x?api-keys=v&api-key"},
 	{"GET", "/prove/x?&&jobId=a&"},
+	{"POST", "/v1/zolana/prove/transfer_2_2?api%2Dkey=k&jobId=%61%31&q=a%20b+c"},
+	{"GET", "/prove/x?%61pi-key=a&api-%6Bey=b&%61%70%69%2d%6b%65%79=c&jobId=a"},
+	{"GET", "/prove/x?api-key=k&API-KEY=keep&api+key=keep&api%2Bkey=keep&bad%=keep"},
+	{"GET", "/prove/x??api-key=keep&jobId=a"},
 }
 
 func aadCases() []aadCase {

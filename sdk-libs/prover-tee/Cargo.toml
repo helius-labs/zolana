@@ -16,6 +16,7 @@ ciborium = { workspace = true }
 ciborium-ll = { workspace = true }
 coset = { workspace = true }
 dcap-qvl = { workspace = true }
+form_urlencoded = { workspace = true }
 hex = { workspace = true, features = ["serde"] }
 hpke = { workspace = true }
 p384 = { workspace = true }

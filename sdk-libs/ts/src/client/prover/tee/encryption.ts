@@ -61,7 +61,9 @@ export function requestAad(method: string, requestUri: string): string {
   const separator = requestUri.indexOf("?");
   const path = separator === -1 ? requestUri : requestUri.slice(0, separator);
   const query = separator === -1 ? "" : requestUri.slice(separator + 1);
-  const kept = query.split("&").filter((pair) => pair !== "" && pair.split("=")[0] !== "api-key");
+  const kept = query
+    .split("&")
+    .filter((pair) => pair !== "" && !new URLSearchParams(`?${pair}`).has("api-key"));
   return kept.length === 0 ? `${method} ${path}` : `${method} ${path}?${kept.join("&")}`;
 }
 

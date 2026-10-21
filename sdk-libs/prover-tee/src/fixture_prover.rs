@@ -97,28 +97,48 @@ mod tests {
     #[test]
     fn a_sealed_request_opens_only_on_its_route_and_its_answer_reads_back() {
         let prover = FixtureProver::from_ikm(&[0x5a; 32]);
-        let sent = EncryptedRequest::encrypt(
-            &prover.hpke_public_key(),
-            "POST",
-            "/v1/zolana/prove/transfer_2_2?api-key=k",
-            br#"{"inputs":["secret"]}"#,
-        )
-        .unwrap();
-        let enc = hex::decode(&sent.enc).unwrap();
-
-        let opened = prover
-            .open("POST", "/v1/zolana/prove/transfer_2_2", &enc, &sent.body)
+        for name in [
+            "api-key",
+            "api%2Dkey",
+            "%61pi-%6bey",
+            "%61%70%69%2d%6b%65%79",
+        ] {
+            let sent = EncryptedRequest::encrypt(
+                &prover.hpke_public_key(),
+                "POST",
+                &format!("/v1/zolana/prove/transfer_2_2?{name}=k&jobId=%61%31&q=a%20b+c"),
+                br#"{"inputs":["secret"]}"#,
+            )
             .unwrap();
-        assert_eq!(opened.plaintext, br#"{"inputs":["secret"]}"#);
-        assert_eq!(&opened.response_key, sent.response_key());
-        assert!(prover
-            .open("POST", "/v1/zolana/prove/merge_8_1", &enc, &sent.body)
-            .is_err());
+            let enc = hex::decode(&sent.enc).unwrap();
 
-        let answer = seal_response(&opened.response_key, 200, br#"{"proof":"ok"}"#).unwrap();
-        assert_eq!(
-            decrypt_response(sent.response_key(), &answer).unwrap(),
-            (200, br#"{"proof":"ok"}"#.to_vec())
-        );
+            let opened = prover
+                .open(
+                    "POST",
+                    "/v1/zolana/prove/transfer_2_2?jobId=%61%31&q=a%20b+c",
+                    &enc,
+                    &sent.body,
+                )
+                .unwrap();
+            assert_eq!(opened.plaintext, br#"{"inputs":["secret"]}"#);
+            assert_eq!(&opened.response_key, sent.response_key());
+            assert!(prover
+                .open("POST", "/v1/zolana/prove/merge_8_1", &enc, &sent.body)
+                .is_err());
+            assert!(prover
+                .open(
+                    "POST",
+                    "/v1/zolana/prove/transfer_2_2?jobId=a1&q=a%20b+c",
+                    &enc,
+                    &sent.body
+                )
+                .is_err());
+
+            let answer = seal_response(&opened.response_key, 200, br#"{"proof":"ok"}"#).unwrap();
+            assert_eq!(
+                decrypt_response(sent.response_key(), &answer).unwrap(),
+                (200, br#"{"proof":"ok"}"#.to_vec())
+            );
+        }
     }
 }

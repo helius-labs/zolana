@@ -81,7 +81,12 @@ pub(crate) fn request_aad(method: &str, request_uri: &str) -> String {
     let (path, query) = request_uri.split_once('?').unwrap_or((request_uri, ""));
     let kept: Vec<&str> = query
         .split('&')
-        .filter(|pair| !pair.is_empty() && pair.split('=').next() != Some(API_KEY_PARAM))
+        .filter(|pair| {
+            !pair.is_empty()
+                && form_urlencoded::parse(pair.as_bytes())
+                    .next()
+                    .is_none_or(|(key, _)| key != API_KEY_PARAM)
+        })
         .collect();
     if kept.is_empty() {
         format!("{method} {path}")
