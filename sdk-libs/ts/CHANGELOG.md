@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.0-alpha — unreleased
+## 0.5.0-alpha — 2026-10-21
 
 Proofs go encrypted to an attested Nitro Enclave prover by default, the devnet
 enclave the SDK pins for a Helius devnet RPC URL, and any other remote prover
@@ -13,13 +13,14 @@ wallet sync recovers a default merge output from the merge transaction alone.
 
 Breaking
 
+- `SHIELDED_POOL_PROGRAM_ID` is `spp3CfN2Y7se74A27bBpnAkmjXyEb2YmmZafhFrC9xt` and `USER_REGISTRY_PROGRAM_ID` is `regy3WAeRXMYuMYxr5iK3Bf9Arr3PcxGxyzAddbiqDQ`, with new tree, registry, vault and authority addresses → use the fresh deployment, register new keys and fund new notes; earlier deployment accounts and notes remain separate.
 - `NULLIFIER_TREE_ROOT_HISTORY_CAPACITY` returns to 100 with 4,999-nullifier proofs, `NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE` is 499,900, and `TREE_ACCOUNT_SIZE` is 40,080 → use a program built with this layout and four tree creation steps.
-- `SigningKey` and `ShieldedPublicKey` accept only Ed25519 ownership and PDA public keys, and `SignatureType` drops `"p256"` → migrate P-256-owned notes and registry records before upgrading, use `P256ReaderKey` from `@heliuslabs/zolana/ring` for passkey audit access.
+- `SigningKey` and `ShieldedPublicKey` accept only Ed25519 ownership and PDA public keys, and `SignatureType` drops `"p256"` → register fresh Ed25519 keys on the new deployment, use `P256ReaderKey` from `@heliuslabs/zolana/ring` for passkey audit access.
 - `UserRecord` and `RegistryRecord` drop `ownerP256`, and `getRegisterInstructionAsync`, `decodeUserRecordAccount` and `fetchUserRecord` write and read the registry record without a P-256 owner key → register again on a registry program built from this version, a record in the earlier layout fails with `WALLET_INVALID_USER_RECORD`.
 - `MergeTransactInstructionData` drops `eddsaOwner` → remove it from merge data you build and send merge instructions built by this version, the program refuses the earlier layout.
 - `openRingDepositOpening` requires a `ConfirmedDeposit` → obtain it from the confirmed audited transaction or `RpcTransactionOrigin.confirmedDeposits`, and supply `depositSource` when recovery uses a custom confirmation provider.
 - Custom-ring auditor envelopes use X25519 keys → create a new auditor configuration with `X25519Keypair`/`X25519PublicKey` before using this version.
-- `ViewingKey` and shielded addresses use X25519 for new transfers and ring deposits → migrate P-256 viewing keys and historical wallet data before using this version.
+- `ViewingKey` and shielded addresses use X25519 for new transfers and ring deposits → derive new viewing keys and use new shielded addresses for the fresh deployment.
 - `DST_VIEW_ROOT_P_CONST` is no longer exported from `@heliuslabs/zolana/keypair` → drop the import, X25519 viewing keys derive their view root without it.
 - `ProverClient` and `ZolanaClient` now require a remote prover other than the
   Helius gateway to attest to `defaultTeePolicy()` and encrypt every call to

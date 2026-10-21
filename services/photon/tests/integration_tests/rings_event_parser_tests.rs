@@ -103,6 +103,52 @@ fn only_mut<'a, T>(items: &'a mut [T], description: &str) -> &'a mut T {
     items.first_mut().expect("length checked above")
 }
 
+/// Adapt captured transactions to the current pool only after their signed
+/// wire representation has been decoded. Keep the historical fixtures,
+/// instruction/event payloads and ring identity intact. `ring_auth` derives
+/// under the ring program, so changing the pool does not change that PDA.
+fn captured_transaction_for_current_pool(mut tx: TransactionInfo) -> TransactionInfo {
+    let captured_pool: Pubkey = "sppU489D7A4U1exNo1oeMGZtLEofq3a6o2fR7UeoWB6"
+        .parse()
+        .expect("captured pool id");
+    let current_pool = pda::shielded_pool_program_id();
+    assert_ne!(captured_pool, current_pool);
+    assert!(
+        parse_rings_events(&tx, 0)
+            .expect("parse historical fixture")
+            .is_none(),
+        "the current parser must ignore the captured deployment"
+    );
+    assert!(
+        parse_ring_configs(&tx, 0)
+            .expect("parse historical fixture")
+            .is_none(),
+        "the current parser must ignore the captured deployment"
+    );
+
+    let mut pool_instructions = 0;
+    for group in &mut tx.instruction_groups {
+        for instruction in
+            std::iter::once(&mut group.outer_instruction).chain(group.inner_instructions.iter_mut())
+        {
+            if instruction.program_id == captured_pool {
+                instruction.program_id = current_pool;
+                pool_instructions += 1;
+            }
+            for account in &mut instruction.accounts {
+                if *account == captured_pool {
+                    *account = current_pool;
+                }
+            }
+        }
+    }
+    assert!(
+        pool_instructions > 0,
+        "fixture must invoke the captured pool"
+    );
+    tx
+}
+
 #[test]
 fn parses_proofless_shield_event_with_photon_parser() {
     let state_update =
@@ -362,7 +408,9 @@ fn ring_fixture_records_the_signing_ring_config() {
         serde_json::from_str(include_str!("../fixtures/ring_transact.json"))
             .expect("ring_transact fixture");
     let slot = confirmed.slot;
-    let tx = parse_transaction_info(confirmed.transaction).expect("fixture transaction");
+    let tx = captured_transaction_for_current_pool(
+        parse_transaction_info(confirmed.transaction).expect("fixture transaction"),
+    );
 
     // The transaction also carries a ComputeBudget instruction, so take the
     // group that actually reached the pool.
@@ -412,7 +460,9 @@ fn ring_config_fixture_records_the_registered_ring() {
         serde_json::from_str(include_str!("../fixtures/create_ring_config.json"))
             .expect("create_ring_config fixture");
     let slot = confirmed.slot;
-    let tx = parse_transaction_info(confirmed.transaction).expect("fixture transaction");
+    let tx = captured_transaction_for_current_pool(
+        parse_transaction_info(confirmed.transaction).expect("fixture transaction"),
+    );
 
     let state_update = parse_ring_configs(&tx, slot)
         .expect("parse fixture")
@@ -444,7 +494,9 @@ fn the_two_fixtures_describe_the_same_ring() {
 
     let registration_slot = registration.slot;
     let registered = parse_ring_configs(
-        &parse_transaction_info(registration.transaction).expect("transaction"),
+        &captured_transaction_for_current_pool(
+            parse_transaction_info(registration.transaction).expect("transaction"),
+        ),
         registration_slot,
     )
     .expect("parse")
@@ -452,7 +504,9 @@ fn the_two_fixtures_describe_the_same_ring() {
 
     let transact_slot = transact.slot;
     let spent = parse_rings_events(
-        &parse_transaction_info(transact.transaction).expect("transaction"),
+        &captured_transaction_for_current_pool(
+            parse_transaction_info(transact.transaction).expect("transaction"),
+        ),
         transact_slot,
     )
     .expect("parse")

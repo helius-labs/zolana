@@ -4,7 +4,7 @@ pub mod state;
 pub use state::{MergeEncryptionScheme, UserRecord};
 
 pub const USER_REGISTRY_PROGRAM_ID: [u8; 32] =
-    pubkey_array!("regyS5rkAcw2YzDJCmTwCTHs2s246FXxbmuRZ42u2PD");
+    pubkey_array!("regy3WAeRXMYuMYxr5iK3Bf9Arr3PcxGxyzAddbiqDQ");
 
 pub const USER_RECORD_SEED: &[u8] = b"zolana/registry/v0";
 
