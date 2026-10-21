@@ -20,7 +20,7 @@ use zolana_interface::{
         TransactOutput, TransactProof as ProofData, TreeContext,
     },
     shape::{owner_signer_slots, Shape, SPP_SUPPORTED_SHAPES},
-    verifying_keys::OutputOwnerMode,
+    verifying_keys::{Bsb22Commitment, EddsaProofData, OutputOwnerMode},
     SHIELDED_POOL_PROGRAM_ID,
 };
 
@@ -167,11 +167,14 @@ fn small_fe(tag: u8) -> [u8; 32] {
 }
 
 fn widest_signer_ix_bytes() -> Vec<u8> {
-    let circuit = CircuitId::ConfidentialSigner(
+    signer_ix_bytes(CircuitId::ConfidentialSigner(
         WIDEST_SIGNER_SHAPE.n_inputs() as u8,
         WIDEST_SIGNER_SHAPE.n_outputs() as u8,
         3,
-    );
+    ))
+}
+
+fn signer_ix_bytes(circuit: CircuitId) -> Vec<u8> {
     TransactIxData {
         expiry_unix_ts: 7,
         private_tx_hash: small_fe(0x51),
@@ -208,6 +211,10 @@ fn widest_signer_ix_bytes() -> Vec<u8> {
 /// `payer`, `output_tree`, the program, the system program, `input_tree`, one
 /// nullifier PDA per input, then `owner_signer_count` distinct signers.
 fn widest_signer_accounts(owner_signer_count: usize) -> Vec<AccountView> {
+    signer_accounts(WIDEST_SIGNER_SHAPE, owner_signer_count)
+}
+
+fn signer_accounts(shape: Shape, owner_signer_count: usize) -> Vec<AccountView> {
     let pool = SHIELDED_POOL_PROGRAM_ID;
     let mut accounts = vec![
         get_account_view([1; 32], [0; 32], true, true, false, vec![]),
@@ -217,7 +224,7 @@ fn widest_signer_accounts(owner_signer_count: usize) -> Vec<AccountView> {
         get_account_view([2; 32], pool, false, true, false, vec![]),
     ];
     accounts.extend(
-        (0..WIDEST_SIGNER_SHAPE.n_inputs() as u8)
+        (0..shape.n_inputs() as u8)
             .map(|index| get_account_view([0x10 + index; 32], pool, false, true, false, vec![])),
     );
     accounts.extend((0..owner_signer_count).map(|index| {
@@ -245,6 +252,42 @@ fn widest_signer_shape_rejects_an_owner_signer_run_past_its_slots() {
     assert_eq!(parsed.nullifier_pdas.len(), WIDEST_SIGNER_SHAPE.n_inputs());
 
     let mut accounts = widest_signer_accounts(slots + 1);
+    assert_eq!(
+        TransactAccounts::validate_and_parse(&mut accounts, &ix).err(),
+        Some(ProgramError::Custom(
+            ShieldedPoolError::InvalidTransactShape as u32
+        ))
+    );
+}
+
+/// The in-circuit owner signs no account, so the rail takes owner signers
+/// exactly as the signer rail does: a run filling the shape's signer slots
+/// parses, and one slot more is rejected before any hashing.
+#[test]
+fn the_in_circuit_eddsa_rail_bounds_owner_signers_like_the_signer_rail() {
+    let shape = Shape::IN2_OUT8;
+    let bytes = signer_ix_bytes(CircuitId::ConfidentialEddsa(
+        shape.n_inputs() as u8,
+        shape.n_outputs() as u8,
+        3,
+        EddsaProofData {
+            bsb22_commitment: Bsb22Commitment {
+                commitment: [1u8; 32],
+                commitment_pok: [2u8; 32],
+            },
+            owner_pk: [3u8; 32],
+        },
+    ));
+    let ix = TransactIxDataRef::from_bytes(&bytes).expect("parse transact ix");
+    let slots = shape.signer_width();
+
+    let mut accounts = signer_accounts(shape, slots);
+    let parsed = TransactAccounts::validate_and_parse(&mut accounts, &ix)
+        .expect("a run filling every owner signer slot parses");
+    assert_eq!(parsed.owner_signers.len(), slots);
+    assert_eq!(parsed.nullifier_pdas.len(), shape.n_inputs());
+
+    let mut accounts = signer_accounts(shape, slots + 1);
     assert_eq!(
         TransactAccounts::validate_and_parse(&mut accounts, &ix).err(),
         Some(ProgramError::Custom(
