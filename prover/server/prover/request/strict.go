@@ -31,6 +31,8 @@ func ParseStrict(body []byte) (*Request, error) {
 	switch envelope.CircuitType {
 	case common.TransferConfidentialCircuitType, common.TransferRingCircuitType, common.TransferRingAuthorityCircuitType:
 		schema = reflect.TypeOf(transfer.TransferParametersJSON{})
+	case common.TransferConfidentialEddsaCircuitType:
+		schema = reflect.TypeOf(transfer.ConfidentialEddsaTransferParametersJSON{})
 	case common.MergeCircuitType, common.MergeRingCircuitType:
 		schema = reflect.TypeOf(merge.MergeParametersJSON{})
 	default:

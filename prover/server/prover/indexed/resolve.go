@@ -70,7 +70,9 @@ func decodeRequest(data []byte) (Request, *preparedProof, error) {
 	switch request.CircuitType {
 	case common.TransferRingAuthorityCircuitType:
 		expected = 14
-	case common.TransferAnonymousRingEddsaCircuitType:
+	case common.TransferAnonymousRingEddsaCircuitType, common.TransferConfidentialEddsaCircuitType:
+		// The confidential layout plus the message hash and one owner field:
+		// the hidden default owner, or the identity of the in-circuit owner.
 		expected = 19
 	case common.MergeCircuitType:
 		// The prefix without the tree hash, the two-element owner tail, the

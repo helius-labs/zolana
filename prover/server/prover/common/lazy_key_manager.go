@@ -366,20 +366,27 @@ func (shape ProofShape) Supported() bool {
 				return true
 			}
 		}
-	case TransferConfidentialCircuitType, TransferRingCircuitType, TransferRingAuthorityCircuitType, TransferAnonymousRingEddsaCircuitType:
-		for _, supported := range transferSupportedShapes {
-			if shape.Inputs == supported[0] && shape.Outputs == supported[1] {
-				return true
-			}
-		}
-	case TransferConfidentialEddsaCircuitType:
-		for _, supported := range confidentialEddsaShapes {
+	default:
+		for _, supported := range transferShapes(shape.Circuit) {
 			if shape.Inputs == supported[0] && shape.Outputs == supported[1] {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+// transferShapes lists the shapes a transfer circuit has keys for; a merge or
+// unknown circuit has none here.
+func transferShapes(circuitType CircuitType) [][2]uint32 {
+	switch circuitType {
+	case TransferConfidentialCircuitType, TransferRingCircuitType, TransferRingAuthorityCircuitType, TransferAnonymousRingEddsaCircuitType:
+		return transferSupportedShapes
+	case TransferConfidentialEddsaCircuitType:
+		return confidentialEddsaShapes
+	default:
+		return nil
+	}
 }
 
 // mergeKeyFile names a merge key file. Merge always produces one output, so
@@ -413,7 +420,7 @@ func TransferKeyFile(circuitType CircuitType, nInputs uint32, nOutputs uint32) s
 	case TransferRingAuthorityCircuitType:
 		prefix = "transfer_ring_authority"
 	case TransferConfidentialEddsaCircuitType:
-		return fmt.Sprintf("transfer_confidential_eddsa_%d_%d.key", nInputs, nOutputs)
+		prefix = "transfer_confidential_eddsa"
 	case MergeCircuitType:
 		return mergeKeyFile("merge", nInputs, nOutputs)
 	case MergeRingCircuitType:
@@ -421,14 +428,7 @@ func TransferKeyFile(circuitType CircuitType, nInputs uint32, nOutputs uint32) s
 	default:
 		return ""
 	}
-
-	for _, shape := range transferSupportedShapes {
-		if shape[0] == nInputs && shape[1] == nOutputs {
-			return fmt.Sprintf("%s_%d_%d.key", prefix, nInputs, nOutputs)
-		}
-	}
-
-	return ""
+	return fmt.Sprintf("%s_%d_%d.key", prefix, nInputs, nOutputs)
 }
 
 func (m *LazyKeyManager) determineTransferKeyPath(circuitType CircuitType, nInputs uint32, nOutputs uint32) string {
@@ -453,15 +453,13 @@ func keyFileCircuits() map[string]CircuitType {
 		TransferRingCircuitType,
 		TransferAnonymousRingEddsaCircuitType,
 		TransferRingAuthorityCircuitType,
+		TransferConfidentialEddsaCircuitType,
 	} {
-		for _, shape := range transferSupportedShapes {
+		for _, shape := range transferShapes(circuit) {
 			if file := TransferKeyFile(circuit, shape[0], shape[1]); file != "" {
 				files[file] = circuit
 			}
 		}
-	}
-	for _, shape := range confidentialEddsaShapes {
-		files[TransferKeyFile(TransferConfidentialEddsaCircuitType, shape[0], shape[1])] = TransferConfidentialEddsaCircuitType
 	}
 	for _, circuit := range []CircuitType{MergeCircuitType, MergeRingCircuitType} {
 		for _, inputs := range mergeSupportedInputCounts {
