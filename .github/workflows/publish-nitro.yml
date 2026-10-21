@@ -27,6 +27,27 @@ on:
         description: The deployment's KMS key ARN, from zolana-infra's nitro_prover output
         required: true
         type: string
+      source_commit:
+        description: Full source commit SHA; empty builds the workflow ref
+        required: false
+        default: ""
+        type: string
+      backend:
+        description: Backend compiled into the measured image
+        required: true
+        default: gnark
+        type: choice
+        options: [gnark, aeglos-cpu]
+      concurrency:
+        description: Measured proof admission limit; 8 feeds Aeglos batches of 4
+        required: true
+        default: "2"
+        type: string
+      request_timing:
+        description: Expose stage timings only to clients requesting them
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: publish-nitro-${{ inputs.deployment }}
@@ -46,31 +67,73 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     environment: image-publish
+    defaults:
+      run:
+        working-directory: source
     permissions:
       contents: read
       id-token: write
       attestations: write
     steps:
+      # Keep measurement tooling at the workflow commit while building the
+      # requested immutable protocol source, including already-published tags.
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          path: build-tools
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ inputs.source_commit || github.sha }}
+          path: source
       - name: Resolve the build
         id: plan
         env:
           DEPLOYMENT: ${{ inputs.deployment }}
           KMS_KEY_ARN: ${{ inputs.kms_key_arn }}
           BUCKET: ${{ vars.NITRO_EIF_BUCKET }}
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+          BACKEND: ${{ inputs.backend }}
+          CONCURRENCY: ${{ inputs.concurrency }}
         run: |
           [[ $DEPLOYMENT =~ ^[a-z0-9][a-z0-9-]{0,39}$ ]] \
             || { echo "::error::deployment must be up to 40 lowercase letters, digits or hyphens" >&2; exit 1; }
           [[ $KMS_KEY_ARN =~ ^arn:aws:kms:[a-z0-9-]+:[0-9]{12}:key/[0-9a-f-]{36}$ ]] \
             || { echo "::error::kms_key_arn is not a KMS key ARN" >&2; exit 1; }
           [[ -n $BUCKET ]] || { echo "::error::vars.NITRO_EIF_BUCKET is not set" >&2; exit 1; }
-          commit=${GITHUB_SHA:0:12}
+          [[ -z $SOURCE_COMMIT || $SOURCE_COMMIT =~ ^[0-9a-f]{40}$ ]] \
+            || { echo "::error::source_commit must be a full lowercase SHA" >&2; exit 1; }
+          [[ $BACKEND == gnark || $BACKEND == aeglos-cpu ]] \
+            || { echo "::error::unknown backend" >&2; exit 1; }
+          [[ $CONCURRENCY =~ ^[1-9][0-9]?$ ]] \
+            || { echo "::error::concurrency must be 1 to 99" >&2; exit 1; }
+          source_commit=$(git rev-parse HEAD)
+          [[ -z $SOURCE_COMMIT || $source_commit == "$SOURCE_COMMIT" ]] \
+            || { echo "::error::checkout differs from source_commit" >&2; exit 1; }
+          commit=${source_commit:0:12}
           {
+            echo "source_commit=$source_commit"
             echo "deployment=$DEPLOYMENT"
             echo "kms_key_arn=$KMS_KEY_ARN"
             echo "tag=prover-nitro-zolana-$commit-$DEPLOYMENT"
             echo "prefix=s3://$BUCKET/$DEPLOYMENT/$commit"
           } >> "$GITHUB_OUTPUT"
+      - name: Fetch pinned Aeglos CPU source
+        id: aeglos
+        if: inputs.backend == 'aeglos-cpu'
+        env:
+          AEGLOS_DEPLOY_KEY: ${{ secrets.AEGLOS_DEPLOY_KEY }}
+        run: |
+          test -n "$AEGLOS_DEPLOY_KEY" || { echo "::error::AEGLOS_DEPLOY_KEY is required" >&2; exit 1; }
+          ssh_dir=$(mktemp -d)
+          trap 'rm -rf "$ssh_dir"' EXIT
+          printf '%s\n' "$AEGLOS_DEPLOY_KEY" > "$ssh_dir/key"
+          chmod 600 "$ssh_dir/key"
+          echo 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' > "$ssh_dir/known_hosts"
+          export GIT_SSH_COMMAND="ssh -i $ssh_dir/key -o IdentitiesOnly=yes -o UserKnownHostsFile=$ssh_dir/known_hosts -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes"
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0='url.git@github.com:.insteadOf'
+          export GIT_CONFIG_VALUE_0='https://github.com/'
+          tools/gpu/fetch-aeglos.sh "$RUNNER_TEMP/aeglos-source" cpu
+          echo "contexts=aeglos_source=$RUNNER_TEMP/aeglos-source" >> "$GITHUB_OUTPUT"
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
         with:
@@ -93,13 +156,19 @@ jobs:
           source prover/server/release-build.env
           echo "goamd64=$PROVER_RELEASE_GOAMD64" >> "$GITHUB_OUTPUT"
           echo "pgo=$PROVER_RELEASE_PGO" >> "$GITHUB_OUTPUT"
+      - name: Use the versioned build tooling
+        run: cp ../build-tools/prover/server/build-aeglos.sh prover/server/build-aeglos.sh
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         id: build
         with:
-          context: .
-          file: prover/server/Dockerfile.nitro
+          context: source
+          file: build-tools/prover/server/Dockerfile.nitro
           platforms: linux/amd64
+          build-contexts: ${{ steps.aeglos.outputs.contexts }}
           build-args: |
+            BACKEND=${{ inputs.backend }}
+            CONCURRENCY=${{ inputs.concurrency }}
+            REQUEST_TIMING=${{ inputs.request_timing && 'on' || '' }}
             GOAMD64=${{ steps.prover-build.outputs.goamd64 }}
             PROVER_PGO=${{ steps.prover-build.outputs.pgo }}
             KEY_SOURCE=kms
@@ -108,10 +177,11 @@ jobs:
           tags: ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ steps.plan.outputs.tag }}
           labels: |
             org.opencontainers.image.title=Zolana Nitro Enclave prover
-            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.revision=${{ steps.plan.outputs.source_commit }}
+            org.zolana.build-tools.revision=${{ github.sha }}
             org.opencontainers.image.licenses=Apache-2.0
-          cache-from: type=gha,scope=publish-nitro
-          cache-to: type=gha,mode=max,scope=publish-nitro
+          cache-from: ${{ inputs.backend == 'gnark' && 'type=gha,scope=publish-nitro' || '' }}
+          cache-to: ${{ inputs.backend == 'gnark' && 'type=gha,mode=max,scope=publish-nitro' || '' }}
       # Kept in GitHub's attestation store, as publish-image does: ECR's support
       # for OCI referrers is uneven.
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
@@ -122,16 +192,22 @@ jobs:
         env:
           IMAGE: ${{ env.REGISTRY }}/${{ env.REPOSITORY }}@${{ steps.build.outputs.digest }}
           KMS_KEY_ARN: ${{ steps.plan.outputs.kms_key_arn }}
+          SOURCE_COMMIT: ${{ steps.plan.outputs.source_commit }}
+          BACKEND: ${{ inputs.backend }}
+          CONCURRENCY: ${{ inputs.concurrency }}
         run: |
           docker pull --quiet --platform linux/amd64 "$IMAGE"
-          prover/server/nitro/build-eif.sh "$IMAGE" eif
+          ../build-tools/prover/server/nitro/build-eif.sh "$IMAGE" eif
           [[ $(jq -r .kms_key eif/measurements.json) == "$KMS_KEY_ARN" ]] \
             || { echo "::error::the image names another KMS key" >&2; exit 1; }
+          jq -e --arg backend "$BACKEND" --arg source "$SOURCE_COMMIT" --argjson concurrency "$CONCURRENCY" \
+            '.backend == $backend and .source_commit == $source and .concurrency == $concurrency' eif/measurements.json \
+            || { echo "::error::measured build profile differs from requested profile" >&2; exit 1; }
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: |
-            eif/prover.eif
-            eif/measurements.json
+            source/eif/prover.eif
+            source/eif/measurements.json
       - name: Upload the EIF
         env:
           PREFIX: ${{ steps.plan.outputs.prefix }}
@@ -149,6 +225,8 @@ jobs:
             echo "### Nitro prover for $DEPLOYMENT"
             echo
             echo "- image: \`$(jq -r .image eif/measurements.json)\`"
+            echo "- backend: \`$(jq -r .backend eif/measurements.json)\`; concurrency: \`$(jq -r .concurrency eif/measurements.json)\`"
+            echo "- source commit: \`$(jq -r .source_commit eif/measurements.json)\`"
             echo "- EIF: \`$PREFIX/prover.eif\`"
             echo "- EIF sha256: \`$(jq -r .eif_sha256 eif/measurements.json)\`"
             echo
