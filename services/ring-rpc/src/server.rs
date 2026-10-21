@@ -24,6 +24,7 @@ use jsonrpsee::{
 use thiserror::Error;
 use tower::{Layer, Service};
 use tower_http::cors::{AllowOrigin, CorsLayer};
+use zolana_rpc_http::MethodPathLayer;
 
 use crate::{
     api::{
@@ -36,7 +37,6 @@ use crate::{
     hub::{Hub, ReadinessStatus},
     limits::PublicRequest,
     metering::{Metering, MeteringHeaderLayer},
-    method_path::MethodPathLayer,
     origins::{OriginError, Origins},
     upstream::{DepositPage, TransactionSource},
 };

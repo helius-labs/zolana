@@ -1,5 +1,5 @@
 //! A call on any path but `/` runs only when its JSON-RPC body names the
-//! path's last segment. A gateway routes and prices ring RPC by path, so the
+//! path's last segment. A gateway routes and prices RPC calls by path, so the
 //! method that runs must be the one the path names; `/` serves every method
 //! to a self-hosted client.
 
@@ -24,8 +24,8 @@ use tower::{Layer, Service};
 const MISMATCH: &str = "the method does not match the request path";
 
 #[derive(Clone, Copy)]
-pub(crate) struct MethodPathLayer {
-    pub(crate) max_body_size: usize,
+pub struct MethodPathLayer {
+    pub max_body_size: usize,
 }
 
 impl<Inner> Layer<Inner> for MethodPathLayer {
@@ -40,7 +40,7 @@ impl<Inner> Layer<Inner> for MethodPathLayer {
 }
 
 #[derive(Clone)]
-pub(crate) struct MethodPath<Inner> {
+pub struct MethodPath<Inner> {
     inner: Inner,
     max_body_size: usize,
 }
