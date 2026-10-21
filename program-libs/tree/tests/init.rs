@@ -33,20 +33,22 @@ fn every_supported_proof_size_keeps_100_nullifier_roots() {
             ..NullifierTreeInitParams::default()
         };
         let mut bytes = vec![0u8; TreeAccount::account_size()];
-        let mut tree = TreeAccount::init(
-            &mut bytes,
-            DISCRIMINATOR,
-            HEIGHT,
-            [2u8; 32],
-            TREE_ID,
-            params,
-            FEES,
-        )
-        .unwrap();
-        assert_eq!(tree.nullifier_tree().root_history.roots.len(), 100);
-        assert_eq!(tree.nullifier_tree().get_num_zkp_batches(), 100);
-        tree.nullifier_tree().root_history.roots[99] = leaf(99);
-        tree.nullifier_tree().root_history.current_index = 0;
+        {
+            let mut tree = TreeAccount::init(
+                &mut bytes,
+                DISCRIMINATOR,
+                HEIGHT,
+                [2u8; 32],
+                TREE_ID,
+                params,
+                FEES,
+            )
+            .unwrap();
+            assert_eq!(tree.nullifier_tree().root_history.roots.len(), 100);
+            assert_eq!(tree.nullifier_tree().get_num_zkp_batches(), 100);
+            tree.nullifier_tree().root_history.roots[99] = leaf(99);
+            tree.nullifier_tree().root_history.current_index = 0;
+        }
 
         let mut tree = TreeAccount::from_bytes(&mut bytes, [2u8; 32]).unwrap();
         assert_eq!(tree.nullifier_tree().get_root_index(), 99);
