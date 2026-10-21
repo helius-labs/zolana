@@ -13,6 +13,7 @@ wallet sync recovers a default merge output from the merge transaction alone.
 
 Breaking
 
+- `CircuitId` kinds `confidentialEddsa` and `confidentialEddsaCached` are now `confidentialSigner` and `confidentialSignerCached` for transaction signer authorization → rename existing matches and hand-built selectors, and supply `proofData` when using the new in-proof `confidentialEddsa` kinds.
 - `SigningKey` and `ShieldedPublicKey` accept only Ed25519 ownership and PDA public keys, and `SignatureType` drops `"p256"` → migrate P-256-owned notes and registry records before upgrading, use `P256ReaderKey` from `@heliuslabs/zolana/ring` for passkey audit access.
 - `UserRecord` and `RegistryRecord` drop `ownerP256`, and `getRegisterInstructionAsync`, `decodeUserRecordAccount` and `fetchUserRecord` write and read the registry record without a P-256 owner key → register again on a registry program built from this version, a record in the earlier layout fails with `WALLET_INVALID_USER_RECORD`.
 - `MergeTransactInstructionData` drops `eddsaOwner` → remove it from merge data you build and send merge instructions built by this version, the program refuses the earlier layout.
@@ -85,6 +86,9 @@ Breaking
 
 Added
 
+- `ZolanaClient.proveConfidentialEddsaTransact` authorizes one owner inside the proof and returns the remaining transaction signers, while `signTransactMessage` and `transactMessageDigest` expose the signed statement.
+- `PrivateTransactionParams.owner` lets transfer, withdrawal and split builders accept an owner signature inside the proof while another account pays the transaction fee.
+- `ConfidentialTransfer.withConfidentialEddsaShape` and `selectConfidentialEddsaShape` select among twelve proof shapes with up to 48 inputs and 16 outputs.
 - `RingRpc.getDecryptedTransactions` returns hidden senders, inputs and recipients in `anonymous` for authorized anonymous-ring audit readers.
 - `buildMultiTransferTransaction(params)` pays up to fifteen recipients of
   one asset in one private transfer, each a `TransferPayment` in order (a

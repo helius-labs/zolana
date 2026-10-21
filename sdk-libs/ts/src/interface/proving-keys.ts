@@ -105,6 +105,30 @@ export const PROVING_KEY_SHA256S: Readonly<Record<string, string>> = Object.free
     "d44b087de72260f6149e14098ba458ab44e565ca4c9e3ed575f3d4b5bd476b47",
   "transfer_confidential_8_8.key":
     "3fce685c5cfe6bc4ed1c11a74c4b9168c8d99e5b0cd2229a1217c3918c791a94",
+  "transfer_confidential_eddsa_16_16.key":
+    "ae94b617ae3f7ed4c2ba2df7cc4bae3afeda89090f025b2b153dc127e3028e37",
+  "transfer_confidential_eddsa_16_8.key":
+    "9d82d4be2d0741e53137c73375d8ccf4e1dda51ca33965d363a6cc74ccb40dae",
+  "transfer_confidential_eddsa_24_16.key":
+    "ed96171728783a85db28323e44fb49e8cd4a72bfa82ff31ab7ae77f5680b52c5",
+  "transfer_confidential_eddsa_24_8.key":
+    "a4187aa6b90013d01c00e90853ceaca0e1e5a6a5facb339ba216592128f14445",
+  "transfer_confidential_eddsa_2_16.key":
+    "bd5ee7839c0c3128cbb5489e6acfbfab27d7382bf6c34e9fc49747efd5461566",
+  "transfer_confidential_eddsa_2_8.key":
+    "67e37b413b0eeb97de0170519a9fe269d39792e8ed3d91c0c9336ac12f06684a",
+  "transfer_confidential_eddsa_48_16.key":
+    "72b7c5ca256b05ba43e4ecaed7aa3e5d1fbe9ee306bd436a8388a4f713b75db8",
+  "transfer_confidential_eddsa_48_8.key":
+    "ef92717877e915bc9042d64b5f295a5accb8f5efe1f5512f9b00cc54f90a0d2f",
+  "transfer_confidential_eddsa_4_16.key":
+    "db6fafd3b53c4d16600b35181d2e0c121e3cb6c992b323997ec52c99ebf61734",
+  "transfer_confidential_eddsa_4_8.key":
+    "506f40765a75aa56ac9332948fef62dc6d2f7958b9601e964ba6a2e6124fb4df",
+  "transfer_confidential_eddsa_8_16.key":
+    "e62032b8a510e12a8923fe1f2791985693ab3b5ed6e14a4e9edc46c9f79c70ed",
+  "transfer_confidential_eddsa_8_8.key":
+    "111004c953760420e3c4570234e88f2db3561cc36f773ec781ec689ff8cbf104",
   "transfer_eddsa_ring_12_2.key":
     "98939bf3992efb290d185d8543de5af307817cd34eb42abf0754261a02ea027b",
   "transfer_eddsa_ring_12_4.key":
@@ -212,6 +236,11 @@ export type ProvingKeyCircuit =
       readonly nOutputs: number;
     }
   | {
+      readonly circuit: "transfer-confidential-eddsa";
+      readonly nInputs: number;
+      readonly nOutputs: number;
+    }
+  | {
       readonly circuit: "transfer-ring";
       readonly nInputs: number;
       readonly nOutputs: number;
@@ -254,6 +283,8 @@ function provingKeyName(request: ProvingKeyCircuit): string {
   switch (request.circuit) {
     case "transfer-confidential":
       return `transfer_confidential_${request.nInputs}_${request.nOutputs}.key`;
+    case "transfer-confidential-eddsa":
+      return `transfer_confidential_eddsa_${request.nInputs}_${request.nOutputs}.key`;
     case "transfer-ring":
       return `transfer_ring_${request.nInputs}_${request.nOutputs}.key`;
     case "transfer-ring-authority":

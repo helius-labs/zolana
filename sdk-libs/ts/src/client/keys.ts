@@ -146,12 +146,16 @@ export class NullifierKeyProofAuthority implements ProofAuthority {
 type Proof = Awaited<ReturnType<ProofService["prove"]>>;
 
 function completeTransferInputs(inputs: ProverInputs, key: NullifierKey): ProverInputs {
+  const completed = Object.freeze(inputs.payload.inputs.map((input) => completeInput(input, key)));
+  if (inputs.circuit === "transferConfidentialEddsa") {
+    return Object.freeze({
+      circuit: inputs.circuit,
+      payload: Object.freeze({ ...inputs.payload, inputs: completed }),
+    });
+  }
   return Object.freeze({
     circuit: inputs.circuit,
-    payload: Object.freeze({
-      ...inputs.payload,
-      inputs: Object.freeze(inputs.payload.inputs.map((input) => completeInput(input, key))),
-    }),
+    payload: Object.freeze({ ...inputs.payload, inputs: completed }),
   });
 }
 
@@ -219,11 +223,9 @@ function completeIndexedInputs(inputs: IndexedProofInputs, key: NullifierKey): I
       throw new ClientError("CLIENT_MERGE_NULLIFIER_KEY_MISMATCH");
     return { ...inputs, payload: { ...inputs.payload, userNullifierSecret: secretField(key) } };
   }
-  return {
-    ...inputs,
-    payload: {
-      ...inputs.payload,
-      inputs: inputs.payload.inputs.map((input) => completeInput(input, key)),
-    },
-  };
+  const completed = inputs.payload.inputs.map((input) => completeInput(input, key));
+  if (inputs.circuit === "transferConfidentialEddsa") {
+    return { ...inputs, payload: { ...inputs.payload, inputs: completed } };
+  }
+  return { ...inputs, payload: { ...inputs.payload, inputs: completed } };
 }

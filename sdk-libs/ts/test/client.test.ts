@@ -862,7 +862,7 @@ describe("ZolanaClient", () => {
     });
 
     await expect(pending).resolves.toMatchObject({
-      circuit: { kind: "confidentialEddsa", inputs: 2, outputs: 2 },
+      circuit: { kind: "confidentialSigner", inputs: 2, outputs: 2 },
     });
     expect(fetch).toHaveBeenCalledOnce();
   });

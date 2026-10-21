@@ -1,4 +1,6 @@
 import { getAddressDecoder } from "@solana/kit";
+import { ed25519 } from "@noble/curves/ed25519.js";
+import { sha256 } from "@noble/hashes/sha2.js";
 
 import type {
   Address,
@@ -18,6 +20,8 @@ import { CACHE_CAPACITY } from "../../interface/state.js";
 import { ADDRESS_DOMAIN, DUMMY_DOMAIN, UTXO_DOMAIN } from "../../interface/program.js";
 import {
   RING_AUTHORITY_WIDTHS,
+  isConfidentialEddsaShape,
+  isSppShape,
   selectSppShape,
   signerWidth,
   type Shape,
@@ -47,6 +51,7 @@ import {
   type TreeId,
 } from "../../transaction/utxo.js";
 import { SOL_MINT } from "../../transaction/asset.js";
+import { TransactionError } from "../../transaction/error.js";
 
 import type {
   IndexedProofInputs,
@@ -75,9 +80,12 @@ import type {
   AssembledTransfer,
   CircuitUtxo,
   CustomRingOpening,
+  EddsaOwnerAuthorization,
   Field,
   InputRootIndexes,
+  ProvedTransactProof,
   ProverInputs,
+  TransactOwnerSigner,
   TransferCircuit,
   TransferInput,
   TransferInputs,
@@ -105,11 +113,14 @@ let lastResolvedHash:
  * Unique Ed25519 and PDA owners of real inputs, address inputs included, then
  * of outputs that carry data, in first-occurrence order; mirrors Rust
  * `owner_signer_pubkeys`. The fee payer gets no special treatment: it is
- * listed only when it is one of those owners.
+ * listed only when it is one of those owners. `inCircuitOwner`, the Ed25519
+ * key a `confidentialEddsa` proof verifies, is left out: it signs no account,
+ * Rust `confidential_eddsa_signer_pk_hashes`.
  */
 export function ownerSignerAddresses(
   inputs: readonly ProofInputUtxo[],
   outputs: readonly ProofOutputUtxo[],
+  inCircuitOwner?: Bytes32,
 ): readonly Address[] {
   const owners = [
     ...inputs.filter((input) => !input.isDummy()).map((input) => input.utxo.owner),
@@ -120,6 +131,9 @@ export function ownerSignerAddresses(
     ),
   ];
   const seen = new Set<string>();
+  if (inCircuitOwner !== undefined) {
+    seen.add(getAddressDecoder().decode(checkedBytes(inCircuitOwner, 32, "in-circuit owner")));
+  }
   const signers: Address[] = [];
   for (const owner of owners) {
     const address = getAddressDecoder().decode(owner.confidentialViewTag());
@@ -130,20 +144,117 @@ export function ownerSignerAddresses(
   return Object.freeze(signers);
 }
 
+/**
+ * The message a `confidentialEddsa` owner signs,
+ * `sha256(privateTxHash || externalDataHash)` with the external data hash
+ * bound to the cache writes; Rust `transact_message_hash`.
+ */
+export function transactMessageDigest(proofInputs: SppProofInputs): Bytes32 {
+  if (!(proofInputs instanceof SppProofInputs)) {
+    throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+  }
+  const cache = checkedTransferCache(proofInputs);
+  return messageDigest(
+    proofInputs.privateTxHash(),
+    cacheBoundExternalDataHash(
+      proofInputs.externalData,
+      cache?.access.writeSlots ?? NO_CACHE_WRITES,
+      cache?.write,
+    ),
+  );
+}
+
+/** `transactMessageDigest` over the statement's field elements. */
+export function transactMessageDigestOf(privateTxHash: bigint, externalDataHash: bigint): Bytes32 {
+  return messageDigest(
+    bigintToBytes(privateTxHash, "private tx hash"),
+    bigintToBytes(externalDataHash, "external data hash"),
+  );
+}
+
+function messageDigest(privateTxHash: Uint8Array, externalDataHash: Uint8Array): Bytes32 {
+  const message = new Uint8Array(64);
+  message.set(checkedBytes(privateTxHash, 32, "private tx hash"), 0);
+  message.set(checkedBytes(externalDataHash, 32, "external data hash"), 32);
+  return sha256(message) as Bytes32;
+}
+
+/**
+ * `owner`'s authorization of `proofInputs` for the `confidentialEddsa` rail:
+ * its Ed25519 signature over the transact message digest. The owner must
+ * hold an Ed25519 key, a PDA cannot sign.
+ */
+export async function signTransactMessage(
+  proofInputs: SppProofInputs,
+  owner: TransactOwnerSigner,
+): Promise<EddsaOwnerAuthorization> {
+  try {
+    const digest = transactMessageDigest(proofInputs);
+    const ownerPublicKey = (await owner.signingPublicKey()).ed25519();
+    const ownerSignature = checkedBytes(await owner.sign(new Uint8Array(digest)), 64, "owner signature");
+    return checkedAuthorization({ ownerPublicKey, ownerSignature, messageDigest: digest }, digest);
+  } catch (cause) {
+    throw fromClientCause(cause);
+  }
+}
+
+/**
+ * Revalidates an authorization at the method boundary and binds it to the
+ * statement: the signed digest must be the one these proof inputs hash to.
+ */
+export function checkedAuthorization(
+  authorization: EddsaOwnerAuthorization,
+  expectedDigest: Bytes32,
+): EddsaOwnerAuthorization {
+  const ownerPublicKey = checkedBytes(authorization.ownerPublicKey, 32, "owner public key");
+  const ownerSignature = checkedBytes(authorization.ownerSignature, 64, "owner signature");
+  const digest = checkedBytes(authorization.messageDigest, 32, "message digest");
+  if (
+    !equal(digest, expectedDigest) ||
+    !ed25519.verify(ownerSignature, digest, ownerPublicKey, { zip215: false })
+  ) {
+    throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+  }
+  return Object.freeze({ ownerPublicKey, ownerSignature, messageDigest: digest });
+}
+
+/**
+ * The public input hash fields that follow `privateTxHash` on the
+ * `confidentialEddsa` rail: the message hash and the verified owner's tagged
+ * Solana identity, Rust `EddsaAuthorization::public_fields`.
+ */
+export function eddsaPublicFields(authorization: EddsaOwnerAuthorization): readonly bigint[] {
+  return Object.freeze([
+    hashBytesBigInt(authorization.messageDigest),
+    bytesToBigInt(solanaOwnerIdentity(authorization.ownerPublicKey)),
+  ]);
+}
+
 /** The tagged identity a Solana signer enters the proof's signer chain as. */
 export function signerIdentity(address: Address): bigint {
   return bytesToBigInt(solanaOwnerIdentity(addressBytes(address)));
 }
 
 /** Selects owner and signer commitments for each transaction rail. */
-interface CircuitPlan {
-  readonly ring: Address | undefined;
-  readonly authority: boolean;
-  readonly prover: ProverInputs["circuit"];
-  readonly data: "confidentialEddsa" | "confidentialRingEddsa" | "ringAuthority";
-  readonly signerSlots: number;
-  readonly owners: "every" | "confidentialMarked" | "none";
-}
+type CircuitPlan = Readonly<{
+  ring: Address | undefined;
+  authority: boolean;
+  signerSlots: number;
+  owners: "every" | "confidentialMarked" | "none";
+}> &
+  Readonly<
+    | {
+        prover: "transfer" | "transferRing" | "transferRingAuthority";
+        data: "confidentialSigner" | "confidentialRingEddsa" | "ringAuthority";
+        authorization?: undefined;
+      }
+    | {
+        prover: "transferConfidentialEddsa";
+        data: "confidentialEddsa";
+        /** The owner the proof verifies, left out of the signer vector. */
+        authorization: EddsaOwnerAuthorization;
+      }
+  >;
 
 function circuitPlan(circuit: TransferCircuit, shape: Shape): CircuitPlan {
   switch (circuit.kind) {
@@ -152,9 +263,19 @@ function circuitPlan(circuit: TransferCircuit, shape: Shape): CircuitPlan {
         ring: undefined,
         authority: false,
         prover: "transfer",
+        data: "confidentialSigner",
+        signerSlots: signerWidth(shape),
+        owners: "every",
+      };
+    case "confidentialEddsa":
+      return {
+        ring: undefined,
+        authority: false,
+        prover: "transferConfidentialEddsa",
         data: "confidentialEddsa",
         signerSlots: signerWidth(shape),
         owners: "every",
+        authorization: circuit.authorization,
       };
     case "ring":
       return {
@@ -191,11 +312,11 @@ export function assemble(
   }
 }
 
-interface PreparedTransferAssembly<C extends ProverInputs["circuit"] = ProverInputs["circuit"]> {
-  readonly inputs: Omit<IndexedProofInputs, "circuit" | "payload"> & {
-    readonly circuit: C;
-    readonly payload: PreparedTransferInputs;
-  };
+/** A transfer request for the prover's indexed route, any transfer rail. */
+type PreparedTransferRequest = Exclude<IndexedProofInputs, { circuit: "merge" }>;
+
+interface PreparedTransferAssembly {
+  readonly inputs: PreparedTransferRequest;
   finish(trees: readonly InputTree[]): Omit<AssembledTransfer, "proverInputs">;
 }
 
@@ -208,15 +329,31 @@ export function prepareTransfer(
     const slots = prepareSlots(proofInputs.inputUtxos, (input) =>
       bytesField(input.utxo.owner.ownerProofInputHash(), "owner public key"),
     );
-    const prepared = prepareTransferUnchecked(proofInputs, slots, checked);
-    const { inputs } = prepared;
-    return Object.freeze({
-      ...prepared,
-      inputs: Object.freeze({ ...inputs, circuit: inputs.circuit }),
-    });
+    return prepareTransferUnchecked(proofInputs, slots, checked);
   } catch (cause) {
     throw fromClientCause(cause);
   }
+}
+
+/** The request with the paths and the resolved statement filled in. */
+function completedProverInputs(
+  request: PreparedTransferRequest,
+  completed: Readonly<{
+    inputs: readonly TransferInput[];
+    treeSlots: readonly TreeSlotFields[];
+    publicInputHash: Field;
+  }>,
+): ProverInputs {
+  if (request.circuit === "transferConfidentialEddsa") {
+    return Object.freeze({
+      circuit: request.circuit,
+      payload: Object.freeze({ ...request.payload, ...completed }),
+    });
+  }
+  return Object.freeze({
+    circuit: request.circuit,
+    payload: Object.freeze({ ...request.payload, ...completed }),
+  });
 }
 
 function assembleUnchecked(
@@ -233,16 +370,12 @@ function assembleUnchecked(
   const complete = prepared.finish(slots.inputTrees);
   return Object.freeze({
     ...complete,
-    proverInputs: Object.freeze({
-      circuit: prepared.inputs.circuit,
-      payload: Object.freeze({
-        ...prepared.inputs.payload,
-        inputs: slots.transferInputs,
-        treeSlots: Object.freeze(
-          inputTreeSlots(slots.inputTrees.map((tree) => tree.slot)).map(treeSlotFields),
-        ),
-        publicInputHash: asField(bytesToBigInt(complete.publicInputHash)),
-      }),
+    proverInputs: completedProverInputs(prepared.inputs, {
+      inputs: slots.transferInputs,
+      treeSlots: Object.freeze(
+        inputTreeSlots(slots.inputTrees.map((tree) => tree.slot)).map(treeSlotFields),
+      ),
+      publicInputHash: asField(bytesToBigInt(complete.publicInputHash)),
     }),
   });
 }
@@ -259,6 +392,13 @@ function checkedTransferPlan(proofInputs: SppProofInputs, circuit: TransferCircu
     throw new ClientError("CLIENT_ADDRESS_INPUT_UNSUPPORTED", { details: { index: address } });
   }
   const plan = circuitPlan(circuit, shape);
+  // Each rail proves on its own key set, Rust `check_shape_for`.
+  if (plan.data === "confidentialEddsa" ? !isConfidentialEddsaShape(shape) : !isSppShape(shape)) {
+    throw new TransactionError("TRANSACTION_UNSUPPORTED_SHAPE", {
+      inputs: shape.inputs,
+      outputs: shape.outputs,
+    });
+  }
   if (
     plan.authority &&
     (shape.inputs !== shape.outputs ||
@@ -289,7 +429,7 @@ function prepareTransferUnchecked(
   proofInputs: SppProofInputs,
   slots: PreparedSlots,
   checked: ReturnType<typeof checkedTransferPlan>,
-): PreparedTransferAssembly<ProverInputs["circuit"]> {
+): PreparedTransferAssembly {
   const { plan, cache } = checked;
   const outputTreeId = proofInputs.outputTreeId;
 
@@ -297,15 +437,21 @@ function prepareTransferUnchecked(
   const transferOutputs = proofInputs.outputs.map((output) => createOutput(output, outputTreeId));
   const outputHashes = transferOutputs.map((output) => output.hash as bigint);
   const outputOwnerFields = publishedOwnerFields(plan, transferOutputs, proofInputs.externalData);
-  const externalDataHash = bytesField(
-    cacheBoundExternalDataHash(
-      proofInputs.externalData,
-      cache?.access.writeSlots ?? NO_CACHE_WRITES,
-      cache?.write,
-    ),
-    "external data hash",
+  const externalDataHashBytes = cacheBoundExternalDataHash(
+    proofInputs.externalData,
+    cache?.access.writeSlots ?? NO_CACHE_WRITES,
+    cache?.write,
   );
-  const privateTxHash = bytesField(proofInputs.privateTxHash(), "private tx hash");
+  const externalDataHash = bytesField(externalDataHashBytes, "external data hash");
+  const privateTxHashBytes = proofInputs.privateTxHash();
+  const privateTxHash = bytesField(privateTxHashBytes, "private tx hash");
+  const authorization =
+    plan.authorization === undefined
+      ? undefined
+      : checkedAuthorization(
+          plan.authorization,
+          messageDigest(privateTxHashBytes, externalDataHashBytes),
+        );
   const transfers = publicTransfers(proofInputs);
   const publicSlots = transfers.assets.flatMap((asset, index) => [
     asset,
@@ -315,10 +461,14 @@ function prepareTransferUnchecked(
   // the vector. Owner-signed rails list the unique Ed25519 and PDA owners of
   // inputs and of outputs that carry data, the payer only when it is one of them,
   // matching Rust's `signer_pk_hashes`. The authority rail's width-1 vector
-  // is the payer.
+  // is the payer. An owner the proof verifies holds no slot.
   const signerHashes = plan.authority
     ? [signerIdentity(proofInputs.payer)]
-    : ownerSignerAddresses(proofInputs.inputUtxos, proofInputs.outputs).map(signerIdentity);
+    : ownerSignerAddresses(
+        proofInputs.inputUtxos,
+        proofInputs.outputs,
+        authorization?.ownerPublicKey,
+      ).map(signerIdentity);
   if (signerHashes.length > plan.signerSlots) {
     throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
   }
@@ -335,6 +485,7 @@ function prepareTransferUnchecked(
     outputHashes,
     outputTreeId,
     privateTxHash,
+    afterPrivateTxHash: authorization === undefined ? [] : eddsaPublicFields(authorization),
     externalDataHash,
     publicSlots,
     ringProgramId,
@@ -366,6 +517,7 @@ function prepareTransferUnchecked(
       cache,
       proofInputs.inputUtxos.length,
       proofInputs.outputs.length,
+      authorization,
     ),
     txViewingPk: proofInputs.externalData.txViewingPublicKey.toBytes(),
     salt: new Uint8Array(proofInputs.externalData.salt) as never,
@@ -430,20 +582,30 @@ function prepareTransferUnchecked(
       ),
     ),
   });
-  return Object.freeze({
-    inputs: Object.freeze({
+  const envelope = Object.freeze({
+    trees: slots.treeIds.map((id) => Object.freeze({ id, tree: treeAddress(id) })),
+    lookups: proofInputs.inputUtxos.map((input, index) =>
+      Object.freeze({
+        treeSlot: treeIndexes[index] ?? 0,
+        commitment: input.requiresInclusion() ? input.hash() : null,
+        nullifier: input.isCompact() ? input.nullifier() : null,
+      }),
+    ),
+    publicInputs: Object.freeze(publicInputs.map(asField)),
+  });
+  let inputs: PreparedTransferRequest;
+  if (plan.prover === "transferConfidentialEddsa") {
+    if (authorization === undefined) throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+    inputs = Object.freeze({
+      ...envelope,
       circuit: plan.prover,
-      payload: common,
-      trees: slots.treeIds.map((id) => Object.freeze({ id, tree: treeAddress(id) })),
-      lookups: proofInputs.inputUtxos.map((input, index) =>
-        Object.freeze({
-          treeSlot: treeIndexes[index] ?? 0,
-          commitment: input.requiresInclusion() ? input.hash() : null,
-          nullifier: input.isCompact() ? input.nullifier() : null,
-        }),
-      ),
-      publicInputs: Object.freeze(publicInputs.map(asField)),
-    }),
+      payload: Object.freeze({ ...common, ownerAuthorization: authorization }),
+    });
+  } else {
+    inputs = Object.freeze({ ...envelope, circuit: plan.prover, payload: common });
+  }
+  return Object.freeze({
+    inputs,
     finish(inputTrees: readonly InputTree[]): Omit<AssembledTransfer, "proverInputs"> {
       const firstTree = inputTrees[0];
       if (firstTree === undefined) throw new ClientError("CLIENT_NO_INPUTS");
@@ -483,8 +645,12 @@ function prepareTransferUnchecked(
           nullifierRoot: firstTree.slot.nullifierRoot,
           nullifierRootIndex: firstTree.nullifierRootIndex,
         }),
-        withProof(proof: TransactProof): TransactInstructionData {
-          return Object.freeze({ ...instructionData, proof: copyProof(proof) });
+        withProof(proof: ProvedTransactProof): TransactInstructionData {
+          return Object.freeze({
+            ...instructionData,
+            circuit: committedCircuit(instructionData.circuit, proof),
+            proof: copyProof(proof),
+          });
         },
       });
     },
@@ -607,35 +773,78 @@ function transferCircuit(
   cache: CheckedTransferCache | undefined,
   inputs: number,
   outputs: number,
+  authorization: EddsaOwnerAuthorization | undefined,
 ): CircuitId {
-  if (cache === undefined) {
-    return Object.freeze({
-      kind: plan.data,
-      inputs,
-      outputs,
-      publicAssetSlots: 3,
+  const shape = { inputs, outputs, publicAssetSlots: 3 };
+  if (plan.data === "confidentialEddsa") {
+    if (authorization === undefined) throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+    // The proof fills the commitment in, see `committedCircuit`.
+    const proofData = Object.freeze({
+      bsb22Commitment: Object.freeze({
+        commitment: new Uint8Array(32) as Bytes32,
+        commitmentPok: new Uint8Array(32) as Bytes32,
+      }),
+      ownerPk: new Uint8Array(authorization.ownerPublicKey) as Bytes32,
     });
+    return cache === undefined
+      ? Object.freeze({ kind: "confidentialEddsa", ...shape, proofData })
+      : Object.freeze({
+          kind: "confidentialEddsaCached",
+          ...shape,
+          proofData,
+          cacheAccess: cache.access,
+        });
   }
+  if (cache === undefined) return Object.freeze({ kind: plan.data, ...shape });
   switch (plan.data) {
-    case "confidentialEddsa":
+    case "confidentialSigner":
       return Object.freeze({
-        kind: "confidentialEddsaCached",
-        inputs,
-        outputs,
-        publicAssetSlots: 3,
+        kind: "confidentialSignerCached",
+        ...shape,
         cacheAccess: cache.access,
       });
     case "confidentialRingEddsa":
       return Object.freeze({
         kind: "confidentialRingEddsaCached",
-        inputs,
-        outputs,
-        publicAssetSlots: 3,
+        ...shape,
         cacheAccess: cache.access,
       });
     case "ringAuthority":
       throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
   }
+}
+
+/**
+ * A `confidentialEddsa` selector carries its proof's BSB22 commitment; the
+ * standard Groth16 rails carry none, so a proof with one proves another
+ * statement than the selector names.
+ */
+function committedCircuit(circuit: CircuitId, proof: ProvedTransactProof): CircuitId {
+  const committed =
+    circuit.kind === "confidentialEddsa" || circuit.kind === "confidentialEddsaCached";
+  if (!committed) {
+    if (proof.commitment !== undefined || proof.commitmentPok !== undefined) {
+      throw new ClientError("CLIENT_PROOF_PARSE", {
+        details: { path: "$.proof.proofCommitment", reason: "unexpected commitment" },
+      });
+    }
+    return circuit;
+  }
+  if (proof.commitment === undefined || proof.commitmentPok === undefined) {
+    throw new ClientError("CLIENT_PROOF_PARSE", {
+      details: { path: "$.proof.proofCommitment", reason: "missing commitment" },
+    });
+  }
+  const proofData = Object.freeze({
+    bsb22Commitment: Object.freeze({
+      commitment: new Uint8Array(checkedBytes(proof.commitment, 32, "proof.commitment")) as Bytes32,
+      commitmentPok: new Uint8Array(
+        checkedBytes(proof.commitmentPok, 32, "proof.commitmentPok"),
+      ) as Bytes32,
+    }),
+    ownerPk: circuit.proofData.ownerPk,
+  });
+  return Object.freeze({ ...circuit, proofData });
 }
 
 /**
@@ -1064,6 +1273,12 @@ interface TransferPublicInputFields extends CachedInputs {
   outputHashes: readonly bigint[];
   outputTreeId: TreeId;
   privateTxHash: bigint;
+  /**
+   * The fields a rail inserts right after `privateTxHash`: none on the
+   * signer, ring and authority rails, `eddsaPublicFields` on the
+   * `confidentialEddsa` rail.
+   */
+  afterPrivateTxHash?: readonly bigint[];
   externalDataHash: bigint;
   publicSlots: readonly bigint[];
   ringProgramId: bigint;
@@ -1084,6 +1299,7 @@ export function transferPublicInputs(input: TransferPublicInputFields): readonly
     rightHashChain4(input.outputHashes),
     bytesToBigInt(treeIdField(input.outputTreeId)),
     input.privateTxHash,
+    ...(input.afterPrivateTxHash ?? []),
     input.externalDataHash,
     ...input.publicSlots,
     input.ringProgramId,
@@ -1569,7 +1785,7 @@ function equal(left: Uint8Array, right: Uint8Array): boolean {
   return difference === 0;
 }
 
-function copyProof(proof: TransactProof): TransactProof {
+function copyProof(proof: ProvedTransactProof): TransactProof {
   return Object.freeze({
     a: new Uint8Array(proof.a) as never,
     b: new Uint8Array(proof.b) as never,

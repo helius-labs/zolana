@@ -4,6 +4,7 @@ import type {
   TransactionAssembler,
   WalletKeys,
 } from "../client/ports.js";
+import type { TransactOwnerSigner } from "../client/prover/types.js";
 import { withProofDataRetry } from "../client/retry.js";
 import type {
   Address,
@@ -38,9 +39,16 @@ export interface PrivateTransactionParams {
   readonly keys: WalletKeys;
   /**
    * Pays the fee. When it is not the shielded owner, the owner's Ed25519 key
-   * is a required signer of the built transaction as well.
+   * is a required signer of the built transaction as well, unless `owner`
+   * authorizes inside the proof.
    */
   readonly feePayer: Address;
+  /**
+   * The shielded owner signing inside the proof instead of the transaction,
+   * so it does not sign the transaction; a `ShieldedKeypair` or any
+   * `TransactOwnerSigner` holding the owner's Ed25519 key.
+   */
+  readonly owner?: TransactOwnerSigner;
   /** Approves the intent before proving; unattended when absent. */
   readonly approve?: ApprovalHandler;
 }
@@ -184,12 +192,18 @@ async function buildAuthorizedTransaction(
       setupInstructions,
       input.approve,
       context,
+      input.owner !== undefined,
     );
     return await withProofDataRetry(
       input.client.proofDataSource,
       (attempt) =>
         input.client.assembleAuthorizedPrivateTransaction(
-          { authorized, feePayer: input.feePayer, keys: input.keys },
+          {
+            authorized,
+            feePayer: input.feePayer,
+            keys: input.keys,
+            ...(input.owner === undefined ? {} : { owner: input.owner }),
+          },
           attempt,
         ),
       context,

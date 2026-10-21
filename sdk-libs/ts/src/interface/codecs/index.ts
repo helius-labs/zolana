@@ -8,6 +8,7 @@ import type {
   CircuitId,
   CreateCacheData,
   DepositInstructionData,
+  EddsaProofData,
   InputUtxo,
   MergeOutputEncryption,
   MergeTransactInstructionData,
@@ -26,6 +27,7 @@ import type {
   TreeFees,
   TreeHeadRoots,
 } from "../types.js";
+import { circuitCacheAccess } from "../types.js";
 import { validCacheAccess } from "../cache.js";
 import { mergePaddedInputCount } from "../constants.js";
 import type { CreateTreeData, NullifierTreeParams } from "../program.js";
@@ -241,38 +243,61 @@ function writeOwnerTag(writer: Writer, value: OwnerTag): void {
 
 function circuitTag(value: CircuitId): number {
   switch (value.kind) {
-    case "confidentialEddsa":
+    case "confidentialSigner":
       return 0;
     case "confidentialRingEddsa":
       return 1;
     case "ringAuthority":
       return 2;
-    case "confidentialEddsaCached":
+    case "confidentialSignerCached":
       return 4;
     case "confidentialRingEddsaCached":
       return 5;
+    case "confidentialEddsa":
+      return 7;
+    case "confidentialEddsaCached":
+      return 8;
     default:
       return fail("INTERFACE_CODEC", { name: "circuit.kind" });
   }
 }
 
+/** Wincode `EddsaProofData`: the commitment pair, then the owner key. */
+function writeEddsaProofData(writer: Writer, value: EddsaProofData): void {
+  writer
+    .bytes(value.bsb22Commitment.commitment, 32, "circuit.proofData.bsb22Commitment.commitment")
+    .bytes(
+      value.bsb22Commitment.commitmentPok,
+      32,
+      "circuit.proofData.bsb22Commitment.commitmentPok",
+    )
+    .bytes(value.ownerPk, 32, "circuit.proofData.ownerPk");
+}
+
+/**
+ * Wincode `CircuitId`: the u16 tag, the shape, then the variant payload in
+ * declaration order, the proof data before the cache selection.
+ */
 function writeCircuit(writer: Writer, value: CircuitId): void {
   writer
     .u16(circuitTag(value), "circuit.kind")
     .u8(value.inputs, "circuit.inputs")
     .u8(value.outputs, "circuit.outputs")
     .u8(value.publicAssetSlots, "circuit.publicAssetSlots");
-  if (value.kind !== "confidentialEddsaCached" && value.kind !== "confidentialRingEddsaCached")
-    return;
-  if (!validCacheAccess(value.cacheAccess, value.inputs, value.outputs)) {
+  if (value.kind === "confidentialEddsa" || value.kind === "confidentialEddsaCached") {
+    writeEddsaProofData(writer, value.proofData);
+  }
+  const cacheAccess = circuitCacheAccess(value);
+  if (cacheAccess === undefined) return;
+  if (!validCacheAccess(cacheAccess, value.inputs, value.outputs)) {
     fail("INTERFACE_INVALID_SHAPE", {
       name: "circuit.cacheAccess",
       inputs: value.inputs,
       outputs: value.outputs,
     });
   }
-  writer.u64(value.cacheAccess.readBitmap, "circuit.cacheAccess.readBitmap");
-  value.cacheAccess.writeSlots.forEach((entry, index) => {
+  writer.u64(cacheAccess.readBitmap, "circuit.cacheAccess.readBitmap");
+  cacheAccess.writeSlots.forEach((entry, index) => {
     writer
       .u8(entry.output, `circuit.cacheAccess.writeSlots[${String(index)}].output`)
       .u8(entry.slot, `circuit.cacheAccess.writeSlots[${String(index)}].slot`);

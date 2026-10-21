@@ -65,7 +65,10 @@ const RETIRED_KEYS = [
   "privateTxBlinding",
 ];
 
-const INPUTS: ProverInputs = {
+/** The rails whose request is the plain transfer body. */
+type SignerRailInputs = Exclude<ProverInputs, { circuit: "transferConfidentialEddsa" }>;
+
+const INPUTS: SignerRailInputs = {
   circuit: "transfer",
   payload: {
     inputs: [],
@@ -93,7 +96,7 @@ const INPUTS: ProverInputs = {
 const TRANSFER_PROOF = proofFor({ circuitType: "transfer-confidential", nInputs: 2, nOutputs: 2 });
 
 /** A 2-in/2-out transfer, the smallest shape every transfer rail has a key for. */
-function transferInputs(): ProverInputs {
+function transferInputs(): SignerRailInputs {
   const output = mergeInputs().output;
   return {
     ...INPUTS,
