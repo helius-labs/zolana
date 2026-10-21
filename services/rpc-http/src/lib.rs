@@ -1,5 +1,7 @@
-//! Method paths accept only a single JSON-RPC call naming their last segment.
-//! `/` retains the unrestricted JSON-RPC endpoint for existing clients.
+//! A call on any path but `/` runs only when its JSON-RPC body names the
+//! path's last segment. A gateway routes and prices RPC calls by path, so the
+//! method that runs must be the one the path names; `/` serves every method
+//! to a self-hosted client.
 
 use std::{
     borrow::Cow,
@@ -21,8 +23,8 @@ use tower::{Layer, Service};
 const MISMATCH: &str = "the method does not match the request path";
 
 #[derive(Clone, Copy)]
-pub(crate) struct MethodPathLayer {
-    pub(crate) max_body_size: usize,
+pub struct MethodPathLayer {
+    pub max_body_size: usize,
 }
 
 impl<Inner> Layer<Inner> for MethodPathLayer {
@@ -37,7 +39,7 @@ impl<Inner> Layer<Inner> for MethodPathLayer {
 }
 
 #[derive(Clone)]
-pub(crate) struct MethodPath<Inner> {
+pub struct MethodPath<Inner> {
     inner: Inner,
     max_body_size: usize,
 }
@@ -207,11 +209,11 @@ mod tests {
         });
         let service = MethodPathLayer { max_body_size: 256 }.layer(inner);
         for method in [
-            crate::api::HEALTH,
-            crate::api::RING_STATUS,
-            crate::api::RING_DEPOSITS,
-            crate::api::CREATE_AUDITOR_KEY,
-            crate::api::GET_DECRYPTED_TRANSACTIONS,
+            "health",
+            "ringStatus",
+            "ringDeposits",
+            "createAuditorKey",
+            "getDecryptedTransactions",
         ] {
             let body = format!(
                 r#"{{ "jsonrpc": "2.0", "id": "request", "method": "{method}", "params": {{}} }}"#
