@@ -6,8 +6,9 @@ export {
   type DecryptLabel,
   type DecryptRequest,
   type DeriveRequest,
-  type RingTagKeys,
-  type RingTagRequest,
+  type RingDeliveryRequest,
+  type RingKeys,
+  type RingRecipientKey,
   type ShieldedKeys,
   type TransactionKeyRequest,
 } from "../transaction/wallet/keys.js";
@@ -15,8 +16,6 @@ export { LocalKeys } from "../client/keys.js";
 export type { ProofAuthority, ProofService, WalletKeys } from "../client/ports.js";
 export type {
   AnonymousRecipientSlot,
-  AuditWitness,
-  EncryptedCustomRingTransfer,
   EncryptedEnvelope,
   EncryptedSplit,
   EncryptedTransfer,
@@ -56,41 +55,38 @@ export {
   getPrivateTokenBalances,
   getPrivateTransactions,
   syncWallet,
+  type AnonymousRingSyncInput,
   type SyncClient,
   type SyncWalletConfig,
   type SyncWalletInput,
 } from "./sync.js";
-export { ADDRESS_GAP, DECRYPTIONS_PER_INDEX } from "./anonymous-sync.js";
+export {
+  TagAllocation,
+  issueRingAddress,
+  recordFirstContacts,
+  ringAddressOf,
+  type AnonymousIndexer,
+  type PaymentStream,
+  type PaymentTag,
+} from "./anonymous-sync.js";
+export {
+  ADDRESS_GAP,
+  AnonymousRingState,
+  DECOYS_PER_TREE,
+  DEPOSIT_TAG_WINDOW,
+  MAX_ISSUED_ADDRESSES,
+  type DecoyLeaf,
+  type IssuedAddress,
+  type ReceivedAnchor,
+  type SentFirstContact,
+} from "../transaction/wallet/anonymous-state.js";
 export type {
   AnonymousRingNote,
   AnonymousRingReport,
-  AnonymousRingState,
-  AnonymousSlotDefect,
   AnonymousStream,
-  MalformedAnonymousSlot,
   PendingAnonymousNote,
 } from "../transaction/wallet/anonymous.js";
-export {
-  encryptAnonymousRingTransfer,
-  type AnonymousOutputDelivery,
-  type AnonymousRingSlot,
-  type AnonymousRingTransferInput,
-  type EncryptedAnonymousRingTransfer,
-} from "../transaction/wallet/anonymous-ring.js";
 export { resolvePendingNotes, type ResolvedPendingNote } from "../transaction/wallet/sync.js";
-export {
-  recoverAnonymousRing,
-  type AnonymousRecoveryClient,
-  type AnonymousRingRecoveryParams,
-  type AnonymousRingRecoveryReport,
-} from "./anonymous-recovery.js";
-export {
-  AnonymousTagAllocator,
-  DEFAULT_TAG_WINDOW,
-  TagStream,
-  TagWindow,
-  type AnonymousRingDestination,
-} from "./tag-stream.js";
 export {
   loadPersistedWallet,
   savePersistedWallet,

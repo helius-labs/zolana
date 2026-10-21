@@ -21,13 +21,17 @@ import { StateDiscriminator } from "../interface/state.js";
 import type { Address, Bytes32, RequestContext } from "../interface/types.js";
 import { TransactionError } from "../transaction/error.js";
 import type { IndexedShieldedTransaction } from "../transaction/instructions/transact.js";
-import { decodeOutputData } from "../transaction/serialization/codecs.js";
 import {
   checkKeysIdentity,
   checkViewingPublicKeys,
-  type RingTagKeys,
+  type RingKeys,
   type ShieldedKeys,
 } from "../transaction/wallet/keys.js";
+import type {
+  AnonymousRingReport,
+  RingDeliveredCandidate,
+} from "../transaction/wallet/anonymous.js";
+import { AnonymousRingState } from "../transaction/wallet/anonymous-state.js";
 import {
   type AssetBalance,
   type PrivateTransaction,
@@ -36,10 +40,15 @@ import {
 } from "../transaction/wallet/state.js";
 import { decryptTransactions, resolvePendingNotes } from "../transaction/wallet/sync.js";
 
-import { AnonymousStreams, type AnonymousRingState } from "./anonymous-sync.js";
+import { scanAnonymousRing } from "./anonymous-sync.js";
 import { WalletError, wrapWalletError } from "./error.js";
 import { bytesKey } from "./internal.js";
-import { readChunk } from "./paging.js";
+import {
+  collectProoflessDeposits,
+  collectShieldedTransactions,
+  collectShieldedTransactionsByNullifiers,
+  shieldedTransactionKey,
+} from "./collect.js";
 import {
   advanceSessionCursors,
   beginSyncSession,
@@ -197,9 +206,20 @@ function unknownAssets(report: SyncReport): boolean {
   return report.unknownAssetIds.length > 0 || report.unknownAssetFields.length > 0;
 }
 
-/** A pending note names its mint, the registry backfill registers it. */
-function needsRegistry(report: SyncReport, wallet: Wallet): boolean {
-  return unknownAssets(report) || wallet.pendingNotes().length > 0 || walletHasUnknownMint(wallet);
+/** A pending note stays durable, only a client that reads the chain backfills its mint. */
+function needsRegistry(
+  input: Readonly<{ report: SyncReport; wallet: Wallet; client: SyncClient }>,
+): boolean {
+  const { report, wallet, client } = input;
+  return (
+    unknownAssets(report) ||
+    walletHasUnknownMint(wallet) ||
+    (wallet.pendingNotes().length > 0 && readsChain(client))
+  );
+}
+
+function readsChain(client: SyncClient): boolean {
+  return client.solanaRpc !== undefined && client.commitment !== undefined;
 }
 
 function walletHasUnknownMint(wallet: Wallet): boolean {
@@ -215,21 +235,6 @@ function walletHasUnknownMint(wallet: Wallet): boolean {
     }
   }
   return false;
-}
-
-/**
- * Rust admits any payload `decode_output_data` accepts, not only one already
- * flagged proofless: the deposit's own `ProoflessOutput` parse happens later, in
- * the wallet, and screening on the scheme here would drop a deposit the wallet
- * can still read.
- */
-function isDecodablePayload(payload: Uint8Array): boolean {
-  try {
-    decodeOutputData(payload);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 function compareStrings(left: string, right: string): number {
@@ -258,23 +263,6 @@ function compareBySlotThenSignature(
 }
 
 /**
- * Photon can emit multiple shielded events in one Solana transaction. The
- * current wire response does not expose its event index, so the committed
- * output contexts (or nullifiers for an outputless event) form the stable
- * event identity instead of collapsing every event under the signature.
- */
-function shieldedTransactionKey(transaction: IndexedShieldedTransaction): string {
-  return [
-    transaction.txSignature,
-    ...transaction.outputSlots.map(
-      ({ outputContext }) =>
-        `${outputContext.tree}:${String(outputContext.leafIndex)}:${bytesKey(outputContext.hash)}`,
-    ),
-    ...transaction.nullifiers.map(bytesKey),
-  ].join("|");
-}
-
-/**
  * Deposits are ordered by their leaf position first so that replaying a sync
  * inserts them in tree order regardless of which page surfaced them.
  *
@@ -300,83 +288,6 @@ function compareDeposits(
   return compareBySlotThenSignature(left, right);
 }
 
-interface CollectByTagsInput {
-  readonly indexer: Pick<
-    IndexerReader,
-    "getEncryptedUtxosByTags" | "getShieldedTransactionsByTags"
-  >;
-  readonly chunk: readonly Bytes32[];
-  readonly pageLimit: number;
-  readonly nextRpcConfig: () => IndexerRpcConfig;
-  readonly out: Map<string, IndexedShieldedTransaction>;
-  /** Where this group of tags was read to last sync, or undefined for never. */
-  readonly from: Uint8Array | undefined;
-}
-
-async function collectShieldedTransactions(
-  input: CollectByTagsInput,
-  context?: RequestContext,
-): Promise<Uint8Array | undefined> {
-  return readChunk("getShieldedTransactionsByTags", input.from, async (cursor) => {
-    const response = await input.indexer.getShieldedTransactionsByTags(
-      { tags: input.chunk, limit: input.pageLimit, ...(cursor === undefined ? {} : { cursor }) },
-      input.nextRpcConfig(),
-      context,
-    );
-    for (const transaction of response.transactions) {
-      // Photon can surface a proofless deposit here before flagging it. Those
-      // are collected from the encrypted-utxo endpoint instead, so taking them
-      // twice would store the same UTXO under two keys.
-      if (transaction.proofless) continue;
-      const key = shieldedTransactionKey(transaction);
-      if (!input.out.has(key)) input.out.set(key, transaction);
-    }
-    return {
-      nextCursor: response.nextCursor,
-      scannedThrough: response.scannedThrough,
-    };
-  });
-}
-
-async function collectProoflessDeposits(
-  input: CollectByTagsInput,
-  context?: RequestContext,
-): Promise<Uint8Array | undefined> {
-  return readChunk("getEncryptedUtxosByTags", input.from, async (cursor) => {
-    const response = await input.indexer.getEncryptedUtxosByTags(
-      { tags: input.chunk, limit: input.pageLimit, ...(cursor === undefined ? {} : { cursor }) },
-      input.nextRpcConfig(),
-      context,
-    );
-    for (const match of response.matches) {
-      if (match.txViewingPk !== undefined || match.salt !== undefined) continue;
-      const key = [
-        match.txSignature,
-        match.outputSlot.outputContext.tree,
-        String(match.outputSlot.outputContext.leafIndex),
-        bytesKey(match.outputSlot.outputContext.hash),
-      ].join("|");
-      if (input.out.has(key)) continue;
-      if (!isDecodablePayload(match.outputSlot.payload)) continue;
-      input.out.set(
-        key,
-        Object.freeze({
-          slot: match.slot,
-          txSignature: match.txSignature,
-          outputSlots: Object.freeze([match.outputSlot]),
-          messages: Object.freeze([]),
-          nullifiers: Object.freeze([]),
-          proofless: true,
-        }),
-      );
-    }
-    return {
-      nextCursor: response.nextCursor,
-      scannedThrough: response.scannedThrough,
-    };
-  });
-}
-
 /**
  * Buckets keys by the position their stream was last read to.
  *
@@ -398,48 +309,12 @@ function groupByResumePoint(
   return [...groups.values()];
 }
 
-interface CollectByNullifiersInput {
-  readonly indexer: Pick<IndexerReader, "getShieldedTransactionsByNullifiers">;
-  readonly chunk: readonly Bytes32[];
-  readonly pageLimit: number;
-  readonly nextRpcConfig: () => IndexerRpcConfig;
-  readonly out: Map<string, IndexedShieldedTransaction>;
-  /** Where this chunk was read to last time, if it has been read before. */
-  readonly start?: Uint8Array;
-}
-
-/**
- * Returns how far the scan reached, or `undefined` if the indexer did not say.
- *
- * The position comes from `scannedThrough`, not from the rows: an unspent
- * nullifier matches nothing, so there is no last row to take a position from.
- * An indexer that does not report it leaves the caller starting from zero next
- * time, which is exactly the old behaviour.
- */
-async function collectShieldedTransactionsByNullifiers(
-  input: CollectByNullifiersInput,
-  context?: RequestContext,
-): Promise<Uint8Array | undefined> {
-  return readChunk("getShieldedTransactionsByNullifiers", input.start, async (cursor) => {
-    const response = await input.indexer.getShieldedTransactionsByNullifiers(
-      {
-        nullifiers: input.chunk,
-        limit: input.pageLimit,
-        ...(cursor === undefined ? {} : { cursor }),
-      },
-      input.nextRpcConfig(),
-      context,
-    );
-    for (const transaction of response.transactions) {
-      if (transaction.proofless) continue;
-      const key = shieldedTransactionKey(transaction);
-      if (!input.out.has(key)) input.out.set(key, transaction);
-    }
-    return {
-      nextCursor: response.nextCursor,
-      scannedThrough: response.scannedThrough,
-    };
-  });
+/** The anonymous rings one sync reads, a ring the wallet never scanned starts at its creation epoch. */
+export interface AnonymousRingSyncInput {
+  /** The chain slot every stream is read through, its epoch is read again next time. */
+  readonly slot: bigint;
+  /** Rings the wallet starts tracking at their config's `creationEpoch`, every tracked ring is read too. */
+  readonly start?: readonly Readonly<{ ring: Address; creationEpoch: bigint }>[];
 }
 
 export type SyncWalletInput = Readonly<{
@@ -448,8 +323,8 @@ export type SyncWalletInput = Readonly<{
   config?: SyncWalletConfig;
 }> &
   (
-    | Readonly<{ keys: ShieldedKeys; anonymousRing?: undefined }>
-    | Readonly<{ keys: RingTagKeys; anonymousRing: AnonymousRingState }>
+    | Readonly<{ keys: ShieldedKeys; anonymousRings?: undefined }>
+    | Readonly<{ keys: RingKeys; anonymousRings: AnonymousRingSyncInput }>
   );
 
 export async function syncWallet(
@@ -585,7 +460,7 @@ async function runWalletSync(
       context,
     });
     let registryRefreshed = false;
-    if (needsRegistry(report, session.staging)) {
+    if (needsRegistry({ report, wallet: session.staging, client: input.client })) {
       registryRefreshed = true;
       if ((await backfillSessionRegistry(session, input.client, context)) > 0) {
         report = await decryptTransactions({
@@ -597,7 +472,7 @@ async function runWalletSync(
         });
       }
     }
-    // Before the follow-up scan, an admitted note's spend is found this sync.
+    // An admitted note joins the follow-up nullifier scan of the same sync.
     await resolvePendingNotes({ wallet: session.staging, keys, context });
 
     // A transaction found by a stable tag can create a UTXO that another
@@ -619,7 +494,10 @@ async function runWalletSync(
         config: decryptConfig,
         context,
       });
-      if (!registryRefreshed && needsRegistry(report, session.staging)) {
+      if (
+        !registryRefreshed &&
+        needsRegistry({ report, wallet: session.staging, client: input.client })
+      ) {
         if ((await backfillSessionRegistry(session, input.client, context)) > 0) {
           report = await decryptTransactions({
             wallet: session.staging,
@@ -632,68 +510,96 @@ async function runWalletSync(
       }
     }
 
-    // Exact lookups with no cursor, every sync walks the streams from the start.
-    if (input.anonymousRing !== undefined) {
-      const streams = new AnonymousStreams(
-        input.keys,
-        input.keys.address().viewingPublicKey,
-        input.anonymousRing,
-      );
-      for (;;) {
-        const tags = await streams.nextWindows(context);
-        const windowRows = new Map<string, IndexedShieldedTransaction>();
-        const windowDeposits = new Map<string, IndexedShieldedTransaction>();
-        for (let offset = 0; offset < tags.length; offset += chunkSize) {
-          const chunk = tags.slice(offset, offset + chunkSize);
-          const collect = (
-            collector: typeof collectShieldedTransactions,
-            out: Map<string, IndexedShieldedTransaction>,
-          ) =>
-            collector(
-              { indexer: input.client, chunk, pageLimit, nextRpcConfig, out, from: undefined },
-              context,
+    // Exact tag lookups per epoch, each ring's state is the watermark.
+    if (input.anonymousRings !== undefined) {
+      const delivered: RingDeliveredCandidate[] = [];
+      try {
+        const depositTags: Bytes32[] = [];
+        const reports: AnonymousRingReport[] = [];
+        for (const start of input.anonymousRings.start ?? []) {
+          if (session.staging.anonymousRing(start.ring) === undefined)
+            session.staging._setAnonymousRing(
+              AnonymousRingState.create(start.ring, start.creationEpoch),
             );
-          await collect(collectShieldedTransactions, windowRows);
-          await collect(collectProoflessDeposits, windowDeposits);
         }
-        streams.observe([...windowRows.values(), ...windowDeposits.values()]);
-        let moved = false;
-        for (const [key, tx] of windowRows) {
-          if (!transactions.has(key)) {
-            transactions.set(key, tx);
-            moved = true;
-          }
+        for (const state of session.staging.anonymousRings()) {
+          const scan = await scanAnonymousRing(
+            {
+              keys: input.keys,
+              indexer: input.client,
+              state,
+              slot: input.anonymousRings.slot,
+              // A default-ring note funds an anonymous payment too, its spend carries the ring change.
+              knownNullifiers: session.staging
+                .utxos()
+                .filter(
+                  (entry) =>
+                    entry.utxo.ringProgramId === undefined ||
+                    entry.utxo.ringProgramId === state.ring,
+                )
+                .map((entry) => entry.nullifier),
+              pageLimit,
+              nextRpcConfig,
+              depositPayloadDecoder: input.config?.depositPayloadDecoder,
+            },
+            context,
+          );
+          for (const tx of scan.transactions) transactions.set(shieldedTransactionKey(tx), tx);
+          for (const tx of scan.deposits) deposits.set(shieldedTransactionKey(tx), tx);
+          delivered.push(...scan.candidates);
+          depositTags.push(...scan.depositTags);
+          session.staging._setAnonymousRing(scan.state);
+          reports.push(
+            Object.freeze({
+              ring: state.ring,
+              notes: scan.notes,
+              anchors: scan.anchors.map(({ addressIndex, epoch, asset, amount }) =>
+                Object.freeze({ addressIndex, epoch, asset, amount }),
+              ),
+              scannedEpoch: scan.state.scannedEpoch,
+            }),
+          );
         }
-        for (const [key, tx] of windowDeposits) {
-          if (!deposits.has(key)) {
-            deposits.set(key, tx);
-            moved = true;
-          }
-        }
-        const owned = new Set(session.staging.utxos().map((entry) => bytesKey(entry.nullifier)));
-        if (await streams.routeChange(transactions.values(), owned, context)) moved = true;
-        if (moved) {
+        // The pass opens a candidate only on the object it reads, the last read of its transaction.
+        const candidates = delivered.map((candidate) => {
+          const read = transactions.get(shieldedTransactionKey(candidate.transaction));
+          return read === undefined || read === candidate.transaction
+            ? candidate
+            : Object.freeze({ ...candidate, transaction: read });
+        });
+        ordered = orderedTransactions();
+        report = await decryptTransactions({
+          wallet: session.staging,
+          keys,
+          transactions: ordered,
+          config: decryptConfig,
+          delivered: candidates,
+          depositTags,
+          context,
+        });
+        await resolvePendingNotes({ wallet: session.staging, keys, context });
+        const spendNullifiers = walletQueryNullifiers(session.staging).filter(
+          (nullifier) => !queriedNullifiers.has(bytesKey(nullifier)),
+        );
+        for (const nullifier of spendNullifiers) queriedNullifiers.add(bytesKey(nullifier));
+        const beforeSpends = transactions.size;
+        await scanNullifiers(spendNullifiers);
+        if (transactions.size !== beforeSpends) {
           ordered = orderedTransactions();
           report = await decryptTransactions({
             wallet: session.staging,
             keys,
             transactions: ordered,
             config: decryptConfig,
-            anonymous: streams.routes,
+            delivered: candidates,
+            depositTags,
             context,
           });
-          streams.record();
         }
-        const newNullifiers = walletQueryNullifiers(session.staging).filter(
-          (nullifier) => !queriedNullifiers.has(bytesKey(nullifier)),
-        );
-        for (const nullifier of newNullifiers) queriedNullifiers.add(bytesKey(nullifier));
-        const beforeSpends = transactions.size;
-        await scanNullifiers(newNullifiers);
-        if (transactions.size !== beforeSpends) moved = true;
-        if (!moved && streams.isDone()) break;
+        report = Object.freeze({ ...report, anonymousRings: Object.freeze(reports) });
+      } finally {
+        for (const candidate of delivered) candidate.slotSecret.fill(0);
       }
-      report = Object.freeze({ ...report, anonymousRing: streams.finish() });
     }
     // A pending note commits with the wallet, only an unknown id or field loses a UTXO.
     if (unknownAssets(report) || walletHasUnknownMint(session.staging)) {

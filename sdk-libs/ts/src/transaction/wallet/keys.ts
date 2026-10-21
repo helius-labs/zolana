@@ -2,7 +2,6 @@ import { ed25519 } from "@noble/curves/ed25519.js";
 import { getAddressEncoder } from "@solana/kit";
 
 import type { Address, Bytes16, Bytes32, Bytes64, RequestContext } from "../../interface/types.js";
-import { ANONYMOUS_SLOT_INDEX_MAX } from "../../keypair/audit.js";
 import { checkedBytes } from "../../keypair/bytes.js";
 import {
   checkedDerivationSeed,
@@ -17,6 +16,7 @@ import {
 } from "../../keypair/merge/index.js";
 import { NullifierKey } from "../../keypair/nullifier-key.js";
 import { ShieldedPublicKey } from "../../keypair/public-key.js";
+import { deliveredSlotSecret } from "../../keypair/ring-stream.js";
 import { X25519PublicKey } from "../../keypair/x25519.js";
 import { ShieldedAddress, type ShieldedKeypair } from "../../keypair/shielded.js";
 import { ViewingKey } from "../../keypair/viewing-key.js";
@@ -24,8 +24,8 @@ import { ViewingKey } from "../../keypair/viewing-key.js";
 import { TransactionError } from "../error.js";
 import { equal } from "../internal.js";
 
-/** Which cipher a ciphertext was sealed under, every cipher is keyed by ECDH between the wallet's viewing key and the transaction's viewing key. */
-export type DecryptLabel = "transfer" | "ringDeposit" | "ringAnonymous";
+/** The cipher a ciphertext was sealed under, each keyed by ECDH between the wallet's and the transaction's viewing keys. */
+export type DecryptLabel = "transfer" | "ringDeposit";
 
 export interface DecryptRequest {
   readonly ciphertext: Uint8Array;
@@ -33,7 +33,7 @@ export interface DecryptRequest {
   readonly viewingPublicKey: X25519PublicKey;
   readonly txViewingPublicKey: X25519PublicKey;
   readonly salt: Bytes16;
-  /** Zero for a ring deposit, below 256 for an anonymous ring output. */
+  /** Zero for a ring deposit. */
   readonly slotIndex: number;
   readonly label: DecryptLabel;
 }
@@ -43,26 +43,21 @@ export interface TransactionKeyRequest {
   readonly firstNullifier: Bytes32;
 }
 
-export type RingTagRequest =
-  | Readonly<{
-      kind: "inbox";
-      viewingPublicKey: X25519PublicKey;
-      addressIndex: number;
-      j: bigint;
-    }>
-  | Readonly<{
-      kind: "pair";
-      viewingPublicKey: X25519PublicKey;
-      counterparty: X25519PublicKey;
-      k: bigint;
-    }>
-  | Readonly<{ kind: "deposit"; viewingPublicKey: X25519PublicKey; n: bigint }>
-  | Readonly<{
-      kind: "change";
-      viewingPublicKey: X25519PublicKey;
-      firstNullifier: Bytes32;
-      slot: number;
-    }>;
+/** The viewing key a delivered ring output was agreed under. */
+export type RingRecipientKey =
+  /** One of the wallet's viewing keys, the recipient of a confidential delivered output. */
+  | Readonly<{ kind: "viewing"; viewingPublicKey: X25519PublicKey }>
+  /** Ring address `index` of `ring`, the recipient of an anonymous output. */
+  | Readonly<{ kind: "address"; ring: Address; index: number }>;
+
+/** The public context of one delivered ring output slot. */
+export interface RingDeliveryRequest {
+  readonly recipient: RingRecipientKey;
+  readonly txViewingPublicKey: X25519PublicKey;
+  readonly salt: Bytes16;
+  readonly outputIndex: number;
+  readonly firstNullifier: Bytes32;
+}
 
 /**
  * Every value the protocol derives from the nullifier secret. `nullifier`
@@ -105,7 +100,7 @@ export interface ShieldedKeys {
     requests: readonly DecryptRequest[],
     context?: RequestContext,
   ): Promise<readonly Uint8Array[]>;
-  /** Fresh byte buffers. Callers own and wipe secret derivations after use. */
+  /** Fresh byte buffers the caller owns and wipes after use. */
   derive(requests: readonly DeriveRequest[], context?: RequestContext): Promise<readonly Bytes32[]>;
   /** Fresh key objects; the caller destroys them. */
   transactionKeys(
@@ -114,20 +109,46 @@ export interface ShieldedKeys {
   ): Promise<readonly ViewingKey[]>;
 }
 
-export interface RingTagKeys extends ShieldedKeys {
-  ringViewTags(
-    requests: readonly RingTagRequest[],
+/** The ring derivations of a wallet's viewing key, no viewing secret leaves the holder. */
+export interface RingKeys extends ShieldedKeys {
+  /** The keys of ring addresses `indexes` of `ring`, one per index. */
+  ringAddressKeys(
+    ring: Address,
+    indexes: readonly number[],
+    context?: RequestContext,
+  ): Promise<readonly X25519PublicKey[]>;
+  /** One CRDS slot secret per request, the body key, the blinding and a first contact's pair key derive from it. */
+  ringDeliverySecrets(
+    requests: readonly RingDeliveryRequest[],
+    context?: RequestContext,
+  ): Promise<readonly Bytes32[]>;
+  /** The key the sender's change in `ring` is delivered to, the sender agrees with it from `tx_sk`. */
+  ringChangeKey(ring: Address, context?: RequestContext): Promise<X25519PublicKey>;
+  /** The deposit tags of the current viewing key, one per counter. */
+  senderViewTags(
+    counters: readonly bigint[],
     context?: RequestContext,
   ): Promise<readonly Bytes32[]>;
 }
 
 const addressEncoder = getAddressEncoder();
 
+/** Every ring derivation a delivered output needs, a partial holder is no ring holder. */
+export function isRingKeys(keys: ShieldedKeys): keys is RingKeys {
+  const candidate: Partial<Record<keyof RingKeys, unknown>> = keys;
+  return (
+    typeof candidate.ringAddressKeys === "function" &&
+    typeof candidate.ringDeliverySecrets === "function" &&
+    typeof candidate.ringChangeKey === "function" &&
+    typeof candidate.senderViewTags === "function"
+  );
+}
+
 /**
  * In-process keys. The counterpart of the enclave-backed implementation: the
  * same interface answered from a `ViewingKey` and a `NullifierKey` held here.
  */
-export class LocalShieldedKeys implements RingTagKeys {
+export class LocalShieldedKeys implements RingKeys {
   readonly #address: ShieldedAddress;
   /** Current first, retired after; `viewingPublicKeys` reports them in this order. */
   readonly #viewing: readonly ViewingKey[];
@@ -250,8 +271,44 @@ export class LocalShieldedKeys implements RingTagKeys {
     return keys;
   }
 
-  async ringViewTags(requests: readonly RingTagRequest[]): Promise<readonly Bytes32[]> {
-    return requests.map((request) => this.ringViewTag(request));
+  async ringAddressKeys(
+    ring: Address,
+    indexes: readonly number[],
+  ): Promise<readonly X25519PublicKey[]> {
+    const current = this.#current();
+    return indexes.map((index) => {
+      const key = current.ringAddressKey(ring, index);
+      try {
+        return key.publicKey();
+      } finally {
+        key.destroy();
+      }
+    });
+  }
+
+  async ringDeliverySecrets(requests: readonly RingDeliveryRequest[]): Promise<readonly Bytes32[]> {
+    const secrets: Bytes32[] = [];
+    try {
+      for (const request of requests) secrets.push(this.ringDeliverySecret(request));
+    } catch (cause) {
+      for (const secret of secrets) secret.fill(0);
+      throw cause;
+    }
+    return secrets;
+  }
+
+  async ringChangeKey(ring: Address): Promise<X25519PublicKey> {
+    const key = this.#current().ringChangeKey(ring);
+    try {
+      return key.publicKey();
+    } finally {
+      key.destroy();
+    }
+  }
+
+  async senderViewTags(counters: readonly bigint[]): Promise<readonly Bytes32[]> {
+    const current = this.#current();
+    return counters.map((counter) => current.senderViewTag(counter));
   }
 
   /** Synchronous forms, for callers that hold the keys in-process. */
@@ -264,13 +321,6 @@ export class LocalShieldedKeys implements RingTagKeys {
           request.ciphertext,
           request.txViewingPublicKey,
           request.salt,
-        );
-      case "ringAnonymous":
-        return viewing.openAnonymousOutput(
-          request.ciphertext,
-          request.txViewingPublicKey,
-          request.salt,
-          request.slotIndex,
         );
       case "transfer":
         return viewing.decryptUtxo(
@@ -302,17 +352,29 @@ export class LocalShieldedKeys implements RingTagKeys {
     return this.#viewingKey(request.viewingPublicKey).transactionViewingKey(request.firstNullifier);
   }
 
-  ringViewTag(request: RingTagRequest): Bytes32 {
-    const viewing = this.#viewingKey(request.viewingPublicKey);
-    switch (request.kind) {
-      case "inbox":
-        return viewing.inboxSecret(request.addressIndex).viewTag(request.j);
-      case "pair":
-        return viewing.recipientSharedViewTag(request.counterparty, request.k);
-      case "deposit":
-        return viewing.senderViewTag(request.n);
-      case "change":
-        return viewing.ringChangeViewTag(request.firstNullifier, request.slot);
+  /** The CRDS secret under the recipient key, the agreement never leaves the holder. */
+  ringDeliverySecret(request: RingDeliveryRequest): Bytes32 {
+    if (!(request.txViewingPublicKey instanceof X25519PublicKey)) {
+      throw new TransactionError("TRANSACTION_DESERIALIZE", { field: "txViewingPublicKey" });
+    }
+    const recipient =
+      request.recipient.kind === "viewing"
+        ? this.#viewingKey(request.recipient.viewingPublicKey).clone()
+        : this.#current().ringAddressKey(request.recipient.ring, request.recipient.index);
+    let agreement: Bytes32 | undefined;
+    try {
+      agreement = recipient.ecdh(request.txViewingPublicKey);
+      return deliveredSlotSecret({
+        agreement,
+        txViewingKey: request.txViewingPublicKey,
+        recipientViewingKey: recipient.publicKey(),
+        salt: request.salt,
+        outputIndex: request.outputIndex,
+        firstNullifier: request.firstNullifier,
+      });
+    } finally {
+      agreement?.fill(0);
+      recipient.destroy();
     }
   }
 
@@ -333,6 +395,13 @@ export class LocalShieldedKeys implements RingTagKeys {
   destroy(): void {
     for (const key of this.#viewing) key.destroy();
     this.#nullifier.destroy();
+  }
+
+  #current(): ViewingKey {
+    const current = this.#viewing[0];
+    if (current === undefined)
+      throw new TransactionError("TRANSACTION_MISSING_CURRENT_VIEWING_KEY");
+    return current;
   }
 
   #viewingKey(publicKey: X25519PublicKey): ViewingKey {
@@ -406,8 +475,6 @@ function maxSlotIndex(label: DecryptLabel): number {
   switch (label) {
     case "ringDeposit":
       return 0;
-    case "ringAnonymous":
-      return ANONYMOUS_SLOT_INDEX_MAX;
     case "transfer":
       return 0xffff_ffff;
   }

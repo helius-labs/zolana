@@ -8,36 +8,39 @@ import {
 
 import type {
   Address,
+  Bytes31,
   Bytes32,
   Bytes33,
   Bytes64,
   RequestContext,
   Signature,
 } from "../interface/types.js";
-import {
-  SOLANA_OWNER_TAG,
-  hashBytes,
-  initializePoseidon,
-  solanaOwnerIdentity,
-} from "../hasher/index.js";
+import { initializePoseidon } from "../hasher/index.js";
 import { isCanonicalField } from "../interface/canonical-field.js";
 import { postJsonRpc } from "../services/jsonrpc.js";
 import { TransportFailure, checkedEndpoint, checkedFetch } from "../services/transport.js";
 import { wireDecoder } from "../interface/decode.js";
-import { addressBytes, copyBytes } from "../interface/internal.js";
+import { addressBytes, copyBytes, sha256 } from "../interface/internal.js";
 import { MAX_MERGE_INPUTS, mergePaddedInputCount } from "../interface/constants.js";
+import { MEMBER_REGISTRY_ROOT_HISTORY } from "../interface/member-registry.js";
+import { TAG_LEN } from "../keypair/ring-stream.js";
 import { X25519PublicKey } from "../keypair/x25519.js";
 import { KeypairError } from "../keypair/error.js";
-import { ownerHash } from "../keypair/hash.js";
 
-import {
-  auditOpeningHash,
-  type DecryptedAnonymousRingTrace,
-  type OutputPayloadError,
-  type OutputPayloadErrorKind,
+import type {
+  AuditedInput,
+  AuditedInputOpening,
+  AuditedNote,
+  AuditedSender,
+  InputRing,
+  KnownNote,
+  OutputOpening,
+  OutputPayloadError,
+  OutputPayloadErrorKind,
 } from "./audit.js";
-import type { AuditOutputOpening } from "../keypair/audit.js";
-import { bytesToBigInt, equal, ZERO_32 } from "../transaction/internal.js";
+import type { AuditedRingMerge, MergeKeys, UnresolvedRingMerge } from "./audit-merge.js";
+import type { RingRootEntry } from "./codecs.js";
+import { equal } from "../transaction/internal.js";
 import { RingError } from "./error.js";
 import { checkedReaderKey, readerKeyBytes, readerKeyFromBytes } from "./reader.js";
 import { memberOfTag } from "./policy.js";
@@ -66,8 +69,11 @@ export interface WebAuthnSignature {
 const READ_DOMAIN = "zolana/ring-rpc-read/v1";
 const AUDITOR_KEY_DOMAIN = "zolana/ring-auditor-key/v1";
 const AUDITOR_KEY_REQUEST_DOMAIN = "zolana/ring-rpc-auditor-key-request/v1";
+const AUDITED_NOTES_DOMAIN = "zolana/ring-rpc-audited-notes/v1";
 /** Rust `AUDIT_PAGE_LIMIT`. */
 export const RING_READ_PAGE_LIMIT = 100n;
+/** Rust `AUDITED_NOTES_LIMIT`, the UTXO hashes one note read names. */
+export const RING_AUDITED_NOTES_LIMIT = 100;
 /** Rust `AUDIT_CURSOR_LIMIT`. */
 export const RING_READ_CURSOR_LIMIT = 256;
 
@@ -90,6 +96,28 @@ export function ringReadAttestation(
       `nonce: ${base64Decoder.decode(input.nonce)}`,
       `limit: ${input.limit ?? 0n}`,
       `cursor: ${cursor}`,
+    ].join("\n"),
+  );
+}
+
+/** Mirrors Rust `AuditedNotesAttestation::message`, the digest binds every requested hash in order. */
+export function auditedNotesAttestation(
+  input: Readonly<{
+    ringProgramId: Address;
+    timestamp: bigint;
+    nonce: Bytes32;
+    utxoHashes: readonly Bytes32[];
+  }>,
+): Uint8Array {
+  const joined = new Uint8Array(32 * input.utxoHashes.length);
+  input.utxoHashes.forEach((utxoHash, index) => joined.set(utxoHash, 32 * index));
+  return encoder.encode(
+    [
+      AUDITED_NOTES_DOMAIN,
+      `ring: ${input.ringProgramId}`,
+      `timestamp: ${input.timestamp}`,
+      `nonce: ${base64Decoder.decode(input.nonce)}`,
+      `notes: ${base64Decoder.decode(sha256(joined))}`,
     ].join("\n"),
   );
 }
@@ -203,6 +231,61 @@ export class RingReadRequest {
   }
 }
 
+/** Mirrors Rust `GetAuditedNotesRequest` after `AuditedNotesRequest::sign`. */
+export interface SignedAuditedNotesRead {
+  readonly ringProgramId: Address;
+  /** Answers come back in the same order. */
+  readonly utxoHashes: readonly Bytes32[];
+  readonly reader: Uint8Array;
+  readonly timestamp: bigint;
+  readonly nonce: Bytes32;
+  readonly signature: Uint8Array | WebAuthnSignature;
+}
+
+/** Mirrors Rust `AuditedNotesRequest`, one to `RING_AUDITED_NOTES_LIMIT` hashes. */
+export class RingAuditedNotesRequest {
+  readonly #ringProgramId: Address;
+  readonly #utxoHashes: readonly Bytes32[];
+  readonly #nonce: Bytes32;
+  #timestamp?: bigint;
+
+  private constructor(ringProgramId: Address, utxoHashes: readonly Bytes32[]) {
+    this.#ringProgramId = ringProgramId;
+    this.#utxoHashes = utxoHashes;
+    this.#nonce = freshNonce();
+  }
+
+  static read(ringProgramId: Address, utxoHashes: readonly Bytes32[]): RingAuditedNotesRequest {
+    return new RingAuditedNotesRequest(ringProgramId, checkedNoteHashes(utxoHashes));
+  }
+
+  /** Unix seconds, the RPC rejects a clock more than its skew away. */
+  at(timestamp: bigint): this {
+    this.#timestamp = checkedUnixTimestamp(timestamp, "timestamp");
+    return this;
+  }
+
+  async sign(signer: RingReadSigner): Promise<SignedAuditedNotesRead> {
+    const timestamp = timestampOrNow(this.#timestamp);
+    const signature = await signer.sign(
+      auditedNotesAttestation({
+        ringProgramId: this.#ringProgramId,
+        timestamp,
+        nonce: this.#nonce,
+        utxoHashes: this.#utxoHashes,
+      }),
+    );
+    return Object.freeze({
+      ringProgramId: this.#ringProgramId,
+      utxoHashes: this.#utxoHashes,
+      reader: signer.reader,
+      timestamp,
+      nonce: this.#nonce,
+      signature,
+    });
+  }
+}
+
 /** Mirrors Rust `CreateAuditorKeyRequest` after `AuditorKeyRequest::sign`. */
 export interface SignedAuditorKeyRequest {
   readonly ringProgramId: Address;
@@ -298,23 +381,54 @@ export interface RingDepositsPage {
 /** Mirrors Rust `RingState`. */
 export type RingState = "served" | "foreignAuditor" | "uninitialized";
 
-/** Mirrors Rust `RingStatusResponse`. Unsigned, carries only the key the chain publishes. */
+/** Mirrors Rust `RingActivation`, SPP's gate on every operational ring instruction. */
+export interface RingActivation {
+  readonly activated: boolean;
+  readonly paused: boolean;
+}
+
+/** Mirrors Rust `RegistryStatus`, the registry's history, floor and queue as the chain holds them. */
+export interface RingRegistryStatus {
+  /** Entry `i` sits at history slot `i`, `undefined` for a slot never written. */
+  readonly history: readonly (RingRootEntry | undefined)[];
+  /** The history slot of the newest root. */
+  readonly historyCursor: number;
+  readonly nextIndex: number;
+  /** The applied position every own-ring root must reach. */
+  readonly floor: bigint;
+  readonly priorFloor: bigint;
+  /** The slot of the last floor raise. */
+  readonly floorSlot: bigint;
+  /** Queue positions `queueHead..queueTail` wait for an application. */
+  readonly queueHead: bigint;
+  readonly queueTail: bigint;
+}
+
+/** Mirrors Rust `RingStatusResponse`, unsigned and only what the chain publishes. */
 export interface RingStatus {
   readonly ringProgramId: Address;
   readonly state: RingState;
   /** The key the ring's config names, absent until the config exists. */
   readonly configAuditorPublicKey?: X25519PublicKey;
   readonly servicePublicKey: Address;
+  /** Absent until SPP holds a config for the ring. */
+  readonly activation?: RingActivation;
+  /** Absent until the ring creates its member registry. */
+  readonly registry?: RingRegistryStatus;
 }
 
+/** Mirrors Rust `DecryptedOutputContext`, the tree is the canonical PDA of `treeId`. */
+export interface DecryptedOutputContext {
+  readonly treeId: number;
+  readonly leafIndex: bigint;
+  readonly hash: Bytes32;
+}
+
+/** Mirrors Rust `DecryptedOutput`, a slot whose rebuilt opening reaches its published commitment. */
 export interface DecryptedRingOutput {
   readonly slotIndex: number;
-  readonly recipientViewingPublicKey: X25519PublicKey;
-  /** `OutputSlot.viewTag`, the Solana address of an Ed25519 or PDA owner. */
-  readonly ownerTag: Bytes32;
-  readonly asset: Address;
-  readonly amount: bigint;
-  readonly ringProgramId?: Address;
+  readonly outputContext: DecryptedOutputContext;
+  readonly opening: OutputOpening;
 }
 
 /** A public settlement leg. Value left the ring to a plain account. */
@@ -326,18 +440,20 @@ export interface DecryptedRingWithdrawal {
   readonly amount: bigint;
 }
 
+/** Mirrors Rust `DecryptedTransaction`. */
 export interface DecryptedRingTransaction {
   readonly slot: bigint;
   readonly signature: Signature;
   /** Ordinal of the confirmed SPP event within this Solana transaction. */
   readonly eventIndex: number;
   readonly txViewingPublicKey: X25519PublicKey;
-  /** Optional recipient delivery metadata, never a complete accounting of disclosed notes. */
+  /** Published order, every slot sits here or in `payloadErrors` exactly once. */
   readonly outputs: readonly DecryptedRingOutput[];
-  /** Authoritative disclosure in published slot order, independent of recipient encryption. */
-  readonly outputOpenings: readonly DecryptedRingOpening[];
-  readonly anonymous?: DecryptedAnonymousRingTrace;
   readonly payloadErrors: readonly OutputPayloadError[];
+  /** The hidden sender of an anonymous ring. */
+  readonly sender?: AuditedSender;
+  /** One per published nullifier of an anonymous ring. */
+  readonly inputs: readonly AuditedInput[];
   readonly nullifiers: readonly Bytes32[];
   /** Required signers, fee payer first. */
   readonly signers: readonly Address[];
@@ -345,18 +461,26 @@ export interface DecryptedRingTransaction {
   readonly withdrawals: readonly DecryptedRingWithdrawal[];
 }
 
-export interface DecryptedRingOpening extends AuditOutputOpening {
-  readonly outputContext: Readonly<{ treeId: number; leafIndex: bigint; hash: Bytes32 }>;
-}
-
 export type {
-  DecryptedAnonymousRingTrace,
+  AuditedInput,
+  AuditedInputOpening,
+  AuditedNote,
+  AuditedSender,
+  InputRing,
+  KnownNote,
+  OutputOpening,
   OutputPayloadError,
   OutputPayloadErrorKind,
 } from "./audit.js";
 
-/** Mirrors Rust `SkippedReason`. */
-export type SkippedReason = "missingAuditorMessage" | "invalidAuditData";
+/** Mirrors Rust `SkippedReason`, `unseenInput` an anonymous input naming a note the service has not opened. */
+export type SkippedReason = "missingAuditorMessage" | "invalidAuditData" | "unseenInput";
+
+const SKIPPED_REASONS: readonly SkippedReason[] = Object.freeze([
+  "missingAuditorMessage",
+  "invalidAuditData",
+  "unseenInput",
+]);
 
 export interface SkippedRingTransaction {
   readonly slot: bigint;
@@ -373,37 +497,30 @@ export interface DecryptedRingTransactionsPage {
   readonly cursor?: Uint8Array;
 }
 
-/** A ring merge opened by the service from a registered recovery key. */
-export interface AuditedMergeRecord {
-  readonly signature: Signature;
-  readonly eventIndex: number;
-  readonly outputCommitment: Bytes32;
-  readonly ownerMember: Bytes32;
-  /** Confirmed RegisterKey signer, when the indexer retained that lineage. */
-  readonly ownerPubkey?: Address;
-  readonly mint: Address;
-  readonly amount: bigint;
-  readonly blinding: Bytes32;
-  readonly ringDataHash: Bytes32;
-  readonly inputNullifiers: readonly Bytes32[];
-  /** The merged note's nullifier from the escrowed key, absent exactly when `inputCommitments` is set. */
-  readonly nullifier?: Bytes32;
-  /** The spent commitments an anonymous merge discloses, padding zero, one per circuit slot. */
-  readonly inputCommitments?: readonly Bytes32[];
-}
-
-export interface UnresolvedMergeRecord {
-  readonly signature: Signature;
-  readonly eventIndex: number;
-  readonly outputCommitment: Bytes32;
-}
-
+/** Mirrors Rust `GetAuditedMergesResponse`, the merges the service opened with its auditor key. */
 export interface AuditedMergesPage {
   readonly slot: bigint;
   readonly blockTime: bigint;
-  readonly opened: readonly AuditedMergeRecord[];
-  readonly unresolved: readonly UnresolvedMergeRecord[];
+  readonly opened: readonly AuditedRingMerge[];
+  readonly unresolved: readonly UnresolvedRingMerge[];
   readonly cursor?: Uint8Array;
+}
+
+/** Mirrors Rust `AuditedNoteView`, a note the auditor opened and the slot that created it. */
+export interface RingAuditedNote {
+  readonly utxoHash: Bytes32;
+  readonly note: KnownNote;
+  readonly slot: bigint;
+  readonly signature: Signature;
+  readonly eventIndex: number;
+  readonly slotIndex: number;
+}
+
+export interface RingAuditedNotesPage {
+  readonly slot: bigint;
+  readonly blockTime: bigint;
+  /** In request order, `undefined` for a note the service has not opened. */
+  readonly notes: readonly (RingAuditedNote | undefined)[];
 }
 
 export interface RingRpcOptions {
@@ -558,18 +675,20 @@ export class RingRpc {
     if (state !== "served" && state !== "foreignAuditor" && state !== "uninitialized") {
       throw invalid("result.state");
     }
+    const ring = address(wire["ringProgramId"], "result.ringProgramId");
+    if (ring !== ringProgramId) throw invalid("result.ringProgramId");
     const config = wire["configAuditorPubkey"];
+    const activation = wire["activation"];
+    const registry = wire["registry"];
     return Object.freeze({
-      ringProgramId: address(wire["ringProgramId"], "result.ringProgramId"),
+      ringProgramId: ring,
       state,
-      ...(config === undefined || config === null
+      ...(absent(config)
         ? {}
-        : {
-            configAuditorPublicKey: X25519PublicKey.fromBytes(
-              base64(config, "result.configAuditorPubkey"),
-            ),
-          }),
+        : { configAuditorPublicKey: x25519Key(config, "result.configAuditorPubkey") }),
       servicePublicKey: address(wire["servicePubkey"], "result.servicePubkey"),
+      ...(absent(activation) ? {} : { activation: decodeActivation(activation) }),
+      ...(absent(registry) ? {} : { registry: decodeRegistryStatus(registry) }),
     });
   }
 
@@ -589,6 +708,72 @@ export class RingRpc {
     if (input.limit !== undefined) request = request.withLimit(input.limit);
     if (input.timestamp !== undefined) request = request.at(input.timestamp);
     return this.readSigned(await request.sign(input.signer), context);
+  }
+
+  /** The notes the service opened, signed over the requested hashes. */
+  async getAuditedNotes(
+    input: Readonly<{
+      ringProgramId: Address;
+      utxoHashes: readonly Bytes32[];
+      signer: RingReadSigner;
+      timestamp?: bigint;
+    }>,
+    context?: RequestContext,
+  ): Promise<RingAuditedNotesPage> {
+    let request = RingAuditedNotesRequest.read(input.ringProgramId, input.utxoHashes);
+    if (input.timestamp !== undefined) request = request.at(input.timestamp);
+    return this.readSignedNotes(await request.sign(input.signer), context);
+  }
+
+  /** Every answer names the hash it was asked for, at its position. */
+  async readSignedNotes(
+    read: SignedAuditedNotesRead,
+    context?: RequestContext,
+  ): Promise<RingAuditedNotesPage> {
+    const { utxoHashes, ...auth } = exactRequestRecord(
+      read,
+      SIGNED_NOTES_FIELDS,
+      SIGNED_NOTES_FIELDS,
+      "request",
+    );
+    const hashes = checkedNoteHashes(utxoHashes);
+    const checked = checkedSignedRead(auth);
+    const wire = record(
+      await this.#call(
+        "getAuditedNotes",
+        {
+          ...signedReadParams(checked),
+          utxoHashes: hashes.map((utxoHash) => base58Decoder.decode(utxoHash)),
+        },
+        context,
+      ),
+      "result",
+    );
+    const wireContext = record(wire["context"], "result.context");
+    const notes = list(record(wire["value"], "result.value")["notes"], "result.value.notes");
+    if (notes.length !== hashes.length) throw invalid("result.value.notes");
+    return Object.freeze({
+      slot: integer(wireContext["slot"], "result.context.slot"),
+      blockTime: signedInteger(wireContext["blockTime"], "result.context.blockTime"),
+      notes: Object.freeze(
+        notes.map((entry, index) => {
+          if (entry === null) return undefined;
+          const path = `result.value.notes[${index}]`;
+          const item = record(entry, path);
+          const utxoHash = hash(item["utxoHash"], `${path}.utxoHash`);
+          if (!equal(utxoHash, hashes[index] ?? new Uint8Array()))
+            throw invalid(`${path}.utxoHash`);
+          return Object.freeze({
+            utxoHash,
+            note: decodeKnownNote(record(item["note"], `${path}.note`), `${path}.note`),
+            slot: u64(item["slot"], `${path}.slot`),
+            signature: signature(item["txSignature"], `${path}.txSignature`),
+            eventIndex: u16(item["eventIndex"], `${path}.eventIndex`),
+            slotIndex: u32(item["slotIndex"], `${path}.slotIndex`),
+          });
+        }),
+      ),
+    });
   }
 
   /** The server opens confirmed ring merges with its auditor key. */
@@ -644,7 +829,7 @@ export class RingRpc {
           const path = `result.value.opened[${index}]`;
           const item = record(entry, path);
           const inputNullifiers = list(item["inputNullifiers"], `${path}.inputNullifiers`);
-          if (inputNullifiers.length < 2 || inputNullifiers.length > MAX_MERGE_INPUTS)
+          if (inputNullifiers.length === 0 || inputNullifiers.length > MAX_MERGE_INPUTS)
             throw invalid(`${path}.inputNullifiers`);
           const ownerMember = field(item["ownerMember"], `${path}.ownerMember`);
           const ownerPubkey = item["ownerPubkey"];
@@ -657,7 +842,7 @@ export class RingRpc {
           return Object.freeze({
             ...identity(item, path),
             ownerMember,
-            ...(owner === undefined ? {} : { ownerPubkey: owner }),
+            ...(owner === undefined ? {} : { ownerPublicKey: owner }),
             mint: address(item["mint"], `${path}.mint`),
             amount: u64(item["amount"], `${path}.amount`),
             blinding: field(item["blinding"], `${path}.blinding`),
@@ -665,7 +850,7 @@ export class RingRpc {
             inputNullifiers: Object.freeze(
               inputNullifiers.map((nullifier) => field(nullifier, `${path}.inputNullifiers`)),
             ),
-            ...mergeKeys(item, inputNullifiers.length, path, field),
+            keys: mergeKeys(item, inputNullifiers.length, path, field),
           });
         }),
       ),
@@ -699,7 +884,6 @@ export class RingRpc {
     const skipped = list(value["skipped"], "result.value.skipped");
     if (items.length + skipped.length > Number(checked.limit ?? RING_READ_PAGE_LIMIT))
       throw invalid("result.value");
-    await initializePoseidon();
     return Object.freeze({
       slot: integer(wireContext["slot"], "result.context.slot"),
       blockTime: signedInteger(wireContext["blockTime"], "result.context.blockTime"),
@@ -813,20 +997,21 @@ function mergeKeys(
   published: number,
   path: string,
   field: (input: unknown, path: string) => Bytes32,
-): Pick<AuditedMergeRecord, "nullifier" | "inputCommitments"> {
-  const absent = (value: unknown): boolean => value === undefined || value === null;
+): MergeKeys {
   const nullifier = item["nullifier"];
   const commitments = item["inputCommitments"];
   if (absent(nullifier) === absent(commitments)) throw invalid(`${path}.nullifier`);
-  if (!absent(nullifier)) return { nullifier: field(nullifier, `${path}.nullifier`) };
+  if (!absent(nullifier))
+    return Object.freeze({ kind: "escrowed", nullifier: field(nullifier, `${path}.nullifier`) });
   const disclosed = list(commitments, `${path}.inputCommitments`);
   if (disclosed.length !== mergePaddedInputCount(published))
     throw invalid(`${path}.inputCommitments`);
-  return {
+  return Object.freeze({
+    kind: "disclosed",
     inputCommitments: Object.freeze(
       disclosed.map((commitment) => field(commitment, `${path}.inputCommitments`)),
     ),
-  };
+  });
 }
 
 /** One Ed25519 signature from a kit message signer over the raw bytes. */
@@ -842,226 +1027,253 @@ export async function signMessage(
   return copyBytes(signature, 64, "signature") as Bytes64;
 }
 
+/** Structure only, the openings stay as the service rebuilt them. */
 function decodeTransaction(wire: Record<string, unknown>): DecryptedRingTransaction {
-  const anonymous = wire["anonymous"] !== undefined && wire["anonymous"] !== null;
-  const outputOpenings = Object.freeze(
-    list(wire["outputOpenings"], "outputOpenings").map((entry) =>
-      decodeOpening(record(entry, "outputOpenings"), anonymous),
-    ),
+  const outputs = list(wire["outputs"], "outputs").map((entry, index) =>
+    decodeOutput(record(entry, `outputs[${index}]`), `outputs[${index}]`),
   );
-  const outputs = Object.freeze(
-    list(wire["outputs"], "outputs").map((entry, index) =>
-      decodeOutput(record(entry, `outputs[${index}]`)),
-    ),
-  );
-  const wireErrors = list(wire["payloadErrors"], "payloadErrors").map((entry) => {
-    const error = record(entry, "payloadErrors");
-    return {
-      slotIndex: u32(error["slotIndex"], "payloadErrors.slotIndex"),
-      kind: payloadErrorKind(error["kind"]),
-    };
+  const payloadErrors = list(wire["payloadErrors"], "payloadErrors").map((entry, index) => {
+    const error = record(entry, `payloadErrors[${index}]`);
+    return Object.freeze({
+      slotIndex: u32(error["slotIndex"], `payloadErrors[${index}].slotIndex`),
+      kind: payloadErrorKind(error["kind"], `payloadErrors[${index}].kind`),
+    });
   });
-  const seen = new Set<number>();
-  for (const output of outputs) {
-    const opening = outputOpenings[output.slotIndex];
-    const ring =
-      output.ringProgramId === undefined ? ZERO_32 : hashBytes(addressBytes(output.ringProgramId));
-    if (
-      opening === undefined ||
-      seen.has(output.slotIndex) ||
-      !equal(hashBytes(addressBytes(output.asset)), opening.asset) ||
-      output.amount !== bytesToBigInt(opening.amount) ||
-      !equal(ring, opening.ringProgramId)
-    )
-      throw invalid("outputs.opening");
-    seen.add(output.slotIndex);
-  }
-  checkPayloadErrors(wireErrors, { openings: outputOpenings, stored: seen, anonymous });
-  const payloadErrors = Object.freeze(
-    wireErrors.map(({ slotIndex, kind }) =>
-      Object.freeze({ slotIndex, kind: auditPayloadErrorKind(kind) }),
-    ),
+  checkSlotCoverage([
+    ...outputs.map((output) => output.slotIndex),
+    ...payloadErrors.map((error) => error.slotIndex),
+  ]);
+  const nullifiers = list(wire["nullifiers"], "nullifiers").map((nullifier, index) =>
+    hash(nullifier, `nullifiers[${index}]`),
   );
+  const sender = absent(wire["sender"])
+    ? undefined
+    : decodeSender(record(wire["sender"], "sender"));
+  const inputs = absent(wire["inputs"])
+    ? []
+    : list(wire["inputs"], "inputs").map((entry, index) =>
+        decodeInput(record(entry, `inputs[${index}]`), `inputs[${index}]`),
+      );
+  // An anonymous ring discloses one input per published nullifier, every other ring none.
+  if (
+    sender === undefined
+      ? inputs.length !== 0
+      : inputs.length !== nullifiers.length ||
+        inputs.some((input, index) => !equal(input.nullifier, nullifiers[index]!))
+  )
+    throw invalid("inputs");
+  // A tag marks an anonymous ring output, a confidential ring publishes none.
+  if (
+    outputs.some(
+      (output) =>
+        output.opening.kind === "ring" &&
+        (output.opening.tag !== undefined) !== (sender !== undefined),
+    )
+  )
+    throw invalid("outputs.tag");
   return Object.freeze({
     slot: integer(wire["slot"], "slot"),
     signature: signature(wire["txSignature"], "txSignature"),
     eventIndex: u16(wire["eventIndex"], "eventIndex"),
     txViewingPublicKey: x25519Key(wire["txViewingPk"], "txViewingPk"),
-    ...(anonymous
-      ? {
-          anonymous: decodeAnonymousTrace(record(wire["anonymous"], "anonymous"), outputOpenings),
-        }
-      : {}),
-    outputs,
-    outputOpenings,
-    payloadErrors,
-    nullifiers: Object.freeze(
-      list(wire["nullifiers"], "nullifiers").map((nullifier) => hash(nullifier, "nullifiers")),
+    outputs: Object.freeze(outputs),
+    payloadErrors: Object.freeze(payloadErrors),
+    ...(sender === undefined ? {} : { sender }),
+    inputs: Object.freeze(inputs),
+    nullifiers: Object.freeze(nullifiers),
+    signers: Object.freeze(
+      list(wire["signers"], "signers").map((key, index) => address(key, `signers[${index}]`)),
     ),
-    signers: Object.freeze(list(wire["signers"], "signers").map((key) => address(key, "signers"))),
     withdrawals: Object.freeze(
-      list(wire["withdrawals"], "withdrawals").map((entry) => {
-        const leg = record(entry, "withdrawals");
+      list(wire["withdrawals"], "withdrawals").map((entry, index) => {
+        const path = `withdrawals[${index}]`;
+        const leg = record(entry, path);
         return Object.freeze({
-          recipient: address(leg["recipient"], "withdrawals.recipient"),
-          asset: address(leg["asset"], "withdrawals.asset"),
-          amount: integer(leg["amount"], "withdrawals.amount"),
+          recipient: address(leg["recipient"], `${path}.recipient`),
+          asset: address(leg["asset"], `${path}.asset`),
+          amount: u64(leg["amount"], `${path}.amount`),
         });
       }),
     ),
   });
 }
 
-function decodeOpening(wire: Record<string, unknown>, anonymous: boolean): DecryptedRingOpening {
-  const field = (name: string): Bytes32 => {
-    const value = hash(wire[name], `outputOpenings.${name}`);
-    if (!isCanonicalField(value)) throw invalid(`outputOpenings.${name}`);
-    return value;
-  };
-  const opening: AuditOutputOpening = {
-    domain: field("domain"),
-    treeId: field("treeId"),
-    ownerHash: field("ownerHash"),
-    asset: field("asset"),
-    amount: field("amount"),
-    blinding: field("blinding"),
-    dataHash: field("dataHash"),
-    ringDataHash: field("ringDataHash"),
-    ringProgramId: field("ringProgramId"),
-  };
-  const context = record(wire["outputContext"], "outputOpenings.outputContext");
-  const treeId = u32(context["treeId"], "outputOpenings.outputContext.treeId");
-  if (treeId > 0xffff) throw invalid("outputOpenings.outputContext.treeId");
-  const outputContext = Object.freeze({
-    treeId,
-    leafIndex: u64(context["leafIndex"], "outputOpenings.outputContext.leafIndex"),
-    hash: hash(context["hash"], "outputOpenings.outputContext.hash"),
-  });
-  const dummy = anonymous && isZeroOpening(opening);
-  if (
-    !dummy &&
-    (!equal(auditOpeningHash(opening), outputContext.hash) ||
-      bytesToBigInt(opening.treeId) !== BigInt(treeId))
-  )
-    throw invalid("outputOpenings.commitment");
-  return Object.freeze({ ...opening, outputContext });
+/** Rust `TransactionAudit` records every published slot as an output or as one payload error. */
+function checkSlotCoverage(indexes: readonly number[]): void {
+  const seen = new Set(indexes);
+  if (seen.size !== indexes.length || indexes.some((index) => index >= indexes.length))
+    throw invalid("payloadErrors");
 }
 
-/** A padding slot of an anonymous ring opens to zero. */
-function isZeroOpening(opening: AuditOutputOpening): boolean {
-  return [
-    opening.domain,
-    opening.treeId,
-    opening.ownerHash,
-    opening.asset,
-    opening.amount,
-    opening.blinding,
-    opening.dataHash,
-    opening.ringDataHash,
-    opening.ringProgramId,
-  ].every((value) => equal(value, ZERO_32));
-}
-
-/** Every opened slot has a recipient, the owner its commitment binds. */
-function decodeAnonymousTrace(
-  wire: Record<string, unknown>,
-  openings: readonly AuditOutputOpening[],
-): DecryptedAnonymousRingTrace {
-  // Decode bounded input openings without narrowing an unchecked integer.
-  const inputs = list(wire["inputs"], "anonymous.inputs").map((entry) => {
-    const input = record(entry, "anonymous.inputs");
-    const treeId = u32(input["treeId"], "anonymous.inputs.treeId");
-    if (treeId > 0xffff) throw invalid("anonymous.inputs.treeId");
-    return Object.freeze({
-      treeId,
-      amount: u64(input["amount"], "anonymous.inputs.amount"),
-      asset: hash(input["asset"], "anonymous.inputs.asset"),
+function decodeOutput(wire: Record<string, unknown>, path: string): DecryptedRingOutput {
+  const context = record(wire["outputContext"], `${path}.outputContext`);
+  const treeId = u32(context["treeId"], `${path}.outputContext.treeId`);
+  if (treeId > 0xffff) throw invalid(`${path}.outputContext.treeId`);
+  const kind = wire["kind"];
+  const note = wire["note"];
+  const recipientU = wire["recipientU"];
+  const tag = wire["tag"];
+  let opening: OutputOpening;
+  if (kind === "ring" && !absent(note) && !absent(recipientU)) {
+    opening = Object.freeze({
+      kind,
+      note: decodeAuditedNote(record(note, `${path}.note`), `${path}.note`),
+      recipientU: hash(recipientU, `${path}.recipientU`),
+      ...(absent(tag) ? {} : { tag: ringTag(tag, `${path}.tag`) }),
     });
-  });
-  // Real outputs retain their original slot indices after dummy slots are removed.
-  let previous = -1;
-  const recipients = list(wire["recipients"], "anonymous.recipients").map((entry) => {
-    const output = record(entry, "anonymous.recipients");
-    const slotIndex = u32(output["slotIndex"], "anonymous.recipients.slotIndex");
-    const opening = openings[slotIndex];
-    if (slotIndex <= previous || opening === undefined)
-      throw invalid("anonymous.recipients.slotIndex");
-    const identityTag = output["identityTag"];
-    if (identityTag !== SOLANA_OWNER_TAG) throw invalid("anonymous.recipients.identityTag");
-    previous = slotIndex;
-    const identityKey = hash(output["identityKey"], "anonymous.recipients.identityKey");
-    const nullifierPk = hash(output["nullifierPk"], "anonymous.recipients.nullifierPk");
-    if (!isCanonicalField(nullifierPk)) throw invalid("anonymous.recipients.nullifierPk");
-    if (
-      !isZeroOpening(opening) &&
-      !equal(ownerHash(solanaOwnerIdentity(identityKey), nullifierPk), opening.ownerHash)
-    )
-      throw invalid("anonymous.recipients.owner");
-    return Object.freeze({ slotIndex, identityTag, identityKey, nullifierPk });
-  });
-  const named = new Set(recipients.map((recipient) => recipient.slotIndex));
-  if (openings.some((opening, slotIndex) => !isZeroOpening(opening) && !named.has(slotIndex)))
-    throw invalid("anonymous.recipients");
+  } else if (kind === "exit" && !absent(note) && absent(recipientU) && absent(tag)) {
+    opening = Object.freeze({
+      kind,
+      note: decodeAuditedNote(record(note, `${path}.note`), `${path}.note`),
+    });
+  } else if (kind === "dummy" && absent(note) && absent(recipientU) && absent(tag)) {
+    opening = Object.freeze({ kind });
+  } else {
+    throw invalid(`${path}.kind`);
+  }
   return Object.freeze({
-    sender: address(wire["sender"], "anonymous.sender"),
-    inputs: Object.freeze(inputs),
-    recipients: Object.freeze(recipients),
+    slotIndex: u32(wire["slotIndex"], `${path}.slotIndex`),
+    outputContext: Object.freeze({
+      treeId,
+      leafIndex: u64(context["leafIndex"], `${path}.outputContext.leafIndex`),
+      hash: hash(context["hash"], `${path}.outputContext.hash`),
+    }),
+    opening,
   });
+}
+
+/** Rust `DecryptedNote`, a deposit's note carries no nullifier key. */
+function decodeKnownNote(wire: Record<string, unknown>, path: string): KnownNote {
+  const mint = wire["mint"];
+  const nullifierPk = wire["nullifierPk"];
+  return Object.freeze({
+    ownerKey: hash(wire["ownerKey"], `${path}.ownerKey`),
+    ...(absent(nullifierPk) ? {} : { nullifierPk: hash(nullifierPk, `${path}.nullifierPk`) }),
+    asset: hash(wire["asset"], `${path}.asset`),
+    ...(absent(mint) ? {} : { mint: address(mint, `${path}.mint`) }),
+    amount: u64(wire["amount"], `${path}.amount`),
+    blinding: hash(wire["blinding"], `${path}.blinding`),
+    dataHash: hash(wire["dataHash"], `${path}.dataHash`),
+    ringDataHash: hash(wire["ringDataHash"], `${path}.ringDataHash`),
+  });
+}
+
+/** A transfer's output always names its nullifier key. */
+function decodeAuditedNote(wire: Record<string, unknown>, path: string): AuditedNote {
+  const note = decodeKnownNote(wire, path);
+  if (note.nullifierPk === undefined) throw invalid(`${path}.nullifierPk`);
+  return Object.freeze({ ...note, nullifierPk: note.nullifierPk });
+}
+
+function decodeSender(wire: Record<string, unknown>): AuditedSender {
+  const nullifierPk = wire["nullifierPk"];
+  return Object.freeze({
+    ownerKey: hash(wire["ownerKey"], "sender.ownerKey"),
+    ...(absent(nullifierPk) ? {} : { nullifierPk: hash(nullifierPk, "sender.nullifierPk") }),
+  });
+}
+
+function decodeInput(wire: Record<string, unknown>, path: string): AuditedInput {
+  const nullifier = hash(wire["nullifier"], `${path}.nullifier`);
+  if (absent(wire["opening"])) return Object.freeze({ nullifier });
+  const opening = record(wire["opening"], `${path}.opening`);
+  const mint = opening["mint"];
+  const ring = opening["ring"];
+  const decoded: AuditedInputOpening = Object.freeze({
+    asset: hash(opening["asset"], `${path}.opening.asset`),
+    ...(absent(mint) ? {} : { mint: address(mint, `${path}.opening.mint`) }),
+    amount: u64(opening["amount"], `${path}.opening.amount`),
+    blinding: hash(opening["blinding"], `${path}.opening.blinding`),
+    ...(absent(ring) ? {} : { ring: decodeInputRing(record(ring, `${path}.opening.ring`), path) }),
+  });
+  return Object.freeze({ nullifier, opening: decoded });
+}
+
+/** Rust `DecryptedInputRing`, tagged by `kind`. */
+function decodeInputRing(wire: Record<string, unknown>, path: string): InputRing {
+  switch (wire["kind"]) {
+    case "ring":
+    case "default":
+      return Object.freeze({
+        kind: wire["kind"],
+        commitment: hash(wire["commitment"], `${path}.opening.ring.commitment`),
+      });
+    case "unresolved":
+      return Object.freeze({
+        kind: "unresolved",
+        ring: hash(wire["ring"], `${path}.opening.ring.ring`),
+        default: hash(wire["default"], `${path}.opening.ring.default`),
+      });
+    default:
+      throw invalid(`${path}.opening.ring.kind`);
+  }
+}
+
+/** `0x00 ‖ tag`, the owner tag of an anonymous ring output. */
+function ringTag(value: unknown, path: string): Bytes31 {
+  const field = hash(value, path);
+  if (field[0] !== 0) throw invalid(path);
+  return field.slice(1, 1 + TAG_LEN) as Bytes31;
 }
 
 /** Rust `OutputPayloadErrorKind` as the ring rpc serializes it. */
-const RPC_PAYLOAD_ERROR_KINDS = ["frame", "decrypt", "commitment", "asset", "pairHint"] as const;
+export const RING_PAYLOAD_ERROR_KINDS: readonly OutputPayloadErrorKind[] = Object.freeze([
+  "frame",
+  "recipientKey",
+  "commitment",
+  "escrowUnknown",
+]);
 
-type RpcPayloadErrorKind = (typeof RPC_PAYLOAD_ERROR_KINDS)[number];
-
-function payloadErrorKind(value: unknown): RpcPayloadErrorKind {
-  const kind = RPC_PAYLOAD_ERROR_KINDS.find((candidate) => candidate === value);
-  if (kind === undefined) throw invalid("payloadErrors.kind");
+function payloadErrorKind(value: unknown, path: string): OutputPayloadErrorKind {
+  const kind = RING_PAYLOAD_ERROR_KINDS.find((candidate) => candidate === value);
+  if (kind === undefined) throw invalid(path);
   return kind;
 }
 
-function auditPayloadErrorKind(kind: RpcPayloadErrorKind): OutputPayloadErrorKind {
-  switch (kind) {
-    case "frame":
-    case "decrypt":
-      return "unreadable";
-    case "commitment":
-      return "openingMismatch";
-    case "asset":
-      return "unknownAsset";
-    case "pairHint":
-      return "pairHint";
-  }
+function decodeActivation(value: unknown): RingActivation {
+  const wire = record(value, "result.activation");
+  const flag = (name: string): boolean => {
+    const field = wire[name];
+    if (typeof field !== "boolean") throw invalid(`result.activation.${name}`);
+    return field;
+  };
+  return Object.freeze({ activated: flag("activated"), paused: flag("paused") });
 }
 
-/** Rust `TransactionAudit`, one cause replaces an output and a pair hint flags an opened ring note. */
-function checkPayloadErrors(
-  errors: readonly Readonly<{ slotIndex: number; kind: RpcPayloadErrorKind }>[],
-  slots: Readonly<{
-    openings: readonly AuditOutputOpening[];
-    stored: ReadonlySet<number>;
-    anonymous: boolean;
-  }>,
-): void {
-  const bySlot = new Map<number, Set<RpcPayloadErrorKind>>();
-  for (const { slotIndex, kind } of errors) {
-    const opening = slots.openings[slotIndex];
-    const kinds = bySlot.get(slotIndex) ?? new Set<RpcPayloadErrorKind>();
-    if (opening === undefined || kinds.has(kind)) throw invalid("payloadErrors");
-    if (kind === "pairHint" && (!slots.anonymous || equal(opening.ringProgramId, ZERO_32)))
-      throw invalid("payloadErrors");
-    bySlot.set(slotIndex, kinds.add(kind));
-  }
-  for (const [slotIndex, kinds] of bySlot) {
-    const causes = [...kinds].filter((kind) => kind !== "pairHint");
-    const stored = slots.stored.has(slotIndex);
-    if (
-      causes.length > 1 ||
-      stored !== (causes.length === 0) ||
-      (kinds.has("pairHint") && !stored && causes[0] !== "asset")
-    )
-      throw invalid("payloadErrors");
-  }
+function decodeRegistryStatus(value: unknown): RingRegistryStatus {
+  const wire = record(value, "result.registry");
+  const history = list(wire["history"], "result.registry.history");
+  if (history.length !== MEMBER_REGISTRY_ROOT_HISTORY) throw invalid("result.registry.history");
+  const historyCursor = u32(wire["historyCursor"], "result.registry.historyCursor");
+  const queueHead = u64(wire["queueHead"], "result.registry.queueHead");
+  const queueTail = u64(wire["queueTail"], "result.registry.queueTail");
+  if (historyCursor >= MEMBER_REGISTRY_ROOT_HISTORY || queueHead > queueTail)
+    throw invalid("result.registry");
+  return Object.freeze({
+    history: Object.freeze(
+      history.map((entry, index) => {
+        if (entry === null) return undefined;
+        const path = `result.registry.history[${index}]`;
+        const root = record(entry, path);
+        return Object.freeze({
+          root: hash(root["root"], `${path}.root`),
+          applied: u64(root["applied"], `${path}.applied`),
+          slot: u64(root["slot"], `${path}.slot`),
+        });
+      }),
+    ),
+    historyCursor,
+    nextIndex: u32(wire["nextIndex"], "result.registry.nextIndex"),
+    floor: u64(wire["floor"], "result.registry.floor"),
+    priorFloor: u64(wire["priorFloor"], "result.registry.priorFloor"),
+    floorSlot: u64(wire["floorSlot"], "result.registry.floorSlot"),
+    queueHead,
+    queueTail,
+  });
+}
+
+function absent(value: unknown): boolean {
+  return value === undefined || value === null;
 }
 
 /** A slot index, rejected outside the u32 range. */
@@ -1084,25 +1296,9 @@ function u64(value: unknown, path: string): bigint {
   return decoded;
 }
 
-function decodeOutput(output: Record<string, unknown>): DecryptedRingOutput {
-  const ring = output["ringProgramId"];
-  return Object.freeze({
-    slotIndex: u32(output["slotIndex"], "slotIndex"),
-    recipientViewingPublicKey: x25519Key(output["recipientViewingPk"], "recipientViewingPk"),
-    ownerTag: hash(output["ownerTag"], "ownerTag"),
-    asset: address(output["asset"], "asset"),
-    amount: integer(output["amount"], "amount"),
-    ...(ring === undefined || ring === null
-      ? {}
-      : { ringProgramId: address(ring, "ringProgramId") }),
-  });
-}
-
 function decodeSkipped(wire: Record<string, unknown>): SkippedRingTransaction {
-  const reason = wire["reason"];
-  if (reason !== "missingAuditorMessage" && reason !== "invalidAuditData") {
-    throw invalid("reason");
-  }
+  const reason = SKIPPED_REASONS.find((candidate) => candidate === wire["reason"]);
+  if (reason === undefined) throw invalid("reason");
   return Object.freeze({
     slot: integer(wire["slot"], "slot"),
     signature: signature(wire["txSignature"], "txSignature"),
@@ -1158,6 +1354,20 @@ function checkedReadCursor(cursor: unknown): Uint8Array {
   return new Uint8Array(cursor);
 }
 
+/** Rust `notes_in_bounds`, one to `RING_AUDITED_NOTES_LIMIT` 32-byte hashes. */
+function checkedNoteHashes(value: unknown): readonly Bytes32[] {
+  if (
+    !Array.isArray(value) ||
+    value.length === 0 ||
+    value.length > RING_AUDITED_NOTES_LIMIT ||
+    !value.every((entry) => entry instanceof Uint8Array && entry.length === 32)
+  )
+    throw new RingError("RING_READ_LIMIT", {
+      details: { name: "utxoHashes", length: Array.isArray(value) ? value.length : -1 },
+    });
+  return Object.freeze(value.map((entry: Uint8Array) => new Uint8Array(entry) as Bytes32));
+}
+
 function checkedReadLimit(limit: unknown): bigint {
   if (typeof limit !== "bigint" || limit < 1n || limit > RING_READ_PAGE_LIMIT) {
     throw new RingError("RING_READ_LIMIT", { details: { limit: String(limit) } });
@@ -1184,6 +1394,14 @@ const SIGNED_READ_FIELDS = new Set([
 ]);
 const SIGNED_READ_REQUIRED_FIELDS = new Set([
   "ringProgramId",
+  "reader",
+  "timestamp",
+  "nonce",
+  "signature",
+]);
+const SIGNED_NOTES_FIELDS = new Set([
+  "ringProgramId",
+  "utxoHashes",
   "reader",
   "timestamp",
   "nonce",

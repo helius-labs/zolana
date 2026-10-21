@@ -34,6 +34,7 @@ import type { NonInclusionProof } from "../src/client/rpc.js";
 import type { Bytes16, Bytes32 } from "../src/interface/index.js";
 import { treeAddress } from "../src/interface/pda/index.js";
 import { ShieldedKeypair } from "../src/keypair/index.js";
+import { ringOutputBlinding } from "../src/keypair/transact/index.js";
 import { proofFor } from "./helpers/proofs.js";
 import {
   ProofInputUtxo,
@@ -103,12 +104,17 @@ function proofFixture(
   const slotBlinding = (index: number): Bytes32 =>
     transactOutputBlinding(firstNullifier, outputSeed, index);
   const ownerTag = bytes(8);
+  const ring =
+    options.ring === undefined ? undefined : { ringProgramId: options.ring, ringSecret: bytes(11) };
   const output = createProofOutput({
     ownerAddress: keypair.shieldedAddress(),
     asset: SOL_MINT,
     amount: 7n,
-    blinding: slotBlinding(0),
-    ...(options.ring === undefined ? {} : { ringProgramId: options.ring }),
+    blinding:
+      ring === undefined
+        ? slotBlinding(0)
+        : ringOutputBlinding({ firstNullifier, ringSecret: ring.ringSecret, outputIndex: 0 }),
+    ...ring,
   });
   // No supported shape has a single output, so the real one always gains a pad.
   const padOutputs = Math.max(dummyInputs.length, 1);
@@ -293,9 +299,19 @@ describe("ring output owner marker preflight", () => {
       const first = source.outputs[0];
       const published = source.externalData.outputs[0];
       if (first === undefined || published === undefined) throw new Error("missing fixture output");
+      const ringSecret = bytes(11);
       const output =
         kind === "marked-ring"
-          ? first.withRingProgramId(FOREIGN_TREE)
+          ? createProofOutput({
+              ...first,
+              ringProgramId: FOREIGN_TREE,
+              ringSecret,
+              blinding: ringOutputBlinding({
+                firstNullifier: source.firstNullifier(),
+                ringSecret,
+                outputIndex: 0,
+              }),
+            })
           : kind === "zero-amount"
             ? createProofOutput({ ...first, amount: 0n })
             : first;
@@ -330,7 +346,12 @@ describe("ring output owner marker preflight", () => {
       const client = new ZolanaClient({ proofDataSource, fetch });
       const state = vi.spyOn(client, "getMerkleProofs");
       const nullifiers = vi.spyOn(client, "getNonInclusionProofs");
-      const keys = { prove: vi.fn(), proveMerge: vi.fn(), proveIndexed: vi.fn() };
+      const keys = {
+        prove: vi.fn(),
+        proveMerge: vi.fn(),
+        proveIndexed: vi.fn(),
+        proveRingWithSecret: vi.fn(),
+      };
       try {
         for (const cached of [false, true]) {
           const candidate = cached
@@ -986,7 +1007,11 @@ describe("ZolanaClient", () => {
 
     await keys.prove({
       circuit: "transferRing",
-      payload: { ...proverInputs.payload, ringProgramId: asField(7n) },
+      payload: {
+        ...proverInputs.payload,
+        ringProgramId: asField(7n),
+        ringSecrets: proverInputs.payload.outputs.map(() => asField(0n)),
+      },
     });
     expect(JSON.parse(String(fetch.mock.calls[1]?.[1]?.body))).toMatchObject({
       circuitType: "transfer-ring",
@@ -1136,6 +1161,7 @@ describe("ZolanaClient", () => {
     const forwarding = {
       prove: instance.proofService.prove.bind(instance.proofService),
       proveMerge: instance.proofService.proveMerge.bind(instance.proofService),
+      proveRingWithSecret: vi.fn(),
     };
 
     await expect(instance.proveTransact(fixture.proofInputs, forwarding)).rejects.toMatchObject({
@@ -1150,14 +1176,27 @@ describe("prover indexer fetching", () => {
     const fixture = proofFixture();
     const prepared = prepareTransfer(fixture.proofInputs);
     const nullifierKey = fixture.keypair.nullifierKey();
-    const service = { prove: vi.fn(), proveMerge: vi.fn(), proveIndexed: vi.fn() };
+    const service = {
+      prove: vi.fn(),
+      proveMerge: vi.fn(),
+      proveRing: vi.fn(),
+      proveIndexed: vi.fn(),
+    };
     const holders = [
       LocalKeys.fromKeypair(fixture.keypair, service),
       new NullifierKeyProofAuthority(nullifierKey, service),
     ];
     const bare = [
-      LocalKeys.fromKeypair(fixture.keypair, { prove: vi.fn(), proveMerge: vi.fn() }),
-      new NullifierKeyProofAuthority(nullifierKey, { prove: vi.fn(), proveMerge: vi.fn() }),
+      LocalKeys.fromKeypair(fixture.keypair, {
+        prove: vi.fn(),
+        proveMerge: vi.fn(),
+        proveRing: vi.fn(),
+      }),
+      new NullifierKeyProofAuthority(nullifierKey, {
+        prove: vi.fn(),
+        proveMerge: vi.fn(),
+        proveRing: vi.fn(),
+      }),
     ];
     nullifierKey.destroy();
     try {
@@ -1214,6 +1253,7 @@ describe("prover indexer fetching", () => {
         const keys = {
           prove: vi.fn(),
           proveMerge: vi.fn(),
+          proveRingWithSecret: vi.fn(),
           proveIndexed: async () => ({ proof, resolution }),
         };
         const proving = instance.proveTransact(fixture.proofInputs, keys);

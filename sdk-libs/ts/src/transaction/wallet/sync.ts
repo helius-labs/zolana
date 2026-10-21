@@ -2,12 +2,12 @@ import { ringDepositRecipientCiphertext } from "../../interface/ring-deposit-cap
 import { mergePaddedInputCount } from "../../interface/constants.js";
 import type { Address, Bytes16, Bytes32, Bytes33, RequestContext } from "../../interface/types.js";
 import { type ShieldedPublicKey } from "../../keypair/public-key.js";
-import { X25519PublicKey, isSmallOrder, pairHintKey } from "../../keypair/x25519.js";
+import { BODY_LEN } from "../../keypair/ring-stream.js";
+import { X25519PublicKey, isSmallOrder } from "../../keypair/x25519.js";
 import type { ShieldedAddress, ShieldedKeypair } from "../../keypair/shielded.js";
 import type { ViewingKey } from "../../keypair/viewing-key.js";
 
 import { initializePoseidon } from "../../hasher/index.js";
-import { DEFAULT_TREE_ID } from "../../interface/tree-slot.js";
 import { TransactionError } from "../error.js";
 import { copy, decodeAddress, equal } from "../internal.js";
 import { SENDER_SLOT_COUNT } from "../instructions/transact.js";
@@ -21,13 +21,15 @@ import {
   decodeAnonymousSender,
   decodePlaintextTransfer,
   decodeProofless,
-  decodeRingAnonymous,
   decodeSplitBundle,
   decodeConfidential,
+  decodeRingPacked,
   decryptConfidentialAsSender,
+  decryptRingPackedAsSender,
   prooflessUtxo,
   plaintextTransferUtxos,
   readOutputData,
+  ringPackedUtxo,
   splitBundleUtxos,
   splitEmbeddedKey,
   type ProoflessOutput,
@@ -36,14 +38,16 @@ import {
   decodeRingDepositOutput,
   ringDepositUtxo,
   type DepositPayloadDecoder,
+  type RingDepositOutput,
 } from "../serialization/ring-deposit.js";
-import { decryptMergeOutput, readMergeOutputBody } from "../serialization/merge.js";
-import { Utxo, type TreeId } from "../utxo.js";
 import {
-  anonymousSlotDefect,
-  type AnonymousTagRoutes,
-  type PendingAnonymousNote,
-} from "./anonymous.js";
+  decryptMergeOutput,
+  readMergeOutputBody,
+  type MergeOutputBody,
+} from "../serialization/merge.js";
+import { openRingDelivery, type RingDeliverySlot } from "../serialization/ring-delivered.js";
+import { Utxo, type TreeId } from "../utxo.js";
+import type { PendingAnonymousNote, RingDeliveredCandidate } from "./anonymous.js";
 import { deriveAnswers, wipeByteAnswers } from "./key-batch.js";
 import { KeyMemo } from "./key-memo.js";
 import {
@@ -72,17 +76,87 @@ import {
 
 const U64_MAX = 0xffff_ffff_ffff_ffffn;
 
-/** The tree id the indexed leaf folds in, the default tree when the indexer left it out. */
+/** The tree id the indexed leaf folds in. */
 function outputTreeId(context: OutputContext): TreeId {
-  return context.treeId ?? DEFAULT_TREE_ID;
+  return context.treeId;
 }
 
-/** `undefined` for a pair hint no X25519 agreement accepts, the note itself stays verified. */
 /** The nullifier every seed-disclosing bundle of `tx` derives its blindings from. */
 function firstNullifierOf(tx: IndexedShieldedTransaction): Bytes32 {
   const firstNullifier = tx.nullifiers[0];
   if (firstNullifier === undefined) throw new TransactionError("TRANSACTION_NO_INPUTS");
   return firstNullifier;
+}
+
+/** A scheme 11 slot names no ring, only the ring transfer that published it does. */
+function packedRing(tx: IndexedShieldedTransaction): Address {
+  if (tx.ringProgramId === undefined)
+    throw new TransactionError("TRANSACTION_MISSING_RING_PROGRAM_ID");
+  return tx.ringProgramId;
+}
+
+/** `undefined` for an undecodable body, a small-order key or malformed framing, a depositor's bytes never fail the sync. @internal */
+export function ringDepositRequest(
+  input: Readonly<{
+    body: Uint8Array;
+    viewingPublicKey: X25519PublicKey;
+    decoder: DepositPayloadDecoder | undefined;
+  }>,
+): Readonly<{ output: RingDepositOutput; request: DecryptRequest }> | undefined {
+  let output: RingDepositOutput;
+  let txViewingPublicKey: X25519PublicKey;
+  let ciphertext: Uint8Array;
+  try {
+    output = decodeRingDepositOutput(input.body);
+    txViewingPublicKey = X25519PublicKey.fromBytes(output.encrypted.txViewingPublicKey);
+    ciphertext = (input.decoder ?? ringDepositRecipientCiphertext)(output.encrypted.ciphertext);
+  } catch {
+    return undefined;
+  }
+  if (isSmallOrder(txViewingPublicKey)) return undefined;
+  return {
+    output,
+    request: {
+      ciphertext,
+      viewingPublicKey: input.viewingPublicKey,
+      txViewingPublicKey,
+      salt: output.encrypted.salt,
+      slotIndex: 0,
+      label: "ringDeposit",
+    },
+  };
+}
+
+/** The note a merge output key and blinding rebuild, the caller checks its commitment. @internal */
+export function mergeOutputUtxo(
+  input: Readonly<{
+    body: MergeOutputBody;
+    key: Bytes32;
+    blinding: Bytes32;
+    owner: ShieldedPublicKey;
+    ringProgramId: Address | undefined;
+  }>,
+): Utxo {
+  const plaintext = decryptMergeOutput(input.body.encrypted, input.key);
+  return new Utxo({
+    owner: input.owner,
+    asset: plaintext.mint,
+    amount: plaintext.amount,
+    blinding: input.blinding,
+    ...(input.ringProgramId === undefined ? {} : { ringProgramId: input.ringProgramId }),
+  });
+}
+
+/** A zero ring data hash is absent from the deposit's commitment. @internal */
+export function ringDepositNote(
+  input: Readonly<{ output: RingDepositOutput; plaintext: Uint8Array; owner: ShieldedPublicKey }>,
+): Readonly<{ utxo: Utxo; dataHash: Bytes32 | undefined; ringDataHash: Bytes32 | undefined }> {
+  const { output } = input;
+  return {
+    utxo: ringDepositUtxo(output, input.plaintext, input.owner),
+    dataHash: output.dataHash,
+    ringDataHash: output.ringDataHash.some((byte) => byte !== 0) ? output.ringDataHash : undefined,
+  };
 }
 
 interface DecryptTransactionsConfig {
@@ -240,7 +314,7 @@ function rowKey(row: PrivateTransaction): string {
  * advances.
  */
 class SyncPass {
-  readonly #depositPayloadDecoder: DepositPayloadDecoder;
+  readonly #depositPayloadDecoder: DepositPayloadDecoder | undefined;
   readonly #owner: ShieldedPublicKey;
   readonly #nullifierPublicKey: Bytes32;
   /** The keys the wallet holds, current first; the pass opens under each. */
@@ -260,7 +334,6 @@ class SyncPass {
   readonly #outputHashes: Set<string>;
   readonly #processedSlots = new Set<string>();
   readonly #processedOutbound = new Set<number>();
-  readonly #anonymousOpened = new Map<string, number>();
   readonly #pendingAssetsBySite = new Map<string, PendingAnonymousNote>();
   readonly #unknownAssetsBySite = new Map<
     string,
@@ -282,7 +355,7 @@ class SyncPass {
       selfViewingPublicKeys: readonly X25519PublicKey[];
     }>,
   ) {
-    this.#depositPayloadDecoder = input.depositPayloadDecoder ?? ringDepositRecipientCiphertext;
+    this.#depositPayloadDecoder = input.depositPayloadDecoder;
     this.#owner = input.identity.signingPublicKey;
     this.#nullifierPublicKey = input.identity.nullifierPublicKey;
     this.#viewingPublicKeys = input.viewingPublicKeys;
@@ -633,17 +706,11 @@ class SyncPass {
     tx.outputSlots.forEach((slot, position) => {
       try {
         const frame = readOutputData(slot.payload);
-        if (
-          frame.encoding !== "encrypted" ||
-          (frame.scheme !== EncryptedScheme.confidential &&
-            frame.scheme !== EncryptedScheme.ringConfidential)
-        ) {
-          return;
-        }
-        const plaintext = decryptConfidentialAsSender(txKey, frame.body, salt, position);
+        const open = this.#senderOpening(tx, frame, txKey, salt, position);
+        if (open === undefined) return;
         const recipientKey = X25519PublicKey.fromBytes(frame.body.slice(0, 33) as Bytes33);
         if (position < SENDER_SLOT_COUNT) {
-          const candidate = confidentialUtxo(plaintext, this.#owner, this.#assets);
+          const candidate = open();
           if (
             this.#isSelf(recipientKey) &&
             (position === 0 ||
@@ -659,10 +726,7 @@ class SyncPass {
             return;
           }
         }
-        recipients.push({
-          key: recipientKey,
-          utxo: confidentialUtxo(plaintext, this.#owner, this.#assets),
-        });
+        recipients.push({ key: recipientKey, utxo: open() });
       } catch {
         // A dummy slot fails the transaction-key decrypt; skip it.
       }
@@ -690,6 +754,32 @@ class SyncPass {
       !entry && recipientKeys.length === 1 ? recipientKeys[0] : undefined,
       entry ? "selfTransfer" : this.#transferDirection(recipientKeys),
     );
+  }
+
+  /** A confidential or packed ring slot as its sender opens it, `undefined` for any other scheme. */
+  #senderOpening(
+    tx: IndexedShieldedTransaction,
+    frame: ReturnType<typeof readOutputData>,
+    txKey: ViewingKey,
+    salt: Bytes16,
+    position: number,
+  ): (() => Utxo) | undefined {
+    if (frame.encoding !== "encrypted") return undefined;
+    switch (frame.scheme) {
+      case EncryptedScheme.confidential:
+      case EncryptedScheme.ringConfidential: {
+        const plaintext = decryptConfidentialAsSender(txKey, frame.body, salt, position);
+        return () => confidentialUtxo(plaintext, this.#owner, this.#assets);
+      }
+      case EncryptedScheme.ringConfidentialPacked: {
+        const ring = tx.ringProgramId;
+        if (ring === undefined) return undefined;
+        const plaintext = decryptRingPackedAsSender(txKey, frame.body, salt, position);
+        return () => ringPackedUtxo(plaintext, this.#owner, this.#assets, ring);
+      }
+      default:
+        return undefined;
+    }
   }
 
   #isRingEntry(
@@ -807,7 +897,8 @@ class SyncPass {
     if (
       frame.encoding === "encrypted" &&
       (frame.scheme === EncryptedScheme.confidential ||
-        frame.scheme === EncryptedScheme.ringConfidential)
+        frame.scheme === EncryptedScheme.ringConfidential ||
+        frame.scheme === EncryptedScheme.ringConfidentialPacked)
     ) {
       let utxo: Utxo;
       let ciphertext: Uint8Array;
@@ -820,7 +911,10 @@ class SyncPass {
       const decrypted = this.#decryptSlot(viewingPublicKey, tx, ciphertext, site.slot, siteKey);
       if (decrypted === undefined) return;
       try {
-        utxo = confidentialUtxo(decodeConfidential(decrypted), this.#owner, this.#assets);
+        utxo =
+          frame.scheme === EncryptedScheme.ringConfidentialPacked
+            ? ringPackedUtxo(decodeRingPacked(decrypted), this.#owner, this.#assets, packedRing(tx))
+            : confidentialUtxo(decodeConfidential(decrypted), this.#owner, this.#assets);
       } catch (error) {
         this.#recordUndecryptable(error, siteKey);
         return;
@@ -839,46 +933,41 @@ class SyncPass {
       return;
     }
 
+    if (
+      frame.encoding === "encrypted" &&
+      frame.scheme === EncryptedScheme.ringConfidentialDelivered
+    ) {
+      this.#decodeDelivered(viewingPublicKey, tx, site, siteKey, body);
+      return;
+    }
+
     if (frame.encoding === "encrypted" && frame.scheme === EncryptedScheme.ringDeposit) {
-      let utxo: Utxo;
-      let dataHash: Bytes32 | undefined;
-      let ringDataHash: Bytes32 | undefined;
-      let output: ReturnType<typeof decodeRingDepositOutput>;
-      let txViewingPublicKey: X25519PublicKey;
-      let ciphertext: Uint8Array;
-      try {
-        output = decodeRingDepositOutput(body);
-        txViewingPublicKey = X25519PublicKey.fromBytes(output.encrypted.txViewingPublicKey);
-        ciphertext = output.encrypted.ciphertext;
-      } catch (error) {
-        this.#recordUndecryptable(error, siteKey);
+      const deposit = ringDepositRequest({
+        body,
+        viewingPublicKey,
+        decoder: this.#depositPayloadDecoder,
+      });
+      if (deposit === undefined) {
+        this.undecryptableCandidates++;
         return;
       }
-      ciphertext = this.#depositPayloadDecoder(ciphertext);
-      const decrypted = this.#open({
-        ciphertext,
-        viewingPublicKey,
-        txViewingPublicKey,
-        salt: output.encrypted.salt,
-        slotIndex: 0,
-        label: "ringDeposit",
-      });
+      const decrypted = this.#open(deposit.request);
       if (decrypted === undefined) return;
+      let note: ReturnType<typeof ringDepositNote>;
       try {
-        utxo = ringDepositUtxo(output, decrypted, this.#owner);
-        dataHash = output.dataHash;
-        // A zero ring data hash is absent in the commitment.
-        ringDataHash = output.ringDataHash.some((byte) => byte !== 0)
-          ? output.ringDataHash
-          : undefined;
+        note = ringDepositNote({
+          output: deposit.output,
+          plaintext: decrypted,
+          owner: this.#owner,
+        });
       } catch (error) {
         this.#recordUndecryptable(error, siteKey);
         return;
       }
       this.#resolveAssetCandidate(siteKey);
-      if (this.#storeRecipientUtxos([utxo], outputContext, dataHash, ringDataHash)) {
+      if (this.#storeRecipientUtxos([note.utxo], outputContext, note.dataHash, note.ringDataHash)) {
         this.#processedSlots.add(siteKey);
-        this.#recordDeposit(tx, outputContext, utxo);
+        this.#recordDeposit(tx, outputContext, note.utxo);
       }
       return;
     }
@@ -1010,13 +1099,12 @@ class SyncPass {
       key = this.#keys.derive({ kind: "mergeOutputKey", firstNullifier });
       outputBlinding = this.#keys.derive({ kind: "mergeOutputBlinding", firstNullifier });
       if (key === undefined || outputBlinding === undefined) return;
-      const plaintext = decryptMergeOutput(body.encrypted, key);
-      const utxo = new Utxo({
-        owner: this.#owner,
-        asset: plaintext.mint,
-        amount: plaintext.amount,
+      const utxo = mergeOutputUtxo({
+        body,
+        key,
         blinding: outputBlinding,
-        ...(tx.ringProgramId === undefined ? {} : { ringProgramId: tx.ringProgramId }),
+        owner: this.#owner,
+        ringProgramId: tx.ringProgramId,
       });
       if (this.#storeRecipientUtxos([utxo], slot.outputContext, undefined, body.ringDataHash)) {
         this.#processedSlots.add(siteKey);
@@ -1079,133 +1167,163 @@ class SyncPass {
     return this.#keys.decrypt(request);
   }
 
-  /** Unauthenticated cipher, only the commitment recompute proves the routed key sealed the output. */
-  processAnonymousRoutes(index: TagIndex, routes: AnonymousTagRoutes): void {
-    for (const [tag, route] of routes.entries()) {
-      for (const site of index.recipientSites.get(tag) ?? []) {
-        const ringAnonymous = this.#isRingAnonymous(site);
-        if (!ringAnonymous && route.stream.kind !== "deposit") continue;
-        for (const viewingPublicKey of route.viewingPublicKeys) {
-          if (ringAnonymous) this.#decodeRingAnonymousSlot(viewingPublicKey, site, routes);
-          else this.decodeSlot(viewingPublicKey, site);
-        }
-      }
-    }
-  }
-
-  #isRingAnonymous(site: Site): boolean {
-    const slot = this.#transactions[site.transaction]?.outputSlots[site.slot];
-    if (slot === undefined) return false;
-    try {
-      const frame = readOutputData(slot.payload);
-      return frame.encoding === "encrypted" && frame.scheme === EncryptedScheme.ringAnonymous;
-    } catch {
-      return false;
-    }
-  }
-
-  /** The commitment recompute decides before any registry lookup, the per-tag cap only flags the tag and never skips a hit. */
-  #decodeRingAnonymousSlot(
+  /** A delivered body under the key's tag opens only to the note its commitment binds. */
+  #decodeDelivered(
     viewingPublicKey: X25519PublicKey,
+    tx: IndexedShieldedTransaction,
     site: Site,
-    routes: AnonymousTagRoutes,
+    siteKey: string,
+    body: Uint8Array,
   ): void {
-    const siteKey = `${String(site.transaction)}:${String(site.slot)}`;
-    if (this.#processedSlots.has(siteKey)) return;
-    const tx = this.#transactions[site.transaction];
-    const slot = tx?.outputSlots[site.slot];
-    const route = tx === undefined || slot === undefined ? undefined : routes.routeOf(slot.viewTag);
-    if (tx === undefined || slot === undefined || route === undefined) {
+    const outputContext = tx.outputSlots[site.slot]?.outputContext;
+    const firstNullifier = tx.nullifiers[0];
+    if (
+      outputContext === undefined ||
+      tx.ringProgramId === undefined ||
+      firstNullifier === undefined ||
+      body.length !== BODY_LEN
+    ) {
       this.undecryptableCandidates++;
       return;
     }
-    let frame: ReturnType<typeof readOutputData>;
+    let envelope: Readonly<{ txViewingPublicKey: X25519PublicKey; salt: Bytes16 }>;
     try {
-      frame = readOutputData(slot.payload);
-    } catch {
+      envelope = this.#envelope(tx);
+    } catch (error) {
+      this.#recordUndecryptable(error, siteKey);
+      return;
+    }
+    if (isSmallOrder(envelope.txViewingPublicKey)) {
       this.undecryptableCandidates++;
       return;
     }
-    if (tx.ringProgramId === undefined) {
-      this.undecryptableCandidates++;
-      return;
-    }
-    const defect = anonymousSlotDefect(tx, frame.body);
-    if (defect !== undefined) {
-      this.undecryptableCandidates++;
-      routes.malformed({
-        txSignature: tx.txSignature,
-        slotIndex: site.slot,
-        viewTag: copy(slot.viewTag) as Bytes32,
-        defect,
-      });
-      return;
-    }
-    const tag = hex(slot.viewTag);
-    const opened = this.#anonymousOpened.get(tag) ?? 0;
-    this.#anonymousOpened.set(tag, opened + 1);
-    if (!routes.allows(opened)) routes.capped(slot.viewTag);
-    const decrypted = this.#decryptSlot(
-      viewingPublicKey,
-      tx,
-      frame.body,
-      site.slot,
-      siteKey,
-      "ringAnonymous",
-    );
-    if (decrypted === undefined) return;
-    let plaintext: ReturnType<typeof decodeRingAnonymous>;
-    try {
-      plaintext = decodeRingAnonymous(decrypted);
-    } catch {
-      this.undecryptableCandidates++;
-      return;
-    }
-    const { outputContext } = slot;
-    const utxo = new Utxo({
-      owner: this.#owner,
-      asset: plaintext.assetAddress,
-      amount: plaintext.amount,
-      blinding: plaintext.blinding,
-      ringProgramId: tx.ringProgramId,
+    const slotSecret = this.#keys.ringDeliverySecret({
+      recipient: { kind: "viewing", viewingPublicKey },
+      txViewingPublicKey: envelope.txViewingPublicKey,
+      salt: envelope.salt,
+      outputIndex: site.slot,
+      firstNullifier,
     });
-    const treeId = outputTreeId(outputContext);
-    if (!equal(utxo.hash(this.#nullifierPublicKey, treeId), outputContext.hash)) {
+    if (slotSecret === undefined) return;
+    const slot: RingDeliverySlot = {
+      ring: tx.ringProgramId,
+      firstNullifier,
+      outputIndex: site.slot,
+    };
+    let utxo: Utxo | undefined;
+    try {
+      utxo = openRingDelivery(slot, {
+        body,
+        slotSecret,
+        owner: { signingPublicKey: this.#owner, nullifierPublicKey: this.#nullifierPublicKey },
+        commitment: outputContext.hash,
+        treeId: outputTreeId(outputContext),
+      })?.utxo;
+    } catch (error) {
+      this.#recordUndecryptable(error, siteKey);
+      return;
+    } finally {
+      slotSecret.fill(0);
+    }
+    if (utxo === undefined) {
       this.undecryptableCandidates++;
       return;
     }
     if (!knowsMint(this.#assets, utxo.asset)) {
-      this.#pendingAssetsBySite.set(
-        siteKey,
-        Object.freeze({
-          utxo,
-          nullifierPublicKey: copy(this.#nullifierPublicKey),
-          outputContext: Object.freeze({
-            hash: copy(outputContext.hash),
-            tree: outputContext.tree,
-            treeId,
-            leafIndex: outputContext.leafIndex,
-          }),
-          txSignature: tx.txSignature,
-          slot: tx.slot,
-          slotIndex: site.slot,
-          pairU: copy(plaintext.pairU),
-        }),
-      );
+      this.#pendingAssetsBySite.set(siteKey, this.#pendingNote(tx, site.slot, outputContext, utxo));
       return;
     }
     this.#pendingAssetsBySite.delete(siteKey);
     if (this.#store(utxo, outputContext, undefined, undefined) === "pending") return;
     this.#processedSlots.add(siteKey);
-    const pairPublicKey = pairHintKey(plaintext.pairU);
-    if (pairPublicKey === undefined) routes.badPairHint(copy(outputContext.hash) as Bytes32);
-    routes.found({
-      viewTag: copy(slot.viewTag) as Bytes32,
-      utxoHash: copy(outputContext.hash) as Bytes32,
-      ...(pairPublicKey === undefined ? {} : { pairPublicKey }),
-      stream: route.stream,
+    if (!this.#authored(tx, viewingPublicKey)) this.#recordReceived(tx, site.slot, undefined, utxo);
+  }
+
+  #pendingNote(
+    tx: IndexedShieldedTransaction,
+    slotIndex: number,
+    outputContext: OutputContext,
+    utxo: Utxo,
+  ): PendingAnonymousNote {
+    return Object.freeze({
+      utxo,
+      nullifierPublicKey: copy(this.#nullifierPublicKey),
+      outputContext: Object.freeze({
+        hash: copy(outputContext.hash),
+        tree: outputContext.tree,
+        treeId: outputTreeId(outputContext),
+        leafIndex: outputContext.leafIndex,
+      }),
+      txSignature: tx.txSignature,
+      slot: tx.slot,
+      slotIndex,
     });
-    if (route.stream.kind !== "change") this.#recordReceived(tx, site.slot, pairPublicKey, utxo);
+  }
+
+  /** The wallet derived every candidate's tag, its keys answered the secret. */
+  processDelivered(candidates: readonly RingDeliveredCandidate[]): void {
+    for (const candidate of candidates) {
+      const tx = candidate.transaction;
+      const position = this.#transactions.indexOf(tx);
+      const slot = tx.outputSlots[candidate.slotIndex];
+      const firstNullifier = tx.nullifiers[0];
+      const siteKey = `${String(position)}:${String(candidate.slotIndex)}`;
+      if (position < 0 || this.#processedSlots.has(siteKey)) continue;
+      let body: Uint8Array;
+      try {
+        body = readOutputData(slot?.payload ?? new Uint8Array()).body;
+      } catch {
+        this.undecryptableCandidates++;
+        continue;
+      }
+      if (slot === undefined || tx.ringProgramId === undefined || firstNullifier === undefined) {
+        this.undecryptableCandidates++;
+        continue;
+      }
+      let utxo: Utxo | undefined;
+      try {
+        utxo = openRingDelivery(
+          {
+            ring: tx.ringProgramId,
+            firstNullifier,
+            outputIndex: candidate.slotIndex,
+            ...(candidate.tag === undefined ? {} : { tag: candidate.tag }),
+          },
+          {
+            body,
+            slotSecret: candidate.slotSecret,
+            owner: { signingPublicKey: this.#owner, nullifierPublicKey: this.#nullifierPublicKey },
+            commitment: slot.outputContext.hash,
+            treeId: outputTreeId(slot.outputContext),
+          },
+        )?.utxo;
+      } catch (error) {
+        this.#recordUndecryptable(error, siteKey);
+        continue;
+      }
+      // Tag collisions are expected, another note under the tag belongs to another wallet.
+      if (utxo === undefined) continue;
+      if (!knowsMint(this.#assets, utxo.asset)) {
+        this.#pendingAssetsBySite.set(
+          siteKey,
+          this.#pendingNote(tx, candidate.slotIndex, slot.outputContext, utxo),
+        );
+        continue;
+      }
+      this.#pendingAssetsBySite.delete(siteKey);
+      if (this.#store(utxo, slot.outputContext, undefined, undefined) === "pending") continue;
+      this.#processedSlots.add(siteKey);
+      if (!candidate.change) this.#recordReceived(tx, candidate.slotIndex, undefined, utxo);
+    }
+  }
+
+  /** Deposit streams the wallet derived, every slot under them opens with the current key. */
+  processDepositTags(index: TagIndex, tags: readonly Bytes32[]): void {
+    const current = this.#viewingPublicKeys[0];
+    if (current === undefined) return;
+    for (const tag of tags) {
+      for (const site of index.recipientSites.get(hex(tag)) ?? []) this.decodeSlot(current, site);
+    }
   }
 
   /**
@@ -1238,8 +1356,10 @@ export async function decryptTransactions(
     keys: ShieldedKeys;
     transactions: readonly IndexedShieldedTransaction[];
     config?: DecryptTransactionsConfig;
-    /** Scheme-9 slots under these tags open with the routed key, no other scheme-9 slot opens. */
-    anonymous?: AnonymousTagRoutes | undefined;
+    /** Anonymous ring outputs the wallet derived, each among `transactions`. */
+    delivered?: readonly RingDeliveredCandidate[];
+    /** Deposit tags the wallet derived, slots under them open like a stable tag's. */
+    depositTags?: readonly Bytes32[];
     /** Forwarded to every batch the key holder answers. */
     context?: RequestContext | undefined;
   }>,
@@ -1271,7 +1391,8 @@ export async function decryptTransactions(
         selfViewingPublicKeys: viewingKeyHistory.map((entry) => entry.viewingPublicKey),
       });
       pass.processStableTags({ identityTag, index });
-      if (input.anonymous !== undefined) pass.processAnonymousRoutes(index, input.anonymous);
+      pass.processDepositTags(index, input.depositTags ?? []);
+      pass.processDelivered(input.delivered ?? []);
       pass.resolveMergeSites(mergeSites);
       if (memo.pending()) {
         await memo.resolve(input.context);

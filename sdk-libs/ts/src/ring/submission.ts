@@ -17,9 +17,11 @@ import type {
   KitRpcAccess,
   RingSubmissionStatus,
   RingSubmissionTransport,
+  SlotReader,
 } from "../client/ports.js";
 import { savePersistedWallet, type WalletPersistence } from "../wallet/persisted.js";
-import type { Address, Bytes32, RequestContext, Transaction } from "../interface/types.js";
+import type { Bytes32, RequestContext, Transaction } from "../interface/types.js";
+import { tagEpoch } from "../keypair/ring-stream.js";
 import {
   hex,
   type UtxoReservation,
@@ -29,24 +31,30 @@ import {
 } from "../transaction/wallet/state.js";
 import { equalBytes } from "../wallet/internal.js";
 import { assertVersion1Transaction } from "../flows/compile.js";
-import { fetchCuratorRegistryRoot, fetchRingMemberRegistryRoot } from "./config.js";
-import type { RingTransactPolicy } from "./instructions.js";
+import { fetchRingMemberRegistry } from "./config.js";
 import { RingError, RingProgramError } from "./error.js";
+import type { PendingFirstContact, RingBoundState } from "./pipeline.js";
+import { anchorHolds } from "./trees.js";
 
 /** Keeps the signed intent and validity bounds of one transaction attempt. */
-export interface RingSubmissionAttempt {
+export interface RingSubmissionAttempt extends RingBoundState {
   readonly transaction: Transaction;
   readonly lastValidBlockHeight: bigint;
   readonly intentHash: Bytes32;
   readonly ringInstructionIndex: number;
-  /** The own registry history slot and root bound by the policy proof. */
-  readonly memberRegistryRoot?: Readonly<{ ringProgramId: Address; index: number; root: Bytes32 }>;
-  /** The curator history slot bound by the same policy proof. */
-  readonly foreignRegistryRoot?: Readonly<{ registry: Address; index: number; root: Bytes32 }>;
+  /** Each inbox payment of an anonymous transfer, recorded with the leaf it lands at. */
+  readonly firstContacts?: readonly PendingFirstContact[];
 }
 
 export type RingSubmissionResult =
-  | Readonly<{ kind: "confirmed"; signature: Signature; slot: bigint; attempts: number }>
+  | Readonly<{
+      kind: "confirmed";
+      signature: Signature;
+      slot: bigint;
+      attempts: number;
+      /** Those of the attempt that landed, none for a reconciled submission. */
+      firstContacts: readonly PendingFirstContact[];
+    }>
   | Readonly<{ kind: "unknown"; signature: Signature; attempts: number }>
   | Readonly<{
       kind: "failed";
@@ -73,6 +81,13 @@ export interface ReservationHold {
 export type RingSubmissionBuild = (context?: RequestContext) => Promise<RingSubmissionAttempt>;
 
 const MAX_ATTEMPTS = 3;
+/** Rust `retryable`, a fresh proof fixes a root under a raised floor, an emptied slot or a batch that no longer fits. */
+const STALE_PROOF_CODES: ReadonlySet<number> = new Set([
+  RingProgramError.rootBelowFloor,
+  RingProgramError.curatorRootStale,
+  RingProgramError.rootIndexEmpty,
+  RingProgramError.authorityBatchTooLarge,
+]);
 const NO_RESERVATION: ReservationHold = Object.freeze({ release() {}, extend() {} });
 
 /** Resolves each broadcast before retrying an unchanged payment intent. */
@@ -81,6 +96,7 @@ export class RingTransactionSubmission {
   readonly #build: RingSubmissionBuild;
   readonly #reservation: ReservationHold;
   readonly #registry: Pick<ChainReader, "getAccount"> | undefined;
+  readonly #clock: SlotReader | undefined;
   readonly #wallet: Wallet | undefined;
   readonly #id: string;
   readonly #utxoHashes: readonly Bytes32[];
@@ -97,8 +113,10 @@ export class RingTransactionSubmission {
       first: RingSubmissionAttempt;
       build: RingSubmissionBuild;
       reservation?: ReservationHold;
-      /** Reads own and curator member registries when a policy proof fails. */
+      /** Reads the bound registries and anchor tree when a proof fails. */
       registry?: Pick<ChainReader, "getAccount">;
+      /** Reads the slot when a proof of a bound epoch fails. */
+      clock?: SlotReader;
       wallet?: Wallet;
       reservationId?: string;
       utxoHashes?: readonly Bytes32[];
@@ -109,6 +127,7 @@ export class RingTransactionSubmission {
     this.#build = input.build;
     this.#reservation = input.reservation ?? NO_RESERVATION;
     this.#registry = input.registry;
+    this.#clock = input.clock;
     this.#wallet = input.wallet;
     this.#id = input.reservationId ?? hex(crypto.getRandomValues(new Uint8Array(16)));
     this.#utxoHashes = (input.utxoHashes ?? []).map((hash) => new Uint8Array(hash) as Bytes32);
@@ -123,6 +142,7 @@ export class RingTransactionSubmission {
         context?: RequestContext,
       ) => Promise<RingSubmissionAttempt>;
       registry?: Pick<ChainReader, "getAccount">;
+      clock?: SlotReader;
     }>,
     context?: RequestContext,
   ): Promise<RingTransactionSubmission> {
@@ -140,6 +160,7 @@ export class RingTransactionSubmission {
       build,
       wallet: input.wallet,
       ...(input.registry === undefined ? {} : { registry: input.registry }),
+      ...(input.clock === undefined ? {} : { clock: input.clock }),
       ...(retry.reservation === undefined
         ? {}
         : {
@@ -192,21 +213,24 @@ export class RingTransactionSubmission {
     }
   }
 
-  /** Later registrations wrapped the history over the slot, so the program read another root. */
-  async #rootReplaced(context?: RequestContext): Promise<boolean> {
-    if (this.#registry === undefined) return false;
-    const own = this.#attempt.memberRegistryRoot;
-    const foreign = this.#attempt.foreignRegistryRoot;
-    for (const bound of [own, foreign]) {
-      if (bound === undefined) continue;
-      const registry =
-        "registry" in bound
-          ? (await fetchCuratorRegistryRoot(this.#registry, bound.registry, context)).root
-          : await fetchRingMemberRegistryRoot(this.#registry, bound.ringProgramId, context);
-      const held = registry.history[bound.index];
-      if (held === undefined || !equalBytes(held, bound.root)) return true;
+  /** Rust `BoundState::moved`. */
+  async #moved(context?: RequestContext): Promise<boolean> {
+    const { roots = [], policy, anchor, epoch } = this.#attempt;
+    const chain = this.#registry;
+    if (chain !== undefined) {
+      for (const bound of roots) {
+        const registry = await fetchRingMemberRegistry(chain, bound.ringProgramId, context);
+        const held = registry.history[bound.rootIndex];
+        if (held === undefined || !equalBytes(held.root, bound.root)) return true;
+      }
+      if (policy !== undefined) {
+        const registry = await fetchRingMemberRegistry(chain, policy.ringProgramId, context);
+        if (!equalBytes(registry.policyHash, policy.policyHash)) return true;
+      }
+      if (anchor !== undefined && !(await anchorHolds(chain, anchor, context))) return true;
     }
-    return false;
+    if (epoch === undefined || this.#clock === undefined) return false;
+    return tagEpoch(await this.#clock.getSlot(context)) > epoch;
   }
 
   async #settleFailed(): Promise<void> {
@@ -272,22 +296,27 @@ export class RingTransactionSubmission {
         }
         if (status.kind === "confirmed") {
           this.#terminal = true;
-          return { kind: "confirmed", signature, slot: status.slot, attempts: this.#attempts };
+          return {
+            kind: "confirmed",
+            signature,
+            slot: status.slot,
+            attempts: this.#attempts,
+            firstContacts: this.#attempt.firstContacts ?? [],
+          };
         }
         const ringCode =
           status.kind === "failed" && status.instructionIndex === this.#attempt.ringInstructionIndex
             ? status.customCode
             : undefined;
-        // A failed registry read keeps the signature pending for the next call.
-        const rootReplaced =
-          ringCode === RingProgramError.proofVerificationFailed &&
-          (await this.#rootReplaced(context));
+        // A failed registry, tree or slot read keeps the signature pending for the next call.
+        const moved =
+          ringCode === RingProgramError.proofVerificationFailed && (await this.#moved(context));
         this.#pending = undefined;
         await this.#settleFailed();
         const retry =
           status.kind === "expired" ||
-          rootReplaced ||
-          ringCode === RingProgramError.staleMemberRegistryRoot;
+          moved ||
+          (ringCode !== undefined && STALE_PROOF_CODES.has(ringCode));
         if (!retry || this.#attempts >= MAX_ATTEMPTS) {
           this.#terminal = true;
           this.#reservation.release();
@@ -347,6 +376,7 @@ export async function reconcileRingSubmissions(
         signature: pending.signature,
         attempts: pending.attempts,
         slot: status.slot,
+        firstContacts: [],
       });
     } else {
       input.wallet._releaseReservation(pending.id);
@@ -372,33 +402,6 @@ function failedSubmission(
     ...(status.kind !== "failed" || status.customCode === undefined
       ? {}
       : { customCode: status.customCode }),
-  };
-}
-
-/** @internal The own and curator registry slots and roots bound by the policy statement. */
-export function boundRegistryRoot(
-  ringProgramId: Address,
-  policy: RingTransactPolicy | undefined,
-): Pick<RingSubmissionAttempt, "memberRegistryRoot" | "foreignRegistryRoot"> {
-  if (policy?.memberRegistryRootIndex === undefined || policy.memberRegistryRoot === undefined)
-    return {};
-  return {
-    memberRegistryRoot: {
-      ringProgramId,
-      index: policy.memberRegistryRootIndex,
-      root: policy.memberRegistryRoot,
-    },
-    ...(policy.foreignRegistry === undefined ||
-    policy.foreignRootIndex === undefined ||
-    policy.foreignRoot === undefined
-      ? {}
-      : {
-          foreignRegistryRoot: {
-            registry: policy.foreignRegistry,
-            index: policy.foreignRootIndex,
-            root: policy.foreignRoot,
-          },
-        }),
   };
 }
 

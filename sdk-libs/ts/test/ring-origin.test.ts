@@ -25,17 +25,17 @@ import { X25519Keypair } from "../src/keypair/x25519.js";
 import type { IndexedShieldedTransaction } from "../src/transaction/instructions/transact.js";
 import { RingError } from "../src/ring/error.js";
 import {
-  CachedTransactionOrigin,
   confirmedInstructionGroups,
   confirmedRingWithdrawals,
-  ringEventInvokedIn,
   ringInvokedIn,
   ringWithdrawalsOf,
   RpcTransactionOrigin,
   type OriginInstructionGroup,
-  type TransactionOrigin,
 } from "../src/ring/origin.js";
+import { RingInstructionTag } from "../src/ring/admin.js";
+import { RingTransactData } from "../src/ring/transact.js";
 import { solanaRpcReads } from "./helpers/clients.js";
+import { ringFrame, ringInstructionData } from "./helpers/ring-frame.js";
 
 // Mirrors custom-rings/client/tests/origin.rs.
 const RING = address("zYYvj4LTBF4Lz2FBhDaAbJ7CsVWvHjyanxQJPmN2dSU");
@@ -146,69 +146,6 @@ describe("ringInvokedIn", () => {
     ]);
     origin("no parent", [group(RING, [[POOL, 4]])]);
     origin("no parent", [group(RING, [[POOL, 1]])]);
-  });
-});
-
-describe("ringEventInvokedIn", () => {
-  it.each([35, 36, 37, 38])("authenticates the SPP event below shaped outer tag %i", (tag) => {
-    const source: OriginInstructionGroup = {
-      outer: {
-        programId: RING,
-        stackHeight: 1,
-        accounts: [],
-        data: Uint8Array.of(tag),
-      },
-      inner: [
-        {
-          programId: POOL,
-          stackHeight: 2,
-          accounts: [],
-          data: Uint8Array.of(
-            tag === 36 || tag === 38
-              ? InstructionTag.ringAuthorityTransact
-              : InstructionTag.ringTransact,
-          ),
-        },
-        {
-          programId: POOL,
-          stackHeight: 3,
-          accounts: [],
-          data: Uint8Array.of(InstructionTag.emitEvent),
-        },
-      ],
-    };
-    expect(ringEventInvokedIn([source], 0, RING)).toBe(true);
-    expect(
-      ringEventInvokedIn([{ ...source, outer: { ...source.outer, programId: OTHER } }], 0, RING),
-    ).toBe(false);
-  });
-
-  it("attributes each event to its own source instruction", () => {
-    const source = (programId: Address, outer: Address): OriginInstructionGroup => ({
-      outer: {
-        programId: outer,
-        stackHeight: 1,
-        accounts: [],
-        data: new Uint8Array(),
-      },
-      inner: [
-        {
-          programId,
-          stackHeight: 2,
-          accounts: [],
-          data: Uint8Array.of(InstructionTag.ringTransact),
-        },
-        {
-          programId,
-          stackHeight: 3,
-          accounts: [],
-          data: Uint8Array.of(InstructionTag.emitEvent),
-        },
-      ],
-    });
-    const groups = [source(POOL, RING), source(POOL, OTHER)];
-    expect(ringEventInvokedIn(groups, 0, RING)).toBe(true);
-    expect(ringEventInvokedIn(groups, 1, RING)).toBe(false);
   });
 });
 
@@ -352,7 +289,13 @@ describe("cached ring settlement wire vectors", () => {
   for (const [index, hex] of vectors.entries()) {
     it(`decodes cached ring rail ${index} before the trailing cache`, () => {
       expect(hex).toMatch(/^(?:[0-9a-f]{2})+$/u);
-      const data = Uint8Array.from([InstructionTag.ringTransact, ...Buffer.from(hex, "hex")]);
+      // Rails 1 and 3 are anonymous, SPP takes the ring's co-signer behind their data.
+      const coSigner = index % 2 === 1 ? new Uint8Array(32).fill(13) : new Uint8Array();
+      const data = Uint8Array.from([
+        InstructionTag.ringTransact,
+        ...Buffer.from(hex, "hex"),
+        ...coSigner,
+      ]);
       const instruction = {
         programId: POOL,
         accounts: [
@@ -554,7 +497,11 @@ describe("confirmedRingWithdrawals", () => {
           programIdIndex: keyIndex(POOL),
           accounts: [keyIndex(PAYER), ...tail.map(keyIndex)],
           data: getBase58Decoder().decode(
-            Uint8Array.from([InstructionTag.ringTransact, ...Buffer.from(hex, "hex")]),
+            Uint8Array.from([
+              InstructionTag.ringTransact,
+              ...Buffer.from(hex, "hex"),
+              ...new Uint8Array(32).fill(13),
+            ]),
           ),
           stackHeight: 2,
         },
@@ -582,7 +529,11 @@ function rpcWith(result: unknown | Error): ConstructorParameters<typeof RpcTrans
   return solanaRpcReads({ getTransaction });
 }
 
-function transferFixture(saltByte = 1, tag: number = InstructionTag.ringTransact) {
+function transferFixture(
+  saltByte = 1,
+  tag: number = InstructionTag.ringTransact,
+  rail: Readonly<{ anonymous?: boolean; tail?: Uint8Array; inputTree?: Address }> = {},
+) {
   const key = X25519Keypair.generate();
   const txViewingPublicKey = key.publicKey();
   key.destroy();
@@ -617,13 +568,24 @@ function transferFixture(saltByte = 1, tag: number = InstructionTag.ringTransact
   const instruction = encodeTransactInstructionData({
     expiryUnixTs: 0n,
     privateTxHash: field(12),
-    circuit: {
-      kind:
-        tag === InstructionTag.ringAuthorityTransact ? "ringAuthority" : "confidentialRingEddsa",
-      inputs: 2,
-      outputs: 2,
-      publicAssetSlots: 0,
-    },
+    circuit:
+      rail.anonymous === true
+        ? {
+            kind: "anonymousRingEddsa",
+            inputs: 2,
+            outputs: 2,
+            publicAssetSlots: 0,
+            proofData: { bsb22Commitment: { commitment: field(0), commitmentPok: field(0) } },
+          }
+        : {
+            kind:
+              tag === InstructionTag.ringAuthorityTransact
+                ? "ringAuthority"
+                : "confidentialRingEddsa",
+            inputs: 2,
+            outputs: 2,
+            publicAssetSlots: 0,
+          },
     txViewingPk: txViewingPublicKey.toBytes(),
     salt: indexed.salt!,
     proof: { a: field(0), b: new Uint8Array(128) as Bytes128, c: field(0) },
@@ -645,13 +607,25 @@ function transferFixture(saltByte = 1, tag: number = InstructionTag.ringTransact
     .u8(InstructionTag.emitEvent, "tag")
     .u8(2, "kind")
     .u32(1, "inputTrees")
-    .bytes(addressBytes(tree), 32, "inputTree")
+    .bytes(addressBytes(rail.inputTree ?? tree), 32, "inputTree")
     .u64(0n, "inputSequence")
     .bytes(addressBytes(tree), 32, "outputTree")
     .u64(100n, "firstLeaf")
     .finish();
-  const confirmed = confirmedEvent(RING, [PAYER], Uint8Array.of(tag, ...instruction), event);
-  return { indexed, confirmed };
+  const source = Uint8Array.of(tag, ...instruction, ...(rail.tail ?? []));
+  const frame = ringFrame({
+    rail:
+      tag === InstructionTag.ringAuthorityTransact
+        ? "delegate"
+        : rail.anonymous === true
+          ? "anonymous"
+          : "confidential",
+    inputs: 2,
+    outputs: 2,
+  });
+  const ringData = ringInstructionData(frame);
+  const confirmed = confirmedEvent(RING, [PAYER], source, event, ringData);
+  return { indexed, confirmed, source, event, frame, ringData };
 }
 
 function confirmedEvent(
@@ -659,6 +633,7 @@ function confirmedEvent(
   accounts: readonly Address[],
   source: Uint8Array,
   event: Uint8Array,
+  ringData: Uint8Array = new Uint8Array(),
 ) {
   const keys = [...new Set([...accounts, ring, POOL])];
   const indices = accounts.map((account) => keys.indexOf(account));
@@ -668,7 +643,13 @@ function confirmedEvent(
       signatures: [SIGNATURE],
       message: {
         accountKeys: keys,
-        instructions: [{ programIdIndex: keys.indexOf(ring), accounts: indices, data: "" }],
+        instructions: [
+          {
+            programIdIndex: keys.indexOf(ring),
+            accounts: indices,
+            data: getBase58Decoder().decode(ringData),
+          },
+        ],
       },
     },
     meta: {
@@ -759,6 +740,7 @@ describe("RpcTransactionOrigin", () => {
           };
         }),
       };
+      const transfer = name === "confirmed-event";
       const confirmed = confirmedEvent(
         ring,
         decode
@@ -766,16 +748,26 @@ describe("RpcTransactionOrigin", () => {
           .map((account) => decode.address(account, "account")),
         sourceBytes,
         bytes(fixture["eventDataHex"]),
+        transfer
+          ? ringInstructionData(
+              ringFrame({
+                rail: "confidential",
+                inputs: indexed.nullifiers.length,
+                outputs: indexed.outputSlots.length,
+              }),
+            )
+          : undefined,
       );
       const origin = new RpcTransactionOrigin(rpcWith(confirmed));
-      expect(await origin.confirmedEventKind(indexed, ring)).toBe(
+      const bound = await origin.confirmedTransaction(indexed, ring);
+      expect(bound?.kind).toBe(
         name === "confirmed-merge-event"
           ? "merge"
           : name === "confirmed-deposit-event"
             ? "deposit"
             : "transfer",
       );
-      await expect(origin.confirmedTransaction(indexed, ring)).resolves.toEqual({
+      expect(bound?.transaction).toEqual({
         ...indexed,
         ...(hasViewingKey ? { salt: bytes(expected["saltHex"]) } : {}),
       });
@@ -814,25 +806,120 @@ describe("RpcTransactionOrigin", () => {
     },
   );
 
-  it.each([35, 36, 37, 38])("binds complete transfers under shaped outer tag %i", async (tag) => {
-    const { indexed, confirmed } = transferFixture(
-      1,
-      tag === 36 || tag === 38 ? InstructionTag.ringAuthorityTransact : InstructionTag.ringTransact,
-    );
-    confirmed.transaction.message.instructions[0]!.data = getBase58Decoder().decode(
-      Uint8Array.of(tag),
-    );
+  it.each([
+    [3, InstructionTag.ringTransact],
+    [25, InstructionTag.ringAuthorityTransact],
+  ])("binds a transfer under the ring's outer tag %i", async (outer, tag) => {
+    const { indexed, confirmed, frame, ringData } = transferFixture(1, tag);
+    expect(ringData[0]).toBe(outer);
     await expect(
       new RpcTransactionOrigin(rpcWith(confirmed)).confirmedTransaction(indexed, RING),
-    ).resolves.toEqual(indexed);
+    ).resolves.toMatchObject({
+      kind: "transfer",
+      transaction: indexed,
+      layout: RingTransactData.disclosureLayout(frame),
+    });
+  });
+
+  it("takes the layout from the ring's own frame and refuses a frame off the event", async () => {
+    const { indexed, confirmed } = transferFixture();
+    const bind = (ringData: Uint8Array) => {
+      confirmed.transaction.message.instructions[0]!.data = getBase58Decoder().decode(ringData);
+      return new RpcTransactionOrigin(rpcWith(confirmed)).confirmedTransaction(indexed, RING);
+    };
+    for (const ringData of [
+      Uint8Array.of(3),
+      ringInstructionData(ringFrame({ rail: "confidential", inputs: 1, outputs: 2 })),
+      ringInstructionData(ringFrame({ rail: "confidential", inputs: 2, outputs: 4 })),
+      ringInstructionData(ringFrame({ rail: "anonymous", inputs: 2, outputs: 2 })),
+      Uint8Array.of(RingInstructionTag.setPaused),
+    ])
+      await expect(bind(ringData)).rejects.toMatchObject({
+        code: expect.stringMatching(/^RING_(ORIGIN_DECODE|TRANSACT_DATA_INVALID)$/u),
+      });
+  });
+
+  it("attributes each event to the ring that called its own source instruction", async () => {
+    const { indexed, confirmed, source, event, ringData } = transferFixture();
+    const keys = confirmed.transaction.message.accountKeys;
+    const other = [...keys, OTHER];
+    const pool = (data: Uint8Array, stackHeight: number) => ({
+      programIdIndex: keys.indexOf(POOL),
+      accounts: [keys.indexOf(PAYER)],
+      stackHeight,
+      data: getBase58Decoder().decode(data),
+    });
+    const twoEvents = {
+      ...confirmed,
+      transaction: {
+        ...confirmed.transaction,
+        message: {
+          accountKeys: other,
+          instructions: [
+            {
+              programIdIndex: other.indexOf(RING),
+              accounts: [0],
+              data: getBase58Decoder().decode(ringData),
+            },
+            { programIdIndex: other.indexOf(OTHER), accounts: [0], data: "" },
+          ],
+        },
+      },
+      meta: {
+        err: null,
+        innerInstructions: [0, 1].map((index) => ({
+          index,
+          instructions: [pool(source, 2), pool(event, 3)],
+        })),
+      },
+    };
+    const origin = new RpcTransactionOrigin(rpcWith(twoEvents));
+    await expect(origin.confirmedTransaction(indexed, RING)).resolves.toMatchObject({
+      kind: "transfer",
+    });
+    await expect(
+      origin.confirmedTransaction({ ...indexed, eventIndex: 1 }, RING),
+    ).resolves.toBeUndefined();
+  });
+
+  it("names the output tree's id for every input spent from it, none for another tree", async () => {
+    for (const [inputTree, ids] of [
+      [treeAddress(4), [4, 4]],
+      [treeAddress(5), [undefined, undefined]],
+    ] as const) {
+      const { indexed, confirmed } = transferFixture(1, InstructionTag.ringTransact, { inputTree });
+      await expect(
+        new RpcTransactionOrigin(rpcWith(confirmed)).confirmedTransaction(indexed, RING),
+      ).resolves.toMatchObject({ kind: "transfer", inputTreeIds: ids });
+    }
+  });
+
+  it("reads the anonymous rail's co-signer tail and refuses a tail on any other rail", async () => {
+    const coSigner = new Uint8Array(32).fill(13);
+    const anonymous = transferFixture(1, InstructionTag.ringTransact, {
+      anonymous: true,
+      tail: coSigner,
+    });
+    await expect(
+      new RpcTransactionOrigin(rpcWith(anonymous.confirmed)).confirmedTransaction(
+        anonymous.indexed,
+        RING,
+      ),
+    ).resolves.toMatchObject({ kind: "transfer", transaction: anonymous.indexed });
+    for (const rail of [{ anonymous: true }, { tail: coSigner }]) {
+      const { indexed, confirmed } = transferFixture(1, InstructionTag.ringTransact, rail);
+      await expect(
+        new RpcTransactionOrigin(rpcWith(confirmed)).confirmedTransaction(indexed, RING),
+      ).rejects.toMatchObject({ code: "RING_ORIGIN_DECODE" });
+    }
   });
 
   it.each([InstructionTag.ringTransact, InstructionTag.ringAuthorityTransact])(
     "binds every indexed transfer field to confirmed SPP tag %i",
     async (tag) => {
       const { indexed, confirmed } = transferFixture(1, tag);
-      const origin = new CachedTransactionOrigin(new RpcTransactionOrigin(rpcWith(confirmed)));
-      const authenticated = await origin.confirmedTransaction(indexed, RING);
+      const origin = new RpcTransactionOrigin(rpcWith(confirmed));
+      const authenticated = (await origin.confirmedTransaction(indexed, RING))?.transaction;
       expect(authenticated).toEqual(indexed);
       expect(authenticated?.messages[0]?.data).not.toBe(indexed.messages[0]?.data);
       const field = new Uint8Array(32).fill(42) as Bytes32;
@@ -898,7 +985,7 @@ describe("RpcTransactionOrigin", () => {
           indexed,
           RING,
         ),
-      ).resolves.toEqual(indexed);
+      ).resolves.toMatchObject({ transaction: indexed });
     for (const slot of [-1n, 1n << 64n, -1, 1.5, Number.MAX_SAFE_INTEGER + 1])
       await expect(
         new RpcTransactionOrigin(rpcWith({ ...confirmed, slot })).confirmedTransaction(
@@ -916,7 +1003,7 @@ describe("RpcTransactionOrigin", () => {
         omitted,
         RING,
       );
-      if (saltByte === 0) await expect(result).resolves.toMatchObject({ salt });
+      if (saltByte === 0) await expect(result).resolves.toMatchObject({ transaction: { salt } });
       else
         await expect(result).rejects.toMatchObject({
           code: "RING_ORIGIN_DECODE",
@@ -924,93 +1011,42 @@ describe("RpcTransactionOrigin", () => {
     }
   });
 
-  it("walks the fetched transaction", async () => {
-    const origin = new RpcTransactionOrigin(
-      rpcWith(confirmedTransaction({ writable: [], readonly: [] })),
-    );
-    await expect(origin.ringInvoked(SIGNATURE, 0, RING)).resolves.toBe(true);
-    await expect(origin.ringInvoked(SIGNATURE, 0, OTHER)).resolves.toBe(false);
-  });
-
-  it("does not share a caller-scoped RPC cancellation", async () => {
+  it("reads each signature once unless the caller scopes the read", async () => {
     let calls = 0;
-    const transaction = confirmedTransaction({ writable: [], readonly: [] });
+    const { indexed, confirmed } = transferFixture();
     const origin = new RpcTransactionOrigin(
       solanaRpcReads({
         getTransaction: () => ({
           send: async () => {
             calls += 1;
-            return transaction;
+            return confirmed;
           },
         }),
       }),
     );
     const signal = new AbortController().signal;
-    await origin.ringInvoked(SIGNATURE, 0, RING, { signal });
-    await origin.ringInvoked(SIGNATURE, 0, RING, { signal });
-    await origin.ringInvoked(SIGNATURE, 0, RING);
-    await origin.ringInvoked(SIGNATURE, 0, RING);
+    await origin.confirmedTransaction(indexed, RING, { signal });
+    await origin.confirmedTransaction(indexed, RING, { signal });
+    await origin.confirmedTransaction(indexed, RING);
+    await origin.confirmedTransaction(indexed, RING);
     expect(calls).toBe(3);
   });
 
   it("treats an unknown signature and an RPC failure as errors", async () => {
+    const { indexed } = transferFixture();
     for (const result of [null, new Error("rpc down")]) {
       const origin = new RpcTransactionOrigin(rpcWith(result));
-      await expect(origin.ringInvoked(SIGNATURE, 0, RING)).rejects.toMatchObject({
+      await expect(origin.confirmedTransaction(indexed, RING)).rejects.toMatchObject({
         code: "RING_ORIGIN_UNAVAILABLE",
       });
     }
   });
 
   it("rejects a response for a different signature", async () => {
-    const origin = new RpcTransactionOrigin(
-      rpcWith(confirmedTransaction({ writable: [], readonly: [] })),
-    );
-    await expect(origin.ringInvoked("6".repeat(87) as Signature, 0, RING)).rejects.toMatchObject({
-      code: "RING_ORIGIN_DECODE",
-    });
-  });
-});
-
-describe("CachedTransactionOrigin", () => {
-  it("caches by signature, event, and ring", async () => {
-    let calls = 0;
-    let auditCalls = 0;
-    const inner: TransactionOrigin = {
-      ringInvoked: () => {
-        calls += 1;
-        return Promise.resolve(true);
-      },
-      confirmedTransaction: async () => {
-        auditCalls += 1;
-        return undefined;
-      },
-    };
-    const cached = new CachedTransactionOrigin(inner);
-    await expect(cached.ringInvoked(SIGNATURE, 0, RING)).resolves.toBe(true);
-    await expect(cached.ringInvoked(SIGNATURE, 0, RING)).resolves.toBe(true);
-    await expect(cached.ringInvoked(SIGNATURE, 1, RING)).resolves.toBe(true);
-    await expect(cached.ringInvoked(SIGNATURE, 0, OTHER)).resolves.toBe(true);
-    expect(calls).toBe(3);
-    const { indexed } = transferFixture();
-    await expect(cached.confirmedTransaction(indexed, RING)).resolves.toBeUndefined();
-    await expect(cached.confirmedTransaction(indexed, RING)).resolves.toBeUndefined();
-    expect(auditCalls).toBe(2);
-  });
-
-  it("bounds origin decisions during long scans", async () => {
-    let calls = 0;
-    const cached = new CachedTransactionOrigin({
-      ringInvoked: async () => {
-        calls += 1;
-        return true;
-      },
-      confirmedTransaction: async () => undefined,
-    });
-    for (let eventIndex = 0; eventIndex <= 4096; eventIndex++) {
-      await cached.ringInvoked(SIGNATURE, eventIndex, RING);
-    }
-    await cached.ringInvoked(SIGNATURE, 0, RING);
-    expect(calls).toBe(4098);
+    const { indexed, confirmed } = transferFixture();
+    const origin = new RpcTransactionOrigin(rpcWith(confirmed));
+    await expect(
+      origin.confirmedTransaction({ ...indexed, txSignature: "6".repeat(87) as Signature }, RING),
+    ).rejects.toMatchObject({ code: "RING_ORIGIN_DECODE" });
   });
 });

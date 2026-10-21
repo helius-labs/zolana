@@ -1,4 +1,3 @@
-import { emptyMemberRecord } from "./member-registry.js";
 import { blockhash, type Commitment } from "@solana/kit";
 
 import type { ChainReader, IndexerReader, KitRpcAccess } from "../../src/client/index.js";
@@ -113,16 +112,19 @@ export function ringTransferClient(
   overrides: Partial<RingTransferClient> = {},
 ): RingTransferClient {
   return {
-    proofDataSource: "client",
     tree: TREE,
     treeId: TREE_ID,
     getLatestBlockhash: async () => BLOCKHASH,
     getAccount: async () => undefined,
-    proveRingTransact: notImplemented("proveRingTransact"),
-    proveCustomRingPolicy: notImplemented("proveCustomRingPolicy"),
-    proveCustomRingBase: notImplemented("proveCustomRingBase"),
     getSlot: notImplemented("getSlot"),
-    getRingMemberRecord: async () => ({ ...emptyMemberRecord(), rootIndex: 1 }),
+    getRingMemberOpenings: notImplemented("getRingMemberOpenings"),
+    getMerkleProofs: notImplemented("getMerkleProofs"),
+    getEncryptedUtxosByTags: async () => matchesPage(),
+    getShieldedTransactionsByNullifiers: async () => transactionsPage(),
+    getShieldedTransactionsByTags: async () => transactionsPage(),
+    proveRing: notImplemented("proveRing"),
+    proveRingTransact: notImplemented("proveRingTransact"),
+    proveAnonymousRingTransact: notImplemented("proveAnonymousRingTransact"),
     ...overrides,
   };
 }

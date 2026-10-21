@@ -76,6 +76,8 @@ export const TREE_ACCOUNT_SIZE = 18_608;
 /// repeats the create-tree instruction once per chunk within one transaction.
 export const TREE_ALLOCATION_STEP = 10 * 1024;
 export const TREE_CREATION_STEP_COUNT = Math.ceil(TREE_ACCOUNT_SIZE / TREE_ALLOCATION_STEP);
+/** Rust `PAUSED`, the tree state byte that refuses writes. */
+export const TREE_STATE_PAUSED = 2;
 export const TREE_FEES_OFFSET = 8;
 export const TREE_FEE_BALANCE_OFFSET = 32;
 export const STATE_ROOT_OFFSET = 80;

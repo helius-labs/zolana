@@ -17,7 +17,11 @@ import { deserializeWallet, serializeWallet } from "../src/transaction/wallet/pe
 import { loadPersistedWallet, savePersistedWallet } from "../src/wallet/persisted.js";
 import { walletSnapshotCipher } from "../src/wallet/snapshot-cipher.js";
 import { BLOCKHASH, ringTransferClient } from "./helpers/clients.js";
-import { ringProgramConfigData, ownedAccount } from "./helpers/ring-accounts.js";
+import {
+  ownedAccount,
+  ringProgramConfigData,
+  sppRingRegistration,
+} from "./helpers/ring-accounts.js";
 
 const RING = address("9vyTbYGyh3cwxkAQpjjFQGXmdJP6p9B6YcQ5pNuXPNbh");
 const MEMO = address("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr");
@@ -55,6 +59,8 @@ afterEach(() => vi.restoreAllMocks());
 it("binds high level ring transfers to the configured nonzero tree", async () => {
   const f = funded(7);
   const [config, bump] = await ringConfigPda(RING);
+  const authority = f.owner.shieldedAddress().solanaAddress();
+  const [ringAuth, registration] = await sppRingRegistration({ authority, ringProgramId: RING });
   let outputTreeId: number | undefined;
   const client = ringTransferClient({
     tree: treeAddress(7),
@@ -64,7 +70,7 @@ it("binds high level ring transfers to the configured nonzero tree", async () =>
         ? ownedAccount(
             RING,
             ringProgramConfigData({
-              authority: f.owner.shieldedAddress().solanaAddress(),
+              authority,
               auditorPublicKey: X25519Keypair.fromBytes(new Uint8Array(32).fill(9))
                 .publicKey()
                 .toBytes(),
@@ -72,7 +78,9 @@ it("binds high level ring transfers to the configured nonzero tree", async () =>
               hasPolicy: false,
             }),
           )
-        : undefined,
+        : key === ringAuth
+          ? registration
+          : undefined,
     proveRingTransact: async (inputs) => {
       outputTreeId = inputs.outputTreeId;
       throw new Error("prover boundary reached");
@@ -83,6 +91,9 @@ it("binds high level ring transfers to the configured nonzero tree", async () =>
       throw new Error("unreachable");
     },
     proveMerge: async () => {
+      throw new Error("unreachable");
+    },
+    proveRing: async () => {
       throw new Error("unreachable");
     },
   });
@@ -326,7 +337,7 @@ it.each([2, 3])("upgrades version %s without losing notes or history", (version)
   const loaded = deserializeWallet(JSON.stringify(old));
   expect(loaded.utxos()).toEqual(f.wallet.utxos());
   expect(loaded.pendingSubmissions()).toEqual([]);
-  expect(JSON.parse(serializeWallet(loaded))).toMatchObject({ version: 5 });
+  expect(JSON.parse(serializeWallet(loaded))).toMatchObject({ version: 6 });
 });
 
 it("saves an existing unknown signature when persistence is attached", async () => {

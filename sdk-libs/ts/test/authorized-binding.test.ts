@@ -76,6 +76,7 @@ async function authorize(kind: "transfer" | "withdrawal" | "split", amount = 25n
   const keys = LocalKeys.fromKeypair(keypair, {
     prove: () => Promise.reject(new Error("prove must not be called")),
     proveMerge: () => Promise.reject(new Error("proveMerge must not be called")),
+    proveRing: () => Promise.reject(new Error("proveRing must not be called")),
   });
   const transaction =
     kind === "transfer"
@@ -366,6 +367,7 @@ describe("multi-recipient transfer binding", () => {
     const keys = LocalKeys.fromKeypair(keypair, {
       prove: () => Promise.reject(new Error("prove must not be called")),
       proveMerge: () => Promise.reject(new Error("proveMerge must not be called")),
+      proveRing: () => Promise.reject(new Error("proveRing must not be called")),
     });
     const payments = amounts.map((amount) => ({
       recipient: ShieldedKeypair.generate().shieldedAddress(),

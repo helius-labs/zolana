@@ -10,6 +10,7 @@ import type {
   CreateCacheData,
   DepositInstructionData,
   InputUtxo,
+  InterfaceTransfer,
   MergeOutputEncryption,
   MergeTransactInstructionData,
   OwnerTag,
@@ -43,8 +44,11 @@ import {
   TREE_ACCOUNT_SIZE,
   TREE_FEES_OFFSET,
   TREE_FEE_BALANCE_OFFSET,
+  TREE_STATE_PAUSED,
   UTXO_ROOT_HISTORY_CAPACITY,
+  UTXO_ROOT_HISTORY_CAPACITY_OFFSET,
   UTXO_ROOT_HISTORY_CURSOR_OFFSET,
+  UTXO_ROOT_HISTORY_LEN_OFFSET,
   UTXO_ROOT_HISTORY_OFFSET,
   UTXO_SUBTREES_LEN_OFFSET,
 } from "../state.js";
@@ -227,6 +231,13 @@ export function writeTreeContext(writer: Writer, value: TreeContext): void {
     .u16(value.nullifierTreeRootIndex, "treeContext.nullifierTreeRootIndex");
 }
 
+export function readTreeContext(reader: Reader): TreeContext {
+  return Object.freeze({
+    utxoTreeRootIndex: reader.u16("treeContext.utxoTreeRootIndex"),
+    nullifierTreeRootIndex: reader.u16("treeContext.nullifierTreeRootIndex"),
+  });
+}
+
 function writeOwnerTag(writer: Writer, value: OwnerTag): void {
   switch (value.kind) {
     case "inline":
@@ -292,10 +303,7 @@ function writeCircuit(writer: Writer, value: CircuitId): void {
   });
 }
 
-function writeInterfaceTransfer(
-  writer: Writer,
-  value: TransactInstructionData["interfaceTransfers"][number],
-): void {
+export function writeInterfaceTransfer(writer: Writer, value: InterfaceTransfer): void {
   const tag =
     value.kind === "solDeposit"
       ? 0
@@ -307,6 +315,26 @@ function writeInterfaceTransfer(
   writer.u8(tag, "interfaceTransfer.kind").u64(value.amount, "interfaceTransfer.amount");
   if (value.kind === "splDeposit" || value.kind === "splWithdrawal") {
     writer.u8(value.splInterfaceBump, "interfaceTransfer.splInterfaceBump");
+  }
+}
+
+export function readInterfaceTransfer(reader: Reader): InterfaceTransfer {
+  const kind = reader.u8("interfaceTransfer.kind");
+  const amount = reader.u64("interfaceTransfer.amount");
+  switch (kind) {
+    case 0:
+      return Object.freeze({ kind: "solDeposit", amount });
+    case 1:
+      return Object.freeze({ kind: "solWithdrawal", amount });
+    case 2:
+    case 3:
+      return Object.freeze({
+        kind: kind === 2 ? "splDeposit" : "splWithdrawal",
+        amount,
+        splInterfaceBump: reader.u8("interfaceTransfer.splInterfaceBump"),
+      });
+    default:
+      return fail("INTERFACE_CODEC", { name: "interfaceTransfer.kind", actual: kind });
   }
 }
 
@@ -563,6 +591,11 @@ export function decodeTreeId(bytes: Uint8Array): number {
   return treeAccountReader(bytes, 2, 4).u16("treeId");
 }
 
+/** Mirrors Rust `TreeAccount::is_paused`. */
+export function decodeTreePaused(bytes: Uint8Array): boolean {
+  return treeAccountReader(bytes, 1, 2).u8("state") === TREE_STATE_PAUSED;
+}
+
 /**
  * Reads the fee schedule and accrued fee balance from a full tree account.
  * The tree header is `discriminator, state, tree_id, padding[4], fees, fee_balance`.
@@ -619,6 +652,30 @@ export function decodeTreeHeadRoots(bytes: Uint8Array): TreeHeadRoots {
     "nullifierRoot",
   );
   return Object.freeze({ stateRoot, stateRootIndex, nullifierRoot, nullifierRootIndex });
+}
+
+/** Mirrors Rust `root_by_index`, `undefined` for a slot the history holds no root in. */
+export function decodeUtxoRoot(bytes: Uint8Array, index: number): Bytes32 | undefined {
+  const reader = treeAccountReader(
+    bytes,
+    UTXO_ROOT_HISTORY_LEN_OFFSET,
+    UTXO_ROOT_HISTORY_CAPACITY_OFFSET + 2,
+  );
+  const written = reader.u16("rootHistoryLen");
+  const capacity = reader.u16("rootHistoryCapacity");
+  reader.done();
+  if (capacity !== UTXO_ROOT_HISTORY_CAPACITY) fail("INTERFACE_INVALID_ACCOUNT_DATA");
+  if (
+    !Number.isSafeInteger(index) ||
+    index < 0 ||
+    written === 0 ||
+    index >= capacity ||
+    (written < capacity && index >= written)
+  )
+    return undefined;
+  const start = UTXO_ROOT_HISTORY_OFFSET + index * 32;
+  const root = copyBytes(bytes.subarray(start, start + 32), 32, "utxoRoot") as Bytes32;
+  return root.every((byte) => byte === 0) ? undefined : root;
 }
 
 function treeAccountReader(bytes: Uint8Array, start: number, end: number): Reader {

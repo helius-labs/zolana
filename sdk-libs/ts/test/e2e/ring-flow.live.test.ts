@@ -14,6 +14,7 @@ import {
 } from "../../src/index.js";
 import { sha256 } from "../../src/interface/internal.js";
 import { P256ReaderKey } from "../../src/ring/reader.js";
+import type { DecryptedRingTransaction } from "../../src/ring/rpc.js";
 import {
   RingError,
   RingRpc,
@@ -40,6 +41,21 @@ import {
   sync,
   waitForAudited,
 } from "./ring-live-helpers.js";
+
+/** Every opened output, an exit note outside the ring. */
+function openedOutputs(item: DecryptedRingTransaction | undefined, ringProgramId: Address) {
+  return (item?.outputs ?? []).flatMap(({ opening }) =>
+    opening.kind === "dummy"
+      ? []
+      : [
+          {
+            amount: opening.note.amount,
+            mint: opening.note.mint,
+            ringProgramId: opening.kind === "ring" ? ringProgramId : undefined,
+          },
+        ],
+  );
+}
 
 /** The WebAuthn envelope a browser would produce on `origin`, signed with a software P-256 key. */
 function syntheticPasskey(origin: string): RingReadSigner & { readonly publicKey: P256ReaderKey } {
@@ -114,7 +130,7 @@ describe("ring flow", () => {
         client,
         ringProgramId,
         feePayer: sender.signer.address,
-        recipient: sender.keypair.shieldedAddress(),
+        recipient: { kind: "confidential", address: sender.keypair.shieldedAddress() },
         amount: deposited,
       });
       await signSendAndConfirm(client, deposit, [sender.signer]);
@@ -149,14 +165,10 @@ describe("ring flow", () => {
     }
     expect(audited).toBeDefined();
     // The 3x deposit is the covering UTXO, and the change slot keeps 2x.
-    const amounts = [...(audited?.outputs.map((output) => output.amount) ?? [])].sort((a, b) =>
-      a < b ? -1 : 1,
-    );
+    const outputs = openedOutputs(audited, ringProgramId);
+    const amounts = outputs.map((output) => output.amount).sort((a, b) => (a < b ? -1 : 1));
     expect(amounts).toEqual([amount, amount * 2n]);
-    expect(audited?.outputs.map((output) => output.ringProgramId)).toEqual([
-      ringProgramId,
-      ringProgramId,
-    ]);
+    expect(outputs.map((output) => output.ringProgramId)).toEqual([ringProgramId, ringProgramId]);
 
     // Participants read their own side from wallet sync.
     await airdrop(client, recipient.signer.address);
@@ -189,14 +201,13 @@ describe("ring flow", () => {
       hopAudited = ringView.items.find((item) => item.signature === hopSignature);
       if (hopAudited === undefined) await new Promise((resolve) => setTimeout(resolve, 500));
     }
-    expect(hopAudited?.outputs.map((output) => output.ringProgramId)).toEqual([
+    const hopOutputs = openedOutputs(hopAudited, ringProgramId);
+    expect(hopOutputs.map((output) => output.ringProgramId)).toEqual([
       ringProgramId,
       ringProgramId,
     ]);
     // The hop pays half the UTXO onward, and the change slot keeps the rest.
-    const hopAmounts = [...(hopAudited?.outputs.map((output) => output.amount) ?? [])].sort(
-      (a, b) => (a < b ? -1 : 1),
-    );
+    const hopAmounts = hopOutputs.map((output) => output.amount).sort((a, b) => (a < b ? -1 : 1));
     expect(hopAmounts).toEqual([amount / 2n, amount / 2n]);
 
     // A delegated reader reads after the grant and not after the revoke.
@@ -332,8 +343,9 @@ describe("ring flow", () => {
       authoritySigner,
       entrySignature,
     );
-    expect(entryAudited.outputs.map((output) => output.asset)).toEqual([mint, mint]);
-    expect(entryAudited.outputs.map((output) => output.ringProgramId)).toEqual([
+    const entryOutputs = openedOutputs(entryAudited, ringProgramId);
+    expect(entryOutputs.map((output) => output.mint)).toEqual([mint, mint]);
+    expect(entryOutputs.map((output) => output.ringProgramId)).toEqual([
       ringProgramId,
       ringProgramId,
     ]);
@@ -375,7 +387,10 @@ describe("ring flow", () => {
       exitSignature,
     );
     const exitRings = new Map(
-      exitAudited.outputs.map((output) => [output.amount, output.ringProgramId]),
+      openedOutputs(exitAudited, ringProgramId).map((output) => [
+        output.amount,
+        output.ringProgramId,
+      ]),
     );
     expect(exitRings.has(exit)).toBe(true);
     expect(exitRings.get(exit)).toBeUndefined();

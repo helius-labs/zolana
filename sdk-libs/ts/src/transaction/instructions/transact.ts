@@ -7,9 +7,8 @@ import {
 } from "../../interface/external-data-hash.js";
 import { InstructionTag, SOL_INTERFACE } from "../../interface/program.js";
 import {
-  RING_AUTHORITY_MAX_WIDTH,
   SPP_SUPPORTED_SHAPES as INTERFACE_SUPPORTED_SHAPES,
-  ringAuthorityWidth,
+  ringAuthorityShape,
   selectSppShape,
   type Shape,
   validateSppShape,
@@ -53,6 +52,7 @@ import {
   checkedTreeId,
   createProofOutput,
   outputBlindingSeed,
+  outputSlotBlinding,
   privateTxBlinding,
   transactOutputBlinding,
   type ProofOutputInit,
@@ -303,7 +303,7 @@ function externalDataHash(data: ExternalDataFields): Bytes32 {
     expiryUnixTs: data.expiryUnixTs,
     txViewingPk: data.txViewingPublicKey.toBytes(),
     salt: data.salt,
-    interfaceTransfers: data.interfaceTransfers.map(settlementInterfaceTransfer),
+    interfaceTransfers: data.interfaceTransfers.map(interfaceTransferOf),
     ...(data.dataHash === undefined ? {} : { dataHash: data.dataHash }),
     ...(data.ringDataHash === undefined ? {} : { ringDataHash: data.ringDataHash }),
     outputs: data.outputs,
@@ -313,7 +313,8 @@ function externalDataHash(data: ExternalDataFields): Bytes32 {
   });
 }
 
-function settlementInterfaceTransfer(transfer: SettlementTransfer): InterfaceTransfer {
+/** The wire leg of a public settlement, Rust `SettlementTransfer::interface_transfer`. */
+export function interfaceTransferOf(transfer: SettlementTransfer): InterfaceTransfer {
   if (transfer.kind === "sol") {
     return transfer.isDeposit
       ? { kind: "solDeposit", amount: transfer.amount }
@@ -328,7 +329,8 @@ function settlementInterfaceTransfer(transfer: SettlementTransfer): InterfaceTra
       };
 }
 
-function settlementAccounts(transfer: SettlementTransfer): SettlementAccounts {
+/** The asset account then the user account one public leg commits, Rust `settlement_accounts`. */
+export function settlementAccounts(transfer: SettlementTransfer): SettlementAccounts {
   return transfer.kind === "sol"
     ? { asset: SOL_INTERFACE, user: transfer.userSolAccount }
     : { asset: transfer.mint, user: transfer.tokenAccount };
@@ -978,6 +980,11 @@ export interface PreparedTransfer {
   outputBlindingSeed(): Bytes32;
   /** The same transfer with every output blinding derived from `blindingSeed`, Rust `OutputEncoder::output_blinding_seed`. */
   withBlindingSeed(blindingSeed: Bytes32): PreparedTransfer;
+  /**
+   * The same transfer with each ring output's blinding derived from its ring secret, one entry per
+   * output, `undefined` exactly for the exits and dummies, Rust `OutputEncoder::ring_secret`.
+   */
+  withRingSecrets(secrets: readonly (Bytes32 | undefined)[]): PreparedTransfer;
   proofOutputs(): readonly ProofOutputUtxo[];
   /** Ring transacts bind the auditor message and the `RING_TRANSACT` tag into the external data hash. */
   finalize(
@@ -987,8 +994,12 @@ export interface PreparedTransfer {
       payload: readonly (Readonly<{ viewTag: Bytes32; data: Uint8Array }> | undefined)[];
       messages?: readonly Readonly<{ viewTag: Bytes32; data: Uint8Array }>[];
       instructionDiscriminator?: number;
-      /** Every slot publishes its payload inline and padding commits the zero owner, the anonymous ring rail. */
-      anonymous?: boolean;
+      /**
+       * Every published slot, padding included, carries the payload its ring rail framed under an
+       * inline tag, `payload` holds one entry per final slot and `undefined` for compact padding.
+       * Padding commits the zero owner on the anonymous rail and its pad tag on the others.
+       */
+      ringSlots?: "anonymous" | "confidential";
     }>,
   ): SppProofInputs;
 }
@@ -1083,20 +1094,25 @@ export class ConfidentialTransfer {
     this.#push({ address: recipient, asset, amount, ring: "default" });
   }
 
+  /** The recipient's position among the sends, `prepare` places every send after the change. */
   sendToRing(
     recipient: ShieldedAddress,
     asset: Address,
     amount: bigint,
     ringProgramId: Address,
-  ): void {
-    this.#push({ address: recipient, asset, amount, ring: { programId: ringProgramId } });
+  ): number {
+    return this.#push({ address: recipient, asset, amount, ring: { programId: ringProgramId } });
+  }
+
+  get recipientCount(): number {
+    return this.#recipients.length;
   }
 
   // Rust `send` performs no amount check; `checkU64` stands in for its `u64`
   // parameter and nothing more. A zero-amount recipient is a slot Rust builds.
-  #push(recipient: Recipient): void {
+  #push(recipient: Recipient): number {
     checkU64(recipient.amount, "recipient amount");
-    this.#recipients.push(recipient);
+    return this.#recipients.push(recipient) - 1;
   }
 
   withdraw(asset: Address, amount: bigint, target: WithdrawalTarget): void {
@@ -1270,7 +1286,7 @@ type RecordPadding = Readonly<{ start: number; end: number; template?: number }>
 
 type PreparedTransferFields = Omit<
   PreparedTransfer,
-  "finalize" | "outputBlindingSeed" | "proofOutputs" | "withBlindingSeed"
+  "finalize" | "outputBlindingSeed" | "proofOutputs" | "withBlindingSeed" | "withRingSecrets"
 > &
   Readonly<{ recordPadding?: RecordPadding; ringProgramId?: Address }>;
 
@@ -1282,18 +1298,15 @@ export function prepareRingAuthorityTransfer(
     payer: Address;
     ringProgramId: Address;
     outputTreeId: TreeId;
-    /** Omits unused public slots, revealing the actual input and output counts. Defaults to false. */
+    /** Omits unused public slots and reveals the actual counts, off by default. */
     compactPadding?: boolean;
+    /** A ring authority shape to pad to, the cheapest holding the counts by default. */
+    shape?: Shape;
   }>,
 ): PreparedTransfer {
   if (input.compactPadding !== undefined && typeof input.compactPadding !== "boolean")
     throw new TransactionError("TRANSACTION_UNSUPPORTED_SHAPE", { reason: "compactPadding" });
-  if (
-    input.inputs.length < 1 ||
-    input.inputs.length > RING_AUTHORITY_MAX_WIDTH ||
-    input.outputs.length < 1 ||
-    input.outputs.length > RING_AUTHORITY_MAX_WIDTH
-  )
+  if (input.inputs.length < 1 || input.outputs.length < 1)
     throw new TransactionError("TRANSACTION_UNSUPPORTED_SHAPE", {
       inputs: input.inputs.length,
       outputs: input.outputs.length,
@@ -1342,8 +1355,11 @@ export function prepareRingAuthorityTransfer(
       ringProgramId: input.ringProgramId,
     })),
   );
-  const width = ringAuthorityWidth(Math.max(input.inputs.length, layouts.length));
-  if (width === undefined)
+  const shape =
+    input.shape === undefined
+      ? ringAuthorityShape(input.inputs.length, layouts.length)
+      : resolveShape(input.inputs.length, layouts.length, input.shape);
+  if (shape === undefined)
     throw new TransactionError("TRANSACTION_UNSUPPORTED_SHAPE", {
       inputs: input.inputs.length,
       outputs: layouts.length,
@@ -1370,7 +1386,7 @@ export function prepareRingAuthorityTransfer(
     blindingSeed: seed,
     inputTreeIds: [first.treeId],
     outputTreeId: checkedTreeId(input.outputTreeId),
-    shape: { inputs: width, outputs: width },
+    shape,
     payer: input.payer,
     interfaceTransfers: [],
     senderOutputCount,
@@ -1378,25 +1394,64 @@ export function prepareRingAuthorityTransfer(
 }
 
 function preparedTransfer(fields: PreparedTransferFields): PreparedTransfer {
+  /** A ring output keeps the blinding of its ring secret, every other slot follows the seed. */
+  const derived = (
+    seed: Bytes32,
+    outputs: readonly ProofOutputUtxo[],
+  ): readonly ProofOutputUtxo[] => {
+    const outputSeed = outputBlindingSeed(fields.firstNullifier, seed);
+    return Object.freeze(
+      outputs.map((output, slotIndex) =>
+        createProofOutput({
+          ...outputInit(output),
+          blinding:
+            output.ringSecret === undefined
+              ? transactOutputBlinding(fields.firstNullifier, outputSeed, slotIndex)
+              : outputSlotBlinding({
+                  output,
+                  firstNullifier: fields.firstNullifier,
+                  outputBlindingSeed: outputSeed,
+                  slotIndex,
+                }),
+        }),
+      ),
+    );
+  };
   return Object.freeze({
     ...fields,
     outputBlindingSeed: (): Bytes32 =>
       outputBlindingSeed(fields.firstNullifier, fields.blindingSeed),
     withBlindingSeed: (blindingSeed: Bytes32): PreparedTransfer => {
       const seed = copy(checked<Bytes32>(blindingSeed, 32, "blinding seed"));
-      const outputSeed = outputBlindingSeed(fields.firstNullifier, seed);
       return preparedTransfer({
         ...fields,
         blindingSeed: seed,
-        outputs: Object.freeze(
-          fields.outputs.map((output, index) =>
-            createProofOutput({
-              ...outputInit(output),
-              blinding: transactOutputBlinding(fields.firstNullifier, outputSeed, index),
-            }),
-          ),
-        ),
+        outputs: derived(seed, fields.outputs),
       });
+    },
+    withRingSecrets: (secrets: readonly (Bytes32 | undefined)[]): PreparedTransfer => {
+      if (secrets.length !== fields.outputs.length)
+        throw new TransactionError("TRANSACTION_EXCESS_OUTPUT_SLOTS", {
+          got: secrets.length,
+          outputs: fields.outputs.length,
+        });
+      const outputSeed = outputBlindingSeed(fields.firstNullifier, fields.blindingSeed);
+      const outputs = fields.outputs.map((output, slotIndex) => {
+        const secret = secrets[slotIndex];
+        if (secret === undefined && output.ringSecret !== undefined)
+          throw new TransactionError("TRANSACTION_MISSING_RING_SECRET", { slotIndex });
+        const slot = createProofOutput(outputInit(output, secret));
+        return createProofOutput({
+          ...outputInit(slot),
+          blinding: outputSlotBlinding({
+            output: slot,
+            firstNullifier: fields.firstNullifier,
+            outputBlindingSeed: outputSeed,
+            slotIndex,
+          }),
+        });
+      });
+      return preparedTransfer({ ...fields, outputs: Object.freeze(outputs) });
     },
     proofOutputs: (): readonly ProofOutputUtxo[] => Object.freeze(finalOutputPlan(fields).outputs),
     finalize: (encrypted: Parameters<PreparedTransfer["finalize"]>[0]): SppProofInputs =>
@@ -1467,7 +1522,8 @@ function finalizeTransfer(
     ? { kind: "account", index: 0 }
     : { kind: "inline", value: senderResolved };
 
-  if (encrypted.anonymous === true) return finalizeAnonymousTransfer(prepared, encrypted);
+  if (encrypted.ringSlots !== undefined)
+    return finalizeRingTransfer(prepared, encrypted, encrypted.ringSlots);
   const { outputs: outputUtxos, padCount, padTag } = finalOutputPlan(prepared);
   // Random dummies join the last input tree, as the prover hashes them. Compact
   // padding takes the first: SPP reads its omitted tree index as 0.
@@ -1560,26 +1616,34 @@ function finalizeTransfer(
   });
 }
 
-/** Mirrors the anonymous `OutputEncoder`, every slot carries its sealed body under its own inline tag. */
-function finalizeAnonymousTransfer(
+/** Mirrors the ring `OutputEncoder`, every published slot carries its rail's payload under its own inline tag. */
+function finalizeRingTransfer(
   prepared: PreparedTransferFields,
   encrypted: Parameters<PreparedTransfer["finalize"]>[0],
+  rail: "anonymous" | "confidential",
 ): SppProofInputs {
-  if (prepared.compactPadding === true) {
-    throw new TransactionError("TRANSACTION_ANONYMOUS_COMPACT_PADDING", { slotIndex: 0 });
-  }
-  const paddingTreeId = prepared.inputTreeIds.at(-1);
+  const paddingTreeId = prepared.compactPadding
+    ? prepared.inputTreeIds[0]
+    : prepared.inputTreeIds.at(-1);
   if (paddingTreeId === undefined) throw new TransactionError("TRANSACTION_NO_INPUTS");
   const inputUtxos = [...prepared.inputs];
   while (inputUtxos.length < prepared.shape.inputs) {
-    inputUtxos.push(ProofInputUtxo.dummy(undefined, paddingTreeId));
+    inputUtxos.push(
+      prepared.compactPadding
+        ? ProofInputUtxo.compact(paddingTreeId)
+        : ProofInputUtxo.dummy(undefined, paddingTreeId),
+    );
   }
   // The anonymous circuit folds the zero tag into every padding owner.
-  const outputUtxos = finalOutputPlan(prepared).outputs.map((output) =>
-    output.isDummy() ? retagDummyOutput(output, new Uint8Array(32) as Bytes32) : output,
-  );
+  const planned = finalOutputPlan(prepared).outputs;
+  const outputUtxos =
+    rail === "anonymous"
+      ? planned.map((output) =>
+          output.isDummy() ? retagDummyOutput(output, new Uint8Array(32) as Bytes32) : output,
+        )
+      : planned;
   if (encrypted.payload.length !== outputUtxos.length) {
-    throw new TransactionError("TRANSACTION_ANONYMOUS_SLOT_MISMATCH", {
+    throw new TransactionError("TRANSACTION_RING_SLOT_MISMATCH", {
       reason: "slot count",
       outputs: outputUtxos.length,
       slots: encrypted.payload.length,
@@ -1589,12 +1653,13 @@ function finalizeAnonymousTransfer(
   const resolved: Bytes32[] = [];
   outputUtxos.forEach((output, slotIndex) => {
     const slot = encrypted.payload[slotIndex];
-    if (slot === undefined) {
-      throw new TransactionError("TRANSACTION_ANONYMOUS_SLOT_MISMATCH", {
+    if (output.isCompact() !== (slot === undefined)) {
+      throw new TransactionError("TRANSACTION_RING_SLOT_MISMATCH", {
         reason: "payload",
         slotIndex,
       });
     }
+    if (slot === undefined) return;
     outputs.push({
       utxoHash: output.hash(prepared.outputTreeId),
       ownerTag: { kind: "inline", value: slot.viewTag },
@@ -1661,7 +1726,11 @@ function retagDummyOutput(output: ProofOutputUtxo, ownerTag: Bytes32): ProofOutp
   return createProofOutput({ ...outputInit(output), ownerTag });
 }
 
-function outputInit(output: ProofOutputUtxo): ProofOutputInit {
+/** `ringSecret` replaces the slot's own, `outputSlotBlinding` refuses one on a slot that is no ring output. */
+function outputInit(
+  output: ProofOutputUtxo,
+  ringSecret: Bytes32 | undefined = output.ringSecret,
+): ProofOutputInit {
   return {
     ...(output.ownerAddress === undefined ? {} : { ownerAddress: output.ownerAddress }),
     asset: output.asset,
@@ -1671,6 +1740,7 @@ function outputInit(output: ProofOutputUtxo): ProofOutputInit {
     ...(output.dataHash === undefined ? {} : { dataHash: output.dataHash }),
     ...(output.ringDataHash === undefined ? {} : { ringDataHash: output.ringDataHash }),
     ...(output.ringProgramId === undefined ? {} : { ringProgramId: output.ringProgramId }),
+    ...(ringSecret === undefined ? {} : { ringSecret }),
     ...(output.ownerTag === undefined ? {} : { ownerTag: output.ownerTag }),
     ...(output.compact === true ? { compact: true } : {}),
   };
@@ -1749,8 +1819,8 @@ function dummyCiphertextLength(salt: Bytes16): number {
 export interface OutputContext {
   readonly hash: Bytes32;
   readonly tree: Address;
-  /** Raw id `hash` folds in, present when the indexer reported it. */
-  readonly treeId?: number;
+  /** Raw id `hash` folds in. */
+  readonly treeId: number;
   readonly leafIndex: bigint;
 }
 

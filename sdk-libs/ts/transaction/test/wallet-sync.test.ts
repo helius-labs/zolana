@@ -198,6 +198,7 @@ function shieldedTransactions(
             outputContext: {
               hash,
               tree: encodeAddress(hexBytes(fixtureString(slot, "treeBytes"))),
+              treeId: DEFAULT_TREE_ID,
               leafIndex: BigInt(fixtureString(slot, "leafIndex")),
             },
             payload,

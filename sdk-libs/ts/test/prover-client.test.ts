@@ -1,13 +1,10 @@
-import { RING_POLICY_SUPPORTED_SHAPES, SPP_SUPPORTED_SHAPES } from "../src/interface/shape.js";
-import { x25519 } from "@noble/curves/ed25519.js";
-
-import { address, getBase58Decoder } from "@solana/kit";
+import { address } from "@solana/kit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ClientError } from "../src/client/error.js";
-import { ZolanaClient } from "../src/client/client.js";
-import { wireDecoder } from "../src/interface/decode.js";
+import { prepareMerge } from "../src/client/prover/merge.js";
 import { parseProof } from "../src/client/prover/proof.js";
+import type { RegisterKeyProofRequest } from "../src/client/prover/ring.js";
 import {
   asField,
   asInteger,
@@ -17,12 +14,9 @@ import {
 } from "../src/client/prover/assembly.js";
 import { LocalKeys } from "../src/client/keys.js";
 import { BN254_MODULUS, bytesField } from "../src/client/internal.js";
-import { ShieldedKeypair } from "../src/keypair/index.js";
+import { ShieldedKeypair, randomBlinding } from "../src/keypair/index.js";
 import {
   ProverClient,
-  customRingBaseProofRequest,
-  customRingPolicyProofRequest,
-  customRingRegisterKeyProofRequest,
   mergeProverRequestBody,
   proverRequestBody,
 } from "../src/client/prover/client.js";
@@ -31,26 +25,22 @@ import type { NonInclusionProof } from "../src/client/rpc.js";
 import type { Bytes32 } from "../src/interface/index.js";
 import { MERGE_INPUT_COUNT } from "../src/interface/constants.js";
 import { PROVING_KEY_SHA256S } from "../src/interface/proving-keys.js";
-import { outflowLimitsOff } from "../src/client/prover/types.js";
+import { QUAD_HEIGHT } from "../src/interface/member-registry.js";
 import { treeAddress } from "../src/interface/pda/index.js";
-import { hashChain } from "../src/transaction/internal.js";
-import type { IndexedPolicyInputs } from "../src/client/ports.js";
-import {
-  inputTreeSlots,
-  treeSlotsHashChain,
-  INPUT_TREES,
-  ZERO_TREE_SLOT,
-} from "../src/interface/tree-slot.js";
+import { INPUT_TREES, ZERO_TREE_SLOT } from "../src/interface/tree-slot.js";
 import type {
-  CustomRingBaseProofRequest,
-  CustomRingOpening,
-  CustomRingPolicyProofRequest,
   MergeInputs,
   ProverInputs,
   TransferInput,
   TreeSlotFields,
 } from "../src/client/prover/types.js";
-import { ProofInputUtxo, createProofOutput } from "../src/transaction/index.js";
+import {
+  Merge,
+  ProofInputUtxo,
+  SOL_MINT,
+  Utxo,
+  createProofOutput,
+} from "../src/transaction/index.js";
 
 /** Every fixture proves from tree 0, the id the client and the wallet default to. */
 const OUTPUT_TREE_ID = 0;
@@ -76,6 +66,7 @@ const INPUTS: ProverInputs = {
     externalDataHash: asField(0n),
     privateTxHash: asField(0n),
     blindingSeed: asField(0n),
+    ringSecrets: [],
     publicAssets: [asField(0n), asField(0n), asField(0n)],
     publicAmounts: [asField(0n), asField(0n), asField(0n)],
     ringProgramId: asField(0n),
@@ -107,276 +98,9 @@ function transferInputs(): ProverInputs {
   };
 }
 
-/** Canonical X25519 coordinate of a secret with every byte equal to 4. */
-const AUDITOR_PK_HEX = `0x${Buffer.from(x25519.getPublicKey(new Uint8Array(32).fill(4))).toString("hex")}`;
-
 function bytes(value: number): Bytes32 {
   return new Uint8Array(32).fill(value) as Bytes32;
 }
-
-function fieldHex(byte: number): string {
-  return `0x${byte.toString(16).padStart(2, "0").repeat(32)}`;
-}
-
-function zeroOpening(): CustomRingOpening {
-  return {
-    domain: bytes(0),
-    treeId: bytes(0),
-    ownerPkHash: bytes(0),
-    nullifierPk: bytes(0),
-    asset: bytes(0),
-    amount: bytes(0),
-    blinding: bytes(0),
-    dataHash: bytes(0),
-    ringDataHash: bytes(0),
-    ringProgramId: bytes(0),
-  };
-}
-
-/** The Rust wire-format test's request, `the_request_matches_the_server_wire_format`. */
-function ringRequest(auditorPublicKey: Uint8Array): CustomRingPolicyProofRequest {
-  return {
-    publicInputHash: bytes(0),
-    privateTxHash: bytes(1),
-    txViewingSecret: bytes(2),
-    ephemeralSecret: bytes(3),
-    auditorPublicKey,
-    salt: new Uint8Array(16) as import("../src/interface/types.js").Bytes16,
-    nIn: 2,
-    nOut: 2,
-    inputs: Array.from({ length: 5 }, () => zeroOpening()),
-    outputs: Array.from({ length: 4 }, () => zeroOpening()),
-    addressChain: bytes(0),
-    privateTxBlinding: bytes(7),
-    sources: Array.from({ length: 8 }, () => ({ listId: 0, registry: bytes(0) })),
-    policyLen: 1,
-    rules: Array.from({ length: 16 }, () => bytes(0)),
-    inlineAssets: Array.from({ length: 8 }, () => bytes(0)),
-    inlineLimits: Array.from({ length: 8 }, () => 0n),
-    inlineCount: 0,
-    treeSlots: [{ id: 3, utxoRoot: bytes(8), nullifierRoot: bytes(9) }],
-    addressTreeId: 3,
-    limits: outflowLimitsOff({ ringId: bytes(10), namespaceOwnerHash: bytes(11) }),
-    keyEscrow: false,
-    memberRegistryRoot: bytes(0),
-    foreignRoot: bytes(0),
-    subjects: Array.from({ length: 13 }, () => undefined),
-    foreignSubjects: Array.from({ length: 13 }, () => undefined),
-  };
-}
-
-/** The no-policy request, matching Rust `CustomRingBaseProofRequest`. */
-function auditRequest(auditorPublicKey: Uint8Array): CustomRingBaseProofRequest {
-  return {
-    publicInputHash: bytes(0),
-    privateTxHash: bytes(1),
-    txViewingSecret: bytes(2),
-    ephemeralSecret: bytes(3),
-    auditorPublicKey,
-    salt: new Uint8Array(16) as import("../src/interface/types.js").Bytes16,
-    nOut: 2,
-    outputs: Array.from({ length: 4 }, () => zeroOpening()),
-  };
-}
-
-it("binds the ordinary audit proving key to two settled outputs", () => {
-  const request = auditRequest(x25519.getPublicKey(bytes(4)));
-  for (const count of [1, 2, 3, 4]) {
-    const body = customRingBaseProofRequest({ ...request, nOut: count });
-    expect(body["circuitType"]).toBe(
-      count === 2 ? "custom-ring-base-confidential" : "custom-ring-base",
-    );
-    expect(body["nOut"]).toBe(count);
-  }
-});
-
-describe("delegate ring prover contracts", () => {
-  it("decodes delegate proofs and refuses malformed responses", async () => {
-    const proof = proofFor({ circuitType: "custom-ring-delegate-policy" });
-    const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json(proof));
-    const prover = new ProverClient({ tee: false, url: "https://prover.example", fetch });
-    const policy = ringRequest(x25519.getPublicKey(bytes(4)));
-    const prove = () => prover.proveCustomRingDelegatePolicy(policy);
-    await expect(prove()).resolves.toEqual(parseProof(proof));
-    fetch.mockResolvedValueOnce(Response.json({ ...proof, ar: [] }));
-    await expect(prove()).rejects.toMatchObject({ code: "CLIENT_PROOF_PARSE" });
-    expect(fetch).toHaveBeenCalledTimes(2);
-  });
-
-  it("serializes the key registration like Rust `RegisterKeyProofRequest::body`", async () => {
-    const nullifierSecret = bytes(0);
-    nullifierSecret[31] = 7;
-    const request = {
-      publicInputHash: bytes(0),
-      registryOldRoot: bytes(1),
-      registryNewRoot: bytes(2),
-      member: bytes(3),
-      oldLists: 0n,
-      update: {
-        exists: false,
-        next: bytes(0),
-        index: 1n,
-        path: Array.from({ length: 20 }, () => bytes(0)),
-        lowMember: bytes(0),
-        lowNext: bytes(5),
-        lowLists: 0n,
-        lowEscrow: bytes(0),
-        lowIndex: 0n,
-        lowPath: Array.from({ length: 20 }, () => bytes(0)),
-      },
-      nullifierSecret,
-      ephemeralSecret: bytes(6),
-      auditorPublicKey: x25519.getPublicKey(bytes(4)),
-    };
-    const body = customRingRegisterKeyProofRequest(request);
-    expect(body).toMatchObject({
-      circuitType: "custom-ring-register-key",
-      index: 1,
-      nullifierSecret: `0x${"0".repeat(62)}07`,
-      ephSk: fieldHex(6),
-    });
-    expect(String(body["auditorPk"])).toHaveLength(66);
-    expect(String(body["ephSk"])).toHaveLength(66);
-    expect(body).not.toHaveProperty("key");
-    expect(body["registryNewRoot"]).toBe(fieldHex(2));
-    const high = bytes(0);
-    high[0] = 1;
-    expect(() => customRingRegisterKeyProofRequest({ ...request, nullifierSecret: high })).toThrow(
-      "CLIENT_INVALID_PROOF_INPUTS",
-    );
-    expect(() =>
-      customRingRegisterKeyProofRequest({
-        ...request,
-        update: { ...request.update, lowIndex: -1n },
-      }),
-    ).toThrow("CLIENT_INVALID_INTEGER");
-    expect(() =>
-      customRingRegisterKeyProofRequest({
-        ...request,
-        update: { ...request.update, index: 1n << 20n },
-      }),
-    ).toThrow("CLIENT_INVALID_INTEGER");
-    const proof = proofFor({ circuitType: "custom-ring-register-key" });
-    const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json(proof));
-    const prover = new ProverClient({ tee: false, url: "https://prover.example", fetch });
-    await expect(prover.proveCustomRingRegisterKey(request)).resolves.toEqual(parseProof(proof));
-    fetch.mockResolvedValueOnce(Response.json({ ...proof, ar: [] }));
-    await expect(prover.proveCustomRingRegisterKey(request)).rejects.toMatchObject({
-      code: "CLIENT_PROOF_PARSE",
-    });
-    expect(fetch).toHaveBeenCalledTimes(2);
-  });
-
-  it("keeps the delegate policy limits but sends no approval", async () => {
-    const bodies: unknown[] = [];
-    const prover = new ProverClient({
-      tee: false,
-      url: "https://prover.example",
-      fetch: async (_url, init) => {
-        bodies.push(JSON.parse(String(init?.body)));
-        return Response.json(proofFor(String(init?.body)));
-      },
-    });
-    const request = ringRequest(x25519.getPublicKey(bytes(4)));
-    const limits = {
-      ...request.limits,
-      limits: [{ asset: bytes(1), cap: 1n, cosignAbove: 1n }],
-    };
-    await prover.proveCustomRingDelegatePolicy({ ...request, limits });
-    expect(bodies).toMatchObject([
-      {
-        circuitType: "custom-ring-delegate-policy",
-        policy: {
-          circuitType: "custom-ring-policy",
-          limitCount: 1,
-          approvalRequired: false,
-        },
-      },
-    ]);
-    await expect(
-      prover.proveCustomRingDelegatePolicy({
-        ...request,
-        limits: { ...limits, approvalRequired: true },
-      }),
-    ).rejects.toMatchObject({ code: "CLIENT_INVALID_PROOF_INPUTS" });
-    expect(bodies).toHaveLength(1);
-  });
-});
-
-/** Key order from Rust `CustomRingBaseProofRequestJson` in `request_ring.rs`. */
-const EXPECTED_AUDIT_BODY = {
-  circuitType: "custom-ring-base-confidential",
-  publicInputHash: fieldHex(0),
-  privateTxHash: fieldHex(1),
-  txViewingSk: fieldHex(2),
-  ephSk: fieldHex(3),
-  auditorPk: AUDITOR_PK_HEX,
-  salt: "0x00000000000000000000000000000000",
-  nOut: 2,
-  outputs: Array.from({ length: 4 }, () => ({
-    domain: fieldHex(0),
-    treeId: fieldHex(0),
-    ownerHash: fieldHex(0),
-    asset: fieldHex(0),
-    amount: fieldHex(0),
-    blinding: fieldHex(0),
-    dataHash: fieldHex(0),
-    ringDataHash: fieldHex(0),
-    ringProgramId: fieldHex(0),
-  })),
-};
-
-const EXPECTED_OPENING = {
-  domain: fieldHex(0),
-  treeId: fieldHex(0),
-  ownerPkHash: fieldHex(0),
-  nullifierPk: fieldHex(0),
-  asset: fieldHex(0),
-  amount: fieldHex(0),
-  blinding: fieldHex(0),
-  dataHash: fieldHex(0),
-  ringDataHash: fieldHex(0),
-  ringProgramId: fieldHex(0),
-};
-
-/** Key order from Rust `CustomRingPolicyProofRequestJson` in `request_ring.rs`. */
-const EXPECTED_RING_BODY = {
-  circuitType: "custom-ring-policy",
-  publicInputHash: fieldHex(0),
-  privateTxHash: fieldHex(1),
-  txViewingSk: fieldHex(2),
-  ephSk: fieldHex(3),
-  auditorPk: AUDITOR_PK_HEX,
-  salt: "0x00000000000000000000000000000000",
-  nIn: 2,
-  nOut: 2,
-  inputs: Array.from({ length: 5 }, () => EXPECTED_OPENING),
-  outputs: Array.from({ length: 4 }, () => ({ ...EXPECTED_OPENING, ctHash: fieldHex(0) })),
-  addressChain: fieldHex(0),
-  privateTxBlinding: fieldHex(7),
-  sources: Array.from({ length: 8 }, () => ({ listId: 0, registry: fieldHex(0) })),
-  policyLen: 1,
-  ruleEnc: Array.from({ length: 16 }, () => fieldHex(0)),
-  inlineAssets: Array.from({ length: 8 }, () => fieldHex(0)),
-  inlineLimits: Array.from({ length: 8 }, () => fieldHex(0)),
-  inlineCount: 0,
-  treeSlots: [{ id: `0x${"0".repeat(62)}03`, utxoRoot: fieldHex(8), nullifierRoot: fieldHex(9) }],
-  addressTreeId: `0x${"0".repeat(62)}03`,
-  limits: Array.from({ length: 8 }, () => ({
-    asset: fieldHex(0),
-    cap: fieldHex(0),
-    cosignAbove: fieldHex(0),
-  })),
-  limitCount: 0,
-  ringId: fieldHex(10),
-  namespaceOwnerHash: fieldHex(11),
-  approvalRequired: false,
-  keyEscrow: false,
-  memberRegistryRoot: fieldHex(0),
-  subjects: Array.from({ length: 13 }, () => null),
-  foreignRoot: fieldHex(0),
-  foreignSubjects: Array.from({ length: 13 }, () => null),
-};
 
 function mergeInputs(): MergeInputs {
   return {
@@ -465,6 +189,40 @@ async function sentBody(
 function keysOf(value: unknown): string[] {
   return Object.keys(value as object).sort();
 }
+
+describe("ring prover contracts", () => {
+  const registerKey: RegisterKeyProofRequest = {
+    kind: "registerKey",
+    publicInputHash: bytes(1),
+    member: bytes(2),
+    nullifierSecret: new Uint8Array(32) as Bytes32,
+    ephSk: bytes(3),
+    auditorPk: bytes(4),
+  };
+
+  it("decodes a ring proof and refuses a malformed response", async () => {
+    const proof = proofFor({ circuitType: "custom-ring-register-key" });
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json(proof));
+    const prover = new ProverClient({ tee: false, url: "https://prover.example", fetch });
+    await expect(prover.proveRing(registerKey)).resolves.toEqual(parseProof(proof));
+    fetch.mockResolvedValueOnce(Response.json({ ...proof, ar: [] }));
+    await expect(prover.proveRing(registerKey)).rejects.toMatchObject({
+      code: "CLIENT_PROOF_PARSE",
+    });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("refuses a ring proof from another ring key", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+      Response.json(proofFor({ circuitType: "custom-ring-deposit" })),
+    );
+    const prover = new ProverClient({ tee: false, url: "https://prover.example", fetch });
+    await expect(prover.proveRing(registerKey)).rejects.toMatchObject({
+      code: "CLIENT_PROVING_KEY_MISMATCH",
+      details: { keyName: "custom_ring_register_key.key" },
+    });
+  });
+});
 
 describe("queued prover polling", () => {
   beforeEach(() => {
@@ -562,7 +320,10 @@ describe("prover request routing", () => {
       ["transferRing", "transfer-ring", "transfer_ring_2_2.key"],
       ["transferRingAuthority", "transfer-ring-authority", "transfer_ring_authority_2_2.key"],
     ] as const) {
-      const inputs = { ...transferInputs(), circuit };
+      const transfer = transferInputs();
+      const ringSecrets =
+        circuit === "transfer" ? [] : transfer.payload.outputs.map(() => asField(0n));
+      const inputs = { circuit, payload: { ...transfer.payload, ringSecrets } };
       let posted: unknown;
       const fetch = vi.fn(async (_input: URL | string, init?: RequestInit) => {
         posted = JSON.parse(String(init?.body));
@@ -582,19 +343,35 @@ describe("prover request routing", () => {
     }
   });
 
+  it("refuses a ring rail request without one ring secret per output before posting", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => {
+      throw new Error("network reached");
+    });
+    const transfer = transferInputs();
+    const inputs: ProverInputs = {
+      circuit: "transferRing",
+      payload: { ...transfer.payload, ringSecrets: [asField(0n)] },
+    };
+    await expect(
+      new ProverClient({ tee: false, url: "https://prover.example", fetch }).prove(inputs),
+    ).rejects.toMatchObject({ code: "CLIENT_INVALID_LENGTH", details: { field: "ringSecrets" } });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("expects the merge-ring key for a merge inside a custom ring", async () => {
     const json = { "content-type": "application/json" };
-    const ringMerge = {
+    const ringMerge: MergeInputs = {
       ...mergeInputs(),
       ringProgramId: asField(7n),
       memberRegistryRoot: asField(2n),
       registeredCiphertextHash: asField(3n),
       memberRecord: {
-        next: bytes(4),
-        lists: 0n,
-        escrowKey: bytes(5),
-        index: 1n,
-        path: Array.from({ length: 20 }, () => bytes(0)),
+        kind: "present",
+        record: { member: bytes(6), next: bytes(4), lists: 0n, escrowKey: bytes(5) },
+        path: {
+          index: 1,
+          siblings: Array.from({ length: QUAD_HEIGHT }, () => [bytes(0), bytes(0), bytes(0)]),
+        },
       },
     };
     let posted: unknown;
@@ -650,294 +427,6 @@ describe("prover request routing", () => {
     expect(urls[0]?.pathname).toBe("/zolana/prove/merge_24_1");
     expect(urls[0]?.searchParams.get("api-key")).toBe("k+1");
     expect(urls[0]?.searchParams.get("tenant")).toBe("alpha");
-  });
-
-  it("encodes the custom-ring request byte for byte like Rust `CustomRingPolicyProofRequest::body`", async () => {
-    const raw: string[] = [];
-    const deliveries: (string | null)[] = [];
-    const fetch = vi.fn(async (_input: URL | string, init?: RequestInit) => {
-      raw.push(String(init?.body));
-      deliveries.push(new Headers(init?.headers).get("X-Sync"));
-      return new Response(JSON.stringify(proofFor(JSON.parse(String(init?.body)))), {
-        headers: { "content-type": "application/json" },
-      });
-    }) as typeof globalThis.fetch;
-    const prover = new ProverClient({ tee: false, url: "https://prover.example", fetch });
-    const auditorPublicKey = x25519.getPublicKey(bytes(4));
-
-    await prover.proveCustomRingPolicy(ringRequest(auditorPublicKey));
-
-    expect(raw[0]).toBe(JSON.stringify(EXPECTED_RING_BODY));
-    expect(deliveries).toEqual([null]);
-    const body = JSON.parse(raw[0] ?? "") as Record<string, unknown>;
-    // The sorted key set of Rust `the_request_matches_the_server_wire_format`.
-    expect(Object.keys(body).sort()).toEqual(
-      [
-        "addressChain",
-        "addressTreeId",
-        "subjects",
-        "foreignRoot",
-        "foreignSubjects",
-        "approvalRequired",
-        "auditorPk",
-        "circuitType",
-        "ephSk",
-        "inlineAssets",
-        "inlineCount",
-        "inlineLimits",
-        "inputs",
-        "keyEscrow",
-        "memberRegistryRoot",
-        "limitCount",
-        "limits",
-        "nIn",
-        "nOut",
-        "namespaceOwnerHash",
-        "outputs",
-        "policyLen",
-        "privateTxBlinding",
-        "privateTxHash",
-        "publicInputHash",
-        "ringId",
-        "ruleEnc",
-        "salt",
-        "sources",
-        "treeSlots",
-        "txViewingSk",
-      ].sort(),
-    );
-    expect(body["circuitType"]).toBe("custom-ring-policy");
-    expect(body["auditorPk"]).toHaveLength(66);
-    expect(body["publicInputHash"]).toHaveLength(66);
-    expect(body["subjects"]).toEqual(Array.from({ length: 13 }, () => null));
-    expect(body["foreignSubjects"]).toEqual(Array.from({ length: 13 }, () => null));
-    const sources = body["sources"] as Record<string, unknown>[];
-    expect(sources).toHaveLength(8);
-    expect(Object.keys(sources[0] ?? {}).sort()).toEqual(["listId", "registry"]);
-
-    for (const auditorPublicKey of [new Uint8Array(33).fill(2), new Uint8Array(65).fill(2)]) {
-      await expect(
-        prover.proveCustomRingPolicy(ringRequest(auditorPublicKey)),
-      ).rejects.toMatchObject({
-        code: "CLIENT_INVALID_PROOF_INPUTS",
-      });
-    }
-    // The server rejects `answers.len() != 10`, an unpadded answers array must not leave the client.
-    await expect(
-      prover.proveCustomRingPolicy({ ...ringRequest(auditorPublicKey), subjects: [] }),
-    ).rejects.toMatchObject({ code: "CLIENT_INVALID_LENGTH" });
-    for (const treeSlots of [
-      [],
-      Array.from({ length: 6 }, () => ringRequest(auditorPublicKey).treeSlots[0]!),
-    ]) {
-      await expect(
-        prover.proveCustomRingPolicy({ ...ringRequest(auditorPublicKey), treeSlots }),
-      ).rejects.toMatchObject({ code: "CLIENT_INVALID_LENGTH" });
-    }
-    expect(raw).toHaveLength(1);
-  });
-
-  it("encodes every supported shaped policy with capacity-sized witness slots", () => {
-    const request = ringRequest(x25519.getPublicKey(bytes(4)));
-    expect(RING_POLICY_SUPPORTED_SHAPES).toHaveLength(19);
-    for (const shape of RING_POLICY_SUPPORTED_SHAPES) {
-      for (const registrySubtree of [false, true]) {
-        const shaped = {
-          ...request,
-          shape,
-          registrySubtree,
-          nIn: shape.inputs,
-          nOut: shape.outputs,
-          inputs: Array.from({ length: shape.inputs }, zeroOpening),
-          outputs: Array.from({ length: shape.outputs }, zeroOpening),
-          subjects: Array.from({ length: shape.inputs + 2 * shape.outputs }, () => undefined),
-          foreignSubjects: Array.from(
-            { length: shape.inputs + 2 * shape.outputs },
-            () => undefined,
-          ),
-        };
-        const body = customRingPolicyProofRequest(shaped);
-        expect(body["circuitType"]).toBe(
-          `custom-ring-policy-${shape.inputs}-${shape.outputs}${registrySubtree ? "-subtree" : ""}`,
-        );
-        expect(body["inputs"]).toHaveLength(shape.inputs);
-        expect(body["outputs"]).toHaveLength(shape.outputs);
-        expect(body["subjects"]).toHaveLength(shape.inputs + 2 * shape.outputs);
-        expect(() => customRingPolicyProofRequest({ ...shaped, twoByThree: true })).toThrow(
-          expect.objectContaining({ code: "CLIENT_INVALID_PROOF_INPUTS" }),
-        );
-        expect(() => customRingPolicyProofRequest({ ...shaped, nIn: shape.inputs + 1 })).toThrow(
-          expect.objectContaining({ code: "CLIENT_INVALID_PROOF_INPUTS" }),
-        );
-        expect(() => customRingPolicyProofRequest({ ...shaped, subjects: [] })).toThrow(
-          expect.objectContaining({ code: "CLIENT_INVALID_LENGTH" }),
-        );
-      }
-    }
-    for (const shape of SPP_SUPPORTED_SHAPES.filter(
-      (s) =>
-        !RING_POLICY_SUPPORTED_SHAPES.some(
-          (supported) => supported.inputs === s.inputs && supported.outputs === s.outputs,
-        ),
-    )) {
-      expect(() => customRingPolicyProofRequest({ ...request, shape })).toThrow(
-        expect.objectContaining({ code: "CLIENT_INVALID_PROOF_INPUTS" }),
-      );
-    }
-  });
-
-  it("sends output ciphertext hashes and authenticated member subjects separately", () => {
-    const request = ringRequest(x25519.getPublicKey(bytes(4)));
-    const subject = {
-      present: true,
-      next: bytes(12),
-      lists: 3n,
-      escrowKey: bytes(13),
-      index: 5n,
-      path: Array.from({ length: 20 }, () => bytes(14)),
-      lowMember: bytes(0),
-      lowNext: bytes(0),
-      lowLists: 0n,
-      lowEscrow: bytes(0),
-    };
-    const escrowed = {
-      ...request,
-      keyEscrow: true,
-      memberRegistryRoot: bytes(15),
-      subjects: request.subjects.map((value, index) => (index === 6 ? subject : value)),
-      outputs: request.outputs.map((opening, index) => ({
-        ...opening,
-        ctHash: bytes(index === 1 ? 13 : 0),
-      })),
-    };
-    const body = customRingPolicyProofRequest(escrowed);
-    const compact = { ...escrowed, nIn: 2, nOut: 3, twoByThree: true };
-    expect(customRingPolicyProofRequest(compact)["circuitType"]).toBe("custom-ring-policy-2x3");
-    for (const counts of [
-      { nIn: 1, nOut: 3 },
-      { nIn: 2, nOut: 4 },
-    ]) {
-      expect(() => customRingPolicyProofRequest({ ...compact, ...counts })).toThrow(
-        expect.objectContaining({ code: "CLIENT_INVALID_PROOF_INPUTS" }),
-      );
-    }
-    const scattered = {
-      ...compact,
-      subjects: compact.subjects.map((value, index) =>
-        index === 0 ? { ...subject, index: 8n } : value,
-      ),
-    };
-    expect(() => customRingPolicyProofRequest(scattered)).toThrow(
-      expect.objectContaining({ code: "CLIENT_INVALID_PROOF_INPUTS" }),
-    );
-    expect(customRingPolicyProofRequest({ ...scattered, twoByThree: false })["circuitType"]).toBe(
-      "custom-ring-policy",
-    );
-    const shape = { inputs: 2, outputs: 4 };
-    const general = {
-      ...scattered,
-      twoByThree: false,
-      shape,
-      subjects: scattered.subjects.slice(0, 10),
-      foreignSubjects: scattered.foreignSubjects.slice(0, 10),
-      inputs: scattered.inputs.slice(0, 2),
-    };
-    expect(customRingPolicyProofRequest(general)["circuitType"]).toBe("custom-ring-policy-2-4");
-    expect(() => customRingPolicyProofRequest({ ...general, registrySubtree: true })).toThrow(
-      expect.objectContaining({ code: "CLIENT_INVALID_PROOF_INPUTS" }),
-    );
-    expect(body).toMatchObject({ keyEscrow: true, memberRegistryRoot: fieldHex(15) });
-    expect(body["outputs"]).toEqual(
-      escrowed.outputs.map((_, index) => ({
-        ...EXPECTED_OPENING,
-        ctHash: fieldHex(index === 1 ? 13 : 0),
-      })),
-    );
-    expect(body["subjects"]).toEqual([
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      {
-        present: true,
-        next: fieldHex(12),
-        lists: 3,
-        escrowKey: fieldHex(13),
-        index: 5,
-        path: Array.from({ length: 20 }, () => fieldHex(14)),
-        lowMember: fieldHex(0),
-        lowNext: fieldHex(0),
-        lowLists: 0,
-        lowEscrow: fieldHex(0),
-      },
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-    ]);
-    expect(() =>
-      customRingPolicyProofRequest({
-        ...escrowed,
-        subjects: escrowed.subjects.map((value) =>
-          value === undefined ? value : { ...value, index: 1n << 20n },
-        ),
-      }),
-    ).toThrow(expect.objectContaining({ code: "CLIENT_INVALID_INTEGER" }));
-    expect(() =>
-      customRingPolicyProofRequest({
-        ...escrowed,
-        subjects: escrowed.subjects.map((value) =>
-          value === undefined ? value : { ...value, path: [] },
-        ),
-      }),
-    ).toThrow(expect.objectContaining({ code: "CLIENT_INVALID_LENGTH" }));
-  });
-
-  it("encodes the base request byte for byte like Rust `CustomRingBaseProofRequest::body`", async () => {
-    const raw: string[] = [];
-    const deliveries: (string | null)[] = [];
-    const fetch = vi.fn(async (_input: URL | string, init?: RequestInit) => {
-      raw.push(String(init?.body));
-      deliveries.push(new Headers(init?.headers).get("X-Sync"));
-      return new Response(JSON.stringify(proofFor(JSON.parse(String(init?.body)))), {
-        headers: { "content-type": "application/json" },
-      });
-    }) as typeof globalThis.fetch;
-    const prover = new ProverClient({ tee: false, url: "https://prover.example", fetch });
-    const auditorPublicKey = x25519.getPublicKey(bytes(4));
-
-    await prover.proveCustomRingBase(auditRequest(auditorPublicKey));
-
-    expect(raw[0]).toBe(JSON.stringify(EXPECTED_AUDIT_BODY));
-    // The audit proof is queued, never sent inline.
-    expect(deliveries).toEqual([null]);
-    const body = JSON.parse(raw[0] ?? "") as Record<string, unknown>;
-    expect(Object.keys(body).sort()).toEqual(
-      [
-        "auditorPk",
-        "circuitType",
-        "ephSk",
-        "nOut",
-        "outputs",
-        "privateTxHash",
-        "publicInputHash",
-        "salt",
-        "txViewingSk",
-      ].sort(),
-    );
-    expect(body["circuitType"]).toBe("custom-ring-base-confidential");
-    expect(body["auditorPk"]).toHaveLength(66);
-
-    for (const auditorPublicKey of [new Uint8Array(33).fill(2), new Uint8Array(65).fill(2)]) {
-      await expect(
-        prover.proveCustomRingBase(auditRequest(auditorPublicKey)),
-      ).rejects.toMatchObject({ code: "CLIENT_INVALID_PROOF_INPUTS" });
-    }
-    expect(raw).toHaveLength(1);
   });
 
   it("pins the merge request keys to the Go `MergeParametersJSON` tags", async () => {
@@ -1009,6 +498,7 @@ describe("prover request routing", () => {
         "externalDataHash",
         "privateTxHash",
         "blindingSeed",
+        "ringSecrets",
         "publicAssets",
         "publicAmounts",
         "ringProgramId",
@@ -1124,7 +614,7 @@ describe("prover request routing", () => {
       urls.push(new URL(input));
       return new Response(
         JSON.stringify({
-          circuits: ["transfer-ring", "custom-ring-base", "custom-ring-policy"],
+          circuits: ["transfer-ring", "custom-ring-audit-packed-2", "custom-ring-policy-member-2"],
           status: "ok",
         }),
         { headers: { "content-type": "application/json" } },
@@ -1138,7 +628,7 @@ describe("prover request routing", () => {
     const health = await prover.health();
     expect(health).toEqual({
       status: "ok",
-      circuits: ["transfer-ring", "custom-ring-base", "custom-ring-policy"],
+      circuits: ["transfer-ring", "custom-ring-audit-packed-2", "custom-ring-policy-member-2"],
     });
     expect(urls[0]?.pathname).toBe("/base/health");
     expect(urls[0]?.searchParams.get("tenant")).toBe("alpha");
@@ -1351,11 +841,11 @@ describe("prover proving keys check", () => {
   it("names every key whose expected or loaded digest differs", async () => {
     const report = matchingReport();
     entry(report, "merge_24_1.key")["expectedSha256"] = "ab".repeat(32);
-    entry(report, "custom_ring_base.key")["loadedSha256"] = "cd".repeat(32);
+    entry(report, "custom_ring_register_key.key")["loadedSha256"] = "cd".repeat(32);
 
     expect(await check(report)).toMatchObject({
       code: "CLIENT_PROVER_PROVING_KEYS_MISMATCH",
-      details: { keyNames: "custom_ring_base.key,merge_24_1.key" },
+      details: { keyNames: "custom_ring_register_key.key,merge_24_1.key" },
     });
   });
 
@@ -1452,151 +942,10 @@ describe("dummy prover inputs", () => {
   });
 });
 
-/** A policy request whose `resolution` the prover would answer with. */
-function indexedPolicy(circuit: IndexedPolicyInputs["circuit"]) {
-  const policy = ringRequest(x25519.getPublicKey(bytes(4)));
-  const tree = {
-    tree: treeAddress(3),
-    id: 3,
-    utxoRoot: bytes(8),
-    nullifierRoot: bytes(9),
-    utxoRootIndex: 7,
-    nullifierRootIndex: 3,
-  };
-  const inputs: IndexedPolicyInputs = {
-    circuit,
-    policy,
-    minContextSlot: 123n,
-    trees: [tree],
-    registry: { ringProgramId: treeAddress(3), root: policy.memberRegistryRoot, nextIndex: 1n },
-    publicInputs: Array.from({ length: 8 }, () => bytes(1)),
-  };
-  const hash = hashChain([
-    inputs.publicInputs[0]!,
-    treeSlotsHashChain(inputTreeSlots(policy.treeSlots)),
-    ...inputs.publicInputs.slice(1),
-  ]);
-  const toHex = (value: Uint8Array) => `0x${Buffer.from(value).toString("hex")}`;
-  const resolution = {
-    trees: [{ ...tree, utxoRoot: toHex(tree.utxoRoot), nullifierRoot: toHex(tree.nullifierRoot) }],
-    publicInputHash: toHex(hash),
-  };
-  const proof = {
-    ...proofFor({ circuitType: circuit }),
-    proofCommitment: ["0x1", "0x2"],
-    proofCommitmentPok: ["0x0", "0x0"],
-  };
-  return { inputs, hash, resolution, proof, toHex };
-}
-
-describe("indexed policy proofs", () => {
-  it.each([
-    { circuit: "custom-ring-policy", shape: { inputs: 16, outputs: 4 } },
-    { circuit: "custom-ring-delegate-policy", shape: { inputs: 4, outputs: 4 } },
-  ] as const)(
-    "routes indexed $circuit requests to their shaped general key",
-    async ({ circuit, shape }) => {
-      const { inputs, resolution } = indexedPolicy(circuit);
-      const shaped: IndexedPolicyInputs = {
-        ...inputs,
-        policy: {
-          ...inputs.policy,
-          shape,
-          nIn: shape.inputs,
-          nOut: shape.outputs,
-          inputs: Array.from({ length: shape.inputs }, zeroOpening),
-          outputs: Array.from({ length: shape.outputs }, zeroOpening),
-          subjects: Array.from({ length: shape.inputs + 2 * shape.outputs }, () => undefined),
-          foreignSubjects: Array.from(
-            { length: shape.inputs + 2 * shape.outputs },
-            () => undefined,
-          ),
-        },
-      };
-      const name = `${circuit}-${shape.inputs}-${shape.outputs}`;
-      const fetch = vi.fn<typeof globalThis.fetch>(async () =>
-        Response.json({
-          ...proofFor({ circuitType: name }),
-          proofCommitment: ["0x1", "0x2"],
-          proofCommitmentPok: ["0x0", "0x0"],
-          resolution,
-        }),
-      );
-      const prover = new ProverClient({ tee: false, url: "https://prover.example", fetch });
-      await prover.proveIndexedPolicy(shaped);
-      expect(String(fetch.mock.calls[0]?.[0])).toContain(
-        `/prove/${name.replaceAll("-", "_")}/indexed`,
-      );
-      const wire: unknown = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
-      expect(wire).toMatchObject({ circuitType: name, prepared: { circuitType: name } });
-      await expect(
-        prover.proveIndexedPolicy({
-          ...shaped,
-          policy: { ...shaped.policy, registrySubtree: true },
-        }),
-      ).rejects.toMatchObject({ code: "CLIENT_INVALID_PROOF_INPUTS" });
-      expect(fetch).toHaveBeenCalledTimes(1);
-    },
-  );
-
-  it.each(["custom-ring-policy", "custom-ring-delegate-policy"] as const)(
-    "binds returned roots for %s",
-    async (circuit) => {
-      const { inputs, hash, resolution, proof, toHex } = indexedPolicy(circuit);
-      const fetch = vi.fn<typeof globalThis.fetch>(async () =>
-        Response.json({ ...proof, resolution }),
-      );
-      const prover = new ProverClient({ tee: false, url: "https://prover.example", fetch });
-      const result = await prover.proveIndexedPolicy(inputs);
-      expect(result.resolution.publicInputHash).toEqual(hash);
-      expect(String(fetch.mock.calls[0]?.[0])).toContain(
-        `/prove/${circuit.replaceAll("-", "_")}/indexed`,
-      );
-      const wire: unknown = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
-      const decoder = wireDecoder(() => new Error("invalid body"));
-      const body = decoder.record(wire, "body");
-      const wrapped = decoder.record(body["prepared"], "prepared");
-      const prepared =
-        circuit === "custom-ring-policy" ? wrapped : decoder.record(wrapped["policy"], "policy");
-      expect(body["minContextSlot"]).toBe(123);
-      expect(wrapped["minContextSlot"]).toBeUndefined();
-      expect(prepared["treeSlots"]).toBeUndefined();
-      expect(prepared["subjects"]).toBeUndefined();
-      expect(prepared["foreignSubjects"]).toBeUndefined();
-      expect(body["registry"]).toBeDefined();
-      const client = new ZolanaClient({
-        fetch,
-        indexerConfig: { requireSlot: 456n, poll: { numRetries: 1, delayMs: 0n, maxDelayMs: 0n } },
-      });
-      await expect(
-        client.proveIndexedRingPolicy({ ...inputs, minContextSlot: -1n }),
-      ).rejects.toMatchObject({ code: "CLIENT_INVALID_PROOF_INPUTS" });
-      for (const minContextSlot of [123n, 1000n]) {
-        await client.proveIndexedRingPolicy({ ...inputs, minContextSlot });
-        const clientWire: unknown = JSON.parse(String(fetch.mock.lastCall?.[1]?.body));
-        expect(decoder.record(clientWire, "client body")["minContextSlot"]).toBe(
-          Number(minContextSlot < 456n ? 456n : minContextSlot),
-        );
-      }
-      for (const changed of [
-        { ...resolution, publicInputHash: toHex(bytes(2)) },
-        { ...resolution, trees: [{ ...resolution.trees[0], utxoRootIndex: 9 }] },
-        { ...resolution, trees: [{ ...resolution.trees[0], utxoRoot: toHex(bytes(10)) }] },
-        { ...resolution, trees: [{ ...resolution.trees[0], tree: treeAddress(4) }] },
-      ]) {
-        fetch.mockResolvedValueOnce(Response.json({ ...proof, resolution: changed }));
-        await expect(prover.proveIndexedPolicy(inputs)).rejects.toMatchObject({
-          code: "CLIENT_PROOF_PARSE",
-        });
-      }
-    },
-  );
-});
-
 describe("indexed prover failures", () => {
-  const MEMBER = new Uint8Array(32).fill(0x2a);
   const SERVER_TEXT = "photon echoed caller data";
 
+  /** An indexed merge, the route a ring merge's registry lookup refuses on. */
   function prove(fetch: typeof globalThis.fetch): Promise<unknown> {
     const prover = new ProverClient({
       tee: false,
@@ -1604,7 +953,20 @@ describe("indexed prover failures", () => {
       fetch,
       asyncPoll: { pollIntervalCapMs: 1, maxWaitMs: 1_000 },
     });
-    return prover.proveIndexedPolicy(indexedPolicy("custom-ring-policy").inputs);
+    const owner = ShieldedKeypair.generate();
+    const input = ProofInputUtxo.fromKeypair(
+      new Utxo({
+        owner: owner.signingPublicKey(),
+        asset: SOL_MINT,
+        amount: 5n,
+        blinding: randomBlinding(),
+      }),
+      owner,
+    );
+    const prepared = Merge.fromKeypair(owner, [input]).prepare();
+    return LocalKeys.fromKeypair(owner, prover)
+      .proveIndexed(prepareMerge(prepared, treeAddress(prepared.inputTreeId)).inputs)
+      .finally(() => owner.destroy());
   }
 
   /** Refuses sync admission, queues, then reports `status` for the job. */
@@ -1650,34 +1012,6 @@ describe("indexed prover failures", () => {
     );
     expect(error).toMatchObject({ code });
     expect(JSON.stringify(error)).not.toContain(SERVER_TEXT);
-  });
-
-  it("names the refused registry member whether proved in the response or queued", async () => {
-    const refusal = {
-      code: "registry_member_missing",
-      message: SERVER_TEXT,
-      member: getBase58Decoder().decode(MEMBER),
-    };
-    for (const fetch of [
-      vi.fn<typeof globalThis.fetch>(async () => Response.json(refusal, { status: 422 })),
-      queued({ ...refusal, error: SERVER_TEXT }),
-    ]) {
-      const error = await prove(fetch).catch((cause: unknown) => cause);
-      expect(error).toMatchObject({
-        code: "CLIENT_MEMBER_REGISTRY_MEMBER_UNREGISTERED",
-        details: { method: "prove", member: Buffer.from(MEMBER).toString("hex") },
-      });
-      expect(JSON.stringify(error)).not.toContain(SERVER_TEXT);
-    }
-    for (const member of ["0x2a", getBase58Decoder().decode(MEMBER.subarray(1))]) {
-      await expect(
-        prove(
-          vi.fn<typeof globalThis.fetch>(async () =>
-            Response.json({ ...refusal, member }, { status: 422 }),
-          ),
-        ),
-      ).rejects.toMatchObject({ code: "CLIENT_PROVER_JSON" });
-    }
   });
 
   it("branches a failed job on its code, never on its error text", async () => {

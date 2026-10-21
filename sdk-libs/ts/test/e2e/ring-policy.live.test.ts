@@ -4,12 +4,12 @@ import { address } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 
 import { createZolanaClient } from "../../src/index.js";
-import { ListId, memberOfTag } from "../../src/ring/advanced.js";
+import { ListId, memberOfTag, pinnedPolicy } from "../../src/ring/advanced.js";
 import {
   buildRingDepositTransaction,
   buildRingTransferTransaction,
-  fetchRingPolicyConfig,
-  fetchRingMemberRegistryRoot,
+  fetchRingMemberRegistry,
+  registryCurrentRoot,
 } from "../../src/ring/index.js";
 import { signSendAndConfirm } from "./live-helpers.js";
 import {
@@ -33,9 +33,8 @@ describe("ring policy", () => {
       proofDataSource: "client",
     });
     const authority = await keypairSignerFromFile(requiredEnv("RING_AUTHORITY_KEYPAIR"));
-    const policy = await fetchRingPolicyConfig(client, ringProgramId);
-    expect(policy.ruleCount).toBe(4);
-    expect(policy.addressTree).toBe(client.tree);
+    const policy = pinnedPolicy(await fetchRingMemberRegistry(client, ringProgramId));
+    expect(policy.table.rules).toHaveLength(4);
 
     const sender = await freshActor(client);
     const recipient = await freshActor(client);
@@ -46,7 +45,7 @@ describe("ring policy", () => {
         client,
         ringProgramId,
         feePayer: sender.signer.address,
-        recipient: sender.keypair.shieldedAddress(),
+        recipient: { kind: "confidential", address: sender.keypair.shieldedAddress() },
         amount: deposited,
       });
       await signSendAndConfirm(client, deposit, [sender.signer]);
@@ -63,10 +62,11 @@ describe("ring policy", () => {
         amount,
       });
     };
+    // A rule the parties fail leaves the policy statement unsatisfiable, the prover refuses it.
     const refused = async () =>
       expect(transfer()).rejects.toMatchObject({
         code: "RING_BUILD_TRANSFER",
-        causeCode: "RING_POLICY_RULE_UNSATISFIED",
+        causeCode: "CLIENT_PROVER_HTTP",
       });
     const senderTag = sender.keypair.shieldedAddress().confidentialViewTag();
     const recipientTag = recipient.keypair.shieldedAddress().confidentialViewTag();
@@ -82,20 +82,14 @@ describe("ring policy", () => {
       tag: senderTag,
       state: "active",
     });
-    expect(frozen).toMatchObject({
-      kind: "transaction",
-      items: [{ member: memberOfTag(senderTag) }],
-    });
+    expect(frozen).toEqual({ kind: "transaction", member: memberOfTag(senderTag) });
     await refused();
     const unfrozen = await writeList(client, ringProgramId, authority, {
       listId: ListId.frozen,
       tag: senderTag,
       state: "cleared",
     });
-    expect(unfrozen).toMatchObject({
-      kind: "transaction",
-      items: [{ member: memberOfTag(senderTag) }],
-    });
+    expect(unfrozen).toEqual({ kind: "transaction", member: memberOfTag(senderTag) });
     await signSendAndConfirm(client, await transfer(), [sender.signer]);
 
     // A blocked recipient is refused even while allowed.
@@ -120,11 +114,11 @@ describe("ring policy", () => {
     });
     expect(again.kind).toBe("unchanged");
 
-    // The member proof authenticates the same root the ring account currently stores.
-    const root = await fetchRingMemberRegistryRoot(client, ringProgramId);
+    // The member record authenticates the same root the registry account currently stores.
+    const registry = await fetchRingMemberRegistry(client, ringProgramId);
     if (again.kind !== "unchanged") throw new Error("unreachable");
-    expect(again.records[0]?.opening.present).toBe(true);
-    expect(again.records[0]?.registry.root).toEqual(root.root);
-    expect(again.records[0]?.registry.nextIndex).toBe(root.nextIndex);
+    expect(again.record).toBeDefined();
+    expect(again.root).toEqual(registryCurrentRoot(registry).root);
+    expect(again.nextIndex).toBe(registry.nextIndex);
   }, 900_000);
 });

@@ -9,35 +9,34 @@ import {
   type KeyPairSigner,
 } from "@solana/kit";
 import { describe, expect, it } from "vitest";
-import { ClientError } from "../../src/client/error.js";
 import type { RingSubmissionTransport } from "../../src/client/ports.js";
 import { setRingActivationInstruction } from "../../src/interface/instructions/index.js";
 import { SOL_MINT } from "../../src/transaction/asset.js";
 import { SPL_TOKEN_2022_PROGRAM_ID, ZERO_NULLIFIER_PK } from "../../src/interface/program.js";
 import { ShieldedAddress } from "../../src/keypair/shielded.js";
 import {
+  NullifierKeyEscrow,
+  RegisterKey,
+  RingInstructionTag,
   RingProgramBinary,
-  RingError,
   deployRingProgram,
-  initializeRingConfigInstructions,
   buildRingCreatePolicyTransaction,
+  createMemberRegistryInstruction,
+  createRingConfigInstruction,
   initSppRingConfigInstruction,
-  createRingMemberRegistryRootInstruction,
-  fetchRingMemberRegistryRoot,
+  fetchRingMemberRegistry,
   fetchRingSealedKey,
   openRingSealedKey,
-  prepareRingKeyRegistration,
   recoverRingMemberNotes,
   createRingDelegateRecoveredSubmission,
   setRingCoSignerInstruction,
   setRingDelegateInstruction,
-  fetchRingCoSigner,
-  fetchRingDepositAudit,
   fetchRingProgramConfig,
   clearRingCoSignerInstruction,
   RING_COSIGN_TRANSFERS,
   RING_COSIGN_WITHDRAWALS,
   ringAuthAddress,
+  ringComputeUnitLimit,
   createKitRingSubmissionTransport,
   createRingTransferSubmission,
   createRingMergeSubmission,
@@ -52,8 +51,10 @@ import { ListId, buildRuleTable, memberOfAsset, memberOfTag } from "../../src/ri
 import { liveHarness, signSendAndConfirm } from "./live-helpers.js";
 import {
   airdrop,
+  applyQueuedWrites,
   enrolInAllow,
   freshActor,
+  indexedKeys,
   requiredEnv,
   sendInstruction,
   sync,
@@ -84,31 +85,6 @@ async function settleWithTransport(
   }
 }
 
-async function indexedKeys<T>(read: () => Promise<T>): Promise<T> {
-  const deadline = Date.now() + 120_000;
-  for (;;) {
-    try {
-      return await read();
-    } catch (cause) {
-      const code =
-        cause instanceof ClientError
-          ? cause.code
-          : cause instanceof RingError
-            ? cause.causeCode
-            : undefined;
-      if (
-        code === undefined ||
-        !["CLIENT_MEMBER_REGISTRY_OUT_OF_SYNC", "CLIENT_MEMBER_REGISTRY_ROOT_CHANGED"].includes(
-          code,
-        ) ||
-        Date.now() > deadline
-      )
-        throw cause;
-      await new Promise((resolve) => setTimeout(resolve, 250));
-    }
-  }
-}
-
 describe.each(["client", "prover"] as const)("controls %s", (proofDataSource) => {
   it("escrows keys, enforces policy and recovers notes", async () => {
     const harness = await liveHarness(proofDataSource);
@@ -135,23 +111,30 @@ describe.each(["client", "prover"] as const)("controls %s", (proofDataSource) =>
           new Uint8Array(await readFile(requiredEnv("RING_PROGRAM_SO"))),
         ),
       });
-      for (const instruction of await initializeRingConfigInstructions({
-        ringProgramId,
-        payer: authority,
+      await sendInstruction(
+        client,
+        await createRingConfigInstruction({
+          ringProgramId,
+          payer: authority,
+          authority,
+          auditorPublicKey: auditor.publicKey(),
+          hasPolicy: true,
+          anonymous: false,
+        }),
         authority,
-        auditorPublicKey: auditor.publicKey(),
-        hasPolicy: true,
-      }))
-        await sendInstruction(client, instruction, authority);
-      expect(await fetchRingDepositAudit(client, ringProgramId)).toBe(false);
+      );
+      // The policy table lives in the member registry, the registry precedes it.
+      await sendInstruction(
+        client,
+        await createMemberRegistryInstruction({ ringProgramId, payer: authority, authority }),
+        authority,
+      );
       await signSendAndConfirm(
         client,
         await buildRingCreatePolicyTransaction({
           client,
           ringProgramId,
-          payer: authority.address,
           authority: authority.address,
-          addressTree: client.tree,
           table: buildRuleTable({
             rules: [
               {
@@ -193,15 +176,6 @@ describe.each(["client", "prover"] as const)("controls %s", (proofDataSource) =>
       );
       await sendInstruction(
         client,
-        await createRingMemberRegistryRootInstruction({
-          ringProgramId,
-          payer: authority,
-          authority,
-        }),
-        authority,
-      );
-      await sendInstruction(
-        client,
         await initSppRingConfigInstruction({
           ringProgramId,
           payer: authority,
@@ -228,12 +202,7 @@ describe.each(["client", "prover"] as const)("controls %s", (proofDataSource) =>
       );
       await sendInstruction(
         client,
-        await setRingDelegateInstruction({
-          ringProgramId,
-          payer: authority,
-          authority,
-          delegate: delegate.address,
-        }),
+        await setRingDelegateInstruction({ ringProgramId, authority, delegate: delegate.address }),
         authority,
       );
       expect((await fetchRingProgramConfig(client, ringProgramId)).keyEscrow).toBe(true);
@@ -241,11 +210,10 @@ describe.each(["client", "prover"] as const)("controls %s", (proofDataSource) =>
         client,
         await setRingCoSignerInstruction({
           ringProgramId,
-          payer: authority,
           authority,
           signer: cosigner.address,
           scope: RING_COSIGN_WITHDRAWALS,
-          thresholds: [{ mint: SOL_MINT, above: 100_000_000n }],
+          thresholds: [{ mint: SOL_MINT, amount: 100_000_000n }],
         }),
         authority,
       );
@@ -255,32 +223,36 @@ describe.each(["client", "prover"] as const)("controls %s", (proofDataSource) =>
       await airdrop(client, sender.signer.address);
       await airdrop(client, recipient.signer.address);
       await enrolInAllow(client, ringProgramId, authority, [sender, recipient, unregistered]);
-      const listedRoot = await fetchRingMemberRegistryRoot(client, ringProgramId);
+      const listed = await fetchRingMemberRegistry(client, ringProgramId);
       // The sentinel and all three listed members already occupy registry leaves.
-      expect(listedRoot.nextIndex).toBe(4n);
+      expect(listed.nextIndex).toBe(4);
       // Key escrow is on, every note owner registers before receiving.
       for (const member of [sender, recipient]) {
         const nullifierKey = member.keypair.nullifierKey();
+        const escrow = new NullifierKeyEscrow(nullifierKey, client);
         try {
-          const enrolment = await indexedKeys(() =>
-            prepareRingKeyRegistration({
-              client,
-              ringProgramId,
-              member: {
-                address: member.keypair.shieldedAddress(),
-                nullifierKey,
-              },
-            }),
+          const registration = await new RegisterKey({
+            ringProgramId,
+            member: member.keypair.shieldedAddress(),
+            payer: member.signer,
+            authority: escrow,
+          }).prove(client);
+          await sendInstruction(
+            client,
+            registration.instruction,
+            member.signer,
+            ringComputeUnitLimit(RingInstructionTag.registerKey),
           );
-          if (enrolment.kind !== "pending") throw new Error("fresh member already enrolled");
-          await settle(enrolment.submission, client, [member.signer]);
         } finally {
+          escrow.destroy();
           nullifierKey.destroy();
         }
       }
+      // The escrow writes queue, an application lands them in the records.
+      await applyQueuedWrites(client, ringProgramId, authority);
       // Registering keys updates existing list records without allocating new leaves.
-      expect((await fetchRingMemberRegistryRoot(client, ringProgramId)).nextIndex).toBe(
-        listedRoot.nextIndex,
+      expect((await fetchRingMemberRegistry(client, ringProgramId)).nextIndex).toBe(
+        listed.nextIndex,
       );
       const registered = recipient.keypair.shieldedAddress();
       const zeroKey = ShieldedAddress.fromPublicKeys(
@@ -295,7 +267,7 @@ describe.each(["client", "prover"] as const)("controls %s", (proofDataSource) =>
               client,
               ringProgramId,
               feePayer: sender.signer.address,
-              recipient: refused,
+              recipient: { kind: "confidential", address: refused },
               amount: 1n,
             }),
           ),
@@ -311,7 +283,7 @@ describe.each(["client", "prover"] as const)("controls %s", (proofDataSource) =>
             client,
             ringProgramId,
             feePayer: sender.signer.address,
-            recipient: sender.keypair.shieldedAddress(),
+            recipient: { kind: "confidential", address: sender.keypair.shieldedAddress() },
             amount,
           }),
           [sender.signer],
@@ -327,7 +299,7 @@ describe.each(["client", "prover"] as const)("controls %s", (proofDataSource) =>
             client,
             ringProgramId,
             feePayer: harness.testAuthority.address,
-            recipient: sender.keypair.shieldedAddress(),
+            recipient: { kind: "confidential", address: sender.keypair.shieldedAddress() },
             asset,
             amount: 1000n,
             splTokenAccount,
@@ -346,10 +318,6 @@ describe.each(["client", "prover"] as const)("controls %s", (proofDataSource) =>
           source: sender.keypair.shieldedAddress(),
           nullifierKey: depositKey,
           assets: sender.wallet.registry,
-          resolveTreeId: (tree) => {
-            if (tree !== client.tree) throw new Error(`unknown tree ${tree}`);
-            return client.treeId;
-          },
         });
         expect(recoveredDeposits.unopened).toEqual([]);
         expect(recoveredDeposits.unsupportedDeposits).toEqual([]);
@@ -508,7 +476,6 @@ describe.each(["client", "prover"] as const)("controls %s", (proofDataSource) =>
         client,
         await setRingCoSignerInstruction({
           ringProgramId,
-          payer: authority,
           authority,
           signer: cosigner.address,
           scope: RING_COSIGN_TRANSFERS,
@@ -540,10 +507,9 @@ describe.each(["client", "prover"] as const)("controls %s", (proofDataSource) =>
         cosigner,
       ]);
       await sync(client, sender);
-      const compactMove = await createRingDelegateSubmission({
+      const twoAssetMove = await createRingDelegateSubmission({
         ...move,
         cosigner,
-        compactPadding: true,
         outputs: [
           { recipient: recipient.keypair.shieldedAddress(), asset: harness.mint, amount: 900n },
           {
@@ -553,18 +519,17 @@ describe.each(["client", "prover"] as const)("controls %s", (proofDataSource) =>
           },
         ],
       });
-      const compactTransport = createKitRingSubmissionTransport(client, [delegate, cosigner]);
-      await settleWithTransport(compactMove, {
-        ...compactTransport,
+      const moveTransport = createKitRingSubmissionTransport(client, [delegate, cosigner]);
+      await settleWithTransport(twoAssetMove, {
+        ...moveTransport,
         sign: async (transaction, context) => {
           const compiled = getCompiledTransactionMessageDecoder().decode(transaction.messageBytes);
           if (compiled.version !== 1) throw new Error("expected V1");
           const instruction = decompileTransactionMessage(compiled, {
             lastValidBlockHeight: 1n,
           }).instructions.find((instruction) => instruction.programAddress === ringProgramId);
-          // Client paths select the exact2×3 key. Indexed paths use the general4×4 key.
-          expect(instruction?.data?.[0]).toBe(proofDataSource === "client" ? 34 : 36);
-          return compactTransport.sign(transaction, context);
+          expect(instruction?.data?.[0]).toBe(RingInstructionTag.delegateTransact);
+          return moveTransport.sign(transaction, context);
         },
       });
       await sync(client, sender);
@@ -604,10 +569,6 @@ describe.each(["client", "prover"] as const)("controls %s", (proofDataSource) =>
           source: sender.keypair.shieldedAddress(),
           nullifierKey: recoveredKey,
           assets: sender.wallet.registry,
-          resolveTreeId: (tree) => {
-            if (tree !== client.tree) throw new Error(`unknown tree ${tree}`);
-            return client.treeId;
-          },
         });
         expect(recovered.unopened).toEqual([]);
         expect(recovered.unsupportedDeposits).toEqual([]);
@@ -691,19 +652,15 @@ describe.each(["client", "prover"] as const)("controls %s", (proofDataSource) =>
         }),
       ).rejects.toMatchObject({
         code: "RING_BUILD_TRANSFER",
-        causeCode:
-          proofDataSource === "client" ? "RING_POLICY_RULE_UNSATISFIED" : "CLIENT_PROVER_HTTP",
+        // The blocked recipient leaves the policy statement unsatisfiable, the prover refuses it.
+        causeCode: "CLIENT_PROVER_HTTP",
       });
       await sendInstruction(
         client,
-        await clearRingCoSignerInstruction({
-          ringProgramId,
-          authority,
-          rentRecipient: authority.address,
-        }),
+        await clearRingCoSignerInstruction({ ringProgramId, authority }),
         authority,
       );
-      expect(await fetchRingCoSigner(client, ringProgramId)).toBeUndefined();
+      expect((await fetchRingProgramConfig(client, ringProgramId)).coSigner).toBeUndefined();
     } finally {
       auditor.destroy();
     }

@@ -15,6 +15,7 @@ import { InstructionTag } from "../../interface/program.js";
 import { treeAddress } from "../../interface/pda/index.js";
 import { inputTreeSlots, treeIdField, type TreeSlot } from "../../interface/tree-slot.js";
 import { PreparedMerge, mergeRingDataHash } from "../../transaction/instructions/builders.js";
+import { ZERO_32 } from "../../transaction/internal.js";
 import { mergeMintChunks } from "../../transaction/serialization/merge.js";
 import type { TreeId } from "../../transaction/utxo.js";
 import { privateTxHash as computePrivateTxHash } from "../../transaction/instructions/transact.js";
@@ -430,7 +431,7 @@ export function prepareMerge(
       ? {}
       : {
           ringRegistry: {
-            root: bytesField(ringRegistry.root, "member registry root"),
+            root: bytesField(mergeRegistryRoot(ringRegistry), "member registry root"),
             anonymous: ringRegistry.anonymous === true,
           },
         }),
@@ -523,23 +524,27 @@ export function prepareMerge(
   });
 }
 
-/** The anonymous flag replaces the sealed key hash. */
+/** The anonymous flag replaces the sealed key hash and the record. */
 function mergeRegistryInputs(
   registry: RingMergeRegistryProof,
 ): Pick<
   PreparedMergeInputs,
   "memberRegistryRoot" | "registeredCiphertextHash" | "memberRecord" | "anonymous"
 > {
-  const memberRegistryRoot = asField(bytesField(registry.root, "member registry root"));
-  if (registry.anonymous === true)
-    return { memberRegistryRoot, memberRecord: registry.record, anonymous: true };
+  const memberRegistryRoot = asField(
+    bytesField(mergeRegistryRoot(registry), "member registry root"),
+  );
+  if (registry.anonymous === true) return { memberRegistryRoot, anonymous: true };
   return {
     memberRegistryRoot,
-    registeredCiphertextHash: asField(
-      bytesField(registry.key.ctHash, "registered ciphertext hash"),
-    ),
-    memberRecord: registry.key,
+    registeredCiphertextHash: asField(bytesField(registry.ctHash, "registered ciphertext hash")),
+    memberRecord: registry.record,
   };
+}
+
+/** Rust `MergeRegistration::anonymous`, SPP binds a zero root for an anonymous merge. */
+function mergeRegistryRoot(registry: RingMergeRegistryProof): Bytes32 {
+  return registry.anonymous === true ? ZERO_32 : registry.root;
 }
 
 function validateMergeTree(prepared: PreparedMerge, tree: Address): void {

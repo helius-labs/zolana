@@ -1,11 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import vector from "../../../test-vectors/ring-merge-anonymous.json" with { type: "json" };
 import { initializePoseidon } from "../src/hasher/index.js";
 import { Reader, Writer, addressBytes, encodeBase58 } from "../src/interface/internal.js";
 import type { Bytes16, Bytes32, Bytes33 } from "../src/interface/types.js";
 import { X25519Keypair, X25519PublicKey } from "../src/keypair/x25519.js";
-import { customRingMergeAnonymousProofRequest } from "../src/client/prover/client.js";
+import { ringProofRequestBody } from "../src/client/prover/ring.js";
 import {
   mergeDisclosureFieldCount,
   openRingMergeDisclosure,
@@ -14,6 +14,7 @@ import {
   ringMergeAnonymousPublicInputHash,
   writeRingMergeDisclosure,
   type RingMergeDisclosure,
+  type RingMergeOpening,
 } from "../src/ring/merge-disclosure.js";
 
 function bytes<T extends Uint8Array>(value: string, length: number): T {
@@ -28,6 +29,17 @@ function disclosure(): RingMergeDisclosure {
     ephemeralPublicKey: bytes<Bytes33>(vector.eph_pk, 33),
     ciphertext: bytes<Bytes32>(vector.envelope_ciphertext, 32),
     fields: vector.fields.map((field) => bytes<Bytes32>(field, 32)),
+  };
+}
+
+function opening(): RingMergeOpening {
+  return {
+    ownerKey: encodeBase58(bytes(vector.request.ownerKey, 32)),
+    nullifierPublicKey: bytes(vector.nullifier_pk, 32),
+    mint: encodeBase58(bytes(vector.mint, 32)),
+    amount: BigInt(vector.amount),
+    outputBlinding: bytes(vector.output_blinding, 32),
+    inputCommitments: vector.input_commitments.map((value) => bytes<Bytes32>(value, 32)),
   };
 }
 
@@ -60,7 +72,6 @@ describe("anonymous ring merge disclosure (test-vectors/ring-merge-anonymous.jso
       outputUtxoHash: bytes(vector.request.outputUtxoHash, 32),
       firstNullifier: bytes(vector.request.firstNullifier, 32),
       ringId: bytes(vector.request.ringProgramId, 32),
-      memberRegistryRoot: bytes(vector.request.memberRegistryRoot, 32),
       auditorPublicKey: X25519PublicKey.fromBytes(bytes(vector.auditor_pk, 33)),
       disclosure: disclosure(),
       salt,
@@ -74,14 +85,7 @@ describe("anonymous ring merge disclosure (test-vectors/ring-merge-anonymous.jso
     const ephemeral = X25519Keypair.fromBytes(bytes(vector.request.ephSk, 32));
     try {
       const sealed = sealRingMergeDisclosureWith({
-        opening: {
-          ownerKey: encodeBase58(bytes(vector.request.ownerKey, 32)),
-          nullifierPublicKey: bytes(vector.nullifier_pk, 32),
-          mint: encodeBase58(bytes(vector.mint, 32)),
-          amount: BigInt(vector.amount),
-          outputBlinding: bytes(vector.output_blinding, 32),
-          inputCommitments: vector.input_commitments.map((value) => bytes<Bytes32>(value, 32)),
-        },
+        opening: opening(),
         salt: bytes(vector.salt, 16),
         auditor: auditor.publicKey(),
         ephemeral,
@@ -99,23 +103,76 @@ describe("anonymous ring merge disclosure (test-vectors/ring-merge-anonymous.jso
     }
   });
 
+  it("wipes the opening when the auditor key exchange throws", async () => {
+    await initializePoseidon();
+    const auditor = X25519Keypair.fromBytes(bytes(vector.auditor_sk, 32));
+    const ephemeral = X25519Keypair.fromBytes(bytes(vector.request.ephSk, 32));
+    vi.spyOn(ephemeral, "ecdh").mockImplementation(() => {
+      throw new RangeError("small order");
+    });
+    const fill = vi.spyOn(Uint8Array.prototype, "fill");
+    try {
+      expect(() =>
+        sealRingMergeDisclosureWith({
+          opening: opening(),
+          salt: bytes(vector.salt, 16),
+          auditor: auditor.publicKey(),
+          ephemeral,
+          disclosureKey: bytes(vector.request.disclosureKey, 32),
+        }),
+      ).toThrow("small order");
+      const length = mergeDisclosureFieldCount(vector.width) * 31;
+      const wiped = fill.mock.contexts.filter(
+        (buffer): buffer is Uint8Array => buffer instanceof Uint8Array && buffer.length === length,
+      );
+      expect(wiped).not.toHaveLength(0);
+      for (const buffer of wiped) expect(buffer.every((byte) => byte === 0)).toBe(true);
+    } finally {
+      fill.mockRestore();
+      ephemeral.destroy();
+      auditor.destroy();
+    }
+  });
+
+  it("copies no secret out of a refused seal", async () => {
+    await initializePoseidon();
+    const auditor = X25519Keypair.fromBytes(bytes(vector.auditor_sk, 32));
+    const ephemeral = X25519Keypair.fromBytes(bytes(vector.request.ephSk, 32));
+    const secretBytes = vi.spyOn(ephemeral, "secretBytes");
+    try {
+      expect(() =>
+        sealRingMergeDisclosureWith({
+          opening: opening(),
+          salt: new Uint8Array(15) as Bytes16,
+          auditor: auditor.publicKey(),
+          ephemeral,
+          disclosureKey: bytes(vector.request.disclosureKey, 32),
+        }),
+      ).toThrow();
+      expect(secretBytes).not.toHaveBeenCalled();
+    } finally {
+      ephemeral.destroy();
+      auditor.destroy();
+    }
+  });
+
   it("writes the Go prover body of custom-ring-merge-anonymous-8", () => {
     const request = vector.request;
     const field = (value: string) => bytes<Bytes32>(value, 32);
-    const body = customRingMergeAnonymousProofRequest({
+    const body = ringProofRequestBody({
+      kind: "anonymousMerge",
       publicInputHash: field(request.publicInputHash),
       privateTxHash: field(request.privateTxHash),
       outputUtxoHash: field(request.outputUtxoHash),
       firstNullifier: field(request.firstNullifier),
       ringProgramId: field(request.ringProgramId),
-      memberRegistryRoot: field(request.memberRegistryRoot),
-      auditorPublicKey: field(request.auditorPk),
-      salt: bytes(vector.salt, 16),
-      ephemeralSecret: field(request.ephSk),
+      auditorPk: field(request.auditorPk),
+      salt: field(request.salt),
+      ephSk: field(request.ephSk),
       disclosureKey: field(request.disclosureKey),
       ownerKey: field(request.ownerKey),
       nullifierSecret: field(request.nullifierSecret),
-      mint: encodeBase58(bytes(vector.mint, 32)),
+      mintChunks: request.mintChunks.map(field),
       inputs: request.inputs.map((slot) => ({
         domain: field(slot.domain),
         treeId: field(slot.treeId),
@@ -125,13 +182,6 @@ describe("anonymous ring merge disclosure (test-vectors/ring-merge-anonymous.jso
       })),
       outputTreeId: field(request.outputTreeId),
       outputRingDataHash: field(request.outputRingDataHash),
-      memberRecord: {
-        next: field(request.memberRecord.next),
-        lists: BigInt(request.memberRecord.lists),
-        escrowKey: field(request.memberRecord.escrowKey),
-        index: BigInt(request.memberRecord.index),
-        path: request.memberRecord.path.map(field),
-      },
     });
     expect(JSON.parse(JSON.stringify(body))).toEqual(request);
   });

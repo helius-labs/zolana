@@ -12,6 +12,7 @@ import { NO_UTXO_ROOT, type Bytes32 } from "../src/interface/index.js";
 import { treeAddress } from "../src/interface/pda/index.js";
 import { bigIntToBytes, bytes16, bytes32 } from "../src/keypair/bytes.js";
 import { ShieldedKeypair, ShieldedPublicKey } from "../src/keypair/index.js";
+import { ringOutputBlinding } from "../src/keypair/transact/index.js";
 import {
   Data,
   type InputUtxo,
@@ -489,13 +490,23 @@ function fixture(options: Readonly<{ ring?: Address }> = {}) {
   const padding = ProofInputUtxo.compact();
   const seed = bytes32(new Uint8Array(32).fill(8));
   const outputSeed = outputBlindingSeed(reserved.nullifier(), seed);
+  const ringSecret = bytes32(new Uint8Array(32).fill(11));
   const outputs = [
     createProofOutput({
       ownerAddress: keypair.shieldedAddress(),
       asset: SOL_MINT,
       amount: 0n,
-      blinding: transactOutputBlinding(reserved.nullifier(), outputSeed, 0),
-      ...(options.ring === undefined ? {} : { ringProgramId: options.ring }),
+      ...(options.ring === undefined
+        ? { blinding: transactOutputBlinding(reserved.nullifier(), outputSeed, 0) }
+        : {
+            ringProgramId: options.ring,
+            ringSecret,
+            blinding: ringOutputBlinding({
+              firstNullifier: reserved.nullifier(),
+              ringSecret,
+              outputIndex: 0,
+            }),
+          }),
     }),
     createProofOutput({
       asset: SOL_MINT,

@@ -1,10 +1,18 @@
 import type { ChainReader, TreeContext } from "../client/ports.js";
-import { decodeTreeId } from "../interface/codecs/index.js";
+import { decodeTreeId, decodeTreePaused, decodeUtxoRoot } from "../interface/codecs/index.js";
 import { treeAddress } from "../interface/pda/index.js";
 import { SHIELDED_POOL_PROGRAM_ID } from "../interface/program.js";
-import type { Address, RequestContext } from "../interface/types.js";
+import type { Address, Bytes32, RequestContext } from "../interface/types.js";
+import { equal } from "../transaction/internal.js";
 import type { TreeId } from "../transaction/utxo.js";
 import { RingError } from "./error.js";
+
+/** The first-contact root an anonymous audit proof binds, Rust `BoundAnchor`. */
+export interface BoundAnchor {
+  readonly tree: Address;
+  readonly rootIndex: number;
+  readonly root: Bytes32;
+}
 
 export async function resolveRingOutputTree(
   client: TreeContext & Pick<ChainReader, "getAccount">,
@@ -50,13 +58,36 @@ export function ringTreeIdResolver(
   };
 }
 
+/** Rust `BoundAnchor::holds`, the program reads the root at the index of an unpaused tree. */
+export async function anchorHolds(
+  client: Pick<ChainReader, "getAccount">,
+  anchor: BoundAnchor,
+  context: RequestContext | undefined,
+): Promise<boolean> {
+  const data = await treeData(client, anchor.tree, context);
+  if (decodeTreePaused(data))
+    throw new RingError("RING_ANCHOR_INVALID", {
+      details: { reason: "paused", tree: anchor.tree },
+    });
+  const held = decodeUtxoRoot(data, anchor.rootIndex);
+  return held !== undefined && equal(held, anchor.root);
+}
+
 async function readTreeId(
   client: Pick<ChainReader, "getAccount">,
   tree: Address,
   context: RequestContext | undefined,
 ): Promise<TreeId> {
+  return decodeTreeId(await treeData(client, tree, context));
+}
+
+async function treeData(
+  client: Pick<ChainReader, "getAccount">,
+  tree: Address,
+  context: RequestContext | undefined,
+): Promise<Uint8Array> {
   const account = await client.getAccount(tree, context);
   if (account === undefined || account.owner !== SHIELDED_POOL_PROGRAM_ID)
     throw new RingError("RING_TREE_MISMATCH", { details: { tree } });
-  return decodeTreeId(account.data);
+  return account.data;
 }

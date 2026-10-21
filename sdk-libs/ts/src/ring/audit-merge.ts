@@ -2,447 +2,175 @@ import type {
   ChainReader,
   IndexerReader,
   KitRpcAccess,
-  RingMemberRegistryReader,
+  RingRecordReader,
 } from "../client/ports.js";
-import { ClientError } from "../client/error.js";
-import type { Address, Bytes32, RequestContext, Signature } from "../interface/types.js";
-import type { X25519Keypair } from "../keypair/x25519.js";
-import type { ShieldedAddress } from "../keypair/shielded.js";
+import { initializePoseidon } from "../hasher/index.js";
+import { isCanonicalField } from "../interface/canonical-field.js";
+import { mergePaddedInputCount } from "../interface/constants.js";
+import { MAX_RING_MEMBER_BATCH } from "../interface/indexer-limits.js";
+import { addressBytes } from "../interface/internal.js";
+import { MEMBER_REGISTRY_CAPACITY } from "../interface/member-registry.js";
+import type { Address, Bytes16, Bytes32, RequestContext, Signature } from "../interface/types.js";
+import { mergeOutputBlinding, mergeOutputKey } from "../keypair/merge/index.js";
 import type { NullifierKey } from "../keypair/nullifier-key.js";
-import { hashBytes, initializePoseidon } from "../hasher/index.js";
-import { PAGE_LIMIT } from "../interface/indexer-limits.js";
+import { ringIdField } from "../keypair/ring-stream.js";
+import type { X25519Keypair } from "../keypair/x25519.js";
 import type {
   IndexedShieldedTransaction,
   OutputContext,
 } from "../transaction/instructions/transact.js";
 import { equal, poseidon } from "../transaction/internal.js";
-import { ringIdUtxoHash, Utxo, type TreeId } from "../transaction/utxo.js";
-import { bytesKey } from "../wallet/internal.js";
-import { addressBytes } from "../interface/internal.js";
+import {
+  MERGE_OUTPUT_BODY_LENGTH,
+  decryptMergeOutput,
+  readMergeOutputBody,
+} from "../transaction/serialization/merge.js";
+import { ownerUtxoHash, ringIdUtxoHash, type TreeId } from "../transaction/utxo.js";
 
-import { fetchRingMemberRegistryRoot, fetchRingProgramConfig } from "./config.js";
+import { registryCurrentRoot } from "./codecs.js";
+import { fetchRingMemberRegistry } from "./config.js";
+import { RingError } from "./error.js";
+import { readRingHistory, scanLimits, type ScanLimits } from "./history.js";
 import {
   openRingMergeDisclosure,
   type RingMergeDisclosure,
   type RingMergeOpening,
 } from "./merge-disclosure.js";
-import { mergePaddedInputCount } from "../interface/constants.js";
-import { readMergeOutputBody } from "../transaction/serialization/merge.js";
-import type { Bytes16 } from "../interface/types.js";
-import { RingError } from "./error.js";
-import {
-  openNullifierKey,
-  openRingSealedKey,
-  readSealedKey,
-  registersKey,
-} from "./member-registry.js";
-import { nextScanCursor } from "./audit.js";
-import { MEMBER_REGISTRY_CAPACITY, verifyMemberOpening } from "./member-registry-tree.js";
-import { CachedTransactionOrigin, RpcTransactionOrigin, type TransactionOrigin } from "./origin.js";
-import { memberOfIdentity, memberOfTag } from "./policy.js";
-import { recoverMergeOpening, type MergeAuditorOpening } from "./recover.js";
-import { ringTreeIdResolver } from "./trees.js";
+import { MemberOpeningRead } from "./member-registry.js";
+import { RpcTransactionOrigin, type TransactionOrigin } from "./origin.js";
+import { memberOfTag } from "./policy.js";
+import { openNullifierKey } from "./register-key.js";
 
 export type RingMergeAuditReader = KitRpcAccess &
   Pick<ChainReader, "getAccount"> &
   Pick<IndexerReader, "getShieldedTransactionsByTags"> &
-  Pick<RingMemberRegistryReader, "getRingMemberRecord" | "getRingMemberRecords">;
+  Pick<RingRecordReader, "getRingMemberRecords">;
 
-/** A confirmed merge output reconstructed from a verified registered owner key. */
+/** Rust `MergeKeys`, what the auditor holds of the merge owner beyond the opening. */
+export type MergeKeys =
+  /** The registry escrow opened the nullifier key, the merged note's nullifier follows. */
+  | Readonly<{ kind: "escrowed"; nullifier: Bytes32 }>
+  /** Every spent commitment an anonymous merge disclosed, padding zero. */
+  | Readonly<{ kind: "disclosed"; inputCommitments: readonly Bytes32[] }>;
+
+/** Rust `AuditedMerge`, a merge output whose raw amount, mint and blinding reproduce its settled leaf. */
 export interface AuditedRingMerge {
   readonly signature: Signature;
-  readonly slot: bigint;
-  readonly source: ShieldedAddress;
-  readonly utxo: Utxo;
-  readonly outputContext: OutputContext;
-  readonly nullifier: Bytes32;
+  readonly eventIndex: number;
+  readonly outputCommitment: Bytes32;
+  /** The registry member hash, the merge proof does not disclose the signing key's curve. */
+  readonly ownerMember: Bytes32;
+  /** The confirmed `RegisterKey` signer or the disclosed owner, absent in older indexer projections. */
+  readonly ownerPublicKey?: Address;
+  readonly mint: Address;
+  readonly amount: bigint;
+  readonly blinding: Bytes32;
+  readonly ringDataHash: Bytes32;
+  readonly inputNullifiers: readonly Bytes32[];
+  readonly keys: MergeKeys;
 }
 
-/** An anonymous ring's merge, opened from the disclosure its ring program verified. */
-export interface DisclosedRingMerge {
-  readonly signature: Signature;
-  readonly slot: bigint;
-  readonly opening: RingMergeOpening;
-  readonly outputContext: OutputContext;
-  readonly ringDataHash?: Bytes32;
-}
-
-/** Every other confirmed merge remains visible by its committed output. */
+/** Rust `UnresolvedMerge`, a confirmed merge no authenticated registration opened. */
 export interface UnresolvedRingMerge {
   readonly signature: Signature;
-  readonly slot: bigint;
-  readonly outputContext: OutputContext;
-}
-
-/** Authenticated contents of a merge when the registry exposes only its owner hash. */
-export interface AuditedRingMergeOpening extends MergeAuditorOpening {
-  readonly signature: Signature;
-  readonly slot: bigint;
-  /** Confirmed RegisterKey signer when the indexer retained that lineage. */
-  readonly ownerPublicKey?: Address;
+  readonly eventIndex: number;
+  readonly outputCommitment: Bytes32;
 }
 
 export interface RingMergeAuditPage {
-  readonly openings: readonly AuditedRingMergeOpening[];
-  /** Merges of an anonymous ring, empty for every other mode. */
-  readonly disclosed: readonly DisclosedRingMerge[];
-  readonly merges: readonly AuditedRingMerge[];
+  readonly opened: readonly AuditedRingMerge[];
   readonly unresolved: readonly UnresolvedRingMerge[];
-  readonly unavailableMembers: readonly Bytes32[];
+  /** Set only when the page cap stopped the history scan. */
   readonly nextCursor?: Uint8Array;
 }
 
-const MAX_CONFIRMED_ROWS_PER_BATCH = 4096;
+const DEFAULT_MAX_MEMBER_PAGES = Math.ceil(
+  Number(MEMBER_REGISTRY_CAPACITY - 1n) / MAX_RING_MEMBER_BATCH,
+);
 
-/**
- * Scans confirmed ring merges against a chain-pinned registry. The paged
- * registry discovers keys, while optional addresses turn raw openings into UTXOs.
- * Every merge without a verified opening is returned as unresolved.
- */
+/** Mirrors Rust `MergeAudit`, final registry keys let the chain's current root cover every earlier merge. */
 export async function auditRingMerges(
   input: Readonly<{
     client: RingMergeAuditReader;
     ringProgramId: Address;
     auditor: X25519Keypair;
-    members?: readonly ShieldedAddress[];
     origin?: TransactionOrigin;
     cursor?: Uint8Array;
     pageSize?: number;
     maxPages?: number;
-    memberPageSize?: number;
     maxMemberPages?: number;
+    /** Bounds the keys tried on unopened merges, a merge ciphertext names no owner. */
+    maxCandidateAttempts?: number;
   }>,
   context?: RequestContext,
 ): Promise<RingMergeAuditPage> {
   await initializePoseidon();
-  const pageSize = input.pageSize ?? 100;
-  const maxPages = input.maxPages ?? 32;
-  const memberPageSize = input.memberPageSize ?? 100;
-  const maxMemberPages =
-    input.maxMemberPages ?? Math.ceil(Number(MEMBER_REGISTRY_CAPACITY - 1n) / memberPageSize);
+  const limits = scanLimits(input);
+  const maxMemberPages = input.maxMemberPages ?? DEFAULT_MAX_MEMBER_PAGES;
   for (const [name, value] of [
-    ["pageSize", pageSize],
-    ["maxPages", maxPages],
-    ["memberPageSize", memberPageSize],
     ["maxMemberPages", maxMemberPages],
+    ["maxCandidateAttempts", input.maxCandidateAttempts ?? 1],
   ] as const) {
-    if (
-      !Number.isSafeInteger(value) ||
-      value < 1 ||
-      (name === "pageSize" && value > Number(PAGE_LIMIT)) ||
-      (name === "memberPageSize" && value > 100)
-    ) {
-      throw new RingError("RING_RPC", {
-        details: { reason: "invalid scan limit", name, value },
-      });
-    }
+    if (!Number.isSafeInteger(value) || value < 1)
+      throw new RingError("RING_RPC", { details: { reason: "invalid scan limit", name, value } });
   }
-  if (pageSize * maxPages > MAX_CONFIRMED_ROWS_PER_BATCH)
-    throw new RingError("RING_RPC", {
-      details: { reason: "confirmed merge batch exceeds memory bound" },
-    });
-  const [registry, config] = await Promise.all([
-    fetchRingMemberRegistryRoot(input.client, input.ringProgramId, context),
-    fetchRingProgramConfig(input.client, input.ringProgramId, context),
-  ]);
-  // A history page is bounded, while the member registry may hold 2^20 leaves.
-  // Keep confirmed merges and stream one recovered member key at a time.
-  const history = await confirmedMerges(
-    input,
-    config.mode === "anonymous",
-    pageSize,
-    maxPages,
-    context,
-  );
-  const disclosed = await openDisclosedMerges(input, history, context);
-  if (history.transactions.length === 0)
-    return Object.freeze({
-      openings: Object.freeze([]),
-      disclosed: Object.freeze([]),
-      merges: Object.freeze([]),
-      unresolved: Object.freeze([]),
-      unavailableMembers: Object.freeze([]),
-      ...(history.nextCursor === undefined ? {} : { nextCursor: history.nextCursor }),
-    });
-  const results = new Map<
-    number,
-    {
-      opening: MergeAuditorOpening;
-      source?: ShieldedAddress;
-      ownerPublicKey?: Address;
-    }
-  >();
-  const resolveTreeId = ringTreeIdResolver(input.client, [], context);
-  const treeIds = new Map<Address, number>();
-  const unavailableMembers = new Map<string, Bytes32>();
-  const seenCandidates = new Set<string>();
-  const openedMembers = new Set<string>();
-  const tryKey = async (
-    member: Bytes32,
-    key: NullifierKey,
-    source?: ShieldedAddress,
-    ownerPublicKey?: Address,
-  ) => {
-    try {
-      for (const [index, transaction] of history.transactions.entries()) {
-        if (results.has(index)) continue;
-        const opening = await recoverMergeOpening(
-          {
-            member,
-            nullifierKey: key,
-            ringProgramId: input.ringProgramId,
-            resolveTreeId,
-          },
-          transaction,
-          treeIds,
-        );
-        if (opening !== undefined)
-          results.set(index, {
-            opening,
-            ...(source === undefined ? {} : { source }),
-            ...(ownerPublicKey === undefined ? {} : { ownerPublicKey }),
-          });
-      }
-    } finally {
-      key.destroy();
-    }
+  const registry = await fetchRingMemberRegistry(input.client, input.ringProgramId, context);
+  const tip = {
+    root: registryCurrentRoot(registry).root,
+    rootIndex: registry.historyCursor,
+    nextIndex: registry.nextIndex,
   };
-  for (const source of input.members ?? []) {
-    const member = memberOfIdentity(source.signingPublicKey.ownerProofInputHash());
-    const ownerPublicKey = source.solanaAddress();
-    const nullifierPublicKey = source.nullifierPublicKey;
-    const identity = bytesKey(member);
-    if (seenCandidates.has(identity)) continue;
-    seenCandidates.add(identity);
-    let record: Awaited<ReturnType<typeof readSealedKey>>;
-    try {
-      record = await readSealedKey(
-        { client: input.client, ringProgramId: input.ringProgramId, member, registry },
-        context ?? {},
-      );
-    } catch (cause) {
-      if (
-        !(cause instanceof ClientError) ||
-        cause.code !== "CLIENT_MEMBER_REGISTRY_MEMBER_UNREGISTERED"
-      )
-        throw cause;
-      unavailableMembers.set(identity, member);
-      continue;
-    }
-    if (!registersKey(record, nullifierPublicKey)) {
-      unavailableMembers.set(identity, member);
-      continue;
-    }
-    let key: NullifierKey;
-    try {
-      key = openNullifierKey(record.sealed, input.auditor);
-    } catch {
-      unavailableMembers.set(identity, member);
-      continue;
-    }
-    let matches: boolean;
-    try {
-      matches = equal(key.publicKey(), nullifierPublicKey);
-    } catch {
-      key.destroy();
-      unavailableMembers.set(identity, member);
-      continue;
-    }
-    if (!matches) {
-      key.destroy();
-      unavailableMembers.set(identity, member);
-      continue;
-    }
-    await tryKey(member, key, source, ownerPublicKey);
-    openedMembers.add(identity);
+  const history = await confirmedMerges(input, limits, context);
+  let attempts = 0;
+  const opened: AuditedRingMerge[] = [];
+  const pending: PendingMerge[] = [];
+  for (const merge of history.merges) {
+    if (merge.disclosure === undefined) pending.push({ merge });
+    else opened.push(openDisclosed(input, merge, merge.disclosure));
   }
-  const listMembers = input.client.getRingMemberRecords;
-  if (listMembers === undefined && input.members === undefined)
-    throw new RingError("RING_RPC", {
-      details: { reason: "member registry enumeration unavailable" },
-    });
-  if (listMembers !== undefined) {
-    let startIndex = 1n;
-    let memberPages = 0;
-    while (startIndex < registry.nextIndex) {
-      if (memberPages++ >= maxMemberPages) throw new RingError("RING_RECOVERY_INCOMPLETE");
-      const response = await listMembers.call(
-        input.client,
-        {
-          ringProgramId: input.ringProgramId,
-          expectedRoot: registry.root,
-          expectedNextIndex: registry.nextIndex,
-          startIndex,
-          limit: memberPageSize,
-        },
-        context,
-      );
-      const endIndex =
-        startIndex + BigInt(memberPageSize) < registry.nextIndex
-          ? startIndex + BigInt(memberPageSize)
-          : registry.nextIndex;
-      if (
-        !equal(response.root, registry.root) ||
-        response.rootIndex !== registry.historyCursor ||
-        response.nextIndex !== registry.nextIndex ||
-        response.records.length !== Number(endIndex - startIndex) ||
-        response.nextLeafIndex !== (endIndex < registry.nextIndex ? endIndex : null)
-      )
-        throw new RingError("RING_MEMBER_REGISTRY_STALE");
-      for (const [offset, entry] of response.records.entries()) {
-        if (entry.index !== startIndex + BigInt(offset))
-          throw new RingError("RING_MEMBER_REGISTRY_INVALID");
-        const { record } = entry;
-        verifyMemberOpening(registry.root, record.member, {
-          present: true,
-          record,
-          index: entry.index,
-          path: entry.path,
+  if (pending.length > 0)
+    await scanRegistry(input, tip, maxMemberPages, context, (member, key, ownerPublicKey) => {
+      for (const candidate of pending) {
+        if (candidate.opened !== undefined) continue;
+        if (input.maxCandidateAttempts !== undefined && attempts >= input.maxCandidateAttempts)
+          throw new RingError("RING_RECOVERY_INCOMPLETE", { details: { reason: "work budget" } });
+        attempts += 1;
+        const opened = openEscrowed(input.ringProgramId, candidate.merge, {
+          member,
+          key,
+          ...(ownerPublicKey === undefined ? {} : { ownerPublicKey }),
         });
-        if (
-          record.ownerPublicKey !== undefined &&
-          record.ownerPublicKey !== null &&
-          !equal(memberOfTag(addressBytes(record.ownerPublicKey)), record.member)
-        )
-          throw new RingError("RING_MEMBER_REGISTRY_INVALID");
-        if (record.escrowKey.every((byte) => byte === 0)) continue;
-        const identity = bytesKey(record.member);
-        if (openedMembers.has(identity)) continue;
-        if (record.ephemeralPublicKey === null || record.ciphertext === null) {
-          unavailableMembers.set(identity, record.member);
-          continue;
-        }
-        let key: NullifierKey;
-        try {
-          key = openRingSealedKey(
-            {
-              member: memberOfIdentity(record.member),
-              sealed: {
-                ephemeralPublicKey: record.ephemeralPublicKey,
-                ciphertext: record.ciphertext,
-              },
-              root: registry.root,
-              next: record.next,
-              lists: record.lists,
-              escrowKey: record.escrowKey,
-              index: entry.index,
-              proof: entry.path,
-            },
-            input.auditor,
-          );
-        } catch {
-          unavailableMembers.set(identity, record.member);
-          continue;
-        }
-        await tryKey(record.member, key, undefined, record.ownerPublicKey ?? undefined);
-        openedMembers.add(identity);
-        unavailableMembers.delete(identity);
+        if (opened !== undefined) candidate.opened = opened;
       }
-      startIndex = endIndex;
-    }
-  }
-  const openings: AuditedRingMergeOpening[] = [];
-  const merges: AuditedRingMerge[] = [];
-  const unresolved: UnresolvedRingMerge[] = [];
-  for (const [index, transaction] of history.transactions.entries()) {
-    const outputContext = transaction.outputSlots[0]!.outputContext;
-    const result = results.get(index);
-    if (history.disclosures[index] !== undefined) continue;
-    if (result === undefined) {
-      unresolved.push({
-        signature: transaction.txSignature,
-        slot: transaction.slot,
-        outputContext,
-      });
-      continue;
-    }
-    const { opening, source, ownerPublicKey } = result;
-    openings.push({
-      signature: transaction.txSignature,
-      slot: transaction.slot,
-      ...opening,
-      ...(ownerPublicKey === undefined ? {} : { ownerPublicKey }),
+      // Each opening reproduced its settled commitment, later leaves cannot change it.
+      return pending.every((candidate) => candidate.opened !== undefined);
     });
-    if (source !== undefined)
-      merges.push({
-        signature: transaction.txSignature,
-        slot: transaction.slot,
-        source,
-        utxo: new Utxo({
-          owner: source.signingPublicKey,
-          asset: opening.asset,
-          amount: opening.amount,
-          blinding: opening.blinding,
-          ringProgramId: input.ringProgramId,
+  const unresolved: UnresolvedRingMerge[] = [];
+  for (const candidate of pending) {
+    if (candidate.opened !== undefined) opened.push(candidate.opened);
+    else
+      unresolved.push(
+        Object.freeze({
+          signature: candidate.merge.transaction.txSignature,
+          eventIndex: candidate.merge.eventIndex,
+          outputCommitment: candidate.merge.outputCommitment,
         }),
-        outputContext,
-        nullifier: opening.nullifier,
-      });
+      );
   }
   return Object.freeze({
-    openings: Object.freeze(openings),
-    disclosed: Object.freeze(disclosed),
-    merges: Object.freeze(merges),
+    opened: Object.freeze(opened),
     unresolved: Object.freeze(unresolved),
-    unavailableMembers: Object.freeze([...unavailableMembers.values()]),
     ...(history.nextCursor === undefined ? {} : { nextCursor: history.nextCursor }),
   });
 }
 
-interface ConfirmedMergeHistory {
-  readonly transactions: readonly IndexedShieldedTransaction[];
-  /** Aligned with `transactions`, set for every merge of an anonymous ring. */
-  readonly disclosures: readonly (RingMergeDisclosure | undefined)[];
-  readonly nextCursor?: Uint8Array;
-}
-
-/** The disclosure names the owner and the output opening, the settled commitment must agree. */
-async function openDisclosedMerges(
-  input: Readonly<{ client: RingMergeAuditReader; ringProgramId: Address; auditor: X25519Keypair }>,
-  history: ConfirmedMergeHistory,
-  context?: RequestContext,
-): Promise<DisclosedRingMerge[]> {
-  const resolveTreeId = ringTreeIdResolver(input.client, [], context);
-  const disclosed: DisclosedRingMerge[] = [];
-  for (const [index, transaction] of history.transactions.entries()) {
-    const disclosure = history.disclosures[index];
-    if (disclosure === undefined) continue;
-    const slot = transaction.outputSlots[0]!;
-    const body = readMergeOutputBody(slot.payload);
-    if (body === undefined || body.ringDataHash === undefined)
-      throw new RingError("RING_AUDIT_MESSAGE", { details: { reason: "merge output body" } });
-    const opening = openDisclosedMerge({
-      auditor: input.auditor,
-      disclosure,
-      salt: body.encrypted.slice(0, 16) as Bytes16,
-      width: mergePaddedInputCount(transaction.nullifiers.length),
-      ringId: hashBytes(addressBytes(input.ringProgramId)) as Bytes32,
-      ringDataHash: body.ringDataHash,
-      treeId: await resolveTreeId(slot.outputContext.tree),
-      outputCommitment: slot.outputContext.hash,
-    });
-    disclosed.push(
-      Object.freeze({
-        signature: transaction.txSignature,
-        slot: transaction.slot,
-        opening,
-        outputContext: slot.outputContext,
-        ...(body.ringDataHash.some((byte) => byte !== 0)
-          ? { ringDataHash: body.ringDataHash }
-          : {}),
-      }),
-    );
-  }
-  return disclosed;
-}
-
-/** Rust `DisclosedMerge::open`, the opening must reproduce the settled leaf. */
+/** Rust `DisclosedMerge::open`, the disclosure must reproduce the settled leaf. */
 export function openDisclosedMerge(
   input: Readonly<{
     auditor: X25519Keypair;
     disclosure: RingMergeDisclosure;
     salt: Bytes16;
-    width: number | undefined;
+    width: number;
     ringId: Bytes32;
     ringDataHash: Bytes32;
     treeId: TreeId;
@@ -466,6 +194,29 @@ export function openDisclosedMerge(
   return opening;
 }
 
+/** @internal One confirmed ring merge whose public fields were checked before any key is tried. */
+export interface ConfirmedMerge {
+  readonly transaction: IndexedShieldedTransaction;
+  readonly eventIndex: number;
+  readonly outputCommitment: Bytes32;
+  readonly ringDataHash: Bytes32;
+  readonly width: number;
+  /** Set exactly for an anonymous ring, whose program verified it before SPP settled. */
+  readonly disclosure?: RingMergeDisclosure;
+}
+
+interface PendingMerge {
+  readonly merge: ConfirmedMerge;
+  opened?: AuditedRingMerge;
+}
+
+/** The chain's newest registry root, every record page is read under it. */
+interface RegistryTip {
+  readonly root: Bytes32;
+  readonly rootIndex: number;
+  readonly nextIndex: number;
+}
+
 async function confirmedMerges(
   input: Readonly<{
     client: RingMergeAuditReader;
@@ -473,78 +224,259 @@ async function confirmedMerges(
     origin?: TransactionOrigin;
     cursor?: Uint8Array;
   }>,
-  anonymous: boolean,
-  pageSize: number,
-  maxPages: number,
-  context?: RequestContext,
-): Promise<ConfirmedMergeHistory> {
-  const origin = new CachedTransactionOrigin(
-    input.origin ?? new RpcTransactionOrigin(input.client.solanaRpc),
+  limits: ScanLimits,
+  context: RequestContext | undefined,
+): Promise<{ merges: readonly ConfirmedMerge[]; nextCursor?: Uint8Array }> {
+  const merges: ConfirmedMerge[] = [];
+  const seen = new Set<string>();
+  const nextCursor = await readRingHistory(
+    {
+      client: input.client,
+      ringProgramId: input.ringProgramId,
+      origin: input.origin ?? new RpcTransactionOrigin(input.client.solanaRpc),
+      ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+      limits,
+    },
+    (confirmed, eventIndex) => {
+      if (confirmed.kind !== "merge") return;
+      const event = `${confirmed.transaction.txSignature}:${String(eventIndex)}`;
+      if (seen.has(event))
+        throw new RingError("RING_ORIGIN_DECODE", { details: { reason: "duplicate merge" } });
+      seen.add(event);
+      merges.push(confirmedMerge(confirmed.transaction, eventIndex, confirmed.disclosure));
+    },
+    context,
   );
-  const transactions: IndexedShieldedTransaction[] = [];
-  const disclosures: (RingMergeDisclosure | undefined)[] = [];
-  const seenEvents = new Set<string>();
-  let cursor = input.cursor;
-  for (let page = 0; page < maxPages; page++) {
-    const response = await input.client.getShieldedTransactionsByTags(
+  return { merges, ...(nextCursor === undefined ? {} : { nextCursor }) };
+}
+
+/** @internal Rust `validate_confirmed_merge_fields`, a malformed public field is an audit error, not a key miss. */
+export function confirmedMerge(
+  transaction: IndexedShieldedTransaction,
+  eventIndex: number,
+  disclosure: RingMergeDisclosure | undefined,
+): ConfirmedMerge {
+  const slot = transaction.outputSlots[0];
+  const firstNullifier = transaction.nullifiers[0];
+  const width = mergePaddedInputCount(transaction.nullifiers.length);
+  const body = slot === undefined ? undefined : readMergeOutputBody(slot.payload);
+  const ringDataHash = body?.ringDataHash;
+  if (
+    slot === undefined ||
+    firstNullifier === undefined ||
+    transaction.outputSlots.length !== 1 ||
+    width === undefined ||
+    body === undefined ||
+    ringDataHash === undefined ||
+    body.encrypted.length !== MERGE_OUTPUT_BODY_LENGTH ||
+    !isCanonicalField(firstNullifier) ||
+    !isCanonicalField(slot.outputContext.hash) ||
+    !isCanonicalField(ringDataHash) ||
+    !ciphertextChunks(body.encrypted).every(isCanonicalField)
+  )
+    throw new RingError("RING_ORIGIN_DECODE", { details: { reason: "ring merge output" } });
+  return Object.freeze({
+    transaction,
+    eventIndex,
+    outputCommitment: slot.outputContext.hash,
+    ringDataHash,
+    width,
+    ...(disclosure === undefined ? {} : { disclosure }),
+  });
+}
+
+/** The 32-byte ciphertext elements behind the 16-byte salt. */
+function ciphertextChunks(encrypted: Uint8Array): readonly Uint8Array[] {
+  return Array.from({ length: (encrypted.length - 16) / 32 }, (_, index) =>
+    encrypted.subarray(16 + 32 * index, 48 + 32 * index),
+  );
+}
+
+/** @internal Rust `MergeOutput::disclose`. */
+export function disclosedMergeOpening(
+  input: Readonly<{ ringProgramId: Address; auditor: X25519Keypair }>,
+  merge: ConfirmedMerge,
+  disclosure: RingMergeDisclosure,
+): RingMergeOpening {
+  const slot = merge.transaction.outputSlots[0]!;
+  const encrypted = readMergeOutputBody(slot.payload)!.encrypted;
+  return openDisclosedMerge({
+    auditor: input.auditor,
+    disclosure,
+    salt: encrypted.slice(0, 16) as Bytes16,
+    width: merge.width,
+    ringId: ringIdField(input.ringProgramId),
+    ringDataHash: merge.ringDataHash,
+    treeId: slot.outputContext.treeId,
+    outputCommitment: merge.outputCommitment,
+  });
+}
+
+function openDisclosed(
+  input: Readonly<{ ringProgramId: Address; auditor: X25519Keypair }>,
+  merge: ConfirmedMerge,
+  disclosure: RingMergeDisclosure,
+): AuditedRingMerge {
+  const opening = disclosedMergeOpening(input, merge, disclosure);
+  return Object.freeze({
+    signature: merge.transaction.txSignature,
+    eventIndex: merge.eventIndex,
+    outputCommitment: merge.outputCommitment,
+    ownerMember: memberOfTag(addressBytes(opening.ownerKey)),
+    ownerPublicKey: opening.ownerKey,
+    mint: opening.mint,
+    amount: opening.amount,
+    blinding: opening.outputBlinding,
+    ringDataHash: merge.ringDataHash,
+    inputNullifiers: merge.transaction.nullifiers,
+    keys: Object.freeze({ kind: "disclosed", inputCommitments: opening.inputCommitments }),
+  });
+}
+
+/** Rust `open_candidate`, the settled commitment alone decides whether the key's member owns it. */
+function openEscrowed(
+  ring: Address,
+  merge: ConfirmedMerge,
+  registered: Readonly<{ member: Bytes32; key: NullifierKey; ownerPublicKey?: Address }>,
+): AuditedRingMerge | undefined {
+  const opening = recoverMergeOpening(
+    { member: registered.member, nullifierKey: registered.key, ringProgramId: ring },
+    merge.transaction,
+  );
+  if (opening === undefined) return undefined;
+  return Object.freeze({
+    signature: merge.transaction.txSignature,
+    eventIndex: merge.eventIndex,
+    outputCommitment: merge.outputCommitment,
+    ownerMember: registered.member,
+    ...(registered.ownerPublicKey === undefined
+      ? {}
+      : { ownerPublicKey: registered.ownerPublicKey }),
+    mint: opening.asset,
+    amount: opening.amount,
+    blinding: opening.blinding,
+    ringDataHash: merge.ringDataHash,
+    inputNullifiers: merge.transaction.nullifiers,
+    keys: Object.freeze({ kind: "escrowed", nullifier: opening.nullifier }),
+  });
+}
+
+/** A verified merge opening when only the registered member hash is known. */
+export interface MergeAuditorOpening {
+  readonly member: Bytes32;
+  readonly asset: Address;
+  readonly amount: bigint;
+  readonly blinding: Bytes32;
+  readonly outputContext: OutputContext;
+  readonly nullifier: Bytes32;
+  readonly ringDataHash?: Bytes32;
+}
+
+/** The merge output the member's key decrypts, `undefined` unless it reproduces the settled commitment. */
+export function recoverMergeOpening(
+  input: Readonly<{ member: Bytes32; nullifierKey: NullifierKey; ringProgramId: Address }>,
+  transaction: IndexedShieldedTransaction,
+): MergeAuditorOpening | undefined {
+  const firstNullifier = transaction.nullifiers[0];
+  const slot = transaction.outputSlots[0];
+  if (
+    firstNullifier === undefined ||
+    slot === undefined ||
+    mergePaddedInputCount(transaction.nullifiers.length) === undefined
+  )
+    return undefined;
+  const body = readMergeOutputBody(slot.payload);
+  const ringDataHash = body?.ringDataHash;
+  if (body === undefined || ringDataHash === undefined) return undefined;
+  const outputKey = mergeOutputKey(input.nullifierKey, firstNullifier);
+  let plaintext;
+  try {
+    plaintext = decryptMergeOutput(body.encrypted, outputKey);
+  } catch {
+    return undefined;
+  } finally {
+    outputKey.fill(0);
+  }
+  const blinding = mergeOutputBlinding(input.nullifierKey, firstNullifier);
+  const commitment = ownerUtxoHash({
+    owner: poseidon([input.member, input.nullifierKey.publicKey()]),
+    asset: plaintext.mint,
+    amount: plaintext.amount,
+    blinding,
+    treeId: slot.outputContext.treeId,
+    ringDataHash,
+    ringProgramId: input.ringProgramId,
+  });
+  if (!equal(commitment, slot.outputContext.hash)) return undefined;
+  return Object.freeze({
+    member: input.member,
+    asset: plaintext.mint,
+    amount: plaintext.amount,
+    blinding,
+    outputContext: slot.outputContext,
+    nullifier: input.nullifierKey.nullifier(slot.outputContext.hash, blinding),
+    ...(ringDataHash.some((byte) => byte !== 0) ? { ringDataHash } : {}),
+  });
+}
+
+/** Rust `MergeAudit::scan_registry`, every record authenticated at the chain's root until `visit` stops. */
+async function scanRegistry(
+  input: Readonly<{ client: RingMergeAuditReader; ringProgramId: Address; auditor: X25519Keypair }>,
+  tip: RegistryTip,
+  maxMemberPages: number,
+  context: RequestContext | undefined,
+  visit: (member: Bytes32, key: NullifierKey, ownerPublicKey: Address | undefined) => boolean,
+): Promise<void> {
+  let startIndex = 1;
+  for (let read = 0; startIndex < tip.nextIndex; read++) {
+    if (read === maxMemberPages)
+      throw new RingError("RING_RECOVERY_INCOMPLETE", { details: { reason: "member pages" } });
+    const page = await input.client.getRingMemberRecords(
       {
-        tags: [],
         ringProgramId: input.ringProgramId,
-        limit: pageSize,
-        ...(cursor === undefined ? {} : { cursor }),
+        expectedRoot: tip.root,
+        expectedNextIndex: tip.nextIndex,
+        startIndex,
+        limit: MAX_RING_MEMBER_BATCH,
       },
-      undefined,
       context,
     );
-    if (response.transactions.length > pageSize)
-      throw new RingError("RING_RPC", {
-        details: { reason: "merge history page exceeds requested limit" },
-      });
-    for (const indexed of response.transactions) {
-      const transaction = await origin.confirmedTransaction(indexed, input.ringProgramId, context);
-      const kind =
-        transaction === undefined
-          ? undefined
-          : await origin.confirmedEventKind(transaction, input.ringProgramId, context);
-      if (kind !== "merge" || transaction === undefined) continue;
+    const endIndex = Math.min(startIndex + MAX_RING_MEMBER_BATCH, tip.nextIndex);
+    if (
+      !equal(page.root.root, tip.root) ||
+      page.root.rootIndex !== tip.rootIndex ||
+      page.root.nextIndex !== tip.nextIndex ||
+      page.records.length !== endIndex - startIndex ||
+      page.records.some((row, offset) => row.path.index !== startIndex + offset) ||
+      page.nextLeafIndex !== (endIndex < tip.nextIndex ? endIndex : undefined)
+    )
+      throw new RingError("RING_MEMBER_REGISTRY_INVALID", { details: { startIndex } });
+    for (const { record, path, sealedKey } of page.records) {
+      const ownerPublicKey = sealedKey?.owner;
       if (
-        transaction.proofless ||
-        transaction.txViewingPublicKey !== undefined ||
-        transaction.salt !== undefined ||
-        transaction.outputSlots.length !== 1
+        ownerPublicKey !== undefined &&
+        !equal(memberOfTag(addressBytes(ownerPublicKey)), record.member)
       )
-        throw new RingError("RING_ORIGIN_DECODE", {
-          details: { reason: "confirmed merge shape is invalid" },
-        });
-      const event = `${transaction.txSignature}:${transaction.eventIndex}`;
-      if (seenEvents.has(event))
-        throw new RingError("RING_RPC", {
-          details: { reason: "duplicate confirmed merge in history" },
-        });
-      seenEvents.add(event);
-      transactions.push(transaction);
-      if (!anonymous) {
-        disclosures.push(undefined);
-        continue;
-      }
-      if (transaction.eventIndex === undefined)
-        throw new RingError("RING_ORIGIN_DECODE", { details: { reason: "merge event index" } });
-      const disclosure = await origin.confirmedMergeDisclosure(
-        transaction.txSignature,
-        transaction.eventIndex,
-        input.ringProgramId,
-        context,
+        throw new RingError("RING_MEMBER_REGISTRY_INVALID", { details: { reason: "owner" } });
+      const read = MemberOpeningRead.verify(
+        { kind: "present", record, path, ...(sealedKey === undefined ? {} : { sealedKey }) },
+        tip.root,
+        record.member,
       );
-      // An anonymous ring settles a merge only behind its verified disclosure.
-      if (disclosure === undefined)
-        throw new RingError("RING_ORIGIN_DECODE", {
-          details: { reason: "anonymous merge without disclosure" },
-        });
-      disclosures.push(disclosure);
+      if (record.escrowKey.every((byte) => byte === 0)) continue;
+      if (sealedKey === undefined)
+        throw new RingError("RING_MEMBER_REGISTRY_INVALID", { details: { reason: "sealed key" } });
+      const key = openNullifierKey(sealedKey, input.auditor);
+      try {
+        if (read.escrowed(key.publicKey()) === undefined)
+          throw new RingError("RING_MEMBER_REGISTRY_INVALID", {
+            details: { reason: "escrow key" },
+          });
+        if (visit(record.member, key, ownerPublicKey)) return;
+      } finally {
+        key.destroy();
+      }
     }
-    const next = nextScanCursor(cursor, response);
-    if (next === undefined) return { transactions, disclosures };
-    cursor = next;
+    startIndex = endIndex;
   }
-  return { transactions, disclosures, ...(cursor === undefined ? {} : { nextCursor: cursor }) };
 }

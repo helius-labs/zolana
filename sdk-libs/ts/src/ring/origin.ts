@@ -1,6 +1,7 @@
 import { getBase58Encoder } from "@solana/kit";
 
 import { runKitRpc, type SolanaRpc } from "../client/kit.js";
+import { decompressG2 } from "../client/prover/proof.js";
 import { MAX_CACHE_WRITES } from "../interface/cache.js";
 import { wireDecoder } from "../interface/decode.js";
 import { Reader, Writer, sha256, addressBytes, encodeBase58 } from "../interface/internal.js";
@@ -29,10 +30,12 @@ import type {
   Bytes16,
   Bytes32,
   Bytes33,
+  Bytes64,
   InterfaceTransfer,
   RequestContext,
   Signature,
 } from "../interface/types.js";
+import type { DisclosureLayout } from "../interface/ring-disclosure-layout.js";
 import { SOL_MINT } from "../transaction/asset.js";
 import { encodeMergeOutputData } from "../transaction/serialization/merge.js";
 
@@ -42,44 +45,47 @@ import {
   writeRingMergeDisclosure,
   type RingMergeDisclosure,
 } from "./merge-disclosure.js";
+import { RingTransactData, ringRailOf } from "./transact.js";
 
 const base58Encoder = getBase58Encoder();
 
-/** Mirrors Rust `TransactionOrigin`, an unknown signature is an error, never `false`. */
+/** Mirrors Rust `ConfirmedEventKind`, the confirmed instruction selects it, never indexer metadata. */
+export type ConfirmedEventKind = "deposit" | "transfer" | "merge";
+
+/** Rust `RingOrigin` after `bind_transaction`, the indexed event bound to its confirmed instruction. */
+export type ConfirmedRingTransaction =
+  | Readonly<{
+      kind: "transfer";
+      transaction: IndexedShieldedTransaction;
+      /** Rust `ConfirmedEvent::input_tree_ids`, an input spent from a tree other than the output tree has no id. */
+      inputTreeIds: readonly (number | undefined)[];
+      /** The layout the ring program verified the audit proof under, read from its confirmed instruction. */
+      layout: DisclosureLayout;
+    }>
+  | Readonly<{
+      kind: "deposit";
+      transaction: IndexedShieldedTransaction;
+      /** The capsule bindings of the audited deposit behind the event, empty for a plain one. */
+      deposits: readonly ConfirmedDeposit[];
+    }>
+  | Readonly<{
+      kind: "merge";
+      transaction: IndexedShieldedTransaction;
+      /** The anonymous merge disclosure whose proof the direct ring caller verified. */
+      disclosure?: RingMergeDisclosure;
+    }>;
+
+/** Mirrors Rust `TransactionOrigin`, an unknown signature is an error, never absent. */
 export interface TransactionOrigin {
-  ringInvoked(
-    signature: Signature,
-    eventIndex: number,
-    ring: Address,
-    context?: RequestContext,
-  ): Promise<boolean>;
   /** Binds indexed data to the exact confirmed transfer, deposit or merge. Other-ring events return undefined. */
   confirmedTransaction(
     transaction: IndexedShieldedTransaction,
     ring: Address,
     context?: RequestContext,
-  ): Promise<IndexedShieldedTransaction | undefined>;
-  /** Exact settled instruction kind for scanners that must distinguish merge from transfer. */
-  confirmedEventKind?(
-    transaction: IndexedShieldedTransaction,
-    ring: Address,
-    context?: RequestContext,
-  ): Promise<"transfer" | "deposit" | "merge" | undefined>;
-  /** An anonymous ring's merge audit reads the verified disclosure, other rings never call it. */
-  confirmedMergeDisclosure?: MergeDisclosureSource["confirmedMergeDisclosure"];
+  ): Promise<ConfirmedRingTransaction | undefined>;
 }
 
-/** The disclosure of an anonymous merge whose proof the ring program verified before SPP settled it. */
-export interface MergeDisclosureSource {
-  confirmedMergeDisclosure(
-    signature: Signature,
-    eventIndex: number,
-    ring: Address,
-    context?: RequestContext,
-  ): Promise<RingMergeDisclosure | undefined>;
-}
-
-/** The ring forwards its exact SPP body behind `ringDataHash || root || anonymous`. */
+/** The ring forwards `ringDataHash || root || anonymous || body` with the body's `b` decompressed. */
 function confirmedMergeDisclosureOf(found: TrustedEvent): RingMergeDisclosure | undefined {
   const wrapper = found.wrapper;
   if (
@@ -96,20 +102,31 @@ function confirmedMergeDisclosureOf(found: TrustedEvent): RingMergeDisclosure | 
   if (
     !equal(forwarded.subarray(1, 33), ringDataHash) ||
     forwarded[65] !== 1 ||
-    !equal(forwarded.subarray(66), wrapper.data.subarray(prefix))
+    !equal(forwarded.subarray(FORWARDED_MERGE_PREFIX), sppMergeBody(wrapper.data.subarray(prefix)))
   )
     throw invalid("merge.disclosure");
   return disclosure;
 }
 
-/** Confirmed audited-deposit data, separate from a boolean ring-origin check. */
-export interface AuditedDepositSource {
-  confirmedDeposits(
-    signature: Signature,
-    eventIndex: number,
-    ring: Address,
-    context?: RequestContext,
-  ): Promise<readonly ConfirmedDeposit[]>;
+/** `tag || ringDataHash || root || anonymous` ahead of the forwarded SPP merge body. */
+const FORWARDED_MERGE_PREFIX = 1 + 32 + 32 + 1;
+/** `expiry_unix_ts u64 || proof.a` ahead of `proof.b`, Rust `MERGE_B_OFFSET`. */
+const MERGE_B_OFFSET = 8 + 32;
+
+/** Rust `CustomRingMergeIxDataRef::spp_merge_body`, the compact body with `proof.b` decompressed. */
+function sppMergeBody(compact: Uint8Array): Uint8Array {
+  if (compact.length < MERGE_B_OFFSET + 64) throw invalid("merge.body");
+  let b: Uint8Array;
+  try {
+    b = decompressG2(compact.slice(MERGE_B_OFFSET, MERGE_B_OFFSET + 64) as Bytes64);
+  } catch (cause) {
+    throw new RingError("RING_ORIGIN_DECODE", { details: { path: "merge.proof.b" }, cause });
+  }
+  const body = new Uint8Array(compact.length + 64);
+  body.set(compact.subarray(0, MERGE_B_OFFSET), 0);
+  body.set(b, MERGE_B_OFFSET);
+  body.set(compact.subarray(MERGE_B_OFFSET + 64), MERGE_B_OFFSET + 128);
+  return body;
 }
 
 const CONFIRMED_DEPOSIT = Symbol("confirmed audited deposit");
@@ -241,15 +258,6 @@ export function ringInstructionsIn(
 /** Mirrors Rust `ring_invoked_in`. */
 export function ringInvokedIn(groups: readonly OriginInstructionGroup[], ring: Address): boolean {
   return ringInstructionsIn(groups, ring).length > 0;
-}
-
-/** Checks the ring caller of one trusted SPP event. */
-export function ringEventInvokedIn(
-  groups: readonly OriginInstructionGroup[],
-  eventIndex: number,
-  ring: Address,
-): boolean {
-  return ringEventIn(groups, eventIndex, ring) !== undefined;
 }
 
 interface TrustedEvent {
@@ -429,10 +437,8 @@ export function senderOf(
   return signers.find((signer) => owned.has(signer));
 }
 
-/** Mirrors the Rust `TransactionOrigin` impl for `SolanaRpc`. */
-export class RpcTransactionOrigin
-  implements TransactionOrigin, AuditedDepositSource, MergeDisclosureSource
-{
+/** Mirrors the Rust `TransactionOrigin` impl for `SolanaRpc`, one read per signature. */
+export class RpcTransactionOrigin implements TransactionOrigin {
   readonly #rpc: SolanaRpc;
   readonly #transactions = new Map<Signature, Promise<unknown>>();
   static readonly #MAX_TRANSACTIONS = 4096;
@@ -441,76 +447,13 @@ export class RpcTransactionOrigin
     this.#rpc = rpc;
   }
 
-  async ringInvoked(
-    signature: Signature,
-    eventIndex: number,
-    ring: Address,
-    context?: RequestContext,
-  ): Promise<boolean> {
-    return ringEventInvokedIn(
-      confirmedInstructionGroups(await this.#transaction(signature, context)),
-      eventIndex,
-      ring,
-    );
-  }
-
-  async confirmedDeposits(
-    signature: Signature,
-    eventIndex: number,
-    ring: Address,
-    context?: RequestContext,
-  ): Promise<readonly ConfirmedDeposit[]> {
-    return ConfirmedDeposit.fromTransaction(
-      await this.#transaction(signature, context),
-      signature,
-      eventIndex,
-      ring,
-    );
-  }
-
-  async confirmedMergeDisclosure(
-    signature: Signature,
-    eventIndex: number,
-    ring: Address,
-    context?: RequestContext,
-  ): Promise<RingMergeDisclosure | undefined> {
-    const found = ringEventIn(
-      confirmedInstructionGroups(await this.#transaction(signature, context)),
-      eventIndex,
-      ring,
-    );
-    return found === undefined ? undefined : confirmedMergeDisclosureOf(found);
-  }
-
   async confirmedTransaction(
     transaction: IndexedShieldedTransaction,
     ring: Address,
     context?: RequestContext,
-  ): Promise<IndexedShieldedTransaction | undefined> {
+  ): Promise<ConfirmedRingTransaction | undefined> {
     const confirmed = await this.#transaction(transaction.txSignature, context);
     return bindConfirmedTransaction(confirmed, transaction, ring);
-  }
-
-  async confirmedEventKind(
-    transaction: IndexedShieldedTransaction,
-    ring: Address,
-    context?: RequestContext,
-  ): Promise<"transfer" | "deposit" | "merge" | undefined> {
-    if (transaction.eventIndex === undefined) throw invalid("eventIndex");
-    const confirmed = await this.#transaction(transaction.txSignature, context);
-    const found = ringEventIn(confirmedInstructionGroups(confirmed), transaction.eventIndex, ring);
-    if (found === undefined) return undefined;
-    switch (found.source.data[0]) {
-      case InstructionTag.ringTransact:
-      case InstructionTag.ringAuthorityTransact:
-        return "transfer";
-      case InstructionTag.ringDeposit:
-        return "deposit";
-      case InstructionTag.ringMergeTransact:
-        return "merge";
-      default:
-        return undefined;
-    }
   }
 
   #transaction(signature: Signature, context?: RequestContext): Promise<unknown> {
@@ -554,86 +497,34 @@ export class RpcTransactionOrigin
   }
 }
 
-/** One lookup per event and ring. */
-export class CachedTransactionOrigin implements TransactionOrigin {
-  readonly #origin: TransactionOrigin;
-  readonly #known = new Map<string, boolean>();
-  static readonly #MAX_KNOWN = 4096;
-
-  constructor(origin: TransactionOrigin) {
-    this.#origin = origin;
-  }
-
-  async ringInvoked(
-    signature: Signature,
-    eventIndex: number,
-    ring: Address,
-    context?: RequestContext,
-  ): Promise<boolean> {
-    const key = `${signature}:${String(eventIndex)}:${ring}`;
-    const known = this.#known.get(key);
-    if (known !== undefined) return known;
-    const invoked = await this.#origin.ringInvoked(signature, eventIndex, ring, context);
-    if (this.#known.size >= CachedTransactionOrigin.#MAX_KNOWN) {
-      const oldest = this.#known.keys().next().value;
-      if (oldest !== undefined) this.#known.delete(oldest);
-    }
-    this.#known.set(key, invoked);
-    return invoked;
-  }
-
-  async confirmedTransaction(
-    transaction: IndexedShieldedTransaction,
-    ring: Address,
-    context?: RequestContext,
-  ): Promise<IndexedShieldedTransaction | undefined> {
-    // Recheck every supplied indexed record, even when its signature was seen before.
-    return this.#origin.confirmedTransaction(transaction, ring, context);
-  }
-
-  confirmedEventKind(
-    transaction: IndexedShieldedTransaction,
-    ring: Address,
-    context?: RequestContext,
-  ): Promise<"transfer" | "deposit" | "merge" | undefined> {
-    if (this.#origin.confirmedEventKind === undefined)
-      throw new RingError("RING_ORIGIN_DECODE", {
-        details: { reason: "confirmed event kind unavailable" },
-      });
-    return this.#origin.confirmedEventKind(transaction, ring, context);
-  }
-
-  confirmedMergeDisclosure(
-    signature: Signature,
-    eventIndex: number,
-    ring: Address,
-    context?: RequestContext,
-  ): Promise<RingMergeDisclosure | undefined> {
-    if (this.#origin.confirmedMergeDisclosure === undefined)
-      throw new RingError("RING_ORIGIN_DECODE", {
-        details: { reason: "confirmed merge disclosure unavailable" },
-      });
-    return this.#origin.confirmedMergeDisclosure(signature, eventIndex, ring, context);
-  }
-}
-
 interface ConfirmedEventData extends Pick<
   ConfirmedTransferData,
   "outputs" | "messages" | "nullifiers"
 > {
+  readonly kind: ConfirmedEventKind;
+  /** SPP proved the transfer on the anonymous rail. */
+  readonly anonymous?: boolean;
   readonly txViewingPk?: Bytes33;
   readonly salt?: Bytes16;
-  readonly proofless: boolean;
   readonly outputTree: Address;
   readonly firstLeaf: bigint;
+  /** The tree each input of a transfer spends from. */
+  readonly inputTrees: readonly Address[];
 }
 
-/** The compact transfer/merge events carry execution-assigned tree positions. */
-function readEventLocation(event: Reader): Readonly<{ outputTree: Address; firstLeaf: bigint }> {
-  const trees = event.u32("event.inputTrees.length");
-  if (trees < 1 || trees > INPUT_TREES) throw invalid("event.inputTrees.length");
-  event.bytes(trees * 40, "event.inputTrees");
+/** The compact transfer and merge events carry the execution-assigned tree positions. */
+function readEventLocation(
+  event: Reader,
+): Readonly<{ trees: readonly Address[]; outputTree: Address; firstLeaf: bigint }> {
+  const count = event.u32("event.inputTrees.length");
+  if (count < 1 || count > INPUT_TREES) throw invalid("event.inputTrees.length");
+  const trees = Array.from({ length: count }, () => {
+    const tree = encodeBase58(event.bytes(32, "event.inputTree"));
+    event.u64("event.inputTree.firstInputQueueSeq");
+    return tree;
+  });
   return {
+    trees,
     outputTree: encodeBase58(event.bytes(32, "event.outputTree")),
     firstLeaf: event.u64("event.firstOutputLeafIndex"),
   };
@@ -650,9 +541,14 @@ function readConfirmedEvent(
   if (tag === InstructionTag.ringTransact || tag === InstructionTag.ringAuthorityTransact) {
     if (kind !== 2) throw invalid("event.kind");
     const data = readTransferData(new Reader(source.data.slice(1)), source.accounts);
-    const location = readEventLocation(event);
+    const { trees, outputTree, firstLeaf } = readEventLocation(event);
     event.done();
-    return { ...data, ...location, proofless: false };
+    const inputTrees = data.inputTreeIndexes.map((index) => {
+      const tree = trees[index];
+      if (tree === undefined) throw invalid("input.treeIndex");
+      return tree;
+    });
+    return { ...data, outputTree, firstLeaf, kind: "transfer", inputTrees };
   }
   if (tag === InstructionTag.ringMergeTransact) {
     if (kind !== 3) throw invalid("event.kind");
@@ -664,12 +560,14 @@ function readConfirmedEvent(
     data.done();
     const { salt, ciphertext } = merge.outputEncryption;
     const payload = encodeMergeOutputData({ ringDataHash, salt, ciphertext });
-    const location = readEventLocation(event);
+    const { outputTree, firstLeaf } = readEventLocation(event);
     const viewTag = event.bytes(32, "merge.viewTag") as Bytes32;
     event.done();
     return {
-      ...location,
-      proofless: false,
+      outputTree,
+      firstLeaf,
+      kind: "merge",
+      inputTrees: [],
       nullifiers: merge.nullifiers,
       messages: [],
       outputs: [{ hash: merge.outputUtxoHash, viewTag, payload }],
@@ -712,7 +610,8 @@ function readConfirmedEvent(
   }
   event.done();
   return {
-    proofless: true,
+    kind: "deposit",
+    inputTrees: [],
     outputTree,
     firstLeaf,
     outputs,
@@ -726,7 +625,7 @@ function bindConfirmedTransaction(
   confirmed: unknown,
   indexed: IndexedShieldedTransaction,
   ring: Address,
-): IndexedShieldedTransaction | undefined {
+): ConfirmedRingTransaction | undefined {
   if (indexed.eventIndex === undefined) throw invalid("eventIndex");
   const found = ringEventIn(confirmedInstructionGroups(confirmed), indexed.eventIndex, ring);
   if (found === undefined) return undefined;
@@ -738,9 +637,10 @@ function bindConfirmedTransaction(
     // Solana Kit promotes RPC u64 values to bigint. Raw JSON fixtures use number/string.
     const slot = typeof rawSlot === "bigint" ? rawSlot : integer(rawSlot, "slot");
     if (slot < 0n || slot > 0xffff_ffff_ffff_ffffn) throw invalid("slot");
+    const proofless = data.kind === "deposit";
     if (
       indexed.slot !== slot ||
-      indexed.proofless !== data.proofless ||
+      indexed.proofless !== proofless ||
       indexed.ringProgramId !== ring ||
       (data.txViewingPk === undefined
         ? indexed.txViewingPublicKey !== undefined
@@ -785,12 +685,12 @@ function bindConfirmedTransaction(
         }),
       });
     });
-    return Object.freeze({
+    const transaction: IndexedShieldedTransaction = Object.freeze({
       slot,
       txSignature: indexed.txSignature,
       eventIndex: indexed.eventIndex,
       ringProgramId: ring,
-      proofless: data.proofless,
+      proofless,
       ...(data.txViewingPk === undefined
         ? {}
         : { txViewingPublicKey: X25519PublicKey.fromBytes(data.txViewingPk) }),
@@ -799,6 +699,39 @@ function bindConfirmedTransaction(
       messages: Object.freeze(data.messages),
       nullifiers: Object.freeze(data.nullifiers),
     });
+    if (data.kind === "deposit")
+      return Object.freeze({
+        kind: data.kind,
+        transaction,
+        deposits: ConfirmedDeposit.fromTransaction(
+          confirmed,
+          indexed.txSignature,
+          indexed.eventIndex,
+          ring,
+        ),
+      });
+    if (data.kind === "merge") {
+      const disclosure = confirmedMergeDisclosureOf(found);
+      return Object.freeze({
+        kind: data.kind,
+        transaction,
+        ...(disclosure === undefined ? {} : { disclosure }),
+      });
+    }
+    // Rust `ConfirmedEvent::input_tree_ids`, the event names any other tree by its account alone.
+    const outputTreeId = outputSlots[0]?.outputContext.treeId;
+    return Object.freeze({
+      kind: data.kind,
+      transaction,
+      inputTreeIds: Object.freeze(
+        data.inputTrees.map((tree) => (tree === outputTree ? outputTreeId : undefined)),
+      ),
+      layout: boundLayout(found, {
+        anonymous: data.anonymous === true,
+        outputs: outputSlots.length,
+        inputs: data.nullifiers.length,
+      }),
+    });
   } catch (cause) {
     if (cause instanceof RingError) throw cause;
     throw new RingError("RING_ORIGIN_DECODE", {
@@ -806,6 +739,22 @@ function bindConfirmedTransaction(
       cause,
     });
   }
+}
+
+/** The disclosure layout of the ring's own `Transact` or `DelegateTransact`, the frame the program verified. */
+function boundLayout(
+  found: TrustedEvent,
+  published: Readonly<{ anonymous: boolean; outputs: number; inputs: number }>,
+): DisclosureLayout {
+  const instruction = found.wrapper?.data;
+  const tag = instruction?.[0];
+  if (instruction === undefined || tag === undefined) throw invalid("transfer.instruction");
+  // Only an anonymous ring emits an anonymous transfer.
+  const rail = ringRailOf(tag, published.anonymous ? "anonymous" : "off");
+  const data = RingTransactData.parse(instruction.subarray(1), rail);
+  if (data.outputs.length !== published.outputs || data.nullifiers.length !== published.inputs)
+    throw invalid("transfer.instruction");
+  return RingTransactData.disclosureLayout(data);
 }
 
 /** Mirrors Rust `settlement_width`, the accounts `append_interface_transfer_accounts` adds. */
@@ -846,7 +795,9 @@ function withdrawalLeg(
 function settlementDataOf(
   instruction: OriginInstruction,
 ): { transfers: readonly InterfaceTransfer[]; cacheAccountCount: number } | undefined {
-  if (instruction.data[0] !== InstructionTag.ringTransact) return undefined;
+  const tag = instruction.data[0];
+  if (tag !== InstructionTag.ringTransact && tag !== InstructionTag.ringAuthorityTransact)
+    return undefined;
   try {
     return readTransferData(new Reader(instruction.data.slice(1)), instruction.accounts);
   } catch (cause) {
@@ -869,6 +820,9 @@ interface ConfirmedTransferData {
   }>[];
   messages: readonly Readonly<{ viewTag: Bytes32; data: Uint8Array }>[];
   nullifiers: readonly Bytes32[];
+  /** Per input, its position in the event's input trees. */
+  inputTreeIndexes: readonly number[];
+  anonymous: boolean;
 }
 
 /** One parser owns both settlement extraction and audited transfer authentication. */
@@ -923,12 +877,13 @@ function readTransferData(reader: Reader, accounts: readonly Address[]): Confirm
     cacheAccountCount = (reads === 0n ? 0 : 1) + (writes ? 2 : 0);
   }
   reader.bytes(192, "proof");
-  const nullifiers = Array.from({ length: reader.u8("inputs.length") }, () => {
-    const nullifier = reader.bytes(32, "input.nullifier") as Bytes32;
-    reader.u8("input.treeIndex");
-    return nullifier;
-  });
+  const inputs = Array.from({ length: reader.u8("inputs.length") }, () => ({
+    nullifier: reader.bytes(32, "input.nullifier") as Bytes32,
+    treeIndex: reader.u8("input.treeIndex"),
+  }));
   reader.bytes(reader.u8("treeContexts.length") * 4, "treeContexts");
+  // Rust `control_cosigner`, the anonymous rail appends the ring's co-signer and nothing else.
+  if (circuit === 3 || circuit === 6) reader.bytes(32, "coSigner");
   reader.done();
   return {
     transfers,
@@ -937,7 +892,9 @@ function readTransferData(reader: Reader, accounts: readonly Address[]): Confirm
     salt,
     outputs,
     messages,
-    nullifiers,
+    nullifiers: inputs.map((input) => input.nullifier),
+    inputTreeIndexes: inputs.map((input) => input.treeIndex),
+    anonymous: circuit === 3 || circuit === 6,
   };
 }
 

@@ -10,6 +10,7 @@ describe("ring projection consistency", () => {
     for (const code of [
       "CLIENT_MEMBER_REGISTRY_OUT_OF_SYNC",
       "CLIENT_MEMBER_REGISTRY_ROOT_CHANGED",
+      "CLIENT_RECORD_QUEUE_CHANGED",
     ] as const) {
       const read = vi
         .fn<() => Promise<number>>()
@@ -20,6 +21,17 @@ describe("ring projection consistency", () => {
       ).resolves.toBe(7);
       expect(read).toHaveBeenCalledTimes(2);
     }
+  });
+
+  it("retries a projection that has not caught up with the proof data", async () => {
+    const read = vi
+      .fn<() => Promise<number>>()
+      .mockRejectedValueOnce(new ClientError("CLIENT_INDEXER_PROOF_DATA_NOT_READY"))
+      .mockResolvedValue(7);
+    await expect(
+      waitForProjection(read, MEMBER_REGISTRY_PROJECTION_ERRORS, undefined, IMMEDIATE_POLL),
+    ).resolves.toBe(7);
+    expect(read).toHaveBeenCalledTimes(2);
   });
 
   it("returns the last projection error after the bounded wait", async () => {

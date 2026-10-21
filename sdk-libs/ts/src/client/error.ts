@@ -63,6 +63,7 @@ export interface ClientErrorDetailsMap {
     member?: string;
   }>;
   readonly CLIENT_MEMBER_REGISTRY_MEMBER_ALREADY_REGISTERED: MethodDetails;
+  readonly CLIENT_RECORD_QUEUE_CHANGED: MethodDetails;
   readonly CLIENT_KEYPAIR: Readonly<{ code: KeypairErrorCode }>;
   readonly CLIENT_TRANSACTION: Readonly<{ code: TransactionErrorCode }>;
   readonly CLIENT_HASHER: Readonly<{ code: HasherErrorCode }>;
@@ -250,6 +251,7 @@ export const TYPESCRIPT_CLIENT_ERROR_CODES = Object.freeze([
   "CLIENT_MEMBER_REGISTRY_ROOT_CHANGED",
   "CLIENT_MEMBER_REGISTRY_MEMBER_UNREGISTERED",
   "CLIENT_MEMBER_REGISTRY_MEMBER_ALREADY_REGISTERED",
+  "CLIENT_RECORD_QUEUE_CHANGED",
   "CLIENT_INVALID_CONFIG",
   "CLIENT_UNEXPECTED",
   "CLIENT_INVALID_INTEGER",
@@ -425,6 +427,7 @@ const DETAIL_SHAPES: Partial<Readonly<Record<ClientErrorCode, DetailShape>>> = {
   CLIENT_MEMBER_REGISTRY_ROOT_CHANGED: { method: "string" },
   CLIENT_MEMBER_REGISTRY_MEMBER_UNREGISTERED: { method: "string", member: "string" },
   CLIENT_MEMBER_REGISTRY_MEMBER_ALREADY_REGISTERED: { method: "string" },
+  CLIENT_RECORD_QUEUE_CHANGED: { method: "string" },
   CLIENT_UNSUPPORTED_RPC_METHOD: { method: "string" },
   CLIENT_INDEXER_TIMEOUT: { signature: "string", expectedTags: "number", attempts: "number" },
   CLIENT_INDEXER_NOT_CAUGHT_UP: { target: "string", latest: "string", attempts: "number" },

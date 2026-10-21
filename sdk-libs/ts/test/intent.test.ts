@@ -348,6 +348,7 @@ describe("approval binding", () => {
     const keys = LocalKeys.fromKeypair(keypair, {
       prove: () => Promise.reject(new Error("prove must not be called")),
       proveMerge: () => Promise.reject(new Error("proveMerge must not be called")),
+      proveRing: () => Promise.reject(new Error("proveRing must not be called")),
     });
     const stale: ApprovalHandler = (request) => {
       if (request.intent.kind !== "transfer") throw new Error("expected transfer");

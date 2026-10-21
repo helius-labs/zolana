@@ -63,7 +63,9 @@ describe("shared transact derivation vectors (test-vectors/transact_derivation.j
     expect(hex(transactOutputBlinding(firstNullifier, outputSeed, 0))).not.toBe(
       hex(transactOutputBlinding(firstNullifier, outputSeed, 1)),
     );
-    expect(() => transactOutputBlinding(firstNullifier, outputSeed, -1)).toThrow(RangeError);
+    expect(() => transactOutputBlinding(firstNullifier, outputSeed, -1)).toThrow(
+      "KEYPAIR_INVALID_LENGTH",
+    );
   });
 
   it("folds tree slots from the right over a zero suffix", () => {

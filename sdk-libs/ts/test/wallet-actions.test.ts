@@ -18,6 +18,7 @@ import { internalUserRecordPda } from "../src/wallet/registry.js";
 import {
   authorizedPrivateTransactionMaterial,
   type AuthorizedPrivateTransaction,
+  type ProofAuthority,
   type ProofDataSource,
   type ProofService,
 } from "../src/client/ports.js";
@@ -63,12 +64,14 @@ import {
   buildRingTransferTransaction,
   selectRingInputs,
 } from "../src/ring/transfer.js";
-import { RING_INPUT_SLOTS } from "../src/client/prover/types.js";
 import { ownerSignerAddresses } from "../src/client/prover/assembly.js";
 import { buildDepositTransaction, createDeposit } from "../src/wallet/deposit.js";
 import { depositClient, privateTransactionClient, ringTransferClient } from "./helpers/clients.js";
 import { emptyTransaction } from "./helpers/transactions.js";
-import { ringProgramConfigData } from "./helpers/ring-accounts.js";
+import { ringProgramConfigData, sppRingRegistration } from "./helpers/ring-accounts.js";
+import { signingKeySpendSigner } from "../src/ring/anonymous.js";
+import type { RingMode } from "../src/ring/codecs.js";
+import { AnonymousRingState } from "../src/transaction/wallet/anonymous-state.js";
 import { ringConfigPda } from "../src/interface/pda/index.js";
 import { approveIntent, type ApprovalRequest } from "../src/transaction/wallet/intent.js";
 import { MAX_SPEND_INPUTS } from "../src/flows/select.js";
@@ -102,13 +105,19 @@ function spendingKeypair(): ShieldedKeypair {
 }
 
 /** Unit tests never reach the prover; the keys still need one to exist. */
-function stubProofs(): ProofService {
+function stubProofs(): ProofService & Pick<ProofAuthority, "proveRingWithSecret"> {
   return {
     prove: vi.fn(async () => {
       throw new Error("prove must not be called");
     }),
     proveMerge: vi.fn(async () => {
       throw new Error("proveMerge must not be called");
+    }),
+    proveRing: vi.fn(async () => {
+      throw new Error("proveRing must not be called");
+    }),
+    proveRingWithSecret: vi.fn(async () => {
+      throw new Error("proveRingWithSecret must not be called");
     }),
   };
 }
@@ -1005,6 +1014,9 @@ function ringUtxoWallet(
   return wallet;
 }
 
+/** The cap `refuses a cover wider than the input cap` runs into with six UTXOs. */
+const INPUT_CAP = 5;
+
 describe("selectRingInputs", () => {
   it("refuses a zero amount", () => {
     const wallet = ringUtxoWallet(spendingKeypair(), [[10n, RING]]);
@@ -1016,7 +1028,7 @@ describe("selectRingInputs", () => {
         amount: 0n,
         inputs: "ring",
         tree: TREE,
-        maxInputs: RING_INPUT_SLOTS,
+        maxInputs: INPUT_CAP,
       }),
     ).toThrow("RING_ZERO_AMOUNT");
   });
@@ -1034,7 +1046,7 @@ describe("selectRingInputs", () => {
         amount: 15n,
         inputs: "ring",
         tree: TREE,
-        maxInputs: RING_INPUT_SLOTS,
+        maxInputs: INPUT_CAP,
       }),
     ).toThrow("RING_INSUFFICIENT_BALANCE");
     const selected = selectRingInputs({
@@ -1044,7 +1056,7 @@ describe("selectRingInputs", () => {
       amount: 15n,
       inputs: "ring-or-default",
       tree: TREE,
-      maxInputs: RING_INPUT_SLOTS,
+      maxInputs: INPUT_CAP,
     });
     expect(selected).toHaveLength(2);
   });
@@ -1061,7 +1073,7 @@ describe("selectRingInputs", () => {
       amount: 25n,
       inputs: "default",
       tree: TREE,
-      maxInputs: RING_INPUT_SLOTS,
+      maxInputs: INPUT_CAP,
     });
     expect(selected).toHaveLength(1);
     expect(selected[0]?.utxo.ringProgramId).toBeUndefined();
@@ -1073,7 +1085,7 @@ describe("selectRingInputs", () => {
         amount: 30n,
         inputs: "default",
         tree: TREE,
-        maxInputs: RING_INPUT_SLOTS,
+        maxInputs: INPUT_CAP,
       }),
     ).toThrow("RING_INSUFFICIENT_BALANCE");
   });
@@ -1090,7 +1102,7 @@ describe("selectRingInputs", () => {
       amount: 20n,
       inputs: "ring",
       tree: TREE,
-      maxInputs: RING_INPUT_SLOTS,
+      maxInputs: INPUT_CAP,
     });
     expect(selected).toHaveLength(1);
     expect(selected[0]?.utxo.amount).toBe(20n);
@@ -1102,7 +1114,7 @@ describe("selectRingInputs", () => {
         amount: 30n,
         inputs: "ring",
         tree: TREE,
-        maxInputs: RING_INPUT_SLOTS,
+        maxInputs: INPUT_CAP,
       }),
     ).toThrow("RING_INSUFFICIENT_BALANCE");
   });
@@ -1119,7 +1131,7 @@ describe("selectRingInputs", () => {
       amount: 100n,
       inputs: "ring",
       tree: TREE,
-      maxInputs: RING_INPUT_SLOTS,
+      maxInputs: INPUT_CAP,
     });
     expect(selected).toHaveLength(1);
     expect(selected[0]?.utxo.amount).toBe(100n);
@@ -1138,7 +1150,7 @@ describe("selectRingInputs", () => {
         amount: 30n,
         inputs: "ring",
         tree: TREE,
-        maxInputs: RING_INPUT_SLOTS,
+        maxInputs: INPUT_CAP,
       }),
     ).toThrow("RING_TOO_MANY_INPUTS");
   });
@@ -1155,7 +1167,7 @@ describe("selectRingInputs", () => {
       amount: 20n,
       inputs: "ring-or-default",
       tree: TREE,
-      maxInputs: RING_INPUT_SLOTS,
+      maxInputs: INPUT_CAP,
     });
     expect(selected).toHaveLength(1);
     expect(selected[0]?.utxo.ringProgramId).toBeUndefined();
@@ -1167,18 +1179,24 @@ describe("selectRingInputs", () => {
         amount: 30n,
         inputs: "ring-or-default",
         tree: TREE,
-        maxInputs: RING_INPUT_SLOTS,
+        maxInputs: INPUT_CAP,
       }),
     ).toThrow("RING_INSUFFICIENT_BALANCE");
   });
 });
 
 describe("ring approval summary", () => {
-  async function approvalClient(_keypair: ShieldedKeypair) {
+  /** An active ring, every build reaches its approval and stops at the prover. */
+  async function approvalClient(_keypair: ShieldedKeypair, mode: RingMode = "off") {
     const [config, bump] = await ringConfigPda(RING);
+    const [ringAuth, registration] = await sppRingRegistration({
+      authority: PAYER,
+      ringProgramId: RING,
+    });
     return ringTransferClient({
       tree: TREE,
-      getAccount: async (address) =>
+      getSlot: async () => 1n,
+      getAccount: async (address: Address) =>
         address === config
           ? {
               owner: RING,
@@ -1190,9 +1208,12 @@ describe("ring approval summary", () => {
                   .toBytes(),
                 bump,
                 hasPolicy: false,
+                mode,
               }),
             }
-          : undefined,
+          : address === ringAuth
+            ? registration
+            : undefined,
     });
   }
   it("approves the exact amount moved into the ring", async () => {
@@ -1242,6 +1263,43 @@ describe("ring approval summary", () => {
     if (summary === undefined) throw new Error("approval not requested");
     return summary;
   }
+
+  /** An entry of `amount` into an anonymous ring out of nine default notes of 1000. */
+  async function anonymousEntry(amount: bigint) {
+    const keypair = spendingKeypair();
+    const wallet = ringUtxoWallet(
+      keypair,
+      Array.from({ length: 9 }, () => [1_000n, undefined] as const),
+    );
+    const { approve, requests } = recordingApproval();
+    const error: unknown = await buildRingEntryTransaction({
+      client: await approvalClient(keypair, "anonymous"),
+      ringProgramId: RING,
+      wallet,
+      keys: localKeys(keypair),
+      approve,
+      feePayer: PAYER,
+      amount,
+      anonymous: {
+        signer: signingKeySpendSigner(SigningKey.fromEd25519Bytes(filled(42))),
+        state: AnonymousRingState.create(RING, 0n),
+      },
+    }).catch((cause: unknown) => cause);
+    return { error, requests };
+  }
+
+  it("funds an anonymous ring's entry from at most eight default notes, the entry key's bound", async () => {
+    const eight = await anonymousEntry(8_000n);
+    expect(eight.requests.map((request) => request.intent)).toMatchObject([
+      { kind: "ringEntry", amount: 8_000n },
+    ]);
+    const nine = await anonymousEntry(8_001n);
+    expect(nine.error).toMatchObject({
+      code: "RING_BUILD_ENTRY",
+      causeCode: "RING_TOO_MANY_INPUTS",
+    });
+    expect(nine.requests).toEqual([]);
+  });
 
   it("names the whole default UTXO crossing into the ring, change included", async () => {
     const summary = await capturedSummary([[40n, undefined]], 25n, "default");

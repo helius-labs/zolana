@@ -332,17 +332,6 @@ export async function depositInstruction(
   );
 }
 
-/** An unset co-signer repeats the PDA, the message signer flag comes from the address. */
-export function ringCoSignerMetas(
-  cosignerPda: Address,
-  cosigner: SignerAccount | undefined,
-): AccountMeta[] {
-  return [
-    meta(cosignerPda, false, false),
-    cosigner === undefined ? meta(cosignerPda, false, false) : meta(cosigner, true, false),
-  ];
-}
-
 function settlementAccounts(withdrawal?: TransactWithdrawal): AccountMeta[] {
   if (withdrawal === undefined) return [];
   if (withdrawal.kind === "sol") {

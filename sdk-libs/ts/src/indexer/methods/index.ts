@@ -11,10 +11,15 @@ import {
   encodeShieldedTransactionsBySignatureRequest,
   encodeRingMemberProofRequest,
   encodeRingMemberRecordsRequest,
-  decodeRingMemberRecord,
-  decodeRingMemberRecords,
-  decodeRingMemberRegistryRoot,
+  decodeRingMemberOpening,
+  decodeRingMemberPage,
+  decodeRingRegistryState,
   encodeRingMemberRegistryRootRequest,
+  decodeRingApplyProofInputs,
+  decodeRingMemberOpenings,
+  decodeRingRecordQueue,
+  encodeRingApplyProofInputsRequest,
+  encodeRingMemberOpeningsRequest,
   decodeUserRecordsResponse,
   encodeUserRecordsRequest,
 } from "../codec.js";
@@ -25,6 +30,9 @@ import {
   GET_RING_MEMBER_RECORD,
   GET_RING_MEMBER_RECORDS,
   GET_RING_MEMBER_REGISTRY_ROOT,
+  GET_RING_APPLY_PROOF_INPUTS,
+  GET_RING_MEMBER_OPENINGS,
+  GET_RING_RECORD_QUEUE,
   GET_SHIELDED_TRANSACTIONS_BY_NULLIFIERS,
   GET_SHIELDED_TRANSACTIONS_BY_SIGNATURE,
   GET_SHIELDED_TRANSACTIONS_BY_TAGS,
@@ -45,10 +53,15 @@ import type {
   GetUserRecordsRequest,
   GetUserRecordsResponse,
   RingMemberProofRequest,
-  RingMemberRecordResponse,
+  RingMemberOpeningResponse,
+  RingMemberPageResponse,
   RingMemberRecordsRequest,
-  RingMemberRecordsResponse,
-  RingMemberRegistryTip,
+  RingRegistryStateResponse,
+  RingApplyProofInputsRequest,
+  RingApplyProofInputsResponse,
+  RingMemberOpeningsRequest,
+  RingMemberOpeningsResponse,
+  RingRecordQueueResponse,
 } from "../types.js";
 
 export interface MethodDescriptor<Request, Response> {
@@ -59,27 +72,52 @@ export interface MethodDescriptor<Request, Response> {
 
 export const getRingMemberRecordMethod: MethodDescriptor<
   RingMemberProofRequest,
-  RingMemberRecordResponse
+  RingMemberOpeningResponse
 > = {
   name: GET_RING_MEMBER_RECORD,
   encodeRequest: encodeRingMemberProofRequest,
-  decodeResponse: decodeRingMemberRecord,
+  decodeResponse: decodeRingMemberOpening,
 };
 export const getRingMemberRecordsMethod: MethodDescriptor<
   RingMemberRecordsRequest,
-  RingMemberRecordsResponse
+  RingMemberPageResponse
 > = {
   name: GET_RING_MEMBER_RECORDS,
   encodeRequest: encodeRingMemberRecordsRequest,
-  decodeResponse: decodeRingMemberRecords,
+  decodeResponse: decodeRingMemberPage,
 };
 export const getRingMemberRegistryRootMethod: MethodDescriptor<
   Readonly<{ ringProgramId: import("../../interface/types.js").Address }>,
-  RingMemberRegistryTip
+  RingRegistryStateResponse
 > = {
   name: GET_RING_MEMBER_REGISTRY_ROOT,
   encodeRequest: encodeRingMemberRegistryRootRequest,
-  decodeResponse: decodeRingMemberRegistryRoot,
+  decodeResponse: decodeRingRegistryState,
+};
+
+export const getRingMemberOpeningsMethod: MethodDescriptor<
+  RingMemberOpeningsRequest,
+  RingMemberOpeningsResponse
+> = {
+  name: GET_RING_MEMBER_OPENINGS,
+  encodeRequest: encodeRingMemberOpeningsRequest,
+  decodeResponse: decodeRingMemberOpenings,
+};
+export const getRingRecordQueueMethod: MethodDescriptor<
+  Readonly<{ ringProgramId: import("../../interface/types.js").Address }>,
+  RingRecordQueueResponse
+> = {
+  name: GET_RING_RECORD_QUEUE,
+  encodeRequest: encodeRingMemberRegistryRootRequest,
+  decodeResponse: decodeRingRecordQueue,
+};
+export const getRingApplyProofInputsMethod: MethodDescriptor<
+  RingApplyProofInputsRequest,
+  RingApplyProofInputsResponse
+> = {
+  name: GET_RING_APPLY_PROOF_INPUTS,
+  encodeRequest: encodeRingApplyProofInputsRequest,
+  decodeResponse: decodeRingApplyProofInputs,
 };
 
 export const getEncryptedUtxosByTagsMethod: MethodDescriptor<

@@ -15,7 +15,17 @@ import type {
   RingsOutputSlot as WireOutputSlot,
   UserRecord as WireUserRecord,
   RingMemberRecordView as WireRingMemberRecordView,
+  RingMemberOpeningView as WireRingMemberOpeningView,
+  RingRecordPathView as WireRingRecordPathView,
+  RingRegistryRootView as WireRingRegistryRootView,
+  Hash,
 } from "../indexer/types.js";
+import type {
+  MemberRecord,
+  QuadPath,
+  QueueEntry,
+  RecordOpening,
+} from "../interface/member-registry.js";
 import { MAX_USER_RECORD_OWNERS } from "../interface/indexer-limits.js";
 import type {
   Address,
@@ -29,12 +39,18 @@ import type { IndexedShieldedTransaction } from "../transaction/instructions/tra
 
 import { ClientError, isClientError, type ClientErrorCode } from "./error.js";
 import type {
+  RecordWrite,
   RegistryRecord,
+  RingApplyProofInputs,
+  RingMemberOpening,
+  RingMemberOpenings,
+  RingQueueState,
+  RingRegistryRoot,
+  RingMemberPage,
+  RingMemberPageRequest,
   RingMemberProofRequest,
-  RingMemberRecordResponse,
-  RingMemberRecordsRequest,
-  RingMemberRecordsResponse,
-  RingMemberRegistryTip,
+  RingMemberRecordResult,
+  RingRegistryState,
   UserRecordsLookup,
 } from "./ports.js";
 import { decodeBase64 } from "./internal.js";
@@ -147,92 +163,71 @@ export class ZolanaIndexer {
   async getRingMemberRecord(
     request: RingMemberProofRequest,
     context?: RequestContext,
-  ): Promise<RingMemberRecordResponse> {
+  ): Promise<RingMemberRecordResult> {
     const method = "getRingMemberRecord";
     try {
       const wire = memberRequest(request);
       const response = await this.#api.getRingMemberRecord(wire, context);
       if (
-        response.root !== wire.expectedRoot ||
-        response.nextIndex !== wire.expectedNextIndex ||
-        (response.record !== null && response.record.member !== wire.member)
+        response.root.root !== wire.expectedRoot ||
+        response.root.nextIndex !== wire.expectedNextIndex ||
+        (response.opening.present && response.opening.record.member !== wire.member)
       )
         throw new ClientError("CLIENT_INVALID_RPC_RESPONSE", { details: { method, path: "$" } });
-      const fields = (record: {
-        member: import("../indexer/types.js").Hash;
-        next: import("../indexer/types.js").Hash;
-        lists: bigint;
-        escrowKey: import("../indexer/types.js").Hash;
-      }) => ({
-        member: hashBytes(record.member),
-        next: hashBytes(record.next),
-        lists: record.lists,
-        escrowKey: hashBytes(record.escrowKey),
-      });
-      return {
+      return Object.freeze({
         context: response.context,
-        root: hashBytes(response.root),
-        rootIndex: response.rootIndex,
-        nextIndex: response.nextIndex,
-        present: response.present,
-        index: response.index,
-        path: response.path.map(hashBytes),
-        record:
-          response.record === null ? null : convertMemberRecord(response.record, method, "record"),
-        low:
-          response.low === null
-            ? null
-            : {
-                ...fields(response.low),
-                index: response.low.index,
-                path: response.low.path.map(hashBytes),
-              },
-      };
+        root: registryRoot(response.root),
+        opening: memberOpening(response.opening, method, "opening"),
+      });
     } catch (cause) {
       throw wrapIndexer(cause, method);
     }
   }
 
   async getRingMemberRecords(
-    request: RingMemberRecordsRequest,
+    request: RingMemberPageRequest,
     context?: RequestContext,
-  ): Promise<RingMemberRecordsResponse> {
+  ): Promise<RingMemberPage> {
     const method = "getRingMemberRecords";
     try {
       const wire = {
         ringProgramId: request.ringProgramId,
         expectedRoot: hash(request.expectedRoot),
-        expectedNextIndex: request.expectedNextIndex,
-        startIndex: request.startIndex,
+        expectedNextIndex: BigInt(request.expectedNextIndex),
+        startIndex: BigInt(request.startIndex),
         limit: request.limit,
       };
       const response = await this.#api.getRingMemberRecords(wire, context);
-      const end =
-        request.startIndex + BigInt(request.limit) < request.expectedNextIndex
-          ? request.startIndex + BigInt(request.limit)
-          : request.expectedNextIndex;
+      const end = Math.min(request.startIndex + request.limit, request.expectedNextIndex);
       if (
-        response.root !== wire.expectedRoot ||
-        response.nextIndex !== wire.expectedNextIndex ||
-        response.records.length !== Number(end - request.startIndex) ||
+        response.root.root !== wire.expectedRoot ||
+        response.root.nextIndex !== wire.expectedNextIndex ||
+        response.records.length !== end - request.startIndex ||
         response.records.some(
-          (entry, index) => entry.index !== request.startIndex + BigInt(index),
+          (entry, index) => entry.path.index !== BigInt(request.startIndex + index),
         ) ||
-        response.nextLeafIndex !== (end < request.expectedNextIndex ? end : null)
+        response.nextLeafIndex !== (end < request.expectedNextIndex ? BigInt(end) : null)
       )
         throw new ClientError("CLIENT_INVALID_RPC_RESPONSE", { details: { method, path: "$" } });
-      return {
+      return Object.freeze({
         context: response.context,
-        root: hashBytes(response.root),
-        rootIndex: response.rootIndex,
-        nextIndex: response.nextIndex,
-        records: response.records.map((entry) => ({
-          index: entry.index,
-          record: convertMemberRecord(entry.record, method, "records.record"),
-          path: entry.path.map(hashBytes),
-        })),
-        nextLeafIndex: response.nextLeafIndex,
-      };
+        root: registryRoot(response.root),
+        records: Object.freeze(
+          response.records.map((entry, index) => {
+            const opening = memberOpening(
+              { present: true, record: entry.record, path: entry.path },
+              method,
+              `records[${String(index)}]`,
+            );
+            return Object.freeze({
+              record: memberRecord(entry.record),
+              path: opening.path,
+              ...(opening.sealedKey === undefined ? {} : { sealedKey: opening.sealedKey }),
+            });
+          }),
+        ),
+        nextLeafIndex: response.nextLeafIndex === null ? undefined : Number(response.nextLeafIndex),
+      });
     } catch (cause) {
       throw wrapIndexer(cause, method);
     }
@@ -241,15 +236,142 @@ export class ZolanaIndexer {
   async getRingMemberRegistryRoot(
     request: Readonly<{ ringProgramId: Address }>,
     context?: RequestContext,
-  ): Promise<RingMemberRegistryTip> {
+  ): Promise<RingRegistryState> {
     const method = "getRingMemberRegistryRoot";
     try {
       const response = await this.#api.getRingMemberRegistryRoot(request, context);
-      return {
-        ...response,
-        root: hashBytes(response.root),
-        appendPath: response.appendPath.map(hashBytes),
-      };
+      return Object.freeze({
+        context: response.context,
+        history: Object.freeze(
+          response.history.map((entry) =>
+            entry === null
+              ? undefined
+              : Object.freeze({
+                  root: hashBytes(entry.root),
+                  applied: entry.applied,
+                  slot: entry.slot,
+                }),
+          ),
+        ),
+        historyCursor: response.historyCursor,
+        nextIndex: Number(response.nextIndex),
+        floor: response.floor,
+        priorFloor: response.priorFloor,
+        floorSlot: response.floorSlot,
+        ...(response.appendPath === null ? {} : { appendPath: recordPath(response.appendPath) }),
+      });
+    } catch (cause) {
+      throw wrapIndexer(cause, method);
+    }
+  }
+
+  async getRingMemberOpenings(
+    request: Readonly<{
+      ringProgramId: Address;
+      members: readonly Bytes32[];
+      expectedRoot: Bytes32;
+    }>,
+    context?: RequestContext,
+  ): Promise<RingMemberOpenings> {
+    const method = "getRingMemberOpenings";
+    try {
+      const expectedRoot = hash(request.expectedRoot);
+      const response = await this.#api.getRingMemberOpenings(
+        {
+          ringProgramId: request.ringProgramId,
+          members: request.members.map((member) => hash(member)),
+          expectedRoot,
+        },
+        context,
+      );
+      if (
+        response.root.root !== expectedRoot ||
+        response.openings.length !== request.members.length
+      )
+        throw new ClientError("CLIENT_INVALID_RPC_RESPONSE", { details: { method, path: "$" } });
+      return Object.freeze({
+        context: response.context,
+        root: registryRoot(response.root),
+        openings: Object.freeze(
+          response.openings.map((opening, index) =>
+            memberOpening(opening, method, `openings[${String(index)}]`),
+          ),
+        ),
+      });
+    } catch (cause) {
+      throw wrapIndexer(cause, method);
+    }
+  }
+
+  async getRingRecordQueue(
+    request: Readonly<{ ringProgramId: Address }>,
+    context?: RequestContext,
+  ): Promise<RingQueueState> {
+    const method = "getRingRecordQueue";
+    try {
+      const response = await this.#api.getRingRecordQueue(request, context);
+      return Object.freeze({
+        context: response.context,
+        head: response.head,
+        tail: response.tail,
+        chainHead: hashBytes(response.chainHead),
+        entries: Object.freeze(
+          response.entries.map((entry) =>
+            Object.freeze({
+              position: entry.position,
+              entry: queueEntry(entry),
+              slot: entry.slot,
+            }),
+          ),
+        ),
+      });
+    } catch (cause) {
+      throw wrapIndexer(cause, method);
+    }
+  }
+
+  async getRingApplyProofInputs(
+    request: Readonly<{ ringProgramId: Address; authorityWrites: readonly RecordWrite[] }>,
+    context?: RequestContext,
+  ): Promise<RingApplyProofInputs> {
+    const method = "getRingApplyProofInputs";
+    try {
+      const response = await this.#api.getRingApplyProofInputs(
+        {
+          ringProgramId: request.ringProgramId,
+          authorityWrites: request.authorityWrites.map((write) => ({
+            member: hash(write.member),
+            mask: write.mask,
+            value: write.value,
+          })),
+        },
+        context,
+      );
+      return Object.freeze({
+        context: response.context,
+        inputs: Object.freeze({
+          oldRoot: hashBytes(response.oldRoot),
+          newRoot: hashBytes(response.newRoot),
+          oldNextIndex: Number(response.oldNextIndex),
+          newNextIndex: Number(response.newNextIndex),
+          chainStart: hashBytes(response.chainStart),
+          chainEnd: hashBytes(response.chainEnd),
+          writes: Object.freeze(
+            response.writes.map((write) =>
+              Object.freeze({
+                entry: queueEntry(write),
+                exists: write.exists,
+                oldNext: hashBytes(write.oldNext),
+                oldLists: write.oldLists,
+                oldEscrow: hashBytes(write.oldEscrow),
+                slot: recordPath(write.slot),
+                low: memberRecord(write.low),
+                lowPath: recordPath(write.lowPath),
+              }),
+            ),
+          ),
+        }),
+      });
     } catch (cause) {
       throw wrapIndexer(cause, method);
     }
@@ -367,24 +489,75 @@ function memberRequest(request: RingMemberProofRequest) {
     ringProgramId: request.ringProgramId,
     member: hash(request.member),
     expectedRoot: hash(request.expectedRoot),
-    expectedNextIndex: request.expectedNextIndex,
+    expectedNextIndex: BigInt(request.expectedNextIndex),
   });
 }
 
-function convertMemberRecord(record: WireRingMemberRecordView, method: string, path: string) {
-  return {
+function registryRoot(root: WireRingRegistryRootView): RingRegistryRoot {
+  return Object.freeze({
+    root: hashBytes(root.root),
+    rootIndex: root.rootIndex,
+    applied: root.applied,
+    nextIndex: Number(root.nextIndex),
+  });
+}
+
+function recordPath(path: WireRingRecordPathView): QuadPath {
+  return Object.freeze({
+    index: Number(path.index),
+    siblings: Object.freeze(path.siblings.map((level) => Object.freeze(level.map(hashBytes)))),
+  });
+}
+
+function memberRecord(record: WireRingMemberRecordView): MemberRecord {
+  return Object.freeze({
     member: hashBytes(record.member),
     next: hashBytes(record.next),
     lists: record.lists,
     escrowKey: hashBytes(record.escrowKey),
-    ownerPublicKey: record.ownerPubkey ?? null,
-    ephemeralPublicKey:
-      record.ephPk === null ? null : decodeX25519(record.ephPk, method, `${path}.ephPk`),
-    ciphertext:
-      record.ciphertext === null
-        ? null
-        : decodeCiphertext(record.ciphertext, method, `${path}.ciphertext`),
-  };
+  });
+}
+
+function queueEntry(
+  entry: Readonly<{ member: Hash; mask: bigint; value: bigint; escrowKey: Hash }>,
+): QueueEntry {
+  return Object.freeze({
+    member: hashBytes(entry.member),
+    mask: entry.mask,
+    value: entry.value,
+    escrowKey: hashBytes(entry.escrowKey),
+  });
+}
+
+/** A sealed key is served whole or not at all. */
+function memberOpening(
+  opening: WireRingMemberOpeningView,
+  method: string,
+  path: string,
+): RingMemberOpening {
+  const { record } = opening;
+  const sealed = [record.ownerPubkey, record.nullifierPk, record.ephPk, record.ciphertext];
+  const present = sealed.filter((value) => value !== null && value !== undefined).length;
+  if (present !== 0 && present !== sealed.length)
+    throw new ClientError("CLIENT_INVALID_RPC_RESPONSE", {
+      details: { method, path: `${path}.record` },
+    });
+  const sealedKey =
+    record.ownerPubkey == null ||
+    record.nullifierPk == null ||
+    record.ephPk === null ||
+    record.ciphertext === null
+      ? undefined
+      : Object.freeze({
+          owner: record.ownerPubkey,
+          nullifierPk: hashBytes(record.nullifierPk),
+          ephemeralPublicKey: decodeX25519(record.ephPk, method, `${path}.record.ephPk`),
+          ciphertext: decodeCiphertext(record.ciphertext, method, `${path}.record.ciphertext`),
+        });
+  const opened: RecordOpening = opening.present
+    ? { kind: "present", record: memberRecord(record), path: recordPath(opening.path) }
+    : { kind: "absent", low: memberRecord(record), path: recordPath(opening.path) };
+  return Object.freeze({ ...opened, ...(sealedKey === undefined ? {} : { sealedKey }) });
 }
 
 function decodeCiphertext(value: string, method: string, path: string): Bytes32 {
@@ -728,12 +901,13 @@ async function pollIndexer<T extends Readonly<{ context: Readonly<{ slot: bigint
 /** Photon's ring projection codes, `zolana_indexer_api::error_code`. */
 const RING_PROJECTION_CODES: ReadonlyMap<
   number,
-  Extract<ClientErrorCode, `CLIENT_MEMBER_REGISTRY_${string}`>
+  Extract<ClientErrorCode, `CLIENT_MEMBER_REGISTRY_${string}` | "CLIENT_RECORD_QUEUE_CHANGED">
 > = new Map([
   [-32070, "CLIENT_MEMBER_REGISTRY_OUT_OF_SYNC"],
   [-32071, "CLIENT_MEMBER_REGISTRY_ROOT_CHANGED"],
   [-32072, "CLIENT_MEMBER_REGISTRY_MEMBER_UNREGISTERED"],
   [-32073, "CLIENT_MEMBER_REGISTRY_MEMBER_ALREADY_REGISTERED"],
+  [-32076, "CLIENT_RECORD_QUEUE_CHANGED"],
 ]);
 
 function wrapIndexer(cause: unknown, method: string): ClientError {

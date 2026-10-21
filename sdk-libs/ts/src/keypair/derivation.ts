@@ -27,19 +27,11 @@ export const INFO_SENDER_VIEW_TAG_SECRET = "TSPP/sender_view_tag";
 
 export const INFO_SENDER_VIEW_TAG_PREFIX = "TSPP/sender_view_tag/";
 
-export const INFO_PAIR_DOMAIN_PREFIX = "TSPP/pair-domain/";
+/** Followed by the ring program address and the address index. */
+export const INFO_RING_ADDRESS_KEY_PREFIX = "TSPP/ring_address_key/";
 
-export const INFO_PAIR_HINT_PREFIX = "TSPP/pair-hint/";
-
-export const INFO_RING_INBOX_PREFIX = "TSPP/ring_inbox/";
-
-export const INFO_RING_PAIR_PREFIX = "TSPP/ring_pair/";
-
-export const INFO_RING_BLINDING_SEED_PREFIX = "TSPP/ring_blinding_seed/";
-
-export const INFO_RING_INBOX_TAG_PREFIX = "TSPP/ring_inbox_tag/";
-
-export const INFO_RING_CHANGE_TAG_PREFIX = "TSPP/ring_change_tag/";
+/** Followed by the ring program address. */
+export const INFO_RING_CHANGE_KEY_PREFIX = "TSPP/ring_change_key/";
 
 export const ED25519_DERIVATION_MSG = "TSPP/derive/v1";
 
@@ -76,6 +68,8 @@ export const DOMAIN_MERGE_OUTPUT_CIPHERTEXT = 0x544d_4f43;
 export const DOMAIN_TRANSACT_OUTPUT_BLINDING_SEED_V1 = 0x5458_4f53;
 /** `"TXOB"`: one transact output blinding per output slot. */
 export const DOMAIN_TRANSACT_OUTPUT_BLINDING_V1 = 0x5458_4f42;
+/** ASCII `"TXRB"`, a ring output blinding from the ring secret its audit proof binds. */
+export const DOMAIN_TRANSACT_RING_OUTPUT_BLINDING_V1 = 0x5458_5242;
 /** `"TXPB"`: the blinding that keeps the private transaction hash unguessable. */
 export const DOMAIN_PRIVATE_TX_BLINDING_V1 = 0x5458_5042;
 
@@ -219,43 +213,6 @@ export function senderViewTag(secret: Uint8Array, txCount: bigint): ViewTag {
     secret,
     concatBytes(encoder.encode(INFO_SENDER_VIEW_TAG_PREFIX), u64be(txCount)),
   );
-}
-
-export function inboxViewTag(secret: Uint8Array, j: bigint): ViewTag {
-  return expandViewTag(secret, concatBytes(encoder.encode(INFO_RING_INBOX_TAG_PREFIX), u64be(j)));
-}
-
-export function ringChangeViewTag(
-  secret: Uint8Array,
-  firstNullifier: Bytes32,
-  slot: number,
-): ViewTag {
-  if (!Number.isInteger(slot) || slot < 0 || slot > 0xff) {
-    throw new KeypairError("KEYPAIR_INVALID_LENGTH", { name: "slot", minimum: 0, maximum: 0xff });
-  }
-  return expandViewTag(
-    secret,
-    concatBytes(encoder.encode(INFO_RING_CHANGE_TAG_PREFIX), firstNullifier, Uint8Array.of(slot)),
-  );
-}
-
-/** Mirrors Rust `shared_view_tag`, `rPublicKey` is the recipient of the direction on both sides. */
-export function sharedViewTag(
-  ecdhShared: Uint8Array,
-  rPublicKey: X25519PublicKey,
-  i: bigint,
-): ViewTag {
-  const domain = hkdfExpand(
-    undefined,
-    ecdhShared,
-    concatBytes(encoder.encode(INFO_PAIR_DOMAIN_PREFIX), rPublicKey.toBytes()),
-    32,
-  );
-  try {
-    return expandViewTag(domain, concatBytes(encoder.encode(INFO_PAIR_HINT_PREFIX), u64be(i)));
-  } finally {
-    domain.fill(0);
-  }
 }
 
 /**

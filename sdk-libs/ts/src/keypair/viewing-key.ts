@@ -1,10 +1,12 @@
 import { expand } from "@noble/hashes/hkdf.js";
 import { sha256 } from "@noble/hashes/sha2.js";
+import { getAddressEncoder, type Address } from "@solana/kit";
 
 import {
   type Bytes16,
   type Bytes32,
   checkedBytes,
+  checkedU32,
   concatBytes,
   copyBytes,
   randomBytes,
@@ -12,42 +14,31 @@ import {
 } from "./bytes.js";
 import {
   ENC_INFO_RING_DEPOSIT,
-  INFO_RING_BLINDING_SEED_PREFIX,
-  INFO_RING_INBOX_PREFIX,
-  INFO_RING_PAIR_PREFIX,
+  INFO_RING_ADDRESS_KEY_PREFIX,
+  INFO_RING_CHANGE_KEY_PREFIX,
   INFO_SENDER_VIEW_TAG_SECRET,
   INFO_TX_VIEWING_X25519,
   checkedCounter,
   clampViewingSecret,
   hkdfExpand,
-  ringChangeViewTag,
   roleExpansion,
   senderViewTag,
-  sharedViewTag,
   viewRoot,
   x25519Ecdh,
 } from "./derivation.js";
-import { applyAnonymousOutputStream } from "./audit.js";
 import { applyTransferCipher } from "./encryption.js";
 import { KeypairError } from "./error.js";
 import { type ViewTag } from "./public-key.js";
-import { InboxSecret } from "./inbox-secret.js";
 import type { ViewingKeyLike } from "./shielded.js";
 import { X25519PublicKey, X25519Keypair } from "./x25519.js";
 
 export type Salt = Bytes16;
 
 const encoder = new TextEncoder();
+const addressEncoder = getAddressEncoder();
 
 function checkSlotIndex(value: number): number {
-  if (!Number.isInteger(value) || value < 0 || value > 0xffff_ffff) {
-    throw new KeypairError("KEYPAIR_INVALID_LENGTH", {
-      name: "slotIndex",
-      minimum: 0,
-      maximum: 0xffff_ffff,
-    });
-  }
-  return value;
+  return checkedU32(value, "slotIndex");
 }
 
 export class ViewingKey implements ViewingKeyLike {
@@ -129,79 +120,33 @@ export class ViewingKey implements ViewingKeyLike {
     }
   }
 
-  /** Mirrors Rust `get_send_shared_view_tag`, transfer `i` to `counterparty`. */
-  sendSharedViewTag(counterparty: X25519PublicKey, i: bigint | number): ViewTag {
-    return this.#sharedViewTag(counterparty, counterparty, checkedCounter(i, "i"));
-  }
-
-  /** Mirrors Rust `get_recipient_shared_view_tag`, transfer `i` received from `counterparty`. */
-  recipientSharedViewTag(counterparty: X25519PublicKey, i: bigint | number): ViewTag {
-    return this.#sharedViewTag(counterparty, this.publicKey(), checkedCounter(i, "i"));
-  }
-
-  /** Inbox secret of ring address `i`, shared with payers inside a `RingAddress`. */
-  inboxSecret(i: number): InboxSecret {
-    if (!Number.isInteger(i) || i < 0 || i > 0xffff_ffff) {
-      throw new KeypairError("KEYPAIR_INVALID_LENGTH", {
-        name: "i",
-        minimum: 0,
-        maximum: 0xffff_ffff,
-      });
-    }
-    return InboxSecret.fromBytes(
-      this.#viewSecret(concatBytes(encoder.encode(INFO_RING_INBOX_PREFIX), u32be(i))),
+  /** The key of ring address `index` in `ring`, the recipient key its inbox stream derives from. */
+  ringAddressKey(ring: Address, index: number): ViewingKey {
+    return this.#derivedKey(
+      concatBytes(
+        encoder.encode(INFO_RING_ADDRESS_KEY_PREFIX),
+        new Uint8Array(addressEncoder.encode(ring)),
+        u32be(checkedU32(index, "index")),
+      ),
     );
   }
 
-  /** Pseudonym used toward `recipient` only. */
-  pairKey(recipient: X25519PublicKey): X25519Keypair {
-    const secret = this.#viewSecret(
-      concatBytes(encoder.encode(INFO_RING_PAIR_PREFIX), recipient.toBytes()),
+  /** The key a sender's change in `ring` is delivered to, found from the sender's own spends. */
+  ringChangeKey(ring: Address): ViewingKey {
+    return this.#derivedKey(
+      concatBytes(
+        encoder.encode(INFO_RING_CHANGE_KEY_PREFIX),
+        new Uint8Array(addressEncoder.encode(ring)),
+      ),
     );
+  }
+
+  #derivedKey(info: Uint8Array): ViewingKey {
+    const secret = this.#viewSecret(info);
     try {
-      return X25519Keypair.fromBytes(secret);
+      return ViewingKey.fromBytes(secret as Bytes32);
     } finally {
       secret.fill(0);
-    }
-  }
-
-  /** Pair tag `k` toward `recipient`, equal to its `recipientSharedViewTag` on the pair public key. */
-  pairSendViewTag(recipient: X25519PublicKey, k: bigint | number): ViewTag {
-    const pair = this.pairKey(recipient);
-    try {
-      return sharedViewTag(pair.ecdh(recipient), recipient, checkedCounter(k, "k"));
-    } finally {
-      pair.destroy();
-    }
-  }
-
-  /** Blinding seed of the anonymous ring transaction with `firstNullifier`, below the BN254 modulus. */
-  ringBlindingSeed(firstNullifier: Bytes32): Bytes32 {
-    const nullifier = checkedBytes<Bytes32>(firstNullifier, 32, "first nullifier");
-    const seed = this.#viewSecret(
-      concatBytes(encoder.encode(INFO_RING_BLINDING_SEED_PREFIX), nullifier),
-    );
-    seed[0] = 0;
-    return seed as Bytes32;
-  }
-
-  /** View tag of the spender's own output in `slot` of the ring transaction with `firstNullifier`. */
-  ringChangeViewTag(firstNullifier: Bytes32, slot: number): ViewTag {
-    const nullifier = checkedBytes<Bytes32>(firstNullifier, 32, "first nullifier");
-    const secret = this.#viewSecret(INFO_SENDER_VIEW_TAG_SECRET);
-    try {
-      return ringChangeViewTag(secret, nullifier, slot);
-    } finally {
-      secret.fill(0);
-    }
-  }
-
-  #sharedViewTag(counterparty: X25519PublicKey, rPublicKey: X25519PublicKey, i: bigint): ViewTag {
-    const shared = this.ecdh(counterparty);
-    try {
-      return sharedViewTag(shared, rPublicKey, i);
-    } finally {
-      shared.fill(0);
     }
   }
 
@@ -299,60 +244,6 @@ export class ViewingKey implements ViewingKeyLike {
     slotIndex: number,
   ): Uint8Array {
     return this.encryptSlot(recipientPublicKey, ciphertext, salt, slotIndex);
-  }
-
-  /** Scheme-9 body cipher from the transaction key side, Rust `recipient_stream_secret` keys it. */
-  sealAnonymousOutput(
-    recipientPublicKey: X25519PublicKey,
-    body: Uint8Array,
-    salt: Salt,
-    slotIndex: number,
-  ): Uint8Array {
-    return this.#anonymousOutputStream(
-      recipientPublicKey,
-      { txViewingPublicKey: this.publicKey(), recipientViewingPublicKey: recipientPublicKey },
-      body,
-      salt,
-      slotIndex,
-    );
-  }
-
-  /** The recipient side of `sealAnonymousOutput`, the stream is symmetric. */
-  openAnonymousOutput(
-    ciphertext: Uint8Array,
-    txViewingPublicKey: X25519PublicKey,
-    salt: Salt,
-    slotIndex: number,
-  ): Uint8Array {
-    return this.#anonymousOutputStream(
-      txViewingPublicKey,
-      { txViewingPublicKey, recipientViewingPublicKey: this.publicKey() },
-      ciphertext,
-      salt,
-      slotIndex,
-    );
-  }
-
-  #anonymousOutputStream(
-    counterparty: X25519PublicKey,
-    keys: Readonly<{
-      txViewingPublicKey: X25519PublicKey;
-      recipientViewingPublicKey: X25519PublicKey;
-    }>,
-    body: Uint8Array,
-    salt: Salt,
-    slotIndex: number,
-  ): Uint8Array {
-    const dh = this.ecdh(counterparty);
-    try {
-      return applyAnonymousOutputStream(
-        dh,
-        { ...keys, salt: checkedBytes<Bytes16>(salt, 16, "salt"), slotIndex },
-        body,
-      );
-    } finally {
-      dh.fill(0);
-    }
   }
 
   destroy(): void {

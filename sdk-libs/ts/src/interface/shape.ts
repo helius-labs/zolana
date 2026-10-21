@@ -54,59 +54,6 @@ export const SPP_SUPPORTED_SHAPES: readonly Shape[] = Object.freeze([
   shape(49, 2),
 ]);
 
-/** Full policy plus auditor proof shapes that fit the ring's transaction format before optional data and accounts. */
-export const RING_POLICY_SUPPORTED_SHAPES: readonly Shape[] = Object.freeze(
-  SPP_SUPPORTED_SHAPES.filter(
-    (candidate) =>
-      (candidate.inputs <= 16 && candidate.outputs <= 4) ||
-      (candidate.inputs === 24 && candidate.outputs === 2),
-  ),
-);
-/** Shapes an anonymous ring proves, base and policy alike, Rust `ANONYMOUS_RING_SHAPES`. */
-export const ANONYMOUS_RING_SHAPES: readonly Shape[] = Object.freeze([
-  shape(1, 2),
-  shape(1, 4),
-  shape(2, 2),
-  shape(2, 4),
-  shape(3, 2),
-  shape(3, 4),
-  shape(4, 2),
-  shape(4, 4),
-  shape(5, 2),
-  shape(5, 4),
-  shape(6, 2),
-  shape(6, 4),
-  shape(8, 2),
-  shape(12, 2),
-]);
-
-export function isAnonymousRingShape(candidate: Shape): boolean {
-  return ANONYMOUS_RING_SHAPES.some(
-    (entry) => entry.inputs === candidate.inputs && entry.outputs === candidate.outputs,
-  );
-}
-
-export const RING_POLICY_MAX_INPUTS = Math.max(
-  ...RING_POLICY_SUPPORTED_SHAPES.map((entry) => entry.inputs),
-);
-
-/** A supported shape still needs the final transaction byte-size check. */
-export function validateRingPolicyShape(inputs: number, outputs: number, declared: Shape): Shape {
-  if (declared === null || typeof declared !== "object")
-    throw new InterfaceError("INTERFACE_INVALID_SHAPE");
-  const checked = validateSppShape(inputs, outputs, declared);
-  if (
-    !RING_POLICY_SUPPORTED_SHAPES.some(
-      (candidate) => candidate.inputs === checked.inputs && candidate.outputs === checked.outputs,
-    )
-  )
-    throw new InterfaceError("INTERFACE_INVALID_SHAPE", {
-      inputs: checked.inputs,
-      outputs: checked.outputs,
-    });
-  return checked;
-}
-
 function count(value: number, name: string): number {
   if (!Number.isSafeInteger(value) || value < 0) {
     throw new InterfaceError("INTERFACE_INVALID_SHAPE", { [name]: value });
@@ -114,22 +61,34 @@ function count(value: number, name: string): number {
   return value;
 }
 
+/** Rust `N_PUBLIC_SLOTS`, the public asset and amount slots every SPP circuit takes. */
+export const N_PUBLIC_SLOTS = 3;
+
 /** The widest input count of any supported shape, Rust `MAX_TRANSACT_INPUTS`. */
 export const MAX_TRANSACT_INPUTS = Math.max(...SPP_SUPPORTED_SHAPES.map((entry) => entry.inputs));
 
-/**
- * Square widths the ring authority rail has keys for, ascending, mirroring Rust
- * `RING_AUTHORITY_WIDTHS`.
- */
-export const RING_AUTHORITY_WIDTHS: readonly number[] = Object.freeze([2, 4]);
+/** The widest spend a ring authority transaction fits, Rust `RING_AUTHORITY_MAX_INPUTS`. */
+export const RING_AUTHORITY_MAX_INPUTS = 40;
 
-/** The widest authority-rail transfer, inputs and outputs alike. */
-export const RING_AUTHORITY_MAX_WIDTH = Math.max(...RING_AUTHORITY_WIDTHS);
+/** Cost ordered like `SPP_SUPPORTED_SHAPES`, Rust `ring_authority_shapes`. */
+export const RING_AUTHORITY_SHAPES: readonly Shape[] = Object.freeze(
+  SPP_SUPPORTED_SHAPES.filter((entry) => entry.inputs <= RING_AUTHORITY_MAX_INPUTS),
+);
 
-/** The narrowest authority width holding `width` slots, undefined above the widest. */
-export function ringAuthorityWidth(width: number): number | undefined {
-  count(width, "width");
-  return RING_AUTHORITY_WIDTHS.find((supported) => supported >= width);
+/** Rust `Shape::is_ring_authority`. */
+export function isRingAuthorityShape(shape: Shape): boolean {
+  return RING_AUTHORITY_SHAPES.some(
+    (candidate) => candidate.inputs === shape.inputs && candidate.outputs === shape.outputs,
+  );
+}
+
+/** The cheapest ring authority shape holding the counts, undefined when none does. */
+export function ringAuthorityShape(inputs: number, outputs: number): Shape | undefined {
+  count(inputs, "inputs");
+  count(outputs, "outputs");
+  return RING_AUTHORITY_SHAPES.find(
+    (candidate) => inputs <= candidate.inputs && outputs <= candidate.outputs,
+  );
 }
 
 /** Distinct addresses one transaction can carry, `solana_message::v1::MAX_ADDRESSES`. */

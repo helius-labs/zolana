@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 
 import { sha256 } from "@noble/hashes/sha2.js";
+import { address } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -96,19 +97,9 @@ type KeyDerivationVectors = Readonly<{
   ring_derivation: Readonly<{
     viewing_secret: string;
     viewing_pubkey: string;
-    recipient_viewing_secret: string;
-    recipient_viewing_pubkey: string;
-    inbox_secrets: readonly Readonly<{
-      index: number;
-      secret: string;
-      view_tags: readonly CounterTag[];
-    }>[];
-    pair_pubkey: string;
-    pair_view_tags: readonly CounterTag[];
-    shared_view_tags: readonly CounterTag[];
-    first_nullifier: string;
-    change_view_tags: readonly Readonly<{ slot: number; tag: string }>[];
-    blinding_seed: string;
+    ring_program_id: string;
+    address_keys: readonly Readonly<{ index: number; secret: string; pubkey: string }>[];
+    change_key: Readonly<{ secret: string; pubkey: string }>;
   }>;
 }>;
 
@@ -245,34 +236,19 @@ describe("shared key-derivation vectors (test-vectors/key_derivation.json)", () 
     }
   });
 
-  it("derives the ring inbox, pair, change and blinding values", () => {
+  it("derives the ring address keys and the change key", () => {
     const section = vectors.ring_derivation;
     const viewing = ViewingKey.fromBytes(bytes(section.viewing_secret) as Bytes32);
-    const recipient = ViewingKey.fromBytes(bytes(section.recipient_viewing_secret) as Bytes32);
     expect(hex(viewing.publicKey().toBytes())).toBe(section.viewing_pubkey);
-    expect(hex(recipient.publicKey().toBytes())).toBe(section.recipient_viewing_pubkey);
-    for (const inbox of section.inbox_secrets) {
-      const secret = viewing.inboxSecret(inbox.index);
-      expect(hex(secret.toBytes())).toBe(inbox.secret);
-      for (const { counter, tag } of inbox.view_tags) {
-        expect(hex(secret.viewTag(BigInt(counter)))).toBe(tag);
-      }
+    const ring = address(section.ring_program_id);
+    for (const key of section.address_keys) {
+      const derived = viewing.ringAddressKey(ring, key.index);
+      expect(hex(derived.secretBytes())).toBe(key.secret);
+      expect(hex(derived.publicKey().toBytes())).toBe(key.pubkey);
     }
-    const pairPublicKey = viewing.pairKey(recipient.publicKey()).publicKey();
-    expect(hex(pairPublicKey.toBytes())).toBe(section.pair_pubkey);
-    for (const { counter, tag } of section.pair_view_tags) {
-      expect(hex(viewing.pairSendViewTag(recipient.publicKey(), BigInt(counter)))).toBe(tag);
-      expect(hex(recipient.recipientSharedViewTag(pairPublicKey, BigInt(counter)))).toBe(tag);
-    }
-    for (const { counter, tag } of section.shared_view_tags) {
-      expect(hex(viewing.sendSharedViewTag(recipient.publicKey(), BigInt(counter)))).toBe(tag);
-      expect(hex(recipient.recipientSharedViewTag(viewing.publicKey(), BigInt(counter)))).toBe(tag);
-    }
-    const firstNullifier = bytes(section.first_nullifier) as Bytes32;
-    for (const { slot, tag } of section.change_view_tags) {
-      expect(hex(viewing.ringChangeViewTag(firstNullifier, slot))).toBe(tag);
-    }
-    expect(hex(viewing.ringBlindingSeed(firstNullifier))).toBe(section.blinding_seed);
+    const change = viewing.ringChangeKey(ring);
+    expect(hex(change.secretBytes())).toBe(section.change_key.secret);
+    expect(hex(change.publicKey().toBytes())).toBe(section.change_key.pubkey);
   });
 
   it("detects derivation inputs exactly like Rust", () => {

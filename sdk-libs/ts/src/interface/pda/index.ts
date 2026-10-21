@@ -114,20 +114,14 @@ function ringPda(
   ringProgramId: Address,
   ...seeds: readonly ReadonlyUint8Array[]
 ): Promise<ProgramDerivedAddress> {
-  return getProgramDerivedAddress({ programAddress: ringProgramId, seeds: [...seeds] });
+  return getProgramDerivedAddress({
+    programAddress: ringProgramId,
+    seeds: [...seeds],
+  });
 }
 
 async function ringAddress(pda: Promise<ProgramDerivedAddress>): Promise<Address> {
   return (await pda)[0];
-}
-
-/** Mirrors Rust `CustomRing::cosigner_pda`, uninitialized when the ring has no co-signer. */
-export function ringCoSignerPda(ringProgramId: Address): Promise<ProgramDerivedAddress> {
-  return ringPda(ringProgramId, encoder.encode("cosigner"));
-}
-
-export function ringCoSignerAddress(ringProgramId: Address): Promise<Address> {
-  return ringAddress(ringCoSignerPda(ringProgramId));
 }
 
 export function ringConfigPda(ringProgramId: Address): Promise<ProgramDerivedAddress> {
@@ -138,38 +132,20 @@ export function ringConfigAddress(ringProgramId: Address): Promise<Address> {
   return ringAddress(ringConfigPda(ringProgramId));
 }
 
-export function ringDepositAuditPda(ringProgramId: Address): Promise<ProgramDerivedAddress> {
-  return ringPda(ringProgramId, encoder.encode("deposit_audit"));
-}
-
-export function ringDepositAuditAddress(ringProgramId: Address): Promise<Address> {
-  return ringAddress(ringDepositAuditPda(ringProgramId));
-}
-
-/** Mirrors Rust `CustomRing::policy_config_pda`. */
-export function ringPolicyConfigPda(ringProgramId: Address): Promise<ProgramDerivedAddress> {
-  return ringPda(ringProgramId, encoder.encode("policy"));
-}
-
-export function ringPolicyConfigAddress(ringProgramId: Address): Promise<Address> {
-  return ringAddress(ringPolicyConfigPda(ringProgramId));
-}
-
-/** Mirrors Rust `CustomRing::delegate_pda`, uninitialized when the ring has no delegate. */
-export function ringDelegatePda(ringProgramId: Address): Promise<ProgramDerivedAddress> {
-  return ringPda(ringProgramId, encoder.encode("delegate"));
-}
-
-export function ringDelegateAddress(ringProgramId: Address): Promise<Address> {
-  return ringAddress(ringDelegatePda(ringProgramId));
-}
-
-export function ringMemberRegistryRootPda(ringProgramId: Address): Promise<ProgramDerivedAddress> {
+export function ringMemberRegistryPda(ringProgramId: Address): Promise<ProgramDerivedAddress> {
   return ringPda(ringProgramId, encoder.encode("members"));
 }
 
-export function ringMemberRegistryRootAddress(ringProgramId: Address): Promise<Address> {
-  return ringAddress(ringMemberRegistryRootPda(ringProgramId));
+export function ringMemberRegistryAddress(ringProgramId: Address): Promise<Address> {
+  return ringAddress(ringMemberRegistryPda(ringProgramId));
+}
+
+export function ringRecordQueuePda(ringProgramId: Address): Promise<ProgramDerivedAddress> {
+  return ringPda(ringProgramId, encoder.encode("queue"));
+}
+
+export function ringRecordQueueAddress(ringProgramId: Address): Promise<Address> {
+  return ringAddress(ringRecordQueuePda(ringProgramId));
 }
 
 export async function protocolConfigAddress(): Promise<Address> {

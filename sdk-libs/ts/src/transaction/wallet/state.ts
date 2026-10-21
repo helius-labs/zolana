@@ -7,6 +7,7 @@ import { copy } from "../internal.js";
 import { Utxo } from "../utxo.js";
 import { AssetRegistry } from "../asset.js";
 import type { AnonymousRingReport, PendingAnonymousNote } from "./anonymous.js";
+import type { AnonymousRingState } from "./anonymous-state.js";
 
 export interface AssetBalance {
   readonly assetId: bigint;
@@ -91,6 +92,8 @@ export interface SyncDelta {
   readonly nullifiers: ReadonlySet<string>;
   readonly viewingKeyHistory: readonly ViewingKeyEntry[];
   readonly pendingNotes: readonly PendingAnonymousNote[];
+  /** The scanned rings' new states, every other ring keeps its own. */
+  readonly anonymousRings: readonly AnonymousRingState[];
   readonly lastSynced: bigint;
   readonly cursors: SyncCursorAdvances;
   readonly registryAdditions: readonly Readonly<{ assetId: bigint; mint: Address }>[];
@@ -131,10 +134,10 @@ export interface SyncReport {
    * `unknownAssetIds` is non-empty.
    */
   readonly unknownAssetFields: readonly Bytes32[];
-  /** Verified anonymous ring notes this pass found in an unregistered mint, the wallet keeps them in `pendingNotes`. */
+  /** Verified anonymous ring notes the pass found in an unregistered mint, the wallet keeps them in `pendingNotes`. */
   readonly pendingAssets: readonly PendingAnonymousNote[];
-  /** Present when the sync was given an `AnonymousRingState`. */
-  readonly anonymousRing?: AnonymousRingReport;
+  /** One per anonymous ring the sync read. */
+  readonly anonymousRings?: readonly AnonymousRingReport[];
 }
 
 /**
@@ -210,7 +213,6 @@ function snapshotPendingNote(value: PendingAnonymousNote): PendingAnonymousNote 
       ...value.outputContext,
       hash: copy(value.outputContext.hash),
     }),
-    pairU: copy(value.pairU),
   });
 }
 
@@ -221,6 +223,7 @@ export class Wallet {
   #utxos: WalletUtxo[] = [];
   #transactions: PrivateTransaction[] = [];
   #pendingNotes: PendingAnonymousNote[] = [];
+  #anonymousRings = new Map<Address, AnonymousRingState>();
   #nullifiers = new Set<string>();
   #lastSynced = 0n;
   /**
@@ -339,6 +342,21 @@ export class Wallet {
     return this.#pendingNotes.map(snapshotPendingNote);
   }
 
+  /** What the wallet keeps of an anonymous ring between scans, `undefined` before its first scan. */
+  anonymousRing(ring: Address): AnonymousRingState | undefined {
+    return this.#anonymousRings.get(ring);
+  }
+
+  anonymousRings(): readonly AnonymousRingState[] {
+    return [...this.#anonymousRings.values()];
+  }
+
+  /** @internal Callers hold the sync lock, an issued address must reach the store. */
+  _setAnonymousRing(state: AnonymousRingState): void {
+    this.#anonymousRings.set(state.ring, state);
+    this.#revision += 1;
+  }
+
   privateTransactions(): readonly PrivateTransaction[] {
     return this.#transactions.map((transaction) =>
       Object.freeze({ ...transaction, id: Object.freeze({ ...transaction.id }) }),
@@ -423,6 +441,7 @@ export class Wallet {
     nullifiers: ReadonlySet<string>;
     viewingKeyHistory: readonly ViewingKeyEntry[];
     pendingNotes: readonly PendingAnonymousNote[];
+    anonymousRings: readonly AnonymousRingState[];
   }> {
     return {
       utxos: this.#utxos.map(snapshotUtxo),
@@ -430,12 +449,14 @@ export class Wallet {
       nullifiers: new Set(this.#nullifiers),
       viewingKeyHistory: this.viewingKeyHistory,
       pendingNotes: this.pendingNotes(),
+      anonymousRings: this.anonymousRings(),
     };
   }
 
   /**
-   * Omitting `viewingKeyHistory`, `pendingNotes` or `lastSynced` leaves it
-   * untouched, a pending note whose commitment is now held is dropped.
+   * Omitting `viewingKeyHistory`, `pendingNotes`, `anonymousRings` or
+   * `lastSynced` leaves it untouched, a pending note whose commitment is now
+   * held is dropped.
    * @internal
    */
   _replace(
@@ -445,6 +466,7 @@ export class Wallet {
       nullifiers: ReadonlySet<string>;
       viewingKeyHistory?: readonly ViewingKeyEntry[];
       pendingNotes?: readonly PendingAnonymousNote[];
+      anonymousRings?: readonly AnonymousRingState[];
       lastSynced?: bigint;
     }>,
   ): void {
@@ -484,6 +506,12 @@ export class Wallet {
     this.#pendingNotes = [...pending]
       .filter(([hash]) => !hashes.has(hash))
       .map(([, note]) => snapshotPendingNote(note));
+    if (input.anonymousRings !== undefined) {
+      const rings = new Map(input.anonymousRings.map((state) => [state.ring, state]));
+      if (rings.size !== input.anonymousRings.length)
+        throw new TransactionError("TRANSACTION_DESERIALIZE", { field: "anonymousRings" });
+      this.#anonymousRings = rings;
+    }
     if (input.lastSynced !== undefined) {
       this.#lastSynced = input.lastSynced;
     }
@@ -663,12 +691,15 @@ export class Wallet {
         this._setSyncCursor(stream, key, cursor);
       }
     }
+    const rings = new Map(this.#anonymousRings);
+    for (const state of delta.anonymousRings) rings.set(state.ring, state);
     this._replace({
       utxos: delta.utxos,
       transactions: delta.transactions,
       nullifiers: delta.nullifiers,
       viewingKeyHistory: delta.viewingKeyHistory,
       pendingNotes: delta.pendingNotes,
+      anonymousRings: [...rings.values()],
       lastSynced: delta.lastSynced,
     });
   }

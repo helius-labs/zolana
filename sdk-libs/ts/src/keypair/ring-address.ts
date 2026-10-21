@@ -10,13 +10,10 @@ import {
   type Address,
 } from "@solana/kit";
 
-import { checkedBytes, concatBytes } from "./bytes.js";
+import { concatBytes } from "./bytes.js";
 import { U64_MAX, checkedCounter } from "./derivation.js";
 import { KeypairError } from "./error.js";
-import { InboxSecret } from "./inbox-secret.js";
 import { SHIELDED_ADDRESS_LENGTH, ShieldedAddress } from "./shielded.js";
-
-export { InboxSecret } from "./inbox-secret.js";
 
 const addressDecoder = getAddressDecoder();
 const addressEncoder = getAddressEncoder();
@@ -24,72 +21,158 @@ const base58Decoder = getBase58Decoder();
 const base58Encoder = getBase58Encoder();
 const encoder = new TextEncoder();
 
-export const RING_ADDRESS_VERSION = 1;
+export const RING_ADDRESS_VERSION = 2;
 
-export const RING_ADDRESS_CHECKSUM_DOMAIN = "zolana/ring-addr/v1";
+export const RING_ADDRESS_CHECKSUM_DOMAIN = "zolana/ring-addr/v2";
 
 export const RING_PAYMENT_SCHEME = "zolana:";
 
+/** The most rows a sender checks before a pair stream. */
+export const MAX_PAIRING_ROWS = 4;
+
 const CHECKSUM_LENGTH = 4;
-
-/** `version || recipient || ring_program_id || inbox_secret || checksum`. */
-export const RING_ADDRESS_PAYLOAD_LENGTH = 1 + SHIELDED_ADDRESS_LENGTH + 32 + 32 + CHECKSUM_LENGTH;
-
+/** `mint(32) ‖ u64be(min_amount)`. */
+const PAIRING_ROW_LENGTH = 40;
+/** `version ‖ recipient ‖ ring_program_id ‖ pairing count`. */
+const HEADER_LENGTH = 1 + SHIELDED_ADDRESS_LENGTH + 32 + 1;
 const PROGRAM_OFFSET = 1 + SHIELDED_ADDRESS_LENGTH;
-const INBOX_OFFSET = PROGRAM_OFFSET + 32;
-const CHECKSUM_OFFSET = INBOX_OFFSET + 32;
 
-/** Shared off chain, never published. */
+export const MAX_RING_ADDRESS_PAYLOAD_LENGTH =
+  HEADER_LENGTH + MAX_PAIRING_ROWS * PAIRING_ROW_LENGTH + CHECKSUM_LENGTH;
+
+/** A first contact of `mint` worth at least `minAmount` anchors a pair stream, the all-zero mint matches every asset. */
+export interface PairingRow {
+  readonly mint: Address;
+  readonly minAmount: bigint;
+}
+
+const ANY_MINT = addressDecoder.decode(new Uint8Array(32));
+
+/** The first contacts a recipient keeps a pair stream for, a note the recipient never scans for is lost. */
+export class Pairing {
+  readonly rows: readonly PairingRow[];
+
+  private constructor(rows: readonly PairingRow[]) {
+    this.rows = Object.freeze(rows.map((row) => Object.freeze({ ...row })));
+    Object.freeze(this);
+  }
+
+  /** No pair streams, every payment takes the inbox stream. */
+  static off(): Pairing {
+    return new Pairing([]);
+  }
+
+  /** Every asset at any amount, the rows a new address carries. */
+  static any(): Pairing {
+    return new Pairing([{ mint: ANY_MINT, minAmount: 0n }]);
+  }
+
+  static of(rows: readonly PairingRow[]): Pairing {
+    if (rows.length > MAX_PAIRING_ROWS)
+      throw new KeypairError("KEYPAIR_INVALID_RING_ADDRESS_PAIRING", {
+        actual: rows.length,
+        maximum: MAX_PAIRING_ROWS,
+      });
+    return new Pairing(
+      rows.map((row) => ({
+        mint: pairingMint(row.mint),
+        minAmount: checkedCounter(row.minAmount, "minAmount"),
+      })),
+    );
+  }
+
+  isOff(): boolean {
+    return this.rows.length === 0;
+  }
+
+  /** Whether a first contact of `mint` and `amount` anchors a pair stream. */
+  admits(mint: Address, amount: bigint): boolean {
+    return this.rows.some(
+      (row) => (row.mint === ANY_MINT || row.mint === mint) && amount >= row.minAmount,
+    );
+  }
+}
+
+function pairingMint(value: Address): Address {
+  try {
+    return address(value);
+  } catch (error) {
+    throw new KeypairError("KEYPAIR_INVALID_RING_ADDRESS_PAIRING", { reason: "mint" }, error);
+  }
+}
+
+/** Shared off chain, never published. `recipient.viewingPublicKey` is the per-address key its inbox stream derives from. */
 export class RingAddress {
   readonly recipient: ShieldedAddress;
   readonly ringProgramId: Address;
-  readonly inboxSecret: InboxSecret;
+  readonly pairing: Pairing;
 
   constructor(
     fields: Readonly<{
       recipient: ShieldedAddress;
       ringProgramId: Address;
-      inboxSecret: InboxSecret;
+      pairing: Pairing;
     }>,
   ) {
     this.recipient = fields.recipient;
     this.ringProgramId = fields.ringProgramId;
-    this.inboxSecret = fields.inboxSecret;
+    this.pairing = fields.pairing;
     Object.freeze(this);
   }
 
   equals(other: RingAddress): boolean {
-    return (
-      this.ringProgramId === other.ringProgramId &&
-      this.inboxSecret.equals(other.inboxSecret) &&
-      equalBytes(this.recipient.toBytes(), other.recipient.toBytes())
-    );
+    return equalBytes(this.toBytes(), other.toBytes());
   }
 
+  /** `version ‖ recipient ‖ ring_program_id ‖ count ‖ rows ‖ checksum`. */
   toBytes(): Uint8Array {
-    const bytes = new Uint8Array(RING_ADDRESS_PAYLOAD_LENGTH);
-    bytes[0] = RING_ADDRESS_VERSION;
-    bytes.set(this.recipient.toBytes(), 1);
-    bytes.set(addressEncoder.encode(this.ringProgramId), PROGRAM_OFFSET);
-    bytes.set(this.inboxSecret.toBytes(), INBOX_OFFSET);
-    bytes.set(checksum(bytes.subarray(0, CHECKSUM_OFFSET)), CHECKSUM_OFFSET);
-    return bytes;
+    const rows = this.pairing.rows.map((row) => {
+      const bytes = new Uint8Array(PAIRING_ROW_LENGTH);
+      bytes.set(addressEncoder.encode(row.mint));
+      new DataView(bytes.buffer).setBigUint64(32, row.minAmount);
+      return bytes;
+    });
+    const body = concatBytes(
+      Uint8Array.of(RING_ADDRESS_VERSION),
+      this.recipient.toBytes(),
+      new Uint8Array(addressEncoder.encode(this.ringProgramId)),
+      Uint8Array.of(rows.length),
+      ...rows,
+    );
+    return concatBytes(body, checksum(body));
   }
 
   static fromBytes(bytes: Uint8Array): RingAddress {
-    const payload = checkedBytes<Uint8Array>(bytes, RING_ADDRESS_PAYLOAD_LENGTH, "ring address");
-    if (payload[0] !== RING_ADDRESS_VERSION) {
-      throw new KeypairError("KEYPAIR_UNKNOWN_RING_ADDRESS_VERSION", { actual: payload[0] ?? -1 });
-    }
-    if (
-      !equalBytes(payload.subarray(CHECKSUM_OFFSET), checksum(payload.subarray(0, CHECKSUM_OFFSET)))
-    ) {
+    if (!(bytes instanceof Uint8Array) || bytes.length < HEADER_LENGTH + CHECKSUM_LENGTH)
+      throw new KeypairError("KEYPAIR_INVALID_RING_ADDRESS_LENGTH");
+    const body = bytes.subarray(0, bytes.length - CHECKSUM_LENGTH);
+    const version = body[0] ?? -1;
+    if (version !== RING_ADDRESS_VERSION)
+      throw new KeypairError("KEYPAIR_UNKNOWN_RING_ADDRESS_VERSION", { actual: version });
+    const count = body[HEADER_LENGTH - 1] ?? 0;
+    if (count > MAX_PAIRING_ROWS)
+      throw new KeypairError("KEYPAIR_INVALID_RING_ADDRESS_PAIRING", {
+        actual: count,
+        maximum: MAX_PAIRING_ROWS,
+      });
+    if (body.length !== HEADER_LENGTH + count * PAIRING_ROW_LENGTH)
+      throw new KeypairError("KEYPAIR_INVALID_RING_ADDRESS_LENGTH");
+    if (!equalBytes(bytes.subarray(body.length), checksum(body)))
       throw new KeypairError("KEYPAIR_INVALID_RING_ADDRESS_CHECKSUM");
-    }
+    const rows = Array.from({ length: count }, (_, index) => {
+      const row = body.subarray(
+        HEADER_LENGTH + index * PAIRING_ROW_LENGTH,
+        HEADER_LENGTH + (index + 1) * PAIRING_ROW_LENGTH,
+      );
+      return {
+        mint: addressDecoder.decode(row.subarray(0, 32)),
+        minAmount: new DataView(row.buffer, row.byteOffset + 32, 8).getBigUint64(0),
+      };
+    });
     return new RingAddress({
-      recipient: ShieldedAddress.fromBytes(payload.subarray(1, PROGRAM_OFFSET)),
-      ringProgramId: addressDecoder.decode(payload.subarray(PROGRAM_OFFSET, INBOX_OFFSET)),
-      inboxSecret: InboxSecret.fromBytes(payload.subarray(INBOX_OFFSET, CHECKSUM_OFFSET)),
+      recipient: ShieldedAddress.fromBytes(body.subarray(1, PROGRAM_OFFSET)),
+      ringProgramId: addressDecoder.decode(body.subarray(PROGRAM_OFFSET, HEADER_LENGTH - 1)),
+      pairing: Pairing.of(rows),
     });
   }
 
@@ -104,12 +187,8 @@ export class RingAddress {
     } catch (error) {
       throw new KeypairError("KEYPAIR_INVALID_RING_ADDRESS_BASE58", undefined, error);
     }
-    if (bytes.length !== RING_ADDRESS_PAYLOAD_LENGTH) {
-      throw new KeypairError("KEYPAIR_INVALID_RING_ADDRESS_LENGTH", {
-        expected: RING_ADDRESS_PAYLOAD_LENGTH,
-        actual: bytes.length,
-      });
-    }
+    if (bytes.length > MAX_RING_ADDRESS_PAYLOAD_LENGTH)
+      throw new KeypairError("KEYPAIR_INVALID_RING_ADDRESS_LENGTH");
     return RingAddress.fromBytes(bytes);
   }
 }

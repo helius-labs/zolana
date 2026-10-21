@@ -54,16 +54,6 @@ export function isSmallOrder(key: X25519PublicKey): boolean {
   }
 }
 
-/** A low-order pseudonym would fail every pair-stream agreement, so it is no hint. */
-export function pairHintKey(pairU: Bytes32): X25519PublicKey | undefined {
-  try {
-    const key = X25519PublicKey.fromU(pairU);
-    return isSmallOrder(key) ? undefined : key;
-  } catch {
-    return undefined;
-  }
-}
-
 /** RFC 7748 secret for X25519 agreement. ViewingKey clamps its own byte form. */
 export class X25519Keypair {
   #secret: Bytes32 | undefined;

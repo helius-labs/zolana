@@ -1,4 +1,3 @@
-import { X25519Keypair } from "../src/keypair/x25519.js";
 import { getAddressDecoder } from "@solana/kit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -10,7 +9,6 @@ import {
   createProofOutput,
   encryptAnonymousTransfer,
   encryptConfidentialTransfer,
-  encryptCustomRingTransfer,
   encryptSplit,
   type ShieldedKeys,
 } from "../src/transaction/index.js";
@@ -87,23 +85,6 @@ describe("encrypt rails run under a per-transaction key that is wiped after them
         }),
       );
       expectWiped(minted);
-    });
-
-    it(`${name} custom ring transfer keeps the audit secrets readable`, async () => {
-      const keys = make();
-      const auditor = X25519Keypair.generate();
-      const minted = trackMintedTxViewingKeys();
-      const encrypted = await withTransactionKey(keys, filled(1), (tx) =>
-        encryptCustomRingTransfer(tx, {
-          outputs: [recipientOutput()],
-          assets: new AssetRegistry(),
-          auditorPublicKey: auditor.publicKey(),
-          outputTreeId: 0,
-        }),
-      );
-      expectWiped(minted);
-      expect(encrypted.audit.txViewingSecret.some((byte: number) => byte !== 0)).toBe(true);
-      expect(encrypted.audit.ephemeralSecret.some((byte: number) => byte !== 0)).toBe(true);
     });
 
     it(`${name} anonymous transfer`, async () => {
@@ -183,61 +164,5 @@ describe("encrypt rails run under a per-transaction key that is wiped after them
       }),
     ).rejects.toThrow("refused");
     expectWiped(minted);
-  });
-});
-
-describe("custom ring transfer seals each slot once", () => {
-  const message = (slotIndex: number) => ({
-    viewTag: filled(9),
-    plaintext: Uint8Array.of(1, 2, 3),
-    slotIndex,
-  });
-
-  const encrypt = (
-    extra: Readonly<{
-      sealedMessages?: readonly ReturnType<typeof message>[];
-    }>,
-  ) =>
-    withTransactionKey(keypairKeys(), filled(1), (tx) =>
-      encryptCustomRingTransfer(tx, {
-        outputs: [recipientOutput()],
-        assets: new AssetRegistry(),
-        auditorPublicKey: X25519Keypair.generate().publicKey(),
-        outputTreeId: 0,
-        ...extra,
-      }),
-    );
-
-  it("rejects two caller messages on one slot", async () => {
-    await expect(encrypt({ sealedMessages: [message(5), message(5)] })).rejects.toMatchObject({
-      code: "TRANSACTION_DUPLICATE_SLOT_INDEX",
-    });
-  });
-
-  it("rejects a caller message on an output slot", async () => {
-    await expect(encrypt({ sealedMessages: [message(0)] })).rejects.toMatchObject({
-      code: "TRANSACTION_DUPLICATE_SLOT_INDEX",
-    });
-  });
-
-  it("encrypts with the slot indices that were validated", async () => {
-    let reads = 0;
-    const changing = {
-      ...message(5),
-      get slotIndex() {
-        reads += 1;
-        return reads <= 2 ? 5 : 6;
-      },
-    };
-    const encryptSlot = vi.spyOn(ViewingKey.prototype, "encryptSlot");
-    try {
-      const encrypted = await encrypt({ sealedMessages: [changing, message(6)] });
-      expect(reads).toBe(1);
-      expect(encryptSlot.mock.calls.slice(0, 2).map((call) => call[3])).toEqual([5, 6]);
-      encrypted.audit.txViewingSecret.fill(0);
-      encrypted.audit.ephemeralSecret.fill(0);
-    } finally {
-      encryptSlot.mockRestore();
-    }
   });
 });

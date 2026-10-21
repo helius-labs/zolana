@@ -11,6 +11,13 @@ import type {
   TransactWithdrawal,
   Bytes32,
 } from "../interface/types.js";
+import type {
+  ApplyProofInputs,
+  MemberRecord,
+  QuadPath,
+  QueueEntry,
+  RecordOpening,
+} from "../interface/member-registry.js";
 import type { MergeEncryptionScheme } from "../interface/state.js";
 import type { ShieldedAddress } from "../keypair/shielded.js";
 import type { PreparedMerge } from "../transaction/instructions/builders.js";
@@ -23,13 +30,15 @@ import { equal } from "../transaction/internal.js";
 import type { LatestBlockhash, SolanaRpc } from "./kit.js";
 import type { ProverHealth, ProvingKeyReport } from "./prover/client.js";
 import type {
+  AnonymousMergeProofRequest,
+  RegisterKeyProofRequest,
+  RingProofRequest,
+} from "./prover/ring.js";
+import type {
   AnonymousEddsaAuthorization,
   HiddenOwnerAuthorization,
-  CustomRingBaseProofRequest,
-  CustomRingDepositProofRequest,
-  CustomRingPolicyProofRequest,
-  CustomRingRegisterKeyProofRequest,
   MergeInputs,
+  PresentRecordOpening,
   Proof,
   ProverInputs,
   RingTransactRoots,
@@ -79,17 +88,10 @@ export interface RingMemberRequest {
   readonly member: Bytes32;
 }
 
+/** A member under the registry state the caller read, Photon refuses another root. */
 export interface RingMemberProofRequest extends RingMemberRequest {
   readonly expectedRoot: Bytes32;
-  readonly expectedNextIndex: bigint;
-}
-
-/** Correlates a member proof with its indexed root and cursor. */
-export interface RingMemberProofContext {
-  readonly context: Readonly<{ slot: bigint; blockTime: bigint }>;
-  readonly root: Bytes32;
-  readonly nextIndex: bigint;
-  readonly member: Bytes32;
+  readonly expectedNextIndex: number;
 }
 
 /** A user registry record, the shielded address a Solana pubkey publishes. */
@@ -124,76 +126,133 @@ export interface UserRecordReader {
   ): Promise<UserRecordsLookup>;
 }
 
-/** Authenticates insertion of a member's encrypted nullifier key. */
-export interface RingMemberRegistryTip {
-  readonly context: Readonly<{ slot: bigint; blockTime: bigint }>;
+/** A root the registry history holds, `applied` the queue position the floor rule reads. */
+export interface RingRegistryRoot {
   readonly root: Bytes32;
   readonly rootIndex: number;
-  readonly nextIndex: bigint;
-  readonly appendPath: readonly Bytes32[];
+  readonly applied: bigint;
+  readonly nextIndex: number;
 }
-export interface RingMemberRecordView {
-  readonly member: Bytes32;
-  readonly next: Bytes32;
-  readonly lists: bigint;
-  readonly escrowKey: Bytes32;
-  readonly ownerPublicKey?: Address | null;
-  readonly ephemeralPublicKey: X25519PublicKey | null;
-  readonly ciphertext: Bytes32 | null;
+
+/** The nullifier key a member escrowed through `RegisterKey`, sealed to the auditor. */
+export interface RingSealedKey {
+  /** The signer whose owner identity is the record's member. */
+  readonly owner: Address;
+  readonly nullifierPk: Bytes32;
+  readonly ephemeralPublicKey: X25519PublicKey;
+  readonly ciphertext: Bytes32;
 }
-export interface RingLowRecordView {
-  readonly member: Bytes32;
-  readonly next: Bytes32;
-  readonly lists: bigint;
-  readonly escrowKey: Bytes32;
-  readonly index: bigint;
-  readonly path: readonly Bytes32[];
-}
-export interface RingMemberRecordResponse {
+
+/** An opening the indexer served, unverified until checked against the bound root. */
+export type RingMemberOpening = RecordOpening & Readonly<{ sealedKey?: RingSealedKey }>;
+
+export interface RingMemberOpenings {
   readonly context: Readonly<{ slot: bigint; blockTime: bigint }>;
-  readonly root: Bytes32;
-  readonly rootIndex: number;
-  readonly nextIndex: bigint;
-  readonly present: boolean;
-  readonly record: RingMemberRecordView | null;
-  readonly index: bigint;
-  readonly path: readonly Bytes32[];
-  readonly low: RingLowRecordView | null;
+  readonly root: RingRegistryRoot;
+  /** In request order. */
+  readonly openings: readonly RingMemberOpening[];
 }
-export interface RingMemberRecordsRequest {
+
+/** The record queue Photon projects, every pending write in queue order. */
+export interface RingQueueState {
+  readonly context: Readonly<{ slot: bigint; blockTime: bigint }>;
+  readonly head: bigint;
+  readonly tail: bigint;
+  /** `chain(head - 1)`. */
+  readonly chainHead: Bytes32;
+  readonly entries: readonly Readonly<{ position: bigint; entry: QueueEntry; slot: bigint }>[];
+}
+
+/** An authority list write, the queue entry without an escrow key. */
+export interface RecordWrite {
+  readonly member: Bytes32;
+  readonly mask: bigint;
+  readonly value: bigint;
+}
+
+export interface RingApplyProofInputs {
+  readonly context: Readonly<{ slot: bigint; blockTime: bigint }>;
+  /** Unverified until replayed from the registry the program holds. */
+  readonly inputs: ApplyProofInputs;
+}
+
+/** The member's record or the low record bracketing its absence. */
+export interface RingMemberRecordResult {
+  readonly context: Readonly<{ slot: bigint; blockTime: bigint }>;
+  readonly root: RingRegistryRoot;
+  readonly opening: RingMemberOpening;
+}
+
+export interface RingMemberPageRequest {
   readonly ringProgramId: Address;
   readonly expectedRoot: Bytes32;
-  readonly expectedNextIndex: bigint;
-  readonly startIndex: bigint;
+  readonly expectedNextIndex: number;
+  readonly startIndex: number;
   readonly limit: number;
 }
-export interface RingIndexedMemberRecordView {
-  readonly index: bigint;
-  readonly record: RingMemberRecordView;
-  readonly path: readonly Bytes32[];
-}
-export interface RingMemberRecordsResponse {
+
+/** Leaves from `startIndex` at one root, each with its path. */
+export interface RingMemberPage {
   readonly context: Readonly<{ slot: bigint; blockTime: bigint }>;
-  readonly root: Bytes32;
-  readonly rootIndex: number;
-  readonly nextIndex: bigint;
-  readonly records: readonly RingIndexedMemberRecordView[];
-  readonly nextLeafIndex: bigint | null;
+  readonly root: RingRegistryRoot;
+  readonly records: readonly Readonly<{
+    record: MemberRecord;
+    path: QuadPath;
+    sealedKey?: RingSealedKey;
+  }>[];
+  /** `undefined` on the last page. */
+  readonly nextLeafIndex: number | undefined;
 }
-export interface RingMemberRegistryReader {
+
+/** The registry as Photon projects it, the account itself is the authority. */
+export interface RingRegistryState {
+  readonly context: Readonly<{ slot: bigint; blockTime: bigint }>;
+  /** `MEMBER_REGISTRY_ROOT_HISTORY` slots, `undefined` where no root was pushed. */
+  readonly history: readonly (
+    | Readonly<{ root: Bytes32; applied: bigint; slot: bigint }>
+    | undefined
+  )[];
+  readonly historyCursor: number;
+  readonly nextIndex: number;
+  readonly floor: bigint;
+  readonly priorFloor: bigint;
+  readonly floorSlot: bigint;
+  /** The path of the empty leaf at `nextIndex`, absent once the registry is full. */
+  readonly appendPath?: QuadPath;
+}
+
+/** Photon's v5 record projection, the queue and the proof inputs of an application. */
+export interface RingRecordReader {
   getRingMemberRecord(
     request: RingMemberProofRequest,
     context?: RequestContext,
-  ): Promise<RingMemberRecordResponse>;
+  ): Promise<RingMemberRecordResult>;
+  getRingMemberRecords(
+    request: RingMemberPageRequest,
+    context?: RequestContext,
+  ): Promise<RingMemberPage>;
   getRingMemberRegistryRoot(
     request: Readonly<{ ringProgramId: Address }>,
     context?: RequestContext,
-  ): Promise<RingMemberRegistryTip>;
-  /** Optional for readers backed by an older indexer. Required for complete auditor discovery. */
-  getRingMemberRecords?(
-    request: RingMemberRecordsRequest,
+  ): Promise<RingRegistryState>;
+  /** At most `MAX_RING_MEMBER_BATCH` members, all under `expectedRoot`. */
+  getRingMemberOpenings(
+    request: Readonly<{
+      ringProgramId: Address;
+      members: readonly Bytes32[];
+      expectedRoot: Bytes32;
+    }>,
     context?: RequestContext,
-  ): Promise<RingMemberRecordsResponse>;
+  ): Promise<RingMemberOpenings>;
+  getRingRecordQueue(
+    request: Readonly<{ ringProgramId: Address }>,
+    context?: RequestContext,
+  ): Promise<RingQueueState>;
+  /** Every pending write, then `authorityWrites`. */
+  getRingApplyProofInputs(
+    request: Readonly<{ ringProgramId: Address; authorityWrites: readonly RecordWrite[] }>,
+    context?: RequestContext,
+  ): Promise<RingApplyProofInputs>;
 }
 
 export type RingSubmissionStatus =
@@ -330,52 +389,10 @@ export type IndexedProofInputs = Readonly<{
     | Readonly<{ circuit: "merge"; payload: PreparedMergeInputs }>
   );
 
-export interface IndexedPolicyLookup {
-  readonly treeSlot: number;
-  readonly commitment: Bytes32 | null;
-  readonly nullifier: Bytes32 | null;
-}
-
-export interface IndexedRegistry {
-  readonly ringProgramId: Address;
-  readonly root: Bytes32;
-  readonly nextIndex: bigint;
-}
-
-export interface IndexedDepositInputs {
-  readonly deposit: CustomRingDepositProofRequest;
-  readonly registry: IndexedRegistry;
-  readonly minContextSlot?: bigint;
-}
-
 export type ProofDataSource = "client" | "prover";
 
 export interface ProofDataSourceContext {
   readonly proofDataSource: ProofDataSource;
-}
-
-export interface IndexedDepositClient extends ProofDataSourceContext {
-  proveIndexedRingDeposit?(
-    inputs: IndexedDepositInputs,
-    context?: RequestContext,
-  ): Promise<Uint8Array>;
-}
-
-export interface IndexedPolicyInputs {
-  readonly minContextSlot?: bigint;
-  readonly circuit: "custom-ring-policy" | "custom-ring-delegate-policy";
-  readonly policy: CustomRingPolicyProofRequest;
-  readonly trees: readonly ResolvedProofTree[];
-  readonly publicInputs: readonly Bytes32[];
-  readonly registry: IndexedRegistry;
-  readonly foreignRegistry?: IndexedRegistry;
-}
-
-export interface IndexedPolicyClient extends ProofDataSourceContext {
-  proveIndexedRingPolicy?(
-    inputs: IndexedPolicyInputs,
-    context?: RequestContext,
-  ): Promise<Readonly<{ proof: Uint8Array; resolution: ProofResolution }>>;
 }
 
 export interface IndexedProofResult {
@@ -395,7 +412,13 @@ export interface IndexedProofAuthority {
 export interface ProofService {
   prove(inputs: ProverInputs, context?: RequestContext): Promise<Proof>;
   proveMerge(inputs: MergeInputs, context?: RequestContext): Promise<Proof>;
+  proveRing(request: RingProofRequest, context?: RequestContext): Promise<Proof>;
 }
+
+/** A ring proof whose nullifier secret only the key holder adds, register key and anonymous merge. */
+export type SecretRingProofRequest =
+  | Omit<RegisterKeyProofRequest, "nullifierSecret">
+  | Omit<AnonymousMergeProofRequest, "nullifierSecret">;
 
 /**
  * The one capability that consumes the nullifier secret: completes proof
@@ -406,6 +429,8 @@ export interface ProofService {
 export interface ProofAuthority {
   prove(inputs: ProverInputs, context?: RequestContext): Promise<Proof>;
   proveMerge(inputs: MergeInputs, context?: RequestContext): Promise<Proof>;
+  /** The holder decides whether its secret may be sealed to the request's auditor key. */
+  proveRingWithSecret(request: SecretRingProofRequest, context?: RequestContext): Promise<Proof>;
 }
 
 /**
@@ -426,10 +451,8 @@ export interface MergeCacheTarget {
 }
 
 export interface Prover {
-  proveCustomRingDeposit(
-    inputs: CustomRingDepositProofRequest,
-    context?: RequestContext,
-  ): Promise<Uint8Array>;
+  /** One ring proof, the 192-byte `CustomRingProof` the ring program verifies. */
+  proveRing(request: RingProofRequest, context?: RequestContext): Promise<Uint8Array>;
   proveRingAuthorityTransact(
     proofInputs: SppProofInputs,
     ringProgramId: Address,
@@ -437,22 +460,6 @@ export interface Prover {
     context?: RequestContext,
     outputTree?: TreeContext,
   ): Promise<ProvenRingTransact>;
-  proveCustomRingDelegatePolicy(
-    inputs: CustomRingPolicyProofRequest,
-    context?: RequestContext,
-  ): Promise<Uint8Array>;
-  proveCustomRingUpdateMembers(
-    inputs: import("./prover/types.js").CustomRingUpdateMembersProofRequest,
-    context?: RequestContext,
-  ): Promise<Uint8Array>;
-  proveCustomRingRegisterKey(
-    inputs: CustomRingRegisterKeyProofRequest,
-    context?: RequestContext,
-  ): Promise<Uint8Array>;
-  proveCustomRingMergeAnonymous(
-    inputs: import("./prover/types.js").CustomRingMergeAnonymousProofRequest,
-    context?: RequestContext,
-  ): Promise<Uint8Array>;
   proveTransact(
     proofInputs: SppProofInputs,
     keys: ProofAuthority,
@@ -471,14 +478,6 @@ export interface Prover {
     input: AnonymousRingTransactProofInput,
     context?: RequestContext,
   ): Promise<ProvenRingTransact>;
-  proveCustomRingPolicy(
-    inputs: CustomRingPolicyProofRequest,
-    context?: RequestContext,
-  ): Promise<Uint8Array>;
-  proveCustomRingBase(
-    inputs: CustomRingBaseProofRequest,
-    context?: RequestContext,
-  ): Promise<Uint8Array>;
   /** The ring circuit when `ringProgramId` is non-zero. */
   proveTransferInputs(inputs: TransferInputs, context?: RequestContext): Promise<TransactProof>;
   proverHealth(context?: RequestContext): Promise<ProverHealth>;
@@ -585,15 +584,13 @@ export interface ProvedMerge {
 export type RingMergeRegistryProof =
   | Readonly<{
       root: Bytes32;
-      key: import("./prover/types.js").CustomRingRegistryKey;
+      record: PresentRecordOpening;
+      /** `hash_bytes` of the escrowed key ciphertext, its record's escrow key binds it. */
+      ctHash: Bytes32;
       anonymous?: false;
     }>
-  | Readonly<{
-      root: Bytes32;
-      /** An anonymous member escrows no key, the ring's merge disclosure proves the owner. */
-      record: import("./prover/types.js").CustomRingRecordWitness;
-      anonymous: true;
-    }>;
+  /** Binds a zero root and opens no record, the ring's merge disclosure proves the owner. */
+  | Readonly<{ anonymous: true }>;
 
 /** A proved ring transfer with the tree history entries the ring statement binds. */
 export interface AnonymousRingTransactProofInput {
@@ -647,10 +644,9 @@ export interface MergeAssembler {
 export type RingMergeClient = TreeContext &
   BlockhashProvider &
   Pick<ChainReader, "getAccount"> &
-  Pick<RingMemberRegistryReader, "getRingMemberRecord"> &
+  Pick<RingRecordReader, "getRingMemberRecord"> &
   Pick<MergeAssembler, "proveMerge"> &
-  Pick<Prover, "proveCustomRingMergeAnonymous"> &
-  ProofDataSourceContext;
+  Pick<Prover, "proveRing">;
 
 /** A nullifier key encrypted to the ring auditor. */
 export interface RingSealedNullifierKey {

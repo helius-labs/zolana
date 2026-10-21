@@ -283,6 +283,7 @@ it("refuses a key holder's merge root at the field modulus as unparsable", async
     const keys = {
       prove: vi.fn(),
       proveMerge: vi.fn(),
+      proveRingWithSecret: vi.fn(),
       proveIndexed: async () => ({
         proof: parseProof(STANDARD_PROOF),
         resolution: {

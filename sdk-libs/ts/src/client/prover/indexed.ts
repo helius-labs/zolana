@@ -7,24 +7,14 @@ import {
 import { getBase58Decoder } from "@solana/kit";
 import { wireDecoder } from "../../interface/decode.js";
 import { MERGE_SUPPORTED_INPUT_COUNTS } from "../../interface/constants.js";
-import {
-  MEMBER_REGISTRY_CAPACITY,
-  MEMBER_REGISTRY_HEIGHT,
-} from "../../interface/member-registry.js";
+import { QUAD_ARITY, QUAD_HEIGHT } from "../../interface/member-registry.js";
 import { treeAddress } from "../../interface/pda/index.js";
-import {
-  inputTreeSlots,
-  treeSlotsHashChain,
-  NO_UTXO_ROOT,
-  type TreeSlot,
-} from "../../interface/tree-slot.js";
+import { inputTreeSlots, NO_UTXO_ROOT, type TreeSlot } from "../../interface/tree-slot.js";
 import { ADDRESS_DOMAIN } from "../../interface/program.js";
 import { selectSppShape } from "../../interface/shape.js";
 import type { Bytes32, RequestContext } from "../../interface/types.js";
-import { hashChain } from "../../transaction/internal.js";
 import { U64_MAX } from "../../transaction/internal.js";
 import type {
-  IndexedPolicyInputs,
   IndexedProofAuthority,
   IndexedProofInputs,
   IndexedProofResult,
@@ -45,7 +35,7 @@ import { asField, resolvedPublicInputHash, type InputTree } from "./assembly.js"
 import type {
   AnonymousEddsaAuthorization,
   CircuitUtxo,
-  CustomRingRecordWitness,
+  PresentRecordOpening,
   TransferOutput,
   Field,
   Proof,
@@ -140,19 +130,21 @@ export function decodeIndexedInputs(value: unknown): IndexedProofInputs {
     }
     const anonymous = payload["anonymous"];
     if (anonymous !== undefined && anonymous !== true) throw invalid();
-    if (anonymous === true && payload["registeredCiphertextHash"] !== undefined) throw invalid();
-    return {
-      memberRegistryRoot: field("memberRegistryRoot"),
-      ...(anonymous === true
-        ? { anonymous }
-        : { registeredCiphertextHash: field("registeredCiphertextHash") }),
-      memberRecord: decodeMergeMemberRecord(payload["memberRecord"]),
-    };
+    if (anonymous !== true)
+      return {
+        memberRegistryRoot: field("memberRegistryRoot"),
+        registeredCiphertextHash: field("registeredCiphertextHash"),
+        memberRecord: decodeMergeMemberRecord(payload["memberRecord"]),
+      };
+    if (payload["registeredCiphertextHash"] !== undefined || payload["memberRecord"] !== undefined)
+      throw invalid();
+    return { memberRegistryRoot: field("memberRegistryRoot"), anonymous: true as const };
   };
   const transfer = () => ({
     ...common,
     outputs: requestDecoder.list(payload["outputs"], "outputs").map(decodeOutput),
     blindingSeed: field("blindingSeed"),
+    ringSecrets: fields("ringSecrets"),
     publicAssets: fields("publicAssets"),
     publicAmounts: fields("publicAmounts"),
     signerPublicKeyHashes: fields("signerPublicKeyHashes"),
@@ -265,42 +257,6 @@ export function resolvedTrees(
   );
 }
 
-/** A tree without a state or nullifier lookup keeps the root and position the client sent for it. */
-export function checkPolicyResolution(
-  inputs: IndexedPolicyInputs,
-  resolution: ProofResolution,
-): void {
-  bindResolution(resolution, inputs.trees, (slots) =>
-    bytesToBigInt(
-      hashChain([
-        ...inputs.publicInputs.slice(0, 1),
-        treeSlotsHashChain(inputTreeSlots(slots)),
-        ...inputs.publicInputs.slice(1),
-      ]),
-    ),
-  );
-  resolution.trees.forEach((tree, index) => {
-    const sent = inputs.trees[index];
-    if (
-      sent === undefined ||
-      tree.utxoRootIndex >= STATE_ROOT_HISTORY_CAPACITY ||
-      bytesToBigInt(tree.utxoRoot) !== bytesToBigInt(sent.utxoRoot) ||
-      tree.utxoRootIndex !== sent.utxoRootIndex ||
-      bytesToBigInt(tree.nullifierRoot) !== bytesToBigInt(sent.nullifierRoot) ||
-      tree.nullifierRootIndex !== sent.nullifierRootIndex
-    )
-      throw unparsable();
-  });
-}
-
-/** A deposit resolves no tree, its statement is the hash the request carries. */
-export function checkDepositResolution(
-  publicInputHash: Bytes32,
-  resolution: ProofResolution,
-): void {
-  bindResolution(resolution, [], () => bytesToBigInt(publicInputHash));
-}
-
 export function contextSlotJson(slot: unknown): Readonly<{ minContextSlot?: number }> {
   const checked = checkedContextSlot(slot);
   return checked === undefined ? {} : { minContextSlot: Number(checked) };
@@ -387,30 +343,43 @@ function requestField(value: unknown): Field {
   return asField(value);
 }
 
-function decodeMergeMemberRecord(value: unknown): CustomRingRecordWitness {
-  const record = requestDecoder.record(value, "memberRecord");
-  const bytes = (name: string): Bytes32 => {
-    const value = checkedBytes(record[name], 32, name);
-    bytesField(value, name);
-    return value;
+function decodeMergeMemberRecord(value: unknown): PresentRecordOpening {
+  const opening = requestDecoder.record(value, "memberRecord");
+  if (opening["kind"] !== "present") throw invalid();
+  const record = requestDecoder.record(opening["record"], "memberRecord.record");
+  const path = requestDecoder.record(opening["path"], "memberRecord.path");
+  const node = (entry: unknown, name: string): Bytes32 => {
+    const field = checkedBytes(entry, 32, name);
+    bytesField(field, name);
+    return field;
   };
-  const integer = (name: string, maximum: bigint): bigint => {
-    const value = record[name];
-    if (typeof value !== "bigint" || value < 0n || value >= maximum) throw invalid();
-    return value;
-  };
-  const path = requestDecoder.list(record["path"], "memberRecord.path").map((value) => {
-    const node = checkedBytes(value, 32, "memberRecord.path");
-    bytesField(node, "memberRecord.path");
-    return node;
-  });
-  if (path.length !== MEMBER_REGISTRY_HEIGHT) throw invalid();
+  const lists = record["lists"];
+  const index = path["index"];
+  if (typeof lists !== "bigint" || lists < 0n || lists > U64_MAX) throw invalid();
+  if (
+    typeof index !== "number" ||
+    !Number.isInteger(index) ||
+    index < 0 ||
+    index >= 4 ** QUAD_HEIGHT
+  )
+    throw invalid();
+  const siblings = requestDecoder
+    .list(path["siblings"], "memberRecord.path.siblings")
+    .map((level) => {
+      const nodes = requestDecoder.list(level, "memberRecord.path.siblings");
+      if (nodes.length !== QUAD_ARITY - 1) throw invalid();
+      return nodes.map((entry) => node(entry, "memberRecord.path.siblings"));
+    });
+  if (siblings.length !== QUAD_HEIGHT) throw invalid();
   return {
-    next: bytes("next"),
-    lists: integer("lists", U64_MAX + 1n),
-    escrowKey: bytes("escrowKey"),
-    index: integer("index", MEMBER_REGISTRY_CAPACITY),
-    path,
+    kind: "present",
+    record: {
+      member: node(record["member"], "memberRecord.member"),
+      next: node(record["next"], "memberRecord.next"),
+      lists,
+      escrowKey: node(record["escrowKey"], "memberRecord.escrowKey"),
+    },
+    path: { index, siblings },
   };
 }
 

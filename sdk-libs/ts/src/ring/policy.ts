@@ -1,18 +1,15 @@
 import type { Address } from "@solana/kit";
 
-import { ownerHash } from "../keypair/hash.js";
+import { RingDomain, domainField } from "../keypair/ring-domain.js";
+import type { PolicyTableProofInputs } from "../client/prover/ring.js";
 import {
   RING_INLINE_ASSET_SLOTS,
   RING_RULE_SLOTS,
   RING_SOURCE_SLOTS,
   RING_OUTFLOW_LIMIT_SLOTS,
-  type CustomRingSourceOwner,
-  type CustomRingOutflowLimit,
 } from "../client/prover/types.js";
 import { hashBytes, solanaOwnerIdentity } from "../hasher/index.js";
 import { Reader, Writer, addressBytes } from "../interface/internal.js";
-import { ZERO_NULLIFIER_PK } from "../interface/program.js";
-import type { TreeId } from "../transaction/utxo.js";
 import type { Bytes32 } from "../interface/types.js";
 import {
   ZERO_32,
@@ -24,7 +21,12 @@ import {
 } from "../transaction/internal.js";
 import { bytesKey, equalBytes } from "../wallet/internal.js";
 
-import type { RingPolicyConfig, RingPolicySource } from "./codecs.js";
+import {
+  registryCurator,
+  type EncodedRuleTable,
+  type RingMemberRegistry,
+  type RingSourceSlot,
+} from "./codecs.js";
 import { RingError } from "./error.js";
 
 /** Mirrors Rust `ListId`, the on-chain discriminant of a list, never `0`. */
@@ -56,6 +58,11 @@ function listBit(id: ListId): number {
   return 1 << (checkedListId(id) - 1);
 }
 
+/** Rust `ListId::record_bit`, the bit of a member record's `lists` bitmap. */
+export function recordBit(id: ListId): bigint {
+  return BigInt(listBit(id));
+}
+
 /** A byte outside `LIST_IDS` never reaches a mask, a seed or the wire. */
 export function checkedListId(id: ListId): ListId {
   if (listIdFromByte(id) === undefined) throw ruleTableInvalid("UnknownList");
@@ -85,13 +92,29 @@ export interface Rule {
   readonly guard: RuleGuard;
 }
 
+/** Mirrors Rust `OutflowLimit`, a zero bound is no bound. */
+export interface OutflowLimit {
+  /** `hash_bytes` of the mint. */
+  readonly asset: Bytes32;
+  /** The most one transfer moves out. */
+  readonly cap: bigint;
+  /** The co-signer signs an outflow above it. */
+  readonly cosignAbove: bigint;
+}
+
+/** Mirrors Rust `PolicySource`, the field of one source slot, a zero registry names the ring's own. */
+export interface PolicySource {
+  readonly listId: number;
+  readonly registry: Bytes32;
+}
+
 /** One limit per inline asset, zero outside a per-asset guard. */
 export interface RuleTable {
   readonly rules: readonly Rule[];
   readonly inlineAssets: readonly Bytes32[];
   readonly inlineLimits: readonly bigint[];
   /** At most one per mint, each bounds a transfer's outflow of it. */
-  readonly limits: readonly CustomRingOutflowLimit[];
+  readonly limits: readonly OutflowLimit[];
 }
 
 const U64_MAX = (1n << 64n) - 1n;
@@ -208,10 +231,8 @@ function checkRule(rule: Rule): void {
   }
 }
 
-/** Mirrors Rust `EncodedRuleTable::decode`, the padding is checked by `decodeRingPolicyConfig`. */
-export function decodeRuleTable(
-  config: Pick<RingPolicyConfig, "rules" | "inlineAssets" | "inlineLimits" | "limits">,
-): RuleTable {
+/** Mirrors Rust `EncodedRuleTable::decode`, the padding is checked by `decodeRingMemberRegistry`. */
+export function decodeRuleTable(config: EncodedRuleTable): RuleTable {
   if (config.rules.length > RING_RULE_SLOTS) throw ruleTableInvalid("TooManyRules");
   if (config.inlineLimits.length !== config.inlineAssets.length) {
     throw ruleTableInvalid("MissingAssetLimit");
@@ -228,7 +249,7 @@ export interface RuleTableInput {
   readonly rules: readonly Rule[];
   readonly inlineAssets?: readonly Bytes32[];
   readonly inlineLimits?: readonly bigint[];
-  readonly limits?: readonly CustomRingOutflowLimit[];
+  readonly limits?: readonly OutflowLimit[];
 }
 
 /** Mirrors Rust `RuleTableBuilder::try_build`. */
@@ -258,22 +279,13 @@ export function buildRuleTable(input: RuleTableInput): RuleTable {
 
 /** Mirrors Rust `RuleTable::encode`, counted rows without the zero padding. */
 export function encodeRuleTable(table: RuleTable): EncodedRuleTable {
-  const rules = table.rules.map(encodeRule);
   return Object.freeze({
-    ruleCount: rules.length,
-    rules: Object.freeze(rules),
-    inlineCount: table.inlineAssets.length,
+    rules: Object.freeze(table.rules.map(encodeRule)),
     inlineAssets: table.inlineAssets,
     inlineLimits: table.inlineLimits,
-    limitCount: table.limits.length,
     limits: table.limits,
   });
 }
-
-export type EncodedRuleTable = Pick<
-  RingPolicyConfig,
-  "ruleCount" | "rules" | "inlineCount" | "inlineAssets" | "inlineLimits" | "limitCount" | "limits"
->;
 
 /** The invariants both `decode` and `try_build` enforce. */
 function checkedRuleTable(table: RuleTable): RuleTable {
@@ -312,7 +324,7 @@ function checkedRuleTable(table: RuleTable): RuleTable {
 }
 
 /** Mirrors the limit checks of Rust `RuleTableBuilder::try_build`. */
-function checkLimits(limits: readonly CustomRingOutflowLimit[]): void {
+function checkLimits(limits: readonly OutflowLimit[]): void {
   if (limits.length > RING_OUTFLOW_LIMIT_SLOTS) throw ruleTableInvalid("TooManyOutflowLimits");
   const assets = new Set<string>();
   for (const limit of limits) {
@@ -349,14 +361,127 @@ export function referencedLists(rules: readonly Rule[]): readonly ListId[] {
   return listSet(bits);
 }
 
+/** Rust `EncodedRuleTable::validate`, a policy reads only lists the authority writes, in slot order. */
+export function policySourceLists(rules: readonly Rule[]): readonly ListId[] {
+  const lists = referencedLists(rules);
+  if (lists.some((listId) => listWriter(listId) !== "authority"))
+    throw ruleTableInvalid("MemberWrittenList");
+  return lists;
+}
+
+/** Rust `RecordLists`, a member's record lists in each registry, zero for an absent member. */
+export interface RecordLists {
+  readonly own: bigint;
+  /** Read only for a list a curator serves. */
+  readonly curator: bigint;
+}
+
+/** Rust `OutputSubjects`. */
+export interface OutputSubjects {
+  /** Zero carries no owner obligation. */
+  readonly owner: Bytes32;
+  /** `memberOfAsset` of the mint. */
+  readonly asset: Bytes32;
+  readonly amount: bigint;
+  readonly ownerLists: RecordLists;
+  readonly assetLists: RecordLists;
+}
+
+/** Rust `TransferSubjects`, the UTXO outputs in slot order with every dummy left out. */
+export interface TransferSubjects {
+  readonly sender: RecordLists;
+  readonly outputs: readonly OutputSubjects[];
+}
+
+/** Rust `TransferSubject`, `output` a position in `TransferSubjects.outputs`. */
+export type TransferSubject =
+  | Readonly<{ kind: "sender" }>
+  | Readonly<{ kind: "owner"; output: number }>
+  | Readonly<{ kind: "asset"; output: number }>;
+
+/** Rust `RuleRefusal`. */
+export type RuleRefusal =
+  | Readonly<{ kind: "lists"; rule: number; subject: TransferSubject }>
+  | Readonly<{ kind: "noAssetLimit"; rule: number; output: number }>
+  | Readonly<{ kind: "mixedAssets"; rule: number; output: number }>;
+
+/** Rust `RuleTable::admit`, the first refusal in the circuit's constraint order, caps, outflow and co-sign left out. */
+export function admitTransfer(
+  table: RuleTable,
+  sources: readonly PolicySource[],
+  transfer: TransferSubjects,
+): RuleRefusal | undefined {
+  const { outputs } = transfer;
+  const scalarOwner = table.rules.findIndex(
+    (rule) => rule.subject === "outputOwner" && rule.guard.kind === "aboveAmount",
+  );
+  const [first] = outputs;
+  const mixed =
+    first === undefined
+      ? -1
+      : outputs.findIndex((output) => !equalBytes(output.asset, first.asset));
+  if (scalarOwner >= 0 && mixed >= 0)
+    return { kind: "mixedAssets", rule: scalarOwner, output: mixed };
+  const foreign = sources.reduce(
+    (bits, slot, index) =>
+      equalBytes(slot.registry, ZERO_32) ? bits : bits | (1n << BigInt(index)),
+    0n,
+  );
+  const listed = (
+    rule: Rule,
+    index: number,
+    subject: TransferSubject,
+    records: RecordLists,
+  ): RuleRefusal | undefined => {
+    const on = (records.own & ~foreign) | (records.curator & foreign);
+    const present = BigInt(listBits(rule.source.present));
+    const absent = BigInt(listBits(rule.source.absent));
+    return (present & on) !== 0n || (absent & ~on) !== 0n
+      ? undefined
+      : { kind: "lists", rule: index, subject };
+  };
+  const total = (grouped: (other: OutputSubjects) => boolean): bigint =>
+    outputs.reduce((sum, other) => (grouped(other) ? sum + other.amount : sum), 0n);
+  for (const [index, rule] of table.rules.entries()) {
+    if (rule.subject === "sender") {
+      const refused = listed(rule, index, { kind: "sender" }, transfer.sender);
+      if (refused !== undefined) return refused;
+      continue;
+    }
+    if (rule.subject === "exitDestination") continue;
+    const onAsset = rule.subject === "asset";
+    for (const [position, output] of outputs.entries()) {
+      if (!onAsset && equalBytes(output.owner, ZERO_32)) continue;
+      const inline = table.inlineAssets.findIndex((asset) => equalBytes(asset, output.asset));
+      const limit = inline < 0 ? undefined : table.inlineLimits[inline];
+      if (rule.guard.kind === "aboveAmountByAsset" && limit === undefined)
+        return { kind: "noAssetLimit", rule: index, output: position };
+      const liveOwner = (other: OutputSubjects): boolean =>
+        !equalBytes(other.owner, ZERO_32) && equalBytes(other.owner, output.owner);
+      const sameAsset = (other: OutputSubjects): boolean => equalBytes(other.asset, output.asset);
+      const { guard } = rule;
+      const exempt =
+        guard.kind === "aboveAmount"
+          ? total(onAsset ? sameAsset : liveOwner) <= guard.amount
+          : guard.kind === "aboveAmountByAsset" &&
+            limit !== undefined &&
+            total((other) => liveOwner(other) && sameAsset(other)) <= limit;
+      if (exempt) continue;
+      const refused = onAsset
+        ? listed(rule, index, { kind: "asset", output: position }, output.assetLists)
+        : listed(rule, index, { kind: "owner", output: position }, output.ownerLists);
+      if (refused !== undefined) return refused;
+    }
+  }
+  return undefined;
+}
+
 function ruleTableInvalid(reason: string): RingError {
   return new RingError("RING_RULE_TABLE_INVALID", { details: { reason } });
 }
 
 /** Mirrors Rust `SourceMap::from_namespaces`. */
-export function policySourceOwners(
-  sources: readonly RingPolicySource[],
-): readonly CustomRingSourceOwner[] {
+export function policySourceOwners(sources: readonly RingSourceSlot[]): readonly PolicySource[] {
   return checkedSourceOwners(
     sources.map((slot) =>
       Object.freeze(
@@ -373,9 +498,7 @@ export function policySourceOwners(
   );
 }
 
-function checkedSourceOwners(
-  owners: readonly CustomRingSourceOwner[],
-): readonly CustomRingSourceOwner[] {
+function checkedSourceOwners(owners: readonly PolicySource[]): readonly PolicySource[] {
   if (owners.length !== RING_SOURCE_SLOTS) {
     throw sourceInvalid("SlotCount", { slots: owners.length });
   }
@@ -397,49 +520,102 @@ function sourceInvalid(reason: string, details: Readonly<Record<string, unknown>
   return new RingError("RING_POLICY_SOURCE_INVALID", { details: { reason, ...details } });
 }
 
-/** Rust `POLICY_VERSION`, enters the policy hash. */
-export const RING_POLICY_VERSION = 10;
+/** Rust `POLICY_TABLE_VERSION`, the second field of the table hash. */
+export const POLICY_TABLE_VERSION = 11;
+/** Fields absorbed per Poseidon call beside the accumulator, the 12-input syscall maximum. */
+const POLICY_TABLE_RATE = 11;
 
-/** Mirrors Rust `EncodedRuleTable::hash`, a referenced list without a source fails closed. */
-export function ringPolicyHash(
+/** The table at its slot widths, every slot past a count zero, the one layout the hash and the policy proof read. */
+export function policyTableProofInputs(
   table: RuleTable,
-  sources: readonly CustomRingSourceOwner[],
-): Bytes32 {
+  sources: readonly PolicySource[],
+): PolicyTableProofInputs {
   const owners = checkedSourceOwners(sources);
   for (const listId of referencedLists(table.rules)) {
     if (owners[listId - 1]?.listId !== listId) throw sourceInvalid("MissingSource", { listId });
   }
-  const encoded = encodeRuleTable(table);
-  const elements: Bytes32[] = [POLICY_TABLE_DOMAIN, fieldU8(RING_POLICY_VERSION)];
-  for (const slot of owners) elements.push(fieldU8(slot.listId), slot.registry);
-  elements.push(
-    fieldU8(encoded.ruleCount),
-    fieldU8(encoded.inlineAssets.length),
-    fieldU8(encoded.limits.length),
-    ...encoded.rules,
-  );
-  encoded.inlineAssets.forEach((asset, index) => {
-    elements.push(asset, fieldU64(encoded.inlineLimits[index] ?? 0n));
+  const slot = <T, U>(values: readonly T[], count: number, at: (value: T) => U, zero: U): U[] =>
+    Array.from({ length: count }, (_, index) => {
+      const value = values[index];
+      return value === undefined ? zero : at(value);
+    });
+  return Object.freeze({
+    sources: owners,
+    policyLen: table.rules.length,
+    rules: slot(table.rules, RING_RULE_SLOTS, encodeRule, ZERO_32),
+    inlineAssets: slot(table.inlineAssets, RING_INLINE_ASSET_SLOTS, (asset) => asset, ZERO_32),
+    inlineLimits: slot(table.inlineLimits, RING_INLINE_ASSET_SLOTS, fieldU64, ZERO_32),
+    inlineCount: table.inlineAssets.length,
+    limits: slot(
+      table.limits,
+      RING_OUTFLOW_LIMIT_SLOTS,
+      (limit) => ({
+        asset: limit.asset,
+        cap: fieldU64(limit.cap),
+        cosignAbove: fieldU64(limit.cosignAbove),
+      }),
+      { asset: ZERO_32, cap: ZERO_32, cosignAbove: ZERO_32 },
+    ),
+    limitCount: table.limits.length,
   });
-  for (const limit of encoded.limits) {
-    elements.push(limit.asset, fieldU64(limit.cap), fieldU64(limit.cosignAbove));
-  }
-  return elements.reduce((chain, element) => poseidon([chain, element]));
 }
 
-/** Mirrors Rust `policy_config_table`, the rows are trusted once they reproduce the pinned hash. */
-export function verifiedRuleTable(
-  config: RingPolicyConfig,
-  sources: readonly CustomRingSourceOwner[] = policySourceOwners(config.sources),
-): RuleTable {
-  const table = decodeRuleTable(config);
-  const hash = ringPolicyHash(table, sources);
-  if (!equalBytes(hash, config.policyHash)) {
-    throw new RingError("RING_POLICY_HASH_MISMATCH", {
-      details: { addressTree: config.addressTree, generation: config.generation },
-    });
+/** Rust `EncodedRuleTable::fields`, the 77 fields the policy circuit opens. */
+export function policyTableFields(
+  table: RuleTable,
+  sources: readonly PolicySource[],
+): readonly Bytes32[] {
+  const slots = policyTableProofInputs(table, sources);
+  return Object.freeze([
+    domainField(RingDomain.policyTable),
+    fieldU8(POLICY_TABLE_VERSION),
+    ...slots.sources.flatMap((owner) => [fieldU8(owner.listId), owner.registry]),
+    fieldU8(slots.policyLen),
+    fieldU8(slots.inlineCount),
+    fieldU8(slots.limitCount),
+    ...slots.rules,
+    ...slots.inlineAssets,
+    ...slots.inlineLimits,
+    ...slots.limits.flatMap((limit) => [limit.asset, limit.cap, limit.cosignAbove]),
+  ]);
+}
+
+/** `acc = Poseidon(acc, fields[11c .. 11c + 11])` from `acc = 0`, Rust `EncodedRuleTable::hash`. */
+export function policyTableHash(table: RuleTable, sources: readonly PolicySource[]): Bytes32 {
+  const fields = policyTableFields(table, sources);
+  let acc = ZERO_32;
+  for (let offset = 0; offset < fields.length; offset += POLICY_TABLE_RATE) {
+    acc = poseidon([acc, ...fields.slice(offset, offset + POLICY_TABLE_RATE)]);
   }
-  return table;
+  return acc;
+}
+
+/** The policy table the registry pins, trusted once it reproduces the pinned hash, Rust `PinnedPolicy`. */
+export interface PinnedPolicy {
+  readonly table: RuleTable;
+  readonly sources: readonly PolicySource[];
+  readonly policyHash: Bytes32;
+  /** The one curator registry a source names. */
+  readonly curator?: Address;
+}
+
+/** Mirrors Rust `PinnedPolicy::of`, `RING_POLICY_HASH_MISMATCH` unless the stored table reproduces the hash. */
+export function pinnedPolicy(registry: RingMemberRegistry): PinnedPolicy {
+  if (equalBytes(registry.policyHash, ZERO_32))
+    throw new RingError("RING_POLICY_NOT_SET", { details: { generation: registry.generation } });
+  const sources = policySourceOwners(registry.sources);
+  const table = decodeRuleTable(registry.rules);
+  if (!equalBytes(policyTableHash(table, sources), registry.policyHash))
+    throw new RingError("RING_POLICY_HASH_MISMATCH", {
+      details: { generation: registry.generation },
+    });
+  const curator = registryCurator(registry);
+  return Object.freeze({
+    table,
+    sources,
+    policyHash: registry.policyHash,
+    ...(curator === undefined ? {} : { curator }),
+  });
 }
 
 declare const memberBrand: unique symbol;
@@ -467,8 +643,6 @@ function checkedMember(bytes: Bytes32): Member {
   return bytes as Member;
 }
 
-export type EntryState = "active" | "cleared";
-
 export type ListWriter = "authority" | "member";
 
 /** Mirrors Rust `ListId::writer`. */
@@ -491,31 +665,10 @@ function entryInvalid(reason: string): RingError {
   return new RingError("RING_ENTRY_INVALID", { details: { reason } });
 }
 
-const POLICY_TABLE_DOMAIN = packedAscii("zolana:ring-policy:policy:v1");
-
-/** Reserved namespace owner hash, excluded from transfers by the policy circuit. */
-export function ringNamespaceOwnerHash(namespacePda: Address): Bytes32 {
-  return ownerHash(
-    solanaOwnerIdentity(addressBytes(namespacePda, "namespacePda")) as Bytes32,
-    ZERO_NULLIFIER_PK,
-  ) as Bytes32;
-}
-
 function fieldU8(value: number): Bytes32 {
   return rightAlign(Uint8Array.of(value));
 }
 
 function fieldU64(value: bigint): Bytes32 {
   return rightAlign(bigIntBytes(value, 8));
-}
-
-/** At most 31 bytes keeps the packed value below the field modulus. */
-function packedAscii(text: string): Bytes32 {
-  return rightAlign(new TextEncoder().encode(text));
-}
-
-/** A pool tree and its committed protocol id. */
-export interface LeafTree {
-  readonly tree: Address;
-  readonly treeId: TreeId;
 }

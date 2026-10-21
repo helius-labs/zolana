@@ -556,9 +556,11 @@ describe("transaction core", () => {
     expect(privateTxBlinding(firstNullifier, seed)).not.toEqual(outputSeed);
     // The index enters as a u32; anything wider is refused.
     expect(() => transactOutputBlinding(firstNullifier, outputSeed, 0x1_0000_0000)).toThrow(
-      RangeError,
+      "KEYPAIR_INVALID_LENGTH",
     );
-    expect(() => transactOutputBlinding(firstNullifier, outputSeed, -1)).toThrow(RangeError);
+    expect(() => transactOutputBlinding(firstNullifier, outputSeed, -1)).toThrow(
+      "KEYPAIR_INVALID_LENGTH",
+    );
     expect(ownerUtxoHash(scalar(1), blinding)).toHaveLength(32);
   });
 

@@ -1,61 +1,34 @@
 import { checkRingOutputOwners, checkMergeRingData } from "./outputs.js";
-import { X25519PublicKey, X25519Keypair } from "../../keypair/x25519.js";
 import type {
-  IndexedPolicyInputs,
-  IndexedDepositInputs,
   IndexedProofInputs,
   IndexedProofResult,
   PreparedTransferInput,
   PreparedMergeInputs,
 } from "../ports.js";
-import { indexedPolicyEnvelope, indexedDepositEnvelope, snapshotPolicyInputs } from "./policy.js";
 import {
-  checkDepositResolution,
-  checkPolicyResolution,
   decodeIndexedInputs,
   indexedRequestEnvelope,
   parseIndexedResponse,
   resolvedTrees,
 } from "./indexed.js";
-import {
-  MEMBER_REGISTRY_CAPACITY,
-  MEMBER_REGISTRY_HEIGHT,
-  shareMemberSubtree,
-} from "../../interface/member-registry.js";
-import { ANONYMOUS_MERGE_WIDTHS, RING_DEPOSIT_AUDIT_SLOTS } from "./types.js";
-import { isCanonicalField } from "../../interface/canonical-field.js";
-import { INPUT_TREES, treeIdField, type TreeSlot } from "../../interface/tree-slot.js";
-import { validateRingPolicyShape, type Shape } from "../../interface/shape.js";
-import { DUMMY_DOMAIN } from "../../interface/program.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
-import { bytesToBigInt } from "../../keypair/bytes.js";
-import { poseidon } from "../../keypair/poseidon.js";
-import {
-  ANONYMOUS_IDENTITY_LENGTH,
-  AUDIT_INPUT_SLOTS,
-  BASE_ANONYMOUS_INPUT_SLOTS,
-  SHORT_AUDIT_MIN_INPUTS,
-} from "../../keypair/audit.js";
-import { RING_ANONYMOUS_PLAINTEXT_LENGTH } from "../../transaction/serialization/codecs.js";
-import { mergeMintChunks } from "../../transaction/serialization/merge.js";
-import { rightAlign } from "../../interface/merge-utils.js";
 
-import { InterfaceError } from "../../interface/errors.js";
+import { bytesToBigInt } from "../../keypair/bytes.js";
+
 import { wireDecoder } from "../../interface/decode.js";
+import { InterfaceError } from "../../interface/errors.js";
 import {
   PROVING_KEY_SHA256S,
   expectedProvingKey,
-  shapedPolicyCircuit,
+  ringProvingKey,
   type ExpectedProvingKey,
   type ProvingKeyCircuit,
 } from "../../interface/proving-keys.js";
-import type { Bytes32, RequestContext } from "../../interface/types.js";
+import type { RequestContext } from "../../interface/types.js";
 import { isDefaultTeeProver, isZolanaGateway } from "../../endpoint.js";
 
 import { ClientError } from "../error.js";
 import {
-  addressBytes,
-  bigintToBytes,
   checkedBytes,
   field,
   checkedServiceUrl,
@@ -72,31 +45,19 @@ import {
 } from "../../services/transport.js";
 import { parseCheckedProof } from "./proof.js";
 import { MAX_ATTEMPTS, RETRY_DELAY_MS } from "./retry.js";
+import {
+  recordJson,
+  ringProofCircuit,
+  ringProofRequestBody,
+  type RingProofRequest,
+} from "./ring.js";
 import { DEFAULT_TEE_POLICY_FILE } from "./tee/default.js";
 import { defaultTeePolicy } from "./tee/policy.js";
 import type { TeePolicy } from "./tee/registry.js";
 import { TeeSession, sendCall, type ProverCall } from "./tee/session.js";
 import type { AttestedProver } from "./tee/verify.js";
-import {
-  RING_INLINE_ASSET_SLOTS,
-  RING_INPUT_SLOTS,
-  RING_OUTPUT_SLOTS,
-  RING_RULE_SLOTS,
-  RING_SOURCE_SLOTS,
-  RING_OUTFLOW_LIMIT_SLOTS,
-} from "./types.js";
 import type {
   AnonymousEddsaAuthorization,
-  CustomRingAnonymousDelivery,
-  CustomRingAnonymousIdentities,
-  CustomRingBaseProofRequest,
-  CustomRingDepositProofRequest,
-  CustomRingMergeAnonymousProofRequest,
-  CustomRingOpening,
-  CustomRingSourceOwner,
-  CustomRingPolicyProofRequest,
-  CustomRingRegisterKeyProofRequest,
-  CustomRingOutflowLimit,
   Field,
   MergeInputs,
   Proof,
@@ -326,104 +287,10 @@ export class ProverClient {
     return result;
   }
 
-  async proveIndexedPolicy(
-    request: IndexedPolicyInputs,
-    context?: RequestContext,
-  ): Promise<IndexedProofResult> {
-    const inputs = snapshotPolicyInputs(request);
-    const body = indexedPolicyEnvelope(inputs, customRingPolicyProofRequest(inputs.policy));
-    const key = provingKeyFor(
-      policyProofKey(inputs.policy, inputs.circuit === "custom-ring-delegate-policy"),
-    );
-    const result = parseIndexedResponse(
-      await this.#send(JSON.stringify(body), "indexed", key, context),
-      key,
-    );
-    checkPolicyResolution(inputs, result.resolution);
-    return result;
-  }
-
-  async proveCustomRingPolicy(
-    inputs: CustomRingPolicyProofRequest,
-    context?: RequestContext,
-  ): Promise<Proof> {
-    const body = JSON.stringify(customRingPolicyProofRequest(inputs));
-    const key = provingKeyFor(policyProofKey(inputs));
-    return parseCheckedProof(await this.#send(body, "queued", key, context), key);
-  }
-
-  async proveIndexedDeposit(
-    inputs: IndexedDepositInputs,
-    context?: RequestContext,
-  ): Promise<Proof> {
-    const publicInputHash = checkedBytes(inputs.deposit.publicInputHash, 32, "public input hash");
-    const body = indexedDepositEnvelope(inputs, customRingDepositProofRequest(inputs.deposit));
-    const key = provingKeyFor({ circuit: "custom-ring-deposit" });
-    const result = parseIndexedResponse(
-      await this.#send(JSON.stringify(body), "indexed", key, context),
-      key,
-    );
-    checkDepositResolution(publicInputHash, result.resolution);
-    return result.proof;
-  }
-
-  async proveCustomRingUpdateMembers(
-    inputs: import("./types.js").CustomRingUpdateMembersProofRequest,
-    context?: RequestContext,
-  ): Promise<Proof> {
-    const body = JSON.stringify(customRingUpdateMembersProofRequest(inputs));
-    const key = provingKeyFor({ circuit: "custom-ring-update-members" });
-    return parseCheckedProof(await this.#send(body, "queued", key, context), key);
-  }
-
-  async proveCustomRingRegisterKey(
-    inputs: CustomRingRegisterKeyProofRequest,
-    context?: RequestContext,
-  ): Promise<Proof> {
-    const body = JSON.stringify(customRingRegisterKeyProofRequest(inputs));
-    const key = provingKeyFor({ circuit: "custom-ring-register-key" });
-    return parseCheckedProof(await this.#send(body, "queued", key, context), key);
-  }
-
-  async proveCustomRingDeposit(
-    inputs: CustomRingDepositProofRequest,
-    context?: RequestContext,
-  ): Promise<Proof> {
-    const body = JSON.stringify(customRingDepositProofRequest(inputs));
-    const key = provingKeyFor({ circuit: "custom-ring-deposit" });
-    return parseCheckedProof(await this.#send(body, "queued", key, context), key);
-  }
-
-  async proveCustomRingMergeAnonymous(
-    inputs: CustomRingMergeAnonymousProofRequest,
-    context?: RequestContext,
-  ): Promise<Proof> {
-    const body = JSON.stringify(customRingMergeAnonymousProofRequest(inputs));
-    const key = provingKeyFor({
-      circuit: "custom-ring-merge-anonymous",
-      nInputs: inputs.inputs.length,
-    });
-    return parseCheckedProof(await this.#send(body, "queued", key, context), key);
-  }
-
-  async proveCustomRingDelegatePolicy(
-    inputs: CustomRingPolicyProofRequest,
-    context?: RequestContext,
-  ): Promise<Proof> {
-    if (inputs.limits.approvalRequired) throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
-    const policy = customRingPolicyProofRequest(inputs);
-    const keyRequest = policyProofKey(inputs, true);
-    const body = JSON.stringify({ circuitType: policyProofName(inputs, true), policy });
-    const key = provingKeyFor(keyRequest);
-    return parseCheckedProof(await this.#send(body, "queued", key, context), key);
-  }
-
-  async proveCustomRingBase(
-    inputs: CustomRingBaseProofRequest,
-    context?: RequestContext,
-  ): Promise<Proof> {
-    const body = JSON.stringify(customRingBaseProofRequest(inputs));
-    const key = provingKeyFor({ circuit: baseCircuit(inputs) });
+  /** One ring proof, the 192-byte `CustomRingProof` the ring program verifies. */
+  async proveRing(request: RingProofRequest, context?: RequestContext): Promise<Proof> {
+    const body = JSON.stringify(ringProofRequestBody(request));
+    const key = ringProvingKey(ringProofCircuit(request));
     return parseCheckedProof(await this.#send(body, "queued", key, context), key);
   }
 
@@ -810,23 +677,22 @@ function mergeProverRequest(
   const ring = mergeCircuit(inputs) === "merge-ring";
   const anonymous = inputs.anonymous === true;
   const registry =
-    inputs.memberRegistryRoot !== undefined &&
-    inputs.memberRecord !== undefined &&
-    anonymous === (inputs.registeredCiphertextHash === undefined)
-      ? {
-          memberRegistryRoot: hex(inputs.memberRegistryRoot, "memberRegistryRoot"),
-          ...(inputs.registeredCiphertextHash === undefined
-            ? {}
-            : {
-                registeredCiphertextHash: hex(
-                  inputs.registeredCiphertextHash,
-                  "registeredCiphertextHash",
-                ),
-              }),
-          memberRecord: registryKeyJson(inputs.memberRecord),
-          ...(anonymous ? { anonymous } : {}),
-        }
-      : undefined;
+    inputs.memberRegistryRoot === undefined
+      ? undefined
+      : anonymous
+        ? inputs.registeredCiphertextHash === undefined && inputs.memberRecord === undefined
+          ? { memberRegistryRoot: hex(inputs.memberRegistryRoot, "memberRegistryRoot"), anonymous }
+          : undefined
+        : inputs.registeredCiphertextHash !== undefined && inputs.memberRecord !== undefined
+          ? {
+              memberRegistryRoot: hex(inputs.memberRegistryRoot, "memberRegistryRoot"),
+              registeredCiphertextHash: hex(
+                inputs.registeredCiphertextHash,
+                "registeredCiphertextHash",
+              ),
+              memberRecord: recordJson(inputs.memberRecord, "memberRecord"),
+            }
+          : undefined;
   if (ring !== (registry !== undefined)) throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
   return Object.freeze({
     circuitType: mergeCircuit(inputs),
@@ -884,587 +750,8 @@ function treeSlotJson(slot: TreeSlotFields): Readonly<Record<string, unknown>> {
   });
 }
 
-/** Mirrors Rust `CustomRingBaseProofRequest::body`, key order included. */
-export function customRingBaseProofRequest(
-  inputs: CustomRingBaseProofRequest,
-): Readonly<Record<string, unknown>> {
-  const anonymous = inputs.anonymous;
-  return Object.freeze({
-    circuitType: baseCircuit(inputs),
-    publicInputHash: hex32(inputs.publicInputHash, "publicInputHash"),
-    privateTxHash: hex32(inputs.privateTxHash, "privateTxHash"),
-    txViewingSk: hex32(inputs.txViewingSecret, "txViewingSecret"),
-    ephSk: hex32(inputs.ephemeralSecret, "ephemeralSecret"),
-    auditorPk: auditorPkHex(inputs.auditorPublicKey),
-    salt: bytesHex(inputs.salt),
-    nOut: u8(inputs.nOut, "nOut"),
-    outputs: sized(inputs.outputs, RING_OUTPUT_SLOTS, "outputs").map(auditOpeningJson),
-    ...(anonymous === undefined
-      ? {}
-      : {
-          ...anonymousIdentitiesJson(anonymous.identities),
-          nIn: anonymousInputCount(inputs.nIn),
-          inputs: sized(
-            anonymous.inputs,
-            anonymousInputCount(inputs.nIn) > BASE_ANONYMOUS_INPUT_SLOTS
-              ? AUDIT_INPUT_SLOTS
-              : BASE_ANONYMOUS_INPUT_SLOTS,
-            "inputs",
-          ).map(openingJson),
-          anonymousOutputs: sized(anonymous.anonymousOutputs, RING_OUTPUT_SLOTS, "outputs").map(
-            openingJson,
-          ),
-          privateTxBlinding: hex32(anonymous.privateTxBlinding, "privateTxBlinding"),
-          delivery: deliveryJson(anonymous.delivery),
-        }),
-  });
-}
-
-/** Rust `BaseCircuit::select`. */
-function baseCircuit(
-  inputs: CustomRingBaseProofRequest,
-):
-  | "custom-ring-base"
-  | "custom-ring-base-anonymous-wide"
-  | "custom-ring-base-confidential"
-  | "custom-ring-base-confidential-compact" {
-  if (inputs.anonymous !== undefined)
-    return anonymousInputCount(inputs.nIn) > BASE_ANONYMOUS_INPUT_SLOTS
-      ? "custom-ring-base-anonymous-wide"
-      : "custom-ring-base";
-  if (inputs.nOut !== 2) return "custom-ring-base";
-  return (inputs.nIn ?? 0) >= SHORT_AUDIT_MIN_INPUTS
-    ? "custom-ring-base-confidential-compact"
-    : "custom-ring-base-confidential";
-}
-
-/** The anonymous statement discloses every spent note, at most `AUDIT_INPUT_SLOTS` of them. */
-function anonymousInputCount(nIn: number | undefined): number {
-  if (nIn === undefined || nIn < 1 || nIn > AUDIT_INPUT_SLOTS)
-    throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
-  return u8(nIn, "nIn");
-}
-
-/** Mirrors Rust `AnonymousIdentities`, `anonymous` travels only with its fields. */
-function anonymousIdentitiesJson(
-  identities: CustomRingAnonymousIdentities,
-): Readonly<Record<string, unknown>> {
-  const identity = (value: Uint8Array, name: string): string =>
-    bytesHex(checkedBytes(value, ANONYMOUS_IDENTITY_LENGTH, name));
-  return Object.freeze({
-    anonymous: true,
-    sender: identity(identities.sender, "sender"),
-    recipients: sized(identities.recipients, RING_OUTPUT_SLOTS, "recipients").map((value) =>
-      identity(value, "recipients"),
-    ),
-    recipientViewingKeys: sized(
-      identities.recipientViewingKeys,
-      RING_OUTPUT_SLOTS,
-      "recipientViewingKeys",
-    ).map((value) => identity(value, "recipientViewingKeys")),
-  });
-}
-
-function deliveryCiphertext(ciphertext: Uint8Array | undefined): Uint8Array {
-  if (ciphertext === undefined) return new Uint8Array(RING_ANONYMOUS_PLAINTEXT_LENGTH);
-  if (!(ciphertext instanceof Uint8Array) || ciphertext.length !== RING_ANONYMOUS_PLAINTEXT_LENGTH)
-    throw new ClientError("CLIENT_INVALID_LENGTH", {
-      details: {
-        field: "ciphertext",
-        expected: RING_ANONYMOUS_PLAINTEXT_LENGTH,
-        actual: ciphertext instanceof Uint8Array ? ciphertext.length : 0,
-      },
-    });
-  return ciphertext;
-}
-
-/** Mirrors Rust `AnonymousDelivery`'s wire form, an exit slot and the unused slots send zero. */
-function deliveryJson(delivery: CustomRingAnonymousDelivery): Readonly<Record<string, unknown>> {
-  if (!Array.isArray(delivery.outputs) || delivery.outputs.length > RING_OUTPUT_SLOTS)
-    throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
-  const zero = new Uint8Array(32);
-  return Object.freeze({
-    ringProgramId: bytesHex(addressBytes(delivery.ringProgramId)),
-    outputs: Array.from({ length: RING_OUTPUT_SLOTS }, (_, slot) => {
-      const output = delivery.outputs[slot];
-      return Object.freeze({
-        assetAddress: hex32(output?.assetAddress ?? zero, "assetAddress"),
-        pairU: hex32(output?.pairU ?? zero, "pairU"),
-        ciphertext: bytesHex(deliveryCiphertext(output?.ciphertext)),
-      });
-    }),
-  });
-}
-
-/** Mirrors Rust `CustomRingPolicyProofRequest::body`, key order included. */
-export function customRingPolicyProofRequest(
-  inputs: CustomRingPolicyProofRequest,
-): Readonly<Record<string, unknown>> {
-  const capacity = policyWitnessCapacity(inputs);
-  return Object.freeze({
-    circuitType: policyProofName(inputs),
-    publicInputHash: hex32(inputs.publicInputHash, "publicInputHash"),
-    privateTxHash: hex32(inputs.privateTxHash, "privateTxHash"),
-    txViewingSk: hex32(inputs.txViewingSecret, "txViewingSecret"),
-    ephSk: hex32(inputs.ephemeralSecret, "ephemeralSecret"),
-    auditorPk: auditorPkHex(inputs.auditorPublicKey),
-    salt: bytesHex(inputs.salt),
-    nIn: u8(inputs.nIn, "nIn"),
-    nOut: u8(inputs.nOut, "nOut"),
-    inputs: sized(inputs.inputs, capacity.inputs, "inputs").map((opening) => {
-      return openingJson(opening);
-    }),
-    outputs: sized(inputs.outputs, capacity.outputs, "outputs").map((opening) => ({
-      ...openingJson(opening),
-      ctHash: hex32(opening.ctHash ?? new Uint8Array(32), "ctHash"),
-    })),
-    addressChain: hex32(inputs.addressChain, "addressChain"),
-    privateTxBlinding: hex32(inputs.privateTxBlinding, "privateTxBlinding"),
-    sources: sized(inputs.sources, RING_SOURCE_SLOTS, "sources").map(sourceJson),
-    policyLen: u8(inputs.policyLen, "policyLen"),
-    ruleEnc: sized(inputs.rules, RING_RULE_SLOTS, "rules").map((rule) => hex32(rule, "rules")),
-    inlineAssets: sized(inputs.inlineAssets, RING_INLINE_ASSET_SLOTS, "inlineAssets").map((asset) =>
-      hex32(asset, "inlineAssets"),
-    ),
-    inlineLimits: sized(inputs.inlineLimits, RING_INLINE_ASSET_SLOTS, "inlineLimits").map((limit) =>
-      u64FieldHex(limit, "inlineLimits"),
-    ),
-    inlineCount: u8(inputs.inlineCount, "inlineCount"),
-    treeSlots: policyTreeSlots(inputs.treeSlots).map(policyTreeSlotJson),
-    addressTreeId: hex32(treeIdField(inputs.addressTreeId), "addressTreeId"),
-    limits: paddedOutflowLimits(inputs.limits.limits).map(outflowLimitJson),
-    limitCount: u8(inputs.limits.limits.length, "limitCount"),
-    ringId: hex32(inputs.limits.ringId, "ringId"),
-    namespaceOwnerHash: hex32(inputs.limits.namespaceOwnerHash, "namespaceOwnerHash"),
-    approvalRequired: inputs.limits.approvalRequired,
-    keyEscrow: inputs.keyEscrow,
-    memberRegistryRoot: hex32(inputs.memberRegistryRoot, "memberRegistryRoot"),
-    subjects: sized(inputs.subjects, capacity.inputs + 2 * capacity.outputs, "subjects").map(
-      subjectJson,
-    ),
-    foreignRoot: hex32(inputs.foreignRoot, "foreignRoot"),
-    foreignSubjects: sized(
-      inputs.foreignSubjects,
-      capacity.inputs + 2 * capacity.outputs,
-      "foreignSubjects",
-    ).map(subjectJson),
-    ...(inputs.anonymous === undefined
-      ? {}
-      : {
-          ...anonymousIdentitiesJson(inputs.anonymous.identities),
-          delivery: deliveryJson(inputs.anonymous.delivery),
-        }),
-  });
-}
-
-function policyProofKey(inputs: CustomRingPolicyProofRequest, delegate = false): ProvingKeyCircuit {
-  const anonymous = inputs.anonymous !== undefined;
-  if (anonymous && delegate) throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
-  if (inputs.shape !== undefined)
-    return {
-      circuit: delegate
-        ? "custom-ring-delegate-policy-shaped"
-        : anonymous
-          ? "custom-ring-policy-anonymous-shaped"
-          : "custom-ring-policy-shaped",
-      shape: inputs.shape,
-      registrySubtree: inputs.registrySubtree === true,
-    };
-  return {
-    circuit: delegate
-      ? inputs.twoByThree === true
-        ? "custom-ring-delegate-policy-2x3"
-        : "custom-ring-delegate-policy"
-      : inputs.twoByThree === true
-        ? anonymous
-          ? "custom-ring-policy-2x3-anonymous"
-          : "custom-ring-policy-2x3"
-        : "custom-ring-policy",
-  };
-}
-
-function policyProofName(inputs: CustomRingPolicyProofRequest, delegate = false): string {
-  return inputs.shape === undefined
-    ? policyProofKey(inputs, delegate).circuit
-    : shapedPolicyCircuit(
-        inputs.shape,
-        inputs.registrySubtree === true,
-        delegate,
-        inputs.anonymous !== undefined,
-      );
-}
-
-function policyWitnessCapacity(inputs: CustomRingPolicyProofRequest): Shape {
-  if (
-    (inputs.twoByThree !== undefined && typeof inputs.twoByThree !== "boolean") ||
-    (inputs.registrySubtree !== undefined && typeof inputs.registrySubtree !== "boolean")
-  )
-    throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
-  let capacity: Shape = { inputs: RING_INPUT_SLOTS, outputs: RING_OUTPUT_SLOTS };
-  if (inputs.shape !== undefined) {
-    if (inputs.shape === null || typeof inputs.shape !== "object" || inputs.twoByThree === true)
-      throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
-    try {
-      capacity = validateRingPolicyShape(inputs.nIn, inputs.nOut, inputs.shape);
-    } catch {
-      throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
-    }
-  } else if (inputs.registrySubtree === true) throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
-  if (
-    !Number.isInteger(inputs.nIn) ||
-    inputs.nIn < 1 ||
-    inputs.nIn > capacity.inputs ||
-    !Number.isInteger(inputs.nOut) ||
-    inputs.nOut < 1 ||
-    inputs.nOut > capacity.outputs ||
-    (inputs.twoByThree === true && (inputs.nIn !== 2 || inputs.nOut !== 3))
-  )
-    throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
-  if (
-    (inputs.twoByThree === true || inputs.registrySubtree === true) &&
-    ![inputs.subjects, inputs.foreignSubjects].every(
-      (subjects) =>
-        Array.isArray(subjects) &&
-        subjects.every(
-          (subject) => subject === undefined || (subject !== null && typeof subject === "object"),
-        ) &&
-        shareMemberSubtree(
-          subjects.flatMap((subject) => (subject === undefined ? [] : [subject.index])),
-        ),
-    )
-  )
-    throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
-  return capacity;
-}
-
-/** Mirrors Go `readTreeSlots`, the populated prefix of one to `INPUT_TREES` slots. */
-function policyTreeSlots(slots: readonly TreeSlot[]): readonly TreeSlot[] {
-  if (!Array.isArray(slots) || slots.length < 1 || slots.length > INPUT_TREES) {
-    throw new ClientError("CLIENT_INVALID_LENGTH", {
-      details: {
-        field: "treeSlots",
-        expected: INPUT_TREES,
-        actual: Array.isArray(slots) ? slots.length : 0,
-      },
-    });
-  }
-  return slots;
-}
-
-function policyTreeSlotJson(slot: TreeSlot): Readonly<Record<string, unknown>> {
-  return Object.freeze({
-    id: hex32(treeIdField(slot.id), "treeSlots id"),
-    utxoRoot: hex32(slot.utxoRoot, "treeSlots utxoRoot"),
-    nullifierRoot: hex32(slot.nullifierRoot, "treeSlots nullifierRoot"),
-  });
-}
-
-/** Mirrors Go `readKeyEscrow`, the root is zero exactly when escrow is off. */
-function keyEscrowJson(root: Bytes32 | undefined): Readonly<Record<string, unknown>> {
-  return Object.freeze({
-    keyEscrow: root !== undefined,
-    memberRegistryRoot: hex32(root ?? new Uint8Array(32), "memberRegistryRoot"),
-  });
-}
-
-/** Mirrors Go `writeRegistryKey`, `null` for an absent key. */
-function registryKeyJson(
-  key: import("./types.js").CustomRingRecordWitness | undefined,
-): Readonly<Record<string, unknown>> | null {
-  if (key === undefined) return null;
-  if (typeof key.index !== "bigint" || key.index < 0n || key.index >= MEMBER_REGISTRY_CAPACITY)
-    throw new ClientError("CLIENT_INVALID_INTEGER", { details: { field: "key index" } });
-  return Object.freeze({
-    next: hex32(key.next, "key next"),
-    lists: u64Json(key.lists, "lists"),
-    escrowKey: hex32(key.escrowKey, "escrowKey"),
-    index: u64Json(key.index, "key index"),
-    path: sized(key.path, MEMBER_REGISTRY_HEIGHT, "key path").map((node) =>
-      hex32(node, "key path"),
-    ),
-  });
-}
-
-function recordUpdateJson(
-  input: import("../../interface/member-registry.js").RecordUpdateWitness,
-): Readonly<Record<string, unknown>> {
-  if (typeof input.exists !== "boolean") throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
-  for (const index of [input.index, input.lowIndex])
-    if (typeof index !== "bigint" || index < 0n || index >= MEMBER_REGISTRY_CAPACITY)
-      throw new ClientError("CLIENT_INVALID_INTEGER");
-  return {
-    exists: input.exists,
-    next: hex32(input.next, "next"),
-    index: u64Json(input.index, "index"),
-    path: sized(input.path, MEMBER_REGISTRY_HEIGHT, "path").map((node) => hex32(node, "path")),
-    lowMember: hex32(input.lowMember, "lowMember"),
-    lowNext: hex32(input.lowNext, "lowNext"),
-    lowLists: u64Json(input.lowLists, "lowLists"),
-    lowEscrow: hex32(input.lowEscrow, "lowEscrow"),
-    lowIndex: u64Json(input.lowIndex, "lowIndex"),
-    lowPath: sized(input.lowPath, MEMBER_REGISTRY_HEIGHT, "lowPath").map((node) =>
-      hex32(node, "lowPath"),
-    ),
-  };
-}
-
-/** Mirrors Rust `RegisterKeyProofRequest::body`, the zero high byte keeps the secret below the field order. */
-export function customRingRegisterKeyProofRequest(
-  input: CustomRingRegisterKeyProofRequest,
-): Readonly<Record<string, unknown>> {
-  const nullifierSecret = checkedBytes(input.nullifierSecret, 32, "nullifierSecret");
-  if (nullifierSecret[0] !== 0) throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
-  return Object.freeze({
-    circuitType: "custom-ring-register-key",
-    publicInputHash: hex32(input.publicInputHash, "publicInputHash"),
-    registryOldRoot: hex32(input.registryOldRoot, "registryOldRoot"),
-    registryNewRoot: hex32(input.registryNewRoot, "registryNewRoot"),
-    member: hex32(input.member, "member"),
-    lists: u64Json(input.oldLists, "lists"),
-    ...recordUpdateJson(input.update),
-    nullifierSecret: bytesHex(nullifierSecret),
-    ephSk: hex32(input.ephemeralSecret, "ephSk"),
-    auditorPk: auditorPkHex(input.auditorPublicKey),
-  });
-}
-
-export function customRingDepositProofRequest(
-  input: CustomRingDepositProofRequest,
-): Readonly<Record<string, unknown>> {
-  const columns = [input.ownerPkHashes, input.nullifierPks, input.blindings];
-  if (
-    !Number.isInteger(input.count) ||
-    input.count < 1 ||
-    input.count > RING_DEPOSIT_AUDIT_SLOTS ||
-    !Array.isArray(input.ctHashes) ||
-    input.ctHashes.length !== RING_DEPOSIT_AUDIT_SLOTS ||
-    !Array.isArray(input.members) ||
-    input.members.length !== RING_DEPOSIT_AUDIT_SLOTS ||
-    columns.some((column) => !Array.isArray(column) || column.length !== RING_DEPOSIT_AUDIT_SLOTS)
-  )
-    throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
-  try {
-    auditorPkHex(input.auditorPublicKey);
-    X25519Keypair.fromBytes(input.ephemeralSecret).destroy();
-  } catch {
-    throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
-  }
-  for (const field of [
-    input.publicInputHash,
-    input.contextHash,
-    ...columns.flat(),
-    ...input.ctHashes,
-  ]) {
-    if (!isCanonicalField(field)) throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
-  }
-  for (let index = input.count; index < RING_DEPOSIT_AUDIT_SLOTS; index++) {
-    if (
-      columns.some((column) => column[index]?.some((byte) => byte !== 0)) ||
-      input.members[index] !== undefined ||
-      input.ctHashes[index]?.some((byte: number) => byte !== 0)
-    )
-      throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
-  }
-  return Object.freeze({
-    circuitType: "custom-ring-deposit",
-    publicInputHash: hex32(input.publicInputHash, "publicInputHash"),
-    contextHash: hex32(input.contextHash, "contextHash"),
-    count: input.count,
-    ownerPkHashes: input.ownerPkHashes.map((field) => hex32(field, "ownerPkHash")),
-    nullifierPks: input.nullifierPks.map((field) => hex32(field, "nullifierPk")),
-    blindings: input.blindings.map((field) => hex32(field, "blinding")),
-    members: input.members.map(registryKeyJson),
-    ctHashes: sized(input.ctHashes, RING_DEPOSIT_AUDIT_SLOTS, "ctHashes").map((value) =>
-      hex32(value, "ctHash"),
-    ),
-    ephSk: hex32(input.ephemeralSecret, "ephSk"),
-    auditorPk: auditorPkHex(input.auditorPublicKey),
-    ...keyEscrowJson(input.memberRegistryRoot),
-  });
-}
-
-/** Limits past the count are zero, the server refuses other padding. */
-function paddedOutflowLimits(
-  limits: readonly CustomRingOutflowLimit[],
-): readonly CustomRingOutflowLimit[] {
-  if (limits.length > RING_OUTFLOW_LIMIT_SLOTS) {
-    throw new ClientError("CLIENT_INVALID_LENGTH", {
-      details: { field: "limits", expected: RING_OUTFLOW_LIMIT_SLOTS, actual: limits.length },
-    });
-  }
-  return Object.freeze(
-    Array.from(
-      { length: RING_OUTFLOW_LIMIT_SLOTS },
-      (_, index) =>
-        limits[index] ?? { asset: new Uint8Array(32) as Bytes32, cap: 0n, cosignAbove: 0n },
-    ),
-  );
-}
-
-function outflowLimitJson(limit: CustomRingOutflowLimit): Readonly<Record<string, unknown>> {
-  return Object.freeze({
-    asset: hex32(limit.asset, "limits asset"),
-    cap: u64FieldHex(limit.cap, "limits cap"),
-    cosignAbove: u64FieldHex(limit.cosignAbove, "limits cosignAbove"),
-  });
-}
-
-function openingJson(opening: CustomRingOpening): Readonly<Record<string, unknown>> {
-  return Object.freeze({
-    domain: hex32(opening.domain, "domain"),
-    treeId: hex32(opening.treeId, "treeId"),
-    ownerPkHash: hex32(opening.ownerPkHash, "ownerPkHash"),
-    nullifierPk: hex32(opening.nullifierPk, "nullifierPk"),
-    asset: hex32(opening.asset, "asset"),
-    amount: hex32(opening.amount, "amount"),
-    blinding: hex32(opening.blinding, "blinding"),
-    dataHash: hex32(opening.dataHash, "dataHash"),
-    ringDataHash: hex32(opening.ringDataHash, "ringDataHash"),
-    ringProgramId: hex32(opening.ringProgramId, "ringProgramId"),
-  });
-}
-
-/** The base circuit needs the already-combined owner hash used by the SPP commitment. */
-function auditOpeningJson(opening: CustomRingOpening): Readonly<Record<string, unknown>> {
-  const domain = bytesToBigInt(opening.domain);
-  const ownerHash =
-    domain === 0n || domain === BigInt(DUMMY_DOMAIN)
-      ? new Uint8Array(32)
-      : poseidon([opening.ownerPkHash, opening.nullifierPk]);
-  return Object.freeze({
-    domain: hex32(opening.domain, "domain"),
-    treeId: hex32(opening.treeId, "treeId"),
-    ownerHash: hex32(ownerHash, "ownerHash"),
-    asset: hex32(opening.asset, "asset"),
-    amount: hex32(opening.amount, "amount"),
-    blinding: hex32(opening.blinding, "blinding"),
-    dataHash: hex32(opening.dataHash, "dataHash"),
-    ringDataHash: hex32(opening.ringDataHash, "ringDataHash"),
-    ringProgramId: hex32(opening.ringProgramId, "ringProgramId"),
-  });
-}
-
-function sourceJson(source: CustomRingSourceOwner): Readonly<Record<string, unknown>> {
-  return Object.freeze({
-    listId: u8(source.listId, "listId"),
-    registry: hex32(source.registry, "registry"),
-  });
-}
-
-function subjectJson(
-  subject: import("./types.js").CustomRingSubjectWitness | undefined,
-): Readonly<Record<string, unknown>> | null {
-  if (subject === undefined) return null;
-  if (typeof subject.present !== "boolean") throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
-  return {
-    present: subject.present,
-    ...registryKeyJson(subject),
-    lowMember: hex32(subject.lowMember, "lowMember"),
-    lowNext: hex32(subject.lowNext, "lowNext"),
-    lowLists: u64Json(subject.lowLists, "lowLists"),
-    lowEscrow: hex32(subject.lowEscrow, "lowEscrow"),
-  };
-}
-
-/** Mirrors Rust `MergeAnonymousBody`. */
-export function customRingMergeAnonymousProofRequest(
-  input: CustomRingMergeAnonymousProofRequest,
-): Readonly<Record<string, unknown>> {
-  if (!Array.isArray(input.inputs) || !ANONYMOUS_MERGE_WIDTHS.includes(input.inputs.length))
-    throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
-  const nullifierSecret = checkedBytes(input.nullifierSecret, 32, "nullifierSecret");
-  if (nullifierSecret[0] !== 0) throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
-  try {
-    X25519Keypair.fromBytes(input.ephemeralSecret).destroy();
-  } catch {
-    throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
-  }
-  const slots = input.inputs.map((slot) => [
-    slot.domain,
-    slot.treeId,
-    slot.amount,
-    slot.blinding,
-    slot.ringDataHash,
-  ]);
-  for (const value of [
-    input.publicInputHash,
-    input.privateTxHash,
-    input.outputUtxoHash,
-    input.firstNullifier,
-    input.ringProgramId,
-    input.memberRegistryRoot,
-    input.outputTreeId,
-    input.outputRingDataHash,
-    ...slots.flat(),
-  ]) {
-    if (!isCanonicalField(value)) throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
-  }
-  return Object.freeze({
-    circuitType: `custom-ring-merge-anonymous-${String(input.inputs.length)}`,
-    publicInputHash: hex32(input.publicInputHash, "publicInputHash"),
-    privateTxHash: hex32(input.privateTxHash, "privateTxHash"),
-    outputUtxoHash: hex32(input.outputUtxoHash, "outputUtxoHash"),
-    firstNullifier: hex32(input.firstNullifier, "firstNullifier"),
-    ringProgramId: hex32(input.ringProgramId, "ringProgramId"),
-    memberRegistryRoot: hex32(input.memberRegistryRoot, "memberRegistryRoot"),
-    auditorPk: auditorPkHex(input.auditorPublicKey),
-    salt: hex32(rightAlign(checkedBytes(input.salt, 16, "salt")), "salt"),
-    ephSk: hex32(input.ephemeralSecret, "ephSk"),
-    disclosureKey: hex32(input.disclosureKey, "disclosureKey"),
-    ownerKey: hex32(input.ownerKey, "ownerKey"),
-    nullifierSecret: bytesHex(nullifierSecret),
-    mintChunks: mergeMintChunks(input.mint).map((chunk) =>
-      hex32(bigintToBytes(chunk, "mintChunks"), "mintChunks"),
-    ),
-    inputs: input.inputs.map((slot) => ({
-      domain: hex32(slot.domain, "domain"),
-      treeId: hex32(slot.treeId, "treeId"),
-      amount: hex32(slot.amount, "amount"),
-      blinding: hex32(slot.blinding, "blinding"),
-      ringDataHash: hex32(slot.ringDataHash, "ringDataHash"),
-    })),
-    outputTreeId: hex32(input.outputTreeId, "outputTreeId"),
-    outputRingDataHash: hex32(input.outputRingDataHash, "outputRingDataHash"),
-    memberRecord: registryKeyJson(input.memberRecord),
-  });
-}
-
 function hex32(bytes: Uint8Array, field: string): string {
   return bytesHex(checkedBytes(bytes, 32, field));
-}
-
-/** Canonical little-endian X25519 auditor coordinate witnessed by the circuit. */
-function auditorPkHex(auditorPublicKey: Uint8Array): string {
-  if (!(auditorPublicKey instanceof Uint8Array) || auditorPublicKey.length !== 32)
-    throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
-  try {
-    X25519PublicKey.fromBytes(Uint8Array.of(4, ...auditorPublicKey));
-  } catch {
-    throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
-  }
-  return bytesHex(auditorPublicKey);
-}
-
-function u8(value: number, field: string): number {
-  if (!Number.isSafeInteger(value) || value < 0 || value > 0xff) {
-    throw new ClientError("CLIENT_INVALID_INTEGER", { details: { field } });
-  }
-  return value;
-}
-
-/** Rust emits `u64` as a JSON number, the value must stay a safe integer. */
-function u64Json(value: bigint, field: string): number {
-  if (typeof value !== "bigint" || value < 0n || value > BigInt(Number.MAX_SAFE_INTEGER)) {
-    throw new ClientError("CLIENT_INVALID_INTEGER", { details: { field } });
-  }
-  return Number(value);
-}
-
-function u64FieldHex(value: bigint, field: string): string {
-  if (typeof value !== "bigint" || value < 0n || value > 0xffff_ffff_ffff_ffffn) {
-    throw new ClientError("CLIENT_INVALID_INTEGER", { details: { field } });
-  }
-  return `0x${value.toString(16).padStart(64, "0")}`;
 }
 
 function sized<T>(values: readonly T[], expected: number, field: string): readonly T[] {
@@ -1500,6 +787,11 @@ function proverRequest(
   const payload = inputs.payload;
   if (inputs.circuit === "transferRing" || inputs.circuit === "transferEddsaRing")
     checkRingOutputOwners(payload.outputs, payload.publishedOutputOwnerPublicKeyHashes);
+  sized(
+    payload.ringSecrets,
+    inputs.circuit === "transfer" ? 0 : payload.outputs.length,
+    "ringSecrets",
+  );
   return Object.freeze({
     circuitType: transferCircuit(inputs),
     ...(inputs.circuit === "transferEddsaRing" ? authorizationJson(inputs.authorization) : {}),
@@ -1517,6 +809,7 @@ function proverRequest(
     externalDataHash: hex(payload.externalDataHash, "externalDataHash"),
     privateTxHash: hex(payload.privateTxHash, "privateTxHash"),
     blindingSeed: hex(payload.blindingSeed, "blindingSeed"),
+    ringSecrets: hexes(payload.ringSecrets, "ringSecrets"),
     publicAssets: hexes(payload.publicAssets, "publicAssets"),
     publicAmounts: hexes(payload.publicAmounts, "publicAmounts"),
     ringProgramId: hex(payload.ringProgramId, "ringProgramId"),
@@ -1683,20 +976,9 @@ function indexedFailure(body: unknown): ClientError | undefined {
       return new ClientError("CLIENT_INDEXER_PROOF_DATA_NOT_READY");
     case "indexer_unconfigured":
       return new ClientError("CLIENT_PROVER_INDEXER_UNCONFIGURED");
-    case "registry_member_missing":
-      return new ClientError("CLIENT_MEMBER_REGISTRY_MEMBER_UNREGISTERED", {
-        details: { method: "prove", member: registryMember(body["member"]) },
-      });
     default:
       return undefined;
   }
-}
-
-/** Base58 on the wire, hex in details like `RING_UNREGISTERED_OUTPUT_KEY.owner`. */
-function registryMember(value: unknown): string {
-  const member = proverJsonDecoder.base58(value, "$.member");
-  if (member.length !== 32) throw invalidProverJson();
-  return bytesToHex(member);
 }
 
 async function errorBody(response: Response): Promise<unknown> {
@@ -1716,34 +998,4 @@ function asyncPollConfig(input: AsyncPollConfig | undefined): AsyncPollConfig {
     }
   }
   return Object.freeze({ pollIntervalCapMs: input.pollIntervalCapMs, maxWaitMs: input.maxWaitMs });
-}
-
-export function customRingUpdateMembersProofRequest(
-  input: import("./types.js").CustomRingUpdateMembersProofRequest,
-): Readonly<Record<string, unknown>> {
-  if (!Array.isArray(input.items) || input.items.length === 0 || input.items.length > 16)
-    throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
-  let previous = 0n;
-  const items = input.items.map((item) => {
-    const member = bytesToBigInt(item.member);
-    if (member <= previous) throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
-    previous = member;
-    if (item.index !== item.update.index) throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
-    return {
-      member: hex32(item.member, "member"),
-      oldLists: u64Json(item.oldLists, "oldLists"),
-      oldEscrowKey: hex32(item.oldEscrowKey, "oldEscrowKey"),
-      lists: u64Json(item.lists, "lists"),
-      escrowKey: hex32(item.escrowKey, "escrowKey"),
-      ...recordUpdateJson(item.update),
-    };
-  });
-  return {
-    circuitType: "custom-ring-update-members",
-    publicInputHash: hex32(input.publicInputHash, "publicInputHash"),
-    oldRoot: hex32(input.oldRoot, "oldRoot"),
-    newRoot: hex32(input.newRoot, "newRoot"),
-    itemCount: items.length,
-    items: [...items, ...Array.from({ length: 16 - items.length }, () => null)],
-  };
 }

@@ -33,9 +33,11 @@ export type {
 } from "./errors.js";
 export { externalDataHash } from "./external-data-hash.js";
 export {
+  APPLY_BATCH,
   MEMBER_REGISTRY_CAPACITY,
-  MEMBER_REGISTRY_HEIGHT,
-  shareMemberSubtree,
+  MEMBER_REGISTRY_ROOT_HISTORY,
+  QUAD_ARITY,
+  QUAD_HEIGHT,
 } from "./member-registry.js";
 export type { ExternalDataHashInput, SettlementAccounts } from "./external-data-hash.js";
 export {
@@ -71,11 +73,11 @@ export {
 } from "./program.js";
 export type { CreateTreeData, NullifierTreeParams } from "./program.js";
 export {
-  ANONYMOUS_RING_SHAPES,
+  RING_AUTHORITY_MAX_INPUTS,
+  RING_AUTHORITY_SHAPES,
   SPP_SUPPORTED_SHAPES,
-  RING_POLICY_SUPPORTED_SHAPES,
-  RING_POLICY_MAX_INPUTS,
-  validateRingPolicyShape,
+  isRingAuthorityShape,
+  ringAuthorityShape,
   selectSppShape,
   validateSppShape,
 } from "./shape.js";
@@ -132,9 +134,10 @@ export type * from "./types.js";
 export type { ErrorEnvelope } from "../errors/internal.js";
 
 export type {
+  ApplyProofInputs,
   MemberRecord,
-  MemberRegistryPath,
-  MemberOpening,
-  MemberUpdate,
-  RecordUpdateWitness,
+  QuadPath,
+  QueueEntry,
+  RecordOpening,
+  RecordWriteProofInput,
 } from "./member-registry.js";

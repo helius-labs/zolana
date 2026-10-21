@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import { createZolanaClient } from "../../src/index.js";
 
 import {
+  DEFAULT_INSERT_FEE,
   createRingConfigInstruction,
   deployRingProgram,
   fetchRingProgramConfig,
@@ -76,6 +77,7 @@ describe("ring program", () => {
         authority: operator,
         auditorPublicKey: X25519Keypair.generate().publicKey(),
         hasPolicy: false,
+        anonymous: false,
       }),
       operator,
     );
@@ -92,5 +94,7 @@ describe("ring program", () => {
     const config = await fetchRingProgramConfig(client, program.address);
     expect(config.authority).toBe(operator.address);
     expect(config.hasPolicy).toBe(false);
+    expect(config.mode).toBe("off");
+    expect(config.insertFee).toBe(DEFAULT_INSERT_FEE);
   }, 900_000);
 });

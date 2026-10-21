@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import vectors from "../../../test-vectors/hash_chain_4.json" with { type: "json" };
 import { hashChain, hashChain4, poseidon } from "../src/client/internal.js";
-import { hashChain4 as hashChain4Bytes } from "../src/transaction/internal.js";
+import { hashChain4 as hashChain4Bytes } from "../src/hasher/index.js";
 import type { Bytes32 } from "../src/keypair/index.js";
 
 function hex(bytes: Uint8Array): string {

@@ -7,7 +7,8 @@ import type {
   TransactInstructionData,
   TransactWithdrawal,
 } from "../../interface/types.js";
-import { RING_AUTHORITY_MAX_WIDTH, SPP_SUPPORTED_SHAPES } from "../../interface/shape.js";
+import { SPP_SUPPORTED_SHAPES, ringAuthorityShape } from "../../interface/shape.js";
+import { RingAddress } from "../../keypair/ring-address.js";
 import { ShieldedAddress } from "../../keypair/shielded.js";
 
 import type { PreparedTransfer, WithdrawalTarget } from "../instructions/transact.js";
@@ -64,6 +65,16 @@ export type TransactionIntent =
       ringProgramId: Address;
       asset: Address;
       amount: bigint;
+    }>
+  | Readonly<{
+      kind: "ringAnonymousTransfer";
+      ringProgramId: Address;
+      asset: Address;
+      amount: bigint;
+      /** The address the payment takes its stream from, inside `ringProgramId`. */
+      recipient: RingAddress;
+      /** Default-ring UTXO value the payment moves into the ring. */
+      defaultFunding: bigint;
     }>;
 
 /**
@@ -114,6 +125,7 @@ const KIND_TAGS = {
   ringDelegate: 8,
   ringMerge: 9,
   multiTransfer: 10,
+  ringAnonymousTransfer: 11,
 } as const;
 const BOUNDARY_TAGS = { entry: 0, transfer: 1, exit: 2 } as const;
 
@@ -200,6 +212,16 @@ export function intentHash(intent: TransactionIntent): Bytes32 {
       hash.update(addressBytes(intent.asset));
       hash.update(u64(intent.amount));
       break;
+    case "ringAnonymousTransfer": {
+      const recipient = intent.recipient.toBytes();
+      hash.update(addressBytes(intent.ringProgramId));
+      hash.update(addressBytes(intent.asset));
+      hash.update(u64(intent.amount));
+      hash.update(Uint8Array.of(recipient.length >> 8, recipient.length & 0xff));
+      hash.update(recipient);
+      hash.update(u64(intent.defaultFunding));
+      break;
+    }
   }
   return hash.digest() as Bytes32;
 }
@@ -306,6 +328,18 @@ export function checkPreparedTransfer(
     case "ringWithdrawal":
       checkSettlement(prepared, intent, mismatch);
       if (preparedDefaultFunding(prepared) !== 0n) throw mismatch("inputs");
+      return;
+    case "ringAnonymousTransfer":
+      if (prepared.interfaceTransfers.length > 0) throw mismatch("settlements");
+      checkRecipientOutputs(
+        prepared,
+        { recipient: intent.recipient.recipient, asset: intent.asset, amount: intent.amount },
+        intent.ringProgramId,
+        mismatch,
+      );
+      if (preparedDefaultFunding(prepared) !== intent.defaultFunding) {
+        throw mismatch("defaultFunding");
+      }
       return;
     default:
       throw mismatch("kind");
@@ -470,7 +504,7 @@ export function checkTransactionIntent(
       if (
         !Array.isArray(intent.outputs) ||
         intent.outputs.length < 1 ||
-        intent.outputs.length > RING_AUTHORITY_MAX_WIDTH
+        ringAuthorityShape(1, intent.outputs.length) === undefined
       )
         throw mismatch("outputs");
       for (const output of intent.outputs) {
@@ -537,13 +571,7 @@ export function checkTransactionIntent(
       checkAmount(intent.amount, mismatch);
       checkShieldedRecipient(intent.recipient, mismatch);
       if (!(intent.boundary in BOUNDARY_TAGS)) throw mismatch("boundary");
-      if (
-        typeof intent.defaultFunding !== "bigint" ||
-        intent.defaultFunding < 0n ||
-        intent.defaultFunding > U64_MAX
-      ) {
-        throw mismatch("defaultFunding");
-      }
+      checkDefaultFunding(intent.defaultFunding, mismatch);
       return;
     case "ringWithdrawal":
       checkIntentFields(
@@ -559,6 +587,21 @@ export function checkTransactionIntent(
       checkIntentFields(intent, ["kind", "ringProgramId", "asset", "amount"], mismatch);
       checkAccount(intent.ringProgramId, "ringProgramId", mismatch);
       checkAmount(intent.amount, mismatch);
+      return;
+    case "ringAnonymousTransfer":
+      checkIntentFields(
+        intent,
+        ["kind", "ringProgramId", "asset", "amount", "recipient", "defaultFunding"],
+        mismatch,
+      );
+      checkAccount(intent.ringProgramId, "ringProgramId", mismatch);
+      checkAmount(intent.amount, mismatch);
+      if (
+        !(intent.recipient instanceof RingAddress) ||
+        intent.recipient.ringProgramId !== intent.ringProgramId
+      )
+        throw mismatch("recipient");
+      checkDefaultFunding(intent.defaultFunding, mismatch);
       return;
     default:
       throw mismatch("kind");
@@ -714,6 +757,10 @@ function checkAmount(value: bigint, mismatch: (field: string) => Error): void {
 /** One byte in `intentHash`, a wider count would alias another approval. */
 function checkCount(value: number, field: string, mismatch: (field: string) => Error): void {
   if (!Number.isInteger(value) || value < 1 || value > 255) throw mismatch(field);
+}
+
+function checkDefaultFunding(value: bigint, mismatch: (field: string) => Error): void {
+  if (typeof value !== "bigint" || value < 0n || value > U64_MAX) throw mismatch("defaultFunding");
 }
 
 function preparedDefaultFunding(prepared: PreparedTransfer): bigint {

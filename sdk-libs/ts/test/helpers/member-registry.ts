@@ -1,227 +1,90 @@
-import { poseidon } from "../../src/transaction/internal.js";
-import { X25519PublicKey } from "../../src/keypair/x25519.js";
-import type { RingMemberRecordResponse } from "../../src/client/ports.js";
-import { Writer } from "../../src/interface/internal.js";
-import type { Bytes32 } from "../../src/interface/types.js";
-import type { NullifierKey } from "../../src/keypair/nullifier-key.js";
-
-import { RING_MEMBER_REGISTRY_ROOT_HISTORY } from "../../src/ring/codecs.js";
+import type { RingMemberOpening, RingSealedKey } from "../../src/client/ports.js";
 import {
-  MEMBER_REGISTRY_EMPTY_ROOT,
-  MEMBER_REGISTRY_FIELD_MAX,
-  memberRegistryLeaf,
-  memberRegistryZeroBytes,
-  verifyMemberRegistryInsert,
-} from "../../src/ring/member-registry-tree.js";
-import { registeredKeyHash, sealNullifierKey } from "../../src/ring/member-registry.js";
+  QUAD_ARITY,
+  QUAD_HEIGHT,
+  type MemberRecord,
+  type QuadPath,
+} from "../../src/interface/member-registry.js";
+import type { Bytes32 } from "../../src/interface/types.js";
+import { FIELD_MAX, memberRecordHash } from "../../src/ring/member-registry.js";
+import { ZERO_32, bytesToBigInt, poseidon } from "../../src/transaction/internal.js";
 
-const ZERO = new Uint8Array(32) as Bytes32;
-
-/** The sentinel-only registry and the insertion of `member` at slot 1. */
-export function firstInsertion(member: Bytes32) {
-  const zeros = memberRegistryZeroBytes();
-  return {
-    lowMember: ZERO,
-    lowNext: MEMBER_REGISTRY_FIELD_MAX,
-    lowKeyHash: ZERO,
-    lowIndex: 0n,
-    lowProof: zeros.slice(0, 20),
-    newProof: [
-      memberRegistryLeaf({ member: ZERO, next: member, lists: 0n, escrowKey: ZERO }),
-      ...zeros.slice(1, 20),
-    ],
-  };
+/** One record the fixture holds, its key escrow served beside it when `sealed` is set. */
+export interface FixtureRecord {
+  readonly member: Bytes32;
+  readonly lists: bigint;
+  readonly escrowKey?: Bytes32;
+  readonly sealed?: RingSealedKey;
 }
 
-/** Rust `MemberRegistryRoot` bytes, `root` sits in `history` at `cursor`. */
-export function memberRegistryRootData(
-  input: Readonly<{
-    root: Bytes32;
-    nextIndex: bigint;
-    bump: number;
-    cursor?: number;
-    history?: readonly Bytes32[];
-  }>,
-): Uint8Array {
-  const cursor = input.cursor ?? 0;
-  const writer = new Writer()
-    .u8(9, "discriminator")
-    .u64(input.nextIndex, "nextIndex")
-    .u8(input.bump, "bump")
-    .u8(cursor, "historyCursor");
-  for (let slot = 0; slot < RING_MEMBER_REGISTRY_ROOT_HISTORY; slot++) {
-    writer.bytes(slot === cursor ? input.root : (input.history?.[slot] ?? ZERO));
-  }
-  return writer.finish();
-}
-
-/** A registry holding `member`'s key alone, the indexer entry opens it under the new root. */
-export function oneMemberRegistry(
-  input: Readonly<{ member: Bytes32; nullifierKey: NullifierKey; auditor: X25519PublicKey }>,
-): Readonly<{ root: Bytes32; entry: RingMemberRecordResponse }> {
-  const insertion = firstInsertion(input.member);
-  const envelope = sealNullifierKey(input.nullifierKey, input.auditor);
-  envelope.ephemeralSecret.fill(0);
-  const root = verifyMemberRegistryInsert({
-    root: MEMBER_REGISTRY_EMPTY_ROOT,
-    appendIndex: 1n,
-    member: input.member,
-    lists: 0n,
-    escrowKey: registeredKeyHash({
-      nullifierPublicKey: envelope.nullifierPublicKey,
-      ciphertext: envelope.sealed.ciphertext,
-    }),
-    lowMember: insertion.lowMember,
-    lowNext: insertion.lowNext,
-    lowLists: 0n,
-    lowEscrowKey: insertion.lowKeyHash,
-    lowIndex: insertion.lowIndex,
-    lowProof: insertion.lowProof,
-    newProof: insertion.newProof,
-  });
-  return {
-    root,
-    entry: {
-      context: { slot: 1n, blockTime: 1n },
-      root,
-      nextIndex: 2n,
-      rootIndex: 1,
-      present: true,
-      record: {
-        member: input.member,
-        next: MEMBER_REGISTRY_FIELD_MAX,
-        lists: 0n,
-        escrowKey: registeredKeyHash({
-          nullifierPublicKey: envelope.nullifierPublicKey,
-          ciphertext: envelope.sealed.ciphertext,
-        }),
-        ephemeralPublicKey: envelope.sealed.ephemeralPublicKey,
-        ciphertext: envelope.sealed.ciphertext,
-      },
-      low: null,
-      index: 1n,
-      path: insertion.newProof,
-    },
-  };
-}
-
-export function emptyMemberRecord(): RingMemberRecordResponse {
-  return {
-    context: { slot: 1n, blockTime: 1n },
-    root: MEMBER_REGISTRY_EMPTY_ROOT,
-    rootIndex: 0,
-    nextIndex: 1n,
-    present: false,
-    record: null,
-    index: 0n,
-    path: [],
-    low: {
-      member: ZERO,
-      next: MEMBER_REGISTRY_FIELD_MAX,
-      lists: 0n,
-      escrowKey: ZERO,
-      index: 0n,
-      path: memberRegistryZeroBytes().slice(0, 20),
-    },
-  };
-}
-export function emptyRegistryTip() {
-  const zeros = memberRegistryZeroBytes();
-  return {
-    context: { slot: 1n, blockTime: 1n },
-    root: MEMBER_REGISTRY_EMPTY_ROOT,
-    rootIndex: 0,
-    nextIndex: 1n,
-    appendPath: [
-      memberRegistryLeaf({
-        member: ZERO,
-        next: MEMBER_REGISTRY_FIELD_MAX,
-        lists: 0n,
-        escrowKey: ZERO,
-      }),
-      ...zeros.slice(1, 20),
-    ],
-  };
-}
-
-/** Independent sparse reference tree for authenticated member reads. */
-export function registryFixture(
-  records: readonly Readonly<{
-    member: Bytes32;
-    lists: bigint;
-    escrowKey?: Bytes32;
-    sealed?: Readonly<{ ephemeralPublicKey: X25519PublicKey; ciphertext: Bytes32 }>;
-  }>[] = [],
-) {
-  const sorted = [...records].sort((a, b) => Buffer.compare(a.member, b.member));
-  const rows = [{ member: ZERO, lists: 0n, escrowKey: ZERO }, ...sorted].map((row, index) => ({
-    ...row,
-    escrowKey: row.escrowKey ?? ZERO,
-    next: sorted[index]?.member ?? MEMBER_REGISTRY_FIELD_MAX,
-  }));
-  const zeros = memberRegistryZeroBytes();
-  const layers: Array<Map<number, Bytes32>> = [
-    new Map(rows.map((row, index) => [index, memberRegistryLeaf(row)])),
+/** An independent sparse 4-ary record tree, leaf 0 the sentinel and the members in key order after it. */
+export function recordTree(records: readonly FixtureRecord[] = []) {
+  const sorted = [...records].sort((a, b) =>
+    bytesToBigInt(a.member) < bytesToBigInt(b.member) ? -1 : 1,
+  );
+  const rows: MemberRecord[] = [
+    { member: ZERO_32, lists: 0n, escrowKey: ZERO_32, next: sorted[0]?.member ?? FIELD_MAX },
+    ...sorted.map((record, index) => ({
+      member: record.member,
+      lists: record.lists,
+      escrowKey: record.escrowKey ?? ZERO_32,
+      next: sorted[index + 1]?.member ?? FIELD_MAX,
+    })),
   ];
-  for (let level = 0; level < 20; level++) {
-    const before = layers[level]!,
-      after = new Map<number, Bytes32>();
-    for (const index of before.keys()) {
-      const parent = Math.floor(index / 2);
-      after.set(
-        parent,
-        poseidon([
-          before.get(parent * 2) ?? zeros[level]!,
-          before.get(parent * 2 + 1) ?? zeros[level]!,
-        ]),
-      );
-    }
-    layers.push(after);
+  const zeros = [ZERO_32];
+  for (let level = 0; level < QUAD_HEIGHT; level += 1) {
+    const below = zeros[level] ?? ZERO_32;
+    zeros.push(poseidon([below, below, below, below]));
   }
-  const root = layers[20]!.get(0)!;
-  const path = (index: number) =>
-    Array.from(
-      { length: 20 },
-      (_, level) => layers[level]!.get(Math.floor(index / 2 ** level) ^ 1) ?? zeros[level]!,
+  const layers: Map<number, Bytes32>[] = [
+    new Map(rows.map((row, index) => [index, memberRecordHash(row)])),
+  ];
+  for (let level = 0; level < QUAD_HEIGHT; level += 1) {
+    const below = layers[level] ?? new Map<number, Bytes32>();
+    const above = new Map<number, Bytes32>();
+    for (const index of below.keys()) {
+      const parent = index >> 2;
+      if (above.has(parent)) continue;
+      const children = Array.from(
+        { length: QUAD_ARITY },
+        (_, child) => below.get(parent * QUAD_ARITY + child) ?? zeros[level] ?? ZERO_32,
+      );
+      above.set(parent, poseidon(children));
+    }
+    layers.push(above);
+  }
+  const root = layers[QUAD_HEIGHT]?.get(0) ?? ZERO_32;
+  const path = (index: number): QuadPath => ({
+    index,
+    siblings: Array.from({ length: QUAD_HEIGHT }, (_, level) => {
+      const node = index >> (2 * level);
+      const parent = node >> 2;
+      return Array.from({ length: QUAD_ARITY }, (_, child) => parent * QUAD_ARITY + child)
+        .filter((sibling) => sibling !== node)
+        .map((sibling) => layers[level]?.get(sibling) ?? zeros[level] ?? ZERO_32);
+    }),
+  });
+  const opening = (member: Bytes32): RingMemberOpening => {
+    const index = rows.findIndex(
+      (row, at) => at > 0 && bytesToBigInt(row.member) === bytesToBigInt(member),
     );
-  const tip = {
-    context: { slot: 1n, blockTime: 1n },
-    root,
-    rootIndex: 0,
-    nextIndex: BigInt(rows.length),
-    appendPath: path(rows.length),
-  };
-  const read = (member: Bytes32): RingMemberRecordResponse => {
-    const index = rows.findIndex((row) => Buffer.compare(row.member, member) === 0);
-    const common = { context: tip.context, root, rootIndex: 0, nextIndex: tip.nextIndex };
-    if (index > 0) {
-      const row = rows[index]!,
-        sealed = sorted[index - 1]?.sealed;
+    const record = rows[index];
+    if (index > 0 && record !== undefined) {
+      const sealed = sorted[index - 1]?.sealed;
       return {
-        ...common,
-        present: true,
-        index: BigInt(index),
+        kind: "present",
+        record,
         path: path(index),
-        record: {
-          ...row,
-          ephemeralPublicKey: sealed?.ephemeralPublicKey ?? null,
-          ciphertext: sealed?.ciphertext ?? null,
-        },
-        low: null,
+        ...(sealed === undefined ? {} : { sealedKey: sealed }),
       };
     }
+    const value = bytesToBigInt(member);
     const lowIndex = rows.findIndex(
-      (row) => Buffer.compare(row.member, member) < 0 && Buffer.compare(member, row.next) < 0,
+      (row) => bytesToBigInt(row.member) < value && value < bytesToBigInt(row.next),
     );
-    if (lowIndex < 0) throw new Error("member outside reference registry");
-    return {
-      ...common,
-      present: false,
-      index: 0n,
-      path: [],
-      record: null,
-      low: { ...rows[lowIndex]!, index: BigInt(lowIndex), path: path(lowIndex) },
-    };
+    const low = rows[lowIndex];
+    if (low === undefined) throw new Error("member outside the fixture registry");
+    return { kind: "absent", low, path: path(lowIndex) };
   };
-  return { root, tip, read };
+  return { root, nextIndex: rows.length, rows, path, opening };
 }

@@ -111,6 +111,35 @@ export function hashBytes(bytes: Uint8Array): Uint8Array {
   return result;
 }
 
+/** Rust `pack_be`, 31-byte big-endian chunks with the last one holding the remaining bytes. */
+export function packBytesBe(bytes: Uint8Array): Uint8Array[] {
+  const fields: Uint8Array[] = [];
+  for (let offset = 0; offset < bytes.length; offset += 31) {
+    fields.push(packed(bytes.subarray(offset, offset + 31)));
+  }
+  return fields;
+}
+
+/**
+ * Rust `create_hash_chain_4_from_slice`, three elements per Poseidon call. The
+ * fold carries no length tag, so it is injective only over a fixed length.
+ */
+export function hashChain4(values: readonly Uint8Array[]): Uint8Array {
+  const [first, ...remaining] = values;
+  if (first === undefined) return new Uint8Array(FIELD_BYTES);
+  let hash: Uint8Array = new Uint8Array(first);
+  const zero = new Uint8Array(FIELD_BYTES);
+  for (let index = 0; index < remaining.length; index += 3) {
+    hash = poseidon([
+      hash,
+      remaining[index] ?? zero,
+      remaining[index + 1] ?? zero,
+      remaining[index + 2] ?? zero,
+    ]);
+  }
+  return hash;
+}
+
 /** Algorithm tag of an Ed25519 or PDA owner identity, `'S'`. */
 export const SOLANA_OWNER_TAG = 0x53;
 /** Hashes the Solana owner tag with a fixed-width identity key. */

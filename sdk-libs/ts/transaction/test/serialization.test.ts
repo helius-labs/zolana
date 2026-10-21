@@ -574,10 +574,10 @@ describe("manifest-verified transaction serialization", () => {
     });
     expect(schemes).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
     expect(() => decodeOutputData(Uint8Array.of(4, 0, 0, 0, 0))).toThrow();
-    expect(() => encryptedSchemeFromByte(10)).toThrow(
+    expect(() => encryptedSchemeFromByte(12)).toThrow(
       expect.objectContaining({
         code: "TRANSACTION_BAD_DISCRIMINATOR",
-        details: { byte: 10 },
+        details: { byte: 12 },
       }),
     );
     expect(() =>

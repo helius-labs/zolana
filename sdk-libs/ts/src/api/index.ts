@@ -14,10 +14,15 @@ import type {
   GetUserRecordsRequest,
   GetUserRecordsResponse,
   RingMemberProofRequest,
-  RingMemberRecordResponse,
+  RingMemberOpeningResponse,
+  RingMemberPageResponse,
   RingMemberRecordsRequest,
-  RingMemberRecordsResponse,
-  RingMemberRegistryTip,
+  RingRegistryStateResponse,
+  RingApplyProofInputsRequest,
+  RingApplyProofInputsResponse,
+  RingMemberOpeningsRequest,
+  RingMemberOpeningsResponse,
+  RingRecordQueueResponse,
 } from "../indexer/types.js";
 import type { IndexerSchemaError } from "../indexer/scalars.js";
 import {
@@ -31,6 +36,9 @@ import {
   getRingMemberRecordMethod,
   getRingMemberRecordsMethod,
   getRingMemberRegistryRootMethod,
+  getRingApplyProofInputsMethod,
+  getRingMemberOpeningsMethod,
+  getRingRecordQueueMethod,
   getUserRecordsMethod,
 } from "../indexer/methods/index.js";
 import { postJsonRpc } from "../services/jsonrpc.js";
@@ -110,22 +118,43 @@ export class ZolanaApi {
   getRingMemberRecord(
     request: RingMemberProofRequest,
     context?: RequestContext,
-  ): Promise<RingMemberRecordResponse> {
+  ): Promise<RingMemberOpeningResponse> {
     return this.#call(getRingMemberRecordMethod, request, context);
   }
 
   getRingMemberRecords(
     request: RingMemberRecordsRequest,
     context?: RequestContext,
-  ): Promise<RingMemberRecordsResponse> {
+  ): Promise<RingMemberPageResponse> {
     return this.#call(getRingMemberRecordsMethod, request, context);
   }
 
   getRingMemberRegistryRoot(
     request: Readonly<{ ringProgramId: import("../interface/types.js").Address }>,
     context?: RequestContext,
-  ): Promise<RingMemberRegistryTip> {
+  ): Promise<RingRegistryStateResponse> {
     return this.#call(getRingMemberRegistryRootMethod, request, context);
+  }
+
+  getRingMemberOpenings(
+    request: RingMemberOpeningsRequest,
+    context?: RequestContext,
+  ): Promise<RingMemberOpeningsResponse> {
+    return this.#call(getRingMemberOpeningsMethod, request, context);
+  }
+
+  getRingRecordQueue(
+    request: Readonly<{ ringProgramId: import("../interface/types.js").Address }>,
+    context?: RequestContext,
+  ): Promise<RingRecordQueueResponse> {
+    return this.#call(getRingRecordQueueMethod, request, context);
+  }
+
+  getRingApplyProofInputs(
+    request: RingApplyProofInputsRequest,
+    context?: RequestContext,
+  ): Promise<RingApplyProofInputsResponse> {
+    return this.#call(getRingApplyProofInputsMethod, request, context);
   }
 
   getShieldedTransactionsBySignature(

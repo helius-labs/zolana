@@ -2,320 +2,43 @@
 
 ## 0.5.0-alpha — unreleased
 
-Proofs go encrypted to an attested Nitro Enclave prover by default, the devnet
-enclave the SDK pins for a Helius devnet RPC URL, and any other remote prover
-must attest to that pin unless the caller opts out. One private transfer can
-pay several recipients, a transaction can reserve an address with a
-non-inclusion proof instead of spending a UTXO, and paying a transaction's fee
-no longer authorizes a spend. Viewing keys and ring auditors move to X25519,
-and the auditor of an anonymous ring reads its hidden senders, inputs and
-recipients. A ring policy bounds each transfer's outflow per mint, and member
-registries hold list membership and escrowed keys. A merge publishes its
-output's amount and mint encrypted for the owner with the scheme the owner's
-registry record names, so wallet sync recovers a default merge output from the
-merge transaction alone.
+Proofs go encrypted to an attested Nitro Enclave prover by default, viewing
+keys and ring auditors move to X25519, one private transfer pays several
+recipients, and a merge publishes its output encrypted for its owner. Custom
+rings keep members, lists, escrowed keys and their policy in a member registry
+with a record queue, prove transfers on a confidential, an anonymous and a
+delegate rail, and let an auditor open every slot under the layout the ring
+program verified. Anonymous rings pay ring addresses that `syncWallet` finds
+through a key holder that never exports the viewing secret.
 
 Breaking
 
-- `Prover` and `RingMergeClient` require `proveCustomRingMergeAnonymous` → a custom `Prover` implements it, `ZolanaClient` already does.
-- `AuditedMergeRecord.nullifier` is absent for a merge of an anonymous ring, which carries the disclosed spent commitments in `inputCommitments` instead → read the nullifier only when it is set.
-- `SignatureType` no longer includes `"p256"`, and `SigningKey.generate` and `ShieldedKeypair.generate` accept only `"ed25519"` → derive PDA owners from their program and keep `P256ReaderKey` for passkey audit access.
-- `@heliuslabs/zolana/ring` leaves circuit codecs, registry proof helpers and policy primitives in `@heliuslabs/zolana/ring/advanced` → import those low-level helpers from the advanced subpath.
-- Ring transfer proving rejects absent or mismatched default-ring output markers with `CLIENT_OUTPUT_OWNER_MARKER_MISMATCH` before indexer or prover calls. Keep the confidential marker and the actual recipient owner tag on exits. Ordinary recipient ciphertext remains unproved.
-- Ring merges preserve the common committed `ringDataHash`. Mixed input hashes or a different explicit output hash fail with `TRANSACTION_MERGE_RING_DATA_MISMATCH`. An omitted output hash inherits the inputs.
-
-- `RingRpc` requires commitment-checked `outputOpenings`, and `AuditedRingTransaction.outputContexts` identifies every disclosed slot → read authoritative values from openings and treat `outputs` as optional recipient delivery metadata. Recovery reads both data hashes from disclosure and leaves recovered `utxo.data` empty. Read optional delivery metadata through audit outputs. Remove `resolveOutputHashes` from `RingRecoveryParams`.
-- `TransactionOrigin` requires `confirmedTransaction` → custom adapters must bind indexed ciphertext, commitments, nullifiers and output positions to the exact confirmed SPP transfer, deposit or merge. Only another ring's event returns no match. A transfer with missing mandatory auditor disclosure now fails explicitly.
-- Ring transfer builders select full-policy proofs for nineteen ordinary capacities, up to 16×4 and 24×2. The 24×2 audit message proves only its two published output openings, so a fully populated measured transaction fits 4,096 bytes. Anonymous key and audit catalogs now cover fourteen capacities, up to 6×4 and 12×2. They keep every hidden input in the proved disclosure. Builders use smaller proofs when registry records share an eight-leaf subtree and check transaction size before proving → deploy the matching ring program and serve all keys from this release.
-- `CustomRingPolicyProofRequest.shape` sizes the input, output and subject witnesses, `registrySubtree` chooses shared paths, and `CustomRingTransferParams.transaction` includes extra signers and setup instructions in the size check → use `RING_POLICY_SUPPORTED_SHAPES` and pass all planned transaction additions before proving.
-- Auditor key envelopes use a two-hash Poseidon KDF. Previous envelope ciphertexts do not open with this release's auditor client → rotate the ring prover and auditor client together.
-
-- Asset rules use authenticated mint records in the own or curator registry. The inline eight-mint allowlist is removed. `inlineAssets` and `inlineLimits` now serve only per-mint amount guards. Scalar owner guards reject mixed-mint transfers. Replace inline asset rules with list rules and populate the mint records before transferring.
-
-- `RingMemberRegistryReader` replaces key-registry reads with `getRingMemberRecord` and `getRingMemberRegistryRoot`, authenticated at height 20 with list bits and escrow keys → migrate custom indexer adapters and use this release's program, indexer and prover together.
-- `CustomRingPolicyProofRequest` uses thirteen `subjects`, thirteen `foreignSubjects`, an own `memberRegistryRoot` even with escrow off, and one `foreignRoot`, while deposit proofs use `members` and `ctHashes` → replace entry-answer witnesses and old key-only records in custom provers.
-- `RingPolicyConfig.sources` uses `registry` addresses, zero for the own registry and at most one curator registry, and asset rules read registry lists → re-pin policies under version 10 and replace curator namespace addresses.
-- `buildRingListWriteTransaction` updates member records, and the old namespace list readers, entry codecs and entry-proof builders are removed → use `fetchRingMemberRecord` for authenticated list bits and `buildRingMemberUpdateTransaction` for batches of up to sixteen members.
-- Key-registry types, PDA helpers, constants and error names use `MemberRegistry`/`MEMBER_REGISTRY` naming and the PDA seed is `members` → migrate imports and initialize the new registry before registration, list writes or policy transfers.
-
-- `ViewingKey`, shielded addresses and custom-ring auditor envelopes use X25519
-  keys for every transfer and ring deposit, old auditor envelopes are
-  unsupported, and `DST_VIEW_ROOT_P_CONST` is no longer exported → create a new
-  auditor configuration with `X25519Keypair`/`X25519PublicKey`, migrate P-256
-  viewing keys and historical wallet data, and drop the
-  `DST_VIEW_ROOT_P_CONST` import.
-- `encryptTransactionViewingSecret` and `openAuditOutputDisclosure` mask the
-  auditor output disclosure with a new keystream, and `auditPublicInputHash`
-  and `policyPublicInputHash` commit to it with a new hash and to the ring
-  mode, so a ring proof or auditor message of the previous release does not
-  verify or open → prove and audit with the ring program and prover of this
-  release.
-- `SigningKey` and `ShieldedPublicKey` accept only Ed25519 ownership and PDA public keys → migrate P-256-owned notes and registry records before upgrading, use `P256ReaderKey` from `@heliuslabs/zolana/ring` for passkey audit access.
-- `UserRecord` and `RegistryRecord` drop `ownerP256`, and `getRegisterInstructionAsync`, `decodeUserRecordAccount` and `fetchUserRecord` write and read the registry record without a P-256 owner key → register again on a registry program built from this version, a record in the earlier layout fails with `WALLET_INVALID_USER_RECORD`.
-- `MergeTransactInstructionData` drops `eddsaOwner` → remove it from merge data you build and send merge instructions built by this version, the program refuses the earlier layout.
-- `openRingDepositOpening` requires a `ConfirmedDeposit` → obtain it from the confirmed audited transaction or `RpcTransactionOrigin.confirmedDeposits`, and supply `depositSource` when recovery uses a custom confirmation provider.
-- Custom-ring auditor envelopes use X25519 keys → create a new auditor configuration with `X25519Keypair`/`X25519PublicKey` before using this version.
-- `ViewingKey` and shielded addresses use X25519 for new transfers and ring deposits → migrate P-256 viewing keys and historical wallet data before using this version.
-- `DST_VIEW_ROOT_P_CONST` is no longer exported from `@heliuslabs/zolana/keypair` → drop the import, X25519 viewing keys derive their view root without it.
-- `ProverClient` and `ZolanaClient` now require a remote prover other than the
-  Helius gateway to attest to `defaultTeePolicy()` and encrypt every call to
-  it, and `ZolanaClient` given a Helius devnet RPC URL and no `proverUrl`
-  proves through `DEFAULT_TEE_PROVER_ENDPOINT` with
-  `proofDataSource: "client"` and refuses `"prover"` → pass `tee: false` to `ProverClient` or
-  `proverTee: false` to `ZolanaClient` for a prover you run, or a policy of its
-  own, and set `proverUrl` to keep another prover.
-- `PROVING_KEY_SHA256S` pins rotated custom ring proving keys and the RingEd25519
-  transfer keys and drops `custom_ring_compressed_policy.key`, so
-  `ProverClient` rejects a ring proof from a prover on the previous keys with
-  `CLIENT_PROVING_KEY_MISMATCH` → prove against the prover of this release.
-- `RingErrorCode` adds `RING_AUDIT_NONCANONICAL_KEY`, `RING_OUTFLOW_CAP_EXCEEDED`
-  and `RING_OUTFLOW_OVERFLOW`, and loses `RING_VELOCITY_CAP_EXCEEDED`,
-  `RING_VELOCITY_OVERFLOW`, `RING_VELOCITY_DISABLED`, `RING_SPEND_COUNTERS_UNKNOWN`,
-  `RING_SPEND_RECORD_INVALID`, `RING_SPEND_RECORD_LINEAGE_BROKEN`,
-  `RING_SPEND_RECORD_MISSING`, `RING_SPEND_WINDOW_INVALID` and the never raised
-  `RING_RESERVED_AUDITOR_KEY`, while `ClientErrorCode` loses
-  `CLIENT_SPEND_RECORD_OUT_OF_SYNC` → update exhaustive switches.
-- `ringTransactInstruction` and `ringDelegateTransactInstruction` encode the
-  new ring program layout, which carries no window index and no spend window
-  accounts and which a ring program built for an earlier release rejects →
-  deploy the ring program of this release.
-- `RuleTable`, `RuleTableInput`, `EncodedRuleTable`, `RingPolicyConfig` and
-  `CustomRingPolicyProofRequest` replace `windowSlots` and `velocity` with
-  `limits`, one `CustomRingOutflowLimit` of `asset`, `cap` and `cosignAbove`
-  per mint, `RING_POLICY_VERSION` is 9, `RING_POLICY_CONFIG_SIZE` shrinks by
-  eight bytes and `outflowLimitsOff` replaces `velocityProofInputOff` → rename
-  the fields, a table pinned under the previous release hashes differently and
-  needs a re-pin.
-- Spend records, spend counters and spend windows are gone:
-  `prepareRingSpendRegistration`, `buildRingSpendRegistrationTransaction`,
-  `createRingSpendRegistrationSubmission`, `readRingVelocityState`,
-  `readRingSpendRecord`, `currentRingSpendRecord`, `registerRingSpendInstruction`,
-  `setRingSpendWindowInstruction`, `clearRingSpendWindowInstruction`,
-  `fetchRingSpendWindow`, `decodeRingSpendWindow`, `ringSpendWindowAddress`,
-  `ZolanaClient.getRingSpendRecord`, `proveCustomRingCompressedPolicy`, the
-  `SpendRecord` and `SpendCounters` codecs, the `spendRecords` field of
-  `AuditedRingTransaction` and `DecryptedRingTransaction`,
-  `RingTransactionSubmission.windowChanged`, `RingSubmissionAttempt.window` and
-  `RingSubmissionWindowChanged` no longer exist → drop them, a table's `limits`
-  bound each transfer on its own, and the co-signer signs a transfer above
-  `cosignAbove`.
-- Approval handlers receive a new `multiTransfer` intent for a transfer with
-  several payments → handle it, or refuse it explicitly.
-- Ring deposit audit capsules carry a `RING_DEPOSIT_OPENING_LENGTH` (96) byte
-  opening that also discloses the Ed25519 owner key of an anonymous ring
-  deposit, `RingDepositOpening` takes it as `ownerKey` and
-  `openRingDepositOpening` returns it → re-prove audited deposits with this
-  version, a capsule sealed by an earlier version no longer decodes.
-- `setRingPolicyRulesInstruction` and `buildRingSetPolicyRulesTransaction` now
-  pass the ring config as the second account, which the ring program of this
-  release requires → rebuild the instruction with this version.
-- `MAX_MERGE_INPUTS` is 52 and `MAX_RING_MERGE_INPUTS` is 50 and the widest merge takes 52 notes instead of 54 →
-  select at most 52 notes per merge, and at most 50 on a custom ring. Extra accounts can lower
-  the custom-ring limit. The builder checks the complete transaction size before proving.
-- `MergeTransactInstructionData` carries `outputCiphertextSalt` and
-  `outputCiphertext`, and `Merge` and `PreparedMerge` require the encrypted
-  output → build merges with `Merge.fromKeypair` or the client's merge flow, or
-  pass the wallet's `mergeOutputKey` answer as `Merge`'s `outputKey`.
-- `DeriveRequest` has a `mergeOutputKey` kind → a custom `ShieldedKeys` answers
-  it with `mergeOutputKey(nullifierKey, firstNullifier)`.
-- `transactInstruction` (`getTransactInstructionAsync`) and
-  `buildUnsignedTransaction` require `ownerSigners`, the Ed25519 input owners
-  in first-input order, the fee payer too when it owns an input → pass the
-  input owners, or `[]` when no Ed25519 owner spends.
-- `KeypairErrorCode` drops `KEYPAIR_ZERO_SCALAR`, X25519 viewing keys are clamped and cannot be zero → remove it from exhaustive matches.
-- `KeypairErrorCode` drops `KEYPAIR_INVALID_PREHASH_LENGTH` with P-256 signing → remove it from exhaustive matches.
-- `CircuitId` kinds `ringEddsa` and `ringEddsaCached` are now `confidentialRingEddsa` and `confidentialRingEddsaCached` → rename them in matches and hand-built instruction data, the encoded bytes are unchanged.
-- `MAX_MERGE_INPUTS` is 52 and the widest merge takes 52 notes instead of 54 →
-  select at most 52 notes per merge, and at most 51 on a custom ring.
-- `MergeTransactInstructionData` contains `outputEncryption`, a
-  `MergeOutputEncryption` tagged with its scheme, `Merge` and `PreparedMerge`
-  require the encrypted output (`MergeOutputCiphertext` from
-  `@heliuslabs/zolana/transaction`), and `MergeInputs` and
-  `PreparedMergeInputs` replace `asset` with required `mintChunks` and
-  `outputCiphertextSalt` → build merges with `Merge.fromKeypair` or the
-  client's merge flow, or pass the wallet's `mergeOutputKey` answer as
-  `Merge`'s `outputKey`, the mint's two field chunks and the output
-  ciphertext salt.
-- `UserRecord`, `RegistryRecord` and `getUserRecords` records contain
-  `mergeEncryption`, a `MergeEncryptionScheme`, in place of `mergingEnabled`;
-  `buildSetMergingEnabledTransaction`, `getSetMergingEnabledInstructionAsync`
-  and `WALLET_BUILD_SET_MERGING_ENABLED` are
-  `buildSetMergeEncryptionTransaction`,
-  `getSetMergeEncryptionInstructionAsync` and
-  `WALLET_BUILD_SET_MERGE_ENCRYPTION`, which take a `scheme` and refuse an
-  unsupported one with `WALLET_INVALID_MERGE_ENCRYPTION_SCHEME`;
-  `ShieldedPoolError.MergeDisabled` (7017) is `MergeEncryptionSchemeMismatch`,
-  returned for a merge whose scheme differs from the owner's registered
-  scheme, a disabled record included; and `WALLET_MERGE_DISABLED` is
-  `WALLET_MERGE_ENCRYPTION_SCHEME_UNSUPPORTED` for a disabled or unsupported
-  scheme → opt in with `MergeEncryptionScheme.PoseidonCtrV1`, out with
-  `MergeEncryptionScheme.Disabled`, and update error matches to the new names.
-- `DeriveRequest` has a `mergeOutputKey` kind and `ShieldedKeys.derive` transfers
-  ownership of its returned buffers → answer with
-  `mergeOutputKey(nullifierKey, firstNullifier)` and return fresh buffers that
-  the caller can wipe.
-- `transactInstruction` (`getTransactInstructionAsync`) and
-  `buildUnsignedTransaction` require `ownerSigners`, the Ed25519 and PDA owners
-  of inputs and of outputs that carry data in first-occurrence order, the fee
-  payer too when it is one of them, and `RingEntryTransitionInput` and
-  `RingEntryTransitionProofInputs` no longer take `payer` → pass those owners,
-  or `[]` when there are none, and drop `payer`.
-- `MergeInputs` and `PreparedMergeInputs` replace `asset` with required
-  `mintChunks` and `outputCiphertextSalt` → pass the mint's two field chunks
-  and the merge output ciphertext salt, or use the SDK's merge builders.
-- `ProverClient` requires rotated confidential, ring and anonymous ring
-  transfer keys and both merge key sets, replacing the 54-input merge keys
-  with 52-input keys → deploy the matching prover key set before upgrading.
-- `buildDepositTransaction` now reads the chain for an SPL deposit and, when
-  the mint has no vault, adds its creation paid for by the depositor, failing
-  with `WALLET_PROTOCOL_CONFIG_NOT_FOUND` when the chain has no protocol config
-  and `WALLET_SPL_INTERFACE_CREATION_RESTRICTED` when the config does not let
-  the depositor create the vault, and accepts `setupInstructions`, which it
-  places before every other instruction → pass `createSplInterface: false` to
-  keep building the deposit alone.
-- Ring merge proofs bind the ring's anonymous flag beside the member registry root, and `ringMergeInstruction` writes the disclosure option ahead of the merge body → deploy this release's shielded-pool program, ring program and merge keys together.
-- `serializeWallet` writes version 5 snapshots with `pendingNotes` → upgrade snapshot readers before saving, versions 2 to 4 stay readable.
+- `ProverClient` and `ZolanaClient` encrypt every call to a remote prover other than the Helius gateway and require it to attest to `defaultTeePolicy()`, which now returns the pinned devnet enclave, and `ZolanaClient` given a Helius devnet RPC URL and no `proverUrl` proves through `DEFAULT_TEE_PROVER_ENDPOINT` with `proofDataSource: "client"` and refuses `"prover"` → pass `tee: false` to `ProverClient` or `proverTee: false` to `ZolanaClient` for a prover you run, or a policy of its own, and set `proverUrl` to keep another prover.
+- `ViewingKey`, shielded addresses, ring deposits and ring auditors use X25519, `auditRing`, `auditRingTransaction` and `recoverRingMemberNotes` take the auditor as an `X25519Keypair`, `SignatureType`, `SigningKey` and `ShieldedPublicKey` accept only Ed25519 and PDA owners, `UserRecord` and `RegistryRecord` drop `ownerP256`, and the P-256 key and signature types, `DST_VIEW_ROOT_P_CONST`, `KEYPAIR_ZERO_SCALAR`, `KEYPAIR_INVALID_PREHASH_LENGTH`, `CLIENT_INVALID_P256_KEY` and `WALLET_P256_REGISTRATION_UNSUPPORTED` are gone → migrate P-256 keys, notes and wallet data before upgrading, register again on this release's registry program, where a record in the earlier layout fails with `WALLET_INVALID_USER_RECORD`, and use `P256ReaderKey` from `@heliuslabs/zolana/ring` for passkey audit access.
+- `transactInstruction` (`getTransactInstructionAsync`) requires `ownerSigners`, the Ed25519 and PDA owners of inputs and of outputs that carry data in first-occurrence order, the fee payer too when it is one of them, a fee payer that owns nothing no longer enters a proof, and the `CircuitId` kinds `ringEddsa` and `ringEddsaCached` are `confidentialRingEddsa` and `confidentialRingEddsaCached` → pass those owners, or `[]` when there are none, and rename the kinds, whose encoding is unchanged.
+- A merge takes at most `MAX_MERGE_INPUTS` (52) notes, or `MAX_RING_MERGE_INPUTS` (50) on a custom ring, `MergeTransactInstructionData` drops `eddsaOwner` and carries `outputEncryption`, `MergeInputs` and `PreparedMergeInputs` replace `asset` with `mintChunks` and `outputCiphertextSalt`, `DeriveRequest` adds the `mergeOutputKey` kind and `ShieldedKeys.derive` hands its returned buffers to the caller, and `mergingEnabled`, `buildSetMergingEnabledTransaction`, `getSetMergingEnabledInstructionAsync` and `ShieldedPoolError.MergeDisabled` (7017) become `mergeEncryption`, `buildSetMergeEncryptionTransaction`, `getSetMergeEncryptionInstructionAsync` and `MergeEncryptionSchemeMismatch`, a merge using the scheme its owner registered → build merges with `Merge.fromKeypair` or the client's merge flow, answer `mergeOutputKey` with fresh buffers in a custom `ShieldedKeys`, and opt in with `MergeEncryptionScheme.PoseidonCtrV1`.
+- `buildDepositTransaction` reads the chain for an SPL deposit and adds the creation of a missing vault paid by the depositor, failing with `WALLET_PROTOCOL_CONFIG_NOT_FOUND` without a protocol config and `WALLET_SPL_INTERFACE_CREATION_RESTRICTED` when the config does not let the depositor create it, and places `setupInstructions` before every other instruction → pass `createSplInterface: false` to build the deposit alone.
+- The ring program, its accounts, proofs and outputs change format, `Prover.proveRing(request)` proves every ring circuit from a `RingProofRequest` in place of `proveCustomRingPolicy`, `proveCustomRingBase`, `proveCustomRingDeposit`, `proveCustomRingDelegatePolicy`, `proveCustomRingCompressedPolicy` and `proveCustomRingRegisterKey`, `Prover.proveAnonymousRingTransact` proves the anonymous rail's spend, `ProverClient` rejects a proof made with other than this release's ring, transfer and merge keys with `CLIENT_PROVING_KEY_MISMATCH`, `ringMergeInstruction` takes the `registryRootIndex` of a ring with a registry or the `disclosure` of an anonymous ring, and `RingProgramError` names `rootBelowFloor`, `curatorRootStale`, `rootIndexEmpty` and `authorityBatchTooLarge` in place of `staleKeyRegistryRoot` → deploy this release's ring program, shielded-pool program and prover together, implement both methods in a custom `Prover`, and expect no state or proof of an earlier ring to carry over.
+- `CustomRingTransfer`, `AnonymousTransfer` and `DelegateTransfer` prove the confidential, anonymous and delegate rails into a `ProvenRingTransfer` and replace `proveCustomRingTransfer`, `proveCustomRingDelegateTransfer`, `encryptCustomRingTransfer`, `openSealedMessage`, `EncryptedCustomRingTransfer`, `AuditWitness`, `SealedMessageInput`, `ringDelegateTransactInstruction`, `CustomRingTransferParams` and `CustomRingDelegateTransferParams`, the ring transfer, exit, entry and withdrawal builders take `anonymous: AnonymousRingSpend` on an anonymous ring, where `buildRingTransferTransaction` pays a `RingAddress`, drop `computeUnitLimit` and ask for approval only once their transaction with its priority fee and setup instructions fits `TRANSACTION_SIZE_LIMIT` and the co-signer the ring demands is supplied, `buildRingDepositTransaction` takes `RingDepositParams` with a `RingDepositRecipient` and a signing `depositor`, an anonymous ring's deposit and merge refuse a fee payer, depositor or co-signer holding the hidden owner's key with `RING_ANONYMOUS_SIGNER_LINKS_OWNER`, and `CustomRingTransfer` refuses a co-signer that is one of its owner signers with `RING_COSIGNER_REQUIRED` before any proof, whether the approval bit, the co-signer's scope or a withdrawal above its threshold demands it → move custom proving to the rail classes, give the co-signer a key that owns none of the notes it co-signs, size a ring transaction with `ringComputeUnitLimit` in place of the removed `RING_*_COMPUTE_UNIT_LIMIT` constants, `RING_DEPOSIT_COMPUTE_UNIT_LIMIT` aside, and pass the hidden owner's `AnonymousSpendSigner` and `AnonymousRingState` on an anonymous ring, its fees paid from another key.
+- `createMemberRegistryInstruction`, `memberListWriteInstruction`, `AuthorityListWrite`, `RecordApplication`, `RegisterKey` with a `KeyEscrowAuthority` such as `NullifierKeyEscrow`, `fetchRingMemberRegistry`, `fetchRingRecordQueue` and `RingRecordReader` replace `initializeRingConfigInstructions`, `buildRingListWriteTransaction`, `prepareRingKeyRegistration`, `buildRingKeyRegistrationTransaction`, `registerRingKeyInstruction`, the ring entry instructions and readers, `fetchRingConfigs`, `fetchRingCoSigner`, `fetchRingDelegate` and `RingKeyRegistryReader`, deposits always prove their disclosure and `setRingDepositAuditInstruction`, `fetchRingDepositAudit`, `decodeRingDepositAudit`, `ringDepositAuditAddress` and `RingDepositAudit` are gone, `decodeRingProgramConfig` reads the 471-byte config this release's ring program writes into a `RingProgramConfig` carrying the mode, insert fee, co-signer with `{ mint, amount }` thresholds, delegate and the `createdSlot` and `creationEpoch` of the ring's creation, and `RegisterKey` refuses before proving a key the record queue cannot take, with `RING_RECORD_QUEUE_FULL` while members hold every queue slot and `RING_REGISTRY_FULL` once their leaves run out → create the registry after the config, write lists and keys through the record queue, read the co-signer and delegate from `fetchRingProgramConfig`, and serve `RingRecordReader` from a custom indexer adapter.
+- A ring's policy lives in its member registry and reads back through `pinnedPolicy`, `RuleTable` replaces `windowSlots` and `velocity` with one `OutflowLimit` of `asset`, `cap` and `cosignAbove` per mint, `createRingPolicyInstruction` and `setRingPolicyRulesInstruction` refuse a rule over a list members write themselves, a transfer a rule refuses fails before any proof with `RING_POLICY_RULE_UNSATISFIED` naming the rule and its subject, and `RingPolicyConfig`, `fetchRingPolicyConfig`, `RING_POLICY_VERSION`, `PreparedTransfer.withAppendedSlot` with its `RecordSlotExtension` and the spend record, spend window and velocity readers are gone → rule only on the allow, block, frozen, reader and approval lists, bound each transfer with `limits`, and re-pin each policy under `POLICY_TABLE_VERSION`.
+- `auditRingTransaction` takes the `layout` the ring program verified, which the `ConfirmedRingTransaction` of `TransactionOrigin.confirmedTransaction` carries in place of `ringInvoked`, `AuditedRingTransaction` and `DecryptedRingTransaction` hold each slot once, in `outputs` with its `opening` or in `payloadErrors`, `escrowUnknown` there when no `EscrowedKeys` names a key-escrow owner, with the hidden `sender`, its `nullifierPk` absent when its first spent note is a deposit, and the `inputs` of an anonymous transfer, and `RingRecoveryParams` drops `resolveTreeId` and `resolveOutputHashes` and rebuilds notes from the openings alone, on key-escrow and anonymous rings too → read amounts, mints and owners from each opening, pass `escrowedKeys` to `auditRing` on a key-escrow ring, implement `confirmedTransaction` in a custom origin, and drop `CachedTransactionOrigin` and `openRingEscrowedKeys`.
+- `@heliuslabs/zolana/ring` leaves the rule table codecs, list ids and writers, member predicates, deposit capsule codecs, `RegisterKeyStatement`, `auditSharedSecret` and the auditor message codecs to the new `@heliuslabs/zolana/ring/advanced`, which also exports the disclosure layouts, audit and policy statements, the policy rule evaluator `admitTransfer`, compact frame codec, stream derivations and registry proofs the ring circuits bind, `@heliuslabs/zolana/keypair` drops `openAuditOutputDisclosure`, `AuditOutputOpening`, `policyPublicInputHash` and `CustomRingBasePublicInput` for that subpath's `openRingDisclosure`, `RingDisclosure`, `policyStatementHash` and `AuditStatement`, and `sealTransactionViewingSecret`, `openTransactionViewingSecret` and `AuditorEnvelope` replace `encryptTransactionViewingSecret`, `decryptTransactionViewingSecret` and `AuditorEncryption` → import those helpers from the advanced subpath and seal a transaction viewing secret with `sealTransactionViewingSecret`.
+- `issueRingAddress` hands out a `RingAddress`, which a `RingPaymentRequest` carries to a payer as a `zolana:` request, `syncWallet` given a `RingKeys` holder and `anonymousRings` finds every inbox, pair, change, merge and deposit note of each anonymous ring in one sync, a restore from seed included when `start` names the ring config's `creationEpoch`, reports them in `SyncReport.anonymousRings` and keeps notes of an unregistered mint in `Wallet.pendingNotes()` until `resolvePendingNotes` admits them, `serializeWallet` writes version 6 snapshots holding those notes and each ring's state, a confirmed `RingSubmissionResult` carries the `firstContacts` of the anonymous payment that landed, and a `RingTransactionSubmission` proves a transfer again once the policy hash or first-contact `anchor` its `RingSubmissionAttempt` binds moved, or, given a `clock`, once its `epoch` passed → upgrade snapshot readers before saving, versions 2 to 5 stay readable and a version 5 snapshot reads each ring `start` names again from its creation epoch, and record each first contact with its landed leaf through `recordFirstContacts` before saving the wallet.
+- Approval handlers receive `multiTransfer` and `ringAnonymousTransfer` intents, `RingErrorCode` and `ClientErrorCode` rename `RING_KEY_REGISTRY_*` and `CLIENT_KEY_REGISTRY_*` to `RING_MEMBER_REGISTRY_*` and `CLIENT_MEMBER_REGISTRY_*`, `RingErrorCode` drops every code this release never raises, the spend record, spend window, velocity, deposit audit and policy config codes among them, `CLIENT_MEMBER_REGISTRY_MEMBER_UNREGISTERED` comes only from the indexer since the prover reads no registry, `WALLET_BUILD_SET_MERGING_ENABLED` and `WALLET_MERGE_DISABLED` are `WALLET_BUILD_SET_MERGE_ENCRYPTION` and `WALLET_MERGE_ENCRYPTION_SCHEME_UNSUPPORTED`, `TransactionErrorCode` drops `TRANSACTION_ED25519_PAYER_MISMATCH` and `TRANSACTION_P256_TRANSACT_UNSUPPORTED`, `WalletErrorCode` and `TransactionErrorCode` gain the codes anonymous rings and ring slots raise, `WALLET_INBOX_STREAM_FULL` among them, `OutputContext` requires the `treeId` its commitment folds in, and `transactOutputBlinding` refuses an index outside u32 with `KEYPAIR_INVALID_LENGTH` instead of a `RangeError` → handle the new intents, update exhaustive switches and error matches, and set `treeId` on every output a custom indexer adapter returns.
 
 Added
 
-- `/zolana/client` exports `CustomRingMergeAnonymousProofRequest` and `CustomRingMergeSlot`, the request `Prover.proveCustomRingMergeAnonymous` takes to prove an anonymous ring merge, and `RingMergeRegistryProof`, the registry proof `MergeAssembler.proveMerge` takes.
-- `buildRingMergeTransaction` merges notes in an anonymous ring from a `nullifierKey`, opening the member record without an escrowed key and proving the auditor disclosure of the merged note, and refuses a merge wider than 24 inputs with `RING_ANONYMOUS_MERGE_TOO_WIDE` and a missing key with `RING_ANONYMOUS_NULLIFIER_KEY_REQUIRED`.
-- `syncWallet` given `anonymousRing: AnonymousRingState` and keys with `ringViewTags` walks the recipient's inbox, pair, deposit and change streams of an anonymous ring by exact tags, stores the scheme-9 notes whose commitments match, and returns `SyncReport.anonymousRing` with the notes, the new counterparties, the next index per stream and the addresses under spam.
-- `RingTagKeys` extends `ShieldedKeys` with `ringViewTags`, answered by `LocalShieldedKeys` and `LocalKeys`, and `RingTagRequest` names one inbox, pair, deposit or change tag.
-- `decryptTransactions` takes `anonymous: AnonymousTagRoutes` and opens a scheme-9 slot only under the key its tag is routed to, with `DECRYPTIONS_PER_INDEX` openings per tag.
-- `TagStream.firstFreeIndex` and `occupiedIndices` read a tag stream in `DEFAULT_TAG_WINDOW` sized windows against the indexer, an output nobody can open still occupies its index.
-- `auditRingMerges` returns `disclosed`, every merge of an anonymous ring opened from the disclosure its ring program verified, with the owner key, the output opening and the spent commitments in `RingMergeOpening`; `openRingMergeDisclosure`, `ringMergeAnonymousPublicInputHash` and `mergeDisclosureFieldCount` expose the same opening and statement, and `ringMergeInstruction` takes the `RingMergeDisclosure` an anonymous ring requires. An anonymous ring merges at most 24 notes, a 52-slot merge with its disclosure does not fit a transaction.
-- `WalletErrorCode` adds `WALLET_TAG_STREAM_EXHAUSTED` for a tag stream with no free index below 2^64.
-- `RingAddress` and `RingPaymentRequest` encode and parse the `zolana:` payment request a ring member shares off chain, with its checksum, amount, mint and label, and `InboxSecret.viewTag` gives a payer the tag of each first payment to that address.
-- `ViewingKey.inboxSecret`, `pairKey`, `pairSendViewTag`, `ringChangeViewTag` and `ringBlindingSeed` derive the inbox secret, the per-recipient pseudonym, the pair and change view tags and the blinding seed of an anonymous ring payment, and `senderViewTag`, `sendSharedViewTag` and `recipientSharedViewTag` derive the counter and pair tags Rust wallets already scan.
-- `encodeRingAnonymous` and `decodeRingAnonymous` read and write `RingAnonymousOutputPlaintext`, the 104-byte opening `assetAddress`, `amount`, canonical `blinding` and `pairU` a recipient recomputes its commitment from, and `ringAnonymousBodyHash` gives the statement element of a published body.
-- `ViewingKey.sealAnonymousOutput` and `openAnonymousOutput` run the proven scheme-9 body cipher, keyed by `recipientStreamSecret` from the transaction key, the recipient viewing key, the salt and the slot, and `DecryptRequest.label` accepts `"ringAnonymous"`.
-- `encryptAnonymousRingTransfer` seals every slot of an anonymous ring transfer from a `RingAddress` per real output, seals an exit to the default ring under its owner with `assets`, pads the other slots with random bodies and tags in the same framing, refuses records, memos and compact padding, and returns the auditor message, the prover delivery inputs and the body hashes.
-- `proveAnonymousRingTransfer` and `buildAnonymousRingTransferTransaction` prove and build a transfer on an anonymous ring from an `AnonymousPreparedTransfer`, whose `prepare(transfer, payments)` builds each `AnonymousRingPayment` output from its `RingAddress` so the output carries that address's own first-payment or paired tag, may exit to the default ring, carries the outflow limits and the co-signer they demand, and refuses a shape, slot, tag or public signer the ring program refuses with a named `RingErrorCode` before any prover call.
-- `proveAnonymousRingTransfer` and `buildAnonymousRingTransferTransaction` read every withdrawal destination before any prover call, reading a Token-2022 account with extensions the way the program does, and refuse one the program refuses or one that names the hidden owner with `RING_ANONYMOUS_EXIT_LINKS_OWNER`, `RING_ANONYMOUS_EXIT_ACCOUNT_HAS_DATA`, `RING_ANONYMOUS_EXIT_TOKEN_ACCOUNT_INVALID`, `RING_ANONYMOUS_EXIT_TOKEN_ACCOUNT_ON_CURVE` or `RING_ANONYMOUS_EXIT_TOKEN_ACCOUNT_SHARED`.
-- `ShieldedPoolError` names `AnonymousExitDestinationsDiffer` (7084), `AnonymousExitTokenAccountShared` (7085), `AnonymousExitAccountHasData` (7086) and `AnonymousExitTokenAccountOnCurve` (7087), the program's refusals of an anonymous withdrawal whose legs name two keys, whose token account has a delegate or a close authority, whose SOL recipient is not a system account without data, or whose token account sits at a keypair address.
-- `AnonymousSpendSigner` signs the hidden owner's `ringSpendMessage` for the proof, and `signingKeySpendSigner` and `messageSignerSpendSigner` adapt a `SigningKey` or a wallet's kit message signer.
-- `ZolanaClient.proveAnonymousRingTransact` proves the anonymous SPP spend from an `AnonymousRingTransactProofInput`, `ProverInputs` carries its `AnonymousEddsaAuthorization`, and `CircuitId` encodes the `"anonymousRingEddsa"` selector with its proof commitment like Rust.
-- `AnonymousRingTransactProofInput.exitTokenOwner` names the owner of an SPL withdrawal's token account, the key the proof binds for the withdrawal, and `ZolanaClient.proveAnonymousRingTransact` fails with `CLIENT_ANONYMOUS_EXIT_TOKEN_OWNER_MISMATCH` when it is set without an SPL withdrawal or left out beside one, and with `CLIENT_ANONYMOUS_EXIT_DESTINATIONS_DIFFER` when the withdrawals name two keys.
-- `CustomRingBaseProofRequest.anonymous` and `CustomRingPolicyProofRequest.anonymous` send the hidden identities, with a zero viewing key for an exit slot, and the proven `delivery` bodies of an anonymous ring, and `ANONYMOUS_RING_SHAPES` lists the shapes its proofs cover.
-- `AnonymousTagAllocator` assigns one inbox, pair or change tag per output slot over a `TagStream`, taking the lowest index free in history and in the transaction itself, and `AnonymousRingDestination` names where each slot goes.
-- `recoverAnonymousRing` scans every scheme-9 slot of a ring's confirmed history through a stated head under every viewing key the wallet holds, and fails with `WALLET_RECOVERY_INCOMPLETE` on a page limit or an incomplete response, with `WALLET_RECOVERY_BEHIND_HEAD` when the indexer has not reached the head, with `WALLET_RECOVERY_FOREIGN_ROW` on a returned row that names another ring or none, and with `WALLET_RECOVERY_MALFORMED_SLOT` on a ring transaction slot that lacks its transaction viewing key, its salt or a body of the exact length.
-- `SyncReport.pendingAssets` holds commitment-verified anonymous notes whose mint the registry does not know, `Wallet.pendingNotes` keeps them with their full opening across syncs and saves, `resolvePendingNotes` admits each one whose mint is now registered without a rescan and reports it spent when the wallet already holds its nullifier, `syncWallet` commits with pending notes held and resolves them after its registry backfill, `AnonymousRingReport.badPairHints` names stored notes whose pair hint is no X25519 key, and `AnonymousRingReport.malformedSlots` lists each ring transaction slot a tag sync skipped because the ring program refuses it, as a `MalformedAnonymousSlot` with its signature, slot index, view tag and `AnonymousSlotDefect`.
-- `AuditedRingTransaction.payloadErrors` and `DecryptedRingTransaction.payloadErrors` list an `OutputPayloadError` for each slot whose recipient payload gave no output and a `pairHint` for an opened ring note whose pair hint is unusable, which keeps its output, and `RingRpc.getDecryptedTransactions` reads every kind the Rust ring rpc writes.
-- `auditRingTransaction` and `auditRing` with `mode: "anonymous"` rebuild an exit's commitment from its disclosed opening and report an exit body that does not match it in `payloadErrors`.
-- `AnonymousOutputOpening` is a `padding`, `ring` or `exit` slot by `kind`, a `ring` slot carries its `AnonymousOutputOwner` and the `viewingPublicKey` that opens its proven body, an `exit` slot discloses its `amount`, `asset` and `blinding`, an anonymous audit disclosure takes five values per output, and `openAnonymousAuditDisclosure` refuses an owner whose `identityTag` is not `SOLANA_OWNER_TAG`.
-- `auditPublicInputHash` and `policyPublicInputHash` accept `anonymous: true` to bind anonymous statements, matching the Go and Rust transcripts.
-- `CustomRingBasePublicInput.outputBodyHashes` binds the published scheme-9 bodies, `auditPublicInputHash` and `policyPublicInputHash` chain thirteen base elements, a ring that is not anonymous chains one zero per output.
-- `RingRpc.getDecryptedTransactions` returns hidden senders, inputs and
-  recipients in `anonymous` for authorized anonymous-ring audit readers, each
-  recipient bound to the owner commitment of its slot in `outputOpenings`,
-  which holds the slot's amount and mint, and
-  `openAnonymousAuditDisclosure`, `auditDisclosureLength`,
-  `anonymousAuditDisclosureShape` and `isDummyAnonymousOutput` open and size
-  the auditor disclosure of an anonymous ring.
-- `buildMultiTransferTransaction(params)` pays up to fifteen recipients of
-  one asset in one private transfer, each a `TransferPayment` in order (a
-  single payment stays a `transfer` intent), accepts a `feePayer` other than
-  the wallet owner like `buildTransferTransaction`, and refuses an empty,
-  longer than fifteen or malformed payment list with
-  `WALLET_INVALID_PAYMENT_COUNT` or `WALLET_INVALID_PAYMENT`.
-- `ShieldedPoolError` names three new program rejections: `TreeFeeTooHigh` for a
-  tree fee per nullifier above the program's cap, `TreeCreationMismatch` for a
-  tree creation step that differs from the step that started it, and
-  `NonCanonicalMergeCiphertext` for a merge ciphertext element outside the
-  BN254 field.
-- `DEFAULT_TEE_PROVER_ENDPOINT` is the pinned deployment's prover URL, for a
-  client that names its prover, and `ProverClient.hasIndexedRoute` says
-  whether the prover reads proof data from its own indexer, false for the
-  Helius gateway and `DEFAULT_TEE_PROVER_ENDPOINT`.
-- `RingProgramError` names `unexpectedMemberRegistryRoot`, `unexpectedApproval`,
-  `invalidSettlementAccounts`, `tooManyPublicLegs`, `invalidAuditedDeposit`,
-  `invalidDepositData`, `memberBatchOrder`, `memberBatchTooLarge` and `memberRecordMismatch`, and `ShieldedPoolError`
-  names `RingEd25519OutputOwnerTag`, the refusals of this release's programs.
-- `RingProgramError.missingFundingSigner` rejects an unsigned depositor or payer before the ring signs its SPP call.
-- `ProofInputUtxo.address(owner, seed, treeId)` reserves an address of an
-  Ed25519 or PDA owner with a non-inclusion proof and no spent UTXO, which only
-  the default confidential transfer proves; `isAddress()`,
-  `requiresInclusion()`, `validateAddress()`, `addressNullifier` and the
-  constructor's `address` option read and build such an input, and
-  `createInputUtxo` and `InputUtxo` take its `addressNullifier`.
-- `TransactionErrorCode` adds `TRANSACTION_ADDRESS_INPUT_ZERO_OWNER`,
-  `TRANSACTION_ADDRESS_INPUT_NONCANONICAL_SEED`,
-  `TRANSACTION_ADDRESS_INPUT_NONEMPTY_FIELD`,
-  `TRANSACTION_ADDRESS_INPUT_COMPACT`, `TRANSACTION_ADDRESS_INPUT_CACHED`,
-  `TRANSACTION_ADDRESS_INPUT_NULLIFIER_PUBLIC_KEY_MISMATCH`,
-  `TRANSACTION_ADDRESS_INPUT_NULLIFIER_MISMATCH` and
-  `TRANSACTION_NOT_ADDRESS_INPUT` for an invalid address input, and
-  `ClientErrorCode` adds `CLIENT_ADDRESS_INPUT_UNSUPPORTED` for an address
-  input on the ring authority or merge rail and `CLIENT_INVALID_ADDRESS_INPUT` for a prover
-  request that proves an address as another kind of slot.
-- `transactCpiAccounts(input)` returns the `transactInstruction` accounts with
-  a program's signing PDAs after the owner signers,
-  `encodeTransactInstructionData(data)` returns the `transact` instruction
-  data without its leading `InstructionTag.transact` byte, which a program
-  prepends when it forwards the data through a CPI, and `TransactAccountsInput`
-  names their input, all from `@heliuslabs/zolana/interface`.
-- `SettlementTransfer`, the leg type of `ExternalData.interfaceTransfers`, is
-  exported from `@heliuslabs/zolana/transaction`; `bytes16`, `bytes31`,
-  `bytes32`, `bytes33`, `bytes34` and `bytes64` copy a `Uint8Array` into the
-  matching fixed-length type and refuse any other length with
-  `KEYPAIR_INVALID_LENGTH`; and `ShieldedPublicKey.fromPda` and
-  `ShieldedAddress.forPda` also take the PDA as an `Address`.
-
-Changed
-
-- `auditRing`, `auditRingMerges` and ring member recovery fail with `RING_SCAN_FRONTIER_MISSING` when the indexer's last page names neither a next cursor nor a scan frontier, where they reported a complete scan.
-- `proveCustomRingTransfer` on an anonymous ring fails with `RING_ANONYMOUS_SIGNER_REQUIRED` and the delegate rail with `RING_ANONYMOUS_REFUSED`, prove those transfers with `proveAnonymousRingTransfer`.
-- `AuditedRingTransaction` and `DecryptedRingTransaction` replace `undecryptableSlots` with `payloadErrors` → read the slot index from each entry and its `kind`.
-- `AnonymousNote.pairPublicKey` and `AnonymousRingNote.pairPublicKey` are optional, a note stays stored when its pair hint is unusable.
-- `syncWallet` opens every output under a spammed inbox index and still reports the address in `addressesUnderAttack`.
-- `RingDelegateTransferParams.compactPadding` lets ordinary and recovered delegate builders omit unused public slots, revealing actual counts and allowing the exact 2×3 policy proof when the registry paths share a subtree, while the default keeps padded counts.
-
-- `ProverClient` validates custom-ring proving keys against the regenerated circuit keys, including the member-update key.
-- `defaultTeePolicy()` now returns the pinned devnet enclave's measurements
-  and encryption key instead of throwing.
-- Merge decryption rejects non-canonical ciphertext with
-  `TRANSACTION_NON_CANONICAL_MERGE_CIPHERTEXT`.
-- Transfers, withdrawals, splits and custom ring transfers list an input owner
-  who also pays as an owner signer, and a fee payer that owns no input no
-  longer appears in their proofs.
+- `buildMultiTransferTransaction(params)` pays up to fifteen recipients of one asset in one private transfer, each a `TransferPayment` in order, refusing a malformed list with `WALLET_INVALID_PAYMENT_COUNT` or `WALLET_INVALID_PAYMENT`, and `ProofInputUtxo.address(owner, seed, treeId)` reserves an address of an Ed25519 or PDA owner with a non-inclusion proof instead of a spent UTXO, which only the default confidential transfer proves.
+- `auditRingMerges` and `RingRpc.getAuditedMerges` open a ring's merges as `AuditedRingMerge` and report the rest as `UnresolvedRingMerge`, `RingRpc.getAuditedNotes` returns, in request order, a `RingAuditedNote` for each of up to `RING_AUDITED_NOTES_LIMIT` UTXO hashes, `undefined` where the ring service opened none, its `note` a `KnownNote` without `nullifierPk` for a deposit, signed as `auditedNotesAttestation` writes it, `auditRing` and `auditRingTransaction` open the notes an anonymous transfer spends from `knownNotes`, indexed by commitment from the `CreatedRingNote` entries `createdRingNotes` opens in a confirmed deposit or anonymous merge and `scanCreatedRingNotes` collects from the ring's history, `RingStatus` reports the ring's `activation` and `registry`, `readMemberRecords` reads members' records under the registry's newest root as `MemberOpeningRead` values whose `listed` and `escrowed` answer list and key escrow questions, and `checkEscrowedRecipients` refuses the first recipient of a key escrow ring without an escrowed key with `RING_UNREGISTERED_OUTPUT_KEY`.
+- `EncryptedScheme` adds `ringAnonymous`, `ringConfidentialDelivered` and `ringConfidentialPacked`, `decodeRingPacked` reads the packed ring output a remote viewing key decrypts, `RING_AUTHORITY_SHAPES` lists the delegate rail's shapes up to `RING_AUTHORITY_MAX_INPUTS` (40) inputs, `ringAuthorityShape` picks the cheapest holding a move and `isRingAuthorityShape` tests one, `DelegateTransfer.withShape` pads a move to one of them, and `buildRingDelegateTransferTransaction` selects at most as many notes as the widest of them holding the move's payments and change and fails before approval with `RING_TOO_MANY_INPUTS` when the notes need a wider shape or the move with its accounts and fee exceeds `TRANSACTION_SIZE_LIMIT`.
+- `transactCpiAccounts` and `encodeTransactInstructionData` let a program forward `transact` through a CPI, `SettlementTransfer`, `bytes16` to `bytes64` and `ShieldedPublicKey.fromPda` and `ShieldedAddress.forPda` with an `Address` are exported, and `ShieldedPoolError` names the program refusals 7080 to 7087.
 
 Fixed
 
-- `proveAnonymousRingTransfer` treated every output owned by the sender's signing key as change, so a payment to the sender's own `RingAddress` published a change tag and a payment to an address with another viewing key failed with `TRANSACTION_ANONYMOUS_SLOT_MISMATCH`, now each `AnonymousRingPayment` takes its address's inbox or pair tag and is sealed to that address's viewing key, and only an unpaid output owned by the sender's full address is change.
-- `syncWallet` aborted on an anonymous note whose pair hint is a low-order X25519 key, now the note is kept and the hint is reported in `badPairHints`. `auditRingTransaction` reports the same hint as a `pairHint` payload error. It also checked every output against tree 0, so a merge into another tree failed with `TRANSACTION_MERGE_OUTPUT_UNDECRYPTABLE` or was dropped, now each output is checked against its indexed tree id.
-- `syncWallet` failed with `CLIENT_INVALID_RPC_RESPONSE` on any indexed transaction whose published viewing key is not a valid X25519 key, now such a transaction is read without a viewing key and its outputs count as undecryptable, as do outputs under a small-order transaction key.
-- `RingRpc` rejects incomplete, repeated or oversized signed audit pages instead of silently treating them as complete.
-- `auditRingMerges` now surfaces registry read failures instead of reporting members as merely unavailable.
-- `RingProgramError.missingOwnerSigner` reports an owner account that did not sign before the ring forwards a transfer, and public deposit sources must also sign before the ring PDA signs for SPP.
-- `RingRpc.getDecryptedTransactions` now includes the SPP event index on opened and skipped records, so separate ring events in one Solana transaction have distinct identities.
-- `auditRing` now recognizes a terminal scan at the page limit even when Photon also returns a row cursor, so `recoverRingMemberNotes` does not report a complete history as incomplete, and invalid page limits fail instead of returning an empty audit.
-
-- `syncWallet` and custom ring recovery could not recover a merge output
-  without every input, and `syncWallet` committed past an unreadable owned
-  merge; both now recover merge outputs from valid ciphertext alone,
-  `syncWallet` rejects an unreadable owned merge with cause
-  `TRANSACTION_MERGE_OUTPUT_UNDECRYPTABLE` while preserving wallet state and
-  cursors, and `Merge.fromKeypair`, wallet merge building, wallet sync and ring
-  recovery wipe temporary merge output keys on both success and failure.
-
-- `recoverRingMemberNotes` reconstructs notes from proved auditor openings even when recipient ciphertext is missing, misleading or addressed to another viewing key, and unresolved assets remain explicit.
-- `RingTransactionSubmission` retries proofs invalidated by either the own or curator registry history and retains pending state when a registry read fails.
-
-- `recoverTransactionViewingKey`, `auditRingTransaction`, `auditRing` and
-  `recoverRingMemberNotes` read output disclosures under an alias of the
-  recovered transaction viewing key and rejected the auditor message of an
-  anonymous ring, and `decodeRingProgramConfig` threw on one; an alias now
-  fails with `RING_AUDIT_NONCANONICAL_KEY`, the audit functions take
-  `mode: "anonymous"` and report hidden senders, inputs and recipients in
-  `anonymous`, and the config decodes with `mode`.
-- `ZolanaClient.assembleAuthorizedPrivateTransaction` did not list the owner
-  of an output that carries data as a transaction signer, and
-  `ZolanaClient.proveTransact` left that owner out of the proof's signer
-  vector, so the shielded pool rejected the proof; that owner now signs after
-  the input owners.
-- `ConfidentialTransfer` encoded the padding slots of a self-paid transfer
-  differently from the sender's change, so an observer could tell them apart, and padding now uses the same encoding as change.
+- `syncWallet` could not recover a merge output without every input, committed past an unreadable owned merge and failed on a ring deposit whose body `config.depositPayloadDecoder` refused or whose blinding left the field, now a merge output is recovered from its ciphertext alone, an unreadable owned merge fails with cause `TRANSACTION_MERGE_OUTPUT_UNDECRYPTABLE` leaving wallet state and cursors unchanged, and such a deposit counts as undecryptable, the default decoder unwrapping an audited deposit's capsule.
+- `RingRpc` accepted an incomplete, repeated or oversized signed audit page and `auditRing` misjudged where a scan ends, now such a page fails, a last page naming neither a next cursor nor a scan frontier fails with `RING_SCAN_FRONTIER_MISSING`, a terminal page at the page limit completes the scan, an invalid page limit fails, and each `DecryptedRingTransaction` names its `eventIndex`.
+- `ConfidentialTransfer` encoded the padding slots of a self-paid transfer differently from the sender's change, so an observer could tell them apart, now padding uses the change encoding.
 
 ## 0.4.1-alpha — 2026-10-08
 

@@ -8,8 +8,8 @@ import {
   LocalShieldedKeys,
   type DecryptRequest,
   type DeriveRequest,
-  type RingTagKeys,
-  type RingTagRequest,
+  type RingDeliveryRequest,
+  type RingKeys,
   type TransactionKeyRequest,
 } from "../transaction/wallet/keys.js";
 import { ClientError } from "./error.js";
@@ -17,6 +17,7 @@ import { bytesField, hasIndexedMethod, hasProofMethods, poseidon } from "./inter
 import type {
   ProofAuthority,
   ProofService,
+  SecretRingProofRequest,
   WalletKeys,
   IndexedProofInputs,
   IndexedProofResult,
@@ -33,7 +34,7 @@ import type { Field, MergeInputs, ProverInputs } from "./prover/types.js";
  * same two things an enclave-backed implementation does behind its transport.
  * Application code takes `WalletKeys` and never learns which one it holds.
  */
-export class LocalKeys implements WalletKeys, RingTagKeys {
+export class LocalKeys implements WalletKeys, RingKeys {
   readonly #keys: LocalShieldedKeys;
   readonly #proofs: ProofService;
 
@@ -91,8 +92,20 @@ export class LocalKeys implements WalletKeys, RingTagKeys {
     return this.#keys.transactionKeys(requests);
   }
 
-  ringViewTags(requests: readonly RingTagRequest[]): Promise<readonly Bytes32[]> {
-    return this.#keys.ringViewTags(requests);
+  ringAddressKeys(ring: Address, indexes: readonly number[]): Promise<readonly X25519PublicKey[]> {
+    return this.#keys.ringAddressKeys(ring, indexes);
+  }
+
+  ringDeliverySecrets(requests: readonly RingDeliveryRequest[]): Promise<readonly Bytes32[]> {
+    return this.#keys.ringDeliverySecrets(requests);
+  }
+
+  ringChangeKey(ring: Address): Promise<X25519PublicKey> {
+    return this.#keys.ringChangeKey(ring);
+  }
+
+  senderViewTags(counters: readonly bigint[]): Promise<readonly Bytes32[]> {
+    return this.#keys.senderViewTags(counters);
   }
 
   async prove(inputs: ProverInputs, context?: RequestContext): Promise<Proof> {
@@ -112,6 +125,10 @@ export class LocalKeys implements WalletKeys, RingTagKeys {
       (use) => this.#keys.withNullifierKey(use),
       context,
     );
+  }
+
+  proveRingWithSecret(request: SecretRingProofRequest, context?: RequestContext): Promise<Proof> {
+    return this.#keys.withNullifierKey((key) => proveRingWith(this.#proofs, request, key, context));
   }
 
   destroy(): void {
@@ -145,12 +162,34 @@ export class NullifierKeyProofAuthority implements ProofAuthority {
     return proveIndexedWith(this.#proofs, request, (use) => use(this.#key), context);
   }
 
+  proveRingWithSecret(request: SecretRingProofRequest, context?: RequestContext): Promise<Proof> {
+    return proveRingWith(this.#proofs, request, this.#key, context);
+  }
+
   destroy(): void {
     this.#key.destroy();
   }
 }
 
 type Proof = Awaited<ReturnType<ProofService["prove"]>>;
+
+/** The secret joins the request only for the proof's round trip, a zero lead byte keeps it a field. */
+async function proveRingWith(
+  proofs: ProofService,
+  request: SecretRingProofRequest,
+  key: NullifierKey,
+  context: RequestContext | undefined,
+): Promise<Proof> {
+  const secret = key.secretBytes();
+  const nullifierSecret = new Uint8Array(32) as Bytes32;
+  nullifierSecret.set(secret, 1);
+  secret.fill(0);
+  try {
+    return await proofs.proveRing({ ...request, nullifierSecret }, context);
+  } finally {
+    nullifierSecret.fill(0);
+  }
+}
 
 function completeTransferInputs(inputs: ProverInputs, key: NullifierKey): ProverInputs {
   const hidden = hiddenOwnerField(inputs);
