@@ -29,8 +29,8 @@ use crate::{
         transact::{
             anonymous_ring_eddsa::sign_transact_digest,
             assembly::{
-                assemble_transaction, validate_shape, AssembledTransaction, OwnerMode,
-                PublicInputs, TransferInputUtxo,
+                assemble_transaction, AssembledTransaction, OwnerMode, PublicInputs,
+                TransferInputUtxo,
             },
         },
         Shape, TransferInputs, TreeSlotFields,
@@ -91,7 +91,15 @@ pub struct EddsaAuthorization {
 impl ConfidentialEddsaProver<'_> {
     pub fn build(self) -> Result<ConfidentialEddsaProofResult, ClientError> {
         let shape = self.shape;
-        validate_shape(shape, self.inputs.len(), self.outputs.len())?;
+        if !shape.is_confidential_eddsa()
+            || shape.n_inputs() != self.inputs.len()
+            || shape.n_outputs() != self.outputs.len()
+        {
+            return Err(ClientError::UnsupportedShape {
+                n_in: self.inputs.len(),
+                n_out: self.outputs.len(),
+            });
+        }
         if self.signer_pk_hashes.len() != shape.signer_width() {
             return Err(ClientError::WitnessInputCountMismatch {
                 got: self.signer_pk_hashes.len(),
@@ -187,8 +195,18 @@ pub fn confidential_eddsa_signer_pk_hashes(
         )?
         .signer_width();
     let in_circuit = owner.pubkey().owner_proof_input_hash()?;
-    let mut signers = transaction.signer_pk_hashes(width)?;
+    let mut signers = transaction
+        .owner_signer_pubkeys()?
+        .iter()
+        .map(|signer| solana_owner_identity(signer.as_array()))
+        .collect::<Result<Vec<_>, _>>()?;
     signers.retain(|signer| *signer != in_circuit);
+    if signers.len() > width {
+        return Err(ClientError::UnsupportedShape {
+            n_in: transaction.input_utxos.len(),
+            n_out: transaction.output_utxos.len(),
+        });
+    }
     signers.resize(width, [0; 32]);
     Ok(signers)
 }
@@ -284,6 +302,119 @@ impl ProveRequest for ConfidentialEddsaTransferInputs {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn external_data() -> ExternalData {
+        ExternalData {
+            instruction_discriminator: 0,
+            expiry_unix_ts: 0,
+            interface_transfers: Vec::new(),
+            data_hash: None,
+            ring_data_hash: None,
+            tx_viewing_pk: [0; 33],
+            salt: [0; 16],
+            outputs: Vec::new(),
+            resolved_owner_tags: Vec::new(),
+            messages: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn build_validates_the_confidential_eddsa_shape_set() {
+        use zolana_transaction::utxo::SppProofInputUtxo;
+        let owner = SigningKey::from_ed25519_bytes(&[1; 32]);
+        for (shape, supported) in [
+            (Shape::new(16, 16), true),
+            (Shape::new(24, 8), true),
+            (Shape::new(24, 16), true),
+            (Shape::new(48, 8), true),
+            (Shape::new(48, 16), true),
+            (Shape::new(1, 2), false),
+            (Shape::new(3, 2), false),
+        ] {
+            let result = ConfidentialEddsaProver {
+                inputs: vec![
+                    TransferInputUtxo {
+                        utxo: SppProofInputUtxo::dummy(1).unwrap(),
+                        proof: None,
+                        nullifier_proof: None,
+                    };
+                    shape.n_inputs()
+                ],
+                outputs: vec![SppProofOutputUtxo::default(); shape.n_outputs()],
+                blinding_seed: [0; 32],
+                output_tree_id: 1,
+                external_data: external_data(),
+                public_transfers: Default::default(),
+                signer_pk_hashes: Vec::new(),
+                allow_dummy_inputs: true,
+                owner: &owner,
+                shape,
+                cache_accounts: Default::default(),
+            }
+            .build();
+            if supported {
+                assert!(
+                    matches!(
+                        result,
+                        Err(ClientError::WitnessInputCountMismatch { got: 0, .. })
+                    ),
+                    "{shape:?}: {result:?}"
+                );
+            } else {
+                assert!(
+                    matches!(result, Err(ClientError::UnsupportedShape { .. })),
+                    "{shape:?}: {result:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn proof_owner_does_not_consume_an_external_signer_slot() {
+        use zolana_keypair::ShieldedKeypair;
+        use zolana_transaction::{utxo::SppProofInputUtxo, Mint};
+        let owners: Vec<_> = (1..=5)
+            .map(|seed| {
+                ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&[seed; 32])).unwrap()
+            })
+            .collect();
+        let owner = SigningKey::from_ed25519_bytes(&[1; 32]);
+        let outputs = owners
+            .iter()
+            .map(|keypair| {
+                let mut output =
+                    SppProofOutputUtxo::new(Mint::SOL, 0, keypair.shielded_address().unwrap())
+                        .unwrap();
+                output.data_hash = Some([1; 32]);
+                output
+            })
+            .collect::<Vec<_>>();
+        let mut transaction = SppProofInputs {
+            input_utxos: vec![SppProofInputUtxo::dummy(1).unwrap(); 2],
+            output_utxos: outputs[..4].to_vec(),
+            blinding_seed: [0; 32],
+            output_tree_id: 1,
+            external_data: external_data(),
+            payer: Default::default(),
+            cache_accounts: Default::default(),
+        };
+        transaction
+            .output_utxos
+            .resize(8, SppProofOutputUtxo::default());
+        let expected = owners[1..4]
+            .iter()
+            .map(|keypair| keypair.signing_pubkey().owner_proof_input_hash().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            confidential_eddsa_signer_pk_hashes(&transaction, &owner).unwrap(),
+            expected
+        );
+        transaction.output_utxos[4] = outputs[4].clone();
+        assert!(matches!(
+            confidential_eddsa_signer_pk_hashes(&transaction, &owner),
+            Err(ClientError::UnsupportedShape { n_in: 2, n_out: 8 })
+        ));
+    }
 
     /// The body splits the digest into the prover's limbs and carries every key
     /// of the committed Go request.
