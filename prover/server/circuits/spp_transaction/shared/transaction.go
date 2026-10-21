@@ -279,6 +279,16 @@ func (s Shape) SignerWidth() int {
 	return OwnerSignerSlots(s.NInputs) + 1
 }
 
+// ValidateSignerWidth checks a signer vector length a circuit is sized with.
+// A width of zero would fold the signer chain to the constant 0 and let no
+// input be authorized.
+func ValidateSignerWidth(signerWidth int) error {
+	if signerWidth < 1 {
+		return fmt.Errorf("spp: signer width must be >= 1, got %d", signerWidth)
+	}
+	return nil
+}
+
 // publicSlots returns the public movement slots interleaved as
 // [asset_0, amount_0, asset_1, amount_1, asset_2, amount_2] — the canonical
 // public-input-hash preimage order every variant and host mirror must share.

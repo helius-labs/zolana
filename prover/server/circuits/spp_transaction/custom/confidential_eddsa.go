@@ -62,23 +62,41 @@ type CustomRingConfidentialEddsaPrivate struct {
 type CustomRingConfidentialEddsaCircuit struct {
 	CachedInputs shared.CachedInputs
 
-	Shape   shared.Shape `gnark:"-"`
-	Public  CustomRingConfidentialEddsaPublic
-	Private CustomRingConfidentialEddsaPrivate
+	Shape shared.Shape `gnark:"-"`
+	// Slots in the public signer vector. The proving key fixes it: the public
+	// input hash folds exactly this many slots.
+	SignerWidth int `gnark:"-"`
+	Public      CustomRingConfidentialEddsaPublic
+	Private     CustomRingConfidentialEddsaPrivate
 }
 
+// NewCustomRingConfidentialEddsaCircuit sizes the signer vector to the
+// protocol width for the shape (shared.Shape.SignerWidth).
 func NewCustomRingConfidentialEddsaCircuit(shape shared.Shape) (*CustomRingConfidentialEddsaCircuit, error) {
+	return NewCustomRingConfidentialEddsaCircuitWithSigners(shape, shape.SignerWidth())
+}
+
+// NewCustomRingConfidentialEddsaCircuitWithSigners sizes the signer vector to
+// signerWidth slots instead of the protocol width.
+func NewCustomRingConfidentialEddsaCircuitWithSigners(
+	shape shared.Shape,
+	signerWidth int,
+) (*CustomRingConfidentialEddsaCircuit, error) {
 	if err := shape.Validate(); err != nil {
+		return nil, err
+	}
+	if err := shared.ValidateSignerWidth(signerWidth); err != nil {
 		return nil, err
 	}
 	return &CustomRingConfidentialEddsaCircuit{
 		CachedInputs: shared.NewCachedInputs(shape.NInputs),
 		Shape:        shape,
+		SignerWidth:  signerWidth,
 		Public: CustomRingConfidentialEddsaPublic{
 			Nullifiers:                   make([]frontend.Variable, shape.NInputs),
 			OutputHashes:                 make([]frontend.Variable, shape.NOutputs),
 			TreeSlots:                    shared.NewTreeSlots(),
-			SignerPkHashes:               make([]frontend.Variable, shape.SignerWidth()),
+			SignerPkHashes:               make([]frontend.Variable, signerWidth),
 			PublishedOutputOwnerPkHashes: make([]frontend.Variable, shape.NOutputs),
 		},
 		Private: CustomRingConfidentialEddsaPrivate{
@@ -120,7 +138,7 @@ func (c *CustomRingConfidentialEddsaCircuit) transaction(api frontend.API) share
 func (c *CustomRingConfidentialEddsaCircuit) Define(api frontend.API) error {
 	tx := c.transaction(api)
 	if err := tx.ValidateLayout(
-		shared.LengthCheck{Name: "signer pk hash", Got: len(c.Public.SignerPkHashes), Want: c.Shape.SignerWidth()},
+		shared.LengthCheck{Name: "signer pk hash", Got: len(c.Public.SignerPkHashes), Want: c.SignerWidth},
 		shared.LengthCheck{Name: "input owner pk hash", Got: len(c.Private.InputOwnerPkHashes), Want: c.Shape.NInputs},
 		shared.LengthCheck{Name: "output owner pk hash", Got: len(c.Private.OutputOwnerPkHashes), Want: c.Shape.NOutputs},
 		shared.LengthCheck{Name: "output nullifier pk", Got: len(c.Private.OutputNullifierPks), Want: c.Shape.NOutputs},
