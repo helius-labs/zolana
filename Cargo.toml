@@ -81,6 +81,7 @@ repository = "https://github.com/helius-labs/zolana"
 tools-version = "v1.54"
 
 [workspace.dependencies]
+form_urlencoded = "1.2.2"
 # Solana platform-tools Cargo 1.84 cannot build edition2024 crates pulled by
 # newer time-core releases.
 time = ">=0.3, <0.3.46"
