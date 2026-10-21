@@ -57,7 +57,7 @@ type TransferParametersJSON struct {
 	PublicAmounts                []string                    `json:"publicAmounts"`
 	RingProgramID                string                      `json:"ringProgramId"`
 	SignerPkHashes               []string                    `json:"signerPkHashes"`
-	SignerWidth                  uint32                      `json:"signerWidth,omitempty"`
+	SignerWidth                  uint32                      `json:"signerWidth,omitempty" strict:"optional"`
 	InputFlags                   string                      `json:"inputFlags"`
 	PublishedOutputOwnerPkHashes []string                    `json:"publishedOutputOwnerPkHashes"`
 	CacheSelectionJSON

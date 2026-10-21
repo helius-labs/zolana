@@ -87,10 +87,10 @@ type AnonymousEddsaTransferParametersJSON struct {
 	BlindingSeed                 string                      `json:"blindingSeed"`
 	OwnerPublicKey               string                      `json:"ownerPublicKey"`
 	OwnerSignature               string                      `json:"ownerSignature"`
-	NHiddenOwners                uint32                      `json:"nHiddenOwners,omitempty"`
-	AdditionalOwnerPublicKeys    []string                    `json:"additionalOwnerPublicKeys,omitempty"`
-	AdditionalOwnerSignatures    []string                    `json:"additionalOwnerSignatures,omitempty"`
-	InputHiddenOwners            []uint32                    `json:"inputHiddenOwners,omitempty"`
+	NHiddenOwners                uint32                      `json:"nHiddenOwners,omitempty" strict:"optional"`
+	AdditionalOwnerPublicKeys    []string                    `json:"additionalOwnerPublicKeys,omitempty" strict:"optional"`
+	AdditionalOwnerSignatures    []string                    `json:"additionalOwnerSignatures,omitempty" strict:"optional"`
+	InputHiddenOwners            []uint32                    `json:"inputHiddenOwners,omitempty" strict:"optional"`
 	MessageHashLow               string                      `json:"messageHashLow"`
 	MessageHashHigh              string                      `json:"messageHashHigh"`
 	DefaultOwnerPkHash           string                      `json:"defaultOwnerPkHash"`
@@ -98,7 +98,7 @@ type AnonymousEddsaTransferParametersJSON struct {
 	PublicAmounts                []string                    `json:"publicAmounts"`
 	RingProgramID                string                      `json:"ringProgramId"`
 	SignerPkHashes               []string                    `json:"signerPkHashes"`
-	SignerWidth                  uint32                      `json:"signerWidth,omitempty"`
+	SignerWidth                  uint32                      `json:"signerWidth,omitempty" strict:"optional"`
 	InputFlags                   string                      `json:"inputFlags"`
 	PublishedOutputOwnerPkHashes []string                    `json:"publishedOutputOwnerPkHashes"`
 	CacheSelectionJSON

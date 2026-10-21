@@ -64,6 +64,28 @@ func TestTransferKeyFileDimensionsRejectsMalformedSuffixes(t *testing.T) {
 	}
 }
 
+// A preloaded system must be found by the lookup a request makes. The key
+// directory is empty, so a cache miss would fail to load.
+func TestPreloadedTransferSystemsAreFoundByShape(t *testing.T) {
+	m := NewLazyKeyManager(t.TempDir(), &DownloadConfig{})
+	for _, ps := range []*TransferProofSystem{
+		{CircuitType: TransferConfidentialCircuitType, NInputs: 2, NOutputs: 2},
+		{CircuitType: TransferAnonymousRingEddsaCircuitType, NInputs: 2, NOutputs: 2, HiddenOwners: 2},
+		{CircuitType: MergeRingCircuitType, NInputs: 24, NOutputs: 1},
+	} {
+		if err := m.cacheSystem(ps.Shape().KeyFile(), ps); err != nil {
+			t.Fatal(err)
+		}
+		got, err := m.GetTransferSystemFor(ps.Shape())
+		if err != nil || got != ps {
+			t.Fatalf("%s: preloaded system not found: %v", ps.Shape(), err)
+		}
+	}
+	if _, err := m.GetTransferSystemFor(ProofShape{Circuit: TransferAnonymousRingEddsaCircuitType, Inputs: 2, Outputs: 2}); err == nil {
+		t.Fatal("a two-owner system answered a protocol lookup")
+	}
+}
+
 func TestProofShapeRejectsUnsupportedDimensions(t *testing.T) {
 	for name, shape := range map[string]ProofShape{
 		"hidden owners off the anonymous rail": {Circuit: TransferRingCircuitType, Inputs: 2, Outputs: 2, HiddenOwners: 2},

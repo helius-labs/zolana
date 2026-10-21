@@ -103,10 +103,16 @@ func (m *LazyKeyManager) GetTransferSystem(circuitType CircuitType, nInputs uint
 	return m.GetTransferSystemFor(ProofShape{Circuit: circuitType, Inputs: nInputs, Outputs: nOutputs})
 }
 
+// transferCacheKey is the key file name without ".key", so a preloaded system
+// and a lazily loaded one share an entry and every dimension separates them.
+func transferCacheKey(shape ProofShape) string {
+	return strings.TrimSuffix(shape.KeyFile(), ".key")
+}
+
 // GetTransferSystemFor loads the system that proves shape, including a shape
 // with non-protocol dimensions.
 func (m *LazyKeyManager) GetTransferSystemFor(shape ProofShape) (*TransferProofSystem, error) {
-	key := strings.TrimSuffix(shape.KeyFile(), ".key")
+	key := transferCacheKey(shape)
 	if key == "" {
 		return nil, fmt.Errorf("no key file mapping for %s", shape)
 	}
@@ -756,7 +762,10 @@ func (m *LazyKeyManager) cacheSystem(keyPath string, system interface{}) error {
 			Msg("Cached BatchProofSystem")
 
 	case *TransferProofSystem:
-		key := fmt.Sprintf("%s_%d_%d", ps.CircuitType, ps.NInputs, ps.NOutputs)
+		key := transferCacheKey(ps.Shape())
+		if key == "" {
+			return fmt.Errorf("no key file mapping for %s", ps.Shape())
+		}
 		m.transferSystems[key] = ps
 		m.loadedDigests[filepath.Base(keyPath)] = ps.ProvingKeySha256
 		logging.Logger().Debug().
