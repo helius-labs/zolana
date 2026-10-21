@@ -7,11 +7,13 @@ pub const STATE_HEIGHT: usize = 32;
 pub const STATE_ROOT_HISTORY_CAPACITY: usize = zolana_tree::smt::ROOT_HISTORY_CAPACITY;
 
 // Production nullifier-tree parameters.
-pub const NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE: u64 = 24_995;
-pub const NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE: u64 = 4999;
+pub const NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE: u64 =
+    zolana_tree::nullifier_tree::constants::DEFAULT_NULLIFIER_BATCH_SIZE;
+pub const NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE: u64 =
+    zolana_tree::nullifier_tree::constants::DEFAULT_NULLIFIER_ZKP_BATCH_SIZE;
 pub const NULLIFIER_TREE_HEIGHT: u32 = 40;
 pub const NULLIFIER_TREE_ROOT_HISTORY_CAPACITY: u32 =
-    (NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE / NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE) as u32;
+    zolana_tree::nullifier_tree::constants::NULLIFIER_TREE_ZKP_BATCHES as u32;
 
 /// What one nullifier-tree batch append reimburses by default: nothing. The
 /// protocol sponsors nullifier-tree maintenance.

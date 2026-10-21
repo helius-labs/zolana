@@ -231,3 +231,66 @@ fn full_queue_rejects_inserts_until_the_pending_batch_is_applied() {
     assert_eq!(reused.get_num_inserted_elements(), 1);
     assert_eq!(tree.queue_next_index, 2 + 2 * BATCH_SIZE);
 }
+
+/// Exercise the production proof size without constructing half a million
+/// nullifiers: seed ready batches through the test-only accessors, then apply
+/// cached transitions through the normal root-history and cleanup paths.
+#[test]
+fn production_batches_retain_100_roots_before_pda_cleanup() {
+    use zolana_tree::nullifier_tree::constants::{
+        DEFAULT_NULLIFIER_BATCH_SIZE, DEFAULT_NULLIFIER_ZKP_BATCH_SIZE,
+        NULLIFIER_TREE_INIT_ROOT_40, NULLIFIER_TREE_ZKP_BATCHES,
+    };
+
+    let mut data = vec![0u8; get_merkle_tree_account_size::<NULLIFIER_TREE_ZKP_BATCHES>()];
+    let tree = init_tree_account_data::<NULLIFIER_TREE_ZKP_BATCHES>(
+        &mut data,
+        DEFAULT_NULLIFIER_BATCH_SIZE,
+        DEFAULT_NULLIFIER_ZKP_BATCH_SIZE,
+        40,
+    )
+    .unwrap();
+    assert_eq!(tree.root_history.roots.len(), 100);
+    for batch in &mut tree.batches {
+        batch.set_num_full_zkp_batches(100);
+        batch.advance_state_to_full().unwrap();
+    }
+
+    for update in 1..=200u64 {
+        let batch_index = ((update - 1) / 100) as usize;
+        let zkp_index = ((update - 1) % 100) as usize;
+        let old_root = tree.get_root().unwrap();
+        let new_root = nullifier(update as u8);
+        tree.batches[batch_index].set_cached_tree_update(
+            zkp_index,
+            CachedTreeUpdate {
+                old_root,
+                new_root,
+                occupied: 1,
+            },
+        );
+        let event = tree
+            .apply_cached_tree_updates(TREE_PUBKEY)
+            .unwrap()
+            .unwrap();
+        assert_eq!(event.num_update, 1);
+        assert_eq!(tree.get_root(), Some(new_root));
+        assert_eq!(tree.get_root_index(), (update % 100) as u32);
+        assert_eq!(tree.next_index, 1 + update * 4999);
+        if update < 100 {
+            assert_eq!(tree.root_by_index(0), Some(NULLIFIER_TREE_INIT_ROOT_40));
+            assert_eq!(tree.close_before_index, 0);
+        } else if update < 200 {
+            assert_eq!(tree.close_before_index, 1);
+        }
+        if update == 100 {
+            assert_eq!(tree.root_by_index(0), Some(nullifier(100)));
+            assert_eq!(tree.root_by_index(1), Some(nullifier(1)));
+        } else if update == 101 {
+            assert_eq!(tree.root_by_index(1), Some(nullifier(101)));
+        }
+    }
+    assert_eq!(tree.close_before_index, 499_901);
+    assert!(tree.batches[0].is_reclaimable(tree.close_before_index));
+    assert!(!tree.batches[1].is_reclaimable(tree.close_before_index));
+}

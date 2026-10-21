@@ -1,6 +1,11 @@
 pub const DEFAULT_NULLIFIER_TREE_HEIGHT: u32 = 40;
 
-pub const DEFAULT_NULLIFIER_BATCH_SIZE: u64 = 24_995;
+/// Keep one queue batch equal to the full 100-root history window so PDA
+/// cleanup only starts after every older root has been overwritten.
+pub const NULLIFIER_TREE_ZKP_BATCHES: usize = 100;
+
+pub const DEFAULT_NULLIFIER_BATCH_SIZE: u64 =
+    DEFAULT_NULLIFIER_ZKP_BATCH_SIZE * NULLIFIER_TREE_ZKP_BATCHES as u64;
 
 pub const DEFAULT_NULLIFIER_ZKP_BATCH_SIZE: u64 = 4999;
 
@@ -13,6 +18,3 @@ pub const NULLIFIER_TREE_INIT_ROOT_40: [u8; 32] = [
 ];
 
 pub const NUM_BATCHES: usize = 2;
-
-pub const NULLIFIER_TREE_ZKP_BATCHES: usize =
-    (DEFAULT_NULLIFIER_BATCH_SIZE / DEFAULT_NULLIFIER_ZKP_BATCH_SIZE) as usize;

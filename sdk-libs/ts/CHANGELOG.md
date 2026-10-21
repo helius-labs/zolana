@@ -13,6 +13,7 @@ wallet sync recovers a default merge output from the merge transaction alone.
 
 Breaking
 
+- `NULLIFIER_TREE_ROOT_HISTORY_CAPACITY` returns to 100 with 4,999-nullifier proofs, `NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE` is 499,900, and `TREE_ACCOUNT_SIZE` is 40,080 → use a program built with this layout and four tree creation steps.
 - `SigningKey` and `ShieldedPublicKey` accept only Ed25519 ownership and PDA public keys, and `SignatureType` drops `"p256"` → migrate P-256-owned notes and registry records before upgrading, use `P256ReaderKey` from `@heliuslabs/zolana/ring` for passkey audit access.
 - `UserRecord` and `RegistryRecord` drop `ownerP256`, and `getRegisterInstructionAsync`, `decodeUserRecordAccount` and `fetchUserRecord` write and read the registry record without a P-256 owner key → register again on a registry program built from this version, a record in the earlier layout fails with `WALLET_INVALID_USER_RECORD`.
 - `MergeTransactInstructionData` drops `eddsaOwner` → remove it from merge data you build and send merge instructions built by this version, the program refuses the earlier layout.
