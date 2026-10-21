@@ -191,7 +191,11 @@ export async function signTransactMessage(
   try {
     const digest = transactMessageDigest(proofInputs);
     const ownerPublicKey = (await owner.signingPublicKey()).ed25519();
-    const ownerSignature = checkedBytes(await owner.sign(new Uint8Array(digest)), 64, "owner signature");
+    const ownerSignature = checkedBytes(
+      await owner.sign(new Uint8Array(digest)),
+      64,
+      "owner signature",
+    );
     return checkedAuthorization({ ownerPublicKey, ownerSignature, messageDigest: digest }, digest);
   } catch (cause) {
     throw fromClientCause(cause);
