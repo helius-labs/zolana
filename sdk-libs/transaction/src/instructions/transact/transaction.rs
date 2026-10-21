@@ -4,7 +4,7 @@ use zolana_keypair::hash::sha256;
 
 use super::{
     cache::{cache_bound_external_data_hash, cache_write_slots},
-    shape::Shape,
+    shape::{Shape, TransactRail},
     ExternalData, SppProofOutputUtxo,
 };
 use crate::{
@@ -52,11 +52,17 @@ impl SppProofInputs {
         private_tx_blinding(&self.input_utxos, &self.blinding_seed)
     }
 
+    /// The shape of a transaction on the signer rail.
     pub fn check_shape(&self) -> Result<Shape, TransactionError> {
+        self.check_shape_for(TransactRail::ConfidentialSigner)
+    }
+
+    /// The shape of a transaction on `rail`, which must have keys for it.
+    pub fn check_shape_for(&self, rail: TransactRail) -> Result<Shape, TransactionError> {
         let n_in = self.input_utxos.len();
         let n_out = self.output_utxos.len();
         let shape = Shape::new(n_in, n_out);
-        if !shape.is_supported() {
+        if !rail.supports(shape) {
             return Err(TransactionError::UnsupportedShape { n_in, n_out });
         }
         check_dummies_last(&self.input_utxos, &self.output_utxos)?;

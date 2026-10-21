@@ -3,7 +3,10 @@
 use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
 use zolana_interface::{verifying_keys::CircuitId, N_PUBLIC_SLOTS};
 
-use crate::{ClientError, Proof, TransferInputs, TransferProofResult};
+use crate::{
+    prover::transact::ConfidentialEddsaTransferInputs, ClientError, Proof, TransferInputs,
+    TransferProofResult,
+};
 
 /// Resolved through [`CircuitId::verifying_key`], which the on-chain verifier
 /// dispatches on too. A local shape-to-key table here would be a second place
@@ -48,6 +51,22 @@ pub fn verify_confidential_transfer_inputs(
     ConfidentialProofStatement {
         n_inputs: inputs.inputs.len(),
         n_outputs: inputs.outputs.len(),
+        public_input_hash,
+    }
+    .verify(proof)
+}
+
+/// Verify a default-ring transfer one owner authorizes in-circuit against its
+/// shape's verifying key, which carries the signature gadget's commitment.
+pub fn verify_confidential_eddsa_transfer_inputs(
+    inputs: &ConfidentialEddsaTransferInputs,
+    public_input_hash: [u8; 32],
+    proof: &Proof,
+) -> Result<(), ClientError> {
+    let shape =
+        crate::prover::Shape::new(inputs.transfer.inputs.len(), inputs.transfer.outputs.len());
+    TransferProofStatement {
+        circuit: inputs.authorization.circuit(shape, None),
         public_input_hash,
     }
     .verify(proof)

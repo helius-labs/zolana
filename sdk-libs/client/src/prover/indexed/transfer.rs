@@ -36,6 +36,11 @@ pub enum IndexedTransferRail<'a> {
         ring: solana_address::Address,
         owner: &'a zolana_keypair::SigningKey,
     },
+    /// The default ring with one owner signing the statement inside the
+    /// proof instead of the transaction; every other owner still signs it.
+    ConfidentialEddsa {
+        owner: &'a zolana_keypair::SigningKey,
+    },
 }
 
 pub struct IndexedTransferPreparation<'a> {
@@ -87,7 +92,12 @@ impl IndexedTransferPreparation<'_> {
                 return Err(ClientError::AddressInputUnsupported { index });
             }
         }
-        let shape = transaction.check_shape()?;
+        let shape = transaction.check_shape_for(match rail {
+            IndexedTransferRail::ConfidentialEddsa { .. } => {
+                zolana_transaction::instructions::transact::TransactRail::ConfidentialEddsa
+            }
+            _ => zolana_transaction::instructions::transact::TransactRail::ConfidentialSigner,
+        })?;
         let proof_inputs = transaction
             .input_utxos
             .iter()
@@ -110,7 +120,9 @@ impl IndexedTransferPreparation<'_> {
             _ => None,
         };
         let ring = match &rail {
-            IndexedTransferRail::Confidential => None,
+            IndexedTransferRail::Confidential | IndexedTransferRail::ConfidentialEddsa { .. } => {
+                None
+            }
             IndexedTransferRail::Ring(ring)
             | IndexedTransferRail::RingAuthority(ring)
             | IndexedTransferRail::AnonymousRingEddsa { ring, .. } => Some(*ring),
@@ -239,12 +251,16 @@ impl IndexedTransferPreparation<'_> {
                 &transaction,
                 hidden,
             )?
+        } else if let IndexedTransferRail::ConfidentialEddsa { owner } = &rail {
+            crate::prover::transact::confidential_eddsa_signer_pk_hashes(&transaction, owner)?
         } else {
             transaction.signer_pk_hashes(shape.signer_width())?
         };
         let ring_program_id = zolana_transaction::utxo::program_id_proof_input_hash(&ring)?;
         let owners = match rail {
-            IndexedTransferRail::Confidential => Some(outputs.output_owner_pk_hashes.clone()),
+            IndexedTransferRail::Confidential | IndexedTransferRail::ConfidentialEddsa { .. } => {
+                Some(outputs.output_owner_pk_hashes.clone())
+            }
             IndexedTransferRail::Ring(_) | IndexedTransferRail::AnonymousRingEddsa { .. } => Some(
                 crate::prover::transact::assembly::confidential_marked_output_owner_pk_hashes(
                     &transaction.external_data,
@@ -266,10 +282,21 @@ impl IndexedTransferPreparation<'_> {
             ),
             _ => None,
         };
-        let appendix = anonymous
-            .as_ref()
-            .map(|prepared| prepared.authorization.public_fields())
-            .transpose()?;
+        let eddsa = match &rail {
+            IndexedTransferRail::ConfidentialEddsa { owner } => {
+                Some(crate::prover::transact::EddsaAuthorization::sign(
+                    owner,
+                    &private_tx,
+                    &external_hash,
+                )?)
+            }
+            _ => None,
+        };
+        let appendix = match (&anonymous, &eddsa) {
+            (Some(prepared), _) => Some(prepared.authorization.public_fields()?),
+            (_, Some(authorization)) => Some(authorization.public_fields()?),
+            (None, None) => None,
+        };
         let flags = pack_input_flags(allow_dummy_inputs, indexes.iter().copied())?;
         let public_inputs = PublicInputs {
             nullifiers: &nullifiers,
@@ -287,15 +314,20 @@ impl IndexedTransferPreparation<'_> {
         }
         .without_roots(appendix.as_ref().map_or(&[], |fields| fields.as_slice()))?;
         let prepared = PreparedTransferJson {
-            authorization: anonymous
-                .as_ref()
-                .map(|prepared| prepared.authorization.fields()),
+            authorization: match (&anonymous, &eddsa) {
+                (Some(prepared), _) => Some(prepared.authorization.fields()),
+                (_, Some(authorization)) => Some(authorization.fields()),
+                (None, None) => None,
+            },
             circuit_type: match rail {
                 IndexedTransferRail::Confidential => IndexedCircuit::TransferConfidential,
                 IndexedTransferRail::Ring(_) => IndexedCircuit::TransferRing,
                 IndexedTransferRail::RingAuthority(_) => IndexedCircuit::TransferRingAuthority,
                 IndexedTransferRail::AnonymousRingEddsa { .. } => {
                     IndexedCircuit::TransferAnonymousRingEddsa
+                }
+                IndexedTransferRail::ConfidentialEddsa { .. } => {
+                    IndexedCircuit::TransferConfidentialEddsa
                 }
             },
             n_inputs: shape.n_inputs(),
@@ -360,6 +392,10 @@ impl IndexedTransferPreparation<'_> {
                             None => CircuitId::AnonymousRingEddsa(n_in, n_out, slots, data),
                         }
                     }
+                    IndexedTransferRail::ConfidentialEddsa { .. } => eddsa
+                        .as_ref()
+                        .ok_or_else(super::invalid)?
+                        .circuit(shape, cache.access),
                 }
             },
             inputs: input_utxos_from_nullifiers(&nullifiers, &indexes)?,
@@ -414,7 +450,7 @@ impl Request for PreparedIndexedTransfer {
     fn delivery(&self) -> Option<crate::prover::client::Delivery> {
         self.data
             .circuit
-            .is_anonymous()
+            .has_message_hash()
             .then_some(crate::prover::client::Delivery::InResponse)
     }
 
@@ -441,6 +477,12 @@ impl Request for PreparedIndexedTransfer {
                 let (transact, commitment) = proof.into_committed_transact_parts()?;
                 data.proof = transact;
                 authorization.bsb22_commitment = commitment;
+            }
+            CircuitId::ConfidentialEddsa(_, _, _, proof_data)
+            | CircuitId::ConfidentialEddsaCached(_, _, _, proof_data, _) => {
+                let (transact, commitment) = proof.into_committed_transact_parts()?;
+                data.proof = transact;
+                proof_data.bsb22_commitment = commitment;
             }
             _ => data.proof = proof.to_transact_proof(),
         }

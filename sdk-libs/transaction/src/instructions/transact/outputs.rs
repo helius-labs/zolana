@@ -2,7 +2,7 @@ use solana_address::Address;
 use zolana_interface::N_PUBLIC_SLOTS;
 use zolana_keypair::shielded::ShieldedAddress;
 
-use super::{inputs::pad_inputs, ConfidentialTransaction};
+use super::{inputs::pad_inputs, shape::is_transact_shape, ConfidentialTransaction};
 use crate::{
     error::TransactionError,
     instructions::transact::shape::Shape,
@@ -105,7 +105,7 @@ impl ConfidentialTransaction {
         if self.padded_inputs.is_some() {
             return Err(TransactionError::OutputUtxosAlreadyPadded);
         }
-        if !shape.is_supported() {
+        if !is_transact_shape(shape) {
             return Err(TransactionError::UnsupportedShape {
                 n_in: shape.n_inputs(),
                 n_out: shape.n_outputs(),

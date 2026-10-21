@@ -2,8 +2,9 @@ use zolana_interface::{
     instruction::instruction_data::transact::{CircuitId, TransactIxData, TransactProof},
     pda, N_PUBLIC_SLOTS,
 };
+use zolana_keypair::SigningKey;
 use zolana_transaction::{
-    instructions::transact::{CacheAccounts, SppProofInputs},
+    instructions::transact::{CacheAccounts, SppProofInputs, TransactRail},
     utxo::SppProofInputUtxo,
 };
 
@@ -11,11 +12,17 @@ use crate::{
     authority::ProofAuthority,
     error::ClientError,
     prover::{
+        requests::CircuitRequest,
         transact::{
             assembly::{input_utxos_from_nullifiers, TransferInputUtxo},
+            confidential_eddsa::{
+                confidential_eddsa_signer_pk_hashes, ConfidentialEddsaProver,
+                ConfidentialEddsaTransferInputs, EddsaAuthorization,
+            },
             eddsa::TransferProver,
         },
-        ProofCompressed, Prover, ProverExt, TransferInputs,
+        verify::{verify_confidential_eddsa_transfer_inputs, verify_confidential_transfer_inputs},
+        Proof, ProofCompressed, Prover, ProverExt, TransferInputs,
     },
     rpc::{MerkleProof, NonInclusionProof, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT},
 };
@@ -138,6 +145,9 @@ pub fn attach_input_proofs(
 /// proof is produced from [`AssembledTransfer::prover_inputs`].
 pub struct AssembledTransfer {
     pub prover_inputs: TransferInputs,
+    /// The in-circuit owner's signature on the `ConfidentialEddsa` rail; the
+    /// signer rail has none.
+    pub authorization: Option<EddsaAuthorization>,
     pub public_input_hash: [u8; 32],
     /// The raw ids of the trees the inputs are nullified in, in the order
     /// `ix.tree_contexts` declares them. The `Transact` builder takes one tree
@@ -154,6 +164,61 @@ impl AssembledTransfer {
         self.ix
     }
 
+    /// The selector the instruction carries, before any commitment.
+    pub fn circuit(&self) -> CircuitId {
+        self.ix.circuit
+    }
+
+    /// The request that proves this assembly once its inputs are complete.
+    pub(crate) fn request(&self) -> Result<CircuitRequest, ClientError> {
+        match &self.authorization {
+            Some(authorization) => crate::prover::requests::transfer_confidential_eddsa(
+                &ConfidentialEddsaTransferInputs {
+                    transfer: self.prover_inputs.clone(),
+                    authorization: authorization.clone(),
+                },
+            ),
+            None => crate::prover::requests::transfer(&self.prover_inputs),
+        }
+    }
+
+    /// Verify `proof` against the public input the assembly fixed and turn it
+    /// into the instruction's proof. On the `ConfidentialEddsa` rail the
+    /// signature gadget's commitment moves into the selector.
+    pub fn accept_proof(&mut self, proof: Proof) -> Result<TransactProof, ClientError> {
+        match &self.authorization {
+            Some(authorization) => {
+                let inputs = ConfidentialEddsaTransferInputs {
+                    transfer: self.prover_inputs.clone(),
+                    authorization: authorization.clone(),
+                };
+                verify_confidential_eddsa_transfer_inputs(&inputs, self.public_input_hash, &proof)?;
+                let (transact, commitment) =
+                    ProofCompressed::try_from(proof)?.into_committed_transact_parts()?;
+                match &mut self.ix.circuit {
+                    CircuitId::ConfidentialEddsa(_, _, _, proof_data)
+                    | CircuitId::ConfidentialEddsaCached(_, _, _, proof_data, _) => {
+                        proof_data.bsb22_commitment = commitment;
+                    }
+                    _ => {
+                        return Err(ClientError::ProofParse(
+                            "selector takes no commitment".into(),
+                        ))
+                    }
+                }
+                Ok(transact)
+            }
+            None => {
+                verify_confidential_transfer_inputs(
+                    &self.prover_inputs,
+                    self.public_input_hash,
+                    &proof,
+                )?;
+                Ok(ProofCompressed::try_from(proof)?.to_transact_proof())
+            }
+        }
+    }
+
     /// Prove this assembly through `authority`, which fills in the nullifier
     /// secrets it owns, and verify the proof against the public input the
     /// assembly fixed.
@@ -166,11 +231,17 @@ impl AssembledTransfer {
         prover: &P,
         authority: &dyn ProofAuthority,
     ) -> Result<TransactProof, ClientError> {
-        let inputs = &mut self.prover_inputs;
-        authority.complete_inputs(&mut inputs.inputs)?;
-        let proof = prover.prove_transfer(inputs)?;
-        crate::verify_confidential_transfer_inputs(inputs, self.public_input_hash, &proof)?;
-        Ok(ProofCompressed::try_from(proof)?.to_transact_proof())
+        authority.complete_inputs(&mut self.prover_inputs.inputs)?;
+        let proof = match &self.authorization {
+            Some(authorization) => {
+                prover.prove_transfer_confidential_eddsa(&ConfidentialEddsaTransferInputs {
+                    transfer: self.prover_inputs.clone(),
+                    authorization: authorization.clone(),
+                })?
+            }
+            None => prover.prove_transfer(&self.prover_inputs)?,
+        };
+        self.accept_proof(proof)
     }
 }
 
@@ -271,7 +342,96 @@ pub fn assemble_with_dummy_policy(
 
     Ok(AssembledTransfer {
         prover_inputs,
+        authorization: None,
         public_input_hash,
+        input_tree_ids: result.tree_ids,
+        cache_accounts,
+        ix,
+    })
+}
+
+/// [`assemble`] for the `ConfidentialEddsa` rail: `owner` signs the
+/// transaction message digest and the proof verifies that signature, so the
+/// owner does not sign the transaction. Every other input owner still does.
+pub fn assemble_confidential_eddsa(
+    proof_inputs: SppProofInputs,
+    input_proofs: &[SpendProof],
+    dummy_nullifier_proofs: &[NonInclusionProof],
+    owner: &SigningKey,
+) -> Result<AssembledTransfer, ClientError> {
+    assemble_confidential_eddsa_with_dummy_policy(
+        proof_inputs,
+        input_proofs,
+        dummy_nullifier_proofs,
+        true,
+        owner,
+    )
+}
+
+pub fn assemble_confidential_eddsa_with_dummy_policy(
+    proof_inputs: SppProofInputs,
+    input_proofs: &[SpendProof],
+    dummy_nullifier_proofs: &[NonInclusionProof],
+    allow_dummy_inputs: bool,
+    owner: &SigningKey,
+) -> Result<AssembledTransfer, ClientError> {
+    let shape = proof_inputs.check_shape_for(TransactRail::ConfidentialEddsa)?;
+    let signer_pk_hashes = confidential_eddsa_signer_pk_hashes(&proof_inputs, owner)?;
+    let external = proof_inputs.external_data.clone();
+    let cache_accounts = proof_inputs.cache_accounts;
+    let public_transfers = proof_inputs.public_transfers()?;
+    let result = ConfidentialEddsaProver {
+        inputs: attach_input_proofs(
+            proof_inputs.input_utxos,
+            input_proofs,
+            dummy_nullifier_proofs,
+        )?,
+        outputs: proof_inputs.output_utxos,
+        blinding_seed: proof_inputs.blinding_seed,
+        output_tree_id: proof_inputs.output_tree_id,
+        external_data: proof_inputs.external_data,
+        public_transfers,
+        signer_pk_hashes,
+        allow_dummy_inputs,
+        owner,
+        shape,
+        cache_accounts,
+    }
+    .build()?;
+    if result.nullifiers.len() != shape.n_inputs() {
+        return Err(ClientError::WitnessInputCountMismatch {
+            got: result.nullifiers.len(),
+            expected: shape.n_inputs(),
+        });
+    }
+    let ConfidentialEddsaTransferInputs {
+        transfer: prover_inputs,
+        authorization,
+    } = result.inputs;
+    let ix = TransactIxData {
+        proof: TransactProof::zeroed(),
+        expiry_unix_ts: external.expiry_unix_ts,
+        private_tx_hash: result.private_tx_hash,
+        circuit: authorization.circuit(shape, result.cache_access),
+        inputs: input_utxos_from_nullifiers(&result.nullifiers, &result.input_tree_indexes)?,
+        tree_contexts: result.tree_contexts,
+        interface_transfers: external
+            .interface_transfers
+            .iter()
+            .copied()
+            .map(zolana_transaction::instructions::transact::SettlementTransfer::interface_transfer)
+            .collect(),
+        data_hash: external.data_hash,
+        ring_data_hash: external.ring_data_hash,
+        tx_viewing_pk: external.tx_viewing_pk,
+        salt: external.salt,
+        outputs: external.outputs,
+        messages: external.messages,
+    };
+    Ok(AssembledTransfer {
+        prover_inputs,
+        authorization: Some(authorization),
+        public_input_hash: result.public_input_hash,
         input_tree_ids: result.tree_ids,
         cache_accounts,
         ix,

@@ -10,7 +10,8 @@ use std::collections::BTreeMap;
 
 use zolana_interface::{
     verifying_keys::{
-        AnonymousRingEddsaProofData, Bsb22Commitment, CircuitId, PROVING_KEY_SHA256S,
+        AnonymousRingEddsaProofData, Bsb22Commitment, CircuitId, EddsaProofData,
+        PROVING_KEY_SHA256S,
     },
     MAX_OUTPUTS, MAX_TRANSACT_INPUTS, N_PUBLIC_SLOTS,
 };
@@ -58,6 +59,13 @@ fn circuit_proving_key_sha256_matches_its_key_file() {
         },
         default_owner_tag: None,
     };
+    let eddsa_proof_data = EddsaProofData {
+        bsb22_commitment: Bsb22Commitment {
+            commitment: [0; 32],
+            commitment_pok: [0; 32],
+        },
+        owner_pk: [0; 32],
+    };
     let mut checked = 0;
     let max_inputs = u8::try_from(MAX_TRANSACT_INPUTS).expect("fits u8");
     let max_outputs = u8::try_from(MAX_OUTPUTS).expect("fits u8");
@@ -79,6 +87,10 @@ fn circuit_proving_key_sha256_matches_its_key_file() {
                 (
                     "transfer_ring_authority",
                     CircuitId::RingAuthority(n_inputs, n_outputs, slots),
+                ),
+                (
+                    "transfer_confidential_eddsa",
+                    CircuitId::ConfidentialEddsa(n_inputs, n_outputs, slots, eddsa_proof_data),
                 ),
             ] {
                 let name = format!("{rail}_{n_inputs}_{n_outputs}.key");

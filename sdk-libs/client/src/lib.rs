@@ -40,15 +40,21 @@ pub use prover::{
     attach_input_proofs,
     indexed::ProofDataSource,
     input_utxos_from_nullifiers,
-    transact::{assemble, assemble_with_dummy_policy, AssembledTransfer, SpendProof},
-    verify_confidential_transfer_inputs, verify_confidential_transfer_proof,
-    AnonymousEddsaTransferInputs, AnonymousRingEddsaProofResult, AnonymousRingEddsaProver,
-    AsyncPollConfig, AsyncProverClient, BatchAddressAppendInputs, CacheReadInputs, Commitments,
-    CompressedCommitments, Delivery, IndexerRequirement, MergeProofResult, MergeProver, Proof,
+    transact::{
+        assemble, assemble_confidential_eddsa, assemble_confidential_eddsa_with_dummy_policy,
+        assemble_with_dummy_policy, AssembledTransfer, SpendProof,
+    },
+    verify_confidential_eddsa_transfer_inputs, verify_confidential_transfer_inputs,
+    verify_confidential_transfer_proof, AnonymousEddsaTransferInputs,
+    AnonymousRingEddsaProofResult, AnonymousRingEddsaProver, AsyncPollConfig, AsyncProverClient,
+    BatchAddressAppendInputs, CacheReadInputs, Commitments, CompressedCommitments,
+    ConfidentialEddsaProofResult, ConfidentialEddsaProver, ConfidentialEddsaTransferInputs,
+    Delivery, EddsaAuthorization, IndexerRequirement, MergeProofResult, MergeProver, Proof,
     ProofCompressed, ProofInputUtxo, ProveRequest, Prover, ProverClient, ProverExt, PublicInputs,
     PublicTransfers, RingAuthorityProofResult, RingAuthorityProver, RingTransferProofResult,
-    RingTransferProver, Shape, TransferInput, TransferInputUtxo, TransferInputs, TransferOutput,
-    TransferProofResult, TransferProver, TreeSlotFields, SPP_SUPPORTED_SHAPES,
+    RingTransferProver, Shape, TransactRail, TransferInput, TransferInputUtxo, TransferInputs,
+    TransferOutput, TransferProofResult, TransferProver, TreeSlotFields, CONFIDENTIAL_EDDSA_SHAPES,
+    SPP_SUPPORTED_SHAPES,
 };
 #[cfg(feature = "reqwest")]
 pub use prover::{spawn_prover, ProverLaunch};
