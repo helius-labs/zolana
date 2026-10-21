@@ -1,15 +1,20 @@
 package shared_test
 
 import (
+	"bytes"
 	"crypto/ed25519"
+	"encoding/json"
 	"math/big"
+	"os"
 	"testing"
+	"testing/cryptotest"
 
 	customring "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/custom"
 	. "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
 
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
+	transfer "github.com/helius-labs/zolana/prover/server/prover/transfer_eddsa"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/constraint"
@@ -246,6 +251,59 @@ func TestCustomRingAnonymousEddsaMixesHiddenOwnersWithAPublicSigner(t *testing.T
 	a.SignerPkHashes[0] = 0
 	auth = authorizeHiddenOwners(t, a, owners, []int{0, 1, 0})
 	checkCachedWitness(t, ccs, asHiddenOwnersCircuit(t, a, auth), false)
+}
+
+const hiddenOwnersFixture = "../../../prover/transfer_eddsa/testdata/eddsa-ring-2x2-h2.json"
+
+// TestCustomRingAnonymousEddsaHiddenOwnersRequestFixture pins the two-owner
+// 2x2 request the prover's end to end test proves. Owner 0 spends a
+// default-ring input, so the request also exercises the published owner chain.
+// Rewrite it with
+//
+//	UPDATE_REQUEST_FIXTURE=1 go test ./circuits/spp_transaction/shared -run TestCustomRingAnonymousEddsaHiddenOwnersRequestFixture
+func TestCustomRingAnonymousEddsaHiddenOwnersRequestFixture(t *testing.T) {
+	cryptotest.SetGlobalRandom(t, 0)
+	ccs, a, owners := twoHiddenOwners(t)
+	moveInputToDefaultRing(t, a, 0, owners[0])
+	auth := authorizeHiddenOwners(t, a, owners, []int{0, 1})
+	params := eddsaRequestParameters(asHiddenOwnersCircuit(t, a, auth))
+	params.NHiddenOwners = 2
+	params.AdditionalOwnerPublicKeys = auth.keys[1:]
+	params.AdditionalOwnerSignatures = auth.signatures[1:]
+	params.InputHiddenOwners = []uint32{0, 1}
+	data, err := json.Marshal(params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data = append(data, '\n')
+	var decoded transfer.AnonymousEddsaTransferParameters
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if err := decoded.ValidateShape(); err != nil {
+		t.Fatal(err)
+	}
+	if got := decoded.ProofShape().KeyFile(); got != "transfer_eddsa_ring_2_2_h2.key" {
+		t.Fatalf("key file %q", got)
+	}
+	witness, err := decoded.CreateWitness()
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkCachedWitness(t, ccs, witness, true)
+	if os.Getenv("UPDATE_REQUEST_FIXTURE") != "" {
+		if err := os.WriteFile(hiddenOwnersFixture, data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	committed, err := os.ReadFile(hiddenOwnersFixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(committed, data) {
+		t.Fatal("the committed two-owner request is stale; rewrite it with UPDATE_REQUEST_FIXTURE=1")
+	}
 }
 
 // moveInputToDefaultRing takes input i out of the custom ring and re-derives
