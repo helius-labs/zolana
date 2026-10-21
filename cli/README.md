@@ -39,7 +39,7 @@ Commands:
 zolana config get
 zolana config set --keypair ~/.config/zolana/pid.json --rpc-url http://127.0.0.1:8899 --indexer-url http://127.0.0.1:8784 --prover-url http://127.0.0.1:3001
 zolana wallet init --airdrop-lamports 1000000000
-zolana dev pool create-tree --airdrop-lamports 100000000000
+zolana dev pool create-tree --airdrop-lamports 10000000000000
 zolana sync --indexer-url http://127.0.0.1:8784
 zolana balance --indexer-url http://127.0.0.1:8784
 zolana deposit --amount 1000000000 --mint SOL --airdrop-lamports 2000000000

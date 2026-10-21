@@ -21,7 +21,11 @@ Let:
 | `w` | exclusive PDA-close watermark (`close_before_index`), in the same index space as `q` |
 
 The tree is a program-derived account. It holds the queue, root history, and
-lamports used as working capital for nullifier PDAs.
+lamports used as working capital for nullifier PDAs. The production layout
+retains 100 nullifier roots: `K = RH = 100`, `Z = 4999`, and `B = 499_900`.
+Changing the proof batch size must preserve the 100-root history window; the
+queue batch size scales with it. The tree account is 40,080 bytes, allocated
+in four steps.
 
 The account header also holds the fee schedule and the fee balance:
 
@@ -518,9 +522,9 @@ network_fee = maintenance_transactions * base_fee
 locked_nullifier_pda_rent = L * Rent::minimum_balance(11)
 ```
 
-With `B = 24_995` and `Z = 4999`, a full batch is 5 append transactions and
-`ceil(24_995 / 57) = 439` cleanup transactions. At a 5,000-lamport signature
-fee those 444 transactions cost 0.00222 SOL in base fees. The counts are for
+With `B = 499_900` and `Z = 4999`, a full batch is 100 append transactions and
+`ceil(499_900 / 57) = 8,771` cleanup transactions. At a 5,000-lamport signature
+fee those 8,871 transactions cost 0.044355 SOL in base fees. The counts are for
 the successful path: proof replacements, retries, and duplicate cleanup
 attempts are additional.
 
@@ -528,7 +532,7 @@ Only the append has a measured compute bound, which tests hold below 500,000
 units at the test batch size.
 
 At the current default rent rate, one eleven-byte PDA requires 967,440
-lamports. One full batch locks 24.1811628 SOL, all returned to the tree when its
+lamports. One full batch locks 483.623256 SOL, all returned to the tree when its
 PDAs are closed.
 
 ### Working capital
@@ -547,7 +551,7 @@ the successor batch's PDAs, and the PDAs being created in the reused
 batch. With prompt cleanup, this is the working capital required for continuous
 insertion. Closed PDAs return their rent to the tree; delayed cleanup can
 lock capital beyond this amount and eventually stop insertion. With
-`B = 24_995` this is 72.0215928 SOL; with `B = 630_000` it is 1,815.3072 SOL.
+`B = 499_900` this is 1,450.869768 SOL; with `B = 630_000` it is 1,828.4616 SOL.
 
 ### Fee schedule
 

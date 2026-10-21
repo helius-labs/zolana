@@ -1381,7 +1381,7 @@ describe("prover indexer fetching", () => {
       if (corruption === "index")
         resolution.trees[0] = { ...resolution.trees[0]!, utxoRootIndex: 500 };
       if (corruption === "nullifierIndex")
-        resolution.trees[0] = { ...resolution.trees[0]!, nullifierRootIndex: 5 };
+        resolution.trees[0] = { ...resolution.trees[0]!, nullifierRootIndex: 100 };
       if (corruption === "modulus")
         resolution.trees[0] = {
           ...resolution.trees[0]!,

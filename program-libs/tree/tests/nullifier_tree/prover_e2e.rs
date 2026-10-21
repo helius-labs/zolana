@@ -11,7 +11,8 @@ use zolana_merkle_tree::indexed::IndexedMerkleTree;
 use zolana_tree::nullifier_tree::{
     access::get_merkle_tree_account_size,
     constants::{
-        DEFAULT_NULLIFIER_BATCH_SIZE, DEFAULT_NULLIFIER_ZKP_BATCH_SIZE, NULLIFIER_TREE_INIT_ROOT_40,
+        DEFAULT_NULLIFIER_BATCH_SIZE, DEFAULT_NULLIFIER_ZKP_BATCH_SIZE,
+        NULLIFIER_TREE_INIT_ROOT_40, NULLIFIER_TREE_ZKP_BATCHES,
     },
     error::NullifierTreeError,
     init::NullifierTreeInitParams,
@@ -89,7 +90,11 @@ impl NullifierForester {
         }
     }
 
-    fn perform_update(&mut self, account: &mut NullifierTree, queued: &[[u8; 32]]) -> [u8; 32] {
+    fn perform_update<const ZKP_BATCHES: usize>(
+        &mut self,
+        account: &mut NullifierTreeLayout<ZKP_BATCHES>,
+        queued: &[[u8; 32]],
+    ) -> [u8; 32] {
         let pending = account.pending_batch_index as usize;
         let zkp_batch_size = account.zkp_batch_size as usize;
         let next_index = account.next_index;
@@ -304,8 +309,8 @@ fn nullifier_tree_single_update() {
 fn nullifier_tree_canonical_zkp_batch_update() {
     spawn_prover().unwrap();
     let mut rng = StdRng::seed_from_u64(0);
-    let mut account_data = vec![0u8; get_merkle_tree_account_size::<ZKP>()];
-    let account = init_tree_account_data::<ZKP>(
+    let mut account_data = vec![0u8; get_merkle_tree_account_size::<NULLIFIER_TREE_ZKP_BATCHES>()];
+    let account = init_tree_account_data::<NULLIFIER_TREE_ZKP_BATCHES>(
         &mut account_data,
         DEFAULT_NULLIFIER_BATCH_SIZE,
         DEFAULT_NULLIFIER_ZKP_BATCH_SIZE,
