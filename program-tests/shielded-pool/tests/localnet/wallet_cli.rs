@@ -425,16 +425,7 @@ fn phase_setup_environment() -> Result<CycleEnv> {
 /// ATAs do not exist yet.
 fn phase_create_tree_and_spl_mint(env: &CycleEnv, rpc: &mut SolanaRpc) -> Result<PoolState> {
     let cli_env = env.cli_env();
-    let create_tree_out = run_cli_with_env(
-        &[
-            "dev",
-            "pool",
-            "create-tree",
-            "--airdrop-lamports",
-            "100000000000",
-        ],
-        &cli_env,
-    )?;
+    let create_tree_out = run_cli_with_env(&["dev", "pool", "create-tree"], &cli_env)?;
     let tree = parse_tree_pubkey(&create_tree_out)?;
     let config_out = run_cli_with_env(&["config", "get"], &cli_env)?;
     assert!(
