@@ -50,6 +50,26 @@
       "method": "GET",
       "request_target": "/prove/x?\u0026\u0026jobId=a\u0026",
       "aad": "GET /prove/x?jobId=a"
+    },
+    {
+      "method": "POST",
+      "request_target": "/v1/zolana/prove/transfer_2_2?api%2Dkey=k\u0026jobId=%61%31\u0026q=a%20b+c",
+      "aad": "POST /v1/zolana/prove/transfer_2_2?jobId=%61%31\u0026q=a%20b+c"
+    },
+    {
+      "method": "GET",
+      "request_target": "/prove/x?%61pi-key=a\u0026api-%6Bey=b\u0026%61%70%69%2d%6b%65%79=c\u0026jobId=a",
+      "aad": "GET /prove/x?jobId=a"
+    },
+    {
+      "method": "GET",
+      "request_target": "/prove/x?api-key=k\u0026API-KEY=keep\u0026api+key=keep\u0026api%2Bkey=keep\u0026bad%=keep",
+      "aad": "GET /prove/x?API-KEY=keep\u0026api+key=keep\u0026api%2Bkey=keep\u0026bad%=keep"
+    },
+    {
+      "method": "GET",
+      "request_target": "/prove/x??api-key=keep\u0026jobId=a",
+      "aad": "GET /prove/x??api-key=keep\u0026jobId=a"
     }
   ]
 }

@@ -291,23 +291,27 @@ describe("encryption", () => {
     }
   });
 
-  it("opens only on the route it was encrypted for", async () => {
-    const encrypted = await encryptRequest(
-      hexToBytes(vector("hpke_public_key")),
-      "GET",
-      "/prove/merge/status?jobId=a",
-      new Uint8Array(),
-    );
-    const opensOn = async (uri: string): Promise<boolean> => {
-      const context = await recipient(hexToBytes(encrypted.enc));
-      return context.open(encrypted.body, utf8ToBytes(`GET ${uri}`)).then(
-        () => true,
-        () => false,
+  it.each(["api-key", "api%2Dkey", "%61pi-%6bey", "%61%70%69%2d%6b%65%79"])(
+    "opens only on its authenticated route after removing %s",
+    async (name) => {
+      const encrypted = await encryptRequest(
+        hexToBytes(vector("hpke_public_key")),
+        "GET",
+        `/prove/merge/status?${name}=k&jobId=%61%31`,
+        new Uint8Array(),
       );
-    };
-    expect(await opensOn("/prove/merge/status?jobId=a")).toBe(true);
-    expect(await opensOn("/prove/merge/status?jobId=b")).toBe(false);
-  });
+      const opensOn = async (uri: string): Promise<boolean> => {
+        const context = await recipient(hexToBytes(encrypted.enc));
+        return context.open(encrypted.body, utf8ToBytes(`GET ${uri}`)).then(
+          () => true,
+          () => false,
+        );
+      };
+      expect(await opensOn("/prove/merge/status?jobId=%61%31")).toBe(true);
+      expect(await opensOn("/prove/merge/status?jobId=a1")).toBe(false);
+      expect(await opensOn("/prove/merge/status?jobId=b")).toBe(false);
+    },
+  );
 });
 
 describe("encrypted request shape", () => {

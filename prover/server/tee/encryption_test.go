@@ -206,13 +206,15 @@ func assertRejected(t *testing.T, recorder *httptest.ResponseRecorder, reached b
 
 func TestWrapIgnoresTheCredentialAProxyMoves(t *testing.T) {
 	s := testServer(t)
-	for _, target := range []string{"/prove/merge/status?jobId=a&api-key=other", "/prove/merge/status?jobId=a"} {
-		request, responseKey := encryptedRequest(t, s, http.MethodGet, "/prove/merge/status?api-key=k&jobId=a", nil)
-		request.RequestURI = target
-		recorder := httptest.NewRecorder()
-		s.Wrap(echo(http.StatusOK)).ServeHTTP(recorder, request)
-		if _, _, err := decryptResponse(responseKey, recorder.Body.Bytes()); err != nil {
-			t.Fatalf("%s: %v", target, err)
+	for _, name := range []string{"api-key", "api%2Dkey", "%61pi-%6bey", "%61%70%69%2d%6b%65%79"} {
+		for _, target := range []string{"/prove/merge/status?jobId=a&api-key=other", "/prove/merge/status?jobId=a"} {
+			request, responseKey := encryptedRequest(t, s, http.MethodGet, "/prove/merge/status?"+name+"=k&jobId=a", nil)
+			request.RequestURI = target
+			recorder := httptest.NewRecorder()
+			s.Wrap(echo(http.StatusOK)).ServeHTTP(recorder, request)
+			if _, _, err := decryptResponse(responseKey, recorder.Body.Bytes()); err != nil {
+				t.Fatalf("%s: %v", target, err)
+			}
 		}
 	}
 }

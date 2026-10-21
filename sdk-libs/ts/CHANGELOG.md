@@ -42,6 +42,10 @@ Changed
   `/v1/zolana/prove/<key>`, and polls `/v1/zolana/prove/<key>/status`, as on
   any other prover; the gateway serves no key-less proof path.
 
+Fixed
+
+- `ProverClient` encrypted requests now survive gateway removal of percent-encoded `api-key` query parameters while keeping other query bytes authenticated.
+
 ## 0.4.1-alpha — 2026-10-08
 
 A client pointed at a Helius RPC URL reaches the shielded-pool indexer and
