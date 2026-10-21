@@ -427,7 +427,7 @@ applies. The delegate spends a member's notes with the member's nullifier
 key escrowed to the ring auditor in the key registry. Recovery needs the
 auditor secret, authorization needs the configured delegate's Solana
 signature. The CLI expects one operator to hold both keys, see the custom-rings
-[README](../custom-rings/README.md#controls). The rail requires every UTXO to
+[README](../custom-rings/README.md#roles). The rail requires every UTXO to
 carry the ring id, and entries hash with the zero ring id, so a delegate
 cannot consume or create an entry.
 
@@ -446,7 +446,7 @@ SDKs prove again on `StaleKeyRegistryRoot`. The delegate
 statement requires escrow on. A plain deposit is refused, and the audited
 deposit proves the same check per output against the same history. A merge
 output keeps the owner hash of its inputs. The operator consequences are in
-the custom-rings [README](../custom-rings/README.md#controls).
+the custom-rings [README](../custom-rings/README.md#rings-and-rails).
 
 **Outflow limits** bound a sender's outflow per mint in one transfer. A
 limited transfer has one authenticated sender, and for each limited mint

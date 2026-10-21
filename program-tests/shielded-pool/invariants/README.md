@@ -290,6 +290,6 @@ Status of the audit findings against the current (post-PR164) tree:
 Custom rings now carry a dedicated auditor disclosure in their ring message.
 The custom-ring proof binds that disclosure to the committed notes. The
 recipient output encoding alone does not establish verifiable encryption.
-See [the audit boundary](../../../custom-rings/changes-overview.md).
+See [the audit boundary](../../../custom-rings/docs/auditing.md#limits).
 
 Merge output encryption uses `VerifiablyEncrypted(6 || ...)`. Its proof binds the encrypted amount and mint to the merged note. Ordinary recipient ciphertext remains outside the transfer proof.

@@ -35,6 +35,7 @@ All wire fields use camel case.
 | `ringDeposits` | Ring program ID, examined signature limit, and page cursor | The deposits found, the next cursor, and the oldest slot examined |
 | `getDecryptedTransactions` | Ring, page, and read authorization | Decrypted transaction page |
 | `getAuditedMerges` | Ring, page, and read authorization | Commitment-checked merge openings and unresolved outputs |
+| `getAuditedNotes` | Ring, 1 to 100 UTXO hashes, and read authorization | In request order, the opening of each hash the service opened, `null` for any other |
 
 `ringDeposits` walks ring history backwards from the newest signature. A deposit publishes its asset and amount, so the method needs no auditor key and no read authorization. Its `limit` counts signatures examined rather than deposits found, so a page can hold no deposits and still have history behind it. The default limit is 50 and the service clamps it to 200.
 
@@ -52,11 +53,13 @@ Accepted nonces are held in process memory for the timestamp window. Run one pro
 
 ## Audit result
 
-`outputOpenings` carries the verified auditor disclosure for every output slot. Each entry contains its note fields and published tree context. The client checks their commitments. These openings remain available when recipient ciphertext is missing, corrupt or misleading.
+`outputs` lists every slot whose opening rebuilds its published commitment, with the note, its tree context and, on a ring output, the recipient key and the anonymous tag. `payloadErrors` names every other slot and why. `frame` is a slot without a body of its layout, `recipientKey` a recipient key with no X25519 agreement, `commitment` an opening that hashes to another commitment, and `escrowUnknown` an owner whose escrowed nullifier key the registry does not hold. An asset the registry does not know keeps its opening without a mint.
 
-`outputs` carries optional recipient metadata. `payloadErrors` names each slot without an entry there and why, a frame, decrypt, commitment, asset or pair-hint failure. Neither field replaces `outputOpenings`. Unknown asset fields stay in the verified openings. The service attempts to resolve them from the asset registry without dropping the disclosure when a refresh fails.
+The audit proof binds every disclosure field to the settled notes. The recipient ciphertext of a 2 or 4 output transfer stays outside it. An anonymous disclosure also reveals the sender, the spent notes and the recipients to the auditor. A malformed disclosure is reported as a skipped transaction with a reason. It cannot be presented as a successfully opened payment.
 
-Mandatory auditor encryption is proved against the committed notes. Ordinary recipient ciphertext is not proved. Anonymous disclosure also reveals the checked sender, spent notes and recipients to the auditor. A malformed mandatory disclosure is reported as a skipped transaction with a reason. It cannot be presented as a successfully opened payment.
+An anonymous transfer names each spent ring note by its UTXO hash alone. The service keeps every note it opened in process memory and opens such an input from there. A background backfill reads the ring history from where it stopped and opens every transfer, audited deposit and anonymous merge, so a later page finds the notes they created. A deposit's capsule names the owner hash and no nullifier key, so a deposited note carries none, and neither does the sender of a transfer whose first spent note was deposited. A transfer whose spent note the service has not opened yet appears in `skipped` as `unseenInput`. A restart rebuilds the notes from the ring history.
+
+`getAuditedNotes` serves the same notes from memory. Its read authorization binds the ring, the timestamp, the nonce and the hashes in request order. It takes the authentication gate and the reader's slot.
 
 A transaction that carries the auditor view tag but did not run under this ring is not reported. It reaches neither the audited items nor the skipped rows, and the page cursor still advances past it, so an empty page is not the end of the history.
 

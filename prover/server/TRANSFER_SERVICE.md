@@ -69,10 +69,8 @@ responses. Each transfer or merge input tree must start with a non-dummy
 input. When all non-dummy inputs in a tree are cached, the resolver skips its
 state path request and uses the cache root sentinel.
 
-An output owner without a matching registry key fails with `422` and code
-`registry_member_missing`, which names the member. Indexer lag fails with
-`503` and code `indexer_not_ready`. A failed queued job reports the same
-`code` in its status.
+Indexer lag fails with `503` and code `indexer_not_ready`. A failed queued job
+reports the same `code` in its status.
 
 The returned proof includes `resolution` with the resolved trees, their roots
 and history positions, and `publicInputHash`. The caller must bind those trees
