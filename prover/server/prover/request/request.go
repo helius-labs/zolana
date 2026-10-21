@@ -34,6 +34,8 @@ type Request struct {
 	Circuit common.CircuitType
 	Inputs  uint32
 	Outputs uint32
+	// Shape names the circuit and key, including non-protocol dimensions.
+	Shape common.ProofShape
 	// KeyFile is empty when no key exists for the shape.
 	KeyFile string
 	params  parameters
@@ -56,6 +58,7 @@ func Parse(body []byte) (*Request, error) {
 			return nil, fmt.Errorf("%w: %v", ErrMalformed, err)
 		}
 		request.Inputs, request.Outputs, request.params = params.NInputs, params.NOutputs, params
+		request.Shape = params.ProofShape()
 	case common.MergeCircuitType, common.MergeRingCircuitType:
 		params := new(merge.MergeParameters)
 		if err := json.Unmarshal(body, params); err != nil {
@@ -66,13 +69,14 @@ func Parse(body []byte) (*Request, error) {
 			return nil, fmt.Errorf("%w: %v", ErrMalformed, err)
 		}
 		request.Inputs, request.Outputs, request.params = uint32(len(params.Inputs)), merge.MergeNOutputs, params
+		request.Shape = common.ProofShape{Circuit: request.Circuit, Inputs: request.Inputs, Outputs: request.Outputs}
 	default:
 		return nil, fmt.Errorf("%w: circuit type %q", ErrUnsupported, envelope.CircuitType)
 	}
 	if !canonical(reflect.ValueOf(request.params)) {
 		return nil, fmt.Errorf("%w: a value is not a canonical field element", ErrMalformed)
 	}
-	request.KeyFile = common.TransferKeyFile(request.Circuit, request.Inputs, request.Outputs)
+	request.KeyFile = request.Shape.KeyFile()
 	return request, nil
 }
 
@@ -143,9 +147,8 @@ func (r *Request) check(system *common.TransferProofSystem) error {
 	if system == nil {
 		return ErrSystem
 	}
-	if system.CircuitType != r.Circuit || system.NInputs != r.Inputs || system.NOutputs != r.Outputs {
-		return fmt.Errorf("%w: %s %dx%d system for a %s %dx%d request", ErrSystem,
-			system.CircuitType, system.NInputs, system.NOutputs, r.Circuit, r.Inputs, r.Outputs)
+	if system.Shape() != r.Shape {
+		return fmt.Errorf("%w: %s system for a %s request", ErrSystem, system.Shape(), r.Shape)
 	}
 	return nil
 }

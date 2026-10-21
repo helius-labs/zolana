@@ -63,7 +63,7 @@ func (p circuitProver) request(payload []byte) (*common.Proof, *Error) {
 		return nil, failure
 	}
 	finishKeys := p.trace.Start("keys")
-	ps, err := p.keys.GetTransferSystem(req.Circuit, req.Inputs, req.Outputs)
+	ps, err := p.keys.GetTransferSystemFor(req.Shape)
 	finishKeys()
 	if err != nil {
 		return nil, provingError(fmt.Errorf("%s: %w", req.Circuit, err))
@@ -76,11 +76,12 @@ func (p circuitProver) eddsaTransfer(payload []byte) (*common.Proof, *Error) {
 	if failure := p.decode(payload, &params); failure != nil {
 		return nil, failure
 	}
-	if failure := p.admission.admit(common.TransferKeyFile(common.TransferAnonymousRingEddsaCircuitType, params.NInputs, params.NOutputs)); failure != nil {
+	shape := params.ProofShape()
+	if failure := p.admission.admit(shape.KeyFile()); failure != nil {
 		return nil, failure
 	}
 	finishKeys := p.trace.Start("keys")
-	ps, err := p.keys.GetTransferSystem(common.TransferAnonymousRingEddsaCircuitType, params.NInputs, params.NOutputs)
+	ps, err := p.keys.GetTransferSystemFor(shape)
 	finishKeys()
 	if err != nil {
 		return nil, provingError(fmt.Errorf("transfer-eddsa: %w", err))

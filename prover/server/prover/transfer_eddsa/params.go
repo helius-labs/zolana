@@ -84,6 +84,10 @@ type TransferParameters struct {
 	PublicAmounts  []*big.Int
 	RingProgramID  *big.Int
 	SignerPkHashes []*big.Int
+	// SignerWidth selects a circuit whose public signer vector has this many
+	// slots. Zero is the protocol width, the only one the shielded pool
+	// verifies.
+	SignerWidth uint32
 	// InputFlags packs the dummy-input policy in bit 0 and every input's
 	// TreeSlot in its own TreeIndexBits field, so the circuit can bind each
 	// private slot selection to the index SPP routes the nullifier by.

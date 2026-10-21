@@ -129,7 +129,7 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 	if err != nil {
 		return nil, err
 	}
-	shape := txcircuit.NewShape(int(p.NInputs), int(p.NOutputs))
+	shape := CircuitShape(p.ProofShape())
 	wantSigners := shape.SignerWidth
 	if p.Variant == RingAuthorityVariant {
 		wantSigners = 1

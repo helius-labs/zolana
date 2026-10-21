@@ -44,16 +44,28 @@ type AnonymousEddsaTransferParameters struct {
 	// tx blinding from it and the first nullifier.
 	BlindingSeed *big.Int
 
-	OwnerPublicKey     [32]byte
-	OwnerSignature     [64]byte
-	MessageHashLow     *big.Int
-	MessageHashHigh    *big.Int
-	DefaultOwnerPkHash *big.Int
+	// The first hidden owner's key and signature over the message.
+	OwnerPublicKey [32]byte
+	OwnerSignature [64]byte
+	// NHiddenOwners selects a circuit with this many hidden owners. Zero is
+	// the protocol's single owner. Owners after the first carry their keys and
+	// signatures here, and InputHiddenOwners names each input's owner (0 for
+	// a non-hidden input); all three are empty for a single owner.
+	NHiddenOwners             uint32
+	AdditionalOwnerPublicKeys [][32]byte
+	AdditionalOwnerSignatures [][64]byte
+	InputHiddenOwners         []uint32
+	MessageHashLow            *big.Int
+	MessageHashHigh           *big.Int
+	DefaultOwnerPkHash        *big.Int
 
-	PublicAssets                 []*big.Int
-	PublicAmounts                []*big.Int
-	RingProgramID                *big.Int
-	SignerPkHashes               []*big.Int
+	PublicAssets   []*big.Int
+	PublicAmounts  []*big.Int
+	RingProgramID  *big.Int
+	SignerPkHashes []*big.Int
+	// SignerWidth selects a circuit whose public signer vector has this many
+	// slots. Zero is the protocol width.
+	SignerWidth                  uint32
 	InputFlags                   *big.Int
 	PublishedOutputOwnerPkHashes []*big.Int
 
@@ -75,6 +87,10 @@ type AnonymousEddsaTransferParametersJSON struct {
 	BlindingSeed                 string                      `json:"blindingSeed"`
 	OwnerPublicKey               string                      `json:"ownerPublicKey"`
 	OwnerSignature               string                      `json:"ownerSignature"`
+	NHiddenOwners                uint32                      `json:"nHiddenOwners,omitempty"`
+	AdditionalOwnerPublicKeys    []string                    `json:"additionalOwnerPublicKeys,omitempty"`
+	AdditionalOwnerSignatures    []string                    `json:"additionalOwnerSignatures,omitempty"`
+	InputHiddenOwners            []uint32                    `json:"inputHiddenOwners,omitempty"`
 	MessageHashLow               string                      `json:"messageHashLow"`
 	MessageHashHigh              string                      `json:"messageHashHigh"`
 	DefaultOwnerPkHash           string                      `json:"defaultOwnerPkHash"`
@@ -82,6 +98,7 @@ type AnonymousEddsaTransferParametersJSON struct {
 	PublicAmounts                []string                    `json:"publicAmounts"`
 	RingProgramID                string                      `json:"ringProgramId"`
 	SignerPkHashes               []string                    `json:"signerPkHashes"`
+	SignerWidth                  uint32                      `json:"signerWidth,omitempty"`
 	InputFlags                   string                      `json:"inputFlags"`
 	PublishedOutputOwnerPkHashes []string                    `json:"publishedOutputOwnerPkHashes"`
 	CacheSelectionJSON
@@ -103,6 +120,7 @@ func (p *AnonymousEddsaTransferParameters) MarshalJSON() ([]byte, error) {
 		PublicAmounts:                p.PublicAmounts,
 		RingProgramID:                p.RingProgramID,
 		SignerPkHashes:               p.SignerPkHashes,
+		SignerWidth:                  p.SignerWidth,
 		InputFlags:                   p.InputFlags,
 		PublishedOutputOwnerPkHashes: p.PublishedOutputOwnerPkHashes,
 		Cache:                        p.Cache,
@@ -122,6 +140,10 @@ func (p *AnonymousEddsaTransferParameters) MarshalJSON() ([]byte, error) {
 		BlindingSeed:                 base.BlindingSeed,
 		OwnerPublicKey:               "0x" + hex.EncodeToString(p.OwnerPublicKey[:]),
 		OwnerSignature:               "0x" + hex.EncodeToString(p.OwnerSignature[:]),
+		NHiddenOwners:                p.NHiddenOwners,
+		AdditionalOwnerPublicKeys:    hexKeys(p.AdditionalOwnerPublicKeys),
+		AdditionalOwnerSignatures:    hexSignatures(p.AdditionalOwnerSignatures),
+		InputHiddenOwners:            p.InputHiddenOwners,
 		MessageHashLow:               common.FeHex(p.MessageHashLow),
 		MessageHashHigh:              common.FeHex(p.MessageHashHigh),
 		DefaultOwnerPkHash:           common.FeHex(p.DefaultOwnerPkHash),
@@ -129,6 +151,7 @@ func (p *AnonymousEddsaTransferParameters) MarshalJSON() ([]byte, error) {
 		PublicAmounts:                base.PublicAmounts,
 		RingProgramID:                base.RingProgramID,
 		SignerPkHashes:               base.SignerPkHashes,
+		SignerWidth:                  base.SignerWidth,
 		InputFlags:                   base.InputFlags,
 		PublishedOutputOwnerPkHashes: base.PublishedOutputOwnerPkHashes,
 		CacheSelectionJSON:           base.CacheSelectionJSON,
@@ -160,6 +183,7 @@ func (p *AnonymousEddsaTransferParameters) UnmarshalJSON(data []byte) error {
 		PublicAmounts:                params.PublicAmounts,
 		RingProgramID:                params.RingProgramID,
 		SignerPkHashes:               params.SignerPkHashes,
+		SignerWidth:                  params.SignerWidth,
 		InputFlags:                   params.InputFlags,
 		PublishedOutputOwnerPkHashes: params.PublishedOutputOwnerPkHashes,
 		CacheSelectionJSON:           params.CacheSelectionJSON,
@@ -180,6 +204,7 @@ func (p *AnonymousEddsaTransferParameters) UnmarshalJSON(data []byte) error {
 	p.PublicAmounts = base.PublicAmounts
 	p.RingProgramID = base.RingProgramID
 	p.SignerPkHashes = base.SignerPkHashes
+	p.SignerWidth = base.SignerWidth
 	p.InputFlags = base.InputFlags
 	p.PublishedOutputOwnerPkHashes = base.PublishedOutputOwnerPkHashes
 	p.Cache = base.Cache
@@ -191,6 +216,20 @@ func (p *AnonymousEddsaTransferParameters) UnmarshalJSON(data []byte) error {
 	if err := exactBytes(p.OwnerSignature[:], params.OwnerSignature); err != nil {
 		return fmt.Errorf("ownerSignature: %w", err)
 	}
+	p.NHiddenOwners = params.NHiddenOwners
+	p.AdditionalOwnerPublicKeys = make([][32]byte, len(params.AdditionalOwnerPublicKeys))
+	for j, encoded := range params.AdditionalOwnerPublicKeys {
+		if err := exactBytes(p.AdditionalOwnerPublicKeys[j][:], encoded); err != nil {
+			return fmt.Errorf("additionalOwnerPublicKeys[%d]: %w", j, err)
+		}
+	}
+	p.AdditionalOwnerSignatures = make([][64]byte, len(params.AdditionalOwnerSignatures))
+	for j, encoded := range params.AdditionalOwnerSignatures {
+		if err := exactBytes(p.AdditionalOwnerSignatures[j][:], encoded); err != nil {
+			return fmt.Errorf("additionalOwnerSignatures[%d]: %w", j, err)
+		}
+	}
+	p.InputHiddenOwners = params.InputHiddenOwners
 	var err error
 	for target, encoded := range map[**big.Int]string{
 		&p.MessageHashLow:     params.MessageHashLow,
@@ -202,6 +241,24 @@ func (p *AnonymousEddsaTransferParameters) UnmarshalJSON(data []byte) error {
 		}
 	}
 	return nil
+}
+
+// hexKeys encodes public keys as 0x-prefixed hex, nil when there are none.
+func hexKeys(keys [][32]byte) []string {
+	var out []string
+	for _, key := range keys {
+		out = append(out, "0x"+hex.EncodeToString(key[:]))
+	}
+	return out
+}
+
+// hexSignatures encodes signatures as 0x-prefixed hex, nil when there are none.
+func hexSignatures(signatures [][64]byte) []string {
+	var out []string
+	for _, signature := range signatures {
+		out = append(out, "0x"+hex.EncodeToString(signature[:]))
+	}
+	return out
 }
 
 // exactBytes decodes a 0x-prefixed hex string of exactly len(out) bytes.
@@ -217,7 +274,50 @@ func exactBytes(out []byte, encoded string) error {
 	return nil
 }
 
+// ProofShape is the circuit and key the parameters prove with.
+func (p *AnonymousEddsaTransferParameters) ProofShape() common.ProofShape {
+	return normalizedProofShape(common.ProofShape{
+		Circuit:      common.TransferAnonymousRingEddsaCircuitType,
+		Inputs:       p.NInputs,
+		Outputs:      p.NOutputs,
+		SignerWidth:  p.SignerWidth,
+		HiddenOwners: p.NHiddenOwners,
+	})
+}
+
+// validateHiddenOwners checks the hidden owner wires against the shape. The
+// circuit would only fail them as an opaque proving error.
+func (p *AnonymousEddsaTransferParameters) validateHiddenOwners() error {
+	shape := p.ProofShape()
+	if !shape.IsProtocol() && !shape.Supported() {
+		return fmt.Errorf("unsupported transfer shape %s", shape)
+	}
+	owners := CircuitShape(shape).NHiddenOwners
+	if len(p.AdditionalOwnerPublicKeys) != owners-1 || len(p.AdditionalOwnerSignatures) != owners-1 {
+		return fmt.Errorf(
+			"spp: %d hidden owners need %d additional keys and signatures, got %d and %d",
+			owners, owners-1, len(p.AdditionalOwnerPublicKeys), len(p.AdditionalOwnerSignatures),
+		)
+	}
+	wantIndices := 0
+	if owners > 1 {
+		wantIndices = int(p.NInputs)
+	}
+	if len(p.InputHiddenOwners) != wantIndices {
+		return fmt.Errorf("spp: input hidden owner count mismatch: got %d want %d", len(p.InputHiddenOwners), wantIndices)
+	}
+	for i, owner := range p.InputHiddenOwners {
+		if int(owner) >= owners {
+			return fmt.Errorf("spp: input %d names hidden owner %d of %d", i, owner, owners)
+		}
+	}
+	return nil
+}
+
 func (p *AnonymousEddsaTransferParameters) ValidateShape() error {
+	if err := p.validateHiddenOwners(); err != nil {
+		return err
+	}
 	return (&TransferParameters{
 		NInputs:      p.NInputs,
 		NOutputs:     p.NOutputs,
@@ -235,7 +335,7 @@ func (p *AnonymousEddsaTransferParameters) CreateWitness() (frontend.Circuit, er
 	if err != nil {
 		return nil, err
 	}
-	shape := txcircuit.NewShape(int(p.NInputs), int(p.NOutputs))
+	shape := CircuitShape(p.ProofShape())
 	if len(p.SignerPkHashes) != shape.SignerWidth {
 		return nil, fmt.Errorf(
 			"spp: signer pk hash count mismatch: got %d want %d",
@@ -266,7 +366,7 @@ func (p *AnonymousEddsaTransferParameters) CreateWitness() (frontend.Circuit, er
 	}
 	circuit := &customring.CustomRingAnonymousEddsaCircuit{
 		CachedInputs: p.Cache.circuitInputs(int(p.NInputs)),
-		Shape:        txcircuit.NewShape(int(p.NInputs), int(p.NOutputs)),
+		Shape:        shape,
 		Public: customring.CustomRingAnonymousEddsaPublic{
 			Nullifiers:                   core.nullifiers,
 			OutputHashes:                 core.outputHashes,
@@ -299,6 +399,24 @@ func (p *AnonymousEddsaTransferParameters) CreateWitness() (frontend.Circuit, er
 	}
 	for i, b := range p.OwnerSignature {
 		circuit.Private.OwnerSignature[i] = b
+	}
+	if shape.NHiddenOwners > 1 {
+		circuit.Private.AdditionalOwnerPublicKeys = make([][32]frontend.Variable, len(p.AdditionalOwnerPublicKeys))
+		for j, key := range p.AdditionalOwnerPublicKeys {
+			for i, b := range key {
+				circuit.Private.AdditionalOwnerPublicKeys[j][i] = b
+			}
+		}
+		circuit.Private.AdditionalOwnerSignatures = make([][64]frontend.Variable, len(p.AdditionalOwnerSignatures))
+		for j, signature := range p.AdditionalOwnerSignatures {
+			for i, b := range signature {
+				circuit.Private.AdditionalOwnerSignatures[j][i] = b
+			}
+		}
+		circuit.Private.InputHiddenOwners = make([]frontend.Variable, len(p.InputHiddenOwners))
+		for i, owner := range p.InputHiddenOwners {
+			circuit.Private.InputHiddenOwners[i] = owner
+		}
 	}
 	return circuit, nil
 }
@@ -341,6 +459,9 @@ func SetupAnonymousEddsaTransfer(nInputs uint32, nOutputs uint32) (*common.Trans
 
 func (request AnonymousEddsaProof) Prove() (*common.Proof, error) {
 	ps, params := request.System, request.Parameters
+	if err := checkSystem(ps, params.ProofShape()); err != nil {
+		return nil, err
+	}
 	proof, err := request.Prover.Run(ps.ConstraintSystem, ps.ProvingKey, func() (frontend.Circuit, error) {
 		if err := params.ValidateShape(); err != nil {
 			return nil, err

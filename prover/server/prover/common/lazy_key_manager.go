@@ -6,6 +6,7 @@ import (
 	"maps"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -99,7 +100,16 @@ func (m *LazyKeyManager) GetBatchSystem(circuitType CircuitType, treeHeight uint
 }
 
 func (m *LazyKeyManager) GetTransferSystem(circuitType CircuitType, nInputs uint32, nOutputs uint32) (*TransferProofSystem, error) {
-	key := fmt.Sprintf("%s_%d_%d", circuitType, nInputs, nOutputs)
+	return m.GetTransferSystemFor(ProofShape{Circuit: circuitType, Inputs: nInputs, Outputs: nOutputs})
+}
+
+// GetTransferSystemFor loads the system that proves shape, including a shape
+// with non-protocol dimensions.
+func (m *LazyKeyManager) GetTransferSystemFor(shape ProofShape) (*TransferProofSystem, error) {
+	key := strings.TrimSuffix(shape.KeyFile(), ".key")
+	if key == "" {
+		return nil, fmt.Errorf("no key file mapping for %s", shape)
+	}
 
 	m.mu.RLock()
 	if ps, exists := m.transferSystems[key]; exists {
@@ -111,7 +121,7 @@ func (m *LazyKeyManager) GetTransferSystem(circuitType CircuitType, nInputs uint
 	}
 	m.mu.RUnlock()
 
-	return m.loadTransferSystem(key, circuitType, nInputs, nOutputs)
+	return m.loadTransferSystem(key, shape)
 }
 
 func (m *LazyKeyManager) loadBatchSystem(key string, circuitType CircuitType, treeHeight uint32, batchSize uint32) (*BatchProofSystem, error) {
@@ -167,7 +177,7 @@ func (m *LazyKeyManager) loadBatchSystem(key string, circuitType CircuitType, tr
 	return ps, nil
 }
 
-func (m *LazyKeyManager) loadTransferSystem(key string, circuitType CircuitType, nInputs uint32, nOutputs uint32) (*TransferProofSystem, error) {
+func (m *LazyKeyManager) loadTransferSystem(key string, shape ProofShape) (*TransferProofSystem, error) {
 	loadChan := m.acquireLoadingLock(key)
 	if loadChan == nil {
 		m.waitForLoading(key)
@@ -181,9 +191,9 @@ func (m *LazyKeyManager) loadTransferSystem(key string, circuitType CircuitType,
 	}
 	defer m.releaseLoadingLock(key, loadChan)
 
-	keyPath := m.determineTransferKeyPath(circuitType, nInputs, nOutputs)
+	keyPath := m.keyPathOf(shape.KeyFile())
 	if keyPath == "" {
-		return nil, fmt.Errorf("no key file mapping for %s with %d inputs and %d outputs", circuitType, nInputs, nOutputs)
+		return nil, fmt.Errorf("no key file mapping for %s", shape)
 	}
 
 	logging.Logger().Info().
@@ -332,13 +342,63 @@ var transferSupportedShapes = [][2]uint32{
 // circuits/spp_merge/shared/transaction.go.
 var mergeSupportedInputCounts = []uint32{8, 24, 52}
 
+// MaxTransferSignerWidth bounds a non-protocol public signer vector: a v1
+// transaction cannot carry more owner signers than it has addresses.
+const MaxTransferSignerWidth = 64
+
+// ProofShape names one transfer or merge circuit. SignerWidth and HiddenOwners
+// are zero for the protocol dimensions, the only ones the shielded pool
+// verifies; a non-zero value selects a circuit compiled with that public
+// signer vector width or that many hidden Ed25519 owners. Callers set them only
+// when they differ from the protocol value, so a protocol shape always names
+// the committed key.
 type ProofShape struct {
-	Circuit CircuitType
-	Inputs  uint32
-	Outputs uint32
+	Circuit      CircuitType
+	Inputs       uint32
+	Outputs      uint32
+	SignerWidth  uint32
+	HiddenOwners uint32
+}
+
+func (shape ProofShape) String() string {
+	return fmt.Sprintf("%s %dx%d signers %d hidden owners %d",
+		shape.Circuit, shape.Inputs, shape.Outputs, shape.SignerWidth, shape.HiddenOwners)
+}
+
+// IsProtocol reports whether the shape has the protocol dimensions.
+func (shape ProofShape) IsProtocol() bool {
+	return shape.SignerWidth == 0 && shape.HiddenOwners == 0
+}
+
+// dimensionsSupported checks the non-protocol dimensions: only the owner-signed
+// rails size a signer vector, only the anonymous EdDSA rail has hidden owners,
+// and each hidden owner must spend one of the inputs.
+func (shape ProofShape) dimensionsSupported() bool {
+	if shape.SignerWidth != 0 {
+		switch shape.Circuit {
+		case TransferConfidentialCircuitType, TransferRingCircuitType, TransferAnonymousRingEddsaCircuitType:
+		default:
+			return false
+		}
+		if shape.SignerWidth > MaxTransferSignerWidth {
+			return false
+		}
+	}
+	if shape.HiddenOwners != 0 {
+		if shape.Circuit != TransferAnonymousRingEddsaCircuitType {
+			return false
+		}
+		if shape.HiddenOwners < 2 || shape.HiddenOwners > shape.Inputs {
+			return false
+		}
+	}
+	return true
 }
 
 func (shape ProofShape) Supported() bool {
+	if !shape.dimensionsSupported() {
+		return false
+	}
 	if shape.Circuit == TransferRingAuthorityCircuitType && (shape.Inputs != shape.Outputs || shape.Inputs > 4) {
 		return false
 	}
@@ -373,14 +433,24 @@ func mergeKeyFile(prefix string, nInputs uint32, nOutputs uint32) string {
 	return ""
 }
 
-// TransferKeyFile names the key file that proves a transfer or merge shape, or
-// "" for an unsupported one.
+// TransferKeyFile names the key file that proves a transfer or merge shape
+// with protocol dimensions, or "" for an unsupported one.
 func TransferKeyFile(circuitType CircuitType, nInputs uint32, nOutputs uint32) string {
-	if !(ProofShape{Circuit: circuitType, Inputs: nInputs, Outputs: nOutputs}).Supported() {
+	return ProofShape{Circuit: circuitType, Inputs: nInputs, Outputs: nOutputs}.KeyFile()
+}
+
+// KeyFile names the key file that proves the shape, or "" for an unsupported
+// one. A non-protocol dimension adds a suffix, _s<width> for the signer
+// vector and _h<owners> for hidden owners, so such a key never shadows a
+// committed one. Those keys are not in the lockfile: setup-transfer writes
+// them locally.
+func (shape ProofShape) KeyFile() string {
+	if !shape.Supported() {
 		return ""
 	}
+	nInputs, nOutputs := shape.Inputs, shape.Outputs
 	var prefix string
-	switch circuitType {
+	switch shape.Circuit {
 	case TransferConfidentialCircuitType:
 		prefix = "transfer_confidential"
 	case TransferRingCircuitType:
@@ -397,13 +467,75 @@ func TransferKeyFile(circuitType CircuitType, nInputs uint32, nOutputs uint32) s
 		return ""
 	}
 
-	for _, shape := range transferSupportedShapes {
-		if shape[0] == nInputs && shape[1] == nOutputs {
-			return fmt.Sprintf("%s_%d_%d.key", prefix, nInputs, nOutputs)
+	for _, supported := range transferSupportedShapes {
+		if supported[0] == nInputs && supported[1] == nOutputs {
+			name := fmt.Sprintf("%s_%d_%d", prefix, nInputs, nOutputs)
+			if shape.SignerWidth != 0 {
+				name += fmt.Sprintf("_s%d", shape.SignerWidth)
+			}
+			if shape.HiddenOwners != 0 {
+				name += fmt.Sprintf("_h%d", shape.HiddenOwners)
+			}
+			return name + ".key"
 		}
 	}
 
 	return ""
+}
+
+// TransferKeyFileDimensions parses the non-protocol dimension suffixes of a
+// transfer key file name, in the order KeyFile writes them, zero for a
+// protocol key.
+func TransferKeyFileDimensions(name string) (signerWidth uint32, hiddenOwners uint32, err error) {
+	parts := strings.Split(strings.TrimSuffix(filepath.Base(name), ".key"), "_")
+	suffix := func(tag string) (uint32, error) {
+		if len(parts) == 0 || !strings.HasPrefix(parts[len(parts)-1], tag) {
+			return 0, nil
+		}
+		last := parts[len(parts)-1]
+		value, parseErr := strconv.ParseUint(strings.TrimPrefix(last, tag), 10, 32)
+		if parseErr != nil || value == 0 {
+			return 0, fmt.Errorf("invalid key file dimension %q in %s", last, name)
+		}
+		parts = parts[:len(parts)-1]
+		return uint32(value), nil
+	}
+	if hiddenOwners, err = suffix("h"); err != nil {
+		return 0, 0, err
+	}
+	if signerWidth, err = suffix("s"); err != nil {
+		return 0, 0, err
+	}
+	return signerWidth, hiddenOwners, nil
+}
+
+// NonProtocolTransferKeyShape returns the shape a non-protocol transfer key
+// file name names, and false for any other name. Such keys are not in the
+// lockfile, so the prover recognizes them by name alone.
+func NonProtocolTransferKeyShape(name string) (ProofShape, bool) {
+	signerWidth, hiddenOwners, err := TransferKeyFileDimensions(name)
+	if err != nil || (signerWidth == 0 && hiddenOwners == 0) {
+		return ProofShape{}, false
+	}
+	for _, circuit := range []CircuitType{
+		TransferConfidentialCircuitType,
+		TransferRingCircuitType,
+		TransferAnonymousRingEddsaCircuitType,
+	} {
+		for _, counts := range transferSupportedShapes {
+			shape := ProofShape{
+				Circuit:      circuit,
+				Inputs:       counts[0],
+				Outputs:      counts[1],
+				SignerWidth:  signerWidth,
+				HiddenOwners: hiddenOwners,
+			}
+			if shape.KeyFile() == name {
+				return shape, true
+			}
+		}
+	}
+	return ProofShape{}, false
 }
 
 func (m *LazyKeyManager) determineTransferKeyPath(circuitType CircuitType, nInputs uint32, nOutputs uint32) string {

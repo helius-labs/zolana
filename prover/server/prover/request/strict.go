@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -75,7 +76,8 @@ func exactly(decoder *json.Decoder, expected reflect.Type, depth int) error {
 			return fmt.Errorf("expected an object")
 		}
 		fields := make(map[string]reflect.Type)
-		jsonFields(expected, fields)
+		optional := make(map[string]bool)
+		jsonFields(expected, fields, optional)
 		seen := make(map[string]bool, len(fields))
 		for decoder.More() {
 			token, err := decoder.Token()
@@ -99,7 +101,7 @@ func exactly(decoder *json.Decoder, expected reflect.Type, depth int) error {
 			return err
 		}
 		for name := range fields {
-			if !seen[name] {
+			if !seen[name] && !optional[name] {
 				return fmt.Errorf("missing field %q", name)
 			}
 		}
@@ -135,14 +137,20 @@ func exactly(decoder *json.Decoder, expected reflect.Type, depth int) error {
 }
 
 // jsonFields maps a struct's JSON keys to their types, promoting untagged
-// embedded structs as encoding/json does.
-func jsonFields(expected reflect.Type, fields map[string]reflect.Type) {
+// embedded structs as encoding/json does. An omitempty key is optional: it
+// carries a value only a non-protocol request sets (see
+// common.ProofShape), so a protocol body may leave it out.
+func jsonFields(expected reflect.Type, fields map[string]reflect.Type, optional map[string]bool) {
 	for index := 0; index < expected.NumField(); index++ {
 		field := expected.Field(index)
-		name := strings.Split(field.Tag.Get("json"), ",")[0]
+		tag := strings.Split(field.Tag.Get("json"), ",")
+		name := tag[0]
 		if field.Anonymous && name == "" && field.Type.Kind() == reflect.Struct {
-			jsonFields(field.Type, fields)
+			jsonFields(field.Type, fields, optional)
 			continue
+		}
+		if slices.Contains(tag[1:], "omitempty") {
+			optional[name] = true
 		}
 		if name == "-" || !field.IsExported() {
 			continue

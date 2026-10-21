@@ -95,6 +95,8 @@ func runCli() {
 					&cli.StringFlag{Name: "circuit", Usage: "Transfer circuit (\"transfer-confidential\" / \"transfer-ring\" / \"transfer-eddsa-ring\" / \"transfer-ring-authority\")", Required: true},
 					&cli.UintFlag{Name: "n-inputs", Usage: "Number of input slots", Required: true},
 					&cli.UintFlag{Name: "n-outputs", Usage: "Number of output slots", Required: true},
+					&cli.UintFlag{Name: "signer-width", Usage: "Public signer vector slots; 0 is the protocol width. A non-protocol key is not verified by the shielded pool", Required: false},
+					&cli.UintFlag{Name: "n-hidden-owners", Usage: "[transfer-eddsa-ring] Hidden Ed25519 owners; 0 is the protocol's single owner", Required: false},
 					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
 				},
 				Action: func(context *cli.Context) error {
@@ -107,6 +109,22 @@ func runCli() {
 					path := context.String("output")
 
 					var ps *common.TransferProofSystem
+					shape, err := transferSetupShape(
+						circuit, nInputs, nOutputs, context.Uint("signer-width"), context.Uint("n-hidden-owners"),
+					)
+					if err != nil {
+						return err
+					}
+					if !shape.IsProtocol() {
+						if filepath.Base(path) != shape.KeyFile() {
+							return fmt.Errorf("output file must be named %s", shape.KeyFile())
+						}
+						ps, err = transfereddsa.SetupShape(shape)
+						if err != nil {
+							return err
+						}
+						return writeTransferProofSystem(ps, path)
+					}
 					switch circuit {
 					case common.TransferConfidentialCircuitType,
 						common.TransferRingCircuitType,
@@ -1145,6 +1163,54 @@ func writeKey(path string, write func(io.Writer) (int64, error)) error {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
 	return file.Close()
+}
+
+// transferSetupShape resolves the setup-transfer dimensions to the key's
+// proof shape. Values equal to the protocol dimensions name the protocol key.
+func transferSetupShape(circuit common.CircuitType, nInputs, nOutputs uint32, signerWidth, hiddenOwners uint) (common.ProofShape, error) {
+	if signerWidth > common.MaxTransferSignerWidth || hiddenOwners > uint(nInputs) {
+		return common.ProofShape{}, fmt.Errorf(
+			"setup-transfer: signer width %d or hidden owners %d out of range", signerWidth, hiddenOwners,
+		)
+	}
+	raw := common.ProofShape{
+		Circuit:      circuit,
+		Inputs:       nInputs,
+		Outputs:      nOutputs,
+		SignerWidth:  uint32(signerWidth),
+		HiddenOwners: uint32(hiddenOwners),
+	}
+	if raw.IsProtocol() {
+		return raw, nil
+	}
+	shape := transfereddsa.ProofShapeOf(circuit, transfereddsa.CircuitShape(raw))
+	if circuit == common.TransferRingAuthorityCircuitType {
+		shape = raw
+	}
+	if !shape.IsProtocol() && !shape.Supported() {
+		return common.ProofShape{}, fmt.Errorf("setup-transfer: unsupported shape %s", shape)
+	}
+	return shape, nil
+}
+
+func writeTransferProofSystem(ps *common.TransferProofSystem, path string) error {
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	written, err := ps.WriteTo(file)
+	if cerr := file.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return err
+	}
+	logging.Logger().Info().
+		Str("shape", ps.Shape().String()).
+		Int64("bytes_written", written).
+		Str("output", path).
+		Msg("Transfer proving system written")
+	return nil
 }
 
 // Validate before narrowing the CLI value or allocating a circuit's signer
