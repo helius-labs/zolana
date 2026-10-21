@@ -211,27 +211,36 @@ export function withRecordSlotSecret(
       ? Object.freeze({ ...input, nullifierSecret: asField(0n) })
       : input;
   return {
-    prove: (inputs, context) =>
-      keys.prove(
-        Object.freeze({
-          circuit: inputs.circuit,
-          payload: Object.freeze({
-            ...inputs.payload,
-            inputs: Object.freeze(inputs.payload.inputs.map(complete)),
-          }),
-        }),
+    prove: (inputs, context) => {
+      const completed = Object.freeze(inputs.payload.inputs.map(complete));
+      return keys.prove(
+        inputs.circuit === "transferConfidentialEddsa"
+          ? Object.freeze({
+              circuit: inputs.circuit,
+              payload: Object.freeze({ ...inputs.payload, inputs: completed }),
+            })
+          : Object.freeze({
+              circuit: inputs.circuit,
+              payload: Object.freeze({ ...inputs.payload, inputs: completed }),
+            }),
         context,
-      ),
+      );
+    },
     proveMerge: (inputs, context) => keys.proveMerge(inputs, context),
     proveIndexed: (request, context) => {
       checkIndexedAuthority(keys);
       return keys.proveIndexed(
         request.circuit === "merge"
           ? request
-          : {
-              ...request,
-              payload: { ...request.payload, inputs: request.payload.inputs.map(complete) },
-            },
+          : request.circuit === "transferConfidentialEddsa"
+            ? {
+                ...request,
+                payload: { ...request.payload, inputs: request.payload.inputs.map(complete) },
+              }
+            : {
+                ...request,
+                payload: { ...request.payload, inputs: request.payload.inputs.map(complete) },
+              },
         context,
       );
     },

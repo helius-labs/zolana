@@ -97,7 +97,7 @@ The stock `nitro-enclaves-allocator` refuses a CPU pool that spans NUMA nodes.
 The `zolana-allocator` unit runs it once per enclave, each run with its own config under `NITRO_CLI_INSTALL_DIR`, which reserves huge pages on that node.
 It then writes the union of the enclave CPUs to the driver's pool.
 Each enclave runs in its own `zolana-enclave@i` unit, which restarts only that enclave.
-Inside the enclave the key tmpfs takes 6 GiB, and a test pins that it holds every served key plus the largest partial download.
+Inside the enclave the key tmpfs takes 17 GiB, and a test pins that it holds every served key plus the largest partial download.
 The prover heap limit is the enclave memory less the tmpfs and 2 GiB for the kernel and root file system.
 `--instance-type` accepts any x86 type with Nitro Enclaves support, 6 vCPUs and 40 GiB, and the enclave scales with it.
 

@@ -190,7 +190,7 @@ impl<'a> SppTransactCpi<'a> {
         .hash()?;
         Ok(external.into_ix_data(
             private_tx_hash,
-            CircuitId::ConfidentialEddsa(width, width, N_PUBLIC_SLOTS as u8),
+            CircuitId::ConfidentialSigner(width, width, N_PUBLIC_SLOTS as u8),
             self.proof,
             TransactInputs {
                 inputs,

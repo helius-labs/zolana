@@ -14,6 +14,10 @@ const (
 	// in-circuit Ed25519 authorization shared by every hidden-owner input.
 	TransferAnonymousRingEddsaCircuitType CircuitType = "transfer-eddsa-ring"
 
+	// TransferConfidentialEddsaCircuitType is the default-ring confidential
+	// transfer authorized by one in-circuit Ed25519 signature of the owner.
+	TransferConfidentialEddsaCircuitType CircuitType = "transfer-confidential-eddsa"
+
 	// TransferRingAuthorityCircuitType is the anonymous policy-ring transfer used by
 	// ring_authority_transact: the ring authority controls its ring-owned UTXOs, so
 	// owners do not sign. Solana-only, no in-circuit signature, input owner

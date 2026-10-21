@@ -5,12 +5,14 @@ import {
 import { initializePoseidon } from "../hasher/index.js";
 import type { Address, Bytes32, Instruction, RequestContext } from "../interface/types.js";
 import { treeAddress } from "../interface/pda/index.js";
+import { selectConfidentialEddsaShape } from "../interface/shape.js";
+import { randomBlinding } from "../keypair/bytes.js";
 import { DEFAULT_TREE_ID } from "../interface/tree-slot.js";
 import type { ShieldedAddress } from "../keypair/shielded.js";
 import type { ViewingKey } from "../keypair/viewing-key.js";
 import type { Data } from "../transaction/data.js";
 import { ConfidentialSplit } from "../transaction/instructions/builders.js";
-import { ConfidentialTransfer, type SppProofInputs } from "../transaction/instructions/transact.js";
+import { ConfidentialTransfer, SppProofInputs } from "../transaction/instructions/transact.js";
 import { TransactionError } from "../transaction/error.js";
 import { ProofInputUtxo, type Utxo } from "../transaction/utxo.js";
 import {
@@ -100,6 +102,7 @@ export async function authorizePrivateTransaction(
   setupInstructions: readonly Instruction[] = [],
   approve: ApprovalHandler = approveUnattended,
   context?: RequestContext,
+  inCircuitOwner = false,
 ): Promise<AuthorizedPrivateTransaction> {
   await initializePoseidon();
   const unsignedInputs = transaction._inputs();
@@ -123,6 +126,7 @@ export async function authorizePrivateTransaction(
     inputs,
     setupInstructions,
     context,
+    inCircuitOwner,
   );
 }
 
@@ -152,6 +156,7 @@ async function authorizeWithInputs(
   inputs: readonly ProofInputUtxo[],
   setupInstructions: readonly Instruction[],
   context: RequestContext | undefined,
+  inCircuitOwner: boolean,
 ): Promise<AuthorizedPrivateTransaction> {
   const action = transaction._action();
   let proofInputs: SppProofInputs;
@@ -208,6 +213,7 @@ async function authorizeWithInputs(
     } else {
       transfer.withdraw(action.asset, action.amount, action.target);
     }
+    if (inCircuitOwner) transfer.withConfidentialEddsaShape();
     const prepared = transfer.prepare();
     const encrypted = await withTransactionKey(
       keys,
@@ -239,6 +245,15 @@ async function authorizeWithInputs(
       salt: encrypted.salt,
       payload: encrypted.payload,
     });
+  }
+  if (inCircuitOwner && action.kind === "split") {
+    const shape = selectConfidentialEddsaShape(
+      proofInputs.inputUtxos.length,
+      proofInputs.outputs.length,
+    );
+    const padded = [...proofInputs.inputUtxos];
+    while (padded.length < shape.inputs) padded.push(ProofInputUtxo.dummy(randomBlinding()));
+    proofInputs = new SppProofInputs({ ...proofInputs, inputUtxos: padded });
   }
   const withdrawal = transaction._withdrawal();
   const material = Object.freeze({

@@ -108,7 +108,7 @@ fn every_spend_builder_has_the_exact_account_layout() {
         output_tree,
         owner_signers: vec![owner_signer],
         interface_transfer_accounts: Vec::new(),
-        data: transact_data(CircuitId::ConfidentialEddsa(2, 2, 3), &nullifiers),
+        data: transact_data(CircuitId::ConfidentialSigner(2, 2, 3), &nullifiers),
     }
     .instruction();
     let mut expected_transact = vec![
@@ -264,7 +264,7 @@ fn same_pubkey_is_valid_in_both_tree_slots() {
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
-        data: transact_data(CircuitId::ConfidentialEddsa(0, 0, 3), &[]),
+        data: transact_data(CircuitId::ConfidentialSigner(0, 0, 3), &[]),
     }
     .instruction();
 
@@ -293,7 +293,7 @@ fn transact_cpi_accounts_insert_signer_pdas_before_interface_transfers() {
     let recipient = Pubkey::new_unique();
     let signer_pdas = [Pubkey::new_unique(), Pubkey::new_unique()];
     let nullifiers = [[11u8; 32]];
-    let mut data = transact_data(CircuitId::ConfidentialEddsa(1, 2, 3), &nullifiers);
+    let mut data = transact_data(CircuitId::ConfidentialSigner(1, 2, 3), &nullifiers);
     data.interface_transfers = vec![InterfaceTransfer::SolWithdrawal { amount: 5 }];
     let transact = Transact {
         payer,
@@ -348,7 +348,7 @@ fn transact_builders_lay_out_the_tree_run_and_derive_pdas_per_input_tree() {
     let third_nullifier = [33u8; 32];
 
     let mut data = transact_data(
-        CircuitId::ConfidentialEddsa(3, 2, 3),
+        CircuitId::ConfidentialSigner(3, 2, 3),
         &[first_nullifier, second_nullifier, third_nullifier],
     );
     data.inputs = [

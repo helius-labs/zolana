@@ -64,7 +64,7 @@ function transactData(inputs: readonly InputUtxo[]): TransactInstructionData {
   return {
     expiryUnixTs: 0xffff_ffff_ffff_ffffn,
     privateTxHash: filled(41, 32) as Bytes32,
-    circuit: { kind: "confidentialEddsa", inputs: 2, outputs: 4, publicAssetSlots: 3 },
+    circuit: { kind: "confidentialSigner", inputs: 2, outputs: 4, publicAssetSlots: 3 },
     txViewingPk: filled(3, 33) as Bytes33,
     salt: filled(42, 16) as Bytes16,
     proof: {
@@ -254,7 +254,7 @@ describe("nullifier PDA accounts", () => {
       data: {
         ...transactData(inputs),
         circuit: {
-          kind: "confidentialEddsaCached",
+          kind: "confidentialSignerCached",
           inputs: 2,
           outputs: 4,
           publicAssetSlots: 3,

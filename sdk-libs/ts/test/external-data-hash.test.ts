@@ -115,7 +115,7 @@ describe("encodeTransactInstructionData", () => {
     const instruction: TransactInstructionData = {
       ...PARITY_EXTERNAL_DATA,
       privateTxHash: bytes32(0xc0),
-      circuit: { kind: "confidentialEddsa", inputs: 1, outputs: 2, publicAssetSlots: 3 },
+      circuit: { kind: "confidentialSigner", inputs: 1, outputs: 2, publicAssetSlots: 3 },
       proof: { a: bytes32(0x01), b: sequence(128, 0x02) as Bytes128, c: bytes32(0x03) },
       inputs: [{ nullifierHash: bytes32(0x04), treeIndex: 0 }],
       treeContexts: [{ utxoTreeRootIndex: 6, nullifierTreeRootIndex: 5 }],

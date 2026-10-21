@@ -68,7 +68,11 @@ function fundedWallet(keypair: ShieldedKeypair, asset: Address = SOL_MINT): Wall
   return wallet;
 }
 
-async function authorize(kind: "transfer" | "withdrawal" | "split", amount = 25n) {
+async function authorize(
+  kind: "transfer" | "withdrawal" | "split",
+  amount = 25n,
+  inCircuitOwner = false,
+) {
   const keypair = spendingKeypair();
   const asset = kind === "withdrawal" ? SPL_MINT : SOL_MINT;
   const wallet = fundedWallet(keypair, asset);
@@ -99,7 +103,15 @@ async function authorize(kind: "transfer" | "withdrawal" | "split", amount = 25n
             })
           ).transaction
         : createSplit({ wallet, payer: feePayer, asset, parts: 2 }).transaction;
-  const authorized = await authorizePrivateTransaction(transaction, wallet, keys);
+  const authorized = await authorizePrivateTransaction(
+    transaction,
+    wallet,
+    keys,
+    [],
+    undefined,
+    undefined,
+    inCircuitOwner,
+  );
   const material = authorizedPrivateTransactionMaterial(authorized);
   if (material === undefined) throw new Error("authorization was not minted");
   return { authorized, material, feePayer, keys };
@@ -435,4 +447,16 @@ describe("multi-recipient transfer binding", () => {
       "recipient",
     );
   });
+});
+
+describe("in-circuit owner wallet preparation", () => {
+  it.each(["transfer", "withdrawal", "split"] as const)(
+    "prepares %s with a supported committed shape and preserves its approval",
+    async (kind) => {
+      const { material } = await authorize(kind, 25n, true);
+      expect(material.proofInputs.checkShape()).toEqual({ inputs: 2, outputs: 8 });
+      expect(material.proofInputs.inputUtxos.filter((input) => !input.isDummy())).toHaveLength(1);
+      expect(() => checkAuthorizedBinding(material, mismatch)).not.toThrow();
+    },
+  );
 });

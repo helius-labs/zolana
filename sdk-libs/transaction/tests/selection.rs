@@ -249,3 +249,88 @@ fn a_merge_is_reported_even_when_excluded_utxos_would_cover_the_amount() {
         })
     );
 }
+
+/// Selecting native signers happens before encryption, while padding can still
+/// choose the proof rail's key shape.
+#[test]
+fn transaction_signers_choose_the_rail_before_padding() {
+    use zolana_transaction::instructions::transact::ConfidentialTransaction;
+
+    let owner = keypair(21);
+    let owner_address =
+        Address::new_from_array(owner.signing_pubkey().confidential_view_tag().unwrap());
+    let relayer = Address::new_from_array([22; 32]);
+    let input = wallet_utxo(&owner, Mint::SOL, 10, 0, 1);
+    let build = || {
+        let mut transaction = ConfidentialTransaction::new(vec![input.clone()], relayer).unwrap();
+        transaction
+            .transfer_sol(&owner.shielded_address().unwrap(), 4)
+            .unwrap();
+        transaction
+    };
+    for (signers, expected) in [
+        (vec![relayer], (2, 8)),
+        (vec![relayer, owner_address], (1, 2)),
+    ] {
+        let prepared = build()
+            .with_transaction_signers(&signers)
+            .encrypt(&owner)
+            .unwrap();
+        assert_eq!(
+            (prepared.input_utxos.len(), prepared.output_utxos.len()),
+            expected
+        );
+    }
+    let default = build().encrypt(&owner).unwrap();
+    assert_eq!(
+        (default.input_utxos.len(), default.output_utxos.len()),
+        (1, 2)
+    );
+}
+
+#[test]
+fn selecting_eddsa_refuses_an_already_padded_signer_only_shape() {
+    use zolana_transaction::instructions::transact::{ConfidentialTransaction, Shape};
+
+    let owner = keypair(23);
+    let relayer = Address::new_from_array([24; 32]);
+    let mut transaction =
+        ConfidentialTransaction::new(vec![wallet_utxo(&owner, Mint::SOL, 10, 0, 1)], relayer)
+            .unwrap();
+    transaction
+        .transfer_sol(&owner.shielded_address().unwrap(), 4)
+        .unwrap();
+    transaction
+        .pad_utxos(Shape::IN1_OUT2, &owner.shielded_address().unwrap())
+        .unwrap();
+    assert!(matches!(
+        transaction
+            .with_transaction_signers(&[relayer])
+            .encrypt(&owner),
+        Err(TransactionError::UnsupportedShape { n_in: 1, n_out: 2 })
+    ));
+}
+
+#[test]
+fn custom_ring_shape_selection_keeps_its_existing_keys() {
+    use zolana_transaction::instructions::transact::ConfidentialTransaction;
+
+    let owner = keypair(25);
+    let payer = Address::new_from_array([26; 32]);
+    let ring = Address::new_from_array([27; 32]);
+    let mut transaction = ConfidentialTransaction::new_with_ring(
+        vec![wallet_utxo(&owner, Mint::SOL, 10, 0, 1)],
+        payer,
+        ring,
+    )
+    .unwrap()
+    .with_transaction_signers(&[payer]);
+    transaction
+        .transfer_sol(&owner.shielded_address().unwrap(), 4)
+        .unwrap();
+    let prepared = transaction.encrypt(&owner).unwrap();
+    assert_eq!(
+        (prepared.input_utxos.len(), prepared.output_utxos.len()),
+        (1, 2)
+    );
+}

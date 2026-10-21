@@ -185,7 +185,16 @@ impl Shape {
 
     /// Whether the SPP prover has keys for this shape, see [`SPP_SUPPORTED_SHAPES`].
     pub const fn is_supported(self) -> bool {
-        let mut shapes: &[Shape] = &SPP_SUPPORTED_SHAPES;
+        self.is_listed(&SPP_SUPPORTED_SHAPES)
+    }
+
+    /// Whether the in-circuit EdDSA confidential rail has keys for this shape,
+    /// see [`CONFIDENTIAL_EDDSA_SHAPES`].
+    pub const fn is_confidential_eddsa(self) -> bool {
+        self.is_listed(&CONFIDENTIAL_EDDSA_SHAPES)
+    }
+
+    const fn is_listed(self, mut shapes: &[Shape]) -> bool {
         while let Some((shape, rest)) = shapes.split_first() {
             if shape.n_inputs == self.n_inputs && shape.n_outputs == self.n_outputs {
                 return true;
@@ -214,6 +223,34 @@ impl Shape {
 
 /// Square widths the ring authority rail has keys for, ascending.
 pub const RING_AUTHORITY_WIDTHS: [usize; 2] = [2, 4];
+
+/// Shapes the in-circuit EdDSA confidential rail has keys for, ordered by
+/// proving cost.
+pub const CONFIDENTIAL_EDDSA_SHAPES: [Shape; 12] = [
+    Shape::IN2_OUT8,
+    Shape::IN2_OUT16,
+    Shape::IN4_OUT8,
+    Shape::IN4_OUT16,
+    Shape::IN8_OUT8,
+    Shape::IN8_OUT16,
+    Shape::IN16_OUT8,
+    Shape::new(16, 16),
+    Shape::new(24, 8),
+    Shape::new(24, 16),
+    Shape::new(48, 8),
+    Shape::new(48, 16),
+];
+
+/// The rail's buffer bounds hold for every shape, or the build fails.
+const _: () = {
+    let mut shapes: &[Shape] = &CONFIDENTIAL_EDDSA_SHAPES;
+    while let Some((shape, rest)) = shapes.split_first() {
+        assert!(shape.signer_width() <= MAX_SIGNERS);
+        assert!(shape.n_inputs <= crate::MAX_TRANSACT_INPUTS);
+        assert!(shape.n_outputs <= crate::MAX_OUTPUTS);
+        shapes = rest;
+    }
+};
 
 /// Distinct addresses one transaction can carry, `solana_message::v1::MAX_ADDRESSES`.
 pub const MAX_TRANSACTION_ADDRESSES: usize = 64;

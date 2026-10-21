@@ -322,7 +322,7 @@ describe("a transfer reading its input from a cache", () => {
     const { payload } = assembled.proverInputs;
 
     expect(assembled.instructionData.circuit).toEqual({
-      kind: "confidentialEddsaCached",
+      kind: "confidentialSignerCached",
       inputs: 1,
       outputs: 2,
       publicAssetSlots: 3,
@@ -496,7 +496,7 @@ describe("a transfer writing its outputs to a cache", () => {
     const payload = cached.proverInputs.payload;
 
     expect(cached.instructionData.circuit).toMatchObject({
-      kind: "confidentialEddsaCached",
+      kind: "confidentialSignerCached",
       cacheAccess: { readBitmap: 0n, writeSlots: writeSlots(pairs) },
     });
     expect(payload.externalDataHash).toBe(
@@ -843,7 +843,7 @@ describe("ZolanaClient.proveTransact reading from a cache", () => {
         expect(getNonInclusionProofs).not.toHaveBeenCalled();
       }
       expect(data.circuit).toMatchObject({
-        kind: "confidentialEddsaCached",
+        kind: "confidentialSignerCached",
         cacheAccess: { readBitmap: 1n << 3n, writeSlots: NO_CACHE_WRITES },
       });
       expect(data.treeContexts).toEqual([

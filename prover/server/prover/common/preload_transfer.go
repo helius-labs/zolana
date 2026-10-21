@@ -8,7 +8,8 @@ import (
 
 var transferPreloadCircuits = []CircuitType{
 	TransferConfidentialCircuitType, TransferRingCircuitType, TransferRingAuthorityCircuitType,
-	TransferAnonymousRingEddsaCircuitType, MergeCircuitType, MergeRingCircuitType,
+	TransferAnonymousRingEddsaCircuitType, TransferConfidentialEddsaCircuitType,
+	MergeCircuitType, MergeRingCircuitType,
 }
 
 // TransferCircuitTypes returns the shared transfer/merge routing and preload set.
@@ -29,7 +30,7 @@ func (c CircuitType) IsTransfer() bool {
 func (m *LazyKeyManager) transferPreloadPaths(circuits []CircuitType) []string {
 	var paths []string
 	for _, circuit := range circuits {
-		for _, shape := range transferSupportedShapes {
+		for _, shape := range transferShapes(circuit) {
 			if path := m.determineTransferKeyPath(circuit, shape[0], shape[1]); path != "" {
 				paths = append(paths, path)
 			}

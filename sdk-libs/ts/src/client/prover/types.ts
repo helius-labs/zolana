@@ -10,6 +10,7 @@ import type {
   TreeHeadRoots,
 } from "../../interface/types.js";
 import type { TreeSlot } from "../../interface/tree-slot.js";
+import type { ShieldedPublicKey } from "../../keypair/public-key.js";
 import type { SpendProof } from "../rpc.js";
 
 export type Shape = Readonly<{ inputs: number; outputs: number }>;
@@ -117,16 +118,58 @@ export interface MergeInputs {
   readonly ringProgramId: Field;
 }
 
-export type ProverInputs = Readonly<{
-  circuit: "transfer" | "transferRing" | "transferRingAuthority";
-  payload: TransferInputs;
-}>;
+/**
+ * One owner's Ed25519 signature over the transact message digest, the
+ * authorization a `confidentialEddsa` proof verifies in place of that owner's
+ * transaction signature.
+ */
+export interface EddsaOwnerAuthorization {
+  readonly ownerPublicKey: Bytes32;
+  readonly ownerSignature: Bytes64;
+  /** `sha256(privateTxHash || externalDataHash)`, the message the owner signed. */
+  readonly messageDigest: Bytes32;
+}
 
-/** Selects member authorization or the ring authority statement. */
+/** The signer-rail inputs plus the in-circuit owner's authorization. */
+export interface ConfidentialEddsaTransferInputs extends TransferInputs {
+  readonly ownerAuthorization: EddsaOwnerAuthorization;
+}
+
+export type ProverInputs =
+  | Readonly<{
+      circuit: "transfer" | "transferRing" | "transferRingAuthority";
+      payload: TransferInputs;
+    }>
+  | Readonly<{ circuit: "transferConfidentialEddsa"; payload: ConfidentialEddsaTransferInputs }>;
+
+/**
+ * The owner that authorizes a `confidentialEddsa` transfer inside the proof:
+ * it signs the transact message digest with its Ed25519 key and signs no
+ * transaction. A `ShieldedKeypair` answers both operations; a wallet-backed
+ * signer may answer them asynchronously.
+ */
+export interface TransactOwnerSigner {
+  signingPublicKey(): ShieldedPublicKey | Promise<ShieldedPublicKey>;
+  sign(message: Uint8Array): Bytes64 | Promise<Bytes64>;
+}
+
+/**
+ * Selects member authorization, the ring authority statement, or the default
+ * ring with one owner's signature verified inside the proof, so a payer that
+ * owns nothing can send the transaction.
+ */
 export type TransferCircuit =
   | Readonly<{ kind: "confidential" }>
+  | Readonly<{ kind: "confidentialEddsa"; authorization: EddsaOwnerAuthorization }>
   | Readonly<{ kind: "ring"; ring: Address }>
   | Readonly<{ kind: "ringAuthority"; ring: Address }>;
+
+/**
+ * A transact proof as the instruction carries it, with the BSB22 commitment
+ * a committed rail's proof adds. `CompressedProof` is one.
+ */
+export type ProvedTransactProof = TransactProof &
+  Readonly<{ commitment?: Bytes32; commitmentPok?: Bytes32 }>;
 
 /** The tree history entries the ring statement binds. */
 export type RingTransactRoots = TreeHeadRoots;
@@ -151,7 +194,8 @@ export interface AssembledTransfer {
   readonly rootIndexes: InputRootIndexes;
   /** The input tree's roots and positions, the pair the ring statement binds. */
   readonly roots: RingTransactRoots;
-  withProof(proof: TransactProof): TransactInstructionData;
+  /** A `confidentialEddsa` selector takes the proof's commitment; another rail refuses one. */
+  withProof(proof: ProvedTransactProof): TransactInstructionData;
 }
 
 /** Rust `POLICY_INPUT_SLOTS` and `POLICY_OUTPUT_SLOTS`, the ring circuit's slot counts. */

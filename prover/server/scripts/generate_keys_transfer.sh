@@ -97,4 +97,31 @@ if [[ "${SKIP_AUTHORITY_KEYS:-0}" != "1" ]]; then
     done
 fi
 
+# The in-circuit EdDSA confidential rail (transfer_confidential_eddsa) has its
+# own shape set. Keep in sync with CONFIDENTIAL_EDDSA_SHAPES.
+confidential_eddsa_shapes=(
+    "2 8"
+    "2 16"
+    "4 8"
+    "4 16"
+    "8 8"
+    "8 16"
+    "16 8"
+    "16 16"
+    "24 8"
+    "24 16"
+    "48 8"
+    "48 16"
+)
+for shape in "${confidential_eddsa_shapes[@]}"; do
+    read -r n_inputs n_outputs <<<"$shape"
+    output="${keys_dir}/transfer_confidential_eddsa_${n_inputs}_${n_outputs}.key"
+    echo "Generating transfer-confidential-eddsa ${n_inputs}x${n_outputs} -> ${output}"
+    ./light-prover setup-transfer \
+        --circuit "transfer-confidential-eddsa" \
+        --n-inputs "$n_inputs" \
+        --n-outputs "$n_outputs" \
+        --output "$output"
+done
+
 echo "Done. Transfer proving keys written to ${keys_dir}"

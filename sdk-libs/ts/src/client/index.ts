@@ -25,11 +25,13 @@ export type {
   IndexedTree,
   ProofResolution,
   ResolvedProofTree,
+  PreparedConfidentialEddsaTransferInputs,
   PreparedTransferInput,
   PreparedTransferInputs,
   PreparedMergeInputs,
   ProofReader,
   ProofService,
+  ProvenConfidentialEddsaTransact,
   ProvenRingTransact,
   Prover,
   TransactionAssembler,
@@ -81,7 +83,7 @@ export type {
   TeePolicy,
 } from "./prover/tee/registry.js";
 export type { AttestedProver } from "./prover/tee/verify.js";
-export { ringOpenings } from "./prover/assembly.js";
+export { ringOpenings, signTransactMessage, transactMessageDigest } from "./prover/assembly.js";
 export type { RingOpenings } from "./prover/assembly.js";
 export { CUSTOM_RING_PROOF_LENGTH, compressProof, parseProof } from "./prover/proof.js";
 export {
@@ -99,6 +101,8 @@ export {
 export type {
   CircuitUtxo,
   CompressedProof,
+  ConfidentialEddsaTransferInputs,
+  EddsaOwnerAuthorization,
   CustomRingBaseProofRequest,
   CustomRingDepositProofRequest,
   CustomRingOpening,
@@ -115,8 +119,10 @@ export type {
   Field,
   MergeInputs,
   Proof,
+  ProvedTransactProof,
   ProverInputs,
   RingTransactRoots,
+  TransactOwnerSigner,
   TransferInput,
   TransferInputs,
   TransferOutput,
