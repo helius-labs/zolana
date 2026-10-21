@@ -1,5 +1,6 @@
 export { initializePoseidon, isPoseidonInitialized } from "../hasher/index.js";
 export { Data } from "./data.js";
+export { Mint } from "./asset.js";
 export type { DataRecord } from "./data.js";
 export { formatAmount, parseAmount } from "./amount.js";
 export {
@@ -71,10 +72,13 @@ export type {
 export {
   AssetRegistry,
   LocalShieldedKeys,
+  ProgramOwner,
   SOL_ASSET_ID,
   SOL_MINT,
   Wallet,
   checkKeysIdentity,
+  bindProgramTransaction,
+  decodeProgramTransaction,
   decryptToBalances,
   decryptTransactions,
   deserializeWallet,
@@ -84,6 +88,7 @@ export {
   encryptSplit,
   openSealedMessage,
   serializeWallet,
+  toProgramWalletUtxo,
 } from "./wallet/index.js";
 export {
   approveIntent,
@@ -98,6 +103,7 @@ export type {
   ApprovalRequest,
   AssetBalance,
   AuditWitness,
+  DecodedProgramTransaction,
   DecryptLabel,
   DecryptRequest,
   DeriveRequest,
@@ -112,6 +118,21 @@ export type {
   PrivateTransactionId,
   PrivateTransactionKind,
   PrivateTransactionStatus,
+  ProgramData,
+  ProgramDataRecord,
+  ProgramEncryptOptions,
+  ProgramFinalizedTransaction,
+  ProgramMint,
+  ProgramOwnerSeed,
+  ProgramOwnerTag,
+  ProgramProofInputUtxo,
+  ProgramProofOutputUtxo,
+  ProgramResolvedOwnerTag,
+  ProgramSettlementTransfer,
+  ProgramTransactionKeys,
+  ProgramTransaction,
+  ProgramUtxo,
+  ProgramWalletUtxo,
   RingBalance,
   SealedMessageInput,
   ShieldedKeys,

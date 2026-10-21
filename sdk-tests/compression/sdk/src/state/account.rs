@@ -1,34 +1,46 @@
 use anyhow::Result;
-use borsh::BorshDeserialize;
 pub use compression_example_program::state::AccountState;
 use solana_address::Address;
 use zolana_keypair::{PublicKey, ShieldedAddress, ViewingKey};
-use zolana_program::compression::CompressedAccountData;
+use zolana_program::hasher::{unique_data_hash, DataHasher};
 use zolana_transaction::{Data, DataRecord, Mint, SppProofOutputUtxo, Utxo};
 
-use crate::{err, shared::zero_nullifier_key};
+use crate::shared::zero_nullifier_key;
 
-pub fn decode_state(data: &[u8]) -> Result<AccountState> {
-    AccountState::try_from_slice(data).map_err(err)
+pub fn decode_state(data: &[u8]) -> Result<([u8; 32], AccountState)> {
+    let (address, encoded) = data
+        .split_first_chunk::<32>()
+        .ok_or_else(|| anyhow::anyhow!("unique UTXO payload has no address"))?;
+    Ok((*address, borsh::from_slice(encoded)?))
 }
 
 #[derive(Clone, Debug)]
 pub struct AccountUtxo {
     pub pda: Address,
+    pub address: [u8; 32],
     pub state: AccountState,
+    pub blinding: [u8; 32],
 }
 
 impl AccountUtxo {
+    pub fn data_hash(&self) -> Result<[u8; 32]> {
+        Ok(unique_data_hash(&self.address, &self.state.hash()?)?)
+    }
+
+    pub fn utxo_data(&self) -> Result<Vec<u8>> {
+        let mut data = self.address.to_vec();
+        data.extend(borsh::to_vec(&self.state)?);
+        Ok(data)
+    }
+
     pub fn utxo(&self) -> Result<Utxo> {
         Ok(Utxo {
             owner: PublicKey::from_pda(&self.pda),
             asset: Mint::SOL,
             amount: 0,
-            blinding: self.state.blinding,
+            blinding: self.blinding,
             ring_program_id: None,
-            data: Data::new(vec![DataRecord::UtxoData(
-                borsh::to_vec(&self.state).map_err(err)?,
-            )]),
+            data: Data::new(vec![DataRecord::UtxoData(self.utxo_data()?)]),
         })
     }
 
@@ -36,8 +48,8 @@ impl AccountUtxo {
         Ok(SppProofOutputUtxo {
             asset: Mint::SOL,
             amount: 0,
-            blinding: self.state.blinding,
-            data_hash: Some(self.state.data_hash().map_err(err)?),
+            blinding: self.blinding,
+            data_hash: Some(self.data_hash()?),
             owner_address: Some(pda_shielded_address(&self.pda)?),
             owner_tag: Some(self.pda.to_bytes()),
             data: self.utxo()?.data,

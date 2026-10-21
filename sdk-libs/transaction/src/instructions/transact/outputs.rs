@@ -79,11 +79,10 @@ impl ConfidentialTransaction {
 
     /// Pad like [`Self::pad_utxos`] for a transaction whose outputs a circuit
     /// fixes: no output is added beyond nonzero change. The circuit requires
-    /// every dummy tag to name an owner signer or a real output owner, so a
-    /// transaction naming no such participant (for example a self-paid full
-    /// withdrawal) is refused with
-    /// [`TransactionError::NoDummyOwnerTagParticipant`] instead of keeping a
-    /// zero-amount change.
+    /// every published dummy tag to name an owner signer or a real output owner.
+    /// With published dummy padding, a transaction naming no such participant
+    /// is refused with [`TransactionError::NoDummyOwnerTagParticipant`] instead
+    /// of keeping a zero-amount change. Compact padding needs no owner tag.
     pub fn pad_utxos_with_empty_outputs(
         &mut self,
         shape: Shape,
@@ -136,19 +135,24 @@ impl ConfidentialTransaction {
         }
 
         // 4. Check output capacity, append dummy outputs and verify balance.
-        let dummy_owner_tag = match self.dummy_owner_tag(&outputs, sender)? {
-            Some(tag) => tag,
-            // A circuit fixes the outputs, so no change can carry the tag.
-            None if fixed_outputs => return Err(TransactionError::NoDummyOwnerTagParticipant),
-            None => {
-                outputs.push(SppProofOutputUtxo {
-                    owner_address: Some(*sender),
-                    asset: Mint::SOL,
-                    ring_program_id: self.ring_program_id,
-                    ..Default::default()
-                });
-                sender.signing_pubkey.confidential_view_tag()?
-            }
+        let dummy_owner_tag = if self.compact_padding {
+            None
+        } else {
+            Some(match self.dummy_owner_tag(&outputs, sender)? {
+                Some(tag) => tag,
+                // Published padding must name a participant. Fixed outputs
+                // cannot add change solely to carry that participant's tag.
+                None if fixed_outputs => return Err(TransactionError::NoDummyOwnerTagParticipant),
+                None => {
+                    outputs.push(SppProofOutputUtxo {
+                        owner_address: Some(*sender),
+                        asset: Mint::SOL,
+                        ring_program_id: self.ring_program_id,
+                        ..Default::default()
+                    });
+                    sender.signing_pubkey.confidential_view_tag()?
+                }
+            })
         };
         if outputs.len() > shape.n_outputs() {
             return Err(TransactionError::TooManyOutputsForShape {
@@ -156,11 +160,13 @@ impl ConfidentialTransaction {
                 max: shape.n_outputs(),
             });
         }
-        // Empty outputs added with `add_empty_output_utxo` publish the same tag
-        // as the padding after them.
-        for output in outputs.iter_mut() {
-            if output.is_dummy() && !output.compact && output.owner_tag.is_none() {
-                output.owner_tag = Some(dummy_owner_tag);
+        // Explicitly empty slots use the same padding mode as appended slots.
+        for output in outputs.iter_mut().filter(|output| output.is_dummy()) {
+            if self.compact_padding {
+                output.compact = true;
+                output.owner_tag = None;
+            } else if !output.compact && output.owner_tag.is_none() {
+                output.owner_tag = dummy_owner_tag;
             }
         }
         outputs.resize(
@@ -174,7 +180,7 @@ impl ConfidentialTransaction {
             } else {
                 SppProofOutputUtxo {
                     ring_program_id: self.ring_program_id,
-                    owner_tag: Some(dummy_owner_tag),
+                    owner_tag: dummy_owner_tag,
                     ..Default::default()
                 }
             },

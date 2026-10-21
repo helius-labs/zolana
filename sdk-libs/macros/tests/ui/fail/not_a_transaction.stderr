@@ -1,0 +1,17 @@
+error[E0271]: type mismatch resolving `<StandaloneCircuit as Circuit>::Output == CheckedTransaction`
+  --> tests/ui/fail/not_a_transaction.rs:23:23
+   |
+23 |     require_program::<Standalone>();
+   |                       ^^^^^^^^^^ type mismatch resolving `<StandaloneCircuit as Circuit>::Output == CheckedTransaction`
+   |
+note: expected this to be `CheckedTransaction`
+  --> tests/ui/fail/not_a_transaction.rs:11:19
+   |
+11 |     type Output = ();
+   |                   ^^
+   = note: required for `Standalone` to implement `ZkProgramCircuit`
+note: required by a bound in `require_program`
+  --> tests/ui/fail/not_a_transaction.rs:19:23
+   |
+19 | fn require_program<P: ZkProgramCircuit>() {}
+   |                       ^^^^^^^^^^^^^^^^ required by this bound in `require_program`

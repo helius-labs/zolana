@@ -13,6 +13,7 @@ import { treeAddress } from "../src/interface/pda/index.js";
 import { bigIntToBytes, bytes16, bytes32 } from "../src/keypair/bytes.js";
 import { ShieldedKeypair, ShieldedPublicKey } from "../src/keypair/index.js";
 import {
+  AssetRegistry,
   Data,
   type InputUtxo,
   PreparedMerge,
@@ -24,9 +25,11 @@ import {
   createExternalData,
   createInputUtxo,
   createProofOutput,
+  decodeProgramTransaction,
   outputBlindingSeed,
   privateTxHash,
   transactOutputBlinding,
+  type ProgramFinalizedTransaction,
 } from "../src/transaction/index.js";
 import { proofFor } from "./helpers/proofs.js";
 
@@ -142,6 +145,68 @@ describe("reserved address inputs", () => {
       bytesToBigInt(proofInputs.privateTxHash()),
     );
     expect(result.proverInputs.payload.inputFlags).toBe(1n);
+  });
+
+  it("decodes native reserved addresses and omits compact ciphertexts", async () => {
+    const { value, keypair, proofInputs } = nativeFixture();
+    const decoded = await decodeProgramTransaction(value, new AssetRegistry());
+    const viewingKey = keypair.viewingKey();
+    let encrypted: SppProofInputs;
+    try {
+      encrypted = decoded.encryptWithKeys(viewingKey);
+    } finally {
+      viewingKey.destroy();
+    }
+    expect({
+      address: decoded.inputs[0]?.isAddress(),
+      compactInput: decoded.inputs[1]?.isCompact(),
+      compactOutput: decoded.outputs[1]?.isCompact(),
+      outputHashes: encrypted.externalData.outputs.map((output) => output.utxoHash),
+      ownerTags: encrypted.externalData.resolvedOwnerTags,
+      privateHash: encrypted.privateTxHash(),
+    }).toEqual({
+      address: true,
+      compactInput: true,
+      compactOutput: true,
+      outputHashes: [decoded.outputHashes[0]],
+      ownerTags: [decoded.resolvedOwnerTags[0]],
+      privateHash: proofInputs.privateTxHash(),
+    });
+  });
+
+  it.each([
+    [
+      "nullifier public key",
+      { nullifierPubkey: zero() },
+      { code: "TRANSACTION_ADDRESS_INPUT_NULLIFIER_PUBLIC_KEY_MISMATCH" },
+    ],
+    ["nullifier", { nullifier: zero() }, { code: "TRANSACTION_ADDRESS_INPUT_NULLIFIER_MISMATCH" }],
+    [
+      "data hash",
+      { dataHash: zero() },
+      { code: "TRANSACTION_ADDRESS_INPUT_NONEMPTY_FIELD", details: { field: "data_hash" } },
+    ],
+    [
+      "ring hash",
+      { ringDataHash: zero() },
+      { code: "TRANSACTION_ADDRESS_INPUT_NONEMPTY_FIELD", details: { field: "ring_data_hash" } },
+    ],
+    ["cache slot", { cacheSlot: 0 }, { code: "TRANSACTION_ADDRESS_INPUT_CACHED" }],
+    [
+      "leaf index",
+      { leafIndex: 1n },
+      { code: "TRANSACTION_ADDRESS_INPUT_NONEMPTY_FIELD", details: { field: "leaf_index" } },
+    ],
+    ["compact padding", { compact: true }, { code: "TRANSACTION_ADDRESS_INPUT_COMPACT" }],
+  ] as const)("refuses native addresses with invalid %s", async (_, change, error) => {
+    const { value } = nativeFixture();
+    const [first, second] = value.inputUtxos;
+    await expect(
+      decodeProgramTransaction(
+        { ...value, inputUtxos: [{ ...first, ...change }, second] },
+        new AssetRegistry(),
+      ),
+    ).rejects.toMatchObject(error);
   });
 
   // Each case breaks exactly one field of an otherwise valid address input,
@@ -522,6 +587,52 @@ function fixture() {
     outputTreeId: 0,
   });
   return { keypair, reserved, padding, proofInputs };
+}
+
+function nativeFixture() {
+  const base = fixture();
+  const { proofInputs, keypair } = base;
+  const value: ProgramFinalizedTransaction = {
+    inputUtxos: proofInputs.inputUtxos.map((input) => ({
+      utxo: {
+        owner: input.utxo.owner.toBytes(),
+        asset: { asset: SOL_MINT, assetId: 1n },
+        amount: 0n,
+        blinding: input.utxo.blinding,
+      },
+      nullifierPubkey: input.nullifierPublicKey,
+      utxoHash: input.hash(),
+      nullifier: input.nullifier(),
+      treeId: 0,
+      leafIndex: 0n,
+      ...(input.isAddress() ? { address: true } : {}),
+      ...(input.isCompact() ? { compact: true } : {}),
+    })),
+    outputUtxos: proofInputs.outputs.map((output) => ({
+      asset: { asset: SOL_MINT, assetId: 1n },
+      amount: 0n,
+      blinding: output.blinding,
+      ...(output.ownerAddress === undefined ? {} : { ownerAddress: output.ownerAddress.toBytes() }),
+      ...(output.isCompact() ? { compact: true } : {}),
+    })),
+    outputHashes: proofInputs.outputs.map((output) => output.hash(0)),
+    ownerTags: [
+      {
+        tag: { kind: "inline", value: keypair.signingPublicKey().confidentialViewTag() },
+        resolved: keypair.signingPublicKey().confidentialViewTag(),
+      },
+      { tag: { kind: "inline", value: zero() }, resolved: zero() },
+    ],
+    interfaceTransfers: [],
+    firstNullifier: proofInputs.firstNullifier(),
+    blindingSeed: proofInputs.blindingSeed,
+    privateTxBlinding: proofInputs.privateTxBlinding(),
+    paddingIndependentPrivateTxHash: proofInputs.privateTxHash(),
+    outputTreeId: 0,
+    payer: proofInputs.payer,
+    sender: keypair.shieldedAddress().toBytes(),
+  };
+  return { ...base, value };
 }
 
 function nonInclusion(input: ProofInputUtxo): NonInclusionProof {

@@ -10,7 +10,7 @@ use zolana_interface::{
 };
 use zolana_keypair::NullifierKey;
 use zolana_program::{
-    compression::{CompressedAccount, SppTransactCpi, ACCOUNT_BLINDING_SEED},
+    program::{SppTransactCpi, UniqueDataUtxo, ACCOUNT_BLINDING_SEED},
     TransactExternalData,
 };
 use zolana_transaction::{
@@ -68,9 +68,11 @@ pub fn external_data(output_hash: [u8; 32], pda: &Address, payload: Vec<u8>) -> 
 
 /// The transaction the program builds for one write to `pda`'s account, built
 /// here with the same `SppTransactCpi`: the new state as the program publishes
-/// it, holding the blinding the builder derives for it, and the hashes the
+/// it, with its address and the derived blinding kept as metadata, and the hashes the
 /// proof binds. The proof is a placeholder; it enters none of them.
 pub struct ProgramTransaction {
+    pub address: [u8; 32],
+    pub blinding: [u8; 32],
     pub state: AccountState,
     pub output_hash: [u8; 32],
     pub output_data: Vec<u8>,
@@ -81,15 +83,18 @@ pub struct ProgramTransaction {
 impl ProgramTransaction {
     pub fn build(
         pda: &Address,
-        account: CompressedAccount<'_, AccountState>,
+        account: UniqueDataUtxo<'_, AccountState>,
         output_tree_id: u16,
     ) -> Result<Self> {
+        let first_nullifier = *account.input_nullifier();
+        let seed = derive_output_blinding_seed(&first_nullifier, &ACCOUNT_BLINDING_SEED)?;
+        let blinding = derive_transact_output_blinding(&first_nullifier, &seed, 0)?;
         let ix = SppTransactCpi::new(TransactProof {
             a: [0u8; 32],
             b: [0u8; 128],
             c: [0u8; 32],
         })
-        .with_compressed_account(account)
+        .with_unique_data_utxo(account)
         .map_err(err)?
         .into_ix_data(output_tree_id)
         .map_err(err)?;
@@ -109,8 +114,11 @@ impl ProgramTransaction {
         let external_data_hash = TransactExternalData::from(&ix)
             .hash(TRANSACT, &[], &[pda.to_bytes()])
             .map_err(err)?;
+        let (address, state) = decode_state(&state)?;
         Ok(Self {
-            state: decode_state(&state)?,
+            address,
+            blinding,
+            state,
             output_hash: output.utxo_hash,
             output_data,
             private_tx_hash: ix.private_tx_hash,

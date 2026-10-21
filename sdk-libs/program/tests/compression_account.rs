@@ -2,8 +2,9 @@
 
 use std::collections::HashSet;
 
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::BorshDeserialize;
 use pinocchio::Address;
+use zolana_client::ProofInputUtxo;
 use zolana_hasher::{primitives::right_align, Hasher, Poseidon};
 use zolana_interface::{
     event::OutputDataEncoding,
@@ -12,12 +13,14 @@ use zolana_interface::{
     },
     N_PUBLIC_SLOTS,
 };
-use zolana_program::compression::{
-    AddressSeed, CompressedAccount, CompressedAccountData, CompressedAccountError,
-    CompressedAccountMeta, DataUtxo, NewAddress, PdaOwner, SppTransactCpi, ACCOUNT_BLINDING_SEED,
+use zolana_program::hasher::{unique_data_hash, DataHasher};
+use zolana_program::program::{
+    AddressSeed, CompressedAccountError, NewAddress, PdaOwner, SppTransactCpi, UniqueDataUtxo,
+    UtxoMeta, ACCOUNT_BLINDING_SEED,
 };
+use zolana_transaction::SOL_MINT;
 
-const ADDRESS_TREE_ID: u16 = 1;
+const ADDRESS_TREE_ID: u16 = zolana_program::ADDRESS_TREE_ID;
 const STATE_TREE_ID: u16 = 2;
 const OUTPUT_TREE_ID: u16 = 4;
 const ADDRESS_CONTEXT: TreeContext = TreeContext {
@@ -29,51 +32,47 @@ const STATE_CONTEXT: TreeContext = TreeContext {
     nullifier_tree_root_index: 8,
 };
 
-/// A state that stores its address and blinding, as the trait asks.
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Default, PartialEq, Eq)]
+/// Application state contains no address or UTXO blinding.
+#[derive(borsh::BorshSerialize, borsh::BorshDeserialize, Clone, Debug, Default, PartialEq, Eq)]
 struct CounterState {
-    address: [u8; 32],
     count: u8,
-    blinding: [u8; 32],
 }
 
-impl CompressedAccountData for CounterState {
-    fn data_hash(&self) -> Result<[u8; 32], CompressedAccountError> {
-        if self.count == 0 {
-            return Ok([0u8; 32]);
-        }
-        Ok(Poseidon::hashv(&[
-            &self.address,
-            &right_align(&[self.count]),
-            &self.blinding,
-        ])?)
+impl DataHasher for CounterState {
+    fn hash(&self) -> Result<[u8; 32], zolana_hasher::HasherError> {
+        Poseidon::hashv(&[&right_align(b"COUNTER"), &right_align(&[self.count])])
     }
+}
 
-    fn address_mut(&mut self) -> &mut [u8; 32] {
-        &mut self.address
-    }
-
-    fn blinding_mut(&mut self) -> &mut [u8; 32] {
-        &mut self.blinding
-    }
+fn expected_hash(
+    owner: &PdaOwner,
+    address: &[u8; 32],
+    state: &CounterState,
+    blinding: &[u8; 32],
+    tree_id: u16,
+) -> [u8; 32] {
+    ProofInputUtxo::new(*owner.owner_hash(), &SOL_MINT, 0, blinding, tree_id)
+        .unwrap()
+        .with_data_hash(unique_data_hash(address, &state.hash().unwrap()).unwrap())
+        .hash()
+        .unwrap()
 }
 
 fn owner(byte: u8) -> PdaOwner {
     PdaOwner::new(&Address::new_from_array([byte; 32])).unwrap()
 }
 
-fn meta(tree_context: TreeContext) -> CompressedAccountMeta {
-    CompressedAccountMeta {
+fn meta(tree_context: TreeContext) -> UtxoMeta {
+    UtxoMeta {
         address: right_align(&[6u8]),
         blinding: right_align(&[5u8]),
         tree_context,
     }
 }
 
-fn create(owner: &PdaOwner, count: u8) -> CompressedAccount<'_, CounterState> {
-    let address = NewAddress::derive(owner, AddressSeed::owner(owner), ADDRESS_TREE_ID).unwrap();
-    let mut account: CompressedAccount<'_, CounterState> =
-        CompressedAccount::new_init(owner, address, ADDRESS_CONTEXT);
+fn create(owner: &PdaOwner, count: u8) -> UniqueDataUtxo<'_, CounterState> {
+    let mut account: UniqueDataUtxo<'_, CounterState> =
+        UniqueDataUtxo::new_init(owner, AddressSeed::owner(owner), ADDRESS_CONTEXT).unwrap();
     account.count = count;
     account
 }
@@ -83,13 +82,12 @@ fn update(
     tree_context: TreeContext,
     current_count: u8,
     new_count: u8,
-) -> CompressedAccount<'_, CounterState> {
-    let mut account = CompressedAccount::new_mut(
+) -> UniqueDataUtxo<'_, CounterState> {
+    let mut account = UniqueDataUtxo::new_mut(
         owner,
         &meta(tree_context),
         CounterState {
             count: current_count,
-            ..CounterState::default()
         },
         STATE_TREE_ID,
     )
@@ -107,13 +105,13 @@ fn proof() -> TransactProof {
 }
 
 fn build(
-    accounts: Vec<CompressedAccount<'_, CounterState>>,
+    accounts: Vec<UniqueDataUtxo<'_, CounterState>>,
 ) -> Result<TransactIxData, CompressedAccountError> {
     accounts
         .into_iter()
         .try_fold(
             SppTransactCpi::new(proof()),
-            SppTransactCpi::with_compressed_account,
+            SppTransactCpi::with_unique_data_utxo,
         )?
         .into_ix_data(OUTPUT_TREE_ID)
 }
@@ -137,7 +135,7 @@ fn circuit_output_blinding(first_nullifier: &[u8; 32], slot: u32) -> [u8; 32] {
 }
 
 /// The states the transaction publishes, decoded from its output data.
-fn published_states(ix: &TransactIxData) -> Vec<CounterState> {
+fn published_states(ix: &TransactIxData) -> Vec<([u8; 32], CounterState)> {
     ix.outputs
         .iter()
         .map(|output| {
@@ -146,7 +144,8 @@ fn published_states(ix: &TransactIxData) -> Vec<CounterState> {
             else {
                 panic!("output data is not plaintext");
             };
-            CounterState::try_from_slice(&state).unwrap()
+            let (address, state) = state.split_first_chunk::<32>().unwrap();
+            (*address, CounterState::try_from_slice(state).unwrap())
         })
         .collect()
 }
@@ -154,17 +153,17 @@ fn published_states(ix: &TransactIxData) -> Vec<CounterState> {
 #[test]
 fn new_init_starts_from_the_default_state_at_the_address() {
     let owner = owner(4);
-    let address = NewAddress::derive(&owner, AddressSeed::owner(&owner), ADDRESS_TREE_ID).unwrap();
-    let account: CompressedAccount<'_, CounterState> =
-        CompressedAccount::new_init(&owner, address, ADDRESS_CONTEXT);
+    let address =
+        NewAddress::derive_with_tree_id(&owner, AddressSeed::owner(&owner), ADDRESS_TREE_ID)
+            .unwrap();
+    let account: UniqueDataUtxo<'_, CounterState> =
+        UniqueDataUtxo::new_init(&owner, AddressSeed::owner(&owner), ADDRESS_CONTEXT).unwrap();
 
     assert_eq!(
-        (&*account, account.input_nullifier()),
+        (&*account, account.address(), account.input_nullifier()),
         (
-            &CounterState {
-                address: *address.address(),
-                ..CounterState::default()
-            },
+            &CounterState::default(),
+            address.address(),
             address.address()
         )
     );
@@ -175,28 +174,25 @@ fn new_mut_spends_the_state_with_the_meta_address_and_blinding() {
     let owner = owner(4);
     let meta = meta(STATE_CONTEXT);
     let account = update(&owner, STATE_CONTEXT, 9, 9);
-    let current = CounterState {
-        address: meta.address,
-        count: 9,
-        blinding: meta.blinding,
-    };
-    let current_nullifier = *DataUtxo {
-        owner: &owner,
-        data_hash: current.data_hash().unwrap(),
-        blinding: meta.blinding,
-    }
-    .key(STATE_TREE_ID)
-    .unwrap()
-    .nullifier();
-
+    let current = CounterState { count: 9 };
+    let current_hash = expected_hash(
+        &owner,
+        &meta.address,
+        &current,
+        &meta.blinding,
+        STATE_TREE_ID,
+    );
+    let current_nullifier = zolana_keypair::NullifierKey::from_secret([0u8; 31])
+        .nullifier(&current_hash, &meta.blinding)
+        .unwrap();
     assert_eq!(
-        (&*account, *account.input_nullifier()),
-        (&current, current_nullifier)
+        (&*account, account.address(), *account.input_nullifier()),
+        (&current, &meta.address, current_nullifier)
     );
 }
 
 /// A create and an update in one transaction: two slots, two trees, every
-/// new state carrying the circuit's blinding for its slot and published as
+/// output using the circuit's blinding for its slot and published as
 /// plaintext borsh.
 #[test]
 fn into_ix_data_writes_every_account_in_slot_order() {
@@ -210,28 +206,21 @@ fn into_ix_data_writes_every_account_in_slot_order() {
     .unwrap();
 
     let expected_states = vec![
-        CounterState {
-            address: *create(&creator, 11).input_nullifier(),
-            count: 11,
-            blinding: circuit_output_blinding(&first_nullifier, 0),
-        },
-        CounterState {
-            address: meta(STATE_CONTEXT).address,
-            count: 12,
-            blinding: circuit_output_blinding(&first_nullifier, 1),
-        },
+        (*create(&creator, 11).address(), CounterState { count: 11 }),
+        (meta(STATE_CONTEXT).address, CounterState { count: 12 }),
     ];
     let expected_outputs: Vec<([u8; 32], OwnerTag)> = [&creator, &updater]
         .into_iter()
         .zip(&expected_states)
-        .map(|(owner, state)| {
-            let hash = DataUtxo {
+        .enumerate()
+        .map(|(slot, (owner, (address, state)))| {
+            let hash = expected_hash(
                 owner,
-                data_hash: state.data_hash().unwrap(),
-                blinding: state.blinding,
-            }
-            .hash(OUTPUT_TREE_ID)
-            .unwrap();
+                address,
+                state,
+                &circuit_output_blinding(&first_nullifier, slot as u32),
+                OUTPUT_TREE_ID,
+            );
             (hash, OwnerTag::Inline(owner.pda().to_bytes()))
         })
         .collect();
@@ -315,25 +304,22 @@ fn repeated_updates_with_unchanged_data_never_repeat_a_utxo() {
     let mut nullifiers = HashSet::new();
 
     for _ in 0..8 {
-        let account = CompressedAccount::new_mut(
-            &owner,
-            &current,
-            CounterState {
-                count: 9,
-                ..CounterState::default()
-            },
-            STATE_TREE_ID,
-        )
-        .unwrap();
-        nullifiers.insert(*account.input_nullifier());
+        let account =
+            UniqueDataUtxo::new_mut(&owner, &current, CounterState { count: 9 }, STATE_TREE_ID)
+                .unwrap();
+        let first_nullifier = *account.input_nullifier();
+        nullifiers.insert(first_nullifier);
         let ix = SppTransactCpi::new(proof())
-            .with_compressed_account(account)
+            .with_unique_data_utxo(account)
             .unwrap()
             .into_ix_data(STATE_TREE_ID)
             .unwrap();
-        let [published] = published_states(&ix).try_into().unwrap();
+        assert_eq!(
+            published_states(&ix),
+            vec![(current.address, CounterState { count: 9 })]
+        );
         hashes.insert(ix.outputs.first().unwrap().utxo_hash);
-        current.blinding = published.blinding;
+        current.blinding = circuit_output_blinding(&first_nullifier, 0);
     }
 
     assert_eq!((hashes.len(), nullifiers.len()), (8, 8));
@@ -384,18 +370,10 @@ fn into_ix_data_rejects_invalid_account_sets() {
         ..STATE_CONTEXT
     };
     let cases: Vec<(
-        Vec<CompressedAccount<'_, CounterState>>,
+        Vec<UniqueDataUtxo<'_, CounterState>>,
         CompressedAccountError,
     )> = vec![
         (Vec::new(), CompressedAccountError::NoAccounts),
-        (
-            vec![
-                update(&first, STATE_CONTEXT, 9, 11),
-                create(&second, 12),
-                update(&second, STATE_CONTEXT, 9, 13),
-            ],
-            CompressedAccountError::InputTreesNotContiguous,
-        ),
         (
             vec![
                 update(&first, STATE_CONTEXT, 9, 11),
@@ -418,30 +396,70 @@ fn into_ix_data_rejects_invalid_account_sets() {
 }
 
 #[test]
-fn with_compressed_account_rejects_a_zero_new_data_hash() {
+fn default_state_can_be_created_and_updated() {
     let owner = owner(4);
-
+    let ix = build(vec![create(&owner, 0)]).unwrap();
+    let (address, state) = published_states(&ix).remove(0);
+    let meta = UtxoMeta {
+        address,
+        blinding: circuit_output_blinding(&address, 0),
+        tree_context: STATE_CONTEXT,
+    };
+    let mut utxo = UniqueDataUtxo::new_mut(&owner, &meta, state, OUTPUT_TREE_ID).unwrap();
+    let before = *utxo.address();
+    *utxo = CounterState { count: 7 };
+    let updated = build(vec![utxo]).unwrap();
     assert_eq!(
-        SppTransactCpi::new(proof())
-            .with_compressed_account(create(&owner, 0))
-            .and_then(|cpi| cpi.into_ix_data(OUTPUT_TREE_ID))
-            .map(|ix| ix.private_tx_hash),
-        Err(CompressedAccountError::ZeroDataHash)
+        published_states(&updated),
+        vec![(before, CounterState { count: 7 })]
     );
 }
 
 #[test]
-fn new_mut_rejects_a_zero_current_data_hash() {
+fn state_replacement_preserves_the_reserved_address() {
     let owner = owner(4);
-
+    let mut account = create(&owner, 1);
+    let address = *account.address();
+    let original_commitment = account.data_hash().unwrap();
+    *account = CounterState { count: 2 };
+    let updated_commitment = account.data_hash().unwrap();
+    let ix = build(vec![account]).unwrap();
     assert_eq!(
-        CompressedAccount::new_mut(
-            &owner,
-            &meta(STATE_CONTEXT),
-            CounterState::default(),
-            STATE_TREE_ID
-        )
-        .map(|account| *account.input_nullifier()),
-        Err(CompressedAccountError::ZeroDataHash)
+        (
+            original_commitment != updated_commitment,
+            published_states(&ix)
+        ),
+        (true, vec![(address, CounterState { count: 2 })])
     );
+}
+
+#[test]
+fn account_inputs_can_return_to_an_earlier_tree() {
+    let (first, second) = (owner(4), owner(5));
+    let ix = build(vec![
+        update(&first, STATE_CONTEXT, 9, 11),
+        create(&second, 12),
+        update(&second, STATE_CONTEXT, 9, 13),
+    ])
+    .unwrap();
+    assert_eq!(
+        ix.inputs
+            .iter()
+            .map(|input| input.tree_index)
+            .collect::<Vec<_>>(),
+        vec![0, 1, 0]
+    );
+    assert_eq!(ix.tree_contexts.len(), 2);
+    let conflicting = TreeContext {
+        utxo_tree_root_index: 1,
+        ..STATE_CONTEXT
+    };
+    assert!(matches!(
+        build(vec![
+            update(&first, STATE_CONTEXT, 9, 11),
+            create(&second, 12),
+            update(&second, conflicting, 9, 13),
+        ]),
+        Err(CompressedAccountError::ConflictingTreeContexts)
+    ));
 }

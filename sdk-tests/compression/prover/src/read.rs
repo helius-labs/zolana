@@ -1,6 +1,6 @@
 use zolana_client::{MerkleProof, NonInclusionProof};
 use zolana_gnark_ffi_prover::{decimal, utxo_read_proof_inputs, ProofInputMap};
-use zolana_program::compression::CompressedProof;
+use zolana_program::CompressedProof;
 
 use crate::{CircuitId, PROVER};
 
@@ -38,9 +38,9 @@ impl ReadProofInputs {
             .prove(CircuitId::Read, &self.proof_inputs())?
             .compress()?;
         Ok(CompressedProof {
-            proof_a: proof.proof_a,
-            proof_b: proof.proof_b,
-            proof_c: proof.proof_c,
+            a: proof.proof_a,
+            b: proof.proof_b,
+            c: proof.proof_c,
         })
     }
 }

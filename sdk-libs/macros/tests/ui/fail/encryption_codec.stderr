@@ -1,0 +1,35 @@
+error: the default encryption codec cannot skip state fields; use #[utxo_state(custom_codec)] and reconstruct omitted values in EncryptionCodec
+ --> tests/ui/fail/encryption_codec.rs:6:5
+  |
+6 |     #[borsh(skip)]
+  |     ^^^^^^^^^^^^^^
+
+error: expected `custom_codec`
+  --> tests/ui/fail/encryption_codec.rs:11:14
+   |
+11 | #[utxo_state(unknown)]
+   |              ^^^^^^^
+
+error: `custom_codec` is given more than once
+  --> tests/ui/fail/encryption_codec.rs:17:28
+   |
+17 | #[utxo_state(custom_codec, custom_codec)]
+   |                            ^^^^^^^^^^^^
+
+error: expected `,`
+  --> tests/ui/fail/encryption_codec.rs:23:27
+   |
+23 | #[utxo_state(custom_codec = true)]
+   |                           ^
+
+error: #[utxo_state(custom_codec)] belongs on the state struct
+  --> tests/ui/fail/encryption_codec.rs:30:5
+   |
+30 |     #[utxo_state(custom_codec)]
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: expected `custom_codec`
+  --> tests/ui/fail/encryption_codec.rs:35:1
+   |
+35 | #[utxo_state()]
+   | ^^^^^^^^^^^^^^^

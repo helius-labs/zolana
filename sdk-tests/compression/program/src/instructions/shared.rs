@@ -7,7 +7,7 @@ use pinocchio::{
 use solana_address::address;
 use zolana_account_checks::AccountIterator;
 use zolana_interface::PROGRAM_ID_PUBKEY;
-use zolana_program::{compression::SppTransactCpi, cpi::SppTransactAccounts};
+use zolana_program::{cpi::SppTransactAccounts, program::SppTransactCpi};
 
 use crate::error::CompressionError;
 

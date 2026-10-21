@@ -8,6 +8,7 @@ use std::{
 use groth16_solana::vk::setup::{ProvingKeySource, SetupKind};
 use sha2::{Digest, Sha256};
 
+mod check_deps;
 mod create_release;
 mod find_smart_accounts;
 mod init_protocol;
@@ -171,6 +172,15 @@ fn main() {
             }
         }
         Some("tx-size") => tx_size(args.collect()),
+        Some("check-deps") => {
+            let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .expect("xtask lives in the workspace root");
+            if let Err(error) = check_deps::run(root) {
+                eprintln!("check-deps: {error:#}");
+                std::process::exit(1);
+            }
+        }
         Some("--help") | Some("-h") | None => print_help(),
         Some(command) => {
             eprintln!("unknown xtask command: {command}");
@@ -454,6 +464,7 @@ fn print_help() {
         "  generate-account-snapshots  Generate canonical protocol accounts from the local build"
     );
     println!("  tx-size [N:M ...]        Compute serialized transaction sizes per circuit shape");
+    println!("  check-deps               Enforce the dependency rules of the zk crates");
 }
 
 fn print_create_verifying_keys_help() {

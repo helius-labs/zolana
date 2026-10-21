@@ -11,6 +11,8 @@ use zolana_keypair::{
 };
 
 pub mod asset;
+#[cfg(feature = "circuit")]
+pub mod circuit;
 pub mod data;
 pub mod decrypt;
 pub mod error;
@@ -25,7 +27,7 @@ mod serde_helpers;
 pub mod serialization;
 pub mod utxo;
 
-pub use asset::{AssetBalance, AssetRegistry, Balances, Mint, SOL_ASSET_ID, SOL_MINT};
+pub use asset::{AssetAmount, AssetBalance, AssetRegistry, Balances, Mint, SOL_ASSET_ID, SOL_MINT};
 pub use data::{Data, DataRecord};
 pub use decrypt::{
     decrypt, decrypt_spendable, verify_owned, verify_spendable, DecryptionResult, OwnedUtxos,

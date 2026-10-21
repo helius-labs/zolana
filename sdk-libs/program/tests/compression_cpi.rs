@@ -9,11 +9,8 @@ use zolana_interface::{
     SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_program::{
-    compression::{
-        AddressSeed, CompressedAccount, CompressedAccountData, CompressedAccountError, NewAddress,
-        PdaOwner, SppTransactCpi,
-    },
     cpi::SppTransactAccounts,
+    program::{AddressSeed, CompressedAccountError, PdaOwner, SppTransactCpi, UniqueDataUtxo},
 };
 use zolana_tree::{NullifierTreeInitParams, TreeAccount, TreeFeeSchedule};
 
@@ -58,42 +55,32 @@ fn pool_output_tree() -> AccountView {
 /// A state whose data hash is its count.
 #[derive(borsh::BorshSerialize, Default)]
 struct CountState {
-    address: [u8; 32],
     count: u8,
-    blinding: [u8; 32],
 }
 
-impl CompressedAccountData for CountState {
-    fn data_hash(&self) -> Result<[u8; 32], CompressedAccountError> {
+impl zolana_program::hasher::DataHasher for CountState {
+    fn hash(&self) -> Result<[u8; 32], zolana_hasher::HasherError> {
         Ok(right_align(&[self.count]))
     }
-
-    fn address_mut(&mut self) -> &mut [u8; 32] {
-        &mut self.address
-    }
-
-    fn blinding_mut(&mut self) -> &mut [u8; 32] {
-        &mut self.blinding
-    }
 }
 
-fn cpi(owner: &PdaOwner) -> SppTransactCpi<'_> {
-    let address = NewAddress::derive(owner, AddressSeed::owner(owner), 1).unwrap();
-    let mut account: CompressedAccount<'_, CountState> = CompressedAccount::new_init(
+fn cpi(owner: &PdaOwner) -> SppTransactCpi {
+    let mut account: UniqueDataUtxo<'_, CountState> = UniqueDataUtxo::new_init(
         owner,
-        address,
+        AddressSeed::owner(owner),
         TreeContext {
             utxo_tree_root_index: 0,
             nullifier_tree_root_index: 0,
         },
-    );
+    )
+    .unwrap();
     account.count = 11;
     SppTransactCpi::new(TransactProof {
         a: [1u8; 32],
         b: [2u8; 128],
         c: [3u8; 32],
     })
-    .with_compressed_account(account)
+    .with_unique_data_utxo(account)
     .unwrap()
 }
 
@@ -154,9 +141,7 @@ fn error_codes_are_stable() {
         (OwnerNotSigner, 14007),
         (NoAccounts, 14008),
         (TooManyAccounts, 14009),
-        (InputTreesNotContiguous, 14010),
         (ConflictingTreeContexts, 14011),
-        (InvalidExternalData, 14012),
         (HashingFailed, 14013),
         (SerializationFailed, 14014),
     ] {

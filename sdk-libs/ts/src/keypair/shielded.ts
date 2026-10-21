@@ -176,6 +176,8 @@ export interface ShieldedKeypairLike {
   nullifier(utxoHash: Bytes32, blinding: Bytes32): Bytes32 | Promise<Bytes32>;
   /** The nullifier public key, so a caller can build inputs without the secret. */
   nullifierPublicKey(): Bytes32 | Promise<Bytes32>;
+  /** An owned copy for proof completion; the recipient must destroy it. */
+  nullifierKey(): NullifierKey | Promise<NullifierKey>;
 }
 
 /**

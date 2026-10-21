@@ -10,6 +10,7 @@ export type {
   MergeAssembler,
   MergeCacheTarget,
   ProofAuthority,
+  TransactKeys,
   ProofDataSource,
   ProofDataSourceContext,
   IndexedProofAuthority,

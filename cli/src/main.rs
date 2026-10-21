@@ -9,6 +9,7 @@ mod prover;
 mod release;
 mod vks;
 mod wallet_cli;
+mod zk;
 
 use anyhow::Result;
 use clap::{CommandFactory, Parser};
@@ -23,6 +24,7 @@ use crate::{
         run_balance, run_create_tree, run_deposit, run_merge, run_set_merging, run_set_tree_fees,
         run_split, run_sync, run_test_mint, run_transfer, run_utxos, run_wallet, run_withdraw,
     },
+    zk::{run_build_zk_program, run_zk},
 };
 
 fn main() {
@@ -48,6 +50,8 @@ fn run(cli: Cli) -> Result<()> {
         Some(CliCommand::Merge(opts)) => run_merge(opts),
         Some(CliCommand::SetMerging(opts)) => run_set_merging(opts),
         Some(CliCommand::Vks { command }) => run_vks(command),
+        Some(CliCommand::BuildZkProgram(opts)) => run_build_zk_program(opts),
+        Some(CliCommand::Zk { command }) => run_zk(command),
         None => {
             Cli::command().print_help()?;
             println!();

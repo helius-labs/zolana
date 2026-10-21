@@ -12,7 +12,7 @@ import type {
   Bytes32,
 } from "../interface/types.js";
 import type { MergeEncryptionScheme } from "../interface/state.js";
-import type { ShieldedAddress } from "../keypair/shielded.js";
+import type { ShieldedAddress, ShieldedKeypairLike } from "../keypair/shielded.js";
 import type { PreparedMerge } from "../transaction/instructions/builders.js";
 import type { IndexedShieldedTransaction } from "../transaction/instructions/transact.js";
 import type { InputUtxoContext, SppProofInputs } from "../transaction/instructions/transact.js";
@@ -382,6 +382,9 @@ export interface ProofAuthority {
   proveMerge(inputs: MergeInputs, context?: RequestContext): Promise<Proof>;
 }
 
+/** A remote proof authority or owner-bound local keypairs, in any order. */
+export type TransactKeys = ProofAuthority | readonly ShieldedKeypairLike[];
+
 /**
  * Everything a wallet needs of its privacy roles: the derivations
  * (`ShieldedKeys`) and proving (`ProofAuthority`). `LocalKeys` answers both
@@ -425,7 +428,7 @@ export interface Prover {
   ): Promise<Uint8Array>;
   proveTransact(
     proofInputs: SppProofInputs,
-    keys: ProofAuthority,
+    keys: TransactKeys,
     config?: IndexerRpcConfig,
     context?: RequestContext,
   ): Promise<TransactInstructionData>;

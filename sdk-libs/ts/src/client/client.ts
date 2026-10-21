@@ -38,6 +38,7 @@ import { checkedComputeUnitLimit, checkedPriorityFee } from "../flows/internal.j
 import { ClientError, fromClientCause } from "./error.js";
 import { checkedServiceUrl, hasProofMethods, inputTreeAddress } from "./internal.js";
 import { ZolanaIndexer } from "./indexer.js";
+import { KeypairProofAuthority } from "./keys.js";
 import {
   authorizedPrivateTransactionMaterial,
   type AuthorizedPrivateTransaction,
@@ -52,6 +53,7 @@ import {
   type MergeAssembler,
   type MergeCacheTarget,
   type ProofAuthority,
+  type TransactKeys,
   type ProofDataSource,
   type ProofReader,
   type ProofResolution,
@@ -798,10 +800,34 @@ export class ZolanaClient
 
   async proveTransact(
     proofInputs: SppProofInputs,
-    keys: ProofAuthority,
+    keys: TransactKeys,
     config?: IndexerRpcConfig,
     context?: RequestContext,
   ): Promise<TransactInstructionData> {
+    if (isKeypairArray(keys)) {
+      return this.#proving(async () => {
+        if (!(proofInputs instanceof SppProofInputs))
+          throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+        const authority = await KeypairProofAuthority.create(
+          keys,
+          proofInputs.inputUtxos,
+          this.proofService,
+        );
+        try {
+          return (
+            await this.#proveTransfer(
+              proofInputs,
+              { kind: "confidential" },
+              authority,
+              config,
+              context,
+            )
+          ).data;
+        } finally {
+          authority.destroy();
+        }
+      });
+    }
     return (await this.#proveTransfer(proofInputs, { kind: "confidential" }, keys, config, context))
       .data;
   }
@@ -1152,6 +1178,12 @@ export class ZolanaClient
       ? inputs
       : { ...inputs, minContextSlot: required };
   }
+}
+
+function isKeypairArray(
+  keys: TransactKeys,
+): keys is readonly import("../keypair/shielded.js").ShieldedKeypairLike[] {
+  return Array.isArray(keys);
 }
 
 /** A `ProofAuthority` is a structural type; a wrong argument fails here rather than as a missing method later. */

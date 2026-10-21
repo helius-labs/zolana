@@ -68,6 +68,10 @@ export ZOLANA_PROVER_KEYS_DIR="$keys_dir"
 
 # Under the scope dir, --stop signals only recorded receipts.
 cleanup() {
+  local status=$?
+  if (( status != 0 )); then
+    find "$ZOLANA_PROCESS_SCOPE_DIR" -type f -name '*.log' -exec tail -n 200 {} + || true
+  fi
   "$ZOLANA_CLI_BIN" dev start --local --stop \
     --rpc-port "$ZOLANA_LOCALNET_RPC_PORT" --photon-port "$ZOLANA_LOCALNET_PHOTON_PORT" \
     --prover-port "$prover_port" || true

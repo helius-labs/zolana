@@ -151,6 +151,33 @@ jobs:
       - run: just test-sdk-libs
       - run: just test-example-provers
 
+  test-zk-standalone:
+    name: tests / zk standalone
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: ./.github/actions/setup-rust
+        with:
+          shared-key: zk
+          private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
+      - run: just test-zk-standalone
+
+  test-zk-program:
+    name: tests / zk program
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: ./.github/actions/setup-rust
+        with:
+          shared-key: zk-program
+          private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
+      - run: rustup target add wasm32-unknown-unknown
+      - run: just test-zolana-program-unit
+      - run: just test-zolana-program-release
+      - run: just check-wasm
+
   test-programs:
     name: tests / programs
     runs-on: ubuntu-latest
@@ -295,7 +322,6 @@ jobs:
           name: example-test-keys-${{ github.sha }}
           path: |
             sdk-tests/zk-program-swap/build/gnark/
-            sdk-tests/timelock-escrow/build/gnark/
             sdk-tests/dynamic-swap/build/gnark/
             sdk-tests/compression/build/gnark/
           if-no-files-found: error
@@ -495,6 +521,28 @@ jobs:
         with:
           version: ${{ env.SBF_TOOLS_VERSION }}
       - run: just test-user-registry-litesvm
+
+  test-zk-standalone-program:
+    name: tests / zk standalone program
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    env:
+      AGAVE_VERSION: v4.2.2
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: ./.github/actions/setup-rust
+        with:
+          shared-key: litesvm
+          private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
+      - name: Install Anza CLI
+        uses: ./.github/actions/install-anza
+        with:
+          version: ${{ env.AGAVE_VERSION }}
+      - name: Install pinned SBF platform tools
+        uses: ./.github/actions/install-sbf-tools
+        with:
+          version: ${{ env.SBF_TOOLS_VERSION }}
+      - run: just test-zk-standalone-program
 
   # Line/region coverage over the library and binary crates: the program-libs,
   # the SDK crates, the CLI, forester, and photon. Informational — it renders a

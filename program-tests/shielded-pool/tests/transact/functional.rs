@@ -838,8 +838,9 @@ fn transact_with_no_sent_outputs_appends_nothing() {
         .expect("nullifier PDAs for the sent inputs");
 }
 
-/// One zero-value deposit spent through the SDK in the 2x4 shape, padded with
-/// compact padding when `compact` is set and with random dummies otherwise.
+/// One zero-value deposit spent to an explicit zero-value output through the
+/// SDK in the 2x4 shape, padded with compact padding when `compact` is set and
+/// with random dummies otherwise.
 /// Returns the padding's non-inclusion proofs with the real spend proof: the
 /// circuit checks non-inclusion for every slot, compact padding included.
 fn single_deposit_spend(
@@ -891,11 +892,12 @@ fn single_deposit_spend(
         .expect("transfer")
         .with_output_tree_id(tree_id)
         .expect("output tree");
+    let sender = keypair.shielded_address().expect("address");
     transfer
-        .pad_utxos(
-            Shape::IN2_OUT4,
-            &keypair.shielded_address().expect("address"),
-        )
+        .transfer_sol(&sender, 0)
+        .expect("explicit zero-value output");
+    transfer
+        .pad_utxos(Shape::IN2_OUT4, &sender)
         .expect("pad to 2x4");
     let proof_inputs = transfer.encrypt(&keypair).expect("encrypt");
 

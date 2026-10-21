@@ -1,5 +1,7 @@
 export { P256ReaderKey } from "@heliuslabs/zolana/ring";
-export { X25519PublicKey, X25519Keypair } from "@heliuslabs/zolana/keypair";
+export { bindProgramTransaction } from "@heliuslabs/zolana/transaction";
+export type { ProgramTransaction } from "@heliuslabs/zolana/transaction";
+export { X25519PublicKey, X25519Keypair, ShieldedPda } from "@heliuslabs/zolana/keypair";
 /** Named exports the changelog promises, resolved through the package exports map. */
 export {
   MAX_INPUT_TREES,
@@ -16,6 +18,7 @@ export type {
   MergeAssembler,
   MergeInputs,
   ProofAuthority,
+  TransactKeys,
   ProofDataSource,
   ProofDataSourceContext,
   IndexedProofAuthority,
@@ -164,6 +167,29 @@ export { encodeTransactInstructionData, transactCpiAccounts } from "@heliuslabs/
 export type { TransactAccountsInput, TransactInstructionData } from "@heliuslabs/zolana/interface";
 export type { TransactAccountsInput as InstructionsTransactAccountsInput } from "@heliuslabs/zolana/instructions";
 export { bytes16, bytes31, bytes32, bytes33, bytes34, bytes64 } from "@heliuslabs/zolana/keypair";
+export type {
+  DecodedProgramTransaction,
+  ProgramData,
+  ProgramDataRecord,
+  ProgramEncryptOptions,
+  ProgramFinalizedTransaction,
+  ProgramMint,
+  ProgramOwnerSeed,
+  ProgramOwnerTag,
+  ProgramProofInputUtxo,
+  ProgramProofOutputUtxo,
+  ProgramResolvedOwnerTag,
+  ProgramSettlementTransfer,
+  ProgramTransactionKeys,
+  ProgramUtxo,
+  ProgramWalletUtxo,
+} from "@heliuslabs/zolana/transaction";
+export {
+  Mint,
+  ProgramOwner,
+  decodeProgramTransaction,
+  toProgramWalletUtxo,
+} from "@heliuslabs/zolana/transaction";
 export type {
   RingRpcOptions as RootRingRpcOptions,
   SerializedCursor as RootSerializedCursor,

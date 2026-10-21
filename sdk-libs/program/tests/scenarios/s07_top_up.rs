@@ -1,0 +1,153 @@
+use solana_address::Address;
+use zolana_program::{
+    conversion::{Allocator, Placeholder, ProofInput},
+    CircuitError, Groth16Prover, TxContext, ZkProgramCircuit,
+};
+use zolana_transaction::{instructions::transact::SettlementTransfer, Mint, WalletUtxo};
+
+use crate::{
+    benchmark::prove,
+    shared::{keypair, token_input},
+};
+
+#[derive(Clone)]
+struct TopUp {
+    private: TopUpPrivateInputs,
+    public: TopUpPublicInputs,
+}
+
+#[derive(Clone)]
+struct TopUpPrivateInputs {
+    tx_context: TxContext,
+    token_utxos_asset_a: [WalletUtxo; 1],
+    source: Address,
+}
+
+#[derive(Clone)]
+struct TopUpPublicInputs {
+    amount: u64,
+}
+
+impl zolana_program::circuit::CircuitType for circuit::TopUp {}
+
+impl ProofInput for TopUp {
+    type Circuit = circuit::TopUp;
+
+    fn instantiate(&self, allocator: &Allocator) -> Result<circuit::TopUp, CircuitError> {
+        let private = &self.private;
+        Ok(circuit::TopUp {
+            private: circuit::TopUpPrivateInputs {
+                tx_context: private.tx_context.instantiate(allocator)?,
+                token_utxos_asset_a: private.token_utxos_asset_a.instantiate(allocator)?,
+                source: private.source.instantiate(allocator)?,
+            },
+            public: circuit::TopUpPublicInputs {
+                amount: self.public.amount.instantiate(allocator)?,
+            },
+        })
+    }
+}
+
+impl Placeholder for TopUp {
+    fn placeholder() -> Result<Self, CircuitError> {
+        Ok(Self {
+            private: TopUpPrivateInputs {
+                tx_context: Placeholder::placeholder()?,
+                token_utxos_asset_a: Placeholder::placeholder()?,
+                source: Placeholder::placeholder()?,
+            },
+            public: TopUpPublicInputs {
+                amount: Placeholder::placeholder()?,
+            },
+        })
+    }
+}
+
+mod circuit {
+    use zolana_program::{
+        circuit::{
+            poseidon, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
+            PublicInputs, SolanaAddress, TokenUtxos, TxContext, Uint, Utxo, UtxoTrait,
+        },
+        CircuitError,
+    };
+
+    pub struct TopUp {
+        pub private: TopUpPrivateInputs,
+        pub public: TopUpPublicInputs,
+    }
+
+    pub struct TopUpPrivateInputs {
+        pub tx_context: TxContext,
+        pub token_utxos_asset_a: [Utxo; 1],
+        pub source: SolanaAddress,
+    }
+
+    pub struct TopUpPublicInputs {
+        pub amount: Uint<64>,
+    }
+
+    impl Circuit for TopUp {
+        type Output = CheckedTransaction;
+
+        fn circuit(&self) -> Result<Self::Output, CircuitError> {
+            let private = &self.private;
+            let mut tokens = TokenUtxos::new_mut(&private.token_utxos_asset_a)?;
+            tokens.deposit(&self.public.amount, &private.source)?;
+
+            ConfidentialTransaction::new(&private.tx_context, &self.public)
+                .with(tokens)
+                .check()
+        }
+    }
+
+    impl PublicInputs for TopUpPublicInputs {
+        fn hash(&self, transaction_hash: &CircuitVar) -> Result<CircuitVar, CircuitError> {
+            poseidon(&[self.amount.clone().into(), transaction_hash.clone()])
+        }
+    }
+}
+
+#[test]
+fn top_up_prove_and_verify() {
+    let sender = keypair(5);
+    let address = sender.shielded_address().expect("sender address");
+    let payer = address.solana_address().expect("payer");
+    let input = token_input(&sender, Mint::SOL, 300, 0);
+
+    let top_up = TopUp {
+        private: TopUpPrivateInputs {
+            tx_context: TxContext::new(),
+            token_utxos_asset_a: [input],
+            source: payer,
+        },
+        public: TopUpPublicInputs { amount: 50 },
+    };
+    let spp_proof_inputs = top_up
+        .create_proof_inputs_and_encrypt(&address, payer)
+        .expect("top-up proof inputs");
+    assert_eq!(
+        (
+            spp_proof_inputs
+                .output_utxos
+                .iter()
+                .map(|output| (output.owner_address, output.asset, output.amount))
+                .collect::<Vec<_>>(),
+            spp_proof_inputs.external_data.interface_transfers.clone(),
+        ),
+        (
+            vec![(Some(address), Mint::SOL, 350), (None, Mint::SOL, 0)],
+            vec![SettlementTransfer::Sol {
+                is_deposit: true,
+                amount: 50,
+                user_sol_account: payer,
+            }],
+        )
+    );
+
+    let prover = Groth16Prover::<TopUp>::new_with_test_setup().expect("top-up setup");
+    let result = prove(&prover, &top_up, "top-up proof");
+    prover
+        .verify(&result)
+        .expect("the compressed proof verifies");
+}

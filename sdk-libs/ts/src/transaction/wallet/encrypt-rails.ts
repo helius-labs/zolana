@@ -92,7 +92,8 @@ export interface AnonymousRecipientSlot {
  */
 export function encryptConfidentialTransfer(
   tx: ViewingKey,
-  input: Readonly<{ outputs: readonly ProofOutputUtxo[]; assets: AssetRegistry }>,
+  // A registry is needed only for outputs without retained Mint metadata.
+  input: Readonly<{ outputs: readonly ProofOutputUtxo[]; assets?: AssetRegistry }>,
 ): EncryptedTransfer {
   const salt = randomSalt();
   return {

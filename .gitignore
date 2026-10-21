@@ -43,3 +43,4 @@ sdk-libs/transaction/type-lifecycle.md
 /tla_plus/
 
 __pycache__/
+sdk-tests/timelock-escrow/program/tests/arkworks_prepare_inputs.rs

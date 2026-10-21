@@ -9,10 +9,11 @@
 //! What belongs here: the shielded-pool instruction builders in
 //! [`instruction`], and derivations shared between an SPP proof and the
 //! program that verifies its effects, such as the blinding seed derivations in
-//! [`derivation`], the `external_data_hash` assembly in [`external_data`] and
-//! the `private_tx_hash` in [`private_tx`]. `zolana-transaction` delegates to
-//! this crate so the math has one implementation for clients and programs
-//! alike.
+//! [`derivation`], the `external_data_hash` assembly in [`external_data`], the
+//! `private_tx_hash` in [`private_tx`] and the transaction hash that binds a
+//! ZK program's proof to its public transfers in [`public_transfer`].
+//! `zolana-transaction` delegates to this crate so the math has one
+//! implementation for clients and programs alike.
 //!
 //! The `cpi` feature adds `cpi`, the transact CPI for pinocchio programs.
 //!
@@ -34,6 +35,7 @@ pub mod derivation;
 pub mod external_data;
 pub mod instruction;
 pub mod private_tx;
+pub mod public_transfer;
 
 pub use derivation::{
     derive_output_blinding_seed, derive_private_tx_blinding, derive_transact_output_blinding,
@@ -44,6 +46,7 @@ pub use external_data::{
     ExternalDataHashError, SettlementAccounts, TransactExternalData, TransactInputs,
 };
 pub use private_tx::PrivateTxHash;
+pub use public_transfer::{transaction_hash, PublicTransfer};
 
 /// Default tree id an address is derived under: the tree a new address is
 /// created in when the caller does not pick one.

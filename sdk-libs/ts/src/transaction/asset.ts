@@ -7,6 +7,46 @@ import { checked, decodeAddress, equal, hashBytes } from "./internal.js";
 
 export const SOL_ASSET_ID = 1n;
 export const SOL_MINT = address("11111111111111111111111111111111");
+const MINT_VALIDATION = Symbol("registry-validated mint");
+
+/** A mint address and its compact asset id, bound by an asset registry. */
+export class Mint {
+  readonly asset: Address;
+  readonly assetId: bigint;
+  readonly #validated = true;
+
+  private constructor(asset: Address, assetId: bigint, validation: typeof MINT_VALIDATION) {
+    if (validation !== MINT_VALIDATION) {
+      throw new TransactionError("TRANSACTION_DESERIALIZE", { field: "mint" });
+    }
+    this.asset = asset;
+    this.assetId = assetId;
+    Object.freeze(this);
+  }
+
+  static fromRegistry(assets: AssetRegistry, asset: Address): Mint {
+    return new Mint(asset, assets.assetId(asset), MINT_VALIDATION);
+  }
+
+  /** Validate retained metadata at a public transaction boundary. */
+  static checked(value: Mint, asset: Address): Mint {
+    if (
+      typeof value !== "object" ||
+      value === null ||
+      !(#validated in value) ||
+      !value.#validated
+    ) {
+      throw new TransactionError("TRANSACTION_DESERIALIZE", { field: "mint" });
+    }
+    if (value.asset !== asset) {
+      throw new TransactionError("TRANSACTION_MINT_MISMATCH", {
+        mint: asset,
+        assetId: String(value.assetId),
+      });
+    }
+    return value;
+  }
+}
 
 export class AssetRegistry {
   readonly #byId = new Map<bigint, Address>([[SOL_ASSET_ID, SOL_MINT]]);

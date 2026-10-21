@@ -14,8 +14,8 @@ use zolana_interface::{
     ADDRESS_DOMAIN, INPUT_TREES,
 };
 use zolana_keypair::{hash::owner_hash, PublicKey};
-use zolana_program::compression::{
-    AddressSeed, CompressedAccount, NewAddress, PdaOwner, ACCOUNT_BLINDING_SEED,
+use zolana_program::program::{
+    AddressSeed, NewAddress, PdaOwner, UniqueDataUtxo, ACCOUNT_BLINDING_SEED,
 };
 use zolana_transaction::{utxo::SppProofInputUtxo, Utxo};
 
@@ -97,8 +97,8 @@ impl CreateProofInputParams {
         // The builder derives the account's blinding from the address, the
         // transaction's only and therefore first nullifier.
         let owner = PdaOwner::new(&pda).map_err(err)?;
-        let address =
-            NewAddress::derive(&owner, AddressSeed::owner(&owner), tree_id).map_err(err)?;
+        let address = NewAddress::derive_with_tree_id(&owner, AddressSeed::owner(&owner), tree_id)
+            .map_err(err)?;
         if *address.address() != address_nullifier {
             return Err(anyhow!(
                 "address slot does not reserve the program's address"
@@ -108,13 +108,16 @@ impl CreateProofInputParams {
             utxo_tree_root_index: self.utxo_root_index,
             nullifier_tree_root_index: self.non_inclusion.root_index,
         };
-        let mut account: CompressedAccount<'_, AccountState> =
-            CompressedAccount::new_init(&owner, address, address_tree_context);
+        let mut account: UniqueDataUtxo<'_, AccountState> =
+            UniqueDataUtxo::new_init(&owner, AddressSeed::owner(&owner), address_tree_context)
+                .map_err(err)?;
         account.authority = self.authority.to_bytes();
         account.value = self.new_value;
         let program = ProgramTransaction::build(&pda, account, tree_id)?;
         let account_utxo = AccountUtxo {
             pda,
+            address: program.address,
+            blinding: program.blinding,
             state: program.state,
         };
         let output = account_utxo.output_utxo()?;

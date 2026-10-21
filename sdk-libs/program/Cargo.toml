@@ -1,42 +1,149 @@
 [package]
 name = "zolana-program"
 version = "0.1.0"
-description = "SPP SDK for Solana programs and clients: the zolana-instruction builders and derivations, and compressed accounts for pinocchio programs, buildable for the SBF target."
+description = "SPP SDK for Solana programs: the zolana-instruction builders and derivations, compressed accounts, and ZK programs with their circuits, proofs and transaction client."
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+publish = false
 
-[lib]
-name = "zolana_program"
+[dependencies]
+ark-bn254 = { version = "0.6", optional = true }
+ark-ff = { version = "0.6", optional = true }
+borsh = { workspace = true, optional = true }
+groth16-solana = { workspace = true, optional = true }
+pinocchio = { workspace = true, features = ["cpi"], optional = true }
+solana-address = { workspace = true }
+solana-program-error = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+serde-wasm-bindgen = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
+solana-signature = { workspace = true, optional = true }
+thiserror = { workspace = true, optional = true }
+tsify = { workspace = true, optional = true }
+wasm-bindgen = { workspace = true, optional = true }
+wincode = { workspace = true }
+zolana-hasher = { workspace = true }
+zolana-instruction = { workspace = true }
+zolana-interface = { workspace = true }
+zolana-keypair = { workspace = true, optional = true }
+zolana-macros = { path = "../macros", optional = true }
+zolana-zk-dsl = { workspace = true }
+zolana-zk-gadgets = { workspace = true, optional = true }
+zolana-transaction = { workspace = true, optional = true }
+zolana-tree = { workspace = true, optional = true }
 
 [features]
+default = []
 # Builders for protocol operations: protocol-authority and fee-authority
 # administration, tree creation, ring activation, and the forester's nullifier
 # tree maintenance. Off by default so programs and wallets never compile them.
-protocol = ["zolana-instruction/protocol"]
+protocol-instructions = ["zolana-instruction/protocol"]
 # The shielded pool's transact instruction as a signed CPI from a pinocchio
 # program.
 cpi = ["zolana-instruction/cpi"]
 # Compressed accounts for pinocchio programs: program state kept as SPP UTXOs,
 # the tree and nullifier PDA checks of a read, and their transact CPI.
-compression = ["cpi", "dep:borsh", "dep:pinocchio", "dep:wincode", "dep:zolana-hasher", "dep:zolana-tree"]
-
-[dependencies]
-borsh = { workspace = true, optional = true }
-pinocchio = { workspace = true, features = ["cpi"], optional = true }
-wincode = { workspace = true, optional = true }
-zolana-hasher = { workspace = true, optional = true }
-zolana-instruction = { workspace = true }
-zolana-interface = { workspace = true, features = ["borsh", "tree"] }
-zolana-tree = { workspace = true, optional = true }
+compression = ["cpi", "dep:borsh", "dep:pinocchio", "dep:zolana-tree", "dep:thiserror"]
+circuit = [
+    "dep:ark-bn254",
+    "dep:ark-ff",
+    "dep:borsh",
+    "dep:solana-signature",
+    "dep:thiserror",
+    "dep:zolana-keypair",
+    "dep:zolana-macros",
+    "dep:zolana-transaction",
+    "dep:zolana-zk-gadgets",
+    "zolana-keypair/circuit",
+    "zolana-transaction/circuit",
+    "zolana-zk-dsl/circuit",
+    "solana-address/curve25519",
+]
+client = [
+    "circuit",
+    "verifier",
+    "dep:sha2",
+    "zolana-zk-dsl/client",
+]
+setup = ["client", "groth16-solana/circom-vk", "dep:serde_json", "zolana-zk-dsl/setup"]
+parallel = [
+    "client",
+    "zolana-zk-dsl/parallel",
+]
+serde = [
+    "circuit",
+    "dep:serde",
+    "zolana-keypair/serde",
+    "zolana-transaction/serde",
+    "zolana-zk-dsl/serde",
+]
+tsify = [
+    "serde",
+    "dep:tsify",
+    "dep:wasm-bindgen",
+    "zolana-keypair/tsify",
+    "zolana-transaction/tsify",
+    "zolana-zk-dsl/tsify",
+]
+wasm = [
+    "client",
+    "tsify",
+    "dep:serde-wasm-bindgen",
+    "zolana-zk-dsl/wasm",
+]
+wasm-prover = ["wasm", "zolana-zk-dsl/wasm-prover"]
+r1cs-export = ["setup", "zolana-zk-dsl/r1cs-export"]
+# The circuit crate build `zolana zk` runs (`zolana_program::build`).
+build = ["setup", "zolana-zk-dsl/build"]
+verifier = ["dep:groth16-solana", "dep:solana-program-error", "zolana-zk-dsl/verifier"]
+wasm-threads = ["wasm-prover", "parallel", "zolana-zk-dsl/wasm-threads"]
+wasm-verify = ["wasm", "zolana-zk-dsl/wasm-verify"]
+# Test-only: runs the unit suite's cross-checks that spawn circom and snarkjs.
+external-tools = []
+# Diagnostic and metadata inspection helpers for tests, not application circuits.
+test-support = ["client", "zolana-zk-dsl/test-support"]
 
 [dev-dependencies]
+ark-circom = { version = "0.6.0", default-features = false }
 borsh = { workspace = true }
-solana-address = { workspace = true }
+groth16-solana = { workspace = true, features = ["gnark-vk"] }
+hex = { workspace = true }
+num-bigint = { workspace = true }
+proptest = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+wasmer = { version = "6.1", default-features = false }
 zolana-account-checks = { workspace = true, features = ["test-only"] }
 zolana-client = { workspace = true }
+zolana-event = { workspace = true }
 zolana-keypair = { workspace = true }
 zolana-transaction = { workspace = true }
+zolana-tree = { workspace = true }
+
+[[test]]
+name = "owner_records"
+required-features = ["client", "setup"]
+
+[[test]]
+name = "client_data_decode"
+required-features = ["client"]
+
+[[test]]
+name = "unit"
+required-features = ["test-support", "setup"]
+
+[[test]]
+name = "external_gadget"
+required-features = ["test-support", "setup"]
+
+[[test]]
+name = "scenarios"
+required-features = ["test-support", "setup", "compression"]
+
+[lints.clippy]
+disallowed_types = "allow"
 
 [lints.rust.unexpected_cfgs]
 level = "allow"

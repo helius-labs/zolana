@@ -1,0 +1,2 @@
+# The standalone fixture and its generated verifier test the zk-tools dependency.
+/sdk-tests/zk-standalone/ @ananas-block

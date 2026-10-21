@@ -60,7 +60,7 @@ import {
   type TreeId,
 } from "../utxo.js";
 import { DEFAULT_TREE_ID, MAX_INPUT_TREES } from "../../interface/tree-slot.js";
-import { SOL_ASSET_ID, type AssetRegistry } from "../asset.js";
+import { Mint, SOL_ASSET_ID, type AssetRegistry } from "../asset.js";
 
 export type { Shape };
 export const SPP_SUPPORTED_SHAPES = INTERFACE_SUPPORTED_SHAPES;
@@ -1656,6 +1656,7 @@ function outputInit(output: ProofOutputUtxo): ProofOutputInit {
   return {
     ...(output.ownerAddress === undefined ? {} : { ownerAddress: output.ownerAddress }),
     asset: output.asset,
+    ...(output.mint === undefined ? {} : { mint: output.mint }),
     amount: output.amount,
     blinding: output.blinding,
     data: output.data,
@@ -1681,13 +1682,32 @@ function randomBytes(length: number): Uint8Array {
  */
 export function encodeConfidentialSlots(
   outputs: readonly ProofOutputUtxo[],
-  assets: AssetRegistry,
+  assets: AssetRegistry | undefined,
   tx: ViewingKey,
   salt: Bytes16,
 ): readonly (Readonly<{ viewTag: Bytes32; data: Uint8Array }> | undefined)[] {
   return outputs.map((output, slotIndex) => {
     const address = output.ownerAddress;
     if (output.isDummy() || address === undefined) return undefined;
+    const mint =
+      output.mint === undefined
+        ? assets === undefined
+          ? undefined
+          : Mint.fromRegistry(assets, output.asset)
+        : Mint.checked(output.mint, output.asset);
+    if (mint === undefined) {
+      throw new TransactionError("TRANSACTION_UNKNOWN_MINT", { mint: output.asset });
+    }
+    if (
+      output.mint !== undefined &&
+      assets !== undefined &&
+      assets.assetId(mint.asset) !== mint.assetId
+    ) {
+      throw new TransactionError("TRANSACTION_MINT_MISMATCH", {
+        mint: mint.asset,
+        assetId: String(mint.assetId),
+      });
+    }
     return {
       viewTag: address.signingPublicKey.confidentialViewTag(),
       data: encodeOutputData(
@@ -1698,7 +1718,7 @@ export function encodeConfidentialSlots(
           tx,
           address.viewingPublicKey,
           {
-            assetId: assets.assetId(output.asset),
+            assetId: mint.assetId,
             amount: output.amount,
             blinding: output.blinding,
             ...(output.ringProgramId === undefined ? {} : { ringProgramId: output.ringProgramId }),
@@ -1718,7 +1738,7 @@ export function encodeConfidentialSlots(
  * encoding a throwaway output through the same path. This keeps dummy slots
  * byte-length-indistinguishable from real ones without pinning a brittle constant.
  */
-function dummyCiphertextLength(salt: Bytes16): number {
+export function dummyCiphertextLength(salt: Bytes16): number {
   const throwaway = ViewingKey.generate();
   try {
     return encodeOutputData(
