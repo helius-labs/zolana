@@ -29,7 +29,7 @@
       "0x02"
     ],
     "encrypted_utxos": "0x80818283848586878889aabbccddeeff",
-    "hash": "0x002569689bff7ef057bf95d5436d9dba68b906eec4255c9008ed23db042092f4"
+    "hash": "0x00308838f84a07dbe1d780db6645a45cf12c2953e27b49a344bb785b2e7c3808"
   },
   "solana_pk_hash": {
     "pubkey": "0x00112233445566778899aabbccddeeff102132435465768798a9babbdcddedef",

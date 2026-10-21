@@ -189,10 +189,10 @@ const OUTPUT_TREE = address("2VDW9dFE1ZXz4zWAbaBDQFynNVdRpQ73HyfSHMzBSL6Z");
 const ADDRESS_TREE = addressOf(60);
 const RING_AUTH = address("AtyqWdns8uYfWdpLhWJRN9DxRdpwB6Zaa33k66TAkwFx");
 const RING_CONFIG = address("CXJhGzAcN4NYaapjRqiTzmnRBTmtUL52Zg4ooG2PtMfP");
-const SPP = address("sppU489D7A4U1exNo1oeMGZtLEofq3a6o2fR7UeoWB6");
+const SPP = address("spp3CfN2Y7se74A27bBpnAkmjXyEb2YmmZafhFrC9xt");
 const SYSTEM = address("11111111111111111111111111111111");
 const JSON_HEADERS = { headers: { "content-type": "application/json" } };
-const SOL_INTERFACE = address("2iAazE9tAWcUJhNhfscRzX17Gb32Km9jJYZLGy1AnkVP");
+const SOL_INTERFACE = address("4u5xeYyt3s9iQWiSxLXbFD1XebTKJa3YduTwdecBF5ZG");
 
 function ringPolicyConfig() {
   return getProgramDerivedAddress({

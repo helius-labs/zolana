@@ -5,6 +5,6 @@ use zolana_user_registry_interface::USER_REGISTRY_PROGRAM_ID;
 fn program_id_matches_known_base58() {
     assert_eq!(
         Pubkey::new_from_array(USER_REGISTRY_PROGRAM_ID).to_string(),
-        "regyS5rkAcw2YzDJCmTwCTHs2s246FXxbmuRZ42u2PD"
+        "regy3WAeRXMYuMYxr5iK3Bf9Arr3PcxGxyzAddbiqDQ"
     );
 }
