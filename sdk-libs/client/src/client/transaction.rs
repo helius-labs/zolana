@@ -197,6 +197,8 @@ pub struct Submission<'a> {
     /// data itself, so the submission never takes the prover server's indexed
     /// route.
     pub prover: Option<Arc<dyn Prover>>,
+    /// The owner that authorizes inside the proof instead of signing the transaction.
+    pub confidential_eddsa_owner: Option<&'a SigningKey>,
 }
 
 impl<'a> Submission<'a> {
@@ -210,12 +212,22 @@ impl<'a> Submission<'a> {
             fee_payer,
             authority,
             prover: None,
+            confidential_eddsa_owner: None,
         }
     }
 
     #[must_use]
     pub fn with_prover(mut self, prover: Arc<dyn Prover>) -> Self {
         self.prover = Some(prover);
+        self
+    }
+
+    /// Authorize this owner inside the proof and omit its owner-signer account.
+    /// Prepare the transaction with `with_transaction_signers` so it selects a
+    /// shape supported by this rail. Every other owner still signs normally.
+    #[must_use]
+    pub fn with_confidential_eddsa_owner(mut self, owner: &'a SigningKey) -> Self {
+        self.confidential_eddsa_owner = Some(owner);
         self
     }
 
@@ -232,16 +244,30 @@ impl<'a> Submission<'a> {
         &self,
         client: &AsyncZolanaClient<R, I>,
     ) -> Result<UnsignedMessage, ClientError> {
-        let owner_signers = submission_owner_signers(self.signed, self.fee_payer)?;
+        let mut owner_signers = submission_owner_signers(self.signed, self.fee_payer)?;
+        if let Some(owner) = self.confidential_eddsa_owner {
+            let owner = Address::new_from_array(owner.pubkey().as_ed25519()?);
+            owner_signers.retain(|signer| *signer != owner);
+        }
         let (trees, data) = match (&self.prover, client.indexed_prover()) {
             (None, Some(server)) => {
-                let proved = server
-                    .prove_indexed(
-                        &client
-                            .transfer_preparation(self.signed)
-                            .prepare(self.authority)?,
-                    )
-                    .await?;
+                let prepared = match self.confidential_eddsa_owner {
+                    Some(owner) => {
+                        let prepared = IndexedTransferPreparation {
+                            transaction: self.signed.transaction.clone(),
+                            rail: IndexedTransferRail::ConfidentialEddsa { owner },
+                        }
+                        .prepare(self.authority)?;
+                        match client.indexer_config.require_slot {
+                            Some(slot) => prepared.with_min_context_slot(slot),
+                            None => prepared,
+                        }
+                    }
+                    None => client
+                        .transfer_preparation(self.signed)
+                        .prepare(self.authority)?,
+                };
+                let proved = server.prove_indexed(&prepared).await?;
                 (
                     indexed_trees(proved.input_tree_ids, &self.signed.transaction),
                     proved.data,
@@ -252,11 +278,19 @@ impl<'a> Submission<'a> {
                     .indexer
                     .transaction_proofs(&self.signed.transaction.input_utxos, None)
                     .await?;
-                let mut assembled = assemble(
-                    self.signed.transaction.clone(),
-                    &witnesses.spend_proofs,
-                    &witnesses.dummy_nullifier_proofs,
-                )?;
+                let mut assembled = match self.confidential_eddsa_owner {
+                    Some(owner) => assemble_confidential_eddsa(
+                        self.signed.transaction.clone(),
+                        &witnesses.spend_proofs,
+                        &witnesses.dummy_nullifier_proofs,
+                        owner,
+                    )?,
+                    None => assemble(
+                        self.signed.transaction.clone(),
+                        &witnesses.spend_proofs,
+                        &witnesses.dummy_nullifier_proofs,
+                    )?,
+                };
                 let proof = match prover {
                     Some(prover) => {
                         self.authority
@@ -298,8 +332,9 @@ impl<'a> Submission<'a> {
 
     /// Prove, sign with `signers`, send through `client` and wait until the
     /// transaction is confirmed and indexed. `signers` are the fee payer and
-    /// the native owners the transaction's inputs name; one keypair playing
-    /// both roles signs once.
+    /// the native owners the transaction's inputs name, except the owner whose
+    /// key was supplied with [`Self::with_confidential_eddsa_owner`]. One keypair
+    /// playing both roles signs once.
     pub async fn send<R: AsyncRpc, I: AsyncIndexer>(
         &self,
         client: &AsyncZolanaClient<R, I>,
