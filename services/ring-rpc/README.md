@@ -63,7 +63,15 @@ Photon is an integrity boundary for transaction rows, slots, signatures, ciphert
 
 The server accepts loopback binds only, put a TLS proxy in front of it for remote clients. `--insecure-public-bind` lifts that for a test deployment and serves the decrypted audit data over plain HTTP. Keep the proxy request body limit at or below the service limit.
 
-A call posted to any path but `/` runs only when its JSON-RPC body is one call naming the path's last segment: `/ringStatus` and `/v1/zolana/ring/ringStatus` run `ringStatus` and refuse every other method with error `-32601`. A gateway that routes and prices by path therefore prices the method that runs. `/` serves every method, so a self-hosted client can post there. A proxy must forward the path it routed on.
+A call posted to any path but `/` runs only when its JSON-RPC body is one call naming the path's last segment: `/ringStatus` and `/v1/zolana/ring/ringStatus` run `ringStatus` and refuse every other method with HTTP 400 and JSON-RPC error `-32601`. A gateway that routes and prices by path therefore prices the method that runs and does not bill these refusals as successful calls. `/` serves every method, so a self-hosted client can post there. A proxy must forward the path it routed on.
+
+This check belongs to ring RPC and runs before RPC execution, nonce consumption,
+and metering. Deploy this service before enabling the path-priced routes in
+[monorepo #20892](https://github.com/helius-labs/monorepo/pull/20892); Heimdall
+forwards the body without inspecting it. Disable proxy retries of unsafe HTTP
+methods (`disableUnsafeRetries: true` in the Gatekeeper backend). A 5xx or lost
+response does not prove that a signed call's nonce was unused; callers must
+handle the outcome rather than rely on a transparent resend.
 
 A successful `ringDeposits` answers `x-helius-metering-units` with one unit for every 50 signatures it asked to examine, rounded up, so a 200-signature page bills four times a default one. Other methods answer a bounded page or one lookup and report none, which a gateway bills as one unit.
 

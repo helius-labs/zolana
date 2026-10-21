@@ -127,6 +127,13 @@ It forwards `Zolana-Tee`, `Zolana-Tee-Enc` and `Zolana-Tee-Ciphertext`, and pass
 For browsers it allows the three headers in CORS preflight and exposes `Zolana-Tee`.
 An authorization subrequest to the prover must drop `Zolana-Tee`, or the prover tries to decrypt it.
 
+The prover owns decryption and proving-key validation; the proxy does not parse
+the encrypted body. Disable automatic POST retries in the proxy and return
+failures, including 503 and `Retry-After`, to the caller. The caller owns the
+decision to repeat a proof or refresh an attestation. A load balancer can report
+a 5xx after the prover has already executed the request, so that status alone
+does not establish that no work ran.
+
 ## Errors
 
 | Status | `code` | Cause |
