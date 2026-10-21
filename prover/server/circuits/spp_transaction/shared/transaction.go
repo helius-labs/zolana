@@ -241,22 +241,55 @@ func (t Transaction) publicInputHash(api frontend.API) frontend.Variable {
 	return gadget.HashChain4(api, fields)
 }
 
-// Shape identifies one fixed-size SPP transaction circuit by its input and
-// output counts. The host mirrors this as protocol.Shape (with the supported-set
-// metadata); the circuit only needs the counts and that they are positive.
+// Shape identifies one fixed-size SPP transaction circuit. The input and
+// output counts size the slots; SignerWidth sizes the public signer vector on
+// the owner-signed rails; NHiddenOwners is the number of in-circuit Ed25519
+// owners the anonymous EdDSA rail verifies. The host mirrors the counts as
+// protocol.Shape (with the supported-set metadata); the circuit only needs
+// every dimension to be positive.
+//
+// NewShape fills the protocol defaults. A shape with other dimensions compiles
+// to a different circuit and needs its own keys.
 type Shape struct {
-	NInputs  int
-	NOutputs int
+	NInputs       int
+	NOutputs      int
+	SignerWidth   int
+	NHiddenOwners int
 }
 
-// Validate checks the counts the circuit relies on to size its witness. The
-// supported-shape check lives host-side (protocol.Shape.IsSupported).
+// NewShape returns the protocol shape for the counts: the protocol signer
+// width and one hidden owner.
+func NewShape(nInputs, nOutputs int) Shape {
+	return Shape{
+		NInputs:       nInputs,
+		NOutputs:      nOutputs,
+		SignerWidth:   ProtocolSignerWidth(nInputs),
+		NHiddenOwners: 1,
+	}
+}
+
+// IsProtocol reports whether the shape has the protocol signer width and a
+// single hidden owner, the dimensions the shielded pool verifies.
+func (s Shape) IsProtocol() bool {
+	return s.SignerWidth == ProtocolSignerWidth(s.NInputs) && s.NHiddenOwners == 1
+}
+
+// Validate checks the dimensions the circuit relies on to size its witness.
+// The supported-shape check lives host-side (protocol.Shape.IsSupported).
+// A signer width of zero would fold the signer chain to the constant 0 and let
+// no input be authorized.
 func (s Shape) Validate() error {
 	if s.NInputs < 1 {
 		return fmt.Errorf("spp: NInputs must be >= 1, got %d", s.NInputs)
 	}
 	if s.NOutputs < 1 {
 		return fmt.Errorf("spp: NOutputs must be >= 1, got %d", s.NOutputs)
+	}
+	if s.SignerWidth < 1 {
+		return fmt.Errorf("spp: SignerWidth must be >= 1, got %d", s.SignerWidth)
+	}
+	if s.NHiddenOwners < 1 {
+		return fmt.Errorf("spp: NHiddenOwners must be >= 1, got %d", s.NHiddenOwners)
 	}
 	return nil
 }
@@ -269,24 +302,15 @@ func OwnerSignerSlots(nInputs int) int {
 	return min(nInputs, MaxTransactionAddresses-FixedTransactAddresses-nInputs)
 }
 
-// SignerWidth is the public signer vector length on the signature-requiring
-// rails: the deduplicated owner signers, zero-padded. The fee payer is not a
-// member, so paying a transaction never authorizes spending the payer's UTXOs;
-// an owner that also pays is listed as an owner signer and takes no extra
-// transaction address, hence OwnerSignerSlots plus one. The ring authority
-// rail holds its payer in a vector of width 1 instead.
-func (s Shape) SignerWidth() int {
-	return OwnerSignerSlots(s.NInputs) + 1
-}
-
-// ValidateSignerWidth checks a signer vector length a circuit is sized with.
-// A width of zero would fold the signer chain to the constant 0 and let no
-// input be authorized.
-func ValidateSignerWidth(signerWidth int) error {
-	if signerWidth < 1 {
-		return fmt.Errorf("spp: signer width must be >= 1, got %d", signerWidth)
-	}
-	return nil
+// ProtocolSignerWidth is the public signer vector length the shielded pool
+// folds on the signature-requiring rails: the deduplicated owner signers,
+// zero-padded. The fee payer is not a member, so paying a transaction never
+// authorizes spending the payer's UTXOs; an owner that also pays is listed as
+// an owner signer and takes no extra transaction address, hence
+// OwnerSignerSlots plus one. The ring authority rail holds its payer in a
+// vector of width 1 instead.
+func ProtocolSignerWidth(nInputs int) int {
+	return OwnerSignerSlots(nInputs) + 1
 }
 
 // publicSlots returns the public movement slots interleaved as

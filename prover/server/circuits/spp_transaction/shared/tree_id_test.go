@@ -106,7 +106,7 @@ func TestUtxoHashCircuitBindsTreeID(t *testing.T) {
 func TestCircuitRejectsInputClaimingOtherSlot(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	assignment.Inputs[0].TreeSlot = spptest.Fe(1)
 
@@ -117,7 +117,7 @@ func TestCircuitRejectsInputClaimingOtherSlot(t *testing.T) {
 func TestCircuitRejectsOutOfRangeTreeSlot(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	assignment.Inputs[0].TreeSlot = spptest.Fe(InputTrees)
 
@@ -129,7 +129,7 @@ func TestCircuitRejectsOutOfRangeTreeSlot(t *testing.T) {
 func TestCircuitRejectsOutputTreeIDMismatch(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	assignment.OutputTreeID = spptest.Fe(testInputTreeID)
 	refreshPublicInputHash(t, assignment)

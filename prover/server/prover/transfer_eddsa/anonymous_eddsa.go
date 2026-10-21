@@ -235,12 +235,12 @@ func (p *AnonymousEddsaTransferParameters) CreateWitness() (frontend.Circuit, er
 	if err != nil {
 		return nil, err
 	}
-	shape := txcircuit.Shape{NInputs: int(p.NInputs), NOutputs: int(p.NOutputs)}
-	if len(p.SignerPkHashes) != shape.SignerWidth() {
+	shape := txcircuit.NewShape(int(p.NInputs), int(p.NOutputs))
+	if len(p.SignerPkHashes) != shape.SignerWidth {
 		return nil, fmt.Errorf(
 			"spp: signer pk hash count mismatch: got %d want %d",
 			len(p.SignerPkHashes),
-			shape.SignerWidth(),
+			shape.SignerWidth,
 		)
 	}
 	if len(p.PublishedOutputOwnerPkHashes) != len(p.Outputs) {
@@ -266,7 +266,7 @@ func (p *AnonymousEddsaTransferParameters) CreateWitness() (frontend.Circuit, er
 	}
 	circuit := &customring.CustomRingAnonymousEddsaCircuit{
 		CachedInputs: p.Cache.circuitInputs(int(p.NInputs)),
-		Shape:        txcircuit.Shape{NInputs: int(p.NInputs), NOutputs: int(p.NOutputs)},
+		Shape:        txcircuit.NewShape(int(p.NInputs), int(p.NOutputs)),
 		Public: customring.CustomRingAnonymousEddsaPublic{
 			Nullifiers:                   core.nullifiers,
 			OutputHashes:                 core.outputHashes,
@@ -305,7 +305,7 @@ func (p *AnonymousEddsaTransferParameters) CreateWitness() (frontend.Circuit, er
 
 func R1CSAnonymousEddsaTransfer(nInputs uint32, nOutputs uint32) (constraint.ConstraintSystem, error) {
 	circuit, err := customring.NewCustomRingAnonymousEddsaCircuit(
-		txcircuit.Shape{NInputs: int(nInputs), NOutputs: int(nOutputs)},
+		txcircuit.NewShape(int(nInputs), int(nOutputs)),
 	)
 	if err != nil {
 		return nil, err

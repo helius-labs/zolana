@@ -4,7 +4,6 @@ import (
 	"math/big"
 	"testing"
 
-	. "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 
@@ -25,7 +24,7 @@ func TestCustomRingConfidentialEddsaCarriesANamespaceOwnedRecordSlot(t *testing.
 			assert := test.NewAssert(t)
 			shape := protocol.Shape{NInputs: 2, NOutputs: 2}
 			assignment := recordAssignment(t, shape, tc.recordRing)
-			circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+			circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 			assert.SolvingSucceeded(circuit, asCustomRingConfidentialEddsa(assignment), test.WithCurves(ecc.BN254))
 		})
 	}
@@ -41,7 +40,7 @@ func TestCustomRingConfidentialEddsaRefusesAnUnsignedRecordSlot(t *testing.T) {
 		}
 	}
 	refreshPublicInputHash(t, assignment)
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	assert.SolvingFailed(circuit, asCustomRingConfidentialEddsa(assignment), test.WithCurves(ecc.BN254))
 }
 

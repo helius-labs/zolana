@@ -1,7 +1,6 @@
 package shared_test
 
 import (
-	. "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
 	"testing"
 
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
@@ -17,7 +16,7 @@ import (
 func TestCircuitRejectsOwnerHashPreimageMismatch(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	assignment.Inputs[0].Utxo.Owner = spptest.Fe(12345)
 

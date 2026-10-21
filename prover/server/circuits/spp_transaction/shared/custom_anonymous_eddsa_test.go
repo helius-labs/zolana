@@ -33,19 +33,19 @@ var eddsaRingSystems = map[Shape]constraint.ConstraintSystem{}
 
 func compileEddsaRing(t testing.TB, shape protocol.Shape) constraint.ConstraintSystem {
 	t.Helper()
-	if ccs, ok := eddsaRingSystems[Shape(shape)]; ok {
+	if ccs, ok := eddsaRingSystems[txShape(shape)]; ok {
 		return ccs
 	}
 	ccs, err := frontend.Compile(
 		ecc.BN254.ScalarField(),
 		r1cs.NewBuilder,
-		MustNewCustomRingAnonymousEddsaCircuit(Shape(shape)),
+		MustNewCustomRingAnonymousEddsaCircuit(txShape(shape)),
 		frontend.WithCompressThreshold(300),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	eddsaRingSystems[Shape(shape)] = ccs
+	eddsaRingSystems[txShape(shape)] = ccs
 	return ccs
 }
 
@@ -316,7 +316,7 @@ func TestCustomRingAnonymousEddsaProves(t *testing.T) {
 
 func TestCustomRingAnonymousEddsaPublicInputHashBindsEveryField(t *testing.T) {
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingAnonymousEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingAnonymousEddsaCircuit(txShape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	owner := hiddenOwnerKey(11)
 	rewriteInputAsHiddenOwner(t, assignment, 0, owner)

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	customring "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/custom"
+	defaultring "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/default"
 	. "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
 
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
@@ -13,6 +14,14 @@ import (
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 	"github.com/consensys/gnark/test"
 )
+
+// withSignerWidth is the protocol shape for the counts with a different
+// public signer vector width.
+func withSignerWidth(shape protocol.Shape, width int) Shape {
+	s := txShape(shape)
+	s.SignerWidth = width
+	return s
+}
 
 // resizeSignerVector keeps the leading width slots of the assignment's signer
 // vector, zero padding when the circuit is wider than the protocol width.
@@ -28,45 +37,43 @@ func resizeSignerVector(a *testAssignment, width int) {
 	a.SignerPkHashes = resized
 }
 
-func TestCustomRingCircuitsSizeTheSignerVectorToTheRequestedWidth(t *testing.T) {
-	shape := Shape{NInputs: 2, NOutputs: 2}
+func TestOwnerSignedCircuitsSizeTheSignerVectorFromTheShape(t *testing.T) {
 	for _, width := range []int{1, 3, 7} {
-		confidential, err := customring.NewCustomRingConfidentialEddsaCircuitWithSigners(shape, width)
+		shape := withSignerWidth(protocol.Shape{NInputs: 2, NOutputs: 2}, width)
+		confidential, err := customring.NewCustomRingConfidentialEddsaCircuit(shape)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if confidential.SignerWidth != width || len(confidential.Public.SignerPkHashes) != width {
-			t.Fatalf("confidential width %d: got SignerWidth %d and %d slots", width, confidential.SignerWidth, len(confidential.Public.SignerPkHashes))
-		}
-		anonymous, err := customring.NewCustomRingAnonymousEddsaCircuitWithSigners(shape, width)
+		anonymous, err := customring.NewCustomRingAnonymousEddsaCircuit(shape)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if anonymous.SignerWidth != width || len(anonymous.Public.SignerPkHashes) != width {
-			t.Fatalf("anonymous width %d: got SignerWidth %d and %d slots", width, anonymous.SignerWidth, len(anonymous.Public.SignerPkHashes))
+		defaultRing, err := defaultring.NewDefaultRingConfidentialEddsaCircuit(shape)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for name, got := range map[string]int{
+			"custom confidential":  len(confidential.Public.SignerPkHashes),
+			"custom anonymous":     len(anonymous.Public.SignerPkHashes),
+			"default confidential": len(defaultRing.Public.SignerPkHashes),
+		} {
+			if got != width {
+				t.Fatalf("%s width %d: got %d slots", name, width, got)
+			}
 		}
 	}
 }
 
-func TestCustomRingCircuitsDefaultToTheProtocolSignerWidth(t *testing.T) {
-	shape := Shape{NInputs: 2, NOutputs: 2}
-	confidential := MustNewCustomRingConfidentialEddsaCircuit(shape)
-	anonymous := MustNewCustomRingAnonymousEddsaCircuit(shape)
-	if confidential.SignerWidth != shape.SignerWidth() || len(confidential.Public.SignerPkHashes) != shape.SignerWidth() {
-		t.Fatalf("confidential: got SignerWidth %d and %d slots, want %d", confidential.SignerWidth, len(confidential.Public.SignerPkHashes), shape.SignerWidth())
+func TestOwnerSignedCircuitsRejectAZeroSignerWidth(t *testing.T) {
+	shape := withSignerWidth(protocol.Shape{NInputs: 2, NOutputs: 2}, 0)
+	if _, err := customring.NewCustomRingConfidentialEddsaCircuit(shape); err == nil {
+		t.Fatal("custom confidential: zero signer width accepted")
 	}
-	if anonymous.SignerWidth != shape.SignerWidth() || len(anonymous.Public.SignerPkHashes) != shape.SignerWidth() {
-		t.Fatalf("anonymous: got SignerWidth %d and %d slots, want %d", anonymous.SignerWidth, len(anonymous.Public.SignerPkHashes), shape.SignerWidth())
+	if _, err := customring.NewCustomRingAnonymousEddsaCircuit(shape); err == nil {
+		t.Fatal("custom anonymous: zero signer width accepted")
 	}
-}
-
-func TestCustomRingCircuitsRejectAZeroSignerWidth(t *testing.T) {
-	shape := Shape{NInputs: 2, NOutputs: 2}
-	if _, err := customring.NewCustomRingConfidentialEddsaCircuitWithSigners(shape, 0); err == nil {
-		t.Fatal("confidential: zero signer width accepted")
-	}
-	if _, err := customring.NewCustomRingAnonymousEddsaCircuitWithSigners(shape, 0); err == nil {
-		t.Fatal("anonymous: zero signer width accepted")
+	if _, err := defaultring.NewDefaultRingConfidentialEddsaCircuit(shape); err == nil {
+		t.Fatal("default confidential: zero signer width accepted")
 	}
 }
 
@@ -75,13 +82,13 @@ func TestCustomRingCircuitsRejectAZeroSignerWidth(t *testing.T) {
 // vector still gates authorization: blanking its only slot leaves the input
 // owner unsigned.
 func TestCustomRingConfidentialEddsaSolvesWithACustomSignerWidth(t *testing.T) {
-	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+	host := protocol.Shape{NInputs: 1, NOutputs: 2}
 	for _, width := range []int{1, 4} {
-		circuit, err := customring.NewCustomRingConfidentialEddsaCircuitWithSigners(Shape(shape), width)
+		circuit, err := customring.NewCustomRingConfidentialEddsaCircuit(withSignerWidth(host, width))
 		if err != nil {
 			t.Fatal(err)
 		}
-		assignment := buildCircuitAssignment(t, shape)
+		assignment := buildCircuitAssignment(t, host)
 		resizeSignerVector(assignment, width)
 		refreshPublicInputHash(t, assignment)
 		assert := test.NewAssert(t)
@@ -96,8 +103,8 @@ func TestCustomRingConfidentialEddsaSolvesWithACustomSignerWidth(t *testing.T) {
 // The hidden owner authorizes every input, so the anonymous rail solves with
 // a single, empty public signer slot.
 func TestCustomRingAnonymousEddsaSolvesWithASingleSignerSlot(t *testing.T) {
-	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	circuit, err := customring.NewCustomRingAnonymousEddsaCircuitWithSigners(Shape(shape), 1)
+	host := protocol.Shape{NInputs: 2, NOutputs: 2}
+	circuit, err := customring.NewCustomRingAnonymousEddsaCircuit(withSignerWidth(host, 1))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +118,7 @@ func TestCustomRingAnonymousEddsaSolvesWithASingleSignerSlot(t *testing.T) {
 		t.Fatal(err)
 	}
 	owner := hiddenOwnerKey(0x91)
-	a := eddsaRingAssignment(t, shape, hiddenOwnerIdentity(t, publicKeyBytes(owner)))
+	a := eddsaRingAssignment(t, host, hiddenOwnerIdentity(t, publicKeyBytes(owner)))
 	resizeSignerVector(a, 1)
 	checkCachedWitness(t, ccs, asCustomRingAnonymousEddsa(a, authorizeEddsa(t, a, owner, owner)), true)
 }
