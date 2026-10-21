@@ -30,6 +30,7 @@ func TestTransferParametersJSONKeys(t *testing.T) {
 		"treeSlots",
 		"outputTreeId",
 		"blindingSeed",
+		"ringSecrets",
 		"cacheTreeId",
 		"cacheReadHashChain",
 		"cacheReadHashes",
@@ -198,6 +199,27 @@ func TestTransferParametersCreateCompleteWitness(t *testing.T) {
 	}
 }
 
+func TestTransferParametersRingSecretsFollowTheRail(t *testing.T) {
+	short := sampleTransferParams(RingVariant)
+	short.RingSecrets = short.RingSecrets[:1]
+	extra := sampleTransferParams(ConfidentialVariant)
+	extra.RingSecrets = countedFieldElements(len(extra.Outputs), 0x5242)
+	anonymous := sampleAnonymousEddsaParams()
+	anonymous.RingSecrets = nil
+	for name, createWitness := range map[string]func() (frontend.Circuit, error){
+		"ring rail short":      short.CreateWitness,
+		"default rail":         extra.CreateWitness,
+		"anonymous rail short": anonymous.CreateWitness,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := createWitness()
+			if err == nil || !strings.Contains(err.Error(), "ring secret count mismatch") {
+				t.Fatalf("got %v, want a ring secret count mismatch", err)
+			}
+		})
+	}
+}
+
 func assertTransferDecodeFails(t *testing.T, fields map[string]any) {
 	t.Helper()
 	data, err := json.Marshal(fields)
@@ -254,6 +276,10 @@ func sampleTransferParams(variant Variant) *TransferParameters {
 		signers = 1
 		publishedOwners = 0
 	}
+	var ringSecrets []*big.Int
+	if variant != ConfidentialVariant {
+		ringSecrets = countedFieldElements(nOutputs, 0x5242)
+	}
 	return &TransferParameters{
 		NInputs:                      nInputs,
 		NOutputs:                     nOutputs,
@@ -264,6 +290,7 @@ func sampleTransferParams(variant Variant) *TransferParameters {
 		ExternalDataHash:             big.NewInt(0x6666),
 		PrivateTxHash:                big.NewInt(0x7777),
 		BlindingSeed:                 big.NewInt(0x5EC1),
+		RingSecrets:                  ringSecrets,
 		PublicAssets:                 zeroFieldElements(txcircuit.NPublicSlots),
 		PublicAmounts:                zeroFieldElements(txcircuit.NPublicSlots),
 		RingProgramID:                big.NewInt(0x4242),

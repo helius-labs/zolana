@@ -8,10 +8,11 @@ import (
 	"github.com/consensys/gnark/constraint"
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
+	"github.com/consensys/gnark/test"
 
 	mergeshared "github.com/helius-labs/zolana/prover/server/circuits/spp_merge/shared"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/merge"
-	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
+	"github.com/helius-labs/zolana/prover/server/prover-test/refusal"
 	"github.com/helius-labs/zolana/prover/server/prover-test/ringmerge"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
@@ -19,14 +20,14 @@ import (
 
 func compile(t *testing.T, n int) constraint.ConstraintSystem {
 	t.Helper()
-	cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, merge.New(n), frontend.WithCompressThreshold(300))
+	cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, merge.NewAnonymousMergeCircuit(n), frontend.WithCompressThreshold(300))
 	if err != nil {
 		t.Fatal(err)
 	}
 	return cs
 }
 
-func solve(t *testing.T, cs constraint.ConstraintSystem, c *merge.Circuit) error {
+func solve(t *testing.T, cs constraint.ConstraintSystem, c *merge.AnonymousMergeCircuit) error {
 	t.Helper()
 	witness, err := frontend.NewWitness(c, ecc.BN254.ScalarField())
 	if err != nil {
@@ -43,16 +44,24 @@ func TestAnonymousMergeSolves(t *testing.T) {
 	}
 }
 
+// Each case changes one value of an honest merge, rebinds the statement when the value is a
+// statement element, and the named frames raise the refusal.
 func TestAnonymousMergeRefusals(t *testing.T) {
-	cs := compile(t, 8)
-	for name, tamper := range map[string]func(*testing.T, *ringmerge.Statement){
-		"wrong owner": func(_ *testing.T, s *ringmerge.Statement) {
+	define := []string{"[assertIsEqual]", "merge.(*AnonymousMergeCircuit).Define"}
+	dummy := []string{"shared.AssertWhen", "merge.(*AnonymousMergeCircuit).Define"}
+	envelope := []string{"base.Envelope.Seal", "merge.(*AnonymousMergeCircuit).Define"}
+	tests := []struct {
+		name   string
+		tamper func(*testing.T, *ringmerge.Statement)
+		frames []string
+	}{
+		{"wrong owner", func(_ *testing.T, s *ringmerge.Statement) {
 			s.Circuit.OwnerKey[1] = 0
-		},
-		"wrong nullifier secret": func(_ *testing.T, s *ringmerge.Statement) {
+		}, define},
+		{"wrong nullifier secret", func(_ *testing.T, s *ringmerge.Statement) {
 			s.Circuit.NullifierSecret = 20
-		},
-		"mixed assets": func(t *testing.T, s *ringmerge.Statement) {
+		}, define},
+		{"mixed assets", func(t *testing.T, s *ringmerge.Statement) {
 			// SPP would commit input one under another mint, the statement names that merge.
 			must := ringmerge.MustOf(t)
 			other := s.Mint
@@ -70,76 +79,72 @@ func TestAnonymousMergeRefusals(t *testing.T) {
 			s.PrivateTxHash = s.PrivateTx(t, hashes)
 			s.Circuit.PrivateTxHash = s.PrivateTxHash
 			s.Rebind(t)
-		},
-		"non-member": func(t *testing.T, s *ringmerge.Statement) {
-			others := spptest.NewMemberRegistry(t, registry.Height)
-			others.Update(t, big.NewInt(3), big.NewInt(0), big.NewInt(0))
-			s.Circuit.MemberRegistryRoot = others.Root()
-			s.Rebind(t)
-		},
-		"record of another registry": func(_ *testing.T, s *ringmerge.Statement) {
-			s.Circuit.MemberRecord.EscrowKey = 1
-		},
-		"another merge's private tx hash": func(t *testing.T, s *ringmerge.Statement) {
+		}, define},
+		{"another merge's private tx hash", func(t *testing.T, s *ringmerge.Statement) {
 			s.PrivateTxHash = new(big.Int).Add(s.PrivateTxHash, big.NewInt(1))
 			s.Circuit.PrivateTxHash = s.PrivateTxHash
 			s.Rebind(t)
-		},
-		"another merge's output": func(t *testing.T, s *ringmerge.Statement) {
+		}, define},
+		{"another merge's output", func(t *testing.T, s *ringmerge.Statement) {
 			s.OutputHash = new(big.Int).Add(s.OutputHash, big.NewInt(1))
 			s.Circuit.OutputUtxoHash = s.OutputHash
 			s.Rebind(t)
-		},
-		"another merge's first nullifier": func(t *testing.T, s *ringmerge.Statement) {
+		}, define},
+		{"another merge's first nullifier", func(t *testing.T, s *ringmerge.Statement) {
 			s.FirstNf = new(big.Int).Add(s.FirstNf, big.NewInt(1))
 			s.Circuit.FirstNullifier = s.FirstNf
 			s.Rebind(t)
-		},
-		"another ring": func(t *testing.T, s *ringmerge.Statement) {
+		}, define},
+		{"another ring", func(t *testing.T, s *ringmerge.Statement) {
 			s.Circuit.RingProgramID = 0x5a0f
 			s.Rebind(t)
-		},
-		"tampered disclosure field": func(t *testing.T, s *ringmerge.Statement) {
+		}, define},
+		{"tampered disclosure field", func(t *testing.T, s *ringmerge.Statement) {
 			s.Fields[0] = new(big.Int).Add(s.Fields[0], big.NewInt(1))
 			s.Rebind(t)
-		},
-		"disclosure under another key": func(_ *testing.T, s *ringmerge.Statement) {
+		}, define},
+		{"disclosure under another key", func(_ *testing.T, s *ringmerge.Statement) {
 			s.Circuit.DisclosureKey[0] = 0
-		},
-		"disclosure for another auditor": func(_ *testing.T, s *ringmerge.Statement) {
+		}, define},
+		{"disclosure for another auditor", func(_ *testing.T, s *ringmerge.Statement) {
 			s.Circuit.AuditorPk[1] = 0
-		},
-		"dummy first input": func(_ *testing.T, s *ringmerge.Statement) {
-			s.Circuit.Inputs[0].Domain = protocol.DummyDomain
-		},
-		"hidden input amount": func(_ *testing.T, s *ringmerge.Statement) {
+		}, define},
+		{"disclosure key bytes outside 0..255 packing to the same key", func(_ *testing.T, s *ringmerge.Statement) {
+			// Moving 256 between adjacent bytes keeps the pad key, the envelope's byte table refuses the encoding.
+			key := &s.Circuit.DisclosureKey
+			key[0], key[1] = key[0].(uint64)-1, key[1].(uint64)+256
+		}, envelope},
+		{"dummy first input", func(_ *testing.T, s *ringmerge.Statement) {
+			// A well-formed dummy in slot zero, the slot SPP seeds every derived merge value from.
+			s.Circuit.Inputs[0] = merge.Input{Domain: protocol.DummyDomain, TreeID: 0, Amount: 0, Blinding: s.Circuit.Inputs[0].Blinding, RingDataHash: 0}
+		}, define},
+		{"hidden input amount", func(_ *testing.T, s *ringmerge.Statement) {
 			s.Circuit.Inputs[1].Amount = 8
-		},
-		"padding with an amount": func(_ *testing.T, s *ringmerge.Statement) {
+		}, define},
+		{"padding with an amount", func(_ *testing.T, s *ringmerge.Statement) {
 			s.Circuit.Inputs[2].Amount = 1
-		},
-		"public hash of another statement": func(t *testing.T, s *ringmerge.Statement) {
+		}, dummy},
+		{"public hash of another statement", func(t *testing.T, s *ringmerge.Statement) {
 			s.Circuit.PublicInputHash = 1
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
+		}, define},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			s := ringmerge.Build(t, 8)
-			tamper(t, s)
-			if solve(t, cs, s.Circuit) == nil {
-				t.Fatal("tampered anonymous merge solved")
-			}
+			tt.tamper(t, s)
+			refusal.Require(t, test.IsSolved(merge.NewAnonymousMergeCircuit(8), s.Circuit, ecc.BN254.ScalarField()), tt.frames...)
 		})
 	}
 }
 
 func TestAnonymousMergeRejectsUnsupportedWidth(t *testing.T) {
-	if _, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, merge.New(9)); err == nil {
+	if _, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, merge.NewAnonymousMergeCircuit(9)); err == nil {
 		t.Fatal("compiled a width SPP has no merge key for")
 	}
 }
 
 func TestAnonymousMergeCost(t *testing.T) {
-	pinned := map[int]int{8: 62500, 24: 89046, 52: 135178}
+	pinned := map[int]int{8: 56112, 24: 81618, 52: 125929}
 	for _, n := range mergeshared.SupportedInputCounts {
 		cs := compile(t, n)
 		if got := cs.GetNbConstraints(); got != pinned[n] {

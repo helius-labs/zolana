@@ -58,9 +58,11 @@ type Transaction struct {
 	Inputs  []Input
 	Outputs []UtxoCircuitFields
 	// BlindingSeed is the transaction's private random root seed. The output
-	// blinding seed, each output blinding, and the private tx blinding derive
+	// blinding seed, each default-ring output blinding, and the private tx blinding derive
 	// from it and the first nullifier (derivation.go).
 	BlindingSeed frontend.Variable
+	// Nil only on the default rail, where every output takes TXOB.
+	RingSecrets []frontend.Variable
 
 	PrivateTxHash     frontend.Variable
 	ExternalDataHash  frontend.Variable
@@ -123,6 +125,9 @@ func (t Transaction) ValidateLayout(extra ...LengthCheck) error {
 	}
 	if t.CachedInputs != nil {
 		checks = append(checks, t.CachedInputs.lengthChecks(t.Shape.NInputs)...)
+	}
+	if t.RingSecrets != nil {
+		checks = append(checks, LengthCheck{"ring secret", len(t.RingSecrets), t.Shape.NOutputs})
 	}
 	for _, check := range append(checks, extra...) {
 		if err := ValidateLength(check.Name, check.Got, check.Want); err != nil {
@@ -193,10 +198,8 @@ func (t Transaction) Constrain(api frontend.API, signers Signers, outputSigned [
 	outputBlindingSeed := DeriveOutputBlindingSeed(api, t.Nullifiers[0], t.BlindingSeed)
 	outputHashes := make([]frontend.Variable, t.Shape.NOutputs)
 	for i, utxo := range t.Outputs {
-		api.AssertIsEqual(
-			utxo.Blinding,
-			DeriveOutputBlinding(api, t.Nullifiers[0], outputBlindingSeed, i),
-		)
+		// Unique per transaction and slot, a ring output derives it from its ring secret.
+		api.AssertIsEqual(utxo.Blinding, t.outputBlinding(api, utxo, outputBlindingSeed, i))
 		outputHashes[i] = ConstrainOutput(api, utxo, t.OutputHashes[i], t.OutputIsCompact[i], outputSigned[i], t.OutputTreeID)
 	}
 	AssertDummiesLast(api, t.Outputs)
@@ -223,6 +226,15 @@ func (t Transaction) Constrain(api frontend.API, signers Signers, outputSigned [
 	// 5. Check public input hash.
 	api.AssertIsEqual(t.PublicInputHash, t.publicInputHash(api))
 	return nil
+}
+
+func (t Transaction) outputBlinding(api frontend.API, utxo UtxoCircuitFields, seed frontend.Variable, i int) frontend.Variable {
+	if t.RingSecrets == nil {
+		return DeriveOutputBlinding(api, t.Nullifiers[0], seed, i)
+	}
+	// ConstrainOutput pins a dummy's ring id to 0, so ring id 0 marks an exit or a dummy.
+	inDefaultRing := api.IsZero(utxo.RingProgramID)
+	return DeriveRingRailOutputBlinding(api, inDefaultRing, t.Nullifiers[0], seed, t.RingSecrets[i], i)
 }
 
 func (t Transaction) publicInputHash(api frontend.API) frontend.Variable {

@@ -11,6 +11,8 @@ import (
 	"github.com/consensys/gnark/test"
 
 	merge "github.com/helius-labs/zolana/prover/server/circuits/spp_merge"
+	mergeshared "github.com/helius-labs/zolana/prover/server/circuits/spp_merge/shared"
+	"github.com/helius-labs/zolana/prover/server/prover-test/ringrecords"
 )
 
 func TestMergeRingCircuitValidatesPublicSignalLayout(t *testing.T) {
@@ -28,6 +30,19 @@ func TestMergeRingCircuitValidatesPublicSignalLayout(t *testing.T) {
 	}
 	if want := "nullifier count mismatch"; !strings.Contains(err.Error(), want) {
 		t.Fatalf("unexpected error: got %q want substring %q", err, want)
+	}
+}
+
+func TestMergeRingConstraintCounts(t *testing.T) {
+	pinned := map[int]int{8: 184534, 24: 531750, 52: 1140682}
+	for _, n := range mergeshared.SupportedInputCounts {
+		cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, merge.NewMergeRingCircuit(n), frontend.WithCompressThreshold(300))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := cs.GetNbConstraints(); got != pinned[n] {
+			t.Errorf("merge_ring_%d constraints=%d, pinned %d", n, got, pinned[n])
+		}
 	}
 }
 
@@ -88,7 +103,7 @@ func TestMergeRingBindsRecoveryRegistration(t *testing.T) {
 			f.registeredCtHash = big.NewInt(0)
 		}},
 		{"wrong record index", func(_ *testing.T, f *mergeWitnessFixture) {
-			f.memberRecord.Index = 2
+			f.memberRecord.Path.Index = 2
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -143,10 +158,22 @@ func anonymousRingFixture(t *testing.T) *mergeWitnessFixture {
 	})
 }
 
-// An anonymous member has no escrow key, the flag alone waives the escrow relation.
+// The flag alone waives the record and the escrow relation, over the zero root the ring program forwards.
 func TestMergeRingAnonymousSkipsTheEscrowKey(t *testing.T) {
 	if err := test.IsSolved(merge.NewMergeRingCircuit(defaultFixtureInputs), anonymousRingFixture(t).ringCircuit(), ecc.BN254.ScalarField()); err != nil {
 		t.Fatalf("anonymous ring merge not solved: %v", err)
+	}
+}
+
+// An escrow merge reads the owner's record, the unread opening an anonymous merge assigns fails it.
+func TestMergeRingReadsTheRecordUnderEscrowOnly(t *testing.T) {
+	escrowed := buildMergeFixture(t, mergeFixtureOptions{
+		rail: ringFixtureRail, ringProgramID: big.NewInt(0x5A0E),
+		inputRingData: []*big.Int{big.NewInt(0xD0), big.NewInt(0xD0)}, outputRingData: big.NewInt(0xD0),
+	})
+	escrowed.memberRecord = ringrecords.UnreadRecordWires()
+	if test.IsSolved(merge.NewMergeRingCircuit(defaultFixtureInputs), escrowed.ringCircuit(), ecc.BN254.ScalarField()) == nil {
+		t.Fatal("an escrow merge solved without its member record")
 	}
 }
 
@@ -163,10 +190,6 @@ func TestMergeRingBindsTheAnonymousFlag(t *testing.T) {
 		}},
 		{"unregistered member claims a registered merge", func(t *testing.T, f *mergeWitnessFixture) {
 			f.anonymous = big.NewInt(0)
-			refreshRingPublicInputHash(t, f)
-		}},
-		{"non-boolean flag", func(t *testing.T, f *mergeWitnessFixture) {
-			f.anonymous = big.NewInt(2)
 			refreshRingPublicInputHash(t, f)
 		}},
 	} {

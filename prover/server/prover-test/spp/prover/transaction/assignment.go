@@ -156,6 +156,11 @@ func customRingWitness(
 		publicAssets[i] = publicInputs.PublicAssets[i]
 		publicAmounts[i] = publicInputs.PublicAmounts[i]
 	}
+	// parseProofUtxo admits no ring output, so no ring secret reaches a blinding.
+	ringSecrets := make([]frontend.Variable, len(outputs.outputs))
+	for i := range ringSecrets {
+		ringSecrets[i] = 0
+	}
 	return &customring.CustomRingConfidentialEddsaCircuit{
 		CachedInputs: uncachedInputs(publicInputs.PreimageTail, len(publicInputs.Nullifiers)),
 		Public: customring.CustomRingConfidentialEddsaPublic{
@@ -180,6 +185,7 @@ func customRingWitness(
 			OutputOwnerPkHashes: fieldVariables(outputs.outputOwnerPkHashes),
 			OutputNullifierPks:  fieldVariables(outputs.outputNullifierPks),
 			BlindingSeed:        blindingSeed,
+			RingSecrets:         ringSecrets,
 		},
 	}
 }

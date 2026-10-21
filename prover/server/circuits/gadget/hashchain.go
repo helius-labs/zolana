@@ -58,10 +58,10 @@ type NonZeroHashChainGadget struct {
 func (g NonZeroHashChainGadget) DefineGadget(api frontend.API) interface{} {
 	h := frontend.Variable(0)
 	for _, input := range g.Inputs {
-		if isConstantZero(api, input) {
+		if IsConstantZero(api, input) {
 			continue
 		}
-		if isConstantZero(api, h) {
+		if IsConstantZero(api, h) {
 			h = input
 			continue
 		}
@@ -71,7 +71,8 @@ func (g NonZeroHashChainGadget) DefineGadget(api frontend.API) interface{} {
 	return h
 }
 
-func isConstantZero(api frontend.API, v frontend.Variable) bool {
+// IsConstantZero reports a compile-time constant zero, a term the caller can drop without a constraint.
+func IsConstantZero(api frontend.API, v frontend.Variable) bool {
 	value, ok := api.Compiler().ConstantValue(v)
 	return ok && value.Sign() == 0
 }

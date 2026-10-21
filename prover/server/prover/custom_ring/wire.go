@@ -15,7 +15,7 @@ var errNotCanonical = errors.New("custom-ring: a value is not canonical lowercas
 // Field is a BN254 scalar on the wire, 0x and 64 lowercase hex digits below r.
 type Field struct{ *big.Int }
 
-// Bytes is a byte string on the wire, 0x and lowercase hex. The circuit array it fills fixes its length.
+// Bytes is a byte string on the wire, 0x and lowercase hex, its length fixed by the circuit array it fills.
 type Bytes []byte
 
 func (f Field) MarshalJSON() ([]byte, error) {

@@ -11,7 +11,6 @@ import (
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
 	"github.com/helius-labs/zolana/prover/server/prover-test/ringaudit"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
-	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 )
 
 // Same one-input, two-output shape on both confidential rails. These measure
@@ -28,25 +27,11 @@ func BenchmarkPaymentProofs(b *testing.B) {
 		benchmarkPaymentProof(b, MustNewCustomRingConfidentialEddsaCircuit(Shape(shape)), asCustomRingConfidentialEddsa(a))
 	})
 	b.Run("custom_ring_auditor", func(b *testing.B) {
-		a := buildCircuitAssignment(b, shape)
-		keys := ringaudit.DefaultKeys(b)
-		statement := keys.Statement(spptest.AsBigInt(a.PrivateTxHash))
-		statement.Count = shape.NOutputs
-		for i, output := range a.Outputs {
-			u := output.Utxo
-			statement.Outputs[i] = base.AuditOutputWires{
-				Domain: u.Domain, TreeID: a.OutputTreeID, OwnerHash: u.Owner,
-				Asset: u.Asset, Amount: u.Amount, Blinding: u.Blinding,
-				DataHash: u.DataHash, RingDataHash: u.RingDataHash, RingProgramID: u.RingProgramID,
-			}
+		circuit, err := base.NewPackedAuditCircuit(shape.NOutputs)
+		if err != nil {
+			b.Fatal(err)
 		}
-		full := keys.Circuit(b, statement)
-		assignment := &base.CustomRingConfidentialCircuit{
-			PublicInputHash: full.PublicInputHash, PrivateTxHash: full.PrivateTxHash,
-			TxViewingSk: full.TxViewingSk, EphSk: full.EphSk, AuditorPk: full.AuditorPk,
-			Salt: full.Salt, NOut: full.NOut, Outputs: full.Outputs,
-		}
-		benchmarkPaymentProof(b, &base.CustomRingConfidentialCircuit{}, assignment)
+		benchmarkPaymentProof(b, circuit, ringaudit.NewPackedAudit(b, shape.NOutputs).Circuit(b))
 	})
 }
 

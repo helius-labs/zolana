@@ -18,12 +18,7 @@ func (gadget privateTxHashGadget) DefineGadget(api frontend.API) interface{} {
 	inputChain := gadgetlib.NonZeroHashChain(api, gadget.InputUtxoHashes)
 	outputChain := gadgetlib.NonZeroHashChain(api, gadget.OutputUtxoHashes)
 	addressChain := gadgetlib.NonZeroHashChain(api, gadget.AddressNullifiers)
-	return gadgetlib.PoseidonHash(api, []frontend.Variable{
-		inputChain,
-		outputChain,
-		addressChain,
-		gadget.Blinding,
-	})
+	return PrivateTxHashFromChains(api, inputChain, outputChain, addressChain, gadget.Blinding)
 }
 
 func PrivateTxHashCircuit(
@@ -39,4 +34,15 @@ func PrivateTxHashCircuit(
 		AddressNullifiers: addressNullifiers,
 		Blinding:          blinding,
 	})
+}
+
+// PrivateTxHashFromChains requires each chain to be the NonZeroHashChain of its slot list.
+func PrivateTxHashFromChains(
+	api frontend.API,
+	inputChain,
+	outputChain,
+	addressChain,
+	blinding frontend.Variable,
+) frontend.Variable {
+	return gadgetlib.PoseidonHash(api, []frontend.Variable{inputChain, outputChain, addressChain, blinding})
 }

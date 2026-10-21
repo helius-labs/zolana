@@ -9,13 +9,16 @@ import (
 	"github.com/consensys/gnark/std/rangecheck"
 	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 
-	ve "github.com/helius-labs/zolana/prover/server/circuits/encryption"
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
 	mergeshared "github.com/helius-labs/zolana/prover/server/circuits/spp_merge/shared"
 	transaction "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
-	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
 )
+
+// Properties:
+// 1. PrivateTxHash, OutputUtxoHash and FirstNullifier are the SPP merge's, recomputed under one owner, one asset and the owner's nullifier secret.
+// 2. Membership is not proven, a merge consolidates one owner's notes and moves no value between parties.
+// 3. Only the auditor opens the disclosure of the owner key, nullifier key, mint, amount, output blinding and every input commitment.
 
 const (
 	// Domain is "CRMG", the first element of the statement chain.
@@ -39,17 +42,16 @@ type Input struct {
 	RingDataHash frontend.Variable
 }
 
-type Circuit struct {
+type AnonymousMergeCircuit struct {
 	NumInputs int `gnark:"-"`
 
 	PublicInputHash frontend.Variable `gnark:",public"`
 
-	PrivateTxHash      frontend.Variable
-	OutputUtxoHash     frontend.Variable
-	FirstNullifier     frontend.Variable
-	RingProgramID      frontend.Variable
-	MemberRegistryRoot frontend.Variable
-	AuditorPk          [32]frontend.Variable
+	PrivateTxHash  frontend.Variable
+	OutputUtxoHash frontend.Variable
+	FirstNullifier frontend.Variable
+	RingProgramID  frontend.Variable
+	AuditorPk      [32]frontend.Variable
 	// Salt is the SPP output ciphertext salt packed as one field.
 	Salt frontend.Variable
 
@@ -61,45 +63,49 @@ type Circuit struct {
 	Inputs             []Input
 	OutputTreeID       frontend.Variable
 	OutputRingDataHash frontend.Variable
-	MemberRecord       registry.RecordOpening
 }
 
-// New allocates the circuit of one supported merge width.
-func New(n int) *Circuit {
-	return &Circuit{NumInputs: n, Inputs: make([]Input, n)}
+// NewAnonymousMergeCircuit allocates the circuit of one supported merge width.
+func NewAnonymousMergeCircuit(n int) *AnonymousMergeCircuit {
+	return &AnonymousMergeCircuit{NumInputs: n, Inputs: make([]Input, n)}
 }
 
-// Define recomputes private_tx_hash, the output hash and the first nullifier from the openings
-// under one owner, one asset and the owner's nullifier secret, so the statement names one SPP merge.
-func (c *Circuit) Define(api frontend.API) error {
-	if !mergeshared.IsSupportedInputCount(c.NumInputs) || len(c.Inputs) != c.NumInputs {
-		return fmt.Errorf("merge: %d inputs, want %v", len(c.Inputs), mergeshared.SupportedInputCounts)
+func (c *AnonymousMergeCircuit) Define(api frontend.API) error {
+	if !mergeshared.IsSupportedInputCount(c.NumInputs) {
+		return fmt.Errorf("merge: unsupported input count %d, want one of %v", c.NumInputs, mergeshared.SupportedInputCounts)
 	}
-	rc := rangecheck.New(api)
-	api.AssertIsDifferent(c.RingProgramID, 0)
+	if len(c.Inputs) != c.NumInputs {
+		return fmt.Errorf("merge: input count mismatch: got %d want %d", len(c.Inputs), c.NumInputs)
+	}
+	// 1. One owner, the Solana identity of the disclosed key under the secret's nullifier key, and one asset,
+	// the mint whose chunks bound to 31 and 1 bytes give it one 32-byte opening.
 	ownerPkHash := gadget.SolanaOwnerIdentity(api, c.OwnerKey)
 	nullifierPk := gadget.PoseidonHash(api, []frontend.Variable{c.NullifierSecret})
 	ownerHash := gadget.PoseidonHash(api, []frontend.Variable{ownerPkHash, nullifierPk})
 	asset := gadget.HashChain(api, c.MintChunks[:])
-	mint := slices.Concat(ve.FieldToBytesBE(api, c.MintChunks[0], 31), ve.FieldToBytesBE(api, c.MintChunks[1], 1))
+	mint := slices.Concat(gadget.BitsToBytesBE(api, api.ToBinary(c.MintChunks[0], 31*8)), gadget.BitsToBytesBE(api, api.ToBinary(c.MintChunks[1], 8)))
 
+	// 2. Every slot is a UTXO of that owner, asset and ring with no data, or a dummy, and slot zero yields
+	// the public first nullifier.
 	inputHashes := make([]frontend.Variable, c.NumInputs)
-	zero := make([]frontend.Variable, c.NumInputs)
+	addressNullifiers := make([]frontend.Variable, c.NumInputs)
 	sum := frontend.Variable(0)
 	var firstNullifier frontend.Variable
 	for i, in := range c.Inputs {
-		zero[i] = 0
+		addressNullifiers[i] = 0
 		isDummy := api.IsZero(api.Sub(in.Domain, mergeshared.DummyDomain))
+		// A merge spends no address slot.
 		api.AssertIsEqual(api.Add(api.IsZero(api.Sub(in.Domain, mergeshared.UtxoDomain)), isDummy), 1)
-		abstractor.CallVoid(api, transaction.RangeCheck64{Value: in.Amount})
 		utxo := transaction.UtxoCircuitFields{
 			Domain: in.Domain, Owner: api.Select(isDummy, 0, ownerHash), Asset: api.Select(isDummy, 0, asset),
 			Amount: in.Amount, Blinding: in.Blinding, DataHash: 0, RingDataHash: in.RingDataHash,
 			RingProgramID: api.Select(isDummy, 0, c.RingProgramID),
 		}
+		// A dummy carries nothing but its blinding, so it hides no amount.
 		transaction.AssertWhen(api, isDummy, utxo.CheckDummy(api))
 		hash := transaction.UtxoHashCircuit(api, utxo, in.TreeID)
 		inputHashes[i] = api.Select(isDummy, 0, hash)
+		// SPP's merge range-checks every amount private_tx_hash binds here, a dummy's is zero.
 		sum = api.Add(sum, in.Amount)
 		if i == 0 {
 			// SPP seeds every derived merge value from the real slot zero.
@@ -107,9 +113,11 @@ func (c *Circuit) Define(api frontend.API) error {
 			firstNullifier = abstractor.Call(api, transaction.NullifierGadget{
 				UtxoHash: hash, Blinding: in.Blinding, NullifierSecret: c.NullifierSecret,
 			})
+			// The nullifier SPP inserted names the merge the disclosure opens.
 			api.AssertIsEqual(c.FirstNullifier, firstNullifier)
 		}
 	}
+	// 3. The output is the SPP merge output, the 64-bit sum under the owner with the TMOB blinding.
 	amount := gadget.BitsToBytesBE(api, api.ToBinary(sum, 64))
 	outputBlinding := mergeshared.MergeOutputBlinding(api, c.NullifierSecret, firstNullifier)
 	outputHash := transaction.UtxoHashCircuit(api, transaction.UtxoCircuitFields{
@@ -118,26 +126,38 @@ func (c *Circuit) Define(api frontend.API) error {
 		RingDataHash: c.OutputRingDataHash, RingProgramID: c.RingProgramID,
 	}, c.OutputTreeID)
 	api.AssertIsEqual(c.OutputUtxoHash, outputHash)
+	// 4. The private tx hash is SPP's, so the disclosed commitments are the ones SPP spent.
 	api.AssertIsEqual(c.PrivateTxHash, transaction.PrivateTxHashCircuit(api, inputHashes,
-		[]frontend.Variable{outputHash}, zero, transaction.DerivePrivateTxBlinding(api, firstNullifier, c.NullifierSecret)))
-	// Presence alone admits the owner, a frozen member still consolidates its own notes.
-	c.MemberRecord.AssertPresent(api, 1, c.MemberRegistryRoot, ownerPkHash)
+		[]frontend.Variable{outputHash}, addressNullifiers, transaction.DerivePrivateTxBlinding(api, firstNullifier, c.NullifierSecret)))
 
-	base.CheckBytes(rc, c.DisclosureKey[:])
+	// 5. The envelope seals the disclosure key to the auditor, its cipher bounds every key and ciphertext byte.
 	sealed := base.Envelope{Plaintext: c.DisclosureKey[:], EphSk: c.EphSk, AuditorPk: c.AuditorPk, Info: EncryptionInfo}.Seal(api)
-	plaintext := slices.Concat(c.OwnerKey[:], base.FieldBytes(api, nullifierPk), mint, amount, base.FieldBytes(api, outputBlinding))
+	// 6. The disclosure is the canonical opening of the output and every input commitment under the key's pad.
+	rc := rangecheck.New(api)
+	nullifierPkBytes, outputBlindingBytes := gadget.FieldToBytesBEWith(api, rc, nullifierPk), gadget.FieldToBytesBEWith(api, rc, outputBlinding)
+	plaintext := slices.Concat(c.OwnerKey[:], nullifierPkBytes[:], mint, amount, outputBlindingBytes[:])
 	for _, hash := range inputHashes {
-		plaintext = append(plaintext, base.FieldBytes(api, hash)...)
+		hashBytes := gadget.FieldToBytesBEWith(api, rc, hash)
+		plaintext = append(plaintext, hashBytes[:]...)
 	}
 	fields := base.PackDisclosure(api, plaintext)
-	pad := base.DisclosurePad(api, base.MergeDisclosureDomain, gadget.PackBytesBE(api, c.DisclosureKey[:]), c.Salt, len(fields))
+	pad := base.DisclosurePad(api, base.MergeDisclosureDomain, gadget.PackBytesBEWith(api, gadget.BoundedBytes{}, c.DisclosureKey[:]), c.Salt, len(fields))
 	for i := range fields {
 		fields[i] = api.Add(fields[i], pad[i])
 	}
-
-	chain := []frontend.Variable{Domain, c.PrivateTxHash, c.OutputUtxoHash, c.FirstNullifier, c.RingProgramID, c.MemberRegistryRoot}
-	chain = slices.Concat(chain, sealed.Auditor, sealed.Eph,
-		[]frontend.Variable{gadget.HashBytes(api, sealed.Ciphertext), c.Salt, gadget.HashChain4(api, fields)})
-	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain(api, chain))
+	// 7. The statement binds the SPP merge, the ring, the envelope and the masked disclosure.
+	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain(api, c.statement(api, sealed, fields)))
 	return nil
+}
+
+// statement is the anonymous merge preimage, mirrored by MergeAnonymousPublicInput::elements in custom-rings/interface/src/merge.rs.
+//
+//	CRMG, private_tx_hash, output_utxo_hash, first_nullifier, ring_id, aud0, aud1, eph0, eph1, ct_hash, salt, HashChain4(fields)
+func (c *AnonymousMergeCircuit) statement(api frontend.API, sealed base.Sealed, fields []frontend.Variable) []frontend.Variable {
+	return slices.Concat(
+		[]frontend.Variable{Domain, c.PrivateTxHash, c.OutputUtxoHash, c.FirstNullifier, c.RingProgramID},
+		sealed.Auditor,
+		sealed.Eph,
+		[]frontend.Variable{gadget.HashBoundedBytes(api, sealed.Ciphertext), c.Salt, gadget.HashChain4(api, fields)},
+	)
 }

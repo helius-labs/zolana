@@ -12,7 +12,6 @@ import (
 	"testing"
 
 	"github.com/consensys/gnark-crypto/ecc"
-	"github.com/consensys/gnark/constraint"
 	"github.com/consensys/gnark/frontend"
 
 	"github.com/helius-labs/zolana/prover/server/prover/common"
@@ -20,21 +19,19 @@ import (
 
 const goldenDigests = "testdata/witness.sha256"
 
-// The fixtures are frozen request bytes every circuit accepts; a decoder change
-// must assign the recorded witness, and UPDATE_RING_GOLDENS=1 rewrites only the digests.
+// Every frozen request fixture solves and assigns its recorded witness, UPDATE_RING_GOLDENS=1 rewrites the digests only.
 func TestGoldenRequestsAssignTheRecordedWitness(t *testing.T) {
 	files, err := filepath.Glob("testdata/*.json")
 	if err != nil || len(files) == 0 {
 		t.Fatalf("no fixtures: %v", err)
 	}
-	// The Rust SDK writes testdata/rust in its own key order, so only this solve covers those bytes.
+	// Rust writes testdata/rust in its own key order.
 	rust, err := filepath.Glob("testdata/rust/*.json")
 	if err != nil || len(rust) == 0 {
 		t.Fatalf("no Rust-built fixtures: %v", err)
 	}
 	files = append(files, rust...)
 	digests := map[string]string{}
-	systems := map[common.CircuitType]constraint.ConstraintSystem{}
 	for _, file := range files {
 		name := filepath.Base(file)
 		payload, err := os.ReadFile(file)
@@ -45,8 +42,7 @@ func TestGoldenRequestsAssignTheRecordedWitness(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		assignment := goldenAssignment(t, meta.CircuitType, payload)
-		witness, err := frontend.NewWitness(assignment, ecc.BN254.ScalarField())
+		witness, err := frontend.NewWitness(decodePayload(t, meta.CircuitType, payload), ecc.BN254.ScalarField())
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
@@ -56,12 +52,7 @@ func TestGoldenRequestsAssignTheRecordedWitness(t *testing.T) {
 		}
 		digest := sha256.Sum256(encoded)
 		digests[name] = hex.EncodeToString(digest[:])
-		cs := systems[meta.CircuitType]
-		if cs == nil {
-			cs = compileRing(t, meta.CircuitType)
-			systems[meta.CircuitType] = cs
-		}
-		if _, err := cs.Solve(witness); err != nil {
+		if _, err := compileRing(t, meta.CircuitType).Solve(witness); err != nil {
 			t.Errorf("%s does not solve: %v", name, err)
 		}
 	}
@@ -78,15 +69,6 @@ func TestGoldenRequestsAssignTheRecordedWitness(t *testing.T) {
 			t.Errorf("%s assigns a different witness", name)
 		}
 	}
-}
-
-func goldenAssignment(t *testing.T, circuit common.CircuitType, payload []byte) frontend.Circuit {
-	t.Helper()
-	assignment, err := Decode(circuit, payload)
-	if err != nil {
-		t.Fatalf("%s: %v", circuit, err)
-	}
-	return assignment
 }
 
 func readDigests(t *testing.T) map[string]string {

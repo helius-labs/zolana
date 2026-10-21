@@ -2,7 +2,9 @@ package common
 
 import (
 	"fmt"
+	txcircuit "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
 	"github.com/helius-labs/zolana/prover/server/logging"
+	"github.com/helius-labs/zolana/prover/server/prover/ringauthority"
 	"maps"
 	"path/filepath"
 	"slices"
@@ -203,6 +205,20 @@ var transferSupportedShapes = [][2]uint32{
 	{49, 2},
 }
 
+// TransferShapes are the supported transfer shapes, cheapest first.
+var TransferShapes = func() []txcircuit.Shape {
+	shapes := make([]txcircuit.Shape, len(transferSupportedShapes))
+	for i, shape := range transferSupportedShapes {
+		shapes[i] = txcircuit.Shape{NInputs: int(shape[0]), NOutputs: int(shape[1])}
+	}
+	return shapes
+}()
+
+// RingAuthorityShapes are the transfer shapes with a ring authority key.
+var RingAuthorityShapes = slices.DeleteFunc(slices.Clone(TransferShapes), func(shape txcircuit.Shape) bool {
+	return !ringauthority.Fits(shape.NInputs)
+})
+
 // mergeSupportedInputCounts mirrors mergeshared.SupportedInputCounts. Kept here
 // because common must not import the circuit packages; keep in sync with
 // circuits/spp_merge/shared/transaction.go.
@@ -215,7 +231,7 @@ type ProofShape struct {
 }
 
 func (shape ProofShape) Supported() bool {
-	if shape.Circuit == TransferRingAuthorityCircuitType && (shape.Inputs != shape.Outputs || shape.Inputs > 4) {
+	if shape.Circuit == TransferRingAuthorityCircuitType && !ringauthority.Fits(int(shape.Inputs)) {
 		return false
 	}
 	switch shape.Circuit {
@@ -314,8 +330,8 @@ func keyFileCircuits() map[string]CircuitType {
 	for _, shape := range batchAddressAppendShapes {
 		files[BatchKeyFile(BatchAddressAppendCircuitType, shape[0], shape[1])] = BatchAddressAppendCircuitType
 	}
-	for _, circuit := range RingCircuitTypes {
-		files[RingKeyFile(circuit)] = circuit
+	for _, key := range RingKeys {
+		files[RingKeyFile(key.Circuit)] = key.Circuit
 	}
 	return files
 }

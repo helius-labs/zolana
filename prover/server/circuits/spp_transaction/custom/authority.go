@@ -15,6 +15,7 @@ import (
 // 5. Address inputs are not allowed.
 // 6. Dummy slots are indistinguishable from real UTXO slots.
 // 7. Input nullifiers are distinct and balances are preserved.
+// 8. A ring output's blinding is TXRB over the first nullifier, its slot and a free ring secret the ring's audit proof binds.
 
 type CustomRingAuthorityPublic struct {
 	Nullifiers       []frontend.Variable
@@ -37,6 +38,7 @@ type CustomRingAuthorityPrivate struct {
 	InputOwnerPkHashes []frontend.Variable
 	Outputs            []shared.UtxoCircuitFields
 	BlindingSeed       frontend.Variable
+	RingSecrets        []frontend.Variable
 }
 
 type CustomRingAuthorityCircuit struct {
@@ -61,6 +63,7 @@ func NewCustomRingAuthorityCircuit(shape shared.Shape) (*CustomRingAuthorityCirc
 			Inputs:             shared.NewInputs(shape.NInputs),
 			InputOwnerPkHashes: make([]frontend.Variable, shape.NInputs),
 			Outputs:            make([]shared.UtxoCircuitFields, shape.NOutputs),
+			RingSecrets:        make([]frontend.Variable, shape.NOutputs),
 		},
 	}, nil
 }
@@ -76,6 +79,7 @@ func (c *CustomRingAuthorityCircuit) transaction(api frontend.API) shared.Transa
 		Inputs:            c.Private.Inputs,
 		Outputs:           c.Private.Outputs,
 		BlindingSeed:      c.Private.BlindingSeed,
+		RingSecrets:       c.Private.RingSecrets,
 		PrivateTxHash:     c.Public.PrivateTxHash,
 		ExternalDataHash:  c.Public.ExternalDataHash,
 		PublicAssets:      c.Public.PublicAssets,

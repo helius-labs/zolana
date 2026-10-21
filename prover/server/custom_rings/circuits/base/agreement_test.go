@@ -1,60 +1,64 @@
-package base_test
+package base
 
 import (
+	"math/big"
 	"testing"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
-	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
+	"github.com/consensys/gnark/std/rangecheck"
+
+	"github.com/helius-labs/zolana/prover/server/prover-test/hintattack"
 )
 
-type agreementCircuit struct {
-	Secret, Recipient [32]frontend.Variable
-}
+// canonicalKeyCircuit bounds the key bytes as ECDH does before agreeCanonical checks them.
+type canonicalKeyCircuit struct{ Key [32]frontend.Variable }
 
-func (c *agreementCircuit) Define(api frontend.API) error {
-	base.AgreeAuditKey(api, c.Secret, c.Recipient)
+func (c *canonicalKeyCircuit) Define(api frontend.API) error {
+	rc := rangecheck.New(api)
+	for _, b := range c.Key {
+		rc.Check(b, 8)
+	}
+	assertBelowP(api, c.Key)
 	return nil
 }
 
-// RFC aliases preserve DH, but custom-ring keys must have exactly one encoding.
-func TestAuditAgreementRejectsAliasesAndZeroDH(t *testing.T) {
-	cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &agreementCircuit{})
+func TestCanonicalX25519RefusesEncodingsAtOrAboveP(t *testing.T) {
+	q := ecc.BN254.ScalarField()
+	cs, err := frontend.Compile(q, r1cs.NewBuilder, &canonicalKeyCircuit{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"basepoint", "high bit", "p plus nine", "zero DH", "out of range byte"} {
-		t.Run(name, func(t *testing.T) {
-			var w agreementCircuit
-			for i := range w.Secret {
-				w.Secret[i], w.Recipient[i] = 0, 0
-			}
-			w.Recipient[0] = 9
-			switch name {
-			case "high bit":
-				w.Recipient[31] = 128
-			case "p plus nine":
-				for i := range w.Recipient {
-					w.Recipient[i] = 255
-				}
-				w.Recipient[0], w.Recipient[31] = 246, 127
-			case "zero DH":
-				w.Recipient[0] = 0
-			case "out of range byte":
-				w.Recipient[0] = 265
-			}
-			witness, err := frontend.NewWitness(&w, ecc.BN254.ScalarField())
+	encode := func(n *big.Int) *canonicalKeyCircuit {
+		var b [32]byte
+		n.FillBytes(b[:])
+		w := new(canonicalKeyCircuit)
+		for i := range b {
+			w.Key[i] = b[31-i]
+		}
+		return w
+	}
+	check := func(n *big.Int, valid bool) {
+		t.Helper()
+		witness, err := frontend.NewWitness(encode(n), q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = cs.IsSolved(witness, hintattack.SkipMissingLookupQueries(t))
+		if valid {
 			if err != nil {
 				t.Fatal(err)
 			}
-			err = cs.IsSolved(witness)
-			if name == "basepoint" && err != nil {
-				t.Fatal(err)
-			}
-			if name != "basepoint" && err == nil {
-				t.Fatal("invalid recipient accepted")
-			}
-		})
+		} else {
+			hintattack.RequireConstraintRejection(t, err)
+		}
+	}
+	p := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 255), big.NewInt(19))
+	for _, n := range []*big.Int{big.NewInt(0), big.NewInt(255), new(big.Int).Sub(p, big.NewInt(1)), new(big.Int).Sub(p, big.NewInt(256))} {
+		check(n, true)
+	}
+	for _, n := range []*big.Int{p, new(big.Int).Add(p, big.NewInt(18)), new(big.Int).Lsh(big.NewInt(1), 255)} {
+		check(n, false)
 	}
 }

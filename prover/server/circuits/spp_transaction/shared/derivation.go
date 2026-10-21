@@ -27,6 +27,9 @@ const (
 	PrivateTxBlindingDomainV1 = 0x54585042
 )
 
+// RingOutputBlindingDomainV1 = "TXRB", mirrored by DOMAIN_TRANSACT_RING_OUTPUT_BLINDING_V1 in sdk-libs/instruction/src/derivation.rs.
+const RingOutputBlindingDomainV1 = 0x54585242
+
 // DeriveOutputBlindingSeed derives the seed the output blindings come from.
 func DeriveOutputBlindingSeed(api frontend.API, firstNullifier, blindingSeed frontend.Variable) frontend.Variable {
 	return gadget.PoseidonHash(api, []frontend.Variable{
@@ -45,6 +48,30 @@ func DeriveOutputBlinding(
 ) frontend.Variable {
 	return gadget.PoseidonHash(api, []frontend.Variable{
 		OutputBlindingDomainV1, firstNullifier, seed, outputIndex,
+	})
+}
+
+// DeriveRingOutputBlinding derives a ring output's blinding from its ring secret, bound by the ring's audit proof and never by SPP.
+func DeriveRingOutputBlinding(api frontend.API, firstNullifier, ringSecret, outputIndex frontend.Variable) frontend.Variable {
+	return gadget.PoseidonHash(api, []frontend.Variable{
+		RingOutputBlindingDomainV1, firstNullifier, ringSecret, outputIndex,
+	})
+}
+
+// DeriveRingRailOutputBlinding is TXOB over seed when inDefaultRing is 1 and TXRB over ringSecret when it is 0.
+func DeriveRingRailOutputBlinding(
+	api frontend.API,
+	inDefaultRing,
+	firstNullifier,
+	seed,
+	ringSecret frontend.Variable,
+	outputIndex int,
+) frontend.Variable {
+	return gadget.PoseidonHash(api, []frontend.Variable{
+		api.Select(inDefaultRing, OutputBlindingDomainV1, RingOutputBlindingDomainV1),
+		firstNullifier,
+		api.Select(inDefaultRing, seed, ringSecret),
+		outputIndex,
 	})
 }
 

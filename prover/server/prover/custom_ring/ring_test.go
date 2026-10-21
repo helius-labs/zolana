@@ -3,16 +3,17 @@ package custom_ring
 import (
 	"bytes"
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/constraint"
-	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/policy"
 
 	"github.com/helius-labs/zolana/prover/server/prover/common"
 )
@@ -24,11 +25,7 @@ func compileRing(t *testing.T, circuit common.CircuitType) constraint.Constraint
 	if cs, ok := compiled.Load(circuit); ok {
 		return cs.(constraint.ConstraintSystem)
 	}
-	ring, err := Ring(circuit)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cs, err := ring.R1CS()
+	cs, err := ringOf(t, circuit).R1CS()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,25 +33,99 @@ func compileRing(t *testing.T, circuit common.CircuitType) constraint.Constraint
 	return cs
 }
 
-// The on-chain verifier takes one BSB22 commitment over private wires only.
-func TestRingCircuitsCarryOnePrivateCommitment(t *testing.T) {
-	for _, ring := range RingCircuits {
-		t.Run(string(ring.Type), func(t *testing.T) {
+var pinnedRingConstraints = map[string]int{
+	"custom_ring_audit_packed_2":            53425,
+	"custom_ring_audit_packed_4":            64748,
+	"custom_ring_audit_delivered_8":         283971,
+	"custom_ring_audit_delivered_16":        523700,
+	"custom_ring_audit_anonymous_4_2":       124338,
+	"custom_ring_audit_anonymous_8_2":       131915,
+	"custom_ring_audit_anonymous_12_2":      139495,
+	"custom_ring_audit_anonymous_16_2":      147078,
+	"custom_ring_audit_anonymous_24_2":      162235,
+	"custom_ring_audit_anonymous_28_2":      169818,
+	"custom_ring_audit_anonymous_4_4":       186134,
+	"custom_ring_audit_anonymous_8_4":       193711,
+	"custom_ring_audit_anonymous_12_4":      201291,
+	"custom_ring_audit_anonymous_16_4":      208874,
+	"custom_ring_audit_anonymous_24_4":      224031,
+	"custom_ring_audit_anonymous_4_8":       311457,
+	"custom_ring_audit_anonymous_8_8":       319034,
+	"custom_ring_audit_anonymous_12_8":      326614,
+	"custom_ring_audit_anonymous_16_8":      334197,
+	"custom_ring_audit_anonymous_entry_8_2": 138013,
+	"custom_ring_audit_anonymous_entry_8_4": 199809,
+	"custom_ring_audit_anonymous_entry_8_8": 325132,
+	"custom_ring_policy_member_2":           48455,
+	"custom_ring_policy_member_4":           82348,
+	"custom_ring_policy_member_8":           150253,
+	"custom_ring_policy_member_16":          286047,
+	"custom_ring_policy_delegate_1x2":       48736,
+	"custom_ring_policy_delegate_1x4":       82565,
+	"custom_ring_policy_delegate_1x8":       150391,
+	"custom_ring_policy_delegate_2x2":       50089,
+	"custom_ring_policy_delegate_2x4":       83918,
+	"custom_ring_policy_delegate_1x16":      285928,
+	"custom_ring_policy_delegate_2x8":       151744,
+	"custom_ring_policy_delegate_3x2":       51442,
+	"custom_ring_policy_delegate_3x4":       85271,
+	"custom_ring_policy_delegate_2x16":      287281,
+	"custom_ring_policy_delegate_3x8":       153097,
+	"custom_ring_policy_delegate_4x2":       52795,
+	"custom_ring_policy_delegate_4x4":       86624,
+	"custom_ring_policy_delegate_4x8":       154450,
+	"custom_ring_policy_delegate_5x2":       54148,
+	"custom_ring_policy_delegate_5x4":       87977,
+	"custom_ring_policy_delegate_4x16":      289987,
+	"custom_ring_policy_delegate_5x8":       155803,
+	"custom_ring_policy_delegate_6x2":       55501,
+	"custom_ring_policy_delegate_6x4":       89330,
+	"custom_ring_policy_delegate_5x16":      291340,
+	"custom_ring_policy_delegate_6x8":       157156,
+	"custom_ring_policy_delegate_8x2":       58207,
+	"custom_ring_policy_delegate_8x4":       92036,
+	"custom_ring_policy_delegate_8x8":       159862,
+	"custom_ring_policy_delegate_8x16":      295399,
+	"custom_ring_policy_delegate_12x2":      63619,
+	"custom_ring_policy_delegate_12x4":      97448,
+	"custom_ring_policy_delegate_12x8":      165274,
+	"custom_ring_policy_delegate_16x2":      69031,
+	"custom_ring_policy_delegate_16x4":      102860,
+	"custom_ring_policy_delegate_16x8":      170686,
+	"custom_ring_policy_delegate_24x2":      79855,
+	"custom_ring_policy_delegate_24x4":      113684,
+	"custom_ring_policy_delegate_32x2":      90679,
+	"custom_ring_policy_delegate_40x2":      101503,
+	"custom_ring_apply_records_1":           15492,
+	"custom_ring_apply_records_16":          232892,
+	"custom_ring_register_key":              36913,
+	"custom_ring_deposit":                   148856,
+	"custom_ring_merge_anonymous_8":         56112,
+	"custom_ring_merge_anonymous_24":        81618,
+}
+
+// Every ring key compiles at its pin with one public input and one BSB22 commitment over private wires.
+func TestRingKeyCatalog(t *testing.T) {
+	names := make([]string, len(RingCircuits))
+	for i, ring := range RingCircuits {
+		names[i] = strings.TrimSuffix(common.RingKeyFile(ring.Type), ".key")
+	}
+	if !slices.Equal(slices.Sorted(slices.Values(names)), slices.Sorted(maps.Keys(pinnedRingConstraints))) {
+		t.Fatalf("ring keys %v differ from the pinned set", names)
+	}
+	for i, ring := range RingCircuits {
+		t.Run(names[i], func(t *testing.T) {
+			t.Parallel()
 			cs := compileRing(t, ring.Type)
-			info, ok := cs.GetCommitments().(constraint.Groth16Commitments)
-			if !ok || len(info) != 1 {
-				t.Fatalf("%d commitments, want one", len(info))
+			if got, want := cs.GetNbConstraints(), pinnedRingConstraints[names[i]]; got != want {
+				t.Errorf("%d constraints, pinned %d", got, want)
 			}
-			if len(info[0].PublicAndCommitmentCommitted) != 0 {
-				t.Fatalf("commitment covers %d public wires", len(info[0].PublicAndCommitmentCommitted))
+			if public := cs.GetNbPublicVariables() - 1; public != 1 {
+				t.Errorf("%d public inputs, the program verifies one", public)
 			}
-			public := 2
-			_, shaped := ring.Circuit().(*policy.ShapeCircuit)
-			if _, ok := ring.Circuit().(*policy.PublicTableTwoByThreeCircuit); ok || shaped {
-				public = 79
-			}
-			if cs.GetNbPublicVariables() != public {
-				t.Fatalf("%d public variables, want %d", cs.GetNbPublicVariables(), public)
+			commitments, ok := cs.GetCommitments().(constraint.Groth16Commitments)
+			if !ok || len(commitments) != 1 || len(commitments[0].PublicAndCommitmentCommitted) != 0 {
+				t.Errorf("commitments %v, want one over private wires", cs.GetCommitments())
 			}
 		})
 	}
@@ -100,152 +171,63 @@ func loadRingSystem(t *testing.T, circuit common.CircuitType) *common.RingProofS
 	return system
 }
 
-func TestAssignNamesEveryMissingValue(t *testing.T) {
+// A request names every value its circuit reads, an omitted one is never assigned zero.
+func TestDecodeNamesEveryMissingValue(t *testing.T) {
 	for _, ring := range RingCircuits {
-		_, err := Assign(ring.Type, ring.params())
+		_, err := Decode(ring.Type, []byte(`{"circuitType":"`+string(ring.Type)+`"}`))
 		if err == nil || !strings.Contains(err.Error(), "PublicInputHash: missing") {
-			t.Fatalf("%s: zero request assigned: %v", ring.Type, err)
-		}
-	}
-	err := assign(RingCircuits[0].Circuit(), &PolicyParams{})
-	for _, name := range []string{"PrivateTxHash: missing", "TxViewingSk: expected 32 values", "Inputs: expected 5 values", "Limits: expected 8 values", "TreeSlots: expected 5 values"} {
-		if !strings.Contains(err.Error(), name) {
-			t.Errorf("%q is not reported in %v", name, err)
+			t.Errorf("%s: an empty request decoded: %v", ring.Type, err)
 		}
 	}
 }
 
-// The encoder writes back the bytes clients send, the indexer resends them.
-func TestGoldenRequestsRoundTripByteForByte(t *testing.T) {
-	files, err := filepath.Glob("testdata/*.json")
-	if err != nil || len(files) == 0 {
-		t.Fatalf("no fixtures: %v", err)
-	}
-	for _, file := range files {
-		payload, err := os.ReadFile(file)
-		if err != nil {
-			t.Fatal(err)
-		}
-		meta, err := common.ParseProofRequestMeta(payload)
-		if err != nil {
-			t.Fatal(err)
-		}
-		ring, err := Ring(meta.CircuitType)
-		if err != nil {
-			t.Fatal(err)
-		}
-		params := ring.params()
-		if err := Unmarshal(payload, params); err != nil {
-			t.Fatal(err)
-		}
-		encoded, err := json.Marshal(params)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var compact bytes.Buffer
-		if err := json.Compact(&compact, payload); err != nil {
-			t.Fatal(err)
-		}
-		if !bytes.Equal(encoded, compact.Bytes()) {
-			t.Errorf("%s re-encodes differently", filepath.Base(file))
-		}
-	}
-}
-
+// Each case changes one value of an honest request.
 func TestDecodeRejectsMalformedRequests(t *testing.T) {
-	payload, err := os.ReadFile("testdata/custom-ring-policy-sample.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	field := strings.Repeat("0", 63) + "1"
-	slot := func(m map[string]any, key string, i int) map[string]any { return m[key].([]any)[i].(map[string]any) }
-	tests := map[string]func(map[string]any){
-		"unknown field":               func(m map[string]any) { m["externalDataHash"] = "0x" + field },
-		"unknown nested field":        func(m map[string]any) { slot(m, "inputs", 0)["owner"] = "0x" + field },
-		"unknown tree slot field":     func(m map[string]any) { slot(m, "treeSlots", 0)["root"] = "0x" + field },
-		"ciphertext hash on an input": func(m map[string]any) { slot(m, "inputs", 0)["ctHash"] = slot(m, "outputs", 0)["ctHash"] },
-		"missing field":               func(m map[string]any) { delete(m, "privateTxHash") },
-		"null field":                  func(m map[string]any) { m["addressChain"] = nil },
-		"short field":                 func(m map[string]any) { m["privateTxHash"] = "0x01" },
-		"uppercase":                   func(m map[string]any) { m["auditorPk"] = strings.ToUpper(m["auditorPk"].(string)) },
-		"missing prefix":              func(m map[string]any) { m["ephSk"] = strings.TrimPrefix(m["ephSk"].(string), "0x") },
-		"non hex":                     func(m map[string]any) { m["ephSk"] = "0x" + strings.Repeat("zz", 32) },
-		"field at the modulus":        func(m map[string]any) { m["publicInputHash"] = "0x" + ecc.BN254.ScalarField().Text(16) },
-		"short scalar":                func(m map[string]any) { m["txViewingSk"] = "0x00" },
-		"long auditor key":            func(m map[string]any) { m["auditorPk"] = m["auditorPk"].(string) + "00" },
-		"count as a string":           func(m map[string]any) { m["nIn"] = "1" },
-		"count above a byte":          func(m map[string]any) { m["nIn"] = 256 },
-		"short inputs":                func(m map[string]any) { m["inputs"] = m["inputs"].([]any)[:1] },
-		"long rules":                  func(m map[string]any) { m["ruleEnc"] = append(m["ruleEnc"].([]any), m["ruleEnc"].([]any)[0]) },
-		"short rule":                  func(m map[string]any) { m["ruleEnc"].([]any)[0] = "0x00" },
-		"short subjects":              func(m map[string]any) { m["subjects"] = m["subjects"].([]any)[:1] },
-		"short subject path": func(m map[string]any) {
-			subject := slot(m, "subjects", 0)
-			subject["path"] = subject["path"].([]any)[1:]
-		},
-		"lists as a string":      func(m map[string]any) { slot(m, "subjects", 0)["lists"] = "1" },
-		"present as a number":    func(m map[string]any) { slot(m, "subjects", 0)["present"] = 1 },
-		"unknown subject field":  func(m map[string]any) { slot(m, "subjects", 0)["member"] = "0x" + field },
-		"short foreign subjects": func(m map[string]any) { m["foreignSubjects"] = m["foreignSubjects"].([]any)[:1] },
-		"no tree slots":          func(m map[string]any) { m["treeSlots"] = []any{} },
-		"six tree slots":         func(m map[string]any) { m["treeSlots"] = append(m["treeSlots"].([]any), make([]any, 5)...) },
-	}
-	for name, tamper := range tests {
-		t.Run(name, func(t *testing.T) {
+	requests := hostRequests(t)
+	packed, apply := common.CircuitType("custom-ring-audit-packed-2"), common.CircuitType("custom-ring-apply-records-16")
+	output := func(m map[string]any) map[string]any { return m["outputs"].([]any)[0].(map[string]any) }
+	write := func(m map[string]any) map[string]any { return m["writes"].([]any)[0].(map[string]any) }
+	modulus := "0x" + ecc.BN254.ScalarField().Text(16)
+	canonical := "not canonical lowercase 0x hex"
+	for _, tc := range []struct {
+		name    string
+		circuit common.CircuitType
+		tamper  func(map[string]any)
+		want    string
+	}{
+		{"unknown field", packed, func(m map[string]any) { m["externalDataHash"] = m["seedOut"] }, `unknown field "externalDataHash"`},
+		{"unknown nested field", packed, func(m map[string]any) { output(m)["owner"] = m["seedOut"] }, `unknown field "owner"`},
+		{"missing field", packed, func(m map[string]any) { delete(m, "seedOut") }, "SeedOut: missing"},
+		{"null field", packed, func(m map[string]any) { m["seedOut"] = nil }, "SeedOut: missing"},
+		{"field at the modulus", packed, func(m map[string]any) { m["seedOut"] = modulus }, canonical},
+		{"uppercase hex", packed, func(m map[string]any) { m["auditorPk"] = strings.ToUpper(m["auditorPk"].(string)) }, canonical},
+		{"short field", packed, func(m map[string]any) { m["seedOut"] = "0x01" }, canonical},
+		{"long salt", packed, func(m map[string]any) { m["salt"] = m["salt"].(string) + "00" }, "Salt: expected 16 values"},
+		{"count as a string", packed, func(m map[string]any) { m["nOut"] = "2" }, "PackedAuditParams.nOut of type uint8"},
+		{"count above a byte", packed, func(m map[string]any) { m["nOut"] = 256 }, "number 256"},
+		{"an output past the capacity", packed, func(m map[string]any) { m["outputs"] = append(m["outputs"].([]any), output(m)) }, "Outputs: expected 2 values"},
+		{"one owner key short", packed, func(m map[string]any) { m["ownerKeys"] = m["ownerKeys"].([]any)[:1] }, "OwnerKeys: expected 2 values"},
+		{"a write past the capacity", apply, func(m map[string]any) { m["writes"] = append(m["writes"].([]any), write(m)) }, "Writes: expected 16 values"},
+		{"a path one sibling short", apply, func(m map[string]any) { write(m)["path"] = write(m)["path"].([]any)[1:] }, "Writes[0].Slot.Siblings[9]: expected 3 values"},
+		{"a path one sibling long", apply, func(m map[string]any) { write(m)["lowPath"] = append(write(m)["lowPath"].([]any), m["oldRoot"]) }, "Writes[0].Low.Siblings: expected 10 values"},
+		{"lists as a string", apply, func(m map[string]any) { write(m)["oldLists"] = "1" }, "oldLists of type uint64"},
+		{"exists as a number", apply, func(m map[string]any) { write(m)["exists"] = 1 }, "exists of type bool"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			var raw map[string]any
-			if err := json.Unmarshal(payload, &raw); err != nil {
+			if err := json.Unmarshal(mustMarshal(t, requests[tc.circuit]), &raw); err != nil {
 				t.Fatal(err)
 			}
-			tamper(raw)
-			data, err := json.Marshal(raw)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if _, err := Decode(common.CustomRingPolicyCircuitType, data); err == nil {
-				t.Fatal("malformed request decoded")
+			tc.tamper(raw)
+			if _, err := Decode(tc.circuit, mustMarshal(t, raw)); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("want %q, got %v", tc.want, err)
 			}
 		})
 	}
-	if _, err := Decode(common.CustomRingPolicyCircuitType, append(payload, []byte("{}")...)); err == nil {
+	if _, err := Decode(packed, append(mustMarshal(t, requests[packed]), []byte("{}")...)); err == nil {
 		t.Fatal("trailing data decoded")
 	}
-}
-
-func TestDecodeRejectsMalformedAnonymousRequests(t *testing.T) {
-	payload, err := os.ReadFile("testdata/custom-ring-base-anonymous.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	tests := map[string]func(map[string]any){
-		"anonymous as a number":    func(m map[string]any) { m["anonymous"] = 1 },
-		"short sender":             func(m map[string]any) { m["sender"] = m["sender"].(string)[:64] },
-		"three recipients":         func(m map[string]any) { m["recipients"] = m["recipients"].([]any)[:3] },
-		"untagged viewing key":     func(m map[string]any) { m["recipientViewingKeys"].([]any)[0] = "0x" + strings.Repeat("11", 32) },
-		"unknown input field":      func(m map[string]any) { m["inputs"].([]any)[0].(map[string]any)["key"] = "0x00" },
-		"five inputs":              func(m map[string]any) { m["inputs"] = append(m["inputs"].([]any), m["inputs"].([]any)[0]) },
-		"short anonymous outputs":  func(m map[string]any) { m["anonymousOutputs"] = m["anonymousOutputs"].([]any)[:1] },
-		"blinding above the field": func(m map[string]any) { m["privateTxBlinding"] = "0x" + ecc.BN254.ScalarField().Text(16) },
-		"uppercase recipient": func(m map[string]any) {
-			m["recipients"].([]any)[0] = strings.ToUpper(m["recipients"].([]any)[0].(string))
-		},
-		"input count above a byte":  func(m map[string]any) { m["nIn"] = 256 },
-		"recipients as one string":  func(m map[string]any) { m["recipients"] = m["sender"] },
-		"viewing keys as an object": func(m map[string]any) { m["recipientViewingKeys"] = map[string]any{} },
-	}
-	for name, tamper := range tests {
-		t.Run(name, func(t *testing.T) {
-			var raw map[string]any
-			if err := json.Unmarshal(payload, &raw); err != nil {
-				t.Fatal(err)
-			}
-			tamper(raw)
-			data, err := json.Marshal(raw)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if _, err := Decode(common.CustomRingBaseCircuitType, data); err == nil {
-				t.Fatal("malformed anonymous request decoded")
-			}
-		})
+	if _, err := Decode("custom-ring-audit-packed-4", mustMarshal(t, requests[packed])); err == nil {
+		t.Fatal("a request for the 2-output key decoded on the 4-output key")
 	}
 }

@@ -45,7 +45,7 @@ func TestCustomRingQueueFailureLogsCauseAndRedactsResponse(t *testing.T) {
 		},
 		{
 			name:    "custom-ring request does not decode",
-			payload: []byte(`{"circuitType":"custom-ring-base","publicInputHash":"0x12"}`),
+			payload: []byte(`{"circuitType":"custom-ring-audit-packed-2","publicInputHash":"0x12"}`),
 			cause:   "a value is not canonical lowercase 0x hex",
 			code:    "malformed_body",
 		},
@@ -114,9 +114,9 @@ func TestNonCustomRingQueueFailureStaysUnredacted(t *testing.T) {
 	_, rq := newTestQueue(t)
 	captureLogs(t)
 
-	runOneJob(t, rq, "zk_transfer_queue", WorkerConfig{}, &ProofJob{ID: "job-1", Payload: []byte(`{"circuitType":"custom-ring-base"}`)})
+	runOneJob(t, rq, "zk_transfer_queue", WorkerConfig{}, &ProofJob{ID: "job-1", Payload: []byte(`{"circuitType":"custom-ring-audit-packed-2"}`)})
 
-	assertClientSees(t, rq, "job-1", "circuit custom-ring-base cannot run on zk_transfer_queue", "")
+	assertClientSees(t, rq, "job-1", "circuit custom-ring-audit-packed-2 cannot run on zk_transfer_queue", "")
 }
 
 // The sync path redacts exactly what the queue path redacts and logs the
@@ -124,7 +124,7 @@ func TestNonCustomRingQueueFailureStaysUnredacted(t *testing.T) {
 // logged.
 func TestSyncProofFailureLogsCauseAndRedactsResponse(t *testing.T) {
 	const cause = "prove: constraint #7 is not satisfied"
-	ring, transfer := common.CustomRingBaseCircuitType, common.TransferConfidentialCircuitType
+	ring, transfer := common.CircuitType("custom-ring-audit-packed-2"), common.TransferConfidentialCircuitType
 	cases := []struct {
 		name    string
 		circuit common.CircuitType
@@ -156,7 +156,7 @@ func TestSyncProofFailureLogsCauseAndRedactsResponse(t *testing.T) {
 func TestSyncPanicLogsValueAndRedactsResponse(t *testing.T) {
 	const value = "index out of range [3] with length 2"
 	const prefix = "internal error during proof processing: "
-	ring, transfer := common.CustomRingBaseCircuitType, common.TransferConfidentialCircuitType
+	ring, transfer := common.CircuitType("custom-ring-audit-packed-2"), common.TransferConfidentialCircuitType
 	cases := []struct {
 		circuit common.CircuitType
 		indexed bool
@@ -192,7 +192,7 @@ func TestSyncCustomRingDecodeFailureIsRedacted(t *testing.T) {
 	handler := proveHandler{readiness: readiness, admission: newSyncAdmission(1)}
 
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/prove", strings.NewReader(`{"circuitType":"custom-ring-base","publicInputHash":"0x12"}`)))
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/prove", strings.NewReader(`{"circuitType":"custom-ring-audit-packed-2","publicInputHash":"0x12"}`)))
 
 	body := decodeError(t, response)
 	if response.Code != http.StatusBadRequest || body["code"] != "malformed_body" || body["message"] != errCustomRingProof.Error() {
@@ -332,11 +332,11 @@ func captureLogs(t *testing.T) *syncBuffer {
 
 func validCustomRingBasePayload(t *testing.T) []byte {
 	t.Helper()
-	payload, err := os.ReadFile("../prover/custom_ring/testdata/custom-ring-base.json")
+	payload, err := os.ReadFile("../prover/custom_ring/testdata/custom-ring-audit-packed-2.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := customring.Decode(common.CustomRingBaseCircuitType, payload); err != nil {
+	if _, err := customring.Decode(common.CircuitType("custom-ring-audit-packed-2"), payload); err != nil {
 		t.Fatalf("fixture does not decode: %v", err)
 	}
 	return payload

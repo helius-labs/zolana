@@ -1,11 +1,5 @@
 package common
 
-import (
-	"fmt"
-	"slices"
-	"strings"
-)
-
 type CircuitType string
 
 const (
@@ -34,69 +28,14 @@ const (
 	// to the default merge.
 	MergeRingCircuitType CircuitType = "merge-ring"
 
-	// CustomRingBaseCircuitType proves the custom ring's audit statement only.
-	CustomRingBaseCircuitType                CircuitType = "custom-ring-base"
-	CustomRingConfidentialCircuitType        CircuitType = "custom-ring-base-confidential"
-	CustomRingCompactConfidentialCircuitType CircuitType = "custom-ring-base-confidential-compact"
-	CustomRingWideAnonymousCircuitType       CircuitType = "custom-ring-base-anonymous-wide"
-
-	// CustomRingPolicyCircuitType folds the audit statement with policy
-	// enforcement in one proof and one verification per transact.
-	CustomRingPolicyCircuitType                    CircuitType = "custom-ring-policy"
-	CustomRingDelegatePolicyCircuitType            CircuitType = "custom-ring-delegate-policy"
-	CustomRingPolicyTwoByThreeCircuitType          CircuitType = "custom-ring-policy-2x3"
-	CustomRingAnonymousPolicyTwoByThreeCircuitType CircuitType = "custom-ring-policy-2x3-anonymous"
-	CustomRingDelegatePolicyTwoByThreeCircuitType  CircuitType = "custom-ring-delegate-policy-2x3"
-
-	// Key registration writes a member's auditor-encrypted nullifier key into its record.
+	// CustomRingKeyRegisterCircuitType seals a member's nullifier secret to the auditor.
 	CustomRingKeyRegisterCircuitType CircuitType = "custom-ring-register-key"
 
-	// A batch of member record updates against the ring's member registry.
-	CustomRingUpdateMembersCircuitType CircuitType = "custom-ring-update-members"
-
-	// Deposit openings must be encrypted for the configured auditor.
+	// CustomRingDepositCircuitType binds every deposited owner to an opening sealed to the auditor.
 	CustomRingDepositCircuitType CircuitType = "custom-ring-deposit"
 )
 
-// MergeAnonymousWidths mirrors ANONYMOUS_MERGE_WIDTHS in custom-rings/interface/src/merge.rs.
-var MergeAnonymousWidths = []int{8, 24}
-
-// CustomRingMergeAnonymousCircuitType names the anonymous merge disclosure circuit of one width.
-func CustomRingMergeAnonymousCircuitType(width int) CircuitType {
-	return CircuitType(fmt.Sprintf("custom-ring-merge-anonymous-%d", width))
-}
-
-// RingCircuitTypes are the custom-ring circuits, each proven with one key.
-var RingCircuitTypes = []CircuitType{
-	CustomRingConfidentialCircuitType,
-	CustomRingCompactConfidentialCircuitType,
-	CustomRingWideAnonymousCircuitType,
-	CustomRingPolicyCircuitType,
-	CustomRingBaseCircuitType,
-	CustomRingDelegatePolicyCircuitType,
-	CustomRingPolicyTwoByThreeCircuitType,
-	CustomRingAnonymousPolicyTwoByThreeCircuitType,
-	CustomRingDelegatePolicyTwoByThreeCircuitType,
-	CustomRingKeyRegisterCircuitType,
-	CustomRingDepositCircuitType,
-	CustomRingUpdateMembersCircuitType,
-}
-
-func init() {
-	for _, width := range MergeAnonymousWidths {
-		RingCircuitTypes = append(RingCircuitTypes, CustomRingMergeAnonymousCircuitType(width))
-	}
-}
-
 func (c CircuitType) IsRing() bool {
-	_, shaped := ParseRingPolicyShape(c)
-	return shaped || slices.Contains(RingCircuitTypes, c)
-}
-
-// RingKeyFile names a custom-ring circuit's key file, or "" for none.
-func RingKeyFile(c CircuitType) string {
-	if !c.IsRing() {
-		return ""
-	}
-	return strings.ReplaceAll(string(c), "-", "_") + ".key"
+	_, ok := RingKeyOf(c)
+	return ok
 }

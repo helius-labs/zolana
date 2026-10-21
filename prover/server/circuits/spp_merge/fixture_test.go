@@ -6,11 +6,12 @@ import (
 
 	"github.com/consensys/gnark/frontend"
 
+	"github.com/helius-labs/zolana/prover/server/circuits/records"
 	merge "github.com/helius-labs/zolana/prover/server/circuits/spp_merge"
 	mergeshared "github.com/helius-labs/zolana/prover/server/circuits/spp_merge/shared"
 	transaction "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
-	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
 	"github.com/helius-labs/zolana/prover/server/prover-test/poseidon"
+	"github.com/helius-labs/zolana/prover/server/prover-test/ringrecords"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 )
@@ -55,7 +56,7 @@ type mergeFixtureOptions struct {
 	inputSlot int
 	// outputNullifierPk publishes the merged output under another nullifier key.
 	outputNullifierPk *big.Int
-	// anonymous enrolls the owner without an escrow key and sets the merge flag.
+	// anonymous sets the merge flag over a zero root and an unread record.
 	anonymous bool
 }
 
@@ -132,7 +133,7 @@ type mergeWitnessFixture struct {
 	ringProgramID       *big.Int
 	memberRegistryRoot  *big.Int
 	registeredCtHash    *big.Int
-	memberRecord        registry.RecordOpening
+	memberRecord        records.QuadRecordOpening
 	anonymous           *big.Int
 	outputCiphertext    []*big.Int
 	publicInputPreimage []*big.Int
@@ -412,24 +413,16 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 	outputTreeID := big.NewInt(fixtureOutputTreeID)
 	treeSlots := fixtureTreeSlots(treeIDs, slotRoots, slotNullifierRoots)
 	var memberRoot, registeredCtHash *big.Int
-	var memberRecord registry.RecordOpening
+	var memberRecord records.QuadRecordOpening
 	if options.rail == ringFixtureRail {
-		members := spptest.NewMemberRegistry(t, registry.Height)
-		if options.anonymous {
-			registeredCtHash = big.NewInt(0)
-			members.Update(t, ownerKeyHash, big.NewInt(0), big.NewInt(0))
-		} else {
+		// An anonymous merge binds the zero root its ring program forwards and opens no record.
+		memberRoot, registeredCtHash, memberRecord = big.NewInt(0), big.NewInt(0), ringrecords.UnreadRecordWires()
+		if !options.anonymous {
+			members := ringrecords.New(t)
 			registeredCtHash = big.NewInt(0xC7)
-			members.RegisterKey(t, ownerKeyHash, userNullifierPk, registeredCtHash)
-		}
-		memberRoot = members.Root()
-		opened := members.Opening(ownerKeyHash)
-		memberRecord.Next = opened.Record.Next
-		memberRecord.Lists = opened.Record.Lists
-		memberRecord.EscrowKey = opened.Record.EscrowKey
-		memberRecord.Index = opened.Index
-		for i, value := range opened.Path {
-			memberRecord.Path[i] = new(big.Int).Set(&value)
+			escrowKey := spptest.MustPoseidon(t, 3, []*big.Int{userNullifierPk, registeredCtHash})
+			members.Apply(t, ringrecords.Entry{Member: ownerKeyHash, Mask: big.NewInt(1 << 7), Value: big.NewInt(1 << 7), EscrowKey: escrowKey})
+			memberRoot, memberRecord = members.Root(), members.Opening(ownerKeyHash).RecordWires()
 		}
 	}
 	publicInputPreimage := []*big.Int{

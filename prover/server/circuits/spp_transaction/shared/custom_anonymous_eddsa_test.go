@@ -133,6 +133,7 @@ func asCustomRingAnonymousEddsa(a *testAssignment, authorization eddsaAuthorizat
 			OutputOwnerPkHashes: a.OutputOwnerPkHashes(),
 			OutputNullifierPks:  a.outputNullifierPks(),
 			BlindingSeed:        a.BlindingSeed,
+			RingSecrets:         a.ringSecrets(),
 		},
 	}
 	for i, b := range authorization.key {
@@ -964,6 +965,7 @@ func eddsaRequestParameters(c *customring.CustomRingAnonymousEddsaCircuit) *tran
 		ExternalDataHash:             value(c.Public.ExternalDataHash),
 		PrivateTxHash:                value(c.Public.PrivateTxHash),
 		BlindingSeed:                 value(c.Private.BlindingSeed),
+		RingSecrets:                  values(c.Private.RingSecrets),
 		MessageHashLow:               value(c.Public.MessageHashLow),
 		MessageHashHigh:              value(c.Public.MessageHashHigh),
 		DefaultOwnerPkHash:           value(c.Public.DefaultOwnerPkHash),

@@ -31,7 +31,7 @@ func TestAnonymousEddsaTransferParametersJSONRoundTrip(t *testing.T) {
 	if circuitType != string(common.TransferAnonymousRingEddsaCircuitType) {
 		t.Fatalf("circuit type = %v", circuitType)
 	}
-	for _, key := range []string{"treeSlots", "outputTreeId", "blindingSeed"} {
+	for _, key := range []string{"treeSlots", "outputTreeId", "blindingSeed", "ringSecrets"} {
 		if _, ok := raw[key]; !ok {
 			t.Fatalf("missing top-level key %q in %s", key, encoded)
 		}
@@ -80,6 +80,9 @@ func TestAnonymousEddsaTransferParametersJSONRoundTrip(t *testing.T) {
 	}
 	if decoded.BlindingSeed.Cmp(params.BlindingSeed) != 0 {
 		t.Fatalf("blinding seed = %v", decoded.BlindingSeed)
+	}
+	if len(decoded.RingSecrets) != 1 || decoded.RingSecrets[0].Cmp(params.RingSecrets[0]) != 0 {
+		t.Fatalf("ring secrets = %v", decoded.RingSecrets)
 	}
 	if decoded.Inputs[0].TreeSlot.Cmp(params.Inputs[0].TreeSlot) != 0 {
 		t.Fatalf("input tree slot = %v", decoded.Inputs[0].TreeSlot)
@@ -166,6 +169,7 @@ func sampleAnonymousEddsaParams() *AnonymousEddsaTransferParameters {
 		ExternalDataHash:             big.NewInt(0x6666),
 		PrivateTxHash:                big.NewInt(0x7777),
 		BlindingSeed:                 big.NewInt(0x5EC1),
+		RingSecrets:                  countedFieldElements(1, 0x5242),
 		MessageHashLow:               zero,
 		MessageHashHigh:              zero,
 		DefaultOwnerPkHash:           zero,

@@ -38,91 +38,6 @@ func TestMergeAnonymousCatalogShipsSppWidths(t *testing.T) {
 	}
 }
 
-func mergeParams(t *testing.T, s *ringmerge.Statement) *MergeAnonymousParams {
-	t.Helper()
-	c := s.Circuit
-	field := func(value frontend.Variable) Field { return Field{spptest.AsBigInt(value)} }
-	bytes := func(values [32]frontend.Variable) Bytes {
-		out := make(Bytes, len(values))
-		for i, value := range values {
-			out[i] = byte(spptest.AsBigInt(value).Uint64())
-		}
-		return out
-	}
-	p := &MergeAnonymousParams{
-		CircuitType:        string(common.CustomRingMergeAnonymousCircuitType(len(c.Inputs))),
-		PublicInputHash:    field(c.PublicInputHash),
-		PrivateTxHash:      field(c.PrivateTxHash),
-		OutputUtxoHash:     field(c.OutputUtxoHash),
-		FirstNullifier:     field(c.FirstNullifier),
-		RingProgramID:      field(c.RingProgramID),
-		MemberRegistryRoot: field(c.MemberRegistryRoot),
-		AuditorPk:          bytes(c.AuditorPk),
-		Salt:               field(c.Salt),
-		EphSk:              bytes(c.EphSk),
-		DisclosureKey:      bytes(c.DisclosureKey),
-		OwnerKey:           bytes(c.OwnerKey),
-		NullifierSecret:    field(c.NullifierSecret),
-		MintChunks:         []Field{field(c.MintChunks[0]), field(c.MintChunks[1])},
-		OutputTreeID:       field(c.OutputTreeID),
-		OutputRingDataHash: field(c.OutputRingDataHash),
-		MemberRecord: RecordOpening{
-			Next: field(c.MemberRecord.Next), Lists: spptest.AsBigInt(c.MemberRecord.Lists).Uint64(),
-			EscrowKey: field(c.MemberRecord.EscrowKey), Index: spptest.AsBigInt(c.MemberRecord.Index).Uint64(),
-		},
-	}
-	for _, element := range c.MemberRecord.Path {
-		p.MemberRecord.Path = append(p.MemberRecord.Path, field(element))
-	}
-	for _, in := range c.Inputs {
-		p.Inputs = append(p.Inputs, MergeInput{
-			Domain: field(in.Domain), TreeID: field(in.TreeID), Amount: field(in.Amount),
-			Blinding: field(in.Blinding), RingDataHash: field(in.RingDataHash),
-		})
-	}
-	return p
-}
-
-func TestMergeAnonymousRequestDecodesAndSolves(t *testing.T) {
-	kind := common.CustomRingMergeAnonymousCircuitType(8)
-	cs := compileRing(t, kind)
-	p := mergeParams(t, ringmerge.Build(t, 8))
-	witness, err := frontend.NewWitness(decodeParams(t, kind, p), ecc.BN254.ScalarField())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := cs.Solve(witness); err != nil {
-		t.Fatal(err)
-	}
-	p.Inputs = p.Inputs[:7]
-	if _, err := Decode(kind, mustMarshal(t, p)); err == nil {
-		t.Fatal("a request with a missing slot assigned")
-	}
-	p.Inputs = append(p.Inputs, p.Inputs[0], p.Inputs[0])
-	if _, err := Decode(kind, mustMarshal(t, p)); err == nil {
-		t.Fatal("a request with an extra slot assigned")
-	}
-	p.Inputs = p.Inputs[:8]
-	p.OwnerKey = p.OwnerKey[:31]
-	if _, err := Decode(kind, mustMarshal(t, p)); err == nil {
-		t.Fatal("a short owner key assigned")
-	}
-	p.OwnerKey = append(p.OwnerKey, 0)
-	p.MintChunks = p.MintChunks[:1]
-	if _, err := Decode(kind, mustMarshal(t, p)); err == nil {
-		t.Fatal("one mint chunk assigned")
-	}
-}
-
-func mustMarshal(t *testing.T, params any) []byte {
-	t.Helper()
-	payload, err := json.Marshal(params)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return payload
-}
-
 // Rust and TypeScript pin the same file, WRITE_AUDIT_VECTORS=1 rewrites it from the host mirror.
 const mergeVectorPath = "../../../../test-vectors/ring-merge-anonymous.json"
 
@@ -131,7 +46,7 @@ const mergeVectorDescription = "Known-answer vector for the anonymous ring merge
 	"zero padded to 31-byte chunks, chunk i a big-endian field. seed = Poseidon(0x4352_5f4d44, key_lo, key_hi, salt_field) with key_lo and key_hi " +
 	"PackBytesBE(disclosure_key) and salt_field the 16 salt bytes right aligned, fields[i] = (chunk[i] + Poseidon(seed, i)) mod r. " +
 	"envelope_ciphertext seals disclosure_key from eph to auditor under info CRING/mrg1 as the base Envelope does. " +
-	"elements = CRMG, private_tx_hash, output_utxo_hash, first_nullifier, ring_program_id, member_registry_root, auditor lo, hi, eph lo, hi, " +
+	"elements = CRMG, private_tx_hash, output_utxo_hash, first_nullifier, ring_program_id, auditor lo, hi, eph lo, hi, " +
 	"hash_bytes(envelope_ciphertext), salt_field, hash_chain_4(fields), public_input_hash = hash_chain(elements). " +
 	"request is the prover body. Produced by prover/server/prover/custom_ring/merge_test.go with WRITE_AUDIT_VECTORS=1."
 
@@ -152,7 +67,7 @@ type mergeVector struct {
 	EnvelopeCiphertext Bytes                 `json:"envelope_ciphertext"`
 	Elements           []Field               `json:"elements"`
 	PublicInputHash    Field                 `json:"public_input_hash"`
-	Request            *MergeAnonymousParams `json:"request"`
+	Request            *AnonymousMergeParams `json:"request"`
 }
 
 func TestMergeAnonymousVectorPinsHostAndCircuit(t *testing.T) {
@@ -168,7 +83,8 @@ func TestMergeAnonymousVectorPinsHostAndCircuit(t *testing.T) {
 		}
 		return out
 	}
-	request := mergeParams(t, s)
+	kind := common.CustomRingMergeAnonymousCircuitType(8)
+	request := requestOf(t, kind, s.Circuit).(*AnonymousMergeParams)
 	want := mergeVector{
 		Description:        mergeVectorDescription,
 		Width:              8,
@@ -213,7 +129,6 @@ func TestMergeAnonymousVectorPinsHostAndCircuit(t *testing.T) {
 	if err := json.Unmarshal(raw, &pinned); err != nil {
 		t.Fatal(err)
 	}
-	kind := common.CustomRingMergeAnonymousCircuitType(8)
 	witness, err := frontend.NewWitness(decodeParams(t, kind, pinned.Request), ecc.BN254.ScalarField())
 	if err != nil {
 		t.Fatal(err)

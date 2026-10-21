@@ -3,9 +3,11 @@ package merge
 import (
 	"fmt"
 
+	"github.com/helius-labs/zolana/prover/server/circuits/records"
 	mergecircuit "github.com/helius-labs/zolana/prover/server/circuits/spp_merge"
 	transaction "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
 	"github.com/helius-labs/zolana/prover/server/prover/common"
+	customring "github.com/helius-labs/zolana/prover/server/prover/custom_ring"
 
 	"github.com/consensys/gnark/frontend"
 )
@@ -76,15 +78,8 @@ func (p *MergeParameters) createRingWitness() (*mergecircuit.RingCircuit, error)
 		circuit.RegisteredCiphertextHash = 0
 		circuit.Anonymous = 1
 	}
-	if p.MemberRecord == nil || len(p.MemberRecord.Path) != len(circuit.MemberRecord.Path) {
-		return nil, fmt.Errorf("merge ring: member record path must have %d elements", len(circuit.MemberRecord.Path))
-	}
-	circuit.MemberRecord.Next = p.MemberRecord.Next.Int
-	circuit.MemberRecord.Lists = p.MemberRecord.Lists
-	circuit.MemberRecord.EscrowKey = p.MemberRecord.EscrowKey.Int
-	circuit.MemberRecord.Index = p.MemberRecord.Index
-	for i, field := range p.MemberRecord.Path {
-		circuit.MemberRecord.Path[i] = field.Int
+	if err := assignMemberRecord(&circuit.MemberRecord, p.MemberRecord); err != nil {
+		return nil, err
 	}
 	circuit.PublicInputHash = p.PublicInputHash
 
@@ -147,4 +142,26 @@ func (p *MergeParameters) inputAt(i int) mergecircuit.Input {
 		NullifierLowPathElements: nullifierPath,
 		NullifierLowPathIndex:    in.NullifierLowPathIndex,
 	}
+}
+
+// assignMemberRecord opens the escrow merge's record, an anonymous merge's unread opening stays zero.
+func assignMemberRecord(opening *records.QuadRecordOpening, record *customring.RecordOpening) error {
+	opening.Next, opening.Lists, opening.EscrowKey, opening.Path.Index = 0, 0, 0, 0
+	for i := range opening.Path.Siblings {
+		for j := range opening.Path.Siblings[i] {
+			opening.Path.Siblings[i][j] = 0
+		}
+	}
+	if record == nil {
+		return nil
+	}
+	if len(record.Path) != records.PathSiblings {
+		return fmt.Errorf("merge ring: member record path must have %d elements", records.PathSiblings)
+	}
+	opening.Next, opening.Lists, opening.EscrowKey, opening.Path.Index = record.Next.Int, record.Lists, record.EscrowKey.Int, record.Index
+	// The path lists each level's siblings in ascending child order, leaf level first.
+	for i, field := range record.Path {
+		opening.Path.Siblings[i/(records.Arity-1)][i%(records.Arity-1)] = field.Int
+	}
+	return nil
 }

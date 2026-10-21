@@ -16,6 +16,7 @@ preserved within each version folder.
 Usage:
     generate_lockfile.py <keys-dir> [--out <lockfile>] [--prefix <base-prefix>]
     generate_lockfile.py <keys-dir> --release <name>... --only-release
+    generate_lockfile.py <keys-dir> --update
 
 Defaults: keys-dir positional,
 out=prover/server/prover/provingkeys/proving-keys.lock (the file the Go
@@ -59,7 +60,12 @@ def main() -> int:
     parser.add_argument(
         "--only-release",
         action="store_true",
-        help="repin the --release entries of the existing lockfile, keep the rest and the prefix",
+        help="replace the release entries of the existing lockfile with the --release keys, keep the rest and the prefix",
+    )
+    parser.add_argument(
+        "--update",
+        action="store_true",
+        help="repin the keys in keys_dir, keep the other entries of the existing lockfile, derive a new prefix",
     )
     args = parser.parse_args()
 
@@ -89,6 +95,9 @@ def main() -> int:
         return 1
 
     keys = {}
+    if args.update:
+        with open(out) as f:
+            keys = json.load(f)["keys"]
     for name in names:
         path = os.path.join(keys_dir, name)
         size = os.path.getsize(path)
@@ -125,6 +134,9 @@ def pin_release_entries(keys_dir: str, out: str, names: list) -> int:
         return 1
     with open(out) as f:
         manifest = json.load(f)
+    manifest["keys"] = {
+        name: entry for name, entry in manifest["keys"].items() if entry.get("source") != "release"
+    }
     for name in names:
         path = os.path.join(keys_dir, name)
         size = os.path.getsize(path)

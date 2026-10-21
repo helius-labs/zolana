@@ -89,13 +89,11 @@ type MergeParameters struct {
 	// Output.RingDataHash and folds it into the public-input hash. Zero on the
 	// default rail.
 	OutputRingDataHash *big.Int
-	// A ring merge requires the owner's registered recovery key. The proof
-	// authenticates this record against MemberRegistryRoot and binds its escrow
-	// commitment to UserNullifierPk and RegisteredCiphertextHash.
+	// An escrow merge opens the owner's record under MemberRegistryRoot, its escrow key binds UserNullifierPk and RegisteredCiphertextHash.
 	MemberRegistryRoot       *big.Int
 	RegisteredCiphertextHash *big.Int
 	MemberRecord             *customring.RecordOpening
-	// Anonymous skips the escrow relation, RegisteredCiphertextHash stays nil.
+	// Anonymous binds a zero MemberRegistryRoot and reads no record, RegisteredCiphertextHash and MemberRecord stay nil.
 	Anonymous bool
 
 	ExternalDataHash *big.Int

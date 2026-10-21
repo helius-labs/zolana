@@ -1,61 +1,38 @@
 package policy
 
-import (
-	"math/big"
-	"math/bits"
-)
-
-// Capacities of one proof.
+// Table capacities, mirrored by custom-rings/policy/src/rule_table.rs.
 const (
-	NInputs        = 5
-	NOutputs       = 4
 	NRules         = 16
-	NAmountGuards  = 8
+	NInlineAssets  = 8
 	NSources       = 8
 	NOutflowLimits = 8
-	// NSubjects opens input owners, output owners, then output assets.
-	NSubjects = NInputs + 2*NOutputs
-	// NForeign is the number of curator registries a policy may read lists from.
-	NForeign = 1
 )
 
-// PolicyVersion is committed in policy_hash.
-const PolicyVersion = 10
-
-// Subjects select the transaction value a rule checks, SubjectExitDestination is rejected.
+// Policy table hash layout, mirrored by EncodedRuleTable::hash in custom-rings/policy/src/rule_table.rs.
 const (
-	SubjectOutputOwner     = 1
-	SubjectSender          = 2
-	SubjectExitDestination = 3
-	SubjectAsset           = 4
+	// PolicyTableVersion enters the table hash, every layout change bumps it.
+	PolicyTableVersion = 11
+	PolicyTableFields  = 2 + 2*NSources + 3 + NRules + 2*NInlineAssets + 3*NOutflowLimits
+	// PolicyTableRate fields join the accumulator per Poseidon call, twelve inputs is the syscall maximum.
+	PolicyTableRate = 11
 )
 
+// Every table hash call absorbs a full rate of fields.
+const _ = uint(-(PolicyTableFields % PolicyTableRate))
+
+// Rule row values, mirrored by Subject, Mode and the guard tags of Rule::encoded in custom-rings/policy/src/rule_table.rs.
 const (
+	SubjectOutputOwner = 1
+	SubjectSender      = 2
+	SubjectAsset       = 4
+
 	ModePresent = 1
 	ModeAbsent  = 2
-)
 
-// Guards waive a rule at or below a subject threshold or an owner and asset limit.
-const (
 	GuardAlways             = 0
 	GuardAboveAmount        = 1
 	GuardAboveAmountByAsset = 2
 )
 
-var policyTableDomain = packedASCII("zolana:ring-policy:policy:v1")
-
-const amountBits = 64
-
-// The sum width bounds the larger slot group, the offset's top bit marks total <= threshold.
-var (
-	amountSumBits   = amountBits + bits.Len(uint(max(NInputs, NOutputs)-1))
-	amountSumOffset = new(big.Int).Lsh(big.NewInt(1), uint(amountSumBits))
-)
-
-// packedASCII reads a tag of at most 31 bytes as a big-endian field.
-func packedASCII(tag string) *big.Int {
-	if len(tag) > 31 {
-		panic("policy domain tag exceeds 31 bytes")
-	}
-	return new(big.Int).SetBytes([]byte(tag))
-}
+// MemberOutputs are the member key capacities, every output opens its own owner and asset entry.
+var MemberOutputs = [...]int{2, 4, 8, 16}

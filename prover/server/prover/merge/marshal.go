@@ -152,9 +152,12 @@ func (p *MergeParameters) UpdateWithJSON(params MergeParametersJSON) error {
 		return err
 	}
 	if p.CircuitType == common.MergeRingCircuitType {
-		// An anonymous merge carries no escrow ciphertext, a registered one requires it.
-		if params.MemberRegistryRoot == "" || params.MemberRecord == nil || params.Anonymous != (params.RegisteredCiphertextHash == "") {
-			return fmt.Errorf("merge ring: recovery registration is required")
+		if params.MemberRegistryRoot == "" {
+			return fmt.Errorf("merge ring: memberRegistryRoot is required")
+		}
+		// An escrow merge carries the owner's record and ciphertext hash, an anonymous merge neither.
+		if params.Anonymous != (params.RegisteredCiphertextHash == "") || params.Anonymous != (params.MemberRecord == nil) {
+			return fmt.Errorf("merge ring: recovery registration does not match the anonymous flag")
 		}
 		if p.MemberRegistryRoot, err = common.FeFromHex(params.MemberRegistryRoot); err != nil {
 			return fmt.Errorf("memberRegistryRoot: %w", err)

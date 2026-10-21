@@ -11,7 +11,6 @@ import (
 	mergeshared "github.com/helius-labs/zolana/prover/server/circuits/spp_merge/shared"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/merge"
-	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
 	"github.com/helius-labs/zolana/prover/server/prover-test/ringaudit"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
@@ -27,8 +26,7 @@ const (
 // Statement is the host side of one anonymous merge, every public value recomputed off circuit.
 type Statement struct {
 	Keys        ringaudit.Keys
-	Circuit     *merge.Circuit
-	Registry    *spptest.MemberRegistry
+	Circuit     *merge.AnonymousMergeCircuit
 	OwnerKey    [32]byte
 	OwnerPkHash *big.Int
 	NullifierPk *big.Int
@@ -66,7 +64,7 @@ func Build(t testing.TB, n int) *Statement {
 	for i := range s.OwnerKey {
 		s.OwnerKey[i] = byte(0xa0 + i)
 	}
-	c := merge.New(n)
+	c := merge.NewAnonymousMergeCircuit(n)
 	s.Circuit = c
 	s.OwnerPkHash = must(protocol.SolanaPkField(s.OwnerKey))
 	s.NullifierPk = must(protocol.NullifierPk(s.Secret))
@@ -102,12 +100,6 @@ func Build(t testing.TB, n int) *Statement {
 	}, big.NewInt(OutputTreeID))
 	s.PrivateTxHash = s.PrivateTx(t, s.InputHashes)
 
-	s.Registry = spptest.NewMemberRegistry(t, registry.Height)
-	s.Registry.Update(t, big.NewInt(3), big.NewInt(0), big.NewInt(0))
-	// A frozen member keeps its merge, only the presence of the record is read.
-	s.Registry.Update(t, s.OwnerPkHash, big.NewInt(1), big.NewInt(0))
-	s.Registry.Update(t, big.NewInt(0x77), big.NewInt(0), big.NewInt(0))
-
 	c.OwnerKey = bytesOf(s.OwnerKey[:])
 	c.NullifierSecret = s.Secret
 	chunks := protocol.MintChunks(s.Mint)
@@ -138,17 +130,11 @@ func (s *Statement) PrivateTx(t testing.TB, inputHashes []*big.Int) *big.Int {
 	return must(protocol.PrivateTxHash(inputHashes, []*big.Int{s.OutputHash}, addresses, blinding))
 }
 
-// Bind recomputes the member opening, the disclosure and the public input hash from the host values.
+// Bind recomputes the disclosure and the public input hash from the host values.
 func (s *Statement) Bind(t testing.TB) {
 	t.Helper()
 	amount := new(big.Int).Add(s.Amounts[0], s.Amounts[1])
 	c := s.Circuit
-	opened := s.Registry.Opening(s.OwnerPkHash)
-	c.MemberRecord = registry.RecordOpening{Next: opened.Record.Next, Lists: opened.Record.Lists, EscrowKey: opened.Record.EscrowKey, Index: opened.Index}
-	for i := range opened.Path {
-		c.MemberRecord.Path[i] = new(big.Int).Set(&opened.Path[i])
-	}
-	c.MemberRegistryRoot = s.Registry.Root()
 
 	plaintext := append([]byte{}, s.OwnerKey[:]...)
 	plaintext = append(plaintext, fieldBytes(t, s.NullifierPk)...)
@@ -178,8 +164,7 @@ func (s *Statement) Elements(t testing.TB) []*big.Int {
 	t.Helper()
 	c := s.Circuit
 	sealed := s.Sealed(t)
-	return []*big.Int{big.NewInt(merge.Domain), s.PrivateTxHash, s.OutputHash, s.FirstNf,
-		spptest.AsBigInt(c.RingProgramID), spptest.AsBigInt(c.MemberRegistryRoot),
+	return []*big.Int{big.NewInt(merge.Domain), s.PrivateTxHash, s.OutputHash, s.FirstNf, spptest.AsBigInt(c.RingProgramID),
 		sealed.AuditorLo, sealed.AuditorHi, sealed.EphLo, sealed.EphHi, sealed.CiphertextHash,
 		s.SaltField(), spptest.MustHashChain4(t, s.Fields)}
 }
@@ -199,15 +184,9 @@ func (s *Statement) Rebind(t testing.TB) {
 // Disclose packs the plaintext into whole 31-byte chunks and masks each with the merge pad.
 func Disclose(t testing.TB, key [32]byte, salt [16]byte, plaintext []byte) []*big.Int {
 	t.Helper()
-	const chunk = 31
-	padded := append([]byte{}, plaintext...)
-	for len(padded)%chunk != 0 {
-		padded = append(padded, 0)
-	}
-	fields := make([]*big.Int, len(padded)/chunk)
+	fields := ringaudit.PackDisclosure(plaintext)
 	pad := ringaudit.DomainPad(t, base.MergeDisclosureDomain, key, salt, len(fields))
 	for i := range fields {
-		fields[i] = new(big.Int).SetBytes(padded[i*chunk : (i+1)*chunk])
 		fields[i].Add(fields[i], pad[i]).Mod(fields[i], ecc.BN254.ScalarField())
 	}
 	return fields

@@ -134,19 +134,6 @@ func (r *Resolver) rpc(ctx context.Context, method string, params any) (json.Raw
 	if json.Unmarshal(data, &envelope) != nil || envelope.JSONRPC != "2.0" || envelope.ID != method {
 		return nil, fmt.Errorf("invalid indexer response")
 	}
-	if method == "getRingMemberRecord" && len(envelope.Error) != 0 {
-		var failure struct {
-			Code int `json:"code"`
-		}
-		if json.Unmarshal(envelope.Error, &failure) == nil {
-			switch failure.Code {
-			case -32070, -32071:
-				return nil, ErrIndexerNotReady
-			case -32072:
-				return nil, errMemberUnregistered
-			}
-		}
-	}
 	if len(envelope.Error) != 0 || len(envelope.Result) == 0 || bytes.Equal(envelope.Result, []byte("null")) {
 		return nil, fmt.Errorf("invalid indexer response")
 	}

@@ -5,13 +5,11 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
-	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 )
 
 func TestAuditStreamKDFVector(t *testing.T) {
-	key, nonce := keySchedule(t, big.NewInt(0x12345), auditEncInfo)
+	key, nonce := AuditStreamKeys(t, big.NewInt(0x12345))
 	for _, vector := range []struct{ name, got, want string }{
 		{"key", hex.EncodeToString(key[:]), "0b2e1ebe77448c2a18dc91fb208e751595208775296803011e0084baaf1bbb6d"},
 		{"nonce", hex.EncodeToString(nonce[:]), "cc2327b19f62560112747d6f"},
@@ -25,13 +23,7 @@ func TestAuditStreamKDFVector(t *testing.T) {
 
 func TestAuditEnvelopeVector(t *testing.T) {
 	k := DefaultKeys(t)
-	dhLo, dhHi := pack32(k.dh)
-	ephLo, ephHi := pack33(k.ephPk)
-	auditorLo, auditorHi := pack33(Tagged(k.auditorPk[:]))
-	secret := spptest.MustPoseidon(t, 8, []*big.Int{
-		tag(base.DomSepCRShared), dhLo, dhHi, ephLo, ephHi, auditorLo, auditorHi,
-	})
-	key, nonce := keySchedule(t, secret, auditEncInfo)
+	key, nonce := AuditStreamKeys(t, k.envelopeSecret(t))
 	ciphertext := ctrEncrypt(t, key, nonce, k.txSk[:])
 	if got := hex.EncodeToString(ciphertext); got != "da94f616e95702bdea89178dd9c4547393ebce9d47e67d0cac1533f13b678b90" {
 		t.Fatalf("auditor ciphertext: %s", got)

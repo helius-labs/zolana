@@ -5,22 +5,33 @@ import (
 	"fmt"
 	"math/big"
 	"reflect"
+	"slices"
 
 	"github.com/consensys/gnark/frontend"
+
+	"github.com/helius-labs/zolana/prover/server/circuits/records"
 )
 
 var errMissing = errors.New("missing")
 
-// assign sets every variable of dst from the src field with the same Go name.
-// An array takes a list of its exact length, a nil pointer assigns zeros.
+// assign sets every variable of dst from the src field of its Go name, an array from a list of its exact length and a nil pointer as zeros.
 func assign(dst frontend.Circuit, src any) error {
 	return errors.Join(fill(reflect.ValueOf(dst).Elem(), reflect.ValueOf(src), "")...)
 }
 
-// An invalid src, which a nil pointer yields, assigns zeros.
+type viewed interface {
+	view() any
+}
+
+// fill reads an invalid src, the Elem of a nil pointer, as zeros.
 func fill(dst, src reflect.Value, path string) []error {
 	if src.Kind() == reflect.Pointer && dst.Kind() != reflect.Interface {
 		src = src.Elem()
+	}
+	if src.IsValid() {
+		if v, ok := src.Interface().(viewed); ok {
+			src = reflect.ValueOf(v.view())
+		}
 	}
 	var errs []error
 	switch dst.Kind() {
@@ -96,4 +107,64 @@ func variable(src any) (frontend.Variable, error) {
 		return nil, fmt.Errorf("unsupported type %T", src)
 	}
 	return nil, errMissing
+}
+
+// A flat path of the wrong length keeps its odd row, fill refuses it.
+type quadPath struct {
+	Index    uint64
+	Siblings [][]Field
+}
+
+func newQuadPath(index uint64, flat []Field) quadPath {
+	return quadPath{Index: index, Siblings: slices.Collect(slices.Chunk(flat, records.Arity-1))}
+}
+
+// recordView mirrors records.QuadRecordOpening field for field.
+type recordView struct {
+	Next, EscrowKey Field
+	Lists           uint64
+	Path            quadPath
+}
+
+func (r RecordOpening) view() any {
+	return recordView{Next: r.Next, EscrowKey: r.EscrowKey, Lists: r.Lists, Path: newQuadPath(r.Index, r.Path)}
+}
+
+// memberView mirrors records.QuadOpening field for field.
+type memberView struct {
+	Present                       bool
+	Next, EscrowKey               Field
+	Lists                         uint64
+	LowMember, LowNext, LowEscrow Field
+	LowLists                      uint64
+	Path                          quadPath
+}
+
+func (m MemberOpening) view() any {
+	return memberView{
+		Present: m.Present, Next: m.Next, EscrowKey: m.EscrowKey, Lists: m.Lists,
+		LowMember: m.LowMember, LowNext: m.LowNext, LowEscrow: m.LowEscrow, LowLists: m.LowLists,
+		Path: newQuadPath(m.Index, m.Path),
+	}
+}
+
+// writeView mirrors registry.RecordWrite field for field.
+type writeView struct {
+	Entry                         QueueEntry
+	Exists                        bool
+	OldNext, OldEscrow            Field
+	OldLists                      uint64
+	Slot                          quadPath
+	LowMember, LowNext, LowEscrow Field
+	LowLists                      uint64
+	Low                           quadPath
+}
+
+func (w RecordWrite) view() any {
+	return writeView{
+		Entry: w.Entry, Exists: w.Exists, OldNext: w.OldNext, OldEscrow: w.OldEscrow, OldLists: w.OldLists,
+		Slot:      newQuadPath(w.Index, w.Path),
+		LowMember: w.LowMember, LowNext: w.LowNext, LowEscrow: w.LowEscrow, LowLists: w.LowLists,
+		Low: newQuadPath(w.LowIndex, w.LowPath),
+	}
 }

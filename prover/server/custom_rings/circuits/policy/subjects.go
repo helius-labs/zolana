@@ -5,93 +5,61 @@ import (
 	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
-	"github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
-	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
-	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
+	"github.com/helius-labs/zolana/prover/server/circuits/records"
 )
 
-// subjectView is one slot's owner as the registries record it.
+type Entry struct {
+	Own     records.QuadOpening
+	Curator records.QuadOpening
+}
+
 type subjectView struct {
-	// onList[i] is set when the owner is on list i+1, read from the registry that serves the list.
+	// onList[i] is set when the subject is on list i+1 in the registry serving the list.
 	onList [NSources]frontend.Variable
-	// present and escrowKey come from the ring's own registry.
-	present, escrowKey frontend.Variable
+	// escrowKey is the own record's escrow key, zero for an absent member.
+	escrowKey frontend.Variable
 }
 
-// resolveSubjects opens every live UTXO slot's owner in the ring registry, and in the curator
-// registry when the sources name one. Other slots leave their openings unread.
-func (c *CustomRingPolicyCircuit) resolveSubjects(api frontend.API, tx transaction, checked checkedPolicy) []subjectView {
-	sources := checked.sources
-	inputs, outputs, ownOpenings, foreignOpenings := c.wires()
-	subjects := make([]subjectView, len(ownOpenings))
-	var ownBatch, foreignBatch *registry.SubtreeBatch
-	if c.RegistryWitness != nil {
-		ownBatch = registry.NewSparseSubtreeBatch(api, c.MemberRegistryRoot, &c.RegistryWitness[0])
-		foreignBatch = registry.NewSparseSubtreeBatch(api, c.ForeignRoot, &c.RegistryWitness[1])
-	} else if c.RegistrySubtreeDepth != 0 {
-		ownBatch = registry.NewSubtreeBatch(c.RegistrySubtreeDepth, c.MemberRegistryRoot)
-		foreignBatch = registry.NewSubtreeBatch(c.RegistrySubtreeDepth, c.ForeignRoot)
-	}
-	resolve := func(o registry.MemberOpening, active, root, member frontend.Variable, batch *registry.SubtreeBatch) (frontend.Variable, frontend.Variable) {
-		if batch != nil {
-			return batch.Resolve(api, o, active, member)
-		}
-		if c.specialized() {
-			return o.ResolveCompact(api, active, root, member)
-		}
-		return o.Resolve(api, active, root, member)
-	}
-	for index, slot := range tx.slots() {
-		s := index
-		if index >= len(tx.inputs) {
-			s = len(inputs) + index - len(tx.inputs)
-		}
-		own, escrowKey := resolve(ownOpenings[s], slot.utxo, c.MemberRegistryRoot, slot.ownerPkHash, ownBatch)
-		foreign, _ := resolve(foreignOpenings[s], api.Mul(slot.utxo, sources.anyForeign), c.ForeignRoot, slot.ownerPkHash, foreignBatch)
-		ownBits, foreignBits := api.ToBinary(own, registry.ListBits), api.ToBinary(foreign, registry.ListBits)
-		subjects[s] = subjectView{present: ownOpenings[s].Present, escrowKey: escrowKey}
-		for i := range subjects[s].onList {
-			subjects[s].onList[i] = api.Select(sources.foreign[i], foreignBits[i], ownBits[i])
-		}
-	}
-	assetRules := frontend.Variable(0)
-	rules := base.SelectCount(api, c.PolicyLen, 0, NRules+1)
-	for i, packed := range c.Rules {
-		var rule ruleFields
-		if c.specialized() {
-			rule = checked.rules[i]
-		} else {
-			rule = decodeRule(api, packed)
-		}
-		active := rules.Active[i]
-		assetRules = api.Or(assetRules, api.Mul(active, rule.onAsset))
-	}
-	for o, slot := range tx.outputs {
-		s := len(inputs) + len(outputs) + o
-		active := api.Mul(slot.utxo, assetRules, base.NonZero(api, slot.asset))
-		own, _ := resolve(ownOpenings[s], active, c.MemberRegistryRoot, slot.asset, ownBatch)
-		foreign, _ := resolve(foreignOpenings[s], api.Mul(active, sources.anyForeign), c.ForeignRoot, slot.asset, foreignBatch)
-		ownBits, foreignBits := api.ToBinary(own, registry.ListBits), api.ToBinary(foreign, registry.ListBits)
-		for i := range subjects[s].onList {
-			subjects[s].onList[i] = api.Select(sources.foreign[i], foreignBits[i], ownBits[i])
-		}
-	}
-	if ownBatch != nil {
-		ownBatch.Check(api)
-		foreignBatch.Check(api)
-	}
-	return subjects
+type subjects struct {
+	sender         subjectView
+	owners, assets []subjectView
 }
 
-// constrainEscrow requires every live output owner's record to escrow the key the output uses.
-func (c *CustomRingPolicyCircuit) constrainEscrow(api frontend.API, tx transaction, subjects []subjectView) {
-	api.AssertIsBoolean(c.KeyEscrow)
-	for o, output := range tx.outputs {
-		inputs, outputs, _, _ := c.wires()
-		subject := subjects[len(inputs)+o]
-		escrowed := api.Mul(output.utxo, c.KeyEscrow)
-		shared.AssertWhen(api, escrowed, subject.present)
-		key := gadget.PoseidonHash(api, []frontend.Variable{output.nullifierPk, outputs[o].CtHash})
-		abstractor.CallVoid(api, gadget.AssertEqualWhen{Cond: escrowed, A: subject.escrowKey, B: key})
+// resolveSubjects opens the sender, every UTXO output's owner and, under an asset rule, every UTXO output's asset.
+func (p *Policy) resolveSubjects(api frontend.API, t tableView, sender frontend.Variable, outputs []utxoView) subjects {
+	s := subjects{
+		sender: p.resolve(api, t.sources, p.SenderEntry, 1, sender),
+		owners: make([]subjectView, len(outputs)),
+		assets: make([]subjectView, len(outputs)),
+	}
+	for o, out := range outputs {
+		s.owners[o] = p.resolve(api, t.sources, p.OwnerEntries[o], out.utxo, out.ownerPkHash)
+		s.assets[o] = p.resolve(api, t.sources, p.AssetEntries[o], api.Mul(out.utxo, t.assetRules), out.asset)
+	}
+	return s
+}
+
+// resolve opens member in the own registry, and in the curator registry when a list is foreign, while cond holds.
+func (p *Policy) resolve(api frontend.API, sources sourceView, e Entry, cond, member frontend.Variable) subjectView {
+	// 1. The member's record, or the low record proving it absent, lies under own_root.
+	own, escrowKey := e.Own.Resolve(api, cond, p.OwnRoot, member)
+	// 2. The same holds under curator_root whenever a list reads from the curator registry.
+	curator, _ := e.Curator.Resolve(api, api.Mul(cond, sources.anyForeign), p.CuratorRoot, member)
+	// 3. A record's list bitmap splits bit per list, bit i marks list i+1.
+	ownBits, curatorBits := api.ToBinary(own, records.ListBits), api.ToBinary(curator, records.ListBits)
+	view := subjectView{escrowKey: escrowKey}
+	for i := range view.onList {
+		view.onList[i] = api.Select(sources.foreign[i], curatorBits[i], ownBits[i])
+	}
+	return view
+}
+
+// assertEscrow requires under key escrow every UTXO output's owner record to escrow the output's nullifier key.
+func (p *Policy) assertEscrow(api frontend.API, keyEscrow frontend.Variable, owners []subjectView, outputs []utxoView) {
+	for o, out := range outputs {
+		escrowed := api.Mul(out.utxo, keyEscrow)
+		key := records.EscrowKey(api, out.nullifierPk, p.Outputs[o].CtHash)
+		// The owner's record escrows Poseidon(nullifier_pk, ct_hash), an absent owner resolves zero and never matches.
+		abstractor.CallVoid(api, gadget.AssertEqualWhen{Cond: escrowed, A: owners[o].escrowKey, B: key})
 	}
 }

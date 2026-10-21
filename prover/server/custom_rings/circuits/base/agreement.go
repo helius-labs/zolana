@@ -9,27 +9,20 @@ import (
 	"github.com/helius-labs/zolana/prover/server/circuits/crypto/x25519"
 )
 
-// AgreeAuditKey returns the tagged keys 0x04 || u and the DH of one clamped secret.
-// The RFC gadget accepts recipient aliases, so a ring key must also be below p.
-func AgreeAuditKey(api frontend.API, secret, recipient [32]frontend.Variable) (auditor, ephemeral [33]frontend.Variable, shared [32]frontend.Variable) {
-	x25519.AssertCanonical(api, recipient)
-	shared = x25519.ECDH(api, secret, recipient)
-	pub := x25519.ScalarMulGenerator(api, secret)
-	auditor[0], ephemeral[0] = 4, 4
-	copy(auditor[1:], recipient[:])
-	copy(ephemeral[1:], pub[:])
-	return
+// agreeCanonical is X25519(scalar, peer) for a peer encoded below p = 2^255-19, one encoding per key.
+func agreeCanonical(api frontend.API, scalar, peer [32]frontend.Variable) [32]frontend.Variable {
+	// ECDH bounds every peer byte, the canonical check reads them as bytes.
+	agreement := x25519.ECDH(api, scalar, peer)
+	assertBelowP(api, peer)
+	return agreement
 }
 
-// assertCanonicalX25519Compact checks the byte encoding against 2^255-19.
-// After bounding the top byte to 7 bits, only the maximal upper 247-bit
-// prefix needs a low-byte comparison. All other prefixes are already below p.
-func assertCanonicalX25519Compact(api frontend.API, key [32]frontend.Variable) {
+// assertBelowP refuses a little-endian key at or above p or with bit 255 set, the caller bounds every byte.
+func assertBelowP(api frontend.API, key [32]frontend.Variable) {
 	rc := rangecheck.New(api)
-	for _, b := range key[:31] {
-		rc.Check(b, 8)
-	}
+	// 1. Bit 255 is clear, refusing the alias RFC 7748 masks away.
 	rc.Check(key[31], 7)
+	// 2. A key with the maximal 247-bit high part is below p only when its low byte is at most 236.
 	var high frontend.Variable = 0
 	for i := 31; i >= 1; i-- {
 		high = api.Add(api.Mul(high, 256), key[i])
@@ -37,4 +30,12 @@ func assertCanonicalX25519Compact(api frontend.API, key [32]frontend.Variable) {
 	maxHigh := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 247), big.NewInt(1))
 	top := api.IsZero(api.Sub(high, maxHigh))
 	rc.Check(api.Mul(top, api.Sub(236, key[0])), 8)
+}
+
+// basepointByte is byte j of the X25519 base point u = 9.
+func basepointByte(j int) frontend.Variable {
+	if j == 0 {
+		return 9
+	}
+	return 0
 }

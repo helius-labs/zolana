@@ -59,21 +59,18 @@ func decodeError(t *testing.T, response *httptest.ResponseRecorder) map[string]s
 }
 
 func TestIndexedFailureCodes(t *testing.T) {
-	member := indexed.Hash{31: 7}
 	cases := []struct {
 		err        error
 		status     int
 		code       string
 		retryAfter int
-		member     string
 	}{
-		{indexed.ErrIndexerNotReady, http.StatusServiceUnavailable, "indexer_not_ready", notReadyRetryAfterSecs, ""},
-		{&indexed.UnregisteredMemberError{Member: member}, http.StatusUnprocessableEntity, "registry_member_missing", 0, member.String()},
-		{errors.New("upstream detail"), http.StatusBadGateway, "indexer_unavailable", 0, ""},
+		{indexed.ErrIndexerNotReady, http.StatusServiceUnavailable, "indexer_not_ready", notReadyRetryAfterSecs},
+		{errors.New("upstream detail"), http.StatusBadGateway, "indexer_unavailable", 0},
 	}
 	for _, c := range cases {
 		failure := indexedFailure(c.err)
-		if failure.StatusCode != c.status || failure.Code != c.code || failure.RetryAfter != c.retryAfter || failure.Member != c.member {
+		if failure.StatusCode != c.status || failure.Code != c.code || failure.RetryAfter != c.retryAfter {
 			t.Fatalf("%v mapped to %+v", c.err, failure)
 		}
 		if bytes.Contains([]byte(failure.Message), []byte("upstream detail")) {
@@ -85,12 +82,7 @@ func TestIndexedFailureCodes(t *testing.T) {
 func TestQueuedIndexedFailuresCarryTheirCode(t *testing.T) {
 	worker := &BaseQueueWorker{queueName: "zk_transfer_queue"}
 	job := &ProofJob{Indexed: true, Payload: json.RawMessage(`{"circuitType":"transfer"}`)}
-	member := indexed.Hash{31: 7}
-	details := worker.failureDetails(job, indexedFailure(&indexed.UnregisteredMemberError{Member: member}))
-	if details["code"] != "registry_member_missing" || details["member"] != member.String() || details["error"] != errIndexedProof.Error() {
-		t.Fatalf("unregistered member details %v", details)
-	}
-	details = worker.failureDetails(job, indexedFailure(indexed.ErrIndexerNotReady))
+	details := worker.failureDetails(job, indexedFailure(indexed.ErrIndexerNotReady))
 	if details["code"] != "indexer_not_ready" || details["error"] != indexed.ErrIndexerNotReady.Error() {
 		t.Fatalf("not ready details %v", details)
 	}

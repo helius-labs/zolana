@@ -11,47 +11,48 @@ import (
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
 )
 
-// DomSepCRShared is "CR_S", the shared secret tag the Rust host derivation also uses.
-const DomSepCRShared uint32 = 0x43525f53
-
 // Envelope encrypts Plaintext to the X25519 key AuditorPk under the ephemeral secret EphSk.
 type Envelope struct {
-	Compact   bool
 	Plaintext []frontend.Variable
 	EphSk     [32]frontend.Variable
 	AuditorPk [32]frontend.Variable
-	Info      string
+	// Info keys the schedule of Seal, SealAuditStream reads no info.
+	Info string
 }
 
-// Sealed carries both tagged keys packed with gadget.PackBytesBE and the ciphertext.
+// Sealed carries both tagged keys packed with gadget.PackBytesBE and the ciphertext, every ciphertext byte bounded to 8 bits by the cipher's tables.
 type Sealed struct {
 	Auditor, Eph, Ciphertext []frontend.Variable
 }
 
-// Seal checks the key bytes, a canonical auditor key and a nonzero DH, the caller checks the plaintext bytes.
+type keySchedule func(secret frontend.Variable) ([32]frontend.Variable, [12]frontend.Variable)
+
+// Seal encrypts under the verifiable-encryption key schedule of Info.
 func (e Envelope) Seal(api frontend.API) Sealed {
-	var auditor, eph [33]frontend.Variable
-	var dh [32]frontend.Variable
-	if e.Compact {
-		assertCanonicalX25519Compact(api, e.AuditorPk)
-		dh = x25519.ECDH(api, e.EphSk, e.AuditorPk)
-		pub := x25519.ScalarMulGenerator(api, e.EphSk)
-		auditor[0], eph[0] = 4, 4
-		copy(auditor[1:], e.AuditorPk[:])
-		copy(eph[1:], pub[:])
-	} else {
-		auditor, eph, dh = AgreeAuditKey(api, e.EphSk, e.AuditorPk)
-	}
-	sealed := Sealed{Auditor: gadget.PackBytesBE(api, auditor[:]), Eph: gadget.PackBytesBE(api, eph[:])}
-	// Binding both keys keeps the key schedule input from replaying under another key pair.
-	secret := gadget.PoseidonHash(api, slices.Concat([]frontend.Variable{uint64(DomSepCRShared)}, gadget.PackBytesBE(api, dh[:]), sealed.Eph, sealed.Auditor))
-	var key [32]frontend.Variable
-	var nonce [12]frontend.Variable
-	if e.Info == auditEncInfo {
-		key, nonce = auditStreamKeySchedule(api, secret)
-	} else {
-		key, nonce = ve.KeySchedule(api, secret, ConstBytes(e.Info), len(e.Info))
-	}
+	return e.seal(api, func(secret frontend.Variable) ([32]frontend.Variable, [12]frontend.Variable) {
+		return ve.KeySchedule(api, secret, ConstBytes(e.Info), len(e.Info))
+	})
+}
+
+// SealAuditStream encrypts under the audit stream schedule every delivered body shares.
+func (e Envelope) SealAuditStream(api frontend.API) Sealed {
+	return e.seal(api, func(secret frontend.Variable) ([32]frontend.Variable, [12]frontend.Variable) {
+		return auditStreamKeySchedule(api, secret)
+	})
+}
+
+func (e Envelope) seal(api frontend.API, schedule keySchedule) Sealed {
+	// 1. One encoding per auditor key, the program packs the configured key bytes as they are.
+	agreement := agreeCanonical(api, e.EphSk, e.AuditorPk)
+	// 2. The X25519 gadgets bound every key byte and return canonical bytes, the packings below need no byte check.
+	eph := x25519.ScalarMulGenerator(api, e.EphSk)
+	sealed := Sealed{Auditor: packBounded(api, tagged(e.AuditorPk)), Eph: packBounded(api, tagged(eph))}
+	// 3. Binding both keys keeps the key schedule input from replaying under another key pair.
+	secret := gadget.PoseidonHash(api, slices.Concat(
+		[]frontend.Variable{uint64(DomSepCRShared)}, packBounded(api, agreement[:]), sealed.Eph, sealed.Auditor,
+	))
+	// 4. The cipher's byte tables bound every plaintext byte.
+	key, nonce := schedule(secret)
 	sealed.Ciphertext = aes.NewCipher(api, key).CTREncrypt(nonce, e.Plaintext)
 	return sealed
 }

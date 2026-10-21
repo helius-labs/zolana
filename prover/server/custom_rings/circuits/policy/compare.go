@@ -1,61 +1,52 @@
 package policy
 
 import (
-	"fmt"
+	"errors"
 	"math/big"
 	"math/bits"
 
 	"github.com/consensys/gnark/constraint/solver"
 	"github.com/consensys/gnark/frontend"
-	"github.com/consensys/gnark/std/rangecheck"
+
+	"github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
 )
 
-func init() { solver.RegisterHint(amountComparisonHint, shapedAmountComparisonHint) }
+func init() { solver.RegisterHint(comparisonHint) }
 
-// amountAtMost uses the same integer offset as outputTotalAtMost. The operands
-// are nonnegative. The width is 64 plus ceil(log2(maximum slot count)), so the
-// transaction's bounded amounts cannot overflow it, including wider shapes.
-// Only the top bit is consumed. Lookup range checks bound the remaining limb.
-func (c *CustomRingPolicyCircuit) amountAtMost(api frontend.API, total, threshold frontend.Variable) frontend.Variable {
-	if !c.specialized() {
-		return outputTotalAtMost(api, total, threshold)
-	}
-	width, offset := amountSumBits, amountSumOffset
-	hint := solver.Hint(amountComparisonHint)
-	if c.Dynamic != nil {
-		width = amountBits + bits.Len(uint(max(len(c.Dynamic.Inputs), len(c.Dynamic.Outputs))-1))
-		offset = new(big.Int).Lsh(big.NewInt(1), uint(width))
-		hint = shapedAmountComparisonHint
-	}
+type comparator struct {
+	rc frontend.Rangechecker
+	// width bounds every difference the key compares, fixed when the key compiles.
+	width int
+}
+
+// comparator sizes width for m outputs against one public net, each within the u64 SPP range checks.
+func (p *Policy) comparator(rc frontend.Rangechecker) comparator {
+	return comparator{rc: rc, width: shared.AmountBits + bits.Len(uint(len(p.Outputs)+1))}
+}
+
+// atMost returns total <= threshold, the caller bounds their difference below 2^width in magnitude.
+func (c comparator) atMost(api frontend.API, total, threshold frontend.Variable) frontend.Variable {
+	offset := new(big.Int).Lsh(big.NewInt(1), uint(c.width))
 	delta := api.Add(api.Sub(threshold, total), offset)
-	args := []frontend.Variable{delta}
-	if c.Dynamic != nil {
-		args = append(args, width)
-	}
-	w, err := api.Compiler().NewHint(hint, 2, args...)
+	// 1. The hint proposes the low width bits and the top bit of delta, untrusted until the checks below bind them.
+	parts, err := api.Compiler().NewHint(comparisonHint, 2, delta, c.width)
 	if err != nil {
 		panic(err)
 	}
-	rangecheck.New(api).Check(w[0], width)
-	api.AssertIsBoolean(w[1])
-	api.AssertIsEqual(delta, api.Add(w[0], api.Mul(offset, w[1])))
-	return w[1]
+	low, top := parts[0], parts[1]
+	// 2. low below 2^width leaves one split per delta.
+	c.rc.Check(low, c.width)
+	// 3. top is a bit, the split then covers delta below 2^(width+1) only.
+	api.AssertIsBoolean(top)
+	// 4. delta lies in (0, 2^(width+1)), its split is unique and top is set exactly when total <= threshold.
+	api.AssertIsEqual(delta, api.Add(low, api.Mul(top, offset)))
+	return top
 }
 
-func amountComparisonHint(_ *big.Int, inputs, outputs []*big.Int) error {
-	if len(inputs) != 1 || len(outputs) != 2 {
-		return fmt.Errorf("amount comparison: expected 1 input and 2 outputs")
-	}
-	mask := new(big.Int).Sub(amountSumOffset, big.NewInt(1))
-	outputs[0].And(inputs[0], mask)
-	outputs[1].Rsh(inputs[0], uint(amountSumBits))
-	return nil
-}
-
-// The width is compile-time metadata, not a prover-selected bound.
-func shapedAmountComparisonHint(_ *big.Int, inputs, outputs []*big.Int) error {
-	if len(inputs) != 2 || len(outputs) != 2 || !inputs[1].IsUint64() || inputs[1].Uint64() < 64 || inputs[1].Uint64() > 70 {
-		return fmt.Errorf("invalid shaped comparison width")
+// comparisonHint splits delta at the width, atMost range checks and recomposes both parts.
+func comparisonHint(_ *big.Int, inputs, outputs []*big.Int) error {
+	if len(inputs) != 2 || len(outputs) != 2 || !inputs[1].IsUint64() {
+		return errors.New("comparison: want delta, width and two outputs")
 	}
 	width := uint(inputs[1].Uint64())
 	mask := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), width), big.NewInt(1))

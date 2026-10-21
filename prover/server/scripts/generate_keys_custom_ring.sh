@@ -12,4 +12,4 @@ keys_dir="$(cd "$keys_dir" && pwd)"
 cd "$server_dir"
 go build -o "$repo_root/target/prover-server" .
 (cd "$repo_root" && cargo build -q -p xtask)
-python3 scripts/generate_ring_keys.py --keys-dir "$keys_dir"
+python3 scripts/generate_ring_keys.py --keys-dir "$keys_dir" "${@:2}"

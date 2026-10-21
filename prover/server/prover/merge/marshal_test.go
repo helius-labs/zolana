@@ -9,8 +9,8 @@ import (
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"
 
+	"github.com/helius-labs/zolana/prover/server/circuits/records"
 	transaction "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
-	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
 	"github.com/helius-labs/zolana/prover/server/prover/common"
 	customring "github.com/helius-labs/zolana/prover/server/prover/custom_ring"
 )
@@ -265,7 +265,7 @@ func TestMergeParametersCreateCompleteWitness(t *testing.T) {
 }
 
 func sampleParams() *MergeParameters {
-	path := make([]customring.Field, registry.Height)
+	path := make([]customring.Field, records.PathSiblings)
 	for i := range path {
 		path[i] = customring.Field{Int: big.NewInt(0)}
 	}

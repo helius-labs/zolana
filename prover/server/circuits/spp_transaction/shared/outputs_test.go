@@ -27,6 +27,13 @@ func (c *outputBlindingDerivationCircuit) Define(api frontend.API) error {
 
 func refreshOutputAttackHashes(t testing.TB, assignment *testAssignment) {
 	t.Helper()
+	refreshOutputCommitments(t, assignment)
+	refreshDefaultRingPublicInputHash(t, assignment)
+}
+
+// Keeps every blinding and leaves the public input hash stale.
+func refreshOutputCommitments(t testing.TB, assignment *testAssignment) {
+	t.Helper()
 	inputHashes := make([]*big.Int, len(assignment.Inputs))
 	for i := range assignment.Inputs {
 		inputHashes[i] = testUtxoHash(t, circuitFieldsToUtxo(assignment.Inputs[i].Utxo), assignment.inputTreeID(i))
@@ -51,7 +58,6 @@ func refreshOutputAttackHashes(t testing.TB, assignment *testAssignment) {
 		noAddressNullifiers(len(inputHashes)),
 		assignment.privateTxBlinding(t),
 	)
-	refreshDefaultRingPublicInputHash(t, assignment)
 }
 
 func TestCircuitRejectsBadOutputHash(t *testing.T) {

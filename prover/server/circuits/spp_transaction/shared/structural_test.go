@@ -242,9 +242,9 @@ func structuralInputSum(a *testAssignment) *big.Int {
 func structuralCompactOutput(t testing.TB, a *testAssignment) {
 	t.Helper()
 	a.Outputs[0].Utxo.Amount = new(big.Int).Add(spptest.AsBigInt(a.Outputs[0].Utxo.Amount), spptest.AsBigInt(a.Outputs[1].Utxo.Amount))
-	blinding := a.Outputs[1].Utxo.Blinding
-	a.Outputs[1] = testOutput{Utxo: fieldsFromUtxo(emptyOutputUtxo()), Hash: 0, OwnerPkHash: 0, NullifierPk: 0}
-	a.Outputs[1].Utxo.Blinding = blinding
+	a.Outputs[1] = testOutput{Utxo: fieldsFromUtxo(emptyOutputUtxo()), Hash: 0, OwnerPkHash: 0, NullifierPk: 0, RingSecret: 0}
+	blinding, err := protocol.OutputBlinding(spptest.AsBigInt(a.Inputs[0].Nullifier), a.outputBlindingSeed(t), 1)
+	a.Outputs[1].Utxo.Blinding = spptest.MustHash(t, blinding, err)
 	a.Outputs[0].Hash = testUtxoHash(t, circuitFieldsToUtxo(a.Outputs[0].Utxo), a.OutputTreeID)
 	inputs := make([]*big.Int, len(a.Inputs))
 	for i := range inputs {

@@ -1,288 +1,166 @@
+// Package base proves what a ring auditor reads from a ring transfer.
 package base
 
 import (
-	"slices"
+	"fmt"
 
 	"github.com/consensys/gnark/frontend"
+	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 
 	"github.com/helius-labs/zolana/prover/server/circuits/crypto/x25519"
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
 	"github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
 )
 
-const (
-	AuditOutputSlots      = 4
-	AuditOutputFieldCount = 9
-	// AuditInputSlots bounds the inputs an anonymous ring discloses.
-	AuditInputSlots = 4
-	// IdentityLen is an owner tag and its 32 key bytes, HashBytes of it is the owner pk hash.
-	IdentityLen = 33
-	// auditEncInfo equals the Rust AUDIT_ENC_INFO.
-	auditEncInfo = "CRING/adt1"
-	// OutputDisclosureDomain is "CR_OD", the output disclosure pad seed domain mirrored by Rust and TS.
-	OutputDisclosureDomain = 0x4352_5f4f44
-	// MergeDisclosureDomain is "CR_MD", a merge pad under the same key never repeats an output pad.
-	MergeDisclosureDomain = 0x4352_5f4d44
+// auditEncInfo is the audit stream schedule tag, mirrored by AUDIT_STREAM_INFO in custom-rings/interface/src/anonymous_output.rs.
+const auditEncInfo = "CRING/adt1"
+
+type AnonymousAuditShape struct {
+	InputClass   int
+	Outputs      int
+	FullOpenings bool
+}
+
+// layout is the flags the shape fixes.
+func (s AnonymousAuditShape) layout() int {
+	if s.FullOpenings {
+		return LayoutFullOpenings
+	}
+	return 0
+}
+
+// Audit key shapes, mirrored by the audit capacities and the anonymous classes of custom-rings/interface/src/disclosure.rs.
+var (
+	// PackedAuditCapacities leave confidential and delegate bodies unproven.
+	PackedAuditCapacities = [...]int{2, 4}
+	// DeliveredAuditCapacities prove every confidential body.
+	DeliveredAuditCapacities = [...]int{8, 16}
+	// AnonymousAuditShapes publish input hashes, a transfer takes the smallest class holding its published inputs.
+	AnonymousAuditShapes = [...]AnonymousAuditShape{
+		{InputClass: 4, Outputs: 2}, {InputClass: 8, Outputs: 2}, {InputClass: 12, Outputs: 2},
+		{InputClass: 16, Outputs: 2}, {InputClass: 24, Outputs: 2}, {InputClass: 28, Outputs: 2},
+		{InputClass: 4, Outputs: 4}, {InputClass: 8, Outputs: 4}, {InputClass: 12, Outputs: 4},
+		{InputClass: 16, Outputs: 4}, {InputClass: 24, Outputs: 4},
+		{InputClass: 4, Outputs: 8}, {InputClass: 8, Outputs: 8}, {InputClass: 12, Outputs: 8}, {InputClass: 16, Outputs: 8},
+	}
+	// AnonymousEntryShapes open every spent UTXO, the keys of a transfer that spends a default-ring note.
+	AnonymousEntryShapes = [...]AnonymousAuditShape{
+		{InputClass: 8, Outputs: 2, FullOpenings: true},
+		{InputClass: 8, Outputs: 4, FullOpenings: true},
+		{InputClass: 8, Outputs: 8, FullOpenings: true},
+	}
 )
 
-// Audit is the audit witness the base and policy circuits share.
-type Audit struct {
-	PrivateTxHash frontend.Variable
-	// Anonymous discloses the hidden sender, the spent notes and every recipient.
-	Anonymous   frontend.Variable
+type AuditWires struct {
+	FirstNullifier frontend.Variable
+	// RingID is hash_bytes(ring program address), the id SPP binds every ring output to.
+	RingID      frontend.Variable
 	TxViewingSk [32]frontend.Variable
 	EphSk       [32]frontend.Variable
 	AuditorPk   [32]frontend.Variable
 	Salt        [16]frontend.Variable
-	// Only an anonymous ring reads identities and viewing keys, an ordinary sender is zero.
-	Sender               [IdentityLen]frontend.Variable
-	Recipients           [AuditOutputSlots][IdentityLen]frontend.Variable
-	RecipientViewingKeys [AuditOutputSlots][33]frontend.Variable
+	// SeedOut is SPP's output blinding seed Poseidon(TXOS, n0, blinding_seed), the seed of every exit blinding.
+	SeedOut frontend.Variable
+	Layout  frontend.Variable
 }
 
-type AuditOutputWires struct {
-	Domain        frontend.Variable
-	TreeID        frontend.Variable
-	OwnerHash     frontend.Variable
-	Asset         frontend.Variable
-	Amount        frontend.Variable
-	Blinding      frontend.Variable
-	DataHash      frontend.Variable
-	RingDataHash  frontend.Variable
-	RingProgramID frontend.Variable
+type auditEnvelope struct {
+	txSk [32]frontend.Variable
+	// txPk is pack_be(0x04 ‖ tx_u).
+	txPk [2]frontend.Variable
+	// key is pack_be(tx_sk), the key of the CRAS slot secrets and the CROD pad.
+	key        [2]frontend.Variable
+	salt       frontend.Variable
+	sealed     Sealed
+	sealedHash frontend.Variable
 }
 
-func (w AuditOutputWires) Hash(api frontend.API) frontend.Variable {
-	return shared.UtxoHashCircuit(api, shared.UtxoCircuitFields{
-		Domain: w.Domain, Owner: w.OwnerHash, Asset: w.Asset, Amount: w.Amount, Blinding: w.Blinding,
-		DataHash: w.DataHash, RingDataHash: w.RingDataHash, RingProgramID: w.RingProgramID,
-	}, w.TreeID)
-}
-
-func (w AuditOutputWires) fields() [AuditOutputFieldCount]frontend.Variable {
-	return [AuditOutputFieldCount]frontend.Variable{
-		w.Domain, w.TreeID, w.OwnerHash, w.Asset, w.Amount, w.Blinding, w.DataHash, w.RingDataHash, w.RingProgramID,
-	}
-}
-
-// Select chooses the complete note opening with one Boolean mode selector.
-func (w AuditOutputWires) Select(api frontend.API, selected frontend.Variable, other AuditOutputWires) AuditOutputWires {
-	return AuditOutputWires{
-		Domain:        api.Select(selected, w.Domain, other.Domain),
-		TreeID:        api.Select(selected, w.TreeID, other.TreeID),
-		OwnerHash:     api.Select(selected, w.OwnerHash, other.OwnerHash),
-		Asset:         api.Select(selected, w.Asset, other.Asset),
-		Amount:        api.Select(selected, w.Amount, other.Amount),
-		Blinding:      api.Select(selected, w.Blinding, other.Blinding),
-		DataHash:      api.Select(selected, w.DataHash, other.DataHash),
-		RingDataHash:  api.Select(selected, w.RingDataHash, other.RingDataHash),
-		RingProgramID: api.Select(selected, w.RingProgramID, other.RingProgramID),
+// sealEnvelope binds tx_sk to its tagged public key and seals it to the auditor.
+func (w AuditWires) sealEnvelope(api frontend.API, rc frontend.Rangechecker) auditEnvelope {
+	// 1. The salt is 16 bytes, one field below 2^128 the program rebuilds from the instruction.
+	salt := gadget.BytesToFieldWith(api, rc, w.Salt[:])
+	// 2. The auditor reads the recovered bytes as they are, an unclamped alias would key another stream.
+	AssertClamped(api, w.TxViewingSk)
+	// 3. tx_u is the key of tx_sk, the generator bounds every secret byte the packings read.
+	txPk := packBounded(api, TaggedPubkey(api, w.TxViewingSk))
+	// 4. The envelope seals tx_sk to the auditor under the audit stream schedule.
+	sealed := Envelope{Plaintext: w.TxViewingSk[:], EphSk: w.EphSk, AuditorPk: w.AuditorPk}.SealAuditStream(api)
+	return auditEnvelope{
+		txSk:   w.TxViewingSk,
+		txPk:   [2]frontend.Variable(txPk),
+		key:    [2]frontend.Variable(packBounded(api, w.TxViewingSk[:])),
+		salt:   salt,
+		sealed: sealed,
+		// The cipher's byte tables bound every ciphertext byte.
+		sealedHash: gadget.HashBoundedBytes(api, sealed.Ciphertext),
 	}
 }
 
-// AuditTx is the transaction the caller opened, Hashes commit its output slots.
-type AuditTx struct {
-	// Compact permits compile-time pruning when the caller pins the shape.
-	Compact bool
-	// ShortOrdinary publishes the two live outputs without the unused 18-field tail.
-	// The verifier selects this format only for the 24x2 capacity.
-	ShortOrdinary bool
-	Outputs       [AuditOutputSlots]AuditOutputWires
-	Hashes        [AuditOutputSlots]frontend.Variable
-	NOut          Count
-	// NIn.OneHot[k] selects k+1 disclosed inputs, the caller pins one in an anonymous ring.
-	NIn    Count
-	Inputs []AuditUtxoWires
-	Notes  [AuditOutputSlots]AuditUtxoWires
+// statementHead opens every audit statement, mirrored by AuditHead in custom-rings/interface/src/statement.rs.
+//
+//	CRAU, n0, ring_id, txpk0, txpk1, aud0, aud1, eph0, eph1, sealed_hash, salt, layout
+func (e auditEnvelope) statementHead(w AuditWires) []frontend.Variable {
+	return []frontend.Variable{
+		AuditStatementDomain, w.FirstNullifier, w.RingID, e.txPk[0], e.txPk[1],
+		e.sealed.Auditor[0], e.sealed.Auditor[1], e.sealed.Eph[0], e.sealed.Eph[1], e.sealedHash, e.salt, w.Layout,
+	}
 }
 
-// AuditElements is the confidential statement, the base and policy statements insert
-// the output body chain after the auditor ciphertext hash.
-const AuditElements = 12
-
-// Define returns the confidential statement, the audit elements without a body chain.
-func (a Audit) Define(api frontend.API, rc frontend.Rangechecker, tx AuditTx) [AuditElements]frontend.Variable {
-	elements, _ := a.define(api, rc, tx)
-	return elements
+// outputSlot sorts a live UTXO into a ring output or an exit, a dummy or an unpublished slot is neither.
+type outputSlot struct {
+	OpenedUtxo
+	live frontend.Variable
+	ring frontend.Variable
+	exit frontend.Variable
 }
 
-// Statement returns the base statement, the audit elements with the delivered body chain at BodyChainIndex.
-func (a Audit) Statement(api frontend.API, rc frontend.Rangechecker, tx AuditTx, d Delivery) [BaseElements]frontend.Variable {
-	elements, keys := a.define(api, rc, tx)
-	chain := d.Define(api, rc, keys, a, tx)
-	return [BaseElements]frontend.Variable(slices.Insert(elements[:], BodyChainIndex, chain))
+func classify(api frontend.API, o UtxoWires, opened OpenedUtxo, live frontend.Variable) outputSlot {
+	// SPP holds every UTXO's ring id to 0 or the ring's on the same output hashes, AssertRingMemberOrFree in shared/ring.go.
+	ring := api.Mul(live, IsNonZero(api, o.RingProgramID))
+	return outputSlot{OpenedUtxo: opened, live: live, ring: ring, exit: api.Sub(live, ring)}
 }
 
-func (a Audit) define(api frontend.API, rc frontend.Rangechecker, tx AuditTx) ([AuditElements]frontend.Variable, auditKeys) {
-	// 1. Bind one canonical viewing secret to its public key and auditor envelope.
-	api.AssertIsBoolean(a.Anonymous)
-	CheckBytes(rc, a.Salt[:])
-	// The auditor reads the recovered bytes as they are, an unclamped alias would key another stream.
-	AssertClamped(api, a.TxViewingSk)
-	txPk := gadget.PackBytesBE(api, TaggedPubkey(api, a.TxViewingSk))
-	sealed := Envelope{Plaintext: a.TxViewingSk[:], EphSk: a.EphSk, AuditorPk: a.AuditorPk, Info: auditEncInfo, Compact: tx.Compact}.Seal(api)
-	key := gadget.PackBytesBE(api, a.TxViewingSk[:])
-	salt := gadget.PackBytesBE(api, a.Salt[:])[0]
-
-	// 2. Serialize committed note fields. Only a compile-time ordinary mode may
-	// omit the anonymous identity and input branches.
-	legacy := api.Sub(1, a.Anonymous)
-	// A circuit with a fixed ordinary mode need not prove the anonymous
-	// serialization or encrypt its longer padding. Witness-controlled modes
-	// still execute the complete path.
-	mode, constantMode := api.Compiler().ConstantValue(a.Anonymous)
-	ordinary := constantMode && mode.Sign() == 0
-	outputSlots := AuditOutputSlots
-	if ordinary && tx.ShortOrdinary {
-		outputSlots = 2
-	}
-	// A witnessed mode pads the shorter layout to the other, both share the pad stream.
-	chunkCount := max(auditHeaderChunks+len(tx.Inputs)*auditInputChunks+AuditOutputSlots*auditOutputChunks,
-		AuditOutputSlots*AuditOutputFieldCount)
-	if ordinary {
-		chunkCount = 1 + 3*chainGroups(outputSlots*AuditOutputFieldCount)
-	}
-	plaintext := make([]frontend.Variable, chunkCount)
-	for i := range plaintext {
-		plaintext[i] = 0
-	}
-	for i, w := range tx.Outputs[:outputSlots] {
-		active := api.Mul(legacy, tx.NOut.Active[i])
-		for f, field := range w.fields() {
-			plaintext[i*AuditOutputFieldCount+f] = api.Mul(active, field)
-		}
-	}
-	layout := layout{}
-	if !ordinary {
-		layout = a.anonymousLayout(api, rc, tx)
-	}
-	for i, chunk := range layout.chunks {
-		plaintext[i] = api.Add(plaintext[i], chunk)
-	}
-	live := make([]frontend.Variable, len(plaintext))
-	for i := range live {
-		live[i] = 0
-		if i < outputSlots*AuditOutputFieldCount {
-			live[i] = legacy
-		}
-		for _, shape := range layout.shapes {
-			if i < shape.length {
-				live[i] = api.Add(live[i], shape.selected)
-			}
-		}
-	}
-	if tx.Compact && !ordinary {
-		last := 0
-		for i, flag := range live {
-			if !constantZero(api, flag) {
-				last = i + 1
-			}
-		}
-		// Keep the final hash group's zero padding, but no later groups. The fold reads a missing tail as zero.
-		length := min(len(plaintext), 1+3*chainGroups(last))
-		plaintext, live = plaintext[:length], live[:length]
-	}
-
-	// 3. Encrypt the live prefix and hash exactly the published fields. The zero
-	// tail pads HashChain4 and must not consume an encryption pad.
-	padCount := len(plaintext)
-	if ordinary {
-		// The last HashChain4 element is a permanent zero. Its pad is unused.
-		padCount--
-	}
-	if tx.Compact {
-		for padCount > 1 && constantZero(api, live[padCount-1]) {
-			padCount--
-		}
-	}
-	pad := DisclosurePad(api, OutputDisclosureDomain, key, salt, padCount)
-	states := []frontend.Variable{api.Mul(live[0], api.Add(plaintext[0], pad[0]))}
-	for start := 1; start < len(plaintext); start += 3 {
-		group := []frontend.Variable{states[len(states)-1]}
-		for i := start; i < start+3; i++ {
-			if i >= padCount {
-				group = append(group, 0)
-			} else {
-				group = append(group, api.Mul(live[i], api.Add(plaintext[i], pad[i])))
-			}
-		}
-		states = append(states, gadget.PoseidonHash(api, group))
-	}
-	var disclosure frontend.Variable = 0
-	if !tx.Compact || !constantZero(api, legacy) {
-		disclosure = api.Mul(legacy, states[chainGroups(outputSlots*AuditOutputFieldCount)])
-	}
-	for _, shape := range layout.shapes {
-		if tx.Compact && constantZero(api, shape.selected) {
-			continue
-		}
-		disclosure = api.Add(disclosure, api.Mul(shape.selected, states[chainGroups(shape.length)]))
-	}
-
-	// 4. Bind the same ordered output commitments the program passes to SPP.
-	return [AuditElements]frontend.Variable{
-		a.PrivateTxHash, txPk[0], txPk[1], sealed.Auditor[0], sealed.Auditor[1], sealed.Eph[0], sealed.Eph[1],
-		gadget.HashBytes(api, sealed.Ciphertext), prefixChain(api, tx, tx.Hashes[:]), salt, disclosure, a.Anonymous,
-	}, auditKeys{txSk: a.TxViewingSk, txPk: txPk, salt: salt}
-}
-
-// prefixChain is HashChain4 over the first NOut values, a pinned count folds a fixed prefix.
-func prefixChain(api frontend.API, tx AuditTx, values []frontend.Variable) frontend.Variable {
-	if tx.Compact {
-		selectedCount := -1
-		for i, selected := range tx.NOut.OneHot {
-			value, ok := api.Compiler().ConstantValue(selected)
-			if !ok {
-				selectedCount = -1
-				break
-			}
-			if value.Sign() != 0 {
-				if value.Sign() < 0 || value.BitLen() != 1 || selectedCount != -1 {
-					panic("compact audit requires a one-hot output count")
-				}
-				selectedCount = i + 1
-			}
-		}
-		if selectedCount != -1 {
-			return gadget.HashChain4(api, values[:selectedCount])
-		}
-	}
-	return HashPrefix4(api, values, tx.NOut)
-}
-
-func constantZero(api frontend.API, value frontend.Variable) bool {
-	v, ok := api.Compiler().ConstantValue(value)
-	return ok && v.Sign() == 0
-}
-
-// chainGroups is the HashChain4 state index that absorbs the first n values.
-func chainGroups(n int) int {
-	return (n - 1 + 2) / 3
-}
-
-// DisclosurePad is Poseidon(seed, i) per field, the seed never leaves the circuit, a known pad reveals no other.
-func DisclosurePad(api frontend.API, domain uint64, key []frontend.Variable, salt frontend.Variable, n int) []frontend.Variable {
-	seed := gadget.PoseidonHash(api, []frontend.Variable{domain, key[0], key[1], salt})
-	pad := make([]frontend.Variable, n)
-	for i := range pad {
-		pad[i] = gadget.PoseidonHash(api, []frontend.Variable{seed, i})
-	}
-	return pad
+// assertBlinding pins a live UTXO's blinding to the one SPP derives, TXRB over ringSecret or TXOB over SeedOut on an exit.
+func (w AuditWires) assertBlinding(api frontend.API, o UtxoWires, slot outputSlot, ringSecret frontend.Variable, i int) {
+	blinding := shared.DeriveRingRailOutputBlinding(api, slot.exit, w.FirstNullifier, w.SeedOut, ringSecret, i)
+	// Only a ring output carries the audited ring secret, an exit keeps the TXOB form no anchor opens.
+	assertEqualWhen(api, slot.live, o.Blinding, blinding)
 }
 
 // AssertClamped pins the RFC 7748 clamped encoding, the one byte string per X25519 key.
 func AssertClamped(api frontend.API, secret [32]frontend.Variable) {
 	low := api.ToBinary(secret[0], 8)
 	high := api.ToBinary(secret[31], 8)
+	// Bits 0 to 2 are clear, the scalar is a multiple of the cofactor.
 	for _, bit := range low[:3] {
 		api.AssertIsEqual(bit, 0)
 	}
+	// Bit 254 is set and bit 255 is clear, the top RFC 7748 fixes.
 	api.AssertIsEqual(high[6], 1)
 	api.AssertIsEqual(high[7], 0)
 }
 
-// TaggedPubkey is 0x04 || u of the clamped secret, the generator gadget bounds every secret byte.
+// TaggedPubkey is 0x04 ‖ u of the clamped secret, the generator gadget bounds every secret byte.
 func TaggedPubkey(api frontend.API, secret [32]frontend.Variable) []frontend.Variable {
-	u := x25519.ScalarMulGenerator(api, secret)
+	return tagged(x25519.ScalarMulGenerator(api, secret))
+}
+
+// tagged is the 0x04 ‖ u encoding of an X25519 key.
+func tagged(u [32]frontend.Variable) []frontend.Variable {
 	return append([]frontend.Variable{4}, u[:]...)
+}
+
+func assertEqualWhen(api frontend.API, cond, a, b frontend.Variable) {
+	abstractor.CallVoid(api, gadget.AssertEqualWhen{Cond: cond, A: a, B: b})
+}
+
+func assertZeroWhen(api frontend.API, cond, v frontend.Variable) {
+	abstractor.CallVoid(api, gadget.AssertZeroWhen{Cond: cond, V: v})
+}
+
+func validateLength(name string, got, want int) error {
+	if got != want {
+		return fmt.Errorf("base: %s count mismatch: got %d want %d", name, got, want)
+	}
+	return nil
 }

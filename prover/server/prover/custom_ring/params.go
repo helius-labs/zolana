@@ -5,65 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math/big"
-
-	"github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
-	"github.com/helius-labs/zolana/prover/server/prover/common"
 )
 
 // Request fields carry the circuit field names, their tags the wire names.
-
-type AuditParams struct {
-	PrivateTxHash Field `json:"privateTxHash"`
-	Anonymous     bool  `json:"anonymous,omitempty"`
-	TxViewingSk   Bytes `json:"txViewingSk"`
-	EphSk         Bytes `json:"ephSk"`
-	AuditorPk     Bytes `json:"auditorPk"`
-	Salt          Bytes `json:"salt"`
-	// Only an anonymous ring sends the identities, tag || key, and the tagged viewing keys.
-	Sender               *Bytes   `json:"sender,omitempty"`
-	Recipients           *[]Bytes `json:"recipients,omitempty"`
-	RecipientViewingKeys *[]Bytes `json:"recipientViewingKeys,omitempty"`
-}
-
-type AuditOpening struct {
-	Domain        Field `json:"domain"`
-	TreeID        Field `json:"treeId"`
-	OwnerHash     Field `json:"ownerHash"`
-	Asset         Field `json:"asset"`
-	Amount        Field `json:"amount"`
-	Blinding      Field `json:"blinding"`
-	DataHash      Field `json:"dataHash"`
-	RingDataHash  Field `json:"ringDataHash"`
-	RingProgramID Field `json:"ringProgramId"`
-}
-
-// An anonymous ring opens private_tx_hash from Inputs and AnonymousOutputs, the other fields are absent outside it.
-type BaseParams struct {
-	CircuitType     string `json:"circuitType"`
-	PublicInputHash Field  `json:"publicInputHash"`
-	AuditParams
-	NOut              uint8           `json:"nOut"`
-	Outputs           []AuditOpening  `json:"outputs"`
-	NIn               uint8           `json:"nIn,omitempty"`
-	Inputs            *[]Opening      `json:"inputs,omitempty"`
-	AnonymousOutputs  *[]Opening      `json:"anonymousOutputs,omitempty"`
-	PrivateTxBlinding *Field          `json:"privateTxBlinding,omitempty"`
-	Delivery          *DeliveryParams `json:"delivery,omitempty"`
-}
-
-// DeliveryParams carries the published scheme-9 bodies of an anonymous ring, one per output slot.
-type DeliveryParams struct {
-	RingProgramID Bytes            `json:"ringProgramId"`
-	Outputs       []DeliveryOutput `json:"outputs"`
-}
-
-// A padding slot sends its random body with zero asset address and pair key.
-type DeliveryOutput struct {
-	AssetAddress Bytes `json:"assetAddress"`
-	PairU        Bytes `json:"pairU"`
-	Ciphertext   Bytes `json:"ciphertext"`
-}
 
 type Opening struct {
 	Domain        Field `json:"domain"`
@@ -78,35 +22,88 @@ type Opening struct {
 	RingProgramID Field `json:"ringProgramId"`
 }
 
-// CtHash is the hash of the owner's escrowed key ciphertext, zero without escrow.
-type OutputOpening struct {
-	Opening
-	CtHash Field `json:"ctHash"`
+type AuditParams struct {
+	FirstNullifier Field `json:"firstNullifier"`
+	RingID         Field `json:"ringId"`
+	TxViewingSk    Bytes `json:"txViewingSk"`
+	EphSk          Bytes `json:"ephSk"`
+	AuditorPk      Bytes `json:"auditorPk"`
+	Salt           Bytes `json:"salt"`
+	SeedOut        Field `json:"seedOut"`
+	Layout         uint8 `json:"layout"`
 }
 
-// RecordOpening opens a member's record in a member registry.
-type RecordOpening struct {
-	Next      Field   `json:"next"`
-	Lists     uint64  `json:"lists"`
-	EscrowKey Field   `json:"escrowKey"`
-	Index     uint64  `json:"index"`
-	Path      []Field `json:"path"`
+type PackedAuditParams struct {
+	CircuitType     string `json:"circuitType"`
+	PublicInputHash Field  `json:"publicInputHash"`
+	AuditParams
+	NOut      uint8     `json:"nOut"`
+	Outputs   []Opening `json:"outputs"`
+	OwnerKeys []Bytes   `json:"ownerKeys"`
 }
 
-// MemberOpening proves a member present, or absent under the low record. A nil
-// opening assigns zeros, the circuit only skips it for a slot that is no live UTXO.
-type MemberOpening struct {
-	Present bool `json:"present"`
-	RecordOpening
-	LowMember Field  `json:"lowMember"`
-	LowNext   Field  `json:"lowNext"`
-	LowLists  uint64 `json:"lowLists"`
-	LowEscrow Field  `json:"lowEscrow"`
+type DeliveredOutput struct {
+	Output       Opening `json:"output"`
+	AssetAddress Bytes   `json:"assetAddress"`
+	RecipientKey Bytes   `json:"recipientKey"`
+	OwnerKey     Bytes   `json:"ownerKey"`
+	Body         Bytes   `json:"body"`
 }
 
-// Registry is zero for a list the ring's own registry serves, else the curator registry address.
+type DeliveredAuditParams struct {
+	CircuitType     string `json:"circuitType"`
+	PublicInputHash Field  `json:"publicInputHash"`
+	AuditParams
+	Outputs []DeliveredOutput `json:"outputs"`
+}
+
+type Stream struct {
+	Tag   Field `json:"tag"`
+	Inbox bool  `json:"inbox"`
+	Pair  bool  `json:"pair"`
+	Self  bool  `json:"self"`
+	Index uint8 `json:"index"`
+}
+
+type AnonymousOutput struct {
+	DeliveredOutput
+	Stream Stream `json:"stream"`
+}
+
+type Anchor struct {
+	TreeID         Field   `json:"treeId"`
+	Asset          Field   `json:"asset"`
+	Amount         Field   `json:"amount"`
+	SlotSecret     Field   `json:"slotSecret"`
+	FirstNullifier Field   `json:"firstNullifier"`
+	SlotIndex      uint8   `json:"slotIndex"`
+	Epoch          uint64  `json:"epoch"`
+	Index          uint8   `json:"index"`
+	PathIndex      uint64  `json:"pathIndex"`
+	Path           []Field `json:"path"`
+}
+
+type AnonymousAuditParams struct {
+	CircuitType     string `json:"circuitType"`
+	PublicInputHash Field  `json:"publicInputHash"`
+	AuditParams
+	Outputs           []AnonymousOutput `json:"outputs"`
+	PrivateTxHash     Field             `json:"privateTxHash"`
+	PrivateTxBlinding Field             `json:"privateTxBlinding"`
+	SenderKey         Bytes             `json:"senderKey"`
+	InputCount        uint8             `json:"inputCount"`
+	// Inputs fill the input class, the slots past InputCount carry no UTXO.
+	Inputs           []Opening `json:"inputs"`
+	SenderCommitment Field     `json:"senderCommitment"`
+	Epoch            uint64    `json:"epoch"`
+	FirstContactRoot Field     `json:"firstContactRoot"`
+	// An absent anchor assigns zeros.
+	Anchor *Anchor `json:"anchor,omitempty"`
+}
+
 type Source struct {
-	ListId   uint8 `json:"listId"`
+	ListID uint8 `json:"listId"`
+	// Registry is zero for a list the ring's own registry serves, else the curator registry address.
 	Registry Field `json:"registry"`
 }
 
@@ -116,86 +113,130 @@ type OutflowLimit struct {
 	CosignAbove Field `json:"cosignAbove"`
 }
 
+type PolicyTable struct {
+	Sources      []Source       `json:"sources"`
+	PolicyLen    uint8          `json:"policyLen"`
+	Rules        []Field        `json:"rules"`
+	InlineAssets []Field        `json:"inlineAssets"`
+	InlineLimits []Field        `json:"inlineLimits"`
+	InlineCount  uint8          `json:"inlineCount"`
+	Limits       []OutflowLimit `json:"limits"`
+	LimitCount   uint8          `json:"limitCount"`
+}
+
+type OutputOpening struct {
+	Opening
+	// CtHash is the hash of the owner's escrowed key ciphertext, absent without escrow.
+	CtHash *Field `json:"ctHash,omitempty"`
+}
+
+// RecordOpening opens a member's record in a member registry, Path the three siblings of every level from the leaf up in child order.
+type RecordOpening struct {
+	Next      Field   `json:"next"`
+	Lists     uint64  `json:"lists"`
+	EscrowKey Field   `json:"escrowKey"`
+	Index     uint64  `json:"index"`
+	Path      []Field `json:"path"`
+}
+
+// MemberOpening proves a member present, or absent under its low record, nil only for a slot that is no live UTXO.
+type MemberOpening struct {
+	Present bool `json:"present"`
+	RecordOpening
+	LowMember Field  `json:"lowMember"`
+	LowNext   Field  `json:"lowNext"`
+	LowLists  uint64 `json:"lowLists"`
+	LowEscrow Field  `json:"lowEscrow"`
+}
+
+type Entry struct {
+	Own     *MemberOpening `json:"own"`
+	Curator *MemberOpening `json:"curator"`
+}
+
 type PolicyParams struct {
-	CircuitType     string `json:"circuitType"`
-	PublicInputHash Field  `json:"publicInputHash"`
-	AuditParams
-	NIn                uint8            `json:"nIn"`
-	NOut               uint8            `json:"nOut"`
-	Inputs             []Opening        `json:"inputs"`
-	Outputs            []OutputOpening  `json:"outputs"`
-	AddressChain       Field            `json:"addressChain"`
-	PrivateTxBlinding  Field            `json:"privateTxBlinding"`
-	Delivery           *DeliveryParams  `json:"delivery,omitempty"`
-	Sources            []Source         `json:"sources"`
-	PolicyLen          uint8            `json:"policyLen"`
-	Rules              []Field          `json:"ruleEnc"`
-	InlineAssets       []Field          `json:"inlineAssets"`
-	InlineLimits       []Field          `json:"inlineLimits"`
-	InlineCount        uint8            `json:"inlineCount"`
-	Limits             []OutflowLimit   `json:"limits"`
-	LimitCount         uint8            `json:"limitCount"`
-	TreeSlots          TreeSlots        `json:"treeSlots"`
-	AddressTreeID      Field            `json:"addressTreeId"`
-	RingID             Field            `json:"ringId"`
-	NamespaceOwnerHash Field            `json:"namespaceOwnerHash"`
-	ApprovalRequired   bool             `json:"approvalRequired"`
-	KeyEscrow          bool             `json:"keyEscrow"`
-	MemberRegistryRoot Field            `json:"memberRegistryRoot"`
-	Subjects           []*MemberOpening `json:"subjects"`
-	ForeignRoot        Field            `json:"foreignRoot"`
-	ForeignSubjects    []*MemberOpening `json:"foreignSubjects"`
+	PrivateTxHash Field   `json:"privateTxHash"`
+	PolicyHash    Field   `json:"policyHash"`
+	RingID        Field   `json:"ringId"`
+	OwnRoot       Field   `json:"ownRoot"`
+	CuratorRoot   Field   `json:"curatorRoot"`
+	PublicAssets  []Field `json:"publicAssets"`
+	PublicAmounts []Field `json:"publicAmounts"`
+	PolicyTable
+	AddressChain      Field           `json:"addressChain"`
+	PrivateTxBlinding Field           `json:"privateTxBlinding"`
+	Outputs           []OutputOpening `json:"outputs"`
+	SenderPkHash      Field           `json:"senderPkHash"`
+	SenderEntry       Entry           `json:"senderEntry"`
+	// OwnerEntries[o] and AssetEntries[o] open output o's owner and asset.
+	OwnerEntries []Entry `json:"ownerEntries"`
+	AssetEntries []Entry `json:"assetEntries"`
+}
+
+type MemberPolicyParams struct {
+	CircuitType      string `json:"circuitType"`
+	PublicInputHash  Field  `json:"publicInputHash"`
+	Anonymous        bool   `json:"anonymous"`
+	ApprovalRequired bool   `json:"approvalRequired"`
+	KeyEscrow        bool   `json:"keyEscrow"`
+	Sender           Field  `json:"sender"`
+	InputChain       Field  `json:"inputChain"`
+	PolicyParams
 }
 
 type DelegatePolicyParams struct {
-	CircuitType string       `json:"circuitType"`
-	Policy      PolicyParams `json:"policy"`
+	CircuitType     string    `json:"circuitType"`
+	PublicInputHash Field     `json:"publicInputHash"`
+	Inputs          []Opening `json:"inputs"`
+	PolicyParams
 }
 
-// RecordUpdate rewrites one record, or inserts it after the low record when exists is off.
-type RecordUpdate struct {
-	Exists    bool    `json:"exists"`
-	Next      Field   `json:"next"`
+type QueueEntry struct {
+	Member    Field  `json:"member"`
+	Mask      uint64 `json:"mask"`
+	Value     uint64 `json:"value"`
+	EscrowKey Field  `json:"escrowKey"`
+}
+
+type RecordWrite struct {
+	Entry     QueueEntry `json:"entry"`
+	Exists    bool       `json:"exists"`
+	OldNext   Field      `json:"oldNext"`
+	OldLists  uint64     `json:"oldLists"`
+	OldEscrow Field      `json:"oldEscrow"`
+	// Index and Path open the member's leaf or the leaf an insert takes.
 	Index     uint64  `json:"index"`
 	Path      []Field `json:"path"`
 	LowMember Field   `json:"lowMember"`
 	LowNext   Field   `json:"lowNext"`
 	LowLists  uint64  `json:"lowLists"`
 	LowEscrow Field   `json:"lowEscrow"`
-	LowIndex  uint64  `json:"lowIndex"`
-	LowPath   []Field `json:"lowPath"`
+	// LowIndex and LowPath open the low record.
+	LowIndex uint64  `json:"lowIndex"`
+	LowPath  []Field `json:"lowPath"`
+}
+
+type ApplyRecordsParams struct {
+	CircuitType     string `json:"circuitType"`
+	PublicInputHash Field  `json:"publicInputHash"`
+	OldRoot         Field  `json:"oldRoot"`
+	NewRoot         Field  `json:"newRoot"`
+	OldNextIndex    uint32 `json:"oldNextIndex"`
+	NewNextIndex    uint32 `json:"newNextIndex"`
+	ChainStart      Field  `json:"chainStart"`
+	ChainEnd        Field  `json:"chainEnd"`
+	Count           uint8  `json:"count"`
+	// A nil write past Count assigns zeros.
+	Writes []*RecordWrite `json:"writes"`
 }
 
 type KeyRegisterParams struct {
 	CircuitType     string `json:"circuitType"`
 	PublicInputHash Field  `json:"publicInputHash"`
-	RegistryOldRoot Field  `json:"registryOldRoot"`
-	RegistryNewRoot Field  `json:"registryNewRoot"`
 	Member          Field  `json:"member"`
-	Lists           uint64 `json:"lists"`
-	RecordUpdate
-	NullifierSecret Bytes `json:"nullifierSecret"`
-	EphSk           Bytes `json:"ephSk"`
-	AuditorPk       Bytes `json:"auditorPk"`
-}
-
-// MemberUpdate is one batch item as the program authorizes it. A nil item is padding.
-type MemberUpdate struct {
-	Member       Field  `json:"member"`
-	OldLists     uint64 `json:"oldLists"`
-	OldEscrowKey Field  `json:"oldEscrowKey"`
-	Lists        uint64 `json:"lists"`
-	EscrowKey    Field  `json:"escrowKey"`
-	RecordUpdate
-}
-
-type UpdateMembersParams struct {
-	CircuitType     string          `json:"circuitType"`
-	PublicInputHash Field           `json:"publicInputHash"`
-	OldRoot         Field           `json:"oldRoot"`
-	NewRoot         Field           `json:"newRoot"`
-	ItemCount       uint8           `json:"itemCount"`
-	Items           []*MemberUpdate `json:"items"`
+	NullifierSecret Bytes  `json:"nullifierSecret"`
+	EphSk           Bytes  `json:"ephSk"`
+	AuditorPk       Bytes  `json:"auditorPk"`
 }
 
 // DepositParams carries Ed25519 owner keys only for anonymous deposits.
@@ -208,7 +249,7 @@ type DepositParams struct {
 	OwnerPkHashes      []Field          `json:"ownerPkHashes"`
 	OwnerKeys          *[]Bytes         `json:"ownerKeys,omitempty"`
 	NullifierPks       []Field          `json:"nullifierPks"`
-	Blindings          []Field          `json:"blindings"`
+	BlindingSecrets    []Field          `json:"blindingSecrets"`
 	CtHashes           []Field          `json:"ctHashes"`
 	Members            []*RecordOpening `json:"members"`
 	EphSk              Bytes            `json:"ephSk"`
@@ -226,64 +267,24 @@ type MergeInput struct {
 	RingDataHash Field `json:"ringDataHash"`
 }
 
-// MergeAnonymousParams discloses an anonymous ring's SPP merge to its auditor.
-type MergeAnonymousParams struct {
-	CircuitType        string        `json:"circuitType"`
-	PublicInputHash    Field         `json:"publicInputHash"`
-	PrivateTxHash      Field         `json:"privateTxHash"`
-	OutputUtxoHash     Field         `json:"outputUtxoHash"`
-	FirstNullifier     Field         `json:"firstNullifier"`
-	RingProgramID      Field         `json:"ringProgramId"`
-	MemberRegistryRoot Field         `json:"memberRegistryRoot"`
-	AuditorPk          Bytes         `json:"auditorPk"`
-	Salt               Field         `json:"salt"`
-	EphSk              Bytes         `json:"ephSk"`
-	DisclosureKey      Bytes         `json:"disclosureKey"`
-	OwnerKey           Bytes         `json:"ownerKey"`
-	NullifierSecret    Field         `json:"nullifierSecret"`
-	MintChunks         []Field       `json:"mintChunks"`
-	Inputs             []MergeInput  `json:"inputs"`
-	OutputTreeID       Field         `json:"outputTreeId"`
-	OutputRingDataHash Field         `json:"outputRingDataHash"`
-	MemberRecord       RecordOpening `json:"memberRecord"`
-}
-
-// TreeSlots pads the populated prefix on the wire with zero slots.
-type TreeSlots []common.TreeSlotParams
-
-type treeSlot struct {
-	ID            Field `json:"id"`
-	UtxoRoot      Field `json:"utxoRoot"`
-	NullifierRoot Field `json:"nullifierRoot"`
-}
-
-func (s TreeSlots) MarshalJSON() ([]byte, error) {
-	out := []treeSlot{}
-	for _, slot := range s {
-		if slot.UtxoRoot != nil && slot.UtxoRoot.Sign() == 0 {
-			break
-		}
-		out = append(out, treeSlot{Field{slot.ID}, Field{slot.UtxoRoot}, Field{slot.NullifierRoot}})
-	}
-	return json.Marshal(out)
-}
-
-func (s *TreeSlots) UnmarshalJSON(data []byte) error {
-	var slots []treeSlot
-	if err := Unmarshal(data, &slots); err != nil {
-		return err
-	}
-	if len(slots) == 0 || len(slots) > shared.InputTrees {
-		return fmt.Errorf("custom-ring: %d tree slots, expected 1..%d", len(slots), shared.InputTrees)
-	}
-	*s = make(TreeSlots, shared.InputTrees)
-	for i := range *s {
-		(*s)[i] = common.TreeSlotParams{ID: new(big.Int), UtxoRoot: new(big.Int), NullifierRoot: new(big.Int)}
-		if i < len(slots) {
-			(*s)[i] = common.TreeSlotParams{ID: slots[i].ID.Int, UtxoRoot: slots[i].UtxoRoot.Int, NullifierRoot: slots[i].NullifierRoot.Int}
-		}
-	}
-	return nil
+// AnonymousMergeParams discloses an anonymous ring's SPP merge to its auditor.
+type AnonymousMergeParams struct {
+	CircuitType        string       `json:"circuitType"`
+	PublicInputHash    Field        `json:"publicInputHash"`
+	PrivateTxHash      Field        `json:"privateTxHash"`
+	OutputUtxoHash     Field        `json:"outputUtxoHash"`
+	FirstNullifier     Field        `json:"firstNullifier"`
+	RingProgramID      Field        `json:"ringProgramId"`
+	AuditorPk          Bytes        `json:"auditorPk"`
+	Salt               Field        `json:"salt"`
+	EphSk              Bytes        `json:"ephSk"`
+	DisclosureKey      Bytes        `json:"disclosureKey"`
+	OwnerKey           Bytes        `json:"ownerKey"`
+	NullifierSecret    Field        `json:"nullifierSecret"`
+	MintChunks         []Field      `json:"mintChunks"`
+	Inputs             []MergeInput `json:"inputs"`
+	OutputTreeID       Field        `json:"outputTreeId"`
+	OutputRingDataHash Field        `json:"outputRingDataHash"`
 }
 
 // Unmarshal rejects unknown fields and trailing data.
