@@ -3387,11 +3387,7 @@ mod tests {
     #[test]
     fn membership_accepts_active_and_default_outputs() {
         let (_sender, prepared) = prepared_transfer(4);
-        let inputs = prepared
-            .inputs()
-            .iter()
-            .map(SppProofInputUtxo::from)
-            .collect::<Vec<_>>();
+        let inputs = prepared.inputs().to_vec();
         let mut outputs = prepared.outputs().to_vec();
         RingMembership {
             program_id: ring().program_id(),
@@ -3423,11 +3419,7 @@ mod tests {
     #[test]
     fn membership_refuses_ring_data_outside_a_ring() {
         let (_sender, prepared) = prepared_transfer(4);
-        let inputs = prepared
-            .inputs()
-            .iter()
-            .map(SppProofInputUtxo::from)
-            .collect::<Vec<_>>();
+        let inputs = prepared.inputs().to_vec();
         let mut outputs = prepared.outputs().to_vec();
         outputs[1].ring_data_hash = Some([3u8; 32]);
         assert!(matches!(
@@ -3598,7 +3590,7 @@ mod tests {
             let (sender, transaction) = prepared_transfer(4);
             let owner = solana_signer::Signer::pubkey(&sender);
             let transaction = if as_cosigner {
-                let mut tx = ConfidentialTransaction::new(
+                let mut tx = ConfidentialTransaction::from_proof_inputs(
                     transaction.inputs().to_vec(),
                     Address::new_from_array([7; 32]),
                 )
@@ -3646,7 +3638,7 @@ mod tests {
         for (case, attach) in attachments.into_iter().enumerate() {
             let (sender, prepared) = prepared_transfer(4);
             let recipient = ShieldedKeypair::new_ed25519().unwrap();
-            let mut transaction = ConfidentialTransaction::new(
+            let mut transaction = ConfidentialTransaction::from_proof_inputs(
                 prepared.inputs().to_vec(),
                 Address::new_from_array([7; 32]),
             )
