@@ -11,8 +11,7 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use zeroize::Zeroizing;
 use zolana_client::{
-    fetch_asset_id_async, AsyncIndexer, AsyncRpc, AsyncZolanaClient, IndexerReads, TagWindow,
-    DEFAULT_TAG_WINDOW,
+    fetch_asset_id_async, AnonymousRingState, AsyncIndexer, AsyncRpc, AsyncZolanaClient,
 };
 use zolana_keypair::{random_blinding, Curve, ShieldedAddress, X25519Pubkey};
 use zolana_program::instruction::{DepositAsset, RingAssetDeposit};
@@ -36,7 +35,11 @@ pub enum DepositRecipient<'a> {
     /// The member finds the note under its viewing key's tag.
     Confidential(ShieldedAddress),
     /// The depositor's own hidden identity on an anonymous ring, found on its deposit stream.
-    Anonymous(&'a (dyn ShieldedKeys + Send + Sync)),
+    Anonymous {
+        keys: &'a (dyn ShieldedKeys + Send + Sync),
+        /// Its `deposit_next` is the deposit's stream counter.
+        state: &'a AnonymousRingState,
+    },
 }
 
 #[must_use]
@@ -108,13 +111,14 @@ impl RingDeposit<'_> {
             DepositRecipient::Confidential(address) if !anonymous => {
                 (address, address.viewing_pubkey.u())
             }
-            DepositRecipient::Anonymous(keys) if anonymous => {
-                (keys.address()?, deposit_tag(rpc, keys).await?)
-            }
+            DepositRecipient::Anonymous { keys, state } if anonymous => (
+                keys.address()?,
+                exactly_one(keys.sender_view_tags(&[state.deposit_next()])?)?,
+            ),
             DepositRecipient::Confidential(_) => {
                 return Err(CustomRingError::AnonymousRingRefused.into())
             }
-            DepositRecipient::Anonymous(_) => return Err(RingError::NotAnonymousRing),
+            DepositRecipient::Anonymous { .. } => return Err(RingError::NotAnonymousRing),
         };
         let owner_key = match anonymous {
             // An anonymous ring spends only through the hidden Ed25519 proof.
@@ -170,9 +174,12 @@ impl RingDeposit<'_> {
             deposits: vec![deposit.clone()],
         }
         .instruction()?;
-        let cosigner = config
-            .account()
-            .demanded_co_signer(false, CoSignScope::DEPOSITS, [])?;
+        let cosigner = custom_ring_interface::cosign::CoSignDemand {
+            approval_required: false,
+            classes: CoSignScope::DEPOSITS,
+            withdrawals: Vec::new(),
+        }
+        .signer(config.account())?;
         if cosigner.is_some() && cosigner != self.cosigner.map(|signer| signer.pubkey()) {
             return Err(CustomRingError::MissingCoSigner.into());
         }
@@ -243,25 +250,6 @@ impl RingDeposit<'_> {
         core::iter::once(self.payer)
             .chain(self.cosigner.filter(|_| prepared.cosigner.is_some()))
             .collect()
-    }
-}
-
-/// The deposit stream tag at the lowest index no output publishes under.
-async fn deposit_tag(
-    rpc: &(impl AsyncRpc + ?Sized),
-    keys: &(dyn ShieldedKeys + Send + Sync),
-) -> Result<[u8; 32], RingError> {
-    let mut start = 0u64;
-    loop {
-        let counters: Vec<u64> = (start..start.saturating_add(DEFAULT_TAG_WINDOW)).collect();
-        let window = TagWindow::new(start, keys.sender_view_tags(&counters)?);
-        let occupied = window.occupied(&IndexerReads::new(rpc).transactions(&window.tags()).await?);
-        if let Some(index) = TagWindow::first_free(start, &occupied) {
-            return Ok(exactly_one(keys.sender_view_tags(&[index])?)?);
-        }
-        start = start
-            .checked_add(DEFAULT_TAG_WINDOW)
-            .ok_or(zolana_client::ClientError::TagStreamExhausted)?;
     }
 }
 
@@ -409,5 +397,74 @@ impl DepositDisclosure {
             key_escrow: root.is_some(),
             member_registry_root: root.unwrap_or_default(),
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use solana_signature::Signature;
+    use zolana_client::{OutputContext, OutputSlot, ShieldedTransaction};
+    use zolana_interface::pda;
+
+    use super::*;
+    use crate::tests::support::{keypair, ring, Chain, RingSettings, TREE_ID};
+
+    /// An indexer that shows every counter of the first window taken moves no deposit tag.
+    #[tokio::test]
+    async fn a_deposit_takes_the_stored_counter_whatever_the_indexer_shows() {
+        let member = keypair(1);
+        let payer = keypair(9);
+        let first_window: Vec<u64> = (0..64).collect();
+        let chain = member
+            .sender_view_tags(&first_window)
+            .unwrap()
+            .into_iter()
+            .zip(0u8..)
+            .fold(
+                Chain::ring(RingSettings::new(RingMode::Anonymous)),
+                |chain, (view_tag, seed)| {
+                    chain.with_transaction(ShieldedTransaction {
+                        slot: 1,
+                        tx_signature: Signature::from([seed; 64]),
+                        event_index: Some(0),
+                        tx_viewing_pk: None,
+                        salt: None,
+                        output_slots: vec![OutputSlot {
+                            view_tag,
+                            output_context: OutputContext {
+                                hash: [seed; 32],
+                                tree_id: TREE_ID,
+                                leaf_index: u64::from(seed),
+                            },
+                            payload: Vec::new(),
+                        }],
+                        messages: Vec::new(),
+                        nullifiers: Vec::new(),
+                        proofless: true,
+                        ring_config: None,
+                        ring_program_id: None,
+                    })
+                },
+            );
+        let state = AnonymousRingState::new(ring().program_id(), 0);
+        let prepared = RingDeposit {
+            ring: ring(),
+            payer: &payer,
+            recipient: DepositRecipient::Anonymous {
+                keys: &member,
+                state: &state,
+            },
+            tree: pda::tree(TREE_ID),
+            asset: DepositAsset::Sol,
+            amount: 5,
+            cosigner: None,
+        }
+        .prepare(&chain)
+        .await
+        .unwrap();
+        assert_eq!(
+            prepared.deposit.view_tag,
+            member.sender_view_tags(&[state.deposit_next()]).unwrap()[0]
+        );
     }
 }

@@ -271,11 +271,15 @@ impl<'a, I: AsyncRpc + ?Sized> IndexerReads<'a, I> {
         let mut items = Vec::new();
         for chunk in queried.chunks(TAGS_PER_REQUEST) {
             let mut cursor = None;
+            let mut seen = HashSet::new();
             loop {
                 let page = fetch(chunk.to_vec(), cursor.clone()).await?;
                 self.observe(&page.context);
                 items.extend(page.items);
                 match next_page(&cursor, page.next_cursor, &page.scanned_through)? {
+                    Some(next) if !seen.insert(next.clone()) => {
+                        return Err(ClientError::IndexerCursorNotAdvanced)
+                    }
                     Some(next) => cursor = Some(next),
                     None => break,
                 }

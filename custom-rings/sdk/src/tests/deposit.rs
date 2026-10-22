@@ -1,4 +1,5 @@
 use custom_ring_interface::{CoSignScope, CustomRingError, RingMode};
+use zolana_client::AnonymousRingState;
 use zolana_interface::pda;
 
 use super::support::{keypair, owner_identity, ring, Chain, Registry, RingSettings, TREE_ID};
@@ -26,6 +27,11 @@ async fn an_anonymous_ring_takes_deposits_only_for_the_depositors_hidden_owner()
     let anonymous = Chain::ring(RingSettings::new(RingMode::Anonymous));
     let confidential = Chain::ring(RingSettings::new(RingMode::Off));
     let address = member.shielded_address().unwrap();
+    let state = AnonymousRingState::new(ring().program_id(), 0);
+    let hidden = DepositRecipient::Anonymous {
+        keys: &member,
+        state: &state,
+    };
     assert!(matches!(
         deposit(&payer, DepositRecipient::Confidential(address))
             .prepare(&anonymous)
@@ -33,21 +39,14 @@ async fn an_anonymous_ring_takes_deposits_only_for_the_depositors_hidden_owner()
         Err(RingError::Program(CustomRingError::AnonymousRingRefused))
     ));
     assert!(matches!(
-        deposit(&payer, DepositRecipient::Anonymous(&member))
-            .prepare(&confidential)
-            .await,
+        deposit(&payer, hidden).prepare(&confidential).await,
         Err(RingError::NotAnonymousRing)
     ));
     assert!(matches!(
-        deposit(&member, DepositRecipient::Anonymous(&member))
-            .prepare(&anonymous)
-            .await,
+        deposit(&member, hidden).prepare(&anonymous).await,
         Err(RingError::AnonymousPublicSignerLinksOwner)
     ));
-    let prepared = deposit(&payer, DepositRecipient::Anonymous(&member))
-        .prepare(&anonymous)
-        .await
-        .unwrap();
+    let prepared = deposit(&payer, hidden).prepare(&anonymous).await.unwrap();
     assert_eq!(
         (prepared.utxo().owner, prepared.utxo().amount),
         (member.signing_pubkey(), 5)
