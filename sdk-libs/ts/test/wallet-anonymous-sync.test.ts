@@ -79,9 +79,9 @@ import {
   TagAllocation,
   issueRingAddress,
   recordFirstContacts,
+  retireFirstContact,
   ringAddressOf,
   scanAnonymousRing,
-  unpinFirstContact,
   type AnonymousIndexer,
   type PaymentTag,
 } from "../src/wallet/anonymous-sync.js";
@@ -1791,16 +1791,21 @@ describe("first contact decoy pins", () => {
       expect(later.pairAnchor(contact.recipient, 0n)).toEqual(anchor);
   });
 
-  it("pays the inbox once unpinned until the next scan pins the decoys again", async () => {
+  it("pays the inbox once retired until a fresh first contact lands with its own pin", async () => {
     const { chain, to, contact, state } = await contacted();
     const pinnedOnce = await scanned(chain, state.rememberDecoys(decoyLeaves(ANCHOR_DECOYS)));
-    const unpinned = pinnedOnce.unpinAnchor(contact.recipient);
-    expect(unpinned.pairAnchor(contact.recipient, 0n)).toBeUndefined();
-    expect(new TagAllocation(unpinned, 0n).allocate(to, zeros).stream).toEqual({ kind: "inbox" });
+    const retired = pinnedOnce.retireFirstContact(contact.recipient);
+    expect(retired.firstContact(contact.recipient, 0n)).toBeUndefined();
+    expect(new TagAllocation(retired, 0n).allocate(to, zeros).stream).toEqual({ kind: "inbox" });
+    const rescanned = await scanned(chain, retired);
+    expect(rescanned.firstContact(contact.recipient, 0n)).toBeUndefined();
 
-    const repinned = await scanned(chain, unpinned.rememberDecoys(decoyLeaves(20)));
+    const paid = chain.pay(to, inboxTagOf(to, 0n, 1), 5_000n, 0n);
+    const fresh = contactOf(to, paid, { epoch: 0n, index: tagIndex(1) });
+    const repinned = await scanned(chain, rescanned.recordFirstContact(fresh));
     const anchor = repinned.pairAnchor(contact.recipient, 0n);
-    expect(anchor).toBeDefined();
+    expect(anchor?.contact.utxoHash).toEqual(fresh.utxoHash);
+    expect(anchor?.leaves.map(hex)).toContain(hex(fresh.utxoHash));
     expect(new TagAllocation(repinned, 0n).allocate(to, zeros).stream).toEqual({
       kind: "pair",
       anchor,
@@ -1829,21 +1834,21 @@ describe("first contact decoy pins", () => {
       ).toThrow(expect.objectContaining({ code: "TRANSACTION_DESERIALIZE" }));
   });
 
-  it("unpins a wallet's first contact under its sync lock and refuses an untracked ring", async () => {
+  it("retires a wallet's first contact under its sync lock and refuses an untracked ring", async () => {
     const { chain, contact, state } = await contacted();
     const wallet = new Wallet({ identity: SENDER.shieldedAddress() });
     await expect(
-      unpinFirstContact({ wallet, ring: RING, recipient: contact.recipient }),
+      retireFirstContact({ wallet, ring: RING, recipient: contact.recipient }),
     ).rejects.toMatchObject({ code: "WALLET_INVALID_RING_DESTINATION" });
     wallet._setAnonymousRing(
       await scanned(chain, state.rememberDecoys(decoyLeaves(ANCHOR_DECOYS))),
     );
     expect(wallet.anonymousRing(RING)?.pairAnchor(contact.recipient, 0n)).toBeDefined();
 
-    const unpinned = await unpinFirstContact({ wallet, ring: RING, recipient: contact.recipient });
+    const retired = await retireFirstContact({ wallet, ring: RING, recipient: contact.recipient });
 
-    expect(unpinned.pairAnchor(contact.recipient, 0n)).toBeUndefined();
-    expect(wallet.anonymousRing(RING)).toBe(unpinned);
+    expect(retired.sent).toEqual([]);
+    expect(wallet.anonymousRing(RING)).toBe(retired);
   });
 
   it("pins the decoys and the read order the shared vector holds", async () => {

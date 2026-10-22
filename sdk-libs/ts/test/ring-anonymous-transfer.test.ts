@@ -15,7 +15,7 @@ import type { WalletKeys } from "../src/client/ports.js";
 import { ringProofCircuit } from "../src/client/prover/ring.js";
 import type { RpcAccount } from "../src/client/rpc.js";
 import { publicAmountFields, publicSlots } from "../src/client/prover/assembly.js";
-import { initializePoseidon, solanaOwnerIdentity } from "../src/hasher/index.js";
+import { initializePoseidon, poseidon, solanaOwnerIdentity } from "../src/hasher/index.js";
 import { SYSTEM_PROGRAM } from "../src/interface/instructions/index.js";
 import { addressBytes } from "../src/interface/internal.js";
 import {
@@ -52,6 +52,7 @@ import { ShieldedKeypair } from "../src/keypair/shielded.js";
 import { SigningKey } from "../src/keypair/signing-key.js";
 import { X25519PublicKey } from "../src/keypair/x25519.js";
 import {
+  ANCHOR_DECOYS,
   anonymousExitTokenOwner,
   signingKeySpendSigner,
   type AnonymousSpendSigner,
@@ -350,28 +351,70 @@ describe("anonymous ring payment", () => {
     noProofs(fixture);
   });
 
-  it("refuses a first contact path that does not reach its root before any proof", async () => {
+  it("refuses a fault on any pinned proof as it refuses one on the anchor, before any proof", async () => {
     const fixture = await anonymousRing();
     const sender = anonymousSender();
     const to = await addressOf(fixture, ShieldedKeypair.generate());
     const { state, contact } = pairedSender(fixture, to, 5);
+    const leaves = state.pairAnchor(contact.recipient, EPOCH)?.leaves ?? [];
     const served = fixture.client.getMerkleProofs;
-    fixture.client.getMerkleProofs = async (tree, leaves) => {
-      const response = await served(tree, leaves);
-      return {
-        ...response,
-        proofs: response.proofs.map((proof) =>
-          Buffer.from(proof.leaf).equals(Buffer.from(contact.utxoHash))
+    type Proofs = Awaited<ReturnType<typeof served>>["proofs"];
+    const on = (proof: Proofs[number], leaf: Bytes32) =>
+      Buffer.from(proof.leaf).equals(Buffer.from(leaf));
+    const faults: readonly ((proofs: Proofs, leaf: Bytes32) => Proofs)[] = [
+      (proofs, leaf) => proofs.filter((proof) => !on(proof, leaf)),
+      (proofs, leaf) =>
+        proofs.map((proof) =>
+          on(proof, leaf)
             ? { ...proof, path: proof.path.map((node, at) => (at === 3 ? small(0x7f) : node)) }
             : proof,
         ),
-      };
-    };
-    await expect(
-      rail({ fixture, sender, transfer: spend(fixture, sender), state })
-        .withPayment({ to, asset: SOL_MINT, amount: 400n })
-        .prove(fixture.client),
-    ).rejects.toThrow(ringError("RING_ANCHOR_INVALID", { reason: "path" }));
+      (proofs, leaf) =>
+        proofs.map((proof) => {
+          if (!on(proof, leaf)) return proof;
+          const path = proof.path.map((node, at) => {
+            if (at !== 3) return node;
+            const flipped = new Uint8Array(node) as Bytes32;
+            flipped[31] = (flipped[31] ?? 0) ^ 1;
+            return flipped;
+          });
+          const root = path.reduce(
+            ({ node, position }, sibling) => ({
+              node: (position & 1n) === 0n ? poseidon([node, sibling]) : poseidon([sibling, node]),
+              position: position >> 1n,
+            }),
+            { node: proof.leaf as Uint8Array, position: proof.leafIndex },
+          ).node as Bytes32;
+          return { ...proof, path, root };
+        }),
+      (proofs, leaf) =>
+        proofs.map((proof) =>
+          on(proof, leaf) ? { ...proof, rootIndex: proof.rootIndex ^ 1 } : proof,
+        ),
+      (proofs, leaf) =>
+        proofs.map((proof) =>
+          on(proof, leaf) ? { ...proof, leafIndex: proof.leafIndex ^ 1n } : proof,
+        ),
+    ];
+    expect(leaves).toHaveLength(ANCHOR_DECOYS + 1);
+    for (const leaf of leaves)
+      for (const fault of faults) {
+        fixture.client.getMerkleProofs = async (tree, requested) => {
+          const response = await served(tree, requested);
+          return { ...response, proofs: fault(response.proofs, leaf) };
+        };
+        await expect(
+          rail({ fixture, sender, transfer: spend(fixture, sender), state })
+            .withPayment({ to, asset: SOL_MINT, amount: 400n })
+            .prove(fixture.client),
+        ).rejects.toThrow(
+          ringError("RING_ANCHOR_INVALID", {
+            reason: "leaves",
+            tree: treeAddress(5),
+            recipient: hex(to.recipient.viewingPublicKey.toBytes()),
+          }),
+        );
+      }
     noProofs(fixture);
   });
 
@@ -418,7 +461,7 @@ describe("anonymous ring payment", () => {
     );
   });
 
-  it("names the anchor to unpin when the indexer refuses its pinned leaves, a retryable failure passes", async () => {
+  it("names the first contact to retire when the indexer refuses its pinned leaves, a retryable failure passes", async () => {
     const fixture = await anonymousRing();
     const sender = anonymousSender();
     const to = await addressOf(fixture, ShieldedKeypair.generate());

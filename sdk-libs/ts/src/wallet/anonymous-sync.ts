@@ -1014,11 +1014,11 @@ export async function recordFirstContacts(
   );
 }
 
-/** The indexer refused the pinned leaves of the first contact to `recipient`, the next sync pins the decoys again. */
-export async function unpinFirstContact(
+/** The next payment to `recipient` takes its inbox stream, kept once the caller persists the wallet. */
+export async function retireFirstContact(
   input: Readonly<{ wallet: Wallet; ring: Address; recipient: X25519PublicKey }>,
 ): Promise<AnonymousRingState> {
-  return changeAnonymousRing(input, (tracked) => tracked.unpinAnchor(input.recipient));
+  return changeAnonymousRing(input, (tracked) => tracked.retireFirstContact(input.recipient));
 }
 
 async function changeAnonymousRing(

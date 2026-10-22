@@ -167,28 +167,42 @@ export async function anchorWitness(
   const { contact, leaves } = input.anchor;
   const tree = treeAddress(contact.treeId);
   await initializePoseidon();
+  const refused = (cause?: unknown): RingError =>
+    wrapRingError("RING_ANCHOR_INVALID", cause, {
+      reason: "leaves",
+      tree,
+      recipient: hex(contact.recipient.toBytes()),
+    });
   const response = await input.client
     .getMerkleProofs(tree, leaves, undefined, context)
     .catch((cause: unknown) => {
       if (isClientError(cause) && cause.code === "CLIENT_INDEXER" && !isRetryable(cause))
-        throw wrapRingError("RING_ANCHOR_INVALID", cause, {
-          reason: "leaves",
-          tree,
-          recipient: hex(contact.recipient.toBytes()),
-        });
+        throw refused(cause);
       throw cause;
     });
-  const proof = response.proofs.find(
+  // A fault on any pinned leaf refuses the read alike.
+  const proofs = leaves.map((leaf) =>
+    response.proofs.find((candidate) => equalBytes(candidate.leaf, leaf)),
+  );
+  const proof = proofs.find(
     (candidate) =>
-      equalBytes(candidate.leaf, contact.utxoHash) && candidate.leafIndex === contact.leafIndex,
+      candidate !== undefined &&
+      equalBytes(candidate.leaf, contact.utxoHash) &&
+      candidate.leafIndex === contact.leafIndex,
   );
   if (
     proof === undefined ||
-    proof.merkleContext.tree !== tree ||
-    proof.path.length !== STATE_HEIGHT ||
-    !stateProofReachesRoot(proof)
+    proofs.some(
+      (candidate) =>
+        candidate === undefined ||
+        candidate.merkleContext.tree !== tree ||
+        candidate.path.length !== STATE_HEIGHT ||
+        !stateProofReachesRoot(candidate) ||
+        !equalBytes(candidate.root, proof.root) ||
+        candidate.rootIndex !== proof.rootIndex,
+    )
   )
-    throw new RingError("RING_ANCHOR_INVALID", { details: { reason: "path" } });
+    throw refused();
   const anchor = { tree, rootIndex: proof.rootIndex, root: proof.root };
   switch (await anchorState(input.client, anchor, context)) {
     case "paused":

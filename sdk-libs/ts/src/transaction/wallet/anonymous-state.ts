@@ -188,11 +188,18 @@ export class AnonymousRingState {
     return this;
   }
 
-  /** The indexer refused a pinned leaf, the next scan pins the decoys again, Rust `unpin_anchor`. */
-  unpinAnchor(recipient: X25519PublicKey): AnonymousRingState {
+  /** The next payment to `recipient` takes its inbox stream, Rust `retire_first_contact`. */
+  retireFirstContact(recipient: X25519PublicKey): AnonymousRingState {
+    const key = recipientKey(recipient);
+    const paid = new Map(this.#paid);
+    paid.delete(key);
     const pins = new Map(this.#pins);
-    pins.delete(recipientKey(recipient));
-    return this.#with({ pins });
+    pins.delete(key);
+    return this.#with({
+      sent: this.sent.filter((contact) => !contact.recipient.equals(recipient)),
+      paid,
+      pins,
+    });
   }
 
   /**
