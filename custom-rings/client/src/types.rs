@@ -14,7 +14,7 @@ use zolana_interface::tree_slot::tree_id_field;
 use zolana_keypair::X25519Pubkey;
 use zolana_transaction::{
     utxo::{program_id_proof_input_hash, UTXO_DOMAIN},
-    OutputContext,
+    OutputContext, REDACTED,
 };
 
 use crate::AuditError;
@@ -296,8 +296,6 @@ impl UtxoOwner {
         }
     }
 }
-
-const REDACTED: &str = "<redacted>";
 
 impl fmt::Debug for AuditedUtxo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
