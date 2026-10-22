@@ -48,6 +48,8 @@ use super::{
 pub struct PhotonApi {
     #[cfg(feature = "custom-rings")]
     custom_rings: bool,
+    #[cfg(feature = "custom-rings")]
+    ring_chain: member_registry::CachedChain,
     db_conn: Arc<DatabaseConnection>,
     rpc_client: Arc<RpcClient>,
     root_index_cache: Arc<RootIndexCache>,
@@ -77,6 +79,8 @@ impl PhotonApi {
         Self {
             #[cfg(feature = "custom-rings")]
             custom_rings: true,
+            #[cfg(feature = "custom-rings")]
+            ring_chain: member_registry::CachedChain::new(Arc::clone(&rpc_client)),
             db_conn,
             rpc_client,
             root_index_cache: Arc::new(RootIndexCache::new()),
@@ -199,7 +203,7 @@ impl PhotonApi {
         &self,
         request: GetRingMemberRecordRequest,
     ) -> Result<GetRingMemberRecordResponse, PhotonApiError> {
-        member_registry::member_record(&self.db_conn, &self.rpc_client, request).await
+        member_registry::member_record(&self.db_conn, &self.ring_chain, request).await
     }
 
     #[cfg(feature = "custom-rings")]
@@ -207,7 +211,7 @@ impl PhotonApi {
         &self,
         request: GetRingMemberRecordsRequest,
     ) -> Result<GetRingMemberRecordsResponse, PhotonApiError> {
-        member_registry::member_records(&self.db_conn, &self.rpc_client, request).await
+        member_registry::member_records(&self.db_conn, &self.ring_chain, request).await
     }
 
     #[cfg(feature = "custom-rings")]
@@ -215,7 +219,7 @@ impl PhotonApi {
         &self,
         request: GetRingMemberOpeningsRequest,
     ) -> Result<GetRingMemberOpeningsResponse, PhotonApiError> {
-        member_registry::member_openings(&self.db_conn, &self.rpc_client, request).await
+        member_registry::member_openings(&self.db_conn, &self.ring_chain, request).await
     }
 
     #[cfg(feature = "custom-rings")]
@@ -223,7 +227,7 @@ impl PhotonApi {
         &self,
         request: GetRingMemberRegistryRootRequest,
     ) -> Result<GetRingMemberRegistryRootResponse, PhotonApiError> {
-        member_registry::registry_root(&self.db_conn, &self.rpc_client, request).await
+        member_registry::registry_root(&self.db_conn, &self.ring_chain, request).await
     }
 
     #[cfg(feature = "custom-rings")]
@@ -231,7 +235,7 @@ impl PhotonApi {
         &self,
         request: GetRingRecordQueueRequest,
     ) -> Result<GetRingRecordQueueResponse, PhotonApiError> {
-        member_registry::record_queue(&self.db_conn, &self.rpc_client, request).await
+        member_registry::record_queue(&self.db_conn, &self.ring_chain, request).await
     }
 
     #[cfg(feature = "custom-rings")]
@@ -239,7 +243,7 @@ impl PhotonApi {
         &self,
         request: GetRingApplyProofInputsRequest,
     ) -> Result<GetRingApplyProofInputsResponse, PhotonApiError> {
-        member_registry::apply_proof_inputs(&self.db_conn, &self.rpc_client, request).await
+        member_registry::apply_proof_inputs(&self.db_conn, &self.ring_chain, request).await
     }
 
     pub fn rings_method_api_specs() -> Vec<OpenApiSpec> {

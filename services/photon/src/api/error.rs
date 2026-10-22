@@ -35,7 +35,7 @@ pub enum PhotonApiError {
 }
 
 #[cfg(feature = "custom-rings")]
-#[derive(Error, Debug, PartialEq, Eq)]
+#[derive(Error, Clone, Debug, PartialEq, Eq)]
 pub enum CustomRingError {
     #[error("member registry is out of sync ({0})")]
     OutOfSync(String),

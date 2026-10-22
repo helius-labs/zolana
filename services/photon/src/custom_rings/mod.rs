@@ -4,10 +4,10 @@ pub(crate) mod api;
 pub(crate) mod member_registry;
 mod storage;
 
-use std::{ops::RangeInclusive, sync::Arc, time::Duration};
+use std::{collections::BTreeSet, ops::RangeInclusive, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, bail, ensure, Context, Result};
-use custom_ring_interface::{MemberRegistry, RecordQueue, RingAccount};
+use custom_ring_interface::{instruction::tag, MemberRegistry, RecordQueue, RingAccount};
 use futures::{stream, StreamExt};
 use sea_orm::{DatabaseConnection, DatabaseTransaction, TransactionTrait};
 use solana_account::Account;
@@ -36,7 +36,7 @@ const MIN_BLOCK_BATCH: usize = 32;
 const ACCOUNTS_PER_REQUEST: usize = 100;
 /// Journal rows older than the deepest confirmed fork are pruned.
 const JOURNAL_RETENTION_SLOTS: u64 = 8_192;
-/// A ring activated after its pending root expired needs a reindex.
+/// Only a pending ring without its registry and queue on chain expires.
 const PENDING_TTL_SLOTS: u64 = 43_200;
 
 #[derive(Clone, Copy, Debug)]
@@ -204,6 +204,7 @@ impl CustomRingIndexer {
             if !registered {
                 if candidate.replayed_tip.is_none()
                     && candidate.slot < tip.slot.saturating_sub(PENDING_TTL_SLOTS)
+                    && !registry_on_chain(&self.rpc, &candidate).await?
                 {
                     storage::delete_pending(db, &candidate.program).await?;
                 }
@@ -301,7 +302,8 @@ impl CustomRingIndexer {
         block: &BlockInfo,
         cursor: &mut CustomRingCursor,
     ) -> Result<()> {
-        let undo = self.index_block(tx, block, Scope::Every).await?;
+        let scope = Scope::every(tx).await?;
+        let undo = self.index_block(tx, block, scope).await?;
         storage::save_journal(
             tx,
             &BlockJournal {
@@ -371,10 +373,55 @@ impl CustomRingIndexer {
     }
 }
 
-#[derive(Clone, Copy)]
 enum Scope {
-    Every,
+    /// A pending ring waits for its own replay.
+    Every {
+        registries: BTreeSet<[u8; 32]>,
+        pending: BTreeSet<[u8; 32]>,
+    },
     Ring([u8; 32]),
+}
+
+impl Scope {
+    async fn every(tx: &DatabaseTransaction) -> Result<Self> {
+        Ok(Self::Every {
+            registries: storage::registry_programs(tx).await?,
+            pending: storage::pending_programs(tx).await?,
+        })
+    }
+
+    fn covers(&self, instruction: &Instruction) -> bool {
+        let program = instruction.program_id.as_array();
+        match self {
+            Self::Every {
+                registries,
+                pending,
+            } => {
+                let creation = instruction.data.first() == Some(&tag::CREATE_MEMBER_REGISTRY);
+                !pending.contains(program) && (creation || registries.contains(program))
+            }
+            Self::Ring(ring) => ring == program,
+        }
+    }
+
+    fn holds(&self, program: &[u8; 32]) -> bool {
+        match self {
+            Self::Every { registries, .. } => registries.contains(program),
+            Self::Ring(ring) => ring == program,
+        }
+    }
+
+    fn hold(&mut self, program: [u8; 32]) {
+        if let Self::Every { registries, .. } = self {
+            registries.insert(program);
+        }
+    }
+
+    fn park(&mut self, program: [u8; 32]) {
+        if let Self::Every { pending, .. } = self {
+            pending.insert(program);
+        }
+    }
 }
 
 fn instruction_view(instruction: &Instruction) -> zolana_ring_indexer::InstructionView<'_> {
@@ -505,13 +552,13 @@ impl BlockWork<'_> {
     }
 
     async fn project(&mut self, instruction: &Instruction, undo: &mut Vec<Undo>) -> Result<()> {
+        if !self.scope.covers(instruction) {
+            return Ok(());
+        }
+        let program = instruction.program_id.to_bytes();
         let Some(call) = records::decode(instruction_view(instruction)).transpose() else {
             return Ok(());
         };
-        let program = instruction.program_id.to_bytes();
-        if !self.covers(&program).await? {
-            return Ok(());
-        }
         let store = RegistryStore::new(self.tx, program);
         let change = match call {
             Ok(RecordCall::Create(accounts)) => {
@@ -519,6 +566,7 @@ impl BlockWork<'_> {
                 return Ok(());
             }
             Ok(RecordCall::Change(change)) => Ok(*change),
+            Err(_) if !self.scope.holds(&program) => return Ok(()),
             Err(error) => Err(fault(error.to_string())),
         };
         let Some(state) = store.state().await?.filter(|state| state.fault.is_none()) else {
@@ -534,14 +582,6 @@ impl BlockWork<'_> {
             Err(ApplyError::Retry(error)) => return Err(error),
         }
         Ok(())
-    }
-
-    async fn covers(&self, program: &[u8; 32]) -> Result<bool> {
-        Ok(match self.scope {
-            Scope::Ring(ring) => ring == *program,
-            // A pending ring waits for its own replay.
-            Scope::Every => storage::pending_ring(self.tx, program).await?.is_none(),
-        })
     }
 
     /// `false` parks an inactive ring for replay once it activates.
@@ -562,6 +602,7 @@ impl BlockWork<'_> {
             },
         )
         .await?;
+        self.scope.park(program);
         Ok(false)
     }
 
@@ -590,6 +631,7 @@ impl BlockWork<'_> {
             }
             Err(ApplyError::Retry(error)) => return Err(error),
         }
+        self.scope.hold(store.program);
         Ok(Some(store.undo(None)))
     }
 
@@ -631,6 +673,19 @@ fn instructions(transaction: &TransactionInfo) -> Vec<&Instruction> {
 
 async fn registered_ring(rpc: &RpcClient, program: &Pubkey) -> Result<bool> {
     Ok(registered_rings(rpc, std::slice::from_ref(program)).await? == [true])
+}
+
+async fn registry_on_chain(rpc: &RpcClient, ring: &PendingRing) -> Result<bool> {
+    let state = member_registry::created(ring.program, ring.slot);
+    let read = ChainRead {
+        state: &state,
+        min_slot: ring.slot,
+    };
+    match read.load(rpc).await {
+        Ok(_) => Ok(true),
+        Err(ApplyError::Fault(_)) => Ok(false),
+        Err(ApplyError::Retry(error)) => Err(error),
+    }
 }
 
 async fn registered_rings(rpc: &RpcClient, programs: &[Pubkey]) -> Result<Vec<bool>> {

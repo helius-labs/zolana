@@ -170,6 +170,10 @@ pub(crate) async fn pending<C: ConnectionTrait>(conn: &C) -> Result<Vec<PendingR
     read_all(conn, "SELECT state FROM custom_ring_pending ORDER BY slot").await
 }
 
+pub(crate) async fn pending_programs<C: ConnectionTrait>(conn: &C) -> Result<BTreeSet<[u8; 32]>> {
+    programs(conn, "SELECT program FROM custom_ring_pending").await
+}
+
 pub(crate) async fn pending_ring<C: ConnectionTrait>(
     conn: &C,
     program: &[u8; 32],
@@ -231,9 +235,7 @@ pub(crate) async fn prune<C: ConnectionTrait>(conn: &C, below: u64) -> Result<()
         vec![int(below)?],
     )
     .await?;
-    let programs = statement(conn, "SELECT program FROM ring_registries", vec![]);
-    for row in conn.query_all(programs).await? {
-        let program = field(&row, "program")?;
+    for program in registry_programs(conn).await? {
         RegistryStore::new(conn, program)
             .prune_history(below)
             .await?;
@@ -243,6 +245,10 @@ pub(crate) async fn prune<C: ConnectionTrait>(conn: &C, below: u64) -> Result<()
 
 pub(crate) async fn registries<C: ConnectionTrait>(conn: &C) -> Result<Vec<RegistryState>> {
     read_all(conn, "SELECT state FROM ring_registries ORDER BY program").await
+}
+
+pub(crate) async fn registry_programs<C: ConnectionTrait>(conn: &C) -> Result<BTreeSet<[u8; 32]>> {
+    programs(conn, "SELECT program FROM ring_registries").await
 }
 
 pub(crate) async fn rollback(
@@ -685,6 +691,11 @@ async fn read_json<T: DeserializeOwned, C: ConnectionTrait>(
 async fn read_all<T: DeserializeOwned, C: ConnectionTrait>(conn: &C, sql: &str) -> Result<Vec<T>> {
     let rows = conn.query_all(statement(conn, sql, vec![])).await?;
     rows.iter().map(stored_state).collect()
+}
+
+async fn programs<C: ConnectionTrait>(conn: &C, sql: &str) -> Result<BTreeSet<[u8; 32]>> {
+    let rows = conn.query_all(statement(conn, sql, vec![])).await?;
+    rows.iter().map(|row| field(row, "program")).collect()
 }
 
 fn stored_state<T: DeserializeOwned>(row: &QueryResult) -> Result<T> {

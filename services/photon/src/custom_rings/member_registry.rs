@@ -18,7 +18,8 @@ use super::{
 };
 
 pub(crate) use super::api::{
-    apply_proof_inputs, member_openings, member_record, member_records, record_queue, registry_root,
+    apply_proof_inputs, member_openings, member_record, member_records, record_queue,
+    registry_root, CachedChain,
 };
 
 /// `stored` keeps the sealed keys the tree does not hold.

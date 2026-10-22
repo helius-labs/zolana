@@ -7,6 +7,7 @@ use crate::{
 use custom_ring_interface::{instruction::tag, MEMBER_REGISTRY_EMPTY_ROOT};
 use sea_orm::Database;
 use solana_signature::Signature;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use zolana_indexer_api::{GetRingMemberRecordRequest, GetRingMemberRecordsRequest, Hash};
 
 pub(super) fn field(value: u8) -> [u8; 32] {
@@ -75,7 +76,7 @@ async fn member_page_reports_a_missing_leaf_instead_of_skipping_it() {
     };
     let rpc = indexer(&db, StartSlot::Derived(0)).rpc;
     assert!(matches!(
-        member_registry::member_records(&db, &rpc, request).await,
+        member_registry::member_records(&db, rpc.as_ref(), request).await,
         Err(PhotonApiError::CustomRing(CustomRingError::PageGap))
     ));
 }
@@ -84,7 +85,7 @@ async fn member_page_reports_a_missing_leaf_instead_of_skipping_it() {
 async fn reads_fail_closed_before_rpc_while_catching_up_or_off_the_history() {
     let (db, state, mut cursor) = fixture().await;
     let rpc = indexer(&db, StartSlot::Derived(0)).rpc;
-    let read = |request| member_registry::member_record(&db, &rpc, request);
+    let read = |request| member_registry::member_record(&db, rpc.as_ref(), request);
     let request = record_request(&state, MEMBER_REGISTRY_EMPTY_ROOT);
     let catching_up = CustomRingError::OutOfSync("indexer is catching up or recovering".into());
     assert_eq!(read(request.clone()).await, Err(catching_up.into()));
@@ -228,7 +229,7 @@ async fn an_invalid_instruction_quarantines_only_its_ring_until_rollback() {
     let read = |state: &RegistryState| {
         member_registry::member_record(
             &db,
-            &indexer.rpc,
+            indexer.rpc.as_ref(),
             record_request(state, MEMBER_REGISTRY_EMPTY_ROOT),
         )
     };
@@ -248,4 +249,58 @@ async fn an_invalid_instruction_quarantines_only_its_ring_until_rollback() {
     tx.commit().await.unwrap();
     assert!(fault(faulty.program).await.is_none());
     assert!(restarted.tip.is_none());
+}
+
+#[tokio::test]
+async fn record_shaped_instructions_of_other_programs_cost_no_queries() {
+    let mut db = database().await;
+    let statements = Arc::new(AtomicUsize::new(0));
+    let counted = Arc::clone(&statements);
+    db.set_metric_callback(move |_| {
+        counted.fetch_add(1, Ordering::Relaxed);
+    });
+    create_registry(&db, [11; 32]).await;
+    let foreign = Pubkey::new_from_array([0x55; 32]);
+    let record_tags = [
+        tag::CREATE_MEMBER_REGISTRY,
+        tag::REGISTER_KEY,
+        tag::WRITE_RECORDS,
+        tag::AUTHORITY_WRITE_RECORDS,
+        tag::APPLY_RECORDS,
+    ];
+    let shaped = record_tags
+        .into_iter()
+        .map(|tag| TransactionInfo {
+            signature: Signature::from([1; 64]),
+            error: None,
+            instruction_groups: vec![InstructionGroup {
+                outer_instruction: Instruction {
+                    program_id: foreign,
+                    data: vec![tag, 1, 2, 3],
+                    accounts: vec![],
+                    stack_height: Some(1),
+                },
+                inner_instructions: vec![],
+            }],
+        })
+        .collect();
+    let indexer = indexer(&db, StartSlot::Derived(0));
+    let mut cursor = CustomRingCursor::new(0);
+    let mut costs = Vec::new();
+    for (slot, transactions) in [(3, Vec::new()), (4, shaped)] {
+        let block = BlockInfo {
+            metadata: BlockMetadata {
+                slot,
+                blockhash: Hash(field(slot as u8)),
+                ..Default::default()
+            },
+            transactions,
+        };
+        let before = statements.load(Ordering::Relaxed);
+        let tx = db.begin().await.unwrap();
+        indexer.apply_block(&tx, &block, &mut cursor).await.unwrap();
+        tx.commit().await.unwrap();
+        costs.push(statements.load(Ordering::Relaxed) - before);
+    }
+    assert_eq!(costs[0], costs[1]);
 }

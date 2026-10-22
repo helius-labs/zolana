@@ -6,9 +6,10 @@ use crate::api::error::{CustomRingError, PhotonApiError};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use bytemuck::Zeroable;
 use custom_ring_interface::{
-    instruction::tag, tagged_x25519, ApplyRecordsIxData, AuthorityWriteRecordsIxData, EscrowKey,
-    QueueEntry, RecordWriteData, RegisterKeyIxData, WriteRecordsIxData, APPLY_DELAY_SLOTS,
-    MEMBER_QUEUE_LIMIT, MEMBER_REGISTRY_EMPTY_ROOT, QUAD_HEIGHT, ROOT_HISTORY,
+    instruction::tag, tagged_x25519, AppliedAt, ApplyRecordsIxData, AuthorityWriteRecordsIxData,
+    EscrowKey, MemberWriteIxData, QueueEntry, RecordWriteData, RegisterKeyIxData,
+    WriteRecordsIxData, APPLY_DELAY_SLOTS, MEMBER_QUEUE_LIMIT, MEMBER_REGISTRY_EMPTY_ROOT,
+    QUAD_HEIGHT, ROOT_HISTORY,
 };
 use jsonrpsee::{server::ServerHandle, types::ErrorObjectOwned};
 use sea_orm::ConnectionTrait;
@@ -22,7 +23,7 @@ use zolana_indexer_api::{
 };
 use zolana_ring_indexer::{
     records::CanonicalAccounts,
-    tree::{MemberRecord, QuadPath, RecordOpening, RecordTree},
+    tree::{MemberRecord, OpeningCheck, QuadPath, RecordOpening, RecordTree},
 };
 use zolana_ring_member_registry::MemberRegistryTree;
 use zolana_ring_policy::Member;
@@ -35,6 +36,8 @@ struct Chain {
     failed_block: Option<u64>,
     /// Account reads answer from a bank that many slots behind the newest block.
     accounts_lag: u64,
+    /// Every `getBlock` and `getMultipleAccounts` answered.
+    upstream_calls: u64,
 }
 
 impl Chain {
@@ -73,7 +76,8 @@ async fn rpc(chain: Arc<Mutex<Chain>>) -> (Arc<RpcClient>, ServerHandle) {
     module
         .register_method("getBlock", |params, chain, _| {
             let (slot, options): (u64, Value) = params.parse()?;
-            let chain = chain.lock().unwrap();
+            let mut chain = chain.lock().unwrap();
+            chain.upstream_calls += 1;
             if chain.failed_block == Some(slot) && options["transactionDetails"] == "full" {
                 return Err(ErrorObjectOwned::owned(
                     -32000,
@@ -91,7 +95,8 @@ async fn rpc(chain: Arc<Mutex<Chain>>) -> (Arc<RpcClient>, ServerHandle) {
     module
         .register_method("getMultipleAccounts", |params, chain, _| {
             let (addresses, config): (Vec<String>, Value) = params.parse()?;
-            let chain = chain.lock().unwrap();
+            let mut chain = chain.lock().unwrap();
+            chain.upstream_calls += 1;
             let slot = chain.accounts_slot();
             if config["minContextSlot"].as_u64() > Some(slot) {
                 return Err(ErrorObjectOwned::owned(
@@ -221,6 +226,7 @@ impl RingProgram {
             nullifier_pk: field(seed),
             eph_u: [seed; 32],
             ciphertext: [seed; 32],
+            max_fee: u64::MAX.to_le_bytes(),
         };
         let mut bytes = vec![tag::REGISTER_KEY];
         bytes.extend_from_slice(bytemuck::bytes_of(&data));
@@ -241,7 +247,10 @@ impl RingProgram {
         match write["kind"].as_str().unwrap() {
             "member_write" => {
                 data.push(tag::WRITE_RECORDS);
-                data.extend_from_slice(bytemuck::bytes_of(&vector_lists(write)));
+                data.extend_from_slice(bytemuck::bytes_of(&MemberWriteIxData {
+                    lists: vector_lists(write),
+                    max_fee: u64::MAX.to_le_bytes(),
+                }));
             }
             "register_key" => {
                 data.push(tag::REGISTER_KEY);
@@ -250,6 +259,7 @@ impl RingProgram {
                     nullifier_pk: bytes32(&write["nullifier_pk"]),
                     eph_u: bytes32(&write["eph_u"]),
                     ciphertext: bytes32(&write["ciphertext"]),
+                    max_fee: u64::MAX.to_le_bytes(),
                 }));
             }
             kind => panic!("a {kind} write queues only inside its application"),
@@ -439,7 +449,7 @@ async fn a_stalled_replay_does_not_starve_another_pending_ring() {
     let absent = Member::owner_tag(&[7; 32]).unwrap();
     let record = member_registry::member_record(
         indexer.db.as_ref(),
-        &indexer.rpc,
+        indexer.rpc.as_ref(),
         GetRingMemberRecordRequest {
             ring_program_id: healthy.into(),
             member: Hash(*absent.as_bytes()),
@@ -454,7 +464,7 @@ async fn a_stalled_replay_does_not_starve_another_pending_ring() {
     assert_eq!(record.root.applied, 0);
     let tip = member_registry::registry_root(
         indexer.db.as_ref(),
-        &indexer.rpc,
+        indexer.rpc.as_ref(),
         GetRingMemberRegistryRootRequest {
             ring_program_id: healthy.into(),
         },
@@ -530,6 +540,71 @@ async fn missing_archived_initialization_never_completes_a_replay() {
 }
 
 #[tokio::test]
+async fn a_pending_ring_outlives_the_ttl_only_while_its_registry_is_on_chain() {
+    let (kept, dropped) = (
+        Pubkey::new_from_array([21; 32]),
+        Pubkey::new_from_array([22; 32]),
+    );
+    let created = member_registry::created(kept.to_bytes(), 1);
+    let mut accounts = HashMap::from(registry_accounts(&created));
+    accounts.extend([activation(kept, false), activation(dropped, false)]);
+    let late = 1 + PENDING_TTL_SLOTS + 10;
+    let mut late_block = block(late, vec![]);
+    late_block["parentSlot"] = json!(1);
+    late_block["previousBlockhash"] = json!(Hash(field(1)).to_string());
+    let creations = vec![
+        RingProgram(kept).creation(),
+        RingProgram(dropped).creation(),
+    ];
+    let chain = Arc::new(Mutex::new(Chain {
+        blocks: BTreeMap::from([(1, block(1, creations)), (late, late_block)]),
+        accounts,
+        ..Default::default()
+    }));
+    let (rpc, handle) = rpc(chain.clone()).await;
+    let indexer = CustomRingIndexer {
+        db: Arc::new(database().await),
+        rpc,
+        start: StartSlot::Explicit(0),
+        block_fetches: 4,
+    };
+    while indexer.synchronize().await.unwrap() == Progress::Behind {}
+    indexer.synchronize().await.unwrap();
+    let db = indexer.db.as_ref();
+    let pending = storage::pending_ring(db, &kept.to_bytes()).await.unwrap();
+    assert!(pending.is_some());
+    let pending = storage::pending_ring(db, &dropped.to_bytes())
+        .await
+        .unwrap();
+    assert!(pending.is_none());
+    let registration = RingProgram(kept).registration(Pubkey::new_from_array([5; 32]), 5);
+    {
+        let mut chain = chain.lock().unwrap();
+        chain.accounts.extend([activation(kept, true)]);
+        let block = block(late + 1, vec![registration.transaction]);
+        chain.blocks.insert(late + 1, block);
+    }
+    indexer.synchronize().await.unwrap();
+    let projected = state(&indexer, kept).await.unwrap();
+    assert!(projected.fault.is_none());
+    assert_eq!(projected.queue.tail(), 1);
+    let read = member_registry::member_record(
+        db,
+        indexer.rpc.as_ref(),
+        GetRingMemberRecordRequest {
+            ring_program_id: kept.into(),
+            member: Hash(field(7)),
+            expected_root: Hash(MEMBER_REGISTRY_EMPTY_ROOT),
+            expected_next_index: 1,
+        },
+    )
+    .await;
+    assert!(read.is_ok());
+    handle.stop().unwrap();
+    handle.stopped().await;
+}
+
+#[tokio::test]
 async fn post_init_account_faults_are_local_and_ahead_registries_are_not_quarantined() {
     for invalid in [
         None,
@@ -541,7 +616,11 @@ async fn post_init_account_faults_are_local_and_ahead_registries_are_not_quarant
         let healthy = create_registry(&db, [12; 32]).await;
         let ahead = create_registry(&db, [13; 32]).await;
         let mut moved = ahead.clone();
-        moved.registry.push_root(field(9), 1, 1);
+        let at = AppliedAt {
+            applied: 1,
+            slot: 1,
+        };
+        moved.registry.push_root(field(9), at);
         let mut accounts = HashMap::from(registry_accounts(&healthy));
         accounts.extend(registry_accounts(&moved));
         let [faulty_registry, faulty_queue] = registry_accounts(&faulty);
@@ -583,7 +662,7 @@ async fn post_init_account_faults_are_local_and_ahead_registries_are_not_quarant
         let read = |state: &RegistryState| {
             member_registry::member_record(
                 indexer.db.as_ref(),
-                &indexer.rpc,
+                indexer.rpc.as_ref(),
                 GetRingMemberRecordRequest {
                     ring_program_id: program(state).into(),
                     member: Hash(*absent.as_bytes()),
@@ -601,7 +680,7 @@ async fn post_init_account_faults_are_local_and_ahead_registries_are_not_quarant
         assert!(read(&ahead).await.is_ok());
         let tip = member_registry::registry_root(
             indexer.db.as_ref(),
-            &indexer.rpc,
+            indexer.rpc.as_ref(),
             GetRingMemberRegistryRootRequest {
                 ring_program_id: program(&ahead).into(),
             },
@@ -842,7 +921,7 @@ async fn replay_applies_queue_and_matches_roots() {
         ring.publish().await;
         let queue = member_registry::record_queue(
             db.as_ref(),
-            &rpc,
+            rpc.as_ref(),
             GetRingRecordQueueRequest { ring_program_id },
         )
         .await
@@ -874,7 +953,7 @@ async fn replay_applies_queue_and_matches_roots() {
             .collect();
         let inputs = member_registry::apply_proof_inputs(
             db.as_ref(),
-            &rpc,
+            rpc.as_ref(),
             GetRingApplyProofInputsRequest {
                 ring_program_id,
                 authority_writes,
@@ -946,7 +1025,7 @@ async fn replay_applies_queue_and_matches_roots() {
     let next_index = u64::from(state.registry.next_index());
     let tip = member_registry::registry_root(
         db.as_ref(),
-        &rpc,
+        rpc.as_ref(),
         GetRingMemberRegistryRootRequest { ring_program_id },
     )
     .await
@@ -959,7 +1038,7 @@ async fn replay_applies_queue_and_matches_roots() {
     while let Some(start_index) = page_start {
         let page = member_registry::member_records(
             db.as_ref(),
-            &rpc,
+            rpc.as_ref(),
             GetRingMemberRecordsRequest {
                 ring_program_id,
                 expected_root: Hash(current),
@@ -976,7 +1055,12 @@ async fn replay_applies_queue_and_matches_roots() {
                 record: wire_record(&leaf.record),
                 path: wire_path(&leaf.path),
             };
-            assert!(opening.verify(&current, &leaf.record.member.0).is_ok());
+            let check = OpeningCheck {
+                opening: &opening,
+                root: &current,
+                member: &leaf.record.member.0,
+            };
+            assert!(check.verify().is_ok());
             leaves.end += 1;
         }
         page_start = page.next_leaf_index;
@@ -985,7 +1069,7 @@ async fn replay_applies_queue_and_matches_roots() {
     let openings = vector["openings"].as_array().unwrap();
     let response = member_registry::member_openings(
         db.as_ref(),
-        &rpc,
+        rpc.as_ref(),
         GetRingMemberOpeningsRequest {
             ring_program_id,
             members: openings
@@ -1011,7 +1095,7 @@ async fn replay_applies_queue_and_matches_roots() {
     let member = bytes32(&first["authority_writes"][0]["member"]);
     let earlier = member_registry::member_record(
         db.as_ref(),
-        &rpc,
+        rpc.as_ref(),
         GetRingMemberRecordRequest {
             ring_program_id,
             member: Hash(member),
@@ -1022,14 +1106,19 @@ async fn replay_applies_queue_and_matches_roots() {
     .await
     .unwrap();
     assert_eq!((earlier.root.applied, earlier.root.root_index), (3, 1));
-    let opened = record_opening(&earlier.opening).verify(&bytes32(&first["new_root"]), &member);
+    let opened = OpeningCheck {
+        opening: &record_opening(&earlier.opening),
+        root: &bytes32(&first["new_root"]),
+        member: &member,
+    }
+    .verify();
     let lists = number(&first["authority_writes"][0]["value"]);
     assert_eq!(opened.unwrap().map(|record| record.lists), Some(lists));
     // Fill-once escrow keeps the first registration's sealed key.
     let registered = &applications[1]["pending"][1];
     let sealed = member_registry::member_record(
         db.as_ref(),
-        &rpc,
+        rpc.as_ref(),
         GetRingMemberRecordRequest {
             ring_program_id,
             member: Hash(bytes32(&registered["member"])),
@@ -1078,7 +1167,7 @@ async fn an_application_off_the_projection_stops_the_registry() {
         assert_eq!(ring.state().await, stopped);
         let read = member_registry::member_record(
             ring.indexer.db.as_ref(),
-            &ring.indexer.rpc,
+            ring.indexer.rpc.as_ref(),
             GetRingMemberRecordRequest {
                 ring_program_id: ring.program.0.into(),
                 member: Hash(bytes32(&first["authority_writes"][0]["member"])),
@@ -1155,7 +1244,7 @@ async fn assert_every_held_root_opens(ring: &GrowingRing, members: &[[u8; 32]]) 
     for entry in state.registry.history.iter() {
         let response = member_registry::member_openings(
             ring.indexer.db.as_ref(),
-            &ring.indexer.rpc,
+            ring.indexer.rpc.as_ref(),
             GetRingMemberOpeningsRequest {
                 ring_program_id: ring.program.0.into(),
                 members: members.iter().map(|member| Hash(*member)).collect(),
@@ -1165,7 +1254,13 @@ async fn assert_every_held_root_opens(ring: &GrowingRing, members: &[[u8; 32]]) 
         .await
         .unwrap();
         for ((position, member), opening) in (1..).zip(members).zip(&response.openings) {
-            let opened = record_opening(opening).verify(&entry.root, member).unwrap();
+            let opened = OpeningCheck {
+                opening: &record_opening(opening),
+                root: &entry.root,
+                member,
+            }
+            .verify()
+            .unwrap();
             assert_eq!(opened.is_some(), position <= entry.applied());
         }
     }
@@ -1232,7 +1327,7 @@ async fn proof_inputs_refuse_a_queue_the_chain_moved() {
     let inputs = || {
         member_registry::apply_proof_inputs(
             ring.indexer.db.as_ref(),
-            &ring.indexer.rpc,
+            ring.indexer.rpc.as_ref(),
             GetRingApplyProofInputsRequest {
                 ring_program_id: ring.program.0.into(),
                 authority_writes: vec![],
@@ -1266,7 +1361,7 @@ async fn proof_inputs_refuse_an_empty_queue_only_while_the_chain_agrees() {
     let inputs = || {
         member_registry::apply_proof_inputs(
             ring.indexer.db.as_ref(),
-            &ring.indexer.rpc,
+            ring.indexer.rpc.as_ref(),
             GetRingApplyProofInputsRequest {
                 ring_program_id: ring.program.0.into(),
                 authority_writes: vec![],
@@ -1285,6 +1380,124 @@ async fn proof_inputs_refuse_an_empty_queue_only_while_the_chain_agrees() {
         .unwrap()
         .accounts
         .extend(registry_accounts(&moved));
+    assert_eq!(inputs().await, Err(CustomRingError::QueueChanged.into()));
+    ring.stop().await;
+}
+
+#[tokio::test]
+async fn queue_rows_off_the_queue_chain_answer_out_of_sync() {
+    let vector: Value = serde_json::from_str(RING_RECORDS).unwrap();
+    let applications = vector["applications"].as_array().unwrap();
+    let mut ring = GrowingRing::created(Pubkey::new_from_array([43; 32])).await;
+    let first = &applications[0];
+    ring.apply(first, recorded(first)).await;
+    ring.queue(&applications[1]).await;
+    ring.publish().await;
+    let head = ring.state().await.queue.head();
+    let db = ring.indexer.db.as_ref();
+    let diverged = sea_orm::Statement::from_sql_and_values(
+        db.get_database_backend(),
+        "UPDATE ring_record_queue SET value = 0 WHERE program = $1 AND position = $2",
+        vec![
+            ring.program.0.to_bytes().to_vec().into(),
+            i64::try_from(head).unwrap().into(),
+        ],
+    );
+    db.execute(diverged).await.unwrap();
+    let ring_program_id: SerializablePubkey = ring.program.0.into();
+    let inputs = member_registry::apply_proof_inputs(
+        db,
+        ring.indexer.rpc.as_ref(),
+        GetRingApplyProofInputsRequest {
+            ring_program_id,
+            authority_writes: vec![],
+        },
+    )
+    .await;
+    let page = member_registry::record_queue(
+        db,
+        ring.indexer.rpc.as_ref(),
+        GetRingRecordQueueRequest { ring_program_id },
+    )
+    .await;
+    let off_chain = |error: PhotonApiError| {
+        matches!(error, PhotonApiError::CustomRing(CustomRingError::OutOfSync(reason))
+            if reason.contains("queue chain"))
+    };
+    assert!(inputs.is_err_and(off_chain));
+    assert!(page.is_err_and(off_chain));
+    ring.stop().await;
+}
+
+#[tokio::test]
+async fn reads_at_one_tip_share_one_chain_confirmation() {
+    let mut ring = GrowingRing::created(Pubkey::new_from_array([41; 32])).await;
+    ring.publish().await;
+    let chain = member_registry::CachedChain::new(ring.indexer.rpc.clone());
+    let db = ring.indexer.db.clone();
+    let ring_program_id: SerializablePubkey = ring.program.0.into();
+    let record = || {
+        member_registry::member_record(
+            db.as_ref(),
+            &chain,
+            GetRingMemberRecordRequest {
+                ring_program_id,
+                member: Hash(field(7)),
+                expected_root: Hash(MEMBER_REGISTRY_EMPTY_ROOT),
+                expected_next_index: 1,
+            },
+        )
+    };
+    let calls = |ring: &GrowingRing| ring.chain.lock().unwrap().upstream_calls;
+    let before = calls(&ring);
+    let refused = member_registry::apply_proof_inputs(
+        db.as_ref(),
+        &chain,
+        GetRingApplyProofInputsRequest {
+            ring_program_id,
+            authority_writes: vec![],
+        },
+    )
+    .await;
+    assert!(matches!(refused, Err(PhotonApiError::ValidationError(_))));
+    assert!(record().await.is_ok());
+    assert!(record().await.is_ok());
+    assert_eq!(calls(&ring) - before, 2);
+    ring.land(vec![]).await;
+    let before = calls(&ring);
+    assert!(record().await.is_ok());
+    assert_eq!(calls(&ring) - before, 2);
+    ring.stop().await;
+}
+
+#[tokio::test]
+async fn a_shared_confirmation_sees_the_chain_move_once_it_ages_out() {
+    let ring = GrowingRing::created(Pubkey::new_from_array([42; 32])).await;
+    ring.publish().await;
+    let chain = member_registry::CachedChain::new(ring.indexer.rpc.clone());
+    let inputs = || {
+        member_registry::apply_proof_inputs(
+            ring.indexer.db.as_ref(),
+            &chain,
+            GetRingApplyProofInputsRequest {
+                ring_program_id: ring.program.0.into(),
+                authority_writes: vec![],
+            },
+        )
+    };
+    let empty = PhotonApiError::ValidationError("the record queue is empty".into());
+    assert_eq!(inputs().await, Err(empty));
+    let mut moved = ring.state().await;
+    let late = ring
+        .program
+        .registration(Pubkey::new_from_array([5; 32]), 5);
+    moved.queue.push(&late.entry, ring.slot).unwrap();
+    ring.chain
+        .lock()
+        .unwrap()
+        .accounts
+        .extend(registry_accounts(&moved));
+    tokio::time::sleep(api::CONFIRMATION_AGE).await;
     assert_eq!(inputs().await, Err(CustomRingError::QueueChanged.into()));
     ring.stop().await;
 }

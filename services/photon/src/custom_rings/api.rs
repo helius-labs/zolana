@@ -1,12 +1,20 @@
-use std::{collections::BTreeSet, fmt::Display};
+use std::{
+    collections::{BTreeSet, HashMap},
+    fmt::Display,
+    future::Future,
+    sync::{Arc, Mutex, PoisonError},
+    time::{Duration, Instant},
+};
 
 use custom_ring_interface::{
-    check_member, tagged_x25519, RecordWriteData, RootEntry, WriteRecordsIxData,
+    check_member, queue_chain, tagged_x25519, RecordWriteData, RootEntry, WriteRecordsIxData,
     MEMBER_REGISTRY_CAPACITY,
 };
 use sea_orm::{DatabaseConnection, DatabaseTransaction, TransactionTrait};
+use solana_clock::DEFAULT_MS_PER_SLOT;
 use solana_pubkey::Pubkey;
 use solana_transaction_status_client_types::TransactionDetails;
+use tokio::sync::Mutex as AsyncMutex;
 use zolana_indexer_api::{
     Base64String, Context as ApiContext, GetRingApplyProofInputsRequest,
     GetRingApplyProofInputsResponse, GetRingMemberOpeningsRequest, GetRingMemberOpeningsResponse,
@@ -18,12 +26,15 @@ use zolana_indexer_api::{
     SerializablePubkey, MAX_RING_MEMBER_PAGE_LIMIT,
 };
 use zolana_ring_indexer::tree::{
-    MemberRecord, QuadPath, RecordOpening, RecordTree, RecordWriteProofInput,
+    MemberRecord, OpeningCheck, QuadPath, RecordOpening, RecordTree, RecordWriteProofInput,
 };
 
 use super::{
     member_registry::{LoadedRegistry, RecordRead, TreeRead},
-    storage::{self, CustomRingCursor, HistoryRoot, RegistryState, RegistryStore, StoredRecord},
+    storage::{
+        self, CustomRingCursor, HistoryRoot, RegistryState, RegistryStore, StoredEntry,
+        StoredRecord,
+    },
     ChainRead, ChainRegistry,
 };
 use crate::{
@@ -35,9 +46,102 @@ use crate::{
     rpc::RpcClient,
 };
 
+/// The longest a stalled tip misses a chain move.
+pub(super) const CONFIRMATION_AGE: Duration = Duration::from_millis(DEFAULT_MS_PER_SLOT);
+
+pub(crate) trait ChainSource {
+    /// Fails unless `tip` is canonical and the accounts are no older.
+    fn confirmation(
+        &self,
+        tip: &BlockMetadata,
+        state: &RegistryState,
+    ) -> impl Future<Output = Result<Confirmation, CustomRingError>> + Send;
+}
+
+#[derive(Clone)]
+pub(crate) struct Confirmation {
+    context: ApiContext,
+    chain: Arc<ChainRegistry>,
+}
+
+/// Concurrent requests at one tip wait for a single read per ring.
+pub(crate) struct CachedChain {
+    rpc: Arc<RpcClient>,
+    rings: Mutex<HashMap<[u8; 32], Arc<RingCache>>>,
+}
+
+type RingCache = AsyncMutex<Option<Cached>>;
+
+struct Cached {
+    tip: BlockMetadata,
+    read_at: Instant,
+    confirmation: Result<Confirmation, CustomRingError>,
+}
+
+impl CachedChain {
+    pub fn new(rpc: Arc<RpcClient>) -> Self {
+        Self {
+            rpc,
+            rings: Mutex::default(),
+        }
+    }
+
+    fn ring(&self, program: [u8; 32]) -> Arc<RingCache> {
+        let mut rings = self.rings.lock().unwrap_or_else(PoisonError::into_inner);
+        Arc::clone(rings.entry(program).or_default())
+    }
+}
+
+impl ChainSource for CachedChain {
+    async fn confirmation(
+        &self,
+        tip: &BlockMetadata,
+        state: &RegistryState,
+    ) -> Result<Confirmation, CustomRingError> {
+        let ring = self.ring(state.program);
+        let mut cached = ring.lock().await;
+        let fresh = |hit: &&Cached| hit.tip == *tip && hit.read_at.elapsed() < CONFIRMATION_AGE;
+        if let Some(hit) = cached.as_ref().filter(fresh) {
+            return hit.confirmation.clone();
+        }
+        let read_at = Instant::now();
+        let confirmation = self.rpc.confirmation(tip, state).await;
+        *cached = Some(Cached {
+            tip: tip.clone(),
+            read_at,
+            confirmation: confirmation.clone(),
+        });
+        confirmation
+    }
+}
+
+impl ChainSource for RpcClient {
+    async fn confirmation(
+        &self,
+        tip: &BlockMetadata,
+        state: &RegistryState,
+    ) -> Result<Confirmation, CustomRingError> {
+        let context = canonical_context(self, tip)
+            .await
+            .map_err(|error| CustomRingError::OutOfSync(error.to_string()))?;
+        let read = ChainRead {
+            state,
+            min_slot: tip.slot,
+        };
+        let chain = read
+            .load(self)
+            .await
+            .map_err(|error| CustomRingError::OutOfSync(format!("{error:#}")))?;
+        Ok(Confirmation {
+            context,
+            chain: Arc::new(chain),
+        })
+    }
+}
+
 pub(crate) async fn member_record(
     db: &DatabaseConnection,
-    rpc: &RpcClient,
+    chain: &impl ChainSource,
     request: GetRingMemberRecordRequest,
 ) -> Result<GetRingMemberRecordResponse, PhotonApiError> {
     let members = std::slice::from_ref(&request.member);
@@ -53,7 +157,7 @@ pub(crate) async fn member_record(
         context,
         root,
         openings,
-    } = read.openings(rpc, members).await?;
+    } = read.openings(chain, members).await?;
     let [opening] = <[RingMemberOpening; 1]>::try_from(openings)
         .map_err(|_| internal("one member did not open exactly once"))?;
     Ok(GetRingMemberRecordResponse {
@@ -65,7 +169,7 @@ pub(crate) async fn member_record(
 
 pub(crate) async fn member_openings(
     db: &DatabaseConnection,
-    rpc: &RpcClient,
+    chain: &impl ChainSource,
     request: GetRingMemberOpeningsRequest,
 ) -> Result<GetRingMemberOpeningsResponse, PhotonApiError> {
     check_members(&request.members)?;
@@ -73,14 +177,14 @@ pub(crate) async fn member_openings(
         .await?
         .at_root(&request.expected_root.0)
         .await?
-        .openings(rpc, &request.members)
+        .openings(chain, &request.members)
         .await
 }
 
 /// Contiguous, authenticated member leaves at the newest root.
 pub(crate) async fn member_records(
     db: &DatabaseConnection,
-    rpc: &RpcClient,
+    chain: &impl ChainSource,
     request: GetRingMemberRecordsRequest,
 ) -> Result<GetRingMemberRecordsResponse, PhotonApiError> {
     if request.limit == 0 || request.limit > MAX_RING_MEMBER_PAGE_LIMIT {
@@ -127,7 +231,7 @@ pub(crate) async fn member_records(
             })
         })
         .collect::<Result<Vec<_>, PhotonApiError>>()?;
-    let context = snapshot.confirm(rpc, Served::Root(&root)).await?.context;
+    let context = snapshot.confirm(chain, Served::Root(&root)).await?.context;
     Ok(GetRingMemberRecordsResponse {
         context,
         root: root_view(&root),
@@ -138,7 +242,7 @@ pub(crate) async fn member_records(
 
 pub(crate) async fn registry_root(
     db: &DatabaseConnection,
-    rpc: &RpcClient,
+    chain: &impl ChainSource,
     request: GetRingMemberRegistryRootRequest,
 ) -> Result<GetRingMemberRegistryRootResponse, PhotonApiError> {
     let snapshot = Snapshot::open(db, &request.ring_program_id).await?;
@@ -158,7 +262,7 @@ pub(crate) async fn registry_root(
     } else {
         None
     };
-    let Confirmed { context, state } = snapshot.confirm(rpc, Served::Registry).await?;
+    let Confirmed { context, state } = snapshot.confirm(chain, Served::Registry).await?;
     let registry = &state.registry;
     Ok(GetRingMemberRegistryRootResponse {
         context,
@@ -174,16 +278,13 @@ pub(crate) async fn registry_root(
 
 pub(crate) async fn record_queue(
     db: &DatabaseConnection,
-    rpc: &RpcClient,
+    chain: &impl ChainSource,
     request: GetRingRecordQueueRequest,
 ) -> Result<GetRingRecordQueueResponse, PhotonApiError> {
     let snapshot = Snapshot::open(db, &request.ring_program_id).await?;
-    let pending = snapshot.state.queue.head()..snapshot.state.queue.tail();
     let entries = snapshot
-        .store()
-        .entries(pending)
-        .await
-        .map_err(internal)?
+        .chained_entries()
+        .await?
         .iter()
         .map(|entry| RingQueueEntryView {
             position: entry.position,
@@ -194,7 +295,7 @@ pub(crate) async fn record_queue(
             slot: entry.slot,
         })
         .collect();
-    let Confirmed { context, state } = snapshot.confirm(rpc, Served::Queue).await?;
+    let Confirmed { context, state } = snapshot.confirm(chain, Served::Queue).await?;
     Ok(GetRingRecordQueueResponse {
         context,
         head: state.queue.head(),
@@ -206,7 +307,7 @@ pub(crate) async fn record_queue(
 
 pub(crate) async fn apply_proof_inputs(
     db: &DatabaseConnection,
-    rpc: &RpcClient,
+    chain: &impl ChainSource,
     request: GetRingApplyProofInputsRequest,
 ) -> Result<GetRingApplyProofInputsResponse, PhotonApiError> {
     let authority = request
@@ -237,14 +338,11 @@ pub(crate) async fn apply_proof_inputs(
     };
     if let Some(refusal) = refusal {
         // A refusal of the projected queue stands only while the chain holds the same queue.
-        snapshot.confirm(rpc, Served::Application).await?;
+        snapshot.confirm(chain, Served::Application).await?;
         return Err(refusal);
     }
     let store = snapshot.store();
-    let pending = store
-        .entries(state.queue.head()..state.queue.tail())
-        .await
-        .map_err(internal)?;
+    let pending = snapshot.chained_entries().await?;
     let entries = pending
         .iter()
         .map(|row| row.write.entry)
@@ -263,7 +361,7 @@ pub(crate) async fn apply_proof_inputs(
     if inputs.old_root != root.root {
         return Err(internal("the loaded tree does not reach the newest root"));
     }
-    let context = snapshot.confirm(rpc, Served::Application).await?.context;
+    let context = snapshot.confirm(chain, Served::Application).await?.context;
     Ok(GetRingApplyProofInputsResponse {
         context,
         old_root: Hash(inputs.old_root),
@@ -370,10 +468,26 @@ impl Snapshot {
         })
     }
 
+    async fn chained_entries(&self) -> Result<Vec<StoredEntry>, PhotonApiError> {
+        let queue = &self.state.queue;
+        let rows = self
+            .store()
+            .entries(queue.head()..queue.tail())
+            .await
+            .map_err(internal)?;
+        let chained = rows.iter().try_fold(queue.chain_head, |chain, row| {
+            queue_chain(&chain, &row.write.entry)
+        });
+        if !chained.is_ok_and(|end| end == queue.chain_tail()) {
+            return Err(out_of_sync("queue rows do not reach the queue chain"));
+        }
+        Ok(rows)
+    }
+
     /// Commits the read before the RPC calls.
     async fn confirm(
         self,
-        rpc: &RpcClient,
+        chain: &impl ChainSource,
         served: Served<'_>,
     ) -> Result<Confirmed, PhotonApiError> {
         self.tx.commit().await?;
@@ -381,20 +495,12 @@ impl Snapshot {
             .tip
             .as_ref()
             .ok_or_else(|| out_of_sync("cursor has no canonical block"))?;
-        let context = canonical_context(rpc, tip).await.map_err(out_of_sync)?;
-        let read = ChainRead {
-            state: &self.state,
-            min_slot: tip.slot,
-        };
-        let chain = read
-            .load(rpc)
-            .await
-            .map_err(|error| out_of_sync(format!("{error:#}")))?;
-        if !served.agrees(&chain, &self.state) {
+        let confirmation = chain.confirmation(tip, &self.state).await?;
+        if !served.agrees(&confirmation.chain, &self.state) {
             return Err(served.moved().into());
         }
         Ok(Confirmed {
-            context,
+            context: confirmation.context,
             state: self.state,
         })
     }
@@ -403,7 +509,7 @@ impl Snapshot {
 impl RootRead {
     async fn openings(
         self,
-        rpc: &RpcClient,
+        chain: &impl ChainSource,
         members: &[Hash],
     ) -> Result<GetRingMemberOpeningsResponse, PhotonApiError> {
         let root = &self.root;
@@ -418,7 +524,7 @@ impl RootRead {
             .map(|member| loaded.opening(root, &member.0))
             .collect::<Result<Vec<_>, _>>()?;
         let served = Served::Root(root);
-        let context = self.snapshot.confirm(rpc, served).await?.context;
+        let context = self.snapshot.confirm(chain, served).await?.context;
         Ok(GetRingMemberOpeningsResponse {
             context,
             root: root_view(root),
@@ -455,9 +561,13 @@ impl LoadedRegistry {
         member: &[u8; 32],
     ) -> Result<RingMemberOpening, PhotonApiError> {
         let opening = self.tree.opening(member).map_err(internal)?;
-        opening
-            .verify(&root.root, member)
-            .map_err(|error| internal(format!("member registry opening disagrees ({error})")))?;
+        OpeningCheck {
+            opening: &opening,
+            root: &root.root,
+            member,
+        }
+        .verify()
+        .map_err(|error| internal(format!("member registry opening disagrees ({error})")))?;
         let (present, record, path) = match opening {
             RecordOpening::Present { record, path } => (true, record, path),
             RecordOpening::Absent { low, path } => (false, low, path),
