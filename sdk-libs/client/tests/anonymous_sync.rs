@@ -22,8 +22,8 @@ use zolana_client::{
     AnonymousStream, AsyncRpc, ClientError, Context, DecoyLeaf, EncryptedUtxoMatch,
     GetEncryptedUtxosByTagsResponse, GetShieldedTransactionsByTagsResponse, IndexerRpcConfig,
     OutputContext, OutputSlot, PairAnchor, PaymentStream, SentFirstContact, ShieldedTransaction,
-    TagAllocation, ADDRESS_GAP, ANCHOR_DECOYS, ANONYMOUS_RING_STATE_VERSION, DEPOSIT_GAP,
-    PAIR_IDLE_EPOCHS,
+    TagAllocation, ADDRESS_GAP, ANCHOR_DECOYS, ANONYMOUS_RING_STATE_VERSION, DECOYS_PER_TREE,
+    DEPOSIT_GAP, PAIR_IDLE_EPOCHS,
 };
 use zolana_event::{
     encode_encrypted_ring_deposit_output, encode_merge_output_data, EncryptedRingDepositData,
@@ -40,6 +40,7 @@ use zolana_transaction::{
     serialization::{ring_deposit::RingDepositPlaintext, RingDeliveredBody, RingDeliverySlot},
     AssetRegistry, DecryptRequest, DeriveRequest, EncryptedScheme, LocalShieldedKeys, Mint,
     RingDeliveryRequest, ShieldedKeys, TransactionError, TransactionKeyRequest, Utxo, WalletUtxo,
+    REDACTED,
 };
 
 const RING: Address = Address::new_from_array([4; 32]);
@@ -1722,15 +1723,21 @@ fn pooled(
     let mut json: serde_json::Value = serde_json::from_str(&state.to_json()).unwrap();
     json["decoys"] = serde_json::json!([{
         "treeId": TREE,
-        "leaves": leaves
-            .into_iter()
-            .map(|leaf| serde_json::json!({
-                "leafIndex": leaf.leaf_index,
-                "hash": hex::encode(leaf.hash),
-            }))
-            .collect::<Vec<_>>(),
+        "leaves": leaves_json(leaves),
     }]);
     AnonymousRingState::from_json(&json.to_string()).unwrap()
+}
+
+fn leaves_json(leaves: impl IntoIterator<Item = DecoyLeaf>) -> serde_json::Value {
+    leaves
+        .into_iter()
+        .map(|leaf| {
+            serde_json::json!({
+                "leafIndex": leaf.leaf_index,
+                "hash": hex::encode(leaf.hash),
+            })
+        })
+        .collect()
 }
 
 /// A sender whose first contact to address 0 landed at leaf 10 in `CREATION`.
@@ -1936,6 +1943,36 @@ async fn a_stored_pin_must_be_a_full_set_beside_the_anchor() {
     }
 }
 
+/// The TS SDK refuses the same stores.
+#[test]
+fn a_stored_state_repeating_an_entry_or_overfilling_a_decoy_pool_is_refused() {
+    let fixture = Fixture::new();
+    let Contacted { mut state, .. } = Contacted::new(&fixture);
+    state.issue(0, Pairing::default()).unwrap();
+    let json: serde_json::Value =
+        serde_json::from_str(&pooled(&state, decoy_pool(2)).to_json()).unwrap();
+    let refusal = |corrupt: fn(&mut serde_json::Value)| {
+        let mut stored = json.clone();
+        corrupt(&mut stored);
+        match AnonymousRingState::from_json(&stored.to_string()) {
+            Err(ClientError::AnonymousRingState(message)) => message,
+            other => panic!("{other:?}"),
+        }
+    };
+    fn repeat(list: &mut serde_json::Value) {
+        let list = list.as_array_mut().unwrap();
+        list.push(list[0].clone());
+    }
+    assert!(refusal(|json| repeat(&mut json["issued"])).contains("issued names index 0 twice"));
+    assert!(refusal(|json| repeat(&mut json["sent"]))
+        .contains("sent holds two first contacts for one recipient"));
+    assert!(refusal(|json| repeat(&mut json["decoys"])).contains("decoys name tree"));
+    assert!(refusal(|json| {
+        json["decoys"][0]["leaves"] = leaves_json(decoy_pool(DECOYS_PER_TREE + 1))
+    })
+    .contains("hold more than"));
+}
+
 /// The TS SDK asserts the same vector.
 #[tokio::test]
 async fn the_pin_and_its_read_order_match_the_shared_vector() {
@@ -2018,7 +2055,7 @@ fn a_first_contact_and_its_anchor_print_no_recipient_leaf_or_secret() {
         "leaves",
     ] {
         assert!(
-            printed.contains(&format!("{field}: \"<redacted>\"")),
+            printed.contains(&format!("{field}: {REDACTED:?}")),
             "{printed}"
         );
     }
@@ -2040,7 +2077,10 @@ async fn a_pinned_state_prints_neither_its_pins_nor_its_decoy_pool() {
     let Contacted { state, .. } = Contacted::new(&fixture);
     let pinned = scanned(&fixture, &pooled(&state, decoy_pool(ANCHOR_DECOYS))).await;
     let printed = format!("{pinned:?}");
-    assert!(printed.contains("decoys: \"<redacted>\""), "{printed}");
+    assert!(
+        printed.contains(&format!("decoys: {REDACTED:?}")),
+        "{printed}"
+    );
     for leaf in decoy_pool(ANCHOR_DECOYS) {
         assert!(!printed.contains(&format!("{:?}", leaf.hash)), "{printed}");
     }

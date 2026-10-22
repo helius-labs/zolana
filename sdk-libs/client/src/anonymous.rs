@@ -1587,6 +1587,16 @@ impl AnonymousRingState {
         };
         let mut restored = Self::new(address(&state.ring)?, state.creation_epoch);
         for issued in state.issued {
+            if restored
+                .issued
+                .binary_search_by_key(&issued.index, |known| known.index)
+                .is_ok()
+            {
+                return Err(invalid(format!(
+                    "issued names index {} twice",
+                    issued.index
+                )));
+            }
             let rows = issued
                 .pairing
                 .iter()
@@ -1666,6 +1676,16 @@ impl AnonymousRingState {
                 })
             })
             .collect::<Result<_, ClientError>>()?;
+        let recipients: HashSet<&X25519Pubkey> = restored
+            .sent
+            .iter()
+            .map(|sent| &sent.contact.recipient)
+            .collect();
+        if recipients.len() != restored.sent.len() {
+            return Err(invalid(
+                "sent holds two first contacts for one recipient".to_owned(),
+            ));
+        }
         restored.deposit_next = state.deposit_next;
         for decoys in state.decoys {
             let leaves = decoys
@@ -1682,9 +1702,22 @@ impl AnonymousRingState {
                     })
                 })
                 .collect::<Result<BTreeSet<_>, ClientError>>()?;
-            restored
+            if leaves.len() > DECOYS_PER_TREE {
+                return Err(invalid(format!(
+                    "decoys of tree {} hold more than {DECOYS_PER_TREE} leaves",
+                    decoys.tree_id
+                )));
+            }
+            if restored
                 .decoys
-                .insert(decoys.tree_id, leaves.into_iter().collect());
+                .insert(decoys.tree_id, leaves.into_iter().collect())
+                .is_some()
+            {
+                return Err(invalid(format!(
+                    "decoys name tree {} twice",
+                    decoys.tree_id
+                )));
+            }
         }
         Ok(restored)
     }
