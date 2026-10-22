@@ -294,7 +294,7 @@ fetch-custom-ring-keys:
         fi
         install -m 0644 "$temp_dir/$name" "$keys_dir/$name"
     }
-    release_url="${ZOLANA_RING_KEYS_URL:-https://github.com/helius-labs/zolana/releases/download/custom-ring-keys-v21}"
+    release_url="${ZOLANA_RING_KEYS_URL:-https://github.com/helius-labs/zolana/releases/download/custom-ring-keys-v24}"
     for name in {{custom-ring-keys}}; do
         installed "$name" || fetch "$name" "$release_url/$name"
     done
@@ -341,7 +341,6 @@ test-program-proofs-programs-only: build-programs build-prover-server build-cli
 # The full local gate; CI splits it (see test-program-proofs-programs-only).
 test-program-proofs: test-program-proofs-programs-only
     cargo nextest run -p zolana-client --features proofs --test transaction_proving --test merge_proving --test merge_ring_proving --test ring_authority_proving --test ring_transfer_proving --test-threads 1
-    cargo nextest run -p custom-ring-sdk --features proofs --test ring_authority_boundary --test-threads 1
 
 # Export Mollusk's exact-error cases as replayable fuzz fixtures. Only the
 # Mollusk-backed cases in tests/deposit/rejection.rs (the `deposit_rejection`
@@ -388,6 +387,7 @@ test-sdk-libs:
     cargo nextest run -p custom-ring-cli
     cargo nextest run -p custom-ring-interface
     cargo nextest run -p zolana-ring-policy
+    cargo nextest run -p zolana-ring-member-registry
 
 # The gnark SDK's Go tests and the example provers' tests. Needs Go.
 test-example-provers:
@@ -624,7 +624,6 @@ coverage-report *args="--summary-only":
 # prover binary and the zolana CLI the spawned server/test rely on.
 test-client-integration: build-prover-server build-cli
     cargo nextest run -p zolana-client --all-features --test-threads 1
-    cargo nextest run -p custom-ring-sdk --features proofs --test ring_authority_boundary --test-threads 1
     cargo test --doc -p zolana-client --all-features
 
 # One real transfer proof through Redis, TransferQueueWorker, and the Rust
@@ -1243,7 +1242,6 @@ test-custom-ring-validator filter="all()": fetch-custom-ring-keys build-prover-s
     export CUSTOM_RING_PROGRAM_ID
     export SHIELDED_POOL_PROGRAM_ID
     bash tools/test-ring-controls.sh ring -E '{{filter}}'
-    tools/ci/nextest-suite.sh -p custom-ring-sdk -E 'binary(custom_ring_circuit)'
 
 # Two-ring shared policy source lifecycle on a local validator. One curator
 # write refuses the subscriber's transfer, clearing it or re-pointing the
@@ -1490,7 +1488,6 @@ build-localnet-archives dir="target/nextest-archives":
     cargo nextest archive -p timelock-escrow-test --test escrow --archive-file {{dir}}/timelock-escrow-test.tar.zst
     cargo nextest archive -p dynamic-swap-test --archive-file {{dir}}/dynamic-swap-test.tar.zst
     cargo nextest archive -p custom-ring-test-validator --test ring --test shared_sources --test policy_rules --test policy_repin --archive-file {{dir}}/custom-ring-test-validator.tar.zst
-    cargo nextest archive -p custom-ring-sdk --test custom_ring_circuit --archive-file {{dir}}/custom-ring-sdk.tar.zst
     cargo nextest archive -p compression-example-test --test compression --archive-file {{dir}}/compression-example-test.tar.zst
     cargo nextest archive -p rfq-test --test rfq --archive-file {{dir}}/rfq-test.tar.zst
 
@@ -1643,12 +1640,12 @@ prover-server-test:
         exit 1
     fi
     cd prover/server
-    # ./circuits/... (gnark solve/prove tests), ./prover/..., and
+    # ./circuits/... and ./custom_rings/... (gnark solve/prove tests), ./prover/..., and
     # ./prover-test/... (reference + integration tests). The circuit and
     # integration tests run real groth16 setup+prove -- TestCircuitProvesFor-
     # SupportedShapes alone proves every supported shape -- so the run can exceed
     # Go's default 10m; the generous timeout is a ceiling, not a floor.
-    go test ./circuits/... ./prover/... ./prover-test/... -timeout 60m
+    go test ./circuits/... ./custom_rings/... ./prover/... ./prover-test/... -timeout 60m
     # The whole `server` package, unfiltered, so a new or renamed test cannot
     # drop out of CI. Its tests bring their own in-process miniredis and need no
     # Redis server or proving keys.
