@@ -1117,7 +1117,8 @@ id, and new merge circuits with their own verifying keys.
 
 On the default rail (`merge_transact`) the emitted event's `view_tag` is the
 owner signing pubkey (the full Ed25519 key), so the wallet's owner-pubkey scan finds
-it; `merge_ring` instead indexes the output by the first input's publishednullifier (see [Merge output
+it; `merge_ring` instead indexes the output by the first input's published
+nullifier (see [Merge output
 indexing](#merge-output-indexing-removed-merge-view-tag)).
 
 ### PoseidonCtrV1
@@ -1610,7 +1611,8 @@ The single public signal is `public_input_hash`, one Poseidon [`HashChain4`](#ha
 | Input cleanliness — `data_hash` | for each non-dummy input: `data_hash = 0`. UTXOs with `utxo_data` set are not mergeable. Applies to both rails. |
 | Input/output ring fields | For `merge_transact`, real inputs and the output carry `ring_program_id = 0` and `ring_data_hash = 0`. For `merge_ring`, `ring_program_id != 0` and every real input shares it with the CPI caller. Every real input and the output share the instruction's `output_ring_data_hash`. Dummy padding carries zero ring fields. |
 | Deterministic output | the output blinding is `merge_output_blinding(nullifier_secret, first_nullifier)`; the recomputed output hash, with `output_tree_id`, equals the public `output_utxo_hash`, with `owner = userOwnerHash` and `data_hash = 0`. |
-| Output ciphertext | the public PoseidonCtrV1 `ciphertext` encrypts `[output.amount, mint_chunk_0, mint_chunk_1]` under `merge_output_key(nullifier_secret, first_nullifier)` and the public `salt`, as defined under [PoseidonCtrV1](#poseidonctrv1). Both circuits enforce it. || Private transaction hash | Matches the [shared derivation](#private-transaction-hash), with zero address slots and `private_tx_blinding = Poseidon("TXPB", first_nullifier, nullifier_secret)`. |
+| Output ciphertext | the public PoseidonCtrV1 `ciphertext` encrypts `[output.amount, mint_chunk_0, mint_chunk_1]` under `merge_output_key(nullifier_secret, first_nullifier)` and the public `salt`, as defined under [PoseidonCtrV1](#poseidonctrv1). Both circuits enforce it. |
+| Private transaction hash | Matches the [shared derivation](#private-transaction-hash), with zero address slots and `private_tx_blinding = Poseidon("TXPB", first_nullifier, nullifier_secret)`. |
 | Owner binding (default rail) | `user_signing_pk_hash == owner_pk_hash`, and the witnessed nullifier public key is included in the public-input hash, so the proof verifies only against both keys from the registry record. |
 | Auditor recovery (ring rail) | With `anonymous = 0` a present member record under the selected on-chain root binds `owner_pk_hash`, `user_nullifier_pk` and the registered ciphertext hash. The ring program refuses a missing or stale root. The ciphertext is checked at registration, so the auditor can recover the key that opens the merge output. With `anonymous = 1` the ring program verifies a separate disclosure proof of the merge. See [Deposits, merges and key registration](#ring-deposits-merges-and-key-registration). |
 
@@ -1783,7 +1785,8 @@ operations, and tags 18–21 are maintenance and administration.
 | transact | Tag 12; implements deposit/withdraw/shielded transfer; verifies proofs, updates trees |
 | merge_transact | Tag 13; consolidates the input slots of an 8-, 24- or 52-input merge shape (same owner, same asset; dummy slots or compact padding fill a shorter merge) into one output UTXO. Permitted whenever the owner's registry record selects a merge encryption scheme and the instruction's `output_encryption` uses that scheme; any caller may submit it, and the merge proof binds the output to the owner's registered signing and nullifier keys. Input and output UTXOs are default-ring; extension slots are zero. |
 | ring_deposit | Tag 14; policy-ring analog of `deposit`; public deposit creating a ring-owned UTXO, authorized by an active, signing `ring_config`. See [`ring_deposit`](#ring_deposit). |
-| ring_transact | Tag 15. SPP verifies the ring settlement proof and updates trees. The invoking custom ring verifies its separate policy and auditor-disclosure proof. Ordinary recipient encryption is wallet delivery data and is not proved. || merge_ring | Tag 16; CPI from an active ring program; consolidates the input slots of an 8-, 24- or 52-input merge shape (same owner, same asset, same `ring_program_id`) into one output UTXO that preserves `ring_program_id`. Mirrors `merge_transact` for policy-ring UTXOs. The ring program runs its own authorization before CPI; the merge proof enforces `data_hash = 0` on inputs and output. |
+| ring_transact | Tag 15. SPP verifies the ring settlement proof and updates trees. The invoking custom ring verifies its separate policy and auditor-disclosure proof. Ordinary recipient encryption is wallet delivery data and is not proved. |
+| merge_ring | Tag 16; CPI from an active ring program; consolidates the input slots of an 8-, 24- or 52-input merge shape (same owner, same asset, same `ring_program_id`) into one output UTXO that preserves `ring_program_id`. Mirrors `merge_transact` for policy-ring UTXOs. The ring program runs its own authorization before CPI; the merge proof enforces `data_hash = 0` on inputs and output. |
 | ring_authority_transact | Tag 17; checks the ring config is active and signed, then checks the state transition only includes ring-program-owned UTXOs. UTXO owners do not sign; the ring has full control subject to its policy. |
 | close_nullifier_pdas | Tag 18; gated by `protocol_config.forester_authority`; rejected while the tree is paused. Closes one or more nullifier PDAs whose `tree_id` matches and `queue_index < close_before_index`, returning their rent to the tree, then pays `min(close_reimbursement * n, fee_balance)` to `reimbursement_recipient` (must not be program-owned). |
 | set_tree_fees | Tag 19; gated by `protocol_config.fee_authority`; overwrites the tree's `TreeFeeSchedule`; works on paused trees. Rejects `fee_per_nullifier > MAX_FEE_PER_NULLIFIER` (1,000,000 lamports, `TreeFeeTooHigh`, 7080): spends pay the rate in effect at execution, which the payer does not sign, so the cap bounds what a fee change can charge. |
@@ -2003,46 +2006,46 @@ OVER marks a layout above the 4,096-byte limit:
 
 | Transaction | ix data (B) | transaction v1 (B) | addresses |
 | --- | --- | --- | --- |
-| Transact 2 in 4 out | 961 | 1278 | 6 |
-| Transact 3 in 4 out | 994 | 1344 | 7 |
-| Transact 5 in 4 out | 1060 | 1476 | 9 |
-| Transact 24 in 4 out | 1687 | 2730 | 28 |
-| Transact 16 in 8 out | 2051 | 2830 | 20 |
-| Transact 8 in 16 out | 3043 | 3558 | 12 |
-| Transact 49 in 2 out | 2198 | 4066 | 53 |
-| Transact 9 in 2 out, 49x2 compact | 878 | 1426 | 13 |
-| Transact 1 in 3 out, 2x4 compact | 771 | 1055 | 5 |
-| Ring transact EdDSA 24 in 4 out | 1815 | 2923 | 30 |
-| Ring transact anonymous 24 in 4 out | 1912 | 3020 | 30 |
-| Ring transact EdDSA 16 in 8 out | 2307 | 3151 | 22 |
-| Ring transact anonymous 16 in 8 out | 2404 | 3248 | 22 |
-| Ring transact EdDSA 8 in 16 out | 3555 | 4135 OVER | 14 |
-| Ring transact anonymous 8 in 16 out | 3652 | 4232 OVER | 14 |
-| Ring transact EdDSA 49 in 2 out | 2262 | 4195 OVER | 55 |
-| Ring transact anonymous 49 in 2 out | 2359 | 4292 OVER | 55 |
-| Ring transact EdDSA 47 in 2 out, 49x2 compact | 2196 | 4063 | 53 |
-| Ring transact anonymous 46 in 2 out, 49x2 compact | 2260 | 4094 | 52 |
-| Merge 8 in 1 out, direct | 639 | 1187 | 13 |
-| Merge 8 in 1 out, execute_sync | 673 | 1319 | 16 |
-| Ring merge 8 in 1 out | 703 | 1283 | 14 |
-| Merge 24 in 1 out, direct | 1151 | 2227 | 29 |
-| Merge 24 in 1 out, execute_sync | 1201 | 2375 | 32 |
-| Ring merge 24 in 1 out | 1215 | 2323 | 30 |
-| Merge 52 in 1 out, direct | 2047 | 4047 | 57 |
-| Merge 52 in 1 out, execute_sync | 2125 | 4223 OVER | 60 |
-| Ring merge 52 in 1 out | 2111 | 4143 OVER | 58 |
-| Merge 3 in 1 out, 8 compact, direct | 479 | 862 | 8 |
-| Merge 3 in 1 out, 8 compact, execute_sync | 508 | 989 | 11 |
-| Ring merge 3 in 1 out, 8 compact | 543 | 958 | 9 |
-| Merge 9 in 1 out, 24 compact, direct | 671 | 1252 | 14 |
-| Merge 9 in 1 out, 24 compact, execute_sync | 706 | 1385 | 17 |
-| Ring merge 9 in 1 out, 24 compact | 735 | 1348 | 15 |
-| Merge 25 in 1 out, 52 compact, direct | 1183 | 2292 | 30 |
-| Merge 25 in 1 out, 52 compact, execute_sync | 1234 | 2441 | 33 |
-| Ring merge 25 in 1 out, 52 compact | 1247 | 2388 | 31 |
-| Merge 51 in 1 out, 52 compact, direct | 2015 | 3982 | 56 |
-| Merge 51 in 1 out, 52 compact, execute_sync | 2092 | 4157 OVER | 59 |
-| Ring merge 51 in 1 out, 52 compact | 2079 | 4078 | 57 |
+| Transact 2 in 4 out | 961 | 1279 | 6 |
+| Transact 3 in 4 out | 994 | 1345 | 7 |
+| Transact 5 in 4 out | 1060 | 1477 | 9 |
+| Transact 24 in 4 out | 1687 | 2731 | 28 |
+| Transact 16 in 8 out | 2051 | 2831 | 20 |
+| Transact 8 in 16 out | 3043 | 3559 | 12 |
+| Transact 49 in 2 out | 2198 | 4067 | 53 |
+| Transact 9 in 2 out, 49x2 compact | 878 | 1427 | 13 |
+| Transact 1 in 3 out, 2x4 compact | 771 | 1056 | 5 |
+| Ring transact EdDSA 24 in 4 out | 1815 | 2924 | 30 |
+| Ring transact anonymous 24 in 4 out | 1912 | 3021 | 30 |
+| Ring transact EdDSA 16 in 8 out | 2307 | 3152 | 22 |
+| Ring transact anonymous 16 in 8 out | 2404 | 3249 | 22 |
+| Ring transact EdDSA 8 in 16 out | 3555 | 4136 OVER | 14 |
+| Ring transact anonymous 8 in 16 out | 3652 | 4233 OVER | 14 |
+| Ring transact EdDSA 49 in 2 out | 2262 | 4196 OVER | 55 |
+| Ring transact anonymous 49 in 2 out | 2359 | 4293 OVER | 55 |
+| Ring transact EdDSA 47 in 2 out, 49x2 compact | 2196 | 4064 | 53 |
+| Ring transact anonymous 46 in 2 out, 49x2 compact | 2260 | 4095 | 52 |
+| Merge 8 in 1 out, direct | 640 | 1188 | 13 |
+| Merge 8 in 1 out, execute_sync | 674 | 1320 | 16 |
+| Ring merge 8 in 1 out | 705 | 1285 | 14 |
+| Merge 24 in 1 out, direct | 1152 | 2228 | 29 |
+| Merge 24 in 1 out, execute_sync | 1202 | 2376 | 32 |
+| Ring merge 24 in 1 out | 1217 | 2325 | 30 |
+| Merge 52 in 1 out, direct | 2048 | 4048 | 57 |
+| Merge 52 in 1 out, execute_sync | 2126 | 4224 OVER | 60 |
+| Ring merge 52 in 1 out | 2113 | 4145 OVER | 58 |
+| Merge 3 in 1 out, 8 compact, direct | 480 | 863 | 8 |
+| Merge 3 in 1 out, 8 compact, execute_sync | 509 | 990 | 11 |
+| Ring merge 3 in 1 out, 8 compact | 545 | 960 | 9 |
+| Merge 9 in 1 out, 24 compact, direct | 672 | 1253 | 14 |
+| Merge 9 in 1 out, 24 compact, execute_sync | 707 | 1386 | 17 |
+| Ring merge 9 in 1 out, 24 compact | 737 | 1350 | 15 |
+| Merge 25 in 1 out, 52 compact, direct | 1184 | 2293 | 30 |
+| Merge 25 in 1 out, 52 compact, execute_sync | 1235 | 2442 | 33 |
+| Ring merge 25 in 1 out, 52 compact | 1249 | 2390 | 31 |
+| Merge 51 in 1 out, 52 compact, direct | 2016 | 3983 | 56 |
+| Merge 51 in 1 out, 52 compact, execute_sync | 2093 | 4158 OVER | 59 |
+| Ring merge 51 in 1 out, 52 compact | 2081 | 4080 | 57 |
 
 A full 52-input merge fits when sent directly. Through Squads
 `execute_transaction_sync` it exceeds 4,096 bytes, and the smart account runs
@@ -2607,12 +2610,41 @@ the policy-ring cleanliness and output-well-formed rules.
 
 # Ring Program Interface
 
+**Accounts**
+
+Accounts can be Solana or compressed accounts.
+
+| # | Name | Description |
+| --- | --- | --- |
+| 1 | Ring config | Configures authorities and features of a ring |
+| 2 | User config | Configures a shared viewing key |
+
+**Instructions**
+
+A ring program is free to implement the following instructions, a subset or superset. SPP instructions that are not exposed via the ring program are not accessible to ring users — e.g. if `merge_transact` is not exposed, merge services cannot merge ring UTXOs. Tags are local to each ring program.
+
+| Instruction | Description |
+| --- | --- |
+| transact | Tag 0; verify policy proof, CPI SPP `ring_transact` |
+| deposit | Tag 1; public deposit; no encryption; CPI SPP `ring_deposit` |
+| merge_transact | Tag 2; run policy authorization, CPI SPP `ring_merge_transact` to consolidate the user's ring UTXOs |
+| authority_transact | Tag 3; proves correctness of a state transition by a ring authority (freeze, thaw, transaction with permanent delegate, ...). Merge UTXOs on behalf of the user. Ring authority has full access to all UTXOs owned by the ring. The access is constrained by the ring program implementation. CPI SPP `ring_authority_transact` |
+| create_ring_config | Tag 4; admin: creates account for a ring; the config is public, sets the auditor X25519 key (`X25519Pubkey`), ring authority, freeze authority, permanent authority, co-signer |
+| update_ring_config | Tag 5; admin: ring authority updates the ring config |
+
+**Permanent authority.** For a permanent-delegate transfer through `authority_transact`, the ring proof must check that the nullifier secret key spending each input is known to the authority, otherwise the authority can authorize a transfer it cannot nullify. The ring defines how: derive the nullifier secret from a blinding the authority holds, or store it encrypted to the authority in an account the proof reads.
+
+**Policy data.**
+
+UTXOs can include a `ring_data` field interpreted by the ring program, hashed into the `ring_data_hash` slot of [UTXO Hash](#utxo-hash). The ring program defines the schema and the hashing scheme.
+
+The reference ring program in `custom-rings/` documents its ring modes and audit encodings in [its README](../custom-rings/README.md#rings-and-rails).
+
 A ring program adds authorization, audit and policy before it CPIs into SPP.
 SPP still checks note conservation, ownership on owner-signed rails and
 nullifiers. The reference ring lives in `custom-rings/program`, and
 `custom-rings/interface` holds its account layouts, instruction data,
-statements and errors. The [custom rings guide](../custom-rings/README.md)
-describes its operation.
+statements and errors.
 
 Let `HashChain` and `HashChain4` be as in [SPP Proof](#hash-chain-4),
 `hash_bytes_N` as in [Glossary](#glossary), and `owner_proof_input_hash` and
