@@ -3263,6 +3263,7 @@ dependencies = [
  "solana-rpc-client",
  "solana-signature",
  "solana-signer",
+ "wincode",
  "zolana-client",
  "zolana-hasher",
  "zolana-interface",

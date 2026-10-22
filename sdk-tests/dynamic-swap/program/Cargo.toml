@@ -34,7 +34,13 @@ zolana-account-checks = { workspace = true }
 zolana-hasher = { workspace = true }
 zolana-interface = { workspace = true }
 zolana-program = { workspace = true, features = ["cpi"] }
-bytemuck = { workspace = true }
+# `min_const_generics`: without it bytemuck only implements Pod/Zeroable for
+# arrays up to 32 elements, and `Pair` holds the 33-byte tagged X25519 maker
+# encryption key. The feature is purely additive.
+bytemuck = { workspace = true, features = ["min_const_generics"] }
+
+[dev-dependencies]
+zolana-account-checks = { workspace = true, features = ["test-only"] }
 
 [lints.rust.unexpected_cfgs]
 level = "allow"
