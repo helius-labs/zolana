@@ -5,7 +5,7 @@ PATH=/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/bin
 parent_cid=3
 # Holds every served key, the baked custom-ring keys moved in below included,
 # plus the largest partial download.
-keys_mib=15360
+read -r keys_mib < /etc/zolana-nitro/serve
 
 # Any child exit ends the enclave for the parent to restart.
 trap 'exit 1' USR1
@@ -46,8 +46,13 @@ export PROVER_SYNC_CONCURRENCY="$concurrency"
 [ ! -f /etc/zolana-nitro/request-timing ] || export PROVER_REQUEST_TIMING=true
 set -- start --require-optimized-build --server-only --auto-download --preload-keys none \
     --keys-dir /proving-keys --prover-address 127.0.0.1:3001 --metrics-address 127.0.0.1:9998 \
-    --tee nitro --transfer-concurrency "$concurrency" \
-    --serve 'transfer_*' --serve 'merge_*' --serve 'custom_ring_*'
+    --tee nitro --transfer-concurrency "$concurrency"
+{
+    read -r _
+    while read -r pattern; do
+        set -- "$@" --serve "$pattern"
+    done
+} < /etc/zolana-nitro/serve
 indexer=$(cat /etc/zolana-nitro/indexer-url)
 [ -z "$indexer" ] || set -- "$@" --indexer-url "$indexer"
 export GOMEMLIMIT="${heap_mib}MiB"

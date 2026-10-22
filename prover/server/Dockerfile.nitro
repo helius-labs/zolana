@@ -30,6 +30,7 @@ ARG CONCURRENCY=2
 ARG KEY_SOURCE=boot
 ARG KMS_KEY_ARN=
 ARG REQUEST_TIMING=
+ARG SERVE=client
 RUN mkdir /out \
     && case $BACKEND in gnark) ;; aeglos-cpu) echo "$BACKEND" > /out/backend ;; *) echo "BACKEND must be gnark or aeglos-cpu" >&2; exit 1 ;; esac \
     && case $REQUEST_TIMING in "") ;; on) echo on > /out/request-timing ;; *) echo "REQUEST_TIMING must be empty or on" >&2; exit 1 ;; esac \
@@ -42,6 +43,7 @@ RUN mkdir /out \
     esac \
     && echo "$KEY_SOURCE" > /out/key-source \
     && sh nitro/routes.sh prover/common/key_downloader.go "$INDEXER_URL" "$KMS_KEY_ARN" > /out/routes \
+    && sh nitro/serve.sh "$SERVE" > /out/serve \
     && printf '%s\n' "$KMS_KEY_ARN" > /out/kms-key \
     && printf '%s\n' "$INDEXER_URL" > /out/indexer-url
 

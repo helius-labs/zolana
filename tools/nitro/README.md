@@ -97,9 +97,9 @@ The stock `nitro-enclaves-allocator` refuses a CPU pool that spans NUMA nodes.
 The `zolana-allocator` unit runs it once per enclave, each run with its own config under `NITRO_CLI_INSTALL_DIR`, which reserves huge pages on that node.
 It then writes the union of the enclave CPUs to the driver's pool.
 Each enclave runs in its own `zolana-enclave@i` unit, which restarts only that enclave.
-Inside the enclave the key tmpfs takes 6 GiB, and a test pins that it holds every served key plus the largest partial download.
+Inside the enclave the key tmpfs takes the size `prover/server/nitro/serve.sh` pins for the served key set, and a test checks that it holds every served key plus the largest partial download.
 The prover heap limit is the enclave memory less the tmpfs and 2 GiB for the kernel and root file system.
-`--instance-type` accepts any x86 type with Nitro Enclaves support, 6 vCPUs and 40 GiB, and the enclave scales with it.
+`--instance-type` accepts any x86 type with Nitro Enclaves support, 6 vCPUs and 49 GiB, and the enclave scales with it.
 
 ## Prerequisites
 
@@ -149,6 +149,7 @@ Log in with `aws sso login --profile AdministratorAccess-558215002830` when the 
    A batch collects while the previous one proves, so full batches of the default `--batch-max 4` need `CONCURRENCY=8`.
    A test image from a local Aeglos checkout takes the extracted tree as `aeglos_source` and `--build-arg AEGLOS_UNPINNED=1`.
    `--build-arg REQUEST_TIMING=on` lets a client that sends `X-Prover-Timing: true` read the prover's stage timings from response headers outside the encryption.
+   `--build-arg SERVE=rings` serves only the ring transfer, ring merge and custom ring keys, and sizes the key tmpfs for them.
 
 3. Resolve the pushed digest.
    The digest, not the tag, identifies the image from here on.
@@ -214,7 +215,7 @@ Use SSM to read them.
 The parent passes the enclave only the encrypted seed and role credentials, and the enclave trusts neither beyond what KMS proves.
 An indexer that requires an API key does not work, because the parent could read it, so use a keyless indexer or client-supplied proof data.
 
-The enclave serves the transfer, merge and custom ring keys.
+The default `SERVE=client` serves the transfer, merge and custom ring keys.
 It does not serve the batch address-append keys of the forester, because the key tmpfs and the heap are sized for client keys.
 
 A new image, indexer or instance type requires a new deployment name, and so a new KMS key and a new build.
