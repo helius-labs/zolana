@@ -200,7 +200,9 @@ fn save_wallet(path: &Path, keypair: &ShieldedKeypair, funding: &Keypair) -> Res
         funding_secret_hex: hex::encode(funding.secret_bytes()),
         funding_pubkey: funding.pubkey().to_string(),
     };
-    // A wallet key never exists on disk with looser permissions, even briefly.
+    // Write a secret file without ever overwriting an existing one. The file is
+    // created `0o600` up front (exclusive `create_new`), so a wallet key never
+    // exists on disk with looser permissions, even briefly.
     create_new(path, &serde_json::to_vec_pretty(&file)?, Visibility::Secret)?;
     Ok(())
 }

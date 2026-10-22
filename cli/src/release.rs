@@ -100,8 +100,9 @@ impl Release {
         Ok(path)
     }
 
-    /// The surfpool tarball comes from another repository without a pinned checksum, so
-    /// `surfpool --version` asserts it, as `just install-surfpool` does.
+    /// Downloads the custom surfpool binary from its own release. The tarball has
+    /// no lockfile checksum (separate repo), so integrity is asserted via
+    /// `surfpool --version`, matching the `just install-surfpool` recipe.
     pub(crate) fn surfpool_binary(&self) -> Result<PathBuf> {
         let (os, arch) = host_platform()?;
         let dir = cache_dir(&self.lock.release_tag).join("surfpool");
@@ -169,7 +170,9 @@ fn select_binary<'a>(
 
 fn extract_tar_gz(archive: &Path, dest: &Path) -> Result<()> {
     fs::create_dir_all(dest).with_context(|| format!("failed to create {}", dest.display()))?;
-    // GNU tar would extract macOS sidecars, and the validator fails to parse them as accounts.
+    // Exclude macOS AppleDouble/.DS_Store sidecars: if a snapshot tarball was
+    // packed on macOS with them, GNU tar would materialize them into the account
+    // dir and the validator would try to parse them as account JSON and fail.
     let status = Command::new("tar")
         .args(["--exclude=._*", "--exclude=.DS_Store", "-xzf"])
         .arg(archive)

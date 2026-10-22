@@ -127,7 +127,9 @@ pub(crate) fn remove_launchd_validators() {
     }
 }
 
-/// Processes merely connected to `port`, such as Photon polling the validator, keep running.
+/// Stop the process listening on `port`. Processes merely connected to it, such
+/// as a test's RPC client or Photon polling the validator, are not the service
+/// and keep running.
 pub(crate) fn stop_port(port: u16) {
     // An invalid scope refuses the stop, never an unscoped fallback.
     match process_scope() {
