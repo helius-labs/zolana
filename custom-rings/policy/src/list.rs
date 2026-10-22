@@ -8,6 +8,15 @@ pub enum Writer {
     Member,
 }
 
+impl Writer {
+    pub const fn writable(self) -> ListSet {
+        match self {
+            Self::Authority => ListSet::AUTHORITY_WRITES,
+            Self::Member => ListSet::MEMBER_WRITES,
+        }
+    }
+}
+
 macro_rules! lists {
     ($($variant:ident = $id:literal, $name:literal => $writer:ident,)*) => {
         /// Never `0`, the byte of an empty source slot.
@@ -60,13 +69,6 @@ impl ListId {
 
     pub const fn record_bit(self) -> u64 {
         ListSet::single(self).record_bits()
-    }
-
-    /// The list of record bit `bit`, `None` past the lists the enum names.
-    pub fn of_record_bit(bit: u32) -> Option<Self> {
-        u8::try_from(bit)
-            .ok()
-            .and_then(|bit| Self::try_from(bit.checked_add(1)?).ok())
     }
 }
 
@@ -191,6 +193,7 @@ pub struct ListWrite {
     clear: ListSet,
 }
 
+#[must_use]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ListChange {
     pub set: ListSet,
@@ -234,18 +237,6 @@ impl ListWrite {
     pub const fn value(self) -> u64 {
         self.set.record_bits()
     }
-
-    /// The signer every touched list admits, `None` across both writers or for the escrow bit.
-    pub const fn writer(self) -> Option<Writer> {
-        let lists = self.set.union(self.clear);
-        if lists.is_subset(ListSet::MEMBER_WRITES) {
-            Some(Writer::Member)
-        } else if lists.is_subset(ListSet::AUTHORITY_WRITES) {
-            Some(Writer::Authority)
-        } else {
-            None
-        }
-    }
 }
 
 #[cfg(test)]
@@ -283,7 +274,6 @@ mod tests {
         .check()
         .unwrap();
         assert_eq!((write.mask(), write.value()), (0b11, 0b01));
-        assert_eq!(write.writer(), Some(Writer::Authority));
         let member = ListChange {
             set: ListSet::EMPTY,
             clear: ListSet::single(ListId::Recovery),
@@ -291,11 +281,10 @@ mod tests {
         .check()
         .unwrap();
         assert_eq!((member.mask(), member.value()), (0b1_0000, 0));
-        assert_eq!(member.writer(), Some(Writer::Member));
     }
 
     #[test]
-    fn a_list_write_refuses_no_list_both_sets_and_mixed_or_escrow_writers() {
+    fn a_list_write_refuses_no_list_and_a_list_both_set_and_cleared() {
         let write = |set, clear| ListChange { set, clear }.check();
         assert_eq!(
             write(ListSet::EMPTY, ListSet::EMPTY),
@@ -303,10 +292,6 @@ mod tests {
         );
         let allow = ListSet::single(ListId::Allow);
         assert_eq!(write(allow, allow), Err(ListWriteError::SetAndCleared));
-        let mixed = write(allow, ListSet::single(ListId::Recovery)).unwrap();
-        assert_eq!(mixed.writer(), None);
-        let escrow = write(ListSet::single(ListId::Escrow), ListSet::EMPTY).unwrap();
-        assert_eq!(escrow.writer(), None);
     }
 
     #[test]
@@ -319,26 +304,14 @@ mod tests {
     }
 
     #[test]
-    fn the_writer_of_every_list_is_pinned() {
-        use Writer::{Authority, Member};
-        assert_eq!(
-            ListId::ALL.map(ListId::writer),
-            [Authority, Authority, Authority, Member, Member, Authority, Authority, Member]
-        );
-    }
-
-    #[test]
     fn every_slot_of_all_parses_and_nothing_else_does() {
         for (slot, list_id) in ListId::ALL.into_iter().enumerate() {
             assert_eq!(ListId::try_from(slot as u8 + 1), Ok(list_id));
             assert_eq!(list_id.slot(), slot);
             assert_eq!(list_id.record_bit(), 1 << slot);
-            assert_eq!(ListId::of_record_bit(slot as u32), Some(list_id));
         }
         assert_eq!(ListId::try_from(0), Err(()));
         assert_eq!(ListId::try_from(MAX_SOURCES as u8 + 1), Err(()));
-        assert_eq!(ListId::of_record_bit(MAX_SOURCES as u32), None);
-        assert_eq!(ListId::of_record_bit(63), None);
     }
 
     #[test]

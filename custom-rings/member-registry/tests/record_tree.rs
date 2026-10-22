@@ -151,7 +151,7 @@ fn openings_resolve_present_and_absent_members_under_their_root() {
     tree.apply([0; 32], &[write(4, ALLOW, ALLOW), write(9, BLOCK, BLOCK)])
         .unwrap();
     let root = tree.root().unwrap();
-    let [four, five, seven, ten] = [4, 5, 7, 10].map(member);
+    let [four, five, seven, nine, ten] = [4, 5, 7, 9, 10].map(member);
     let present = tree.opening(&four).unwrap();
     let check = |opening, member| OpeningCheck {
         opening,
@@ -162,10 +162,12 @@ fn openings_resolve_present_and_absent_members_under_their_root() {
     let absent = tree.opening(&seven).unwrap();
     assert!(matches!(absent, RecordOpening::Absent { low, .. } if low.member == four));
     assert_eq!(check(&absent, &seven).verify(), Ok(None));
-    assert_eq!(
-        check(&absent, &ten).verify(),
-        Err(RecordTreeError::NotBracketed)
-    );
+    for outside in [&four, &nine, &ten] {
+        assert_eq!(
+            check(&absent, outside).verify(),
+            Err(RecordTreeError::NotBracketed)
+        );
+    }
     assert_eq!(
         check(&present, &five).verify(),
         Err(RecordTreeError::NotBracketed)

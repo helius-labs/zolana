@@ -22,7 +22,7 @@ pub const POLICY_TABLE_DOMAIN: u32 = 0x4352_5442;
 pub const POLICY_TABLE_FIELDS: usize =
     5 + 2 * MAX_SOURCES + MAX_RULES + 2 * MAX_INLINE_ASSETS + 3 * MAX_OUTFLOW_LIMITS;
 /// Fields absorbed per Poseidon call beside the accumulator, the 12-input syscall maximum.
-pub const POLICY_TABLE_RATE: usize = 11;
+pub(crate) const POLICY_TABLE_RATE: usize = 11;
 
 const _: () =
     assert!(POLICY_TABLE_FIELDS == 77 && POLICY_TABLE_FIELDS.is_multiple_of(POLICY_TABLE_RATE));
@@ -141,6 +141,7 @@ impl SourceMap {
 
     /// Every curator slot names the one foreign registry the circuit opens.
     fn check_curators(&self) -> Result<(), SourceMapError> {
+        const _: () = assert!(N_FOREIGN == 1);
         let mut curators = self
             .slots
             .iter()
@@ -721,6 +722,7 @@ pub struct EncodedRuleTable {
 }
 
 /// Wire parts of a table, `encode` checks the counts and `decode` the rest.
+#[must_use]
 #[derive(Clone, Copy, Debug)]
 pub struct TableParts<'a> {
     pub rows: &'a [[u8; 32]],
@@ -793,10 +795,10 @@ impl EncodedRuleTable {
             return Err(RuleTableError::NonZeroPadding);
         }
         let limits: Vec<u64> = limits.iter().copied().map(u64::from_be_bytes).collect();
-        let mut builder = RuleTable::builder().inline_assets(members).limits(&outflow);
-        if limits.iter().any(|limit| *limit != 0) {
-            builder = builder.inline_limits(&limits);
-        }
+        let mut builder = RuleTable::builder()
+            .inline_assets(members)
+            .inline_limits(&limits)
+            .limits(&outflow);
         for row in rows {
             builder = builder.rule(Rule::decode(row)?);
         }

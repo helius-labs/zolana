@@ -123,11 +123,11 @@ impl ApplyProofInputs {
 
 pub trait RecordTree: RecordStore {
     fn root(&self) -> Result<[u8; 32], Self::Error> {
-        node_at(self, self.next_index()?, NodePosition::ROOT)
+        Filled::of(self)?.node(NodePosition::ROOT)
     }
 
     fn path(&self, index: u64) -> Result<QuadPath, Self::Error> {
-        path_at(self, self.next_index()?, index)
+        Filled::of(self)?.path(index)
     }
 
     fn opening(&self, member: &[u8; 32]) -> Result<RecordOpening, Self::Error> {
@@ -159,18 +159,21 @@ pub trait RecordTree: RecordStore {
         entries.iter().try_for_each(check_entry)?;
         let old_root = self.root()?;
         let old_next_index = self.next_index()?;
-        let mut next_index = old_next_index;
+        let mut tree = Growing {
+            store: self,
+            next_index: old_next_index,
+        };
         let mut chain_end = chain_start;
         let mut writes = Vec::with_capacity(entries.len());
         for entry in entries {
-            writes.push(apply_entry(self, &mut next_index, entry)?);
+            writes.push(tree.apply(entry)?);
             chain_end = queue_chain(&chain_end, entry).map_err(RecordTreeError::from)?;
         }
         Ok(ApplyProofInputs {
             old_root,
-            new_root: node_at(self, next_index, NodePosition::ROOT)?,
+            new_root: tree.filled().node(NodePosition::ROOT)?,
             old_next_index,
-            new_next_index: next_index,
+            new_next_index: tree.next_index,
             chain_start,
             chain_end,
             writes,
@@ -180,78 +183,133 @@ pub trait RecordTree: RecordStore {
 
 impl<S: RecordStore + ?Sized> RecordTree for S {}
 
-/// One write in the order the apply circuit proves its steps.
-fn apply_entry<S: RecordStore + ?Sized>(
-    store: &mut S,
-    next_index: &mut u64,
-    entry: &QueueEntry,
-) -> Result<RecordWriteProofInput, S::Error> {
-    if let Some(IndexedRecord { index, record }) = store.record(&entry.member)? {
-        let slot = path_at(store, *next_index, index)?;
-        write_leaf(store, *next_index, index, record.written(entry))?;
-        return Ok(RecordWriteProofInput {
+/// The store with every leaf from `next_index` on empty.
+struct Filled<'s, S: ?Sized> {
+    store: &'s S,
+    next_index: u64,
+}
+
+impl<'s, S: RecordStore + ?Sized> Filled<'s, S> {
+    fn of(store: &'s S) -> Result<Self, S::Error> {
+        Ok(Self {
+            next_index: store.next_index()?,
+            store,
+        })
+    }
+
+    fn node(&self, at: NodePosition) -> Result<[u8; 32], S::Error> {
+        if at.is_empty(self.next_index) {
+            return Ok(ZERO_SUBTREES[at.level]);
+        }
+        self.store.node(at)
+    }
+
+    fn path(&self, index: u64) -> Result<QuadPath, S::Error> {
+        let mut siblings = [[[0u8; 32]; QUAD_ARITY - 1]; QUAD_HEIGHT];
+        for (level, positions) in QuadPath::sibling_positions(index)?.iter().enumerate() {
+            for (sibling, at) in siblings[level].iter_mut().zip(positions) {
+                *sibling = self.node(*at)?;
+            }
+        }
+        Ok(QuadPath { index, siblings })
+    }
+}
+
+/// The store an application writes, `next_index` advancing at each insert.
+struct Growing<'s, S: ?Sized> {
+    store: &'s mut S,
+    next_index: u64,
+}
+
+impl<S: RecordStore + ?Sized> Growing<'_, S> {
+    fn filled(&self) -> Filled<'_, S> {
+        Filled {
+            store: self.store,
+            next_index: self.next_index,
+        }
+    }
+
+    /// One write in the order the apply circuit proves its steps.
+    fn apply(&mut self, entry: &QueueEntry) -> Result<RecordWriteProofInput, S::Error> {
+        if let Some(IndexedRecord { index, record }) = self.store.record(&entry.member)? {
+            let slot = self.filled().path(index)?;
+            self.write(index, record.written(entry))?;
+            return Ok(RecordWriteProofInput {
+                entry: *entry,
+                exists: true,
+                old_next: record.next,
+                old_lists: record.lists,
+                old_escrow: record.escrow_key,
+                slot,
+                low: MemberRecord::default(),
+                low_path: QuadPath::default(),
+            });
+        }
+        let IndexedRecord {
+            index: low_index,
+            record: low,
+        } = self.store.low_record(&entry.member)?;
+        if !low.brackets(&entry.member) {
+            return Err(RecordTreeError::NotBracketed.into());
+        }
+        let low_path = self.filled().path(low_index)?;
+        let inserted = MemberRecord {
+            member: entry.member,
+            next: low.next,
+            lists: 0,
+            escrow_key: [0; 32],
+        }
+        .written(entry);
+        let absent = |slot| RecordWriteProofInput {
             entry: *entry,
-            exists: true,
-            old_next: record.next,
-            old_lists: record.lists,
-            old_escrow: record.escrow_key,
+            exists: false,
+            old_next: low.next,
+            old_lists: 0,
+            old_escrow: [0; 32],
             slot,
-            low: MemberRecord::default(),
-            low_path: QuadPath::default(),
-        });
-    }
-    let IndexedRecord {
-        index: low_index,
-        record: low,
-    } = store.low_record(&entry.member)?;
-    if !low.brackets(&entry.member) {
-        return Err(RecordTreeError::NotBracketed.into());
-    }
-    let low_path = path_at(store, *next_index, low_index)?;
-    let inserted = MemberRecord {
-        member: entry.member,
-        next: low.next,
-        lists: 0,
-        escrow_key: [0; 32],
-    }
-    .written(entry);
-    let absent = |slot| RecordWriteProofInput {
-        entry: *entry,
-        exists: false,
-        old_next: low.next,
-        old_lists: 0,
-        old_escrow: [0; 32],
-        slot,
-        low,
-        low_path,
-    };
-    let full = *next_index >= MEMBER_REGISTRY_CAPACITY;
-    // An empty record is never inserted, the write proves the absence and keeps the root.
-    if inserted.is_empty() {
-        // The circuit range-checks a no-op's slot and nothing else.
-        let slot = if full {
-            low_path
-        } else {
-            path_at(store, *next_index, *next_index)?
+            low,
+            low_path,
         };
-        return Ok(absent(slot));
+        let full = self.next_index >= MEMBER_REGISTRY_CAPACITY;
+        // An empty record is never inserted, the write proves the absence and keeps the root.
+        if inserted.is_empty() {
+            // The circuit range-checks a no-op's slot and nothing else.
+            let slot = if full {
+                low_path
+            } else {
+                self.filled().path(self.next_index)?
+            };
+            return Ok(absent(slot));
+        }
+        if full {
+            return Err(RecordTreeError::Full.into());
+        }
+        self.write(
+            low_index,
+            MemberRecord {
+                next: entry.member,
+                ..low
+            },
+        )?;
+        let slot = self.filled().path(self.next_index)?;
+        self.write(self.next_index, inserted)?;
+        self.next_index += 1;
+        Ok(absent(slot))
     }
-    if full {
-        return Err(RecordTreeError::Full.into());
+
+    /// Writes the record and every node from its leaf to the root.
+    fn write(&mut self, index: u64, record: MemberRecord) -> Result<(), S::Error> {
+        let path = self.filled().path(index)?;
+        self.store.set_record(index, record)?;
+        let mut node = record.hash().map_err(RecordTreeError::from)?;
+        for (level, siblings) in path.siblings.iter().enumerate() {
+            let at = NodePosition::on_path(index, level);
+            self.store.set_node(at, node)?;
+            node =
+                quad_node(&children(node, at.digit(), siblings)).map_err(RecordTreeError::from)?;
+        }
+        self.store.set_node(NodePosition::ROOT, node)
     }
-    write_leaf(
-        store,
-        *next_index,
-        low_index,
-        MemberRecord {
-            next: entry.member,
-            ..low
-        },
-    )?;
-    let slot = path_at(store, *next_index, *next_index)?;
-    write_leaf(store, *next_index, *next_index, inserted)?;
-    *next_index += 1;
-    Ok(absent(slot))
 }
 
 fn check_entry(entry: &QueueEntry) -> Result<(), RecordTreeError> {
@@ -260,47 +318,4 @@ fn check_entry(entry: &QueueEntry) -> Result<(), RecordTreeError> {
         return Err(RecordTreeError::ValueOutsideMask);
     }
     Ok(())
-}
-
-fn node_at<S: RecordStore + ?Sized>(
-    store: &S,
-    next_index: u64,
-    at: NodePosition,
-) -> Result<[u8; 32], S::Error> {
-    if at.is_empty(next_index) {
-        return Ok(ZERO_SUBTREES[at.level]);
-    }
-    store.node(at)
-}
-
-fn path_at<S: RecordStore + ?Sized>(
-    store: &S,
-    next_index: u64,
-    index: u64,
-) -> Result<QuadPath, S::Error> {
-    let mut siblings = [[[0u8; 32]; QUAD_ARITY - 1]; QUAD_HEIGHT];
-    for (level, positions) in QuadPath::sibling_positions(index)?.iter().enumerate() {
-        for (sibling, at) in siblings[level].iter_mut().zip(positions) {
-            *sibling = node_at(store, next_index, *at)?;
-        }
-    }
-    Ok(QuadPath { index, siblings })
-}
-
-/// Writes the record and every node from its leaf to the root.
-fn write_leaf<S: RecordStore + ?Sized>(
-    store: &mut S,
-    next_index: u64,
-    index: u64,
-    record: MemberRecord,
-) -> Result<(), S::Error> {
-    let path = path_at(store, next_index, index)?;
-    store.set_record(index, record)?;
-    let mut node = record.hash().map_err(RecordTreeError::from)?;
-    for (level, siblings) in path.siblings.iter().enumerate() {
-        let at = NodePosition::on_path(index, level);
-        store.set_node(at, node)?;
-        node = quad_node(&children(node, at.digit(), siblings)).map_err(RecordTreeError::from)?;
-    }
-    store.set_node(NodePosition::ROOT, node)
 }

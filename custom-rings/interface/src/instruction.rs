@@ -356,11 +356,8 @@ impl WriteRecordsIxData {
         if mask == 0 || value & !mask != 0 {
             return Err(CustomRingError::ValueOutsideMask);
         }
-        let writable = match writer {
-            Writer::Member => ListSet::MEMBER_WRITES,
-            Writer::Authority => ListSet::AUTHORITY_WRITES,
-        };
-        if !ListSet::from_record_bits(mask).is_some_and(|lists| lists.is_subset(writable)) {
+        if !ListSet::from_record_bits(mask).is_some_and(|lists| lists.is_subset(writer.writable()))
+        {
             return Err(CustomRingError::ListBitNotWritable);
         }
         Ok(QueueEntry {
