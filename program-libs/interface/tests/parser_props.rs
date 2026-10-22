@@ -304,8 +304,7 @@ proptest! {
             prop_assert!(TransactIxDataRef::parse_with_tail(truncated).is_err());
         }
 
-        // A trailing byte violates the exact-length contract of `deserialize`,
-        // the tail-tolerant view returns it as the ring program's control tail.
+        // A trailing byte violates the exact-length contract of `deserialize`.
         let mut extended = bytes.clone();
         extended.push(trailing);
         prop_assert!(TransactIxData::deserialize(&extended).is_err());

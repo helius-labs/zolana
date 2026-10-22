@@ -786,7 +786,9 @@ fn ring_authority_transact_rejects_an_owner_signer() {
 #[test]
 fn ring_authority_transact_rejects_an_unsupported_shape() {
     let mut env = Pool::initialized();
-    // INV-RING-AUTH-04, no rail takes a 3x3 shape.
+    // INV-RING-AUTH-04: the ring-authority keys cover the supported shapes of at
+    // most `RING_AUTHORITY_MAX_INPUTS` inputs; (3 inputs, 3 outputs) is
+    // wire-valid but no rail supports it, so it must fail key selection here.
     let ring_config = write_ring_config(
         &mut env,
         pda::shielded_pool_program_id(),

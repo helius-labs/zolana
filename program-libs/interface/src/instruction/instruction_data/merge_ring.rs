@@ -5,7 +5,12 @@ use super::merge_transact::{MergeTransactIxData, MergeTransactIxDataRef, RefConf
 use crate::instruction::tag::RING_MERGE_TRANSACT;
 
 /// `merge_ring` instruction data (spec: SPP `merge_ring`): the
-/// [`MergeTransactIxData`] body plus the ring fields the calling ring program selects.
+/// [`MergeTransactIxData`] body plus the output `ring_data_hash`, the member
+/// registry root and the anonymous flag the calling ring program selected. The
+/// merge proof asserts the hash against `Output.Utxo.RingDataHash` and folds it
+/// into the public-input hash; the wallet reads it from the event to
+/// reconstruct the merged ring output. The ring merge proof binds
+/// `merge.output_encryption` too.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct MergeRingIxData {
     pub output_ring_data_hash: [u8; 32],

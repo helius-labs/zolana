@@ -144,11 +144,13 @@ impl<'a> MergeProof<'a> {
     /// hash, dummy-input policy). The default merge then appends the owner's
     /// signing identity and nullifier public key (from the registry) and its
     /// scheme's ciphertext elements (PoseidonCtrV1: the salt and the three
-    /// ciphertext elements). The policy-ring merge appends its ring binding,
-    /// then the same ciphertext elements. The 7-element prefix is 1 + 3 + 3,
-    /// so it ends on a complete HashChain4 group without padding. Continuing
-    /// from its hash with the tail is therefore equivalent to folding all
-    /// elements together.
+    /// ciphertext elements). The policy-ring merge omits that identity (no
+    /// `user_record` registry to bind it against), and appends the output
+    /// `ring_data_hash`, `ring_program_id`, `member_registry_root` and the
+    /// anonymous flag, then the same ciphertext elements. The 7-element prefix
+    /// is 1 + 3 + 3, so it ends on a complete HashChain4 group without padding.
+    /// Continuing from its hash with the tail is therefore equivalent to
+    /// folding all elements together.
     pub fn public_input_hash(&self) -> Result<[u8; 32], ProgramError> {
         // The circuit's `TreeSlotsHashChain` over `[slot0, 0, 0, 0, 0]`: one
         // slot hash folded onto the precomputed four-slot zero suffix.

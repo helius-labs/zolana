@@ -61,7 +61,8 @@ pub const MAX_MERGE_OUTPUT_ENCRYPTION_PUBLIC_INPUTS: usize = 4;
 /// The merged output's amount and mint encrypted for its owner, so the owner
 /// can rebuild the output from the merge transaction alone. The variant is the
 /// scheme: on `merge_transact` it must equal the scheme in the owner's registry
-/// record and it selects the verifying key. Both merge proofs bind its payload.
+/// record, it selects the verifying key, and the merge proof binds its payload.
+/// The ring merge proof binds its payload too.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 #[wincode(tag_encoding = "u8")]
 pub enum MergeOutputEncryption {

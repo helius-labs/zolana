@@ -195,7 +195,8 @@ impl Shape {
         false
     }
 
-    /// Whether the ring authority rail takes this shape, see [`ring_authority_shapes`].
+    /// Whether the ring authority rail has keys for this shape: a supported shape
+    /// of at most [`RING_AUTHORITY_MAX_INPUTS`] inputs.
     pub const fn is_ring_authority(self) -> bool {
         self.n_inputs <= RING_AUTHORITY_MAX_INPUTS && self.is_supported()
     }

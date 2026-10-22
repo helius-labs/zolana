@@ -47,7 +47,13 @@ pub fn process_merge_ring_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
         MergeRingAccounts::validate_and_parse(accounts, merge.nullifiers.len(), merge.cache_slot)?;
     let cache = load_merge_cache(merge_accounts.cache, clock.unix_timestamp)?;
 
-    // The binding names no owner, a non-anonymous proof opens the owner's record under the root.
+    // The ring merge proof binds `ring_program_id` from the signing `ring_config`
+    // and the output `ring_data_hash` the ring program selected, and is verified
+    // against the `merge_ring_<n_inputs>_1` key. A policy ring has no
+    // `user_record` registry, so the `Ring` binding omits owner identity entirely
+    // (see `MergeProof::public_input_hash`); the binding and the declared input
+    // count select the verifying key. The proof binds `merge.output_encryption`
+    // too.
     let ring_program_id = hash_bytes(merge_accounts.ring_program_id.as_array())?;
     let owner_binding = MergeOwnerBinding::Ring {
         ring_program_id,
