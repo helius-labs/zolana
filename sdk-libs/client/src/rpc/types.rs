@@ -265,3 +265,55 @@ pub struct ProveResult {
     pub public_inputs: Vec<[u8; 32]>,
     pub circuit_id: u16,
 }
+
+#[cfg(test)]
+mod tests {
+    use zolana_merkle_tree::MerkleTree;
+
+    use super::*;
+
+    /// Leaf 5 of a tree holding leaves 0 to 7.
+    fn proof() -> MerkleProof {
+        let leaves: Vec<[u8; 32]> = (0u8..8)
+            .map(|leaf| zolana_hasher::primitives::right_align(&[leaf + 1]))
+            .collect();
+        let mut tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
+        for leaf in &leaves {
+            tree.append(leaf).unwrap();
+        }
+        MerkleProof {
+            leaf: leaves[5],
+            merkle_context: MerkleContext {
+                tree_type: 0,
+                tree: Address::new_from_array([3; 32]),
+            },
+            path: tree.get_proof_of_leaf(5, true).unwrap(),
+            leaf_index: 5,
+            root: tree.root(),
+            root_seq: 0,
+            root_index: 0,
+        }
+    }
+
+    #[test]
+    fn a_state_proof_is_used_only_when_its_path_reaches_its_root() {
+        let valid = proof();
+        let tree = valid.merkle_context.tree;
+        assert!(valid.check_leaf(&valid.leaf, &tree, 0).is_ok());
+        type Forgery = fn(&mut MerkleProof);
+        let forgeries: &[Forgery] = &[
+            |proof| proof.root[31] ^= 1,
+            |proof| proof.path[3][31] ^= 1,
+            |proof| proof.leaf_index = 4,
+            |proof| proof.leaf_index += 1 << STATE_TREE_HEIGHT,
+        ];
+        for forge in forgeries {
+            let mut forged = proof();
+            forge(&mut forged);
+            assert!(matches!(
+                forged.check_leaf(&forged.leaf, &tree, 2),
+                Err(ClientError::StateProofRootMismatch { index: 2 })
+            ));
+        }
+    }
+}
