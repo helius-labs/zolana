@@ -26,7 +26,8 @@ Any compose the API key holder deploys under the same app derives the same key a
 
 ## Building on it
 
-The SDK pins one deployment, the devnet Nitro Enclave prover at `https://d55y5ksdsm1vw.cloudfront.net` (`DEFAULT_PROVER_URL` in Rust, `DEFAULT_TEE_PROVER_ENDPOINT` in TypeScript), in `sdk-libs/client/src/prover/tee/policy.json` and its TypeScript mirror `default.ts`.
+The SDK pins `devnet-d-tee-1`, the devnet Nitro Enclave prover at `https://d1unet9hn0mci0.cloudfront.net` (`DEFAULT_PROVER_URL` in Rust, `DEFAULT_TEE_PROVER_ENDPOINT` in TypeScript), in `sdk-libs/client/src/prover/tee/policy.json` and its TypeScript mirror `default.ts`. The matching Photon endpoint is `https://d21d98xh5lgv3b.cloudfront.net`.
+The enclave was built from prover source commit `81d8f9cefed610247c9bd4cf69c3cf8553e0b731`, with build tooling from `f0a9bb48e9c16d15835f87bb462379ed2220e8c0`, in the [measured build](https://github.com/helius-labs/zolana/actions/runs/39691894680). Both SDKs pin its PCR0–PCR2 measurements and attested HPKE public key from the [verified deployment policy](https://github.com/helius-labs/zolana-examples/blob/858aa579823177472f7b5ac334b4efef1c366045/devnet-tee-policy.json). Clients use this policy automatically; no caller-supplied policy is needed for this deployment.
 Every prover client requires a remote prover to attest to that pin and encrypts each call to it, except a loopback prover and the Helius gateway, which cannot relay encrypted requests.
 In Rust, `ProverClient::without_tee` and `AsyncProverClient::without_tee` send plaintext and `with_tee` takes another policy; `ProverClient::attest` returns the verified `AttestedProver` on demand.
 In TypeScript, `tee: false` on `ProverClient` and `proverTee: false` on `ZolanaClient` send plaintext, and a `ZolanaClient` given a Helius devnet RPC URL proves through the pinned prover.

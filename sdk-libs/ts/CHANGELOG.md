@@ -177,6 +177,7 @@ Changed
 
 Fixed
 
+- `DEFAULT_TEE_PROVER_ENDPOINT` and `defaultTeePolicy()` now select the devnet-d-tee-1 enclave, so default devnet proving no longer targets the earlier enclave or rejects the current enclave's attestation.
 - `syncWallet` failed with `CLIENT_INVALID_RPC_RESPONSE` on any indexed transaction whose published viewing key is not a valid X25519 key, now such a transaction is read without a viewing key and its outputs count as undecryptable, as do outputs under a small-order transaction key.
 - `auditRingTransaction`, `auditRing` and `recoverRingMemberNotes` rejected the auditor message of an anonymous ring, and `decodeRingProgramConfig` threw on one; they now take `mode: "anonymous"`, report hidden senders, inputs and recipients in `anonymous` like `RingRpc.getDecryptedTransactions`, and the config decodes with `mode` while transaction builders keep refusing an anonymous ring.
 - `syncWallet` and custom ring recovery could not recover a merge output

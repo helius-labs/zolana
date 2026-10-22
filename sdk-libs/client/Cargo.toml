@@ -151,6 +151,12 @@ name = "prover_retry"
 [[test]]
 name = "prover_http_client"
 
+# The archived default-deployment attestation is hermetic; the ignored test
+# additionally generates and verifies one proof against the live devnet TEE.
+[[test]]
+name = "prover_default_tee"
+required-features = ["reqwest"]
+
 [[test]]
 name = "transaction_proving"
 required-features = ["proofs"]

@@ -20,7 +20,7 @@ export const ZOLANA_GATEWAY_PATH = "/v1/zolana";
  * The devnet Nitro Enclave prover the SDK's default TEE deployment pins. A
  * Helius devnet RPC URL sends proofs here rather than to its gateway.
  */
-export const DEFAULT_TEE_PROVER_ENDPOINT = "https://d55y5ksdsm1vw.cloudfront.net";
+export const DEFAULT_TEE_PROVER_ENDPOINT = "https://d1unet9hn0mci0.cloudfront.net";
 
 const HELIUS_RPC_HOST = /(^|\.)helius-rpc\.com$/u;
 // devnet.helius-rpc.com and beta-devnet.helius-rpc.com.

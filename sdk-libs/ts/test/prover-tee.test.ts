@@ -104,6 +104,37 @@ describe("TEE policy", () => {
     expect(DEFAULT_TEE_POLICY_FILE).toEqual(json("../../client/src/prover/tee/policy.json"));
   });
 
+  it("authenticates devnet-d-tee-1 with the default pin and refuses changed bindings", () => {
+    const live = decode.record(
+      json("../../../prover/tee/testdata/devnet_d_tee_1_attestation.json"),
+      "live",
+    );
+    const nonce = hexToBytes(decode.string(live["nonce"], "nonce"));
+    const at = Number(decode.integer(live["captured_at"], "captured_at"));
+    const policy = defaultTeePolicy();
+    const attested = verifyAttestation(live["attestation"], policy, nonce, at);
+    expect(attested.platform).toBe("aws-nitro");
+    expect(bytesToHex(attested.hpkePublicKey)).toBe(policy.hpkePublicKey);
+    expect(
+      check(() =>
+        verifyAttestation(
+          live["attestation"],
+          { ...policy, hpkePublicKey: "00".repeat(32) },
+          nonce,
+          at,
+        ),
+      ),
+    ).toBe("hpke_key");
+    expect(
+      check(() => verifyAttestation(live["attestation"], policy, new Uint8Array(32), at)),
+    ).toBe("nonce");
+    // Nitro freshness is nonce-bound; maxAgeSecs expires the session's cached
+    // key, while archival evidence also fails after its certificate expires.
+    expect(
+      check(() => verifyAttestation(live["attestation"], policy, nonce, at + 2 * 86_400)),
+    ).toBe("certificate_validity");
+  });
+
   it("accepts the archived deployment attestation", () => {
     const live = decode.record(json("../../../prover/tee/testdata/live_attestation.json"), "live");
     const nonce = hexToBytes(decode.string(live["nonce"], "nonce"));
