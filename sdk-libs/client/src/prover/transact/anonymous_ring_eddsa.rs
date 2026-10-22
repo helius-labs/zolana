@@ -3,6 +3,7 @@
 //! that signature and keeps the owner distinct from every public party.
 
 use num_bigint::BigUint;
+use serde::Serialize;
 use serde_json::{Map, Value};
 use solana_address::Address;
 use zeroize::Zeroizing;
@@ -26,7 +27,7 @@ use crate::{
         client::{Delivery, ProveRequest},
         field::be,
         indexed::hex_field,
-        json::to_json_ring,
+        json::{ring_transfer_inputs, secret_json_body, TransferInputsJson},
         proving_key::ExpectedProvingKey,
         transact::assembly::{
             assemble_transaction, confidential_marked_output_owner_pk_hashes, ring_secrets,
@@ -423,14 +424,17 @@ impl ProveRequest for AnonymousEddsaTransferInputs {
     /// The Solana-only wire form with the circuit type and the owner fields of
     /// the prover's `AnonymousEddsaTransferParametersJSON`.
     fn body(&self) -> Result<Zeroizing<String>, ClientError> {
-        let mut body: Map<String, Value> = serde_json::from_str(&to_json_ring(&self.transfer)?)
-            .expect("the transfer request is a JSON object");
-        body.insert(
-            "circuitType".to_string(),
-            Value::String("transfer-eddsa-ring".to_string()),
-        );
-        body.extend(self.authorization.fields());
-        Ok(Zeroizing::new(Value::Object(body).to_string()))
+        #[derive(Serialize)]
+        struct Body {
+            #[serde(flatten)]
+            transfer: TransferInputsJson,
+            #[serde(flatten)]
+            authorization: Map<String, Value>,
+        }
+        secret_json_body(&Body {
+            transfer: ring_transfer_inputs(&self.transfer, "transfer-eddsa-ring")?,
+            authorization: self.authorization.fields(),
+        })
     }
 
     fn proving_key(&self) -> Result<ExpectedProvingKey, ClientError> {
@@ -481,7 +485,9 @@ mod tests {
                 parties: [[4u8; 32], [0u8; 32], [6u8; 32]],
             },
         };
-        let body: Value = serde_json::from_str(&inputs.body().unwrap()).unwrap();
+        let body = inputs.body().unwrap();
+        assert_eq!(body.capacity(), body.len());
+        let body: Value = serde_json::from_str(&body).unwrap();
         assert_eq!(body["circuitType"], "transfer-eddsa-ring");
         assert_eq!(body["ownerPublicKey"], format!("0x{}", "01".repeat(32)));
         assert_eq!(body["ownerSignature"], format!("0x{}", "02".repeat(64)));

@@ -338,9 +338,15 @@ impl Request for IndexedProofRequest {
             public_inputs: self.data.public_inputs.iter().map(hex_field).collect(),
             min_context_slot: self.min_context_slot,
         };
-        let mut body = Zeroizing::new(serde_json::to_string(&envelope).map_err(|_| invalid())?);
-        body.pop();
-        body.push_str(",\"prepared\":");
+        let envelope = serde_json::to_string(&envelope).map_err(|_| invalid())?;
+        let head = envelope.strip_suffix('}').ok_or_else(invalid)?;
+        const PREPARED: &str = ",\"prepared\":";
+        // Sized up front, no push reallocates once the witness is in.
+        let mut body = Zeroizing::new(String::with_capacity(
+            head.len() + PREPARED.len() + self.data.witness.len() + 1,
+        ));
+        body.push_str(head);
+        body.push_str(PREPARED);
         body.push_str(&self.data.witness);
         body.push('}');
         Ok(body)
@@ -679,7 +685,9 @@ mod tests {
         let request = IndexedProofRequest::new(request_data())
             .unwrap()
             .with_min_context_slot(42);
-        let body: serde_json::Value = serde_json::from_str(&request.body().unwrap()).unwrap();
+        let body = request.body().unwrap();
+        assert_eq!(body.capacity(), body.len());
+        let body: serde_json::Value = serde_json::from_str(&body).unwrap();
         assert_eq!(body["minContextSlot"], 42);
         assert!(body["prepared"].get("treeSlots").is_none());
     }

@@ -53,9 +53,9 @@ impl ProveRequest for CircuitRequest {
 }
 
 /// Transfer-shaped proofs are fast enough to ask for in the response.
-fn in_response(body: String, proving_key: ExpectedProvingKey) -> CircuitRequest {
+fn in_response(body: Zeroizing<String>, proving_key: ExpectedProvingKey) -> CircuitRequest {
     CircuitRequest {
-        body: Zeroizing::new(body),
+        body,
         proving_key,
         delivery: Delivery::InResponse,
     }
@@ -80,7 +80,7 @@ pub fn ring_authority(inputs: &TransferInputs) -> Result<CircuitRequest, ClientE
 pub(crate) fn merge(inputs: &MergeInputs) -> Result<CircuitRequest, ClientError> {
     validate_merge_state(inputs)?;
     let key = ExpectedProvingKey::merge(inputs.inputs.len())?;
-    Ok(in_response(to_json_merge(inputs), key))
+    Ok(in_response(to_json_merge(inputs)?, key))
 }
 
 pub fn merge_ring(inputs: &MergeInputs) -> Result<CircuitRequest, ClientError> {
@@ -89,7 +89,7 @@ pub fn merge_ring(inputs: &MergeInputs) -> Result<CircuitRequest, ClientError> {
         return Err(ClientError::RingMemberUnregistered);
     }
     let key = ExpectedProvingKey::merge_ring(inputs.inputs.len())?;
-    Ok(in_response(to_json_merge_ring(inputs), key))
+    Ok(in_response(to_json_merge_ring(inputs)?, key))
 }
 
 /// Raw numeric requests carry the same merge state obligation as wallet plans.

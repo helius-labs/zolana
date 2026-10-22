@@ -1,6 +1,7 @@
 use super::ProofInputUtxo;
 use num_bigint::BigUint;
 use serde::Serialize;
+use zeroize::Zeroizing;
 
 use crate::{
     error::ClientError,
@@ -9,6 +10,37 @@ use crate::{
         TransferOutput, TreeSlotFields,
     },
 };
+
+/// Sized before it is written, a reallocation would leave the secrets in freed memory.
+pub fn secret_json_body<T: Serialize + ?Sized>(
+    value: &T,
+) -> Result<Zeroizing<String>, ClientError> {
+    let encoding = |error: serde_json::Error| ClientError::Prover(error.to_string());
+    let mut length = ByteCount::default();
+    serde_json::to_writer(&mut length, value).map_err(encoding)?;
+    let mut body = Zeroizing::new(Vec::with_capacity(length.0));
+    serde_json::to_writer(&mut *body, value).map_err(encoding)?;
+    String::from_utf8(core::mem::take(&mut *body))
+        .map(Zeroizing::new)
+        .map_err(|error| {
+            drop(Zeroizing::new(error.into_bytes()));
+            ClientError::Prover("the request body is not UTF-8".to_string())
+        })
+}
+
+#[derive(Default)]
+struct ByteCount(usize);
+
+impl std::io::Write for ByteCount {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0 += bytes.len();
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
 
 fn big_uint_to_string(value: &BigUint) -> String {
     format!("0x{}", value.to_str_radix(16))
@@ -416,7 +448,10 @@ fn merge_output_to_json(output: &TransferOutput) -> MergeOutputParamsJson {
     }
 }
 
-fn merge_params_json(inputs: &MergeInputs, circuit_type: &str) -> String {
+fn merge_params_json(
+    inputs: &MergeInputs,
+    circuit_type: &str,
+) -> Result<Zeroizing<String>, ClientError> {
     let json = MergeParametersJson {
         circuit_type: circuit_type.to_string(),
         inputs: inputs.inputs.iter().map(merge_input_to_json).collect(),
@@ -436,17 +471,17 @@ fn merge_params_json(inputs: &MergeInputs, circuit_type: &str) -> String {
         ring_program_id: big_uint_to_string(&inputs.ring_program_id),
         registration: inputs.registration.as_ref().map(merge_registration_to_json),
     };
-    serde_json::to_string(&json).expect("JSON serialization failed for valid struct")
+    secret_json_body(&json)
 }
 
 /// Serialize the default merge witness to the prover server's JSON request body.
-pub(crate) fn to_json_merge(inputs: &MergeInputs) -> String {
+pub(crate) fn to_json_merge(inputs: &MergeInputs) -> Result<Zeroizing<String>, ClientError> {
     merge_params_json(inputs, "merge")
 }
 
 /// Serialize the policy-ring merge witness; the prover server routes `"merge-ring"`
 /// to the merge-ring circuit and reads the top-level `ringProgramId`.
-pub(crate) fn to_json_merge_ring(inputs: &MergeInputs) -> String {
+pub(crate) fn to_json_merge_ring(inputs: &MergeInputs) -> Result<Zeroizing<String>, ClientError> {
     merge_params_json(inputs, "merge-ring")
 }
 
@@ -520,8 +555,15 @@ pub(crate) fn to_json_batch_address_append(inputs: &BatchAddressAppendInputs) ->
 fn transfer_inputs_json(
     inputs: &TransferInputs,
     circuit_type: &str,
-) -> Result<String, ClientError> {
-    let json = TransferInputsJson {
+) -> Result<Zeroizing<String>, ClientError> {
+    secret_json_body(&transfer_inputs(inputs, circuit_type)?)
+}
+
+fn transfer_inputs(
+    inputs: &TransferInputs,
+    circuit_type: &str,
+) -> Result<TransferInputsJson, ClientError> {
+    Ok(TransferInputsJson {
         circuit_type: circuit_type.to_string(),
         n_inputs: inputs.inputs.len(),
         n_outputs: inputs.outputs.len(),
@@ -557,25 +599,34 @@ fn transfer_inputs_json(
             .collect(),
         cache: cache_reads_to_json(&inputs.cache),
         public_input_hash: big_uint_to_string(&inputs.public_input_hash),
-    };
-    Ok(serde_json::to_string(&json).expect("JSON serialization failed for valid struct"))
+    })
 }
 
 /// Serialize the Solana-only confidential transfer witness to the prover server's
 /// JSON request body.
-pub(crate) fn to_json(inputs: &TransferInputs) -> Result<String, ClientError> {
+pub(crate) fn to_json(inputs: &TransferInputs) -> Result<Zeroizing<String>, ClientError> {
     transfer_inputs_json(inputs, "transfer-confidential")
 }
 
 /// Serialize the ring-authority witness to the prover server's JSON request body.
 /// Shares the Solana-only witness shape with [`to_json`]; only the circuit type and
 /// the embedded `public_input_hash` differ.
-pub(crate) fn to_json_ring_authority(inputs: &TransferInputs) -> Result<String, ClientError> {
+pub(crate) fn to_json_ring_authority(
+    inputs: &TransferInputs,
+) -> Result<Zeroizing<String>, ClientError> {
     transfer_inputs_json(inputs, "transfer-ring-authority")
 }
 
 /// Serialize the eddsa confidential policy-ring transfer witness.
-pub(crate) fn to_json_ring(inputs: &TransferInputs) -> Result<String, ClientError> {
+pub(crate) fn to_json_ring(inputs: &TransferInputs) -> Result<Zeroizing<String>, ClientError> {
+    secret_json_body(&ring_transfer_inputs(inputs, "transfer-ring")?)
+}
+
+/// The ring transfer witness under `circuit_type`, every output owner checked first.
+pub(crate) fn ring_transfer_inputs(
+    inputs: &TransferInputs,
+    circuit_type: &str,
+) -> Result<TransferInputsJson, ClientError> {
     let dummy_domain = zolana_hasher::primitives::right_align(
         &zolana_transaction::utxo::DUMMY_DOMAIN.to_be_bytes(),
     );
@@ -603,7 +654,7 @@ pub(crate) fn to_json_ring(inputs: &TransferInputs) -> Result<String, ClientErro
             published,
         )?;
     }
-    transfer_inputs_json(inputs, "transfer-ring")
+    transfer_inputs(inputs, circuit_type)
 }
 
 #[cfg(test)]
@@ -787,7 +838,8 @@ mod merge_tests {
     fn an_anonymous_merge_ring_request_binds_a_zero_root_and_sends_no_member_record() {
         let mut inputs = sample_merge_inputs();
         inputs.registration = Some(crate::prover::MergeRegistration::anonymous());
-        let value: serde_json::Value = serde_json::from_str(&to_json_merge_ring(&inputs)).unwrap();
+        let value: serde_json::Value =
+            serde_json::from_str(&to_json_merge_ring(&inputs).unwrap()).unwrap();
         assert_eq!(value["anonymous"], true);
         assert_eq!(value["memberRegistryRoot"], fe_to_string(&[0; 32]));
         assert!(value.get("memberRecord").is_none());
@@ -799,7 +851,9 @@ mod merge_tests {
     fn to_json_merge_shape() {
         let inputs = sample_merge_inputs();
 
-        let value: serde_json::Value = serde_json::from_str(&to_json_merge(&inputs)).unwrap();
+        let body = to_json_merge(&inputs).unwrap();
+        assert_eq!(body.capacity(), body.len());
+        let value: serde_json::Value = serde_json::from_str(&body).unwrap();
         assert_eq!(value["circuitType"], "merge");
         for key in [
             "inputs",
@@ -888,9 +942,9 @@ mod merge_tests {
             public_input_hash: BigUint::from(9u8),
         };
 
-        let value: serde_json::Value =
-            serde_json::from_str(&to_json_ring_authority(&inputs).expect("ring authority request"))
-                .unwrap();
+        let body = to_json_ring_authority(&inputs).expect("ring authority request");
+        assert_eq!(body.capacity(), body.len());
+        let value: serde_json::Value = serde_json::from_str(&body).unwrap();
         assert_eq!(value["circuitType"], "transfer-ring-authority");
         for key in [
             "nInputs",

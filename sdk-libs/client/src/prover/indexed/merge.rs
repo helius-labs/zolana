@@ -27,7 +27,10 @@ use super::{
 use crate::{
     prover::{
         field::{right_align, right_align_slice},
-        json::{merge_registration_to_json, MergeOutputParamsJson, MergeRegistrationJson},
+        json::{
+            merge_registration_to_json, secret_json_body, MergeOutputParamsJson,
+            MergeRegistrationJson,
+        },
         merge::{
             check_output_ciphertext, MergePublicInputBinding, MergePublicInputs,
             MergeRegistryBinding,
@@ -264,7 +267,7 @@ impl IndexedMergePreparation {
             registration: registration.as_ref().map(merge_registration_to_json),
         };
         let request = IndexedProofRequest::new(IndexedProofData {
-            witness: Zeroizing::new(serde_json::to_string(&witness).map_err(|_| invalid())?),
+            witness: secret_json_body(&witness)?,
             trees: vec![IndexedTree {
                 tree: zolana_interface::pda::tree(tree_id).to_bytes().into(),
                 id: tree_id,
@@ -519,6 +522,8 @@ mod tests {
             assert_eq!(prepared.data.output_utxo_hash, output);
             assert_eq!(prepared.data.nullifiers, vec![real_nullifier]);
             assert_eq!(prepared.request.input_trees()[0].id, 3);
+            let witness = &prepared.request.data.witness;
+            assert_eq!(witness.capacity(), witness.len());
             let body: serde_json::Value = serde_json::from_str(&prepared.body().unwrap()).unwrap();
             assert!(body["prepared"].get("treeSlots").is_none());
             assert!(body["prepared"]["inputs"][0]

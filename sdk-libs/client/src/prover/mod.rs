@@ -26,6 +26,7 @@ pub use client::{
     PROVER_INDEXER_URL_ENV, PROVE_PATH, PROVING_KEYS_PATH, SERVER_ADDRESS,
 };
 pub use endpoint::redact_api_key;
+pub use json::secret_json_body;
 pub use inputs::{
     BatchAddressAppendInputs, CacheReadInputs, MergeInputs, MergeRegistration, TransferInput,
     TransferInputs, TransferOutput, TreeSlotFields,

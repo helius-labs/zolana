@@ -6,7 +6,7 @@ use crate::{
     authority::ProofAuthority,
     prover::{
         field::{be, right_align_slice},
-        json::{output_to_json, utxo_to_json, OutputParamsJson, UtxoParamsJson},
+        json::{output_to_json, secret_json_body, utxo_to_json, OutputParamsJson, UtxoParamsJson},
         transact::{
             anonymous_ring_eddsa::HiddenOwnerAuthorization,
             assembly::{
@@ -359,8 +359,7 @@ impl IndexedTransferPreparation {
                 .map(hex_field)
                 .collect(),
         };
-        let witness =
-            Zeroizing::new(serde_json::to_string(&prepared).map_err(|_| super::invalid())?);
+        let witness = secret_json_body(&prepared)?;
         let request = IndexedProofRequest::new(IndexedProofData {
             witness,
             trees,
