@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import packed from "../../../test-vectors/audit-disclosure.json" with { type: "json" };
 import anonymous from "../../../test-vectors/audit-disclosure-anonymous.json" with { type: "json" };
 import delivered from "../../../test-vectors/audit-disclosure-delivered.json" with { type: "json" };
-import { fieldAdd, initializePoseidon } from "../src/hasher/index.js";
+import { fieldAdd, initializePoseidon, solanaOwnerIdentity } from "../src/hasher/index.js";
 import { CUSTOM_RING_PROOF_LENGTH } from "../src/interface/custom-ring-proof.js";
 import { encodeBase58 } from "../src/interface/internal.js";
 import { treeAddress } from "../src/interface/pda/index.js";
@@ -19,15 +19,18 @@ import {
   sealTransactionViewingSecret,
 } from "../src/keypair/audit.js";
 import { mergeOutputBlinding, mergeOutputKey } from "../src/keypair/merge/index.js";
+import { ownerHash } from "../src/keypair/hash.js";
 import {
   inputPrefix,
   openRingDisclosure,
   sealRingDisclosure,
+  type InputPrefix,
 } from "../src/keypair/ring-disclosure.js";
 import { ShieldedKeypair } from "../src/keypair/shielded.js";
 import { X25519Keypair, X25519PublicKey } from "../src/keypair/x25519.js";
 import {
   KnownUtxoIndex,
+  assignPrefixedInputs,
   auditRing,
   auditRingTransaction,
   knownUtxoHash,
@@ -437,37 +440,92 @@ describe("auditRingTransaction over the shared disclosure vectors", () => {
     expect(index.withPrefix(new Uint8Array(32) as Bytes32, prefix)).toEqual([]);
   });
 
-  it("records every candidate of a prefix two sender notes share and audits the rest", () => {
+  it("opens a later note only when its hash carries the prefix and its owner is the sender", () => {
     const entry = vectorOf("anonymous", "commitment");
     const vector = anonymousCase("commitment");
     const assets = new AssetRegistry();
     const index = spentUtxos(vector, assets);
-    const [first, later] = vector.inputs.map((input) => field(input.commitment));
-    const note = index.utxo(later!)!;
+    const later = field(need(vector.inputs[1], "input 1").commitment);
+    const note = need(index.utxo(later), "known note");
     const twin: KnownUtxo = {
       ...note,
       blinding: Uint8Array.of(0, ...new Uint8Array(31).fill(0x62)) as Bytes32,
     };
-    const twinCommitment = knownUtxoHash(twin, field(vector.ring_id));
-    index.insert(twinCommitment, twin);
-    const sharedPrefix = inputPrefix(later!);
-    const shared: KnownUtxos = {
-      utxo: (commitment) => index.utxo(commitment),
-      withPrefix: (ownerKey, prefix) => [
-        ...index.withPrefix(ownerKey, prefix),
-        ...(prefix === sharedPrefix ? [twinCommitment] : []),
-      ],
+    // A deposited note under the sender's owner hash keeps its commitment with another key.
+    const foreign: KnownUtxo = {
+      ...note,
+      ownerKey: new Uint8Array(32).fill(0x77) as Bytes32,
+      owner: {
+        kind: "deposited",
+        ownerHash: ownerHash(
+          solanaOwnerIdentity(note.ownerKey),
+          field(vector.sender_nullifier_pk),
+        ) as Bytes32,
+      },
     };
-    const audited = audit(entry, { assets, knownUtxos: shared });
-    expect(audited.inputs[0]?.opening).toMatchObject({
+    expect(knownUtxoHash(foreign, field(vector.ring_id))).toEqual(later);
+    const answering = (candidate: Readonly<{ commitment: Bytes32; utxo: KnownUtxo }>) =>
+      ({
+        utxo: (commitment) =>
+          equal(commitment, candidate.commitment) ? candidate.utxo : index.utxo(commitment),
+        withPrefix: (ownerKey, prefix) =>
+          prefix === inputPrefix(later)
+            ? [candidate.commitment]
+            : index.withPrefix(ownerKey, prefix),
+      }) satisfies KnownUtxos;
+    for (const candidate of [
+      { commitment: knownUtxoHash(twin, field(vector.ring_id)), utxo: twin },
+      { commitment: later, utxo: foreign },
+    ])
+      expect(() => audit(entry, { assets, knownUtxos: answering(candidate) })).toThrow(
+        ringError("RING_AUDIT_UNSEEN_INPUT_PREFIX", {
+          prefix: vector.inputs[1]!.commitment.slice(0, 32),
+        }),
+      );
+    expect(
+      audit(entry, { assets, knownUtxos: answering({ commitment: later, utxo: note }) }).inputs[1]
+        ?.opening,
+    ).toMatchObject({ kind: "opened", ring: { kind: "ring", commitment: later } });
+  });
+
+  it("opens k inputs under one prefix from k notes and lists every candidate past k", () => {
+    const vector = anonymousCase("commitment");
+    const known = spentUtxos(vector, new AssetRegistry());
+    const [one, two] = vector.inputs.map((input) => {
+      const commitment = field(input.commitment);
+      return { commitment, utxo: need(known.utxo(commitment), "known note") };
+    });
+    if (one === undefined || two === undefined) throw new Error("the vector spends two notes");
+    const shared = need(inputPrefix(one.commitment), "prefix");
+    const other = need(inputPrefix(two.commitment), "prefix");
+    type Note = NonNullable<typeof one>;
+    const opened = ({ commitment }: Note) => ({
       kind: "opened",
-      ring: { kind: "ring", commitment: first },
+      ring: { kind: "ring", commitment },
     });
-    expect(audited.inputs[1]?.opening).toEqual({
-      kind: "ambiguous",
-      candidates: [later, twinCommitment],
-    });
-    expect(audited.outputs).toHaveLength(vector.slots.length);
+    const reads: InputPrefix[] = [];
+    const assign = (
+      prefixes: readonly (InputPrefix | undefined)[],
+      notesOf: (prefix: InputPrefix) => readonly Note[],
+    ) =>
+      assignPrefixedInputs(prefixes, (prefix) => {
+        reads.push(prefix);
+        return notesOf(prefix);
+      });
+    expect(
+      assign([shared, undefined, other], (prefix) => (prefix === shared ? [one] : [two])),
+    ).toMatchObject([opened(one), { kind: "dummy" }, opened(two)]);
+    reads.length = 0;
+    expect(assign([shared, shared], () => [one, two])).toMatchObject([opened(one), opened(two)]);
+    expect(reads).toEqual([shared]);
+    expect(assign([shared], () => [one, two])).toEqual([
+      { kind: "ambiguous", candidates: [one.commitment, two.commitment] },
+    ]);
+    expect(() => assign([shared, shared], () => [one])).toThrow(
+      ringError("RING_AUDIT_UNSEEN_INPUT_PREFIX", {
+        prefix: vector.inputs[0]!.commitment.slice(0, 32),
+      }),
+    );
   });
 
   it("names no sender nullifier key when spent note 0 is a deposit", () => {

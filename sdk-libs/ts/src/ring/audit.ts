@@ -627,10 +627,13 @@ class Transfer {
         throw new RingError("RING_AUDIT_UNSEEN_INPUT", {
           details: { commitment: bytesKey(first) },
         });
-      const later = prefixedInputs(
-        { known: spent.known, sender: zero.ownerKey, first, ringId: ringIdField(this.keys.ring) },
-        published.prefixes,
-      );
+      const source = {
+        known: spent.known,
+        sender: zero.ownerKey,
+        first,
+        ringId: ringIdField(this.keys.ring),
+      };
+      const later = assignPrefixedInputs(published.prefixes, (prefix) => ringNotes(source, prefix));
       return Object.freeze({
         sender: Object.freeze({
           ownerKey: zero.ownerKey,
@@ -901,17 +904,12 @@ function disclosureSlot<T>(outputs: readonly T[], slot: Slot): T {
   return opening;
 }
 
-type PrefixSource = Readonly<{
-  known: KnownUtxos;
-  sender: Bytes32;
-  first: Bytes32;
-  ringId: Bytes32;
-}>;
+type PrefixNote = Readonly<{ commitment: Bytes32; utxo: KnownUtxo }>;
 
-/** `k` inputs under one prefix open when exactly `k` of the sender's ring notes carry it. */
-function prefixedInputs(
-  source: PrefixSource,
+/** @internal `k` inputs under one prefix open when exactly `k` of the sender's ring notes carry it. */
+export function assignPrefixedInputs(
   prefixes: readonly (InputPrefix | undefined)[],
+  notesOf: (prefix: InputPrefix) => readonly PrefixNote[],
 ): InputOpening[] {
   const positions = new Map<InputPrefix, number[]>();
   prefixes.forEach((prefix, position) => {
@@ -919,7 +917,7 @@ function prefixedInputs(
   });
   const openings = prefixes.map(() => DUMMY_INPUT);
   for (const [prefix, inputs] of positions) {
-    const notes = ringNotes(source, prefix);
+    const notes = notesOf(prefix);
     if (notes.length < inputs.length)
       throw new RingError("RING_AUDIT_UNSEEN_INPUT_PREFIX", {
         details: { prefix: prefix.toString(16).padStart(2 * INPUT_PREFIX_BYTES, "0") },
@@ -941,14 +939,17 @@ function prefixedInputs(
 }
 
 function ringNotes(
-  source: PrefixSource,
+  source: Readonly<{ known: KnownUtxos; sender: Bytes32; first: Bytes32; ringId: Bytes32 }>,
   prefix: InputPrefix,
-): readonly Readonly<{ commitment: Bytes32; utxo: KnownUtxo }>[] {
+): readonly PrefixNote[] {
   const { known, sender, first, ringId } = source;
   return known.withPrefix(sender, prefix).flatMap((commitment) => {
     const utxo = known.utxo(commitment);
+    // The circuit binds every spent UTXO to the prefix and to the owner key of spent UTXO 0.
     return utxo !== undefined &&
       !equal(commitment, first) &&
+      inputPrefix(commitment) === prefix &&
+      equal(utxo.ownerKey, sender) &&
       equal(knownUtxoHash(utxo, ringId), commitment)
       ? [Object.freeze({ commitment, utxo })]
       : [];
