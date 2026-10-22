@@ -1,40 +1,78 @@
-//! # zolana-program
-//!
-//! SPP SDK for Solana programs. Everything here is `no_std` and builds for the
-//! SBF target, so a program that consumes SPP transactions through CPI can
-//! build the shielded-pool instruction and recompute the values the proof
-//! derives instead of trusting instruction data.
-//!
-//! The shielded-pool instruction builders ([`instruction`]) and the
-//! derivations shared between an SPP proof and the program that verifies its
-//! effects ([`derivation`], [`external_data`], [`private_tx`]) live in
-//! `zolana-instruction` and are re-exported here under the same paths.
-//!
-//! Two features serve pinocchio programs. `cpi` adds `cpi`, the transact CPI.
-//! `compression` adds `compression`, program state kept as SPP UTXOs, on top
-//! of it.
-//!
-//! The builders for protocol operations (protocol and fee authority
-//! administration, tree creation, ring activation, and the forester's
-//! nullifier tree maintenance) sit behind the non-default `protocol` feature.
-//!
-//! What does not belong here: anything that needs randomness, signing, or
-//! encryption. Those stay in the host-only SDK crates (`zolana-keypair`,
-//! `zolana-transaction`), which pull dependencies that do not build for SBF.
-
-#![no_std]
+#![cfg_attr(not(feature = "circuit"), no_std)]
 
 extern crate alloc;
-
-#[cfg(feature = "compression")]
-pub mod compression;
 
 #[cfg(feature = "cpi")]
 pub use zolana_instruction::cpi;
 pub use zolana_instruction::{
     derivation, derive_output_blinding_seed, derive_private_tx_blinding,
-    derive_transact_output_blinding, external_data, instruction, private_tx, ExternalDataHashError,
-    PrivateTxHash, SettlementAccounts, TransactExternalData, TransactInputs, ADDRESS_TREE_ID,
-    DOMAIN_PRIVATE_TX_BLINDING_V1, DOMAIN_TRANSACT_OUTPUT_BLINDING_SEED_V1,
-    DOMAIN_TRANSACT_OUTPUT_BLINDING_V1,
+    derive_transact_output_blinding, external_data, instruction, private_tx, public_transfer,
+    transaction_hash, ExternalDataHashError, PrivateTxHash, PublicTransfer, SettlementAccounts,
+    TransactExternalData, TransactInputs, ADDRESS_TREE_ID, DOMAIN_PRIVATE_TX_BLINDING_V1,
+    DOMAIN_TRANSACT_OUTPUT_BLINDING_SEED_V1, DOMAIN_TRANSACT_OUTPUT_BLINDING_V1,
 };
+
+#[cfg(feature = "circuit")]
+#[doc(hidden)]
+pub mod __private;
+#[cfg(feature = "circuit")]
+pub mod circuit;
+#[cfg(feature = "circuit")]
+mod client;
+#[cfg(feature = "circuit")]
+pub mod conversion;
+#[cfg(feature = "circuit")]
+mod error;
+pub mod hasher;
+#[cfg(feature = "compression")]
+pub mod program;
+#[cfg(feature = "test-support")]
+pub mod testing;
+#[cfg(feature = "verifier")]
+pub mod verifier;
+// Build-time codegen: only the r1cs export hook and its tests render verifiers.
+#[cfg(feature = "setup")]
+mod verifier_codegen;
+#[cfg(feature = "wasm")]
+pub mod wasm;
+
+#[cfg(feature = "circuit")]
+pub use client::{
+    Bytes, DataUtxo, EncryptionCodec, ProgramOwner, PublicField, PublicFieldKind, PublicHashField,
+    PublicInputLayout, TxContext, UtxoOwner,
+};
+#[cfg(feature = "client")]
+pub use client::{ProgramTransaction, ZkCircuit, ZkProgramCircuit};
+#[cfg(feature = "circuit")]
+pub use error::{ClientError, ClientErrorKind, ProtocolCircuitErrorKind, SlotKind};
+#[cfg(feature = "circuit")]
+pub use zolana_keypair::circuit::OwnerCircuitErrorKind;
+#[cfg(feature = "circuit")]
+pub use zolana_macros::ZkProgramCircuit;
+// The gates of the ZkCircuit derive, on the zk DSL's features, which this
+// crate's features forward.
+#[cfg(feature = "circuit")]
+#[doc(hidden)]
+pub use zolana_zk_dsl::{__zk_circuit_r1cs, __zk_circuit_wasm, __zk_circuit_wasm_prover};
+// The derive alone; with `client`, `zolana_zk_dsl::ZkCircuit` brings the
+// derive and the trait of the same name.
+#[cfg(feature = "circuit")]
+pub use zolana_transaction::circuit::UtxoCircuitErrorKind;
+#[cfg(feature = "build")]
+pub use zolana_zk_dsl::build;
+#[cfg(all(feature = "circuit", not(feature = "client")))]
+pub use zolana_zk_dsl::circuit::ZkCircuit;
+pub use zolana_zk_dsl::CompressedProof;
+#[cfg(feature = "setup")]
+pub use zolana_zk_dsl::R1cs;
+#[cfg(feature = "circuit")]
+pub use zolana_zk_dsl::{
+    CircuitError, CircuitErrorKind, ProtocolError, ProtocolErrorKind, ProverError, ProverErrorKind,
+    SourceLocation,
+};
+#[cfg(feature = "client")]
+pub use zolana_zk_dsl::{Groth16Keys, Proof, ProvingKey, SolanaVerifyingKey, VerifyingKey};
+#[cfg(feature = "client")]
+pub use zolana_zk_dsl::{Groth16Prover, ProofInputs, ProofResult, SolanaProof};
+#[cfg(feature = "setup")]
+pub use zolana_zk_dsl::{SetupKind, VerifyingKeyExport};

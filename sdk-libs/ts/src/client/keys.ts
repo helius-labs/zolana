@@ -1,7 +1,9 @@
 import type { Address, Bytes32, RequestContext } from "../interface/types.js";
-import type { NullifierKey } from "../keypair/nullifier-key.js";
+import { NullifierKey } from "../keypair/nullifier-key.js";
 import type { X25519PublicKey } from "../keypair/x25519.js";
-import type { ShieldedAddress, ShieldedKeypair } from "../keypair/shielded.js";
+import type { ShieldedAddress, ShieldedKeypair, ShieldedKeypairLike } from "../keypair/shielded.js";
+import { ShieldedPublicKey } from "../keypair/public-key.js";
+import type { ProofInputUtxo } from "../transaction/utxo.js";
 import type { ViewingKey } from "../keypair/viewing-key.js";
 import {
   LocalShieldedKeys,
@@ -144,6 +146,141 @@ export class NullifierKeyProofAuthority implements ProofAuthority {
 }
 
 type Proof = Awaited<ReturnType<ProofService["prove"]>>;
+
+/** @internal Adapts owner-bound local keys to the shared proof pipeline. */
+export class KeypairProofAuthority implements ProofAuthority {
+  readonly #keys: readonly NullifierKey[];
+  readonly #slots: readonly (NullifierKey | undefined)[];
+  readonly #inputs: readonly ProofInputUtxo[];
+  readonly #proofs: ProofService;
+
+  private constructor(
+    keys: readonly NullifierKey[],
+    slots: readonly (NullifierKey | undefined)[],
+    inputs: readonly ProofInputUtxo[],
+    proofs: ProofService,
+  ) {
+    this.#keys = keys;
+    this.#slots = slots;
+    this.#inputs = inputs;
+    this.#proofs = proofs;
+  }
+
+  static async create(
+    keypairs: readonly ShieldedKeypairLike[],
+    inputs: readonly ProofInputUtxo[],
+    proofs: ProofService,
+  ): Promise<KeypairProofAuthority> {
+    const owned: NullifierKey[] = [];
+    try {
+      const service = checkProofService(proofs);
+      const owners: { signing: ShieldedPublicKey; key: NullifierKey }[] = [];
+      const keypairSnapshot = keypairs.slice();
+      for (const keypair of keypairSnapshot) {
+        if (
+          typeof keypair !== "object" ||
+          keypair === null ||
+          typeof keypair.signingPublicKey !== "function" ||
+          typeof keypair.nullifierKey !== "function" ||
+          typeof keypair.nullifierPublicKey !== "function"
+        )
+          throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+        const signing = await keypair.signingPublicKey();
+        if (!(signing instanceof ShieldedPublicKey) || signing.isZero())
+          throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+        const key = await keypair.nullifierKey();
+        if (!(key instanceof NullifierKey)) throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+        owned.push(key);
+        const pubkey = bytesField(key.publicKey(), "nullifier public key");
+        if (pubkey !== bytesField(await keypair.nullifierPublicKey(), "nullifier public key"))
+          throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+        const duplicate = owners.find((owner) => owner.signing.equals(signing));
+        if (
+          duplicate !== undefined &&
+          bytesField(duplicate.key.publicKey(), "nullifier public key") !== pubkey
+        )
+          throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+        owners.push({ signing: ShieldedPublicKey.fromBytes(signing.toBytes()), key });
+      }
+      const slots = inputs.map((input) => {
+        if (input.isDummy() || input.isAddress()) return undefined;
+        const owner = owners.find((entry) => entry.signing.equals(input.utxo.owner));
+        if (owner === undefined) throw new ClientError("CLIENT_MISSING_NULLIFIER_SECRET");
+        if (
+          bytesField(owner.key.publicKey(), "nullifier public key") !==
+            bytesField(input.nullifierPublicKey, "nullifier public key") ||
+          bytesField(owner.key.nullifier(input.hash(), input.utxo.blinding), "nullifier") !==
+            bytesField(input.nullifier(), "nullifier")
+        )
+          throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+        return owner.key;
+      });
+      return new KeypairProofAuthority(owned, slots, inputs, service);
+    } catch (cause) {
+      owned.forEach((key) => key.destroy());
+      throw cause;
+    }
+  }
+
+  #complete<T extends PreparedTransferInput>(inputs: readonly T[]): readonly T[] {
+    if (inputs.length !== this.#inputs.length) throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+    return Object.freeze(
+      inputs.map((input, index) => {
+        const original = this.#inputs[index];
+        if (original === undefined) throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+        const key = this.#slots[index];
+        if (key === undefined) {
+          if ((!original.isDummy() && !original.isAddress()) || input.nullifierSecret !== 0n)
+            throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+          return input;
+        }
+        const ownerHash = bytesField(original.utxo.owner.ownerProofInputHash(), "owner");
+        if (
+          input.isDummy !== 0n ||
+          input.ownerPublicKeyHash !== ownerHash ||
+          input.nullifier !== bytesField(original.nullifier(), "nullifier") ||
+          input.circuit.owner !==
+            poseidon([ownerHash, bytesField(key.publicKey(), "nullifier public key")])
+        )
+          throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+        return Object.freeze({ ...input, nullifierSecret: secretField(key) });
+      }),
+    );
+  }
+
+  prove(inputs: ProverInputs, context?: RequestContext): Promise<Proof> {
+    return this.#proofs.prove(
+      {
+        ...inputs,
+        payload: { ...inputs.payload, inputs: this.#complete(inputs.payload.inputs) },
+      },
+      context,
+    );
+  }
+
+  proveMerge(_inputs: MergeInputs, _context?: RequestContext): Promise<Proof> {
+    throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+  }
+
+  proveIndexed(request: IndexedProofInputs, context?: RequestContext): Promise<IndexedProofResult> {
+    const service: unknown = this.#proofs;
+    if (!hasIndexedMethod(service))
+      throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "proofs" } });
+    const inputs = decodeIndexedInputs(request);
+    if (inputs.circuit === "merge") throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+    return service.proveIndexed(
+      {
+        ...inputs,
+        payload: { ...inputs.payload, inputs: this.#complete(inputs.payload.inputs) },
+      },
+      context,
+    );
+  }
+
+  destroy(): void {
+    this.#keys.forEach((key) => key.destroy());
+  }
+}
 
 function completeTransferInputs(inputs: ProverInputs, key: NullifierKey): ProverInputs {
   return Object.freeze({

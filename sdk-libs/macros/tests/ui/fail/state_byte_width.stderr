@@ -1,0 +1,51 @@
+error[E0277]: the trait bound `zolana_program::circuit::Bytes<16>: DataHash` is not satisfied
+ --> tests/ui/fail/state_byte_width.rs:4:51
+  |
+4 | #[derive(Clone, BorshSerialize, BorshDeserialize, UtxoState)]
+  |                                                   ^^^^^^^^^ the trait `DataHash` is not implemented for `zolana_program::circuit::Bytes<16>`
+  |
+help: the trait `DataHash` is implemented for `zolana_program::circuit::Bytes<32>`
+ --> $WORKSPACE/sdk-libs/program/src/circuit/utxo/data.rs
+  |
+  | impl DataHash for Bytes<32> {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  = note: this error originates in the derive macro `UtxoState` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `zolana_program::Bytes<16>: ToByteArray` is not satisfied
+ --> tests/ui/fail/state_byte_width.rs:4:51
+  |
+4 | #[derive(Clone, BorshSerialize, BorshDeserialize, UtxoState)]
+  |                                                   ^^^^^^^^^ the trait `ToByteArray` is not implemented for `zolana_program::Bytes<16>`
+  |
+help: the trait `ToByteArray` is implemented for `zolana_program::Bytes<32>`
+ --> $WORKSPACE/sdk-libs/program/src/hasher/to_byte_array.rs
+  |
+  | impl ToByteArray for Bytes<32> {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  = note: this error originates in the derive macro `UtxoState` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `zolana_program::circuit::Bytes<33>: DataHash` is not satisfied
+ --> tests/ui/fail/state_byte_width.rs:9:51
+  |
+9 | #[derive(Clone, BorshSerialize, BorshDeserialize, UtxoState)]
+  |                                                   ^^^^^^^^^ the trait `DataHash` is not implemented for `zolana_program::circuit::Bytes<33>`
+  |
+help: the trait `DataHash` is implemented for `zolana_program::circuit::Bytes<32>`
+ --> $WORKSPACE/sdk-libs/program/src/circuit/utxo/data.rs
+  |
+  | impl DataHash for Bytes<32> {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  = note: this error originates in the derive macro `UtxoState` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `zolana_program::Bytes<33>: ToByteArray` is not satisfied
+ --> tests/ui/fail/state_byte_width.rs:9:51
+  |
+9 | #[derive(Clone, BorshSerialize, BorshDeserialize, UtxoState)]
+  |                                                   ^^^^^^^^^ the trait `ToByteArray` is not implemented for `zolana_program::Bytes<33>`
+  |
+help: the trait `ToByteArray` is implemented for `zolana_program::Bytes<32>`
+ --> $WORKSPACE/sdk-libs/program/src/hasher/to_byte_array.rs
+  |
+  | impl ToByteArray for Bytes<32> {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  = note: this error originates in the derive macro `UtxoState` (in Nightly builds, run with -Z macro-backtrace for more info)

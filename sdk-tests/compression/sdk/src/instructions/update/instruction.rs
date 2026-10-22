@@ -4,7 +4,7 @@ use solana_instruction::{AccountMeta, Instruction};
 use zolana_interface::{
     instruction::instruction_data::transact::TransactProof, SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_program::{compression::CompressedAccountMeta, instruction::nullifier_pda_accounts};
+use zolana_program::{instruction::nullifier_pda_accounts, program::UtxoMeta};
 
 use crate::{account_pda, err, tag, UpdateIxData};
 
@@ -13,7 +13,7 @@ pub struct Update {
     pub input_tree: Address,
     pub output_tree: Address,
     /// The UTXO being spent, with the root indexes it is proven against.
-    pub meta: CompressedAccountMeta,
+    pub meta: UtxoMeta,
     /// Nullifier of the UTXO being spent, whose nullifier PDA the transaction
     /// creates.
     pub input_nullifier: [u8; 32],

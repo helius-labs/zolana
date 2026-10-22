@@ -31,8 +31,8 @@ use zolana_interface::{
 };
 use zolana_keypair::ShieldedKeypair;
 use zolana_program::{
-    compression::CompressedAccountMeta,
     instruction::{AssetDeposit, Deposit, DepositAsset, Transact},
+    program::UtxoMeta,
 };
 use zolana_program_test::{create_tree_instructions, fixture, next_tree_id};
 use zolana_test_utils::test_validator_asserts::{
@@ -68,7 +68,7 @@ fn assert_account(
             .is_empty(),
         "account note is unspent"
     );
-    let state = decode_state(
+    let (address, state) = decode_state(
         wallet_utxo
             .utxo
             .data
@@ -80,7 +80,7 @@ fn assert_account(
         || zolana_interface::pda::tree(wallet_utxo.tree_id) != expected_tree
         || state.authority != expected_authority.to_bytes()
         || state.value != expected_value
-        || state.address == [0u8; 32]
+        || address == [0u8; 32]
     {
         bail!("discovered account does not match expected state");
     }
@@ -131,8 +131,8 @@ fn prove_read(
 fn prove_update(
     env: &Environment,
     spp_proof_inputs: SppProofInputs,
-    meta: CompressedAccountMeta,
-) -> Result<(CompressedAccountMeta, TransactProof)> {
+    meta: UtxoMeta,
+) -> Result<(UtxoMeta, TransactProof)> {
     let transact = env.localnet.client.prove_transact(
         spp_proof_inputs,
         None,
@@ -141,7 +141,7 @@ fn prove_update(
     let [tree_context] = transact.tree_contexts.as_slice() else {
         bail!("SPP transact must declare exactly one input tree");
     };
-    let meta = CompressedAccountMeta {
+    let meta = UtxoMeta {
         tree_context: *tree_context,
         ..meta
     };
@@ -321,7 +321,7 @@ fn create_and_update_plaintext_compressed_account() -> Result<()> {
     if current.version != 0 {
         bail!("created account version is not 0");
     }
-    let created_state = decode_state(
+    let (created_address, _created_state) = decode_state(
         current
             .utxo
             .utxo
@@ -329,7 +329,7 @@ fn create_and_update_plaintext_compressed_account() -> Result<()> {
             .utxo_data()
             .ok_or_else(|| anyhow!("created state data missing"))?,
     )?;
-    if created_state.address != create.input_nullifier {
+    if created_address != create.input_nullifier {
         bail!("compressed address is not the address-input nullifier");
     }
 
@@ -396,7 +396,7 @@ fn create_and_update_plaintext_compressed_account() -> Result<()> {
         send(
             &env,
             Read {
-                meta: CompressedAccountMeta {
+                meta: UtxoMeta {
                     tree_context: TreeContext {
                         utxo_tree_root_index: u16::MAX,
                         ..read_current.meta.tree_context
@@ -415,7 +415,7 @@ fn create_and_update_plaintext_compressed_account() -> Result<()> {
         send(
             &env,
             Read {
-                meta: CompressedAccountMeta {
+                meta: UtxoMeta {
                     tree_context: TreeContext {
                         nullifier_tree_root_index: u16::MAX,
                         ..read_current.meta.tree_context
@@ -479,7 +479,7 @@ fn create_and_update_plaintext_compressed_account() -> Result<()> {
     if updated.version != 1 {
         bail!("updated account version is not 1");
     }
-    let old_state = decode_state(
+    let (old_address, _old_state) = decode_state(
         current
             .utxo
             .utxo
@@ -487,7 +487,7 @@ fn create_and_update_plaintext_compressed_account() -> Result<()> {
             .utxo_data()
             .ok_or_else(|| anyhow!("old state data missing"))?,
     )?;
-    let new_state = decode_state(
+    let (new_address, _new_state) = decode_state(
         updated
             .utxo
             .utxo
@@ -495,8 +495,7 @@ fn create_and_update_plaintext_compressed_account() -> Result<()> {
             .utxo_data()
             .ok_or_else(|| anyhow!("new state data missing"))?,
     )?;
-    if old_state.address != new_state.address || current.utxo.utxo.owner != updated.utxo.utxo.owner
-    {
+    if old_address != new_address || current.utxo.utxo.owner != updated.utxo.utxo.owner {
         bail!("update changed the compressed address or PDA owner");
     }
     if send(&env, update_ix, Some(1)).is_ok() {
@@ -666,7 +665,7 @@ fn update_account(
     discover_account(&env.localnet.client, pda)
 }
 
-fn state_of(account: &DiscoveredAccount) -> Result<AccountState> {
+fn state_of(account: &DiscoveredAccount) -> Result<([u8; 32], AccountState)> {
     decode_state(
         account
             .utxo
@@ -679,7 +678,7 @@ fn state_of(account: &DiscoveredAccount) -> Result<AccountState> {
 
 /// An account's UTXO moves out of the tree it was created in and is updated
 /// and read in the tree it moved to. Update and read take the address from
-/// the state, so a moved account keeps working; deriving it from the UTXO's
+/// the metadata, so a moved account keeps working; deriving it from the UTXO's
 /// current tree would strand the account on its first update after the move.
 #[test]
 fn compressed_account_moves_between_trees() -> Result<()> {
@@ -700,17 +699,17 @@ fn compressed_account_moves_between_trees() -> Result<()> {
     )?;
     send(&env, read.instruction()?, None)?;
 
-    let created_state = state_of(&created)?;
-    let final_state = state_of(&updated_in_place)?;
+    let (created_address, _created_state) = state_of(&created)?;
+    let (final_address, final_state) = state_of(&updated_in_place)?;
     assert_eq!(
         (
             moved.utxo.tree_id,
             updated_in_place.utxo.tree_id,
-            final_state.address,
+            final_address,
             final_state.value,
             final_state.version,
         ),
-        (other_tree.id, other_tree.id, created_state.address, 3, 2)
+        (other_tree.id, other_tree.id, created_address, 3, 2)
     );
     Ok(())
 }

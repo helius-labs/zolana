@@ -9,11 +9,15 @@ pay several recipients, a transaction can reserve an address with a
 non-inclusion proof instead of spending a UTXO, and paying a transaction's fee
 no longer authorizes a spend. A merge publishes its output's amount and mint
 encrypted for the owner with the scheme the owner's registry record names, so
-wallet sync recovers a default merge output from the merge transaction alone.
+wallet sync recovers a default merge output from the merge transaction alone,
+and the SDK seals and proves a transaction built by a ZK program's WebAssembly
+bindings, which the program forwards to `transact` through a CPI.
 
 Breaking
 
 - `NULLIFIER_TREE_ROOT_HISTORY_CAPACITY` returns to 100 with 4,999-nullifier proofs, `NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE` is 499,900, and `TREE_ACCOUNT_SIZE` is 40,080 → use a program built with this layout and four tree creation steps.
+- `ShieldedKeypairLike` requires `nullifierKey()` → return an owned key copy that proof completion destroys after use.
+- `DecodedProgramTransaction.toProofInputs` is renamed to `encryptWithKeys` → call `transaction.encryptWithKeys(keys, options)` to encrypt outputs and build SPP proof inputs.
 - `SigningKey` and `ShieldedPublicKey` accept only Ed25519 ownership and PDA public keys, and `SignatureType` drops `"p256"` → migrate P-256-owned notes and registry records before upgrading, use `P256ReaderKey` from `@heliuslabs/zolana/ring` for passkey audit access.
 - `UserRecord` and `RegistryRecord` drop `ownerP256`, and `getRegisterInstructionAsync`, `decodeUserRecordAccount` and `fetchUserRecord` write and read the registry record without a P-256 owner key → register again on a registry program built from this version, a record in the earlier layout fails with `WALLET_INVALID_USER_RECORD`.
 - `MergeTransactInstructionData` drops `eddsaOwner` → remove it from merge data you build and send merge instructions built by this version, the program refuses the earlier layout.
@@ -86,6 +90,10 @@ Breaking
 
 Added
 
+- `bindProgramTransaction(wasmFunction, { assets })` preserves generated input types and returns proof inputs, a public hash, and a validated transaction using a registry snapshot without explicit decoding or per-call registry arguments.
+- `ShieldedPda.withViewingKey(pda, nullifierKey, viewingKey)` takes ownership of the supplied privacy keys and exposes a PDA owner without a signing secret.
+- `ZolanaClient.proveTransact` accepts an array mixing `ShieldedKeypair` and `ShieldedPda`, matches each real input by tagged signing identity regardless of order, and refuses missing or conflicting owner keys.
+- `Mint.fromRegistry(assets, address)` retains a validated mint address and asset ID on `Utxo.mint` and `ProofOutputUtxo.mint`, allowing `encryptConfidentialTransfer` to omit `assets` when every real output retains its mint metadata.
 - `RingRpc.getDecryptedTransactions` returns hidden senders, inputs and recipients in `anonymous` for authorized anonymous-ring audit readers.
 - `buildMultiTransferTransaction(params)` pays up to fifteen recipients of
   one asset in one private transfer, each a `TransferPayment` in order (a
@@ -118,6 +126,28 @@ Added
   `ClientErrorCode` adds `CLIENT_ADDRESS_INPUT_UNSUPPORTED` for an address
   input on the ring authority or merge rail and `CLIENT_INVALID_ADDRESS_INPUT` for a prover
   request that proves an address as another kind of slot.
+- `decodeProgramTransaction(value, assets)` turns the
+  `ProgramFinalizedTransaction` a ZK program's WebAssembly bindings return into
+  SDK inputs, reserved addresses and compact padding included, outputs and
+  owner tags, refusing an input, output hash, owner tag, first nullifier or
+  mint that does not match the transaction with
+  `TRANSACTION_INPUT_HASH_MISMATCH`, `TRANSACTION_OUTPUT_HASH_MISMATCH`,
+  `TRANSACTION_OWNER_TAG_MISMATCH`, `TRANSACTION_OWNER_TAG_COUNT_MISMATCH`,
+  `TRANSACTION_OUTPUT_HASH_COUNT_MISMATCH`,
+  `TRANSACTION_FIRST_NULLIFIER_MISMATCH` or `TRANSACTION_MINT_MISMATCH`, and
+  `DecodedProgramTransaction.encrypt(tx, { expiryUnixTs })` seals every real
+  output and gives each padding slot a length-matched random ciphertext under
+  its owner tag, into the `ExternalData` the program's proof commits to.
+- `toProgramWalletUtxo(utxo, { nullifierPublicKey, treeId, assets })` builds
+  the `ProgramWalletUtxo` those bindings spend and refuses a tree id or
+  nullifier public key that does not open the UTXO's commitment.
+- `ProgramOwner.find(seeds, programId)` derives a ZK program's PDA owner with
+  its `ownerTag()`, `ownerHash()`, `address(viewingPublicKey)` and the shared
+  `ProgramOwner.nullifierKey()`, and
+  `DecodedProgramTransaction.encryptWithKeys(keys, { expiryUnixTs })` seals a
+  program transaction into the `SppProofInputs` that `proveTransact` takes,
+  refusing keys that are not the sender's with
+  `TRANSACTION_KEYS_IDENTITY_MISMATCH`.
 - `transactCpiAccounts(input)` returns the `transactInstruction` accounts with
   a program's signing PDAs after the owner signers,
   `encodeTransactInstructionData(data)` returns the `transact` instruction

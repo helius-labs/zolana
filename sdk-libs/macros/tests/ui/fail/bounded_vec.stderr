@@ -1,0 +1,35 @@
+error: a Vec field needs #[max_len(N)]: a circuit takes a fixed number of items
+ --> tests/ui/fail/bounded_vec.rs:9:12
+  |
+9 |     utxos: Vec<WalletUtxo>,
+  |            ^^^^^^^^^^^^^^^
+
+error: #[max_len] and #[min_len] bound a Vec field
+  --> tests/ui/fail/bounded_vec.rs:15:13
+   |
+15 |     amount: u64,
+   |             ^^^
+
+error: #[max_len] and #[min_len] bound a Vec field
+  --> tests/ui/fail/bounded_vec.rs:21:13
+   |
+21 |     amount: u64,
+   |             ^^^
+
+error: #[max_len] is given more than once
+  --> tests/ui/fail/bounded_vec.rs:27:5
+   |
+27 |     #[max_len(3)]
+   |     ^^^^^^^^^^^^^
+
+error: states have a fixed layout: a Vec field is a proof input of a program
+  --> tests/ui/fail/bounded_vec.rs:34:12
+   |
+34 |     utxos: Vec<WalletUtxo>,
+   |            ^^^^^^^^^^^^^^^
+
+error: public inputs have a fixed layout: a Vec field is a proof input of a program
+  --> tests/ui/fail/bounded_vec.rs:40:12
+   |
+40 |     utxos: Vec<WalletUtxo>,
+   |            ^^^^^^^^^^^^^^^

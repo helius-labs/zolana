@@ -28,15 +28,17 @@ members = [
     "custom-rings/sdk",
     "custom-rings/test",
     "custom-rings/transaction",
+    "sdk-libs/program",
+    "sdk-libs/program/tests/wasm/program",
+    "sdk-libs/macros",
     "sdk-libs/client",
     "sdk-libs/gnark-ffi-prover",
     "sdk-libs/gnark-ffi-prover/build-helper",
     "sdk-libs/event",
     "sdk-libs/indexer-api",
-    "sdk-libs/instruction",
     "sdk-libs/keypair",
     "sdk-libs/merkle-tree",
-    "sdk-libs/program",
+    "sdk-libs/instruction",
     "sdk-libs/smart-account-client",
     "sdk-libs/zolana-api",
     "sdk-libs/program-test",
@@ -58,9 +60,8 @@ members = [
     "sdk-tests/zk-program-swap/sdk",
     "sdk-tests/zk-program-swap/test",
     "sdk-tests/timelock-escrow/program",
-    "sdk-tests/timelock-escrow/prover",
-    "sdk-tests/timelock-escrow/sdk",
-    "sdk-tests/timelock-escrow/test",
+    "sdk-tests/zk-tests",
+    "sdk-tests/zk-standalone",
     "xtask",
 ]
 default-members = [
@@ -95,6 +96,11 @@ zolana-ring-key-registry = { path = "custom-rings/key-registry", version = "0.1.
 zolana-keypair = { path = "sdk-libs/keypair", version = "0.1.0" }
 zolana-instruction = { path = "sdk-libs/instruction", version = "0.1.0" }
 zolana-program = { path = "sdk-libs/program", version = "0.1.0" }
+# The zk crates live in helius-labs/zk-tools (zk-dsl/), pinned by rev.
+zolana-zk-dsl = { git = "https://github.com/helius-labs/zk-tools", rev = "56d6e53616c26a69130c51f9a9084829eef514bd" }
+zolana-zk-gadgets = { git = "https://github.com/helius-labs/zk-tools", rev = "56d6e53616c26a69130c51f9a9084829eef514bd" }
+zolana-zk-macros = { git = "https://github.com/helius-labs/zk-tools", rev = "56d6e53616c26a69130c51f9a9084829eef514bd" }
+zolana-zk-macros-core = { git = "https://github.com/helius-labs/zk-tools", rev = "56d6e53616c26a69130c51f9a9084829eef514bd" }
 zolana-api = { path = "sdk-libs/zolana-api", version = "0.1.0", default-features = false }
 zolana-program-test = { path = "sdk-libs/program-test", version = "0.23.0" }
 zolana-transaction = { path = "sdk-libs/transaction", version = "0.1.0" }
@@ -281,6 +287,9 @@ tokio-stream = "0.1.18"
 zerocopy = "0.8.25"
 
 # Browser (wasm) bindings.
+console_error_panic_hook = "0.1.7"
+js-sys = "0.3"
+serde-wasm-bindgen = "0.6.5"
 tsify = { version = "0.5.8", default-features = false, features = ["js"] }
 wasm-bindgen = "0.2.104"
 
@@ -364,3 +373,7 @@ opt-level = 3
 
 [profile.release]
 overflow-checks = true
+
+# Share the local hasher with the zk-tools git dependencies.
+[patch."https://github.com/helius-labs/zolana"]
+zolana-hasher = { path = "program-libs/hasher" }

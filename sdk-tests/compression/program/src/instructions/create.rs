@@ -2,8 +2,8 @@ use light_program_profiler::profile;
 use pinocchio::{address::address_eq, AccountView, ProgramResult};
 use wincode::{SchemaRead, SchemaWrite};
 use zolana_interface::instruction::instruction_data::transact::{TransactProof, TreeContext};
-use zolana_program::compression::{
-    load_tree_id, AddressSeed, CompressedAccount, NewAddress, PdaOwner, SppTransactCpi,
+use zolana_program::program::{
+    load_tree_id, AddressSeed, PdaOwner, SppTransactCpi, UniqueDataUtxo,
 };
 
 use crate::{
@@ -36,19 +36,22 @@ pub fn process_create_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
     {
         return Err(CompressionError::InvalidTree.into());
     }
-    let input_tree_id = load_tree_id(parsed.input_tree).map_err(compressed_account_error)?;
+    if load_tree_id(parsed.input_tree).map_err(compressed_account_error)?
+        != zolana_program::ADDRESS_TREE_ID
+    {
+        return Err(CompressionError::InvalidTree.into());
+    }
     let authority = *parsed.authority.address();
     let (pda, bump) = (parsed.pda, parsed.bump);
 
     let owner = PdaOwner::new(&pda).map_err(compressed_account_error)?;
-    let address = NewAddress::derive(&owner, AddressSeed::owner(&owner), input_tree_id)
-        .map_err(compressed_account_error)?;
-    let mut account: CompressedAccount<'_, AccountState> =
-        CompressedAccount::new_init(&owner, address, address_tree_context);
+    let mut account: UniqueDataUtxo<'_, AccountState> =
+        UniqueDataUtxo::new_init(&owner, AddressSeed::owner(&owner), address_tree_context)
+            .map_err(compressed_account_error)?;
     account.authority = authority.to_bytes();
     account.value = new_value;
     let cpi = SppTransactCpi::new(proof)
-        .with_compressed_account(account)
+        .with_unique_data_utxo(account)
         .map_err(compressed_account_error)?;
     invoke_signed_by_pda(accounts, &authority, &pda, bump, cpi)
 }

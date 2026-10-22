@@ -3,7 +3,7 @@ use compression_example_program::instructions::read::ReadPublicInput;
 use compression_example_prover::ReadProofInputs;
 use zolana_client::{MerkleProof, NonInclusionProof};
 use zolana_interface::instruction::instruction_data::transact::TreeContext;
-use zolana_program::compression::CompressedAccountMeta;
+use zolana_program::program::UtxoMeta;
 use zolana_transaction::WalletUtxo;
 
 use crate::{err, state::decode_state};
@@ -21,22 +21,19 @@ pub struct ReadCompressedAccount {
     pub proof_inputs: ReadProofInputs,
     pub value: u64,
     pub version: u64,
-    pub meta: CompressedAccountMeta,
+    pub meta: UtxoMeta,
     pub nullifier: [u8; 32],
 }
 
 impl ReadProofInputParams {
     pub fn to_proof_inputs(&self) -> Result<ReadCompressedAccount> {
-        let state = decode_state(
+        let (address, state) = decode_state(
             self.current
                 .utxo
                 .data
                 .utxo_data()
                 .ok_or_else(|| anyhow!("current UTXO has no state data"))?,
         )?;
-        if self.current.utxo.blinding != state.blinding {
-            return Err(anyhow!("current UTXO blinding does not match its state"));
-        }
         if self.merkle_proof.leaf != self.current.utxo_hash {
             return Err(anyhow!("merkle proof is not for the current UTXO"));
         }
@@ -61,9 +58,9 @@ impl ReadProofInputParams {
             },
             value: state.value,
             version: state.version,
-            meta: CompressedAccountMeta {
-                address: state.address,
-                blinding: state.blinding,
+            meta: UtxoMeta {
+                address,
+                blinding: self.current.utxo.blinding,
                 tree_context: TreeContext {
                     utxo_tree_root_index: self.merkle_proof.root_index,
                     nullifier_tree_root_index: self.non_inclusion.root_index,

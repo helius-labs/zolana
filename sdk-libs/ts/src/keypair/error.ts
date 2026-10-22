@@ -16,6 +16,7 @@ export type KeypairErrorCode =
   | "KEYPAIR_HKDF"
   | "KEYPAIR_POSEIDON"
   | "KEYPAIR_NOT_ED25519"
+  | "KEYPAIR_PDA_CANNOT_SIGN"
   | "KEYPAIR_DERIVATION_INPUT"
   | "KEYPAIR_INVALID_DERIVATION_SEED"
   // TypeScript-only: Rust rejects these at the type level.
@@ -32,6 +33,7 @@ export const KEYPAIR_ERROR_RUST_VARIANT: Readonly<Record<KeypairErrorCode, strin
     KEYPAIR_HKDF: "Hkdf",
     KEYPAIR_POSEIDON: "Poseidon",
     KEYPAIR_NOT_ED25519: "NotEd25519",
+    KEYPAIR_PDA_CANNOT_SIGN: "PdaCannotSign",
     KEYPAIR_DERIVATION_INPUT: "DerivationInput",
     KEYPAIR_INVALID_DERIVATION_SEED: "InvalidDerivationSeed",
     KEYPAIR_INVALID_LENGTH: null,

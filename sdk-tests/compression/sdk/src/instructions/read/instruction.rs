@@ -3,7 +3,7 @@ use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use zolana_interface::pda::nullifier_pda;
 
-use zolana_program::compression::{CompressedAccountMeta, CompressedProof};
+use zolana_program::{program::UtxoMeta, CompressedProof};
 
 use crate::{err, tag, ReadIxData};
 
@@ -12,7 +12,7 @@ pub struct Read {
     pub tree: Address,
     pub value: u64,
     pub version: u64,
-    pub meta: CompressedAccountMeta,
+    pub meta: UtxoMeta,
     /// Nullifier of the UTXO being read; its nullifier PDA must not exist.
     pub nullifier: [u8; 32],
     pub proof: CompressedProof,

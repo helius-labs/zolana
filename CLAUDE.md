@@ -31,6 +31,12 @@ prover
 - go prover server
 - rust prover client
 
+The generic ZK DSL, prover, gadgets and core derives live in
+`helius-labs/zk-tools` under `zk-dsl/`. The root Cargo manifest pins them to a
+Git revision. ZK programs use the `zolana-program` re-exports; standalone
+circuits use the zk crates directly. `just check-deps` enforces the SDK
+layering and optional circuit dependencies.
+
 ## Workspace Shape
 
 - `programs/shielded-pool`: the SPP Solana program.
@@ -42,6 +48,8 @@ prover
 - `forester`: compilable forester skeleton for future nullifier-tree
   maintenance work.
 - `prover`: proof client and prover server.
+- `sdk-tests/zk-standalone`: a standalone circuit fixture for Zolana CLI,
+  wasm and SBF integration tests against the pinned zk-tools dependency.
 
 ## Project Structure
 
@@ -72,15 +80,24 @@ program-tests/
 sdk-libs/
   event/               -- indexer-side event discovery; rebuilds GeneralEvent from
                           the emitting instruction plus the minimal on-chain event
-  instruction/         -- SBF-buildable shielded-pool instruction builders and
-                          on-chain SPP derivations; features `cpi` (transact CPI)
-                          and `protocol` (protocol operation builders)
-  keypair/             -- shielded key material and hashes
-  program/             -- SBF-buildable SDK for programs: re-exports
-                          zolana-instruction; feature `compression` (compressed
-                          accounts)
+  instruction/         -- SBF-buildable shielded-pool instruction builders and the
+                          SPP hash and blinding derivations programs recompute;
+                          features `cpi` (transact CPI) and `protocol`
+  keypair/             -- shielded key material and hashes; feature `circuit`
+                          (owner circuit types, ShieldedAddress as proof input)
+  macros/              -- zolana-macros: the ZK program derives (UtxoState,
+                          ZkProgramCircuit, PublicInputs) over zolana-zk-macros-core
+  program/             -- SDK for programs: re-exports zolana-instruction and the
+                          zk crates; feature `compression` (compressed accounts,
+                          SBF-buildable) and the host-only ZK program features
+                          `circuit`, `client`, `setup`; no default features
   program-test/        -- reusable local test/indexer harness
-  transaction/         -- wallet, UTXO, encryption, and transaction logic
+  transaction/         -- wallet, UTXO, encryption, and transaction logic; feature
+                          `circuit` (asset and UTXO circuit types, Mint and
+                          WalletUtxo as proof inputs)
+
+sdk-tests/zk-standalone/ -- standalone circuit fixture and its verifier program
+                          (litesvm test: sdk-tests/zk-tests)
 
 cli/                   -- root Zolana developer/operator CLI
 forester/              -- forester skeleton
@@ -349,8 +366,12 @@ pub enum ShieldedPoolError {
 Builders live in `sdk-libs/instruction/src/instruction/`, not in the interface
 crate: the shielded-pool program links the interface and must not carry client
 surface. `zolana-instruction` is `no_std` and SBF-buildable, so programs that
-CPI into SPP use the same builders as clients. `zolana-program` re-exports it
-under the same paths. Reference: `create_spl_interface.rs`
+CPI into SPP use the same builders as clients. `zolana-transaction` depends on
+`zolana-instruction`. It cannot depend on `zolana-program`, which depends on
+`zolana-transaction` for its ZK program features. The circuit types and proof
+input impls of the wallet types sit in the `circuit` features of
+`zolana-keypair` and `zolana-transaction`, on top of the zk crates, because the
+orphan rule keeps them out of `zolana-program`. Reference: `create_spl_interface.rs`
 
 ```rust
 use alloc::vec;
@@ -382,13 +403,15 @@ impl CreateSplInterface {
 - Use canonical program ids from `program-libs/interface/src/lib.rs`, do not pass as parameter
 - Use fixed-size arrays for instruction data, not Vec, when the instruction data is fixed
 - Add `mod <name>;` + `pub use <name>::<item>;` to `sdk-libs/instruction/src/instruction/mod.rs`
-- Builders are imported as `zolana_instruction::instruction::<builder>` or
-  `zolana_program::instruction::<builder>`
+- Builders are imported as `zolana_program::instruction::<builder>` (re-exported
+  from `zolana_instruction`)
 - Builders for protocol operations (protocol and fee authority administration,
   tree creation, ring activation, forester maintenance) go behind the
-  non-default `protocol` feature (`#[cfg(feature = "protocol")]` on the module
-  or item and its re-export). `CreateSplInterface` stays ungated: the protocol
-  config can open it to everyone, and users register their own mints.
+  non-default `protocol` feature of `zolana-instruction`
+  (`#[cfg(feature = "protocol")]` on the module or item and its re-export),
+  which `zolana-program` exposes as `protocol-instructions`.
+  `CreateSplInterface` stays ungated: the protocol config can open it to
+  everyone, and users register their own mints.
 
 ### Instruction data
 

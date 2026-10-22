@@ -1,0 +1,27 @@
+error[E0277]: `Address` is not a public input field type
+ --> tests/ui/fail/unsupported_public_field.rs:7:18
+  |
+7 |     destination: Address,
+  |                  ^^^^^^^ a public input field implements `PublicHashField`
+  |
+  = help: the trait `PublicHashField` is not implemented for `Address`
+  = note: `PublicHashField` gives the on-chain type of a hashed public input: u16, u32, u64 and u128 are integers, bool is a bool, [u8; 32], Field, ShieldedAddress, Owner and Mint are 32-byte hashes, and [T; N] is an array of a `PublicHashField` type
+  = help: the following other types implement trait `PublicHashField`:
+            [T; N]
+            [u8; 32]
+            bool
+            u128
+            u16
+            u32
+            u64
+            zolana_keypair::shielded::ShieldedAddress
+          and $N others
+note: required by a bound in `<PayoutPublicInputs as PublicInputLayout>::layout::kind`
+ --> tests/ui/fail/unsupported_public_field.rs:4:17
+  |
+4 | #[derive(Clone, PublicInputs)]
+  |                 ^^^^^^^^^^^^ required by this bound in `kind`
+...
+7 |     destination: Address,
+  |                  ------- required by a bound in this function
+  = note: this error originates in the derive macro `PublicInputs` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -7,8 +7,8 @@ use zolana_interface::{
     instruction::instruction_data::transact::TreeContext, pda::nullifier_pda,
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR, SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_program::compression::{
-    load_tree_id, CompressedAccountError, DataUtxo, PdaOwner, ReadRoots, UtxoKey,
+use zolana_program::program::{
+    load_tree_id, CompressedAccountError, PdaOwner, ReadRoots, UtxoKey, UtxoMeta,
 };
 use zolana_tree::{NullifierTreeInitParams, TreeAccount, TreeFeeSchedule};
 
@@ -46,13 +46,25 @@ fn roots_of_pool_tree() -> ReadRoots {
     ReadRoots::load(&mut pool_tree(), &LATEST).unwrap()
 }
 
+struct ReadState;
+
+impl zolana_program::hasher::DataHasher for ReadState {
+    fn hash(&self) -> Result<[u8; 32], zolana_hasher::HasherError> {
+        Ok(right_align(&[9u8]))
+    }
+}
+
 fn key(owner: &PdaOwner) -> UtxoKey {
     roots_of_pool_tree()
-        .key(&DataUtxo {
+        .key(
             owner,
-            data_hash: right_align(&[9u8]),
-            blinding: right_align(&[5u8]),
-        })
+            &UtxoMeta {
+                address: right_align(&[6u8]),
+                blinding: right_align(&[5u8]),
+                tree_context: LATEST,
+            },
+            &ReadState,
+        )
         .unwrap()
 }
 

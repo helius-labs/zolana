@@ -12,9 +12,20 @@ export type CounterpartyCounterMustStayAbsent = CounterpartyCounter;
 // @ts-expect-error -- stable discovery has no configurable counter window.
 export const obsoleteSyncConfig: SyncWalletConfig = { tagWindow: 1n };
 
-import type { ExternalData, SettlementTransfer } from "../src/transaction/index.js";
+import type {
+  DecodedProgramTransaction,
+  ExternalData,
+  ProgramFinalizedTransaction,
+  ProgramWalletUtxo,
+  SettlementTransfer,
+} from "../src/transaction/index.js";
 declare const settlementTransfers: readonly SettlementTransfer[];
 export const externalDataTransfers: ExternalData["interfaceTransfers"] = settlementTransfers;
+declare const decodedProgram: DecodedProgramTransaction;
+export const programInterfaceTransfers: readonly SettlementTransfer[] =
+  decodedProgram.interfaceTransfers;
+export const programExternalData: ExternalData["interfaceTransfers"] = programInterfaceTransfers;
+export type ProgramShapes = readonly [ProgramFinalizedTransaction, ProgramWalletUtxo];
 
 import type { ShieldedKeys } from "../src/transaction/index.js";
 import type { WalletKeys } from "../src/client/index.js";

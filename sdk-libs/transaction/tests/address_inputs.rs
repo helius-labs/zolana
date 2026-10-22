@@ -2,7 +2,7 @@
 //! field rule is refused with its own reason.
 use solana_address::Address;
 use zolana_keypair::{PublicKey, ShieldedKeypair, SigningKey};
-use zolana_program::compression::{AddressSeed, NewAddress, PdaOwner};
+use zolana_program::program::{AddressSeed, NewAddress, PdaOwner};
 use zolana_transaction::{
     utxo::SppProofInputUtxo, AddressInputError as A, Mint, TransactionError as E,
 };
@@ -49,7 +49,7 @@ fn address_matches_the_canonical_new_address_derivation() {
     ] {
         for tree_id in [0u16, TREE, u16::MAX] {
             let input = SppProofInputUtxo::new_address(owner, SEED, tree_id).unwrap();
-            let canonical = NewAddress::derive(
+            let canonical = NewAddress::derive_with_tree_id(
                 &PdaOwner::new(&owner_address).unwrap(),
                 AddressSeed::new(SEED).unwrap(),
                 tree_id,

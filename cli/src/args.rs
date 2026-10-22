@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use anyhow::{Context, Result};
 use clap::{ArgAction, ArgGroup, Args, Parser, Subcommand, ValueEnum};
 use zolana_client::prover::{tee::TeePolicy, ProverClient, PROVER_INDEXER_URL_ENV};
@@ -87,6 +89,261 @@ pub(crate) enum CliCommand {
         #[command(subcommand)]
         command: VksCommand,
     },
+
+    #[command(
+        name = "build-zk-program",
+        about = "Build a ZK program: its .r1cs files, keys, committed verifier modules, wasm module and SBF program",
+        long_about = "Build the circuits, verifier modules, wasm package and SBF program. Generate fresh single-party keys when missing or when the R1CS changes; otherwise reuse them. --test uses reproducible fixed-seed keys. Imported ceremony keys are preserved."
+    )]
+    BuildZkProgram(ZkBuildOptions),
+
+    #[command(
+        name = "zk",
+        about = "Compile ZK program circuits and manage their Groth16 keys"
+    )]
+    Zk {
+        #[command(subcommand)]
+        command: ZkCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum ZkCommand {
+    #[command(
+        name = "compile",
+        about = "Build the circuits: .r1cs files, keys, committed verifier modules and the wasm module"
+    )]
+    Compile(ZkCompileOptions),
+
+    #[command(
+        name = "setup",
+        about = "Generate or reuse Groth16 keys for .r1cs files (random single-party setup by default)"
+    )]
+    Setup(ZkSetupOptions),
+
+    #[command(
+        name = "import",
+        about = "Convert a ceremony zkey into a .pk proving key, checked against the circuit's .r1cs"
+    )]
+    Import(ZkImportOptions),
+
+    #[command(
+        name = "export-verifier",
+        about = "Export the verifying key module of each .pk proving key into the committed verifier modules"
+    )]
+    ExportVerifier(ZkExportVerifierOptions),
+}
+
+#[derive(Args, Debug, Clone, PartialEq)]
+pub(crate) struct ZkPackageOptions {
+    #[arg(
+        short = 'p',
+        long = "package",
+        help = "Workspace package that defines the circuits"
+    )]
+    pub(crate) package: Option<String>,
+
+    #[arg(
+        long = "manifest-path",
+        help = "Path to Cargo.toml (default: the one in the current directory or its parents); build outputs go to zk/<package> in the cargo target directory"
+    )]
+    pub(crate) manifest_path: Option<PathBuf>,
+}
+
+#[derive(Args, Debug, Clone, PartialEq)]
+pub(crate) struct ZkCompileOptions {
+    #[command(flatten)]
+    pub(crate) package: ZkPackageOptions,
+
+    #[arg(
+        long = "test",
+        help = "Generate reproducible keys using a fixed public test seed; reuse keys while the circuit and setup kind are unchanged"
+    )]
+    pub(crate) test: bool,
+
+    #[arg(long = "skip-r1cs", help = "Do not write the .r1cs files")]
+    pub(crate) skip_r1cs: bool,
+
+    #[arg(
+        long = "skip-keys",
+        help = "Do not generate keys or write the verifying keys"
+    )]
+    pub(crate) skip_keys: bool,
+
+    #[arg(long = "skip-wasm", help = "Do not build the wasm module")]
+    pub(crate) skip_wasm: bool,
+
+    #[arg(
+        long = "check",
+        help = "Regenerate the verifier modules in the build directory and compare them byte for byte with the committed ones: list every file that differs, is missing or is not generated, and fail without writing to the verifier directory. Skips the wasm and SBF builds"
+    )]
+    pub(crate) check: bool,
+
+    #[arg(
+        long = "r1cs-features",
+        default_value = "circuits",
+        help = "Cargo features that build the circuits; the export adds the package's r1cs-export feature, which enables the r1cs-export feature of zolana-program or zolana-zk-dsl"
+    )]
+    pub(crate) r1cs_features: String,
+
+    #[arg(
+        long = "r1cs-out",
+        help = "Directory for the .r1cs files (default: <target>/zk/<package>)"
+    )]
+    pub(crate) r1cs_out: Option<PathBuf>,
+
+    #[arg(
+        long = "wasm-features",
+        default_value = "wasm",
+        help = "Cargo features of the wasm module"
+    )]
+    pub(crate) wasm_features: String,
+
+    #[arg(
+        long = "wasm-target",
+        value_enum,
+        default_value = "web",
+        help = "JavaScript environment the wasm module loads in"
+    )]
+    pub(crate) wasm_target: ZkWasmTarget,
+
+    #[arg(
+        long = "single-threaded",
+        help = "Prove on one thread without a thread pool or nightly toolchain. Web and Node.js prover builds use threads by default; --no-prover builds are single-threaded"
+    )]
+    pub(crate) single_threaded: bool,
+
+    #[arg(
+        long = "nightly",
+        default_value = "nightly-2026-05-18",
+        help = "Toolchain for threaded builds; needs rust-src and the wasm32 target"
+    )]
+    pub(crate) nightly: String,
+
+    #[arg(
+        long = "no-prover",
+        help = "Build the transactions only, without the provers"
+    )]
+    pub(crate) no_prover: bool,
+
+    #[arg(long = "verifier", help = "Also export the test verifier verifyProof")]
+    pub(crate) verifier: bool,
+
+    #[arg(
+        long = "wasm-opt",
+        help = "Run wasm-opt with the crate's wasm-pack flags: a smaller raw module, little smaller once compressed, minutes slower"
+    )]
+    pub(crate) wasm_opt: bool,
+
+    #[arg(
+        long = "wasm-out",
+        help = "Directory for the wasm package (default: <target>/zk/<package>/wasm)"
+    )]
+    pub(crate) wasm_out: Option<PathBuf>,
+}
+
+#[derive(Args, Debug, Clone, PartialEq)]
+pub(crate) struct ZkBuildOptions {
+    #[command(flatten)]
+    pub(crate) compile: ZkCompileOptions,
+
+    #[arg(long = "skip-sbf", help = "Do not build the SBF program")]
+    pub(crate) skip_sbf: bool,
+
+    #[arg(
+        long = "sbf-features",
+        help = "Cargo features of the SBF program, for example its entrypoint feature"
+    )]
+    pub(crate) sbf_features: Option<String>,
+
+    #[arg(
+        long = "sbf-out-dir",
+        help = "Directory for the program .so (default: cargo build-sbf's)"
+    )]
+    pub(crate) sbf_out_dir: Option<PathBuf>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+pub(crate) enum ZkWasmTarget {
+    Web,
+    Nodejs,
+}
+
+#[derive(Args, Debug, Clone, PartialEq)]
+pub(crate) struct ZkSetupOptions {
+    #[command(flatten)]
+    pub(crate) package: ZkPackageOptions,
+
+    #[arg(
+        long = "test",
+        help = "Use reproducible fixed-seed test keys instead of a random single-party setup"
+    )]
+    pub(crate) test: bool,
+
+    #[arg(help = ".r1cs files (default: every .r1cs in <target>/zk/<package>)")]
+    pub(crate) r1cs: Vec<PathBuf>,
+
+    #[arg(
+        long = "out",
+        help = "Output directory (default: <target>/zk/<package>)"
+    )]
+    pub(crate) out: Option<PathBuf>,
+}
+
+#[derive(Args, Debug, Clone, PartialEq)]
+pub(crate) struct ZkImportOptions {
+    #[command(flatten)]
+    pub(crate) package: ZkPackageOptions,
+
+    #[arg(help = "zkey from a snarkjs phase-2 ceremony")]
+    pub(crate) zkey: PathBuf,
+
+    #[arg(
+        long = "r1cs",
+        help = "The circuit's .r1cs (default: <target>/zk/<package>/<zkey name>.r1cs)"
+    )]
+    pub(crate) r1cs: Option<PathBuf>,
+
+    #[arg(
+        long = "out",
+        help = "Output directory (default: <target>/zk/<package>)"
+    )]
+    pub(crate) out: Option<PathBuf>,
+}
+
+#[derive(Args, Debug, Clone, PartialEq)]
+pub(crate) struct ZkExportVerifierOptions {
+    #[command(flatten)]
+    pub(crate) package: ZkPackageOptions,
+
+    #[arg(
+        long,
+        help = "Trusted sha256sum manifest for the .pk files; paths are relative to the manifest"
+    )]
+    pub(crate) checksums: PathBuf,
+
+    #[arg(
+        long = "setup",
+        value_enum,
+        help = "How the proving keys were made; embedded in the program binary for `zolana vks`"
+    )]
+    pub(crate) setup: ZkSetupKind,
+
+    #[arg(help = ".pk files (default: every .pk in <target>/zk/<package>)")]
+    pub(crate) pk: Vec<PathBuf>,
+
+    #[arg(
+        long = "out",
+        help = "Directory the verifying key modules are exported to before they are copied into the verifier directory (default: <target>/zk/<package>)"
+    )]
+    pub(crate) out: Option<PathBuf>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+pub(crate) enum ZkSetupKind {
+    Production,
+    SingleParty,
+    Test,
 }
 
 #[derive(Debug, Subcommand)]
@@ -99,7 +356,7 @@ pub(crate) enum VksCommand {
 
     #[command(
         name = "check",
-        about = "Fail if the program embeds no verifying keys or any insecure test setup; --expect or --shielded-pool also pin the keys it must embed"
+        about = "Report verifying keys, test setups and PASS/FAIL; fail if markers are missing, test setups are present or required key pins do not match"
     )]
     Check(VksCheckOptions),
 }
@@ -1017,6 +1274,32 @@ mod tests {
     use zolana_client::prover::tee::TeeError;
 
     use super::*;
+
+    #[test]
+    fn zk_build_and_compile_use_random_setup_unless_test_is_requested() {
+        for test in [false, true] {
+            for build in [false, true] {
+                let mut args = vec!["zolana"];
+                if build {
+                    args.push("build-zk-program");
+                } else {
+                    args.extend(["zk", "compile"]);
+                }
+                if test {
+                    args.push("--test");
+                }
+                let parsed = Cli::try_parse_from(args).unwrap();
+                let actual = match parsed.command {
+                    Some(CliCommand::BuildZkProgram(opts)) => opts.compile.test,
+                    Some(CliCommand::Zk {
+                        command: ZkCommand::Compile(opts),
+                    }) => opts.test,
+                    _ => panic!("expected ZK build or compile"),
+                };
+                assert_eq!(actual, test);
+            }
+        }
+    }
 
     #[test]
     fn dev_start_help_documents_localnet_flags() {

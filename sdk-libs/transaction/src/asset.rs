@@ -52,6 +52,23 @@ pub struct AssetBalance {
     pub utxos: Vec<WalletUtxo>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AssetAmount {
+    pub asset_id: u64,
+    pub mint: Address,
+    pub amount: u64,
+}
+
+impl From<&AssetBalance> for AssetAmount {
+    fn from(balance: &AssetBalance) -> Self {
+        Self {
+            asset_id: balance.asset_id,
+            mint: balance.mint,
+            amount: balance.amount,
+        }
+    }
+}
+
 /// Spendable default-ring balances. Ring-bound notes are never in here; a
 /// wallet reports those separately.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

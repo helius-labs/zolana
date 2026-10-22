@@ -73,6 +73,7 @@ export type {
 export { ShieldedPublicKey } from "./public-key.js";
 export { SigningKey } from "./signing-key.js";
 export { NullifierKey } from "./nullifier-key.js";
+export { ShieldedPda } from "./pda.js";
 export { ViewingKey } from "./viewing-key.js";
 export {
   CompressedShieldedAddress,

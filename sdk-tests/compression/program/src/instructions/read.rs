@@ -7,8 +7,9 @@ use pinocchio::{error::ProgramError, AccountView, ProgramResult};
 use wincode::{SchemaRead, SchemaWrite};
 use zolana_account_checks::AccountIterator;
 use zolana_hasher::{Hasher, Poseidon};
-use zolana_program::compression::{
-    CompressedAccountData, CompressedAccountMeta, CompressedProof, DataUtxo, PdaOwner, ReadRoots,
+use zolana_program::{
+    program::{PdaOwner, ReadRoots, UtxoMeta},
+    CompressedProof,
 };
 
 use crate::{
@@ -22,7 +23,7 @@ pub struct ReadIxData {
     pub value: u64,
     pub version: u64,
     /// The UTXO being read: its address, blinding and root indexes.
-    pub meta: CompressedAccountMeta,
+    pub meta: UtxoMeta,
     pub proof: CompressedProof,
 }
 
@@ -78,18 +79,12 @@ pub fn process_read_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResu
     let (pda, _) = derive_pda(authority.address());
     let owner = PdaOwner::new(&pda).map_err(compressed_account_error)?;
     let state = AccountState {
-        address: meta.address,
         authority: authority.address().to_bytes(),
         value,
         version,
-        blinding: meta.blinding,
     };
     let key = roots
-        .key(&DataUtxo {
-            owner: &owner,
-            data_hash: state.data_hash()?,
-            blinding: meta.blinding,
-        })
+        .key(&owner, &meta, &state)
         .map_err(compressed_account_error)?;
 
     // 1. and 2.
@@ -113,9 +108,9 @@ pub fn process_read_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResu
 #[inline(never)]
 fn verify_read_proof(proof: &CompressedProof, public_input_hash: [u8; 32]) -> ProgramResult {
     let err = CompressionError::ProofVerificationFailed;
-    let proof_a = decompress_g1(&proof.proof_a).map_err(|_| err)?;
-    let proof_b = decompress_g2(&proof.proof_b).map_err(|_| err)?;
-    let proof_c = decompress_g1(&proof.proof_c).map_err(|_| err)?;
+    let proof_a = decompress_g1(&proof.a).map_err(|_| err)?;
+    let proof_b = decompress_g2(&proof.b).map_err(|_| err)?;
+    let proof_c = decompress_g1(&proof.c).map_err(|_| err)?;
     Groth16Verifier::new(
         &proof_a,
         &proof_b,

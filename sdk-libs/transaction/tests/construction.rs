@@ -1788,7 +1788,7 @@ fn wallet_dummy_pads_a_slot_between_real_inputs() {
     );
 }
 
-/// Fixed-output padding never adds a zero-amount change: a relayed full
+/// Fixed-output published padding never adds a zero-amount change: a relayed full
 /// withdrawal tags its dummies with the input owner, and a self-paid one, which
 /// names no participant, is refused with `NoDummyOwnerTagParticipant`.
 #[test]
@@ -1837,6 +1837,45 @@ fn fixed_output_padding_takes_a_participant_tag_and_adds_no_output() {
     assert_eq!(
         withdrawal(Address::new_from_array([99; 32])),
         Ok((vec![true, true], vec![OwnerTag::Inline(sender_tag); 2]))
+    );
+}
+
+#[test]
+fn compact_fixed_output_padding_needs_no_owner_tag_participant() {
+    let owner = keypair(1);
+    let sender = owner.shielded_address().unwrap();
+    let mut transaction = ConfidentialTransaction::new_compact(
+        vec![wallet_utxo(&owner, Mint::SOL, 3, 7, 1)],
+        payer(&owner),
+    )
+    .unwrap();
+    transaction
+        .settle(
+            Mint::SOL,
+            false,
+            3,
+            SettlementTarget::Sol {
+                user_sol_account: payer(&owner),
+            },
+        )
+        .unwrap();
+    transaction.add_empty_output_utxo().unwrap();
+    transaction
+        .pad_utxos_with_empty_outputs(Shape::IN1_OUT2, &sender)
+        .unwrap();
+    let proof = transaction.encrypt(&owner).unwrap();
+    assert_eq!(
+        (
+            proof
+                .output_utxos
+                .iter()
+                .map(|output| (output.is_compact(), output.owner_tag))
+                .collect::<Vec<_>>(),
+            proof.external_data.outputs.len(),
+            proof.external_data.resolved_owner_tags,
+        ),
+        (vec![(true, None); 2], 0, Vec::<[u8; 32]>::new()),
+        "explicitly empty outputs and appended padding are compact and publish no owner tags"
     );
 }
 

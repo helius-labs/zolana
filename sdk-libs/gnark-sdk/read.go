@@ -14,7 +14,7 @@ import (
 // writes.
 //
 // The proof is sound only together with the program's checks, which
-// zolana_program::compression::ReadRoots performs:
+// zolana_program::program::ReadRoots performs:
 //  1. both roots come from the shielded pool tree account's root histories,
 //  2. the nullifier PDA of the nullifier on that tree does not exist.
 //

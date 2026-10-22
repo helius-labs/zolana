@@ -2,7 +2,9 @@ use anyhow::{anyhow, bail, Result};
 use solana_address::Address;
 use zolana_client::{EncryptedUtxoMatch, Rpc};
 use zolana_interface::event::OutputDataEncoding;
-use zolana_program::compression::CompressedAccountData;
+use zolana_program::{
+    derive_output_blinding_seed, derive_transact_output_blinding, program::ACCOUNT_BLINDING_SEED,
+};
 use zolana_transaction::WalletUtxo;
 
 use crate::{
@@ -15,7 +17,12 @@ pub struct DiscoveredAccount {
     pub version: u64,
 }
 
-pub fn decode_wallet_utxo(indexed: EncryptedUtxoMatch, pda: &Address) -> Result<DiscoveredAccount> {
+pub fn decode_wallet_utxo(
+    indexed: EncryptedUtxoMatch,
+    pda: &Address,
+    first_nullifier: &[u8; 32],
+    output_index: u32,
+) -> Result<DiscoveredAccount> {
     if indexed.tx_viewing_pk.is_some() || indexed.salt.is_some() {
         bail!("indexed output is encrypted");
     }
@@ -26,16 +33,20 @@ pub fn decode_wallet_utxo(indexed: EncryptedUtxoMatch, pda: &Address) -> Result<
     let OutputDataEncoding::Plaintext(blob) = output_data else {
         bail!("indexed output is not plaintext");
     };
+    let (address, state) = decode_state(&blob)?;
+    let seed = derive_output_blinding_seed(first_nullifier, &ACCOUNT_BLINDING_SEED)?;
+    let blinding = derive_transact_output_blinding(first_nullifier, &seed, output_index)?;
     let account_utxo = AccountUtxo {
         pda: *pda,
-        state: decode_state(&blob)?,
+        address,
+        state,
+        blinding,
     };
     let version = account_utxo.state.version;
-    let data_hash = account_utxo.state.data_hash()?;
+    let data_hash = account_utxo.data_hash()?;
     let utxo = account_utxo.utxo()?;
     let nullifier_key = zero_nullifier_key();
-    // This example publishes into one tree; the commitment check below is what
-    // makes that an assertion rather than an assumption.
+    // The recomputed commitment checks the tree, state, address and recovered blinding.
     let tree_id = indexed.output_slot.output_context.tree_id;
     let hash = utxo.hash(&nullifier_key.pubkey()?, &data_hash, &[0u8; 32], tree_id)?;
     if hash != indexed.output_slot.output_context.hash {
@@ -56,7 +67,7 @@ pub fn decode_wallet_utxo(indexed: EncryptedUtxoMatch, pda: &Address) -> Result<
             latest_tree_id: None,
             slot: indexed.slot,
             tx_signature: indexed.tx_signature,
-            slot_index: 0,
+            slot_index: output_index,
         },
         version,
     })
@@ -66,9 +77,30 @@ pub fn discover_account(indexer: &impl Rpc, pda: Address) -> Result<DiscoveredAc
     let mut cursor = None;
     let mut matches = Vec::new();
     loop {
-        let response =
-            indexer.get_encrypted_utxos_by_tags(vec![pda.to_bytes()], cursor, Some(100), None)?;
-        matches.extend(response.matches);
+        let response = indexer.get_shielded_transactions_by_tags(
+            vec![pda.to_bytes()],
+            cursor,
+            Some(100),
+            None,
+        )?;
+        for transaction in response.transactions {
+            let Some(first_nullifier) = transaction.nullifiers.first().copied() else {
+                continue;
+            };
+            for (index, output_slot) in transaction.output_slots.into_iter().enumerate() {
+                if output_slot.view_tag != pda.to_bytes() {
+                    continue;
+                }
+                let indexed = EncryptedUtxoMatch {
+                    slot: transaction.slot,
+                    tx_signature: transaction.tx_signature,
+                    output_slot,
+                    tx_viewing_pk: transaction.tx_viewing_pk,
+                    salt: transaction.salt,
+                };
+                matches.push((indexed, first_nullifier, u32::try_from(index)?));
+            }
+        }
         cursor = response.next_cursor;
         if cursor.is_none() {
             break;
@@ -86,13 +118,13 @@ pub fn discover_account(indexer: &impl Rpc, pda: Address) -> Result<DiscoveredAc
 }
 
 fn discover_from_matches(
-    matches: impl IntoIterator<Item = EncryptedUtxoMatch>,
+    matches: impl IntoIterator<Item = (EncryptedUtxoMatch, [u8; 32], u32)>,
     pda: &Address,
     mut is_spent: impl FnMut(&[u8; 32]) -> Result<bool>,
 ) -> Result<DiscoveredAccount> {
     let mut candidates = Vec::new();
-    for indexed in matches {
-        let Ok(candidate) = decode_wallet_utxo(indexed, pda) else {
+    for (indexed, first_nullifier, output_index) in matches {
+        let Ok(candidate) = decode_wallet_utxo(indexed, pda, &first_nullifier, output_index) else {
             continue;
         };
         if !is_spent(&candidate.utxo.nullifier)? {
@@ -108,122 +140,5 @@ fn discover_from_matches(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::shared::DEFAULT_TREE_ID;
-    use crate::{account_address, account_pda, state::AccountState};
-    use zolana_transaction::{OutputContext, OutputSlot};
-
-    const AUTHORITY: [u8; 32] = [7u8; 32];
-
-    fn test_pda() -> Address {
-        account_pda(&Address::new_from_array(AUTHORITY))
-    }
-
-    fn account_state(pda: &Address, value: u64, version: u64) -> AccountState {
-        AccountState {
-            address: account_address(pda, DEFAULT_TREE_ID).unwrap(),
-            authority: AUTHORITY,
-            value,
-            version,
-            blinding: [7u8; 32],
-        }
-    }
-
-    fn state_of(current: &DiscoveredAccount) -> AccountState {
-        decode_state(current.utxo.utxo.data.utxo_data().unwrap()).unwrap()
-    }
-
-    fn tagged_plaintext(pda: Address, state: &AccountState, leaf_index: u64) -> EncryptedUtxoMatch {
-        let account = AccountUtxo {
-            pda,
-            state: state.clone(),
-        };
-        let utxo = account.utxo().unwrap();
-        let data_hash = state.data_hash().unwrap();
-        let hash = utxo
-            .hash(
-                &zero_nullifier_key().pubkey().unwrap(),
-                &data_hash,
-                &[0u8; 32],
-                DEFAULT_TREE_ID,
-            )
-            .unwrap();
-        EncryptedUtxoMatch {
-            slot: 0,
-            tx_signature: Default::default(),
-            output_slot: OutputSlot {
-                view_tag: pda.to_bytes(),
-                output_context: OutputContext {
-                    hash,
-                    tree_id: DEFAULT_TREE_ID,
-                    leaf_index,
-                },
-                payload: borsh::to_vec(&OutputDataEncoding::Plaintext(
-                    borsh::to_vec(state).unwrap(),
-                ))
-                .unwrap(),
-            },
-            tx_viewing_pk: None,
-            salt: None,
-        }
-    }
-
-    fn tagged_garbage(pda: Address, leaf_index: u64) -> EncryptedUtxoMatch {
-        EncryptedUtxoMatch {
-            slot: 0,
-            tx_signature: Default::default(),
-            output_slot: OutputSlot {
-                view_tag: pda.to_bytes(),
-                output_context: OutputContext {
-                    hash: [0u8; 32],
-                    tree_id: DEFAULT_TREE_ID,
-                    leaf_index,
-                },
-                payload: borsh::to_vec(&OutputDataEncoding::Plaintext(vec![0xff; 3])).unwrap(),
-            },
-            tx_viewing_pk: None,
-            salt: None,
-        }
-    }
-
-    fn unspent(_: &[u8; 32]) -> Result<bool> {
-        Ok(false)
-    }
-
-    #[test]
-    fn malformed_plaintext_tagged_to_the_pda_is_skipped() {
-        let pda = test_pda();
-        let legit = account_state(&pda, 1, 0);
-        let current = discover_from_matches(
-            [tagged_plaintext(pda, &legit, 10), tagged_garbage(pda, 11)],
-            &pda,
-            unspent,
-        )
-        .unwrap();
-
-        assert_eq!(current.version, 0);
-        assert_eq!(state_of(&current).value, 1);
-    }
-
-    #[test]
-    fn forged_plaintext_with_a_higher_leaf_index_is_not_selected() {
-        let pda = test_pda();
-        let legit = account_state(&pda, 1, 0);
-        let forged = account_state(&pda, 999, 7);
-        match discover_from_matches(
-            [
-                tagged_plaintext(pda, &legit, 10),
-                tagged_plaintext(pda, &forged, 11),
-            ],
-            &pda,
-            unspent,
-        ) {
-            Ok(current) => {
-                assert_eq!(current.version, 0);
-                assert_eq!(state_of(&current).value, 1);
-            }
-            Err(err) => assert!(err.to_string().contains("multiple unspent"), "{err}"),
-        }
-    }
-}
+#[path = "discovery_test.rs"]
+mod tests;

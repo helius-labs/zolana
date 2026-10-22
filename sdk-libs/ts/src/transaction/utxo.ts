@@ -16,6 +16,7 @@ import { ShieldedPublicKey } from "../keypair/public-key.js";
 import type { ShieldedAddress, ShieldedKeypair } from "../keypair/shielded.js";
 
 import { Data, type DataRecord } from "./data.js";
+import { Mint } from "./asset.js";
 import { TransactionError } from "./error.js";
 import {
   ZERO_32,
@@ -36,6 +37,7 @@ export type Blinding = Bytes32;
 export interface UtxoInit {
   readonly owner: ShieldedPublicKey;
   readonly asset: Address;
+  readonly mint?: Mint;
   readonly amount: bigint;
   readonly blinding: Blinding;
   readonly data?: Data;
@@ -209,6 +211,8 @@ export function ownerUtxoHash(
 export class Utxo {
   readonly owner: ShieldedPublicKey;
   readonly asset: Address;
+  /** Registry-validated address/id pair, retained when supplied. */
+  readonly mint?: Mint;
   readonly amount: bigint;
   readonly blinding: Blinding;
   readonly data: Data;
@@ -217,6 +221,7 @@ export class Utxo {
   constructor(input: UtxoInit) {
     this.owner = input.owner;
     this.asset = input.asset;
+    if (input.mint !== undefined) this.mint = Mint.checked(input.mint, input.asset);
     this.amount = checkU64(input.amount, "amount");
     this.blinding = checked<Blinding>(input.blinding, 32, "blinding");
     this.data = new Data((input.data ?? new Data()).records());
@@ -320,6 +325,7 @@ export class ProofInputUtxo {
         ? ShieldedPublicKey.zeroed()
         : ShieldedPublicKey.fromBytes(input.utxo.owner.toBytes()),
       asset: input.utxo.asset,
+      ...(input.utxo.mint === undefined ? {} : { mint: input.utxo.mint }),
       amount: input.utxo.amount,
       blinding: input.utxo.blinding,
       data: input.utxo.data,
@@ -389,7 +395,7 @@ export class ProofInputUtxo {
   /** Derives the nullifier locally; the key never leaves this call. */
   static fromKeypair(
     utxo: Utxo,
-    keypair: ShieldedKeypair,
+    keypair: Pick<ShieldedKeypair, "nullifierKey">,
     hashes: Readonly<{ dataHash?: Bytes32; ringDataHash?: Bytes32 }> = {},
     treeId: TreeId = DEFAULT_TREE_ID,
   ): ProofInputUtxo {
@@ -678,6 +684,8 @@ function noncanonicalDummyField(input: ProofInputUtxo): string | undefined {
 export interface ProofOutputUtxo {
   readonly ownerAddress?: ShieldedAddress;
   readonly asset: Address;
+  /** Registry-validated address/id pair for encryption without a registry lookup. */
+  readonly mint?: Mint;
   readonly amount: bigint;
   readonly blinding: Bytes32;
   readonly ringProgramId?: Address;
@@ -714,6 +722,7 @@ export interface ProofOutputUtxo {
 export interface ProofOutputInit {
   readonly ownerAddress?: ShieldedAddress;
   readonly asset: Address;
+  readonly mint?: Mint;
   readonly amount: bigint;
   readonly blinding?: Bytes32;
   readonly ringProgramId?: Address;
@@ -741,6 +750,7 @@ function withDataRecord(data: Data, record: DataRecord): Data {
 }
 
 export function createProofOutput(input: ProofOutputInit): ProofOutputUtxo {
+  if (input.mint !== undefined) Mint.checked(input.mint, input.asset);
   const blinding = checked<Bytes32>(input.blinding ?? randomBlinding(), 32, "output blinding");
   const amount = checkU64(input.amount, "output amount");
   if (input.cacheSlot !== undefined) {

@@ -70,9 +70,28 @@ pub(crate) fn run_vks(command: VksCommand) -> Result<()> {
 }
 
 fn run_check(opts: VksCheckOptions) -> Result<()> {
-    let shielded_pool = requires_shielded_pool_keys(&opts)?;
-    let expected = read_expected_keys(opts.expect.as_deref())?;
-    let markers = read_markers(&opts.source)?;
+    let mut problems = Vec::new();
+    let shielded_pool = match requires_shielded_pool_keys(&opts) {
+        Ok(required) => required,
+        Err(error) => {
+            problems.push(format!("{error:#}"));
+            false
+        }
+    };
+    let expected = match read_expected_keys(opts.expect.as_deref()) {
+        Ok(expected) => expected,
+        Err(error) => {
+            problems.push(format!("{error:#}"));
+            None
+        }
+    };
+    let markers = match read_markers(&opts.source) {
+        Ok(markers) => Some(markers),
+        Err(error) => {
+            problems.push(format!("{error:#}"));
+            None
+        }
+    };
     let names = key_names(expected.as_ref());
     let pool_keys = shielded_pool_keys();
     let required = match (&expected, shielded_pool) {
@@ -80,48 +99,110 @@ fn run_check(opts: VksCheckOptions) -> Result<()> {
         (None, true) => Required::ShieldedPool(&pool_keys),
         (None, false) => Required::Nothing,
     };
-    let problems = check_markers(&markers, &names, &required);
-    if !problems.is_empty() {
-        bail!(
-            "program verifying keys fail the check:\n  {}",
-            problems.join("\n  ")
-        );
+    if let Some(markers) = &markers {
+        problems.extend(check_markers(markers, &names, &required));
     }
-    match required {
-        Required::ShieldedPool(_) => println!(
-            "ok: {} production verifying keys, each pinned to one of this build's proving keys",
-            markers.len()
-        ),
-        Required::Listed(keys) => println!(
-            "ok: {} verifying keys, none an insecure test setup, all {} expected keys among them",
-            markers.len(),
-            keys.len()
-        ),
-        Required::Nothing => println!(
-            "ok: {} verifying keys, none an insecure test setup",
-            markers.len()
-        ),
-    }
-    if let Some(prover_url) = opts.prover_url {
-        // The markers matched the same verifying keys, so a matching prover
-        // proves with exactly the keys the program verifies against.
-        let shown = redact_api_key(&prover_url);
-        let prover = opts.tee.apply(ProverClient::new(prover_url))?;
-        if prover.has_tee() {
-            let attested = prover
-                .attest()
-                .with_context(|| format!("prover {shown} failed TEE attestation"))?;
-            println!("ok: prover {shown} attests, {attested}");
+    let mut prover_report = Vec::new();
+    if problems.is_empty() {
+        if let Some(prover_url) = opts.prover_url {
+            // Only compare prover keys once the program's key set matched.
+            let shown = redact_api_key(&prover_url);
+            let checked = (|| -> Result<()> {
+                let prover = opts.tee.apply(ProverClient::new(prover_url))?;
+                if prover.has_tee() {
+                    let attested = prover
+                        .attest()
+                        .with_context(|| format!("prover {shown} failed TEE attestation"))?;
+                    prover_report.push(format!("Prover {shown}: attests, {attested}"));
+                }
+                let report = prover
+                    .check_proving_keys()
+                    .with_context(|| format!("prover {shown} failed the proving key check"))?;
+                prover_report.push(format!(
+                    "Prover {shown} ({}): serves the same proving keys",
+                    report.prefix
+                ));
+                Ok(())
+            })();
+            if let Err(error) = checked {
+                problems.push(format!("{error:#}"));
+            }
         }
-        let report = prover
-            .check_proving_keys()
-            .with_context(|| format!("prover {shown} failed the proving key check"))?;
-        println!(
-            "ok: prover {shown} ({}) serves the same proving keys",
-            report.prefix
-        );
+    }
+    for line in prover_report {
+        println!("{line}");
+    }
+    print!(
+        "{}",
+        check_report(markers.as_deref(), &names, &required, &problems)
+    );
+    if !problems.is_empty() {
+        bail!("verifying key check failed");
     }
     Ok(())
+}
+
+/// Always report what could be inspected before giving the overall result.
+/// A missing or malformed marker never implies that test setups are absent.
+fn check_report(
+    markers: Option<&[SetupTxt]>,
+    names: &KeyNames,
+    required: &Required,
+    problems: &[String],
+) -> String {
+    let mut lines = Vec::new();
+    match markers {
+        Some(markers) => {
+            lines.push(format!("Verifying keys: {} found", markers.len()));
+            for marker in markers {
+                lines.push(format!("  {}: {}", marker.name, list_line(marker, names)));
+            }
+            if markers.is_empty() {
+                lines.push("Test setup: unknown (no valid setup markers)".to_string());
+            } else {
+                let insecure = markers
+                    .iter()
+                    .filter(|marker| marker.insecure_test_setup)
+                    .collect::<Vec<_>>();
+                if insecure.is_empty() {
+                    lines.push("Test setup: none found".to_string());
+                } else {
+                    lines.push(format!("Test setup: detected in {} key(s)", insecure.len()));
+                    for marker in insecure {
+                        lines.push(format!(
+                            "  {}: proving_key_sha256={}",
+                            names
+                                .get(&marker.proving_key_sha256)
+                                .map_or(marker.name.as_str(), String::as_str),
+                            hex::encode(marker.proving_key_sha256)
+                        ));
+                    }
+                }
+            }
+        }
+        None => {
+            lines.push("Verifying keys: unknown (inspection failed)".to_string());
+            lines.push("Test setup: unknown (no valid setup markers)".to_string());
+        }
+    }
+    match required {
+        Required::Nothing => {}
+        Required::Listed(keys) => lines.push(format!(
+            "Expected keys: {} required from manifest",
+            keys.len()
+        )),
+        Required::ShieldedPool(keys) => lines.push(format!(
+            "Expected keys: exactly {} shielded-pool keys",
+            keys.len()
+        )),
+    }
+    if problems.is_empty() {
+        lines.push("PASS: verifying key checks passed".to_string());
+    } else {
+        lines.push("FAIL: verifying key checks failed".to_string());
+        lines.extend(problems.iter().map(|problem| format!("  - {problem}")));
+    }
+    format!("{}\n", lines.join("\n"))
 }
 
 /// This build's shielded-pool proving keys by sha256, named by key file.
@@ -156,7 +237,7 @@ fn read_expected_keys(path: Option<&Path>) -> Result<Option<KeyNames>> {
 }
 
 /// The proving keys a sha256sum-style manifest lists: one `<sha256>  <file>`
-/// per line, keeping the files that are proving keys (`*pk.bin` or `*.key`).
+/// per line, keeping the files that are proving keys (`*pk.bin`, `*.pk` or `*.key`).
 /// A verifying key marker pins its proving key's sha256, so the manifest's
 /// other files (such as `vk.bin`) have nothing to match.
 fn parse_key_manifest(manifest: &str) -> Result<KeyNames> {
@@ -172,7 +253,7 @@ fn parse_key_manifest(manifest: &str) -> Result<KeyNames> {
             .ok_or_else(|| anyhow!("line {line_number}: expected `<sha256>  <file>`"))?;
         // sha256sum marks a file hashed in binary mode with a leading `*`.
         let file = file.trim_start().trim_start_matches('*');
-        if !(file.ends_with("pk.bin") || file.ends_with(".key")) {
+        if !(file.ends_with("pk.bin") || file.ends_with(".pk") || file.ends_with(".key")) {
             continue;
         }
         let mut sha256 = [0u8; 32];
@@ -181,7 +262,7 @@ fn parse_key_manifest(manifest: &str) -> Result<KeyNames> {
         keys.insert(sha256, file.to_string());
     }
     if keys.is_empty() {
-        bail!("it names no proving key (a *pk.bin or *.key file)");
+        bail!("it names no proving key (a *pk.bin, *.pk or *.key file)");
     }
     Ok(keys)
 }
@@ -384,6 +465,95 @@ mod tests {
     }
 
     #[test]
+    fn check_reports_keys_test_status_and_pass() {
+        let markers = [marker([1; 32], false)];
+        let report = check_report(Some(&markers), &known(), &Required::Nothing, &[]);
+        assert_eq!(
+            (
+                report.contains("Verifying keys: 1 found"),
+                report.contains("merge_24_1.key"),
+                report.contains("Test setup: none found"),
+                report.contains("PASS: verifying key checks passed")
+            ),
+            (true, true, true, true)
+        );
+    }
+
+    #[test]
+    fn check_reports_each_test_key_and_all_failure_reasons() {
+        let markers = [marker([1; 32], true), marker([9; 32], true)];
+        let names = known();
+        let required = Required::ShieldedPool(&names);
+        let problems = check_markers(&markers, &names, &required);
+        let report = check_report(Some(&markers), &names, &required, &problems);
+        assert_eq!(
+            (
+                report.contains("Verifying keys: 2 found"),
+                report.contains("Test setup: detected in 2 key(s)"),
+                report.contains(&format!(
+                    "merge_24_1.key: proving_key_sha256={}",
+                    hex::encode([1; 32])
+                )),
+                report.contains(&format!(
+                    "VERIFYINGKEY: proving_key_sha256={}",
+                    hex::encode([9; 32])
+                )),
+                report.contains("FAIL: verifying key checks failed"),
+                problems.iter().all(|problem| report.contains(problem))
+            ),
+            (true, true, true, true, true, true)
+        );
+    }
+
+    #[test]
+    fn no_markers_or_failed_inspection_report_unknown_test_status() {
+        for markers in [None, Some([].as_slice())] {
+            let report = check_report(
+                markers,
+                &known(),
+                &Required::Nothing,
+                &["cannot verify keys".into()],
+            );
+            assert_eq!(
+                (
+                    report.contains("Test setup: unknown (no valid setup markers)"),
+                    report.contains("FAIL:"),
+                    report.contains("cannot verify keys"),
+                    report.contains("Test setup: none found")
+                ),
+                (true, true, true, false)
+            );
+        }
+    }
+
+    #[test]
+    fn manifest_mismatch_reports_clean_test_status_and_failure() {
+        let names = known();
+        let required = Required::Listed(&names);
+        let markers = [marker([1; 32], false)];
+        let problems = check_markers(&markers, &names, &required);
+        let report = check_report(Some(&markers), &names, &required, &problems);
+        assert_eq!(
+            (
+                report.contains("Test setup: none found"),
+                report.contains("Expected keys: 2 required from manifest"),
+                report.contains("transfer_ring_2_2.key is missing"),
+                report.contains("FAIL:")
+            ),
+            (true, true, true, true)
+        );
+    }
+
+    #[test]
+    fn manifest_accepts_dsl_proving_key_files() {
+        let manifest = format!("{}  increment.pk\n", hex::encode([3; 32]));
+        assert_eq!(
+            parse_key_manifest(&manifest).unwrap(),
+            keys(&[([3; 32], "increment.pk")])
+        );
+    }
+
+    #[test]
     fn a_production_build_of_every_known_key_passes() {
         let known = known();
         let markers = [marker([2; 32], false), marker([1; 32], false)];
@@ -503,7 +673,7 @@ mod tests {
             [
                 "line 1: invalid sha256 zz: Invalid string length".to_string(),
                 "line 1: expected `<sha256>  <file>`".to_string(),
-                "it names no proving key (a *pk.bin or *.key file)".to_string(),
+                "it names no proving key (a *pk.bin, *.pk or *.key file)".to_string(),
             ]
         );
     }

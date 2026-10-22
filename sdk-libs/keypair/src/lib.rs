@@ -38,6 +38,8 @@
 //!             └── decrypt_utxo  ←── scan view tags at the indexer
 //! ```
 
+#[cfg(feature = "circuit")]
+pub mod circuit;
 pub mod constants;
 pub mod derivation;
 pub(crate) mod encryption;

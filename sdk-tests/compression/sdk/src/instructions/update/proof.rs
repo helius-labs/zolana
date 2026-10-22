@@ -1,8 +1,6 @@
 use anyhow::{anyhow, Result};
 use solana_address::Address;
-use zolana_program::compression::{
-    CompressedAccount, CompressedAccountMeta, PdaOwner, ACCOUNT_BLINDING_SEED,
-};
+use zolana_program::program::{PdaOwner, UniqueDataUtxo, UtxoMeta, ACCOUNT_BLINDING_SEED};
 use zolana_transaction::{
     instructions::transact::SppProofInputs, utxo::SppProofInputUtxo, Utxo, WalletUtxo,
 };
@@ -26,7 +24,7 @@ pub struct UpdateCompressedAccount {
     pub spp_proof_inputs: SppProofInputs,
     /// The current UTXO's meta. Its root indexes are placeholders until the
     /// transaction is proven, which picks the roots.
-    pub meta: CompressedAccountMeta,
+    pub meta: UtxoMeta,
     pub old_value: u64,
     pub version: u64,
     pub output: Utxo,
@@ -43,27 +41,20 @@ impl UpdateProofInputParams {
             .data
             .utxo_data()
             .ok_or_else(|| anyhow!("current UTXO has no state data"))?;
-        let current_state = decode_state(current_data)?;
-        if self.current.utxo.blinding != current_state.blinding {
-            return Err(anyhow!("current UTXO blinding does not match its state"));
-        }
+        let (address, current_state) = decode_state(current_data)?;
         let version = current_state
             .version
             .checked_add(1)
             .ok_or_else(|| anyhow!("account version overflow"))?;
         let owner = PdaOwner::new(&pda).map_err(err)?;
-        let meta = CompressedAccountMeta {
-            address: current_state.address,
-            blinding: current_state.blinding,
+        let meta = UtxoMeta {
+            address,
+            blinding: self.current.utxo.blinding,
             tree_context: UNPROVEN_TREE_CONTEXT,
         };
-        let mut account = CompressedAccount::new_mut(
-            &owner,
-            &meta,
-            current_state.clone(),
-            self.current.tree_id(),
-        )
-        .map_err(err)?;
+        let mut account =
+            UniqueDataUtxo::new_mut(&owner, &meta, current_state.clone(), self.current.tree_id())
+                .map_err(err)?;
         if *account.input_nullifier() != self.current.nullifier {
             return Err(anyhow!("current UTXO nullifier does not match its state"));
         }
@@ -73,6 +64,8 @@ impl UpdateProofInputParams {
         let external = external_data(program.output_hash, &pda, program.output_data.clone());
         let account_utxo = AccountUtxo {
             pda,
+            address: program.address,
+            blinding: program.blinding,
             state: program.state,
         };
         let output = account_utxo.output_utxo()?;

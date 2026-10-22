@@ -100,7 +100,7 @@ impl TryFrom<&SppProofInputUtxo> for ProofInputUtxo {
     fn try_from(input_utxo: &SppProofInputUtxo) -> Result<Self, Self::Error> {
         // An address slot hashes its owner and seed (the blinding) under the
         // address domain and its tree, every other field zero. On chain,
-        // `zolana_program::compression::NewAddress::derive` computes the same
+        // `zolana_program::program::NewAddress::derive` computes the same
         // hash; a test pins the two together.
         if input_utxo.is_address() {
             input_utxo.check_address_fields()?;
