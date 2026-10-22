@@ -79,6 +79,7 @@ solana-transaction-status-client-types = { workspace = true }
 tokio = { workspace = true, features = ["time", "rt", "macros", "sync"] }
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
 base64 = { workspace = true }
 # solana-rpc-client 4.1's send path. Kept so the v1 serde-order repro can
 # call the same `bincode::serialize` that client used.
