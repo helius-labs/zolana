@@ -461,12 +461,11 @@ the committed term.
   - The `destination_output` ciphertext is AES-256-CTR over `destination_amount ||
     destination_asset || destination blinding`, key and nonce Poseidon-KDF-derived from
     `Poseidon(order_utxo_blinding, destination_output_hash, KDF_DOMAIN)`, integrity via
-    `ciphertext_hash`; the destination output hash is the `utxo_hash` of the transact slot that
-    carries the ciphertext, so every take of one order encrypts under a fresh keystream and two
-    candidate takes never XOR to their plaintexts; this reuses the SPP
+    `ciphertext_hash`; this reuses the SPP
     [merge-proof](../../docs/spec.md#merge-proof---merge-zk-proof) symmetric scheme, the source of
-    the BSB22 commitment. Holders of the order UTXO hash preimage, the maker and the taker, can
-    decrypt. The taker's `source_output` uses ordinary
+    the BSB22 commitment. `destination_output_hash` is the destination output's `utxo_hash`, so
+    two takes of one order never share a keystream. Holders of the order UTXO hash preimage, the
+    maker and the taker, can decrypt. The taker's `source_output` uses ordinary
     sender encryption.
 
 ### Cancel circuit
