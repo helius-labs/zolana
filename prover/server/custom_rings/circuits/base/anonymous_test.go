@@ -135,6 +135,11 @@ func TestAnonymousAuditRefusals(t *testing.T) {
 		{"sender commitment of another sender", func(a *ringaudit.AnonymousAudit) {
 			a.SenderCommitment = ringaudit.SenderCommitment(t, spptest.MustSolanaPkField(t, stranger), a.PrivateTxBlinding)
 		}},
+		{"ring output on no stream", func(a *ringaudit.AnonymousAudit) { a.Outputs[1].Stream.Inbox = false }},
+		{"inbox tag of the previous epoch", func(a *ringaudit.AnonymousAudit) {
+			stale := ringaudit.InboxTag(t, ringaudit.InboxKey(t, a.RingProgramID, inbox.RecipientKey), a.Epoch-1, 0)
+			a.Outputs[1] = a.NewPayment(t, inbox, ringaudit.Stream{Inbox: true, Index: 0, Tag: stale})
+		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			a := ringaudit.NewAnonymousAudit(t, shape)
@@ -151,6 +156,18 @@ func TestAnonymousAuditRefusals(t *testing.T) {
 		a.Outputs[1] = a.NewPayment(t, inbox, ringaudit.Stream{Inbox: true, Index: 0, Tag: ringaudit.LowTag(alias)})
 		c.refuse(t, a.Circuit(t), splitOf(t, digest, alias))
 	})
+}
+
+// Trailing dummies inside the count prove, a dummy ahead of a spent UTXO would publish a nonzero closing half under an even count.
+func TestAnonymousCommitmentInputsKeepDummiesLast(t *testing.T) {
+	shape := base.AnonymousAuditShape{InputClass: 4, Outputs: 2}
+	c := compileAnonymous(t, shape)
+	trailing := ringaudit.NewAnonymousAudit(t, shape).AtInputCount(3)
+	c.requireSolved(t, trailing.Circuit(t))
+	gap := trailing
+	gap.Inputs = slices.Clone(trailing.Inputs)
+	gap.Inputs[1], gap.Inputs[2] = gap.Inputs[2], gap.Inputs[1]
+	c.refuse(t, gap.Circuit(t))
 }
 
 // A spent hash below 2^254 - q has a second 126-bit split, the prefix of hash + q, the canonical bound refuses it.
@@ -228,6 +245,11 @@ func TestAnonymousEntryRefusals(t *testing.T) {
 			a.Inputs[1].NullifierPk = spptest.MustNullifierPk(t, big.NewInt(8))
 		}},
 		{"input hashes on an entry key", func(a *ringaudit.AnonymousAudit) { a.Layout.FullOpenings = false }},
+		{"sender key of another owner", func(a *ringaudit.AnonymousAudit) {
+			a.SenderKey = ringaudit.Repeat(0xc3)
+			a.Outputs[1] = a.NewPayment(t, a.Change(t, 1), a.Outputs[1].Stream)
+			a.SenderCommitment = ringaudit.SenderCommitment(t, a.SenderPkHash(t), a.PrivateTxBlinding)
+		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			a := ringaudit.NewAnonymousAudit(t, entryShape)

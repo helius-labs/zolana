@@ -17,7 +17,7 @@ import (
 // 1. tx_viewing_sk is clamped, its tagged public key and the envelope sealing it to the auditor are statement values.
 // 2. Every output slot is published and every ring output body opens for a canonical recipient key.
 // 3. Every exit discloses its full opening to the auditor and carries no output data, SeedOut opens the disclosure exactly when a UTXO exits.
-// 4. Every spent UTXO lies below the published input count and belongs to the hidden sender.
+// 4. Every spent UTXO lies below the published input count, ahead of every dummy on a commitment key, and belongs to the hidden sender.
 // 5. A commitment key spends notes of the ring only and discloses spent UTXO 0's hash and the prefix of every other spent hash, an entry key opens every spent UTXO under one nullifier key with no data.
 // 6. An inbox tag derives from the recipient's inbox key, a pair tag from an anchored first contact to the same owner, a change or dummy tag is free.
 // 7. A ring output's blinding binds its slot secret and its published tag through CRRA and TXRB.
@@ -160,6 +160,13 @@ func (c *AnonymousAuditCircuit) Define(api frontend.API) error {
 	return nil
 }
 
+func (c *AnonymousAuditCircuit) senderPkHash(api frontend.API) frontend.Variable {
+	if c.Shape.FullOpenings {
+		return gadget.SolanaOwnerIdentity(api, [32]frontend.Variable(c.SenderKey))
+	}
+	return c.Inputs[0].OwnerPkHash
+}
+
 func (c *AnonymousAuditCircuit) deliverSlot(api frontend.API, rc frontend.Rangechecker, e auditEnvelope, o AnonymousOutputWires, senderPkHash frontend.Variable, i int) anonymousSlot {
 	slot := openDelivered(api, o.DeliveryWires)
 	// 1. Every ring output body opens for the holder of its canonical recipient key.
@@ -231,18 +238,12 @@ func (c *AnonymousAuditCircuit) assertTag(api frontend.API, rc frontend.Rangeche
 	c.assertBlinding(api, o.Output, s.outputSlot, AnonymousRingSecret(api, s.secret, s.stream.Tag), i)
 }
 
-func (c *AnonymousAuditCircuit) senderPkHash(api frontend.API) frontend.Variable {
-	if c.Shape.FullOpenings {
-		return gadget.SolanaOwnerIdentity(api, [32]frontend.Variable(c.SenderKey))
-	}
-	return c.Inputs[0].OwnerPkHash
-}
-
 // spend proves every spent UTXO is the hidden sender's and lies below the published count.
 func (c *AnonymousAuditCircuit) spend(api frontend.API, rc frontend.Rangechecker, senderPkHash frontend.Variable) spentInputs {
-	// 1. The input count lies in [1, InputClass], the disclosure length fixes it as the program refuses a zero published field.
+	// 1. The input count lies in [1, InputClass], the published field count pins it up to one trailing dummy on a commitment key.
 	spent := spentInputs{count: gadget.SelectCount(api, c.InputCount, 1, c.Shape.InputClass)}
 	var openings [][]frontend.Variable
+	previousUtxo := frontend.Variable(1)
 	for i, input := range c.Inputs {
 		opened := input.Open(api)
 		// 2. An input at or past the count is no UTXO, so no spent UTXO escapes the published inputs.
@@ -258,6 +259,11 @@ func (c *AnonymousAuditCircuit) spend(api frontend.API, rc frontend.Rangechecker
 		if !c.Shape.FullOpenings {
 			// 5. A disclosed hash names a note of the ring, an audited output whose opening the auditor holds.
 			gadget.AssertEqualWhen{Cond: opened.Utxo, A: input.RingProgramID, B: c.RingProgramID}.Assert(api)
+			if i > 0 {
+				// 6. A UTXO follows only a UTXO, dummies close the published inputs and an even count's closing half stays zero.
+				gadget.AssertZeroWhen{Cond: opened.Utxo, V: api.Sub(1, previousUtxo)}.Assert(api)
+			}
+			previousUtxo = opened.Utxo
 			continue
 		}
 		// 5. The auditor rebuilds an entry input from its opening, under input 0's nullifier key and with no data.
@@ -271,7 +277,7 @@ func (c *AnonymousAuditCircuit) spend(api frontend.API, rc frontend.Rangechecker
 		spent.tail = uniformTail(openings)
 		return spent
 	}
-	// 6. Input 0 opens by its hash and names the sender, every other spent UTXO matches among the sender's notes by its prefix.
+	// 7. Input 0 opens by its hash and names the sender, every other spent UTXO matches among the sender's notes by its prefix.
 	spent.tail = countedTail{fields: commitmentTail(api, rc, spent.hashes), published: func(n int) int { return 1 + n/2 }}
 	return spent
 }
