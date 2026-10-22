@@ -1,6 +1,6 @@
 export type { ErrorEnvelope } from "../errors/internal.js";
 export { RING_ERROR_CODES, RingError, RingProgramError, wrapRingError } from "./error.js";
-export type { RingErrorCode } from "./error.js";
+export type { RingErrorCode, RingProgramErrorName } from "./error.js";
 
 export {
   ringAuthAddress,
