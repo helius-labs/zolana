@@ -86,7 +86,7 @@ func TestDepositKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, pinned := cs.GetNbConstraints(), 148856; got != pinned {
+	if got, pinned := cs.GetNbConstraints(), 148936; got != pinned {
 		t.Errorf("deposit constraints=%d, pinned %d", got, pinned)
 	}
 	commitments, ok := cs.GetCommitments().(constraint.Groth16Commitments)
@@ -130,7 +130,7 @@ func (c *depositStatementCircuit) Define(api frontend.API) error {
 		Eph:        gadget.PackBytesBE(api, c.EphPk[:]),
 		Ciphertext: c.Ciphertext[:],
 	}
-	statement := deposit.Statement(api, circuit, base.SelectCount(api, c.Count, 1, deposit.MaxDeposits), c.Commitments[:], sealed)
+	statement := deposit.Statement(api, circuit, gadget.SelectCount(api, c.Count, 1, deposit.MaxDeposits), c.Commitments[:], sealed)
 	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain(api, statement))
 	return nil
 }

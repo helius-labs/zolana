@@ -85,7 +85,7 @@ func TestAnonymousAuditRefusals(t *testing.T) {
 			a.Anchor.Blinding = a.Anchor.FirstContactBlinding(t, pairTag)
 		}},
 		{"first tag the inbox tag of another key", func(a *ringaudit.AnonymousAudit) {
-			otherTag := ringaudit.InboxTag(t, ringaudit.InboxKey(t, a.RingID, inbox.RecipientKey), a.Anchor.Epoch, a.Anchor.Index)
+			otherTag := ringaudit.InboxTag(t, ringaudit.InboxKey(t, a.RingProgramID, inbox.RecipientKey), a.Anchor.Epoch, a.Anchor.Index)
 			a.Anchor.Blinding = a.Anchor.FirstContactBlinding(t, otherTag)
 		}},
 		{"first contact of another owner", func(a *ringaudit.AnonymousAudit) {
@@ -94,7 +94,7 @@ func TestAnonymousAuditRefusals(t *testing.T) {
 		// The first contact opens under the sums the anchor takes over both pair slots, so only the one pair slot bound refuses.
 		{"two pair slots", func(a *ringaudit.AnonymousAudit) {
 			a.Outputs[1] = a.NewPayment(t, inbox, ringaudit.Stream{Pair: true, Index: 0, Tag: a.Outputs[0].Stream.Tag})
-			inboxKeys := sum(ringaudit.InboxKey(t, a.RingID, payee.RecipientKey), ringaudit.InboxKey(t, a.RingID, inbox.RecipientKey))
+			inboxKeys := sum(ringaudit.InboxKey(t, a.RingProgramID, payee.RecipientKey), ringaudit.InboxKey(t, a.RingProgramID, inbox.RecipientKey))
 			a.Anchor.Owner = sum(a.Outputs[0].Utxo.Owner(t), a.Outputs[1].Utxo.Owner(t))
 			a.Anchor.Blinding = a.Anchor.FirstContactBlinding(t, ringaudit.InboxTag(t, inboxKeys, a.Anchor.Epoch, a.Anchor.Index))
 		}},
@@ -149,7 +149,7 @@ func TestAnonymousAuditRefusals(t *testing.T) {
 	// The tag of slot 1 is low248 of digest + q, the hint proposes that decomposition and the range checks refuse it.
 	t.Run("tag given as its + q alias", func(t *testing.T) {
 		a := ringaudit.NewAnonymousAudit(t, shape)
-		digest := ringaudit.InboxTagDigest(t, ringaudit.InboxKey(t, a.RingID, inbox.RecipientKey), a.Epoch, 0)
+		digest := ringaudit.InboxTagDigest(t, ringaudit.InboxKey(t, a.RingProgramID, inbox.RecipientKey), a.Epoch, 0)
 		alias := new(big.Int).Add(digest, ecc.BN254.ScalarField())
 		a.Outputs[1] = a.NewPayment(t, inbox, ringaudit.Stream{Inbox: true, Index: 0, Tag: ringaudit.Low248(alias)})
 		honest := registeredHint(t, "/gadget.lowBytesHint")
@@ -243,6 +243,6 @@ func refuseOtherDisclosure(t *testing.T, c *compiledAudit, honest, other ringaud
 
 func inboxStream(t *testing.T, a ringaudit.AnonymousAudit, slot ringaudit.DeliverySlot, index uint64) ringaudit.Stream {
 	t.Helper()
-	tag := ringaudit.InboxTag(t, ringaudit.InboxKey(t, a.RingID, slot.RecipientKey), a.Epoch, index)
+	tag := ringaudit.InboxTag(t, ringaudit.InboxKey(t, a.RingProgramID, slot.RecipientKey), a.Epoch, index)
 	return ringaudit.Stream{Inbox: true, Index: index, Tag: tag}
 }

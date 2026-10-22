@@ -24,7 +24,7 @@ type Opening struct {
 
 type AuditParams struct {
 	FirstNullifier Field `json:"firstNullifier"`
-	RingID         Field `json:"ringId"`
+	RingProgramID  Field `json:"ringId"`
 	TxViewingSk    Bytes `json:"txViewingSk"`
 	EphSk          Bytes `json:"ephSk"`
 	AuditorPk      Bytes `json:"auditorPk"`
@@ -157,7 +157,7 @@ type Entry struct {
 type PolicyParams struct {
 	PrivateTxHash Field   `json:"privateTxHash"`
 	PolicyHash    Field   `json:"policyHash"`
-	RingID        Field   `json:"ringId"`
+	RingProgramID Field   `json:"ringId"`
 	OwnRoot       Field   `json:"ownRoot"`
 	CuratorRoot   Field   `json:"curatorRoot"`
 	PublicAssets  []Field `json:"publicAssets"`

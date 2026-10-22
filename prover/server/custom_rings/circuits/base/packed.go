@@ -12,7 +12,7 @@ import (
 )
 
 // Properties:
-// 1. tx_sk is clamped, its tagged public key and the envelope sealing it to the auditor are statement values.
+// 1. tx_viewing_sk is clamped, its tagged public key and the envelope sealing it to the auditor are statement values.
 // 2. The output chain covers the first NOut slots, the outputs SPP publishes.
 // 3. Every published UTXO is a ring output or an exit, with no data hash under LayoutDataFree.
 // 4. A ring output's blinding derives from its CRAS slot secret through CRRC and TXRB, an exit's from SeedOut through TXOB.
@@ -54,11 +54,11 @@ func (c *PackedAuditCircuit) Define(api frontend.API) error {
 		return err
 	}
 	rc := rangecheck.New(api)
-	// 1. The envelope seals tx_sk to the auditor and the layout flags fix the published fields.
+	// 1. The envelope seals tx_viewing_sk to the auditor and the layout flags fix the published fields.
 	envelope := c.sealEnvelope(api, rc)
 	layout := decodeLayout(api, c.Layout, LayoutExits|LayoutEscrow|LayoutDataFree, 0)
 	// 2. The count selects the published outputs, the disclosure length ties it to the program's output count.
-	nOut := SelectCount(api, c.NOut, 1, c.Capacity)
+	nOut := gadget.SelectCount(api, c.NOut, 1, c.Capacity)
 	hashes := make([]frontend.Variable, c.Capacity)
 	slots := make([]outputSlot, c.Capacity)
 	records := make([]packedRecord, c.Capacity)
@@ -69,19 +69,19 @@ func (c *PackedAuditCircuit) Define(api frontend.API) error {
 		slots[i] = classify(api, output, opened, api.Mul(nOut.Active[i], opened.Utxo))
 		live := slots[i].live
 		// 4. The ring secret derives from a slot secret only the sender and the auditor hold.
-		secret := PackedSlot{TxKey: envelope.key, Salt: envelope.salt, OutputIndex: i, FirstNullifier: c.FirstNullifier}.Secret(api)
+		secret := PackedSlot{TxViewingSk: envelope.packedTxViewingSk, Salt: envelope.salt, OutputIndex: i, FirstNullifier: c.FirstNullifier}.Secret(api)
 		c.assertBlinding(api, output, slots[i], ConfidentialRingSecret(api, secret), i)
 		// 5. The disclosed key is the owner the slot hash binds, SolanaOwnerIdentity bounds its bytes.
-		assertEqualWhen(api, live, output.OwnerPkHash, gadget.SolanaOwnerIdentity(api, c.OwnerKeys[i]))
+		gadget.AssertEqualWhen{Cond: live, A: output.OwnerPkHash, B: gadget.SolanaOwnerIdentity(api, c.OwnerKeys[i])}.Assert(api)
 		// 6. A data-free disclosure opens no data hash, so no published UTXO carries one.
 		dataFree := api.Mul(live, layout.flag(LayoutDataFree))
-		assertZeroWhen(api, dataFree, output.DataHash)
-		assertZeroWhen(api, dataFree, output.RingDataHash)
+		gadget.AssertZeroWhen{Cond: dataFree, V: output.DataHash}.Assert(api)
+		gadget.AssertZeroWhen{Cond: dataFree, V: output.RingDataHash}.Assert(api)
 		records[i] = newPackedRecord(api, output, c.OwnerKeys[i], live)
 	}
 	// 7. SeedOut opens the disclosure exactly when an exit needs it.
 	layout.assertExits(api, slots)
-	statement := c.statement(api, envelope, HashPrefix4(api, hashes, nOut), c.disclosure(api, envelope, layout, nOut, records))
+	statement := c.statement(api, envelope, gadget.HashPrefix4(api, hashes, nOut.OneHot), c.disclosure(api, envelope, layout, nOut, records))
 	// 8. The one public input commits the statement the program rebuilds.
 	api.AssertIsEqual(c.PublicInputHash, statement)
 	return nil
@@ -101,7 +101,7 @@ func newPackedRecord(api frontend.API, o UtxoWires, ownerKey [32]frontend.Variab
 //
 //	SeedOut under LayoutExits, then per published slot nullifier_pk unless LayoutEscrow, asset,
 //	data_hash and ring_data_hash unless LayoutDataFree, pack_disclosure(owner_key ‖ u64be(amount))
-func (c *PackedAuditCircuit) disclosure(api frontend.API, e auditEnvelope, layout auditLayout, nOut Count, records []packedRecord) frontend.Variable {
+func (c *PackedAuditCircuit) disclosure(api frontend.API, e auditEnvelope, layout auditLayout, nOut gadget.Count, records []packedRecord) frontend.Variable {
 	return e.disclose(api, layout.choices(api, LayoutExits|LayoutEscrow|LayoutDataFree), func(choice layoutChoice) disclosureLayout {
 		slots := make([][]frontend.Variable, len(records))
 		for i, record := range records {

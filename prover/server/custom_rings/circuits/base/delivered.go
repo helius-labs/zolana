@@ -12,7 +12,7 @@ import (
 )
 
 // Properties:
-// 1. tx_sk is clamped, its tagged public key and the envelope sealing it to the auditor are statement values.
+// 1. tx_viewing_sk is clamped, its tagged public key and the envelope sealing it to the auditor are statement values.
 // 2. The output chain covers every slot, a delivered transfer publishes no prefix.
 // 3. Every UTXO is a ring output or an exit and carries no output data.
 // 4. A ring output's body encrypts asset_address ‖ u64be(amount) under its CRDS slot secret for the holder of its canonical recipient key and the auditor.
@@ -61,7 +61,7 @@ func (c *DeliveredAuditCircuit) Define(api frontend.API) error {
 		return err
 	}
 	rc := rangecheck.New(api)
-	// 1. The envelope seals tx_sk to the auditor and the layout flags fix the published fields.
+	// 1. The envelope seals tx_viewing_sk to the auditor and the layout flags fix the published fields.
 	envelope := c.sealEnvelope(api, rc)
 	// No delivered UTXO carries data, the data-free flag holds whatever the frame sets.
 	layout := decodeLayout(api, c.Layout, LayoutExits|LayoutEscrow|LayoutDataFree, 0)
@@ -99,8 +99,8 @@ func openDelivered(api frontend.API, d DeliveryWires) outputSlot {
 	opened := d.Output.Open(api)
 	slot := classify(api, d.Output, opened, opened.Utxo)
 	// The recipient rebuilds the whole commitment from the body and its own keys, no UTXO carries output data.
-	assertZeroWhen(api, opened.Utxo, d.Output.DataHash)
-	assertZeroWhen(api, opened.Utxo, d.Output.RingDataHash)
+	gadget.AssertZeroWhen{Cond: opened.Utxo, V: d.Output.DataHash}.Assert(api)
+	gadget.AssertZeroWhen{Cond: opened.Utxo, V: d.Output.RingDataHash}.Assert(api)
 	return slot
 }
 
@@ -117,9 +117,9 @@ func recipientKey(api frontend.API, slot outputSlot, key [32]frontend.Variable) 
 // deliver proves a ring output's body opens to its committed asset and amount for the holder of u.
 func (w AuditWires) deliver(api frontend.API, e auditEnvelope, d DeliveryWires, slot outputSlot, u [32]frontend.Variable, i int) delivery {
 	// 1. One encoding per recipient key, an alias would key the slot secret and the owner tag or inbox key to bytes the recipient never derives.
-	agreement := agreeCanonical(api, e.txSk, u)
+	agreement := agreeCanonical(api, e.txViewingSk, u)
 	// 2. The committed asset is hash_bytes of the mint the body names, the cipher's byte tables bound the mint bytes.
-	assertEqualWhen(api, slot.ring, d.Output.Asset, gadget.HashBoundedBytes(api, d.AssetAddress[:]))
+	gadget.AssertEqualWhen{Cond: slot.ring, A: d.Output.Asset, B: gadget.HashBoundedBytes(api, d.AssetAddress[:])}.Assert(api)
 	// 3. The agreement's ECDH bounds every byte of u and returns canonical agreement bytes.
 	recipient := [2]frontend.Variable(packBounded(api, tagged(u)))
 	// 4. The slot secret binds the agreement, both keys, the salt, the slot and n0, no two slots share a keystream.
@@ -135,10 +135,10 @@ func (w AuditWires) deliver(api frontend.API, e auditEnvelope, d DeliveryWires, 
 	amount := uintBytes(api, d.Output.Amount, 8)
 	for j, b := range aes.NewCipher(api, key).CTREncrypt(nonce, slices.Concat(d.AssetAddress[:], amount)) {
 		// 5. A ring output's body is the encryption of its opening, the recipient and the auditor decrypt the same bytes.
-		assertEqualWhen(api, slot.ring, d.Body[j], b)
+		gadget.AssertEqualWhen{Cond: slot.ring, A: d.Body[j], B: b}.Assert(api)
 	}
 	// 6. A ring output's owner is the identity of the key the disclosure names.
-	assertEqualWhen(api, slot.ring, d.Output.OwnerPkHash, gadget.SolanaOwnerIdentity(api, d.OwnerKey))
+	gadget.AssertEqualWhen{Cond: slot.ring, A: d.Output.OwnerPkHash, B: gadget.SolanaOwnerIdentity(api, d.OwnerKey)}.Assert(api)
 	return delivery{
 		outputSlot: slot,
 		secret:     secret,

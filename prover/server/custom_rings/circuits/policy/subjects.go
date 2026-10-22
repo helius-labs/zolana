@@ -2,7 +2,6 @@ package policy
 
 import (
 	"github.com/consensys/gnark/frontend"
-	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
 	"github.com/helius-labs/zolana/prover/server/circuits/records"
@@ -60,6 +59,6 @@ func (p *Policy) assertEscrow(api frontend.API, keyEscrow frontend.Variable, own
 		escrowed := api.Mul(out.utxo, keyEscrow)
 		key := records.EscrowKey(api, out.nullifierPk, p.Outputs[o].CtHash)
 		// The owner's record escrows Poseidon(nullifier_pk, ct_hash), an absent owner resolves zero and never matches.
-		abstractor.CallVoid(api, gadget.AssertEqualWhen{Cond: escrowed, A: owners[o].escrowKey, B: key})
+		gadget.AssertEqualWhen{Cond: escrowed, A: owners[o].escrowKey, B: key}.Assert(api)
 	}
 }

@@ -144,7 +144,7 @@ func TestAnonymousMergeRejectsUnsupportedWidth(t *testing.T) {
 }
 
 func TestAnonymousMergeCost(t *testing.T) {
-	pinned := map[int]int{8: 56112, 24: 81618, 52: 125929}
+	pinned := map[int]int{8: 56192, 24: 81698, 52: 126009}
 	for _, n := range mergeshared.SupportedInputCounts {
 		cs := compile(t, n)
 		if got := cs.GetNbConstraints(); got != pinned[n] {

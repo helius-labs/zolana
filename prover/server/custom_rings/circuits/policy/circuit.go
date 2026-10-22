@@ -6,7 +6,6 @@ import (
 
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/std/rangecheck"
-	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
 	"github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
@@ -42,7 +41,7 @@ type DelegatePolicyCircuit struct {
 type Policy struct {
 	PrivateTxHash frontend.Variable
 	PolicyHash    frontend.Variable
-	RingID        frontend.Variable
+	RingProgramID frontend.Variable
 	OwnRoot       frontend.Variable
 	CuratorRoot   frontend.Variable
 	PublicAssets  [shared.NPublicSlots]frontend.Variable
@@ -160,7 +159,7 @@ func (c *DelegatePolicyCircuit) validate() error {
 
 func (c *MemberPolicyCircuit) sender(api frontend.API) frontend.Variable {
 	// 1. The anonymous audit proof opens the same commitment to the sender owning every input.
-	abstractor.CallVoid(api, gadget.AssertEqualWhen{Cond: c.Anonymous, A: c.Sender, B: base.SenderCommitment(api, c.SenderPkHash, c.PrivateTxBlinding)})
+	gadget.AssertEqualWhen{Cond: c.Anonymous, A: c.Sender, B: base.SenderCommitment(api, c.SenderPkHash, c.PrivateTxBlinding)}.Assert(api)
 	// 2. The select also holds the anonymous bit to 0 or 1, a fraction would blend the two senders.
 	return api.Select(c.Anonymous, c.SenderPkHash, c.Sender)
 }
@@ -170,7 +169,7 @@ func (c *DelegatePolicyCircuit) sender(api frontend.API, inputs []utxoView) fron
 	api.AssertIsEqual(inputs[0].utxo, 1)
 	for _, in := range inputs {
 		// 2. Every UTXO input belongs to the sender.
-		abstractor.CallVoid(api, gadget.AssertEqualWhen{Cond: in.utxo, A: in.ownerPkHash, B: c.SenderPkHash})
+		gadget.AssertEqualWhen{Cond: in.utxo, A: in.ownerPkHash, B: c.SenderPkHash}.Assert(api)
 	}
 	return c.SenderPkHash
 }
@@ -198,7 +197,7 @@ func (c *DelegatePolicyCircuit) Statement() []frontend.Variable { return c.state
 //	CRPO, private_tx_hash, policy_hash, ring_id, anonymous on the member key only, approval_required,
 //	key_escrow, own_root, curator_root, sender, asset_k and amount_k per public slot
 func (p *Policy) statement(rail railValues) []frontend.Variable {
-	fields := []frontend.Variable{base.PolicyStatementDomain, p.PrivateTxHash, p.PolicyHash, p.RingID}
+	fields := []frontend.Variable{base.PolicyStatementDomain, p.PrivateTxHash, p.PolicyHash, p.RingProgramID}
 	fields = append(fields, rail.anonymous...)
 	fields = append(fields, rail.approvalRequired, rail.keyEscrow, p.OwnRoot, p.CuratorRoot, rail.sender)
 	for k := range p.PublicAssets {

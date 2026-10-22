@@ -11,8 +11,6 @@ import (
 	"github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
 )
 
-func init() { solver.RegisterHint(comparisonHint) }
-
 type comparator struct {
 	rc frontend.Rangechecker
 	// width bounds every difference the key compares, fixed when the key compiles.
@@ -42,6 +40,8 @@ func (c comparator) atMost(api frontend.API, total, threshold frontend.Variable)
 	api.AssertIsEqual(delta, api.Add(low, api.Mul(top, offset)))
 	return top
 }
+
+func init() { solver.RegisterHint(comparisonHint) }
 
 // comparisonHint splits delta at the width, atMost range checks and recomposes both parts.
 func comparisonHint(_ *big.Int, inputs, outputs []*big.Int) error {

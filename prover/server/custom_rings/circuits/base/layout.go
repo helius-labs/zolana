@@ -4,6 +4,7 @@ import (
 	"math/bits"
 
 	"github.com/consensys/gnark/frontend"
+	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
 )
 
 // Flags of the audit statement's layout value, mirrored by AuditLayout::value in custom-rings/interface/src/disclosure.rs.
@@ -23,6 +24,24 @@ const layoutBits = 4
 type auditLayout struct {
 	flags       [layoutBits]frontend.Variable
 	free, fixed int
+}
+
+// layoutChoice is one flag assignment, selected is 1 exactly when the statement's flags equal set.
+type layoutChoice struct {
+	set      int
+	selected frontend.Variable
+}
+
+// disclosureLayout publishes fields in order, the prefix of an end's length under that end's selector.
+type disclosureLayout struct {
+	selected frontend.Variable
+	fields   []frontend.Variable
+	ends     []layoutEnd
+}
+
+type layoutEnd struct {
+	length   int
+	selected frontend.Variable
 }
 
 // decodeLayout pins every flag outside free to its bit of fixed.
@@ -51,13 +70,7 @@ func (l auditLayout) assertExits(api frontend.API, slots []outputSlot) {
 	for _, slot := range slots {
 		exits = api.Add(exits, slot.exit)
 	}
-	api.AssertIsEqual(l.flag(LayoutExits), IsNonZero(api, exits))
-}
-
-// layoutChoice is one flag assignment, selected is 1 exactly when the statement's flags equal set.
-type layoutChoice struct {
-	set      int
-	selected frontend.Variable
+	api.AssertIsEqual(l.flag(LayoutExits), gadget.IsNonZero(api, exits))
 }
 
 func (c layoutChoice) has(f int) bool {
@@ -93,25 +106,13 @@ func (w AuditWires) seedOut(c layoutChoice) []frontend.Variable {
 	return nil
 }
 
-// disclosureLayout publishes fields in order, the prefix of an end's length under that end's selector.
-type disclosureLayout struct {
-	selected frontend.Variable
-	fields   []frontend.Variable
-	ends     []layoutEnd
-}
-
-type layoutEnd struct {
-	length   int
-	selected frontend.Variable
-}
-
 // fixed publishes every field.
 func (c layoutChoice) fixed(fields []frontend.Variable) disclosureLayout {
 	return disclosureLayout{selected: c.selected, fields: fields, ends: []layoutEnd{{length: len(fields), selected: c.selected}}}
 }
 
 // counted publishes head and then the first count records, every record of one width.
-func (c layoutChoice) counted(api frontend.API, head []frontend.Variable, records [][]frontend.Variable, count Count) disclosureLayout {
+func (c layoutChoice) counted(api frontend.API, head []frontend.Variable, records [][]frontend.Variable, count gadget.Count) disclosureLayout {
 	l := disclosureLayout{selected: c.selected, fields: head}
 	width := len(records[0])
 	for _, record := range records {
@@ -121,7 +122,7 @@ func (c layoutChoice) counted(api frontend.API, head []frontend.Variable, record
 		l.fields = append(l.fields, record...)
 	}
 	for k, oneHot := range count.OneHot {
-		l.ends = append(l.ends, layoutEnd{length: len(head) + (count.first+k)*width, selected: api.Mul(c.selected, oneHot)})
+		l.ends = append(l.ends, layoutEnd{length: len(head) + count.Candidate(k)*width, selected: api.Mul(c.selected, oneHot)})
 	}
 	return l
 }
@@ -134,7 +135,7 @@ func (e auditEnvelope) disclose(api frontend.API, choices []layoutChoice, layout
 		layouts[i] = layoutOf(choice)
 		width = max(width, len(layouts[i].fields))
 	}
-	ciphertext := DisclosurePad(api, DisclosurePadDomain, e.key[:], e.salt, width)
+	ciphertext := gadget.DisclosurePad(api, DisclosurePadDomain, e.packedTxViewingSk, e.salt, width)
 	ends := zeros(width)
 	for _, l := range layouts {
 		for j, field := range l.fields {
@@ -145,5 +146,5 @@ func (e auditEnvelope) disclose(api frontend.API, choices []layoutChoice, layout
 		}
 	}
 	// Exactly one end is selected, its length the field count the program reads.
-	return HashPrefix4(api, ciphertext, Count{OneHot: ends, first: 1})
+	return gadget.HashPrefix4(api, ciphertext, ends)
 }

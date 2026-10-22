@@ -24,7 +24,7 @@ func compilePacked(t *testing.T, capacity int) *compiledAudit {
 func TestPackedAuditRefusals(t *testing.T) {
 	compilePacked(t, 2)
 	c := compilePacked(t, 4)
-	unclamped := ringaudit.DefaultKeys(t).TxSk()
+	unclamped := ringaudit.DefaultKeys(t).TxViewingSk()
 	unclamped[0] |= 1
 	for _, tc := range []struct {
 		name   string

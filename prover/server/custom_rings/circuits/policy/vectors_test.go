@@ -202,7 +202,7 @@ type statementVector struct {
 	Anonymous        *bool             `json:"anonymous"`
 	PrivateTxHash    ringrecords.Hex   `json:"private_tx_hash"`
 	PolicyHash       ringrecords.Hex   `json:"policy_hash"`
-	RingID           ringrecords.Hex   `json:"ring_id"`
+	RingProgramID    ringrecords.Hex   `json:"ring_id"`
 	ApprovalRequired bool              `json:"approval_required"`
 	KeyEscrow        bool              `json:"key_escrow"`
 	OwnRoot          ringrecords.Hex   `json:"own_root"`
@@ -274,7 +274,7 @@ func (v statementVector) circuits(t *testing.T, publicInputHash *big.Int) (front
 	}
 	b := w.Build(t)
 	p := b.Policy()
-	p.PrivateTxHash, p.PolicyHash, p.RingID = v.PrivateTxHash.Int, v.PolicyHash.Int, v.RingID.Int
+	p.PrivateTxHash, p.PolicyHash, p.RingProgramID = v.PrivateTxHash.Int, v.PolicyHash.Int, v.RingProgramID.Int
 	p.OwnRoot, p.CuratorRoot = v.OwnRoot.Int, v.CuratorRoot.Int
 	for k := range p.PublicAssets {
 		p.PublicAssets[k], p.PublicAmounts[k] = v.PublicAssets[k].Int, v.PublicAmounts[k].Int

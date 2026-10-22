@@ -24,7 +24,7 @@ func TestAuditStreamKDFVector(t *testing.T) {
 func TestAuditEnvelopeVector(t *testing.T) {
 	k := DefaultKeys(t)
 	key, nonce := AuditStreamKeys(t, k.envelopeSecret(t))
-	ciphertext := ctrEncrypt(t, key, nonce, k.txSk[:])
+	ciphertext := ctrEncrypt(t, key, nonce, k.txViewingSk[:])
 	if got := hex.EncodeToString(ciphertext); got != "da94f616e95702bdea89178dd9c4547393ebce9d47e67d0cac1533f13b678b90" {
 		t.Fatalf("auditor ciphertext: %s", got)
 	}

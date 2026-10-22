@@ -11,8 +11,6 @@ import (
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
 )
 
-func init() { solver.RegisterHint(rulePartsHint) }
-
 type Table struct {
 	Sources   [NSources]SourceWires
 	PolicyLen frontend.Variable
@@ -71,9 +69,9 @@ func (t Table) decode(api frontend.API, rc frontend.Rangechecker, policyHash fro
 	api.AssertIsEqual(policyHash, t.hash(api))
 	// 2. Each count selects its active rows, a count past its capacity selects none and fails.
 	d := tableView{
-		ruleActive:   base.SelectCount(api, t.PolicyLen, 0, NRules+1).Active,
-		inlineActive: base.SelectCount(api, t.InlineCount, 0, NInlineAssets+1).Active,
-		limitActive:  base.SelectCount(api, t.LimitCount, 0, NOutflowLimits+1).Active,
+		ruleActive:   gadget.SelectCount(api, t.PolicyLen, 0, NRules+1).Active,
+		inlineActive: gadget.SelectCount(api, t.InlineCount, 0, NInlineAssets+1).Active,
+		limitActive:  gadget.SelectCount(api, t.LimitCount, 0, NOutflowLimits+1).Active,
 		sources:      t.readSources(api),
 		assetRules:   0,
 		scalarOwner:  0,
@@ -119,9 +117,9 @@ func (t Table) hash(api frontend.API) frontend.Variable {
 func (t Table) readSources(api frontend.API) sourceView {
 	var view sourceView
 	for i, source := range t.Sources {
-		view.foreign[i] = base.IsNonZero(api, source.Registry)
+		view.foreign[i] = gadget.IsNonZero(api, source.Registry)
 	}
-	view.anyForeign = base.IsAny(api, view.foreign[:]...)
+	view.anyForeign = gadget.IsAny(api, view.foreign[:]...)
 	return view
 }
 
@@ -164,6 +162,8 @@ func decodeRule(api frontend.API, rc frontend.Rangechecker, packed frontend.Vari
 	}
 	return rule
 }
+
+func init() { solver.RegisterHint(rulePartsHint) }
 
 // rulePartsHint splits a row along ruleParts, decodeRule range checks and recomposes every output.
 func rulePartsHint(_ *big.Int, inputs, outputs []*big.Int) error {

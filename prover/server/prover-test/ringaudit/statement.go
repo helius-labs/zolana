@@ -12,7 +12,7 @@ import (
 // AuditHead is what the program holds for the head of an audit statement, mirrors AuditHead in custom-rings/interface/src/statement.rs.
 type AuditHead struct {
 	FirstNullifier *big.Int
-	RingID         *big.Int
+	RingProgramID  *big.Int
 	TxViewingU     [32]byte
 	AuditorPubkey  [33]byte
 	EphU           [32]byte
@@ -29,7 +29,7 @@ func (h AuditHead) Elements(t testing.TB) []*big.Int {
 	auditorLo, auditorHi := pack33(h.AuditorPubkey)
 	ephLo, ephHi := pack33(Tagged(h.EphU[:]))
 	return []*big.Int{
-		big.NewInt(base.AuditStatementDomain), h.FirstNullifier, h.RingID, txLo, txHi,
+		big.NewInt(base.AuditStatementDomain), h.FirstNullifier, h.RingProgramID, txLo, txHi,
 		auditorLo, auditorHi, ephLo, ephHi, HashBytes(t, h.Sealed), new(big.Int).SetBytes(h.Salt[:]), big.NewInt(h.Layout),
 	}
 }

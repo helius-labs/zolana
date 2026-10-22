@@ -166,7 +166,7 @@ func TestKeyRegisterKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, pinned := cs.GetNbConstraints(), 36913; got != pinned {
+	if got, pinned := cs.GetNbConstraints(), 36991; got != pinned {
 		t.Errorf("register key constraints=%d, pinned %d", got, pinned)
 	}
 	commitments, ok := cs.GetCommitments().(constraint.Groth16Commitments)

@@ -28,11 +28,6 @@ const (
 	HeaderBytes = 32 + 32 + 32 + 8 + 32
 )
 
-// DisclosureBytes is the plaintext length of the n-input circuit.
-func DisclosureBytes(n int) int {
-	return HeaderBytes + 32*n
-}
-
 // Input is one merge slot, the owner, asset and ring program come from the circuit.
 type Input struct {
 	Domain       frontend.Variable
@@ -68,6 +63,11 @@ type AnonymousMergeCircuit struct {
 // NewAnonymousMergeCircuit allocates the circuit of one supported merge width.
 func NewAnonymousMergeCircuit(n int) *AnonymousMergeCircuit {
 	return &AnonymousMergeCircuit{NumInputs: n, Inputs: make([]Input, n)}
+}
+
+// DisclosureBytes is the plaintext length of the n-input circuit.
+func DisclosureBytes(n int) int {
+	return HeaderBytes + 32*n
 }
 
 func (c *AnonymousMergeCircuit) Define(api frontend.API) error {
@@ -141,7 +141,7 @@ func (c *AnonymousMergeCircuit) Define(api frontend.API) error {
 		plaintext = append(plaintext, hashBytes[:]...)
 	}
 	fields := base.PackDisclosure(api, plaintext)
-	pad := base.DisclosurePad(api, base.MergeDisclosureDomain, gadget.PackBytesBEWith(api, gadget.BoundedBytes{}, c.DisclosureKey[:]), c.Salt, len(fields))
+	pad := gadget.DisclosurePad(api, base.MergeDisclosureDomain, [2]frontend.Variable(gadget.PackBytesBEWith(api, gadget.BoundedBytes{}, c.DisclosureKey[:])), c.Salt, len(fields))
 	for i := range fields {
 		fields[i] = api.Add(fields[i], pad[i])
 	}

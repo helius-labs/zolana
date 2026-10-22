@@ -13,20 +13,20 @@ import (
 )
 
 // PackedSlotSecret mirrors base.PackedSlot.Secret.
-func PackedSlotSecret(t testing.TB, txSk [32]byte, salt [16]byte, i int, firstNullifier *big.Int) *big.Int {
+func PackedSlotSecret(t testing.TB, txViewingSk [32]byte, salt [16]byte, i int, firstNullifier *big.Int) *big.Int {
 	t.Helper()
-	keyLo, keyHi := pack32(txSk)
+	keyLo, keyHi := pack32(txViewingSk)
 	return hash(t, big.NewInt(base.PackedSlotSecretDomain), keyLo, keyHi, new(big.Int).SetBytes(salt[:]), big.NewInt(int64(i)), firstNullifier)
 }
 
-// DeliveredSlotSecret mirrors base.DeliveredSlot.Secret over X25519(tx_sk, u).
-func DeliveredSlotSecret(t testing.TB, txSk [32]byte, u [32]byte, salt [16]byte, i int, firstNullifier *big.Int) *big.Int {
+// DeliveredSlotSecret mirrors base.DeliveredSlot.Secret over X25519(tx_viewing_sk, u).
+func DeliveredSlotSecret(t testing.TB, txViewingSk [32]byte, u [32]byte, salt [16]byte, i int, firstNullifier *big.Int) *big.Int {
 	t.Helper()
 	peer, err := ecdh.X25519().NewPublicKey(u[:])
 	if err != nil {
 		t.Fatal(err)
 	}
-	tx := XPrivateKey(t, txSk)
+	tx := XPrivateKey(t, txViewingSk)
 	agreement, err := tx.ECDH(peer)
 	if err != nil {
 		t.Fatal(err)

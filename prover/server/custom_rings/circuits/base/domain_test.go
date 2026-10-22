@@ -69,8 +69,8 @@ type ringTagVectors struct {
 		TagLen      int `json:"tag_len"`
 		BodyLen     int `json:"body_len"`
 	} `json:"constants"`
-	RingProgramID      string            `json:"ring_program_id"`
-	RingID             string            `json:"ring_id"`
+	RingProgramAddress string            `json:"ring_program_id"`
+	RingProgramID      string            `json:"ring_id"`
 	ViewingPk          string            `json:"viewing_pk"`
 	InboxKey           string            `json:"inbox_key"`
 	InboxTags          []streamTagVector `json:"inbox_tags"`
@@ -90,8 +90,8 @@ type streamTagVector struct {
 }
 
 type ringTagsCircuit struct {
-	RingProgramID      [32]frontend.Variable
-	RingID             frontend.Variable
+	RingProgramAddress [32]frontend.Variable
+	RingProgramID      frontend.Variable
 	ViewingPk          [33]frontend.Variable
 	InboxKey           frontend.Variable
 	InboxTags          []streamTagWires
@@ -107,8 +107,8 @@ type low248Wires struct{ Value, Tag frontend.Variable }
 
 func (c *ringTagsCircuit) Define(api frontend.API) error {
 	rc := rangecheck.New(api)
-	api.AssertIsEqual(gadget.HashBytes(api, c.RingProgramID[:]), c.RingID)
-	inboxKey := base.InboxKey(api, c.RingID, [2]frontend.Variable(gadget.PackBytesBE(api, c.ViewingPk[:])))
+	api.AssertIsEqual(gadget.HashBytes(api, c.RingProgramAddress[:]), c.RingProgramID)
+	inboxKey := base.InboxKey(api, c.RingProgramID, [2]frontend.Variable(gadget.PackBytesBE(api, c.ViewingPk[:])))
 	api.AssertIsEqual(inboxKey, c.InboxKey)
 	for _, tag := range c.InboxTags {
 		api.AssertIsEqual(base.TagField(api, rc, base.InboxTagDigest(api, inboxKey, tag.Epoch, tag.Index)), tag.Tag)
@@ -133,14 +133,14 @@ func TestRingTagsMatchRustVectors(t *testing.T) {
 		t.Fatalf("stream constants drifted from the Rust vector, got %+v", constants)
 	}
 	witness := &ringTagsCircuit{
-		RingID:             vectorField(t, vectors.RingID),
+		RingProgramID:      vectorField(t, vectors.RingProgramID),
 		InboxKey:           vectorField(t, vectors.InboxKey),
 		InboxTags:          streamTags(t, vectors.InboxTags),
 		FirstContactSecret: vectorField(t, vectors.FirstContactSecret),
 		PairKey:            vectorField(t, vectors.PairKey),
 		PairTags:           streamTags(t, vectors.PairTags),
 	}
-	copy(witness.RingProgramID[:], vectorBytes(t, vectors.RingProgramID, 32))
+	copy(witness.RingProgramAddress[:], vectorBytes(t, vectors.RingProgramAddress, 32))
 	copy(witness.ViewingPk[:], vectorBytes(t, vectors.ViewingPk, 33))
 	for _, low := range vectors.Low248 {
 		witness.Low248 = append(witness.Low248, low248Wires{Value: vectorField(t, low.Value), Tag: vectorField(t, low.Tag)})
@@ -160,7 +160,7 @@ func TestRingTagsMatchRustVectors(t *testing.T) {
 }
 
 type ringSecretVectors struct {
-	TxViewingSecret    string `json:"tx_viewing_secret"`
+	TxViewingSk        string `json:"tx_viewing_secret"`
 	TxViewingPk        string `json:"tx_viewing_pk"`
 	RecipientViewingPk string `json:"recipient_viewing_pk"`
 	Agreement          string `json:"agreement"`
@@ -191,7 +191,7 @@ type ringSecretVectors struct {
 
 type ringSecretsCircuit struct {
 	OutputIndexes         []int `gnark:"-"`
-	TxViewingSecret       [32]frontend.Variable
+	TxViewingSk           [32]frontend.Variable
 	TxViewingPk           [33]frontend.Variable
 	RecipientViewingPk    [33]frontend.Variable
 	Agreement             [32]frontend.Variable
@@ -215,7 +215,7 @@ type ringSecretWires struct {
 }
 
 func (c *ringSecretsCircuit) Define(api frontend.API) error {
-	txKey := [2]frontend.Variable(gadget.PackBytesBE(api, c.TxViewingSecret[:]))
+	packedTxViewingSk := [2]frontend.Variable(gadget.PackBytesBE(api, c.TxViewingSk[:]))
 	agreement := [2]frontend.Variable(gadget.PackBytesBE(api, c.Agreement[:]))
 	txPk := [2]frontend.Variable(gadget.PackBytesBE(api, c.TxViewingPk[:]))
 	recipient := [2]frontend.Variable(gadget.PackBytesBE(api, c.RecipientViewingPk[:]))
@@ -224,7 +224,7 @@ func (c *ringSecretsCircuit) Define(api frontend.API) error {
 	api.AssertIsEqual(outputSeed, c.OutputBlindingSeed)
 	for k, out := range c.Outputs {
 		i := c.OutputIndexes[k]
-		packed := base.PackedSlot{TxKey: txKey, Salt: salt, OutputIndex: i, FirstNullifier: c.FirstNullifier}.Secret(api)
+		packed := base.PackedSlot{TxViewingSk: packedTxViewingSk, Salt: salt, OutputIndex: i, FirstNullifier: c.FirstNullifier}.Secret(api)
 		api.AssertIsEqual(packed, out.PackedSlotSecret)
 		packedRing := base.ConfidentialRingSecret(api, packed)
 		api.AssertIsEqual(packedRing, out.PackedRingSecret)
@@ -263,7 +263,7 @@ func TestRingSecretsMatchRustVectors(t *testing.T) {
 		DepositBlindingSecret: vectorField(t, vectors.DepositBlindingSecret),
 		DepositBlinding:       vectorField(t, vectors.DepositBlinding),
 	}
-	copy(witness.TxViewingSecret[:], vectorBytes(t, vectors.TxViewingSecret, 32))
+	copy(witness.TxViewingSk[:], vectorBytes(t, vectors.TxViewingSk, 32))
 	copy(witness.TxViewingPk[:], vectorBytes(t, vectors.TxViewingPk, 33))
 	copy(witness.RecipientViewingPk[:], vectorBytes(t, vectors.RecipientViewingPk, 33))
 	copy(witness.Agreement[:], vectorBytes(t, vectors.Agreement, 32))

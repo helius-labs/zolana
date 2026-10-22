@@ -2,6 +2,7 @@ package gadget
 
 import (
 	"github.com/consensys/gnark/frontend"
+	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 )
 
 // AssertEqualWhen constrains a == b only when cond == 1. For cond == 0 the
@@ -17,6 +18,10 @@ func (gadget AssertEqualWhen) DefineGadget(api frontend.API) interface{} {
 	return []frontend.Variable{}
 }
 
+func (g AssertEqualWhen) Assert(api frontend.API) {
+	abstractor.CallVoid(api, g)
+}
+
 // AssertZeroWhen constrains v == 0 only when cond == 1.
 type AssertZeroWhen struct {
 	Cond frontend.Variable
@@ -26,4 +31,8 @@ type AssertZeroWhen struct {
 func (gadget AssertZeroWhen) DefineGadget(api frontend.API) interface{} {
 	api.AssertIsEqual(api.Mul(gadget.Cond, gadget.V), 0)
 	return []frontend.Variable{}
+}
+
+func (g AssertZeroWhen) Assert(api frontend.API) {
+	abstractor.CallVoid(api, g)
 }

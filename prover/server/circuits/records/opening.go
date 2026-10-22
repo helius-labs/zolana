@@ -2,7 +2,6 @@ package records
 
 import (
 	"github.com/consensys/gnark/frontend"
-	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
 )
@@ -40,10 +39,10 @@ func (o QuadOpening) Resolve(api frontend.API, cond, root, member frontend.Varia
 	// falls inside, and its lists and escrow key are zero.
 	absent := api.Mul(cond, api.Sub(1, o.Present))
 	gadget.AssertOrderedWhen(api, absent, o.LowMember, member, o.LowNext)
-	abstractor.CallVoid(api, gadget.AssertZeroWhen{Cond: absent, V: o.Lists})
-	abstractor.CallVoid(api, gadget.AssertZeroWhen{Cond: absent, V: o.EscrowKey})
+	gadget.AssertZeroWhen{Cond: absent, V: o.Lists}.Assert(api)
+	gadget.AssertZeroWhen{Cond: absent, V: o.EscrowKey}.Assert(api)
 	// 4. The opened record folds to root, a record of another registry or root fails.
-	abstractor.CallVoid(api, gadget.AssertEqualWhen{Cond: cond, A: o.Path.Root(api, record.Hash(api)), B: root})
+	gadget.AssertEqualWhen{Cond: cond, A: o.Path.Root(api, record.Hash(api)), B: root}.Assert(api)
 	return api.Mul(cond, o.Lists), api.Mul(cond, o.EscrowKey)
 }
 
@@ -58,5 +57,5 @@ type QuadRecordOpening struct {
 func (o QuadRecordOpening) AssertPresent(api frontend.API, cond, root, member frontend.Variable) {
 	leaf := Record{Member: member, Next: o.Next, Lists: o.Lists, EscrowKey: o.EscrowKey}.Hash(api)
 	// The leaf names member, an absent member or another member's record fails the fold.
-	abstractor.CallVoid(api, gadget.AssertEqualWhen{Cond: cond, A: o.Path.Root(api, leaf), B: root})
+	gadget.AssertEqualWhen{Cond: cond, A: o.Path.Root(api, leaf), B: root}.Assert(api)
 }

@@ -16,7 +16,7 @@ type statementVectors struct {
 type auditStatementVector struct {
 	Kind             string                  `json:"kind"`
 	FirstNullifier   string                  `json:"first_nullifier"`
-	RingID           string                  `json:"ring_id"`
+	RingProgramID    string                  `json:"ring_id"`
 	TxViewingU       string                  `json:"tx_viewing_u"`
 	AuditorPubkey    string                  `json:"auditor_pubkey"`
 	EphU             string                  `json:"eph_u"`
@@ -50,7 +50,7 @@ func TestAuditStatementsMatchRustVectors(t *testing.T) {
 		t.Run(v.Kind, func(t *testing.T) {
 			head := ringaudit.AuditHead{
 				FirstNullifier: vectorField(t, v.FirstNullifier),
-				RingID:         vectorField(t, v.RingID),
+				RingProgramID:  vectorField(t, v.RingProgramID),
 				TxViewingU:     [32]byte(hexBytes(t, v.TxViewingU, 32)),
 				AuditorPubkey:  [33]byte(hexBytes(t, v.AuditorPubkey, 33)),
 				EphU:           [32]byte(hexBytes(t, v.EphU, 32)),

@@ -280,7 +280,7 @@ func TestApplyRecordsRefusals(t *testing.T) {
 		{"an empty batch", seeded, 1, []ringrecords.Entry{insert}, func(t *testing.T, b *batch) {
 			b.circuit.Count = 0
 			b.bind(t)
-		}, []string{"base.SelectCount"}},
+		}, []string{"gadget.SelectCount"}},
 		{"the statement of another batch", seeded, 1, []ringrecords.Entry{insert}, func(_ *testing.T, b *batch) {
 			b.circuit.PublicInputHash = big.NewInt(1)
 		}, define},

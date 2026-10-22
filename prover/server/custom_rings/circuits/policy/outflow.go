@@ -3,8 +3,8 @@ package policy
 import (
 	"github.com/consensys/gnark/frontend"
 
+	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
 	"github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
-	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
 )
 
 // constrainOutflow bounds every active limit row's outflow and returns whether one passes its co-sign bound.
@@ -12,7 +12,7 @@ func (p *Policy) constrainOutflow(api frontend.API, cmp comparator, t tableView,
 	// 1. An output to the sender inside the ring is change, every other UTXO output leaves the sender.
 	leaving := make([]frontend.Variable, len(outputs))
 	for o, out := range outputs {
-		change := api.Mul(api.IsZero(api.Sub(out.ownerPkHash, sender)), api.IsZero(api.Sub(out.ringProgramID, p.RingID)))
+		change := api.Mul(api.IsZero(api.Sub(out.ownerPkHash, sender)), api.IsZero(api.Sub(out.ringProgramID, p.RingProgramID)))
 		leaving[o] = api.Mul(out.utxo, api.Sub(1, change), out.amount)
 	}
 	approval := frontend.Variable(0)
@@ -30,9 +30,9 @@ func (p *Policy) constrainOutflow(api frontend.API, cmp comparator, t tableView,
 		shared.AssertWhen(api, active, cmp.atMost(api, net, others))
 		outflow := api.Sub(others, net)
 		// 4. A nonzero cap bounds the outflow.
-		shared.AssertWhen(api, api.Mul(active, base.IsNonZero(api, row.Cap)), cmp.atMost(api, outflow, row.Cap))
+		shared.AssertWhen(api, api.Mul(active, gadget.IsNonZero(api, row.Cap)), cmp.atMost(api, outflow, row.Cap))
 		// 5. An outflow past a nonzero co-sign bound demands the co-signer.
-		cosigned := api.Mul(active, base.IsNonZero(api, row.CosignAbove))
+		cosigned := api.Mul(active, gadget.IsNonZero(api, row.CosignAbove))
 		approval = api.Or(approval, api.Mul(cosigned, api.Sub(1, cmp.atMost(api, outflow, row.CosignAbove))))
 	}
 	return approval

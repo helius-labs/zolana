@@ -24,22 +24,22 @@ const (
 // BodyLen is asset_address(32) ‖ u64be(amount), mirrored by RING_DELIVERED_BODY_LEN in program-libs/event/src/proofless.rs.
 const BodyLen = 40
 
-// PackedSlot is a packed rail slot secret preimage, TxKey = pack_be(tx_sk).
+// PackedSlot is a packed rail slot secret preimage, TxViewingSk = pack_be(tx_viewing_sk).
 type PackedSlot struct {
-	TxKey          [2]frontend.Variable
+	TxViewingSk    [2]frontend.Variable
 	Salt           frontend.Variable
 	OutputIndex    frontend.Variable
 	FirstNullifier frontend.Variable
 }
 
-// Secret is Poseidon(CRAS, key0, key1, salt, i, n0), held only by the sender and the auditor of tx_sk.
+// Secret is Poseidon(CRAS, key0, key1, salt, i, n0), held only by the sender and the auditor of tx_viewing_sk.
 func (s PackedSlot) Secret(api frontend.API) frontend.Variable {
 	return gadget.PoseidonHash(api, []frontend.Variable{
-		PackedSlotSecretDomain, s.TxKey[0], s.TxKey[1], s.Salt, s.OutputIndex, s.FirstNullifier,
+		PackedSlotSecretDomain, s.TxViewingSk[0], s.TxViewingSk[1], s.Salt, s.OutputIndex, s.FirstNullifier,
 	})
 }
 
-// DeliveredSlot is a delivered slot secret preimage, Agreement = pack_be(X25519(tx_sk, u)) and each key pack_be(0x04 ‖ u).
+// DeliveredSlot is a delivered slot secret preimage, Agreement = pack_be(X25519(tx_viewing_sk, u)) and each key pack_be(0x04 ‖ u).
 type DeliveredSlot struct {
 	Agreement      [2]frontend.Variable
 	TxPk           [2]frontend.Variable

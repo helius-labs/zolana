@@ -2,11 +2,9 @@ package policy
 
 import (
 	"github.com/consensys/gnark/frontend"
-	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
 	"github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
-	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
 )
 
 type outputTotals struct {
@@ -22,7 +20,7 @@ func (p *Policy) assertRules(api frontend.API, cmp comparator, t tableView, s su
 	// 1. A zero owner carries no obligation, an asset needs no such gate since SPP refuses a UTXO of asset 0.
 	liveOwner := make([]frontend.Variable, len(outputs))
 	for o, out := range outputs {
-		liveOwner[o] = api.Mul(out.utxo, base.IsNonZero(api, out.ownerPkHash))
+		liveOwner[o] = api.Mul(out.utxo, gadget.IsNonZero(api, out.ownerPkHash))
 	}
 	// 2. An asset guard exempts an owner whose outputs of one asset stay within the asset's inline limit.
 	totals := sumOutputs(api, outputs, liveOwner)
@@ -34,13 +32,13 @@ func (p *Policy) assertRules(api frontend.API, cmp comparator, t tableView, s su
 	// 3. A scalar guard sums one owner's outputs, under one every UTXO output carries one asset.
 	for i, left := range outputs {
 		for _, right := range outputs[:i] {
-			abstractor.CallVoid(api, gadget.AssertEqualWhen{Cond: api.Mul(t.scalarOwner, left.utxo, right.utxo), A: left.asset, B: right.asset})
+			gadget.AssertEqualWhen{Cond: api.Mul(t.scalarOwner, left.utxo, right.utxo), A: left.asset, B: right.asset}.Assert(api)
 		}
 	}
 	// 4. Every active rule holds for its subjects, the sender once and each live output owner or asset.
 	for r, rule := range t.rules {
 		// The one sender meets every sender rule, with or without a spent input.
-		abstractor.CallVoid(api, gadget.AssertZeroWhen{Cond: api.Mul(t.ruleActive[r], rule.onSender), V: rule.refuses(api, s.sender.onList)})
+		gadget.AssertZeroWhen{Cond: api.Mul(t.ruleActive[r], rule.onSender), V: rule.refuses(api, s.sender.onList)}.Assert(api)
 		onOutput := api.Mul(t.ruleActive[r], api.Add(rule.onOwner, rule.onAsset))
 		for o := range outputs {
 			enabled := api.Mul(onOutput, api.Select(rule.onAsset, outputs[o].utxo, liveOwner[o]))

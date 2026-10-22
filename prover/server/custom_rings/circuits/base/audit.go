@@ -5,15 +5,11 @@ import (
 	"fmt"
 
 	"github.com/consensys/gnark/frontend"
-	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 
 	"github.com/helius-labs/zolana/prover/server/circuits/crypto/x25519"
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
 	"github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
 )
-
-// auditEncInfo is the audit stream schedule tag, mirrored by AUDIT_STREAM_INFO in custom-rings/interface/src/anonymous_output.rs.
-const auditEncInfo = "CRING/adt1"
 
 type AnonymousAuditShape struct {
 	InputClass   int
@@ -53,57 +49,26 @@ var (
 
 type AuditWires struct {
 	FirstNullifier frontend.Variable
-	// RingID is hash_bytes(ring program address), the id SPP binds every ring output to.
-	RingID      frontend.Variable
-	TxViewingSk [32]frontend.Variable
-	EphSk       [32]frontend.Variable
-	AuditorPk   [32]frontend.Variable
-	Salt        [16]frontend.Variable
+	// RingProgramID is hash_bytes(ring program address), the id SPP binds every ring output to.
+	RingProgramID frontend.Variable
+	TxViewingSk   [32]frontend.Variable
+	EphSk         [32]frontend.Variable
+	AuditorPk     [32]frontend.Variable
+	Salt          [16]frontend.Variable
 	// SeedOut is SPP's output blinding seed Poseidon(TXOS, n0, blinding_seed), the seed of every exit blinding.
 	SeedOut frontend.Variable
 	Layout  frontend.Variable
 }
 
 type auditEnvelope struct {
-	txSk [32]frontend.Variable
+	txViewingSk [32]frontend.Variable
 	// txPk is pack_be(0x04 ‖ tx_u).
 	txPk [2]frontend.Variable
-	// key is pack_be(tx_sk), the key of the CRAS slot secrets and the CROD pad.
-	key        [2]frontend.Variable
-	salt       frontend.Variable
-	sealed     Sealed
-	sealedHash frontend.Variable
-}
-
-// sealEnvelope binds tx_sk to its tagged public key and seals it to the auditor.
-func (w AuditWires) sealEnvelope(api frontend.API, rc frontend.Rangechecker) auditEnvelope {
-	// 1. The salt is 16 bytes, one field below 2^128 the program rebuilds from the instruction.
-	salt := gadget.BytesToFieldWith(api, rc, w.Salt[:])
-	// 2. The auditor reads the recovered bytes as they are, an unclamped alias would key another stream.
-	AssertClamped(api, w.TxViewingSk)
-	// 3. tx_u is the key of tx_sk, the generator bounds every secret byte the packings read.
-	txPk := packBounded(api, TaggedPubkey(api, w.TxViewingSk))
-	// 4. The envelope seals tx_sk to the auditor under the audit stream schedule.
-	sealed := Envelope{Plaintext: w.TxViewingSk[:], EphSk: w.EphSk, AuditorPk: w.AuditorPk}.SealAuditStream(api)
-	return auditEnvelope{
-		txSk:   w.TxViewingSk,
-		txPk:   [2]frontend.Variable(txPk),
-		key:    [2]frontend.Variable(packBounded(api, w.TxViewingSk[:])),
-		salt:   salt,
-		sealed: sealed,
-		// The cipher's byte tables bound every ciphertext byte.
-		sealedHash: gadget.HashBoundedBytes(api, sealed.Ciphertext),
-	}
-}
-
-// statementHead opens every audit statement, mirrored by AuditHead in custom-rings/interface/src/statement.rs.
-//
-//	CRAU, n0, ring_id, txpk0, txpk1, aud0, aud1, eph0, eph1, sealed_hash, salt, layout
-func (e auditEnvelope) statementHead(w AuditWires) []frontend.Variable {
-	return []frontend.Variable{
-		AuditStatementDomain, w.FirstNullifier, w.RingID, e.txPk[0], e.txPk[1],
-		e.sealed.Auditor[0], e.sealed.Auditor[1], e.sealed.Eph[0], e.sealed.Eph[1], e.sealedHash, e.salt, w.Layout,
-	}
+	// packedTxViewingSk is pack_be(tx_viewing_sk), the key of the CRAS slot secrets and the CROD pad.
+	packedTxViewingSk [2]frontend.Variable
+	salt              frontend.Variable
+	sealed            Sealed
+	sealedHash        frontend.Variable
 }
 
 // outputSlot sorts a live UTXO into a ring output or an exit, a dummy or an unpublished slot is neither.
@@ -114,9 +79,30 @@ type outputSlot struct {
 	exit frontend.Variable
 }
 
+// sealEnvelope binds tx_viewing_sk to its tagged public key and seals it to the auditor.
+func (w AuditWires) sealEnvelope(api frontend.API, rc frontend.Rangechecker) auditEnvelope {
+	// 1. The salt is 16 bytes, one field below 2^128 the program rebuilds from the instruction.
+	salt := gadget.BytesToFieldWith(api, rc, w.Salt[:])
+	// 2. The auditor reads the recovered bytes as they are, an unclamped alias would key another stream.
+	AssertClamped(api, w.TxViewingSk)
+	// 3. tx_u is the key of tx_viewing_sk, the generator bounds every secret byte the packings read.
+	txPk := packBounded(api, TaggedPubkey(api, w.TxViewingSk))
+	// 4. The envelope seals tx_viewing_sk to the auditor under the audit stream schedule.
+	sealed := Envelope{Plaintext: w.TxViewingSk[:], EphSk: w.EphSk, AuditorPk: w.AuditorPk}.SealAuditStream(api)
+	return auditEnvelope{
+		txViewingSk:       w.TxViewingSk,
+		txPk:              [2]frontend.Variable(txPk),
+		packedTxViewingSk: [2]frontend.Variable(packBounded(api, w.TxViewingSk[:])),
+		salt:              salt,
+		sealed:            sealed,
+		// The cipher's byte tables bound every ciphertext byte.
+		sealedHash: gadget.HashBoundedBytes(api, sealed.Ciphertext),
+	}
+}
+
 func classify(api frontend.API, o UtxoWires, opened OpenedUtxo, live frontend.Variable) outputSlot {
 	// SPP holds every UTXO's ring id to 0 or the ring's on the same output hashes, AssertRingMemberOrFree in shared/ring.go.
-	ring := api.Mul(live, IsNonZero(api, o.RingProgramID))
+	ring := api.Mul(live, gadget.IsNonZero(api, o.RingProgramID))
 	return outputSlot{OpenedUtxo: opened, live: live, ring: ring, exit: api.Sub(live, ring)}
 }
 
@@ -124,7 +110,17 @@ func classify(api frontend.API, o UtxoWires, opened OpenedUtxo, live frontend.Va
 func (w AuditWires) assertBlinding(api frontend.API, o UtxoWires, slot outputSlot, ringSecret frontend.Variable, i int) {
 	blinding := shared.DeriveRingRailOutputBlinding(api, slot.exit, w.FirstNullifier, w.SeedOut, ringSecret, i)
 	// Only a ring output carries the audited ring secret, an exit keeps the TXOB form no anchor opens.
-	assertEqualWhen(api, slot.live, o.Blinding, blinding)
+	gadget.AssertEqualWhen{Cond: slot.live, A: o.Blinding, B: blinding}.Assert(api)
+}
+
+// statementHead opens every audit statement, mirrored by AuditHead in custom-rings/interface/src/statement.rs.
+//
+//	CRAU, n0, ring_id, txpk0, txpk1, aud0, aud1, eph0, eph1, sealed_hash, salt, layout
+func (e auditEnvelope) statementHead(w AuditWires) []frontend.Variable {
+	return []frontend.Variable{
+		AuditStatementDomain, w.FirstNullifier, w.RingProgramID, e.txPk[0], e.txPk[1],
+		e.sealed.Auditor[0], e.sealed.Auditor[1], e.sealed.Eph[0], e.sealed.Eph[1], e.sealedHash, e.salt, w.Layout,
+	}
 }
 
 // AssertClamped pins the RFC 7748 clamped encoding, the one byte string per X25519 key.
@@ -148,14 +144,6 @@ func TaggedPubkey(api frontend.API, secret [32]frontend.Variable) []frontend.Var
 // tagged is the 0x04 ‖ u encoding of an X25519 key.
 func tagged(u [32]frontend.Variable) []frontend.Variable {
 	return append([]frontend.Variable{4}, u[:]...)
-}
-
-func assertEqualWhen(api frontend.API, cond, a, b frontend.Variable) {
-	abstractor.CallVoid(api, gadget.AssertEqualWhen{Cond: cond, A: a, B: b})
-}
-
-func assertZeroWhen(api frontend.API, cond, v frontend.Variable) {
-	abstractor.CallVoid(api, gadget.AssertZeroWhen{Cond: cond, V: v})
 }
 
 func validateLength(name string, got, want int) error {

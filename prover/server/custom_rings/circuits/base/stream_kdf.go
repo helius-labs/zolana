@@ -9,6 +9,9 @@ import (
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
 )
 
+// auditEncInfo is the audit stream schedule tag, mirrored by AUDIT_STREAM_INFO in custom-rings/interface/src/anonymous_output.rs.
+const auditEncInfo = "CRING/adt1"
+
 // auditStreamKeySchedule draws the AES-256 key and CTR nonce from the low canonical bytes of Poseidon(auditEncInfo ‖ 0, secret) and Poseidon(auditEncInfo ‖ 1, secret).
 func auditStreamKeySchedule(api frontend.API, secret frontend.Variable) (key [32]frontend.Variable, nonce [12]frontend.Variable) {
 	rc := rangecheck.New(api)

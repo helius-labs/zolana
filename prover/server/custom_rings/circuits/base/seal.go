@@ -11,7 +11,7 @@ import (
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
 )
 
-// Envelope encrypts Plaintext to the X25519 key AuditorPk under the ephemeral secret EphSk.
+// Envelope encrypts Plaintext to the X25519 key AuditorPk under the ephemeral secret EphSk, fresh per envelope or the keystream repeats.
 type Envelope struct {
 	Plaintext []frontend.Variable
 	EphSk     [32]frontend.Variable
@@ -30,7 +30,7 @@ type keySchedule func(secret frontend.Variable) ([32]frontend.Variable, [12]fron
 // Seal encrypts under the verifiable-encryption key schedule of Info.
 func (e Envelope) Seal(api frontend.API) Sealed {
 	return e.seal(api, func(secret frontend.Variable) ([32]frontend.Variable, [12]frontend.Variable) {
-		return ve.KeySchedule(api, secret, ConstBytes(e.Info), len(e.Info))
+		return ve.KeySchedule(api, secret, gadget.ConstBytes(e.Info), len(e.Info))
 	})
 }
 

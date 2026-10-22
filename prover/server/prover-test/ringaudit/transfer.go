@@ -15,7 +15,7 @@ import (
 type Transfer struct {
 	Keys           Keys
 	FirstNullifier *big.Int
-	RingID         *big.Int
+	RingProgramID  *big.Int
 	Salt           [16]byte
 	SeedOut        *big.Int
 }
@@ -27,7 +27,7 @@ func newTransfer(t testing.TB) Transfer {
 	tr := Transfer{
 		Keys:           DefaultKeys(t),
 		FirstNullifier: big.NewInt(0x1f1f),
-		RingID:         HashBytes(t, ringProgram[:]),
+		RingProgramID:  HashBytes(t, ringProgram[:]),
 	}
 	for i := range tr.Salt {
 		tr.Salt[i] = 0xa0 + byte(i)
@@ -46,13 +46,13 @@ func (tr Transfer) ExitBlinding(t testing.TB, i int) *big.Int {
 // DeliveredSlotSecret is the CRDS secret of slot i keyed to the recipient u.
 func (tr Transfer) DeliveredSlotSecret(t testing.TB, u [32]byte, i int) *big.Int {
 	t.Helper()
-	return DeliveredSlotSecret(t, tr.Keys.txSk, u, tr.Salt, i, tr.FirstNullifier)
+	return DeliveredSlotSecret(t, tr.Keys.txViewingSk, u, tr.Salt, i, tr.FirstNullifier)
 }
 
 // AuditHead is the statement head the program builds for the transfer under layout.
 func (tr Transfer) AuditHead(t testing.TB, layout Layout) AuditHead {
 	t.Helper()
-	head := tr.Keys.AuditHead(t, tr.FirstNullifier, tr.RingID, tr.Salt)
+	head := tr.Keys.AuditHead(t, tr.FirstNullifier, tr.RingProgramID, tr.Salt)
 	head.Layout = layout.Value()
 	return head
 }
@@ -66,8 +66,8 @@ func (tr Transfer) seedOut(layout Layout) []*big.Int {
 }
 
 func (tr Transfer) wires(layout Layout) base.AuditWires {
-	w := base.AuditWires{FirstNullifier: tr.FirstNullifier, RingID: tr.RingID, SeedOut: tr.SeedOut, Layout: layout.Value()}
-	setBytes(w.TxViewingSk[:], tr.Keys.txSk[:])
+	w := base.AuditWires{FirstNullifier: tr.FirstNullifier, RingProgramID: tr.RingProgramID, SeedOut: tr.SeedOut, Layout: layout.Value()}
+	setBytes(w.TxViewingSk[:], tr.Keys.txViewingSk[:])
 	setBytes(w.EphSk[:], tr.Keys.ephSk[:])
 	setBytes(w.AuditorPk[:], tr.Keys.auditorPk[:])
 	setBytes(w.Salt[:], tr.Salt[:])
@@ -92,7 +92,7 @@ func (tr Transfer) NewRingOutput(t testing.TB, slot DeliverySlot, ringSecret fun
 			Domain: protocol.UtxoDomain, TreeID: OutputTreeID, OwnerPkHash: OwnerIdentity(t, slot.OwnerKey),
 			NullifierPk: slot.NullifierPk, Asset: AssetField(t, slot.AssetAddress), Amount: slot.Amount,
 			Blinding: RingBlinding(t, tr.FirstNullifier, ringSecret(secret), slot.Index),
-			DataHash: big.NewInt(0), RingDataHash: big.NewInt(0), RingProgramID: tr.RingID,
+			DataHash: big.NewInt(0), RingDataHash: big.NewInt(0), RingProgramID: tr.RingProgramID,
 		},
 		AssetAddress: slot.AssetAddress,
 		RecipientKey: slot.RecipientKey,

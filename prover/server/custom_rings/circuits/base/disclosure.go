@@ -6,16 +6,6 @@ import (
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
 )
 
-// DisclosurePad is Poseidon(seed, j) per field j over seed = Poseidon(domain, key0, key1, salt), a known pad reveals no other.
-func DisclosurePad(api frontend.API, domain uint64, key []frontend.Variable, salt frontend.Variable, n int) []frontend.Variable {
-	seed := gadget.PoseidonHash(api, []frontend.Variable{domain, key[0], key[1], salt})
-	pad := make([]frontend.Variable, n)
-	for i := range pad {
-		pad[i] = gadget.PoseidonHash(api, []frontend.Variable{seed, i})
-	}
-	return pad
-}
-
 // PackDisclosure zero pads bytes at the end to whole 31-byte chunks and packs each chunk, the caller bounds every byte.
 func PackDisclosure(api frontend.API, bytes []frontend.Variable) []frontend.Variable {
 	chunks := (len(bytes) + gadget.HashBytesChunkSize - 1) / gadget.HashBytesChunkSize

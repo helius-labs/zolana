@@ -8,8 +8,6 @@ import (
 	"github.com/consensys/gnark/frontend"
 )
 
-func init() { solver.RegisterHint(fieldBytesHint) }
-
 // FieldToBytesBEWith is FieldToBytesBE through rc, both gap equations stay under 2^129 + 1 and cannot wrap modulo q.
 func FieldToBytesBEWith(api frontend.API, rc frontend.Rangechecker, value frontend.Variable) [32]frontend.Variable {
 	q := api.Compiler().Field()
@@ -47,6 +45,8 @@ func FieldToBytesBEWith(api frontend.API, rc frontend.Rangechecker, value fronte
 	api.AssertIsEqual(api.Add(api.Mul(hi, base), lo), value)
 	return [32]frontend.Variable(bytes)
 }
+
+func init() { solver.RegisterHint(fieldBytesHint) }
 
 // fieldBytesHint proposes the bytes, gap limbs and carry of a value, untrusted until FieldToBytesBEWith range-checks and recomposes them.
 func fieldBytesHint(q *big.Int, inputs, outputs []*big.Int) error {

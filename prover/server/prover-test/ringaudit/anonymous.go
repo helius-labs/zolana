@@ -91,8 +91,8 @@ func NewAnonymousAudit(t testing.TB, shape base.AnonymousAuditShape) AnonymousAu
 	for i := range a.Inputs {
 		a.Inputs[i] = Dummy(3, big.NewInt(0x9000+int64(i)))
 	}
-	a.Inputs[0] = a.SenderUtxo(t, a.RingID, 100, 51)
-	a.Inputs[1] = a.SenderUtxo(t, a.RingID, 60, 52)
+	a.Inputs[0] = a.SenderUtxo(t, a.RingProgramID, 100, 51)
+	a.Inputs[1] = a.SenderUtxo(t, a.RingProgramID, 60, 52)
 	if shape.FullOpenings {
 		a.Inputs[1] = a.SenderUtxo(t, big.NewInt(0), 60, 52)
 	}
@@ -107,7 +107,7 @@ func NewAnonymousAudit(t testing.TB, shape base.AnonymousAuditShape) AnonymousAu
 			a.Outputs = append(a.Outputs, a.NewPayment(t, slot, Stream{Pair: true, Index: 2, Tag: PairTag(t, PairKey(t, a.Anchor.SlotSecret), a.Epoch, 2)}))
 		case kindInbox:
 			slot := Recipient(t, 1+byte(inboxes%2), i, 30+uint64(i))
-			stream := Stream{Inbox: true, Index: inboxes, Tag: InboxTag(t, InboxKey(t, a.RingID, slot.RecipientKey), a.Epoch, inboxes)}
+			stream := Stream{Inbox: true, Index: inboxes, Tag: InboxTag(t, InboxKey(t, a.RingProgramID, slot.RecipientKey), a.Epoch, inboxes)}
 			a.Outputs = append(a.Outputs, a.NewPayment(t, slot, stream))
 			inboxes++
 		case kindSelf:
@@ -174,7 +174,7 @@ func (a AnonymousAudit) NewAnchor(t testing.TB, payee DeliverySlot, epoch, index
 		LeafIndex:      37,
 	}
 	anchor.Owner = spptest.MustOwnerHash(t, OwnerIdentity(t, payee.OwnerKey), payee.NullifierPk)
-	anchor.Blinding = anchor.FirstContactBlinding(t, InboxTag(t, InboxKey(t, a.RingID, payee.RecipientKey), epoch, index))
+	anchor.Blinding = anchor.FirstContactBlinding(t, InboxTag(t, InboxKey(t, a.RingProgramID, payee.RecipientKey), epoch, index))
 	return anchor
 }
 
@@ -199,7 +199,7 @@ func (a AnonymousAudit) firstContactTree(t testing.TB) (*big.Int, protocol.State
 	leaf := spptest.MustUtxoHash(t, protocol.Utxo{
 		Domain: big.NewInt(protocol.UtxoDomain), Owner: a.Anchor.Owner, Asset: a.Anchor.Asset,
 		Amount: new(big.Int).SetUint64(a.Anchor.Amount), Blinding: a.Anchor.Blinding,
-		DataHash: big.NewInt(0), RingDataHash: big.NewInt(0), RingProgramID: a.RingID,
+		DataHash: big.NewInt(0), RingDataHash: big.NewInt(0), RingProgramID: a.RingProgramID,
 	}, big.NewInt(int64(a.Anchor.TreeID)))
 	root, proofs := spptest.MustBuildSparseStateTree(t, map[uint64]*big.Int{a.Anchor.LeafIndex: leaf})
 	return root, proofs[a.Anchor.LeafIndex]

@@ -23,19 +23,19 @@ const auditEncInfo = "CRING/adt1"
 
 // Keys are the envelope keys of one audited transfer.
 type Keys struct {
-	txSk      [32]byte
-	ephSk     [32]byte
-	txPk      [33]byte
-	ephPk     [33]byte
-	auditorPk [32]byte
-	dh        [32]byte
+	txViewingSk [32]byte
+	ephSk       [32]byte
+	txPk        [33]byte
+	ephPk       [33]byte
+	auditorPk   [32]byte
+	dh          [32]byte
 }
 
 func DefaultKeys(t testing.TB) Keys {
 	t.Helper()
-	txSk := Clamped(Scalar(0x11))
+	txViewingSk := Clamped(Scalar(0x11))
 	ephSk := Scalar(0x22)
-	txPriv := XPrivateKey(t, txSk)
+	txPriv := XPrivateKey(t, txViewingSk)
 	ephPriv := XPrivateKey(t, ephSk)
 	auditorPriv := XPrivateKey(t, Scalar(0x33))
 
@@ -44,12 +44,12 @@ func DefaultKeys(t testing.TB) Keys {
 		t.Fatalf("ecdh: %v", err)
 	}
 	return Keys{
-		txSk:      txSk,
-		ephSk:     ephSk,
-		txPk:      Tagged(txPriv.PublicKey().Bytes()),
-		ephPk:     Tagged(ephPriv.PublicKey().Bytes()),
-		auditorPk: [32]byte(auditorPriv.PublicKey().Bytes()),
-		dh:        [32]byte(dh),
+		txViewingSk: txViewingSk,
+		ephSk:       ephSk,
+		txPk:        Tagged(txPriv.PublicKey().Bytes()),
+		ephPk:       Tagged(ephPriv.PublicKey().Bytes()),
+		auditorPk:   [32]byte(auditorPriv.PublicKey().Bytes()),
+		dh:          [32]byte(dh),
 	}
 }
 
@@ -57,12 +57,12 @@ func DefaultKeys(t testing.TB) Keys {
 func (k Keys) WithRawTxScalar(t testing.TB, secret [32]byte) Keys {
 	t.Helper()
 	k.txPk = Tagged(XPrivateKey(t, Clamped(secret)).PublicKey().Bytes())
-	k.txSk = secret
+	k.txViewingSk = secret
 	return k
 }
 
-func (k Keys) TxSk() [32]byte {
-	return k.txSk
+func (k Keys) TxViewingSk() [32]byte {
+	return k.txViewingSk
 }
 
 func (k Keys) EphSk() [32]byte {
@@ -102,11 +102,11 @@ func (k Keys) AuditHead(t testing.TB, firstNullifier, ringID *big.Int, salt [16]
 	t.Helper()
 	return AuditHead{
 		FirstNullifier: firstNullifier,
-		RingID:         ringID,
+		RingProgramID:  ringID,
 		TxViewingU:     [32]byte(k.txPk[1:]),
 		AuditorPubkey:  Tagged(k.auditorPk[:]),
 		EphU:           [32]byte(k.ephPk[1:]),
-		Sealed:         k.auditStreamCiphertext(t, k.txSk[:]),
+		Sealed:         k.auditStreamCiphertext(t, k.txViewingSk[:]),
 		Salt:           salt,
 	}
 }
@@ -126,7 +126,7 @@ func (k Keys) auditStreamCiphertext(t testing.TB, plaintext []byte) []byte {
 // Disclose adds the CROD pad of the transaction key and salt to every field.
 func (k Keys) Disclose(t testing.TB, salt [16]byte, fields []*big.Int) []*big.Int {
 	t.Helper()
-	pad := DomainPad(t, base.DisclosurePadDomain, k.txSk, salt, len(fields))
+	pad := DomainPad(t, base.DisclosurePadDomain, k.txViewingSk, salt, len(fields))
 	ciphertext := make([]*big.Int, len(fields))
 	for i, field := range fields {
 		ciphertext[i] = new(big.Int).Add(field, pad[i])
@@ -157,7 +157,7 @@ func (k Keys) sealed(t testing.TB, ciphertext []byte) Sealed {
 	}
 }
 
-// DomainPad mirrors base.DisclosurePad under one seed domain.
+// DomainPad mirrors gadget.DisclosurePad under one seed domain.
 func DomainPad(t testing.TB, domain uint64, key [32]byte, salt [16]byte, n int) []*big.Int {
 	t.Helper()
 	keyLo, keyHi := pack32(key)

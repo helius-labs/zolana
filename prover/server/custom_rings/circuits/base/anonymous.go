@@ -14,7 +14,7 @@ import (
 )
 
 // Properties:
-// 1. tx_sk is clamped, its tagged public key and the envelope sealing it to the auditor are statement values.
+// 1. tx_viewing_sk is clamped, its tagged public key and the envelope sealing it to the auditor are statement values.
 // 2. Every output slot is published and every ring output body opens for a canonical recipient key.
 // 3. Every exit discloses its full opening to the auditor and carries no output data, SeedOut opens the disclosure exactly when a UTXO exits.
 // 4. Every spent UTXO lies below the published input count and belongs to the hidden sender.
@@ -83,7 +83,7 @@ type anonymousSlot struct {
 }
 
 type spentInputs struct {
-	count Count
+	count gadget.Count
 	// hashes are the private_tx_hash input hashes, zero off a UTXO.
 	hashes []frontend.Variable
 	// records are each input slot's disclosure, its hash or on an entry key its asset and blinding, zero off a UTXO.
@@ -111,7 +111,7 @@ func (c *AnonymousAuditCircuit) Define(api frontend.API) error {
 		return err
 	}
 	rc := rangecheck.New(api)
-	// 1. The envelope seals tx_sk to the auditor and the layout flags fix the published fields.
+	// 1. The envelope seals tx_viewing_sk to the auditor and the layout flags fix the published fields.
 	envelope := c.sealEnvelope(api, rc)
 	// No anonymous output carries data, the data-free flag holds whatever the frame sets.
 	layout := decodeLayout(api, c.Layout, LayoutExits|LayoutDataFree, c.Shape.layout())
@@ -145,7 +145,7 @@ func (c *AnonymousAuditCircuit) Define(api frontend.API) error {
 	// 8. The commitment is 0 on an audit-only transfer or opens to the sender the inputs prove, the policy proof reads it.
 	commitment := SenderCommitment(api, senderPkHash, c.PrivateTxBlinding)
 	api.AssertIsEqual(api.Mul(c.SenderCommitment, api.Sub(c.SenderCommitment, commitment)), 0)
-	// 9. Only the holder of tx_sk opens the disclosure of every output and spent UTXO.
+	// 9. Only the holder of tx_viewing_sk opens the disclosure of every output and spent UTXO.
 	statement := c.statement(api, envelope,
 		gadget.HashChain4(api, hashes),
 		gadget.HashChain4(api, bodyHashes),
@@ -170,8 +170,8 @@ func (c *AnonymousAuditCircuit) deliverSlot(api frontend.API, rc frontend.Rangec
 	// 3. Every stream position is below 64, the bound a recipient scans per stream and epoch.
 	rc.Check(s.Index, StreamIndexBits)
 	// 4. A self slot is change of the hidden sender, its tag stays free.
-	assertEqualWhen(api, s.Self, o.Output.OwnerPkHash, senderPkHash)
-	return anonymousSlot{delivery: d, inboxKey: InboxKey(api, c.RingID, d.recipient), stream: s}
+	gadget.AssertEqualWhen{Cond: s.Self, A: o.Output.OwnerPkHash, B: senderPkHash}.Assert(api)
+	return anonymousSlot{delivery: d, inboxKey: InboxKey(api, c.RingProgramID, d.recipient), stream: s}
 }
 
 // anchor proves the pair stream's key reached the recipient and returns the pair tag digest of the pair slot.
@@ -202,7 +202,7 @@ func (c *AnonymousAuditCircuit) anchor(api frontend.API, rc frontend.Rangechecke
 		Blinding:      blinding,
 		DataHash:      0,
 		RingDataHash:  0,
-		RingProgramID: c.RingID,
+		RingProgramID: c.RingProgramID,
 	}, a.TreeID)
 	// 4. The first contact is a leaf of the state tree the program names, without a pair slot the root stays free.
 	root := abstractor.Call(api, gadget.MerkleRootGadget{
@@ -211,7 +211,7 @@ func (c *AnonymousAuditCircuit) anchor(api frontend.API, rc frontend.Rangechecke
 		Path:   a.Path[:],
 		Height: shared.StateTreeHeight,
 	})
-	assertEqualWhen(api, pairs, root, c.FirstContactRoot)
+	gadget.AssertEqualWhen{Cond: pairs, A: root, B: c.FirstContactRoot}.Assert(api)
 	// 5. The pair key derives from the first contact's slot secret, the recipient rebuilds it from its viewing key.
 	return PairTagDigest(api, PairKey(api, a.SlotSecret), c.Epoch, index)
 }
@@ -223,7 +223,7 @@ func (c *AnonymousAuditCircuit) assertTag(api frontend.API, rc frontend.Rangeche
 		api.Mul(s.stream.Pair, pairTag),
 	)
 	// 1. A proven tag is low248 of its stream digest, TagField refuses the bytes of digest + q.
-	assertEqualWhen(api, api.Add(s.stream.Inbox, s.stream.Pair), s.stream.Tag, TagField(api, rc, digest))
+	gadget.AssertEqualWhen{Cond: api.Add(s.stream.Inbox, s.stream.Pair), A: s.stream.Tag, B: TagField(api, rc, digest)}.Assert(api)
 	// 2. The ring secret binds the published tag, an anchor reads a first contact's tag back from its blinding.
 	c.assertBlinding(api, o.Output, s.outputSlot, AnonymousRingSecret(api, s.secret, s.stream.Tag), i)
 }
@@ -231,13 +231,13 @@ func (c *AnonymousAuditCircuit) assertTag(api frontend.API, rc frontend.Rangeche
 // spend proves every spent UTXO is the hidden sender's and lies below the published count.
 func (c *AnonymousAuditCircuit) spend(api frontend.API, senderPkHash frontend.Variable) spentInputs {
 	// 1. The input count lies in [1, InputClass], the disclosure length fixes it as the program refuses a zero published field.
-	spent := spentInputs{count: SelectCount(api, c.InputCount, 1, c.Shape.InputClass)}
+	spent := spentInputs{count: gadget.SelectCount(api, c.InputCount, 1, c.Shape.InputClass)}
 	for i, input := range c.Inputs {
 		opened := input.Open(api)
 		// 2. An input at or past the count is no UTXO, so no spent UTXO escapes the published inputs.
-		assertZeroWhen(api, api.Sub(1, spent.count.Active[i]), opened.Utxo)
+		gadget.AssertZeroWhen{Cond: api.Sub(1, spent.count.Active[i]), V: opened.Utxo}.Assert(api)
 		// 3. Every spent UTXO is the hidden sender's.
-		assertEqualWhen(api, opened.Utxo, input.OwnerPkHash, senderPkHash)
+		gadget.AssertEqualWhen{Cond: opened.Utxo, A: input.OwnerPkHash, B: senderPkHash}.Assert(api)
 		if i == 0 {
 			// 4. Input 0 is a UTXO, so the disclosed sender owns a real spent UTXO.
 			api.AssertIsEqual(opened.Utxo, 1)
@@ -246,14 +246,14 @@ func (c *AnonymousAuditCircuit) spend(api frontend.API, senderPkHash frontend.Va
 		spent.hashes = append(spent.hashes, hash)
 		if !c.Shape.FullOpenings {
 			// 5. A disclosed hash names a note of the ring, an audited output whose opening the auditor holds.
-			assertEqualWhen(api, opened.Utxo, input.RingProgramID, c.RingID)
+			gadget.AssertEqualWhen{Cond: opened.Utxo, A: input.RingProgramID, B: c.RingProgramID}.Assert(api)
 			spent.records = append(spent.records, []frontend.Variable{hash})
 			continue
 		}
 		// 5. The auditor rebuilds an entry input from its opening, under input 0's nullifier key and with no data.
-		assertEqualWhen(api, opened.Utxo, input.NullifierPk, c.Inputs[0].NullifierPk)
-		assertZeroWhen(api, opened.Utxo, input.DataHash)
-		assertZeroWhen(api, opened.Utxo, input.RingDataHash)
+		gadget.AssertEqualWhen{Cond: opened.Utxo, A: input.NullifierPk, B: c.Inputs[0].NullifierPk}.Assert(api)
+		gadget.AssertZeroWhen{Cond: opened.Utxo, V: input.DataHash}.Assert(api)
+		gadget.AssertZeroWhen{Cond: opened.Utxo, V: input.RingDataHash}.Assert(api)
 		spent.amounts = append(spent.amounts, uintBytes(api, api.Mul(opened.Utxo, input.Amount), 8)...)
 		spent.records = append(spent.records, []frontend.Variable{api.Mul(opened.Utxo, input.Asset), api.Mul(opened.Utxo, input.Blinding)})
 	}
