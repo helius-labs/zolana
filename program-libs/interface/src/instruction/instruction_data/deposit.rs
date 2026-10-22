@@ -127,7 +127,7 @@ pub struct RingDepositEntry {
 }
 
 /// Batched policy-ring analog of [`DepositIxData`] (spec: `ring_deposit`, tag
-/// 15). A ring program CPIs into SPP signing with its `ring_auth` PDA. Every
+/// 18). A ring program CPIs into SPP signing with its `ring_auth` PDA. Every
 /// output is owned by that ring, while policy data is specified per output.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct RingDepositIxData {
