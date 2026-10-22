@@ -127,11 +127,9 @@ fn is_supported_is_membership_in_the_supported_shapes() {
 /// prover-test/spp/protocol/shape_test.go pins `RingAuthorityShapes` to the same vector.
 #[test]
 fn ring_authority_shapes_are_the_shared_vector() {
-    let vector: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../test-vectors/ring_authority_shapes.json"
-    ))
-    .unwrap();
-    let pinned: Vec<[usize; 2]> = serde_json::from_value(vector["shapes"].clone()).unwrap();
+    let vector: serde_json::Value =
+        serde_json::from_str(include_str!("../../../test-vectors/ring_keyed_shapes.json")).unwrap();
+    let pinned: Vec<[usize; 2]> = serde_json::from_value(vector["ring_authority"].clone()).unwrap();
     let shapes: Vec<[usize; 2]> = ring_authority_shapes()
         .map(|shape| [shape.n_inputs(), shape.n_outputs()])
         .collect();

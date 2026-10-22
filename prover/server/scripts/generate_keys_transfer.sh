@@ -81,8 +81,8 @@ done
 # outputs (freeze / thaw / permanent-delegate), so only the shapes the
 # on-chain verifier supports are generated.
 if [[ "${SKIP_AUTHORITY_KEYS:-0}" != "1" ]]; then
-    authority_shapes="$(python3 -c 'import json, sys; print("\n".join(f"{i} {o}" for i, o in json.load(open(sys.argv[1]))["shapes"]))' \
-        ../../test-vectors/ring_authority_shapes.json)"
+    authority_shapes="$(python3 -c 'import json, sys; print("\n".join(f"{i} {o}" for i, o in json.load(open(sys.argv[1]))["ring_authority"]))' \
+        ../../test-vectors/ring_keyed_shapes.json)"
     while read -r n_inputs n_outputs; do
         output="${keys_dir}/transfer_ring_authority_${n_inputs}_${n_outputs}.key"
         echo "Generating transfer-ring-authority ${n_inputs}x${n_outputs} -> ${output}"

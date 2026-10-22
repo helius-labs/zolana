@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-import authorityShapes from "../../../test-vectors/ring_authority_shapes.json" with { type: "json" };
+import keyedShapes from "../../../test-vectors/ring_keyed_shapes.json" with { type: "json" };
 import policyRules from "../../../test-vectors/ring-policy-rules.json" with { type: "json" };
 import records from "../../../test-vectors/ring-records.json" with { type: "json" };
 import statements from "../../../test-vectors/ring-statements.json" with { type: "json" };
@@ -603,10 +603,10 @@ describe("ring-transact-expansion.json", () => {
   });
 });
 
-describe("ring_authority_shapes.json", () => {
+describe("ring_keyed_shapes.json", () => {
   it("lists the delegate rail's shapes in cost order", () => {
     expect(RING_AUTHORITY_SHAPES.map((shape) => [shape.inputs, shape.outputs])).toEqual(
-      authorityShapes.shapes,
+      keyedShapes.ring_authority,
     );
     expect(ringAuthorityShape(3, 9)).toEqual({ inputs: 4, outputs: 16 });
     expect(ringAuthorityShape(41, 2)).toBeUndefined();

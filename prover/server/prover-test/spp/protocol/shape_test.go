@@ -42,12 +42,12 @@ func TestRingAuthorityShapesAreTheSharedVector(t *testing.T) {
 	if !ok {
 		t.Fatal("locate shape_test.go")
 	}
-	raw, err := os.ReadFile(filepath.Join(filepath.Dir(source), "../../../../../test-vectors/ring_authority_shapes.json"))
+	raw, err := os.ReadFile(filepath.Join(filepath.Dir(source), "../../../../../test-vectors/ring_keyed_shapes.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	var vector struct {
-		Shapes [][2]int `json:"shapes"`
+		Shapes [][2]int `json:"ring_authority"`
 	}
 	if err := json.Unmarshal(raw, &vector); err != nil {
 		t.Fatal(err)
