@@ -910,6 +910,7 @@ const RING_PROJECTION_CODES: ReadonlyMap<
   [-32076, "CLIENT_RECORD_QUEUE_CHANGED"],
 ]);
 
+const JSON_RPC_METHOD_NOT_FOUND = -32601;
 /** Photon reports a transient database failure as the internal error. */
 const JSON_RPC_INTERNAL_ERROR = -32603;
 
@@ -919,6 +920,9 @@ function wrapIndexer(cause: unknown, method: string): ClientError {
     const rpcCode = cause.details?.["rpcCode"];
     const code = typeof rpcCode === "number" ? RING_PROJECTION_CODES.get(rpcCode) : undefined;
     if (code !== undefined) return new ClientError(code, { details: { method } });
+    if (rpcCode === JSON_RPC_METHOD_NOT_FOUND) {
+      return new ClientError("CLIENT_UNSUPPORTED_RPC_METHOD", { details: { method }, cause });
+    }
     if (rpcCode === JSON_RPC_INTERNAL_ERROR) {
       return new ClientError("CLIENT_INDEXER", { details: { method, retryable: true }, cause });
     }

@@ -838,6 +838,7 @@ describe("ZolanaClient", () => {
         headers: { "content-type": "application/json" },
       });
     const failure = (code: number) => answer({ error: { code, message: "private diagnostics" } });
+    const method = "getEncryptedUtxosByTags";
     const read = (fetch: Parameters<typeof client>[0], requireSlot?: bigint) =>
       client(fetch).getEncryptedUtxosByTags(
         { tags: [bytes(7)] },
@@ -849,7 +850,7 @@ describe("ZolanaClient", () => {
     const internal = vi.fn<typeof globalThis.fetch>(() => Promise.resolve(failure(-32603)));
     await expect(read(internal)).rejects.toMatchObject({
       code: "CLIENT_INDEXER",
-      details: { method: "getEncryptedUtxosByTags", retryable: true },
+      details: { method, retryable: true },
     });
     const recovering = vi
       .fn<typeof globalThis.fetch>()
@@ -860,12 +861,14 @@ describe("ZolanaClient", () => {
     await expect(read(recovering, 1n)).resolves.toMatchObject({ matches: [] });
     expect(recovering).toHaveBeenCalledTimes(2);
 
-    const refusing = vi.fn<typeof globalThis.fetch>(() => Promise.resolve(failure(-32602)));
-    await expect(read(refusing, 1n)).rejects.toMatchObject({
-      code: "CLIENT_INDEXER",
-      details: { method: "getEncryptedUtxosByTags", retryable: false },
-    });
-    expect(refusing).toHaveBeenCalledTimes(1);
+    for (const [rpcCode, refusal] of [
+      [-32601, { code: "CLIENT_UNSUPPORTED_RPC_METHOD", details: { method } }],
+      [-32602, { code: "CLIENT_INDEXER", details: { method, retryable: false } }],
+    ] as const) {
+      const refusing = vi.fn<typeof globalThis.fetch>(() => Promise.resolve(failure(rpcCode)));
+      await expect(read(refusing, 1n)).rejects.toMatchObject(refusal);
+      expect(refusing).toHaveBeenCalledTimes(1);
+    }
   });
 
   it("reads a malformed transaction viewing key as absent, never as a bad response", async () => {
