@@ -1,7 +1,7 @@
 //! The chain and indexer every unit test reads, accounts from one map and the queries recorded.
 
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     sync::{Arc, Mutex},
 };
 
@@ -15,10 +15,11 @@ use custom_ring_interface::{
 use solana_account::Account;
 use solana_address::Address;
 use zolana_client::{
-    AsyncProverClient, AsyncRpc, AsyncWitnessReader, AsyncZolanaClient, ClientError, Context,
-    GetMerkleProofsResponse, GetShieldedTransactionsByTagsResponse, IndexerRpcConfig,
-    InputWitnesses, MerkleContext, MerkleProof, ProofDataSource,
+    rpc::STATE_TREE_HEIGHT, AsyncProverClient, AsyncRpc, AsyncWitnessReader, AsyncZolanaClient,
+    ClientError, Context, GetMerkleProofsResponse, GetShieldedTransactionsByTagsResponse,
+    IndexerRpcConfig, InputWitnesses, MerkleContext, MerkleProof, ProofDataSource,
 };
+use zolana_hasher::{Hasher, Poseidon};
 use zolana_indexer_api::{
     Base64String, GetRingMemberOpeningsRequest, GetRingMemberOpeningsResponse, Hash,
     RingMemberOpening, RingMemberRecordView, RingRecordPathView, RingRegistryRootView,
@@ -143,6 +144,28 @@ pub(crate) fn empty(owner: Address) -> Account {
     }
 }
 
+fn by_index<'a>(
+    leaves: impl IntoIterator<Item = (&'a [u8; 32], &'a u64)>,
+) -> BTreeMap<u64, [u8; 32]> {
+    leaves
+        .into_iter()
+        .map(|(leaf, index)| (*index, *leaf))
+        .collect()
+}
+
+/// Each parent is `Poseidon(left, right)`, an empty subtree its level's zero hash.
+fn tree_node(leaves: &BTreeMap<u64, [u8; 32]>, level: usize, position: u64) -> [u8; 32] {
+    let first = position << level;
+    if leaves.range(first..first + (1 << level)).next().is_none() {
+        return Poseidon::zero_bytes()[level];
+    }
+    if level == 0 {
+        return leaves[&position];
+    }
+    let child = |offset| tree_node(leaves, level - 1, 2 * position + offset);
+    Poseidon::hashv(&[&child(0), &child(1)]).unwrap()
+}
+
 fn tree_account(tree: PoolTree) -> Account {
     let mut data = vec![0u8; TreeAccount::account_size()];
     let params = nullifier_tree_params();
@@ -212,11 +235,11 @@ pub(crate) struct Chain {
     accounts: HashMap<Address, Account>,
     /// Outputs occupying stream tags.
     transactions: Vec<ShieldedTransaction>,
-    /// Leaf indexes a Merkle proof request may name.
+    /// Leaf indexes a Merkle proof request may name, every one settled in the tree's account.
     leaves: HashMap<[u8; 32], u64>,
+    /// Leaves the indexer proves under that the tree's account lacks.
+    unsettled: HashMap<[u8; 32], u64>,
     registry: Option<Arc<Registry>>,
-    /// A root the indexer serves in place of the tree's newest.
-    served_root: Option<[u8; 32]>,
     /// The leaves of every Merkle proof request.
     pub proof_requests: Arc<Mutex<Vec<Vec<[u8; 32]>>>>,
 }
@@ -259,11 +282,27 @@ impl Chain {
 
     pub(crate) fn with_leaf(mut self, hash: [u8; 32], leaf_index: u64) -> Self {
         self.leaves.insert(hash, leaf_index);
-        self
+        let tree = PoolTree {
+            address: zolana_interface::pda::tree(TREE_ID),
+            id: TREE_ID,
+        };
+        let settled = by_index(&self.leaves);
+        let mut appended =
+            vec![[0; 32]; settled.keys().last().map_or(0, |last| *last as usize + 1)];
+        for (index, leaf) in settled {
+            appended[index as usize] = leaf;
+        }
+        let mut account = tree_account(tree);
+        TreeAccount::from_bytes(&mut account.data, tree.address.to_bytes())
+            .unwrap()
+            .utxo_tree()
+            .append_batch(&appended, 1)
+            .unwrap();
+        self.with(tree.address, account)
     }
 
-    pub(crate) fn with_served_root(mut self, root: [u8; 32]) -> Self {
-        self.served_root = Some(root);
+    pub(crate) fn with_unsettled_leaf(mut self, hash: [u8; 32], leaf_index: u64) -> Self {
+        self.unsettled.insert(hash, leaf_index);
         self
     }
 
@@ -366,21 +405,31 @@ impl AsyncRpc for Chain {
         self.proof_requests.lock().unwrap().push(leaves.clone());
         let mut data = self.accounts[&tree_account].data.clone();
         let mut tree = TreeAccount::from_bytes(&mut data, tree_account.to_bytes()).unwrap();
-        let newest = tree.utxo_tree();
-        let (root, root_index) = (newest.root(), newest.current_root_index());
+        let root_index = tree.utxo_tree().current_root_index();
+        let served = by_index(self.leaves.iter().chain(&self.unsettled));
         let proofs = leaves
             .iter()
-            .map(|leaf| MerkleProof {
-                leaf: *leaf,
-                merkle_context: MerkleContext {
-                    tree_type: 0,
-                    tree: tree_account,
-                },
-                path: vec![[3; 32]; 32],
-                leaf_index: self.leaves.get(leaf).copied().unwrap_or_default(),
-                root: self.served_root.unwrap_or(root),
-                root_seq: SLOT,
-                root_index,
+            .map(|leaf| {
+                let leaf_index = self
+                    .leaves
+                    .get(leaf)
+                    .or_else(|| self.unsettled.get(leaf))
+                    .copied()
+                    .unwrap_or_default();
+                MerkleProof {
+                    leaf: *leaf,
+                    merkle_context: MerkleContext {
+                        tree_type: 0,
+                        tree: tree_account,
+                    },
+                    path: (0..STATE_TREE_HEIGHT)
+                        .map(|level| tree_node(&served, level, (leaf_index >> level) ^ 1))
+                        .collect(),
+                    leaf_index,
+                    root: tree_node(&served, STATE_TREE_HEIGHT, 0),
+                    root_seq: SLOT,
+                    root_index,
+                }
             })
             .collect();
         Ok(GetMerkleProofsResponse {

@@ -398,6 +398,9 @@ pub enum ClientError {
     #[error("state proof {index} targets a different tree")]
     StateProofTreeMismatch { index: usize },
 
+    #[error("state proof {index} does not hash to its root")]
+    StateProofRootMismatch { index: usize },
+
     #[error("nullifier proof {index} does not match its requested nullifier")]
     NullifierProofLeafMismatch { index: usize },
 

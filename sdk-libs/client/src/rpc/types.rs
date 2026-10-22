@@ -3,6 +3,7 @@ use std::pin::Pin;
 use futures::Stream;
 use solana_address::Address;
 use solana_signature::Signature;
+use zolana_hasher::{Hasher, Poseidon};
 pub use zolana_indexer_api::{
     GetRingApplyProofInputsRequest, GetRingApplyProofInputsResponse, GetRingMemberOpeningsRequest,
     GetRingMemberOpeningsResponse, GetRingMemberRecordRequest, GetRingMemberRecordResponse,
@@ -176,7 +177,26 @@ impl MerkleProof {
         if self.merkle_context.tree != *tree {
             return Err(ClientError::StateProofTreeMismatch { index });
         }
-        check_path(&self.path, STATE_TREE_HEIGHT)
+        check_path(&self.path, STATE_TREE_HEIGHT)?;
+        // A bit past the path would give one path a second leaf index.
+        if self.leaf_index >> STATE_TREE_HEIGHT != 0 || self.path_root()? != self.root {
+            return Err(ClientError::StateProofRootMismatch { index });
+        }
+        Ok(())
+    }
+
+    /// Bit `i` of `leaf_index` puts the node right of sibling `i`, each parent `Poseidon(left, right)`.
+    pub fn path_root(&self) -> Result<[u8; 32], ClientError> {
+        let mut node = self.leaf;
+        let mut position = self.leaf_index;
+        for sibling in &self.path {
+            node = match position % 2 {
+                0 => Poseidon::hashv(&[&node, sibling])?,
+                _ => Poseidon::hashv(&[sibling, &node])?,
+            };
+            position /= 2;
+        }
+        Ok(node)
     }
 }
 

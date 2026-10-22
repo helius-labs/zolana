@@ -496,9 +496,10 @@ async fn a_first_contact_root_the_program_would_not_read_is_refused_before_provi
         .with_payment(payment(&paid, 4))
         .unwrap();
     let tree = pda::tree(TREE_ID);
+    let unsettled = paired.chain().with_unsettled_leaf([9; 32], 3);
     assert!(matches!(
-        stage_anonymous(&transfer, &paired.chain().with_served_root([9; 32])).await,
-        Err(RingError::FirstContactRootStale { tree: stale, root_index: 0 }) if stale == tree
+        stage_anonymous(&transfer, &unsettled).await,
+        Err(RingError::FirstContactRootStale { tree: stale, root_index: 1 }) if stale == tree
     ));
     let chain = paired.chain();
     let mut paused = chain.get_account(tree).await.unwrap().unwrap();

@@ -1,3 +1,6 @@
+#[path = "common/state_root.rs"]
+mod state_root;
+
 use std::{
     io::{Read, Write},
     net::{TcpListener, TcpStream},
@@ -946,7 +949,7 @@ fn merkle_response(tree: Address, leaf: [u8; 32]) -> Value {
             },
             "path": vec![encode_hash([0u8; 32]); STATE_TREE_HEIGHT],
             "leafIndex": 0,
-            "root": encode_hash([3u8; 32]),
+            "root": encode_hash(state_root::lone_root(leaf)),
             "rootSeq": 1,
             "rootIndex": 0,
         }],

@@ -429,6 +429,7 @@ mod tests {
         proof.state.leaf = real.utxo_hash;
         proof.state.leaf_index = real.leaf_index;
         proof.state.merkle_context.tree = zolana_interface::pda::tree(real.tree_id);
+        proof.state.root = proof.state.path_root().expect("state root");
         proof.nullifier.leaf = real.nullifier;
         proof.nullifier.merkle_context.tree = zolana_interface::pda::tree(real.tree_id);
         let dummy: Vec<_> = requested

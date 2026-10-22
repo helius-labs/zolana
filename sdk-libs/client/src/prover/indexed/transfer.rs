@@ -682,15 +682,16 @@ mod tests {
                         nullifier_proof: Some(nullifier),
                     };
                 }
-                let state = MerkleProof {
+                let mut state = MerkleProof {
                     leaf: utxo.utxo_hash,
                     merkle_context: MerkleContext { tree, tree_type: 1 },
                     path: vec![[0; 32]; 32],
-                    leaf_index: 0,
-                    root: super::super::scalar_one(),
+                    leaf_index: utxo.leaf_index,
+                    root: [0; 32],
                     root_seq: 0,
                     root_index: 0,
                 };
+                state.root = state.path_root().unwrap();
                 TransferInputUtxo {
                     utxo,
                     proof: Some(SpendProof { state, nullifier }),
@@ -828,6 +829,12 @@ mod tests {
             let transaction = fixture(&owner, ring, n_inputs);
             let shape = transaction.check_shape().unwrap();
             let inputs = complete_inputs(&transaction);
+            let utxo_root = inputs
+                .iter()
+                .find_map(|input| input.proof.as_ref())
+                .unwrap()
+                .state
+                .root;
             let public_transfers = transaction.public_transfers().unwrap();
             let signers = transaction.signer_pk_hashes(shape.signer_width()).unwrap();
             let (mode, expected, ring_secrets) = match rail {
@@ -935,7 +942,7 @@ mod tests {
                 trees: vec![super::super::ResolvedProofTree {
                     tree: zolana_interface::pda::tree(3),
                     id: 3,
-                    utxo_root: super::super::scalar_one(),
+                    utxo_root,
                     nullifier_root: super::super::scalar_one(),
                     context: TreeContext {
                         utxo_tree_root_index: 0,

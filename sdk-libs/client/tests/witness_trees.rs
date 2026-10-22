@@ -20,6 +20,9 @@
 //! per-group validation succeeds whatever order the reader fetched in. That
 //! leaves the returned order as the only thing an assertion can fail on.
 
+#[path = "common/state_root.rs"]
+mod state_root;
+
 use std::{
     io::{Read, Write},
     net::{TcpListener, TcpStream},
@@ -258,6 +261,14 @@ fn encode(bytes: [u8; 32]) -> String {
     bs58::encode(bytes).into_string()
 }
 
+fn decode(value: &Value) -> [u8; 32] {
+    bs58::decode(value.as_str().expect("base58 leaf"))
+        .into_vec()
+        .expect("base58 leaf")
+        .try_into()
+        .expect("32 byte leaf")
+}
+
 fn echo_proofs(path: &str, body: &Value, answer: TreeAnswer) -> Value {
     let params = &body["params"];
     let asked = params["treeAccount"]
@@ -283,7 +294,7 @@ fn echo_proofs(path: &str, body: &Value, answer: TreeAnswer) -> Value {
                 "merkleContext": { "treeType": 1, "tree": tree },
                 "path": vec![encode([0u8; 32]); STATE_TREE_HEIGHT],
                 "leafIndex": 0,
-                "root": encode([3u8; 32]),
+                "root": encode(state_root::lone_root(decode(leaf))),
                 "rootSeq": 1,
                 "rootIndex": 0,
             }),
