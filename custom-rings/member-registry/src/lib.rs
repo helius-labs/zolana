@@ -13,7 +13,8 @@ pub use memory::MemberRegistryTree;
 pub use path::{quad_node, NodePosition, QuadPath, ZERO_SUBTREES};
 pub use record::MemberRecord;
 pub use tree::{
-    ApplyProofInputs, IndexedRecord, RecordOpening, RecordStore, RecordTree, RecordWriteProofInput,
+    ApplyProofInputs, IndexedRecord, OpeningCheck, RecordOpening, RecordStore, RecordTree,
+    RecordWriteProofInput,
 };
 
 #[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]

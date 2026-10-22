@@ -5,10 +5,10 @@ use custom_ring_interface::{
     key_catalog::RingCircuit,
     shape_flag,
     stream::{RingTag, EPOCH_SLOTS, TAG_LEN},
-    tag, transact_flag, AnchorRoot, AnonymousProofData, CustomRingError, CustomRingProof,
-    InputTrees, MemberRegistry, PlainGroth16Proof, PolicyProof, RingOutput, RingProgramConfig,
-    RingRail, RingTransactData, SetCoSignerIxData, WithdrawalThreshold, GRACE_SLOTS,
-    MEMBER_REGISTRY_PDA_SEED,
+    tag, transact_flag, AnchorRoot, AnonymousProofData, AppliedAt, CustomRingError,
+    CustomRingProof, InputTrees, MemberRegistry, PlainGroth16Proof, PolicyProof, RingOutput,
+    RingProgramConfig, RingRail, RingTransactData, SetCoSignerIxData, WithdrawalThreshold,
+    GRACE_SLOTS, MEMBER_REGISTRY_PDA_SEED,
 };
 use solana_address::Address;
 use solana_bn254::compression::prelude::alt_bn128_g2_compress_be;
@@ -18,7 +18,8 @@ use zolana_interface::{
     instruction::{InterfaceTransfer, TreeContext},
     shape::{ring_authority_shapes, SPP_SUPPORTED_SHAPES},
     state::{default_tree_fees, discriminator::TREE_ACCOUNT_DISCRIMINATOR, nullifier_tree_params},
-    SHIELDED_POOL_PROGRAM_ID,
+    MAX_INTERFACE_TRANSFERS, RING_TRANSACT_RING_CONFIG_INDEX, SHIELDED_POOL_PROGRAM_ID,
+    TRANSACT_PAYER_INDEX,
 };
 use zolana_tree::{TreeAccount, UTXO_TREE_HEIGHT};
 
@@ -28,7 +29,7 @@ use crate::common::{
     Setup, SYSTEM,
 };
 
-const SPP: Address = Address::new_from_array(SHIELDED_POOL_PROGRAM_ID);
+pub const SPP: Address = Address::new_from_array(SHIELDED_POOL_PROGRAM_ID);
 
 /// A canonical field value, never zero.
 fn field(seed: u8) -> [u8; 32] {
@@ -37,7 +38,7 @@ fn field(seed: u8) -> [u8; 32] {
     value
 }
 
-struct Fixture {
+pub struct Fixture {
     proofs: [CustomRingProof; 2],
     spp_proof: PlainGroth16Proof,
     fields: Vec<[u8; 32]>,
@@ -49,7 +50,7 @@ struct Fixture {
 }
 
 impl Fixture {
-    fn new() -> Self {
+    pub fn new() -> Self {
         let proof = |seed: u8| CustomRingProof {
             groth16: PlainGroth16Proof {
                 proof_a: [seed; 32],
@@ -76,7 +77,13 @@ impl Fixture {
     }
 
     /// One input per shape input slot, every output a ring output of the rail.
-    fn transfer(&self, rail: RingRail, n_in: u8, n_out: u8, policy: bool) -> RingTransactData<'_> {
+    pub fn transfer(
+        &self,
+        rail: RingRail,
+        n_in: u8,
+        n_out: u8,
+        policy: bool,
+    ) -> RingTransactData<'_> {
         let mut data = RingTransactData {
             rail,
             n_in,
@@ -146,14 +153,14 @@ impl Fixture {
     }
 
     /// Publishes the field count the data's layout takes.
-    fn disclose<'a>(&'a self, data: &mut RingTransactData<'a>) {
+    pub fn disclose<'a>(&'a self, data: &mut RingTransactData<'a>) {
         let count = data.disclosure_layout().unwrap().field_count();
         data.disclosure = &self.fields[40..40 + count];
     }
 }
 
 /// The forwarded SPP list, the payer first, `owners` as the owner signer run.
-fn spp_list(
+pub fn spp_list(
     payer: &Address,
     data: &RingTransactData<'_>,
     owners: &[AccountMeta],
@@ -176,7 +183,7 @@ fn spp_list(
     accounts
 }
 
-fn send(
+pub fn send(
     ring: &mut Ring,
     instruction_tag: u8,
     prefix: Vec<AccountMeta>,
@@ -193,7 +200,7 @@ fn send(
     ring.send(transact(instruction_tag, accounts, bytes), signers)
 }
 
-fn registry_meta() -> AccountMeta {
+pub fn registry_meta() -> AccountMeta {
     AccountMeta::new_readonly(registry_pda(), false)
 }
 
@@ -465,7 +472,7 @@ fn a_key_escrow_bit_off_the_ring_mode_is_refused() {
         CustomRingError::FlagNotAllowed,
     );
 
-    let mut registry_ring = delegate_ring(&Keypair::new().pubkey());
+    let mut registry_ring = delegate_ring(&Keypair::new());
     reaches_verification(confidential(
         &mut registry_ring,
         vec![registry_meta()],
@@ -569,7 +576,7 @@ fn the_vector_transfers_without_public_legs_reach_their_keys() {
     ));
 
     let delegate = Keypair::new();
-    let mut registry_ring = delegate_ring(&delegate.pubkey());
+    let mut registry_ring = delegate_ring(&delegate);
     for name in ["delegate_move", "delegate_delivered_move"] {
         let bytes = vector_case(name);
         let data = RingTransactData::parse(&bytes, RingRail::Delegate)
@@ -632,7 +639,13 @@ impl Curator {
         let (address, bump) =
             Address::find_program_address(&[MEMBER_REGISTRY_PDA_SEED], &Self::PROGRAM);
         let mut registry = MemberRegistry::new(bump, 0);
-        registry.push_root(field(8), 4, 10);
+        registry.push_root(
+            field(8),
+            AppliedAt {
+                applied: 4,
+                slot: 10,
+            },
+        );
         registry.floor = floor.to_le_bytes();
         registry.prior_floor = prior_floor.to_le_bytes();
         registry.floor_slot = floor_slot.to_le_bytes();
@@ -907,48 +920,170 @@ fn an_approval_co_signed_by_its_own_owner_is_refused() {
     reaches_verification(co_signed(&mut ring, &co_signer));
 }
 
+/// A confidential transfer from the payer settling `transfers`, `funder` at each funder slot.
+fn settle(ring: &mut Ring, transfers: Vec<InterfaceTransfer>, funder: &AccountMeta) -> Sent {
+    let fixture = Fixture::new();
+    let mut data = fixture.transfer(RingRail::Confidential, 2, 2, false);
+    data.interface_transfers = transfers;
+    let mut spp = spp_list(&ring.payer.pubkey(), &data, &payer_owner(ring));
+    for transfer in &data.interface_transfers {
+        let mut group: Vec<AccountMeta> = (0..transfer.settlement_account_count())
+            .map(|_| AccountMeta::new(Address::new_unique(), false))
+            .collect();
+        if let Some(position) = transfer.funder_account_position() {
+            group[position] = funder.clone();
+        }
+        spp.extend(group);
+    }
+    send(
+        ring,
+        tag::TRANSACT,
+        Vec::new(),
+        data.encode().unwrap(),
+        spp,
+        &[],
+    )
+}
+
 #[test]
 fn public_legs_are_refused_with_the_rings_own_errors() {
-    let fixture = Fixture::new();
     let mut ring = Ring::new(Setup::AuditOnly);
-    let legs = |ring: &mut Ring, transfers: Vec<InterfaceTransfer>| {
-        let mut data = fixture.transfer(RingRail::Confidential, 2, 2, false);
-        data.interface_transfers = transfers;
-        let mut spp = spp_list(&ring.payer.pubkey(), &data, &payer_owner(ring));
-        for transfer in &data.interface_transfers {
-            let mut group: Vec<AccountMeta> = (0..transfer.settlement_account_count())
-                .map(|_| AccountMeta::new(Address::new_unique(), false))
-                .collect();
-            if let Some(funder) = transfer.funder_account_position() {
-                group[funder] = AccountMeta::new(ring.payer.pubkey(), true);
-            }
-            spp.extend(group);
-        }
-        send(
-            ring,
-            tag::TRANSACT,
-            Vec::new(),
-            data.encode().unwrap(),
-            spp,
-            &[],
-        )
-    };
+    let payer = AccountMeta::new(ring.payer.pubkey(), true);
     refused(
-        legs(
+        settle(
             &mut ring,
             vec![InterfaceTransfer::SolWithdrawal { amount: 0 }],
+            &payer,
         ),
         CustomRingError::ZeroPublicLegAmount,
     );
     refused(
-        legs(
+        settle(
             &mut ring,
             vec![
                 InterfaceTransfer::SolDeposit { amount: 5 },
                 InterfaceTransfer::SolWithdrawal { amount: 5 },
             ],
+            &payer,
         ),
         CustomRingError::ZeroNetPublicAmount,
+    );
+    let mints = InterfaceTransfer::SplWithdrawal {
+        amount: 9,
+        spl_interface_bump: 255,
+    };
+    refused(
+        settle(
+            &mut ring,
+            vec![
+                InterfaceTransfer::SolWithdrawal { amount: 7 },
+                mints,
+                mints,
+                mints,
+            ],
+            &payer,
+        ),
+        CustomRingError::TooManyPublicAssets,
+    );
+    refused(
+        settle(
+            &mut ring,
+            vec![InterfaceTransfer::SolWithdrawal { amount: u64::MAX }; 2],
+            &payer,
+        ),
+        CustomRingError::PublicAmountOverflow,
+    );
+    let unsigned = AccountMeta::new(Address::new_unique(), false);
+    refused(
+        settle(
+            &mut ring,
+            vec![InterfaceTransfer::SolDeposit { amount: 5 }],
+            &unsigned,
+        ),
+        CustomRingError::MissingFundingSigner,
+    );
+}
+
+#[test]
+fn public_legs_fit_the_account_list_and_the_leg_cap() {
+    let fixture = Fixture::new();
+    let mut ring = Ring::new(Setup::AuditOnly);
+    let mut data = fixture.transfer(RingRail::Confidential, 2, 2, false);
+    let spl = InterfaceTransfer::SplWithdrawal {
+        amount: 9,
+        spl_interface_bump: 255,
+    };
+    data.interface_transfers = vec![spl; 4];
+    let spp = spp_list(&ring.payer.pubkey(), &data, &payer_owner(&ring));
+    refused(
+        send(
+            &mut ring,
+            tag::TRANSACT,
+            Vec::new(),
+            data.encode().unwrap(),
+            spp,
+            &[],
+        ),
+        CustomRingError::InvalidSettlementAccounts,
+    );
+    let legs = MAX_INTERFACE_TRANSFERS + 1;
+    data.interface_transfers = vec![InterfaceTransfer::SolWithdrawal { amount: 1 }; legs];
+    let mut spp = spp_list(&ring.payer.pubkey(), &data, &payer_owner(&ring));
+    let settlement = AccountMeta::new(Address::new_unique(), false);
+    spp.extend(std::iter::repeat_n(settlement, 2 * legs));
+    refused(
+        send(
+            &mut ring,
+            tag::TRANSACT,
+            Vec::new(),
+            data.encode().unwrap(),
+            spp,
+            &[],
+        ),
+        CustomRingError::TooManyPublicLegs,
+    );
+}
+
+#[test]
+fn the_forwarded_list_holds_the_ring_pda_and_a_signing_payer() {
+    let fixture = Fixture::new();
+    let mut ring = Ring::new(Setup::AuditOnly);
+    let data = fixture.transfer(RingRail::Confidential, 2, 2, false);
+    for (index, error) in [
+        (
+            RING_TRANSACT_RING_CONFIG_INDEX,
+            CustomRingError::MissingRingAuth,
+        ),
+        (TRANSACT_PAYER_INDEX, CustomRingError::MissingFundingSigner),
+    ] {
+        let mut spp = spp_list(&ring.payer.pubkey(), &data, &payer_owner(&ring));
+        spp[index] = AccountMeta::new(Address::new_unique(), false);
+        refused(
+            send(
+                &mut ring,
+                tag::TRANSACT,
+                Vec::new(),
+                data.encode().unwrap(),
+                spp,
+                &[],
+            ),
+            error,
+        );
+    }
+}
+
+#[test]
+fn an_own_root_index_past_the_written_history_is_refused() {
+    let fixture = Fixture::new();
+    let mut ring = Ring::new(Setup::Policy);
+    let mut data = fixture.transfer(RingRail::Confidential, 2, 2, true);
+    data.policy = data.policy.map(|policy| PolicyProof {
+        own_root_index: 3,
+        ..policy
+    });
+    refused(
+        confidential(&mut ring, vec![registry_meta()], &data),
+        CustomRingError::RootIndexEmpty,
     );
 }
 
@@ -979,7 +1114,7 @@ fn the_ring_pda_in_the_owner_signer_run_is_refused() {
 fn only_the_configured_delegate_moves_and_settles_no_public_leg() {
     let fixture = Fixture::new();
     let delegate = Keypair::new();
-    let mut ring = delegate_ring(&delegate.pubkey());
+    let mut ring = delegate_ring(&delegate);
     let mut data = fixture.transfer(RingRail::Delegate, 2, 2, true);
     let prefix = |signer: &Keypair| {
         vec![
@@ -1041,6 +1176,38 @@ fn only_the_configured_delegate_moves_and_settles_no_public_leg() {
     );
 }
 
+#[test]
+fn a_delegate_move_co_signed_by_the_delegate_is_refused() {
+    let fixture = Fixture::new();
+    let delegate = Keypair::new();
+    let mut ring = delegate_ring(&delegate);
+    let data = fixture.transfer(RingRail::Delegate, 2, 2, true);
+    let spp = spp_list(&ring.payer.pubkey(), &data, &[]);
+    let co_signed = |ring: &mut Ring, co_signer: &Keypair| {
+        let prefix = vec![
+            registry_meta(),
+            AccountMeta::new_readonly(co_signer.pubkey(), true),
+            AccountMeta::new_readonly(delegate.pubkey(), true),
+        ];
+        send(
+            ring,
+            tag::DELEGATE_TRANSACT,
+            prefix,
+            data.encode().unwrap(),
+            spp.clone(),
+            &[co_signer, &delegate],
+        )
+    };
+    set_co_signer(&mut ring, &delegate.pubkey(), 1, Vec::new());
+    refused(
+        co_signed(&mut ring, &delegate),
+        CustomRingError::CoSignerIsDelegate,
+    );
+    let co_signer = Keypair::new();
+    set_co_signer(&mut ring, &co_signer.pubkey(), 1, Vec::new());
+    reaches_verification(co_signed(&mut ring, &co_signer));
+}
+
 fn delegate_move(
     ring: &mut Ring,
     delegate: &Keypair,
@@ -1065,7 +1232,7 @@ fn delegate_move(
 fn every_ring_authority_shape_reaches_the_delegate_key_lookup() {
     let fixture = Fixture::new();
     let delegate = Keypair::new();
-    let mut ring = delegate_ring(&delegate.pubkey());
+    let mut ring = delegate_ring(&delegate);
     for shape in ring_authority_shapes() {
         let n_in = u8::try_from(shape.n_inputs()).unwrap();
         let n_out = u8::try_from(shape.n_outputs()).unwrap();
@@ -1080,7 +1247,7 @@ fn every_ring_authority_shape_reaches_the_delegate_key_lookup() {
 fn a_delegate_shape_without_a_ring_authority_key_is_refused() {
     let fixture = Fixture::new();
     let delegate = Keypair::new();
-    let mut ring = delegate_ring(&delegate.pubkey());
+    let mut ring = delegate_ring(&delegate);
     let data = fixture.transfer(RingRail::Delegate, 2, 2, true);
     let mut bytes = data.encode().unwrap();
     let unkeyed = SPP_SUPPORTED_SHAPES
@@ -1094,7 +1261,7 @@ fn a_delegate_shape_without_a_ring_authority_key_is_refused() {
     );
 }
 
-fn spp_tree(address: &Address, paused: bool) -> Vec<u8> {
+pub fn spp_tree(address: &Address, paused: bool) -> Vec<u8> {
     let mut bytes = vec![0u8; TreeAccount::account_size()];
     let params = nullifier_tree_params();
     let fees = default_tree_fees(params.input_queue_zkp_batch_size).unwrap();

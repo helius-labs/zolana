@@ -1,14 +1,14 @@
 use bytemuck::Zeroable;
 use custom_ring_interface::{
-    queue_chain, ApplyRecordsIxData, CustomRingError, MemberRegistry, PendingApplication,
-    QueueEntry, RecordQueue, RingAccount, RingProgramConfig, SourceSlot, WriteRecordsIxData,
-    APPLY_DELAY_SLOTS, AUTHORITY_RESERVED_LEAVES, GRACE_SLOTS, MAX_CO_SIGNER_THRESHOLDS,
-    MEMBER_QUEUE_LIMIT, MEMBER_REGISTRY_CAPACITY, MEMBER_REGISTRY_EMPTY_ROOT, N_SOURCE_SLOTS,
-    QUEUE_CAPACITY, RING_PROGRAM_CONFIG,
+    queue_chain, AppliedAt, ApplyRecordsIxData, CustomRingError, MemberRegistry,
+    PendingApplication, QueueEntry, RecordQueue, RingAccount, RingProgramConfig, SourceSlot,
+    WriteRecordsIxData, APPLY_DELAY_SLOTS, AUTHORITY_RESERVED_LEAVES, GRACE_SLOTS,
+    MAX_CO_SIGNER_THRESHOLDS, MEMBER_QUEUE_LIMIT, MEMBER_REGISTRY_CAPACITY,
+    MEMBER_REGISTRY_EMPTY_ROOT, N_SOURCE_SLOTS, QUEUE_CAPACITY, RING_PROGRAM_CONFIG,
 };
 use solana_address::Address;
 use zolana_hasher::primitives::right_align;
-use zolana_ring_policy::{ListId, ListSet, ListWrite, Rule, RuleTable, Subject, Writer};
+use zolana_ring_policy::{ListChange, ListId, ListSet, Rule, RuleTable, Subject, Writer};
 
 const PROGRAM: Address = Address::new_from_array([7; 32]);
 
@@ -23,7 +23,12 @@ fn config() -> RingProgramConfig {
 }
 
 fn entry(byte: u8) -> QueueEntry {
-    let recovery = ListWrite::new(ListSet::single(ListId::Recovery), ListSet::EMPTY).unwrap();
+    let recovery = ListChange {
+        set: ListSet::single(ListId::Recovery),
+        clear: ListSet::EMPTY,
+    }
+    .check()
+    .unwrap();
     WriteRecordsIxData::new(recovery)
         .entry(right_align(&[byte]), Writer::Member)
         .unwrap()
@@ -40,7 +45,11 @@ impl Floors {
     /// The newest root, at history slot 1, applied `applied`.
     fn registry(self) -> MemberRegistry {
         let mut registry = MemberRegistry::new(254, 0);
-        registry.push_root([9; 32], self.applied, 10);
+        let at = AppliedAt {
+            applied: self.applied,
+            slot: 10,
+        };
+        registry.push_root([9; 32], at);
         registry.floor = self.floor.to_le_bytes();
         registry.prior_floor = self.prior_floor.to_le_bytes();
         registry.floor_slot = self.floor_slot.to_le_bytes();

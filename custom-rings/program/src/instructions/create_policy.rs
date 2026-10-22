@@ -24,6 +24,7 @@ pub fn process_create_policy_ix(
     let registry = iter.next_mut("registry")?;
     let curators = iter.remaining_unchecked()?;
 
+    // 1. Only a policy ring takes a table, its first one here.
     if !load_authorized_config(program_id, config, authority)?.has_policy() {
         return Err(CustomRingError::PolicyOnAuditOnlyRing.into());
     }
@@ -31,12 +32,14 @@ pub fn process_create_policy_ix(
     if registry.policy_hash().is_ok() {
         return Err(CustomRingError::PolicyAlreadySet.into());
     }
+    // 2. Sources name exactly the lists the rules reference.
     let bound = TableBinding {
         program_id,
         table: &ix,
         curators,
     }
     .bind()?;
+    // 3. The pinned hash binds every later policy proof.
     registry.set_policy(bound.sources, bound.rules, Clock::get()?.slot)?;
     Ok(())
 }

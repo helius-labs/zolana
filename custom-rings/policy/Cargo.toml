@@ -12,7 +12,6 @@ solana-address = { workspace = true }
 thiserror = { workspace = true }
 wincode = { workspace = true }
 zolana-hasher = { workspace = true }
-zolana-interface = { workspace = true }
 
 [dev-dependencies]
 hex = { workspace = true }

@@ -21,15 +21,18 @@ pub fn process_transact_ix(
     tag: InstructionTag,
 ) -> ProgramResult {
     let slot = Clock::get()?.slot;
+    // 1. The config's mode and delegate fix the rail and the signer it trusts.
     let config_account = accounts.first().ok_or(ProgramError::NotEnoughAccountKeys)?;
     let config = Box::new(*load_config(program_id, config_account)?);
     let signer = RailSigner::new(tag, &config)?;
+    // 2. Every length follows from the flags and the shape, trailing bytes refused.
     let transfer = RingTransactData::parse(data, signer.rail())?;
     let data = transfer.data();
-    // The disclosure chain hashes trailing zeros alike, honest fields are padded nonzero.
+    // 3. The disclosure chain hashes trailing zeros alike, honest fields are padded nonzero.
     if data.disclosure.contains(&[0; 32]) {
         return Err(CustomRingError::ZeroDisclosureField.into());
     }
+    // 4. Each account sits in the slot the statements and SPP read it from.
     let validated = TransactCheck {
         program_id,
         config: &config,
@@ -38,6 +41,7 @@ pub fn process_transact_ix(
         slot,
     }
     .validate(accounts)?;
+    // 5. An anonymous statement binds the landing epoch and the first-contact tree root.
     let epoch = match data.rail {
         RingRail::Anonymous => data.epoch(slot)?,
         RingRail::Confidential | RingRail::Delegate => 0,
@@ -51,8 +55,9 @@ pub fn process_transact_ix(
         )?,
         None => [0; 32],
     };
-    // A bad SPP proof point is refused before either pairing.
+    // 6. A bad SPP proof point is refused before either pairing.
     let spp_data = data.spp_instruction_data(&config)?;
+    // 7. The audit proof and the policy proof verify over values the program derives.
     RingStatements {
         program_id,
         config: &config,
@@ -63,6 +68,7 @@ pub fn process_transact_ix(
         key_escrow: escrows_keys(&config)?,
     }
     .verify()?;
+    // 8. SPP verifies its own proof over the expanded data the ring PDA signs.
     let spp = accounts
         .get(validated.spp..)
         .ok_or(ProgramError::NotEnoughAccountKeys)?;

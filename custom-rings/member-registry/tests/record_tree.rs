@@ -5,8 +5,8 @@ use custom_ring_interface::{
 };
 use zolana_hasher::primitives::right_align;
 use zolana_ring_member_registry::{
-    quad_node, IndexedRecord, MemberRecord, MemberRegistryTree, NodePosition, QuadPath,
-    RecordOpening, RecordStore, RecordTree, RecordTreeError, ZERO_SUBTREES,
+    quad_node, IndexedRecord, MemberRecord, MemberRegistryTree, NodePosition, OpeningCheck,
+    QuadPath, RecordOpening, RecordStore, RecordTree, RecordTreeError, ZERO_SUBTREES,
 };
 use zolana_ring_policy::ListId;
 
@@ -151,23 +151,31 @@ fn openings_resolve_present_and_absent_members_under_their_root() {
     tree.apply([0; 32], &[write(4, ALLOW, ALLOW), write(9, BLOCK, BLOCK)])
         .unwrap();
     let root = tree.root().unwrap();
-    let present = tree.opening(&member(4)).unwrap();
-    assert_eq!(present.verify(&root, &member(4)), Ok(record(&tree, 4)));
-    let absent = tree.opening(&member(7)).unwrap();
-    assert!(matches!(absent, RecordOpening::Absent { low, .. } if low.member == member(4)));
-    assert_eq!(absent.verify(&root, &member(7)), Ok(None));
+    let [four, five, seven, ten] = [4, 5, 7, 10].map(member);
+    let present = tree.opening(&four).unwrap();
+    let check = |opening, member| OpeningCheck {
+        opening,
+        root: &root,
+        member,
+    };
+    assert_eq!(check(&present, &four).verify(), Ok(record(&tree, 4)));
+    let absent = tree.opening(&seven).unwrap();
+    assert!(matches!(absent, RecordOpening::Absent { low, .. } if low.member == four));
+    assert_eq!(check(&absent, &seven).verify(), Ok(None));
     assert_eq!(
-        absent.verify(&root, &member(10)),
+        check(&absent, &ten).verify(),
         Err(RecordTreeError::NotBracketed)
     );
     assert_eq!(
-        present.verify(&root, &member(5)),
+        check(&present, &five).verify(),
         Err(RecordTreeError::NotBracketed)
     );
-    assert_eq!(
-        present.verify(&MEMBER_REGISTRY_EMPTY_ROOT, &member(4)),
-        Err(RecordTreeError::RootMismatch)
-    );
+    let stale = OpeningCheck {
+        opening: &present,
+        root: &MEMBER_REGISTRY_EMPTY_ROOT,
+        member: &four,
+    };
+    assert_eq!(stale.verify(), Err(RecordTreeError::RootMismatch));
 }
 
 #[test]

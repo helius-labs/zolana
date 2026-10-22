@@ -53,12 +53,7 @@ impl<'a> TransactCheck<'a> {
         let window = settlement_accounts(&data.interface_transfers, data.circuit(), accounts)
             .ok_or(CustomRingError::InvalidSettlementAccounts)?;
         let legs = PublicLegs::new(&data.interface_transfers, window)?;
-        let co_signer = CoSignDemand {
-            approval_required: data.approval_required,
-            classes: legs.classes(),
-            withdrawals: legs.withdrawals(),
-        }
-        .signer(config);
+        let co_signer = CoSignDemand::transact(data.approval_required, legs.legs()).signer(config);
         let binding = match config.has_policy() {
             true => data.check_policy(Some(&*load_registry(
                 self.program_id,
@@ -125,6 +120,13 @@ impl<'a> TransactCheck<'a> {
                 let delegate = account_at(accounts, slot.index)?;
                 if !delegate.is_signer() || delegate.address() != &slot.expected {
                     return Err(CustomRingError::UnauthorizedDelegate.into());
+                }
+                if prefix
+                    .co_signer
+                    .as_ref()
+                    .is_some_and(|co_signer| co_signer.expected == slot.expected)
+                {
+                    return Err(CustomRingError::CoSignerIsDelegate.into());
                 }
                 [0; 32]
             }

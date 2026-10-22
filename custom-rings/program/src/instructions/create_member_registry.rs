@@ -28,8 +28,10 @@ pub fn process_create_member_registry_ix(
     let queue = iter.next_mut("queue")?;
     let system_program = iter.next_account("system_program")?;
 
+    // 1. The config authority creates the record accounts once.
     check_system_program(system_program)?;
     load_authorized_config(program_id, config, authority)?;
+    // 2. The registry starts at the sentinel root, the queue empty beside it.
     let slot = Clock::get()?.slot;
     let bump = Pda {
         program_id,

@@ -1,7 +1,7 @@
 use custom_ring_interface::{
     instruction::{accounts, tag},
     ApplyRecordsIxData, AuthorityWriteRecordsIxData, CustomRingError, EscrowKey, MemberRegistry,
-    QueueEntry, RecordQueue, RecordWriteData, RegisterKeyIxData, WriteRecordsIxData,
+    MemberWriteIxData, QueueEntry, RecordQueue, RecordWriteData, RegisterKeyIxData,
 };
 use serde::{Deserialize, Serialize};
 use solana_address::Address;
@@ -107,9 +107,9 @@ pub fn decode(instruction: InstructionView<'_>) -> Result<Option<RecordCall>, De
             return Ok(Some(RecordCall::Create(named(created)?)));
         }
         tag::WRITE_RECORDS => {
-            let data = WriteRecordsIxData::parse(data)?;
+            let data = MemberWriteIxData::parse(data)?;
             let member = member_of(&account(&instruction, accounts::RECORD_WRITE_SIGNER)?)?;
-            let entry = data.entry(member, Writer::Member)?;
+            let entry = data.lists.entry(member, Writer::Member)?;
             let write = QueuedWrite { entry, seal: None };
             (named(written)?, RecordAction::Queue(write))
         }

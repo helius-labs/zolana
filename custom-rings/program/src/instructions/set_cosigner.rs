@@ -15,6 +15,7 @@ pub fn process_set_cosigner_ix(
     data: &[u8],
 ) -> ProgramResult {
     let ix: SetCoSignerIxData = parse(data)?;
+    // 1. The stored scope and thresholds are valid.
     let scope = ix.check()?;
     let mut rows = [WithdrawalThresholdRow::zeroed(); MAX_CO_SIGNER_THRESHOLDS];
     for (row, threshold) in rows.iter_mut().zip(&ix.thresholds) {
@@ -27,6 +28,7 @@ pub fn process_set_cosigner_ix(
     let mut iter = AccountIterator::new(accounts);
     let authority = iter.next_signer("authority")?;
     let config = iter.next_mut("config")?;
+    // 2. The config authority replaces the co-signer and every threshold.
     let mut config = load_authorized_config_mut(program_id, config, authority)?;
     config.co_signer = Address::new_from_array(ix.signer);
     config.co_sign_scope = scope.bits();

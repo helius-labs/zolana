@@ -193,6 +193,12 @@ pub struct ListWrite {
     clear: ListSet,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ListChange {
+    pub set: ListSet,
+    pub clear: ListSet,
+}
+
 #[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
 pub enum ListWriteError {
     #[error("a list write changes no list")]
@@ -201,17 +207,20 @@ pub enum ListWriteError {
     SetAndCleared,
 }
 
-impl ListWrite {
-    pub const fn new(set: ListSet, clear: ListSet) -> Result<Self, ListWriteError> {
+impl ListChange {
+    pub const fn check(self) -> Result<ListWrite, ListWriteError> {
+        let Self { set, clear } = self;
         if set.union(clear).is_empty() {
             return Err(ListWriteError::Empty);
         }
         if set.intersects(clear) {
             return Err(ListWriteError::SetAndCleared);
         }
-        Ok(Self { set, clear })
+        Ok(ListWrite { set, clear })
     }
+}
 
+impl ListWrite {
     pub const fn set(self) -> ListSet {
         self.set
     }
@@ -269,32 +278,36 @@ mod tests {
 
     #[test]
     fn a_list_write_masks_both_sets_and_values_only_the_set() {
-        let write = ListWrite::new(
-            ListSet::single(ListId::Allow),
-            ListSet::single(ListId::Block),
-        )
+        let write = ListChange {
+            set: ListSet::single(ListId::Allow),
+            clear: ListSet::single(ListId::Block),
+        }
+        .check()
         .unwrap();
         assert_eq!((write.mask(), write.value()), (0b11, 0b01));
         assert_eq!(write.writer(), Some(Writer::Authority));
-        let member = ListWrite::new(ListSet::EMPTY, ListSet::single(ListId::Recovery)).unwrap();
+        let member = ListChange {
+            set: ListSet::EMPTY,
+            clear: ListSet::single(ListId::Recovery),
+        }
+        .check()
+        .unwrap();
         assert_eq!((member.mask(), member.value()), (0b1_0000, 0));
         assert_eq!(member.writer(), Some(Writer::Member));
     }
 
     #[test]
     fn a_list_write_refuses_no_list_both_sets_and_mixed_or_escrow_writers() {
+        let write = |set, clear| ListChange { set, clear }.check();
         assert_eq!(
-            ListWrite::new(ListSet::EMPTY, ListSet::EMPTY),
+            write(ListSet::EMPTY, ListSet::EMPTY),
             Err(ListWriteError::Empty)
         );
         let allow = ListSet::single(ListId::Allow);
-        assert_eq!(
-            ListWrite::new(allow, allow),
-            Err(ListWriteError::SetAndCleared)
-        );
-        let mixed = ListWrite::new(allow, ListSet::single(ListId::Recovery)).unwrap();
+        assert_eq!(write(allow, allow), Err(ListWriteError::SetAndCleared));
+        let mixed = write(allow, ListSet::single(ListId::Recovery)).unwrap();
         assert_eq!(mixed.writer(), None);
-        let escrow = ListWrite::new(ListSet::single(ListId::Escrow), ListSet::EMPTY).unwrap();
+        let escrow = write(ListSet::single(ListId::Escrow), ListSet::EMPTY).unwrap();
         assert_eq!(escrow.writer(), None);
     }
 

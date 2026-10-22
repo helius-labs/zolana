@@ -2,21 +2,21 @@
 
 use bytemuck::Zeroable;
 use custom_ring_interface::{
-    queue_chain, tag, ApplyRecordsIxData, CustomRingError, MemberRegistry, RecordQueue,
-    RecordWriteData, RegisterKeyIxData, SetInsertFeeIxData, WriteRecordsIxData, APPLY_DELAY_SLOTS,
-    AUTHORITY_RESERVED_LEAVES, DEFAULT_INSERT_FEE, FIELD_MAX, MEMBER_QUEUE_LIMIT,
-    MEMBER_REGISTRY_CAPACITY, MEMBER_REGISTRY_EMPTY_ROOT,
+    queue_chain, tag, ApplyRecordsIxData, CustomRingError, MemberRegistry, MemberWriteIxData,
+    RecordQueue, RecordWriteData, RegisterKeyIxData, SetInsertFeeIxData, WriteRecordsIxData,
+    APPLY_DELAY_SLOTS, AUTHORITY_RESERVED_LEAVES, DEFAULT_INSERT_FEE, FIELD_MAX,
+    MEMBER_QUEUE_LIMIT, MEMBER_REGISTRY_CAPACITY, MEMBER_REGISTRY_EMPTY_ROOT,
 };
 use solana_instruction::{error::InstructionError, AccountMeta, Instruction};
 use solana_keypair::{Keypair, Signer};
 use zolana_account_checks::AccountError;
 use zolana_hasher::primitives::{right_align, solana_owner_identity};
-use zolana_ring_policy::{ListId, ListSet, ListWrite, Writer};
+use zolana_ring_policy::{ListChange, ListId, ListSet, Writer};
 
 use crate::common::{
-    apply_records, authority_write_records, config_write, create_member_registry, queue_pda,
-    reaches_verification, refused, refused_with, register_key, registry_pda, write_records, Fee,
-    Ring, Setup,
+    apply_records, authority_write_records, config_write, create_member_registry, key_registration,
+    member_write, off_curve_g1, queue_pda, reaches_verification, refused, refused_with,
+    register_key, registry_pda, write_records, Fee, Ring, Sent, Setup,
 };
 
 fn lists(mask: u64, value: u64) -> WriteRecordsIxData {
@@ -28,7 +28,12 @@ fn lists(mask: u64, value: u64) -> WriteRecordsIxData {
 
 fn recovery() -> WriteRecordsIxData {
     WriteRecordsIxData::new(
-        ListWrite::new(ListSet::single(ListId::Recovery), ListSet::EMPTY).unwrap(),
+        ListChange {
+            set: ListSet::single(ListId::Recovery),
+            clear: ListSet::EMPTY,
+        }
+        .check()
+        .unwrap(),
     )
 }
 
@@ -70,7 +75,7 @@ fn fill_registry(ring: &mut Ring, leaves: u64) {
     ring.write(&registry_pda(), &registry);
 }
 
-fn set_insert_fee(ring: &mut Ring, fee: u64) {
+fn insert_fee_write(ring: &mut Ring, fee: u64) -> Sent {
     let authority = ring.authority.insecure_clone();
     ring.send(
         config_write(
@@ -83,7 +88,10 @@ fn set_insert_fee(ring: &mut Ring, fee: u64) {
         ),
         &[&authority],
     )
-    .expect("set the insert fee");
+}
+
+fn set_insert_fee(ring: &mut Ring, fee: u64) {
+    insert_fee_write(ring, fee).expect("set the insert fee");
 }
 
 #[test]
@@ -231,7 +239,7 @@ fn a_full_registry_still_takes_an_authority_block_write() {
 
 #[test]
 fn the_insert_fee_goes_to_the_config_authority_only() {
-    let fee = 5_000;
+    let fee = 2 * DEFAULT_INSERT_FEE;
     let mut ring = Ring::new(Setup::AuditOnly);
     set_insert_fee(&mut ring, fee);
     let member = Keypair::new();
@@ -287,6 +295,69 @@ fn the_config_authority_writes_its_own_record_free() {
         ),
         missing_fee_payer,
     );
+}
+
+#[test]
+fn a_nonzero_insert_fee_funds_an_empty_authority() {
+    let mut ring = Ring::new(Setup::AuditOnly);
+    let rent = ring.rent_exempt_minimum(0);
+    refused(
+        insert_fee_write(&mut ring, rent - 1),
+        CustomRingError::InsertFeeBelowRent,
+    );
+    insert_fee_write(&mut ring, rent).expect("a fee at the rent minimum");
+    insert_fee_write(&mut ring, 0).expect("a free ring");
+}
+
+#[test]
+fn a_fee_raised_past_the_writers_maximum_refuses_the_write() {
+    let mut ring = Ring::new(Setup::AuditOnly);
+    let member = Keypair::new();
+    let fee = ring.fee();
+    let write = MemberWriteIxData {
+        lists: recovery(),
+        max_fee: DEFAULT_INSERT_FEE.to_le_bytes(),
+    };
+    let registration = RegisterKeyIxData {
+        max_fee: DEFAULT_INSERT_FEE.to_le_bytes(),
+        ..key_registration()
+    };
+    set_insert_fee(&mut ring, DEFAULT_INSERT_FEE + 1);
+    refused(
+        ring.send(
+            member_write(&member.pubkey(), &write, Some(fee)),
+            &[&member],
+        ),
+        CustomRingError::InsertFeeAboveMax,
+    );
+    refused(
+        ring.send(
+            register_key(&member.pubkey(), &registration, Some(fee)),
+            &[&member],
+        ),
+        CustomRingError::InsertFeeAboveMax,
+    );
+    let authority = ring.authority.insecure_clone();
+    let free = MemberWriteIxData {
+        max_fee: [0; 8],
+        ..write
+    };
+    ring.send(
+        member_write(&authority.pubkey(), &free, None),
+        &[&authority],
+    )
+    .expect("the authority owes no fee whatever its maximum");
+
+    set_insert_fee(&mut ring, DEFAULT_INSERT_FEE);
+    ring.send(
+        member_write(&member.pubkey(), &write, Some(fee)),
+        &[&member],
+    )
+    .expect("a fee at the maximum");
+    reaches_verification(ring.send(
+        register_key(&member.pubkey(), &registration, Some(fee)),
+        &[&member],
+    ));
 }
 
 #[test]
@@ -423,15 +494,6 @@ fn a_permissionless_application_waits_one_delay_after_the_last() {
     reaches_verification(ring.send(apply_records(&apply_data()), &[]));
 }
 
-fn key_registration() -> RegisterKeyIxData {
-    RegisterKeyIxData {
-        proof: Zeroable::zeroed(),
-        nullifier_pk: member(4),
-        eph_u: [5; 32],
-        ciphertext: [6; 32],
-    }
-}
-
 #[test]
 fn an_anonymous_ring_registers_no_key() {
     let mut ring = Ring::new(Setup::Anonymous);
@@ -493,4 +555,26 @@ fn a_record_write_needs_its_writer_signature() {
             InstructionError::Custom(u32::from(AccountError::InvalidSigner)),
         );
     }
+}
+
+#[test]
+fn an_undecodable_ring_proof_point_has_its_own_code() {
+    let mut ring = Ring::new(Setup::AuditOnly);
+    let member = Keypair::new();
+    let mut registration = key_registration();
+    registration.proof.groth16.proof_c = off_curve_g1();
+    refused(
+        ring.send(
+            register_key(&member.pubkey(), &registration, None),
+            &[&member],
+        ),
+        CustomRingError::InvalidRingProofPoint,
+    );
+    refused(
+        ring.send(
+            register_key(&member.pubkey(), &key_registration(), None),
+            &[&member],
+        ),
+        CustomRingError::ProofVerificationFailed,
+    );
 }

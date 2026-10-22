@@ -49,24 +49,28 @@ pub enum RecordOpening {
     },
 }
 
-impl RecordOpening {
+#[must_use]
+pub struct OpeningCheck<'a> {
+    pub opening: &'a RecordOpening,
+    pub root: &'a [u8; 32],
+    pub member: &'a [u8; 32],
+}
+
+impl OpeningCheck<'_> {
     /// The member's record under `root`, `None` for an absent member.
-    pub fn verify(
-        &self,
-        root: &[u8; 32],
-        member: &[u8; 32],
-    ) -> Result<Option<MemberRecord>, RecordTreeError> {
+    pub fn verify(self) -> Result<Option<MemberRecord>, RecordTreeError> {
+        let member = self.member;
         check_member(member)?;
-        let (leaf, path, present) = match self {
-            Self::Present { record, path } if record.member == *member => {
+        let (leaf, path, present) = match self.opening {
+            RecordOpening::Present { record, path } if record.member == *member => {
                 (record, path, Some(*record))
             }
-            Self::Absent { low, path } if low.brackets(member) => (low, path, None),
-            Self::Present { .. } | Self::Absent { .. } => {
+            RecordOpening::Absent { low, path } if low.brackets(member) => (low, path, None),
+            RecordOpening::Present { .. } | RecordOpening::Absent { .. } => {
                 return Err(RecordTreeError::NotBracketed)
             }
         };
-        if path.root(leaf.hash()?)? != *root {
+        if path.root(leaf.hash()?)? != *self.root {
             return Err(RecordTreeError::RootMismatch);
         }
         Ok(present)

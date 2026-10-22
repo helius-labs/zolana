@@ -15,12 +15,19 @@ pub(crate) struct MemberWrite<'c> {
     pub config: &'c RingProgramConfig,
     pub writer: &'c Address,
     pub entry: &'c QueueEntry,
+    pub max_fee: u64,
 }
 
 impl MemberWrite<'_> {
-    pub fn fee(&self) -> Option<u64> {
+    pub fn fee(&self) -> Result<Option<u64>, CustomRingError> {
         let fee = self.config.insert_fee();
-        (fee != 0 && self.writer != &self.config.authority).then_some(fee)
+        if fee == 0 || self.writer == &self.config.authority {
+            return Ok(None);
+        }
+        if fee > self.max_fee {
+            return Err(CustomRingError::InsertFeeAboveMax);
+        }
+        Ok(Some(fee))
     }
 
     pub fn push(self, queue: &mut RecordQueue) -> ProgramResult {

@@ -4,8 +4,8 @@ use custom_ring_interface::{QueueEntry, QUAD_HEIGHT};
 use thiserror::Error;
 use zolana_ring_member_registry::MemberRegistryTree;
 pub use zolana_ring_member_registry::{
-    ApplyProofInputs, IndexedRecord, MemberRecord, NodePosition, QuadPath, RecordOpening,
-    RecordStore, RecordTree, RecordTreeError, RecordWriteProofInput,
+    ApplyProofInputs, IndexedRecord, MemberRecord, NodePosition, OpeningCheck, QuadPath,
+    RecordOpening, RecordStore, RecordTree, RecordTreeError, RecordWriteProofInput,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

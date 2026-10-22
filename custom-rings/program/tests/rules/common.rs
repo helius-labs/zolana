@@ -1,20 +1,21 @@
-use bytemuck::Pod;
+use bytemuck::{Pod, Zeroable};
 use custom_ring_interface::{
-    compute_unit_limit, tag, ApplyRecordsIxData, AuthorityWriteRecordsIxData, CreateConfigIxData,
-    CustomRingError, InstructionTag, MemberRegistry, PolicyTableIxData, RecordWriteData,
-    RegisterKeyIxData, SourceSpec, WriteRecordsIxData, CONFIG_PDA_SEED, MEMBER_REGISTRY_PDA_SEED,
-    RECORD_QUEUE_PDA_SEED,
+    compute_unit_limit, tag, AppliedAt, ApplyRecordsIxData, AuthorityWriteRecordsIxData,
+    CreateConfigIxData, CustomRingError, InstructionTag, MemberRegistry, MemberWriteIxData,
+    PolicyTableIxData, RecordWriteData, RegisterKeyIxData, RingKind, SourceSpec,
+    WriteRecordsIxData, CONFIG_PDA_SEED, MEMBER_REGISTRY_PDA_SEED, RECORD_QUEUE_PDA_SEED,
 };
 use litesvm::LiteSVM;
 use solana_account::Account;
 use solana_address::Address;
-use solana_bn254::compression::prelude::alt_bn128_g2_decompress_be;
+use solana_bn254::compression::prelude::{alt_bn128_g1_decompress_be, alt_bn128_g2_decompress_be};
 use solana_instruction::{error::InstructionError, AccountMeta, Instruction};
 use solana_keypair::{Keypair, Signer};
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
 use solana_message::{v1, VersionedMessage};
 use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_error::TransactionError;
+use zolana_hasher::primitives::right_align;
 use zolana_interface::{BPF_LOADER_UPGRADEABLE_ID, RING_AUTH_PDA_SEED};
 use zolana_ring_policy::{ListId, OutflowLimit, Rule, RuleTable, Subject};
 
@@ -62,12 +63,13 @@ pub enum Setup {
 }
 
 impl Setup {
-    const fn anonymous(self) -> bool {
-        matches!(self, Self::Anonymous | Self::AnonymousPolicy)
-    }
-
-    const fn has_policy(self) -> bool {
-        !matches!(self, Self::AuditOnly | Self::Anonymous)
+    pub const fn kind(self) -> RingKind {
+        match self {
+            Self::AuditOnly => RingKind::AuditOnly,
+            Self::Policy | Self::LimitedPolicy => RingKind::Policy,
+            Self::Anonymous => RingKind::Anonymous,
+            Self::AnonymousPolicy => RingKind::AnonymousPolicy,
+        }
     }
 }
 
@@ -103,8 +105,7 @@ impl Ring {
             &authority.pubkey(),
             CreateConfigIxData {
                 auditor_pubkey: auditor_pubkey(),
-                has_policy: setup.has_policy(),
-                anonymous: setup.anonymous(),
+                kind: setup.kind(),
             },
         );
         within_budget(
@@ -124,7 +125,7 @@ impl Ring {
             }],
             _ => Vec::new(),
         };
-        if setup.has_policy() {
+        if setup.kind().has_policy() {
             let policy = policy_write(
                 tag::CREATE_POLICY,
                 &authority.pubkey(),
@@ -171,6 +172,10 @@ impl Ring {
 
     pub fn lamports(&self, address: &Address) -> u64 {
         self.svm.get_balance(address).unwrap_or_default()
+    }
+
+    pub fn rent_exempt_minimum(&self, len: usize) -> u64 {
+        self.svm.minimum_balance_for_rent_exemption(len)
     }
 
     /// Replaces a program account's data, the state a sequence of instructions would reach.
@@ -251,6 +256,18 @@ pub fn on_curve_g2() -> [u8; 128] {
 }
 
 /// A canonical compressed `x` off the curve.
+pub fn off_curve_g1() -> [u8; 32] {
+    (1..=u8::MAX)
+        .map(|x| {
+            let mut point = [0u8; 32];
+            point[31] = x;
+            point
+        })
+        .find(|point| alt_bn128_g1_decompress_be(point).is_err())
+        .expect("a canonical x off the curve")
+}
+
+/// A canonical compressed `x` off the curve.
 pub fn off_curve_g2() -> [u8; 64] {
     (1..=u8::MAX)
         .map(|x| {
@@ -321,16 +338,20 @@ pub fn within_budget(tag: InstructionTag, sent: Sent) -> u64 {
 /// History slot 1 applied at `applied` under `floor`.
 pub fn floored(base: &MemberRegistry, applied: u64, floor: u64) -> MemberRegistry {
     let mut registry = *base;
-    registry.push_root([0x0f; 32], applied, 10);
+    registry.push_root([0x0f; 32], AppliedAt { applied, slot: 10 });
     registry.floor = floor.to_le_bytes();
     registry
 }
 
-/// `ProofVerificationFailed` comes only from a proof check, every earlier check passed.
+/// Only a ring proof check raises either code, every earlier check passed.
 pub fn reaches_verification(sent: Sent) -> u64 {
+    let proof_check = [
+        CustomRingError::InvalidRingProofPoint,
+        CustomRingError::ProofVerificationFailed,
+    ];
     match sent {
         Err((TransactionError::InstructionError(0, InstructionError::Custom(code)), units))
-            if code == CustomRingError::ProofVerificationFailed as u32 =>
+            if proof_check.iter().any(|error| *error as u32 == code) =>
         {
             units
         }
@@ -439,12 +460,32 @@ fn record_write(tag: u8, signer: &Address, fee: Option<Fee>, body: &[u8]) -> Ins
     instruction(accounts, tagged(tag, body))
 }
 
+/// A member write accepting any insert fee.
 pub fn write_records(member: &Address, lists: WriteRecordsIxData, fee: Option<Fee>) -> Instruction {
-    record_write(tag::WRITE_RECORDS, member, fee, bytemuck::bytes_of(&lists))
+    let data = MemberWriteIxData {
+        lists,
+        max_fee: u64::MAX.to_le_bytes(),
+    };
+    member_write(member, &data, fee)
+}
+
+pub fn member_write(member: &Address, data: &MemberWriteIxData, fee: Option<Fee>) -> Instruction {
+    record_write(tag::WRITE_RECORDS, member, fee, bytemuck::bytes_of(data))
 }
 
 pub fn register_key(member: &Address, data: &RegisterKeyIxData, fee: Option<Fee>) -> Instruction {
     record_write(tag::REGISTER_KEY, member, fee, bytemuck::bytes_of(data))
+}
+
+/// Accepts any insert fee.
+pub fn key_registration() -> RegisterKeyIxData {
+    RegisterKeyIxData {
+        proof: Zeroable::zeroed(),
+        nullifier_pk: right_align(&[4]),
+        eph_u: [5; 32],
+        ciphertext: [6; 32],
+        max_fee: u64::MAX.to_le_bytes(),
+    }
 }
 
 pub fn authority_write_records(
@@ -482,27 +523,31 @@ pub fn transact(tag: u8, accounts: Vec<AccountMeta>, data: Vec<u8>) -> Instructi
     instruction(accounts, tagged(tag, &data))
 }
 
-/// `SetDelegate` signed by `authority`, the program's upgrade authority when it succeeds.
+/// `SetDelegate` signed by `authority` and `delegate`, accepted only from the upgrade authority.
 pub fn set_delegate(authority: &Address, delegate: &Address) -> Instruction {
     config_write(
         tag::SET_DELEGATE,
         authority,
         &[
+            AccountMeta::new_readonly(*delegate, true),
             AccountMeta::new_readonly(registry_pda(), false),
             AccountMeta::new_readonly(PROGRAM, false),
             AccountMeta::new_readonly(program_data(), false),
         ],
-        delegate.as_ref(),
+        &[],
     )
 }
 
 /// A policy ring whose delegate put it in registry mode.
-pub fn delegate_ring(delegate: &Address) -> Ring {
+pub fn delegate_ring(delegate: &Keypair) -> Ring {
     let mut ring = Ring::new(Setup::Policy);
     let authority = ring.authority.insecure_clone();
     within_budget(
         InstructionTag::SetDelegate,
-        ring.send(set_delegate(&authority.pubkey(), delegate), &[&authority]),
+        ring.send(
+            set_delegate(&authority.pubkey(), &delegate.pubkey()),
+            &[&authority, delegate],
+        ),
     );
     ring
 }

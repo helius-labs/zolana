@@ -26,8 +26,7 @@ pub fn process_create_config_ix(
 ) -> ProgramResult {
     let CreateConfigIxData {
         auditor_pubkey,
-        has_policy,
-        anonymous,
+        kind,
     } = parse(data)?;
 
     let mut iter = AccountIterator::new(accounts);
@@ -38,6 +37,7 @@ pub fn process_create_config_ix(
     let program = iter.next_account("program")?;
     let program_data = iter.next_account("program_data")?;
 
+    // 1. The caller controls the deployed binary the config configures.
     check_system_program(system_program)?;
     UpgradeAuthorityCheck {
         program_id,
@@ -46,10 +46,11 @@ pub fn process_create_config_ix(
         program_data,
     }
     .verify()?;
-    // The envelope proves agreement with this tagged canonical X25519 key.
+    // 2. The envelope proves agreement with the tagged canonical X25519 key.
     if !is_x25519_key(&auditor_pubkey) {
         return Err(CustomRingError::InvalidAuditorPubkey.into());
     }
+    // 3. The canonical PDA holds the kind for the ring's life.
     let bump = Pda {
         program_id,
         seeds: &[RingProgramConfig::SEED],
@@ -60,8 +61,8 @@ pub fn process_create_config_ix(
         authority: *authority.address(),
         auditor_pubkey,
         bump,
-        has_policy: u8::from(has_policy),
-        mode: if anonymous {
+        has_policy: u8::from(kind.has_policy()),
+        mode: if kind.anonymous() {
             RingMode::Anonymous
         } else {
             RingMode::Off

@@ -24,6 +24,7 @@ pub fn process_authority_write_records_ix(
     let registry = iter.next_mut("registry")?;
     let queue = iter.next_mut("queue")?;
 
+    // 1. The config authority writes only the lists it owns, of members in range.
     load_authorized_config(program_id, config, authority)?;
     let entries = ix
         .writes
@@ -33,6 +34,7 @@ pub fn process_authority_write_records_ix(
     let slot = Clock::get()?.slot;
     let mut registry = load_registry_mut(program_id, registry)?;
     let mut queue = load_queue_mut(program_id, queue)?;
+    // 2. The batch queues behind every pending member write, one application takes all.
     queue.admit_authority_writes(entries.len() as u64)?;
     for entry in &entries {
         queue.push(entry, slot)?;
@@ -41,7 +43,9 @@ pub fn process_authority_write_records_ix(
         registry: &mut registry,
         queue: &mut queue,
     };
+    // 3. The proof moves the current root by exactly the chained writes.
     verify_application(&application, ix.apply)?;
+    // 4. The new root floors the own ring at once.
     application.settle_authority(ix.apply, slot);
     Ok(())
 }

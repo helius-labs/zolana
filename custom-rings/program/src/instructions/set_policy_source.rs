@@ -25,6 +25,7 @@ pub fn process_set_policy_source_ix(
     let registry = iter.next_mut("registry")?;
     let curators = iter.remaining_unchecked()?;
 
+    // 1. The authority moves one list to its own registry or one curator.
     load_authorized_config(program_id, config, authority)?;
     let list_id = ListId::try_from(ix.list_id).map_err(|_| CustomRingError::InvalidListId)?;
     let source = match (ix.source, curators) {
@@ -32,6 +33,7 @@ pub fn process_set_policy_source_ix(
         (1, [curator]) => curator_source(program_id, curator)?,
         _ => return Err(CustomRingError::InvalidSource.into()),
     };
+    // 2. Only a list the rules reference has a source.
     let mut registry = load_registry_mut(program_id, registry)?;
     let mut sources = registry.sources;
     if sources[list_id.slot()].list_id == 0 {
@@ -41,7 +43,7 @@ pub fn process_set_policy_source_ix(
         list_id: list_id as u8,
         registry: source,
     };
-    // The rehashed source map refuses a second distinct curator.
+    // 3. The rehashed source map refuses a second distinct curator.
     let rules = registry.rules;
     registry.set_policy(sources, rules, Clock::get()?.slot)?;
     Ok(())

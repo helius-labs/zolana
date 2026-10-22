@@ -5,7 +5,7 @@ mod member;
 mod rule_table;
 mod rules;
 
-pub use list::{ListId, ListSet, ListWrite, ListWriteError, Writer};
+pub use list::{ListChange, ListId, ListSet, ListWrite, ListWriteError, Writer};
 pub use member::{Member, MemberError};
 pub use rule_table::{
     EncodedRuleTable, Guard, Mode, OutflowLimit, PolicySource, PolicyTableError, Rule, RuleSource,

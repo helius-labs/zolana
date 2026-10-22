@@ -302,6 +302,12 @@ pub struct RootEntry {
     pub slot: [u8; 8],
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct AppliedAt {
+    pub applied: u64,
+    pub slot: u64,
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
 #[repr(C)]
 pub struct MemberRegistry {
@@ -400,21 +406,22 @@ impl MemberRegistry {
     }
 
     /// Records an application, the oldest root leaves the history.
-    pub fn push_root(&mut self, root: [u8; 32], applied: u64, slot: u64) {
+    pub fn push_root(&mut self, root: [u8; 32], at: AppliedAt) {
         let cursor = (usize::from(self.history_cursor) + 1) % ROOT_HISTORY;
         self.history[cursor] = RootEntry {
             root,
-            applied: applied.to_le_bytes(),
-            slot: slot.to_le_bytes(),
+            applied: at.applied.to_le_bytes(),
+            slot: at.slot.to_le_bytes(),
         };
         self.history_cursor = cursor as u8;
     }
 
     /// Every authority write floors the own ring, curators keep the prior floor for `GRACE_SLOTS`.
-    pub fn raise_floor(&mut self, applied: u64, slot: u64) {
+    pub fn raise_floor(&mut self) {
+        let newest = self.history[usize::from(self.history_cursor)];
         self.prior_floor = self.floor;
-        self.floor = applied.to_le_bytes();
-        self.floor_slot = slot.to_le_bytes();
+        self.floor = newest.applied;
+        self.floor_slot = newest.slot;
     }
 
     /// `PolicyNotSet` before the first policy write.
@@ -624,18 +631,17 @@ impl PendingApplication<'_> {
 
     /// Settles a verified `AuthorityWriteRecords` at `slot`, its writes floor the own root.
     pub fn settle_authority(mut self, data: &ApplyRecordsIxData, slot: u64) {
-        let applied = self.settle(data, slot);
-        self.registry.raise_floor(applied, slot);
+        self.settle(data, slot);
+        self.registry.raise_floor();
     }
 
-    /// Returns the applied position.
-    fn settle(&mut self, data: &ApplyRecordsIxData, slot: u64) -> u64 {
+    fn settle(&mut self, data: &ApplyRecordsIxData, slot: u64) {
         let applied = self.queue.tail();
         self.queue.chain_head = self.queue.chain_tail();
         self.queue.head = applied.to_le_bytes();
-        self.registry.push_root(data.new_root, applied, slot);
+        self.registry
+            .push_root(data.new_root, AppliedAt { applied, slot });
         self.registry.next_index = data.new_next_index;
-        applied
     }
 }
 

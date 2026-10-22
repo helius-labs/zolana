@@ -18,8 +18,6 @@ pub mod accounts {
     pub const APPLY_RECORDS_QUEUE: usize = 1;
     pub const CREATE_MEMBER_REGISTRY_REGISTRY: usize = 3;
     pub const CREATE_MEMBER_REGISTRY_QUEUE: usize = 4;
-    /// `CreatePolicy`, `SetPolicyRules` and `SetPolicySource`.
-    pub const POLICY_WRITE_REGISTRY: usize = 2;
 }
 
 macro_rules! instruction_tags {
@@ -92,14 +90,35 @@ instruction_tags! {
     SetInsertFee = SET_INSERT_FEE: 42 => ACCOUNT_UNITS,
 }
 
+/// Fixed for the ring's life.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+#[wincode(tag_encoding = "u8")]
+pub enum RingKind {
+    #[wincode(tag = 0)]
+    AuditOnly,
+    #[wincode(tag = 1)]
+    Policy,
+    #[wincode(tag = 2)]
+    Anonymous,
+    #[wincode(tag = 3)]
+    AnonymousPolicy,
+}
+
+impl RingKind {
+    pub const fn has_policy(self) -> bool {
+        matches!(self, Self::Policy | Self::AnonymousPolicy)
+    }
+
+    pub const fn anonymous(self) -> bool {
+        matches!(self, Self::Anonymous | Self::AnonymousPolicy)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct CreateConfigIxData {
     /// Auditor X25519 public key as `0x04 || canonical little-endian u`.
     pub auditor_pubkey: [u8; TAGGED_X25519_KEY_LEN],
-    /// Selects a policy ring over an audit-only ring.
-    pub has_policy: bool,
-    /// Selects an anonymous ring, fixed for the ring's life.
-    pub anonymous: bool,
+    pub kind: RingKind,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
@@ -130,7 +149,7 @@ pub struct SetCoSignerIxData {
 }
 
 impl SetCoSignerIxData {
-    /// The scope a stored co-signer takes, every threshold naming a distinct mint.
+    /// The scope a stored co-signer takes, thresholds name distinct mints under the withdrawal scope.
     pub fn check(&self) -> Result<crate::CoSignScope, CustomRingError> {
         let scope =
             crate::CoSignScope::new(self.scope).ok_or(CustomRingError::InvalidCoSignerScope)?;
@@ -149,6 +168,9 @@ impl SetCoSignerIxData {
         };
         if self.thresholds.len() > crate::MAX_CO_SIGNER_THRESHOLDS || repeated() {
             return Err(CustomRingError::InvalidCoSignerThresholds);
+        }
+        if !self.thresholds.is_empty() && !scope.contains(crate::CoSignScope::WITHDRAWALS) {
+            return Err(CustomRingError::ThresholdsWithoutWithdrawals);
         }
         Ok(scope)
     }
@@ -217,12 +239,20 @@ pub struct SetPolicySourceIxData {
     pub source: u8,
 }
 
-/// Tag 39, a member's masked write of its own lists, the lists of one authority write.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Pod, Zeroable)]
 #[repr(C)]
 pub struct WriteRecordsIxData {
     pub mask: [u8; 8],
     pub value: [u8; 8],
+}
+
+/// Tag 39, a member's write of its own lists.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Pod, Zeroable)]
+#[repr(C)]
+pub struct MemberWriteIxData {
+    pub lists: WriteRecordsIxData,
+    /// Little endian, a higher insert fee refuses the write.
+    pub max_fee: [u8; 8],
 }
 
 /// One authority write inside `AuthorityWriteRecords`.
@@ -257,6 +287,8 @@ pub struct RegisterKeyIxData {
     pub nullifier_pk: [u8; 32],
     pub eph_u: [u8; 32],
     pub ciphertext: [u8; AUDIT_CIPHERTEXT_LEN],
+    /// Little endian, a higher insert fee refuses the registration.
+    pub max_fee: [u8; 8],
 }
 
 /// Tag 42.
@@ -283,10 +315,23 @@ macro_rules! fixed_ix_data {
 
 fixed_ix_data!(
     WriteRecordsIxData,
+    MemberWriteIxData,
     ApplyRecordsIxData,
     RegisterKeyIxData,
     SetInsertFeeIxData
 );
+
+impl MemberWriteIxData {
+    pub const fn max_fee(&self) -> u64 {
+        u64::from_le_bytes(self.max_fee)
+    }
+}
+
+impl RegisterKeyIxData {
+    pub const fn max_fee(&self) -> u64 {
+        u64::from_le_bytes(self.max_fee)
+    }
+}
 
 impl WriteRecordsIxData {
     pub const fn new(write: ListWrite) -> Self {
@@ -384,10 +429,11 @@ fn write_count(count: usize) -> Result<u8, CustomRingError> {
 }
 
 const _: () = assert!(WriteRecordsIxData::SIZE == 16);
+const _: () = assert!(MemberWriteIxData::SIZE == 24);
 const _: () = assert!(core::mem::align_of::<RecordWriteData>() == 1);
 const _: () = assert!(RecordWriteData::SIZE == 48);
 const _: () = assert!(ApplyRecordsIxData::SIZE == 228);
-const _: () = assert!(RegisterKeyIxData::SIZE == 288);
+const _: () = assert!(RegisterKeyIxData::SIZE == 296);
 const _: () = assert!(APPLY_BATCH <= u8::MAX as usize);
 
 #[cfg(test)]

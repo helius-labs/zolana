@@ -61,8 +61,7 @@ ring_errors! {
     UnauthorizedDelegate = 8151 => "the delegate must sign",
     DelegatePublicLeg = 8152 => "a delegate move settles no public leg",
     DelegateAlreadySet = 8153 => "the delegate is permanent",
-    InvalidDelegate = 8154 => "delegate address is invalid",
-    // 8155 and 8156 retired.
+    // 8154 to 8156 retired.
     ApprovalWithoutCoSigner = 8157 => "dual control needs a configured co-signer",
     // 8158 and 8159 retired.
     InvalidMemberRegistry = 8160 => "member registry account is invalid",
@@ -99,7 +98,7 @@ ring_errors! {
     MissingMergeDisclosure = 8198 => "an anonymous ring merge carries its disclosure proof",
     MergeDisclosureWidth = 8199 => "the merge disclosure field count does not match the merge width",
     RingTransactLength = 8200 => "the compact transact data length disagrees with its flags and shape",
-    RingShapeUnkeyed = 8201 => "no audit or policy key serves the shape for the ring mode",
+    RingShapeUnkeyed = 8201 => "no audit key or SPP rail key serves the shape on the rail",
     FlagNotAllowed = 8202 => "a transact flag the ring mode or policy forbids",
     RootBelowFloor = 8203 => "the member registry root is older than the floor",
     CuratorRootStale = 8204 => "the curator root is outside its floor and grace window",
@@ -133,6 +132,12 @@ ring_errors! {
     FirstContactTreePaused = 8232 => "the first-contact tree is paused",
     MemberWrittenListRule = 8233 => "a policy rule reads a list its members write",
     RingAuthOutOfSlot = 8234 => "the ring authority PDA sits outside its SPP slot",
+    InsertFeeAboveMax = 8235 => "the insert fee exceeds the writer's maximum",
+    InsertFeeBelowRent = 8236 =>
+        "a nonzero insert fee is below the rent-exempt minimum of an empty account",
+    CoSignerIsDelegate = 8237 => "dual control needs a co-signer other than the delegate",
+    InvalidRingProofPoint = 8238 => "a ring proof point does not decompress",
+    ThresholdsWithoutWithdrawals = 8239 => "co-signer thresholds need the withdrawal scope",
 }
 
 impl From<CustomRingError> for ProgramError {

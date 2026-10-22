@@ -2,7 +2,7 @@ use custom_ring_interface::CustomRingError::{self, *};
 
 #[test]
 fn error_codes_are_stable() {
-    let table: [(CustomRingError, u32); 88] = [
+    let table: [(CustomRingError, u32); 92] = [
         (InvalidInstructionData, 8100),
         (ProofVerificationFailed, 8101),
         (HashingFailed, 8102),
@@ -35,7 +35,6 @@ fn error_codes_are_stable() {
         (UnauthorizedDelegate, 8151),
         (DelegatePublicLeg, 8152),
         (DelegateAlreadySet, 8153),
-        (InvalidDelegate, 8154),
         (ApprovalWithoutCoSigner, 8157),
         (InvalidMemberRegistry, 8160),
         (MemberRegistryAlreadyExists, 8163),
@@ -91,6 +90,11 @@ fn error_codes_are_stable() {
         (FirstContactTreePaused, 8232),
         (MemberWrittenListRule, 8233),
         (RingAuthOutOfSlot, 8234),
+        (InsertFeeAboveMax, 8235),
+        (InsertFeeBelowRent, 8236),
+        (CoSignerIsDelegate, 8237),
+        (InvalidRingProofPoint, 8238),
+        (ThresholdsWithoutWithdrawals, 8239),
     ];
     for (error, code) in table {
         assert_eq!(error as u32, code, "{error:?}");

@@ -22,10 +22,11 @@ pub fn process_set_paused_ix(
     let ring_auth = iter.next_mut("ring_auth")?;
     let spp_program = iter.next_account("spp_program")?;
 
+    // 1. The config authority pauses or resumes the ring's SPP rail.
     load_authorized_config(program_id, config, authority)?;
     validate_spp_program(core::slice::from_ref(spp_program))?;
     let placed = RingAuth::derive(program_id)?.check_account(ring_auth)?;
     let data = encode_instruction(tag::UPDATE_RING_CONFIG, &UpdateRingConfigData { paused });
-    // The ring auth PDA is also SPP's ring authority.
+    // 2. The ring auth PDA is also SPP's ring authority.
     placed.invoke(&[&*ring_auth, &*ring_auth], &data)
 }

@@ -8,10 +8,10 @@ use custom_ring_interface::{
 use serde::{Deserialize, Serialize};
 use zolana_hasher::primitives::{hash_bytes, solana_owner_identity};
 use zolana_ring_member_registry::{
-    MemberRecord, MemberRegistryTree, QuadPath, RecordOpening, RecordTree, RecordWriteProofInput,
-    ZERO_SUBTREES,
+    MemberRecord, MemberRegistryTree, OpeningCheck, QuadPath, RecordOpening, RecordTree,
+    RecordWriteProofInput, ZERO_SUBTREES,
 };
-use zolana_ring_policy::{ListId, ListSet, ListWrite, Writer};
+use zolana_ring_policy::{ListChange, ListId, ListSet, Writer};
 
 const VECTORS: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -129,7 +129,7 @@ enum Queued {
 impl Queued {
     fn entry(&self) -> QueueEntry {
         let lists = |set: ListSet, clear: ListSet| {
-            WriteRecordsIxData::new(ListWrite::new(set, clear).expect("list write"))
+            WriteRecordsIxData::new(ListChange { set, clear }.check().expect("list write"))
         };
         match self {
             Self::Member {
@@ -299,7 +299,12 @@ impl Registry {
     fn opening(&self, member: &[u8; 32]) -> Opening {
         let root = self.tree.root().expect("root");
         let opening = self.tree.opening(member).expect("opening");
-        assert!(opening.verify(&root, member).is_ok());
+        let check = OpeningCheck {
+            opening: &opening,
+            root: &root,
+            member,
+        };
+        assert!(check.verify().is_ok());
         let (present, record, path) = match opening {
             RecordOpening::Present { record, path } => (true, record, path),
             RecordOpening::Absent { low, path } => (false, low, path),

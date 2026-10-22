@@ -7,7 +7,7 @@ use bytemuck::Zeroable;
 use custom_ring_interface::{
     input_flag, shape_flag,
     stream::{RingTag, EPOCH_SLOTS},
-    transact_flag, AnchorRoot, AnonymousAuditKey, AnonymousLayout, AnonymousProofData,
+    transact_flag, AnchorRoot, AnonymousAuditKey, AnonymousLayout, AnonymousProofData, AppliedAt,
     AuditBinding, AuditKind, CuratorRoot, CustomRingError, CustomRingProof, DeliveredLayout,
     DisclosureLayout, InputTrees, InstructionTag, MemberRegistry, PackedLayout, ParsedTransact,
     PlainGroth16Proof, PolicyBinding, PolicyProof, RailSigner, RingMode, RingOutput,
@@ -713,7 +713,11 @@ fn the_policy_proof_follows_the_registry() {
     );
     registry.policy_hash = [9; 32];
     for applied in 1..=7 {
-        registry.push_root([applied as u8; 32], applied, applied);
+        let at = AppliedAt {
+            applied,
+            slot: applied,
+        };
+        registry.push_root([applied as u8; 32], at);
     }
     assert_eq!(
         packed.check_policy(Some(&registry)),

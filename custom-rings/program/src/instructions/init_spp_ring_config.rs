@@ -24,11 +24,13 @@ pub fn process_init_spp_ring_config_ix(
     let system_program = iter.next_account("system_program")?;
     let spp_program = iter.next_account("spp_program")?;
 
+    // 1. The config authority registers a policy ring only once its table is set.
     let has_policy = load_authorized_config(program_id, config, authority)?.has_policy();
     validate_spp_program(core::slice::from_ref(spp_program))?;
     if has_policy {
         load_registry(program_id, iter.next_account("registry")?)?.policy_hash()?;
     }
+    // 2. The program signs as the ring PDA.
     let placed = RingAuth::derive(program_id)?.check_account(ring_auth)?;
 
     let data = encode_instruction(
