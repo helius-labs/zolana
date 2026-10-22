@@ -1,6 +1,7 @@
 package common
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
@@ -320,7 +321,7 @@ func readKeyFile(path string, read func(io.Reader) (int64, error)) ([32]byte, er
 	defer file.Close()
 
 	hasher := sha256.New()
-	reader := io.TeeReader(file, hasher)
+	reader := bufio.NewReaderSize(io.TeeReader(file, hasher), 1<<20)
 	if _, err := read(reader); err != nil {
 		return digest, err
 	}
