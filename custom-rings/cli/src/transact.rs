@@ -4,12 +4,13 @@ use std::str::FromStr;
 
 use anyhow::{bail, ensure, Context as _, Result};
 use custom_ring_interface::{
-    cosign::CoSignDemand, AnonymousSpend, RingProgramConfig, ANONYMOUS_AUDIT_CLASSES,
+    cosign::CoSignDemand, AnonymousSpend, RingProgramConfig, RingRail, ANONYMOUS_AUDIT_CLASSES,
 };
 use custom_ring_sdk::{
-    AnonymousMove, AnonymousPayment, CoSignScope, CustomRingConfig, CustomRingTransfer,
-    CustomRingTransferInput, DepositAsset, DepositRecipient, EscrowedRecipients, ListRegistry,
-    PendingFirstContact, RingDeposit, RingDepositReceipt, RingMode, RingPayment,
+    shape_keyed, AnonymousMove, AnonymousPayment, CoSignScope, CustomRingConfig,
+    CustomRingTransfer, CustomRingTransferInput, DepositAsset, DepositRecipient,
+    EscrowedRecipients, ListRegistry, PendingFirstContact, RingDeposit, RingDepositReceipt,
+    RingMode, RingPayment,
 };
 use solana_address::Address;
 use solana_keypair::Keypair;
@@ -27,7 +28,9 @@ use zolana_ring_client::{
 };
 use zolana_ring_policy::{ListId, Member, OutflowLimit};
 use zolana_transaction::{
-    instructions::transact::{canonical_shape, ConfidentialTransaction, Shape, MAX_SPEND_INPUTS},
+    instructions::transact::{
+        canonical_shape, ConfidentialTransaction, Shape, MAX_SPEND_INPUTS, SPP_SUPPORTED_SHAPES,
+    },
     select_spend_where, AssetRegistry, SpendableDecryptionResult, WalletUtxo, SOL_MINT,
 };
 
@@ -1061,7 +1064,17 @@ impl Spendable {
 
     /// The most inputs an anonymous key serves with room for `outputs`.
     fn widest_anonymous(self, outputs: usize) -> usize {
-        let spends_default_ring = self == Self::WithDefaultRing;
+        if self == Self::RingOnly {
+            // Ordinary padding publishes every input of the SPP shape, the shape itself must carry a key.
+            return SPP_SUPPORTED_SHAPES
+                .into_iter()
+                .filter(|shape| {
+                    shape.n_outputs() >= outputs && shape_keyed(RingRail::Anonymous, *shape)
+                })
+                .map(|shape| shape.n_inputs())
+                .max()
+                .unwrap_or(0);
+        }
         ANONYMOUS_AUDIT_CLASSES
             .iter()
             .map(|(capacity, _)| *capacity)
@@ -1071,7 +1084,7 @@ impl Spendable {
                     AnonymousSpend {
                         inputs: *inputs,
                         outputs: capacity,
-                        spends_default_ring,
+                        spends_default_ring: true,
                     }
                     .audit_key()
                     .is_some()
@@ -1530,7 +1543,7 @@ mod tests {
 
     #[test]
     fn an_anonymous_held_spend_stays_within_a_keyed_width() {
-        assert_eq!(Spendable::RingOnly.widest_anonymous(2), 28);
+        assert_eq!(Spendable::RingOnly.widest_anonymous(2), 24);
         assert_eq!(Spendable::RingOnly.widest_anonymous(3), 24);
         assert_eq!(Spendable::RingOnly.widest_anonymous(8), 16);
         assert_eq!(Spendable::RingOnly.widest_anonymous(9), 0);
