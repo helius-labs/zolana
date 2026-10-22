@@ -48,3 +48,27 @@ fn rejected_registry_insertions_are_atomic() {
     registry.insert(3, b).unwrap();
     assert_eq!(registry.resolve(3).unwrap(), Mint::new(b, 3));
 }
+
+#[test]
+fn a_registry_past_four_thousand_mints_resolves_every_mint_by_its_field() {
+    let mints: Vec<Address> = (0u32..4_100)
+        .map(|index| {
+            let mut bytes = [0u8; 32];
+            bytes[..4].copy_from_slice(&index.to_be_bytes());
+            bytes[31] = 1;
+            Address::new_from_array(bytes)
+        })
+        .collect();
+    let registry = AssetRegistry::new(
+        mints
+            .iter()
+            .copied()
+            .zip(2u64..)
+            .map(|(mint, id)| (id, mint)),
+    )
+    .unwrap();
+    for mint in &mints {
+        let field = zolana_hasher::primitives::hash_bytes(mint.as_array()).unwrap();
+        assert_eq!(registry.address_for_field(&field).unwrap(), Some(*mint));
+    }
+}

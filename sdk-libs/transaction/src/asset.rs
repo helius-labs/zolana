@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
 use solana_address::Address;
+use zolana_hasher::primitives::hash_bytes;
+use zolana_interface::SOL_ASSET_FIELD;
 
 use crate::{error::TransactionError, utxo::WalletUtxo};
 
@@ -70,6 +72,8 @@ pub struct AssetRegistry {
     mints: HashMap<u64, Address>,
     /// Inverse of `mints`, a lookup or a duplicate check stays constant at any registry size.
     ids: HashMap<Address, u64>,
+    /// Keyed by `hash_bytes(mint)`, the asset field a commitment binds.
+    fields: HashMap<[u8; 32], Address>,
 }
 
 impl AssetRegistry {
@@ -93,8 +97,10 @@ impl AssetRegistry {
         if self.ids.contains_key(&mint) {
             return Err(TransactionError::DuplicateMint(mint));
         }
+        let field = hash_bytes(mint.as_array())?;
         self.mints.insert(asset_id, mint);
         self.ids.insert(mint, asset_id);
+        self.fields.insert(field, mint);
         Ok(())
     }
 
@@ -118,13 +124,7 @@ impl AssetRegistry {
     }
 
     pub fn address_for_field(&self, field: &[u8; 32]) -> Result<Option<Address>, TransactionError> {
-        for mint in self.mints.values() {
-            let mint_field = zolana_hasher::primitives::hash_bytes(mint.as_array())?;
-            if &mint_field == field {
-                return Ok(Some(*mint));
-            }
-        }
-        Ok(None)
+        Ok(self.fields.get(field).copied())
     }
 }
 
@@ -133,6 +133,7 @@ impl Default for AssetRegistry {
         Self {
             mints: HashMap::from([(SOL_ASSET_ID, SOL_MINT)]),
             ids: HashMap::from([(SOL_MINT, SOL_ASSET_ID)]),
+            fields: HashMap::from([(SOL_ASSET_FIELD, SOL_MINT)]),
         }
     }
 }
