@@ -183,7 +183,7 @@ export async function creatorTransactions(
     { tags: [creator.shieldedAddress().confidentialViewTag(), authority.ownerTag()], limit: 50 },
     atSlot(slot),
   );
-  return response.transactions;
+  return response.items.flatMap((item) => item.events);
 }
 
 export async function spendableSol(

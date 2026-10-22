@@ -118,7 +118,7 @@ describe("example: optimized merge and transfer", () => {
       registry: assets,
       transactions: (
         await client.getShieldedTransactionsByTags({ tags: [senderViewTag] }, atSlot(depositSlot))
-      ).transactions,
+      ).items.flatMap((item) => item.events),
     });
     const utxos = deposited.balance(SOL_MINT).utxos;
     expect(utxos).toHaveLength(UTXO_COUNT);
@@ -228,10 +228,11 @@ describe("example: optimized merge and transfer", () => {
     expect(await client.getBalance(rentSponsor.address)).toBeGreaterThan(sponsorBefore);
 
     const recipientViewTag = recipientKeypair.shieldedAddress().confidentialViewTag();
-    const { transactions } = await client.getShieldedTransactionsByTags(
+    const { items } = await client.getShieldedTransactionsByTags(
       { tags: [senderViewTag, recipientViewTag] },
       atSlot(transferTx.slot),
     );
+    const transactions = items.flatMap((item) => item.events);
     const senderBalance = await decryptToBalances({
       keypair: senderKeypair,
       registry: assets,
