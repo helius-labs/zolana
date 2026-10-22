@@ -585,9 +585,11 @@ impl Anonymous<'_> {
         let rail = RingOutputRail::new(tx_viewing_key, RingDelivery::Anonymous(Box::new(slots)));
         let proof_inputs = rail.encrypt(transaction, &sender)?;
         check_anonymous_slots(&proof_inputs)?;
-        if let Some(index) = proof_inputs.input_utxos.iter().position(|input| {
-            !input.is_dummy() && !input.is_address() && input.utxo.owner != sender.signing_pubkey
-        }) {
+        if let Some(index) = proof_inputs
+            .input_utxos
+            .iter()
+            .position(|input| !input.is_dummy() && input.utxo.owner != sender.signing_pubkey)
+        {
             return Err(RingError::MixedOwners { index });
         }
         check_entry_inputs(&proof_inputs)?;
@@ -662,12 +664,12 @@ impl InboxPayments<'_> {
     }
 }
 
-/// AnonymousRingEddsa proves uncached noncompact notes only, real outputs owned by Ed25519 keys.
+/// The anonymous rail takes uncached noncompact notes only, real outputs owned by Ed25519 keys.
 fn check_anonymous_slots(inputs: &SppProofInputs) -> Result<(), RingError> {
     let input_open = inputs
         .input_utxos
         .iter()
-        .any(|input| input.cache_slot.is_some() || input.is_compact());
+        .any(|input| input.cache_slot.is_some() || input.is_compact() || input.is_address());
     let output_open = inputs.output_utxos.iter().any(|output| {
         output.cache_slot.is_some()
             || output.is_compact()

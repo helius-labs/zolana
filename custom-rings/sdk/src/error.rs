@@ -205,7 +205,7 @@ pub enum RingError {
     },
     #[error("the hidden owner's signer refused the ring spend message")]
     AnonymousSpendSignature,
-    #[error("anonymous transfers require uncached Ed25519 ring notes and noncompact inputs")]
+    #[error("anonymous transfers require uncached noncompact Ed25519 notes and no address slot")]
     InvalidAnonymousSlot,
     #[error("an anonymous ring requires an Ed25519 recipient")]
     AnonymousRecipient,

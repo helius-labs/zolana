@@ -1018,6 +1018,34 @@ async fn an_anonymous_spend_of_ring_and_default_ring_utxos_is_refused_before_pro
     ));
 }
 
+#[tokio::test]
+async fn an_anonymous_transfer_reserving_an_address_is_refused_before_signing() {
+    let sender = &crate::tests::support::keypair(1);
+    let paid = ring_address(&crate::tests::support::keypair(2));
+    let state = AnonymousRingState::new(ring().program_id(), 0);
+    for note in [
+        ring_utxo(sender, Mint::SOL, 10, 0),
+        default_ring_utxo(sender, 10, 0),
+    ] {
+        let address =
+            SppProofInputUtxo::new_address(sender.signing_pubkey(), [7; 32], TREE_ID).unwrap();
+        let transaction = ConfidentialTransaction::new_with_addresses(
+            vec![note],
+            vec![address],
+            crate::tests::support::payer(),
+        )
+        .unwrap();
+        let transfer = owner_transfer(sender, transaction)
+            .with_anonymous_signer(&sender.signing_key, &state)
+            .with_payment(payment(&paid, 4))
+            .unwrap();
+        assert!(matches!(
+            stage_anonymous(&transfer, &Chain::ring(anonymous())).await,
+            Err(RingError::InvalidAnonymousSlot)
+        ));
+    }
+}
+
 /// The entry key rebuilds every spent UTXO from its opening, a data hash breaks the audit proof.
 #[tokio::test]
 async fn an_entry_spend_of_a_utxo_carrying_data_is_refused_before_proving() {
