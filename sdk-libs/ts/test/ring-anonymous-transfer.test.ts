@@ -365,6 +365,24 @@ describe("anonymous ring payment", () => {
     noProofs(fixture);
   });
 
+  it("names one leaf list on every anchor read of a contact, so no intersection isolates it", async () => {
+    const fixture = await anonymousRing();
+    const sender = anonymousSender();
+    const to = await addressOf(fixture, ShieldedKeypair.generate());
+    const { state } = pairedSender(fixture, to, TREE_ID);
+    const prove = () =>
+      rail({ fixture, sender, transfer: spend(fixture, sender), state })
+        .withPayment({ to, asset: SOL_MINT, amount: 400n })
+        .prove(fixture.client);
+    await prove();
+    await prove();
+
+    expect(fixture.merkleRequests).toHaveLength(2);
+    expect(itemAt(fixture.merkleRequests, 1).leaves).toEqual(
+      itemAt(fixture.merkleRequests, 0).leaves,
+    );
+  });
+
   it("takes the inbox stream when the address's rows refuse the first contact", async () => {
     const fixture = await anonymousRing();
     const sender = anonymousSender();

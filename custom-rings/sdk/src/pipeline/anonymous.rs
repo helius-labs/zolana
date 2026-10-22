@@ -5,12 +5,12 @@ use custom_ring_interface::{
     stream::{tag_epoch, SlotSecret},
     AnchorRoot, RingMode,
 };
-use rand::{rngs::OsRng, seq::SliceRandom};
+use sha2::{Digest, Sha256};
 use solana_account::Account;
 use solana_address::Address;
 use zolana_client::{
-    AnonymousRingState, AsyncIndexer, AsyncRpc, AsyncZolanaClient, ClientError, PaymentStream,
-    SentFirstContact, Shape, TagAllocation,
+    AnonymousRingState, AsyncIndexer, AsyncRpc, AsyncZolanaClient, ClientError, DecoyLeaf,
+    PaymentStream, SentFirstContact, Shape, TagAllocation,
 };
 use zolana_hasher::primitives::{hash_bytes, right_align};
 use zolana_interface::{
@@ -557,19 +557,7 @@ impl Anonymous<'_> {
         contact: SentFirstContact,
     ) -> Result<AnchorWitness, RingError> {
         let tree = pda::tree(contact.tree_id);
-        let candidates: Vec<[u8; 32]> = self
-            .state
-            .decoys(contact.tree_id)
-            .iter()
-            .map(|leaf| leaf.hash)
-            .filter(|hash| *hash != contact.utxo_hash)
-            .collect();
-        let mut leaves: Vec<[u8; 32]> = candidates
-            .choose_multiple(&mut OsRng, ANCHOR_DECOYS)
-            .copied()
-            .chain([contact.utxo_hash])
-            .collect();
-        leaves.shuffle(&mut OsRng);
+        let leaves = anchor_leaves(&contact, self.state.decoys(contact.tree_id));
         let response = client.get_merkle_proofs(tree, leaves, None).await?;
         let (index, proof) = response
             .proofs
@@ -654,6 +642,33 @@ impl InboxPayments<'_> {
 
 /// Decoy paths fetched beside the anchor's, the leaves of its tree a scan already holds.
 pub const ANCHOR_DECOYS: usize = 7;
+
+const ANCHOR_DECOY_DOMAIN: &[u8] = b"zolana/ring-anchor-decoy/v1";
+
+/// The decoys and the anchor ranked under the slot secret, every read of one anchor names the same leaves in one order.
+pub(super) fn anchor_leaves(contact: &SentFirstContact, pool: &[DecoyLeaf]) -> Vec<[u8; 32]> {
+    let ranked = |hash: [u8; 32]| -> ([u8; 32], [u8; 32]) {
+        let rank = Sha256::new()
+            .chain_update(ANCHOR_DECOY_DOMAIN)
+            .chain_update(contact.slot_secret)
+            .chain_update(hash)
+            .finalize()
+            .into();
+        (rank, hash)
+    };
+    let mut decoys: Vec<([u8; 32], [u8; 32])> = pool
+        .iter()
+        .map(|leaf| leaf.hash)
+        .filter(|hash| *hash != contact.utxo_hash)
+        .map(ranked)
+        .collect();
+    decoys.sort_unstable();
+    decoys.dedup();
+    decoys.truncate(ANCHOR_DECOYS);
+    decoys.push(ranked(contact.utxo_hash));
+    decoys.sort_unstable();
+    decoys.into_iter().map(|(_, hash)| hash).collect()
+}
 
 /// AnonymousRingEddsa proves uncached noncompact notes only, real outputs owned by Ed25519 keys.
 fn check_anonymous_slots(inputs: &SppProofInputs) -> Result<(), RingError> {

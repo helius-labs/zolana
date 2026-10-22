@@ -14,7 +14,6 @@ zolana-event.workspace = true
 custom-ring-interface = { workspace = true }
 bytemuck = { workspace = true }
 futures = { workspace = true }
-rand = { workspace = true }
 rand_core = { workspace = true }
 solana-account = { workspace = true }
 solana-address = { workspace = true, features = ["curve25519"] }
@@ -26,6 +25,7 @@ solana-signature = { workspace = true }
 solana-signer = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 solana-transaction = { workspace = true, features = ["serde"] }
 solana-transaction-error = { workspace = true }
 solana-transaction-status-client-types = { workspace = true }
@@ -52,7 +52,6 @@ zolana-api = { workspace = true }
 zolana-client = { workspace = true, features = ["solana-rpc"] }
 http = { workspace = true }
 curve25519-dalek = "4.1"
-sha2 = { workspace = true }
 hex = { workspace = true }
 solana-rpc-client = { workspace = true }
 solana-rpc-client-api = { workspace = true }

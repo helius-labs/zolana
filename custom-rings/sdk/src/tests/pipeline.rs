@@ -455,6 +455,35 @@ async fn a_pair_payment_anchors_its_first_contact_among_seven_decoys() {
     assert!(spend.first_contacts.is_empty());
 }
 
+/// Two stagings of one pair payment name one leaf list, an indexer cannot intersect them down to the anchor.
+#[tokio::test]
+async fn every_anchor_read_of_a_contact_names_the_same_leaves() {
+    let sender = &crate::tests::support::keypair(1);
+    let paid = ring_address(&crate::tests::support::keypair(2));
+    let paired = Paired::new(&paid);
+    let chain = paired.chain();
+    let transaction = ring_transaction(vec![ring_utxo(sender, Mint::SOL, 10, 0)]);
+    let transfer = owner_transfer(sender, transaction)
+        .with_anonymous_signer(&sender.signing_key, &paired.state)
+        .with_payment(payment(&paid, 4))
+        .unwrap();
+    stage_anonymous(&transfer, &chain).await.unwrap();
+    stage_anonymous(&transfer, &chain).await.unwrap();
+    let requests = chain.proof_requests.lock().unwrap().clone();
+    let [first, second] = requests.as_slice() else {
+        panic!("two anchor fetches, {requests:?}");
+    };
+    assert_eq!(first, second);
+    let mut reversed = paired.decoys.clone();
+    reversed.reverse();
+    assert_eq!(&anonymous::anchor_leaves(&paired.contact, &reversed), first);
+    let other = SentFirstContact {
+        slot_secret: [0x44; 32],
+        ..paired.contact
+    };
+    assert_ne!(&anonymous::anchor_leaves(&other, &paired.decoys), first);
+}
+
 /// The program reads the first-contact root from an unpaused tree, any other root fails the transfer.
 #[tokio::test]
 async fn a_first_contact_root_the_program_would_not_read_is_refused_before_proving() {
