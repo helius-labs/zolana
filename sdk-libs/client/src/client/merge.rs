@@ -29,7 +29,7 @@ use crate::{
 };
 
 use super::{
-    prove_on_blocking_pool, transaction::proved_with_blockhash, AsyncIndexer, AsyncZolanaClient,
+    prove_on_blocking_pool, transaction::prove_with_blockhash, AsyncIndexer, AsyncZolanaClient,
     BlockingIndexer, BlockingRpc, UnsignedMessage, ZolanaClient,
 };
 
@@ -170,7 +170,7 @@ impl<'a> MergeSubmission<'a> {
         fee_payer: Address,
     ) -> Result<UnsignedMessage, ClientError> {
         let (proved, (recent_blockhash, last_valid_block_height)) =
-            proved_with_blockhash(client.rpc(), self.prove(client)).await?;
+            prove_with_blockhash(client.rpc(), self.prove(client)).await?;
         let merge = proved.instruction(fee_payer);
         let mut compute_budget = client.compute_budget();
         compute_budget.cu_limit = MERGE_CU_LIMIT;

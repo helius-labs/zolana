@@ -240,7 +240,7 @@ impl<'a> Submission<'a> {
             })
         };
         let ((trees, data), (recent_blockhash, last_valid_block_height)) =
-            proved_with_blockhash(client.rpc(), proving).await?;
+            prove_with_blockhash(client.rpc(), proving).await?;
         Ok(UnsignedMessage {
             message: build_unsigned_message(
                 client.compute_budget(),
@@ -289,28 +289,29 @@ impl<'a> Submission<'a> {
     }
 }
 
-/// Maximum age of the concurrent blockhash request, including response
-/// latency, before the completed proof needs another blockhash fetch.
-pub(crate) const BLOCKHASH_AGE_WITH_PROOF: Duration = Duration::from_secs(10);
+/// Conservative reuse window for a blockhash prefetched while proving,
+/// measured from the RPC request's start. This is a client refresh policy;
+/// expiration follows chain state and the returned `last_valid_block_height`.
+const MAX_PREFETCHED_BLOCKHASH_AGE: Duration = Duration::from_secs(10);
 
 /// Prove and fetch the latest blockhash concurrently. Reuse the blockhash
-/// only if its request began at most [`BLOCKHASH_AGE_WITH_PROOF`] ago;
+/// only if its request began at most [`MAX_PREFETCHED_BLOCKHASH_AGE`] ago;
 /// otherwise retry after proving. Proof errors cancel the concurrent fetch,
 /// while a failed fetch is retried after a successful proof.
-pub(crate) async fn proved_with_blockhash<R: AsyncRpc, T>(
+pub(super) async fn prove_with_blockhash<R: AsyncRpc, T>(
     rpc: &R,
     proving: impl Future<Output = Result<T, ClientError>>,
 ) -> Result<(T, (Hash, u64)), ClientError> {
-    let fetching = async {
+    let prefetch = async {
         let requested_at = Instant::now();
         let blockhash = rpc.get_latest_blockhash().await;
         // Keep the fetch error as data so only a proof error short-circuits
         // the join. A successful proof can retry a failed blockhash request.
         Ok::<_, ClientError>((blockhash, requested_at))
     };
-    let (proved, (blockhash, requested_at)) = tokio::try_join!(proving, fetching)?;
+    let (proved, (blockhash, requested_at)) = tokio::try_join!(proving, prefetch)?;
     let blockhash = match blockhash {
-        Ok(blockhash) if requested_at.elapsed() <= BLOCKHASH_AGE_WITH_PROOF => blockhash,
+        Ok(blockhash) if requested_at.elapsed() <= MAX_PREFETCHED_BLOCKHASH_AGE => blockhash,
         _ => rpc.get_latest_blockhash().await?,
     };
     Ok((proved, blockhash))
@@ -461,7 +462,7 @@ mod tests {
             tokio::time::sleep(Duration::from_secs(5)).await;
             Ok(7)
         };
-        let (proved, (hash, height)) = proved_with_blockhash(&rpc, proving).await.unwrap();
+        let (proved, (hash, height)) = prove_with_blockhash(&rpc, proving).await.unwrap();
         assert_eq!(
             (proved, hash, height),
             (7, Hash::new_from_array([1; 32]), 1)
@@ -474,10 +475,10 @@ mod tests {
     async fn a_long_proof_fetches_the_blockhash_again() {
         let rpc = Blockhashes::new(FirstFetch::Ready);
         let proving = async {
-            tokio::time::sleep(BLOCKHASH_AGE_WITH_PROOF + Duration::from_secs(1)).await;
+            tokio::time::sleep(MAX_PREFETCHED_BLOCKHASH_AGE + Duration::from_secs(1)).await;
             Ok(7)
         };
-        let (_, (_, height)) = proved_with_blockhash(&rpc, proving).await.unwrap();
+        let (_, (_, height)) = prove_with_blockhash(&rpc, proving).await.unwrap();
         assert_eq!((height, rpc.fetched()), (2, 2));
     }
 
@@ -489,14 +490,14 @@ mod tests {
             assert_eq!(rpc.fetched(), 1, "retry only after proving succeeds");
             Ok(7)
         };
-        let (_, (_, height)) = proved_with_blockhash(&rpc, proving).await.unwrap();
+        let (_, (_, height)) = prove_with_blockhash(&rpc, proving).await.unwrap();
         assert_eq!((height, rpc.fetched()), (2, 2));
     }
 
     #[tokio::test(start_paused = true)]
     async fn a_failed_proof_fails_without_another_fetch() {
         let rpc = Blockhashes::new(FirstFetch::Failed);
-        let failed = proved_with_blockhash::<_, u32>(&rpc, async {
+        let failed = prove_with_blockhash::<_, u32>(&rpc, async {
             tokio::task::yield_now().await;
             Err(ClientError::Rpc("proof".into()))
         })
@@ -515,7 +516,7 @@ mod tests {
                 tokio::time::sleep(Duration::from_secs(proof_seconds)).await;
                 Ok(7)
             };
-            let (proved, (hash, height)) = proved_with_blockhash(&rpc, proving).await.unwrap();
+            let (proved, (hash, height)) = prove_with_blockhash(&rpc, proving).await.unwrap();
             assert_eq!(
                 (proved, hash, height, rpc.fetched()),
                 (7, Hash::new_from_array([2; 32]), 2, 2)
@@ -531,7 +532,7 @@ mod tests {
             Err::<u32, _>(ClientError::Rpc("proof".into()))
         };
         let failed =
-            tokio::time::timeout(Duration::from_secs(1), proved_with_blockhash(&rpc, proving))
+            tokio::time::timeout(Duration::from_secs(1), prove_with_blockhash(&rpc, proving))
                 .await
                 .expect("a proof error must not wait for the pending blockhash request");
         assert!(matches!(failed, Err(ClientError::Rpc(message)) if message == "proof"));

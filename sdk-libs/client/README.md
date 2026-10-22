@@ -56,6 +56,8 @@ blockhash fetched beside the proof. If that request failed or began more than
 ten seconds ago when both operations finish, including RPC response latency,
 the client fetches it again after proving. A proof error returns immediately
 without waiting for the blockhash request. Merge submissions use the same rule.
+The ten-second limit controls prefetch reuse; blockhash expiration follows chain
+state and the returned `last_valid_block_height`.
 
 `Submission::with_prover(Arc<dyn Prover>)` proves one submission with a
 prover of the caller's, such as one on the device; `with_prover` on either
