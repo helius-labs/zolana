@@ -117,6 +117,8 @@ func TestDecodeRejectsMalformedRequests(t *testing.T) {
 	}{
 		{"unknown field", packed, func(m map[string]any) { m["externalDataHash"] = m["seedOut"] }, `unknown field "externalDataHash"`},
 		{"unknown nested field", packed, func(m map[string]any) { output(m)["owner"] = m["seedOut"] }, `unknown field "owner"`},
+		{"field name in another case", packed, func(m map[string]any) { m["SeedOut"] = m["seedOut"]; delete(m, "seedOut") }, `unknown field "SeedOut"`},
+		{"null count", packed, func(m map[string]any) { m["nOut"] = nil }, "nOut: null value"},
 		{"missing field", packed, func(m map[string]any) { delete(m, "seedOut") }, "SeedOut: missing"},
 		{"null field", packed, func(m map[string]any) { m["seedOut"] = nil }, "SeedOut: missing"},
 		{"field at the modulus", packed, func(m map[string]any) { m["seedOut"] = modulus }, canonical},
@@ -146,6 +148,10 @@ func TestDecodeRejectsMalformedRequests(t *testing.T) {
 	}
 	if _, err := Decode(packed, append(mustMarshal(t, requests[packed]), []byte("{}")...)); err == nil {
 		t.Fatal("trailing data decoded")
+	}
+	repeated := append([]byte(`{"seedOut":"0x`+strings.Repeat("00", 32)+`",`), mustMarshal(t, requests[packed])[1:]...)
+	if _, err := Decode(packed, repeated); err == nil || !strings.Contains(err.Error(), `repeated field "seedOut"`) {
+		t.Fatalf("a repeated field decoded: %v", err)
 	}
 	if _, err := Decode("custom-ring-audit-packed-4", mustMarshal(t, requests[packed])); err == nil {
 		t.Fatal("a request for the 2-output key decoded on the 4-output key")

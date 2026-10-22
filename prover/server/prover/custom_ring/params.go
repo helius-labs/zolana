@@ -3,8 +3,11 @@ package custom_ring
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"reflect"
+	"strings"
 )
 
 // Request fields carry the circuit field names, their tags the wire names.
@@ -287,15 +290,113 @@ type AnonymousMergeParams struct {
 	OutputRingDataHash Field        `json:"outputRingDataHash"`
 }
 
-// Unmarshal rejects unknown fields and trailing data.
+// Unmarshal decodes a request whose keys name fields of v exactly and once, with nothing after it.
 func Unmarshal(data []byte, v any) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(v); err != nil {
-		return err
+	if err := strictly(decoder, reflect.TypeOf(v).Elem(), 0); err != nil {
+		return fmt.Errorf("custom-ring: %w", err)
 	}
-	if decoder.Decode(new(any)) != io.EOF {
+	if _, err := decoder.Token(); err != io.EOF {
 		return fmt.Errorf("custom-ring: trailing data after the request")
 	}
+	return json.Unmarshal(data, v)
+}
+
+const maxDepth = 32
+
+var unmarshaler = reflect.TypeFor[json.Unmarshaler]()
+
+// strictly reads one value of t, refusing a key without an exact field, a repeated key and a null t cannot hold.
+func strictly(decoder *json.Decoder, t reflect.Type, depth int) error {
+	if depth > maxDepth {
+		return errors.New("nested too deeply")
+	}
+	token, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	nullable := t.Kind() == reflect.Pointer
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	custom := reflect.PointerTo(t).Implements(unmarshaler)
+	if token == nil {
+		if nullable || custom {
+			return nil
+		}
+		return errors.New("null value")
+	}
+	if !custom {
+		switch t.Kind() {
+		case reflect.Struct:
+			return strictObject(decoder, t, token, depth)
+		case reflect.Slice, reflect.Array:
+			return strictArray(decoder, t, token, depth)
+		}
+	}
+	if _, composite := token.(json.Delim); composite {
+		return errors.New("expected a scalar")
+	}
 	return nil
+}
+
+func strictObject(decoder *json.Decoder, t reflect.Type, token json.Token, depth int) error {
+	if token != json.Delim('{') {
+		return errors.New("expected an object")
+	}
+	fields := make(map[string]reflect.Type)
+	jsonFields(t, fields)
+	seen := make(map[string]bool, len(fields))
+	for decoder.More() {
+		key, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+		name, _ := key.(string)
+		field, known := fields[name]
+		if !known {
+			return fmt.Errorf("unknown field %q", name)
+		}
+		if seen[name] {
+			return fmt.Errorf("repeated field %q", name)
+		}
+		seen[name] = true
+		if err := strictly(decoder, field, depth+1); err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
+	}
+	_, err := decoder.Token()
+	return err
+}
+
+func strictArray(decoder *json.Decoder, t reflect.Type, token json.Token, depth int) error {
+	if token != json.Delim('[') {
+		return errors.New("expected an array")
+	}
+	for i := 0; decoder.More(); i++ {
+		if err := strictly(decoder, t.Elem(), depth+1); err != nil {
+			return fmt.Errorf("[%d]: %w", i, err)
+		}
+	}
+	_, err := decoder.Token()
+	return err
+}
+
+// jsonFields maps t's JSON keys to their types, promoting untagged embedded structs as encoding/json does.
+func jsonFields(t reflect.Type, fields map[string]reflect.Type) {
+	for i := range t.NumField() {
+		field := t.Field(i)
+		name := strings.Split(field.Tag.Get("json"), ",")[0]
+		if field.Anonymous && name == "" && field.Type.Kind() == reflect.Struct {
+			jsonFields(field.Type, fields)
+			continue
+		}
+		if name == "-" || !field.IsExported() {
+			continue
+		}
+		if name == "" {
+			name = field.Name
+		}
+		fields[name] = field.Type
+	}
 }
