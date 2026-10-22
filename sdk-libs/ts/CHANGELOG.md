@@ -15,6 +15,11 @@ bindings, which the program forwards to `transact` through a CPI.
 
 Breaking
 
+- `RingRpc` now posts each JSON-RPC method beneath its base URL and accepts
+  `RingRpcOptions.apiKey` or the URL's `api-key`, while `RingRpc.url` omits the key;
+  service clients reject malformed or conflicting credentials during construction
+  and preserve unrelated URL queries → forward method paths unchanged and supply
+  the API key in one place.
 - `NULLIFIER_TREE_ROOT_HISTORY_CAPACITY` returns to 100 with 4,999-nullifier proofs, `NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE` is 499,900, and `TREE_ACCOUNT_SIZE` is 40,080 → use a program built with this layout and four tree creation steps.
 - `ShieldedKeypairLike` requires `nullifierKey()` → return an owned key copy that proof completion destroys after use.
 - `DecodedProgramTransaction.toProofInputs` is renamed to `encryptWithKeys` → call `transaction.encryptWithKeys(keys, options)` to encrypt outputs and build SPP proof inputs.

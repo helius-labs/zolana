@@ -1054,7 +1054,7 @@ describe("prover request routing", () => {
     }) as typeof globalThis.fetch;
     const prover = new ProverClient({
       tee: false,
-      url: "https://gateway.example/zolana?api-key=k%2B1&tenant=alpha",
+      url: "https://gateway.example/zolana/?api-key=k%2B1&tenant=alpha&flag&x=a%20b&y=~",
       fetch,
     });
 
@@ -1067,6 +1067,8 @@ describe("prover request routing", () => {
     expect(urls[1]?.searchParams.get("api-key")).toBe("k+1");
     expect(urls[1]?.searchParams.get("tenant")).toBe("alpha");
     expect(urls[1]?.searchParams.get("jobId")).toBe("job-123");
+    expect(urls[0]?.search).toBe("?tenant=alpha&flag&x=a%20b&y=~&api-key=k%2B1");
+    expect(urls[1]?.search).toBe("?tenant=alpha&flag&x=a%20b&y=~&api-key=k%2B1&jobId=job-123");
   });
   it("sends a proof and its poll to the Helius gateway's key-less paths", async () => {
     const urls: URL[] = [];

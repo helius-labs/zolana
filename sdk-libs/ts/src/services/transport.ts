@@ -56,6 +56,79 @@ export function checkedEndpoint(value: unknown, policy: EndpointPolicy): URL {
   return url;
 }
 
+const MAX_API_KEY_LENGTH = 4096;
+
+/**
+ * Takes the API key from the endpoint query or from `apiKey`, never both, and returns the
+ * endpoint without it so the key rides only on requests, never on a displayed URL.
+ */
+export function checkedApiKey(
+  endpoint: URL,
+  apiKey: unknown,
+): Readonly<{ endpoint: URL; apiKey?: string }> {
+  const invalid = (message: string) => new TransportFailure("config", message, { field: "apiKey" });
+  // Keep raw pairs so removing a key does not normalize unrelated parameters.
+  const pairs = endpoint.search.slice(1).split("&");
+  const queryKeys = pairs.filter((pair) => new URLSearchParams(`?${pair}`).has("api-key"));
+  if (queryKeys.length > 1) throw invalid("endpoint URL contains duplicate API keys");
+  if (apiKey !== undefined && typeof apiKey !== "string") throw invalid("API key is invalid");
+  if (apiKey !== undefined && queryKeys.length !== 0) {
+    throw invalid("API key must have one source");
+  }
+  const queryKey = queryKeys[0];
+  let key = apiKey;
+  if (queryKey !== undefined) {
+    const separator = queryKey.indexOf("=");
+    const encoded = separator === -1 ? "" : queryKey.slice(separator + 1);
+    try {
+      // URLSearchParams replaces malformed UTF-8; credentials must decode exactly.
+      key = decodeURIComponent(encoded.replace(/\+/gu, " "));
+    } catch {
+      throw invalid("API key is invalid");
+    }
+  }
+  if (key === undefined) return { endpoint };
+  if (
+    key.length === 0 ||
+    key.length > MAX_API_KEY_LENGTH ||
+    !key.isWellFormed() ||
+    hasControlCharacter(key)
+  ) {
+    throw invalid("API key is invalid");
+  }
+  if (queryKey === undefined) return { endpoint, apiKey: key };
+  const stripped = new URL(endpoint.href);
+  stripped.search = pairs.filter((pair) => pair !== queryKey).join("&");
+  return { endpoint: stripped, apiKey: key };
+}
+
+/** Append a service path before its query, preserving the endpoint's query encoding. */
+export function serviceUrl(endpoint: URL, path: string, apiKey?: string): URL {
+  const url = new URL(endpoint.href);
+  url.pathname = `${url.pathname.replace(/\/+$/u, "")}/${path.replace(/^\/+/u, "")}`;
+  if (apiKey !== undefined) setUrlQuery(url, "api-key", apiKey);
+  return url;
+}
+
+/** Replace one query parameter without re-encoding any of the others. */
+export function setUrlQuery(url: URL, name: string, value: string): void {
+  const kept = url.search
+    .slice(1)
+    .split("&")
+    .filter((pair) => !new URLSearchParams(`?${pair}`).has(name))
+    .join("&");
+  const pair = `${encodeURIComponent(name)}=${encodeURIComponent(value)}`;
+  url.search = kept === "" ? pair : `${kept}&${pair}`;
+}
+
+function hasControlCharacter(value: string): boolean {
+  for (const character of value) {
+    const code = character.charCodeAt(0);
+    if (code <= 31 || code === 127) return true;
+  }
+  return false;
+}
+
 // Browsers refuse `fetch` called with another receiver, so the global stays bound.
 const boundFetch: typeof globalThis.fetch = (input, init) => globalThis.fetch(input, init);
 

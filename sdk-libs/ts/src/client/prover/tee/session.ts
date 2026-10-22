@@ -1,7 +1,12 @@
 import { equalBytes } from "@noble/curves/utils.js";
 import { bytesToHex, randomBytes, utf8ToBytes } from "@noble/hashes/utils.js";
 
-import { TransportFailure, readBoundedBody, readBoundedJson } from "../../../services/transport.js";
+import {
+  TransportFailure,
+  readBoundedBody,
+  readBoundedJson,
+  setUrlQuery,
+} from "../../../services/transport.js";
 import { ClientError } from "../../error.js";
 import { composeSignal, requestError, sleep, type ComposedSignal } from "../../internal.js";
 import {
@@ -111,7 +116,7 @@ export class TeeSession {
       }
       const nonce = randomBytes(NONCE_SIZE);
       const url = new URL(attestationUrl);
-      url.searchParams.set("nonce", bytesToHex(nonce));
+      setUrlQuery(url, "nonce", bytesToHex(nonce));
       const request = composeSignal(
         { signal: signal.signal, timeoutMs: ATTESTATION_TIMEOUT_MS },
         "attest",

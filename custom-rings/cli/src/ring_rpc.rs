@@ -15,6 +15,7 @@ use zolana_ring_rpc::{
 };
 
 use crate::{
+    config::redact_url,
     probe,
     transact::{wait_for, Probe, WaitError},
     Context,
@@ -108,7 +109,7 @@ struct JsonRpcResponse<T> {
 /// Answers before the ring has a config, so a pipeline can stop before `init`
 /// pins an auditor the service does not hold.
 pub fn run_check(ctx: &Context) -> Result<(), RingRpcClientError> {
-    let url = ctx.config.urls().ring_rpc.clone();
+    let url = redact_url(&ctx.config.urls().ring_rpc);
     let status = ctx.ring_rpc().ring_status(ctx.ring.program_id())?;
     match status.state {
         RingState::Served => crate::line("ring rpc", format_args!("{url} serves this ring")),
@@ -175,7 +176,7 @@ impl RingRpcClient {
             &auditor_key_attestation(&ring, &auditor_pk),
         ) {
             return Err(RingRpcClientError::UnsignedAttestation {
-                url: self.url.clone(),
+                url: redact_url(&self.url),
                 service_pubkey,
             });
         }
@@ -202,7 +203,7 @@ impl RingRpcClient {
             RingState::Served => Ok(()),
             RingState::Uninitialized => Err(RingRpcClientError::NotInitialized),
             RingState::ForeignAuditor => Err(RingRpcClientError::ForeignAuditor {
-                url: self.url.clone(),
+                url: redact_url(&self.url),
                 expected_tag: config_view_tag(&status),
             }),
         }
@@ -274,15 +275,17 @@ impl RingRpcClient {
         let body = json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": params });
         let response: JsonRpcResponse<T> = self
             .http
-            .post(&self.url)
+            .post(probe::service_url(&self.url, method))
             .json(&body)
             .send()
             .map_err(|source| RingRpcClientError::Unreachable {
-                url: self.url.clone(),
-                source,
+                url: redact_url(&self.url),
+                source: source.without_url(),
             })?
-            .error_for_status()?
-            .json()?;
+            .error_for_status()
+            .map_err(reqwest::Error::without_url)?
+            .json()
+            .map_err(reqwest::Error::without_url)?;
         if let Some(error) = response.error {
             return Err(RingRpcClientError::Rpc { method, error });
         }
@@ -294,11 +297,99 @@ impl RingRpcClient {
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        io::{BufRead, BufReader, Read, Write},
+        net::TcpListener,
+        thread,
+        time::Duration,
+    };
+
     use zolana_keypair::X25519Keypair;
 
     use super::*;
 
     const SERVICE: Address = Address::new_from_array([7u8; 32]);
+
+    fn gateway(status: u16) -> (String, thread::JoinHandle<(String, serde_json::Value)>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
+        let url = format!(
+            "http://{}/v1/zolana/ring/?api-key=secret&tenant=a%20b",
+            listener.local_addr().expect("address")
+        );
+        let handle = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("request");
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .expect("timeout");
+            let mut reader = BufReader::new(&stream);
+            let mut request_line = String::new();
+            reader.read_line(&mut request_line).expect("request line");
+            let mut content_length = None;
+            loop {
+                let mut line = String::new();
+                reader.read_line(&mut line).expect("header");
+                if line == "\r\n" {
+                    break;
+                }
+                assert!(!line.is_empty(), "incomplete request");
+                if let Some((name, value)) = line.split_once(':') {
+                    if name.eq_ignore_ascii_case("content-length") {
+                        content_length = Some(value.trim().parse::<usize>().expect("length"));
+                    }
+                }
+            }
+            let mut body = vec![0; content_length.expect("content length")];
+            reader.read_exact(&mut body).expect("request body");
+            let body = serde_json::from_slice(&body).expect("JSON request");
+            let response = r#"{"jsonrpc":"2.0","id":1,"result":true}"#;
+            write!(stream, "HTTP/1.1 {status} Test\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response}", response.len()).expect("response");
+            (request_line, body)
+        });
+        (url, handle)
+    }
+
+    #[test]
+    fn gateway_calls_keep_the_method_path_and_query() {
+        for method in [CREATE_AUDITOR_KEY, RING_STATUS, GET_DECRYPTED_TRANSACTIONS] {
+            let (url, server) = gateway(200);
+            let result: bool = RingRpcClient::new(url)
+                .call(method, json!({}))
+                .expect("call");
+            let (line, body) = server.join().expect("server");
+            assert!(result);
+            assert_eq!(
+                line,
+                format!("POST /v1/zolana/ring/{method}?api-key=secret&tenant=a%20b HTTP/1.1\r\n")
+            );
+            assert_eq!(body["method"], method);
+        }
+    }
+
+    #[test]
+    fn gateway_http_failures_do_not_expose_the_key() {
+        let (url, server) = gateway(401);
+        let error = RingRpcClient::new(url)
+            .call::<bool>(RING_STATUS, json!({}))
+            .expect_err("unauthorized");
+        server.join().expect("server");
+        assert!(!error.to_string().contains("secret"));
+        assert!(!format!("{error:?}").contains("secret"));
+    }
+
+    #[test]
+    fn gateway_connection_failures_do_not_expose_the_key() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
+        let url = format!(
+            "http://{}/v1/zolana/ring?api-key=secret",
+            listener.local_addr().expect("address")
+        );
+        drop(listener);
+        let error = RingRpcClient::new(url)
+            .call::<bool>(RING_STATUS, json!({}))
+            .expect_err("unreachable");
+        assert!(!error.to_string().contains("secret"));
+        assert!(!format!("{error:?}").contains("secret"));
+    }
 
     fn attested(auditor_pk: X25519Pubkey) -> AttestedAuditorKey {
         AttestedAuditorKey {

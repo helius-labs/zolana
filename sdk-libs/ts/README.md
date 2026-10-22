@@ -427,6 +427,40 @@ withdrawals with `buildRingEntryTransaction`, `buildRingTransferTransaction`,
 reads decrypted Ring transactions for a granted reader. The same surface is
 available from `@heliuslabs/zolana/ring`.
 
+Connect to a hosted Ring RPC with its service base URL and your API key:
+
+```ts
+import { RingRpc } from "@heliuslabs/zolana/ring";
+
+const ringRpc = new RingRpc("https://gateway.example/v1/zolana/ring", {
+  apiKey: "YOUR_HELIUS_API_KEY",
+});
+const health = await ringRpc.health({ timeoutMs: 10_000 });
+```
+
+Use the gateway URL supplied by your operator. Pass the base URL once; calls
+append `/health`, `/ringStatus`, or the other method name. A URL containing
+`?api-key=...` also works, but supplying the key both ways is a
+`RING_RPC_CONFIG` error. Keys must be nonempty, well-formed Unicode without
+control characters and at most 4,096 UTF-16 code units. `ringRpc.url` omits
+the API key, and transport errors omit credentials and response bodies.
+
+For a local service, opt into HTTP explicitly:
+
+```ts
+const localRingRpc = new RingRpc("http://127.0.0.1:8785", {
+  allowInsecureHttp: true,
+});
+```
+
+Every call accepts a `RequestContext` with `signal` and `timeoutMs`. An API
+key grants gateway access; reading decrypted transactions still requires a
+granted reader's signature, and creating an auditor key requires the ring
+authority's signature. A proxy must forward method paths and preserve the
+JSON-RPC body; the server rejects a path/body mismatch with `-32601`.
+See [server operation](../../services/ring-rpc/README.md#operation) for the HTTP
+path and proxy requirements.
+
 A deploy that fails after its buffer exists names the buffer in the
 `RING_DEPLOY_PROGRAM` error details. Pass the same buffer keypair again to
 resume, or reclaim its rent with `closeBufferInstruction`.

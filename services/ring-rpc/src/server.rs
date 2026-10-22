@@ -32,6 +32,7 @@ use crate::{
     audit::{AuditRead, PageOptions},
     hub::{Hub, ReadinessStatus},
     limits::PublicRequest,
+    method_path::MethodPathLayer,
     origins::{OriginError, Origins},
     upstream::{DepositPage, TransactionSource},
 };
@@ -80,7 +81,10 @@ pub async fn run_server<S: TransactionSource + 'static>(
         .layer(cors(hub.origins())?)
         .layer(tower::timeout::TimeoutLayer::new(options.request_timeout))
         .layer(ReadyLayer { hub: hub.clone() })
-        .layer(ProxyGetRequestLayer::new([("/health", HEALTH)])?);
+        .layer(ProxyGetRequestLayer::new([("/health", HEALTH)])?)
+        .layer(MethodPathLayer {
+            max_body_size: MAX_REQUEST_BODY_SIZE as usize,
+        });
     let server = ServerBuilder::default()
         .set_config(
             ServerConfig::builder()
@@ -555,6 +559,78 @@ mod tests {
             .await
             .expect("ready");
         assert_eq!(ready.status(), StatusCode::OK);
+        handle.stop().expect("stop");
+        handle.stopped().await;
+    }
+
+    #[tokio::test]
+    async fn a_path_runs_only_the_method_it_names() {
+        let server_port = port();
+        let handle = run_server(
+            hub(source(), Origins::default()),
+            options(server_port, Duration::from_secs(1)),
+        )
+        .await
+        .expect("server");
+        let url = format!("http://127.0.0.1:{server_port}");
+        let client = reqwest::Client::new();
+        let call = |path: &str, body: serde_json::Value| {
+            let request = client.post(format!("{url}{path}")).json(&body);
+            async move {
+                request
+                    .send()
+                    .await
+                    .expect("call")
+                    .json::<serde_json::Value>()
+                    .await
+                    .expect("JSON-RPC answer")
+            }
+        };
+        let named =
+            |method: &str| serde_json::json!({ "jsonrpc": "2.0", "id": 7, "method": method });
+
+        for path in ["/", "/health", "/health/", "/v1/zolana/ring/health"] {
+            let answer = call(path, named(HEALTH)).await;
+            assert_eq!(answer["result"]["mode"], "local", "{path}: {answer}");
+            assert!(
+                answer["result"]["servicePubkey"].is_string(),
+                "{path}: {answer}"
+            );
+        }
+        for (path, method) in [
+            ("/health", GET_DECRYPTED_TRANSACTIONS),
+            ("/v1/zolana/ring/health", GET_DECRYPTED_TRANSACTIONS),
+            ("/v1/zolana/ring/ringStatus", RING_DEPOSITS),
+        ] {
+            let answer = call(path, named(method)).await;
+            assert_eq!(answer["error"]["code"], -32601, "{path} {method}");
+            assert_eq!(answer["id"], 7, "{path} {method}");
+        }
+        // Not one call naming the path's method: a batch, an unnamed call,
+        // or a body that is not JSON.
+        for body in [
+            serde_json::json!([named(HEALTH)]),
+            serde_json::json!({ "jsonrpc": "2.0", "id": 1 }),
+            serde_json::json!("health"),
+        ] {
+            let answer = call("/health", body.clone()).await;
+            assert_eq!(answer["error"]["code"], -32601, "{body}");
+        }
+        let unparsed = client
+            .post(format!("{url}/health"))
+            .body("not json")
+            .send()
+            .await
+            .expect("unparsed");
+        let unparsed: serde_json::Value = unparsed.json().await.expect("refusal");
+        assert_eq!(unparsed["error"]["code"], -32601);
+
+        let probe = client
+            .get(format!("{url}/health"))
+            .send()
+            .await
+            .expect("health probe");
+        assert_eq!(probe.status(), StatusCode::OK);
         handle.stop().expect("stop");
         handle.stopped().await;
     }

@@ -76,6 +76,20 @@ describe("transport configuration", () => {
     );
   });
 
+  it("removes an encoded URL key without rewriting the other query parameters", async () => {
+    const url = new URL("https://gateway.example/zolana?flag&api%2Dkey=k%2B1&x=a%20b&y=~");
+    const original = url.href;
+    const fetch = vi.fn<typeof globalThis.fetch>(() => Promise.resolve(success()));
+    const api = new ZolanaApi({ url, fetch });
+
+    await api.getMerkleProofs(REQUEST);
+
+    expect(String(fetch.mock.calls[0]?.[0])).toBe(
+      "https://gateway.example/zolana/getMerkleProofs?flag&x=a%20b&y=~&api-key=k%2B1",
+    );
+    expect(url.href).toBe(original);
+  });
+
   it("looks up every indexed event by transaction signature", async () => {
     const injected = vi.fn<typeof globalThis.fetch>(() =>
       Promise.resolve(

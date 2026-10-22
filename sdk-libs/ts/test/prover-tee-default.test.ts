@@ -58,6 +58,20 @@ describe("default TEE", () => {
     }
   });
 
+  it("keeps gateway keys and raw query encoding on prefixed attestation calls", async () => {
+    const { fetch, urls } = recordingFetch();
+    const endpoint = new URL(
+      "https://prover.example/base/?flag&x=a%20b&y=~&nonce=stale&api-key=k%2B1",
+    );
+    const original = endpoint.href;
+    const prover = new ProverClient({ url: endpoint, fetch });
+    await prover.attest().catch(() => undefined);
+    expect(endpoint.href).toBe(original);
+    expect(urls.find((url) => url.includes("/tee/v1/attestation"))).toMatch(
+      /^https:\/\/prover\.example\/base\/tee\/v1\/attestation\?flag&x=a%20b&y=~&api-key=k%2B1&nonce=[0-9a-f]{64}$/u,
+    );
+  });
+
   it("has no indexed route on the Helius gateway or the default TEE prover", () => {
     for (const [url, indexed] of [
       ["https://prover.example", true],
