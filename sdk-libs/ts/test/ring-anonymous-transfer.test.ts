@@ -727,6 +727,8 @@ describe("anonymous ring transfer builder", () => {
       notes: number;
       amount: bigint;
       ring?: "default";
+      /** Default-ring notes beside the ring notes, a transfer may spend them. */
+      defaultNotes?: readonly bigint[];
       policy?: boolean;
       withdraw?: boolean;
     }>,
@@ -758,15 +760,22 @@ describe("anonymous ring transfer builder", () => {
           }
         : {},
     );
+    const notes = [
+      ...Array.from({ length: input.notes }, () => ({
+        amount: 10n,
+        ring: input.ring === "default" ? undefined : fixture.ringProgramId,
+      })),
+      ...(input.defaultNotes ?? []).map((amount) => ({ amount, ring: undefined })),
+    ];
     const wallet = new Wallet({ identity: sender.keypair.shieldedAddress() });
     wallet._replace({
-      utxos: Array.from({ length: input.notes }, (_, index) => ({
+      utxos: notes.map((note, index) => ({
         utxo: new Utxo({
           owner: sender.keypair.signingPublicKey(),
           asset: SOL_MINT,
-          amount: 10n,
+          amount: note.amount,
           blinding: randomBlinding(),
-          ...(input.ring === "default" ? {} : { ringProgramId: fixture.ringProgramId }),
+          ...(note.ring === undefined ? {} : { ringProgramId: note.ring }),
         }),
         outputContext: { hash: small(index + 1), tree: TREE, leafIndex: BigInt(index) },
         nullifier: small(index + 100),
@@ -800,7 +809,11 @@ describe("anonymous ring transfer builder", () => {
         : buildRingTransferTransaction({
             ...params,
             recipient: await addressOf(fixture, ShieldedKeypair.generate()),
-            ...(input.ring === "default" ? { inputs: "default" as const } : {}),
+            ...(input.ring === "default"
+              ? { inputs: "default" as const }
+              : input.defaultNotes === undefined
+                ? {}
+                : { inputs: "ring-or-default" as const }),
           });
     return { fixture, requests, build };
   }
@@ -846,6 +859,22 @@ describe("anonymous ring transfer builder", () => {
     });
     expect(wider.requests).toEqual([]);
     noProofs(wider.fixture);
+  });
+
+  it("funds a ring-or-default payment from ring notes alone, else default-ring notes alone, never both", async () => {
+    const ringAlone = await anonymousSpend({ notes: 3, amount: 25n, defaultNotes: [100n] });
+    await ringAlone.build;
+    expect(ringAlone.requests[0]?.intent).toMatchObject({ defaultFunding: 0n });
+    const defaultAlone = await anonymousSpend({ notes: 3, amount: 40n, defaultNotes: [100n] });
+    await defaultAlone.build;
+    expect(defaultAlone.requests[0]?.intent).toMatchObject({ defaultFunding: 100n });
+    const both = await anonymousSpend({ notes: 3, amount: 50n, defaultNotes: [25n] });
+    await expect(both.build).rejects.toMatchObject({
+      code: "RING_BUILD_TRANSFER",
+      causeCode: "RING_INSUFFICIENT_BALANCE",
+    });
+    expect(both.requests).toEqual([]);
+    noProofs(both.fixture);
   });
 
   it("compiles a payment proven in the epoch before the slot it compiles at under the previous epoch", async () => {

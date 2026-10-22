@@ -94,7 +94,7 @@ export interface RingSpendParams {
 export interface RingTransferTransactionParams extends RingSpendParams {
   /** A ring address on an anonymous ring, a shielded address or a registered owner on any other. */
   readonly recipient: Address | ShieldedAddress | RingAddress;
-  /** `"default"` funds only from default UTXOs. `"ring-or-default"` mixes both pools. */
+  /** `"default"` funds only from default UTXOs. `"ring-or-default"` mixes both pools, an anonymous ring funds from one pool alone. */
   readonly inputs?: "ring" | "ring-or-default" | "default";
 }
 
@@ -423,17 +423,22 @@ async function buildRingSpend<R>(
         details: { ringProgramId: params.ringProgramId },
       });
     if (retry.entries !== undefined) checkRetainedEntries(params.wallet, retry.entries);
+    const pool = {
+      wallet: params.wallet,
+      ringProgramId: params.ringProgramId,
+      asset,
+      amount: params.amount,
+      tree: params.client.tree,
+    };
     const selected =
       retry.entries ??
-      selectRingInputs({
-        wallet: params.wallet,
-        ringProgramId: params.ringProgramId,
-        asset,
-        amount: params.amount,
-        inputs: strategy.selection,
-        tree: params.client.tree,
-        maxInputs: anonymousRing ? anonymousInputCap(strategy.selection) : MAX_TRANSACT_INPUTS,
-      });
+      (anonymousRing
+        ? selectAnonymousInputs(pool, strategy.selection)
+        : selectRingInputs({
+            ...pool,
+            inputs: strategy.selection,
+            maxInputs: MAX_TRANSACT_INPUTS,
+          }));
     reservation = retry.reservation ?? reserveEntries(params.wallet, selected, retry.lifetime);
     retry.entries = selected;
     retry.reservation = reservation;
@@ -531,9 +536,37 @@ async function buildRingSpend<R>(
 /** A spend pays its recipient or exit and returns change. */
 const SPEND_OUTPUTS = 2;
 
+/** The prover refuses a spend mixing ring and default-ring UTXOs, ring UTXOs alone fund it first. */
+function selectAnonymousInputs(
+  pool: Omit<Parameters<typeof selectRingInputs>[0], "inputs" | "maxInputs">,
+  selection: "ring" | "ring-or-default" | "default",
+): readonly WalletUtxo[] {
+  const select = (inputs: "ring" | "default") =>
+    selectRingInputs({ ...pool, inputs, maxInputs: anonymousInputCap(inputs) });
+  if (selection !== "ring-or-default") return select(selection);
+  try {
+    return select("ring");
+  } catch (ringAlone) {
+    if (!unfunded(ringAlone)) throw ringAlone;
+    try {
+      return select("default");
+    } catch (defaultAlone) {
+      if (!unfunded(defaultAlone)) throw defaultAlone;
+      throw ringAlone;
+    }
+  }
+}
+
+function unfunded(cause: unknown): boolean {
+  return (
+    cause instanceof RingError &&
+    (cause.code === "RING_INSUFFICIENT_BALANCE" || cause.code === "RING_TOO_MANY_INPUTS")
+  );
+}
+
 /** Padded inputs are published, the widest two-output shape an anonymous key serves bounds a spend. */
-function anonymousInputCap(selection: "ring" | "ring-or-default" | "default"): number {
-  const spendsDefaultRing = selection !== "ring";
+function anonymousInputCap(selection: "ring" | "default"): number {
+  const spendsDefaultRing = selection === "default";
   return Math.max(
     ...SPP_SUPPORTED_SHAPES.filter(
       (shape) =>
