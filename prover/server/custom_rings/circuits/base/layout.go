@@ -2,6 +2,7 @@ package base
 
 import (
 	"math/bits"
+	"slices"
 
 	"github.com/consensys/gnark/frontend"
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
@@ -111,18 +112,30 @@ func (c layoutChoice) fixed(fields []frontend.Variable) disclosureLayout {
 	return disclosureLayout{selected: c.selected, fields: fields, ends: []layoutEnd{{length: len(fields), selected: c.selected}}}
 }
 
-// counted publishes head and then the first count records, every record of one width.
-func (c layoutChoice) counted(api frontend.API, head []frontend.Variable, records [][]frontend.Variable, count gadget.Count) disclosureLayout {
-	l := disclosureLayout{selected: c.selected, fields: head}
+// countedTail opens its first published(n) fields under a count of n.
+type countedTail struct {
+	fields    []frontend.Variable
+	published func(n int) int
+}
+
+// uniformTail publishes whole records of one width.
+func uniformTail(records [][]frontend.Variable) countedTail {
 	width := len(records[0])
+	tail := countedTail{published: func(n int) int { return n * width }}
 	for _, record := range records {
 		if len(record) != width {
 			panic("base: disclosure records differ in width")
 		}
-		l.fields = append(l.fields, record...)
+		tail.fields = append(tail.fields, record...)
 	}
+	return tail
+}
+
+// counted publishes head and then the tail fields the count opens.
+func (c layoutChoice) counted(api frontend.API, head []frontend.Variable, tail countedTail, count gadget.Count) disclosureLayout {
+	l := disclosureLayout{selected: c.selected, fields: slices.Concat(head, tail.fields)}
 	for k, oneHot := range count.OneHot {
-		l.ends = append(l.ends, layoutEnd{length: len(head) + count.Candidate(k)*width, selected: api.Mul(c.selected, oneHot)})
+		l.ends = append(l.ends, layoutEnd{length: len(head) + tail.published(count.Candidate(k)), selected: api.Mul(c.selected, oneHot)})
 	}
 	return l
 }

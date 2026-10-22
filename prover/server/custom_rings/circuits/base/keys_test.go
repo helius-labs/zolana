@@ -41,6 +41,33 @@ func TestAuditKeysCompileAtPinnedCounts(t *testing.T) {
 	}
 }
 
+// The anonymous classes and entry keys are the ones the shared vector lists, custom-rings/interface pins its tables to the same file.
+func TestAnonymousShapesAreTheSharedVector(t *testing.T) {
+	var vector struct {
+		Classes []struct {
+			Outputs int   `json:"outputs"`
+			Classes []int `json:"classes"`
+		} `json:"anonymous_audit_classes"`
+		Entry struct {
+			Class   int   `json:"class"`
+			Outputs []int `json:"outputs"`
+		} `json:"anonymous_entry"`
+	}
+	readRingVector(t, "ring_keyed_shapes.json", &vector)
+	var commitment, entry []base.AnonymousAuditShape
+	for _, row := range vector.Classes {
+		for _, class := range row.Classes {
+			commitment = append(commitment, base.AnonymousAuditShape{InputClass: class, Outputs: row.Outputs})
+		}
+	}
+	for _, outputs := range vector.Entry.Outputs {
+		entry = append(entry, base.AnonymousAuditShape{InputClass: vector.Entry.Class, Outputs: outputs, FullOpenings: true})
+	}
+	if !slices.Equal(commitment, base.AnonymousAuditShapes[:]) || !slices.Equal(entry, base.AnonymousEntryShapes[:]) {
+		t.Fatalf("anonymous shapes %v and %v, vector %v and %v", base.AnonymousAuditShapes, base.AnonymousEntryShapes, commitment, entry)
+	}
+}
+
 func anonymousKeyName(t testing.TB, shape base.AnonymousAuditShape) string {
 	t.Helper()
 	family := common.RingAnonymousAudit

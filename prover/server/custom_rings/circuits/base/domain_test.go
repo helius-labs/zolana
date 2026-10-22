@@ -77,10 +77,10 @@ type ringTagVectors struct {
 	FirstContactSecret string            `json:"first_contact_secret"`
 	PairKey            string            `json:"pair_key"`
 	PairTags           []streamTagVector `json:"pair_tags"`
-	Low248             []struct {
+	Low128             []struct {
 		Value string `json:"value"`
 		Tag   string `json:"tag"`
-	} `json:"low248"`
+	} `json:"low128"`
 }
 
 type streamTagVector struct {
@@ -98,12 +98,12 @@ type ringTagsCircuit struct {
 	FirstContactSecret frontend.Variable
 	PairKey            frontend.Variable
 	PairTags           []streamTagWires
-	Low248             []low248Wires
+	Low128             []low128Wires
 }
 
 type streamTagWires struct{ Epoch, Index, Tag frontend.Variable }
 
-type low248Wires struct{ Value, Tag frontend.Variable }
+type low128Wires struct{ Value, Tag frontend.Variable }
 
 func (c *ringTagsCircuit) Define(api frontend.API) error {
 	rc := rangecheck.New(api)
@@ -118,7 +118,7 @@ func (c *ringTagsCircuit) Define(api frontend.API) error {
 	for _, tag := range c.PairTags {
 		api.AssertIsEqual(base.TagField(api, rc, base.PairTagDigest(api, pairKey, tag.Epoch, tag.Index)), tag.Tag)
 	}
-	for _, low := range c.Low248 {
+	for _, low := range c.Low128 {
 		api.AssertIsEqual(base.TagField(api, rc, low.Value), low.Tag)
 	}
 	return nil
@@ -142,13 +142,13 @@ func TestRingTagsMatchRustVectors(t *testing.T) {
 	}
 	copy(witness.RingProgramAddress[:], vectorBytes(t, vectors.RingProgramAddress, 32))
 	copy(witness.ViewingPk[:], vectorBytes(t, vectors.ViewingPk, 33))
-	for _, low := range vectors.Low248 {
-		witness.Low248 = append(witness.Low248, low248Wires{Value: vectorField(t, low.Value), Tag: vectorField(t, low.Tag)})
+	for _, low := range vectors.Low128 {
+		witness.Low128 = append(witness.Low128, low128Wires{Value: vectorField(t, low.Value), Tag: vectorField(t, low.Tag)})
 	}
 	circuit := &ringTagsCircuit{
 		InboxTags: make([]streamTagWires, len(witness.InboxTags)),
 		PairTags:  make([]streamTagWires, len(witness.PairTags)),
-		Low248:    make([]low248Wires, len(witness.Low248)),
+		Low128:    make([]low128Wires, len(witness.Low128)),
 	}
 	if err := test.IsSolved(circuit, witness, ecc.BN254.ScalarField()); err != nil {
 		t.Fatalf("ring tag vector rejected, %v", err)
@@ -296,17 +296,22 @@ func TestRingSecretsMatchRustVectors(t *testing.T) {
 
 func readRingVector(t *testing.T, name string, into any) {
 	t.Helper()
-	_, source, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("locate domain_test.go")
-	}
-	raw, err := os.ReadFile(filepath.Join(filepath.Dir(source), "../../../../../test-vectors", name))
+	raw, err := os.ReadFile(ringVectorPath(t, name))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := json.Unmarshal(raw, into); err != nil {
 		t.Fatalf("%s, %v", name, err)
 	}
+}
+
+func ringVectorPath(t *testing.T, name string) string {
+	t.Helper()
+	_, source, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("locate domain_test.go")
+	}
+	return filepath.Join(filepath.Dir(source), "../../../../../test-vectors", name)
 }
 
 func streamTags(t *testing.T, vectors []streamTagVector) []streamTagWires {

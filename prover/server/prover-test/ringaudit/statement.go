@@ -57,7 +57,7 @@ type StatementOutput struct {
 	// Exit chains zero for its body, recipient key and tag.
 	Exit bool
 	U    [32]byte
-	// Tag is the 31-byte tag read as a field.
+	// Tag is the TagLen-byte tag read as a field.
 	Tag  *big.Int
 	Body []byte
 }

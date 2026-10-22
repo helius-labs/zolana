@@ -11,18 +11,18 @@ import (
 	"github.com/helius-labs/zolana/prover/server/prover/common"
 )
 
-func compileDelivered(t *testing.T) *compiledAudit {
+func compileDelivered(t *testing.T, capacity int) *compiledAudit {
 	t.Helper()
-	circuit, err := base.NewDeliveredAuditCircuit(8)
+	circuit, err := base.NewDeliveredAuditCircuit(capacity)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return compileAudit(t, ringkey.Name(t, common.RingDeliveredAudit, 0, 8), circuit, ringaudit.NewDeliveredAudit(t, 8).Circuit(t))
+	return compileAudit(t, ringkey.Name(t, common.RingDeliveredAudit, 0, capacity), circuit, ringaudit.NewDeliveredAudit(t, capacity).Circuit(t))
 }
 
 // Each case changes one value of an honest transfer whose slot 0 is a ring output, slot 6 the exit and slot 7 a dummy.
 func TestDeliveredAuditRefusals(t *testing.T) {
-	c := compileDelivered(t)
+	c := compileDelivered(t, 8)
 	slot := ringaudit.Recipient(t, 0, 0, 100)
 	for _, tc := range []struct {
 		name   string
@@ -76,7 +76,7 @@ func TestDeliveredAuditRefusals(t *testing.T) {
 
 // Every flag value solves, an exit-free transfer with dense slots and the data-free flag a delivered key ignores.
 func TestDeliveredAuditSolvesEveryLayout(t *testing.T) {
-	c := compileDelivered(t)
+	c := compileDelivered(t, 8)
 	deliveredFlags := base.LayoutExits | base.LayoutEscrow | base.LayoutDataFree
 	for value := range deliveredFlags + 1 {
 		layout := ringaudit.Layout{Exits: value&base.LayoutExits != 0, Escrow: value&base.LayoutEscrow != 0, DataFree: value&base.LayoutDataFree != 0}

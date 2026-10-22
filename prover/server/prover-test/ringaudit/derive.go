@@ -82,10 +82,10 @@ func InboxTagDigest(t testing.TB, inboxKey *big.Int, epoch, index uint64) *big.I
 	return spptest.MustPoseidonHash(t, big.NewInt(base.InboxTagDomain), inboxKey, new(big.Int).SetUint64(epoch), new(big.Int).SetUint64(index))
 }
 
-// InboxTag is low248 of the inbox tag digest.
+// InboxTag is the low TagLen bytes of the inbox tag digest.
 func InboxTag(t testing.TB, inboxKey *big.Int, epoch, index uint64) *big.Int {
 	t.Helper()
-	return Low248(InboxTagDigest(t, inboxKey, epoch, index))
+	return LowTag(InboxTagDigest(t, inboxKey, epoch, index))
 }
 
 // PairKey mirrors base.PairKey.
@@ -94,14 +94,14 @@ func PairKey(t testing.TB, firstContact *big.Int) *big.Int {
 	return spptest.MustPoseidonHash(t, big.NewInt(base.PairKeyDomain), firstContact)
 }
 
-// PairTag is low248 of base.PairTagDigest.
+// PairTag is the low TagLen bytes of base.PairTagDigest.
 func PairTag(t testing.TB, pairKey *big.Int, epoch, index uint64) *big.Int {
 	t.Helper()
-	return Low248(spptest.MustPoseidonHash(t, big.NewInt(base.PairTagDomain), pairKey, new(big.Int).SetUint64(epoch), new(big.Int).SetUint64(index)))
+	return LowTag(spptest.MustPoseidonHash(t, big.NewInt(base.PairTagDomain), pairKey, new(big.Int).SetUint64(epoch), new(big.Int).SetUint64(index)))
 }
 
-// Low248 mirrors base.TagField, the low 31 bytes of a canonical field value.
-func Low248(value *big.Int) *big.Int {
+// LowTag mirrors base.TagField, the low TagLen bytes of a canonical field value.
+func LowTag(value *big.Int) *big.Int {
 	return new(big.Int).And(value, new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 8*base.TagLen), big.NewInt(1)))
 }
 

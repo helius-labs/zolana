@@ -93,8 +93,9 @@ type AnonymousAuditParams struct {
 	Outputs           []AnonymousOutput `json:"outputs"`
 	PrivateTxHash     Field             `json:"privateTxHash"`
 	PrivateTxBlinding Field             `json:"privateTxBlinding"`
-	SenderKey         Bytes             `json:"senderKey"`
-	InputCount        uint8             `json:"inputCount"`
+	// SenderKey is the hidden owner's key on an entry key and absent on a commitment key.
+	SenderKey  Bytes `json:"senderKey,omitempty"`
+	InputCount uint8 `json:"inputCount"`
 	// Inputs fill the input class, the slots past InputCount carry no UTXO.
 	Inputs           []Opening `json:"inputs"`
 	SenderCommitment Field     `json:"senderCommitment"`

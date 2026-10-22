@@ -5,6 +5,7 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
 	"github.com/helius-labs/zolana/prover/server/prover-test/ringaudit"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 )
@@ -65,7 +66,7 @@ func TestAuditStatementsMatchRustVectors(t *testing.T) {
 					outputs[i].U = [32]byte(hexBytes(t, o.U, 32))
 				}
 				if o.Tag != "" {
-					outputs[i].Tag = new(big.Int).SetBytes(hexBytes(t, o.Tag, 31))
+					outputs[i].Tag = new(big.Int).SetBytes(hexBytes(t, o.Tag, base.TagLen))
 				}
 				if o.Body != "" {
 					outputs[i].Body = hexBytes(t, o.Body, 40)

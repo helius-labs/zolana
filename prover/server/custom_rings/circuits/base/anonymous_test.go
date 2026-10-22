@@ -54,11 +54,7 @@ func TestAnonymousAuditSolvesEveryInputCount(t *testing.T) {
 		c := compileAnonymous(t, shape)
 		for count := 1; count <= shape.InputClass; count++ {
 			t.Run(fmt.Sprintf("%s/%d", anonymousKeyName(t, shape), count), func(t *testing.T) {
-				a := ringaudit.NewAnonymousAudit(t, shape)
-				if count == 1 {
-					a.Inputs[1] = ringaudit.Dummy(3, big.NewInt(0x9001))
-				}
-				a.InputCount = count
+				a := ringaudit.NewAnonymousAudit(t, shape).AtInputCount(count)
 				a.Layout.DataFree = count%2 == 0
 				c.requireSolved(t, a.Circuit(t))
 			})
@@ -147,20 +143,75 @@ func TestAnonymousAuditRefusals(t *testing.T) {
 		})
 	}
 
-	// The tag of slot 1 is low248 of digest + q, the hint proposes that decomposition and the range checks refuse it.
+	// The tag of slot 1 is low128 of digest + q, the hint proposes that split and SplitField refuses it.
 	t.Run("tag given as its + q alias", func(t *testing.T) {
 		a := ringaudit.NewAnonymousAudit(t, shape)
 		digest := ringaudit.InboxTagDigest(t, ringaudit.InboxKey(t, a.RingProgramID, inbox.RecipientKey), a.Epoch, 0)
 		alias := new(big.Int).Add(digest, ecc.BN254.ScalarField())
-		a.Outputs[1] = a.NewPayment(t, inbox, ringaudit.Stream{Inbox: true, Index: 0, Tag: ringaudit.Low248(alias)})
-		honest := hintattack.RegisteredHint(t, "/gadget.lowBytesHint")
-		forged := func(field *big.Int, inputs, outputs []*big.Int) error {
-			if inputs[0].Cmp(digest) == 0 {
-				return honest(field, []*big.Int{alias}, outputs)
-			}
-			return honest(field, inputs, outputs)
+		a.Outputs[1] = a.NewPayment(t, inbox, ringaudit.Stream{Inbox: true, Index: 0, Tag: ringaudit.LowTag(alias)})
+		c.refuse(t, a.Circuit(t), splitOf(t, digest, alias))
+	})
+}
+
+// A spent hash below 2^254 - q has a second 126-bit split, the prefix of hash + q, the canonical bound refuses it.
+func TestAnonymousSpentPrefixRefusesTheAliasSplit(t *testing.T) {
+	shape := base.AnonymousAuditShape{InputClass: 4, Outputs: 2}
+	c := compileAnonymous(t, shape)
+	q := ecc.BN254.ScalarField()
+	limit := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 254), q)
+	for blinding := int64(52); blinding < 116; blinding++ {
+		a := ringaudit.NewAnonymousAudit(t, shape)
+		a.Inputs[1] = a.SenderUtxo(t, a.RingProgramID, 60, blinding)
+		hash := a.Inputs[1].Hash(t)
+		if hash.Cmp(limit) >= 0 {
+			continue
 		}
-		c.refuse(t, a.Circuit(t), solver.OverrideHint(solver.GetHintID(honest), forged))
+		c.requireSolved(t, a.Circuit(t))
+		c.refuse(t, a.Circuit(t), splitOf(t, hash, new(big.Int).Add(hash, q)))
+		return
+	}
+	t.Fatal("no fixture hash below 2^254 - q")
+}
+
+// An even published count closes the last prefix pair with a zero half, a statement opening another half fails the binding.
+func TestAnonymousPrefixPairClosesWithAZeroHalf(t *testing.T) {
+	shape := base.AnonymousAuditShape{InputClass: 4, Outputs: 2}
+	c := compileAnonymous(t, shape)
+	a := ringaudit.NewAnonymousAudit(t, shape)
+	records := a.InputRecords(t)
+	last := len(records) - 1
+	records[last] = new(big.Int).Add(records[last], big.NewInt(1))
+	statement := ringaudit.AnonymousStatement(t, a.AuditHead(t, a.Layout), a.StatementOutputs(t), a.DisclosureOf(t, records), a.Tail(t))
+	c.refuseStatementOf(t, a.Circuit(t), statement)
+}
+
+// The widest class solves at both ends of its counts and across a pair boundary, the class of one input serves sixteen outputs.
+func TestAnonymousWideClassesSolve(t *testing.T) {
+	for _, tc := range []struct {
+		shape  base.AnonymousAuditShape
+		counts []int
+	}{
+		{base.AnonymousAuditShape{InputClass: 32, Outputs: 2}, []int{1, 2, 3, 31, 32}},
+		{base.AnonymousAuditShape{InputClass: 1, Outputs: 16}, []int{1}},
+	} {
+		c := compileAnonymous(t, tc.shape)
+		for _, count := range tc.counts {
+			t.Run(fmt.Sprintf("%s/%d", anonymousKeyName(t, tc.shape), count), func(t *testing.T) {
+				c.requireSolved(t, ringaudit.NewAnonymousAudit(t, tc.shape).AtInputCount(count).Circuit(t))
+			})
+		}
+	}
+}
+
+// splitOf replaces the honest split of value with the split of alias.
+func splitOf(t *testing.T, value, alias *big.Int) solver.Option {
+	t.Helper()
+	honest := hintattack.RegisteredHint(t, "/gadget.splitFieldHint")
+	return solver.OverrideHint(solver.GetHintID(honest), func(field *big.Int, inputs, outputs []*big.Int) error {
+		if inputs[0].Cmp(value) == 0 {
+			return honest(field, []*big.Int{alias, inputs[1]}, outputs)
+		}
+		return honest(field, inputs, outputs)
 	})
 }
 

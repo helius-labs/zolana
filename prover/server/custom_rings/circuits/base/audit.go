@@ -25,19 +25,27 @@ func (s AnonymousAuditShape) layout() int {
 	return 0
 }
 
+func (s AnonymousAuditShape) senderKeyLen() int {
+	if s.FullOpenings {
+		return 32
+	}
+	return 0
+}
+
 // Audit key shapes, mirrored by the audit capacities and the anonymous classes of custom-rings/interface/src/disclosure.rs.
 var (
 	// PackedAuditCapacities leave confidential and delegate bodies unproven.
 	PackedAuditCapacities = [...]int{2, 4}
 	// DeliveredAuditCapacities prove every confidential body.
 	DeliveredAuditCapacities = [...]int{8, 16}
-	// AnonymousAuditShapes publish input hashes, a transfer takes the smallest class holding its published inputs.
+	// AnonymousAuditShapes name spent notes by hash and prefix, a transfer takes the smallest class holding its published inputs.
 	AnonymousAuditShapes = [...]AnonymousAuditShape{
 		{InputClass: 4, Outputs: 2}, {InputClass: 8, Outputs: 2}, {InputClass: 12, Outputs: 2},
-		{InputClass: 16, Outputs: 2}, {InputClass: 24, Outputs: 2}, {InputClass: 28, Outputs: 2},
+		{InputClass: 16, Outputs: 2}, {InputClass: 24, Outputs: 2}, {InputClass: 32, Outputs: 2},
 		{InputClass: 4, Outputs: 4}, {InputClass: 8, Outputs: 4}, {InputClass: 12, Outputs: 4},
 		{InputClass: 16, Outputs: 4}, {InputClass: 24, Outputs: 4},
 		{InputClass: 4, Outputs: 8}, {InputClass: 8, Outputs: 8}, {InputClass: 12, Outputs: 8}, {InputClass: 16, Outputs: 8},
+		{InputClass: 1, Outputs: 16},
 	}
 	// AnonymousEntryShapes open every spent UTXO, the keys of a transfer that spends a default-ring note.
 	AnonymousEntryShapes = [...]AnonymousAuditShape{

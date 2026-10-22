@@ -107,7 +107,7 @@ func (c *PackedAuditCircuit) disclosure(api frontend.API, e auditEnvelope, layou
 		for i, record := range records {
 			slots[i] = record.fields(choice)
 		}
-		return choice.counted(api, c.seedOut(choice), slots, nOut)
+		return choice.counted(api, c.seedOut(choice), uniformTail(slots), nOut)
 	})
 }
 

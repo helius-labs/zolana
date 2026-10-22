@@ -17,8 +17,8 @@ const (
 	// PairEpochBits bounds the epochs a pair stream lives after its anchor.
 	PairEpochBits = 5
 	KPairEpochs   = 1 << PairEpochBits
-	// TagLen is the low248 width, the owner tag is 0x00 ‖ tag.
-	TagLen = 31
+	// TagLen is the low128 width, the owner tag is 0^16 ‖ tag.
+	TagLen = 16
 )
 
 // BodyLen is asset_address(32) ‖ u64be(amount), mirrored by RING_DELIVERED_BODY_LEN in program-libs/event/src/proofless.rs.
@@ -77,9 +77,10 @@ func PairTagDigest(api frontend.API, pairKey, epoch, index frontend.Variable) fr
 	return gadget.PoseidonHash(api, []frontend.Variable{PairTagDomain, pairKey, epoch, index})
 }
 
-// TagField is low248(value), one tag per field since FieldLowBytesBE refuses the bytes of value + q.
+// TagField is low128(value), one tag per field since SplitField refuses the split of value + q.
 func TagField(api frontend.API, rc frontend.Rangechecker, value frontend.Variable) frontend.Variable {
-	return gadget.BytesToFieldWith(api, gadget.BoundedBytes{}, gadget.FieldLowBytesBE(api, rc, value, TagLen))
+	_, low := gadget.SplitField(api, rc, value, 8*TagLen)
+	return low
 }
 
 // ConfidentialRingSecret is Poseidon(CRRC, slotSecret), a ring secret no anchor accepts.

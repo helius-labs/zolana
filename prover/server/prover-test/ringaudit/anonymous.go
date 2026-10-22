@@ -72,9 +72,11 @@ var anonymousOutputs = map[int][]int{
 	2: {kindPair, kindSelf},
 	4: {kindPair, kindInbox, kindExit, kindSelf},
 	8: {kindPair, kindInbox, kindInbox, kindExit, kindSelf, kindInbox, kindDummy, kindDummy},
+	16: {kindPair, kindInbox, kindInbox, kindExit, kindSelf, kindInbox, kindDummy, kindDummy,
+		kindInbox, kindDummy, kindDummy, kindDummy, kindDummy, kindDummy, kindDummy, kindDummy},
 }
 
-// NewAnonymousAudit spends two sender UTXOs into the anonymousOutputs slots of its output count, input 1 a default-ring note on an entry shape.
+// NewAnonymousAudit spends two sender UTXOs, one on a class of one input, into the anonymousOutputs slots of its output count, input 1 a default-ring note on an entry shape.
 func NewAnonymousAudit(t testing.TB, shape base.AnonymousAuditShape) AnonymousAudit {
 	t.Helper()
 	a := AnonymousAudit{
@@ -92,9 +94,13 @@ func NewAnonymousAudit(t testing.TB, shape base.AnonymousAuditShape) AnonymousAu
 		a.Inputs[i] = Dummy(3, big.NewInt(0x9000+int64(i)))
 	}
 	a.Inputs[0] = a.SenderUtxo(t, a.RingProgramID, 100, 51)
-	a.Inputs[1] = a.SenderUtxo(t, a.RingProgramID, 60, 52)
-	if shape.FullOpenings {
+	switch {
+	case shape.InputClass == 1:
+		a.InputCount = 1
+	case shape.FullOpenings:
 		a.Inputs[1] = a.SenderUtxo(t, big.NewInt(0), 60, 52)
+	default:
+		a.Inputs[1] = a.SenderUtxo(t, a.RingProgramID, 60, 52)
 	}
 
 	payee := Recipient(t, 0, 0, 0)
@@ -111,14 +117,24 @@ func NewAnonymousAudit(t testing.TB, shape base.AnonymousAuditShape) AnonymousAu
 			a.Outputs = append(a.Outputs, a.NewPayment(t, slot, stream))
 			inboxes++
 		case kindSelf:
-			a.Outputs = append(a.Outputs, a.NewPayment(t, a.Change(t, i), Stream{Self: true, Tag: Low248(big.NewInt(0xc4a9e))}))
+			a.Outputs = append(a.Outputs, a.NewPayment(t, a.Change(t, i), Stream{Self: true, Tag: LowTag(big.NewInt(0xc4a9e))}))
 		case kindExit:
 			a.Outputs = append(a.Outputs, AnonymousOutput{DeliveredOutput: a.NewExit(t, i), Stream: Stream{Tag: big.NewInt(0)}})
 		case kindDummy:
-			a.Outputs = append(a.Outputs, AnonymousOutput{DeliveredOutput: a.newDummy(t, i), Stream: Stream{Tag: Low248(big.NewInt(0xd0d0 + int64(i)))}})
+			a.Outputs = append(a.Outputs, AnonymousOutput{DeliveredOutput: a.newDummy(t, i), Stream: Stream{Tag: LowTag(big.NewInt(0xd0d0 + int64(i)))}})
 		}
 	}
 	a.Layout = Layout{Exits: hasExit(deliveredUtxos(a.Outputs)), FullOpenings: shape.FullOpenings}
+	return a
+}
+
+// AtInputCount publishes count inputs, every input past them a dummy.
+func (a AnonymousAudit) AtInputCount(count int) AnonymousAudit {
+	a.InputCount = count
+	a.Inputs = slices.Clone(a.Inputs)
+	for i := count; i < len(a.Inputs); i++ {
+		a.Inputs[i] = Dummy(3, big.NewInt(0x9000+int64(i)))
+	}
 	return a
 }
 
@@ -238,29 +254,45 @@ func (a AnonymousAudit) StatementOutputs(t testing.TB) []StatementOutput {
 	return outputs
 }
 
-// Disclosure is the enciphered anonymous disclosure under a.Layout, input hashes or on an entry shape full input openings.
+// Disclosure is the enciphered anonymous disclosure under a.Layout.
 func (a AnonymousAudit) Disclosure(t testing.TB) []*big.Int {
 	t.Helper()
+	return a.DisclosureOf(t, a.InputRecords(t))
+}
+
+// InputRecords is input 0's hash and the prefix pairs of the other published inputs, on an entry layout every published input's asset and blinding.
+func (a AnonymousAudit) InputRecords(t testing.TB) []*big.Int {
+	t.Helper()
+	published := a.Inputs[:a.InputCount]
+	if !a.Layout.FullOpenings {
+		return CommitmentRecords(spentHashes(t, published))
+	}
+	var records []*big.Int
+	for _, input := range published {
+		records = append(records, live(input, input.Asset), live(input, input.Blinding))
+	}
+	return records
+}
+
+// DisclosureOf enciphers the head of a.Layout followed by records.
+func (a AnonymousAudit) DisclosureOf(t testing.TB, records []*big.Int) []*big.Int {
+	t.Helper()
 	var nullifierPks []*big.Int
-	slotBytes := slices.Clone(a.SenderKey[:])
+	var slotBytes []byte
+	if a.Layout.FullOpenings {
+		slotBytes = slices.Clone(a.SenderKey[:])
+	}
 	for _, output := range a.Outputs {
 		nullifierPks = append(nullifierPks, live(output.Utxo, output.Utxo.NullifierPk))
 		slotBytes = append(slotBytes, output.slotBytes(t, output.RecipientKey[:])...)
 	}
 	head := slices.Concat(nullifierPks, PackDisclosure(slotBytes))
-	var records []*big.Int
-	published := a.Inputs[:a.InputCount]
 	if a.Layout.FullOpenings {
 		var amounts []byte
 		for _, input := range a.Inputs {
 			amounts = binary.BigEndian.AppendUint64(amounts, live(input, new(big.Int).SetUint64(input.Amount)).Uint64())
 		}
 		head = slices.Concat([]*big.Int{a.Inputs[0].NullifierPk}, head, PackDisclosure(amounts))
-		for _, input := range published {
-			records = append(records, live(input, input.Asset), live(input, input.Blinding))
-		}
-	} else {
-		records = spentHashes(t, published)
 	}
 	return a.Keys.Disclose(t, a.Salt, slices.Concat(a.seedOut(a.Layout), head, records))
 }
@@ -282,7 +314,9 @@ func (a AnonymousAudit) Circuit(t testing.TB) *base.AnonymousAuditCircuit {
 	}
 	c.PrivateTxHash = a.PrivateTxHash(t)
 	c.PrivateTxBlinding = a.PrivateTxBlinding
-	setBytes(c.SenderKey[:], a.SenderKey[:])
+	if a.Shape.FullOpenings {
+		setBytes(c.SenderKey, a.SenderKey[:])
+	}
 	c.InputCount = a.InputCount
 	for i, input := range a.Inputs {
 		c.Inputs[i] = input.Wires()
@@ -331,4 +365,21 @@ func spentHashes(t testing.TB, utxos []Utxo) []*big.Int {
 		hashes[i] = utxo.spentHash(t)
 	}
 	return hashes
+}
+
+// CommitmentRecords mirrors the commitment tail of base.
+func CommitmentRecords(hashes []*big.Int) []*big.Int {
+	records := []*big.Int{hashes[0]}
+	var prefixes []*big.Int
+	for _, hash := range hashes[1:] {
+		prefixes = append(prefixes, new(big.Int).Rsh(hash, 8*(32-base.InputPrefixLen)))
+	}
+	for k := 0; k < len(prefixes); k += 2 {
+		second := big.NewInt(0)
+		if k+1 < len(prefixes) {
+			second = prefixes[k+1]
+		}
+		records = append(records, new(big.Int).Add(new(big.Int).Lsh(prefixes[k], base.InputPrefixBits), second))
+	}
+	return records
 }
