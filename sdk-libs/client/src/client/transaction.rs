@@ -172,8 +172,9 @@ impl<'a> Submission<'a> {
     /// and the last block height it can land at.
     ///
     /// Fetches the blockhash beside the proof and retries after proving if
-    /// that request failed or began more than ten seconds ago, including RPC
-    /// latency. Proof errors return without waiting for the blockhash request.
+    /// that request is still pending, failed, or began more than ten seconds
+    /// ago, including RPC latency. Proof errors return without waiting for
+    /// the blockhash request.
     /// Callers used to fetch one and hand it in,
     /// which put a multi-second proof between the blockhash and the send.
     /// Under load that window exceeded the blockhash lifetime and the
@@ -296,22 +297,26 @@ const MAX_PREFETCHED_BLOCKHASH_AGE: Duration = Duration::from_secs(10);
 
 /// Prove and fetch the latest blockhash concurrently. Reuse the blockhash
 /// only if its request began at most [`MAX_PREFETCHED_BLOCKHASH_AGE`] ago;
-/// otherwise retry after proving. Proof errors cancel the concurrent fetch,
-/// while a failed fetch is retried after a successful proof.
+/// otherwise retry after proving. If proving finishes first, drop the pending
+/// prefetch before retrying. Proof errors return without waiting for the fetch,
+/// while a failed fetch is retried only after a successful proof.
 pub(super) async fn prove_with_blockhash<R: AsyncRpc, T>(
     rpc: &R,
     proving: impl Future<Output = Result<T, ClientError>>,
 ) -> Result<(T, (Hash, u64)), ClientError> {
-    let prefetch = async {
-        let requested_at = Instant::now();
-        let blockhash = rpc.get_latest_blockhash().await;
-        // Keep the fetch error as data so only a proof error short-circuits
-        // the join. A successful proof can retry a failed blockhash request.
-        Ok::<_, ClientError>((blockhash, requested_at))
+    let requested_at = Instant::now();
+    let (proved, prefetched) = {
+        let prefetch = rpc.get_latest_blockhash();
+        tokio::pin!(proving, prefetch);
+        tokio::select! {
+            // Prefer a ready prefetch when both futures are ready.
+            biased;
+            blockhash = &mut prefetch => (proving.await?, Some(blockhash)),
+            proved = &mut proving => (proved?, None),
+        }
     };
-    let (proved, (blockhash, requested_at)) = tokio::try_join!(proving, prefetch)?;
-    let blockhash = match blockhash {
-        Ok(blockhash) if requested_at.elapsed() <= MAX_PREFETCHED_BLOCKHASH_AGE => blockhash,
+    let blockhash = match prefetched {
+        Some(Ok(blockhash)) if requested_at.elapsed() <= MAX_PREFETCHED_BLOCKHASH_AGE => blockhash,
         _ => rpc.get_latest_blockhash().await?,
     };
     Ok((proved, blockhash))
@@ -407,15 +412,17 @@ fn build_unsigned_message(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
     use super::*;
 
     /// Each fetch returns its count as the hash and height. The first fetch
-    /// can fail, arrive late, or never finish; retries succeed immediately.
+    /// can fail, arrive late, or never finish; retries can also be delayed.
     struct Blockhashes {
         fetched: AtomicU32,
+        first_dropped: AtomicBool,
         first: FirstFetch,
+        retry_delay: Duration,
     }
 
     enum FirstFetch {
@@ -429,7 +436,9 @@ mod tests {
         fn new(first: FirstFetch) -> Self {
             Self {
                 fetched: AtomicU32::new(0),
+                first_dropped: AtomicBool::new(false),
                 first,
+                retry_delay: Duration::ZERO,
             }
         }
 
@@ -438,16 +447,33 @@ mod tests {
         }
     }
 
+    struct FetchDropped<'a>(&'a AtomicBool);
+
+    impl Drop for FetchDropped<'_> {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+
     #[async_trait::async_trait]
     impl AsyncRpc for Blockhashes {
         async fn get_latest_blockhash(&self) -> Result<(Hash, u64), ClientError> {
             let count = self.fetched.fetch_add(1, Ordering::SeqCst) + 1;
             if count == 1 {
+                let _dropped = FetchDropped(&self.first_dropped);
                 match self.first {
                     FirstFetch::Ready => {}
                     FirstFetch::Failed => return Err(ClientError::Rpc("blockhash".into())),
                     FirstFetch::Delayed(delay) => tokio::time::sleep(delay).await,
                     FirstFetch::Pending => std::future::pending::<()>().await,
+                }
+            } else {
+                assert!(
+                    self.first_dropped.load(Ordering::SeqCst),
+                    "drop the prefetch before starting its replacement"
+                );
+                if !self.retry_delay.is_zero() {
+                    tokio::time::sleep(self.retry_delay).await;
                 }
             }
             Ok((Hash::new_from_array([count as u8; 32]), count.into()))
@@ -522,6 +548,43 @@ mod tests {
                 (7, Hash::new_from_array([2; 32]), 2, 2)
             );
         }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_successful_proof_cancels_a_pending_prefetch_before_retrying() {
+        for proof_seconds in [5, 30] {
+            let rpc = Blockhashes::new(FirstFetch::Pending);
+            let started = Instant::now();
+            let proving = async {
+                tokio::time::sleep(Duration::from_secs(proof_seconds)).await;
+                Ok(7)
+            };
+            let result = tokio::time::timeout(
+                Duration::from_secs(proof_seconds + 1),
+                prove_with_blockhash(&rpc, proving),
+            )
+            .await
+            .expect("a successful proof must not wait for a pending prefetch")
+            .unwrap();
+            assert_eq!(result, (7, (Hash::new_from_array([2; 32]), 2)));
+            assert_eq!(rpc.fetched(), 2);
+            assert_eq!(started.elapsed(), Duration::from_secs(proof_seconds));
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_slow_prefetch_does_not_add_latency_after_proving() {
+        let mut rpc = Blockhashes::new(FirstFetch::Delayed(Duration::from_secs(25)));
+        rpc.retry_delay = Duration::from_secs(25);
+        let started = Instant::now();
+        let proving = async {
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            Ok(7)
+        };
+        let result = prove_with_blockhash(&rpc, proving).await.unwrap();
+        assert_eq!(result, (7, (Hash::new_from_array([2; 32]), 2)));
+        assert_eq!(rpc.fetched(), 2);
+        assert_eq!(started.elapsed(), Duration::from_secs(30));
     }
 
     #[tokio::test(start_paused = true)]

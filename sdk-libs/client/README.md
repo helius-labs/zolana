@@ -52,10 +52,11 @@ let signature = Submission::new(&signed, fee_payer, &authority)
 proves, signs, sends and waits until the transaction is confirmed and
 indexed. `finish_unsigned_sync` / `finish_unsigned` stop at the unsigned
 message, for a fee payer whose key lives elsewhere. The message carries a
-blockhash fetched beside the proof. If that request failed or began more than
-ten seconds ago when both operations finish, including RPC response latency,
-the client fetches it again after proving. A proof error returns immediately
-without waiting for the blockhash request. Merge submissions use the same rule.
+blockhash fetched beside the proof. If that request is still pending when proving
+succeeds, the client cancels it and fetches again immediately. A completed request
+is reused only if it succeeded and began at most ten seconds ago, including RPC
+response latency. A proof error returns immediately without waiting for the
+blockhash request. Merge submissions use the same rule.
 The ten-second limit controls prefetch reuse; blockhash expiration follows chain
 state and the returned `last_valid_block_height`.
 

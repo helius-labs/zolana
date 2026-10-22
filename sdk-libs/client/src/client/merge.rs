@@ -162,7 +162,8 @@ impl<'a> MergeSubmission<'a> {
     /// The unsigned v1 message of this merge, which `fee_payer` pays for and
     /// signs alone, and the last block height it can land at. The blockhash
     /// is fetched beside the proof and retried after proving if that request
-    /// failed or began more than ten seconds ago, including RPC latency.
+    /// is still pending, failed, or began more than ten seconds ago, including
+    /// RPC latency.
     /// Proof errors return without waiting for the blockhash request.
     pub async fn finish_unsigned<R: AsyncRpc, I: AsyncIndexer>(
         &self,
