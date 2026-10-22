@@ -102,12 +102,12 @@ describe("wallet persistence", () => {
     expect(restored._syncCursor("transactions", "aa".repeat(32))).toBeUndefined();
   });
 
-  it.each([3, 4])("accepts version %s state and drops its byte cursors", (version) => {
+  it.each([3, 4, 5])("accepts version %s state and drops its byte cursors", (version) => {
     const keypair = ShieldedKeypair.generate();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
     const snapshot = JSON.parse(serializeWallet(wallet)) as Record<string, unknown>;
     snapshot["version"] = version;
-    // Versions 3 and 4 stored opaque cursor bytes, positions in a retired encoding.
+    // Versions 3 through 5 stored opaque cursor bytes.
     snapshot["syncCursors"] = {
       transactions: [{ key: "aa".repeat(32), cursor: "AQI=" }],
       proofless: [],

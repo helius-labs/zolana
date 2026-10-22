@@ -835,13 +835,13 @@ impl Rpc for PagedIndexer {
     fn get_shielded_transactions_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        since: Option<ChainPosition>,
+        after: Option<ChainPosition>,
         limit: Option<u32>,
         _config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, zolana_client::ClientError> {
         assert_eq!(tags, vec![self.expected_tag]);
         self.requested.borrow_mut().push(limit);
-        let page_index = since.map_or(0, |position| position.slot as usize);
+        let page_index = after.map_or(0, |position| position.slot as usize);
         let transactions = self.pages.get(page_index).cloned().unwrap_or_default();
         let next = (page_index + 1 < self.pages.len()).then(|| page_position(page_index + 1));
         Ok(GetShieldedTransactionsByTagsResponse {
@@ -1139,14 +1139,14 @@ fn a_scan_stopped_by_max_pages_resumes_where_it_stopped() {
         .with_max_pages(NonZeroUsize::new(2).expect("page limit"))
         .run(env)
         .expect("first scan");
-    let since = stopped.next.expect("unread history");
+    let after = stopped.next.expect("unread history");
     assert_eq!(
         signatures(&stopped.transactions),
         signatures(&pages[..2].concat())
     );
 
     let resumed = RingScan::new(ring, &auditor_pk)
-        .with_since(since)
+        .with_after(after)
         .with_max_pages(NonZeroUsize::new(2).expect("page limit"))
         .run(env)
         .expect("resumed scan");
@@ -1184,7 +1184,7 @@ fn a_cursor_at_the_end_of_history_returns_an_empty_page() {
     let indexer = indexer(&auditor_pk, pages);
 
     let page = RingScan::new(ring, &auditor_pk)
-        .with_since(page_position(2))
+        .with_after(page_position(2))
         .with_max_pages(NonZeroUsize::new(2).expect("page limit"))
         .run(RingEnvironment {
             indexer: &indexer,

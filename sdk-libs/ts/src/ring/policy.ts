@@ -972,11 +972,11 @@ export async function readRingEntries(
   const pairs = new Map<string, EntryPair>();
   await collectPages(
     "getEncryptedUtxosByTags",
-    (since) =>
+    (after) =>
       input.indexer.getEncryptedUtxosByTags(
         {
           tags: [tag],
-          ...(since === undefined ? {} : { since }),
+          ...(after === undefined ? {} : { after }),
           ...(input.pageLimit === undefined ? {} : { limit: input.pageLimit }),
         },
         undefined,
@@ -1211,9 +1211,9 @@ async function fetchSpenders(
   const spenders: IndexedShieldedTransaction[] = [];
   await collectPages(
     "getShieldedTransactionsByNullifiers",
-    (since) =>
+    (after) =>
       indexer.getShieldedTransactionsByNullifiers(
-        { nullifiers, ...(since === undefined ? {} : { since }) },
+        { nullifiers, ...(after === undefined ? {} : { after }) },
         undefined,
         context,
       ),
@@ -1271,20 +1271,20 @@ interface PositionPage {
 /** Only a truncated page names `next`, a terminal page ends the round. */
 async function collectPages<P extends PositionPage>(
   method: string,
-  request: (since: ChainPosition | undefined) => Promise<P>,
+  request: (after: ChainPosition | undefined) => Promise<P>,
   absorb: (page: P) => void,
 ): Promise<void> {
-  let since: ChainPosition | undefined;
+  let after: ChainPosition | undefined;
   for (;;) {
-    const page = await request(since);
+    const page = await request(after);
     absorb(page);
     const next = page.next;
     if (next === undefined) return;
-    if (since !== undefined && compareChainPositions(next, since) <= 0) {
+    if (after !== undefined && compareChainPositions(next, after) <= 0) {
       throw new ClientError("CLIENT_INVALID_RPC_RESPONSE", {
         details: { method, path: "$.next" },
       });
     }
-    since = next;
+    after = next;
   }
 }

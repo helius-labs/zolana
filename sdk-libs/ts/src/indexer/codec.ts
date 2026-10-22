@@ -556,8 +556,8 @@ function nonInclusionProof(value: unknown, path: string): NonInclusionProof {
 }
 
 function decodeRingsByTagsRequest(value: unknown): GetRingsByTagsRequest {
-  const record = object(value, "$", ["tags", "since", "limit", "ringProgramId"]);
-  const since = optional(record["since"], "$.since", chainPosition);
+  const record = object(value, "$", ["tags", "after", "limit", "ringProgramId"]);
+  const after = optional(record["after"], "$.after", chainPosition);
   const pageLimit =
     record["limit"] === undefined || record["limit"] === null
       ? undefined
@@ -568,7 +568,7 @@ function decodeRingsByTagsRequest(value: unknown): GetRingsByTagsRequest {
     schemaFailure("INDEXER_SCHEMA_INVALID_TYPE", "$.tags", "nonempty tags or ringProgramId");
   return {
     tags,
-    ...(since === undefined ? {} : { since }),
+    ...(after === undefined ? {} : { after }),
     ...(pageLimit === undefined ? {} : { limit: pageLimit }),
     ...(ringProgramId === undefined ? {} : { ringProgramId }),
   };
@@ -577,30 +577,30 @@ function decodeRingsByTagsRequest(value: unknown): GetRingsByTagsRequest {
 export function encodeRingsByTagsRequest(value: GetRingsByTagsRequest): WireObject {
   const decoded = decodeRingsByTagsRequest({
     tags: value.tags,
-    ...(value.since === undefined ? {} : { since: encodeChainPosition(value.since, "$.since") }),
+    ...(value.after === undefined ? {} : { after: encodeChainPosition(value.after, "$.after") }),
     ...(value.limit === undefined ? {} : { limit: toU64(value.limit, "$.limit") }),
     ...(value.ringProgramId === undefined ? {} : { ringProgramId: value.ringProgramId }),
   });
   return {
     tags: [...decoded.tags],
-    ...(decoded.since === undefined
+    ...(decoded.after === undefined
       ? {}
-      : { since: encodeChainPosition(decoded.since, "$.since") }),
+      : { after: encodeChainPosition(decoded.after, "$.after") }),
     ...(decoded.limit === undefined ? {} : { limit: Number(decoded.limit) }),
     ...(decoded.ringProgramId === undefined ? {} : { ringProgramId: decoded.ringProgramId }),
   };
 }
 
 function decodeRingsByNullifiersRequest(value: unknown): GetRingsByNullifiersRequest {
-  const record = object(value, "$", ["nullifiers", "since", "limit"]);
-  const since = optional(record["since"], "$.since", chainPosition);
+  const record = object(value, "$", ["nullifiers", "after", "limit"]);
+  const after = optional(record["after"], "$.after", chainPosition);
   const pageLimit =
     record["limit"] === undefined || record["limit"] === null
       ? undefined
       : checkedPageLimit(record["limit"], "$.limit");
   return {
     nullifiers: array(record["nullifiers"], "$.nullifiers", checkedHash),
-    ...(since === undefined ? {} : { since }),
+    ...(after === undefined ? {} : { after }),
     ...(pageLimit === undefined ? {} : { limit: pageLimit }),
   };
 }
@@ -608,14 +608,14 @@ function decodeRingsByNullifiersRequest(value: unknown): GetRingsByNullifiersReq
 export function encodeRingsByNullifiersRequest(value: GetRingsByNullifiersRequest): WireObject {
   const decoded = decodeRingsByNullifiersRequest({
     nullifiers: value.nullifiers,
-    ...(value.since === undefined ? {} : { since: encodeChainPosition(value.since, "$.since") }),
+    ...(value.after === undefined ? {} : { after: encodeChainPosition(value.after, "$.after") }),
     ...(value.limit === undefined ? {} : { limit: toU64(value.limit, "$.limit") }),
   });
   return {
     nullifiers: [...decoded.nullifiers],
-    ...(decoded.since === undefined
+    ...(decoded.after === undefined
       ? {}
-      : { since: encodeChainPosition(decoded.since, "$.since") }),
+      : { after: encodeChainPosition(decoded.after, "$.after") }),
     ...(decoded.limit === undefined ? {} : { limit: Number(decoded.limit) }),
   };
 }

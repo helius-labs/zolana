@@ -9,8 +9,7 @@ use zolana_user_registry_interface::{user_record_pda, MergeEncryptionScheme};
 use crate::{
     error::ClientError,
     rpc::{
-        ChainPosition,
-        Context, EncryptedUtxoMatch, GetShieldedTransactionsBySignatureResponse,
+        ChainPosition, Context, EncryptedUtxoMatch, GetShieldedTransactionsBySignatureResponse,
         GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, IndexedShieldedTransaction,
         MerkleContext, MerkleProof, NonInclusionProof, OutputContext, OutputSlot,
         RingHistoryOptions, ShieldedTransaction, UserRecord,
@@ -26,7 +25,7 @@ pub(super) fn ring_history_request(
         .transpose()?;
     Ok(GetRingsByTagsRequest {
         tags: Vec::new(),
-        since: options.since.map(encode_position),
+        after: options.after.map(encode_position),
         limit,
         ring_program_id: Some(SerializablePubkey(options.ring_program_id)),
     })
@@ -329,25 +328,25 @@ mod tests {
     #[test]
     fn ring_history_request_pins_the_ring_without_a_view_tag() {
         let ring = solana_address::Address::new_from_array([19; 32]);
-        let since = crate::rpc::ChainPosition {
+        let after = crate::rpc::ChainPosition {
             slot: 7,
             signature: solana_signature::Signature::from([7; 64]),
         };
         let request = super::ring_history_request(crate::rpc::RingHistoryOptions {
             ring_program_id: ring,
-            since: Some(since),
+            after: Some(after),
             limit: Some(17),
         })
         .unwrap();
         assert!(request.tags.is_empty());
         assert_eq!(request.ring_program_id.unwrap().0, ring);
-        let wire = request.since.unwrap();
+        let wire = request.after.unwrap();
         assert_eq!(wire.slot, 7);
-        assert_eq!(wire.signature.0, since.signature);
+        assert_eq!(wire.signature.0, after.signature);
         assert_eq!(request.limit.unwrap().value(), 17);
         assert!(super::ring_history_request(crate::rpc::RingHistoryOptions {
             ring_program_id: ring,
-            since: None,
+            after: None,
             limit: Some(0)
         })
         .is_err());

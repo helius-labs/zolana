@@ -210,8 +210,8 @@ pub fn rpc_module<S: TransactionSource + 'static>(
             }
             .map_err(ErrorObjectOwned::from)?;
             let mut page = PageOptions::default();
-            if let Some(since) = &request.since {
-                page = page.with_since(since);
+            if let Some(after) = &request.after {
+                page = page.with_after(after);
             }
             if let Some(limit) = request.limit {
                 page = page.with_limit(limit).map_err(ErrorObjectOwned::from)?;

@@ -1,9 +1,9 @@
 use std::collections::BTreeMap;
 
 use super::common::{
-    bind_u64_as_i64, chain_position, ensure_since_indexed, hash_from_vec, int_list_sql,
-    rings_output_slot_from_parts, signature_from_bytes, since_sql_condition, tags_sql,
-    u16_from_i16, u64_from_i64, validate_nullifiers, validate_tags,
+    after_sql_condition, bind_u64_as_i64, chain_position, ensure_after_indexed, hash_from_vec,
+    int_list_sql, rings_output_slot_from_parts, signature_from_bytes, tags_sql, u16_from_i16,
+    u64_from_i64, validate_nullifiers, validate_tags,
 };
 use crate::api::error::PhotonApiError;
 use crate::common::bind_sql_value;
@@ -81,7 +81,7 @@ pub async fn get_shielded_transactions_by_tags(
     let page = get_shielded_transactions(
         conn,
         &request.tags,
-        request.since.as_ref(),
+        request.after.as_ref(),
         request.limit.unwrap_or_default().value(),
         MatchBy::Tags,
         ring_config,
@@ -104,7 +104,7 @@ pub async fn get_shielded_transactions_by_nullifiers(
     let page = get_shielded_transactions(
         conn,
         &request.nullifiers,
-        request.since.as_ref(),
+        request.after.as_ref(),
         request.limit.unwrap_or_default().value(),
         MatchBy::Nullifiers,
         None,
@@ -137,7 +137,7 @@ struct ShieldedTransactionPage {
 async fn get_shielded_transactions(
     conn: &DatabaseConnection,
     values: &[Hash],
-    since: Option<&ChainPosition>,
+    after: Option<&ChainPosition>,
     limit: u64,
     match_by: MatchBy,
     ring_config: Option<Pubkey>,
@@ -146,12 +146,12 @@ async fn get_shielded_transactions(
     let output_tree_id = newest_unpaused_tree_id(conn).await?;
     let tx = conn.begin().await?;
     crate::api::set_transaction_isolation_if_needed(&tx).await?;
-    if let Some(since) = since {
-        ensure_since_indexed(&tx, since).await?;
+    if let Some(after) = after {
+        ensure_after_indexed(&tx, after).await?;
     }
 
     let mut matched_txs =
-        fetch_matching_rings_transactions(&tx, values, since, limit, match_by, ring_config).await?;
+        fetch_matching_rings_transactions(&tx, values, after, limit, match_by, ring_config).await?;
 
     // A full page means the limit cut the scan short, so nothing can be claimed
     // beyond it. A terminal page needs the stream position even when no row
@@ -365,7 +365,7 @@ fn ring_filter_sql(
 async fn fetch_matching_rings_transactions(
     tx: &DatabaseTransaction,
     values: &[Hash],
-    since: Option<&ChainPosition>,
+    after: Option<&ChainPosition>,
     limit: u64,
     match_by: MatchBy,
     ring_config: Option<Pubkey>,
@@ -375,8 +375,8 @@ async fn fetch_matching_rings_transactions(
     let match_filter = match_by_sql(values, match_by, ring_config, backend, &mut params);
     // "pt": this query returns transactions and orders by them, so the resume
     // filter reads from the same table it sorts by.
-    let since_filter = since
-        .map(|since| since_sql_condition("pt", since, backend, &mut params))
+    let after_filter = after
+        .map(|after| after_sql_condition("pt", after, backend, &mut params))
         .transpose()?
         .map(|condition| format!("AND {condition}"))
         .unwrap_or_default();
@@ -400,7 +400,7 @@ async fn fetch_matching_rings_transactions(
          FROM rings_transactions pt
          LEFT JOIN ring_configs rc ON rc.ring_config = pt.ring_config
          WHERE ({match_filter})
-         {since_filter}
+         {after_filter}
          {ring_filter}
          ORDER BY pt.slot ASC, pt.signature ASC, pt.event_index ASC
          LIMIT {limit}"
@@ -648,7 +648,7 @@ mod tests {
             &db,
             GetRingsByNullifiersRequest {
                 nullifiers: vec![hash(3), hash(4)],
-                since: None,
+                after: None,
                 limit: Some(Limit::new(10).unwrap()),
             },
         )
@@ -749,7 +749,7 @@ mod tests {
             db,
             GetRingsByTagsRequest {
                 tags: vec![hash(6)],
-                since: None,
+                after: None,
                 limit: Some(Limit::new(10).unwrap()),
                 ring_program_id: ring_program_id.map(SerializablePubkey::from),
             },
@@ -874,7 +874,7 @@ mod tests {
         insert_history_output(&db, 6, None, tag::DEPOSIT).await;
         let request = GetRingsByTagsRequest {
             tags: vec![],
-            since: None,
+            after: None,
             limit: Some(Limit::new(2).unwrap()),
             ring_program_id: Some(SerializablePubkey::from(ring)),
         };
@@ -896,7 +896,7 @@ mod tests {
         let second = get_shielded_transactions_by_tags(
             &db,
             GetRingsByTagsRequest {
-                since: first.next,
+                after: first.next,
                 ..request.clone()
             },
         )
@@ -908,7 +908,7 @@ mod tests {
         let resumed = get_shielded_transactions_by_tags(
             &db,
             GetRingsByTagsRequest {
-                since: Some(terminal),
+                after: Some(terminal),
                 ..request.clone()
             },
         )
@@ -925,7 +925,7 @@ mod tests {
         let rest = get_encrypted_utxos_by_tags(
             &db,
             GetRingsByTagsRequest {
-                since: outputs.next,
+                after: outputs.next,
                 ..request.clone()
             },
         )
@@ -957,7 +957,7 @@ mod tests {
             &db,
             GetRingsByNullifiersRequest {
                 nullifiers: vec![hash(5)],
-                since: None,
+                after: None,
                 limit: Some(Limit::new(10).unwrap()),
             },
         )
@@ -975,7 +975,7 @@ mod tests {
             &db,
             GetRingsByNullifiersRequest {
                 nullifiers: vec![hash(5)],
-                since: None,
+                after: None,
                 limit: Some(Limit::new(10).unwrap()),
             },
         )
@@ -991,7 +991,7 @@ mod tests {
             &db,
             GetRingsByNullifiersRequest {
                 nullifiers: vec![hash(5)],
-                since: Some(latest.clone()),
+                after: Some(latest.clone()),
                 limit: Some(Limit::new(10).unwrap()),
             },
         )
@@ -1014,7 +1014,7 @@ mod tests {
             &db,
             GetRingsByNullifiersRequest {
                 nullifiers: vec![hash(3), hash(4)],
-                since: None,
+                after: None,
                 limit: Some(Limit::new(1).unwrap()),
             },
         )
@@ -1040,7 +1040,7 @@ mod tests {
             &db,
             GetRingsByNullifiersRequest {
                 nullifiers: vec![hash(5)],
-                since: None,
+                after: None,
                 limit: Some(Limit::new(10).unwrap()),
             },
         )
@@ -1105,7 +1105,7 @@ mod tests {
             &db,
             GetRingsByNullifiersRequest {
                 nullifiers: vec![hash(5)],
-                since: Some(latest),
+                after: Some(latest),
                 limit: Some(Limit::new(10).unwrap()),
             },
         )
@@ -1127,7 +1127,7 @@ mod tests {
             &db,
             GetRingsByTagsRequest {
                 tags: vec![hash(9)],
-                since: None,
+                after: None,
                 limit: Some(Limit::new(10).unwrap()),
                 ring_program_id: None,
             },
@@ -1140,7 +1140,7 @@ mod tests {
             &db,
             GetRingsByNullifiersRequest {
                 nullifiers: vec![hash(3)],
-                since: Some(latest),
+                after: Some(latest),
                 limit: Some(Limit::new(10).unwrap()),
             },
         )
@@ -1155,13 +1155,13 @@ mod tests {
     /// Rows below the first indexed block were never ingested, so a silent
     /// resume from that gap would skip them forever.
     #[tokio::test]
-    async fn a_since_below_the_indexed_floor_is_rejected() {
+    async fn an_after_below_the_indexed_floor_is_rejected() {
         let db = setup().await;
         let result = get_shielded_transactions_by_nullifiers(
             &db,
             GetRingsByNullifiersRequest {
                 nullifiers: vec![hash(5)],
-                since: Some(ChainPosition {
+                after: Some(ChainPosition {
                     slot: 0,
                     signature: signature_from_bytes(&[1; 64]).unwrap(),
                 }),
@@ -1215,7 +1215,7 @@ mod tests {
             &db,
             GetRingsByNullifiersRequest {
                 nullifiers: vec![hash(3), hash(10)],
-                since: None,
+                after: None,
                 limit: Some(Limit::new(1).unwrap()),
             },
         )
@@ -1232,7 +1232,7 @@ mod tests {
             &db,
             GetRingsByNullifiersRequest {
                 nullifiers: vec![hash(3), hash(10)],
-                since: Some(next),
+                after: Some(next),
                 limit: Some(Limit::new(10).unwrap()),
             },
         )

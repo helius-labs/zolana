@@ -31,7 +31,7 @@ pub(crate) const ASSET_REFRESH_INTERVAL: Duration = Duration::from_secs(60);
 pub(crate) const MAX_ASSET_REGISTRY_ACCOUNTS: usize = 4_096;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Page {
-    since: Option<ChainPosition>,
+    after: Option<ChainPosition>,
     limit: NonZeroU32,
     attested_limit: Option<Limit>,
 }
@@ -39,7 +39,7 @@ pub struct Page {
 #[derive(Default)]
 #[must_use]
 pub struct PageOptions {
-    since: Option<ChainPosition>,
+    after: Option<ChainPosition>,
     limit: Option<Limit>,
 }
 
@@ -66,8 +66,8 @@ pub struct AuditRead<'a> {
 
 impl PageOptions {
     #[must_use = "use the updated options"]
-    pub fn with_since(mut self, since: &WireChainPosition) -> Self {
-        self.since = Some(domain_position(since));
+    pub fn with_after(mut self, after: &WireChainPosition) -> Self {
+        self.after = Some(domain_position(after));
         self
     }
 
@@ -90,7 +90,7 @@ impl PageOptions {
             .and_then(NonZeroU32::new)
             .ok_or(RingRpcError::InvalidPage)?;
         Ok(Page {
-            since: self.since,
+            after: self.after,
             limit,
             attested_limit,
         })
@@ -98,8 +98,8 @@ impl PageOptions {
 }
 
 impl Page {
-    pub fn since(&self) -> Option<ChainPosition> {
-        self.since
+    pub fn after(&self) -> Option<ChainPosition> {
+        self.after
     }
 
     pub fn limit(&self) -> NonZeroU32 {
@@ -178,7 +178,7 @@ impl<S: TransactionSource> AuditService<S> {
             ring: self.ring,
             timestamp: request.auth.timestamp,
             nonce: &nonce,
-            since: request.page.since,
+            after: request.page.after,
             limit: request.page.attested_limit.clone(),
         };
         let claim = ReadCheck::new(request.auth, &attestation)
@@ -224,17 +224,17 @@ impl<S: TransactionSource> AuditService<S> {
         page: &Page,
         mode: RingMode,
     ) -> Result<GetDecryptedTransactionsResponse, RingRpcError> {
-        let since = page.since();
+        let after = page.after();
         let response = self
             .shared
             .source
             .transactions_by_tag(TransactionPage {
                 tag: self.view_tag,
-                since,
+                after,
                 limit: page.limit(),
             })
             .await?;
-        validate_indexer_response(&response, page, since, self.view_tag)?;
+        validate_indexer_response(&response, page, after, self.view_tag)?;
         let mut assets = self.shared.cached_assets().await;
         let mut refreshed_assets = false;
 
@@ -329,15 +329,41 @@ fn skipped_reason(error: &AuditError) -> SkippedReason {
 fn validate_indexer_response(
     response: &GetShieldedTransactionsByTagsResponse,
     page: &Page,
-    since: Option<ChainPosition>,
+    after: Option<ChainPosition>,
     auditor_tag: [u8; 32],
 ) -> Result<(), RingRpcError> {
-    if response.transactions.len() > page.limit.get() as usize
-        || response
-            .next
-            .is_some_and(|next| since.is_some_and(|reached| next <= reached))
+    if response
+        .next
+        .is_some_and(|next| after.is_some_and(|reached| next <= reached))
+        || (response.next.is_some() && response.latest.is_some())
     {
         return Err(RingRpcError::InvalidIndexerResponse);
+    }
+    let limit = page.limit.get() as usize;
+    if response.transactions.len() > limit {
+        let boundary = &response.transactions[limit - 1];
+        let position = ChainPosition {
+            slot: boundary.slot,
+            signature: boundary.tx_signature,
+        };
+        if response.next != Some(position) {
+            return Err(RingRpcError::InvalidIndexerResponse);
+        }
+        let mut event_index = boundary
+            .event_index
+            .ok_or(RingRpcError::InvalidIndexerResponse)?;
+        for transaction in &response.transactions[limit..] {
+            let next_index = transaction
+                .event_index
+                .ok_or(RingRpcError::InvalidIndexerResponse)?;
+            if transaction.slot != position.slot
+                || transaction.tx_signature != position.signature
+                || next_index <= event_index
+            {
+                return Err(RingRpcError::InvalidIndexerResponse);
+            }
+            event_index = next_index;
+        }
     }
     for transaction in &response.transactions {
         let has_auditor_message = transaction

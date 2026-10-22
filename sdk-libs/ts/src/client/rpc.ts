@@ -36,13 +36,13 @@ export interface RpcContext {
 export interface GetByTagsRequest {
   readonly tags: readonly Bytes32[];
   readonly ringProgramId?: Address;
-  readonly since?: ChainPosition;
+  readonly after?: ChainPosition;
   readonly limit?: number;
 }
 
 export interface GetByNullifiersRequest {
   readonly nullifiers: readonly Bytes32[];
-  readonly since?: ChainPosition;
+  readonly after?: ChainPosition;
   readonly limit?: number;
 }
 

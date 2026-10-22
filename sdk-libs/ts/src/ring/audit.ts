@@ -333,7 +333,7 @@ export async function auditRing(
     /** The ring's on-chain mode, `"off"` when omitted. */
     mode?: RingMode;
     origin?: TransactionOrigin;
-    since?: ChainPosition;
+    after?: ChainPosition;
     pageSize?: number;
     maxPages?: number;
   }>,
@@ -348,13 +348,13 @@ export async function auditRing(
   );
   const transactions: AuditedRingTransaction[] = [];
   let assetsRefreshed = false;
-  let since = input.since;
+  let after = input.after;
   for (let page = 0; page < maxPages; page++) {
     const response = await input.client.getShieldedTransactionsByTags(
       {
         tags: [viewTag],
         limit: pageSize,
-        ...(since === undefined ? {} : { since }),
+        ...(after === undefined ? {} : { after }),
       },
       undefined,
       context,
@@ -394,14 +394,14 @@ export async function auditRing(
     }
     const next = response.next;
     if (next === undefined) return Object.freeze({ transactions: Object.freeze(transactions) });
-    if (since !== undefined && compareChainPositions(next, since) <= 0) {
+    if (after !== undefined && compareChainPositions(next, after) <= 0) {
       throw new RingError("RING_RPC", { details: { reason: "ring scan page did not advance" } });
     }
-    since = next;
+    after = next;
   }
   return Object.freeze({
     transactions: Object.freeze(transactions),
-    ...(since === undefined ? {} : { next: since }),
+    ...(after === undefined ? {} : { next: after }),
   });
 }
 

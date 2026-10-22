@@ -1,6 +1,6 @@
 use super::common::{
-    bind_u64_as_i64, chain_position, ensure_since_indexed, rings_output_slot_from_parts,
-    signature_from_bytes, since_sql_condition, tags_sql, u64_from_i64, validate_tags,
+    after_sql_condition, bind_u64_as_i64, chain_position, ensure_after_indexed,
+    rings_output_slot_from_parts, signature_from_bytes, tags_sql, u64_from_i64, validate_tags,
 };
 use crate::api::error::PhotonApiError;
 use crate::common::bind_sql_value;
@@ -49,8 +49,8 @@ pub async fn get_encrypted_utxos_by_tags(
     let output_tree_id = newest_unpaused_tree_id(conn).await?;
     let tx = conn.begin().await?;
     crate::api::set_transaction_isolation_if_needed(&tx).await?;
-    if let Some(since) = request.since.as_ref() {
-        ensure_since_indexed(&tx, since).await?;
+    if let Some(after) = request.after.as_ref() {
+        ensure_after_indexed(&tx, after).await?;
     }
 
     // Derived, not looked up: the filter works for a ring whose registration
@@ -61,7 +61,7 @@ pub async fn get_encrypted_utxos_by_tags(
     let mut rows = fetch_encrypted_utxo_rows(
         &tx,
         &request.tags,
-        request.since.as_ref(),
+        request.after.as_ref(),
         limit,
         ring_config,
     )
@@ -71,16 +71,7 @@ pub async fn get_encrypted_utxos_by_tags(
         // A position names a whole transaction, so pull the boundary
         // signature's remaining outputs before naming it as the resume point.
         let last = rows.last().expect("a truncated page has rows");
-        let tail = fetch_boundary_outputs(
-            &tx,
-            &request.tags,
-            last.slot,
-            last.signature.clone(),
-            last.event_index,
-            last.output_index,
-            ring_config,
-        )
-        .await?;
+        let tail = fetch_boundary_outputs(&tx, &request.tags, last, ring_config).await?;
         rows.extend(tail);
         let last = rows.last().expect("a truncated page has rows");
         (Some(chain_position(last.slot, &last.signature)?), None)
@@ -145,7 +136,7 @@ async fn encrypted_utxo_scan_position(
 async fn fetch_encrypted_utxo_rows(
     tx: &DatabaseTransaction,
     tags: &[Hash],
-    since: Option<&ChainPosition>,
+    after: Option<&ChainPosition>,
     limit: u64,
     ring_config: Option<Pubkey>,
 ) -> Result<Vec<EncryptedUtxoRow>, PhotonApiError> {
@@ -154,8 +145,8 @@ async fn fetch_encrypted_utxo_rows(
     let tag_filter = tag_filter_sql(tags, ring_config, backend, &mut params);
     // "po", matching this query's ORDER BY, so
     // idx_rings_outputs_view_tag_order serves the filter and the sort together.
-    let since_filter = since
-        .map(|since| since_sql_condition("po", since, backend, &mut params))
+    let after_filter = after
+        .map(|after| after_sql_condition("po", after, backend, &mut params))
         .transpose()?
         .map(|condition| format!("AND {condition}"))
         .unwrap_or_default();
@@ -187,7 +178,7 @@ async fn fetch_encrypted_utxo_rows(
          JOIN rings_output_payloads pop ON pop.output_id = po.output_id
          LEFT JOIN tree_metadata tm ON tm.tree_pubkey = po.output_tree
          WHERE {tag_filter}
-         {since_filter}
+         {after_filter}
          {ring_filter}
          ORDER BY po.slot ASC, po.signature ASC, po.event_index ASC, po.output_index ASC
          LIMIT {limit}"
@@ -202,14 +193,10 @@ async fn fetch_encrypted_utxo_rows(
 }
 
 /// The boundary signature's matching outputs past a truncated page.
-#[allow(clippy::too_many_arguments)]
 async fn fetch_boundary_outputs(
     tx: &DatabaseTransaction,
     tags: &[Hash],
-    slot: i64,
-    signature: Vec<u8>,
-    event_index: i16,
-    output_index: i16,
+    boundary: &EncryptedUtxoRow,
     ring_config: Option<Pubkey>,
 ) -> Result<Vec<EncryptedUtxoRow>, PhotonApiError> {
     let backend = tx.get_database_backend();
@@ -222,10 +209,10 @@ async fn fetch_boundary_outputs(
         }
         None => String::new(),
     };
-    let slot_value = bind_sql_value(&mut params, backend, slot);
-    let signature_value = bind_sql_value(&mut params, backend, signature);
-    let event_value = bind_sql_value(&mut params, backend, i32::from(event_index));
-    let output_value = bind_sql_value(&mut params, backend, i32::from(output_index));
+    let slot_value = bind_sql_value(&mut params, backend, boundary.slot);
+    let signature_value = bind_sql_value(&mut params, backend, boundary.signature.clone());
+    let event_value = bind_sql_value(&mut params, backend, i32::from(boundary.event_index));
+    let output_value = bind_sql_value(&mut params, backend, i32::from(boundary.output_index));
 
     let sql = format!(
         "SELECT

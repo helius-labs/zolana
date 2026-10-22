@@ -12,9 +12,10 @@ use solana_address::Address;
 use solana_signature::Signature;
 use zolana_client::{
     fetch_asset_id, fetch_spl_asset_registrations,
-    rpc::GetShieldedTransactionsByNullifiersResponse, ClientError, Context, EncryptedUtxoMatch,
-    GetEncryptedUtxosByTagsResponse, GetShieldedTransactionsByTagsResponse, IndexerRpcConfig,
-    OutputContext, OutputSlot, ProgramAccountsFilter, Rpc, ShieldedTransaction, UtxoScan,
+    rpc::GetShieldedTransactionsByNullifiersResponse, ChainPosition, ClientError, Context,
+    EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse, GetShieldedTransactionsByTagsResponse,
+    IndexerRpcConfig, OutputContext, OutputSlot, ProgramAccountsFilter, Rpc, ShieldedTransaction,
+    UtxoScan,
 };
 use zolana_event::{
     encode_merge_output_data, EncryptedRingDepositOutput, MergeOutputDataRef, OutputDataEncoding,
@@ -78,33 +79,49 @@ impl Indexer {
             .count()
     }
 
-    /// A page as Photon serves one: a cursor on any page with a row, and
-    /// `scanned_through` only on a page with fewer rows than the page size. A
-    /// full page names no end even when nothing follows it.
-    fn page<T: Clone>(&self, items: Vec<T>, cursor: Option<Vec<u8>>) -> Page<T> {
+    /// Pages never split the matching rows of one transaction.
+    fn page<T>(
+        &self,
+        mut items: Vec<T>,
+        after: Option<ChainPosition>,
+        position: impl Fn(&T) -> ChainPosition,
+    ) -> Page<T> {
         let size = self.page_size.max(1);
+        items.sort_by_key(&position);
+        let latest = items.last().map(&position);
         if self.stuck_cursor {
             return Page {
                 rows: items.into_iter().take(size).collect(),
-                next_cursor: Some(cursor.unwrap_or_default()),
-                scanned_through: None,
+                next: Some(after.or(latest).unwrap_or(ChainPosition {
+                    slot: 0,
+                    signature: Signature::default(),
+                })),
+                latest: None,
             };
         }
-        let start = cursor.map_or(0, |cursor| usize::from(cursor[0]));
-        let len = items.len();
-        let rows: Vec<T> = items.into_iter().skip(start).take(size).collect();
+        let mut remaining = items
+            .into_iter()
+            .filter(|item| after.is_none_or(|after| position(item) > after));
+        let mut rows: Vec<T> = remaining.by_ref().take(size).collect();
+        let next = if rows.len() >= size {
+            let boundary = position(rows.last().unwrap());
+            rows.extend(remaining.take_while(|item| position(item) == boundary));
+            Some(boundary)
+        } else {
+            None
+        };
         Page {
-            next_cursor: (!rows.is_empty()).then(|| vec![(start + rows.len()) as u8]),
-            scanned_through: (rows.len() < size).then(|| vec![len as u8]),
             rows,
+            next,
+            latest: latest.filter(|_| next.is_none()),
         }
     }
 }
 
 struct Page<T> {
     rows: Vec<T>,
-    next_cursor: Option<Vec<u8>>,
-    scanned_through: Option<Vec<u8>>,
+    next: Option<ChainPosition>,
+    latest: Option<ChainPosition>,
 }
 
 const CONTEXT: Context = Context {
@@ -149,7 +166,7 @@ impl Rpc for Indexer {
     fn get_shielded_transactions_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
+        cursor: Option<ChainPosition>,
         _limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
@@ -167,22 +184,25 @@ impl Rpc for Indexer {
             .collect();
         let Page {
             rows: transactions,
-            next_cursor,
-            scanned_through,
-        } = self.page(matching, cursor);
+            next,
+            latest,
+        } = self.page(matching, cursor, |item| ChainPosition {
+            slot: item.slot,
+            signature: item.tx_signature,
+        });
         Ok(GetShieldedTransactionsByTagsResponse {
             context: CONTEXT,
             output_tree_id: Some(TREE),
             transactions,
-            next_cursor,
-            scanned_through,
+            next,
+            latest,
         })
     }
 
     fn get_encrypted_utxos_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
+        cursor: Option<ChainPosition>,
         _limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
@@ -195,22 +215,25 @@ impl Rpc for Indexer {
             .collect();
         let Page {
             rows: matches,
-            next_cursor,
-            scanned_through,
-        } = self.page(matching, cursor);
+            next,
+            latest,
+        } = self.page(matching, cursor, |item| ChainPosition {
+            slot: item.slot,
+            signature: item.tx_signature,
+        });
         Ok(GetEncryptedUtxosByTagsResponse {
             context: CONTEXT,
             output_tree_id: Some(TREE),
             matches,
-            next_cursor,
-            scanned_through,
+            next,
+            latest,
         })
     }
 
     fn get_shielded_transactions_by_nullifiers(
         &self,
         nullifiers: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
+        cursor: Option<ChainPosition>,
         _limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
@@ -228,15 +251,18 @@ impl Rpc for Indexer {
             .collect();
         let Page {
             rows: transactions,
-            next_cursor,
-            scanned_through,
-        } = self.page(matching, cursor);
+            next,
+            latest,
+        } = self.page(matching, cursor, |item| ChainPosition {
+            slot: item.slot,
+            signature: item.tx_signature,
+        });
         Ok(GetShieldedTransactionsByNullifiersResponse {
             context: CONTEXT,
             output_tree_id: Some(TREE),
             transactions,
-            next_cursor,
-            scanned_through,
+            next,
+            latest,
         })
     }
 }

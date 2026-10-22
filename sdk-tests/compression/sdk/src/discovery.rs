@@ -74,12 +74,12 @@ pub fn decode_wallet_utxo(
 }
 
 pub fn discover_account(indexer: &impl Rpc, pda: Address) -> Result<DiscoveredAccount> {
-    let mut since = None;
+    let mut after = None;
     let mut matches = Vec::new();
     loop {
         let response = indexer.get_shielded_transactions_by_tags(
             vec![pda.to_bytes()],
-            since,
+            after,
             Some(100),
             None,
         )?;
@@ -101,8 +101,8 @@ pub fn discover_account(indexer: &impl Rpc, pda: Address) -> Result<DiscoveredAc
                 matches.push((indexed, first_nullifier, u32::try_from(index)?));
             }
         }
-        since = response.next;
-        if since.is_none() {
+        after = response.next;
+        if after.is_none() {
             break;
         }
     }

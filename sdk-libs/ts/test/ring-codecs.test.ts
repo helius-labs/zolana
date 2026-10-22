@@ -1324,11 +1324,11 @@ describe("signed ring request validation", () => {
     ["a short reader key", { reader: filled(1, 33) }, "RING_READER_KEY"],
     ["an invalid P256 reader key", { reader: new Uint8Array(34) }, "RING_READER_KEY"],
     ["a short nonce", { nonce: filled(7, 31) }, "RING_RPC"],
-    ["a since without a slot", { since: { signature: signatureOf(2) } }, "RING_READ_SINCE"],
+    ["an after without a slot", { after: { signature: signatureOf(2) } }, "RING_READ_AFTER"],
     [
-      "a since with a numeric slot",
-      { since: { slot: 3, signature: signatureOf(2) } },
-      "RING_READ_SINCE",
+      "an after with a numeric slot",
+      { after: { slot: 3, signature: signatureOf(2) } },
+      "RING_READ_AFTER",
     ],
     ["a zero limit", { limit: 0n }, "RING_READ_LIMIT"],
     ["a limit over the page cap", { limit: 101n }, "RING_READ_LIMIT"],
@@ -1907,7 +1907,7 @@ describe("ring read attestation", () => {
       ringProgramId: addressOf(7),
       timestamp: 1_700_000_000n,
       nonce: filled(4, 32) as Bytes32,
-      since: {
+      after: {
         slot: 3n,
         signature:
           "2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6ijwfYmfZYsKRxboQMPh3R4kUhXRVdtSXFXMheka4Rc4P2" as Signature,
@@ -1915,7 +1915,7 @@ describe("ring read attestation", () => {
       limit: 5n,
     });
     expect(new TextDecoder().decode(message)).toBe(
-      "zolana/ring-rpc-read/v1\nring: US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx\ntimestamp: 1700000000\nnonce: BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=\nlimit: 5\nsince: 3:2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6ijwfYmfZYsKRxboQMPh3R4kUhXRVdtSXFXMheka4Rc4P2",
+      "zolana/ring-rpc-read/v1\nring: US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx\ntimestamp: 1700000000\nnonce: BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=\nlimit: 5\nafter: 3:2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6ijwfYmfZYsKRxboQMPh3R4kUhXRVdtSXFXMheka4Rc4P2",
     );
   });
 
@@ -1931,32 +1931,32 @@ describe("ring read attestation", () => {
     );
   });
 
-  it("omits limit and since as 0 and empty", () => {
+  it("omits limit and after as 0 and empty", () => {
     const message = ringReadAttestation({
       ringProgramId: addressOf(7),
       timestamp: 1n,
       nonce: filled(4, 32) as Bytes32,
     });
     expect(new TextDecoder().decode(message)).toBe(
-      "zolana/ring-rpc-read/v1\nring: US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx\ntimestamp: 1\nnonce: BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=\nlimit: 0\nsince: ",
+      "zolana/ring-rpc-read/v1\nring: US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx\ntimestamp: 1\nnonce: BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=\nlimit: 0\nafter: ",
     );
   });
 
-  it("bounds the since shape and the limit like Rust `ReadRequest`", () => {
-    const malformedSince: unknown = {
+  it("bounds the after shape and the limit like Rust `ReadRequest`", () => {
+    const malformedAfter: unknown = {
       slot: 3,
       signature:
         "2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6ijwfYmfZYsKRxboQMPh3R4kUhXRVdtSXFXMheka4Rc4P2",
     };
     const request = RingReadRequest.read(addressOf(7));
     expect(() =>
-      request.withSince(malformedSince as Parameters<typeof request.withSince>[0]),
-    ).toThrow("RING_READ_SINCE");
+      request.withAfter(malformedAfter as Parameters<typeof request.withAfter>[0]),
+    ).toThrow("RING_READ_AFTER");
     expect(() => request.withLimit(0n)).toThrow("RING_READ_LIMIT");
     expect(() => request.withLimit(101n)).toThrow("RING_READ_LIMIT");
     expect(
       request
-        .withSince({
+        .withAfter({
           slot: 3n,
           signature:
             "2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6ijwfYmfZYsKRxboQMPh3R4kUhXRVdtSXFXMheka4Rc4P2" as Signature,
@@ -2053,7 +2053,7 @@ describe("ring read request", () => {
     }).getDecryptedTransactions({
       ringProgramId: addressOf(7),
       signer: reader,
-      since: {
+      after: {
         slot: 3n,
         signature:
           "2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6ijwfYmfZYsKRxboQMPh3R4kUhXRVdtSXFXMheka4Rc4P2" as Signature,
@@ -2100,7 +2100,7 @@ describe("ring read request", () => {
     expect(absent?.member).toEqual(filled(24, 32));
     expect(absent?.counters).toBeUndefined();
     const params = bodies[0]?.["params"] as Record<string, unknown>;
-    expect(Object.keys(params).sort()).toEqual(["auth", "limit", "ringProgramId", "since"]);
+    expect(Object.keys(params).sort()).toEqual(["after", "auth", "limit", "ringProgramId"]);
     const auth = params["auth"] as Record<string, unknown>;
     expect(Object.keys(auth).sort()).toEqual(["nonce", "reader", "signature", "timestamp"]);
     expect(auth["reader"]).toBe(Buffer.from(readerKeyBytes(signerAddress)).toString("base64"));
@@ -2109,7 +2109,7 @@ describe("ring read request", () => {
     const nonce = Buffer.from(auth["nonce"] as string, "base64");
     expect(nonce).toHaveLength(32);
     expect(params["ringProgramId"]).toBe(addressOf(7));
-    expect(params["since"]).toEqual({
+    expect(params["after"]).toEqual({
       slot: 3,
       signature:
         "2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6ijwfYmfZYsKRxboQMPh3R4kUhXRVdtSXFXMheka4Rc4P2",
@@ -2121,7 +2121,7 @@ describe("ring read request", () => {
           ringProgramId: addressOf(7),
           timestamp: 1_700_000_000n,
           nonce: Uint8Array.from(nonce) as Bytes32,
-          since: {
+          after: {
             slot: 3n,
             signature:
               "2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6ijwfYmfZYsKRxboQMPh3R4kUhXRVdtSXFXMheka4Rc4P2" as Signature,

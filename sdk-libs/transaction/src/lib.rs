@@ -35,7 +35,9 @@ pub use decrypt::{
 };
 pub use error::{AddressInputError, TransactionError};
 pub use history::{History, HistoryEntry, HistoryKind};
-pub use indexer_types::{ChainPosition, DepositPayload, OutputContext, OutputSlot, ShieldedTransaction};
+pub use indexer_types::{
+    ChainPosition, DepositPayload, OutputContext, OutputSlot, ShieldedTransaction,
+};
 pub use instructions::transact::{ExternalData, SppProofOutputUtxo};
 pub use keys::{
     DecryptLabel, DecryptRequest, DeriveRequest, LocalShieldedKeys, ShieldedKeys,

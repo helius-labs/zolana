@@ -291,14 +291,14 @@ pub(super) fn bind_u64_as_i64(
 /// A row comparison rather than the equivalent chain of ORs: Postgres can begin
 /// an index scan at `(a, b) > (x, y)` and cannot at
 /// `a > x OR (a = x AND b > y)`, where each page costs more than the last.
-pub(super) fn since_sql_condition(
+pub(super) fn after_sql_condition(
     alias: &str,
-    since: &ChainPosition,
+    after: &ChainPosition,
     backend: DatabaseBackend,
     params: &mut Vec<Value>,
 ) -> Result<String, PhotonApiError> {
-    let slot = bind_u64_as_i64(params, backend, since.slot)?;
-    let signature = bind_sql_value(params, backend, since.signature.0.as_ref().to_vec());
+    let slot = bind_u64_as_i64(params, backend, after.slot)?;
+    let signature = bind_sql_value(params, backend, after.signature.0.as_ref().to_vec());
     Ok(format!(
         "({alias}.slot, {alias}.signature) > ({slot}, {signature})"
     ))
@@ -306,9 +306,9 @@ pub(super) fn since_sql_condition(
 
 /// Rows below the first indexed block were never ingested, so a silent resume
 /// from that gap would skip them forever.
-pub(super) async fn ensure_since_indexed(
+pub(super) async fn ensure_after_indexed(
     tx: &DatabaseTransaction,
-    since: &ChainPosition,
+    after: &ChainPosition,
 ) -> Result<(), PhotonApiError> {
     let backend = tx.get_database_backend();
     let floor = tx
@@ -320,12 +320,12 @@ pub(super) async fn ensure_since_indexed(
         .and_then(|row| row.try_get::<Option<i64>>("", "slot").ok())
         .flatten();
     let complete = match floor {
-        Some(floor) => since.slot.saturating_add(1) >= u64_from_i64(floor, "slot")?,
+        Some(floor) => after.slot.saturating_add(1) >= u64_from_i64(floor, "slot")?,
         None => false,
     };
     if !complete {
         return Err(PhotonApiError::ValidationError(
-            "since precedes the indexed history".to_string(),
+            "after precedes the indexed history".to_string(),
         ));
     }
     Ok(())
@@ -678,12 +678,12 @@ mod tests {
     /// ORDER BY is the other half, and the two have to agree.
     #[test]
     fn the_since_predicate_reads_from_the_table_it_is_told_to() {
-        let since = ChainPosition {
+        let after = ChainPosition {
             slot: 42,
             signature: SerializableSignature(Signature::from([7u8; 64])),
         };
         let mut params = Vec::new();
-        let sql = since_sql_condition("po", &since, DatabaseBackend::Postgres, &mut params)
+        let sql = after_sql_condition("po", &after, DatabaseBackend::Postgres, &mut params)
             .expect("condition");
 
         assert!(
@@ -699,12 +699,12 @@ mod tests {
     /// scan at the equivalent OR chain.
     #[test]
     fn the_since_predicate_is_a_row_comparison_so_the_index_can_seek() {
-        let since = ChainPosition {
+        let after = ChainPosition {
             slot: 42,
             signature: SerializableSignature(Signature::from([7u8; 64])),
         };
         let mut params = Vec::new();
-        let sql = since_sql_condition("po", &since, DatabaseBackend::Postgres, &mut params)
+        let sql = after_sql_condition("po", &after, DatabaseBackend::Postgres, &mut params)
             .expect("condition");
 
         assert!(
@@ -721,12 +721,12 @@ mod tests {
     /// The aliases are not interchangeable.
     #[test]
     fn the_transactions_predicate_still_reads_from_the_transactions_table() {
-        let since = ChainPosition {
+        let after = ChainPosition {
             slot: 42,
             signature: SerializableSignature(Signature::from([7u8; 64])),
         };
         let mut params = Vec::new();
-        let sql = since_sql_condition("pt", &since, DatabaseBackend::Postgres, &mut params)
+        let sql = after_sql_condition("pt", &after, DatabaseBackend::Postgres, &mut params)
             .expect("condition");
 
         assert!(!sql.contains("po."), "unexpected po reference in: {sql}");

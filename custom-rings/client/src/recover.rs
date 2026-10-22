@@ -480,12 +480,12 @@ impl<I: Rpc, O: TransactionOrigin> DepositHistory<'_, I, O> {
     fn read(self) -> Result<Vec<DepositHistoryEntry>, RecoveryError> {
         let mut deposits = Vec::new();
         let mut seen = HashSet::new();
-        let mut since = None;
+        let mut after = None;
         for _ in 0..self.max_pages.get() {
             let page = self.environment.indexer.get_shielded_transactions_by_ring(
                 zolana_client::rpc::RingHistoryOptions {
                     ring_program_id: self.ring,
-                    since,
+                    after,
                     limit: Some(self.page_size.get()),
                 },
                 self.indexer_config,
@@ -541,10 +541,10 @@ impl<I: Rpc, O: TransactionOrigin> DepositHistory<'_, I, O> {
             let Some(next) = page.next else {
                 return Ok(deposits);
             };
-            if since.is_some_and(|reached| next <= reached) {
+            if after.is_some_and(|reached| next <= reached) {
                 return Err(AuditError::CursorNotAdvanced.into());
             }
-            since = Some(next);
+            after = Some(next);
         }
         Err(RecoveryError::IncompleteScan)
     }
@@ -561,7 +561,7 @@ impl<I: Rpc> SpendHistory<'_, I> {
     fn read(self) -> Result<Vec<ShieldedTransaction>, RecoveryError> {
         let mut transactions = Vec::new();
         for batch in self.nullifiers.chunks(PAGE_LIMIT as usize) {
-            let mut since = None;
+            let mut after = None;
             loop {
                 *self.remaining_queries = self
                     .remaining_queries
@@ -569,7 +569,7 @@ impl<I: Rpc> SpendHistory<'_, I> {
                     .ok_or(RecoveryError::IncompleteScan)?;
                 let page = self.indexer.get_shielded_transactions_by_nullifiers(
                     batch.to_vec(),
-                    since,
+                    after,
                     None,
                     self.indexer_config,
                 )?;
@@ -577,10 +577,10 @@ impl<I: Rpc> SpendHistory<'_, I> {
                 let Some(next) = page.next else {
                     break;
                 };
-                if since.is_some_and(|reached| next <= reached) {
+                if after.is_some_and(|reached| next <= reached) {
                     return Err(AuditError::CursorNotAdvanced.into());
                 }
-                since = Some(next);
+                after = Some(next);
             }
         }
         Ok(transactions)
@@ -668,7 +668,7 @@ mod tests {
 
     struct Query {
         nullifiers: Vec<[u8; 32]>,
-        since: Option<ChainPosition>,
+        after: Option<ChainPosition>,
     }
 
     fn position() -> ChainPosition {
@@ -688,13 +688,13 @@ mod tests {
         fn get_shielded_transactions_by_nullifiers(
             &self,
             nullifiers: Vec<[u8; 32]>,
-            since: Option<ChainPosition>,
+            after: Option<ChainPosition>,
             _limit: Option<u32>,
             _config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
             assert!(nullifiers.len() <= PAGE_LIMIT as usize);
-            self.queries.borrow_mut().push(Query { nullifiers, since });
-            let terminal = since.is_some() && !self.stuck;
+            self.queries.borrow_mut().push(Query { nullifiers, after });
+            let terminal = after.is_some() && !self.stuck;
             Ok(GetShieldedTransactionsByNullifiersResponse {
                 context: Context {
                     block_time: 0,
@@ -736,7 +736,7 @@ mod tests {
             vec![1000, 1000, 1, 1]
         );
         assert_eq!(
-            queries.iter().map(|query| query.since).collect::<Vec<_>>(),
+            queries.iter().map(|query| query.after).collect::<Vec<_>>(),
             vec![None, Some(position()), None, Some(position())]
         );
         assert_eq!(queries[2].nullifiers, nullifiers[1000..]);

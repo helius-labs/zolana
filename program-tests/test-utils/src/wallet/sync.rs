@@ -582,14 +582,14 @@ fn read_chunk<F>(
 where
     F: FnMut(Option<ChainPosition>) -> Result<Page, ClientError>,
 {
-    let mut since = start;
+    let mut after = start;
     let mut furthest = start;
     loop {
-        let page = request(since)?;
+        let page = request(after)?;
         let Some(next) = advance(&mut furthest, page)? else {
             return Ok(furthest);
         };
-        since = Some(next);
+        after = Some(next);
     }
 }
 
@@ -646,13 +646,16 @@ fn advance(
     furthest: &mut Option<ChainPosition>,
     page: Page,
 ) -> Result<Option<ChainPosition>, ClientError> {
+    if page.next.is_some() && page.latest.is_some() {
+        return Err(ClientError::Indexer("conflicting page positions".into()));
+    }
     if let (Some(next), Some(reached)) = (page.next, *furthest) {
         if next <= reached {
             return Err(ClientError::Indexer("page did not advance".into()));
         }
     }
-    // The stream tip if reported, else the truncation point, else unchanged.
-    *furthest = page.latest.or(page.next).or(*furthest);
+    // A position from another stream can be newer than this stream's tip.
+    *furthest = (*furthest).max(page.latest.or(page.next));
     Ok(page.next)
 }
 
@@ -692,10 +695,10 @@ fn fetch_shielded_transactions_incremental<I: Rpc>(
     let mut output_tree_id = None;
     for (start, group) in group_by_resume_point(keys, cursors, scanned_to_tip) {
         for chunk in group.chunks(config.tag_query_chunk) {
-            let furthest = read_chunk(start, |since| {
+            let furthest = read_chunk(start, |after| {
                 let response = indexer.get_shielded_transactions_by_tags(
                     chunk.iter().copied().map(CursorStream::value).collect(),
-                    since,
+                    after,
                     Some(config.page_limit),
                     rpc_config,
                 )?;
@@ -733,13 +736,13 @@ async fn fetch_shielded_transactions_incremental_async<I: AsyncRpc>(
     let mut output_tree_id = None;
     for (start, group) in group_by_resume_point(keys, cursors, scanned_to_tip) {
         for chunk in group.chunks(config.tag_query_chunk) {
-            let mut since = start;
+            let mut after = start;
             let mut furthest = start;
             loop {
                 let response = indexer
                     .get_shielded_transactions_by_tags(
                         chunk.iter().copied().map(CursorStream::value).collect(),
-                        since,
+                        after,
                         Some(config.page_limit),
                         rpc_config,
                     )
@@ -759,7 +762,7 @@ async fn fetch_shielded_transactions_incremental_async<I: AsyncRpc>(
                 let Some(next) = advance(&mut furthest, page)? else {
                     break;
                 };
-                since = Some(next);
+                after = Some(next);
             }
 
             record_chunk(chunk, furthest, cursors, scanned_to_tip);
@@ -784,10 +787,10 @@ fn fetch_shielded_transactions_by_nullifiers<I: Rpc>(
 ) -> Result<(), ClientError> {
     for (start, group) in group_by_resume_point(keys, cursors, scanned_to_tip) {
         for chunk in group.chunks(config.tag_query_chunk) {
-            let furthest = read_chunk(start, |since| {
+            let furthest = read_chunk(start, |after| {
                 let response = indexer.get_shielded_transactions_by_nullifiers(
                     chunk.iter().copied().map(CursorStream::value).collect(),
-                    since,
+                    after,
                     Some(config.page_limit),
                     rpc_config,
                 )?;
@@ -820,13 +823,13 @@ async fn fetch_shielded_transactions_by_nullifiers_async<I: AsyncRpc>(
 ) -> Result<(), ClientError> {
     for (start, group) in group_by_resume_point(keys, cursors, scanned_to_tip) {
         for chunk in group.chunks(config.tag_query_chunk) {
-            let mut since = start;
+            let mut after = start;
             let mut furthest = start;
             loop {
                 let response = indexer
                     .get_shielded_transactions_by_nullifiers(
                         chunk.iter().copied().map(CursorStream::value).collect(),
-                        since,
+                        after,
                         Some(config.page_limit),
                         rpc_config,
                     )
@@ -842,7 +845,7 @@ async fn fetch_shielded_transactions_by_nullifiers_async<I: AsyncRpc>(
                 let Some(next) = advance(&mut furthest, page)? else {
                     break;
                 };
-                since = Some(next);
+                after = Some(next);
             }
 
             record_chunk(chunk, furthest, cursors, scanned_to_tip);
@@ -870,10 +873,10 @@ where
 {
     for (start, group) in group_by_resume_point(keys, cursors, scanned_to_tip) {
         for chunk in group.chunks(config.tag_query_chunk) {
-            let furthest = read_chunk(start, |since| {
+            let furthest = read_chunk(start, |after| {
                 let response = indexer.get_encrypted_utxos_by_tags(
                     chunk.iter().copied().map(CursorStream::value).collect(),
-                    since,
+                    after,
                     Some(config.page_limit),
                     rpc_config,
                 )?;
@@ -917,13 +920,13 @@ async fn fetch_proofless_deposits_async<I: AsyncRpc>(
 ) -> Result<(), ClientError> {
     for (start, group) in group_by_resume_point(keys, cursors, scanned_to_tip) {
         for chunk in group.chunks(config.tag_query_chunk) {
-            let mut since = start;
+            let mut after = start;
             let mut furthest = start;
             loop {
                 let response = indexer
                     .get_encrypted_utxos_by_tags(
                         chunk.iter().copied().map(CursorStream::value).collect(),
-                        since,
+                        after,
                         Some(config.page_limit),
                         rpc_config,
                     )
@@ -950,7 +953,7 @@ async fn fetch_proofless_deposits_async<I: AsyncRpc>(
                 let Some(next) = advance(&mut furthest, page)? else {
                     break;
                 };
-                since = Some(next);
+                after = Some(next);
             }
 
             record_chunk(chunk, furthest, cursors, scanned_to_tip);
@@ -1062,10 +1065,10 @@ mod tests {
         GetShieldedTransactionsByTagsResponse, OutputContext, OutputSlot,
     };
 
-    /// A mock that behaves like photon: filters by tag, honours `since`, and
+    /// A mock that behaves like photon: filters by tag, honours `after`, and
     /// orders globally by slot.
     ///
-    /// The existing `MockIndexer` ignores both tags and `since`, which is fine
+    /// The existing `MockIndexer` ignores both tags and `after`, which is fine
     /// for decryption tests and useless for this one -- the bug being pinned here
     /// is precisely an interaction between the two.
     #[derive(Default)]
@@ -1100,10 +1103,10 @@ mod tests {
         fn matching(
             &self,
             tags: &[ViewTag],
-            since: Option<ChainPosition>,
+            after: Option<ChainPosition>,
             limit: usize,
         ) -> PagedRows {
-            let after = since.map(|position| position.slot);
+            let after = after.map(|position| position.slot);
             self.calls
                 .lock()
                 .expect("calls poisoned")
@@ -1155,10 +1158,10 @@ mod tests {
         fn matching_nullifiers(
             &self,
             nullifiers: &[[u8; 32]],
-            since: Option<ChainPosition>,
+            after: Option<ChainPosition>,
             limit: usize,
         ) -> PagedRows {
-            let after = since.map(|position| position.slot);
+            let after = after.map(|position| position.slot);
             self.nullifier_calls
                 .lock()
                 .expect("calls poisoned")
@@ -1327,12 +1330,12 @@ mod tests {
         fn get_encrypted_utxos_by_tags(
             &self,
             tags: Vec<ViewTag>,
-            since: Option<ChainPosition>,
+            after: Option<ChainPosition>,
             limit: Option<u32>,
             _config: Option<IndexerRpcConfig>,
         ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
             let limit = limit.unwrap_or(1_000).max(1) as usize;
-            let after = since.map(|position| position.slot);
+            let after = after.map(|position| position.slot);
             self.utxo_calls
                 .lock()
                 .expect("calls poisoned")
@@ -1390,12 +1393,12 @@ mod tests {
         fn get_shielded_transactions_by_tags(
             &self,
             tags: Vec<ViewTag>,
-            since: Option<ChainPosition>,
+            after: Option<ChainPosition>,
             limit: Option<u32>,
             _config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
             let limit = limit.unwrap_or(1_000).max(1) as usize;
-            let (transactions, next, latest) = self.matching(&tags, since, limit);
+            let (transactions, next, latest) = self.matching(&tags, after, limit);
             Ok(GetShieldedTransactionsByTagsResponse {
                 context: Context {
                     block_time: 0,
@@ -1411,12 +1414,12 @@ mod tests {
         fn get_shielded_transactions_by_nullifiers(
             &self,
             nullifiers: Vec<[u8; 32]>,
-            since: Option<ChainPosition>,
+            after: Option<ChainPosition>,
             limit: Option<u32>,
             _config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
             let limit = limit.unwrap_or(1_000).max(1) as usize;
-            let (transactions, next, latest) = self.matching_nullifiers(&nullifiers, since, limit);
+            let (transactions, next, latest) = self.matching_nullifiers(&nullifiers, after, limit);
             Ok(GetShieldedTransactionsByNullifiersResponse {
                 context: Context {
                     block_time: 0,
@@ -1658,6 +1661,39 @@ mod tests {
             },
         )
         .is_err());
+    }
+
+    #[test]
+    fn an_older_stream_tip_keeps_the_resume_point() {
+        let start = Some(TaggedIndexer::position(9));
+        let mut furthest = start;
+        assert_eq!(
+            advance(
+                &mut furthest,
+                Page {
+                    next: None,
+                    latest: Some(TaggedIndexer::position(8))
+                }
+            )
+            .expect("terminal page"),
+            None,
+        );
+        assert_eq!(furthest, start);
+    }
+
+    #[test]
+    fn conflicting_page_positions_do_not_advance_the_resume_point() {
+        let start = Some(TaggedIndexer::position(5));
+        let mut furthest = start;
+        assert!(advance(
+            &mut furthest,
+            Page {
+                next: Some(TaggedIndexer::position(7)),
+                latest: Some(TaggedIndexer::position(9)),
+            }
+        )
+        .is_err());
+        assert_eq!(furthest, start);
     }
 
     /// The async twins page and resume like the blocking ones.
@@ -1960,31 +1996,31 @@ mod tests {
         async fn get_encrypted_utxos_by_tags(
             &self,
             tags: Vec<ViewTag>,
-            since: Option<ChainPosition>,
+            after: Option<ChainPosition>,
             limit: Option<u32>,
             config: Option<IndexerRpcConfig>,
         ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
-            Rpc::get_encrypted_utxos_by_tags(self, tags, since, limit, config)
+            Rpc::get_encrypted_utxos_by_tags(self, tags, after, limit, config)
         }
 
         async fn get_shielded_transactions_by_tags(
             &self,
             tags: Vec<ViewTag>,
-            since: Option<ChainPosition>,
+            after: Option<ChainPosition>,
             limit: Option<u32>,
             config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
-            Rpc::get_shielded_transactions_by_tags(self, tags, since, limit, config)
+            Rpc::get_shielded_transactions_by_tags(self, tags, after, limit, config)
         }
 
         async fn get_shielded_transactions_by_nullifiers(
             &self,
             nullifiers: Vec<ViewTag>,
-            since: Option<ChainPosition>,
+            after: Option<ChainPosition>,
             limit: Option<u32>,
             config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
-            Rpc::get_shielded_transactions_by_nullifiers(self, nullifiers, since, limit, config)
+            Rpc::get_shielded_transactions_by_nullifiers(self, nullifiers, after, limit, config)
         }
     }
 
@@ -2000,31 +2036,31 @@ mod tests {
         async fn get_encrypted_utxos_by_tags(
             &self,
             tags: Vec<ViewTag>,
-            since: Option<ChainPosition>,
+            after: Option<ChainPosition>,
             limit: Option<u32>,
             config: Option<IndexerRpcConfig>,
         ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
-            Rpc::get_encrypted_utxos_by_tags(self, tags, since, limit, config)
+            Rpc::get_encrypted_utxos_by_tags(self, tags, after, limit, config)
         }
 
         async fn get_shielded_transactions_by_tags(
             &self,
             tags: Vec<ViewTag>,
-            since: Option<ChainPosition>,
+            after: Option<ChainPosition>,
             limit: Option<u32>,
             config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
-            Rpc::get_shielded_transactions_by_tags(self, tags, since, limit, config)
+            Rpc::get_shielded_transactions_by_tags(self, tags, after, limit, config)
         }
 
         async fn get_shielded_transactions_by_nullifiers(
             &self,
             nullifiers: Vec<ViewTag>,
-            since: Option<ChainPosition>,
+            after: Option<ChainPosition>,
             limit: Option<u32>,
             config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
-            Rpc::get_shielded_transactions_by_nullifiers(self, nullifiers, since, limit, config)
+            Rpc::get_shielded_transactions_by_nullifiers(self, nullifiers, after, limit, config)
         }
     }
 

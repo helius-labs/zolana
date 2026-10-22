@@ -39,7 +39,7 @@ All wire fields use camel case.
 
 The response `cursor` is opaque and goes back in the next request. It is present while older ring history remains and absent at the end, so a client pages until it is absent. `oldestSlot` reports the slot of the oldest signature the page examined, absent when the page examined nothing. A client that merges deposits with another paginated stream needs `oldestSlot` to know how far back an empty page reached.
 
-`getDecryptedTransactions` pages by an explicit chain position. `since` is the `{slot, signature}` of a transaction and the page resumes strictly after it. The response `next` names the last transaction of a page the limit truncated and is absent on the final page, so a client passes `next` back as `since` until it is absent.
+`getDecryptedTransactions` pages by an explicit chain position. `after` is the `{slot, signature}` of a transaction and the page resumes strictly after it. The response `next` names the last transaction of a page the limit truncated and is absent on the final page, so a client passes `next` back as `after` until it is absent.
 
 The read authorization contains a canonical reader key, Unix timestamp, random nonce, and signature. The signature binds the ring, timestamp, nonce, resume position, and limit. Ed25519 readers sign the attestation bytes. P256 readers use WebAuthn with user verification.
 

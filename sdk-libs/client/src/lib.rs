@@ -59,7 +59,7 @@ pub use rpc::SettlementAccountValidation;
 pub use rpc::{compile_message, sign_transaction, ComputeBudgetConfig, ProgramAccountsFilter};
 pub use rpc::{transaction_size, TransactionSize};
 pub use rpc::{
-    AsyncRpc, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
+    AsyncRpc, ChainPosition, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
     GetMerkleProofsResponse, GetNonInclusionProofsResponse, GetRingKeyRegistryEntryResponse,
     GetRingKeyRegistryRegisterProofResponse, GetRingSpendRecordResponse,
     GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,

@@ -37,7 +37,10 @@ use zolana_transaction::{
 
 use crate::{
     error::ClientError,
-    rpc::{EncryptedUtxoMatch, IndexerRpcConfig, ProgramAccountsFilter, Rpc, ShieldedTransaction},
+    rpc::{
+        ChainPosition, EncryptedUtxoMatch, IndexerRpcConfig, ProgramAccountsFilter, Rpc,
+        ShieldedTransaction,
+    },
 };
 
 const PAGE_LIMIT: u32 = 1_000;
@@ -338,32 +341,28 @@ fn tagged_transactions<I: Rpc + ?Sized>(
     loop {
         let page = indexer.get_shielded_transactions_by_tags(
             tags.to_vec(),
-            cursor.clone(),
+            cursor,
             Some(PAGE_LIMIT),
             config,
         )?;
         *output_tree_id = page.output_tree_id;
         transactions.extend(page.transactions.into_iter().filter(|tx| !tx.proofless));
-        match next_page(&cursor, page.next_cursor, &page.scanned_through)? {
+        match next_page(&cursor, page.next, page.latest)? {
             Some(next) => cursor = Some(next),
             None => break,
         }
     }
     let mut cursor = None;
     loop {
-        let page = indexer.get_encrypted_utxos_by_tags(
-            tags.to_vec(),
-            cursor.clone(),
-            Some(PAGE_LIMIT),
-            config,
-        )?;
+        let page =
+            indexer.get_encrypted_utxos_by_tags(tags.to_vec(), cursor, Some(PAGE_LIMIT), config)?;
         *output_tree_id = page.output_tree_id;
         transactions.extend(
             page.matches
                 .into_iter()
                 .filter_map(EncryptedUtxoMatch::into_proofless_transaction),
         );
-        match next_page(&cursor, page.next_cursor, &page.scanned_through)? {
+        match next_page(&cursor, page.next, page.latest)? {
             Some(next) => cursor = Some(next),
             None => break,
         }
@@ -385,13 +384,13 @@ fn spending_transactions<I: Rpc + ?Sized>(
         loop {
             let page = indexer.get_shielded_transactions_by_nullifiers(
                 chunk.to_vec(),
-                cursor.clone(),
+                cursor,
                 Some(PAGE_LIMIT),
                 config,
             )?;
             *output_tree_id = page.output_tree_id;
             transactions.extend(page.transactions);
-            match next_page(&cursor, page.next_cursor, &page.scanned_through)? {
+            match next_page(&cursor, page.next, page.latest)? {
                 Some(next) => cursor = Some(next),
                 None => break,
             }
@@ -400,21 +399,17 @@ fn spending_transactions<I: Rpc + ?Sized>(
     Ok(transactions)
 }
 
-/// The cursor of the page after the one read with `cursor`, or `None` when
-/// that was the last. A page that is not full is the last, `scanned_through`
-/// says so: the indexer names a cursor on any row, so following it would ask
-/// for an empty page. A cursor that did not move would ask for the same page
-/// forever, so it fails with [`ClientError::IndexerCursorNotAdvanced`].
+/// A continuation exists only on a truncated page and must move forward.
 fn next_page(
-    cursor: &Option<Vec<u8>>,
-    next: Option<Vec<u8>>,
-    scanned_through: &Option<Vec<u8>>,
-) -> Result<Option<Vec<u8>>, ClientError> {
-    let Some(next) = next.filter(|_| scanned_through.is_none()) else {
-        return Ok(None);
-    };
-    if cursor.as_ref() == Some(&next) {
+    cursor: &Option<ChainPosition>,
+    next: Option<ChainPosition>,
+    latest: Option<ChainPosition>,
+) -> Result<Option<ChainPosition>, ClientError> {
+    if next.is_some() && latest.is_some() {
         return Err(ClientError::IndexerCursorNotAdvanced);
     }
-    Ok(Some(next))
+    if next.is_some_and(|next| cursor.is_some_and(|cursor| next <= cursor)) {
+        return Err(ClientError::IndexerCursorNotAdvanced);
+    }
+    Ok(next)
 }

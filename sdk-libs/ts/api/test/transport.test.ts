@@ -143,7 +143,7 @@ describe("transport configuration", () => {
 
     const response = await api.getShieldedTransactionsByNullifiers({
       nullifiers: [HASH],
-      since: { slot: 7n, signature: SIGNATURE },
+      after: { slot: 7n, signature: SIGNATURE },
       limit: 1000n,
     } as never);
 
@@ -153,7 +153,7 @@ describe("transport configuration", () => {
     );
     expect(JSON.parse(String(injected.mock.calls[0]?.[1]?.body))).toMatchObject({
       method: "getShieldedTransactionsByNullifiers",
-      params: { nullifiers: [HASH], since: { slot: 7, signature: SIGNATURE }, limit: 1000 },
+      params: { nullifiers: [HASH], after: { slot: 7, signature: SIGNATURE }, limit: 1000 },
     });
   });
 

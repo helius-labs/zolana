@@ -39,8 +39,8 @@ pub(crate) fn domain_position(position: &WireChainPosition) -> ChainPosition {
 
 /// Slot and base58 signature each render canonically, the server rebuilds the
 /// exact signed text from the parsed request.
-fn attested_since(since: Option<ChainPosition>) -> String {
-    since.map_or_else(String::new, |position| {
+fn attested_after(after: Option<ChainPosition>) -> String {
+    after.map_or_else(String::new, |position| {
         format!("{}:{}", position.slot, position.signature)
     })
 }
@@ -215,7 +215,7 @@ pub struct GetDecryptedTransactionsRequest {
     pub ring_program_id: Option<SerializablePubkey>,
     /// Resume strictly after the given transaction.
     #[serde(default)]
-    pub since: Option<WireChainPosition>,
+    pub after: Option<WireChainPosition>,
     #[serde(default)]
     pub limit: Option<Limit>,
     pub auth: ReadAuth,
@@ -276,7 +276,7 @@ pub enum ReadBuildError {
 #[must_use]
 pub struct ReadRequest {
     ring: Address,
-    since: Option<WireChainPosition>,
+    after: Option<WireChainPosition>,
     limit: Option<Limit>,
     timestamp: Option<u64>,
     nonce: [u8; 32],
@@ -288,7 +288,7 @@ pub struct ReadAttestation<'a> {
     pub ring: Address,
     pub timestamp: u64,
     pub nonce: &'a [u8; 32],
-    pub since: Option<ChainPosition>,
+    pub after: Option<ChainPosition>,
     pub limit: Option<Limit>,
 }
 
@@ -479,7 +479,7 @@ impl GetDecryptedTransactionsRequest {
     pub fn read(ring: Address) -> ReadRequest {
         ReadRequest {
             ring,
-            since: None,
+            after: None,
             limit: None,
             timestamp: None,
             nonce: fresh_nonce(),
@@ -488,8 +488,8 @@ impl GetDecryptedTransactionsRequest {
 }
 
 impl ReadRequest {
-    pub fn with_since(mut self, since: WireChainPosition) -> Self {
-        self.since = Some(since);
+    pub fn with_after(mut self, after: WireChainPosition) -> Self {
+        self.after = Some(after);
         self
     }
 
@@ -515,7 +515,7 @@ impl ReadRequest {
             ring: self.ring,
             timestamp,
             nonce: &self.nonce,
-            since: self.since.as_ref().map(domain_position),
+            after: self.after.as_ref().map(domain_position),
             limit: self.limit.clone(),
         }
         .bytes();
@@ -528,7 +528,7 @@ impl ReadRequest {
         };
         Ok(GetDecryptedTransactionsRequest {
             ring_program_id: Some(self.ring.to_bytes().into()),
-            since: self.since,
+            after: self.after,
             limit: self.limit,
             auth: ReadAuth {
                 reader: signer.reader()?.to_bytes().to_vec().into(),
@@ -600,12 +600,12 @@ const AUDITOR_KEY_REQUEST_DOMAIN: &str = "zolana/ring-rpc-auditor-key-request/v1
 impl ReadAttestation<'_> {
     pub fn bytes(&self) -> Vec<u8> {
         format!(
-            "{READ_DOMAIN}\nring: {}\ntimestamp: {}\nnonce: {}\nlimit: {}\nsince: {}",
+            "{READ_DOMAIN}\nring: {}\ntimestamp: {}\nnonce: {}\nlimit: {}\nafter: {}",
             self.ring,
             self.timestamp,
             base64(self.nonce),
             self.limit.as_ref().map_or(0, Limit::value),
-            attested_since(self.since),
+            attested_after(self.after),
         )
         .into_bytes()
     }
@@ -705,11 +705,11 @@ mod tests {
             signature: Signature::from([9; 64]),
         };
         assert_eq!(domain_position(&wire_position(position)), position);
-        assert_eq!(attested_since(None), "");
+        assert_eq!(attested_after(None), "");
     }
 
     /// The deposits cursor is a Solana signature, a different rule from the
-    /// audit read's since position.
+    /// audit read's after position.
     #[test]
     fn a_deposits_cursor_is_exactly_one_signature() {
         assert_eq!(
@@ -736,7 +736,7 @@ mod tests {
             ring: Address::new_from_array([7; 32]),
             timestamp: 1_700_000_000,
             nonce: &[4; 32],
-            since: Some(ChainPosition {
+            after: Some(ChainPosition {
                 slot: 3,
                 signature: Signature::from([1; 64]),
             }),
@@ -745,7 +745,7 @@ mod tests {
         .bytes();
         assert_eq!(
             String::from_utf8(message).expect("text"),
-            "zolana/ring-rpc-read/v1\nring: US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx\ntimestamp: 1700000000\nnonce: BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=\nlimit: 5\nsince: 3:2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6ijwfYmfZYsKRxboQMPh3R4kUhXRVdtSXFXMheka4Rc4P2"
+            "zolana/ring-rpc-read/v1\nring: US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx\ntimestamp: 1700000000\nnonce: BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=\nlimit: 5\nafter: 3:2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6ijwfYmfZYsKRxboQMPh3R4kUhXRVdtSXFXMheka4Rc4P2"
         );
     }
 }

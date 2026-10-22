@@ -37,10 +37,10 @@ pub(crate) fn collect_tagged<I: Rpc, T>(
         .confidential_view_tag()
         .map_err(err)?;
     let mut found = Vec::new();
-    let mut since = None;
+    let mut after = None;
     loop {
         let page = indexer
-            .get_shielded_transactions_by_tags(vec![owner_tag], since, None, None)
+            .get_shielded_transactions_by_tags(vec![owner_tag], after, None, None)
             .map_err(err)?;
         for tx in &page.transactions {
             if let Some(item) = scan(tx)? {
@@ -50,6 +50,6 @@ pub(crate) fn collect_tagged<I: Rpc, T>(
         let Some(next) = page.next else {
             return Ok(found);
         };
-        since = Some(next);
+        after = Some(next);
     }
 }

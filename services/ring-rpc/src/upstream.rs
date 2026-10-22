@@ -81,7 +81,7 @@ pub trait TransactionSource: Send + Sync {
 #[must_use]
 pub struct TransactionPage {
     pub tag: [u8; 32],
-    pub since: Option<ChainPosition>,
+    pub after: Option<ChainPosition>,
     pub limit: NonZeroU32,
 }
 
@@ -178,7 +178,7 @@ impl TransactionSource for ChainSource {
     {
         self.indexer.get_shielded_transactions_by_tags(
             vec![request.tag],
-            request.since,
+            request.after,
             Some(request.limit.get()),
             None,
         )

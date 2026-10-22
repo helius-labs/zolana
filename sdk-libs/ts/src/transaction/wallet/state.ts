@@ -215,7 +215,7 @@ export class Wallet {
    * tags have advanced far past those slots, so a single position would skip
    * those transactions permanently.
    *
-   * Serialized with the wallet since snapshot version 4, an older snapshot
+   * Serialized as a chain position in snapshot version 6, an older snapshot
    * restores with empty cursors and rescans history once.
    */
   #syncCursors = new Map<string, ChainPosition>();

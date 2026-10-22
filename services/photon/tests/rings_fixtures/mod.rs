@@ -90,16 +90,16 @@ where
         requests: 0,
         hydrated_transactions: 0,
     };
-    let mut since = None;
+    let mut after = None;
     loop {
-        let page = fetch(since).await;
+        let page = fetch(after).await;
         cost.requests += 1;
         cost.hydrated_transactions += page.hydrated;
         if page.signatures.contains(&target) {
             return cost;
         }
-        since = page.next;
-        assert!(since.is_some(), "lookup ran out of pages before {target}");
+        after = page.next;
+        assert!(after.is_some(), "lookup ran out of pages before {target}");
     }
 }
 
@@ -133,8 +133,8 @@ pub async fn resolve_by_tags(
     target: Signature,
     page_limit: u64,
 ) -> LookupCost {
-    resolve(target, move |since| async move {
-        let page = tag_page(db, view_tag, since, page_limit).await;
+    resolve(target, move |after| async move {
+        let page = tag_page(db, view_tag, after, page_limit).await;
         Page {
             signatures: page
                 .transactions
@@ -151,14 +151,14 @@ pub async fn resolve_by_tags(
 pub async fn tag_page(
     db: &DatabaseConnection,
     view_tag: [u8; 32],
-    since: Option<ChainPosition>,
+    after: Option<ChainPosition>,
     page_limit: u64,
 ) -> GetShieldedTransactionsByTagsResponse {
     get_shielded_transactions_by_tags(
         db,
         GetRingsByTagsRequest {
             tags: vec![Hash::from(view_tag)],
-            since,
+            after,
             limit: Some(Limit::new(page_limit).expect("page limit is within the shared bounds")),
             ring_program_id: None,
         },

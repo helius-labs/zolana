@@ -15,6 +15,14 @@ bindings, which the program forwards to `transact` through a CPI.
 
 Breaking
 
+- `ZolanaClient` replaces byte `cursor` requests with `after: ChainPosition`
+  and returns `next` or `latest` positions → pass the returned position as
+  `after` and upgrade Photon alongside the SDK.
+- `RingReadRequest.withCursor` becomes `withAfter` and signed audit reads use
+  `after` → upgrade reader clients alongside Ring RPC.
+- `serializeWallet` writes snapshot version 6 with chain-position cursors →
+  restore earlier snapshots with `deserializeWallet`, which retains wallet
+  state and rescans once with empty cursors.
 - `RingRpc` now posts each JSON-RPC method beneath its base URL and accepts
   `RingRpcOptions.apiKey` or the URL's `api-key`, while `RingRpc.url` omits the key;
   service clients reject malformed or conflicting credentials during construction

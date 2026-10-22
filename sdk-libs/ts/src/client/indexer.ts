@@ -83,7 +83,7 @@ export class ZolanaIndexer {
           {
             tags: owned.tags.map((tag) => hash(tag)),
             ...(owned.ringProgramId === undefined ? {} : { ringProgramId: owned.ringProgramId }),
-            ...(owned.since === undefined ? {} : { since: owned.since }),
+            ...(owned.after === undefined ? {} : { after: owned.after }),
             ...(owned.limit === undefined ? {} : { limit: limit(BigInt(owned.limit)) }),
           },
           context,
@@ -108,7 +108,7 @@ export class ZolanaIndexer {
           {
             tags: owned.tags.map((tag) => hash(tag)),
             ...(owned.ringProgramId === undefined ? {} : { ringProgramId: owned.ringProgramId }),
-            ...(owned.since === undefined ? {} : { since: owned.since }),
+            ...(owned.after === undefined ? {} : { after: owned.after }),
             ...(owned.limit === undefined ? {} : { limit: limit(BigInt(owned.limit)) }),
           },
           context,
@@ -132,7 +132,7 @@ export class ZolanaIndexer {
         const response = await this.#api.getShieldedTransactionsByNullifiers(
           {
             nullifiers: owned.nullifiers.map((nullifier) => hash(nullifier)),
-            ...(owned.since === undefined ? {} : { since: owned.since }),
+            ...(owned.after === undefined ? {} : { after: owned.after }),
             ...(owned.limit === undefined ? {} : { limit: limit(BigInt(owned.limit)) }),
           },
           context,
@@ -405,20 +405,20 @@ function convertRegistryRecord(
 }
 
 function copyTagRequest(request: GetByTagsRequest): GetByTagsRequest {
-  const since = copiedPosition(request.since);
+  const after = copiedPosition(request.after);
   return Object.freeze({
     tags: copyFixedBytes(request.tags, 32, "tags") as readonly Bytes32[],
     ...(request.ringProgramId === undefined ? {} : { ringProgramId: request.ringProgramId }),
-    ...(since === undefined ? {} : { since }),
+    ...(after === undefined ? {} : { after }),
     ...(request.limit === undefined ? {} : { limit: checkedPageLimit(request.limit) }),
   });
 }
 
 function copyNullifierRequest(request: GetByNullifiersRequest): GetByNullifiersRequest {
-  const since = copiedPosition(request.since);
+  const after = copiedPosition(request.after);
   return Object.freeze({
     nullifiers: copyFixedBytes(request.nullifiers, 32, "nullifiers") as readonly Bytes32[],
-    ...(since === undefined ? {} : { since }),
+    ...(after === undefined ? {} : { after }),
     ...(request.limit === undefined ? {} : { limit: checkedPageLimit(request.limit) }),
   });
 }
@@ -426,7 +426,7 @@ function copyNullifierRequest(request: GetByNullifiersRequest): GetByNullifiersR
 function copiedPosition(position: ChainPosition | undefined): ChainPosition | undefined {
   if (position === undefined) return undefined;
   if (typeof position.slot !== "bigint" || typeof position.signature !== "string") {
-    throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "since" } });
+    throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "after" } });
   }
   return Object.freeze({ slot: position.slot, signature: position.signature });
 }

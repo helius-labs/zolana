@@ -16,8 +16,7 @@ use crate::{
 use crate::{
     error::ClientError,
     rpc::{
-        ChainPosition,
-        AsyncRpc, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
+        AsyncRpc, ChainPosition, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
         GetNonInclusionProofsResponse, GetRingKeyRegistryEntryResponse,
         GetRingKeyRegistryRegisterProofResponse, GetRingSpendRecordResponse,
         GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
@@ -120,26 +119,26 @@ impl Rpc for ZolanaIndexer {
     fn get_encrypted_utxos_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        since: Option<ChainPosition>,
+        after: Option<ChainPosition>,
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
         self.block_on(
             self.indexer
-                .get_encrypted_utxos_by_tags(tags, since, limit, config),
+                .get_encrypted_utxos_by_tags(tags, after, limit, config),
         )
     }
 
     fn get_shielded_transactions_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        since: Option<ChainPosition>,
+        after: Option<ChainPosition>,
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
         self.block_on(
             self.indexer
-                .get_shielded_transactions_by_tags(tags, since, limit, config),
+                .get_shielded_transactions_by_tags(tags, after, limit, config),
         )
     }
 
@@ -168,13 +167,13 @@ impl Rpc for ZolanaIndexer {
     fn get_shielded_transactions_by_nullifiers(
         &self,
         nullifiers: Vec<[u8; 32]>,
-        since: Option<ChainPosition>,
+        after: Option<ChainPosition>,
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
         self.block_on(
             self.indexer
-                .get_shielded_transactions_by_nullifiers(nullifiers, since, limit, config),
+                .get_shielded_transactions_by_nullifiers(nullifiers, after, limit, config),
         )
     }
 

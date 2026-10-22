@@ -17,13 +17,13 @@ use super::{
     retry::IndexerRpcConfig,
     transaction::{compile_message, sign_transaction},
     types::{
-        ChainPosition,
-        GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse, GetNonInclusionProofsResponse,
-        GetRingKeyRegistryEntryResponse, GetRingKeyRegistryRegisterProofResponse,
-        GetRingSpendRecordResponse, GetShieldedTransactionsByNullifiersResponse,
-        GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
-        GetUserRecordsResponse, ProveResult, RingHistoryOptions, RingMemberProofRequest,
-        RingSpendRecordRequest, ShieldedTransactionStream,
+        ChainPosition, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
+        GetNonInclusionProofsResponse, GetRingKeyRegistryEntryResponse,
+        GetRingKeyRegistryRegisterProofResponse, GetRingSpendRecordResponse,
+        GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
+        GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, ProveResult,
+        RingHistoryOptions, RingMemberProofRequest, RingSpendRecordRequest,
+        ShieldedTransactionStream,
     },
     ProgramAccountsFilter,
 };
@@ -157,7 +157,7 @@ pub trait Rpc {
     fn get_encrypted_utxos_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        since: Option<ChainPosition>,
+        after: Option<ChainPosition>,
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
@@ -167,7 +167,7 @@ pub trait Rpc {
     fn get_shielded_transactions_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        since: Option<ChainPosition>,
+        after: Option<ChainPosition>,
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
@@ -193,7 +193,7 @@ pub trait Rpc {
     fn get_shielded_transactions_by_nullifiers(
         &self,
         nullifiers: Vec<[u8; 32]>,
-        since: Option<ChainPosition>,
+        after: Option<ChainPosition>,
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
@@ -395,7 +395,7 @@ pub trait AsyncRpc: Send + Sync {
     async fn get_encrypted_utxos_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        since: Option<ChainPosition>,
+        after: Option<ChainPosition>,
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
@@ -405,7 +405,7 @@ pub trait AsyncRpc: Send + Sync {
     async fn get_shielded_transactions_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        since: Option<ChainPosition>,
+        after: Option<ChainPosition>,
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
@@ -431,7 +431,7 @@ pub trait AsyncRpc: Send + Sync {
     async fn get_shielded_transactions_by_nullifiers(
         &self,
         nullifiers: Vec<[u8; 32]>,
-        since: Option<ChainPosition>,
+        after: Option<ChainPosition>,
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {

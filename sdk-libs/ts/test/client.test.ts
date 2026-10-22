@@ -690,7 +690,7 @@ describe("ZolanaClient", () => {
 
     const response = await instance.getShieldedTransactionsByNullifiers({
       nullifiers: [nullifier],
-      since: { slot: 1n, signature: "1".repeat(64) as Signature },
+      after: { slot: 1n, signature: "1".repeat(64) as Signature },
       limit: 1000,
     });
 
@@ -702,7 +702,7 @@ describe("ZolanaClient", () => {
       method: "getShieldedTransactionsByNullifiers",
       params: {
         nullifiers: [getBase58Decoder().decode(nullifier)],
-        since: { slot: 1, signature: "1".repeat(64) },
+        after: { slot: 1, signature: "1".repeat(64) },
         limit: 1000,
       },
     });
@@ -751,7 +751,7 @@ describe("ZolanaClient", () => {
       tags: [],
       ringProgramId: TREE,
       limit: 3,
-      since: { slot: 1n, signature: "1".repeat(64) as Signature },
+      after: { slot: 1n, signature: "1".repeat(64) as Signature },
     });
     expect(requests).toEqual([
       expect.objectContaining({
@@ -759,7 +759,7 @@ describe("ZolanaClient", () => {
           tags: [],
           ringProgramId: TREE,
           limit: 3,
-          since: { slot: 1, signature: "1".repeat(64) },
+          after: { slot: 1, signature: "1".repeat(64) },
         },
       }),
     ]);

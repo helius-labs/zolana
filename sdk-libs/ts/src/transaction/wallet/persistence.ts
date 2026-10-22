@@ -96,7 +96,7 @@ export interface SerializedNoteReservation {
  * must still encrypt it at rest.
  */
 export interface SerializedWalletState {
-  readonly version: 5;
+  readonly version: 6;
   readonly identity: Readonly<{
     signingPublicKey: string;
     nullifierPublicKey: string;
@@ -124,7 +124,7 @@ export function serializeWallet(wallet: Wallet): string {
   if (!(wallet instanceof Wallet)) fail("wallet");
   const state = wallet._state();
   const snapshot: SerializedWalletState = {
-    version: 5,
+    version: 6,
     identity: {
       signingPublicKey: encode(wallet.identity.signingPublicKey.toBytes()),
       nullifierPublicKey: encode(wallet.identity.nullifierPublicKey),
@@ -186,7 +186,8 @@ export function deserializeWallet(serialized: string): Wallet {
 function hydrate(value: unknown): Wallet {
   const snapshot = record(value, "wallet");
   const version = snapshot["version"];
-  if (version !== 2 && version !== 3 && version !== 4 && version !== 5) fail("version");
+  if (version !== 2 && version !== 3 && version !== 4 && version !== 5 && version !== 6)
+    fail("version");
   const identityValue = record(snapshot["identity"], "identity");
   const identity = ShieldedAddress.fromPublicKeys(
     ShieldedPublicKey.fromBytes(
@@ -241,9 +242,9 @@ function hydrate(value: unknown): Wallet {
     viewingKeyHistory,
     lastSynced: signed(snapshot["lastSynced"], "lastSynced"),
   });
-  // Versions before 5 predate chain-position cursors, their first sync
+  // Versions before 6 predate chain-position cursors, their first sync
   // rescans history once.
-  if (version === 5) {
+  if (version === 6) {
     hydrateCursors(wallet, snapshot["syncCursors"]);
     wallet._forgetNullifierCursors(nullifiers);
   }

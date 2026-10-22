@@ -60,7 +60,7 @@ export interface RingKeyRegistryEntry extends RingMemberProofContext {
 
 export interface GetRingsByTagsRequest {
   readonly tags: readonly Hash[];
-  readonly since?: ChainPosition;
+  readonly after?: ChainPosition;
   readonly limit?: Limit;
   /**
    * Restrict the match to one ring. Its config account is derived from this
@@ -71,7 +71,7 @@ export interface GetRingsByTagsRequest {
 
 export interface GetRingsByNullifiersRequest {
   readonly nullifiers: readonly Hash[];
-  readonly since?: ChainPosition;
+  readonly after?: ChainPosition;
   readonly limit?: Limit;
 }
 

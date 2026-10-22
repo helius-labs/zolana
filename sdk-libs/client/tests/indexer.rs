@@ -103,7 +103,7 @@ fn get_encrypted_utxos_by_tags_encodes_request_and_decodes_matches() {
         request.body["params"],
         json!({
             "tags": [encode_hash_string(tag_a), encode_hash_string(tag_b)],
-            "since": { "slot": 3, "signature": position(3, 1).signature.to_string() },
+            "after": { "slot": 3, "signature": position(3, 1).signature.to_string() },
             "limit": 7,
         })
     );
@@ -290,7 +290,7 @@ fn get_shielded_transactions_by_nullifiers_uses_dedicated_rpc() {
                 encode_hash_string(nullifier_a),
                 encode_hash_string(nullifier_b)
             ],
-            "since": { "slot": 2, "signature": position(2, 1).signature.to_string() },
+            "after": { "slot": 2, "signature": position(2, 1).signature.to_string() },
             "limit": 3,
         })
     );

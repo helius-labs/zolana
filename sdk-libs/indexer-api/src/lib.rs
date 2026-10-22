@@ -575,7 +575,7 @@ pub struct GetRingsByTagsRequest {
     /// order, so one recorded position serves tags, nullifiers, and encrypted
     /// UTXOs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub since: Option<ChainPosition>,
+    pub after: Option<ChainPosition>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<Limit>,
     /// Restrict the match to one ring. Its config account is derived from this
@@ -590,7 +590,7 @@ pub struct GetRingsByTagsRequest {
 pub struct GetRingsByNullifiersRequest {
     pub nullifiers: Vec<Hash>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub since: Option<ChainPosition>,
+    pub after: Option<ChainPosition>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<Limit>,
 }

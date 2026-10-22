@@ -20,12 +20,12 @@ use crate::{error::ClientError, prover::transact::witness::SpendProof};
 use super::{
     traits::{AsyncRpc, Rpc},
     types::{
-        GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse, GetNonInclusionProofsResponse,
-        GetRingKeyRegistryEntryResponse, GetRingKeyRegistryRegisterProofResponse,
-        GetRingSpendRecordResponse, GetShieldedTransactionsByNullifiersResponse,
-        GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
-        GetUserRecordsResponse, RingHistoryOptions, RingMemberProofRequest, RingSpendRecordRequest,
-        ShieldedTransactionStream,
+        ChainPosition, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
+        GetNonInclusionProofsResponse, GetRingKeyRegistryEntryResponse,
+        GetRingKeyRegistryRegisterProofResponse, GetRingSpendRecordResponse,
+        GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
+        GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, RingHistoryOptions,
+        RingMemberProofRequest, RingSpendRecordRequest, ShieldedTransactionStream,
     },
     IndexerRpcConfig, ProgramAccountsFilter,
 };
@@ -176,22 +176,22 @@ impl<T: Rpc + Send + Sync + 'static> AsyncRpc for Blocking<T> {
     async fn get_encrypted_utxos_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
+        after: Option<ChainPosition>,
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
-        self.run(move |rpc| rpc.get_encrypted_utxos_by_tags(tags, cursor, limit, config))
+        self.run(move |rpc| rpc.get_encrypted_utxos_by_tags(tags, after, limit, config))
             .await
     }
 
     async fn get_shielded_transactions_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
+        after: Option<ChainPosition>,
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
-        self.run(move |rpc| rpc.get_shielded_transactions_by_tags(tags, cursor, limit, config))
+        self.run(move |rpc| rpc.get_shielded_transactions_by_tags(tags, after, limit, config))
             .await
     }
 
@@ -216,12 +216,12 @@ impl<T: Rpc + Send + Sync + 'static> AsyncRpc for Blocking<T> {
     async fn get_shielded_transactions_by_nullifiers(
         &self,
         nullifiers: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
+        after: Option<ChainPosition>,
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
         self.run(move |rpc| {
-            rpc.get_shielded_transactions_by_nullifiers(nullifiers, cursor, limit, config)
+            rpc.get_shielded_transactions_by_nullifiers(nullifiers, after, limit, config)
         })
         .await
     }

@@ -324,12 +324,17 @@ interface Page {
 async function readChunk(
   method: string,
   start: ChainPosition | undefined,
-  request: (since: ChainPosition | undefined) => Promise<Page>,
+  request: (after: ChainPosition | undefined) => Promise<Page>,
 ): Promise<ChainPosition | undefined> {
-  let since = start;
+  let after = start;
   let furthest = start;
   for (;;) {
-    const page = await request(since);
+    const page = await request(after);
+    if (page.next !== undefined && page.latest !== undefined) {
+      throw new ClientError("CLIENT_INVALID_RPC_RESPONSE", {
+        details: { method, path: "$.latest" },
+      });
+    }
     if (
       page.next !== undefined &&
       furthest !== undefined &&
@@ -339,9 +344,15 @@ async function readChunk(
         details: { method, path: "$.next" },
       });
     }
-    furthest = page.latest ?? page.next ?? furthest;
+    const reached = page.latest ?? page.next;
+    if (
+      reached !== undefined &&
+      (furthest === undefined || compareChainPositions(reached, furthest) > 0)
+    ) {
+      furthest = reached;
+    }
     if (page.next === undefined) return furthest;
-    since = page.next;
+    after = page.next;
   }
 }
 
@@ -349,9 +360,9 @@ async function collectShieldedTransactions(
   input: CollectByTagsInput,
   context?: RequestContext,
 ): Promise<ChainPosition | undefined> {
-  return readChunk("getShieldedTransactionsByTags", input.from, async (since) => {
+  return readChunk("getShieldedTransactionsByTags", input.from, async (after) => {
     const response = await input.indexer.getShieldedTransactionsByTags(
-      { tags: input.chunk, limit: input.pageLimit, ...(since === undefined ? {} : { since }) },
+      { tags: input.chunk, limit: input.pageLimit, ...(after === undefined ? {} : { after }) },
       input.nextRpcConfig(),
       context,
     );
@@ -374,9 +385,9 @@ async function collectProoflessDeposits(
   input: CollectByTagsInput,
   context?: RequestContext,
 ): Promise<ChainPosition | undefined> {
-  return readChunk("getEncryptedUtxosByTags", input.from, async (since) => {
+  return readChunk("getEncryptedUtxosByTags", input.from, async (after) => {
     const response = await input.indexer.getEncryptedUtxosByTags(
-      { tags: input.chunk, limit: input.pageLimit, ...(since === undefined ? {} : { since }) },
+      { tags: input.chunk, limit: input.pageLimit, ...(after === undefined ? {} : { after }) },
       input.nextRpcConfig(),
       context,
     );
@@ -450,12 +461,12 @@ async function collectShieldedTransactionsByNullifiers(
   input: CollectByNullifiersInput,
   context?: RequestContext,
 ): Promise<ChainPosition | undefined> {
-  return readChunk("getShieldedTransactionsByNullifiers", input.start, async (since) => {
+  return readChunk("getShieldedTransactionsByNullifiers", input.start, async (after) => {
     const response = await input.indexer.getShieldedTransactionsByNullifiers(
       {
         nullifiers: input.chunk,
         limit: input.pageLimit,
-        ...(since === undefined ? {} : { since }),
+        ...(after === undefined ? {} : { after }),
       },
       input.nextRpcConfig(),
       context,

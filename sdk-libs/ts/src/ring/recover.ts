@@ -271,14 +271,14 @@ async function recoverDeposits(
 ): Promise<{ unsupported: Bytes32[]; candidates: Candidate[] }> {
   const found = new Map<string, Bytes32>();
   const candidates = new Map<string, Candidate>();
-  let since: ChainPosition | undefined;
+  let after: ChainPosition | undefined;
   for (let page = 0; page < (input.maxPages ?? 32); page++) {
     const response = await input.client.getShieldedTransactionsByTags(
       {
         tags: [],
         ringProgramId: input.ringProgramId,
         limit: input.pageSize ?? 100,
-        ...(since === undefined ? {} : { since }),
+        ...(after === undefined ? {} : { after }),
       },
       undefined,
       context,
@@ -374,11 +374,11 @@ async function recoverDeposits(
     const next = response.next;
     if (next === undefined)
       return { unsupported: [...found.values()], candidates: [...candidates.values()] };
-    if (since !== undefined && compareChainPositions(next, since) <= 0)
+    if (after !== undefined && compareChainPositions(next, after) <= 0)
       throw new RingError("RING_RPC", {
         details: { reason: "deposit scan page did not advance" },
       });
-    since = next;
+    after = next;
   }
   throw new RingError("RING_RECOVERY_INCOMPLETE");
 }
@@ -390,23 +390,23 @@ async function spendingTransactions(
   context?: RequestContext,
 ): Promise<readonly IndexedShieldedTransaction[]> {
   const transactions: IndexedShieldedTransaction[] = [];
-  let since: ChainPosition | undefined;
+  let after: ChainPosition | undefined;
   for (;;) {
     if (budget.remaining <= 0) throw new RingError("RING_RECOVERY_INCOMPLETE");
     budget.remaining--;
     const page = await client.getShieldedTransactionsByNullifiers(
-      { nullifiers, ...(since === undefined ? {} : { since }) },
+      { nullifiers, ...(after === undefined ? {} : { after }) },
       undefined,
       context,
     );
     transactions.push(...page.transactions);
     const next = page.next;
     if (next === undefined) return transactions;
-    if (since !== undefined && compareChainPositions(next, since) <= 0)
+    if (after !== undefined && compareChainPositions(next, after) <= 0)
       throw new RingError("RING_RPC", {
         details: { reason: "nullifier scan page did not advance" },
       });
-    since = next;
+    after = next;
   }
 }
 

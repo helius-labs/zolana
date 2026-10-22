@@ -107,7 +107,7 @@ pub struct GetShieldedTransactionsByTagsResponse {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RingHistoryOptions {
     pub ring_program_id: Address,
-    pub since: Option<ChainPosition>,
+    pub after: Option<ChainPosition>,
     pub limit: Option<u32>,
 }
 

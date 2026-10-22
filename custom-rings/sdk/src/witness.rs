@@ -1527,14 +1527,14 @@ mod tests {
         fn get_shielded_transactions_by_nullifiers(
             &self,
             nullifiers: Vec<[u8; 32]>,
-            since: Option<ChainPosition>,
+            after: Option<ChainPosition>,
             limit: Option<u32>,
             config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
             Rpc::get_shielded_transactions_by_nullifiers(
                 &self.lineages,
                 nullifiers,
-                since,
+                after,
                 limit,
                 config,
             )

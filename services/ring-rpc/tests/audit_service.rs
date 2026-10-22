@@ -212,7 +212,7 @@ fn decide_now(auth: &ReadAuth, origins: &Origins) -> Result<Claim, Unauthorized>
             ring: RING,
             timestamp: auth.timestamp,
             nonce,
-            since: None,
+            after: None,
             limit: None,
         },
     )
@@ -1133,6 +1133,44 @@ async fn accepted_nonces_are_single_use() {
 }
 
 #[tokio::test]
+async fn an_attested_limit_keeps_the_boundary_transaction_whole() {
+    let fixture = Fixture::new();
+    let first = fixture.audited.clone();
+    let boundary = ChainPosition {
+        slot: first.slot,
+        signature: first.tx_signature,
+    };
+    let mut second = first.clone();
+    second.event_index = Some(1);
+    let mut source = fixture.source().with_transactions(vec![first, second]);
+    source.next = Some(boundary);
+    let service = fixture.hub(source).service().expect("service");
+    let limit = Limit::new(1).expect("limit");
+    let page = PageOptions::default()
+        .with_limit(limit.clone())
+        .expect("limit")
+        .build()
+        .expect("page");
+    let request = GetDecryptedTransactionsRequest::read(RING)
+        .with_limit(limit)
+        .expect("limit")
+        .sign(&delegate())
+        .expect("request")
+        .auth;
+
+    let response = service
+        .read(AuditRead {
+            auth: &request,
+            page: &page,
+        })
+        .await
+        .expect("whole transaction");
+
+    assert_eq!(response.value.items.len(), 2);
+    assert_eq!(response.value.next, Some(wire(boundary)));
+}
+
+#[tokio::test]
 async fn indexer_pages_must_match_the_attested_bounds() {
     let fixture = Fixture::new();
     let signer = delegate();
@@ -1156,11 +1194,11 @@ async fn indexer_pages_must_match_the_attested_bounds() {
     source.next = Some(chain_position(8));
     let service = fixture.hub(source).service().expect("service");
     let repeated_page = PageOptions::default()
-        .with_since(&wire(chain_position(8)))
+        .with_after(&wire(chain_position(8)))
         .build()
         .expect("page");
     let request = GetDecryptedTransactionsRequest::read(RING)
-        .with_since(wire(chain_position(8)))
+        .with_after(wire(chain_position(8)))
         .sign(&signer)
         .expect("request")
         .auth;

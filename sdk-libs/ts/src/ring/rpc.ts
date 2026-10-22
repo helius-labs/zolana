@@ -67,11 +67,11 @@ export function ringReadAttestation(
     ringProgramId: Address;
     timestamp: bigint;
     nonce: Bytes32;
-    since?: ChainPosition;
+    after?: ChainPosition;
     limit?: bigint;
   }>,
 ): Uint8Array {
-  const since = input.since === undefined ? "" : `${input.since.slot}:${input.since.signature}`;
+  const after = input.after === undefined ? "" : `${input.after.slot}:${input.after.signature}`;
   return encoder.encode(
     [
       READ_DOMAIN,
@@ -79,7 +79,7 @@ export function ringReadAttestation(
       `timestamp: ${input.timestamp}`,
       `nonce: ${base64Decoder.decode(input.nonce)}`,
       `limit: ${input.limit ?? 0n}`,
-      `since: ${since}`,
+      `after: ${after}`,
     ].join("\n"),
   );
 }
@@ -129,7 +129,7 @@ export function messageSignerReader(signer: MessagePartialSigner): RingReadSigne
 /** Mirrors Rust `GetDecryptedTransactionsRequest` after `ReadRequest::sign`. */
 export interface SignedRingRead {
   readonly ringProgramId: Address;
-  readonly since?: ChainPosition;
+  readonly after?: ChainPosition;
   readonly limit?: bigint;
   readonly reader: Uint8Array;
   readonly timestamp: bigint;
@@ -141,7 +141,7 @@ export interface SignedRingRead {
 export class RingReadRequest {
   readonly #ringProgramId: Address;
   readonly #nonce: Bytes32;
-  #since?: ChainPosition;
+  #after?: ChainPosition;
   #limit?: bigint;
   #timestamp?: bigint;
 
@@ -154,8 +154,8 @@ export class RingReadRequest {
     return new RingReadRequest(ringProgramId);
   }
 
-  withSince(since: ChainPosition): this {
-    this.#since = checkedReadSince(since);
+  withAfter(after: ChainPosition): this {
+    this.#after = checkedReadAfter(after);
     return this;
   }
 
@@ -177,13 +177,13 @@ export class RingReadRequest {
         ringProgramId: this.#ringProgramId,
         timestamp,
         nonce: this.#nonce,
-        ...(this.#since === undefined ? {} : { since: this.#since }),
+        ...(this.#after === undefined ? {} : { after: this.#after }),
         ...(this.#limit === undefined ? {} : { limit: this.#limit }),
       }),
     );
     return Object.freeze({
       ringProgramId: this.#ringProgramId,
-      ...(this.#since === undefined ? {} : { since: this.#since }),
+      ...(this.#after === undefined ? {} : { after: this.#after }),
       ...(this.#limit === undefined ? {} : { limit: this.#limit }),
       reader: signer.reader,
       timestamp,
@@ -555,14 +555,14 @@ export class RingRpc {
     input: Readonly<{
       ringProgramId: Address;
       signer: RingReadSigner;
-      since?: ChainPosition;
+      after?: ChainPosition;
       limit?: bigint;
       timestamp?: bigint;
     }>,
     context?: RequestContext,
   ): Promise<DecryptedRingTransactionsPage> {
     let request = RingReadRequest.read(input.ringProgramId);
-    if (input.since !== undefined) request = request.withSince(input.since);
+    if (input.after !== undefined) request = request.withAfter(input.after);
     if (input.limit !== undefined) request = request.withLimit(input.limit);
     if (input.timestamp !== undefined) request = request.at(input.timestamp);
     return this.readSigned(await request.sign(input.signer), context);
@@ -579,9 +579,9 @@ export class RingRpc {
         "getDecryptedTransactions",
         {
           ringProgramId: checked.ringProgramId,
-          ...(checked.since === undefined
+          ...(checked.after === undefined
             ? {}
-            : { since: { slot: Number(checked.since.slot), signature: checked.since.signature } }),
+            : { after: { slot: Number(checked.after.slot), signature: checked.after.signature } }),
           ...(checked.limit === undefined ? {} : { limit: Number(checked.limit) }),
           auth: {
             reader: base64Decoder.decode(checked.reader),
@@ -880,16 +880,16 @@ function requestBytes(value: unknown, length: number, field: string): Uint8Array
   return new Uint8Array(value);
 }
 
-function checkedReadSince(since: unknown): ChainPosition {
+function checkedReadAfter(after: unknown): ChainPosition {
   if (
-    typeof since !== "object" ||
-    since === null ||
-    typeof (since as ChainPosition).slot !== "bigint" ||
-    typeof (since as ChainPosition).signature !== "string"
+    typeof after !== "object" ||
+    after === null ||
+    typeof (after as ChainPosition).slot !== "bigint" ||
+    typeof (after as ChainPosition).signature !== "string"
   ) {
-    throw new RingError("RING_READ_SINCE", { details: {} });
+    throw new RingError("RING_READ_AFTER", { details: {} });
   }
-  const position = since as ChainPosition;
+  const position = after as ChainPosition;
   return Object.freeze({ slot: position.slot, signature: position.signature });
 }
 
@@ -910,7 +910,7 @@ function checkedUnixTimestamp(value: unknown, field: string): bigint {
 
 const SIGNED_READ_FIELDS = new Set([
   "ringProgramId",
-  "since",
+  "after",
   "limit",
   "reader",
   "timestamp",
@@ -960,7 +960,7 @@ function checkedSignedRead(value: unknown): SignedRingRead {
   const ringProgramId = requestAddress(read["ringProgramId"], "ringProgramId");
   const reader = checkedReaderBytes(read["reader"]);
   const nonce = requestBytes(read["nonce"], 32, "nonce") as Bytes32;
-  const since = read["since"] === undefined ? undefined : checkedReadSince(read["since"]);
+  const after = read["after"] === undefined ? undefined : checkedReadAfter(read["after"]);
   const limit = read["limit"] === undefined ? undefined : checkedReadLimit(read["limit"]);
   const timestamp = checkedUnixTimestamp(read["timestamp"], "timestamp");
   const signature = read["signature"];
@@ -971,7 +971,7 @@ function checkedSignedRead(value: unknown): SignedRingRead {
       nonce,
       timestamp,
       signature: requestBytes(signature, 64, "signature"),
-      ...(since === undefined ? {} : { since }),
+      ...(after === undefined ? {} : { after }),
       ...(limit === undefined ? {} : { limit }),
     });
   }
@@ -997,7 +997,7 @@ function checkedSignedRead(value: unknown): SignedRingRead {
       authenticatorData: new Uint8Array(authenticatorData),
       clientDataJSON: new Uint8Array(clientDataJSON),
     }),
-    ...(since === undefined ? {} : { since }),
+    ...(after === undefined ? {} : { after }),
     ...(limit === undefined ? {} : { limit }),
   });
 }

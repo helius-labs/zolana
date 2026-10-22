@@ -478,7 +478,7 @@ async fn both_tag_endpoints_honour_the_ring_filter() {
     for ring_program_id in [None, Some(ours)] {
         let request = GetRingsByTagsRequest {
             tags: vec![Hash::from(view_tag)],
-            since: None,
+            after: None,
             limit: None,
             ring_program_id,
         };
@@ -504,7 +504,7 @@ async fn both_tag_endpoints_honour_the_ring_filter() {
 
     let other_ring = GetRingsByTagsRequest {
         tags: vec![Hash::from(view_tag)],
-        since: None,
+        after: None,
         limit: None,
         ring_program_id: Some(theirs),
     };
@@ -526,7 +526,7 @@ async fn both_tag_endpoints_honour_the_ring_filter() {
     let resumed_shielded = get_shielded_transactions_by_tags(
         &db,
         GetRingsByTagsRequest {
-            since: Some(shielded_frontier.clone()),
+            after: Some(shielded_frontier.clone()),
             ..other_ring.clone()
         },
     )
@@ -535,7 +535,7 @@ async fn both_tag_endpoints_honour_the_ring_filter() {
     let resumed_encrypted = get_encrypted_utxos_by_tags(
         &db,
         GetRingsByTagsRequest {
-            since: Some(encrypted_frontier.clone()),
+            after: Some(encrypted_frontier.clone()),
             ..other_ring
         },
     )
@@ -1719,7 +1719,7 @@ async fn assert_rings_api_exposes_output_hashes(
         .expect("output payload should exist");
     let request = GetRingsByTagsRequest {
         tags: vec![Hash::try_from(output.view_tag.clone()).unwrap()],
-        since: None,
+        after: None,
         limit: None,
         ring_program_id: None,
     };

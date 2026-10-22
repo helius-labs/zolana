@@ -559,12 +559,12 @@ impl ZolanaApi {
     pub async fn get_encrypted_utxos_by_tags(
         &self,
         tags: Vec<Hash>,
-        since: Option<ChainPosition>,
+        after: Option<ChainPosition>,
         limit: Option<u64>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ApiError> {
         self.call::<GetEncryptedUtxosByTags>(GetRingsByTagsRequest {
             tags,
-            since,
+            after,
             limit: optional_limit(limit)?,
             ring_program_id: None,
         })
@@ -574,12 +574,12 @@ impl ZolanaApi {
     pub async fn get_shielded_transactions_by_tags(
         &self,
         tags: Vec<Hash>,
-        since: Option<ChainPosition>,
+        after: Option<ChainPosition>,
         limit: Option<u64>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ApiError> {
         self.call::<GetShieldedTransactionsByTags>(GetRingsByTagsRequest {
             tags,
-            since,
+            after,
             limit: optional_limit(limit)?,
             ring_program_id: None,
         })
@@ -606,12 +606,12 @@ impl ZolanaApi {
     pub async fn get_shielded_transactions_by_nullifiers(
         &self,
         nullifiers: Vec<Hash>,
-        since: Option<ChainPosition>,
+        after: Option<ChainPosition>,
         limit: Option<u64>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ApiError> {
         self.call::<GetShieldedTransactionsByNullifiers>(GetRingsByNullifiersRequest {
             nullifiers,
-            since,
+            after,
             limit: optional_limit(limit)?,
         })
         .await
@@ -777,22 +777,22 @@ impl BlockingZolanaApi {
     pub fn get_encrypted_utxos_by_tags(
         &self,
         tags: Vec<Hash>,
-        since: Option<ChainPosition>,
+        after: Option<ChainPosition>,
         limit: Option<u64>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ApiError> {
         self.runtime
-            .block_on(self.api.get_encrypted_utxos_by_tags(tags, since, limit))
+            .block_on(self.api.get_encrypted_utxos_by_tags(tags, after, limit))
     }
 
     pub fn get_shielded_transactions_by_tags(
         &self,
         tags: Vec<Hash>,
-        since: Option<ChainPosition>,
+        after: Option<ChainPosition>,
         limit: Option<u64>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ApiError> {
         self.runtime.block_on(
             self.api
-                .get_shielded_transactions_by_tags(tags, since, limit),
+                .get_shielded_transactions_by_tags(tags, after, limit),
         )
     }
 
@@ -817,12 +817,12 @@ impl BlockingZolanaApi {
     pub fn get_shielded_transactions_by_nullifiers(
         &self,
         nullifiers: Vec<Hash>,
-        since: Option<ChainPosition>,
+        after: Option<ChainPosition>,
         limit: Option<u64>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ApiError> {
         self.runtime.block_on(
             self.api
-                .get_shielded_transactions_by_nullifiers(nullifiers, since, limit),
+                .get_shielded_transactions_by_nullifiers(nullifiers, after, limit),
         )
     }
 
