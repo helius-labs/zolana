@@ -252,11 +252,8 @@ function anonymousInputs(
     kind: "openings",
     senderKey: sender.signingPublicKey.confidentialViewTag(),
     senderNullifierPk: sender.nullifierPublicKey,
-    inputs: spent.map((input, index) => {
+    inputs: spent.map((input) => {
       if (input.isDummy()) return undefined;
-      // The entry key opens a spent UTXO with no data.
-      if (input.dataHash !== undefined || input.ringDataHash !== undefined)
-        throw new RingError("RING_ENTRY_INPUT_DATA", { details: { index } });
       return {
         asset: assetField(input.utxo.asset),
         amount: input.utxo.amount,

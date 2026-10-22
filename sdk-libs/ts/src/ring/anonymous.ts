@@ -36,7 +36,7 @@ import { hex } from "../transaction/wallet/state.js";
 import { equalBytes } from "../wallet/internal.js";
 
 import { RingError, wrapRingError, type RingErrorCode } from "./error.js";
-import type { AnchorWitness, PendingFirstContact } from "./pipeline.js";
+import { spendsDefaultRing, type AnchorWitness, type PendingFirstContact } from "./pipeline.js";
 import type { RingOutputRail } from "./rail.js";
 import { signMessage } from "./rpc.js";
 import { anchorState } from "./trees.js";
@@ -154,6 +154,18 @@ export function checkAnonymousSlots(proofInputs: SppProofInputs): void {
       (!output.isDummy() && output.ownerAddress?.signingPublicKey.signatureType() !== "ed25519"),
   );
   if (inputOpen || outputOpen) throw new RingError("RING_ANONYMOUS_SLOT_INVALID");
+}
+
+/** The entry key rebuilds every spent UTXO from its opening, Rust `check_entry_inputs`. */
+export function checkEntryInputs(proofInputs: SppProofInputs): void {
+  if (!spendsDefaultRing(proofInputs)) return;
+  proofInputs.inputUtxos.forEach((input, index) => {
+    if (input.isDummy()) return;
+    if (input.utxo.ringProgramId !== undefined)
+      throw new RingError("RING_ENTRY_RING_INPUT", { details: { index } });
+    if (input.dataHash !== undefined || input.ringDataHash !== undefined)
+      throw new RingError("RING_ENTRY_INPUT_DATA", { details: { index } });
+  });
 }
 
 /** The first contact's path at a root its tree holds, fetched beside its pinned decoys, Rust `Anonymous::anchor`. */

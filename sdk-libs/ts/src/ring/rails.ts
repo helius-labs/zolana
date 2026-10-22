@@ -35,6 +35,7 @@ import {
   anonymousExitTokenOwner,
   checkAnonymousSigner,
   checkAnonymousSlots,
+  checkEntryInputs,
   pendingFirstContacts,
   type AnonymousPayment,
   type AnonymousSpendSigner,
@@ -322,6 +323,7 @@ export class AnonymousTransfer {
         instructionDiscriminator: InstructionTag.ringTransact,
       });
       checkAnonymousSlots(proofInputs);
+      checkEntryInputs(proofInputs);
       const anchor =
         plan.anchor === undefined
           ? undefined

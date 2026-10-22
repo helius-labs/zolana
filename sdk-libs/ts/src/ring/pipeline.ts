@@ -271,9 +271,7 @@ async function assembleStagedTransfer<T>(
     keyEscrow: config.keyEscrow,
     dataFree: published.every((slot) => isDataFreeOutput(slot.wire)),
     // A default-ring input takes the entry key, every commitment key refuses ring id zero.
-    fullOpenings:
-      ringRail === "anonymous" &&
-      publishedInputs.some((spent) => !spent.isDummy() && spent.utxo.ringProgramId === undefined),
+    fullOpenings: ringRail === "anonymous" && spendsDefaultRing(staged.proofInputs),
   });
   const layout = ringDisclosureLayout({
     rail: ringRail,
@@ -757,6 +755,12 @@ function anonymousAuditValues(
     firstContactRoot: input.spend.anchor?.root ?? zeroField(),
     ...(input.spend.anchor === undefined ? {} : { anchor: input.spend.anchor.request }),
   });
+}
+
+export function spendsDefaultRing(proofInputs: SppProofInputs): boolean {
+  return proofInputs.inputUtxos.some(
+    (spent) => !spent.isCompact() && !spent.isDummy() && spent.utxo.ringProgramId === undefined,
+  );
 }
 
 /** Each real input spends once, a repeated nullifier fails on chain after proving. */

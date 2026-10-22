@@ -115,6 +115,7 @@ exports[`ring error codes > pins the public codes and their order 1`] = `
   "RING_PAUSED",
   "RING_SETTLEMENT_ACCOUNTS_INVALID",
   "RING_ENTRY_INPUT_DATA",
+  "RING_ENTRY_RING_INPUT",
   "RING_AUDIT_UNSEEN_INPUT",
   "RING_AUDIT_UNSEEN_INPUT_PREFIX",
   "RING_RECORD_QUEUE_INVALID",

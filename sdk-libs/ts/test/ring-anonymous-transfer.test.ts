@@ -706,6 +706,25 @@ describe("anonymous ring exits and entries", () => {
     noProofs(fixture);
   });
 
+  it("refuses ring notes beside a default-ring note before the entry width and any proof", async () => {
+    const fixture = await anonymousRing();
+    const sender = anonymousSender();
+    const transfer = new ConfidentialTransfer(
+      sender.keypair.shieldedAddress(),
+      [
+        noteInput(sender.keypair, 10_000n),
+        ...Array.from({ length: 8 }, () =>
+          noteInput(sender.keypair, 1_000n, fixture.ringProgramId),
+        ),
+      ],
+      fixture.authority,
+    );
+    await expect(rail({ fixture, sender, transfer }).prove(fixture.client)).rejects.toThrow(
+      ringError("RING_ENTRY_RING_INPUT", { index: 1 }),
+    );
+    noProofs(fixture);
+  });
+
   it("refuses an exit to the sender's own ring address key and to a payee's", async () => {
     const fixture = await anonymousRing();
     const sender = anonymousSender();
