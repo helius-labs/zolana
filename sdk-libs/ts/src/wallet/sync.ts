@@ -187,7 +187,7 @@ function walletQueryTags(wallet: Wallet, keys: ShieldedKeys): readonly Bytes32[]
 }
 
 /**
- * Nullifiers of unspent UTXOs.
+ * Nullifiers of unspent UTXOs outside a tracked anonymous ring.
  *
  * A nullifier appears at most once on chain, so once its spend is known the
  * answer is final. Cost tracks the unspent count, not history.
@@ -196,6 +196,9 @@ function walletQueryNullifiers(wallet: Wallet): readonly Bytes32[] {
   const nullifiers = new Map<string, Bytes32>();
   for (const entry of wallet.utxos()) {
     if (entry.spent) continue;
+    const ring = entry.utxo.ringProgramId;
+    // Beside the wallet's other nullifiers it would link the ring's hidden owner to this wallet.
+    if (ring !== undefined && wallet.anonymousRing(ring) !== undefined) continue;
     nullifiers.set(bytesKey(entry.nullifier), entry.nullifier);
   }
   return [...nullifiers.values()];

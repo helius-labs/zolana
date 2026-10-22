@@ -1102,6 +1102,63 @@ describe("anonymous ring sync", () => {
     expect(ring.notes.map((note) => note.stream.kind)).toEqual(["change"]);
   });
 
+  it("asks for an anonymous ring note's nullifier apart from the default and confidential ring ones", async () => {
+    const chain = new Chain();
+    const to = await ringAddress(RECIPIENT, 0);
+    chain.pay(to, inboxTagOf(to, 0n, 0), 5_000n, 0n);
+    const held = (leafIndex: bigint, ringProgramId?: Address) => {
+      const utxo = new Utxo({
+        owner: RECIPIENT.signingPublicKey(),
+        asset: SOL_MINT,
+        amount: 1_000n,
+        blinding: field(Number(leafIndex)),
+        data: new Data(),
+        ...(ringProgramId === undefined ? {} : { ringProgramId }),
+      });
+      const hash = utxo.hash(RECIPIENT.nullifierPublicKey(), DEFAULT_TREE_ID);
+      return {
+        utxo,
+        outputContext: { hash, tree: treeAddress(DEFAULT_TREE_ID), leafIndex },
+        nullifier: RECIPIENT.nullifier(hash, utxo.blinding),
+        spent: false,
+      };
+    };
+    const owned = [held(900n), held(901n, FOREIGN_RING)];
+    const wallet = new Wallet({ identity: RECIPIENT.shieldedAddress() });
+    wallet._replace({ utxos: owned, transactions: [], nullifiers: new Set() });
+    const requests: string[][] = [];
+    const client: SyncClient = {
+      getShieldedTransactionsByTags: (request) =>
+        chain.indexer.getShieldedTransactionsByTags(request),
+      getEncryptedUtxosByTags: (request) => chain.indexer.getEncryptedUtxosByTags(request),
+      getShieldedTransactionsByNullifiers: (request) => {
+        requests.push(request.nullifiers.map(hex));
+        return chain.indexer.getShieldedTransactionsByNullifiers(request);
+      },
+    };
+    const synced = () =>
+      syncWallet({
+        wallet,
+        client,
+        keys: LocalShieldedKeys.fromKeypair(RECIPIENT),
+        anonymousRings: { slot: slotOf(0n), start: [{ ring: RING, creationEpoch: 0n }] },
+      });
+
+    await synced();
+    await synced();
+
+    const anonymous = wallet.utxos().find((entry) => entry.utxo.ringProgramId === RING);
+    if (anonymous === undefined) throw new Error("the inbox note was read");
+    const [plain, confidential] = owned.map((entry) => hex(entry.nullifier));
+    const ring = hex(anonymous.nullifier);
+    expect(requests.some((names) => names.includes(plain!) && names.includes(confidential!))).toBe(
+      true,
+    );
+    const asked = requests.filter((names) => names.includes(ring));
+    expect(asked).not.toEqual([]);
+    expect(asked).toEqual(asked.map(() => [ring]));
+  });
+
   it("opens the change of a spend it first read under its own inbox tag", async () => {
     const chain = new Chain();
     const to = await ringAddress(RECIPIENT, 0);
