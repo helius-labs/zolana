@@ -42,7 +42,9 @@ use crate::{
 
 const PAGE_LIMIT: u32 = 1_000;
 
-/// What [`UtxoScan::fetch`] read.
+/// What [`UtxoScan::fetch`] read. Outputs in unresolved assets are omitted
+/// from the UTXOs and reported in `spendable` and `history` through their
+/// `unknown_asset_ids` and `unknown_mints` fields, even with discovery enabled.
 #[derive(Clone, Debug)]
 pub struct UtxoScanResult {
     /// The registry used to decrypt this scan, including mappings learned by
@@ -94,8 +96,11 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
     ///
     /// At most one filtered registry read is made, only when an unknown
     /// asset is encountered. Already fetched transactions are decrypted
-    /// again and newly discovered nullifiers are followed normally. Assets
-    /// still unknown after discovery fail with [`ClientError::UnresolvedAssets`].
+    /// again and newly discovered nullifiers are followed normally. Outputs
+    /// in assets still unknown after discovery are skipped and reported in
+    /// the result's `unknown_asset_ids` and `unknown_mints` fields. Unknown
+    /// ids are sender-provided and unverified; they do not fail the scan.
+    /// RPC failures and invalid or conflicting registrations still fail it.
     /// The supplied registry is unchanged; the result carries the updated
     /// registry. Leave this disabled to scan an explicit asset allowlist.
     #[must_use]
@@ -155,29 +160,19 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
         loop {
             decrypted.extend(self.keys, &batch, &assets)?;
             transactions.append(&mut batch);
-            if self.discover_assets && has_unknown_assets(&decrypted) {
-                if !registry_refreshed {
-                    for mint in fetch_spl_asset_registrations(indexer)? {
-                        match assets.asset_id(&mint.asset) {
-                            Ok(asset_id) if asset_id == mint.asset_id => continue,
-                            Ok(_) => {
-                                return Err(ClientError::InvalidSplAssetRegistry {
-                                    mint: mint.asset,
-                                })
-                            }
-                            Err(_) => assets.insert(mint.asset_id, mint.asset)?,
+            if self.discover_assets && !registry_refreshed && has_unknown_assets(&decrypted) {
+                for mint in fetch_spl_asset_registrations(indexer)? {
+                    match assets.asset_id(&mint.asset) {
+                        Ok(asset_id) if asset_id == mint.asset_id => continue,
+                        Ok(_) => {
+                            return Err(ClientError::InvalidSplAssetRegistry { mint: mint.asset })
                         }
+                        Err(_) => assets.insert(mint.asset_id, mint.asset)?,
                     }
-                    registry_refreshed = true;
-                    decrypted = DecryptionResult::default();
-                    decrypted.extend(self.keys, &transactions, &assets)?;
                 }
-                if has_unknown_assets(&decrypted) {
-                    return Err(ClientError::UnresolvedAssets {
-                        asset_ids: decrypted.unknown_asset_ids.iter().copied().collect(),
-                        mints: decrypted.unknown_mints.iter().copied().collect(),
-                    });
-                }
+                registry_refreshed = true;
+                decrypted = DecryptionResult::default();
+                decrypted.extend(self.keys, &transactions, &assets)?;
             }
             let owned = verify_owned(self.keys, &decrypted)?;
             let spendable = owned.spendable();
@@ -252,7 +247,8 @@ fn has_unknown_assets(decrypted: &DecryptionResult) -> bool {
 /// Every SPL asset registration held by the shielded pool. The request is
 /// filtered by account size and discriminator; every returned account is
 /// checked again, including its owner and canonical mint PDA. A malformed,
-/// conflicting or unsupported listing fails instead of reading as empty.
+/// conflicting listing or an unsupported RPC method fails instead of reading
+/// as empty. An asset absent from the listing is simply not returned.
 pub fn fetch_spl_asset_registrations<R: Rpc + ?Sized>(rpc: &R) -> Result<Vec<Mint>, ClientError> {
     let filter =
         ProgramAccountsFilter::new(SplAssetRegistry::SIZE).with_memcmp(0, [SPL_ASSET_REGISTRY]);

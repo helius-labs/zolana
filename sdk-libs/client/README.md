@@ -166,10 +166,14 @@ decrypts its already fetched transactions again and follows newly resolved
 nullifiers without repeating tag queries. `fetch_spl_asset_registrations`
 exposes the same validated lookup separately. Reuse the returned registry to
 cache the mappings across scans; the input registry is unchanged, including
-on failure. A failed lookup or an asset still unresolved after discovery
-fails the scan (`ClientError::UnresolvedAssets` names the remaining ids and
-mints), rather than returning a partial balance. Leave discovery disabled
-for an explicit asset allowlist. Custom `Rpc` implementations must support
+on failure. Outputs in assets still unresolved after discovery are skipped;
+the scan continues following known assets' nullifiers and reports the remaining
+ids and mints through `unknown_asset_ids` and `unknown_mints` in both `spendable`
+and `history`. These fields indicate outputs omitted from the balances and
+history; an unknown id is sender-provided and is not evidence of a valid asset
+or balance. RPC failures and invalid or conflicting registrations still fail
+the scan. Leave discovery disabled for an explicit asset allowlist.
+Custom `Rpc` implementations must support
 `get_program_accounts_filtered`; discovery never falls back to an unfiltered
 program listing.
 

@@ -884,27 +884,57 @@ fn discovery_reuses_pages_and_follows_newly_resolved_nullifiers() {
 }
 
 #[test]
-fn discovery_reports_unresolved_asset_ids_and_mints() {
+fn discovery_reports_unresolved_assets_without_hiding_known_balances_or_spends() {
     let owner = keypair(7);
     let mint = Mint::new(MINT, 2);
-    let (deposit, _) = asset_deposit(&owner, mint, 30, 1);
-    let (transfer, _) = confidential(&owner, mint, 2);
+    let (unknown_deposit, _) = asset_deposit(&owner, mint, 30, 1);
+    let (mut transfer, _) = confidential(&owner, mint, 2);
+    // An unresolved id is sender-provided and cannot yet be checked against
+    // the commitment. Even a bogus output must not prevent scanning real funds.
+    transfer.output_slots[0].output_context.hash = [0; 32];
+    let known_mint = Mint::new(OTHER_PROGRAM, 3);
+    let (known_deposit, known) = asset_deposit(&owner, known_mint, 41, 3);
+    let (sol_deposit, sol) = deposit(&owner, 7, 4);
     let indexer = Indexer {
-        deposits: vec![deposit],
+        deposits: vec![unknown_deposit, known_deposit, sol_deposit],
         tagged: vec![transfer],
+        spends: vec![spend(&owner, &known, 5)],
+        registrations: vec![registration(known_mint)],
         page_size: 100,
         ..Indexer::default()
     };
     let original = AssetRegistry::default();
-    let error = UtxoScan::new(&owner, &original)
+    let scan = UtxoScan::new(&owner, &original)
         .with_asset_discovery()
         .fetch(&indexer)
-        .unwrap_err();
-    assert!(
-        matches!(error, ClientError::UnresolvedAssets { asset_ids, mints } if asset_ids == vec![2] && mints == vec![MINT])
+        .unwrap();
+    assert_eq!(scan.history.unknown_asset_ids, BTreeSet::from([2]));
+    assert_eq!(scan.history.unknown_mints, BTreeSet::from([MINT]));
+    assert_eq!(scan.spendable.unknown_asset_ids, BTreeSet::from([2]));
+    assert_eq!(scan.spendable.unknown_mints, BTreeSet::from([MINT]));
+    assert_eq!(
+        scan.spendable
+            .balances
+            .get_balance(SOL_MINT)
+            .unwrap()
+            .amount,
+        7
     );
+    assert_eq!(
+        scan.spendable
+            .utxos()
+            .map(|utxo| utxo.utxo_hash)
+            .collect::<Vec<_>>(),
+        vec![sol.hash]
+    );
+    assert_eq!(scan.history.utxos.len(), 2);
+    assert_eq!(scan.history.transactions.len(), 5);
+    assert_eq!(scan.asset_registry.asset_id(&OTHER_PROGRAM).unwrap(), 3);
     assert_eq!(*indexer.registry_reads.borrow(), 1);
+    assert_eq!(indexer.reads_of("get_shielded_transactions_by_tags"), 1);
+    assert_eq!(indexer.reads_of("get_encrypted_utxos_by_tags"), 1);
     assert!(original.asset_id(&MINT).is_err());
+    assert!(original.asset_id(&OTHER_PROGRAM).is_err());
 }
 
 #[test]
@@ -924,26 +954,42 @@ fn a_registry_failure_is_not_a_successful_partial_scan() {
 }
 
 #[test]
-fn an_unknown_asset_in_a_later_round_fails_without_repeating_discovery() {
+fn an_unknown_asset_in_a_later_round_does_not_stop_following_known_nullifiers() {
     let owner = keypair(7);
     let first_mint = Mint::new(MINT, 2);
-    let (deposit, first) = asset_deposit(&owner, first_mint, 30, 1);
+    let (first_deposit, first) = asset_deposit(&owner, first_mint, 30, 1);
     let (mut transfer, _) = confidential(&owner, Mint::new(OTHER_PROGRAM, 3), 2);
     transfer.output_slots[0].view_tag = [99; 32];
     transfer.nullifiers = vec![first.nullifier];
+    let (sol_deposit, sol) = deposit(&owner, 7, 3);
+    let (merged_tx, merged) = merge(&owner, &[&sol], sol.nullifier, 4);
     let indexer = Indexer {
-        deposits: vec![deposit],
-        spends: vec![transfer],
+        deposits: vec![first_deposit, sol_deposit],
+        spends: vec![transfer, merged_tx, spend(&owner, &merged, 5)],
         registrations: vec![registration(first_mint)],
         page_size: 100,
         ..Indexer::default()
     };
     let assets = AssetRegistry::default();
-    assert!(matches!(
-        UtxoScan::new(&owner, &assets).with_asset_discovery().fetch(&indexer),
-        Err(ClientError::UnresolvedAssets { asset_ids, mints }) if asset_ids == vec![3] && mints.is_empty()
-    ));
+    let scan = UtxoScan::new(&owner, &assets)
+        .with_asset_discovery()
+        .fetch(&indexer)
+        .unwrap();
+    assert_eq!(scan.history.unknown_asset_ids, BTreeSet::from([3]));
+    assert!(scan.history.unknown_mints.is_empty());
+    assert_eq!(scan.spendable.unknown_asset_ids, BTreeSet::from([3]));
+    assert!(scan.spendable.unknown_mints.is_empty());
+    assert!(scan.spendable.utxos().next().is_none());
+    assert_eq!(scan.history.utxos.len(), 3);
+    assert_eq!(scan.history.transactions.len(), 5);
+    let queried = indexer.queried_nullifiers.borrow();
+    assert_eq!(queried.len(), 3);
+    assert_eq!(
+        queried.iter().copied().collect::<BTreeSet<_>>(),
+        BTreeSet::from([first.nullifier, sol.nullifier, merged.nullifier])
+    );
     assert_eq!(*indexer.registry_reads.borrow(), 1);
+    assert_eq!(indexer.reads_of("get_shielded_transactions_by_tags"), 1);
     assert_eq!(indexer.reads_of("get_encrypted_utxos_by_tags"), 1);
 }
 
