@@ -10,7 +10,7 @@ use std::time::Duration;
 /// 500ms regardless of how fast the cluster confirms.
 const DEFAULT_POLL_INTERVAL: Duration = Duration::from_millis(250);
 
-pub use accounts::{ProgramAccountsFilter, MAX_ASSET_REGISTRY_ACCOUNTS};
+pub use accounts::ProgramAccountsFilter;
 pub use blocking::SolanaRpc;
 pub use nonblocking::AsyncSolanaRpc;
 pub use transaction::{

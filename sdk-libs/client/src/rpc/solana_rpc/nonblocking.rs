@@ -21,8 +21,7 @@ use crate::{error::ClientError, rpc::AsyncRpc};
 
 use super::{
     accounts::{
-        asset_registry, asset_registry_query, filtered_program_accounts, pubkey_from_address,
-        ProgramAccountsFilter,
+        filtered_program_accounts, pubkey_from_address, AssetRegistryPages, ProgramAccountsFilter,
     },
     transaction::{
         instruction_groups_from_confirmed_transaction,
@@ -81,8 +80,14 @@ impl AsyncSolanaRpc {
 
     /// Every SPL mint the pool registered, see [`SolanaRpc::asset_registry`](super::SolanaRpc::asset_registry).
     pub async fn asset_registry(&self) -> Result<AssetRegistry, ClientError> {
-        let (program, filter) = asset_registry_query();
-        asset_registry(self.get_program_accounts_filtered(program, &filter).await?)
+        let counter = self.get_account(AssetRegistryPages::counter()).await?;
+        let mut registry = AssetRegistry::default();
+        for page in AssetRegistryPages::of(counter)?.pages() {
+            let (program, filter) = page.query();
+            let accounts = self.get_program_accounts_filtered(program, &filter).await?;
+            page.read(accounts, &mut registry)?;
+        }
+        Ok(registry)
     }
 
     pub async fn genesis_hash(&self) -> Result<[u8; 32], ClientError> {

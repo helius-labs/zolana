@@ -66,7 +66,6 @@ pub use prover::{spawn_prover, ProverLaunch};
 #[cfg(feature = "solana-rpc")]
 pub use rpc::solana_rpc::{
     AsyncSolanaRpc, ConfirmedInstructionGroups, ProgramAccountsFilter, SolanaRpc,
-    MAX_ASSET_REGISTRY_ACCOUNTS,
 };
 pub use rpc::Blocking;
 pub use rpc::SettlementAccountValidation;

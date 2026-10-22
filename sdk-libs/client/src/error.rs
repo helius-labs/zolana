@@ -139,8 +139,11 @@ pub enum ClientError {
     #[error("asset registry account {address} is invalid")]
     InvalidAssetRegistryAccount { address: Address },
 
-    #[error("the asset registry holds {accounts} accounts, more than a read accepts")]
-    AssetRegistryTooLarge { accounts: usize },
+    #[error("the SPL asset counter account is invalid")]
+    InvalidAssetCounter,
+
+    #[error("asset registry ids {first}..{end} answered with {found} accounts")]
+    AssetRegistryPageIncomplete { first: u64, end: u64, found: usize },
 
     #[error("address resolution error: {0}")]
     AddressResolution(String),

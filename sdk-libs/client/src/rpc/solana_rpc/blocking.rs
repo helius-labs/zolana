@@ -24,8 +24,7 @@ use crate::{error::ClientError, rpc::Rpc};
 
 use super::{
     accounts::{
-        asset_registry, asset_registry_query, filtered_program_accounts, pubkey_from_address,
-        ProgramAccountsFilter,
+        filtered_program_accounts, pubkey_from_address, AssetRegistryPages, ProgramAccountsFilter,
     },
     transaction::{
         instruction_groups_from_confirmed_transaction,
@@ -83,8 +82,16 @@ impl SolanaRpc {
 
     /// Every SPL mint the pool registered, each read from its own registry address.
     pub fn asset_registry(&self) -> Result<AssetRegistry, ClientError> {
-        let (program, filter) = asset_registry_query();
-        asset_registry(self.get_program_accounts_filtered(program, &filter)?)
+        let counter = self.get_account(AssetRegistryPages::counter())?;
+        let mut registry = AssetRegistry::default();
+        for page in AssetRegistryPages::of(counter)?.pages() {
+            let (program, filter) = page.query();
+            page.read(
+                self.get_program_accounts_filtered(program, &filter)?,
+                &mut registry,
+            )?;
+        }
+        Ok(registry)
     }
 
     pub fn genesis_hash(&self) -> Result<[u8; 32], ClientError> {
