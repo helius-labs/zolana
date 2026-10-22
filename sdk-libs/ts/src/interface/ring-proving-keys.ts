@@ -5,41 +5,43 @@ export const RING_PROVING_KEY_SHA256S: Readonly<Record<string, string>> = Object
   "custom_ring_apply_records_16.key":
     "1019a112fae03241b1539d88866cc82054eb0587a66683bff47acfc08c218534",
   "custom_ring_audit_anonymous_12_2.key":
-    "18ddc575836d0c7e0e2a3811742621938b5b2469be06c51921ae9ca6549a7ec8",
+    "f58c908b89d8affb7c0eb3d13252ff11b78c1a855acbd24afaf6fdb59c4dace2",
   "custom_ring_audit_anonymous_12_4.key":
-    "30cff3a86dbf077f7f72f382f7441a4b19c92046c15658b765bd507eb619557f",
+    "5b1fe62bf86125b68e9618bd57e09a76417e95d6c6576bb69b22ed6661117748",
   "custom_ring_audit_anonymous_12_8.key":
-    "4dc5d5df71b05d4bafe56e1fcf37b44047f847666618d37b0886afa935acdd22",
+    "7643f015be5f5f245507b07c4796731f1511a65d660e08e737934b6f630a0801",
   "custom_ring_audit_anonymous_16_2.key":
-    "c6e0842abceff5b8d2a98dbebb1bd88a4953dbb5670a3f6f25f3577a27ce1240",
+    "65ab5bd5fa91969123efd608be026e0db5ad3b5b8979f16e3624b843d475da7e",
   "custom_ring_audit_anonymous_16_4.key":
-    "8adee193c6ca3990193488857195d2d4e72cf4dddef53d8b8ccf4dcb4e7c3605",
+    "7c535a1674a6752be0310135a017101f6ba46cbba980af38cd19f8ad302f9028",
   "custom_ring_audit_anonymous_16_8.key":
-    "ba847fddad5faba7fd43e3f1cb8d0247df704f7b1df60c1b3775ca720fd86b26",
+    "d0d6193b61fa61bd7c9fdca58c23acb70b7db0c3f8e69987a42687c09d7f0c09",
+  "custom_ring_audit_anonymous_1_16.key":
+    "c27e5847fe6059919923e586ee13037cd40d1833a83bcb12fe3b4bf588d53f5c",
   "custom_ring_audit_anonymous_24_2.key":
-    "f44b01a3cfc129c666c58ae20bafc5e99f8c22a364ffe24c50c102734adc1797",
+    "7e292addb3b328af4f478d77022a47a5fec50e05246c1115facbea1712544b67",
   "custom_ring_audit_anonymous_24_4.key":
-    "29087e7e5ce554c59aa5f5fb47b84575afa9c9383a5bd2bb722b2e44537f2785",
-  "custom_ring_audit_anonymous_28_2.key":
-    "5e491754b4a66e218179635939cfac6814d3eafa02a5940671b8ca72eaeb7fd5",
+    "3a95015a1452ad639ec8e08b794caf775dda58dc81e8ddfa7a83e35733df9560",
+  "custom_ring_audit_anonymous_32_2.key":
+    "208b2c68388b9e32c9841772cafba848c0c80c1de717bc7954fe29775684b4db",
   "custom_ring_audit_anonymous_4_2.key":
-    "1a4daa72c2f22c4c1f3077012abe3b38b06cba212dbe4a34cfaf5068c0315c53",
+    "35ba80b8492e794445d865a991202268723e9afeda867c9816f308591f698e59",
   "custom_ring_audit_anonymous_4_4.key":
-    "e5b9189f228128fbc77cd86a6ae535c7560c11e59fe0d1666c04be7c1485053f",
+    "a16f83d3af261ee76614891b04ef84cdd7e9700d22031f7e4cc11c2e2508acbe",
   "custom_ring_audit_anonymous_4_8.key":
-    "72fba2bbd79de107e48749bd6efdfc50a6e0c0d12d9851bb026755b924d3052e",
+    "222296776a21ee9be1fa60750711751665618d569feff57be4bf8f52945b7375",
   "custom_ring_audit_anonymous_8_2.key":
-    "1fa985400f9dde6d6c7ea442af760b2da92e608f5290cd6a4efca61870d74f38",
+    "0319ed816cc688e93a392f12cf3233a7908bb9921d98829d2b6333a03181c7ad",
   "custom_ring_audit_anonymous_8_4.key":
-    "f29c90903241a38f71efad75c08da64e09d53eec5fab33191c76a5cfc56f85e7",
+    "569b6945273d879001b8b7b9d50e7b199368baf747690a61d5ebcc11ea6e147e",
   "custom_ring_audit_anonymous_8_8.key":
-    "ab9169b01cf9102e94a85b1663d1a2911f4d99b0416d45ea2e90060b9ae24658",
+    "365d190b9771df76de3f192f21222112ebe546f25fd4656518a4ff5de64adb81",
   "custom_ring_audit_anonymous_entry_8_2.key":
-    "8eb59304df4932f997d7a9b9330fca0ef41243901600a9c3f575d40175c19f84",
+    "faefdddb575e731b3b6118c318676ba151d12c112fdd1fec3348caf2b19ae66e",
   "custom_ring_audit_anonymous_entry_8_4.key":
-    "43d808089b405c021a6220a84ef02a52e97a95840ccf624e5f629e17075600ce",
+    "311b4226255b6a59e2ad7a9d7df923ac875fc3d02421aa4beae7de19d2abd537",
   "custom_ring_audit_anonymous_entry_8_8.key":
-    "4f15f2db57121a690b64f7029810a9ddd3c43d9f56bffe34a91cc5ecb2f0ef34",
+    "976b914967eb08a06f29f1dc79717ffbbc55b2cb728cfc114191cb5b10e3f146",
   "custom_ring_audit_delivered_16.key":
     "12c00572c7f77f48a7da7f37e0ec2002e0ceeaf6362b8912c4723b1a258b6e3b",
   "custom_ring_audit_delivered_8.key":

@@ -17,7 +17,7 @@ verifying_keys! {
     audit_anonymous_12_2_verifying_key => "custom_ring_audit_anonymous_12_2.key",
     audit_anonymous_16_2_verifying_key => "custom_ring_audit_anonymous_16_2.key",
     audit_anonymous_24_2_verifying_key => "custom_ring_audit_anonymous_24_2.key",
-    audit_anonymous_28_2_verifying_key => "custom_ring_audit_anonymous_28_2.key",
+    audit_anonymous_32_2_verifying_key => "custom_ring_audit_anonymous_32_2.key",
     audit_anonymous_4_4_verifying_key => "custom_ring_audit_anonymous_4_4.key",
     audit_anonymous_8_4_verifying_key => "custom_ring_audit_anonymous_8_4.key",
     audit_anonymous_12_4_verifying_key => "custom_ring_audit_anonymous_12_4.key",
@@ -27,6 +27,7 @@ verifying_keys! {
     audit_anonymous_8_8_verifying_key => "custom_ring_audit_anonymous_8_8.key",
     audit_anonymous_12_8_verifying_key => "custom_ring_audit_anonymous_12_8.key",
     audit_anonymous_16_8_verifying_key => "custom_ring_audit_anonymous_16_8.key",
+    audit_anonymous_1_16_verifying_key => "custom_ring_audit_anonymous_1_16.key",
     audit_anonymous_entry_8_2_verifying_key => "custom_ring_audit_anonymous_entry_8_2.key",
     audit_anonymous_entry_8_4_verifying_key => "custom_ring_audit_anonymous_entry_8_4.key",
     audit_anonymous_entry_8_8_verifying_key => "custom_ring_audit_anonymous_entry_8_8.key",
@@ -116,9 +117,9 @@ pub fn verifying_key(
             outputs: 2,
         } => Some(&audit_anonymous_24_2_verifying_key::VERIFYINGKEY),
         key_catalog::RingCircuit::AnonymousAudit {
-            class: 28,
+            class: 32,
             outputs: 2,
-        } => Some(&audit_anonymous_28_2_verifying_key::VERIFYINGKEY),
+        } => Some(&audit_anonymous_32_2_verifying_key::VERIFYINGKEY),
         key_catalog::RingCircuit::AnonymousAudit {
             class: 4,
             outputs: 4,
@@ -155,6 +156,10 @@ pub fn verifying_key(
             class: 16,
             outputs: 8,
         } => Some(&audit_anonymous_16_8_verifying_key::VERIFYINGKEY),
+        key_catalog::RingCircuit::AnonymousAudit {
+            class: 1,
+            outputs: 16,
+        } => Some(&audit_anonymous_1_16_verifying_key::VERIFYINGKEY),
         key_catalog::RingCircuit::AnonymousEntryAudit {
             class: 8,
             outputs: 2,
