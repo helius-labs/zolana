@@ -277,7 +277,7 @@ pub(crate) struct AnonymousAudit {
 }
 
 /// A member's record, or the low record proving it absent, as one subject entry opens it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct MemberOpening {
     pub present: bool,
@@ -330,7 +330,7 @@ impl From<&RecordOpening> for MemberOpening {
 }
 
 /// One subject's openings, `None` where the circuit reads no record.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Default, PartialEq, Eq, Serialize)]
 pub(crate) struct Entry {
     pub own: Option<MemberOpening>,
     pub curator: Option<MemberOpening>,
@@ -649,7 +649,7 @@ pub(crate) struct MergeAnonymous {
 }
 
 /// A present record as the deposit circuit opens it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RecordOpeningRequest {
     #[serde(with = "fe")]
