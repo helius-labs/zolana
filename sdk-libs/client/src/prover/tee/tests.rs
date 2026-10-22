@@ -317,12 +317,16 @@ fn a_policy_file_is_a_pin_file_or_a_bare_policy() {
 }
 
 #[test]
-fn the_published_deployment_pin_loads() {
-    let pin = include_str!("../../../../../prover/tee/deployments/nitro-c7a.json");
-    assert_eq!(
-        TeePolicy::from_file_json(pin).unwrap().platform(),
-        Platform::AwsNitro
-    );
+fn the_published_deployment_pins_load() {
+    for pin in [
+        include_str!("../../../../../prover/tee/deployments/nitro-c7a.json"),
+        include_str!("../../../../../prover/tee/deployments/devnet-d-v0.5.0-alpha.json"),
+    ] {
+        assert_eq!(
+            TeePolicy::from_file_json(pin).unwrap().platform(),
+            Platform::AwsNitro
+        );
+    }
 }
 
 #[derive(Deserialize)]

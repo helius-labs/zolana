@@ -34,6 +34,67 @@ The `zolana` commands that prove take `--no-prover-tee` to send plaintext, `--pr
 Plaintext requests carry every proof's witness, so send them only to a prover you run or trust with it.
 A TEE client calls the prover at its own URL, because attestation needs its `/tee/v1/attestation` route and encrypted calls need its `Zolana-Tee` headers.
 
+## devnet-d: v0.5.0-alpha
+
+[devnet-d-v0.5.0-alpha.json](deployments/devnet-d-v0.5.0-alpha.json) pins the
+parallel v0.5.0-alpha deployment. Use the SDKs from
+[v0.5.0-alpha](https://github.com/helius-labs/zolana/releases/tag/v0.5.0-alpha),
+protocol commit `81d8f9cefed610247c9bd4cf69c3cf8553e0b731`.
+Its client prover runs Aeglos CPU in a Nitro Enclave and fetches indexed proof
+data from Photon. The SDK's bundled default policy pins a separate deployment;
+select this policy explicitly when using these endpoints.
+
+| Service | URL |
+| --- | --- |
+| Client TEE prover | `https://d1unet9hn0mci0.cloudfront.net` |
+| Photon JSON-RPC | `https://d21d98xh5lgv3b.cloudfront.net` |
+
+Copy the policy JSON into your application. In Rust:
+
+```rust
+use zolana_client::prover::{
+    indexed::ProofDataSource, tee::TeePolicy, ProverClient,
+};
+
+let policy_json = std::fs::read_to_string("devnet-d-v0.5.0-alpha.json")?;
+let prover = ProverClient::new("https://d1unet9hn0mci0.cloudfront.net".into())
+    .with_tee(TeePolicy::from_file_json(&policy_json)?)
+    .with_proof_data_source(ProofDataSource::Prover);
+prover.attest()?;
+```
+
+In TypeScript:
+
+```ts
+import { ZolanaClient, teePolicyFromJson } from "@heliuslabs/zolana/client";
+import pin from "./devnet-d-v0.5.0-alpha.json" with { type: "json" };
+
+const client = new ZolanaClient({
+  solanaRpcUrl: "https://api.devnet.solana.com",
+  indexerUrl: "https://d21d98xh5lgv3b.cloudfront.net",
+  proverUrl: "https://d1unet9hn0mci0.cloudfront.net",
+  proverTee: teePolicyFromJson(pin.deployment),
+  proofDataSource: "prover",
+});
+await client.attestProver();
+```
+
+The explicit proof-data setting uses `/indexed`, including
+`/prove/transfer_confidential_1_2/indexed`, so the prover fetches Merkle proofs.
+From the repository root, check attestation and encrypted proving-key digests:
+
+```sh
+cargo run -p xtask -- tee-check https://d1unet9hn0mci0.cloudfront.net \
+  --policy prover/tee/deployments/devnet-d-v0.5.0-alpha.json
+```
+
+The policy matches the measured EIF from
+[publisher run 39738684498](https://github.com/helius-labs/zolana/actions/runs/39738684498),
+with EIF SHA256 `a8cf5a57439c4725fc5f7450a283550a5eac7a98e75bc35fe23d72bd93384166`.
+Live attestation, encrypted key checks and an encrypted indexed proof were
+verified against it. A future enclave build requires a newly measured and
+reviewed policy; applications should vendor the reviewed file with their code.
+
 ## Roles
 
 The prover operator holds the Phala API key and the prover API key, and runs `prover/server/scripts/release_tee.sh`.
