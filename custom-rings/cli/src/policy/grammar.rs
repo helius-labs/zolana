@@ -509,11 +509,9 @@ impl PolicySpec {
         let limit = |(row, spec): (usize, &LimitSpec)| {
             let mint = spec.asset.0;
             let refused = |source| PolicyError::LimitAsset { row, mint, source };
-            Ok(OutflowLimit {
-                asset: *Member::asset(&mint).map_err(refused)?.as_bytes(),
-                cap: spec.cap,
-                cosign_above: spec.cosign_above,
-            })
+            Ok(OutflowLimit::of(&Member::asset(&mint).map_err(refused)?)
+                .with_cap(spec.cap)
+                .with_cosign_above(spec.cosign_above))
         };
         self.limits.iter().enumerate().map(limit).collect()
     }
@@ -553,7 +551,7 @@ pub(crate) fn compile_rows(rows: &PolicyRows) -> Result<RuleTable, PolicyError> 
 
 /// One sentence per outflow limit, the wording every listing shares.
 pub fn describe_limit(limit: &OutflowLimit) -> String {
-    let asset = hex::encode(&limit.asset[..4]);
+    let asset = hex::encode(&limit.asset()[..4]);
     match (limit.cap, limit.cosign_above) {
         (0, cosign) => format!("asset {asset}.. needs the co-signer above {cosign} per transfer"),
         (cap, 0) => format!("asset {asset}.. is capped at {cap} per transfer"),
@@ -657,16 +655,9 @@ limits = [{{ asset = "{MINT}" }}]
 
     #[test]
     fn the_description_names_each_bound() {
-        let capped = OutflowLimit {
-            asset: [3u8; 32],
-            cap: 1000,
-            cosign_above: 0,
-        };
+        let capped = OutflowLimit::of(&Member::from_bytes([3u8; 32]).unwrap()).with_cap(1000);
         assert!(describe_limit(&capped).contains("capped at 1000 per transfer"));
-        let cosigned = OutflowLimit {
-            cosign_above: 400,
-            ..capped
-        };
+        let cosigned = capped.with_cosign_above(400);
         assert!(describe_limit(&cosigned).contains("co-signer above 400"));
     }
 

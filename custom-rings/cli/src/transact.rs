@@ -762,7 +762,7 @@ impl Outflow {
         let asset = *Member::asset(&self.mint)?.as_bytes();
         let over = |bound: u64| bound != 0 && self.amount > bound;
         let mut approval = false;
-        for limit in limits.iter().filter(|limit| limit.asset == asset) {
+        for limit in limits.iter().filter(|limit| *limit.asset() == asset) {
             ensure!(
                 !over(limit.cap),
                 "the outflow {} passes the policy cap {} of mint {}",
@@ -1410,11 +1410,9 @@ mod tests {
     }
 
     fn limits(cap: u64, cosign_above: u64) -> [OutflowLimit; 1] {
-        [OutflowLimit {
-            asset: *Member::asset(&SOL_MINT).unwrap().as_bytes(),
-            cap,
-            cosign_above,
-        }]
+        [OutflowLimit::of(&Member::asset(&SOL_MINT).unwrap())
+            .with_cap(cap)
+            .with_cosign_above(cosign_above)]
     }
 
     fn sol(amount: u64) -> Outflow {

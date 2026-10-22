@@ -1695,11 +1695,7 @@ async fn an_approval_its_owner_would_co_sign_is_refused_before_proving() {
     let sender = keypair(1);
     let recipient = keypair(2);
     let owner = Address::new_from_array(sender.signing_pubkey().confidential_view_tag().unwrap());
-    let limit = OutflowLimit {
-        asset: *Member::asset(&Mint::SOL.asset).unwrap().as_bytes(),
-        cap: 0,
-        cosign_above: 1,
-    };
+    let limit = OutflowLimit::of(&Member::asset(&Mint::SOL.asset).unwrap()).with_cosign_above(1);
     let rules = RuleTable::builder()
         .rule(Rule::require(Subject::Sender, ListId::Allow))
         .rule(Rule::require(Subject::OutputOwner, ListId::Allow))

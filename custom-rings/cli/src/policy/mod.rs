@@ -259,17 +259,13 @@ impl Line {
 
 #[cfg(test)]
 mod tests {
-    use zolana_ring_policy::{ListId, OutflowLimit, Rule, Subject};
+    use zolana_ring_policy::{ListId, Member, OutflowLimit, Rule, Subject};
 
     use super::*;
 
     #[test]
     fn a_table_of_outflow_limits_alone_lists_each_limit() {
-        let limit = OutflowLimit {
-            asset: [3; 32],
-            cap: 1000,
-            cosign_above: 0,
-        };
+        let limit = OutflowLimit::of(&Member::from_bytes([3; 32]).unwrap()).with_cap(1000);
         let limits_only = RuleTable::builder().limits(&[limit]).build();
         assert_eq!(
             table_lines(&limits_only),

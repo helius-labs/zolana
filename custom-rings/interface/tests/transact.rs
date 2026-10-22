@@ -27,7 +27,7 @@ use zolana_interface::{
     instruction::{InterfaceTransfer, OwnerTag, TransactIxData, TreeContext},
     shape::{Shape, SPP_SUPPORTED_SHAPES},
 };
-use zolana_ring_policy::{ListId, OutflowLimit, RuleTable};
+use zolana_ring_policy::{ListId, Member, OutflowLimit, RuleTable};
 
 const VECTORS: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -694,11 +694,11 @@ fn the_policy_proof_follows_the_registry() {
         Err(CustomRingError::UnexpectedApproval)
     );
     registry.rules = RuleTable::builder()
-        .limits(&[OutflowLimit {
-            asset: [1; 32],
-            cap: 10,
-            cosign_above: 5,
-        }])
+        .limits(&[
+            OutflowLimit::of(&Member::asset(&Address::new_from_array([1; 32])).unwrap())
+                .with_cap(10)
+                .with_cosign_above(5),
+        ])
         .build()
         .encode();
     assert_eq!(

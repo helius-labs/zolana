@@ -17,7 +17,7 @@ use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_error::TransactionError;
 use zolana_hasher::primitives::right_align;
 use zolana_interface::{BPF_LOADER_UPGRADEABLE_ID, RING_AUTH_PDA_SEED};
-use zolana_ring_policy::{ListId, OutflowLimit, Rule, RuleTable, Subject};
+use zolana_ring_policy::{ListId, Member, OutflowLimit, Rule, RuleTable, Subject};
 
 /// Any address serves as the ring program.
 pub const PROGRAM: Address = Address::new_from_array([0x52; 32]);
@@ -122,11 +122,10 @@ impl Ring {
             ring.send(registry, &[&authority]),
         );
         let limits = match setup {
-            Setup::LimitedPolicy => vec![OutflowLimit {
-                asset: [7; 32],
-                cap: 0,
-                cosign_above: 1_000,
-            }],
+            Setup::LimitedPolicy => vec![OutflowLimit::of(
+                &Member::asset(&Address::new_from_array([7; 32])).expect("asset member"),
+            )
+            .with_cosign_above(1_000)],
             _ => Vec::new(),
         };
         if setup.kind().has_policy() {

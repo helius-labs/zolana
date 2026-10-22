@@ -25,14 +25,14 @@ use zolana_interface::{
     instruction::instruction_data::merge_transact::{
         MergeOutputEncryption, MergeProof, MergeTransactIxData,
     },
-    pda, BPF_LOADER_UPGRADEABLE_ID, SOL_ASSET_FIELD,
+    pda, BPF_LOADER_UPGRADEABLE_ID, SOL_ASSET_ADDRESS,
 };
 use zolana_keypair::{SigningKey, X25519Keypair};
 use zolana_program::instruction::MergeRing;
 use zolana_ring_client::ReaderKey;
 use zolana_ring_policy::{
-    ListChange, ListId, ListSet, OutflowLimit, PolicyTableError, Rule, RuleTable, RuleTableError,
-    Subject, TableParts, Writer,
+    ListChange, ListId, ListSet, Member, OutflowLimit, PolicyTableError, Rule, RuleTable,
+    RuleTableError, Subject, TableParts, Writer,
 };
 
 /// The system program is the all-zero address.
@@ -468,11 +468,11 @@ fn a_policy_table_names_its_curator_once_and_reproduces_the_pinned_table() {
         .rule(Rule::require(Subject::Sender, ListId::Allow))
         .rule(Rule::forbid(Subject::Sender, ListId::Block))
         .rule(Rule::forbid(Subject::OutputOwner, ListId::Frozen))
-        .limits(&[OutflowLimit {
-            asset: SOL_ASSET_FIELD,
-            cap: 1_000,
-            cosign_above: 500,
-        }])
+        .limits(&[OutflowLimit::of(
+            &Member::asset(&Address::new_from_array(SOL_ASSET_ADDRESS)).unwrap(),
+        )
+        .with_cap(1_000)
+        .with_cosign_above(500)])
         .build();
     let curator = CustomRing::new(Address::new_from_array([36; 32]));
     let shared = [(ListId::Frozen, curator), (ListId::Allow, curator)];

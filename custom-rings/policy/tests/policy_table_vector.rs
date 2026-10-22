@@ -155,18 +155,16 @@ impl RuleParts {
 impl Limit {
     fn new(limit: &OutflowLimit) -> Self {
         Self {
-            asset: hex::encode(limit.asset),
+            asset: hex::encode(limit.asset()),
             cap: limit.cap,
             cosign_above: limit.cosign_above,
         }
     }
 
     fn outflow_limit(&self) -> OutflowLimit {
-        OutflowLimit {
-            asset: bytes(&self.asset),
-            cap: self.cap,
-            cosign_above: self.cosign_above,
-        }
+        OutflowLimit::of(&Member::from_bytes(bytes(&self.asset)).expect("asset member"))
+            .with_cap(self.cap)
+            .with_cosign_above(self.cosign_above)
     }
 }
 
@@ -214,11 +212,9 @@ impl Xorshift {
                     1 => (0, bound),
                     _ => (bound, 1 + self.below(bound)),
                 };
-                OutflowLimit {
-                    asset: self.asset(),
-                    cap,
-                    cosign_above,
-                }
+                OutflowLimit::of(&asset_member(self.bytes()))
+                    .with_cap(cap)
+                    .with_cosign_above(cosign_above)
             })
             .collect()
     }
@@ -346,16 +342,10 @@ fn full_width_table() -> (RuleTable, SourceMap) {
         .inline_assets(&[asset([0x11; 32]), asset([0x12; 32])])
         .inline_limits(&[1, u64::MAX])
         .limits(&[
-            OutflowLimit {
-                asset: asset([0x13; 32]),
-                cap: u64::MAX,
-                cosign_above: 1,
-            },
-            OutflowLimit {
-                asset: asset([0x14; 32]),
-                cap: 0,
-                cosign_above: u64::MAX,
-            },
+            OutflowLimit::of(&asset_member([0x13; 32]))
+                .with_cap(u64::MAX)
+                .with_cosign_above(1),
+            OutflowLimit::of(&asset_member([0x14; 32])).with_cosign_above(u64::MAX),
         ])
         .build();
     let curator = registry_field(&[0x15; 32]).expect("registry field");
@@ -370,9 +360,11 @@ fn full_width_table() -> (RuleTable, SourceMap) {
 }
 
 fn asset(mint: [u8; 32]) -> [u8; 32] {
-    *Member::asset(&Address::new_from_array(mint))
-        .expect("asset member")
-        .as_bytes()
+    *asset_member(mint).as_bytes()
+}
+
+fn asset_member(mint: [u8; 32]) -> Member {
+    Member::asset(&Address::new_from_array(mint)).expect("asset member")
 }
 
 fn bytes(value: &str) -> [u8; 32] {

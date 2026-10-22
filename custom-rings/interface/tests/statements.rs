@@ -9,7 +9,16 @@ use custom_ring_interface::{
     DEPOSIT_PUBLIC_INPUT_ELEMENTS,
 };
 use serde::{Deserialize, Serialize};
+use solana_address::Address;
 use zolana_hasher::primitives::{hash_bytes, solana_owner_identity};
+use zolana_interface::{
+    instruction::{
+        instruction_data::{PublicLeg, PublicSlotError, PublicSlots},
+        InterfaceTransfer,
+    },
+    SOL_ASSET_ADDRESS,
+};
+use zolana_ring_policy::{Member, OutflowLimit};
 
 const VECTORS: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -548,4 +557,32 @@ fn an_exit_slot_contributes_zero_bodies_keys_and_tags() {
     tag_field[32 - TAG_LEN..].copy_from_slice(&values.tags[0]);
     assert_eq!(anonymous.tag_field(), tag_field);
     assert_eq!(anonymous.body_hash(), hash_bytes(&values.bodies[0]));
+}
+
+/// The policy circuit matches a limit row against the asset fields of the public slots.
+#[test]
+fn an_outflow_limit_carries_the_public_asset_field_of_its_mint() {
+    let mint = [9u8; 32];
+    let legs = [
+        PublicLeg {
+            transfer: InterfaceTransfer::SplWithdrawal {
+                amount: 5,
+                spl_interface_bump: 255,
+            },
+            mint: Some(mint),
+        },
+        PublicLeg {
+            transfer: InterfaceTransfer::SolWithdrawal { amount: 7 },
+            mint: None,
+        },
+    ];
+    let fields = PublicSlots::fold(legs.map(Ok::<_, PublicSlotError>))
+        .unwrap()
+        .asset_fields()
+        .unwrap();
+    for (asset, field) in [mint, SOL_ASSET_ADDRESS].into_iter().zip(fields) {
+        let limit = OutflowLimit::of(&Member::asset(&Address::new_from_array(asset)).unwrap());
+        assert_eq!(*limit.asset(), field);
+        assert_ne!(*limit.asset(), asset);
+    }
 }

@@ -3,7 +3,7 @@ use thiserror::Error;
 use wincode::{SchemaRead, SchemaWrite};
 use zolana_hasher::{primitives::right_align, Hasher, HasherError, Poseidon};
 
-use crate::{field_u8, ListId, ListSet};
+use crate::{field_u8, ListId, ListSet, Member};
 
 /// Rule slots compiled into the circuit, a new value rotates the proving key.
 pub const MAX_RULES: usize = 16;
@@ -416,7 +416,7 @@ impl Rule {
 /// Bounds one transfer's outflow of `asset`, zero leaves a bound off.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct OutflowLimit {
-    pub asset: [u8; 32],
+    asset: [u8; 32],
     /// The transfer fails above it.
     pub cap: u64,
     /// The transfer needs the co-signer above it.
@@ -429,6 +429,33 @@ impl OutflowLimit {
         cap: 0,
         cosign_above: 0,
     };
+
+    /// Both bounds off.
+    pub const fn of(asset: &Member) -> Self {
+        Self {
+            asset: *asset.as_bytes(),
+            cap: 0,
+            cosign_above: 0,
+        }
+    }
+
+    #[must_use]
+    pub const fn with_cap(self, cap: u64) -> Self {
+        Self { cap, ..self }
+    }
+
+    #[must_use]
+    pub const fn with_cosign_above(self, cosign_above: u64) -> Self {
+        Self {
+            cosign_above,
+            ..self
+        }
+    }
+
+    /// The field public slots carry for the asset.
+    pub const fn asset(&self) -> &[u8; 32] {
+        &self.asset
+    }
 }
 
 /// The circuit can enforce every instance.

@@ -48,11 +48,11 @@ impl Outflows<'_> {
     pub fn approval_required(&self, limits: &[OutflowLimit]) -> Result<bool, RingError> {
         let mut approval = false;
         for limit in limits {
-            let outflow = self.outflow(&limit.asset)?;
+            let outflow = self.outflow(limit.asset())?;
             let over = |bound: u64| bound != 0 && outflow > i128::from(bound);
             if over(limit.cap) {
                 return Err(RingError::OutflowCapExceeded {
-                    asset: limit.asset,
+                    asset: *limit.asset(),
                     cap: limit.cap,
                     outflow: u64::try_from(outflow).map_err(|_| RingError::OutflowOverflow)?,
                 });
