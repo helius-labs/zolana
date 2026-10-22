@@ -155,4 +155,5 @@ returns `ProvenIndexedMerge::Ring`.
 
 By default, transfer and merge requests ask for the proof in the HTTP
 response. A capacity rejection can retry through the queue when Redis is
-available. Forester batch proofs and custom-ring proofs use queued delivery.
+available. Forester batch proofs and the proofs a ring program verifies use
+queued delivery.
