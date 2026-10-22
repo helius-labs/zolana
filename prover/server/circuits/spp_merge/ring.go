@@ -13,12 +13,13 @@ import (
 // 1. Anonymity - the owner of the merged UTXOs is not revealed.
 // 2. Nonzero dummy nullifiers are indistinguishable from UTXO nullifiers;
 // compact padding publishes 0.
-// 3. No signature is checked, the owner's nullifier secret authenticates every input and no slot carries data.
+// 3. No signatures are enforced in the program or circuit.
 // 4. Balances are preserved.
 // 5. Input and output utxos are owned by the same owner.
 // 6. 1/many UTXOs to one UTXO
-// 7. The proof binds the owner's ciphertext of the output's amount and mint, and every other output field
-// derives from the owner's keys, the first nullifier and the public ring values.
+// 7. Every output field but the amount and mint is derived from the owner's
+// keys, the first nullifier, and the public ring values. The output ciphertext
+// a ring merge carries is bound by this proof.
 
 type RingCircuit struct {
 	NumInputs int `gnark:"-"`
@@ -35,7 +36,9 @@ type RingCircuit struct {
 	mergeshared.CommonPublicInputs
 
 	// OutputRingDataHash is the ring-data hash the calling ring program carries
-	// in the instruction/event, the output's and every real input's.
+	// in the instruction/event; asserting it against Output.RingDataHash binds
+	// the carried value to Output.Utxo.RingDataHash. Ring state stays under the
+	// ring proof; this proof only binds the hash.
 	OutputRingDataHash frontend.Variable
 	RingProgramID      frontend.Variable
 	// The ring program takes the root from its registry history, zero on an anonymous merge.

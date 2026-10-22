@@ -14,17 +14,17 @@ import (
 type Variant int
 
 const (
-	// ConfidentialVariant is the default transfer. Output owners bind to
-	// published owner tags.
+	// ConfidentialVariant is the default transact: output owners bind to public
+	// pk_field tags; non-ring.
 	ConfidentialVariant Variant = iota
-	// RingVariant is the confidential policy-ring transfer. Input and output
-	// owners remain private, each real UTXO binds its ring program, and Solana
-	// signer hashes authorize private owner hashes.
+	// RingVariant is the confidential policy-ring transfer (ring_transact):
+	// input and output owners remain private and each real UTXO binds its
+	// ring_program_id. Solana signer hashes still authorize private owner hashes.
 	RingVariant
 	// RingAuthorityVariant is the anonymous policy-ring transfer for
-	// authority rail. The ring authority controls its ring-owned UTXOs, so
-	// owners do not sign. Input owner tags remain private and are omitted from
-	// the public input hash.
+	// ring_authority_transact: the ring authority controls its ring-owned UTXOs, so
+	// owners do not sign. No in-circuit signature and every input owner pk_field
+	// kept private (omitted from the public input hash).
 	RingAuthorityVariant
 )
 

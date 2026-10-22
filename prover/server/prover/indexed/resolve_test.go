@@ -434,9 +434,9 @@ func TestResolveCancellationReleasesPreparation(t *testing.T) {
 	}
 }
 
-// A merge-ring request carries the shared prefix, the ring tail with the
-// registry root, then the ciphertext; the default merge's count is refused for
-// it, and the other way round.
+// A merge-ring request carries the shared prefix, the ring tail and the
+// ciphertext; the default merge's count is refused for it, and the other way
+// round.
 func TestMergePublicInputCountFollowsTheRail(t *testing.T) {
 	request := func(circuitType common.CircuitType, count int) []byte {
 		t.Helper()

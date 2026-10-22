@@ -17,10 +17,12 @@ import (
 // 4. Balances are preserved.
 // 5. Input and output utxos are owned by the same owner.
 // 6. 1/many UTXOs to one UTXO
-// 7. The output's amount and mint are published under a ciphertext the owner
-// can decrypt without trusting its merger. Every other output field derives from the owner's keys
+// 7. The output's amount and mint are published under a ciphertext only the
+// owner and its merger can decrypt, and every other output field is derived from the owner's keys
 // and the first nullifier, so the owner rebuilds the output from the merge
 // transaction alone, even when the merger folded in a note the owner never saw.
+// The ciphertext uses the scheme the owner registered; the program checks the
+// scheme and selects this circuit's key by it.
 
 type (
 	Input  = mergeshared.Input

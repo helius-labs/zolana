@@ -41,8 +41,8 @@ func refreshRingPublicInputHash(t *testing.T, f *mergeWitnessFixture) {
 	refreshPublicInputHash(t, f, f.outputRingDataHash, f.ringProgramID, f.memberRegistryRoot, f.anonymous)
 }
 
-// refreshPublicInputHash hashes the common public columns, the rail-specific
-// tail, then the salt and the output ciphertext.
+// refreshPublicInputHash hashes the common public columns, then the
+// rail-specific tail, then the salt and the output ciphertext.
 func refreshPublicInputHash(t *testing.T, f *mergeWitnessFixture, tail ...*big.Int) {
 	t.Helper()
 	asBigInts := func(vs []frontend.Variable) []*big.Int {

@@ -38,8 +38,8 @@ func ConfidentialEddsaSigners(api frontend.API, inputs []Input, ownerPkHashes []
 }
 
 // AuthorizedEddsaInputOwners resolves the private per-input owner identities and
-// requires every content-bearing input to be authorized by the deduplicated
-// owner-signer vector. Paying fees alone does not authorize an input.
+// requires every content-bearing input to be authorized by the signer vector:
+// the deduplicated owner-signer accounts, zero-padded. The payer is not in it.
 func AuthorizedEddsaInputOwners(
 	api frontend.API,
 	inputs []Input,

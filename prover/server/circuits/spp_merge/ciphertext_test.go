@@ -14,7 +14,7 @@ import (
 )
 
 // ciphertextTail is the salt followed by the ciphertext, the last elements of
-// the public-input-hash preimage on both rails.
+// each rail's public-input-hash preimage.
 const ciphertextTail = 1 + mergeshared.MergeOutputCiphertextLen
 
 type ciphertextRail struct {

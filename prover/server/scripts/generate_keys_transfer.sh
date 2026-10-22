@@ -77,8 +77,9 @@ for entry in "${rails[@]}"; do
     done
 done
 
-# The ring-authority rail (transfer_ring_authority) takes the shapes of the
-# vector the Rust and Go shape tests pin.
+# The ring-authority rail (transfer_ring_authority) re-owns inputs into
+# outputs (freeze / thaw / permanent-delegate), so only the shapes the
+# on-chain verifier supports are generated.
 if [[ "${SKIP_AUTHORITY_KEYS:-0}" != "1" ]]; then
     authority_shapes="$(python3 -c 'import json, sys; print("\n".join(f"{i} {o}" for i, o in json.load(open(sys.argv[1]))["shapes"]))' \
         ../../test-vectors/ring_authority_shapes.json)"

@@ -93,8 +93,8 @@ type Transaction struct {
 	Output Output
 
 	// MintChunks are the hash_bytes_32 chunks of the merged asset's mint:
-	// bytes 0..31 and byte 31. The asset field is derived from them, so the
-	// output ciphertext carries the mint itself.
+	// bytes 0..31 and byte 31. The asset field is derived from them, so an
+	// output ciphertext can carry the mint itself.
 	MintChunks [2]frontend.Variable
 
 	OwnerPkHash         frontend.Variable

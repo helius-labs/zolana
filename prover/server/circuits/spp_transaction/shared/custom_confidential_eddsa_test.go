@@ -106,8 +106,9 @@ func TestCustomRingConfidentialEddsaAcceptsZeroDummyOutputTag(t *testing.T) {
 	assert.SolvingSucceeded(circuit, asCustomRingConfidentialEddsa(assignment), test.WithCurves(ecc.BN254))
 }
 
-// A fee payer that owns no input is absent from the signer vector.
-// A dummy must not show it as a recipient of a transaction it only funded.
+// A fee payer that owns no input is not in the signer vector, so a dummy
+// cannot name it: it must not be shown as a ring recipient by a transaction
+// it only paid for.
 func TestCustomRingConfidentialEddsaRejectsDummyOutputPayerTag(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
@@ -120,8 +121,8 @@ func TestCustomRingConfidentialEddsaRejectsDummyOutputPayerTag(t *testing.T) {
 	assert.SolvingFailed(circuit, asCustomRingConfidentialEddsa(assignment), test.WithCurves(ecc.BN254))
 }
 
-// An owner signer is public in the signer vector, so a
-// dummy may repeat it even when no output publishes it.
+// An owner signer is public in the signer vector, so a dummy may repeat it
+// even when no output publishes it.
 func TestCustomRingConfidentialEddsaAcceptsDummyOutputOwnerSignerTag(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}

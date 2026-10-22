@@ -64,7 +64,8 @@ func AssertPublishedOutputOwners(
 // output's published owner. Every entry of publicIdentities must itself be a
 // public input, which is what makes a dummy tag unable to disclose a private
 // identity such as a policy-ring recipient or the hidden Ed25519 owner during a
-// ring spend. The fee payer is nameable only when it is also an owner signer.
+// ring spend. The fee payer is nameable only when it is also an owner
+// signer; otherwise it is not in the signer vector.
 //
 // A compact padding output (outputIsCompact, see CompactSlots) must publish
 // tag 0: SPP pads the owner tag chain with zeros for the outputs the

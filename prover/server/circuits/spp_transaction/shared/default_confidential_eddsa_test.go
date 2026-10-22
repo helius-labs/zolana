@@ -224,8 +224,9 @@ func TestDefaultRingConfidentialEddsaDummyOutputSignerTagSolves(t *testing.T) {
 	assert.SolvingSucceeded(circuit, asDefaultRingConfidentialEddsa(assignment), test.WithCurves(ecc.BN254))
 }
 
-// A fee payer that owns no input is absent from the signer vector.
-// A dummy must not show it as a recipient of a transaction it only funded.
+// A fee payer that owns no input is not in the signer vector and not a
+// nameable dummy identity: it must not be shown as a recipient by a
+// transaction it only paid for.
 func TestDefaultRingConfidentialEddsaRejectsDummyOutputPayerHashTag(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
