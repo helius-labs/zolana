@@ -1,7 +1,9 @@
 import { address, type Address } from "@solana/kit";
 
 import { wireDecoder } from "../../interface/decode.js";
+import { sha256 } from "../../interface/internal.js";
 import type { Bytes32 } from "../../interface/types.js";
+import { concatBytes } from "../../keypair/bytes.js";
 import { Pairing } from "../../keypair/ring-address.js";
 import {
   J_PAIR,
@@ -32,6 +34,10 @@ export const DEPOSIT_GAP = 2n * DEPOSIT_TAG_WINDOW;
 export const PAIR_IDLE_EPOCHS = 8n;
 /** Leaves of one tree kept as anchor decoys. */
 export const DECOYS_PER_TREE = 64;
+/** Decoy paths fetched beside the anchor's, the leaves of its tree a scan already holds, Rust `ANCHOR_DECOYS`. */
+export const ANCHOR_DECOYS = 7;
+/** Epochs one scan reads, the next scan continues past them, Rust `MAX_FETCH_EPOCHS`. */
+export const MAX_FETCH_EPOCHS = 1n << 10n;
 /** Rust `ANONYMOUS_RING_STATE_VERSION`, the layout `serialize` writes. */
 export const ANONYMOUS_RING_STATE_VERSION = 3;
 
@@ -76,6 +82,13 @@ export interface DecoyLeaf {
   readonly hash: Bytes32;
 }
 
+/** A live first contact whose decoys a scan pinned, Rust `PairAnchor`. */
+export interface PairAnchor {
+  readonly contact: SentFirstContact;
+  /** Every read of the anchor names these leaves, in order. */
+  readonly leaves: readonly Bytes32[];
+}
+
 /** What a wallet keeps of one anonymous ring between scans, Rust `AnonymousRingState`. */
 export class AnonymousRingState {
   readonly ring: Address;
@@ -92,6 +105,8 @@ export class AnonymousRingState {
   readonly decoys: ReadonlyMap<number, readonly DecoyLeaf[]>;
   /** By recipient key, the newest pair payment a scan saw the wallet make. */
   readonly #paid: ReadonlyMap<string, bigint>;
+  /** By recipient key, the decoys every read of the anchor names. */
+  readonly #pins: ReadonlyMap<string, readonly Bytes32[]>;
 
   private constructor(fields: AnonymousRingStateFields) {
     this.ring = fields.ring;
@@ -103,6 +118,7 @@ export class AnonymousRingState {
     this.depositNext = fields.depositNext;
     this.decoys = new Map(fields.decoys);
     this.#paid = new Map(fields.paid);
+    this.#pins = new Map(fields.pins);
     Object.freeze(this);
   }
 
@@ -118,6 +134,7 @@ export class AnonymousRingState {
       depositNext: 0n,
       decoys: new Map(),
       paid: new Map(),
+      pins: new Map(),
     });
   }
 
@@ -131,24 +148,72 @@ export class AnonymousRingState {
     return this.#with({ issued });
   }
 
-  /** The live first contact to `recipient`, the anchor a payment in `epoch` may pair on. */
+  /** Live in `epoch`, pinned or not. */
   firstContact(recipient: X25519PublicKey, epoch: bigint): SentFirstContact | undefined {
     return this.sent.find(
       (contact) => contact.recipient.equals(recipient) && this.#sentLive(contact, epoch),
     );
   }
 
+  /** The anchor a payment to `recipient` in `epoch` may pair on, live with its decoys pinned, Rust `pair_anchor`. */
+  pairAnchor(recipient: X25519PublicKey, epoch: bigint): PairAnchor | undefined {
+    const contact = this.firstContact(recipient, epoch);
+    const decoys =
+      contact === undefined ? undefined : this.#pins.get(recipientKey(contact.recipient));
+    if (contact === undefined || decoys === undefined) return undefined;
+    const leaves = byRank(contact.slotSecret, [...decoys, contact.utxoHash]);
+    return Object.freeze({ contact, leaves: Object.freeze(leaves) });
+  }
+
   /** A confirmed inbox payment becomes its address's newest first contact, the state keeps its own copy. */
   recordFirstContact(contact: SentFirstContact): AnonymousRingState {
     const recorded = checkedContact(contact);
     const known = this.sent.find((sent) => sent.recipient.equals(recorded.recipient));
+    if (known !== undefined && sameLeaf(known, recorded)) {
+      recorded.slotSecret.fill(0);
+      return this;
+    }
     if (known === undefined || known.epoch <= recorded.epoch) {
       const paid = new Map(this.#paid);
-      paid.set(recipientKey(recorded), recorded.epoch);
-      return this.#with({ sent: [...this.sent.filter((sent) => sent !== known), recorded], paid });
+      paid.set(recipientKey(recorded.recipient), recorded.epoch);
+      const pins = new Map(this.#pins);
+      pins.delete(recipientKey(recorded.recipient));
+      return this.#with({
+        sent: [...this.sent.filter((sent) => sent !== known), recorded],
+        paid,
+        pins,
+      });
     }
     recorded.slotSecret.fill(0);
     return this;
+  }
+
+  /** The indexer refused a pinned leaf, the next scan pins the decoys again, Rust `unpin_anchor`. */
+  unpinAnchor(recipient: X25519PublicKey): AnonymousRingState {
+    const pins = new Map(this.#pins);
+    pins.delete(recipientKey(recipient));
+    return this.#with({ pins });
+  }
+
+  /**
+   * Pins the lowest ranked decoys of every unpinned contact whose tree's pool holds a full set, Rust `pin_anchors`.
+   * @internal
+   */
+  pinAnchors(): AnonymousRingState {
+    const pins = new Map(this.#pins);
+    for (const contact of this.sent) {
+      const key = recipientKey(contact.recipient);
+      if (pins.has(key)) continue;
+      const ranked = byRank(
+        contact.slotSecret,
+        (this.decoys.get(contact.treeId) ?? [])
+          .map((leaf) => leaf.hash)
+          .filter((hash) => !equal(hash, contact.utxoHash)),
+      );
+      if (ranked.length >= ANCHOR_DECOYS)
+        pins.set(key, Object.freeze(ranked.slice(0, ANCHOR_DECOYS)));
+    }
+    return this.#with({ pins });
   }
 
   /** A pair tag of a live first contact among the outputs of the wallet's own spend, Rust `note_pair_payment`. */
@@ -161,7 +226,7 @@ export class AnonymousRingState {
       const epochs = [landed - 1n, landed].filter(
         (epoch) =>
           epoch >= 0n &&
-          epoch > (paid.get(recipientKey(contact)) ?? contact.epoch) &&
+          epoch > (paid.get(recipientKey(contact.recipient)) ?? contact.epoch) &&
           this.#sentLive(contact, epoch),
       );
       if (epochs.length === 0) continue;
@@ -170,7 +235,7 @@ export class AnonymousRingState {
         for (const epoch of epochs) {
           for (let at = 0; at < J_PAIR; at++) {
             if (tags.has(hex(ringTagField(pairTag(key, epoch, tagIndex(at))))))
-              paid.set(recipientKey(contact), epoch);
+              paid.set(recipientKey(contact.recipient), epoch);
           }
         }
       } finally {
@@ -199,11 +264,27 @@ export class AnonymousRingState {
     const sent = this.sent.filter((contact) => this.#sentLive(contact, openEpoch));
     const paid = new Map(
       sent.map((contact) => [
-        recipientKey(contact),
-        this.#paid.get(recipientKey(contact)) ?? contact.epoch,
+        recipientKey(contact.recipient),
+        this.#paid.get(recipientKey(contact.recipient)) ?? contact.epoch,
       ]),
     );
-    return this.#with({ received, sent, paid });
+    const pins = new Map(
+      [...this.#pins].filter(([key]) =>
+        sent.some((contact) => recipientKey(contact.recipient) === key),
+      ),
+    );
+    return this.#with({ received, sent, paid, pins });
+  }
+
+  /**
+   * At most `MAX_FETCH_EPOCHS`, the first one past the last scanned, Rust `fetch_epochs`.
+   * @internal
+   */
+  fetchEpochs(slot: bigint): Readonly<{ first: bigint; open: bigint }> {
+    const first = this.scannedEpoch === undefined ? this.creationEpoch : this.scannedEpoch + 1n;
+    const capped = first + MAX_FETCH_EPOCHS - 1n;
+    const open = tagEpoch(slot);
+    return Object.freeze({ first, open: open < capped ? open : capped });
   }
 
   /** Issued, used or past them within `ADDRESS_GAP`, the addresses a scan reads. */
@@ -303,7 +384,8 @@ export class AnonymousRingState {
         index: contact.index,
         asset: contact.asset,
         amount: contact.amount.toString(),
-        lastEpoch: safeNumber(this.#paid.get(recipientKey(contact)) ?? contact.epoch),
+        lastEpoch: safeNumber(this.#paid.get(recipientKey(contact.recipient)) ?? contact.epoch),
+        decoys: this.#pins.get(recipientKey(contact.recipient))?.map(hex) ?? null,
       })),
       depositNext: safeNumber(this.depositNext),
       decoys: [...this.decoys]
@@ -318,7 +400,7 @@ export class AnonymousRingState {
     };
   }
 
-  /** Refuses another layout version, a caller rescans from the ring's creation epoch. */
+  /** Refuses another layout version, a rescan rebuilds all but the sent first contacts. */
   static deserialize(value: unknown, path: string): AnonymousRingState {
     const item = decode.record(value, path);
     known(item, path, [
@@ -383,6 +465,7 @@ export class AnonymousRingState {
       });
     });
     const paid = new Map<string, bigint>();
+    const pins = new Map<string, readonly Bytes32[]>();
     const sent = decode.list(item["sent"], `${path}.sent`).map((entry, at) => {
       const contactPath = `${path}.sent[${String(at)}]`;
       const contact = decode.record(entry, contactPath);
@@ -399,16 +482,23 @@ export class AnonymousRingState {
         "asset",
         "amount",
         "lastEpoch",
+        "decoys",
       ]);
       const recipient = X25519PublicKey.fromBytes(
         hexBytes(contact["recipient"], 33, `${contactPath}.recipient`),
       );
-      paid.set(hex(recipient.toBytes()), integer(contact["lastEpoch"], `${contactPath}.lastEpoch`));
+      paid.set(recipientKey(recipient), integer(contact["lastEpoch"], `${contactPath}.lastEpoch`));
+      const utxoHash = bytes32(contact["utxoHash"], `${contactPath}.utxoHash`);
+      if (contact["decoys"] !== null && contact["decoys"] !== undefined)
+        pins.set(
+          recipientKey(recipient),
+          pinnedDecoys(contact["decoys"], utxoHash, `${contactPath}.decoys`),
+        );
       return Object.freeze({
         recipient,
         treeId: Number(integer(contact["treeId"], `${contactPath}.treeId`, 0xffffn)),
         leafIndex: integer(contact["leafIndex"], `${contactPath}.leafIndex`),
-        utxoHash: bytes32(contact["utxoHash"], `${contactPath}.utxoHash`),
+        utxoHash,
         slotSecret: bytes32(contact["slotSecret"], `${contactPath}.slotSecret`),
         firstNullifier: bytes32(contact["firstNullifier"], `${contactPath}.firstNullifier`),
         slotIndex: Number(integer(contact["slotIndex"], `${contactPath}.slotIndex`, 0xffn)),
@@ -446,11 +536,12 @@ export class AnonymousRingState {
       depositNext: integer(item["depositNext"], `${path}.depositNext`),
       decoys,
       paid,
+      pins,
     });
   }
 
   #sentLive(contact: SentFirstContact, epoch: bigint): boolean {
-    const last = this.#paid.get(recipientKey(contact)) ?? contact.epoch;
+    const last = this.#paid.get(recipientKey(contact.recipient)) ?? contact.epoch;
     return epoch >= contact.epoch && epoch <= pairLiveThrough(contact.epoch, last);
   }
 
@@ -465,6 +556,7 @@ export class AnonymousRingState {
       depositNext: this.depositNext,
       decoys: this.decoys,
       paid: this.#paid,
+      pins: this.#pins,
       ...changes,
     });
   }
@@ -514,6 +606,7 @@ export interface SerializedAnonymousRingState {
     asset: Address;
     amount: string;
     lastEpoch: number;
+    decoys: readonly string[] | null;
   }>[];
   readonly depositNext: number;
   readonly decoys: readonly Readonly<{
@@ -532,6 +625,7 @@ interface AnonymousRingStateFields {
   readonly depositNext: bigint;
   readonly decoys: ReadonlyMap<number, readonly DecoyLeaf[]>;
   readonly paid: ReadonlyMap<string, bigint>;
+  readonly pins: ReadonlyMap<string, readonly Bytes32[]>;
 }
 
 const LAST_ADDRESS_INDEX = BigInt(MAX_ISSUED_ADDRESSES - 1);
@@ -558,8 +652,60 @@ function checkedAnchor(anchor: ReceivedAnchor): ReceivedAnchor {
   });
 }
 
-function recipientKey(contact: SentFirstContact): string {
-  return hex(contact.recipient.toBytes());
+function recipientKey(recipient: X25519PublicKey): string {
+  return hex(recipient.toBytes());
+}
+
+const ANCHOR_DECOY_DOMAIN = new TextEncoder().encode("zolana/ring-anchor-decoy/v1");
+
+/** Distinct `hashes` in the order of a rank keyed by the slot secret, no reader of a request can tell the anchor from a decoy, Rust `by_rank`. */
+function byRank(slotSecret: Bytes32, hashes: readonly Bytes32[]): Bytes32[] {
+  const ranked = hashes.map((hash) => {
+    const preimage = concatBytes(ANCHOR_DECOY_DOMAIN, slotSecret, hash);
+    try {
+      return { rank: sha256(preimage), hash };
+    } finally {
+      preimage.fill(0);
+    }
+  });
+  ranked.sort(
+    (left, right) => compareBytes(left.rank, right.rank) || compareBytes(left.hash, right.hash),
+  );
+  return ranked
+    .filter((leaf, at) => at === 0 || !equal(leaf.hash, ranked[at - 1]!.hash))
+    .map(({ hash }) => hash);
+}
+
+function compareBytes(left: Uint8Array, right: Uint8Array): number {
+  for (let at = 0; at < Math.min(left.length, right.length); at++) {
+    const difference = (left[at] ?? 0) - (right[at] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return left.length - right.length;
+}
+
+/** Rust `SentFirstContact::same_leaf`. */
+function sameLeaf(left: SentFirstContact, right: SentFirstContact): boolean {
+  return (
+    left.treeId === right.treeId &&
+    left.leafIndex === right.leafIndex &&
+    equal(left.utxoHash, right.utxoHash)
+  );
+}
+
+/** Distinct leaves beside the anchor, as `pinAnchors` keeps them, Rust `pinned_decoys`. */
+function pinnedDecoys(value: unknown, anchor: Bytes32, path: string): readonly Bytes32[] {
+  const decoys = decode
+    .list(value, path)
+    .map((entry, at) => bytes32(entry, `${path}[${String(at)}]`));
+  const distinct = new Set(decoys.map(hex));
+  if (
+    decoys.length !== ANCHOR_DECOYS ||
+    distinct.size !== ANCHOR_DECOYS ||
+    distinct.has(hex(anchor))
+  )
+    fail(path);
+  return Object.freeze(decoys);
 }
 
 function checkedContact(contact: SentFirstContact): SentFirstContact {
@@ -648,11 +794,7 @@ function ascending(leaves: readonly DecoyLeaf[]): boolean {
 /** Rust `DecoyLeaf` order, by leaf index and then by hash. */
 function compareLeaves(left: DecoyLeaf, right: DecoyLeaf): number {
   if (left.leafIndex !== right.leafIndex) return left.leafIndex < right.leafIndex ? -1 : 1;
-  for (let at = 0; at < 32; at++) {
-    const difference = (left.hash[at] ?? 0) - (right.hash[at] ?? 0);
-    if (difference !== 0) return difference;
-  }
-  return 0;
+  return compareBytes(left.hash, right.hash);
 }
 
 function unsigned(value: bigint, name: string): bigint {

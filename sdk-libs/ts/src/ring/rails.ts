@@ -323,9 +323,9 @@ export class AnonymousTransfer {
       });
       checkAnonymousSlots(proofInputs);
       const anchor =
-        plan.contact === undefined
+        plan.anchor === undefined
           ? undefined
-          : await anchorWitness({ client, state: this.#state, contact: plan.contact }, context);
+          : await anchorWitness({ client, anchor: plan.anchor }, context);
       const staged: StagedTransfer = {
         proofInputs,
         rail,
@@ -389,7 +389,7 @@ export class AnonymousTransfer {
     Readonly<{
       slots: AnonymousSlots;
       payments: ReadonlyMap<number, AnonymousPayment>;
-      contact?: Parameters<typeof anchorWitness>[0]["contact"];
+      anchor?: Parameters<typeof anchorWitness>[0]["anchor"];
     }>
   > {
     const { keys, prepared } = input;
@@ -408,17 +408,17 @@ export class AnonymousTransfer {
       this.#payments.map(({ send, payment }) => [firstSend + send, payment] as const),
     );
     const allocation = new TagAllocation(this.#state, input.epoch);
-    let contact: Parameters<typeof anchorWitness>[0]["contact"] | undefined;
+    let anchor: Parameters<typeof anchorWitness>[0]["anchor"] | undefined;
     for (const [slotIndex, payment] of payments) {
       const tag = allocation.allocate(payment.to, this.#tagRandom);
-      if (tag.stream.kind === "pair") contact = tag.stream.contact;
+      if (tag.stream.kind === "pair") anchor = tag.stream.anchor;
       slots = slots.withPayment(slotIndex, {
         recipient: payment.to.recipient.viewingPublicKey,
         tag: tag.tag,
         position: { kind: tag.stream.kind, index: tag.index },
       });
     }
-    return Object.freeze({ slots, payments, ...(contact === undefined ? {} : { contact }) });
+    return Object.freeze({ slots, payments, ...(anchor === undefined ? {} : { anchor }) });
   }
 
   #fields(): AnonymousFields {

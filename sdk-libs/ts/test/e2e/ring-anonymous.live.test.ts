@@ -26,7 +26,7 @@ import {
   ringComputeUnitLimit,
   type RingReadTarget,
 } from "../../src/ring/index.js";
-import { issueRingAddress } from "../../src/wallet/index.js";
+import { AnonymousRingState, issueRingAddress } from "../../src/wallet/index.js";
 import { currentSlot, liveHarness, signSendAndConfirm, type Actor } from "./live-helpers.js";
 import {
   airdrop,
@@ -134,7 +134,11 @@ async function depositor(ring: AnonymousRing): Promise<Actor> {
     client: ring.client,
     ringProgramId: ring.ringProgramId,
     feePayer: ring.funder.address,
-    recipient: { kind: "anonymous", keys: sender.keys },
+    recipient: {
+      kind: "anonymous",
+      keys: sender.keys,
+      state: AnonymousRingState.create(ring.ringProgramId, ring.creationEpoch),
+    },
     amount: DEPOSIT,
   });
   await signSendAndConfirm(ring.client, deposit, [ring.funder]);

@@ -10,6 +10,7 @@ import {
 } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 
+import { ClientError } from "../src/client/error.js";
 import type { WalletKeys } from "../src/client/ports.js";
 import { ringProofCircuit } from "../src/client/prover/ring.js";
 import type { RpcAccount } from "../src/client/rpc.js";
@@ -84,7 +85,7 @@ import {
 } from "../src/transaction/wallet/anonymous-state.js";
 import type { RingKeys } from "../src/transaction/wallet/keys.js";
 import { approveIntent, type ApprovalRequest } from "../src/transaction/wallet/intent.js";
-import { Wallet } from "../src/transaction/wallet/state.js";
+import { Wallet, hex } from "../src/transaction/wallet/state.js";
 import { ringAddressOf } from "../src/wallet/anonymous-sync.js";
 
 import { BLOCKHASH } from "./helpers/clients.js";
@@ -197,7 +198,7 @@ function anonymousAudit(fixture: Fixture) {
   return { audit, circuit: ringCircuitType(ringProofCircuit(audit)) };
 }
 
-/** A sender whose earlier inbox payment to `to` landed at leaf 40 of `treeId` among nine decoys. */
+/** A sender whose earlier inbox payment to `to` landed at leaf 40 of `treeId`, pinned to seven of nine decoys. */
 function pairedSender(
   fixture: Fixture,
   to: RingAddress,
@@ -225,7 +226,8 @@ function pairedSender(
   fixture.placeLeaf(treeAddress(treeId), contact.utxoHash, contact.leafIndex);
   const state = AnonymousRingState.create(fixture.ringProgramId, 0n)
     .recordFirstContact(contact)
-    .rememberDecoys(decoys);
+    .rememberDecoys(decoys)
+    .pinAnchors();
   return { state, contact };
 }
 
@@ -389,22 +391,67 @@ describe("anonymous ring payment", () => {
     noProofs(fixture);
   });
 
-  it("names one leaf list on every anchor read of a contact, so no intersection isolates it", async () => {
+  it("names the pinned leaves on every anchor read of a contact while the pool grows", async () => {
     const fixture = await anonymousRing();
     const sender = anonymousSender();
     const to = await addressOf(fixture, ShieldedKeypair.generate());
-    const { state } = pairedSender(fixture, to, TREE_ID);
-    const prove = () =>
-      rail({ fixture, sender, transfer: spend(fixture, sender), state })
+    const { state, contact } = pairedSender(fixture, to, TREE_ID);
+    const later = Array.from({ length: 32 }, (_, leaf) => ({
+      treeId: TREE_ID,
+      leafIndex: BigInt(100 + leaf),
+      hash: small(0x40 + leaf),
+    }));
+    for (const leaf of later) fixture.placeLeaf(TREE, leaf.hash, leaf.leafIndex);
+    const prove = (paying: AnonymousRingState) =>
+      rail({ fixture, sender, transfer: spend(fixture, sender), state: paying })
         .withPayment({ to, asset: SOL_MINT, amount: 400n })
         .prove(fixture.client);
-    await prove();
-    await prove();
+    await prove(state);
+    await prove(state.rememberDecoys(later));
 
     expect(fixture.merkleRequests).toHaveLength(2);
     expect(itemAt(fixture.merkleRequests, 1).leaves).toEqual(
       itemAt(fixture.merkleRequests, 0).leaves,
     );
+    expect(itemAt(fixture.merkleRequests, 0).leaves).toEqual(
+      state.pairAnchor(contact.recipient, EPOCH)?.leaves,
+    );
+  });
+
+  it("names the anchor to unpin when the indexer refuses its pinned leaves, a retryable failure passes", async () => {
+    const fixture = await anonymousRing();
+    const sender = anonymousSender();
+    const to = await addressOf(fixture, ShieldedKeypair.generate());
+    const { state } = pairedSender(fixture, to, 5);
+    const prove = () =>
+      rail({ fixture, sender, transfer: spend(fixture, sender), state })
+        .withPayment({ to, asset: SOL_MINT, amount: 400n })
+        .prove(fixture.client);
+    const failing = (retryable: boolean) => async () => {
+      throw new ClientError("CLIENT_INDEXER", {
+        details: { method: "getMerkleProofs", retryable },
+      });
+    };
+    fixture.client.getMerkleProofs = failing(false);
+    await expect(prove()).rejects.toThrow(
+      expect.objectContaining({
+        code: "RING_ANCHOR_INVALID",
+        causeCode: "CLIENT_INDEXER",
+        details: {
+          reason: "leaves",
+          tree: treeAddress(5),
+          recipient: hex(to.recipient.viewingPublicKey.toBytes()),
+        },
+      }),
+    );
+    fixture.client.getMerkleProofs = failing(true);
+    await expect(prove()).rejects.toThrow(
+      expect.objectContaining({
+        code: "CLIENT_INDEXER",
+        details: expect.objectContaining({ retryable: true }),
+      }),
+    );
+    noProofs(fixture);
   });
 
   it("takes the inbox stream when the address's rows refuse the first contact", async () => {

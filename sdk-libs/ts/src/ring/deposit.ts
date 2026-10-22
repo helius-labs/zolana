@@ -1,12 +1,10 @@
 import type { Instruction } from "@solana/kit";
 
-import type { IndexerReader, Prover, RingRecordReader } from "../client/ports.js";
+import type { Prover, RingRecordReader } from "../client/ports.js";
 import type { DepositProofRequest } from "../client/prover/ring.js";
-import { DEFAULT_INDEXER_RPC_CONFIG } from "../client/retry.js";
 import { compileUnsignedTransaction } from "../flows/compile.js";
 import { resolveDepositSettlement } from "../flows/settlement.js";
 import { initializePoseidon } from "../hasher/index.js";
-import { PAGE_LIMIT } from "../interface/indexer-limits.js";
 import type { SignerAccount } from "../interface/instructions/index.js";
 import { signerAddress } from "../interface/instructions/index.js";
 import type {
@@ -23,15 +21,12 @@ import { ViewingKey } from "../keypair/viewing-key.js";
 import type { X25519PublicKey } from "../keypair/x25519.js";
 import { SOL_MINT } from "../transaction/asset.js";
 import { Data } from "../transaction/data.js";
-import type { IndexedShieldedTransaction } from "../transaction/instructions/transact.js";
 import { ZERO_32 } from "../transaction/internal.js";
 import { encodeRingDepositPlaintext } from "../transaction/serialization/ring-deposit.js";
 import { Utxo, ownerUtxoHash } from "../transaction/utxo.js";
-import { DEPOSIT_TAG_WINDOW } from "../transaction/wallet/anonymous-state.js";
+import type { AnonymousRingState } from "../transaction/wallet/anonymous-state.js";
 import type { RingKeys } from "../transaction/wallet/keys.js";
-import { collectProoflessDeposits } from "../wallet/collect.js";
 import type { DepositClient } from "../wallet/deposit.js";
-import { bytesKey } from "../wallet/internal.js";
 import { resolveShieldedRecipient } from "../wallet/registry.js";
 
 import { checkSignersHideOwner } from "./anonymous.js";
@@ -57,11 +52,15 @@ export type RingDepositRecipient =
   /** A confidential ring member, found under its viewing key's tag. */
   | Readonly<{ kind: "confidential"; address: Address | ShieldedAddress }>
   /** The depositor's own hidden identity on an anonymous ring, found on its deposit stream. */
-  | Readonly<{ kind: "anonymous"; keys: RingKeys }>;
+  | Readonly<{
+      kind: "anonymous";
+      keys: RingKeys;
+      /** Its `depositNext` is the deposit's stream counter. */
+      state: AnonymousRingState;
+    }>;
 
 export type RingDepositClient = DepositClient &
   Pick<RingRecordReader, "getRingMemberRecord"> &
-  Pick<IndexerReader, "getEncryptedUtxosByTags" | "getShieldedTransactionsByTags"> &
   Pick<Prover, "proveRing">;
 
 export interface RingDepositParams {
@@ -420,45 +419,19 @@ async function depositRecipient(
     return { address, viewTag: address.viewingPublicKey.u() };
   }
   if (!anonymous) throw new RingError("RING_NOT_ANONYMOUS", { details: { operation: "deposit" } });
+  if (recipient.state.ring !== params.ringProgramId)
+    throw new RingError("RING_FOREIGN_RING", {
+      details: { state: recipient.state.ring, ring: params.ringProgramId },
+    });
   const address = recipient.keys.address();
   // An anonymous ring spends only through the hidden Ed25519 proof.
   if (address.signingPublicKey.signatureType() !== "ed25519")
     throw new RingError("RING_ANONYMOUS_RECIPIENT_CURVE");
-  return { address, viewTag: await depositTag(params.client, recipient.keys, context) };
-}
-
-/** The lowest free counter of the deposit stream, the scanner stops at an empty window. */
-async function depositTag(
-  client: RingDepositClient,
-  keys: RingKeys,
-  context: RequestContext | undefined,
-): Promise<Bytes32> {
-  for (let start = 0n; ; start += DEPOSIT_TAG_WINDOW) {
-    const counters = Array.from(
-      { length: Number(DEPOSIT_TAG_WINDOW) },
-      (_, at) => start + BigInt(at),
-    );
-    const tags = await keys.senderViewTags(counters, context);
-    if (tags.length !== counters.length)
-      throw new RingError("RING_BUILD_DEPOSIT", {
-        details: { reason: "deposit tag count", expected: counters.length, actual: tags.length },
-      });
-    const found = new Map<string, IndexedShieldedTransaction>();
-    await collectProoflessDeposits(
-      {
-        indexer: client,
-        chunk: tags,
-        pageLimit: Number(PAGE_LIMIT),
-        nextRpcConfig: () => DEFAULT_INDEXER_RPC_CONFIG,
-        out: found,
-        from: undefined,
-      },
-      context,
-    );
-    const occupied = new Set(
-      [...found.values()].flatMap((tx) => tx.outputSlots.map((slot) => bytesKey(slot.viewTag))),
-    );
-    const free = tags.find((tag) => !occupied.has(bytesKey(tag)));
-    if (free !== undefined) return free;
-  }
+  const tags = await recipient.keys.senderViewTags([recipient.state.depositNext], context);
+  const [viewTag] = tags;
+  if (tags.length !== 1 || viewTag === undefined)
+    throw new RingError("RING_BUILD_DEPOSIT", {
+      details: { reason: "deposit tag count", expected: 1, actual: tags.length },
+    });
+  return { address, viewTag };
 }

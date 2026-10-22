@@ -5,6 +5,7 @@ import type { Address, Bytes16, Bytes31, Bytes32, RequestContext } from "../inte
 import {
   BODY_LEN,
   J_INBOX,
+  J_PAIR,
   deliveredSlotSecret,
   inboxKey,
   inboxTag,
@@ -38,6 +39,7 @@ import {
   DEPOSIT_TAG_WINDOW,
   MAX_ISSUED_ADDRESSES,
   pairLiveThrough,
+  type PairAnchor,
   type ReceivedAnchor,
   type SentFirstContact,
 } from "../transaction/wallet/anonymous-state.js";
@@ -101,8 +103,7 @@ export interface AnonymousRingScan {
 /** One payment's place in its recipient's tag streams. */
 export type PaymentStream =
   | Readonly<{ kind: "inbox" }>
-  /** Anchored on the sender's live first contact to the address. */
-  | Readonly<{ kind: "pair"; contact: SentFirstContact }>;
+  | Readonly<{ kind: "pair"; anchor: PairAnchor }>;
 
 /** The tag a payment publishes in the epoch its proof binds. */
 export interface PaymentTag {
@@ -115,7 +116,8 @@ export interface PaymentTag {
 /**
  * Reads the inbox streams of the issued addresses, the pair streams of the
  * live anchors, the deposit stream and the change of the wallet's own spends
- * through `slot`'s epoch, every derivation by `keys`, Rust `AnonymousRingSync`.
+ * through `slot`'s epoch, at most `MAX_FETCH_EPOCHS` epochs past the last scanned
+ * one, every derivation by `keys`, Rust `AnonymousRingSync`.
  * @internal
  */
 export async function scanAnonymousRing(
@@ -147,7 +149,7 @@ export async function scanAnonymousRing(
   }
 }
 
-/** The pair stream of a live first contact the address's rows admit, else the inbox stream, Rust `TagAllocation`. */
+/** The pair stream of a pinned first contact the address's rows admit, else the inbox stream, Rust `TagAllocation`. */
 export class TagAllocation {
   readonly #state: AnonymousRingState;
   readonly #epoch: bigint;
@@ -168,14 +170,17 @@ export class TagAllocation {
         details: { addressRing: address.ringProgramId, ring: this.#state.ring },
       });
     const recipient = address.recipient.viewingPublicKey;
-    const contact = this.#paired ? undefined : this.#state.firstContact(recipient, this.#epoch);
-    if (contact !== undefined && address.pairing.admits(contact.asset, contact.amount)) {
-      const pair = pairKey(contact.slotSecret);
+    const anchor = this.#paired ? undefined : this.#state.pairAnchor(recipient, this.#epoch);
+    if (
+      anchor !== undefined &&
+      address.pairing.admits(anchor.contact.asset, anchor.contact.amount)
+    ) {
+      const pair = pairKey(anchor.contact.slotSecret);
       try {
         // One pair slot per transaction, no index of the stream is taken yet.
-        const index = draw(new Set(), random);
+        const index = draw({ taken: new Set(), size: J_PAIR }, random);
         this.#paired = true;
-        const stream: PaymentStream = { kind: "pair", contact };
+        const stream: PaymentStream = { kind: "pair", anchor };
         return Object.freeze({
           stream,
           epoch: this.#epoch,
@@ -189,7 +194,7 @@ export class TagAllocation {
     const inbox = inboxKey(ringIdField(this.#state.ring), recipient);
     const taken = this.#taken.get(bytesKey(inbox)) ?? new Set<number>();
     this.#taken.set(bytesKey(inbox), taken);
-    const index = draw(taken, random);
+    const index = draw({ taken, size: J_INBOX }, random);
     const stream: PaymentStream = { kind: "inbox" };
     return Object.freeze({
       stream,
@@ -200,10 +205,14 @@ export class TagAllocation {
   }
 }
 
-/** Uniform over the indexes `taken` leaves free, over every index once none is, Rust `TagAllocation::draw`. */
-function draw(taken: Set<number>, random: (length: number) => Uint8Array): TagIndex {
-  const free = Array.from({ length: J_INBOX }, (_, at) => at).filter((at) => !taken.has(at));
-  const pool = free.length === 0 ? Array.from({ length: J_INBOX }, (_, at) => at) : free;
+/** Uniform over the free indexes below `size`, over all of them once none is free, Rust `TagAllocation::draw`. */
+function draw(
+  stream: Readonly<{ taken: Set<number>; size: number }>,
+  random: (length: number) => Uint8Array,
+): TagIndex {
+  const { taken, size } = stream;
+  const free = Array.from({ length: size }, (_, at) => at).filter((at) => !taken.has(at));
+  const pool = free.length === 0 ? Array.from({ length: size }, (_, at) => at) : free;
   const index = pool[uniformBelow(random, pool.length)]!;
   taken.add(index);
   return tagIndex(index);
@@ -289,13 +298,10 @@ class Scan {
     this.#defaultRingSpends = input.defaultRingSpends;
     this.#depositPayloadDecoder = input.depositPayloadDecoder;
     this.#ringId = ringIdField(input.state.ring);
-    this.#openEpoch = tagEpoch(input.slot);
-    const first =
-      input.state.scannedEpoch === undefined
-        ? input.state.creationEpoch
-        : input.state.scannedEpoch + 1n;
+    const { first, open } = input.state.fetchEpochs(input.slot);
+    this.#openEpoch = open;
     this.#epochs = Array.from(
-      { length: first > this.#openEpoch ? 0 : Number(this.#openEpoch - first + 1n) },
+      { length: first > open ? 0 : Number(open - first + 1n) },
       (_, offset) => first + BigInt(offset),
     );
     this.#indexer = this.#observed(input.indexer);
@@ -409,7 +415,7 @@ class Scan {
       (state.scannedEpoch === undefined || state.scannedEpoch < through)
     )
       state = state.scanned({ scannedEpoch: through, depositNext: state.depositNext });
-    state = state.pruned(this.#openEpoch);
+    state = state.pruned(this.#openEpoch).pinAnchors();
     this.#slotSecrets.clear();
     return Object.freeze({
       state,
@@ -482,14 +488,15 @@ class Scan {
     let sites = new Map<string, TagSite>();
     for (const epoch of this.#epochs) {
       const epochSites: TagSite[] = [];
-      for (let at = 0; at < J_INBOX; at++) {
+      for (let at = 0; at < J_INBOX && streams.inbox !== undefined; at++) {
         const index = tagIndex(at);
-        if (streams.inbox !== undefined) {
-          const tag = ringTagField(inboxTag(streams.inbox, epoch, index));
-          epochSites.push({ tag, addressIndex, epoch, index, anchor: undefined });
-        }
-        for (const pair of streams.pairs) {
-          if (epoch < pair.from || epoch > pair.to) continue;
+        const tag = ringTagField(inboxTag(streams.inbox, epoch, index));
+        epochSites.push({ tag, addressIndex, epoch, index, anchor: undefined });
+      }
+      for (const pair of streams.pairs) {
+        if (epoch < pair.from || epoch > pair.to) continue;
+        for (let at = 0; at < J_PAIR; at++) {
+          const index = tagIndex(at);
           const tag = ringTagField(pairTag(pair.key, epoch, index));
           epochSites.push({ tag, addressIndex, epoch, index, anchor: pair.anchor });
         }
@@ -1002,18 +1009,31 @@ export async function ringAddressOf(
 export async function recordFirstContacts(
   input: Readonly<{ wallet: Wallet; ring: Address; contacts: readonly SentFirstContact[] }>,
 ): Promise<AnonymousRingState> {
+  return changeAnonymousRing(input, (tracked) =>
+    input.contacts.reduce((state, contact) => state.recordFirstContact(contact), tracked),
+  );
+}
+
+/** The indexer refused the pinned leaves of the first contact to `recipient`, the next sync pins the decoys again. */
+export async function unpinFirstContact(
+  input: Readonly<{ wallet: Wallet; ring: Address; recipient: X25519PublicKey }>,
+): Promise<AnonymousRingState> {
+  return changeAnonymousRing(input, (tracked) => tracked.unpinAnchor(input.recipient));
+}
+
+async function changeAnonymousRing(
+  input: Readonly<{ wallet: Wallet; ring: Address }>,
+  change: (tracked: AnonymousRingState) => AnonymousRingState,
+): Promise<AnonymousRingState> {
   return input.wallet._withSyncLock(async () => {
     const tracked = input.wallet.anonymousRing(input.ring);
     if (tracked === undefined)
       throw new WalletError("WALLET_INVALID_RING_DESTINATION", {
         details: { reason: "untracked", ring: input.ring },
       });
-    const recorded = input.contacts.reduce(
-      (state, contact) => state.recordFirstContact(contact),
-      tracked,
-    );
-    input.wallet._setAnonymousRing(recorded);
-    return recorded;
+    const changed = change(tracked);
+    input.wallet._setAnonymousRing(changed);
+    return changed;
   });
 }
 

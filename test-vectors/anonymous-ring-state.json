@@ -1,0 +1,74 @@
+{
+  "description": "The decoys a version 3 anonymous ring state pins for a sent first contact once its tree's pool holds ANCHOR_DECOYS leaves beside the anchor, in stored order, and the leaf order every read of the anchor names. The rank is SHA-256 over the domain, the slot secret and the leaf hash.",
+  "domain": "zolana/ring-anchor-decoy/v1",
+  "slot_secret": "0054b85f82a89fe16e151cb01afed72ed26fcba70836e97db275d1feb2895bbe",
+  "anchor": {
+    "leaf_index": 10,
+    "hash": "006e43c7bee54bb959ad8ffd4508fea12c4085afb6f6f0af856faf93fc34f6f6"
+  },
+  "pool": [
+    {
+      "leaf_index": 10,
+      "hash": "006e43c7bee54bb959ad8ffd4508fea12c4085afb6f6f0af856faf93fc34f6f6"
+    },
+    {
+      "leaf_index": 20,
+      "hash": "00156f5f2a2375a0b674757e030d83003e75c85788a3501683cb503471fe08b9"
+    },
+    {
+      "leaf_index": 23,
+      "hash": "00ef319855a1dc80cee6288d6d6c989fd6e7ae07a00b97402639cef0fa15e38d"
+    },
+    {
+      "leaf_index": 26,
+      "hash": "00bf8c8ed1f252771b50cf8f6f6dd96b6f86ae2fd6ac630dca5455a4994a2745"
+    },
+    {
+      "leaf_index": 29,
+      "hash": "0092a9945ac4f790558335807bfb5005a2b321b15288ec183dcd375fdc81f47f"
+    },
+    {
+      "leaf_index": 32,
+      "hash": "00c674a18cebd229ecfa1815f62e267a2123c819b452f046c862f6a346979e5b"
+    },
+    {
+      "leaf_index": 35,
+      "hash": "000d9375e68fff6cf09324cd3203baf6856f30e247e78e8d105d412d0b6ff713"
+    },
+    {
+      "leaf_index": 38,
+      "hash": "00852dfa8a6514d9c57b12f558dffb1458775f8c904c9cc8e6bd40025475c086"
+    },
+    {
+      "leaf_index": 41,
+      "hash": "004745e3f4d6d2a060f4e29408f4409139ebdddcedcdf6947dd62f2ed3c39833"
+    },
+    {
+      "leaf_index": 44,
+      "hash": "00d8cd5c414fed3f9a66ffd2ce675a62be033b2c81b2dc0bad12fb08fa9db18a"
+    },
+    {
+      "leaf_index": 47,
+      "hash": "00025572d336dec001ba90875215893113f5e365b7d1b3194ff1358cbac3eef9"
+    }
+  ],
+  "pinned": [
+    "000d9375e68fff6cf09324cd3203baf6856f30e247e78e8d105d412d0b6ff713",
+    "00c674a18cebd229ecfa1815f62e267a2123c819b452f046c862f6a346979e5b",
+    "00025572d336dec001ba90875215893113f5e365b7d1b3194ff1358cbac3eef9",
+    "00156f5f2a2375a0b674757e030d83003e75c85788a3501683cb503471fe08b9",
+    "00d8cd5c414fed3f9a66ffd2ce675a62be033b2c81b2dc0bad12fb08fa9db18a",
+    "00ef319855a1dc80cee6288d6d6c989fd6e7ae07a00b97402639cef0fa15e38d",
+    "004745e3f4d6d2a060f4e29408f4409139ebdddcedcdf6947dd62f2ed3c39833"
+  ],
+  "leaves": [
+    "000d9375e68fff6cf09324cd3203baf6856f30e247e78e8d105d412d0b6ff713",
+    "00c674a18cebd229ecfa1815f62e267a2123c819b452f046c862f6a346979e5b",
+    "00025572d336dec001ba90875215893113f5e365b7d1b3194ff1358cbac3eef9",
+    "00156f5f2a2375a0b674757e030d83003e75c85788a3501683cb503471fe08b9",
+    "00d8cd5c414fed3f9a66ffd2ce675a62be033b2c81b2dc0bad12fb08fa9db18a",
+    "00ef319855a1dc80cee6288d6d6c989fd6e7ae07a00b97402639cef0fa15e38d",
+    "006e43c7bee54bb959ad8ffd4508fea12c4085afb6f6f0af856faf93fc34f6f6",
+    "004745e3f4d6d2a060f4e29408f4409139ebdddcedcdf6947dd62f2ed3c39833"
+  ]
+}

@@ -45,11 +45,11 @@ import { escrowKeyHash } from "../src/ring/member-registry.js";
 import { ConfirmedDeposit } from "../src/ring/origin.js";
 import { ListId, recordBit } from "../src/ring/policy.js";
 import { SOL_MINT } from "../src/transaction/asset.js";
-import { EncryptedScheme, encodeOutputData } from "../src/transaction/serialization/codecs.js";
 import { encodeRingDepositPlaintext } from "../src/transaction/serialization/ring-deposit.js";
 import { ownerUtxoHash } from "../src/transaction/utxo.js";
+import { AnonymousRingState } from "../src/transaction/wallet/anonymous-state.js";
 import { LocalShieldedKeys, type RingKeys } from "../src/transaction/wallet/keys.js";
-import { BLOCKHASH, matchesPage, transactionsPage } from "./helpers/clients.js";
+import { BLOCKHASH } from "./helpers/clients.js";
 import { confirmedDepositTransaction } from "./helpers/confirmed-deposits.js";
 import { recordTree, type FixtureRecord } from "./helpers/member-registry.js";
 import {
@@ -393,13 +393,12 @@ describe("ring deposit builder", () => {
   const auditor = X25519Keypair.generate();
   const SEALED_CIPHERTEXT = field(0x5ea1n);
 
-  /** A ring of `mode` with the registry `members` and the deposit tags `occupied`. */
+  /** A ring of `mode` with the registry `members`. */
   async function fixture(
     input: Readonly<{
       mode: RingMode;
       members?: readonly FixtureRecord[];
       coSigner?: RingCoSigner;
-      occupied?: readonly Bytes32[];
     }>,
   ) {
     const records = recordTree(input.members ?? []);
@@ -410,7 +409,6 @@ describe("ring deposit builder", () => {
       requests.push(request);
       return new Uint8Array(192).fill(9);
     });
-    const occupied = new Set((input.occupied ?? []).map(hex));
     const client: RingDepositClient = {
       tree: TREE,
       treeId: 0,
@@ -445,26 +443,6 @@ describe("ring deposit builder", () => {
           root: { root: records.root, rootIndex: 0, applied: 0n, nextIndex: records.nextIndex },
           opening: records.opening(request.member),
         }) satisfies RingMemberRecordResult,
-      getEncryptedUtxosByTags: async ({ tags }) =>
-        matchesPage({
-          matches: tags
-            .filter((tag) => occupied.has(hex(tag)))
-            .map((tag, index) => ({
-              slot: 1n,
-              txSignature: "1".repeat(87) as Signature,
-              outputSlot: {
-                viewTag: tag,
-                outputContext: {
-                  hash: field(BigInt(index + 1)),
-                  tree: TREE,
-                  treeId: 0,
-                  leafIndex: 0n,
-                },
-                payload: encodeOutputData(EncryptedScheme.ringDeposit, Uint8Array.of(1)),
-              },
-            })),
-        }),
-      getShieldedTransactionsByTags: async () => transactionsPage(),
       proveRing,
     };
     return { client, requests, proveRing };
@@ -582,16 +560,17 @@ describe("ring deposit builder", () => {
     }
   });
 
-  it("funds the hidden owner's lowest free deposit tag through a remote key holder", async () => {
+  it("funds the hidden owner's stored deposit counter through a remote key holder", async () => {
     const owner = ShieldedKeypair.generate();
     const local = LocalShieldedKeys.fromKeypair(owner);
     const tags = await local.senderViewTags([0n, 1n, 2n]);
-    const { client, requests } = await fixture({
-      mode: "anonymous",
-      occupied: tags.slice(0, 2),
+    const { client, requests } = await fixture({ mode: "anonymous" });
+    const state = AnonymousRingState.create(RING, 0n).scanned({
+      scannedEpoch: undefined,
+      depositNext: 2n,
     });
     const prepared = await PreparedRingDeposit.prepare(
-      params(client, { kind: "anonymous", keys: remoteKeys(local) }),
+      params(client, { kind: "anonymous", keys: remoteKeys(local), state }),
     );
     try {
       const proven = await prepared.prove(client);
@@ -607,13 +586,35 @@ describe("ring deposit builder", () => {
         registry,
       );
       const spp = (proven.instruction.data ?? new Uint8Array()).slice(194);
-      const [taken, alsoTaken, free] = tags.map(hex);
-      expect(hex(spp)).toContain(free);
-      expect(hex(spp)).not.toContain(taken);
-      expect(hex(spp)).not.toContain(alsoTaken);
+      const [lowest, next, stored] = tags.map(hex);
+      expect(hex(spp)).toContain(stored);
+      expect(hex(spp)).not.toContain(lowest);
+      expect(hex(spp)).not.toContain(next);
       expect(prepared.utxo.owner.equals(owner.signingPublicKey())).toBe(true);
     } finally {
       prepared.destroy();
+      local.destroy();
+      owner.destroy();
+    }
+  });
+
+  it("refuses an anonymous ring state of another ring before any proof", async () => {
+    const owner = ShieldedKeypair.generate();
+    const local = LocalShieldedKeys.fromKeypair(owner);
+    const { client, proveRing } = await fixture({ mode: "anonymous" });
+    const other = address("SysvarRent111111111111111111111111111111111");
+    try {
+      await expect(
+        PreparedRingDeposit.prepare(
+          params(client, {
+            kind: "anonymous",
+            keys: remoteKeys(local),
+            state: AnonymousRingState.create(other, 0n),
+          }),
+        ),
+      ).rejects.toMatchObject({ code: "RING_BUILD_DEPOSIT", causeCode: "RING_FOREIGN_RING" });
+      expect(proveRing).not.toHaveBeenCalled();
+    } finally {
       local.destroy();
       owner.destroy();
     }
@@ -628,7 +629,11 @@ describe("ring deposit builder", () => {
         PreparedRingDeposit.prepare(
           params(
             client,
-            { kind: "anonymous", keys: remoteKeys(local) },
+            {
+              kind: "anonymous",
+              keys: remoteKeys(local),
+              state: AnonymousRingState.create(RING, 0n),
+            },
             { feePayer: owner.shieldedAddress().solanaAddress() },
           ),
         ),
@@ -656,7 +661,11 @@ describe("ring deposit builder", () => {
       const registry = await fixture({ mode: "registry" });
       await expect(
         PreparedRingDeposit.prepare(
-          params(registry.client, { kind: "anonymous", keys: remoteKeys(local) }),
+          params(registry.client, {
+            kind: "anonymous",
+            keys: remoteKeys(local),
+            state: AnonymousRingState.create(RING, 0n),
+          }),
         ),
       ).rejects.toMatchObject({ causeCode: "RING_NOT_ANONYMOUS" });
     } finally {

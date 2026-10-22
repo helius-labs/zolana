@@ -63,8 +63,10 @@ import { encodeRingDepositPlaintext } from "../src/transaction/serialization/rin
 import { Utxo, ownerUtxoHash } from "../src/transaction/utxo.js";
 import {
   ADDRESS_GAP,
+  ANCHOR_DECOYS,
   AnonymousRingState,
   DECOYS_PER_TREE,
+  MAX_FETCH_EPOCHS,
   MAX_ISSUED_ADDRESSES,
   PAIR_IDLE_EPOCHS,
   type SentFirstContact,
@@ -79,6 +81,7 @@ import {
   recordFirstContacts,
   ringAddressOf,
   scanAnonymousRing,
+  unpinFirstContact,
   type AnonymousIndexer,
   type PaymentTag,
 } from "../src/wallet/anonymous-sync.js";
@@ -87,6 +90,7 @@ import { PAGE_LIMIT } from "../src/interface/indexer-limits.js";
 import { syncWallet, type SyncClient, type SyncWalletConfig } from "../src/wallet/sync.js";
 import { decodeRingProgramConfig } from "../src/ring/codecs.js";
 
+import pinVector from "../../../test-vectors/anonymous-ring-state.json" with { type: "json" };
 import { ringProgramConfigData } from "./helpers/ring-accounts.js";
 
 const derivedPairKeys = vi.hoisted((): Bytes32[] => []);
@@ -661,6 +665,22 @@ async function sync(
 /** The first free index of every draw, fixtures pin their tags on it. */
 const zeros = (length: number): Uint8Array => new Uint8Array(length);
 
+/** `count` leaves of `treeId` a scan could hold, none a first contact here. */
+function decoyLeaves(count: number, treeId = DEFAULT_TREE_ID) {
+  return Array.from({ length: count }, (_, at) => ({
+    treeId,
+    leafIndex: 900n + BigInt(at),
+    hash: field(0xc0 + at),
+  }));
+}
+
+/** `state` once a scan held a full decoy set beside every first contact. */
+function pinned(state: AnonymousRingState): AnonymousRingState {
+  return state
+    .rememberDecoys(state.sent.flatMap((contact) => decoyLeaves(ANCHOR_DECOYS, contact.treeId)))
+    .pinAnchors();
+}
+
 /**
  * A deposit and an inbox payment in `early`, a pair payment and the inbox note spent in `middle`,
  * its change spent in the second tree and the deposit spent in `late`.
@@ -674,7 +694,7 @@ async function restoreHistory(early: bigint, middle: bigint, late: bigint) {
   const deposit = chain.deposit(RECIPIENT, 0n, 11_000n, early);
   const first = new TagAllocation(sender, early).allocate(to, zeros);
   const inbox = chain.pay(to, first.tag, 5_000n, early);
-  sender = sender.recordFirstContact(contactOf(to, inbox, first));
+  sender = pinned(sender.recordFirstContact(contactOf(to, inbox, first)));
   const second = new TagAllocation(sender, middle).allocate(to, zeros);
   const paired = chain.pay(to, second.tag, 7_000n, middle);
   const spendInbox = pair(
@@ -1598,8 +1618,8 @@ describe("sender tag allocation", () => {
       });
       const first = new TagAllocation(AnonymousRingState.create(RING, 0n), 0n).allocate(to, zeros);
       const contact = chain.pay(to, first.tag, amount, 0n);
-      const sender = AnonymousRingState.create(RING, 0n).recordFirstContact(
-        contactOf(to, contact, first),
+      const sender = pinned(
+        AnonymousRingState.create(RING, 0n).recordFirstContact(contactOf(to, contact, first)),
       );
 
       const received = await sync(chain, { wallet, keys, slot: slotOf(0n) });
@@ -1617,7 +1637,7 @@ describe("sender tag allocation", () => {
     },
   );
 
-  it("keeps a first contact recorded in the wallet across a save, the next payment pairs on it", async () => {
+  it("keeps a first contact and its pinned decoys across a save, the next payment pairs on them", async () => {
     const chain = new Chain();
     const to = await ringAddress(RECIPIENT, 0);
     const wallet = new Wallet({ identity: SENDER.shieldedAddress() });
@@ -1633,12 +1653,20 @@ describe("sender tag allocation", () => {
     const first = new TagAllocation(wallet.anonymousRing(RING)!, 0n).allocate(to, zeros);
     const paid = chain.pay(to, first.tag, 5_000n, 0n);
 
-    await recordFirstContacts({ wallet, ring: RING, contacts: [contactOf(to, paid, first)] });
+    const recorded = await recordFirstContacts({
+      wallet,
+      ring: RING,
+      contacts: [contactOf(to, paid, first)],
+    });
+    wallet._setAnonymousRing(pinned(recorded));
     const restored = deserializeWallet(serializeWallet(wallet)).anonymousRing(RING)!;
     const next = new TagAllocation(restored, 0n).allocate(to, zeros);
 
     expect(restored.sent.map((contact) => contact.utxoHash)).toEqual([paid.hash]);
-    expect(next.stream.kind).toBe("pair");
+    expect(next.stream).toEqual({
+      kind: "pair",
+      anchor: pinned(recorded).pairAnchor(to.recipient.viewingPublicKey, 0n),
+    });
   });
 
   it("pairs on its own copy of a first contact whose source the caller wiped", async () => {
@@ -1650,7 +1678,7 @@ describe("sender tag allocation", () => {
       { ...paid, slotSecret: new Uint8Array(paid.slotSecret) as Bytes32 },
       { epoch: 0n, index: tagIndex(0) },
     );
-    const sender = AnonymousRingState.create(RING, 0n).recordFirstContact(source);
+    const sender = pinned(AnonymousRingState.create(RING, 0n).recordFirstContact(source));
     source.slotSecret.fill(0);
 
     const next = new TagAllocation(sender, 0n).allocate(to, zeros);
@@ -1663,8 +1691,10 @@ describe("sender tag allocation", () => {
     const chain = new Chain();
     const to = await ringAddress(RECIPIENT, 0);
     const paid = chain.pay(to, inboxTagOf(to, 0n, 0), 5_000n, 0n);
-    const sender = AnonymousRingState.create(RING, 0n).recordFirstContact(
-      contactOf(to, paid, { epoch: 0n, index: tagIndex(0) }),
+    const sender = pinned(
+      AnonymousRingState.create(RING, 0n).recordFirstContact(
+        contactOf(to, paid, { epoch: 0n, index: tagIndex(0) }),
+      ),
     );
     derivedPairKeys.length = 0;
 
@@ -1684,6 +1714,7 @@ describe("sender tag allocation", () => {
       const contact = chain.pay(to, inboxTagOf(to, 0n, 0), 5_000n, 0n);
       sender = sender.recordFirstContact(contactOf(to, contact, { epoch: 0n, index: tagIndex(0) }));
     }
+    sender = pinned(sender);
 
     const live = new TagAllocation(sender, PAIR_IDLE_EPOCHS - 1n);
     expect(live.allocate(first, zeros).stream.kind).toBe("pair");
@@ -1692,5 +1723,171 @@ describe("sender tag allocation", () => {
     expect(expired.allocate(first, zeros).stream.kind).toBe("inbox");
     const foreign = await ringAddress(RECIPIENT, 0, Pairing.any(), FOREIGN_RING);
     expect(() => live.allocate(foreign, zeros)).toThrow("WALLET_FOREIGN_RING_ADDRESS");
+  });
+});
+
+describe("first contact decoy pins", () => {
+  /** A sender whose inbox payment to address 0 landed in epoch 0. */
+  async function contacted() {
+    const chain = new Chain();
+    const to = await ringAddress(RECIPIENT, 0);
+    const paid = chain.pay(to, inboxTagOf(to, 0n, 0), 5_000n, 0n);
+    const contact = contactOf(to, paid, { epoch: 0n, index: tagIndex(0) });
+    const state = AnonymousRingState.create(RING, 0n).recordFirstContact(contact);
+    return { chain, to, contact, state };
+  }
+
+  async function scanned(chain: Chain, state: AnonymousRingState): Promise<AnonymousRingState> {
+    const scan = await scanAnonymousRing({
+      keys: LocalShieldedKeys.fromKeypair(SENDER),
+      indexer: chain.indexer,
+      state,
+      slot: slotOf(0n),
+      heldUtxos: [],
+      defaultRingSpends: [],
+      pageLimit: Number(PAGE_LIMIT),
+      nextRpcConfig: () => DEFAULT_INDEXER_RPC_CONFIG,
+    });
+    return scan.state;
+  }
+
+  it("pins a contact's decoys once a scan holds a full set beside the anchor", async () => {
+    const { chain, to, contact, state } = await contacted();
+    const anchorLeaf = {
+      treeId: contact.treeId,
+      leafIndex: contact.leafIndex,
+      hash: contact.utxoHash,
+    };
+    const short = await scanned(
+      chain,
+      state.rememberDecoys([...decoyLeaves(ANCHOR_DECOYS - 1), anchorLeaf]),
+    );
+    expect(short.pairAnchor(contact.recipient, 0n)).toBeUndefined();
+    expect(new TagAllocation(short, 0n).allocate(to, zeros).stream).toEqual({ kind: "inbox" });
+
+    const full = await scanned(chain, short.rememberDecoys(decoyLeaves(ANCHOR_DECOYS)));
+    const anchor = full.pairAnchor(contact.recipient, 0n);
+    expect(anchor?.leaves.map(hex).sort()).toEqual(
+      [...decoyLeaves(ANCHOR_DECOYS).map((leaf) => leaf.hash), contact.utxoHash].map(hex).sort(),
+    );
+    expect(new TagAllocation(full, 0n).allocate(to, zeros).stream).toEqual({
+      kind: "pair",
+      anchor,
+    });
+  });
+
+  it("keeps the pinned leaves as the pool grows, across a save and a repeated record", async () => {
+    const { chain, contact, state } = await contacted();
+    const first = await scanned(chain, state.rememberDecoys(decoyLeaves(ANCHOR_DECOYS)));
+    const anchor = first.pairAnchor(contact.recipient, 0n);
+    const grown = await scanned(chain, first.rememberDecoys(decoyLeaves(40)));
+    const saved = AnonymousRingState.deserialize(
+      JSON.parse(JSON.stringify(grown.serialize())),
+      "state",
+    );
+
+    expect(anchor).toBeDefined();
+    for (const later of [grown, saved, saved.recordFirstContact(contact)])
+      expect(later.pairAnchor(contact.recipient, 0n)).toEqual(anchor);
+  });
+
+  it("pays the inbox once unpinned until the next scan pins the decoys again", async () => {
+    const { chain, to, contact, state } = await contacted();
+    const pinnedOnce = await scanned(chain, state.rememberDecoys(decoyLeaves(ANCHOR_DECOYS)));
+    const unpinned = pinnedOnce.unpinAnchor(contact.recipient);
+    expect(unpinned.pairAnchor(contact.recipient, 0n)).toBeUndefined();
+    expect(new TagAllocation(unpinned, 0n).allocate(to, zeros).stream).toEqual({ kind: "inbox" });
+
+    const repinned = await scanned(chain, unpinned.rememberDecoys(decoyLeaves(20)));
+    const anchor = repinned.pairAnchor(contact.recipient, 0n);
+    expect(anchor).toBeDefined();
+    expect(new TagAllocation(repinned, 0n).allocate(to, zeros).stream).toEqual({
+      kind: "pair",
+      anchor,
+    });
+  });
+
+  it("refuses a stored pin that is no full set of distinct leaves beside the anchor", async () => {
+    const { chain, contact, state } = await contacted();
+    const stored = (
+      await scanned(chain, state.rememberDecoys(decoyLeaves(ANCHOR_DECOYS)))
+    ).serialize();
+    const [sent] = stored.sent;
+    const decoys = sent?.decoys;
+    if (sent === undefined || decoys === null || decoys === undefined)
+      throw new TypeError("the scan pinned the contact");
+    for (const corrupt of [
+      decoys.slice(1),
+      [...decoys.slice(1), decoys[1]!],
+      [...decoys.slice(1), hex(contact.utxoHash)],
+    ])
+      expect(() =>
+        AnonymousRingState.deserialize(
+          { ...stored, sent: [{ ...sent, decoys: corrupt }] },
+          "state",
+        ),
+      ).toThrow(expect.objectContaining({ code: "TRANSACTION_DESERIALIZE" }));
+  });
+
+  it("unpins a wallet's first contact under its sync lock and refuses an untracked ring", async () => {
+    const { chain, contact, state } = await contacted();
+    const wallet = new Wallet({ identity: SENDER.shieldedAddress() });
+    await expect(
+      unpinFirstContact({ wallet, ring: RING, recipient: contact.recipient }),
+    ).rejects.toMatchObject({ code: "WALLET_INVALID_RING_DESTINATION" });
+    wallet._setAnonymousRing(
+      await scanned(chain, state.rememberDecoys(decoyLeaves(ANCHOR_DECOYS))),
+    );
+    expect(wallet.anonymousRing(RING)?.pairAnchor(contact.recipient, 0n)).toBeDefined();
+
+    const unpinned = await unpinFirstContact({ wallet, ring: RING, recipient: contact.recipient });
+
+    expect(unpinned.pairAnchor(contact.recipient, 0n)).toBeUndefined();
+    expect(wallet.anonymousRing(RING)).toBe(unpinned);
+  });
+
+  it("pins the decoys and the read order the shared vector holds", async () => {
+    const bytes = (value: string) => new Uint8Array(Buffer.from(value, "hex")) as Bytes32;
+    const to = await ringAddress(RECIPIENT, 0);
+    const contact: SentFirstContact = {
+      recipient: to.recipient.viewingPublicKey,
+      treeId: DEFAULT_TREE_ID,
+      leafIndex: BigInt(pinVector.anchor.leaf_index),
+      utxoHash: bytes(pinVector.anchor.hash),
+      slotSecret: bytes(pinVector.slot_secret),
+      firstNullifier: field(0x10),
+      slotIndex: 0,
+      epoch: 0n,
+      index: tagIndex(0),
+      asset: SOL_MINT,
+      amount: 70n,
+    };
+    const state = AnonymousRingState.create(RING, 0n)
+      .recordFirstContact(contact)
+      .rememberDecoys(
+        pinVector.pool.map((leaf) => ({
+          treeId: DEFAULT_TREE_ID,
+          leafIndex: BigInt(leaf.leaf_index),
+          hash: bytes(leaf.hash),
+        })),
+      )
+      .pinAnchors();
+
+    expect(state.serialize().sent[0]?.decoys).toEqual(pinVector.pinned);
+    expect(state.pairAnchor(contact.recipient, 0n)?.leaves.map(hex)).toEqual(pinVector.leaves);
+  });
+
+  it("reads at most MAX_FETCH_EPOCHS epochs past the last scanned one", () => {
+    const state = AnonymousRingState.create(RING, 0n).scanned({
+      scannedEpoch: 2n,
+      depositNext: 0n,
+    });
+
+    expect(state.fetchEpochs(slotOf(1_000_000n))).toEqual({
+      first: 3n,
+      open: 3n + MAX_FETCH_EPOCHS - 1n,
+    });
+    expect(state.fetchEpochs(slotOf(5n))).toEqual({ first: 3n, open: 5n });
+    expect(MAX_FETCH_EPOCHS).toBe(1n << 10n);
   });
 });
