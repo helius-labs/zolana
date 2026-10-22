@@ -29,8 +29,8 @@ use crate::{
 };
 
 use super::{
-    prove_on_blocking_pool, AsyncIndexer, AsyncZolanaClient, BlockingIndexer, BlockingRpc,
-    UnsignedMessage, ZolanaClient,
+    prove_on_blocking_pool, transaction::prove_with_blockhash, AsyncIndexer, AsyncZolanaClient,
+    BlockingIndexer, BlockingRpc, UnsignedMessage, ZolanaClient,
 };
 
 /// Compute-unit ceiling of a `merge_transact`. The widest shape, "Merge 52x1"
@@ -161,18 +161,19 @@ impl<'a> MergeSubmission<'a> {
 
     /// The unsigned v1 message of this merge, which `fee_payer` pays for and
     /// signs alone, and the last block height it can land at. The blockhash
-    /// is fetched after proving.
+    /// is fetched beside the proof and retried after proving if that request
+    /// failed or began more than ten seconds ago, including RPC latency.
+    /// Proof errors return without waiting for the blockhash request.
     pub async fn finish_unsigned<R: AsyncRpc, I: AsyncIndexer>(
         &self,
         client: &AsyncZolanaClient<R, I>,
         fee_payer: Address,
     ) -> Result<UnsignedMessage, ClientError> {
-        let merge = self.prove(client).await?.instruction(fee_payer);
+        let (proved, (recent_blockhash, last_valid_block_height)) =
+            prove_with_blockhash(client.rpc(), self.prove(client)).await?;
+        let merge = proved.instruction(fee_payer);
         let mut compute_budget = client.compute_budget();
         compute_budget.cu_limit = MERGE_CU_LIMIT;
-        // Last thing before building, so the blockhash is as young as it can be.
-        let (recent_blockhash, last_valid_block_height) =
-            client.rpc().get_latest_blockhash().await?;
         Ok(UnsignedMessage {
             message: compile_message(
                 &fee_payer,
