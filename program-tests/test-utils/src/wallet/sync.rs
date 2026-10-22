@@ -739,12 +739,22 @@ fn indexer_rpc_config(config: SyncWalletConfig) -> Option<IndexerRpcConfig> {
     })
 }
 
-/// Nullifiers of unspent UTXOs.
+/// Nullifiers of unspent UTXOs outside a tracked anonymous ring.
 ///
 /// A nullifier appears at most once on chain, so once its spend is known the
 /// answer is final. Cost tracks the unspent count, not history.
 fn wallet_query_nullifiers(wallet: &Wallet) -> Vec<[u8; 32]> {
-    wallet.unspent().map(|utxo| utxo.nullifier).collect()
+    wallet
+        .unspent()
+        // An anonymous ring's nullifiers go to the indexer only through its change scan.
+        .filter(|utxo| {
+            !utxo
+                .utxo
+                .ring_program_id
+                .is_some_and(|ring| wallet.anonymous_rings.contains_key(&ring))
+        })
+        .map(|utxo| utxo.nullifier)
+        .collect()
 }
 
 /// Buckets keys by the position their stream was last read to.
@@ -2449,6 +2459,24 @@ mod tests {
     }
 
     const ANONYMOUS_RING: Address = Address::new_from_array([42; 32]);
+
+    #[test]
+    fn an_anonymous_ring_utxo_stays_out_of_the_default_nullifier_query() {
+        let owner = ed25519_keypair(9);
+        let mut wallet = wallet_with_utxos(
+            &owner,
+            &[(SOL_MINT, 100, 1), (SOL_MINT, 200, 2), (SOL_MINT, 300, 3)],
+        )
+        .with_anonymous_ring(AnonymousRingState::new(ANONYMOUS_RING, 0));
+        let confidential_ring = Address::new_from_array([43; 32]);
+        wallet.utxos[1].utxo.ring_program_id = Some(confidential_ring);
+        wallet.utxos[2].utxo.ring_program_id = Some(ANONYMOUS_RING);
+        let nullifier = |index: usize| wallet.utxos[index].nullifier;
+        assert_eq!(
+            wallet_query_nullifiers(&wallet),
+            vec![nullifier(0), nullifier(1)]
+        );
+    }
 
     /// A wallet of `owner` reading the anonymous ring from its first epoch.
     fn anonymous_wallet(owner: &ShieldedKeypair) -> Wallet {
