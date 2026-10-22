@@ -171,6 +171,16 @@ impl RingRail {
     }
 }
 
+impl core::fmt::Display for RingRail {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(match self {
+            Self::Confidential => "confidential",
+            Self::Anonymous => "anonymous",
+            Self::Delegate => "delegate",
+        })
+    }
+}
+
 #[derive(Clone, Copy)]
 enum AuditShape {
     Packed {

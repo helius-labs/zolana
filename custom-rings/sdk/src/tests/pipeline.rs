@@ -1278,6 +1278,17 @@ async fn only_the_configured_delegate_moves_utxos_on_an_escrowed_policy_ring() {
     ));
 }
 
+#[test]
+fn an_unkeyed_shape_names_its_rail_in_words() {
+    assert_eq!(
+        RingError::ShapeUnkeyed {
+            rail: RingRail::Delegate
+        }
+        .to_string(),
+        "the transfer needs a shape no delegate key serves"
+    );
+}
+
 #[tokio::test]
 async fn a_delegate_move_pads_to_any_ring_authority_shape_it_is_given() {
     use zolana_client::Shape;

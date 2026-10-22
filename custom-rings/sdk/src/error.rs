@@ -133,7 +133,7 @@ pub enum RingError {
         tree: Address,
         recipient: X25519Pubkey,
     },
-    #[error("the transfer needs a shape no {rail:?} key serves")]
+    #[error("the transfer needs a shape no {rail} key serves")]
     ShapeUnkeyed { rail: RingRail },
     #[error("ring output {slot} names no key its body opens under")]
     UndeliveredRingOutput { slot: usize },

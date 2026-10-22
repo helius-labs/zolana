@@ -332,14 +332,6 @@ fn config() -> RingProgramConfig {
     config
 }
 
-fn rail_name(rail: RingRail) -> &'static str {
-    match rail {
-        RingRail::Confidential => "confidential",
-        RingRail::Anonymous => "anonymous",
-        RingRail::Delegate => "delegate",
-    }
-}
-
 fn settlements(legs: usize) -> Vec<[[u8; 32]; 2]> {
     (0..legs)
         .map(|leg| [[0xe0 + leg as u8; 32], [0xf0 + leg as u8; 32]])
@@ -363,7 +355,7 @@ fn compute_vectors() -> ExpansionVectors {
                 .collect();
             Case {
                 name: name.to_string(),
-                rail: rail_name(data.rail).to_string(),
+                rail: data.rail.to_string(),
                 compact: hex::encode(data.encode().unwrap()),
                 settlements: legs.iter().map(|leg| leg.map(hex::encode)).collect(),
                 transact_ix_data: hex::encode(data.expand(&config).unwrap().serialize().unwrap()),
@@ -396,12 +388,14 @@ fn compute_vectors() -> ExpansionVectors {
 }
 
 fn rail(name: &str) -> RingRail {
-    match name {
-        "confidential" => RingRail::Confidential,
-        "anonymous" => RingRail::Anonymous,
-        "delegate" => RingRail::Delegate,
-        other => panic!("unknown rail {other}"),
-    }
+    [
+        RingRail::Confidential,
+        RingRail::Anonymous,
+        RingRail::Delegate,
+    ]
+    .into_iter()
+    .find(|rail| rail.to_string() == name)
+    .unwrap_or_else(|| panic!("unknown rail {name}"))
 }
 
 #[test]
