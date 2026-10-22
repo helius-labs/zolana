@@ -35,7 +35,7 @@ Breaking
   Helius gateway to attest to `defaultTeePolicy()` and encrypt every call to
   it, and `ZolanaClient` given a Helius devnet RPC URL and no `proverUrl`
   proves through `DEFAULT_TEE_PROVER_ENDPOINT` with
-  `proofDataSource: "client"` and refuses `"prover"` → pass `tee: false` to `ProverClient` or
+  `proofDataSource: "prover"` → pass `tee: false` to `ProverClient` or
   `proverTee: false` to `ZolanaClient` for a prover you run, or a policy of its
   own, and set `proverUrl` to keep another prover.
 - Approval handlers receive a new `multiTransfer` intent for a transfer with
@@ -115,7 +115,7 @@ Added
 - `DEFAULT_TEE_PROVER_ENDPOINT` is the pinned deployment's prover URL, for a
   client that names its prover, and `ProverClient.hasIndexedRoute` says
   whether the prover reads proof data from its own indexer, false for the
-  Helius gateway and `DEFAULT_TEE_PROVER_ENDPOINT`.
+  Helius gateway.
 - `ProofInputUtxo.address(owner, seed, treeId)` reserves an address of an
   Ed25519 or PDA owner with a non-inclusion proof and no spent UTXO, which only
   the default confidential transfer proves; `isAddress()`,
@@ -177,7 +177,7 @@ Changed
 
 Fixed
 
-- `DEFAULT_TEE_PROVER_ENDPOINT` and `defaultTeePolicy()` now select the devnet-d-tee-1 enclave, so default devnet proving no longer targets the earlier enclave or rejects the current enclave's attestation.
+- `DEFAULT_TEE_PROVER_ENDPOINT` and `defaultTeePolicy()` now select the devnet-d-tee-2 enclave and fetch Merkle proof data on its prover, so default devnet proving accepts the current enclave's attestation and supports `proofDataSource: "prover"`.
 - `syncWallet` failed with `CLIENT_INVALID_RPC_RESPONSE` on any indexed transaction whose published viewing key is not a valid X25519 key, now such a transaction is read without a viewing key and its outputs count as undecryptable, as do outputs under a small-order transaction key.
 - `auditRingTransaction`, `auditRing` and `recoverRingMemberNotes` rejected the auditor message of an anonymous ring, and `decodeRingProgramConfig` threw on one; they now take `mode: "anonymous"`, report hidden senders, inputs and recipients in `anonymous` like `RingRpc.getDecryptedTransactions`, and the config decodes with `mode` while transaction builders keep refusing an anonymous ring.
 - `syncWallet` and custom ring recovery could not recover a merge output

@@ -4,10 +4,7 @@ use url::{Host, Url};
 
 use crate::{
     error::ClientError,
-    prover::{
-        tee::{ATTESTATION_PATH, DEFAULT_PROVER_URL},
-        ExpectedProvingKey,
-    },
+    prover::{tee::ATTESTATION_PATH, ExpectedProvingKey},
 };
 
 const API_KEY: &str = "api-key";
@@ -57,15 +54,6 @@ impl ProverEndpoint {
             Some(Host::Ipv6(ip)) => ip.is_loopback(),
             None => false,
         })
-    }
-
-    /// Whether this is [`DEFAULT_PROVER_URL`], whose enclave has no indexer.
-    pub(crate) fn is_default_tee_prover(&self) -> bool {
-        let default = Url::parse(DEFAULT_PROVER_URL).ok();
-        self.base
-            .as_ref()
-            .zip(default.as_ref())
-            .is_some_and(|(url, default)| url.host() == default.host())
     }
 
     /// `path` is slash-separated segments, such as `/prove/merge_24_1`.

@@ -146,8 +146,8 @@ const DEFAULT_COMMITMENT: Commitment = "confirmed";
 
 export interface ZolanaClientConfig {
   /**
-   * `"prover"` unless set; `"client"` on the Helius gateway and on the default
-   * TEE prover, which both refuse `"prover"`.
+   * `"prover"` unless set; `"client"` on the Helius gateway, which refuses
+   * `"prover"`.
    */
   readonly proofDataSource?: ProofDataSource;
   /**

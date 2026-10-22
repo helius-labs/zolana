@@ -19,7 +19,7 @@ use zolana_client::{
 use zolana_interface::{verifying_keys::CircuitId, N_PUBLIC_SLOTS};
 
 const RECORDED_ATTESTATION: &str =
-    include_str!("../../../prover/tee/testdata/devnet_d_tee_1_attestation.json");
+    include_str!("../../../prover/tee/testdata/devnet_d_tee_2_attestation.json");
 const TRANSFER: &str =
     include_str!("../../../prover/server/prover/request/testdata/transfer-2x2.json");
 const TRANSFER_KEY: &str = "transfer_confidential_2_2.key";
@@ -32,7 +32,7 @@ struct RecordedAttestation {
 }
 
 #[test]
-fn the_release_policy_accepts_the_measured_devnet_d_tee_1_attestation() {
+fn the_release_policy_accepts_the_measured_devnet_d_tee_2_attestation() {
     let fixture: RecordedAttestation = serde_json::from_str(RECORDED_ATTESTATION).unwrap();
     let nonce: [u8; 32] = hex::decode(fixture.nonce).unwrap().try_into().unwrap();
     let policy = TeePolicy::default_deployment().unwrap();
@@ -67,7 +67,7 @@ fn the_new_deployment_refuses_the_retired_hpke_key_pin() {
         panic!("the default deployment must remain Nitro");
     };
     pins.hpke_public_key = Some(
-        hex::decode("314835fc8354eaf213bfab520111126a6e9bd35b3251d08be762fb10ea395257")
+        hex::decode("f88ce265f3a519822d1fb7b1927d00e3d92c9dd3dc151cf9eebcb8fedd995f1a")
             .unwrap()
             .try_into()
             .unwrap(),
@@ -84,12 +84,12 @@ fn the_new_deployment_refuses_the_retired_hpke_key_pin() {
 }
 
 #[test]
-fn the_default_endpoint_requires_attestation_and_client_proof_data() {
+fn the_default_endpoint_requires_attestation_and_prover_proof_data() {
     assert_eq!(DEFAULT_PROVER_URL, "https://d1unet9hn0mci0.cloudfront.net");
     let prover = ProverClient::new(DEFAULT_PROVER_URL.into());
     assert_eq!(
         (prover.has_tee(), prover.proof_data_source()),
-        (true, ProofDataSource::Client)
+        (true, ProofDataSource::Prover)
     );
 }
 

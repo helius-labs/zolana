@@ -1435,9 +1435,9 @@ mod tests {
     }
 
     #[test]
-    fn the_default_tee_prover_takes_client_proof_data() {
+    fn the_default_tee_prover_takes_prover_proof_data() {
         let prover = AsyncProverClient::new(crate::prover::tee::DEFAULT_PROVER_URL.into());
-        assert_eq!(prover.proof_data_source(), ProofDataSource::Client);
+        assert_eq!(prover.proof_data_source(), ProofDataSource::Prover);
         assert_eq!(
             AsyncProverClient::new("https://prover.example".into()).proof_data_source(),
             ProofDataSource::Prover

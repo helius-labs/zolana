@@ -104,9 +104,9 @@ describe("TEE policy", () => {
     expect(DEFAULT_TEE_POLICY_FILE).toEqual(json("../../client/src/prover/tee/policy.json"));
   });
 
-  it("authenticates devnet-d-tee-1 with the default pin and refuses changed bindings", () => {
+  it("authenticates devnet-d-tee-2 with the default pin and refuses changed bindings", () => {
     const live = decode.record(
-      json("../../../prover/tee/testdata/devnet_d_tee_1_attestation.json"),
+      json("../../../prover/tee/testdata/devnet_d_tee_2_attestation.json"),
       "live",
     );
     const nonce = hexToBytes(decode.string(live["nonce"], "nonce"));

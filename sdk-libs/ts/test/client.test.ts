@@ -443,7 +443,6 @@ describe("ZolanaClient", () => {
 
   it("fetches proof data on the client for a prover on the Helius gateway", () => {
     for (const config of [
-      { solanaRpcUrl: "https://beta-devnet.helius-rpc.com/?api-key=k" },
       {
         solanaRpcUrl: RPC_URL,
         proverUrl: "https://beta-devnet.helius-rpc.com/v1/zolana?api-key=k",

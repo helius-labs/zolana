@@ -26,7 +26,7 @@ const HELIUS_RPC_HOST = /(^|\.)helius-rpc\.com$/u;
 // devnet.helius-rpc.com and beta-devnet.helius-rpc.com.
 const HELIUS_DEVNET_HOST = /(^|[.-])devnet\.helius-rpc\.com$/u;
 
-/** Whether `url` is the prover of the SDK's default TEE deployment, whose enclave has no indexer. */
+/** Whether `url` is the prover of the SDK's default TEE deployment. */
 export function isDefaultTeeProver(url: URL): boolean {
   return url.hostname === new URL(DEFAULT_TEE_PROVER_ENDPOINT).hostname;
 }
