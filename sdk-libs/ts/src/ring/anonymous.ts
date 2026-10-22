@@ -9,18 +9,18 @@ import {
 import { isOffCurveAddress, type MessagePartialSigner } from "@solana/kit";
 
 import { initializePoseidon } from "../hasher/index.js";
-import { ClientError, isClientError } from "../client/error.js";
-import { isRetryable } from "../client/retry.js";
+import { ClientError } from "../client/error.js";
 import { stateProofReachesRoot } from "../client/prover/assembly.js";
 import type { ChainReader, ProofReader } from "../client/ports.js";
 import type { RpcAccount } from "../client/rpc.js";
 import { SYSTEM_PROGRAM } from "../interface/instructions/index.js";
-import { addressBytes, checkedAddress, encodeBase58 } from "../interface/internal.js";
+import { addressBytes, checkedAddress, encodeBase58, sha256 } from "../interface/internal.js";
 import { associatedTokenAddress, treeAddress } from "../interface/pda/index.js";
 import { SPL_TOKEN_2022_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID } from "../interface/program.js";
 import { STATE_HEIGHT } from "../interface/state.js";
 import { treeIdField } from "../interface/tree-slot.js";
 import type { Address, Bytes32, Bytes64, RequestContext } from "../interface/types.js";
+import { concatBytes } from "../keypair/bytes.js";
 import { ShieldedPublicKey } from "../keypair/public-key.js";
 import type { RingAddress } from "../keypair/ring-address.js";
 import type { ShieldedAddress } from "../keypair/shielded.js";
@@ -31,10 +31,14 @@ import {
   type SppProofInputs,
 } from "../transaction/instructions/transact.js";
 import { bigIntBytes, rightAlign } from "../transaction/internal.js";
-import type { PairAnchor } from "../transaction/wallet/anonymous-state.js";
+import type {
+  AnonymousRingState,
+  DecoyLeaf,
+  SentFirstContact,
+} from "../transaction/wallet/anonymous-state.js";
 import { equalBytes } from "../wallet/internal.js";
 
-import { RingError, wrapRingError, type RingErrorCode } from "./error.js";
+import { RingError, type RingErrorCode } from "./error.js";
 import type { AnchorWitness, PendingFirstContact } from "./pipeline.js";
 import type { RingOutputRail } from "./rail.js";
 import { signMessage } from "./rpc.js";
@@ -54,7 +58,8 @@ export interface AnonymousPayment {
   readonly amount: bigint;
 }
 
-export { ANCHOR_DECOYS } from "../transaction/wallet/anonymous-state.js";
+/** Decoy paths fetched beside the anchor's, the leaves of its tree a scan already holds, Rust `ANCHOR_DECOYS`. */
+export const ANCHOR_DECOYS = 7;
 
 /** Signs with an in-process key, the caller keeps and destroys it. */
 export function signingKeySpendSigner(key: SigningKey): AnonymousSpendSigner {
@@ -155,24 +160,20 @@ export function checkAnonymousSlots(proofInputs: SppProofInputs): void {
   if (inputOpen || outputOpen) throw new RingError("RING_ANONYMOUS_SLOT_INVALID");
 }
 
-/** The first contact's path at a root its tree holds, fetched beside its pinned decoys, Rust `Anonymous::anchor`. */
+/** The first contact's path at a root its tree holds, fetched beside seven decoys, Rust `Anonymous::anchor`. */
 export async function anchorWitness(
   input: Readonly<{
     client: Pick<ProofReader, "getMerkleProofs"> & Pick<ChainReader, "getAccount">;
-    anchor: PairAnchor;
+    state: AnonymousRingState;
+    contact: SentFirstContact;
   }>,
   context?: RequestContext,
 ): Promise<AnchorWitness> {
-  const { contact, leaves } = input.anchor;
+  const { contact } = input;
   const tree = treeAddress(contact.treeId);
   await initializePoseidon();
-  const response = await input.client
-    .getMerkleProofs(tree, leaves, undefined, context)
-    .catch((cause: unknown) => {
-      if (isClientError(cause) && cause.code === "CLIENT_INDEXER" && !isRetryable(cause))
-        throw wrapRingError("RING_ANCHOR_INVALID", cause, { reason: "leaves", tree });
-      throw cause;
-    });
+  const leaves = anchorLeaves(contact, input.state.decoys.get(contact.treeId) ?? []);
+  const response = await input.client.getMerkleProofs(tree, leaves, undefined, context);
   const proof = response.proofs.find(
     (candidate) =>
       equalBytes(candidate.leaf, contact.utxoHash) && candidate.leafIndex === contact.leafIndex,
@@ -357,3 +358,39 @@ function tokenAccountControl(account: RpcAccount, mint: Address): TokenAccountCo
   return Object.freeze({ kind: sole ? "soleOwner" : "shared", owner: token.owner });
 }
 
+const ANCHOR_DECOY_DOMAIN = new TextEncoder().encode("zolana/ring-anchor-decoy/v1");
+
+interface RankedLeaf {
+  readonly rank: Uint8Array;
+  readonly hash: Bytes32;
+}
+
+/** The decoys and the anchor ranked under the slot secret, every read of one anchor names the same leaves in one order, Rust `anchor_leaves`. */
+function anchorLeaves(contact: SentFirstContact, pool: readonly DecoyLeaf[]): Bytes32[] {
+  const ranked = (hash: Bytes32): RankedLeaf => {
+    const preimage = concatBytes(ANCHOR_DECOY_DOMAIN, contact.slotSecret, hash);
+    try {
+      return { rank: sha256(preimage), hash };
+    } finally {
+      preimage.fill(0);
+    }
+  };
+  const byRank = (left: RankedLeaf, right: RankedLeaf) =>
+    compareBytes(left.rank, right.rank) || compareBytes(left.hash, right.hash);
+  const decoys = pool
+    .map((leaf) => leaf.hash)
+    .filter((hash) => !equalBytes(hash, contact.utxoHash))
+    .map(ranked)
+    .sort(byRank)
+    .filter((leaf, at, all) => at === 0 || !equalBytes(leaf.hash, all[at - 1]!.hash))
+    .slice(0, ANCHOR_DECOYS);
+  return [...decoys, ranked(contact.utxoHash)].sort(byRank).map((leaf) => leaf.hash);
+}
+
+function compareBytes(left: Uint8Array, right: Uint8Array): number {
+  for (let at = 0; at < Math.min(left.length, right.length); at++) {
+    const difference = (left[at] ?? 0) - (right[at] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return left.length - right.length;
+}
