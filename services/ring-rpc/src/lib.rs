@@ -17,12 +17,13 @@ pub use api::{
     auditor_key_attestation, unix_now, AuditorKeyRequest, AuditorPubkey, AuthorityAuth,
     CreateAuditorKeyRequest, CreateAuditorKeyResponse, DecryptedAnonymousInput,
     DecryptedAnonymousRecipient, DecryptedAnonymousTrace, DecryptedOutput, DecryptedSpendCounter,
-    DecryptedSpendRecord, DecryptedTransaction, DecryptedTransactionsPage, DecryptedWithdrawal,
+    DecryptedSpendRecord, DecryptedTransaction, DecryptedTransactionGroup, DecryptedWithdrawal,
     DepositRecord, GetDecryptedTransactionsRequest, GetDecryptedTransactionsResponse,
     HealthResponse, ReadAttestation, ReadAuth, ReadBuildError, ReadRequest, ReadSignature,
     ReadSigner, RequestBuildError, RingDepositsRequest, RingDepositsResponse, RingState,
     RingStatusRequest, RingStatusResponse, SkippedReason, SkippedTransaction, WebAuthnAssertion,
-    CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS, HEALTH, RING_DEPOSITS, RING_STATUS,
+    AUDIT_PAGE_LIMIT, CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS, HEALTH, RING_DEPOSITS,
+    RING_STATUS,
 };
 pub use audit::{AuditRead, AuditService, Page, PageOptions};
 pub use authorize::{Claim, ReadCheck, Unauthorized, AUTH_SKEW};

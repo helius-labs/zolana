@@ -1,3 +1,4 @@
+import { transactionItems, outputItems } from "./helpers/pages.js";
 import { getAddressDecoder, type Address, type Signature } from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
 
@@ -510,11 +511,15 @@ describe("lineage walk", () => {
   function indexerOf(transactions: readonly IndexedShieldedTransaction[]) {
     const byNullifiers = vi.fn(async (request: { nullifiers: readonly Bytes32[] }) =>
       transactionsPage({
-        transactions: transactions.filter((transaction) =>
-          transaction.nullifiers.some((spent) =>
-            request.nullifiers.some((asked) => Buffer.from(asked).equals(spent)),
+        items: transactionItems(
+          transactions.filter((transaction) =>
+            transaction.nullifiers.some((spent) =>
+              request.nullifiers.some((asked) => Buffer.from(asked).equals(spent)),
+            ),
           ),
         ),
+        cursor: null,
+        hasMore: false,
       }),
     );
     return {
@@ -592,12 +597,16 @@ describe("lineage walk", () => {
   it("keeps paging until a page carries no next position", async () => {
     const claim = spender(owner.entryHashes(v0, FIXTURE_TREE_ID).address, [slot(v0)], "claim");
     const pages = [
-      transactionsPage({ next: chainPosition(1n) }),
-      transactionsPage({ transactions: [claim], latest: chainPosition(2n) }),
-      transactionsPage({ latest: chainPosition(3n) }),
+      transactionsPage({ cursor: chainPosition(1n), hasMore: true }),
+      transactionsPage({
+        items: transactionItems([claim]),
+        cursor: chainPosition(2n),
+        hasMore: false,
+      }),
+      transactionsPage({ cursor: chainPosition(3n), hasMore: false }),
     ];
     const byNullifiers = vi.fn(
-      async () => pages.shift() ?? transactionsPage({ latest: chainPosition(9n) }),
+      async () => pages.shift() ?? transactionsPage({ cursor: chainPosition(9n), hasMore: false }),
     );
     const indexer = syncReads({ getShieldedTransactionsByNullifiers: byNullifiers });
     await expect(read(indexer)).resolves.toMatchObject({ entry: v0 });
@@ -618,7 +627,11 @@ describe("lineage walk", () => {
       outputSlot: slot(value, tree),
     });
     const byTags = vi.fn(async () =>
-      matchesPage({ matches: [match(v0), match(blocked), match(stray), match(v1, OTHER_TREE)] }),
+      matchesPage({
+        items: outputItems([match(v0), match(blocked), match(stray), match(v1, OTHER_TREE)]),
+        cursor: null,
+        hasMore: false,
+      }),
     );
     const live = await readRingEntries({
       indexer: syncReads({ ...walker, getEncryptedUtxosByTags: byTags }),

@@ -1,4 +1,4 @@
-import type { Address, Signature } from "@solana/kit";
+import type { Address } from "@solana/kit";
 
 import type { MergeEncryptionScheme } from "./state.js";
 
@@ -15,13 +15,13 @@ export type Bytes64 = FixedBytes<64>;
 export type Bytes96 = FixedBytes<96>;
 export type Bytes128 = FixedBytes<128>;
 
-/**
- * One transaction's place in the total order every rings stream shares.
- * A resume returns rows strictly after it.
- */
-export interface ChainPosition {
-  readonly slot: bigint;
-  readonly signature: Signature;
+/** Opaque, server-issued pagination checkpoint. Store it and pass it back unchanged. */
+export type Cursor = string;
+
+export interface PageOptions {
+  readonly after?: Cursor;
+  readonly limit?: number;
+  readonly minContextSlot?: bigint;
 }
 
 export interface RequestContext {

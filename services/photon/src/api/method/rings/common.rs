@@ -15,8 +15,8 @@ use sea_orm::{
 };
 use solana_signature::{Signature, SIGNATURE_BYTES};
 use zolana_indexer_api::{
-    Base64String, ChainPosition, Hash, MerkleContext, MerkleProof, NonInclusionProof,
-    RingsOutputContext, RingsOutputSlot, SerializablePubkey, SerializableSignature, PAGE_LIMIT,
+    Base64String, Cursor, Hash, MerkleContext, MerkleProof, NonInclusionProof, RingsOutputContext,
+    RingsOutputSlot, SerializablePubkey, SerializableSignature, PAGE_LIMIT,
 };
 
 pub(super) fn validate_tags(
@@ -293,12 +293,12 @@ pub(super) fn bind_u64_as_i64(
 /// `a > x OR (a = x AND b > y)`, where each page costs more than the last.
 pub(super) fn after_sql_condition(
     alias: &str,
-    after: &ChainPosition,
+    after: &Cursor,
     backend: DatabaseBackend,
     params: &mut Vec<Value>,
 ) -> Result<String, PhotonApiError> {
-    let slot = bind_u64_as_i64(params, backend, after.slot)?;
-    let signature = bind_sql_value(params, backend, after.signature.0.as_ref().to_vec());
+    let slot = bind_u64_as_i64(params, backend, after.slot())?;
+    let signature = bind_sql_value(params, backend, after.signature().as_ref().to_vec());
     Ok(format!(
         "({alias}.slot, {alias}.signature) > ({slot}, {signature})"
     ))
@@ -308,7 +308,7 @@ pub(super) fn after_sql_condition(
 /// from that gap would skip them forever.
 pub(super) async fn ensure_after_indexed(
     tx: &DatabaseTransaction,
-    after: &ChainPosition,
+    after: &Cursor,
 ) -> Result<(), PhotonApiError> {
     let backend = tx.get_database_backend();
     let floor = tx
@@ -320,7 +320,7 @@ pub(super) async fn ensure_after_indexed(
         .and_then(|row| row.try_get::<Option<i64>>("", "slot").ok())
         .flatten();
     let complete = match floor {
-        Some(floor) => after.slot.saturating_add(1) >= u64_from_i64(floor, "slot")?,
+        Some(floor) => after.slot().saturating_add(1) >= u64_from_i64(floor, "slot")?,
         None => false,
     };
     if !complete {
@@ -332,11 +332,53 @@ pub(super) async fn ensure_after_indexed(
 }
 
 /// The position of one fetched row's transaction.
-pub(super) fn chain_position(slot: i64, signature: &[u8]) -> Result<ChainPosition, PhotonApiError> {
-    Ok(ChainPosition {
-        slot: u64_from_i64(slot, "slot")?,
-        signature: signature_from_bytes(signature)?,
-    })
+pub(super) fn chain_position(slot: i64, signature: &[u8]) -> Result<Cursor, PhotonApiError> {
+    Ok(Cursor::new(
+        u64_from_i64(slot, "slot")?,
+        Signature::from(signature_array(signature)?),
+    ))
+}
+
+/// Keep at most `limit` complete transactions; the query includes one lookahead transaction.
+pub(super) fn truncate_transactions<T>(
+    rows: &mut Vec<T>,
+    limit: u64,
+    position: impl Fn(&T) -> Result<Cursor, PhotonApiError>,
+) -> Result<bool, PhotonApiError> {
+    let mut count = 0;
+    let mut previous = None;
+    for (index, row) in rows.iter().enumerate() {
+        let current = position(row)?;
+        if previous != Some(current) {
+            if previous.is_some_and(|previous| current < previous) {
+                return Err(PhotonApiError::UnexpectedError(
+                    "unordered transaction page".into(),
+                ));
+            }
+            count += 1;
+            if count > limit {
+                rows.truncate(index);
+                return Ok(true);
+            }
+            previous = Some(current);
+        }
+    }
+    Ok(false)
+}
+
+pub(super) fn require_context(
+    context_slot: u64,
+    minimum: Option<u64>,
+    after: Option<Cursor>,
+) -> Result<(), PhotonApiError> {
+    let required = minimum
+        .into_iter()
+        .chain(after.map(|cursor| cursor.slot()))
+        .max();
+    if required.is_some_and(|required| context_slot < required) {
+        return Err(PhotonApiError::MinimumContextSlot { context_slot });
+    }
+    Ok(())
 }
 
 pub(super) fn signature_from_bytes(bytes: &[u8]) -> Result<SerializableSignature, PhotonApiError> {
@@ -678,10 +720,7 @@ mod tests {
     /// ORDER BY is the other half, and the two have to agree.
     #[test]
     fn the_since_predicate_reads_from_the_table_it_is_told_to() {
-        let after = ChainPosition {
-            slot: 42,
-            signature: SerializableSignature(Signature::from([7u8; 64])),
-        };
+        let after = Cursor::new(42, Signature::from([7u8; 64]));
         let mut params = Vec::new();
         let sql = after_sql_condition("po", &after, DatabaseBackend::Postgres, &mut params)
             .expect("condition");
@@ -699,10 +738,7 @@ mod tests {
     /// scan at the equivalent OR chain.
     #[test]
     fn the_since_predicate_is_a_row_comparison_so_the_index_can_seek() {
-        let after = ChainPosition {
-            slot: 42,
-            signature: SerializableSignature(Signature::from([7u8; 64])),
-        };
+        let after = Cursor::new(42, Signature::from([7u8; 64]));
         let mut params = Vec::new();
         let sql = after_sql_condition("po", &after, DatabaseBackend::Postgres, &mut params)
             .expect("condition");
@@ -721,10 +757,7 @@ mod tests {
     /// The aliases are not interchangeable.
     #[test]
     fn the_transactions_predicate_still_reads_from_the_transactions_table() {
-        let after = ChainPosition {
-            slot: 42,
-            signature: SerializableSignature(Signature::from([7u8; 64])),
-        };
+        let after = Cursor::new(42, Signature::from([7u8; 64]));
         let mut params = Vec::new();
         let sql = after_sql_condition("pt", &after, DatabaseBackend::Postgres, &mut params)
             .expect("condition");

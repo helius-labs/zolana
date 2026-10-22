@@ -1,3 +1,4 @@
+import { transactionItems, outputItems } from "./helpers/pages.js";
 import { address } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 
@@ -340,32 +341,34 @@ describe("rings-by-tags request encoding", () => {
 
 describe("shielded transactions by tags response", () => {
   const signature = "1".repeat(64);
-  const page = { context: { blockTime: 1, slot: 2 }, transactions: [], next: null };
+  const page = { context: { blockTime: 1, slot: 3 }, items: [], cursor: null, hasMore: false };
 
   it("accepts the stream tip a terminal page reports, and pages without it", () => {
     expect(decodeShieldedTransactionsResponse(page)).toEqual({
-      context: { blockTime: 1n, slot: 2n },
-      transactions: [],
+      context: { blockTime: 1n, slot: 3n },
+      items: transactionItems([]),
+      cursor: null,
+      hasMore: false,
     });
-    expect(decodeShieldedTransactionsResponse({ ...page, latest: { slot: 3, signature } })).toEqual(
-      {
-        context: { blockTime: 1n, slot: 2n },
-        transactions: [],
-        latest: { slot: 3n, signature },
-      },
-    );
+    expect(decodeShieldedTransactionsResponse({ ...page, cursor: `1:${3}:${signature}` })).toEqual({
+      context: { blockTime: 1n, slot: 3n },
+      items: transactionItems([]),
+      cursor: `1:${3n}:${signature}`,
+      hasMore: false,
+    });
     expect(() => decodeShieldedTransactionsResponse({ ...page, extra: 1 })).toThrow();
     expect(
       decodeEncryptedUtxosResponse({
         context: page.context,
-        matches: [],
-        next: null,
-        latest: { slot: 3, signature },
+        items: outputItems([]),
+        cursor: `1:${3}:${signature}`,
+        hasMore: false,
       }),
     ).toEqual({
-      context: { blockTime: 1n, slot: 2n },
-      matches: [],
-      latest: { slot: 3n, signature },
+      context: { blockTime: 1n, slot: 3n },
+      items: outputItems([]),
+      cursor: `1:${3n}:${signature}`,
+      hasMore: false,
     });
   });
 });
@@ -379,6 +382,7 @@ describe("Photon tree metadata", () => {
   const match = { slot: 1, txSignature: "1".repeat(64), outputSlot: output };
   const transaction = {
     slot: 1,
+    eventIndex: 0,
     txSignature: match.txSignature,
     outputSlots: [output],
     messages: [],
@@ -388,11 +392,17 @@ describe("Photon tree metadata", () => {
   const context = { blockTime: 0, slot: 1 };
 
   it("decodes tree identity and append suggestions on every response shape", () => {
-    const page = { context, matches: [match], outputTreeId: 9 };
+    const page = {
+      context,
+      items: outputItems([match]),
+      outputTreeId: 9,
+      cursor: `1:1:${match.txSignature}`,
+      hasMore: false,
+    };
     const before = structuredClone(page);
     const decoded = decodeEncryptedUtxosResponse(page);
     expect(decoded.outputTreeId).toBe(9);
-    expect(decoded.matches[0]?.outputSlot.outputContext).toEqual({
+    expect(decoded.items.flatMap((item) => item.outputs)[0]?.outputSlot.outputContext).toEqual({
       hash: TAG,
       tree: treeAddress(7),
       treeId: 7,
@@ -400,8 +410,13 @@ describe("Photon tree metadata", () => {
     });
     expect(page).toEqual(before);
     expect(
-      decodeShieldedTransactionsResponse({ context, transactions: [transaction], outputTreeId: 0 })
-        .outputTreeId,
+      decodeShieldedTransactionsResponse({
+        context,
+        items: transactionItems([transaction]),
+        outputTreeId: 0,
+        cursor: `1:1:${match.txSignature}`,
+        hasMore: false,
+      }).outputTreeId,
     ).toBe(0);
     expect(
       decodeShieldedTransactionsBySignatureResponse({
@@ -411,16 +426,24 @@ describe("Photon tree metadata", () => {
       }).outputTreeId,
     ).toBe(65535);
     expect(
-      decodeEncryptedUtxosResponse({ context, matches: [], outputTreeId: null }).outputTreeId,
+      decodeEncryptedUtxosResponse({
+        context,
+        items: [],
+        cursor: null,
+        hasMore: false,
+        outputTreeId: null,
+      }).outputTreeId,
     ).toBeUndefined();
   });
 
   it.each([-1, 65536, 1.5, "7"])("rejects malformed tree IDs: %s", (treeId) => {
     const page = {
       context,
-      matches: [
+      items: outputItems([
         { ...match, outputSlot: { ...output, outputContext: { ...output.outputContext, treeId } } },
-      ],
+      ]),
+      cursor: `1:1:${match.txSignature}`,
+      hasMore: false,
     };
     const before = structuredClone(page);
     expect(() => decodeEncryptedUtxosResponse(page)).toThrowError(
@@ -428,10 +451,22 @@ describe("Photon tree metadata", () => {
     );
     expect(page).toEqual(before);
     expect(() =>
-      decodeEncryptedUtxosResponse({ context, matches: [], outputTreeId: treeId }),
+      decodeEncryptedUtxosResponse({
+        context,
+        items: [],
+        cursor: null,
+        hasMore: false,
+        outputTreeId: treeId,
+      }),
     ).toThrowError(expect.objectContaining({ code: "INDEXER_SCHEMA_INVALID_INTEGER" }));
     expect(() =>
-      decodeShieldedTransactionsResponse({ context, transactions: [], outputTreeId: treeId }),
+      decodeShieldedTransactionsResponse({
+        context,
+        items: [],
+        cursor: null,
+        hasMore: false,
+        outputTreeId: treeId,
+      }),
     ).toThrowError(expect.objectContaining({ code: "INDEXER_SCHEMA_INVALID_INTEGER" }));
     expect(() =>
       decodeShieldedTransactionsBySignatureResponse({
@@ -448,7 +483,12 @@ describe("Photon tree metadata", () => {
       { outputContext: missing, code: "INDEXER_SCHEMA_INVALID_INTEGER" },
       { outputContext: { ...missing, treeId: 8 }, code: "INDEXER_SCHEMA_INVALID_TREE" },
     ]) {
-      const page = { context, matches: [{ ...match, outputSlot: { ...output, outputContext } }] };
+      const page = {
+        context,
+        items: outputItems([{ ...match, outputSlot: { ...output, outputContext } }]),
+        cursor: `1:1:${match.txSignature}`,
+        hasMore: false,
+      };
       const before = structuredClone(page);
       expect(() => decodeEncryptedUtxosResponse(page)).toThrowError(
         expect.objectContaining({ code }),

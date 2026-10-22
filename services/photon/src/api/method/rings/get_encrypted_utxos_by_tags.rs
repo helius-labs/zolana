@@ -1,7 +1,9 @@
 use super::common::{
-    after_sql_condition, bind_u64_as_i64, chain_position, ensure_after_indexed,
-    rings_output_slot_from_parts, signature_from_bytes, tags_sql, u64_from_i64, validate_tags,
+    after_sql_condition, bind_u64_as_i64, chain_position, ensure_after_indexed, require_context,
+    rings_output_slot_from_parts, signature_from_bytes, tags_sql, truncate_transactions,
+    u64_from_i64, validate_tags,
 };
+use super::get_shielded_transactions_by_tags::scan_position;
 use crate::api::error::PhotonApiError;
 use crate::common::bind_sql_value;
 use crate::common::indexer_context::{extract as extract_context, newest_unpaused_tree_id};
@@ -11,8 +13,8 @@ use sea_orm::{
 };
 use solana_pubkey::Pubkey;
 use zolana_indexer_api::{
-    Base64String, ChainPosition, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
-    GetRingsByTagsRequest, Hash,
+    Base64String, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse, GetRingsByTagsRequest, Hash,
+    TransactionOutputs,
 };
 use zolana_interface::pda;
 
@@ -20,8 +22,6 @@ use zolana_interface::pda;
 struct EncryptedUtxoRow {
     slot: i64,
     signature: Vec<u8>,
-    event_index: i16,
-    output_index: i16,
     view_tag: Vec<u8>,
     output_tree: Vec<u8>,
     tree_id: Option<i32>,
@@ -32,158 +32,110 @@ struct EncryptedUtxoRow {
     payload: Vec<u8>,
 }
 
-#[derive(FromQueryResult, Debug)]
-struct EncryptedUtxoScanPositionRow {
-    slot: i64,
-    signature: Vec<u8>,
-}
-
 pub async fn get_encrypted_utxos_by_tags(
     conn: &DatabaseConnection,
     request: GetRingsByTagsRequest,
 ) -> Result<GetEncryptedUtxosByTagsResponse, PhotonApiError> {
-    let limit = request.limit.unwrap_or_default().value();
     validate_tags(&request.tags, request.ring_program_id.as_ref())?;
-
-    let context = extract_context(conn).await?;
-    let output_tree_id = newest_unpaused_tree_id(conn).await?;
+    let limit = request.limit.clone().unwrap_or_default().value();
     let tx = conn.begin().await?;
     crate::api::set_transaction_isolation_if_needed(&tx).await?;
-    if let Some(after) = request.after.as_ref() {
+    let context = extract_context(&tx).await?;
+    require_context(context.slot, request.min_context_slot, request.after)?;
+    let output_tree_id = newest_unpaused_tree_id(&tx).await?;
+    if let Some(after) = &request.after {
         ensure_after_indexed(&tx, after).await?;
     }
-
-    // Derived, not looked up: the filter works for a ring whose registration
-    // this index never saw.
-    let ring_config = request
-        .ring_program_id
-        .map(|program| pda::ring_auth(&program.0).0);
-    let mut rows = fetch_encrypted_utxo_rows(
-        &tx,
-        &request.tags,
-        request.after.as_ref(),
-        limit,
-        ring_config,
-    )
-    .await?;
-    let truncated = rows.len() as u64 >= limit;
-    let (next, latest) = if truncated {
-        // A position names a whole transaction, so pull the boundary
-        // signature's remaining outputs before naming it as the resume point.
-        let last = rows.last().expect("a truncated page has rows");
-        let tail = fetch_boundary_outputs(&tx, &request.tags, last, ring_config).await?;
-        rows.extend(tail);
-        let last = rows.last().expect("a truncated page has rows");
-        (Some(chain_position(last.slot, &last.signature)?), None)
+    let mut rows = fetch_encrypted_utxo_rows(&tx, &request).await?;
+    let has_more = truncate_transactions(&mut rows, limit, |row| {
+        chain_position(row.slot, &row.signature)
+    })?;
+    let cursor = if has_more {
+        rows.last()
+            .map(|row| chain_position(row.slot, &row.signature))
+            .transpose()?
     } else {
-        (None, encrypted_utxo_scan_position(&tx).await?)
+        scan_position(&tx).await?.max(request.after)
     };
-
-    let matches = rows
-        .into_iter()
-        .map(|row| {
-            Ok(EncryptedUtxoMatch {
-                slot: u64_from_i64(row.slot, "slot")?,
-                tx_signature: signature_from_bytes(&row.signature)?,
-                output_slot: rings_output_slot_from_parts(
-                    row.view_tag,
-                    row.utxo_hash,
-                    row.output_tree,
-                    row.tree_id,
-                    row.leaf_index,
-                    row.payload,
-                )?,
-                tx_viewing_pk: row.tx_viewing_pk.map(Base64String),
-                salt: row.salt.map(Base64String),
-            })
-        })
-        .collect::<Result<Vec<_>, PhotonApiError>>()?;
-
+    let mut items: Vec<TransactionOutputs<EncryptedUtxoMatch>> = Vec::new();
+    for row in rows {
+        let output = EncryptedUtxoMatch {
+            slot: u64_from_i64(row.slot, "slot")?,
+            tx_signature: signature_from_bytes(&row.signature)?,
+            output_slot: rings_output_slot_from_parts(
+                row.view_tag,
+                row.utxo_hash,
+                row.output_tree,
+                row.tree_id,
+                row.leaf_index,
+                row.payload,
+            )?,
+            tx_viewing_pk: row.tx_viewing_pk.map(Base64String),
+            salt: row.salt.map(Base64String),
+        };
+        if let Some(last) = items
+            .last_mut()
+            .filter(|last| last.slot == output.slot && last.signature == output.tx_signature)
+        {
+            last.outputs.push(output);
+        } else {
+            items.push(TransactionOutputs {
+                slot: output.slot,
+                signature: output.tx_signature,
+                outputs: vec![output],
+            });
+        }
+    }
     tx.commit().await?;
-
     Ok(GetEncryptedUtxosByTagsResponse {
         context,
         output_tree_id,
-        matches,
-        next,
-        latest,
+        items,
+        cursor,
+        has_more,
     })
-}
-
-async fn encrypted_utxo_scan_position(
-    tx: &DatabaseTransaction,
-) -> Result<Option<ChainPosition>, PhotonApiError> {
-    let backend = tx.get_database_backend();
-    let sql = "SELECT
-            po.slot AS slot,
-            po.signature AS signature
-         FROM rings_outputs po
-         WHERE po.slot = (SELECT MAX(slot) FROM rings_outputs)
-         ORDER BY po.signature DESC
-         LIMIT 1";
-    let Some(row) = tx
-        .query_all(Statement::from_string(backend, sql.to_owned()))
-        .await?
-        .into_iter()
-        .next()
-    else {
-        return Ok(None);
-    };
-    let row = EncryptedUtxoScanPositionRow::from_query_result(&row, "")?;
-    Ok(Some(chain_position(row.slot, &row.signature)?))
 }
 
 async fn fetch_encrypted_utxo_rows(
     tx: &DatabaseTransaction,
-    tags: &[Hash],
-    after: Option<&ChainPosition>,
-    limit: u64,
-    ring_config: Option<Pubkey>,
+    request: &GetRingsByTagsRequest,
 ) -> Result<Vec<EncryptedUtxoRow>, PhotonApiError> {
     let backend = tx.get_database_backend();
     let mut params = Vec::new();
-    let tag_filter = tag_filter_sql(tags, ring_config, backend, &mut params);
-    // "po", matching this query's ORDER BY, so
-    // idx_rings_outputs_view_tag_order serves the filter and the sort together.
-    let after_filter = after
+    let ring_config = request
+        .ring_program_id
+        .as_ref()
+        .map(|program| pda::ring_auth(&program.0).0);
+    let selection_tags = tag_filter_sql(&request.tags, ring_config, backend, &mut params);
+    let after_filter = request
+        .after
+        .as_ref()
         .map(|after| after_sql_condition("po", after, backend, &mut params))
         .transpose()?
         .map(|condition| format!("AND {condition}"))
         .unwrap_or_default();
-    let ring_filter = match ring_config {
-        Some(config) => {
-            let bound = bind_sql_value(&mut params, backend, config.to_bytes().to_vec());
-            format!("AND pt.ring_config = {bound}")
-        }
-        None => String::new(),
-    };
-    let limit = bind_u64_as_i64(&mut params, backend, limit)?;
-
-    let sql = format!(
-        "SELECT
-            pt.slot AS slot,
-            pt.signature AS signature,
-            pt.event_index AS event_index,
-            po.output_index AS output_index,
-            po.view_tag AS view_tag,
-            po.output_tree AS output_tree,
-            tm.tree_id AS tree_id,
-            po.leaf_index AS leaf_index,
-            po.utxo_hash AS utxo_hash,
-            pt.tx_viewing_pk AS tx_viewing_pk,
-            pt.salt AS salt,
-            pop.payload AS payload
-         FROM rings_outputs po
-         JOIN rings_transactions pt ON pt.rings_tx_id = po.rings_tx_id
-         JOIN rings_output_payloads pop ON pop.output_id = po.output_id
-         LEFT JOIN tree_metadata tm ON tm.tree_pubkey = po.output_tree
-         WHERE {tag_filter}
-         {after_filter}
-         {ring_filter}
-         ORDER BY po.slot ASC, po.signature ASC, po.event_index ASC, po.output_index ASC
-         LIMIT {limit}"
-    );
-
+    let selection_ring = ring_filter_sql(ring_config, backend, &mut params);
+    let lookahead = bind_u64_as_i64(
+        &mut params,
+        backend,
+        request.limit.clone().unwrap_or_default().value() + 1,
+    )?;
+    let result_tags = tag_filter_sql(&request.tags, ring_config, backend, &mut params);
+    let result_ring = ring_filter_sql(ring_config, backend, &mut params);
+    let sql = format!("WITH selected AS (
+        SELECT DISTINCT po.slot, po.signature FROM rings_outputs po
+        JOIN rings_transactions pt ON pt.rings_tx_id = po.rings_tx_id
+        WHERE {selection_tags} {after_filter} {selection_ring}
+        ORDER BY po.slot ASC, po.signature ASC LIMIT {lookahead}
+    ) SELECT pt.slot, pt.signature, pt.event_index, po.output_index, po.view_tag,
+        po.output_tree, tm.tree_id, po.leaf_index, po.utxo_hash, pt.tx_viewing_pk, pt.salt, pop.payload
+      FROM rings_outputs po
+      JOIN selected chosen ON chosen.slot = po.slot AND chosen.signature = po.signature
+      JOIN rings_transactions pt ON pt.rings_tx_id = po.rings_tx_id
+      JOIN rings_output_payloads pop ON pop.output_id = po.output_id
+      LEFT JOIN tree_metadata tm ON tm.tree_pubkey = po.output_tree
+      WHERE {result_tags} {result_ring}
+      ORDER BY po.slot ASC, po.signature ASC, po.event_index ASC, po.output_index ASC");
     tx.query_all(Statement::from_sql_and_values(backend, sql, params))
         .await?
         .into_iter()
@@ -192,60 +144,18 @@ async fn fetch_encrypted_utxo_rows(
         .map_err(Into::into)
 }
 
-/// The boundary signature's matching outputs past a truncated page.
-async fn fetch_boundary_outputs(
-    tx: &DatabaseTransaction,
-    tags: &[Hash],
-    boundary: &EncryptedUtxoRow,
-    ring_config: Option<Pubkey>,
-) -> Result<Vec<EncryptedUtxoRow>, PhotonApiError> {
-    let backend = tx.get_database_backend();
-    let mut params = Vec::new();
-    let tag_filter = tag_filter_sql(tags, ring_config, backend, &mut params);
-    let ring_filter = match ring_config {
-        Some(config) => {
-            let bound = bind_sql_value(&mut params, backend, config.to_bytes().to_vec());
-            format!("AND pt.ring_config = {bound}")
-        }
-        None => String::new(),
-    };
-    let slot_value = bind_sql_value(&mut params, backend, boundary.slot);
-    let signature_value = bind_sql_value(&mut params, backend, boundary.signature.clone());
-    let event_value = bind_sql_value(&mut params, backend, i32::from(boundary.event_index));
-    let output_value = bind_sql_value(&mut params, backend, i32::from(boundary.output_index));
-
-    let sql = format!(
-        "SELECT
-            pt.slot AS slot,
-            pt.signature AS signature,
-            pt.event_index AS event_index,
-            po.output_index AS output_index,
-            po.view_tag AS view_tag,
-            po.output_tree AS output_tree,
-            tm.tree_id AS tree_id,
-            po.leaf_index AS leaf_index,
-            po.utxo_hash AS utxo_hash,
-            pt.tx_viewing_pk AS tx_viewing_pk,
-            pt.salt AS salt,
-            pop.payload AS payload
-         FROM rings_outputs po
-         JOIN rings_transactions pt ON pt.rings_tx_id = po.rings_tx_id
-         JOIN rings_output_payloads pop ON pop.output_id = po.output_id
-         LEFT JOIN tree_metadata tm ON tm.tree_pubkey = po.output_tree
-         WHERE {tag_filter}
-         {ring_filter}
-         AND po.slot = {slot_value}
-         AND po.signature = {signature_value}
-         AND (po.event_index, po.output_index) > ({event_value}, {output_value})
-         ORDER BY po.event_index ASC, po.output_index ASC"
-    );
-
-    tx.query_all(Statement::from_sql_and_values(backend, sql, params))
-        .await?
-        .into_iter()
-        .map(|row| EncryptedUtxoRow::from_query_result(&row, ""))
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(Into::into)
+fn ring_filter_sql(
+    ring: Option<Pubkey>,
+    backend: DatabaseBackend,
+    params: &mut Vec<Value>,
+) -> String {
+    ring.map(|ring| {
+        format!(
+            "AND pt.ring_config = {}",
+            bind_sql_value(params, backend, ring.to_bytes().to_vec())
+        )
+    })
+    .unwrap_or_default()
 }
 
 /// An empty tag set with a ring selects the ring's full history.

@@ -17,7 +17,7 @@ use solana_keypair::Keypair;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    rpc::ChainPosition, ClientError, Context, GetShieldedTransactionsByTagsResponse, ProofInputUtxo,
+    rpc::Cursor, ClientError, Context, GetShieldedTransactionsByTagsResponse, ProofInputUtxo,
 };
 use zolana_indexer_api::{Base64String, Hash, Limit};
 use zolana_interface::instruction::MessageData;
@@ -213,6 +213,7 @@ fn decide_now(auth: &ReadAuth, origins: &Origins) -> Result<Claim, Unauthorized>
             timestamp: auth.timestamp,
             nonce,
             after: None,
+            min_context_slot: None,
             limit: None,
         },
     )
@@ -293,7 +294,7 @@ fn passkeys_require_canonical_same_origin_assertions() {
 struct StaticSource {
     transactions: Vec<ShieldedTransaction>,
     origins: HashMap<(Signature, u16), bool>,
-    next: Option<ChainPosition>,
+    next: Option<Cursor>,
     /// Per ring, so a read can never be authorized against another ring's
     /// config.
     configs: HashMap<Address, RingConfiguration>,
@@ -311,18 +312,12 @@ struct StaticSource {
     examined_limit: Arc<AtomicUsize>,
 }
 
-fn chain_position(n: u8) -> ChainPosition {
-    ChainPosition {
-        slot: u64::from(n),
-        signature: Signature::from([n; 64]),
-    }
+fn chain_position(n: u8) -> Cursor {
+    Cursor::new(u64::from(n), Signature::from([n; 64]))
 }
 
-fn wire(position: ChainPosition) -> zolana_indexer_api::ChainPosition {
-    zolana_indexer_api::ChainPosition {
-        slot: position.slot,
-        signature: position.signature.into(),
-    }
+fn wire(position: Cursor) -> zolana_indexer_api::Cursor {
+    position
 }
 
 /// One ring signature and the deposits it made.
@@ -360,14 +355,21 @@ impl TransactionSource for StaticSource {
             .get(&request.tag)
             .cloned()
             .unwrap_or_else(|| self.transactions.clone());
+        let terminal = transactions
+            .iter()
+            .map(|event| Cursor::new(event.slot, event.tx_signature))
+            .max()
+            .max(request.after);
         let response = GetShieldedTransactionsByTagsResponse {
             context: Context {
                 block_time: 0,
                 slot: 99,
             },
-            transactions,
-            next: self.next,
-            latest: None,
+            items: zolana_client::rpc::TransactionEvents::group(transactions, |event| {
+                (event.slot, event.tx_signature)
+            }),
+            cursor: self.next.or(terminal),
+            has_more: (self.next).is_some(),
             output_tree_id: Some(TREE_ID),
         };
         async move { Ok(response) }
@@ -638,7 +640,7 @@ impl Fixture {
         let source = StaticSource {
             transactions: Vec::new(),
             origins: HashMap::new(),
-            next: Some(chain_position(7)),
+            next: None,
             configs: HashMap::from([(
                 RING,
                 RingConfiguration {
@@ -688,6 +690,43 @@ fn page() -> Page {
 }
 
 #[tokio::test]
+async fn a_freshness_gate_is_signed_before_any_asset_read() {
+    let fixture = Fixture::new();
+    let source = fixture.source();
+    let asset_reads = source.asset_reads.clone();
+    let service = fixture.hub(source).service().unwrap();
+    let request = GetDecryptedTransactionsRequest::read(RING)
+        .with_min_context_slot(7)
+        .sign(&delegate())
+        .unwrap();
+    let tampered = PageOptions::default()
+        .with_min_context_slot(8)
+        .build()
+        .unwrap();
+    assert!(matches!(
+        service
+            .read(AuditRead {
+                auth: &request.auth,
+                page: &tampered
+            })
+            .await,
+        Err(RingRpcError::Unauthorized(Unauthorized::BadSignature))
+    ));
+    assert_eq!(asset_reads.load(Ordering::SeqCst), 0);
+    let original = PageOptions::default()
+        .with_min_context_slot(7)
+        .build()
+        .unwrap();
+    assert!(service
+        .read(AuditRead {
+            auth: &request.auth,
+            page: &original
+        })
+        .await
+        .is_ok());
+}
+
+#[tokio::test]
 async fn granted_reader_opens_audited_transfers_and_reports_the_rest() {
     let fixture = Fixture::new();
     let service = fixture.hub(fixture.source()).service().expect("service");
@@ -702,8 +741,16 @@ async fn granted_reader_opens_audited_transfers_and_reports_the_rest() {
         .expect("read");
 
     assert_eq!(response.context.slot, 99);
-    assert_eq!(response.value.next, Some(wire(chain_position(7))));
-    let [item] = response.value.items.as_slice() else {
+    assert_eq!(
+        response.cursor,
+        Some(Cursor::new(42, Signature::from([3; 64])))
+    );
+    let events: Vec<_> = response
+        .items
+        .iter()
+        .flat_map(|item| &item.events)
+        .collect();
+    let [item] = events.as_slice() else {
         panic!("expected one audited transaction");
     };
     assert_eq!(item.outputs.len(), 2);
@@ -735,9 +782,9 @@ async fn granted_reader_opens_audited_transfers_and_reports_the_rest() {
     );
     assert_eq!(item.nullifiers.len(), 1);
     let reasons: Vec<(Signature, SkippedReason)> = response
-        .value
-        .skipped
+        .items
         .iter()
+        .flat_map(|item| &item.skipped)
         .map(|skipped| (skipped.tx_signature.0, skipped.reason))
         .collect();
     assert_eq!(
@@ -853,7 +900,12 @@ async fn passkey_reader_opens_anonymous_spend_trace() {
         )
         .await
         .expect("passkey read");
-    let [item] = response.value.items.as_slice() else {
+    let events: Vec<_> = response
+        .items
+        .iter()
+        .flat_map(|item| &item.events)
+        .collect();
+    let [item] = events.as_slice() else {
         panic!("anonymous transaction must be readable")
     };
     let trace = item.anonymous.as_ref().expect("anonymous trace");
@@ -863,7 +915,12 @@ async fn passkey_reader_opens_anonymous_spend_trace() {
     assert_eq!(trace.recipients.len(), 2);
     assert_eq!(trace.recipients[1].amount, 501);
     assert_eq!(item.outputs.len(), 2);
-    assert!(response.value.skipped.is_empty());
+    assert!(response
+        .items
+        .iter()
+        .flat_map(|item| &item.skipped)
+        .next()
+        .is_none());
 }
 
 #[tokio::test]
@@ -909,7 +966,18 @@ async fn unknown_assets_share_refresh_and_back_off_after_failure() {
     let asset = Address::new_from_array([8; 32]);
     for result in [first, second] {
         let response = result.expect("refreshed read");
-        assert_eq!(response.value.items[0].outputs[0].asset.0, asset);
+        assert_eq!(
+            response
+                .items
+                .iter()
+                .flat_map(|item| &item.events)
+                .next()
+                .expect("transaction item")
+                .outputs[0]
+                .asset
+                .0,
+            asset
+        );
     }
     assert_eq!(reads.load(Ordering::Relaxed), 1);
 
@@ -1030,9 +1098,41 @@ async fn rows_outside_the_ring_are_dropped() {
         })
         .await
         .expect("read");
-    assert!(response.value.items.is_empty());
-    assert_eq!(response.value.skipped.len(), 2);
-    assert_eq!(response.value.next, Some(wire(chain_position(7))));
+    assert!(response
+        .items
+        .iter()
+        .flat_map(|item| &item.events)
+        .next()
+        .is_none());
+    assert_eq!(
+        response.items.iter().flat_map(|item| &item.skipped).count(),
+        2
+    );
+    assert_eq!(
+        response.cursor,
+        Some(Cursor::new(42, Signature::from([3; 64])))
+    );
+}
+
+#[tokio::test]
+async fn an_empty_filtered_page_retains_its_continuation() {
+    let fixture = Fixture::new();
+    let mut foreign = fixture.audited.clone();
+    foreign.ring_program_id = None;
+    let cursor = Cursor::new(foreign.slot, foreign.tx_signature);
+    let mut source = fixture.source().with_transactions(vec![foreign]);
+    source.next = Some(cursor);
+    let service = fixture.hub(source).service().unwrap();
+    let response = service
+        .read(AuditRead {
+            auth: &auth(&delegate()),
+            page: &page(),
+        })
+        .await
+        .unwrap();
+    assert!(response.items.is_empty());
+    assert_eq!(response.cursor, Some(cursor));
+    assert!(response.has_more);
 }
 
 #[tokio::test]
@@ -1056,7 +1156,10 @@ async fn origin_cache_separates_event_ordinals_in_one_transaction() {
         .await
         .expect("read");
 
-    assert_eq!(response.value.items.len(), 1);
+    assert_eq!(
+        response.items.iter().flat_map(|item| &item.events).count(),
+        1
+    );
 }
 
 #[tokio::test]
@@ -1136,10 +1239,7 @@ async fn accepted_nonces_are_single_use() {
 async fn an_attested_limit_keeps_the_boundary_transaction_whole() {
     let fixture = Fixture::new();
     let first = fixture.audited.clone();
-    let boundary = ChainPosition {
-        slot: first.slot,
-        signature: first.tx_signature,
-    };
+    let boundary = Cursor::new(first.slot, first.tx_signature);
     let mut second = first.clone();
     second.event_index = Some(1);
     let mut source = fixture.source().with_transactions(vec![first, second]);
@@ -1166,8 +1266,11 @@ async fn an_attested_limit_keeps_the_boundary_transaction_whole() {
         .await
         .expect("whole transaction");
 
-    assert_eq!(response.value.items.len(), 2);
-    assert_eq!(response.value.next, Some(wire(boundary)));
+    assert_eq!(
+        response.items.iter().flat_map(|item| &item.events).count(),
+        2
+    );
+    assert_eq!(response.cursor, Some(wire(boundary)));
 }
 
 #[tokio::test]
@@ -1260,8 +1363,8 @@ async fn rpc_wire_uses_camel_case_and_rejects_another_local_ring() {
         .call(GET_DECRYPTED_TRANSACTIONS, object)
         .await
         .expect("read");
-    assert_eq!(page.value.items.len(), 1);
-    let item = as_object(&page.value.items[0]);
+    assert_eq!(page.items.iter().flat_map(|item| &item.events).count(), 1);
+    let item = as_object(&page.items[0].events[0]);
     assert_eq!(
         item.get("withdrawals"),
         Some(&serde_json::json!([
@@ -1459,7 +1562,10 @@ async fn invalid_audit_requests_do_not_consume_valid_capacity() {
         )
         .await
         .expect("valid request");
-    assert_eq!(response.value.items.len(), 1);
+    assert_eq!(
+        response.items.iter().flat_map(|item| &item.events).count(),
+        1
+    );
 }
 
 fn deposit(byte: u8, slot: u64, amount: u64) -> DepositRecord {
@@ -1748,7 +1854,12 @@ async fn two_rings_read_only_their_own_transactions() {
             })
             .await
             .expect("read");
-        let [item] = response.value.items.as_slice() else {
+        let events: Vec<_> = response
+            .items
+            .iter()
+            .flat_map(|item| &item.events)
+            .collect();
+        let [item] = events.as_slice() else {
             panic!("expected one audited transaction for {ring}");
         };
         assert_eq!(item.tx_signature.0, expected);

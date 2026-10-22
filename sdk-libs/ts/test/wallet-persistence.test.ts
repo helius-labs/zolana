@@ -67,32 +67,23 @@ describe("wallet persistence", () => {
   it("round-trips sync cursors on every stream", () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
-    wallet._setSyncCursor("transactions", "aa".repeat(32), { slot: 1n, signature: SIGNATURE });
-    wallet._setSyncCursor("proofless", "bb".repeat(32), { slot: 2n, signature: SIGNATURE });
-    wallet._setSyncCursor("nullifiers", "cc".repeat(32), { slot: 3n, signature: SIGNATURE });
+    wallet._setSyncCursor("transactions", "aa".repeat(32), `1:${1n}:${SIGNATURE}`);
+    wallet._setSyncCursor("proofless", "bb".repeat(32), `1:${2n}:${SIGNATURE}`);
+    wallet._setSyncCursor("nullifiers", "cc".repeat(32), `1:${3n}:${SIGNATURE}`);
 
     const serialized = serializeWallet(wallet);
     const restored = deserializeWallet(serialized);
 
-    expect(restored._syncCursor("transactions", "aa".repeat(32))).toEqual({
-      slot: 1n,
-      signature: SIGNATURE,
-    });
-    expect(restored._syncCursor("proofless", "bb".repeat(32))).toEqual({
-      slot: 2n,
-      signature: SIGNATURE,
-    });
-    expect(restored._syncCursor("nullifiers", "cc".repeat(32))).toEqual({
-      slot: 3n,
-      signature: SIGNATURE,
-    });
+    expect(restored._syncCursor("transactions", "aa".repeat(32))).toEqual(`1:${1n}:${SIGNATURE}`);
+    expect(restored._syncCursor("proofless", "bb".repeat(32))).toEqual(`1:${2n}:${SIGNATURE}`);
+    expect(restored._syncCursor("nullifiers", "cc".repeat(32))).toEqual(`1:${3n}:${SIGNATURE}`);
     expect(serializeWallet(restored)).toBe(serialized);
   });
 
   it("accepts version 2 state with empty cursors", () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
-    wallet._setSyncCursor("transactions", "aa".repeat(32), { slot: 1n, signature: SIGNATURE });
+    wallet._setSyncCursor("transactions", "aa".repeat(32), `1:${1n}:${SIGNATURE}`);
     const snapshot = JSON.parse(serializeWallet(wallet)) as Record<string, unknown>;
     snapshot["version"] = 2;
     delete snapshot["syncCursors"];
@@ -128,12 +119,11 @@ describe("wallet persistence", () => {
       nullifiers: new Set(["dd".repeat(32)]),
     });
     const snapshot = JSON.parse(serializeWallet(wallet)) as {
-      syncCursors: { nullifiers: { key: string; slot: string; signature: string }[] };
+      syncCursors: { nullifiers: { key: string; cursor: string }[] };
     };
     snapshot.syncCursors.nullifiers.push({
       key: "dd".repeat(32),
-      slot: "1",
-      signature: SIGNATURE,
+      cursor: `1:1:${SIGNATURE}`,
     });
 
     const restored = deserializeWallet(JSON.stringify(snapshot));

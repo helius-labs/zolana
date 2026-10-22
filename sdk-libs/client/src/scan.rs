@@ -38,7 +38,7 @@ use zolana_transaction::{
 use crate::{
     error::ClientError,
     rpc::{
-        ChainPosition, EncryptedUtxoMatch, IndexerRpcConfig, ProgramAccountsFilter, Rpc,
+        Cursor, EncryptedUtxoMatch, IndexerRpcConfig, ProgramAccountsFilter, Rpc,
         ShieldedTransaction,
     },
 };
@@ -346,8 +346,13 @@ fn tagged_transactions<I: Rpc + ?Sized>(
             config,
         )?;
         *output_tree_id = page.output_tree_id;
-        transactions.extend(page.transactions.into_iter().filter(|tx| !tx.proofless));
-        match next_page(&cursor, page.next, page.latest)? {
+        transactions.extend(
+            page.items
+                .into_iter()
+                .flat_map(|item| item.events)
+                .filter(|tx| !tx.proofless),
+        );
+        match next_page(&cursor, page.cursor, page.has_more)? {
             Some(next) => cursor = Some(next),
             None => break,
         }
@@ -358,11 +363,12 @@ fn tagged_transactions<I: Rpc + ?Sized>(
             indexer.get_encrypted_utxos_by_tags(tags.to_vec(), cursor, Some(PAGE_LIMIT), config)?;
         *output_tree_id = page.output_tree_id;
         transactions.extend(
-            page.matches
+            page.items
                 .into_iter()
+                .flat_map(|item| item.outputs)
                 .filter_map(EncryptedUtxoMatch::into_proofless_transaction),
         );
-        match next_page(&cursor, page.next, page.latest)? {
+        match next_page(&cursor, page.cursor, page.has_more)? {
             Some(next) => cursor = Some(next),
             None => break,
         }
@@ -389,8 +395,8 @@ fn spending_transactions<I: Rpc + ?Sized>(
                 config,
             )?;
             *output_tree_id = page.output_tree_id;
-            transactions.extend(page.transactions);
-            match next_page(&cursor, page.next, page.latest)? {
+            transactions.extend(page.items.into_iter().flat_map(|item| item.events));
+            match next_page(&cursor, page.cursor, page.has_more)? {
                 Some(next) => cursor = Some(next),
                 None => break,
             }
@@ -401,15 +407,15 @@ fn spending_transactions<I: Rpc + ?Sized>(
 
 /// A continuation exists only on a truncated page and must move forward.
 fn next_page(
-    cursor: &Option<ChainPosition>,
-    next: Option<ChainPosition>,
-    latest: Option<ChainPosition>,
-) -> Result<Option<ChainPosition>, ClientError> {
-    if next.is_some() && latest.is_some() {
-        return Err(ClientError::IndexerCursorNotAdvanced);
+    after: &Option<Cursor>,
+    cursor: Option<Cursor>,
+    has_more: bool,
+) -> Result<Option<Cursor>, ClientError> {
+    if !has_more {
+        return Ok(None);
     }
-    if next.is_some_and(|next| cursor.is_some_and(|cursor| next <= cursor)) {
-        return Err(ClientError::IndexerCursorNotAdvanced);
+    match cursor {
+        Some(cursor) if after.is_none_or(|after| cursor > after) => Ok(Some(cursor)),
+        _ => Err(ClientError::IndexerCursorNotAdvanced),
     }
-    Ok(next)
 }

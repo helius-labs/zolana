@@ -366,7 +366,7 @@ mod tests {
     use custom_ring_sdk::CustomRing;
     use solana_signature::Signature;
     use zolana_client::{
-        rpc::{ChainPosition, GetShieldedTransactionsByNullifiersResponse},
+        rpc::{Cursor, GetShieldedTransactionsByNullifiersResponse},
         Context, GetShieldedTransactionsByTagsResponse, IndexerRpcConfig, ProofInputUtxo,
         ShieldedTransaction,
     };
@@ -723,7 +723,7 @@ mod tests {
         fn get_shielded_transactions_by_tags(
             &self,
             _tags: Vec<[u8; 32]>,
-            _since: Option<ChainPosition>,
+            _since: Option<Cursor>,
             _limit: Option<u32>,
             _config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
@@ -733,16 +733,19 @@ mod tests {
                     slot: 1,
                 },
                 output_tree_id: Some(0),
-                transactions: self.transactions.clone(),
-                next: None,
-                latest: None,
+                items: zolana_client::rpc::TransactionEvents::group(
+                    self.transactions.clone(),
+                    |event| (event.slot, event.tx_signature),
+                ),
+                cursor: None,
+                has_more: false,
             })
         }
 
         fn get_shielded_transactions_by_nullifiers(
             &self,
             nullifiers: Vec<[u8; 32]>,
-            _since: Option<ChainPosition>,
+            _since: Option<Cursor>,
             _limit: Option<u32>,
             _config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
@@ -752,14 +755,16 @@ mod tests {
                     slot: 1,
                 },
                 output_tree_id: Some(0),
-                transactions: self
-                    .transactions
-                    .iter()
-                    .filter(|tx| tx.nullifiers.iter().any(|spent| nullifiers.contains(spent)))
-                    .cloned()
-                    .collect(),
-                next: None,
-                latest: None,
+                items: zolana_client::rpc::TransactionEvents::group(
+                    self.transactions
+                        .iter()
+                        .filter(|tx| tx.nullifiers.iter().any(|spent| nullifiers.contains(spent)))
+                        .cloned()
+                        .collect::<Vec<_>>(),
+                    |event| (event.slot, event.tx_signature),
+                ),
+                cursor: None,
+                has_more: false,
             })
         }
     }

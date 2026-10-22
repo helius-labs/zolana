@@ -1,9 +1,9 @@
-import { blockhash, type Commitment, type Signature } from "@solana/kit";
+import { blockhash, type Commitment } from "@solana/kit";
 
 import type { ChainReader, IndexerReader, KitRpcAccess } from "../../src/client/index.js";
 import type { LatestBlockhash, SolanaRpc } from "../../src/client/kit.js";
 import type {
-  ChainPosition,
+  Cursor,
   GetEncryptedUtxosByTagsResponse,
   GetShieldedTransactionsBySignatureResponse,
   GetShieldedTransactionsByTagsResponse,
@@ -30,20 +30,20 @@ export const BLOCKHASH: LatestBlockhash = Object.freeze({
 });
 
 /** A fake indexer pages by slot, the signature only has to be valid base58. */
-export function chainPosition(slot: bigint): ChainPosition {
-  return Object.freeze({ slot, signature: "1".repeat(64) as Signature });
+export function chainPosition(slot: bigint): Cursor {
+  return `1:${slot}:${"1".repeat(64)}`;
 }
 
 export function transactionsPage(
   overrides: Partial<GetShieldedTransactionsByTagsResponse> = {},
 ): GetShieldedTransactionsByTagsResponse {
-  return { context: CONTEXT, transactions: [], ...overrides };
+  return { context: CONTEXT, items: [], cursor: null, hasMore: false, ...overrides };
 }
 
 export function matchesPage(
   overrides: Partial<GetEncryptedUtxosByTagsResponse> = {},
 ): GetEncryptedUtxosByTagsResponse {
-  return { context: CONTEXT, matches: [], ...overrides };
+  return { context: CONTEXT, items: [], cursor: null, hasMore: false, ...overrides };
 }
 
 export function signaturesPage(

@@ -144,7 +144,9 @@ describe("ring flow", () => {
         ringProgramId,
         signer: messageSignerReader(authoritySigner),
       });
-      audited = ringView.items.find((item) => item.signature === signature);
+      audited = ringView.items
+        .flatMap((item) => item.events)
+        .find((item) => item.signature === signature);
       if (audited === undefined) await new Promise((resolve) => setTimeout(resolve, 500));
     }
     expect(audited).toBeDefined();
@@ -186,7 +188,9 @@ describe("ring flow", () => {
         ringProgramId,
         signer: messageSignerReader(authoritySigner),
       });
-      hopAudited = ringView.items.find((item) => item.signature === hopSignature);
+      hopAudited = ringView.items
+        .flatMap((item) => item.events)
+        .find((item) => item.signature === hopSignature);
       if (hopAudited === undefined) await new Promise((resolve) => setTimeout(resolve, 500));
     }
     expect(hopAudited?.outputs.map((output) => output.ringProgramId)).toEqual([

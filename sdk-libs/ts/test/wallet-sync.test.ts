@@ -1,3 +1,4 @@
+import { transactionItems, outputItems } from "./helpers/pages.js";
 import { encodeRingDepositCapsule } from "../src/ring/deposit-capsule.js";
 import {
   address,
@@ -108,11 +109,11 @@ function mergePayload(
 }
 
 interface RequestWithAfter {
-  readonly after?: Readonly<{ slot: bigint; signature: Signature }>;
+  readonly after?: string;
 }
 
-function position(slot: bigint): Readonly<{ slot: bigint; signature: Signature }> {
-  return Object.freeze({ slot, signature: SIGNATURE });
+function position(slot: bigint): string {
+  return `1:${slot}:${SIGNATURE}`;
 }
 
 function mergeAfterSplit() {
@@ -271,7 +272,9 @@ describe("wallet sync atomicity", () => {
     return {
       getEncryptedUtxosByTags: vi.fn(async () => ({
         context: { blockTime: 1_700_000_000n, slot: 0n },
-        matches: [],
+        items: outputItems([]),
+        cursor: null,
+        hasMore: false,
       })),
       getShieldedTransactionsByNullifiers: vi.fn(),
     };
@@ -281,25 +284,19 @@ describe("wallet sync atomicity", () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
     const after = position(4n);
-    const page = { context: { blockTime: 1_700_000_000n, slot: 0n }, latest: after };
-    const transactions = vi.fn(
-      async (_request: {
-        tags: readonly Bytes32[];
-        after?: Readonly<{ slot: bigint; signature: Signature }>;
-      }) => ({
-        ...page,
-        transactions: [],
-      }),
-    );
-    const proofless = vi.fn(
-      async (_request: {
-        tags: readonly Bytes32[];
-        after?: Readonly<{ slot: bigint; signature: Signature }>;
-      }) => ({
-        ...page,
-        matches: [],
-      }),
-    );
+    const page = {
+      context: { blockTime: 1_700_000_000n, slot: 4n },
+      cursor: after,
+      hasMore: false,
+    };
+    const transactions = vi.fn(async (_request: { tags: readonly Bytes32[]; after?: string }) => ({
+      ...page,
+      items: transactionItems([]),
+    }));
+    const proofless = vi.fn(async (_request: { tags: readonly Bytes32[]; after?: string }) => ({
+      ...page,
+      items: outputItems([]),
+    }));
     const client = syncReads({
       getShieldedTransactionsByTags: transactions,
       getEncryptedUtxosByTags: proofless,
@@ -327,27 +324,27 @@ describe("wallet sync atomicity", () => {
     }
   });
 
-  it("keeps a newer resume point when the stream tip is older", async () => {
+  it("rejects a terminal checkpoint behind committed history", async () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
     const keys = LocalShieldedKeys.fromKeypair(keypair);
     let tip = position(9n);
     const getShieldedTransactionsByTags = vi.fn(async (_request: RequestWithAfter) => ({
       context: { blockTime: 1_700_000_000n, slot: 10n },
-      transactions: [],
-      latest: tip,
+      items: transactionItems([]),
+      cursor: tip,
+      hasMore: false,
     }));
     const client = syncReads({ getShieldedTransactionsByTags, ...emptyTagPages() });
 
     await syncWallet({ wallet, keys, client });
     tip = position(8n);
-    await syncWallet({ wallet, keys, client });
-    getShieldedTransactionsByTags.mockClear();
-    await syncWallet({ wallet, keys, client });
+    const before = serializeWallet(wallet);
+    await expect(syncWallet({ wallet, keys, client })).rejects.toMatchObject({
+      code: "WALLET_SYNC",
+    });
+    expect(serializeWallet(wallet)).toBe(before);
 
-    for (const [request] of getShieldedTransactionsByTags.mock.calls) {
-      expect(request.after).toEqual(position(9n));
-    }
     expect(wallet._cursorEntries("transactions").map(([, value]) => value)).toEqual(
       expect.arrayContaining([position(9n)]),
     );
@@ -361,8 +358,9 @@ describe("wallet sync atomicity", () => {
     let calls = 0;
     const getShieldedTransactionsByTags = vi.fn(async (_request: RequestWithAfter) => ({
       context: { blockTime: 1_700_000_000n, slot: 10n },
-      transactions: [],
-      ...(calls++ === 0 ? { next: position(7n), latest: position(9n) } : {}),
+      items: transactionItems([]),
+      cursor: null,
+      hasMore: calls++ === 0,
     }));
     const client = syncReads({ getShieldedTransactionsByTags, ...emptyTagPages() });
 
@@ -386,8 +384,9 @@ describe("wallet sync atomicity", () => {
       if (served === 2) throw new Error("indexer down");
       return {
         context: { blockTime: 1_700_000_000n, slot: 0n },
-        transactions: [],
-        latest: position(3n),
+        items: transactionItems([]),
+        cursor: position(3n),
+        hasMore: false,
       };
     });
     const client = syncReads({
@@ -425,8 +424,9 @@ describe("wallet sync atomicity", () => {
       }
       return {
         context: { blockTime: 1_700_000_000n, slot: 0n },
-        transactions: [],
-        ...(request.after === undefined ? { latest: tip } : {}),
+        items: transactionItems([]),
+        cursor: request.after ?? tip,
+        hasMore: false,
       };
     });
     const client = syncReads({
@@ -459,7 +459,12 @@ describe("wallet sync atomicity", () => {
         firstCall = false;
         await gate;
       }
-      return { context: { blockTime: 1_700_000_000n, slot: 0n }, transactions: [] };
+      return {
+        context: { blockTime: 1_700_000_000n, slot: 0n },
+        items: transactionItems([]),
+        cursor: null,
+        hasMore: false,
+      };
     });
     const client = syncReads({
       getShieldedTransactionsByTags,
@@ -489,8 +494,9 @@ describe("wallet sync atomicity", () => {
       served += 1;
       return {
         context: { blockTime: 1_700_000_000n, slot: 0n },
-        transactions: [],
-        ...(served === 1 ? { latest: tip } : {}),
+        items: transactionItems([]),
+        cursor: tip,
+        hasMore: false,
       };
     });
     const client = syncReads({
@@ -512,7 +518,9 @@ describe("wallet sync atomicity", () => {
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
     const getShieldedTransactionsByTags = vi.fn(async () => ({
       context: { blockTime: 1_700_000_000n, slot: 0n },
-      transactions: [],
+      items: transactionItems([]),
+      cursor: null,
+      hasMore: false,
     }));
     const client = syncReads({ getShieldedTransactionsByTags, ...emptyTagPages() });
 
@@ -542,7 +550,9 @@ describe("wallet sync freshness", () => {
         jsonrpc: "2.0",
         result: {
           context: { blockTime: 1, slot },
-          [method === "getEncryptedUtxosByTags" ? "matches" : "transactions"]: [],
+          items: [],
+          cursor: null,
+          hasMore: false,
         },
       });
     });
@@ -597,11 +607,15 @@ describe("wallet sync", () => {
     const client = syncReads({
       getShieldedTransactionsByTags: vi.fn(async () => ({
         context: { blockTime: 1_700_000_000n, slot: 0n },
-        transactions: [],
+        items: transactionItems([]),
+        cursor: null,
+        hasMore: false,
       })),
       getEncryptedUtxosByTags: vi.fn(async () => ({
         context: { blockTime: 1_700_000_000n, slot: 0n },
-        matches: [],
+        items: outputItems([]),
+        cursor: null,
+        hasMore: false,
       })),
       getShieldedTransactionsByNullifiers: vi.fn(),
     });
@@ -629,15 +643,18 @@ describe("wallet sync", () => {
       served += 1;
       return {
         context: { blockTime: 1_700_000_000n, slot: 0n },
-        transactions: [],
-        ...(served === 1 ? { next: truncatedAt } : {}),
+        items: transactionItems([]),
+        cursor: truncatedAt,
+        hasMore: served === 1,
       };
     });
     const client = syncReads({
       getShieldedTransactionsByTags,
       getEncryptedUtxosByTags: vi.fn(async () => ({
         context: { blockTime: 1_700_000_000n, slot: 0n },
-        matches: [],
+        items: outputItems([]),
+        cursor: null,
+        hasMore: false,
       })),
       getShieldedTransactionsByNullifiers: vi.fn(),
     });
@@ -664,13 +681,17 @@ describe("wallet sync", () => {
 
     const getShieldedTransactionsByTags = vi.fn(async (_request: RequestWithAfter) => ({
       context: { blockTime: 1_700_000_000n, slot: 0n },
-      transactions: [],
+      items: transactionItems([]),
+      cursor: null,
+      hasMore: false,
     }));
     const client = syncReads({
       getShieldedTransactionsByTags,
       getEncryptedUtxosByTags: vi.fn(async () => ({
         context: { blockTime: 1_700_000_000n, slot: 0n },
-        matches: [],
+        items: outputItems([]),
+        cursor: null,
+        hasMore: false,
       })),
       getShieldedTransactionsByNullifiers: vi.fn(),
     });
@@ -747,13 +768,17 @@ describe("wallet sync", () => {
     const wallet = unknownMintWallet(keypair);
     const emptyPage = vi.fn(async () => ({
       context: { blockTime: 1n, slot: 0n },
-      transactions: [],
+      items: transactionItems([]),
+      cursor: null,
+      hasMore: false,
     }));
     const client = syncReads({
       getShieldedTransactionsByTags: emptyPage,
       getEncryptedUtxosByTags: vi.fn(async () => ({
         context: { blockTime: 1n, slot: 0n },
-        matches: [],
+        items: outputItems([]),
+        cursor: null,
+        hasMore: false,
       })),
       getShieldedTransactionsByNullifiers: emptyPage,
     });
@@ -791,15 +816,21 @@ describe("wallet sync", () => {
       solanaRpc: solanaRpcReads({ getProgramAccounts: () => ({ send }) }),
       getShieldedTransactionsByTags: vi.fn(async () => ({
         context: { blockTime: 1n, slot: 0n },
-        transactions: [],
+        items: transactionItems([]),
+        cursor: null,
+        hasMore: false,
       })),
       getEncryptedUtxosByTags: vi.fn(async () => ({
         context: { blockTime: 1n, slot: 0n },
-        matches: [],
+        items: outputItems([]),
+        cursor: null,
+        hasMore: false,
       })),
       getShieldedTransactionsByNullifiers: vi.fn(async () => ({
         context: { blockTime: 1n, slot: 0n },
-        transactions: [],
+        items: transactionItems([]),
+        cursor: null,
+        hasMore: false,
       })),
     });
 
@@ -819,13 +850,14 @@ describe("wallet sync", () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = unknownMintWallet(keypair);
     const keys = LocalShieldedKeys.fromKeypair(keypair);
-    const requestPositions: (Readonly<{ slot: bigint; signature: Signature }> | undefined)[] = [];
+    const requestPositions: (string | undefined)[] = [];
     const tagPage = vi.fn(async (request: RequestWithAfter) => {
       requestPositions.push(request.after);
       return {
         context: { blockTime: 1n, slot: 0n },
-        transactions: [],
-        latest: position(6n),
+        items: transactionItems([]),
+        cursor: position(6n),
+        hasMore: false,
       };
     });
     const accountData = new Uint8Array(48);
@@ -851,11 +883,15 @@ describe("wallet sync", () => {
       getShieldedTransactionsByTags: tagPage,
       getEncryptedUtxosByTags: vi.fn(async () => ({
         context: { blockTime: 1n, slot: 0n },
-        matches: [],
+        items: outputItems([]),
+        cursor: null,
+        hasMore: false,
       })),
       getShieldedTransactionsByNullifiers: vi.fn(async () => ({
         context: { blockTime: 1n, slot: 0n },
-        transactions: [],
+        items: transactionItems([]),
+        cursor: null,
+        hasMore: false,
       })),
     });
     const store = {
@@ -1310,8 +1346,9 @@ describe("wallet sync", () => {
       let outputPayload = broken;
       const getShieldedTransactionsByNullifiers = vi.fn(async (_request: RequestWithAfter) => ({
         context: { blockTime: 10n, slot: 10n },
-        latest: position(8n),
-        transactions: [
+        cursor: position(8n),
+        hasMore: false,
+        items: transactionItems([
           {
             slot: 2n,
             txSignature: SIGNATURE,
@@ -1336,17 +1373,20 @@ describe("wallet sync", () => {
               },
             ],
           },
-        ],
+        ]),
       }));
       const client = syncReads({
         getShieldedTransactionsByTags: async () => ({
           context: { blockTime: 10n, slot: 10n },
-          transactions: [],
-          latest: position(7n),
+          items: transactionItems([]),
+          cursor: position(7n),
+          hasMore: false,
         }),
         getEncryptedUtxosByTags: async () => ({
           context: { blockTime: 10n, slot: 10n },
-          matches: [],
+          items: outputItems([]),
+          cursor: null,
+          hasMore: false,
         }),
         getShieldedTransactionsByNullifiers,
       });
@@ -2441,15 +2481,21 @@ describe("wallet sync", () => {
     const client = syncReads({
       getShieldedTransactionsByTags: vi.fn(async () => ({
         context: { blockTime: 1n, slot: 0n },
-        transactions: [transaction],
+        items: transactionItems([transaction]),
+        cursor: null,
+        hasMore: false,
       })),
       getEncryptedUtxosByTags: vi.fn(async () => ({
         context: { blockTime: 1n, slot: 0n },
-        matches: [],
+        items: outputItems([]),
+        cursor: null,
+        hasMore: false,
       })),
       getShieldedTransactionsByNullifiers: vi.fn(async () => ({
         context: { blockTime: 1n, slot: 0n },
-        transactions: [],
+        items: transactionItems([]),
+        cursor: null,
+        hasMore: false,
       })),
     });
     const before = serializeWallet(wallet);
@@ -2497,22 +2543,29 @@ describe("wallet sync", () => {
     } as const;
     const getShieldedTransactionsByTags = vi.fn(async () => ({
       context: { blockTime: 1n, slot: 0n },
-      transactions: [],
+      items: transactionItems([]),
+      cursor: null,
+      hasMore: false,
     }));
     const getEncryptedUtxosByTags = vi.fn(async () => ({
       context: { blockTime: 1n, slot: 0n },
-      matches: [],
+      items: outputItems([]),
+      cursor: null,
+      hasMore: false,
     }));
     const getShieldedTransactionsByNullifiers = vi
       .fn()
       .mockResolvedValueOnce({
         context: { blockTime: 1n, slot: 0n },
-        transactions: [],
-        next: truncatedAt,
+        items: transactionItems([]),
+        cursor: truncatedAt,
+        hasMore: true,
       })
       .mockResolvedValueOnce({
         context: { blockTime: 1n, slot: 0n },
-        transactions: [spendingTransaction],
+        items: transactionItems([spendingTransaction]),
+        cursor: position(9n),
+        hasMore: false,
       });
     const client = syncReads({
       getShieldedTransactionsByTags,
@@ -2570,17 +2623,23 @@ describe("wallet sync", () => {
     const getShieldedTransactionsByNullifiers = vi.fn(
       async (_request: Readonly<{ nullifiers: readonly Bytes32[] }>) => ({
         context: { blockTime: 1n, slot: 0n },
-        transactions: [],
+        items: transactionItems([]),
+        cursor: null,
+        hasMore: false,
       }),
     );
     const client = syncReads({
       getShieldedTransactionsByTags: vi.fn(async () => ({
         context: { blockTime: 1n, slot: 0n },
-        transactions: [],
+        items: transactionItems([]),
+        cursor: null,
+        hasMore: false,
       })),
       getEncryptedUtxosByTags: vi.fn(async () => ({
         context: { blockTime: 1n, slot: 0n },
-        matches: [],
+        items: outputItems([]),
+        cursor: null,
+        hasMore: false,
       })),
       getShieldedTransactionsByNullifiers,
     });
@@ -2628,22 +2687,27 @@ describe("wallet sync", () => {
       async (
         _request: Readonly<{
           nullifiers: readonly Bytes32[];
-          after?: Readonly<{ slot: bigint; signature: Signature }>;
+          after?: string;
         }>,
       ) => ({
         context: { blockTime: 1n, slot: 0n },
-        transactions: [],
-        latest: tip,
+        items: transactionItems([]),
+        cursor: tip,
+        hasMore: false,
       }),
     );
     const client = syncReads({
       getShieldedTransactionsByTags: vi.fn(async () => ({
         context: { blockTime: 1n, slot: 0n },
-        transactions: [],
+        items: transactionItems([]),
+        cursor: null,
+        hasMore: false,
       })),
       getEncryptedUtxosByTags: vi.fn(async () => ({
         context: { blockTime: 1n, slot: 0n },
-        matches: [],
+        items: outputItems([]),
+        cursor: null,
+        hasMore: false,
       })),
       getShieldedTransactionsByNullifiers,
     });
@@ -2682,8 +2746,9 @@ describe("wallet sync", () => {
     const repeated = position(8n);
     const getShieldedTransactionsByNullifiers = vi.fn(async () => ({
       context: { blockTime: 1n, slot: 0n },
-      transactions: [],
-      next: repeated,
+      items: transactionItems([]),
+      cursor: repeated,
+      hasMore: true,
     }));
 
     await expect(
@@ -2693,11 +2758,15 @@ describe("wallet sync", () => {
         client: syncReads({
           getShieldedTransactionsByTags: vi.fn(async () => ({
             context: { blockTime: 1n, slot: 0n },
-            transactions: [],
+            items: transactionItems([]),
+            cursor: null,
+            hasMore: false,
           })),
           getEncryptedUtxosByTags: vi.fn(async () => ({
             context: { blockTime: 1n, slot: 0n },
-            matches: [],
+            items: outputItems([]),
+            cursor: null,
+            hasMore: false,
           })),
           getShieldedTransactionsByNullifiers,
         }),
@@ -2746,17 +2815,23 @@ describe("wallet sync", () => {
     const getShieldedTransactionsByNullifiers = vi.fn(
       async (_request: Readonly<{ nullifiers: readonly Bytes32[] }>) => ({
         context: { blockTime: 1n, slot: 0n },
-        transactions: [spendingTransaction],
+        items: transactionItems([spendingTransaction]),
+        cursor: position(9n),
+        hasMore: false,
       }),
     );
     const client = syncReads({
       getShieldedTransactionsByTags: vi.fn(async () => ({
         context: { blockTime: 1n, slot: 0n },
-        transactions: [],
+        items: transactionItems([]),
+        cursor: null,
+        hasMore: false,
       })),
       getEncryptedUtxosByTags: vi.fn(async () => ({
         context: { blockTime: 1n, slot: 0n },
-        matches: [{ slot: 9n, txSignature: SIGNATURE, outputSlot }],
+        items: outputItems([{ slot: 9n, txSignature: SIGNATURE, outputSlot }]),
+        cursor: null,
+        hasMore: false,
       })),
       getShieldedTransactionsByNullifiers,
     });
@@ -2781,8 +2856,9 @@ describe("wallet sync", () => {
     const repeated = position(9n);
     const getShieldedTransactionsByTags = vi.fn(async () => ({
       context: { blockTime: 1n, slot: 0n },
-      transactions: [],
-      next: repeated,
+      items: transactionItems([]),
+      cursor: repeated,
+      hasMore: true,
     }));
     const client = syncReads({
       getShieldedTransactionsByTags,
@@ -2827,11 +2903,15 @@ describe("wallet sync", () => {
     const client = syncReads({
       getShieldedTransactionsByTags: vi.fn(async () => ({
         context: { blockTime: 1n, slot: 0n },
-        transactions: [transaction(1), transaction(2)],
+        items: transactionItems([transaction(1), transaction(2)]),
+        cursor: null,
+        hasMore: false,
       })),
       getEncryptedUtxosByTags: vi.fn(async () => ({
         context: { blockTime: 1n, slot: 0n },
-        matches: [],
+        items: outputItems([]),
+        cursor: null,
+        hasMore: false,
       })),
     });
 

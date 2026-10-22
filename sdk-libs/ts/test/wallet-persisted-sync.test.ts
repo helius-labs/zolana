@@ -1,3 +1,4 @@
+import { transactionItems, outputItems } from "./helpers/pages.js";
 import { address, getAddressDecoder, type Signature } from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
 
@@ -26,21 +27,21 @@ import { syncReads, plainCipher } from "./helpers/clients.js";
 const TREE = address("3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3");
 const SIGNATURE = "1".repeat(64) as Signature;
 
-const TAG_TIP = Object.freeze({ slot: 1n as bigint, signature: SIGNATURE });
-const PROOFLESS_TIP = Object.freeze({ slot: 2n as bigint, signature: SIGNATURE });
-const NULLIFIER_TIP = Object.freeze({ slot: 3n as bigint, signature: SIGNATURE });
+const TAG_TIP = Object.freeze(`1:${1n as bigint}:${SIGNATURE}`);
+const PROOFLESS_TIP = Object.freeze(`1:${2n as bigint}:${SIGNATURE}`);
+const NULLIFIER_TIP = Object.freeze(`1:${3n as bigint}:${SIGNATURE}`);
 
 function bytes(value: number): Bytes32 {
   return new Uint8Array(32).fill(value) as Bytes32;
 }
 
 interface RequestWithAfter {
-  readonly after?: Readonly<{ slot: bigint; signature: Signature }>;
+  readonly after?: string;
 }
 
 function firstAfter(
   fake: ReturnType<typeof vi.fn<(request: RequestWithAfter) => Promise<unknown>>>,
-): Readonly<{ slot: bigint; signature: Signature }> | undefined {
+): string | undefined {
   return fake.mock.calls[0]?.[0]?.after;
 }
 
@@ -49,18 +50,21 @@ function cursorPages() {
   return {
     getShieldedTransactionsByTags: vi.fn(async (_request: RequestWithAfter) => ({
       context: { blockTime: 1_700_000_000n, slot: 0n },
-      transactions: [],
-      latest: TAG_TIP,
+      items: transactionItems([]),
+      cursor: TAG_TIP,
+      hasMore: false,
     })),
     getEncryptedUtxosByTags: vi.fn(async (_request: RequestWithAfter) => ({
       context: { blockTime: 1_700_000_000n, slot: 0n },
-      matches: [],
-      latest: PROOFLESS_TIP,
+      items: outputItems([]),
+      cursor: PROOFLESS_TIP,
+      hasMore: false,
     })),
     getShieldedTransactionsByNullifiers: vi.fn(async (_request: RequestWithAfter) => ({
       context: { blockTime: 1_700_000_000n, slot: 0n },
-      transactions: [],
-      latest: NULLIFIER_TIP,
+      items: transactionItems([]),
+      cursor: NULLIFIER_TIP,
+      hasMore: false,
     })),
   };
 }
@@ -234,8 +238,9 @@ describe("persisted wallet sync", () => {
     const readsB = cursorPages();
     readsB.getShieldedTransactionsByTags.mockResolvedValue({
       context: { blockTime: 1_700_000_000n, slot: 0n },
-      transactions: [],
-      latest: { slot: 9n, signature: SIGNATURE },
+      items: transactionItems([]),
+      cursor: `1:${9n}:${SIGNATURE}`,
+      hasMore: false,
     });
 
     const first = syncPersistedWallet({

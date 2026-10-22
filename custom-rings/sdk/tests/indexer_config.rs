@@ -31,10 +31,10 @@ impl Indexer {
                 block_time: 0,
                 slot: 0,
             },
-            transactions: Vec::new(),
+            items: Vec::new(),
             output_tree_id: None,
-            next: None,
-            latest: None,
+            cursor: None,
+            has_more: false,
         }
     }
 
@@ -47,7 +47,7 @@ impl Rpc for Indexer {
     fn get_shielded_transactions_by_nullifiers(
         &self,
         _nullifiers: Vec<[u8; 32]>,
-        _since: Option<zolana_client::rpc::ChainPosition>,
+        _since: Option<zolana_client::rpc::Cursor>,
         _limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
@@ -60,7 +60,7 @@ impl AsyncRpc for Indexer {
     async fn get_shielded_transactions_by_nullifiers(
         &self,
         _nullifiers: Vec<[u8; 32]>,
-        _since: Option<zolana_client::rpc::ChainPosition>,
+        _since: Option<zolana_client::rpc::Cursor>,
         _limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {

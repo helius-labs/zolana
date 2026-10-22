@@ -1,4 +1,4 @@
-import { compareChainPositions, type ChainPosition } from "../client/rpc.js";
+import { compareCursors, type Cursor } from "../client/rpc.js";
 import { X25519PublicKey, X25519Keypair } from "../keypair/x25519.js";
 import { SOLANA_OWNER_TAG, hashBytes, initializePoseidon } from "../hasher/index.js";
 
@@ -111,7 +111,7 @@ export interface AuditedRingTransaction {
 export interface RingAuditPage {
   readonly transactions: readonly AuditedRingTransaction[];
   /** Present only when `maxPages` stopped the scan short of the stream end. */
-  readonly next?: ChainPosition;
+  readonly next?: Cursor;
 }
 
 const DEFAULT_PAGE_SIZE = 100;
@@ -333,7 +333,7 @@ export async function auditRing(
     /** The ring's on-chain mode, `"off"` when omitted. */
     mode?: RingMode;
     origin?: TransactionOrigin;
-    after?: ChainPosition;
+    after?: Cursor;
     pageSize?: number;
     maxPages?: number;
   }>,
@@ -359,7 +359,7 @@ export async function auditRing(
       undefined,
       context,
     );
-    for (const transaction of response.transactions) {
+    for (const transaction of response.items.flatMap((item) => item.events)) {
       if (transaction.eventIndex === undefined) {
         throw new RingError("RING_RPC", { details: { reason: "missing event index" } });
       }
@@ -392,9 +392,9 @@ export async function auditRing(
         transactions.push(auditRingTransaction(audit));
       }
     }
-    const next = response.next;
-    if (next === undefined) return Object.freeze({ transactions: Object.freeze(transactions) });
-    if (after !== undefined && compareChainPositions(next, after) <= 0) {
+    const next = response.hasMore ? response.cursor : null;
+    if (next === null) return Object.freeze({ transactions: Object.freeze(transactions) });
+    if (after !== undefined && compareCursors(next, after) <= 0) {
       throw new RingError("RING_RPC", { details: { reason: "ring scan page did not advance" } });
     }
     after = next;

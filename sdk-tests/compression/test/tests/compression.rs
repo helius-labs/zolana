@@ -64,7 +64,10 @@ fn assert_account(
                 Some(1),
                 None
             )?
-            .transactions
+            .items
+            .into_iter()
+            .flat_map(|item| item.events)
+            .collect::<Vec<_>>()
             .is_empty(),
         "account note is unspent"
     );

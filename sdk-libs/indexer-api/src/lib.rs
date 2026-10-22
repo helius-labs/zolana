@@ -381,34 +381,283 @@ impl<'de> Deserialize<'de> for SerializablePubkey {
     }
 }
 
-/// One transaction's place in the total order every rings stream shares.
-///
-/// `(slot, signature)` compares lexicographically, matching the indexer's
-/// `ORDER BY slot, signature`. A resume request returns rows strictly after
-/// the position, so record a position only once every row of its transaction
-/// has been consumed.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-pub struct ChainPosition {
-    pub slot: u64,
-    pub signature: SerializableSignature,
+/// A server-issued checkpoint. Its string representation is shared by all paginated streams.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Cursor {
+    slot: u64,
+    signature: Signature,
 }
 
-impl Ord for ChainPosition {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        (self.slot, self.signature.0.as_ref()).cmp(&(other.slot, other.signature.0.as_ref()))
+#[cfg(feature = "openapi")]
+impl utoipa::PartialSchema for Cursor {
+    fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
+        <String as utoipa::PartialSchema>::schema()
+    }
+}
+#[cfg(feature = "openapi")]
+impl utoipa::ToSchema for Cursor {}
+
+impl Cursor {
+    #[doc(hidden)]
+    pub const fn new(slot: u64, signature: Signature) -> Self {
+        Self { slot, signature }
+    }
+    #[doc(hidden)]
+    pub const fn slot(&self) -> u64 {
+        self.slot
+    }
+    #[doc(hidden)]
+    pub const fn signature(&self) -> Signature {
+        self.signature
     }
 }
 
-impl PartialOrd for ChainPosition {
+impl fmt::Display for Cursor {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "1:{}:{}", self.slot, self.signature)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[error("invalid pagination cursor")]
+pub struct ParseCursorError;
+
+impl FromStr for Cursor {
+    type Err = ParseCursorError;
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        if value.len() > 112 {
+            return Err(ParseCursorError);
+        }
+        let mut parts = value.split(':');
+        if parts.next() != Some("1") {
+            return Err(ParseCursorError);
+        }
+        let slot = parts
+            .next()
+            .ok_or(ParseCursorError)?
+            .parse()
+            .map_err(|_| ParseCursorError)?;
+        let signature = parts
+            .next()
+            .ok_or(ParseCursorError)?
+            .parse()
+            .map_err(|_| ParseCursorError)?;
+        if parts.next().is_some() {
+            return Err(ParseCursorError);
+        }
+        let cursor = Self { slot, signature };
+        if cursor.to_string() != value {
+            return Err(ParseCursorError);
+        }
+        Ok(cursor)
+    }
+}
+
+impl Serialize for Cursor {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_str(self)
+    }
+}
+impl<'de> Deserialize<'de> for Cursor {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserialize_from_str(deserializer, "a pagination cursor")
+    }
+}
+impl Ord for Cursor {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        (self.slot, self.signature.as_ref()).cmp(&(other.slot, other.signature.as_ref()))
+    }
+}
+impl PartialOrd for Cursor {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
+/// One bounded page. A terminal cursor is also returned when no item matched.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct Page<T> {
+    pub context: Context,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_tree_id: Option<u16>,
+    pub items: Vec<T>,
+    pub cursor: Option<Cursor>,
+    pub has_more: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[error("invalid pagination response")]
+pub struct InvalidPage;
+
+#[doc(hidden)]
+pub trait Positioned {
+    fn position(&self) -> Cursor;
+}
+
+impl<T: Positioned> Page<T> {
+    /// An indexer continuation stops at the last complete transaction returned.
+    pub fn validate_indexed(
+        &self,
+        after: Option<Cursor>,
+        limit: u64,
+        minimum: Option<u64>,
+    ) -> Result<(), InvalidPage> {
+        self.validate(after, limit, minimum)?;
+        if self.has_more && self.items.last().map(Positioned::position) != self.cursor {
+            return Err(InvalidPage);
+        }
+        Ok(())
+    }
+    /// Validate ordering, completeness markers, and correlation with the requested range.
+    pub fn validate(
+        &self,
+        after: Option<Cursor>,
+        limit: u64,
+        minimum: Option<u64>,
+    ) -> Result<(), InvalidPage> {
+        if self.items.len() as u64 > limit
+            || minimum.is_some_and(|minimum| self.context.slot < minimum)
+            || self
+                .cursor
+                .is_some_and(|cursor| cursor.slot() > self.context.slot)
+        {
+            return Err(InvalidPage);
+        }
+        let mut previous = after;
+        for item in &self.items {
+            let position = item.position();
+            if position.slot() > self.context.slot
+                || previous.is_some_and(|previous| position <= previous)
+            {
+                return Err(InvalidPage);
+            }
+            previous = Some(position);
+        }
+        if self.cursor < previous {
+            return Err(InvalidPage);
+        }
+        if self.has_more && (self.cursor.is_none() || self.cursor <= after) {
+            return Err(InvalidPage);
+        }
+        Ok(())
+    }
+}
+
+/// All matching events of one Solana transaction.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TransactionEvents<T, S = SerializableSignature> {
+    pub slot: u64,
+    pub signature: S,
+    pub events: Vec<T>,
+}
+
+/// All matching outputs of one Solana transaction.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TransactionOutputs<T, S = SerializableSignature> {
+    pub slot: u64,
+    pub signature: S,
+    pub outputs: Vec<T>,
+}
+
+impl<T, S: Copy + Into<Signature>> Positioned for TransactionEvents<T, S> {
+    fn position(&self) -> Cursor {
+        Cursor::new(self.slot, self.signature.into())
+    }
+}
+impl<T, S: Copy + Into<Signature>> Positioned for TransactionOutputs<T, S> {
+    fn position(&self) -> Cursor {
+        Cursor::new(self.slot, self.signature.into())
+    }
+}
+
+impl<T, S: Copy + Into<Signature>> TransactionEvents<T, S> {
+    #[doc(hidden)]
+    pub fn group(events: Vec<T>, header: impl Fn(&T) -> (u64, S)) -> Vec<Self> {
+        group_transactions(events, header)
+            .into_iter()
+            .map(|(slot, signature, events)| Self {
+                slot,
+                signature,
+                events,
+            })
+            .collect()
+    }
+    /// Check that a transaction contains its own events in event-index order.
+    pub fn validate_events(
+        &self,
+        position: impl Fn(&T) -> (u64, Signature, Option<u16>),
+    ) -> Result<(), InvalidPage> {
+        if self.events.is_empty() {
+            return Err(InvalidPage);
+        }
+        let mut previous = None;
+        for event in &self.events {
+            let (slot, signature, index) = position(event);
+            if slot != self.slot
+                || signature != self.signature.into()
+                || index.is_none()
+                || previous.is_some_and(|previous| index <= Some(previous))
+            {
+                return Err(InvalidPage);
+            }
+            previous = index;
+        }
+        Ok(())
+    }
+}
+
+impl<T, S: Copy + Into<Signature>> TransactionOutputs<T, S> {
+    #[doc(hidden)]
+    pub fn group(outputs: Vec<T>, header: impl Fn(&T) -> (u64, S)) -> Vec<Self> {
+        group_transactions(outputs, header)
+            .into_iter()
+            .map(|(slot, signature, outputs)| Self {
+                slot,
+                signature,
+                outputs,
+            })
+            .collect()
+    }
+    pub fn validate_outputs(
+        &self,
+        position: impl Fn(&T) -> (u64, Signature),
+    ) -> Result<(), InvalidPage> {
+        if self.outputs.is_empty()
+            || self
+                .outputs
+                .iter()
+                .any(|output| position(output) != (self.slot, self.signature.into()))
+        {
+            return Err(InvalidPage);
+        }
+        Ok(())
+    }
+}
+
+fn group_transactions<T, S: Copy + Into<Signature>>(
+    rows: Vec<T>,
+    header: impl Fn(&T) -> (u64, S),
+) -> Vec<(u64, S, Vec<T>)> {
+    let mut groups = std::collections::BTreeMap::new();
+    for row in rows {
+        let (slot, signature) = header(&row);
+        groups
+            .entry(Cursor::new(slot, signature.into()))
+            .or_insert_with(|| (slot, signature, Vec::new()))
+            .2
+            .push(row);
+    }
+    groups.into_values().collect()
+}
+
 /// A Solana transaction signature represented as a base58 string.
-#[derive(Default, Debug, Clone, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[cfg_attr(feature = "openapi", schema(value_type = String))]
 pub struct SerializableSignature(pub Signature);
@@ -416,6 +665,12 @@ pub struct SerializableSignature(pub Signature);
 impl From<Signature> for SerializableSignature {
     fn from(value: Signature) -> Self {
         Self(value)
+    }
+}
+
+impl From<SerializableSignature> for Signature {
+    fn from(value: SerializableSignature) -> Self {
+        value.0
     }
 }
 
@@ -556,7 +811,7 @@ impl<'de> Deserialize<'de> for Limit {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Copy, Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Context {
@@ -575,13 +830,15 @@ pub struct GetRingsByTagsRequest {
     /// order, so one recorded position serves tags, nullifiers, and encrypted
     /// UTXOs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub after: Option<ChainPosition>,
+    pub after: Option<Cursor>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<Limit>,
     /// Restrict the match to one ring. Its config account is derived from this
     /// program id, so the filter needs no indexed registration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ring_program_id: Option<SerializablePubkey>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_context_slot: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -590,9 +847,11 @@ pub struct GetRingsByTagsRequest {
 pub struct GetRingsByNullifiersRequest {
     pub nullifiers: Vec<Hash>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub after: Option<ChainPosition>,
+    pub after: Option<Cursor>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<Limit>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_context_slot: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -607,32 +866,7 @@ pub struct EncryptedUtxoMatch {
     pub salt: Option<Base64String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-pub struct GetEncryptedUtxosByTagsResponse {
-    pub context: Context,
-    /// Where a new output should be appended: the newest tree the pool has that
-    /// is not paused. A property of the pool, not of any returned note, so it
-    /// is reported even when nothing matched -- a wallet that has never
-    /// transacted still learns where to append without a second call.
-    ///
-    /// `None` when every tree is paused, or when this indexer has not synced
-    /// tree metadata yet. Neither is an append target, and a reader that needs
-    /// one should refuse at that point rather than pick a doomed id.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub output_tree_id: Option<u16>,
-    /// Output-level matches. With tags these carry a requested view tag; with
-    /// an empty tag set they contain all outputs in the selected ring.
-    pub matches: Vec<EncryptedUtxoMatch>,
-    /// Last returned transaction when the limit truncated the scan. Pages never
-    /// split a transaction, so resuming strictly after it loses nothing.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub next: Option<ChainPosition>,
-    /// Stream tip at the snapshot on a terminal page, including an empty one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub latest: Option<ChainPosition>,
-}
+pub type GetEncryptedUtxosByTagsResponse = Page<TransactionOutputs<EncryptedUtxoMatch>>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -697,25 +931,7 @@ pub struct ShieldedTransaction {
     pub ring_program_id: Option<SerializablePubkey>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-pub struct GetShieldedTransactionsByTagsResponse {
-    pub context: Context,
-    /// The newest unpaused tree, as on [`GetEncryptedUtxosByTagsResponse`].
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub output_tree_id: Option<u16>,
-    /// Transaction-level matches with all output slots. With tags, each
-    /// transaction has at least one requested view tag; with an empty tag set,
-    /// the response contains the selected ring's full history.
-    pub transactions: Vec<ShieldedTransaction>,
-    /// Last returned transaction when the limit truncated the scan.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub next: Option<ChainPosition>,
-    /// Stream tip at the snapshot on a terminal page, including an empty one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub latest: Option<ChainPosition>,
-}
+pub type GetShieldedTransactionsByTagsResponse = Page<TransactionEvents<ShieldedTransaction>>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -743,25 +959,7 @@ pub struct GetShieldedTransactionsBySignatureResponse {
     pub transactions: Vec<IndexedShieldedTransaction>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-pub struct GetShieldedTransactionsByNullifiersResponse {
-    pub context: Context,
-    /// The newest unpaused tree, as on [`GetEncryptedUtxosByTagsResponse`].
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub output_tree_id: Option<u16>,
-    /// Transaction-level matches; each returned transaction spends at least one
-    /// requested nullifier and includes all of its output and input slots.
-    pub transactions: Vec<ShieldedTransaction>,
-    /// Last returned transaction when the limit truncated the scan.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub next: Option<ChainPosition>,
-    /// Stream tip when the scan ran out of rows rather than filling a page.
-    /// An unspent nullifier matches nothing, so the tip is its only resume point.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub latest: Option<ChainPosition>,
-}
+pub type GetShieldedTransactionsByNullifiersResponse = Page<TransactionEvents<ShieldedTransaction>>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -1040,99 +1238,67 @@ mod tests {
     }
 
     #[test]
-    fn response_shape_stays_camel_case() {
-        let value = serde_json::to_value(GetEncryptedUtxosByTagsResponse {
+    fn cursor_is_canonical_and_portable() {
+        let cursor = Cursor::new(7, Signature::default());
+        let encoded = format!("1:7:{}", "1".repeat(64));
+        assert_eq!(cursor.to_string(), encoded);
+        assert_eq!(encoded.parse::<Cursor>().unwrap(), cursor);
+        assert_eq!(serde_json::to_value(cursor).unwrap(), encoded);
+        for invalid in [
+            format!("1:07:{}", "1".repeat(64)),
+            format!("2:7:{}", "1".repeat(64)),
+            format!("1:18446744073709551616:{}", "1".repeat(64)),
+            "1:7:invalid".into(),
+        ] {
+            assert!(invalid.parse::<Cursor>().is_err());
+        }
+        let page = GetShieldedTransactionsByTagsResponse {
             context: Context {
                 block_time: 3,
-                slot: 1,
+                slot: 7,
             },
             output_tree_id: Some(4),
-            matches: vec![EncryptedUtxoMatch {
-                slot: 1,
-                tx_signature: SerializableSignature(Signature::from([9u8; 64])),
-                output_slot: RingsOutputSlot {
-                    view_tag: Hash::from([1; 32]),
-                    output_context: RingsOutputContext {
-                        hash: Hash::from([2; 32]),
-                        tree: SerializablePubkey::from([3; 32]),
-                        tree_id: 5,
-                        leaf_index: 2,
-                    },
-                    payload: Base64String(vec![4]),
-                },
-                tx_viewing_pk: None,
-                salt: None,
-            }],
-            next: Some(ChainPosition {
-                slot: 1,
-                signature: SerializableSignature::default(),
-            }),
-            latest: None,
-        })
-        .unwrap();
-        assert!(value.get("next").is_some());
-        assert!(value["next"].get("signature").is_some());
-        assert!(value["context"].get("blockTime").is_some());
-        assert!(value["context"].get("block_time").is_none());
+            items: vec![],
+            cursor: Some(cursor),
+            has_more: false,
+        };
+        page.validate(None, 1, Some(7)).unwrap();
+        let value = serde_json::to_value(page).unwrap();
+        assert_eq!(value["cursor"], encoded);
+        assert_eq!(value["hasMore"], false);
         assert_eq!(value["outputTreeId"], 4);
-        assert!(value.get("output_tree_id").is_none());
-
-        let output_context = &value["matches"][0]["outputSlot"]["outputContext"];
-        assert_eq!(output_context["treeId"], 5);
-        assert!(output_context.get("tree_id").is_none());
-        // The account stays alongside the id for one release, so a reader can
-        // move to the id before the account goes.
-        assert!(output_context.get("tree").is_some());
-    }
-
-    #[test]
-    fn a_tag_page_reads_an_index_that_reports_its_resume_point() {
-        let signature = SerializableSignature::default().to_string();
-        let page = serde_json::json!({
-            "context": { "blockTime": 3, "slot": 1 },
-            "transactions": [],
-            "latest": { "slot": 7, "signature": signature },
-        });
-        let response: GetShieldedTransactionsByTagsResponse =
-            serde_json::from_value(page).expect("a reported resume point is readable");
-        assert_eq!(
-            response.latest,
-            Some(ChainPosition {
-                slot: 7,
-                signature: SerializableSignature::default(),
-            })
-        );
-        assert_eq!(response.next, None);
-
-        // An index that reports none sends no such key.
-        let quiet = serde_json::json!({
-            "context": { "blockTime": 3, "slot": 1 },
-            "transactions": [],
-        });
-        let response: GetShieldedTransactionsByTagsResponse =
-            serde_json::from_value(quiet).expect("an absent resume point is readable");
-        assert_eq!(response.latest, None);
-        let value = serde_json::to_value(&response).expect("serialize");
-        assert!(value.get("latest").is_none());
+        assert_eq!(value["context"]["blockTime"], 3);
         assert!(value.get("next").is_none());
+        assert!(value.get("latest").is_none());
     }
 
     #[test]
-    fn chain_positions_order_by_slot_then_signature() {
-        let low = ChainPosition {
-            slot: 5,
-            signature: SerializableSignature(Signature::from([1u8; 64])),
+    fn cursors_order_by_slot_then_signature_bytes() {
+        let low = Cursor::new(5, Signature::from([1; 64]));
+        let same_slot = Cursor::new(5, Signature::from([2; 64]));
+        assert!(low < same_slot);
+        assert!(same_slot < Cursor::new(6, Signature::default()));
+    }
+
+    #[test]
+    fn page_rejects_nonadvancing_and_stale_checkpoints() {
+        let cursor = Cursor::new(7, Signature::default());
+        let mut page = GetShieldedTransactionsByTagsResponse {
+            context: Context {
+                block_time: 0,
+                slot: 7,
+            },
+            output_tree_id: None,
+            items: vec![],
+            cursor: Some(cursor),
+            has_more: true,
         };
-        let same_slot_higher_signature = ChainPosition {
-            slot: 5,
-            signature: SerializableSignature(Signature::from([2u8; 64])),
-        };
-        let higher_slot = ChainPosition {
-            slot: 6,
-            signature: SerializableSignature(Signature::from([0u8; 64])),
-        };
-        assert!(low < same_slot_higher_signature);
-        assert!(same_slot_higher_signature < higher_slot);
+        assert!(page.validate(Some(cursor), 1, None).is_err());
+        page.has_more = false;
+        page.validate(Some(cursor), 1, Some(7)).unwrap();
+        assert!(page.validate(None, 1, Some(8)).is_err());
+        page.cursor = None;
+        assert!(page.validate(Some(cursor), 1, None).is_err());
     }
 
     #[test]

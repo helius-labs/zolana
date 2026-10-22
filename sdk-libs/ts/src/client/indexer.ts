@@ -1,3 +1,4 @@
+import { checkedCursor } from "../interface/cursor.js";
 import { KeypairError } from "../keypair/error.js";
 import { X25519PublicKey } from "../keypair/x25519.js";
 import { isAddress } from "@solana/kit";
@@ -44,7 +45,7 @@ import {
   type IndexerRpcConfig,
 } from "./retry.js";
 import {
-  type ChainPosition,
+  type Cursor,
   type EncryptedUtxoMatch,
   type GetByNullifiersRequest,
   type GetByTagsRequest,
@@ -85,6 +86,7 @@ export class ZolanaIndexer {
             ...(owned.ringProgramId === undefined ? {} : { ringProgramId: owned.ringProgramId }),
             ...(owned.after === undefined ? {} : { after: owned.after }),
             ...(owned.limit === undefined ? {} : { limit: limit(BigInt(owned.limit)) }),
+            ...(owned.minContextSlot === undefined ? {} : { minContextSlot: owned.minContextSlot }),
           },
           context,
         );
@@ -110,6 +112,7 @@ export class ZolanaIndexer {
             ...(owned.ringProgramId === undefined ? {} : { ringProgramId: owned.ringProgramId }),
             ...(owned.after === undefined ? {} : { after: owned.after }),
             ...(owned.limit === undefined ? {} : { limit: limit(BigInt(owned.limit)) }),
+            ...(owned.minContextSlot === undefined ? {} : { minContextSlot: owned.minContextSlot }),
           },
           context,
         );
@@ -134,6 +137,7 @@ export class ZolanaIndexer {
             nullifiers: owned.nullifiers.map((nullifier) => hash(nullifier)),
             ...(owned.after === undefined ? {} : { after: owned.after }),
             ...(owned.limit === undefined ? {} : { limit: limit(BigInt(owned.limit)) }),
+            ...(owned.minContextSlot === undefined ? {} : { minContextSlot: owned.minContextSlot }),
           },
           context,
         );
@@ -411,6 +415,7 @@ function copyTagRequest(request: GetByTagsRequest): GetByTagsRequest {
     ...(request.ringProgramId === undefined ? {} : { ringProgramId: request.ringProgramId }),
     ...(after === undefined ? {} : { after }),
     ...(request.limit === undefined ? {} : { limit: checkedPageLimit(request.limit) }),
+    ...(request.minContextSlot === undefined ? {} : { minContextSlot: request.minContextSlot }),
   });
 }
 
@@ -420,15 +425,17 @@ function copyNullifierRequest(request: GetByNullifiersRequest): GetByNullifiersR
     nullifiers: copyFixedBytes(request.nullifiers, 32, "nullifiers") as readonly Bytes32[],
     ...(after === undefined ? {} : { after }),
     ...(request.limit === undefined ? {} : { limit: checkedPageLimit(request.limit) }),
+    ...(request.minContextSlot === undefined ? {} : { minContextSlot: request.minContextSlot }),
   });
 }
 
-function copiedPosition(position: ChainPosition | undefined): ChainPosition | undefined {
+function copiedPosition(position: Cursor | undefined): Cursor | undefined {
   if (position === undefined) return undefined;
-  if (typeof position.slot !== "bigint" || typeof position.signature !== "string") {
+  try {
+    return checkedCursor(position);
+  } catch {
     throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "after" } });
   }
-  return Object.freeze({ slot: position.slot, signature: position.signature });
 }
 
 function checkedPageLimit(value: number): number {
@@ -500,13 +507,21 @@ function convertEncryptedUtxosResponse(
 ): GetEncryptedUtxosByTagsResponse {
   return Object.freeze({
     context: Object.freeze({ blockTime: response.context.blockTime, slot: response.context.slot }),
-    matches: Object.freeze(
-      response.matches.map((item, index) =>
-        convertEncryptedUtxoMatch(item, method, `$.matches[${String(index)}]`),
+    items: Object.freeze(
+      response.items.map((group, index) =>
+        Object.freeze({
+          slot: group.slot,
+          signature: group.signature,
+          outputs: Object.freeze(
+            group.outputs.map((item, outputIndex) =>
+              convertEncryptedUtxoMatch(item, method, `$.items[${index}].outputs[${outputIndex}]`),
+            ),
+          ),
+        }),
       ),
     ),
-    ...(response.next === undefined ? {} : { next: Object.freeze({ ...response.next }) }),
-    ...(response.latest === undefined ? {} : { latest: Object.freeze({ ...response.latest }) }),
+    cursor: response.cursor,
+    hasMore: response.hasMore,
   });
 }
 
@@ -534,13 +549,21 @@ function convertShieldedTransactionsResponse(
 ): GetShieldedTransactionsByTagsResponse {
   return Object.freeze({
     context: Object.freeze({ blockTime: response.context.blockTime, slot: response.context.slot }),
-    transactions: Object.freeze(
-      response.transactions.map((item, index) =>
-        convertShieldedTransaction(item, method, `$.transactions[${String(index)}]`),
+    items: Object.freeze(
+      response.items.map((group, index) =>
+        Object.freeze({
+          slot: group.slot,
+          signature: group.signature,
+          events: Object.freeze(
+            group.events.map((item, eventIndex) =>
+              convertShieldedTransaction(item, method, `$.items[${index}].events[${eventIndex}]`),
+            ),
+          ),
+        }),
       ),
     ),
-    ...(response.next === undefined ? {} : { next: Object.freeze({ ...response.next }) }),
-    ...(response.latest === undefined ? {} : { latest: Object.freeze({ ...response.latest }) }),
+    cursor: response.cursor,
+    hasMore: response.hasMore,
   });
 }
 

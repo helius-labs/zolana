@@ -490,7 +490,7 @@ impl<I: Rpc, O: TransactionOrigin> DepositHistory<'_, I, O> {
                 },
                 self.indexer_config,
             )?;
-            for transaction in page.transactions {
+            for transaction in page.items.into_iter().flat_map(|item| item.events) {
                 if !transaction.proofless {
                     continue;
                 }
@@ -538,7 +538,7 @@ impl<I: Rpc, O: TransactionOrigin> DepositHistory<'_, I, O> {
                     }
                 }
             }
-            let Some(next) = page.next else {
+            let Some(next) = page.cursor.filter(|_| page.has_more) else {
                 return Ok(deposits);
             };
             if after.is_some_and(|reached| next <= reached) {
@@ -573,8 +573,8 @@ impl<I: Rpc> SpendHistory<'_, I> {
                     None,
                     self.indexer_config,
                 )?;
-                transactions.extend(page.transactions);
-                let Some(next) = page.next else {
+                transactions.extend(page.items.into_iter().flat_map(|item| item.events));
+                let Some(next) = page.cursor.filter(|_| page.has_more) else {
                     break;
                 };
                 if after.is_some_and(|reached| next <= reached) {
@@ -660,7 +660,7 @@ mod tests {
     use std::cell::RefCell;
 
     use zolana_client::{
-        rpc::{ChainPosition, GetShieldedTransactionsByNullifiersResponse},
+        rpc::{Cursor, GetShieldedTransactionsByNullifiersResponse},
         ClientError, Context, IndexerRpcConfig,
     };
 
@@ -668,14 +668,11 @@ mod tests {
 
     struct Query {
         nullifiers: Vec<[u8; 32]>,
-        after: Option<ChainPosition>,
+        after: Option<Cursor>,
     }
 
-    fn position() -> ChainPosition {
-        ChainPosition {
-            slot: 1,
-            signature: solana_signature::Signature::default(),
-        }
+    fn position() -> Cursor {
+        Cursor::new(1, solana_signature::Signature::default())
     }
 
     #[derive(Default)]
@@ -688,7 +685,7 @@ mod tests {
         fn get_shielded_transactions_by_nullifiers(
             &self,
             nullifiers: Vec<[u8; 32]>,
-            after: Option<ChainPosition>,
+            after: Option<Cursor>,
             _limit: Option<u32>,
             _config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
@@ -700,10 +697,10 @@ mod tests {
                     block_time: 0,
                     slot: 1,
                 },
-                transactions: Vec::new(),
+                items: Vec::new(),
                 output_tree_id: None,
-                next: (!terminal).then(position),
-                latest: terminal.then(position),
+                cursor: ((!terminal).then(position)).or(terminal.then(position)),
+                has_more: ((!terminal).then(position)).is_some(),
             })
         }
     }

@@ -477,6 +477,7 @@ async fn both_tag_endpoints_honour_the_ring_filter() {
 
     for ring_program_id in [None, Some(ours)] {
         let request = GetRingsByTagsRequest {
+            min_context_slot: None,
             tags: vec![Hash::from(view_tag)],
             after: None,
             limit: None,
@@ -489,20 +490,25 @@ async fn both_tag_endpoints_honour_the_ring_filter() {
             .await
             .expect("utxo lookup");
         assert_eq!(
-            shielded.transactions.len(),
+            shielded.items.iter().flat_map(|item| &item.events).count(),
             3,
             "ring_program_id={ring_program_id:?}"
         );
         assert_eq!(
-            encrypted.matches.len(),
+            encrypted
+                .items
+                .iter()
+                .flat_map(|item| &item.outputs)
+                .count(),
             3,
             "ring_program_id={ring_program_id:?}"
         );
-        assert!(shielded.latest.is_some());
-        assert!(encrypted.latest.is_some());
+        assert!(shielded.cursor.is_some());
+        assert!(encrypted.cursor.is_some());
     }
 
     let other_ring = GetRingsByTagsRequest {
+        min_context_slot: None,
         tags: vec![Hash::from(view_tag)],
         after: None,
         limit: None,
@@ -514,19 +520,30 @@ async fn both_tag_endpoints_honour_the_ring_filter() {
     let encrypted = get_encrypted_utxos_by_tags(&db, other_ring.clone())
         .await
         .expect("utxo lookup");
-    assert!(shielded.transactions.is_empty());
-    assert!(encrypted.matches.is_empty());
+    assert!(shielded
+        .items
+        .iter()
+        .flat_map(|item| &item.events)
+        .next()
+        .is_none());
+    assert!(encrypted
+        .items
+        .iter()
+        .flat_map(|item| &item.outputs)
+        .next()
+        .is_none());
 
     let shielded_frontier = shielded
-        .latest
+        .cursor
         .expect("an exhausted transaction scan reports its frontier");
     let encrypted_frontier = encrypted
-        .latest
+        .cursor
         .expect("an exhausted UTXO scan reports its frontier");
     let resumed_shielded = get_shielded_transactions_by_tags(
         &db,
         GetRingsByTagsRequest {
-            after: Some(shielded_frontier.clone()),
+            min_context_slot: None,
+            after: Some(shielded_frontier),
             ..other_ring.clone()
         },
     )
@@ -535,16 +552,27 @@ async fn both_tag_endpoints_honour_the_ring_filter() {
     let resumed_encrypted = get_encrypted_utxos_by_tags(
         &db,
         GetRingsByTagsRequest {
-            after: Some(encrypted_frontier.clone()),
+            min_context_slot: None,
+            after: Some(encrypted_frontier),
             ..other_ring
         },
     )
     .await
     .expect("resume UTXO scan");
-    assert!(resumed_shielded.transactions.is_empty());
-    assert!(resumed_encrypted.matches.is_empty());
-    assert_eq!(resumed_shielded.latest, Some(shielded_frontier));
-    assert_eq!(resumed_encrypted.latest, Some(encrypted_frontier));
+    assert!(resumed_shielded
+        .items
+        .iter()
+        .flat_map(|item| &item.events)
+        .next()
+        .is_none());
+    assert!(resumed_encrypted
+        .items
+        .iter()
+        .flat_map(|item| &item.outputs)
+        .next()
+        .is_none());
+    assert_eq!(resumed_shielded.cursor, Some(shielded_frontier));
+    assert_eq!(resumed_encrypted.cursor, Some(encrypted_frontier));
 }
 
 #[test]
@@ -845,11 +873,16 @@ async fn signature_lookup_cost_is_independent_of_view_tag_history() {
     let first_page = tag_page(&db, VIEW_TAG, None, PAGE_LIMIT).await;
     assert_eq!(
         usize::try_from(PAGE_LIMIT).unwrap(),
-        first_page.transactions.len()
+        first_page
+            .items
+            .iter()
+            .flat_map(|item| &item.events)
+            .count()
     );
     assert!(!first_page
-        .transactions
+        .items
         .iter()
+        .flat_map(|item| &item.events)
         .any(|item| item.tx_signature.0 == long_signature));
 }
 
@@ -1718,6 +1751,7 @@ async fn assert_rings_api_exposes_output_hashes(
         .unwrap()
         .expect("output payload should exist");
     let request = GetRingsByTagsRequest {
+        min_context_slot: None,
         tags: vec![Hash::try_from(output.view_tag.clone()).unwrap()],
         after: None,
         limit: None,
@@ -1730,12 +1764,18 @@ async fn assert_rings_api_exposes_output_hashes(
     assert_eq!(shielded.context.block_time, UNSHIELD_SLOT as i64);
     // A short page is terminal, so it reports the stream tip rather than a
     // next page to follow.
-    assert!(shielded.next.is_none());
-    assert!(shielded.latest.is_some());
-    assert!(!shielded.transactions.is_empty());
-    let output_slot = shielded
-        .transactions
+    assert!(shielded.cursor.is_none());
+    assert!(shielded.cursor.is_some());
+    assert!(!shielded
+        .items
         .iter()
+        .flat_map(|item| &item.events)
+        .next()
+        .is_none());
+    let output_slot = shielded
+        .items
+        .iter()
+        .flat_map(|item| &item.events)
         .flat_map(|tx| tx.output_slots.iter())
         .find(|slot| slot.output_context.hash.to_vec() == output.utxo_hash)
         .expect("matched output slot should be returned");
@@ -1794,12 +1834,18 @@ async fn assert_rings_api_exposes_output_hashes(
 
     let encrypted = get_encrypted_utxos_by_tags(db, request).await.unwrap();
     assert_eq!(encrypted.context.block_time, UNSHIELD_SLOT as i64);
-    assert!(encrypted.next.is_none());
-    assert!(encrypted.latest.is_some());
-    assert!(!encrypted.matches.is_empty());
-    let encrypted_match = encrypted
-        .matches
+    assert!(encrypted.cursor.is_none());
+    assert!(encrypted.cursor.is_some());
+    assert!(!encrypted
+        .items
         .iter()
+        .flat_map(|item| &item.outputs)
+        .next()
+        .is_none());
+    let encrypted_match = encrypted
+        .items
+        .iter()
+        .flat_map(|item| &item.outputs)
         .find(|match_| match_.output_slot.view_tag.to_vec() == output.view_tag)
         .expect("matched encrypted UTXO should be returned");
     assert_eq!(

@@ -3,8 +3,8 @@ use std::{collections::HashMap, num::NonZeroU32, sync::Arc, time::Duration};
 use custom_ring_interface::RingMode;
 use solana_address::Address;
 use solana_signature::Signature;
-use zolana_client::{rpc::ChainPosition, GetShieldedTransactionsByTagsResponse};
-use zolana_indexer_api::{ChainPosition as WireChainPosition, Limit};
+use zolana_client::{rpc::Cursor, GetShieldedTransactionsByTagsResponse};
+use zolana_indexer_api::Limit;
 use zolana_keypair::{X25519Keypair, X25519Pubkey};
 use zolana_ring_client::{
     AuditError, AuditedTransaction, RingOrigin, RingWithdrawal, TransactionAudit,
@@ -13,11 +13,11 @@ use zolana_transaction::instructions::transact::canonical_shape;
 
 use crate::{
     api::{
-        domain_position, limit_in_bounds, wire_position, AuthorityAuth, DecryptedAnonymousInput,
-        DecryptedAnonymousRecipient, DecryptedAnonymousTrace, DecryptedOutput,
-        DecryptedSpendCounter, DecryptedSpendRecord, DecryptedTransaction,
-        DecryptedTransactionsPage, DecryptedWithdrawal, GetDecryptedTransactionsResponse,
-        ReadAttestation, ReadAuth, SkippedReason, SkippedTransaction, AUDIT_PAGE_LIMIT,
+        limit_in_bounds, AuthorityAuth, DecryptedAnonymousInput, DecryptedAnonymousRecipient,
+        DecryptedAnonymousTrace, DecryptedOutput, DecryptedSpendCounter, DecryptedSpendRecord,
+        DecryptedTransaction, DecryptedTransactionGroup, DecryptedWithdrawal,
+        GetDecryptedTransactionsResponse, ReadAttestation, ReadAuth, SkippedReason,
+        SkippedTransaction, AUDIT_PAGE_LIMIT,
     },
     authorize::{self, AuthorityCheck, ReadCheck, Unauthorized},
     error::RingRpcError,
@@ -31,16 +31,18 @@ pub(crate) const ASSET_REFRESH_INTERVAL: Duration = Duration::from_secs(60);
 pub(crate) const MAX_ASSET_REGISTRY_ACCOUNTS: usize = 4_096;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Page {
-    after: Option<ChainPosition>,
+    after: Option<Cursor>,
     limit: NonZeroU32,
     attested_limit: Option<Limit>,
+    min_context_slot: Option<u64>,
 }
 
 #[derive(Default)]
 #[must_use]
 pub struct PageOptions {
-    after: Option<ChainPosition>,
+    after: Option<Cursor>,
     limit: Option<Limit>,
+    min_context_slot: Option<u64>,
 }
 
 pub struct AuditService<S> {
@@ -66,12 +68,17 @@ pub struct AuditRead<'a> {
 
 impl PageOptions {
     #[must_use = "use the updated options"]
-    pub fn with_after(mut self, after: &WireChainPosition) -> Self {
-        self.after = Some(domain_position(after));
+    pub fn with_after(mut self, after: &Cursor) -> Self {
+        self.after = Some(*after);
         self
     }
 
     #[must_use = "use the updated options"]
+    pub fn with_min_context_slot(mut self, slot: u64) -> Self {
+        self.min_context_slot = Some(slot);
+        self
+    }
+
     pub fn with_limit(mut self, limit: Limit) -> Result<Self, RingRpcError> {
         if !limit_in_bounds(&limit) {
             return Err(RingRpcError::InvalidPage);
@@ -91,6 +98,7 @@ impl PageOptions {
             .ok_or(RingRpcError::InvalidPage)?;
         Ok(Page {
             after: self.after,
+            min_context_slot: self.min_context_slot,
             limit,
             attested_limit,
         })
@@ -98,7 +106,7 @@ impl PageOptions {
 }
 
 impl Page {
-    pub fn after(&self) -> Option<ChainPosition> {
+    pub fn after(&self) -> Option<Cursor> {
         self.after
     }
 
@@ -179,6 +187,7 @@ impl<S: TransactionSource> AuditService<S> {
             timestamp: request.auth.timestamp,
             nonce: &nonce,
             after: request.page.after,
+            min_context_slot: request.page.min_context_slot,
             limit: request.page.attested_limit.clone(),
         };
         let claim = ReadCheck::new(request.auth, &attestation)
@@ -231,6 +240,7 @@ impl<S: TransactionSource> AuditService<S> {
             .transactions_by_tag(TransactionPage {
                 tag: self.view_tag,
                 after,
+                min_context_slot: page.min_context_slot,
                 limit: page.limit(),
             })
             .await?;
@@ -238,74 +248,76 @@ impl<S: TransactionSource> AuditService<S> {
         let mut assets = self.shared.cached_assets().await;
         let mut refreshed_assets = false;
 
-        let mut audited = Vec::new();
-        let mut skipped = Vec::new();
+        let mut items = Vec::new();
         let mut origins: HashMap<(Signature, u16), RingOrigin> = HashMap::new();
-        for tx in response.transactions {
-            if tx.ring_program_id != Some(self.ring) {
-                continue;
-            }
-            let event_index = tx.event_index.ok_or(RingRpcError::InvalidIndexerResponse)?;
-            let origin_key = (tx.tx_signature, event_index);
-            let origin = match origins.get(&origin_key) {
-                Some(known) => known.clone(),
-                None => {
-                    let found = self
-                        .shared
-                        .source
-                        .transaction_origin(tx.tx_signature, event_index, self.ring)
-                        .await?;
-                    origins.insert(origin_key, found.clone());
-                    found
-                }
+        for group in response.items {
+            let mut item = DecryptedTransactionGroup {
+                slot: group.slot,
+                signature: group.signature.into(),
+                events: Vec::new(),
+                skipped: Vec::new(),
             };
-            if !origin.ring_invoked {
-                continue;
-            }
-            let mut result = (TransactionAudit {
-                auditor: &self.auditor,
-                transaction: &tx,
-                assets: &assets,
-            })
-            .run_with_mode(mode);
-            if matches!(result, Err(AuditError::UnknownAsset { .. })) && !refreshed_assets {
-                assets = self.shared.refresh_assets().await?;
-                refreshed_assets = true;
-                result = (TransactionAudit {
+            for tx in group.events {
+                if tx.ring_program_id != Some(self.ring) {
+                    continue;
+                }
+                let event_index = tx.event_index.ok_or(RingRpcError::InvalidIndexerResponse)?;
+                let origin_key = (tx.tx_signature, event_index);
+                let origin = match origins.get(&origin_key) {
+                    Some(known) => known.clone(),
+                    None => {
+                        let found = self
+                            .shared
+                            .source
+                            .transaction_origin(tx.tx_signature, event_index, self.ring)
+                            .await?;
+                        origins.insert(origin_key, found.clone());
+                        found
+                    }
+                };
+                if !origin.ring_invoked {
+                    continue;
+                }
+                let mut result = (TransactionAudit {
                     auditor: &self.auditor,
                     transaction: &tx,
                     assets: &assets,
                 })
                 .run_with_mode(mode);
-            }
-            match result {
-                Ok(opened) => {
-                    audited.push((opened, tx.nullifiers, origin.signers, origin.withdrawals))
+                if matches!(result, Err(AuditError::UnknownAsset { .. })) && !refreshed_assets {
+                    assets = self.shared.refresh_assets().await?;
+                    refreshed_assets = true;
+                    result = (TransactionAudit {
+                        auditor: &self.auditor,
+                        transaction: &tx,
+                        assets: &assets,
+                    })
+                    .run_with_mode(mode);
                 }
-                Err(reason) => skipped.push(SkippedTransaction {
-                    slot: tx.slot,
-                    tx_signature: tx.tx_signature.into(),
-                    reason: skipped_reason(&reason),
-                }),
+                match result {
+                    Ok(opened) => item.events.push(decrypted_transaction(
+                        opened,
+                        tx.nullifiers,
+                        origin.signers,
+                        origin.withdrawals,
+                    )),
+                    Err(reason) => item.skipped.push(SkippedTransaction {
+                        slot: tx.slot,
+                        tx_signature: tx.tx_signature.into(),
+                        reason: skipped_reason(&reason),
+                    }),
+                }
+            }
+            if !item.events.is_empty() || !item.skipped.is_empty() {
+                items.push(item);
             }
         }
-        let items = audited
-            .into_iter()
-            .map(|(opened, nullifiers, signers, withdrawals)| {
-                decrypted_transaction(opened, nullifiers, signers, withdrawals)
-            })
-            .collect();
-
         Ok(GetDecryptedTransactionsResponse {
-            context: zolana_indexer_api::Context {
-                block_time: response.context.block_time,
-                slot: response.context.slot,
-            },
-            value: DecryptedTransactionsPage {
-                items,
-                skipped,
-                next: response.next.map(wire_position),
-            },
+            context: response.context,
+            output_tree_id: None,
+            items,
+            cursor: response.cursor,
+            has_more: response.has_more,
         })
     }
 }
@@ -329,54 +341,29 @@ fn skipped_reason(error: &AuditError) -> SkippedReason {
 fn validate_indexer_response(
     response: &GetShieldedTransactionsByTagsResponse,
     page: &Page,
-    after: Option<ChainPosition>,
+    after: Option<Cursor>,
     auditor_tag: [u8; 32],
 ) -> Result<(), RingRpcError> {
-    if response
-        .next
-        .is_some_and(|next| after.is_some_and(|reached| next <= reached))
-        || (response.next.is_some() && response.latest.is_some())
-    {
-        return Err(RingRpcError::InvalidIndexerResponse);
-    }
-    let limit = page.limit.get() as usize;
-    if response.transactions.len() > limit {
-        let boundary = &response.transactions[limit - 1];
-        let position = ChainPosition {
-            slot: boundary.slot,
-            signature: boundary.tx_signature,
-        };
-        if response.next != Some(position) {
-            return Err(RingRpcError::InvalidIndexerResponse);
-        }
-        let mut event_index = boundary
-            .event_index
-            .ok_or(RingRpcError::InvalidIndexerResponse)?;
-        for transaction in &response.transactions[limit..] {
-            let next_index = transaction
-                .event_index
-                .ok_or(RingRpcError::InvalidIndexerResponse)?;
-            if transaction.slot != position.slot
-                || transaction.tx_signature != position.signature
-                || next_index <= event_index
-            {
+    response
+        .validate_indexed(after, u64::from(page.limit.get()), page.min_context_slot)
+        .map_err(|_| RingRpcError::InvalidIndexerResponse)?;
+    for group in &response.items {
+        group
+            .validate_events(|event| (event.slot, event.tx_signature, event.event_index))
+            .map_err(|_| RingRpcError::InvalidIndexerResponse)?;
+        for transaction in &group.events {
+            let has_auditor_message = transaction
+                .messages
+                .iter()
+                .any(|message| message.view_tag == auditor_tag);
+            // Compact padding leaves trailing slots out of the instruction, so a
+            // transaction publishes at most, not exactly, its circuit's slots.
+            let supported_shape = !transaction.nullifiers.is_empty()
+                && canonical_shape(transaction.nullifiers.len(), transaction.output_slots.len())
+                    .is_ok();
+            if has_auditor_message && !supported_shape {
                 return Err(RingRpcError::InvalidIndexerResponse);
             }
-            event_index = next_index;
-        }
-    }
-    for transaction in &response.transactions {
-        let has_auditor_message = transaction
-            .messages
-            .iter()
-            .any(|message| message.view_tag == auditor_tag);
-        // Compact padding leaves trailing slots out of the instruction, so a
-        // transaction publishes at most, not exactly, its circuit's slots.
-        let supported_shape = !transaction.nullifiers.is_empty()
-            && canonical_shape(transaction.nullifiers.len(), transaction.output_slots.len())
-                .is_ok();
-        if has_auditor_message && !supported_shape {
-            return Err(RingRpcError::InvalidIndexerResponse);
         }
     }
     Ok(())

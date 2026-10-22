@@ -343,6 +343,7 @@ export type {
   DecryptedRingSpendCounter,
   DecryptedRingSpendRecord,
   DecryptedRingTransaction,
+  DecryptedRingTransactionGroup,
   DecryptedRingTransactionsPage,
   DecryptedRingWithdrawal,
   RingAuditorKey,

@@ -4,7 +4,7 @@
 
 use solana_address::Address;
 use zolana_client::{
-    rpc::{ChainPosition, GetShieldedTransactionsByNullifiersResponse},
+    rpc::{Cursor, GetShieldedTransactionsByNullifiersResponse},
     AsyncRpc, IndexerRpcConfig, OutputSlot, Rpc, ShieldedTransaction,
 };
 use zolana_interface::event::OutputDataEncoding;
@@ -214,14 +214,14 @@ impl<L: LineageLookup> Lineages<'_, L> {
 
 struct LineageQuery {
     nullifiers: Vec<[u8; 32]>,
-    after: Option<ChainPosition>,
+    after: Option<Cursor>,
 }
 
 /// Every pending lineage advances one version per round, a round ends when the
 /// indexer returns its last page.
 struct LineageWalk<'a, L: LineageLookup> {
     heads: Vec<Head<'a, L>>,
-    after: Option<ChainPosition>,
+    after: Option<Cursor>,
     spenders: Vec<ShieldedTransaction>,
 }
 
@@ -273,9 +273,9 @@ impl<'a, L: LineageLookup> LineageWalk<'a, L> {
         &mut self,
         page: GetShieldedTransactionsByNullifiersResponse,
     ) -> Result<(), EntryProofError> {
-        self.spenders.extend(page.transactions);
-        // Only a truncated page names `next`, a terminal page ends the round.
-        self.after = page.next;
+        self.spenders
+            .extend(page.items.into_iter().flat_map(|item| item.events));
+        self.after = page.cursor.filter(|_| page.has_more);
         if self.after.is_some() {
             return Ok(());
         }
@@ -471,7 +471,7 @@ pub(crate) mod tests {
         fn page(
             &self,
             nullifiers: Vec<[u8; 32]>,
-            after: Option<ChainPosition>,
+            after: Option<Cursor>,
         ) -> GetShieldedTransactionsByNullifiersResponse {
             self.requests
                 .lock()
@@ -489,25 +489,24 @@ pub(crate) mod tests {
                 .cloned()
                 .collect();
             // The mock pages by index, so a position's slot is a row index.
-            let start = after.map_or(0, |position| position.slot as usize);
+            let start = after.map_or(0, |position| position.slot() as usize);
             let end = self
                 .page_size
                 .map_or(matching.len(), |size| (start + size).min(matching.len()));
             let rows = matching[start..end].to_vec();
             // Photon treats a full page as truncated and names `next` only there.
             let truncated = self.page_size.is_some_and(|size| rows.len() >= size);
-            let position = ChainPosition {
-                slot: end as u64,
-                signature: Signature::default(),
-            };
+            let position = Cursor::new(end as u64, Signature::default());
             GetShieldedTransactionsByNullifiersResponse {
                 context: Context {
                     block_time: 0,
                     slot: 0,
                 },
-                next: truncated.then_some(position),
-                latest: (!truncated).then_some(position),
-                transactions: rows,
+                cursor: (truncated.then_some(position)).or((!truncated).then_some(position)),
+                has_more: (truncated.then_some(position)).is_some(),
+                items: zolana_client::rpc::TransactionEvents::group(rows, |event| {
+                    (event.slot, event.tx_signature)
+                }),
                 output_tree_id: None,
             }
         }
@@ -517,7 +516,7 @@ pub(crate) mod tests {
         fn get_shielded_transactions_by_nullifiers(
             &self,
             nullifiers: Vec<[u8; 32]>,
-            after: Option<ChainPosition>,
+            after: Option<Cursor>,
             _limit: Option<u32>,
             _config: Option<zolana_client::IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
@@ -530,7 +529,7 @@ pub(crate) mod tests {
         async fn get_shielded_transactions_by_nullifiers(
             &self,
             nullifiers: Vec<[u8; 32]>,
-            after: Option<ChainPosition>,
+            after: Option<Cursor>,
             _limit: Option<u32>,
             _config: Option<zolana_client::IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {

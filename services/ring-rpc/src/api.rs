@@ -4,11 +4,8 @@ use solana_address::Address;
 use solana_signature::Signature;
 use solana_signer::{Signer, SignerError};
 use thiserror::Error;
-use zolana_client::rpc::ChainPosition;
-use zolana_indexer_api::{
-    Base64String, ChainPosition as WireChainPosition, Context, Hash, Limit, SerializablePubkey,
-    SerializableSignature,
-};
+use zolana_client::rpc::Cursor;
+use zolana_indexer_api::{Base64String, Hash, Limit, SerializablePubkey, SerializableSignature};
 use zolana_keypair::X25519Pubkey;
 use zolana_ring_client::{ReaderKey, ReaderKeyError};
 
@@ -19,30 +16,12 @@ pub const CREATE_AUDITOR_KEY: &str = "createAuditorKey";
 pub const RING_STATUS: &str = "ringStatus";
 pub const RING_DEPOSITS: &str = "ringDeposits";
 pub const GET_DECRYPTED_TRANSACTIONS: &str = "getDecryptedTransactions";
-pub(crate) const AUDIT_PAGE_LIMIT: u64 = 100;
+pub const AUDIT_PAGE_LIMIT: u64 = 100;
 pub(crate) const DEPOSITS_PAGE_LIMIT: u32 = 50;
 pub(crate) const MAX_DEPOSITS_PAGE_LIMIT: u32 = 200;
 
-pub(crate) fn wire_position(position: ChainPosition) -> WireChainPosition {
-    WireChainPosition {
-        slot: position.slot,
-        signature: SerializableSignature(position.signature),
-    }
-}
-
-pub(crate) fn domain_position(position: &WireChainPosition) -> ChainPosition {
-    ChainPosition {
-        slot: position.slot,
-        signature: position.signature.0,
-    }
-}
-
-/// Slot and base58 signature each render canonically, the server rebuilds the
-/// exact signed text from the parsed request.
-fn attested_after(after: Option<ChainPosition>) -> String {
-    after.map_or_else(String::new, |position| {
-        format!("{}:{}", position.slot, position.signature)
-    })
+fn attested_after(after: Option<Cursor>) -> String {
+    after.map_or_else(String::new, |cursor| cursor.to_string())
 }
 
 pub(crate) fn limit_in_bounds(limit: &Limit) -> bool {
@@ -215,9 +194,11 @@ pub struct GetDecryptedTransactionsRequest {
     pub ring_program_id: Option<SerializablePubkey>,
     /// Resume strictly after the given transaction.
     #[serde(default)]
-    pub after: Option<WireChainPosition>,
+    pub after: Option<Cursor>,
     #[serde(default)]
     pub limit: Option<Limit>,
+    #[serde(default)]
+    pub min_context_slot: Option<u64>,
     pub auth: ReadAuth,
 }
 
@@ -276,8 +257,9 @@ pub enum ReadBuildError {
 #[must_use]
 pub struct ReadRequest {
     ring: Address,
-    after: Option<WireChainPosition>,
+    after: Option<Cursor>,
     limit: Option<Limit>,
+    min_context_slot: Option<u64>,
     timestamp: Option<u64>,
     nonce: [u8; 32],
 }
@@ -288,24 +270,44 @@ pub struct ReadAttestation<'a> {
     pub ring: Address,
     pub timestamp: u64,
     pub nonce: &'a [u8; 32],
-    pub after: Option<ChainPosition>,
+    pub after: Option<Cursor>,
+    pub min_context_slot: Option<u64>,
     pub limit: Option<Limit>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct GetDecryptedTransactionsResponse {
-    pub context: Context,
-    pub value: DecryptedTransactionsPage,
-}
+pub type GetDecryptedTransactionsResponse = zolana_indexer_api::Page<DecryptedTransactionGroup>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct DecryptedTransactionsPage {
-    pub items: Vec<DecryptedTransaction>,
+pub struct DecryptedTransactionGroup {
+    pub slot: u64,
+    pub signature: SerializableSignature,
+    pub events: Vec<DecryptedTransaction>,
     pub skipped: Vec<SkippedTransaction>,
-    /// Present only when the limit truncated the page.
-    pub next: Option<WireChainPosition>,
+}
+
+impl zolana_indexer_api::Positioned for DecryptedTransactionGroup {
+    fn position(&self) -> Cursor {
+        Cursor::new(self.slot, self.signature.0)
+    }
+}
+
+impl DecryptedTransactionGroup {
+    pub fn validate(&self) -> Result<(), zolana_indexer_api::InvalidPage> {
+        if self.events.is_empty() && self.skipped.is_empty()
+            || self
+                .events
+                .iter()
+                .any(|event| event.slot != self.slot || event.tx_signature != self.signature)
+            || self
+                .skipped
+                .iter()
+                .any(|event| event.slot != self.slot || event.tx_signature != self.signature)
+        {
+            return Err(zolana_indexer_api::InvalidPage);
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -480,6 +482,7 @@ impl GetDecryptedTransactionsRequest {
         ReadRequest {
             ring,
             after: None,
+            min_context_slot: None,
             limit: None,
             timestamp: None,
             nonce: fresh_nonce(),
@@ -488,8 +491,13 @@ impl GetDecryptedTransactionsRequest {
 }
 
 impl ReadRequest {
-    pub fn with_after(mut self, after: WireChainPosition) -> Self {
+    pub fn with_after(mut self, after: Cursor) -> Self {
         self.after = Some(after);
+        self
+    }
+
+    pub fn with_min_context_slot(mut self, slot: u64) -> Self {
+        self.min_context_slot = Some(slot);
         self
     }
 
@@ -515,7 +523,8 @@ impl ReadRequest {
             ring: self.ring,
             timestamp,
             nonce: &self.nonce,
-            after: self.after.as_ref().map(domain_position),
+            after: self.after,
+            min_context_slot: self.min_context_slot,
             limit: self.limit.clone(),
         }
         .bytes();
@@ -529,6 +538,7 @@ impl ReadRequest {
         Ok(GetDecryptedTransactionsRequest {
             ring_program_id: Some(self.ring.to_bytes().into()),
             after: self.after,
+            min_context_slot: self.min_context_slot,
             limit: self.limit,
             auth: ReadAuth {
                 reader: signer.reader()?.to_bytes().to_vec().into(),
@@ -594,18 +604,19 @@ pub fn unix_now() -> Result<u64, RequestBuildError> {
         .map_err(|_| RequestBuildError::Clock)
 }
 
-const READ_DOMAIN: &str = "zolana/ring-rpc-read/v1";
+const READ_DOMAIN: &str = "zolana/ring-rpc-read/v2";
 const AUDITOR_KEY_REQUEST_DOMAIN: &str = "zolana/ring-rpc-auditor-key-request/v1";
 
 impl ReadAttestation<'_> {
     pub fn bytes(&self) -> Vec<u8> {
         format!(
-            "{READ_DOMAIN}\nring: {}\ntimestamp: {}\nnonce: {}\nlimit: {}\nafter: {}",
+            "{READ_DOMAIN}\nring: {}\ntimestamp: {}\nnonce: {}\nlimit: {}\nafter: {}\nmin-context-slot: {}",
             self.ring,
             self.timestamp,
             base64(self.nonce),
             self.limit.as_ref().map_or(0, Limit::value),
             attested_after(self.after),
+            self.min_context_slot.unwrap_or(0),
         )
         .into_bytes()
     }
@@ -700,12 +711,28 @@ mod tests {
 
     #[test]
     fn a_position_round_trips_between_wire_and_domain() {
-        let position = ChainPosition {
-            slot: 7,
-            signature: Signature::from([9; 64]),
-        };
-        assert_eq!(domain_position(&wire_position(position)), position);
+        let position = Cursor::new(7, Signature::from([9; 64]));
+        assert_eq!(position.to_string().parse::<Cursor>().unwrap(), position);
         assert_eq!(attested_after(None), "");
+    }
+
+    #[test]
+    fn decrypted_groups_require_events_matching_the_header() {
+        let mut group = DecryptedTransactionGroup {
+            slot: 7,
+            signature: Signature::from([1; 64]).into(),
+            events: vec![],
+            skipped: vec![SkippedTransaction {
+                slot: 8,
+                tx_signature: Signature::from([1; 64]).into(),
+                reason: SkippedReason::InvalidAuditData,
+            }],
+        };
+        assert!(group.validate().is_err());
+        group.skipped[0].slot = 7;
+        group.validate().unwrap();
+        group.skipped.clear();
+        assert!(group.validate().is_err());
     }
 
     /// The deposits cursor is a Solana signature, a different rule from the
@@ -736,16 +763,14 @@ mod tests {
             ring: Address::new_from_array([7; 32]),
             timestamp: 1_700_000_000,
             nonce: &[4; 32],
-            after: Some(ChainPosition {
-                slot: 3,
-                signature: Signature::from([1; 64]),
-            }),
+            after: Some(Cursor::new(3, Signature::from([1; 64]))),
+            min_context_slot: None,
             limit: Some(Limit::new(5).expect("in range")),
         }
         .bytes();
         assert_eq!(
             String::from_utf8(message).expect("text"),
-            "zolana/ring-rpc-read/v1\nring: US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx\ntimestamp: 1700000000\nnonce: BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=\nlimit: 5\nafter: 3:2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6ijwfYmfZYsKRxboQMPh3R4kUhXRVdtSXFXMheka4Rc4P2"
+            "zolana/ring-rpc-read/v2\nring: US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx\ntimestamp: 1700000000\nnonce: BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=\nlimit: 5\nafter: 1:3:2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6ijwfYmfZYsKRxboQMPh3R4kUhXRVdtSXFXMheka4Rc4P2\nmin-context-slot: 0"
         );
     }
 }

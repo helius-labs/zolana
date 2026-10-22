@@ -2,7 +2,7 @@ import { X25519Keypair } from "../keypair/x25519.js";
 import type { Address } from "@solana/kit";
 
 import type { IndexerReader } from "../client/ports.js";
-import { compareChainPositions, type ChainPosition } from "../client/rpc.js";
+import { compareCursors, type Cursor } from "../client/rpc.js";
 import type { Bytes32, RequestContext } from "../interface/types.js";
 import { mergePaddedInputCount } from "../interface/constants.js";
 import { PAGE_LIMIT } from "../interface/indexer-limits.js";
@@ -271,7 +271,7 @@ async function recoverDeposits(
 ): Promise<{ unsupported: Bytes32[]; candidates: Candidate[] }> {
   const found = new Map<string, Bytes32>();
   const candidates = new Map<string, Candidate>();
-  let after: ChainPosition | undefined;
+  let after: Cursor | undefined;
   for (let page = 0; page < (input.maxPages ?? 32); page++) {
     const response = await input.client.getShieldedTransactionsByTags(
       {
@@ -283,7 +283,7 @@ async function recoverDeposits(
       undefined,
       context,
     );
-    for (const transaction of response.transactions) {
+    for (const transaction of response.items.flatMap((item) => item.events)) {
       if (!transaction.proofless) continue;
       for (const [slotIndex, slot] of transaction.outputSlots.entries()) {
         let deposit;
@@ -371,10 +371,10 @@ async function recoverDeposits(
         }
       }
     }
-    const next = response.next;
-    if (next === undefined)
+    const next = response.hasMore ? response.cursor : null;
+    if (next === null)
       return { unsupported: [...found.values()], candidates: [...candidates.values()] };
-    if (after !== undefined && compareChainPositions(next, after) <= 0)
+    if (after !== undefined && compareCursors(next, after) <= 0)
       throw new RingError("RING_RPC", {
         details: { reason: "deposit scan page did not advance" },
       });
@@ -390,7 +390,7 @@ async function spendingTransactions(
   context?: RequestContext,
 ): Promise<readonly IndexedShieldedTransaction[]> {
   const transactions: IndexedShieldedTransaction[] = [];
-  let after: ChainPosition | undefined;
+  let after: Cursor | undefined;
   for (;;) {
     if (budget.remaining <= 0) throw new RingError("RING_RECOVERY_INCOMPLETE");
     budget.remaining--;
@@ -399,10 +399,10 @@ async function spendingTransactions(
       undefined,
       context,
     );
-    transactions.push(...page.transactions);
-    const next = page.next;
-    if (next === undefined) return transactions;
-    if (after !== undefined && compareChainPositions(next, after) <= 0)
+    transactions.push(...page.items.flatMap((item) => item.events));
+    const next = page.hasMore ? page.cursor : null;
+    if (next === null) return transactions;
+    if (after !== undefined && compareCursors(next, after) <= 0)
       throw new RingError("RING_RPC", {
         details: { reason: "nullifier scan page did not advance" },
       });

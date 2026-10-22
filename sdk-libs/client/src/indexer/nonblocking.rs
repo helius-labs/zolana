@@ -8,7 +8,7 @@ use zolana_api::{SerializableSignature, ZolanaApi};
 use crate::{
     error::ClientError,
     rpc::{
-        AsyncRpc, ChainPosition, Context, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
+        AsyncRpc, Context, Cursor, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
         GetNonInclusionProofsResponse, GetRingKeyRegistryEntryResponse,
         GetRingKeyRegistryRegisterProofResponse, GetRingSpendRecordResponse,
         GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
@@ -20,10 +20,9 @@ use crate::{
 use super::{
     conversion::{
         convert_context, convert_encrypted_utxo_match, convert_merkle_proof,
-        convert_non_inclusion_proof, convert_shielded_transaction,
-        convert_shielded_transactions_by_signature_response,
-        convert_shielded_transactions_response, convert_user_records_response, decode_position,
-        encode_hash, encode_position, encode_pubkey, ring_history_request,
+        convert_non_inclusion_proof, convert_shielded_transactions_by_signature_response,
+        convert_shielded_transactions_response, convert_user_records_response, encode_hash,
+        encode_pubkey, ring_history_request,
     },
     error::indexer_error,
 };
@@ -75,7 +74,7 @@ impl AsyncRpc for AsyncZolanaIndexer {
     async fn get_encrypted_utxos_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        after: Option<ChainPosition>,
+        after: Option<Cursor>,
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
@@ -87,23 +86,34 @@ impl AsyncRpc for AsyncZolanaIndexer {
                     .api
                     .get_encrypted_utxos_by_tags(
                         tags.iter().copied().map(encode_hash).collect(),
-                        after.map(encode_position),
+                        after,
                         limit.map(u64::from),
+                        config.and_then(|config| config.require_slot),
                     )
                     .await
                     .map_err(indexer_error)?;
 
                 Ok(GetEncryptedUtxosByTagsResponse {
-                    context: convert_context(response.context),
+                    context: response.context,
                     output_tree_id: response.output_tree_id,
-                    matches: response
-                        .matches
+                    items: response
+                        .items
                         .into_iter()
-                        .enumerate()
-                        .map(|(index, item)| convert_encrypted_utxo_match(index, item))
-                        .collect::<Result<Vec<_>, _>>()?,
-                    next: response.next.map(decode_position),
-                    latest: response.latest.map(decode_position),
+                        .map(|group| {
+                            Ok(zolana_indexer_api::TransactionOutputs {
+                                slot: group.slot,
+                                signature: group.signature.0,
+                                outputs: group
+                                    .outputs
+                                    .into_iter()
+                                    .enumerate()
+                                    .map(|(index, item)| convert_encrypted_utxo_match(index, item))
+                                    .collect::<Result<Vec<_>, ClientError>>()?,
+                            })
+                        })
+                        .collect::<Result<Vec<_>, ClientError>>()?,
+                    cursor: response.cursor,
+                    has_more: response.has_more,
                 })
             },
         )
@@ -113,7 +123,7 @@ impl AsyncRpc for AsyncZolanaIndexer {
     async fn get_shielded_transactions_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        after: Option<ChainPosition>,
+        after: Option<Cursor>,
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
@@ -125,8 +135,9 @@ impl AsyncRpc for AsyncZolanaIndexer {
                     .api
                     .get_shielded_transactions_by_tags(
                         tags.iter().copied().map(encode_hash).collect(),
-                        after.map(encode_position),
+                        after,
                         limit.map(u64::from),
+                        config.and_then(|config| config.require_slot),
                     )
                     .await
                     .map_err(indexer_error)?;
@@ -146,9 +157,11 @@ impl AsyncRpc for AsyncZolanaIndexer {
             config,
             |response: &GetShieldedTransactionsByTagsResponse| response.context,
             || async {
+                let mut request = ring_history_request(options.clone())?;
+                request.min_context_slot = config.and_then(|config| config.require_slot);
                 let response = self
                     .api
-                    .get_shielded_transactions(ring_history_request(options.clone())?)
+                    .get_shielded_transactions(request)
                     .await
                     .map_err(indexer_error)?;
                 convert_shielded_transactions_response(response)
@@ -181,7 +194,7 @@ impl AsyncRpc for AsyncZolanaIndexer {
     async fn get_shielded_transactions_by_nullifiers(
         &self,
         nullifiers: Vec<[u8; 32]>,
-        after: Option<ChainPosition>,
+        after: Option<Cursor>,
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
@@ -193,26 +206,14 @@ impl AsyncRpc for AsyncZolanaIndexer {
                     .api
                     .get_shielded_transactions_by_nullifiers(
                         nullifiers.iter().copied().map(encode_hash).collect(),
-                        after.map(encode_position),
+                        after,
                         limit.map(u64::from),
+                        config.and_then(|config| config.require_slot),
                     )
                     .await
                     .map_err(indexer_error)?;
 
-                Ok(GetShieldedTransactionsByNullifiersResponse {
-                    context: convert_context(response.context),
-                    output_tree_id: response.output_tree_id,
-                    transactions: response
-                        .transactions
-                        .into_iter()
-                        .enumerate()
-                        .map(|(index, item)| {
-                            convert_shielded_transaction(&format!("transactions[{index}]"), item)
-                        })
-                        .collect::<Result<Vec<_>, _>>()?,
-                    next: response.next.map(decode_position),
-                    latest: response.latest.map(decode_position),
-                })
+                convert_shielded_transactions_response(response)
             },
         )
         .await
@@ -380,7 +381,14 @@ where
         if !delay.is_zero() {
             tokio::time::sleep(delay).await;
         }
-        let response = request().await?;
+        let response = match request().await {
+            Ok(response) => response,
+            Err(ClientError::IndexerMinimumContextSlot { indexed: observed }) => {
+                indexed = indexed.max(observed);
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
         indexed = context(&response).slot;
         if indexed >= required {
             return Ok(response);
@@ -391,4 +399,36 @@ where
         indexed,
         attempts: config.poll.num_retries.saturating_add(1),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[tokio::test]
+    async fn a_minimum_context_error_retries_until_the_required_slot() {
+        let calls = AtomicUsize::new(0);
+        let response = wait_for_indexer_async(
+            Some(IndexerRpcConfig {
+                require_slot: Some(10),
+                poll: crate::rpc::IndexerPollConfig::new(1, 0, 0),
+            }),
+            |context: &Context| *context,
+            || async {
+                if calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                    Err(ClientError::IndexerMinimumContextSlot { indexed: 9 })
+                } else {
+                    Ok(Context {
+                        slot: 10,
+                        block_time: 0,
+                    })
+                }
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        assert_eq!(response.slot, 10);
+    }
 }

@@ -1,3 +1,4 @@
+import { checkedCursor } from "../interface/cursor.js";
 import type { DepositPayloadDecoder } from "../transaction/serialization/ring-deposit.js";
 import {
   getAddressEncoder,
@@ -7,7 +8,7 @@ import {
 } from "@solana/kit";
 
 import { runKitRpc } from "../client/kit.js";
-import { compareChainPositions, type ChainPosition } from "../client/rpc.js";
+import { compareCursors, type Cursor } from "../client/rpc.js";
 import { initializePoseidon } from "../hasher/index.js";
 import type { IndexerReader, KitRpcAccess } from "../client/ports.js";
 import { ClientError } from "../client/error.js";
@@ -262,8 +263,8 @@ function shieldedTransactionKey(transaction: IndexedShieldedTransaction): string
   ].join("|");
 }
 
-function positionKey(position: ChainPosition): string {
-  return `${String(position.slot)}:${position.signature}`;
+function positionKey(position: Cursor): string {
+  return position;
 }
 
 /**
@@ -302,71 +303,56 @@ interface CollectByTagsInput {
   readonly nextRpcConfig: () => IndexerRpcConfig;
   readonly out: Map<string, IndexedShieldedTransaction>;
   /** Where this group of tags was read to last sync, or undefined for never. */
-  readonly from: ChainPosition | undefined;
+  readonly from: Cursor | undefined;
 }
 
 /** One page of a position-ordered stream, reduced to what paging needs. */
 interface Page {
-  /** Present only when the limit truncated the page. */
-  readonly next?: ChainPosition | undefined;
-  /** The stream tip, present on a terminal page. */
-  readonly latest?: ChainPosition | undefined;
+  readonly cursor: Cursor | null;
+  readonly hasMore: boolean;
 }
 
-/**
- * Reads one chunk until a page arrives without `next`.
- *
- * `next` means there may be more, whatever the page size. A `next` that does
- * not move past the position already read would loop forever, so it is
- * refused. Mirrors the Rust SDK, which must agree or the two clients read
- * different amounts.
- */
 async function readChunk(
   method: string,
-  start: ChainPosition | undefined,
-  request: (after: ChainPosition | undefined) => Promise<Page>,
-): Promise<ChainPosition | undefined> {
+  start: Cursor | undefined,
+  request: (after: Cursor | undefined) => Promise<Page>,
+): Promise<Cursor | undefined> {
   let after = start;
-  let furthest = start;
   for (;;) {
     const page = await request(after);
-    if (page.next !== undefined && page.latest !== undefined) {
+    try {
+      if (page.cursor !== null) checkedCursor(page.cursor);
+      if (typeof page.hasMore !== "boolean") throw new Error("invalid pagination response");
+    } catch {
       throw new ClientError("CLIENT_INVALID_RPC_RESPONSE", {
-        details: { method, path: "$.latest" },
+        details: { method, path: "$.cursor" },
       });
     }
     if (
-      page.next !== undefined &&
-      furthest !== undefined &&
-      compareChainPositions(page.next, furthest) <= 0
+      (after !== undefined && (page.cursor === null || compareCursors(page.cursor, after) < 0)) ||
+      (page.hasMore &&
+        (page.cursor === null || (after !== undefined && compareCursors(page.cursor, after) <= 0)))
     ) {
       throw new ClientError("CLIENT_INVALID_RPC_RESPONSE", {
-        details: { method, path: "$.next" },
+        details: { method, path: "$.cursor" },
       });
     }
-    const reached = page.latest ?? page.next;
-    if (
-      reached !== undefined &&
-      (furthest === undefined || compareChainPositions(reached, furthest) > 0)
-    ) {
-      furthest = reached;
-    }
-    if (page.next === undefined) return furthest;
-    after = page.next;
+    if (!page.hasMore) return page.cursor ?? after;
+    after = page.cursor ?? undefined;
   }
 }
 
 async function collectShieldedTransactions(
   input: CollectByTagsInput,
   context?: RequestContext,
-): Promise<ChainPosition | undefined> {
+): Promise<Cursor | undefined> {
   return readChunk("getShieldedTransactionsByTags", input.from, async (after) => {
     const response = await input.indexer.getShieldedTransactionsByTags(
       { tags: input.chunk, limit: input.pageLimit, ...(after === undefined ? {} : { after }) },
       input.nextRpcConfig(),
       context,
     );
-    for (const transaction of response.transactions) {
+    for (const transaction of response.items.flatMap((item) => item.events)) {
       // Photon can surface a proofless deposit here before flagging it. Those
       // are collected from the encrypted-utxo endpoint instead, so taking them
       // twice would store the same UTXO under two keys.
@@ -375,8 +361,8 @@ async function collectShieldedTransactions(
       if (!input.out.has(key)) input.out.set(key, transaction);
     }
     return {
-      next: response.next,
-      latest: response.latest,
+      cursor: response.cursor,
+      hasMore: response.hasMore,
     };
   });
 }
@@ -384,14 +370,14 @@ async function collectShieldedTransactions(
 async function collectProoflessDeposits(
   input: CollectByTagsInput,
   context?: RequestContext,
-): Promise<ChainPosition | undefined> {
+): Promise<Cursor | undefined> {
   return readChunk("getEncryptedUtxosByTags", input.from, async (after) => {
     const response = await input.indexer.getEncryptedUtxosByTags(
       { tags: input.chunk, limit: input.pageLimit, ...(after === undefined ? {} : { after }) },
       input.nextRpcConfig(),
       context,
     );
-    for (const match of response.matches) {
+    for (const match of response.items.flatMap((item) => item.outputs)) {
       if (match.txViewingPk !== undefined || match.salt !== undefined) continue;
       const key = [
         match.txSignature,
@@ -414,8 +400,8 @@ async function collectProoflessDeposits(
       );
     }
     return {
-      next: response.next,
-      latest: response.latest,
+      cursor: response.cursor,
+      hasMore: response.hasMore,
     };
   });
 }
@@ -428,9 +414,9 @@ async function collectProoflessDeposits(
  */
 function groupByResumePoint(
   keys: readonly Bytes32[],
-  positionFor: (key: Bytes32) => ChainPosition | undefined,
-): readonly { readonly from: ChainPosition | undefined; readonly keys: Bytes32[] }[] {
-  const groups = new Map<string, { from: ChainPosition | undefined; keys: Bytes32[] }>();
+  positionFor: (key: Bytes32) => Cursor | undefined,
+): readonly { readonly from: Cursor | undefined; readonly keys: Bytes32[] }[] {
+  const groups = new Map<string, { from: Cursor | undefined; keys: Bytes32[] }>();
   for (const key of keys) {
     const from = positionFor(key);
     const groupKey = from === undefined ? "" : positionKey(from);
@@ -448,19 +434,19 @@ interface CollectByNullifiersInput {
   readonly nextRpcConfig: () => IndexerRpcConfig;
   readonly out: Map<string, IndexedShieldedTransaction>;
   /** Where this chunk was read to last time, if it has been read before. */
-  readonly start?: ChainPosition;
+  readonly start?: Cursor;
 }
 
 /**
  * Returns how far the scan reached, or `undefined` if the indexer did not say.
  *
- * The position comes from `latest`, not from the rows: an unspent nullifier
+ * The position comes from the terminal cursor, even without rows: an unspent nullifier
  * matches nothing, so there is no last row to take a position from.
  */
 async function collectShieldedTransactionsByNullifiers(
   input: CollectByNullifiersInput,
   context?: RequestContext,
-): Promise<ChainPosition | undefined> {
+): Promise<Cursor | undefined> {
   return readChunk("getShieldedTransactionsByNullifiers", input.start, async (after) => {
     const response = await input.indexer.getShieldedTransactionsByNullifiers(
       {
@@ -471,14 +457,14 @@ async function collectShieldedTransactionsByNullifiers(
       input.nextRpcConfig(),
       context,
     );
-    for (const transaction of response.transactions) {
+    for (const transaction of response.items.flatMap((item) => item.events)) {
       if (transaction.proofless) continue;
       const key = shieldedTransactionKey(transaction);
       if (!input.out.has(key)) input.out.set(key, transaction);
     }
     return {
-      next: response.next,
-      latest: response.latest,
+      cursor: response.cursor,
+      hasMore: response.hasMore,
     };
   });
 }

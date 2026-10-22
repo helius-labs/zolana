@@ -1,3 +1,4 @@
+import { transactionItems } from "./helpers/pages.js";
 import { X25519Keypair } from "../src/keypair/x25519.js";
 import { decryptRingDepositUtxo } from "../src/ring/deposit-payload.js";
 import { address, AccountRole, getAddressDecoder, type Signature } from "@solana/kit";
@@ -627,7 +628,9 @@ describe("deposit recovery", () => {
     const client = {
       ...ringAuditReader({
         getShieldedTransactionsByTags: async (input) =>
-          transactionsPage(input.ringProgramId === undefined ? {} : { next: chainPosition(1n) }),
+          transactionsPage(
+            input.ringProgramId === undefined ? {} : { cursor: chainPosition(1n), hasMore: true },
+          ),
       }),
       getShieldedTransactionsByNullifiers: async () => transactionsPage(),
     };
@@ -718,11 +721,13 @@ describe("deposit recovery", () => {
       ...ringAuditReader({
         getShieldedTransactionsByTags: async (input) =>
           transactionsPage({
-            transactions: input.ringProgramId === RING ? history : [],
+            items: transactionItems(input.ringProgramId === RING ? history : []),
+            cursor: null,
+            hasMore: false,
           }),
       }),
       getShieldedTransactionsByNullifiers: vi.fn(async () =>
-        transactionsPage({ transactions: spends }),
+        transactionsPage({ items: transactionItems(spends), cursor: null, hasMore: false }),
       ),
     };
     const params = {

@@ -26,7 +26,7 @@ mod tests {
     use crate::common::rings_tree::RingsTreeKind;
     use serde_json::Value;
     use zolana_indexer_api::{
-        Base64String, ChainPosition, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
+        Base64String, Context, Cursor, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
         GetMerkleProofsRequest, Hash, MerkleContext, NonInclusionProof, RingsMessage,
         RingsOutputContext, RingsOutputSlot, SerializablePubkey, SerializableSignature,
         ShieldedTransaction,
@@ -42,14 +42,10 @@ mod tests {
 
     #[test]
     fn one_position_serves_every_rings_stream() {
-        let position = ChainPosition {
-            slot: 42,
-            signature: SerializableSignature::default(),
-        };
-        let json = serde_json::to_value(&position).unwrap();
-        assert!(json.get("slot").is_some());
-        assert!(json.get("signature").is_some());
-        let round_tripped: ChainPosition = serde_json::from_value(json).unwrap();
+        let position = Cursor::new(42, SerializableSignature::default().0);
+        let json = serde_json::to_value(position).unwrap();
+        assert_eq!(json, position.to_string());
+        let round_tripped: Cursor = serde_json::from_value(json).unwrap();
         assert_eq!(round_tripped, position);
     }
 
@@ -201,17 +197,15 @@ mod tests {
                 slot: 1,
             },
             output_tree_id: Some(4),
-            matches: Vec::new(),
-            next: Some(ChainPosition {
-                slot: 1,
-                signature: SerializableSignature::default(),
-            }),
-            latest: None,
+            items: Vec::new(),
+            cursor: Some(Cursor::new(1, SerializableSignature::default().0)),
+            has_more: true,
         })
         .unwrap();
 
         assert!(matches!(value, Value::Object(_)));
-        assert!(value.get("next").is_some());
+        assert!(value["cursor"].is_string());
+        assert_eq!(value["hasMore"], true);
         assert!(value.get("latest").is_none());
         assert_eq!(value["outputTreeId"], 4);
         assert!(value.get("output_tree_id").is_none());

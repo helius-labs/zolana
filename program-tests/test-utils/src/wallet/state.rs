@@ -1,10 +1,10 @@
 use std::collections::{hash_map::Entry, BTreeSet, HashMap, HashSet};
+use zolana_client::Cursor;
 
 use solana_address::Address;
 use zolana_keypair::{shielded::ShieldedAddress, viewing_key::ViewTag, X25519Pubkey};
 use zolana_transaction::{
-    error::TransactionError, utxo::Utxo, AssetBalance, AssetRegistry, ChainPosition,
-    DepositPayload, WalletUtxo,
+    error::TransactionError, utxo::Utxo, AssetBalance, AssetRegistry, DepositPayload, WalletUtxo,
 };
 
 pub const DEFAULT_TAG_WINDOW: u64 = 64;
@@ -152,7 +152,7 @@ pub struct Wallet {
     pub last_synced: i64,
     /// Per key, the position everything matching it has been seen through.
     /// Streams advance independently. Nullifier entries die with their spend.
-    pub cursors: HashMap<CursorStream, ChainPosition>,
+    pub cursors: HashMap<CursorStream, Cursor>,
 }
 
 impl Wallet {

@@ -436,6 +436,9 @@ pub enum ClientError {
     #[error("indexer returned the cursor it was given; paging would not end")]
     IndexerCursorNotAdvanced,
 
+    #[error("minimum context slot has not been reached; highest indexed slot is {indexed}")]
+    IndexerMinimumContextSlot { indexed: u64 },
+
     #[error("indexer did not reach slot {required} within {attempts} attempts; highest indexed slot is {indexed}")]
     IndexerNotCaughtUp {
         required: u64,

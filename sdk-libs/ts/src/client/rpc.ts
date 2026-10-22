@@ -1,7 +1,7 @@
-import { getBase58Encoder, type Address, type Signature } from "@solana/kit";
+import { type Address, type Signature } from "@solana/kit";
 
-import type { Bytes16, Bytes32, ChainPosition } from "../interface/types.js";
-export type { ChainPosition } from "../interface/types.js";
+import type { Bytes16, Bytes32, Cursor, PageOptions } from "../interface/types.js";
+export type { Cursor } from "../interface/types.js";
 
 import type { X25519PublicKey } from "../keypair/x25519.js";
 import type { IndexedShieldedTransaction } from "../transaction/instructions/transact.js";
@@ -12,20 +12,8 @@ export {
 } from "./retry.js";
 export type { IndexerPollConfig, IndexerRpcConfig } from "./retry.js";
 
-const signatureEncoder = getBase58Encoder();
-
-/** Orders by slot, then signature bytes, matching the indexer's pagination. */
-export function compareChainPositions(left: ChainPosition, right: ChainPosition): number {
-  if (left.slot !== right.slot) return left.slot < right.slot ? -1 : 1;
-  const leftBytes = signatureEncoder.encode(left.signature);
-  const rightBytes = signatureEncoder.encode(right.signature);
-  const length = Math.max(leftBytes.length, rightBytes.length);
-  for (let index = 0; index < length; index++) {
-    const difference = (leftBytes[index] ?? -1) - (rightBytes[index] ?? -1);
-    if (difference !== 0) return difference;
-  }
-  return 0;
-}
+export { compareCursors } from "../interface/cursor.js";
+export type { PageOptions } from "../interface/types.js";
 
 export interface RpcContext {
   readonly blockTime: bigint;
@@ -33,17 +21,13 @@ export interface RpcContext {
   readonly slot: bigint;
 }
 
-export interface GetByTagsRequest {
+export interface GetByTagsRequest extends PageOptions {
   readonly tags: readonly Bytes32[];
   readonly ringProgramId?: Address;
-  readonly after?: ChainPosition;
-  readonly limit?: number;
 }
 
-export interface GetByNullifiersRequest {
+export interface GetByNullifiersRequest extends PageOptions {
   readonly nullifiers: readonly Bytes32[];
-  readonly after?: ChainPosition;
-  readonly limit?: number;
 }
 
 export interface EncryptedUtxoMatch {
@@ -54,35 +38,27 @@ export interface EncryptedUtxoMatch {
   readonly salt?: Bytes16;
 }
 
-export interface GetEncryptedUtxosByTagsResponse {
+export interface Page<T> {
   readonly context: RpcContext;
-  readonly matches: readonly EncryptedUtxoMatch[];
-  /** Present only when the limit truncated the page. */
-  readonly next?: ChainPosition;
-  /** The stream tip, present on a terminal page. */
-  readonly latest?: ChainPosition;
+  readonly items: readonly T[];
+  readonly cursor: Cursor | null;
+  readonly hasMore: boolean;
 }
-
-export interface GetShieldedTransactionsByTagsResponse {
-  readonly context: RpcContext;
-  readonly transactions: readonly IndexedShieldedTransaction[];
-  /** Present only when the limit truncated the page. */
-  readonly next?: ChainPosition;
-  /** The stream tip, present on a terminal page. */
-  readonly latest?: ChainPosition;
+export interface TransactionEvents<T> {
+  readonly slot: bigint;
+  readonly signature: Signature;
+  readonly events: readonly T[];
 }
-
-export interface GetShieldedTransactionsByNullifiersResponse {
-  readonly context: RpcContext;
-  readonly transactions: readonly IndexedShieldedTransaction[];
-  /** Present only when the limit truncated the page. */
-  readonly next?: ChainPosition;
-  /**
-   * The stream tip, present on a terminal page. Unspent nullifiers match
-   * nothing, so for them it is the only resume point.
-   */
-  readonly latest?: ChainPosition;
+export interface TransactionOutputs<T> {
+  readonly slot: bigint;
+  readonly signature: Signature;
+  readonly outputs: readonly T[];
 }
+export type GetEncryptedUtxosByTagsResponse = Page<TransactionOutputs<EncryptedUtxoMatch>>;
+export type GetShieldedTransactionsByTagsResponse = Page<
+  TransactionEvents<IndexedShieldedTransaction>
+>;
+export type GetShieldedTransactionsByNullifiersResponse = GetShieldedTransactionsByTagsResponse;
 
 export interface GetShieldedTransactionsBySignatureResponse {
   readonly context: RpcContext;

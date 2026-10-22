@@ -190,7 +190,9 @@ export class ZolanaApi {
     }
 
     try {
-      return descriptor.decodeResponse(result);
+      const response = descriptor.decodeResponse(result);
+      descriptor.validateResponse?.(response, request);
+      return response;
     } catch (error) {
       throw schemaError("API_INVALID_RESULT", descriptor.name, error);
     }

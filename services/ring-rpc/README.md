@@ -33,15 +33,17 @@ All wire fields use camel case.
 | `createAuditorKey` | Ring program ID and authority authorization | Auditor key and service attestation |
 | `ringStatus` | Ring program ID | Whether the ring's config names the key held here (`served`), another one (`foreignAuditor`), or does not exist yet (`uninitialized`), with the config's key when it exists |
 | `ringDeposits` | Ring program ID, examined signature limit, and page cursor | The deposits found, the next cursor, and the oldest slot examined |
-| `getDecryptedTransactions` | Ring, resume position, limit, and read authorization | Decrypted transaction page |
+| `getDecryptedTransactions` | Ring, cursor, transaction limit, minimum context slot, and read authorization | Decrypted transaction page |
 
 `ringDeposits` walks ring history backwards from the newest signature. A deposit publishes its asset and amount, so the method needs no auditor key and no read authorization. Its `limit` counts signatures examined rather than deposits found, so a page can hold no deposits and still have history behind it. The default limit is 50 and the service clamps it to 200.
 
 The response `cursor` is opaque and goes back in the next request. It is present while older ring history remains and absent at the end, so a client pages until it is absent. `oldestSlot` reports the slot of the oldest signature the page examined, absent when the page examined nothing. A client that merges deposits with another paginated stream needs `oldestSlot` to know how far back an empty page reached.
 
-`getDecryptedTransactions` pages by an explicit chain position. `after` is the `{slot, signature}` of a transaction and the page resumes strictly after it. The response `next` names the last transaction of a page the limit truncated and is absent on the final page, so a client passes `next` back as `after` until it is absent.
+`getDecryptedTransactions` accepts `after`, an opaque cursor returned by a previous page, `limit` (1–100 Solana transactions), and optional `minContextSlot`. It returns `{context, items, cursor, hasMore}`. Each item groups one transaction's decrypted `events` and `skipped` events; a transaction is never split across pages. Pass `cursor` back as `after` while `hasMore` is true. Keep the terminal cursor too: even an empty page records how far the scan reached, and a later read resumes there.
 
-The read authorization contains a canonical reader key, Unix timestamp, random nonce, and signature. The signature binds the ring, timestamp, nonce, resume position, and limit. Ed25519 readers sign the attestation bytes. P256 readers use WebAuthn with user verification.
+Reads proceed in ascending slot and signature-byte order, not within-block execution order. `minContextSlot` requires a sufficiently recent indexed snapshot without changing the history range.
+
+The read authorization contains a canonical reader key, Unix timestamp, random nonce, and signature. The signature binds the ring, timestamp, nonce, cursor, limit, and freshness gate. Ed25519 readers sign the attestation bytes. P256 readers use WebAuthn with user verification.
 
 The authority authorization contains the authority address, the cluster genesis hash, Unix timestamp, random nonce, and a raw Ed25519 signature over the attestation bytes. Both authorizations share the timestamp skew and the per-ring nonce set.
 

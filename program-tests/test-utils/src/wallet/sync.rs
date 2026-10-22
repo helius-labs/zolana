@@ -12,7 +12,7 @@ use zolana_event_parser::{decode_encrypted_ring_deposit_output_data, decode_outp
 use zolana_interface::{state::SplAssetRegistry, SHIELDED_POOL_PROGRAM_ID};
 use zolana_keypair::viewing_key::ViewTag;
 use zolana_transaction::{
-    AssetBalance, ChainPosition, OutputContext, OutputSlot, ShieldedTransaction, TransactionError,
+    AssetBalance, OutputContext, OutputSlot, ShieldedTransaction, TransactionError,
 };
 
 use crate::wallet::{
@@ -24,6 +24,7 @@ use zolana_client::{
     error::ClientError,
     rpc::{AsyncRpc, EncryptedUtxoMatch, Rpc, ShieldedTransaction as RpcShieldedTransaction},
     rpc::{IndexerPollConfig, IndexerRpcConfig},
+    Cursor,
 };
 
 const DEFAULT_TAG_QUERY_CHUNK: usize = 64;
@@ -549,10 +550,10 @@ fn wallet_query_nullifiers(wallet: &Wallet) -> Vec<[u8; 32]> {
 /// to the tip in this sync are dropped.
 fn group_by_resume_point<K: Copy + Eq + std::hash::Hash>(
     keys: &[K],
-    cursors: &HashMap<K, ChainPosition>,
+    cursors: &HashMap<K, Cursor>,
     scanned_to_tip: &HashSet<K>,
-) -> HashMap<Option<ChainPosition>, Vec<K>> {
-    let mut groups: HashMap<Option<ChainPosition>, Vec<K>> = HashMap::new();
+) -> HashMap<Option<Cursor>, Vec<K>> {
+    let mut groups: HashMap<Option<Cursor>, Vec<K>> = HashMap::new();
     for key in keys {
         if scanned_to_tip.contains(key) {
             continue;
@@ -567,20 +568,15 @@ fn group_by_resume_point<K: Copy + Eq + std::hash::Hash>(
 
 /// One page of a position-ordered stream, reduced to what paging needs.
 struct Page {
-    /// Present only when the limit truncated the page.
-    next: Option<ChainPosition>,
-    /// The stream tip, present on the terminal page.
-    latest: Option<ChainPosition>,
+    cursor: Option<Cursor>,
+    has_more: bool,
 }
 
 /// Reads one chunk until the stream offers no further cursor, returning the
 /// position reached.
-fn read_chunk<F>(
-    start: Option<ChainPosition>,
-    mut request: F,
-) -> Result<Option<ChainPosition>, ClientError>
+fn read_chunk<F>(start: Option<Cursor>, mut request: F) -> Result<Option<Cursor>, ClientError>
 where
-    F: FnMut(Option<ChainPosition>) -> Result<Page, ClientError>,
+    F: FnMut(Option<Cursor>) -> Result<Page, ClientError>,
 {
     let mut after = start;
     let mut furthest = start;
@@ -594,7 +590,7 @@ where
 }
 
 /// Per key, the position read through.
-type StreamCursors = HashMap<CursorStream, ChainPosition>;
+type StreamCursors = HashMap<CursorStream, Cursor>;
 
 /// One map per stream, so concurrent fetches borrow disjointly. Caller merges.
 fn split_by_stream(cursors: StreamCursors) -> (StreamCursors, StreamCursors, StreamCursors) {
@@ -622,8 +618,8 @@ fn stream_keys(values: &[[u8; 32]], stream: fn([u8; 32]) -> CursorStream) -> Vec
 /// {A, B, C} holds for each of them individually.
 fn record_chunk<K: Copy + Eq + std::hash::Hash>(
     chunk: &[K],
-    furthest: Option<ChainPosition>,
-    cursors: &mut HashMap<K, ChainPosition>,
+    furthest: Option<Cursor>,
+    cursors: &mut HashMap<K, Cursor>,
     scanned_to_tip: &mut HashSet<K>,
 ) {
     if let Some(position) = furthest {
@@ -636,27 +632,19 @@ fn record_chunk<K: Copy + Eq + std::hash::Hash>(
 
 /// Folds one page into the position read so far. `Ok(None)` ends the read.
 ///
-/// `next` means there may be more, whatever the page size. A `next` that does
-/// not move past the position already read is a server paging fault and would
-/// loop forever, so it is rejected.
+/// `has_more` requires an advancing cursor. A terminal cursor may equal the
+/// previous checkpoint, but may never move backward.
 ///
 /// The async paths keep their own loop and share only this: an `AsyncFnMut`
 /// cannot carry the `Send` bound their callers require.
-fn advance(
-    furthest: &mut Option<ChainPosition>,
-    page: Page,
-) -> Result<Option<ChainPosition>, ClientError> {
-    if page.next.is_some() && page.latest.is_some() {
-        return Err(ClientError::Indexer("conflicting page positions".into()));
+fn advance(furthest: &mut Option<Cursor>, page: Page) -> Result<Option<Cursor>, ClientError> {
+    if page.cursor < *furthest
+        || (page.has_more && (page.cursor.is_none() || page.cursor <= *furthest))
+    {
+        return Err(ClientError::Indexer("page did not advance".into()));
     }
-    if let (Some(next), Some(reached)) = (page.next, *furthest) {
-        if next <= reached {
-            return Err(ClientError::Indexer("page did not advance".into()));
-        }
-    }
-    // A position from another stream can be newer than this stream's tip.
-    *furthest = (*furthest).max(page.latest.or(page.next));
-    Ok(page.next)
+    *furthest = page.cursor;
+    Ok(page.cursor.filter(|_| page.has_more))
 }
 
 /// Fetch shielded transactions for `tags`, resuming each tag from where it was
@@ -703,7 +691,7 @@ fn fetch_shielded_transactions_incremental<I: Rpc>(
                     rpc_config,
                 )?;
                 output_tree_id = response.output_tree_id;
-                for tx in response.transactions {
+                for tx in response.items.into_iter().flat_map(|item| item.events) {
                     if tx.proofless || tx.tx_viewing_pk.is_none() || tx.salt.is_none() {
                         continue;
                     }
@@ -711,8 +699,8 @@ fn fetch_shielded_transactions_incremental<I: Rpc>(
                     out.entry(key).or_insert(convert_sync_transaction(tx)?);
                 }
                 Ok(Page {
-                    next: response.next,
-                    latest: response.latest,
+                    cursor: response.cursor,
+                    has_more: response.has_more,
                 })
             })?;
 
@@ -748,7 +736,7 @@ async fn fetch_shielded_transactions_incremental_async<I: AsyncRpc>(
                     )
                     .await?;
                 output_tree_id = response.output_tree_id;
-                for tx in response.transactions {
+                for tx in response.items.into_iter().flat_map(|item| item.events) {
                     if tx.proofless || tx.tx_viewing_pk.is_none() || tx.salt.is_none() {
                         continue;
                     }
@@ -756,8 +744,8 @@ async fn fetch_shielded_transactions_incremental_async<I: AsyncRpc>(
                     out.entry(key).or_insert(convert_sync_transaction(tx)?);
                 }
                 let page = Page {
-                    next: response.next,
-                    latest: response.latest,
+                    cursor: response.cursor,
+                    has_more: response.has_more,
                 };
                 let Some(next) = advance(&mut furthest, page)? else {
                     break;
@@ -773,7 +761,7 @@ async fn fetch_shielded_transactions_incremental_async<I: AsyncRpc>(
 
 /// Fetches spends of `nullifiers`, resuming each from where it was last checked.
 ///
-/// The resume point comes from `latest`, not from rows: an unspent nullifier
+/// The resume point comes from the terminal cursor, even without rows: an unspent nullifier
 /// matches nothing. Positions are per nullifier, since a scan over {A, B, C}
 /// says nothing about D. A nullifier with no entry is read from zero.
 fn fetch_shielded_transactions_by_nullifiers<I: Rpc>(
@@ -794,13 +782,18 @@ fn fetch_shielded_transactions_by_nullifiers<I: Rpc>(
                     Some(config.page_limit),
                     rpc_config,
                 )?;
-                for tx in response.transactions.into_iter().filter(|tx| !tx.proofless) {
+                for tx in response
+                    .items
+                    .into_iter()
+                    .flat_map(|item| item.events)
+                    .filter(|tx| !tx.proofless)
+                {
                     let key = tx.tx_signature.to_string();
                     out.entry(key).or_insert(convert_sync_transaction(tx)?);
                 }
                 Ok(Page {
-                    next: response.next,
-                    latest: response.latest,
+                    cursor: response.cursor,
+                    has_more: response.has_more,
                 })
             })?;
 
@@ -834,13 +827,18 @@ async fn fetch_shielded_transactions_by_nullifiers_async<I: AsyncRpc>(
                         rpc_config,
                     )
                     .await?;
-                for tx in response.transactions.into_iter().filter(|tx| !tx.proofless) {
+                for tx in response
+                    .items
+                    .into_iter()
+                    .flat_map(|item| item.events)
+                    .filter(|tx| !tx.proofless)
+                {
                     let key = tx.tx_signature.to_string();
                     out.entry(key).or_insert(convert_sync_transaction(tx)?);
                 }
                 let page = Page {
-                    next: response.next,
-                    latest: response.latest,
+                    cursor: response.cursor,
+                    has_more: response.has_more,
                 };
                 let Some(next) = advance(&mut furthest, page)? else {
                     break;
@@ -880,7 +878,7 @@ where
                     Some(config.page_limit),
                     rpc_config,
                 )?;
-                for item in response.matches {
+                for item in response.items.into_iter().flat_map(|item| item.outputs) {
                     if item.tx_viewing_pk.is_some() || item.salt.is_some() {
                         continue;
                     }
@@ -896,8 +894,8 @@ where
                     }
                 }
                 Ok(Page {
-                    next: response.next,
-                    latest: response.latest,
+                    cursor: response.cursor,
+                    has_more: response.has_more,
                 })
             })?;
 
@@ -931,7 +929,7 @@ async fn fetch_proofless_deposits_async<I: AsyncRpc>(
                         rpc_config,
                     )
                     .await?;
-                for item in response.matches {
+                for item in response.items.into_iter().flat_map(|item| item.outputs) {
                     if item.tx_viewing_pk.is_some() || item.salt.is_some() {
                         continue;
                     }
@@ -947,8 +945,8 @@ async fn fetch_proofless_deposits_async<I: AsyncRpc>(
                     }
                 }
                 let page = Page {
-                    next: response.next,
-                    latest: response.latest,
+                    cursor: response.cursor,
+                    has_more: response.has_more,
                 };
                 let Some(next) = advance(&mut furthest, page)? else {
                     break;
@@ -1093,20 +1091,13 @@ mod tests {
         /// A position's signature derives from its slot, matching the rows the
         /// mock fabricates, and slot alone is a total order here because each
         /// fixture uses a distinct slot.
-        fn position(slot: u64) -> ChainPosition {
-            ChainPosition {
-                slot,
-                signature: Signature::from([slot as u8; 64]),
-            }
+        fn position(slot: u64) -> Cursor {
+            Cursor::new(slot, Signature::from([slot as u8; 64]))
         }
 
-        fn matching(
-            &self,
-            tags: &[ViewTag],
-            after: Option<ChainPosition>,
-            limit: usize,
-        ) -> PagedRows {
-            let after = after.map(|position| position.slot);
+        fn matching(&self, tags: &[ViewTag], after: Option<Cursor>, limit: usize) -> PagedRows {
+            let requested_after = after;
+            let after = after.map(|position| position.slot());
             self.calls
                 .lock()
                 .expect("calls poisoned")
@@ -1119,13 +1110,13 @@ mod tests {
                 .collect();
             rows.sort_by_key(|(slot, _)| *slot);
 
-            // Mirrors photon, a truncated page carries its last row's position
-            // as `next`, a terminal page the stream tip as `latest`.
+            // Stop at the last returned transaction when lookahead finds more.
+            // Otherwise retain the global checkpoint, including empty scans.
             let truncated = rows.len() > limit;
             rows.truncate(limit);
             let next = truncated.then(|| Self::position(rows.last().expect("truncated row").0));
             let latest = (!truncated)
-                .then(|| self.stream_tip().map(Self::position))
+                .then(|| self.stream_tip().map(Self::position).max(requested_after))
                 .flatten();
             let transactions = rows
                 .into_iter()
@@ -1158,10 +1149,11 @@ mod tests {
         fn matching_nullifiers(
             &self,
             nullifiers: &[[u8; 32]],
-            after: Option<ChainPosition>,
+            after: Option<Cursor>,
             limit: usize,
         ) -> PagedRows {
-            let after = after.map(|position| position.slot);
+            let requested_after = after;
+            let after = after.map(|position| position.slot());
             self.nullifier_calls
                 .lock()
                 .expect("calls poisoned")
@@ -1181,7 +1173,7 @@ mod tests {
             let next = truncated.then(|| Self::position(rows.last().expect("truncated row").0));
             // The tip of the whole stream, not of the matching rows.
             let latest = (!truncated)
-                .then(|| self.stream_tip().map(Self::position))
+                .then(|| self.stream_tip().map(Self::position).max(requested_after))
                 .flatten();
             let transactions = rows
                 .into_iter()
@@ -1209,16 +1201,13 @@ mod tests {
                 .iter()
                 .map(|(slot, _)| *slot)
                 .chain(self.input_utxos.iter().map(|(slot, _)| *slot))
+                .chain(self.utxo_entries.iter().map(|(slot, _)| *slot))
                 .max()
         }
     }
 
-    /// Rows plus the `next` and `latest` positions of the page they came on.
-    type PagedRows = (
-        Vec<ShieldedTransaction>,
-        Option<ChainPosition>,
-        Option<ChainPosition>,
-    );
+    /// Rows with an optional continuation and a terminal checkpoint for the fixture.
+    type PagedRows = (Vec<ShieldedTransaction>, Option<Cursor>, Option<Cursor>);
 
     #[derive(Default)]
     struct MockIndexer {
@@ -1253,7 +1242,7 @@ mod tests {
         fn get_encrypted_utxos_by_tags(
             &self,
             _tags: Vec<ViewTag>,
-            _since: Option<ChainPosition>,
+            _since: Option<Cursor>,
             _limit: Option<u32>,
             _config: Option<IndexerRpcConfig>,
         ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
@@ -1263,16 +1252,19 @@ mod tests {
                     slot: 1,
                 },
                 output_tree_id: Some(TEST_TREE_ID),
-                matches: self.matches.clone(),
-                next: None,
-                latest: None,
+                items: zolana_client::rpc::TransactionOutputs::group(
+                    self.matches.clone(),
+                    |event| (event.slot, event.tx_signature),
+                ),
+                cursor: None,
+                has_more: false,
             })
         }
 
         fn get_shielded_transactions_by_tags(
             &self,
             _tags: Vec<ViewTag>,
-            _since: Option<ChainPosition>,
+            _since: Option<Cursor>,
             _limit: Option<u32>,
             _config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
@@ -1282,16 +1274,19 @@ mod tests {
                     slot: 1,
                 },
                 output_tree_id: Some(TEST_TREE_ID),
-                transactions: self.transactions.clone(),
-                next: None,
-                latest: None,
+                items: zolana_client::rpc::TransactionEvents::group(
+                    self.transactions.clone(),
+                    |event| (event.slot, event.tx_signature),
+                ),
+                cursor: None,
+                has_more: false,
             })
         }
 
         fn get_shielded_transactions_by_nullifiers(
             &self,
             nullifiers: Vec<ViewTag>,
-            _since: Option<ChainPosition>,
+            _since: Option<Cursor>,
             _limit: Option<u32>,
             _config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
@@ -1301,16 +1296,18 @@ mod tests {
                     slot: 1,
                 },
                 output_tree_id: Some(TEST_TREE_ID),
-                transactions: self
-                    .transactions
-                    .iter()
-                    .filter(|tx| tx.nullifiers.iter().any(|nf| nullifiers.contains(nf)))
-                    .cloned()
-                    .collect(),
-                next: None,
+                items: zolana_client::rpc::TransactionEvents::group(
+                    self.transactions
+                        .iter()
+                        .filter(|tx| tx.nullifiers.iter().any(|nf| nullifiers.contains(nf)))
+                        .cloned()
+                        .collect::<Vec<_>>(),
+                    |event| (event.slot, event.tx_signature),
+                ),
+                cursor: None,
+                has_more: false,
                 // Answers in one page and never paginates; resumption is covered
                 // by TaggedIndexer.
-                latest: None,
             })
         }
     }
@@ -1330,12 +1327,13 @@ mod tests {
         fn get_encrypted_utxos_by_tags(
             &self,
             tags: Vec<ViewTag>,
-            after: Option<ChainPosition>,
+            after: Option<Cursor>,
             limit: Option<u32>,
             _config: Option<IndexerRpcConfig>,
         ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
             let limit = limit.unwrap_or(1_000).max(1) as usize;
-            let after = after.map(|position| position.slot);
+            let requested_after = after;
+            let after = after.map(|position| position.slot());
             self.utxo_calls
                 .lock()
                 .expect("calls poisoned")
@@ -1352,13 +1350,7 @@ mod tests {
 
             let next = truncated.then(|| Self::position(rows.last().expect("truncated row").0));
             let latest = (!truncated)
-                .then(|| {
-                    self.utxo_entries
-                        .iter()
-                        .map(|(slot, _)| *slot)
-                        .max()
-                        .map(Self::position)
-                })
+                .then(|| self.stream_tip().map(Self::position).max(requested_after))
                 .flatten();
             let matches = rows
                 .into_iter()
@@ -1384,16 +1376,18 @@ mod tests {
                     slot: 1,
                 },
                 output_tree_id: Some(TEST_TREE_ID),
-                matches,
-                next,
-                latest,
+                items: zolana_client::rpc::TransactionOutputs::group(matches, |event| {
+                    (event.slot, event.tx_signature)
+                }),
+                cursor: (next).or(latest),
+                has_more: (next).is_some(),
             })
         }
 
         fn get_shielded_transactions_by_tags(
             &self,
             tags: Vec<ViewTag>,
-            after: Option<ChainPosition>,
+            after: Option<Cursor>,
             limit: Option<u32>,
             _config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
@@ -1405,16 +1399,18 @@ mod tests {
                     slot: 1,
                 },
                 output_tree_id: Some(TEST_TREE_ID),
-                transactions,
-                next,
-                latest,
+                items: zolana_client::rpc::TransactionEvents::group(transactions, |event| {
+                    (event.slot, event.tx_signature)
+                }),
+                cursor: (next).or(latest),
+                has_more: (next).is_some(),
             })
         }
 
         fn get_shielded_transactions_by_nullifiers(
             &self,
             nullifiers: Vec<[u8; 32]>,
-            after: Option<ChainPosition>,
+            after: Option<Cursor>,
             limit: Option<u32>,
             _config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
@@ -1426,9 +1422,11 @@ mod tests {
                     slot: 1,
                 },
                 output_tree_id: Some(TEST_TREE_ID),
-                transactions,
-                next,
-                latest,
+                items: zolana_client::rpc::TransactionEvents::group(transactions, |event| {
+                    (event.slot, event.tx_signature)
+                }),
+                cursor: (next).or(latest),
+                has_more: (next).is_some(),
             })
         }
     }
@@ -1465,7 +1463,7 @@ mod tests {
 
         let config = SyncWalletConfig::default();
         let mut out = HashMap::new();
-        let mut cursors: HashMap<CursorStream, ChainPosition> = HashMap::new();
+        let mut cursors: HashMap<CursorStream, Cursor> = HashMap::new();
         let mut scanned = HashSet::new();
 
         // Round 0: only the early tag is known.
@@ -1518,7 +1516,7 @@ mod tests {
         };
 
         let mut out = HashMap::new();
-        let mut cursors: HashMap<CursorStream, ChainPosition> = HashMap::new();
+        let mut cursors: HashMap<CursorStream, Cursor> = HashMap::new();
         fetch_shielded_transactions_incremental(
             &indexer,
             &[CursorStream::Tags(tag)],
@@ -1533,7 +1531,7 @@ mod tests {
         assert_eq!(
             cursors
                 .get(&CursorStream::Tags(tag))
-                .map(|position| position.slot),
+                .map(|position| position.slot()),
             Some(50),
             "a short page still records the tip, so the next sync resumes there"
         );
@@ -1597,103 +1595,58 @@ mod tests {
         );
     }
 
-    /// `next` means there may be more; only its absence ends the read. Every
-    /// stream pages through [`advance`], so this is the rule for all three.
-    ///
-    /// Guessing from page size instead would save a request per chunk, and was
-    /// tried: it makes the non-advancing-page guard unreachable, and stakes
-    /// correctness on every endpoint returning a short page only when genuinely
-    /// out of rows. Skipping a spend silently is not worth a round trip.
     #[test]
-    fn only_a_missing_next_ends_the_read() {
-        let position = |slot: u64| Some(TaggedIndexer::position(slot));
-
-        let mut furthest = None;
+    fn has_more_requires_progress_and_terminal_pages_keep_their_checkpoint() {
+        let position = |slot| Some(TaggedIndexer::position(slot));
+        let mut reached = None;
         assert_eq!(
             advance(
-                &mut furthest,
+                &mut reached,
                 Page {
-                    next: position(50),
-                    latest: None,
-                },
-            )
-            .expect("advance"),
-            position(50),
-            "next is an invitation to read on"
-        );
-
-        let mut furthest = position(10);
-        assert!(
-            advance(
-                &mut furthest,
-                Page {
-                    next: None,
-                    latest: None,
-                },
-            )
-            .expect("advance")
-            .is_none(),
-            "no next ends it"
-        );
-        assert_eq!(furthest, position(10), "and the earlier position is kept");
-
-        // A terminal page reports the stream tip even when it carried no rows.
-        let mut furthest = None;
-        assert!(advance(
-            &mut furthest,
-            Page {
-                next: None,
-                latest: position(99),
-            },
-        )
-        .expect("advance")
-        .is_none());
-        assert_eq!(furthest, position(99));
-
-        // A next that does not move past the position already read would loop
-        // forever, so it is an error, not a retry.
-        let mut furthest = position(50);
-        assert!(advance(
-            &mut furthest,
-            Page {
-                next: position(50),
-                latest: None,
-            },
-        )
-        .is_err());
-    }
-
-    #[test]
-    fn an_older_stream_tip_keeps_the_resume_point() {
-        let start = Some(TaggedIndexer::position(9));
-        let mut furthest = start;
-        assert_eq!(
-            advance(
-                &mut furthest,
-                Page {
-                    next: None,
-                    latest: Some(TaggedIndexer::position(8))
+                    cursor: position(50),
+                    has_more: true
                 }
             )
-            .expect("terminal page"),
-            None,
+            .unwrap(),
+            position(50)
         );
-        assert_eq!(furthest, start);
-    }
-
-    #[test]
-    fn conflicting_page_positions_do_not_advance_the_resume_point() {
-        let start = Some(TaggedIndexer::position(5));
-        let mut furthest = start;
+        assert_eq!(
+            advance(
+                &mut reached,
+                Page {
+                    cursor: position(50),
+                    has_more: false
+                }
+            )
+            .unwrap(),
+            None
+        );
+        assert_eq!(reached, position(50));
         assert!(advance(
-            &mut furthest,
+            &mut reached,
             Page {
-                next: Some(TaggedIndexer::position(7)),
-                latest: Some(TaggedIndexer::position(9)),
+                cursor: position(50),
+                has_more: true
             }
         )
         .is_err());
-        assert_eq!(furthest, start);
+        assert!(advance(
+            &mut reached,
+            Page {
+                cursor: position(49),
+                has_more: false
+            }
+        )
+        .is_err());
+        assert!(advance(
+            &mut reached,
+            Page {
+                cursor: None,
+                has_more: true
+            }
+        )
+        .is_err());
+        assert_eq!(reached, position(50));
     }
 
     /// The async twins page and resume like the blocking ones.
@@ -1713,7 +1666,7 @@ mod tests {
         };
         let config = SyncWalletConfig::default();
 
-        let mut tag_cursors: HashMap<CursorStream, ChainPosition> = HashMap::new();
+        let mut tag_cursors: HashMap<CursorStream, Cursor> = HashMap::new();
         fetch_shielded_transactions_incremental_async(
             &indexer,
             &[CursorStream::Tags(tag)],
@@ -1766,7 +1719,7 @@ mod tests {
             proofless_cursors
                 .get(&CursorStream::Proofless(tag))
                 .map(slot_of),
-            Some(30)
+            Some(50)
         );
 
         // Every stream answers in one terminal page, so one request each.
@@ -1782,13 +1735,13 @@ mod tests {
         );
     }
 
-    fn slot_of(position: &ChainPosition) -> u64 {
-        position.slot
+    fn slot_of(position: &Cursor) -> u64 {
+        position.slot()
     }
 
     /// A second sync resumes the nullifier stream instead of walking it again.
     ///
-    /// This is what the indexer's `latest` buys. The rows cannot supply it: an
+    /// This is what the terminal checkpoint provides. The rows cannot supply it: an
     /// unspent nullifier matches nothing, so there is no last row whose position
     /// could be remembered, and every sync would start from zero.
     #[test]
@@ -1802,7 +1755,7 @@ mod tests {
 
         let config = SyncWalletConfig::default();
         let mut out = HashMap::new();
-        let mut cursors: HashMap<CursorStream, ChainPosition> = HashMap::new();
+        let mut cursors: HashMap<CursorStream, Cursor> = HashMap::new();
 
         fetch_shielded_transactions_by_nullifiers(
             &indexer,
@@ -1818,7 +1771,7 @@ mod tests {
         assert_eq!(
             cursors
                 .get(&CursorStream::Nullifiers(unspent))
-                .map(|position| position.slot),
+                .map(|position| position.slot()),
             Some(50),
             "nothing matched, but the scan still reached the tip of the stream"
         );
@@ -1862,7 +1815,7 @@ mod tests {
 
         let config = SyncWalletConfig::default();
         let mut out = HashMap::new();
-        let mut cursors: HashMap<CursorStream, ChainPosition> = HashMap::new();
+        let mut cursors: HashMap<CursorStream, Cursor> = HashMap::new();
 
         fetch_proofless_deposits(
             &indexer,
@@ -1878,7 +1831,7 @@ mod tests {
         assert_eq!(
             cursors
                 .get(&CursorStream::Proofless(tag))
-                .map(|position| position.slot),
+                .map(|position| position.slot()),
             Some(50),
             "the scan read to the last row, so that is where it resumes"
         );
@@ -1924,7 +1877,7 @@ mod tests {
         };
 
         let config = SyncWalletConfig::default();
-        let mut cursors: HashMap<CursorStream, ChainPosition> = HashMap::new();
+        let mut cursors: HashMap<CursorStream, Cursor> = HashMap::new();
 
         // First sync knows only the early tag, and advances past slot 50.
         let mut first = HashMap::new();
@@ -1943,7 +1896,7 @@ mod tests {
         assert_eq!(
             cursors
                 .get(&CursorStream::Tags(early))
-                .map(|position| position.slot),
+                .map(|position| position.slot()),
             Some(50),
             "the early tag should have advanced to the stream tip"
         );
@@ -1996,7 +1949,7 @@ mod tests {
         async fn get_encrypted_utxos_by_tags(
             &self,
             tags: Vec<ViewTag>,
-            after: Option<ChainPosition>,
+            after: Option<Cursor>,
             limit: Option<u32>,
             config: Option<IndexerRpcConfig>,
         ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
@@ -2006,7 +1959,7 @@ mod tests {
         async fn get_shielded_transactions_by_tags(
             &self,
             tags: Vec<ViewTag>,
-            after: Option<ChainPosition>,
+            after: Option<Cursor>,
             limit: Option<u32>,
             config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
@@ -2016,7 +1969,7 @@ mod tests {
         async fn get_shielded_transactions_by_nullifiers(
             &self,
             nullifiers: Vec<ViewTag>,
-            after: Option<ChainPosition>,
+            after: Option<Cursor>,
             limit: Option<u32>,
             config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
@@ -2036,7 +1989,7 @@ mod tests {
         async fn get_encrypted_utxos_by_tags(
             &self,
             tags: Vec<ViewTag>,
-            after: Option<ChainPosition>,
+            after: Option<Cursor>,
             limit: Option<u32>,
             config: Option<IndexerRpcConfig>,
         ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
@@ -2046,7 +1999,7 @@ mod tests {
         async fn get_shielded_transactions_by_tags(
             &self,
             tags: Vec<ViewTag>,
-            after: Option<ChainPosition>,
+            after: Option<Cursor>,
             limit: Option<u32>,
             config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
@@ -2056,7 +2009,7 @@ mod tests {
         async fn get_shielded_transactions_by_nullifiers(
             &self,
             nullifiers: Vec<ViewTag>,
-            after: Option<ChainPosition>,
+            after: Option<Cursor>,
             limit: Option<u32>,
             config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {

@@ -25,7 +25,7 @@ use sea_orm_migration::MigratorTrait;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use zolana_indexer_api::{
-    ChainPosition, GetRingsByTagsRequest, GetShieldedTransactionsBySignatureRequest,
+    Cursor, GetRingsByTagsRequest, GetShieldedTransactionsBySignatureRequest,
     GetShieldedTransactionsByTagsResponse, Hash, Limit, SerializableSignature,
 };
 use zolana_interface::pda;
@@ -56,7 +56,7 @@ pub struct LookupCost {
 pub struct Page {
     pub signatures: Vec<Signature>,
     pub hydrated: usize,
-    pub next: Option<ChainPosition>,
+    pub next: Option<Cursor>,
 }
 
 pub fn signature_at(index: u64) -> Signature {
@@ -83,7 +83,7 @@ pub async fn fresh_rings_database() -> DatabaseConnection {
 /// derived from that endpoint reporting no next position rather than assumed.
 pub async fn resolve<F, Fut>(target: Signature, mut fetch: F) -> LookupCost
 where
-    F: FnMut(Option<ChainPosition>) -> Fut,
+    F: FnMut(Option<Cursor>) -> Fut,
     Fut: Future<Output = Page>,
 {
     let mut cost = LookupCost {
@@ -137,12 +137,13 @@ pub async fn resolve_by_tags(
         let page = tag_page(db, view_tag, after, page_limit).await;
         Page {
             signatures: page
-                .transactions
+                .items
                 .iter()
+                .flat_map(|item| &item.events)
                 .map(|item| item.tx_signature.0)
                 .collect(),
-            hydrated: page.transactions.len(),
-            next: page.next,
+            hydrated: page.items.iter().flat_map(|item| &item.events).count(),
+            next: page.cursor,
         }
     })
     .await
@@ -151,12 +152,13 @@ pub async fn resolve_by_tags(
 pub async fn tag_page(
     db: &DatabaseConnection,
     view_tag: [u8; 32],
-    after: Option<ChainPosition>,
+    after: Option<Cursor>,
     page_limit: u64,
 ) -> GetShieldedTransactionsByTagsResponse {
     get_shielded_transactions_by_tags(
         db,
         GetRingsByTagsRequest {
+            min_context_slot: None,
             tags: vec![Hash::from(view_tag)],
             after,
             limit: Some(Limit::new(page_limit).expect("page limit is within the shared bounds")),

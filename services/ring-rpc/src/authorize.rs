@@ -329,6 +329,7 @@ mod tests {
                 timestamp: auth.timestamp,
                 nonce: &nonce,
                 after: None,
+                min_context_slot: None,
                 limit: None,
             },
         )

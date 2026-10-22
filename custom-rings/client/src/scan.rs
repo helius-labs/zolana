@@ -21,7 +21,7 @@ use std::{
 use zolana_keypair::{X25519Keypair, X25519Pubkey};
 
 use solana_signature::Signature;
-use zolana_client::{rpc::ChainPosition, IndexerRpcConfig, Rpc};
+use zolana_client::{rpc::Cursor, IndexerRpcConfig, Rpc};
 use zolana_transaction::{AssetRegistry, ShieldedTransaction};
 
 use crate::{
@@ -44,12 +44,12 @@ impl<I, O> Copy for RingEnvironment<'_, I, O> {}
 
 pub struct RingScanPage {
     pub transactions: Vec<ShieldedTransaction>,
-    pub next: Option<ChainPosition>,
+    pub next: Option<Cursor>,
 }
 
 pub struct AuditedPage {
     pub transactions: Vec<AuditedTransaction>,
-    pub next: Option<ChainPosition>,
+    pub next: Option<Cursor>,
 }
 
 #[must_use = "run or discard the scan explicitly"]
@@ -60,7 +60,7 @@ pub struct AuditedPage {
 pub struct RingScan<'a> {
     ring_program_id: solana_address::Address,
     auditor_key: &'a X25519Pubkey,
-    after: Option<ChainPosition>,
+    after: Option<Cursor>,
     page_size: NonZeroU32,
     max_pages: NonZeroUsize,
     indexer_config: Option<IndexerRpcConfig>,
@@ -72,7 +72,7 @@ pub struct RingAudit<'a> {
     ring_program_id: solana_address::Address,
     auditor: &'a X25519Keypair,
     mode: RingMode,
-    after: Option<ChainPosition>,
+    after: Option<Cursor>,
     page_size: NonZeroU32,
     max_pages: NonZeroUsize,
     indexer_config: Option<IndexerRpcConfig>,
@@ -100,7 +100,7 @@ impl<'a> RingScan<'a> {
     }
 
     #[must_use = "use the updated scan"]
-    pub fn with_after(mut self, after: ChainPosition) -> Self {
+    pub fn with_after(mut self, after: Cursor) -> Self {
         self.after = Some(after);
         self
     }
@@ -146,7 +146,7 @@ impl<'a> RingScan<'a> {
                 Some(self.page_size.get()),
                 self.indexer_config,
             )?;
-            for tx in page.transactions {
+            for tx in page.items.into_iter().flat_map(|item| item.events) {
                 if tx.ring_program_id != Some(self.ring_program_id) {
                     continue;
                 }
@@ -175,7 +175,7 @@ impl<'a> RingScan<'a> {
                     transactions.push(tx);
                 }
             }
-            let Some(next) = page.next else {
+            let Some(next) = page.cursor.filter(|_| page.has_more) else {
                 return Ok(RingScanPage {
                     transactions,
                     next: None,
@@ -214,7 +214,7 @@ impl<'a> RingAudit<'a> {
     }
 
     #[must_use = "use the updated audit"]
-    pub fn with_after(mut self, after: ChainPosition) -> Self {
+    pub fn with_after(mut self, after: Cursor) -> Self {
         self.after = Some(after);
         self
     }

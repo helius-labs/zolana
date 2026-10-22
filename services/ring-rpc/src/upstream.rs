@@ -20,7 +20,7 @@ use solana_rpc_client_api::{
 use solana_signature::Signature;
 use zolana_api::ZolanaApi;
 use zolana_client::{
-    rpc::ChainPosition, AsyncRpc, AsyncSolanaRpc, AsyncZolanaIndexer, ClientError,
+    rpc::Cursor, AsyncRpc, AsyncSolanaRpc, AsyncZolanaIndexer, ClientError,
     GetShieldedTransactionsByTagsResponse,
 };
 use zolana_interface::{
@@ -81,8 +81,9 @@ pub trait TransactionSource: Send + Sync {
 #[must_use]
 pub struct TransactionPage {
     pub tag: [u8; 32],
-    pub after: Option<ChainPosition>,
+    pub after: Option<Cursor>,
     pub limit: NonZeroU32,
+    pub min_context_slot: Option<u64>,
 }
 
 #[derive(Clone, Copy)]
@@ -180,7 +181,9 @@ impl TransactionSource for ChainSource {
             vec![request.tag],
             request.after,
             Some(request.limit.get()),
-            None,
+            request
+                .min_context_slot
+                .map(zolana_client::IndexerRpcConfig::at_slot),
         )
     }
 

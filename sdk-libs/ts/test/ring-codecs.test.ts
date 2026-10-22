@@ -1,3 +1,4 @@
+import { ringPage } from "./helpers/pages.js";
 import { X25519PublicKey, X25519Keypair } from "../src/keypair/x25519.js";
 import { ringDepositInstruction } from "../src/ring/deposit-instruction.js";
 import { ed25519 } from "@noble/curves/ed25519.js";
@@ -1330,8 +1331,8 @@ describe("signed ring request validation", () => {
       { after: { slot: 3, signature: signatureOf(2) } },
       "RING_READ_AFTER",
     ],
-    ["a zero limit", { limit: 0n }, "RING_READ_LIMIT"],
-    ["a limit over the page cap", { limit: 101n }, "RING_READ_LIMIT"],
+    ["a zero limit", { limit: 0 }, "RING_READ_LIMIT"],
+    ["a limit over the page cap", { limit: 101 }, "RING_READ_LIMIT"],
     ["a negative timestamp", { timestamp: -1n }, "RING_RPC"],
     ["a timestamp past the safe range", { timestamp: 1n << 53n }, "RING_RPC"],
     ["a short ed25519 signature", { signature: filled(1, 63) }, "RING_RPC"],
@@ -1409,10 +1410,12 @@ describe("signed ring request validation", () => {
   });
 
   it("accepts a well-formed signed read and a webauthn signature", async () => {
-    const { fetch } = capturingFetch({
-      context: { slot: 1, blockTime: 1 },
-      value: { items: [], skipped: [] },
-    });
+    const { fetch } = capturingFetch(
+      ringPage({
+        context: { slot: 1, blockTime: 1 },
+        value: { items: [], skipped: [] },
+      }),
+    );
     const rpc = new RingRpc("http://ring.example", { fetch, allowInsecureHttp: true });
     await rpc.readSigned(signedRead());
     await rpc.readSigned(signedRead({ signature: WEBAUTHN }));
@@ -1907,15 +1910,11 @@ describe("ring read attestation", () => {
       ringProgramId: addressOf(7),
       timestamp: 1_700_000_000n,
       nonce: filled(4, 32) as Bytes32,
-      after: {
-        slot: 3n,
-        signature:
-          "2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6ijwfYmfZYsKRxboQMPh3R4kUhXRVdtSXFXMheka4Rc4P2" as Signature,
-      },
-      limit: 5n,
+      after: `1:${3n}:${"2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6ijwfYmfZYsKRxboQMPh3R4kUhXRVdtSXFXMheka4Rc4P2" as Signature}`,
+      limit: 5,
     });
     expect(new TextDecoder().decode(message)).toBe(
-      "zolana/ring-rpc-read/v1\nring: US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx\ntimestamp: 1700000000\nnonce: BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=\nlimit: 5\nafter: 3:2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6ijwfYmfZYsKRxboQMPh3R4kUhXRVdtSXFXMheka4Rc4P2",
+      "zolana/ring-rpc-read/v2\nring: US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx\ntimestamp: 1700000000\nnonce: BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=\nlimit: 5\nafter: 1:3:2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6ijwfYmfZYsKRxboQMPh3R4kUhXRVdtSXFXMheka4Rc4P2\nmin-context-slot: 0",
     );
   });
 
@@ -1938,30 +1937,24 @@ describe("ring read attestation", () => {
       nonce: filled(4, 32) as Bytes32,
     });
     expect(new TextDecoder().decode(message)).toBe(
-      "zolana/ring-rpc-read/v1\nring: US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx\ntimestamp: 1\nnonce: BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=\nlimit: 0\nafter: ",
+      "zolana/ring-rpc-read/v2\nring: US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx\ntimestamp: 1\nnonce: BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=\nlimit: 0\nafter: \nmin-context-slot: 0",
     );
   });
 
   it("bounds the after shape and the limit like Rust `ReadRequest`", () => {
-    const malformedAfter: unknown = {
-      slot: 3,
-      signature:
-        "2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6ijwfYmfZYsKRxboQMPh3R4kUhXRVdtSXFXMheka4Rc4P2",
-    };
+    const malformedAfter: unknown = { slot: 3, signature: signatureOf(2) };
     const request = RingReadRequest.read(addressOf(7));
     expect(() =>
       request.withAfter(malformedAfter as Parameters<typeof request.withAfter>[0]),
     ).toThrow("RING_READ_AFTER");
-    expect(() => request.withLimit(0n)).toThrow("RING_READ_LIMIT");
-    expect(() => request.withLimit(101n)).toThrow("RING_READ_LIMIT");
+    expect(() => request.withLimit(0)).toThrow("RING_READ_LIMIT");
+    expect(() => request.withLimit(101)).toThrow("RING_READ_LIMIT");
     expect(
       request
-        .withAfter({
-          slot: 3n,
-          signature:
-            "2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6ijwfYmfZYsKRxboQMPh3R4kUhXRVdtSXFXMheka4Rc4P2" as Signature,
-        })
-        .withLimit(100n),
+        .withAfter(
+          `1:${3n}:${"2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6ijwfYmfZYsKRxboQMPh3R4kUhXRVdtSXFXMheka4Rc4P2" as Signature}`,
+        )
+        .withLimit(100),
     ).toBe(request);
   });
 });
@@ -1995,7 +1988,7 @@ describe("ring read request", () => {
         JSON.stringify({
           jsonrpc: "2.0",
           id: 1,
-          result: {
+          result: ringPage({
             context: { blockTime: 1_700_000_000, slot: 9 },
             value: {
               items: [
@@ -2040,9 +2033,9 @@ describe("ring read request", () => {
                 },
               ],
               skipped: [{ slot: 7, txSignature: signatureOf(2), reason: "invalidAuditData" }],
-              next: { slot: 4, signature: signatureOf(2) },
+              next: `1:8:${signatureOf(1)}`,
             },
-          },
+          }),
         }).replace('"__U64_MAX__"', "18446744073709551615"),
         JSON_HEADERS,
       );
@@ -2053,21 +2046,17 @@ describe("ring read request", () => {
     }).getDecryptedTransactions({
       ringProgramId: addressOf(7),
       signer: reader,
-      after: {
-        slot: 3n,
-        signature:
-          "2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6ijwfYmfZYsKRxboQMPh3R4kUhXRVdtSXFXMheka4Rc4P2" as Signature,
-      },
-      limit: 5n,
+      after: `1:${3n}:${"2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6ijwfYmfZYsKRxboQMPh3R4kUhXRVdtSXFXMheka4Rc4P2" as Signature}`,
+      limit: 5,
       timestamp: 1_700_000_000n,
     });
-    expect(page.slot).toBe(9n);
-    expect(page.blockTime).toBe(1_700_000_000n);
-    expect(page.next).toEqual({ slot: 4n, signature: signatureOf(2) });
-    expect(page.skipped).toEqual([
+    expect(page.context.slot).toBe(9n);
+    expect(page.context.blockTime).toBe(1_700_000_000n);
+    expect(page.cursor).toEqual(`1:8:${signatureOf(1)}`);
+    expect(page.items.flatMap((item) => item.skipped)).toEqual([
       { slot: 7n, signature: signatureOf(2), reason: "invalidAuditData" },
     ]);
-    const item = page.items[0];
+    const item = page.items.flatMap((item) => item.events)[0];
     expect(item?.slot).toBe(8n);
     expect(item?.txViewingPublicKey.toBytes()).toEqual(hex(X25519_HEX));
     expect(item?.undecryptableSlots).toEqual([0]);
@@ -2109,11 +2098,9 @@ describe("ring read request", () => {
     const nonce = Buffer.from(auth["nonce"] as string, "base64");
     expect(nonce).toHaveLength(32);
     expect(params["ringProgramId"]).toBe(addressOf(7));
-    expect(params["after"]).toEqual({
-      slot: 3,
-      signature:
-        "2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6ijwfYmfZYsKRxboQMPh3R4kUhXRVdtSXFXMheka4Rc4P2",
-    });
+    expect(params["after"]).toEqual(
+      `1:${3}:${"2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6ijwfYmfZYsKRxboQMPh3R4kUhXRVdtSXFXMheka4Rc4P2"}`,
+    );
     expect(params["limit"]).toBe(5);
     expect(new TextDecoder().decode(seen[0])).toBe(
       new TextDecoder().decode(
@@ -2121,12 +2108,8 @@ describe("ring read request", () => {
           ringProgramId: addressOf(7),
           timestamp: 1_700_000_000n,
           nonce: Uint8Array.from(nonce) as Bytes32,
-          after: {
-            slot: 3n,
-            signature:
-              "2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6ijwfYmfZYsKRxboQMPh3R4kUhXRVdtSXFXMheka4Rc4P2" as Signature,
-          },
-          limit: 5n,
+          after: `1:${3n}:${"2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6ijwfYmfZYsKRxboQMPh3R4kUhXRVdtSXFXMheka4Rc4P2" as Signature}`,
+          limit: 5,
         }),
       ),
     );
@@ -2139,7 +2122,7 @@ describe("ring read request", () => {
         JSON.stringify({
           jsonrpc: "2.0",
           id: 1,
-          result: {
+          result: ringPage({
             context: { blockTime: 1_700_000_000, slot: 9 },
             value: {
               items: [
@@ -2165,7 +2148,7 @@ describe("ring read request", () => {
               ],
               skipped: [],
             },
-          },
+          }),
         }),
         JSON_HEADERS,
       )) as typeof globalThis.fetch;
@@ -2178,8 +2161,13 @@ describe("ring read request", () => {
       signer: reader,
     });
 
-    expect(page.items[0]?.outputs[0]?.ownerTag).toEqual(filled(11, 32));
-    expect(page.items[0]?.signers).toEqual([addressOf(11), addressOf(12)]);
+    expect(page.items.flatMap((item) => item.events)[0]?.outputs[0]?.ownerTag).toEqual(
+      filled(11, 32),
+    );
+    expect(page.items.flatMap((item) => item.events)[0]?.signers).toEqual([
+      addressOf(11),
+      addressOf(12),
+    ]);
   });
 
   const withdrawalPage = (withdrawals: readonly Record<string, unknown>[], anonymous?: unknown) =>
@@ -2188,7 +2176,7 @@ describe("ring read request", () => {
         JSON.stringify({
           jsonrpc: "2.0",
           id: 1,
-          result: {
+          result: ringPage({
             context: { blockTime: 1_700_000_000, slot: 9 },
             value: {
               items: [
@@ -2207,7 +2195,7 @@ describe("ring read request", () => {
               ],
               skipped: [],
             },
-          },
+          }),
         }),
         JSON_HEADERS,
       )) as typeof globalThis.fetch;
@@ -2238,7 +2226,7 @@ describe("ring read request", () => {
         fetch: withdrawalPage([], trace),
         allowInsecureHttp: true,
       }).getDecryptedTransactions({ ringProgramId: addressOf(7), signer: await anyReader() });
-      expect(page.items[0]?.anonymous).toEqual({
+      expect(page.items.flatMap((item) => item.events)[0]?.anonymous).toEqual({
         sender: addressOf(21),
         inputs: [{ treeId: 65535, amount: 18446744073709551615n, asset: filled(22, 32) }],
         recipients: [
@@ -2291,7 +2279,7 @@ describe("ring read request", () => {
       signer: await anyReader(),
     });
 
-    expect(page.items[0]?.withdrawals).toEqual([
+    expect(page.items.flatMap((item) => item.events)[0]?.withdrawals).toEqual([
       { recipient: addressOf(31), asset: addressOf(13), amount: 5n },
       { recipient: addressOf(32), asset: solMint, amount: 6n },
     ]);
@@ -2304,7 +2292,7 @@ describe("ring read request", () => {
           JSON.stringify({
             jsonrpc: "2.0",
             id: 1,
-            result: {
+            result: ringPage({
               context: { blockTime: 1_700_000_000, slot: 9 },
               value: {
                 items: [
@@ -2322,7 +2310,7 @@ describe("ring read request", () => {
                 ],
                 skipped: [],
               },
-            },
+            }),
           }),
           JSON_HEADERS,
         )) as typeof globalThis.fetch;
@@ -2365,7 +2353,10 @@ describe("ring read request", () => {
         JSON.stringify({
           jsonrpc: "2.0",
           id: 1,
-          result: { context: { blockTime: 0, slot: 1 }, value: { items: [], skipped: [] } },
+          result: ringPage({
+            context: { blockTime: 0, slot: 1 },
+            value: { items: [], skipped: [] },
+          }),
         }),
         JSON_HEADERS,
       );
@@ -2386,7 +2377,7 @@ describe("ring read request", () => {
       ringProgramId: addressOf(7),
       signer,
     });
-    expect(page.next).toBeUndefined();
+    expect(page.cursor).toBeNull();
     const params = bodies[0]?.["params"] as Record<string, unknown>;
     expect(Object.keys(params).sort()).toEqual(["auth", "ringProgramId"]);
     const auth = params["auth"] as Record<string, unknown>;

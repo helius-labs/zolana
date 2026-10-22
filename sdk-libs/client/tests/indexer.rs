@@ -15,7 +15,7 @@ use solana_signature::Signature;
 use zolana_client::{
     indexer::{AsyncZolanaIndexer, ZolanaIndexer},
     rpc::{
-        AsyncRpc, ChainPosition, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
+        AsyncRpc, Context, Cursor, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
         GetMerkleProofsResponse, GetNonInclusionProofsResponse,
         GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsByTagsResponse,
         GetUserRecordsResponse, MerkleContext, MerkleProof, NonInclusionProof, OutputContext,
@@ -70,9 +70,9 @@ fn get_encrypted_utxos_by_tags_encodes_request_and_decodes_matches() {
     let signature = signature(9);
     let (tx_viewing_pk_bytes, tx_viewing_pk) = tagged_x25519_pubkey(3);
     let response = rpc_result(json!({
-        "context": { "blockTime": 42, "slot": 1 },
+        "context": { "blockTime": 42, "slot": 7 },
         "outputTreeId": 6,
-        "matches": [{
+        "items": [{ "slot": 7, "signature": signature.to_string(), "outputs": [{
             "slot": 7,
             "txSignature": signature.to_string(),
             "outputSlot": {
@@ -86,8 +86,8 @@ fn get_encrypted_utxos_by_tags_encodes_request_and_decodes_matches() {
                 "payload": STANDARD.encode([8, 9, 10]),
             },
             "txViewingPk": STANDARD.encode(&tx_viewing_pk_bytes),
-        }],
-        "next": { "slot": 7, "signature": position(7, 6).signature.to_string() },
+        }]}],
+        "cursor": position(7, 9).to_string(), "hasMore": true,
     }));
     let server = MockServer::respond_once(response);
     let indexer = ZolanaIndexer::new(server.url());
@@ -103,7 +103,7 @@ fn get_encrypted_utxos_by_tags_encodes_request_and_decodes_matches() {
         request.body["params"],
         json!({
             "tags": [encode_hash_string(tag_a), encode_hash_string(tag_b)],
-            "after": { "slot": 3, "signature": position(3, 1).signature.to_string() },
+            "after": position(3, 1).to_string(),
             "limit": 7,
         })
     );
@@ -112,26 +112,29 @@ fn get_encrypted_utxos_by_tags_encodes_request_and_decodes_matches() {
         GetEncryptedUtxosByTagsResponse {
             context: Context {
                 block_time: 42,
-                slot: 1
+                slot: 7
             },
             output_tree_id: Some(6),
-            matches: vec![EncryptedUtxoMatch {
-                slot: 7,
-                tx_signature: signature,
-                output_slot: OutputSlot {
-                    view_tag: tag_a,
-                    output_context: OutputContext {
-                        hash: utxo_hash,
-                        tree_id: output_tree_id,
-                        leaf_index: 11,
+            items: zolana_client::rpc::TransactionOutputs::group(
+                vec![EncryptedUtxoMatch {
+                    slot: 7,
+                    tx_signature: signature,
+                    output_slot: OutputSlot {
+                        view_tag: tag_a,
+                        output_context: OutputContext {
+                            hash: utxo_hash,
+                            tree_id: output_tree_id,
+                            leaf_index: 11,
+                        },
+                        payload: vec![8, 9, 10],
                     },
-                    payload: vec![8, 9, 10],
-                },
-                tx_viewing_pk: Some(tx_viewing_pk),
-                salt: None,
-            }],
-            next: Some(position(7, 6)),
-            latest: None,
+                    tx_viewing_pk: Some(tx_viewing_pk),
+                    salt: None,
+                }],
+                |event| (event.slot, event.tx_signature)
+            ),
+            cursor: Some(position(7, 9)),
+            has_more: true,
         }
     );
 }
@@ -144,9 +147,10 @@ fn get_shielded_transactions_by_tags_maps_output_hashes_and_nullifiers() {
     let nullifier = bytes32(13);
     let signature = signature(14);
     let response = rpc_result(json!({
-        "context": { "blockTime": 51, "slot": 1 },
+        "context": { "blockTime": 51, "slot": 50 },
         "outputTreeId": 2,
-        "transactions": [{
+        "items": [{ "slot": 50, "signature": signature.to_string(), "events": [{
+            "eventIndex": 0,
             "slot": 50,
             "txSignature": signature.to_string(),
             "txViewingPk": null,
@@ -163,8 +167,8 @@ fn get_shielded_transactions_by_tags_maps_output_hashes_and_nullifiers() {
             "messages": [],
             "nullifiers": [encode_hash_string(nullifier)],
             "proofless": true,
-        }],
-        "next": { "slot": 50, "signature": position(50, 14).signature.to_string() },
+        }]}],
+        "cursor": position(50, 14).to_string(), "hasMore": true,
     }));
     let server = MockServer::respond_once(response);
     let indexer = ZolanaIndexer::new(server.url());
@@ -188,32 +192,35 @@ fn get_shielded_transactions_by_tags_maps_output_hashes_and_nullifiers() {
         GetShieldedTransactionsByTagsResponse {
             context: Context {
                 block_time: 51,
-                slot: 1
+                slot: 50
             },
             output_tree_id: Some(2),
-            transactions: vec![ShieldedTransaction {
-                slot: 50,
-                tx_signature: signature,
-                event_index: None,
-                tx_viewing_pk: None,
-                salt: None,
-                output_slots: vec![OutputSlot {
-                    view_tag: tag,
-                    output_context: OutputContext {
-                        hash: output_hash,
-                        tree_id: output_tree_id,
-                        leaf_index: 16,
-                    },
-                    payload: vec![21, 22],
+            items: zolana_client::rpc::TransactionEvents::group(
+                vec![ShieldedTransaction {
+                    slot: 50,
+                    tx_signature: signature,
+                    event_index: Some(0),
+                    tx_viewing_pk: None,
+                    salt: None,
+                    output_slots: vec![OutputSlot {
+                        view_tag: tag,
+                        output_context: OutputContext {
+                            hash: output_hash,
+                            tree_id: output_tree_id,
+                            leaf_index: 16,
+                        },
+                        payload: vec![21, 22],
+                    }],
+                    nullifiers: vec![nullifier],
+                    proofless: true,
+                    messages: vec![],
+                    ring_config: None,
+                    ring_program_id: None,
                 }],
-                nullifiers: vec![nullifier],
-                proofless: true,
-                messages: vec![],
-                ring_config: None,
-                ring_program_id: None,
-            }],
-            next: Some(position(50, 14)),
-            latest: None,
+                |event| (event.slot, event.tx_signature)
+            ),
+            cursor: Some(position(50, 14)),
+            has_more: true,
         }
     );
 }
@@ -264,9 +271,8 @@ fn get_shielded_transactions_by_nullifiers_uses_dedicated_rpc() {
     let nullifier_a = bytes32(24);
     let nullifier_b = bytes32(25);
     let response = rpc_result(json!({
-        "context": { "blockTime": 52, "slot": 1 },
-        "transactions": [],
-        "latest": { "slot": 9, "signature": position(9, 2).signature.to_string() },
+        "context": { "blockTime": 52, "slot": 9 },
+        "items": [], "cursor": position(9, 2).to_string(), "hasMore": false,
     }));
     let server = MockServer::respond_once(response);
     let indexer = ZolanaIndexer::new(server.url());
@@ -290,7 +296,7 @@ fn get_shielded_transactions_by_nullifiers_uses_dedicated_rpc() {
                 encode_hash_string(nullifier_a),
                 encode_hash_string(nullifier_b)
             ],
-            "after": { "slot": 2, "signature": position(2, 1).signature.to_string() },
+            "after": position(2, 1).to_string(),
             "limit": 3,
         })
     );
@@ -299,14 +305,14 @@ fn get_shielded_transactions_by_nullifiers_uses_dedicated_rpc() {
         GetShieldedTransactionsByNullifiersResponse {
             context: Context {
                 block_time: 52,
-                slot: 1
+                slot: 9
             },
             // An indexer that has not synced tree metadata omits the
             // field rather than naming a tree it cannot vouch for.
             output_tree_id: None,
-            transactions: vec![],
-            next: None,
-            latest: Some(position(9, 2)),
+            items: Vec::new(),
+            cursor: Some(position(9, 2)),
+            has_more: false,
         }
     );
 }
@@ -558,7 +564,8 @@ fn rejects_malformed_output_slot_hash() {
     let tag = bytes32(51);
     let response = rpc_result(json!({
         "context": { "blockTime": 1, "slot": 1 },
-        "transactions": [{
+        "items": [{ "slot": 1, "signature": signature(52).to_string(), "events": [{
+            "eventIndex": 0,
             "slot": 1,
             "txSignature": signature(52).to_string(),
             "txViewingPk": null,
@@ -575,7 +582,7 @@ fn rejects_malformed_output_slot_hash() {
             "messages": [],
             "nullifiers": [],
             "proofless": true,
-        }],
+        }]}], "cursor": position(1, 52).to_string(), "hasMore": false,
     }));
     let server = MockServer::respond_once(response);
     let indexer = ZolanaIndexer::new(server.url());
@@ -587,7 +594,7 @@ fn rejects_malformed_output_slot_hash() {
 
     let message = err.to_string();
     assert!(message.contains("wrong size"));
-    assert!(message.contains("result.transactions[0].outputSlots[0].outputContext.hash"));
+    assert!(message.contains("result.items[0].events[0].outputSlots[0].outputContext.hash"));
 }
 
 #[test]
@@ -794,11 +801,8 @@ fn signature(value: u8) -> Signature {
     Signature::from([value; 64])
 }
 
-fn position(slot: u64, byte: u8) -> ChainPosition {
-    ChainPosition {
-        slot,
-        signature: signature(byte),
-    }
+fn position(slot: u64, byte: u8) -> Cursor {
+    Cursor::new(slot, signature(byte))
 }
 
 fn encode_hash_string(hash: [u8; 32]) -> String {

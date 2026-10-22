@@ -1,3 +1,6 @@
+import type { Page } from "../client/rpc.js";
+import { checkedCursor } from "../interface/cursor.js";
+import { validatePage } from "../interface/page.js";
 import { ed25519 } from "@noble/curves/ed25519.js";
 import {
   createSignableMessage,
@@ -11,8 +14,9 @@ import type {
   Bytes32,
   Bytes33,
   Bytes64,
-  ChainPosition,
+  Cursor,
   RequestContext,
+  PageOptions,
   Signature,
 } from "../interface/types.js";
 import { RING_VELOCITY_SLOTS } from "../client/prover/types.js";
@@ -55,11 +59,11 @@ export interface WebAuthnSignature {
   readonly clientDataJSON: Uint8Array;
 }
 
-const READ_DOMAIN = "zolana/ring-rpc-read/v1";
+const READ_DOMAIN = "zolana/ring-rpc-read/v2";
 const AUDITOR_KEY_DOMAIN = "zolana/ring-auditor-key/v1";
 const AUDITOR_KEY_REQUEST_DOMAIN = "zolana/ring-rpc-auditor-key-request/v1";
 /** Rust `AUDIT_PAGE_LIMIT`. */
-export const RING_READ_PAGE_LIMIT = 100n;
+export const RING_READ_PAGE_LIMIT = 100;
 
 /** Mirrors Rust `ReadAttestation::bytes`. */
 export function ringReadAttestation(
@@ -67,19 +71,21 @@ export function ringReadAttestation(
     ringProgramId: Address;
     timestamp: bigint;
     nonce: Bytes32;
-    after?: ChainPosition;
-    limit?: bigint;
+    after?: Cursor;
+    minContextSlot?: bigint;
+    limit?: number;
   }>,
 ): Uint8Array {
-  const after = input.after === undefined ? "" : `${input.after.slot}:${input.after.signature}`;
+  const after = input.after ?? "";
   return encoder.encode(
     [
       READ_DOMAIN,
       `ring: ${input.ringProgramId}`,
       `timestamp: ${input.timestamp}`,
       `nonce: ${base64Decoder.decode(input.nonce)}`,
-      `limit: ${input.limit ?? 0n}`,
+      `limit: ${input.limit ?? 0}`,
       `after: ${after}`,
+      `min-context-slot: ${input.minContextSlot ?? 0n}`,
     ].join("\n"),
   );
 }
@@ -129,8 +135,9 @@ export function messageSignerReader(signer: MessagePartialSigner): RingReadSigne
 /** Mirrors Rust `GetDecryptedTransactionsRequest` after `ReadRequest::sign`. */
 export interface SignedRingRead {
   readonly ringProgramId: Address;
-  readonly after?: ChainPosition;
-  readonly limit?: bigint;
+  readonly after?: Cursor;
+  readonly minContextSlot?: bigint;
+  readonly limit?: number;
   readonly reader: Uint8Array;
   readonly timestamp: bigint;
   readonly nonce: Bytes32;
@@ -141,8 +148,9 @@ export interface SignedRingRead {
 export class RingReadRequest {
   readonly #ringProgramId: Address;
   readonly #nonce: Bytes32;
-  #after?: ChainPosition;
-  #limit?: bigint;
+  #after?: Cursor;
+  #minContextSlot?: bigint;
+  #limit?: number;
   #timestamp?: bigint;
 
   private constructor(ringProgramId: Address) {
@@ -154,12 +162,17 @@ export class RingReadRequest {
     return new RingReadRequest(ringProgramId);
   }
 
-  withAfter(after: ChainPosition): this {
+  withAfter(after: Cursor): this {
     this.#after = checkedReadAfter(after);
     return this;
   }
 
-  withLimit(limit: bigint): this {
+  withMinContextSlot(slot: bigint): this {
+    this.#minContextSlot = checkedUnixTimestamp(slot, "minContextSlot");
+    return this;
+  }
+
+  withLimit(limit: number): this {
     this.#limit = checkedReadLimit(limit);
     return this;
   }
@@ -179,12 +192,14 @@ export class RingReadRequest {
         nonce: this.#nonce,
         ...(this.#after === undefined ? {} : { after: this.#after }),
         ...(this.#limit === undefined ? {} : { limit: this.#limit }),
+        ...(this.#minContextSlot === undefined ? {} : { minContextSlot: this.#minContextSlot }),
       }),
     );
     return Object.freeze({
       ringProgramId: this.#ringProgramId,
       ...(this.#after === undefined ? {} : { after: this.#after }),
       ...(this.#limit === undefined ? {} : { limit: this.#limit }),
+      ...(this.#minContextSlot === undefined ? {} : { minContextSlot: this.#minContextSlot }),
       reader: signer.reader,
       timestamp,
       nonce: this.#nonce,
@@ -361,14 +376,13 @@ export interface SkippedRingTransaction {
   readonly reason: SkippedReason;
 }
 
-export interface DecryptedRingTransactionsPage {
+export interface DecryptedRingTransactionGroup {
   readonly slot: bigint;
-  readonly blockTime: bigint;
-  readonly items: readonly DecryptedRingTransaction[];
+  readonly signature: Signature;
+  readonly events: readonly DecryptedRingTransaction[];
   readonly skipped: readonly SkippedRingTransaction[];
-  /** Present only when the limit truncated the page. */
-  readonly next?: ChainPosition;
 }
+export type DecryptedRingTransactionsPage = Page<DecryptedRingTransactionGroup>;
 
 export interface RingRpcOptions {
   readonly fetch?: typeof globalThis.fetch;
@@ -552,18 +566,20 @@ export class RingRpc {
 
   /** Each page is signed again, the attestation binds the nonce, the position and the time. */
   async getDecryptedTransactions(
-    input: Readonly<{
-      ringProgramId: Address;
-      signer: RingReadSigner;
-      after?: ChainPosition;
-      limit?: bigint;
-      timestamp?: bigint;
-    }>,
+    input: Readonly<
+      PageOptions & {
+        ringProgramId: Address;
+        signer: RingReadSigner;
+        timestamp?: bigint;
+      }
+    >,
     context?: RequestContext,
   ): Promise<DecryptedRingTransactionsPage> {
     let request = RingReadRequest.read(input.ringProgramId);
     if (input.after !== undefined) request = request.withAfter(input.after);
     if (input.limit !== undefined) request = request.withLimit(input.limit);
+    if (input.minContextSlot !== undefined)
+      request = request.withMinContextSlot(input.minContextSlot);
     if (input.timestamp !== undefined) request = request.at(input.timestamp);
     return this.readSigned(await request.sign(input.signer), context);
   }
@@ -573,29 +589,31 @@ export class RingRpc {
     context?: RequestContext,
   ): Promise<DecryptedRingTransactionsPage> {
     const checked = checkedSignedRead(read);
-    const { signature } = checked;
-    const wire = record(
+    const { signature: readSignature } = checked;
+    const wire = exactResponseRecord(
       await this.#call(
         "getDecryptedTransactions",
         {
           ringProgramId: checked.ringProgramId,
-          ...(checked.after === undefined
-            ? {}
-            : { after: { slot: Number(checked.after.slot), signature: checked.after.signature } }),
+          ...(checked.after === undefined ? {} : { after: checked.after }),
           ...(checked.limit === undefined ? {} : { limit: Number(checked.limit) }),
+          ...(checked.minContextSlot === undefined
+            ? {}
+            : { minContextSlot: Number(checked.minContextSlot) }),
           auth: {
             reader: base64Decoder.decode(checked.reader),
             ...authWire({
               timestamp: checked.timestamp,
               nonce: checked.nonce,
-              signature: signature instanceof Uint8Array ? signature : signature.signature,
+              signature:
+                readSignature instanceof Uint8Array ? readSignature : readSignature.signature,
             }),
-            ...(signature instanceof Uint8Array
+            ...(readSignature instanceof Uint8Array
               ? {}
               : {
                   webauthn: {
-                    authenticatorData: base64Decoder.decode(signature.authenticatorData),
-                    clientDataJson: base64Decoder.decode(signature.clientDataJSON),
+                    authenticatorData: base64Decoder.decode(readSignature.authenticatorData),
+                    clientDataJson: base64Decoder.decode(readSignature.clientDataJSON),
                   },
                 }),
           },
@@ -603,27 +621,58 @@ export class RingRpc {
         context,
       ),
       "result",
+      ["context", "items", "cursor", "hasMore"],
     );
-    const wireContext = record(wire["context"], "result.context");
-    const value = record(wire["value"], "result.value");
-    const next = value["next"];
-    return Object.freeze({
-      slot: integer(wireContext["slot"], "result.context.slot"),
-      blockTime: signedInteger(wireContext["blockTime"], "result.context.blockTime"),
+    const wireContext = exactResponseRecord(wire["context"], "result.context", [
+      "slot",
+      "blockTime",
+    ]);
+    const cursor = wire["cursor"] === null ? null : decodeCursor(wire["cursor"], "result.cursor");
+    if (typeof wire["hasMore"] !== "boolean") throw invalid("result.hasMore");
+    const page = Object.freeze({
+      context: Object.freeze({
+        slot: integer(wireContext["slot"], "result.context.slot"),
+        blockTime: signedInteger(wireContext["blockTime"], "result.context.blockTime"),
+      }),
       items: Object.freeze(
-        list(value["items"], "result.value.items").map((item, index) =>
-          decodeTransaction(record(item, `result.value.items[${index}]`)),
-        ),
+        list(wire["items"], "result.items").map((item, index) => {
+          const path = `result.items[${index}]`;
+          const group = exactResponseRecord(item, path, ["slot", "signature", "events", "skipped"]);
+          const slot = integer(group["slot"], `${path}.slot`);
+          const groupSignature = signature(group["signature"], `${path}.signature`);
+          const events = Object.freeze(
+            list(group["events"], `${path}.events`).map((entry) =>
+              decodeTransaction(record(entry, `${path}.events`)),
+            ),
+          );
+          const skipped = Object.freeze(
+            list(group["skipped"], `${path}.skipped`).map((entry) =>
+              decodeSkipped(record(entry, `${path}.skipped`)),
+            ),
+          );
+          if (
+            events.length + skipped.length === 0 ||
+            [...events, ...skipped].some(
+              (event) => event.slot !== slot || event.signature !== groupSignature,
+            )
+          )
+            throw invalid(path);
+          return Object.freeze({ slot, signature: groupSignature, events, skipped });
+        }),
       ),
-      skipped: Object.freeze(
-        list(value["skipped"], "result.value.skipped").map((entry, index) =>
-          decodeSkipped(record(entry, `result.value.skipped[${index}]`)),
-        ),
-      ),
-      ...(next === undefined || next === null
-        ? {}
-        : { next: decodePosition(next, "result.value.next") }),
+      cursor,
+      hasMore: wire["hasMore"],
     });
+    try {
+      validatePage(page, {
+        ...(checked.after === undefined ? {} : { after: checked.after }),
+        limit: BigInt(checked.limit ?? RING_READ_PAGE_LIMIT),
+        ...(checked.minContextSlot === undefined ? {} : { minContextSlot: checked.minContextSlot }),
+      });
+    } catch {
+      throw invalid("result.cursor");
+    }
+    return page;
   }
 
   // `params` is the request object, not a positional list.
@@ -845,12 +894,23 @@ function invalid(path: string): RingError {
 const { record, list, string, address, signature, signedInteger, integer, base64, base58 } =
   wireDecoder(invalid);
 
-function decodePosition(value: unknown, path: string): ChainPosition {
-  const position = record(value, path);
-  return Object.freeze({
-    slot: integer(position["slot"], `${path}.slot`),
-    signature: signature(position["signature"], `${path}.signature`),
-  });
+function exactResponseRecord(
+  value: unknown,
+  path: string,
+  fields: readonly string[],
+): Record<string, unknown> {
+  const result = record(value, path);
+  if (Reflect.ownKeys(result).some((key) => typeof key !== "string" || !fields.includes(key)))
+    throw invalid(path);
+  return result;
+}
+
+function decodeCursor(value: unknown, path: string): Cursor {
+  try {
+    return checkedCursor(value);
+  } catch {
+    throw invalid(path);
+  }
 }
 
 function invalidRequest(field: string): RingError {
@@ -880,21 +940,21 @@ function requestBytes(value: unknown, length: number, field: string): Uint8Array
   return new Uint8Array(value);
 }
 
-function checkedReadAfter(after: unknown): ChainPosition {
-  if (
-    typeof after !== "object" ||
-    after === null ||
-    typeof (after as ChainPosition).slot !== "bigint" ||
-    typeof (after as ChainPosition).signature !== "string"
-  ) {
+function checkedReadAfter(after: unknown): Cursor {
+  try {
+    return checkedCursor(after);
+  } catch {
     throw new RingError("RING_READ_AFTER", { details: {} });
   }
-  const position = after as ChainPosition;
-  return Object.freeze({ slot: position.slot, signature: position.signature });
 }
 
-function checkedReadLimit(limit: unknown): bigint {
-  if (typeof limit !== "bigint" || limit < 1n || limit > RING_READ_PAGE_LIMIT) {
+function checkedReadLimit(limit: unknown): number {
+  if (
+    typeof limit !== "number" ||
+    !Number.isSafeInteger(limit) ||
+    limit < 1 ||
+    limit > RING_READ_PAGE_LIMIT
+  ) {
     throw new RingError("RING_READ_LIMIT", { details: { limit: String(limit) } });
   }
   return limit;
@@ -909,6 +969,7 @@ function checkedUnixTimestamp(value: unknown, field: string): bigint {
 }
 
 const SIGNED_READ_FIELDS = new Set([
+  "minContextSlot",
   "ringProgramId",
   "after",
   "limit",
@@ -960,6 +1021,10 @@ function checkedSignedRead(value: unknown): SignedRingRead {
   const ringProgramId = requestAddress(read["ringProgramId"], "ringProgramId");
   const reader = checkedReaderBytes(read["reader"]);
   const nonce = requestBytes(read["nonce"], 32, "nonce") as Bytes32;
+  const minContextSlot =
+    read["minContextSlot"] === undefined
+      ? undefined
+      : checkedUnixTimestamp(read["minContextSlot"], "minContextSlot");
   const after = read["after"] === undefined ? undefined : checkedReadAfter(read["after"]);
   const limit = read["limit"] === undefined ? undefined : checkedReadLimit(read["limit"]);
   const timestamp = checkedUnixTimestamp(read["timestamp"], "timestamp");
@@ -973,6 +1038,7 @@ function checkedSignedRead(value: unknown): SignedRingRead {
       signature: requestBytes(signature, 64, "signature"),
       ...(after === undefined ? {} : { after }),
       ...(limit === undefined ? {} : { limit }),
+      ...(minContextSlot === undefined ? {} : { minContextSlot }),
     });
   }
   const webauthn = exactRequestRecord(signature, WEBAUTHN_FIELDS, WEBAUTHN_FIELDS, "signature");
@@ -999,6 +1065,7 @@ function checkedSignedRead(value: unknown): SignedRingRead {
     }),
     ...(after === undefined ? {} : { after }),
     ...(limit === undefined ? {} : { limit }),
+    ...(minContextSlot === undefined ? {} : { minContextSlot }),
   });
 }
 

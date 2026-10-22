@@ -42,12 +42,12 @@ pub(crate) fn collect_tagged<I: Rpc, T>(
         let page = indexer
             .get_shielded_transactions_by_tags(vec![owner_tag], after, None, None)
             .map_err(err)?;
-        for tx in &page.transactions {
+        for tx in page.items.iter().flat_map(|item| &item.events) {
             if let Some(item) = scan(tx)? {
                 found.push(item);
             }
         }
-        let Some(next) = page.next else {
+        let Some(next) = page.cursor.filter(|_| page.has_more) else {
             return Ok(found);
         };
         after = Some(next);

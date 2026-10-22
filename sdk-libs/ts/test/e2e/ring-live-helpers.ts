@@ -107,7 +107,9 @@ export async function waitForAudited(
       ringProgramId,
       signer: messageSignerReader(signer),
     });
-    const item = view.items.find((entry) => entry.signature === signature);
+    const item = view.items
+      .flatMap((item) => item.events)
+      .find((entry) => entry.signature === signature);
     if (item !== undefined) return item;
     await new Promise((resolve) => setTimeout(resolve, 500));
   }

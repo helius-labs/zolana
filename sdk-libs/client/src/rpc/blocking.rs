@@ -20,7 +20,7 @@ use crate::{error::ClientError, prover::transact::witness::SpendProof};
 use super::{
     traits::{AsyncRpc, Rpc},
     types::{
-        ChainPosition, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
+        Cursor, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
         GetNonInclusionProofsResponse, GetRingKeyRegistryEntryResponse,
         GetRingKeyRegistryRegisterProofResponse, GetRingSpendRecordResponse,
         GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
@@ -176,7 +176,7 @@ impl<T: Rpc + Send + Sync + 'static> AsyncRpc for Blocking<T> {
     async fn get_encrypted_utxos_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        after: Option<ChainPosition>,
+        after: Option<Cursor>,
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
@@ -187,7 +187,7 @@ impl<T: Rpc + Send + Sync + 'static> AsyncRpc for Blocking<T> {
     async fn get_shielded_transactions_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        after: Option<ChainPosition>,
+        after: Option<Cursor>,
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
@@ -216,7 +216,7 @@ impl<T: Rpc + Send + Sync + 'static> AsyncRpc for Blocking<T> {
     async fn get_shielded_transactions_by_nullifiers(
         &self,
         nullifiers: Vec<[u8; 32]>,
-        after: Option<ChainPosition>,
+        after: Option<Cursor>,
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {

@@ -25,6 +25,7 @@ async fn seeded_database() -> DatabaseConnection {
 
 fn request(view_tag: [u8; 32]) -> GetRingsByTagsRequest {
     GetRingsByTagsRequest {
+        min_context_slot: None,
         tags: vec![Hash::from(view_tag)],
         after: None,
         limit: Some(Limit::new(10).expect("limit is within the shared bounds")),
@@ -41,11 +42,19 @@ async fn an_output_reports_the_id_of_the_tree_it_landed_in() {
     let transactions = get_shielded_transactions_by_tags(&db, request(VIEW_TAG))
         .await
         .expect("tags lookup")
-        .transactions;
+        .items
+        .iter()
+        .flat_map(|item| &item.events)
+        .cloned()
+        .collect::<Vec<_>>();
     let matches = get_encrypted_utxos_by_tags(&db, request(VIEW_TAG))
         .await
         .expect("utxo lookup")
-        .matches;
+        .items
+        .iter()
+        .flat_map(|item| &item.outputs)
+        .cloned()
+        .collect::<Vec<_>>();
 
     let expected_tree = SerializablePubkey::from(fixture_tree());
     for transaction in &transactions {
@@ -100,7 +109,12 @@ async fn the_append_target_is_reported_on_a_page_that_matched_nothing() {
         .await
         .expect("tags lookup");
 
-    assert!(response.transactions.is_empty());
+    assert!(response
+        .items
+        .iter()
+        .flat_map(|item| &item.events)
+        .next()
+        .is_none());
     assert_eq!(response.output_tree_id, Some(FIXTURE_TREE_ID));
 }
 

@@ -20,8 +20,8 @@ use solana_address::Address;
 use solana_signature::Signature;
 use zeroize::Zeroizing;
 use zolana_client::{
-    rpc::ChainPosition, Context, GetShieldedTransactionsByTagsResponse, IndexerRpcConfig,
-    ProofInputUtxo, Rpc, ShieldedTransaction,
+    rpc::Cursor, Context, GetShieldedTransactionsByTagsResponse, IndexerRpcConfig, ProofInputUtxo,
+    Rpc, ShieldedTransaction,
 };
 use zolana_hasher::{primitives::hash_bytes, Hasher, Poseidon};
 use zolana_interface::{
@@ -824,24 +824,21 @@ struct PagedIndexer {
 }
 
 /// A position whose slot is a page index, the mock pages by index, not by row.
-fn page_position(index: usize) -> ChainPosition {
-    ChainPosition {
-        slot: index as u64,
-        signature: Signature::default(),
-    }
+fn page_position(index: usize) -> Cursor {
+    Cursor::new(index as u64, Signature::default())
 }
 
 impl Rpc for PagedIndexer {
     fn get_shielded_transactions_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        after: Option<ChainPosition>,
+        after: Option<Cursor>,
         limit: Option<u32>,
         _config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, zolana_client::ClientError> {
         assert_eq!(tags, vec![self.expected_tag]);
         self.requested.borrow_mut().push(limit);
-        let page_index = after.map_or(0, |position| position.slot as usize);
+        let page_index = after.map_or(0, |position| position.slot() as usize);
         let transactions = self.pages.get(page_index).cloned().unwrap_or_default();
         let next = (page_index + 1 < self.pages.len()).then(|| page_position(page_index + 1));
         Ok(GetShieldedTransactionsByTagsResponse {
@@ -849,9 +846,11 @@ impl Rpc for PagedIndexer {
                 block_time: 0,
                 slot: 1,
             },
-            transactions,
-            next,
-            latest: None,
+            items: zolana_client::rpc::TransactionEvents::group(transactions, |event| {
+                (event.slot, event.tx_signature)
+            }),
+            cursor: next,
+            has_more: (next).is_some(),
             output_tree_id: None,
         })
     }

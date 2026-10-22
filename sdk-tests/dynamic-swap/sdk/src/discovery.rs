@@ -40,7 +40,7 @@ pub fn discover_escrow_note<I: Rpc>(indexer: &I, owner: &ShieldedPda) -> Result<
         let page = indexer
             .get_shielded_transactions_by_tags(vec![tag], after, None, None)
             .map_err(err)?;
-        for tx in &page.transactions {
+        for tx in page.items.iter().flat_map(|item| &item.events) {
             if let Some((order_utxo_hash, plaintext)) =
                 decode_order_slot(tx, &tag, owner.viewing_key())?
             {
@@ -54,7 +54,7 @@ pub fn discover_escrow_note<I: Rpc>(indexer: &I, owner: &ShieldedPda) -> Result<
                 });
             }
         }
-        match page.next {
+        match page.cursor.filter(|_| page.has_more) {
             Some(next) => after = Some(next),
             None => bail!("no escrow order note found for the escrow_authority view tag"),
         }

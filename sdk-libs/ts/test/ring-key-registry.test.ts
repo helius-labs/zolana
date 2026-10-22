@@ -1,3 +1,4 @@
+import { transactionItems } from "./helpers/pages.js";
 import { ViewingKey } from "../src/keypair/viewing-key.js";
 import { X25519Keypair } from "../src/keypair/x25519.js";
 import {
@@ -711,20 +712,26 @@ describe("ring member recovery", () => {
     }).nullifier(spentSlot.outputContext.hash, nullifierKey);
     const byNullifiers = vi.fn(async (request: Readonly<{ nullifiers: readonly Bytes32[] }>) =>
       transactionsPage({
-        transactions: [
+        items: transactionItems([
           ringTransaction({
             auditor,
             source,
             outputs: [],
             nullifiers: request.nullifiers.filter((nullifier) => nullifier.join() === spent.join()),
           }),
-        ],
+        ]),
+        cursor: null,
+        hasMore: false,
       }),
     );
     const client = {
       ...ringAuditReader({
         getShieldedTransactionsByTags: async () =>
-          transactionsPage({ transactions: [transaction] }),
+          transactionsPage({
+            items: transactionItems([transaction]),
+            cursor: null,
+            hasMore: false,
+          }),
       }),
       getShieldedTransactionsByNullifiers: byNullifiers,
     };
@@ -758,7 +765,11 @@ describe("ring member recovery", () => {
         client: {
           ...client,
           getShieldedTransactionsByTags: async () =>
-            transactionsPage({ transactions: [transaction], next: chainPosition(1n) }),
+            transactionsPage({
+              items: transactionItems([transaction]),
+              cursor: chainPosition(1n),
+              hasMore: true,
+            }),
         },
         ringProgramId: RING,
         auditor,
@@ -879,7 +890,7 @@ describe("recovery closure", () => {
         getShieldedTransactionsByTags: async (request) => {
           requested.push([...request.tags]);
           return transactionsPage({
-            transactions:
+            items: transactionItems(
               request.ringProgramId === RING
                 ? [
                     deposit,
@@ -892,6 +903,9 @@ describe("recovery closure", () => {
                     },
                   ]
                 : [],
+            ),
+            cursor: null,
+            hasMore: false,
           });
         },
       }),
@@ -955,7 +969,8 @@ describe("recovery closure", () => {
     const queried: Bytes32[][] = [];
     const client = {
       ...ringAuditReader({
-        getShieldedTransactionsByTags: async () => transactionsPage({ transactions: [seed] }),
+        getShieldedTransactionsByTags: async () =>
+          transactionsPage({ items: transactionItems([seed]), cursor: null, hasMore: false }),
       }),
       getShieldedTransactionsByNullifiers: async (
         request: Readonly<{ nullifiers: readonly Bytes32[] }>,
@@ -973,7 +988,7 @@ describe("recovery closure", () => {
             outputSlots: [],
           });
         return transactionsPage({
-          transactions,
+          items: transactionItems(transactions),
         });
       },
     };
@@ -1063,17 +1078,22 @@ describe("recovery closure", () => {
     ]);
     const client = {
       ...ringAuditReader({
-        getShieldedTransactionsByTags: async () => transactionsPage({ transactions: [seed] }),
+        getShieldedTransactionsByTags: async () =>
+          transactionsPage({ items: transactionItems([seed]), cursor: null, hasMore: false }),
       }),
       getShieldedTransactionsByNullifiers: async (
         request: Readonly<{ nullifiers: readonly Bytes32[] }>,
       ) =>
         transactionsPage({
-          transactions: merged.transaction.nullifiers.some((nullifier) =>
-            request.nullifiers.some((requested) => requested.join() === nullifier.join()),
-          )
-            ? [merged.transaction]
-            : [],
+          items: transactionItems(
+            merged.transaction.nullifiers.some((nullifier) =>
+              request.nullifiers.some((requested) => requested.join() === nullifier.join()),
+            )
+              ? [merged.transaction]
+              : [],
+          ),
+          cursor: null,
+          hasMore: false,
         }),
     };
     const derived: Bytes32[] = [];
@@ -1142,7 +1162,8 @@ describe("recovery closure", () => {
     });
     const client = {
       ...ringAuditReader({
-        getShieldedTransactionsByTags: async () => transactionsPage({ transactions: [seed] }),
+        getShieldedTransactionsByTags: async () =>
+          transactionsPage({ items: transactionItems([seed]), cursor: null, hasMore: false }),
       }),
       getShieldedTransactionsByNullifiers: async () => transactionsPage(),
     };
@@ -1178,9 +1199,11 @@ describe("recovery closure", () => {
         ...client,
         getShieldedTransactionsByNullifiers: async (request) =>
           transactionsPage({
-            transactions: [
+            items: transactionItems([
               { ...seed, outputSlots: [], messages: [], nullifiers: [...request.nullifiers] },
-            ],
+            ]),
+            cursor: null,
+            hasMore: false,
           }),
       },
     });
@@ -1209,7 +1232,8 @@ describe("recovery closure", () => {
       const sizes: number[] = [];
       const client = {
         ...ringAuditReader({
-          getShieldedTransactionsByTags: async () => transactionsPage({ transactions: seeds }),
+          getShieldedTransactionsByTags: async () =>
+            transactionsPage({ items: transactionItems(seeds), cursor: null, hasMore: false }),
         }),
         getShieldedTransactionsByNullifiers: async (
           request: Readonly<{ nullifiers: readonly Bytes32[] }>,

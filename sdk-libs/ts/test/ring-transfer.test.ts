@@ -1,3 +1,4 @@
+import { transactionItems } from "./helpers/pages.js";
 import { X25519Keypair } from "../src/keypair/x25519.js";
 import { ClientError } from "../src/client/error.js";
 import {
@@ -1186,7 +1187,11 @@ describe("ring audit", () => {
     }));
     const client = ringAuditReader({
       getShieldedTransactionsByTags: async () =>
-        transactionsPage({ transactions: [transaction, transaction] }),
+        transactionsPage({
+          items: transactionItems([transaction, transaction]),
+          cursor: null,
+          hasMore: false,
+        }),
       solanaRpc: { getProgramAccounts },
       commitment: "confirmed",
     });
@@ -1224,7 +1229,8 @@ describe("ring audit", () => {
     const transaction = indexed(proofInputs);
     const getProgramAccounts = vi.fn(() => ({ send: async () => [] }));
     const client = ringAuditReader({
-      getShieldedTransactionsByTags: async () => transactionsPage({ transactions: [transaction] }),
+      getShieldedTransactionsByTags: async () =>
+        transactionsPage({ items: transactionItems([transaction]), cursor: null, hasMore: false }),
       solanaRpc: { getProgramAccounts },
       commitment: "confirmed",
     });

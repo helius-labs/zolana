@@ -83,7 +83,7 @@ pub fn discover_account(indexer: &impl Rpc, pda: Address) -> Result<DiscoveredAc
             Some(100),
             None,
         )?;
-        for transaction in response.transactions {
+        for transaction in response.items.into_iter().flat_map(|item| item.events) {
             let Some(first_nullifier) = transaction.nullifiers.first().copied() else {
                 continue;
             };
@@ -101,7 +101,7 @@ pub fn discover_account(indexer: &impl Rpc, pda: Address) -> Result<DiscoveredAc
                 matches.push((indexed, first_nullifier, u32::try_from(index)?));
             }
         }
-        after = response.next;
+        after = response.cursor.filter(|_| response.has_more);
         if after.is_none() {
             break;
         }
@@ -113,7 +113,7 @@ pub fn discover_account(indexer: &impl Rpc, pda: Address) -> Result<DiscoveredAc
             Some(1),
             None,
         )?;
-        Ok(!input_utxo.transactions.is_empty())
+        Ok(!input_utxo.items.is_empty())
     })
 }
 

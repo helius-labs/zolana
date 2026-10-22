@@ -1,7 +1,7 @@
 import type { MergeEncryptionScheme } from "../interface/state.js";
-import type { Address, ChainPosition, Signature } from "../interface/types.js";
+import type { Address, Cursor, Signature } from "../interface/types.js";
 
-export type { ChainPosition } from "../interface/types.js";
+export type { Cursor } from "../interface/types.js";
 
 export type Base64String = string & { readonly __base64: unique symbol };
 export type Hash = string & { readonly __hash32Base58: unique symbol };
@@ -60,8 +60,9 @@ export interface RingKeyRegistryEntry extends RingMemberProofContext {
 
 export interface GetRingsByTagsRequest {
   readonly tags: readonly Hash[];
-  readonly after?: ChainPosition;
+  readonly after?: Cursor;
   readonly limit?: Limit;
+  readonly minContextSlot?: bigint;
   /**
    * Restrict the match to one ring. Its config account is derived from this
    * program id, so the filter needs no indexed registration.
@@ -71,8 +72,9 @@ export interface GetRingsByTagsRequest {
 
 export interface GetRingsByNullifiersRequest {
   readonly nullifiers: readonly Hash[];
-  readonly after?: ChainPosition;
+  readonly after?: Cursor;
   readonly limit?: Limit;
+  readonly minContextSlot?: bigint;
 }
 
 export interface RingsOutputContext {
@@ -101,15 +103,24 @@ export interface EncryptedUtxoMatch {
   readonly salt?: Base64String;
 }
 
-export interface GetEncryptedUtxosByTagsResponse {
+export interface Page<T> {
   readonly outputTreeId?: number;
   readonly context: IndexerContext;
-  readonly matches: readonly EncryptedUtxoMatch[];
-  /** Present only when the limit truncated the page. */
-  readonly next?: ChainPosition;
-  /** The stream tip, present on a terminal page. */
-  readonly latest?: ChainPosition;
+  readonly items: readonly T[];
+  readonly cursor: Cursor | null;
+  readonly hasMore: boolean;
 }
+export interface TransactionEvents<T> {
+  readonly slot: bigint;
+  readonly signature: Signature;
+  readonly events: readonly T[];
+}
+export interface TransactionOutputs<T> {
+  readonly slot: bigint;
+  readonly signature: Signature;
+  readonly outputs: readonly T[];
+}
+export type GetEncryptedUtxosByTagsResponse = Page<TransactionOutputs<EncryptedUtxoMatch>>;
 
 export interface IndexedShieldedTransaction {
   readonly slot: bigint;
@@ -135,28 +146,10 @@ export interface IndexedShieldedTransaction {
   readonly ringProgramId?: Address;
 }
 
-export interface GetShieldedTransactionsByTagsResponse {
-  readonly outputTreeId?: number;
-  readonly context: IndexerContext;
-  readonly transactions: readonly IndexedShieldedTransaction[];
-  /** Present only when the limit truncated the page. */
-  readonly next?: ChainPosition;
-  /** The stream tip, present on a terminal page. */
-  readonly latest?: ChainPosition;
-}
-
-export interface GetShieldedTransactionsByNullifiersResponse {
-  readonly outputTreeId?: number;
-  readonly context: IndexerContext;
-  readonly transactions: readonly IndexedShieldedTransaction[];
-  /** Present only when the limit truncated the page. */
-  readonly next?: ChainPosition;
-  /**
-   * The stream tip, present on a terminal page. Unspent nullifiers match
-   * nothing, so for them it is the only resume point.
-   */
-  readonly latest?: ChainPosition;
-}
+export type GetShieldedTransactionsByTagsResponse = Page<
+  TransactionEvents<IndexedShieldedTransaction>
+>;
+export type GetShieldedTransactionsByNullifiersResponse = GetShieldedTransactionsByTagsResponse;
 
 export interface GetShieldedTransactionsBySignatureRequest {
   readonly txSignature: Signature;

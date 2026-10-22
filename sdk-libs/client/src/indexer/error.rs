@@ -23,6 +23,11 @@ const JSON_RPC_INTERNAL_ERROR: i64 = -32603;
 pub(super) fn indexer_error(error: zolana_api::ApiError) -> ClientError {
     let message = error.to_string();
     match error {
+        zolana_api::ApiError::MinimumContextSlot { context_slot } => {
+            ClientError::IndexerMinimumContextSlot {
+                indexed: context_slot,
+            }
+        }
         #[cfg(feature = "reqwest")]
         zolana_api::ApiError::Request(error)
             if error.is_timeout() || error.is_connect() || error.is_request() =>

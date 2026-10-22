@@ -245,13 +245,15 @@ pub fn wait_for_indexed_utxo<I: Rpc>(
                 None,
             )?;
             if let Some(item) = response
-                .matches
+                .items
+                .into_iter()
+                .flat_map(|item| item.outputs)
                 .into_iter()
                 .find(|item| item.tx_signature == signature)
             {
                 return Ok(Some(item));
             }
-            after = response.next;
+            after = response.cursor.filter(|_| response.has_more);
             if after.is_none() {
                 return Ok(None);
             }
@@ -378,13 +380,15 @@ pub fn wait_for_indexed_transaction<I: Rpc>(
                 None,
             )?;
             if let Some(item) = response
-                .transactions
+                .items
+                .into_iter()
+                .flat_map(|item| item.events)
                 .into_iter()
                 .find(|item| item.tx_signature == signature)
             {
                 return Ok(Some(item));
             }
-            after = response.next;
+            after = response.cursor.filter(|_| response.has_more);
             if after.is_none() {
                 return Ok(None);
             }

@@ -1,4 +1,4 @@
-import type { Address, Bytes32, ChainPosition, Signature } from "../../interface/types.js";
+import type { Address, Bytes32, Cursor, Signature } from "../../interface/types.js";
 import type { X25519PublicKey } from "../../keypair/x25519.js";
 import type { ShieldedAddress } from "../../keypair/shielded.js";
 
@@ -65,7 +65,7 @@ export type PrivateTransactionDirection = "inbound" | "outbound" | "selfTransfer
 export type CursorStream = "transactions" | "proofless" | "nullifiers";
 
 /** @internal */
-export type SyncCursorAdvances = Readonly<Record<CursorStream, ReadonlyMap<string, ChainPosition>>>;
+export type SyncCursorAdvances = Readonly<Record<CursorStream, ReadonlyMap<string, Cursor>>>;
 
 /** @internal Submission reservations end only after settlement or an observed spend. */
 export interface UtxoReservation {
@@ -218,7 +218,7 @@ export class Wallet {
    * Serialized as a chain position in snapshot version 6, an older snapshot
    * restores with empty cursors and rescans history once.
    */
-  #syncCursors = new Map<string, ChainPosition>();
+  #syncCursors = new Map<string, Cursor>();
   #revision = 0;
   #syncQueue: Promise<unknown> = Promise.resolve();
   #reservations: UtxoReservation[] = [];
@@ -250,13 +250,13 @@ export class Wallet {
    *
    * @internal
    */
-  _syncCursor(stream: CursorStream, key: string): ChainPosition | undefined {
+  _syncCursor(stream: CursorStream, key: string): Cursor | undefined {
     return this.#syncCursors.get(`${stream}|${key}`);
   }
 
   /** @internal */
-  _setSyncCursor(stream: CursorStream, key: string, position: ChainPosition): void {
-    this.#syncCursors.set(`${stream}|${key}`, Object.freeze({ ...position }));
+  _setSyncCursor(stream: CursorStream, key: string, position: Cursor): void {
+    this.#syncCursors.set(`${stream}|${key}`, position);
   }
 
   /**
@@ -272,7 +272,7 @@ export class Wallet {
   }
 
   /** @internal */
-  _cursorEntries(stream: CursorStream): readonly (readonly [string, ChainPosition])[] {
+  _cursorEntries(stream: CursorStream): readonly (readonly [string, Cursor])[] {
     const prefix = `${stream}|`;
     return [...this.#syncCursors]
       .filter(([key]) => key.startsWith(prefix))

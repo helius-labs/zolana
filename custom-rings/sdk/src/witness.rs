@@ -1021,7 +1021,7 @@ mod tests {
     use custom_ring_interface::{PolicyConfig, SourceSlot, N_SOURCE_SLOTS, POLICY_CONFIG};
     use solana_pubkey::Pubkey;
     use zolana_client::{
-        rpc::{ChainPosition, GetShieldedTransactionsByNullifiersResponse},
+        rpc::{Cursor, GetShieldedTransactionsByNullifiersResponse},
         ClientError, Context, GetMerkleProofsResponse, GetNonInclusionProofsResponse,
         IndexerRpcConfig, MerkleContext, ShieldedTransaction,
     };
@@ -1527,7 +1527,7 @@ mod tests {
         fn get_shielded_transactions_by_nullifiers(
             &self,
             nullifiers: Vec<[u8; 32]>,
-            after: Option<ChainPosition>,
+            after: Option<Cursor>,
             limit: Option<u32>,
             config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {

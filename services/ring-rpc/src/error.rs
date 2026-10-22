@@ -42,6 +42,15 @@ impl From<RingRpcError> for ErrorObjectOwned {
                 None::<()>,
             ),
             RingRpcError::Upstream(inner) => {
+                if let ClientError::IndexerMinimumContextSlot { indexed }
+                | ClientError::IndexerNotCaughtUp { indexed, .. } = inner
+                {
+                    return ErrorObjectOwned::owned(
+                        -32016,
+                        "Minimum context slot has not been reached",
+                        Some(serde_json::json!({"contextSlot": indexed})),
+                    );
+                }
                 error!("upstream request failed {inner}");
                 ErrorObjectOwned::owned(
                     ErrorCode::InternalError.code(),

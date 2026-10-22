@@ -4,7 +4,7 @@ import { ClientError } from "../client/error.js";
 import { concatBytes } from "../keypair/bytes.js";
 import { ownerHash } from "../keypair/hash.js";
 import type { IndexerReader, RingSpendRecordLookup } from "../client/ports.js";
-import { compareChainPositions, type ChainPosition } from "../client/rpc.js";
+import { compareCursors, type Cursor } from "../client/rpc.js";
 import {
   RING_ANSWER_SLOTS,
   RING_INLINE_ASSET_SLOTS,
@@ -983,7 +983,7 @@ export async function readRingEntries(
         context,
       ),
     (page) => {
-      for (const match of page.matches) {
+      for (const match of page.items.flatMap((item) => item.outputs)) {
         const entry = tryDecodeListEntry(match.outputSlot.payload);
         if (entry === undefined) continue;
         pairs.set(pairKey(entry), { listId: entry.listId, member: entry.member });
@@ -1217,7 +1217,7 @@ async function fetchSpenders(
         undefined,
         context,
       ),
-    (page) => spenders.push(...page.transactions),
+    (page) => spenders.push(...page.items.flatMap((item) => item.events)),
   );
   return spenders;
 }
@@ -1265,22 +1265,23 @@ async function decodeSuccessor(
 }
 
 interface PositionPage {
-  readonly next?: ChainPosition | undefined;
+  readonly cursor: Cursor | null;
+  readonly hasMore: boolean;
 }
 
-/** Only a truncated page names `next`, a terminal page ends the round. */
+/** Continue while the server reports more transactions. */
 async function collectPages<P extends PositionPage>(
   method: string,
-  request: (after: ChainPosition | undefined) => Promise<P>,
+  request: (after: Cursor | undefined) => Promise<P>,
   absorb: (page: P) => void,
 ): Promise<void> {
-  let after: ChainPosition | undefined;
+  let after: Cursor | undefined;
   for (;;) {
     const page = await request(after);
     absorb(page);
-    const next = page.next;
-    if (next === undefined) return;
-    if (after !== undefined && compareChainPositions(next, after) <= 0) {
+    const next = page.hasMore ? page.cursor : null;
+    if (next === null) return;
+    if (after !== undefined && compareCursors(next, after) <= 0) {
       throw new ClientError("CLIENT_INVALID_RPC_RESPONSE", {
         details: { method, path: "$.next" },
       });

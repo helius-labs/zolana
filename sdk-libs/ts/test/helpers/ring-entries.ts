@@ -1,3 +1,4 @@
+import { transactionItems } from "./pages.js";
 import { type Address, type Signature } from "@solana/kit";
 import { expect, vi } from "vitest";
 
@@ -128,11 +129,15 @@ export function entryProofReads(
       async (request: { nullifiers: readonly Bytes32[] }) => {
         requests.push([...request.nullifiers]);
         return transactionsPage({
-          transactions: spenders.filter((spender) =>
-            spender.nullifiers.some((spent) =>
-              request.nullifiers.some((asked) => Buffer.from(asked).equals(spent)),
+          items: transactionItems(
+            spenders.filter((spender) =>
+              spender.nullifiers.some((spent) =>
+                request.nullifiers.some((asked) => Buffer.from(asked).equals(spent)),
+              ),
             ),
           ),
+          cursor: null,
+          hasMore: false,
         });
       },
     ),

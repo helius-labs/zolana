@@ -68,6 +68,8 @@ pub enum RingRpcClientError {
         method: &'static str,
         error: serde_json::Value,
     },
+    #[error("ring rpc returned an invalid transaction page")]
+    InvalidPage,
     #[error("ring rpc {method} returned no result")]
     EmptyResult { method: &'static str },
     #[error("the ring rpc at {url} returned an auditor key its service key {service_pubkey} did not sign")]
@@ -213,7 +215,23 @@ impl RingRpcClient {
         &self,
         request: &GetDecryptedTransactionsRequest,
     ) -> Result<GetDecryptedTransactionsResponse, RingRpcClientError> {
-        self.call(GET_DECRYPTED_TRANSACTIONS, serde_json::to_value(request)?)
+        let response: GetDecryptedTransactionsResponse =
+            self.call(GET_DECRYPTED_TRANSACTIONS, serde_json::to_value(request)?)?;
+        response
+            .validate(
+                request.after,
+                request.limit.as_ref().map_or(
+                    zolana_ring_rpc::AUDIT_PAGE_LIMIT,
+                    zolana_indexer_api::Limit::value,
+                ),
+                request.min_context_slot,
+            )
+            .map_err(|_| RingRpcClientError::InvalidPage)?;
+        for item in &response.items {
+            item.validate()
+                .map_err(|_| RingRpcClientError::InvalidPage)?;
+        }
+        Ok(response)
     }
 
     pub fn wait_for_decrypted(
@@ -237,17 +255,17 @@ impl RingRpcClient {
                     Err(error) => return Ok(Probe::Retry(error)),
                 };
                 if let Some(item) = page
-                    .value
                     .items
-                    .into_iter()
+                    .iter()
+                    .flat_map(|item| &item.events)
                     .find(|item| item.tx_signature.0 == signature)
                 {
-                    return Ok(Probe::Ready(item));
+                    return Ok(Probe::Ready(item.clone()));
                 }
                 if let Some(skipped) = page
-                    .value
-                    .skipped
+                    .items
                     .iter()
+                    .flat_map(|item| &item.skipped)
                     .find(|item| item.tx_signature.0 == signature)
                 {
                     return Err(RingRpcClientError::Skipped {
@@ -255,7 +273,7 @@ impl RingRpcClient {
                         reason: skipped.reason,
                     });
                 }
-                match page.value.next {
+                match page.cursor.filter(|_| page.has_more) {
                     Some(next) => after = Some(next),
                     None => return Ok(Probe::NotYet),
                 }

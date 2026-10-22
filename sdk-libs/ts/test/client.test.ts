@@ -1,3 +1,4 @@
+import { transactionItems, outputItems } from "./helpers/pages.js";
 import { compressProof, parseProof } from "../src/client/prover/proof.js";
 import { wireDecoder } from "../src/interface/decode.js";
 import { resolvedTrees } from "../src/client/prover/indexed.js";
@@ -193,7 +194,12 @@ async function serviceRequestUrls(
         JSON.stringify({
           id: "test-account",
           jsonrpc: "2.0",
-          result: { context: { blockTime: 1, slot: 1 }, transactions: [] },
+          result: {
+            context: { blockTime: 1, slot: 1 },
+            items: transactionItems([]),
+            cursor: null,
+            hasMore: false,
+          },
         }),
         { headers: { "content-type": "application/json" } },
       );
@@ -549,10 +555,10 @@ describe("ZolanaClient", () => {
             id: "test-account",
             jsonrpc: "2.0",
             result: {
-              context: { blockTime: 1, slot: 1 },
-              transactions: [],
-              next: null,
-              latest: { slot: 3, signature: "1".repeat(64) },
+              context: { blockTime: 1, slot: 9 },
+              items: transactionItems([]),
+              cursor: `1:${3}:${"1".repeat(64)}`,
+              hasMore: false,
             },
           }),
           { headers: { "content-type": "application/json" } },
@@ -564,20 +570,20 @@ describe("ZolanaClient", () => {
       nullifiers: [bytes(7)],
     });
 
-    expect(response.next).toBeUndefined();
-    expect(response.latest).toEqual({ slot: 3n, signature: "1".repeat(64) });
+    expect(response.hasMore).toBe(false);
+    expect(response.cursor).toEqual(`1:${3n}:${"1".repeat(64)}`);
   });
 
   it("accepts tag responses that report how far the scan reached", async () => {
-    const responseBody = (rows: "transactions" | "matches") =>
+    const responseBody = (_rows: "transactions" | "matches") =>
       JSON.stringify({
         id: "test-account",
         jsonrpc: "2.0",
         result: {
-          context: { blockTime: 1, slot: 1 },
-          [rows]: [],
-          next: null,
-          latest: { slot: 4, signature: "1".repeat(64) },
+          context: { blockTime: 1, slot: 9 },
+          items: [],
+          hasMore: false,
+          cursor: `1:${4}:${"1".repeat(64)}`,
         },
       });
     const transactionFetch = vi.fn<typeof globalThis.fetch>(() =>
@@ -602,8 +608,8 @@ describe("ZolanaClient", () => {
       tags: [bytes(7)],
     });
 
-    expect(transactions.latest).toEqual({ slot: 4n, signature: "1".repeat(64) });
-    expect(encryptedUtxos.latest).toEqual({ slot: 4n, signature: "1".repeat(64) });
+    expect(transactions.cursor).toEqual(`1:${4n}:${"1".repeat(64)}`);
+    expect(encryptedUtxos.cursor).toEqual(`1:${4n}:${"1".repeat(64)}`);
   });
 
   it("reads a malformed transaction viewing key as absent, never as a bad response", async () => {
@@ -627,6 +633,7 @@ describe("ZolanaClient", () => {
     const read = async (txViewingPk: string) => {
       const transaction = {
         slot: 1,
+        eventIndex: 0,
         txSignature: "1".repeat(64),
         txViewingPk,
         salt,
@@ -636,14 +643,23 @@ describe("ZolanaClient", () => {
         proofless: false,
       };
       const transactions = await responding({
-        context: { blockTime: 1, slot: 1 },
-        transactions: [transaction],
+        context: { blockTime: 1, slot: 9 },
+        items: transactionItems([transaction]),
+        cursor: `1:1:${"1".repeat(64)}`,
+        hasMore: false,
       }).getShieldedTransactionsByTags({ tags: [bytes(7)] });
       const matches = await responding({
-        context: { blockTime: 1, slot: 1 },
-        matches: [{ slot: 1, txSignature: "1".repeat(64), outputSlot: slot, txViewingPk, salt }],
+        context: { blockTime: 1, slot: 9 },
+        items: outputItems([
+          { slot: 1, txSignature: "1".repeat(64), outputSlot: slot, txViewingPk, salt },
+        ]),
+        cursor: `1:1:${"1".repeat(64)}`,
+        hasMore: false,
       }).getEncryptedUtxosByTags({ tags: [bytes(7)] });
-      return { transaction: transactions.transactions[0], match: matches.matches[0] };
+      return {
+        transaction: transactions.items.flatMap((item) => item.events)[0],
+        match: matches.items.flatMap((item) => item.outputs)[0],
+      };
     };
 
     const wrongTag = Buffer.alloc(33, 9);
@@ -676,9 +692,10 @@ describe("ZolanaClient", () => {
             id: "test-account",
             jsonrpc: "2.0",
             result: {
-              context: { blockTime: 1, slot: 1 },
-              transactions: [],
-              next: { slot: 2, signature: "1".repeat(64) },
+              context: { blockTime: 1, slot: 9 },
+              items: transactionItems([]),
+              cursor: `1:${2}:${"1".repeat(64)}`,
+              hasMore: false,
             },
           }),
           { headers: { "content-type": "application/json" } },
@@ -690,11 +707,11 @@ describe("ZolanaClient", () => {
 
     const response = await instance.getShieldedTransactionsByNullifiers({
       nullifiers: [nullifier],
-      after: { slot: 1n, signature: "1".repeat(64) as Signature },
+      after: `1:${1n}:${"1".repeat(64) as Signature}`,
       limit: 1000,
     });
 
-    expect(response.next).toEqual({ slot: 2n, signature: "1".repeat(64) });
+    expect(response.cursor).toEqual(`1:${2n}:${"1".repeat(64)}`);
     expect(String(fetch.mock.calls[0]?.[0])).toBe(
       "http://127.0.0.1:8784/getShieldedTransactionsByNullifiers",
     );
@@ -702,7 +719,7 @@ describe("ZolanaClient", () => {
       method: "getShieldedTransactionsByNullifiers",
       params: {
         nullifiers: [getBase58Decoder().decode(nullifier)],
-        after: { slot: 1, signature: "1".repeat(64) },
+        after: `1:${1}:${"1".repeat(64)}`,
         limit: 1000,
       },
     });
@@ -740,9 +757,10 @@ describe("ZolanaClient", () => {
         id: "test-account",
         jsonrpc: "2.0",
         result: {
-          context: { blockTime: 1, slot: 1 },
-          transactions: [],
-          latest: { slot: 4, signature: "1".repeat(64) },
+          context: { blockTime: 1, slot: 4 },
+          items: transactionItems([]),
+          cursor: `1:${4}:${"1".repeat(64)}`,
+          hasMore: false,
         },
       });
     });
@@ -751,7 +769,7 @@ describe("ZolanaClient", () => {
       tags: [],
       ringProgramId: TREE,
       limit: 3,
-      after: { slot: 1n, signature: "1".repeat(64) as Signature },
+      after: `1:${1n}:${"1".repeat(64) as Signature}`,
     });
     expect(requests).toEqual([
       expect.objectContaining({
@@ -759,7 +777,7 @@ describe("ZolanaClient", () => {
           tags: [],
           ringProgramId: TREE,
           limit: 3,
-          after: { slot: 1, signature: "1".repeat(64) },
+          after: `1:${1}:${"1".repeat(64)}`,
         },
       }),
     ]);

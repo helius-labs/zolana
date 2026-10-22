@@ -70,7 +70,7 @@ describe("wallet commit machinery", () => {
         staged,
         {
           cursors: {
-            transactions: new Map([["aa", { slot: 9n, signature: SIGNATURE }]]),
+            transactions: new Map([["aa", `1:${9n}:${SIGNATURE}`]]),
             proofless: new Map(),
             nullifiers: new Map(),
           },
@@ -82,7 +82,7 @@ describe("wallet commit machinery", () => {
 
     expect(wallet.utxos()).toHaveLength(2);
     expect(wallet.lastSynced).toBe(7n);
-    expect(wallet._syncCursor("transactions", "aa")).toEqual({ slot: 9n, signature: SIGNATURE });
+    expect(wallet._syncCursor("transactions", "aa")).toEqual(`1:${9n}:${SIGNATURE}`);
     expect(wallet.registry.assetId(MINT)).toBe(2n);
     expect(wallet._revision).toBe(revision + 1);
   });
@@ -109,7 +109,7 @@ describe("wallet commit machinery", () => {
       wallet._commitSync(
         deltaFrom(staged, {
           cursors: {
-            transactions: new Map([["aa", { slot: 9n, signature: SIGNATURE }]]),
+            transactions: new Map([["aa", `1:${9n}:${SIGNATURE}`]]),
             proofless: new Map(),
             nullifiers: new Map(),
           },
@@ -133,7 +133,7 @@ describe("wallet commit machinery", () => {
           {
             utxos: [entry, entry],
             cursors: {
-              transactions: new Map([["aa", { slot: 9n, signature: SIGNATURE }]]),
+              transactions: new Map([["aa", `1:${9n}:${SIGNATURE}`]]),
               proofless: new Map(),
               nullifiers: new Map(),
             },
@@ -178,16 +178,16 @@ describe("wallet commit machinery", () => {
   it("clones independently, cursors included", () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = walletWith(keypair, [10n]);
-    wallet._setSyncCursor("transactions", "aa", { slot: 3n, signature: SIGNATURE });
+    wallet._setSyncCursor("transactions", "aa", `1:${3n}:${SIGNATURE}`);
 
     const clone = wallet._clone();
-    clone._setSyncCursor("transactions", "aa", { slot: 4n, signature: SIGNATURE });
+    clone._setSyncCursor("transactions", "aa", `1:${4n}:${SIGNATURE}`);
     clone._replace({ utxos: [], transactions: [], nullifiers: new Set() });
 
     expect(wallet.utxos()).toHaveLength(1);
-    expect(wallet._syncCursor("transactions", "aa")).toEqual({ slot: 3n, signature: SIGNATURE });
+    expect(wallet._syncCursor("transactions", "aa")).toEqual(`1:${3n}:${SIGNATURE}`);
     expect(clone.utxos()).toHaveLength(0);
-    expect(clone._syncCursor("transactions", "aa")).toEqual({ slot: 4n, signature: SIGNATURE });
+    expect(clone._syncCursor("transactions", "aa")).toEqual(`1:${4n}:${SIGNATURE}`);
   });
 
   it("serializes locked spans and survives a failing one", async () => {

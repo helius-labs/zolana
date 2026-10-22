@@ -12,7 +12,7 @@ use solana_address::Address;
 use solana_signature::Signature;
 use zolana_client::{
     fetch_asset_id, fetch_spl_asset_registrations,
-    rpc::GetShieldedTransactionsByNullifiersResponse, ChainPosition, ClientError, Context,
+    rpc::GetShieldedTransactionsByNullifiersResponse, ClientError, Context, Cursor,
     EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse, GetShieldedTransactionsByTagsResponse,
     IndexerRpcConfig, OutputContext, OutputSlot, ProgramAccountsFilter, Rpc, ShieldedTransaction,
     UtxoScan,
@@ -83,8 +83,8 @@ impl Indexer {
     fn page<T>(
         &self,
         mut items: Vec<T>,
-        after: Option<ChainPosition>,
-        position: impl Fn(&T) -> ChainPosition,
+        after: Option<Cursor>,
+        position: impl Fn(&T) -> Cursor,
     ) -> Page<T> {
         let size = self.page_size.max(1);
         items.sort_by_key(&position);
@@ -92,10 +92,11 @@ impl Indexer {
         if self.stuck_cursor {
             return Page {
                 rows: items.into_iter().take(size).collect(),
-                next: Some(after.or(latest).unwrap_or(ChainPosition {
-                    slot: 0,
-                    signature: Signature::default(),
-                })),
+                next: Some(
+                    after
+                        .or(latest)
+                        .unwrap_or(Cursor::new(0, Signature::default())),
+                ),
                 latest: None,
             };
         }
@@ -120,8 +121,8 @@ impl Indexer {
 
 struct Page<T> {
     rows: Vec<T>,
-    next: Option<ChainPosition>,
-    latest: Option<ChainPosition>,
+    next: Option<Cursor>,
+    latest: Option<Cursor>,
 }
 
 const CONTEXT: Context = Context {
@@ -166,7 +167,7 @@ impl Rpc for Indexer {
     fn get_shielded_transactions_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        cursor: Option<ChainPosition>,
+        cursor: Option<Cursor>,
         _limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
@@ -186,23 +187,24 @@ impl Rpc for Indexer {
             rows: transactions,
             next,
             latest,
-        } = self.page(matching, cursor, |item| ChainPosition {
-            slot: item.slot,
-            signature: item.tx_signature,
+        } = self.page(matching, cursor, |item| {
+            Cursor::new(item.slot, item.tx_signature)
         });
         Ok(GetShieldedTransactionsByTagsResponse {
             context: CONTEXT,
             output_tree_id: Some(TREE),
-            transactions,
-            next,
-            latest,
+            items: zolana_client::rpc::TransactionEvents::group(transactions, |event| {
+                (event.slot, event.tx_signature)
+            }),
+            cursor: (next).or(latest),
+            has_more: (next).is_some(),
         })
     }
 
     fn get_encrypted_utxos_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        cursor: Option<ChainPosition>,
+        cursor: Option<Cursor>,
         _limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
@@ -217,23 +219,24 @@ impl Rpc for Indexer {
             rows: matches,
             next,
             latest,
-        } = self.page(matching, cursor, |item| ChainPosition {
-            slot: item.slot,
-            signature: item.tx_signature,
+        } = self.page(matching, cursor, |item| {
+            Cursor::new(item.slot, item.tx_signature)
         });
         Ok(GetEncryptedUtxosByTagsResponse {
             context: CONTEXT,
             output_tree_id: Some(TREE),
-            matches,
-            next,
-            latest,
+            items: zolana_client::rpc::TransactionOutputs::group(matches, |event| {
+                (event.slot, event.tx_signature)
+            }),
+            cursor: (next).or(latest),
+            has_more: (next).is_some(),
         })
     }
 
     fn get_shielded_transactions_by_nullifiers(
         &self,
         nullifiers: Vec<[u8; 32]>,
-        cursor: Option<ChainPosition>,
+        cursor: Option<Cursor>,
         _limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
@@ -253,16 +256,17 @@ impl Rpc for Indexer {
             rows: transactions,
             next,
             latest,
-        } = self.page(matching, cursor, |item| ChainPosition {
-            slot: item.slot,
-            signature: item.tx_signature,
+        } = self.page(matching, cursor, |item| {
+            Cursor::new(item.slot, item.tx_signature)
         });
         Ok(GetShieldedTransactionsByNullifiersResponse {
             context: CONTEXT,
             output_tree_id: Some(TREE),
-            transactions,
-            next,
-            latest,
+            items: zolana_client::rpc::TransactionEvents::group(transactions, |event| {
+                (event.slot, event.tx_signature)
+            }),
+            cursor: (next).or(latest),
+            has_more: (next).is_some(),
         })
     }
 }

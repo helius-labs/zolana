@@ -1,3 +1,4 @@
+import { checkedCursor } from "../../interface/cursor.js";
 import { getBase64Decoder } from "@solana/kit";
 
 import { wireDecoder } from "../../interface/decode.js";
@@ -73,8 +74,7 @@ interface SerializedPrivateTransaction {
 export interface SerializedCursor {
   /** Lowercase hex of the tag or nullifier the stream position belongs to. */
   readonly key: string;
-  readonly slot: string;
-  readonly signature: string;
+  readonly cursor: string;
 }
 
 export interface SerializedSyncCursors {
@@ -167,9 +167,7 @@ export function serializeWallet(wallet: Wallet): string {
 function serializeCursors(wallet: Wallet, stream: CursorStream): readonly SerializedCursor[] {
   return wallet
     ._cursorEntries(stream)
-    .map(([key, position]) =>
-      Object.freeze({ key, slot: position.slot.toString(), signature: position.signature }),
-    )
+    .map(([key, position]) => Object.freeze({ key, cursor: position }))
     .sort((left, right) => (left.key < right.key ? -1 : left.key > right.key ? 1 : 0));
 }
 
@@ -348,10 +346,13 @@ function hydrateCursors(wallet: Wallet, value: unknown): void {
       const item = record(entry, field);
       const key = item["key"];
       if (typeof key !== "string" || !/^[0-9a-f]{64}$/u.test(key)) fail(`${field}.key`);
-      wallet._setSyncCursor(stream, key, {
-        slot: unsigned(item["slot"], `${field}.slot`),
-        signature: signature(item["signature"], `${field}.signature`),
-      });
+      let cursor: string;
+      try {
+        cursor = checkedCursor(item["cursor"]);
+      } catch {
+        return fail(`${field}.cursor`);
+      }
+      wallet._setSyncCursor(stream, key, cursor);
     });
   }
 }

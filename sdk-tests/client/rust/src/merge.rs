@@ -96,8 +96,30 @@ pub fn assert_balances_after_transfer<R: BlockingRpc>(
         Some(50),
         Some(IndexerRpcConfig::at_slot(slot)),
     )?;
-    assert_eq!(balance(sender, &response.transactions, assets)?, kept);
-    assert_eq!(balance(recipient, &response.transactions, assets)?, sent);
+    assert_eq!(
+        balance(
+            sender,
+            &response
+                .items
+                .iter()
+                .flat_map(|item| item.events.clone())
+                .collect::<Vec<_>>(),
+            assets
+        )?,
+        kept
+    );
+    assert_eq!(
+        balance(
+            recipient,
+            &response
+                .items
+                .iter()
+                .flat_map(|item| item.events.clone())
+                .collect::<Vec<_>>(),
+            assets
+        )?,
+        sent
+    );
     Ok(())
 }
 

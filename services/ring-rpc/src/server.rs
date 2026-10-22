@@ -210,6 +210,9 @@ pub fn rpc_module<S: TransactionSource + 'static>(
             }
             .map_err(ErrorObjectOwned::from)?;
             let mut page = PageOptions::default();
+            if let Some(slot) = request.min_context_slot {
+                page = page.with_min_context_slot(slot);
+            }
             if let Some(after) = &request.after {
                 page = page.with_after(after);
             }
