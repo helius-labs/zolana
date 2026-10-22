@@ -35,6 +35,12 @@ image_file() { docker run --rm --platform linux/amd64 --entrypoint cat "$image" 
 kms_key=$(image_file kms-key)
 indexer_url=$(image_file indexer-url)
 routes=$(image_file routes)
+backend=$(image_file backend 2>/dev/null || printf gnark)
+concurrency=$(image_file concurrency)
+source_commit=$(docker image inspect -f '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image")
+build_tools_commit=$(docker image inspect -f '{{ index .Config.Labels "org.zolana.build-tools.revision" }}' "$image")
+[[ $backend == gnark || $backend == aeglos-cpu ]] || { echo "unknown measured backend: $backend" >&2; exit 1; }
+[[ $concurrency =~ ^[1-9][0-9]?$ ]] || { echo "invalid measured concurrency" >&2; exit 1; }
 jq -n \
     --slurpfile built "$out/build.json" \
     --slurpfile described "$out/describe.json" \
@@ -43,6 +49,10 @@ jq -n \
     --arg kms_key "$kms_key" \
     --arg indexer_url "$indexer_url" \
     --arg routes "$routes" \
+    --arg backend "$backend" \
+    --argjson concurrency "$concurrency" \
+    --arg source_commit "$source_commit" \
+    --arg build_tools_commit "$build_tools_commit" \
     --arg eif_sha256 "$(sha256sum "$out/prover.eif" | cut -d' ' -f1)" '
     ($built[0].Measurements) as $b | ($described[0].Measurements) as $d |
     if [$b.PCR0, $b.PCR1, $b.PCR2] != [$d.PCR0, $d.PCR1, $d.PCR2]
@@ -50,6 +60,8 @@ jq -n \
     {
         PCR0: $d.PCR0, PCR1: $d.PCR1, PCR2: $d.PCR2, HashAlgorithm: $d.HashAlgorithm,
         image: $image, nitro_cli: $nitro_cli, kms_key: (if $kms_key == "" then null else $kms_key end),
+        backend: $backend, concurrency: $concurrency, source_commit: $source_commit,
+        build_tools_commit: $build_tools_commit,
         indexer_url: $indexer_url, routes: ($routes | split("\n") | map(select(. != ""))),
         eif_sha256: $eif_sha256, source: "measure"
     }' > "$out/measurements.json"

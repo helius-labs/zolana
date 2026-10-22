@@ -15,7 +15,7 @@ ARG PROVER_PGO
 RUN GOAMD64="$GOAMD64" PROVER_PGO="$PROVER_PGO" sh ./build-release.sh /usr/local/bin/light-prover
 
 FROM source AS aeglos-cpu
-RUN apk add --no-cache bash=5.3.9-r1 g++=15.2.0-r5 make=4.4.1-r4 musl-dev=1.2.6-r2
+RUN apk add --no-cache bash=5.3.9-r1 g++=15.2.0-r5 make=4.4.1-r4 musl-dev=1.2.6-r3
 ARG GOAMD64
 ARG AEGLOS_UNPINNED
 RUN --mount=type=bind,from=aeglos_source,target=/tmp/aeglos-source \
@@ -49,7 +49,7 @@ RUN mkdir /out \
 # never downloads, checked against their pinned sha256.
 FROM alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8 AS release-keys
 
-RUN apk add --no-cache curl=8.14.1-r3 jq=1.8.2-r0
+RUN apk add --no-cache curl=8.14.1-r4 jq=1.8.2-r0
 ARG RELEASE_KEYS_URL=https://github.com/helius-labs/zolana/releases/download/custom-ring-keys-v23
 COPY prover/server/prover/provingkeys/proving-keys.lock /tmp/proving-keys.lock
 RUN set -eu; \
@@ -66,7 +66,7 @@ RUN set -eu; \
 FROM alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
 
 RUN apk add --no-cache \
-        ca-certificates=20260909-r0 \
+        ca-certificates=20261020-r0 \
         libncursesw=6.5_p20250503-r0 \
         ncurses-terminfo-base=6.5_p20250503-r0 \
         readline=8.2.13-r1 \

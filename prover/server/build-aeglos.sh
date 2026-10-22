@@ -29,12 +29,19 @@ else
 fi
 export GOWORK="$scratch/go.work"
 go work init "$prover" "$scratch/aeglos"
+# Force the exact release versions before Go traverses Aeglos's older graph.
+# The old graph contains a removed tooling repository. These are the versions
+# workspace MVS would select from the newer prover requirements in any case.
+gnark=(github.com/consensys/gnark github.com/consensys/gnark-crypto)
+for dependency in "${gnark[@]}"; do
+    version=$(cd "$prover" && GOWORK=off go list -m -f '{{.Version}}' "$dependency")
+    (cd "$scratch/aeglos" && GOWORK=off go mod edit "-require=$dependency@$version")
+done
 # Workspace mode reaches a gnark tool module no source serves.
 for module in "$prover" "$scratch/aeglos"; do
     (cd "$module" && GOWORK=off go mod download && GOWORK=off go mod verify)
 done
-gnark=(github.com/consensys/gnark github.com/consensys/gnark-crypto)
-workspace=$(go list -m "${gnark[@]}")
+workspace=$(go list -m -f '{{.Path}} {{if .Replace}}{{.Replace.Version}}{{else}}{{.Version}}{{end}}' "${gnark[@]}")
 standalone=$(cd "$prover" && GOWORK=off go list -m "${gnark[@]}")
 if [[ $workspace != "$standalone" ]]; then
     echo 'Aeglos must require the gnark versions of the prover module' >&2
