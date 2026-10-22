@@ -189,6 +189,11 @@ describe("createdRingUtxos", () => {
       expect(scanned).toEqual({
         utxos: [{ commitment: deposit.commitments[0], slotIndex: 0, utxo: deposit.utxo }],
       });
+      const foreign = await scan({
+        transactions: [{ ...indexed, ringProgramId: address("11111111111111111111111111111111") }],
+        scannedThrough: Uint8Array.of(1),
+      });
+      expect(foreign).toEqual({ utxos: [] });
       const capped = await scan({ transactions: [transfer], nextCursor: Uint8Array.of(7) }, 1);
       expect(capped).toEqual({ utxos: [], nextCursor: Uint8Array.of(7) });
       await expect(

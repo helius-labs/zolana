@@ -118,6 +118,7 @@ const VECTORS: readonly VectorEntry[] = [
 const SIGNATURE = "1".repeat(64) as Signature;
 /** A mint no default registry names, the exit of the packed vector settles it. */
 const FOREIGN_MINT = encodeBase58(new Uint8Array(32).fill(0x0a));
+const OTHER_RING = encodeBase58(new Uint8Array(32).fill(0x0b));
 
 function vectorOf(layout: Layout, name: string): VectorEntry {
   const found = VECTORS.find((entry) => entry.layout === layout && entry.vector.name === name);
@@ -861,6 +862,35 @@ describe("auditRing", () => {
     expect(page.nextCursor).toBeUndefined();
   });
 
+  it("never reads the origin of a row another ring or the default ring indexed", async () => {
+    const auditor = X25519Keypair.generate();
+    const transfer = vectorTransaction(PACKED, auditor.publicKey());
+    const { ringProgramId: _ring, ...defaultRing } = {
+      ...transfer,
+      txSignature: "7".repeat(64) as Signature,
+    };
+    const otherRing = {
+      ...transfer,
+      txSignature: "8".repeat(64) as Signature,
+      ringProgramId: OTHER_RING,
+    };
+    const read = vi.fn(async (transaction: IndexedShieldedTransaction) => {
+      if (transaction.txSignature !== SIGNATURE) throw new Error("origin read of a foreign row");
+      return transfers.confirmedTransaction(transaction, ring);
+    });
+    const assets = new AssetRegistry([[2n, FOREIGN_MINT]]);
+    const page = await scan(
+      [defaultRing, otherRing, transfer],
+      { confirmedTransaction: read },
+      {
+        auditor,
+        assets,
+      },
+    );
+    expect(page.transactions.map((audited) => audited.signature)).toEqual([SIGNATURE]);
+    expect(read).toHaveBeenCalledTimes(1);
+  });
+
   it("refuses a confirmed transfer without its auditor message", async () => {
     const auditor = X25519Keypair.generate();
     const transfer = vectorTransaction(PACKED, auditor.publicKey());
@@ -1129,6 +1159,32 @@ describe("recoverRingMemberNotes", () => {
     };
     const spent = await recover({ owner, auditor, transaction, spends: [spend] });
     expect(spent.notes).toEqual([]);
+  });
+
+  it("never reads the origin of a spend another ring indexed", async () => {
+    const auditor = X25519Keypair.generate();
+    const owner = ShieldedKeypair.generate();
+    const { transaction, commitment } = ownedTransfer(owner, auditor.publicKey());
+    const unspent = await recover({ owner, auditor, transaction });
+    const foreign = {
+      ...transaction,
+      txSignature: "5".repeat(64) as Signature,
+      nullifiers: [unspent.notes[0]!.nullifier],
+      ringProgramId: OTHER_RING,
+    };
+    const recovered = await recover({
+      owner,
+      auditor,
+      transaction,
+      spends: [foreign],
+      origin: {
+        confirmedTransaction: async (indexed, ring) => {
+          if (indexed.ringProgramId !== ring) throw new Error("origin read of a foreign row");
+          return TRANSFERS.confirmedTransaction(indexed, ring);
+        },
+      },
+    });
+    expect(recovered.notes.map((note) => note.outputContext.hash)).toEqual([commitment]);
   });
 
   it("opens the source's escrowed note and passes over another owner's", async () => {

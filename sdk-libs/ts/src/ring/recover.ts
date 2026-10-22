@@ -313,6 +313,7 @@ async function followSpends(
   for (;;) {
     const requested = new Set(queries.map(bytesKey));
     for (const indexed of await spendingTransactions(input.client, queries, budget, context)) {
+      if (indexed.ringProgramId !== input.ringProgramId) continue;
       if (indexed.eventIndex === undefined)
         throw new RingError("RING_RPC", { details: { reason: "missing event index" } });
       const confirmed = await origin.confirmedTransaction(indexed, input.ringProgramId, context);

@@ -63,6 +63,7 @@ export async function readRingHistory(
         details: { reason: "history page exceeds requested limit" },
       });
     for (const indexed of response.transactions) {
+      if (indexed.ringProgramId !== input.ringProgramId) continue;
       if (indexed.eventIndex === undefined)
         throw new RingError("RING_RPC", { details: { reason: "missing event index" } });
       const confirmed = await input.origin.confirmedTransaction(

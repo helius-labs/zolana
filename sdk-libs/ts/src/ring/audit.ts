@@ -470,6 +470,7 @@ export async function auditRing(
       context,
     );
     for (const indexed of response.transactions) {
+      if (indexed.ringProgramId !== input.ringProgramId) continue;
       if (indexed.eventIndex === undefined)
         throw new RingError("RING_RPC", { details: { reason: "missing event index" } });
       const confirmed = await origin.confirmedTransaction(indexed, input.ringProgramId, context);
