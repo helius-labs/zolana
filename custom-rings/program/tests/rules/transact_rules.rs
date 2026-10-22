@@ -632,12 +632,22 @@ struct Curator {
     address: Address,
 }
 
+#[derive(Clone, Copy, Default)]
+struct Floor {
+    floor: u64,
+    prior_floor: u64,
+    floor_slot: u64,
+}
+
 impl Curator {
     const PROGRAM: Address = Address::new_from_array([0x63; 32]);
 
-    fn install(ring: &mut Ring, floor: u64, prior_floor: u64, floor_slot: u64) -> Self {
-        let (address, bump) =
-            Address::find_program_address(&[MEMBER_REGISTRY_PDA_SEED], &Self::PROGRAM);
+    fn install(ring: &mut Ring, floor: Floor) -> Self {
+        Self::install_under(ring, Self::PROGRAM, floor)
+    }
+
+    fn install_under(ring: &mut Ring, program: Address, floor: Floor) -> Self {
+        let (address, bump) = Address::find_program_address(&[MEMBER_REGISTRY_PDA_SEED], &program);
         let mut registry = MemberRegistry::new(bump, 0);
         registry.push_root(
             field(8),
@@ -646,14 +656,10 @@ impl Curator {
                 slot: 10,
             },
         );
-        registry.floor = floor.to_le_bytes();
-        registry.prior_floor = prior_floor.to_le_bytes();
-        registry.floor_slot = floor_slot.to_le_bytes();
-        ring.store(
-            address,
-            Self::PROGRAM,
-            bytemuck::bytes_of(&registry).to_vec(),
-        );
+        registry.floor = floor.floor.to_le_bytes();
+        registry.prior_floor = floor.prior_floor.to_le_bytes();
+        registry.floor_slot = floor.floor_slot.to_le_bytes();
+        ring.store(address, program, bytemuck::bytes_of(&registry).to_vec());
         Self { address }
     }
 
@@ -701,7 +707,14 @@ fn a_curator_root_below_the_floor_lives_only_through_the_grace_window() {
     let data = curator_transfer(&fixture);
     let raised_at = 1_000;
     let mut ring = Ring::new(Setup::Policy);
-    let curator = Curator::install(&mut ring, 5, 3, raised_at);
+    let curator = Curator::install(
+        &mut ring,
+        Floor {
+            floor: 5,
+            prior_floor: 3,
+            floor_slot: raised_at,
+        },
+    );
     curator.source(&mut ring);
     ring.warp(raised_at + GRACE_SLOTS - 1);
     reaches_verification(curator.transfer(&mut ring, &data));
@@ -717,7 +730,14 @@ fn a_second_floor_raise_refuses_roots_below_the_first() {
     let fixture = Fixture::new();
     let raised_at = 1_000;
     let mut ring = Ring::new(Setup::Policy);
-    let curator = Curator::install(&mut ring, 6, 5, raised_at);
+    let curator = Curator::install(
+        &mut ring,
+        Floor {
+            floor: 6,
+            prior_floor: 5,
+            floor_slot: raised_at,
+        },
+    );
     curator.source(&mut ring);
     ring.warp(raised_at);
     refused(
@@ -730,15 +750,18 @@ fn a_second_floor_raise_refuses_roots_below_the_first() {
 fn the_curator_account_must_be_the_sourced_registry() {
     let fixture = Fixture::new();
     let mut ring = Ring::new(Setup::Policy);
-    let curator = Curator::install(&mut ring, 0, 0, 0);
+    let curator = Curator::install(&mut ring, Floor::default());
     curator.source(&mut ring);
-    let impostor = Curator {
-        address: Address::new_unique(),
-    };
+    let impostor = Curator::install_under(
+        &mut ring,
+        Address::new_from_array([0x64; 32]),
+        Floor::default(),
+    );
     refused(
         impostor.transfer(&mut ring, &curator_transfer(&fixture)),
         CustomRingError::InvalidCuratorRegistry,
     );
+    reaches_verification(curator.transfer(&mut ring, &curator_transfer(&fixture)));
 }
 
 fn set_co_signer(

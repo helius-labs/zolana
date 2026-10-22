@@ -10,14 +10,17 @@ use custom_ring_interface::{
 use solana_address::Address;
 use solana_instruction::{error::InstructionError, AccountMeta, Instruction};
 use solana_keypair::{Keypair, Signer};
+use solana_transaction_error::TransactionError;
 use zolana_account_checks::AccountError;
 use zolana_ring_policy::{ListChange, ListId, ListSet};
 
 use crate::common::{
-    allow_list_table, auditor_pubkey, config_pda, config_write, create_config, list_table,
-    policy_write, queue_pda, refused, refused_with, registry_pda, ring_auth, set_delegate,
-    within_budget, write_records, Fee, Ring, Sent, Setup, PROGRAM, SYSTEM,
+    allow_list_table, auditor_pubkey, config_pda, config_write, create_config,
+    create_member_registry, list_table, policy_write, program_data_of, queue_pda, refused,
+    refused_with, registry_pda, ring_auth, set_delegate, within_budget, write_records, Fee, Ring,
+    Sent, Setup, PROGRAM, SYSTEM,
 };
+use crate::transact_rules::SPP;
 
 fn set_co_signer_data(signer: [u8; 32], scope: u8, mints: &[[u8; 32]]) -> Vec<u8> {
     wincode::serialize(&SetCoSignerIxData {
@@ -71,6 +74,30 @@ fn only_the_upgrade_authority_creates_a_config_for_a_usable_auditor_key() {
         authority_send(&mut fresh, create_config(&payer, &authority, low_order)),
         CustomRingError::InvalidAuditorPubkey,
     );
+}
+
+#[test]
+fn the_upgrade_authority_comes_from_the_ring_programs_own_program_data() {
+    let mut ring = Ring::new(Setup::AuditOnly);
+    ring.store(config_pda(), SYSTEM, Vec::new());
+    let stranger = Keypair::new();
+    let stand_in = Address::new_unique();
+    ring.deploy_stand_in(stand_in);
+    ring.set_upgrade_authority(&stand_in, &stranger.pubkey());
+    let data = CreateConfigIxData {
+        auditor_pubkey: auditor_pubkey(),
+        kind: RingKind::AuditOnly,
+    };
+    let payer = ring.payer.pubkey();
+    for program in [stand_in, PROGRAM] {
+        let mut instruction = create_config(&payer, &stranger.pubkey(), data);
+        instruction.accounts[4] = AccountMeta::new_readonly(program, false);
+        instruction.accounts[5] = AccountMeta::new_readonly(program_data_of(&stand_in), false);
+        refused(
+            ring.send(instruction, &[&stranger]),
+            CustomRingError::UnauthorizedInitializer,
+        );
+    }
 }
 
 #[test]
@@ -355,30 +382,103 @@ fn policy_writes_need_a_policy_ring_and_a_foreign_curator() {
 #[test]
 fn a_policy_ring_registers_with_spp_once_its_table_is_set() {
     let mut ring = Ring::new(Setup::Policy);
-    let spp = Address::new_from_array(zolana_interface::SHIELDED_POOL_PROGRAM_ID);
-    ring.deploy_stand_in(spp);
+    ring.deploy_stand_in(SPP);
     let mut registry: MemberRegistry = ring.read(&registry_pda());
     registry.policy_hash = [0; 32];
     ring.write(&registry_pda(), &registry);
-    let (payer, authority) = (ring.payer.pubkey(), ring.authority.pubkey());
-    let register = Instruction {
-        program_id: PROGRAM,
-        accounts: vec![
-            AccountMeta::new(payer, true),
-            AccountMeta::new_readonly(authority, true),
-            AccountMeta::new_readonly(config_pda(), false),
-            AccountMeta::new_readonly(Address::new_unique(), false),
-            AccountMeta::new(crate::common::ring_auth(), false),
-            AccountMeta::new_readonly(SYSTEM, false),
-            AccountMeta::new_readonly(spp, false),
-            AccountMeta::new_readonly(registry_pda(), false),
-        ],
-        data: vec![tag::INIT_SPP_RING_CONFIG],
-    };
+    let register = init_spp_ring_config(&ring);
     refused(
         authority_send(&mut ring, register),
         CustomRingError::PolicyNotSet,
     );
+}
+
+fn init_spp_ring_config(ring: &Ring) -> Instruction {
+    Instruction {
+        program_id: PROGRAM,
+        accounts: vec![
+            AccountMeta::new(ring.payer.pubkey(), true),
+            AccountMeta::new_readonly(ring.authority.pubkey(), true),
+            AccountMeta::new_readonly(config_pda(), false),
+            AccountMeta::new_readonly(Address::new_unique(), false),
+            AccountMeta::new(ring_auth(), false),
+            AccountMeta::new_readonly(SYSTEM, false),
+            AccountMeta::new_readonly(SPP, false),
+            AccountMeta::new_readonly(registry_pda(), false),
+        ],
+        data: vec![tag::INIT_SPP_RING_CONFIG],
+    }
+}
+
+#[test]
+fn every_authority_write_refuses_a_stranger() {
+    let mut ring = Ring::new(Setup::Policy);
+    let stranger = Keypair::new();
+    let authority = ring.authority.pubkey();
+    let source = SetPolicySourceIxData {
+        list_id: ListId::Allow as u8,
+        source: 0,
+    };
+    let co_signer = set_co_signer_data([1; 32], 1, &[]);
+    let writes = [
+        (
+            config_write(tag::SET_CO_SIGNER, &authority, &[], &co_signer),
+            0,
+        ),
+        (config_write(tag::CLEAR_CO_SIGNER, &authority, &[], &[]), 0),
+        (
+            policy_write(
+                tag::CREATE_POLICY,
+                &authority,
+                allow_list_table(Vec::new()),
+                &[],
+            ),
+            0,
+        ),
+        (
+            policy_write(
+                tag::SET_POLICY_RULES,
+                &authority,
+                allow_list_table(Vec::new()),
+                &[],
+            ),
+            0,
+        ),
+        (
+            config_write(
+                tag::SET_POLICY_SOURCE,
+                &authority,
+                &[AccountMeta::new(registry_pda(), false)],
+                &wincode::serialize(&source).unwrap(),
+            ),
+            0,
+        ),
+        (grant(&ring), 1),
+        (revoke(&ring, Keypair::new().pubkey()), 0),
+        (create_member_registry(&ring.payer.pubkey(), &authority), 1),
+        (init_spp_ring_config(&ring), 1),
+    ];
+    let unauthorized = TransactionError::InstructionError(
+        0,
+        InstructionError::Custom(CustomRingError::UnauthorizedAuthority as u32),
+    );
+    let refusals: Vec<_> = writes
+        .into_iter()
+        .map(|(mut instruction, slot)| {
+            instruction.accounts[slot] = AccountMeta::new_readonly(stranger.pubkey(), true);
+            let tag = instruction.data[0];
+            (
+                tag,
+                ring.send(instruction, &[&stranger])
+                    .map_err(|(error, _)| error),
+            )
+        })
+        .collect();
+    let expected: Vec<_> = refusals
+        .iter()
+        .map(|(tag, _)| (*tag, Err(unauthorized.clone())))
+        .collect();
+    assert_eq!(refusals, expected);
 }
 
 fn reader() -> [u8; 34] {

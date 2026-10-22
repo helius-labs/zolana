@@ -49,7 +49,11 @@ pub fn ring_auth() -> Address {
 }
 
 pub fn program_data() -> Address {
-    Address::find_program_address(&[PROGRAM.as_ref()], &LOADER).0
+    program_data_of(&PROGRAM)
+}
+
+pub fn program_data_of(program: &Address) -> Address {
+    Address::find_program_address(&[program.as_ref()], &LOADER).0
 }
 
 #[derive(Clone, Copy)]
@@ -98,8 +102,8 @@ impl Ring {
             payer,
             authority,
         };
-        ring.set_upgrade_authority();
         let authority = ring.authority.insecure_clone();
+        ring.set_upgrade_authority(&PROGRAM, &authority.pubkey());
         let config = create_config(
             &ring.payer.pubkey(),
             &authority.pubkey(),
@@ -226,8 +230,8 @@ impl Ring {
     }
 
     /// litesvm deploys with no upgrade authority, `CreateConfig` needs one.
-    fn set_upgrade_authority(&mut self) {
-        let program_data = program_data();
+    pub fn set_upgrade_authority(&mut self, program: &Address, authority: &Address) {
+        let program_data = program_data_of(program);
         let mut account = self
             .svm
             .get_account(&program_data)
@@ -235,7 +239,7 @@ impl Ring {
         let metadata = bincode::serde::encode_to_vec(
             UpgradeableLoaderState::ProgramData {
                 slot: 0,
-                upgrade_authority_address: Some(self.authority.pubkey()),
+                upgrade_authority_address: Some(*authority),
             },
             bincode::config::legacy(),
         )
