@@ -68,8 +68,9 @@ pub const MERGE_CIPHERTEXT_SALT: [u8; 16] = [0x5a; 16];
 pub const MERGE_CIPHERTEXT: [[u8; 32]; 3] = [[0x61; 32], [0x62; 32], [0x63; 32]];
 
 /// The data slot a rebuilt merge output carries, spelled out byte by byte:
-/// borsh `OutputDataEncoding::VerifiablyEncrypted` (variant 2, u32 LE length),
-/// scheme 6, the `merge_ring` output ring data hash, the salt, the ciphertext.
+/// borsh `OutputDataEncoding::VerifiablyEncrypted` (variant 2) for
+/// `merge_transact` and `merge_ring`, a u32 LE length, scheme 6, the `merge_ring`
+/// output ring data hash, the salt, the ciphertext.
 pub fn merge_output_data(ring_data_hash: Option<[u8; 32]>) -> Vec<u8> {
     let mut blob = vec![6u8];
     if let Some(ring_data_hash) = ring_data_hash {
