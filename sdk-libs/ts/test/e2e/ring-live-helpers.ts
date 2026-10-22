@@ -113,7 +113,8 @@ export async function sendInstruction(
 export type FreshRing = Readonly<{
   program: KeyPairSigner;
   authority: KeyPairSigner;
-  auditor: X25519PublicKey;
+  /** A derived-mode ring rpc releases the key once the program exists. */
+  auditor: X25519PublicKey | Readonly<{ releasedBy: RingRpc }>;
   /** Lets the delegate rail transact. */
   authorityTransact: boolean;
 }> &
@@ -135,13 +136,24 @@ export async function createRing(client: ZolanaClient, ring: FreshRing): Promise
     authority,
     binary: RingProgramBinary.parse(new Uint8Array(await readFile(requiredEnv("RING_PROGRAM_SO")))),
   });
+  const { auditor } = ring;
+  const auditorPublicKey =
+    "releasedBy" in auditor
+      ? (
+          await auditor.releasedBy.createAuditorKey({
+            ringProgramId,
+            genesisHash: (await ringReadTarget(auditor.releasedBy, ringProgramId)).cluster,
+            authority,
+          })
+        ).auditorPublicKey
+      : auditor;
   await sendInstruction(
     client,
     await createRingConfigInstruction({
       ringProgramId,
       payer: authority,
       authority,
-      auditorPublicKey: ring.auditor,
+      auditorPublicKey,
       kind: ring.kind,
     }),
     authority,

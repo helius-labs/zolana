@@ -1,10 +1,9 @@
-// Deploys fresh anonymous rings, one audit-only and one whose table admits listed senders only.
+// Fresh anonymous rings keyed by the harness ring rpc in derived mode, one admitting listed senders only.
 import { generateKeyPairSigner, type Address, type KeyPairSigner } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 
 import type { ZolanaClient } from "../../src/client/client.js";
 import { syncWallet } from "../../src/index.js";
-import { X25519Keypair } from "../../src/keypair/x25519.js";
 import {
   ListId,
   buildRuleTable,
@@ -16,12 +15,16 @@ import { customRingDepositPayload } from "../../src/ring/deposit-payload.js";
 import {
   AuthorityListWrite,
   RingInstructionTag,
+  RingRpc,
   buildRingDepositTransaction,
   buildRingTransferTransaction,
+  checkedReaderKey,
   fetchRingProgramConfig,
+  grantReadAccessInstruction,
   listWrite,
   messageSignerSpendSigner,
   ringComputeUnitLimit,
+  type RingReadTarget,
 } from "../../src/ring/index.js";
 import { issueRingAddress } from "../../src/wallet/index.js";
 import { currentSlot, liveHarness, signSendAndConfirm, type Actor } from "./live-helpers.js";
@@ -31,7 +34,10 @@ import {
   freshActor,
   indexedKeys,
   indexedRecord,
+  requiredEnv,
+  ringReadTarget,
   sendInstruction,
+  waitForAudited,
 } from "./ring-live-helpers.js";
 
 const DEPOSIT = 1_000_000_000n;
@@ -44,26 +50,58 @@ interface AnonymousRing {
   readonly creationEpoch: bigint;
   /** Pays every fee, an anonymous ring refuses a signer holding the hidden owner's key. */
   readonly funder: KeyPairSigner;
+  readonly ringRpc: RingRpc;
+  readonly target: RingReadTarget;
 }
 
 async function anonymousRing(
   kind: Readonly<{ kind: "anonymous" }> | Readonly<{ kind: "anonymousPolicy"; table: RuleTable }>,
 ): Promise<AnonymousRing> {
   const { client } = await liveHarness("client");
+  const ringRpc = new RingRpc(requiredEnv("RING_RPC_URL"), { allowInsecureHttp: true });
+  if ((await ringRpc.health()).mode !== "derived")
+    throw new Error(
+      "the anonymous ring suites need a ring rpc that derives each ring's auditor key",
+    );
   const authority = (await freshActor(client)).signer;
   const funder = await generateKeyPairSigner();
   const program = await generateKeyPairSigner();
+  const ringProgramId = program.address;
   for (let i = 0; i < 6; i++) await airdrop(client, authority.address);
   await airdrop(client, funder.address);
   await createRing(client, {
     program,
     authority,
-    auditor: X25519Keypair.generate().publicKey(),
+    auditor: { releasedBy: ringRpc },
     authorityTransact: false,
     ...kind,
   });
-  const { creationEpoch } = await fetchRingProgramConfig(client, program.address);
-  return { client, ringProgramId: program.address, authority, creationEpoch, funder };
+  // Reads are grant only, the ring authority included.
+  await sendInstruction(
+    client,
+    await grantReadAccessInstruction({
+      ringProgramId,
+      payer: authority,
+      authority,
+      reader: checkedReaderKey(authority.address),
+    }),
+    authority,
+  );
+  const { creationEpoch } = await fetchRingProgramConfig(client, ringProgramId);
+  const target = await ringReadTarget(ringRpc, ringProgramId);
+  return { client, ringProgramId, authority, creationEpoch, funder, ringRpc, target };
+}
+
+/** The ring rpc names the hidden sender and opens the payment and its change. */
+async function expectAudited(ring: AnonymousRing, sender: Actor, signature: string): Promise<void> {
+  const item = await waitForAudited(ring.ringRpc, ring.target, ring.authority, signature);
+  expect(item.sender?.ownerKey).toEqual(sender.keypair.signingPublicKey().ed25519());
+  expect(item.payloadErrors).toEqual([]);
+  expect(
+    item.outputs
+      .flatMap(({ opening }) => (opening.kind === "ring" ? [opening.utxo.amount] : []))
+      .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0)),
+  ).toEqual([PAYMENT, DEPOSIT - PAYMENT]);
 }
 
 /** Reads every stream of the ring through the current slot. */
@@ -135,7 +173,8 @@ describe("anonymous ring", () => {
     const sender = await depositor(ring);
     const recipient = await freshActor(ring.client);
     const pay = await payment(ring, sender, recipient);
-    await signSendAndConfirm(ring.client, await pay(), [ring.funder]);
+    const signature = await signSendAndConfirm(ring.client, await pay(), [ring.funder]);
+    await expectAudited(ring, sender, signature);
     await syncRing(ring, recipient);
     expect(ringHoldings(recipient, ring)).toBe(PAYMENT);
     await syncRing(ring, sender);
@@ -185,7 +224,8 @@ describe("anonymous ring", () => {
       if (attempt === 240) throw new Error("the allow list write was not indexed");
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
-    await signSendAndConfirm(ring.client, await pay(), [ring.funder]);
+    const signature = await signSendAndConfirm(ring.client, await pay(), [ring.funder]);
+    await expectAudited(ring, sender, signature);
     await syncRing(ring, recipient);
     expect(ringHoldings(recipient, ring)).toBe(PAYMENT);
   }, 900_000);

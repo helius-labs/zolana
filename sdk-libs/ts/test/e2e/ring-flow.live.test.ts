@@ -116,7 +116,7 @@ describe("ring flow", () => {
     const ringRpc = new RingRpc(requiredEnv("RING_RPC_URL"), { allowInsecureHttp: true });
     const target = await ringReadTarget(ringRpc, ringProgramId);
     const health = await ringRpc.health();
-    expect(health.mode).toBe("local");
+    expect(health.mode).toBe("derived");
 
     const sender = await freshActor(client);
     const recipient = await freshActor(client);
