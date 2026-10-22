@@ -415,9 +415,9 @@ Set a Ring up in this order.
 1. `deployRingProgram` deploys or upgrades the Ring program from a
    `RingProgramBinary` and returns once the program is usable,
    `verifyRingProgram` checks the deployed bytes.
-2. `createRingConfigInstruction` stores the auditor key, the tier and the
-   `anonymous` flag. The program's upgrade authority signs and becomes the
-   config authority.
+2. `createRingConfigInstruction` takes the auditor key and a `kind` that fixes
+   the tier and whether the Ring is anonymous. The program's upgrade authority
+   signs and becomes the config authority.
 3. `createMemberRegistryInstruction` creates the member registry and its
    record queue.
 4. A policy Ring pins its rule table with `buildRingCreatePolicyTransaction`.
@@ -433,6 +433,8 @@ withdrawals with `buildRingEntryTransaction`, `buildRingTransferTransaction`,
 `buildRingExitTransaction`, and `buildRingWithdrawalTransaction`. `RingRpc`
 reads decrypted Ring transactions for a granted reader. The same surface is
 available from `@heliuslabs/zolana/ring`.
+Each signed read takes a `RingReadTarget` of the cluster's genesis hash, the
+service key the reader pinned and the Ring.
 On an anonymous Ring an in-ring transfer pays a `RingAddress`. Every entry,
 transfer, exit and withdrawal passes the sender's spend signer and ring state
 in `anonymous`.

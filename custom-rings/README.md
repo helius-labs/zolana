@@ -44,16 +44,18 @@ c) the auditor key in the config belongs to the auditor.
 
 The program trusts its config, member registry and record queue by owner and
 discriminator. It trusts a curator registry by the address the policy names
-and by its `members` PDA under the owning program. It trusts an anchor root by
-SPP's ownership of the tree. It requires the payer's signature and the source
+and by its `members` PDA under the owning program. It trusts the tree root of
+an anonymous [first contact](docs/anonymous-rings.md#tags-and-epochs) by SPP's
+ownership of the tree. It requires the payer's signature and the source
 signer of every public deposit. The confidential rail also requires every
 owner signer, and the delegate rail requires the configured delegate. A
 demanded co-signer signs on every rail.
 
 The program and the proofs do not check that a sender pays the address it
-meant to pay. They do not check that a change or padding tag is random. They
-do not check delivery on the packed layouts. See
-[Limits](docs/auditing.md#limits).
+meant to pay. They do not check that a salt is fresh or that a payment takes an
+unused stream index. They do not check that the tag of an anonymous change or
+padding slot is random. They do not check delivery on the packed layouts or of
+an exit payload. See [Limits](docs/auditing.md#limits).
 
 ## Rings and rails
 
@@ -74,12 +76,14 @@ transfer, deposit and merge proves what the auditor reads.
 `Transact` settles a member transfer on SPP's confidential ring rail or its
 anonymous ring rail, chosen by the config's `mode`. `DelegateTransact` lets the
 ring's **delegate** move members' notes over SPP's ring authority rail. The
-delegate signs in place of the owners, and a policy proof still applies every
-rule. The ring refuses a public leg and an exit on that rail, so a delegate
-cannot withdraw. SPP refuses the rail until governance enables it for the
-ring.
+delegate signs instead of the owners and cannot withdraw, because the ring
+refuses public legs on that rail (`DelegatePublicLeg`). The delegate's policy
+proof applies every rule and skips the outflow limits. Scoped co-signing still
+applies. SPP refuses the rail until governance enables it for the ring.
 
-Setting a delegate starts **key escrow**, and no instruction stops it. See
+The delegate spends a member's notes with the member's nullifier key, escrowed
+to the ring auditor in the member registry. Setting a delegate starts **key
+escrow**, and no instruction stops it. See
 [Escrowed nullifier keys](docs/auditing.md#escrowed-nullifier-keys). The
 delegate needs a confidential policy ring with a member registry.
 
@@ -96,38 +100,39 @@ keys sign.
 
 The **auditor** holds the X25519 key the config stores. It reads every
 transfer, deposit and merge, and its key authorizes no spend. The ring RPC
-holds that key and serves the **readers** the config authority grants. See
-[Reading a ring](docs/auditing.md#reading-a-ring).
+holds that key and serves each **reader** that has a read grant from the
+config authority. See [Reading a ring](docs/auditing.md#reading-a-ring).
 
 A **curator** is another ring whose member registry serves lists of the
 ring. The curator writes only its own records. Each subscriber trusts those
 records for every list it reads from the curator.
 
 The **co-signer** is a Solana key the config stores with a scope of operation
-classes and per-mint withdrawal thresholds.
+classes and per-mint withdrawal thresholds. A transfer refuses a co-signer that
+is one of its owner signers or its delegate.
 [Ring configuration](../docs/spec.md#ring-configuration) states the operations
 it signs.
 
-The **delegate** is a Solana key the upgrade authority sets once.
-`zolana-ring delegate move` takes the delegate keypair and the auditor key, so
-one operator holds both.
-[Member records](docs/member-records.md#members-and-lists) defines a
-**member**. **Governance** controls the ring's activation and its delegate
-rail in SPP.
+The **delegate** is a Solana key the upgrade authority sets once, and both keys
+sign `SetDelegate`. `zolana-ring delegate move` takes the delegate keypair and
+the auditor key and pays with the config authority keypair, so one operator
+holds all three. [Member records](docs/member-records.md#members-and-lists)
+defines a **member**. **Governance** controls the ring's activation and its
+delegate rail in SPP.
 
 ## How a transfer settles
 
 1. The client builds the SPP transfer and the ring's compact transaction data.
    The data carries the audit proof, the policy proof on a policy ring, and the
    SPP proof with its `b` point compressed.
-2. The program parses the data, each section sized by its flags, its shape
-   and the counts and length prefixes it carries. It refuses trailing bytes
-   and a zero disclosure field.
+2. The program parses the data, each section sized by the rail, its flags, its
+   shape and the counts and length prefixes it carries. It refuses trailing
+   bytes and a zero disclosure field.
 3. It checks the rail's signers, the funder of each public deposit and the
-   co-signer that the config or the approval bit demands.
+   co-signer that the config or `approval_required` demands.
 4. It rebuilds the audit statement and, on a policy ring, the policy statement
-   from its accounts, the instruction and SPP's public amounts. It verifies
-   each proof.
+   from its accounts, the instruction, the slot and SPP's public amounts. It
+   verifies each proof.
 5. It invokes SPP with the expanded transact data and the `ring_auth` signer.
 
 The audit statement binds the first nullifier and the published output hashes
@@ -138,29 +143,33 @@ blinding.
 
 ## Shapes
 
-SPP has keys for the 38 [supported shapes](../docs/spec.md#supported-shapes)
-of `n_in x n_out`. The ring has audit and policy keys
-for every one of them on the confidential rail. The anonymous rail has keys
-for up to 32 published inputs at 2 outputs, 24 at 4 outputs, 16 at 8 outputs
-and 1 at 16 outputs. The SDKs publish every input slot of an anonymous
-transfer, so through them the rail serves exactly these shapes. An anonymous
-transfer that spends a default-ring note takes at most 8 inputs and 8 outputs.
-The delegate rail has keys for every shape up to 40 inputs.
+SPP has keys for the 38 [supported shapes](../docs/spec.md#supported-shapes) of
+`n_in x n_out`. The ring has audit and policy keys for every one of them on the
+confidential rail. The anonymous rail has keys for the input classes of
+[Audit disclosure](../docs/spec.md#audit-disclosure). The SDKs publish every
+input slot of an anonymous transfer. Through them the rail serves up to 32
+inputs at 2 outputs, 24 at 4, 16 at 8 and 1 at 16. An anonymous transfer that
+spends a default-ring note takes at most 8 inputs and 8 outputs. The delegate
+rail has keys for every
+[ring-authority shape](../docs/spec.md#supported-shapes).
 
-Every rail has keys for more shapes than fit in one transaction. A v1
-transaction carries at most 4,096 bytes and 64 addresses, and the bytes are
-the first limit a shape reaches. The SDK test
+Not every keyed shape fits one transaction. See
+[Transaction size](../docs/spec.md#transaction-size). The SDK test
 `every_transfer_shape_takes_its_pinned_transaction_size` pins the bytes of
-every keyed shape for each rail and tier, and it measures each policy ring with
-a co-signer. It measures the confidential policy ring under key escrow.
-Without key escrow that ring discloses one more field per output, so more
-shapes exceed the limit. A
-confidential audit-only ring cannot fit 8x16, 48x2 or 49x2. A confidential
-policy ring under key escrow cannot fit 40x2, 48x2 or 49x2. An anonymous
-policy ring cannot fit 32x2 or 1x16. The delegate rail cannot fit 40x2. A
-curator, a second input tree,
-an exit or a public leg adds bytes. The SDKs measure the transaction before
-they prove and refuse one past the limit.
+every keyed shape for each rail and tier, with a payer that is not the owner.
+It measures each policy ring with a co-signer and each audit-only ring without
+one. It measures the confidential policy ring under key escrow. Without key
+escrow that ring discloses one more field per output, so more shapes exceed the
+limit.
+
+A confidential audit-only ring cannot fit 48x2 or 49x2, and it fits 8x16 only
+when the owner pays. A confidential policy ring under key escrow cannot fit
+48x2 or 49x2. It fits 40x2 only when the owner pays and no co-signer is
+demanded. An anonymous policy ring cannot fit 32x2 or 1x16. The delegate rail
+fits 40x2 only when the delegate pays and no co-signer is demanded. A curator,
+a second input tree, a first contact anchor, output data, an exit or a public
+leg adds bytes. A co-signer on an audit-only ring also adds bytes. The SDKs
+measure the transaction before they prove and refuse one past the limit.
 
 ## Prerequisites
 
@@ -170,10 +179,10 @@ release also ships the ring program, the ring proving keys and the ring RPC.
 CLI on `PATH`. A command that finds a tool missing fails and says how to
 install it.
 
-`zolana-ring localnet` runs `zolana dev start` and also needs the `zolana` CLI
-of a zolana release and the Anza `solana-test-validator` on `PATH`. It
-starts the validator, Photon and the prover, then the ring RPC with
-`keys/auditor.key`, created when missing.
+`zolana-ring localnet` runs `zolana dev start` from a localnet release whose
+prover serves the custom-ring circuits, and it needs the Anza
+`solana-test-validator` on `PATH`. It starts the validator, Photon and the
+prover, then the ring RPC with `keys/auditor.key`, created when missing.
 
 ## Steps
 
@@ -195,10 +204,9 @@ starts the validator, Photon and the prover, then the ring RPC with
    activation.
 6. `zolana-ring reader grant <reader>` admits a reader to the ring RPC. The
    grant holds until `reader revoke` closes it.
-7. `zolana-ring list add|clear <list> --owner <address>` or `--asset <mint>`
-   writes the authority lists. Members run `list join|leave` and
-   `key register`, and `list apply` applies a due queue. See
-   [member records](docs/member-records.md).
+7. `zolana-ring list` writes and applies member records, and `key register`
+   escrows a member's key. See
+   [member records](docs/member-records.md#with-the-cli-and-the-sdks).
 8. `zolana-ring cosigner set`, `insert-fee set` and `delegate set` configure
    the controls.
 
@@ -223,9 +231,9 @@ transfer, and `with_payment` adds each payment. `DelegateTransfer` builds a
 delegate move.
 `prove` requests the SPP proof, the audit proof and the policy proof together.
 It verifies the audit and policy proofs, and the SPP proof only when the
-prover fetches the proof data. It refuses a rule the transfer breaks, an
-outflow past its cap and an output owner without an escrowed key before it
-proves.
+prover fetches the proof data. Before it proves, it refuses a rule the
+transfer breaks and an outflow past its cap. Under key escrow it also refuses
+an output owner without an escrowed key.
 
 `MemberListWrite`, `AuthorityListWrite` and `RegisterKey` write member
 records, `RecordApplication` applies the queued writes, and `MemberRecords`
@@ -250,25 +258,27 @@ and exposes `parse_and_run`.
 A new auditor key, tier or choice of confidential or anonymous needs a new
 ring.
 
-A ring merge spends at most 50 inputs and an anonymous merge at most 24,
-because a wider merge does not fit one v1 transaction.
+A ring merge spends at most 50 inputs and an anonymous merge at most 24.
+[Transaction size](../docs/spec.md#transaction-size) gives the bytes and what
+lowers the cap. On a confidential ring a merge needs the owner's registered
+key, with or without key escrow. See [Merges](docs/auditing.md#merges).
 
 ## Pitfalls
 
-The program creates its config and registry at the seeds `config` and
-`members`, and it refuses an account of another layout at either address. A
-ring of another layout therefore deploys as a new ring under a new program
-id. `zolana-ring deploy` refuses to upgrade a program whose config or
-registry the release does not decode.
+The program creates its config and registry only at their
+[canonical PDAs](../docs/spec.md#ring-configuration), and it refuses an account
+of another layout at either address. A ring of another layout therefore deploys
+as a new ring under a new program id. `zolana-ring deploy` refuses to upgrade a
+program whose config or registry the release does not decode.
 
 Renouncing before `init` leaves the program without a ring, and a renounced
 program takes no delegate. `authority renounce` refuses before `init`.
 
-`init` asks the ring RPC for the auditor key only when `keys/auditor.key.pub`
-is missing. It accepts a key the service signs with the key `ring.toml` pins
-in `ring_rpc_pubkey`. Without a pin it accepts the key only with
-`--trust-ring-rpc`, a flag for a local instance. A local key file against a
-hosted ring RPC needs `--local-auditor`.
+`init` asks the ring RPC for the auditor key only when `keys/auditor.key.pub` is
+missing. It accepts the auditor key only under a signature of the service key
+that `ring_rpc_pubkey` in `ring.toml` pins. Without a pin it accepts the key
+only with `--trust-ring-rpc`, a flag for a local instance. A local key file
+against a hosted ring RPC needs `--local-auditor`.
 
 Keys and `.env` belong in a secret store. `status` and the URL list of `devnet`
 and `localnet` show only the origin of a service URL. The `devnet` probes and

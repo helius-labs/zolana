@@ -29,13 +29,14 @@ select one of four disclosure layouts. In each one the auditor rebuilds the
 hash of every ring output and exit from what it reads. The proof shows that
 the rebuilt hash is the settled one.
 
-A **packed** disclosure serves the confidential and delegate rails at 2 and 4
-outputs. Per published output it carries the owner key, the nullifier key,
-the asset, the amount and the two data hashes. The auditor derives every
+A **packed** disclosure serves the
+[packed form](../../docs/spec.md#ring-outputs) of the confidential and
+delegate rails. Per published output it carries the owner key, the nullifier
+key, the asset, the amount and the two data hashes. The auditor derives every
 ring output blinding from `tx_viewing_sk`, so no blinding is published.
 
-A **delivered** disclosure serves the confidential and delegate rails at 8 and
-16 outputs. Per output it carries the owner key and the nullifier key. The
+A **delivered** disclosure serves the delivered form of the same rails. Per
+output it carries the owner key and the nullifier key. The
 auditor reads the asset and the amount of a ring output from its body. The proof
 shows that the body encrypts them to the recipient key the output publishes. The
 auditor opens the body with the X25519 agreement of `tx_viewing_sk` and that
@@ -54,10 +55,10 @@ carry a prefix than the transfer spends under it, the audit names them all as
 candidates for each such input.
 
 An **anonymous entry** disclosure serves an anonymous transfer that spends a
-default-ring note of the hidden owner. The ring never audited that note, so
-the disclosure opens every spent note fully. It carries the hidden owner's key
-and the nullifier key that every spent note shares, and each note's amount,
-asset and blinding.
+default-ring note of the hidden owner. The auditor does not always hold that
+note's opening, so the disclosure opens every spent note fully. Every spent note
+shares the sender's nullifier key. The disclosure carries the hidden owner's
+key, that nullifier key and each note's amount, asset and blinding.
 
 An exit to the default ring carries its owner in its public owner tag. Its
 disclosure slot carries its asset and amount. Its blinding derives from the
@@ -100,36 +101,35 @@ opens it. An owner without a registered key cannot merge.
 On an anonymous ring a separate disclosure proof encrypts the merged note to
 the auditor. It covers the owner key, the nullifier key, the mint, the amount,
 the output blinding and every input UTXO hash. That proof opens no member
-record, because a merge moves no value between parties.
+record, because an anonymous ring escrows no key.
 
 ## Reading a ring
 
-The ring RPC holds the auditor key and serves signed reads. A reader is a
-Solana key or a passkey with a read access record the config authority
-granted. The reader signs each request with a timestamp and a nonce. The
-service refuses a timestamp more than 60 seconds off its clock and a nonce it
-has seen. The config authority has no implicit read access.
-
-`getDecryptedTransactions` pages the opened transfers, and `getAuditedMerges`
-pages the opened merges. `getAuditedNotes` returns the opening of each requested
-UTXO hash the service has audited. Its openings resolve the inputs an anonymous
-transfer names by UTXO hash. `ringStatus` is an unsigned read. It reports the
-ring's activation, the registry's root history, floors and queue, and whether
-the service holds the ring's auditor key.
+The ring RPC holds the auditor key and serves the
+[readers](../README.md#roles). A reader is a Solana key or a passkey, and the
+config authority has no implicit read access.
+[Ring RPC](../../docs/spec.md#ring-rpc) states the methods and how a reader
+signs a request.
 
 An auditor that holds its own key reads the ring with `zolana-ring-client`.
 `RingScan` opens transfers, `MergeAudit` opens merges, and `RingRecovery`
 rebuilds one member's notes for a delegate move. In TypeScript `auditRing`,
-`auditRingMerges` and `recoverRingMemberNotes` do the same. Each one checks
-every opening against the confirmed SPP instruction and its settled hashes.
-A scan sees only the transactions the indexer returns, so it trusts the
-indexer for completeness.
+`auditRingMerges` and `recoverRingMemberNotes` do the same. Each one checks its
+openings and trusts the indexer for completeness, as
+[Ring RPC](../../docs/spec.md#ring-rpc) states.
+
+A scan needs an opening it already holds for each spent note that an anonymous
+disclosure names by hash or prefix. An auditor with its own key therefore reads
+the ring's deposit and merge notes first, with `CreatedUtxoScan` in Rust or
+`scanCreatedRingUtxos` in TypeScript. It passes them, with the openings of
+earlier pages, to `RingScan::with_known_utxos` or to the `knownUtxos` of
+`auditRing`.
 
 ## Limits
 
-The packed layout at 2 and 4 outputs does not prove recipient delivery. A
-sender on those shapes can send an output its recipient cannot decrypt, while
-the auditor still reads it.
+The packed layout does not prove recipient delivery, and no layout proves an
+exit's payload. A sender can send such an output its recipient cannot decrypt,
+while the auditor still reads it.
 
 The auditor holds no spending key. A delegate, a separate key, moves notes.
 See [the delegate rail](../README.md#rings-and-rails).
