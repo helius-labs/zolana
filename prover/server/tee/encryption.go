@@ -19,6 +19,7 @@ import (
 const (
 	codeVersionUnsupported = "tee_version_unsupported"
 	codeRequestMalformed   = "tee_request_malformed"
+	codeRequired           = "tee_required"
 	// Reserved for an HPKE failure, a client re-attests on it when the platform rotates its key per boot.
 	codeDecryptionFailed = "tee_decryption_failed"
 
@@ -26,13 +27,16 @@ const (
 	encSize = 32
 )
 
-// Wrap passes a request without HeaderVersion through unencrypted, so TEE use
-// stays a client choice.
+// Wrap rejects plaintext outside publicPlaintextPath before any handler reads the body.
 func (s *Server) Wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		version := r.Header.Get(HeaderVersion)
 		if version == "" {
-			next.ServeHTTP(w, r)
+			if publicPlaintextPath(r.URL.Path) {
+				next.ServeHTTP(w, r)
+			} else {
+				rejectEncrypted(w, codeRequired)
+			}
 			return
 		}
 		if version != Version {
@@ -85,6 +89,17 @@ func (s *Server) Wrap(next http.Handler) http.Handler {
 			logging.Logger().Error().Err(err).Msg("error writing encrypted response")
 		}
 	})
+}
+
+// Exact paths only, none may carry a witness.
+func publicPlaintextPath(path string) bool {
+	switch path {
+	case "/auth", "/ready", "/health", "/proving-keys", "/v1/zolana/proving-keys",
+		AttestationPath, "/v1/zolana" + AttestationPath:
+		return true
+	default:
+		return false
+	}
 }
 
 func readEncrypted(w http.ResponseWriter, r *http.Request) (enc, ciphertext []byte, err error) {
@@ -154,7 +169,7 @@ func bodiless(method string) bool {
 func rejectEncrypted(w http.ResponseWriter, code string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusBadRequest)
-	body, _ := json.Marshal(map[string]string{"code": code, "message": "encrypted request rejected"})
+	body, _ := json.Marshal(map[string]string{"code": code, "message": "TEE request rejected"})
 	_, _ = w.Write(body)
 }
 
