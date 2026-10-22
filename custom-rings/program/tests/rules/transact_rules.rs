@@ -7,8 +7,8 @@ use custom_ring_interface::{
     stream::{RingTag, EPOCH_SLOTS, TAG_LEN},
     tag, transact_flag, AnchorRoot, AnonymousProofData, AppliedAt, CustomRingError,
     CustomRingProof, InputTrees, MemberRegistry, PlainGroth16Proof, PolicyProof, RingOutput,
-    RingProgramConfig, RingRail, RingTransactData, SetCoSignerIxData, WithdrawalThreshold,
-    GRACE_SLOTS, MEMBER_REGISTRY_PDA_SEED,
+    RingProgramConfig, RingRail, RingTransactData, WithdrawalThreshold, GRACE_SLOTS,
+    MEMBER_REGISTRY_PDA_SEED,
 };
 use solana_address::Address;
 use solana_bn254::compression::prelude::alt_bn128_g2_compress_be;
@@ -24,9 +24,9 @@ use zolana_interface::{
 use zolana_tree::{TreeAccount, UTXO_TREE_HEIGHT};
 
 use crate::common::{
-    allow_list_table, config_pda, config_write, delegate_ring, floored, off_curve_g2, on_curve_g2,
-    policy_write, reaches_verification, refused, registry_pda, ring_auth, transact, Ring, Sent,
-    Setup, SYSTEM,
+    allow_list_table, config_pda, delegate_ring, floored, off_curve_g2, on_curve_g2, policy_write,
+    reaches_verification, refused, registry_pda, ring_auth, set_co_signer, transact, Ring, Sent,
+    Setup, PROGRAM, SYSTEM,
 };
 
 pub const SPP: Address = Address::new_from_array(SHIELDED_POOL_PROGRAM_ID);
@@ -764,30 +764,6 @@ fn the_curator_account_must_be_the_sourced_registry() {
     reaches_verification(curator.transfer(&mut ring, &curator_transfer(&fixture)));
 }
 
-fn set_co_signer(
-    ring: &mut Ring,
-    co_signer: &Address,
-    scope: u8,
-    thresholds: Vec<WithdrawalThreshold>,
-) {
-    let authority = ring.authority.insecure_clone();
-    let data = SetCoSignerIxData {
-        signer: co_signer.to_bytes(),
-        scope,
-        thresholds,
-    };
-    ring.send(
-        config_write(
-            tag::SET_CO_SIGNER,
-            &authority.pubkey(),
-            &[],
-            &wincode::serialize(&data).unwrap(),
-        ),
-        &[&authority],
-    )
-    .expect("set the co-signer");
-}
-
 #[test]
 fn a_demanded_co_signer_signs_with_the_configured_key() {
     let fixture = Fixture::new();
@@ -1111,7 +1087,7 @@ fn an_own_root_index_past_the_written_history_is_refused() {
 }
 
 #[test]
-fn the_ring_pda_in_the_owner_signer_run_is_refused() {
+fn a_second_ring_pda_in_the_forwarded_list_is_refused() {
     let fixture = Fixture::new();
     let mut ring = Ring::new(Setup::Anonymous);
     let data = fixture.transfer(RingRail::Anonymous, 2, 2, false);
@@ -1155,6 +1131,20 @@ fn only_the_configured_delegate_moves_and_settles_no_public_leg() {
             data.encode().unwrap(),
             spp.clone(),
             &[&other],
+        ),
+        CustomRingError::UnauthorizedDelegate,
+    );
+    refused(
+        send(
+            &mut ring,
+            tag::DELEGATE_TRANSACT,
+            vec![
+                registry_meta(),
+                AccountMeta::new_readonly(delegate.pubkey(), false),
+            ],
+            data.encode().unwrap(),
+            spp.clone(),
+            &[],
         ),
         CustomRingError::UnauthorizedDelegate,
     );
@@ -1323,6 +1313,11 @@ fn a_first_contact_root_comes_from_a_live_spp_state_tree() {
             &[],
         )
     };
+    refused(
+        anchored(&mut ring, 0),
+        CustomRingError::FirstContactRootMissing,
+    );
+    ring.store(tree, PROGRAM, spp_tree(&tree, false));
     refused(
         anchored(&mut ring, 0),
         CustomRingError::FirstContactRootMissing,

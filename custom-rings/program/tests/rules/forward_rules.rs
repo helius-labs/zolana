@@ -2,7 +2,7 @@
 
 use bytemuck::Zeroable;
 use custom_ring_interface::{
-    merge_disclosure_field_count, tag, AuditedDepositPrefix, CustomRingError,
+    merge_disclosure_field_count, tag, AuditedDepositPrefix, CoSignScope, CustomRingError,
     CustomRingMergeIxData, MemberRegistry, MergeDisclosure, RingDepositAuditCapsule,
     AUDIT_CIPHERTEXT_LEN, RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN,
 };
@@ -20,12 +20,16 @@ use zolana_interface::{
         },
     },
     RING_DEPOSIT_DEPOSITOR_INDEX, RING_DEPOSIT_RING_CONFIG_INDEX, RING_MERGE_PAYER_INDEX,
-    RING_MERGE_RING_CONFIG_INDEX, SHIELDED_POOL_PROGRAM_ID,
+    RING_MERGE_RING_CONFIG_INDEX,
 };
 
-use crate::common::{
-    auditor_pubkey, config_pda, delegate_ring, floored, off_curve_g2, on_curve_g2,
-    reaches_verification, refused, registry_pda, ring_auth, Ring, Sent, Setup, PROGRAM, SYSTEM,
+use crate::{
+    common::{
+        auditor_pubkey, config_pda, delegate_ring, floored, off_curve_g2, on_curve_g2,
+        reaches_verification, refused, registry_pda, ring_auth, set_co_signer, Ring, Sent, Setup,
+        PROGRAM, SYSTEM,
+    },
+    transact_rules::SPP,
 };
 
 /// A merge of `inputs` notes, `registry` the own root index a non-anonymous ring binds.
@@ -230,6 +234,45 @@ fn an_escrowing_deposit_root_below_the_own_floor_is_refused() {
 }
 
 #[test]
+fn a_merge_and_a_deposit_carry_the_co_signer_their_class_demands() {
+    let co_signer = Keypair::new();
+    let with_co_signer = |mut instruction: Instruction, slot: usize| {
+        instruction
+            .accounts
+            .insert(slot, AccountMeta::new_readonly(co_signer.pubkey(), true));
+        instruction
+    };
+    let mut ring = Ring::new(Setup::AuditOnly);
+    set_co_signer(
+        &mut ring,
+        &co_signer.pubkey(),
+        CoSignScope::TRANSFERS.bits(),
+        Vec::new(),
+    );
+    let merge = merge_instruction(&ring, Some(0));
+    refused(
+        ring.send(merge.clone(), &[]),
+        CustomRingError::MissingCoSigner,
+    );
+    refused(
+        ring.send(with_co_signer(merge, MERGE_SPP), &[&co_signer]),
+        CustomRingError::InvalidShieldedPoolProgram,
+    );
+    set_co_signer(
+        &mut ring,
+        &co_signer.pubkey(),
+        CoSignScope::DEPOSITS.bits(),
+        Vec::new(),
+    );
+    let deposit = deposit_instruction(&ring, None, &ring_deposit());
+    refused(
+        ring.send(deposit.clone(), &[]),
+        CustomRingError::MissingCoSigner,
+    );
+    reaches_verification(ring.send(with_co_signer(deposit, DEPOSIT_SPP), &[&co_signer]));
+}
+
+#[test]
 fn an_audited_deposit_without_a_bound_root_reaches_its_proof() {
     let mut ring = Ring::new(Setup::AuditOnly);
     reaches_verification(audited_deposit(&mut ring, None));
@@ -247,8 +290,6 @@ fn a_merge_naming_the_ring_pda_past_its_slot_is_refused() {
         CustomRingError::RingAuthOutOfSlot,
     );
 }
-
-const SPP: Address = Address::new_from_array(SHIELDED_POOL_PROGRAM_ID);
 
 /// The merge's forwarded list starts after the config and the registry.
 const MERGE_SPP: usize = 2;

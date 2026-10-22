@@ -538,8 +538,10 @@ fn the_authority_moves_only_to_a_cosigning_successor() {
         ],
         data: vec![tag::SET_AUTHORITY],
     };
-    let unsigned = ring.send(handover(&successor.pubkey(), false), &[&authority]);
-    assert!(unsigned.is_err());
+    refused_with(
+        ring.send(handover(&successor.pubkey(), false), &[&authority]),
+        InstructionError::Custom(u32::from(AccountError::InvalidSigner)),
+    );
     assert_eq!(
         ring.read::<RingProgramConfig>(&config_pda()).authority,
         authority.pubkey()
@@ -866,7 +868,7 @@ fn set_paused(ring: &Ring, ring_auth: Address, spp: Address) -> Instruction {
 #[test]
 fn only_the_authority_pauses_through_the_ring_pda_and_the_pool() {
     let mut ring = Ring::new(Setup::AuditOnly);
-    let spp = Address::new_from_array(zolana_interface::SHIELDED_POOL_PROGRAM_ID);
+    let spp = SPP;
     ring.deploy_stand_in(spp);
     let stranger = Keypair::new();
     let mut unauthorized = set_paused(&ring, ring_auth(), spp);

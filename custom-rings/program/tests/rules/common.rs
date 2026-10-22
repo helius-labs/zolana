@@ -2,8 +2,9 @@ use bytemuck::{Pod, Zeroable};
 use custom_ring_interface::{
     compute_unit_limit, tag, AppliedAt, ApplyRecordsIxData, AuthorityWriteRecordsIxData,
     CreateConfigIxData, CustomRingError, InstructionTag, MemberRegistry, MemberWriteIxData,
-    PolicyTableIxData, RecordWriteData, RegisterKeyIxData, RingKind, SourceSpec,
-    WriteRecordsIxData, CONFIG_PDA_SEED, MEMBER_REGISTRY_PDA_SEED, RECORD_QUEUE_PDA_SEED,
+    PolicyTableIxData, RecordWriteData, RegisterKeyIxData, RingKind, SetCoSignerIxData, SourceSpec,
+    WithdrawalThreshold, WriteRecordsIxData, CONFIG_PDA_SEED, MEMBER_REGISTRY_PDA_SEED,
+    RECORD_QUEUE_PDA_SEED,
 };
 use litesvm::LiteSVM;
 use solana_account::Account;
@@ -437,6 +438,30 @@ pub fn config_write(
     ];
     accounts.extend_from_slice(extra);
     instruction(accounts, tagged(tag, body))
+}
+
+pub fn set_co_signer(
+    ring: &mut Ring,
+    co_signer: &Address,
+    scope: u8,
+    thresholds: Vec<WithdrawalThreshold>,
+) {
+    let authority = ring.authority.insecure_clone();
+    let data = SetCoSignerIxData {
+        signer: co_signer.to_bytes(),
+        scope,
+        thresholds,
+    };
+    ring.send(
+        config_write(
+            tag::SET_CO_SIGNER,
+            &authority.pubkey(),
+            &[],
+            &wincode::serialize(&data).unwrap(),
+        ),
+        &[&authority],
+    )
+    .expect("set the co-signer");
 }
 
 #[derive(Clone, Copy)]
