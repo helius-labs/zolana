@@ -2074,6 +2074,7 @@ dependencies = [
  "zolana-cli-common",
  "zolana-client",
  "zolana-event",
+ "zolana-event-parser",
  "zolana-indexer-api",
  "zolana-interface",
  "zolana-keypair",
@@ -2145,7 +2146,6 @@ name = "custom-ring-sdk"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "borsh",
  "bytemuck",
  "curve25519-dalek",
  "custom-ring-interface",
@@ -2153,8 +2153,8 @@ dependencies = [
  "futures",
  "hex",
  "http 1.5.0",
- "num-bigint 0.4.8",
  "rand 0.8.8",
+ "rand_core 0.9.5",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -11836,7 +11836,6 @@ dependencies = [
  "thiserror 2.0.20",
  "wincode",
  "zolana-hasher",
- "zolana-interface",
 ]
 
 [[package]]
