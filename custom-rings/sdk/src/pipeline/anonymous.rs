@@ -98,6 +98,14 @@ pub struct AnonymousMove<'a> {
     pub asset: Mint,
     /// The change returns to the sender.
     pub payments: Vec<RingPayment>,
+    pub entry: EntrySpend,
+}
+
+/// A default-ring spend publishes the hidden owner's key, a move takes one only when allowed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EntrySpend {
+    Refuse,
+    Allow,
 }
 
 /// The owner's spends on an anonymous ring, no transaction signer names the owner.
@@ -231,7 +239,11 @@ impl<'a> AnonymousMove<'a> {
         };
         let ring_only = funding
             .candidates(|utxo| utxo.utxo.owner == owner && utxo.utxo.ring_program_id == ring);
-        let entries = widest_spend(true).map_or_else(Vec::new, |max_inputs| {
+        let entry_width = match self.entry {
+            EntrySpend::Allow => widest_spend(true),
+            EntrySpend::Refuse => None,
+        };
+        let entries = entry_width.map_or_else(Vec::new, |max_inputs| {
             Funding {
                 max_inputs,
                 ..funding

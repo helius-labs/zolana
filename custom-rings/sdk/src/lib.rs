@@ -43,9 +43,9 @@ pub use crate::{
     pipeline::{
         shape_keyed, Anonymous, AnonymousMove, AnonymousPayment, AnonymousSpendSigner,
         AnonymousTransfer, CustomRingTransfer, CustomRingTransferInput, DelegateMove,
-        DelegateOutput, DelegatePayment, DelegateTransfer, DelegateTransferInput, Delegated, Owner,
-        PendingFirstContact, ProvenRingTransfer, Rail, RailKind, RingPayment, RingTransfer,
-        ANCHOR_DECOYS,
+        DelegateOutput, DelegatePayment, DelegateTransfer, DelegateTransferInput, Delegated,
+        EntrySpend, Owner, PendingFirstContact, ProvenRingTransfer, Rail, RailKind, RingPayment,
+        RingTransfer, ANCHOR_DECOYS,
     },
     records::{
         AuthorityListWrite, MemberListWrite, MemberRecords, ProvenRecordWrite, RecordApplication,

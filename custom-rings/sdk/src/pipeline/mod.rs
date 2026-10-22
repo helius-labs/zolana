@@ -38,7 +38,7 @@ use zolana_transaction::{
 pub use self::{
     anonymous::{
         Anonymous, AnonymousMove, AnonymousPayment, AnonymousSpendSigner, AnonymousTransfer,
-        PendingFirstContact, RingPayment, ANCHOR_DECOYS,
+        EntrySpend, PendingFirstContact, RingPayment, ANCHOR_DECOYS,
     },
     delegate::{
         DelegateMove, DelegateOutput, DelegatePayment, DelegateTransfer, DelegateTransferInput,

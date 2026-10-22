@@ -8,7 +8,7 @@ use custom_ring_interface::{
 };
 use custom_ring_sdk::{
     shape_keyed, AnonymousMove, AnonymousPayment, CoSignScope, CustomRingConfig,
-    CustomRingTransfer, CustomRingTransferInput, DepositAsset, DepositRecipient,
+    CustomRingTransfer, CustomRingTransferInput, DepositAsset, DepositRecipient, EntrySpend,
     EscrowedRecipients, ListRegistry, PendingFirstContact, RingDeposit, RingDepositReceipt,
     RingMode, RingPayment,
 };
@@ -1001,6 +1001,7 @@ impl Transfer<'_> {
                                     amount: payment.amount,
                                 })
                                 .collect(),
+                            entry: EntrySpend::Refuse,
                         };
                         ctx.block(select.select(ctx.chain()))?
                     }

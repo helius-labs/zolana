@@ -568,6 +568,7 @@ impl<'a> MoveSender<'a> {
             utxos,
             asset: Mint::SOL,
             payments,
+            entry: EntrySpend::Allow,
         }
     }
 }
@@ -723,6 +724,20 @@ async fn an_anonymous_move_spends_ring_utxos_before_an_entry() {
         4
     );
     assert!(spend(30).await.parts.full_openings);
+    let refused = AnonymousMove {
+        entry: EntrySpend::Refuse,
+        ..owner.anonymous_move(
+            &utxos,
+            vec![RingPayment {
+                to: paid.clone(),
+                amount: 30,
+            }],
+        )
+    };
+    assert!(matches!(
+        refused.select(client).await,
+        Err(RingError::Unfunded { amount: 30, .. })
+    ));
 }
 
 /// The entry key rebuilds every spent UTXO from its opening, a data hash breaks the audit proof.
