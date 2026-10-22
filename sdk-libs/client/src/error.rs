@@ -136,6 +136,9 @@ pub enum ClientError {
     #[error("the shielded pool's asset registry account for mint {mint} is invalid")]
     InvalidSplAssetRegistry { mint: Address },
 
+    #[error("invalid SPL asset registration account {address}")]
+    InvalidSplAssetRegistration { address: Address },
+
     #[error("address resolution error: {0}")]
     AddressResolution(String),
 

@@ -47,4 +47,6 @@ fn rejected_registry_insertions_are_atomic() {
     }
     registry.insert(3, b).unwrap();
     assert_eq!(registry.resolve(3).unwrap(), Mint::new(b, 3));
+    assert_eq!(registry.asset_id(&b).unwrap(), 3);
+    assert_eq!(registry.asset_id(&a).unwrap(), 2);
 }

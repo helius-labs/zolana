@@ -23,8 +23,9 @@ use crate::{
         GetRingKeyRegistryEntryResponse, GetRingKeyRegistryRegisterProofResponse,
         GetRingSpendRecordResponse, GetShieldedTransactionsByNullifiersResponse,
         GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
-        GetUserRecordsResponse, IndexerRpcConfig, ProveResult, RingHistoryOptions,
-        RingMemberProofRequest, RingSpendRecordRequest, ShieldedTransactionStream,
+        GetUserRecordsResponse, IndexerRpcConfig, ProgramAccountsFilter, ProveResult,
+        RingHistoryOptions, RingMemberProofRequest, RingSpendRecordRequest,
+        ShieldedTransactionStream,
     },
 };
 
@@ -32,6 +33,16 @@ use super::{AsyncIndexer, AsyncZolanaClient, TransferPreparation};
 
 #[async_trait]
 impl<R: AsyncRpc, I: AsyncIndexer> AsyncRpc for AsyncZolanaClient<R, I> {
+    async fn get_program_accounts_filtered(
+        &self,
+        program_id: Address,
+        filter: &ProgramAccountsFilter,
+    ) -> Result<Vec<(Address, Account)>, ClientError> {
+        self.rpc
+            .get_program_accounts_filtered(program_id, filter)
+            .await
+    }
+
     async fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
         self.rpc.get_account(address).await
     }

@@ -153,6 +153,40 @@ context slot for `ZolanaClient` transactions; `UtxoScan::with_indexer_config`
 applies it to wallet discovery, so a spend another client just made is read.
 Wallet discovery and chain account reads still use the SDK's configured services.
 
+`UtxoScan` scans the assets in the supplied `AssetRegistry` by default and
+reports other asset ids and mints as unknown. Opt into on-chain SPL asset
+discovery when the wallet should hold every registered asset:
+
+```rust
+let scan = UtxoScan::new(&keys, &assets)
+    .with_indexer_config(IndexerRpcConfig::at_slot(confirmed_slot))
+    .with_asset_discovery()
+    .fetch(&client)?;
+assets = scan.asset_registry;
+```
+
+An unknown asset triggers one filtered `getProgramAccounts` read of the
+pool's SPL registrations, validated by owner, layout and mint PDA. The lookup
+requires the greater of `require_slot` and every transaction slot fetched so
+far. A lagging Solana RPC fails the scan. Registry validation and merging use
+indexed mint lookups, so loading registrations takes linear time.
+
+The scan decrypts its already fetched transactions again and follows newly resolved
+nullifiers without repeating tag queries. `fetch_spl_asset_registrations`
+exposes the same validated lookup separately with an optional minimum context
+slot. Reuse the returned registry to cache mappings across scans; the input
+registry is unchanged, including
+on failure. Outputs in assets still unresolved after discovery are skipped;
+the scan continues following known assets' nullifiers and reports the remaining
+ids and mints through `unknown_asset_ids` and `unknown_mints` in both `spendable`
+and `history`. These fields indicate outputs omitted from the balances and
+history; an unknown id is sender-provided and is not evidence of a valid asset
+or balance. RPC failures and invalid or conflicting registrations still fail
+the scan. Leave discovery disabled for an explicit asset allowlist.
+Custom `Rpc` implementations must support
+`get_program_accounts_filtered`, including its minimum context slot; discovery
+never falls back to an unfiltered or stale program listing.
+
 `IndexedTransferPreparation` selects confidential, ring, ring-authority or
 anonymous EdDSA authorization. `IndexedMergePreparation` supports both merge rails and
 cache outputs. Pass the prepared request to `prove_indexed`, which checks the

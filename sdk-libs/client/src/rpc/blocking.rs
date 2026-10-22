@@ -27,7 +27,7 @@ use super::{
         GetUserRecordsResponse, RingHistoryOptions, RingMemberProofRequest, RingSpendRecordRequest,
         ShieldedTransactionStream,
     },
-    IndexerRpcConfig,
+    IndexerRpcConfig, ProgramAccountsFilter,
 };
 
 /// A blocking service as its `async` counterpart: every call runs on Tokio's
@@ -67,6 +67,16 @@ impl<T: Send + Sync + 'static> Blocking<T> {
 /// cannot move to the pool. A `ZolanaClient` proves with its own prover.
 #[async_trait]
 impl<T: Rpc + Send + Sync + 'static> AsyncRpc for Blocking<T> {
+    async fn get_program_accounts_filtered(
+        &self,
+        program_id: Address,
+        filter: &ProgramAccountsFilter,
+    ) -> Result<Vec<(Address, Account)>, ClientError> {
+        let filter = filter.clone();
+        self.run(move |rpc| rpc.get_program_accounts_filtered(program_id, &filter))
+            .await
+    }
+
     async fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
         self.run(move |rpc| rpc.get_account(address)).await
     }

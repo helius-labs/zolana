@@ -10,63 +10,29 @@ use solana_rpc_client::api::{
 };
 
 use crate::error::ClientError;
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ProgramAccountsFilter {
-    data_size: usize,
-    memcmp: Vec<MemcmpFilter>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct MemcmpFilter {
-    offset: usize,
-    bytes: Vec<u8>,
-}
+pub use crate::rpc::ProgramAccountsFilter;
 
 impl ProgramAccountsFilter {
-    pub fn new(data_size: usize) -> Self {
-        Self {
-            data_size,
-            memcmp: Vec::new(),
-        }
-    }
-
-    #[must_use]
-    pub fn with_memcmp(mut self, offset: usize, bytes: impl Into<Vec<u8>>) -> Self {
-        self.memcmp.push(MemcmpFilter {
-            offset,
-            bytes: bytes.into(),
-        });
-        self
-    }
-
     /// The `getProgramAccounts` config the filtered query sends.
     pub fn rpc_config(&self) -> RpcProgramAccountsConfig {
-        let memcmp = self.memcmp.iter().map(|memcmp| {
-            let bytes = MemcmpEncodedBytes::Base64(STANDARD.encode(&memcmp.bytes));
-            RpcFilterType::Memcmp(Memcmp::new(memcmp.offset, bytes))
+        let memcmp = self.memcmp_filters().map(|(offset, bytes)| {
+            let bytes = MemcmpEncodedBytes::Base64(STANDARD.encode(bytes));
+            RpcFilterType::Memcmp(Memcmp::new(offset, bytes))
         });
         RpcProgramAccountsConfig {
             filters: Some(
-                std::iter::once(RpcFilterType::DataSize(self.data_size as u64))
+                std::iter::once(RpcFilterType::DataSize(self.data_size() as u64))
                     .chain(memcmp)
                     .collect(),
             ),
             account_config: RpcAccountInfoConfig {
                 encoding: Some(UiAccountEncoding::Base64),
                 commitment: Some(CommitmentConfig::confirmed()),
+                min_context_slot: self.min_context_slot(),
                 ..RpcAccountInfoConfig::default()
             },
             ..RpcProgramAccountsConfig::default()
         }
-    }
-
-    pub fn matches(&self, data: &[u8]) -> bool {
-        data.len() == self.data_size
-            && self.memcmp.iter().all(|memcmp| {
-                data.get(memcmp.offset..)
-                    .is_some_and(|window| window.starts_with(&memcmp.bytes))
-            })
     }
 }
 

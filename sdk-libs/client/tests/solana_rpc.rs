@@ -30,7 +30,8 @@ use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_status_client_types::EncodedConfirmedTransactionWithStatusMeta;
 use zolana_client::{
     rpc::{compile_message, sign_transaction, ComputeBudgetConfig},
-    AsyncSolanaRpc, ClientError, ConfirmedInstructionGroups, ProgramAccountsFilter, Rpc, SolanaRpc,
+    AsyncRpc, AsyncSolanaRpc, ClientError, ConfirmedInstructionGroups, ProgramAccountsFilter, Rpc,
+    SolanaRpc,
 };
 
 #[test]
@@ -114,7 +115,10 @@ fn filter() -> ProgramAccountsFilter {
 
 #[test]
 fn filter_maps_to_data_size_and_base64_memcmp() {
-    let config = filter().with_memcmp(1, vec![7, 8]).rpc_config();
+    let config = filter()
+        .with_memcmp(1, vec![7, 8])
+        .with_min_context_slot(42)
+        .rpc_config();
 
     assert_eq!(
         config.filters,
@@ -132,6 +136,8 @@ fn filter_maps_to_data_size_and_base64_memcmp() {
         config.account_config.commitment,
         Some(CommitmentConfig::confirmed())
     );
+    assert_eq!(config.account_config.min_context_slot, Some(42));
+    assert_eq!(filter().rpc_config().account_config.min_context_slot, None);
 }
 
 #[test]
@@ -156,9 +162,8 @@ fn filtered_query_decodes_matching_accounts() {
         program_accounts_mocks(vec![keyed_account(&pubkey, &program, &data)]),
     ));
 
-    let accounts = rpc
-        .get_program_accounts_filtered(program, &filter())
-        .expect("filtered query");
+    let accounts =
+        Rpc::get_program_accounts_filtered(&rpc, program, &filter()).expect("filtered query");
 
     let [(address, account)] = accounts.as_slice() else {
         panic!("expected one account, got {}", accounts.len());
@@ -206,8 +211,7 @@ async fn async_filtered_query_decodes_matching_accounts() {
         program_accounts_mocks(vec![keyed_account(&pubkey, &program, &data)]),
     ));
 
-    let accounts = rpc
-        .get_program_accounts_filtered(program, &filter())
+    let accounts = AsyncRpc::get_program_accounts_filtered(&rpc, program, &filter())
         .await
         .expect("filtered query");
 
