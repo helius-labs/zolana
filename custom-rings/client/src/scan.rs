@@ -131,6 +131,9 @@ impl RingHistory<'_> {
             .await?;
         let mut bound = Vec::new();
         for mut transaction in page.transactions {
+            if transaction.ring_program_id != Some(ring) {
+                continue;
+            }
             let event_index = transaction
                 .event_index
                 .ok_or(AuditError::MissingEventIndex)?;

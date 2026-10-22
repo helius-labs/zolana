@@ -302,6 +302,9 @@ impl<'a> MergeAudit<'a> {
         let mut pending = Vec::new();
         let mut disclosed = Vec::new();
         for mut tx in transactions {
+            if tx.ring_program_id != Some(self.ring) {
+                continue;
+            }
             let event_index = tx.event_index.ok_or(AuditError::MissingEventIndex)?;
             let confirmed = origin
                 .origin(tx.tx_signature, event_index, self.ring)
@@ -640,6 +643,7 @@ mod tests {
     use zolana_ring_policy::ListId;
 
     use crate::encryption::{MergeDisclosureEncryption, MergeVector};
+    use crate::origin::RingOrigin;
 
     struct RegistryPages {
         first: GetRingMemberRecordsResponse,
@@ -886,7 +890,11 @@ mod tests {
 
     impl MergeRow {
         fn output(&self, ring: Address) -> Result<MergeOutput, AuditError> {
-            let tx = ShieldedTransaction {
+            MergeOutput::of(&self.transaction(ring), ring)
+        }
+
+        fn transaction(&self, ring: Address) -> ShieldedTransaction {
+            ShieldedTransaction {
                 slot: 0,
                 tx_signature: Signature::default(),
                 event_index: Some(0),
@@ -912,9 +920,59 @@ mod tests {
                 proofless: false,
                 ring_config: None,
                 ring_program_id: Some(ring),
-            };
-            MergeOutput::of(&tx, ring)
+            }
         }
+    }
+
+    struct UnreadOrigin;
+
+    impl TransactionOrigin for UnreadOrigin {
+        async fn origin(
+            &self,
+            signature: Signature,
+            _event_index: u16,
+            _ring: Address,
+        ) -> Result<RingOrigin, AuditError> {
+            Err(AuditError::Unavailable {
+                signature,
+                message: "no origin read".to_owned(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn a_row_of_another_ring_never_reaches_the_origin_read() {
+        let ring = Address::new_from_array([9; 32]);
+        let auditor = X25519Keypair::new();
+        let mut outsider = MergeRow {
+            first_nullifier: [5; 32],
+            commitment: [2; 32],
+            ring_data_hash: [1; 32],
+            salt: [6; MERGE_OUTPUT_SALT_LEN],
+            ciphertext: [[0; 32]; 3],
+        }
+        .transaction(ring);
+        outsider.ring_program_id = None;
+        let tip = RegistryTip {
+            root: [0; 32],
+            root_index: 0,
+            next_index: 1,
+        };
+        let indexer = TerminalHistory {
+            scanned_through: None,
+        };
+        let result = MergeAudit::new(ring, &auditor)
+            .open_transactions(
+                vec![outsider],
+                tip,
+                &indexer,
+                &UnreadOrigin,
+                &mut HashSet::new(),
+            )
+            .await
+            .unwrap();
+        assert!(result.opened.is_empty());
+        assert!(result.unresolved.is_empty());
     }
 
     #[test]

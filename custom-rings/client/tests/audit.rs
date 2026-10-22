@@ -1444,3 +1444,19 @@ async fn a_cursor_at_the_end_of_history_returns_an_empty_page() {
     assert_eq!(page.next_cursor, None);
     assert_eq!(origin.lookups.load(Ordering::Relaxed), 0);
 }
+
+#[tokio::test]
+async fn a_row_of_another_ring_never_reaches_the_created_scan_origin_read() {
+    let (transfer, built, _) = anonymous_spend();
+    let mut outsider = built.transaction.clone();
+    outsider.ring_program_id = None;
+    let auditor = auditor();
+    let page = CreatedUtxoScan::new(transfer.ring, &auditor)
+        .run(
+            &RingHistory(vec![vec![outsider]]),
+            &ConfirmedOrigins(HashMap::new()),
+        )
+        .await
+        .unwrap();
+    assert!(page.utxos.is_empty());
+}

@@ -453,6 +453,9 @@ impl<'a> MemberRecovery<'a> {
                 .spend_history(indexer, &nullifiers, &mut remaining)
                 .await?
             {
+                if transaction.ring_program_id != Some(ring) {
+                    continue;
+                }
                 let event_index = transaction
                     .event_index
                     .ok_or(AuditError::MissingEventIndex)?;

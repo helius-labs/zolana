@@ -326,6 +326,8 @@ struct History {
     foreign: Vec<Signature>,
     confirmed_events: std::collections::HashMap<Signature, zolana_ring_client::ConfirmedEvent>,
     required_slots: Mutex<Vec<Option<u64>>>,
+    /// Signatures whose origin read fails.
+    unread: Vec<Signature>,
 }
 
 const INDEXED: u64 = 100;
@@ -436,6 +438,12 @@ impl TransactionOrigin for History {
         _event_index: u16,
         _ring: Address,
     ) -> Result<RingOrigin, AuditError> {
+        if self.unread.contains(&signature) {
+            return Err(AuditError::Unavailable {
+                signature,
+                message: "no origin read".to_owned(),
+            });
+        }
         Ok(RingOrigin {
             event: self
                 .confirmed_events
@@ -572,6 +580,27 @@ async fn follows_chained_merges_across_trees_and_keeps_only_the_live_successor()
         .unwrap()
         .iter()
         .any(|query| query.contains(&successor.nullifier)));
+}
+
+#[tokio::test]
+async fn a_spend_row_of_another_ring_never_reaches_the_origin_read() {
+    let fixture = Fixture::new();
+    let (held, held_tx) = fixture.encrypt(fixture.output(4), 2);
+    let mut outsider = held_tx.clone();
+    outsider.tx_signature = fixture.signature();
+    outsider.nullifiers = vec![held.nullifier];
+    outsider.output_slots.clear();
+    outsider.ring_program_id = None;
+    let history = History {
+        unread: vec![outsider.tx_signature],
+        transactions: vec![held_tx, outsider],
+        ..Default::default()
+    };
+    let recovered = fixture
+        .run(fixture.recovery(), &history)
+        .await
+        .expect("recover");
+    assert_eq!(recovered.utxos, vec![held]);
 }
 
 #[tokio::test]
