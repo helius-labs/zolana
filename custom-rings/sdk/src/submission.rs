@@ -54,12 +54,14 @@ const MAX_ATTEMPTS: u8 = 3;
 const PENDING_POLL: Duration = Duration::from_millis(500);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[must_use]
 pub enum SubmissionStatus {
     Settled(SettledSubmission),
     Pending { signature: Signature },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[must_use]
 pub enum SettledSubmission {
     Confirmed {
         signature: Signature,
