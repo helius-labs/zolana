@@ -5,6 +5,8 @@ import { readFile } from "node:fs/promises";
 import { ed25519 } from "@noble/curves/ed25519.js";
 import {
   createKeyPairSignerFromBytes,
+  createSolanaRpc,
+  getBase58Encoder,
   lamports,
   type Address,
   type Instruction,
@@ -50,6 +52,7 @@ import {
   registryCurrentRoot,
   ringAuthAddress,
   ringComputeUnitLimit,
+  type RingReadTarget,
   type RingRpc,
 } from "../../src/ring/index.js";
 import { MEMBER_REGISTRY_PROJECTION_ERRORS } from "../../src/ring/projection.js";
@@ -200,16 +203,29 @@ export async function sync(client: ZolanaClient, actor: Actor): Promise<void> {
   });
 }
 
+/** The harness ring rpc beside the localnet, its health names the key the harness started it with. */
+export async function ringReadTarget(
+  ringRpc: RingRpc,
+  ringProgramId: Address,
+): Promise<RingReadTarget> {
+  const genesis = await createSolanaRpc(requiredEnv("ZOLANA_LOCALNET_URL")).getGenesisHash().send();
+  return {
+    cluster: getBase58Encoder().encode(genesis) as Bytes32,
+    service: (await ringRpc.health()).servicePublicKey,
+    ringProgramId,
+  };
+}
+
 /** The indexer and the ring RPC lag behind confirmation, so the view is polled. */
 export async function waitForAudited(
   ringRpc: RingRpc,
-  ringProgramId: Address,
+  target: RingReadTarget,
   signer: KeyPairSigner,
   signature: string,
 ) {
   for (let attempt = 0; attempt < 120; attempt++) {
     const view = await ringRpc.getDecryptedTransactions({
-      ringProgramId,
+      target,
       signer: messageSignerReader(signer),
     });
     const item = view.items.find((entry) => entry.signature === signature);

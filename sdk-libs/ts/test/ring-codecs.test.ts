@@ -38,10 +38,11 @@ import {
   RingReadRequest,
   RingRpc,
   auditedUtxosAttestation,
-  auditorKeyAttestation,
   auditorKeyRequestAttestation,
+  auditorKeyStatement,
   messageSignerReader,
   ringReadAttestation,
+  type RingReadTarget,
   type SignedAuditorKeyRequest,
   type SignedRingRead,
 } from "../src/ring/rpc.js";
@@ -87,6 +88,13 @@ function rpcWith(result: unknown): RingRpc {
 
 const RING = address("9vyTbYGyh3cwxkAQpjjFQGXmdJP6p9B6YcQ5pNuXPNbh");
 const PAYER = address("k7FaK87WHGVXzkaoHb7CdVPgkKDQhZ29VLDeBVbDfYn");
+/** Rust `rpc::tests::target`, the ring `[7; 32]` behind the service `[2; 32]` on the cluster `[1; 32]`. */
+const VECTOR_TARGET: RingReadTarget = {
+  cluster: filled(1, 32) as Bytes32,
+  service: addressOf(2),
+  ringProgramId: addressOf(7),
+};
+const RING_TARGET: RingReadTarget = { ...VECTOR_TARGET, ringProgramId: RING };
 const JSON_HEADERS = { headers: { "content-type": "application/json" } };
 // The P-256 key of the scalar [46; 32], its record printed by the Rust builders.
 const P256_HEX = "02039b852db622408abe58a18c0f056631a6ca4b2cfeec198aae25017cad09d4e8";
@@ -121,7 +129,7 @@ const anyReader = async () => messageSignerReader(await generateKeyPairSigner())
 
 async function readItem(item: unknown) {
   const page = await rpcWith(decryptedPage([item])).getDecryptedTransactions({
-    ringProgramId: RING,
+    target: RING_TARGET,
     signer: await anyReader(),
   });
   return page.items[0]!;
@@ -539,7 +547,7 @@ describe("ring audited merges", () => {
     const merges = (body: unknown) => rpcWith({ context: { slot: 9, blockTime: 10 }, value: body });
     const reader = messageSignerReader(await generateKeyPairSigner());
     const page = await merges(value).getAuditedMerges({
-      ringProgramId: RING,
+      target: RING_TARGET,
       signer: reader,
       cursor: Uint8Array.of(1, 2, 3),
       limit: 5n,
@@ -558,13 +566,13 @@ describe("ring audited merges", () => {
     expect(page.unresolved[0]).toMatchObject({ signature: signatureOf(10), eventIndex: 3 });
     await expect(
       merges({ ...value, cursor: "AQID" }).getAuditedMerges({
-        ringProgramId: RING,
+        target: RING_TARGET,
         signer: reader,
         cursor: Uint8Array.of(1, 2, 3),
       }),
     ).rejects.toMatchObject({ code: "RING_RPC" });
     await expect(
-      merges(value).getAuditedMerges({ ringProgramId: RING, signer: reader, limit: 1n }),
+      merges(value).getAuditedMerges({ target: RING_TARGET, signer: reader, limit: 1n }),
     ).rejects.toMatchObject({ code: "RING_RPC" });
     // An anonymous merge discloses one spent commitment per circuit slot and no nullifier.
     const { nullifier: _escrowed, ...disclosed } = value.opened[0]!;
@@ -574,7 +582,7 @@ describe("ring audited merges", () => {
     const anonymous = await merges({
       ...value,
       opened: [{ ...disclosed, inputCommitments: commitments }],
-    }).getAuditedMerges({ ringProgramId: RING, signer: reader });
+    }).getAuditedMerges({ target: RING_TARGET, signer: reader });
     const keys = anonymous.opened[0]?.keys;
     expect(keys?.kind).toBe("disclosed");
     expect(keys?.kind === "disclosed" && keys.inputCommitments).toHaveLength(8);
@@ -582,7 +590,7 @@ describe("ring audited merges", () => {
     const single = await merges({
       ...value,
       opened: [{ ...value.opened[0]!, inputNullifiers: [addressOf(7)] }],
-    }).getAuditedMerges({ ringProgramId: RING, signer: reader });
+    }).getAuditedMerges({ target: RING_TARGET, signer: reader });
     expect(single.opened[0]?.inputNullifiers).toEqual([filled(7, 32)]);
     for (const bad of [
       { ...value, opened: [disclosed] },
@@ -594,7 +602,7 @@ describe("ring audited merges", () => {
       { ...value, opened: [{ ...value.opened[0]!, ownerPubkey: addressOf(12) }] },
     ])
       await expect(
-        merges(bad).getAuditedMerges({ ringProgramId: RING, signer: reader }),
+        merges(bad).getAuditedMerges({ target: RING_TARGET, signer: reader }),
       ).rejects.toMatchObject({ code: "RING_RPC" });
   });
 });
@@ -719,14 +727,14 @@ describe("ring read attestation", () => {
   it("matches the Rust `read_attestation_is_stable` vector", () => {
     const message = ringReadAttestation({
       method: "getDecryptedTransactions",
-      ringProgramId: addressOf(7),
+      target: VECTOR_TARGET,
       timestamp: 1_700_000_000n,
       nonce: filled(4, 32) as Bytes32,
       cursor: Uint8Array.of(1, 2, 3),
       limit: 5n,
     });
     expect(new TextDecoder().decode(message)).toBe(
-      "zolana/ring-rpc-read/v2\nmethod: getDecryptedTransactions\nring: US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx\ntimestamp: 1700000000\nnonce: BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=\nlimit: 5\ncursor: AQID",
+      "zolana/ring-rpc-read/v2\nmethod: getDecryptedTransactions\ncluster: 4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi\nservice: 8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR\nring: US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx\ntimestamp: 1700000000\nnonce: BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=\nlimit: 5\ncursor: AQID",
     );
   });
 
@@ -745,24 +753,24 @@ describe("ring read attestation", () => {
   it("omits limit and cursor as 0 and empty", () => {
     const message = ringReadAttestation({
       method: "getAuditedMerges",
-      ringProgramId: addressOf(7),
+      target: VECTOR_TARGET,
       timestamp: 1n,
       nonce: filled(4, 32) as Bytes32,
     });
     expect(new TextDecoder().decode(message)).toBe(
-      "zolana/ring-rpc-read/v2\nmethod: getAuditedMerges\nring: US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx\ntimestamp: 1\nnonce: BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=\nlimit: 0\ncursor: ",
+      "zolana/ring-rpc-read/v2\nmethod: getAuditedMerges\ncluster: 4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi\nservice: 8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR\nring: US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx\ntimestamp: 1\nnonce: BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=\nlimit: 0\ncursor: ",
     );
   });
 
   it("signs the one method it reads and draws a fresh nonce per signature", async () => {
     const signer = await generateKeyPairSigner();
     const reader = messageSignerReader(signer);
-    const request = RingReadRequest.decryptedTransactions(addressOf(7)).at(1_700_000_000n);
+    const request = RingReadRequest.decryptedTransactions(VECTOR_TARGET).at(1_700_000_000n);
     const first = await request.sign(reader);
     const attested = (method: "getDecryptedTransactions" | "getAuditedMerges") =>
       ringReadAttestation({
         method,
-        ringProgramId: addressOf(7),
+        target: VECTOR_TARGET,
         timestamp: 1_700_000_000n,
         nonce: first.nonce,
       });
@@ -771,11 +779,25 @@ describe("ring read attestation", () => {
     expect(first.method).toBe("getDecryptedTransactions");
     expect(verifies(attested("getDecryptedTransactions"))).toBe(true);
     expect(verifies(attested("getAuditedMerges"))).toBe(false);
-    expect((await RingReadRequest.auditedMerges(addressOf(7)).sign(reader)).method).toBe(
+    for (const elsewhere of [
+      { ...VECTOR_TARGET, cluster: filled(9, 32) as Bytes32 },
+      { ...VECTOR_TARGET, service: addressOf(9) },
+    ])
+      expect(
+        verifies(
+          ringReadAttestation({
+            method: "getDecryptedTransactions",
+            target: elsewhere,
+            timestamp: 1_700_000_000n,
+            nonce: first.nonce,
+          }),
+        ),
+      ).toBe(false);
+    expect((await RingReadRequest.auditedMerges(VECTOR_TARGET).sign(reader)).method).toBe(
       "getAuditedMerges",
     );
     expect((await request.sign(reader)).nonce).not.toEqual(first.nonce);
-    const utxos = RingAuditedUtxosRequest.read(addressOf(7), [filled(1, 32) as Bytes32]);
+    const utxos = RingAuditedUtxosRequest.read(VECTOR_TARGET, [filled(1, 32) as Bytes32]);
     expect((await utxos.sign(reader)).nonce).not.toEqual((await utxos.sign(reader)).nonce);
     const auditorKey = RingAuditorKeyRequest.forRing(addressOf(7), filled(2, 32) as Bytes32);
     expect((await auditorKey.sign(signer)).nonce).not.toEqual(
@@ -784,7 +806,7 @@ describe("ring read attestation", () => {
   });
 
   it("bounds the cursor and the limit like Rust `ReadRequest`", () => {
-    const request = RingReadRequest.decryptedTransactions(addressOf(7));
+    const request = RingReadRequest.decryptedTransactions(VECTOR_TARGET);
     expect(() => request.withCursor(new Uint8Array())).toThrow("RING_READ_CURSOR");
     expect(() => request.withCursor(new Uint8Array(257))).toThrow("RING_READ_CURSOR");
     expect(() => request.withLimit(0n)).toThrow("RING_READ_LIMIT");
@@ -798,13 +820,13 @@ describe("audited UTXO read", () => {
 
   it("matches the Rust `audited_utxos_attestation_is_stable` vector", () => {
     const message = auditedUtxosAttestation({
-      ringProgramId: addressOf(7),
+      target: VECTOR_TARGET,
       timestamp: 1_700_000_000n,
       nonce: filled(4, 32) as Bytes32,
       utxoHashes: hashes,
     });
     expect(new TextDecoder().decode(message)).toBe(
-      "zolana/ring-rpc-audited-utxos/v1\nring: US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx\ntimestamp: 1700000000\nnonce: BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=\nutxos: +Biv03ptw7yS+0RzEBEncAbbTvpukCPNdGjAIzXSKk0=",
+      "zolana/ring-rpc-audited-utxos/v1\ncluster: 4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi\nservice: 8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR\nring: US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx\ntimestamp: 1700000000\nnonce: BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=\nutxos: +Biv03ptw7yS+0RzEBEncAbbTvpukCPNdGjAIzXSKk0=",
     );
   });
 
@@ -812,12 +834,12 @@ describe("audited UTXO read", () => {
     for (const count of [0, RING_AUDITED_UTXOS_LIMIT + 1])
       expect(() =>
         RingAuditedUtxosRequest.read(
-          addressOf(7),
+          VECTOR_TARGET,
           Array.from({ length: count }, () => filled(1, 32) as Bytes32),
         ),
       ).toThrow("RING_READ_LIMIT");
     expect(() =>
-      RingAuditedUtxosRequest.read(addressOf(7), [filled(1, 32 - 1) as Bytes32]),
+      RingAuditedUtxosRequest.read(VECTOR_TARGET, [filled(1, 32 - 1) as Bytes32]),
     ).toThrow("RING_READ_LIMIT");
   });
 
@@ -875,7 +897,7 @@ describe("audited UTXO read", () => {
       fetch,
       allowInsecureHttp: true,
     }).getAuditedUtxos({
-      ringProgramId: addressOf(7),
+      target: VECTOR_TARGET,
       utxoHashes,
       signer: messageSignerReader(signer),
       timestamp: 1_700_000_000n,
@@ -911,7 +933,7 @@ describe("audited UTXO read", () => {
     const auth = params["auth"] as Record<string, unknown>;
     const nonce = Uint8Array.from(Buffer.from(auth["nonce"] as string, "base64")) as Bytes32;
     const signed = auditedUtxosAttestation({
-      ringProgramId: addressOf(7),
+      target: VECTOR_TARGET,
       timestamp: 1_700_000_000n,
       nonce,
       utxoHashes: requested,
@@ -994,7 +1016,7 @@ describe("ring read request", () => {
       fetch,
       allowInsecureHttp: true,
     }).getDecryptedTransactions({
-      ringProgramId: addressOf(7),
+      target: VECTOR_TARGET,
       signer: reader,
       cursor: Uint8Array.of(1, 2, 3),
       limit: 5n,
@@ -1011,7 +1033,7 @@ describe("ring read request", () => {
       new RingRpc("http://ring.example", {
         fetch,
         allowInsecureHttp: true,
-      }).getDecryptedTransactions({ ringProgramId: addressOf(7), signer: reader, limit: 1n }),
+      }).getDecryptedTransactions({ target: VECTOR_TARGET, signer: reader, limit: 1n }),
     ).rejects.toMatchObject({ code: "RING_RPC" });
     const params = bodies[0]?.["params"] as Record<string, unknown>;
     expect(Object.keys(params).sort()).toEqual(["auth", "cursor", "limit", "ringProgramId"]);
@@ -1029,7 +1051,7 @@ describe("ring read request", () => {
       new TextDecoder().decode(
         ringReadAttestation({
           method: "getDecryptedTransactions",
-          ringProgramId: addressOf(7),
+          target: VECTOR_TARGET,
           timestamp: 1_700_000_000n,
           nonce: Uint8Array.from(nonce) as Bytes32,
           cursor: Uint8Array.of(1, 2, 3),
@@ -1044,7 +1066,7 @@ describe("ring read request", () => {
     const page = await new RingRpc("http://ring.example", {
       fetch,
       allowInsecureHttp: true,
-    }).getDecryptedTransactions({ ringProgramId: RING, signer: await anyReader() });
+    }).getDecryptedTransactions({ target: RING_TARGET, signer: await anyReader() });
     expect(page.cursor).toEqual(Uint8Array.of(15));
     expect(page.skipped).toEqual([
       { slot: 40n, signature: signatureOf(14), eventIndex: 8, reason: "missingAuditorMessage" },
@@ -1274,7 +1296,7 @@ describe("ring read request", () => {
       fetch,
       allowInsecureHttp: true,
     }).getDecryptedTransactions({
-      ringProgramId: addressOf(7),
+      target: VECTOR_TARGET,
       signer,
     });
     expect(page.cursor).toBeUndefined();
@@ -1305,6 +1327,33 @@ describe("ring read request", () => {
     servicePubkey: servicePublicKey,
     signature: getBase58Decoder().decode(signature),
   });
+  /** A ring rpc whose statement covers the cluster and nonce of each request it answers. */
+  const statementFetch = (): {
+    fetch: typeof globalThis.fetch;
+    bodies: Record<string, unknown>[];
+  } => {
+    const bodies: Record<string, unknown>[] = [];
+    const fetch = (async (_input: URL | string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      bodies.push(body);
+      const auth = (body["params"] as Record<string, Record<string, string>>)["auth"]!;
+      const statement = auditorKeyStatement({
+        cluster: genesisHash,
+        ringProgramId: RING,
+        auditorPublicKey: auditor,
+        nonce: Uint8Array.from(Buffer.from(auth["nonce"]!, "base64")) as Bytes32,
+      });
+      return new Response(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          result: auditorKeyResult(ed25519.sign(statement, serviceSecret)),
+        }),
+        JSON_HEADERS,
+      );
+    }) as typeof globalThis.fetch;
+    return { fetch, bodies };
+  };
 
   it("refuses a plain HTTP endpoint unless the caller opts in", () => {
     expect(() => new RingRpc("http://ring.example")).toThrowError(
@@ -1354,14 +1403,19 @@ describe("ring read request", () => {
   });
 
   it("verifies the auditor key attestation before trusting the key", async () => {
-    const attestation = auditorKeyAttestation(RING, auditor);
-    expect(attestation.subarray(0, 26)).toEqual(
-      new TextEncoder().encode("zolana/ring-auditor-key/v1"),
+    const otherRequest = auditorKeyStatement({
+      cluster: genesisHash,
+      ringProgramId: RING,
+      auditorPublicKey: auditor,
+      nonce: filled(3, 32) as Bytes32,
+    });
+    expect(otherRequest.subarray(0, 26)).toEqual(
+      new TextEncoder().encode("zolana/ring-auditor-key/v2"),
     );
-    expect(attestation).toHaveLength(26 + 32 + 33);
+    expect(otherRequest).toHaveLength(26 + 32 + 32 + 33 + 32);
     const authority = await generateKeyPairSigner();
     const key = await new RingRpc("http://ring.example", {
-      fetch: capturingFetch(auditorKeyResult(ed25519.sign(attestation, serviceSecret))).fetch,
+      fetch: statementFetch().fetch,
       allowInsecureHttp: true,
     }).createAuditorKey({ ringProgramId: RING, genesisHash, authority });
     expect(key.auditorPublicKey.equals(auditor)).toBe(true);
@@ -1374,13 +1428,17 @@ describe("ring read request", () => {
         allowInsecureHttp: true,
       }).createAuditorKey({ ringProgramId: RING, genesisHash, authority }),
     ).rejects.toMatchObject({ code: "RING_RPC" });
+    await expect(
+      new RingRpc("http://ring.example", {
+        fetch: capturingFetch(auditorKeyResult(ed25519.sign(otherRequest, serviceSecret))).fetch,
+        allowInsecureHttp: true,
+      }).createAuditorKey({ ringProgramId: RING, genesisHash, authority }),
+    ).rejects.toMatchObject({ code: "RING_RPC" });
   });
 
   it("signs the auditor key request with the authority and sends it under camelCase keys", async () => {
     const authority = await generateKeyPairSigner();
-    const { fetch, bodies } = capturingFetch(
-      auditorKeyResult(ed25519.sign(auditorKeyAttestation(RING, auditor), serviceSecret)),
-    );
+    const { fetch, bodies } = statementFetch();
     await new RingRpc("http://ring.example", {
       fetch,
       allowInsecureHttp: true,

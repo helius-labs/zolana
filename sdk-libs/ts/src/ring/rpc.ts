@@ -21,6 +21,7 @@ import { postJsonRpc } from "../services/jsonrpc.js";
 import { TransportFailure, checkedEndpoint, checkedFetch } from "../services/transport.js";
 import { wireDecoder } from "../interface/decode.js";
 import { addressBytes, copyBytes, sha256 } from "../interface/internal.js";
+import { concatBytes } from "../keypair/bytes.js";
 import { MAX_MERGE_INPUTS, mergePaddedInputCount } from "../interface/constants.js";
 import { MEMBER_REGISTRY_ROOT_HISTORY } from "../interface/member-registry.js";
 import { TAG_LEN, ringIdField } from "../keypair/ring-stream.js";
@@ -68,7 +69,7 @@ export interface WebAuthnSignature {
 }
 
 const READ_DOMAIN = "zolana/ring-rpc-read/v2";
-const AUDITOR_KEY_DOMAIN = "zolana/ring-auditor-key/v1";
+const AUDITOR_KEY_DOMAIN = "zolana/ring-auditor-key/v2";
 const AUDITOR_KEY_REQUEST_DOMAIN = "zolana/ring-rpc-auditor-key-request/v1";
 const AUDITED_UTXOS_DOMAIN = "zolana/ring-rpc-audited-utxos/v1";
 /** Rust `AUDIT_PAGE_LIMIT`. */
@@ -81,11 +82,39 @@ export const RING_READ_CURSOR_LIMIT = 256;
 /** Rust `PagedRead`, the paged read a reader's signature authorizes. */
 export type RingPagedRead = "getDecryptedTransactions" | "getAuditedMerges";
 
+/** Rust `ReadTarget`, one ring behind one ring rpc on one cluster, every signed read names all three. */
+export interface RingReadTarget {
+  /** The genesis hash. */
+  readonly cluster: Bytes32;
+  /** The service key the caller pinned, never one the service reports. */
+  readonly service: Address;
+  readonly ringProgramId: Address;
+}
+
+/** Rust `ReadTarget::lines`. */
+function targetLines(target: RingReadTarget): readonly string[] {
+  return [
+    `cluster: ${base58Decoder.decode(target.cluster)}`,
+    `service: ${target.service}`,
+    `ring: ${target.ringProgramId}`,
+  ];
+}
+
+function checkedReadTarget(target: RingReadTarget): RingReadTarget {
+  addressBytes(target.service, "service");
+  addressBytes(target.ringProgramId, "ringProgramId");
+  return Object.freeze({
+    cluster: copyBytes(target.cluster, 32, "cluster") as Bytes32,
+    service: target.service,
+    ringProgramId: target.ringProgramId,
+  });
+}
+
 /** Mirrors Rust `ReadAttestation::message`. */
 export function ringReadAttestation(
   input: Readonly<{
     method: RingPagedRead;
-    ringProgramId: Address;
+    target: RingReadTarget;
     timestamp: bigint;
     nonce: Bytes32;
     cursor?: Uint8Array;
@@ -97,7 +126,7 @@ export function ringReadAttestation(
     [
       READ_DOMAIN,
       `method: ${input.method}`,
-      `ring: ${input.ringProgramId}`,
+      ...targetLines(input.target),
       `timestamp: ${input.timestamp}`,
       `nonce: ${base64Decoder.decode(input.nonce)}`,
       `limit: ${input.limit ?? 0n}`,
@@ -109,7 +138,7 @@ export function ringReadAttestation(
 /** Mirrors Rust `AuditedUtxosAttestation::message`, the digest binds every requested hash in order. */
 export function auditedUtxosAttestation(
   input: Readonly<{
-    ringProgramId: Address;
+    target: RingReadTarget;
     timestamp: bigint;
     nonce: Bytes32;
     utxoHashes: readonly Bytes32[];
@@ -120,7 +149,7 @@ export function auditedUtxosAttestation(
   return encoder.encode(
     [
       AUDITED_UTXOS_DOMAIN,
-      `ring: ${input.ringProgramId}`,
+      ...targetLines(input.target),
       `timestamp: ${input.timestamp}`,
       `nonce: ${base64Decoder.decode(input.nonce)}`,
       `utxos: ${base64Decoder.decode(sha256(joined))}`,
@@ -128,19 +157,22 @@ export function auditedUtxosAttestation(
   );
 }
 
-/** Mirrors Rust `auditor_key_attestation`. */
-export function auditorKeyAttestation(
-  ringProgramId: Address,
-  auditorPublicKey: X25519PublicKey,
+/** Mirrors Rust `AuditorKeyStatement::message`, bound to the cluster and the nonce of the request it answers. */
+export function auditorKeyStatement(
+  input: Readonly<{
+    cluster: Bytes32;
+    ringProgramId: Address;
+    auditorPublicKey: X25519PublicKey;
+    nonce: Bytes32;
+  }>,
 ): Uint8Array {
-  const domain = encoder.encode(AUDITOR_KEY_DOMAIN);
-  const ring = addressBytes(ringProgramId, "ringProgramId");
-  const key = auditorPublicKey.toBytes();
-  const bytes = new Uint8Array(domain.length + ring.length + key.length);
-  bytes.set(domain, 0);
-  bytes.set(ring, domain.length);
-  bytes.set(key, domain.length + ring.length);
-  return bytes;
+  return concatBytes(
+    encoder.encode(AUDITOR_KEY_DOMAIN),
+    copyBytes(input.cluster, 32, "cluster"),
+    addressBytes(input.ringProgramId, "ringProgramId"),
+    input.auditorPublicKey.toBytes(),
+    copyBytes(input.nonce, 32, "nonce"),
+  );
 }
 
 /** Mirrors Rust `AuditorKeyAttestation::bytes`, the genesis hash pins the cluster. */
@@ -185,22 +217,22 @@ export interface SignedRingRead {
 /** Mirrors Rust `ReadRequest`, every signature draws its own nonce. */
 export class RingReadRequest {
   readonly #method: RingPagedRead;
-  readonly #ringProgramId: Address;
+  readonly #target: RingReadTarget;
   #cursor?: Uint8Array;
   #limit?: bigint;
   #timestamp?: bigint;
 
-  private constructor(method: RingPagedRead, ringProgramId: Address) {
+  private constructor(method: RingPagedRead, target: RingReadTarget) {
     this.#method = method;
-    this.#ringProgramId = ringProgramId;
+    this.#target = checkedReadTarget(target);
   }
 
-  static decryptedTransactions(ringProgramId: Address): RingReadRequest {
-    return new RingReadRequest("getDecryptedTransactions", ringProgramId);
+  static decryptedTransactions(target: RingReadTarget): RingReadRequest {
+    return new RingReadRequest("getDecryptedTransactions", target);
   }
 
-  static auditedMerges(ringProgramId: Address): RingReadRequest {
-    return new RingReadRequest("getAuditedMerges", ringProgramId);
+  static auditedMerges(target: RingReadTarget): RingReadRequest {
+    return new RingReadRequest("getAuditedMerges", target);
   }
 
   withCursor(cursor: Uint8Array): this {
@@ -225,7 +257,7 @@ export class RingReadRequest {
     const signature = await signer.sign(
       ringReadAttestation({
         method: this.#method,
-        ringProgramId: this.#ringProgramId,
+        target: this.#target,
         timestamp,
         nonce,
         ...(this.#cursor === undefined ? {} : { cursor: this.#cursor }),
@@ -234,7 +266,7 @@ export class RingReadRequest {
     );
     return Object.freeze({
       method: this.#method,
-      ringProgramId: this.#ringProgramId,
+      ringProgramId: this.#target.ringProgramId,
       ...(this.#cursor === undefined ? {} : { cursor: this.#cursor }),
       ...(this.#limit === undefined ? {} : { limit: this.#limit }),
       reader: signer.reader,
@@ -258,17 +290,17 @@ export interface SignedAuditedUtxosRead {
 
 /** Mirrors Rust `AuditedUtxosRequest`, one to `RING_AUDITED_UTXOS_LIMIT` hashes. */
 export class RingAuditedUtxosRequest {
-  readonly #ringProgramId: Address;
+  readonly #target: RingReadTarget;
   readonly #utxoHashes: readonly Bytes32[];
   #timestamp?: bigint;
 
-  private constructor(ringProgramId: Address, utxoHashes: readonly Bytes32[]) {
-    this.#ringProgramId = ringProgramId;
+  private constructor(target: RingReadTarget, utxoHashes: readonly Bytes32[]) {
+    this.#target = checkedReadTarget(target);
     this.#utxoHashes = utxoHashes;
   }
 
-  static read(ringProgramId: Address, utxoHashes: readonly Bytes32[]): RingAuditedUtxosRequest {
-    return new RingAuditedUtxosRequest(ringProgramId, checkedUtxoHashes(utxoHashes));
+  static read(target: RingReadTarget, utxoHashes: readonly Bytes32[]): RingAuditedUtxosRequest {
+    return new RingAuditedUtxosRequest(target, checkedUtxoHashes(utxoHashes));
   }
 
   /** Unix seconds, the RPC rejects a clock more than its skew away. */
@@ -282,14 +314,14 @@ export class RingAuditedUtxosRequest {
     const nonce = freshNonce();
     const signature = await signer.sign(
       auditedUtxosAttestation({
-        ringProgramId: this.#ringProgramId,
+        target: this.#target,
         timestamp,
         nonce,
         utxoHashes: this.#utxoHashes,
       }),
     );
     return Object.freeze({
-      ringProgramId: this.#ringProgramId,
+      ringProgramId: this.#target.ringProgramId,
       utxoHashes: this.#utxoHashes,
       reader: signer.reader,
       timestamp,
@@ -619,7 +651,12 @@ export class RingRpc {
     if (ring !== checked.ringProgramId) throw invalid("result.ringProgramId");
     const attested = ed25519.verify(
       signature,
-      auditorKeyAttestation(ring, auditorPublicKey),
+      auditorKeyStatement({
+        cluster: checked.genesisHash,
+        ringProgramId: ring,
+        auditorPublicKey,
+        nonce: checked.nonce,
+      }),
       addressBytes(servicePublicKey, "servicePubkey"),
     );
     if (!attested) {
@@ -707,7 +744,7 @@ export class RingRpc {
   /** Each page is signed again, the attestation binds the nonce, the cursor and the time. */
   async getDecryptedTransactions(
     input: Readonly<{
-      ringProgramId: Address;
+      target: RingReadTarget;
       signer: RingReadSigner;
       cursor?: Uint8Array;
       limit?: bigint;
@@ -715,7 +752,7 @@ export class RingRpc {
     }>,
     context?: RequestContext,
   ): Promise<DecryptedRingTransactionsPage> {
-    let request = RingReadRequest.decryptedTransactions(input.ringProgramId);
+    let request = RingReadRequest.decryptedTransactions(input.target);
     if (input.cursor !== undefined) request = request.withCursor(input.cursor);
     if (input.limit !== undefined) request = request.withLimit(input.limit);
     if (input.timestamp !== undefined) request = request.at(input.timestamp);
@@ -725,14 +762,14 @@ export class RingRpc {
   /** The UTXOs the service opened, signed over the requested hashes. */
   async getAuditedUtxos(
     input: Readonly<{
-      ringProgramId: Address;
+      target: RingReadTarget;
       utxoHashes: readonly Bytes32[];
       signer: RingReadSigner;
       timestamp?: bigint;
     }>,
     context?: RequestContext,
   ): Promise<RingAuditedUtxosPage> {
-    let request = RingAuditedUtxosRequest.read(input.ringProgramId, input.utxoHashes);
+    let request = RingAuditedUtxosRequest.read(input.target, input.utxoHashes);
     if (input.timestamp !== undefined) request = request.at(input.timestamp);
     return this.readSignedUtxos(await request.sign(input.signer), context);
   }
@@ -798,7 +835,7 @@ export class RingRpc {
   /** The server opens confirmed ring merges with its auditor key. */
   async getAuditedMerges(
     input: Readonly<{
-      ringProgramId: Address;
+      target: RingReadTarget;
       signer: RingReadSigner;
       cursor?: Uint8Array;
       limit?: bigint;
@@ -806,7 +843,7 @@ export class RingRpc {
     }>,
     context?: RequestContext,
   ): Promise<AuditedMergesPage> {
-    let request = RingReadRequest.auditedMerges(input.ringProgramId);
+    let request = RingReadRequest.auditedMerges(input.target);
     if (input.cursor !== undefined) request = request.withCursor(input.cursor);
     if (input.limit !== undefined) request = request.withLimit(input.limit);
     if (input.timestamp !== undefined) request = request.at(input.timestamp);
