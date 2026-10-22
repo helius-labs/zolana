@@ -1721,6 +1721,8 @@ export function validateSpendProof(input: ProofInputUtxo, proof: SpendProof, ind
   }
   if (!stateProofReachesRoot(proof.state))
     throw new ClientError("CLIENT_STATE_PROOF_ROOT_MISMATCH", { details: { index } });
+  if (input.leafIndex !== undefined && proof.state.leafIndex !== input.leafIndex)
+    throw new ClientError("CLIENT_STATE_PROOF_INDEX_MISMATCH", { details: { index } });
   if (proof.nullifier.path.length !== NULLIFIER_TREE_HEIGHT) {
     throw new ClientError("CLIENT_PROOF_PATH_LENGTH", {
       details: {

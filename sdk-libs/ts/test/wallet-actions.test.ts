@@ -64,6 +64,7 @@ import {
   buildRingTransferTransaction,
   selectRingInputs,
 } from "../src/ring/transfer.js";
+import { ringProofInput } from "../src/ring/selection.js";
 import { ownerSignerAddresses } from "../src/client/prover/assembly.js";
 import { buildDepositTransaction, createDeposit } from "../src/wallet/deposit.js";
 import { depositClient, privateTransactionClient, ringTransferClient } from "./helpers/clients.js";
@@ -1016,6 +1017,22 @@ function ringUtxoWallet(
 
 /** The cap `refuses a cover wider than the input cap` runs into with six UTXOs. */
 const INPUT_CAP = 5;
+
+describe("proof inputs of stored UTXOs", () => {
+  it("carry the leaf position each UTXO's sync stored", () => {
+    const keypair = spendingKeypair();
+    const wallet = ringUtxoWallet(keypair, [
+      [10n, RING],
+      [20n, undefined],
+      [30n, RING],
+    ]);
+    const [, plain, ring] = wallet.utxos();
+    if (plain === undefined || ring === undefined) expect.unreachable();
+    const address = keypair.shieldedAddress();
+    expect(proofInputFromEntry(plain, address).leafIndex).toBe(1n);
+    expect(ringProofInput(ring, address, { tree: TREE, treeId: 0 }).leafIndex).toBe(2n);
+  });
+});
 
 describe("selectRingInputs", () => {
   it("refuses a zero amount", () => {

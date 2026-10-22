@@ -25,6 +25,7 @@ export function ringProofInput(
     nullifierPublicKey: owner.nullifierPublicKey,
     nullifier: entry.nullifier,
     treeId: client.treeId,
+    leafIndex: entry.outputContext.leafIndex,
     ...(entry.dataHash === undefined ? {} : { dataHash: entry.dataHash }),
     ...(entry.ringDataHash === undefined ? {} : { ringDataHash: entry.ringDataHash }),
   });

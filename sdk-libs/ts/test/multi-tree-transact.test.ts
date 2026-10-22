@@ -282,6 +282,38 @@ describe("a transact spending from two trees", () => {
   });
 });
 
+describe("a stored leaf position", () => {
+  /** The fixture with its first input stored at `leafIndex`, its proof still at leaf 0. */
+  function storedAt(leafIndex: bigint) {
+    const fixture = twoTreeFixture();
+    const [first, ...rest] = fixture.proofInputs.inputUtxos;
+    if (first === undefined) expect.unreachable();
+    const stored = new ProofInputUtxo({
+      utxo: first.utxo,
+      nullifierPublicKey: first.nullifierPublicKey,
+      nullifier: first.nullifier(),
+      treeId: first.treeId,
+      leafIndex,
+    });
+    const proofInputs = new SppProofInputs({
+      payer: fixture.proofInputs.payer,
+      inputUtxos: [stored, ...rest],
+      outputs: fixture.proofInputs.outputs,
+      externalData: fixture.proofInputs.externalData,
+      blindingSeed: fixture.proofInputs.blindingSeed,
+      outputTreeId: fixture.proofInputs.outputTreeId,
+    });
+    return () => assemble(proofInputs, fixture.spendProofs, fixture.dummyProofs);
+  }
+
+  it("refuses a state proof at another position than its input stored", () => {
+    expect(storedAt(5n)).toThrow(
+      expect.objectContaining({ code: "CLIENT_STATE_PROOF_INDEX_MISMATCH", details: { index: 0 } }),
+    );
+    expect(storedAt(0n)).not.toThrow();
+  });
+});
+
 describe("compact padding in a two-tree spend", () => {
   function withCompact(fixture: ReturnType<typeof twoTreeFixture>, treeId: number): SppProofInputs {
     const [first, second] = fixture.proofInputs.inputUtxos;

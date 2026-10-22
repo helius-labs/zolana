@@ -313,6 +313,8 @@ export class ProofInputUtxo {
   readonly dataHash?: Bytes32;
   readonly ringDataHash?: Bytes32;
   readonly cacheSlot?: number;
+  /** The position its sync stored, a state proof at another position is refused. */
+  readonly leafIndex?: bigint;
   /**
    * The nullifier an address input publishes, which is the reserved address;
    * absent for state spends and padding. A copy taken at construction, so a
@@ -332,6 +334,7 @@ export class ProofInputUtxo {
       dataHash?: Bytes32;
       ringDataHash?: Bytes32;
       cacheSlot?: number;
+      leafIndex?: bigint;
       /** Compact padding: a dummy that publishes nullifier 0 and is left out of the instruction. */
       compact?: boolean;
       /**
@@ -382,6 +385,17 @@ export class ProofInputUtxo {
       throw new TransactionError("TRANSACTION_NONCANONICAL_DUMMY_INPUT", { field: "compact" });
     }
     if (!this.isAddress()) this.checkCanonicalDummy();
+    if (input.leafIndex !== undefined) {
+      if (
+        typeof input.leafIndex !== "bigint" ||
+        input.leafIndex < 0n ||
+        input.leafIndex >> 64n !== 0n
+      )
+        throw new TransactionError("TRANSACTION_INVALID_POSITION", {
+          position: String(input.leafIndex),
+        });
+      this.leafIndex = input.leafIndex;
+    }
     if (input.cacheSlot !== undefined) {
       this.cacheSlot = checkedCacheSlot(input.cacheSlot);
       if (!this.isAddress() && this.isDummy())

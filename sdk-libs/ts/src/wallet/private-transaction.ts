@@ -138,6 +138,7 @@ export function proofInputFromEntry(entry: WalletUtxo, address: ShieldedAddress)
     nullifierPublicKey: address.nullifierPublicKey,
     nullifier: entry.nullifier,
     treeId: DEFAULT_TREE_ID,
+    leafIndex: entry.outputContext.leafIndex,
     ...(entry.dataHash === undefined ? {} : { dataHash: entry.dataHash }),
     ...(entry.ringDataHash === undefined ? {} : { ringDataHash: entry.ringDataHash }),
   });
