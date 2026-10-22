@@ -999,6 +999,25 @@ async fn an_anonymous_move_never_mixes_ring_and_default_ring_utxos() {
     ));
 }
 
+/// Nine inputs exceed the entry class, the mix is refused before the width.
+#[tokio::test]
+async fn an_anonymous_spend_of_ring_and_default_ring_utxos_is_refused_before_proving() {
+    let sender = crate::tests::support::keypair(1);
+    let paid = ring_address(&crate::tests::support::keypair(2));
+    let state = AnonymousRingState::new(ring().program_id(), 0);
+    let mut utxos = vec![default_ring_utxo(&sender, 5, 10)];
+    utxos.extend((0..8).map(|leaf| ring_utxo(&sender, Mint::SOL, 1, leaf)));
+    let transaction = ring_transaction(utxos);
+    let transfer = owner_transfer(&sender, transaction)
+        .with_anonymous_signer(&sender.signing_key, &state)
+        .with_payment(payment(&paid, 4))
+        .unwrap();
+    assert!(matches!(
+        stage_anonymous(&transfer, &Chain::ring(anonymous())).await,
+        Err(RingError::EntryRingInput { index: 1 })
+    ));
+}
+
 /// The entry key rebuilds every spent UTXO from its opening, a data hash breaks the audit proof.
 #[tokio::test]
 async fn an_entry_spend_of_a_utxo_carrying_data_is_refused_before_proving() {

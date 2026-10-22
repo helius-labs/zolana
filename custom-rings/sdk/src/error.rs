@@ -174,6 +174,8 @@ pub enum RingError {
     DefaultRingSpendTooWide { inputs: usize },
     #[error("a default-ring spend opens every input in full, input {index} carries data")]
     EntryInputData { index: usize },
+    #[error("a default-ring spend takes no ring UTXO, input {index} is one")]
+    EntryRingInput { index: usize },
     #[error("the hidden signer does not match the sender")]
     AnonymousSignerMismatch,
     #[error("public transaction signers must differ from the hidden owner")]

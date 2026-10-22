@@ -590,8 +590,8 @@ impl Anonymous<'_> {
         }) {
             return Err(RingError::MixedOwners { index });
         }
-        check_audit_key(&proof_inputs)?;
         check_entry_inputs(&proof_inputs)?;
+        check_audit_key(&proof_inputs)?;
         let first_contacts = InboxPayments {
             rail: &rail,
             inputs: &proof_inputs,
@@ -709,12 +709,20 @@ fn check_entry_inputs(inputs: &SppProofInputs) -> Result<(), RingError> {
     if !spends_default_ring(&inputs.input_utxos) {
         return Ok(());
     }
-    match inputs.input_utxos.iter().position(|input| {
-        !input.is_dummy() && !carries_no_data([input.data_hash, input.ring_data_hash])
-    }) {
-        Some(index) => Err(RingError::EntryInputData { index }),
-        None => Ok(()),
-    }
+    inputs
+        .input_utxos
+        .iter()
+        .enumerate()
+        .filter(|(_, input)| !input.is_dummy())
+        .try_for_each(|(index, input)| {
+            if input.utxo.ring_program_id.is_some() {
+                Err(RingError::EntryRingInput { index })
+            } else if carries_no_data([input.data_hash, input.ring_data_hash]) {
+                Ok(())
+            } else {
+                Err(RingError::EntryInputData { index })
+            }
+        })
 }
 
 fn carries_no_data(hashes: [Option<[u8; 32]>; 2]) -> bool {
