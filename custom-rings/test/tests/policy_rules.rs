@@ -3,14 +3,10 @@
 //! and the operator cli pins the same rows from `ring.toml`, lists its demo
 //! parties and transacts under them.
 
-use std::{
-    collections::BTreeSet,
-    net::{Ipv4Addr, TcpListener},
-    sync::Arc,
-    time::Duration,
-};
+use std::collections::BTreeSet;
 
 use anyhow::{anyhow, Result};
+use custom_ring_cli::ModeName;
 use custom_ring_sdk::CustomRing;
 use custom_ring_test_validator::{
     cli::{merged, ListWrite, RingProject, RingToml},
@@ -18,17 +14,14 @@ use custom_ring_test_validator::{
         owner_member, policy_registry, PolicyTransfer, RegistryWrite, RingNotes, DEPOSIT, RELEASED,
         TRANSFER_AMOUNT,
     },
+    ring_rpc::{LocalRingRpc, RingRpcSpec},
     shared::{custom_ring_program_id, setup, RegisterRing, TestEnv, Tier, ACTOR_AIRDROP},
 };
-use solana_address::Address;
 use solana_signer::Signer;
 use zolana_client::{IndexerRpcConfig, Rpc, UtxoScan};
 use zolana_keypair::{ShieldedKeypair, X25519Keypair};
 use zolana_ring_client::{AuditedTransaction, OutputOpening, RingScan};
 use zolana_ring_policy::{ListId, Member};
-use zolana_ring_rpc::{
-    run_server, BindPolicy, ChainSource, Hub, ServerOptions, TransactionSource, Upstreams,
-};
 use zolana_transaction::Utxo;
 
 /// `RELEASED` as `ring.toml` spells it.
@@ -54,7 +47,6 @@ forbid = "frozen"
 #[test]
 fn allow_frozen_and_block_rows_govern_every_transfer() -> Result<()> {
     let env = setup()?;
-    let rpc = env.client.rpc();
     let ring = CustomRing::new(custom_ring_program_id()?);
     RegisterRing {
         ring,
@@ -62,7 +54,7 @@ fn allow_frozen_and_block_rows_govern_every_transfer() -> Result<()> {
         auditor_pubkey: X25519Keypair::new().pubkey(),
         tier: Tier::policy(&RELEASED),
     }
-    .send(rpc)?;
+    .send(&env.client)?;
     let pinned = policy_registry(ring, &env)?;
     assert_eq!(
         pinned.rule_table()?,
@@ -176,7 +168,7 @@ fn the_cli_pins_the_released_rows_and_governs_its_demo_transfers() -> Result<()>
         .outputs
         .iter()
         .filter_map(|output| match &output.opening {
-            OutputOpening::Ring { note, .. } => Some((output.slot_index, note.owner_key)),
+            OutputOpening::Ring { utxo, .. } => Some((output.slot_index, utxo.owner_key)),
             OutputOpening::Exit(_) | OutputOpening::Dummy => None,
         })
         .collect();
@@ -249,6 +241,7 @@ impl<'a> DemoRing<'a> {
             env,
             ring_rpc: &ring_rpc.url,
             policy: Some(policy),
+            mode: ModeName::Confidential,
         })?;
         let init = project.run(&["init"])?;
         for line in ["policy      created", "spp ring    registered"] {
@@ -320,59 +313,5 @@ impl<'a> DemoRing<'a> {
         );
         assert_eq!(self.audited()?.len(), audited_before);
         Ok(())
-    }
-}
-
-struct RingRpcSpec<'a> {
-    env: &'a TestEnv,
-    ring: Address,
-    auditor: X25519Keypair,
-}
-
-struct LocalRingRpc {
-    url: String,
-    _runtime: tokio::runtime::Runtime,
-}
-
-impl RingRpcSpec<'_> {
-    fn serve(self) -> Result<LocalRingRpc> {
-        let runtime = tokio::runtime::Runtime::new()?;
-        let source = ChainSource::connect(Upstreams {
-            indexer_url: &self.env.indexer_url,
-            rpc_url: &self.env.rpc_url,
-            timeout: Duration::from_secs(30),
-        })
-        .map_err(|e| anyhow!("ring rpc upstreams {e:?}"))?;
-        let genesis_hash = runtime
-            .block_on(source.genesis_hash())
-            .map_err(|e| anyhow!("genesis hash {e:?}"))?;
-        let hub = Hub::builder(source, genesis_hash)
-            .local(self.ring, self.auditor)
-            .map_err(|e| anyhow!("hub {e:?}"))?;
-        let port = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?
-            .local_addr()?
-            .port();
-        let server = runtime
-            .block_on(run_server(
-                Arc::new(hub),
-                ServerOptions {
-                    bind: Ipv4Addr::LOCALHOST.into(),
-                    bind_policy: BindPolicy::LoopbackOnly,
-                    port,
-                    max_connections: 16,
-                    request_timeout: Duration::from_secs(30),
-                },
-            ))
-            .map_err(|e| anyhow!("ring rpc server {e:?}"))?;
-        // The server stops with its last handle, the task holds one until the
-        // runtime goes.
-        runtime.spawn(async move {
-            let _server = server;
-            std::future::pending::<()>().await;
-        });
-        Ok(LocalRingRpc {
-            url: format!("http://127.0.0.1:{port}"),
-            _runtime: runtime,
-        })
     }
 }

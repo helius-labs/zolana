@@ -3,6 +3,7 @@
 //! Approval list.
 
 use anyhow::{anyhow, Result};
+use custom_ring_cli::ModeName;
 use custom_ring_interface::CustomRingError;
 use custom_ring_sdk::{CustomRing, ListRegistry};
 use custom_ring_test_validator::{
@@ -64,7 +65,7 @@ fn the_config_authority_re_pins_the_table_of_a_live_ring() -> Result<()> {
     assert_eq!(pinned.generation(), 1);
     assert!(pinned.generation_slot() > 0);
     assert_eq!(pinned.registry_for(ListId::Block), Some(ListRegistry::Own));
-    let notes = RingNotes {
+    let utxos = RingNotes {
         ring,
         owner: sender,
         amount: DEPOSIT,
@@ -81,9 +82,9 @@ fn the_config_authority_re_pins_the_table_of_a_live_ring() -> Result<()> {
         member: blocked,
         present: true,
     })?;
-    egress.to(blocked, &notes[0]).expect_refusal()?;
+    egress.to(blocked, &utxos[0]).expect_refusal()?;
     let stale = egress
-        .to(&clean, &notes[1])
+        .to(&clean, &utxos[1])
         .prove(&env.client)
         .map_err(|error| anyhow!("proof under the pinned table failed {error}"))?;
 
@@ -94,6 +95,7 @@ fn the_config_authority_re_pins_the_table_of_a_live_ring() -> Result<()> {
         env,
         ring_rpc: RING_RPC,
         policy: Some(mixed),
+        mode: ModeName::Confidential,
     })?;
     assert!(
         !project.policy_check()?.status.success(),
@@ -125,20 +127,26 @@ fn the_config_authority_re_pins_the_table_of_a_live_ring() -> Result<()> {
         .assert_client(&rejection);
 
     // 5. Block still refuses until the ring's own Approval bit admits.
-    egress.to(blocked, &notes[0]).expect_refusal()?;
+    egress.to(blocked, &utxos[0]).expect_refusal()?;
     project.write_list(ListWrite {
         env,
         list_id: ListId::Approval,
         member: blocked,
         present: true,
     })?;
-    egress.to(blocked, &notes[0]).land()?;
+    egress.to(blocked, &utxos[0]).land()?;
 
     // 6. Only the config authority re-pins.
     let stranger = env.funded_keypair()?;
     let rejection = ExpectRejection {
         payer: &stranger,
-        instructions: &[ring.set_policy_rules(stranger.pubkey(), &BLOCK_ONLY, &[])?],
+        instructions: &[custom_ring_sdk::PolicyRules {
+            ring,
+            authority: stranger.pubkey(),
+            rules: &BLOCK_ONLY,
+            shared_sources: &[],
+        }
+        .replace()?],
     }
     .send(rpc)?;
     Rejection::custom(CustomRingError::UnauthorizedAuthority as u32)
@@ -170,7 +178,7 @@ fn the_config_authority_re_pins_the_table_of_a_live_ring() -> Result<()> {
         Some(ListRegistry::Curator(rings.curator.registry_pda()))
     );
     assert_eq!(repointed.rule_table()?, APPROVAL_OR_UNBLOCKED);
-    egress.to(&clean, &notes[1]).land()?;
+    egress.to(&clean, &utxos[1]).land()?;
     project.remove()?;
     Ok(())
 }
@@ -206,7 +214,7 @@ fn a_curated_block_list_yields_to_the_subscribers_own_approval_list() -> Result<
         pinned.registry_for(ListId::Approval),
         Some(ListRegistry::Own)
     );
-    let notes = RingNotes {
+    let utxos = RingNotes {
         ring,
         owner: sender,
         amount: DEPOSIT,
@@ -218,14 +226,14 @@ fn a_curated_block_list_yields_to_the_subscribers_own_approval_list() -> Result<
     // 2. One curator write refuses the recipient, the subscriber's own
     //    Approval bit admits it.
     curator_block(true).send()?;
-    egress.to(recipient, &notes[0]).expect_refusal()?;
+    egress.to(recipient, &utxos[0]).expect_refusal()?;
     project.write_list(ListWrite {
         env,
         list_id: ListId::Approval,
         member: recipient,
         present: true,
     })?;
-    egress.to(recipient, &notes[0]).land()?;
+    egress.to(recipient, &utxos[0]).land()?;
 
     // 3. A cleared Approval bit admits nothing, the curator's Block bit
     //    refuses again.
@@ -235,11 +243,11 @@ fn a_curated_block_list_yields_to_the_subscribers_own_approval_list() -> Result<
         member: recipient,
         present: false,
     })?;
-    egress.to(recipient, &notes[1]).expect_refusal()?;
+    egress.to(recipient, &utxos[1]).expect_refusal()?;
 
     // 4. The curator clearing its bit admits the recipient again.
     curator_block(false).send()?;
-    egress.to(recipient, &notes[1]).land()?;
+    egress.to(recipient, &utxos[1]).land()?;
     project.remove()?;
     Ok(())
 }
@@ -256,6 +264,7 @@ fn init_subscriber(rings: &CuratedRings, policy: &str) -> Result<RingProject> {
         env: &rings.env,
         ring_rpc: RING_RPC,
         policy: Some(policy),
+        mode: ModeName::Confidential,
     })?;
     let init = project.run(&["init"])?;
     for line in ["policy      created", "spp ring    registered"] {

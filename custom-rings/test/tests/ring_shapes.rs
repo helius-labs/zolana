@@ -3,14 +3,13 @@
 
 use super::*;
 use custom_ring_interface::{
-    anonymous_audit_class,
     key_catalog::{RingCircuit, RING_KEYS},
     ParsedTransact, ANONYMOUS_ENTRY_OUTPUTS, ANONYMOUS_MERGE_WIDTHS,
 };
 use custom_ring_test_validator::{policy::RingNotes, shared::setup_with_extra_rings};
 use zolana_client::{Shape, SPP_SUPPORTED_SHAPES};
 
-const NOTE_AMOUNT: u64 = 1_000_000;
+const UTXO_AMOUNT: u64 = 1_000_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Column {
@@ -47,14 +46,17 @@ impl Column {
         }
     }
 
-    fn keyed(self, shape: Shape) -> bool {
-        match self.rail() {
-            RingRail::Confidential => true,
-            RingRail::Anonymous => {
-                anonymous_audit_class(shape.n_inputs(), shape.n_outputs()).is_some()
-            }
-            RingRail::Delegate => shape.is_ring_authority(),
+    /// The widest shapes a spend padded to its full published width still fits.
+    const fn widest(self) -> &'static [Shape] {
+        match self {
+            Self::Anonymous => &[Shape::IN24_OUT2, Shape::IN24_OUT4],
+            Self::AnonymousPolicy => &[Shape::IN24_OUT2, Shape::IN12_OUT8],
+            Self::Confidential | Self::ConfidentialPolicy | Self::Delegate => &[],
         }
+    }
+
+    fn keyed(self, shape: Shape) -> bool {
+        custom_ring_sdk::shape_keyed(self.rail(), shape)
     }
 }
 
@@ -81,17 +83,9 @@ impl Coverage {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
-enum Padding {
-    Published,
-    /// Padded input slots stay unpublished, the anonymous class counts real inputs alone.
-    Compact,
-}
-
 struct ShapeTransfer {
     shape: Shape,
     inputs: Vec<WalletUtxo>,
-    padding: Padding,
 }
 
 enum Proven {
@@ -134,20 +128,20 @@ impl<'a> ColumnSetup<'a> {
             auditor_pubkey: auditor.pubkey(),
             tier: self.column.tier(),
         }
-        .send(env.client.rpc())?;
+        .send(&env.client)?;
         let delegate = env.funded_keypair()?;
         let members = [&env.sender.keypair, &env.recipient.keypair];
         let queue = QueueHead { env, ring };
         let applied = match self.column {
             Column::ConfidentialPolicy => Some(queue.applied_by(|| {
                 register_key(env, ring, &env.sender.keypair)?;
-                apply_records(env, ring)
+                Queued::now(&env.client, ring)?.apply(&env.client, &env.payer)
             })?),
             Column::Delegate => {
                 let applied = queue.applied_by(|| {
                     EscrowedDelegate {
                         ring,
-                        delegate: delegate.pubkey(),
+                        delegate: &delegate,
                         members: &members,
                     }
                     .set(env)
@@ -213,34 +207,33 @@ impl QueueHead<'_> {
 
 impl ShapeRing<'_> {
     fn sweep(&self, coverage: &mut Coverage) -> Result<()> {
-        let mut too_large = Vec::new();
+        let (mut settled, mut too_large) = (Vec::new(), Vec::new());
         for shape in SPP_SUPPORTED_SHAPES
             .into_iter()
             .filter(|shape| self.column.keyed(*shape))
         {
             let transfer = ShapeTransfer {
                 shape,
-                inputs: self.notes(1, coverage)?,
-                padding: Padding::Published,
+                inputs: self.utxos(1, coverage)?,
             };
-            if let Settlement::TooLarge = self.settle(transfer, coverage)? {
-                too_large.push(shape);
+            match self.settle(transfer, coverage)? {
+                Settlement::Settled => settled.push(shape),
+                Settlement::TooLarge => too_large.push(shape),
             }
         }
         println!("RING_SHAPES {:?} too_large={too_large:?}", self.column);
-        Ok(())
-    }
-
-    /// The commitment classes no full shape fits, reached with fewer published inputs.
-    fn compact_classes(&self, coverage: &mut Coverage) -> Result<()> {
-        for (shape, published) in [(Shape::IN16_OUT8, 13), (Shape::IN32_OUT2, 25)] {
-            let transfer = ShapeTransfer {
-                shape,
-                inputs: self.notes(published, coverage)?,
-                padding: Padding::Compact,
-            };
-            self.settled(transfer, coverage)?;
-        }
+        let unfit: Vec<Shape> = self
+            .column
+            .widest()
+            .iter()
+            .copied()
+            .filter(|shape| !settled.contains(shape))
+            .collect();
+        ensure!(
+            unfit.is_empty(),
+            "{:?} {unfit:?} must settle at full width",
+            self.column
+        );
         Ok(())
     }
 
@@ -248,17 +241,16 @@ impl ShapeRing<'_> {
     fn entries(&self, coverage: &mut Coverage) -> Result<()> {
         let env = self.env;
         for outputs in ANONYMOUS_ENTRY_OUTPUTS {
-            let note = DefaultRingDeposit {
+            let utxo = DefaultRingDeposit {
                 depositor: &env.sender.keypair,
                 tree: env.tree,
                 asset: DepositAsset::Sol,
-                amount: NOTE_AMOUNT,
+                amount: UTXO_AMOUNT,
             }
             .send(env.client.rpc(), env.client.indexer(), &env.assets)?;
             let transfer = ShapeTransfer {
                 shape: Shape::new(1, outputs),
-                inputs: vec![note.input_utxo(env)?],
-                padding: Padding::Published,
+                inputs: vec![utxo.input_utxo(env)?],
             };
             self.settled(transfer, coverage)?;
         }
@@ -271,7 +263,7 @@ impl ShapeRing<'_> {
         let tree_id = env.tree_id(env.tree)?;
         let mut count = 2;
         for width in ANONYMOUS_MERGE_WIDTHS {
-            let prepared = CustomRingMerge::new(self.ring, self.notes(count, coverage)?, None)?
+            let prepared = CustomRingMerge::new(self.ring, self.utxos(count, coverage)?, None)?
                 .with_output_tree_id(tree_id)
                 .encrypt(&env.sender.keypair)?;
             let proved = u8::try_from(prepared.inputs().len())?;
@@ -296,18 +288,18 @@ impl ShapeRing<'_> {
     }
 
     /// Each deposit proves under the deposit key.
-    fn notes(&self, count: usize, coverage: &mut Coverage) -> Result<Vec<WalletUtxo>> {
+    fn utxos(&self, count: usize, coverage: &mut Coverage) -> Result<Vec<WalletUtxo>> {
         let env = self.env;
-        let notes = RingNotes {
+        let utxos = RingNotes {
             ring: self.ring,
             owner: &env.sender.keypair,
-            amount: NOTE_AMOUNT,
+            amount: UTXO_AMOUNT,
             count,
             env,
         };
         let deposited = match self.column.rail() {
-            RingRail::Anonymous => notes.deposit_hidden_from(&env.payer)?,
-            RingRail::Confidential | RingRail::Delegate => notes.deposit_from(&env.payer)?,
+            RingRail::Anonymous => utxos.deposit_hidden_from(&env.payer)?,
+            RingRail::Confidential | RingRail::Delegate => utxos.deposit_from(&env.payer)?,
         };
         coverage.cover(RingCircuit::Deposit);
         deposited
@@ -328,11 +320,10 @@ impl ShapeRing<'_> {
         let env = self.env;
         let rpc = env.client.rpc();
         let label = format!(
-            "{:?} {}x{} {:?} inputs={}",
+            "{:?} {}x{} inputs={}",
             self.column,
             transfer.shape.n_inputs(),
             transfer.shape.n_outputs(),
-            transfer.padding,
             transfer.inputs.len()
         );
         let proven = match self
@@ -392,22 +383,12 @@ impl ShapeRing<'_> {
         let client = env.client.as_async();
         let sender = &env.sender.keypair;
         let program = self.ring.program_id();
-        let ShapeTransfer {
-            shape,
-            inputs,
-            padding,
-        } = transfer;
+        let ShapeTransfer { shape, inputs } = transfer;
         let total: u64 = inputs.iter().map(|input| input.utxo.amount).sum();
         let amount = total / (2 * shape.n_outputs() as u64);
         let payments = 1..shape.n_outputs();
-        let transaction = |payer: Address| match padding {
-            Padding::Published => {
-                ConfidentialTransaction::new_with_ring(inputs.clone(), payer, program)
-            }
-            Padding::Compact => {
-                ConfidentialTransaction::new_compact_with_ring(inputs.clone(), payer, program)
-            }
-        };
+        let transaction =
+            |payer: Address| ConfidentialTransaction::new_with_ring(inputs.clone(), payer, program);
         let owner_transfer = |transaction| {
             CustomRingTransfer::new(CustomRingTransferInput {
                 ring: self.ring,
@@ -513,7 +494,6 @@ fn every_ring_key_lands_and_every_keyed_shape_settles() -> Result<()> {
         .configure(&mut coverage)?;
         ring.sweep(&mut coverage)?;
         if column == Column::Anonymous {
-            ring.compact_classes(&mut coverage)?;
             ring.entries(&mut coverage)?;
             ring.merges(&mut coverage)?;
         }

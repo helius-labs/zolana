@@ -11,8 +11,8 @@ use std::path::PathBuf;
 
 use anyhow::{anyhow, Context, Result};
 use custom_ring_sdk::{
-    compute_unit_limit, CustomRing, InstructionTag, MemberRecords, PendingFirstContact, RingError,
-    RingOperation, RingSetup, RingSubmission, SettledSubmission,
+    compute_unit_limit, CreateConfig, CreateMemberRegistry, CustomRing, InitSppRingConfig,
+    InstructionTag, MemberRecords, PolicyRules, RingError, RingKind,
 };
 use solana_address::Address;
 use solana_instruction::Instruction;
@@ -191,43 +191,6 @@ impl TestEnv {
     }
 }
 
-#[must_use]
-pub struct Landing<'a> {
-    pub operation: RingOperation<'a>,
-    pub payer: &'a (dyn Signer + Sync),
-    pub signers: &'a [&'a (dyn Signer + Sync)],
-}
-
-pub struct Landed {
-    pub signature: Signature,
-    pub first_contacts: Vec<PendingFirstContact>,
-}
-
-impl Landing<'_> {
-    /// A failed operation is an error.
-    pub fn settle(self, env: &TestEnv) -> Result<Landed> {
-        let mut submission = RingSubmission::new(self.operation);
-        let settled = env.run(submission.send_until_settled(
-            env.client.as_async(),
-            self.payer,
-            self.signers,
-        ))?;
-        match settled {
-            SettledSubmission::Confirmed {
-                signature,
-                first_contacts,
-                ..
-            } => Ok(Landed {
-                signature,
-                first_contacts,
-            }),
-            SettledSubmission::Failed { signature, error } => {
-                Err(RingError::Rejected { signature, error }.into())
-            }
-        }
-    }
-}
-
 /// Each actor is one eddsa identity: `ShieldedKeypair` implements
 /// `solana_signer::Signer` over the same key, so it is both the shielded owner
 /// and the Solana fee payer for its own transactions.
@@ -278,15 +241,13 @@ impl Tier {
         }
     }
 
-    fn has_policy(&self) -> bool {
-        matches!(self, Self::Policy { .. } | Self::AnonymousPolicy { .. })
-    }
-
-    fn anonymous(&self) -> bool {
-        matches!(
-            self,
-            Self::AnonymousAuditOnly | Self::AnonymousPolicy { .. }
-        )
+    fn kind(&self) -> RingKind {
+        match self {
+            Self::AuditOnly => RingKind::AuditOnly,
+            Self::AnonymousAuditOnly => RingKind::Anonymous,
+            Self::Policy { .. } => RingKind::Policy,
+            Self::AnonymousPolicy { .. } => RingKind::AnonymousPolicy,
+        }
     }
 }
 
@@ -312,25 +273,35 @@ pub struct PinnedRing<'a> {
 }
 
 impl<'a> RegisterRing<'a> {
-    pub fn send(self, rpc: &SolanaRpc) -> Result<()> {
-        self.pin(rpc)?.register(rpc)
+    pub fn send(self, client: &ZolanaClient<SolanaRpc>) -> Result<()> {
+        self.pin(client)?.register(client.rpc())
     }
 
-    pub fn pin(self, rpc: &SolanaRpc) -> Result<PinnedRing<'a>> {
-        self.configure(rpc)?.pin(rpc)
+    pub fn pin(self, client: &ZolanaClient<SolanaRpc>) -> Result<PinnedRing<'a>> {
+        self.configure(client.rpc())?.pin(client)
     }
 
     /// A policy ring also gets its registry, the policy lives there.
     pub fn configure(self, rpc: &SolanaRpc) -> Result<ConfiguredRing<'a>> {
         let authority = self.payer.pubkey();
-        let setup = RingSetup {
+        let kind = self.tier.kind();
+        let mut instructions = vec![CreateConfig {
+            ring: self.ring,
+            payer: authority,
+            authority,
             auditor_pubkey: self.auditor_pubkey,
-            has_policy: self.tier.has_policy(),
-            anonymous: self.tier.anonymous(),
-        };
-        let mut instructions = vec![self.ring.create_config(authority, authority, setup)?];
-        if setup.has_policy {
-            instructions.push(self.ring.create_member_registry(authority, authority));
+            kind,
+        }
+        .instruction()?];
+        if kind.has_policy() {
+            instructions.push(
+                CreateMemberRegistry {
+                    ring: self.ring,
+                    payer: authority,
+                    authority,
+                }
+                .instruction(),
+            );
         }
         send(rpc, self.payer, &instructions)?;
         Ok(ConfiguredRing {
@@ -343,14 +314,20 @@ impl<'a> RegisterRing<'a> {
 
 impl<'a> ConfiguredRing<'a> {
     /// The program refuses it for a policy ring until the policy is pinned.
-    pub fn registration(&self) -> Instruction {
+    pub fn registration(&self, client: &ZolanaClient<SolanaRpc>) -> Result<Instruction> {
+        let config = client.block_on(self.ring.require_config(client.as_async()))?;
         let authority = self.payer.pubkey();
-        self.ring
-            .init_spp_ring_config(authority, authority, self.tier.has_policy())
+        Ok(InitSppRingConfig {
+            ring: self.ring,
+            payer: authority,
+            authority,
+            config: &config,
+        }
+        .instruction())
     }
 
-    pub fn pin(self, rpc: &SolanaRpc) -> Result<PinnedRing<'a>> {
-        let registration = self.registration();
+    pub fn pin(self, client: &ZolanaClient<SolanaRpc>) -> Result<PinnedRing<'a>> {
+        let registration = self.registration(client)?;
         if let Tier::Policy {
             rules,
             shared_sources,
@@ -360,10 +337,14 @@ impl<'a> ConfiguredRing<'a> {
             shared_sources,
         } = self.tier
         {
-            let pin = self
-                .ring
-                .create_policy(self.payer.pubkey(), rules, &shared_sources)?;
-            send(rpc, self.payer, &[pin])?;
+            let pin = PolicyRules {
+                ring: self.ring,
+                authority: self.payer.pubkey(),
+                rules,
+                shared_sources: &shared_sources,
+            }
+            .create()?;
+            send(client.rpc(), self.payer, &[pin])?;
         }
         Ok(PinnedRing {
             payer: self.payer,

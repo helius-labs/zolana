@@ -47,7 +47,7 @@ fn a_curator_sourced_blocklist_governs_the_subscriber_ring() -> Result<()> {
             shared_sources: vec![(ListId::Block, curator)],
         },
     }
-    .send(rpc)?;
+    .send(&env.client)?;
     let stored = policy_registry(subscriber, &env)?;
     assert_eq!(
         stored.registry_for(ListId::Block),
@@ -101,7 +101,13 @@ fn a_curator_sourced_blocklist_governs_the_subscriber_ring() -> Result<()> {
     send(
         rpc,
         &env.payer,
-        &[subscriber.set_source_owner(authority, ListId::Block, SourceOwner::Own)?],
+        &[custom_ring_sdk::SetSourceOwner {
+            ring: subscriber,
+            authority,
+            list_id: ListId::Block,
+            source: SourceOwner::Own,
+        }
+        .instruction()?],
     )?;
     let repointed = policy_registry(subscriber, &env)?;
     assert_eq!(

@@ -7,6 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use custom_ring_cli::Landing;
 use custom_ring_interface::MemberRegistry;
 use custom_ring_sdk::{
     AuthorityListWrite, CustomRing, CustomRingTransfer, CustomRingTransferInput, DepositAsset,
@@ -15,11 +16,13 @@ use custom_ring_sdk::{
 use solana_keypair::Keypair;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{prover::indexed::ProofDataSource, ProverClient, SolanaRpc, ZolanaClient};
+use zolana_client::{
+    prover::indexed::ProofDataSource, AnonymousRingState, ProverClient, SolanaRpc, ZolanaClient,
+};
 use zolana_interface::SOL_ASSET_FIELD;
 use zolana_keypair::{ShieldedKeypair, X25519Keypair};
 use zolana_ring_policy::{
-    ListId, ListSet, ListWrite, Member, OutflowLimit, Rule, RuleTable, Subject,
+    ListChange, ListId, ListSet, Member, OutflowLimit, Rule, RuleTable, Subject,
 };
 use zolana_test_utils::test_validator_asserts::wait_for_merkle_proof;
 use zolana_transaction::{
@@ -28,7 +31,7 @@ use zolana_transaction::{
 };
 
 use crate::shared::{
-    custom_ring_program_id, send, setup_with_extra_rings, Landing, RegisterRing, TestEnv, Tier,
+    custom_ring_program_id, send, setup_with_extra_rings, RegisterRing, TestEnv, Tier,
 };
 
 pub const DEPOSIT: u64 = 1_000_000_000;
@@ -96,7 +99,7 @@ impl CuratedRings {
             auditor_pubkey: X25519Keypair::new().pubkey(),
             tier: Tier::policy(&BLOCK_ONLY),
         }
-        .send(env.client.rpc())?;
+        .send(&env.client)?;
         Ok(Self {
             env,
             curator,
@@ -129,7 +132,14 @@ impl RingNotes<'_> {
     /// Notes of the owner's hidden identity on an anonymous ring.
     pub fn deposit_hidden_from(self, payer: &(dyn Signer + Sync)) -> Result<Vec<Utxo>> {
         let owner = self.owner;
-        self.deposit_to(DepositRecipient::Anonymous(owner), payer)
+        let state = AnonymousRingState::new(self.ring.program_id(), 0);
+        self.deposit_to(
+            DepositRecipient::Anonymous {
+                keys: owner,
+                state: &state,
+            },
+            payer,
+        )
     }
 
     fn deposit_to(
@@ -285,9 +295,16 @@ impl RegistryWrite<'_> {
         let env = self.env;
         let list = ListSet::single(self.list_id);
         let lists = match self.present {
-            true => ListWrite::new(list, ListSet::EMPTY),
-            false => ListWrite::new(ListSet::EMPTY, list),
-        }?;
+            true => ListChange {
+                set: list,
+                clear: ListSet::EMPTY,
+            },
+            false => ListChange {
+                set: ListSet::EMPTY,
+                clear: list,
+            },
+        }
+        .check()?;
         let write = AuthorityListWrite::new(self.ring, env.payer.pubkey())
             .with_write(self.member, lists)?;
         Landing {
@@ -295,7 +312,7 @@ impl RegistryWrite<'_> {
             payer: &env.payer,
             signers: &[],
         }
-        .settle(env)?;
+        .settle(&env.client)?;
         wait_for_list(env, self.ring, self.list_id, self.member, self.present)
     }
 }
