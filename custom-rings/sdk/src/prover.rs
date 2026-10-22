@@ -13,6 +13,10 @@ use zolana_client::{
 
 use crate::RingError;
 
+#[cfg(test)]
+#[path = "tests/prover.rs"]
+mod tests;
+
 pub(crate) struct RingRequest<'a, T> {
     circuit: RingCircuit,
     key: ExpectedProvingKey,
@@ -67,14 +71,37 @@ impl<'a, T: Serialize + Sync> RingRequest<'a, T> {
 }
 
 impl<T: Serialize + Sync> ProveRequest for RingRequest<'_, T> {
+    /// Sized before it is written, a reallocation would leave the secrets in freed memory.
     fn body(&self) -> Result<Zeroizing<String>, ClientError> {
-        serde_json::to_string(&self.body)
+        let encoding = |error: serde_json::Error| ClientError::Prover(error.to_string());
+        let mut length = ByteCount::default();
+        serde_json::to_writer(&mut length, &self.body).map_err(encoding)?;
+        let mut body = Zeroizing::new(Vec::with_capacity(length.0));
+        serde_json::to_writer(&mut *body, &self.body).map_err(encoding)?;
+        String::from_utf8(core::mem::take(&mut *body))
             .map(Zeroizing::new)
-            .map_err(|error| ClientError::Prover(error.to_string()))
+            .map_err(|error| {
+                drop(Zeroizing::new(error.into_bytes()));
+                ClientError::Prover("the request body is not UTF-8".to_string())
+            })
     }
 
     fn proving_key(&self) -> Result<ExpectedProvingKey, ClientError> {
         Ok(self.key.clone())
+    }
+}
+
+#[derive(Default)]
+struct ByteCount(usize);
+
+impl std::io::Write for ByteCount {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0 += bytes.len();
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
     }
 }
 

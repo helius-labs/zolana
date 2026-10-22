@@ -15,6 +15,12 @@ use zolana_transaction::{
 
 use crate::{prover::fe, RingError};
 
+#[cfg(test)]
+#[path = "tests/request.rs"]
+mod tests;
+
+pub(crate) const REDACTED: &str = "<redacted>";
+
 /// One transaction slot as SPP hashes it, its owner split into the identity and the nullifier key.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -165,7 +171,7 @@ pub(crate) struct AnonymousOutput {
     pub stream: Stream,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Anchor {
     #[serde(with = "fe")]
@@ -184,6 +190,36 @@ pub(crate) struct Anchor {
     pub path_index: u64,
     #[serde(serialize_with = "fe::seq")]
     pub path: Vec<[u8; 32]>,
+}
+
+/// The slot secret opens the payment and its pair stream.
+impl core::fmt::Debug for Anchor {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let Self {
+            tree_id,
+            asset,
+            amount,
+            slot_secret: _,
+            first_nullifier,
+            slot_index,
+            epoch,
+            index,
+            path_index,
+            path,
+        } = self;
+        f.debug_struct("Anchor")
+            .field("tree_id", tree_id)
+            .field("asset", asset)
+            .field("amount", amount)
+            .field("slot_secret", &REDACTED)
+            .field("first_nullifier", first_nullifier)
+            .field("slot_index", slot_index)
+            .field("epoch", epoch)
+            .field("index", index)
+            .field("path_index", path_index)
+            .field("path", path)
+            .finish()
+    }
 }
 
 #[derive(Serialize)]
