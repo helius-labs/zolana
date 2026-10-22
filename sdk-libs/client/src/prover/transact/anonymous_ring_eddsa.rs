@@ -308,26 +308,32 @@ impl AnonymousAuthorizationPreparation<'_> {
         let owner = self.owner.owner();
         // The hidden identity is published only when a default-ring UTXO of the
         // hidden owner is spent. A ring-bound hidden spend is anonymous, so it may
-        // not coexist with a default-ring spend and no published output owner may
-        // name the identity while it happens.
+        // not coexist with a default-ring spend and no published output owner or
+        // address slot may name the identity while it happens.
         let owner_pk_hash = owner.owner_proof_input_hash()?;
-        let spends = hidden_spend_rings(self.inputs, &owner);
-        if !spends.default_ring && !spends.bound_ring {
-            return Err(ClientError::AnonymousProofWithoutHiddenInput);
-        }
-        if spends.default_ring && spends.bound_ring {
-            return Err(ClientError::AnonymousRingEddsaMixedDefaultAndRingSpend);
-        }
-        if spends.bound_ring {
-            if let Some(index) = self
-                .published_owners
-                .iter()
-                .position(|published| *published == owner_pk_hash)
-            {
-                return Err(ClientError::AnonymousRingEddsaPublishedOwnerLeaksIdentity { index });
+        let default_owner_tag = match hidden_spend(self.inputs, &owner)? {
+            HiddenSpend::AddressOnly => None,
+            HiddenSpend::DefaultRing => Some(self.owner.public_key),
+            HiddenSpend::BoundRing => {
+                if let Some(index) = self
+                    .published_owners
+                    .iter()
+                    .position(|published| *published == owner_pk_hash)
+                {
+                    return Err(ClientError::AnonymousRingEddsaPublishedOwnerLeaksIdentity {
+                        index,
+                    });
+                }
+                if let Some(index) = self
+                    .inputs
+                    .iter()
+                    .position(|input| input.utxo.is_address() && input.utxo.utxo.owner == owner)
+                {
+                    return Err(ClientError::AnonymousRingEddsaAddressLeaksIdentity { index });
+                }
+                None
             }
-        }
-        let default_owner_tag = spends.default_ring.then_some(self.owner.public_key);
+        };
         let default_owner_pk_hash = match default_owner_tag {
             Some(_) => owner_pk_hash,
             None => [0u8; 32],
@@ -357,30 +363,36 @@ impl AnonymousAuthorizationPreparation<'_> {
     }
 }
 
-/// Which rings the proof's spent hidden-owner UTXOs belong to. Only spends
-/// count: an address slot creates nothing that names an owner, so it neither
-/// publishes the hidden identity nor forbids a ring spend.
-struct HiddenSpendRings {
-    default_ring: bool,
-    bound_ring: bool,
+/// An address slot spends nothing and counts in neither ring.
+enum HiddenSpend {
+    AddressOnly,
+    DefaultRing,
+    BoundRing,
 }
 
-fn hidden_spend_rings(inputs: &[TransferInputUtxo], owner: &PublicKey) -> HiddenSpendRings {
-    let mut rings = HiddenSpendRings {
-        default_ring: false,
-        bound_ring: false,
+fn hidden_spend(
+    inputs: &[TransferInputUtxo],
+    owner: &PublicKey,
+) -> Result<HiddenSpend, ClientError> {
+    let hidden = || {
+        inputs
+            .iter()
+            .map(|input| &input.utxo)
+            .filter(|utxo| !utxo.is_dummy() && utxo.utxo.owner == *owner)
     };
-    for input_utxo in inputs {
-        if input_utxo.utxo.is_dummy() || input_utxo.utxo.utxo.owner != *owner {
-            continue;
-        }
-        if input_utxo.utxo.utxo.ring_program_id.is_some() {
-            rings.bound_ring = true;
-        } else {
-            rings.default_ring = true;
-        }
+    if hidden().next().is_none() {
+        return Err(ClientError::AnonymousProofWithoutHiddenInput);
     }
-    rings
+    let spends = || hidden().filter(|utxo| !utxo.is_address());
+    match (
+        spends().any(|utxo| utxo.utxo.ring_program_id.is_none()),
+        spends().any(|utxo| utxo.utxo.ring_program_id.is_some()),
+    ) {
+        (true, true) => Err(ClientError::AnonymousRingEddsaMixedDefaultAndRingSpend),
+        (true, false) => Ok(HiddenSpend::DefaultRing),
+        (false, true) => Ok(HiddenSpend::BoundRing),
+        (false, false) => Ok(HiddenSpend::AddressOnly),
+    }
 }
 
 impl AnonymousEddsaAuthorization {
@@ -452,6 +464,21 @@ impl ProveRequest for AnonymousEddsaTransferInputs {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn external_data(interface_transfers: Vec<SettlementTransfer>) -> ExternalData {
+        ExternalData {
+            instruction_discriminator: 0,
+            expiry_unix_ts: 0,
+            interface_transfers,
+            data_hash: None,
+            ring_data_hash: None,
+            tx_viewing_pk: [0; 33],
+            salt: [0; 16],
+            outputs: Vec::new(),
+            resolved_owner_tags: Vec::new(),
+            messages: Vec::new(),
+        }
+    }
 
     /// The body splits the digest into the prover's limbs and carries every key
     /// of the committed Go request.
@@ -537,19 +564,7 @@ mod tests {
             user_spl_token: token_account,
         };
         let exit = |legs: Vec<SettlementTransfer>, token_owner: Option<&Address>| {
-            let external_data = ExternalData {
-                instruction_discriminator: 0,
-                expiry_unix_ts: 0,
-                interface_transfers: legs,
-                data_hash: None,
-                ring_data_hash: None,
-                tx_viewing_pk: [0; 33],
-                salt: [0; 16],
-                outputs: Vec::new(),
-                resolved_owner_tags: Vec::new(),
-                messages: Vec::new(),
-            };
-            anonymous_exit_destination(&external_data, token_owner)
+            anonymous_exit_destination(&external_data(legs), token_owner)
         };
         assert_eq!(exit(vec![sol], None).unwrap(), Some(recipient));
         assert_eq!(exit(vec![spl], Some(&owner)).unwrap(), Some(owner));
@@ -569,6 +584,58 @@ mod tests {
             Err(ClientError::ShieldedPool(
                 zolana_interface::error::ShieldedPoolError::AnonymousExitDestinationsDiffer
             ))
+        ));
+    }
+
+    fn address_and_ring_spend(owner: PublicKey) -> [TransferInputUtxo; 2] {
+        let address =
+            zolana_transaction::utxo::SppProofInputUtxo::new_address(owner, [1u8; 32], 1).unwrap();
+        let mut ring = address.clone();
+        ring.address = false;
+        ring.utxo.ring_program_id = Some(Address::new_from_array([5; 32]));
+        [address, ring].map(|utxo| TransferInputUtxo {
+            utxo,
+            proof: None,
+            nullifier_proof: None,
+        })
+    }
+
+    #[test]
+    fn an_address_slot_is_a_hidden_input_and_no_spend() {
+        let owner = SigningKey::from_ed25519_bytes(&[7u8; 32]).pubkey();
+        let inputs = address_and_ring_spend(owner);
+        assert!(matches!(
+            hidden_spend(&inputs[..1], &owner),
+            Ok(HiddenSpend::AddressOnly)
+        ));
+        assert!(matches!(
+            hidden_spend(&inputs, &owner),
+            Ok(HiddenSpend::BoundRing)
+        ));
+    }
+
+    #[test]
+    fn an_address_of_the_hidden_owner_beside_a_ring_spend_is_refused() {
+        let owner = SigningKey::from_ed25519_bytes(&[7u8; 32]).pubkey();
+        let prepared = AnonymousAuthorizationPreparation {
+            inputs: &address_and_ring_spend(owner),
+            owner: &HiddenOwnerAuthorization {
+                public_key: owner.as_ed25519().unwrap(),
+                signature: [0; 64],
+            },
+            ring_program_id: &Address::new_from_array([5; 32]),
+            payer: &Address::new_from_array([1; 32]),
+            cosigner: None,
+            exit_token_owner: None,
+            external_data: &external_data(Vec::new()),
+            private_tx: &[0; 32],
+            external_data_hash: &[0; 32],
+            published_owners: &[],
+        }
+        .prepare();
+        assert!(matches!(
+            prepared,
+            Err(ClientError::AnonymousRingEddsaAddressLeaksIdentity { index: 0 })
         ));
     }
 

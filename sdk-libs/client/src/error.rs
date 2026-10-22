@@ -506,6 +506,11 @@ pub enum ClientError {
     )]
     AnonymousRingEddsaPublishedOwnerLeaksIdentity { index: usize },
 
+    #[error(
+        "address input {index} derives from the hidden owner identity while a ring-bound UTXO of the hidden owner is spent"
+    )]
+    AnonymousRingEddsaAddressLeaksIdentity { index: usize },
+
     #[error("the hidden owner's signature does not verify over the ring's spend message")]
     AnonymousSpendSignatureInvalid,
 
