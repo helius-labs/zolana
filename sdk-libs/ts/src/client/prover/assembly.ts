@@ -16,7 +16,7 @@ import {
   NO_CACHE_WRITES,
   type CachedInputFields,
 } from "../../interface/cache.js";
-import { CACHE_CAPACITY } from "../../interface/state.js";
+import { CACHE_CAPACITY, NULLIFIER_TREE_HEIGHT, STATE_HEIGHT } from "../../interface/state.js";
 import { ADDRESS_DOMAIN, DUMMY_DOMAIN, UTXO_DOMAIN } from "../../interface/program.js";
 import {
   N_PUBLIC_SLOTS,
@@ -94,8 +94,6 @@ import type {
   TreeSlotFields,
 } from "./types.js";
 
-export const STATE_TREE_HEIGHT = 32;
-export const NULLIFIER_TREE_HEIGHT = 40;
 const ZERO_PROOF = Object.freeze({
   a: new Uint8Array(32),
   b: new Uint8Array(64),
@@ -1298,7 +1296,7 @@ function attachPaths(
     ...local,
     statePathElements: Object.freeze(
       proofs.state?.path.map((value) => asField(bytesField(value, "state path element"))) ??
-        Array.from({ length: STATE_TREE_HEIGHT }, () => asField(0n)),
+        Array.from({ length: STATE_HEIGHT }, () => asField(0n)),
     ),
     statePathIndex: asField(proofs.state?.leafIndex ?? 0n),
     nullifierLowValue: asField(bytesField(proofs.nullifier.lowElement, "low element")),
@@ -1470,7 +1468,7 @@ function createCachedInput(
 ): TransferInput {
   return spendInput(
     input,
-    Array.from({ length: STATE_TREE_HEIGHT }, () => asField(0n)),
+    Array.from({ length: STATE_HEIGHT }, () => asField(0n)),
     0n,
     proof,
     ownerPublicKeyHash,
@@ -1685,7 +1683,7 @@ export function checkedProverInputs(inputs: TransferInputs): ProverInputs {
   }
   const malformed = inputs.inputs.some(
     (input) =>
-      input.statePathElements.length !== STATE_TREE_HEIGHT ||
+      input.statePathElements.length !== STATE_HEIGHT ||
       input.nullifierLowPathElements.length !== NULLIFIER_TREE_HEIGHT,
   );
   if (malformed) throw new ClientError("CLIENT_PROVER_INPUT");
@@ -1711,12 +1709,12 @@ export function validateSpendProof(input: ProofInputUtxo, proof: SpendProof, ind
   if (proof.state.merkleContext.tree !== proof.nullifier.merkleContext.tree) {
     throw new ClientError("CLIENT_PROOF_TREE_MISMATCH", { details: { index } });
   }
-  if (proof.state.path.length !== STATE_TREE_HEIGHT) {
+  if (proof.state.path.length !== STATE_HEIGHT) {
     throw new ClientError("CLIENT_PROOF_PATH_LENGTH", {
       details: {
         index,
         kind: "state",
-        expected: STATE_TREE_HEIGHT,
+        expected: STATE_HEIGHT,
         got: proof.state.path.length,
       },
     });
@@ -1738,7 +1736,7 @@ export function validateSpendProof(input: ProofInputUtxo, proof: SpendProof, ind
 /** Rust `MerkleProof::path_root`, bit `i` of the leaf index puts the node right of sibling `i`. */
 export function stateProofReachesRoot(proof: MerkleProof): boolean {
   // A bit past the path would give one path a second leaf index.
-  if (proof.leafIndex >> BigInt(STATE_TREE_HEIGHT) !== 0n) return false;
+  if (proof.leafIndex >> BigInt(STATE_HEIGHT) !== 0n) return false;
   const [leaf = 0n, ...siblings] = [proof.leaf, ...proof.path].map(bytesToBigInt);
   // Poseidon takes no value outside the field, such a path reaches no root.
   if ([leaf, ...siblings].some((value) => value >= BN254_MODULUS)) return false;

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import vector from "../../../test-vectors/constants.json" with { type: "json" };
-import { NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT } from "../src/client/prover/assembly.js";
+import { NULLIFIER_TREE_HEIGHT, STATE_HEIGHT } from "../src/interface/state.js";
 import { MAX_SPEND_INPUTS } from "../src/flows/select.js";
 import { MERGE_INPUT_COUNT } from "../src/interface/constants.js";
 import { InstructionTag } from "../src/interface/program.js";
@@ -9,11 +9,13 @@ import { INPUT_TREES, MAX_INPUT_TREES } from "../src/interface/tree-slot.js";
 import { VIEW_TAG_LENGTH } from "../src/keypair/index.js";
 import { VIEW_TAG_LEN } from "../src/transaction/index.js";
 
+import { sourceTexts } from "./helpers/sources.js";
+
 describe("shared constants vector", () => {
   it("matches the Rust-pinned values", () => {
     expect(Object.keys(vector)).toHaveLength(9);
     expect(MERGE_INPUT_COUNT).toBe(vector.mergeInputs);
-    expect(STATE_TREE_HEIGHT).toBe(vector.stateTreeHeight);
+    expect(STATE_HEIGHT).toBe(vector.stateTreeHeight);
     expect(NULLIFIER_TREE_HEIGHT).toBe(vector.nullifierTreeHeight);
     expect(InstructionTag.transact).toBe(vector.transactTag);
     expect(InstructionTag.mergeTransact).toBe(vector.mergeTransactTag);
@@ -22,5 +24,15 @@ describe("shared constants vector", () => {
     expect(INPUT_TREES).toBe(vector.inputTrees);
     expect(MAX_INPUT_TREES).toBe(vector.maxInputTrees);
     expect(MAX_SPEND_INPUTS).toBe(vector.maxSpendInputs);
+  });
+
+  it("defines each tree height in one module", () => {
+    const definitions = (name: string) =>
+      [...sourceTexts()]
+        .filter(([, source]) => new RegExp(`const ${name} =`, "u").test(source))
+        .map(([path]) => path);
+    expect(definitions("STATE_HEIGHT")).toEqual(["interface/state.ts"]);
+    expect(definitions("NULLIFIER_TREE_HEIGHT")).toEqual(["interface/state.ts"]);
+    expect(definitions("STATE_TREE_HEIGHT")).toEqual([]);
   });
 });

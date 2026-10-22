@@ -1,5 +1,5 @@
-import { STATE_TREE_HEIGHT } from "../../src/client/prover/assembly.js";
 import { poseidon } from "../../src/hasher/index.js";
+import { STATE_HEIGHT } from "../../src/interface/state.js";
 import type { Bytes32 } from "../../src/interface/types.js";
 
 /** A state tree holding the given leaves, every other leaf empty, as the program hashes it. */
@@ -16,12 +16,12 @@ export function stateTree(leaves: readonly Uint8Array[]): StateTree {
 /** `leaves` by leaf index. */
 export function stateTreeAt(leaves: ReadonlyMap<number, Uint8Array>): StateTree {
   const empty: Uint8Array[] = [new Uint8Array(32)];
-  for (let height = 0; height < STATE_TREE_HEIGHT; height++) {
+  for (let height = 0; height < STATE_HEIGHT; height++) {
     const below = empty[height] ?? new Uint8Array(32);
     empty.push(poseidon([below, below]));
   }
   const levels: Map<number, Uint8Array>[] = [new Map(leaves)];
-  for (let height = 0; height < STATE_TREE_HEIGHT; height++) {
+  for (let height = 0; height < STATE_HEIGHT; height++) {
     const below = levels[height] ?? new Map<number, Uint8Array>();
     const blank = empty[height] ?? new Uint8Array(32);
     const above = new Map<number, Uint8Array>();
@@ -35,12 +35,12 @@ export function stateTreeAt(leaves: ReadonlyMap<number, Uint8Array>): StateTree 
     }
     levels.push(above);
   }
-  const root = levels[STATE_TREE_HEIGHT]?.get(0) ?? empty[STATE_TREE_HEIGHT] ?? new Uint8Array(32);
+  const root = levels[STATE_HEIGHT]?.get(0) ?? empty[STATE_HEIGHT] ?? new Uint8Array(32);
   return Object.freeze({
     root: root as Bytes32,
     path: (index: number) =>
       levels
-        .slice(0, STATE_TREE_HEIGHT)
+        .slice(0, STATE_HEIGHT)
         .map(
           (level, height) =>
             (level.get((index >> height) ^ 1) ?? empty[height] ?? new Uint8Array(32)) as Bytes32,
