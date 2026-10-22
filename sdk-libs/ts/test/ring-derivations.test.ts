@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import secrets from "../../../test-vectors/ring-secrets.json" with { type: "json" };
 import tags from "../../../test-vectors/ring-tags.json" with { type: "json" };
 import { BN254_SCALAR_ORDER, hashBytes, solanaOwnerIdentity } from "../src/hasher/index.js";
-import type { Bytes16, Bytes31, Bytes32, Bytes33 } from "../src/interface/types.js";
+import type { Bytes16, Bytes32, Bytes33 } from "../src/interface/types.js";
 import { bigIntToBytes } from "../src/keypair/bytes.js";
 import {
   DOMAIN_PRIVATE_TX_BLINDING_V1,
@@ -124,8 +124,8 @@ describe("ring-tags.json", () => {
       expect(hex(pairTag(pair, BigInt(entry.epoch), tagIndex(entry.index)))).toBe(entry.tag);
   });
 
-  it("takes low248 of canonical fields and maps slots to epochs", () => {
-    for (const entry of tags.low248)
+  it("takes low128 of canonical fields and maps slots to epochs", () => {
+    for (const entry of tags.low128)
       expect(hex(ringTag(bytes<Bytes32>(entry.value, 32)))).toBe(entry.tag);
     for (const entry of tags.epochs) expect(tagEpoch(BigInt(entry.slot))).toBe(BigInt(entry.epoch));
   });
@@ -187,7 +187,7 @@ describe("ring-secrets.json", () => {
       expect(hex(confidentialRingSecret(delivered))).toBe(output.confidential_ring_secret);
       const tag = inboxTag(inbox, SECRETS_TAG_EPOCH, tagIndex(outputIndex));
       expect(hex(tag)).toBe(output.tag);
-      const anonymous = anonymousRingSecret(delivered, bytes<Bytes31>(output.tag, 31));
+      const anonymous = anonymousRingSecret(delivered, bytes<Bytes16>(output.tag, 16));
       expect(hex(anonymous)).toBe(output.anonymous_ring_secret);
       const blinding = (ringSecret: Bytes32): string =>
         hex(ringOutputBlinding({ firstNullifier, ringSecret, outputIndex }));
@@ -210,7 +210,7 @@ describe("ring-secrets.json", () => {
     const slotIndex = output.output_index;
     const ringSecret = anonymousRingSecret(
       bytes<Bytes32>(output.delivered_slot_secret, 32),
-      bytes<Bytes31>(output.tag, 31),
+      bytes<Bytes16>(output.tag, 16),
     );
     const ringProgramId = address("Ring111111111111111111111111111111111111111");
     const ownerAddress = ShieldedKeypair.generate().shieldedAddress();

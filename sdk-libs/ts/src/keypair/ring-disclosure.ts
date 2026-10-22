@@ -1,3 +1,4 @@
+import { BN254_SCALAR_ORDER } from "../hasher/index.js";
 import { isCanonicalField } from "../interface/canonical-field.js";
 import {
   ANONYMOUS_AUDIT_CLASSES,
@@ -8,12 +9,15 @@ import {
   DELIVERED_SLOT_BYTES,
   DISCLOSURE_INPUT_AMOUNT_BYTES,
   DISCLOSURE_SENDER_KEY_BYTES,
+  INPUT_PREFIX_BITS,
+  INPUT_PREFIX_BYTES,
   PACKED_AUDIT_CAPACITIES,
   anonymousFields,
   deliveredFields,
   disclosureFieldCount,
   packedChunks,
   packedFields,
+  type AnonymousInputFields,
   type AnonymousLayout,
   type DeliveredLayout,
   type DisclosureLayout,
@@ -69,13 +73,21 @@ export interface AnonymousInputOpening {
   readonly blinding: Bytes32;
 }
 
+/** The first `INPUT_PREFIX_BYTES` of a canonical spent hash read big endian, never zero, Rust `InputPrefix`. */
+export type InputPrefix = bigint & { readonly __inputPrefix: true };
+
 /** The spent UTXOs as the anonymous audit key discloses them, `undefined` for a dummy. */
 export type AnonymousInputs =
-  /** Every spent UTXO a ring note, the auditor opens it by its UTXO hash. */
-  | Readonly<{ kind: "commitments"; hashes: readonly (Bytes32 | undefined)[] }>
-  /** The entry key opens every spent UTXO, all under one nullifier key. */
+  /** Every spent UTXO a ring note, spent UTXO 0 named by its hash and every later one by its prefix. */
+  | Readonly<{
+      kind: "commitments";
+      first: Bytes32;
+      prefixes: readonly (InputPrefix | undefined)[];
+    }>
+  /** The entry key opens every spent UTXO, all under the sender's key and one nullifier key. */
   | Readonly<{
       kind: "openings";
+      senderKey: Bytes32;
       senderNullifierPk: Bytes32;
       inputs: readonly (AnonymousInputOpening | undefined)[];
     }>;
@@ -99,7 +111,6 @@ export type RingDisclosure =
       kind: "anonymous";
       layout: AnonymousLayout;
       seedOut: Bytes32 | undefined;
-      senderKey: Bytes32;
       outputs: readonly AnonymousOutputOpening[];
       inputs: AnonymousInputs;
     }>;
@@ -115,6 +126,52 @@ export interface PublishedOutputs {
 export interface DisclosureKey {
   readonly txViewingSecret: Bytes32;
   readonly salt: Bytes16;
+}
+
+/** Spent UTXO 0 must be real, Rust `AnonymousInputs::commitments`. */
+export function anonymousCommitments(hashes: readonly (Bytes32 | undefined)[]): AnonymousInputs {
+  const [first, ...rest] = hashes;
+  if (first === undefined) throw shapeError("inputs");
+  return Object.freeze({
+    kind: "commitments",
+    first: field(first, "inputHash"),
+    prefixes: Object.freeze(
+      rest.map((hash) => {
+        if (hash === undefined) return undefined;
+        const prefix = inputPrefix(hash);
+        if (prefix === undefined)
+          throw new KeypairError("KEYPAIR_DISCLOSURE_FIELD", { name: "inputHash" });
+        return prefix;
+      }),
+    ),
+  });
+}
+
+/** `undefined` for a hash at or above the modulus or below `2^128`, a zero half names no input. */
+export function inputPrefix(hash: Bytes32): InputPrefix | undefined {
+  const value = checkedBytes<Bytes32>(hash, 32, "inputHash");
+  if (!isCanonicalField(value)) return undefined;
+  const prefix = bytesToBigInt(value.subarray(0, INPUT_PREFIX_BYTES));
+  return prefix === 0n ? undefined : (prefix as InputPrefix);
+}
+
+/** `first * 2^INPUT_PREFIX_BITS + second`, an `undefined` half is zero. */
+export function inputPrefixPair(
+  first: InputPrefix | undefined,
+  second: InputPrefix | undefined,
+): Bytes32 {
+  return bigIntToBytes(((first ?? 0n) << PREFIX_SHIFT) | (second ?? 0n), 32) as Bytes32;
+}
+
+/** Inverts `inputPrefixPair`, `undefined` when a half exceeds the prefix of the modulus. */
+export function splitInputPrefixPair(
+  pair: Bytes32,
+): readonly [InputPrefix | undefined, InputPrefix | undefined] | undefined {
+  const value = bytesToBigInt(checkedBytes<Bytes32>(pair, 32, "inputPrefixPair"));
+  const halves = [value >> PREFIX_SHIFT, value & ((1n << PREFIX_SHIFT) - 1n)] as const;
+  if (halves.some((half) => half > MAX_INPUT_PREFIX)) return undefined;
+  const [first, second] = halves.map((half) => (half === 0n ? undefined : (half as InputPrefix)));
+  return Object.freeze([first, second] as const);
 }
 
 export function disclosureLayout(disclosure: RingDisclosure): DisclosureLayout {
@@ -277,6 +334,9 @@ const KEY_AND_AMOUNT_BYTES = KEY_BYTES + AMOUNT_BYTES;
 const OWNER_AND_AMOUNT_FIELDS = packedChunks(KEY_AND_AMOUNT_BYTES);
 const U64_MAX = 0xffff_ffff_ffff_ffffn;
 const DUMMY: DummySlot = Object.freeze({ kind: "dummy" });
+const PREFIX_SHIFT = BigInt(INPUT_PREFIX_BITS);
+/** No canonical hash has a larger prefix. */
+const MAX_INPUT_PREFIX = BN254_SCALAR_ORDER >> BigInt(8 * INPUT_PREFIX_BYTES);
 
 /** A structural layout names one key, its counts within the capacities that key serves. */
 function checkedLayout<T extends DisclosureLayout>(layout: T): T {
@@ -490,52 +550,51 @@ function placeAnonymous(
   checkCount(disclosure.outputs.length, layout.outputs);
   placeSeedOut(fields, at.seedOut, disclosure.seedOut);
   place(fields, at.nullifierPks, disclosure.outputs.map(anonymousNullifierPk));
+  if (inputs.kind === "commitments") {
+    if (at.inputs.kind !== "commitments") throw shapeError("inputs");
+    checkCount(inputs.prefixes.length + 1, layout.inputs);
+    fields[at.inputs.first] = field(inputs.first, "inputHash");
+    place(
+      fields,
+      at.inputs.prefixPairs,
+      Array.from({ length: at.inputs.prefixPairs.end - at.inputs.prefixPairs.start }, (_, pair) =>
+        inputPrefixPair(inputs.prefixes[2 * pair], inputs.prefixes[2 * pair + 1]),
+      ),
+    );
+  } else {
+    if (at.inputs.kind !== "openings") throw shapeError("inputs");
+    checkCount(inputs.inputs.length, layout.inputs);
+    const openings = inputs.inputs.map(
+      (opening) => opening ?? { asset: zero(), amount: 0n, blinding: zero() },
+    );
+    const start = at.inputs.openings.start;
+    openings.forEach((opening, index) => {
+      fields[start + 2 * index] = field(opening.asset, "inputAsset");
+      fields[start + 2 * index + 1] = field(opening.blinding, "inputBlinding");
+    });
+    place(
+      fields,
+      at.inputs.amounts,
+      packParts((parts) => {
+        for (const opening of openings) parts.push(amountBytes(opening.amount));
+        parts.push(
+          new Uint8Array(DISCLOSURE_INPUT_AMOUNT_BYTES * (ANONYMOUS_ENTRY_CLASS - openings.length)),
+        );
+      }),
+    );
+    fields[at.inputs.senderNullifierPk] = field(inputs.senderNullifierPk, "senderNullifierPk");
+  }
   place(
     fields,
     at.slots,
     packParts((parts) => {
-      parts.push(
-        checkedBytes<Bytes32>(disclosure.senderKey, DISCLOSURE_SENDER_KEY_BYTES, "senderKey"),
-      );
+      if (inputs.kind === "openings")
+        parts.push(
+          checkedBytes<Bytes32>(inputs.senderKey, DISCLOSURE_SENDER_KEY_BYTES, "senderKey"),
+        );
       for (const output of disclosure.outputs) pushAnonymousSlot(parts, output);
     }),
   );
-  if (inputs.kind === "commitments") {
-    if (layout.key.kind !== "commitment") throw shapeError("inputs");
-    checkCount(inputs.hashes.length, layout.inputs);
-    place(
-      fields,
-      at.inputs,
-      inputs.hashes.map((hash) => (hash === undefined ? zero() : field(hash, "inputHash"))),
-    );
-    return;
-  }
-  if (
-    layout.key.kind !== "entry" ||
-    at.senderNullifierPk === undefined ||
-    at.inputAmounts === undefined
-  )
-    throw shapeError("inputs");
-  checkCount(inputs.inputs.length, layout.inputs);
-  const openings = inputs.inputs.map(
-    (opening) => opening ?? { asset: zero(), amount: 0n, blinding: zero() },
-  );
-  openings.forEach((opening, index) => {
-    const pair = at.inputs.start + at.inputWidth * index;
-    fields[pair] = field(opening.asset, "inputAsset");
-    fields[pair + 1] = field(opening.blinding, "inputBlinding");
-  });
-  place(
-    fields,
-    at.inputAmounts,
-    packParts((parts) => {
-      for (const opening of openings) parts.push(amountBytes(opening.amount));
-      parts.push(
-        new Uint8Array(DISCLOSURE_INPUT_AMOUNT_BYTES * (ANONYMOUS_ENTRY_CLASS - openings.length)),
-      );
-    }),
-  );
-  fields[at.senderNullifierPk] = field(inputs.senderNullifierPk, "senderNullifierPk");
 }
 
 function readAnonymous(
@@ -544,13 +603,11 @@ function readAnonymous(
   fields: readonly Bytes32[],
 ): RingDisclosure {
   const at = anonymousFields(layout);
-  const block = unpackDisclosure(
-    slice(fields, at.slots),
-    DISCLOSURE_SENDER_KEY_BYTES + ANONYMOUS_SLOT_BYTES * layout.outputs,
-  );
+  const block = unpackDisclosure(slice(fields, at.slots), at.slotBytes);
   try {
+    const first = at.inputs.kind === "openings" ? DISCLOSURE_SENDER_KEY_BYTES : 0;
     const outputs = slice(fields, at.nullifierPks).map((nullifierPk, index) => {
-      const start = DISCLOSURE_SENDER_KEY_BYTES + index * ANONYMOUS_SLOT_BYTES;
+      const start = first + index * ANONYMOUS_SLOT_BYTES;
       return readAnonymousOutput(
         nullifierPk,
         block.subarray(start, start + ANONYMOUS_SLOT_BYTES),
@@ -561,38 +618,60 @@ function readAnonymous(
       kind: "anonymous",
       layout,
       seedOut: fieldAt(fields, at.seedOut),
-      senderKey: key(block, 0, "senderKey"),
       outputs: Object.freeze(outputs),
-      inputs: readAnonymousInputs(layout, fields),
+      inputs:
+        at.inputs.kind === "commitments"
+          ? readCommitments(
+              layout,
+              required(fields[at.inputs.first]),
+              slice(fields, at.inputs.prefixPairs),
+            )
+          : readOpenings(layout, at.inputs, fields, key(block, 0, "senderKey")),
     });
   } finally {
     block.fill(0);
   }
 }
 
-function readAnonymousInputs(layout: AnonymousLayout, fields: readonly Bytes32[]): AnonymousInputs {
-  const at = anonymousFields(layout);
-  const published = slice(fields, at.inputs);
-  if (layout.key.kind === "commitment")
-    return Object.freeze({
-      kind: "commitments",
-      hashes: Object.freeze(published.map((hash) => (isZero(hash) ? undefined : hash))),
-    });
-  if (at.senderNullifierPk === undefined || at.inputAmounts === undefined)
-    throw shapeError("inputs");
+/** Spent UTXO 0 is real, an even published count closes the last pair with a zero half. */
+function readCommitments(
+  layout: AnonymousLayout,
+  first: Bytes32,
+  pairs: readonly Bytes32[],
+): AnonymousInputs {
+  if (isZero(first)) throw shapeError("inputs");
+  const prefixes = pairs.flatMap((pair) => {
+    const split = splitInputPrefixPair(pair);
+    if (split === undefined)
+      throw new KeypairError("KEYPAIR_DISCLOSURE_FIELD", { name: "inputPrefixPair" });
+    return split;
+  });
+  if (prefixes.length >= layout.inputs && prefixes.pop() !== undefined)
+    throw new KeypairError("KEYPAIR_DISCLOSURE_PADDING", { name: "inputPrefixPair" });
+  return Object.freeze({ kind: "commitments", first, prefixes: Object.freeze(prefixes) });
+}
+
+function readOpenings(
+  layout: AnonymousLayout,
+  at: Extract<AnonymousInputFields, { kind: "openings" }>,
+  fields: readonly Bytes32[],
+  senderKey: Bytes32,
+): AnonymousInputs {
+  const published = slice(fields, at.openings);
   const amounts = unpackDisclosure(
-    slice(fields, at.inputAmounts),
+    slice(fields, at.amounts),
     DISCLOSURE_INPUT_AMOUNT_BYTES * ANONYMOUS_ENTRY_CLASS,
   );
   try {
     zeroBytes(amounts.subarray(DISCLOSURE_INPUT_AMOUNT_BYTES * layout.inputs));
     return Object.freeze({
       kind: "openings",
+      senderKey,
       senderNullifierPk: required(fields[at.senderNullifierPk]),
       inputs: Object.freeze(
         Array.from({ length: layout.inputs }, (_, index) => {
-          const asset = required(published[at.inputWidth * index]);
-          const blinding = required(published[at.inputWidth * index + 1]);
+          const asset = required(published[2 * index]);
+          const blinding = required(published[2 * index + 1]);
           const amount = bytesToBigInt(
             amounts.subarray(
               index * DISCLOSURE_INPUT_AMOUNT_BYTES,

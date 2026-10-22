@@ -1,6 +1,6 @@
 import { getAddressDecoder } from "@solana/kit";
 
-import type { Address, Bytes31, Bytes32 } from "../../interface/types.js";
+import type { Address, Bytes16, Bytes32 } from "../../interface/types.js";
 import type { ShieldedPublicKey } from "../../keypair/public-key.js";
 import {
   BODY_LEN,
@@ -22,7 +22,7 @@ export interface RingDeliverySlot {
   readonly firstNullifier: Bytes32;
   readonly outputIndex: number;
   /** The published tag on an anonymous ring, absent on a confidential one. */
-  readonly tag?: Bytes31;
+  readonly tag?: Bytes16;
 }
 
 /** The keys of a delivered output's owner. */

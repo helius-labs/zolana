@@ -14,10 +14,16 @@ import type { Bytes16, Bytes32 } from "../src/interface/types.js";
 import type * as Audit from "../src/keypair/audit.js";
 import { maskDisclosure, unmaskDisclosure } from "../src/keypair/audit.js";
 import { bigIntToBytes } from "../src/keypair/bytes.js";
+import { isCanonicalField } from "../src/interface/canonical-field.js";
 import {
+  anonymousCommitments,
   decodeDisclosure,
   disclosureFields,
   disclosureLayout,
+  inputPrefix,
+  inputPrefixPair,
+  splitInputPrefixPair,
+  type InputPrefix,
   type RingDisclosure,
 } from "../src/keypair/ring-disclosure.js";
 import { RingDomain } from "../src/keypair/ring-domain.js";
@@ -108,7 +114,6 @@ function anonymous(): Extract<RingDisclosure, { kind: "anonymous" }> {
     kind: "anonymous",
     layout: { key: { kind: "entry" }, inputs: 2, outputs: 4, exits: true },
     seedOut: field(1),
-    senderKey: bytes(0xa1),
     outputs: [
       { kind: "ring", ownerKey: bytes(0xb5), nullifierPk: field(0x25), recipientU: bytes(0x15) },
       { kind: "exit", nullifierPk: field(0x26), asset: field(0x27), amount: 0n },
@@ -117,12 +122,22 @@ function anonymous(): Extract<RingDisclosure, { kind: "anonymous" }> {
     ],
     inputs: {
       kind: "openings",
+      senderKey: bytes(0xa1),
       senderNullifierPk: field(0x5a),
       inputs: [{ asset: field(0x60), amount: 5000n, blinding: field(0x61) }, undefined],
     },
   };
 }
 const ANONYMOUS_EXITS = [false, true, false, false];
+
+/** A commitment key over four inputs, the third a dummy. */
+function commitments(): Extract<RingDisclosure, { kind: "anonymous" }> {
+  return {
+    ...anonymous(),
+    layout: { key: { kind: "commitment", class: 4 }, inputs: 4, outputs: 4, exits: true },
+    inputs: anonymousCommitments([field(0x60), field(0x61), undefined, field(0x63)]),
+  };
+}
 
 function packed(): Extract<RingDisclosure, { kind: "packed" }> {
   const opening = (byte: number) => ({
@@ -157,6 +172,7 @@ describe("ring disclosure codec", () => {
     ["packed", packed, PACKED_EXITS],
     ["delivered", delivered, DELIVERED_EXITS],
     ["anonymous", anonymous, ANONYMOUS_EXITS],
+    ["commitment", commitments, ANONYMOUS_EXITS],
   ] as const)("wipes every %s block it packs or unpacks and round trips", (_, build, exits) => {
     const disclosure = build();
     const plaintext = disclosureFields(disclosure);
@@ -171,12 +187,11 @@ describe("ring disclosure codec", () => {
   });
 
   it("wipes every field it placed when a later part is refused", () => {
-    const disclosure = {
-      ...anonymous(),
-      inputs: { kind: "commitments" as const, hashes: [undefined, undefined] },
-    };
+    const entry = anonymous();
+    if (entry.inputs.kind !== "openings") throw new Error("entry fixture");
+    const disclosure = { ...entry, inputs: { ...entry.inputs, senderNullifierPk: MODULUS } };
 
-    expect(() => disclosureFields(disclosure)).toThrow("KEYPAIR_DISCLOSURE_SHAPE");
+    expect(() => disclosureFields(disclosure)).toThrow("KEYPAIR_DISCLOSURE_FIELD");
     expect(packing.chunks.length).toBeGreaterThan(0);
     expect(packing.chunks.filter((chunk) => !wiped(chunk))).toEqual([]);
     expect(packing.blocks.filter((block) => !wiped(block))).toEqual([]);
@@ -217,6 +232,81 @@ describe("ring disclosure codec", () => {
       empty,
     );
     expect(reopened.kind === "delivered" && reopened.outputs[0]).toEqual({ kind: "dummy" });
+  });
+
+  it("names spent UTXO 0 by its hash and packs two later prefixes a field", () => {
+    const disclosure = commitments();
+    const at = anonymousFields(disclosure.layout);
+    if (at.inputs.kind !== "commitments") throw new Error("commitment layout");
+    const plaintext = disclosureFields(disclosure);
+    const prefix = (hash: Bytes32) =>
+      BigInt(`0x${Buffer.from(hash.subarray(0, 16)).toString("hex")}`);
+    expect(plaintext[at.inputs.first]).toEqual(field(0x60));
+    expect(plaintext.slice(at.inputs.prefixPairs.start, at.inputs.prefixPairs.end)).toEqual([
+      bigIntToBytes(prefix(field(0x61)) << 126n),
+      bigIntToBytes(prefix(field(0x63)) << 126n),
+    ]);
+    // No sender key leads the slots of a commitment key.
+    expect(packing.blocks.at(-1)?.length).toBe(4 * ANONYMOUS_SLOT_BYTES);
+  });
+
+  it("refuses spent UTXO 0 as a dummy, a later hash below 2^128 and a pair it cannot split", () => {
+    const short = new Uint8Array(32) as Bytes32;
+    short[31] = 1;
+    expect(() => anonymousCommitments([undefined, field(0x61)])).toThrow(
+      "KEYPAIR_DISCLOSURE_SHAPE",
+    );
+    expect(() => anonymousCommitments([field(0x60), short])).toThrow("KEYPAIR_DISCLOSURE_FIELD");
+    const disclosure = commitments();
+    const layout = disclosureLayout(disclosure);
+    const at = anonymousFields(disclosure.layout);
+    if (at.inputs.kind !== "commitments") throw new Error("commitment layout");
+    const decode = (change: (plaintext: Bytes32[]) => void) => () => {
+      const plaintext = disclosureFields(disclosure);
+      change(plaintext);
+      return decodeDisclosure({ layout, exits: ANONYMOUS_EXITS }, plaintext);
+    };
+    const { first, prefixPairs } = at.inputs;
+    expect(decode((plaintext) => (plaintext[first] = new Uint8Array(32) as Bytes32))).toThrow(
+      "KEYPAIR_DISCLOSURE_SHAPE",
+    );
+    expect(decode((plaintext) => (plaintext[prefixPairs.end - 1]![31] = 1))).toThrow(
+      "KEYPAIR_DISCLOSURE_PADDING",
+    );
+    expect(
+      decode(
+        (plaintext) =>
+          (plaintext[prefixPairs.start] = bigIntToBytes(
+            ((BN254_SCALAR_ORDER >> 128n) + 1n) << 126n,
+          ) as Bytes32),
+      ),
+    ).toThrow("KEYPAIR_DISCLOSURE_FIELD");
+  });
+
+  it("packs two input prefixes below 2^252 and splits them back", () => {
+    const top = inputPrefix(bigIntToBytes(BN254_SCALAR_ORDER - 1n) as Bytes32);
+    expect(top).toBe(BN254_SCALAR_ORDER >> 128n);
+    expect(inputPrefix(MODULUS)).toBeUndefined();
+    const short = new Uint8Array(32) as Bytes32;
+    short[16] = 1;
+    expect(inputPrefix(short)).toBeUndefined();
+    const low = inputPrefix(new Uint8Array(32).fill(1) as Bytes32);
+    for (const pair of [
+      [top, top],
+      [low, undefined],
+      [undefined, top],
+      [undefined, undefined],
+    ] as const satisfies readonly (readonly [InputPrefix | undefined, InputPrefix | undefined])[]) {
+      const packed = inputPrefixPair(pair[0], pair[1]);
+      expect(isCanonicalField(packed)).toBe(true);
+      expect(splitInputPrefixPair(packed)).toEqual(pair);
+    }
+    const over = inputPrefixPair(undefined, top);
+    over[31] = (over[31] ?? 0) + 1;
+    expect(splitInputPrefixPair(over)).toBeUndefined();
+    const wide = new Uint8Array(32) as Bytes32;
+    wide[0] = 0x10;
+    expect(splitInputPrefixPair(wide)).toBeUndefined();
   });
 
   it("refuses an anonymous dummy slot with a nonzero byte", () => {

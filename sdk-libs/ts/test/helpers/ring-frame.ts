@@ -1,7 +1,7 @@
 import { CUSTOM_RING_PROOF_LENGTH } from "../../src/interface/custom-ring-proof.js";
 import { disclosureFieldCount } from "../../src/interface/ring-disclosure-layout.js";
 import { RING_AUTHORITY_SHAPES, SPP_SUPPORTED_SHAPES } from "../../src/interface/shape.js";
-import type { Bytes16, Bytes31, Bytes32 } from "../../src/interface/types.js";
+import type { Bytes16, Bytes32 } from "../../src/interface/types.js";
 import { RingInstructionTag } from "../../src/ring/admin.js";
 import {
   PLAIN_GROTH16_PROOF_LENGTH,
@@ -44,7 +44,7 @@ export function ringFrame(
       ? {
           kind: "anonymous",
           hash: field(10 + index),
-          tag: new Uint8Array(31).fill(index + 1) as Bytes31,
+          tag: new Uint8Array(16).fill(index + 1) as Bytes16,
           body: new Uint8Array(40),
         }
       : {

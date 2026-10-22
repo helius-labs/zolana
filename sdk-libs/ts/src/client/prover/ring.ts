@@ -185,7 +185,8 @@ export interface AnonymousAuditProofRequest extends AuditEnvelopeProofInputs {
   readonly outputs: readonly AnonymousSlotProofInputs[];
   readonly privateTxHash: Bytes32;
   readonly privateTxBlinding: Bytes32;
-  readonly senderKey: Bytes32;
+  /** Present on the entry key alone. */
+  readonly senderKey?: Bytes32;
   /** The published nullifier count, the slots past it carry no UTXO. */
   readonly inputCount: number;
   readonly inputs: readonly RingSlotOpening[];
@@ -348,7 +349,7 @@ export function ringProofRequestBody(request: RingProofRequest): Readonly<Record
         outputs: request.outputs.map((output, i) => anonymousSlotJson(output, `outputs[${i}]`)),
         privateTxHash: field(request.privateTxHash, "privateTxHash"),
         privateTxBlinding: field(request.privateTxBlinding, "privateTxBlinding"),
-        senderKey: hexBytes(request.senderKey, 32, "senderKey"),
+        ...entrySenderKey(request),
         inputCount: integer(request.inputCount, "inputCount", 1, request.inputs.length),
         inputs: request.inputs.map((input, i) => openingJson(input, `inputs[${i}]`)),
         senderCommitment: field(request.senderCommitment, "senderCommitment"),
@@ -698,6 +699,13 @@ function checkedLength(value: Uint8Array, length: number, name: string): Uint8Ar
       },
     });
   return value;
+}
+
+function entrySenderKey(request: AnonymousAuditProofRequest): Readonly<{ senderKey?: string }> {
+  const { senderKey } = request;
+  if ((senderKey !== undefined) !== flag(request.layout.fullOpenings))
+    throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+  return senderKey === undefined ? {} : { senderKey: hexBytes(senderKey, 32, "senderKey") };
 }
 
 function sized<T>(values: readonly T[], length: number, name: string): readonly T[] {

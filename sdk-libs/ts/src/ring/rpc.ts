@@ -8,7 +8,7 @@ import {
 
 import type {
   Address,
-  Bytes31,
+  Bytes16,
   Bytes32,
   Bytes33,
   Bytes64,
@@ -24,16 +24,16 @@ import { addressBytes, copyBytes, sha256 } from "../interface/internal.js";
 import { concatBytes } from "../keypair/bytes.js";
 import { MAX_MERGE_INPUTS, mergePaddedInputCount } from "../interface/constants.js";
 import { MEMBER_REGISTRY_ROOT_HISTORY } from "../interface/member-registry.js";
-import { TAG_LEN, ringIdField } from "../keypair/ring-stream.js";
+import { ringIdField, ringTagFromOwnerTag } from "../keypair/ring-stream.js";
 import { X25519PublicKey } from "../keypair/x25519.js";
 import { KeypairError } from "../keypair/error.js";
 
 import {
   knownUtxoHash,
   type AuditedInput,
-  type AuditedInputOpening,
   type AuditedSender,
   type AuditedUtxo,
+  type InputOpening,
   type InputRing,
   type KnownUtxo,
   type OutputOpening,
@@ -510,6 +510,7 @@ export type {
   AuditedInputOpening,
   AuditedSender,
   AuditedUtxo,
+  InputOpening,
   InputRing,
   KnownUtxo,
   OutputOpening,
@@ -1255,21 +1256,40 @@ function decodeSender(wire: Record<string, unknown>): AuditedSender {
   });
 }
 
+/** Rust `DecryptedInput`, an ambiguous prefix names its candidates in place of an opening. */
 function decodeInput(wire: Record<string, unknown>, path: string): AuditedInput {
   const nullifier = hash(wire["nullifier"], `${path}.nullifier`);
-  if (absent(wire["opening"])) return Object.freeze({ nullifier });
+  const candidates = wire["candidates"];
+  if (!absent(candidates)) {
+    const listed = list(candidates, `${path}.candidates`).map((candidate, index) =>
+      hash(candidate, `${path}.candidates[${index}]`),
+    );
+    if (listed.length === 0 || !absent(wire["opening"])) throw invalid(`${path}.candidates`);
+    return Object.freeze({
+      nullifier,
+      opening: Object.freeze({ kind: "ambiguous", candidates: Object.freeze(listed) }),
+    });
+  }
+  if (absent(wire["opening"])) return Object.freeze({ nullifier, opening: DUMMY_INPUT });
   const opening = record(wire["opening"], `${path}.opening`);
   const mint = opening["mint"];
   const ring = opening["ring"];
-  const decoded: AuditedInputOpening = Object.freeze({
-    asset: hash(opening["asset"], `${path}.opening.asset`),
-    ...(absent(mint) ? {} : { mint: address(mint, `${path}.opening.mint`) }),
-    amount: u64(opening["amount"], `${path}.opening.amount`),
-    blinding: hash(opening["blinding"], `${path}.opening.blinding`),
-    ...(absent(ring) ? {} : { ring: decodeInputRing(record(ring, `${path}.opening.ring`), path) }),
+  return Object.freeze({
+    nullifier,
+    opening: Object.freeze({
+      kind: "opened",
+      asset: hash(opening["asset"], `${path}.opening.asset`),
+      ...(absent(mint) ? {} : { mint: address(mint, `${path}.opening.mint`) }),
+      amount: u64(opening["amount"], `${path}.opening.amount`),
+      blinding: hash(opening["blinding"], `${path}.opening.blinding`),
+      ...(absent(ring)
+        ? {}
+        : { ring: decodeInputRing(record(ring, `${path}.opening.ring`), path) }),
+    }),
   });
-  return Object.freeze({ nullifier, opening: decoded });
 }
+
+const DUMMY_INPUT: InputOpening = Object.freeze({ kind: "dummy" });
 
 /** Rust `DecryptedInputRing`, tagged by `kind`. */
 function decodeInputRing(wire: Record<string, unknown>, path: string): InputRing {
@@ -1291,11 +1311,10 @@ function decodeInputRing(wire: Record<string, unknown>, path: string): InputRing
   }
 }
 
-/** `0x00 ‖ tag`, the owner tag of an anonymous ring output. */
-function ringTag(value: unknown, path: string): Bytes31 {
-  const field = hash(value, path);
-  if (field[0] !== 0) throw invalid(path);
-  return field.slice(1, 1 + TAG_LEN) as Bytes31;
+function ringTag(value: unknown, path: string): Bytes16 {
+  const tag = ringTagFromOwnerTag(hash(value, path));
+  if (tag === undefined) throw invalid(path);
+  return tag;
 }
 
 /** Rust `OutputPayloadErrorKind` as the ring rpc serializes it. */

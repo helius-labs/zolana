@@ -256,6 +256,7 @@ export type {
 } from "./submission.js";
 
 export {
+  KnownUtxoIndex,
   auditRing,
   auditRingTransaction,
   auditedUtxos,
@@ -265,6 +266,8 @@ export {
   openedUtxo,
   recoverTransactionViewingKey,
 } from "./audit.js";
+export { inputPrefix } from "../keypair/ring-disclosure.js";
+export type { InputPrefix } from "../keypair/ring-disclosure.js";
 export type {
   AuditedInput,
   AuditedInputOpening,
@@ -274,6 +277,7 @@ export type {
   AuditedUtxo,
   CreatedRingUtxo,
   EscrowedKeys,
+  InputOpening,
   InputRing,
   KnownUtxo,
   KnownUtxos,

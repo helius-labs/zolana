@@ -35,6 +35,7 @@ import { NullifierKey } from "../src/keypair/nullifier-key.js";
 import { poseidon } from "../src/keypair/poseidon.js";
 import type { AuditLayout } from "../src/interface/ring-disclosure-layout.js";
 import {
+  anonymousCommitments,
   sealRingDisclosure,
   type AnonymousOutputOpening,
   type DeliveredOutputOpening,
@@ -362,7 +363,9 @@ function request(item: Json): RingProofRequest {
       outputs: list(item["outputs"]).map(anonymousSlot),
       privateTxHash: field(item["privateTxHash"]),
       privateTxBlinding: field(item["privateTxBlinding"]),
-      senderKey: bytes<Bytes32>(item["senderKey"], 32),
+      ...(item["senderKey"] === undefined
+        ? {}
+        : { senderKey: bytes<Bytes32>(item["senderKey"], 32) }),
       inputCount: count(item["inputCount"]),
       inputs: list(item["inputs"]).map(opening),
       senderCommitment: field(item["senderCommitment"]),
@@ -527,10 +530,10 @@ function isRingOutput(slot: RingSlotOpening): boolean {
   return isUtxo(slot) && amountOf(slot.ringProgramId) !== 0n;
 }
 
-/** The published tag, the circuit reads `low248` so the top byte is zero. */
-function tagOf(tag: Bytes32): Bytes31 {
-  expect(tag[0]).toBe(0);
-  return tag.slice(1) as Bytes31;
+/** The published tag, the circuit reads `low128` so the top 16 bytes are zero. */
+function tagOf(tag: Bytes32): Bytes16 {
+  expect(tag.subarray(0, 16)).toEqual(new Uint8Array(16));
+  return tag.slice(16) as Bytes16;
 }
 
 function exitOutput(hash: Bytes32): RingOutput {
@@ -611,6 +614,21 @@ describe("ring prover request encoding against the Go goldens", () => {
     expect(() => ringProofRequestBody({ ...base, ownerKeys: [ZERO] })).toThrow(
       expect.objectContaining({ code: "CLIENT_INVALID_LENGTH" }),
     );
+  });
+
+  it("sends the sender key on the entry key alone", () => {
+    const commitment = request(golden("custom-ring-audit-anonymous-4-2"));
+    const entry = request(golden("custom-ring-audit-anonymous-entry-8-2"));
+    if (commitment.kind !== "anonymousAudit" || entry.kind !== "anonymousAudit")
+      throw new Error("anonymous goldens");
+    expect(ringProofRequestBody(commitment)).not.toHaveProperty("senderKey");
+    expect(ringProofRequestBody(entry)).toHaveProperty("senderKey");
+    const { senderKey, ...keyless } = entry;
+    if (senderKey === undefined) throw new Error("entry golden without its sender key");
+    for (const refused of [{ ...commitment, senderKey }, keyless])
+      expect(() => ringProofRequestBody(refused)).toThrow(
+        expect.objectContaining({ code: "CLIENT_INVALID_PROOF_INPUTS" }),
+      );
   });
 });
 
@@ -796,7 +814,14 @@ describe("ring statements rebuilt from the Go goldens", () => {
       const typed = request(golden(circuitType));
       if (typed.kind !== "anonymousAudit") throw new Error("anonymous golden");
       const key = { txViewingSecret: typed.txViewingSk, salt: typed.salt };
-      const senderPkHash = solanaOwnerIdentity(typed.senderKey) as Bytes32;
+      const spent = typed.inputs.slice(0, typed.inputCount);
+      const [first] = spent;
+      if (first === undefined) throw new Error("anonymous golden without an input");
+      // The circuit proves every spent UTXO under one owner.
+      const senderPkHash = first.ownerPkHash;
+      expect(typed.senderKey === undefined).toBe(!typed.layout.fullOpenings);
+      if (typed.senderKey !== undefined)
+        expect(hex(solanaOwnerIdentity(typed.senderKey))).toBe(hex(senderPkHash));
       const outputs = typed.outputs.map((slot, i): AnonymousOutputOpening => {
         const opened = slot.output;
         if (!isUtxo(opened)) return { kind: "dummy" };
@@ -876,7 +901,6 @@ describe("ring statements rebuilt from the Go goldens", () => {
           hex(typed.firstContactRoot),
         );
       }
-      const spent = typed.inputs.slice(0, typed.inputCount);
       expect(
         hex(senderCommitment({ senderPkHash, privateTxBlinding: typed.privateTxBlinding })),
       ).toBe(hex(typed.senderCommitment));
@@ -892,8 +916,6 @@ describe("ring statements rebuilt from the Go goldens", () => {
         ),
       ).toBe(hex(typed.privateTxHash));
       const { exits, fullOpenings } = typed.layout;
-      const [first] = spent;
-      if (first === undefined) throw new Error("anonymous golden without an input");
       const disclosure = sealRingDisclosure(key, {
         kind: "anonymous",
         layout: {
@@ -905,22 +927,22 @@ describe("ring statements rebuilt from the Go goldens", () => {
           exits,
         },
         seedOut: exits ? typed.seedOut : undefined,
-        senderKey: typed.senderKey,
         outputs,
-        inputs: fullOpenings
-          ? {
-              kind: "openings",
-              senderNullifierPk: first.nullifierPk,
-              inputs: spent.map((slot) =>
-                isUtxo(slot)
-                  ? { asset: slot.asset, amount: amountOf(slot.amount), blinding: slot.blinding }
-                  : undefined,
-              ),
-            }
-          : {
-              kind: "commitments",
-              hashes: spent.map((slot) => (isUtxo(slot) ? openingHash(slot) : undefined)),
-            },
+        inputs:
+          typed.senderKey === undefined
+            ? anonymousCommitments(
+                spent.map((slot) => (isUtxo(slot) ? openingHash(slot) : undefined)),
+              )
+            : {
+                kind: "openings",
+                senderKey: typed.senderKey,
+                senderNullifierPk: first.nullifierPk,
+                inputs: spent.map((slot) =>
+                  isUtxo(slot)
+                    ? { asset: slot.asset, amount: amountOf(slot.amount), blinding: slot.blinding }
+                    : undefined,
+                ),
+              },
       });
       const hash = auditStatementHash({
         head: auditHead(typed),

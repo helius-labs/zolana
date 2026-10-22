@@ -19,7 +19,7 @@ import { Utxo } from "../transaction/utxo.js";
 import type { WalletUtxo } from "../transaction/wallet/state.js";
 import { bytesKey } from "../wallet/internal.js";
 
-import { auditRing, nextScanCursor, type KnownUtxo, type RingAuditReader } from "./audit.js";
+import { KnownUtxoIndex, auditRing, nextScanCursor, type RingAuditReader } from "./audit.js";
 import { recoverMergeOpening } from "./audit-merge.js";
 import { createdDepositUtxo, createdRingUtxos } from "./created.js";
 import { openRingDepositOpening, ringDepositOutput } from "./deposit-audit.js";
@@ -80,7 +80,7 @@ export async function recoverRingMemberNotes(
       ringProgramId: input.ringProgramId,
       assets: input.assets,
       origin: history.origin,
-      knownUtxos: { utxo: (commitment) => found.created.get(bytesKey(commitment)) },
+      knownUtxos: found.created,
       escrowedKeys: {
         nullifierPk: (ownerKey) =>
           equal(ownerKey, sourceKey) ? input.source.nullifierPublicKey : undefined,
@@ -154,8 +154,8 @@ class Found {
   /** Commitments without a verified opening, with their nullifier when the key derives one. */
   readonly unresolved: { readonly commitment: Bytes32; readonly nullifier?: Bytes32 }[] = [];
   readonly unknownMints = new Set<Address>();
-  /** Every deposit and merge UTXO of an anonymous ring, its transfers spend them by hash. */
-  readonly created = new Map<string, KnownUtxo>();
+  /** Every deposit and merge UTXO of an anonymous ring, its transfers spend them by hash or prefix. */
+  readonly created = new KnownUtxoIndex();
   readonly #seen = new Set<string>();
 
   /** `false` when the commitment was already claimed. */
@@ -225,7 +225,7 @@ async function recoverDeposits(
           ringProgramId: input.ringProgramId,
           auditor: input.auditor,
         }))
-          found.created.set(bytesKey(commitment), utxo);
+          found.created.insert(commitment, utxo);
         return;
       }
       if (confirmed.kind !== "deposit") return;
@@ -258,7 +258,7 @@ async function recoverDeposits(
             output: deposit,
             opening,
           });
-          if (created !== undefined) found.created.set(key, created.utxo);
+          if (created !== undefined) found.created.insert(commitment, created.utxo);
           if (!equal(opening.ownerHash, sourceOwner)) continue;
           // The deposit proof binds the raw mint, its commitment opens without the registry.
           const opened = sourceWalletUtxo(input, {

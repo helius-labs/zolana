@@ -1,4 +1,4 @@
-import type { Address, Bytes31, Bytes32, Signature } from "../../interface/types.js";
+import type { Address, Bytes16, Bytes32, Signature } from "../../interface/types.js";
 import type { TagIndex } from "../../keypair/ring-stream.js";
 import type { IndexedShieldedTransaction } from "../instructions/transact.js";
 import type { Utxo } from "../utxo.js";
@@ -51,7 +51,7 @@ export interface RingDeliveredCandidate {
   readonly transaction: IndexedShieldedTransaction;
   readonly slotIndex: number;
   /** The published tag, absent when the owner tag carries none. */
-  readonly tag?: Bytes31;
+  readonly tag?: Bytes16;
   readonly slotSecret: Bytes32;
   /** The wallet's own change, recorded without a receipt. */
   readonly change: boolean;

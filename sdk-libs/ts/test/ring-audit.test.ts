@@ -11,7 +11,7 @@ import { treeAddress } from "../src/interface/pda/index.js";
 import { SHIELDED_POOL_PROGRAM_ID } from "../src/interface/program.js";
 import { StateDiscriminator } from "../src/interface/state.js";
 import type { DisclosureLayout } from "../src/interface/ring-disclosure-layout.js";
-import type { Bytes16, Bytes31, Bytes32, Bytes33 } from "../src/interface/types.js";
+import type { Bytes16, Bytes32, Bytes33 } from "../src/interface/types.js";
 import {
   auditSharedSecret,
   auditorMessageData,
@@ -19,12 +19,19 @@ import {
   sealTransactionViewingSecret,
 } from "../src/keypair/audit.js";
 import { mergeOutputBlinding, mergeOutputKey } from "../src/keypair/merge/index.js";
-import { openRingDisclosure, sealRingDisclosure } from "../src/keypair/ring-disclosure.js";
+import {
+  inputPrefix,
+  openRingDisclosure,
+  sealRingDisclosure,
+} from "../src/keypair/ring-disclosure.js";
 import { ShieldedKeypair } from "../src/keypair/shielded.js";
 import { X25519Keypair, X25519PublicKey } from "../src/keypair/x25519.js";
 import {
+  KnownUtxoIndex,
   auditRing,
   auditRingTransaction,
+  knownUtxoHash,
+  type AuditedInput,
   type AuditedUtxo,
   type EscrowedKeys,
   type KnownUtxo,
@@ -154,11 +161,11 @@ function escrowRecords(vector: Vector): EscrowedKeys {
   return { nullifierPk: (ownerKey) => keys.get(Buffer.from(ownerKey).toString("hex")) };
 }
 
-/** The sender's earlier UTXOs an anonymous vector spends, by their hash. */
-function spentUtxos(vector: Vector, assets: AssetRegistry): KnownUtxos {
+/** The sender's earlier UTXOs an anonymous vector spends. */
+function spentUtxos(vector: Vector, assets: AssetRegistry): KnownUtxoIndex {
   const inputs = "inputs" in vector ? vector.inputs : [];
   const sender = "sender_key" in vector ? vector.sender_key : undefined;
-  const utxos = new Map(
+  return new KnownUtxoIndex(
     inputs.map((input) => {
       const asset = field(input.asset);
       const mint = assets.addressForField(asset);
@@ -181,10 +188,9 @@ function spentUtxos(vector: Vector, assets: AssetRegistry): KnownUtxos {
         ringDataHash: new Uint8Array(32) as Bytes32,
         treeId: input.input_tree_id,
       };
-      return [input.commitment, utxo] as const;
+      return { commitment: field(input.commitment), utxo };
     }),
   );
-  return { utxo: (commitment) => utxos.get(Buffer.from(commitment).toString("hex")) };
 }
 
 /** The confirmed transfer the vector describes, its tx secret sealed to `auditor`. */
@@ -261,7 +267,7 @@ function expectedOpening(layout: Layout, slot: VectorSlot, assets: AssetRegistry
     kind: "ring",
     utxo,
     recipientU: field(need(slot.recipient_u, "recipient_u")),
-    ...(tag === undefined ? {} : { tag: hex<Bytes31>(tag, 31) }),
+    ...(tag === undefined ? {} : { tag: hex<Bytes16>(tag, 16) }),
   };
 }
 
@@ -374,11 +380,12 @@ describe("auditRingTransaction over the shared disclosure vectors", () => {
     expect(known?.kind === "exit" && known.utxo.mint).toBe(FOREIGN_MINT);
   });
 
-  it("opens the hidden sender and every spent note of the commitment key by its hash", () => {
+  it("takes the sender from spent note 0 and opens the later note by its prefix", () => {
     const entry = vectorOf("anonymous", "commitment");
     const vector = anonymousCase("commitment");
     const assets = new AssetRegistry();
-    const audited = audit(entry, { assets, knownUtxos: spentUtxos(vector, assets) });
+    const known = spentUtxos(vector, assets);
+    const audited = audit(entry, { assets, knownUtxos: known });
     expect(audited.sender).toEqual({
       ownerKey: field(vector.sender_key),
       nullifierPk: field(vector.sender_nullifier_pk),
@@ -387,6 +394,7 @@ describe("auditRingTransaction over the shared disclosure vectors", () => {
       vector.inputs.map((input) => ({
         nullifier: field(input.nullifier),
         opening: {
+          kind: "opened",
           asset: field(input.asset),
           ...openedMint(assets, input.asset),
           amount: BigInt(input.amount),
@@ -395,9 +403,71 @@ describe("auditRingTransaction over the shared disclosure vectors", () => {
         },
       })),
     );
+    const [first, later] = vector.inputs.map((input) => field(input.commitment));
+    const only = (commitment: Bytes32 | undefined) =>
+      new KnownUtxoIndex(
+        commitment === undefined ? [] : [{ commitment, utxo: known.utxo(commitment)! }],
+      );
     expect(() => audit(entry)).toThrow(
       ringError("RING_AUDIT_UNSEEN_INPUT", { commitment: vector.inputs[0]!.commitment }),
     );
+    expect(() => audit(entry, { knownUtxos: only(first) })).toThrow(
+      ringError("RING_AUDIT_UNSEEN_INPUT_PREFIX", {
+        prefix: vector.inputs[1]!.commitment.slice(0, 32),
+      }),
+    );
+    expect(() => audit(entry, { knownUtxos: only(later) })).toThrow(
+      ringError("RING_AUDIT_UNSEEN_INPUT", { commitment: vector.inputs[0]!.commitment }),
+    );
+  });
+
+  it("keeps a note's first opening unless a later one names its mint and lists it by owner and prefix", () => {
+    const vector = anonymousCase("commitment");
+    const commitment = field(vector.inputs[0]!.commitment);
+    const opened = spentUtxos(vector, new AssetRegistry()).utxo(commitment)!;
+    const { mint: _, ...unminted } = opened;
+    const index = new KnownUtxoIndex([{ commitment, utxo: unminted }]);
+    index.insert(commitment, { ...unminted, amount: 1n });
+    expect(index.utxo(commitment)).toEqual(unminted);
+    const minted = { ...unminted, mint: FOREIGN_MINT };
+    index.insert(commitment, minted);
+    expect(index.utxo(commitment)).toEqual(minted);
+    const prefix = inputPrefix(commitment)!;
+    expect(index.withPrefix(opened.ownerKey, prefix)).toEqual([commitment]);
+    expect(index.withPrefix(new Uint8Array(32) as Bytes32, prefix)).toEqual([]);
+  });
+
+  it("records every candidate of a prefix two sender notes share and audits the rest", () => {
+    const entry = vectorOf("anonymous", "commitment");
+    const vector = anonymousCase("commitment");
+    const assets = new AssetRegistry();
+    const index = spentUtxos(vector, assets);
+    const [first, later] = vector.inputs.map((input) => field(input.commitment));
+    const note = index.utxo(later!)!;
+    const twin: KnownUtxo = {
+      ...note,
+      blinding: Uint8Array.of(0, ...new Uint8Array(31).fill(0x62)) as Bytes32,
+    };
+    const twinCommitment = knownUtxoHash(twin, field(vector.ring_id));
+    index.insert(twinCommitment, twin);
+    const sharedPrefix = inputPrefix(later!);
+    const shared: KnownUtxos = {
+      utxo: (commitment) => index.utxo(commitment),
+      withPrefix: (ownerKey, prefix) => [
+        ...index.withPrefix(ownerKey, prefix),
+        ...(prefix === sharedPrefix ? [twinCommitment] : []),
+      ],
+    };
+    const audited = audit(entry, { assets, knownUtxos: shared });
+    expect(audited.inputs[0]?.opening).toMatchObject({
+      kind: "opened",
+      ring: { kind: "ring", commitment: first },
+    });
+    expect(audited.inputs[1]?.opening).toEqual({
+      kind: "ambiguous",
+      candidates: [later, twinCommitment],
+    });
+    expect(audited.outputs).toHaveLength(vector.slots.length);
   });
 
   it("names no sender nullifier key when spent note 0 is a deposit", () => {
@@ -417,10 +487,14 @@ describe("auditRingTransaction over the shared disclosure vectors", () => {
             owner: { kind: "deposited", ownerHash: new Uint8Array(32).fill(9) as Bytes32 },
           };
         },
+        withPrefix: (ownerKey, prefix) => utxos.withPrefix(ownerKey, prefix),
       },
     });
     expect(audited.sender).toEqual({ ownerKey: field(vector.sender_key) });
-    expect(audited.inputs[0]?.opening?.amount).toBe(BigInt(vector.inputs[0]!.amount));
+    expect(audited.inputs[0]?.opening).toMatchObject({
+      kind: "opened",
+      amount: BigInt(vector.inputs[0]!.amount),
+    });
   });
 
   it("opens every spent note of the entry key and resolves its ring against the known notes", () => {
@@ -441,6 +515,7 @@ describe("auditRingTransaction over the shared disclosure vectors", () => {
       vector.inputs.map((input) => ({
         nullifier: field(input.nullifier),
         opening: {
+          kind: "opened",
           asset: field(input.asset),
           ...openedMint(assets, input.asset),
           amount: BigInt(input.amount),
@@ -449,14 +524,16 @@ describe("auditRingTransaction over the shared disclosure vectors", () => {
         },
       })),
     );
+    const ringOf = ({ opening }: AuditedInput) =>
+      opening.kind === "opened" ? opening.ring : undefined;
     const unresolved = audit(entry, { inputTreeIds: trees });
     unresolved.inputs.forEach((input, index) => {
-      const ring = input.opening?.ring;
+      const ring = ringOf(input);
       if (ring?.kind !== "unresolved") throw new Error("expected an unresolved input");
       const known = vector.inputs[index]!;
       expect(known.ring === "ring" ? ring.ring : ring.default).toEqual(field(known.commitment));
     });
-    expect(audit(entry).inputs.every((input) => input.opening?.ring === undefined)).toBe(true);
+    expect(audit(entry).inputs.every((input) => ringOf(input) === undefined)).toBe(true);
   });
 
   it("records a disclosed field moved off its opening as that slot's commitment error", () => {
@@ -502,7 +579,7 @@ describe("auditRingTransaction over the shared disclosure vectors", () => {
       knownUtxos: spentUtxos(entry.vector, assets),
       transaction: withSlot(0, (slot) => {
         const viewTag = slot.viewTag.slice() as Bytes32;
-        viewTag[0] = 1;
+        viewTag[15] = 1;
         return { ...slot, viewTag };
       }),
     });

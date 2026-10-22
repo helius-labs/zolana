@@ -2,11 +2,16 @@ import { describe, expect, it } from "vitest";
 
 import anonymous from "../../../test-vectors/audit-disclosure-anonymous.json" with { type: "json" };
 import { hashChain4, initializePoseidon, solanaOwnerIdentity } from "../src/hasher/index.js";
-import type { AnonymousLayout } from "../src/interface/ring-disclosure-layout.js";
-import type { Bytes16, Bytes31, Bytes32 } from "../src/interface/types.js";
+import {
+  anonymousAuditKey,
+  anonymousKeyClass,
+  type AnonymousLayout,
+} from "../src/interface/ring-disclosure-layout.js";
+import type { Bytes16, Bytes32 } from "../src/interface/types.js";
 import { maskDisclosure, unmaskDisclosure } from "../src/keypair/audit.js";
 import { ownerHash } from "../src/keypair/hash.js";
 import {
+  anonymousCommitments,
   openRingDisclosure,
   sealRingDisclosure,
   type AnonymousOutputOpening,
@@ -79,11 +84,11 @@ describe.each(anonymous.cases.map((vector) => [vector.name, vector] as const))(
       kind: "anonymous",
       layout,
       seedOut: exits ? seedOut : undefined,
-      senderKey: field(vector.sender_key),
       outputs: vector.slots.map(outputOpening),
       inputs: entry
         ? {
             kind: "openings",
+            senderKey: field(vector.sender_key),
             senderNullifierPk: field(vector.sender_nullifier_pk),
             inputs: vector.inputs.map((input) => ({
               asset: field(input.asset),
@@ -91,15 +96,21 @@ describe.each(anonymous.cases.map((vector) => [vector.name, vector] as const))(
               blinding: field(input.blinding),
             })),
           }
-        : { kind: "commitments", hashes: vector.inputs.map((input) => field(input.commitment)) },
+        : anonymousCommitments(vector.inputs.map((input) => field(input.commitment))),
     };
     const published = vector.published.map(field);
 
-    it("names exactly the flags its key and slots need", () => {
+    it("names exactly the flags and the class its key and slots need", () => {
       expect(exits).toBe(slotExits.includes(true));
       expect((vector.layout & 8) !== 0).toBe(entry);
       expect((vector.layout & 2) !== 0).toBe(false);
-      expect(vector.class).toBe(entry ? 8 : 4);
+      const key = anonymousAuditKey({
+        inputs: vector.inputs.length,
+        outputs: vector.slots.length,
+        spendsDefaultRing: vector.inputs.some((input) => input.ring !== "ring"),
+      });
+      expect(key).toEqual(layout.key);
+      expect(anonymousKeyClass(layout.key)).toBe(vector.class);
     });
 
     it("derives the seed every exit and dummy blinding comes from", () => {
@@ -142,7 +153,7 @@ describe.each(anonymous.cases.map((vector) => [vector.name, vector] as const))(
           return;
         }
         const recipient = X25519PublicKey.fromU(field(need(slot.recipient_u, "recipient_u")));
-        const tag = hex<Bytes31>(need(slot.tag, "tag"), 31);
+        const tag = hex<Bytes16>(need(slot.tag, "tag"), 16);
         const index = tagIndex("index" in slot ? need(slot.index, "index") : 0);
         if (slot.stream === "inbox") {
           const inbox = inboxKey(ringId, recipient);
@@ -168,7 +179,7 @@ describe.each(anonymous.cases.map((vector) => [vector.name, vector] as const))(
             ringTag(field(need("tag_field" in slot ? slot.tag_field : undefined, "tag_field"))),
           ).toEqual(tag);
         }
-        expect(field(slot.owner_tag)).toEqual(Uint8Array.of(0, ...tag));
+        expect(field(slot.owner_tag)).toEqual(Uint8Array.of(...new Uint8Array(16), ...tag));
         const slotSecret = deliveredSlotSecret({
           agreement: txKey.ecdh(recipient),
           txViewingKey: txKey.publicKey(),

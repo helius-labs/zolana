@@ -24,6 +24,8 @@ export {
   DISCLOSURE_CHUNK_BYTES,
   DISCLOSURE_INPUT_AMOUNT_BYTES,
   DISCLOSURE_SENDER_KEY_BYTES,
+  INPUT_PREFIX_BITS,
+  INPUT_PREFIX_BYTES,
   PACKED_AUDIT_CAPACITIES,
   anonymousAuditClass,
   anonymousAuditKey,
@@ -38,6 +40,7 @@ export {
 export type {
   AnonymousAuditKey,
   AnonymousFields,
+  AnonymousInputFields,
   AnonymousLayout,
   AnonymousSpend,
   AuditLayout,
@@ -49,11 +52,14 @@ export type {
   PackedLayout,
 } from "../interface/ring-disclosure-layout.js";
 export {
+  anonymousCommitments,
   decodeDisclosure,
   disclosureFields,
   disclosureLayout,
+  inputPrefixPair,
   openRingDisclosure,
   sealRingDisclosure,
+  splitInputPrefixPair,
 } from "../keypair/ring-disclosure.js";
 export type {
   AnonymousInputOpening,

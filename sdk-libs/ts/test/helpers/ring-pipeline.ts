@@ -44,7 +44,7 @@ import { SHIELDED_POOL_PROGRAM_ID } from "../../src/interface/program.js";
 import { UTXO_ROOT_HISTORY_OFFSET } from "../../src/interface/state.js";
 import { DEFAULT_TREE_ID } from "../../src/interface/tree-slot.js";
 import { TRANSACTION_SIZE_LIMIT } from "../../src/interface/transaction-size.js";
-import type { Bytes31, Bytes32, Bytes128, TransactProof } from "../../src/interface/types.js";
+import type { Bytes16, Bytes32, Bytes128, TransactProof } from "../../src/interface/types.js";
 import { openTransactionViewingSecret } from "../../src/keypair/audit.js";
 import { checkedBytes, randomBlinding } from "../../src/keypair/bytes.js";
 import { openRingDisclosure, type RingDisclosure } from "../../src/keypair/ring-disclosure.js";
@@ -399,7 +399,7 @@ export async function ringFixture(options: RingFixtureOptions = {}) {
     merkleRequests,
     ownTree,
     /** The tag streams find these anonymous tags used. */
-    publishTags(tags: readonly Bytes31[]): void {
+    publishTags(tags: readonly Bytes16[]): void {
       for (const tag of tags) publishedTags.add(hex(ringTagField(tag)));
     },
     /** Photon serves a path for `hash` at `leafIndex` of `tree`, the tree holds its root unless a test replaced it. */
@@ -668,12 +668,12 @@ export function checkDisclosure(
       });
   });
   if (disclosure.kind === "anonymous") {
-    expect(disclosure.senderKey).toEqual(sender.signingPublicKey.confidentialViewTag());
     const spent = call.proofInputs.inputUtxos.filter((input) => !input.isCompact());
     expect(disclosure.inputs).toEqual(
       disclosure.layout.key.kind === "entry"
         ? {
             kind: "openings",
+            senderKey: sender.signingPublicKey.confidentialViewTag(),
             senderNullifierPk: sender.nullifierPublicKey,
             inputs: spent.map((input) =>
               input.isDummy()
@@ -687,7 +687,14 @@ export function checkDisclosure(
           }
         : {
             kind: "commitments",
-            hashes: spent.map((input) => (input.isDummy() ? undefined : input.hash())),
+            first: spent[0]?.hash(),
+            prefixes: spent
+              .slice(1)
+              .map((input) =>
+                input.isDummy()
+                  ? undefined
+                  : BigInt(`0x${Buffer.from(input.hash().subarray(0, 16)).toString("hex")}`),
+              ),
           },
     );
   }

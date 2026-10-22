@@ -1,7 +1,7 @@
 /** The ring output rails, mirrors Rust `zolana-ring-transaction` over the ring program's expansion. */
 import { isCanonicalField } from "../interface/canonical-field.js";
 import { addressBytes } from "../interface/internal.js";
-import type { Address, Bytes16, Bytes31, Bytes32, TransactOutput } from "../interface/types.js";
+import type { Address, Bytes16, Bytes32, TransactOutput } from "../interface/types.js";
 import {
   BODY_LEN,
   anonymousRingSecret,
@@ -51,7 +51,7 @@ export type StreamPosition = Readonly<{ kind: "inbox" | "pair"; index: TagIndex 
 export interface StreamPayment {
   /** The ring address key its body opens under. */
   readonly recipient: X25519PublicKey;
-  readonly tag: Bytes31;
+  readonly tag: Bytes16;
   readonly position: StreamPosition;
 }
 
@@ -59,10 +59,10 @@ export interface StreamPayment {
 export type AnonymousSlot =
   | Readonly<{ kind: "payment"; payment: StreamPayment }>
   /** The sender's change under a free tag, delivered to its ring change key. */
-  | Readonly<{ kind: "change"; tag: Bytes31 }>
+  | Readonly<{ kind: "change"; tag: Bytes16 }>
   | Readonly<{ kind: "exit" }>
   /** Padding under a free tag. */
-  | Readonly<{ kind: "dummy"; tag: Bytes31 }>;
+  | Readonly<{ kind: "dummy"; tag: Bytes16 }>;
 
 /** The payments of an anonymous transfer by final slot index, Rust `AnonymousSlots`. */
 export class AnonymousSlots {
@@ -70,13 +70,13 @@ export class AnonymousSlots {
   readonly #payments: ReadonlyMap<number, StreamPayment>;
   readonly #ringAddressKeys: readonly X25519PublicKey[];
   /** Drawn ahead, a change slot's ring secret binds its tag before the owner tags resolve. */
-  readonly #freeTags: readonly Bytes31[];
+  readonly #freeTags: readonly Bytes16[];
 
   private constructor(
     changeKey: X25519PublicKey,
     payments: ReadonlyMap<number, StreamPayment>,
     ringAddressKeys: readonly X25519PublicKey[],
-    freeTags: readonly Bytes31[],
+    freeTags: readonly Bytes16[],
   ) {
     this.changeKey = changeKey;
     this.#payments = payments;
@@ -151,7 +151,7 @@ export class AnonymousSlots {
       throw new RingError("RING_PAYMENT_SLOT", { details: { slotIndex: outside } });
   }
 
-  #freeTag(slotIndex: number): Bytes31 {
+  #freeTag(slotIndex: number): Bytes16 {
     const tag = this.#freeTags[slotIndex];
     if (tag === undefined) throw new RingError("RING_PAYMENT_SLOT", { details: { slotIndex } });
     return tag;
@@ -172,9 +172,9 @@ export interface PublishedSlot {
 
 /** How a slot publishes, by rail. */
 type Slot =
-  | Readonly<{ kind: "ring"; recipient: X25519PublicKey; tag?: Bytes31 }>
+  | Readonly<{ kind: "ring"; recipient: X25519PublicKey; tag?: Bytes16 }>
   | Readonly<{ kind: "exit" }>
-  | Readonly<{ kind: "dummy"; tag?: Bytes31 }>
+  | Readonly<{ kind: "dummy"; tag?: Bytes16 }>
   | Readonly<{ kind: "compact" }>;
 
 /** The payload SPP binds for one final slot, as the program expands the slot's compact wire. */
@@ -506,8 +506,8 @@ export class RingOutputRail {
   }
 }
 
-/** `low248` of a uniform field element, the change and padding tags no stream derives. */
-export function freeTag(): Bytes31 {
+/** `low128` of a uniform field element, the change and padding tags no stream derives. */
+export function freeTag(): Bytes16 {
   for (;;) {
     const value = randomBytes(32);
     // Below 2^254 the modulus accepts about three draws in four.

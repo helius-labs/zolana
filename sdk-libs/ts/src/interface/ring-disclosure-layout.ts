@@ -9,9 +9,10 @@ export const ANONYMOUS_AUDIT_CLASSES: readonly Readonly<{
   outputs: number;
   classes: readonly number[];
 }>[] = Object.freeze([
-  Object.freeze({ outputs: 2, classes: Object.freeze([4, 8, 12, 16, 24, 28]) }),
+  Object.freeze({ outputs: 2, classes: Object.freeze([4, 8, 12, 16, 24, 32]) }),
   Object.freeze({ outputs: 4, classes: Object.freeze([4, 8, 12, 16, 24]) }),
   Object.freeze({ outputs: 8, classes: Object.freeze([4, 8, 12, 16]) }),
+  Object.freeze({ outputs: 16, classes: Object.freeze([1]) }),
 ]);
 /** Input slots of every anonymous entry key. */
 export const ANONYMOUS_ENTRY_CLASS = 8;
@@ -27,8 +28,12 @@ export const DELIVERED_SLOT_BYTES = 40;
 export const DENSE_DELIVERED_SLOT_BYTES = 32;
 /** A ring slot `owner_key ‖ u`, an exit `asset ‖ u64be(amount) ‖ 0^24`. */
 export const ANONYMOUS_SLOT_BYTES = 64;
-/** The hidden sender's key ahead of the anonymous output slots. */
+/** The hidden sender's key ahead of the entry key's output slots. */
 export const DISCLOSURE_SENDER_KEY_BYTES = 32;
+/** The first bytes of a spent hash a commitment key discloses. */
+export const INPUT_PREFIX_BYTES = 16;
+/** A prefix of a canonical hash lies below `2^INPUT_PREFIX_BITS`, two prefixes pack below the modulus. */
+export const INPUT_PREFIX_BITS = 126;
 /** One `u64be(amount)` per input slot of the entry class. */
 export const DISCLOSURE_INPUT_AMOUNT_BYTES = 8;
 /** Rust `PACK_BE_CHUNK_BYTES`, the bytes of one disclosure field. */
@@ -56,7 +61,7 @@ export function auditLayoutValue(layout: AuditLayout): number {
 
 /** The key of an anonymous transfer's audit proof, Rust `AnonymousAuditKey`. */
 export type AnonymousAuditKey =
-  /** Publishes each spent UTXO's hash, every spent UTXO a note of the ring. */
+  /** Publishes spent UTXO 0's hash and the prefix of every later one, every spent UTXO a note of the ring. */
   | Readonly<{ kind: "commitment"; class: number }>
   /** Opens every spent UTXO, the key of a transfer that spends a default-ring note. */
   | Readonly<{ kind: "entry" }>;
@@ -161,19 +166,33 @@ export interface DeliveredFields {
 /** Positions in an anonymous disclosure. */
 export interface AnonymousFields {
   readonly seedOut: number | undefined;
-  /** The entry key's `nullifier_pk` of every spent UTXO. */
-  readonly senderNullifierPk: number | undefined;
   /** `nullifier_pk` per output. */
   readonly nullifierPks: FieldRange;
-  /** `pack_disclosure(sender_key ‖ slots)`, `ANONYMOUS_SLOT_BYTES` a slot. */
+  /** `pack_disclosure` of `slotBytes`, the entry key's sender key ahead of one `ANONYMOUS_SLOT_BYTES` slot per output. */
   readonly slots: FieldRange;
-  /** The entry key's `pack_disclosure(u64be(amount))` over its class, zero past the inputs. */
-  readonly inputAmounts: FieldRange | undefined;
-  /** Per published input `inputWidth` fields, the UTXO hash or the entry key's `asset, blinding`. */
-  readonly inputs: FieldRange;
-  readonly inputWidth: number;
+  readonly slotBytes: number;
+  readonly inputs: AnonymousInputFields;
   readonly fieldCount: number;
 }
+
+/** Rust `AnonymousInputFields`. */
+export type AnonymousInputFields =
+  | Readonly<{
+      kind: "commitments";
+      /** Spent UTXO 0's hash. */
+      first: number;
+      /** `inputPrefixPair` over the later published inputs. */
+      prefixPairs: FieldRange;
+    }>
+  | Readonly<{
+      kind: "openings";
+      /** The `nullifier_pk` of every spent UTXO. */
+      senderNullifierPk: number;
+      /** `pack_disclosure(u64be(amount))` over the class, zero past the inputs. */
+      amounts: FieldRange;
+      /** `asset, blinding` per published input. */
+      openings: FieldRange;
+    }>;
 
 /** Rust `pack_be_chunks`, the fields `length` bytes pack into. */
 export function packedChunks(length: number): number {
@@ -218,22 +237,28 @@ export function anonymousFields(layout: AnonymousLayout): AnonymousFields {
   const seedOut = layout.exits ? next.one() : undefined;
   const senderNullifierPk = entry ? next.one() : undefined;
   const nullifierPks = next.run(layout.outputs);
-  const slots = next.run(
-    packedChunks(DISCLOSURE_SENDER_KEY_BYTES + ANONYMOUS_SLOT_BYTES * layout.outputs),
-  );
-  const inputAmounts = entry
-    ? next.run(packedChunks(DISCLOSURE_INPUT_AMOUNT_BYTES * ANONYMOUS_ENTRY_CLASS))
-    : undefined;
-  const inputWidth = entry ? 2 : 1;
-  const inputs = next.run(inputWidth * layout.inputs);
+  const slotBytes =
+    (entry ? DISCLOSURE_SENDER_KEY_BYTES : 0) + ANONYMOUS_SLOT_BYTES * layout.outputs;
+  const slots = next.run(packedChunks(slotBytes));
+  const inputs: AnonymousInputFields =
+    senderNullifierPk === undefined
+      ? Object.freeze({
+          kind: "commitments",
+          first: next.one(),
+          prefixPairs: next.run(Math.floor(layout.inputs / 2)),
+        })
+      : Object.freeze({
+          kind: "openings",
+          senderNullifierPk,
+          amounts: next.run(packedChunks(DISCLOSURE_INPUT_AMOUNT_BYTES * ANONYMOUS_ENTRY_CLASS)),
+          openings: next.run(2 * layout.inputs),
+        });
   return Object.freeze({
     seedOut,
-    senderNullifierPk,
     nullifierPks,
     slots,
-    inputAmounts,
+    slotBytes,
     inputs,
-    inputWidth,
     fieldCount: next.position,
   });
 }

@@ -16,7 +16,6 @@ import { N_PUBLIC_SLOTS, RING_AUTHORITY_SHAPES, SPP_SUPPORTED_SHAPES } from "../
 import type {
   Address,
   Bytes16,
-  Bytes31,
   Bytes32,
   Bytes33,
   Bytes64,
@@ -90,7 +89,7 @@ export type InputTrees =
 export type RingOutput =
   | Readonly<{ kind: "packed"; hash: Bytes32; u: Bytes32; ciphertext: Uint8Array }>
   | Readonly<{ kind: "delivered"; hash: Bytes32; u: Bytes32; body: Uint8Array }>
-  | Readonly<{ kind: "anonymous"; hash: Bytes32; tag: Bytes31; body: Uint8Array }>
+  | Readonly<{ kind: "anonymous"; hash: Bytes32; tag: Bytes16; body: Uint8Array }>
   | Readonly<{ kind: "exit"; hash: Bytes32; ownerTag: Bytes32; payload: Uint8Array }>;
 
 /** The data of `Transact` and `DelegateTransact`, Rust `RingTransactData`. */
@@ -181,7 +180,7 @@ export function outputRecipientKeyFields(output: RingOutput): readonly Bytes32[]
     : [ZERO, ZERO];
 }
 
-/** `0x00 ‖ tag` of an anonymous slot, zero for any other. */
+/** `0^16 ‖ tag` of an anonymous slot, zero for any other. */
 export function outputTagField(output: RingOutput): Bytes32 {
   return output.kind === "anonymous" ? ringTagField(output.tag) : ZERO;
 }
@@ -612,7 +611,7 @@ function readOutput(bytes: Reader, frame: SlotFrame, exit: boolean): RingOutput 
       });
     }
     case "anonymous": {
-      const tag = bytes.bytes(TAG_LEN, "output.tag") as Bytes31;
+      const tag = bytes.bytes(TAG_LEN, "output.tag") as Bytes16;
       return Object.freeze({
         kind: "anonymous",
         hash,

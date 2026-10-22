@@ -18,7 +18,6 @@ import type {
 import {
   DEFAULT_TREE_ID,
   type Bytes16,
-  type Bytes31,
   type Bytes32,
   type Bytes33,
   type Bytes96,
@@ -138,8 +137,8 @@ function field(value: number): Bytes32 {
   return out;
 }
 
-function freeTag(value: number): Bytes31 {
-  return new Uint8Array(TAG_LEN).fill(value) as Bytes31;
+function freeTag(value: number): Bytes16 {
+  return new Uint8Array(TAG_LEN).fill(value) as Bytes16;
 }
 
 function keypair(seed: number): ShieldedKeypair {
@@ -257,7 +256,7 @@ class Indexer implements SyncClient {
 
 interface Output {
   readonly to: ShieldedAddress;
-  readonly tag: Bytes31;
+  readonly tag: Bytes16;
   readonly amount: bigint;
   readonly mint?: Address;
 }
@@ -372,7 +371,7 @@ class Chain {
   }
 
   /** A payment from someone the wallet never spent with. */
-  pay(to: RingAddress, tag: Bytes31, amount: bigint, epoch: bigint, payer = SENDER): Note {
+  pay(to: RingAddress, tag: Bytes16, amount: bigint, epoch: bigint, payer = SENDER): Note {
     const [note] = this.transfer({
       payer: payer.viewingKey(),
       nullifiers: [field(this.#nonce++)],
@@ -540,7 +539,7 @@ async function ringAddress(
   return ringAddressOf({ keys: LocalShieldedKeys.fromKeypair(owner), ring, index, pairing });
 }
 
-function inboxTagOf(to: RingAddress, epoch: bigint, index: number): Bytes31 {
+function inboxTagOf(to: RingAddress, epoch: bigint, index: number): Bytes16 {
   return inboxTag(
     inboxKey(ringIdField(RING), to.recipient.viewingPublicKey),
     epoch,
@@ -563,7 +562,7 @@ function changeOf(owner: ShieldedKeypair): ShieldedAddress {
 }
 
 /** An output to a wallet no test syncs. */
-async function elsewhere(amount: bigint, tag: Bytes31): Promise<Output> {
+async function elsewhere(amount: bigint, tag: Bytes16): Promise<Output> {
   return { to: (await ringAddress(OTHER, 0)).recipient, tag, amount };
 }
 

@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import keyedShapes from "../../../test-vectors/ring_keyed_shapes.json" with { type: "json" };
 import policyRules from "../../../test-vectors/ring-policy-rules.json" with { type: "json" };
 import records from "../../../test-vectors/ring-records.json" with { type: "json" };
+import counts from "../../../test-vectors/ring-disclosure-counts.json" with { type: "json" };
 import statements from "../../../test-vectors/ring-statements.json" with { type: "json" };
 import expansion from "../../../test-vectors/ring-transact-expansion.json" with { type: "json" };
 import { solanaOwnerIdentity } from "../src/hasher/index.js";
@@ -16,16 +17,14 @@ import {
   ringAuthorityShape,
 } from "../src/interface/shape.js";
 import { encodeBase58 } from "../src/interface/internal.js";
-import type {
-  Address,
-  Bytes16,
-  Bytes31,
-  Bytes32,
-  Bytes33,
-  Bytes96,
-} from "../src/interface/types.js";
+import type { Address, Bytes16, Bytes32, Bytes33, Bytes96 } from "../src/interface/types.js";
 import { packDisclosure, unpackDisclosure } from "../src/keypair/audit.js";
 import {
+  ANONYMOUS_AUDIT_CLASSES,
+  ANONYMOUS_ENTRY_CLASS,
+  ANONYMOUS_ENTRY_OUTPUTS,
+  anonymousAuditKey,
+  anonymousKeyClass,
   disclosureFieldCount,
   packedFields,
   deliveredFields,
@@ -80,7 +79,7 @@ import {
   type RingOutput,
   type RingRail,
 } from "../src/ring/transact.js";
-import { ringTagField, ringTagFromOwnerTag } from "../src/keypair/ring-stream.js";
+import { TAG_LEN, ringTagField, ringTagFromOwnerTag } from "../src/keypair/ring-stream.js";
 import { hashChain } from "../src/transaction/internal.js";
 
 function bytes<T extends Uint8Array>(value: string, length?: number): T {
@@ -382,7 +381,7 @@ describe("ring-statements.json", () => {
         return {
           kind: "anonymous",
           hash,
-          tag: bytes<Bytes31>(vector.tag ?? "", 31),
+          tag: bytes<Bytes16>(vector.tag ?? "", 16),
           body: bytes(vector.body ?? "", 40),
         };
       default:
@@ -611,6 +610,23 @@ describe("ring_keyed_shapes.json", () => {
     expect(ringAuthorityShape(3, 9)).toEqual({ inputs: 4, outputs: 16 });
     expect(ringAuthorityShape(41, 2)).toBeUndefined();
   });
+
+  it("keys the anonymous classes and exactly the anonymous shapes a commitment class serves", () => {
+    expect(ANONYMOUS_AUDIT_CLASSES).toEqual(keyedShapes.anonymous_audit_classes);
+    expect({ class: ANONYMOUS_ENTRY_CLASS, outputs: ANONYMOUS_ENTRY_OUTPUTS }).toEqual(
+      keyedShapes.anonymous_entry,
+    );
+    expect(
+      SPP_SUPPORTED_SHAPES.filter(
+        (shape) =>
+          anonymousAuditKey({
+            inputs: shape.inputs,
+            outputs: shape.outputs,
+            spendsDefaultRing: false,
+          }) !== undefined,
+      ).map((shape) => [shape.inputs, shape.outputs]),
+    ).toEqual(keyedShapes.anonymous_ring);
+  });
 });
 
 describe("ring rails", () => {
@@ -630,13 +646,15 @@ describe("ring rails", () => {
     expect(() => ringRailOf(merge, "off")).toThrow(ringError("InvalidInstructionData"));
   });
 
-  it("reads the tag of an owner tag only behind a zero byte like Rust `RingTag::from_owner_tag`", () => {
-    const tag = new Uint8Array(31).fill(9) as Bytes31;
+  it("reads the tag of an owner tag only behind sixteen zero bytes like Rust `RingTag::from_owner_tag`", () => {
+    const tag = new Uint8Array(TAG_LEN).fill(9) as Bytes16;
     const ownerTag = ringTagField(tag);
     expect(ringTagFromOwnerTag(ownerTag)).toEqual(tag);
-    const marked = Uint8Array.from(ownerTag) as Bytes32;
-    marked[0] = 1;
-    expect(ringTagFromOwnerTag(marked)).toBeUndefined();
+    for (let index = 0; index < 32 - TAG_LEN; index++) {
+      const marked = Uint8Array.from(ownerTag) as Bytes32;
+      marked[index] = 1;
+      expect(ringTagFromOwnerTag(marked)).toBeUndefined();
+    }
   });
 });
 
@@ -654,37 +672,45 @@ describe("disclosure packing", () => {
     expect(() => unpackDisclosure(padded, 40)).toThrow("KEYPAIR_DISCLOSURE_PADDING");
   });
 
-  it("counts the fields every rail publishes as the Go host checks do", () => {
-    const packed = (outputs: number, exits: boolean, keyEscrow: boolean, dataFree: boolean) =>
-      disclosureFieldCount({ kind: "packed", outputs, exits, keyEscrow, dataFree });
-    expect(packed(3, true, false, false)).toBe(19);
-    expect(packed(3, false, false, false)).toBe(18);
-    expect(packed(3, true, true, false)).toBe(16);
-    expect(packed(3, false, true, true)).toBe(9);
-    const delivered = (exits: boolean, keyEscrow: boolean) =>
-      [8, 16].map((outputs) =>
-        disclosureFieldCount({ kind: "delivered", outputs, exits, keyEscrow }),
-      );
-    expect([
-      delivered(true, false),
-      delivered(false, false),
-      delivered(true, true),
-      delivered(false, true),
-    ]).toEqual([
-      [20, 38],
-      [17, 33],
-      [12, 22],
-      [9, 17],
-    ]);
-    const anonymous = (key: AnonymousAuditKey, outputs: number, exits: boolean) =>
-      disclosureFieldCount({ kind: "anonymous", key, inputs: 2, outputs, exits });
-    const commitment: AnonymousAuditKey = { kind: "commitment", class: 4 };
-    expect(anonymous(commitment, 2, false)).toBe(10);
-    expect(anonymous(commitment, 4, true)).toBe(17);
-    expect(anonymous(commitment, 8, true)).toBe(29);
-    expect(anonymous({ kind: "entry" }, 2, false)).toBe(16);
-    expect(anonymous({ kind: "entry" }, 4, true)).toBe(23);
-    expect(anonymous({ kind: "entry" }, 8, true)).toBe(35);
+  it("counts the fields of every layout as the solved Go host disclosure the vector records", () => {
+    const layouts = [
+      ...counts.packed.map((record) => ({
+        record,
+        layout: {
+          kind: "packed",
+          outputs: record.outputs,
+          exits: record.exits,
+          keyEscrow: record.key_escrow,
+          dataFree: record.data_free,
+        } as const,
+      })),
+      ...counts.delivered.map((record) => ({
+        record,
+        layout: {
+          kind: "delivered",
+          outputs: record.outputs,
+          exits: record.exits,
+          keyEscrow: record.key_escrow,
+        } as const,
+      })),
+      ...counts.anonymous.map((record) => {
+        const key: AnonymousAuditKey =
+          record.key === "entry" ? { kind: "entry" } : { kind: "commitment", class: record.class };
+        expect(anonymousKeyClass(key)).toBe(record.class);
+        return {
+          record,
+          layout: {
+            kind: "anonymous",
+            key,
+            inputs: record.inputs,
+            outputs: record.outputs,
+            exits: record.exits,
+          } as const,
+        };
+      }),
+    ];
+    for (const { record, layout } of layouts)
+      expect(disclosureFieldCount(layout), JSON.stringify(record)).toBe(record.fields);
   });
 
   it("places every field the flags keep and skips every field they leave out", () => {
@@ -716,24 +742,34 @@ describe("disclosure packing", () => {
       32,
     ]);
     const entry = anonymousFields({ key: { kind: "entry" }, inputs: 3, outputs: 2, exits: true });
-    expect([entry.seedOut, entry.senderNullifierPk, entry.nullifierPks, entry.slots]).toEqual([
+    expect([entry.seedOut, entry.nullifierPks, entry.slots, entry.slotBytes]).toEqual([
       0,
-      1,
       { start: 2, end: 4 },
       { start: 4, end: 10 },
+      160,
     ]);
-    expect([entry.inputAmounts, entry.inputs]).toEqual([
-      { start: 10, end: 13 },
-      { start: 13, end: 19 },
-    ]);
+    expect(entry.inputs).toEqual({
+      kind: "openings",
+      senderNullifierPk: 1,
+      amounts: { start: 10, end: 13 },
+      openings: { start: 13, end: 19 },
+    });
     const commitment = anonymousFields({
       key: { kind: "commitment", class: 4 },
       inputs: 3,
       outputs: 2,
       exits: true,
     });
-    expect([commitment.senderNullifierPk, commitment.inputAmounts]).toEqual([undefined, undefined]);
-    expect([commitment.inputs, commitment.inputWidth]).toEqual([{ start: 9, end: 12 }, 1]);
+    expect([commitment.nullifierPks, commitment.slots, commitment.slotBytes]).toEqual([
+      { start: 1, end: 3 },
+      { start: 3, end: 8 },
+      128,
+    ]);
+    expect(commitment.inputs).toEqual({
+      kind: "commitments",
+      first: 8,
+      prefixPairs: { start: 9, end: 10 },
+    });
   });
 
   it("refuses a layout no audit key serves", () => {
@@ -751,8 +787,9 @@ describe("disclosure packing", () => {
         exits: false,
       });
     expect(commitment(24, 2, 8)).toThrow("KEYPAIR_DISCLOSURE_SHAPE");
-    expect(commitment(28, 2, 4)).toThrow("KEYPAIR_DISCLOSURE_SHAPE");
+    expect(commitment(28, 2, 2)).toThrow("KEYPAIR_DISCLOSURE_SHAPE");
     expect(commitment(4, 5, 2)).toThrow("KEYPAIR_DISCLOSURE_SHAPE");
+    expect(commitment(1, 2, 16)).toThrow("KEYPAIR_DISCLOSURE_SHAPE");
     expect(
       decode({ kind: "anonymous", key: { kind: "entry" }, inputs: 9, outputs: 2, exits: false }),
     ).toThrow("KEYPAIR_DISCLOSURE_SHAPE");

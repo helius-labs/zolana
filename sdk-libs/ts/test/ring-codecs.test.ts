@@ -1114,17 +1114,23 @@ describe("ring read request", () => {
     const item = await readItem(rustItem("decrypted_anonymous_page.json"));
     expect(item.sender).toEqual({ ownerKey: filled(0x50, 32), nullifierPk: filled(0x51, 32) });
     const ring = item.outputs[0]!.opening;
-    expect(ring.kind === "ring" && ring.tag).toEqual(filled(0x31, 31));
+    expect(ring.kind === "ring" && ring.tag).toEqual(filled(0x31, 16));
     expect(item.inputs.map((input) => input.nullifier)).toEqual(item.nullifiers);
-    expect(item.inputs.map((input) => input.opening?.ring)).toEqual([
+    expect(
+      item.inputs.map(({ opening }) => (opening.kind === "opened" ? opening.ring : opening.kind)),
+    ).toEqual([
       { kind: "ring", commitment: filled(0x62, 32) },
       { kind: "unresolved", ring: filled(0x72, 32), default: filled(0x73, 32) },
       { kind: "default", commitment: filled(0x82, 32) },
       undefined,
-      undefined,
+      "dummy",
+      "ambiguous",
     ]);
     expect(item.inputs[3]?.opening).toMatchObject({ amount: 0x90n, mint: addressOf(4) });
-    expect(item.inputs[4]?.opening).toBeUndefined();
+    expect(item.inputs[5]?.opening).toEqual({
+      kind: "ambiguous",
+      candidates: [filled(0xa0, 32), filled(0xa1, 32)],
+    });
   });
 
   it("reads a sender whose spent UTXO 0 is a deposit and refuses an output UTXO without its key", async () => {
@@ -1179,9 +1185,25 @@ describe("ring read request", () => {
       "inputs",
     ],
     [
-      "a tag field with a lead byte",
-      (item) => (outputAt(item, 0)["tag"] = addressOf(0x31)),
+      "a tag field with a nonzero byte ahead of the tag",
+      (item) =>
+        (outputAt(item, 0)["tag"] = getAddressDecoder().decode(
+          Uint8Array.of(...filled(0, 15), 1, ...filled(0x31, 16)),
+        )),
       "outputs[0].tag",
+    ],
+    [
+      "an ambiguous input with an opening",
+      (item) => {
+        const inputs = item["inputs"] as Record<string, unknown>[];
+        inputs[5]!["opening"] = inputs[0]!["opening"];
+      },
+      "inputs[5].candidates",
+    ],
+    [
+      "an empty candidate list",
+      (item) => ((item["inputs"] as Record<string, unknown>[])[5]!["candidates"] = []),
+      "inputs[5].candidates",
     ],
     [
       "an unknown input ring kind",

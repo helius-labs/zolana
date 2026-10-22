@@ -1,15 +1,9 @@
 import type { IndexerReader, KitRpcAccess } from "../client/ports.js";
 import { hashBytes, initializePoseidon, solanaOwnerIdentity } from "../hasher/index.js";
 import { encodeBase58 } from "../interface/internal.js";
-import type {
-  Address,
-  Bytes16,
-  Bytes31,
-  Bytes32,
-  RequestContext,
-  Signature,
-} from "../interface/types.js";
+import type { Address, Bytes16, Bytes32, RequestContext, Signature } from "../interface/types.js";
 import {
+  INPUT_PREFIX_BYTES,
   disclosureFieldCount,
   type DisclosureLayout,
 } from "../interface/ring-disclosure-layout.js";
@@ -23,9 +17,11 @@ import { clampViewingSecret } from "../keypair/derivation.js";
 import { KeypairError } from "../keypair/error.js";
 import { ownerHash } from "../keypair/hash.js";
 import {
+  inputPrefix,
   openRingDisclosure,
   type AnonymousOutputOpening,
   type DeliveredOutputOpening,
+  type InputPrefix,
   type PackedOutputOpening,
   type RingDisclosure,
 } from "../keypair/ring-disclosure.js";
@@ -78,7 +74,7 @@ export type OutputOpening =
       utxo: AuditedUtxo;
       recipientU: Bytes32;
       /** The published tag of an anonymous ring output. */
-      tag?: Bytes31;
+      tag?: Bytes16;
     }>
   /** A default-ring UTXO, its owner the published owner tag. */
   | Readonly<{ kind: "exit"; utxo: AuditedUtxo }>
@@ -127,10 +123,16 @@ export interface AuditedInputOpening {
   readonly ring?: InputRing;
 }
 
+/** Rust `InputOpening`. */
+export type InputOpening =
+  | Readonly<{ kind: "dummy" }>
+  | (Readonly<{ kind: "opened" }> & AuditedInputOpening)
+  /** More of the sender's ring notes carry the disclosed prefix than inputs name it. */
+  | Readonly<{ kind: "ambiguous"; candidates: readonly Bytes32[] }>;
+
 export interface AuditedInput {
   readonly nullifier: Bytes32;
-  /** Absent for a dummy input. */
-  readonly opening?: AuditedInputOpening;
+  readonly opening: InputOpening;
 }
 
 /** Rust `AuditedTransaction`. */
@@ -167,9 +169,45 @@ export interface CreatedRingUtxo {
   readonly utxo: KnownUtxo;
 }
 
-/** Rust `KnownUtxos`, UTXOs the auditor opened before by their hash. */
+/** Rust `KnownUtxos`, UTXOs the auditor opened before. */
 export interface KnownUtxos {
   utxo(commitment: Bytes32): KnownUtxo | undefined;
+  /** The commitments of the notes of `ownerKey` that carry `prefix`. */
+  withPrefix(ownerKey: Bytes32, prefix: InputPrefix): readonly Bytes32[];
+}
+
+/** Rust `KnownUtxoIndex`, the notes an auditor opened by commitment and by owner key and prefix. */
+export class KnownUtxoIndex implements KnownUtxos {
+  readonly #utxos = new Map<string, KnownUtxo>();
+  readonly #owned = new Map<string, Bytes32[]>();
+
+  constructor(utxos: Iterable<Readonly<{ commitment: Bytes32; utxo: KnownUtxo }>> = []) {
+    for (const { commitment, utxo } of utxos) this.insert(commitment, utxo);
+  }
+
+  /** A later opening of a known commitment replaces it only to name its mint. */
+  insert(commitment: Bytes32, utxo: KnownUtxo): void {
+    const key = bytesKey(commitment);
+    const kept = this.#utxos.get(key);
+    if (kept !== undefined) {
+      if (kept.mint === undefined && utxo.mint !== undefined) this.#utxos.set(key, utxo);
+      return;
+    }
+    const prefix = inputPrefix(commitment);
+    if (prefix !== undefined) {
+      const owner = ownedKey(utxo.ownerKey, prefix);
+      this.#owned.set(owner, [...(this.#owned.get(owner) ?? []), commitment]);
+    }
+    this.#utxos.set(key, utxo);
+  }
+
+  utxo(commitment: Bytes32): KnownUtxo | undefined {
+    return this.#utxos.get(bytesKey(commitment));
+  }
+
+  withPrefix(ownerKey: Bytes32, prefix: InputPrefix): readonly Bytes32[] {
+    return Object.freeze([...(this.#owned.get(ownedKey(ownerKey, prefix)) ?? [])]);
+  }
 }
 
 /** Rust `EscrowedKeys`, the nullifier key each registered owner escrows by its raw Solana key. */
@@ -334,16 +372,7 @@ export function auditRingTransaction(
       txViewingPublicKey,
       outputs: Object.freeze(audited.outputs),
       payloadErrors: Object.freeze(audited.payloadErrors),
-      ...(spent === undefined || disclosure.kind !== "anonymous"
-        ? {}
-        : {
-            sender: Object.freeze({
-              ownerKey: disclosure.senderKey,
-              ...(spent.senderNullifierPk === undefined
-                ? {}
-                : { nullifierPk: spent.senderNullifierPk }),
-            }),
-          }),
+      ...(spent === undefined ? {} : { sender: spent.sender }),
       inputs: Object.freeze(spent?.inputs ?? []),
     });
   } finally {
@@ -395,7 +424,7 @@ export function hasUnknownAssets(transaction: AuditedRingTransaction): boolean {
   return (
     auditedUtxos(transaction).some(({ utxo }) => utxo.mint === undefined) ||
     transaction.inputs.some(
-      (input) => input.opening !== undefined && input.opening.mint === undefined,
+      (input) => input.opening.kind === "opened" && input.opening.mint === undefined,
     )
   );
 }
@@ -430,7 +459,7 @@ export async function auditRing(
       throw new RingError("RING_RPC", { details: { reason: "invalid scan limit", name, value } });
   }
   const origin = input.origin ?? new RpcTransactionOrigin(input.client.solanaRpc);
-  const known = new UtxoIndex(input.knownUtxos);
+  const known = new ScanUtxos(input.knownUtxos);
   const transactions: AuditedRingTransaction[] = [];
   let assetsRefreshed = false;
   let cursor = input.cursor;
@@ -533,7 +562,7 @@ interface Delivery {
   /** `undefined` under key escrow. */
   readonly nullifierPk: Bytes32 | undefined;
   readonly recipientU: Bytes32;
-  readonly tag?: Bytes31;
+  readonly tag?: Bytes16;
 }
 
 /** An exit of a delivered rail, its owner key published as its owner tag. */
@@ -543,10 +572,8 @@ interface DeliveredExit {
   readonly amount: bigint;
 }
 
-/** The sender's spends and the one nullifier key they share. */
 interface Spent {
-  /** Absent when spent UTXO 0 is a deposit. */
-  readonly senderNullifierPk: Bytes32 | undefined;
+  readonly sender: AuditedSender;
   readonly inputs: readonly AuditedInput[];
 }
 
@@ -593,42 +620,32 @@ class Transfer {
     const { disclosure, nullifiers } = spent;
     const published = disclosure.inputs;
     if (published.kind === "commitments") {
-      const known = (commitment: Bytes32): KnownUtxo => {
-        const utxo = spent.known?.utxo(commitment);
-        if (utxo === undefined)
-          throw new RingError("RING_AUDIT_UNSEEN_INPUT", {
-            details: { commitment: bytesKey(commitment) },
-          });
-        return utxo;
-      };
-      // The circuit proves spent UTXO 0 real.
-      const first = published.hashes[0];
-      if (first === undefined)
-        throw new RingError("RING_AUDIT_MESSAGE", { details: { reason: "disclosure" } });
-      const { owner } = known(first);
-      const senderNullifierPk = owner.kind === "keyed" ? owner.nullifierPk : undefined;
-      const inputs = nullifiers.map((nullifier, index): AuditedInput => {
-        const commitment = published.hashes[index];
-        if (commitment === undefined) return Object.freeze({ nullifier });
-        const utxo = known(commitment);
-        return Object.freeze({
-          nullifier,
-          opening: Object.freeze({
-            asset: utxo.asset,
-            ...(utxo.mint === undefined ? {} : { mint: utxo.mint }),
-            amount: utxo.amount,
-            blinding: utxo.blinding,
-            ring: Object.freeze({ kind: "ring", commitment }),
-          }),
+      const { first } = published;
+      // The circuit proves spent UTXO 0 real and every spent UTXO under one owner key.
+      const zero = spent.known?.utxo(first);
+      if (spent.known === undefined || zero === undefined)
+        throw new RingError("RING_AUDIT_UNSEEN_INPUT", {
+          details: { commitment: bytesKey(first) },
         });
+      const later = new PrefixedInputs({
+        known: spent.known,
+        sender: zero.ownerKey,
+        first,
+        ringId: ringIdField(this.keys.ring),
+      }).open(published.prefixes);
+      return Object.freeze({
+        sender: Object.freeze({
+          ownerKey: zero.ownerKey,
+          ...(zero.owner.kind === "keyed" ? { nullifierPk: zero.owner.nullifierPk } : {}),
+        }),
+        inputs: spentInputs(nullifiers, [ringInput(first, zero), ...later]),
       });
-      return Object.freeze({ senderNullifierPk, inputs: Object.freeze(inputs) });
     }
     const inputs = nullifiers.map((nullifier, index): AuditedInput => {
       const opening = published.inputs[index];
-      if (opening === undefined) return Object.freeze({ nullifier });
+      if (opening === undefined) return Object.freeze({ nullifier, opening: DUMMY_INPUT });
       const utxo = this.opened({
-        ownerKey: disclosure.senderKey,
+        ownerKey: published.senderKey,
         nullifierPk: published.senderNullifierPk,
         asset: opening.asset,
         amount: opening.amount,
@@ -639,6 +656,7 @@ class Transfer {
       return Object.freeze({
         nullifier,
         opening: Object.freeze({
+          kind: "opened",
           asset: utxo.asset,
           ...(utxo.mint === undefined ? {} : { mint: utxo.mint }),
           amount: utxo.amount,
@@ -648,7 +666,10 @@ class Transfer {
       });
     });
     return Object.freeze({
-      senderNullifierPk: published.senderNullifierPk,
+      sender: Object.freeze({
+        ownerKey: published.senderKey,
+        nullifierPk: published.senderNullifierPk,
+      }),
       inputs: Object.freeze(inputs),
     });
   }
@@ -886,6 +907,97 @@ function disclosureSlot<T>(outputs: readonly T[], slot: Slot): T {
   return opening;
 }
 
+/** Rust `PrefixedInputs`, the later inputs among the sender's notes that carry each prefix. */
+class PrefixedInputs {
+  readonly #read = new Map<InputPrefix, PrefixNotes>();
+
+  constructor(
+    private readonly source: Readonly<{
+      known: KnownUtxos;
+      sender: Bytes32;
+      first: Bytes32;
+      ringId: Bytes32;
+    }>,
+  ) {}
+
+  /** `k` inputs under one prefix open when exactly `k` of the sender's ring notes carry it. */
+  open(prefixes: readonly (InputPrefix | undefined)[]): InputOpening[] {
+    return prefixes.map((prefix) => {
+      if (prefix === undefined) return DUMMY_INPUT;
+      const inputs = prefixes.filter((other) => other === prefix).length;
+      const notes = this.#notes(prefix);
+      const unseen = () =>
+        new RingError("RING_AUDIT_UNSEEN_INPUT_PREFIX", {
+          details: { prefix: prefix.toString(16).padStart(2 * INPUT_PREFIX_BYTES, "0") },
+        });
+      if (notes.notes.length < inputs) throw unseen();
+      if (notes.notes.length > inputs)
+        return Object.freeze({
+          kind: "ambiguous",
+          candidates: Object.freeze(notes.notes.map(({ commitment }) => commitment)),
+        });
+      const note = notes.notes[notes.taken++];
+      if (note === undefined) throw unseen();
+      return ringInput(note.commitment, note.utxo);
+    });
+  }
+
+  /** One read per prefix, no note opens twice while the store grows. */
+  #notes(prefix: InputPrefix): PrefixNotes {
+    const read = this.#read.get(prefix);
+    if (read !== undefined) return read;
+    const { known, sender, first, ringId } = this.source;
+    const notes = {
+      notes: known.withPrefix(sender, prefix).flatMap((commitment) => {
+        const utxo = known.utxo(commitment);
+        return utxo !== undefined &&
+          !equal(commitment, first) &&
+          equal(knownUtxoHash(utxo, ringId), commitment)
+          ? [Object.freeze({ commitment, utxo })]
+          : [];
+      }),
+      taken: 0,
+    };
+    this.#read.set(prefix, notes);
+    return notes;
+  }
+}
+
+interface PrefixNotes {
+  readonly notes: readonly Readonly<{ commitment: Bytes32; utxo: KnownUtxo }>[];
+  taken: number;
+}
+
+function ringInput(commitment: Bytes32, utxo: KnownUtxo): InputOpening {
+  return Object.freeze({
+    kind: "opened",
+    asset: utxo.asset,
+    ...(utxo.mint === undefined ? {} : { mint: utxo.mint }),
+    amount: utxo.amount,
+    blinding: utxo.blinding,
+    ring: Object.freeze({ kind: "ring", commitment }),
+  });
+}
+
+function spentInputs(
+  nullifiers: readonly Bytes32[],
+  openings: readonly InputOpening[],
+): readonly AuditedInput[] {
+  return Object.freeze(
+    openings.map((opening, index) => {
+      const nullifier = nullifiers[index];
+      if (nullifier === undefined)
+        throw new RingError("RING_AUDIT_MESSAGE", { details: { reason: "layout" } });
+      return Object.freeze({ nullifier, opening });
+    }),
+  );
+}
+
+function ownedKey(ownerKey: Bytes32, prefix: InputPrefix): string {
+  return `${bytesKey(ownerKey)}:${prefix.toString(16)}`;
+}
+
+const DUMMY_INPUT: InputOpening = Object.freeze({ kind: "dummy" });
 const DUMMY: OutputOpening = Object.freeze({ kind: "dummy" });
 const FRAME: SlotOpening = Object.freeze({ ok: false, kind: "frame" });
 const ESCROW_UNKNOWN: SlotOpening = Object.freeze({ ok: false, kind: "escrowUnknown" });
@@ -908,9 +1020,8 @@ class AuditRecord {
   }
 }
 
-/** Rust's `KnownUtxos` map, the UTXOs one scan opened by hash ahead of the caller's. */
-class UtxoIndex implements KnownUtxos {
-  readonly #utxos = new Map<string, KnownUtxo>();
+class ScanUtxos implements KnownUtxos {
+  readonly #opened = new KnownUtxoIndex();
   readonly #known: KnownUtxos | undefined;
 
   constructor(known: KnownUtxos | undefined) {
@@ -919,10 +1030,21 @@ class UtxoIndex implements KnownUtxos {
 
   add(transaction: AuditedRingTransaction): void {
     for (const { commitment, utxo } of auditedUtxos(transaction))
-      this.#utxos.set(bytesKey(commitment), utxo);
+      this.#opened.insert(commitment, utxo);
   }
 
   utxo(commitment: Bytes32): KnownUtxo | undefined {
-    return this.#utxos.get(bytesKey(commitment)) ?? this.#known?.utxo(commitment);
+    return this.#opened.utxo(commitment) ?? this.#known?.utxo(commitment);
+  }
+
+  withPrefix(ownerKey: Bytes32, prefix: InputPrefix): readonly Bytes32[] {
+    const earlier = this.#known?.withPrefix(ownerKey, prefix) ?? [];
+    const seen = new Set(earlier.map(bytesKey));
+    return Object.freeze([
+      ...earlier,
+      ...this.#opened
+        .withPrefix(ownerKey, prefix)
+        .filter((commitment) => !seen.has(bytesKey(commitment))),
+    ]);
   }
 }

@@ -933,29 +933,29 @@ describe("anonymous ring transfer builder", () => {
   }
 
   it("spends the widest commitment class and refuses a payment past it before approval", async () => {
-    const widest = await anonymousSpend({ notes: 24, amount: 235n, policy: true });
+    const widest = await anonymousSpend({ notes: 32, amount: 315n });
     expect(transactionSize(await widest.build)).toBeLessThanOrEqual(TRANSACTION_SIZE_LIMIT);
     expect(widest.requests).toHaveLength(1);
     expect(widest.fixture.sppCalls.at(-1)?.proofInputs.checkShape()).toEqual({
-      inputs: 24,
+      inputs: 32,
       outputs: 2,
     });
-    const wider = await anonymousSpend({ notes: 25, amount: 245n });
+    const wider = await anonymousSpend({ notes: 33, amount: 325n });
     await expect(wider.build).rejects.toMatchObject({
       code: "RING_BUILD_TRANSFER",
       causeCode: "RING_TOO_MANY_INPUTS",
-      cause: { details: { maximum: 24 } },
+      cause: { details: { maximum: 32 } },
     });
     expect(wider.requests).toEqual([]);
     noProofs(wider.fixture);
   });
 
   it("refuses a withdrawal of the widest class past one transaction before approval as too many notes", async () => {
-    const wide = await anonymousSpend({ notes: 24, amount: 235n, policy: true, withdraw: true });
+    const wide = await anonymousSpend({ notes: 32, amount: 315n, policy: true, withdraw: true });
     await expect(wide.build).rejects.toMatchObject({
       code: "RING_BUILD_WITHDRAWAL",
       causeCode: "RING_TOO_MANY_INPUTS",
-      cause: { details: { selected: 24, limit: TRANSACTION_SIZE_LIMIT } },
+      cause: { details: { selected: 32, limit: TRANSACTION_SIZE_LIMIT } },
     });
     expect(wide.requests).toEqual([]);
     noProofs(wide.fixture);

@@ -1,7 +1,7 @@
 import type { IndexerReader } from "../client/ports.js";
 import type { IndexerRpcConfig } from "../client/retry.js";
 import { PAGE_LIMIT } from "../interface/indexer-limits.js";
-import type { Address, Bytes16, Bytes31, Bytes32, RequestContext } from "../interface/types.js";
+import type { Address, Bytes16, Bytes32, RequestContext } from "../interface/types.js";
 import {
   BODY_LEN,
   J_INBOX,
@@ -110,7 +110,7 @@ export interface PaymentTag {
   readonly stream: PaymentStream;
   readonly epoch: bigint;
   readonly index: TagIndex;
-  readonly tag: Bytes31;
+  readonly tag: Bytes16;
 }
 
 /**
@@ -1037,7 +1037,7 @@ async function changeAnonymousRing(
   });
 }
 
-/** `0x00 ‖ tag` owner tags carry a tag, any other owner tag none. */
+/** `0^16 ‖ tag` owner tags carry a tag, any other owner tag none. */
 function candidateOf(
   transaction: IndexedShieldedTransaction,
   slotIndex: number,

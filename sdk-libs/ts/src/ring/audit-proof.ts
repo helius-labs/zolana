@@ -22,6 +22,7 @@ import {
 import type { Bytes32, MessageData } from "../interface/types.js";
 import { auditorMessageData, sealTransactionViewingSecret } from "../keypair/audit.js";
 import {
+  anonymousCommitments,
   sealRingDisclosure,
   type AnonymousInputs,
   type AnonymousOutputOpening,
@@ -180,7 +181,9 @@ export function auditProofRequest(
         outputs: published.map((slot) => anonymousSlot(slot, tree)),
         privateTxHash: statement.privateTxHash,
         privateTxBlinding: statement.privateTxBlinding,
-        senderKey: input.sender.signingPublicKey.confidentialViewTag(),
+        ...(sealed.layout.key.kind === "entry"
+          ? { senderKey: input.sender.signingPublicKey.confidentialViewTag() }
+          : {}),
         inputCount: sealed.layout.inputs,
         inputs: [
           ...openings,
@@ -231,14 +234,13 @@ function auditDisclosure(
         kind: "anonymous",
         layout,
         seedOut: disclosedSeed,
-        senderKey: input.sender.signingPublicKey.confidentialViewTag(),
         outputs: published.map(anonymousOpening),
         inputs: anonymousInputs(layout.key.kind, input.proofInputs, input.sender),
       };
   }
 }
 
-/** A commitment key publishes each spent UTXO's hash, the entry key opens it in full. */
+/** A commitment key names spent UTXO 0 by its hash and every later one by its prefix, the entry key opens each in full. */
 function anonymousInputs(
   key: "commitment" | "entry",
   proofInputs: SppProofInputs,
@@ -246,12 +248,10 @@ function anonymousInputs(
 ): AnonymousInputs {
   const spent = proofInputs.inputUtxos.filter((input) => !input.isCompact());
   if (key === "commitment")
-    return {
-      kind: "commitments",
-      hashes: spent.map((input) => (input.isDummy() ? undefined : input.hash())),
-    };
+    return anonymousCommitments(spent.map((input) => (input.isDummy() ? undefined : input.hash())));
   return {
     kind: "openings",
+    senderKey: sender.signingPublicKey.confidentialViewTag(),
     senderNullifierPk: sender.nullifierPublicKey,
     inputs: spent.map((input, index) => {
       if (input.isDummy()) return undefined;
