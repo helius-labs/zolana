@@ -3,9 +3,7 @@
 use std::str::FromStr;
 
 use anyhow::{bail, ensure, Context as _, Result};
-use custom_ring_interface::{
-    cosign::CoSignDemand, AnonymousSpend, RingProgramConfig, RingRail, ANONYMOUS_AUDIT_CLASSES,
-};
+use custom_ring_interface::{cosign::CoSignDemand, AnonymousSpend, RingProgramConfig, RingRail};
 use custom_ring_sdk::{
     shape_keyed, AnonymousMove, AnonymousPayment, CoSignScope, CustomRingConfig,
     CustomRingTransfer, CustomRingTransferInput, DepositAsset, DepositRecipient, EntrySpend,
@@ -63,6 +61,13 @@ named_enum! {
     }
 }
 
+named_enum! {
+    pub enum EntrySpendName("entry spend") {
+        Refuse = "refuse",
+        Allow = "allow",
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Recipient {
     Shielded(ShieldedAddress),
@@ -102,6 +107,7 @@ enum Payees {
     Anonymous {
         ring: Vec<Payment<RingAddress>>,
         default_ring: Vec<Payment<ShieldedAddress>>,
+        entry: EntrySpend,
     },
 }
 
@@ -112,6 +118,7 @@ struct PaymentPlan<'a> {
     mint: Option<Address>,
     outputs: Option<usize>,
     default_ring: bool,
+    entry: EntrySpend,
 }
 
 #[must_use]
@@ -167,8 +174,9 @@ enum Inputs<'a> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Spendable {
     RingOnly,
-    /// An anonymous spend of a default-ring note needs the entry key.
     WithDefaultRing,
+    /// The anonymous prover refuses ring and default-ring notes in one spend.
+    DefaultRingOnly,
 }
 
 struct Sent {
@@ -259,20 +267,7 @@ pub fn run(ctx: &Context, args: TransactArgs) -> Result<()> {
 /// Every recipient is checked against the ring's mode before anything is deposited.
 pub fn run_transfer(ctx: &Context, args: TransferArgs) -> Result<()> {
     let config = ctx.ring_config()?;
-    let mut plan = PaymentPlan::new(&args.to);
-    if let Some(amount) = args.amount {
-        plan = plan.with_amount(amount);
-    }
-    if let Some(mint) = args.mint {
-        plan = plan.with_mint(mint.0);
-    }
-    if let Some(outputs) = args.outputs {
-        plan = plan.with_outputs(outputs);
-    }
-    if args.default_ring {
-        plan = plan.with_default_ring();
-    }
-    let payments = plan.resolve(config.mode, ctx.ring.program_id())?;
+    let payments = PaymentPlan::of(&args).resolve(config.mode, ctx.ring.program_id())?;
     let total = payments.total()?;
     let sender = ShieldedKeypair::from_keypair(&ctx.sender()?)?;
     let cosigner = CoSigner::read(ctx, &args.cosigner)?;
@@ -402,6 +397,15 @@ impl FromStr for Recipient {
     }
 }
 
+impl From<EntrySpendName> for EntrySpend {
+    fn from(name: EntrySpendName) -> Self {
+        match name {
+            EntrySpendName::Refuse => Self::Refuse,
+            EntrySpendName::Allow => Self::Allow,
+        }
+    }
+}
+
 impl<'a> PaymentPlan<'a> {
     fn new(recipients: &'a [Recipient]) -> Self {
         Self {
@@ -410,7 +414,25 @@ impl<'a> PaymentPlan<'a> {
             mint: None,
             outputs: None,
             default_ring: false,
+            entry: EntrySpend::Refuse,
         }
+    }
+
+    fn of(args: &'a TransferArgs) -> Self {
+        let mut plan = Self::new(&args.to).with_entry_spend(args.entry_spend.into());
+        if let Some(amount) = args.amount {
+            plan = plan.with_amount(amount);
+        }
+        if let Some(mint) = args.mint {
+            plan = plan.with_mint(mint.0);
+        }
+        if let Some(outputs) = args.outputs {
+            plan = plan.with_outputs(outputs);
+        }
+        if args.default_ring {
+            plan = plan.with_default_ring();
+        }
+        plan
     }
 
     fn with_amount(self, amount: u64) -> Self {
@@ -440,6 +462,10 @@ impl<'a> PaymentPlan<'a> {
             default_ring: true,
             ..self
         }
+    }
+
+    fn with_entry_spend(self, entry: EntrySpend) -> Self {
+        Self { entry, ..self }
     }
 
     /// A flag that differs from a request's amount or mint is refused.
@@ -501,25 +527,34 @@ impl<'a> PaymentPlan<'a> {
                 Payees::Anonymous {
                     ring: ring_payees,
                     default_ring,
+                    entry: self.entry,
                 }
             }
             RingMode::Off | RingMode::Registry if self.default_ring => {
                 bail!("`--default-ring` pays out of an anonymous ring, ring {ring} is confidential")
             }
-            RingMode::Off | RingMode::Registry => Payees::Confidential(
-                self.recipients
-                    .iter()
-                    .map(|recipient| match recipient {
-                        Recipient::Shielded(address) => Ok(Payment {
-                            to: *address,
-                            amount: amount(None)?,
-                        }),
-                        Recipient::Ring(_) => bail!(
-                            "a `zolana:` address pays an anonymous ring, ring {ring} is confidential"
-                        ),
-                    })
-                    .collect::<Result<_>>()?,
-            ),
+            RingMode::Off | RingMode::Registry => {
+                match self.entry {
+                    EntrySpend::Refuse => {}
+                    EntrySpend::Allow => bail!(
+                        "`--entry-spend` gates the default-ring notes an anonymous ring spends, ring {ring} is confidential"
+                    ),
+                }
+                Payees::Confidential(
+                    self.recipients
+                        .iter()
+                        .map(|recipient| match recipient {
+                            Recipient::Shielded(address) => Ok(Payment {
+                                to: *address,
+                                amount: amount(None)?,
+                            }),
+                            Recipient::Ring(_) => bail!(
+                                "a `zolana:` address pays an anonymous ring, ring {ring} is confidential"
+                            ),
+                        })
+                        .collect::<Result<_>>()?,
+                )
+            }
         };
         Ok(Payments {
             mint,
@@ -540,7 +575,9 @@ impl Payments {
                     amount: payment.amount,
                 })
                 .collect(),
-            Payees::Anonymous { ring, default_ring } => ring
+            Payees::Anonymous {
+                ring, default_ring, ..
+            } => ring
                 .iter()
                 .map(|payment| Payment {
                     to: &payment.to.recipient,
@@ -592,7 +629,61 @@ impl Payments {
         })
     }
 
-    /// Refuses up front what the spend would refuse after the paid steps.
+    fn select_held(
+        &self,
+        scanned: &SpendableDecryptionResult,
+        ring: Address,
+    ) -> Result<Vec<WalletUtxo>> {
+        let total = self.total()?;
+        let held = |kind: Spendable| -> Vec<WalletUtxo> {
+            scanned
+                .utxos()
+                .filter(|utxo| {
+                    utxo.utxo.asset.asset == self.mint
+                        && kind.admits(utxo, ring)
+                        && carries_no_data(utxo)
+                })
+                .cloned()
+                .collect()
+        };
+        let select = |utxos: &[WalletUtxo], widest: usize| -> Result<Vec<WalletUtxo>> {
+            Ok(select_spend_where(utxos, self.mint, total, widest, |_| {
+                true
+            })?)
+        };
+        let entry = match &self.payees {
+            Payees::Confidential(_) => {
+                return select(&held(Spendable::WithDefaultRing), MAX_SPEND_INPUTS)
+            }
+            Payees::Anonymous { entry, .. } => *entry,
+        };
+        let ring_utxos = held(Spendable::RingOnly);
+        let (kind, utxos) = if held_total(&ring_utxos)? >= total {
+            (Spendable::RingOnly, ring_utxos)
+        } else {
+            let default_utxos = held(Spendable::DefaultRingOnly);
+            ensure!(
+                held_total(&default_utxos)? >= total,
+                "neither the sender's ring notes nor the default-ring notes alone fund the payment"
+            );
+            match entry {
+                EntrySpend::Allow => (Spendable::DefaultRingOnly, default_utxos),
+                EntrySpend::Refuse => bail!(
+                    "the sender's ring notes do not fund the payment, `--entry-spend allow` spends the default-ring notes and publishes the hidden owner's key"
+                ),
+            }
+        };
+        if self.sdk_selects() {
+            return Ok(utxos);
+        }
+        let outputs = self.anonymous_outputs();
+        let widest = kind
+            .widest_anonymous(outputs)
+            .with_context(|| format!("no anonymous audit key carries {outputs} outputs"))?;
+        select(&utxos, widest)
+    }
+
+    /// Refuses up front what the spend would refuse or ignore after the paid steps.
     fn fits(&self, inputs: &Inputs) -> Result<()> {
         match inputs {
             Inputs::Deposits { amounts, .. } => {
@@ -600,10 +691,18 @@ impl Payments {
                     .iter()
                     .fold(0, |sum: u64, amount| sum.saturating_add(*amount));
                 self.shape(amounts.len(), held)?;
-                if let Payees::Anonymous { .. } = self.payees {
+                if let Payees::Anonymous { entry, .. } = self.payees {
+                    match entry {
+                        EntrySpend::Refuse => {}
+                        EntrySpend::Allow => bail!(
+                            "`--entry-spend allow` spends held default-ring notes, `--funding deposit` spends fresh deposits"
+                        ),
+                    }
                     let outputs = self.anonymous_outputs();
                     ensure!(
-                        Spendable::RingOnly.widest_anonymous(outputs) >= amounts.len(),
+                        Spendable::RingOnly
+                            .widest_anonymous(outputs)
+                            .is_some_and(|widest| widest >= amounts.len()),
                         "no anonymous audit key spends {} deposited notes into {outputs} outputs",
                         amounts.len()
                     );
@@ -818,41 +917,8 @@ impl Inputs<'_> {
 
 impl Transfer<'_> {
     fn held_utxos(&self, ctx: &Context) -> Result<Vec<WalletUtxo>> {
-        let ring = ctx.ring.program_id();
-        let scanned = self.scan(ctx)?;
-        let total = self.payments.total()?;
-        let select = |spendable: Spendable, widest: usize| {
-            select_spend_where(scanned.utxos(), self.payments.mint, total, widest, |utxo| {
-                spendable.admits(utxo.utxo.ring_program_id, ring) && carries_no_data(utxo)
-            })
-        };
-        // A default-ring note spent on the anonymous rail publishes its owner key.
-        let unfunded =
-            "the sender's ring notes do not fund the payment, its default-ring notes stay unspent";
-        Ok(match &self.payments.payees {
-            Payees::Confidential(_) => select(Spendable::WithDefaultRing, MAX_SPEND_INPUTS)?,
-            Payees::Anonymous { .. } if self.payments.sdk_selects() => {
-                let held: Vec<WalletUtxo> = scanned
-                    .utxos()
-                    .filter(|utxo| {
-                        utxo.utxo.asset.asset == self.payments.mint
-                            && Spendable::RingOnly.admits(utxo.utxo.ring_program_id, ring)
-                            && carries_no_data(utxo)
-                    })
-                    .cloned()
-                    .collect();
-                ensure!(held_total(&held)? >= total, unfunded);
-                held
-            }
-            Payees::Anonymous { .. } => {
-                let outputs = self.payments.anonymous_outputs();
-                select(
-                    Spendable::RingOnly,
-                    Spendable::RingOnly.widest_anonymous(outputs),
-                )
-                .context(unfunded)?
-            }
-        })
+        self.payments
+            .select_held(&self.scan(ctx)?, ctx.ring.program_id())
     }
 
     /// Runs after the enrolments, their top-ups would otherwise leave the deposits short.
@@ -978,6 +1044,7 @@ impl Transfer<'_> {
             Payees::Anonymous {
                 ring: payees,
                 default_ring,
+                entry,
             } => {
                 let store = ctx.anonymous_ring_store(self.sender, self.config);
                 let state = store.load()?;
@@ -1001,7 +1068,7 @@ impl Transfer<'_> {
                                     amount: payment.amount,
                                 })
                                 .collect(),
-                            entry: EntrySpend::Refuse,
+                            entry: *entry,
                         };
                         ctx.block(select.select(ctx.chain()))?
                     }
@@ -1055,44 +1122,34 @@ impl Transfer<'_> {
 }
 
 impl Spendable {
-    /// `note_ring` is `None` for a default-ring note.
-    fn admits(self, utxo_ring: Option<Address>, ring: Address) -> bool {
-        match utxo_ring {
-            Some(id) => id == ring,
-            None => self == Self::WithDefaultRing,
+    fn admits(self, utxo: &WalletUtxo, ring: Address) -> bool {
+        let in_ring = utxo.utxo.ring_program_id == Some(ring);
+        match self {
+            Self::RingOnly => in_ring,
+            Self::WithDefaultRing => in_ring || utxo.is_default_ring_spendable(),
+            Self::DefaultRingOnly => utxo.is_default_ring_spendable(),
         }
     }
 
     /// The most inputs an anonymous key serves with room for `outputs`.
-    fn widest_anonymous(self, outputs: usize) -> usize {
-        if self == Self::RingOnly {
-            // Ordinary padding publishes every input of the SPP shape, the shape itself must carry a key.
-            return SPP_SUPPORTED_SHAPES
-                .into_iter()
-                .filter(|shape| {
-                    shape.n_outputs() >= outputs && shape_keyed(RingRail::Anonymous, *shape)
-                })
-                .map(|shape| shape.n_inputs())
-                .max()
-                .unwrap_or(0);
-        }
-        ANONYMOUS_AUDIT_CLASSES
-            .iter()
-            .map(|(capacity, _)| *capacity)
-            .filter(|capacity| *capacity >= outputs)
-            .flat_map(|capacity| {
-                (1..=MAX_SPEND_INPUTS).filter(move |inputs| {
-                    AnonymousSpend {
-                        inputs: *inputs,
-                        outputs: capacity,
-                        spends_default_ring: true,
-                    }
-                    .audit_key()
-                    .is_some()
-                })
-            })
+    fn widest_anonymous(self, outputs: usize) -> Option<usize> {
+        let keyed = |shape: Shape| match self {
+            Self::RingOnly => shape_keyed(RingRail::Anonymous, shape),
+            Self::DefaultRingOnly => AnonymousSpend {
+                inputs: shape.n_inputs(),
+                outputs: shape.n_outputs(),
+                spends_default_ring: true,
+            }
+            .audit_key()
+            .is_some(),
+            Self::WithDefaultRing => false,
+        };
+        // Ordinary padding publishes every input of the SPP shape, the shape itself must carry a key.
+        SPP_SUPPORTED_SHAPES
+            .into_iter()
+            .filter(|shape| shape.n_outputs() >= outputs && keyed(*shape))
+            .map(|shape| shape.n_inputs())
             .max()
-            .unwrap_or(0)
     }
 }
 
@@ -1260,6 +1317,7 @@ mod tests {
     use zolana_keypair::SigningKey;
 
     use super::*;
+    use crate::tests::transfer_args;
 
     const RING: Address = Address::new_from_array([4; 32]);
 
@@ -1439,7 +1497,8 @@ mod tests {
             .unwrap();
         assert!(matches!(
             anonymous.payees,
-            Payees::Anonymous { ref ring, ref default_ring } if ring.len() == 1 && default_ring.is_empty()
+            Payees::Anonymous { ref ring, ref default_ring, entry: EntrySpend::Refuse }
+                if ring.len() == 1 && default_ring.is_empty()
         ));
         let refused =
             PaymentPlan::new(std::slice::from_ref(&shielded)).resolve(RingMode::Anonymous, RING);
@@ -1450,8 +1509,24 @@ mod tests {
             .unwrap();
         assert!(matches!(
             exit.payees,
-            Payees::Anonymous { ref ring, ref default_ring } if ring.len() == 1 && default_ring.len() == 1
+            Payees::Anonymous { ref ring, ref default_ring, .. }
+                if ring.len() == 1 && default_ring.len() == 1
         ));
+        let allowed = PaymentPlan::new(std::slice::from_ref(&ring))
+            .with_entry_spend(EntrySpend::Allow)
+            .resolve(RingMode::Anonymous, RING)
+            .unwrap();
+        assert!(matches!(
+            allowed.payees,
+            Payees::Anonymous {
+                entry: EntrySpend::Allow,
+                ..
+            }
+        ));
+        let confidential = PaymentPlan::new(std::slice::from_ref(&shielded))
+            .with_entry_spend(EntrySpend::Allow)
+            .resolve(RingMode::Off, RING);
+        assert!(refusal(confidential).contains("`--entry-spend` gates"));
         let confidential = PaymentPlan::new(&[shielded])
             .with_default_ring()
             .resolve(RingMode::Off, RING);
@@ -1483,6 +1558,50 @@ mod tests {
         assert!(refusal(resolve(plan().with_mint(SOL_MINT))).contains("asks for mint"));
         let zero = PaymentPlan::new(&recipients[1..]).with_amount(0);
         assert!(refusal(resolve(zero)).contains("nonzero amount"));
+    }
+
+    #[test]
+    fn the_transfer_flags_reach_the_plan() {
+        let Recipient::Ring(request) = request(2, RING) else {
+            panic!("a ring request");
+        };
+        let request = request.to_string();
+        let shielded = keypair(1).shielded_address().unwrap().to_string();
+        let mint = Address::new_from_array([7; 32]);
+        let mint_arg = mint.to_string();
+        let resolve = |flags: &[&str]| {
+            let argv: Vec<&str> = [
+                request.as_str(),
+                "--amount",
+                "5",
+                "--mint",
+                mint_arg.as_str(),
+                "--outputs",
+                "4",
+            ]
+            .into_iter()
+            .chain(flags.iter().copied())
+            .collect();
+            PaymentPlan::of(&transfer_args(&argv).unwrap()).resolve(RingMode::Anonymous, RING)
+        };
+        assert!(refusal(resolve(&[shielded.as_str()])).contains("not shielded address"));
+        let payments = resolve(&[shielded.as_str(), "--default-ring"]).unwrap();
+        assert_eq!(payments.mint, mint);
+        assert_eq!(payments.outputs, Some(4));
+        assert!(payments.each().iter().all(|payment| payment.amount == 5));
+        assert!(matches!(
+            payments.payees,
+            Payees::Anonymous { ref default_ring, entry: EntrySpend::Refuse, .. }
+                if default_ring.len() == 1
+        ));
+        let allowed = resolve(&["--funding", "held", "--entry-spend", "allow"]).unwrap();
+        assert!(matches!(
+            allowed.payees,
+            Payees::Anonymous {
+                entry: EntrySpend::Allow,
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -1534,6 +1653,7 @@ mod tests {
                     count
                 ],
                 default_ring: Vec::new(),
+                entry: EntrySpend::Refuse,
             },
             outputs: None,
         };
@@ -1542,22 +1662,149 @@ mod tests {
         assert!(refused.contains("no anonymous audit key"), "{refused}");
     }
 
+    fn held_utxo(ring: Option<Address>, amount: u64) -> WalletUtxo {
+        let mut held = WalletUtxo::dummy_with_blinding([amount as u8; 32], 0).unwrap();
+        held.utxo.amount = amount;
+        held.utxo.ring_program_id = ring;
+        held
+    }
+
+    fn scanned(utxos: Vec<WalletUtxo>) -> SpendableDecryptionResult {
+        SpendableDecryptionResult {
+            utxos_with_data: utxos,
+            ..Default::default()
+        }
+    }
+
+    fn rings(picked: Result<Vec<WalletUtxo>>) -> Vec<Option<Address>> {
+        picked
+            .unwrap()
+            .iter()
+            .map(|utxo| utxo.utxo.ring_program_id)
+            .collect()
+    }
+
+    struct AnonymousPlan {
+        entry: EntrySpend,
+        outputs: Option<usize>,
+        amount: u64,
+    }
+
+    impl AnonymousPlan {
+        fn payments(self) -> Payments {
+            Payments {
+                mint: SOL_MINT,
+                payees: Payees::Anonymous {
+                    ring: vec![Payment {
+                        to: address::ring_address(&keypair(2), RING, 0).unwrap(),
+                        amount: self.amount,
+                    }],
+                    default_ring: Vec::new(),
+                    entry: self.entry,
+                },
+                outputs: self.outputs,
+            }
+        }
+    }
+
+    #[test]
+    fn an_anonymous_ring_spends_default_ring_notes_only_on_an_explicit_allow() {
+        let ring = |amount| held_utxo(Some(RING), amount);
+        let default = |amount| held_utxo(None, amount);
+        let mut other_mint = ring(30);
+        other_mint.utxo.asset = zolana_transaction::Mint::new(Address::new_from_array([7; 32]), 7);
+        let mut with_data = ring(30);
+        with_data.data_hash = Some([1; 32]);
+        let ring_short = scanned(vec![ring(3), default(7), other_mint, with_data]);
+        let both_short = scanned(vec![ring(3), default(4)]);
+        let ring_covers = scanned(vec![ring(3), ring(4), default(7)]);
+        for outputs in [None, Some(4)] {
+            let select = |entry, scanned| {
+                AnonymousPlan {
+                    entry,
+                    outputs,
+                    amount: 6,
+                }
+                .payments()
+                .select_held(scanned, RING)
+            };
+            let refused = refusal(select(EntrySpend::Refuse, &ring_short));
+            assert!(refused.contains("`--entry-spend allow`"), "{refused}");
+            for entry in [EntrySpend::Refuse, EntrySpend::Allow] {
+                let refused = refusal(select(entry, &both_short));
+                assert!(refused.contains("alone"), "{refused}");
+            }
+            assert_eq!(rings(select(EntrySpend::Allow, &ring_short)), [None]);
+            assert_eq!(
+                rings(select(EntrySpend::Allow, &ring_covers)),
+                [Some(RING); 2]
+            );
+        }
+        let plan = |outputs, amount| AnonymousPlan {
+            entry: EntrySpend::Allow,
+            outputs,
+            amount,
+        };
+        let ring_wide = scanned(vec![ring(3), ring(4), ring(5)]);
+        let picked = |outputs| rings(plan(outputs, 6).payments().select_held(&ring_wide, RING));
+        assert_eq!(picked(None).len(), 3, "the SDK picks from the whole pool");
+        assert_eq!(picked(Some(4)).len(), 2);
+        let merge = scanned((0..20).map(|_| ring(1)).chain([default(30)]).collect());
+        let refused = refusal(plan(Some(8), 20).payments().select_held(&merge, RING));
+        assert!(refused.contains("merge first"), "{refused}");
+        let refused = refusal(plan(Some(16), 6).payments().select_held(&ring_short, RING));
+        assert!(refused.contains("no anonymous audit key"), "{refused}");
+        let entry_wide = scanned((0..9).map(|_| default(1)).collect());
+        let refused = refusal(plan(Some(4), 9).payments().select_held(&entry_wide, RING));
+        assert!(refused.contains("more than 8"), "{refused}");
+        let deposits = Inputs::Deposits {
+            asset: DepositAsset::Sol,
+            amounts: [3, 3],
+            cosigner: None,
+        };
+        let refused = refusal(plan(None, 6).payments().fits(&deposits));
+        assert!(refused.contains("`--funding deposit`"), "{refused}");
+    }
+
+    #[test]
+    fn a_confidential_ring_spends_ring_and_default_ring_notes_together() {
+        let to = keypair(1).shielded_address().unwrap();
+        let payments = Payments {
+            mint: SOL_MINT,
+            payees: Payees::Confidential(vec![Payment { to, amount: 6 }]),
+            outputs: None,
+        };
+        let held = scanned(vec![held_utxo(Some(RING), 3), held_utxo(None, 4)]);
+        assert_eq!(rings(payments.select_held(&held, RING)), [None, Some(RING)]);
+    }
+
     #[test]
     fn an_anonymous_held_spend_stays_within_a_keyed_width() {
-        assert_eq!(Spendable::RingOnly.widest_anonymous(2), 24);
-        assert_eq!(Spendable::RingOnly.widest_anonymous(3), 24);
-        assert_eq!(Spendable::RingOnly.widest_anonymous(8), 16);
-        assert_eq!(Spendable::RingOnly.widest_anonymous(9), 0);
+        assert_eq!(Spendable::RingOnly.widest_anonymous(2), Some(24));
+        assert_eq!(Spendable::RingOnly.widest_anonymous(3), Some(24));
+        assert_eq!(Spendable::RingOnly.widest_anonymous(8), Some(16));
+        assert_eq!(Spendable::RingOnly.widest_anonymous(9), None);
         for outputs in [2, 4, 8] {
-            assert_eq!(Spendable::WithDefaultRing.widest_anonymous(outputs), 8);
+            assert_eq!(
+                Spendable::DefaultRingOnly.widest_anonymous(outputs),
+                Some(8)
+            );
         }
-        let other = Address::new_from_array([5; 32]);
+        assert_eq!(Spendable::WithDefaultRing.widest_anonymous(2), None);
+        let in_ring = held_utxo(Some(RING), 1);
+        let default = held_utxo(None, 1);
+        let foreign = held_utxo(Some(Address::new_from_array([5; 32])), 1);
         for spendable in [Spendable::RingOnly, Spendable::WithDefaultRing] {
-            assert!(spendable.admits(Some(RING), RING));
-            assert!(!spendable.admits(Some(other), RING));
+            assert!(spendable.admits(&in_ring, RING));
+            assert!(!spendable.admits(&foreign, RING));
         }
-        assert!(!Spendable::RingOnly.admits(None, RING));
-        assert!(Spendable::WithDefaultRing.admits(None, RING));
+        assert!(!Spendable::RingOnly.admits(&default, RING));
+        assert!(Spendable::WithDefaultRing.admits(&default, RING));
+        assert!(Spendable::DefaultRingOnly.admits(&default, RING));
+        assert!(!Spendable::DefaultRingOnly.admits(&in_ring, RING));
+        let mut ring_data = default.clone();
+        ring_data.ring_data_hash = Some([0; 32]);
+        assert!(!Spendable::DefaultRingOnly.admits(&ring_data, RING));
     }
 
     #[test]

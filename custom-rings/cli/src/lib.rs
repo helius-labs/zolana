@@ -71,7 +71,7 @@ pub use crate::{
     policy::ListName,
     records::Queued,
     ring_rpc::{RingRpcClient, Trust},
-    transact::{Funding, Recipient},
+    transact::{EntrySpendName, Funding, Recipient},
     ui::{line, Ask},
 };
 
@@ -479,9 +479,13 @@ pub struct TransferArgs {
     #[arg(long)]
     pub token_account: Option<Address>,
     /// `deposit` funds the payments with two fresh deposits, `held` spends the sender's notes
-    /// of the ring, and of the default ring unless the ring is anonymous.
+    /// of the ring, and of the default ring on a confidential ring.
     #[arg(long, value_enum, default_value_t = Funding::Deposit)]
     pub funding: Funding,
+    /// Spending default-ring notes publishes the hidden owner's key, `allow` lets `--funding held`
+    /// spend them in place of ring notes that fall short.
+    #[arg(long, value_enum, default_value_t = EntrySpendName::Refuse)]
+    pub entry_spend: EntrySpendName,
     /// The fewest output slots, dummies fill what the payments and the change leave.
     #[arg(long)]
     pub outputs: Option<usize>,
@@ -1056,6 +1060,15 @@ mod tests {
         assert!(parse(&["--count", "1"]).is_err());
     }
 
+    pub(crate) fn transfer_args(args: &[&str]) -> Result<TransferArgs, clap::Error> {
+        let argv = ["zolana-ring", "transfer"].iter().chain(args).copied();
+        match Cli::try_parse_from(argv).map(|cli| cli.command) {
+            Ok(Command::Transfer(args)) => Ok(args),
+            Ok(_) => panic!("transfer"),
+            Err(error) => Err(error),
+        }
+    }
+
     #[test]
     fn transfer_takes_several_recipients_a_mint_and_its_funding() {
         let mint = Address::new_from_array([7; 32]);
@@ -1068,14 +1081,7 @@ mod tests {
             .shielded_address()
             .unwrap()
         };
-        let parse = |args: &[&str]| {
-            let argv = ["zolana-ring", "transfer"].iter().chain(args).copied();
-            match Cli::try_parse_from(argv).map(|cli| cli.command) {
-                Ok(Command::Transfer(args)) => Ok(args),
-                Ok(_) => panic!("transfer"),
-                Err(error) => Err(error),
-            }
-        };
+        let parse = transfer_args;
         let (first, second) = (to(1).to_string(), to(2).to_string());
         let args = parse(&[
             &first,
@@ -1102,6 +1108,7 @@ mod tests {
         assert_eq!((held.funding, held.amount), (Funding::Held, None));
         assert!(parse(&[]).is_err(), "a transfer names a recipient");
         assert!(parse(&[&first, "--funding", "faucet"]).is_err());
+        assert!(parse(&[&first, "--entry-spend", "always"]).is_err());
     }
 
     #[test]
