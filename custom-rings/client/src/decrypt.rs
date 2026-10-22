@@ -1,6 +1,10 @@
 //! Opens a ring transfer for its auditor from the disclosure and the blindings its keys derive.
 
-use std::{borrow::Borrow, cmp::Ordering, collections::HashMap};
+use std::{
+    borrow::Borrow,
+    cmp::Ordering,
+    collections::{HashMap, HashSet},
+};
 
 use custom_ring_interface::{
     stream::{DeliveredSlot, PackedSlot, RingTag, SlotSecret},
@@ -691,60 +695,77 @@ struct PrefixedInputs<'a> {
 }
 
 impl PrefixedInputs<'_> {
-    /// `k` inputs under one prefix open when exactly `k` of the sender's ring notes carry it.
     fn open(self, prefixes: &[Option<InputPrefix>]) -> Result<Vec<InputOpening>, AuditError> {
-        let mut read: HashMap<InputPrefix, PrefixNotes> = HashMap::new();
-        prefixes
-            .iter()
-            .map(|prefix| {
-                let Some(prefix) = *prefix else {
-                    return Ok(InputOpening::Dummy);
-                };
-                let inputs = prefixes
-                    .iter()
-                    .filter(|other| **other == Some(prefix))
-                    .count();
-                // One read per prefix, no note opens twice while the store grows.
-                let notes = read.entry(prefix).or_insert_with(|| PrefixNotes {
-                    notes: self
-                        .known
-                        .with_prefix(&self.sender, prefix)
-                        .into_iter()
-                        .filter_map(|commitment| Some((commitment, self.known.utxo(&commitment)?)))
-                        .filter(|(commitment, utxo)| {
-                            *commitment != self.first
-                                && utxo
-                                    .commitment(Some(self.ring))
-                                    .is_ok_and(|ring| ring == *commitment)
-                        })
-                        .collect(),
-                    taken: 0,
-                });
-                match notes.notes.len().cmp(&inputs) {
-                    Ordering::Less => Err(AuditError::UnseenInputPrefix {
-                        prefix: prefix.get(),
-                    }),
-                    Ordering::Equal => {
-                        let (commitment, utxo) = notes.notes[notes.taken];
-                        notes.taken += 1;
-                        Ok(InputOpening::Opened(ring_input(commitment, utxo)))
-                    }
-                    Ordering::Greater => Ok(InputOpening::Ambiguous {
-                        candidates: notes
-                            .notes
-                            .iter()
-                            .map(|(commitment, _)| *commitment)
-                            .collect(),
-                    }),
-                }
-            })
-            .collect()
+        let mut groups: Vec<(InputPrefix, Vec<usize>)> = Vec::new();
+        for (position, prefix) in prefixes.iter().enumerate() {
+            let Some(prefix) = *prefix else {
+                continue;
+            };
+            match groups.iter_mut().find(|(group, _)| *group == prefix) {
+                Some((_, positions)) => positions.push(position),
+                None => groups.push((prefix, vec![position])),
+            }
+        }
+        let mut openings = vec![InputOpening::Dummy; prefixes.len()];
+        for (prefix, positions) in groups {
+            let assigned = self.notes(prefix).assign(positions.len())?;
+            for (position, opening) in positions.into_iter().zip(assigned) {
+                openings[position] = opening;
+            }
+        }
+        Ok(openings)
+    }
+
+    /// The circuit binds a later input to the sender and to its prefix.
+    fn notes(&self, prefix: InputPrefix) -> PrefixNotes {
+        let mut seen = HashSet::new();
+        PrefixNotes {
+            prefix,
+            notes: self
+                .known
+                .with_prefix(&self.sender, prefix)
+                .into_iter()
+                .filter_map(|commitment| Some((commitment, self.known.utxo(&commitment)?)))
+                .filter(|(commitment, utxo)| {
+                    *commitment != self.first
+                        && utxo.owner_key == self.sender
+                        && InputPrefix::of(commitment) == Some(prefix)
+                        && utxo
+                            .commitment(Some(self.ring))
+                            .is_ok_and(|ring| ring == *commitment)
+                        && seen.insert(*commitment)
+                })
+                .collect(),
+        }
     }
 }
 
 struct PrefixNotes {
+    prefix: InputPrefix,
     notes: Vec<([u8; 32], KnownUtxo)>,
-    taken: usize,
+}
+
+impl PrefixNotes {
+    fn assign(self, inputs: usize) -> Result<Vec<InputOpening>, AuditError> {
+        match self.notes.len().cmp(&inputs) {
+            Ordering::Less => Err(AuditError::UnseenInputPrefix {
+                prefix: self.prefix.get(),
+            }),
+            Ordering::Equal => Ok(self
+                .notes
+                .into_iter()
+                .map(|(commitment, utxo)| InputOpening::Opened(ring_input(commitment, utxo)))
+                .collect()),
+            Ordering::Greater => {
+                let candidates: Vec<[u8; 32]> = self
+                    .notes
+                    .iter()
+                    .map(|(commitment, _)| *commitment)
+                    .collect();
+                Ok(vec![InputOpening::Ambiguous { candidates }; inputs])
+            }
+        }
+    }
 }
 
 fn ring_input(commitment: [u8; 32], utxo: KnownUtxo) -> AuditedInputOpening {
@@ -772,3 +793,6 @@ impl AuditedTransaction {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

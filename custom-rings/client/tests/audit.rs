@@ -368,61 +368,79 @@ fn a_ring_utxo_input_opens_by_its_prefix_or_is_reported_unseen() {
     ));
 }
 
-struct SharedPrefix {
+struct Misfiled {
     index: KnownUtxoIndex,
     prefix: InputPrefix,
-    twin: [u8; 32],
+    answer: Vec<[u8; 32]>,
 }
 
-impl KnownUtxos for SharedPrefix {
+impl KnownUtxos for Misfiled {
     fn utxo(&self, commitment: &[u8; 32]) -> Option<KnownUtxo> {
         self.index.utxo(commitment)
     }
 
     fn with_prefix(&self, owner_key: &[u8; 32], prefix: InputPrefix) -> Vec<[u8; 32]> {
-        let mut commitments = self.index.with_prefix(owner_key, prefix);
-        if prefix == self.prefix {
-            commitments.push(self.twin);
+        match prefix == self.prefix {
+            true => self.answer.clone(),
+            false => self.index.with_prefix(owner_key, prefix),
         }
-        commitments
     }
 }
 
 #[test]
-fn a_prefix_two_sender_notes_share_records_both_and_the_audit_goes_on() {
+fn a_prefix_opens_only_a_note_of_the_sender_that_carries_it() {
     let PrefixedSpend {
         transfer,
         spent,
         built,
         commitments,
     } = prefixed_spend();
+    let prefix = InputPrefix::of(&commitments[1]).unwrap();
+    let first = (commitments[0], spent[0].known(&transfer));
     let twin = Spend {
         utxo: spent[1].utxo,
         blinding: field(0x62),
     };
     let twin_commitment = twin.commitment(&transfer, Some(transfer.ring));
-    let shared = SharedPrefix {
-        index: commitments
-            .iter()
-            .zip(&spent)
-            .map(|(commitment, spend)| (*commitment, spend.known(&transfer)))
-            .chain([(twin_commitment, twin.known(&transfer))])
-            .collect(),
-        prefix: InputPrefix::of(&commitments[1]).unwrap(),
-        twin: twin_commitment,
+    // A deposited record hashes to the commitment under any owner key.
+    let misowned = KnownUtxo {
+        owner_key: [0x77; 32],
+        owner: UtxoOwner::Deposited {
+            owner_hash: spent[1].utxo.owner_hash(),
+        },
+        ..spent[1].known(&transfer)
     };
-    let audited = TransactionAudit::new(&built.transaction, built.layout)
-        .with_known_utxos(&shared)
-        .run(&auditor(), &assets())
-        .unwrap();
-    assert!(matches!(audited.inputs[0].opening, InputOpening::Opened(_)));
-    assert_eq!(
+    let spent_note = (commitments[1], spent[1].known(&transfer));
+    let audit = |index: Vec<([u8; 32], KnownUtxo)>, answer: Vec<[u8; 32]>| {
+        let store = Misfiled {
+            index: index.into_iter().collect(),
+            prefix,
+            answer,
+        };
+        TransactionAudit::new(&built.transaction, built.layout)
+            .with_known_utxos(&store)
+            .run(&auditor(), &assets())
+    };
+    for (index, answer) in [
+        (
+            vec![first, spent_note, (twin_commitment, twin.known(&transfer))],
+            twin_commitment,
+        ),
+        (vec![first, (commitments[1], misowned)], commitments[1]),
+    ] {
+        assert!(matches!(
+            audit(index, vec![answer]),
+            Err(AuditError::UnseenInputPrefix { prefix: unseen }) if unseen == prefix.get()
+        ));
+    }
+    let audited = audit(vec![first, spent_note], vec![commitments[1]; 2]).unwrap();
+    assert!(matches!(
         audited.inputs[1].opening,
-        InputOpening::Ambiguous {
-            candidates: vec![commitments[1], twin_commitment]
-        }
-    );
-    assert_eq!(audited.outputs.len(), 2);
+        InputOpening::Opened(AuditedInputOpening {
+            ring: Some(InputRing::Ring { commitment }),
+            ..
+        }) if commitment == commitments[1]
+    ));
 }
 
 /// The confirmed deposit of `spend` into the ring, its capsule sealed to the auditor.
