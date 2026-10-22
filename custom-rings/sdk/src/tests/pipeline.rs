@@ -396,11 +396,26 @@ impl Paired {
                 hash: [seed; 32],
             })
             .collect();
+        let mut json: serde_json::Value =
+            serde_json::from_str(&with_decoys(&state, &decoys).to_json()).unwrap();
+        json["sent"][0]["decoys"] = decoys[..ANCHOR_DECOYS]
+            .iter()
+            .map(|leaf| hex::encode(leaf.hash))
+            .collect();
         Self {
-            state: with_decoys(&state, &decoys),
+            state: AnonymousRingState::from_json(&json.to_string()).unwrap(),
             contact,
             decoys,
         }
+    }
+
+    /// The pinned decoys and the anchor.
+    fn pinned(&self) -> BTreeSet<[u8; 32]> {
+        self.decoys[..ANCHOR_DECOYS]
+            .iter()
+            .map(|leaf| leaf.hash)
+            .chain([self.contact.utxo_hash])
+            .collect()
     }
 
     fn chain(&self) -> Chain {
@@ -429,11 +444,10 @@ async fn a_pair_payment_anchors_its_first_contact_among_seven_decoys() {
         (leaves.len(), distinct.len()),
         (ANCHOR_DECOYS + 1, ANCHOR_DECOYS + 1)
     );
-    assert!(leaves.contains(&contact.utxo_hash));
-    assert!(leaves
-        .iter()
-        .filter(|leaf| **leaf != contact.utxo_hash)
-        .all(|leaf| paired.decoys.iter().any(|decoy| decoy.hash == *leaf)));
+    assert_eq!(
+        distinct.into_iter().copied().collect::<BTreeSet<_>>(),
+        paired.pinned()
+    );
     let Spend::Anonymous(spend) = &staged.spend else {
         unreachable!("an anonymous ring stages its rail");
     };
@@ -455,33 +469,80 @@ async fn a_pair_payment_anchors_its_first_contact_among_seven_decoys() {
     assert!(spend.first_contacts.is_empty());
 }
 
-/// Two stagings of one pair payment name one leaf list, an indexer cannot intersect them down to the anchor.
+/// A grown pool keeps the pin, the next read names the same leaves.
 #[tokio::test]
 async fn every_anchor_read_of_a_contact_names_the_same_leaves() {
     let sender = &crate::tests::support::keypair(1);
     let paid = ring_address(&crate::tests::support::keypair(2));
     let paired = Paired::new(&paid);
     let chain = paired.chain();
-    let transaction = ring_transaction(vec![ring_utxo(sender, Mint::SOL, 10, 0)]);
-    let transfer = owner_transfer(sender, transaction)
-        .with_anonymous_signer(&sender.signing_key, &paired.state)
-        .with_payment(payment(&paid, 4))
-        .unwrap();
-    stage_anonymous(&transfer, &chain).await.unwrap();
-    stage_anonymous(&transfer, &chain).await.unwrap();
+    let grown: Vec<DecoyLeaf> = (0x40..0x60u8)
+        .map(|seed| DecoyLeaf {
+            leaf_index: u64::from(seed),
+            hash: [seed; 32],
+        })
+        .chain(paired.decoys.iter().copied())
+        .collect();
+    let later = with_decoys(&paired.state, &grown);
+    for state in [&paired.state, &later] {
+        let transaction = ring_transaction(vec![ring_utxo(sender, Mint::SOL, 10, 0)]);
+        let transfer = owner_transfer(sender, transaction)
+            .with_anonymous_signer(&sender.signing_key, state)
+            .with_payment(payment(&paid, 4))
+            .unwrap();
+        stage_anonymous(&transfer, &chain).await.unwrap();
+    }
     let requests = chain.proof_requests.lock().unwrap().clone();
     let [first, second] = requests.as_slice() else {
         panic!("two anchor fetches, {requests:?}");
     };
     assert_eq!(first, second);
-    let mut reversed = paired.decoys.clone();
-    reversed.reverse();
-    assert_eq!(&anonymous::anchor_leaves(&paired.contact, &reversed), first);
-    let other = SentFirstContact {
-        slot_secret: [0x44; 32],
-        ..paired.contact
-    };
-    assert_ne!(&anonymous::anchor_leaves(&other, &paired.decoys), first);
+    assert_eq!(
+        first.iter().copied().collect::<BTreeSet<_>>(),
+        paired.pinned()
+    );
+}
+
+/// Answers every proof request with the error its function makes.
+struct FailingIndexer(fn() -> ClientError);
+
+#[async_trait::async_trait]
+impl zolana_client::AsyncRpc for FailingIndexer {
+    async fn get_merkle_proofs(
+        &self,
+        _tree_account: Address,
+        _leaves: Vec<[u8; 32]>,
+        _config: Option<zolana_client::IndexerRpcConfig>,
+    ) -> Result<zolana_client::GetMerkleProofsResponse, ClientError> {
+        Err((self.0)())
+    }
+}
+
+#[tokio::test]
+async fn a_refused_pinned_leaf_names_the_anchor_to_unpin() {
+    let sender = &crate::tests::support::keypair(1);
+    let paid = ring_address(&crate::tests::support::keypair(2));
+    let paired = Paired::new(&paid);
+    let transaction = ring_transaction(vec![ring_utxo(sender, Mint::SOL, 10, 0)]);
+    let transfer = owner_transfer(sender, transaction)
+        .with_anonymous_signer(&sender.signing_key, &paired.state)
+        .with_payment(payment(&paid, 4))
+        .unwrap();
+    let pair = paired
+        .state
+        .pair_anchor(&paired.contact.recipient, paired.contact.epoch)
+        .unwrap();
+    let refused = FailingIndexer(|| ClientError::Indexer("leaf not found".to_owned()));
+    assert!(matches!(
+        transfer.rail.anchor(&refused, pair).await,
+        Err(RingError::FirstContactLeavesRefused { tree, recipient })
+            if tree == pda::tree(TREE_ID) && recipient == paired.contact.recipient
+    ));
+    let unavailable = FailingIndexer(|| ClientError::IndexerUnavailable("timeout".to_owned()));
+    assert!(matches!(
+        transfer.rail.anchor(&unavailable, pair).await,
+        Err(RingError::Client(ClientError::IndexerUnavailable(_)))
+    ));
 }
 
 /// The program reads the first-contact root from an unpaused tree, any other root fails the transfer.

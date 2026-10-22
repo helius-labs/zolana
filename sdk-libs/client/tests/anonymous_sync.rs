@@ -1,7 +1,7 @@
 //! `AnonymousRingSync` and `TagAllocation` against an in-memory indexer.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeSet, HashMap, HashSet},
     ops::RangeInclusive,
     sync::Mutex,
 };
@@ -10,6 +10,7 @@ use async_trait::async_trait;
 use custom_ring_interface::{
     stream::{
         DeliveredSlot, InboxKey, PairKey, RingTag, SlotSecret, TagIndex, EPOCH_SLOTS, J_INBOX,
+        TAG_LEN,
     },
     RingDepositAuditCapsule, RING_DELIVERED_BODY_LEN,
 };
@@ -18,10 +19,10 @@ use solana_address::Address;
 use solana_signature::Signature;
 use zolana_client::{
     rpc::GetShieldedTransactionsByNullifiersResponse, AnonymousRingState, AnonymousRingSync,
-    AnonymousStream, AsyncRpc, ClientError, Context, EncryptedUtxoMatch,
+    AnonymousStream, AsyncRpc, ClientError, Context, DecoyLeaf, EncryptedUtxoMatch,
     GetEncryptedUtxosByTagsResponse, GetShieldedTransactionsByTagsResponse, IndexerRpcConfig,
     OutputContext, OutputSlot, PaymentStream, SentFirstContact, ShieldedTransaction, TagAllocation,
-    ADDRESS_GAP, ANONYMOUS_RING_STATE_VERSION, DEPOSIT_GAP, PAIR_IDLE_EPOCHS,
+    ADDRESS_GAP, ANCHOR_DECOYS, ANONYMOUS_RING_STATE_VERSION, DEPOSIT_GAP, PAIR_IDLE_EPOCHS,
 };
 use zolana_event::{
     encode_encrypted_ring_deposit_output, encode_merge_output_data, EncryptedRingDepositData,
@@ -385,7 +386,7 @@ impl Fixture {
             payments: vec![Payment {
                 owner: self.recipient_owner(),
                 recipient: change_key,
-                tag: RingTag::from_bytes([0x5c; 31]),
+                tag: RingTag::from_bytes([0x5c; TAG_LEN]),
                 amount,
             }],
             slot: slot_of(epoch),
@@ -1352,7 +1353,7 @@ async fn the_change_scan_asks_for_ring_nullifiers_alone() {
         payments: vec![Payment {
             owner: fixture.recipient_owner(),
             recipient: change_key,
-            tag: RingTag::from_bytes([0x5c; 31]),
+            tag: RingTag::from_bytes([0x5c; TAG_LEN]),
             amount: 40,
         }],
         slot: slot_of(CREATION),
@@ -1667,6 +1668,16 @@ async fn the_sender_keeps_a_pair_live_on_its_confirmed_pair_payments() {
             .unwrap()
             .stream
     };
+    let assets = AssetRegistry::default();
+    let sender_state = AnonymousRingSync::new(&fixture.sender, &assets)
+        .fetch(
+            &fixture.indexer,
+            &pooled(&sender_state, decoy_pool(ANCHOR_DECOYS)),
+            slot_of(CREATION),
+        )
+        .await
+        .unwrap()
+        .state;
     assert!(matches!(
         stream(&sender_state, CREATION + PAIR_IDLE_EPOCHS - 1),
         PaymentStream::Pair(_)
@@ -1677,7 +1688,6 @@ async fn the_sender_keeps_a_pair_live_on_its_confirmed_pair_payments() {
     );
     fixture.pair_payment(&first.slot_secret, CREATION + 5, 30, 20);
     let spent = held(nullifier(21), nullifier(20), Some(RING));
-    let assets = AssetRegistry::default();
     let synced = AnonymousRingSync::new(&fixture.sender, &assets)
         .with_held_utxos([&spent])
         .fetch(&fixture.indexer, &sender_state, slot_of(CREATION + 6))
@@ -1691,4 +1701,220 @@ async fn the_sender_keeps_a_pair_live_on_its_confirmed_pair_payments() {
         stream(&synced.state, CREATION + 5 + PAIR_IDLE_EPOCHS),
         PaymentStream::Inbox
     );
+}
+
+/// `count` leaves of `TREE` a scan could hold, none of them the anchor.
+fn decoy_pool(count: usize) -> Vec<DecoyLeaf> {
+    (0..count as u64)
+        .map(|leaf| DecoyLeaf {
+            leaf_index: 200 + leaf,
+            hash: nullifier(9_000 + leaf),
+        })
+        .collect()
+}
+
+/// `state` holding `leaves` of `TREE` as its decoy pool, as a scan leaves it.
+fn pooled(
+    state: &AnonymousRingState,
+    leaves: impl IntoIterator<Item = DecoyLeaf>,
+) -> AnonymousRingState {
+    let mut json: serde_json::Value = serde_json::from_str(&state.to_json()).unwrap();
+    json["decoys"] = serde_json::json!([{
+        "treeId": TREE,
+        "leaves": leaves
+            .into_iter()
+            .map(|leaf| serde_json::json!({
+                "leafIndex": leaf.leaf_index,
+                "hash": hex::encode(leaf.hash),
+            }))
+            .collect::<Vec<_>>(),
+    }]);
+    AnonymousRingState::from_json(&json.to_string()).unwrap()
+}
+
+/// A sender whose first contact to address 0 landed at leaf 10 in `CREATION`.
+struct Contacted {
+    state: AnonymousRingState,
+    contact: SentFirstContact,
+}
+
+impl Contacted {
+    fn new(fixture: &Fixture) -> Self {
+        let first = fixture.inbox_payment(&fixture.sender, CREATION, 0, 70, 10);
+        let contact = SentFirstContact {
+            recipient: address_key(&fixture.recipient, 0),
+            tree_id: TREE,
+            leaf_index: 10,
+            utxo_hash: first.utxo_hash,
+            slot_secret: *first.slot_secret.as_bytes(),
+            first_nullifier: nullifier(10),
+            slot_index: 0,
+            epoch: CREATION,
+            index: TagIndex::new(0).unwrap(),
+            asset: Mint::SOL.asset,
+            amount: 70,
+        };
+        let mut state = AnonymousRingState::new(RING, CREATION);
+        state.record_first_contact(contact);
+        Self { state, contact }
+    }
+}
+
+async fn scanned(fixture: &Fixture, state: &AnonymousRingState) -> AnonymousRingState {
+    let assets = AssetRegistry::default();
+    AnonymousRingSync::new(&fixture.sender, &assets)
+        .fetch(&fixture.indexer, state, slot_of(CREATION))
+        .await
+        .unwrap()
+        .state
+}
+
+fn pays(fixture: &Fixture, state: &AnonymousRingState) -> PaymentStream {
+    TagAllocation::new(state, CREATION)
+        .allocate(&fixture.address(0), &mut UnwrapErr(OsRng))
+        .unwrap()
+        .stream
+}
+
+/// A pool short of a full set beside the anchor pins nothing, the sender pays the inbox.
+#[tokio::test]
+async fn a_contact_pins_its_decoys_once_the_pool_holds_a_full_set() {
+    let fixture = Fixture::new();
+    let Contacted { state, contact } = Contacted::new(&fixture);
+    let anchor_leaf = DecoyLeaf {
+        leaf_index: 10,
+        hash: contact.utxo_hash,
+    };
+    let short = scanned(
+        &fixture,
+        &pooled(
+            &state,
+            decoy_pool(ANCHOR_DECOYS - 1)
+                .into_iter()
+                .chain([anchor_leaf]),
+        ),
+    )
+    .await;
+    assert_eq!(short.pair_anchor(&contact.recipient, CREATION), None);
+    assert_eq!(pays(&fixture, &short), PaymentStream::Inbox);
+
+    let full = scanned(&fixture, &pooled(&short, decoy_pool(ANCHOR_DECOYS))).await;
+    let anchor = full.pair_anchor(&contact.recipient, CREATION).unwrap();
+    let leaves: BTreeSet<[u8; 32]> = anchor.leaves.into_iter().collect();
+    let expected: BTreeSet<[u8; 32]> = decoy_pool(ANCHOR_DECOYS)
+        .into_iter()
+        .map(|leaf| leaf.hash)
+        .chain([contact.utxo_hash])
+        .collect();
+    assert_eq!(leaves, expected);
+    assert_eq!(pays(&fixture, &full), PaymentStream::Pair(Box::new(anchor)));
+}
+
+/// Leaves a later scan adds rank anywhere, the pinned set and its order stay.
+#[tokio::test]
+async fn pinned_decoys_hold_while_the_pool_grows() {
+    let fixture = Fixture::new();
+    let Contacted { state, contact } = Contacted::new(&fixture);
+    let pinned = scanned(&fixture, &pooled(&state, decoy_pool(ANCHOR_DECOYS))).await;
+    let anchor = pinned.pair_anchor(&contact.recipient, CREATION).unwrap();
+    let grown = scanned(&fixture, &pooled(&pinned, decoy_pool(40))).await;
+    let restored = AnonymousRingState::from_json(&grown.to_json()).unwrap();
+    for state in [&grown, &restored] {
+        assert_eq!(
+            state.pair_anchor(&contact.recipient, CREATION),
+            Some(anchor)
+        );
+    }
+    let mut rerecorded = restored;
+    rerecorded.record_first_contact(contact);
+    assert_eq!(
+        rerecorded.pair_anchor(&contact.recipient, CREATION),
+        Some(anchor)
+    );
+}
+
+#[tokio::test]
+async fn an_unpinned_anchor_pays_the_inbox_and_the_next_scan_pins_it_again() {
+    let fixture = Fixture::new();
+    let Contacted { state, contact } = Contacted::new(&fixture);
+    let mut pinned = scanned(&fixture, &pooled(&state, decoy_pool(ANCHOR_DECOYS))).await;
+    pinned.unpin_anchor(&contact.recipient);
+    assert_eq!(pinned.pair_anchor(&contact.recipient, CREATION), None);
+    assert_eq!(pays(&fixture, &pinned), PaymentStream::Inbox);
+    let repinned = scanned(&fixture, &pooled(&pinned, decoy_pool(20))).await;
+    let anchor = repinned.pair_anchor(&contact.recipient, CREATION).unwrap();
+    assert_eq!(
+        pays(&fixture, &repinned),
+        PaymentStream::Pair(Box::new(anchor))
+    );
+}
+
+#[tokio::test]
+async fn a_stored_pin_must_be_a_full_set_beside_the_anchor() {
+    let fixture = Fixture::new();
+    let Contacted { state, contact } = Contacted::new(&fixture);
+    let pinned = scanned(&fixture, &pooled(&state, decoy_pool(ANCHOR_DECOYS))).await;
+    let json: serde_json::Value = serde_json::from_str(&pinned.to_json()).unwrap();
+    let stored: Vec<serde_json::Value> = json["sent"][0]["decoys"].as_array().unwrap().clone();
+    let short = stored[1..].to_vec();
+    let repeated = [&stored[1..], &stored[1..2]].concat();
+    let with_anchor = [&stored[1..], &[hex::encode(contact.utxo_hash).into()]].concat();
+    for decoys in [short, repeated, with_anchor] {
+        let mut corrupt = json.clone();
+        corrupt["sent"][0]["decoys"] = decoys.into();
+        assert!(matches!(
+            AnonymousRingState::from_json(&corrupt.to_string()),
+            Err(ClientError::AnonymousRingState(_))
+        ));
+    }
+}
+
+/// The TS SDK asserts the same vector.
+#[tokio::test]
+async fn the_pin_and_its_read_order_match_the_shared_vector() {
+    let vector: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../test-vectors/anonymous-ring-state.json"
+    ))
+    .unwrap();
+    let bytes = |value: &serde_json::Value| -> [u8; 32] {
+        hex::decode(value.as_str().unwrap())
+            .unwrap()
+            .try_into()
+            .unwrap()
+    };
+    let fixture = Fixture::new();
+    let contact = SentFirstContact {
+        recipient: address_key(&fixture.recipient, 0),
+        tree_id: TREE,
+        leaf_index: vector["anchor"]["leaf_index"].as_u64().unwrap(),
+        utxo_hash: bytes(&vector["anchor"]["hash"]),
+        slot_secret: bytes(&vector["slot_secret"]),
+        first_nullifier: nullifier(10),
+        slot_index: 0,
+        epoch: CREATION,
+        index: TagIndex::new(0).unwrap(),
+        asset: Mint::SOL.asset,
+        amount: 70,
+    };
+    let mut state = AnonymousRingState::new(RING, CREATION);
+    state.record_first_contact(contact);
+    let pool = vector["pool"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|leaf| DecoyLeaf {
+            leaf_index: leaf["leaf_index"].as_u64().unwrap(),
+            hash: bytes(&leaf["hash"]),
+        });
+    let pinned = scanned(&fixture, &pooled(&state, pool)).await;
+    let stored: serde_json::Value = serde_json::from_str(&pinned.to_json()).unwrap();
+    assert_eq!(stored["sent"][0]["decoys"], vector["pinned"]);
+    let leaves: Vec<String> = pinned
+        .pair_anchor(&contact.recipient, CREATION)
+        .unwrap()
+        .leaves
+        .iter()
+        .map(hex::encode)
+        .collect();
+    assert_eq!(serde_json::json!(leaves), vector["leaves"]);
 }

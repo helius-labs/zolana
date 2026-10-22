@@ -31,9 +31,10 @@ pub mod user_registry;
 
 pub use anonymous::{
     audit_capsule_payload, AnonymousRingScan, AnonymousRingState, AnonymousRingSync,
-    AnonymousRingUtxo, AnonymousStream, DecoyLeaf, IssuedAddress, PaymentStream, PaymentTag,
-    ReceivedAnchor, SentFirstContact, TagAllocation, ADDRESS_GAP, ANONYMOUS_RING_STATE_VERSION,
-    DECOYS_PER_TREE, DEPOSIT_GAP, MAX_FETCH_EPOCHS, MAX_ISSUED_ADDRESSES, PAIR_IDLE_EPOCHS,
+    AnonymousRingUtxo, AnonymousStream, DecoyLeaf, IssuedAddress, PairAnchor, PaymentStream,
+    PaymentTag, ReceivedAnchor, SentFirstContact, TagAllocation, ADDRESS_GAP, ANCHOR_DECOYS,
+    ANONYMOUS_RING_STATE_VERSION, DECOYS_PER_TREE, DEPOSIT_GAP, MAX_FETCH_EPOCHS,
+    MAX_ISSUED_ADDRESSES, PAIR_IDLE_EPOCHS,
 };
 pub use authority::ProofAuthority;
 pub use client::{

@@ -111,10 +111,18 @@ impl RingDeposit<'_> {
             DepositRecipient::Confidential(address) if !anonymous => {
                 (address, address.viewing_pubkey.u())
             }
-            DepositRecipient::Anonymous { keys, state } if anonymous => (
-                keys.address()?,
-                exactly_one(keys.sender_view_tags(&[state.deposit_next()])?)?,
-            ),
+            DepositRecipient::Anonymous { keys, state } if anonymous => {
+                if state.ring() != self.ring.program_id() {
+                    return Err(RingError::ForeignRingState {
+                        state: state.ring(),
+                        ring: self.ring.program_id(),
+                    });
+                }
+                (
+                    keys.address()?,
+                    exactly_one(keys.sender_view_tags(&[state.deposit_next()])?)?,
+                )
+            }
             DepositRecipient::Confidential(_) => {
                 return Err(CustomRingError::AnonymousRingRefused.into())
             }
@@ -466,5 +474,33 @@ mod tests {
             prepared.deposit.view_tag,
             member.sender_view_tags(&[state.deposit_next()]).unwrap()[0]
         );
+    }
+
+    #[tokio::test]
+    async fn a_deposit_refuses_the_state_of_another_ring() {
+        let member = keypair(1);
+        let payer = keypair(9);
+        let chain = Chain::ring(RingSettings::new(RingMode::Anonymous));
+        let other = Address::new_from_array([0x47; 32]);
+        let state = AnonymousRingState::new(other, 0);
+        let refused = RingDeposit {
+            ring: ring(),
+            payer: &payer,
+            recipient: DepositRecipient::Anonymous {
+                keys: &member,
+                state: &state,
+            },
+            tree: pda::tree(TREE_ID),
+            asset: DepositAsset::Sol,
+            amount: 5,
+            cosigner: None,
+        }
+        .prepare(&chain)
+        .await;
+        assert!(matches!(
+            refused,
+            Err(RingError::ForeignRingState { state, ring: paid })
+                if state == other && paid == ring().program_id()
+        ));
     }
 }

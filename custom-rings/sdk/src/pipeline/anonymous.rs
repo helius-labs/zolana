@@ -5,11 +5,11 @@ use custom_ring_interface::{
     stream::{tag_epoch, SlotSecret},
     AnchorRoot, RingMode,
 };
-use sha2::{Digest, Sha256};
 use solana_account::Account;
 use solana_address::Address;
+pub use zolana_client::ANCHOR_DECOYS;
 use zolana_client::{
-    AnonymousRingState, AsyncIndexer, AsyncRpc, AsyncZolanaClient, ClientError, DecoyLeaf,
+    AnonymousRingState, AsyncIndexer, AsyncRpc, AsyncZolanaClient, ClientError, PairAnchor,
     PaymentStream, SentFirstContact, Shape, TagAllocation,
 };
 use zolana_hasher::primitives::{hash_bytes, right_align};
@@ -509,8 +509,8 @@ impl Anonymous<'_> {
             let tag = allocation.allocate(&payment.to, &mut *rng)?;
             let position = match tag.stream {
                 PaymentStream::Inbox => StreamPosition::Inbox(tag.index),
-                PaymentStream::Pair(contact) => {
-                    anchor = Some(contact);
+                PaymentStream::Pair(pair) => {
+                    anchor = Some(*pair);
                     StreamPosition::Pair(tag.index)
                 }
             };
@@ -534,7 +534,7 @@ impl Anonymous<'_> {
         check_audit_key(&proof_inputs)?;
         check_entry_inputs(&proof_inputs)?;
         let anchor = match anchor {
-            Some(contact) => Some(self.anchor(client, contact).await?),
+            Some(pair) => Some(self.anchor(client, pair).await?),
             None => None,
         };
         let first_contacts = InboxPayments {
@@ -563,14 +563,21 @@ impl Anonymous<'_> {
         })
     }
 
-    async fn anchor<R: AsyncRpc + ?Sized>(
+    pub(super) async fn anchor<R: AsyncRpc + ?Sized>(
         &self,
         client: &R,
-        contact: SentFirstContact,
+        PairAnchor { contact, leaves }: PairAnchor,
     ) -> Result<AnchorWitness, RingError> {
         let tree = pda::tree(contact.tree_id);
-        let leaves = anchor_leaves(&contact, self.state.decoys(contact.tree_id));
-        let response = client.get_merkle_proofs(tree, leaves, None).await?;
+        let response = match client.get_merkle_proofs(tree, leaves.to_vec(), None).await {
+            Err(ClientError::Indexer(_)) => {
+                return Err(RingError::FirstContactLeavesRefused {
+                    tree,
+                    recipient: contact.recipient,
+                })
+            }
+            answer => answer?,
+        };
         let (index, proof) = response
             .proofs
             .into_iter()
@@ -650,36 +657,6 @@ impl InboxPayments<'_> {
         }
         Ok(contacts)
     }
-}
-
-/// Decoy paths fetched beside the anchor's, the leaves of its tree a scan already holds.
-pub const ANCHOR_DECOYS: usize = 7;
-
-const ANCHOR_DECOY_DOMAIN: &[u8] = b"zolana/ring-anchor-decoy/v1";
-
-/// The decoys and the anchor ranked under the slot secret, every read of one anchor names the same leaves in one order.
-pub(super) fn anchor_leaves(contact: &SentFirstContact, pool: &[DecoyLeaf]) -> Vec<[u8; 32]> {
-    let ranked = |hash: [u8; 32]| -> ([u8; 32], [u8; 32]) {
-        let rank = Sha256::new()
-            .chain_update(ANCHOR_DECOY_DOMAIN)
-            .chain_update(contact.slot_secret)
-            .chain_update(hash)
-            .finalize()
-            .into();
-        (rank, hash)
-    };
-    let mut decoys: Vec<([u8; 32], [u8; 32])> = pool
-        .iter()
-        .map(|leaf| leaf.hash)
-        .filter(|hash| *hash != contact.utxo_hash)
-        .map(ranked)
-        .collect();
-    decoys.sort_unstable();
-    decoys.dedup();
-    decoys.truncate(ANCHOR_DECOYS);
-    decoys.push(ranked(contact.utxo_hash));
-    decoys.sort_unstable();
-    decoys.into_iter().map(|(_, hash)| hash).collect()
 }
 
 /// AnonymousRingEddsa proves uncached noncompact notes only, real outputs owned by Ed25519 keys.

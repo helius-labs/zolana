@@ -14,6 +14,7 @@ use custom_ring_interface::{
 };
 use rand_core::CryptoRng;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use solana_address::Address;
 use solana_signature::Signature;
 use zolana_event_parser::decode_encrypted_ring_deposit_output_data;
@@ -49,6 +50,11 @@ pub const PAIR_IDLE_EPOCHS: u64 = 8;
 
 /// Counters a deposit scan reads past the highest holding a deposit of the wallet.
 pub const DEPOSIT_GAP: u64 = 2 * DEFAULT_TAG_WINDOW;
+
+/// Decoy paths fetched beside the anchor's, the leaves of its tree a scan already holds.
+pub const ANCHOR_DECOYS: usize = 7;
+
+const ANCHOR_DECOY_DOMAIN: &[u8] = b"zolana/ring-anchor-decoy/v1";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IssuedAddress {
@@ -125,6 +131,12 @@ impl SentFirstContact {
     pub fn is_live(&self, epoch: u64) -> bool {
         (self.epoch..=pair_live_through(self.epoch, self.epoch)).contains(&epoch)
     }
+
+    fn same_leaf(&self, other: &Self) -> bool {
+        self.tree_id == other.tree_id
+            && self.leaf_index == other.leaf_index
+            && self.utxo_hash == other.utxo_hash
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -132,6 +144,8 @@ struct SentPair {
     contact: SentFirstContact,
     /// The newest pair payment a scan saw the wallet make on it.
     last_epoch: u64,
+    /// Every read of the anchor names these decoys, `None` until a scan pins them.
+    decoys: Option<[[u8; 32]; ANCHOR_DECOYS]>,
 }
 
 impl SentPair {
@@ -139,6 +153,57 @@ impl SentPair {
         (self.contact.epoch..=pair_live_through(self.contact.epoch, self.last_epoch))
             .contains(&epoch)
     }
+
+    /// The lowest ranked leaves beside the anchor, `None` while fewer than `ANCHOR_DECOYS`.
+    fn pin(&self, pool: &[DecoyLeaf]) -> Option<[[u8; 32]; ANCHOR_DECOYS]> {
+        let anchor = self.contact.utxo_hash;
+        let decoys = by_rank(
+            &self.contact.slot_secret,
+            pool.iter()
+                .map(|leaf| leaf.hash)
+                .filter(|hash| *hash != anchor),
+        );
+        decoys.get(..ANCHOR_DECOYS)?.try_into().ok()
+    }
+
+    fn anchor(&self) -> Option<PairAnchor> {
+        let leaves = by_rank(
+            &self.contact.slot_secret,
+            self.decoys?.into_iter().chain([self.contact.utxo_hash]),
+        );
+        Some(PairAnchor {
+            contact: self.contact,
+            leaves: leaves.try_into().ok()?,
+        })
+    }
+}
+
+/// A live first contact whose decoys a scan pinned.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PairAnchor {
+    pub contact: SentFirstContact,
+    /// Every read of the anchor names these leaves, in order.
+    pub leaves: [[u8; 32]; ANCHOR_DECOYS + 1],
+}
+
+/// Distinct `hashes` in the order of a rank keyed by the slot secret, no reader of a request
+/// can tell the anchor from a decoy.
+fn by_rank(slot_secret: &[u8; 32], hashes: impl IntoIterator<Item = [u8; 32]>) -> Vec<[u8; 32]> {
+    let mut ranked: Vec<([u8; 32], [u8; 32])> = hashes
+        .into_iter()
+        .map(|hash| {
+            let rank = Sha256::new()
+                .chain_update(ANCHOR_DECOY_DOMAIN)
+                .chain_update(slot_secret)
+                .chain_update(hash)
+                .finalize()
+                .into();
+            (rank, hash)
+        })
+        .collect();
+    ranked.sort_unstable();
+    ranked.dedup();
+    ranked.into_iter().map(|(_, hash)| hash).collect()
 }
 
 /// A proof bounds a pair by its first contact, the idle rule by its last payment.
@@ -268,12 +333,20 @@ impl AnonymousRingState {
         }))
     }
 
-    /// The live first contact to `recipient`, the anchor a payment in `epoch` may pair on.
+    /// Live in `epoch`, pinned or not.
     pub fn first_contact(&self, recipient: &X25519Pubkey, epoch: u64) -> Option<&SentFirstContact> {
+        self.live_sent(recipient, epoch).map(|sent| &sent.contact)
+    }
+
+    /// The anchor a payment to `recipient` in `epoch` may pair on, live with its decoys pinned.
+    pub fn pair_anchor(&self, recipient: &X25519Pubkey, epoch: u64) -> Option<PairAnchor> {
+        self.live_sent(recipient, epoch)?.anchor()
+    }
+
+    fn live_sent(&self, recipient: &X25519Pubkey, epoch: u64) -> Option<&SentPair> {
         self.sent
             .iter()
             .find(|sent| sent.contact.recipient == *recipient && sent.live(epoch))
-            .map(|sent| &sent.contact)
     }
 
     /// A confirmed inbox payment becomes its address's newest first contact.
@@ -281,15 +354,40 @@ impl AnonymousRingState {
         let recorded = SentPair {
             contact,
             last_epoch: contact.epoch,
+            decoys: None,
         };
         match self
             .sent
             .iter_mut()
             .find(|sent| sent.contact.recipient == contact.recipient)
         {
+            Some(sent) if sent.contact.same_leaf(&contact) => {}
             Some(sent) if sent.contact.epoch <= contact.epoch => *sent = recorded,
             Some(_) => {}
             None => self.sent.push(recorded),
+        }
+    }
+
+    /// The indexer refused a pinned leaf, the next scan pins the decoys again.
+    pub fn unpin_anchor(&mut self, recipient: &X25519Pubkey) {
+        if let Some(sent) = self
+            .sent
+            .iter_mut()
+            .find(|sent| sent.contact.recipient == *recipient)
+        {
+            sent.decoys = None;
+        }
+    }
+
+    fn pin_anchors(&mut self) {
+        for sent in &mut self.sent {
+            if sent.decoys.is_none() {
+                let pool = self
+                    .decoys
+                    .get(&sent.contact.tree_id)
+                    .map_or(&[][..], Vec::as_slice);
+                sent.decoys = sent.pin(pool);
+            }
         }
     }
 
@@ -544,6 +642,7 @@ impl<'a, K: ShieldedKeys + ?Sized> AnonymousRingSync<'a, K> {
             state.scanned_epoch = Some(scanned);
         }
         state.prune(open);
+        state.pin_anchors();
         let anchors = state
             .received
             .iter()
@@ -1141,15 +1240,14 @@ fn check_count(got: usize, want: usize) -> Result<(), ClientError> {
     Ok(())
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PaymentStream {
     Inbox,
-    /// Anchored on the sender's live first contact to the address.
-    Pair(SentFirstContact),
+    Pair(Box<PairAnchor>),
 }
 
 /// The tag a payment publishes in the epoch its proof binds.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PaymentTag {
     pub stream: PaymentStream,
     pub epoch: u64,
@@ -1178,7 +1276,7 @@ impl<'a> TagAllocation<'a> {
         }
     }
 
-    /// The pair stream of an admitted live first contact, else the inbox stream, at an index
+    /// The pair stream of an admitted pinned first contact, else the inbox stream, at an index
     /// `rng` draws.
     pub fn allocate<R: CryptoRng + ?Sized>(
         &mut self,
@@ -1192,18 +1290,21 @@ impl<'a> TagAllocation<'a> {
             });
         }
         let recipient = address.recipient.viewing_pubkey;
-        let contact = self
+        let anchor = self
             .state
-            .first_contact(&recipient, self.epoch)
-            .filter(|contact| {
-                !self.paired && address.pairing.admits(&contact.asset, contact.amount)
+            .pair_anchor(&recipient, self.epoch)
+            .filter(|anchor| {
+                !self.paired
+                    && address
+                        .pairing
+                        .admits(&anchor.contact.asset, anchor.contact.amount)
             });
-        if let Some(contact) = contact.copied() {
-            let pair = PairKey::derive(&SlotSecret::new(contact.slot_secret)?)?;
+        if let Some(anchor) = anchor {
+            let pair = PairKey::derive(&SlotSecret::new(anchor.contact.slot_secret)?)?;
             let index = self.draw(*pair.as_bytes(), rng);
             self.paired = true;
             return Ok(PaymentTag {
-                stream: PaymentStream::Pair(contact),
+                stream: PaymentStream::Pair(Box::new(anchor)),
                 epoch: self.epoch,
                 index,
                 tag: pair.tag(self.epoch, index)?,
@@ -1306,6 +1407,7 @@ struct ContactJson {
     asset: String,
     amount: String,
     last_epoch: u64,
+    decoys: Option<Vec<String>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -1365,6 +1467,7 @@ impl AnonymousRingState {
                     |SentPair {
                          contact,
                          last_epoch,
+                         decoys,
                      }| ContactJson {
                         recipient: hex::encode(contact.recipient.as_bytes()),
                         tree_id: contact.tree_id,
@@ -1378,6 +1481,7 @@ impl AnonymousRingState {
                         asset: contact.asset.to_string(),
                         amount: contact.amount.to_string(),
                         last_epoch: *last_epoch,
+                        decoys: decoys.map(|decoys| decoys.iter().map(hex::encode).collect()),
                     },
                 )
                 .collect(),
@@ -1400,7 +1504,8 @@ impl AnonymousRingState {
         serde_json::to_string(&state).expect("a struct of strings, integers and vectors serializes")
     }
 
-    /// Another version fails with [`ClientError::AnonymousRingStateVersion`], a rescan rebuilds it.
+    /// Another version fails with [`ClientError::AnonymousRingStateVersion`], a rescan rebuilds all
+    /// but the sent first contacts.
     pub fn from_json(text: &str) -> Result<Self, ClientError> {
         #[derive(Deserialize)]
         struct Versioned {
@@ -1489,9 +1594,15 @@ impl AnonymousRingState {
                     asset: address(&contact.asset)?,
                     amount: amount(&contact.amount)?,
                 };
+                let decoys = contact
+                    .decoys
+                    .as_deref()
+                    .map(|decoys| pinned_decoys(decoys, &recorded.utxo_hash))
+                    .transpose()?;
                 Ok(SentPair {
                     contact: recorded,
                     last_epoch: contact.last_epoch,
+                    decoys,
                 })
             })
             .collect::<Result<_, ClientError>>()?;
@@ -1516,6 +1627,30 @@ impl AnonymousRingState {
                 .insert(decoys.tree_id, leaves.into_iter().collect());
         }
         Ok(restored)
+    }
+}
+
+/// Distinct leaves beside the anchor, as `SentPair::pin` keeps them.
+fn pinned_decoys(
+    texts: &[String],
+    anchor: &[u8; 32],
+) -> Result<[[u8; 32]; ANCHOR_DECOYS], ClientError> {
+    let decoys = texts
+        .iter()
+        .map(|text| {
+            HexField {
+                name: "decoys",
+                text,
+            }
+            .decode()
+        })
+        .collect::<Result<Vec<[u8; 32]>, ClientError>>()?;
+    let distinct: BTreeSet<&[u8; 32]> = decoys.iter().collect();
+    match decoys.as_slice().try_into() {
+        Ok(pinned) if distinct.len() == ANCHOR_DECOYS && !distinct.contains(anchor) => Ok(pinned),
+        _ => Err(ClientError::AnonymousRingState(format!(
+            "decoys are not {ANCHOR_DECOYS} distinct leaves beside the anchor"
+        ))),
     }
 }
 

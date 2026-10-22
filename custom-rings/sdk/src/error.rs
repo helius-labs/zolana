@@ -6,7 +6,7 @@ use zolana_client::{BlockingInsideRuntime, ClientError};
 use zolana_hasher::HasherError;
 use zolana_interface::error::ShieldedPoolError;
 use zolana_interface::instruction::instruction_data::PublicSlotError;
-use zolana_keypair::KeypairError;
+use zolana_keypair::{KeypairError, X25519Pubkey};
 use zolana_program::instruction::DepositBuildError;
 use zolana_ring_member_registry::RecordTreeError;
 use zolana_ring_policy::{
@@ -126,6 +126,13 @@ pub enum RingError {
     IncompleteProofSet,
     #[error("the indexer's root of first-contact tree {tree} at {root_index} is not the chain's")]
     FirstContactRootStale { tree: Address, root_index: u16 },
+    #[error(
+        "the indexer refuses the pinned leaves of first-contact tree {tree}, unpin the anchor"
+    )]
+    FirstContactLeavesRefused {
+        tree: Address,
+        recipient: X25519Pubkey,
+    },
     #[error("the transfer needs a shape no {rail} key serves")]
     ShapeUnkeyed { rail: &'static str },
     #[error("ring output {slot} names no key its body opens under")]
@@ -202,6 +209,8 @@ pub enum RingError {
     AnonymousRecipient,
     #[error("ring address {address} pays into ring {ring}, the transfer runs in another")]
     ForeignRingAddress { address: Address, ring: Address },
+    #[error("the anonymous ring state tracks ring {state}, the deposit pays ring {ring}")]
+    ForeignRingState { state: Address, ring: Address },
     #[error("merge inputs belong to another tree")]
     InputTreeMismatch,
     #[error("the member's nullifier key does not derive its address")]
