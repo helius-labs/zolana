@@ -188,7 +188,7 @@ pub fn run(config: &ForesterConfig, opts: RunOptions) -> Result<()> {
     // Batch proofs carry only public tree data, so the forester's prover runs
     // outside an enclave.
     let prover = ProverClient::new(prover_url)
-        .without_tee()
+        .for_tree_batches()
         .with_proof_data_source(if opts.client_proof_data {
             ProofDataSource::Client
         } else {

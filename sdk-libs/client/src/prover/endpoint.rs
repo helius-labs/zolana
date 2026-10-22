@@ -65,7 +65,10 @@ impl ProverEndpoint {
         self.base
             .as_ref()
             .zip(default.as_ref())
-            .is_some_and(|(url, default)| url.host() == default.host())
+            .is_some_and(|(url, default)| {
+                url.origin() == default.origin()
+                    && url.path().trim_end_matches('/') == default.path().trim_end_matches('/')
+            })
     }
 
     /// `path` is slash-separated segments, such as `/prove/merge_24_1`.
@@ -170,6 +173,46 @@ mod tests {
 
     fn url(base: &str, path: &str) -> String {
         ProverEndpoint::parse(base).url(path).unwrap().into()
+    }
+
+    #[test]
+    fn plaintext_proving_is_local_only() {
+        for url in [
+            "http://localhost:3001",
+            "https://node.localhost:3001",
+            "http://127.0.0.2:3001",
+            "http://[::1]:3001",
+        ] {
+            assert!(ProverEndpoint::parse(url).is_loopback(), "{url}");
+        }
+        for url in [
+            "https://prover.example",
+            "https://localhost.example",
+            "http://10.0.0.1:3001",
+            "not a url",
+        ] {
+            assert!(!ProverEndpoint::parse(url).is_loopback(), "{url}");
+        }
+    }
+
+    #[test]
+    fn default_deployment_requires_its_origin_and_base_path() {
+        assert!(ProverEndpoint::parse(DEFAULT_PROVER_URL).is_default_tee_prover());
+        assert!(
+            ProverEndpoint::parse(&format!("{DEFAULT_PROVER_URL}/?api-key=k"))
+                .is_default_tee_prover()
+        );
+        for url in [
+            format!("{DEFAULT_PROVER_URL}/other"),
+            format!("{DEFAULT_PROVER_URL}:8443"),
+            DEFAULT_PROVER_URL.replace("https:", "http:"),
+            format!("{DEFAULT_PROVER_URL}.evil.example"),
+        ] {
+            assert!(
+                !ProverEndpoint::parse(&url).is_default_tee_prover(),
+                "{url}"
+            );
+        }
     }
 
     #[test]
