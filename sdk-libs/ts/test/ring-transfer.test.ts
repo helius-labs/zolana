@@ -1214,6 +1214,24 @@ describe("ring audit", () => {
     expect(assets.resolve(2n)).toBe(mint);
   });
 
+  it("rejects a missing continuation before doing any audit work", async () => {
+    const getShieldedTransactionsByTags = vi.fn(async () =>
+      transactionsPage({ cursor: null, hasMore: true }),
+    );
+    const ringInvoked = vi.fn(async () => true);
+    await expect(
+      auditRing({
+        client: ringAuditReader({ getShieldedTransactionsByTags }),
+        auditor: X25519Keypair.generate(),
+        ringProgramId: RING,
+        assets: new AssetRegistry(),
+        origin: { ringInvoked },
+      }),
+    ).rejects.toMatchObject({ code: "RING_RPC" });
+    expect(getShieldedTransactionsByTags).toHaveBeenCalledTimes(1);
+    expect(ringInvoked).not.toHaveBeenCalled();
+  });
+
   it("throws after one refresh when the chain does not know the id either", async () => {
     const auditor = X25519Keypair.generate();
     const mint = getAddressDecoder().decode(scalar(41));

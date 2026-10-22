@@ -520,18 +520,8 @@ async fn both_tag_endpoints_honour_the_ring_filter() {
     let encrypted = get_encrypted_utxos_by_tags(&db, other_ring.clone())
         .await
         .expect("utxo lookup");
-    assert!(shielded
-        .items
-        .iter()
-        .flat_map(|item| &item.events)
-        .next()
-        .is_none());
-    assert!(encrypted
-        .items
-        .iter()
-        .flat_map(|item| &item.outputs)
-        .next()
-        .is_none());
+    assert!(shielded.items.is_empty());
+    assert!(encrypted.items.is_empty());
 
     let shielded_frontier = shielded
         .cursor
@@ -559,18 +549,8 @@ async fn both_tag_endpoints_honour_the_ring_filter() {
     )
     .await
     .expect("resume UTXO scan");
-    assert!(resumed_shielded
-        .items
-        .iter()
-        .flat_map(|item| &item.events)
-        .next()
-        .is_none());
-    assert!(resumed_encrypted
-        .items
-        .iter()
-        .flat_map(|item| &item.outputs)
-        .next()
-        .is_none());
+    assert!(resumed_shielded.items.is_empty());
+    assert!(resumed_encrypted.items.is_empty());
     assert_eq!(resumed_shielded.cursor, Some(shielded_frontier));
     assert_eq!(resumed_encrypted.cursor, Some(encrypted_frontier));
 }
@@ -1764,14 +1744,9 @@ async fn assert_rings_api_exposes_output_hashes(
     assert_eq!(shielded.context.block_time, UNSHIELD_SLOT as i64);
     // A short page is terminal, so it reports the stream tip rather than a
     // next page to follow.
-    assert!(shielded.cursor.is_none());
+    assert!(!shielded.has_more);
     assert!(shielded.cursor.is_some());
-    assert!(!shielded
-        .items
-        .iter()
-        .flat_map(|item| &item.events)
-        .next()
-        .is_none());
+    assert!(!shielded.items.is_empty());
     let output_slot = shielded
         .items
         .iter()
@@ -1834,14 +1809,9 @@ async fn assert_rings_api_exposes_output_hashes(
 
     let encrypted = get_encrypted_utxos_by_tags(db, request).await.unwrap();
     assert_eq!(encrypted.context.block_time, UNSHIELD_SLOT as i64);
-    assert!(encrypted.cursor.is_none());
+    assert!(!encrypted.has_more);
     assert!(encrypted.cursor.is_some());
-    assert!(!encrypted
-        .items
-        .iter()
-        .flat_map(|item| &item.outputs)
-        .next()
-        .is_none());
+    assert!(!encrypted.items.is_empty());
     let encrypted_match = encrypted
         .items
         .iter()

@@ -145,7 +145,12 @@ fn main() -> Result<()> {
         Some(50),
         Some(IndexerRpcConfig::at_slot(merge_slot)),
     )?;
-    let merged_note = decrypt_spendable(&sender, &response.transactions, &assets)?
+    let transactions = response
+        .items
+        .into_iter()
+        .flat_map(|item| item.events)
+        .collect::<Vec<_>>();
+    let merged_note = decrypt_spendable(&sender, &transactions, &assets)?
         .balances
         .get_balance(SOL_MINT)
         .and_then(|balance| balance.utxos.first().cloned())

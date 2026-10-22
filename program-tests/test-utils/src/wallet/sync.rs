@@ -1379,8 +1379,8 @@ mod tests {
                 items: zolana_client::rpc::TransactionOutputs::group(matches, |event| {
                     (event.slot, event.tx_signature)
                 }),
-                cursor: (next).or(latest),
-                has_more: (next).is_some(),
+                cursor: next.or(latest),
+                has_more: next.is_some(),
             })
         }
 
@@ -1402,8 +1402,8 @@ mod tests {
                 items: zolana_client::rpc::TransactionEvents::group(transactions, |event| {
                     (event.slot, event.tx_signature)
                 }),
-                cursor: (next).or(latest),
-                has_more: (next).is_some(),
+                cursor: next.or(latest),
+                has_more: next.is_some(),
             })
         }
 
@@ -1425,8 +1425,8 @@ mod tests {
                 items: zolana_client::rpc::TransactionEvents::group(transactions, |event| {
                     (event.slot, event.tx_signature)
                 }),
-                cursor: (next).or(latest),
-                has_more: (next).is_some(),
+                cursor: next.or(latest),
+                has_more: next.is_some(),
             })
         }
     }

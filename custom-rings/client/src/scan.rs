@@ -146,6 +146,9 @@ impl<'a> RingScan<'a> {
                 Some(self.page_size.get()),
                 self.indexer_config,
             )?;
+            let next = page
+                .continuation(after)
+                .map_err(|_| AuditError::CursorNotAdvanced)?;
             for tx in page.items.into_iter().flat_map(|item| item.events) {
                 if tx.ring_program_id != Some(self.ring_program_id) {
                     continue;
@@ -175,15 +178,12 @@ impl<'a> RingScan<'a> {
                     transactions.push(tx);
                 }
             }
-            let Some(next) = page.cursor.filter(|_| page.has_more) else {
+            let Some(next) = next else {
                 return Ok(RingScanPage {
                     transactions,
                     next: None,
                 });
             };
-            if after.is_some_and(|reached| next <= reached) {
-                return Err(AuditError::CursorNotAdvanced);
-            }
             after = Some(next);
         }
         Ok(RingScanPage {

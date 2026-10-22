@@ -1,8 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import { address } from "@solana/kit";
+import { ZolanaIndexer } from "../src/client/indexer.js";
+import { atSlot, createIndexerPollConfig } from "../src/client/retry.js";
 import { ZolanaApi } from "../src/api/index.js";
 import { hash, limit } from "../src/indexer/scalars.js";
 import { checkedCursor, compareCursors } from "../src/interface/cursor.js";
+import { copyBytes } from "../src/interface/internal.js";
+import type { Bytes32 } from "../src/interface/types.js";
+import { nextPageCursor } from "../src/interface/page.js";
 import { ringReadAttestation } from "../src/ring/rpc.js";
 
 const signature = "1".repeat(64);
@@ -102,11 +107,54 @@ describe("transaction pagination", () => {
     ).rejects.toMatchObject({ code: "API_INVALID_RESULT" });
   });
 
+  it("rejects missing, repeated, backward, and malformed continuations", () => {
+    for (const next of [null, cursor, `1:6:${signature}`, "invalid"]) {
+      expect(() => nextPageCursor({ cursor: next, hasMore: true }, cursor)).toThrow();
+    }
+    const next = `1:8:${signature}`;
+    expect(nextPageCursor({ cursor: next, hasMore: true }, cursor)).toBe(next);
+    expect(nextPageCursor({ cursor: next, hasMore: false }, cursor)).toBeNull();
+  });
+
+  it.each([false, true])(
+    "retries a minimum-slot error only with an explicit wait: %s",
+    async (wait) => {
+      let calls = 0;
+      const fetch = vi.fn<typeof globalThis.fetch>(async () => {
+        calls++;
+        return Response.json({
+          jsonrpc: "2.0",
+          id: "test-account",
+          ...(calls === 1
+            ? {
+                error: {
+                  code: -32016,
+                  message: "Minimum context slot has not been reached",
+                  data: { contextSlot: 99 },
+                },
+              }
+            : { result: { context, items: [], cursor, hasMore: false } }),
+        });
+      });
+      const indexer = new ZolanaIndexer(new ZolanaApi({ url: "https://indexer.example", fetch }));
+      const read = indexer.getShieldedTransactionsByTags(
+        { tags: [copyBytes(new Uint8Array(32), 32, "tag") as Bytes32], minContextSlot: 100n },
+        wait ? atSlot(100n, createIndexerPollConfig(1, 0n, 0n)) : undefined,
+      );
+      if (wait) {
+        await expect(read).resolves.toMatchObject({ context: { slot: 100n }, cursor });
+      } else {
+        await expect(read).rejects.toMatchObject({ code: "CLIENT_INDEXER" });
+      }
+      expect(fetch).toHaveBeenCalledTimes(wait ? 2 : 1);
+    },
+  );
+
   it("binds the freshness gate in the Ring RPC signature", () => {
     const input = {
       ringProgramId: address("1".repeat(32)),
       timestamp: 1n,
-      nonce: hashNonce(),
+      nonce: copyBytes(new Uint8Array(32), 32, "nonce") as Bytes32,
       after: cursor,
       limit: 1,
     };
@@ -116,13 +164,3 @@ describe("transaction pagination", () => {
     expect(new TextDecoder().decode(first)).toContain(`after: ${cursor}\nmin-context-slot: 100`);
   });
 });
-
-function hashNonce() {
-  // A fixed-length nonce is constructed by the same checked primitive as production requests.
-  return nonceBytes(new Uint8Array(32));
-}
-import { copyBytes } from "../src/interface/internal.js";
-import type { Bytes32 } from "../src/interface/types.js";
-function nonceBytes(value: Uint8Array): Bytes32 {
-  return copyBytes(value, 32, "nonce") as Bytes32;
-}

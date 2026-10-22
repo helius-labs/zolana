@@ -57,35 +57,26 @@ pub async fn get_encrypted_utxos_by_tags(
     } else {
         scan_position(&tx).await?.max(request.after)
     };
-    let mut items: Vec<TransactionOutputs<EncryptedUtxoMatch>> = Vec::new();
-    for row in rows {
-        let output = EncryptedUtxoMatch {
-            slot: u64_from_i64(row.slot, "slot")?,
-            tx_signature: signature_from_bytes(&row.signature)?,
-            output_slot: rings_output_slot_from_parts(
-                row.view_tag,
-                row.utxo_hash,
-                row.output_tree,
-                row.tree_id,
-                row.leaf_index,
-                row.payload,
-            )?,
-            tx_viewing_pk: row.tx_viewing_pk.map(Base64String),
-            salt: row.salt.map(Base64String),
-        };
-        if let Some(last) = items
-            .last_mut()
-            .filter(|last| last.slot == output.slot && last.signature == output.tx_signature)
-        {
-            last.outputs.push(output);
-        } else {
-            items.push(TransactionOutputs {
-                slot: output.slot,
-                signature: output.tx_signature,
-                outputs: vec![output],
-            });
-        }
-    }
+    let outputs = rows
+        .into_iter()
+        .map(|row| {
+            Ok(EncryptedUtxoMatch {
+                slot: u64_from_i64(row.slot, "slot")?,
+                tx_signature: signature_from_bytes(&row.signature)?,
+                output_slot: rings_output_slot_from_parts(
+                    row.view_tag,
+                    row.utxo_hash,
+                    row.output_tree,
+                    row.tree_id,
+                    row.leaf_index,
+                    row.payload,
+                )?,
+                tx_viewing_pk: row.tx_viewing_pk.map(Base64String),
+                salt: row.salt.map(Base64String),
+            })
+        })
+        .collect::<Result<Vec<_>, PhotonApiError>>()?;
+    let items = TransactionOutputs::group(outputs, |output| (output.slot, output.tx_signature));
     tx.commit().await?;
     Ok(GetEncryptedUtxosByTagsResponse {
         context,

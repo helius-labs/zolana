@@ -1,4 +1,5 @@
-import { compareCursors, type Cursor } from "../client/rpc.js";
+import { nextPageCursor } from "../interface/page.js";
+import type { Cursor } from "../client/rpc.js";
 import { X25519PublicKey, X25519Keypair } from "../keypair/x25519.js";
 import { SOLANA_OWNER_TAG, hashBytes, initializePoseidon } from "../hasher/index.js";
 
@@ -359,6 +360,11 @@ export async function auditRing(
       undefined,
       context,
     );
+    const next = nextPageCursor(
+      response,
+      after,
+      () => new RingError("RING_RPC", { details: { reason: "invalid ring scan cursor" } }),
+    );
     for (const transaction of response.items.flatMap((item) => item.events)) {
       if (transaction.eventIndex === undefined) {
         throw new RingError("RING_RPC", { details: { reason: "missing event index" } });
@@ -392,11 +398,7 @@ export async function auditRing(
         transactions.push(auditRingTransaction(audit));
       }
     }
-    const next = response.hasMore ? response.cursor : null;
     if (next === null) return Object.freeze({ transactions: Object.freeze(transactions) });
-    if (after !== undefined && compareCursors(next, after) <= 0) {
-      throw new RingError("RING_RPC", { details: { reason: "ring scan page did not advance" } });
-    }
     after = next;
   }
   return Object.freeze({

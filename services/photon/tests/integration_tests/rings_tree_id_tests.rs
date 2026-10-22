@@ -109,12 +109,7 @@ async fn the_append_target_is_reported_on_a_page_that_matched_nothing() {
         .await
         .expect("tags lookup");
 
-    assert!(response
-        .items
-        .iter()
-        .flat_map(|item| &item.events)
-        .next()
-        .is_none());
+    assert!(response.items.is_empty());
     assert_eq!(response.output_tree_id, Some(FIXTURE_TREE_ID));
 }
 

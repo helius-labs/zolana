@@ -1,14 +1,11 @@
-use std::{collections::HashMap, num::NonZeroU32, sync::Arc, time::Duration};
+use std::{num::NonZeroU32, sync::Arc, time::Duration};
 
 use custom_ring_interface::RingMode;
 use solana_address::Address;
-use solana_signature::Signature;
 use zolana_client::{rpc::Cursor, GetShieldedTransactionsByTagsResponse};
 use zolana_indexer_api::Limit;
 use zolana_keypair::{X25519Keypair, X25519Pubkey};
-use zolana_ring_client::{
-    AuditError, AuditedTransaction, RingOrigin, RingWithdrawal, TransactionAudit,
-};
+use zolana_ring_client::{AuditError, AuditedTransaction, RingWithdrawal, TransactionAudit};
 use zolana_transaction::instructions::transact::canonical_shape;
 
 use crate::{
@@ -249,7 +246,6 @@ impl<S: TransactionSource> AuditService<S> {
         let mut refreshed_assets = false;
 
         let mut items = Vec::new();
-        let mut origins: HashMap<(Signature, u16), RingOrigin> = HashMap::new();
         for group in response.items {
             let mut item = DecryptedTransactionGroup {
                 slot: group.slot,
@@ -262,19 +258,11 @@ impl<S: TransactionSource> AuditService<S> {
                     continue;
                 }
                 let event_index = tx.event_index.ok_or(RingRpcError::InvalidIndexerResponse)?;
-                let origin_key = (tx.tx_signature, event_index);
-                let origin = match origins.get(&origin_key) {
-                    Some(known) => known.clone(),
-                    None => {
-                        let found = self
-                            .shared
-                            .source
-                            .transaction_origin(tx.tx_signature, event_index, self.ring)
-                            .await?;
-                        origins.insert(origin_key, found.clone());
-                        found
-                    }
-                };
+                let origin = self
+                    .shared
+                    .source
+                    .transaction_origin(tx.tx_signature, event_index, self.ring)
+                    .await?;
                 if !origin.ring_invoked {
                     continue;
                 }

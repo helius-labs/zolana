@@ -490,6 +490,9 @@ impl<I: Rpc, O: TransactionOrigin> DepositHistory<'_, I, O> {
                 },
                 self.indexer_config,
             )?;
+            let next = page
+                .continuation(after)
+                .map_err(|_| AuditError::CursorNotAdvanced)?;
             for transaction in page.items.into_iter().flat_map(|item| item.events) {
                 if !transaction.proofless {
                     continue;
@@ -538,12 +541,9 @@ impl<I: Rpc, O: TransactionOrigin> DepositHistory<'_, I, O> {
                     }
                 }
             }
-            let Some(next) = page.cursor.filter(|_| page.has_more) else {
+            let Some(next) = next else {
                 return Ok(deposits);
             };
-            if after.is_some_and(|reached| next <= reached) {
-                return Err(AuditError::CursorNotAdvanced.into());
-            }
             after = Some(next);
         }
         Err(RecoveryError::IncompleteScan)
@@ -573,13 +573,13 @@ impl<I: Rpc> SpendHistory<'_, I> {
                     None,
                     self.indexer_config,
                 )?;
+                let next = page
+                    .continuation(after)
+                    .map_err(|_| AuditError::CursorNotAdvanced)?;
                 transactions.extend(page.items.into_iter().flat_map(|item| item.events));
-                let Some(next) = page.cursor.filter(|_| page.has_more) else {
+                let Some(next) = next else {
                     break;
                 };
-                if after.is_some_and(|reached| next <= reached) {
-                    return Err(AuditError::CursorNotAdvanced.into());
-                }
                 after = Some(next);
             }
         }
@@ -699,8 +699,8 @@ mod tests {
                 },
                 items: Vec::new(),
                 output_tree_id: None,
-                cursor: ((!terminal).then(position)).or(terminal.then(position)),
-                has_more: ((!terminal).then(position)).is_some(),
+                cursor: Some(position()),
+                has_more: !terminal,
             })
         }
     }

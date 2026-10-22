@@ -1,10 +1,11 @@
+import { nextPageCursor } from "../interface/page.js";
 import type { Address, Signature } from "@solana/kit";
 
 import { ClientError } from "../client/error.js";
 import { concatBytes } from "../keypair/bytes.js";
 import { ownerHash } from "../keypair/hash.js";
 import type { IndexerReader, RingSpendRecordLookup } from "../client/ports.js";
-import { compareCursors, type Cursor } from "../client/rpc.js";
+import type { Cursor } from "../client/rpc.js";
 import {
   RING_ANSWER_SLOTS,
   RING_INLINE_ASSET_SLOTS,
@@ -1278,14 +1279,16 @@ async function collectPages<P extends PositionPage>(
   let after: Cursor | undefined;
   for (;;) {
     const page = await request(after);
+    const next = nextPageCursor(
+      page,
+      after,
+      () =>
+        new ClientError("CLIENT_INVALID_RPC_RESPONSE", {
+          details: { method, path: "$.cursor" },
+        }),
+    );
     absorb(page);
-    const next = page.hasMore ? page.cursor : null;
     if (next === null) return;
-    if (after !== undefined && compareCursors(next, after) <= 0) {
-      throw new ClientError("CLIENT_INVALID_RPC_RESPONSE", {
-        details: { method, path: "$.next" },
-      });
-    }
     after = next;
   }
 }

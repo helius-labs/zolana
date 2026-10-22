@@ -984,12 +984,7 @@ mod tests {
         )
         .await
         .unwrap();
-        assert!(resumed
-            .items
-            .iter()
-            .flat_map(|item| &item.events)
-            .next()
-            .is_none());
+        assert!(resumed.items.is_empty());
 
         // 3. Output pages must retain the same ring filter.
         let outputs = get_encrypted_utxos_by_tags(&db, request.clone())
@@ -1054,12 +1049,7 @@ mod tests {
         )
         .await
         .unwrap();
-        assert!(response
-            .items
-            .iter()
-            .flat_map(|item| &item.events)
-            .next()
-            .is_none());
+        assert!(response.items.is_empty());
     }
 
     /// An unspent nullifier matches nothing, so without a reported position the
@@ -1079,12 +1069,7 @@ mod tests {
         .await
         .unwrap();
 
-        assert!(response
-            .items
-            .iter()
-            .flat_map(|item| &item.events)
-            .next()
-            .is_none());
+        assert!(response.items.is_empty());
         assert!(!response.has_more, "no matching transactions remain");
         let latest = response.cursor.expect("an exhausted scan reports its tip");
 
@@ -1100,12 +1085,7 @@ mod tests {
         )
         .await
         .unwrap();
-        assert!(resumed
-            .items
-            .iter()
-            .flat_map(|item| &item.events)
-            .next()
-            .is_none());
+        assert!(resumed.items.is_empty());
         assert_eq!(
             resumed.cursor,
             Some(latest),
@@ -1263,12 +1243,7 @@ mod tests {
         .await
         .unwrap();
         assert!(
-            resumed
-                .items
-                .iter()
-                .flat_map(|item| &item.events)
-                .next()
-                .is_none(),
+            resumed.items.is_empty(),
             "the spend sits at the tip, so a resume from it sees nothing new"
         );
     }
@@ -1362,12 +1337,7 @@ mod tests {
         .await
         .unwrap();
         assert!(
-            resumed
-                .items
-                .iter()
-                .flat_map(|item| &item.events)
-                .next()
-                .is_none(),
+            resumed.items.is_empty(),
             "the boundary signature was completed, so nothing was left behind"
         );
     }

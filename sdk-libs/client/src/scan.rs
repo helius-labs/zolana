@@ -37,10 +37,7 @@ use zolana_transaction::{
 
 use crate::{
     error::ClientError,
-    rpc::{
-        Cursor, EncryptedUtxoMatch, IndexerRpcConfig, ProgramAccountsFilter, Rpc,
-        ShieldedTransaction,
-    },
+    rpc::{EncryptedUtxoMatch, IndexerRpcConfig, ProgramAccountsFilter, Rpc, ShieldedTransaction},
 };
 
 const PAGE_LIMIT: u32 = 1_000;
@@ -345,6 +342,9 @@ fn tagged_transactions<I: Rpc + ?Sized>(
             Some(PAGE_LIMIT),
             config,
         )?;
+        let next = page
+            .continuation(cursor)
+            .map_err(|_| ClientError::IndexerCursorNotAdvanced)?;
         *output_tree_id = page.output_tree_id;
         transactions.extend(
             page.items
@@ -352,7 +352,7 @@ fn tagged_transactions<I: Rpc + ?Sized>(
                 .flat_map(|item| item.events)
                 .filter(|tx| !tx.proofless),
         );
-        match next_page(&cursor, page.cursor, page.has_more)? {
+        match next {
             Some(next) => cursor = Some(next),
             None => break,
         }
@@ -361,6 +361,9 @@ fn tagged_transactions<I: Rpc + ?Sized>(
     loop {
         let page =
             indexer.get_encrypted_utxos_by_tags(tags.to_vec(), cursor, Some(PAGE_LIMIT), config)?;
+        let next = page
+            .continuation(cursor)
+            .map_err(|_| ClientError::IndexerCursorNotAdvanced)?;
         *output_tree_id = page.output_tree_id;
         transactions.extend(
             page.items
@@ -368,7 +371,7 @@ fn tagged_transactions<I: Rpc + ?Sized>(
                 .flat_map(|item| item.outputs)
                 .filter_map(EncryptedUtxoMatch::into_proofless_transaction),
         );
-        match next_page(&cursor, page.cursor, page.has_more)? {
+        match next {
             Some(next) => cursor = Some(next),
             None => break,
         }
@@ -394,28 +397,16 @@ fn spending_transactions<I: Rpc + ?Sized>(
                 Some(PAGE_LIMIT),
                 config,
             )?;
+            let next = page
+                .continuation(cursor)
+                .map_err(|_| ClientError::IndexerCursorNotAdvanced)?;
             *output_tree_id = page.output_tree_id;
             transactions.extend(page.items.into_iter().flat_map(|item| item.events));
-            match next_page(&cursor, page.cursor, page.has_more)? {
+            match next {
                 Some(next) => cursor = Some(next),
                 None => break,
             }
         }
     }
     Ok(transactions)
-}
-
-/// A continuation exists only on a truncated page and must move forward.
-fn next_page(
-    after: &Option<Cursor>,
-    cursor: Option<Cursor>,
-    has_more: bool,
-) -> Result<Option<Cursor>, ClientError> {
-    if !has_more {
-        return Ok(None);
-    }
-    match cursor {
-        Some(cursor) if after.is_none_or(|after| cursor > after) => Ok(Some(cursor)),
-        _ => Err(ClientError::IndexerCursorNotAdvanced),
-    }
 }

@@ -1,4 +1,4 @@
-import { checkedCursor } from "../interface/cursor.js";
+import { nextPageCursor } from "../interface/page.js";
 import type { DepositPayloadDecoder } from "../transaction/serialization/ring-deposit.js";
 import {
   getAddressEncoder,
@@ -69,7 +69,7 @@ export interface SyncWalletConfig {
   readonly depositPayloadDecoder?: DepositPayloadDecoder;
   /** Stable tags and nullifiers per indexer request. Defaults to 64. */
   readonly queryChunk?: number;
-  /** Rows requested per indexer page. Defaults to Photon's maximum, 1000. */
+  /** Solana transactions requested per indexer page. Defaults to Photon's maximum, 1000. */
   readonly pageLimit?: number;
   /**
    * Slot the indexer must have persisted before its answers are used. Unset
@@ -247,10 +247,9 @@ function compareBySlotThenSignature(
 }
 
 /**
- * Photon can emit multiple shielded events in one Solana transaction. The
- * current wire response does not expose its event index, so the committed
- * output contexts (or nullifiers for an outputless event) form the stable
- * event identity instead of collapsing every event under the signature.
+ * Output contexts and nullifiers identify both indexed events and synthesized
+ * proofless deposits, which have no event index. A signature alone would
+ * collapse multiple events in one transaction.
  */
 function shieldedTransactionKey(transaction: IndexedShieldedTransaction): string {
   return [
@@ -261,10 +260,6 @@ function shieldedTransactionKey(transaction: IndexedShieldedTransaction): string
     ),
     ...transaction.nullifiers.map(bytesKey),
   ].join("|");
-}
-
-function positionKey(position: Cursor): string {
-  return position;
 }
 
 /**
@@ -320,25 +315,15 @@ async function readChunk(
   let after = start;
   for (;;) {
     const page = await request(after);
-    try {
-      if (page.cursor !== null) checkedCursor(page.cursor);
-      if (typeof page.hasMore !== "boolean") throw new Error("invalid pagination response");
-    } catch {
-      throw new ClientError("CLIENT_INVALID_RPC_RESPONSE", {
+    const invalid = () =>
+      new ClientError("CLIENT_INVALID_RPC_RESPONSE", {
         details: { method, path: "$.cursor" },
       });
-    }
-    if (
-      (after !== undefined && (page.cursor === null || compareCursors(page.cursor, after) < 0)) ||
-      (page.hasMore &&
-        (page.cursor === null || (after !== undefined && compareCursors(page.cursor, after) <= 0)))
-    ) {
-      throw new ClientError("CLIENT_INVALID_RPC_RESPONSE", {
-        details: { method, path: "$.cursor" },
-      });
-    }
-    if (!page.hasMore) return page.cursor ?? after;
-    after = page.cursor ?? undefined;
+    const next = nextPageCursor(page, after, invalid);
+    if (after !== undefined && (page.cursor === null || compareCursors(page.cursor, after) < 0))
+      throw invalid();
+    if (next === null) return page.cursor ?? after;
+    after = next;
   }
 }
 
@@ -419,7 +404,7 @@ function groupByResumePoint(
   const groups = new Map<string, { from: Cursor | undefined; keys: Bytes32[] }>();
   for (const key of keys) {
     const from = positionFor(key);
-    const groupKey = from === undefined ? "" : positionKey(from);
+    const groupKey = from ?? "";
     const group = groups.get(groupKey);
     if (group === undefined) groups.set(groupKey, { from, keys: [key] });
     else group.keys.push(key);

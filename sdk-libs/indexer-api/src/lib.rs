@@ -482,7 +482,9 @@ pub struct Page<T> {
     pub context: Context,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_tree_id: Option<u16>,
+    #[cfg_attr(feature = "openapi", schema(inline))]
     pub items: Vec<T>,
+    #[cfg_attr(feature = "openapi", schema(required = true))]
     pub cursor: Option<Cursor>,
     pub has_more: bool,
 }
@@ -490,6 +492,19 @@ pub struct Page<T> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 #[error("invalid pagination response")]
 pub struct InvalidPage;
+
+impl<T> Page<T> {
+    /// Return the next request's cursor, rejecting an incomplete page that cannot advance.
+    pub fn continuation(&self, after: Option<Cursor>) -> Result<Option<Cursor>, InvalidPage> {
+        if !self.has_more {
+            return Ok(None);
+        }
+        match self.cursor {
+            Some(cursor) if after.is_none_or(|after| cursor > after) => Ok(Some(cursor)),
+            _ => Err(InvalidPage),
+        }
+    }
+}
 
 #[doc(hidden)]
 pub trait Positioned {
@@ -538,9 +553,7 @@ impl<T: Positioned> Page<T> {
         if self.cursor < previous {
             return Err(InvalidPage);
         }
-        if self.has_more && (self.cursor.is_none() || self.cursor <= after) {
-            return Err(InvalidPage);
-        }
+        self.continuation(after)?;
         Ok(())
     }
 }
@@ -826,9 +839,8 @@ pub struct Context {
 pub struct GetRingsByTagsRequest {
     /// Empty tags require a ring and select its full history.
     pub tags: Vec<Hash>,
-    /// Resume strictly after the given transaction. Every stream shares the
-    /// order, so one recorded position serves tags, nullifiers, and encrypted
-    /// UTXOs.
+    /// Resume strictly after the given transaction. Keep a separate checkpoint
+    /// for each stream and filter set; new filters must start from their beginning.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub after: Option<Cursor>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1299,6 +1311,34 @@ mod tests {
         assert!(page.validate(None, 1, Some(8)).is_err());
         page.cursor = None;
         assert!(page.validate(Some(cursor), 1, None).is_err());
+    }
+
+    #[test]
+    fn continuation_requires_an_advancing_cursor_when_more_history_remains() {
+        let after = Cursor::new(7, Signature::default());
+        let mut page = Page::<()> {
+            context: Context {
+                block_time: 0,
+                slot: 10,
+            },
+            output_tree_id: None,
+            items: vec![],
+            cursor: None,
+            has_more: true,
+        };
+        for cursor in [
+            None,
+            Some(after),
+            Some(Cursor::new(6, Signature::default())),
+        ] {
+            page.cursor = cursor;
+            assert_eq!(page.continuation(Some(after)), Err(InvalidPage));
+        }
+        let next = Cursor::new(8, Signature::default());
+        page.cursor = Some(next);
+        assert_eq!(page.continuation(Some(after)), Ok(Some(next)));
+        page.has_more = false;
+        assert_eq!(page.continuation(Some(after)), Ok(None));
     }
 
     #[test]

@@ -369,7 +369,7 @@ impl TransactionSource for StaticSource {
                 (event.slot, event.tx_signature)
             }),
             cursor: self.next.or(terminal),
-            has_more: (self.next).is_some(),
+            has_more: self.next.is_some(),
             output_tree_id: Some(TREE_ID),
         };
         async move { Ok(response) }

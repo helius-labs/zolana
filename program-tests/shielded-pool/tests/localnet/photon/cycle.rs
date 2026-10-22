@@ -48,7 +48,7 @@ fn phase_bootstrap() -> TestResult<CycleEnv> {
     let unknown_transactions =
         indexer.get_shielded_transactions_by_tags(vec![[253u8; 32]], None, Some(10), None)?;
     assert!(
-        unknown_transactions.transactions.is_empty(),
+        unknown_transactions.items.is_empty(),
         "unknown tag should not return transactions"
     );
 
@@ -151,7 +151,7 @@ fn phase_shield(env: &mut CycleEnv) -> TestResult<PayerShield> {
         env.indexer
             .get_encrypted_utxos_by_tags(vec![[254u8; 32]], None, Some(10), None)?;
     assert!(
-        unknown_utxos.matches.is_empty(),
+        unknown_utxos.items.is_empty(),
         "unknown tag should not return encrypted UTXOs"
     );
 
@@ -603,7 +603,7 @@ fn phase_unshield_indexer_assertions(
             Some(1),
             None,
         )?;
-        if response.transactions.len() == 1 && response.next.is_some() {
+        if response.items.len() == 1 && response.has_more {
             Ok(Some(response))
         } else {
             Ok(None)
@@ -611,12 +611,12 @@ fn phase_unshield_indexer_assertions(
     })?;
     let second_page = indexer.get_shielded_transactions_by_tags(
         vec![recipient_view_tag],
-        first_page.next,
+        first_page.cursor,
         Some(1),
         None,
     )?;
     assert!(
-        !second_page.transactions.is_empty(),
+        !second_page.items.is_empty(),
         "paginated transaction query should return a second page"
     );
 

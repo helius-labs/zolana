@@ -850,7 +850,7 @@ impl Rpc for PagedIndexer {
                 (event.slot, event.tx_signature)
             }),
             cursor: next,
-            has_more: (next).is_some(),
+            has_more: next.is_some(),
             output_tree_id: None,
         })
     }
@@ -1193,5 +1193,42 @@ fn a_cursor_at_the_end_of_history_returns_an_empty_page() {
 
     assert!(page.transactions.is_empty());
     assert_eq!(page.next, None);
+    assert_eq!(origin.lookups.get(), 0);
+}
+
+#[test]
+fn a_missing_continuation_fails_before_origin_lookup() {
+    struct MissingContinuation(Cell<usize>);
+    impl Rpc for MissingContinuation {
+        fn get_shielded_transactions_by_tags(
+            &self,
+            _tags: Vec<[u8; 32]>,
+            _after: Option<Cursor>,
+            _limit: Option<u32>,
+            _config: Option<IndexerRpcConfig>,
+        ) -> Result<GetShieldedTransactionsByTagsResponse, zolana_client::ClientError> {
+            self.0.set(self.0.get() + 1);
+            Ok(GetShieldedTransactionsByTagsResponse {
+                context: Context {
+                    block_time: 0,
+                    slot: 1,
+                },
+                items: vec![],
+                output_tree_id: None,
+                cursor: None,
+                has_more: true,
+            })
+        }
+    }
+    let ring = Address::new_from_array([9; 32]);
+    let auditor = X25519Keypair::new().pubkey();
+    let indexer = MissingContinuation(Cell::new(0));
+    let origin = ring_origins(ring, &[]);
+    let result = RingScan::new(ring, &auditor).run(RingEnvironment {
+        indexer: &indexer,
+        origin: &origin,
+    });
+    assert!(matches!(result, Err(AuditError::CursorNotAdvanced)));
+    assert_eq!(indexer.0.get(), 1);
     assert_eq!(origin.lookups.get(), 0);
 }

@@ -1,8 +1,9 @@
+import { nextPageCursor } from "../interface/page.js";
 import { X25519Keypair } from "../keypair/x25519.js";
 import type { Address } from "@solana/kit";
 
 import type { IndexerReader } from "../client/ports.js";
-import { compareCursors, type Cursor } from "../client/rpc.js";
+import type { Cursor } from "../client/rpc.js";
 import type { Bytes32, RequestContext } from "../interface/types.js";
 import { mergePaddedInputCount } from "../interface/constants.js";
 import { PAGE_LIMIT } from "../interface/indexer-limits.js";
@@ -283,6 +284,11 @@ async function recoverDeposits(
       undefined,
       context,
     );
+    const next = nextPageCursor(
+      response,
+      after,
+      () => new RingError("RING_RPC", { details: { reason: "invalid deposit scan cursor" } }),
+    );
     for (const transaction of response.items.flatMap((item) => item.events)) {
       if (!transaction.proofless) continue;
       for (const [slotIndex, slot] of transaction.outputSlots.entries()) {
@@ -371,13 +377,8 @@ async function recoverDeposits(
         }
       }
     }
-    const next = response.hasMore ? response.cursor : null;
     if (next === null)
       return { unsupported: [...found.values()], candidates: [...candidates.values()] };
-    if (after !== undefined && compareCursors(next, after) <= 0)
-      throw new RingError("RING_RPC", {
-        details: { reason: "deposit scan page did not advance" },
-      });
     after = next;
   }
   throw new RingError("RING_RECOVERY_INCOMPLETE");
@@ -399,13 +400,13 @@ async function spendingTransactions(
       undefined,
       context,
     );
+    const next = nextPageCursor(
+      page,
+      after,
+      () => new RingError("RING_RPC", { details: { reason: "invalid nullifier scan cursor" } }),
+    );
     transactions.push(...page.items.flatMap((item) => item.events));
-    const next = page.hasMore ? page.cursor : null;
     if (next === null) return transactions;
-    if (after !== undefined && compareCursors(next, after) <= 0)
-      throw new RingError("RING_RPC", {
-        details: { reason: "nullifier scan page did not advance" },
-      });
     after = next;
   }
 }

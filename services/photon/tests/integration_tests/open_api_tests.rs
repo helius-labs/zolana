@@ -94,5 +94,35 @@ pub fn test_documentation_generation() -> anyhow::Result<()> {
         ["application/json"]["schema"]["properties"]["params"]["properties"]["owners"];
     assert_eq!(owners["maxItems"], MAX_USER_RECORD_OWNERS);
     assert_eq!(owners["minItems"], 1);
+
+    for (method, field, item_schema) in [
+        ("getEncryptedUtxosByTags", "outputs", "EncryptedUtxoMatch"),
+        (
+            "getShieldedTransactionsByTags",
+            "events",
+            "ShieldedTransaction",
+        ),
+        (
+            "getShieldedTransactionsByNullifiers",
+            "events",
+            "ShieldedTransaction",
+        ),
+    ] {
+        let result = &spec["paths"][format!("/{method}")]["post"]["responses"]["200"]["content"]
+            ["application/json"]["schema"]["properties"]["result"];
+        assert!(result["required"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("cursor")));
+        let group = &result["properties"]["items"]["items"];
+        assert_eq!(
+            group["properties"][field]["items"]["$ref"],
+            format!("#/components/schemas/{item_schema}")
+        );
+        assert_eq!(
+            group["properties"]["signature"]["$ref"],
+            "#/components/schemas/SerializableSignature"
+        );
+    }
     Ok(())
 }

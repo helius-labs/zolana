@@ -273,9 +273,11 @@ impl<'a, L: LineageLookup> LineageWalk<'a, L> {
         &mut self,
         page: GetShieldedTransactionsByNullifiersResponse,
     ) -> Result<(), EntryProofError> {
+        self.after = page
+            .continuation(self.after)
+            .map_err(|_| zolana_client::ClientError::IndexerCursorNotAdvanced)?;
         self.spenders
             .extend(page.items.into_iter().flat_map(|item| item.events));
-        self.after = page.cursor.filter(|_| page.has_more);
         if self.after.is_some() {
             return Ok(());
         }
@@ -494,16 +496,15 @@ pub(crate) mod tests {
                 .page_size
                 .map_or(matching.len(), |size| (start + size).min(matching.len()));
             let rows = matching[start..end].to_vec();
-            // Photon treats a full page as truncated and names `next` only there.
-            let truncated = self.page_size.is_some_and(|size| rows.len() >= size);
+            let truncated = end < matching.len();
             let position = Cursor::new(end as u64, Signature::default());
             GetShieldedTransactionsByNullifiersResponse {
                 context: Context {
                     block_time: 0,
                     slot: 0,
                 },
-                cursor: (truncated.then_some(position)).or((!truncated).then_some(position)),
-                has_more: (truncated.then_some(position)).is_some(),
+                cursor: Some(position),
+                has_more: truncated,
                 items: zolana_client::rpc::TransactionEvents::group(rows, |event| {
                     (event.slot, event.tx_signature)
                 }),
@@ -618,8 +619,8 @@ pub(crate) mod tests {
         .fetch(&rpc)
         .expect("walk");
         assert_eq!(lineages, vec![first.live(), second.live()]);
-        // Two full claim pages end on an empty third, the next round is one empty page.
-        assert_eq!(rpc.requests.lock().expect("requests").len(), 4);
+        // The second claim page is terminal; only the next lineage round needs an empty read.
+        assert_eq!(rpc.requests.lock().expect("requests").len(), 3);
     }
 
     #[test]

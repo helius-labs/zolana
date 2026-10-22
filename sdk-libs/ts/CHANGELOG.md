@@ -186,6 +186,9 @@ Changed
 
 Fixed
 
+- Ring history and recovery scans reject missing or nonadvancing continuation
+  cursors instead of accepting incomplete history. Indexer polling retries a
+  minimum-context-slot error when the caller has requested a freshness wait.
 - `syncWallet` failed with `CLIENT_INVALID_RPC_RESPONSE` on any indexed transaction whose published viewing key is not a valid X25519 key, now such a transaction is read without a viewing key and its outputs count as undecryptable, as do outputs under a small-order transaction key.
 - `auditRingTransaction`, `auditRing` and `recoverRingMemberNotes` rejected the auditor message of an anonymous ring, and `decodeRingProgramConfig` threw on one; they now take `mode: "anonymous"`, report hidden senders, inputs and recipients in `anonymous` like `RingRpc.getDecryptedTransactions`, and the config decodes with `mode` while transaction builders keep refusing an anonymous ring.
 - `syncWallet` and custom ring recovery could not recover a merge output

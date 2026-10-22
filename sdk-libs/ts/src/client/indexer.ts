@@ -728,6 +728,12 @@ function wrapIndexer(cause: unknown, method: string): ClientError {
   if (isClientError(cause)) return cause;
   if (cause instanceof ApiError && cause.code === "API_JSON_RPC") {
     const rpcCode = cause.details?.["rpcCode"];
+    if (rpcCode === -32016) {
+      return new ClientError("CLIENT_INDEXER", {
+        details: { method, retryable: true },
+        cause,
+      });
+    }
     const code = typeof rpcCode === "number" ? RING_PROJECTION_CODES.get(rpcCode) : undefined;
     if (code !== undefined) return new ClientError(code, { details: { method } });
   }
