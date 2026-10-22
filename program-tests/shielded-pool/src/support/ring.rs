@@ -63,8 +63,7 @@ pub struct RingTransactProof {
     pub ring_program: Pubkey,
     pub ring_config: Pubkey,
     pub nullifiers: Vec<[u8; 32]>,
-    /// The Ed25519 input owners in the proof's signer vector: the payer on
-    /// either rail.
+    /// The proof's signer vector, the payer on either rail.
     pub owner_signers: Vec<Pubkey>,
 }
 

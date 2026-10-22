@@ -1,9 +1,4 @@
-//! Full custom-ring CPI into SPP with a registered merge owner.
-//!
-//! The ring-test stub creates authentic zero-valued input leaves. We replace
-//! its program bytes with the custom ring after proving, preserving the ring
-//! ID, SPP registration and tree. This tests the real custom wrapper without
-//! needing an unrelated deposit proof in the merge fixture.
+//! A registered merge through the real ring program, swapped in after the stub made the inputs.
 
 use bytemuck::Zeroable;
 use custom_ring_interface::{
@@ -151,7 +146,7 @@ fn registered_merge_rejects_bad_roots_then_settles_through_spp() {
     Rejection::custom(CustomRingError::RootBelowFloor as u32).assert_litesvm(error);
     assert_eq!(tree_progress(&pool.rpc, &pool.tree), before);
 
-    // The empty authenticated tree has no owner record for this proof.
+    // The empty authenticated tree holds no record of the proof's owner.
     installed.set_registry(&mut pool, installed.registry(MEMBER_REGISTRY_EMPTY_ROOT));
     let error = send(&mut pool).expect_err("unregistered owner root must fail");
     Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed).assert_litesvm(error);

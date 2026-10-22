@@ -671,8 +671,7 @@ impl RealRingMergeProof {
             compact,
         );
 
-        // SPP's ring stub forwards the selected root but has no member registry.
-        // Build a real authenticated opening for the proof and its public input.
+        // SPP's ring stub forwards the root without a registry, the proof opens a real record.
         let ciphertext = [7u8; 32];
         let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
         let member = owner_public_key

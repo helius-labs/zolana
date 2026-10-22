@@ -88,7 +88,7 @@ rule_errors! {
     EmptyLists => "a group names no list",
     ListInBothSets => "a list is both required and forbidden",
     SenderGuard => "sender rules take no amount guard",
-    ExitDestination => "exit destinations are enforced by no plane yet",
+    ExitDestination => "exit destinations are enforced by no plane",
     ZeroThreshold => "a zero threshold is Guard::Always",
     DuplicateRule => "duplicate rule",
     PerAssetGuardNotOwner => "per-asset limits apply to output owners only",

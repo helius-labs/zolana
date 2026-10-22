@@ -11,7 +11,6 @@ use crate::instructions::{
     shared::parse,
 };
 
-/// Takes effect at once.
 #[inline(never)]
 pub fn process_set_policy_rules_ix(
     program_id: &Address,

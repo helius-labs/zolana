@@ -9,7 +9,7 @@ use zolana_hasher::primitives::{
 /// Capacities without a delivery proof.
 pub const PACKED_AUDIT_CAPACITIES: [usize; 2] = [2, 4];
 pub const DELIVERED_AUDIT_CAPACITIES: [usize; 2] = [8, 16];
-/// The widest confidential ring spend a transaction fits.
+/// Input slots of the widest SPP shape a compact confidential ring spend uses.
 pub const CONFIDENTIAL_RING_MAX_INPUTS: usize = 48;
 /// Input classes of the anonymous commitment keys per output capacity, ascending.
 pub const ANONYMOUS_AUDIT_CLASSES: [(usize, &[usize]); 4] = [

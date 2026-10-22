@@ -580,7 +580,7 @@ fn merge_ring_rejects_a_non_boolean_anonymous_flag() {
     let (mut rpc, tree) = merge_env();
     let mut ix = merge_ring(&rpc, &tree).cpi_instruction();
     ix.accounts.get_mut(2).expect("ring config meta").is_signer = false;
-    // Tag, ring data hash, registry root, then the flag. Parsing fails before any account check.
+    // The flag after the tag, the ring data hash and the registry root.
     ix.data[1 + 32 + 32] = 2;
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[])

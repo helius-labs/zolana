@@ -176,7 +176,7 @@ pub fn check_co_signer(account: &AccountView, expected: &Address) -> ProgramResu
     Ok(())
 }
 
-/// Passes only this program's nonzero loader-v3 upgrade authority.
+/// Passes only the program's nonzero loader-v3 upgrade authority.
 #[must_use]
 pub struct UpgradeAuthorityCheck<'a> {
     pub program_id: &'a Address,
