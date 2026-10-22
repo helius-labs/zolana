@@ -155,6 +155,7 @@ pub(crate) struct AuditProving<'a> {
     pub sealed: &'a SealedAudit,
     pub published: Vec<PublishedSlot<'a>>,
     pub inputs: &'a SppProofInputs,
+    pub n_out: u8,
     pub sender: &'a ShieldedAddress,
     pub auditor: &'a X25519Pubkey,
     pub ring_id: [u8; 32],
@@ -200,9 +201,7 @@ impl AuditProving<'_> {
     /// The circuit the sealed layout selects and the body it proves.
     pub fn request(&self) -> Result<AuditRequest, RingError> {
         let inputs = self.inputs;
-        let shape = inputs.check_shape()?;
-        let n_out =
-            u8::try_from(shape.n_outputs()).map_err(|_| TransactionError::TooManyOutputs)?;
+        let n_out = self.n_out;
         let circuit = RingCircuit::audit(self.sealed.layout, n_out);
         let first_nullifier = inputs
             .input_utxos

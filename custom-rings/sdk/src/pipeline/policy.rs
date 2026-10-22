@@ -16,7 +16,6 @@ use zolana_ring_policy::{
 };
 use zolana_transaction::instructions::transact::SppProofInputs;
 
-use super::shape_byte;
 use crate::{
     limits::Outflows,
     prover::{to_instruction_proof, RingRequest},
@@ -226,6 +225,8 @@ pub(super) struct PolicyProving<'a> {
     pub ring_id: [u8; 32],
     pub rail: RingRail,
     pub inputs: &'a SppProofInputs,
+    pub n_in: u8,
+    pub n_out: u8,
     pub private_tx_hash: [u8; 32],
     pub private_tx_blinding: [u8; 32],
     /// The owner identity, the anonymous rail's sender commitment, zero on the delegate rail.
@@ -265,12 +266,7 @@ impl PolicyInputs {
         proving: &PolicyProving<'_>,
     ) -> Result<custom_ring_interface::CustomRingProof, RingError> {
         let inputs = proving.inputs;
-        let shape = inputs.check_shape()?;
-        let circuit = RingCircuit::policy(
-            proving.rail,
-            shape_byte(shape.n_inputs(), proving.rail)?,
-            shape_byte(shape.n_outputs(), proving.rail)?,
-        );
+        let circuit = RingCircuit::policy(proving.rail, proving.n_in, proving.n_out);
         let public_input_hash = self.statement(proving)?;
         let outputs = inputs
             .output_utxos

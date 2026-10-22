@@ -590,6 +590,7 @@ impl Assembled {
                 .rail
                 .published_slots(&frame.proof_inputs, &frame.sender)?,
             inputs: &frame.proof_inputs,
+            n_out: frame.parts.n_out,
             sender: &frame.sender,
             auditor: &self.auditor,
             ring_id: frame.ring_id,
@@ -608,6 +609,8 @@ impl Assembled {
             ring_id: frame.ring_id,
             rail: frame.parts.rail,
             inputs: &frame.proof_inputs,
+            n_in: frame.parts.n_in,
+            n_out: frame.parts.n_out,
             private_tx_hash: frame.parts.private_tx_hash,
             private_tx_blinding: frame.private_tx_blinding,
             sender: self.policy_sender,
