@@ -727,15 +727,28 @@ async fn a_first_contact_root_the_program_would_not_read_is_refused_before_provi
         transfer.assemble(&unsettled.client()).await,
         Err(RingError::FirstContactRootStale { tree: stale, root_index: 1 }) if stale == tree
     ));
-    let chain = paired.chain();
-    let mut paused = chain.get_account(tree).await.unwrap().unwrap();
-    zolana_tree::TreeAccount::from_bytes(&mut paused.data, tree.to_bytes())
-        .unwrap()
-        .set_paused(true);
     assert!(matches!(
-        transfer.assemble(&chain.with(tree, paused).client()).await,
+        transfer
+            .assemble(&paired.chain().with_paused_tree().client())
+            .await,
         Err(RingError::Program(CustomRingError::FirstContactTreePaused))
     ));
+}
+
+#[tokio::test]
+async fn a_leaf_keeps_an_earlier_pause_of_its_tree() {
+    let tree = pda::tree(TREE_ID);
+    let mut account = Chain::ring(anonymous())
+        .with_paused_tree()
+        .with_leaf([9; 32], 0)
+        .get_account(tree)
+        .await
+        .unwrap()
+        .unwrap();
+    let mut view =
+        zolana_tree::TreeAccount::from_bytes(&mut account.data, tree.to_bytes()).unwrap();
+    assert!(view.is_paused());
+    assert_eq!(view.utxo_tree().next_index(), 1);
 }
 
 /// SPP publishes the hidden owner's key beside a default-ring spend, the preview sizes it.
@@ -857,7 +870,7 @@ async fn an_anonymous_move_takes_the_widest_keyed_spend_and_refuses_past_it() {
     ));
 }
 
-/// A payment and its change take 2 outputs, a policy ring fits 24 inputs there and not 32.
+/// One payment without change pads to 2 outputs, a policy ring fits 24 inputs there and not 32.
 #[tokio::test]
 async fn an_anonymous_move_past_the_transaction_size_is_refused_before_proving() {
     use crate::tests::support::{keypair, payer, Registry};

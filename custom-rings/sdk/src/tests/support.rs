@@ -40,7 +40,7 @@ use zolana_transaction::{
     instructions::transact::ShieldedTransaction, utxo::SppProofInputUtxo, Data, Mint, Utxo,
     WalletUtxo, REDACTED,
 };
-use zolana_tree::TreeAccount;
+use zolana_tree::{TreeAccount, UTXO_TREE_HEIGHT};
 
 use crate::{trees::PoolTree, CustomRing};
 
@@ -150,26 +150,37 @@ pub(crate) fn empty(owner: Address) -> Account {
     }
 }
 
-fn by_index<'a>(
-    leaves: impl IntoIterator<Item = (&'a [u8; 32], &'a u64)>,
-) -> BTreeMap<u64, [u8; 32]> {
-    leaves
-        .into_iter()
-        .map(|(leaf, index)| (*index, *leaf))
-        .collect()
-}
+struct LeafTree(BTreeMap<u64, [u8; 32]>);
 
-/// Each parent is `Poseidon(left, right)`, an empty subtree its level's zero hash.
-fn tree_node(leaves: &BTreeMap<u64, [u8; 32]>, level: usize, position: u64) -> [u8; 32] {
-    let first = position << level;
-    if leaves.range(first..first + (1 << level)).next().is_none() {
-        return Poseidon::zero_bytes()[level];
+impl LeafTree {
+    fn new<'a>(leaves: impl IntoIterator<Item = (&'a [u8; 32], &'a u64)>) -> Self {
+        Self(
+            leaves
+                .into_iter()
+                .map(|(leaf, index)| (*index, *leaf))
+                .collect(),
+        )
     }
-    if level == 0 {
-        return leaves[&position];
+
+    fn dense(&self) -> Vec<[u8; 32]> {
+        let mut dense = vec![[0; 32]; self.0.keys().last().map_or(0, |last| *last as usize + 1)];
+        for (index, leaf) in &self.0 {
+            dense[*index as usize] = *leaf;
+        }
+        dense
     }
-    let child = |offset| tree_node(leaves, level - 1, 2 * position + offset);
-    Poseidon::hashv(&[&child(0), &child(1)]).unwrap()
+
+    fn node(&self, level: usize, position: u64) -> [u8; 32] {
+        let first = position << level;
+        if self.0.range(first..first + (1 << level)).next().is_none() {
+            return Poseidon::zero_bytes()[level];
+        }
+        if level == 0 {
+            return self.0[&position];
+        }
+        let child = |offset| self.node(level - 1, 2 * position + offset);
+        Poseidon::hashv(&[&child(0), &child(1)]).unwrap()
+    }
 }
 
 fn tree_account(tree: PoolTree) -> Account {
@@ -178,7 +189,7 @@ fn tree_account(tree: PoolTree) -> Account {
     TreeAccount::init(
         &mut data,
         TREE_ACCOUNT_DISCRIMINATOR,
-        32,
+        UTXO_TREE_HEIGHT as u8,
         tree.address.to_bytes(),
         tree.id,
         params,
@@ -243,7 +254,7 @@ pub(crate) struct Chain {
     transactions: Vec<ShieldedTransaction>,
     /// Leaf indexes a Merkle proof request may name, every one settled in the tree's account.
     leaves: HashMap<[u8; 32], u64>,
-    /// Leaves the indexer proves under that the tree's account lacks.
+    /// Leaves the indexer serves that the tree's account lacks.
     unsettled: HashMap<[u8; 32], u64>,
     registry: Option<Arc<Registry>>,
     /// The leaves of every Merkle proof request.
@@ -287,25 +298,18 @@ impl Chain {
         self.with(tree.address, tree_account(tree))
     }
 
+    pub(crate) fn with_paused_tree(self) -> Self {
+        self.edit_tree(|tree| tree.set_paused(true))
+    }
+
     pub(crate) fn with_leaf(mut self, hash: [u8; 32], leaf_index: u64) -> Self {
         self.leaves.insert(hash, leaf_index);
-        let tree = PoolTree {
-            address: zolana_interface::pda::tree(TREE_ID),
-            id: TREE_ID,
-        };
-        let settled = by_index(&self.leaves);
-        let mut appended =
-            vec![[0; 32]; settled.keys().last().map_or(0, |last| *last as usize + 1)];
-        for (index, leaf) in settled {
-            appended[index as usize] = leaf;
-        }
-        let mut account = tree_account(tree);
-        TreeAccount::from_bytes(&mut account.data, tree.address.to_bytes())
-            .unwrap()
-            .utxo_tree()
-            .append_batch(&appended, 1)
-            .unwrap();
-        self.with(tree.address, account)
+        let leaves = LeafTree::new(&self.leaves).dense();
+        self.edit_tree(|tree| {
+            let utxo = tree.utxo_tree();
+            utxo.init(UTXO_TREE_HEIGHT).unwrap();
+            utxo.append_batch(&leaves, 1).unwrap();
+        })
     }
 
     pub(crate) fn with_unsettled_leaf(mut self, hash: [u8; 32], leaf_index: u64) -> Self {
@@ -359,6 +363,13 @@ impl Chain {
             self,
             AsyncProverClient::local().with_proof_data_source(source),
         )
+    }
+
+    fn edit_tree(mut self, edit: impl FnOnce(&mut TreeAccount<'_>)) -> Self {
+        let address = zolana_interface::pda::tree(TREE_ID);
+        let account = self.accounts.get_mut(&address).unwrap();
+        edit(&mut TreeAccount::from_bytes(&mut account.data, address.to_bytes()).unwrap());
+        self
     }
 }
 
@@ -422,7 +433,7 @@ impl AsyncRpc for Chain {
         let mut data = self.accounts[&tree_account].data.clone();
         let mut tree = TreeAccount::from_bytes(&mut data, tree_account.to_bytes()).unwrap();
         let root_index = tree.utxo_tree().current_root_index();
-        let served = by_index(self.leaves.iter().chain(&self.unsettled));
+        let served = LeafTree::new(self.leaves.iter().chain(&self.unsettled));
         let proofs = leaves
             .iter()
             .map(|leaf| {
@@ -439,10 +450,10 @@ impl AsyncRpc for Chain {
                         tree: tree_account,
                     },
                     path: (0..STATE_TREE_HEIGHT)
-                        .map(|level| tree_node(&served, level, (leaf_index >> level) ^ 1))
+                        .map(|level| served.node(level, (leaf_index >> level) ^ 1))
                         .collect(),
                     leaf_index,
-                    root: tree_node(&served, STATE_TREE_HEIGHT, 0),
+                    root: served.node(STATE_TREE_HEIGHT, 0),
                     root_seq: SLOT,
                     root_index,
                 }
