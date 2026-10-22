@@ -910,12 +910,18 @@ const RING_PROJECTION_CODES: ReadonlyMap<
   [-32076, "CLIENT_RECORD_QUEUE_CHANGED"],
 ]);
 
+/** Photon reports a transient database failure as the internal error. */
+const JSON_RPC_INTERNAL_ERROR = -32603;
+
 function wrapIndexer(cause: unknown, method: string): ClientError {
   if (isClientError(cause)) return cause;
   if (cause instanceof ApiError && cause.code === "API_JSON_RPC") {
     const rpcCode = cause.details?.["rpcCode"];
     const code = typeof rpcCode === "number" ? RING_PROJECTION_CODES.get(rpcCode) : undefined;
     if (code !== undefined) return new ClientError(code, { details: { method } });
+    if (rpcCode === JSON_RPC_INTERNAL_ERROR) {
+      return new ClientError("CLIENT_INDEXER", { details: { method, retryable: true }, cause });
+    }
   }
   const code = externalCode(cause);
   if (code === "API_ABORTED") return new ClientError("CLIENT_ABORTED", { details: { method } });

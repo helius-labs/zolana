@@ -832,6 +832,42 @@ describe("ZolanaClient", () => {
     expect(encryptedUtxos.scannedThrough).toEqual(Uint8Array.of(4));
   });
 
+  it("polls through an indexer's internal error and refuses any other JSON-RPC error at once", async () => {
+    const answer = (body: Readonly<Record<string, unknown>>) =>
+      new Response(JSON.stringify({ id: "test-account", jsonrpc: "2.0", ...body }), {
+        headers: { "content-type": "application/json" },
+      });
+    const failure = (code: number) => answer({ error: { code, message: "private diagnostics" } });
+    const read = (fetch: Parameters<typeof client>[0], requireSlot?: bigint) =>
+      client(fetch).getEncryptedUtxosByTags(
+        { tags: [bytes(7)] },
+        requireSlot === undefined
+          ? undefined
+          : { requireSlot, poll: { numRetries: 1, delayMs: 0n, maxDelayMs: 0n } },
+      );
+
+    const internal = vi.fn<typeof globalThis.fetch>(() => Promise.resolve(failure(-32603)));
+    await expect(read(internal)).rejects.toMatchObject({
+      code: "CLIENT_INDEXER",
+      details: { method: "getEncryptedUtxosByTags", retryable: true },
+    });
+    const recovering = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(failure(-32603))
+      .mockResolvedValueOnce(
+        answer({ result: { context: { blockTime: 1, slot: 1 }, matches: [], nextCursor: null } }),
+      );
+    await expect(read(recovering, 1n)).resolves.toMatchObject({ matches: [] });
+    expect(recovering).toHaveBeenCalledTimes(2);
+
+    const refusing = vi.fn<typeof globalThis.fetch>(() => Promise.resolve(failure(-32602)));
+    await expect(read(refusing, 1n)).rejects.toMatchObject({
+      code: "CLIENT_INDEXER",
+      details: { method: "getEncryptedUtxosByTags", retryable: false },
+    });
+    expect(refusing).toHaveBeenCalledTimes(1);
+  });
+
   it("reads a malformed transaction viewing key as absent, never as a bad response", async () => {
     const tag = "11111111111111111111111111111111";
     const slot = {
