@@ -21,8 +21,9 @@ use zolana_client::{
     rpc::GetShieldedTransactionsByNullifiersResponse, AnonymousRingState, AnonymousRingSync,
     AnonymousStream, AsyncRpc, ClientError, Context, DecoyLeaf, EncryptedUtxoMatch,
     GetEncryptedUtxosByTagsResponse, GetShieldedTransactionsByTagsResponse, IndexerRpcConfig,
-    OutputContext, OutputSlot, PaymentStream, SentFirstContact, ShieldedTransaction, TagAllocation,
-    ADDRESS_GAP, ANCHOR_DECOYS, ANONYMOUS_RING_STATE_VERSION, DEPOSIT_GAP, PAIR_IDLE_EPOCHS,
+    OutputContext, OutputSlot, PairAnchor, PaymentStream, SentFirstContact, ShieldedTransaction,
+    TagAllocation, ADDRESS_GAP, ANCHOR_DECOYS, ANONYMOUS_RING_STATE_VERSION, DEPOSIT_GAP,
+    PAIR_IDLE_EPOCHS,
 };
 use zolana_event::{
     encode_encrypted_ring_deposit_output, encode_merge_output_data, EncryptedRingDepositData,
@@ -1834,19 +1835,85 @@ async fn pinned_decoys_hold_while_the_pool_grows() {
 }
 
 #[tokio::test]
-async fn an_unpinned_anchor_pays_the_inbox_and_the_next_scan_pins_it_again() {
+async fn a_retired_first_contact_pays_the_inbox_until_a_fresh_one_lands() {
     let fixture = Fixture::new();
     let Contacted { state, contact } = Contacted::new(&fixture);
-    let mut pinned = scanned(&fixture, &pooled(&state, decoy_pool(ANCHOR_DECOYS))).await;
-    pinned.unpin_anchor(&contact.recipient);
-    assert_eq!(pinned.pair_anchor(&contact.recipient, CREATION), None);
-    assert_eq!(pays(&fixture, &pinned), PaymentStream::Inbox);
-    let repinned = scanned(&fixture, &pooled(&pinned, decoy_pool(20))).await;
+    let mut retired = scanned(&fixture, &pooled(&state, decoy_pool(ANCHOR_DECOYS))).await;
+    retired.retire_first_contact(&contact.recipient);
+    assert_eq!(retired.first_contact(&contact.recipient, CREATION), None);
+    assert_eq!(pays(&fixture, &retired), PaymentStream::Inbox);
+    let mut rescanned = scanned(&fixture, &retired).await;
+    assert_eq!(rescanned.first_contact(&contact.recipient, CREATION), None);
+
+    let second = fixture.inbox_payment(&fixture.sender, CREATION, 1, 70, 11);
+    let fresh = SentFirstContact {
+        leaf_index: 11,
+        utxo_hash: second.utxo_hash,
+        slot_secret: *second.slot_secret.as_bytes(),
+        first_nullifier: nullifier(11),
+        index: TagIndex::new(1).unwrap(),
+        ..contact
+    };
+    rescanned.record_first_contact(fresh);
+    let repinned = scanned(&fixture, &rescanned).await;
     let anchor = repinned.pair_anchor(&contact.recipient, CREATION).unwrap();
+    assert_eq!(anchor.contact, fresh);
+    assert!(anchor.leaves.contains(&fresh.utxo_hash));
     assert_eq!(
         pays(&fixture, &repinned),
         PaymentStream::Pair(Box::new(anchor))
     );
+}
+
+#[tokio::test]
+async fn kept_first_contacts_follow_the_stored_state_with_their_pins_and_pair_payments() {
+    let fixture = Fixture::new();
+    let Contacted { state, contact } = Contacted::new(&fixture);
+    let edited = |state: &AnonymousRingState, edit: &dyn Fn(&mut serde_json::Value)| {
+        let mut json: serde_json::Value = serde_json::from_str(&state.to_json()).unwrap();
+        edit(&mut json);
+        AnonymousRingState::from_json(&json.to_string()).unwrap()
+    };
+    let pinned = scanned(&fixture, &pooled(&state, decoy_pool(ANCHOR_DECOYS))).await;
+    let stored = edited(&pinned, &|json| {
+        json["sent"][0]["lastEpoch"] = (CREATION + 5).into();
+    });
+    let late = CREATION + PAIR_IDLE_EPOCHS + 2;
+    let anchor = stored.pair_anchor(&contact.recipient, late);
+    assert!(anchor.is_some());
+
+    let mut fresh = AnonymousRingState::new(RING, CREATION);
+    fresh.keep_first_contacts(&stored);
+    assert_eq!(fresh.pair_anchor(&contact.recipient, late), anchor);
+
+    let mut scan = stored.clone();
+    scan.keep_first_contacts(&state);
+    assert_eq!(scan.pair_anchor(&contact.recipient, late), anchor);
+
+    let mut scan = edited(&stored, &|json| {
+        json["sent"][0]["decoys"] = decoy_pool(ANCHOR_DECOYS + 1)[1..]
+            .iter()
+            .map(|leaf| hex::encode(leaf.hash))
+            .collect();
+    });
+    scan.keep_first_contacts(&stored);
+    assert_eq!(scan.pair_anchor(&contact.recipient, late), anchor);
+
+    let after = |scanned_epoch: u64| {
+        let mut scan = edited(&AnonymousRingState::new(RING, CREATION), &|json| {
+            json["scannedEpoch"] = scanned_epoch.into();
+        });
+        scan.keep_first_contacts(&stored);
+        scan.sent().count()
+    };
+    assert_eq!(after(CREATION + 3), 1);
+    assert_eq!(after(CREATION + 20), 0);
+
+    let mut retired = stored.clone();
+    retired.retire_first_contact(&contact.recipient);
+    let mut scan = stored;
+    scan.keep_first_contacts(&retired);
+    assert_eq!(scan.sent().count(), 0);
 }
 
 #[tokio::test]
@@ -1917,4 +1984,64 @@ async fn the_pin_and_its_read_order_match_the_shared_vector() {
         .map(hex::encode)
         .collect();
     assert_eq!(serde_json::json!(leaves), vector["leaves"]);
+}
+
+#[test]
+fn a_first_contact_and_its_anchor_print_no_recipient_leaf_or_secret() {
+    let fixture = Fixture::new();
+    let contact = SentFirstContact {
+        recipient: address_key(&fixture.recipient, 0),
+        tree_id: TREE,
+        leaf_index: 1234,
+        utxo_hash: [0xa1; 32],
+        slot_secret: [0xb2; 32],
+        first_nullifier: [0xc3; 32],
+        slot_index: 0,
+        epoch: CREATION,
+        index: TagIndex::new(0).unwrap(),
+        asset: Mint::SOL.asset,
+        amount: 70,
+    };
+    let printed = format!(
+        "{:?}",
+        PairAnchor {
+            contact,
+            leaves: [[0xd4; 32]; ANCHOR_DECOYS + 1],
+        }
+    );
+    for field in [
+        "recipient",
+        "leaf_index",
+        "utxo_hash",
+        "slot_secret",
+        "first_nullifier",
+        "leaves",
+    ] {
+        assert!(
+            printed.contains(&format!("{field}: \"<redacted>\"")),
+            "{printed}"
+        );
+    }
+    for value in [
+        format!("{:?}", contact.recipient),
+        "1234".to_owned(),
+        format!("{:?}", [0xa1u8; 32]),
+        format!("{:?}", [0xb2u8; 32]),
+        format!("{:?}", [0xc3u8; 32]),
+        format!("{:?}", [0xd4u8; 32]),
+    ] {
+        assert!(!printed.contains(&value), "{value} in {printed}");
+    }
+}
+
+#[tokio::test]
+async fn a_pinned_state_prints_neither_its_pins_nor_its_decoy_pool() {
+    let fixture = Fixture::new();
+    let Contacted { state, .. } = Contacted::new(&fixture);
+    let pinned = scanned(&fixture, &pooled(&state, decoy_pool(ANCHOR_DECOYS))).await;
+    let printed = format!("{pinned:?}");
+    assert!(printed.contains("decoys: \"<redacted>\""), "{printed}");
+    for leaf in decoy_pool(ANCHOR_DECOYS) {
+        assert!(!printed.contains(&format!("{:?}", leaf.hash)), "{printed}");
+    }
 }

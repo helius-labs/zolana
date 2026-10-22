@@ -9,8 +9,8 @@ use solana_account::Account;
 use solana_address::Address;
 pub use zolana_client::ANCHOR_DECOYS;
 use zolana_client::{
-    AnonymousRingState, AsyncIndexer, AsyncRpc, AsyncZolanaClient, ClientError, PairAnchor,
-    PaymentStream, SentFirstContact, Shape, TagAllocation,
+    AnonymousRingState, AsyncIndexer, AsyncRpc, AsyncZolanaClient, ClientError, MerkleProof,
+    PairAnchor, PaymentStream, SentFirstContact, Shape, TagAllocation,
 };
 use zolana_hasher::primitives::{hash_bytes, right_align};
 use zolana_interface::{
@@ -337,6 +337,52 @@ pub(super) struct AnchorWitness {
     request: Anchor,
 }
 
+struct PinnedProofs<'a> {
+    pair: &'a PairAnchor,
+    tree: Address,
+    proofs: Vec<MerkleProof>,
+}
+
+impl PinnedProofs<'_> {
+    /// Every pinned leaf proves under the anchor's root, a fault on any leaf fails alike.
+    fn anchor(self) -> Result<MerkleProof, RingError> {
+        let PinnedProofs { pair, tree, proofs } = self;
+        let refused = || leaves_refused(&pair.contact, tree);
+        let checked = pair
+            .leaves
+            .iter()
+            .enumerate()
+            .map(|(at, leaf)| {
+                proofs
+                    .iter()
+                    .find(|proof| proof.leaf == *leaf)
+                    .filter(|proof| proof.check_leaf(leaf, &tree, at).is_ok())
+                    .ok_or_else(refused)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let anchor = checked
+            .iter()
+            .find(|proof| {
+                proof.leaf == pair.contact.utxo_hash && proof.leaf_index == pair.contact.leaf_index
+            })
+            .ok_or_else(refused)?;
+        if checked
+            .iter()
+            .any(|proof| proof.root != anchor.root || proof.root_index != anchor.root_index)
+        {
+            return Err(refused());
+        }
+        Ok((*anchor).clone())
+    }
+}
+
+fn leaves_refused(contact: &SentFirstContact, tree: Address) -> RingError {
+    RingError::FirstContactLeavesRefused {
+        tree,
+        recipient: contact.recipient,
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct HiddenOwner(pub Address);
 
@@ -566,27 +612,23 @@ impl Anonymous<'_> {
     pub(super) async fn anchor<R: AsyncRpc + ?Sized>(
         &self,
         client: &R,
-        PairAnchor { contact, leaves }: PairAnchor,
+        pair: PairAnchor,
     ) -> Result<AnchorWitness, RingError> {
+        let contact = pair.contact;
         let tree = pda::tree(contact.tree_id);
-        let response = match client.get_merkle_proofs(tree, leaves.to_vec(), None).await {
-            Err(ClientError::Indexer(_)) => {
-                return Err(RingError::FirstContactLeavesRefused {
-                    tree,
-                    recipient: contact.recipient,
-                })
-            }
-            answer => answer?,
+        let proofs = match client
+            .get_merkle_proofs(tree, pair.leaves.to_vec(), None)
+            .await
+        {
+            Err(ClientError::Indexer(_)) => return Err(leaves_refused(&contact, tree)),
+            answer => answer?.proofs,
         };
-        let (index, proof) = response
-            .proofs
-            .into_iter()
-            .enumerate()
-            .find(|(_, proof)| {
-                proof.leaf == contact.utxo_hash && proof.leaf_index == contact.leaf_index
-            })
-            .ok_or(RingError::IncompleteProofSet)?;
-        proof.check_leaf(&contact.utxo_hash, &tree, index)?;
+        let proof = PinnedProofs {
+            pair: &pair,
+            tree,
+            proofs,
+        }
+        .anchor()?;
         let bound = BoundAnchor {
             tree,
             root_index: proof.root_index,

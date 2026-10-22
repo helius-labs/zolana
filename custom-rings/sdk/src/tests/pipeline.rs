@@ -419,7 +419,10 @@ impl Paired {
     }
 
     fn chain(&self) -> Chain {
-        Chain::ring(anonymous()).with_leaf(self.contact.utxo_hash, self.contact.leaf_index)
+        self.decoys.iter().fold(
+            Chain::ring(anonymous()).with_leaf(self.contact.utxo_hash, self.contact.leaf_index),
+            |chain, decoy| chain.with_leaf(decoy.hash, decoy.leaf_index),
+        )
     }
 }
 
@@ -519,7 +522,7 @@ impl zolana_client::AsyncRpc for FailingIndexer {
 }
 
 #[tokio::test]
-async fn a_refused_pinned_leaf_names_the_anchor_to_unpin() {
+async fn a_refused_pinned_leaf_names_the_first_contact_to_retire() {
     let sender = &crate::tests::support::keypair(1);
     let paid = ring_address(&crate::tests::support::keypair(2));
     let paired = Paired::new(&paid);
@@ -543,6 +546,94 @@ async fn a_refused_pinned_leaf_names_the_anchor_to_unpin() {
         transfer.rail.anchor(&unavailable, pair).await,
         Err(RingError::Client(ClientError::IndexerUnavailable(_)))
     ));
+}
+
+#[derive(Clone, Copy, Debug)]
+enum ProofFault {
+    Withheld,
+    Path,
+    Root,
+    RootIndex,
+    LeafIndex,
+}
+
+struct FaultyProofs {
+    chain: Chain,
+    leaf: [u8; 32],
+    fault: ProofFault,
+}
+
+#[async_trait::async_trait]
+impl zolana_client::AsyncRpc for FaultyProofs {
+    async fn get_merkle_proofs(
+        &self,
+        tree_account: Address,
+        leaves: Vec<[u8; 32]>,
+        config: Option<zolana_client::IndexerRpcConfig>,
+    ) -> Result<zolana_client::GetMerkleProofsResponse, ClientError> {
+        let mut response =
+            zolana_client::AsyncRpc::get_merkle_proofs(&self.chain, tree_account, leaves, config)
+                .await?;
+        let at = response
+            .proofs
+            .iter()
+            .position(|proof| proof.leaf == self.leaf)
+            .unwrap();
+        match self.fault {
+            ProofFault::Withheld => drop(response.proofs.remove(at)),
+            ProofFault::Path => response.proofs[at].path[3][31] ^= 1,
+            ProofFault::Root => {
+                let proof = &mut response.proofs[at];
+                proof.path[3][31] ^= 1;
+                proof.root = proof.path_root()?;
+            }
+            ProofFault::RootIndex => response.proofs[at].root_index ^= 1,
+            ProofFault::LeafIndex => response.proofs[at].leaf_index ^= 1,
+        }
+        Ok(response)
+    }
+}
+
+const PROOF_FAULTS: [ProofFault; 5] = [
+    ProofFault::Withheld,
+    ProofFault::Path,
+    ProofFault::Root,
+    ProofFault::RootIndex,
+    ProofFault::LeafIndex,
+];
+
+#[tokio::test]
+async fn a_fault_on_any_pinned_proof_refuses_the_read_as_one_on_the_anchor() {
+    let sender = &crate::tests::support::keypair(1);
+    let paid = ring_address(&crate::tests::support::keypair(2));
+    let paired = Paired::new(&paid);
+    let transaction = ring_transaction(vec![ring_utxo(sender, Mint::SOL, 10, 0)]);
+    let transfer = owner_transfer(sender, transaction)
+        .with_anonymous_signer(&sender.signing_key, &paired.state)
+        .with_payment(payment(&paid, 4))
+        .unwrap();
+    let pair = paired
+        .state
+        .pair_anchor(&paired.contact.recipient, paired.contact.epoch)
+        .unwrap();
+    for leaf in pair.leaves {
+        for fault in PROOF_FAULTS {
+            let faulty = FaultyProofs {
+                chain: paired.chain(),
+                leaf,
+                fault,
+            };
+            assert!(
+                matches!(
+                    transfer.rail.anchor(&faulty, pair).await,
+                    Err(RingError::FirstContactLeavesRefused { tree, recipient })
+                        if tree == pda::tree(TREE_ID) && recipient == paired.contact.recipient
+                ),
+                "{fault:?} on {}",
+                hex::encode(leaf)
+            );
+        }
+    }
 }
 
 /// The program reads the first-contact root from an unpaused tree, any other root fails the transfer.

@@ -127,7 +127,7 @@ pub enum RingError {
     #[error("the indexer's root of first-contact tree {tree} at {root_index} is not the chain's")]
     FirstContactRootStale { tree: Address, root_index: u16 },
     #[error(
-        "the indexer refuses the pinned leaves of first-contact tree {tree}, unpin the anchor"
+        "the indexer gives no valid proof of the pinned leaves of first-contact tree {tree}, retire the first contact"
     )]
     FirstContactLeavesRefused {
         tree: Address,

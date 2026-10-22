@@ -8,7 +8,7 @@ use std::{
 
 use anyhow::{anyhow, ensure, Context as _, Result};
 use custom_ring_interface::RingMode;
-use custom_ring_sdk::CustomRingConfig;
+use custom_ring_sdk::{CustomRingConfig, RingError};
 use serde::Deserialize;
 use solana_address::Address;
 use zolana_client::{
@@ -122,6 +122,19 @@ impl AnonymousRingStore {
         change: impl FnOnce(&mut AnonymousRingState) -> Result<T>,
     ) -> Result<T> {
         self.update_locked(|state, _| change(state))
+    }
+
+    /// Any error but a refused anchor read comes back as it was.
+    pub fn retire_refused_first_contact(&self, error: anyhow::Error) -> Result<()> {
+        let Some(&RingError::FirstContactLeavesRefused { recipient, .. }) =
+            error.downcast_ref::<RingError>()
+        else {
+            return Err(error);
+        };
+        self.update(|state| {
+            state.retire_first_contact(&recipient);
+            Ok(())
+        })
     }
 
     fn update_locked<T>(
@@ -299,9 +312,7 @@ impl Decisions<'_> {
         for issued in self.0.issued() {
             state.issue(issued.index, issued.pairing.clone())?;
         }
-        for contact in self.0.sent() {
-            state.record_first_contact(*contact);
-        }
+        state.keep_first_contacts(self.0);
         Ok(())
     }
 }
@@ -394,13 +405,42 @@ pub(crate) mod fixtures {
 
 #[cfg(test)]
 mod tests {
-    use zolana_client::ClientError;
+    use custom_ring_interface::stream::TagIndex;
+    use zolana_client::{ClientError, SentFirstContact, ANCHOR_DECOYS, PAIR_IDLE_EPOCHS};
     use zolana_keypair::Pairing;
 
     use super::{
         fixtures::{keypair, Member, EPOCH, RING},
         *,
     };
+
+    fn sent_contact() -> SentFirstContact {
+        SentFirstContact {
+            recipient: keypair(2).viewing_pubkey(),
+            tree_id: 0,
+            leaf_index: 10,
+            utxo_hash: [0x21; 32],
+            slot_secret: [0x22; 32],
+            first_nullifier: [0x23; 32],
+            slot_index: 1,
+            epoch: EPOCH,
+            index: TagIndex::new(0).unwrap(),
+            asset: Address::new_from_array([0x31; 32]),
+            amount: 4,
+        }
+    }
+
+    fn pinned(contact: SentFirstContact) -> AnonymousRingState {
+        let mut state = AnonymousRingState::new(RING, EPOCH);
+        state.record_first_contact(contact);
+        let mut json: serde_json::Value = serde_json::from_str(&state.to_json()).unwrap();
+        json["sent"][0]["decoys"] = (1u8..)
+            .take(ANCHOR_DECOYS)
+            .map(|seed| hex::encode([seed; 32]))
+            .collect();
+        json["sent"][0]["lastEpoch"] = (EPOCH + 5).into();
+        AnonymousRingState::from_json(&json.to_string()).unwrap()
+    }
 
     fn v1(owner: &ShieldedKeypair, issued: u32) -> String {
         format!(
@@ -495,6 +535,57 @@ mod tests {
             .map(|issued| (issued.index, issued.pairing.is_off()))
             .collect();
         assert_eq!(issued, [(0, true), (4, false)]);
+    }
+
+    #[test]
+    fn a_rebuilt_state_keeps_each_first_contacts_pin_and_last_pair_payment() {
+        let contact = sent_contact();
+        let stored = pinned(contact);
+        let late = EPOCH + PAIR_IDLE_EPOCHS + 2;
+        let mut fresh = AnonymousRingState::new(RING, EPOCH);
+        Decisions(&stored).onto(&mut fresh).unwrap();
+        assert!(stored.pair_anchor(&contact.recipient, late).is_some());
+        assert_eq!(
+            fresh.pair_anchor(&contact.recipient, late),
+            stored.pair_anchor(&contact.recipient, late)
+        );
+    }
+
+    #[test]
+    fn a_refused_anchor_read_retires_its_first_contact_and_a_running_scan_keeps_it_retired() {
+        let member = Member::new(1, "retire");
+        let contact = sent_contact();
+        member
+            .store
+            .update(|state| {
+                *state = pinned(contact);
+                Ok(())
+            })
+            .unwrap();
+        let other = member
+            .store
+            .retire_refused_first_contact(anyhow!("indexer down"))
+            .unwrap_err();
+        assert_eq!(other.to_string(), "indexer down");
+        let mut scanned = member.store.load().unwrap();
+        assert_eq!(scanned.sent().count(), 1);
+
+        let refused = anyhow::Error::from(RingError::FirstContactLeavesRefused {
+            tree: Address::new_from_array([9; 32]),
+            recipient: contact.recipient,
+        })
+        .context("landing the payment");
+        member.store.retire_refused_first_contact(refused).unwrap();
+        assert_eq!(member.store.load().unwrap().sent().count(), 0);
+        member
+            .store
+            .update(|current| {
+                Decisions(current).onto(&mut scanned)?;
+                *current = scanned;
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(member.store.load().unwrap().sent().count(), 0);
     }
 
     #[test]

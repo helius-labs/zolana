@@ -24,6 +24,7 @@ use zolana_transaction::{
     exactly_one, verify_owned, AssetRegistry, DecryptionResult, DepositPayload, EncryptedScheme,
     OutputSlot, RingDeliveredCandidate, RingDeliveryContext, RingDeliveryRequest, RingRecipientKey,
     ShieldedKeys, ShieldedTransaction, TransactionError, TransactionKeyRequest, WalletUtxo,
+    REDACTED,
 };
 
 use crate::{
@@ -107,16 +108,18 @@ impl fmt::Debug for ReceivedAnchor {
 impl fmt::Debug for SentFirstContact {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SentFirstContact")
-            .field("recipient", &self.recipient)
+            .field("recipient", &REDACTED)
             .field("tree_id", &self.tree_id)
-            .field("leaf_index", &self.leaf_index)
-            .field("utxo_hash", &self.utxo_hash)
+            .field("leaf_index", &REDACTED)
+            .field("utxo_hash", &REDACTED)
+            .field("slot_secret", &REDACTED)
+            .field("first_nullifier", &REDACTED)
             .field("slot_index", &self.slot_index)
             .field("epoch", &self.epoch)
             .field("index", &self.index)
             .field("asset", &self.asset)
             .field("amount", &self.amount)
-            .finish_non_exhaustive()
+            .finish()
     }
 }
 
@@ -139,13 +142,23 @@ impl SentFirstContact {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 struct SentPair {
     contact: SentFirstContact,
     /// The newest pair payment a scan saw the wallet make on it.
     last_epoch: u64,
     /// Every read of the anchor names these decoys, `None` until a scan pins them.
     decoys: Option<[[u8; 32]; ANCHOR_DECOYS]>,
+}
+
+impl fmt::Debug for SentPair {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SentPair")
+            .field("contact", &self.contact)
+            .field("last_epoch", &self.last_epoch)
+            .field("decoys", &REDACTED)
+            .finish()
+    }
 }
 
 impl SentPair {
@@ -179,11 +192,20 @@ impl SentPair {
 }
 
 /// A live first contact whose decoys a scan pinned.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct PairAnchor {
     pub contact: SentFirstContact,
     /// Every read of the anchor names these leaves, in order.
     pub leaves: [[u8; 32]; ANCHOR_DECOYS + 1],
+}
+
+impl fmt::Debug for PairAnchor {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PairAnchor")
+            .field("contact", &self.contact)
+            .field("leaves", &REDACTED)
+            .finish()
+    }
 }
 
 /// Distinct `hashes` in the order of a rank keyed by the slot secret, no reader of a request
@@ -219,7 +241,7 @@ pub struct DecoyLeaf {
     pub hash: [u8; 32],
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct AnonymousRingState {
     ring: Address,
     creation_epoch: u64,
@@ -232,6 +254,21 @@ pub struct AnonymousRingState {
     sent: Vec<SentPair>,
     deposit_next: u64,
     decoys: BTreeMap<u16, Vec<DecoyLeaf>>,
+}
+
+impl fmt::Debug for AnonymousRingState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AnonymousRingState")
+            .field("ring", &self.ring)
+            .field("creation_epoch", &self.creation_epoch)
+            .field("issued", &self.issued)
+            .field("scanned_epoch", &self.scanned_epoch)
+            .field("received", &self.received)
+            .field("sent", &self.sent)
+            .field("deposit_next", &self.deposit_next)
+            .field("decoys", &REDACTED)
+            .finish()
+    }
 }
 
 impl AnonymousRingState {
@@ -368,15 +405,38 @@ impl AnonymousRingState {
         }
     }
 
-    /// The indexer refused a pinned leaf, the next scan pins the decoys again.
-    pub fn unpin_anchor(&mut self, recipient: &X25519Pubkey) {
-        if let Some(sent) = self
+    /// The next payment to `recipient` takes its inbox stream.
+    pub fn retire_first_contact(&mut self, recipient: &X25519Pubkey) {
+        self.sent
+            .retain(|sent| sent.contact.recipient != *recipient);
+    }
+
+    /// Only the first contacts of `stored` stay, a pin it holds never changes.
+    pub fn keep_first_contacts(&mut self, stored: &AnonymousRingState) {
+        let scanned = std::mem::take(&mut self.sent);
+        let through = self.scanned_epoch;
+        self.sent = stored
             .sent
-            .iter_mut()
-            .find(|sent| sent.contact.recipient == *recipient)
-        {
-            sent.decoys = None;
-        }
+            .iter()
+            .filter_map(|kept| {
+                match scanned
+                    .iter()
+                    .find(|sent| sent.contact.same_leaf(&kept.contact))
+                {
+                    Some(sent) => Some(SentPair {
+                        contact: kept.contact,
+                        last_epoch: sent.last_epoch.max(kept.last_epoch),
+                        decoys: kept.decoys.or(sent.decoys),
+                    }),
+                    // A pair the scan already found idle stays dropped.
+                    None => through
+                        .is_none_or(|epoch| {
+                            pair_live_through(kept.contact.epoch, kept.last_epoch) > epoch
+                        })
+                        .then_some(*kept),
+                }
+            })
+            .collect();
     }
 
     fn pin_anchors(&mut self) {

@@ -14,6 +14,7 @@ use solana_address::Address;
 use solana_keypair::Keypair;
 use solana_signature::Signature;
 use solana_signer::Signer;
+use zolana_client::AnonymousRingState;
 use zolana_event_parser::indexed_events_from_instruction_groups;
 use zolana_interface::{pda, SHIELDED_POOL_PROGRAM_ID};
 use zolana_keypair::{
@@ -45,8 +46,8 @@ use crate::{
     policy, records,
     ui::{self, icon},
     wallet::{AnonymousRingStore, WalletScan},
-    Context, CosignerArg, DepositArgs, TransactArgs, TransferArgs, Trust, DEFAULT_TRANSACT_AMOUNT,
-    SENDER_KEYPAIR_FILE,
+    Context, CosignerArg, DepositArgs, Landed, TransactArgs, TransferArgs, Trust,
+    DEFAULT_TRANSACT_AMOUNT, SENDER_KEYPAIR_FILE,
 };
 
 /// Covers the sender's registrations and fees.
@@ -1047,62 +1048,79 @@ impl Transfer<'_> {
                 entry,
             } => {
                 let store = ctx.anonymous_ring_store(self.sender, self.config);
-                let state = store.load()?;
                 let mint = self.registry.mint(&self.payments.mint)?;
                 // The hidden owner never signs in public, the payer funds its spend.
-                let transfer = match self.payments.sdk_selects() {
-                    true => {
-                        let select = AnonymousMove {
-                            ring: ctx.ring,
-                            sender: self.sender,
-                            nullifier_key: &self.sender.nullifier_key,
-                            signer: &self.sender.signing_key,
-                            state: &state,
-                            payer: self.payer.pubkey(),
-                            utxos: &inputs,
-                            asset: mint,
-                            payments: payees
-                                .iter()
-                                .map(|payment| RingPayment {
-                                    to: payment.to.clone(),
-                                    amount: payment.amount,
-                                })
-                                .collect(),
-                            entry: *entry,
-                        };
-                        ctx.block(select.select(ctx.chain()))?
-                    }
-                    false => {
-                        let mut transaction = transaction(inputs, self.payer.pubkey())?;
-                        for payment in default_ring {
-                            transaction.transfer_with_ring(
-                                &payment.to,
-                                mint,
-                                payment.amount,
-                                None,
-                            )?;
-                        }
-                        let mut transfer = CustomRingTransfer::new(CustomRingTransferInput {
-                            ring: ctx.ring,
-                            sender: self.sender,
-                            nullifier_key: Some(&self.sender.nullifier_key),
-                            transaction,
-                        })
-                        .with_anonymous_signer(&self.sender.signing_key, &state);
-                        for payment in payees {
-                            transfer = transfer.with_payment(AnonymousPayment {
-                                to: payment.to.clone(),
+                let land = |state: &AnonymousRingState| -> Result<Landed> {
+                    let transfer = match self.payments.sdk_selects() {
+                        true => {
+                            let select = AnonymousMove {
+                                ring: ctx.ring,
+                                sender: self.sender,
+                                nullifier_key: &self.sender.nullifier_key,
+                                signer: &self.sender.signing_key,
+                                state,
+                                payer: self.payer.pubkey(),
+                                utxos: &inputs,
                                 asset: mint,
-                                amount: payment.amount,
-                            })?;
+                                payments: payees
+                                    .iter()
+                                    .map(|payment| RingPayment {
+                                        to: payment.to.clone(),
+                                        amount: payment.amount,
+                                    })
+                                    .collect(),
+                                entry: *entry,
+                            };
+                            ctx.block(select.select(ctx.chain()))?
                         }
-                        match shape {
-                            Some(shape) => transfer.with_shape(shape)?,
-                            None => transfer,
+                        false => {
+                            let mut transaction = transaction(inputs.clone(), self.payer.pubkey())?;
+                            for payment in default_ring {
+                                transaction.transfer_with_ring(
+                                    &payment.to,
+                                    mint,
+                                    payment.amount,
+                                    None,
+                                )?;
+                            }
+                            let mut transfer = CustomRingTransfer::new(CustomRingTransferInput {
+                                ring: ctx.ring,
+                                sender: self.sender,
+                                nullifier_key: Some(&self.sender.nullifier_key),
+                                transaction,
+                            })
+                            .with_anonymous_signer(&self.sender.signing_key, state);
+                            for payment in payees {
+                                transfer = transfer.with_payment(AnonymousPayment {
+                                    to: payment.to.clone(),
+                                    asset: mint,
+                                    amount: payment.amount,
+                                })?;
+                            }
+                            match shape {
+                                Some(shape) => transfer.with_shape(shape)?,
+                                None => transfer,
+                            }
                         }
-                    }
+                    };
+                    ctx.land(transfer, self.payer, self.cosigner.as_slice())
                 };
-                let landed = ctx.land(transfer, self.payer, self.cosigner.as_slice())?;
+                let mut landed = land(&store.load()?);
+                // A refusal retires the contact it names, at most once per payee.
+                let mut retries = payees.len();
+                while let Err(error) = landed {
+                    if retries == 0 {
+                        return Err(error);
+                    }
+                    retries -= 1;
+                    store.retire_refused_first_contact(error)?;
+                    ui::warn(
+                        "the indexer refuses the decoys of a first contact, the payment takes \
+                         the inbox stream and records a fresh first contact",
+                    );
+                    landed = land(&store.load()?);
+                }
+                let landed = landed?;
                 let signature = landed.signature;
                 let recorded = FirstContacts {
                     store: &store,
