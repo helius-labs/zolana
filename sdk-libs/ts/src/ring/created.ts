@@ -1,14 +1,19 @@
-/** Ring notes of deposits and anonymous merges, a commitment layout spends them by hash alone, Rust `created`. */
+/** UTXOs of deposits and anonymous merges, a commitment layout spends them by hash alone, Rust `created`. */
 import { hashBytes, initializePoseidon } from "../hasher/index.js";
 import { addressBytes } from "../interface/internal.js";
 import type { Address, Bytes32, RequestContext } from "../interface/types.js";
+import { ringIdField } from "../keypair/ring-stream.js";
 import type { X25519Keypair } from "../keypair/x25519.js";
 import type { OutputSlot } from "../transaction/instructions/transact.js";
 import { equal } from "../transaction/internal.js";
 import type { RingDepositOutput } from "../transaction/serialization/ring-deposit.js";
-import { ownerUtxoHash } from "../transaction/utxo.js";
 
-import type { KnownNote, RingAuditReader } from "./audit.js";
+import {
+  knownUtxoHash,
+  type CreatedRingUtxo,
+  type KnownUtxo,
+  type RingAuditReader,
+} from "./audit.js";
 import { confirmedMerge, disclosedMergeOpening } from "./audit-merge.js";
 import {
   openRingDepositOpening,
@@ -24,22 +29,15 @@ import {
   type TransactionOrigin,
 } from "./origin.js";
 
-/** Rust `CreatedNote`. */
-export interface CreatedRingNote {
-  readonly commitment: Bytes32;
-  readonly slotIndex: number;
-  readonly note: KnownNote;
-}
-
-/** Rust `CreatedNotePage`. */
-export interface CreatedRingNotesPage {
-  readonly notes: readonly CreatedRingNote[];
+/** Rust `CreatedUtxoPage`. */
+export interface CreatedRingUtxosPage {
+  readonly utxos: readonly CreatedRingUtxo[];
   /** Set only when the page cap stopped the read. */
   readonly nextCursor?: Uint8Array;
 }
 
-/** Rust `CreatedNoteScan::run`. */
-export async function scanCreatedRingNotes(
+/** Rust `CreatedUtxoScan::run`. */
+export async function scanCreatedRingUtxos(
   input: Readonly<{
     client: RingAuditReader;
     ringProgramId: Address;
@@ -50,9 +48,9 @@ export async function scanCreatedRingNotes(
     maxPages?: number;
   }>,
   context?: RequestContext,
-): Promise<CreatedRingNotesPage> {
+): Promise<CreatedRingUtxosPage> {
   await initializePoseidon();
-  const notes: CreatedRingNote[] = [];
+  const utxos: CreatedRingUtxo[] = [];
   const nextCursor = await readRingHistory(
     {
       client: input.client,
@@ -62,8 +60,8 @@ export async function scanCreatedRingNotes(
       limits: scanLimits(input),
     },
     (confirmed) => {
-      notes.push(
-        ...createdRingNotes({
+      utxos.push(
+        ...createdRingUtxos({
           confirmed,
           ringProgramId: input.ringProgramId,
           auditor: input.auditor,
@@ -73,25 +71,25 @@ export async function scanCreatedRingNotes(
     context,
   );
   return Object.freeze({
-    notes: Object.freeze(notes),
+    utxos: Object.freeze(utxos),
     ...(nextCursor === undefined ? {} : { nextCursor }),
   });
 }
 
-/** Rust `CreatedNotes::open`, none for a transfer and for a confidential ring's deposit or merge. */
-export function createdRingNotes(
+/** Rust `CreatedUtxos::open`, none for a transfer and for a confidential ring's deposit or merge. */
+export function createdRingUtxos(
   input: Readonly<{
     confirmed: ConfirmedRingTransaction;
     ringProgramId: Address;
     auditor: X25519Keypair;
   }>,
-): readonly CreatedRingNote[] {
+): readonly CreatedRingUtxo[] {
   const { confirmed } = input;
   switch (confirmed.kind) {
     case "transfer":
       return Object.freeze([]);
     case "deposit":
-      return depositNotes(input, confirmed);
+      return depositUtxos(input, confirmed);
     case "merge": {
       const { disclosure, transaction } = confirmed;
       if (disclosure === undefined) return Object.freeze([]);
@@ -99,31 +97,29 @@ export function createdRingNotes(
         throw new RingError("RING_RPC", { details: { reason: "missing event index" } });
       const merge = confirmedMerge(transaction, transaction.eventIndex, disclosure);
       const opening = disclosedMergeOpening(input, merge, disclosure);
+      const utxo: KnownUtxo = Object.freeze({
+        ownerKey: addressBytes(opening.ownerKey) as Bytes32,
+        owner: Object.freeze({ kind: "keyed", nullifierPk: opening.nullifierPublicKey }),
+        asset: hashBytes(addressBytes(opening.mint)) as Bytes32,
+        mint: opening.mint,
+        amount: opening.amount,
+        blinding: opening.outputBlinding,
+        dataHash: new Uint8Array(32) as Bytes32,
+        ringDataHash: merge.ringDataHash,
+        treeId: merge.transaction.outputSlots[0]!.outputContext.treeId,
+      });
       return Object.freeze([
-        Object.freeze({
-          commitment: merge.outputCommitment,
-          slotIndex: 0,
-          note: Object.freeze({
-            ownerKey: addressBytes(opening.ownerKey) as Bytes32,
-            nullifierPk: opening.nullifierPublicKey,
-            asset: hashBytes(addressBytes(opening.mint)) as Bytes32,
-            mint: opening.mint,
-            amount: opening.amount,
-            blinding: opening.outputBlinding,
-            dataHash: new Uint8Array(32) as Bytes32,
-            ringDataHash: merge.ringDataHash,
-          }),
-        }),
+        Object.freeze({ commitment: merge.outputCommitment, slotIndex: 0, utxo }),
       ]);
     }
   }
 }
 
-function depositNotes(
+function depositUtxos(
   input: Readonly<{ ringProgramId: Address; auditor: X25519Keypair }>,
   confirmed: Extract<ConfirmedRingTransaction, { kind: "deposit" }>,
-): readonly CreatedRingNote[] {
-  const notes: CreatedRingNote[] = [];
+): readonly CreatedRingUtxo[] {
+  const utxos: CreatedRingUtxo[] = [];
   for (const [slotIndex, slot] of confirmed.transaction.outputSlots.entries()) {
     const output = ringDepositOutput(slot.payload, input.ringProgramId);
     const binding = confirmed.deposits.find((deposit) => deposit.slotIndex === slotIndex);
@@ -133,24 +129,24 @@ function depositNotes(
       throw new RingError("RING_AUDIT_MESSAGE", { details: { reason: "deposit opening" } });
     const opening = openRingDepositOpening(capsule, input.auditor, output.ownerUtxoHash, binding);
     try {
-      const note = createdDepositNote({
+      const created = createdDepositUtxo({
         ringProgramId: input.ringProgramId,
         slotIndex,
         slot,
         output,
         opening,
       });
-      if (note !== undefined) notes.push(note);
+      if (created !== undefined) utxos.push(created);
     } finally {
       opening.ownerHash.fill(0);
       opening.blinding.fill(0);
     }
   }
-  return Object.freeze(notes);
+  return Object.freeze(utxos);
 }
 
-/** @internal The note an opened deposit slot creates, `undefined` unless its capsule names the owner key. */
-export function createdDepositNote(
+/** @internal The UTXO an opened deposit slot creates, `undefined` unless its capsule names the owner key. */
+export function createdDepositUtxo(
   input: Readonly<{
     ringProgramId: Address;
     slotIndex: number;
@@ -158,34 +154,23 @@ export function createdDepositNote(
     output: RingDepositOutput;
     opening: Omit<RingDepositOpening, "recipientCiphertext">;
   }>,
-): CreatedRingNote | undefined {
+): CreatedRingUtxo | undefined {
   const { output, opening, slot } = input;
   // Only an anonymous ring's capsule names the owner key.
   if (opening.ownerKey === undefined) return undefined;
-  const dataHash = output.dataHash ?? (new Uint8Array(32) as Bytes32);
-  const commitment = ownerUtxoHash({
-    owner: opening.ownerHash,
-    asset: output.asset,
+  const utxo: KnownUtxo = Object.freeze({
+    ownerKey: opening.ownerKey,
+    owner: Object.freeze({ kind: "deposited", ownerHash: opening.ownerHash.slice() as Bytes32 }),
+    asset: hashBytes(addressBytes(output.asset)) as Bytes32,
+    mint: output.asset,
     amount: output.amount,
-    blinding: opening.blinding,
-    treeId: slot.outputContext.treeId,
-    dataHash,
+    blinding: opening.blinding.slice() as Bytes32,
+    dataHash: output.dataHash ?? (new Uint8Array(32) as Bytes32),
     ringDataHash: output.ringDataHash,
-    ringProgramId: input.ringProgramId,
+    treeId: slot.outputContext.treeId,
   });
+  const commitment = knownUtxoHash(utxo, ringIdField(input.ringProgramId));
   if (!equal(commitment, slot.outputContext.hash))
     throw new RingError("RING_AUDIT_MESSAGE", { details: { reason: "deposit opening" } });
-  return Object.freeze({
-    commitment,
-    slotIndex: input.slotIndex,
-    note: Object.freeze({
-      ownerKey: opening.ownerKey,
-      asset: hashBytes(addressBytes(output.asset)) as Bytes32,
-      mint: output.asset,
-      amount: output.amount,
-      blinding: opening.blinding.slice() as Bytes32,
-      dataHash,
-      ringDataHash: output.ringDataHash,
-    }),
-  });
+  return Object.freeze({ commitment, slotIndex: input.slotIndex, utxo });
 }

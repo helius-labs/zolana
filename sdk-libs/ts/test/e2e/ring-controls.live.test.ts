@@ -1,8 +1,5 @@
 import { X25519Keypair } from "../../src/keypair/x25519.js";
-import { readFile } from "node:fs/promises";
-import { ed25519 } from "@noble/curves/ed25519.js";
 import {
-  createKeyPairSignerFromBytes,
   generateKeyPairSigner,
   getCompiledTransactionMessageDecoder,
   decompileTransactionMessage,
@@ -10,7 +7,6 @@ import {
 } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 import type { RingSubmissionTransport } from "../../src/client/ports.js";
-import { setRingActivationInstruction } from "../../src/interface/instructions/index.js";
 import { SOL_MINT } from "../../src/transaction/asset.js";
 import { SPL_TOKEN_2022_PROGRAM_ID, ZERO_NULLIFIER_PK } from "../../src/interface/program.js";
 import { ShieldedAddress } from "../../src/keypair/shielded.js";
@@ -18,12 +14,6 @@ import {
   NullifierKeyEscrow,
   RegisterKey,
   RingInstructionTag,
-  RingProgramBinary,
-  deployRingProgram,
-  buildRingCreatePolicyTransaction,
-  createMemberRegistryInstruction,
-  createRingConfigInstruction,
-  initSppRingConfigInstruction,
   fetchRingMemberRegistry,
   fetchRingSealedKey,
   openRingSealedKey,
@@ -35,7 +25,6 @@ import {
   clearRingCoSignerInstruction,
   RING_COSIGN_TRANSFERS,
   RING_COSIGN_WITHDRAWALS,
-  ringAuthAddress,
   ringComputeUnitLimit,
   createKitRingSubmissionTransport,
   createRingTransferSubmission,
@@ -52,10 +41,10 @@ import { liveHarness, signSendAndConfirm } from "./live-helpers.js";
 import {
   airdrop,
   applyQueuedWrites,
+  createRing,
   enrolInAllow,
   freshActor,
   indexedKeys,
-  requiredEnv,
   sendInstruction,
   sync,
   writeList,
@@ -101,109 +90,53 @@ describe.each(["client", "prover"] as const)("controls %s", (proofDataSource) =>
     try {
       for (let i = 0; i < 6; i++) await airdrop(client, authority.address);
       await airdrop(client, delegate.address);
-      await deployRingProgram({
-        client,
-        ringProgramId,
+      await createRing(client, {
         program,
-        payer: authority,
         authority,
-        binary: RingProgramBinary.parse(
-          new Uint8Array(await readFile(requiredEnv("RING_PROGRAM_SO"))),
-        ),
+        auditor: auditor.publicKey(),
+        kind: "policy",
+        table: buildRuleTable({
+          rules: [
+            {
+              subject: "outputOwner",
+              source: { kind: "lists", present: [ListId.allow], absent: [] },
+              guard: { kind: "always" },
+            },
+            {
+              subject: "sender",
+              source: { kind: "lists", present: [], absent: [ListId.frozen] },
+              guard: { kind: "always" },
+            },
+            {
+              subject: "outputOwner",
+              source: { kind: "lists", present: [], absent: [ListId.block] },
+              guard: { kind: "always" },
+            },
+          ],
+          limits: [
+            {
+              asset: memberOfAsset(SOL_MINT),
+              cap: 500_000_000n,
+              cosignAbove: 300_000_000n,
+            },
+            {
+              asset: memberOfAsset(harness.mint),
+              cap: 300n,
+              cosignAbove: 90n,
+            },
+            {
+              asset: memberOfAsset(harness.token2022Mint),
+              cap: 500n,
+              cosignAbove: 190n,
+            },
+          ],
+        }),
+        authorityTransact: true,
       });
       await sendInstruction(
         client,
-        await createRingConfigInstruction({
-          ringProgramId,
-          payer: authority,
-          authority,
-          auditorPublicKey: auditor.publicKey(),
-          hasPolicy: true,
-          anonymous: false,
-        }),
-        authority,
-      );
-      // The policy table lives in the member registry, the registry precedes it.
-      await sendInstruction(
-        client,
-        await createMemberRegistryInstruction({ ringProgramId, payer: authority, authority }),
-        authority,
-      );
-      await signSendAndConfirm(
-        client,
-        await buildRingCreatePolicyTransaction({
-          client,
-          ringProgramId,
-          authority: authority.address,
-          table: buildRuleTable({
-            rules: [
-              {
-                subject: "outputOwner",
-                source: { kind: "lists", present: [ListId.allow], absent: [] },
-                guard: { kind: "always" },
-              },
-              {
-                subject: "sender",
-                source: { kind: "lists", present: [], absent: [ListId.frozen] },
-                guard: { kind: "always" },
-              },
-              {
-                subject: "outputOwner",
-                source: { kind: "lists", present: [], absent: [ListId.block] },
-                guard: { kind: "always" },
-              },
-            ],
-            limits: [
-              {
-                asset: memberOfAsset(SOL_MINT),
-                cap: 500_000_000n,
-                cosignAbove: 300_000_000n,
-              },
-              {
-                asset: memberOfAsset(harness.mint),
-                cap: 300n,
-                cosignAbove: 90n,
-              },
-              {
-                asset: memberOfAsset(harness.token2022Mint),
-                cap: 500n,
-                cosignAbove: 190n,
-              },
-            ],
-          }),
-        }),
-        [authority],
-      );
-      await sendInstruction(
-        client,
-        await initSppRingConfigInstruction({
-          ringProgramId,
-          payer: authority,
-          authority,
-          hasPolicy: true,
-        }),
-        authority,
-      );
-      // Localnet snapshots require the fixed public governance seed.
-      const governanceSeed = new TextEncoder().encode("zolana localnet snapshot authori");
-      const governance = await createKeyPairSignerFromBytes(
-        Uint8Array.of(...governanceSeed, ...ed25519.getPublicKey(governanceSeed)),
-      );
-      await airdrop(client, governance.address);
-      await sendInstruction(
-        client,
-        await setRingActivationInstruction({
-          authority: governance,
-          ringConfig: await ringAuthAddress(ringProgramId),
-          activated: true,
-          ringAuthorityTransactIsEnabled: true,
-        }),
-        governance,
-      );
-      await sendInstruction(
-        client,
-        await setRingDelegateInstruction({ ringProgramId, authority, delegate: delegate.address }),
-        authority,
+        await setRingDelegateInstruction({ ringProgramId, authority, delegate }),
+        [authority, delegate],
       );
       expect((await fetchRingProgramConfig(client, ringProgramId)).keyEscrow).toBe(true);
       await sendInstruction(
@@ -652,8 +585,7 @@ describe.each(["client", "prover"] as const)("controls %s", (proofDataSource) =>
         }),
       ).rejects.toMatchObject({
         code: "RING_BUILD_TRANSFER",
-        // The blocked recipient leaves the policy statement unsatisfiable, the prover refuses it.
-        causeCode: "CLIENT_PROVER_HTTP",
+        causeCode: "RING_POLICY_RULE_UNSATISFIED",
       });
       await sendInstruction(
         client,

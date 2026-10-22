@@ -260,6 +260,10 @@ function applyDisclosurePad(
   seal: boolean,
   domain: bigint,
 ): readonly Bytes32[] {
+  values.forEach((value, index) => {
+    if (!isCanonicalField(value))
+      throw new KeypairError("KEYPAIR_DISCLOSURE_FIELD", { name: "field", index });
+  });
   const packedKey = packBytesBe(checkedBytes<Bytes32>(secret, 32, "disclosure key"));
   const seed = new Uint8Array(32);
   try {

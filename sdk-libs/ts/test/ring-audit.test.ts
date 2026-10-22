@@ -25,9 +25,10 @@ import { X25519Keypair, X25519PublicKey } from "../src/keypair/x25519.js";
 import {
   auditRing,
   auditRingTransaction,
-  type AuditedNote,
+  type AuditedUtxo,
   type EscrowedKeys,
-  type KnownNotes,
+  type KnownUtxo,
+  type KnownUtxos,
   type OutputOpening,
 } from "../src/ring/audit.js";
 import { sealRingDepositOpenings } from "../src/ring/deposit-audit.js";
@@ -153,33 +154,37 @@ function escrowRecords(vector: Vector): EscrowedKeys {
   return { nullifierPk: (ownerKey) => keys.get(Buffer.from(ownerKey).toString("hex")) };
 }
 
-/** The sender's earlier notes an anonymous vector spends, by their commitment. */
-function spentNotes(vector: Vector, assets: AssetRegistry): KnownNotes {
+/** The sender's earlier UTXOs an anonymous vector spends, by their hash. */
+function spentUtxos(vector: Vector, assets: AssetRegistry): KnownUtxos {
   const inputs = "inputs" in vector ? vector.inputs : [];
   const sender = "sender_key" in vector ? vector.sender_key : undefined;
-  const notes = new Map(
+  const utxos = new Map(
     inputs.map((input) => {
       const asset = field(input.asset);
       const mint = assets.addressForField(asset);
-      const note: AuditedNote = {
+      const utxo: KnownUtxo = {
         ownerKey: field(need(sender, "sender_key")),
-        nullifierPk: field(
-          need(
-            "sender_nullifier_pk" in vector ? vector.sender_nullifier_pk : undefined,
-            "sender_nullifier_pk",
+        owner: {
+          kind: "keyed",
+          nullifierPk: field(
+            need(
+              "sender_nullifier_pk" in vector ? vector.sender_nullifier_pk : undefined,
+              "sender_nullifier_pk",
+            ),
           ),
-        ),
+        },
         asset,
         ...(mint === undefined ? {} : { mint }),
         amount: BigInt(input.amount),
         blinding: field(input.blinding),
         dataHash: new Uint8Array(32) as Bytes32,
         ringDataHash: new Uint8Array(32) as Bytes32,
+        treeId: input.input_tree_id,
       };
-      return [input.commitment, note] as const;
+      return [input.commitment, utxo] as const;
     }),
   );
-  return { note: (commitment) => notes.get(Buffer.from(commitment).toString("hex")) };
+  return { utxo: (commitment) => utxos.get(Buffer.from(commitment).toString("hex")) };
 }
 
 /** The confirmed transfer the vector describes, its tx secret sealed to `auditor`. */
@@ -240,7 +245,7 @@ function expectedOpening(layout: Layout, slot: VectorSlot, assets: AssetRegistry
     layout !== "packed" && slot.kind === "ring"
       ? encodeBase58(hex(need(slot.asset_address, "asset_address"), 32))
       : assets.addressForField(asset);
-  const note: AuditedNote = {
+  const utxo: AuditedUtxo = {
     ownerKey: field(need(slot.owner_key, "owner_key")),
     nullifierPk: field(need(slot.nullifier_pk, "nullifier_pk")),
     asset,
@@ -250,11 +255,11 @@ function expectedOpening(layout: Layout, slot: VectorSlot, assets: AssetRegistry
     dataHash: field(need(slot.data_hash, "data_hash")),
     ringDataHash: field(need(slot.ring_data_hash, "ring_data_hash")),
   };
-  if (slot.kind === "exit") return { kind: "exit", note };
+  if (slot.kind === "exit") return { kind: "exit", utxo };
   const tag = "tag" in slot && typeof slot.tag === "string" ? slot.tag : undefined;
   return {
     kind: "ring",
-    note,
+    utxo,
     recipientU: field(need(slot.recipient_u, "recipient_u")),
     ...(tag === undefined ? {} : { tag: hex<Bytes31>(tag, 31) }),
   };
@@ -269,7 +274,7 @@ function audit(
     inputTreeIds?: readonly (number | undefined)[];
     layout?: DisclosureLayout;
     escrowedKeys?: EscrowedKeys;
-    knownNotes?: KnownNotes;
+    knownUtxos?: KnownUtxos;
   }> = {},
 ) {
   const auditor = options.auditor ?? X25519Keypair.generate();
@@ -281,7 +286,7 @@ function audit(
     layout: options.layout ?? entry.bound,
     ...(options.inputTreeIds === undefined ? {} : { inputTreeIds: options.inputTreeIds }),
     ...(options.escrowedKeys === undefined ? {} : { escrowedKeys: options.escrowedKeys }),
-    ...(options.knownNotes === undefined ? {} : { knownNotes: options.knownNotes }),
+    ...(options.knownUtxos === undefined ? {} : { knownUtxos: options.knownUtxos }),
   });
 }
 
@@ -335,7 +340,7 @@ describe("auditRingTransaction over the shared disclosure vectors", () => {
       const audited = audit(entry, {
         assets,
         escrowedKeys: escrowRecords(entry.vector),
-        knownNotes: spentNotes(entry.vector, assets),
+        knownUtxos: spentUtxos(entry.vector, assets),
       });
       expect(audited.payloadErrors).toEqual([]);
       expect(audited.outputs.map((output) => output.slotIndex)).toEqual(
@@ -364,16 +369,16 @@ describe("auditRingTransaction over the shared disclosure vectors", () => {
     const exit = (assets: AssetRegistry) =>
       audit(PACKED, { assets }).outputs.find((output) => output.opening.kind === "exit");
     const unknown = exit(new AssetRegistry())?.opening;
-    expect(unknown?.kind === "exit" && unknown.note.mint).toBeUndefined();
+    expect(unknown?.kind === "exit" && unknown.utxo.mint).toBeUndefined();
     const known = exit(new AssetRegistry([[2n, FOREIGN_MINT]]))?.opening;
-    expect(known?.kind === "exit" && known.note.mint).toBe(FOREIGN_MINT);
+    expect(known?.kind === "exit" && known.utxo.mint).toBe(FOREIGN_MINT);
   });
 
   it("opens the hidden sender and every spent note of the commitment key by its hash", () => {
     const entry = vectorOf("anonymous", "commitment");
     const vector = anonymousCase("commitment");
     const assets = new AssetRegistry();
-    const audited = audit(entry, { assets, knownNotes: spentNotes(vector, assets) });
+    const audited = audit(entry, { assets, knownUtxos: spentUtxos(vector, assets) });
     expect(audited.sender).toEqual({
       ownerKey: field(vector.sender_key),
       nullifierPk: field(vector.sender_nullifier_pk),
@@ -399,16 +404,18 @@ describe("auditRingTransaction over the shared disclosure vectors", () => {
     const entry = vectorOf("anonymous", "commitment");
     const vector = anonymousCase("commitment");
     const assets = new AssetRegistry();
-    const notes = spentNotes(vector, assets);
+    const utxos = spentUtxos(vector, assets);
     const deposited = field(vector.inputs[0]!.commitment);
     const audited = audit(entry, {
       assets,
-      knownNotes: {
-        note: (commitment) => {
-          const note = notes.note(commitment);
-          if (note === undefined || !equal(commitment, deposited)) return note;
-          const { nullifierPk: _capsule, ...opened } = note;
-          return opened;
+      knownUtxos: {
+        utxo: (commitment) => {
+          const utxo = utxos.utxo(commitment);
+          if (utxo === undefined || !equal(commitment, deposited)) return utxo;
+          return {
+            ...utxo,
+            owner: { kind: "deposited", ownerHash: new Uint8Array(32).fill(9) as Bytes32 },
+          };
         },
       },
     });
@@ -424,7 +431,7 @@ describe("auditRingTransaction over the shared disclosure vectors", () => {
     const resolved = audit(entry, {
       assets,
       inputTreeIds: trees,
-      knownNotes: spentNotes(vector, assets),
+      knownUtxos: spentUtxos(vector, assets),
     });
     expect(resolved.sender).toEqual({
       ownerKey: field(vector.sender_key),
@@ -492,7 +499,7 @@ describe("auditRingTransaction over the shared disclosure vectors", () => {
     const assets = new AssetRegistry();
     const audited = audit(entry, {
       assets,
-      knownNotes: spentNotes(entry.vector, assets),
+      knownUtxos: spentUtxos(entry.vector, assets),
       transaction: withSlot(0, (slot) => {
         const viewTag = slot.viewTag.slice() as Bytes32;
         viewTag[0] = 1;
@@ -654,7 +661,7 @@ describe("auditRing", () => {
       solanaRpc?: object;
       assets?: AssetRegistry;
       auditor: X25519Keypair;
-      knownNotes?: KnownNotes;
+      knownUtxos?: KnownUtxos;
     }>,
   ) {
     return auditRing({
@@ -667,7 +674,7 @@ describe("auditRing", () => {
       ringProgramId: ring,
       assets: extra.assets ?? new AssetRegistry(),
       origin,
-      ...(extra.knownNotes === undefined ? {} : { knownNotes: extra.knownNotes }),
+      ...(extra.knownUtxos === undefined ? {} : { knownUtxos: extra.knownUtxos }),
     });
   }
 
@@ -691,7 +698,7 @@ describe("auditRing", () => {
     const page = await scan([transfer], origin, {
       auditor,
       assets,
-      knownNotes: spentNotes(vector, assets),
+      knownUtxos: spentUtxos(vector, assets),
       solanaRpc: { getProgramAccounts: () => ({ send: async () => [] }) },
     });
     expect(page.transactions[0]?.sender).toEqual({
@@ -753,7 +760,7 @@ describe("auditRing", () => {
     expect(getProgramAccounts).toHaveBeenCalledTimes(1);
     for (const audited of page.transactions) {
       const exit = audited.outputs.find((output) => output.opening.kind === "exit")?.opening;
-      expect(exit?.kind === "exit" && exit.note.mint).toBe(FOREIGN_MINT);
+      expect(exit?.kind === "exit" && exit.utxo.mint).toBe(FOREIGN_MINT);
     }
   });
 

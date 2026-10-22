@@ -121,7 +121,9 @@ held in-process; `LocalKeys.fromDerivationSeed` creates them from a browser
 wallet signature over the derivation message. The Solana signature over the
 finished transaction remains with the app signer.
 `ProofAuthority` also answers `proveRingWithSecret` for the ring proofs that
-take the nullifier secret. An anonymous-ring wallet's keys implement `RingKeys`.
+take the nullifier secret. A wallet's keys implement `RingKeys` to use an
+anonymous ring and to open the delivered outputs of an 8- or 16-output ring
+transfer.
 
 ### Transaction format
 
@@ -173,8 +175,9 @@ The prover fetches Merkle data by default. Configure its `PROVER_INDEXER_URL`
 for the same network. Set `proofDataSource: "client"` to fetch proof data in
 the SDK instead. Both routes support ring transfers, merges and caches.
 `LocalKeys` supports both modes. A remote key holder must implement
-`IndexedProofAuthority.proveIndexed` for prover fetching. A ring's policy proof
-carries the member openings the SDK reads from the indexer. Returned roots
+`IndexedProofAuthority.proveIndexed` for prover fetching. In both modes the SDK
+reads a ring policy proof's member openings from the indexer and sends them in
+the proof request. Returned roots
 must reproduce the requested public statement before transaction assembly. A
 prover started without an indexer refuses these requests with
 `CLIENT_PROVER_INDEXER_UNCONFIGURED`.
@@ -395,18 +398,17 @@ saves the current format.
 
 ## Custom Rings
 
-Besides the permissionless default Ring, regulated entities can create custom
-Rings. A custom Ring is its own Solana program with one config. At creation
-the config fixes the auditor key, the tier and whether the Ring is anonymous.
-A Ring is confidential or anonymous, and it carries a policy or is
-audit-only. Every transfer, deposit and merge proves what the Ring's auditor
-reads. A policy Ring also proves its rule table for every transfer, over the
-lists of its member registry and of any curator registry it names. The
-default Ring does not have an auditor key.
+Besides the permissionless default Ring, regulated entities can create custom Rings.
+Custom Rings are simple Solana programs for compliance and policy control. Each Ring deploys its own program. It has a program
+upgrade authority, a protocol authority, and an auditor key. The default Ring does not have an auditor key.
 
 The auditor key lives in a Ring RPC. The Ring authority grants view access.
 Helius can host that RPC; the authority can host it itself. The forester is
 shared with the default Ring.
+
+A Ring is confidential or anonymous. It is audit-only or carries a policy, a
+rule table over the lists of its member registry and of any curator registry
+it names. Both choices are fixed when the Ring config is created.
 
 Set a Ring up in this order.
 
@@ -423,7 +425,7 @@ Set a Ring up in this order.
    Ring only after its policy exists.
 6. On a permissioned pool the governance authority activates the Ring with
    `getSetRingActivationInstructionAsync` from `@heliuslabs/zolana/instructions`.
-7. `AuthorityListWrite` fills the authority lists, and
+7. `AuthorityListWrite` fills the authority lists and
    `grantReadAccessInstruction` admits readers.
 
 Build exact Ring entries, in-ring transfers, shielded exits, and public
@@ -431,8 +433,9 @@ withdrawals with `buildRingEntryTransaction`, `buildRingTransferTransaction`,
 `buildRingExitTransaction`, and `buildRingWithdrawalTransaction`. `RingRpc`
 reads decrypted Ring transactions for a granted reader. The same surface is
 available from `@heliuslabs/zolana/ring`.
-On an anonymous Ring an in-ring transfer pays a `RingAddress`, and every spend
-passes the sender's spend signer and ring state in `anonymous`.
+On an anonymous Ring an in-ring transfer pays a `RingAddress`. Every entry,
+transfer, exit and withdrawal passes the sender's spend signer and ring state
+in `anonymous`.
 `buildRingDepositTransaction` builds an audited deposit.
 `@heliuslabs/zolana/ring` also exports `buildRingMergeTransaction` and
 `buildRingDelegateTransferTransaction`. Each `createRing*Submission` function

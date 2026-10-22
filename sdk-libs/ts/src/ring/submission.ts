@@ -34,7 +34,7 @@ import { assertVersion1Transaction } from "../flows/compile.js";
 import { fetchRingMemberRegistry } from "./config.js";
 import { RingError, RingProgramError } from "./error.js";
 import type { PendingFirstContact, RingBoundState } from "./pipeline.js";
-import { anchorHolds } from "./trees.js";
+import { anchorState } from "./trees.js";
 
 /** Keeps the signed intent and validity bounds of one transaction attempt. */
 export interface RingSubmissionAttempt extends RingBoundState {
@@ -227,7 +227,9 @@ export class RingTransactionSubmission {
         const registry = await fetchRingMemberRegistry(chain, policy.ringProgramId, context);
         if (!equalBytes(registry.policyHash, policy.policyHash)) return true;
       }
-      if (anchor !== undefined && !(await anchorHolds(chain, anchor, context))) return true;
+      // A paused tree refuses every proof, proving again cannot land.
+      if (anchor !== undefined && (await anchorState(chain, anchor, context)) === "moved")
+        return true;
     }
     if (epoch === undefined || this.#clock === undefined) return false;
     return tagEpoch(await this.#clock.getSlot(context)) > epoch;

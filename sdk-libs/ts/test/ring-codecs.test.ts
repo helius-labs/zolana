@@ -9,10 +9,13 @@ import {
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 
-import { initializePoseidon } from "../src/hasher/index.js";
+import { initializePoseidon, solanaOwnerIdentity } from "../src/hasher/index.js";
 import { addressBytes, sha256 } from "../src/interface/internal.js";
 import type { Bytes32, Bytes33, Bytes64 } from "../src/interface/types.js";
+import { ownerHash } from "../src/keypair/hash.js";
+import { ringIdField } from "../src/keypair/ring-stream.js";
 import { X25519Keypair } from "../src/keypair/x25519.js";
+import { knownUtxoHash, type KnownUtxo } from "../src/ring/audit.js";
 import { passkeyReader } from "../src/ring/passkey.js";
 import { memberOfTag } from "../src/ring/policy.js";
 import {
@@ -28,12 +31,13 @@ import {
   type ReaderKey,
 } from "../src/ring/reader.js";
 import {
-  RING_AUDITED_NOTES_LIMIT,
+  RING_AUDITED_UTXOS_LIMIT,
   RING_PAYLOAD_ERROR_KINDS,
-  RingAuditedNotesRequest,
+  RingAuditedUtxosRequest,
+  RingAuditorKeyRequest,
   RingReadRequest,
   RingRpc,
-  auditedNotesAttestation,
+  auditedUtxosAttestation,
   auditorKeyAttestation,
   auditorKeyRequestAttestation,
   messageSignerReader,
@@ -42,6 +46,7 @@ import {
   type SignedRingRead,
 } from "../src/ring/rpc.js";
 import { SOL_MINT } from "../src/transaction/asset.js";
+import { ZERO_32 } from "../src/transaction/internal.js";
 
 function hex(value: string): Uint8Array {
   return Uint8Array.from(Buffer.from(value, "hex"));
@@ -346,6 +351,7 @@ describe("signed ring request validation", () => {
 
   function signedRead(overrides: Partial<SignedRingRead> = {}): SignedRingRead {
     return {
+      method: "getDecryptedTransactions",
       ringProgramId: RING,
       reader: READER,
       timestamp: 1n,
@@ -385,6 +391,8 @@ describe("signed ring request validation", () => {
 
   const readCases: readonly [string, Readonly<Record<string, unknown>>, string][] = [
     ["a malformed ring program id", { ringProgramId: "not-base58!" }, "RING_RPC"],
+    ["another method's signature", { method: "getAuditedMerges" }, "RING_RPC"],
+    ["no method", { method: undefined }, "RING_RPC"],
     ["a short reader key", { reader: filled(1, 33) }, "RING_READER_KEY"],
     ["an invalid P256 reader key", { reader: new Uint8Array(34) }, "RING_READER_KEY"],
     ["a short nonce", { nonce: filled(7, 31) }, "RING_RPC"],
@@ -445,6 +453,15 @@ describe("signed ring request validation", () => {
       expect(fetch).not.toHaveBeenCalled();
     },
   );
+
+  it("refuses a merge read signed for the transaction page before any network call", async () => {
+    const { rpc, fetch } = offlineRpc();
+    await expect(rpc.readSignedMerges(signedRead())).rejects.toMatchObject({
+      code: "RING_RPC",
+      details: { field: "method" },
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
 
   it("rejects non-object signed requests through Ring errors", async () => {
     const { rpc, fetch } = offlineRpc();
@@ -561,7 +578,7 @@ describe("ring audited merges", () => {
     const keys = anonymous.opened[0]?.keys;
     expect(keys?.kind).toBe("disclosed");
     expect(keys?.kind === "disclosed" && keys.inputCommitments).toHaveLength(8);
-    // The program accepts a one-note merge.
+    // The program accepts a one-input merge.
     const single = await merges({
       ...value,
       opened: [{ ...value.opened[0]!, inputNullifiers: [addressOf(7)] }],
@@ -701,6 +718,7 @@ describe("ring passkey", () => {
 describe("ring read attestation", () => {
   it("matches the Rust `read_attestation_is_stable` vector", () => {
     const message = ringReadAttestation({
+      method: "getDecryptedTransactions",
       ringProgramId: addressOf(7),
       timestamp: 1_700_000_000n,
       nonce: filled(4, 32) as Bytes32,
@@ -708,7 +726,7 @@ describe("ring read attestation", () => {
       limit: 5n,
     });
     expect(new TextDecoder().decode(message)).toBe(
-      "zolana/ring-rpc-read/v1\nring: US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx\ntimestamp: 1700000000\nnonce: BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=\nlimit: 5\ncursor: AQID",
+      "zolana/ring-rpc-read/v2\nmethod: getDecryptedTransactions\nring: US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx\ntimestamp: 1700000000\nnonce: BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=\nlimit: 5\ncursor: AQID",
     );
   });
 
@@ -726,17 +744,47 @@ describe("ring read attestation", () => {
 
   it("omits limit and cursor as 0 and empty", () => {
     const message = ringReadAttestation({
+      method: "getAuditedMerges",
       ringProgramId: addressOf(7),
       timestamp: 1n,
       nonce: filled(4, 32) as Bytes32,
     });
     expect(new TextDecoder().decode(message)).toBe(
-      "zolana/ring-rpc-read/v1\nring: US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx\ntimestamp: 1\nnonce: BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=\nlimit: 0\ncursor: ",
+      "zolana/ring-rpc-read/v2\nmethod: getAuditedMerges\nring: US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx\ntimestamp: 1\nnonce: BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=\nlimit: 0\ncursor: ",
+    );
+  });
+
+  it("signs the one method it reads and draws a fresh nonce per signature", async () => {
+    const signer = await generateKeyPairSigner();
+    const reader = messageSignerReader(signer);
+    const request = RingReadRequest.decryptedTransactions(addressOf(7)).at(1_700_000_000n);
+    const first = await request.sign(reader);
+    const attested = (method: "getDecryptedTransactions" | "getAuditedMerges") =>
+      ringReadAttestation({
+        method,
+        ringProgramId: addressOf(7),
+        timestamp: 1_700_000_000n,
+        nonce: first.nonce,
+      });
+    const verifies = (message: Uint8Array) =>
+      ed25519.verify(first.signature as Uint8Array, message, addressBytes(signer.address));
+    expect(first.method).toBe("getDecryptedTransactions");
+    expect(verifies(attested("getDecryptedTransactions"))).toBe(true);
+    expect(verifies(attested("getAuditedMerges"))).toBe(false);
+    expect((await RingReadRequest.auditedMerges(addressOf(7)).sign(reader)).method).toBe(
+      "getAuditedMerges",
+    );
+    expect((await request.sign(reader)).nonce).not.toEqual(first.nonce);
+    const utxos = RingAuditedUtxosRequest.read(addressOf(7), [filled(1, 32) as Bytes32]);
+    expect((await utxos.sign(reader)).nonce).not.toEqual((await utxos.sign(reader)).nonce);
+    const auditorKey = RingAuditorKeyRequest.forRing(addressOf(7), filled(2, 32) as Bytes32);
+    expect((await auditorKey.sign(signer)).nonce).not.toEqual(
+      (await auditorKey.sign(signer)).nonce,
     );
   });
 
   it("bounds the cursor and the limit like Rust `ReadRequest`", () => {
-    const request = RingReadRequest.read(addressOf(7));
+    const request = RingReadRequest.decryptedTransactions(addressOf(7));
     expect(() => request.withCursor(new Uint8Array())).toThrow("RING_READ_CURSOR");
     expect(() => request.withCursor(new Uint8Array(257))).toThrow("RING_READ_CURSOR");
     expect(() => request.withLimit(0n)).toThrow("RING_READ_LIMIT");
@@ -745,94 +793,128 @@ describe("ring read attestation", () => {
   });
 });
 
-describe("audited note read", () => {
+describe("audited UTXO read", () => {
   const hashes = [filled(1, 32), filled(2, 32)] as Bytes32[];
 
-  it("matches the Rust `audited_notes_attestation_is_stable` vector", () => {
-    const message = auditedNotesAttestation({
+  it("matches the Rust `audited_utxos_attestation_is_stable` vector", () => {
+    const message = auditedUtxosAttestation({
       ringProgramId: addressOf(7),
       timestamp: 1_700_000_000n,
       nonce: filled(4, 32) as Bytes32,
       utxoHashes: hashes,
     });
     expect(new TextDecoder().decode(message)).toBe(
-      "zolana/ring-rpc-audited-notes/v1\nring: US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx\ntimestamp: 1700000000\nnonce: BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=\nnotes: +Biv03ptw7yS+0RzEBEncAbbTvpukCPNdGjAIzXSKk0=",
+      "zolana/ring-rpc-audited-utxos/v1\nring: US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx\ntimestamp: 1700000000\nnonce: BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=\nutxos: +Biv03ptw7yS+0RzEBEncAbbTvpukCPNdGjAIzXSKk0=",
     );
   });
 
-  it("names one to the limit of hashes like Rust `GetAuditedNotesRequest::read`", () => {
-    for (const count of [0, RING_AUDITED_NOTES_LIMIT + 1])
+  it("names one to the limit of hashes like Rust `GetAuditedUtxosRequest::read`", () => {
+    for (const count of [0, RING_AUDITED_UTXOS_LIMIT + 1])
       expect(() =>
-        RingAuditedNotesRequest.read(
+        RingAuditedUtxosRequest.read(
           addressOf(7),
           Array.from({ length: count }, () => filled(1, 32) as Bytes32),
         ),
       ).toThrow("RING_READ_LIMIT");
-    expect(() => RingAuditedNotesRequest.read(addressOf(7), [filled(1, 31) as Bytes32])).toThrow(
-      "RING_READ_LIMIT",
-    );
+    expect(() =>
+      RingAuditedUtxosRequest.read(addressOf(7), [filled(1, 32 - 1) as Bytes32]),
+    ).toThrow("RING_READ_LIMIT");
   });
 
-  it("signs the hashes it sends and binds every answer to the hash at its position", async () => {
-    const note = {
-      ownerKey: addressOf(3),
-      nullifierPk: addressOf(4),
-      asset: addressOf(5),
-      amount: 9,
-      blinding: addressOf(6),
-      dataHash: addressOf(0),
-      ringDataHash: addressOf(0),
+  const keyed: KnownUtxo = {
+    ownerKey: filled(3, 32) as Bytes32,
+    owner: { kind: "keyed", nullifierPk: filled(4, 32) as Bytes32 },
+    asset: filled(5, 32) as Bytes32,
+    amount: 9n,
+    blinding: filled(6, 32) as Bytes32,
+    dataHash: ZERO_32,
+    ringDataHash: ZERO_32,
+    treeId: 4,
+  };
+  const deposited: KnownUtxo = {
+    ...keyed,
+    owner: { kind: "deposited", ownerHash: filled(8, 32) as Bytes32 },
+    amount: 7n,
+  };
+
+  function wireUtxo(utxo: KnownUtxo): Record<string, unknown> {
+    const owner =
+      utxo.owner.kind === "keyed"
+        ? { nullifierPk: getAddressDecoder().decode(utxo.owner.nullifierPk) }
+        : { ownerHash: getAddressDecoder().decode(utxo.owner.ownerHash) };
+    return {
+      ownerKey: getAddressDecoder().decode(utxo.ownerKey),
+      ...owner,
+      asset: getAddressDecoder().decode(utxo.asset),
+      amount: Number(utxo.amount),
+      blinding: getAddressDecoder().decode(utxo.blinding),
+      dataHash: getAddressDecoder().decode(utxo.dataHash),
+      ringDataHash: getAddressDecoder().decode(utxo.ringDataHash),
+      treeId: utxo.treeId,
     };
-    const view = {
-      utxoHash: getAddressDecoder().decode(hashes[0]!),
-      note,
+  }
+
+  function view(utxoHash: Bytes32, utxo: Record<string, unknown>): Record<string, unknown> {
+    return {
+      utxoHash: getAddressDecoder().decode(utxoHash),
+      utxo,
       slot: 12,
       txSignature: signatureOf(1),
       eventIndex: 2,
       slotIndex: 3,
     };
+  }
+
+  async function readUtxos(utxoHashes: readonly Bytes32[], utxos: readonly unknown[]) {
     const { fetch, bodies } = capturingFetch({
       context: { blockTime: 1_700_000_000, slot: 13 },
-      value: { notes: [view, null] },
+      value: { utxos },
     });
-    const rpc = new RingRpc("http://ring.example", { fetch, allowInsecureHttp: true });
     const signer = await generateKeyPairSigner();
-    const page = await rpc.getAuditedNotes({
+    const page = await new RingRpc("http://ring.example", {
+      fetch,
+      allowInsecureHttp: true,
+    }).getAuditedUtxos({
       ringProgramId: addressOf(7),
-      utxoHashes: hashes,
+      utxoHashes,
       signer: messageSignerReader(signer),
       timestamp: 1_700_000_000n,
     });
+    return { page, bodies, signer };
+  }
+
+  it("signs the hashes it sends and opens an answer that rebuilds its hash under the ring or the default ring", async () => {
+    await initializePoseidon();
+    const ringId = ringIdField(addressOf(7));
+    const keyedHash = knownUtxoHash(keyed, ringId);
+    const depositHash = knownUtxoHash(deposited, ringId);
+    const defaultHash = knownUtxoHash(keyed, ZERO_32);
+    const requested = [keyedHash, depositHash, defaultHash, filled(2, 32) as Bytes32];
+    const { page, bodies, signer } = await readUtxos(requested, [
+      view(keyedHash, wireUtxo(keyed)),
+      view(depositHash, wireUtxo(deposited)),
+      view(defaultHash, wireUtxo(keyed)),
+      null,
+    ]);
     expect(page.slot).toBe(13n);
-    expect(page.notes).toHaveLength(2);
-    expect(page.notes[0]).toMatchObject({ slot: 12n, eventIndex: 2, slotIndex: 3 });
-    expect(page.notes[0]?.note.amount).toBe(9n);
-    expect(page.notes[1]).toBeUndefined();
-    // A deposit's capsule discloses no nullifier key.
-    const { nullifierPk: _deposited, ...depositNote } = note;
-    const deposit = await new RingRpc("http://ring.example", {
-      fetch: capturingFetch({
-        context: { blockTime: 1, slot: 1 },
-        value: { notes: [{ ...view, note: depositNote }, null] },
-      }).fetch,
-      allowInsecureHttp: true,
-    }).getAuditedNotes({
-      ringProgramId: addressOf(7),
-      utxoHashes: hashes,
-      signer: messageSignerReader(signer),
+    expect(page.utxos.map((entry) => entry?.utxo)).toEqual([keyed, deposited, keyed, undefined]);
+    expect(page.utxos[0]).toMatchObject({
+      utxoHash: keyedHash,
+      slot: 12n,
+      eventIndex: 2,
+      slotIndex: 3,
     });
-    expect(deposit.notes[0]?.note).not.toHaveProperty("nullifierPk");
-    expect(deposit.notes[0]?.note.ownerKey).toEqual(addressBytes(addressOf(3)));
     const params = bodies[0]?.["params"] as Record<string, unknown>;
+    expect(bodies[0]?.["method"]).toBe("getAuditedUtxos");
     expect(Object.keys(params).sort()).toEqual(["auth", "ringProgramId", "utxoHashes"]);
-    expect(params["utxoHashes"]).toEqual(hashes.map((hash) => getAddressDecoder().decode(hash)));
+    expect(params["utxoHashes"]).toEqual(requested.map((hash) => getAddressDecoder().decode(hash)));
     const auth = params["auth"] as Record<string, unknown>;
     const nonce = Uint8Array.from(Buffer.from(auth["nonce"] as string, "base64")) as Bytes32;
-    const signed = auditedNotesAttestation({
+    const signed = auditedUtxosAttestation({
       ringProgramId: addressOf(7),
       timestamp: 1_700_000_000n,
       nonce,
-      utxoHashes: hashes,
+      utxoHashes: requested,
     });
     expect(
       ed25519.verify(
@@ -841,19 +923,39 @@ describe("audited note read", () => {
         addressBytes(signer.address),
       ),
     ).toBe(true);
-    for (const notes of [[view], [null, view], [view, view]]) {
-      const swapped = new RingRpc("http://ring.example", {
-        fetch: capturingFetch({ context: { blockTime: 1, slot: 1 }, value: { notes } }).fetch,
-        allowInsecureHttp: true,
-      });
-      await expect(
-        swapped.getAuditedNotes({
-          ringProgramId: addressOf(7),
-          utxoHashes: hashes,
-          signer: messageSignerReader(signer),
-        }),
-      ).rejects.toMatchObject({ code: "RING_RPC" });
-    }
+  });
+
+  it.each<readonly [string, (utxo: Record<string, unknown>) => void]>([
+    ["another amount", (utxo) => (utxo["amount"] = 10)],
+    ["another tree", (utxo) => (utxo["treeId"] = 5)],
+    [
+      "both a nullifier key and the owner hash it makes",
+      (utxo) =>
+        (utxo["ownerHash"] = getAddressDecoder().decode(
+          ownerHash(solanaOwnerIdentity(filled(3, 32)), filled(4, 32)),
+        )),
+    ],
+    ["neither a nullifier key nor an owner hash", (utxo) => delete utxo["nullifierPk"]],
+    ["a tree id past u16", (utxo) => (utxo["treeId"] = 65_536)],
+    ["a blinding outside the field", (utxo) => (utxo["blinding"] = addressOf(0xff))],
+  ])("refuses an opening with %s", async (_name, edit) => {
+    await initializePoseidon();
+    const utxoHash = knownUtxoHash(keyed, ringIdField(addressOf(7)));
+    const utxo = wireUtxo(keyed);
+    edit(utxo);
+    await expect(readUtxos([utxoHash], [view(utxoHash, utxo)])).rejects.toMatchObject({
+      code: "RING_RPC",
+    });
+  });
+
+  it("refuses an answer at another position than its hash", async () => {
+    await initializePoseidon();
+    const ringId = ringIdField(addressOf(7));
+    const first = knownUtxoHash(keyed, ringId);
+    const second = knownUtxoHash(deposited, ringId);
+    const answers = [view(first, wireUtxo(keyed)), view(second, wireUtxo(deposited))];
+    for (const utxos of [[answers[0]], [null, answers[0]], [answers[1], answers[0]]])
+      await expect(readUtxos([first, second], utxos)).rejects.toMatchObject({ code: "RING_RPC" });
   });
 });
 
@@ -926,6 +1028,7 @@ describe("ring read request", () => {
     expect(new TextDecoder().decode(seen[0])).toBe(
       new TextDecoder().decode(
         ringReadAttestation({
+          method: "getDecryptedTransactions",
           ringProgramId: addressOf(7),
           timestamp: 1_700_000_000n,
           nonce: Uint8Array.from(nonce) as Bytes32,
@@ -960,7 +1063,7 @@ describe("ring read request", () => {
       outputContext: { treeId: 4, leafIndex: 1n, hash: filled(0x40, 32) },
       opening: {
         kind: "ring",
-        note: {
+        utxo: {
           ownerKey: filled(0x10, 32),
           nullifierPk: filled(0x11, 32),
           asset: filled(0x12, 32),
@@ -974,7 +1077,7 @@ describe("ring read request", () => {
       },
     });
     const exit = item.outputs[1]!.opening;
-    expect(exit.kind === "exit" && exit.note.mint).toBeUndefined();
+    expect(exit.kind === "exit" && exit.utxo.mint).toBeUndefined();
     expect(item.payloadErrors).toEqual([{ slotIndex: 3, kind: "commitment" }]);
     expect(item.sender).toBeUndefined();
     expect(item.inputs).toEqual([]);
@@ -1002,12 +1105,12 @@ describe("ring read request", () => {
     expect(item.inputs[4]?.opening).toBeUndefined();
   });
 
-  it("reads a sender whose spent note 0 is a deposit and refuses an output note without its key", async () => {
+  it("reads a sender whose spent UTXO 0 is a deposit and refuses an output UTXO without its key", async () => {
     const deposited = rustItem("decrypted_anonymous_page.json");
     delete (deposited["sender"] as Record<string, unknown>)["nullifierPk"];
     expect((await readItem(deposited)).sender).toEqual({ ownerKey: filled(0x50, 32) });
     const keyless = rustItem("decrypted_anonymous_page.json");
-    delete (outputAt(keyless, 0)["note"] as Record<string, unknown>)["nullifierPk"];
+    delete (outputAt(keyless, 0)["utxo"] as Record<string, unknown>)["nullifierPk"];
     await expect(readItem(keyless)).rejects.toMatchObject({ code: "RING_RPC" });
   });
 
@@ -1033,8 +1136,8 @@ describe("ring read request", () => {
       "outputs[1].kind",
     ],
     [
-      "a dummy with a note",
-      (item) => (outputAt(item, 2)["note"] = outputAt(item, 1)["note"]),
+      "a dummy with a UTXO",
+      (item) => (outputAt(item, 2)["utxo"] = outputAt(item, 1)["utxo"]),
       "outputs[2].kind",
     ],
     [

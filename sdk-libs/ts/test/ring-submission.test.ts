@@ -20,6 +20,7 @@ import {
   type RingSubmissionAttempt,
 } from "../src/ring/submission.js";
 import { ringMemberRegistryPda, treeAddress } from "../src/interface/pda/index.js";
+import { TREE_STATE_PAUSED } from "../src/interface/state.js";
 import { BLOCKHASH, kitReads } from "./helpers/clients.js";
 import { memberRegistryData, ownedAccount } from "./helpers/ring-accounts.js";
 import { ANCHOR_ROOT, ANCHOR_ROOT_INDEX, anchorTreeAccount } from "./helpers/ring-pipeline.js";
@@ -233,7 +234,7 @@ describe("ring submission ownership", () => {
     expect(f.build).toHaveBeenCalledTimes(1);
   });
 
-  it("never rebuilds a rejected policy proof", async () => {
+  it("never rebuilds a rejected proof that binds no chain value", async () => {
     const rejected = await fixture();
     const proof = await rejected.submission.send({
       sign: rejected.sign,
@@ -335,15 +336,17 @@ describe("ring submission ownership", () => {
     }
   });
 
-  it("rebuilds a rejected anonymous proof only once its first-contact root left the tree's slot", async () => {
+  it("rebuilds a rejected anonymous proof only once its first-contact root left an unpaused tree's slot", async () => {
     const anchor = { tree: treeAddress(0), rootIndex: ANCHOR_ROOT_INDEX, root: ANCHOR_ROOT };
-    for (const [held, attempts] of [
-      [new Uint8Array(32).fill(0x73) as Bytes32, 3],
-      [ANCHOR_ROOT, 1],
+    const paused = anchorTreeAccount(new Uint8Array(32).fill(0x73) as Bytes32);
+    paused.data[1] = TREE_STATE_PAUSED;
+    for (const [account, attempts] of [
+      [anchorTreeAccount(new Uint8Array(32).fill(0x73) as Bytes32), 3],
+      [anchorTreeAccount(ANCHOR_ROOT), 1],
+      [paused, 1],
     ] as const) {
       const f = await fixture();
       const build = vi.fn(async () => ({ ...(await f.build()), anchor }));
-      const account = anchorTreeAccount(held);
       const registry = { getAccount: vi.fn(async () => account) };
       const submission = new RingTransactionSubmission({
         first: await build(),
@@ -358,6 +361,7 @@ describe("ring submission ownership", () => {
       });
       expect(result).toMatchObject({ kind: "failed", attempts });
       expect(registry.getAccount).toHaveBeenCalledTimes(attempts);
+      expect(f.release).toHaveBeenCalledOnce();
     }
   });
 

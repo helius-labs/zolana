@@ -108,7 +108,7 @@ export async function memberListWriteInstruction(
   const member = signerAddress(write.member);
   const accounts = await recordAccounts(write.ringProgramId, write.member, false);
   const data = new Writer().u8(RingInstructionTag.writeRecords, "tag");
-  writeLists(data, write.lists);
+  writeMaxFee(writeLists(data, write.lists), config);
   return {
     programAddress: write.ringProgramId,
     accounts: [...accounts, ...feeAccounts(config, member, write.payer)],
@@ -256,6 +256,11 @@ export class RecordApplication {
       throw wrapRingError("RING_BUILD_LIST_WRITE", cause);
     }
   }
+}
+
+/** Rust `MemberWrite::max_fee`, the fee read here, a raise before the write lands refuses it. */
+export function writeMaxFee(writer: Writer, config: RingProgramConfig): Writer {
+  return writer.u64(config.insertFee, "maxFee");
 }
 
 /** `[payer, authority, system]` when `config` charges `writer` the insert fee. */

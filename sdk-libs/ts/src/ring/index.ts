@@ -73,7 +73,12 @@ export {
   setRingPolicyRulesInstruction,
   setRingPolicySourceInstruction,
 } from "./admin.js";
-export type { RingPolicySourceOwner, RingPolicyTableInput, RingSharedSource } from "./admin.js";
+export type {
+  RingKind,
+  RingPolicySourceOwner,
+  RingPolicyTableInput,
+  RingSharedSource,
+} from "./admin.js";
 export {
   buildRingCreatePolicyTransaction,
   buildRingSetPolicyRulesTransaction,
@@ -253,31 +258,35 @@ export type {
 export {
   auditRing,
   auditRingTransaction,
-  auditedNotes,
+  auditedUtxos,
   auditorMessage,
   hasUnknownAssets,
+  knownUtxoHash,
+  openedUtxo,
   recoverTransactionViewingKey,
 } from "./audit.js";
 export type {
   AuditedInput,
   AuditedInputOpening,
-  AuditedNote,
   AuditedRingOutput,
   AuditedRingTransaction,
   AuditedSender,
+  AuditedUtxo,
+  CreatedRingUtxo,
   EscrowedKeys,
   InputRing,
-  KnownNote,
-  KnownNotes,
+  KnownUtxo,
+  KnownUtxos,
   OutputOpening,
   OutputPayloadError,
   OutputPayloadErrorKind,
   RingAuditPage,
   RingAuditReader,
+  UtxoOwner,
 } from "./audit.js";
 export { auditRingMerges } from "./audit-merge.js";
-export { createdRingNotes, scanCreatedRingNotes } from "./created.js";
-export type { CreatedRingNote, CreatedRingNotesPage } from "./created.js";
+export { createdRingUtxos, scanCreatedRingUtxos } from "./created.js";
+export type { CreatedRingUtxosPage } from "./created.js";
 export type {
   AuditedRingMerge,
   MergeKeys,
@@ -313,15 +322,15 @@ export type {
   TransactionOrigin,
 } from "./origin.js";
 export {
-  RING_AUDITED_NOTES_LIMIT,
+  RING_AUDITED_UTXOS_LIMIT,
   RING_PAYLOAD_ERROR_KINDS,
   RING_READ_CURSOR_LIMIT,
   RING_READ_PAGE_LIMIT,
-  RingAuditedNotesRequest,
+  RingAuditedUtxosRequest,
   RingAuditorKeyRequest,
   RingReadRequest,
   RingRpc,
-  auditedNotesAttestation,
+  auditedUtxosAttestation,
   auditorKeyAttestation,
   auditorKeyRequestAttestation,
   messageSignerReader,
@@ -335,19 +344,20 @@ export type {
   DecryptedRingTransactionsPage,
   DecryptedRingWithdrawal,
   RingActivation,
-  RingAuditedNote,
-  RingAuditedNotesPage,
+  RingAuditedUtxo,
+  RingAuditedUtxosPage,
   RingAuditorKey,
   RingDeposit,
   RingDepositsPage,
   RingKeyMode,
+  RingPagedRead,
   RingReadSigner,
   RingRegistryStatus,
   RingRpcHealth,
   RingRpcOptions,
   RingState,
   RingStatus,
-  SignedAuditedNotesRead,
+  SignedAuditedUtxosRead,
   SignedAuditorKeyRequest,
   SignedRingRead,
   SkippedReason,

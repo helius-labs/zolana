@@ -45,6 +45,7 @@ import {
   tagIndex,
 } from "../src/keypair/ring-stream.js";
 import type * as RingStream from "../src/keypair/ring-stream.js";
+import type * as WalletInternal from "../src/wallet/internal.js";
 import { mergeOutputBlinding, mergeOutputKey } from "../src/keypair/merge/index.js";
 import { ringOutputBlinding } from "../src/keypair/transact/index.js";
 import { SOL_MINT } from "../src/transaction/asset.js";
@@ -65,6 +66,7 @@ import {
   AnonymousRingState,
   DECOYS_PER_TREE,
   MAX_ISSUED_ADDRESSES,
+  PAIR_IDLE_EPOCHS,
   type SentFirstContact,
 } from "../src/transaction/wallet/anonymous-state.js";
 import { LocalShieldedKeys, type RingKeys } from "../src/transaction/wallet/keys.js";
@@ -96,6 +98,18 @@ vi.mock("../src/keypair/ring-stream.js", async (importOriginal) => {
       const key = actual.pairKey(secret);
       derivedPairKeys.push(key);
       return key;
+    },
+  };
+});
+
+const keyedBytes = vi.hoisted((): { values: Uint8Array[] | undefined } => ({ values: undefined }));
+vi.mock("../src/wallet/internal.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof WalletInternal>();
+  return {
+    ...actual,
+    bytesKey: (value: Uint8Array) => {
+      keyedBytes.values?.push(value);
+      return actual.bytesKey(value);
     },
   };
 });
@@ -644,6 +658,9 @@ async function sync(
   return { wallet, ring, state };
 }
 
+/** The first free index of every draw, fixtures pin their tags on it. */
+const zeros = (length: number): Uint8Array => new Uint8Array(length);
+
 /**
  * A deposit and an inbox payment in `early`, a pair payment and the inbox note spent in `middle`,
  * its change spent in the second tree and the deposit spent in `late`.
@@ -655,10 +672,10 @@ async function restoreHistory(early: bigint, middle: bigint, late: bigint) {
   let sender = AnonymousRingState.create(RING, 0n);
 
   const deposit = chain.deposit(RECIPIENT, 0n, 11_000n, early);
-  const first = await new TagAllocation(chain.indexer, sender, early).allocate(to);
+  const first = new TagAllocation(sender, early).allocate(to, zeros);
   const inbox = chain.pay(to, first.tag, 5_000n, early);
   sender = sender.recordFirstContact(contactOf(to, inbox, first));
-  const second = await new TagAllocation(chain.indexer, sender, middle).allocate(to);
+  const second = new TagAllocation(sender, middle).allocate(to, zeros);
   const paired = chain.pay(to, second.tag, 7_000n, middle);
   const spendInbox = pair(
     chain.spend(
@@ -834,6 +851,22 @@ describe("anonymous ring sync", () => {
     expect(answered.filter((secret) => !wiped(secret))).toEqual([]);
   });
 
+  it("turns no pair key into a string while it reads the pair streams", async () => {
+    const chain = new Chain();
+    const to = await ringAddress(RECIPIENT, 0);
+    chain.pay(to, inboxTagOf(to, 0n, 0), 5_000n, 0n);
+    const keyed: Uint8Array[] = [];
+    keyedBytes.values = keyed;
+    try {
+      const { state } = await sync(chain, { slot: slotOf(0n) });
+
+      expect(state.received).toHaveLength(1);
+      expect(keyed).not.toContainEqual(state.received[0]!.pairKey);
+    } finally {
+      keyedBytes.values = undefined;
+    }
+  });
+
   it.each([
     ["one secret short", "count", (secrets: readonly Bytes32[]) => secrets.slice(1)],
     [
@@ -948,44 +981,24 @@ describe("anonymous ring sync", () => {
     expect(again.wallet.pendingNotes()).toEqual([]);
   });
 
-  it("refuses a malformed first contact, anchor or pairing at the state boundary", async () => {
+  it("refuses a malformed first contact, anchor or pairing before copying any secret", async () => {
     const chain = new Chain();
     const to = await ringAddress(RECIPIENT, 0);
     const paid = chain.pay(to, inboxTagOf(to, 0n, 0), 5_000n, 0n);
     const contact = contactOf(to, paid, { epoch: 0n, index: tagIndex(0) });
     const state = AnonymousRingState.create(RING, 0n);
-    const anchor = { addressIndex: 0, pairKey: field(1), epoch: 0n, asset: SOL_MINT, amount: 1n };
+    const contacted = state.recordFirstContact({ ...contact, epoch: 1n });
+    const anchor = {
+      addressIndex: 0,
+      pairKey: field(1),
+      epoch: 0n,
+      lastEpoch: 0n,
+      asset: SOL_MINT,
+      amount: 1n,
+    };
     const anchored = state.receive(anchor);
     const pairing: Pairing = { rows: [], isOff: () => true, admits: () => false };
     const wallet = new Wallet({ identity: RECIPIENT.shieldedAddress() });
-
-    expect(() =>
-      state.recordFirstContact({ ...contact, slotSecret: new Uint8Array(31) as Bytes32 }),
-    ).toThrow("TRANSACTION_INVALID_LENGTH");
-    expect(() => state.recordFirstContact({ ...contact, slotIndex: 256 })).toThrow(
-      "TRANSACTION_INVALID_POSITION",
-    );
-    expect(() => anchored.receive({ ...anchor, addressIndex: MAX_ISSUED_ADDRESSES })).toThrow(
-      "TRANSACTION_TOO_MANY_ISSUED_ADDRESSES",
-    );
-    await expect(
-      issueRingAddress({
-        wallet,
-        keys: LocalShieldedKeys.fromKeypair(RECIPIENT),
-        ring: RING,
-        creationEpoch: 0n,
-        pairing,
-      }),
-    ).rejects.toMatchObject({ code: "TRANSACTION_DESERIALIZE" });
-    expect(wallet.anonymousRing(RING)).toBeUndefined();
-  });
-
-  it("copies no secret of a first contact or anchor it refuses", async () => {
-    const chain = new Chain();
-    const to = await ringAddress(RECIPIENT, 0);
-    const paid = chain.pay(to, inboxTagOf(to, 0n, 0), 5_000n, 0n);
-    const contact = contactOf(to, paid, { epoch: 0n, index: tagIndex(0) });
-    const state = AnonymousRingState.create(RING, 0n);
     const reads: PropertyKey[] = [];
     const watched = (secret: Bytes32) =>
       new Proxy(secret, {
@@ -997,22 +1010,35 @@ describe("anonymous ring sync", () => {
       });
 
     expect(() =>
-      state.recordFirstContact({
+      state.recordFirstContact({ ...contact, slotSecret: new Uint8Array(31) as Bytes32 }),
+    ).toThrow("TRANSACTION_INVALID_LENGTH");
+    expect(() => state.recordFirstContact({ ...contact, slotIndex: 256 })).toThrow(
+      "TRANSACTION_INVALID_POSITION",
+    );
+    expect(() =>
+      contacted.recordFirstContact({
         ...contact,
         slotSecret: watched(contact.slotSecret),
         amount: -1n,
       }),
     ).toThrow("TRANSACTION_INVALID_AMOUNT");
+    expect(() => anchored.receive({ ...anchor, addressIndex: MAX_ISSUED_ADDRESSES })).toThrow(
+      "TRANSACTION_TOO_MANY_ISSUED_ADDRESSES",
+    );
     expect(() =>
-      state.receive({
-        addressIndex: 0,
-        pairKey: watched(field(1)),
-        epoch: -1n,
-        asset: SOL_MINT,
-        amount: 1n,
-      }),
-    ).toThrow("TRANSACTION_INVALID_INTEGER");
+      state.receive({ ...anchor, pairKey: watched(anchor.pairKey), amount: -1n }),
+    ).toThrow("TRANSACTION_INVALID_AMOUNT");
     expect(reads).toEqual([]);
+    await expect(
+      issueRingAddress({
+        wallet,
+        keys: LocalShieldedKeys.fromKeypair(RECIPIENT),
+        ring: RING,
+        creationEpoch: 0n,
+        pairing,
+      }),
+    ).rejects.toMatchObject({ code: "TRANSACTION_DESERIALIZE" });
+    expect(wallet.anonymousRing(RING)).toBeUndefined();
   });
 
   it("refuses to issue an address from another wallet's keys and tracks no ring", async () => {
@@ -1312,11 +1338,12 @@ describe("anonymous ring sync", () => {
       indexer,
       state: AnonymousRingState.create(RING, 0n),
       slot: slotOf(0n),
-      knownNullifiers: Array.from({ length: cap + 1 }, (_, index) => {
+      heldUtxos: Array.from({ length: cap + 1 }, (_, index) => {
         const nullifier = new Uint8Array(32) as Bytes32;
         new DataView(nullifier.buffer).setUint32(28, index + 1);
-        return nullifier;
+        return { ringProgramId: RING, nullifier, utxoHash: field(index + 1) };
       }),
+      defaultRingSpends: [],
       pageLimit: 1,
       nextRpcConfig: () => DEFAULT_INDEXER_RPC_CONFIG,
     });
@@ -1472,63 +1499,27 @@ describe("anonymous ring sync", () => {
 });
 
 describe("sender tag allocation", () => {
-  /** One transaction using the first `count` inbox indexes of `to` in `epoch`. */
-  function crowd(chain: Chain, to: RingAddress, epoch: bigint, count: number): void {
-    chain.indexer.publish({
-      slot: slotOf(epoch),
-      txSignature: signatureOf(field(count), field(0x98)),
-      outputSlots: Array.from({ length: count }, (_, at) => ({
-        viewTag: ringTagField(inboxTagOf(to, epoch, at)),
-        outputContext: {
-          hash: field(at + 1),
-          tree: treeAddress(DEFAULT_TREE_ID),
-          treeId: DEFAULT_TREE_ID,
-          leafIndex: BigInt(at),
-        },
-        payload: encodeOutputData(EncryptedScheme.ringAnonymous, new Uint8Array(40), "encrypted"),
-      })),
-      messages: [],
-      nullifiers: [field(0x99)],
-      proofless: false,
-      ringProgramId: RING,
-    });
-  }
-
-  it.each([
-    [J_INBOX - 1, J_INBOX - 1],
-    [J_INBOX, undefined],
-  ] as const)("with %i inbox indexes used takes index %s", async (used, index) => {
-    const chain = new Chain(slotOf(5n));
+  it("puts the index its random source draws into the inbox tag", async () => {
     const to = await ringAddress(RECIPIENT, 0);
-    crowd(chain, to, 5n, used);
-    const allocation = new TagAllocation(chain.indexer, AnonymousRingState.create(RING, 0n), 5n);
+    const allocation = new TagAllocation(AnonymousRingState.create(RING, 0n), 5n);
 
-    if (index === undefined) {
-      await expect(allocation.allocate(to)).rejects.toMatchObject({
-        code: "WALLET_INBOX_STREAM_FULL",
-        details: { epoch: "5" },
-      });
-      return;
-    }
-    await expect(allocation.allocate(to)).resolves.toEqual({
+    expect(allocation.allocate(to, (length) => new Uint8Array(length).fill(5))).toEqual({
       stream: { kind: "inbox" },
       epoch: 5n,
-      index,
-      tag: inboxTagOf(to, 5n, index),
+      index: 5,
+      tag: inboxTagOf(to, 5n, 5),
     });
   });
 
-  it("never hands one index to two payments of a transaction", async () => {
-    const chain = new Chain(slotOf(5n));
+  it("never hands one index to two payments of a transaction until every index is taken", async () => {
     const to = await ringAddress(RECIPIENT, 0);
-    crowd(chain, to, 5n, J_INBOX - 2);
-    const allocation = new TagAllocation(chain.indexer, AnonymousRingState.create(RING, 0n), 5n);
+    const allocation = new TagAllocation(AnonymousRingState.create(RING, 0n), 5n);
 
-    expect((await allocation.allocate(to)).index).toBe(J_INBOX - 2);
-    expect((await allocation.allocate(to)).index).toBe(J_INBOX - 1);
-    await expect(allocation.allocate(to)).rejects.toMatchObject({
-      code: "WALLET_INBOX_STREAM_FULL",
-    });
+    const indexes = Array.from({ length: J_INBOX }, () =>
+      Number(allocation.allocate(to, zeros).index),
+    );
+    expect(new Set(indexes).size).toBe(J_INBOX);
+    expect(Number(allocation.allocate(to, zeros).index)).toBe(0);
   });
 
   it.each([
@@ -1548,11 +1539,7 @@ describe("sender tag allocation", () => {
         index: 0,
         pairing: Pairing.of([{ mint: SOL_MINT, minAmount: 1_000n }]),
       });
-      const first = await new TagAllocation(
-        chain.indexer,
-        AnonymousRingState.create(RING, 0n),
-        0n,
-      ).allocate(to);
+      const first = new TagAllocation(AnonymousRingState.create(RING, 0n), 0n).allocate(to, zeros);
       const contact = chain.pay(to, first.tag, amount, 0n);
       const sender = AnonymousRingState.create(RING, 0n).recordFirstContact(
         contactOf(to, contact, first),
@@ -1563,7 +1550,7 @@ describe("sender tag allocation", () => {
       expect(received.ring.anchors).toHaveLength(anchors);
       expect(received.state.received).toHaveLength(anchors);
 
-      const next = await new TagAllocation(chain.indexer, sender, 0n).allocate(to);
+      const next = new TagAllocation(sender, 0n).allocate(to, zeros);
       expect(next.stream.kind).toBe(stream);
       const later = chain.pay(to, next.tag, 2_000n, 0n);
       const caught = await sync(chain, { wallet, keys, slot: slotOf(0n) });
@@ -1586,14 +1573,12 @@ describe("sender tag allocation", () => {
       ring: RING,
       creationEpoch: 0n,
     });
-    const first = await new TagAllocation(chain.indexer, wallet.anonymousRing(RING)!, 0n).allocate(
-      to,
-    );
+    const first = new TagAllocation(wallet.anonymousRing(RING)!, 0n).allocate(to, zeros);
     const paid = chain.pay(to, first.tag, 5_000n, 0n);
 
     await recordFirstContacts({ wallet, ring: RING, contacts: [contactOf(to, paid, first)] });
     const restored = deserializeWallet(serializeWallet(wallet)).anonymousRing(RING)!;
-    const next = await new TagAllocation(chain.indexer, restored, 0n).allocate(to);
+    const next = new TagAllocation(restored, 0n).allocate(to, zeros);
 
     expect(restored.sent.map((contact) => contact.utxoHash)).toEqual([paid.hash]);
     expect(next.stream.kind).toBe("pair");
@@ -1611,7 +1596,7 @@ describe("sender tag allocation", () => {
     const sender = AnonymousRingState.create(RING, 0n).recordFirstContact(source);
     source.slotSecret.fill(0);
 
-    const next = await new TagAllocation(chain.indexer, sender, 0n).allocate(to);
+    const next = new TagAllocation(sender, 0n).allocate(to, zeros);
 
     expect(next.stream.kind).toBe("pair");
     expect(next.tag).toEqual(pairTag(pairKey(paid.slotSecret), 0n, tagIndex(0)));
@@ -1626,7 +1611,7 @@ describe("sender tag allocation", () => {
     );
     derivedPairKeys.length = 0;
 
-    const next = await new TagAllocation(chain.indexer, sender, 0n).allocate(to);
+    const next = new TagAllocation(sender, 0n).allocate(to, zeros);
 
     expect(next.stream.kind).toBe("pair");
     expect(derivedPairKeys).toHaveLength(1);
@@ -1643,14 +1628,12 @@ describe("sender tag allocation", () => {
       sender = sender.recordFirstContact(contactOf(to, contact, { epoch: 0n, index: tagIndex(0) }));
     }
 
-    const live = new TagAllocation(chain.indexer, sender, K_PAIR_EPOCHS - 1n);
-    expect((await live.allocate(first)).stream.kind).toBe("pair");
-    expect((await live.allocate(second)).stream.kind).toBe("inbox");
-    const expired = new TagAllocation(chain.indexer, sender, K_PAIR_EPOCHS);
-    expect((await expired.allocate(first)).stream.kind).toBe("inbox");
+    const live = new TagAllocation(sender, PAIR_IDLE_EPOCHS - 1n);
+    expect(live.allocate(first, zeros).stream.kind).toBe("pair");
+    expect(live.allocate(second, zeros).stream.kind).toBe("inbox");
+    const expired = new TagAllocation(sender, PAIR_IDLE_EPOCHS);
+    expect(expired.allocate(first, zeros).stream.kind).toBe("inbox");
     const foreign = await ringAddress(RECIPIENT, 0, Pairing.any(), FOREIGN_RING);
-    await expect(live.allocate(foreign)).rejects.toMatchObject({
-      code: "WALLET_FOREIGN_RING_ADDRESS",
-    });
+    expect(() => live.allocate(foreign, zeros)).toThrow("WALLET_FOREIGN_RING_ADDRESS");
   });
 });

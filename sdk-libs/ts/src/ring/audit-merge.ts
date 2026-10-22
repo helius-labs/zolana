@@ -250,7 +250,7 @@ async function confirmedMerges(
   return { merges, ...(nextCursor === undefined ? {} : { nextCursor }) };
 }
 
-/** @internal Rust `validate_confirmed_merge_fields`, a malformed public field is an audit error, not a key miss. */
+/** @internal Rust `MergeOutput::of`, a malformed public field is an audit error, not a key miss. */
 export function confirmedMerge(
   transaction: IndexedShieldedTransaction,
   eventIndex: number,

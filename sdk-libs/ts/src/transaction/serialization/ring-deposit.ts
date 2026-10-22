@@ -112,7 +112,7 @@ export function decryptRingDepositUtxo(
   );
 }
 
-/** The UTXO a ring deposit describes, a depositor's blinding outside the field opens none. */
+/** The UTXO a ring deposit describes, from its envelope already opened with the viewing key. */
 export function ringDepositUtxo(
   output: RingDepositOutput,
   decrypted: Uint8Array,

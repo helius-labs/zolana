@@ -24,7 +24,12 @@ import { ViewingKey } from "../../keypair/viewing-key.js";
 import { TransactionError } from "../error.js";
 import { equal } from "../internal.js";
 
-/** The cipher a ciphertext was sealed under, each keyed by ECDH between the wallet's and the transaction's viewing keys. */
+/**
+ * Which cipher label a ciphertext was sealed under. Every UTXO ciphertext
+ * `ShieldedKeys.decrypt` opens is the transfer cipher keyed by ECDH between the
+ * wallet's viewing key and the transaction's viewing key; only the ring-deposit
+ * envelope uses its own label.
+ */
 export type DecryptLabel = "transfer" | "ringDeposit";
 
 export interface DecryptRequest {
@@ -33,7 +38,7 @@ export interface DecryptRequest {
   readonly viewingPublicKey: X25519PublicKey;
   readonly txViewingPublicKey: X25519PublicKey;
   readonly salt: Bytes16;
-  /** Zero for a ring deposit. */
+  /** Zero for a ring deposit, which carries one envelope. */
   readonly slotIndex: number;
   readonly label: DecryptLabel;
 }
@@ -100,7 +105,7 @@ export interface ShieldedKeys {
     requests: readonly DecryptRequest[],
     context?: RequestContext,
   ): Promise<readonly Uint8Array[]>;
-  /** Fresh byte buffers the caller owns and wipes after use. */
+  /** Fresh buffers owned by the caller, which wipes them after use. */
   derive(requests: readonly DeriveRequest[], context?: RequestContext): Promise<readonly Bytes32[]>;
   /** Fresh key objects; the caller destroys them. */
   transactionKeys(

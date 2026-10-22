@@ -297,8 +297,8 @@ interface MergePublicInputFields {
  * The merge public inputs without the tree slots, which
  * `resolvedPublicInputHash` inserts. The nullifier chain folds to the right
  * over the circuit width; the 1 is the dummy-input policy merge always
- * publishes; the output ciphertext follows the owner binding. Mirrors the
- * element order of Rust `MergeProver::build`.
+ * publishes; the binding follows. Mirrors the element order of Rust
+ * `MergeProver::build`.
  */
 export function mergePublicInputs(input: MergePublicInputFields): readonly bigint[] {
   return [

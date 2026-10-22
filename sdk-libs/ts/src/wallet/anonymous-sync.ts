@@ -1,11 +1,10 @@
 import type { IndexerReader } from "../client/ports.js";
-import { DEFAULT_INDEXER_RPC_CONFIG, type IndexerRpcConfig } from "../client/retry.js";
+import type { IndexerRpcConfig } from "../client/retry.js";
 import { PAGE_LIMIT } from "../interface/indexer-limits.js";
 import type { Address, Bytes16, Bytes31, Bytes32, RequestContext } from "../interface/types.js";
 import {
   BODY_LEN,
   J_INBOX,
-  K_PAIR_EPOCHS,
   deliveredSlotSecret,
   inboxKey,
   inboxTag,
@@ -20,6 +19,8 @@ import {
 } from "../keypair/ring-stream.js";
 import { Pairing, RingAddress } from "../keypair/ring-address.js";
 import { ShieldedAddress } from "../keypair/shielded.js";
+import { bytesToBigInt } from "../keypair/bytes.js";
+import { U64_MAX } from "../keypair/derivation.js";
 import { X25519PublicKey, isSmallOrder } from "../keypair/x25519.js";
 import { TransactionError } from "../transaction/error.js";
 import type { IndexedShieldedTransaction } from "../transaction/instructions/transact.js";
@@ -33,8 +34,10 @@ import type { Utxo } from "../transaction/utxo.js";
 import type { AnonymousRingNote, RingDeliveredCandidate } from "../transaction/wallet/anonymous.js";
 import {
   AnonymousRingState,
+  DEPOSIT_GAP,
   DEPOSIT_TAG_WINDOW,
   MAX_ISSUED_ADDRESSES,
+  pairLiveThrough,
   type ReceivedAnchor,
   type SentFirstContact,
 } from "../transaction/wallet/anonymous-state.js";
@@ -64,6 +67,7 @@ import {
   collectProoflessDeposits,
   collectShieldedTransactions,
   collectShieldedTransactionsByNullifiers,
+  shieldedTransactionKey,
 } from "./collect.js";
 import { WalletError } from "./error.js";
 import { bytesKey, equalBytes } from "./internal.js";
@@ -84,8 +88,8 @@ export type AnonymousIndexer = Pick<
 export interface AnonymousRingScan {
   /** Complete through two epochs before the lower of the open and the persisted epoch. */
   readonly state: AnonymousRingState;
-  readonly notes: readonly AnonymousRingNote[];
-  /** Anchors the scan added, each opens a pair stream. */
+  readonly utxos: readonly AnonymousRingNote[];
+  /** Anchors the scan added whose pair stream is still live. */
   readonly anchors: readonly ReceivedAnchor[];
   readonly transactions: readonly IndexedShieldedTransaction[];
   readonly deposits: readonly IndexedShieldedTransaction[];
@@ -120,8 +124,10 @@ export async function scanAnonymousRing(
     indexer: AnonymousIndexer;
     state: AnonymousRingState;
     slot: bigint;
-    /** Nullifiers of every note the wallet holds that the ring can spend, their spends carry its change. */
-    knownNullifiers: readonly Bytes32[];
+    /** The change scan asks for the nullifiers of the scanned ring's UTXOs among them alone. */
+    heldUtxos: readonly HeldUtxo[];
+    /** Spends the default-ring sync read, their ring change opens with no nullifier query. */
+    defaultRingSpends: readonly IndexedShieldedTransaction[];
     pageLimit: number;
     nextRpcConfig: () => IndexerRpcConfig;
     depositPayloadDecoder?: DepositPayloadDecoder | undefined;
@@ -131,7 +137,7 @@ export async function scanAnonymousRing(
   const scan = new Scan(input, context);
   try {
     await scan.streams();
-    // The change frontier starts from every note found, deposits included.
+    // The change frontier starts from every UTXO found, deposits included.
     await scan.deposits();
     await scan.change();
     return scan.finish();
@@ -143,28 +149,20 @@ export async function scanAnonymousRing(
 
 /** The pair stream of a live first contact the address's rows admit, else the inbox stream, Rust `TagAllocation`. */
 export class TagAllocation {
-  readonly #indexer: AnonymousIndexer;
   readonly #state: AnonymousRingState;
   readonly #epoch: bigint;
-  readonly #config: IndexerRpcConfig | undefined;
-  readonly #taken = new Set<string>();
+  /** The inbox indexes this transaction took, by inbox key. */
+  readonly #taken = new Map<string, Set<number>>();
   #paired = false;
 
   /** `state` is the sender's, its first contacts anchor pair payments. */
-  constructor(
-    indexer: AnonymousIndexer,
-    state: AnonymousRingState,
-    epoch: bigint,
-    config?: IndexerRpcConfig,
-  ) {
-    this.#indexer = indexer;
+  constructor(state: AnonymousRingState, epoch: bigint) {
     this.#state = state;
     this.#epoch = epoch;
-    this.#config = config;
   }
 
-  /** Refuses with `WALLET_INBOX_STREAM_FULL` once every inbox index of the epoch is used. */
-  async allocate(address: RingAddress, context?: RequestContext): Promise<PaymentTag> {
+  /** Each index is uniform over the ones this transaction left free, `random` draws it. */
+  allocate(address: RingAddress, random: (length: number) => Uint8Array): PaymentTag {
     if (address.ringProgramId !== this.#state.ring)
       throw new WalletError("WALLET_FOREIGN_RING_ADDRESS", {
         details: { addressRing: address.ringProgramId, ring: this.#state.ring },
@@ -173,61 +171,53 @@ export class TagAllocation {
     const contact = this.#paired ? undefined : this.#state.firstContact(recipient, this.#epoch);
     if (contact !== undefined && address.pairing.admits(contact.asset, contact.amount)) {
       const pair = pairKey(contact.slotSecret);
-      let free: FreeTag | undefined;
       try {
-        free = await this.#lowestFree((index) => pairTag(pair, this.#epoch, index), context);
+        // One pair slot per transaction, no index of the stream is taken yet.
+        const index = draw(new Set(), random);
+        this.#paired = true;
+        const stream: PaymentStream = { kind: "pair", contact };
+        return Object.freeze({
+          stream,
+          epoch: this.#epoch,
+          index,
+          tag: pairTag(pair, this.#epoch, index),
+        });
       } finally {
         pair.fill(0);
       }
-      if (free !== undefined) {
-        this.#paired = true;
-        return this.#take({ kind: "pair", contact }, free);
-      }
     }
     const inbox = inboxKey(ringIdField(this.#state.ring), recipient);
-    const free = await this.#lowestFree((index) => inboxTag(inbox, this.#epoch, index), context);
-    if (free === undefined)
-      throw new WalletError("WALLET_INBOX_STREAM_FULL", { details: { epoch: this.#epoch } });
-    return this.#take({ kind: "inbox" }, free);
-  }
-
-  #take(stream: PaymentStream, free: FreeTag): PaymentTag {
-    this.#taken.add(bytesKey(free.tag));
-    return Object.freeze({ stream, epoch: this.#epoch, ...free });
-  }
-
-  /** The lowest index whose tag no output publishes and no earlier payment took. */
-  async #lowestFree(
-    tagAt: (index: TagIndex) => Bytes31,
-    context: RequestContext | undefined,
-  ): Promise<FreeTag | undefined> {
-    const stream = Array.from({ length: J_INBOX }, (_, at) => {
-      const index = tagIndex(at);
-      return { index, tag: tagAt(index) };
+    const taken = this.#taken.get(bytesKey(inbox)) ?? new Set<number>();
+    this.#taken.set(bytesKey(inbox), taken);
+    const index = draw(taken, random);
+    const stream: PaymentStream = { kind: "inbox" };
+    return Object.freeze({
+      stream,
+      epoch: this.#epoch,
+      index,
+      tag: inboxTag(inbox, this.#epoch, index),
     });
-    const used = new Set<string>();
-    const out = new Map<string, IndexedShieldedTransaction>();
-    await collectShieldedTransactions(
-      {
-        indexer: this.#indexer,
-        chunk: stream.map(({ tag }) => ringTagField(tag)),
-        pageLimit: Number(PAGE_LIMIT),
-        nextRpcConfig: () => this.#config ?? DEFAULT_INDEXER_RPC_CONFIG,
-        out,
-        from: undefined,
-      },
-      context,
-    );
-    for (const tx of out.values()) {
-      for (const slot of tx.outputSlots) used.add(bytesKey(slot.viewTag));
-    }
-    return stream.find(
-      ({ tag }) => !used.has(bytesKey(ringTagField(tag))) && !this.#taken.has(bytesKey(tag)),
-    );
   }
 }
 
-type FreeTag = Pick<PaymentTag, "index" | "tag">;
+/** Uniform over the indexes `taken` leaves free, over every index once none is, Rust `TagAllocation::draw`. */
+function draw(taken: Set<number>, random: (length: number) => Uint8Array): TagIndex {
+  const free = Array.from({ length: J_INBOX }, (_, at) => at).filter((at) => !taken.has(at));
+  const pool = free.length === 0 ? Array.from({ length: J_INBOX }, (_, at) => at) : free;
+  const index = pool[uniformBelow(random, pool.length)]!;
+  taken.add(index);
+  return tagIndex(index);
+}
+
+/** A draw past the largest multiple of `bound` is drawn again, the rest are uniform, Rust `uniform_below`. */
+function uniformBelow(random: (length: number) => Uint8Array, bound: number): number {
+  const range = BigInt(bound);
+  const zone = U64_MAX - (U64_MAX % range);
+  for (;;) {
+    const value = bytesToBigInt(random(8));
+    if (value < zone) return Number(value % range);
+  }
+}
 
 /** The stream position a derived tag stands for. */
 interface TagSite {
@@ -235,7 +225,14 @@ interface TagSite {
   readonly addressIndex: number;
   readonly epoch: bigint;
   readonly index: TagIndex;
-  readonly pair: boolean;
+  /** The position of its anchor among the state's received ones, `undefined` on the inbox stream. */
+  readonly anchor: number | undefined;
+}
+
+/** One address's unread streams of a round, Rust `AddressStreams`. */
+interface AddressStreams {
+  inbox: Bytes32 | undefined;
+  readonly pairs: Readonly<{ anchor: number; key: Bytes32; from: bigint; to: bigint }>[];
 }
 
 /** The public values every delivered slot of one transaction is keyed by. */
@@ -244,6 +241,13 @@ interface DeliveryContext {
   readonly salt: Bytes16;
   readonly firstNullifier: Bytes32;
 }
+
+/** A UTXO the wallet holds, `ringProgramId` `undefined` on the default ring. */
+export type HeldUtxo = Readonly<{
+  ringProgramId: Address | undefined;
+  nullifier: Bytes32;
+  utxoHash: Bytes32;
+}>;
 
 class Scan {
   readonly #keys: RingKeys;
@@ -254,23 +258,25 @@ class Scan {
   readonly #ringId: Bytes32;
   readonly #epochs: readonly bigint[];
   readonly #openEpoch: bigint;
-  readonly #knownNullifiers: readonly Bytes32[];
+  readonly #heldUtxos: readonly HeldUtxo[];
+  readonly #defaultRingSpends: readonly IndexedShieldedTransaction[];
   readonly #depositPayloadDecoder: DepositPayloadDecoder | undefined;
   #state: AnonymousRingState;
   /** The lowest slot the indexer reported persisted, no epoch past it is complete. */
   #indexedSlot: bigint | undefined;
-  readonly #notes: AnonymousRingNote[] = [];
-  readonly #anchors: ReceivedAnchor[] = [];
+  readonly #utxos: AnonymousRingNote[] = [];
+  /** Pair keys of the anchors the scan added. */
+  readonly #added: Bytes32[] = [];
   readonly #candidates: RingDeliveredCandidate[] = [];
   /** Every slot secret the scan holds, wiped when it fails and handed to the caller by `finish`. */
   readonly #slotSecrets = new Set<Bytes32>();
   readonly #transactions = new Map<string, IndexedShieldedTransaction>();
-  /** Tag reads and spend reads dedupe apart, a spend first read under a tag still carries change. */
-  readonly #tagged = new Set<string>();
   readonly #spends = new Set<string>();
   readonly #deposits = new Map<string, IndexedShieldedTransaction>();
   readonly #depositTags: Bytes32[] = [];
-  /** Nullifiers of the notes the scan found, their spends carry the next change. */
+  /** A deposit counts once, a replay under a later counter moves nothing. */
+  readonly #countedDeposits = new Set<string>();
+  /** Nullifiers of the ring's UTXOs the scan found, their spends carry the next change. */
   readonly #found: Bytes32[] = [];
 
   constructor(input: Parameters<typeof scanAnonymousRing>[0], context: RequestContext | undefined) {
@@ -279,7 +285,8 @@ class Scan {
     this.#nextRpcConfig = input.nextRpcConfig;
     this.#context = context;
     this.#state = input.state;
-    this.#knownNullifiers = input.knownNullifiers;
+    this.#heldUtxos = input.heldUtxos;
+    this.#defaultRingSpends = input.defaultRingSpends;
     this.#depositPayloadDecoder = input.depositPayloadDecoder;
     this.#ringId = ringIdField(input.state.ring);
     this.#openEpoch = tagEpoch(input.slot);
@@ -294,75 +301,29 @@ class Scan {
     this.#indexer = this.#observed(input.indexer);
   }
 
-  /** Rounds until no address joins the window and no anchor joins the pair streams. */
+  /** Rounds until none adds an address or a live pair epoch, a request names one address. */
   async streams(): Promise<void> {
     const readAddresses = new Set<number>();
-    const readAnchors = new Set<string>();
+    const readThrough: (bigint | undefined)[] = [];
     for (;;) {
-      const addresses = Array.from({ length: this.#state.addressWindow() }, (_, at) => at).filter(
-        (index) => !readAddresses.has(index),
-      );
-      const anchors = this.#state.received.filter(
-        (anchor) => !readAnchors.has(bytesKey(anchor.pairKey)),
-      );
-      if (addresses.length === 0 && anchors.length === 0) return;
-      const keys = publicKeys(
-        await this.#keys.ringAddressKeys(this.#state.ring, addresses, this.#context),
-        addresses.length,
-      );
-      const inboxes = addresses.map((index, at) => ({
-        index,
-        key: inboxKey(this.#ringId, keys[at]!),
-      }));
-      const pairs = anchors.map((anchor) => ({ anchor, key: anchor.pairKey }));
-      for (const index of addresses) readAddresses.add(index);
-      for (const anchor of anchors) readAnchors.add(bytesKey(anchor.pairKey));
-      const perChunk = Math.max(
-        1,
-        Math.floor(TAGS_PER_ROUND / (J_INBOX * Math.max(1, inboxes.length + pairs.length))),
-      );
-      for (let offset = 0; offset < this.#epochs.length; offset += perChunk) {
-        const sites = new Map<string, TagSite>();
-        for (const epoch of this.#epochs.slice(offset, offset + perChunk)) {
-          for (let at = 0; at < J_INBOX; at++) {
-            const index = tagIndex(at);
-            for (const inbox of inboxes) {
-              const tag = ringTagField(inboxTag(inbox.key, epoch, index));
-              sites.set(bytesKey(tag), {
-                tag,
-                addressIndex: inbox.index,
-                epoch,
-                index,
-                pair: false,
-              });
-            }
-            for (const pair of pairs) {
-              if (epoch < pair.anchor.epoch || epoch - pair.anchor.epoch >= K_PAIR_EPOCHS) continue;
-              const tag = ringTagField(pairTag(pair.key, epoch, index));
-              sites.set(bytesKey(tag), {
-                tag,
-                addressIndex: pair.anchor.addressIndex,
-                epoch,
-                index,
-                pair: true,
-              });
-            }
-          }
+      const round = await this.#round(readAddresses, readThrough);
+      if (round.size === 0) return;
+      for (const [addressIndex, streams] of [...round].sort(([left], [right]) => left - right)) {
+        for (const sites of this.#chunks(addressIndex, streams)) {
+          const transactions = await this.#byTags([...sites.values()].map((site) => site.tag));
+          await this.#openStreams(sites, transactions);
         }
-        if (sites.size === 0) continue;
-        const transactions = await this.#byTags([...sites.values()].map((site) => site.tag));
-        await this.#openStreams(sites, transactions);
       }
     }
   }
 
-  /** Windows of the deposit stream until one holds no deposit, every deposit note joins the change frontier. */
+  /** Windows from `depositNext` until `DEPOSIT_GAP` counters past the highest deposit of the wallet in any ring. */
   async deposits(): Promise<void> {
     let next = this.#state.depositNext;
-    for (;;) {
+    for (let start = next; start < next + DEPOSIT_GAP; start += DEPOSIT_TAG_WINDOW) {
       const counters = Array.from(
         { length: Number(DEPOSIT_TAG_WINDOW) },
-        (_, at) => next + BigInt(at),
+        (_, at) => start + BigInt(at),
       );
       const answered = await this.#keys.senderViewTags(counters, this.#context);
       const tags = deriveAnswers(answered, counters.length, () =>
@@ -380,18 +341,13 @@ class Scan {
         },
         this.#context,
       );
-      const occupied = new Set(
-        [...out.values()].flatMap((tx) => tx.outputSlots.map((slot) => bytesKey(slot.viewTag))),
-      );
-      const highest = tags.findLastIndex((tag) => occupied.has(bytesKey(tag)));
-      if (highest < 0) break;
       for (const [key, tx] of out) this.#deposits.set(key, tx);
       this.#depositTags.push(...tags);
-      await this.#openDeposits(
+      const highest = await this.#openDeposits(
         [...out.values()],
         new Map(tags.map((tag, at) => [bytesKey(tag), counters[at]!])),
       );
-      next += BigInt(highest) + 1n;
+      if (highest !== undefined && highest >= next) next = highest + 1n;
     }
     this.#state = this.#state.scanned({
       scannedEpoch: this.#state.scannedEpoch,
@@ -399,38 +355,51 @@ class Scan {
     });
   }
 
-  /** The wallet's spends in rounds, each round's change notes are spent in the next one. */
+  /** The default-ring spends open first, then every spend of a ring UTXO, round after round. */
   async change(): Promise<void> {
     const changeKey = await this.#keys.ringChangeKey(this.#state.ring, this.#context);
     if (!(changeKey instanceof X25519PublicKey)) throw batchMismatch(1, [changeKey]);
     const viewingPublicKey = this.#keys.address().viewingPublicKey;
     const queried = new Set<string>();
-    let frontier = [...this.#knownNullifiers, ...this.#found];
+    let frontier = this.#heldUtxos
+      .filter((held) => held.ringProgramId === this.#state.ring)
+      .map((held) => held.nullifier);
+    let spends = this.#fresh(
+      this.#spends,
+      new Map(this.#defaultRingSpends.map((tx) => [shieldedTransactionKey(tx), tx])),
+    );
     for (;;) {
-      frontier = frontier.filter((nullifier) => {
+      await this.#openChange(spends, changeKey, viewingPublicKey);
+      await this.#openMerges(spends);
+      frontier = [...frontier, ...this.#found].filter((nullifier) => {
         const key = bytesKey(nullifier);
         if (queried.has(key)) return false;
         queried.add(key);
         return true;
       });
       if (frontier.length === 0) return;
-      const spends = await this.#spending(frontier);
-      const before = this.#found.length;
-      await this.#openChange(spends, changeKey, viewingPublicKey);
-      await this.#openMerges(spends);
-      frontier = this.#found.slice(before);
+      spends = await this.#spending(frontier);
+      frontier = [];
     }
   }
 
   finish(): AnonymousRingScan {
+    // Only a leaf shaped as a first contact hides one among its decoys.
     let state = this.#state.rememberDecoys(
-      [...this.#transactions.values()].flatMap((tx) =>
-        tx.outputSlots.map((slot) => ({
-          treeId: slot.outputContext.treeId,
-          leafIndex: slot.outputContext.leafIndex,
-          hash: slot.outputContext.hash,
-        })),
-      ),
+      [...this.#transactions.values()]
+        .filter((tx) => tx.ringProgramId === this.#state.ring)
+        .flatMap((tx) =>
+          tx.outputSlots
+            .filter(
+              (slot) =>
+                encryptedBody(slot.payload, EncryptedScheme.ringAnonymous)?.length === BODY_LEN,
+            )
+            .map((slot) => ({
+              treeId: slot.outputContext.treeId,
+              leafIndex: slot.outputContext.leafIndex,
+              hash: slot.outputContext.hash,
+            })),
+        ),
     );
     const indexed = this.#indexedSlot === undefined ? this.#openEpoch : tagEpoch(this.#indexedSlot);
     // A transfer proven in epoch e lands until e + 1 ends, so epoch e completes once e + 1 is persisted.
@@ -440,11 +409,16 @@ class Scan {
       (state.scannedEpoch === undefined || state.scannedEpoch < through)
     )
       state = state.scanned({ scannedEpoch: through, depositNext: state.depositNext });
+    state = state.pruned(this.#openEpoch);
     this.#slotSecrets.clear();
     return Object.freeze({
       state,
-      notes: Object.freeze([...this.#notes]),
-      anchors: Object.freeze([...this.#anchors]),
+      utxos: Object.freeze([...this.#utxos]),
+      anchors: Object.freeze(
+        state.received.filter((anchor) =>
+          this.#added.some((pairKey) => equalBytes(pairKey, anchor.pairKey)),
+        ),
+      ),
       transactions: Object.freeze([...this.#transactions.values()]),
       deposits: Object.freeze([...this.#deposits.values()]),
       candidates: Object.freeze([...this.#candidates]),
@@ -455,6 +429,79 @@ class Scan {
   wipe(): void {
     for (const secret of this.#slotSecrets) secret.fill(0);
     this.#slotSecrets.clear();
+  }
+
+  /** The inbox streams and pair epochs of this fetch no earlier round read, by address, Rust `Scan::round`. */
+  async #round(
+    readAddresses: Set<number>,
+    readThrough: (bigint | undefined)[],
+  ): Promise<Map<number, AddressStreams>> {
+    const round = new Map<number, AddressStreams>();
+    const streamsOf = (addressIndex: number): AddressStreams => {
+      const known = round.get(addressIndex);
+      if (known !== undefined) return known;
+      const created: AddressStreams = { inbox: undefined, pairs: [] };
+      round.set(addressIndex, created);
+      return created;
+    };
+    const addresses = Array.from({ length: this.#state.addressWindow() }, (_, at) => at).filter(
+      (index) => !readAddresses.has(index),
+    );
+    if (addresses.length > 0) {
+      const keys = publicKeys(
+        await this.#keys.ringAddressKeys(this.#state.ring, addresses, this.#context),
+        addresses.length,
+      );
+      for (const [at, index] of addresses.entries()) {
+        readAddresses.add(index);
+        streamsOf(index).inbox = inboxKey(this.#ringId, keys[at]!);
+      }
+    }
+    const [firstEpoch, lastEpoch] = [this.#epochs[0], this.#epochs.at(-1)];
+    if (firstEpoch === undefined || lastEpoch === undefined) return new Map();
+    for (const [at, anchor] of this.#state.received.entries()) {
+      const through = readThrough[at];
+      const from =
+        through === undefined
+          ? anchor.epoch > firstEpoch
+            ? anchor.epoch
+            : firstEpoch
+          : through + 1n;
+      const live = pairLiveThrough(anchor.epoch, anchor.lastEpoch);
+      const to = live < lastEpoch ? live : lastEpoch;
+      if (from > to) continue;
+      readThrough[at] = to;
+      streamsOf(anchor.addressIndex).pairs.push({ anchor: at, key: anchor.pairKey, from, to });
+    }
+    return round;
+  }
+
+  /** Whole epochs per chunk, past `TAGS_PER_ROUND` tags only when one epoch alone is. */
+  #chunks(addressIndex: number, streams: AddressStreams): ReadonlyMap<string, TagSite>[] {
+    const chunks: Map<string, TagSite>[] = [];
+    let sites = new Map<string, TagSite>();
+    for (const epoch of this.#epochs) {
+      const epochSites: TagSite[] = [];
+      for (let at = 0; at < J_INBOX; at++) {
+        const index = tagIndex(at);
+        if (streams.inbox !== undefined) {
+          const tag = ringTagField(inboxTag(streams.inbox, epoch, index));
+          epochSites.push({ tag, addressIndex, epoch, index, anchor: undefined });
+        }
+        for (const pair of streams.pairs) {
+          if (epoch < pair.from || epoch > pair.to) continue;
+          const tag = ringTagField(pairTag(pair.key, epoch, index));
+          epochSites.push({ tag, addressIndex, epoch, index, anchor: pair.anchor });
+        }
+      }
+      if (sites.size > 0 && sites.size + epochSites.length > TAGS_PER_ROUND) {
+        chunks.push(sites);
+        sites = new Map();
+      }
+      for (const site of epochSites) sites.set(bytesKey(site.tag), site);
+    }
+    if (sites.size > 0) chunks.push(sites);
+    return chunks;
   }
 
   /** Every delivered output under a derived tag, an inbox hit within its address's rows anchors a pair stream. */
@@ -489,7 +536,7 @@ class Scan {
     );
     const finds: Array<
       Readonly<{
-        note: RingDeliveredNote;
+        delivered: RingDeliveredNote;
         candidate: RingDeliveredCandidate;
         site: TagSite;
         slotSecret: Bytes32;
@@ -498,28 +545,31 @@ class Scan {
     for (const [at, hit] of hits.entries()) {
       const slotSecret = secrets[at]!;
       const candidate = candidateOf(hit.tx, hit.slotIndex, slotSecret, false);
-      const note = this.#open(candidate);
-      if (note === undefined) this.#discard(slotSecret);
-      else finds.push({ note, candidate, site: hit.site, slotSecret });
+      const delivered = this.#open(candidate);
+      if (delivered === undefined) this.#discard(slotSecret);
+      else finds.push({ delivered, candidate, site: hit.site, slotSecret });
     }
-    await this.#keep(finds.map(({ note }) => note));
-    for (const { note, candidate, site, slotSecret } of finds) {
+    await this.#keep(finds.map(({ delivered }) => delivered));
+    for (const { delivered, candidate, site, slotSecret } of finds) {
       this.#candidates.push(candidate);
-      this.#notes.push(
+      this.#utxos.push(
         Object.freeze({
-          utxoHash: note.utxoHash,
+          utxoHash: delivered.utxoHash,
           stream: Object.freeze({
-            kind: site.pair ? "pair" : "inbox",
+            kind: site.anchor === undefined ? "inbox" : "pair",
             addressIndex: site.addressIndex,
             epoch: site.epoch,
             index: site.index,
           }),
         }),
       );
-      if (site.pair) continue;
+      if (site.anchor !== undefined) {
+        this.#state = this.#state.anchorPaid(site.anchor, site.epoch);
+        continue;
+      }
       if (!this.#state.issued.some((entry) => entry.index === site.addressIndex))
         this.#state = this.#state.issue(site.addressIndex, this.#state.pairing(site.addressIndex));
-      const { asset, amount } = note.utxo;
+      const { asset, amount } = delivered.utxo;
       if (!this.#state.pairing(site.addressIndex).admits(asset, amount)) continue;
       const key = pairKey(slotSecret);
       try {
@@ -528,22 +578,23 @@ class Scan {
           addressIndex: site.addressIndex,
           pairKey: key,
           epoch: site.epoch,
+          lastEpoch: site.epoch,
           asset,
           amount,
         });
         if (this.#state.received.length !== before)
-          this.#anchors.push(this.#state.received.at(-1)!);
+          this.#added.push(this.#state.received.at(-1)!.pairKey);
       } finally {
         key.fill(0);
       }
     }
   }
 
-  /** Every deposit into the ring under the window's tags, opened with the current viewing key. */
+  /** Keeps the ring's deposits, the highest counter holding a new deposit of the wallet in any ring. */
   async #openDeposits(
     deposits: readonly IndexedShieldedTransaction[],
     counters: ReadonlyMap<string, bigint>,
-  ): Promise<void> {
+  ): Promise<bigint | undefined> {
     const address = this.#keys.address();
     const opened = deposits.flatMap((tx) =>
       tx.outputSlots.flatMap((slot) => {
@@ -556,17 +607,17 @@ class Scan {
           viewingPublicKey: address.viewingPublicKey,
           decoder: this.#depositPayloadDecoder,
         });
-        return deposit === undefined || deposit.output.ringProgramId !== this.#state.ring
-          ? []
-          : [{ slot, counter, ...deposit }];
+        return deposit === undefined ? [] : [{ slot, counter, ...deposit }];
       }),
     );
-    if (opened.length === 0) return;
+    if (opened.length === 0) return undefined;
     const answered = await this.#keys.decrypt(
       opened.map(({ request }) => request),
       this.#context,
     );
-    const notes: Array<Readonly<{ utxoHash: Bytes32; utxo: Utxo; counter: bigint }>> = [];
+    const owned: Array<
+      Readonly<{ utxoHash: Bytes32; utxo: Utxo; counter: bigint; ours: boolean }>
+    > = [];
     try {
       const plaintexts = byteAnswers(answered, opened.length, () =>
         batchMismatch(opened.length, answered),
@@ -574,18 +625,24 @@ class Scan {
       for (const [at, { slot, counter, output }] of opened.entries()) {
         const { hash, treeId } = slot.outputContext;
         try {
-          const note = ringDepositNote({
+          const deposit = ringDepositNote({
             output,
             plaintext: plaintexts[at]!,
             owner: address.signingPublicKey,
           });
-          const rebuilt = note.utxo.hash(
+          const rebuilt = deposit.utxo.hash(
             address.nullifierPublicKey,
             treeId,
-            note.dataHash,
-            note.ringDataHash,
+            deposit.dataHash,
+            deposit.ringDataHash,
           );
-          if (equalBytes(rebuilt, hash)) notes.push({ utxoHash: hash, utxo: note.utxo, counter });
+          if (equalBytes(rebuilt, hash))
+            owned.push({
+              utxoHash: hash,
+              utxo: deposit.utxo,
+              counter,
+              ours: output.ringProgramId === this.#state.ring,
+            });
         } catch {
           // A plaintext under another key opens no deposit of the wallet.
         }
@@ -593,11 +650,24 @@ class Scan {
     } finally {
       wipeByteAnswers(answered);
     }
-    await this.#keep(notes);
-    for (const { utxoHash, counter } of notes)
-      this.#notes.push(
+    const ours = owned.filter((deposit) => deposit.ours);
+    await this.#keep(ours);
+    for (const { utxoHash, counter } of ours)
+      this.#utxos.push(
         Object.freeze({ utxoHash, stream: Object.freeze({ kind: "deposit", counter }) }),
       );
+    const held = new Set(this.#heldUtxos.map((utxo) => bytesKey(utxo.utxoHash)));
+    let highest: bigint | undefined;
+    // A replay of a held or counted deposit under a later tag moves nothing.
+    for (const { utxoHash, counter } of [...owned].sort((left, right) =>
+      left.counter < right.counter ? -1 : left.counter > right.counter ? 1 : 0,
+    )) {
+      const key = bytesKey(utxoHash);
+      if (held.has(key) || this.#countedDeposits.has(key)) continue;
+      this.#countedDeposits.add(key);
+      if (highest === undefined || counter > highest) highest = counter;
+    }
+    return highest;
   }
 
   /** The sender agrees with its own change key from the re-derived transaction key. */
@@ -617,11 +687,12 @@ class Scan {
     );
     const finds: Array<
       Readonly<{
-        note: RingDeliveredNote;
+        delivered: RingDeliveredNote;
         candidate: RingDeliveredCandidate;
         firstNullifier: Bytes32;
       }>
     > = [];
+    const signed: IndexedShieldedTransaction[] = [];
     try {
       const txKeys = transactionKeyAnswers(answered, own.length, () =>
         batchMismatch(own.length, answered),
@@ -630,6 +701,7 @@ class Scan {
         const txKey = txKeys[at]!;
         // Another holder of the spent note signed it, its outputs are not the wallet's change.
         if (!txKey.publicKey().equals(delivery.txViewingPublicKey)) continue;
+        signed.push(tx);
         const agreement = txKey.ecdh(changeKey);
         try {
           for (const [slotIndex, slot] of tx.outputSlots.entries()) {
@@ -644,9 +716,9 @@ class Scan {
             });
             this.#slotSecrets.add(slotSecret);
             const candidate = candidateOf(tx, slotIndex, slotSecret, true);
-            const note = this.#open(candidate);
-            if (note === undefined) this.#discard(slotSecret);
-            else finds.push({ note, candidate, firstNullifier: delivery.firstNullifier });
+            const delivered = this.#open(candidate);
+            if (delivered === undefined) this.#discard(slotSecret);
+            else finds.push({ delivered, candidate, firstNullifier: delivery.firstNullifier });
           }
         } finally {
           agreement.fill(0);
@@ -655,19 +727,22 @@ class Scan {
     } finally {
       destroyTransactionKeys(answered);
     }
-    await this.#keep(finds.map(({ note }) => note));
-    for (const { note, candidate, firstNullifier } of finds) {
+    // An earlier payment extends the window a later one is checked against.
+    signed.sort((left, right) => (left.slot < right.slot ? -1 : left.slot > right.slot ? 1 : 0));
+    for (const tx of signed) this.#state = this.#state.notePairPayment(tx);
+    await this.#keep(finds.map(({ delivered }) => delivered));
+    for (const { delivered, candidate, firstNullifier } of finds) {
       this.#candidates.push(candidate);
-      this.#notes.push(
+      this.#utxos.push(
         Object.freeze({
-          utxoHash: note.utxoHash,
+          utxoHash: delivered.utxoHash,
           stream: Object.freeze({ kind: "change", firstNullifier }),
         }),
       );
     }
   }
 
-  /** The wallet's own merges among its spends, each merged note joins the frontier like change. */
+  /** The wallet's own merges among its spends, each merged UTXO joins the frontier like change. */
   async #openMerges(spends: readonly IndexedShieldedTransaction[]): Promise<void> {
     const merges = spends.flatMap((tx) => {
       const [firstNullifier] = tx.nullifiers;
@@ -686,7 +761,7 @@ class Scan {
       ]),
       this.#context,
     );
-    const notes: Array<Readonly<{ utxoHash: Bytes32; utxo: Utxo; firstNullifier: Bytes32 }>> = [];
+    const merged: Array<Readonly<{ utxoHash: Bytes32; utxo: Utxo; firstNullifier: Bytes32 }>> = [];
     try {
       const derived = deriveAnswers(answers, 2 * merges.length, () =>
         batchMismatch(2 * merges.length, answers),
@@ -707,7 +782,7 @@ class Scan {
             undefined,
             body.ringDataHash,
           );
-          if (equalBytes(rebuilt, hash)) notes.push({ utxoHash: hash, utxo, firstNullifier });
+          if (equalBytes(rebuilt, hash)) merged.push({ utxoHash: hash, utxo, firstNullifier });
         } catch {
           // Another wallet's merge decrypts to noise.
         }
@@ -715,14 +790,14 @@ class Scan {
     } finally {
       wipeByteAnswers(answers);
     }
-    await this.#keep(notes);
-    for (const { utxoHash, firstNullifier } of notes)
-      this.#notes.push(
+    await this.#keep(merged);
+    for (const { utxoHash, firstNullifier } of merged)
+      this.#utxos.push(
         Object.freeze({ utxoHash, stream: Object.freeze({ kind: "merge", firstNullifier }) }),
       );
   }
 
-  /** Opens one candidate to learn its note, the wallet stores it in the sync pass. */
+  /** Opens one candidate to learn its UTXO, the wallet stores it in the sync pass. */
   #open(candidate: RingDeliveredCandidate): RingDeliveredNote | undefined {
     const tx = candidate.transaction;
     const slot = tx.outputSlots[candidate.slotIndex];
@@ -752,13 +827,13 @@ class Scan {
   }
 
   /** One batch derives the round's nullifiers, their spends carry the next change. */
-  async #keep(notes: readonly Readonly<{ utxoHash: Bytes32; utxo: Utxo }>[]): Promise<void> {
-    if (notes.length === 0) return;
+  async #keep(utxos: readonly Readonly<{ utxoHash: Bytes32; utxo: Utxo }>[]): Promise<void> {
+    if (utxos.length === 0) return;
     const answers = await this.#keys.derive(
-      notes.map(({ utxoHash, utxo }) => ({ kind: "nullifier", utxoHash, blinding: utxo.blinding })),
+      utxos.map(({ utxoHash, utxo }) => ({ kind: "nullifier", utxoHash, blinding: utxo.blinding })),
       this.#context,
     );
-    this.#found.push(...ownedAnswers(answers, notes.length));
+    this.#found.push(...ownedAnswers(answers, utxos.length));
   }
 
   #own(answers: unknown, count: number): readonly Bytes32[] {
@@ -801,7 +876,7 @@ class Scan {
         this.#context,
       );
     }
-    return this.#fresh(this.#tagged, out);
+    return [...out].map(([key, tx]) => this.#read(key, tx));
   }
 
   async #spending(nullifiers: readonly Bytes32[]): Promise<readonly IndexedShieldedTransaction[]> {
@@ -821,7 +896,7 @@ class Scan {
     return this.#fresh(this.#spends, out);
   }
 
-  /** The reads `seen` does not hold yet, each the one object every candidate of its transaction names. */
+  /** The reads `seen` does not hold yet. */
   #fresh(
     seen: Set<string>,
     out: ReadonlyMap<string, IndexedShieldedTransaction>,
@@ -830,11 +905,16 @@ class Scan {
     for (const [key, tx] of out) {
       if (seen.has(key)) continue;
       seen.add(key);
-      const read = this.#transactions.get(key) ?? tx;
-      this.#transactions.set(key, read);
-      fresh.push(read);
+      fresh.push(this.#read(key, tx));
     }
     return fresh;
+  }
+
+  /** The one object every candidate of a transaction names. */
+  #read(key: string, tx: IndexedShieldedTransaction): IndexedShieldedTransaction {
+    const read = this.#transactions.get(key) ?? tx;
+    this.#transactions.set(key, read);
+    return read;
   }
 
   /** Every indexer answer reports the slot it persisted, the lowest bounds the complete epochs. */

@@ -42,15 +42,15 @@ import {
   waitForAudited,
 } from "./ring-live-helpers.js";
 
-/** Every opened output, an exit note outside the ring. */
+/** Every opened output, an exit outside the ring. */
 function openedOutputs(item: DecryptedRingTransaction | undefined, ringProgramId: Address) {
   return (item?.outputs ?? []).flatMap(({ opening }) =>
     opening.kind === "dummy"
       ? []
       : [
           {
-            amount: opening.note.amount,
-            mint: opening.note.mint,
+            amount: opening.utxo.amount,
+            mint: opening.utxo.mint,
             ringProgramId: opening.kind === "ring" ? ringProgramId : undefined,
           },
         ],

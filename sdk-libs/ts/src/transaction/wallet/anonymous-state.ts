@@ -3,7 +3,16 @@ import { address, type Address } from "@solana/kit";
 import { wireDecoder } from "../../interface/decode.js";
 import type { Bytes32 } from "../../interface/types.js";
 import { Pairing } from "../../keypair/ring-address.js";
-import { K_PAIR_EPOCHS, tagIndex, type TagIndex } from "../../keypair/ring-stream.js";
+import {
+  J_PAIR,
+  K_PAIR_EPOCHS,
+  pairKey,
+  pairTag,
+  ringTagField,
+  tagEpoch,
+  tagIndex,
+  type TagIndex,
+} from "../../keypair/ring-stream.js";
 import { X25519PublicKey } from "../../keypair/x25519.js";
 
 import { TransactionError } from "../error.js";
@@ -15,12 +24,16 @@ import { hex } from "./state.js";
 export const ADDRESS_GAP = 20;
 /** Every scan reads the inbox stream of each issued address, the count bounds its cost. */
 export const MAX_ISSUED_ADDRESSES = 1 << 10;
-/** Deposit tags read per window, a window with no deposit ends the deposit stream. */
+/** Deposit tags read per window. */
 export const DEPOSIT_TAG_WINDOW = 64n;
+/** Counters a deposit scan reads past the highest holding a deposit of the wallet. */
+export const DEPOSIT_GAP = 2n * DEPOSIT_TAG_WINDOW;
+/** Epochs a pair stream lives past its last payment, the same at both ends. */
+export const PAIR_IDLE_EPOCHS = 8n;
 /** Leaves of one tree kept as anchor decoys. */
 export const DECOYS_PER_TREE = 64;
 /** Rust `ANONYMOUS_RING_STATE_VERSION`, the layout `serialize` writes. */
-export const ANONYMOUS_RING_STATE_VERSION = 2;
+export const ANONYMOUS_RING_STATE_VERSION = 3;
 
 /** A ring address handed out, the rows its recipient tracks first contacts under. */
 export interface IssuedAddress {
@@ -32,8 +45,10 @@ export interface IssuedAddress {
 export interface ReceivedAnchor {
   readonly addressIndex: number;
   readonly pairKey: Bytes32;
-  /** The epoch of the first contact's inbox tag, the stream lives `K_PAIR_EPOCHS` from it. */
+  /** The epoch of the first contact's inbox tag. */
   readonly epoch: bigint;
+  /** The epoch of the newest pair payment found, `epoch` until one. */
+  readonly lastEpoch: bigint;
   readonly asset: Address;
   readonly amount: bigint;
 }
@@ -75,6 +90,8 @@ export class AnonymousRingState {
   readonly depositNext: bigint;
   /** Ascending leaf index per tree id. */
   readonly decoys: ReadonlyMap<number, readonly DecoyLeaf[]>;
+  /** By recipient key, the newest pair payment a scan saw the wallet make. */
+  readonly #paid: ReadonlyMap<string, bigint>;
 
   private constructor(fields: AnonymousRingStateFields) {
     this.ring = fields.ring;
@@ -85,6 +102,7 @@ export class AnonymousRingState {
     this.sent = Object.freeze([...fields.sent]);
     this.depositNext = fields.depositNext;
     this.decoys = new Map(fields.decoys);
+    this.#paid = new Map(fields.paid);
     Object.freeze(this);
   }
 
@@ -99,6 +117,7 @@ export class AnonymousRingState {
       sent: [],
       depositNext: 0n,
       decoys: new Map(),
+      paid: new Map(),
     });
   }
 
@@ -115,22 +134,76 @@ export class AnonymousRingState {
   /** The live first contact to `recipient`, the anchor a payment in `epoch` may pair on. */
   firstContact(recipient: X25519PublicKey, epoch: bigint): SentFirstContact | undefined {
     return this.sent.find(
-      (contact) =>
-        contact.recipient.equals(recipient) &&
-        epoch >= contact.epoch &&
-        epoch - contact.epoch < K_PAIR_EPOCHS,
+      (contact) => contact.recipient.equals(recipient) && this.#sentLive(contact, epoch),
     );
   }
 
   /** A confirmed inbox payment becomes its address's newest first contact, the state keeps its own copy. */
   recordFirstContact(contact: SentFirstContact): AnonymousRingState {
-    if (!(contact.recipient instanceof X25519PublicKey))
-      throw new TransactionError("TRANSACTION_DESERIALIZE", { field: "recipient" });
-    const known = this.sent.find((sent) => sent.recipient.equals(contact.recipient));
-    if (known !== undefined && known.epoch > unsigned(contact.epoch, "epoch")) return this;
-    return this.#with({
-      sent: [...this.sent.filter((sent) => sent !== known), checkedContact(contact)],
-    });
+    const recorded = checkedContact(contact);
+    const known = this.sent.find((sent) => sent.recipient.equals(recorded.recipient));
+    if (known === undefined || known.epoch <= recorded.epoch) {
+      const paid = new Map(this.#paid);
+      paid.set(recipientKey(recorded), recorded.epoch);
+      return this.#with({ sent: [...this.sent.filter((sent) => sent !== known), recorded], paid });
+    }
+    recorded.slotSecret.fill(0);
+    return this;
+  }
+
+  /** A pair tag of a live first contact among the outputs of the wallet's own spend, Rust `note_pair_payment`. */
+  notePairPayment(spend: IndexedSpend): AnonymousRingState {
+    const landed = tagEpoch(spend.slot);
+    const tags = new Set(spend.outputSlots.map((slot) => hex(slot.viewTag)));
+    const paid = new Map(this.#paid);
+    for (const contact of this.sent) {
+      // A proof of epoch e lands in e, or flagged in e + 1.
+      const epochs = [landed - 1n, landed].filter(
+        (epoch) =>
+          epoch >= 0n &&
+          epoch > (paid.get(recipientKey(contact)) ?? contact.epoch) &&
+          this.#sentLive(contact, epoch),
+      );
+      if (epochs.length === 0) continue;
+      const key = pairKey(contact.slotSecret);
+      try {
+        for (const epoch of epochs) {
+          for (let at = 0; at < J_PAIR; at++) {
+            if (tags.has(hex(ringTagField(pairTag(key, epoch, tagIndex(at))))))
+              paid.set(recipientKey(contact), epoch);
+          }
+        }
+      } finally {
+        key.fill(0);
+      }
+    }
+    return this.#with({ paid });
+  }
+
+  /** A pair payment found on the anchor at `at`, its stream lives `PAIR_IDLE_EPOCHS` past it. */
+  anchorPaid(at: number, epoch: bigint): AnonymousRingState {
+    const anchor = this.received[at];
+    if (anchor === undefined || epoch <= anchor.lastEpoch) return this;
+    const received = [...this.received];
+    received[at] = Object.freeze({ ...anchor, lastEpoch: epoch });
+    return this.#with({ received });
+  }
+
+  /** Drops the pair streams no later payment reaches, Rust `prune`. */
+  pruned(openEpoch: bigint): AnonymousRingState {
+    const scanned = this.scannedEpoch;
+    const received = this.received.filter(
+      (anchor) =>
+        scanned === undefined || pairLiveThrough(anchor.epoch, anchor.lastEpoch) > scanned,
+    );
+    const sent = this.sent.filter((contact) => this.#sentLive(contact, openEpoch));
+    const paid = new Map(
+      sent.map((contact) => [
+        recipientKey(contact),
+        this.#paid.get(recipientKey(contact)) ?? contact.epoch,
+      ]),
+    );
+    return this.#with({ received, sent, paid });
   }
 
   /** Issued, used or past them within `ADDRESS_GAP`, the addresses a scan reads. */
@@ -214,6 +287,7 @@ export class AnonymousRingState {
         addressIndex: anchor.addressIndex,
         pairKey: hex(anchor.pairKey),
         epoch: safeNumber(anchor.epoch),
+        lastEpoch: safeNumber(anchor.lastEpoch),
         asset: anchor.asset,
         amount: anchor.amount.toString(),
       })),
@@ -229,6 +303,7 @@ export class AnonymousRingState {
         index: contact.index,
         asset: contact.asset,
         amount: contact.amount.toString(),
+        lastEpoch: safeNumber(this.#paid.get(recipientKey(contact)) ?? contact.epoch),
       })),
       depositNext: safeNumber(this.depositNext),
       decoys: [...this.decoys]
@@ -288,19 +363,26 @@ export class AnonymousRingState {
     const received = decode.list(item["received"], `${path}.received`).map((entry, at) => {
       const anchorPath = `${path}.received[${String(at)}]`;
       const anchor = decode.record(entry, anchorPath);
-      known(anchor, anchorPath, ["addressIndex", "pairKey", "epoch", "asset", "amount"]);
+      known(anchor, anchorPath, [
+        "addressIndex",
+        "pairKey",
+        "epoch",
+        "lastEpoch",
+        "asset",
+        "amount",
+      ]);
       return Object.freeze({
         addressIndex: Number(
           integer(anchor["addressIndex"], `${anchorPath}.addressIndex`, LAST_ADDRESS_INDEX),
         ),
         pairKey: bytes32(anchor["pairKey"], `${anchorPath}.pairKey`),
         epoch: integer(anchor["epoch"], `${anchorPath}.epoch`),
+        lastEpoch: integer(anchor["lastEpoch"], `${anchorPath}.lastEpoch`),
         asset: ringAddress(anchor["asset"], `${anchorPath}.asset`),
         amount: decimal(anchor["amount"], `${anchorPath}.amount`),
       });
     });
-    if (repeats(received, (left, right) => equal(left.pairKey, right.pairKey)))
-      fail(`${path}.received`);
+    const paid = new Map<string, bigint>();
     const sent = decode.list(item["sent"], `${path}.sent`).map((entry, at) => {
       const contactPath = `${path}.sent[${String(at)}]`;
       const contact = decode.record(entry, contactPath);
@@ -316,11 +398,14 @@ export class AnonymousRingState {
         "index",
         "asset",
         "amount",
+        "lastEpoch",
       ]);
+      const recipient = X25519PublicKey.fromBytes(
+        hexBytes(contact["recipient"], 33, `${contactPath}.recipient`),
+      );
+      paid.set(hex(recipient.toBytes()), integer(contact["lastEpoch"], `${contactPath}.lastEpoch`));
       return Object.freeze({
-        recipient: X25519PublicKey.fromBytes(
-          hexBytes(contact["recipient"], 33, `${contactPath}.recipient`),
-        ),
+        recipient,
         treeId: Number(integer(contact["treeId"], `${contactPath}.treeId`, 0xffffn)),
         leafIndex: integer(contact["leafIndex"], `${contactPath}.leafIndex`),
         utxoHash: bytes32(contact["utxoHash"], `${contactPath}.utxoHash`),
@@ -333,7 +418,7 @@ export class AnonymousRingState {
         amount: decimal(contact["amount"], `${contactPath}.amount`),
       });
     });
-    if (repeats(sent, (left, right) => left.recipient.equals(right.recipient)))
+    if (new Set(sent.map((contact) => hex(contact.recipient.toBytes()))).size !== sent.length)
       fail(`${path}.sent`);
     const decoys = new Map<number, readonly DecoyLeaf[]>();
     for (const [at, entry] of decode.list(item["decoys"], `${path}.decoys`).entries()) {
@@ -360,7 +445,13 @@ export class AnonymousRingState {
       sent,
       depositNext: integer(item["depositNext"], `${path}.depositNext`),
       decoys,
+      paid,
     });
+  }
+
+  #sentLive(contact: SentFirstContact, epoch: bigint): boolean {
+    const last = this.#paid.get(recipientKey(contact)) ?? contact.epoch;
+    return epoch >= contact.epoch && epoch <= pairLiveThrough(contact.epoch, last);
   }
 
   #with(changes: Partial<AnonymousRingStateFields>): AnonymousRingState {
@@ -373,10 +464,24 @@ export class AnonymousRingState {
       sent: this.sent,
       depositNext: this.depositNext,
       decoys: this.decoys,
+      paid: this.#paid,
       ...changes,
     });
   }
 }
+
+/** A proof bounds a pair by its first contact, the idle rule by its last payment, Rust `pair_live_through`. */
+export function pairLiveThrough(first: bigint, last: bigint): bigint {
+  const anchored = first + K_PAIR_EPOCHS - 1n;
+  const paid = last + PAIR_IDLE_EPOCHS - 1n;
+  return anchored < paid ? anchored : paid;
+}
+
+/** The outputs of a spend the wallet signed, read for its pair tags. */
+export type IndexedSpend = Readonly<{
+  slot: bigint;
+  outputSlots: readonly Readonly<{ viewTag: Bytes32 }>[];
+}>;
 
 /** The JSON form, Rust `StateJson` field for field. */
 export interface SerializedAnonymousRingState {
@@ -392,6 +497,7 @@ export interface SerializedAnonymousRingState {
     addressIndex: number;
     pairKey: string;
     epoch: number;
+    lastEpoch: number;
     asset: Address;
     amount: string;
   }>[];
@@ -407,6 +513,7 @@ export interface SerializedAnonymousRingState {
     index: number;
     asset: Address;
     amount: string;
+    lastEpoch: number;
   }>[];
   readonly depositNext: number;
   readonly decoys: readonly Readonly<{
@@ -424,6 +531,7 @@ interface AnonymousRingStateFields {
   readonly sent: readonly SentFirstContact[];
   readonly depositNext: bigint;
   readonly decoys: ReadonlyMap<number, readonly DecoyLeaf[]>;
+  readonly paid: ReadonlyMap<string, bigint>;
 }
 
 const LAST_ADDRESS_INDEX = BigInt(MAX_ISSUED_ADDRESSES - 1);
@@ -442,6 +550,7 @@ function checkedAnchor(anchor: ReceivedAnchor): ReceivedAnchor {
   return Object.freeze({
     addressIndex: issuedIndex(anchor.addressIndex),
     epoch: unsigned(anchor.epoch, "epoch"),
+    lastEpoch: unsigned(anchor.lastEpoch, "lastEpoch"),
     asset: assetOf(anchor.asset),
     amount: amountOf(anchor.amount),
     // Copied after every check, a refused anchor leaves no secret copy.
@@ -449,7 +558,13 @@ function checkedAnchor(anchor: ReceivedAnchor): ReceivedAnchor {
   });
 }
 
+function recipientKey(contact: SentFirstContact): string {
+  return hex(contact.recipient.toBytes());
+}
+
 function checkedContact(contact: SentFirstContact): SentFirstContact {
+  if (!(contact.recipient instanceof X25519PublicKey))
+    throw new TransactionError("TRANSACTION_DESERIALIZE", { field: "recipient" });
   if (!Number.isInteger(contact.slotIndex) || contact.slotIndex < 0 || contact.slotIndex > 0xff)
     throw new TransactionError("TRANSACTION_INVALID_POSITION", { position: contact.slotIndex });
   return Object.freeze({
@@ -524,12 +639,6 @@ function hexBytes(value: unknown, length: number, path: string): Uint8Array {
 
 function bytes32(value: unknown, path: string): Bytes32 {
   return hexBytes(value, 32, path) as Bytes32;
-}
-
-function repeats<T>(items: readonly T[], same: (left: T, right: T) => boolean): boolean {
-  return items.some((item, at) =>
-    items.some((earlier, before) => before < at && same(earlier, item)),
-  );
 }
 
 function ascending(leaves: readonly DecoyLeaf[]): boolean {

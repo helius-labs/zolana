@@ -529,15 +529,13 @@ async function runWalletSync(
               indexer: input.client,
               state,
               slot: input.anonymousRings.slot,
-              // A default-ring note funds an anonymous payment too, its spend carries the ring change.
-              knownNullifiers: session.staging
-                .utxos()
-                .filter(
-                  (entry) =>
-                    entry.utxo.ringProgramId === undefined ||
-                    entry.utxo.ringProgramId === state.ring,
-                )
-                .map((entry) => entry.nullifier),
+              heldUtxos: session.staging.utxos().map((entry) => ({
+                ringProgramId: entry.utxo.ringProgramId,
+                nullifier: entry.nullifier,
+                utxoHash: entry.outputContext.hash,
+              })),
+              // A default-ring spend this sync read carries the ring change of the payment it funded.
+              defaultRingSpends: [...transactions.values()],
               pageLimit,
               nextRpcConfig,
               depositPayloadDecoder: input.config?.depositPayloadDecoder,
@@ -552,7 +550,7 @@ async function runWalletSync(
           reports.push(
             Object.freeze({
               ring: state.ring,
-              notes: scan.notes,
+              notes: scan.utxos,
               anchors: scan.anchors.map(({ addressIndex, epoch, asset, amount }) =>
                 Object.freeze({ addressIndex, epoch, asset, amount }),
               ),

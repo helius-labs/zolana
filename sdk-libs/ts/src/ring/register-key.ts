@@ -31,7 +31,7 @@ import { RingError, wrapRingError } from "./error.js";
 import type { MemberOpeningRead } from "./member-registry.js";
 import { memberOfTag } from "./policy.js";
 import { MEMBER_REGISTRY_PROJECTION_ERRORS } from "./projection.js";
-import { feeAccounts } from "./records.js";
+import { feeAccounts, writeMaxFee } from "./records.js";
 import { readNewest } from "./registered-record.js";
 import { registerKeyStatementHash } from "./statement.js";
 
@@ -184,13 +184,15 @@ export class RegisterKey {
         ringMemberRegistryAddress(this.#ringProgramId),
         ringRecordQueueAddress(this.#ringProgramId),
       ]);
-      const data = new Writer()
-        .u8(RingInstructionTag.registerKey, "tag")
-        .bytes(checkedCustomRingProof(escrow.proof))
-        .bytes(escrow.nullifierPk, 32, "nullifierPk")
-        .bytes(escrow.ephU, 32, "ephU")
-        .bytes(escrow.ciphertext, 32, "ciphertext")
-        .finish();
+      const data = writeMaxFee(
+        new Writer()
+          .u8(RingInstructionTag.registerKey, "tag")
+          .bytes(checkedCustomRingProof(escrow.proof))
+          .bytes(escrow.nullifierPk, 32, "nullifierPk")
+          .bytes(escrow.ephU, 32, "ephU")
+          .bytes(escrow.ciphertext, 32, "ciphertext"),
+        config,
+      ).finish();
       return Object.freeze({
         instruction: {
           programAddress: this.#ringProgramId,

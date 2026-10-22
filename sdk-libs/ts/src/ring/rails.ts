@@ -14,6 +14,7 @@ import {
   PACKED_AUDIT_CAPACITIES,
 } from "../interface/ring-disclosure-layout.js";
 import type { Address, RequestContext, TransactWithdrawal } from "../interface/types.js";
+import { randomBytes } from "../keypair/bytes.js";
 import { tagEpoch } from "../keypair/ring-stream.js";
 import type { ShieldedAddress } from "../keypair/shielded.js";
 import { ViewingKey } from "../keypair/viewing-key.js";
@@ -27,7 +28,7 @@ import {
 import type { ProofInputUtxo } from "../transaction/utxo.js";
 import type { AnonymousRingState } from "../transaction/wallet/anonymous-state.js";
 import { isRingKeys, type RingKeys } from "../transaction/wallet/keys.js";
-import { TagAllocation, type AnonymousIndexer } from "../wallet/anonymous-sync.js";
+import { TagAllocation } from "../wallet/anonymous-sync.js";
 
 import {
   anchorWitness,
@@ -64,7 +65,6 @@ export type CustomRingTransferClient = RingProvingClient & Pick<Prover, "proveRi
 
 export type AnonymousTransferClient = RingProvingClient &
   SlotReader &
-  AnonymousIndexer &
   Pick<ProofReader, "getMerkleProofs"> &
   Pick<Prover, "proveAnonymousRingTransact">;
 
@@ -196,6 +196,7 @@ export class AnonymousTransfer {
   readonly #payments: readonly Readonly<{ send: number; payment: AnonymousPayment }>[];
   readonly #shape: Shape | undefined;
   readonly #exitTokenOwner: Address | undefined;
+  readonly #tagRandom: (length: number) => Uint8Array;
 
   private constructor(fields: AnonymousFields) {
     this.#owner = fields.owner;
@@ -205,6 +206,7 @@ export class AnonymousTransfer {
     this.#payments = fields.payments;
     this.#shape = fields.shape;
     this.#exitTokenOwner = fields.exitTokenOwner;
+    this.#tagRandom = fields.tagRandom;
     Object.freeze(this);
   }
 
@@ -225,6 +227,7 @@ export class AnonymousTransfer {
       payments: Object.freeze([]),
       shape: undefined,
       exitTokenOwner: undefined,
+      tagRandom: randomBytes,
     });
   }
 
@@ -255,6 +258,11 @@ export class AnonymousTransfer {
   /** A missing exit token account must be the owner's associated token account. */
   withExitTokenOwner(owner: Address): AnonymousTransfer {
     return new AnonymousTransfer({ ...this.#fields(), exitTokenOwner: owner });
+  }
+
+  /** @internal */
+  withTagRandom(tagRandom: (length: number) => Uint8Array): AnonymousTransfer {
+    return new AnonymousTransfer({ ...this.#fields(), tagRandom });
   }
 
   prove(client: AnonymousTransferClient, context?: RequestContext): Promise<ProvenRingTransfer> {
@@ -300,7 +308,7 @@ export class AnonymousTransfer {
     );
     // Tags bind slots, the slot order is fixed before any stream is read.
     const epoch = tagEpoch(await client.getSlot(context));
-    const plan = await this.#plan({ client, keys, prepared, epoch }, context);
+    const plan = await this.#plan({ keys, prepared, epoch }, context);
     const rail = new RingOutputRail(
       await transactionKey(keys, sender, prepared, context),
       prepared.firstNullifier,
@@ -372,7 +380,6 @@ export class AnonymousTransfer {
    */
   async #plan(
     input: Readonly<{
-      client: AnonymousTransferClient;
       keys: RingKeys;
       prepared: PreparedTransfer;
       epoch: bigint;
@@ -400,10 +407,10 @@ export class AnonymousTransfer {
     const payments = new Map(
       this.#payments.map(({ send, payment }) => [firstSend + send, payment] as const),
     );
-    const allocation = new TagAllocation(input.client, this.#state, input.epoch);
+    const allocation = new TagAllocation(this.#state, input.epoch);
     let contact: Parameters<typeof anchorWitness>[0]["contact"] | undefined;
     for (const [slotIndex, payment] of payments) {
-      const tag = await allocation.allocate(payment.to, context);
+      const tag = allocation.allocate(payment.to, this.#tagRandom);
       if (tag.stream.kind === "pair") contact = tag.stream.contact;
       slots = slots.withPayment(slotIndex, {
         recipient: payment.to.recipient.viewingPublicKey,
@@ -423,6 +430,7 @@ export class AnonymousTransfer {
       payments: this.#payments,
       shape: this.#shape,
       exitTokenOwner: this.#exitTokenOwner,
+      tagRandom: this.#tagRandom,
     };
   }
 }
@@ -435,6 +443,7 @@ interface AnonymousFields {
   readonly payments: readonly Readonly<{ send: number; payment: AnonymousPayment }>[];
   readonly shape: Shape | undefined;
   readonly exitTokenOwner: Address | undefined;
+  readonly tagRandom: (length: number) => Uint8Array;
 }
 
 /** One output of a delegate move, inside the ring. */

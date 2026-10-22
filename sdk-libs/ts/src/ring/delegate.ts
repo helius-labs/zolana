@@ -11,9 +11,7 @@ import { compileUnsignedTransaction } from "../flows/compile.js";
 import { reserveEntries, reservedUtxoKeys, unreserved } from "../flows/reserve.js";
 import { selectUtxos } from "../flows/select.js";
 import { signerAddress, type SignerAccount } from "../interface/instructions/index.js";
-import { InterfaceError } from "../interface/errors.js";
 import { RING_AUTHORITY_SHAPES } from "../interface/shape.js";
-import { TRANSACTION_SIZE_LIMIT } from "../interface/transaction-size.js";
 import type { Address, RequestContext, Transaction } from "../interface/types.js";
 import type { NullifierKey } from "../keypair/nullifier-key.js";
 import type { ShieldedAddress } from "../keypair/shielded.js";
@@ -33,14 +31,19 @@ import { equalBytes } from "../wallet/internal.js";
 import { fetchSplAssetRegistrations } from "../wallet/sync.js";
 
 import { RingInstructionTag, ringComputeUnitLimit } from "./admin.js";
-import { RingError, wrapRingError } from "./error.js";
-import { boundState, type ProvenRingTransfer } from "./pipeline.js";
+import { wrapRingError } from "./error.js";
+import { boundState } from "./pipeline.js";
 import {
   DelegateTransfer,
   type DelegateTransferClient,
   type RingTransferApproval,
 } from "./rails.js";
-import { ringIntentMismatch, ringProofInput, ringSelectionErrors } from "./selection.js";
+import {
+  provenWithinTransaction,
+  ringIntentMismatch,
+  ringProofInput,
+  ringSelectionErrors,
+} from "./selection.js";
 import {
   RingTransactionSubmission,
   checkRetainedEntries,
@@ -257,9 +260,8 @@ async function buildDelegateTransaction(
         checkPreparedTransfer(prepared, intent, ringIntentMismatch);
       },
     };
-    const proven = await proveMove(
-      { transfer, move, approval, selected: selected.length },
-      context,
+    const proven = await provenWithinTransaction(selected.length, () =>
+      transfer.proveApproved(move.client, approval, context),
     );
     const [instruction, lifetime] = await Promise.all([
       proven.instruction(),
@@ -284,33 +286,6 @@ async function buildDelegateTransaction(
     throw wrapRingError("RING_BUILD_TRANSFER", cause);
   } finally {
     spender.release();
-  }
-}
-
-/** A move past one version 1 transaction is refused before approval as too many notes. */
-async function proveMove(
-  input: Readonly<{
-    transfer: DelegateTransfer;
-    move: DelegateMove;
-    approval: RingTransferApproval;
-    selected: number;
-  }>,
-  context: RequestContext | undefined,
-): Promise<ProvenRingTransfer> {
-  try {
-    return await input.transfer.proveApproved(input.move.client, input.approval, context);
-  } catch (cause) {
-    if (!(cause instanceof InterfaceError) || cause.code !== "INTERFACE_TRANSACTION_TOO_LARGE")
-      throw cause;
-    // Largest notes first, no cover of fewer notes exists.
-    throw new RingError("RING_TOO_MANY_INPUTS", {
-      details: {
-        selected: input.selected,
-        size: cause.details?.["size"],
-        limit: TRANSACTION_SIZE_LIMIT,
-      },
-      cause,
-    });
   }
 }
 

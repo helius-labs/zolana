@@ -62,11 +62,11 @@ describe("ring policy", () => {
         amount,
       });
     };
-    // A rule the parties fail leaves the policy statement unsatisfiable, the prover refuses it.
+    // A rule the parties fail refuses the transfer before any proof.
     const refused = async () =>
       expect(transfer()).rejects.toMatchObject({
         code: "RING_BUILD_TRANSFER",
-        causeCode: "CLIENT_PROVER_HTTP",
+        causeCode: "RING_POLICY_RULE_UNSATISFIED",
       });
     const senderTag = sender.keypair.shieldedAddress().confidentialViewTag();
     const recipientTag = recipient.keypair.shieldedAddress().confidentialViewTag();

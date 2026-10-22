@@ -12,7 +12,7 @@ import {
 } from "./codecs.js";
 import { RingError } from "./error.js";
 
-/** The operation classes of one ring operation and every mint it withdraws with its total. */
+/** Describes the operation classes and withdrawal amounts requiring approval. */
 export interface CoSignDemand {
   readonly classes: number;
   /** Each withdrawn mint once, SOL under the zero address. */
@@ -28,7 +28,7 @@ export const DEPOSIT_DEMAND: CoSignDemand = Object.freeze({
   withdrawals: Object.freeze([]),
 });
 
-/** A transact is a transfer, each public leg adds its class, Rust `classes` and `withdrawals`. */
+/** Rust `CoSignDemand::transact`, a transfer plus each public leg's class and withdrawal. */
 export function transactDemand(transfers: readonly SettlementTransfer[]): CoSignDemand {
   let classes = RING_COSIGN_TRANSFERS;
   const totals = new Map<Address, bigint>();
@@ -46,7 +46,7 @@ export function transactDemand(transfers: readonly SettlementTransfer[]): CoSign
   });
 }
 
-/** Rust `RingProgramConfig::demanded_co_signer`, the approval bit demands the co-signer whatever its scope. */
+/** Rust `CoSignDemand::signer`, the approval bit demands the co-signer whatever its scope. */
 export function demandedCoSigner(
   input: Readonly<{
     configured: RingCoSigner | undefined;
@@ -54,6 +54,7 @@ export function demandedCoSigner(
     transfers: readonly SettlementTransfer[];
     /** Empty on the anonymous and delegate rails. */
     ownerSigners: readonly Address[];
+    delegate?: Address;
   }>,
 ): Address | undefined {
   const { configured } = input;
@@ -66,15 +67,19 @@ export function demandedCoSigner(
     (input.approvalRequired || inScope(configured, transactDemand(input.transfers)))
       ? configured.signer
       : undefined;
-  // Rust `CoSignerIsOwner`, dual control needs a second key.
+  // Rust `CoSignerIsOwner` and `CoSignerIsDelegate`, dual control needs a second key.
   if (demanded !== undefined && input.ownerSigners.includes(demanded))
     throw new RingError("RING_COSIGNER_REQUIRED", {
       details: { reason: "coSignerIsOwner", expected: demanded },
     });
+  if (demanded !== undefined && demanded === input.delegate)
+    throw new RingError("RING_COSIGNER_REQUIRED", {
+      details: { reason: "coSignerIsDelegate", expected: demanded },
+    });
   return demanded;
 }
 
-/** Mirrors Rust `demanded_co_signer`, the supplied signer once its scope or the approval bit demands it. */
+/** Mirrors Rust `CoSignDemand::signer`, the supplied signer once its scope or the approval bit demands it. */
 export function checkRingCoSigner(
   input: Readonly<{
     ringProgramId: Address;

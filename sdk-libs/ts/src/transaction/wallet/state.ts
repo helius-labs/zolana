@@ -454,9 +454,10 @@ export class Wallet {
   }
 
   /**
-   * Omitting `viewingKeyHistory`, `pendingNotes`, `anonymousRings` or
-   * `lastSynced` leaves it untouched, a pending note whose commitment is now
-   * held is dropped.
+   * Omitting `viewingKeyHistory` leaves retained viewing-key history untouched,
+   * omitting `pendingNotes` or `anonymousRings` leaves them untouched, and
+   * omitting `lastSynced` leaves the sync timestamp untouched. A pending note
+   * whose commitment is now held is dropped.
    * @internal
    */
   _replace(

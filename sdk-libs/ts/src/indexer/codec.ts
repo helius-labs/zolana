@@ -187,7 +187,7 @@ function memberOpening(value: unknown, path: string): RingMemberOpeningView {
   };
 }
 
-/** The v5 `getRingMemberRecord` response. */
+/** The `getRingMemberRecord` response. */
 export function decodeRingMemberOpening(value: unknown): RingMemberOpeningResponse {
   const row = object(value, "$", ["context", "root", "opening"]);
   return {
@@ -222,7 +222,7 @@ export function decodeRingMemberOpenings(value: unknown): RingMemberOpeningsResp
   };
 }
 
-/** The v5 `getRingMemberRecords` response. */
+/** The `getRingMemberRecords` response. */
 export function decodeRingMemberPage(value: unknown): RingMemberPageResponse {
   const row = object(value, "$", ["context", "root", "records", "nextLeafIndex"]);
   const root = registryRoot(row["root"], "root");
@@ -251,7 +251,7 @@ export function decodeRingMemberPage(value: unknown): RingMemberPageResponse {
   };
 }
 
-/** The v5 `getRingMemberRegistryRoot` response. */
+/** The `getRingMemberRegistryRoot` response. */
 export function decodeRingRegistryState(value: unknown): RingRegistryStateResponse {
   const row = object(value, "$", [
     "context",

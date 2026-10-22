@@ -56,8 +56,8 @@ import { fetchSplAssetRegistrations } from "../wallet/sync.js";
 import { RingError } from "./error.js";
 import { RpcTransactionOrigin, type TransactionOrigin } from "./origin.js";
 
-/** Rust `AuditedNote`, an opening whose commitment the audit rebuilt. */
-export interface AuditedNote {
+/** Rust `AuditedUtxo`, an opening whose UTXO hash the audit rebuilt. */
+export interface AuditedUtxo {
   /** The raw Solana key whose owner identity the commitment binds. */
   readonly ownerKey: Bytes32;
   readonly nullifierPk: Bytes32;
@@ -75,13 +75,13 @@ export interface AuditedNote {
 export type OutputOpening =
   | Readonly<{
       kind: "ring";
-      note: AuditedNote;
+      utxo: AuditedUtxo;
       recipientU: Bytes32;
       /** The published tag of an anonymous ring output. */
       tag?: Bytes31;
     }>
-  /** A default-ring note, its owner the published owner tag. */
-  | Readonly<{ kind: "exit"; note: AuditedNote }>
+  /** A default-ring UTXO, its owner the published owner tag. */
+  | Readonly<{ kind: "exit"; utxo: AuditedUtxo }>
   | Readonly<{ kind: "dummy" }>;
 
 /** Rust `AuditedOutput`, one published slot whose rebuilt commitment is the published one. */
@@ -92,7 +92,12 @@ export interface AuditedRingOutput {
 }
 
 /** Rust `OutputPayloadErrorKind`, why a published slot did not open. */
-export type OutputPayloadErrorKind = "frame" | "recipientKey" | "commitment" | "escrowUnknown";
+export type OutputPayloadErrorKind =
+  | "frame"
+  | "disclosure"
+  | "recipientKey"
+  | "commitment"
+  | "escrowUnknown";
 
 export interface OutputPayloadError {
   readonly slotIndex: number;
@@ -143,15 +148,28 @@ export interface AuditedRingTransaction {
   readonly inputs: readonly AuditedInput[];
 }
 
-/** Rust `KnownNote`, a ring note an earlier audit opened, a spend names it by its commitment alone. */
-export interface KnownNote extends Omit<AuditedNote, "nullifierPk"> {
-  /** Absent for a deposit, its capsule discloses only the owner hash. */
-  readonly nullifierPk?: Bytes32;
+/** Rust `UtxoOwner`. */
+export type UtxoOwner =
+  | Readonly<{ kind: "keyed"; nullifierPk: Bytes32 }>
+  /** A deposit capsule discloses the owner hash alone. */
+  | Readonly<{ kind: "deposited"; ownerHash: Bytes32 }>;
+
+/** Rust `KnownUtxo`, a UTXO an earlier audit opened, a spend names it by its hash alone. */
+export interface KnownUtxo extends Omit<AuditedUtxo, "nullifierPk"> {
+  readonly owner: UtxoOwner;
+  readonly treeId: number;
 }
 
-/** Rust `KnownNotes`, notes the auditor opened before by their commitment. */
-export interface KnownNotes {
-  note(commitment: Bytes32): KnownNote | undefined;
+/** Rust `CreatedUtxo`. */
+export interface CreatedRingUtxo {
+  readonly commitment: Bytes32;
+  readonly slotIndex: number;
+  readonly utxo: KnownUtxo;
+}
+
+/** Rust `KnownUtxos`, UTXOs the auditor opened before by their hash. */
+export interface KnownUtxos {
+  utxo(commitment: Bytes32): KnownUtxo | undefined;
 }
 
 /** Rust `EscrowedKeys`, the nullifier key each registered owner escrows by its raw Solana key. */
@@ -233,7 +251,7 @@ export function auditRingTransaction(
     /** One per published nullifier, the tree the input was spent from. */
     inputTreeIds?: readonly (number | undefined)[];
     /** Opens a commitment-layout input, and among two candidates resolves an entry input's ring. */
-    knownNotes?: KnownNotes;
+    knownUtxos?: KnownUtxos;
     /** The output nullifier keys a key-escrow ring leaves out of its disclosure. */
     escrowedKeys?: EscrowedKeys;
   }>,
@@ -307,7 +325,7 @@ export function auditRingTransaction(
             disclosure,
             nullifiers: transaction.nullifiers,
             ...(input.inputTreeIds === undefined ? {} : { trees: input.inputTreeIds }),
-            ...(input.knownNotes === undefined ? {} : { known: input.knownNotes }),
+            ...(input.knownUtxos === undefined ? {} : { known: input.knownUtxos }),
           })
         : undefined;
     return Object.freeze({
@@ -334,21 +352,48 @@ export function auditRingTransaction(
   }
 }
 
-/** Every opened note by its commitment, Rust `AuditedTransaction::notes`. */
-export function auditedNotes(
-  transaction: AuditedRingTransaction,
-): readonly Readonly<{ commitment: Bytes32; note: AuditedNote }>[] {
+/** Every opened UTXO by its hash, Rust `AuditedTransaction::utxos`. */
+export function auditedUtxos(transaction: AuditedRingTransaction): readonly CreatedRingUtxo[] {
   return transaction.outputs.flatMap((output) =>
     output.opening.kind === "dummy"
       ? []
-      : [Object.freeze({ commitment: output.outputContext.hash, note: output.opening.note })],
+      : [
+          Object.freeze({
+            commitment: output.outputContext.hash,
+            slotIndex: output.slotIndex,
+            utxo: openedUtxo(output.opening.utxo, output.outputContext.treeId),
+          }),
+        ],
   );
+}
+
+/** Rust `KnownUtxo::opened`. */
+export function openedUtxo(utxo: AuditedUtxo, treeId: number): KnownUtxo {
+  const { nullifierPk, ...fields } = utxo;
+  return Object.freeze({ ...fields, owner: Object.freeze({ kind: "keyed", nullifierPk }), treeId });
+}
+
+/** Rust `KnownUtxo::commitment`, `ringId` zero for a default-ring UTXO. */
+export function knownUtxoHash(utxo: KnownUtxo, ringId: Bytes32): Bytes32 {
+  return fieldUtxoHash({
+    owner:
+      utxo.owner.kind === "keyed"
+        ? (ownerHash(solanaOwnerIdentity(utxo.ownerKey), utxo.owner.nullifierPk) as Bytes32)
+        : utxo.owner.ownerHash,
+    assetField: utxo.asset,
+    amount: utxo.amount,
+    blinding: utxo.blinding,
+    treeId: utxo.treeId,
+    dataHash: utxo.dataHash,
+    ringDataHash: utxo.ringDataHash,
+    ringId,
+  });
 }
 
 /** Rust `AuditedTransaction::has_unknown_assets`, a registry refresh may name the mint. */
 export function hasUnknownAssets(transaction: AuditedRingTransaction): boolean {
   return (
-    auditedNotes(transaction).some(({ note }) => note.mint === undefined) ||
+    auditedUtxos(transaction).some(({ utxo }) => utxo.mint === undefined) ||
     transaction.inputs.some(
       (input) => input.opening !== undefined && input.opening.mint === undefined,
     )
@@ -364,8 +409,8 @@ export async function auditRing(
     assets: AssetRegistry;
     /** The output nullifier keys a key-escrow ring leaves out of its disclosure. */
     escrowedKeys?: EscrowedKeys;
-    /** Notes opened outside the scan, earlier pages and `createdRingNotes` among them. */
-    knownNotes?: KnownNotes;
+    /** UTXOs opened outside the scan, earlier pages and `createdRingUtxos` among them. */
+    knownUtxos?: KnownUtxos;
     origin?: TransactionOrigin;
     cursor?: Uint8Array;
     pageSize?: number;
@@ -385,7 +430,7 @@ export async function auditRing(
       throw new RingError("RING_RPC", { details: { reason: "invalid scan limit", name, value } });
   }
   const origin = input.origin ?? new RpcTransactionOrigin(input.client.solanaRpc);
-  const known = new NoteIndex(input.knownNotes);
+  const known = new UtxoIndex(input.knownUtxos);
   const transactions: AuditedRingTransaction[] = [];
   let assetsRefreshed = false;
   let cursor = input.cursor;
@@ -410,7 +455,7 @@ export async function auditRing(
           assets: input.assets,
           layout: confirmed.layout,
           inputTreeIds: confirmed.inputTreeIds,
-          knownNotes: known,
+          knownUtxos: known,
           ...(input.escrowedKeys === undefined ? {} : { escrowedKeys: input.escrowedKeys }),
         });
       let audited = audit();
@@ -542,36 +587,37 @@ class Transfer {
       disclosure: Extract<RingDisclosure, { kind: "anonymous" }>;
       nullifiers: readonly Bytes32[];
       trees?: readonly (number | undefined)[];
-      known?: KnownNotes;
+      known?: KnownUtxos;
     }>,
   ): Spent {
     const { disclosure, nullifiers } = spent;
     const published = disclosure.inputs;
     if (published.kind === "commitments") {
-      const known = (commitment: Bytes32): KnownNote => {
-        const note = spent.known?.note(commitment);
-        if (note === undefined)
+      const known = (commitment: Bytes32): KnownUtxo => {
+        const utxo = spent.known?.utxo(commitment);
+        if (utxo === undefined)
           throw new RingError("RING_AUDIT_UNSEEN_INPUT", {
             details: { commitment: bytesKey(commitment) },
           });
-        return note;
+        return utxo;
       };
       // The circuit proves spent UTXO 0 real.
       const first = published.hashes[0];
       if (first === undefined)
         throw new RingError("RING_AUDIT_MESSAGE", { details: { reason: "disclosure" } });
-      const senderNullifierPk = known(first).nullifierPk;
+      const { owner } = known(first);
+      const senderNullifierPk = owner.kind === "keyed" ? owner.nullifierPk : undefined;
       const inputs = nullifiers.map((nullifier, index): AuditedInput => {
         const commitment = published.hashes[index];
         if (commitment === undefined) return Object.freeze({ nullifier });
-        const note = known(commitment);
+        const utxo = known(commitment);
         return Object.freeze({
           nullifier,
           opening: Object.freeze({
-            asset: note.asset,
-            ...(note.mint === undefined ? {} : { mint: note.mint }),
-            amount: note.amount,
-            blinding: note.blinding,
+            asset: utxo.asset,
+            ...(utxo.mint === undefined ? {} : { mint: utxo.mint }),
+            amount: utxo.amount,
+            blinding: utxo.blinding,
             ring: Object.freeze({ kind: "ring", commitment }),
           }),
         });
@@ -581,7 +627,7 @@ class Transfer {
     const inputs = nullifiers.map((nullifier, index): AuditedInput => {
       const opening = published.inputs[index];
       if (opening === undefined) return Object.freeze({ nullifier });
-      const note: AuditedNote = this.note({
+      const utxo = this.opened({
         ownerKey: disclosure.senderKey,
         nullifierPk: published.senderNullifierPk,
         asset: opening.asset,
@@ -589,14 +635,14 @@ class Transfer {
         blinding: opening.blinding,
       });
       const tree = spent.trees?.[index];
-      const ring = tree === undefined ? undefined : this.inputRing(note, tree, spent.known);
+      const ring = tree === undefined ? undefined : this.inputRing(utxo, tree, spent.known);
       return Object.freeze({
         nullifier,
         opening: Object.freeze({
-          asset: note.asset,
-          ...(note.mint === undefined ? {} : { mint: note.mint }),
-          amount: note.amount,
-          blinding: note.blinding,
+          asset: utxo.asset,
+          ...(utxo.mint === undefined ? {} : { mint: utxo.mint }),
+          amount: utxo.amount,
+          blinding: utxo.blinding,
           ...(ring === undefined ? {} : { ring }),
         }),
       });
@@ -612,7 +658,7 @@ class Transfer {
     const nullifierPk = this.nullifierPk(opening.ownerKey, opening.nullifierPk);
     if (nullifierPk === undefined) return ESCROW_UNKNOWN;
     const exit = isExit(slot.output);
-    const note = this.note({
+    const utxo = this.opened({
       ownerKey: opening.ownerKey,
       nullifierPk,
       asset: opening.asset,
@@ -624,8 +670,8 @@ class Transfer {
     return this.verify(
       slot,
       exit
-        ? Object.freeze({ kind: "exit", note })
-        : Object.freeze({ kind: "ring", note, recipientU: slot.output.viewTag }),
+        ? Object.freeze({ kind: "exit", utxo })
+        : Object.freeze({ kind: "ring", utxo, recipientU: slot.output.viewTag }),
     );
   }
 
@@ -684,7 +730,7 @@ class Transfer {
         outputIndex: slot.index,
         ...(tag === undefined ? {} : { tag }),
       };
-      const note: AuditedNote = Object.freeze({
+      const utxo: AuditedUtxo = Object.freeze({
         ownerKey: delivery.ownerKey,
         nullifierPk,
         asset: hashBytes(opened.assetAddress) as Bytes32,
@@ -698,7 +744,7 @@ class Transfer {
         slot,
         Object.freeze({
           kind: "ring",
-          note,
+          utxo,
           recipientU: delivery.recipientU,
           ...(tag === undefined ? {} : { tag }),
         }),
@@ -711,14 +757,14 @@ class Transfer {
   private exit(slot: Slot, exit: DeliveredExit): SlotOpening {
     const nullifierPk = this.nullifierPk(slot.output.viewTag, exit.nullifierPk);
     if (nullifierPk === undefined) return ESCROW_UNKNOWN;
-    const note = this.note({
+    const utxo = this.opened({
       ownerKey: slot.output.viewTag,
       nullifierPk,
       asset: exit.asset,
       amount: exit.amount,
       blinding: this.exitBlinding(slot),
     });
-    return this.verify(slot, Object.freeze({ kind: "exit", note }));
+    return this.verify(slot, Object.freeze({ kind: "exit", utxo }));
   }
 
   /** The opening of `slot` when it rebuilds the published commitment. */
@@ -730,9 +776,8 @@ class Transfer {
     const commitment =
       opening.kind === "dummy"
         ? dummyUtxoHash(treeId, this.exitBlinding(slot))
-        : noteCommitment(
-            opening.note,
-            treeId,
+        : knownUtxoHash(
+            openedUtxo(opening.utxo, treeId),
             opening.kind === "ring" ? ringIdField(this.keys.ring) : ZERO_32,
           );
     return equal(commitment, slot.output.outputContext.hash)
@@ -795,7 +840,7 @@ class Transfer {
     return disclosed ?? this.keys.escrowed?.nullifierPk(ownerKey);
   }
 
-  private note(
+  private opened(
     fields: Readonly<{
       ownerKey: Bytes32;
       nullifierPk: Bytes32;
@@ -805,7 +850,7 @@ class Transfer {
       dataHash?: Bytes32;
       ringDataHash?: Bytes32;
     }>,
-  ): AuditedNote {
+  ): AuditedUtxo {
     const mint = this.keys.assets.addressForField(fields.asset);
     return Object.freeze({
       ownerKey: fields.ownerKey,
@@ -819,29 +864,16 @@ class Transfer {
     });
   }
 
-  private inputRing(note: AuditedNote, treeId: number, known: KnownNotes | undefined): InputRing {
-    const ring = noteCommitment(note, treeId, ringIdField(this.keys.ring));
-    const fallback = noteCommitment(note, treeId, ZERO_32);
-    const found = (commitment: Bytes32): boolean => known?.note(commitment) !== undefined;
+  private inputRing(utxo: AuditedUtxo, treeId: number, known: KnownUtxos | undefined): InputRing {
+    const opened = openedUtxo(utxo, treeId);
+    const ring = knownUtxoHash(opened, ringIdField(this.keys.ring));
+    const fallback = knownUtxoHash(opened, ZERO_32);
+    const found = (commitment: Bytes32): boolean => known?.utxo(commitment) !== undefined;
     if (found(ring) && !found(fallback)) return Object.freeze({ kind: "ring", commitment: ring });
     if (found(fallback) && !found(ring))
       return Object.freeze({ kind: "default", commitment: fallback });
     return Object.freeze({ kind: "unresolved", ring, default: fallback });
   }
-}
-
-/** Rust `AuditedNote::commitment`, `ringId` zero for a default-ring note. */
-function noteCommitment(note: AuditedNote, treeId: number, ringId: Bytes32): Bytes32 {
-  return fieldUtxoHash({
-    owner: ownerHash(solanaOwnerIdentity(note.ownerKey), note.nullifierPk) as Bytes32,
-    assetField: note.asset,
-    amount: note.amount,
-    blinding: note.blinding,
-    treeId,
-    dataHash: note.dataHash,
-    ringDataHash: note.ringDataHash,
-    ringId,
-  });
 }
 
 /** The layout fixes one disclosed slot per published output. */
@@ -876,21 +908,21 @@ class AuditRecord {
   }
 }
 
-/** Rust's `KnownNotes` map, the notes one scan opened by commitment ahead of the caller's. */
-class NoteIndex implements KnownNotes {
-  readonly #notes = new Map<string, KnownNote>();
-  readonly #known: KnownNotes | undefined;
+/** Rust's `KnownUtxos` map, the UTXOs one scan opened by hash ahead of the caller's. */
+class UtxoIndex implements KnownUtxos {
+  readonly #utxos = new Map<string, KnownUtxo>();
+  readonly #known: KnownUtxos | undefined;
 
-  constructor(known: KnownNotes | undefined) {
+  constructor(known: KnownUtxos | undefined) {
     this.#known = known;
   }
 
   add(transaction: AuditedRingTransaction): void {
-    for (const { commitment, note } of auditedNotes(transaction))
-      this.#notes.set(bytesKey(commitment), note);
+    for (const { commitment, utxo } of auditedUtxos(transaction))
+      this.#utxos.set(bytesKey(commitment), utxo);
   }
 
-  note(commitment: Bytes32): KnownNote | undefined {
-    return this.#notes.get(bytesKey(commitment)) ?? this.#known?.note(commitment);
+  utxo(commitment: Bytes32): KnownUtxo | undefined {
+    return this.#utxos.get(bytesKey(commitment)) ?? this.#known?.utxo(commitment);
   }
 }

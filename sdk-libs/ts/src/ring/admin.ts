@@ -1,5 +1,7 @@
 import type { AccountMeta, Address, Instruction } from "@solana/kit";
 
+import { runKitRpc } from "../client/kit.js";
+import type { KitRpcAccess } from "../client/ports.js";
 import { checkTransactionFits } from "../flows/compile.js";
 import {
   SYSTEM_PROGRAM,
@@ -16,6 +18,7 @@ import {
   ringRecordQueueAddress,
 } from "../interface/pda/index.js";
 import { InstructionTag, SHIELDED_POOL_PROGRAM_ID } from "../interface/program.js";
+import type { RequestContext } from "../interface/types.js";
 import type { X25519PublicKey } from "../keypair/x25519.js";
 import { ZERO_32 } from "../transaction/internal.js";
 import { equalBytes } from "../wallet/internal.js";
@@ -23,6 +26,7 @@ import { equalBytes } from "../wallet/internal.js";
 import {
   RING_COSIGN_SCOPE_MASK,
   RING_COSIGN_THRESHOLD_SLOTS,
+  RING_COSIGN_WITHDRAWALS,
   type RingCoSignThreshold,
 } from "./codecs.js";
 import { ringProgramDataAddress } from "./config.js";
@@ -92,6 +96,22 @@ export function ringComputeUnitLimit(tag: RingInstructionTag): number {
   }
 }
 
+/** Rust `RingKind`, fixed for the ring's life. */
+export type RingKind = "auditOnly" | "policy" | "anonymous" | "anonymousPolicy";
+
+const RING_KIND_BYTES: Readonly<Record<RingKind, number>> = Object.freeze({
+  auditOnly: 0,
+  policy: 1,
+  anonymous: 2,
+  anonymousPolicy: 3,
+});
+
+function ringKindByte(kind: RingKind): number {
+  if (!Object.hasOwn(RING_KIND_BYTES, kind))
+    throw new RingError("RING_CONFIG_INVALID", { details: { reason: "kind", kind } });
+  return RING_KIND_BYTES[kind];
+}
+
 /** Rust `CustomRing::create_config`, the upgrade authority signs and becomes the ring authority. */
 export async function createRingConfigInstruction(
   input: Readonly<{
@@ -99,10 +119,7 @@ export async function createRingConfigInstruction(
     payer: SignerAccount;
     authority: SignerAccount;
     auditorPublicKey: X25519PublicKey;
-    /** A policy ring enforces a table, an audit-only ring proves only the audit statement. */
-    hasPolicy: boolean;
-    /** Hides the sender and discloses every opening to the auditor, fixed for the ring's life. */
-    anonymous: boolean;
+    kind: RingKind;
   }>,
 ): Promise<Instruction> {
   const [config, programData] = await Promise.all([
@@ -112,8 +129,7 @@ export async function createRingConfigInstruction(
   const data = new Writer()
     .u8(RingInstructionTag.createConfig, "tag")
     .bytes(input.auditorPublicKey.toBytes(), 33, "auditorPubkey")
-    .bool(input.hasPolicy, "hasPolicy")
-    .bool(input.anonymous, "anonymous")
+    .u8(ringKindByte(input.kind), "kind")
     .finish();
   return ringInstruction(input.ringProgramId, data, [
     meta(input.payer, true, true),
@@ -250,13 +266,25 @@ export function clearRingCoSignerInstruction(
 }
 
 /** Rust `CustomRing::set_insert_fee`, lamports a member's record write pays the authority, zero writes free. */
-export function setRingInsertFeeInstruction(
+export async function setRingInsertFeeInstruction(
   input: Readonly<{
+    client: Pick<KitRpcAccess, "solanaRpc">;
     ringProgramId: Address;
     authority: SignerAccount;
     fee: bigint;
   }>,
+  context?: RequestContext,
 ): Promise<Instruction> {
+  if (input.fee !== 0n) {
+    const minimum = await runKitRpc("getMinimumBalanceForRentExemption", context, (abortSignal) =>
+      input.client.solanaRpc.getMinimumBalanceForRentExemption(0n).send({ abortSignal }),
+    );
+    // Rust `InsertFeeBelowRent`, a smaller fee leaves an empty authority below rent and fails every paid write.
+    if (input.fee < minimum)
+      throw new RingError("RING_CONFIG_INVALID", {
+        details: { reason: "InsertFeeBelowRent", fee: input.fee, minimum },
+      });
+  }
   const data = new Writer()
     .u8(RingInstructionTag.setInsertFee, "tag")
     .u64(input.fee, "fee")
@@ -264,28 +292,23 @@ export function setRingInsertFeeInstruction(
   return configWriteInstruction(input, data);
 }
 
-/** Rust `CustomRing::set_delegate`, signed by the upgrade authority, permanent and it turns key escrow on. */
+/** Rust `CustomRing::set_delegate`, the upgrade authority and the delegate sign, permanent and it turns key escrow on. */
 export async function setRingDelegateInstruction(
   input: Readonly<{
     ringProgramId: Address;
     authority: SignerAccount;
-    delegate: Address;
+    delegate: SignerAccount;
   }>,
 ): Promise<Instruction> {
-  const delegate = addressBytes(input.delegate, "delegate");
-  if (equalBytes(delegate, ZERO_32)) throw new RingError("RING_DELEGATE_INVALID");
   const [config, registry, programData] = await Promise.all([
     ringConfigAddress(input.ringProgramId),
     ringMemberRegistryAddress(input.ringProgramId),
     ringProgramDataAddress(input.ringProgramId),
   ]);
-  const data = new Writer()
-    .u8(RingInstructionTag.setDelegate, "tag")
-    .bytes(delegate, 32, "delegate")
-    .finish();
-  return ringInstruction(input.ringProgramId, data, [
+  return ringInstruction(input.ringProgramId, Uint8Array.of(RingInstructionTag.setDelegate), [
     meta(input.authority, true, false),
     meta(config, false, true),
+    meta(input.delegate, true, false),
     meta(registry, false, false),
     meta(input.ringProgramId, false, false),
     meta(programData, false, false),
@@ -451,7 +474,9 @@ function checkCoSigner(
       : thresholds.length > RING_COSIGN_THRESHOLD_SLOTS ||
           new Set(thresholds.map((row) => row.mint)).size !== thresholds.length
         ? "InvalidCoSignerThresholds"
-        : undefined;
+        : thresholds.length > 0 && (scope & RING_COSIGN_WITHDRAWALS) === 0
+          ? "ThresholdsWithoutWithdrawals"
+          : undefined;
   if (reason !== undefined) throw new RingError("RING_CO_SIGNER_INVALID", { details: { reason } });
 }
 

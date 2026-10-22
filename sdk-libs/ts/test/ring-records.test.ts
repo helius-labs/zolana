@@ -208,7 +208,7 @@ function authorityWrite(vector: Application, writes = vector.authority_writes): 
 }
 
 describe("member list writes", () => {
-  it("queues the member's own lists and pays the insert fee to the authority", async () => {
+  it("queues the member's own lists capped at the fee it read and pays the insert fee to the authority", async () => {
     const [config, bump] = await ringConfigPda(RING);
     const [registry] = await ringMemberRegistryPda(RING);
     const [queue] = await ringRecordQueuePda(RING);
@@ -223,6 +223,7 @@ describe("member list writes", () => {
         39,
         ...u64le(recordBit(ListId.ringViewing) | recordBit(ListId.recovery)),
         ...u64le(recordBit(ListId.ringViewing)),
+        ...u64le(1_000_000n),
       ),
     );
     expect(instruction.accounts?.map(({ address, role }) => [address, role])).toEqual([

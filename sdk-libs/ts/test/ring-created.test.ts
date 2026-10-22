@@ -10,7 +10,7 @@ import { bigIntToBytes } from "../src/keypair/bytes.js";
 import { mergeOutputKey } from "../src/keypair/merge/index.js";
 import { ShieldedKeypair } from "../src/keypair/shielded.js";
 import { X25519Keypair } from "../src/keypair/x25519.js";
-import { createdRingNotes, scanCreatedRingNotes } from "../src/ring/created.js";
+import { createdRingUtxos, scanCreatedRingUtxos } from "../src/ring/created.js";
 import { sealRingDepositOpenings } from "../src/ring/deposit-audit.js";
 import { sealRingMergeDisclosure } from "../src/ring/merge-disclosure.js";
 import { ConfirmedDeposit, type TransactionOrigin } from "../src/ring/origin.js";
@@ -103,25 +103,27 @@ function deposits(auditor: X25519Keypair) {
         capsule,
       }),
     })),
-    note: {
+    utxo: {
       ownerKey,
+      owner: { kind: "deposited", ownerHash: anonymous.ownerHash() },
       asset: SOL_ASSET,
       mint: SOL_MINT,
       amount: 1n,
       blinding,
       dataHash: ZERO,
       ringDataHash: ZERO,
+      treeId: TREE_ID,
     },
   };
 }
 
-describe("createdRingNotes", () => {
-  it("opens the anonymous deposit's note without a nullifier key and passes over a confidential one", () => {
+describe("createdRingUtxos", () => {
+  it("opens the anonymous deposit's UTXO by its owner hash and passes over a confidential one", () => {
     const auditor = X25519Keypair.generate();
     const deposit = deposits(auditor);
     try {
       const created = (outputSlots: typeof deposit.outputSlots) =>
-        createdRingNotes({
+        createdRingUtxos({
           confirmed: {
             kind: "deposit",
             transaction: transaction({ outputSlots, nullifiers: [], proofless: true }),
@@ -131,7 +133,7 @@ describe("createdRingNotes", () => {
           auditor,
         });
       expect(created(deposit.outputSlots)).toEqual([
-        { commitment: deposit.commitments[0], slotIndex: 0, note: deposit.note },
+        { commitment: deposit.commitments[0], slotIndex: 0, utxo: deposit.utxo },
       ]);
       const moved = deposit.outputSlots.map((slot, index) =>
         index === 0 ? { ...slot, outputContext: outputContext(deposit.commitments[1]!, 0n) } : slot,
@@ -143,7 +145,7 @@ describe("createdRingNotes", () => {
     }
   });
 
-  it("scans the ring's history for created notes and stops at the page cap", async () => {
+  it("scans the ring's history for created UTXOs and stops at the page cap", async () => {
     const auditor = X25519Keypair.generate();
     const deposit = deposits(auditor);
     try {
@@ -171,7 +173,7 @@ describe("createdRingNotes", () => {
               },
       };
       const scan = (page: Parameters<typeof transactionsPage>[0], maxPages?: number) =>
-        scanCreatedRingNotes({
+        scanCreatedRingUtxos({
           client: ringAuditReader({
             getShieldedTransactionsByTags: async () => transactionsPage(page),
           }),
@@ -185,10 +187,10 @@ describe("createdRingNotes", () => {
         scannedThrough: Uint8Array.of(1),
       });
       expect(scanned).toEqual({
-        notes: [{ commitment: deposit.commitments[0], slotIndex: 0, note: deposit.note }],
+        utxos: [{ commitment: deposit.commitments[0], slotIndex: 0, utxo: deposit.utxo }],
       });
       const capped = await scan({ transactions: [transfer], nextCursor: Uint8Array.of(7) }, 1);
-      expect(capped).toEqual({ notes: [], nextCursor: Uint8Array.of(7) });
+      expect(capped).toEqual({ utxos: [], nextCursor: Uint8Array.of(7) });
       await expect(
         scan({ transactions: [], scannedThrough: Uint8Array.of(1) }, 0),
       ).rejects.toMatchObject({
@@ -201,7 +203,7 @@ describe("createdRingNotes", () => {
     }
   });
 
-  it("opens the anonymous merge's settled note with its nullifier key and nothing of a confidential one", () => {
+  it("opens the anonymous merge's settled UTXO with its nullifier key and nothing of a confidential one", () => {
     const auditor = X25519Keypair.generate();
     const owner = ShieldedKeypair.generate();
     const nullifiers = [field(7n), field(8n)];
@@ -253,7 +255,7 @@ describe("createdRingNotes", () => {
       });
       const disclosure = { ...sealed.disclosure, proof: new Uint8Array(CUSTOM_RING_PROOF_LENGTH) };
       expect(
-        createdRingNotes({
+        createdRingUtxos({
           confirmed: { kind: "merge", transaction: merge, disclosure },
           ringProgramId: RING,
           auditor,
@@ -262,20 +264,21 @@ describe("createdRingNotes", () => {
         {
           commitment,
           slotIndex: 0,
-          note: {
+          utxo: {
             ownerKey: owner.signingPublicKey().ed25519(),
-            nullifierPk: owner.nullifierPublicKey(),
+            owner: { kind: "keyed", nullifierPk: owner.nullifierPublicKey() },
             asset: SOL_ASSET,
             mint: SOL_MINT,
             amount: 12n,
             blinding: outputBlinding,
             dataHash: ZERO,
             ringDataHash,
+            treeId: TREE_ID,
           },
         },
       ]);
       expect(
-        createdRingNotes({
+        createdRingUtxos({
           confirmed: { kind: "merge", transaction: merge },
           ringProgramId: RING,
           auditor,

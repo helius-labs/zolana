@@ -318,6 +318,7 @@ async function assembleStagedTransfer<T>(
       approvalRequired,
       transfers: proofInputs.externalData.interfaceTransfers,
       ownerSigners: staged.ownerSigners,
+      ...(spend.delegate === undefined ? {} : { delegate: spend.delegate }),
     });
     const privateTxHash = proofInputs.privateTxHash();
     const privateTxBlinding = proofInputs.privateTxBlinding();

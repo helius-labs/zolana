@@ -59,18 +59,15 @@ export function ringTreeIdResolver(
 }
 
 /** Rust `BoundAnchor::holds`, the program reads the root at the index of an unpaused tree. */
-export async function anchorHolds(
+export async function anchorState(
   client: Pick<ChainReader, "getAccount">,
   anchor: BoundAnchor,
   context: RequestContext | undefined,
-): Promise<boolean> {
+): Promise<"holds" | "moved" | "paused"> {
   const data = await treeData(client, anchor.tree, context);
-  if (decodeTreePaused(data))
-    throw new RingError("RING_ANCHOR_INVALID", {
-      details: { reason: "paused", tree: anchor.tree },
-    });
+  if (decodeTreePaused(data)) return "paused";
   const held = decodeUtxoRoot(data, anchor.rootIndex);
-  return held !== undefined && equal(held, anchor.root);
+  return held !== undefined && equal(held, anchor.root) ? "holds" : "moved";
 }
 
 async function readTreeId(

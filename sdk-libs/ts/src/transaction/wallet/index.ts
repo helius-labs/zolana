@@ -15,6 +15,7 @@ export type {
   AnonymousRingReport,
   AnonymousStream,
   PendingAnonymousNote,
+  RingDeliveredCandidate,
 } from "./anonymous.js";
 export {
   ADDRESS_GAP,
@@ -23,7 +24,9 @@ export {
   DECOYS_PER_TREE,
   DEPOSIT_TAG_WINDOW,
   MAX_ISSUED_ADDRESSES,
+  PAIR_IDLE_EPOCHS,
   type DecoyLeaf,
+  type IndexedSpend,
   type IssuedAddress,
   type ReceivedAnchor,
   type SentFirstContact,
@@ -54,6 +57,7 @@ export {
   serializeWallet,
   type SerializedCursor,
   type SerializedNoteReservation,
+  type SerializedPendingNote,
   type SerializedSyncCursors,
   type SerializedWalletState,
 } from "./persistence.js";

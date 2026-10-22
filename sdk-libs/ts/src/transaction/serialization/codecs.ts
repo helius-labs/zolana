@@ -98,6 +98,7 @@ export const CONFIDENTIAL_DATA_FREE_BODY_LEN =
 export const RING_PACKED_DATA_FREE_BODY_LEN =
   RECIPIENT_KEY_LEN + CONFIDENTIAL_PLAINTEXT_HEAD_LEN + 1;
 
+/** The default encoding of a scheme's slot. */
 export function outputDataEncoding(scheme: EncryptedScheme): OutputDataEncoding {
   switch (encryptedSchemeFromByte(scheme)) {
     case EncryptedScheme.proofless:

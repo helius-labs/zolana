@@ -58,7 +58,7 @@ interface SerializedWalletUtxo {
   readonly spent: boolean;
 }
 
-interface SerializedPendingNote {
+export interface SerializedPendingNote {
   readonly asset: Address;
   readonly amount: string;
   readonly blinding: string;

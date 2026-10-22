@@ -31,6 +31,7 @@ import {
 import { ringCircuitType } from "../src/interface/proving-keys.js";
 import { TREE_STATE_PAUSED } from "../src/interface/state.js";
 import { treeIdField } from "../src/interface/tree-slot.js";
+import { TRANSACTION_SIZE_LIMIT, transactionSize } from "../src/interface/transaction-size.js";
 import { TransactWithdrawal, type Bytes32 } from "../src/interface/types.js";
 import { randomBlinding } from "../src/keypair/bytes.js";
 import { Pairing, type RingAddress } from "../src/keypair/ring-address.js";
@@ -63,7 +64,10 @@ import { ListId, buildRuleTable, memberOfIdentity } from "../src/ring/policy.js"
 import { policyStatementHash } from "../src/ring/statement.js";
 import type { ProvenRingTransfer } from "../src/ring/pipeline.js";
 import { CustomRingTransfer, type AnonymousTransfer } from "../src/ring/rails.js";
-import { buildRingTransferTransaction } from "../src/ring/transfer.js";
+import {
+  buildRingTransferTransaction,
+  buildRingWithdrawalTransaction,
+} from "../src/ring/transfer.js";
 import { RingTransactData } from "../src/ring/transact.js";
 import { AssetRegistry, SOL_MINT } from "../src/transaction/asset.js";
 import {
@@ -79,6 +83,7 @@ import {
   type SentFirstContact,
 } from "../src/transaction/wallet/anonymous-state.js";
 import type { RingKeys } from "../src/transaction/wallet/keys.js";
+import { approveIntent, type ApprovalRequest } from "../src/transaction/wallet/intent.js";
 import { Wallet } from "../src/transaction/wallet/state.js";
 import { ringAddressOf } from "../src/wallet/anonymous-sync.js";
 
@@ -162,12 +167,17 @@ function rail(
     transfer: input.transfer,
     assets,
   });
-  return (
-    input.withdrawal === undefined ? owner : owner.withWithdrawalAccounts(input.withdrawal)
-  ).withAnonymousSigner(
-    input.signer ?? signingKeySpendSigner(sender.signing),
-    input.state ?? AnonymousRingState.create(fixture.ringProgramId, 0n),
-  );
+  return (input.withdrawal === undefined ? owner : owner.withWithdrawalAccounts(input.withdrawal))
+    .withAnonymousSigner(
+      input.signer ?? signingKeySpendSigner(sender.signing),
+      input.state ?? AnonymousRingState.create(fixture.ringProgramId, 0n),
+    )
+    .withTagRandom(firstFreeIndex);
+}
+
+/** The first free index of every draw, each test pins its tags on it. */
+function firstFreeIndex(length: number): Uint8Array {
+  return new Uint8Array(length);
 }
 
 function addressOf(
@@ -355,7 +365,7 @@ describe("anonymous ring payment", () => {
     noProofs(fixture);
   });
 
-  it("takes the inbox stream past its used index when the address's rows refuse the first contact", async () => {
+  it("takes the inbox stream when the address's rows refuse the first contact", async () => {
     const fixture = await anonymousRing();
     const sender = anonymousSender();
     const bob = ShieldedKeypair.generate();
@@ -370,13 +380,13 @@ describe("anonymous ring payment", () => {
 
     const payment = data.outputs[1];
     if (payment?.kind !== "anonymous") throw new Error("no payment slot");
-    expect(payment.tag).toEqual(inboxTag(inbox, EPOCH, tagIndex(1)));
+    expect(payment.tag).toEqual(inboxTag(inbox, EPOCH, tagIndex(0)));
     expect(data.anchor).toBeUndefined();
     expect(fixture.merkleRequests).toEqual([]);
-    expect(proven.firstContacts.map((contact) => contact.index)).toEqual([1]);
+    expect(proven.firstContacts.map((contact) => contact.index)).toEqual([0]);
   });
 
-  it("refuses a payment once every inbox index of the epoch is used", async () => {
+  it("pays an address whose every inbox index outsiders already used in the epoch", async () => {
     const fixture = await anonymousRing();
     const sender = anonymousSender();
     const to = await addressOf(fixture, ShieldedKeypair.generate());
@@ -384,12 +394,14 @@ describe("anonymous ring payment", () => {
     fixture.publishTags(
       Array.from({ length: J_INBOX }, (_, index) => inboxTag(inbox, EPOCH, tagIndex(index))),
     );
-    await expect(
-      rail({ fixture, sender, transfer: spend(fixture, sender) })
-        .withPayment({ to, asset: SOL_MINT, amount: 400n })
-        .prove(fixture.client),
-    ).rejects.toThrow(ringError("WALLET_INBOX_STREAM_FULL", { epoch: String(EPOCH) }));
-    noProofs(fixture);
+    const proven = await rail({ fixture, sender, transfer: spend(fixture, sender) })
+      .withPayment({ to, asset: SOL_MINT, amount: 400n })
+      .prove(fixture.client);
+    const { data } = await expanded(fixture, proven, "anonymous");
+
+    const payment = data.outputs[1];
+    if (payment?.kind !== "anonymous") throw new Error("no payment slot");
+    expect(payment.tag).toEqual(inboxTag(inbox, EPOCH, tagIndex(0)));
   });
 
   it("keeps a payment on its own slot when a later send on the shared transfer follows it", async () => {
@@ -691,6 +703,133 @@ describe("anonymous ring signer and epoch", () => {
 });
 
 describe("anonymous ring transfer builder", () => {
+  /** A spend of `notes` notes of 10, of the ring or the default ring, on a ring a co-signer guards when `policy`. */
+  async function anonymousSpend(
+    input: Readonly<{
+      notes: number;
+      amount: bigint;
+      ring?: "default";
+      policy?: boolean;
+      withdraw?: boolean;
+    }>,
+  ) {
+    const sender = anonymousSender();
+    const coSigner = randomAddress();
+    const fixture = await anonymousRing(
+      input.policy === true
+        ? {
+            table: buildRuleTable({
+              rules: [
+                {
+                  subject: "sender",
+                  source: { kind: "lists", present: [ListId.allow], absent: [] },
+                  guard: { kind: "always" },
+                },
+              ],
+              limits: [{ asset: assetField(SOL_MINT), cap: 0n, cosignAbove: 1n }],
+            }),
+            records: [
+              {
+                member: memberOfIdentity(
+                  sender.keypair.shieldedAddress().signingPublicKey.ownerProofInputHash(),
+                ),
+                lists: 1n,
+              },
+            ],
+            coSigner: { signer: coSigner, scope: RING_COSIGN_TRANSFERS, thresholds: [] },
+          }
+        : {},
+    );
+    const wallet = new Wallet({ identity: sender.keypair.shieldedAddress() });
+    wallet._replace({
+      utxos: Array.from({ length: input.notes }, (_, index) => ({
+        utxo: new Utxo({
+          owner: sender.keypair.signingPublicKey(),
+          asset: SOL_MINT,
+          amount: 10n,
+          blinding: randomBlinding(),
+          ...(input.ring === "default" ? {} : { ringProgramId: fixture.ringProgramId }),
+        }),
+        outputContext: { hash: small(index + 1), tree: TREE, leafIndex: BigInt(index) },
+        nullifier: small(index + 100),
+        spent: false,
+      })),
+      transactions: [],
+      nullifiers: new Set(),
+    });
+    const requests: ApprovalRequest[] = [];
+    const params = {
+      client: { ...fixture.client, getLatestBlockhash: async () => BLOCKHASH },
+      ringProgramId: fixture.ringProgramId,
+      wallet,
+      keys: walletKeys(sender.keypair),
+      feePayer: fixture.authority,
+      amount: input.amount,
+      priorityFeeLamports: 5_000n,
+      ...(input.policy === true ? { cosigner: coSigner } : {}),
+      approve: async (request: ApprovalRequest) => {
+        requests.push(request);
+        return approveIntent(request.intent);
+      },
+      anonymous: {
+        signer: signingKeySpendSigner(sender.signing),
+        state: AnonymousRingState.create(fixture.ringProgramId, 0n),
+      },
+    };
+    const build =
+      input.withdraw === true
+        ? buildRingWithdrawalTransaction({ ...params, recipient: randomAddress() })
+        : buildRingTransferTransaction({
+            ...params,
+            recipient: await addressOf(fixture, ShieldedKeypair.generate()),
+            ...(input.ring === "default" ? { inputs: "default" as const } : {}),
+          });
+    return { fixture, requests, build };
+  }
+
+  it("spends the widest commitment class and refuses a payment past it before approval", async () => {
+    const widest = await anonymousSpend({ notes: 24, amount: 235n, policy: true });
+    expect(transactionSize(await widest.build)).toBeLessThanOrEqual(TRANSACTION_SIZE_LIMIT);
+    expect(widest.requests).toHaveLength(1);
+    expect(widest.fixture.sppCalls.at(-1)?.proofInputs.checkShape()).toEqual({
+      inputs: 24,
+      outputs: 2,
+    });
+    const wider = await anonymousSpend({ notes: 25, amount: 245n });
+    await expect(wider.build).rejects.toMatchObject({
+      code: "RING_BUILD_TRANSFER",
+      causeCode: "RING_TOO_MANY_INPUTS",
+      cause: { details: { maximum: 24 } },
+    });
+    expect(wider.requests).toEqual([]);
+    noProofs(wider.fixture);
+  });
+
+  it("refuses a withdrawal of the widest class past one transaction before approval as too many notes", async () => {
+    const wide = await anonymousSpend({ notes: 24, amount: 235n, policy: true, withdraw: true });
+    await expect(wide.build).rejects.toMatchObject({
+      code: "RING_BUILD_WITHDRAWAL",
+      causeCode: "RING_TOO_MANY_INPUTS",
+      cause: { details: { selected: 24, limit: TRANSACTION_SIZE_LIMIT } },
+    });
+    expect(wide.requests).toEqual([]);
+    noProofs(wide.fixture);
+  });
+
+  it("spends the entry key's input class of default-ring notes and refuses one more", async () => {
+    const entry = await anonymousSpend({ notes: 8, amount: 75n, ring: "default", policy: true });
+    expect(transactionSize(await entry.build)).toBeLessThanOrEqual(TRANSACTION_SIZE_LIMIT);
+    expect(entry.requests).toHaveLength(1);
+    const wider = await anonymousSpend({ notes: 9, amount: 85n, ring: "default" });
+    await expect(wider.build).rejects.toMatchObject({
+      code: "RING_BUILD_TRANSFER",
+      causeCode: "RING_TOO_MANY_INPUTS",
+      cause: { details: { maximum: 8 } },
+    });
+    expect(wider.requests).toEqual([]);
+    noProofs(wider.fixture);
+  });
+
   it("compiles a payment proven in the epoch before the slot it compiles at under the previous epoch", async () => {
     const fixture = await anonymousRing();
     const sender = anonymousSender();

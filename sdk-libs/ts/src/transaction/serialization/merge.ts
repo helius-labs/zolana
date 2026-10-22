@@ -100,9 +100,11 @@ export function decryptMergeOutput(body: Uint8Array, key: Bytes32): MergeOutputP
 }
 
 /**
- * A merge output's data slot: `VerifiablyEncrypted(scheme || [ring_data_hash
- * ||] salt || ciphertext)`, as Rust `encode_merge_output_data` and the indexer
- * rebuild it from the merge instruction.
+ * A merge output's data slot, as Rust `encode_merge_output_data` and the
+ * indexer rebuild it from the merge instruction: `VerifiablyEncrypted(scheme ||
+ * salt || ciphertext)` for a default merge and `VerifiablyEncrypted(scheme ||
+ * ring_data_hash || salt || ciphertext)` for a ring merge, whose proofs bind the
+ * ciphertext.
  */
 export function encodeMergeOutputData(
   input: Readonly<{
@@ -131,8 +133,8 @@ export function encodeMergeOutputData(
 export type MergeOutputBody = Readonly<{ ringDataHash?: Bytes32; encrypted: Uint8Array }>;
 
 /**
- * Reads a merge output slot's payload: `undefined` for any other scheme or a
- * payload that does not decode.
+ * Reads a merge output slot's payload: `undefined` for any other scheme, a
+ * payload that does not decode, or an encoding other than `"verifiable"`.
  */
 export function readMergeOutputBody(payload: Uint8Array): MergeOutputBody | undefined {
   try {

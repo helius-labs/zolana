@@ -11,6 +11,7 @@ import { Utxo } from "../src/transaction/utxo.js";
 import {
   AnonymousRingState,
   MAX_ISSUED_ADDRESSES,
+  PAIR_IDLE_EPOCHS,
 } from "../src/transaction/wallet/anonymous-state.js";
 import { deserializeWallet, serializeWallet } from "../src/transaction/wallet/persistence.js";
 import { Wallet } from "../src/transaction/wallet/state.js";
@@ -84,7 +85,14 @@ function versionFive(wallet: Wallet): string {
 function scannedState(): AnonymousRingState {
   const issued = AnonymousRingState.create(RING, 100n)
     .issue(0, Pairing.any())
-    .receive({ addressIndex: 0, pairKey: bytes(10), epoch: 100n, asset: SOL_MINT, amount: 1_000n });
+    .receive({
+      addressIndex: 0,
+      pairKey: bytes(10),
+      epoch: 100n,
+      lastEpoch: 100n,
+      asset: SOL_MINT,
+      amount: 1_000n,
+    });
   return issued.recordFirstContact({
     recipient: ShieldedKeypair.generate().shieldedAddress().viewingPublicKey,
     treeId: 0,
@@ -123,8 +131,9 @@ describe("wallet persistence version 6", () => {
     const ring = restored.anonymousRing(RING);
 
     expect(ring?.serialize()).toEqual(state.serialize());
-    expect(ring?.firstContact(state.sent[0]!.recipient, 132n)).toBeDefined();
-    expect(ring?.firstContact(state.sent[0]!.recipient, 133n)).toBeUndefined();
+    const idleThrough = state.sent[0]!.epoch + PAIR_IDLE_EPOCHS - 1n;
+    expect(ring?.firstContact(state.sent[0]!.recipient, idleThrough)).toBeDefined();
+    expect(ring?.firstContact(state.sent[0]!.recipient, idleThrough + 1n)).toBeUndefined();
   });
 
   it("refuses a ring state the wire never writes", () => {
@@ -151,13 +160,12 @@ describe("wallet persistence version 6", () => {
       "TRANSACTION_DESERIALIZE",
     );
     expect(refused((copy) => copy.anonymousRings.push(ring))).toThrow("TRANSACTION_DESERIALIZE");
-    const repeated = (field: "issued" | "received" | "sent") =>
+    const repeated = (field: "issued" | "sent") =>
       refused((copy) => {
         const list = copy.anonymousRings[0]![field] as unknown[];
         list.push(list[0]);
       });
     expect(repeated("issued")).toThrow("TRANSACTION_DESERIALIZE");
-    expect(repeated("received")).toThrow("TRANSACTION_DESERIALIZE");
     expect(repeated("sent")).toThrow("TRANSACTION_DESERIALIZE");
     expect(
       refused((copy) => {

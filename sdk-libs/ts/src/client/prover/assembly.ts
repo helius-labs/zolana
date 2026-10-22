@@ -618,9 +618,10 @@ function prepareTransferUnchecked(
 
 /**
  * Mirrors Rust `validate_output_blindings`: the circuit asserts every output
- * blinding, padding included, equals the slot's derivation, a ring output's
- * from its ring secret, so a proof request with any other blinding would be
- * rejected after the expensive round trip.
+ * blinding, padding included, equals the derivation from the first nullifier,
+ * the derived seed, or a ring output's ring secret, and the slot index, so a
+ * proof request with any other blinding would be rejected after the expensive
+ * round trip.
  */
 function validateOutputBlindings(proofInputs: SppProofInputs): void {
   const firstNullifier = proofInputs.firstNullifier();

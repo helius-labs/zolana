@@ -8,11 +8,8 @@ import { selectUtxos } from "../flows/select.js";
 import { resolveWithdrawalSettlement, withdrawalSetupInstructions } from "../flows/settlement.js";
 import { initializePoseidon } from "../hasher/index.js";
 import { signerAddress, type SignerAccount } from "../interface/instructions/index.js";
-import { MAX_TRANSACT_INPUTS } from "../interface/shape.js";
-import {
-  ANONYMOUS_ENTRY_CLASS,
-  ANONYMOUS_MAX_INPUTS,
-} from "../interface/ring-disclosure-layout.js";
+import { MAX_TRANSACT_INPUTS, SPP_SUPPORTED_SHAPES } from "../interface/shape.js";
+import { anonymousAuditKey } from "../interface/ring-disclosure-layout.js";
 import type {
   Address,
   RequestContext,
@@ -42,14 +39,19 @@ import { RingInstructionTag, ringComputeUnitLimit } from "./admin.js";
 import type { AnonymousPayment, AnonymousSpendSigner } from "./anonymous.js";
 import { fetchRingProgramConfig } from "./config.js";
 import { RingError, wrapRingError } from "./error.js";
-import { boundState, type ProvenRingTransfer } from "./pipeline.js";
+import { boundState } from "./pipeline.js";
 import {
   CustomRingTransfer,
   type AnonymousTransferClient,
   type CustomRingTransferClient,
   type RingTransferApproval,
 } from "./rails.js";
-import { ringIntentMismatch, ringProofInput, ringSelectionErrors } from "./selection.js";
+import {
+  provenWithinTransaction,
+  ringIntentMismatch,
+  ringProofInput,
+  ringSelectionErrors,
+} from "./selection.js";
 import {
   RingTransactionSubmission,
   checkRetainedEntries,
@@ -487,10 +489,9 @@ async function buildRingSpend<R>(
     };
     const withWithdrawal =
       plan.withdrawal === undefined ? ownerRail : ownerRail.withWithdrawalAccounts(plan.withdrawal);
-    let proven: ProvenRingTransfer;
-    if (params.anonymous === undefined) {
-      proven = await withWithdrawal.proveApproved(params.client, approval, context);
-    } else {
+    const proven = await provenWithinTransaction(selected.length, () => {
+      if (params.anonymous === undefined)
+        return withWithdrawal.proveApproved(params.client, approval, context);
       let anonymous = withWithdrawal.withAnonymousSigner(
         params.anonymous.signer,
         params.anonymous.state,
@@ -498,8 +499,8 @@ async function buildRingSpend<R>(
       if (anonymousPayment !== undefined) anonymous = anonymous.withPayment(anonymousPayment);
       if (params.anonymous.exitTokenOwner !== undefined)
         anonymous = anonymous.withExitTokenOwner(params.anonymous.exitTokenOwner);
-      proven = await anonymous.proveApproved(params.client, approval, context);
-    }
+      return anonymous.proveApproved(params.client, approval, context);
+    });
     const [instruction, lifetime] = await Promise.all([
       proven.epoch === undefined
         ? proven.instruction()
@@ -527,9 +528,20 @@ async function buildRingSpend<R>(
   }
 }
 
-/** A default-ring input takes the anonymous entry key and its input class. */
+/** A spend pays its recipient or exit and returns change. */
+const SPEND_OUTPUTS = 2;
+
+/** Padded inputs are published, the widest two-output shape an anonymous key serves bounds a spend. */
 function anonymousInputCap(selection: "ring" | "ring-or-default" | "default"): number {
-  return selection === "ring" ? ANONYMOUS_MAX_INPUTS : ANONYMOUS_ENTRY_CLASS;
+  const spendsDefaultRing = selection !== "ring";
+  return Math.max(
+    ...SPP_SUPPORTED_SHAPES.filter(
+      (shape) =>
+        shape.outputs === SPEND_OUTPUTS &&
+        anonymousAuditKey({ inputs: shape.inputs, outputs: shape.outputs, spendsDefaultRing }) !==
+          undefined,
+    ).map((shape) => shape.inputs),
+  );
 }
 
 /** @internal The co-signer a proven transfer demands is the one the caller supplied. */

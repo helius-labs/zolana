@@ -1064,10 +1064,11 @@ class SyncPass {
 
   /**
    * A merge output publishes its amount and mint under a key derived from the
-   * nullifier secret and the first nullifier, and the proof binds that
-   * ciphertext, so the owner rebuilds the output whichever inputs the merger
-   * folded in. The cipher is unauthenticated: another wallet's merge decrypts
-   * to noise, which the plaintext range check or the commitment rejects.
+   * nullifier secret and the first nullifier, so the owner rebuilds the output
+   * whichever inputs the merger folded in. A merge proof binds that
+   * ciphertext. The cipher is unauthenticated: another wallet's merge decrypts
+   * to noise, which the plaintext range check or the commitment rejects, and
+   * the slot counts as undecryptable.
    */
   #reconstructMerge(tx: IndexedShieldedTransaction, site: Site, siteKey: string): void {
     const slot = tx.outputSlots[site.slot];

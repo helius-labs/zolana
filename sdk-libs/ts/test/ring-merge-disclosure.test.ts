@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import vector from "../../../test-vectors/ring-merge-anonymous.json" with { type: "json" };
 import { initializePoseidon } from "../src/hasher/index.js";
 import { Reader, Writer, addressBytes, encodeBase58 } from "../src/interface/internal.js";
+import { DISCLOSURE_CHUNK_BYTES } from "../src/interface/ring-disclosure-layout.js";
 import type { Bytes16, Bytes32, Bytes33 } from "../src/interface/types.js";
 import { X25519Keypair, X25519PublicKey } from "../src/keypair/x25519.js";
 import { ringProofRequestBody } from "../src/client/prover/ring.js";
@@ -121,7 +122,7 @@ describe("anonymous ring merge disclosure (test-vectors/ring-merge-anonymous.jso
           disclosureKey: bytes(vector.request.disclosureKey, 32),
         }),
       ).toThrow("small order");
-      const length = mergeDisclosureFieldCount(vector.width) * 31;
+      const length = mergeDisclosureFieldCount(vector.width) * DISCLOSURE_CHUNK_BYTES;
       const wiped = fill.mock.contexts.filter(
         (buffer): buffer is Uint8Array => buffer instanceof Uint8Array && buffer.length === length,
       );

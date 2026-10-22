@@ -76,8 +76,7 @@ describe("ring program", () => {
         payer: operator,
         authority: operator,
         auditorPublicKey: X25519Keypair.generate().publicKey(),
-        hasPolicy: false,
-        anonymous: false,
+        kind: "auditOnly",
       }),
       operator,
     );

@@ -16,6 +16,7 @@ import { X25519Keypair, X25519PublicKey } from "../keypair/x25519.js";
 import { CUSTOM_RING_PROOF_LENGTH } from "../interface/custom-ring-proof.js";
 import { Reader, Writer, addressBytes, encodeBase58 } from "../interface/internal.js";
 import { pack33, rightAlign } from "../interface/merge-utils.js";
+import { DISCLOSURE_CHUNK_BYTES, packedChunks } from "../interface/ring-disclosure-layout.js";
 import { treeIdField } from "../interface/tree-slot.js";
 import type {
   Bytes16,
@@ -38,12 +39,11 @@ import { RingError } from "./error.js";
 const MERGE_DISCLOSURE_INFO = new TextEncoder().encode("CRING/mrg1");
 /** Owner key, nullifier pk, mint, amount and output blinding ahead of the input commitments. */
 const MERGE_DISCLOSURE_HEADER_LENGTH = 32 + 32 + 32 + 8 + 32;
-const CHUNK_BYTES = 31;
 const MERGE_ANONYMOUS_DOMAIN = 0x43524d47n;
 
 /** Rust `merge_disclosure_field_count`. */
 export function mergeDisclosureFieldCount(width: number): number {
-  return Math.ceil((MERGE_DISCLOSURE_HEADER_LENGTH + 32 * width) / CHUNK_BYTES);
+  return packedChunks(MERGE_DISCLOSURE_HEADER_LENGTH + 32 * width);
 }
 
 /** The auditor's half of an anonymous ring merge, Rust `MergeDisclosure`. */
@@ -336,7 +336,7 @@ export function wipeRingMergeDisclosureRequest(request: RingMergeDisclosureReque
 function encodeMergeOpening(opening: RingMergeOpening): Uint8Array {
   const width = opening.inputCommitments.length;
   if (opening.amount < 0n || opening.amount > U64_MAX) throw invalid("disclosure amount");
-  const plaintext = new Uint8Array(mergeDisclosureFieldCount(width) * CHUNK_BYTES);
+  const plaintext = new Uint8Array(mergeDisclosureFieldCount(width) * DISCLOSURE_CHUNK_BYTES);
   try {
     plaintext.set(addressBytes(opening.ownerKey), 0);
     plaintext.set(opening.nullifierPublicKey, 32);

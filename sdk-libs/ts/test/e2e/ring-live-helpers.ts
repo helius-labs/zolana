@@ -22,23 +22,33 @@ import {
   type Bytes32,
 } from "../../src/index.js";
 import { ClientError } from "../../src/client/error.js";
+import { setRingActivationInstruction } from "../../src/interface/instructions/index.js";
 import type { MemberRecord } from "../../src/interface/member-registry.js";
+import type { X25519PublicKey } from "../../src/keypair/x25519.js";
 import {
   ListId,
   memberOfTag,
   recordBit,
   verifyRecordOpening,
   type Member,
+  type RuleTable,
 } from "../../src/ring/advanced.js";
 import {
   AuthorityListWrite,
   RecordApplication,
   RingError,
   RingInstructionTag,
+  RingProgramBinary,
+  buildRingCreatePolicyTransaction,
+  createMemberRegistryInstruction,
+  createRingConfigInstruction,
+  deployRingProgram,
   fetchRingMemberRegistry,
+  initSppRingConfigInstruction,
   listWrite,
   messageSignerReader,
   registryCurrentRoot,
+  ringAuthAddress,
   ringComputeUnitLimit,
   type RingRpc,
 } from "../../src/ring/index.js";
@@ -78,21 +88,104 @@ export async function keypairSignerFromFile(path: string): Promise<KeyPairSigner
   return createKeyPairSignerFromBytes(bytes);
 }
 
-/** A proof-carrying ring instruction declares its tag's budget, any other the default. */
+/** A proof-carrying ring instruction declares its tag's budget, any other the default, the first signer pays. */
 export async function sendInstruction(
   client: ZolanaClient,
   instruction: Instruction,
-  signer: KeyPairSigner,
+  signer: KeyPairSigner | readonly [KeyPairSigner, ...KeyPairSigner[]],
   computeUnitLimit = 200_000,
 ): Promise<void> {
+  const signers = "address" in signer ? [signer] : signer;
   const lifetime = await client.getLatestBlockhash();
   const transaction = compileUnsignedTransaction({
-    feePayer: signer.address,
+    feePayer: signers[0].address,
     lifetime,
     computeUnitLimit,
     instructions: [instruction],
   });
-  await signSendAndConfirm(client, transaction, [signer]);
+  await signSendAndConfirm(client, transaction, signers);
+}
+
+/** A ring deployed from `RING_PROGRAM_SO`, only a policy kind pins a table. */
+export type FreshRing = Readonly<{
+  program: KeyPairSigner;
+  authority: KeyPairSigner;
+  auditor: X25519PublicKey;
+  /** Lets the delegate rail transact. */
+  authorityTransact: boolean;
+}> &
+  (
+    | Readonly<{ kind: "auditOnly" | "anonymous" }>
+    | Readonly<{ kind: "policy" | "anonymousPolicy"; table: RuleTable }>
+  );
+
+/** Deploys, configures, registers with the pool and activates `ring` in the order the program demands. */
+export async function createRing(client: ZolanaClient, ring: FreshRing): Promise<void> {
+  const { program, authority } = ring;
+  const ringProgramId = program.address;
+  const table = "table" in ring ? ring.table : undefined;
+  await deployRingProgram({
+    client,
+    ringProgramId,
+    program,
+    payer: authority,
+    authority,
+    binary: RingProgramBinary.parse(new Uint8Array(await readFile(requiredEnv("RING_PROGRAM_SO")))),
+  });
+  await sendInstruction(
+    client,
+    await createRingConfigInstruction({
+      ringProgramId,
+      payer: authority,
+      authority,
+      auditorPublicKey: ring.auditor,
+      kind: ring.kind,
+    }),
+    authority,
+  );
+  // The policy table lives in the member registry, the registry precedes it.
+  await sendInstruction(
+    client,
+    await createMemberRegistryInstruction({ ringProgramId, payer: authority, authority }),
+    authority,
+  );
+  if (table !== undefined)
+    await signSendAndConfirm(
+      client,
+      await buildRingCreatePolicyTransaction({
+        client,
+        ringProgramId,
+        authority: authority.address,
+        table,
+      }),
+      [authority],
+    );
+  await sendInstruction(
+    client,
+    await initSppRingConfigInstruction({
+      ringProgramId,
+      payer: authority,
+      authority,
+      hasPolicy: table !== undefined,
+    }),
+    authority,
+  );
+  // Localnet snapshots require the fixed public governance seed.
+  const governanceSeed = new TextEncoder().encode("zolana localnet snapshot authori");
+  const governance = await createKeyPairSignerFromBytes(
+    Uint8Array.of(...governanceSeed, ...ed25519.getPublicKey(governanceSeed)),
+  );
+  await airdrop(client, governance.address);
+  await sendInstruction(
+    client,
+    await setRingActivationInstruction({
+      authority: governance,
+      ringConfig: await ringAuthAddress(ringProgramId),
+      activated: true,
+      ringAuthorityTransactIsEnabled: ring.authorityTransact,
+    }),
+    governance,
+  );
 }
 
 export async function sync(client: ZolanaClient, actor: Actor): Promise<void> {

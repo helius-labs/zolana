@@ -19,9 +19,9 @@ import { Utxo } from "../transaction/utxo.js";
 import type { WalletUtxo } from "../transaction/wallet/state.js";
 import { bytesKey } from "../wallet/internal.js";
 
-import { auditRing, nextScanCursor, type KnownNote, type RingAuditReader } from "./audit.js";
+import { auditRing, nextScanCursor, type KnownUtxo, type RingAuditReader } from "./audit.js";
 import { recoverMergeOpening } from "./audit-merge.js";
-import { createdDepositNote, createdRingNotes } from "./created.js";
+import { createdDepositUtxo, createdRingUtxos } from "./created.js";
 import { openRingDepositOpening, ringDepositOutput } from "./deposit-audit.js";
 import { readRingDepositCapsule } from "./deposit-capsule.js";
 import { RingError } from "./error.js";
@@ -80,7 +80,7 @@ export async function recoverRingMemberNotes(
       ringProgramId: input.ringProgramId,
       assets: input.assets,
       origin: history.origin,
-      knownNotes: { note: (commitment) => found.created.get(bytesKey(commitment)) },
+      knownUtxos: { utxo: (commitment) => found.created.get(bytesKey(commitment)) },
       escrowedKeys: {
         nullifierPk: (ownerKey) =>
           equal(ownerKey, sourceKey) ? input.source.nullifierPublicKey : undefined,
@@ -93,7 +93,7 @@ export async function recoverRingMemberNotes(
   if (page.nextCursor !== undefined) throw new RingError("RING_RECOVERY_INCOMPLETE");
   const sourceOwner = input.source.ownerHash();
   for (const transaction of page.transactions) {
-    // Any unopened slot but another owner's escrow miss could hide a source note.
+    // Any unopened slot but another owner's escrow miss could hide a source UTXO.
     const error = transaction.payloadErrors.find(({ kind }) => kind !== "escrowUnknown");
     if (error !== undefined)
       throw new RingError("RING_AUDIT_OUTPUT_MISMATCH", {
@@ -101,33 +101,33 @@ export async function recoverRingMemberNotes(
       });
     for (const output of transaction.outputs) {
       if (output.opening.kind !== "ring") continue;
-      const { note } = output.opening;
+      const { utxo } = output.opening;
       const context = output.outputContext;
       if (
-        !equal(ownerHash(solanaOwnerIdentity(note.ownerKey), note.nullifierPk), sourceOwner) ||
+        !equal(ownerHash(solanaOwnerIdentity(utxo.ownerKey), utxo.nullifierPk), sourceOwner) ||
         !found.claim(context.hash)
       )
         continue;
-      const mint = registeredMint(input.assets, note.mint);
+      const mint = registeredMint(input.assets, utxo.mint);
       if (mint === undefined) {
         // Ownership and spentness stay known without the asset preimage.
-        if (note.mint !== undefined) found.unknownMints.add(note.mint);
-        found.unresolve(context.hash, input.nullifierKey.nullifier(context.hash, note.blinding));
+        if (utxo.mint !== undefined) found.unknownMints.add(utxo.mint);
+        found.unresolve(context.hash, input.nullifierKey.nullifier(context.hash, utxo.blinding));
         continue;
       }
-      const opened = sourceNote(input, {
+      const opened = sourceWalletUtxo(input, {
         utxo: new Utxo({
           owner: input.source.signingPublicKey,
           asset: mint,
-          amount: note.amount,
-          blinding: note.blinding,
+          amount: utxo.amount,
+          blinding: utxo.blinding,
           ringProgramId: input.ringProgramId,
         }),
         outputContext: context,
-        hashes: { dataHash: note.dataHash, ringDataHash: note.ringDataHash },
+        hashes: { dataHash: utxo.dataHash, ringDataHash: utxo.ringDataHash },
       });
-      if (opened.opens) found.candidates.push(opened.note);
-      else found.unresolve(context.hash, opened.note.nullifier);
+      if (opened.opens) found.candidates.push(opened.utxo);
+      else found.unresolve(context.hash, opened.utxo.nullifier);
     }
   }
   const spent = await followSpends(input, history, found, context);
@@ -154,8 +154,8 @@ class Found {
   /** Commitments without a verified opening, with their nullifier when the key derives one. */
   readonly unresolved: { readonly commitment: Bytes32; readonly nullifier?: Bytes32 }[] = [];
   readonly unknownMints = new Set<Address>();
-  /** Every deposit and merge note of an anonymous ring, its transfers spend them by commitment. */
-  readonly created = new Map<string, KnownNote>();
+  /** Every deposit and merge UTXO of an anonymous ring, its transfers spend them by hash. */
+  readonly created = new Map<string, KnownUtxo>();
   readonly #seen = new Set<string>();
 
   /** `false` when the commitment was already claimed. */
@@ -177,19 +177,19 @@ class Found {
   }
 }
 
-/** Rust `SourceMember::note`, the note at `outputContext` and whether it reproduces the leaf. */
-function sourceNote(
+/** Rust `SourceMember::wallet_utxo`, the UTXO at `outputContext` and whether it reproduces the leaf. */
+function sourceWalletUtxo(
   input: Pick<RingRecoveryParams, "source" | "nullifierKey">,
   candidate: Readonly<{
     utxo: Utxo;
     outputContext: OutputContext;
     hashes: Readonly<{ dataHash?: Bytes32; ringDataHash?: Bytes32 }>;
   }>,
-): Readonly<{ note: WalletUtxo; opens: boolean }> {
+): Readonly<{ utxo: WalletUtxo; opens: boolean }> {
   const { utxo, outputContext } = candidate;
   const dataHash = nonZero(candidate.hashes.dataHash);
   const ringDataHash = nonZero(candidate.hashes.ringDataHash);
-  const note: WalletUtxo = Object.freeze({
+  const walletUtxo: WalletUtxo = Object.freeze({
     utxo,
     outputContext,
     nullifier: utxo.nullifier(outputContext.hash, input.nullifierKey),
@@ -203,10 +203,10 @@ function sourceNote(
     dataHash,
     ringDataHash,
   );
-  return Object.freeze({ note, opens: equal(commitment, outputContext.hash) });
+  return Object.freeze({ utxo: walletUtxo, opens: equal(commitment, outputContext.hash) });
 }
 
-/** Mirrors Rust `deposit_history`, `deposited_notes` and `CreatedNotes::open` in one read. */
+/** Mirrors Rust `ring_history`, `deposited_utxos` and `CreatedUtxos::open` in one read. */
 async function recoverDeposits(
   input: RingRecoveryParams,
   history: RecoveryHistory,
@@ -220,12 +220,12 @@ async function recoverDeposits(
     { client: input.client, ringProgramId: input.ringProgramId, ...history },
     (confirmed) => {
       if (confirmed.kind === "merge") {
-        for (const { commitment, note } of createdRingNotes({
+        for (const { commitment, utxo } of createdRingUtxos({
           confirmed,
           ringProgramId: input.ringProgramId,
           auditor: input.auditor,
         }))
-          found.created.set(bytesKey(commitment), note);
+          found.created.set(bytesKey(commitment), utxo);
         return;
       }
       if (confirmed.kind !== "deposit") return;
@@ -251,17 +251,17 @@ async function recoverDeposits(
           continue;
         }
         try {
-          const created = createdDepositNote({
+          const created = createdDepositUtxo({
             ringProgramId: input.ringProgramId,
             slotIndex,
             slot,
             output: deposit,
             opening,
           });
-          if (created !== undefined) found.created.set(key, created.note);
+          if (created !== undefined) found.created.set(key, created.utxo);
           if (!equal(opening.ownerHash, sourceOwner)) continue;
           // The deposit proof binds the raw mint, its commitment opens without the registry.
-          const opened = sourceNote(input, {
+          const opened = sourceWalletUtxo(input, {
             utxo: new Utxo({
               owner: input.source.signingPublicKey,
               asset: deposit.asset,
@@ -279,10 +279,10 @@ async function recoverDeposits(
             throw new RingError("RING_AUDIT_MESSAGE", { details: { reason: "deposit opening" } });
           found.claim(commitment);
           if (registeredMint(input.assets, deposit.asset) !== undefined)
-            found.candidates.push(opened.note);
+            found.candidates.push(opened.utxo);
           else {
             found.unknownMints.add(deposit.asset);
-            found.unresolve(commitment, opened.note.nullifier);
+            found.unresolve(commitment, opened.utxo.nullifier);
           }
         } finally {
           opening.ownerHash.fill(0);

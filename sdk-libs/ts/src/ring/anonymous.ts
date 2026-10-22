@@ -38,7 +38,7 @@ import { RingError, type RingErrorCode } from "./error.js";
 import type { AnchorWitness, PendingFirstContact } from "./pipeline.js";
 import type { RingOutputRail } from "./rail.js";
 import { signMessage } from "./rpc.js";
-import { anchorHolds } from "./trees.js";
+import { anchorState } from "./trees.js";
 
 /** The hidden owner's Ed25519 key, the signature lives inside the proof so the key may live in a wallet. Rust `AnonymousSpendSigner`. */
 export interface AnonymousSpendSigner {
@@ -182,20 +182,19 @@ export async function anchorWitness(
     proof.path.length !== STATE_HEIGHT
   )
     throw new RingError("RING_ANCHOR_INVALID", { details: { reason: "path" } });
-  if (
-    !(await anchorHolds(
-      input.client,
-      { tree, rootIndex: proof.rootIndex, root: proof.root },
-      context,
-    ))
-  )
-    throw new RingError("RING_ANCHOR_INVALID", {
-      details: { reason: "root", rootIndex: proof.rootIndex },
-    });
+  const anchor = { tree, rootIndex: proof.rootIndex, root: proof.root };
+  switch (await anchorState(input.client, anchor, context)) {
+    case "paused":
+      throw new RingError("RING_ANCHOR_INVALID", { details: { reason: "paused", tree } });
+    case "moved":
+      throw new RingError("RING_ANCHOR_INVALID", {
+        details: { reason: "root", rootIndex: proof.rootIndex },
+      });
+    case "holds":
+      break;
+  }
   return Object.freeze({
-    tree,
-    root: proof.root,
-    rootIndex: proof.rootIndex,
+    ...anchor,
     request: Object.freeze({
       treeId: treeIdField(contact.treeId),
       asset: assetField(contact.asset),

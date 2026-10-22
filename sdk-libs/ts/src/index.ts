@@ -71,6 +71,7 @@ export {
   type DeriveRequest,
   type SerializedCursor,
   type SerializedNoteReservation,
+  type SerializedPendingNote,
   type SerializedSyncCursors,
   type SerializedWalletState,
   type RingDeliveryRequest,

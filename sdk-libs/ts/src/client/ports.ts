@@ -221,7 +221,7 @@ export interface RingRegistryState {
   readonly appendPath?: QuadPath;
 }
 
-/** Photon's v5 record projection, the queue and the proof inputs of an application. */
+/** Photon's record projection, the queue and the proof inputs of an application. */
 export interface RingRecordReader {
   getRingMemberRecord(
     request: RingMemberProofRequest,

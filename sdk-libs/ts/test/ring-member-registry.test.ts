@@ -199,7 +199,7 @@ describe("nullifier key envelope", () => {
 });
 
 describe("key registration", () => {
-  it("seals the member's key, proves the envelope and pays the insert fee to the authority", async () => {
+  it("seals the member's key, proves the envelope and pays the insert fee it read to the authority", async () => {
     const who = actor(7);
     const { client, accounts } = await ring([]);
     const { authority, proveRing } = escrow(who.keypair.nullifierKey());
@@ -210,12 +210,15 @@ describe("key registration", () => {
       authority,
     }).prove(client);
     const data = proven.instruction.data ?? new Uint8Array();
-    expect(data).toHaveLength(289);
+    expect(data).toHaveLength(1 + 296);
     expect(data[0]).toBe(29);
     expect(data.subarray(1, 193)).toEqual(PROOF);
     const nullifierPk = data.subarray(193, 225) as Bytes32;
     const ephU = data.subarray(225, 257) as Bytes32;
     const ciphertext = data.subarray(257, 289) as Bytes32;
+    expect(new DataView(data.buffer, data.byteOffset + 289, 8).getBigUint64(0, true)).toBe(
+      1_000_000n,
+    );
     expect(nullifierPk).toEqual(who.shielded.nullifierPublicKey);
     expect(
       proven.instruction.accounts?.map(({ address: account, role }) => [account, role]),

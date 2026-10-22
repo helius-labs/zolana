@@ -363,8 +363,7 @@ export function ringWithdrawalsOf(
 
 /**
  * Mirrors Rust `ConfirmedInstructionGroups::from_confirmed_transaction` over a
- * `getTransaction` JSON result. Version 1 lists every account in the message,
- * so a lookup table's loaded addresses are rejected.
+ * `getTransaction` JSON result.
  */
 export function confirmedInstructionGroups(
   transaction: unknown,
@@ -374,16 +373,7 @@ export function confirmedInstructionGroups(
   const message = record(encoded["message"], "transaction.transaction.message");
   const meta = record(wire["meta"], "transaction.meta");
   if (meta["err"] !== null) throw invalid("meta.err");
-  const accountKeys = addresses(message["accountKeys"], "message.accountKeys");
-  const loaded = meta["loadedAddresses"];
-  if (loaded !== undefined && loaded !== null) {
-    const loadedRecord = record(loaded, "meta.loadedAddresses");
-    const writable = addresses(loadedRecord["writable"], "meta.loadedAddresses.writable");
-    const readonly = addresses(loadedRecord["readonly"], "meta.loadedAddresses.readonly");
-    if (writable.length > 0 || readonly.length > 0) {
-      throw invalid("meta.loadedAddresses");
-    }
-  }
+  const accountKeys = messageAccountKeys(message, meta);
   const groups = list(message["instructions"], "message.instructions").map(
     (instruction, index): { outer: OriginInstruction; inner: OriginInstruction[] } => ({
       outer: parsed(accountKeys, instruction, `message.instructions[${index}]`),
@@ -415,6 +405,42 @@ export function confirmedInstructionGroups(
       inner: Object.freeze(group.inner),
     }),
   );
+}
+
+/** Static keys, then the loaded writable and readonly addresses, the order instruction indexes count in. */
+function messageAccountKeys(
+  message: Readonly<Record<string, unknown>>,
+  meta: Readonly<Record<string, unknown>>,
+): readonly Address[] {
+  const statics = addresses(message["accountKeys"], "message.accountKeys");
+  const lookups = message["addressTableLookups"];
+  const tables =
+    lookups === undefined || lookups === null
+      ? []
+      : list(lookups, "message.addressTableLookups").map((lookup, index) =>
+          record(lookup, `message.addressTableLookups[${index}]`),
+        );
+  const loaded = meta["loadedAddresses"];
+  if (loaded === undefined || loaded === null) {
+    if (tables.length > 0) throw invalid("meta.loadedAddresses");
+    return statics;
+  }
+  const loadedRecord = record(loaded, "meta.loadedAddresses");
+  const writable = addresses(loadedRecord["writable"], "meta.loadedAddresses.writable");
+  const readonly = addresses(loadedRecord["readonly"], "meta.loadedAddresses.readonly");
+  const indexes = (key: "writableIndexes" | "readonlyIndexes") =>
+    tables.reduce(
+      (count, table, index) =>
+        count + list(table[key], `message.addressTableLookups[${index}].${key}`).length,
+      0,
+    );
+  // Each lookup index loads one address, any other count names accounts no lookup loaded.
+  if (
+    writable.length !== indexes("writableIndexes") ||
+    readonly.length !== indexes("readonlyIndexes")
+  )
+    throw invalid("meta.loadedAddresses");
+  return [...statics, ...writable, ...readonly];
 }
 
 /** The public settlement legs a confirmed transaction paid out of `ring`. */

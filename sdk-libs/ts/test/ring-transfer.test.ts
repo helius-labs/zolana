@@ -775,6 +775,26 @@ describe("delegate rail", () => {
       "RING_MIXED_OWNERS",
     );
   });
+
+  it("refuses the delegate as the co-signer of its move before any proof", async () => {
+    const source = ShieldedKeypair.generate();
+    const recipient = ShieldedKeypair.generate();
+    const delegate = randomAddress();
+    const fixture = await ringFixture({
+      mode: "registry",
+      table: EMPTY_TABLE,
+      delegate,
+      records: escrowed([source, recipient]),
+      coSigner: { signer: delegate, scope: RING_COSIGN_TRANSFERS, thresholds: [] },
+    });
+    await expect(
+      move({ fixture, delegate, source, recipients: [recipient] }).prove(fixture.client),
+    ).rejects.toThrow(
+      ringError("RING_COSIGNER_REQUIRED", { reason: "coSignerIsDelegate", expected: delegate }),
+    );
+    expect(fixture.ringRequests).toHaveLength(0);
+    expect(fixture.sppCalls).toHaveLength(0);
+  });
 });
 
 describe("member records", () => {
@@ -1014,11 +1034,12 @@ describe("ring transfer builder", () => {
     return { fixture, requests, build };
   }
 
-  it("refuses a payment past one transaction before approval and any proof", async () => {
+  it("refuses a payment past one transaction before approval and any proof as too many notes", async () => {
     const wide = await ringTransfer({ amount: 4_750n, notes: 48 });
     await expect(wide.build).rejects.toMatchObject({
       code: "RING_BUILD_TRANSFER",
-      causeCode: "INTERFACE_TRANSACTION_TOO_LARGE",
+      causeCode: "RING_TOO_MANY_INPUTS",
+      cause: { details: { selected: 48, limit: TRANSACTION_SIZE_LIMIT } },
     });
     expect(wide.requests).toEqual([]);
     expect(wide.fixture.ringRequests).toHaveLength(0);

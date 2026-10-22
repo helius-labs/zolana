@@ -149,10 +149,13 @@ describe("ringInvokedIn", () => {
   });
 });
 
-function confirmedTransaction(loadedAddresses: {
-  writable: readonly Address[];
-  readonly: readonly Address[];
-}): unknown {
+function confirmedTransaction(
+  loadedAddresses: {
+    writable: readonly Address[];
+    readonly: readonly Address[];
+  },
+  lookup?: Readonly<{ writableIndexes: readonly number[]; readonlyIndexes: readonly number[] }>,
+): unknown {
   return {
     slot: 7,
     blockTime: null,
@@ -164,9 +167,13 @@ function confirmedTransaction(loadedAddresses: {
           numReadonlySignedAccounts: 0,
           numReadonlyUnsignedAccounts: 1,
         },
-        accountKeys: [PAYER, RING, OTHER, POOL],
+        // A lookup loads the trailing keys the instructions index.
+        accountKeys: lookup === undefined ? [PAYER, RING, OTHER, POOL] : [PAYER, RING],
         recentBlockhash: PAYER,
         instructions: [{ programIdIndex: 1, accounts: [0], data: "", stackHeight: null }],
+        ...(lookup === undefined
+          ? {}
+          : { addressTableLookups: [{ accountKey: OTHER, ...lookup }] }),
       },
     },
     meta: {
@@ -201,10 +208,36 @@ function confirmedTransaction(loadedAddresses: {
 }
 
 describe("confirmedInstructionGroups", () => {
-  it("rejects a transaction that loaded accounts from a lookup table", () => {
-    expect(() =>
-      confirmedInstructionGroups(confirmedTransaction({ writable: [OTHER], readonly: [POOL] })),
-    ).toThrow(RingError);
+  it("indexes a lookup table's loaded addresses after the static keys", () => {
+    const loaded = { writable: [OTHER], readonly: [POOL] };
+    expect(
+      confirmedInstructionGroups(
+        confirmedTransaction(loaded, { writableIndexes: [3], readonlyIndexes: [9] }),
+      ),
+    ).toEqual(confirmedInstructionGroups(confirmedTransaction({ writable: [], readonly: [] })));
+  });
+
+  it("refuses loaded addresses that differ from the lookups the message names", () => {
+    const loaded = { writable: [OTHER], readonly: [POOL] };
+    for (const transaction of [
+      confirmedTransaction(loaded),
+      confirmedTransaction(
+        { writable: [], readonly: [] },
+        { writableIndexes: [3], readonlyIndexes: [9] },
+      ),
+      confirmedTransaction(loaded, { writableIndexes: [3, 4], readonlyIndexes: [9] }),
+    ])
+      expect(() => confirmedInstructionGroups(transaction)).toThrow(
+        expect.objectContaining({ code: "RING_ORIGIN_DECODE" }),
+      );
+    const missing = confirmedTransaction(loaded, {
+      writableIndexes: [3],
+      readonlyIndexes: [9],
+    }) as { meta: Record<string, unknown> };
+    delete missing.meta["loadedAddresses"];
+    expect(() => confirmedInstructionGroups(missing)).toThrow(
+      expect.objectContaining({ code: "RING_ORIGIN_DECODE" }),
+    );
   });
 
   it("reads program ids from the message account keys", () => {

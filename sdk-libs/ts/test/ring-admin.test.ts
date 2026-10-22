@@ -32,6 +32,7 @@ import {
   setRingPausedInstruction,
   setRingPolicyRulesInstruction,
   setRingPolicySourceInstruction,
+  type RingKind,
 } from "../src/ring/admin.js";
 import { decodeRingProgramConfig } from "../src/ring/codecs.js";
 import { ringProgramDataAddress } from "../src/ring/config.js";
@@ -43,6 +44,7 @@ import {
   revokeReadAccessInstruction,
 } from "../src/ring/reader.js";
 
+import { solanaRpcReads } from "./helpers/clients.js";
 import { ringProgramConfigData } from "./helpers/ring-accounts.js";
 
 const RING = address("9vyTbYGyh3cwxkAQpjjFQGXmdJP6p9B6YcQ5pNuXPNbh");
@@ -63,6 +65,20 @@ function metas(instruction: Instruction): readonly (readonly [Address, number])[
   return (instruction.accounts ?? []).map(({ address: account, role }) => [account, role] as const);
 }
 
+/** A client whose rent read answers `minimum` and records every space it was asked for. */
+function rentClient(minimum: bigint) {
+  const spaces: bigint[] = [];
+  const solanaRpc = solanaRpcReads({
+    getMinimumBalanceForRentExemption: (space: bigint) => ({
+      send: async () => {
+        spaces.push(space);
+        return minimum;
+      },
+    }),
+  });
+  return { client: { solanaRpc }, spaces };
+}
+
 function u64le(value: bigint): number[] {
   return Array.from({ length: 8 }, (_, index) => Number((value >> BigInt(8 * index)) & 0xffn));
 }
@@ -76,18 +92,22 @@ const RULES: readonly Rule[] = [
 ];
 
 describe("ring setup", () => {
-  it("creates the config under the upgrade authority with both mode choices", async () => {
+  it.each<readonly [RingKind, number]>([
+    ["auditOnly", 0],
+    ["policy", 1],
+    ["anonymous", 2],
+    ["anonymousPolicy", 3],
+  ])("creates the config under the upgrade authority with the %s kind byte", async (kind, byte) => {
     const auditor = X25519Keypair.generate().publicKey();
     const instruction = await createRingConfigInstruction({
       ringProgramId: RING,
       payer: PAYER,
       authority: AUTHORITY,
       auditorPublicKey: auditor,
-      hasPolicy: true,
-      anonymous: true,
+      kind,
     });
     expect(instruction.programAddress).toBe(RING);
-    expect(instruction.data).toEqual(Uint8Array.of(1, ...auditor.toBytes(), 1, 1));
+    expect(instruction.data).toEqual(Uint8Array.of(1, ...auditor.toBytes(), byte));
     expect(metas(instruction)).toEqual([
       [PAYER, SIGN_WRITE],
       [AUTHORITY, SIGN],
@@ -96,6 +116,18 @@ describe("ring setup", () => {
       [RING, READ],
       [await ringProgramDataAddress(RING), READ],
     ]);
+  });
+
+  it("refuses a kind the program does not know", async () => {
+    await expect(
+      createRingConfigInstruction({
+        ringProgramId: RING,
+        payer: PAYER,
+        authority: AUTHORITY,
+        auditorPublicKey: X25519Keypair.generate().publicKey(),
+        kind: "registry" as RingKind,
+      }),
+    ).rejects.toMatchObject({ code: "RING_CONFIG_INVALID", details: { reason: "kind" } });
   });
 
   it("registers with the pool, a policy ring naming its registry", async () => {
@@ -225,6 +257,7 @@ describe("config writes", () => {
     const clear = await clearRingCoSignerInstruction({ ringProgramId: RING, authority: AUTHORITY });
     expect(clear.data).toEqual(Uint8Array.of(21));
     const fee = await setRingInsertFeeInstruction({
+      client: rentClient(890_880n).client,
       ringProgramId: RING,
       authority: AUTHORITY,
       fee: 1_000_000n,
@@ -235,6 +268,26 @@ describe("config writes", () => {
         [AUTHORITY, SIGN],
         [config, WRITE],
       ]);
+  });
+
+  it("refuses a nonzero insert fee below the rent of an empty account and reads no rent for a free write", async () => {
+    const write = (fee: bigint, rent: ReturnType<typeof rentClient>) =>
+      setRingInsertFeeInstruction({
+        client: rent.client,
+        ringProgramId: RING,
+        authority: AUTHORITY,
+        fee,
+      });
+    const floor = rentClient(890_880n);
+    await expect(write(890_879n, floor)).rejects.toMatchObject({
+      code: "RING_CONFIG_INVALID",
+      details: { reason: "InsertFeeBelowRent", fee: "890879", minimum: "890880" },
+    });
+    expect((await write(890_880n, floor)).data).toEqual(Uint8Array.of(42, ...u64le(890_880n)));
+    expect(floor.spaces).toEqual([0n, 0n]);
+    const free = rentClient(890_880n);
+    expect((await write(0n, free)).data).toEqual(Uint8Array.of(42, ...u64le(0n)));
+    expect(free.spaces).toEqual([]);
   });
 
   it.each([
@@ -251,6 +304,11 @@ describe("config writes", () => {
       },
       "InvalidCoSignerThresholds",
     ],
+    [
+      "thresholds outside the withdrawal scope",
+      { scope: 3, thresholds: [{ mint: MINT, amount: 1n }] },
+      "ThresholdsWithoutWithdrawals",
+    ],
   ] as const)("refuses a co-signer with %s", async (_case, change, reason) => {
     await expect(
       setRingCoSignerInstruction({
@@ -263,27 +321,21 @@ describe("config writes", () => {
     ).rejects.toMatchObject({ code: "RING_CO_SIGNER_INVALID", details: { reason } });
   });
 
-  it("appoints the delegate under the upgrade authority and refuses the zero key", async () => {
+  it("appoints the delegate under the upgrade authority with the delegate signing", async () => {
     const instruction = await setRingDelegateInstruction({
       ringProgramId: RING,
       authority: AUTHORITY,
       delegate: NEXT,
     });
-    expect(instruction.data).toEqual(Uint8Array.of(24, ...addressBytes(NEXT)));
+    expect(instruction.data).toEqual(Uint8Array.of(24));
     expect(metas(instruction)).toEqual([
       [AUTHORITY, SIGN],
       [await ringConfigAddress(RING), WRITE],
+      [NEXT, SIGN],
       [await ringMemberRegistryAddress(RING), READ],
       [RING, READ],
       [await ringProgramDataAddress(RING), READ],
     ]);
-    await expect(
-      setRingDelegateInstruction({
-        ringProgramId: RING,
-        authority: AUTHORITY,
-        delegate: address("11111111111111111111111111111111"),
-      }),
-    ).rejects.toMatchObject({ code: "RING_DELEGATE_INVALID" });
   });
 
   it("grants and revokes a reader with its tagged key", async () => {
