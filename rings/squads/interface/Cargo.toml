@@ -1,0 +1,40 @@
+[package]
+name = "zolana-squads-interface"
+version.workspace = true
+edition.workspace = true
+
+[features]
+# The committed verifying keys come from an insecure test setup and do not
+# compile without this feature. On by default: the squads ring is a test ring,
+# never a devnet or mainnet deployment.
+default = ["verifying-keys", "insecure-test-setup"]
+insecure-test-setup = []
+solana = ["dep:solana-instruction"]
+verifying-keys = ["dep:groth16-solana"]
+
+[dependencies]
+solana-address = { workspace = true }
+solana-instruction = { workspace = true, optional = true }
+solana-pubkey = { workspace = true }
+solana-program-error = { workspace = true }
+wincode = { workspace = true }
+zolana-interface = { workspace = true }
+groth16-solana = { workspace = true, optional = true }
+thiserror = { workspace = true }
+
+[[test]]
+name = "error"
+path = "tests/error.rs"
+
+[[test]]
+name = "state"
+path = "tests/state.rs"
+
+[[test]]
+name = "instruction_data"
+path = "tests/instruction_data.rs"
+
+[[test]]
+name = "builders"
+path = "tests/builders.rs"
+required-features = ["solana"]

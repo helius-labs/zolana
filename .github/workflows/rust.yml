@@ -407,6 +407,15 @@ jobs:
           - name: rfq settlement
             recipe: test-rfq-validator
             runner: ubuntu-latest
+          - name: squads ring
+            recipe: test-squads
+            runner: ubuntu-latest
+          - name: squads ring lifecycle
+            recipe: test-squads-ring
+            runner: ubuntu-latest
+          - name: squads ring smart-account lifecycle
+            recipe: test-squads-ring-smart-account
+            runner: ubuntu-latest
     env:
       AGAVE_VERSION: v4.2.2
       # GH_TOKEN is for the gh-release custom-ring key downloads

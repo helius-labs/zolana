@@ -1,0 +1,48 @@
+[package]
+name = "zolana-squads-sdk"
+version.workspace = true
+edition.workspace = true
+
+[features]
+default = ["encryption"]
+encryption = []
+rpc = []
+prover = [
+    "encryption",
+    "dep:squads-prover",
+    "dep:zolana-interface",
+    "dep:zolana-program",
+    "dep:solana-instruction",
+    "dep:solana-pubkey",
+]
+
+[dependencies]
+zolana-squads-interface = { workspace = true }
+zolana-keypair = { workspace = true }
+zolana-transaction = { workspace = true }
+zolana-client = { workspace = true }
+
+# Pure-crypto deps. Always available: `crypto.rs` (the relocated ring gadgets) and
+# the client-side construction/decryption modules use them under the default
+# `encryption` feature, and the `prover` witness builders reuse the same code.
+# Versions mirror the root workspace.
+aes = { version = "0.8", default-features = false }
+ctr = { version = "0.9", default-features = false }
+aes-gcm = { version = "0.10", default-features = false, features = ["aes", "alloc"] }
+zolana-hasher = { workspace = true, features = ["std"] }
+
+# prover feature. Versions mirror the root workspace (the squads workspace does
+# not inherit these, so they are pinned directly here).
+squads-prover = { workspace = true, optional = true }
+zolana-interface = { workspace = true, optional = true }
+zolana-program = { workspace = true, optional = true }
+solana-instruction = { workspace = true, optional = true }
+solana-pubkey = { workspace = true, optional = true }
+
+[dev-dependencies]
+groth16-solana = { workspace = true }
+squads-prover = { workspace = true, features = ["test-server"] }
+zolana-merkle-tree = { workspace = true }
+zolana-hasher = { workspace = true, features = ["std"] }
+num-bigint = "0.4.6"
+

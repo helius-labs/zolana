@@ -64,6 +64,8 @@ members = [
     "sdk-tests/zk-standalone",
     "xtask",
 ]
+# Nested workspace; built on its own (own lockfile, main-repo crates by path).
+exclude = ["rings/squads"]
 default-members = [
     "forester",
     "program-libs/interface",

@@ -11,6 +11,8 @@ use crate::prover::tee::TeeError;
 
 #[derive(Debug, Error)]
 pub enum ClientError {
+    #[error("the hidden owner's detached Ed25519 signature is invalid")]
+    InvalidAnonymousOwnerSignature,
     #[error("address input {index} is not supported by merge or ring authority proofs")]
     AddressInputUnsupported { index: usize },
     #[error("the ring key-registry indexer is catching up or recovering")]

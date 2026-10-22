@@ -1514,6 +1514,136 @@ test-rfq-validator: build-programs build-prover-server build-cli ensure-photon
 test-examples-validator: ensure-swap-keys ensure-dynamic-swap-keys ensure-compression-keys build-programs build-prover-server build-cli ensure-photon
     ZOLANA_PHOTON_BIN="{{photon-bin}}" cargo nextest run -p swap-test-validator -p timelock-escrow-program -p compression-example-test -p dynamic-swap-test -p rfq-test --features timelock-escrow-program/localnet -E 'not binary(bench_cu) and not (package(timelock-escrow-program) and not binary(escrow))'
 
+# BDD Squads-ring lifecycle over a fresh validator + Photon per scenario
+# (rings/squads/integration-tests). Drives the real Squads ring program, whose
+# deposit/transfer/withdrawal CPI into SPP via its `ring_auth` PDA.
+# build-programs does not cover the nested squads workspace, so the recipe builds
+# that `.so` itself.
+test-squads-ring: build-programs build-prover-server build-cli ensure-photon ensure-smart-account ensure-squads-keys build-squads-prover-server
+    #!/usr/bin/env bash
+    set -euo pipefail
+    eval "$(tools/ci/xtask.sh program-ids)"
+    cargo build-sbf --tools-version {{sbf-tools-version}} --features bpf-entrypoint --manifest-path rings/squads/program/Cargo.toml
+    cleanup() {
+      lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      {{stop-localnet-backends}}
+    }
+    trap cleanup EXIT
+    export SHIELDED_POOL_PROGRAM_ID
+    export USER_REGISTRY_PROGRAM_ID
+    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
+    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
+    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
+    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+      cargo test --manifest-path rings/squads/Cargo.toml -p squads-ring-tests --test keypair_lifecycle --release
+
+# Smart-account variant of test-squads-ring: a Squads vault is the executor/owner.
+# The vault executes deposit + sync transact (wrapped in executeTransactionSyncV2)
+# and creates + owns the async proposal; a co-signer keypair settles
+# execute_proposal over the signatureless SPP ring-authority rail.
+test-squads-ring-smart-account: build-programs build-prover-server build-cli ensure-photon ensure-smart-account ensure-squads-keys build-squads-prover-server
+    #!/usr/bin/env bash
+    set -euo pipefail
+    eval "$(tools/ci/xtask.sh program-ids)"
+    cargo build-sbf --tools-version {{sbf-tools-version}} --features bpf-entrypoint --manifest-path rings/squads/program/Cargo.toml
+    cleanup() {
+      lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      {{stop-localnet-backends}}
+    }
+    trap cleanup EXIT
+    export SHIELDED_POOL_PROGRAM_ID
+    export USER_REGISTRY_PROGRAM_ID
+    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
+    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
+    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
+    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+      cargo test --manifest-path rings/squads/Cargo.toml -p squads-ring-tests --test smart_account_lifecycle --release
+
+# Squads workspace tests besides the BDD suites: interface, program, sdk and
+# client crates, the LiteSVM account suites and the composed localnet test.
+test-squads: build-programs build-prover-server build-cli ensure-surfpool ensure-squads-keys build-squads-prover-server
+    CIRCUITS_DIRS=rings/squads/prover/circuits just example-circuits-go test ./...
+    cargo build-sbf --tools-version {{sbf-tools-version}} --features bpf-entrypoint --manifest-path rings/squads/program/Cargo.toml
+    cargo test --manifest-path rings/squads/Cargo.toml --workspace --exclude squads-ring-tests
+    cargo test --manifest-path rings/squads/Cargo.toml -p squads-ring-tests --lib \
+      --test ring_config --test viewing_key --test create_viewing_key_e2e --test transact_e2e \
+      --test key_update_e2e --test execute_proposal_e2e --test init_spp_ring_config_e2e \
+      --test composed_localnet --test deferred_settlement --test key_update \
+      --test merge_transact_cpi --test proposal --test paired_proofs
+
+squads-circuits := "ring_1_1 ring_2_2 key_encryption_1 key_encryption_2 key_encryption_3"
+squads-prover-socket := trim_end_match(env("TMPDIR", "/tmp"), "/") / "zolana-squads-prover-" + env("ZOLANA_PORT_OFFSET", "0") + ".sock"
+
+# The squads ring program verifies against INSECURE TEST KEYS -- UNSAFE FOR
+# PRODUCTION, generated like the example keys above: the squads-prover setup
+# CLI's `--insecure-test-keys` is deterministic, so the keys are generated
+# locally into rings/squads/build/gnark and rings/squads/squads-keys.CHECKSUM
+# pins them to the committed rings/squads/interface verifying keys.
+ensure-squads-keys:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    base=rings/squads
+    for c in {{squads-circuits}}; do
+        dir="$base/build/gnark/$c"
+        pinned() {
+            for kind in pk vk; do
+                [ -f "$dir/$kind.bin" ] || return 1
+                want=$(awk -v n="${c}_${kind}.bin" '$2==n {print $1}' "$base/squads-keys.CHECKSUM")
+                got=$(shasum -a 256 "$dir/$kind.bin" | awk '{print $1}')
+                [ "$want" = "$got" ] || return 1
+            done
+        }
+        pinned && continue
+        cargo run -q --manifest-path "$base/Cargo.toml" -p squads-prover --bin squads-prover-setup -- \
+            "$c" "$dir" --insecure-test-keys
+        if ! pinned; then
+            echo "$dir does not match $base/squads-keys.CHECKSUM after an insecure test setup:" >&2
+            echo "the circuit or gnark changed; run 'just regen-squads-keys' and commit its output" >&2
+            exit 1
+        fi
+    done
+
+# Regenerate the squads insecure test keys, the committed squads verifying keys
+# and rings/squads/squads-keys.CHECKSUM. Commit the verifying keys and the
+# manifest together.
+regen-squads-keys:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    base=rings/squads
+    for c in {{squads-circuits}}; do
+        cargo run -q --manifest-path "$base/Cargo.toml" -p squads-prover --bin squads-prover-setup -- \
+            "$c" "$base/build/gnark/$c" --insecure-test-keys \
+            --rust-vk "$base/interface/src/verifying_keys/$c.rs"
+    done
+    : > "$base/squads-keys.CHECKSUM"
+    for c in {{squads-circuits}}; do
+        for kind in pk vk; do
+            shasum -a 256 "$base/build/gnark/$c/$kind.bin" \
+                | awk -v n="${c}_${kind}.bin" '{print $1 "  " n}' >> "$base/squads-keys.CHECKSUM"
+        done
+    done
+
+# Build the squads test prover server, which squads tests start on demand and
+# prove through so every test binary shares its loaded proving keys. A server
+# of this clone still running an older build is stopped so the next proof
+# starts the new one.
+build-squads-prover-server:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cargo build --release --manifest-path rings/squads/Cargo.toml -p squads-test-prover-server
+    pid_file="{{without_extension(squads-prover-socket)}}.pid"
+    binary=rings/squads/target/release/squads-test-prover-server
+    if [[ -f "$pid_file" && "$binary" -nt "$pid_file" ]]; then
+        kill "$(cat "$pid_file")" 2>/dev/null || true
+    fi
+
+stop-squads-prover-server:
+    #!/usr/bin/env bash
+    pid_file="{{without_extension(squads-prover-socket)}}.pid"
+    [[ -f "$pid_file" ]] && kill "$(cat "$pid_file")" 2>/dev/null || true
+
 install-surfpool:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -1745,8 +1875,9 @@ clippy:
 check-test-hygiene:
     ./tools/check-test-hygiene.sh
 
-# Run a go command in every example prover's circuits module, e.g.
-# `just example-circuits-go vet ./...` or `just example-circuits-go mod tidy`.
+# Run a go command in every example prover's and the squads prover's circuits
+# module, e.g. `just example-circuits-go vet ./...` or
+# `just example-circuits-go mod tidy`. CIRCUITS_DIRS narrows the modules.
 # The committed go.mod requires the gnark FFI bridge without replacing it (the
 # build helper supplies the replace at build time), so the command runs against
 # a copy of go.mod/go.sum with the replace added. Changes the command makes to
@@ -1758,7 +1889,7 @@ example-circuits-go +args:
     bridge="$PWD/sdk-libs/gnark-ffi-prover/build-helper/go"
     tmp=$(mktemp -d)
     trap 'rm -rf "$tmp"' EXIT
-    for dir in sdk-tests/*/prover/circuits; do
+    for dir in ${CIRCUITS_DIRS:-sdk-tests/*/prover/circuits rings/squads/prover/circuits}; do
         echo "== $dir"
         cp "$dir/go.mod" "$tmp/circuits.mod"
         cp "$dir/go.sum" "$tmp/circuits.sum"

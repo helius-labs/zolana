@@ -10,7 +10,10 @@ import (
 
 // assign fills the circuit's exported variables from witness values keyed by
 // field path: a field's name, prefixed by its enclosing struct fields joined
-// with "_". Scalars take one decimal value and arrays one per element. Every
+// with "_". Scalars take one decimal value and arrays or slices of variables
+// one per element. An array or slice of structs contributes each element's
+// fields under "<field>_<index>". Slices keep the length the circuit's New
+// allocated them with, and fields tagged `gnark:"-"` are skipped. Every
 // variable must be assigned and every key must name one.
 func assign(circuit frontend.Circuit, values map[string][]string) error {
 	circuitValue := reflect.ValueOf(circuit)
@@ -33,7 +36,7 @@ func assignStruct(v reflect.Value, prefix string, values map[string][]string, kn
 	t := v.Type()
 	for i := 0; i < t.NumField(); i++ {
 		sf := t.Field(i)
-		if sf.PkgPath != "" {
+		if sf.PkgPath != "" || sf.Tag.Get("gnark") == "-" {
 			continue
 		}
 		key := sf.Name
@@ -46,7 +49,15 @@ func assignStruct(v reflect.Value, prefix string, values map[string][]string, kn
 			if err := assignStruct(field, key, values, known); err != nil {
 				return err
 			}
-		case reflect.Array:
+		case reflect.Array, reflect.Slice:
+			if field.Type().Elem().Kind() == reflect.Struct {
+				for j := 0; j < field.Len(); j++ {
+					if err := assignStruct(field.Index(j), fmt.Sprintf("%s_%d", key, j), values, known); err != nil {
+						return err
+					}
+				}
+				continue
+			}
 			if err := assignArray(values, key, field); err != nil {
 				return err
 			}

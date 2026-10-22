@@ -6,6 +6,12 @@ use crate::{
 pub(crate) const SIGNATURE_TYPE_ED25519: u8 = 0x01;
 pub(crate) const SIGNATURE_TYPE_PDA: u8 = 0x02;
 
+/// Tag byte of a synthetic [`PublicKey`] that carries a precomputed owner
+/// identity instead of a key (see [`PublicKey::from_owner_identity`]). It is not
+/// a [`Curve`], so every key path ([`PublicKey::curve`], signing, byte
+/// validation) rejects it; only [`PublicKey::owner_proof_input_hash`] reads it.
+pub(crate) const PRECOMPUTED_OWNER_IDENTITY_TYPE: u8 = 0xFF;
+
 /// The owner's encoding, not always a curve point: a PDA is off the Ed25519
 /// curve and cannot sign. A `Pda` owner is identical to an `Ed25519` owner in
 /// every public-data path; only the secret paths (client signing, role
@@ -54,6 +60,26 @@ impl PublicKey {
         bytes[0] = u8::from(Curve::Pda);
         bytes[1..1 + ED25519_PUBKEY_LEN].copy_from_slice(pda.as_array());
         Self(bytes)
+    }
+
+    /// A synthetic key for an owner known only by its owner identity (the
+    /// [`Self::owner_proof_input_hash`] of its real key), such as a transfer
+    /// recipient or vault owner read from a policy-ring account that stores the
+    /// identity rather than the key. Owner hashes, UTXO hashes and the prover's
+    /// owner assembly consume only the identity, so such an owner hashes and
+    /// proves exactly as its real key would. It cannot sign, has no view tag, and
+    /// is never serialized.
+    pub fn from_owner_identity(identity: [u8; 32]) -> Self {
+        let mut bytes = [0u8; PUBLIC_KEY_LEN];
+        bytes[0] = PRECOMPUTED_OWNER_IDENTITY_TYPE;
+        bytes[1..1 + 32].copy_from_slice(&identity);
+        Self(bytes)
+    }
+
+    /// True for a key built by [`Self::from_owner_identity`]; such a key must be
+    /// consumed only through [`Self::owner_proof_input_hash`].
+    pub fn is_precomputed_owner_identity(&self) -> bool {
+        self.0[0] == PRECOMPUTED_OWNER_IDENTITY_TYPE
     }
 
     /// All-zero owner of a padding (dummy) UTXO. `owner = 0` is permanently
@@ -111,6 +137,11 @@ impl PublicKey {
 
     /// Commits the Solana owner identity with its domain tag.
     pub fn owner_proof_input_hash(&self) -> Result<[u8; 32], KeypairError> {
+        if self.is_precomputed_owner_identity() {
+            let mut identity = [0u8; 32];
+            identity.copy_from_slice(&self.0[1..1 + 32]);
+            return Ok(identity);
+        }
         Ok(zolana_hasher::primitives::solana_owner_identity(
             &self.confidential_view_tag()?,
         )?)
@@ -153,5 +184,39 @@ impl<'de> serde::Deserialize<'de> for PublicKey {
             return Ok(Self::zeroed());
         }
         Self::from_bytes(bytes).map_err(serde::de::Error::custom)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn precomputed_owner_identity_hashes_as_the_identity() {
+        let mut identity = [0u8; 32];
+        identity[31] = 42;
+        let key = PublicKey::from_owner_identity(identity);
+        assert!(key.is_precomputed_owner_identity());
+        assert_eq!(key.owner_proof_input_hash().unwrap(), identity);
+        assert_eq!(
+            key.curve(),
+            Err(KeypairError::InvalidSignatureType(
+                PRECOMPUTED_OWNER_IDENTITY_TYPE
+            ))
+        );
+        assert!(key.confidential_view_tag().is_err());
+    }
+
+    #[test]
+    fn real_keys_are_not_precomputed_owner_identities() {
+        let pda = PublicKey::from_pda(&solana_address::Address::new_from_array([5u8; 32]));
+        assert!(!pda.is_precomputed_owner_identity());
+        let identity = pda.owner_proof_input_hash().unwrap();
+        assert_eq!(
+            PublicKey::from_owner_identity(identity)
+                .owner_proof_input_hash()
+                .unwrap(),
+            identity
+        );
     }
 }

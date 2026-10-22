@@ -1,0 +1,26 @@
+[package]
+name = "squads-prover"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[lib]
+name = "squads_prover"
+path = "src/lib.rs"
+
+[[bin]]
+name = "squads-prover-setup"
+path = "src/bin/setup.rs"
+
+[features]
+test-server = ["dep:serde", "dep:libc"]
+
+[dependencies]
+libc = { version = "0.2", optional = true }
+serde = { version = "1.0", features = ["derive"], optional = true }
+serde_json = "1.0"
+thiserror = { workspace = true }
+zolana-gnark-ffi-prover = { workspace = true }
+
+[build-dependencies]
+zolana-gnark-ffi-prover-build = { workspace = true }

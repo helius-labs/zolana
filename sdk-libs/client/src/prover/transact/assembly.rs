@@ -1537,4 +1537,40 @@ mod tests {
             ]
         );
     }
+
+    #[test]
+    fn a_precomputed_owner_identity_input_uses_the_identity() {
+        let mut identity = [0u8; 32];
+        identity[31] = 42;
+        let nullifier_key = zolana_keypair::NullifierKey::from_secret([2u8; 31]);
+        let utxo: SppProofInputUtxo = wallet_input(
+            Utxo {
+                owner: zolana_keypair::PublicKey::from_owner_identity(identity),
+                asset: zolana_transaction::Mint::SOL,
+                amount: 5,
+                blinding: [3u8; 32],
+                ring_program_id: None,
+                data: Data::default(),
+            },
+            &nullifier_key,
+            0,
+        )
+        .into();
+        let mut state = merkle_proof(0, 0x12, 3);
+        state.leaf = utxo.utxo_hash;
+        let mut nullifier = non_inclusion_proof(0x33, 7);
+        nullifier.leaf = utxo.nullifier;
+        nullifier.merkle_context.tree = zolana_interface::pda::tree(0);
+        let input_utxos = [TransferInputUtxo {
+            utxo,
+            proof: Some(SpendProof { state, nullifier }),
+            nullifier_proof: None,
+        }];
+
+        for mode in [OwnerMode::RingAuthority, OwnerMode::Merge] {
+            let assembled = assemble_inputs(&input_utxos, &mode).expect("assemble inputs");
+            let input = assembled.inputs.first().expect("one input");
+            assert_eq!(input.owner_pk_hash, be(&identity));
+        }
+    }
 }

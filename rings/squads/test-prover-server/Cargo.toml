@@ -1,0 +1,14 @@
+[package]
+name = "squads-test-prover-server"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[[bin]]
+name = "squads-test-prover-server"
+path = "src/main.rs"
+
+[dependencies]
+libc = "0.2"
+squads-prover = { workspace = true, features = ["test-server"] }
+zolana-gnark-ffi-prover = { workspace = true }
