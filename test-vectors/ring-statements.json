@@ -1,5 +1,5 @@
 {
-  "description": "Every ring statement and its public input HashChain4(elements). Audit heads are [CRAU, n0, ring_id, pack_be(0x04 || tx_u), pack_be(auditor_pubkey), pack_be(0x04 || eph_u), hash_bytes(sealed), salt, layout] with the frame's random salt and layout = exits | key_escrow << 1 | data_free << 2 | full_openings << 3, the tails chain the published output hashes, the delivered and anonymous body hashes (zero for an exit), the disclosure fields, pack_be(u) per delivered slot and the 0x00 || tag field per anonymous slot. Each disclosure holds the field count of its layout, packed with 2 outputs, delivered with 8, anonymous of commitment class 4 and of the entry key with 3 inputs and 4 outputs. The deposit statement is HashChain(elements) over CRDP, the context hash of the program id, tree and SPP data, the count, the anonymous flag, each owner hash with its capsule ciphertext hash zero padded to 8 slots, both tagged keys packed, the registry flag and root. Produced by custom-rings/interface/tests/statements.rs.",
+  "description": "Every ring statement and its public input HashChain4(elements). Audit heads are [CRAU, n0, ring_id, pack_be(0x04 || tx_u), pack_be(auditor_pubkey), pack_be(0x04 || eph_u), hash_bytes(sealed), salt, layout] with the frame's random salt and layout = exits | key_escrow << 1 | data_free << 2 | full_openings << 3, the tails chain the published output hashes, the delivered and anonymous body hashes (zero for an exit), the disclosure fields, pack_be(u) per delivered slot and the 0^16 || tag field per anonymous slot. Each disclosure holds the field count of its layout, packed with 2 outputs, delivered with 8, anonymous of commitment class 4 and of the entry key with 3 inputs and 4 outputs. The deposit statement is HashChain(elements) over CRDP, the context hash of the program id, tree and SPP data, the count, the anonymous flag, each owner hash with its capsule ciphertext hash zero padded to 8 slots, both tagged keys packed, the registry flag and root. Produced by custom-rings/interface/tests/statements.rs.",
   "audit": [
     {
       "kind": "packed",
@@ -187,21 +187,21 @@
           "kind": "anonymous",
           "hash": "1e14141414141414141414141414141414141414141414141414141414141414",
           "u": null,
-          "tag": "b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0",
+          "tag": "b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0",
           "body": "90909090909090909090909090909090909090909090909090909090909090909090909090909090"
         },
         {
           "kind": "anonymous",
           "hash": "1e15151515151515151515151515151515151515151515151515151515151515",
           "u": null,
-          "tag": "b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1",
+          "tag": "b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1",
           "body": "91919191919191919191919191919191919191919191919191919191919191919191919191919191"
         },
         {
           "kind": "anonymous",
           "hash": "1e16161616161616161616161616161616161616161616161616161616161616",
           "u": null,
-          "tag": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+          "tag": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
           "body": "92929292929292929292929292929292929292929292929292929292929292929292929292929292"
         },
         {
@@ -228,9 +228,7 @@
         "1e34343434343434343434343434343434343434343434343434343434343434",
         "1e35353535353535353535353535353535353535353535353535353535353535",
         "1e36363636363636363636363636363636363636363636363636363636363636",
-        "1e37373737373737373737373737373737373737373737373737373737373737",
-        "1e38383838383838383838383838383838383838383838383838383838383838",
-        "1e39393939393939393939393939393939393939393939393939393939393939"
+        "1e37373737373737373737373737373737373737373737373737373737373737"
       ],
       "private_tx_hash": "1e03030303030303030303030303030303030303030303030303030303030303",
       "epoch": 6734,
@@ -251,14 +249,14 @@
         "0000000000000000000000000000000000000000000000000000000000000001",
         "1938e1190c4ff0e2ab58a9846e1c9dc495c216e8596b3c7fc927f5df8c36dc46",
         "105af9c30a2198c62f55b6d80affe956d7b8e97b53ef3c078bb6430a509e315a",
-        "08e538af20696e0514c54c7ee0529ad2c4f9b8de08507146a171c1f5d6ff07aa",
+        "20f2b28373904e7bff6bdce5f2ed29050a942c0e84462e6d1b49ba11532072f1",
         "1e03030303030303030303030303030303030303030303030303030303030303",
-        "16254625e1ef04ebcfdf548cd0b7b738133b0e71dfaa93210748a1cf4672687b",
+        "11928490802735f1613ff6f3155d677b4c83aa9d5fd84779706cc0986dc4c786",
         "0000000000000000000000000000000000000000000000000000000000001a4e",
         "1e04040404040404040404040404040404040404040404040404040404040404",
         "1e05050505050505050505050505050505050505050505050505050505050505"
       ],
-      "public_input_hash": "2a664723520c7cbf949a276ea72db87eb2951bb32b203f160569256189084d7a"
+      "public_input_hash": "2140398ef486f4240c754fe56fc9e8d7f0fa6cb6f1ccad2df8403b551034157c"
     },
     {
       "kind": "anonymous",
@@ -275,21 +273,21 @@
           "kind": "anonymous",
           "hash": "1e14141414141414141414141414141414141414141414141414141414141414",
           "u": null,
-          "tag": "b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0",
+          "tag": "b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0",
           "body": "90909090909090909090909090909090909090909090909090909090909090909090909090909090"
         },
         {
           "kind": "anonymous",
           "hash": "1e15151515151515151515151515151515151515151515151515151515151515",
           "u": null,
-          "tag": "b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1",
+          "tag": "b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1",
           "body": "91919191919191919191919191919191919191919191919191919191919191919191919191919191"
         },
         {
           "kind": "anonymous",
           "hash": "1e16161616161616161616161616161616161616161616161616161616161616",
           "u": null,
-          "tag": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+          "tag": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
           "body": "92929292929292929292929292929292929292929292929292929292929292929292929292929292"
         },
         {
@@ -348,12 +346,12 @@
         "105af9c30a2198c62f55b6d80affe956d7b8e97b53ef3c078bb6430a509e315a",
         "2c818d7043922366eaf8ce4c304e80d0a303c99d40312aba97b00b2f9f7bf0a4",
         "1e03030303030303030303030303030303030303030303030303030303030303",
-        "16254625e1ef04ebcfdf548cd0b7b738133b0e71dfaa93210748a1cf4672687b",
+        "11928490802735f1613ff6f3155d677b4c83aa9d5fd84779706cc0986dc4c786",
         "0000000000000000000000000000000000000000000000000000000000001a4e",
         "1e04040404040404040404040404040404040404040404040404040404040404",
         "1e05050505050505050505050505050505050505050505050505050505050505"
       ],
-      "public_input_hash": "1c20c00dc7d2d256a5b75b00fa1185ad14902e8fa9ed02e92976168e01a2f699"
+      "public_input_hash": "1b5099091ce3020671f162e5e6ffbefc4ed9f007b02ce2d92462b50de2411df4"
     }
   ],
   "policy": [

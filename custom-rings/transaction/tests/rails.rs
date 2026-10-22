@@ -1,7 +1,7 @@
 //! The ring output rails, read back as a recipient and the ring program read them.
 
 use custom_ring_interface::{
-    stream::{DeliveredSlot, PackedSlot, RingSecret, RingTag, SlotSecret, TagIndex},
+    stream::{DeliveredSlot, PackedSlot, RingSecret, RingTag, SlotSecret, TagIndex, TAG_LEN},
     RingOutput,
 };
 use solana_address::Address;
@@ -223,7 +223,7 @@ fn an_anonymous_payment_binds_its_tag_and_the_change_opens_under_the_change_key(
     let receiver = keypair(2);
     let (recipient, address_key) = ring_address(&receiver);
     let change_key = sender.viewing_key.ring_change_key(&RING).unwrap();
-    let tag = RingTag::from_bytes([7; 31]);
+    let tag = RingTag::from_bytes([7; TAG_LEN]);
     let slots = AnonymousSlots::new(change_key.pubkey())
         .with_payment(
             0,
@@ -275,7 +275,7 @@ fn an_exit_naming_a_payment_key_is_refused() {
             0,
             StreamPayment {
                 recipient: recipient.viewing_pubkey,
-                tag: RingTag::from_bytes([7; 31]),
+                tag: RingTag::from_bytes([7; TAG_LEN]),
                 position: StreamPosition::Inbox(TagIndex::new(0).unwrap()),
             },
         )
@@ -319,7 +319,7 @@ fn a_payment_planned_on_another_owners_slot_is_refused() {
             0,
             StreamPayment {
                 recipient: other.viewing_pubkey,
-                tag: RingTag::from_bytes([7; 31]),
+                tag: RingTag::from_bytes([7; TAG_LEN]),
                 position: StreamPosition::Inbox(TagIndex::new(0).unwrap()),
             },
         )
@@ -339,7 +339,7 @@ fn one_transfer_takes_one_pair_payment() {
     let (second, _) = ring_address(&keypair(3));
     let pair = |recipient: &ShieldedAddress, byte| StreamPayment {
         recipient: recipient.viewing_pubkey,
-        tag: RingTag::from_bytes([byte; 31]),
+        tag: RingTag::from_bytes([byte; TAG_LEN]),
         position: StreamPosition::Pair(TagIndex::new(0).unwrap()),
     };
     let slots = AnonymousSlots::new(

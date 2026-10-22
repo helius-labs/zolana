@@ -1,4 +1,4 @@
-//! Ring notes of deposits and anonymous merges, a commitment layout spends them by hash alone.
+//! Ring notes of deposits and anonymous merges, a commitment layout spends them by hash or prefix.
 
 use std::num::{NonZeroU32, NonZeroUsize};
 

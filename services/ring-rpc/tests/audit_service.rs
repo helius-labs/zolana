@@ -5,7 +5,10 @@ mod origin_fixture;
 #[path = "../../../custom-rings/client/tests/common/transfer.rs"]
 pub mod transfer;
 
-use custom_ring_interface::{stream::RingTag, EscrowKey, RingMode};
+use custom_ring_interface::{
+    stream::{RingTag, TAG_LEN},
+    EscrowKey, RingMode,
+};
 use std::{
     collections::{HashMap, HashSet},
     future::Future,
@@ -773,31 +776,23 @@ impl Indexed<'_> {
     fn anonymous(self, spent: &[Option<Spend>]) -> ShieldedTransaction {
         let sender = spent.iter().flatten().next().expect("a spent UTXO").utxo;
         let inputs = AnonymousInputs::Openings {
+            sender_key: sender.owner_key,
             sender_nullifier_pk: sender.nullifier_pk,
             inputs: spent
                 .iter()
                 .map(|spend| spend.map(|spend| input_opening(&spend.utxo, spend.blinding)))
                 .collect(),
         };
-        self.anonymous_with(sender.owner_key, inputs)
+        self.anonymous_with(inputs)
     }
 
-    /// The commitment key's disclosure, each published input named by its UTXO hash.
-    fn anonymous_commitments(
-        self,
-        sender: UtxoFields,
-        spent: &[Option<[u8; 32]>],
-    ) -> ShieldedTransaction {
-        self.anonymous_with(
-            sender.owner_key,
-            AnonymousInputs::Commitments(spent.to_vec()),
-        )
+    /// The commitment key's disclosure, spent UTXO 0 named by its hash and every later one by its prefix.
+    fn anonymous_commitments(self, spent: &[Option<[u8; 32]>]) -> ShieldedTransaction {
+        self.anonymous_with(AnonymousInputs::commitments(spent).expect("spent UTXO 0"))
     }
 
-    fn anonymous_with(self, sender_key: [u8; 32], inputs: AnonymousInputs) -> ShieldedTransaction {
-        let disclosure = self
-            .transfer
-            .anonymous_disclosure(sender_key, self.outputs, inputs);
+    fn anonymous_with(self, inputs: AnonymousInputs) -> ShieldedTransaction {
+        let disclosure = self.transfer.anonymous_disclosure(self.outputs, inputs);
         self.publish(Rail::Anonymous, &disclosure)
     }
 
@@ -1096,12 +1091,12 @@ async fn passkey_reader_opens_anonymous_spend_trace() {
         utxo: sol(0xa1, 900),
         blinding: field(0x60),
     };
-    let tag = RingTag::from_bytes([0x53; 31]);
+    let tag = RingTag::from_bytes([0x53; TAG_LEN]);
     let outputs = [
         Output::Ring {
             utxo: sol(0xb5, 500),
             recipient_u: x25519_u(0x50),
-            tag: Some(RingTag::from_bytes([0x51; 31])),
+            tag: Some(RingTag::from_bytes([0x51; TAG_LEN])),
         },
         Output::Ring {
             utxo: sol(0xb6, 501),
@@ -1205,7 +1200,7 @@ impl SpentUtxo {
             Output::Ring {
                 utxo: member,
                 recipient_u: x25519_u(0x54),
-                tag: Some(RingTag::from_bytes([0x55; 31])),
+                tag: Some(RingTag::from_bytes([0x55; TAG_LEN])),
             },
             Output::Dummy,
         ];
@@ -1230,7 +1225,7 @@ impl SpentUtxo {
             signature: 81,
             frames: &fixture.frames,
         }
-        .anonymous_commitments(member, &[Some(commitment)]);
+        .anonymous_commitments(&[Some(commitment)]);
         let entry = Indexed {
             transfer: &ring_transfer(82),
             outputs: &exit,
@@ -1460,7 +1455,7 @@ async fn a_backfill_opens_a_deposited_utxo_a_later_spend_names() {
         signature: 83,
         frames: &fixture.frames,
     }
-    .anonymous_commitments(member, &[Some(commitment)]);
+    .anonymous_commitments(&[Some(commitment)]);
     let mut source = fixture
         .source()
         .with_transactions(vec![deposit.clone(), spent.clone()]);

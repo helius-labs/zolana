@@ -42,6 +42,10 @@ pub enum AuditError {
     InputTreeCount { trees: usize, inputs: usize },
     #[error("spent UTXO {commitment:?} is in no output the auditor opened")]
     UnseenInput { commitment: [u8; 32] },
+    #[error(
+        "fewer known notes of the sender carry spent prefix {prefix:#034x} than inputs name it"
+    )]
+    UnseenInputPrefix { prefix: u128 },
     #[error("audited notes answer {got} of {want} requested hashes")]
     AuditedUtxosCount { got: usize, want: usize },
     #[error("audited note names both or neither of its nullifier key and owner hash")]

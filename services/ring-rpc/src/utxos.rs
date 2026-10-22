@@ -1,16 +1,20 @@
 //! The UTXOs a ring's auditor opened and the nullifier keys its registry escrows.
 
 use std::{
-    collections::{hash_map::Entry, BTreeMap, HashMap},
+    borrow::Borrow,
+    collections::{BTreeMap, HashMap},
     ops::Range,
     sync::{PoisonError, RwLock},
     time::Duration,
 };
 
+use custom_ring_interface::InputPrefix;
 use solana_signature::Signature;
 use tokio::sync::Mutex as AsyncMutex;
 use zolana_indexer_api::{Context, Hash, RingQueueEntryView};
-use zolana_ring_client::{rpc::AuditedUtxoView, CreatedUtxo, EscrowedKeys, KnownUtxo, KnownUtxos};
+use zolana_ring_client::{
+    rpc::AuditedUtxoView, CreatedUtxo, EscrowedKeys, KnownUtxo, KnownUtxoIndex, KnownUtxos,
+};
 
 pub const UTXO_BACKFILL_INTERVAL: Duration = Duration::from_secs(30);
 
@@ -20,7 +24,7 @@ pub(crate) const MAX_BACKFILL_PAGES: usize = 64;
 /// The guards are never held across an await, the audit reads them synchronously.
 #[derive(Default)]
 pub(crate) struct AuditStore {
-    utxos: RwLock<HashMap<[u8; 32], StoredUtxo>>,
+    utxos: RwLock<KnownUtxoIndex<StoredUtxo>>,
     escrow: RwLock<EscrowMap>,
     /// The indexer context when the backfill last reached the scan frontier.
     context: RwLock<Context>,
@@ -74,23 +78,14 @@ impl AuditStore {
     ) {
         let mut stored = self.utxos.write().unwrap_or_else(PoisonError::into_inner);
         for created in utxos {
-            let entry = StoredUtxo {
-                utxo: created.utxo,
-                created_in,
-                slot_index: created.slot_index,
-            };
-            match stored.entry(created.commitment) {
-                // A later opening of the same hash replaces an entry only to add its mint.
-                Entry::Occupied(mut kept)
-                    if kept.get().utxo.mint.is_none() && entry.utxo.mint.is_some() =>
-                {
-                    kept.insert(entry);
-                }
-                Entry::Occupied(_) => {}
-                Entry::Vacant(free) => {
-                    free.insert(entry);
-                }
-            }
+            stored.insert(
+                created.commitment,
+                StoredUtxo {
+                    utxo: created.utxo,
+                    created_in,
+                    slot_index: created.slot_index,
+                },
+            );
         }
     }
 
@@ -205,9 +200,23 @@ impl EscrowMap {
     }
 }
 
+impl Borrow<KnownUtxo> for StoredUtxo {
+    fn borrow(&self) -> &KnownUtxo {
+        &self.utxo
+    }
+}
+
 impl KnownUtxos for AuditStore {
     fn utxo(&self, commitment: &[u8; 32]) -> Option<KnownUtxo> {
         self.stored(commitment).map(|stored| stored.utxo)
+    }
+
+    fn with_prefix(&self, owner_key: &[u8; 32], prefix: InputPrefix) -> Vec<[u8; 32]> {
+        self.utxos
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .prefixed(owner_key, prefix)
+            .to_vec()
     }
 }
 

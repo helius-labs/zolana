@@ -6,7 +6,7 @@ mod common;
 use bytemuck::Zeroable;
 use custom_ring_interface::{
     input_flag, shape_flag,
-    stream::{RingTag, EPOCH_SLOTS},
+    stream::{RingTag, EPOCH_SLOTS, TAG_LEN},
     transact_flag, AnchorRoot, AnonymousAuditKey, AnonymousLayout, AnonymousProofData, AppliedAt,
     AuditBinding, AuditKind, CuratorRoot, CustomRingError, CustomRingProof, DeliveredLayout,
     DisclosureLayout, InputTrees, InstructionTag, MemberRegistry, PackedLayout, ParsedTransact,
@@ -62,7 +62,7 @@ struct Fixture {
     fields: Vec<[u8; 32]>,
     bytes: [[u8; 32]; 24],
     bodies: [[u8; 40]; 8],
-    tags: [[u8; 31]; 4],
+    tags: [[u8; TAG_LEN]; 4],
     ciphertext: Vec<u8>,
     data_free_ciphertext: Vec<u8>,
     payload: Vec<u8>,
@@ -91,7 +91,7 @@ impl Fixture {
             fields: (0..64u8).map(field).collect(),
             bytes: core::array::from_fn(|i| [0x40 + i as u8; 32]),
             bodies: core::array::from_fn(|i| [0x80 + i as u8; 40]),
-            tags: core::array::from_fn(|i| [0xa0 + i as u8; 31]),
+            tags: core::array::from_fn(|i| [0xa0 + i as u8; TAG_LEN]),
             ciphertext: (0..61).collect(),
             data_free_ciphertext: (0..(RING_PACKED_DATA_FREE_BODY_LEN - RECIPIENT_KEY_LEN) as u8)
                 .map(|byte| byte ^ 0x33)

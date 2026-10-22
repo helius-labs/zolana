@@ -1,9 +1,9 @@
 //! The auditor envelope, CROD pad and disclosures, mirrored by Go `custom_rings/circuits/base`.
 
 use custom_ring_interface::{
-    domain, pack_disclosure, unpack_disclosure, AnonymousAuditKey, AnonymousLayout,
-    DeliveredLayout, DisclosureLayout, PackedFields, PackedLayout, ANONYMOUS_ENTRY_CLASS,
-    ANONYMOUS_SLOT_BYTES, AUDIT_CIPHERTEXT_LEN, DELIVERED_SLOT_BYTES,
+    domain, pack_disclosure, unpack_disclosure, AnonymousAuditKey, AnonymousInputFields,
+    AnonymousLayout, DeliveredLayout, DisclosureLayout, InputPrefix, PackedFields, PackedLayout,
+    ANONYMOUS_ENTRY_CLASS, ANONYMOUS_SLOT_BYTES, AUDIT_CIPHERTEXT_LEN, DELIVERED_SLOT_BYTES,
     DISCLOSURE_INPUT_AMOUNT_BYTES, DISCLOSURE_SENDER_KEY_BYTES,
 };
 use zeroize::Zeroizing;
@@ -183,20 +183,43 @@ pub struct AnonymousInputOpening {
 /// A `None` input is a dummy.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AnonymousInputs {
-    /// Every spent UTXO a ring note, the auditor opens it by its UTXO hash.
-    Commitments(Vec<Option<[u8; 32]>>),
-    /// The entry key opens every spent UTXO, all under one nullifier key.
+    /// Every spent UTXO a ring note, spent UTXO 0 named by its hash and every later one by its prefix.
+    Commitments {
+        first: [u8; 32],
+        prefixes: Vec<Option<InputPrefix>>,
+    },
+    /// The entry key opens every spent UTXO, all under the sender's key and one nullifier key.
     Openings {
+        sender_key: [u8; 32],
         sender_nullifier_pk: [u8; 32],
         inputs: Vec<Option<AnonymousInputOpening>>,
     },
+}
+
+impl AnonymousInputs {
+    /// Spent UTXO 0 must be real.
+    pub fn commitments(hashes: &[Option<[u8; 32]>]) -> Result<Self, AuditError> {
+        let [Some(first), rest @ ..] = hashes else {
+            return Err(AuditError::DisclosureLayout);
+        };
+        let prefixes = rest
+            .iter()
+            .map(|hash| {
+                hash.map(|hash| InputPrefix::of(&hash).ok_or(AuditError::DisclosureField))
+                    .transpose()
+            })
+            .collect::<Result<_, _>>()?;
+        Ok(Self::Commitments {
+            first: *first,
+            prefixes,
+        })
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AnonymousDisclosure {
     pub layout: AnonymousLayout,
     pub seed_out: Option<[u8; 32]>,
-    pub sender_key: [u8; 32],
     pub outputs: Vec<AnonymousOutputOpening>,
     pub inputs: AnonymousInputs,
 }
@@ -524,42 +547,43 @@ impl AnonymousDisclosure {
                 .map(AnonymousOutputOpening::nullifier_pk)
                 .collect::<Vec<_>>(),
         );
-        let mut block = self.sender_key.to_vec();
-        for output in &self.outputs {
-            block.extend(output.slot_bytes()?);
-        }
-        fields[at.slots.clone()].copy_from_slice(&pack_disclosure(&block));
-        let inputs = &mut fields[at.inputs.clone()];
-        match (
-            &self.inputs,
-            layout.key,
-            at.sender_nullifier_pk,
-            &at.input_amounts,
-        ) {
+        let mut block = Vec::with_capacity(at.slot_bytes);
+        match (&self.inputs, &at.inputs, layout.key) {
             (
-                AnonymousInputs::Commitments(hashes),
+                AnonymousInputs::Commitments { first, prefixes },
+                AnonymousInputFields::Commitments {
+                    first: first_at,
+                    prefix_pairs,
+                },
                 AnonymousAuditKey::Commitment { class },
-                None,
-                None,
-            ) if hashes.len() == layout.inputs && layout.inputs <= class => {
-                for (field, hash) in inputs.iter_mut().zip(hashes) {
-                    *field = hash.unwrap_or(ZERO);
+            ) if prefixes.len() + 1 == layout.inputs && layout.inputs <= class => {
+                fields[*first_at] = *first;
+                for (field, pair) in fields[prefix_pairs.clone()]
+                    .iter_mut()
+                    .zip(prefixes.chunks(2))
+                {
+                    *field = InputPrefix::pair(pair[0], pair.get(1).copied().flatten());
                 }
             }
             (
                 AnonymousInputs::Openings {
+                    sender_key,
                     sender_nullifier_pk,
                     inputs: openings,
                 },
+                AnonymousInputFields::Openings {
+                    sender_nullifier_pk: sender_at,
+                    amounts,
+                    openings: openings_at,
+                },
                 AnonymousAuditKey::Entry,
-                Some(sender),
-                Some(amounts),
             ) if openings.len() == layout.inputs && layout.inputs <= ANONYMOUS_ENTRY_CLASS => {
+                block.extend_from_slice(sender_key);
                 let openings: Vec<_> = openings
                     .iter()
                     .map(|opening| opening.unwrap_or_default())
                     .collect();
-                for (pair, opening) in inputs.chunks_mut(at.input_width).zip(&openings) {
+                for (pair, opening) in fields[openings_at.clone()].chunks_mut(2).zip(&openings) {
                     pair.copy_from_slice(&[opening.asset, opening.blinding]);
                 }
                 let mut packed = vec![0; DISCLOSURE_INPUT_AMOUNT_BYTES * ANONYMOUS_ENTRY_CLASS];
@@ -572,10 +596,14 @@ impl AnonymousDisclosure {
                     *slot = opening.amount.to_be_bytes();
                 }
                 fields[amounts.clone()].copy_from_slice(&pack_disclosure(&packed));
-                fields[sender] = *sender_nullifier_pk;
+                fields[*sender_at] = *sender_nullifier_pk;
             }
             _ => return Err(AuditError::DisclosureLayout),
         }
+        for output in &self.outputs {
+            block.extend(output.slot_bytes()?);
+        }
+        fields[at.slots.clone()].copy_from_slice(&pack_disclosure(&block));
         Ok(())
     }
 
@@ -585,13 +613,13 @@ impl AnonymousDisclosure {
         fields: &[[u8; 32]],
     ) -> Result<Self, AuditError> {
         let at = layout.fields();
-        let block = packed_bytes(
-            &fields[at.slots.clone()],
-            DISCLOSURE_SENDER_KEY_BYTES + ANONYMOUS_SLOT_BYTES * layout.outputs,
-        )?;
-        let (sender_key, slots) = block
-            .split_first_chunk::<DISCLOSURE_SENDER_KEY_BYTES>()
-            .ok_or(AuditError::DisclosureLayout)?;
+        let block = packed_bytes(&fields[at.slots.clone()], at.slot_bytes)?;
+        let slots = match at.inputs {
+            AnonymousInputFields::Openings { .. } => block
+                .get(DISCLOSURE_SENDER_KEY_BYTES..)
+                .ok_or(AuditError::DisclosureLayout)?,
+            AnonymousInputFields::Commitments { .. } => &block[..],
+        };
         let outputs = fields[at.nullifier_pks.clone()]
             .iter()
             .zip(slots.as_chunks::<ANONYMOUS_SLOT_BYTES>().0)
@@ -600,15 +628,16 @@ impl AnonymousDisclosure {
                 AnonymousOutputOpening::read(*nullifier_pk, slot, *exit)
             })
             .collect();
-        let published = &fields[at.inputs.clone()];
-        let inputs = match (layout.key, at.sender_nullifier_pk, &at.input_amounts) {
-            (AnonymousAuditKey::Commitment { .. }, None, None) => AnonymousInputs::Commitments(
-                published
-                    .iter()
-                    .map(|hash| (*hash != ZERO).then_some(*hash))
-                    .collect(),
-            ),
-            (AnonymousAuditKey::Entry, Some(sender), Some(amounts)) => {
+        let inputs = match &at.inputs {
+            AnonymousInputFields::Commitments {
+                first,
+                prefix_pairs,
+            } => Self::read_commitments(layout, fields[*first], &fields[prefix_pairs.clone()])?,
+            AnonymousInputFields::Openings {
+                sender_nullifier_pk,
+                amounts,
+                openings,
+            } => {
                 let amounts = packed_bytes(
                     &fields[amounts.clone()],
                     DISCLOSURE_INPUT_AMOUNT_BYTES * ANONYMOUS_ENTRY_CLASS,
@@ -617,13 +646,17 @@ impl AnonymousDisclosure {
                     .split_at_checked(DISCLOSURE_INPUT_AMOUNT_BYTES * layout.inputs)
                     .ok_or(AuditError::DisclosureLayout)?;
                 zero(unpublished)?;
+                let sender_key = block
+                    .first_chunk::<DISCLOSURE_SENDER_KEY_BYTES>()
+                    .ok_or(AuditError::DisclosureLayout)?;
                 AnonymousInputs::Openings {
-                    sender_nullifier_pk: fields[sender],
+                    sender_key: *sender_key,
+                    sender_nullifier_pk: fields[*sender_nullifier_pk],
                     inputs: spent
                         .as_chunks::<DISCLOSURE_INPUT_AMOUNT_BYTES>()
                         .0
                         .iter()
-                        .zip(published.chunks(at.input_width))
+                        .zip(fields[openings.clone()].chunks(2))
                         .map(|(amount, pair)| {
                             let opening = AnonymousInputOpening {
                                 asset: pair[0],
@@ -635,15 +668,32 @@ impl AnonymousDisclosure {
                         .collect(),
                 }
             }
-            _ => return Err(AuditError::DisclosureLayout),
         };
         Ok(Self {
             layout,
             seed_out: at.seed_out.map(|index| fields[index]),
-            sender_key: *sender_key,
             outputs,
             inputs,
         })
+    }
+
+    /// Spent UTXO 0 is real, an even published count closes the last pair with a zero half.
+    fn read_commitments(
+        layout: AnonymousLayout,
+        first: [u8; 32],
+        pairs: &[[u8; 32]],
+    ) -> Result<AnonymousInputs, AuditError> {
+        if first == ZERO {
+            return Err(AuditError::DisclosureLayout);
+        }
+        let mut prefixes = Vec::with_capacity(2 * pairs.len());
+        for pair in pairs {
+            prefixes.extend(InputPrefix::split(pair).ok_or(AuditError::DisclosureField)?);
+        }
+        if prefixes.len() >= layout.inputs && prefixes.pop().flatten().is_some() {
+            return Err(AuditError::DisclosurePadding);
+        }
+        Ok(AnonymousInputs::Commitments { first, prefixes })
     }
 }
 

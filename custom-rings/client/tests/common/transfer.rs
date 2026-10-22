@@ -1,7 +1,7 @@
 //! Ring transfers as the ring program publishes them, under the keys of the Go `ringaudit` fixture.
 
 use custom_ring_interface::{
-    stream::{DeliveredSlot, PackedSlot, RingSecret, RingTag, SlotSecret},
+    stream::{DeliveredSlot, PackedSlot, RingSecret, RingTag, SlotSecret, TAG_LEN},
     tag as ring_tag, tagged_x25519, AnonymousAuditKey, AnonymousLayout, AnonymousProofData,
     AnonymousSpend, AuditorMessage, CustomRingProof, DeliveredLayout, DisclosureLayout, InputTrees,
     PackedLayout, PlainGroth16Proof, RingOutput, RingRail, RingTransactData,
@@ -319,7 +319,7 @@ impl Transfer {
                     },
                     Rail::Anonymous => RingOutput::Anonymous {
                         hash: &hash,
-                        tag: RingTag::from_bytes([0xd1 + index as u8; 31]),
+                        tag: RingTag::from_bytes([0xd1 + index as u8; TAG_LEN]),
                         body: &body,
                     },
                 };
@@ -438,12 +438,11 @@ impl Transfer {
     /// The anonymous disclosure, the entry key when `inputs` open in full.
     pub fn anonymous_disclosure(
         &self,
-        sender_key: [u8; 32],
         outputs: &[Output],
         inputs: AnonymousInputs,
     ) -> AuditDisclosure {
         let (count, spends_default_ring) = match &inputs {
-            AnonymousInputs::Commitments(hashes) => (hashes.len(), false),
+            AnonymousInputs::Commitments { prefixes, .. } => (prefixes.len() + 1, false),
             AnonymousInputs::Openings { inputs, .. } => (inputs.len(), true),
         };
         let seed_out = self.published_seed_out(outputs);
@@ -461,7 +460,6 @@ impl Transfer {
                 exits: seed_out.is_some(),
             },
             seed_out,
-            sender_key,
             outputs: outputs.iter().map(anonymous_opening).collect(),
             inputs,
         })

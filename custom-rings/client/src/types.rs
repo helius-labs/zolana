@@ -111,11 +111,29 @@ pub struct AuditedSender {
     pub nullifier_pk: Option<[u8; 32]>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AuditedInput {
     pub nullifier: [u8; 32],
-    /// `None` for a dummy input.
-    pub opening: Option<AuditedInputOpening>,
+    pub opening: InputOpening,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum InputOpening {
+    Dummy,
+    Opened(AuditedInputOpening),
+    /// More of the sender's ring notes carry the disclosed prefix than inputs name it.
+    Ambiguous {
+        candidates: Vec<[u8; 32]>,
+    },
+}
+
+impl InputOpening {
+    pub fn opened(&self) -> Option<&AuditedInputOpening> {
+        match self {
+            Self::Opened(opening) => Some(opening),
+            Self::Dummy | Self::Ambiguous { .. } => None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -188,7 +206,7 @@ impl AuditedTransaction {
         let inputs = self
             .inputs
             .iter()
-            .filter_map(|input| input.opening)
+            .filter_map(|input| input.opening.opened())
             .map(|opening| opening.mint);
         outputs.chain(inputs).any(|mint| mint.is_none())
     }

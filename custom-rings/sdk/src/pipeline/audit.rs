@@ -98,7 +98,6 @@ impl AuditSeal<'_> {
                 AuditDisclosure::Anonymous(AnonymousDisclosure {
                     layout,
                     seed_out: layout.exits.then_some(seed_out),
-                    sender_key: owner_key(&self.sender.signing_pubkey)?,
                     outputs: self
                         .published
                         .iter()
@@ -118,12 +117,13 @@ impl AuditSeal<'_> {
             .iter()
             .filter(|input| !input.is_compact());
         Ok(match key {
-            AnonymousAuditKey::Commitment { .. } => AnonymousInputs::Commitments(
-                published
+            AnonymousAuditKey::Commitment { .. } => AnonymousInputs::commitments(
+                &published
                     .map(|input| (!input.is_dummy()).then(|| input.private_tx_input_hash()))
-                    .collect(),
-            ),
+                    .collect::<Vec<_>>(),
+            )?,
             AnonymousAuditKey::Entry => AnonymousInputs::Openings {
+                sender_key: owner_key(&self.sender.signing_pubkey)?,
                 sender_nullifier_pk: self.sender.nullifier_pubkey,
                 inputs: published
                     .map(|input| match input.is_dummy() {
@@ -265,7 +265,9 @@ impl AuditProving<'_> {
                         .collect::<Result<_, _>>()?,
                     private_tx_hash: statement.private_tx_hash,
                     private_tx_blinding: statement.private_tx_blinding,
-                    sender_key: owner_key(&self.sender.signing_pubkey)?,
+                    sender_key: (layout.key == AnonymousAuditKey::Entry)
+                        .then(|| owner_key(&self.sender.signing_pubkey))
+                        .transpose()?,
                     input_count: u8::try_from(count).map_err(|_| {
                         TransactionError::TooManyInputs {
                             got: count,

@@ -142,14 +142,14 @@ impl Scenario {
             .collect();
         let mut below_modulus = BN254_SCALAR_MODULUS_BE;
         below_modulus[31] -= 1;
-        let mut two_pow_248 = [0; 32];
-        two_pow_248[0] = 1;
-        let mut below_two_pow_248 = [0xff; 32];
-        below_two_pow_248[0] = 0;
-        let low248: Vec<Value> = [
+        let mut two_pow_128 = [0; 32];
+        two_pow_128[32 - TAG_LEN - 1] = 1;
+        let mut below_two_pow_128 = [0; 32];
+        below_two_pow_128[32 - TAG_LEN..].fill(0xff);
+        let low128: Vec<Value> = [
             [0; 32],
-            below_two_pow_248,
-            two_pow_248,
+            below_two_pow_128,
+            two_pow_128,
             below_modulus,
             *inbox_key.as_bytes(),
         ]
@@ -172,11 +172,11 @@ impl Scenario {
         json!({
             "description": "Ring tag streams. ring_id = hash_bytes(ring_program_id), \
                 inbox_key = Poseidon(CRIK, ring_id, pack_be(viewing_pk)), an inbox tag is \
-                low248(Poseidon(CRIT, inbox_key, epoch, index)), pair_key = Poseidon(CRPK, \
-                first_contact_secret), a pair tag is low248(Poseidon(CRPT, pair_key, epoch, \
-                index)). low248 is the low 31 bytes of a canonical field, epoch = slot / \
-                epoch_slots. Produced by custom-rings/interface/tests/vectors.rs \
-                print_ring_tag_vectors.",
+                low128(Poseidon(CRIT, inbox_key, epoch, index)), pair_key = Poseidon(CRPK, \
+                first_contact_secret), a pair tag is low128(Poseidon(CRPT, pair_key, epoch, \
+                index)). low128 is the low 16 bytes of a canonical field, the owner tag is \
+                0^16 || tag, epoch = slot / epoch_slots. Produced by \
+                custom-rings/interface/tests/vectors.rs print_ring_tag_vectors.",
             "constants": {
                 "epoch_slots": EPOCH_SLOTS,
                 "j_inbox": J_INBOX,
@@ -193,7 +193,7 @@ impl Scenario {
             "first_contact_secret": hex::encode(first_contact.as_bytes()),
             "pair_key": hex::encode(pair_key.as_bytes()),
             "pair_tags": pair_tags,
-            "low248": low248,
+            "low128": low128,
             "epochs": epochs,
         })
     }
@@ -263,7 +263,7 @@ impl Scenario {
                 pack_be(recipient_viewing_pk), salt, output_index, first_nullifier) with agreement \
                 = X25519(tx_viewing_secret, recipient_viewing_pk). Packed and confidential ring \
                 secrets are Poseidon(CRRC, slot secret), the anonymous one Poseidon(CRRA, \
-                delivered slot secret, 0x00 || tag) with tag the inbox tag of ring-tags.json at \
+                delivered slot secret, 0^16 || tag) with tag the inbox tag of ring-tags.json at \
                 epoch 6734 and index output_index. A ring blinding is Poseidon(TXRB, \
                 first_nullifier, ring secret, output_index), an exit blinding Poseidon(TXOB, \
                 first_nullifier, output_blinding_seed, output_index) with output_blinding_seed = \

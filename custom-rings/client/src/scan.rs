@@ -15,8 +15,9 @@ use zolana_transaction::{AssetRegistry, ShieldedTransaction};
 use crate::{
     decrypt::TransactionAudit,
     encryption::auditor_view_tag,
+    known::KnownUtxoIndex,
     origin::{ConfirmedEventKind, RingOrigin, TransactionOrigin},
-    types::{AuditedTransaction, KnownUtxo},
+    types::AuditedTransaction,
     AuditError,
 };
 
@@ -163,7 +164,7 @@ pub struct RingScan {
     page_size: NonZeroU32,
     max_pages: NonZeroUsize,
     indexer_config: Option<IndexerRpcConfig>,
-    known: HashMap<[u8; 32], KnownUtxo>,
+    known: KnownUtxoIndex,
     escrowed: HashMap<[u8; 32], [u8; 32]>,
 }
 
@@ -177,7 +178,7 @@ impl RingScan {
             page_size: DEFAULT_PAGE_SIZE,
             max_pages: DEFAULT_MAX_PAGES,
             indexer_config: None,
-            known: HashMap::new(),
+            known: KnownUtxoIndex::default(),
             escrowed: HashMap::new(),
         }
     }
@@ -210,7 +211,7 @@ impl RingScan {
     }
 
     /// Notes opened before by commitment, earlier pages and [`crate::CreatedUtxos`] alike.
-    pub fn with_known_utxos(mut self, utxos: HashMap<[u8; 32], KnownUtxo>) -> Self {
+    pub fn with_known_utxos(mut self, utxos: KnownUtxoIndex) -> Self {
         self.known = utxos;
         self
     }

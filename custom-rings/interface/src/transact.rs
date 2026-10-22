@@ -316,7 +316,7 @@ pub enum RingOutput<'a> {
         u: &'a [u8; 32],
         body: &'a [u8; RING_DELIVERED_BODY_LEN],
     },
-    /// Scheme 9 under the owner tag `0x00 || tag`.
+    /// Scheme 9 under the owner tag `0^16 || tag`.
     Anonymous {
         hash: &'a [u8; 32],
         tag: RingTag,
@@ -360,7 +360,7 @@ impl<'a> RingOutput<'a> {
         }
     }
 
-    /// `0x00 || tag` of an anonymous slot, zero for any other.
+    /// `0^16 || tag` of an anonymous slot, zero for any other.
     pub fn tag_field(&self) -> [u8; 32] {
         match self {
             Self::Anonymous { tag, .. } => tag.field(),

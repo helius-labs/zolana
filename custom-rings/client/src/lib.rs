@@ -6,6 +6,7 @@ mod deposit;
 mod disclosure;
 mod encryption;
 mod error;
+mod known;
 mod merge_audit;
 mod origin;
 mod reader;
@@ -33,6 +34,7 @@ pub use crate::{
         SealedNullifierKey,
     },
     error::AuditError,
+    known::KnownUtxoIndex,
     merge_audit::{
         AuditedMerge, MergeAudit, MergeAuditPage, MergeAuditResult, MergeKeys, UnresolvedMerge,
     },
@@ -48,8 +50,8 @@ pub use crate::{
     scan::{AuditedPage, RingScan, RingScanPage, ScanPage},
     types::{
         AuditedInput, AuditedInputOpening, AuditedOutput, AuditedSender, AuditedTransaction,
-        AuditedUtxo, CreatedUtxo, InputRing, KnownUtxo, OutputOpening, OutputPayloadError,
-        OutputPayloadErrorKind, UtxoOwner,
+        AuditedUtxo, CreatedUtxo, InputOpening, InputRing, KnownUtxo, OutputOpening,
+        OutputPayloadError, OutputPayloadErrorKind, UtxoOwner,
     },
 };
 pub use zolana_client::audit_capsule_payload as deposit_payload;

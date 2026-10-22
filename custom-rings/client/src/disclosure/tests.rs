@@ -95,9 +95,9 @@ fn anonymous() -> (AuditDisclosure, [bool; 4]) {
             exits: true,
         },
         seed_out: Some(field(1)),
-        sender_key: [0xa1; 32],
         outputs: anonymous_outputs(),
         inputs: AnonymousInputs::Openings {
+            sender_key: [0xa1; 32],
             sender_nullifier_pk: field(0x5a),
             inputs: vec![
                 Some(AnonymousInputOpening {
@@ -124,9 +124,11 @@ fn anonymous_commitment() -> (AuditDisclosure, [bool; 4]) {
             exits: false,
         },
         seed_out: None,
-        sender_key: [0xa1; 32],
         outputs,
-        inputs: AnonymousInputs::Commitments(vec![Some(field(0x62)), None]),
+        inputs: AnonymousInputs::Commitments {
+            first: field(0x62),
+            prefixes: vec![None],
+        },
     });
     (disclosure, [false; 4])
 }

@@ -2,10 +2,11 @@
 //! public input `HashChain4(elements)`, read by the circuits and the program.
 
 use custom_ring_interface::{
-    stream::RingTag, AnonymousAudit, AnonymousAuditKey, AnonymousLayout, ApplyRecordsStatement,
-    AuditHead, AuditKind, AuditLayout, AuditStatement, DeliveredLayout, DepositContext,
-    DepositPublicInput, DisclosureLayout, PackedLayout, PolicyKey, PolicyStatement,
-    RegisterKeyStatement, RingOutput, DEPOSIT_PUBLIC_INPUT_ELEMENTS,
+    stream::{RingTag, TAG_LEN},
+    AnonymousAudit, AnonymousAuditKey, AnonymousLayout, ApplyRecordsStatement, AuditHead,
+    AuditKind, AuditLayout, AuditStatement, DeliveredLayout, DepositContext, DepositPublicInput,
+    DisclosureLayout, PackedLayout, PolicyKey, PolicyStatement, RegisterKeyStatement, RingOutput,
+    DEPOSIT_PUBLIC_INPUT_ELEMENTS,
 };
 use serde::{Deserialize, Serialize};
 use zolana_hasher::primitives::{hash_bytes, solana_owner_identity};
@@ -140,7 +141,7 @@ struct Values {
     fields: Vec<[u8; 32]>,
     keys: Vec<[u8; 32]>,
     bodies: [[u8; 40]; 8],
-    tags: [[u8; 31]; 8],
+    tags: [[u8; TAG_LEN]; 8],
     auditor_pubkey: [u8; 33],
     ring_id: [u8; 32],
     salt: [u8; 16],
@@ -152,7 +153,7 @@ impl Values {
             fields: (0..80).map(field).collect(),
             keys: (0..16).map(|seed| [0x60 + seed; 32]).collect(),
             bodies: core::array::from_fn(|slot| [0x90 + slot as u8; 40]),
-            tags: core::array::from_fn(|slot| [0xb0 + slot as u8; 31]),
+            tags: core::array::from_fn(|slot| [0xb0 + slot as u8; TAG_LEN]),
             auditor_pubkey: tagged(0xa1),
             ring_id: hash_bytes(&[0x77; 32]).unwrap(),
             salt: [0x5c; 16],
@@ -445,7 +446,7 @@ fn compute_vectors() -> StatementVectors {
                       | data_free << 2 | full_openings << 3, the tails chain the published output \
                       hashes, the delivered and \
                       anonymous body hashes (zero for an exit), the disclosure fields, \
-                      pack_be(u) per delivered slot and the 0x00 || tag field per anonymous \
+                      pack_be(u) per delivered slot and the 0^16 || tag field per anonymous \
                       slot. Each disclosure holds the field count of its layout, packed with 2 \
                       outputs, delivered with 8, anonymous of commitment class 4 and of the entry \
                       key with 3 inputs and 4 outputs. The deposit statement is HashChain(elements) \
@@ -544,7 +545,7 @@ fn an_exit_slot_contributes_zero_bodies_keys_and_tags() {
         body: &values.bodies[0],
     };
     let mut tag_field = [0u8; 32];
-    tag_field[1..].copy_from_slice(&values.tags[0]);
+    tag_field[32 - TAG_LEN..].copy_from_slice(&values.tags[0]);
     assert_eq!(anonymous.tag_field(), tag_field);
     assert_eq!(anonymous.body_hash(), hash_bytes(&values.bodies[0]));
 }

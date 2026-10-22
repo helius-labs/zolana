@@ -26,11 +26,12 @@ use zolana_transaction::{
 use crate::{
     created::{CreatedUtxos, DepositSlot},
     decrypt::TransactionAudit,
+    known::KnownUtxoIndex,
     origin::{ConfirmedEventKind, RingOrigin, TransactionOrigin},
     scan::{
         Page, PageEnd, Pages, RingHistory, RingScan, RING_HISTORY_MAX_PAGES, RING_HISTORY_PAGE_SIZE,
     },
-    types::{KnownUtxo, OutputOpening, OutputPayloadErrorKind},
+    types::{OutputOpening, OutputPayloadErrorKind},
     AuditError,
 };
 
@@ -170,8 +171,8 @@ struct Found {
     unresolved: Vec<([u8; 32], [u8; 32])>,
     seen: HashSet<[u8; 32]>,
     unknown_mints: BTreeSet<Address>,
-    /// Every note an anonymous transfer may name by hash, in history order.
-    known: HashMap<[u8; 32], KnownUtxo>,
+    /// Every note an anonymous transfer may name by hash or prefix, in history order.
+    known: KnownUtxoIndex,
 }
 
 impl<'a> MemberRecovery<'a> {
@@ -322,7 +323,7 @@ impl<'a> MemberRecovery<'a> {
         Ok(())
     }
 
-    /// The ring's deposits, and on an anonymous ring its merges, the notes a spend names by hash.
+    /// The ring's deposits, and on an anonymous ring its merges, the notes a spend names by hash or prefix.
     async fn ring_history<I: AsyncRpc, O: TransactionOrigin>(
         &self,
         indexer: &I,

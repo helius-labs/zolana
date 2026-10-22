@@ -528,7 +528,7 @@ impl<S: TransactionSource> AuditService<S> {
             };
             if !origin.requires_audit() {
                 if origin.ring_invoked {
-                    // A later commitment layout spends a deposited or merged UTXO by hash alone.
+                    // A later commitment layout spends a deposited or merged UTXO by hash or prefix.
                     let created = origin.bind_transaction(&mut tx, self.ring).and_then(|()| {
                         CreatedUtxos {
                             transaction: &tx,
@@ -600,7 +600,9 @@ impl<S: TransactionSource> AuditService<S> {
                     event_index,
                     reason: match reason {
                         AuditError::MissingAuditorMessage => SkippedReason::MissingAuditorMessage,
-                        AuditError::UnseenInput { .. } => SkippedReason::UnseenInput,
+                        AuditError::UnseenInput { .. } | AuditError::UnseenInputPrefix { .. } => {
+                            SkippedReason::UnseenInput
+                        }
                         _ => SkippedReason::InvalidAuditData,
                     },
                 }),

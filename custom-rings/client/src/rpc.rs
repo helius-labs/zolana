@@ -25,9 +25,9 @@ use zolana_secret_file::{
 };
 
 use crate::{
-    AuditError, AuditedInput, AuditedOutput, AuditedTransaction, AuditedUtxo, InputRing, KnownUtxo,
-    MergeAuditPage, MergeKeys, OutputOpening, OutputPayloadErrorKind, ReaderKey, ReaderKeyError,
-    RingWithdrawal, UtxoOwner,
+    AuditError, AuditedInput, AuditedOutput, AuditedTransaction, AuditedUtxo, InputOpening,
+    InputRing, KnownUtxo, MergeAuditPage, MergeKeys, OutputOpening, OutputPayloadErrorKind,
+    ReaderKey, ReaderKeyError, RingWithdrawal, UtxoOwner,
 };
 
 pub const HEALTH: &str = "health";
@@ -506,7 +506,7 @@ pub struct DecryptedOutput {
     /// The recipient's X25519 u of a ring output.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recipient_u: Option<Hash>,
-    /// `0x00 || tag`, the published owner tag of an anonymous ring output.
+    /// `0^16 || tag`, the published owner tag of an anonymous ring output.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tag: Option<Hash>,
 }
@@ -569,9 +569,12 @@ pub struct DecryptedSender {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct DecryptedInput {
     pub nullifier: Hash,
-    /// Absent for a dummy input.
+    /// Absent for a dummy input and an input under an ambiguous prefix.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub opening: Option<DecryptedInputOpening>,
+    /// The sender's ring notes that carry the input's prefix, more of them than inputs name it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub candidates: Vec<Hash>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -913,9 +916,16 @@ impl GetAuditedUtxosResponse {
 
 impl From<AuditedInput> for DecryptedInput {
     fn from(input: AuditedInput) -> Self {
+        let candidates = match &input.opening {
+            InputOpening::Ambiguous { candidates } => {
+                candidates.iter().copied().map(Into::into).collect()
+            }
+            InputOpening::Dummy | InputOpening::Opened(_) => Vec::new(),
+        };
         Self {
             nullifier: input.nullifier.into(),
-            opening: input.opening.map(|opening| DecryptedInputOpening {
+            candidates,
+            opening: input.opening.opened().map(|opening| DecryptedInputOpening {
                 asset: opening.asset.into(),
                 mint: opening.mint.map(Into::into),
                 amount: opening.amount,

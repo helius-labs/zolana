@@ -234,8 +234,9 @@ pub(crate) struct AnonymousAudit {
     pub private_tx_hash: [u8; 32],
     #[serde(with = "fe")]
     pub private_tx_blinding: [u8; 32],
-    #[serde(with = "fe")]
-    pub sender_key: [u8; 32],
+    /// Present on the entry key alone.
+    #[serde(with = "option_field", skip_serializing_if = "Option::is_none")]
+    pub sender_key: Option<[u8; 32]>,
     pub input_count: u8,
     /// The input class, slots past `input_count` zero.
     pub inputs: Vec<Opening>,

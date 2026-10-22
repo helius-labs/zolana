@@ -3,7 +3,7 @@
 use std::{collections::HashSet, ops::Range, sync::Mutex};
 
 use custom_ring_interface::stream::{
-    DeliveredSlot, InboxKey, RingTag, TagIndex, EPOCH_SLOTS, J_INBOX,
+    DeliveredSlot, InboxKey, RingTag, TagIndex, EPOCH_SLOTS, J_INBOX, TAG_LEN,
 };
 use solana_signature::Signature;
 use zolana_client::{
@@ -362,7 +362,7 @@ fn an_anonymous_scan_adds_inbox_payments_and_the_change_of_a_default_ring_spend(
                 .ring_change_key(&RING)
                 .unwrap()
                 .pubkey(),
-            tag: RingTag::from_bytes([0x5c; 31]),
+            tag: RingTag::from_bytes([0x5c; TAG_LEN]),
             amount: 30,
         }],
         slot: slot_of(EPOCH + 1),

@@ -2,16 +2,21 @@
 
 use core::ops::Range;
 
-use zolana_hasher::primitives::{pack_be_chunks, PACK_BE_CHUNK_BYTES};
+use zolana_hasher::primitives::{
+    is_canonical_bn254_scalar_be, pack_be_chunks, BN254_SCALAR_MODULUS_BE, PACK_BE_CHUNK_BYTES,
+};
 
 /// Capacities without a delivery proof.
 pub const PACKED_AUDIT_CAPACITIES: [usize; 2] = [2, 4];
 pub const DELIVERED_AUDIT_CAPACITIES: [usize; 2] = [8, 16];
+/// The widest confidential ring spend a transaction fits.
+pub const CONFIDENTIAL_RING_MAX_INPUTS: usize = 48;
 /// Input classes of the anonymous commitment keys per output capacity, ascending.
-pub const ANONYMOUS_AUDIT_CLASSES: [(usize, &[usize]); 3] = [
-    (2, &[4, 8, 12, 16, 24, 28]),
+pub const ANONYMOUS_AUDIT_CLASSES: [(usize, &[usize]); 4] = [
+    (2, &[4, 8, 12, 16, 24, 32]),
     (4, &[4, 8, 12, 16, 24]),
     (8, &[4, 8, 12, 16]),
+    (16, &[1]),
 ];
 /// Input slots of every anonymous entry key.
 pub const ANONYMOUS_ENTRY_CLASS: usize = 8;
@@ -22,8 +27,12 @@ pub const DELIVERED_SLOT_BYTES: usize = 40;
 pub const DENSE_DELIVERED_SLOT_BYTES: usize = 32;
 /// A ring slot `owner_key || u`, an exit `asset || u64be(amount) || 0^24`.
 pub const ANONYMOUS_SLOT_BYTES: usize = 64;
-/// The hidden sender's key ahead of the anonymous output slots.
+/// The hidden sender's key ahead of the entry key's output slots.
 pub const DISCLOSURE_SENDER_KEY_BYTES: usize = 32;
+/// The first bytes of a spent hash a commitment key discloses.
+pub const INPUT_PREFIX_BYTES: usize = 16;
+/// A prefix of a canonical hash lies below `2^INPUT_PREFIX_BITS`, two prefixes pack below the modulus.
+pub const INPUT_PREFIX_BITS: u32 = 126;
 /// One `u64be(amount)` per input slot of the entry class.
 pub const DISCLOSURE_INPUT_AMOUNT_BYTES: usize = 8;
 /// `pack_disclosure(owner_key || u64be(amount))` closing every packed slot.
@@ -53,7 +62,7 @@ impl AuditLayout {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AnonymousAuditKey {
-    /// Publishes each spent UTXO's hash, every spent UTXO a note of the ring.
+    /// Publishes spent UTXO 0's hash and the prefix of every later one, every spent UTXO a note of the ring.
     Commitment { class: usize },
     /// Opens every spent UTXO, the key of a transfer that spends a default-ring note.
     Entry,
@@ -216,18 +225,31 @@ pub struct AnonymousLayout {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AnonymousFields {
     pub seed_out: Option<usize>,
-    /// The entry key's `nullifier_pk` of every spent UTXO.
-    pub sender_nullifier_pk: Option<usize>,
     /// `nullifier_pk` per output.
     pub nullifier_pks: Range<usize>,
-    /// `pack_disclosure(sender_key || slots)`, `ANONYMOUS_SLOT_BYTES` a slot.
+    /// `pack_disclosure` of `slot_bytes`, the entry key's sender key ahead of one `ANONYMOUS_SLOT_BYTES` slot per output.
     pub slots: Range<usize>,
-    /// The entry key's `pack_disclosure(u64be(amount))` over its class, zero past the inputs.
-    pub input_amounts: Option<Range<usize>>,
-    /// Per published input `input_width` fields, the UTXO hash or the entry key's `asset, blinding`.
-    pub inputs: Range<usize>,
-    pub input_width: usize,
+    pub slot_bytes: usize,
+    pub inputs: AnonymousInputFields,
     pub field_count: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AnonymousInputFields {
+    Commitments {
+        /// Spent UTXO 0's hash.
+        first: usize,
+        /// [`InputPrefix::pair`] over the later published inputs.
+        prefix_pairs: Range<usize>,
+    },
+    Openings {
+        /// The `nullifier_pk` of every spent UTXO.
+        sender_nullifier_pk: usize,
+        /// `pack_disclosure(u64be(amount))` over the class, zero past the inputs.
+        amounts: Range<usize>,
+        /// `asset, blinding` per published input.
+        openings: Range<usize>,
+    },
 }
 
 impl AnonymousLayout {
@@ -237,27 +259,97 @@ impl AnonymousLayout {
         let seed_out = self.exits.then(|| next.one());
         let sender_nullifier_pk = entry.then(|| next.one());
         let nullifier_pks = next.run(self.outputs);
-        let slots = next.run(pack_be_chunks(
-            DISCLOSURE_SENDER_KEY_BYTES + ANONYMOUS_SLOT_BYTES * self.outputs,
-        ));
-        let input_amounts = entry.then(|| {
-            next.run(pack_be_chunks(
-                DISCLOSURE_INPUT_AMOUNT_BYTES * ANONYMOUS_ENTRY_CLASS,
-            ))
-        });
-        let input_width = 1 + usize::from(entry);
-        let inputs = next.run(input_width * self.inputs);
+        let slot_bytes =
+            usize::from(entry) * DISCLOSURE_SENDER_KEY_BYTES + ANONYMOUS_SLOT_BYTES * self.outputs;
+        let slots = next.run(pack_be_chunks(slot_bytes));
+        let inputs = match sender_nullifier_pk {
+            Some(sender_nullifier_pk) => AnonymousInputFields::Openings {
+                sender_nullifier_pk,
+                amounts: next.run(pack_be_chunks(
+                    DISCLOSURE_INPUT_AMOUNT_BYTES * ANONYMOUS_ENTRY_CLASS,
+                )),
+                openings: next.run(2 * self.inputs),
+            },
+            None => AnonymousInputFields::Commitments {
+                first: next.one(),
+                prefix_pairs: next.run(self.inputs / 2),
+            },
+        };
         AnonymousFields {
             seed_out,
-            sender_nullifier_pk,
             nullifier_pks,
             slots,
-            input_amounts,
+            slot_bytes,
             inputs,
-            input_width,
             field_count: next.0,
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct InputPrefix(u128);
+
+impl InputPrefix {
+    /// No canonical hash has a larger prefix.
+    const MAX: u128 = halves(&BN254_SCALAR_MODULUS_BE)[0];
+    const LOW_MASK: u128 = (1 << INPUT_PREFIX_BITS) - 1;
+
+    /// `None` for a hash at or above the modulus or below 2^128, a zero half names no input.
+    pub fn of(hash: &[u8; 32]) -> Option<Self> {
+        let [prefix, _] = halves(hash);
+        (is_canonical_bn254_scalar_be(hash) && prefix != 0).then_some(Self(prefix))
+    }
+
+    pub const fn get(self) -> u128 {
+        self.0
+    }
+
+    /// `first * 2^INPUT_PREFIX_BITS + second`, a `None` half is zero.
+    pub fn pair(first: Option<Self>, second: Option<Self>) -> [u8; 32] {
+        let [first, second] = [first, second].map(|prefix| prefix.map_or(0, Self::get));
+        join([
+            first >> (128 - INPUT_PREFIX_BITS),
+            (first << INPUT_PREFIX_BITS) | second,
+        ])
+    }
+
+    /// Inverts [`Self::pair`], `None` when a half exceeds the prefix of the modulus.
+    pub fn split(field: &[u8; 32]) -> Option<[Option<Self>; 2]> {
+        let [high, low] = halves(field);
+        // A pair lies below 2^252.
+        if high >> (2 * INPUT_PREFIX_BITS - 128) != 0 {
+            return None;
+        }
+        let prefixes = [
+            (high << (128 - INPUT_PREFIX_BITS)) | (low >> INPUT_PREFIX_BITS),
+            low & Self::LOW_MASK,
+        ];
+        prefixes
+            .iter()
+            .all(|prefix| *prefix <= Self::MAX)
+            .then(|| prefixes.map(|prefix| (prefix != 0).then_some(Self(prefix))))
+    }
+}
+
+const fn halves(field: &[u8; 32]) -> [u128; 2] {
+    let (chunks, _) = field.as_chunks::<INPUT_PREFIX_BYTES>();
+    [
+        u128::from_be_bytes(chunks[0]),
+        u128::from_be_bytes(chunks[1]),
+    ]
+}
+
+fn join(halves: [u128; 2]) -> [u8; 32] {
+    let mut field = [0; 32];
+    for (chunk, half) in field
+        .as_chunks_mut::<INPUT_PREFIX_BYTES>()
+        .0
+        .iter_mut()
+        .zip(halves)
+    {
+        *chunk = half.to_be_bytes();
+    }
+    field
 }
 
 #[derive(Default)]
@@ -308,130 +400,84 @@ pub fn unpack_disclosure(fields: &[[u8; 32]], len: usize) -> Option<Vec<u8>> {
 mod tests {
     use super::*;
 
-    fn packed(outputs: usize, exits: bool, key_escrow: bool, data_free: bool) -> usize {
-        DisclosureLayout::Packed(PackedLayout {
-            outputs,
-            exits,
-            key_escrow,
-            data_free,
-        })
-        .field_count()
-    }
-
-    fn delivered(outputs: usize, exits: bool, key_escrow: bool) -> usize {
-        DisclosureLayout::Delivered(DeliveredLayout {
-            outputs,
-            exits,
-            key_escrow,
-        })
-        .field_count()
-    }
-
-    fn anonymous(key: AnonymousAuditKey, outputs: usize, exits: bool) -> usize {
-        DisclosureLayout::Anonymous(AnonymousLayout {
-            key,
-            inputs: 2,
-            outputs,
-            exits,
-        })
-        .field_count()
-    }
-
+    /// Every layout counts the fields of the solved Go host disclosure the vector records for it.
     #[test]
-    fn field_counts_match_the_go_host_checks() {
-        assert_eq!(packed(3, true, false, false), 19);
-        assert_eq!(packed(3, false, false, false), 18);
-        assert_eq!(packed(3, true, true, false), 16);
-        assert_eq!(packed(3, false, true, true), 9);
-        assert_eq!(
-            [(true, false), (false, false), (true, true), (false, true)]
-                .map(|(exits, escrow)| [8, 16].map(|m| delivered(m, exits, escrow))),
-            [[20, 38], [17, 33], [12, 22], [9, 17]]
-        );
-        let commitment = AnonymousAuditKey::Commitment { class: 4 };
-        assert_eq!(anonymous(commitment, 2, false), 10);
-        assert_eq!(anonymous(commitment, 4, true), 17);
-        assert_eq!(anonymous(commitment, 8, true), 29);
-        assert_eq!(anonymous(AnonymousAuditKey::Entry, 2, false), 16);
-        assert_eq!(anonymous(AnonymousAuditKey::Entry, 4, true), 23);
-        assert_eq!(anonymous(AnonymousAuditKey::Entry, 8, true), 35);
+    fn field_counts_are_the_go_vector() {
+        let vector: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../test-vectors/ring-disclosure-counts.json"
+        ))
+        .unwrap();
+        let records = |kind: &str| vector[kind].as_array().unwrap().iter();
+        let count = |record: &serde_json::Value, name: &str| {
+            usize::try_from(record[name].as_u64().unwrap()).unwrap()
+        };
+        let flag = |record: &serde_json::Value, name: &str| record[name].as_bool().unwrap();
+        let packed = records("packed").map(|record| {
+            let layout = PackedLayout {
+                outputs: count(record, "outputs"),
+                exits: flag(record, "exits"),
+                key_escrow: flag(record, "key_escrow"),
+                data_free: flag(record, "data_free"),
+            };
+            (DisclosureLayout::Packed(layout), record)
+        });
+        let delivered = records("delivered").map(|record| {
+            let layout = DeliveredLayout {
+                outputs: count(record, "outputs"),
+                exits: flag(record, "exits"),
+                key_escrow: flag(record, "key_escrow"),
+            };
+            (DisclosureLayout::Delivered(layout), record)
+        });
+        let anonymous = records("anonymous").map(|record| {
+            let key = match record["key"].as_str().unwrap() {
+                "entry" => AnonymousAuditKey::Entry,
+                _ => AnonymousAuditKey::Commitment {
+                    class: count(record, "class"),
+                },
+            };
+            assert_eq!(key.class(), count(record, "class"));
+            let layout = AnonymousLayout {
+                key,
+                inputs: count(record, "inputs"),
+                outputs: count(record, "outputs"),
+                exits: flag(record, "exits"),
+            };
+            (DisclosureLayout::Anonymous(layout), record)
+        });
+        for (layout, record) in packed.chain(delivered).chain(anonymous) {
+            assert_eq!(layout.field_count(), count(record, "fields"), "{record}");
+        }
     }
 
+    /// No canonical hash has a prefix above the modulus prefix, two prefixes pack below 2^252 and split back.
     #[test]
-    fn positions_skip_every_field_the_flags_leave_out() {
-        let full = PackedLayout {
-            outputs: 2,
-            exits: true,
-            key_escrow: false,
-            data_free: false,
+    fn input_prefixes_pack_two_to_a_field_and_split_back() {
+        let mut below = BN254_SCALAR_MODULUS_BE;
+        below[31] -= 1;
+        let top = InputPrefix::of(&below).unwrap();
+        assert_eq!(top.get(), InputPrefix::MAX);
+        assert_eq!(InputPrefix::of(&BN254_SCALAR_MODULUS_BE), None);
+        let mut short = [0; 32];
+        short[16] = 1;
+        assert_eq!(InputPrefix::of(&short), None);
+        let low = InputPrefix::of(&[0x01; 32]).unwrap();
+        for pair in [
+            [Some(top), Some(top)],
+            [Some(low), None],
+            [None, Some(top)],
+            [None, None],
+        ] {
+            let field = InputPrefix::pair(pair[0], pair[1]);
+            assert!(is_canonical_bn254_scalar_be(&field));
+            assert_eq!(InputPrefix::split(&field), Some(pair));
         }
-        .fields();
-        assert_eq!(
-            (full.seed_out, full.first_slot, full.slot_width),
-            (Some(0), 1, 6)
-        );
-        assert_eq!(
-            (
-                full.nullifier_pk,
-                full.asset,
-                full.data_hashes,
-                full.owner_and_amount
-            ),
-            (Some(0), 1, Some(2), 4)
-        );
-        let lean = PackedLayout {
-            outputs: 2,
-            exits: false,
-            key_escrow: true,
-            data_free: true,
-        }
-        .fields();
-        assert_eq!(
-            (
-                lean.seed_out,
-                lean.first_slot,
-                lean.slot_width,
-                lean.nullifier_pk
-            ),
-            (None, 0, 3, None)
-        );
-        assert_eq!(
-            (lean.asset, lean.data_hashes, lean.owner_and_amount),
-            (0, None, 1)
-        );
-        let dense = DeliveredLayout {
-            outputs: 8,
-            exits: false,
-            key_escrow: false,
-        }
-        .fields();
-        assert_eq!((dense.seed_out, dense.nullifier_pks), (None, Some(0..8)));
-        assert_eq!((dense.slots, dense.slot_bytes), (8..17, 32));
-        let entry = AnonymousLayout {
-            key: AnonymousAuditKey::Entry,
-            inputs: 3,
-            outputs: 2,
-            exits: true,
-        }
-        .fields();
-        assert_eq!(
-            (entry.seed_out, entry.sender_nullifier_pk),
-            (Some(0), Some(1))
-        );
-        assert_eq!((entry.nullifier_pks, entry.slots), (2..4, 4..10));
-        assert_eq!((entry.input_amounts, entry.inputs), (Some(10..13), 13..19));
-        let commitment = AnonymousLayout {
-            key: AnonymousAuditKey::Commitment { class: 4 },
-            inputs: 3,
-            outputs: 2,
-            exits: true,
-        }
-        .fields();
-        assert_eq!(
-            (commitment.sender_nullifier_pk, commitment.input_amounts),
-            (None, None)
-        );
-        assert_eq!((commitment.inputs, commitment.input_width), (9..12, 1));
+        let mut over = InputPrefix::pair(None, Some(top));
+        over[31] += 1;
+        assert_eq!(InputPrefix::split(&over), None);
+        let mut wide = [0; 32];
+        wide[0] = 0x10;
+        assert_eq!(InputPrefix::split(&wide), None);
     }
 
     #[test]
@@ -465,11 +511,13 @@ mod tests {
         let commitment = |class| Some(AnonymousAuditKey::Commitment { class });
         assert_eq!(key(1, 2, false), commitment(4));
         assert_eq!(key(17, 2, false), commitment(24));
-        assert_eq!(key(28, 2, false), commitment(28));
-        assert_eq!(key(29, 2, false), None);
+        assert_eq!(key(25, 2, false), commitment(32));
+        assert_eq!(key(32, 2, false), commitment(32));
+        assert_eq!(key(33, 2, false), None);
         assert_eq!(key(25, 4, false), None);
         assert_eq!(key(9, 8, false), commitment(12));
         assert_eq!(key(17, 8, false), None);
+        assert_eq!(key(1, 16, false), commitment(1));
         assert_eq!(key(2, 16, false), None);
         assert_eq!(key(1, 2, true), Some(AnonymousAuditKey::Entry));
         assert_eq!(key(8, 8, true), Some(AnonymousAuditKey::Entry));

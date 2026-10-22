@@ -1327,7 +1327,7 @@ fn an_anonymous_ring_hides_owners_and_preserves_auditor_access() -> Result<()> {
     let mut input_amounts: Vec<u64> = audited
         .inputs
         .iter()
-        .filter_map(|input| input.opening.map(|opening| opening.amount))
+        .filter_map(|input| input.opening.opened().map(|opening| opening.amount))
         .collect();
     input_amounts.sort_unstable();
     assert_eq!(input_amounts, [RING_DEPOSIT_B, RING_DEPOSIT_A]);

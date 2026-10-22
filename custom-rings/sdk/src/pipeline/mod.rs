@@ -18,7 +18,7 @@ use custom_ring_interface::{
     stream::{tag_epoch, SenderCommitment},
     AuditBinding, CustomRingError, CustomRingProof, InputTrees, InstructionTag, ParsedTransact,
     PlainGroth16Proof, RingMode, RingProgramConfig, RingRail, Settlement,
-    DELIVERED_AUDIT_CAPACITIES, PACKED_AUDIT_CAPACITIES,
+    CONFIDENTIAL_RING_MAX_INPUTS, DELIVERED_AUDIT_CAPACITIES, PACKED_AUDIT_CAPACITIES,
 };
 use solana_address::Address;
 use solana_instruction::Instruction;
@@ -620,7 +620,9 @@ pub fn shape_keyed(rail: RingRail, shape: Shape) -> bool {
     let capacity =
         PACKED_AUDIT_CAPACITIES.contains(&outputs) || DELIVERED_AUDIT_CAPACITIES.contains(&outputs);
     match rail {
-        RingRail::Confidential => capacity && shape.is_supported(),
+        RingRail::Confidential => {
+            capacity && shape.is_supported() && shape.n_inputs() <= CONFIDENTIAL_RING_MAX_INPUTS
+        }
         RingRail::Delegate => capacity && shape.is_ring_authority(),
         RingRail::Anonymous => AnonymousShape {
             shape,

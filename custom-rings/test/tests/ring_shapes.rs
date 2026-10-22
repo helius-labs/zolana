@@ -49,8 +49,13 @@ impl Column {
     /// The widest shapes a spend padded to its full published width still fits.
     const fn widest(self) -> &'static [Shape] {
         match self {
-            Self::Anonymous => &[Shape::IN24_OUT2, Shape::IN24_OUT4],
-            Self::AnonymousPolicy => &[Shape::IN24_OUT2, Shape::IN12_OUT8],
+            Self::Anonymous => &[
+                Shape::IN32_OUT2,
+                Shape::IN24_OUT4,
+                Shape::IN16_OUT8,
+                Shape::IN1_OUT16,
+            ],
+            Self::AnonymousPolicy => &[Shape::IN24_OUT2, Shape::IN24_OUT4, Shape::IN16_OUT8],
             Self::Confidential | Self::ConfidentialPolicy | Self::Delegate => &[],
         }
     }

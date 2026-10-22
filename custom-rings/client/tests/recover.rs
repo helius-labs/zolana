@@ -5,7 +5,10 @@ mod origin_fixture;
 #[path = "common/transfer.rs"]
 pub mod transfer;
 
-use custom_ring_interface::{RingDepositAuditCapsule, RingMode};
+use custom_ring_interface::{
+    stream::{RingTag, TAG_LEN},
+    RingDepositAuditCapsule, RingMode,
+};
 use std::{cell::Cell, sync::Mutex};
 
 use solana_address::Address;
@@ -21,8 +24,8 @@ use zolana_event::{
 use zolana_hasher::primitives::right_align;
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair, ViewingKey, X25519Keypair};
 use zolana_ring_client::{
-    seal_deposits, AuditError, DepositOpening, MemberRecovery, RecoveredNotes, RingOrigin,
-    RingRecovery, SourceMember, TransactionOrigin,
+    seal_deposits, AnonymousInputs, AuditError, DepositOpening, MemberRecovery, RecoveredNotes,
+    RingOrigin, RingRecovery, SourceMember, TransactionOrigin,
 };
 use zolana_transaction::{
     derive_output_blinding_seed, instructions::merge::MergeTransaction,
@@ -36,6 +39,7 @@ const RING: Address = Address::new_from_array([42; 32]);
 const SALT: [u8; 16] = [7; 16];
 
 struct Fixture {
+    mode: RingMode,
     member: ShieldedKeypair,
     address: ShieldedAddress,
     auditor: X25519Keypair,
@@ -46,8 +50,17 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Self {
+        Self::in_mode(RingMode::Off)
+    }
+
+    fn anonymous() -> Self {
+        Self::in_mode(RingMode::Anonymous)
+    }
+
+    fn in_mode(mode: RingMode) -> Self {
         let member = ShieldedKeypair::new_ed25519().expect("member");
         Self {
+            mode,
             address: member.shielded_address().expect("address"),
             member,
             auditor: X25519Keypair::new(),
@@ -57,6 +70,10 @@ impl Fixture {
         }
     }
 
+    fn owner_key(&self) -> [u8; 32] {
+        self.address.confidential_view_tag().expect("owner key")
+    }
+
     fn signature(&self) -> Signature {
         let next = self.sequence.get() + 1;
         self.sequence.set(next);
@@ -64,10 +81,12 @@ impl Fixture {
     }
 
     fn recovery(&self) -> MemberRecovery<'_> {
-        RingRecovery::new(RING, &self.auditor).for_member(SourceMember {
-            address: &self.address,
-            nullifier_key: &self.member.nullifier_key,
-        })
+        RingRecovery::new(RING, &self.auditor)
+            .with_mode(self.mode)
+            .for_member(SourceMember {
+                address: &self.address,
+                nullifier_key: &self.member.nullifier_key,
+            })
     }
 
     async fn run(
@@ -147,7 +166,7 @@ impl Fixture {
         };
         let ring_output = Output::Ring {
             utxo: UtxoFields {
-                owner_key: self.address.confidential_view_tag().expect("owner key"),
+                owner_key: self.owner_key(),
                 nullifier_pk: self.address.nullifier_pubkey,
                 asset_address: output.asset.asset,
                 amount: output.amount,
@@ -252,7 +271,7 @@ impl Fixture {
         let opening = DepositOpening {
             owner_hash: self.address.owner_hash().unwrap(),
             blinding: zeroize::Zeroizing::new(held.utxo.blinding),
-            owner_key: None,
+            owner_key: (self.mode == RingMode::Anonymous).then(|| self.owner_key()),
         };
         let owner_utxo_hash =
             zolana_transaction::owner_utxo_hash(&opening.owner_hash, &opening.blinding).unwrap();
@@ -297,6 +316,70 @@ impl Fixture {
                 ring_data_hash: held.ring_data_hash.unwrap(),
                 encrypted,
             });
+        (held, transaction)
+    }
+
+    /// A commitment-key anonymous transfer of `spent`, its change back to the member.
+    fn anonymous_spend(
+        &self,
+        spent: &[&WalletUtxo],
+        change: u64,
+        tree_id: u16,
+    ) -> (WalletUtxo, ShieldedTransaction) {
+        let signature = self.signature();
+        let nullifiers: Vec<[u8; 32]> = spent.iter().map(|held| held.nullifier).collect();
+        let first_nullifier = nullifiers[0];
+        let blinding_seed = right_align(&[0x5e, self.sequence.get()]);
+        let transfer = Transfer {
+            tx_key: ViewingKey::new(),
+            ring: RING,
+            first_nullifier,
+            salt: SALT,
+            blinding_seed,
+            seed_out: derive_output_blinding_seed(&first_nullifier, &blinding_seed).unwrap(),
+            tree_id,
+            nullifiers,
+        };
+        let mut output = self.output(change);
+        let outputs = vec![
+            Output::Ring {
+                utxo: UtxoFields {
+                    owner_key: self.owner_key(),
+                    nullifier_pk: self.address.nullifier_pubkey,
+                    asset_address: output.asset.asset,
+                    amount: output.amount,
+                    ..UtxoFields::default()
+                },
+                recipient_u: self.address.viewing_pubkey.u(),
+                tag: Some(RingTag::from_bytes([0x5c; TAG_LEN])),
+            },
+            Output::Dummy,
+        ];
+        let slots = transfer.slots(Rail::Anonymous, &outputs);
+        output.blinding = slots[0].blinding;
+        let mut held = self.held(&output, tree_id);
+        held.tx_signature = signature;
+        let mut published: Vec<OutputSlot> = slots.into_iter().map(|slot| slot.output).collect();
+        published[0].output_context = output_context(&held);
+        published[1].output_context.leaf_index = held.leaf_index + 1;
+        let commitments: Vec<_> = spent.iter().map(|held| Some(held.utxo_hash)).collect();
+        let disclosure = transfer.anonymous_disclosure(
+            &outputs,
+            AnonymousInputs::commitments(&commitments).expect("ring notes"),
+        );
+        let mut transaction = transfer.publish(Publish {
+            slots: published,
+            disclosure: &disclosure,
+            auditor: &self.auditor.pubkey(),
+        });
+        transaction.slot = u64::from(self.sequence.get());
+        transaction.tx_signature = signature;
+        let frame = transfer.frame(Frame {
+            tx: &transaction,
+            layout: disclosure.layout(),
+            data_free: data_free(&outputs),
+        });
+        self.frames.lock().unwrap().push((signature, frame));
         (held, transaction)
     }
 }
@@ -1191,4 +1274,28 @@ async fn unproved_recipient_metadata_cannot_block_plain_utxo_recovery_or_merge()
     assert!(recovered.unopened.is_empty());
     assert!(recovered.utxos[0].data_hash.is_none());
     assert!(MergeTransaction::new_with_ring(recovered.utxos, RING, None).is_ok());
+}
+
+/// The first spent deposit opens by its hash and the second by its prefix, an unseen second stops recovery.
+#[tokio::test]
+async fn an_anonymous_spend_of_deposits_under_the_commitment_key_leaves_the_change() {
+    let fixture = Fixture::anonymous();
+    let (first, first_tx) = fixture.deposit(fixture.output(4), 2);
+    let (second, second_tx) = fixture.deposit(fixture.output(5), 2);
+    let (change, spend_tx) = fixture.anonymous_spend(&[&first, &second], 9, 3);
+    let history = History {
+        transactions: vec![first_tx.clone(), second_tx, spend_tx.clone()],
+        ..Default::default()
+    };
+    let recovered = fixture.run(fixture.recovery(), &history).await.unwrap();
+    assert_eq!(recovered.utxos, [change]);
+    assert!(recovered.unopened.is_empty());
+    let unseen = History {
+        transactions: vec![first_tx, spend_tx],
+        ..Default::default()
+    };
+    assert!(matches!(
+        fixture.run(fixture.recovery(), &unseen).await,
+        Err(AuditError::UnseenInputPrefix { .. })
+    ));
 }

@@ -1,4 +1,4 @@
-use custom_ring_interface::stream::RingTag;
+use custom_ring_interface::stream::{RingTag, TAG_LEN};
 use solana_keypair::Keypair;
 use zolana_keypair::ViewingKey;
 use zolana_transaction::OutputContext;
@@ -329,7 +329,7 @@ fn an_anonymous_decrypted_page_keeps_its_wire_json() {
                         ..utxo(0x10, Some(Address::new_from_array([4; 32])))
                     },
                     recipient_u: [6; 32],
-                    tag: Some(RingTag::from_bytes([0x31; 31])),
+                    tag: Some(RingTag::from_bytes([0x31; TAG_LEN])),
                 },
             ),
             output(1, OutputOpening::Exit(utxo(0x20, None))),
@@ -343,7 +343,7 @@ fn an_anonymous_decrypted_page_keeps_its_wire_json() {
         inputs: vec![
             AuditedInput {
                 nullifier: [12; 32],
-                opening: Some(opening(
+                opening: InputOpening::Opened(opening(
                     0x60,
                     Some(InputRing::Ring {
                         commitment: [0x62; 32],
@@ -352,7 +352,7 @@ fn an_anonymous_decrypted_page_keeps_its_wire_json() {
             },
             AuditedInput {
                 nullifier: [11; 32],
-                opening: Some(opening(
+                opening: InputOpening::Opened(opening(
                     0x70,
                     Some(InputRing::Unresolved {
                         ring: [0x72; 32],
@@ -362,7 +362,7 @@ fn an_anonymous_decrypted_page_keeps_its_wire_json() {
             },
             AuditedInput {
                 nullifier: [10; 32],
-                opening: Some(opening(
+                opening: InputOpening::Opened(opening(
                     0x80,
                     Some(InputRing::Default {
                         commitment: [0x82; 32],
@@ -371,17 +371,23 @@ fn an_anonymous_decrypted_page_keeps_its_wire_json() {
             },
             AuditedInput {
                 nullifier: [9; 32],
-                opening: Some(opening(0x90, None)),
+                opening: InputOpening::Opened(opening(0x90, None)),
             },
             AuditedInput {
                 nullifier: [8; 32],
-                opening: None,
+                opening: InputOpening::Dummy,
+            },
+            AuditedInput {
+                nullifier: [7; 32],
+                opening: InputOpening::Ambiguous {
+                    candidates: vec![[0xa0; 32], [0xa1; 32]],
+                },
             },
         ],
     };
     let page = page(
         audited,
-        vec![[12; 32], [11; 32], [10; 32], [9; 32], [8; 32]],
+        vec![[12; 32], [11; 32], [10; 32], [9; 32], [8; 32], [7; 32]],
     );
     let json = serde_json::to_string(&page).expect("json");
     assert_eq!(

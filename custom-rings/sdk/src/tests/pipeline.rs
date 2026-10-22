@@ -651,7 +651,7 @@ fn default_ring_utxo(owner: &ShieldedKeypair, amount: u64, leaf: u64) -> WalletU
     )
 }
 
-/// Ordinary padding publishes the shape's inputs, 24 at 2 outputs is the widest keyed spend.
+/// Ordinary padding publishes the shape's inputs, 32 at 2 outputs is the widest keyed spend.
 #[tokio::test]
 async fn an_anonymous_move_takes_the_widest_keyed_spend_and_refuses_past_it() {
     use crate::tests::support::{keypair, payer};
@@ -659,7 +659,7 @@ async fn an_anonymous_move_takes_the_widest_keyed_spend_and_refuses_past_it() {
     let paid = ring_address(&keypair(2));
     let state = AnonymousRingState::new(ring().program_id(), 0);
     let client = Chain::ring(anonymous()).client();
-    let utxos: Vec<WalletUtxo> = (0..28)
+    let utxos: Vec<WalletUtxo> = (0..36)
         .map(|leaf| ring_utxo(&sender, Mint::SOL, 1, leaf))
         .collect();
     let owner = MoveSender {
@@ -676,28 +676,28 @@ async fn an_anonymous_move_takes_the_widest_keyed_spend_and_refuses_past_it() {
             }],
         )
     };
-    let widest = pay(24).select(&client).await.unwrap();
+    let widest = pay(32).select(&client).await.unwrap();
     let assembled = widest.assemble(&client).await.unwrap();
     assert_eq!(
         assembled.proof_inputs.check_shape().unwrap(),
-        zolana_client::Shape::IN24_OUT2
+        zolana_client::Shape::IN32_OUT2
     );
     assert!(matches!(
-        pay(25).select(&client).await,
+        pay(33).select(&client).await,
         Err(RingError::Unfunded {
-            amount: 25,
-            max_inputs: 24,
+            amount: 33,
+            max_inputs: 32,
             ..
         })
     ));
 }
 
-/// Three payments and the change take 4 outputs, a policy ring holds 16 inputs there and not 24.
+/// A payment and its change take 2 outputs, a policy ring fits 24 inputs there and not 32.
 #[tokio::test]
 async fn an_anonymous_move_past_the_transaction_size_is_refused_before_proving() {
     use crate::tests::support::{keypair, payer, Registry};
     let sender = keypair(1);
-    let recipients: Vec<ShieldedKeypair> = (10..13).map(keypair).collect();
+    let recipients = [keypair(10)];
     let owners: Vec<(&ShieldedKeypair, u64)> = core::iter::once(&sender)
         .chain(&recipients)
         .map(|owner| (owner, 1))
@@ -709,7 +709,7 @@ async fn an_anonymous_move_past_the_transaction_size_is_refused_before_proving()
     .with_registry(Registry::new(&owners), &crate::tests::pipeline_rules())
     .client();
     let state = AnonymousRingState::new(ring().program_id(), 0);
-    let utxos: Vec<WalletUtxo> = (0..24)
+    let utxos: Vec<WalletUtxo> = (0..32)
         .map(|leaf| ring_utxo(&sender, Mint::SOL, 1, leaf))
         .collect();
     let owner = MoveSender {
@@ -729,7 +729,7 @@ async fn an_anonymous_move_past_the_transaction_size_is_refused_before_proving()
                 .collect(),
         )
     };
-    let fits = pay(5).select(&client).await.unwrap();
+    let fits = pay(24).select(&client).await.unwrap();
     assert_eq!(
         fits.assemble(&client)
             .await
@@ -737,10 +737,10 @@ async fn an_anonymous_move_past_the_transaction_size_is_refused_before_proving()
             .proof_inputs
             .check_shape()
             .unwrap(),
-        zolana_client::Shape::IN16_OUT4
+        zolana_client::Shape::IN24_OUT2
     );
     assert!(matches!(
-        pay(7).select(&client).await,
+        pay(25).select(&client).await,
         Err(RingError::TransactionTooLarge { bytes, limit }) if bytes > limit
     ));
 }
@@ -1658,47 +1658,47 @@ const SIZE_PINS: [SizePin; 38] = [
     SizePin {
         n_in: 1,
         n_out: 2,
-        bytes: [Some(1472), Some(1731), Some(1450), Some(1805), Some(1731)],
+        bytes: [Some(1472), Some(1731), Some(1388), Some(1743), Some(1731)],
     },
     SizePin {
         n_in: 1,
         n_out: 4,
-        bytes: [Some(1954), Some(2149), Some(1848), Some(2203), Some(2149)],
+        bytes: [Some(1954), Some(2149), Some(1756), Some(2111), Some(2149)],
     },
     SizePin {
         n_in: 1,
         n_out: 8,
-        bytes: [Some(2365), Some(2432), Some(2644), Some(2999), Some(2432)],
+        bytes: [Some(2365), Some(2432), Some(2492), Some(2847), Some(2432)],
     },
     SizePin {
         n_in: 2,
         n_out: 2,
-        bytes: [Some(1537), Some(1796), Some(1547), Some(1902), Some(1796)],
+        bytes: [Some(1537), Some(1796), Some(1485), Some(1840), Some(1796)],
     },
     SizePin {
         n_in: 2,
         n_out: 4,
-        bytes: [Some(2019), Some(2214), Some(1945), Some(2300), Some(2214)],
+        bytes: [Some(2019), Some(2214), Some(1853), Some(2208), Some(2214)],
     },
     SizePin {
         n_in: 1,
         n_out: 16,
-        bytes: [Some(3710), Some(3521), None, None, Some(3521)],
+        bytes: [Some(3710), Some(3521), Some(3997), Some(4352), Some(3521)],
     },
     SizePin {
         n_in: 2,
         n_out: 8,
-        bytes: [Some(2430), Some(2497), Some(2741), Some(3096), Some(2497)],
+        bytes: [Some(2430), Some(2497), Some(2589), Some(2944), Some(2497)],
     },
     SizePin {
         n_in: 3,
         n_out: 2,
-        bytes: [Some(1602), Some(1861), Some(1644), Some(1999), Some(1861)],
+        bytes: [Some(1602), Some(1861), Some(1550), Some(1905), Some(1861)],
     },
     SizePin {
         n_in: 3,
         n_out: 4,
-        bytes: [Some(2084), Some(2279), Some(2042), Some(2397), Some(2279)],
+        bytes: [Some(2084), Some(2279), Some(1918), Some(2273), Some(2279)],
     },
     SizePin {
         n_in: 2,
@@ -1708,32 +1708,32 @@ const SIZE_PINS: [SizePin; 38] = [
     SizePin {
         n_in: 3,
         n_out: 8,
-        bytes: [Some(2495), Some(2562), Some(2838), Some(3193), Some(2562)],
+        bytes: [Some(2495), Some(2562), Some(2654), Some(3009), Some(2562)],
     },
     SizePin {
         n_in: 4,
         n_out: 2,
-        bytes: [Some(1667), Some(1926), Some(1741), Some(2096), Some(1926)],
+        bytes: [Some(1667), Some(1926), Some(1647), Some(2002), Some(1926)],
     },
     SizePin {
         n_in: 4,
         n_out: 4,
-        bytes: [Some(2149), Some(2344), Some(2139), Some(2494), Some(2344)],
+        bytes: [Some(2149), Some(2344), Some(2015), Some(2370), Some(2344)],
     },
     SizePin {
         n_in: 4,
         n_out: 8,
-        bytes: [Some(2560), Some(2627), Some(2935), Some(3290), Some(2627)],
+        bytes: [Some(2560), Some(2627), Some(2751), Some(3106), Some(2627)],
     },
     SizePin {
         n_in: 5,
         n_out: 2,
-        bytes: [Some(1732), Some(1991), Some(1838), Some(2193), Some(1991)],
+        bytes: [Some(1732), Some(1991), Some(1712), Some(2067), Some(1991)],
     },
     SizePin {
         n_in: 5,
         n_out: 4,
-        bytes: [Some(2214), Some(2409), Some(2236), Some(2591), Some(2409)],
+        bytes: [Some(2214), Some(2409), Some(2080), Some(2435), Some(2409)],
     },
     SizePin {
         n_in: 4,
@@ -1743,17 +1743,17 @@ const SIZE_PINS: [SizePin; 38] = [
     SizePin {
         n_in: 5,
         n_out: 8,
-        bytes: [Some(2625), Some(2692), Some(3032), Some(3387), Some(2692)],
+        bytes: [Some(2625), Some(2692), Some(2816), Some(3171), Some(2692)],
     },
     SizePin {
         n_in: 6,
         n_out: 2,
-        bytes: [Some(1797), Some(2056), Some(1935), Some(2290), Some(2056)],
+        bytes: [Some(1797), Some(2056), Some(1809), Some(2164), Some(2056)],
     },
     SizePin {
         n_in: 6,
         n_out: 4,
-        bytes: [Some(2279), Some(2474), Some(2333), Some(2688), Some(2474)],
+        bytes: [Some(2279), Some(2474), Some(2177), Some(2532), Some(2474)],
     },
     SizePin {
         n_in: 5,
@@ -1763,22 +1763,22 @@ const SIZE_PINS: [SizePin; 38] = [
     SizePin {
         n_in: 6,
         n_out: 8,
-        bytes: [Some(2690), Some(2757), Some(3129), Some(3484), Some(2757)],
+        bytes: [Some(2690), Some(2757), Some(2913), Some(3268), Some(2757)],
     },
     SizePin {
         n_in: 8,
         n_out: 2,
-        bytes: [Some(1927), Some(2186), Some(2129), Some(2484), Some(2186)],
+        bytes: [Some(1927), Some(2186), Some(1971), Some(2326), Some(2186)],
     },
     SizePin {
         n_in: 8,
         n_out: 4,
-        bytes: [Some(2409), Some(2604), Some(2527), Some(2882), Some(2604)],
+        bytes: [Some(2409), Some(2604), Some(2339), Some(2694), Some(2604)],
     },
     SizePin {
         n_in: 8,
         n_out: 8,
-        bytes: [Some(2820), Some(2887), Some(3323), Some(3678), Some(2887)],
+        bytes: [Some(2820), Some(2887), Some(3075), Some(3430), Some(2887)],
     },
     SizePin {
         n_in: 8,
@@ -1788,47 +1788,47 @@ const SIZE_PINS: [SizePin; 38] = [
     SizePin {
         n_in: 12,
         n_out: 2,
-        bytes: [Some(2187), Some(2446), Some(2517), Some(2872), Some(2446)],
+        bytes: [Some(2187), Some(2446), Some(2295), Some(2650), Some(2446)],
     },
     SizePin {
         n_in: 12,
         n_out: 4,
-        bytes: [Some(2669), Some(2864), Some(2915), Some(3270), Some(2864)],
+        bytes: [Some(2669), Some(2864), Some(2663), Some(3018), Some(2864)],
     },
     SizePin {
         n_in: 12,
         n_out: 8,
-        bytes: [Some(3080), Some(3147), Some(3711), Some(4066), Some(3147)],
+        bytes: [Some(3080), Some(3147), Some(3399), Some(3754), Some(3147)],
     },
     SizePin {
         n_in: 16,
         n_out: 2,
-        bytes: [Some(2447), Some(2706), Some(2905), Some(3260), Some(2706)],
+        bytes: [Some(2447), Some(2706), Some(2619), Some(2974), Some(2706)],
     },
     SizePin {
         n_in: 16,
         n_out: 4,
-        bytes: [Some(2929), Some(3124), Some(3303), Some(3658), Some(3124)],
+        bytes: [Some(2929), Some(3124), Some(2987), Some(3342), Some(3124)],
     },
     SizePin {
         n_in: 16,
         n_out: 8,
-        bytes: [Some(3340), Some(3407), Some(4099), Some(4454), Some(3407)],
+        bytes: [Some(3340), Some(3407), Some(3723), Some(4078), Some(3407)],
     },
     SizePin {
         n_in: 24,
         n_out: 2,
-        bytes: [Some(2967), Some(3226), Some(3681), Some(4036), Some(3226)],
+        bytes: [Some(2967), Some(3226), Some(3267), Some(3622), Some(3226)],
     },
     SizePin {
         n_in: 24,
         n_out: 4,
-        bytes: [Some(3449), Some(3644), Some(4079), Some(4434), Some(3644)],
+        bytes: [Some(3449), Some(3644), Some(3635), Some(3990), Some(3644)],
     },
     SizePin {
         n_in: 32,
         n_out: 2,
-        bytes: [Some(3487), Some(3746), None, None, Some(3746)],
+        bytes: [Some(3487), Some(3746), Some(3915), Some(4270), Some(3746)],
     },
     SizePin {
         n_in: 40,
@@ -1843,7 +1843,7 @@ const SIZE_PINS: [SizePin; 38] = [
     SizePin {
         n_in: 49,
         n_out: 2,
-        bytes: [Some(4592), Some(4851), None, None, None],
+        bytes: [None, None, None, None, None],
     },
 ];
 

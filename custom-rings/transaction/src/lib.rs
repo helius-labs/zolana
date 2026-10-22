@@ -490,7 +490,7 @@ impl OutputEncoder for RingOutputRail {
     }
 }
 
-/// `low248` of a uniform field element, distributed as every stream-derived tag.
+/// `low128` of a uniform field element, distributed as every stream-derived tag.
 fn free_tag() -> RingTag {
     loop {
         let mut value = [0u8; 32];

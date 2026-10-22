@@ -7,7 +7,7 @@ use std::{
 
 use borsh::BorshDeserialize;
 use common::{keypair, wallet_utxo};
-use custom_ring_interface::stream::{DeliveredSlot, RingTag, SlotSecret};
+use custom_ring_interface::stream::{DeliveredSlot, RingTag, SlotSecret, TAG_LEN};
 use solana_signature::Signature;
 use zolana_event::{
     encode_merge_output_data, encode_ring_confidential_delivered_output,
@@ -1115,7 +1115,7 @@ fn a_first_nullifier_off_the_field_hides_no_other_delivered_output() {
 fn an_anonymous_output_opens_only_under_the_tag_its_blinding_binds() {
     let owner = keypair(99);
     let tx_key = keypair(100).viewing_key;
-    let tag = RingTag::from_bytes([0x51; 31]);
+    let tag = RingTag::from_bytes([0x51; TAG_LEN]);
     let delivery = Delivery {
         tag: Some(tag),
         ..delivered(&owner, &tx_key, Mint::SOL, 4)
@@ -1129,7 +1129,7 @@ fn an_anonymous_output_opens_only_under_the_tag_its_blinding_binds() {
         slot_secret: delivery.secret(),
     };
     let mut decrypted = DecryptionResult::default();
-    let other = RingTag::from_bytes([0x52; 31]);
+    let other = RingTag::from_bytes([0x52; TAG_LEN]);
     let finds = decrypted
         .extend_ring_delivered(
             &owner,

@@ -17,8 +17,8 @@ pub const J_INBOX: u8 = 64;
 pub const J_PAIR: u8 = J_INBOX;
 /// Epochs a pair stream lives after its anchor, a 5-bit difference in the circuit.
 pub const K_PAIR_EPOCHS: u64 = 32;
-/// `low248` bytes, the owner tag is `0x00 ‖ tag`.
-pub const TAG_LEN: usize = 31;
+/// `low128` bytes, the owner tag is `0^16 ‖ tag`.
+pub const TAG_LEN: usize = 16;
 
 #[derive(Debug, Error, PartialEq)]
 pub enum StreamError {
@@ -148,7 +148,7 @@ impl InboxKey {
         ])?))
     }
 
-    /// `low248(Poseidon(CRIT, inbox_key, epoch, j))`.
+    /// `low128(Poseidon(CRIT, inbox_key, epoch, j))`.
     pub fn tag(&self, epoch: u64, index: TagIndex) -> Result<RingTag, HasherError> {
         Stream {
             domain: domain::INBOX_TAG,
@@ -180,7 +180,7 @@ impl PairKey {
         canonical(bytes).map(Self)
     }
 
-    /// `low248(Poseidon(CRPT, pair_key, epoch, j))`, live `K_PAIR_EPOCHS` after the anchor.
+    /// `low128(Poseidon(CRPT, pair_key, epoch, j))`, live `K_PAIR_EPOCHS` after the anchor.
     pub fn tag(&self, epoch: u64, index: TagIndex) -> Result<RingTag, HasherError> {
         Stream {
             domain: domain::PAIR_TAG,
@@ -194,14 +194,14 @@ impl PairKey {
     }
 }
 
-/// `low248` of a canonical field value.
+/// `low128` of a canonical field value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct RingTag([u8; TAG_LEN]);
 
 impl RingTag {
-    /// The circuit reads `low248` of the reduced value, a non-canonical encoding is refused.
+    /// The circuit reads `low128` of the reduced value, a non-canonical encoding is refused.
     pub fn from_field(value: &[u8; 32]) -> Result<Self, StreamError> {
-        canonical(*value).map(|value| Self::low248(&value))
+        canonical(*value).map(|value| Self::low128(&value))
     }
 
     pub const fn from_bytes(bytes: [u8; TAG_LEN]) -> Self {
@@ -212,21 +212,23 @@ impl RingTag {
         &self.0
     }
 
-    /// `0x00 ‖ tag`, the expanded owner tag and the field the statement chains.
+    /// `0^16 ‖ tag`, the expanded owner tag and the field the statement chains.
     pub fn field(&self) -> [u8; 32] {
         right_align(&self.0)
     }
 
+    /// `None` unless the first 16 bytes are zero, the one owner tag form of an anonymous slot.
     pub fn from_owner_tag(owner_tag: &[u8; 32]) -> Option<Self> {
-        let [0, tag @ ..] = *owner_tag else {
-            return None;
-        };
-        Some(Self(tag))
+        let (padding, tag) = owner_tag.split_at(32 - TAG_LEN);
+        padding
+            .iter()
+            .all(|byte| *byte == 0)
+            .then(|| Self(core::array::from_fn(|i| tag[i])))
     }
 
     /// Unchecked, a Poseidon output is below the modulus.
-    fn low248(value: &[u8; 32]) -> Self {
-        Self(core::array::from_fn(|i| value[i + 1]))
+    fn low128(value: &[u8; 32]) -> Self {
+        Self(core::array::from_fn(|i| value[32 - TAG_LEN + i]))
     }
 }
 
@@ -287,7 +289,7 @@ impl Stream<'_> {
             &right_align(&epoch.to_be_bytes()),
             &right_align(&[index.0]),
         ])?;
-        Ok(RingTag::low248(&digest))
+        Ok(RingTag::low128(&digest))
     }
 }
 
@@ -334,6 +336,18 @@ mod tests {
             RingTag::from_field(&BN254_SCALAR_MODULUS_BE),
             Err(StreamError::NoncanonicalField)
         );
+    }
+
+    /// The program writes the 16 zero bytes, an owner tag with any other prefix is no anonymous tag.
+    #[test]
+    fn an_owner_tag_opens_only_behind_sixteen_zero_bytes() {
+        let tag = RingTag::from_bytes([9; TAG_LEN]);
+        assert_eq!(RingTag::from_owner_tag(&tag.field()), Some(tag));
+        for index in 0..32 - TAG_LEN {
+            let mut marked = tag.field();
+            marked[index] = 1;
+            assert_eq!(RingTag::from_owner_tag(&marked), None);
+        }
     }
 
     /// A recipient deriving from a mistagged key would scan tags no sender proves.
