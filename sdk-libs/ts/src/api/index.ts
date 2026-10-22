@@ -11,13 +11,18 @@ import type {
   GetShieldedTransactionsBySignatureRequest,
   GetShieldedTransactionsBySignatureResponse,
   GetShieldedTransactionsByTagsResponse,
-  GetRingSpendRecordResponse,
   GetUserRecordsRequest,
   GetUserRecordsResponse,
   RingMemberProofRequest,
-  RingMemberRequest,
-  RingKeyRegistryEntry,
-  RingKeyRegistryRegisterProof,
+  RingMemberOpeningResponse,
+  RingMemberPageResponse,
+  RingMemberRecordsRequest,
+  RingRegistryStateResponse,
+  RingApplyProofInputsRequest,
+  RingApplyProofInputsResponse,
+  RingMemberOpeningsRequest,
+  RingMemberOpeningsResponse,
+  RingRecordQueueResponse,
 } from "../indexer/types.js";
 import type { IndexerSchemaError } from "../indexer/scalars.js";
 import {
@@ -28,9 +33,12 @@ import {
   getShieldedTransactionsBySignatureMethod,
   getShieldedTransactionsByTagsMethod,
   type MethodDescriptor,
-  getRingSpendRecordMethod,
-  getRingKeyRegistryEntryMethod,
-  getRingKeyRegistryRegisterProofMethod,
+  getRingMemberRecordMethod,
+  getRingMemberRecordsMethod,
+  getRingMemberRegistryRootMethod,
+  getRingApplyProofInputsMethod,
+  getRingMemberOpeningsMethod,
+  getRingRecordQueueMethod,
   getUserRecordsMethod,
 } from "../indexer/methods/index.js";
 import { postJsonRpc } from "../services/jsonrpc.js";
@@ -107,25 +115,46 @@ export class ZolanaApi {
     return this.#call(getShieldedTransactionsByNullifiersMethod, request, context);
   }
 
-  getRingSpendRecord(
-    request: RingMemberRequest,
-    context?: RequestContext,
-  ): Promise<GetRingSpendRecordResponse> {
-    return this.#call(getRingSpendRecordMethod, request, context);
-  }
-
-  getRingKeyRegistryEntry(
+  getRingMemberRecord(
     request: RingMemberProofRequest,
     context?: RequestContext,
-  ): Promise<RingKeyRegistryEntry> {
-    return this.#call(getRingKeyRegistryEntryMethod, request, context);
+  ): Promise<RingMemberOpeningResponse> {
+    return this.#call(getRingMemberRecordMethod, request, context);
   }
 
-  getRingKeyRegistryRegisterProof(
-    request: RingMemberProofRequest,
+  getRingMemberRecords(
+    request: RingMemberRecordsRequest,
     context?: RequestContext,
-  ): Promise<RingKeyRegistryRegisterProof> {
-    return this.#call(getRingKeyRegistryRegisterProofMethod, request, context);
+  ): Promise<RingMemberPageResponse> {
+    return this.#call(getRingMemberRecordsMethod, request, context);
+  }
+
+  getRingMemberRegistryRoot(
+    request: Readonly<{ ringProgramId: import("../interface/types.js").Address }>,
+    context?: RequestContext,
+  ): Promise<RingRegistryStateResponse> {
+    return this.#call(getRingMemberRegistryRootMethod, request, context);
+  }
+
+  getRingMemberOpenings(
+    request: RingMemberOpeningsRequest,
+    context?: RequestContext,
+  ): Promise<RingMemberOpeningsResponse> {
+    return this.#call(getRingMemberOpeningsMethod, request, context);
+  }
+
+  getRingRecordQueue(
+    request: Readonly<{ ringProgramId: import("../interface/types.js").Address }>,
+    context?: RequestContext,
+  ): Promise<RingRecordQueueResponse> {
+    return this.#call(getRingRecordQueueMethod, request, context);
+  }
+
+  getRingApplyProofInputs(
+    request: RingApplyProofInputsRequest,
+    context?: RequestContext,
+  ): Promise<RingApplyProofInputsResponse> {
+    return this.#call(getRingApplyProofInputsMethod, request, context);
   }
 
   getShieldedTransactionsBySignature(

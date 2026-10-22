@@ -80,8 +80,10 @@ pub fn transact_general_event(
     ) {
         return Err(EventDecodeError::UnsupportedSourceInstruction(source_tag));
     }
-    let ix = TransactIxDataRef::from_bytes(ix_bytes)
-        .map_err(|_| EventDecodeError::InvalidSourceInstructionData)?;
+    // The ring program appends its control tail after the instruction.
+    let ix = TransactIxDataRef::parse_with_tail(ix_bytes)
+        .map_err(|_| EventDecodeError::InvalidSourceInstructionData)?
+        .ix;
     let spl_transfers = settlement_transfers(
         &ix.interface_transfers,
         settlement_accounts(&ix.interface_transfers, ix.circuit, &source.accounts)
@@ -166,26 +168,23 @@ fn settlement_transfers(
 
 /// Rebuild a `merge_transact` or `merge_ring` event. The single output carries
 /// the emitted view tag, the instruction's `output_utxo_hash`, and as its data
-/// the output ciphertext: proof-bound on `merge_transact`, unverified and led
+/// the output ciphertext: proof-bound on `merge_transact`, proof-bound and led
 /// by the output `ring_data_hash` on `merge_ring`.
 pub fn merge_general_event(
     source: &ParsedInstruction,
     event: &MergeEvent,
 ) -> Result<GeneralEvent, EventDecodeError> {
     let (source_tag, ix_bytes) = source_tag_and_data(source)?;
-    let (merge, prefix) = match source_tag {
+    let (merge, ring_data_hash) = match source_tag {
         tag::MERGE_TRANSACT => {
             let merge = MergeTransactIxDataRef::from_bytes(ix_bytes)
                 .map_err(|_| EventDecodeError::InvalidSourceInstructionData)?;
-            (merge, [].as_slice())
+            (merge, None)
         }
         tag::RING_MERGE_TRANSACT => {
             let ring = MergeRingIxDataRef::from_bytes(ix_bytes)
                 .map_err(|_| EventDecodeError::InvalidSourceInstructionData)?;
-            (
-                ring.merge,
-                core::slice::from_ref(ring.output_ring_data_hash),
-            )
+            (ring.merge, Some(ring.output_ring_data_hash))
         }
         other => return Err(EventDecodeError::UnsupportedSourceInstruction(other)),
     };
@@ -194,7 +193,7 @@ pub fn merge_general_event(
             encode_merge_output_data(MergeOutputDataRef {
                 salt,
                 ciphertext,
-                prefix,
+                ring_data_hash,
             })
         }
     };

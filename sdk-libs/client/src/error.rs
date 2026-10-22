@@ -11,18 +11,18 @@ use crate::prover::tee::TeeError;
 
 #[derive(Debug, Error)]
 pub enum ClientError {
+    #[error("the ring member registry indexer is catching up or recovering")]
+    RingRegistryOutOfSync,
+    #[error("the ring member registry root has changed")]
+    RingRegistryRootChanged,
+    #[error("the ring member registry page has an index gap or inconsistent leaf")]
+    RingRegistryPageGap,
+    #[error("the member has no record in the ring member registry")]
+    RingMemberUnregistered,
+    #[error("the ring record queue moved under the request")]
+    RingRecordQueueChanged,
     #[error("address input {index} is not supported by merge or ring authority proofs")]
     AddressInputUnsupported { index: usize },
-    #[error("the ring key-registry indexer is catching up or recovering")]
-    RingKeyRegistryOutOfSync,
-    #[error("the ring key-registry root has changed")]
-    RingKeyRegistryRootChanged,
-    #[error("the member has not registered a nullifier key")]
-    RingKeyRegistryMemberUnregistered,
-    #[error("the member already registered a nullifier key")]
-    RingKeyRegistryMemberAlreadyRegistered,
-    #[error("the ring spend-record indexer is catching up or recovering")]
-    RingSpendRecordOutOfSync,
     #[error("deposit builder error: {0}")]
     DepositBuild(#[from] DepositBuildError),
 
@@ -113,7 +113,7 @@ pub enum ClientError {
     #[error("only transaction version 1 is supported")]
     UnsupportedTransactionVersion,
 
-    #[error("address lookup tables are not supported")]
+    #[error("transaction loads lookup table accounts its metadata does not name")]
     AddressLookupTable,
 
     #[error(
@@ -135,6 +135,15 @@ pub enum ClientError {
 
     #[error("the shielded pool's asset registry account for mint {mint} is invalid")]
     InvalidSplAssetRegistry { mint: Address },
+
+    #[error("asset registry account {address} is invalid")]
+    InvalidAssetRegistryAccount { address: Address },
+
+    #[error("the SPL asset counter account is invalid")]
+    InvalidAssetCounter,
+
+    #[error("asset registry ids {first}..{end} answered with {found} accounts")]
+    AssetRegistryPageIncomplete { first: u64, end: u64, found: usize },
 
     #[error("address resolution error: {0}")]
     AddressResolution(String),
@@ -252,9 +261,6 @@ pub enum ClientError {
 
     #[error("the prover has no indexer for indexed proofs")]
     ProverIndexerUnconfigured,
-
-    #[error("the ring key registry holds no matching nullifier key for member {member:?}")]
-    RegistryMemberMissing { member: [u8; 32] },
 
     #[error("invalid indexed proof request")]
     InvalidIndexedRequest,
@@ -392,6 +398,9 @@ pub enum ClientError {
     #[error("state proof {index} targets a different tree")]
     StateProofTreeMismatch { index: usize },
 
+    #[error("state proof {index} does not hash to its root")]
+    StateProofRootMismatch { index: usize },
+
     #[error("nullifier proof {index} does not match its requested nullifier")]
     NullifierProofLeafMismatch { index: usize },
 
@@ -427,6 +436,27 @@ pub enum ClientError {
 
     #[error("indexer did not observe the transaction before the poll timeout")]
     IndexerTimeout,
+
+    #[error("the ring address names ring {address_ring}, the payment is in ring {ring}")]
+    ForeignRingAddress {
+        address_ring: Address,
+        ring: Address,
+    },
+
+    #[error(
+        "{count} issued ring addresses pass the maximum of {max}",
+        max = crate::anonymous::MAX_ISSUED_ADDRESSES
+    )]
+    TooManyIssuedAddresses { count: u64 },
+
+    #[error("anonymous ring state version {version} needs a rescan from the ring's creation")]
+    AnonymousRingStateVersion { version: u32 },
+
+    #[error("anonymous ring state does not parse because {0}")]
+    AnonymousRingState(String),
+
+    #[error("anonymous ring state names epoch {epoch} outside the ring's epochs")]
+    AnonymousRingEpoch { epoch: u64 },
 
     /// The indexer answered a full page with the cursor it was given, so
     /// paging on would read the same page forever.
@@ -477,6 +507,17 @@ pub enum ClientError {
     AnonymousRingEddsaPublishedOwnerLeaksIdentity { index: usize },
 
     #[error(
+        "address input {index} derives from the hidden owner identity while a ring-bound UTXO of the hidden owner is spent"
+    )]
+    AnonymousRingEddsaAddressLeaksIdentity { index: usize },
+
+    #[error("the hidden owner's signature does not verify over the ring's spend message")]
+    AnonymousSpendSignatureInvalid,
+
+    #[error("an anonymous spend takes an exit token owner exactly when it withdraws SPL")]
+    AnonymousExitTokenOwnerMismatch,
+
+    #[error(
         "input {index} is not a real input_utxo, and this transaction forbids dummy input slots"
     )]
     NonSpendInputNotAllowed { index: usize },
@@ -489,11 +530,25 @@ pub enum ClientError {
 }
 
 impl ClientError {
+    /// The runtime's refusal a send or a confirmation carried, if any.
+    pub fn transaction_error(&self) -> Option<solana_transaction_error::TransactionError> {
+        match self {
+            Self::SolanaRpcTransaction { source, .. } => source.get_transaction_error(),
+            _ => None,
+        }
+    }
+
     pub fn for_signature(self, signature: &solana_signature::Signature) -> Self {
         match self {
             Self::Rpc(message) => Self::Rpc(format!("{signature}: {message}")),
             other => other,
         }
+    }
+}
+
+impl From<custom_ring_interface::stream::StreamError> for ClientError {
+    fn from(error: custom_ring_interface::stream::StreamError) -> Self {
+        Self::Transaction(error.into())
     }
 }
 

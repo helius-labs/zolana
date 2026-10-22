@@ -3,12 +3,14 @@ import type {
   Bytes32,
   Bytes16,
   Bytes33,
+  Bytes128,
   DepositAssetKind,
   CacheAccount,
   CircuitId,
   CreateCacheData,
   DepositInstructionData,
   InputUtxo,
+  InterfaceTransfer,
   MergeOutputEncryption,
   MergeTransactInstructionData,
   OwnerTag,
@@ -42,8 +44,11 @@ import {
   TREE_ACCOUNT_SIZE,
   TREE_FEES_OFFSET,
   TREE_FEE_BALANCE_OFFSET,
+  TREE_STATE_PAUSED,
   UTXO_ROOT_HISTORY_CAPACITY,
+  UTXO_ROOT_HISTORY_CAPACITY_OFFSET,
   UTXO_ROOT_HISTORY_CURSOR_OFFSET,
+  UTXO_ROOT_HISTORY_LEN_OFFSET,
   UTXO_ROOT_HISTORY_OFFSET,
   UTXO_SUBTREES_LEN_OFFSET,
 } from "../state.js";
@@ -226,6 +231,13 @@ export function writeTreeContext(writer: Writer, value: TreeContext): void {
     .u16(value.nullifierTreeRootIndex, "treeContext.nullifierTreeRootIndex");
 }
 
+export function readTreeContext(reader: Reader): TreeContext {
+  return Object.freeze({
+    utxoTreeRootIndex: reader.u16("treeContext.utxoTreeRootIndex"),
+    nullifierTreeRootIndex: reader.u16("treeContext.nullifierTreeRootIndex"),
+  });
+}
+
 function writeOwnerTag(writer: Writer, value: OwnerTag): void {
   switch (value.kind) {
     case "inline":
@@ -247,6 +259,8 @@ function circuitTag(value: CircuitId): number {
       return 1;
     case "ringAuthority":
       return 2;
+    case "anonymousRingEddsa":
+      return 3;
     case "confidentialEddsaCached":
       return 4;
     case "confidentialRingEddsaCached":
@@ -262,6 +276,16 @@ function writeCircuit(writer: Writer, value: CircuitId): void {
     .u8(value.inputs, "circuit.inputs")
     .u8(value.outputs, "circuit.outputs")
     .u8(value.publicAssetSlots, "circuit.publicAssetSlots");
+  if (value.kind === "anonymousRingEddsa") {
+    const { bsb22Commitment, defaultOwnerTag } = value.proofData;
+    // Rust `FixedOptionOwnerTag`, an absent tag still writes its 32 zero bytes.
+    writer
+      .bytes(bsb22Commitment.commitment, 32, "circuit.bsb22Commitment.commitment")
+      .bytes(bsb22Commitment.commitmentPok, 32, "circuit.bsb22Commitment.commitmentPok")
+      .u8(defaultOwnerTag === undefined ? 0 : 1, "circuit.defaultOwnerTag.present")
+      .bytes(defaultOwnerTag ?? new Uint8Array(32), 32, "circuit.defaultOwnerTag");
+    return;
+  }
   if (value.kind !== "confidentialEddsaCached" && value.kind !== "confidentialRingEddsaCached")
     return;
   if (!validCacheAccess(value.cacheAccess, value.inputs, value.outputs)) {
@@ -279,10 +303,7 @@ function writeCircuit(writer: Writer, value: CircuitId): void {
   });
 }
 
-function writeInterfaceTransfer(
-  writer: Writer,
-  value: TransactInstructionData["interfaceTransfers"][number],
-): void {
+export function writeInterfaceTransfer(writer: Writer, value: InterfaceTransfer): void {
   const tag =
     value.kind === "solDeposit"
       ? 0
@@ -294,6 +315,26 @@ function writeInterfaceTransfer(
   writer.u8(tag, "interfaceTransfer.kind").u64(value.amount, "interfaceTransfer.amount");
   if (value.kind === "splDeposit" || value.kind === "splWithdrawal") {
     writer.u8(value.splInterfaceBump, "interfaceTransfer.splInterfaceBump");
+  }
+}
+
+export function readInterfaceTransfer(reader: Reader): InterfaceTransfer {
+  const kind = reader.u8("interfaceTransfer.kind");
+  const amount = reader.u64("interfaceTransfer.amount");
+  switch (kind) {
+    case 0:
+      return Object.freeze({ kind: "solDeposit", amount });
+    case 1:
+      return Object.freeze({ kind: "solWithdrawal", amount });
+    case 2:
+    case 3:
+      return Object.freeze({
+        kind: kind === 2 ? "splDeposit" : "splWithdrawal",
+        amount,
+        splInterfaceBump: reader.u8("interfaceTransfer.splInterfaceBump"),
+      });
+    default:
+      return fail("INTERFACE_CODEC", { name: "interfaceTransfer.kind", actual: kind });
   }
 }
 
@@ -386,6 +427,65 @@ function writeMergeData(writer: Writer, value: MergeTransactInstructionData): vo
     .option(value.cacheSlot, (output, slot) => {
       output.u8(unsigned(slot, CACHE_CAPACITY - 1, "cacheSlot"), "cacheSlot");
     });
+}
+
+function readMergeOutputEncryption(reader: Reader): MergeOutputEncryption {
+  const scheme = reader.u8("outputEncryption.scheme");
+  if (scheme !== MergeEncryptionScheme.PoseidonCtrV1) {
+    fail("INTERFACE_CODEC", { name: "outputEncryption.scheme", actual: scheme });
+  }
+  return {
+    scheme,
+    salt: reader.bytes(16, "outputEncryption.salt") as Bytes16,
+    ciphertext: [
+      reader.bytes(32, "outputEncryption.ciphertext") as Bytes32,
+      reader.bytes(32, "outputEncryption.ciphertext") as Bytes32,
+      reader.bytes(32, "outputEncryption.ciphertext") as Bytes32,
+    ],
+  };
+}
+
+/** Reads one `MergeTransactIxData` body, the caller owns the surrounding frame. */
+export function readMergeData(reader: Reader): MergeTransactInstructionData {
+  const expiryUnixTs = reader.u64("expiryUnixTs");
+  const proof = {
+    a: reader.bytes(32, "proof.a") as Bytes32,
+    b: reader.bytes(128, "proof.b") as Bytes128,
+    c: reader.bytes(32, "proof.c") as Bytes32,
+  };
+  const outputUtxoHash = reader.bytes(32, "outputUtxoHash") as Bytes32;
+  const outputEncryption = readMergeOutputEncryption(reader);
+  const privateTxHash = reader.bytes(32, "privateTxHash") as Bytes32;
+  const count = reader.u8("nullifiers.length");
+  if (count === 0 || mergePaddedInputCount(count) === undefined) {
+    fail("INTERFACE_CODEC", { name: "nullifiers.length", actual: count });
+  }
+  const nullifiers = Array.from({ length: count }, () => reader.bytes(32, "nullifier") as Bytes32);
+  const utxoTreeRootIndex = reader.u16("utxoTreeRootIndex");
+  const nullifierTreeRootIndex = reader.u16("nullifierTreeRootIndex");
+  const cacheSlot = reader.option("cacheSlot", (input) =>
+    unsigned(input.u8("cacheSlot"), CACHE_CAPACITY - 1, "cacheSlot"),
+  );
+  return {
+    expiryUnixTs,
+    proof,
+    outputUtxoHash,
+    outputEncryption,
+    privateTxHash,
+    nullifiers,
+    utxoTreeRootIndex,
+    nullifierTreeRootIndex,
+    ...(cacheSlot === undefined ? {} : { cacheSlot }),
+  };
+}
+
+export function decodeMergeTransactInstructionData(
+  bytes: Uint8Array,
+): MergeTransactInstructionData {
+  const reader = new Reader(bytes);
+  const value = readMergeData(reader);
+  reader.done();
+  return value;
 }
 
 const MERGE_FIXED_DATA_LENGTH = 383;
@@ -491,6 +591,11 @@ export function decodeTreeId(bytes: Uint8Array): number {
   return treeAccountReader(bytes, 2, 4).u16("treeId");
 }
 
+/** Mirrors Rust `TreeAccount::is_paused`. */
+export function decodeTreePaused(bytes: Uint8Array): boolean {
+  return treeAccountReader(bytes, 1, 2).u8("state") === TREE_STATE_PAUSED;
+}
+
 /**
  * Reads the fee schedule and accrued fee balance from a full tree account.
  * The tree header is `discriminator, state, tree_id, padding[4], fees, fee_balance`.
@@ -547,6 +652,30 @@ export function decodeTreeHeadRoots(bytes: Uint8Array): TreeHeadRoots {
     "nullifierRoot",
   );
   return Object.freeze({ stateRoot, stateRootIndex, nullifierRoot, nullifierRootIndex });
+}
+
+/** Mirrors Rust `root_by_index`, `undefined` for a slot the history holds no root in. */
+export function decodeUtxoRoot(bytes: Uint8Array, index: number): Bytes32 | undefined {
+  const reader = treeAccountReader(
+    bytes,
+    UTXO_ROOT_HISTORY_LEN_OFFSET,
+    UTXO_ROOT_HISTORY_CAPACITY_OFFSET + 2,
+  );
+  const written = reader.u16("rootHistoryLen");
+  const capacity = reader.u16("rootHistoryCapacity");
+  reader.done();
+  if (capacity !== UTXO_ROOT_HISTORY_CAPACITY) fail("INTERFACE_INVALID_ACCOUNT_DATA");
+  if (
+    !Number.isSafeInteger(index) ||
+    index < 0 ||
+    written === 0 ||
+    index >= capacity ||
+    (written < capacity && index >= written)
+  )
+    return undefined;
+  const start = UTXO_ROOT_HISTORY_OFFSET + index * 32;
+  const root = copyBytes(bytes.subarray(start, start + 32), 32, "utxoRoot") as Bytes32;
+  return root.every((byte) => byte === 0) ? undefined : root;
 }
 
 function treeAccountReader(bytes: Uint8Array, start: number, end: number): Reader {

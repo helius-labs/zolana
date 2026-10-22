@@ -195,25 +195,22 @@ impl Shape {
         false
     }
 
-    /// Whether the ring authority rail has keys for this shape: square, with a
-    /// width from [`RING_AUTHORITY_WIDTHS`].
+    /// Whether the ring authority rail has keys for this shape: a supported shape
+    /// of at most [`RING_AUTHORITY_MAX_INPUTS`] inputs.
     pub const fn is_ring_authority(self) -> bool {
-        if self.n_inputs != self.n_outputs {
-            return false;
-        }
-        let mut widths: &[usize] = &RING_AUTHORITY_WIDTHS;
-        while let Some((width, rest)) = widths.split_first() {
-            if *width == self.n_inputs {
-                return true;
-            }
-            widths = rest;
-        }
-        false
+        self.n_inputs <= RING_AUTHORITY_MAX_INPUTS && self.is_supported()
     }
 }
 
-/// Square widths the ring authority rail has keys for, ascending.
-pub const RING_AUTHORITY_WIDTHS: [usize; 2] = [2, 4];
+/// The widest spend a ring authority transaction fits.
+pub const RING_AUTHORITY_MAX_INPUTS: usize = 40;
+
+/// Cost ordered, so the first shape that fits is the cheapest.
+pub fn ring_authority_shapes() -> impl Iterator<Item = Shape> {
+    SPP_SUPPORTED_SHAPES
+        .into_iter()
+        .filter(|shape| shape.is_ring_authority())
+}
 
 /// Distinct addresses one transaction can carry, `solana_message::v1::MAX_ADDRESSES`.
 pub const MAX_TRANSACTION_ADDRESSES: usize = 64;

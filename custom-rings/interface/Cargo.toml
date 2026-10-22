@@ -8,21 +8,32 @@ publish = false
 
 [features]
 default = ["verifying-keys"]
-verifying-keys = ["dep:groth16-solana"]
+verifying-keys = []
 
 [dependencies]
 # Required for Pod on the compressed auditor key.
 bytemuck = { workspace = true, features = ["min_const_generics"] }
-groth16-solana = { workspace = true, optional = true }
+groth16-solana = { workspace = true }
 solana-address = { workspace = true, features = ["bytemuck"] }
+solana-program-error = { workspace = true }
+thiserror = { workspace = true }
 wincode = { workspace = true }
 zolana-ring-policy = { workspace = true }
 zolana-hasher = { workspace = true }
 zolana-interface = { workspace = true }
+zolana-event = { workspace = true }
+
+[target.'cfg(not(target_os = "solana"))'.dependencies]
+solana-bn254 = { workspace = true }
 
 [lints.rust.unexpected_cfgs]
 level = "warn"
 check-cfg = ['cfg(target_os, values("solana"))']
 
 [dev-dependencies]
+borsh = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
+zolana-keypair = { workspace = true }
+zolana-instruction = { workspace = true }
+hex = { workspace = true }

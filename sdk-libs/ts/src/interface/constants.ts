@@ -9,6 +9,8 @@
 export const MERGE_INPUT_COUNT = 24;
 
 export const MAX_MERGE_INPUTS = 52;
+/** Upper bound for published custom-ring merge inputs. Extra accounts can lower it. */
+export const MAX_RING_MERGE_INPUTS = 50;
 
 export const MERGE_SUPPORTED_INPUT_COUNTS: readonly number[] = Object.freeze([
   8,
@@ -20,5 +22,3 @@ export const MERGE_SUPPORTED_INPUT_COUNTS: readonly number[] = Object.freeze([
 export function mergePaddedInputCount(realInputs: number): number | undefined {
   return MERGE_SUPPORTED_INPUT_COUNTS.find((count) => count >= realInputs);
 }
-
-export const RING_SPEND_COUNTERS_SLOT_INDEX = 0xffff_ffff;

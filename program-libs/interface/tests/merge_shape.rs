@@ -95,6 +95,8 @@ fn cache_slot_round_trips_in_both_merge_rails() {
             cache_slot
         );
         let ring = MergeRingIxData {
+            member_registry_root: [9; 32],
+            anonymous: false,
             output_ring_data_hash: [7; 32],
             merge: data,
         };

@@ -1,6 +1,15 @@
 package protocol
 
-import "testing"
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"runtime"
+	"slices"
+	"testing"
+
+	"github.com/helius-labs/zolana/prover/server/prover/common"
+)
 
 func TestSupportedShapes(t *testing.T) {
 	grid := map[int][]int{
@@ -24,6 +33,38 @@ func TestSupportedShapes(t *testing.T) {
 	}
 	if len(AutoShapes) != len(SupportedShapes) {
 		t.Fatalf("automatic selection reaches %d of %d shapes", len(AutoShapes), len(SupportedShapes))
+	}
+}
+
+// program-libs/interface/tests/shape.rs pins ring_authority_shapes to the same vector.
+func TestRingAuthorityShapesAreTheSharedVector(t *testing.T) {
+	_, source, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("locate shape_test.go")
+	}
+	raw, err := os.ReadFile(filepath.Join(filepath.Dir(source), "../../../../../test-vectors/ring_keyed_shapes.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var vector struct {
+		Shapes [][2]int `json:"ring_authority"`
+	}
+	if err := json.Unmarshal(raw, &vector); err != nil {
+		t.Fatal(err)
+	}
+	shapes := make([][2]int, len(RingAuthorityShapes))
+	for i, shape := range RingAuthorityShapes {
+		shapes[i] = [2]int{shape.NInputs, shape.NOutputs}
+	}
+	if !slices.Equal(shapes, vector.Shapes) {
+		t.Fatalf("ring authority shapes %v, vector %v", shapes, vector.Shapes)
+	}
+	served := make([][2]int, len(common.RingAuthorityShapes))
+	for i, shape := range common.RingAuthorityShapes {
+		served[i] = [2]int{shape.NInputs, shape.NOutputs}
+	}
+	if !slices.Equal(served, vector.Shapes) {
+		t.Fatalf("prover ring authority shapes %v, vector %v", served, vector.Shapes)
 	}
 }
 

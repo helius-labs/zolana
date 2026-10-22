@@ -6,14 +6,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-anyhow.workspace = true
 custom-ring-interface.workspace = true
 serde.workspace = true
 solana-address = { workspace = true, features = ["curve25519"] }
-wincode.workspace = true
-zolana-event.workspace = true
-zolana-hasher.workspace = true
-zolana-indexer-api.workspace = true
-zolana-interface = { workspace = true, features = ["tree"] }
-zolana-ring-key-registry.workspace = true
+thiserror.workspace = true
+zolana-ring-member-registry.workspace = true
 zolana-ring-policy.workspace = true

@@ -179,6 +179,7 @@ impl<'a> TransactAccounts<'a> {
                         spl_interface_account,
                         user_token_account,
                         token_program_account: token_program,
+                        user_token_account_control: mint_state.user_token_account_control,
                     })
                 }
                 InterfaceTransfer::SolDeposit { .. } => {

@@ -7,8 +7,9 @@
 //! automatically selected [`Shape`], then finalizes it into a keyless
 //! [`FinalizedTransaction`] that the key holder encrypts into [`SppProofInputs`].
 //! [`PrivateTxHash`] produces the `private_tx_hash` shared as a public input by
-//! the SPP and ring proofs, and [`transact_message_hash`] the digest an anonymous EdDSA
-//! owner signs over it and the external data hash.
+//! the SPP and ring proofs, [`transact_message_hash`] the digest over it and the
+//! external data hash, and [`ring_spend_message`] the bytes an anonymous EdDSA
+//! owner signs over that digest and its ring.
 
 mod cache;
 mod encryption;
@@ -31,20 +32,25 @@ use zolana_keypair::{shielded::ShieldedAddress, viewing_key::random_blinding};
 pub use crate::indexer_types::{OutputContext, OutputSlot, ShieldedTransaction};
 pub use crate::utxo::SppProofOutputUtxo;
 pub use cache::{cache_bound_external_data_hash, cache_write_slots};
-pub use encryption::{OutputEncoder, OutputEncryption, ResolvedOwnerTag};
+pub use encryption::{
+    OutputEncoder, OutputEncryption, ResolvedOwnerTag, RingOutputSlot, SlotEncode,
+};
 pub use external_data::{ExternalData, SettlementTransfer};
 pub use finalized::FinalizedTransaction;
 pub use inputs::pad_input_utxos;
 pub use outputs::Recipient;
 pub use settlement::{
-    asset_field, signed_magnitude_to_field, PublicTransferRequest, PublicTransfers,
+    asset_field, public_slots, signed_magnitude_to_field, PublicTransferRequest, PublicTransfers,
     SettlementTarget, BN254_MODULUS_DEC,
 };
 pub use shape::{
     auto_shapes, canonical_shape, resolve_shape, Shape, MAX_SPEND_INPUTS, SPP_SUPPORTED_SHAPES,
 };
 pub(crate) use transaction::real_slot_after_dummy;
-pub use transaction::{transact_message_hash, CacheAccounts, PrivateTxHash, SppProofInputs};
+pub use transaction::{
+    ring_spend_message, transact_message_hash, CacheAccounts, PrivateTxHash, SppProofInputs,
+    RING_SPEND_MESSAGE_LEN, RING_SPEND_MESSAGE_PREFIX,
+};
 
 use ring::sender_owner_tag;
 

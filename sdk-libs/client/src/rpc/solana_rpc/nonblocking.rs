@@ -15,10 +15,14 @@ use solana_transaction_status_client_types::{
     EncodedConfirmedTransactionWithStatusMeta, TransactionStatus, UiTransactionEncoding,
 };
 
+use zolana_transaction::AssetRegistry;
+
 use crate::{error::ClientError, rpc::AsyncRpc};
 
 use super::{
-    accounts::{filtered_program_accounts, pubkey_from_address, ProgramAccountsFilter},
+    accounts::{
+        filtered_program_accounts, pubkey_from_address, AssetRegistryPages, ProgramAccountsFilter,
+    },
     transaction::{
         instruction_groups_from_confirmed_transaction,
         transact_output_view_tags_from_instruction_groups, ConfirmedInstructionGroups,
@@ -72,6 +76,18 @@ impl AsyncSolanaRpc {
             .await
             .map_err(|err| ClientError::Rpc(format!("get_program_accounts {program_id}: {err}")))?;
         filtered_program_accounts(&program_id, filter, accounts)
+    }
+
+    /// Every SPL mint the pool registered, see [`SolanaRpc::asset_registry`](super::SolanaRpc::asset_registry).
+    pub async fn asset_registry(&self) -> Result<AssetRegistry, ClientError> {
+        let counter = self.get_account(AssetRegistryPages::counter()).await?;
+        let mut registry = AssetRegistry::default();
+        for page in AssetRegistryPages::of(counter)?.pages() {
+            let (program, filter) = page.query();
+            let accounts = self.get_program_accounts_filtered(program, &filter).await?;
+            page.read(accounts, &mut registry)?;
+        }
+        Ok(registry)
     }
 
     pub async fn genesis_hash(&self) -> Result<[u8; 32], ClientError> {
@@ -223,6 +239,17 @@ impl AsyncRpc for AsyncSolanaRpc {
             .await
             .map(|response| response.value)
             .map_err(|err| ClientError::Rpc(format!("get_signature_statuses: {err}")))
+    }
+
+    async fn get_signature_statuses_with_history(
+        &self,
+        signatures: Vec<Signature>,
+    ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
+        self.client
+            .get_signature_statuses_with_history(&signatures)
+            .await
+            .map(|response| response.value)
+            .map_err(|err| ClientError::Rpc(format!("get_signature_statuses_with_history: {err}")))
     }
 
     async fn health(&self) -> Result<(), ClientError> {

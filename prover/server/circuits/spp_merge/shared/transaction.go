@@ -78,6 +78,11 @@ type CommonPublicInputs struct {
 	TreeSlots []transaction.TreeSlot
 	// Raw u16 id of the output tree.
 	OutputTreeID frontend.Variable
+
+	// OutputCiphertextSalt is the per-proof pad nonce of the output
+	// ciphertext. It is 16 bytes of instruction data, so it is canonical
+	// without a range check.
+	OutputCiphertextSalt frontend.Variable
 }
 
 // Transaction is the common merge statement over a wrapper-owned witness.
@@ -100,12 +105,11 @@ type Transaction struct {
 	RingProgramID frontend.Variable
 }
 
-// Derived contains the values an output encryption scheme encrypts or keys on.
+// Derived contains the values a wrapper publishes in its public-input-hash
+// preimage beyond the common prefix.
 type Derived struct {
-	// OutputAmount is the merged output's amount, the sum of the input amounts.
-	OutputAmount frontend.Variable
-	// FirstNullifier is the first (always real) input's single-use nullifier.
-	FirstNullifier frontend.Variable
+	OwnerPkHash      frontend.Variable
+	OutputCiphertext []frontend.Variable
 }
 
 // NewInputs allocates n merge input slots and their Merkle paths.
@@ -253,6 +257,14 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 		t.RingProgramID,
 		t.Public.OutputTreeID,
 	)
+	outputCiphertext := MergeOutputCiphertext(
+		api,
+		t.UserNullifierSecret,
+		nullifiers[0],
+		t.Public.OutputCiphertextSalt,
+		sumInputs,
+		t.MintChunks,
+	)
 
 	addressNullifiers := make([]frontend.Variable, len(inputHashes))
 	for i := range addressNullifiers {
@@ -272,7 +284,23 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 	}
 
 	return Derived{
-		OutputAmount:   sumInputs,
-		FirstNullifier: nullifiers[0],
+		OwnerPkHash:      t.OwnerPkHash,
+		OutputCiphertext: outputCiphertext,
 	}, nil
+}
+
+// AssertRingDataPreserved prevents consolidation from replacing recovery or
+// application state. Every real input must carry the output's ring data hash.
+// Padding carries no state and is exempt. The default rail already pins these
+// fields to zero, so only the ring wrapper calls this additional relation.
+// Constrain must first establish each domain is UtxoDomain or DummyDomain.
+// Their difference is nonzero in the field, so multiplying by domain minus
+// DummyDomain gates equality without another Boolean selector or division hint.
+func (t Transaction) AssertRingDataPreserved(api frontend.API) {
+	for _, input := range t.Inputs {
+		api.AssertIsEqual(api.Mul(
+			api.Sub(input.Domain, DummyDomain),
+			api.Sub(input.RingDataHash, t.Output.RingDataHash),
+		), 0)
+	}
 }

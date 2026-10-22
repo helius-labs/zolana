@@ -5,8 +5,9 @@ use borsh::BorshDeserialize;
 use common::{keypair, wallet_utxo};
 use solana_address::Address;
 use std::cell::RefCell;
-use zolana_event::OutputDataEncoding;
+use zolana_event::{MessageData, OutputDataEncoding};
 use zolana_hasher::{Hasher, Poseidon};
+use zolana_instruction::RingOutputBlinding;
 use zolana_interface::{
     instruction::instruction_data::transact::OwnerTag, MAX_INPUT_TREES, N_PUBLIC_SLOTS,
 };
@@ -15,13 +16,19 @@ use zolana_keypair::{
 };
 use zolana_transaction::{
     instructions::transact::{
-        canonical_shape, pad_input_utxos, resolve_shape, ConfidentialTransaction,
-        PublicTransferRequest, SettlementTarget, Shape, SppProofInputs, SppProofOutputUtxo,
+        canonical_shape, pad_input_utxos, resolve_shape, ConfidentialTransaction, OutputEncoder,
+        OutputEncryption, PublicTransferRequest, ResolvedOwnerTag, RingOutputSlot,
+        SettlementTarget, Shape, SlotEncode, SppProofInputs, SppProofOutputUtxo,
         SPP_SUPPORTED_SHAPES,
     },
-    keys::{DecryptRequest, DeriveRequest, ShieldedKeys, TransactionKeyRequest},
+    keys::{
+        DecryptRequest, DeriveRequest, RingDeliveryRequest, ShieldedKeys, TransactionKeyRequest,
+    },
     serialization::confidential::Confidential,
-    utxo::{derive_output_blinding_seed, derive_transact_output_blinding, SppProofInputUtxo},
+    utxo::{
+        derive_output_blinding_seed, derive_transact_output_blinding, OutputSlotBlinding,
+        SppProofInputUtxo,
+    },
     AssetRegistry, Data, DataRecord, DecodeCx, EncryptedScheme, Mint, TransactionError as E,
     UtxoSerialization, WalletUtxo,
 };
@@ -929,9 +936,14 @@ fn assert_recovery(
             Confidential::decrypt_with_tx_key(tx_key, body, proof.external_data.salt, index as u32)
                 .unwrap()
         );
-        let blinding =
-            derive_transact_output_blinding(&proof.first_nullifier().unwrap(), &seed, index as u32)
-                .unwrap();
+        let blinding = OutputSlotBlinding {
+            output,
+            first_nullifier: &proof.first_nullifier().unwrap(),
+            output_blinding_seed: &seed,
+            slot_index: index as u32,
+        }
+        .derive()
+        .unwrap();
         assert_eq!(
             (
                 recovered.asset_id,
@@ -1178,6 +1190,136 @@ fn generated_sol_and_spl_operations_conserve_each_mint_and_recover_every_output(
     }
 }
 
+struct RingSecrets;
+
+impl OutputEncoder for RingSecrets {
+    fn ring_secret(&self, slot: &RingOutputSlot<'_>) -> Result<[u8; 32], E> {
+        Ok(ring_secret(slot.slot_index))
+    }
+
+    fn owner_tags(
+        &self,
+        transaction: &ConfidentialTransaction,
+        sender: &ShieldedAddress,
+    ) -> Result<Vec<ResolvedOwnerTag>, E> {
+        Confidential.owner_tags(transaction, sender)
+    }
+
+    fn encode_slot(&self, slot: &SlotEncode<'_>) -> Result<MessageData, E> {
+        Confidential.encode_slot(slot)
+    }
+}
+
+fn ring_secret(slot_index: u32) -> [u8; 32] {
+    let mut secret = [0u8; 32];
+    secret[28..].copy_from_slice(&(0x5242 + slot_index).to_be_bytes());
+    secret
+}
+
+fn encrypt_in_ring(tx: ConfidentialTransaction, owner: &ShieldedKeypair) -> SppProofInputs {
+    let sender = owner.shielded_address().unwrap();
+    let tx_viewing_key = owner
+        .viewing_key
+        .get_transaction_viewing_key(tx.first_nullifier())
+        .unwrap();
+    OutputEncryption {
+        sender: &sender,
+        tx_viewing_key: &tx_viewing_key,
+        encoder: &RingSecrets,
+    }
+    .encrypt(tx)
+    .unwrap()
+}
+
+fn ring_transfer(owner: &ShieldedKeypair, receiver: &ShieldedAddress) -> ConfidentialTransaction {
+    let ring = Address::new_from_array([42; 32]);
+    let input = wallet_utxo(owner, Mint::SOL, 10, 7, 1);
+    let mut tx = ConfidentialTransaction::new_with_ring(vec![input], payer(owner), ring).unwrap();
+    tx.transfer_sol(receiver, 2).unwrap();
+    tx.transfer_with_ring(receiver, Mint::SOL, 3, None).unwrap();
+    tx.pad_utxos(Shape::IN1_OUT4, &owner.shielded_address().unwrap())
+        .unwrap();
+    tx
+}
+
+#[test]
+fn ring_outputs_take_the_encoder_ring_secret_and_every_other_slot_the_output_seed() {
+    let owner = keypair(1);
+    let receiver = keypair(2).shielded_address().unwrap();
+    let tx = ring_transfer(&owner, &receiver);
+    let first_nullifier = *tx.first_nullifier();
+    let seed = derive_output_blinding_seed(&first_nullifier, tx.blinding_seed()).unwrap();
+    let proof = encrypt_in_ring(tx, &owner);
+    let kinds: Vec<_> = proof
+        .output_utxos
+        .iter()
+        .map(SppProofOutputUtxo::is_ring_output)
+        .collect();
+    assert_eq!(kinds, [true, false, true, false]);
+    for (slot_index, output) in (0u32..).zip(&proof.output_utxos) {
+        let (expected_secret, expected_blinding) = if output.is_ring_output() {
+            let secret = ring_secret(slot_index);
+            let blinding = RingOutputBlinding {
+                first_nullifier,
+                ring_secret: secret,
+                output_index: slot_index,
+            }
+            .derive()
+            .unwrap();
+            (Some(secret), blinding)
+        } else {
+            let blinding = derive_transact_output_blinding(&first_nullifier, &seed, slot_index);
+            (None, blinding.unwrap())
+        };
+        assert_eq!(output.ring_secret, expected_secret, "slot {slot_index}");
+        assert_eq!(output.blinding, expected_blinding, "slot {slot_index}");
+    }
+}
+
+#[test]
+fn an_encoder_without_ring_secrets_refuses_a_ring_output() {
+    let owner = keypair(1);
+    let receiver = keypair(2).shielded_address().unwrap();
+    error(
+        ring_transfer(&owner, &receiver).encrypt(&owner),
+        E::MissingRingSecret { slot_index: 0 },
+    );
+}
+
+#[test]
+fn a_slot_blinding_refuses_a_ring_secret_on_the_wrong_kind_of_slot() {
+    let owner = keypair(1);
+    let receiver = keypair(2).shielded_address().unwrap();
+    let proof = encrypt_in_ring(ring_transfer(&owner, &receiver), &owner);
+    let first_nullifier = proof.first_nullifier().unwrap();
+    let seed = derive_output_blinding_seed(&first_nullifier, &proof.blinding_seed).unwrap();
+    let derive = |output: &SppProofOutputUtxo, slot_index: u32| {
+        OutputSlotBlinding {
+            output,
+            first_nullifier: &first_nullifier,
+            output_blinding_seed: &seed,
+            slot_index,
+        }
+        .derive()
+    };
+    let unsecured = SppProofOutputUtxo {
+        ring_secret: None,
+        ..proof.output_utxos[0].clone()
+    };
+    error(
+        derive(&unsecured, 0),
+        E::MissingRingSecret { slot_index: 0 },
+    );
+    let secured_exit = SppProofOutputUtxo {
+        ring_secret: Some(ring_secret(1)),
+        ..proof.output_utxos[1].clone()
+    };
+    error(
+        derive(&secured_exit, 1),
+        E::UnexpectedRingSecret { slot_index: 1 },
+    );
+}
+
 #[test]
 fn mixed_rings_and_relayed_owner_tags_match_recovered_owners() {
     let owner = keypair(1);
@@ -1208,7 +1350,7 @@ fn mixed_rings_and_relayed_owner_tags_match_recovered_owners() {
         tx.transfer_with_ring(&receiver, Mint::SOL, 1, Some(other_ring))
             .unwrap();
         tx.pad_utxos(Shape::IN1_OUT8, &sender).unwrap();
-        let proof = tx.encrypt(&owner).unwrap();
+        let proof = encrypt_in_ring(tx, &owner);
         let expected = vec![
             (Mint::SOL, 2, receiver, Some(ring), Data::default()),
             (Mint::SOL, 3, receiver, None, Data::default()),
@@ -1473,6 +1615,18 @@ impl ShieldedKeys for RecordingKeys {
             Ok(vec![self.key.clone()])
         }
     }
+    fn ring_address_keys(&self, _ring: &Address, _indexes: &[u32]) -> Result<Vec<X25519Pubkey>, E> {
+        panic!("builder does not derive ring address keys")
+    }
+    fn ring_delivery_secrets(&self, _requests: &[RingDeliveryRequest]) -> Result<Vec<[u8; 32]>, E> {
+        panic!("builder does not open ring deliveries")
+    }
+    fn ring_change_key(&self, _ring: &Address) -> Result<X25519Pubkey, E> {
+        panic!("builder does not derive the ring change key")
+    }
+    fn sender_view_tags(&self, _counters: &[u64]) -> Result<Vec<[u8; 32]>, E> {
+        panic!("builder does not derive view tags")
+    }
 }
 
 #[test]
@@ -1647,7 +1801,7 @@ fn encrypted_explicit_data_and_memo_survive_with_their_commitment_hashes() {
     assert_eq!(tx.outputs().len(), 2);
     assert_eq!(tx.outputs().first(), Some(&explicit));
     assert!(tx.outputs().get(1).unwrap().is_dummy());
-    let proof = tx.encrypt(&owner).unwrap();
+    let proof = encrypt_in_ring(tx, &owner);
     assert_ne!(
         proof.output_utxos.first().unwrap().blinding,
         explicit.blinding
@@ -1722,6 +1876,77 @@ fn another_mints_surplus_cannot_fund_private_or_public_spl_deficits() {
                 .map(|o| (o.asset, o.amount))
                 .collect::<Vec<_>>(),
             expected
+        );
+    }
+}
+
+#[test]
+fn ring_output_markers_preserve_exits_and_reject_live_misrouting() {
+    let owner = keypair(1);
+    let receiver = keypair(2).shielded_address().unwrap();
+    let ring = Address::new_from_array([42; 32]);
+    for compact in [false, true] {
+        let input = wallet_utxo(&owner, Mint::SOL, 10, 7, 1);
+        let mut tx = if compact {
+            ConfidentialTransaction::new_compact_with_ring(vec![input], payer(&owner), ring)
+        } else {
+            ConfidentialTransaction::new_with_ring(vec![input], payer(&owner), ring)
+        }
+        .unwrap();
+        tx.transfer_with_ring(&receiver, Mint::SOL, 3, None)
+            .unwrap();
+        tx.pad_utxos(Shape::IN1_OUT4, &owner.shielded_address().unwrap())
+            .unwrap();
+        let proof = encrypt_in_ring(tx, &owner);
+        let check = |external: &zolana_transaction::ExternalData,
+                     outputs: &[SppProofOutputUtxo]| {
+            external.validate_ring_output_markers(outputs)
+        };
+        check(&proof.external_data, &proof.output_utxos).unwrap();
+        let exit = proof
+            .output_utxos
+            .iter()
+            .position(|output| !output.is_dummy() && output.ring_program_id.is_none())
+            .unwrap();
+        let inside = proof
+            .output_utxos
+            .iter()
+            .position(|output| !output.is_dummy() && output.ring_program_id.is_some())
+            .unwrap();
+        for amount in [0, 3] {
+            let mut outputs = proof.output_utxos.clone();
+            outputs[exit].amount = amount;
+            for payload in [
+                None,
+                Some(Vec::new()),
+                Some(vec![0]),
+                proof.external_data.outputs[inside].data.clone(),
+            ] {
+                let mut external = proof.external_data.clone();
+                external.outputs[exit].data = payload;
+                assert_eq!(
+                    check(&external, &outputs),
+                    Err(E::RingOutputMarkerMismatch { index: exit })
+                );
+            }
+        }
+        let mut external = proof.external_data.clone();
+        external.outputs[inside].data = external.outputs[exit].data.clone();
+        assert_eq!(
+            check(&external, &proof.output_utxos),
+            Err(E::RingOutputMarkerMismatch { index: inside })
+        );
+        let mut external = proof.external_data.clone();
+        external.resolved_owner_tags[exit] = [0; 32];
+        assert_eq!(
+            check(&external, &proof.output_utxos),
+            Err(E::OwnerTagMismatch { slot_index: exit })
+        );
+        let mut external = proof.external_data.clone();
+        external.outputs.truncate(exit);
+        assert_eq!(
+            check(&external, &proof.output_utxos),
+            Err(E::RingOutputMarkerMismatch { index: exit })
         );
     }
 }

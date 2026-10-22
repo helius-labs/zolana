@@ -12,8 +12,7 @@ name = "ring-rpc"
 path = "src/main.rs"
 
 [dependencies]
-bincode = { workspace = true }
-bytemuck = { workspace = true }
+async-trait = { workspace = true }
 custom-ring-interface = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
@@ -21,7 +20,6 @@ hex = { workspace = true }
 hkdf = { workspace = true }
 hyper = { workspace = true }
 jsonrpsee = { workspace = true }
-libc = { workspace = true }
 log = { workspace = true }
 p256 = { workspace = true }
 psl = { workspace = true }
@@ -33,13 +31,11 @@ serde_json = { workspace = true }
 sha2 = { workspace = true }
 solana-address = { workspace = true }
 solana-account = { workspace = true }
-solana-account-decoder-client-types = { workspace = true, features = ["agave-unstable-api"] }
 solana-keypair = { workspace = true }
-solana-loader-v3-interface = { workspace = true, features = ["serde"] }
+solana-loader-v3-interface = { workspace = true }
 solana-signer = { workspace = true }
 solana-commitment-config = { workspace = true }
 solana-rpc-client = { workspace = true }
-solana-rpc-client-api = { workspace = true }
 solana-signature = { workspace = true, features = ["verify"] }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["signal", "sync", "time"] }
@@ -52,8 +48,15 @@ zolana-client = { workspace = true, features = ["solana-rpc"] }
 zolana-indexer-api = { workspace = true }
 zolana-interface = { workspace = true }
 zolana-keypair = { workspace = true }
-zolana-ring-client = { workspace = true, features = ["solana-rpc"] }
+zolana-secret-file = { workspace = true }
+zolana-ring-client = { workspace = true, features = ["rpc", "solana-rpc"] }
+zolana-ring-policy = { workspace = true }
 zolana-transaction = { workspace = true }
 
 [dev-dependencies]
-zolana-ring-transaction = { workspace = true }
+borsh = { workspace = true }
+bytemuck = { workspace = true }
+zolana-event = { workspace = true }
+zolana-event-parser = { workspace = true }
+zolana-hasher = { workspace = true }
+zolana-ring-member-registry = { workspace = true }

@@ -4,14 +4,14 @@ use pinocchio::{
     error::ProgramError,
     AccountView,
 };
-use spl_token_2022_interface::{extension::PodStateWithExtensions, pod::PodAccount};
 use zolana_interface::{
-    error::ShieldedPoolError, SHIELDED_POOL_CPI_AUTHORITY, SOL_INTERFACE, SPL_INTERFACE_PDA_SEED,
-    SPL_TOKEN_2022_PROGRAM_ID, SPL_TOKEN_ACCOUNT_INITIALIZED, SPL_TOKEN_PROGRAM_ID,
+    error::ShieldedPoolError,
+    token_account::{TokenAccountControl, TokenAccountState},
+    SHIELDED_POOL_CPI_AUTHORITY, SOL_INTERFACE, SPL_INTERFACE_PDA_SEED, SPL_TOKEN_2022_PROGRAM_ID,
+    SPL_TOKEN_PROGRAM_ID, SYSTEM_PROGRAM_ID,
 };
 
 const SPL_TOKEN_MINT_DECIMALS_OFFSET: usize = 44;
-const SYSTEM_PROGRAM_ID: Address = Address::new_from_array([0u8; 32]);
 
 #[derive(Clone, Copy)]
 struct TokenMintState {
@@ -23,7 +23,7 @@ struct TokenMintState {
 pub(crate) struct ValidatedSplSettlement {
     pub mint: [u8; 32],
     pub decimals: u8,
-    pub user_token_account_authority: [u8; 32],
+    pub user_token_account_control: TokenAccountControl,
 }
 
 #[inline(always)]
@@ -103,7 +103,7 @@ fn validate_spl_settlement(
     // 2. spl interface account must be owned by authority pda
     if mint_state.mint != spl_interface_pda_state.mint
         || spl_interface_pda_state.mint != sender_state.mint
-        || spl_interface_pda_state.owner != SHIELDED_POOL_CPI_AUTHORITY
+        || *spl_interface_pda_state.control.owner() != SHIELDED_POOL_CPI_AUTHORITY
     {
         return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
     }
@@ -123,7 +123,7 @@ fn validate_spl_settlement(
     Ok(ValidatedSplSettlement {
         mint: mint_state.mint,
         decimals: mint_state.decimals,
-        user_token_account_authority: sender_state.owner,
+        user_token_account_control: sender_state.control,
     })
 }
 
@@ -145,7 +145,9 @@ pub(crate) fn validate_spl_deposit_settlement(
         token_program_account,
         interface_pda_bump,
     )?;
-    if settlement.user_token_account_authority != token_authority_account.address().to_bytes() {
+    if *settlement.user_token_account_control.owner()
+        != token_authority_account.address().to_bytes()
+    {
         return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
     }
     Ok(settlement)
@@ -169,11 +171,6 @@ pub(crate) fn validate_spl_withdrawal_settlement(
     )
 }
 
-pub(crate) struct TokenAccountState {
-    pub mint: [u8; 32],
-    pub owner: [u8; 32],
-}
-
 fn read_token_account(
     account: &AccountView,
     token_program: &Address,
@@ -186,13 +183,6 @@ fn read_token_account(
     let data = account
         .try_borrow()
         .map_err(caused_by(ShieldedPoolError::InvalidSettlementAccounts))?;
-    let state = PodStateWithExtensions::<PodAccount>::unpack(&data)
-        .map_err(caused_by(ShieldedPoolError::InvalidSettlementAccounts))?;
-    if state.base.state != SPL_TOKEN_ACCOUNT_INITIALIZED {
-        return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
-    }
-    Ok(TokenAccountState {
-        mint: state.base.mint.to_bytes(),
-        owner: state.base.owner.to_bytes(),
-    })
+    TokenAccountState::unpack(&data)
+        .map_err(caused_by(ShieldedPoolError::InvalidSettlementAccounts))
 }

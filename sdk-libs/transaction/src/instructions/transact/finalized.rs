@@ -2,15 +2,14 @@ use solana_address::Address;
 use zolana_keypair::ShieldedAddress;
 
 use super::{
-    shape::canonical_shape,
     transaction::{padding_independent_private_tx_hash, private_tx_blinding},
-    ConfidentialTransaction, OutputEncoder, ResolvedOwnerTag, SettlementTransfer,
+    ConfidentialTransaction, OutputEncoder, ResolvedOwnerTag, RingOutputSlot, SettlementTransfer,
     SppProofOutputUtxo,
 };
 use crate::{
     error::TransactionError,
     serialization::confidential::Confidential,
-    utxo::{derive_output_blinding_seed, derive_transact_output_blinding, SppProofInputUtxo},
+    utxo::{derive_output_blinding_seed, OutputSlotBlinding, SppProofInputUtxo},
 };
 
 /// A transaction with its final slots, output blindings, owner tags and public
@@ -39,7 +38,8 @@ impl ConfidentialTransaction {
     /// Steps:
     /// 1. If not already finalized, select a shape and pad
     ///    the input and output slots.
-    /// 2. Derive and assign output blindings using the final slot order.
+    /// 2. Derive and assign output blindings using the final slot order,
+    ///    refusing a ring output with `MissingRingSecret`.
     /// 3. Resolve output owner tags and public settlement transfers.
     pub fn finalize(
         self,
@@ -54,29 +54,30 @@ impl ConfidentialTransaction {
         encoder: &E,
     ) -> Result<FinalizedTransaction, TransactionError> {
         // 1. Select a shape and finalize the input and output slots if needed.
-        if self.padded_inputs.is_none() {
-            let n_in = self.inputs.len() + self.addresses.len();
-            let mut n_out = self.outputs.len();
-            for asset in self.assets(&self.outputs)? {
-                if self.change(&asset)? > 0 {
-                    n_out = n_out
-                        .checked_add(1)
-                        .ok_or(TransactionError::TooManyOutputs)?;
-                }
-            }
-            let shape = canonical_shape(n_in, n_out)?;
-            self.pad_utxos(shape, sender)?;
-        }
-        // 2. Derive and assign output blindings using the final slot order.
+        self.pad_to_canonical_shape(sender)?;
+        // 2. Derive and assign output blindings using the final slot order, a ring
+        //    output's from the encoder's ring secret.
         let output_blinding_seed =
             derive_output_blinding_seed(&self.first_nullifier, &self.blinding_seed)?;
         for (index, output) in self.outputs.iter_mut().enumerate() {
-            let index = u32::try_from(index).map_err(|_| TransactionError::TooManyOutputs)?;
-            output.blinding = derive_transact_output_blinding(
-                &self.first_nullifier,
-                &output_blinding_seed,
-                index,
-            )?;
+            let slot_index = u32::try_from(index).map_err(|_| TransactionError::TooManyOutputs)?;
+            output.ring_secret = if output.is_ring_output() {
+                Some(encoder.ring_secret(&RingOutputSlot {
+                    output,
+                    sender,
+                    first_nullifier: self.first_nullifier,
+                    slot_index,
+                })?)
+            } else {
+                None
+            };
+            output.blinding = OutputSlotBlinding {
+                output,
+                first_nullifier: &self.first_nullifier,
+                output_blinding_seed: &output_blinding_seed,
+                slot_index,
+            }
+            .derive()?;
         }
         // 3. Resolve output owner tags and public settlement transfers.
         let owner_tags = encoder.owner_tags(&self, sender)?;

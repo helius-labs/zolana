@@ -46,7 +46,7 @@ impl MergeRingHarness {
         for i in 0..n {
             let amount = 100 + i as u64;
             let mut ring_data_hash = [0u8; 32];
-            ring_data_hash[31] = u8::try_from(i + 1).expect("merge input count fits u8");
+            ring_data_hash[31] = 0xd2;
             let utxo = Utxo {
                 owner,
                 asset,
@@ -125,8 +125,7 @@ impl MergeRingHarness {
 
         // The owner derives the merge-ring output blinding from its nullifier
         // key and the first real input's published nullifier; the amount and
-        // mint come from the output ciphertext, which the ring merge proof does
-        // not bind.
+        // mint come from the proof-bound output ciphertext.
         assert_eq!(
             merge_output_blinding(&sender.nullifier_key, result.nullifiers.first().unwrap())
                 .expect("derive merge-ring output blinding"),

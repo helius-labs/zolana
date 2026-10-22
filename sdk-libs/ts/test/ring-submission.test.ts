@@ -1,29 +1,87 @@
-import { address, generateKeyPairSigner, signTransactionWithSigners } from "@solana/kit";
+import {
+  address,
+  generateKeyPairSigner,
+  signTransactionWithSigners,
+  type Address,
+} from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
 import { ClientError } from "../src/client/error.js";
 import type { RingSubmissionStatus, RingSubmissionTransport } from "../src/client/ports.js";
 import { compileUnsignedTransaction } from "../src/flows/compile.js";
 import type { Bytes32 } from "../src/interface/types.js";
+import { EPOCH_SLOTS, tagIndex } from "../src/keypair/ring-stream.js";
+import { X25519Keypair } from "../src/keypair/x25519.js";
 import { RingProgramError } from "../src/ring/error.js";
+import type { PendingFirstContact } from "../src/ring/pipeline.js";
+import { SOL_MINT } from "../src/transaction/asset.js";
 import {
   createKitRingSubmissionTransport,
   RingTransactionSubmission,
   type RingSubmissionAttempt,
 } from "../src/ring/submission.js";
+import { ringMemberRegistryPda, treeAddress } from "../src/interface/pda/index.js";
+import { TREE_STATE_PAUSED } from "../src/interface/state.js";
 import { BLOCKHASH, kitReads } from "./helpers/clients.js";
+import { memberRegistryData, ownedAccount } from "./helpers/ring-accounts.js";
+import { ANCHOR_ROOT_INDEX, anchorTreeAccount } from "./helpers/ring-pipeline.js";
 
 const HASH = new Uint8Array(32) as Bytes32;
 const MEMO = address("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr");
 const STALE_ROOT: RingSubmissionStatus = {
   kind: "failed",
   instructionIndex: 0,
-  customCode: RingProgramError.staleKeyRegistryRoot,
+  customCode: RingProgramError.rootBelowFloor,
 };
 
-async function fixture() {
+/** A registry whose history slot 3 holds `root`. */
+async function registryAccount(ringProgramId: Address, root: Bytes32, policyHash?: Bytes32) {
+  const [, bump] = await ringMemberRegistryPda(ringProgramId);
+  const history = Array.from({ length: 32 }, (_, slot) =>
+    slot === 3 ? { root, applied: 0n, slot: 0n } : undefined,
+  );
+  return ownedAccount(
+    ringProgramId,
+    memberRegistryData({
+      bump,
+      history,
+      historyCursor: 3,
+      nextIndex: 40,
+      ...(policyHash === undefined ? {} : { policyHash }),
+    }),
+  );
+}
+
+const PROOF_REJECTED: RingSubmissionStatus = {
+  kind: "failed",
+  instructionIndex: 0,
+  customCode: RingProgramError.proofVerificationFailed,
+};
+
+/** The inbox payment an attempt of `version` sends. */
+function firstContact(version: number): PendingFirstContact {
+  return {
+    recipient: X25519Keypair.fromBytes(new Uint8Array(32).fill(version + 1)).publicKey(),
+    treeId: 0,
+    utxoHash: new Uint8Array(32).fill(version) as Bytes32,
+    slotSecret: HASH,
+    firstNullifier: HASH,
+    slotIndex: 1,
+    epoch: 0n,
+    index: tagIndex(0),
+    asset: SOL_MINT,
+    amount: 5n,
+  };
+}
+
+async function fixture(
+  roots?: RingSubmissionAttempt["roots"],
+  contacts?: (version: number) => readonly PendingFirstContact[],
+) {
   const payer = await generateKeyPairSigner();
   let version = 0;
   const build = vi.fn(async (): Promise<RingSubmissionAttempt> => ({
+    ...(roots === undefined ? {} : { roots }),
+    ...(contacts === undefined ? {} : { firstContacts: contacts(version) }),
     transaction: compileUnsignedTransaction({
       feePayer: payer.address,
       lifetime: BLOCKHASH,
@@ -33,22 +91,19 @@ async function fixture() {
     lastValidBlockHeight: 100n,
     intentHash: HASH,
     ringInstructionIndex: 0,
-    window: { index: 1n, slots: 10n },
   }));
   const release = vi.fn();
   const extend = vi.fn();
-  const windowChanged = vi.fn(async () => true);
   const submission = new RingTransactionSubmission({
     first: await build(),
     build,
     reservation: { release, extend },
-    windowChanged,
   });
   const send = vi.fn(async (): Promise<RingSubmissionStatus | undefined> => undefined);
   const sign = vi.fn(async (transaction: RingSubmissionAttempt["transaction"]) =>
     signTransactionWithSigners([payer], transaction),
   );
-  return { submission, build, release, extend, windowChanged, send, sign };
+  return { submission, build, release, extend, send, sign };
 }
 
 describe("ring submission ownership", () => {
@@ -117,6 +172,37 @@ describe("ring submission ownership", () => {
     expect(f.release).toHaveBeenCalledTimes(1);
   });
 
+  it("confirms with the first contacts of the attempt that landed", async () => {
+    const f = await fixture(undefined, (version) => [firstContact(version)]);
+    let sent = 0;
+    const result = await f.submission.send({
+      sign: f.sign,
+      send: f.send,
+      status: async () => (++sent === 1 ? STALE_ROOT : { kind: "confirmed", slot: 7n }),
+    });
+    expect(result).toMatchObject({ kind: "confirmed", attempts: 2, slot: 7n });
+    if (result.kind !== "confirmed") throw new Error("not confirmed");
+    expect(result.firstContacts.map((contact) => contact.utxoHash)).toEqual([
+      firstContact(1).utxoHash,
+    ]);
+  });
+
+  it.each([
+    RingProgramError.rootBelowFloor,
+    RingProgramError.curatorRootStale,
+    RingProgramError.rootIndexEmpty,
+    RingProgramError.authorityBatchTooLarge,
+  ])("rebuilds after the stale proof code %i", async (customCode) => {
+    const f = await fixture();
+    const result = await f.submission.send({
+      sign: f.sign,
+      send: f.send,
+      status: async () => ({ kind: "failed", instructionIndex: 0, customCode }),
+    });
+    expect(result).toMatchObject({ kind: "failed", attempts: 3, customCode });
+    expect(f.build).toHaveBeenCalledTimes(3);
+  });
+
   it("treats a refusal returned by send as a confirmed failure", async () => {
     const f = await fixture();
     const status = vi.fn(async (): Promise<RingSubmissionStatus> => ({ kind: "unknown" }));
@@ -125,7 +211,7 @@ describe("ring submission ownership", () => {
       kind: "failed",
       attempts: 3,
       instructionIndex: 0,
-      customCode: RingProgramError.staleKeyRegistryRoot,
+      customCode: RingProgramError.rootBelowFloor,
     });
     expect(status).not.toHaveBeenCalled();
     expect(f.build).toHaveBeenCalledTimes(3);
@@ -143,25 +229,198 @@ describe("ring submission ownership", () => {
       kind: "failed",
       attempts: 1,
       instructionIndex: 1,
-      customCode: RingProgramError.staleKeyRegistryRoot,
+      customCode: RingProgramError.rootBelowFloor,
     });
     expect(f.build).toHaveBeenCalledTimes(1);
   });
 
-  it("requires an actual window change before retrying a rejected policy proof", async () => {
-    const f = await fixture();
-    f.windowChanged.mockResolvedValue(false);
-    const result = await f.submission.send({
-      sign: f.sign,
-      send: f.send,
+  it("never rebuilds a rejected proof that binds no chain value", async () => {
+    const rejected = await fixture();
+    const proof = await rejected.submission.send({
+      sign: rejected.sign,
+      send: rejected.send,
       status: async () => ({
         kind: "failed",
         instructionIndex: 0,
         customCode: RingProgramError.proofVerificationFailed,
       }),
     });
-    expect(result).toMatchObject({ kind: "failed", attempts: 1 });
-    expect(f.windowChanged).toHaveBeenCalledTimes(1);
+    expect(proof).toMatchObject({ kind: "failed", attempts: 1 });
+    expect(rejected.build).toHaveBeenCalledTimes(1);
+  });
+
+  it("rebuilds a rejected proof only when its registry slot holds another root", async () => {
+    const ringProgramId = address("Ring111111111111111111111111111111111111111");
+    const bound = new Uint8Array(32).fill(7) as Bytes32;
+    for (const [held, attempts] of [
+      [new Uint8Array(32).fill(8) as Bytes32, 3],
+      [bound, 1],
+    ] as const) {
+      const f = await fixture([{ ringProgramId, rootIndex: 3, root: bound }]);
+      const account = await registryAccount(ringProgramId, held);
+      const registry = { getAccount: vi.fn(async () => account) };
+      const submission = new RingTransactionSubmission({
+        first: await f.build(),
+        build: f.build,
+        reservation: { release: f.release, extend: f.extend },
+        registry,
+      });
+      const result = await submission.send({
+        sign: f.sign,
+        send: f.send,
+        status: async () => ({
+          kind: "failed",
+          instructionIndex: 0,
+          customCode: RingProgramError.proofVerificationFailed,
+        }),
+      });
+      expect(result).toMatchObject({ kind: "failed", attempts });
+      expect(registry.getAccount).toHaveBeenCalledTimes(attempts);
+    }
+  });
+
+  it("rebuilds a rejected anonymous proof only once the epoch it binds passed", async () => {
+    for (const [slot, attempts] of [
+      [EPOCH_SLOTS, 3],
+      [EPOCH_SLOTS - 1n, 1],
+    ] as const) {
+      const f = await fixture();
+      const build = vi.fn(async () => ({ ...(await f.build()), epoch: 0n }));
+      const clock = { getSlot: vi.fn(async () => slot) };
+      const submission = new RingTransactionSubmission({
+        first: await build(),
+        build,
+        reservation: { release: f.release, extend: f.extend },
+        clock,
+      });
+      const result = await submission.send({
+        sign: f.sign,
+        send: f.send,
+        status: async () => ({
+          kind: "failed",
+          instructionIndex: 0,
+          customCode: RingProgramError.proofVerificationFailed,
+        }),
+      });
+      expect(result).toMatchObject({ kind: "failed", attempts });
+      expect(clock.getSlot).toHaveBeenCalledTimes(attempts);
+    }
+  });
+
+  it("rebuilds a rejected policy proof only once the registry holds another policy hash", async () => {
+    const ringProgramId = address("Ring111111111111111111111111111111111111111");
+    const bound = new Uint8Array(32).fill(5) as Bytes32;
+    for (const [held, attempts] of [
+      [new Uint8Array(32).fill(6) as Bytes32, 3],
+      [bound, 1],
+    ] as const) {
+      const f = await fixture();
+      const build = vi.fn(async () => ({
+        ...(await f.build()),
+        policy: { ringProgramId, policyHash: bound },
+      }));
+      const account = await registryAccount(ringProgramId, HASH, held);
+      const registry = { getAccount: vi.fn(async () => account) };
+      const submission = new RingTransactionSubmission({
+        first: await build(),
+        build,
+        reservation: { release: f.release, extend: f.extend },
+        registry,
+      });
+      const result = await submission.send({
+        sign: f.sign,
+        send: f.send,
+        status: async () => PROOF_REJECTED,
+      });
+      expect(result).toMatchObject({ kind: "failed", attempts });
+    }
+  });
+
+  it("rebuilds a rejected anonymous proof only once its first-contact root left an unpaused tree's slot", async () => {
+    const root = new Uint8Array(32).fill(0x71) as Bytes32;
+    const anchor = { tree: treeAddress(0), rootIndex: ANCHOR_ROOT_INDEX, root };
+    const paused = anchorTreeAccount(new Uint8Array(32).fill(0x73) as Bytes32);
+    paused.data[1] = TREE_STATE_PAUSED;
+    for (const [account, attempts] of [
+      [anchorTreeAccount(new Uint8Array(32).fill(0x73) as Bytes32), 3],
+      [anchorTreeAccount(root), 1],
+      [paused, 1],
+    ] as const) {
+      const f = await fixture();
+      const build = vi.fn(async () => ({ ...(await f.build()), anchor }));
+      const registry = { getAccount: vi.fn(async () => account) };
+      const submission = new RingTransactionSubmission({
+        first: await build(),
+        build,
+        reservation: { release: f.release, extend: f.extend },
+        registry,
+      });
+      const result = await submission.send({
+        sign: f.sign,
+        send: f.send,
+        status: async () => PROOF_REJECTED,
+      });
+      expect(result).toMatchObject({ kind: "failed", attempts });
+      expect(registry.getAccount).toHaveBeenCalledTimes(attempts);
+      expect(f.release).toHaveBeenCalledOnce();
+    }
+  });
+
+  it("rebuilds on curator rollover and keeps a failed curator read pending", async () => {
+    const ringProgramId = address("Ring111111111111111111111111111111111111111");
+    const curatorProgram = MEMO;
+    const [ownAddress] = await ringMemberRegistryPda(ringProgramId);
+    const [curator] = await ringMemberRegistryPda(curatorProgram);
+    const bound = new Uint8Array(32).fill(7) as Bytes32;
+    const replaced = new Uint8Array(32).fill(8) as Bytes32;
+    for (const [held, expectedAttempts] of [
+      [bound, 1],
+      [replaced, 3],
+    ] as const) {
+      const roots = [
+        { ringProgramId, rootIndex: 3, root: bound },
+        { ringProgramId: curatorProgram, rootIndex: 3, root: bound },
+      ];
+      const f = await fixture(roots);
+      const [own, foreign] = await Promise.all([
+        registryAccount(ringProgramId, bound),
+        registryAccount(curatorProgram, held),
+      ]);
+      let missing = true;
+      const registry = {
+        getAccount: vi.fn(async (account: typeof ownAddress) => {
+          if (account === curator && missing)
+            throw new ClientError("CLIENT_RPC", { details: { reason: "unavailable" } });
+          expect(account === ownAddress || account === curator).toBe(true);
+          return account === ownAddress ? own : foreign;
+        }),
+      };
+      const submission = new RingTransactionSubmission({
+        first: await f.build(),
+        build: f.build,
+        reservation: { release: f.release, extend: f.extend },
+        registry,
+      });
+      const transport = {
+        sign: f.sign,
+        send: f.send,
+        status: async (): Promise<RingSubmissionStatus> => ({
+          kind: "failed",
+          instructionIndex: 0,
+          customCode: RingProgramError.proofVerificationFailed,
+        }),
+      };
+      await expect(submission.send(transport)).rejects.toMatchObject({ code: "CLIENT_RPC" });
+      expect(f.send).toHaveBeenCalledTimes(1);
+      expect(f.release).not.toHaveBeenCalled();
+      missing = false;
+      expect(await submission.send(transport)).toMatchObject({
+        kind: "failed",
+        attempts: expectedAttempts,
+      });
+      expect(f.send).toHaveBeenCalledTimes(expectedAttempts);
+      expect(f.release).toHaveBeenCalledTimes(1);
+    }
   });
 
   it("refuses changed retry intent before signing or sending it", async () => {
@@ -250,7 +509,7 @@ describe("ring submission ownership", () => {
     expect(() => f.submission.cancel()).toThrow("RING_SUBMISSION_PENDING");
     available = true;
     const confirmed = await f.submission.send(transport);
-    expect(confirmed).toEqual({ ...pending, kind: "confirmed", slot: 99n });
+    expect(confirmed).toEqual({ ...pending, kind: "confirmed", slot: 99n, firstContacts: [] });
     expect(f.send).toHaveBeenCalledTimes(1);
     expect(f.release).not.toHaveBeenCalled();
     expect(height).not.toHaveBeenCalled();
@@ -418,6 +677,7 @@ describe("ring submission ownership", () => {
         ...pending,
         kind: "confirmed",
         slot: 100n,
+        firstContacts: [],
       });
       expect(f.sign).toHaveBeenCalledTimes(1);
       expect(f.send).toHaveBeenCalledTimes(1);

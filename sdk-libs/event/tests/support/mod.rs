@@ -69,8 +69,7 @@ pub const MERGE_CIPHERTEXT: [[u8; 32]; 3] = [[0x61; 32], [0x62; 32], [0x63; 32]]
 
 /// The data slot a rebuilt merge output carries, spelled out byte by byte:
 /// borsh `OutputDataEncoding::VerifiablyEncrypted` (variant 2) for
-/// `merge_transact` or `Encrypted` (variant 1, the ring merge proof does not
-/// bind it) for `merge_ring`, a u32 LE length, scheme 6, the `merge_ring`
+/// `merge_transact` and `merge_ring`, a u32 LE length, scheme 6, the `merge_ring`
 /// output ring data hash, the salt, the ciphertext.
 pub fn merge_output_data(ring_data_hash: Option<[u8; 32]>) -> Vec<u8> {
     let mut blob = vec![6u8];
@@ -81,7 +80,7 @@ pub fn merge_output_data(ring_data_hash: Option<[u8; 32]>) -> Vec<u8> {
     for element in MERGE_CIPHERTEXT {
         blob.extend_from_slice(&element);
     }
-    let mut data = vec![if ring_data_hash.is_some() { 1u8 } else { 2u8 }];
+    let mut data = vec![2u8];
     data.extend_from_slice(&u32::try_from(blob.len()).expect("blob").to_le_bytes());
     data.extend_from_slice(&blob);
     data
@@ -112,6 +111,8 @@ pub fn merge_ring_ix(
 ) -> MergeRingIxData {
     MergeRingIxData {
         output_ring_data_hash,
+        member_registry_root: [1; 32],
+        anonymous: false,
         merge: merge_ix(output_utxo_hash),
     }
 }

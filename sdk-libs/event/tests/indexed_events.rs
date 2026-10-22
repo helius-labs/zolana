@@ -135,7 +135,7 @@ fn merge_and_ring_merge_emit_events_are_indexed() {
         assert_eq!(
             published,
             Some(output_data),
-            "the indexed merge output carries the output ciphertext, source tag {source_tag}"
+            "the indexed merge output carries the proof-bound ciphertext, source tag {source_tag}"
         );
     }
 }
@@ -211,4 +211,28 @@ fn instruction_may_emit_events_matches_direct_and_ring_wrappers() {
         spp,
         &ParsedInstruction::new(ring, vec![spp], vec![tag::TRANSACT], 1),
     ));
+}
+
+#[test]
+fn custom_policy_outer_tags_do_not_change_spp_event_discovery() {
+    let spp = Pubkey::new_unique();
+    let ring = Pubkey::new_unique();
+    // Custom-ring tags are deliberately distinct from the unchanged inner SPP tags.
+    for (outer_tag, inner_tag) in [
+        (35, tag::RING_TRANSACT),
+        (36, tag::RING_AUTHORITY_TRANSACT),
+        (37, tag::RING_TRANSACT),
+        (38, tag::RING_AUTHORITY_TRANSACT),
+    ] {
+        let group = InstructionGroup {
+            outer: ParsedInstruction::new(ring, vec![spp], vec![outer_tag], 1),
+            inner: vec![
+                transact_source(spp, inner_tag, Vec::new(), &one_in_one_out(), 2),
+                emit_instruction(spp, EventKind::Transact, &transact_event(), 3),
+            ],
+        };
+        let events = indexed_events_from_instruction_groups(spp, &[group]);
+        assert_eq!(events.len(), 1);
+        assert!(events[0].decoded.is_ok());
+    }
 }

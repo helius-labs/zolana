@@ -138,8 +138,8 @@ pub(super) fn instruction_groups_from_confirmed_transaction(
 
 /// Resolve a confirmed transaction's account keys and outer instructions.
 ///
-/// Version 1 carries every account in the message. A non-empty lookup list is
-/// a version 0 transaction, which this client does not decode.
+/// Instruction indices address the static keys, then the addresses the
+/// runtime loaded from lookup tables, writable before readonly.
 fn transaction_message_parts(
     transaction: EncodedTransaction,
     loaded_addresses: &OptionSerializer<UiLoadedAddresses>,
@@ -150,14 +150,22 @@ fn transaction_message_parts(
     let UiMessage::Raw(message) = transaction.message else {
         return Err(ClientError::Rpc("expected raw transaction message".into()));
     };
-    if let OptionSerializer::Some(loaded) = loaded_addresses {
-        if !loaded.writable.is_empty() || !loaded.readonly.is_empty() {
+    let loaded = match loaded_addresses {
+        OptionSerializer::Some(loaded) => loaded.writable.iter().chain(&loaded.readonly).collect(),
+        OptionSerializer::None | OptionSerializer::Skip
+            if message
+                .address_table_lookups
+                .as_ref()
+                .is_some_and(|lookups| !lookups.is_empty()) =>
+        {
             return Err(ClientError::AddressLookupTable);
         }
-    }
+        OptionSerializer::None | OptionSerializer::Skip => Vec::new(),
+    };
     let account_keys = message
         .account_keys
-        .into_iter()
+        .iter()
+        .chain(loaded)
         .map(parse_pubkey)
         .collect::<Result<Vec<_>, _>>()?;
     let instructions = message

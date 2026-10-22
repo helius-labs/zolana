@@ -14,9 +14,9 @@ import { describe, expect, it, vi } from "vitest";
 import { SYSTEM_PROGRAM } from "../src/interface/instructions/index.js";
 import { addressBytes, sha256 } from "../src/interface/internal.js";
 import type { Bytes32 } from "../src/interface/types.js";
-import { ringPolicyConfigAddress } from "../src/interface/pda/index.js";
+import { ringMemberRegistryPda } from "../src/interface/pda/index.js";
 import { BPF_LOADER_UPGRADEABLE_ID, ringProgramDataAddress } from "../src/ring/config.js";
-import { RING_POLICY_CONFIG_SIZE } from "../src/ring/codecs.js";
+import { MEMBER_REGISTRY_EMPTY_ROOT } from "../src/ring/member-registry.js";
 import {
   CLOCK_SYSVAR as CLOCK,
   RENT_SYSVAR as RENT,
@@ -37,7 +37,7 @@ import {
 import { ClientError } from "../src/client/error.js";
 
 import { BLOCKHASH, solanaRpcReads } from "./helpers/clients.js";
-import { ownedAccount } from "./helpers/ring-accounts.js";
+import { memberRegistryData, ownedAccount } from "./helpers/ring-accounts.js";
 
 const filled = (byte: number): Bytes32 => new Uint8Array(32).fill(byte) as Bytes32;
 const addressOf = (byte: number): Address => getAddressDecoder().decode(filled(byte));
@@ -387,7 +387,7 @@ describe("deployment", () => {
       program,
       buffer,
       programData: await ringProgramDataAddress(program.address),
-      policyConfig: await ringPolicyConfigAddress(program.address),
+      registry: await ringMemberRegistryPda(program.address),
     };
   }
 
@@ -413,7 +413,7 @@ describe("deployment", () => {
     /** Sends resolve only through their abort signal. */
     readonly hangSends?: boolean;
     readonly occupiedBy?: Address;
-    readonly policyConfig?: Readonly<{ owner?: Address; size: number }>;
+    readonly registry?: Readonly<{ owner?: Address; data: Uint8Array }>;
   }
 
   /** The extend and then the program exist once a send follows the buffer content read. */
@@ -529,13 +529,10 @@ describe("deployment", () => {
         if (account === keys.program.address && options.occupiedBy !== undefined) {
           return ownedAccount(options.occupiedBy, new Uint8Array());
         }
-        if (account === keys.policyConfig) {
-          return options.policyConfig === undefined
+        if (account === keys.registry[0]) {
+          return options.registry === undefined
             ? undefined
-            : ownedAccount(
-                options.policyConfig.owner ?? keys.program.address,
-                new Uint8Array(options.policyConfig.size),
-              );
+            : ownedAccount(options.registry.owner ?? keys.program.address, options.registry.data);
         }
         const deployed = finished
           ? {
@@ -819,24 +816,32 @@ describe("deployment", () => {
     expect(program.address).toBe(keys.program.address);
   });
 
-  it("refuses an upgrade the on-chain policy config would not survive before any send", async () => {
+  it("refuses an upgrade the on-chain registry would not survive before any send", async () => {
     const keys = await signers();
     const deployed = { authority: keys.authority.address, bytes: new Uint8Array(1_000) };
+    const registry = memberRegistryData({
+      bump: keys.registry[1],
+      history: [{ root: MEMBER_REGISTRY_EMPTY_ROOT, applied: 0n, slot: 1n }],
+      nextIndex: 1,
+    });
     const incompatible = chain(keys, {
       deployed,
-      policyConfig: { size: RING_POLICY_CONFIG_SIZE - 1 },
+      registry: { data: registry.subarray(0, registry.length - 1) },
     });
     await expect(deployRingProgram(params(keys, incompatible))).rejects.toMatchObject({
       code: "RING_DEPLOY_PROGRAM",
-      causeCode: "RING_POLICY_CONFIG_INCOMPATIBLE",
+      causeCode: "RING_PROGRAM_STATE_INCOMPATIBLE",
     });
     expect(incompatible.sends).toHaveLength(0);
-    // A foreign-owned account at the PDA is not a policy the upgraded program loads.
-    const foreign = chain(keys, { deployed, policyConfig: { owner: SYSTEM_PROGRAM, size: 0 } });
+    // A foreign-owned account at the PDA is not a registry the upgraded program loads.
+    const foreign = chain(keys, {
+      deployed,
+      registry: { owner: SYSTEM_PROGRAM, data: new Uint8Array() },
+    });
     await expect(deployRingProgram(params(keys, foreign))).resolves.toMatchObject({
       kind: "upgraded",
     });
-    const compatible = chain(keys, { deployed, policyConfig: { size: RING_POLICY_CONFIG_SIZE } });
+    const compatible = chain(keys, { deployed, registry: { data: registry } });
     await expect(deployRingProgram(params(keys, compatible))).resolves.toMatchObject({
       kind: "upgraded",
     });

@@ -2,8 +2,10 @@ package merge
 
 import (
 	"github.com/consensys/gnark/frontend"
+	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
+	"github.com/helius-labs/zolana/prover/server/circuits/records"
 	mergeshared "github.com/helius-labs/zolana/prover/server/circuits/spp_merge/shared"
 )
 
@@ -17,8 +19,7 @@ import (
 // 6. 1/many UTXOs to one UTXO
 // 7. Every output field but the amount and mint is derived from the owner's
 // keys, the first nullifier, and the public ring values. The output ciphertext
-// a ring merge carries is not bound by this proof: SPP publishes it unverified,
-// and a ring that needs it recoverable enforces it in its own program.
+// a ring merge carries is bound by this proof.
 
 type RingCircuit struct {
 	NumInputs int `gnark:"-"`
@@ -40,6 +41,12 @@ type RingCircuit struct {
 	// ring proof; this proof only binds the hash.
 	OutputRingDataHash frontend.Variable
 	RingProgramID      frontend.Variable
+	// The ring program takes the root from its registry history, zero on an anonymous merge.
+	MemberRegistryRoot       frontend.Variable
+	RegisteredCiphertextHash frontend.Variable
+	MemberRecord             records.QuadRecordOpening
+	// Anonymous is the ring program's 0 or 1 from its RingMode, its own merge proof discloses the output key.
+	Anonymous frontend.Variable
 
 	PublicInputHash frontend.Variable `gnark:",public"`
 }
@@ -73,14 +80,29 @@ func (c *RingCircuit) Define(api frontend.API) error {
 	if err := tx.ValidateLayout(c.NumInputs); err != nil {
 		return err
 	}
+	// 1. The merged notes belong to a ring, never to the default ring's id 0.
 	api.AssertIsDifferent(c.RingProgramID, 0)
-	if _, err := tx.Constrain(api); err != nil {
+	// 2. Every input and the output share one owner and asset, the output sums the inputs.
+	derived, err := tx.Constrain(api)
+	if err != nil {
 		return err
 	}
+	// 3. A merge never rewrites ring state, every real input carries the output's ring data hash.
+	tx.AssertRingDataPreserved(api)
 	api.AssertIsEqual(c.OutputRingDataHash, c.Output.RingDataHash)
+	// 4. In escrow mode the owner's record lies under the root, an owner 0 opens the sentinel and fails the escrow.
+	escrowed := api.Sub(1, c.Anonymous)
+	c.MemberRecord.AssertPresent(api, escrowed, c.MemberRegistryRoot, c.OwnerPkHash)
+	// 5. The record escrows the nullifier key the inputs spend under, so the auditor recovers the merged owner.
+	escrowKey := records.EscrowKey(api, c.UserNullifierPk, c.RegisteredCiphertextHash)
+	abstractor.CallVoid(api, gadget.AssertEqualWhen{Cond: escrowed, A: c.MemberRecord.EscrowKey, B: escrowKey})
 
+	// 6. Prefix, ring tail, salt, then the output ciphertext, mirrored by MergeProof::public_input_hash in
+	// programs/shielded-pool/src/instructions/merge/verify.rs.
 	fields := c.CommonPublicInputs.Prefix(api)
-	fields = append(fields, c.OutputRingDataHash, c.RingProgramID)
+	fields = append(fields, c.OutputRingDataHash, c.RingProgramID, c.MemberRegistryRoot, c.Anonymous)
+	fields = append(fields, c.OutputCiphertextSalt)
+	fields = append(fields, derived.OutputCiphertext...)
 	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain4(api, fields))
 	return nil
 }

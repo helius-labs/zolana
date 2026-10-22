@@ -41,14 +41,16 @@ impl RequestRate {
     pub(crate) fn accept(&self, now: Instant, request: PublicRequest) -> Result<(), RingRpcError> {
         let mut window = self.0.lock().map_err(|_| RingRpcError::StateUnavailable)?;
         if now.duration_since(window.started_at) >= Duration::from_secs(1) {
-            window.started_at = now;
-            window.accepted = 0;
+            *window = RequestWindow {
+                started_at: now,
+                accepted: 0,
+            };
         }
         let units = match request {
             PublicRequest::Standard => 1,
             PublicRequest::DepositScan { signatures } => signatures.saturating_add(1),
         };
-        if units == 0 || units > MAX_REQUEST_UNITS_PER_SECOND.saturating_sub(window.accepted) {
+        if units > MAX_REQUEST_UNITS_PER_SECOND.saturating_sub(window.accepted) {
             return Err(RingRpcError::Busy);
         }
         window.accepted += units;
@@ -93,8 +95,7 @@ mod tests {
         ReaderKey::ed25519(Keypair::new_from_array([byte; 32]).pubkey()).expect("reader key")
     }
 
-    /// One read at a time per reader and ring, released as soon as the page
-    /// finishes.
+    /// One read at a time per reader and ring, released as soon as the page finishes.
     #[test]
     fn a_reader_holds_one_permit_per_ring_at_a_time() {
         let active = Mutex::new(HashSet::new());

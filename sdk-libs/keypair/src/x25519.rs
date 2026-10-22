@@ -11,7 +11,7 @@ pub const X25519_KEY_TAG: u8 = 4;
 pub const X25519_PUBKEY_LEN: usize = 33;
 
 /// `0x04 || u` with a canonical little-endian u.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct X25519Pubkey([u8; 33]);
 
 impl X25519Pubkey {

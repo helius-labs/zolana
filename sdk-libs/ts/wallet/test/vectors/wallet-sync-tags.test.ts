@@ -162,22 +162,6 @@ describe("wallet sync stable-tag vectors", () => {
     });
   }
 
-  it("does not retain anonymous counter-tag runtime methods", async () => {
-    const owner = keypair();
-    const key = owner.viewingKey();
-
-    await syncWallet({
-      wallet: new Wallet({ identity: owner.shieldedAddress() }),
-      keys: keysFor(owner, [key]),
-      client: recorder().client,
-    });
-
-    expect(key).not.toHaveProperty("senderViewTag");
-    expect(key).not.toHaveProperty("recipientRequestViewTag");
-    expect(key).not.toHaveProperty("sendSharedViewTag");
-    expect(key).not.toHaveProperty("recipientSharedViewTag");
-  });
-
   it("rejects mismatched keys before issuing discovery queries", async () => {
     const owner = keypair();
     const other = keypair("other");

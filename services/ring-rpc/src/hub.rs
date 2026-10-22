@@ -1,6 +1,6 @@
 use std::{
-    collections::HashSet,
-    sync::{Arc, Mutex},
+    collections::{HashMap, HashSet},
+    sync::{Arc, Mutex, PoisonError},
     time::{Duration, Instant},
 };
 
@@ -12,16 +12,19 @@ use thiserror::Error;
 use tokio::sync::{watch, Mutex as AsyncMutex, Semaphore, SemaphorePermit};
 use zolana_client::ClientError;
 use zolana_keypair::X25519Keypair;
-use zolana_ring_client::{auditor_view_tag, ReaderKey};
+use zolana_ring_client::{
+    auditor_view_tag,
+    rpc::{unix_now, KeyMode},
+    ReaderKey,
+};
 use zolana_transaction::AssetRegistry;
 
 use crate::{
-    api::unix_now,
-    audit::{AuditService, ASSET_REFRESH_INTERVAL},
+    audit::{AuditService, AuditServiceInit, ASSET_REFRESH_INTERVAL},
     authorize::Unauthorized,
     config::RootSecret,
-    error::RingRpcError,
-    keys::{service_keypair, AuditorKeyDerivation, KeyMode, KeySource},
+    error::{redacted, RingRpcError},
+    keys::{service_keypair, AuditorKeyDerivation, KeySource},
     limits::{
         PublicRequest, RequestRate, MAX_CONCURRENT_AUTHENTICATIONS, MAX_CONCURRENT_DEPOSIT_SCANS,
         MAX_CONCURRENT_READS,
@@ -29,15 +32,16 @@ use crate::{
     origins::Origins,
     replay::ReplayGuard,
     upstream::{DepositHistory, DepositPage, TransactionSource},
+    utxos::AuditStore,
 };
+
+const READINESS_CACHE_INTERVAL: Duration = Duration::from_secs(1);
 
 pub struct Hub<S> {
     signer: Keypair,
     shared: Arc<Shared<S>>,
     keys: KeySource,
 }
-
-const READINESS_CACHE_INTERVAL: Duration = Duration::from_secs(1);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ReadinessStatus {
@@ -82,6 +86,16 @@ impl Clock {
     }
 }
 
+/// Each lane has its own rate window, and all but `Public` a concurrency cap.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Lane {
+    Public,
+    Deposits(usize),
+    Authentication,
+    /// Held for a whole transfer or merge page.
+    Read,
+}
+
 #[must_use]
 pub struct HubBuilder<S> {
     source: S,
@@ -95,30 +109,21 @@ pub(crate) struct Shared<S> {
     pub(crate) source: S,
     /// Captured at boot, every authority signature and derived key binds to it.
     pub(crate) genesis_hash: [u8; 32],
+    pub(crate) service: Address,
     pub(crate) clock: Clock,
     assets: AsyncMutex<AssetCache>,
     pub(crate) origins: Origins,
     pub(crate) replay: ReplayGuard,
     pub(crate) active_readers: Mutex<HashSet<(Address, ReaderKey)>>,
-    pub(crate) read_limit: Semaphore,
-    authentication_limit: Semaphore,
-    deposit_limit: Semaphore,
-    standard_rate: RequestRate,
-    deposit_rate: RequestRate,
-    authentication_rate: RequestRate,
-    audit_rate: RequestRate,
+    lanes: [(RequestRate, Option<Semaphore>); 4],
     readiness: AsyncMutex<ReadinessCache>,
+    /// One per ring an authorized read or the backfill opened.
+    stores: Mutex<HashMap<Address, Arc<AuditStore>>>,
 }
 
 struct AssetCache {
     registry: AssetRegistry,
     refresh: RefreshState,
-}
-
-struct ReadinessCache {
-    checked_at: Option<Instant>,
-    status: ReadinessStatus,
-    in_flight: Option<watch::Receiver<Option<ReadinessStatus>>>,
 }
 
 enum RefreshState {
@@ -127,21 +132,21 @@ enum RefreshState {
     Failed(Instant),
 }
 
-struct AuditServiceInit<S> {
-    ring: Address,
-    auditor: X25519Keypair,
-    shared: Arc<Shared<S>>,
+struct ReadinessCache {
+    checked_at: Option<Instant>,
+    status: ReadinessStatus,
+    in_flight: Option<watch::Receiver<Option<ReadinessStatus>>>,
 }
 
-impl<S> AuditServiceInit<S> {
-    fn build(self) -> AuditService<S> {
-        let view_tag = auditor_view_tag(&self.auditor.pubkey());
-        AuditService {
-            ring: self.ring,
-            auditor: self.auditor,
-            view_tag,
-            shared: self.shared,
-        }
+impl<S> Shared<S> {
+    pub(crate) fn store(&self, ring: Address) -> Arc<AuditStore> {
+        let mut stores = self.stores.lock().unwrap_or_else(PoisonError::into_inner);
+        stores.entry(ring).or_default().clone()
+    }
+
+    fn store_rings(&self) -> Vec<Address> {
+        let stores = self.stores.lock().unwrap_or_else(PoisonError::into_inner);
+        stores.keys().copied().collect()
     }
 }
 
@@ -150,6 +155,7 @@ impl<S: TransactionSource> Shared<S> {
         self.assets.lock().await.registry.clone()
     }
 
+    /// At most one registry read per interval, a failed one blocks retries until it ends.
     pub(crate) async fn refresh_assets(&self) -> Result<AssetRegistry, RingRpcError> {
         let mut cache = self.assets.lock().await;
         let refresh_due = match cache.refresh {
@@ -180,46 +186,20 @@ impl<S: TransactionSource> Hub<S> {
         }
     }
 
-    pub(crate) fn accept_public(&self, request: PublicRequest) -> Result<(), RingRpcError> {
-        match request {
-            PublicRequest::Standard => &self.shared.standard_rate,
-            PublicRequest::DepositScan { .. } => &self.shared.deposit_rate,
-        }
-        .accept(Instant::now(), request)
-    }
-
-    pub(crate) fn accept_audit(&self) -> Result<(), RingRpcError> {
-        self.shared
-            .audit_rate
-            .accept(Instant::now(), PublicRequest::Standard)
-    }
-
-    pub(crate) fn accept_authentication(&self) -> Result<(), RingRpcError> {
-        self.shared
-            .authentication_rate
-            .accept(Instant::now(), PublicRequest::Standard)
-    }
-
-    pub(crate) fn authentication_slot(&self) -> Result<SemaphorePermit<'_>, RingRpcError> {
-        self.shared
-            .authentication_limit
-            .try_acquire()
-            .map_err(|_| RingRpcError::Busy)
-    }
-
-    /// Held for a whole decrypting page, which no other method needs.
-    pub(crate) fn read_slot(&self) -> Result<SemaphorePermit<'_>, RingRpcError> {
-        self.shared
-            .read_limit
-            .try_acquire()
-            .map_err(|_| RingRpcError::Busy)
-    }
-
-    pub(crate) fn deposit_slot(&self) -> Result<SemaphorePermit<'_>, RingRpcError> {
-        self.shared
-            .deposit_limit
-            .try_acquire()
-            .map_err(|_| RingRpcError::Busy)
+    /// The rate unit is spent even when every slot is taken.
+    pub(crate) fn admit(&self, lane: Lane) -> Result<Option<SemaphorePermit<'_>>, RingRpcError> {
+        let (index, request) = match lane {
+            Lane::Public => (0, PublicRequest::Standard),
+            Lane::Deposits(signatures) => (1, PublicRequest::DepositScan { signatures }),
+            Lane::Authentication => (2, PublicRequest::Standard),
+            Lane::Read => (3, PublicRequest::Standard),
+        };
+        let (rate, slots) = &self.shared.lanes[index];
+        rate.accept(Instant::now(), request)?;
+        slots
+            .as_ref()
+            .map(|slots| slots.try_acquire().map_err(|_| RingRpcError::Busy))
+            .transpose()
     }
 
     pub fn mode(&self) -> KeyMode {
@@ -253,83 +233,87 @@ impl<S: TransactionSource> Hub<S> {
         }
     }
 
-    pub fn service(&self) -> Result<AuditService<S>, RingRpcError> {
-        let KeySource::Local { ring, auditor } = &self.keys else {
-            return Err(RingRpcError::RingRequired);
-        };
-        Ok((AuditServiceInit {
-            ring: *ring,
-            auditor: auditor.clone(),
-            shared: self.shared.clone(),
-        })
-        .build())
-    }
-
-    pub fn service_for(&self, ring: Address) -> Result<AuditService<S>, RingRpcError> {
-        match &self.keys {
+    /// `None` names the one ring a local key serves.
+    pub fn service(&self, ring: Option<Address>) -> Result<AuditService<S>, RingRpcError> {
+        let (ring, auditor) = match &self.keys {
             KeySource::Local {
-                ring: configured,
+                ring: served,
                 auditor,
             } => {
-                if ring != *configured {
-                    return Err(RingRpcError::RingNotServed);
-                }
-                Ok((AuditServiceInit {
-                    ring: *configured,
-                    auditor: auditor.clone(),
-                    shared: self.shared.clone(),
-                })
-                .build())
+                self.validate_ring(ring.unwrap_or(*served))?;
+                (*served, auditor.clone())
             }
             KeySource::Derived(root) => {
+                let ring = ring.ok_or(RingRpcError::RingRequired)?;
                 let auditor = AuditorKeyDerivation {
                     root,
                     genesis_hash: &self.shared.genesis_hash,
                     ring,
                 }
                 .derive()?;
-                Ok((AuditServiceInit {
-                    ring,
-                    auditor,
-                    shared: self.shared.clone(),
-                })
-                .build())
+                (ring, auditor)
             }
+        };
+        Ok(AuditServiceInit {
+            ring,
+            auditor,
+            shared: self.shared.clone(),
         }
+        .build())
     }
 
     pub(crate) fn validate_ring(&self, ring: Address) -> Result<(), RingRpcError> {
         match &self.keys {
-            KeySource::Local {
-                ring: configured, ..
-            } if ring != *configured => Err(RingRpcError::RingNotServed),
-            KeySource::Local { .. } | KeySource::Derived(_) => Ok(()),
+            KeySource::Local { ring: served, .. } if ring != *served => {
+                Err(RingRpcError::RingNotServed)
+            }
+            _ => Ok(()),
         }
+    }
+
+    /// Every `interval`, the first at once, backfills the local ring and every ring a read opened.
+    pub async fn run_utxo_backfill(self: Arc<Self>, interval: Duration) {
+        let mut ticks = tokio::time::interval(interval);
+        loop {
+            ticks.tick().await;
+            for ring in self.backfill_rings() {
+                let backfill = match self.service(Some(ring)) {
+                    Ok(service) => service.backfill_utxos().await,
+                    Err(error) => Err(error),
+                };
+                if let Err(error) = backfill {
+                    log::warn!(
+                        "UTXO backfill of ring {ring} failed because {}",
+                        redacted(&error)
+                    );
+                }
+            }
+        }
+    }
+
+    fn backfill_rings(&self) -> Vec<Address> {
+        let mut rings = self.shared.store_rings();
+        if let KeySource::Local { ring, .. } = &self.keys {
+            if !rings.contains(ring) {
+                rings.push(*ring);
+            }
+        }
+        rings
     }
 
     /// Local mode holds one key for one ring, so it also checks the config.
     pub async fn probe_upstreams(&self) -> Result<(), NotReady> {
-        self.shared
-            .source
-            .health()
-            .await
-            .map_err(|error| NotReady::Upstream(error.into()))?;
-        let current = self
-            .shared
-            .source
-            .genesis_hash()
-            .await
-            .map_err(|error| NotReady::Upstream(error.into()))?;
-        if current != self.shared.genesis_hash {
+        let upstream = |error: ClientError| NotReady::Upstream(error.into());
+        let source = &self.shared.source;
+        source.health().await.map_err(upstream)?;
+        if source.genesis_hash().await.map_err(upstream)? != self.shared.genesis_hash {
             return Err(NotReady::Cluster);
         }
         if let KeySource::Local { ring, auditor } = &self.keys {
-            let config = self
-                .shared
-                .source
+            let config = source
                 .ring_config(*ring)
                 .await
-                .map_err(|error| NotReady::Upstream(error.into()))?
+                .map_err(upstream)?
                 .ok_or(NotReady::AuditorKey(Unauthorized::NoConfig))?;
             if config.auditor_pubkey != auditor.pubkey() {
                 return Err(NotReady::AuditorKey(Unauthorized::AuditorKeyMismatch));
@@ -338,6 +322,7 @@ impl<S: TransactionSource> Hub<S> {
         Ok(())
     }
 
+    /// One probe runs at a time in its own task, so a cancelled waiter never restarts it.
     pub(crate) async fn readiness(self: &Arc<Self>) -> ReadinessStatus
     where
         S: 'static,
@@ -346,45 +331,47 @@ impl<S: TransactionSource> Hub<S> {
             let mut cache = self.shared.readiness.lock().await;
             if cache
                 .checked_at
-                .is_some_and(|checked_at| checked_at.elapsed() < READINESS_CACHE_INTERVAL)
+                .is_some_and(|at| at.elapsed() < READINESS_CACHE_INTERVAL)
             {
                 return cache.status;
             }
-            if let Some(receiver) = &cache.in_flight {
-                receiver.clone()
-            } else {
-                let (sender, receiver) = watch::channel(None);
-                cache.in_flight = Some(receiver.clone());
-                let probe_hub = self.clone();
-                let probe = tokio::spawn(async move { probe_hub.probe_upstreams().await });
-                let hub = self.clone();
-                tokio::spawn(async move {
-                    let status = match probe.await {
-                        Ok(Ok(())) => ReadinessStatus::Ready,
-                        Ok(Err(error)) => {
-                            log::error!("readiness probe failed because {error}");
-                            ReadinessStatus::Unavailable(error.check())
-                        }
-                        Err(error) => {
-                            log::error!("readiness task failed because {error}");
-                            ReadinessStatus::Unavailable("unavailable readiness task")
-                        }
-                    };
-                    let mut cache = hub.shared.readiness.lock().await;
-                    cache.status = status;
-                    cache.checked_at = Some(Instant::now());
-                    cache.in_flight = None;
-                    drop(cache);
-                    let _ = sender.send(Some(status));
-                });
-                receiver
+            match cache
+                .in_flight
+                .clone()
+                .filter(|probe| probe.has_changed().is_ok())
+            {
+                Some(probe) => probe,
+                None => {
+                    let (sender, probe) = watch::channel(None);
+                    cache.in_flight = Some(probe.clone());
+                    let hub = self.clone();
+                    tokio::spawn(async move {
+                        let status = match hub.probe_upstreams().await {
+                            Ok(()) => ReadinessStatus::Ready,
+                            Err(error) => {
+                                log::error!("readiness probe failed because {}", redacted(&error));
+                                ReadinessStatus::Unavailable(error.check())
+                            }
+                        };
+                        *hub.shared.readiness.lock().await = ReadinessCache {
+                            checked_at: Some(Instant::now()),
+                            status,
+                            in_flight: None,
+                        };
+                        let _ = sender.send(Some(status));
+                    });
+                    probe
+                }
             }
         };
-        let status = match receiver.wait_for(Option::is_some).await {
+        let status = receiver
+            .wait_for(Option::is_some)
+            .await
+            .map(|status| *status);
+        match status {
             Ok(status) => status.unwrap_or(ReadinessStatus::Unavailable("unavailable probe")),
             Err(_) => ReadinessStatus::Unavailable("unavailable readiness task"),
-        };
-        status
+        }
     }
 }
 
@@ -409,26 +396,20 @@ impl<S: TransactionSource> HubBuilder<S> {
 
     pub fn local(self, ring: Address, auditor: X25519Keypair) -> Result<Hub<S>, RingRpcError> {
         let signer = service_keypair(auditor.secret_bytes().as_slice())?;
-        Ok(Hub {
-            signer,
-            shared: self.shared(),
-            keys: KeySource::Local { ring, auditor },
-        })
+        Ok(self.build(signer, KeySource::Local { ring, auditor }))
     }
 
     pub fn derived(self, root: RootSecret) -> Result<Hub<S>, RingRpcError> {
         let signer = service_keypair(root.as_bytes())?;
-        Ok(Hub {
-            signer,
-            shared: self.shared(),
-            keys: KeySource::Derived(root),
-        })
+        Ok(self.build(signer, KeySource::Derived(root)))
     }
 
-    fn shared(self) -> Arc<Shared<S>> {
-        Arc::new(Shared {
+    fn build(self, signer: Keypair, keys: KeySource) -> Hub<S> {
+        let lane = |count| (RequestRate::default(), Some(Semaphore::new(count)));
+        let shared = Shared {
             source: self.source,
             genesis_hash: self.genesis_hash,
+            service: signer.pubkey(),
             clock: self.clock,
             assets: AsyncMutex::new(AssetCache {
                 registry: self.assets,
@@ -437,18 +418,23 @@ impl<S: TransactionSource> HubBuilder<S> {
             origins: self.origins,
             replay: ReplayGuard::default(),
             active_readers: Mutex::new(HashSet::new()),
-            read_limit: Semaphore::new(MAX_CONCURRENT_READS),
-            authentication_limit: Semaphore::new(MAX_CONCURRENT_AUTHENTICATIONS),
-            deposit_limit: Semaphore::new(MAX_CONCURRENT_DEPOSIT_SCANS),
-            standard_rate: RequestRate::default(),
-            deposit_rate: RequestRate::default(),
-            authentication_rate: RequestRate::default(),
-            audit_rate: RequestRate::default(),
+            lanes: [
+                (RequestRate::default(), None),
+                lane(MAX_CONCURRENT_DEPOSIT_SCANS),
+                lane(MAX_CONCURRENT_AUTHENTICATIONS),
+                lane(MAX_CONCURRENT_READS),
+            ],
             readiness: AsyncMutex::new(ReadinessCache {
                 checked_at: None,
                 status: ReadinessStatus::Unavailable("not checked"),
                 in_flight: None,
             }),
-        })
+            stores: Mutex::new(HashMap::new()),
+        };
+        Hub {
+            signer,
+            shared: Arc::new(shared),
+            keys,
+        }
     }
 }

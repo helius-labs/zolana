@@ -1,20 +1,24 @@
 mod common;
 
 use common::{keypair, wallet_utxo};
-use zolana_event::{OutputDataEncoding, ProoflessOutput};
-use zolana_keypair::{constants::PUBLIC_KEY_LEN, x25519::X25519_PUBKEY_LEN};
+use zolana_event::{
+    encode_ring_confidential_packed_output, ring_confidential_packed_output_body,
+    OutputDataEncoding, ProoflessOutput, RingPackedBody, RING_PACKED_DATA_FREE_BODY_LEN,
+};
+use zolana_keypair::{constants::PUBLIC_KEY_LEN, x25519::X25519_PUBKEY_LEN, ViewingKey};
 use zolana_transaction::{
     serialization::{
         anonymous::{
             AnonymousRecipient, AnonymousSenderBundle, AnonymousTransferRecipientPlaintext,
             AnonymousTransferSenderPlaintext,
         },
-        confidential::{Confidential, ConfidentialOutputPlaintext},
+        confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
         plaintext::{
             PlaintextEncode, PlaintextTransfer, TransferPlaintextRecipient,
             TransferPlaintextSender, TransferPlaintextSplChange, TransferPlaintextUtxos,
         },
         proofless::{Proofless, ProoflessEncode},
+        RingPacked, RingPackedPlaintext,
     },
     utxo::derive_transact_output_blinding,
     Address, AssetRegistry, Data, DataRecord, DecodeCx, EncryptedScheme, Mint, OutputContext,
@@ -92,6 +96,8 @@ fn scheme_discriminators_cover_the_entire_byte_space() {
         (7, EncryptedScheme::PlaintextTransfer),
         (8, EncryptedScheme::RingDeposit),
         (9, EncryptedScheme::RingAnonymous),
+        (10, EncryptedScheme::RingConfidentialDelivered),
+        (11, EncryptedScheme::RingConfidentialPacked),
     ];
     for byte in 0..=u8::MAX {
         match known.iter().find(|(tag, _)| *tag == byte) {
@@ -326,6 +332,62 @@ fn encrypted_formats_require_both_context_fields_and_reconstruction_checks_asset
     assert_eq!(
         PlaintextTransfer::into_utxos(plaintext(), &missing_nullifier),
         Err(TransactionError::MissingFirstNullifier)
+    );
+}
+
+#[test]
+fn a_data_free_packed_ring_slot_opens_under_the_transaction_ring_at_its_data_free_length() {
+    let owner = keypair(45);
+    let recipient = owner.viewing_pubkey();
+    let tx = ViewingKey::new();
+    let salt = [7; 16];
+    let held = RingPackedPlaintext {
+        asset_id: 9,
+        amount: 17,
+        blinding: [1; 32],
+        data: Data::default(),
+    };
+    let cx = ConfidentialEncode {
+        tx: tx.clone(),
+        recipient_pubkey: recipient,
+        salt,
+        slot_index: 1,
+    };
+    let message = RingPacked::encode_plaintext(&held, recipient.u(), &cx).unwrap();
+    let RingPackedBody { key, ciphertext } =
+        ring_confidential_packed_output_body(&message.data).unwrap();
+    assert_eq!(key.len() + ciphertext.len(), RING_PACKED_DATA_FREE_BODY_LEN);
+    assert_eq!(
+        message.data,
+        encode_ring_confidential_packed_output(key, ciphertext)
+    );
+    let decode = DecodeCx {
+        viewing_key: &owner.viewing_key,
+        tx_viewing_pk: Some(tx.pubkey()),
+        salt: Some(salt),
+        slot_index: 1,
+        first_nullifier: None,
+    };
+    let opened = RingPacked::decode(&[&key[..], ciphertext].concat(), &decode).unwrap();
+    let spl = Mint::new(Address::new_from_array([44; 32]), 9);
+    let assets = AssetRegistry::new([(9, spl.asset)]).unwrap();
+    let ring = Address::new_from_array([46; 32]);
+    let owner_cx = OwnerCx {
+        owner: owner.signing_pubkey(),
+        assets: &assets,
+        ring_program_id: Some(ring),
+        first_nullifier: None,
+    };
+    let utxos = RingPacked::into_utxos(opened.clone(), &owner_cx).unwrap();
+    assert_eq!(utxos[0].ring_program_id, Some(ring));
+    assert_eq!(utxos[0].amount, held.amount);
+    let outside = OwnerCx {
+        ring_program_id: None,
+        ..owner_cx
+    };
+    assert_eq!(
+        RingPacked::into_utxos(opened, &outside),
+        Err(TransactionError::MissingRingProgramId)
     );
 }
 

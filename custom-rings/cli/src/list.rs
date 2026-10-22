@@ -1,428 +1,471 @@
-use std::{fmt, str::FromStr};
+//! `list`, the member records of the ring's registry and where each list reads them.
 
-use clap::Args;
-use custom_ring_sdk::{
-    AccountReadError, CreateEntry, CustomRing, EntryError as SdkEntryError, EntryProofEnvironment,
-    EntryProofError, LiveEntry, PoolTree, ReadEntry, SetSourceOwner, SourceOwner, UpdateEntry,
-    ENTRY_MUTATION_COMPUTE_UNIT_LIMIT, SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT,
+use anyhow::{bail, ensure, Context as _, Result};
+use clap::{builder::PossibleValue, Args, ValueEnum};
+use custom_ring_interface::{
+    CustomRingError, ListRegistry, RecordQueue, APPLY_DELAY_SLOTS, MEMBER_QUEUE_LIMIT,
 };
-use solana_address::{error::ParseAddressError, Address};
+use custom_ring_sdk::{
+    AuthorityListWrite, CustomRing, MemberListWrite, MemberRecords, RecordApplication, RingError,
+    RingMode, SetSourceOwner, SourceOwner,
+};
+use solana_address::Address;
+use solana_keypair::Keypair;
 use solana_signer::Signer;
-use thiserror::Error;
-use zolana_client::{ClientError, IndexerRpcConfig, Rpc, SolanaRpc, ZolanaIndexer};
-use zolana_ring_policy::{EntryState, ListId, Member, MemberError};
-use zolana_transaction::SOL_MINT;
+use zolana_client::Rpc;
+use zolana_ring_policy::{ListId, ListSet, ListWrite, ListWriteError, Member};
 
 use crate::{
-    catalogue::{Catalogue, CatalogueError, CuratorCheck, CuratorError},
+    catalogue::{check_curator, Catalogue},
     line,
-    policy::list_name,
-    step::{no_hint, IdempotentStep, Observed, StepError},
-    ui::{self, Icon},
-    Context, ContextError, ListCommand,
+    policy::{self, Pinned},
+    records::{self, insert_fee, queue, write_budget, PendingWrites, Queued, Stage},
+    transact::SENDER_FEE_BUDGET,
+    ui::{self, icon},
+    Context, EntryArgs, ListCommand,
 };
 
-#[derive(Debug, Error)]
-pub enum ListError {
-    #[error(transparent)]
-    Context(#[from] ContextError),
-    #[error(transparent)]
-    AccountRead(#[from] AccountReadError),
-    #[error(transparent)]
-    Sdk(#[from] Box<SdkEntryError>),
-    #[error(transparent)]
-    Proof(#[from] Box<EntryProofError>),
-    #[error(transparent)]
-    Member(#[from] MemberError),
-    #[error("pass --owner or --asset")]
-    MemberFlag,
-    #[error(transparent)]
-    Step(#[from] StepError),
-    #[error(transparent)]
-    Catalogue(#[from] Box<CatalogueError>),
-    #[error(transparent)]
-    Curator(#[from] CuratorError),
-    #[error(transparent)]
-    Client(Box<ClientError>),
-    #[error("the ring has no policy config, run `zolana-ring init` first")]
-    NoPolicy,
-    #[error("{} entry for {member} does not exist", list_name(*list_id))]
-    NoEntry { list_id: ListId, member: MemberKind },
-    #[error("the {} list reads curator {curator} entries, mutate it on the curator ring", list_name(*list_id))]
-    SharedList { list_id: ListId, curator: Address },
+#[derive(Debug, Clone, Args)]
+#[group(required = true, multiple = true)]
+pub struct MemberArgs {
+    /// A member's Solana address, repeatable.
+    #[arg(long = "owner", value_name = "ADDRESS")]
+    owners: Vec<Address>,
+    /// A mint the list screens, repeatable.
+    #[arg(long = "asset", value_name = "MINT")]
+    assets: Vec<Address>,
 }
 
-#[derive(Debug, Clone, Copy, Args)]
-#[group(required = true, multiple = false)]
-pub struct MemberArg {
-    /// The member's owner tag, base58.
-    #[arg(long, value_name = "TAG")]
-    owner: Option<Address>,
-    /// A mint, base58, or `sol` for the native token.
-    #[arg(long, value_name = "MINT")]
-    asset: Option<Mint>,
-}
+/// The escrow bit comes only from `key register`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MemberList(ListId);
 
-#[derive(Debug, Clone, Copy)]
-pub struct Mint(Address);
-
-#[derive(Debug, Clone, Copy)]
-pub enum MemberKind {
-    Owner(Address),
-    Asset(Mint),
-}
-
-const SOL: &str = "sol";
-
-#[must_use]
-pub struct EntryMutation<'a> {
-    pub ring: CustomRing,
-    pub authority: &'a dyn Signer,
-    pub list_id: ListId,
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Subject {
     pub member: Member,
-    pub state: EntryState,
+    pub label: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ListChange {
+    Set,
+    Clear,
+}
+
 #[must_use]
-pub struct EntryOutcome {
-    pub version: u64,
-    pub change: EntryChange,
+pub(crate) struct ListUpdate<'a> {
+    pub authority: &'a Keypair,
+    pub list_id: ListId,
+    pub subjects: &'a [Subject],
+    pub change: ListChange,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EntryChange {
-    Unchanged,
-    Claimed,
-    Moved,
+#[derive(Clone, Copy, Debug)]
+struct MemberLists {
+    applied: u64,
+    queued: u64,
 }
 
-impl From<SdkEntryError> for ListError {
-    fn from(error: SdkEntryError) -> Self {
-        Self::Sdk(Box::new(error))
-    }
+/// The authority's writes in queue order.
+#[must_use]
+struct ListWrites<'a> {
+    ring: CustomRing,
+    authority: Address,
+    changes: &'a [(Member, ListWrite)],
 }
 
-impl From<EntryProofError> for ListError {
-    fn from(error: EntryProofError) -> Self {
-        Self::Proof(Box::new(error))
-    }
-}
-
-impl From<CatalogueError> for ListError {
-    fn from(error: CatalogueError) -> Self {
-        Self::Catalogue(Box::new(error))
-    }
-}
-
-impl From<ClientError> for ListError {
-    fn from(error: ClientError) -> Self {
-        Self::Client(Box::new(error))
-    }
-}
-
-pub fn run(ctx: &mut Context, command: ListCommand) -> Result<(), ListError> {
+pub fn run(ctx: &Context, command: ListCommand) -> Result<()> {
     match command {
-        ListCommand::Add { list_id, member } => EntryArg {
-            list_id: list_id.id(),
-            member: member.try_into()?,
-        }
-        .set(ctx, EntryState::Active),
-        ListCommand::Clear { list_id, member } => EntryArg {
-            list_id: list_id.id(),
-            member: member.try_into()?,
-        }
-        .set(ctx, EntryState::Cleared),
-        ListCommand::Show { list_id, member } => EntryArg {
-            list_id: list_id.id(),
-            member: member.try_into()?,
-        }
-        .show(ctx),
+        ListCommand::Add(entry) => entry.write(ctx, ListChange::Set),
+        ListCommand::Clear(entry) => entry.write(ctx, ListChange::Clear),
+        ListCommand::Show(entry) => entry.show(ctx),
         ListCommand::SetSource {
             list_id,
             curator,
             own,
         } => {
-            let source = match (curator, own) {
-                (Some(curator), false) => SourceOwner::Shared(
+            let source = match curator.filter(|_| !own) {
+                Some(curator) => SourceOwner::Shared(
                     Catalogue::load(ctx.catalogue.as_deref())?
                         .resolve(ctx.config.target, &curator)?,
                 ),
-                _ => SourceOwner::Own,
+                None => SourceOwner::Own,
             };
             set_source(ctx, list_id.id(), source)
         }
+        ListCommand::Apply => apply(ctx),
+        ListCommand::Join { list } => list.write(ctx, ListChange::Set),
+        ListCommand::Leave { list } => list.write(ctx, ListChange::Clear),
     }
 }
 
-impl TryFrom<MemberArg> for MemberKind {
-    type Error = ListError;
-
-    fn try_from(arg: MemberArg) -> Result<Self, ListError> {
-        match (arg.owner, arg.asset) {
-            (Some(tag), None) => Ok(Self::Owner(tag)),
-            (None, Some(mint)) => Ok(Self::Asset(mint)),
-            _ => Err(ListError::MemberFlag),
-        }
+impl MemberArgs {
+    pub(crate) fn subjects(&self) -> Result<Vec<Subject>> {
+        let owners = self.owners.iter().map(|tag| {
+            Ok(Subject {
+                member: Member::owner_tag(tag.as_array())?,
+                label: format!("owner {tag}"),
+            })
+        });
+        let assets = self.assets.iter().map(|mint| {
+            Ok(Subject {
+                member: Member::asset(mint)?,
+                label: format!("asset {mint}"),
+            })
+        });
+        owners.chain(assets).collect()
     }
 }
 
-impl MemberKind {
-    pub fn member(&self) -> Result<Member, MemberError> {
-        match self {
-            Self::Owner(tag) => Member::owner_tag(tag.as_array()),
-            Self::Asset(Mint(mint)) => Member::asset(mint),
-        }
+impl MemberList {
+    /// In `ListId::ALL` order.
+    pub const ALL: [Self; 2] = [Self(ListId::RingViewing), Self(ListId::Recovery)];
+
+    pub const fn id(self) -> ListId {
+        self.0
     }
-}
 
-impl fmt::Display for MemberKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Owner(tag) => write!(f, "owner {tag}"),
-            Self::Asset(mint) => write!(f, "asset {mint}"),
-        }
-    }
-}
-
-impl FromStr for Mint {
-    type Err = ParseAddressError;
-
-    fn from_str(text: &str) -> Result<Self, ParseAddressError> {
-        if text == SOL {
-            return Ok(Self(SOL_MINT));
-        }
-        text.parse().map(Self)
-    }
-}
-
-impl fmt::Display for Mint {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.0 == SOL_MINT {
-            f.write_str(SOL)
-        } else {
-            fmt::Display::fmt(&self.0, f)
-        }
-    }
-}
-
-impl EntryMutation<'_> {
-    pub fn apply(
-        self,
-        environment: EntryProofEnvironment<'_, ZolanaIndexer, SolanaRpc>,
-    ) -> Result<EntryOutcome, ListError> {
-        let rpc = environment.rpc;
-        let config = self
-            .ring
-            .read_policy_config(rpc)?
-            .ok_or(ListError::NoPolicy)?;
-        // Mutations serve the ring's own entries only, the program refuses the rest.
-        if let Some(curator) = config
-            .source_for(self.list_id)
-            .filter(|entries| *entries != self.ring.namespace_pda())
-        {
-            return Err(ListError::SharedList {
-                list_id: self.list_id,
-                curator,
-            });
-        }
-        let address_tree = PoolTree::address_tree(&config);
-        // An indexer behind the last update would read back the state before
-        // it, and a request for that state would end here unapplied.
-        let live = ReadEntry::new(
-            address_tree.id,
-            self.ring.namespace_pda(),
-            self.list_id,
-            self.member,
-        )
-        .with_indexer_config(IndexerRpcConfig::at_slot(rpc.get_slot()?))
-        .read(environment.indexer)?;
-        let proven = match live {
-            None => CreateEntry {
-                ring: self.ring,
-                payer: self.authority.pubkey(),
-                address_tree,
-                output_tree: address_tree,
-                list_id: self.list_id,
-                member: self.member,
-                state: self.state,
-                content_hash: [0u8; 32],
-            }
-            .prove(environment)?,
-            Some(LiveEntry { entry, .. }) if entry.state == self.state => {
-                return Ok(EntryOutcome {
-                    version: entry.version,
-                    change: EntryChange::Unchanged,
-                });
-            }
-            Some(spent) => UpdateEntry {
-                ring: self.ring,
-                payer: self.authority.pubkey(),
-                address_tree,
-                output_tree: address_tree,
-                spent,
-                state: self.state,
-                content_hash: [0u8; 32],
-            }
-            .prove(environment)?,
-        };
-        let version = proven.entry().version;
-        IdempotentStep {
-            rpc,
-            authority: self.authority,
-            co_signers: &[],
-            name: "entry_mutation",
-            compute_unit_limit: ENTRY_MUTATION_COMPUTE_UNIT_LIMIT,
-            hint: no_hint,
-        }
-        .ensure_present(Observed::Absent, &[proven.instruction()?])?;
-        Ok(EntryOutcome {
-            version,
-            change: match live {
-                None => EntryChange::Claimed,
-                Some(_) => EntryChange::Moved,
+    fn write(self, ctx: &Context, change: ListChange) -> Result<()> {
+        let list_id = self.0;
+        let config = ctx.ring_config()?;
+        let sender = ctx.sender()?;
+        let member = Member::owner_tag(sender.pubkey().as_array())?;
+        line(
+            "member",
+            format_args!("{} {}", list_id.name(), sender.pubkey()),
+        );
+        let pending = PendingWrites::read(ctx)?;
+        let read = records::read_one(
+            &ctx.zolana,
+            MemberRecords {
+                ring: ctx.ring,
+                members: &[member],
             },
-        })
-    }
-}
-
-impl EntryChange {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Unchanged => "already there",
-            Self::Claimed => "claimed",
-            Self::Moved => "moved",
-        }
-    }
-}
-
-struct EntryArg {
-    list_id: ListId,
-    member: MemberKind,
-}
-
-impl EntryArg {
-    fn set(self, ctx: &mut Context, state: EntryState) -> Result<(), ListError> {
-        let authority = ctx.funded_authority()?;
-        let indexer = ctx.indexer();
-        let prover = ctx.prover();
-        line(
-            "entry",
-            format_args!("{} {}", list_name(self.list_id), self.member),
-        );
-        let outcome = EntryMutation {
-            ring: ctx.ring,
-            authority: &authority,
-            list_id: self.list_id,
-            member: self.member.member()?,
-            state,
-        }
-        .apply(EntryProofEnvironment {
-            indexer: &indexer,
-            rpc: &ctx.rpc,
-            prover: &prover,
-        })?;
-        line(
-            "state",
-            format_args!("{state:?} {}", outcome.change.label()),
-        );
-        line("version", outcome.version);
-        Ok(())
-    }
-
-    fn show(self, ctx: &Context) -> Result<(), ListError> {
-        let config = ctx
-            .ring
-            .read_policy_config(&ctx.rpc)?
-            .ok_or(ListError::NoPolicy)?;
-        let live = ReadEntry::new(
-            config.address_tree_id(),
-            config
-                .source_for(self.list_id)
-                .unwrap_or_else(|| ctx.ring.namespace_pda()),
-            self.list_id,
-            self.member.member()?,
-        )
-        .with_indexer_config(IndexerRpcConfig::at_slot(ctx.rpc.get_slot()?))
-        .read(&ctx.indexer())?
-        .ok_or(ListError::NoEntry {
-            list_id: self.list_id,
-            member: self.member,
-        })?;
-        line(
-            "entry",
-            format_args!("{} {}", list_name(self.list_id), self.member),
-        );
-        line("state", format_args!("{:?}", live.entry.state));
-        line("version", live.entry.version);
-        Ok(())
-    }
-}
-
-fn set_source(ctx: &mut Context, list_id: ListId, source: SourceOwner) -> Result<(), ListError> {
-    let config = ctx
-        .ring
-        .read_policy_config(&ctx.rpc)?
-        .ok_or(ListError::NoPolicy)?;
-    let expected = match source {
-        SourceOwner::Own => ctx.ring.namespace_pda(),
-        SourceOwner::Shared(curator) => {
-            CuratorCheck {
-                curator,
-                list: list_id,
-                address_tree: config.address_tree,
+        )?;
+        let lists = MemberLists {
+            applied: read.record().map_or(0, |record| record.lists),
+            queued: pending.record_after(&member, read.record()).lists,
+        };
+        let payer = record_payer(ctx, &sender)?;
+        let queued = match change.stage(list_id, lists) {
+            Stage::Applied => {
+                line("list", "already there");
+                return Ok(());
             }
-            .run(&ctx.rpc)?;
-            curator.namespace_pda()
-        }
-    };
-    let observed = if config.source_for(list_id) == Some(expected) {
-        Observed::Present
-    } else {
-        Observed::Absent
-    };
-    let authority = ctx.funded_authority()?;
-    let outcome = IdempotentStep {
-        rpc: &ctx.rpc,
-        authority: &authority,
-        co_signers: &[],
-        name: "set_policy_source",
-        compute_unit_limit: SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT,
-        hint: no_hint,
+            Stage::Queued => {
+                line("list", "already queued");
+                ctx.fund(payer.pubkey(), SENDER_FEE_BUDGET)?;
+                Queued::now(&ctx.zolana, ctx.ring)?
+            }
+            Stage::Unsent => {
+                let write = MemberListWrite {
+                    ring: ctx.ring,
+                    payer: payer.pubkey(),
+                    member: sender.pubkey(),
+                    lists: change.write(list_id)?,
+                };
+                ctx.fund(payer.pubkey(), write_budget(&config, &sender.pubkey()))?;
+                warn_link(ctx, sender.pubkey());
+                let signers: Vec<&dyn Signer> = match payer.pubkey() == sender.pubkey() {
+                    true => vec![&sender],
+                    false => vec![payer, &sender],
+                };
+                ctx.send(&signers, &[write.instruction(&config)?])?;
+                line("list", change.outcome());
+                let fee = insert_fee(&config, &sender.pubkey());
+                line("insert fee", format_args!("{fee} lamports"));
+                Queued::now(&ctx.zolana, ctx.ring)?
+            }
+        };
+        warn_link(ctx, payer.pubkey());
+        queued.apply(&ctx.zolana, payer)?;
+        line("queue", "applied");
+        Ok(())
     }
-    .ensure_present(
-        observed,
-        &[SetSourceOwner {
+}
+
+impl ValueEnum for MemberList {
+    fn value_variants<'a>() -> &'a [Self] {
+        &Self::ALL
+    }
+
+    fn to_possible_value(&self) -> Option<PossibleValue> {
+        Some(PossibleValue::new(self.0.name()))
+    }
+}
+
+impl ListChange {
+    fn write(self, list_id: ListId) -> Result<ListWrite, ListWriteError> {
+        let list = ListSet::single(list_id);
+        let (set, clear) = match self {
+            Self::Set => (list, ListSet::EMPTY),
+            Self::Clear => (ListSet::EMPTY, list),
+        };
+        zolana_ring_policy::ListChange { set, clear }.check()
+    }
+
+    const fn present(self) -> bool {
+        matches!(self, Self::Set)
+    }
+
+    /// A write lands after every pending one, only the state the queue leaves counts.
+    fn stage(self, list_id: ListId, lists: MemberLists) -> Stage {
+        let holds = |lists: u64| (lists & list_id.record_bit() != 0) == self.present();
+        if !holds(lists.queued) {
+            Stage::Unsent
+        } else if holds(lists.applied) {
+            Stage::Applied
+        } else {
+            Stage::Queued
+        }
+    }
+
+    const fn outcome(self) -> &'static str {
+        match self {
+            Self::Set => "added",
+            Self::Clear => "removed",
+        }
+    }
+}
+
+impl EntryArgs {
+    fn write(self, ctx: &Context, change: ListChange) -> Result<()> {
+        let list_id = self.list_id.id();
+        let subjects = self.members.subjects()?;
+        let outcomes = ListUpdate {
+            authority: ctx.funded_authority()?,
+            list_id,
+            subjects: &subjects,
+            change,
+        }
+        .send(ctx)?;
+        for (subject, outcome) in subjects.iter().zip(outcomes) {
+            line(
+                "member",
+                format_args!("{} {}", list_id.name(), subject.label),
+            );
+            line("list", outcome);
+        }
+        Ok(())
+    }
+
+    fn show(self, ctx: &Context) -> Result<()> {
+        let list_id = self.list_id.id();
+        let subjects = self.members.subjects()?;
+        let (ring, source) = match policy::pinned(ctx)?.registry.registry_for(list_id) {
+            Some(ListRegistry::Curator(registry)) => (
+                curator_ring(ctx, registry)?,
+                format!("curator registry {registry}"),
+            ),
+            _ => (ctx.ring, "own registry".to_owned()),
+        };
+        let members: Vec<Member> = subjects.iter().map(|subject| subject.member).collect();
+        let reads = records::read(
+            &ctx.zolana,
+            MemberRecords {
+                ring,
+                members: &members,
+            },
+        )?;
+        line("source", source);
+        for (subject, read) in subjects.iter().zip(&reads) {
+            line(
+                "member",
+                format_args!("{} {}", list_id.name(), subject.label),
+            );
+            line("listed", read.listed(list_id));
+            let record = match read.record() {
+                Some(_) => "present",
+                None => "absent",
+            };
+            line("record", record);
+        }
+        Ok(())
+    }
+}
+
+impl ListUpdate<'_> {
+    /// Writes the ring's own registry only, a curator's list is written on the curator ring.
+    pub(crate) fn send(self, ctx: &Context) -> Result<Vec<&'static str>> {
+        let list_id = self.list_id;
+        if let Some(ListRegistry::Curator(registry)) =
+            policy::pinned(ctx)?.registry.registry_for(list_id)
+        {
+            bail!(
+                "the {} list reads curator registry {registry}, write it on the curator ring",
+                list_id.name()
+            );
+        }
+        let members: Vec<Member> = self.subjects.iter().map(|subject| subject.member).collect();
+        let reads = records::read(
+            &ctx.zolana,
+            MemberRecords {
+                ring: ctx.ring,
+                members: &members,
+            },
+        )?;
+        let mut writes = Vec::new();
+        let mut outcomes = Vec::with_capacity(self.subjects.len());
+        for (subject, read) in self.subjects.iter().zip(&reads) {
+            if read.listed(list_id) == self.change.present() {
+                outcomes.push("already there");
+                continue;
+            }
+            writes.push((subject.member, self.change.write(list_id)?));
+            outcomes.push(self.change.outcome());
+        }
+        ListWrites {
+            ring: ctx.ring,
+            authority: self.authority.pubkey(),
+            changes: &writes,
+        }
+        .send(
+            || Ok(queue(&ctx.zolana, ctx.ring)?.pending()),
+            |batch| ctx.submit(batch, self.authority, &[]).map(drop),
+        )?;
+        Ok(outcomes)
+    }
+}
+
+impl ListWrites<'_> {
+    /// The queue is re-read before each batch, its pending writes share the proof.
+    fn send(
+        self,
+        mut pending: impl FnMut() -> Result<u64>,
+        mut send: impl FnMut(AuthorityListWrite) -> Result<()>,
+    ) -> Result<()> {
+        let mut sent = 0;
+        while sent < self.changes.len() {
+            let rest = self.changes[sent..].iter().try_fold(
+                AuthorityListWrite::new(self.ring, self.authority),
+                |write, (member, lists)| write.with_write(*member, *lists),
+            )?;
+            let batch = rest
+                .batches(pending()?)
+                .into_iter()
+                .next()
+                .context("no batch takes the remaining writes")?;
+            sent += batch.writes().len();
+            send(batch)?;
+        }
+        Ok(())
+    }
+}
+
+/// A policy source names the curator by its registry account.
+fn curator_ring(ctx: &Context, registry: Address) -> Result<CustomRing> {
+    let account = ctx
+        .rpc()
+        .get_account(registry)?
+        .with_context(|| format!("curator registry {registry} does not exist"))?;
+    let curator = CustomRing::new(account.owner);
+    ensure!(
+        curator.registry_pda() == registry,
+        "{registry} is not the member registry of {}",
+        account.owner
+    );
+    Ok(curator)
+}
+
+/// The registry a source names, as the policy stores it.
+pub(crate) fn expected_registry(source: SourceOwner) -> ListRegistry {
+    match source {
+        SourceOwner::Own => ListRegistry::Own,
+        SourceOwner::Shared(curator) => ListRegistry::Curator(curator.registry_pda()),
+    }
+}
+
+fn set_source(ctx: &Context, list_id: ListId, source: SourceOwner) -> Result<()> {
+    let Pinned { registry, .. } = policy::pinned(ctx)?;
+    if let SourceOwner::Shared(curator) = source {
+        check_curator(ctx, curator, list_id)?;
+    }
+    let authority = ctx.funded_authority()?;
+    let outcome = if registry.registry_for(list_id) == Some(expected_registry(source)) {
+        "already present"
+    } else {
+        let point = SetSourceOwner {
             ring: ctx.ring,
             authority: authority.pubkey(),
             list_id,
             source,
         }
-        .instruction()?],
-    )?;
-    let entries = ctx
-        .ring
-        .read_policy_config(&ctx.rpc)?
-        .ok_or(ListError::NoPolicy)?
-        .source_for(list_id)
-        .ok_or(ListError::NoPolicy)?;
-    match source {
-        SourceOwner::Own => ui::heading(
-            Icon::Lists,
-            &format!("the {} list reads its own entries", list_name(list_id)),
-        ),
-        SourceOwner::Shared(curator) => ui::heading(
-            Icon::Curator,
-            &format!(
-                "the {} list reads curator {}",
-                list_name(list_id),
-                curator.program_id()
+        .instruction()?;
+        ctx.send(&[authority], &[point])?;
+        "created"
+    };
+    let registry = policy::pinned(ctx)?
+        .registry
+        .registry_for(list_id)
+        .with_context(|| format!("the policy does not reference the {} list", list_id.name()))?;
+    let (glyph, reads) = match source {
+        SourceOwner::Own => (icon::LISTS, "its own registry".to_owned()),
+        SourceOwner::Shared(curator) => {
+            (icon::CURATOR, format!("curator {}", curator.program_id()))
+        }
+    };
+    ui::heading(glyph, &format!("the {} list reads {reads}", list_id.name()));
+    line("source", outcome);
+    line(
+        "registry",
+        match registry {
+            ListRegistry::Own => ctx.ring.registry_pda(),
+            ListRegistry::Curator(registry) => registry,
+        },
+    );
+    Ok(())
+}
+
+/// Anyone may apply a due queue, the sender pays.
+fn apply(ctx: &Context) -> Result<()> {
+    let queue = queue(&ctx.zolana, ctx.ring)?;
+    line("pending", queue.pending());
+    match queue.apply_due(ctx.rpc().get_slot()?) {
+        Ok(()) => {
+            let sender = ctx.sender()?;
+            let payer = record_payer(ctx, &sender)?;
+            ctx.fund(payer.pubkey(), SENDER_FEE_BUDGET)?;
+            warn_link(ctx, payer.pubkey());
+            let signature = ctx.submit(RecordApplication::new(ctx.ring), payer, &[])?;
+            line("queue", "applied");
+            line("application", signature);
+        }
+        Err(CustomRingError::ApplyNotDue) => line("queue", not_due(&queue)),
+        Err(CustomRingError::ApplyTooSoon) => line(
+            "queue",
+            format_args!(
+                "due, the next application lands from slot {}",
+                queue.next_apply_slot()
             ),
         ),
+        Err(error) => return Err(RingError::from(error).into()),
     }
-    line("source", outcome.label());
-    line("entries", entries);
     Ok(())
+}
+
+/// An anonymous ring's hidden owner never pays, the fee payer does.
+fn record_payer<'a>(ctx: &'a Context, member: &'a Keypair) -> Result<&'a Keypair> {
+    let mode = ctx.ring_config()?.mode;
+    match mode {
+        RingMode::Anonymous => ctx.member_payer(mode, member.pubkey()),
+        RingMode::Off | RingMode::Registry => Ok(member),
+    }
+}
+
+fn warn_link(ctx: &Context, signer: Address) {
+    let ring = ctx.ring.program_id();
+    ui::warn(format!(
+        "{signer} signs, the chain links that key to ring {ring}"
+    ));
+}
+
+fn not_due(queue: &RecordQueue) -> String {
+    match queue.pending() {
+        0 => "empty".to_owned(),
+        pending => format!(
+            "{pending} pending, due at {MEMBER_QUEUE_LIMIT} or once the oldest is {APPLY_DELAY_SLOTS} slots old"
+        ),
+    }
 }
 
 #[cfg(test)]
@@ -435,64 +478,163 @@ mod tests {
     const TAG: &str = "9vyTbYGyh3cwxkAQpjjFQGXmdJP6p9B6YcQ5pNuXPNbh";
     const MINT: &str = "So11111111111111111111111111111111111111112";
 
-    fn parse(verb: &str, flags: &[&str]) -> Result<MemberKind, clap::Error> {
+    fn parse(verb: &str, flags: &[&str]) -> Result<Vec<Subject>, clap::Error> {
         let argv = ["zolana-ring", "list", verb, "block"]
             .into_iter()
             .chain(flags.iter().copied());
         let Command::List(command) = Cli::try_parse_from(argv)?.command else {
             panic!("a list command");
         };
-        let member = match command {
-            ListCommand::Add { member, .. }
-            | ListCommand::Clear { member, .. }
-            | ListCommand::Show { member, .. } => member,
-            ListCommand::SetSource { .. } => panic!("an entry command"),
+        let members = match command {
+            ListCommand::Add(entry) | ListCommand::Clear(entry) | ListCommand::Show(entry) => {
+                entry.members
+            }
+            _ => panic!("a member command"),
         };
-        Ok(MemberKind::try_from(member).expect("one flag"))
+        Ok(members.subjects().expect("members"))
+    }
+
+    fn subject(member: Member, label: String) -> Subject {
+        Subject { member, label }
     }
 
     #[test]
-    fn every_entry_command_takes_an_owner_tag_or_a_mint() {
+    fn every_member_command_takes_repeated_owners_and_assets() {
         let tag = Member::owner_tag(Address::from_str_const(TAG).as_array()).expect("member");
-        let mint = Member::asset(&Address::from_str_const(MINT)).expect("member");
+        let mint = Member::asset(&Address::from_str_const(MINT)).expect("mint");
         for verb in ["add", "clear", "show"] {
-            let owner = parse(verb, &["--owner", TAG]).expect(verb);
-            assert_eq!(owner.member().expect("member"), tag);
-            assert_eq!(owner.to_string(), format!("owner {TAG}"));
-            let asset = parse(verb, &["--asset", MINT]).expect(verb);
-            assert_eq!(asset.member().expect("member"), mint);
-            assert_eq!(asset.to_string(), format!("asset {MINT}"));
+            assert_eq!(
+                parse(verb, &["--owner", TAG]).expect(verb),
+                [subject(tag, format!("owner {TAG}"))]
+            );
+            assert_eq!(
+                parse(verb, &["--asset", MINT, "--owner", TAG, "--owner", TAG]).expect(verb),
+                [
+                    subject(tag, format!("owner {TAG}")),
+                    subject(tag, format!("owner {TAG}")),
+                    subject(mint, format!("asset {MINT}")),
+                ]
+            );
+        }
+        assert_eq!(
+            parse("add", &[]).expect_err("no member").kind(),
+            ErrorKind::MissingRequiredArgument
+        );
+    }
+
+    #[test]
+    fn a_member_writes_only_its_own_lists() {
+        let join = |list: &str| Cli::try_parse_from(["zolana-ring", "list", "join", list]);
+        for list in MemberList::ALL {
+            assert!(join(list.0.name()).is_ok(), "{}", list.0.name());
+        }
+        for list in ["allow", "escrow", "block"] {
+            assert!(join(list).is_err(), "{list}");
         }
     }
 
     #[test]
-    fn sol_names_the_native_token() {
-        let sol = Member::asset(&SOL_MINT).expect("member");
-        let literal = parse("add", &["--asset", "sol"]).expect("sol");
-        assert_eq!(literal.member().expect("member"), sol);
-        assert_eq!(literal.to_string(), "asset sol");
-        let zero = parse("add", &["--asset", &SOL_MINT.to_string()]).expect("zero mint");
-        assert_eq!(zero.member().expect("member"), sol);
-        assert_eq!(zero.to_string(), "asset sol");
+    fn a_member_write_the_queue_already_holds_is_not_sent_again() {
+        let bit = ListId::RingViewing.record_bit();
+        let stage = |change: ListChange, applied, queued| {
+            change.stage(ListId::RingViewing, MemberLists { applied, queued })
+        };
+        assert_eq!(stage(ListChange::Set, 0, bit), Stage::Queued);
+        assert_eq!(stage(ListChange::Set, bit, bit), Stage::Applied);
+        assert_eq!(stage(ListChange::Set, 0, 0), Stage::Unsent);
+        assert_eq!(stage(ListChange::Clear, bit, 0), Stage::Queued);
+        // A pending join undoes an applied leave, the leave goes out again.
+        assert_eq!(stage(ListChange::Clear, 0, bit), Stage::Unsent);
+        assert_eq!(stage(ListChange::Set, bit, 0), Stage::Unsent);
+    }
+
+    #[test]
+    fn the_member_lists_are_the_lists_a_member_writes() {
+        let lists: Vec<ListId> = MemberList::ALL.into_iter().map(MemberList::id).collect();
+        let written: Vec<ListId> = ListId::ALL
+            .into_iter()
+            .filter(|list_id| ListSet::MEMBER_WRITES.contains(*list_id))
+            .collect();
+        assert_eq!(lists, written);
+    }
+
+    fn allow() -> ListWrite {
+        ListChange::Set.write(ListId::Allow).unwrap()
+    }
+
+    struct Batches {
+        sizes: Vec<usize>,
+        order: Vec<Member>,
+    }
+
+    fn batches(writes: &[(Member, ListWrite)], pending: &[u64]) -> Batches {
+        let mut pending = pending.iter().copied();
+        let mut batches = Batches {
+            sizes: Vec::new(),
+            order: Vec::new(),
+        };
+        ListWrites {
+            ring: CustomRing::new(Address::new_from_array([9; 32])),
+            authority: Address::new_from_array([3; 32]),
+            changes: writes,
+        }
+        .send(
+            || Ok(pending.next().expect("one queue read per batch")),
+            |batch| {
+                batches.sizes.push(batch.writes().len());
+                batches
+                    .order
+                    .extend(batch.writes().iter().map(|(member, _)| *member));
+                Ok(())
+            },
+        )
+        .unwrap();
+        batches
+    }
+
+    #[test]
+    fn list_write_splits_at_one_batch() {
+        let writes: Vec<(Member, ListWrite)> = (1..=20u8)
+            .map(|byte| (Member::owner_tag(&[byte; 32]).unwrap(), allow()))
+            .collect();
+        assert_eq!(batches(&writes[..16], &[0]).sizes, [16]);
+        assert_eq!(batches(&writes, &[0, 0]).sizes, [16, 4]);
+        // The first batch takes the room the pending member writes leave, its proof applies them.
+        assert_eq!(batches(&writes, &[8, 0]).sizes, [8, 12]);
+        // A member write queued between two batches shrinks the next.
+        let interleaved = batches(&writes, &[10, 6, 0]);
+        assert_eq!(interleaved.sizes, [6, 10, 4]);
+        let members: Vec<Member> = writes.iter().map(|(member, _)| *member).collect();
         assert_eq!(
-            parse("add", &["--asset", "SOL"])
-                .expect_err("lowercase only")
-                .kind(),
-            ErrorKind::ValueValidation
+            interleaved.order, members,
+            "the writes keep their order across batches"
         );
     }
 
     #[test]
-    fn exactly_one_member_flag_is_taken() {
+    fn a_list_write_names_each_member_once() {
+        let member = Member::owner_tag(&[1; 32]).unwrap();
+        let writes = [(member, allow()), (member, allow())];
+        let refused = ListWrites {
+            ring: CustomRing::new(Address::new_from_array([9; 32])),
+            authority: Address::new_from_array([3; 32]),
+            changes: &writes,
+        }
+        .send(|| Ok(0), |_| Ok(()))
+        .unwrap_err();
+        assert!(matches!(
+            refused.downcast_ref::<RingError>(),
+            Some(RingError::DuplicateListWrite { .. })
+        ));
+    }
+
+    #[test]
+    fn a_source_names_the_registry_account() {
+        let curator = CustomRing::new(Address::new_from_array([4; 32]));
+        assert_eq!(expected_registry(SourceOwner::Own), ListRegistry::Own);
         assert_eq!(
-            parse("add", &[]).expect_err("no flag").kind(),
-            ErrorKind::MissingRequiredArgument
-        );
-        assert_eq!(
-            parse("add", &["--owner", TAG, "--asset", MINT])
-                .expect_err("both flags")
-                .kind(),
-            ErrorKind::ArgumentConflict
+            expected_registry(SourceOwner::Shared(curator)),
+            ListRegistry::Curator(curator.registry_pda())
         );
     }
 }

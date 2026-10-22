@@ -15,9 +15,6 @@ pub enum RingsTreeKind {
     State = 1,
     /// Nullifier non-inclusion proofs.
     Nullifier = 2,
-    /// Served only at the chain's current root.
-    #[cfg(feature = "custom-rings")]
-    KeyRegistry = 3,
 }
 
 impl RingsTreeKind {
@@ -25,8 +22,6 @@ impl RingsTreeKind {
         match self {
             Self::State => STATE_HEIGHT as u32,
             Self::Nullifier => NULLIFIER_TREE_HEIGHT,
-            #[cfg(feature = "custom-rings")]
-            Self::KeyRegistry => custom_ring_interface::KEY_REGISTRY_HEIGHT as u32,
         }
     }
 
@@ -34,8 +29,6 @@ impl RingsTreeKind {
         match self {
             Self::State => STATE_ROOT_HISTORY_CAPACITY as u64,
             Self::Nullifier => u64::from(NULLIFIER_TREE_ROOT_HISTORY_CAPACITY),
-            #[cfg(feature = "custom-rings")]
-            Self::KeyRegistry => custom_ring_interface::KEY_REGISTRY_ROOT_HISTORY as u64,
         }
     }
 }

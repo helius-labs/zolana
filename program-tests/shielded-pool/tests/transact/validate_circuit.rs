@@ -1,14 +1,32 @@
-use pinocchio::ProgramResult;
-use shielded_pool_program::instructions::transact::validate_circuit_type;
+use pinocchio::{error::ProgramError, AccountView, ProgramResult};
+use shielded_pool_program::{
+    instructions::{
+        settlement::{Settlement, SettlementAccountsSol, SplWithdrawalAccounts},
+        transact::{anonymous_exit_destination, control_cosigner, validate_circuit_type},
+    },
+    testing::{RingTransactAccounts, TransactAccounts, TransactProofInputs},
+};
+use shielded_pool_tests::support::transact::{ring_config_view, TEST_RING_CONFIG};
+use solana_pubkey::Pubkey;
+use spl_token_2022_interface::pod::{PodAccount, PodCOption, PodMint};
+use zolana_account_checks::account_info::test_account_info::get_account_view;
+use zolana_hasher::primitives::{hash_bytes, solana_owner_identity};
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
         instruction_data::transact::{
-            AnonymousRingEddsaProofData, Bsb22Commitment, CircuitId, InputUtxo, OwnerTag,
-            TransactIxData, TransactIxDataRef, TransactOutput, TransactProof, TreeContext,
+            settlement_accounts, settlement_mints, AnonymousParties, AnonymousRingEddsaProofData,
+            Bsb22Commitment, CircuitId, InputUtxo, InterfaceTransfer, OwnerTag, PublicLeg,
+            PublicSlots, TransactIxData, TransactIxDataRef, TransactOutput, TransactProof,
+            TreeContext,
         },
         tag::InstructionTag,
     },
+    pda,
+    token_account::TokenAccountControl,
+    N_PUBLIC_SLOTS, RING_TRANSACT_ACCOUNT_PREFIX_LEN, RING_TRANSACT_RING_CONFIG_INDEX,
+    SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID, SOL_ASSET_FIELD, SOL_INTERFACE,
+    SPL_TOKEN_ACCOUNT_INITIALIZED, SPL_TOKEN_PROGRAM_ID, TRANSACT_PAYER_INDEX,
 };
 
 fn validate(
@@ -102,6 +120,10 @@ fn selector_family_must_match_instruction() {
             CircuitId::RingAuthority(2, 2, 3),
             InstructionTag::RingAuthorityTransact,
         ),
+        (
+            CircuitId::RingAuthority(2, 4, 3),
+            InstructionTag::RingAuthorityTransact,
+        ),
     ] {
         assert_eq!(
             validate(circuit, instruction, 2, circuit.num_outputs() as usize),
@@ -191,13 +213,25 @@ fn selector_dimensions_are_fail_closed() {
     );
     assert_eq!(
         validate(
-            CircuitId::RingAuthority(49, 2, 3),
+            CircuitId::RingAuthority(40, 2, 3),
             InstructionTag::RingAuthorityTransact,
-            49,
+            40,
             2,
         ),
-        invalid_shape
+        Ok(())
     );
+    for inputs in [48, 49] {
+        assert_eq!(
+            validate(
+                CircuitId::RingAuthority(inputs, 2, 3),
+                InstructionTag::RingAuthorityTransact,
+                inputs as usize,
+                2,
+            ),
+            invalid_shape,
+            "ring authority {inputs}x2"
+        );
+    }
     for width in [1, 3] {
         assert_eq!(
             validate(
@@ -415,6 +449,475 @@ fn a_cached_selector_must_fit_the_inputs_the_outputs_and_the_cache() {
             ),
             expected,
             "{access:?}"
+        );
+    }
+}
+
+fn anonymous_circuit() -> CircuitId {
+    CircuitId::AnonymousRingEddsa(
+        2,
+        2,
+        3,
+        AnonymousRingEddsaProofData {
+            bsb22_commitment: Bsb22Commitment {
+                commitment: [0u8; 32],
+                commitment_pok: [0u8; 32],
+            },
+            default_owner_tag: None,
+        },
+    )
+}
+
+/// The ring program appends its configured co-signer only on the anonymous rail.
+#[test]
+fn anonymous_control_tail_is_exactly_one_address_on_the_anonymous_rail() {
+    let tail = [7u8; 32];
+    assert_eq!(
+        control_cosigner(anonymous_circuit(), &tail).unwrap(),
+        Some(&tail)
+    );
+    assert_eq!(
+        control_cosigner(anonymous_circuit(), &[0u8; 32]).unwrap(),
+        None
+    );
+    for bad in [&[][..], &tail[..31], &[tail, tail].concat()[..]] {
+        assert_eq!(
+            control_cosigner(anonymous_circuit(), bad),
+            Err(ShieldedPoolError::InvalidAnonymousControlTail.into())
+        );
+    }
+    let public = CircuitId::ConfidentialRingEddsa(2, 2, 3);
+    assert_eq!(control_cosigner(public, &[]).unwrap(), None);
+    assert_eq!(
+        control_cosigner(public, &tail),
+        Err(ProgramError::InvalidInstructionData)
+    );
+}
+
+/// The circuit keeps the hidden owner apart from the payer, the co-signer and the one exit account.
+#[test]
+fn anonymous_parties_publish_tagged_identities_and_one_exit() {
+    let payer = [1u8; 32];
+    let cosigner = [2u8; 32];
+    let exit = [3u8; 32];
+    let identity = |address: &[u8; 32]| solana_owner_identity(address).unwrap();
+    let parties = AnonymousParties {
+        payer: &payer,
+        cosigner: Some(&cosigner),
+        exit_destination: AnonymousParties::exit_destination([&exit, &exit].into_iter()).unwrap(),
+    };
+    assert_eq!(
+        parties.identities().unwrap(),
+        [identity(&payer), identity(&cosigner), identity(&exit)]
+    );
+    let absent = AnonymousParties {
+        payer: &payer,
+        cosigner: None,
+        exit_destination: AnonymousParties::exit_destination(std::iter::empty()).unwrap(),
+    };
+    assert_eq!(
+        absent.identities().unwrap(),
+        [identity(&payer), [0u8; 32], [0u8; 32]]
+    );
+    assert_eq!(
+        AnonymousParties::exit_destination([&exit, &payer].into_iter()),
+        Err(ShieldedPoolError::AnonymousExitDestinationsDiffer)
+    );
+}
+
+fn token_account_data(
+    mint: [u8; 32],
+    owner: [u8; 32],
+    delegate: Option<[u8; 32]>,
+    close_authority: Option<[u8; 32]>,
+) -> Vec<u8> {
+    let key = |key: Option<[u8; 32]>| {
+        key.map_or_else(PodCOption::none, |key| PodCOption::some(key.into()))
+    };
+    bytemuck::bytes_of(&PodAccount {
+        mint: mint.into(),
+        owner: owner.into(),
+        delegate: key(delegate),
+        state: SPL_TOKEN_ACCOUNT_INITIALIZED,
+        close_authority: key(close_authority),
+        ..PodAccount::default()
+    })
+    .to_vec()
+}
+
+/// An SPL exit binds its token account's owner and a SOL exit its recipient.
+#[test]
+fn anonymous_exits_bind_the_key_their_destination_names() {
+    let interface = get_account_view([1; 32], [0; 32], false, true, false, vec![]);
+    let wallet = get_account_view([2; 32], [0; 32], false, true, false, vec![]);
+    let nonce = get_account_view([3; 32], [0; 32], false, true, false, vec![0; 80]);
+    let wsol = get_account_view([4; 32], SPL_TOKEN_PROGRAM_ID, false, true, false, vec![]);
+    let token_account = get_account_view([5; 32], SPL_TOKEN_PROGRAM_ID, false, true, false, vec![]);
+    let unused = get_account_view([6; 32], [0; 32], false, false, false, vec![]);
+    let sol = |recipient| SettlementAccountsSol {
+        sol_interface_account: &interface,
+        sol_interface_bump: 0,
+        recipient_account: recipient,
+    };
+    let spl = |control| {
+        Settlement::SplWithdrawal(SplWithdrawalAccounts {
+            cpi_authority_account: &unused,
+            mint_account: &unused,
+            decimals: 0,
+            spl_interface_account: &unused,
+            user_token_account: &token_account,
+            token_program_account: &unused,
+            user_token_account_control: control,
+        })
+    };
+    let owner = [7u8; 32];
+    assert_eq!(
+        anonymous_exit_destination(&[Settlement::SolWithdrawal(sol(&wallet))]),
+        Ok(Some(&[2; 32]))
+    );
+    assert_eq!(
+        anonymous_exit_destination(&[spl(TokenAccountControl::SoleOwner(owner))]),
+        Ok(Some(&owner))
+    );
+    assert_eq!(
+        anonymous_exit_destination(&[
+            Settlement::SolWithdrawal(sol(&wallet)),
+            spl(TokenAccountControl::SoleOwner([2; 32])),
+        ]),
+        Ok(Some(&[2; 32]))
+    );
+    assert_eq!(
+        anonymous_exit_destination(&[
+            Settlement::SolDeposit(sol(&wallet)),
+            Settlement::SolDeposit(sol(&nonce)),
+        ]),
+        Ok(None)
+    );
+    assert_eq!(
+        anonymous_exit_destination(&[
+            spl(TokenAccountControl::SoleOwner(owner)),
+            spl(TokenAccountControl::SoleOwner([8; 32])),
+        ]),
+        Err(ShieldedPoolError::AnonymousExitDestinationsDiffer)
+    );
+    for recipient in [&nonce, &wsol] {
+        assert_eq!(
+            anonymous_exit_destination(&[Settlement::SolWithdrawal(sol(recipient))]),
+            Err(ShieldedPoolError::AnonymousExitAccountHasData)
+        );
+    }
+    assert_eq!(
+        anonymous_exit_destination(&[spl(TokenAccountControl::Shared(owner))]),
+        Err(ShieldedPoolError::AnonymousExitTokenAccountShared)
+    );
+}
+
+fn settlement_ix(circuit: CircuitId, interface_transfers: Vec<InterfaceTransfer>) -> Vec<u8> {
+    TransactIxData {
+        expiry_unix_ts: 0,
+        private_tx_hash: [0u8; 32],
+        circuit,
+        tx_viewing_pk: [0u8; 33],
+        salt: [0u8; 16],
+        proof: TransactProof::zeroed(),
+        inputs: (1..=circuit.num_inputs())
+            .map(|tag| InputUtxo {
+                nullifier_hash: [tag; 32],
+                tree_index: 0,
+            })
+            .collect(),
+        interface_transfers,
+        data_hash: None,
+        ring_data_hash: None,
+        outputs: (0..circuit.num_outputs())
+            .map(|_| TransactOutput {
+                utxo_hash: [1u8; 32],
+                owner_tag: OwnerTag::Inline([0u8; 32]),
+                data: None,
+            })
+            .collect(),
+        messages: Vec::new(),
+        tree_contexts: vec![TreeContext {
+            utxo_tree_root_index: 0,
+            nullifier_tree_root_index: 0,
+        }],
+    }
+    .serialize()
+    .unwrap()
+}
+
+fn spl_deposit(mint: [u8; 32], amount: u64) -> InterfaceTransfer {
+    InterfaceTransfer::SplDeposit {
+        amount,
+        spl_interface_bump: pda::spl_interface_bump(&mint),
+    }
+}
+
+fn spl_withdrawal(mint: [u8; 32], amount: u64) -> InterfaceTransfer {
+    InterfaceTransfer::SplWithdrawal {
+        amount,
+        spl_interface_bump: pda::spl_interface_bump(&mint),
+    }
+}
+
+fn transact_account_prefix(n_inputs: u8) -> Vec<AccountView> {
+    let pool = SHIELDED_POOL_PROGRAM_ID;
+    let mut accounts = vec![
+        get_account_view([1; 32], [0; 32], true, true, false, vec![]),
+        get_account_view([3; 32], pool, false, true, false, vec![]),
+        get_account_view(pool, [0; 32], false, false, true, vec![]),
+        get_account_view([0; 32], [0; 32], false, false, true, vec![]),
+        get_account_view([2; 32], pool, false, true, false, vec![]),
+    ];
+    accounts.extend(
+        (0..n_inputs)
+            .map(|index| get_account_view([0x10 + index; 32], pool, false, true, false, vec![])),
+    );
+    accounts
+}
+
+fn spl_withdrawal_group(mint: [u8; 32], user_token_account: AccountView) -> Vec<AccountView> {
+    let mut group = vec![get_account_view(
+        SHIELDED_POOL_CPI_AUTHORITY,
+        [0; 32],
+        false,
+        false,
+        false,
+        vec![],
+    )];
+    group.extend(spl_mint_and_interface(mint));
+    group.extend([user_token_account, token_program_account()]);
+    group
+}
+
+fn spl_mint_and_interface(mint: [u8; 32]) -> [AccountView; 2] {
+    let token = SPL_TOKEN_PROGRAM_ID;
+    let interface = pda::spl_interface(&Pubkey::new_from_array(mint)).to_bytes();
+    let mint_data = PodMint {
+        decimals: 6,
+        ..PodMint::default()
+    };
+    [
+        get_account_view(
+            mint,
+            token,
+            false,
+            false,
+            false,
+            bytemuck::bytes_of(&mint_data).to_vec(),
+        ),
+        get_account_view(
+            interface,
+            token,
+            false,
+            true,
+            false,
+            token_account_data(mint, SHIELDED_POOL_CPI_AUTHORITY, None, None),
+        ),
+    ]
+}
+
+fn token_program_account() -> AccountView {
+    get_account_view(SPL_TOKEN_PROGRAM_ID, [0; 32], false, false, true, vec![])
+}
+
+/// The owner, delegate and close authority come from the data, the curve check from the address.
+#[test]
+fn an_anonymous_spl_exit_binds_its_token_account_owner() {
+    let mint = [9u8; 32];
+    let owner = [0x42u8; 32];
+    let (off_curve, on_curve) = ([0x44u8; 32], [0x55u8; 32]);
+    assert!(!Pubkey::new_from_array(off_curve).is_on_curve());
+    assert!(Pubkey::new_from_array(on_curve).is_on_curve());
+    let bytes = settlement_ix(anonymous_circuit(), vec![spl_withdrawal(mint, 1)]);
+    let ix = TransactIxDataRef::from_bytes(&bytes).unwrap();
+    for (address, delegate, close_authority, expected) in [
+        (off_curve, None, None, Ok(Some(owner))),
+        (
+            off_curve,
+            Some([0x43; 32]),
+            None,
+            Err(ShieldedPoolError::AnonymousExitTokenAccountShared),
+        ),
+        (
+            off_curve,
+            None,
+            Some([0x44; 32]),
+            Err(ShieldedPoolError::AnonymousExitTokenAccountShared),
+        ),
+        (
+            on_curve,
+            None,
+            None,
+            Err(ShieldedPoolError::AnonymousExitTokenAccountOnCurve),
+        ),
+    ] {
+        let data = token_account_data(mint, owner, delegate, close_authority);
+        let mut accounts = transact_account_prefix(anonymous_circuit().num_inputs());
+        accounts.extend(spl_withdrawal_group(
+            mint,
+            get_account_view(address, SPL_TOKEN_PROGRAM_ID, false, true, false, data),
+        ));
+        let parsed = TransactAccounts::validate_and_parse(&mut accounts, &ix).unwrap();
+        assert_eq!(
+            anonymous_exit_destination(&parsed.settlements).map(|exit| exit.copied()),
+            expected,
+            "{address:?}, delegate {delegate:?}, close authority {close_authority:?}"
+        );
+    }
+}
+
+/// SPP's parsed settlements and the raw settlement groups fold to the same slots.
+const MINT_A: [u8; 32] = [7u8; 32];
+const MINT_B: [u8; 32] = [8u8; 32];
+
+/// Every leg kind, `MINT_A` deposited then withdrawn.
+fn mixed_settlement() -> (Vec<u8>, Vec<AccountView>) {
+    let depositor = [9u8; 32];
+    let spl = |transfer: fn([u8; 32], u64) -> InterfaceTransfer, mint: [u8; 32], amount| {
+        (transfer(mint, amount), Some(mint))
+    };
+    let legs = [
+        spl(spl_deposit, MINT_A, 9),
+        (InterfaceTransfer::SolDeposit { amount: 5 }, None),
+        spl(spl_withdrawal, MINT_B, 4),
+        (InterfaceTransfer::SolWithdrawal { amount: 2 }, None),
+        spl(spl_withdrawal, MINT_A, 3),
+    ];
+    let circuit = CircuitId::ConfidentialEddsa(1, 2, 3);
+    let bytes = settlement_ix(
+        circuit,
+        legs.iter().map(|(transfer, _)| *transfer).collect(),
+    );
+    let mut accounts = transact_account_prefix(circuit.num_inputs());
+    for ((transfer, mint), user) in legs.iter().zip((0x20u8..).map(|tag| [tag; 32])) {
+        let token_account = |mint, owner| {
+            let data = token_account_data(mint, owner, None, None);
+            get_account_view(user, SPL_TOKEN_PROGRAM_ID, false, true, false, data)
+        };
+        match *mint {
+            None => accounts.extend([
+                get_account_view(SOL_INTERFACE, [0; 32], false, true, false, vec![]),
+                get_account_view(user, [0; 32], false, true, false, vec![]),
+            ]),
+            Some(mint) if transfer.is_deposit() => {
+                accounts.extend(spl_mint_and_interface(mint));
+                accounts.extend([
+                    get_account_view(depositor, [0; 32], true, false, false, vec![]),
+                    token_account(mint, depositor),
+                    token_program_account(),
+                ]);
+            }
+            Some(mint) => accounts.extend(spl_withdrawal_group(mint, token_account(mint, user))),
+        }
+    }
+    (bytes, accounts)
+}
+
+fn addresses_of(accounts: &[AccountView]) -> Vec<[u8; 32]> {
+    accounts
+        .iter()
+        .map(|account| account.address().to_bytes())
+        .collect()
+}
+
+#[test]
+fn public_slots_fold_matches_transact_inputs() {
+    let (bytes, mut accounts) = mixed_settlement();
+    let ix = TransactIxDataRef::from_bytes(&bytes).unwrap();
+    let addresses = addresses_of(&accounts);
+    let groups = settlement_accounts(&ix.interface_transfers, ix.circuit, &addresses).unwrap();
+    let legs = ix
+        .interface_transfers
+        .iter()
+        .zip(settlement_mints(&ix.interface_transfers, groups))
+        .map(|(transfer, mint)| {
+            mint.map(|mint| PublicLeg {
+                transfer: *transfer,
+                mint: mint.copied(),
+            })
+        });
+    let raw = PublicSlots::fold(legs).unwrap();
+
+    let parsed = TransactAccounts::validate_and_parse(&mut accounts, &ix).unwrap();
+    let mut proof_inputs = TransactProofInputs::new(ix.circuit);
+    proof_inputs
+        .assign_public_amounts_and_assets(
+            &ix.interface_transfers,
+            &parsed.settlements,
+            N_PUBLIC_SLOTS,
+        )
+        .unwrap();
+
+    assert_eq!(proof_inputs.public_slot_assets, raw.asset_fields().unwrap());
+    assert_eq!(proof_inputs.public_slot_amounts, raw.amounts());
+    assert_eq!(
+        proof_inputs.public_slot_assets,
+        [
+            hash_bytes(&MINT_A).unwrap(),
+            SOL_ASSET_FIELD,
+            hash_bytes(&MINT_B).unwrap()
+        ]
+    );
+    assert_eq!(proof_inputs.public_slot_amounts, [6, 3, -4]);
+}
+
+#[test]
+fn deposit_funders_are_the_accounts_spp_debits() {
+    let (bytes, mut accounts) = mixed_settlement();
+    let ix = TransactIxDataRef::from_bytes(&bytes).unwrap();
+    let addresses = addresses_of(&accounts);
+    let mut groups = settlement_accounts(&ix.interface_transfers, ix.circuit, &addresses).unwrap();
+    let parsed = TransactAccounts::validate_and_parse(&mut accounts, &ix).unwrap();
+    for (transfer, settlement) in ix.interface_transfers.iter().zip(&parsed.settlements) {
+        let (group, rest) = groups.split_at(transfer.settlement_account_count());
+        groups = rest;
+        let debited = match settlement {
+            Settlement::SolDeposit(accounts) => Some(accounts.recipient_account),
+            Settlement::SplDeposit(accounts) => Some(accounts.token_authority_account),
+            Settlement::SolWithdrawal(_) | Settlement::SplWithdrawal(_) => None,
+        };
+        assert_eq!(
+            transfer
+                .funder_account_position()
+                .map(|position| group[position]),
+            debited.map(|account| account.address().to_bytes()),
+            "{transfer:?}"
+        );
+    }
+}
+
+/// The ring program reads these positions from SPP's transact account lists.
+#[test]
+fn transact_accounts_sit_where_the_ring_program_reads_them() {
+    let plain = CircuitId::ConfidentialEddsa(1, 2, 3);
+    let bytes = settlement_ix(plain, Vec::new());
+    let ix = TransactIxDataRef::from_bytes(&bytes).unwrap();
+    let mut accounts = transact_account_prefix(plain.num_inputs());
+    let addresses = addresses_of(&accounts);
+    let parsed = TransactAccounts::validate_and_parse(&mut accounts, &ix).unwrap();
+    assert_eq!(
+        parsed.payer.address().to_bytes(),
+        addresses[TRANSACT_PAYER_INDEX]
+    );
+
+    let ring = CircuitId::ConfidentialRingEddsa(1, 2, 3);
+    let bytes = settlement_ix(ring, Vec::new());
+    let ix = TransactIxDataRef::from_bytes(&bytes).unwrap();
+    let mut accounts = transact_account_prefix(ring.num_inputs());
+    accounts.insert(RING_TRANSACT_RING_CONFIG_INDEX, ring_config_view([4u8; 32]));
+    let addresses = addresses_of(&accounts);
+    for ring_authority in [false, true] {
+        let (parsed, ring_program_id) =
+            RingTransactAccounts::validate_and_parse(&mut accounts, &ix, ring_authority).unwrap();
+        assert_eq!(ring_program_id, TEST_RING_CONFIG.program_id.to_bytes());
+        assert_eq!(
+            parsed.payer.address().to_bytes(),
+            addresses[TRANSACT_PAYER_INDEX]
+        );
+        assert_eq!(
+            parsed.input_trees[0].address().to_bytes(),
+            addresses[RING_TRANSACT_ACCOUNT_PREFIX_LEN]
         );
     }
 }

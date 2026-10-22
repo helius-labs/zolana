@@ -1,15 +1,10 @@
 package shared_test
 
 import (
-	"fmt"
-	"math/big"
 	"os"
 	"testing"
 	"testing/cryptotest"
 
-	"github.com/consensys/gnark/frontend"
-	customring "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/custom"
-	defaultring "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/default"
 	"github.com/helius-labs/zolana/prover/server/prover-test/aeglosfixture"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
 	"github.com/helius-labs/zolana/prover/server/prover/provingkeys"
@@ -25,45 +20,13 @@ func TestExportAeglosTransferFixtures(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, shape := range protocol.SupportedShapes {
-		for _, family := range []string{"transfer_ring", "transfer_confidential", "transfer_eddsa_ring", "transfer_ring_authority"} {
-			name := fmt.Sprintf("%s_%d_%d.key", family, shape.NInputs, shape.NOutputs)
+		for _, circuit := range exportedTransfers {
+			name := transferKeyFile(circuit, shape)
 			if _, ok := manifest.Keys[name]; !ok {
 				continue
 			}
 			for variant := range 2 {
-				var assignment *testAssignment
-				switch family {
-				case "transfer_confidential":
-					assignment = buildDefaultRingConfidentialEddsaAssignment(t, shape)
-				case "transfer_ring_authority":
-					assignment = buildRingAuthorityAssignment(t, shape)
-				default:
-					assignment = buildCircuitAssignment(t, shape)
-				}
-				assignment.BlindingSeed = big.NewInt(int64(800 + variant))
-				rebuildAfterOwnerChange(t, assignment)
-				var circuit frontend.Circuit
-				switch family {
-				case "transfer_ring":
-					circuit = asCustomRingConfidentialEddsa(assignment)
-					circuit.(*customring.CustomRingConfidentialEddsaCircuit).Shape = assignment.Shape
-				case "transfer_confidential":
-					refreshDefaultRingPublicInputHash(t, assignment)
-					circuit = asDefaultRingConfidentialEddsa(assignment)
-					circuit.(*defaultring.DefaultRingConfidentialEddsaCircuit).Shape = assignment.Shape
-				case "transfer_ring_authority":
-					refreshRingAuthorityPublicInputHash(t, assignment)
-					circuit = asCustomRingAuthority(assignment)
-					circuit.(*customring.CustomRingAuthorityCircuit).Shape = assignment.Shape
-				case "transfer_eddsa_ring":
-					owner := hiddenOwnerKey(11)
-					rewriteInputAsHiddenOwner(t, assignment, 0, owner)
-					authorization := authorizeEddsa(t, assignment, owner, owner)
-					anonymous := asCustomRingAnonymousEddsa(assignment, authorization)
-					anonymous.Shape = assignment.Shape
-					circuit = anonymous
-				}
-				aeglosfixture.Write(t, name, variant, circuit)
+				aeglosfixture.Write(t, name, variant, newHonestTransfer(t, circuit, shape, variant).witness)
 			}
 		}
 	}

@@ -7,17 +7,31 @@ use zolana_interface::{
     instruction::instruction_data::MergeOutputEncryption, tree_slot::tree_id_field,
 };
 
-/// The rail-specific tail of the merge statement.
+/// The rail-specific part of the merge statement, before the output ciphertext.
 pub enum MergePublicInputBinding {
     Owner {
         signing_key_hash: [u8; 32],
         nullifier_public_key: [u8; 32],
-        output_encryption: MergeOutputEncryption,
     },
     Ring {
         output_data_hash: [u8; 32],
         program_id_hash: [u8; 32],
+        /// `None` until the ring registration is bound.
+        registry: Option<MergeRegistryBinding>,
     },
+}
+
+/// The member registry root and the ring mode the ring program forwards beside it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MergeRegistryBinding {
+    pub root: [u8; 32],
+    pub anonymous: bool,
+}
+
+impl MergeRegistryBinding {
+    pub fn elements(self) -> [[u8; 32]; 2] {
+        [self.root, right_align(&[u8::from(self.anonymous)])]
+    }
 }
 
 /// One ordering for local proofs, indexed requests and cross-language vectors.
@@ -29,6 +43,7 @@ pub struct MergePublicInputs<'a> {
     pub external_data_hash: [u8; 32],
     pub allow_dummy_inputs: bool,
     pub binding: MergePublicInputBinding,
+    pub output_encryption: MergeOutputEncryption,
 }
 
 impl MergePublicInputs<'_> {
@@ -52,21 +67,22 @@ impl MergePublicInputs<'_> {
             MergePublicInputBinding::Ring {
                 output_data_hash,
                 program_id_hash,
+                registry,
             } => {
                 elements.extend([*output_data_hash, *program_id_hash]);
+                elements.extend(registry.iter().flat_map(|binding| binding.elements()));
             }
             MergePublicInputBinding::Owner {
                 signing_key_hash,
                 nullifier_public_key,
-                output_encryption,
             } => {
                 elements.extend([*signing_key_hash, *nullifier_public_key]);
-                match output_encryption {
-                    MergeOutputEncryption::PoseidonCtrV1 { salt, ciphertext } => {
-                        elements.push(right_align(salt));
-                        elements.extend(ciphertext);
-                    }
-                }
+            }
+        }
+        match &self.output_encryption {
+            MergeOutputEncryption::PoseidonCtrV1 { salt, ciphertext } => {
+                elements.push(right_align(salt));
+                elements.extend(ciphertext);
             }
         }
         Ok(elements)

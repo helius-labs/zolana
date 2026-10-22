@@ -1,21 +1,25 @@
+/** Delegate moves from a wallet, the configured delegate signs and the member does not. */
 import { NullifierKeyProofAuthority } from "../client/keys.js";
-import type { BlockhashProvider, KitRpcAccess, ProofService, WalletKeys } from "../client/ports.js";
+import type {
+  BlockhashProvider,
+  KitRpcAccess,
+  ProofAuthority,
+  ProofService,
+  WalletKeys,
+} from "../client/ports.js";
 import { compileUnsignedTransaction } from "../flows/compile.js";
 import { reserveEntries, reservedUtxoKeys, unreserved } from "../flows/reserve.js";
 import { selectUtxos } from "../flows/select.js";
 import { signerAddress, type SignerAccount } from "../interface/instructions/index.js";
-import { RING_AUTHORITY_MAX_WIDTH } from "../interface/shape.js";
+import { RING_AUTHORITY_SHAPES } from "../interface/shape.js";
 import type { Address, RequestContext, Transaction } from "../interface/types.js";
 import type { NullifierKey } from "../keypair/nullifier-key.js";
 import type { ShieldedAddress } from "../keypair/shielded.js";
-import { ViewingKey } from "../keypair/viewing-key.js";
-import { prepareRingAuthorityTransfer } from "../transaction/instructions/transact.js";
 import { ZERO_32 } from "../transaction/internal.js";
 import {
   approveUnattended,
   checkIntentApproval,
   checkPreparedTransfer,
-  checkTransactData,
   checkTransactionIntent,
   intentHash,
   ownerSolanaAccount,
@@ -24,29 +28,31 @@ import {
 } from "../transaction/wallet/intent.js";
 import { Wallet, type UtxoReservation, type WalletUtxo } from "../transaction/wallet/state.js";
 import { equalBytes } from "../wallet/internal.js";
-import { withTransactionKey } from "../wallet/private-transaction.js";
 import { fetchSplAssetRegistrations } from "../wallet/sync.js";
-import { fetchRingCoSigner, fetchRingDelegate } from "./config.js";
-import { TRANSFER_DEMAND, checkRingCoSigner } from "./cosign.js";
-import { RingError, wrapRingError } from "./error.js";
-import { ringDelegateTransactInstruction } from "./instructions.js";
+
+import { RingInstructionTag, ringComputeUnitLimit } from "./admin.js";
+import { wrapRingError } from "./error.js";
+import { boundState } from "./pipeline.js";
 import {
-  checkRetainedEntries,
-  RingTransactionSubmission,
-  type RingSubmissionAttempt,
-  type RingSubmissionBuildState,
-} from "./submission.js";
+  DelegateTransfer,
+  type DelegateTransferClient,
+  type RingTransferApproval,
+} from "./rails.js";
 import {
-  proveCustomRingDelegateTransfer,
-  RING_TRANSACT_COMPUTE_UNIT_LIMIT,
+  provenWithinTransaction,
   ringIntentMismatch,
   ringProofInput,
   ringSelectionErrors,
-  type RingDelegateProofClient,
-  type RingDelegateSpender,
-} from "./transfer.js";
+} from "./selection.js";
+import {
+  RingTransactionSubmission,
+  checkRetainedEntries,
+  type RingSubmissionAttempt,
+  type RingSubmissionBuildState,
+} from "./submission.js";
+import { checkDemandedCoSigner } from "./transfer.js";
 
-export type RingDelegateTransferClient = RingDelegateProofClient & BlockhashProvider & KitRpcAccess;
+export type RingDelegateTransferClient = DelegateTransferClient & BlockhashProvider & KitRpcAccess;
 
 /** Builds a move authorized by the configured Solana delegate. */
 export interface RingDelegateTransferParams {
@@ -67,8 +73,6 @@ export interface RingDelegateTransferParams {
   readonly priorityFeeLamports?: bigint;
 }
 
-type DelegateMove = Omit<RingDelegateTransferParams, "wallet" | "source" | "approve">;
-
 /** The opened member key proves through the client's proof service. */
 export type RingDelegateRecoveredClient = RingDelegateTransferClient &
   Readonly<{ proofService: ProofService }>;
@@ -85,6 +89,8 @@ export type RingDelegateRecoveredParams = Omit<
     notes: readonly WalletUtxo[];
   }>;
 
+type DelegateMove = Omit<RingDelegateTransferParams, "wallet" | "source" | "approve">;
+
 type DelegateSource =
   | Readonly<{ kind: "keys"; keys: WalletKeys; approve: ApprovalHandler }>
   | Readonly<{
@@ -94,15 +100,7 @@ type DelegateSource =
       proofs: ProofService;
     }>;
 
-/** Retains source notes and intent across delegate proof retries. */
-interface DelegateBuild {
-  readonly move: DelegateMove;
-  readonly wallet: Wallet;
-  readonly source: DelegateSource;
-  readonly retry: RingSubmissionBuildState;
-}
-
-export async function createRingDelegateSubmission(
+export function createRingDelegateSubmission(
   input: RingDelegateTransferParams,
   context?: RequestContext,
 ): Promise<RingTransactionSubmission> {
@@ -110,9 +108,12 @@ export async function createRingDelegateSubmission(
   return RingTransactionSubmission.fromBuilder(
     {
       wallet: input.wallet,
-      build: (retry, context) =>
-        buildDelegateTransaction({ move: input, wallet: input.wallet, source, retry }, context),
-      windowChanged: async () => false,
+      registry: input.client,
+      build: (retry, buildContext) =>
+        buildDelegateTransaction(
+          { move: input, wallet: input.wallet, source, retry },
+          buildContext,
+        ),
     },
     context,
   );
@@ -130,7 +131,7 @@ export async function buildRingDelegateTransferTransaction(
   ).transaction;
 }
 
-export async function createRingDelegateRecoveredSubmission(
+export function createRingDelegateRecoveredSubmission(
   input: RingDelegateRecoveredParams,
   context?: RequestContext,
 ): Promise<RingTransactionSubmission> {
@@ -139,9 +140,9 @@ export async function createRingDelegateRecoveredSubmission(
   return RingTransactionSubmission.fromBuilder(
     {
       wallet,
-      build: (retry, context) =>
-        buildDelegateTransaction({ move: input, wallet, source, retry }, context),
-      windowChanged: async () => false,
+      registry: input.client,
+      build: (retry, buildContext) =>
+        buildDelegateTransaction({ move: input, wallet, source, retry }, buildContext),
     },
     context,
   );
@@ -178,50 +179,28 @@ function recoveredSource(input: RingDelegateRecoveredParams): DelegateSource {
   };
 }
 
-/** The spender of one build attempt, released when the attempt settles. */
-interface DelegateSpender extends RingDelegateSpender {
-  readonly address: ShieldedAddress;
-  release(): void;
-}
-
-function delegateSpender(source: DelegateSource): DelegateSpender {
-  if (source.kind === "keys") {
-    return {
-      address: source.keys.address(),
-      proofs: source.keys,
-      withTransactionKey: (firstNullifier, use, context) =>
-        withTransactionKey(source.keys, firstNullifier, use, context),
-      release: () => {},
-    };
-  }
+/** The source's address and the authority completing its inputs, released when the attempt settles. */
+function delegateProofs(
+  source: DelegateSource,
+): Readonly<{ address: ShieldedAddress; proofs: ProofAuthority; release(): void }> {
+  if (source.kind === "keys")
+    return { address: source.keys.address(), proofs: source.keys, release: () => {} };
   const proofs = new NullifierKeyProofAuthority(source.nullifierKey, source.proofs);
-  return {
-    address: source.address,
-    proofs,
-    // A fresh viewing key seals the outputs, the source's own key is not held.
-    withTransactionKey: (firstNullifier, use) => {
-      const viewing = ViewingKey.generate();
-      const tx = viewing.transactionViewingKey(firstNullifier);
-      try {
-        return Promise.resolve(use(tx));
-      } finally {
-        tx.destroy();
-        viewing.destroy();
-      }
-    },
-    release: () => proofs.destroy(),
-  };
+  return { address: source.address, proofs, release: () => proofs.destroy() };
 }
 
 async function buildDelegateTransaction(
-  input: DelegateBuild,
-  context?: RequestContext,
+  input: Readonly<{
+    move: DelegateMove;
+    wallet: Wallet;
+    source: DelegateSource;
+    retry: RingSubmissionBuildState;
+  }>,
+  context: RequestContext | undefined,
 ): Promise<RingSubmissionAttempt> {
   const { move, wallet, source, retry } = input;
   const outputs = Object.freeze(move.outputs.map((output) => Object.freeze({ ...output })));
-  const delegate = move.delegate;
-  const cosigner = move.cosigner;
-  const spender = delegateSpender(source);
+  const spender = delegateProofs(source);
   let reservation: UtxoReservation | undefined;
   try {
     const owner = spender.address;
@@ -229,30 +208,16 @@ async function buildDelegateTransaction(
     const intent: TransactionIntent = Object.freeze({
       kind: "ringDelegate",
       ringProgramId: move.ringProgramId,
-      delegate: signerAddress(delegate),
-      ...(cosigner === undefined ? {} : { cosigner: signerAddress(cosigner) }),
+      delegate: signerAddress(move.delegate),
+      ...(move.cosigner === undefined ? {} : { cosigner: signerAddress(move.cosigner) }),
       source: owner,
       outputs,
     });
     checkTransactionIntent(intent, ringIntentMismatch);
-    const hash = intentHash(intent);
-    if (retry.intent !== undefined && !equalBytes(retry.intent, hash))
+    const planned = intentHash(intent);
+    if (retry.intent !== undefined && !equalBytes(retry.intent, planned))
       throw ringIntentMismatch("retryIntent");
-    retry.intent = hash;
-    // The configured delegate is required independently of the recovered keys.
-    const [stored, coSigner] = await Promise.all([
-      fetchRingDelegate(move.client, move.ringProgramId, context),
-      fetchRingCoSigner(move.client, move.ringProgramId, context),
-    ]);
-    if (stored === undefined || stored.delegate !== signerAddress(delegate))
-      throw new RingError("RING_DELEGATE_INVALID");
-    checkRingCoSigner({
-      ringProgramId: move.ringProgramId,
-      configured: coSigner,
-      supplied: cosigner,
-      demand: TRANSFER_DEMAND,
-      approvalRequired: false,
-    });
+    retry.intent = planned;
     const assets = wallet.registry.clone();
     for (const { assetId, mint } of await fetchSplAssetRegistrations(move.client, context))
       assets.register(assetId, mint);
@@ -266,67 +231,55 @@ async function buildDelegateTransaction(
     reservation = retry.reservation ?? reserveEntries(wallet, selected, retry.lifetime);
     retry.entries = selected;
     retry.reservation = reservation;
-    const spends = selected.map((entry) => ringProofInput(entry, owner, move.client));
-    const prepared = prepareRingAuthorityTransfer({
-      owner,
-      inputs: spends,
-      outputs,
-      payer: move.feePayer,
+    const transfer = DelegateTransfer.new({
       ringProgramId: move.ringProgramId,
+      delegate: intent.delegate,
+      payer: move.feePayer,
+      source: owner,
+      sourceProofs: spender.proofs,
+      inputs: selected.map((entry) => ringProofInput(entry, owner, move.client)),
+      outputs,
+      assets,
       outputTreeId: move.client.treeId,
     });
-    if (source.kind === "keys") {
-      const approval = await source.approve({
-        solanaPublicKey: ownerSolanaAccount(owner, move.feePayer),
-        intent,
-        summary: `Delegate ${signerAddress(delegate)} moves ${String(outputs.length)} ring payment(s), change stays with the source.`,
-      });
-      checkIntentApproval(approval, intent, ringIntentMismatch);
-    }
-    checkPreparedTransfer(prepared, intent, ringIntentMismatch);
-    const proven = await proveCustomRingDelegateTransfer(
-      {
-        client: move.client,
-        ringProgramId: move.ringProgramId,
-        prepared,
-        spender,
-        assets,
-        tree: move.client.tree,
+    const approval: RingTransferApproval = {
+      transaction:
+        move.priorityFeeLamports === undefined
+          ? {}
+          : { priorityFeeLamports: move.priorityFeeLamports },
+      approve: async ({ prepared, coSigner }) => {
+        checkDemandedCoSigner(move.ringProgramId, move.cosigner, coSigner);
+        if (source.kind === "keys") {
+          const approved = await source.approve({
+            solanaPublicKey: ownerSolanaAccount(owner, move.feePayer),
+            intent,
+            summary: `Delegate ${intent.delegate} moves ${String(outputs.length)} ring payment(s), change stays with the source.`,
+          });
+          checkIntentApproval(approved, intent, ringIntentMismatch);
+        }
+        checkPreparedTransfer(prepared, intent, ringIntentMismatch);
       },
-      context,
+    };
+    const proven = await provenWithinTransaction(selected.length, () =>
+      transfer.proveApproved(move.client, approval, context),
     );
-    checkTransactData(proven.data, intent, ringIntentMismatch);
-    if (
-      signerAddress(delegate) !== intent.delegate ||
-      (cosigner === undefined ? undefined : signerAddress(cosigner)) !== intent.cosigner
-    )
-      throw ringIntentMismatch("signers");
-    const instruction = await ringDelegateTransactInstruction({
-      ringProgramId: move.ringProgramId,
-      payer: move.feePayer,
-      inputTrees: proven.inputTrees,
-      outputTree: proven.outputTree,
-      ...(proven.policy === undefined ? {} : { policy: proven.policy }),
-      proof: proven.proof,
-      data: proven.data,
-      delegate,
-      ...(cosigner === undefined ? {} : { cosigner }),
-    });
-    const lifetime = await move.client.getLatestBlockhash(context);
+    const [instruction, lifetime] = await Promise.all([
+      proven.instruction(),
+      move.client.getLatestBlockhash(context),
+    ]);
     const transaction = compileUnsignedTransaction({
+      ...approval.transaction,
       feePayer: move.feePayer,
       lifetime,
       instructions: [instruction],
-      computeUnitLimit: RING_TRANSACT_COMPUTE_UNIT_LIMIT,
-      ...(move.priorityFeeLamports === undefined
-        ? {}
-        : { priorityFeeLamports: move.priorityFeeLamports }),
+      computeUnitLimit: ringComputeUnitLimit(RingInstructionTag.delegateTransact),
     });
     return Object.freeze({
       transaction,
       lastValidBlockHeight: lifetime.lastValidBlockHeight,
-      intentHash: hash,
+      intentHash: planned,
       ringInstructionIndex: 0,
+      ...boundState(proven),
     });
   } catch (cause) {
     if (reservation !== undefined) wallet._releaseReservation(reservation.id);
@@ -336,13 +289,21 @@ async function buildDelegateTransaction(
   }
 }
 
-/** Plain ring notes of the source, one cover per mint inside the authority width. */
+/** Plain ring notes of the source, one cover per mint inside the widest authority shape holding the outputs. */
 function selectSourceNotes(
   move: DelegateMove,
   wallet: Wallet,
   owner: ShieldedAddress,
   amounts: ReadonlyMap<Address, bigint>,
 ): readonly WalletUtxo[] {
+  // Every mint may return change.
+  const outputs = move.outputs.length + amounts.size;
+  const maxInputs = Math.max(
+    0,
+    ...RING_AUTHORITY_SHAPES.filter((shape) => shape.outputs >= outputs).map(
+      (shape) => shape.inputs,
+    ),
+  );
   const reserved = reservedUtxoKeys(wallet);
   const selected: WalletUtxo[] = [];
   for (const [asset, amount] of amounts) {
@@ -366,13 +327,12 @@ function selectSourceNotes(
             ),
           ordering: "largestFirst",
           allowWideBalance: true,
-          maxInputs: RING_AUTHORITY_MAX_WIDTH - selected.length,
+          maxInputs: maxInputs - selected.length,
           tree: { kind: "fixed", tree: move.client.tree },
           errors: ringSelectionErrors,
         },
       }).entries,
     );
   }
-  if (selected.length > RING_AUTHORITY_MAX_WIDTH) throw new RingError("RING_TOO_MANY_INPUTS");
   return selected;
 }

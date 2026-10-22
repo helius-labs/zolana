@@ -62,7 +62,7 @@ pub const MAX_MERGE_OUTPUT_ENCRYPTION_PUBLIC_INPUTS: usize = 4;
 /// can rebuild the output from the merge transaction alone. The variant is the
 /// scheme: on `merge_transact` it must equal the scheme in the owner's registry
 /// record, it selects the verifying key, and the merge proof binds its payload.
-/// `merge_ring` carries it unverified.
+/// The ring merge proof binds its payload too.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 #[wincode(tag_encoding = "u8")]
 pub enum MergeOutputEncryption {
@@ -88,8 +88,8 @@ impl MergeOutputEncryption {
         }
     }
 
-    /// Appends the scheme's elements of the default merge public-input hash, in
-    /// circuit order, after the owner identity. PoseidonCtrV1: the
+    /// Appends the scheme's elements of the merge public-input hash, in
+    /// circuit order, after the owner binding. PoseidonCtrV1: the
     /// right-aligned salt, then the three ciphertext elements. Each scheme has
     /// its own circuit, so the element count may differ per scheme, up to
     /// [`MAX_MERGE_OUTPUT_ENCRYPTION_PUBLIC_INPUTS`].
@@ -164,7 +164,7 @@ pub struct MergeTransactIxDataRef<'a> {
 
 impl<'a> MergeTransactIxDataRef<'a> {
     pub fn from_bytes(data: &'a [u8]) -> Result<Self, wincode::ReadError> {
-        let parsed: Self = wincode::config::deserialize(data, RefConfig::new())?;
+        let parsed: Self = wincode::config::deserialize_exact(data, RefConfig::new())?;
         parsed.validate_shape()?;
         Ok(parsed)
     }

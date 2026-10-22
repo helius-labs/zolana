@@ -1,19 +1,23 @@
-use custom_ring_interface::{CreateConfigIxData, RingMode, RingProgramConfig};
+use bytemuck::Zeroable;
+use custom_ring_interface::{
+    CreateConfigIxData, CustomRingError, RingMode, RingProgramConfig, DEFAULT_INSERT_FEE,
+    RING_PROGRAM_CONFIG,
+};
 use pinocchio::{
-    cpi::{Seed, Signer},
+    sysvars::{clock::Clock, Sysvar},
     AccountView, Address, ProgramResult,
 };
 use zolana_account_checks::AccountIterator;
 
 use crate::{
-    error::CustomRingError,
-    instructions::{loader::UpgradeAuthorityCheck, shared::PdaCheck},
-    state::{is_x25519_key, RingProgramConfigInitParams},
+    instructions::{
+        loader::UpgradeAuthorityCheck,
+        shared::{check_system_program, parse, Pda},
+    },
+    state::{is_x25519_key, Init},
 };
 
-/// Creates the ring's singleton config account (authority + auditor key).
-///
-/// Only the active Loader v3 upgrade authority can initialize the config.
+/// Only the active loader-v3 upgrade authority creates the ring's singleton config.
 #[inline(never)]
 pub fn process_create_config_ix(
     program_id: &Address,
@@ -22,26 +26,19 @@ pub fn process_create_config_ix(
 ) -> ProgramResult {
     let CreateConfigIxData {
         auditor_pubkey,
-        has_policy,
-        anonymous,
-    } = wincode::deserialize_exact(data).map_err(|_| CustomRingError::InvalidInstructionData)?;
-    // The tier is a boolean, transact treats any nonzero as policy, so a stored
-    // 2 would read as policy while looking distinct.
-    if has_policy > 1 || anonymous > 1 {
-        return Err(CustomRingError::InvalidInstructionData.into());
-    }
+        kind,
+    } = parse(data)?;
 
     let mut iter = AccountIterator::new(accounts);
     let payer = iter.next_signer_mut("payer")?;
     let authority = iter.next_signer("authority")?;
-    let config_account = iter.next_mut("config")?;
+    let config = iter.next_mut("config")?;
     let system_program = iter.next_account("system_program")?;
     let program = iter.next_account("program")?;
     let program_data = iter.next_account("program_data")?;
 
-    if !pinocchio_system::check_id(system_program.address()) {
-        return Err(CustomRingError::InvalidSystemProgram.into());
-    }
+    // 1. The caller controls the deployed binary the config configures.
+    check_system_program(system_program)?;
     UpgradeAuthorityCheck {
         program_id,
         authority,
@@ -49,54 +46,30 @@ pub fn process_create_config_ix(
         program_data,
     }
     .verify()?;
-    // The envelope proves agreement with this tagged canonical X25519 key.
+    // 2. The envelope proves agreement with the tagged canonical X25519 key.
     if !is_x25519_key(&auditor_pubkey) {
         return Err(CustomRingError::InvalidAuditorPubkey.into());
     }
-
-    // The config account must be the canonical derivation of `[b"config"]`; a bump
-    // from instruction data is never accepted for account creation.
-    let bump = PdaCheck {
+    // 3. The canonical PDA holds the kind for the ring's life.
+    let bump = Pda {
         program_id,
-        address: config_account.address(),
         seeds: &[RingProgramConfig::SEED],
-        mismatch: CustomRingError::InvalidConfigPda,
     }
-    .verify()?;
-    // Reject re-initialization before touching the system program: an already
-    // allocated config would otherwise fail inside `Allocate` with an opaque
-    // system-program error instead of a named one.
-    if config_account.data_len() != 0 {
-        return Err(CustomRingError::ConfigAlreadyInitialized.into());
-    }
-
-    let authority = *authority.address();
-    let bump_seed = [bump];
-    let seeds = [
-        Seed::from(RingProgramConfig::SEED),
-        Seed::from(bump_seed.as_ref()),
-    ];
-    // Handles the hot path (no lamports) and the cold path (an attacker donated
-    // lamports to the address to make a bare `CreateAccount` fail).
-    pinocchio_system::create_account_with_minimum_balance_signed(
-        config_account,
-        RingProgramConfig::SIZE,
-        program_id,
-        payer,
-        None,
-        &[Signer::from(seeds.as_ref())],
-    )?;
-
-    RingProgramConfigInitParams {
-        authority,
+    .create::<RingProgramConfig>(payer, config)?;
+    Init(&RingProgramConfig {
+        discriminator: RING_PROGRAM_CONFIG,
+        authority: *authority.address(),
         auditor_pubkey,
         bump,
-        has_policy,
-        mode: if anonymous == 1 {
+        has_policy: u8::from(kind.has_policy()),
+        mode: if kind.anonymous() {
             RingMode::Anonymous
         } else {
             RingMode::Off
-        },
-    }
-    .init(config_account)
+        } as u8,
+        insert_fee: DEFAULT_INSERT_FEE.to_le_bytes(),
+        created_slot: Clock::get()?.slot.to_le_bytes(),
+        ..RingProgramConfig::zeroed()
+    })
+    .init(config)
 }

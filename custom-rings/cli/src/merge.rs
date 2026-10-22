@@ -1,251 +1,146 @@
 //! Merge the persistent sender wallet's fragmented custom-ring notes.
 
-use std::{collections::BTreeMap, path::Path};
+use std::collections::{BTreeMap, HashSet};
 
-use custom_ring_sdk::{
-    CoSignScope, CustomRing, CustomRingMerge, CustomRingMergeProofEnvironment,
-    MergeError as RingMergeError, MergeProofInput, MAX_MERGE_INPUTS,
-};
+use anyhow::{anyhow, ensure, Result};
+use custom_ring_interface::ANONYMOUS_MERGE_WIDTHS;
+use custom_ring_sdk::{CustomRingMerge, MergeProofInput, RingMergeOperation, RingMode};
 use solana_address::Address;
 use solana_signer::Signer;
-use thiserror::Error;
-use zolana_client::{ClientError, ComputeBudgetConfig, IndexerRpcConfig, Rpc, UtxoScan};
 use zolana_interface::pda;
-use zolana_keypair::{KeypairError, ShieldedKeypair};
-use zolana_transaction::{SpendableDecryptionResult, TransactionError, WalletUtxo, SOL_MINT};
+use zolana_keypair::ShieldedKeypair;
+use zolana_transaction::{select_merge_where, SpendableDecryptionResult, WalletUtxo, SOL_MINT};
 
 use crate::{
-    assets::{self, AssetError},
-    error::boxed_from,
-    file::{self, FileError},
+    assets,
+    fund::MIN_AUTHORITY_BALANCE,
     line,
-    transact::{signers, wait_for_indexed_transaction, CoSignerCheck, TransactError, WaitError},
-    Context, ContextError, MergeArgs, SENDER_KEYPAIR_FILE,
+    member::KeyEnrolment,
+    transact::{CoSigner, Demand},
+    wallet::WalletScan,
+    Context, MergeArgs,
 };
 
-const MERGE_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
-
-#[derive(Debug, Error)]
-pub enum MergeError {
-    #[error(transparent)]
-    Context(#[from] ContextError),
-    #[error(transparent)]
-    File(#[from] FileError),
-    #[error(transparent)]
-    Keypair(#[from] KeypairError),
-    #[error(transparent)]
-    Transaction(#[from] TransactionError),
-    #[error(transparent)]
-    Asset(#[from] AssetError),
-    #[error(transparent)]
-    Transact(Box<TransactError>),
-    #[error(transparent)]
-    Prove(#[from] RingMergeError),
-    #[error(transparent)]
-    Client(Box<ClientError>),
-    #[error(transparent)]
-    Indexer(#[from] WaitError<ClientError>),
-    #[error("merge count must be from 2 through {MAX_MERGE_INPUTS}, got {0}")]
-    Count(usize),
-    #[error("found only {found} mergeable notes for mint {mint} in ring {ring}")]
-    InsufficientNotes {
-        mint: Address,
-        ring: Address,
-        found: usize,
-    },
-    #[error("the indexer did not reconstruct merged output {0:?}")]
-    OutputNotFound([u8; 32]),
-}
-
-boxed_from!(MergeError {
-    Transact(TransactError),
-});
-
-pub fn run(ctx: &mut Context, args: MergeArgs) -> Result<(), MergeError> {
-    if !(2..=MAX_MERGE_INPUTS).contains(&args.count) {
-        return Err(MergeError::Count(args.count));
-    }
-
-    let sender = sender_keypair(ctx)?;
-    let indexer = ctx.indexer();
-    let mint = args.mint.unwrap_or(SOL_MINT);
-    let registry = assets::resolve(&ctx.rpc, mint)?.registry;
-    let cosigner = CoSignerCheck {
-        keypair: args.cosigner_keypair.as_deref(),
-        scope: CoSignScope::TRANSFERS,
-        payment: None,
-    }
-    .load(ctx)?;
-    let sender_utxos = UtxoScan::new(&sender, &registry)
-        .with_ring_deposit_payload(ctx.ring.program_id(), zolana_ring_client::deposit_payload)
-        .with_indexer_config(IndexerRpcConfig::at_slot(ctx.rpc.get_slot()?));
-
+pub fn run(ctx: &Context, args: MergeArgs) -> Result<()> {
+    let config = ctx.ring_config()?;
+    let sender = ShieldedKeypair::from_keypair(&ctx.sender()?)?;
+    let mint = args.mint.map_or(SOL_MINT, |mint| mint.0);
+    let registry = assets::resolve(ctx.rpc(), mint)?.registry;
+    let cosigner = CoSigner::read(ctx, &args.cosigner)?;
+    let merge_cosigner = cosigner.sign(&config, Demand::Transfer)?;
+    let scan = || {
+        WalletScan {
+            keys: &sender,
+            registry: &registry,
+            config: &config,
+        }
+        .fetch(ctx)
+    };
     println!("reading the sender's notes");
-    let spendable = sender_utxos.fetch(&indexer)?.spendable;
+    let spendable = scan()?;
     if !spendable.unknown_asset_ids.is_empty() {
         line("unregistered asset ids", spendable.unknown_asset_ids.len());
     }
     if !spendable.unknown_mints.is_empty() {
         line("unregistered mints", spendable.unknown_mints.len());
     }
-    let (tree, selected) = select_candidates(&spendable, ctx.ring, mint, args.count).ok_or(
-        MergeError::InsufficientNotes {
-            mint,
-            ring: ctx.ring.program_id(),
-            found: largest_candidate_group(&spendable, ctx.ring, mint),
-        },
-    )?;
-    let input_count = selected.len();
-    let output_tree_id = selected.first().expect("selected merge group").tree_id;
-    let inputs = selected.into_iter().cloned().collect();
-    let prepared = CustomRingMerge::new(ctx.ring, inputs, None)?
-        .with_output_tree_id(output_tree_id)
+    let count = match config.mode {
+        RingMode::Anonymous => (args.count as usize).min(widest_anonymous_merge()),
+        RingMode::Off | RingMode::Registry => args.count as usize,
+    };
+    let selected = select(&spendable, ctx.ring.program_id(), mint, count)?;
+    let (input_count, tree_id) = (selected.len(), selected[0].tree_id);
+    let tree = pda::tree(tree_id);
+    let prepared = CustomRingMerge::new(ctx.ring, selected, None)?
+        .with_output_tree_id(tree_id)
         .encrypt(&sender)?;
-    let proven = prepared.prove(
+    let (output_hash, merged_amount) = (prepared.output().hash(tree_id)?, prepared.output().amount);
+    let merge = RingMergeOperation::new(
+        prepared,
         MergeProofInput {
             nullifier_key: sender.nullifier_key.clone(),
             input_tree: tree,
             output_tree: tree,
         },
-        CustomRingMergeProofEnvironment {
-            indexer: &indexer,
-            prover: &ctx.prover(),
-            rpc: &ctx.rpc,
-        },
-    )?;
-    let output_hash = proven.output_hash;
-    let merged_amount = proven.merged_amount;
-    let proven = match &cosigner {
-        Some(cosigner) => proven.with_cosigner(cosigner.pubkey()),
-        None => proven,
-    };
-    let payer = ctx.funded_authority()?;
-    let merge = proven.instruction(payer.pubkey());
-    let signers = signers(
-        &payer,
-        cosigner.as_ref().map(|keypair| keypair as &dyn Signer),
     );
-    let signature = ctx.rpc.create_and_send_transaction(
-        &[merge],
-        payer.pubkey(),
-        &signers,
-        ComputeBudgetConfig::new(MERGE_COMPUTE_UNIT_LIMIT),
-    )?;
-
-    wait_for_indexed_transaction(&indexer, signature)?;
-    if !sender_utxos
-        .fetch(&indexer)?
-        .spendable
-        .utxos()
-        .any(|entry| entry.utxo_hash == output_hash)
-    {
-        return Err(MergeError::OutputNotFound(output_hash));
+    let payer = ctx.member_payer(config.mode, sender.pubkey())?;
+    ctx.fund(payer.pubkey(), MIN_AUTHORITY_BALANCE)?;
+    // The merge proves the owner's escrowed key.
+    if config.mode != RingMode::Anonymous {
+        KeyEnrolment {
+            funder: payer,
+            members: &[&sender],
+        }
+        .ensure(ctx)?;
     }
-
+    let signature = ctx.submit(merge, payer, merge_cosigner.as_slice())?;
+    ctx.wait_for_indexed(signature)?;
+    let merged = scan()?;
+    ensure!(
+        merged.utxos().any(|entry| entry.utxo_hash == output_hash),
+        "the indexer did not reconstruct merged output {output_hash:?}"
+    );
     line("merge", signature);
     line("inputs", input_count);
     line("amount", merged_amount);
     line("mint", mint);
     line("tree", tree);
-    println!("merge is value-preserving and has no auditor ciphertext");
+    println!("merge preserves value and binds its ciphertext to registered auditor recovery");
     Ok(())
 }
 
-fn sender_keypair(ctx: &Context) -> Result<ShieldedKeypair, MergeError> {
-    let path = ctx.project_path(Path::new(SENDER_KEYPAIR_FILE));
-    let keypair = file::read_or_create_keypair(&path)?;
-    Ok(ShieldedKeypair::from_keypair(&keypair)?)
+fn widest_anonymous_merge() -> usize {
+    ANONYMOUS_MERGE_WIDTHS.into_iter().max().unwrap_or_default()
 }
 
-fn candidate_groups(
+/// The smallest clean notes of the tree holding the most of them, at most `count`.
+fn select(
     spendable: &SpendableDecryptionResult,
-    ring: CustomRing,
+    ring: Address,
     mint: Address,
-) -> BTreeMap<Address, Vec<&WalletUtxo>> {
-    let mut groups: BTreeMap<Address, Vec<&WalletUtxo>> = BTreeMap::new();
-    for entry in spendable.utxos() {
-        if entry.utxo.asset.asset != mint
-            || entry.utxo.ring_program_id != Some(ring.program_id())
-            || entry.data_hash.is_some()
-            // Ring deposits publish the protocol's all-zero "no data" hash as
-            // `Some`, although it commits identically to an absent hash. A
-            // non-zero hash is real ring state and this generic command must
-            // not choose how to transition it.
-            || entry
-                .ring_data_hash
-                .is_some_and(|hash| hash != [0u8; 32])
-            || entry.utxo.data.utxo_data().is_some()
-            || entry
-                .utxo
-                .data
-                .ring_data()
-                .is_some_and(|data| !data.is_empty())
-            || entry.utxo.data.memo().is_some()
-        {
-            continue;
+    count: usize,
+) -> Result<Vec<WalletUtxo>> {
+    let keep =
+        |entry: &WalletUtxo| entry.utxo.ring_program_id == Some(ring) && carries_no_data(entry);
+    select_merge_where(spendable.utxos(), mint, count, &HashSet::new(), keep).map_err(|_| {
+        let mut trees = BTreeMap::<u16, usize>::new();
+        for entry in spendable.utxos() {
+            if entry.utxo.asset.asset == mint && keep(entry) {
+                *trees.entry(entry.tree_id).or_default() += 1;
+            }
         }
-        groups
-            .entry(pda::tree(entry.tree_id))
-            .or_default()
-            .push(entry);
-    }
-    for entries in groups.values_mut() {
-        entries.sort_by_key(|entry| (entry.utxo.amount, entry.leaf_index));
-    }
-    groups
+        let found = trees.into_values().max().unwrap_or(0);
+        anyhow!("found only {found} mergeable notes for mint {mint} in ring {ring}")
+    })
 }
 
-fn largest_candidate_group(
-    spendable: &SpendableDecryptionResult,
-    ring: CustomRing,
-    mint: Address,
-) -> usize {
-    candidate_groups(spendable, ring, mint)
-        .values()
-        .map(Vec::len)
-        .max()
-        .unwrap_or(0)
-}
-
-fn select_candidates(
-    spendable: &SpendableDecryptionResult,
-    ring: CustomRing,
-    mint: Address,
-    limit: usize,
-) -> Option<(Address, Vec<&WalletUtxo>)> {
-    candidate_groups(spendable, ring, mint)
-        .into_iter()
-        .filter(|(_, entries)| entries.len() >= 2)
-        .max_by_key(|(tree, entries)| (entries.len(), *tree))
-        .map(|(tree, mut entries)| {
-            entries.truncate(limit);
-            (tree, entries)
-        })
+/// A deposit's all-zero ring data hash commits like none, any other is ring state left unspent.
+pub(crate) fn carries_no_data(entry: &WalletUtxo) -> bool {
+    let data = &entry.utxo.data;
+    entry.data_hash.is_none()
+        && entry.ring_data_hash.is_none_or(|hash| hash == [0; 32])
+        && data.utxo_data().is_none()
+        && data.ring_data().is_none_or(|data| data.is_empty())
+        && data.memo().is_none()
 }
 
 #[cfg(test)]
 mod tests {
     use solana_signature::Signature;
-    use zolana_interface::pda;
-    use zolana_keypair::ShieldedKeypair;
     use zolana_transaction::{Data, DataRecord, Mint, Utxo};
 
     use super::*;
 
-    fn note(
-        owner: &ShieldedKeypair,
-        ring: CustomRing,
-        tree_id: u16,
-        amount: u64,
-        leaf_index: u64,
-    ) -> WalletUtxo {
+    const RING: Address = Address::new_from_array([9; 32]);
+
+    fn note(owner: &ShieldedKeypair, tree_id: u16, amount: u64, leaf_index: u64) -> WalletUtxo {
         WalletUtxo {
             utxo: Utxo {
                 owner: owner.signing_pubkey(),
                 asset: Mint::SOL,
                 amount,
                 blinding: [amount as u8; 32],
-                ring_program_id: Some(ring.program_id()),
+                ring_program_id: Some(RING),
                 data: Data::default(),
             },
             nullifier_pubkey: [0u8; 32],
@@ -266,31 +161,27 @@ mod tests {
     #[test]
     fn selection_uses_one_tree_and_the_smallest_clean_notes() {
         let owner = ShieldedKeypair::new_ed25519().expect("owner");
-        let ring = CustomRing::new(Address::new_from_array([9; 32]));
-        let tree = pda::tree(1);
         let mut spendable = SpendableDecryptionResult::default();
         spendable.utxos_with_data.extend([
-            note(&owner, ring, 1, 30, 1),
+            note(&owner, 1, 30, 1),
             {
-                let mut deposited = note(&owner, ring, 1, 10, 2);
+                let mut deposited = note(&owner, 1, 10, 2);
                 deposited.ring_data_hash = Some([0; 32]);
                 deposited.utxo.data = Data::new(vec![DataRecord::RingData(Vec::new())]);
                 deposited
             },
-            note(&owner, ring, 1, 20, 3),
-            note(&owner, ring, 2, 1, 4),
+            note(&owner, 1, 20, 3),
+            note(&owner, 2, 1, 4),
         ]);
-        let mut dirty = note(&owner, ring, 1, 2, 5);
+        let mut dirty = note(&owner, 1, 2, 5);
         dirty.ring_data_hash = Some([1; 32]);
         spendable.utxos_with_data.push(dirty);
 
-        let (selected_tree, selected) =
-            select_candidates(&spendable, ring, SOL_MINT, 2).expect("candidates");
-
-        assert_eq!(selected_tree, tree);
+        let selected = select(&spendable, RING, SOL_MINT, 2).expect("candidates");
+        assert!(selected.iter().all(|entry| entry.tree_id == 1));
         assert_eq!(
             selected
-                .into_iter()
+                .iter()
                 .map(|entry| entry.utxo.amount)
                 .collect::<Vec<_>>(),
             vec![10, 20]
@@ -300,13 +191,21 @@ mod tests {
     #[test]
     fn one_note_is_not_a_merge() {
         let owner = ShieldedKeypair::new_ed25519().expect("owner");
-        let ring = CustomRing::new(Address::new_from_array([9; 32]));
         let spendable = SpendableDecryptionResult {
-            utxos_with_data: vec![note(&owner, ring, 0, 10, 1)],
+            utxos_with_data: vec![note(&owner, 0, 10, 1)],
             ..Default::default()
         };
-
-        assert!(select_candidates(&spendable, ring, SOL_MINT, MAX_MERGE_INPUTS).is_none());
-        assert_eq!(largest_candidate_group(&spendable, ring, SOL_MINT), 1);
+        let refused = select(&spendable, RING, SOL_MINT, 54).expect_err("one note");
+        assert!(
+            refused
+                .to_string()
+                .starts_with("found only 1 mergeable notes"),
+            "{refused}"
+        );
+        let empty = SpendableDecryptionResult::default();
+        let refused = select(&empty, RING, SOL_MINT, 2).expect_err("no note");
+        assert!(refused
+            .to_string()
+            .starts_with("found only 0 mergeable notes"));
     }
 }

@@ -2,7 +2,7 @@ use solana_address::Address;
 use zolana_interface::N_PUBLIC_SLOTS;
 use zolana_keypair::shielded::ShieldedAddress;
 
-use super::{inputs::pad_inputs, ConfidentialTransaction};
+use super::{inputs::pad_inputs, shape::canonical_shape, ConfidentialTransaction};
 use crate::{
     error::TransactionError, instructions::transact::shape::Shape, utxo::SppProofOutputUtxo, Mint,
 };
@@ -47,6 +47,27 @@ impl ConfidentialTransaction {
         }
         self.outputs.push(output);
         Ok(self)
+    }
+
+    /// Pads to the smallest supported shape once, change outputs included.
+    pub fn pad_to_canonical_shape(
+        &mut self,
+        sender: &ShieldedAddress,
+    ) -> Result<&mut Self, TransactionError> {
+        if self.padded_inputs.is_some() {
+            return Ok(self);
+        }
+        let n_in = self.inputs.len() + self.addresses.len();
+        let mut n_out = self.outputs.len();
+        for asset in self.assets(&self.outputs)? {
+            if self.change(&asset)? > 0 {
+                n_out = n_out
+                    .checked_add(1)
+                    .ok_or(TransactionError::TooManyOutputs)?;
+            }
+        }
+        let shape = canonical_shape(n_in, n_out)?;
+        self.pad_utxos(shape, sender)
     }
 
     pub fn add_empty_output_utxo(&mut self) -> Result<&mut Self, TransactionError> {

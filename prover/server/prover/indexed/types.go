@@ -12,7 +12,6 @@ import (
 )
 
 type Request struct {
-	Registry       *RegistryRequest   `json:"registry,omitempty"`
 	CircuitType    common.CircuitType `json:"circuitType"`
 	Prepared       json.RawMessage    `json:"prepared"`
 	Trees          []Tree             `json:"trees"`

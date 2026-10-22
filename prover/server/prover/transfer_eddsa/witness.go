@@ -122,6 +122,17 @@ func buildWitnessCore(
 	return core, nil
 }
 
+func ringSecretsWitness(secrets []*big.Int, want int) ([]frontend.Variable, error) {
+	if len(secrets) != want {
+		return nil, fmt.Errorf("spp: ring secret count mismatch: got %d want %d", len(secrets), want)
+	}
+	out := make([]frontend.Variable, len(secrets))
+	for i, secret := range secrets {
+		out[i] = secret
+	}
+	return out, nil
+}
+
 // CreateWitness assigns the pre-computed parameters onto the Solana-only
 // spp_transaction circuit variant selected by Variant. The client computes hashes.
 func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
@@ -159,6 +170,14 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 	publishedOutputOwnerPkHashes := make([]frontend.Variable, len(p.PublishedOutputOwnerPkHashes))
 	for i := range p.PublishedOutputOwnerPkHashes {
 		publishedOutputOwnerPkHashes[i] = p.PublishedOutputOwnerPkHashes[i]
+	}
+	wantRingSecrets := len(p.Outputs)
+	if p.Variant == ConfidentialVariant {
+		wantRingSecrets = 0
+	}
+	ringSecrets, err := ringSecretsWitness(p.RingSecrets, wantRingSecrets)
+	if err != nil {
+		return nil, err
 	}
 
 	switch p.Variant {
@@ -214,6 +233,7 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 				InputOwnerPkHashes: core.inputOwnerPkHashes,
 				Outputs:            core.outputs,
 				BlindingSeed:       p.BlindingSeed,
+				RingSecrets:        ringSecrets,
 			},
 		}, nil
 	default:
@@ -248,6 +268,7 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 				OutputOwnerPkHashes: outputOwnerPkHashes,
 				OutputNullifierPks:  outputNullifierPks,
 				BlindingSeed:        p.BlindingSeed,
+				RingSecrets:         ringSecrets,
 			},
 		}, nil
 	}

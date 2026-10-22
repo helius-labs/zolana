@@ -12,7 +12,15 @@ import {
 } from "@solana/kit";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
-import type { CustomRingSourceOwner } from "../src/client/index.js";
+import type {
+  AnonymousMergeProofRequest,
+  MergeAssembler,
+  MergeInputOpening,
+  PolicySourceProofInput,
+  Prover,
+  RingMergeRegistryProof,
+  RingProofRequest,
+} from "../src/client/index.js";
 
 import { EncryptedScheme, decodeOutputData } from "../src/transaction/index.js";
 // The encoder stays internal; only the decoders are needed by a relayed client.
@@ -97,10 +105,18 @@ function onlyInstructionAccounts(transaction: Transaction) {
 
 describe("public package surface", () => {
   it("exports every type named by the custom-ring public API", () => {
-    expectTypeOf<CustomRingSourceOwner>().toMatchTypeOf<{
+    expectTypeOf<PolicySourceProofInput>().toMatchTypeOf<{
       readonly listId: number;
-      readonly ownerHash: Bytes32;
+      readonly registry: Bytes32;
     }>();
+    expectTypeOf<Prover["proveRing"]>().parameter(0).toEqualTypeOf<RingProofRequest>();
+    expectTypeOf<AnonymousMergeProofRequest>().toMatchTypeOf<RingProofRequest>();
+    expectTypeOf<AnonymousMergeProofRequest["inputs"]>().toEqualTypeOf<
+      readonly MergeInputOpening[]
+    >();
+    expectTypeOf<
+      NonNullable<Parameters<MergeAssembler["proveMerge"]>[0]["ringRegistry"]>
+    >().toEqualTypeOf<RingMergeRegistryProof>();
   });
 
   it("creates the default client and initializes protocol crypto", async () => {
@@ -111,9 +127,9 @@ describe("public package surface", () => {
     expect(client.proveTransact).toBeTypeOf("function");
     expect("rpc" in client).toBe(false);
     expect(client.proveRingTransact).toBeTypeOf("function");
-    expect(client.proveCustomRingPolicy).toBeTypeOf("function");
-    expect(client.proveCustomRingBase).toBeTypeOf("function");
-    expect(client.proveCustomRingDeposit).toBeTypeOf("function");
+    expect(client.proveRing).toBeTypeOf("function");
+    expect(client.proveAnonymousRingTransact).toBeTypeOf("function");
+    expect(client.proveRingAuthorityTransact).toBeTypeOf("function");
   });
 
   it("exposes only the objects needed for the common wallet flow", () => {
@@ -253,18 +269,21 @@ describe("public package surface", () => {
     for (const name of [
       "ringConfigAddress",
       "createRingConfigInstruction",
+      "createMemberRegistryInstruction",
       "initSppRingConfigInstruction",
       "ringTransactInstruction",
-      "proveCustomRingTransfer",
+      "CustomRingTransfer",
+      "AnonymousTransfer",
+      "DelegateTransfer",
       "createRingPolicyInstruction",
       "setRingPolicyRulesInstruction",
       "setRingPolicySourceInstruction",
       "buildRingCreatePolicyTransaction",
-      "createRingEntryInstruction",
-      "buildRingListWriteTransaction",
+      "memberListWriteInstruction",
+      "AuthorityListWrite",
+      "RecordApplication",
       "deployRingProgram",
-      "registerRingKeyInstruction",
-      "prepareRingKeyRegistration",
+      "RegisterKey",
       "recoverRingMemberNotes",
     ] as const) {
       expect(ring[name]).toBeTypeOf("function");
@@ -657,6 +676,7 @@ describe("relayed decryption surface", () => {
       "decodeSplitEncrypted",
       "decodePlaintextTransfer",
       "decodeProofless",
+      "decodeRingPacked",
       "decodeData",
     ]) {
       expect(transaction, name).toHaveProperty(name);

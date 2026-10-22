@@ -16,7 +16,7 @@ use zolana_hasher::{
 };
 use zolana_interface::{
     instruction::{
-        instruction_data::transact::{CircuitId, TransactIxData},
+        instruction_data::transact::{AnonymousParties, CircuitId, TransactIxData},
         tag,
     },
     shape::Shape,
@@ -35,7 +35,9 @@ use zolana_test_utils::transact::{
     single_tree_slots, sol_public_slots, test_private_tx_blinding, transfer_input,
     TransferInputArgs, TransferProverInputsArgs, TEST_BLINDING_SEED,
 };
-use zolana_transaction::instructions::transact::{transact_message_hash, PrivateTxHash};
+use zolana_transaction::instructions::transact::{
+    ring_spend_message, transact_message_hash, PrivateTxHash,
+};
 
 use super::fixtures::Pool;
 use super::merge::ZeroDeposits;
@@ -61,8 +63,7 @@ pub struct RingTransactProof {
     pub ring_program: Pubkey,
     pub ring_config: Pubkey,
     pub nullifiers: Vec<[u8; 32]>,
-    /// The Ed25519 input owners in the proof's signer vector: the payer on the
-    /// Eddsa rail, none on the anonymous rail.
+    /// The proof's signer vector, the payer on either rail.
     pub owner_signers: Vec<Pubkey>,
 }
 
@@ -78,6 +79,10 @@ impl RingTransactProof {
         }
         .instruction();
         *ix.data.first_mut().expect("instruction tag byte") = tag::RING_TRANSACT;
+        // The ring program's control tail, no co-signer configured.
+        if self.data.circuit.is_anonymous() {
+            ix.data.extend_from_slice(&[0u8; 32]);
+        }
         ix.accounts
             .insert(4, AccountMeta::new_readonly(self.ring_config, true));
         ix
@@ -221,16 +226,9 @@ impl RealRingTransact {
         .hash()
         .expect("private tx hash");
 
-        // The payer owns the Eddsa rail's real input and signs as its owner. The
-        // hidden owner signs in the proof, so that rail's vector is all padding.
-        let owner_signers = match rail {
-            RingRail::Eddsa => vec![payer.pubkey()],
-            RingRail::AnonymousEddsa => Vec::new(),
-        };
-        let mut signer_pk_hashes = match rail {
-            RingRail::Eddsa => vec![payer_hash],
-            RingRail::AnonymousEddsa => Vec::new(),
-        };
+        // The payer also owns the real input and must sign explicitly as owner.
+        let owner_signers = vec![payer.pubkey()];
+        let mut signer_pk_hashes = vec![payer_hash];
         signer_pk_hashes.resize(Shape::new(n_inputs, n_outputs).signer_width(), zero);
         let (public_slot_assets, public_slot_amounts) = sol_public_slots(zero);
         let published_output_owner_pk_hashes = vec![zero; n_outputs];
@@ -247,17 +245,27 @@ impl RealRingTransact {
             RingRail::Eddsa => None,
             RingRail::AnonymousEddsa => {
                 let owner_public_key = owner_public_key.as_ed25519().expect("Ed25519 owner");
+                let ring_program_address = Address::new_from_array(ring_program.to_bytes());
                 let authorization = AnonymousEddsaAuthorization {
                     owner_public_key,
                     owner_signature: hidden_owner
-                        .sign_message(&message_digest)
+                        .sign_message(&ring_spend_message(&ring_program_address, &message_digest))
                         .expect("hidden owner signature"),
+                    ring_program_address: ring_program.to_bytes(),
                     message_digest,
                     default_owner_pk_hash: solana_owner_identity(&owner_public_key)
                         .expect("default owner identity"),
+                    parties: AnonymousParties {
+                        payer: &payer_bytes,
+                        cosigner: None,
+                        exit_destination: None,
+                    }
+                    .identities()
+                    .expect("party identities"),
                 };
                 chain.push(hash_bytes(&message_digest).expect("message proof input hash"));
                 chain.push(authorization.default_owner_pk_hash);
+                chain.extend_from_slice(&authorization.parties);
                 Some(authorization)
             }
         };
@@ -298,6 +306,8 @@ impl RealRingTransact {
             public_input_hash,
         });
         prover_inputs.ring_program_id = be(&ring_field);
+        // Dummy outputs carry no ring secret.
+        prover_inputs.ring_secrets = vec![be(&zero); n_outputs];
         prover_inputs.published_output_owner_pk_hashes =
             published_output_owner_pk_hashes.iter().map(be).collect();
         let (proof, circuit) = match authorization {

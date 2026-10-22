@@ -7,9 +7,9 @@ import (
 	"github.com/helius-labs/zolana/prover/server/logging"
 	"github.com/helius-labs/zolana/prover/server/prover/common"
 	customring "github.com/helius-labs/zolana/prover/server/prover/custom_ring"
-	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -45,8 +45,8 @@ func TestCustomRingQueueFailureLogsCauseAndRedactsResponse(t *testing.T) {
 		},
 		{
 			name:    "custom-ring request does not decode",
-			payload: []byte(`{"circuitType":"custom-ring-base","publicInputHash":"0x12"}`),
-			cause:   "publicInputHash is not canonical hex",
+			payload: []byte(`{"circuitType":"custom-ring-audit-packed-2","publicInputHash":"0x12"}`),
+			cause:   "a value is not canonical lowercase 0x hex",
 			code:    "malformed_body",
 		},
 		{
@@ -114,9 +114,9 @@ func TestNonCustomRingQueueFailureStaysUnredacted(t *testing.T) {
 	_, rq := newTestQueue(t)
 	captureLogs(t)
 
-	runOneJob(t, rq, "zk_transfer_queue", WorkerConfig{}, &ProofJob{ID: "job-1", Payload: []byte(`{"circuitType":"custom-ring-base"}`)})
+	runOneJob(t, rq, "zk_transfer_queue", WorkerConfig{}, &ProofJob{ID: "job-1", Payload: []byte(`{"circuitType":"custom-ring-audit-packed-2"}`)})
 
-	assertClientSees(t, rq, "job-1", "circuit custom-ring-base cannot run on zk_transfer_queue", "")
+	assertClientSees(t, rq, "job-1", "circuit custom-ring-audit-packed-2 cannot run on zk_transfer_queue", "")
 }
 
 // The sync path redacts exactly what the queue path redacts and logs the
@@ -124,7 +124,7 @@ func TestNonCustomRingQueueFailureStaysUnredacted(t *testing.T) {
 // logged.
 func TestSyncProofFailureLogsCauseAndRedactsResponse(t *testing.T) {
 	const cause = "prove: constraint #7 is not satisfied"
-	ring, transfer := common.CustomRingBaseCircuitType, common.TransferConfidentialCircuitType
+	ring, transfer := common.CircuitType("custom-ring-audit-packed-2"), common.TransferConfidentialCircuitType
 	cases := []struct {
 		name    string
 		circuit common.CircuitType
@@ -156,7 +156,7 @@ func TestSyncProofFailureLogsCauseAndRedactsResponse(t *testing.T) {
 func TestSyncPanicLogsValueAndRedactsResponse(t *testing.T) {
 	const value = "index out of range [3] with length 2"
 	const prefix = "internal error during proof processing: "
-	ring, transfer := common.CustomRingBaseCircuitType, common.TransferConfidentialCircuitType
+	ring, transfer := common.CircuitType("custom-ring-audit-packed-2"), common.TransferConfidentialCircuitType
 	cases := []struct {
 		circuit common.CircuitType
 		indexed bool
@@ -185,14 +185,14 @@ func TestSyncPanicLogsValueAndRedactsResponse(t *testing.T) {
 // malformed_body code, which says the request was at fault, but not the decode
 // error, which can quote request values.
 func TestSyncCustomRingDecodeFailureIsRedacted(t *testing.T) {
-	const cause = "publicInputHash is not canonical hex"
+	const cause = "a value is not canonical lowercase 0x hex"
 	logs := captureLogs(t)
 	readiness := NewReadiness()
 	readiness.MarkReady()
 	handler := proveHandler{readiness: readiness, admission: newSyncAdmission(1)}
 
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/prove", strings.NewReader(`{"circuitType":"custom-ring-base","publicInputHash":"0x12"}`)))
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/prove", strings.NewReader(`{"circuitType":"custom-ring-audit-packed-2","publicInputHash":"0x12"}`)))
 
 	body := decodeError(t, response)
 	if response.Code != http.StatusBadRequest || body["code"] != "malformed_body" || body["message"] != errCustomRingProof.Error() {
@@ -332,30 +332,11 @@ func captureLogs(t *testing.T) *syncBuffer {
 
 func validCustomRingBasePayload(t *testing.T) []byte {
 	t.Helper()
-	params := &customring.BaseParameters{
-		PublicInputHash: big.NewInt(1),
-		PrivateTxHash:   big.NewInt(2),
-		NOut:            1,
-	}
-	for i := range params.TxViewingSk {
-		params.TxViewingSk[i] = byte(i + 1)
-		params.EphSk[i] = byte(0x20 + i)
-	}
-	params.TxViewingSk[0] &= 248
-	params.TxViewingSk[31] = params.TxViewingSk[31]&127 | 64
-	params.AuditorPk[0] = 9
-	for i := range params.Outputs {
-		params.Outputs[i] = customring.AuditOpening{
-			Domain: big.NewInt(0), TreeID: big.NewInt(0), OwnerHash: big.NewInt(0),
-			Asset: big.NewInt(0), Amount: big.NewInt(0), Blinding: big.NewInt(0),
-			DataHash: big.NewInt(0), RingDataHash: big.NewInt(0), RingProgramID: big.NewInt(0),
-		}
-	}
-	payload, err := json.Marshal(params)
+	payload, err := os.ReadFile("../prover/custom_ring/testdata/custom-ring-audit-packed-2.json")
 	if err != nil {
-		t.Fatalf("marshal base parameters: %v", err)
+		t.Fatal(err)
 	}
-	if _, err := customring.DecodeRequest(common.CustomRingBaseCircuitType, payload); err != nil {
+	if _, err := customring.Decode(common.CircuitType("custom-ring-audit-packed-2"), payload); err != nil {
 		t.Fatalf("fixture does not decode: %v", err)
 	}
 	return payload

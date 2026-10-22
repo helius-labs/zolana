@@ -6,7 +6,7 @@ pub mod witness;
 
 pub use anonymous_ring_eddsa::{
     AnonymousEddsaAuthorization, AnonymousEddsaTransferInputs, AnonymousRingEddsaProofResult,
-    AnonymousRingEddsaProver,
+    AnonymousRingEddsaProver, HiddenOwnerAuthorization,
 };
 pub use assembly::{input_utxos_from_nullifiers, PublicInputs, TransferInputUtxo};
 pub use eddsa::{TransferProofResult, TransferProver};

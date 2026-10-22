@@ -27,11 +27,18 @@ import {
   transactOutputBlinding,
 } from "../src/transaction/index.js";
 import { proofFor } from "./helpers/proofs.js";
+import { stateTree } from "./helpers/state-tree.js";
 
 const OWNER_TAG = fill(8);
 
 function fill(value: number): Bytes32 {
   return new Uint8Array(32).fill(value) as Bytes32;
+}
+
+function flipped(node: Bytes32): Bytes32 {
+  const out = new Uint8Array(node);
+  out[31] = (out[31] ?? 0) ^ 1;
+  return out as Bytes32;
 }
 
 /** A blinding is a field element, so its leading byte stays zero. */
@@ -43,7 +50,6 @@ function blinding(value: number): Bytes32 {
 
 type TreeRoots = Readonly<{
   treeId: number;
-  utxoRoot: Bytes32;
   utxoRootIndex: number;
   nullifierRoot: Bytes32;
   nullifierRootIndex: number;
@@ -51,27 +57,27 @@ type TreeRoots = Readonly<{
 
 const TREE_0: TreeRoots = {
   treeId: 0,
-  utxoRoot: fill(3),
   utxoRootIndex: 4,
   nullifierRoot: fill(6),
   nullifierRootIndex: 2,
 };
 const TREE_1: TreeRoots = {
   treeId: 1,
-  utxoRoot: fill(13),
   utxoRootIndex: 5,
   nullifierRoot: fill(16),
   nullifierRootIndex: 3,
 };
 
+/** The only leaf of its tree. */
 function spendProof(input: ProofInputUtxo, tree: TreeRoots): SpendProof {
+  const state = stateTree([input.hash()]);
   return {
     state: {
       leaf: input.hash(),
       merkleContext: { treeType: 0, tree: treeAddress(tree.treeId) },
-      path: Array.from({ length: 32 }, () => fill(0)),
+      path: state.path(0),
       leafIndex: 0n,
-      root: tree.utxoRoot,
+      root: state.root,
       rootSeq: 1n,
       rootIndex: tree.utxoRootIndex,
     },
@@ -198,15 +204,16 @@ describe("a transact spending from two trees", () => {
     expect(payload.inputFlags).toBe(inputFlags(true, [0, 1, 1]));
     expect(payload.inputFlags).toBe(145n);
     expect(payload.treeSlots).toHaveLength(INPUT_TREES);
+    const [first, second] = fixture.spendProofs;
     expect(payload.treeSlots.slice(0, 2)).toEqual([
       {
         id: BigInt(`0x${Buffer.from(treeIdField(TREE_0.treeId)).toString("hex")}`),
-        utxoRoot: BigInt(`0x${Buffer.from(TREE_0.utxoRoot).toString("hex")}`),
+        utxoRoot: BigInt(`0x${Buffer.from(first?.state.root ?? []).toString("hex")}`),
         nullifierRoot: BigInt(`0x${Buffer.from(TREE_0.nullifierRoot).toString("hex")}`),
       },
       {
         id: BigInt(`0x${Buffer.from(treeIdField(TREE_1.treeId)).toString("hex")}`),
-        utxoRoot: BigInt(`0x${Buffer.from(TREE_1.utxoRoot).toString("hex")}`),
+        utxoRoot: BigInt(`0x${Buffer.from(second?.state.root ?? []).toString("hex")}`),
         nullifierRoot: BigInt(`0x${Buffer.from(TREE_1.nullifierRoot).toString("hex")}`),
       },
     ]);
@@ -222,7 +229,7 @@ describe("a transact spending from two trees", () => {
       utxoTree: TREE_0.utxoRootIndex,
       nullifierTree: TREE_0.nullifierRootIndex,
     });
-    expect(assembled.roots.stateRoot).toEqual(TREE_0.utxoRoot);
+    expect(assembled.roots.stateRoot).toEqual(fixture.spendProofs[0]?.state.root);
     expect(assembled.roots.nullifierRoot).toEqual(TREE_0.nullifierRoot);
   });
 
@@ -247,6 +254,63 @@ describe("a transact spending from two trees", () => {
     expect(() => assemble(fixture.proofInputs, fixture.spendProofs, [strayRoot])).toThrow(
       expect.objectContaining({ code: "CLIENT_NULLIFIER_ROOT_MISMATCH" }),
     );
+  });
+
+  it.each<readonly [string, (proof: SpendProof["state"]) => SpendProof["state"]]>([
+    ["another root", (proof) => ({ ...proof, root: flipped(proof.root) })],
+    [
+      "another sibling",
+      (proof) => ({
+        ...proof,
+        path: proof.path.map((node, at) => (at === 3 ? flipped(node) : node)),
+      }),
+    ],
+    ["another leaf index", (proof) => ({ ...proof, leafIndex: proof.leafIndex + 1n })],
+    [
+      "a leaf index past the path",
+      (proof) => ({ ...proof, leafIndex: proof.leafIndex + (1n << 32n) }),
+    ],
+  ])("refuses a state proof with %s, its path then reaching no root it names", (_name, forge) => {
+    const fixture = twoTreeFixture();
+    const [first, second] = fixture.spendProofs;
+    if (first === undefined || second === undefined) expect.unreachable();
+    const forged = { ...first, state: forge(first.state) };
+
+    expect(() => assemble(fixture.proofInputs, [forged, second], fixture.dummyProofs)).toThrow(
+      expect.objectContaining({ code: "CLIENT_STATE_PROOF_ROOT_MISMATCH", details: { index: 0 } }),
+    );
+  });
+});
+
+describe("a stored leaf position", () => {
+  /** The fixture with its first input stored at `leafIndex`, its proof still at leaf 0. */
+  function storedAt(leafIndex: bigint) {
+    const fixture = twoTreeFixture();
+    const [first, ...rest] = fixture.proofInputs.inputUtxos;
+    if (first === undefined) expect.unreachable();
+    const stored = new ProofInputUtxo({
+      utxo: first.utxo,
+      nullifierPublicKey: first.nullifierPublicKey,
+      nullifier: first.nullifier(),
+      treeId: first.treeId,
+      leafIndex,
+    });
+    const proofInputs = new SppProofInputs({
+      payer: fixture.proofInputs.payer,
+      inputUtxos: [stored, ...rest],
+      outputs: fixture.proofInputs.outputs,
+      externalData: fixture.proofInputs.externalData,
+      blindingSeed: fixture.proofInputs.blindingSeed,
+      outputTreeId: fixture.proofInputs.outputTreeId,
+    });
+    return () => assemble(proofInputs, fixture.spendProofs, fixture.dummyProofs);
+  }
+
+  it("refuses a state proof at another position than its input stored", () => {
+    expect(storedAt(5n)).toThrow(
+      expect.objectContaining({ code: "CLIENT_STATE_PROOF_INDEX_MISMATCH", details: { index: 0 } }),
+    );
+    expect(storedAt(0n)).not.toThrow();
   });
 });
 
@@ -464,7 +528,7 @@ describe("a client proving from two trees", () => {
     expect(fetch).toHaveBeenCalledOnce();
   });
 
-  it("asks a tree holding only padding for no state proofs", async () => {
+  it("rejects a tree holding only padding before requesting any proofs", async () => {
     const fixture = twoTreeFixture();
     const client = new ZolanaClient({
       proofDataSource: "client",
@@ -495,13 +559,13 @@ describe("a client proving from two trees", () => {
       context: { blockTime: 1n, slot: 1n },
       proofs: tree === treeAddress(TREE_0.treeId) ? [spent.nullifier] : fixture.dummyProofs,
     }));
-    // Padding cannot open a tree, so assembly still refuses the slot.
+    // Padding cannot open a tree. Shared preflight refuses it before I/O.
     await expect(
       client.proveTransact(
         proofInputs,
         LocalKeys.fromKeypair(fixture.keypair, client.proofService),
       ),
     ).rejects.toThrow("CLIENT_INPUT_TREE_UNRESOLVED");
-    expect(getMerkleProofs.mock.calls.map((call) => call[0])).toEqual([treeAddress(TREE_0.treeId)]);
+    expect(getMerkleProofs).not.toHaveBeenCalled();
   });
 });

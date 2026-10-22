@@ -108,6 +108,12 @@ pub const INFO_PAIR_DOMAIN_PREFIX: &[u8] = b"TSPP/pair-domain/";
 
 pub const INFO_PAIR_HINT_PREFIX: &[u8] = b"TSPP/pair-hint/";
 
+/// Followed by the ring program address and the address index.
+pub const INFO_RING_ADDRESS_KEY_PREFIX: &[u8] = b"TSPP/ring_address_key/";
+
+/// Followed by the ring program address.
+pub const INFO_RING_CHANGE_KEY_PREFIX: &[u8] = b"TSPP/ring_change_key/";
+
 pub const HPKE_PREFIX: &[u8] = b"TSPP/hpke/";
 
 pub const ENC_INFO_TRANSFER: &[u8] = b"TSPP/tx";

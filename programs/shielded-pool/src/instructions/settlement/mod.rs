@@ -12,6 +12,7 @@ pub(crate) use validate::{
 };
 
 use pinocchio::{error::ProgramError, AccountView, ProgramResult};
+use zolana_interface::{error::ShieldedPoolError, token_account::AnonymousExitDestination};
 
 impl<'a> Settlement<'a> {
     pub(crate) fn committed_accounts(&self) -> [&'a AccountView; 2] {
@@ -35,6 +36,23 @@ impl<'a> Settlement<'a> {
 
     pub(crate) fn is_deposit(&self) -> bool {
         matches!(self, Self::SolDeposit(_) | Self::SplDeposit(_))
+    }
+
+    /// The one key an anonymous withdrawal may name, `None` for a deposit.
+    pub(crate) fn anonymous_exit(&self) -> Result<Option<&[u8; 32]>, ShieldedPoolError> {
+        let destination = match self {
+            Self::SolDeposit(_) | Self::SplDeposit(_) => return Ok(None),
+            Self::SolWithdrawal(accounts) => AnonymousExitDestination::Sol {
+                recipient: accounts.recipient_account.address(),
+                owner: accounts.recipient_account.owner(),
+                data_len: accounts.recipient_account.data_len(),
+            },
+            Self::SplWithdrawal(accounts) => AnonymousExitDestination::Spl {
+                token_account: accounts.user_token_account.address(),
+                control: &accounts.user_token_account_control,
+            },
+        };
+        destination.named_key().map(Some)
     }
 
     pub(crate) fn spl_asset(&self) -> Result<Option<[u8; 32]>, ProgramError> {

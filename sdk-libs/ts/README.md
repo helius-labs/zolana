@@ -120,6 +120,10 @@ answer each phase in one round trip. `LocalKeys` provides both roles for keys
 held in-process; `LocalKeys.fromDerivationSeed` creates them from a browser
 wallet signature over the derivation message. The Solana signature over the
 finished transaction remains with the app signer.
+`ProofAuthority` also answers `proveRingWithSecret` for the ring proofs that
+take the nullifier secret. A wallet's keys implement `RingKeys` to use an
+anonymous ring and to open the delivered outputs of an 8- or 16-output ring
+transfer.
 
 ### Transaction format
 
@@ -171,8 +175,9 @@ The prover fetches Merkle data by default. Configure its `PROVER_INDEXER_URL`
 for the same network. Set `proofDataSource: "client"` to fetch proof data in
 the SDK instead. Both routes support ring transfers, merges and caches.
 `LocalKeys` supports both modes. A remote key holder must implement
-`IndexedProofAuthority.proveIndexed` for prover fetching. Policy proofs also
-fetch list paths and escrow memberships through the prover. Returned roots
+`IndexedProofAuthority.proveIndexed` for prover fetching. In both modes the SDK
+reads a ring policy proof's member openings from the indexer and sends them in
+the proof request. Returned roots
 must reproduce the requested public statement before transaction assembly. A
 prover started without an indexer refuses these requests with
 `CLIENT_PROVER_INDEXER_UNCONFIGURED`.
@@ -401,24 +406,26 @@ The auditor key lives in a Ring RPC. The Ring authority grants view access.
 Helius can host that RPC; the authority can host it itself. The forester is
 shared with the default Ring.
 
-Rings support confidential transactions only. Anonymous transfers that
-would use a relayer are not supported. A Ring is audit-only or carries a
-policy, a rule table over lists of members whose addresses the Ring claims in
-its address tree. The tier is fixed when the Ring config is created.
+A Ring is confidential or anonymous. It is audit-only or carries a policy, a
+rule table over the lists of its member registry and of any curator registry
+it names. Both choices are fixed when the Ring config is created.
 
 Set a Ring up in this order.
 
 1. `deployRingProgram` deploys or upgrades the Ring program from a
    `RingProgramBinary` and returns once the program is usable,
    `verifyRingProgram` checks the deployed bytes.
-2. `createRingConfigInstruction` stores the auditor key and the tier.
-3. A policy Ring pins its rule table with `buildRingCreatePolicyTransaction`
-   over its address tree.
-4. `initSppRingConfigInstruction` registers the Ring with the pool, a policy
+2. `createRingConfigInstruction` takes the auditor key and a `kind` that fixes
+   the tier and whether the Ring is anonymous. The program's upgrade authority
+   signs and becomes the config authority.
+3. `createMemberRegistryInstruction` creates the member registry and its
+   record queue.
+4. A policy Ring pins its rule table with `buildRingCreatePolicyTransaction`.
+5. `initSppRingConfigInstruction` registers the Ring with the pool, a policy
    Ring only after its policy exists.
-5. On a permissioned pool the governance authority activates the Ring with
+6. On a permissioned pool the governance authority activates the Ring with
    `getSetRingActivationInstructionAsync` from `@heliuslabs/zolana/instructions`.
-6. `buildRingListWriteTransaction` fills the lists and
+7. `AuthorityListWrite` fills the authority lists and
    `grantReadAccessInstruction` admits readers.
 
 Build exact Ring entries, in-ring transfers, shielded exits, and public
@@ -426,13 +433,22 @@ withdrawals with `buildRingEntryTransaction`, `buildRingTransferTransaction`,
 `buildRingExitTransaction`, and `buildRingWithdrawalTransaction`. `RingRpc`
 reads decrypted Ring transactions for a granted reader. The same surface is
 available from `@heliuslabs/zolana/ring`.
+Each signed read takes a `RingReadTarget` of the cluster's genesis hash, the
+service key the reader pinned and the Ring.
+On an anonymous Ring an in-ring transfer pays a `RingAddress`. Every entry,
+transfer, exit and withdrawal passes the sender's spend signer and ring state
+in `anonymous`.
+`buildRingDepositTransaction` builds an audited deposit.
+`@heliuslabs/zolana/ring` also exports `buildRingMergeTransaction` and
+`buildRingDelegateTransferTransaction`. Each `createRing*Submission` function
+returns a submission that signs, sends and retries. `CustomRingTransfer`,
+`AnonymousTransfer` and `DelegateTransfer` expose the proving rails.
+`memberListWriteInstruction`, `AuthorityListWrite` and `RegisterKey` write
+member records, and `RecordApplication` applies the queued writes.
 
 A deploy that fails after its buffer exists names the buffer in the
 `RING_DEPLOY_PROGRAM` error details. Pass the same buffer keypair again to
 resume, or reclaim its rent with `closeBufferInstruction`.
-
-The deploy path is tested on Agave 4.0.2. The shipped Ring binaries are
-SBPF v0 and do not load on Agave 4.1.2.
 
 The live ring controls test is described in
 [test/e2e/RING-CONTROLS.md](test/e2e/RING-CONTROLS.md).
@@ -452,7 +468,7 @@ Common exports from `@heliuslabs/zolana` include:
 - registration: `buildRegistrationTransaction`, `buildKeyUpdateTransaction`.
 - Rings: `buildRingEntryTransaction`, `buildRingTransferTransaction`,
   `buildRingExitTransaction`, `buildRingWithdrawalTransaction`,
-  `listRegisteredRings`, `RingRpc`.
+  `buildRingDepositTransaction`, `listRegisteredRings`, `RingRpc`.
 
 Advanced protocol users can import low-level instruction builders from
 `@heliuslabs/zolana/instructions`. PDA helpers are available from

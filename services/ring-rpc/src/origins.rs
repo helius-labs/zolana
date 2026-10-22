@@ -1,9 +1,12 @@
+use std::net::IpAddr;
+
 use hyper::header::HeaderValue;
 use thiserror::Error;
 
+/// ASCII serialized origins, the form a browser sends.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Origins {
-    allowed: Vec<AllowedOrigin>,
+    allowed: Vec<String>,
     relying_party_id: Option<String>,
     any: bool,
 }
@@ -36,12 +39,6 @@ pub enum OriginError {
     Header,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct AllowedOrigin {
-    serialized: String,
-    host: String,
-}
-
 impl OriginPolicy {
     pub fn new(origins: Vec<String>) -> Self {
         Self {
@@ -71,31 +68,32 @@ impl OriginPolicy {
                 return Err(OriginError::InvalidOrigin);
             }
             return Ok(Origins {
-                allowed: Vec::new(),
-                relying_party_id: None,
                 any: true,
+                ..Origins::default()
             });
         }
-        let allowed = self
+        let parsed = self
             .origins
-            .into_iter()
+            .iter()
             .map(|origin| parse_origin(origin, transport))
             .collect::<Result<Vec<_>, _>>()?;
-        if allowed.is_empty() {
+        if parsed.is_empty() {
             return Ok(Origins::default());
         }
         let relying_party_id = self
             .relying_party_id
             .filter(|value| valid_relying_party_id(value))
             .ok_or(OriginError::MissingRelyingParty)?;
-        if allowed
-            .iter()
-            .any(|origin| !rp_covers_host(&relying_party_id, &origin.host))
-        {
+        let covered = |host: &str| {
+            host == relying_party_id
+                || (!exact_host(&relying_party_id)
+                    && host.ends_with(&format!(".{relying_party_id}")))
+        };
+        if !parsed.iter().all(|origin| covered(&origin.host)) {
             return Err(OriginError::RelyingPartyMismatch);
         }
         Ok(Origins {
-            allowed,
+            allowed: parsed.into_iter().map(|origin| origin.serialized).collect(),
             relying_party_id: Some(relying_party_id),
             any: false,
         })
@@ -112,9 +110,7 @@ impl Origins {
     }
 
     pub fn allows(&self, origin: &str) -> bool {
-        self.allowed
-            .iter()
-            .any(|allowed| allowed.serialized == origin)
+        self.allowed.iter().any(|allowed| allowed == origin)
     }
 
     pub fn relying_party_id(&self) -> Option<&str> {
@@ -124,13 +120,18 @@ impl Origins {
     pub fn header_values(&self) -> Result<Vec<HeaderValue>, OriginError> {
         self.allowed
             .iter()
-            .map(|origin| origin.serialized.parse().map_err(|_| OriginError::Header))
+            .map(|origin| origin.parse().map_err(|_| OriginError::Header))
             .collect()
     }
 }
 
-fn parse_origin(value: String, transport: OriginTransport) -> Result<AllowedOrigin, OriginError> {
-    let url = reqwest::Url::parse(&value).map_err(|_| OriginError::InvalidOrigin)?;
+struct AllowedOrigin {
+    serialized: String,
+    host: String,
+}
+
+fn parse_origin(value: &str, transport: OriginTransport) -> Result<AllowedOrigin, OriginError> {
+    let url = reqwest::Url::parse(value).map_err(|_| OriginError::InvalidOrigin)?;
     if url.cannot_be_a_base()
         || url.username() != ""
         || url.password().is_some()
@@ -147,7 +148,7 @@ fn parse_origin(value: String, transport: OriginTransport) -> Result<AllowedOrig
         .to_owned();
     let loopback = host == "localhost"
         || host
-            .parse::<std::net::IpAddr>()
+            .parse::<IpAddr>()
             .is_ok_and(|address| address.is_loopback());
     let plain_allowed = loopback || transport == OriginTransport::InsecureHttp;
     if url.scheme() != "https" && !(url.scheme() == "http" && plain_allowed) {
@@ -159,22 +160,17 @@ fn parse_origin(value: String, transport: OriginTransport) -> Result<AllowedOrig
     })
 }
 
-fn valid_relying_party_id(value: &str) -> bool {
-    if value == "localhost" || value.parse::<std::net::IpAddr>().is_ok() {
-        return true;
-    }
-    !value.is_empty()
-        && !value.contains(['/', ':'])
-        && psl::domain_str(value).is_some()
-        && psl::suffix_str(value) != Some(value)
+/// Hosts a relying party ID covers only when equal, never through a subdomain.
+fn exact_host(value: &str) -> bool {
+    value == "localhost" || value.parse::<IpAddr>().is_ok()
 }
 
-fn rp_covers_host(relying_party_id: &str, host: &str) -> bool {
-    if relying_party_id.parse::<std::net::IpAddr>().is_ok() || relying_party_id == "localhost" {
-        host == relying_party_id
-    } else {
-        host == relying_party_id || host.ends_with(&format!(".{relying_party_id}"))
-    }
+fn valid_relying_party_id(value: &str) -> bool {
+    exact_host(value)
+        || (!value.is_empty()
+            && !value.contains(['/', ':'])
+            && psl::domain_str(value).is_some()
+            && psl::suffix_str(value) != Some(value))
 }
 
 #[cfg(test)]

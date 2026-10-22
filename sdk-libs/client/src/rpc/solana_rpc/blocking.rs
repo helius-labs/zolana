@@ -18,10 +18,14 @@ use solana_transaction_status_client_types::{
     EncodedConfirmedTransactionWithStatusMeta, TransactionStatus, UiTransactionEncoding,
 };
 
+use zolana_transaction::AssetRegistry;
+
 use crate::{error::ClientError, rpc::Rpc};
 
 use super::{
-    accounts::{filtered_program_accounts, pubkey_from_address, ProgramAccountsFilter},
+    accounts::{
+        filtered_program_accounts, pubkey_from_address, AssetRegistryPages, ProgramAccountsFilter,
+    },
     transaction::{
         instruction_groups_from_confirmed_transaction,
         transact_output_view_tags_from_instruction_groups, ConfirmedInstructionGroups,
@@ -74,6 +78,20 @@ impl SolanaRpc {
             .get_program_ui_accounts_with_config(&program_id, filter.rpc_config())
             .map_err(|err| ClientError::Rpc(format!("get_program_accounts {program_id}: {err}")))?;
         filtered_program_accounts(&program_id, filter, accounts)
+    }
+
+    /// Every SPL mint the pool registered, each read from its own registry address.
+    pub fn asset_registry(&self) -> Result<AssetRegistry, ClientError> {
+        let counter = self.get_account(AssetRegistryPages::counter())?;
+        let mut registry = AssetRegistry::default();
+        for page in AssetRegistryPages::of(counter)?.pages() {
+            let (program, filter) = page.query();
+            page.read(
+                self.get_program_accounts_filtered(program, &filter)?,
+                &mut registry,
+            )?;
+        }
+        Ok(registry)
     }
 
     pub fn genesis_hash(&self) -> Result<[u8; 32], ClientError> {
@@ -245,6 +263,16 @@ impl Rpc for SolanaRpc {
             .get_signature_statuses(&signatures)
             .map(|response| response.value)
             .map_err(|err| ClientError::Rpc(format!("get_signature_statuses: {err}")))
+    }
+
+    fn get_signature_statuses_with_history(
+        &self,
+        signatures: Vec<Signature>,
+    ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
+        self.client
+            .get_signature_statuses_with_history(&signatures)
+            .map(|response| response.value)
+            .map_err(|err| ClientError::Rpc(format!("get_signature_statuses_with_history: {err}")))
     }
 
     fn health(&self) -> Result<(), ClientError> {

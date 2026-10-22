@@ -28,6 +28,10 @@ pub struct MergeRing {
     /// The output `ring_data_hash` the ring program selected; the merge proof
     /// binds it to `Output.Utxo.RingDataHash`.
     pub output_ring_data_hash: [u8; 32],
+    /// Root authenticated by the calling ring program before the SPP CPI.
+    pub member_registry_root: [u8; 32],
+    /// The calling ring program's mode, true only for an anonymous ring.
+    pub anonymous: bool,
     pub cache: Option<CacheWriteAccounts>,
 }
 
@@ -49,6 +53,8 @@ impl MergeRing {
 
         let ix_data = MergeRingIxData {
             output_ring_data_hash: self.output_ring_data_hash,
+            member_registry_root: self.member_registry_root,
+            anonymous: self.anonymous,
             merge: self.data.clone(),
         };
         let mut instruction_data = vec![tag::RING_MERGE_TRANSACT];
@@ -146,6 +152,8 @@ mod tests {
             payer: Pubkey::new_unique(),
             data: data(),
             output_ring_data_hash: [7u8; 32],
+            member_registry_root: [9u8; 32],
+            anonymous: false,
             cache: None,
         };
 
@@ -173,6 +181,8 @@ mod tests {
                 ..data()
             },
             output_ring_data_hash: [0u8; 32],
+            member_registry_root: [9u8; 32],
+            anonymous: false,
             cache: Some(CacheWriteAccounts {
                 cache: Pubkey::new_unique(),
                 writer: Pubkey::new_unique(),

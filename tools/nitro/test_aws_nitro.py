@@ -24,7 +24,13 @@ REPOSITORY = Path(__file__).resolve().parents[2]
 SERVER = REPOSITORY / "prover/server"
 ENTRYPOINT = (SERVER / "nitro/entrypoint.sh").read_text()
 ROUTES = SERVER / "nitro/routes.sh"
+SERVE = SERVER / "nitro/serve.sh"
 DOWNLOADER = SERVER / "prover/common/key_downloader.go"
+DOCKERFILE = (SERVER / "Dockerfile.nitro").read_text()
+LOCK = json.loads((SERVER / "prover/provingkeys/proving-keys.lock").read_text())["keys"]
+DEPLOYMENTS = REPOSITORY / "prover/tee/deployments"
+TMPFS_SLACK = 2**30
+MEMTOTAL_GAP_MIB = 1024
 IMAGE = (
     "558215002830.dkr.ecr.eu-north-1.amazonaws.com/zolana-prover-nitro@sha256:"
     + "a" * 64
@@ -84,6 +90,28 @@ def routes(indexer=""):
         check=False,
     )
     return outcome.returncode, outcome.stdout, outcome.stderr
+
+
+def key_sets():
+    return re.findall(r"^\s+([^\s)*]+)\)", SERVE.read_text(), re.M)
+
+
+def key_set(name):
+    keys_mib, *patterns = subprocess.run(
+        ["sh", str(SERVE), name], capture_output=True, text=True, check=True
+    ).stdout.split()
+    return int(keys_mib), patterns
+
+
+def minimum_enclave_mib(keys_mib):
+    reserved = re.search(r"memory_mib - keys_mib - (\d+)", ENTRYPOINT).group(1)
+    heap = re.search(r'"\$heap_mib" -ge (\d+)', ENTRYPOINT).group(1)
+    return keys_mib + int(reserved) + int(heap) + MEMTOTAL_GAP_MIB
+
+
+def backends():
+    arms = re.search(r"case \$BACKEND in (.+?) esac", DOCKERFILE).group(1)
+    return re.findall(r"([\w-]+)\)", arms)
 
 
 def resume(parent, expected=None, seed=True, aws=None, missing=()):
@@ -1394,34 +1422,83 @@ class ImageTests(unittest.TestCase):
                 self.assertNotEqual(routes(url)[0], 0)
 
     def test_key_tmpfs_holds_every_served_key_and_the_largest_partial(self):
-        size = int(re.search(r"^keys_mib=(\d+)$", ENTRYPOINT, re.M).group(1)) * 2**20
-        patterns = re.findall(r"--serve '([^']+)'", ENTRYPOINT)
-        lock = json.loads((SERVER / "prover/provingkeys/proving-keys.lock").read_text())
-        served = [
-            entry["size"]
-            for name, entry in lock["keys"].items()
-            if any(fnmatch.fnmatchcase(name.removesuffix(".key"), p) for p in patterns)
-        ]
-        self.assertTrue(served)
-        self.assertLessEqual(sum(served) + max(served), size)
-        self.assertFalse(
-            any(fnmatch.fnmatchcase("batch_address-append_40_4999", p) for p in patterns)
+        names = key_sets()
+        self.assertIn(re.search(r"^ARG SERVE=(\S+)$", DOCKERFILE, re.M).group(1), names)
+        for name in names:
+            keys_mib, patterns = key_set(name)
+            matched = {
+                pattern: {
+                    key
+                    for key in LOCK
+                    if fnmatch.fnmatchcase(key.removesuffix(".key"), pattern)
+                }
+                for pattern in patterns
+            }
+            served = set().union(*matched.values())
+            stored = sum(
+                entry["size"]
+                for key, entry in LOCK.items()
+                if key in served or entry.get("source") == "release"
+            )
+            partial = max(
+                (LOCK[key]["size"] for key in served if "source" not in LOCK[key]),
+                default=0,
+            )
+            with self.subTest(key_set=name):
+                self.assertTrue(served)
+                self.assertEqual([p for p, keys in matched.items() if not keys], [])
+                self.assertLessEqual(stored + partial, keys_mib * 2**20)
+                self.assertLess(keys_mib * 2**20 - stored - partial, TMPFS_SLACK)
+                self.assertFalse(
+                    any(
+                        fnmatch.fnmatchcase("batch_address-append_40_4999", p)
+                        for p in patterns
+                    )
+                )
+        with self.assertRaises(subprocess.CalledProcessError):
+            key_set("forester")
+
+    def test_minimum_enclave_boots_the_largest_key_set(self):
+        self.assertEqual(
+            aws_nitro.MIN_ENCLAVE_MIB,
+            max(minimum_enclave_mib(key_set(name)[0]) for name in key_sets()),
         )
+
+    def test_deployment_settings_fit_their_instance(self):
+        instances = {
+            "m7i.4xlarge": instance_type(
+                VCpuInfo={"DefaultVCpus": 16, "DefaultThreadsPerCore": 2},
+                MemoryInfo={"SizeInMiB": 65536},
+            )
+        }
+        paths = sorted(DEPLOYMENTS.glob("*.settings.json"))
+        self.assertTrue(paths)
+        for path in paths:
+            deployment = json.loads(path.read_text())
+            with self.subTest(path=path.name):
+                name = deployment["name"]
+                self.assertEqual(aws_nitro.gpu.stack_name(name, prefix=""), name)
+                self.assertEqual(deployment["platform"], "aws-nitro")
+                self.assertIn(deployment["backend"], backends())
+                _, memory = aws_nitro.enclave_size(
+                    instances[deployment["instance_type"]]
+                )
+                self.assertEqual(deployment["enclave_memory_mib"], memory)
+                self.assertGreaterEqual(
+                    memory, minimum_enclave_mib(key_set(deployment["serve"])[0])
+                )
 
     def test_enclave_runs_the_nitro_tee_without_a_key_or_public_listener(self):
         self.assertIn("--tee nitro", ENTRYPOINT)
         self.assertNotIn("PROVER_API_KEY", ENTRYPOINT)
         self.assertNotIn("0.0.0.0", ENTRYPOINT)
         self.assertIn("ip link set lo up", ENTRYPOINT)
-        dockerfile = (SERVER / "Dockerfile.nitro").read_text()
-        stages = re.findall(r"^FROM \S+ AS (\S+)$", dockerfile, re.M)
-        arms = re.search(r"case \$BACKEND in (.+?) esac", dockerfile).group(1)
-        backends = re.findall(r"([\w-]+)\)", arms)
-        self.assertEqual(backends, ["gnark", "aeglos-cpu"])
-        self.assertTrue(all(backend in stages for backend in backends))
+        stages = re.findall(r"^FROM \S+ AS (\S+)$", DOCKERFILE, re.M)
+        self.assertEqual(backends(), ["gnark", "aeglos-cpu"])
+        self.assertTrue(all(backend in stages for backend in backends()))
         bases = [
             base
-            for base in re.findall(r"^FROM (\S+)", dockerfile, re.M)
+            for base in re.findall(r"^FROM (\S+)", DOCKERFILE, re.M)
             if base not in stages and base != "${BACKEND}"
         ]
         self.assertEqual(len(bases), 3)

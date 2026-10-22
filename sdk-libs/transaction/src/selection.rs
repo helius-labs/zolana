@@ -28,7 +28,24 @@ pub fn select_spend<'a>(
     asset: Address,
     amount: u64,
 ) -> Result<Vec<WalletUtxo>, TransactionError> {
-    select(candidates(utxos, asset), asset, amount)
+    select_spend_where(
+        utxos,
+        asset,
+        amount,
+        MAX_SPEND_INPUTS,
+        WalletUtxo::is_default_ring_spendable,
+    )
+}
+
+/// [`select_spend`] over the UTXOs `keep` admits, at most `max_inputs` up to [`MAX_SPEND_INPUTS`].
+pub fn select_spend_where<'a>(
+    utxos: impl IntoIterator<Item = &'a WalletUtxo>,
+    asset: Address,
+    amount: u64,
+    max_inputs: usize,
+    keep: impl Fn(&WalletUtxo) -> bool,
+) -> Result<Vec<WalletUtxo>, TransactionError> {
+    select(candidates(utxos, asset, keep), asset, amount, max_inputs)
 }
 
 /// [`select_spend`] without the UTXOs whose nullifier is in `excluded`, such
@@ -42,19 +59,19 @@ pub fn select_spend_excluding<'a>(
     amount: u64,
     excluded: &HashSet<[u8; 32]>,
 ) -> Result<Vec<WalletUtxo>, TransactionError> {
-    let candidates = candidates(utxos, asset);
+    let candidates = candidates(utxos, asset, WalletUtxo::is_default_ring_spendable);
     let free = candidates
         .iter()
         .copied()
         .filter(|utxo| !excluded.contains(&utxo.nullifier))
         .collect();
-    select(free, asset, amount).map_err(|error| {
+    select(free, asset, amount, MAX_SPEND_INPUTS).map_err(|error| {
         let short = matches!(
             error,
             TransactionError::InsufficientBalance { .. }
                 | TransactionError::NoSpendableBalance { .. }
         );
-        if short && select(candidates, asset, amount).is_ok() {
+        if short && select(candidates, asset, amount, MAX_SPEND_INPUTS).is_ok() {
             TransactionError::SpendNeedsExcludedUtxos { amount }
         } else {
             error
@@ -77,13 +94,22 @@ pub fn select_merge<'a>(
     max_inputs: usize,
     excluded: &HashSet<[u8; 32]>,
 ) -> Result<Vec<WalletUtxo>, TransactionError> {
+    select_merge_where(utxos, asset, max_inputs, excluded, WalletUtxo::is_plain)
+}
+
+/// [`select_merge`] over the UTXOs `keep` admits in place of the plain ones.
+pub fn select_merge_where<'a>(
+    utxos: impl IntoIterator<Item = &'a WalletUtxo>,
+    asset: Address,
+    max_inputs: usize,
+    excluded: &HashSet<[u8; 32]>,
+    keep: impl Fn(&WalletUtxo) -> bool,
+) -> Result<Vec<WalletUtxo>, TransactionError> {
     let mut trees: BTreeMap<u16, Vec<&WalletUtxo>> = BTreeMap::new();
-    for utxo in utxos.into_iter().filter(|utxo| {
-        utxo.utxo.asset.asset == asset
-            && utxo.utxo.amount > 0
-            && utxo.is_plain()
-            && !excluded.contains(&utxo.nullifier)
-    }) {
+    for utxo in candidates(utxos, asset, keep)
+        .into_iter()
+        .filter(|utxo| !excluded.contains(&utxo.nullifier))
+    {
         trees.entry(utxo.tree_id()).or_default().push(utxo);
     }
     // The lowest tree id wins a tie, so the choice does not depend on order.
@@ -103,14 +129,11 @@ pub fn select_merge<'a>(
 fn candidates<'a>(
     utxos: impl IntoIterator<Item = &'a WalletUtxo>,
     asset: Address,
+    keep: impl Fn(&WalletUtxo) -> bool,
 ) -> Vec<&'a WalletUtxo> {
     utxos
         .into_iter()
-        .filter(|utxo| {
-            utxo.utxo.asset.asset == asset
-                && utxo.utxo.amount > 0
-                && utxo.is_default_ring_spendable()
-        })
+        .filter(|utxo| utxo.utxo.asset.asset == asset && utxo.utxo.amount > 0 && keep(utxo))
         .collect()
 }
 
@@ -118,7 +141,9 @@ fn select(
     mut utxos: Vec<&WalletUtxo>,
     asset: Address,
     amount: u64,
+    max_inputs: usize,
 ) -> Result<Vec<WalletUtxo>, TransactionError> {
+    let max_inputs = max_inputs.min(MAX_SPEND_INPUTS);
     if amount == 0 {
         return Err(TransactionError::ZeroSpendAmount);
     }
@@ -138,7 +163,7 @@ fn select(
     utxos.sort_by_key(|utxo| Reverse(utxo.utxo.amount));
     let mut selected = Vec::new();
     let mut covered = 0u64;
-    for utxo in utxos.into_iter().take(MAX_SPEND_INPUTS) {
+    for utxo in utxos.into_iter().take(max_inputs) {
         // At most `available`, which did not overflow.
         covered += utxo.utxo.amount;
         selected.push(utxo.clone());
@@ -155,8 +180,5 @@ fn select(
             return Ok(selected);
         }
     }
-    Err(TransactionError::SpendNeedsMerge {
-        amount,
-        max_inputs: MAX_SPEND_INPUTS,
-    })
+    Err(TransactionError::SpendNeedsMerge { amount, max_inputs })
 }

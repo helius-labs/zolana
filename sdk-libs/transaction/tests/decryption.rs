@@ -5,10 +5,13 @@ use std::{
     collections::{BTreeSet, HashSet},
 };
 
+use borsh::BorshDeserialize;
 use common::{keypair, wallet_utxo};
+use custom_ring_interface::stream::{DeliveredSlot, RingTag, SlotSecret, TAG_LEN};
 use solana_signature::Signature;
 use zolana_event::{
-    encode_merge_output_data, EncryptedRingDepositOutput, MergeOutputDataRef, OutputDataEncoding,
+    encode_merge_output_data, encode_ring_confidential_delivered_output,
+    EncryptedRingDepositOutput, MergeOutputDataRef, OutputDataEncoding,
 };
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair, ViewingKey, X25519Pubkey};
 use zolana_transaction::{
@@ -23,10 +26,12 @@ use zolana_transaction::{
         confidential::{Confidential, ConfidentialEncode},
         plaintext::{PlaintextTransfer, TransferPlaintextUtxos},
         proofless::{Proofless, ProoflessEncode},
+        RingDeliverySlot,
     },
     verify_owned, verify_spendable, Address, AssetBalance, AssetRegistry, Balances, Data,
     DataRecord, DecryptLabel, DecryptRequest, DecryptionResult, DeriveRequest, EncryptedScheme,
-    LocalShieldedKeys, Mint, OutputContext, OutputSlot, OwnerCx, RingDepositPlaintext,
+    LocalShieldedKeys, Mint, OutputContext, OutputSlot, OwnerCx, RingDeliveredBody,
+    RingDeliveredCandidate, RingDeliveredFind, RingDeliveryRequest, RingDepositPlaintext,
     ShieldedKeys, ShieldedTransaction, SpendableDecryptionResult, TransactionError,
     TransactionKeyRequest, Utxo, UtxoSerialization, WalletUtxo, TRANSFER_PLAINTEXT,
 };
@@ -486,6 +491,25 @@ impl ShieldedKeys for RecordingKeys {
     ) -> Result<Vec<ViewingKey>, TransactionError> {
         self.local.transaction_keys(requests)
     }
+    fn ring_address_keys(
+        &self,
+        ring: &Address,
+        indexes: &[u32],
+    ) -> Result<Vec<X25519Pubkey>, TransactionError> {
+        self.local.ring_address_keys(ring, indexes)
+    }
+    fn ring_delivery_secrets(
+        &self,
+        requests: &[RingDeliveryRequest],
+    ) -> Result<Vec<[u8; 32]>, TransactionError> {
+        self.local.ring_delivery_secrets(requests)
+    }
+    fn ring_change_key(&self, ring: &Address) -> Result<X25519Pubkey, TransactionError> {
+        self.local.ring_change_key(ring)
+    }
+    fn sender_view_tags(&self, counters: &[u64]) -> Result<Vec<[u8; 32]>, TransactionError> {
+        self.local.sender_view_tags(counters)
+    }
 }
 
 #[test]
@@ -933,30 +957,286 @@ fn shuffled_multi_asset_publications_recover_unique_balances_and_data_notes() {
     }
 }
 
+const RING: Address = Address::new_from_array([94; 32]);
+const UNREGISTERED_MINT: Address = Address::new_from_array([0xaa; 32]);
+const DELIVERY_SALT: [u8; 16] = [7; 16];
+
+/// A ring note delivered as the ring rails derive its blinding and body from the slot secret.
+struct Delivery<'a> {
+    owner: &'a ShieldedKeypair,
+    mint: Mint,
+    recipient: X25519Pubkey,
+    tx: &'a ViewingKey,
+    first_nullifier: [u8; 32],
+    slot_index: u32,
+    tag: Option<RingTag>,
+    nonce: u8,
+}
+
+impl Delivery<'_> {
+    fn secret(&self) -> SlotSecret {
+        DeliveredSlot {
+            agreement: &self.tx.ecdh(&self.recipient).unwrap(),
+            tx_viewing_pk: self.tx.pubkey().as_bytes(),
+            recipient_viewing_pk: self.recipient.as_bytes(),
+            salt: &DELIVERY_SALT,
+            output_index: self.slot_index,
+            first_nullifier: &self.first_nullifier,
+        }
+        .secret()
+        .unwrap()
+    }
+
+    fn build(&self) -> (WalletUtxo, OutputSlot) {
+        let secret = self.secret();
+        let mut held = wallet_utxo(self.owner, self.mint, 17, 2, self.nonce);
+        held.utxo.ring_program_id = Some(RING);
+        held.slot_index = self.slot_index;
+        held.utxo.blinding = RingDeliverySlot {
+            ring: RING,
+            first_nullifier: self.first_nullifier,
+            output_index: self.slot_index,
+            tag: self.tag,
+        }
+        .blinding(&secret)
+        .unwrap();
+        refresh_commitment(self.owner, &mut held);
+        let body = RingDeliveredBody {
+            asset_address: self.mint.asset,
+            amount: held.utxo.amount,
+        }
+        .seal(&secret)
+        .unwrap();
+        let (view_tag, payload) = match self.tag {
+            Some(tag) => (
+                tag.field(),
+                borsh::to_vec(&OutputDataEncoding::Encrypted(
+                    [&[EncryptedScheme::RingAnonymous.as_byte()][..], &body].concat(),
+                ))
+                .unwrap(),
+            ),
+            None => (
+                self.recipient.u(),
+                encode_ring_confidential_delivered_output(&body),
+            ),
+        };
+        let mut slot = slot(&held, payload);
+        slot.view_tag = view_tag;
+        (held, slot)
+    }
+}
+
+fn delivered<'a>(
+    owner: &'a ShieldedKeypair,
+    tx: &'a ViewingKey,
+    mint: Mint,
+    nonce: u8,
+) -> Delivery<'a> {
+    Delivery {
+        owner,
+        mint,
+        recipient: owner.viewing_pubkey(),
+        tx,
+        first_nullifier: [0x1f; 32],
+        slot_index: 0,
+        tag: None,
+        nonce,
+    }
+}
+
+fn ring_tx(held: &WalletUtxo, tx: &ViewingKey, slots: Vec<OutputSlot>) -> ShieldedTransaction {
+    let mut publication = publication(held, slots);
+    publication.tx_viewing_pk = Some(tx.pubkey());
+    publication.salt = Some(DELIVERY_SALT);
+    publication.ring_program_id = Some(RING);
+    publication.nullifiers = vec![[0x1f; 32]];
+    publication
+}
+
 #[test]
-fn anonymous_ring_outputs_are_skipped_by_the_wallet_scan() {
+fn a_confidential_delivered_output_opens_under_the_wallet_key_its_owner_tag_names() {
     let owner = keypair(91);
     let tx_key = keypair(93).viewing_key;
-    let mut note = wallet_utxo(&owner, Mint::SOL, 17, 2, 1);
-    note.utxo.ring_program_id = Some(Address::new_from_array([94; 32]));
-    refresh_commitment(&owner, &mut note);
-    let output = confidential_slot(&note, owner.viewing_pubkey(), &tx_key, 0);
-    let OutputDataEncoding::Encrypted(mut blob) = output.output_data().unwrap() else {
-        panic!("encrypted output")
-    };
-    blob.drain(1..34);
-    blob[0] = EncryptedScheme::RingAnonymous.as_byte();
-    let mut tx = publication(
-        &note,
-        vec![slot(
-            &note,
-            borsh::to_vec(&OutputDataEncoding::Encrypted(blob)).unwrap(),
-        )],
-    );
-    tx.tx_viewing_pk = Some(tx_key.pubkey());
-    tx.salt = Some([7; 16]);
+    let (held, slot) = delivered(&owner, &tx_key, Mint::SOL, 1).build();
+    let tx = ring_tx(&held, &tx_key, vec![slot]);
     let decoded = decrypt(&owner, &[tx], &AssetRegistry::default()).unwrap();
-    assert!(decoded.utxos.is_empty());
+    assert_eq!(decoded.utxos.len(), 1);
+    assert_eq!(decoded.utxos[0].utxo_hash, held.utxo_hash);
+    assert_eq!(decoded.utxos[0].utxo.blinding, held.utxo.blinding);
+    assert_eq!(decoded.utxos[0].nullifier, held.nullifier);
+}
+
+/// The owner tag names the recipient key, a body sealed to another key under it rebuilds nothing.
+#[test]
+fn a_delivered_body_sealed_to_another_key_under_the_wallet_tag_is_skipped() {
+    let owner = keypair(94);
+    let other = keypair(95);
+    let tx_key = keypair(96).viewing_key;
+    let (held, mut slot) = Delivery {
+        recipient: other.viewing_pubkey(),
+        ..delivered(&owner, &tx_key, Mint::SOL, 2)
+    }
+    .build();
+    slot.view_tag = owner.viewing_pubkey().u();
+    let tx = ring_tx(&held, &tx_key, vec![slot]);
+    assert!(decrypt(&owner, &[tx], &AssetRegistry::default())
+        .unwrap()
+        .utxos
+        .is_empty());
+}
+
+/// A sender picks the transaction key, a low-order one must not hide another sender's output.
+#[test]
+fn a_low_order_transaction_key_hides_no_other_delivered_output() {
+    let owner = keypair(97);
+    let tx_key = keypair(98).viewing_key;
+    let (held, slot) = delivered(&owner, &tx_key, Mint::SOL, 3).build();
+    let mut poisoned = ring_tx(&held, &tx_key, vec![slot.clone()]);
+    poisoned.tx_viewing_pk = Some(X25519Pubkey::from_u([0; 32]).unwrap());
+    let honest = ring_tx(&held, &tx_key, vec![slot]);
+    let decoded = decrypt(&owner, &[poisoned, honest], &AssetRegistry::default()).unwrap();
+    assert_eq!(decoded.utxos.len(), 1);
+}
+
+/// Only an indexer serves a first nullifier at or above the field modulus.
+#[test]
+fn a_first_nullifier_off_the_field_hides_no_other_delivered_output() {
+    let owner = keypair(97);
+    let tx_key = keypair(98).viewing_key;
+    let (held, slot) = delivered(&owner, &tx_key, Mint::SOL, 3).build();
+    let mut poisoned = ring_tx(&held, &tx_key, vec![slot.clone()]);
+    poisoned.nullifiers[0] = [0xff; 32];
+    let honest = ring_tx(&held, &tx_key, vec![slot]);
+    let decoded = decrypt(&owner, &[poisoned, honest], &AssetRegistry::default()).unwrap();
+    assert_eq!(decoded.utxos.len(), 1);
+}
+
+#[test]
+fn an_anonymous_output_opens_only_under_the_tag_its_blinding_binds() {
+    let owner = keypair(99);
+    let tx_key = keypair(100).viewing_key;
+    let tag = RingTag::from_bytes([0x51; TAG_LEN]);
+    let delivery = Delivery {
+        tag: Some(tag),
+        ..delivered(&owner, &tx_key, Mint::SOL, 4)
+    };
+    let (held, slot) = delivery.build();
+    let tx = ring_tx(&held, &tx_key, vec![slot]);
+    let candidate = |tag| RingDeliveredCandidate {
+        tx: &tx,
+        slot_index: 0,
+        tag: Some(tag),
+        slot_secret: delivery.secret(),
+    };
+    let mut decrypted = DecryptionResult::default();
+    let other = RingTag::from_bytes([0x52; TAG_LEN]);
+    let finds = decrypted
+        .extend_ring_delivered(
+            &owner,
+            &AssetRegistry::default(),
+            std::slice::from_ref(&tx),
+            &[candidate(other), candidate(tag)],
+        )
+        .unwrap();
+    assert_eq!(
+        finds,
+        [RingDeliveredFind {
+            candidate: 1,
+            utxo_hash: held.utxo_hash,
+            asset_address: Mint::SOL.asset,
+            amount: 17,
+            pending: false,
+        }]
+    );
+    assert_eq!(decrypted.utxos.len(), 1);
+}
+
+#[test]
+fn an_unknown_asset_keeps_the_verified_utxo_pending_until_registered() {
+    let owner = keypair(101);
+    let tx_key = keypair(102).viewing_key;
+    let (held, slot) = delivered(&owner, &tx_key, Mint::new(UNREGISTERED_MINT, 0), 6).build();
+    let tx = ring_tx(&held, &tx_key, vec![slot]);
+    let mut decrypted = DecryptionResult::default();
+    decrypted
+        .extend(&owner, &[tx], &AssetRegistry::default())
+        .unwrap();
+    assert!(decrypted.utxos.is_empty());
+    assert_eq!(decrypted.unknown_mints, BTreeSet::from([UNREGISTERED_MINT]));
+    assert_eq!(decrypted.pending_assets.len(), 1);
+    let pending = &decrypted.pending_assets[0];
+    assert_eq!(pending.asset_address, UNREGISTERED_MINT);
+    assert_eq!(pending.utxo_hash, held.utxo_hash);
+    assert_eq!(pending.blinding, held.utxo.blinding);
+
+    assert!(decrypted
+        .resolve_pending(&owner, &AssetRegistry::default())
+        .unwrap()
+        .is_empty());
+    let registered = AssetRegistry::new([(7, UNREGISTERED_MINT)]).unwrap();
+    let resolved = decrypted.resolve_pending(&owner, &registered).unwrap();
+    assert_eq!(resolved.len(), 1);
+    assert!(!resolved[0].spent);
+    assert_eq!(resolved[0].utxo.utxo.asset, Mint::new(UNREGISTERED_MINT, 7));
+    assert_eq!(resolved[0].utxo.nullifier, held.nullifier);
+    assert_eq!(
+        verify_spendable(&owner, &decrypted)
+            .unwrap()
+            .utxos()
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn a_failed_resolution_keeps_every_pending_utxo_and_a_success_removes_only_the_resolved() {
+    let owner = keypair(107);
+    let tx_key = keypair(108).viewing_key;
+    let (held, slot) = delivered(&owner, &tx_key, Mint::new(UNREGISTERED_MINT, 0), 11).build();
+    let tx = ring_tx(&held, &tx_key, vec![slot]);
+    let mut decrypted = DecryptionResult::default();
+    decrypted
+        .extend(&owner, &[tx], &AssetRegistry::default())
+        .unwrap();
+    let mut unresolved = decrypted.pending_assets[0].clone();
+    unresolved.asset_address = Address::new_from_array([0xbb; 32]);
+    decrypted.pending_assets.push(unresolved.clone());
+    let pending = decrypted.pending_assets.clone();
+    let registered = AssetRegistry::new([(7, UNREGISTERED_MINT)]).unwrap();
+
+    let mut failing = RecordingKeys::new(&owner);
+    failing.fail = Some("derive");
+    assert_eq!(
+        decrypted.resolve_pending(&failing, &registered),
+        Err(TransactionError::Authority("derive".into()))
+    );
+    assert_eq!(decrypted.pending_assets, pending);
+    let resolved = decrypted.resolve_pending(&owner, &registered).unwrap();
+    assert_eq!(resolved.len(), 1);
+    assert_eq!(resolved[0].utxo.utxo_hash, held.utxo_hash);
+    assert_eq!(decrypted.pending_assets, [unresolved]);
+}
+
+#[test]
+fn a_pending_utxo_resolved_after_its_spend_is_reported_spent() {
+    let owner = keypair(105);
+    let tx_key = keypair(106).viewing_key;
+    let (held, slot) = delivered(&owner, &tx_key, Mint::new(UNREGISTERED_MINT, 0), 10).build();
+    let tx = ring_tx(&held, &tx_key, vec![slot]);
+    let mut spend = publication(&held, vec![]);
+    spend.nullifiers = vec![held.nullifier];
+    let mut decrypted = DecryptionResult::default();
+    decrypted
+        .extend(&owner, &[tx, spend], &AssetRegistry::default())
+        .unwrap();
+    let registered = AssetRegistry::new([(7, UNREGISTERED_MINT)]).unwrap();
+    let resolved = decrypted.resolve_pending(&owner, &registered).unwrap();
+    assert_eq!(resolved.len(), 1);
+    assert!(resolved[0].spent);
+    assert_eq!(
+        verify_owned(&owner, &decrypted).unwrap().spent,
+        HashSet::from([held.nullifier])
+    );
 }
 
 #[test]
@@ -1071,8 +1351,8 @@ fn received(owner: &ShieldedKeypair, note: &WalletUtxo) -> ShieldedTransaction {
 /// A merge of `inputs` as the indexer reports it: no transaction key, the
 /// padded slots spending dummy nullifiers, and one output committing to the
 /// inputs' total, published with the ciphertext of its amount and mint with
-/// `owner`'s per-merge key (proof-bound on a default merge, unverified on a
-/// ring merge). Returns the note the owner should decrypt.
+/// `owner`'s per-merge key, proof-bound on every merge. Returns the note the
+/// owner should decrypt.
 fn merge_publication(
     owner: &ShieldedKeypair,
     inputs: &[&WalletUtxo],
@@ -1130,7 +1410,7 @@ fn merge_publication(
     let payload = encode_merge_output_data(MergeOutputDataRef {
         salt: &salt,
         ciphertext: &ciphertext,
-        prefix: ring_data_hash.as_slice(),
+        ring_data_hash: ring_data_hash.as_ref(),
     });
     let mut tx = publication(&output, vec![slot(&output, payload)]);
     tx.nullifiers = nullifiers;
@@ -1204,6 +1484,60 @@ fn ring_deposit(
     );
     tx.proofless = true;
     (tx, note)
+}
+
+/// Only an indexer serves a first nullifier off the field, its merge opens nothing.
+#[test]
+fn a_merge_row_with_a_first_nullifier_off_the_field_hides_no_other_merge() {
+    let owner = keypair(60);
+    let held = wallet_utxo(&owner, Mint::SOL, 30, 3, 1);
+    let (merge, merged) = merge_publication(&owner, &[&held], 10, None);
+    let mut forged = merge.clone();
+    forged.tx_signature = Signature::from([0x60; 64]);
+    forged.nullifiers.insert(0, [0xff; 32]);
+    let decrypted = decrypt(&owner, &[forged, merge], &AssetRegistry::default()).unwrap();
+    assert_eq!(decrypted.utxos, vec![merged]);
+}
+
+/// Only an indexer serves a commitment off the field, its slot opens nothing.
+#[test]
+fn a_commitment_off_the_field_hides_no_other_utxo() {
+    let owner = keypair(61);
+    let held = wallet_utxo(&owner, Mint::SOL, 30, 3, 1);
+    let honest = received(&owner, &held);
+    let mut forged = honest.clone();
+    forged.tx_signature = Signature::from([0x61; 64]);
+    forged.output_slots[0].output_context.hash = [0xff; 32];
+    let decrypted = decrypt(&owner, &[forged, honest], &AssetRegistry::default()).unwrap();
+    assert_eq!(decrypted.utxos.len(), 1);
+}
+
+/// The depositor picks the plaintext, a blinding off the field opens no deposit.
+#[test]
+fn a_deposit_blinding_off_the_field_hides_no_other_deposit() {
+    let owner = keypair(62);
+    let ring = Address::new_from_array([9; 32]);
+    let (honest, held) = ring_deposit(&owner, owner.viewing_pubkey(), ring, Mint::SOL, 20, 1);
+    let mut forged = honest.clone();
+    forged.tx_signature = Signature::from([0x62; 64]);
+    let slot = &mut forged.output_slots[0];
+    let Some(OutputDataEncoding::Encrypted(blob)) = slot.output_data() else {
+        panic!("a ring deposit slot");
+    };
+    let (scheme, body) = blob.split_at(1);
+    let mut output = EncryptedRingDepositOutput::try_from_slice(body).unwrap();
+    output.encrypted = RingDepositPlaintext {
+        blinding: [0xff; 32],
+        utxo_data: None,
+        memo: None,
+        ring_data: Vec::new(),
+    }
+    .encrypt(&owner.viewing_pubkey())
+    .unwrap();
+    let blob = [scheme, &borsh::to_vec(&output).unwrap()].concat();
+    slot.payload = borsh::to_vec(&OutputDataEncoding::Encrypted(blob)).unwrap();
+    let decrypted = decrypt(&owner, &[forged, honest], &AssetRegistry::default()).unwrap();
+    assert_eq!(decrypted.utxos, vec![held]);
 }
 
 #[test]
@@ -1510,6 +1844,22 @@ fn ring_deposits_open_for_their_owner_and_feed_a_ring_merge() {
         decrypt(&owner, &[to_other, for_other], &assets).unwrap(),
         DecryptionResult::default()
     );
+}
+
+#[test]
+fn merge_unknown_mints_are_reported_only_after_the_commitment_matches() {
+    let owner = keypair(47);
+    let mint = Mint::new(Address::new_from_array([71; 32]), 2);
+    let held = wallet_utxo(&owner, mint, 30, 3, 1);
+    let (mut merge, _) = merge_publication(&owner, &[&held], 10, None);
+    let assets = AssetRegistry::default();
+    let decoded = decrypt(&owner, std::slice::from_ref(&merge), &assets).unwrap();
+    assert_eq!(decoded.unknown_mints, BTreeSet::from([mint.asset]));
+    assert!(decoded.utxos.is_empty());
+    merge.output_slots[0].output_context.hash[0] ^= 1;
+    let decoded = decrypt(&owner, &[merge], &assets).unwrap();
+    assert!(decoded.unknown_mints.is_empty());
+    assert!(decoded.utxos.is_empty());
 }
 
 #[test]

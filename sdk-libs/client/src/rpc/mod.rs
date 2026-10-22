@@ -18,11 +18,13 @@ pub use transaction::{compile_message, sign_transaction, SettlementAccountValida
 pub use transaction_size::{transaction_size, TransactionSize};
 pub use types::{
     Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
-    GetNonInclusionProofsResponse, GetRingKeyRegistryEntryResponse,
-    GetRingKeyRegistryRegisterProofResponse, GetRingSpendRecordResponse,
-    GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
-    GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, IndexedShieldedTransaction,
-    MerkleContext, MerkleProof, NonInclusionProof, OutputContext, OutputSlot, ProveResult,
-    RingHistoryOptions, RingMemberProofRequest, RingSpendRecord, RingSpendRecordRequest,
+    GetNonInclusionProofsResponse, GetRingApplyProofInputsRequest, GetRingApplyProofInputsResponse,
+    GetRingMemberOpeningsRequest, GetRingMemberOpeningsResponse, GetRingMemberRecordRequest,
+    GetRingMemberRecordResponse, GetRingMemberRecordsRequest, GetRingMemberRecordsResponse,
+    GetRingMemberRegistryRootRequest, GetRingMemberRegistryRootResponse, GetRingRecordQueueRequest,
+    GetRingRecordQueueResponse, GetShieldedTransactionsByNullifiersResponse,
+    GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
+    GetUserRecordsResponse, IndexedShieldedTransaction, MerkleContext, MerkleProof,
+    NonInclusionProof, OutputContext, OutputSlot, ProveResult, RingHistoryOptions,
     ShieldedTransaction, ShieldedTransactionStream, UserRecord, MAX_USER_RECORD_OWNERS,
 };

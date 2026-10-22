@@ -2,9 +2,9 @@ use std::collections::BTreeMap;
 
 use super::common::{
     bind_u64_as_i64, cursor_sort_key, decode_cursor, encode_cursor, hash_from_vec, int_list_sql,
-    next_cursor_from_rows, rings_output_slot_from_parts, signature_from_bytes, tags_sql,
-    tx_cursor_sql_condition, u16_from_i16, u64_from_i64, validate_nullifiers, validate_tags,
-    CursorKind,
+    next_cursor_from_rows, rings_output_slot_from_parts, scan_frontier, signature_from_bytes,
+    tags_sql, tx_cursor_sql_condition, u16_from_i16, u64_from_i64, validate_nullifiers,
+    validate_tags, CursorKind, StreamCursor,
 };
 use crate::api::error::PhotonApiError;
 use crate::common::bind_sql_value;
@@ -77,6 +77,25 @@ pub(super) struct ShieldedTxCursor {
     pub(super) slot: u64,
     pub(super) signature: [u8; SIGNATURE_BYTES],
     pub(super) event_index: u16,
+}
+
+impl ShieldedTxCursor {
+    fn at(slot: i64, signature: &[u8], event_index: i16) -> Result<Self, PhotonApiError> {
+        let (slot, signature, event_index) = cursor_sort_key(slot, signature, event_index)?;
+        Ok(Self {
+            slot,
+            signature,
+            event_index,
+        })
+    }
+}
+
+impl StreamCursor for ShieldedTxCursor {
+    const ORIGIN: Self = Self {
+        slot: 0,
+        signature: [0; SIGNATURE_BYTES],
+        event_index: 0,
+    };
 }
 
 pub async fn get_shielded_transactions_by_tags(
@@ -186,7 +205,7 @@ async fn get_shielded_transactions(
     let scanned_through = if truncated {
         None
     } else {
-        scan_position(&tx, cursor_kind).await?
+        Some(scan_position(&tx, cursor_kind).await?)
     };
 
     let transactions = hydrate_shielded_transactions(&tx, matched_txs)
@@ -209,7 +228,7 @@ async fn get_shielded_transactions(
 /// The last position in the transaction stream, as a cursor.
 ///
 /// Read inside the caller's transaction, so it describes the snapshot the scan
-/// saw. `None` only when the table is empty.
+/// saw. The stream origin while the table is empty.
 ///
 /// Sound while positions are only appended: a row later inserted below this one
 /// would be skipped by anyone resuming here. Per-tag cursors already assume the
@@ -219,7 +238,7 @@ async fn get_shielded_transactions(
 async fn scan_position(
     tx: &DatabaseTransaction,
     kind: CursorKind,
-) -> Result<Option<Base64String>, PhotonApiError> {
+) -> Result<Base64String, PhotonApiError> {
     let backend = tx.get_database_backend();
     // Not `ORDER BY slot, signature, event_index DESC LIMIT 1`: no index covers
     // that ordering, so it would sort the whole table. Pinning the slot first is
@@ -234,21 +253,17 @@ async fn scan_position(
          LIMIT 1"
         .to_string();
 
-    let Some(row) = tx
+    let tip = tx
         .query_all(Statement::from_sql_and_values(backend, sql, Vec::new()))
         .await?
         .into_iter()
         .next()
-    else {
-        return Ok(None);
-    };
-    let row = ScanPositionRow::from_query_result(&row, "")?;
-    Ok(Some(Base64String(shielded_tx_cursor(
-        row.slot,
-        &row.signature,
-        row.event_index,
-        kind,
-    )?)))
+        .map(|row| {
+            let row = ScanPositionRow::from_query_result(&row, "")?;
+            ShieldedTxCursor::at(row.slot, &row.signature, row.event_index)
+        })
+        .transpose()?;
+    scan_frontier(kind, tip)
 }
 
 pub(super) async fn hydrate_shielded_transactions(
@@ -541,22 +556,10 @@ fn shielded_tx_cursor_from_row(
     row: &MatchedRingsTxRow,
     kind: CursorKind,
 ) -> Result<Vec<u8>, PhotonApiError> {
-    shielded_tx_cursor(row.slot, &row.signature, row.event_index, kind)
-}
-
-fn shielded_tx_cursor(
-    slot: i64,
-    signature: &[u8],
-    event_index: i16,
-    kind: CursorKind,
-) -> Result<Vec<u8>, PhotonApiError> {
-    let (slot, signature, event_index) = cursor_sort_key(slot, signature, event_index)?;
-    let cursor = ShieldedTxCursor {
-        slot,
-        signature,
-        event_index,
-    };
-    encode_cursor(kind, &cursor)
+    encode_cursor(
+        kind,
+        &ShieldedTxCursor::at(row.slot, &row.signature, row.event_index)?,
+    )
 }
 
 #[cfg(test)]
@@ -580,6 +583,12 @@ mod tests {
     }
 
     async fn setup() -> DatabaseConnection {
+        let db = empty_index().await;
+        insert_spend(&db).await;
+        db
+    }
+
+    async fn empty_index() -> DatabaseConnection {
         let db = Database::connect("sqlite::memory:").await.unwrap();
         RingsMigrator::up(&db, None).await.unwrap();
         // `filter_by_known_trees` refuses to persist an output whose tree has
@@ -597,12 +606,16 @@ mod tests {
         .exec(&db)
         .await
         .unwrap();
+        db
+    }
+
+    async fn insert_spend(db: &DatabaseConnection) {
         transactions::Entity::insert(transactions::ActiveModel {
             signature: Set(vec![1; 64]),
             slot: Set(7),
             error: Set(None),
         })
-        .exec(&db)
+        .exec(db)
         .await
         .unwrap();
         rings_transactions::Entity::insert(rings_transactions::ActiveModel {
@@ -618,7 +631,7 @@ mod tests {
             salt: Set(None),
             proofless: Set(false),
         })
-        .exec(&db)
+        .exec(db)
         .await
         .unwrap();
         for (input_index, byte) in [3u8, 4].into_iter().enumerate() {
@@ -631,11 +644,10 @@ mod tests {
                 input_queue_seq: Set(input_index as i64),
                 nullifier: Set(vec![byte; 32]),
             })
-            .exec(&db)
+            .exec(db)
             .await
             .unwrap();
         }
-        db
     }
 
     #[tokio::test]
@@ -1005,6 +1017,58 @@ mod tests {
             Some(scanned_through),
             "a stream that has not moved reports the same tip"
         );
+    }
+
+    #[tokio::test]
+    async fn an_empty_index_reports_a_frontier_that_resumes_before_every_row() {
+        use crate::api::method::rings::get_encrypted_utxos_by_tags::get_encrypted_utxos_by_tags;
+
+        let db = empty_index().await;
+        let spends = GetRingsByNullifiersRequest {
+            nullifiers: vec![hash(3)],
+            cursor: None,
+            limit: Some(Limit::new(10).unwrap()),
+        };
+        let outputs = GetRingsByTagsRequest {
+            tags: vec![hash(23)],
+            cursor: None,
+            limit: Some(Limit::new(10).unwrap()),
+            ring_program_id: None,
+        };
+        let spend_frontier = get_shielded_transactions_by_nullifiers(&db, spends.clone())
+            .await
+            .unwrap()
+            .scanned_through
+            .expect("an empty terminal page reports a frontier");
+        let output_frontier = get_encrypted_utxos_by_tags(&db, outputs.clone())
+            .await
+            .unwrap()
+            .scanned_through
+            .expect("an empty terminal page reports a frontier");
+
+        insert_spend(&db).await;
+        insert_history_output(&db, 3, None, zolana_event::tag::DEPOSIT).await;
+
+        let resumed_spends = get_shielded_transactions_by_nullifiers(
+            &db,
+            GetRingsByNullifiersRequest {
+                cursor: Some(spend_frontier),
+                ..spends
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(resumed_spends.transactions.len(), 1);
+        let resumed_outputs = get_encrypted_utxos_by_tags(
+            &db,
+            GetRingsByTagsRequest {
+                cursor: Some(output_frontier),
+                ..outputs
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(resumed_outputs.matches.len(), 1);
     }
 
     /// The position claims nothing matches at or before it, true only when the

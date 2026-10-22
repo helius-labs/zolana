@@ -6,6 +6,9 @@ export {
   type DecryptLabel,
   type DecryptRequest,
   type DeriveRequest,
+  type RingDeliveryRequest,
+  type RingKeys,
+  type RingRecipientKey,
   type ShieldedKeys,
   type TransactionKeyRequest,
 } from "../transaction/wallet/keys.js";
@@ -13,8 +16,6 @@ export { LocalKeys } from "../client/keys.js";
 export type { ProofAuthority, ProofService, WalletKeys } from "../client/ports.js";
 export type {
   AnonymousRecipientSlot,
-  AuditWitness,
-  EncryptedCustomRingTransfer,
   EncryptedEnvelope,
   EncryptedSplit,
   EncryptedTransfer,
@@ -54,10 +55,43 @@ export {
   getPrivateTokenBalances,
   getPrivateTransactions,
   syncWallet,
+  type AnonymousRingSyncInput,
   type SyncClient,
   type SyncWalletConfig,
   type SyncWalletInput,
 } from "./sync.js";
+export {
+  TagAllocation,
+  issueRingAddress,
+  recordFirstContacts,
+  retireFirstContact,
+  ringAddressOf,
+  type AnonymousIndexer,
+  type PaymentStream,
+  type PaymentTag,
+} from "./anonymous-sync.js";
+export {
+  ADDRESS_GAP,
+  AnonymousRingState,
+  DECOYS_PER_TREE,
+  DEPOSIT_TAG_WINDOW,
+  MAX_FETCH_EPOCHS,
+  MAX_ISSUED_ADDRESSES,
+  PAIR_IDLE_EPOCHS,
+  type DecoyLeaf,
+  type IndexedSpend,
+  type IssuedAddress,
+  type PairAnchor,
+  type ReceivedAnchor,
+  type SentFirstContact,
+} from "../transaction/wallet/anonymous-state.js";
+export type {
+  AnonymousRingNote,
+  AnonymousRingReport,
+  AnonymousStream,
+  PendingAnonymousNote,
+} from "../transaction/wallet/anonymous.js";
+export { resolvePendingNotes, type ResolvedPendingNote } from "../transaction/wallet/sync.js";
 export {
   loadPersistedWallet,
   savePersistedWallet,

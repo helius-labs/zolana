@@ -479,6 +479,7 @@ pub fn build_transfer_prover_inputs(args: TransferProverInputsArgs) -> TransferI
         tree_slots: TreeSlotFields::encode_all(&args.tree_slots),
         output_tree_id: BigUint::from(args.output_tree_id),
         blinding_seed: be(&args.blinding_seed),
+        ring_secrets: Vec::new(),
         inputs: args.inputs,
         outputs: args.outputs,
         external_data_hash: be(&args.external_data_hash),

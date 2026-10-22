@@ -18,10 +18,12 @@ package fingerprint
 import (
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/consensys/gnark/constraint"
 
+	"github.com/helius-labs/zolana/prover/server/prover/common"
 	customring "github.com/helius-labs/zolana/prover/server/prover/custom_ring"
 	mergeprover "github.com/helius-labs/zolana/prover/server/prover/merge"
 	nulltree "github.com/helius-labs/zolana/prover/server/prover/nullifier_tree"
@@ -63,23 +65,20 @@ func compileFingerprints(t *testing.T) map[string]fingerprint {
 	anonymousRing, err := eddsaprover.R1CSAnonymousEddsaTransfer(2, 4)
 	add("transfer_eddsa_ring_2_4", anonymousRing, err)
 
-	customRing, err := customring.R1CSPolicy()
-	add("custom_ring_policy", customRing, err)
-
-	delegate, err := customring.R1CSDelegatePolicy()
-	add("custom_ring_delegate_policy", delegate, err)
-
-	audit, err := customring.R1CSBase()
-	add("custom_ring_base", audit, err)
-
-	compressed, err := customring.R1CSCompressedPolicy()
-	add("custom_ring_compressed_policy", compressed, err)
-
-	registerKey, err := customring.R1CSKeyRegister()
-	add("custom_ring_register_key", registerKey, err)
-
-	deposit, err := customring.R1CSDeposit()
-	add("custom_ring_deposit", deposit, err)
+	// One key per family, TestRingKeyCatalog pins every ring key.
+	families := map[common.RingFamily]bool{}
+	for _, key := range common.RingKeys {
+		if families[key.Family] {
+			continue
+		}
+		families[key.Family] = true
+		ring, err := customring.Ring(key.Circuit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cs, err := ring.R1CS()
+		add(strings.TrimSuffix(common.RingKeyFile(key.Circuit), ".key"), cs, err)
+	}
 
 	merged, err := mergeprover.R1CSMerge(24)
 	add("merge_24_1", merged, err)
@@ -97,19 +96,23 @@ func compileFingerprints(t *testing.T) map[string]fingerprint {
 // prover/server/prover/provingkeys/proving-keys.lock. Regenerate with
 // UPDATE_FINGERPRINTS=1 after a full key rotation.
 var expectedFingerprints = map[string]fingerprint{
-	"transfer_confidential_2_4":     {constraints: 57558, public: 2},
-	"transfer_ring_2_4":             {constraints: 57684, public: 2},
-	"transfer_ring_authority_2_2":   {constraints: 51913, public: 2},
-	"transfer_eddsa_ring_2_4":       {constraints: 109382, public: 2},
-	"custom_ring_policy":            {constraints: 463087, public: 2},
-	"custom_ring_compressed_policy": {constraints: 1137117, public: 2},
-	"custom_ring_register_key":      {constraints: 80819, public: 2},
-	"custom_ring_deposit":           {constraints: 208516, public: 2},
-	"custom_ring_delegate_policy":   {constraints: 450712, public: 2},
-	"custom_ring_base":              {constraints: 124723, public: 2},
-	"merge_24_1":                    {constraints: 527430, public: 2},
-	"merge_ring_24_1":               {constraints: 526077, public: 2},
-	"batch_address-append_40_10":    {constraints: 421991, public: 2},
+	"batch_address-append_40_10":            {constraints: 421991, public: 2},
+	"custom_ring_apply_records_1":           {constraints: 15492, public: 2},
+	"custom_ring_audit_anonymous_4_2":       {constraints: 123527, public: 2},
+	"custom_ring_audit_anonymous_entry_8_2": {constraints: 138067, public: 2},
+	"custom_ring_audit_delivered_8":         {constraints: 284405, public: 2},
+	"custom_ring_audit_packed_2":            {constraints: 53502, public: 2},
+	"custom_ring_deposit":                   {constraints: 148936, public: 2},
+	"custom_ring_merge_anonymous_8":         {constraints: 56192, public: 2},
+	"custom_ring_policy_delegate_1x2":       {constraints: 48736, public: 2},
+	"custom_ring_policy_member_2":           {constraints: 48455, public: 2},
+	"custom_ring_register_key":              {constraints: 36991, public: 2},
+	"merge_24_1":                            {constraints: 527688, public: 2},
+	"merge_ring_24_1":                       {constraints: 531750, public: 2},
+	"transfer_confidential_2_4":             {constraints: 57558, public: 2},
+	"transfer_eddsa_ring_2_4":               {constraints: 129120, public: 2},
+	"transfer_ring_2_4":                     {constraints: 57708, public: 2},
+	"transfer_ring_authority_2_2":           {constraints: 51925, public: 2},
 }
 
 func TestCircuitFingerprintsMatchRotatedKeys(t *testing.T) {

@@ -77,16 +77,13 @@ for entry in "${rails[@]}"; do
     done
 done
 
-# The ring-authority rail (transfer_ring_authority) re-owns N inputs into N
-# outputs (freeze / thaw / permanent-delegate), so only the square shapes the
+# The ring-authority rail (transfer_ring_authority) re-owns inputs into
+# outputs (freeze / thaw / permanent-delegate), so only the shapes the
 # on-chain verifier supports are generated.
 if [[ "${SKIP_AUTHORITY_KEYS:-0}" != "1" ]]; then
-    authority_shapes=(
-        "2 2"
-        "4 4"
-    )
-    for shape in "${authority_shapes[@]}"; do
-        read -r n_inputs n_outputs <<<"$shape"
+    authority_shapes="$(python3 -c 'import json, sys; print("\n".join(f"{i} {o}" for i, o in json.load(open(sys.argv[1]))["ring_authority"]))' \
+        ../../test-vectors/ring_keyed_shapes.json)"
+    while read -r n_inputs n_outputs; do
         output="${keys_dir}/transfer_ring_authority_${n_inputs}_${n_outputs}.key"
         echo "Generating transfer-ring-authority ${n_inputs}x${n_outputs} -> ${output}"
         ./light-prover setup-transfer \
@@ -94,7 +91,7 @@ if [[ "${SKIP_AUTHORITY_KEYS:-0}" != "1" ]]; then
             --n-inputs "$n_inputs" \
             --n-outputs "$n_outputs" \
             --output "$output"
-    done
+    done <<<"$authority_shapes"
 fi
 
 echo "Done. Transfer proving keys written to ${keys_dir}"

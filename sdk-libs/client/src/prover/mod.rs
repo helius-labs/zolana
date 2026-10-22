@@ -10,7 +10,7 @@ pub(crate) mod json;
 pub mod merge;
 mod proof;
 pub mod proving_key;
-pub(crate) mod requests;
+pub mod requests;
 pub mod ring_authority;
 pub mod tee;
 pub mod timing;
@@ -27,9 +27,10 @@ pub use client::{
 };
 pub use endpoint::redact_api_key;
 pub use inputs::{
-    BatchAddressAppendInputs, CacheReadInputs, MergeInputs, TransferInput, TransferInputs,
-    TransferOutput, TreeSlotFields,
+    BatchAddressAppendInputs, CacheReadInputs, MergeInputs, MergeRegistration, TransferInput,
+    TransferInputs, TransferOutput, TreeSlotFields,
 };
+pub use json::secret_json_body;
 pub use merge::{MergeCacheTarget, MergeProofResult, MergeProver};
 pub use proof::{Commitments, CompressedCommitments, Proof, ProofCompressed};
 pub use proving_key::{
@@ -44,7 +45,8 @@ pub use transact::{
     TransferProver,
 };
 pub use verify::{
-    verify_confidential_transfer_inputs, verify_confidential_transfer_proof, verify_proof_statement,
+    verify_confidential_transfer_inputs, verify_confidential_transfer_proof, verify_proof_inputs,
+    verify_proof_statement,
 };
 pub use zolana_transaction::instructions::transact::{Shape, SPP_SUPPORTED_SHAPES};
 pub use zolana_transaction::utxo::ProofInputUtxo;

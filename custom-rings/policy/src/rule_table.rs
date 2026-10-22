@@ -1,52 +1,44 @@
-use core::num::NonZeroU64;
-
 use bytemuck::{Pod, Zeroable};
 use thiserror::Error;
-use zolana_hasher::hash_chain::create_hash_chain_from_slice;
+use wincode::{SchemaRead, SchemaWrite};
+use zolana_hasher::{primitives::right_align, Hasher, HasherError, Poseidon};
 
-use crate::{field_u64, field_u8, ListId, ListSet, POLICY_TABLE_DOMAIN};
+use crate::{field_u8, ListId, ListSet};
 
 /// Rule slots compiled into the circuit, a new value rotates the proving key.
 pub const MAX_RULES: usize = 16;
-/// Inline asset slots per table, a circuit width.
+/// Mint threshold slots per table, a circuit width.
 pub const MAX_INLINE_ASSETS: usize = 8;
 /// Source slots, one per list the enum can name.
 pub const MAX_SOURCES: usize = 8;
-/// Velocity row slots per table, a circuit width.
-pub const MAX_VELOCITY_ASSETS: usize = 8;
-/// Answer slots per transfer, a circuit width.
-pub const ANSWER_SLOTS: usize = 10;
-/// Input slots the policy opens per transfer, a circuit width.
-pub const POLICY_INPUT_SLOTS: usize = 5;
-/// Output slots the policy opens per transfer, a circuit width.
-pub const POLICY_OUTPUT_SLOTS: usize = 4;
+/// Curator registries one policy may read lists from, a circuit width.
+pub const N_FOREIGN: usize = 1;
+/// Outflow limit slots per table, a circuit width.
+pub const MAX_OUTFLOW_LIMITS: usize = 8;
 /// Enters `policy_hash`, bump it with any change of the encoding below.
-pub const POLICY_VERSION: u8 = 7;
+pub const POLICY_TABLE_VERSION: u8 = 11;
+/// `"CRTB"`, the first field of the table hash, `domain::POLICY_TABLE` of the interface.
+pub const POLICY_TABLE_DOMAIN: u32 = 0x4352_5442;
+pub const POLICY_TABLE_FIELDS: usize =
+    5 + 2 * MAX_SOURCES + MAX_RULES + 2 * MAX_INLINE_ASSETS + 3 * MAX_OUTFLOW_LIMITS;
+/// Fields absorbed per Poseidon call beside the accumulator, the 12-input syscall maximum.
+pub const POLICY_TABLE_RATE: usize = 11;
 
-/// Distinct sender keys and live outputs of one transfer.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct AnswerLoad {
-    pub senders: usize,
-    pub outputs: usize,
-}
+const _: () =
+    assert!(POLICY_TABLE_FIELDS == 77 && POLICY_TABLE_FIELDS.is_multiple_of(POLICY_TABLE_RATE));
 
-/// A one-key spend at the output width, every table answers it in one transfer.
-pub const GUARANTEED_LOAD: AnswerLoad = AnswerLoad {
-    senders: 1,
-    outputs: POLICY_OUTPUT_SLOTS,
-};
-
-/// One list and owner pair, list id 0 marks an empty slot with a zero hash.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct SourceOwner {
+pub struct PolicySource {
+    /// Zero marks an empty slot.
     pub list_id: u8,
-    pub owner_hash: [u8; 32],
+    /// A curator's `registry_field`, zero for the ring's own.
+    pub registry: [u8; 32],
 }
 
 /// Positional source map, slot `i` is empty or serves list `i + 1`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SourceMap {
-    slots: [SourceOwner; MAX_SOURCES],
+    slots: [PolicySource; MAX_SOURCES],
 }
 
 /// A slot violates the positional layout.
@@ -56,183 +48,127 @@ pub enum SourceMapError {
     NotPositional,
     #[error("list is already mapped")]
     Duplicate,
-    #[error("owner hash is zero")]
-    ZeroOwner,
+    #[error("the curator slots name more than {N_FOREIGN} registry")]
+    SeveralCurators,
 }
 
+/// A table the program refuses to store.
 #[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
-pub enum PolicyHashError {
-    #[error("hashing failed")]
-    Hashing,
-    #[error("no source for the list")]
+pub enum PolicyTableError {
+    #[error("no source serves a list a rule reads")]
     MissingSource(ListId),
     #[error(transparent)]
-    Table(RuleTableError),
+    Table(#[from] RuleTableError),
 }
 
-/// The slots break the positional layout, or an owner hash could not be derived.
-#[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
-pub enum SourceMapOwnerError<E> {
-    #[error(transparent)]
-    Map(SourceMapError),
-    #[error("owner hash derivation failed")]
-    Owner(E),
-}
-
-/// A table or a row the circuit cannot enforce.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RuleTableError {
-    TooManyRules,
-    TooManyInlineAssets,
-    ZeroInlineAsset,
-    InlineNotAsset,
-    InlineAbsent,
-    InlineWithoutPool,
-    PoolWithoutInlineRule,
-    EmptyLists,
-    ListInBothSets,
-    SenderGuard,
-    ExitDestination,
-    ZeroThreshold,
-    DuplicateRule,
-    OwnerGuardWithoutInlineAsset,
-    PerAssetGuardNotOwner,
-    MissingAssetLimit,
-    AssetLimitWithoutGuard,
-    DuplicateInlineAsset,
-    TooManyAnswers,
-    UnknownSubject,
-    UnknownMode,
-    UnknownGuardTag,
-    ThresholdWithoutGuard,
-    ReservedBytes,
-    NonCanonicalAlternative,
-    InlineWithAlternative,
-    NonZeroPadding,
-    TooManyVelocityAssets,
-    WindowWithoutVelocity,
-    ZeroVelocityAsset,
-    DuplicateVelocityAsset,
-    VelocityRowWithoutBound,
-}
-
-impl RuleTableError {
-    pub const fn message(&self) -> &'static str {
-        match self {
-            Self::TooManyRules => "policy table is full",
-            Self::TooManyInlineAssets => "inline asset list exceeds the circuit width",
-            Self::ZeroInlineAsset => "zero is the padding value, never a member",
-            Self::InlineNotAsset => "inline members serve asset rules only",
-            Self::InlineAbsent => "inline members express an allowlist only",
-            Self::InlineWithoutPool => "inline asset list is empty",
-            Self::PoolWithoutInlineRule => "inline assets without a rule consuming them",
-            Self::EmptyLists => "a group names no list",
-            Self::ListInBothSets => "a list is both required and forbidden",
-            Self::SenderGuard => "sender rules take no amount guard",
-            Self::ExitDestination => "exit destinations are enforced by no plane yet",
-            Self::ZeroThreshold => "a zero threshold is Guard::Always",
-            Self::DuplicateRule => "duplicate rule",
-            Self::OwnerGuardWithoutInlineAsset => {
-                "an owner amount guard needs a single unguarded inline asset"
-            }
-            Self::PerAssetGuardNotOwner => "per-asset limits apply to output owners only",
-            Self::MissingAssetLimit => "every inline asset needs a nonzero limit",
-            Self::AssetLimitWithoutGuard => "asset limits need a per-asset guard",
-            Self::DuplicateInlineAsset => "inline assets must be unique",
-            Self::TooManyAnswers => {
-                "a one-key input_utxo at the output width exceeds the answer slots"
-            }
-            Self::UnknownSubject => "unknown subject",
-            Self::UnknownMode => "unknown mode",
-            Self::UnknownGuardTag => "unknown guard tag",
-            Self::ThresholdWithoutGuard => "a threshold without a guard",
-            Self::ReservedBytes => "reserved row bytes are not zero",
-            Self::NonCanonicalAlternative => "an alternative beside an absent primary",
-            Self::InlineWithAlternative => "an inline rule with an alternative",
-            Self::NonZeroPadding => "padding past the counts is not zero",
-            Self::TooManyVelocityAssets => "velocity rows exceed the circuit width",
-            Self::WindowWithoutVelocity => "a window needs velocity rows",
-            Self::ZeroVelocityAsset => "a velocity row names no mint",
-            Self::DuplicateVelocityAsset => "velocity mints must be unique",
-            Self::VelocityRowWithoutBound => "a velocity row needs a cap or a cosign threshold",
+macro_rules! rule_errors {
+    ($($variant:ident => $message:literal,)*) => {
+        /// A table or a row the circuit cannot enforce.
+        #[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
+        pub enum RuleTableError {
+            $(#[error($message)] $variant,)*
         }
-    }
+
+        impl RuleTableError {
+            /// Const, a refused `RuleTableBuilder::build` panics with it at compile time.
+            pub const fn message(&self) -> &'static str {
+                match self {
+                    $(Self::$variant => $message,)*
+                }
+            }
+        }
+    };
 }
 
-impl core::fmt::Display for RuleTableError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str(self.message())
-    }
+rule_errors! {
+    TooManyRules => "policy table is full",
+    TooManyInlineAssets => "asset thresholds exceed the circuit width",
+    ZeroInlineAsset => "zero is the padding value, never a member",
+    PoolWithoutInlineRule => "asset thresholds without a per-asset guard",
+    EmptyLists => "a group names no list",
+    ListInBothSets => "a list is both required and forbidden",
+    SenderGuard => "sender rules take no amount guard",
+    ExitDestination => "exit destinations are enforced by no plane",
+    ZeroThreshold => "a zero threshold is Guard::Always",
+    DuplicateRule => "duplicate rule",
+    PerAssetGuardNotOwner => "per-asset limits apply to output owners only",
+    MissingAssetLimit => "every mint threshold needs a nonzero limit",
+    AssetLimitWithoutGuard => "asset limits need a per-asset guard",
+    DuplicateInlineAsset => "mint thresholds must name distinct assets",
+    UnknownSubject => "unknown subject",
+    UnknownMode => "unknown mode",
+    UnknownGuardTag => "unknown guard tag",
+    ThresholdWithoutGuard => "a threshold without a guard",
+    ReservedBytes => "reserved row bytes are not zero",
+    NonCanonicalAlternative => "an alternative beside an absent primary",
+    NonZeroPadding => "padding past the counts is not zero",
+    TooManyOutflowLimits => "outflow limits exceed the circuit width",
+    ZeroLimitAsset => "an outflow limit names no mint",
+    DuplicateLimitAsset => "outflow limit mints must be unique",
+    LimitWithoutBound => "an outflow limit needs a cap or a cosign threshold",
+    MemberWrittenList => "a rule reads a list its members write",
 }
-
-impl core::error::Error for RuleTableError {}
 
 impl SourceMap {
-    pub const fn empty() -> Self {
-        Self {
-            slots: [SourceOwner {
-                list_id: 0,
-                owner_hash: [0u8; 32],
-            }; MAX_SOURCES],
-        }
-    }
-
     pub fn new(entries: &[(ListId, [u8; 32])]) -> Result<Self, SourceMapError> {
-        let mut sources = Self::empty();
-        for (list_id, owner_hash) in entries {
-            if *owner_hash == [0u8; 32] {
-                return Err(SourceMapError::ZeroOwner);
-            }
+        let mut sources = Self::default();
+        for (list_id, registry) in entries {
             let slot = &mut sources.slots[list_id.slot()];
             if slot.list_id != 0 {
                 return Err(SourceMapError::Duplicate);
             }
-            *slot = SourceOwner {
+            *slot = PolicySource {
                 list_id: *list_id as u8,
-                owner_hash: *owner_hash,
+                registry: *registry,
             };
         }
+        sources.check_curators()?;
         Ok(sources)
     }
 
     /// Validates stored slots instead of re-canonicalizing them.
-    pub fn from_slots(slots: [SourceOwner; MAX_SOURCES]) -> Result<Self, SourceMapError> {
+    pub fn from_slots(slots: [PolicySource; MAX_SOURCES]) -> Result<Self, SourceMapError> {
         for (index, slot) in slots.iter().enumerate() {
-            let empty = slot.list_id == 0 && slot.owner_hash == [0u8; 32];
-            let positional = slot.list_id as usize == index + 1 && slot.owner_hash != [0u8; 32];
+            let empty = slot.list_id == 0 && slot.registry == [0u8; 32];
+            let positional = slot.list_id as usize == index + 1;
             if !empty && !positional {
                 return Err(SourceMapError::NotPositional);
             }
         }
-        Ok(Self { slots })
+        let map = Self { slots };
+        map.check_curators()?;
+        Ok(map)
     }
 
-    /// The map a `PolicyConfig`'s stored `(list_id, namespace)` slots resolve to,
-    /// each namespace address hashed to its owner. An empty slot is `list_id` 0.
-    pub fn from_namespaces<E>(
-        slots: &[(u8, [u8; 32]); MAX_SOURCES],
-        owner_hash: impl Fn(&[u8; 32]) -> Result<[u8; 32], E>,
-    ) -> Result<Self, SourceMapOwnerError<E>> {
-        let mut out = [SourceOwner::default(); MAX_SOURCES];
-        for (dst, (list_id, namespace)) in out.iter_mut().zip(slots) {
-            if *list_id == 0 {
-                continue;
-            }
-            *dst = SourceOwner {
-                list_id: *list_id,
-                owner_hash: owner_hash(namespace).map_err(SourceMapOwnerError::Owner)?,
-            };
+    /// Every curator slot names the one foreign registry the circuit opens.
+    fn check_curators(&self) -> Result<(), SourceMapError> {
+        let mut curators = self
+            .slots
+            .iter()
+            .map(|slot| slot.registry)
+            .filter(|registry| *registry != [0u8; 32]);
+        let first = curators.next();
+        if curators.any(|registry| Some(registry) != first) {
+            return Err(SourceMapError::SeveralCurators);
         }
-        Self::from_slots(out).map_err(SourceMapOwnerError::Map)
+        Ok(())
     }
 
-    /// The owner serving a list, `None` when unmapped.
-    pub fn owner_hash(&self, list_id: ListId) -> Option<&[u8; 32]> {
+    /// The registry serving a list, zero for the ring's own, `None` when unmapped.
+    pub fn registry(&self, list_id: ListId) -> Option<&[u8; 32]> {
         let slot = &self.slots[list_id.slot()];
-        (slot.list_id != 0).then_some(&slot.owner_hash)
+        (slot.list_id != 0).then_some(&slot.registry)
     }
 
-    pub const fn slots(&self) -> &[SourceOwner; MAX_SOURCES] {
+    /// The curator registry a slot names, `None` when every mapped list is the ring's own.
+    pub fn curator(&self) -> Option<[u8; 32]> {
+        self.slots
+            .iter()
+            .map(|slot| slot.registry)
+            .find(|registry| *registry != [0u8; 32])
+    }
+
+    pub const fn slots(&self) -> &[PolicySource; MAX_SOURCES] {
         &self.slots
     }
 }
@@ -263,11 +199,10 @@ pub enum Guard {
     AboveAmountByAsset,
 }
 
-/// A disjunction over entry lists, or the assets the table carries inline.
+/// A disjunction over registry lists.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RuleSource {
     Lists { present: ListSet, absent: ListSet },
-    InlineAssets,
 }
 
 /// One obligation, packed into a single field element for the hash.
@@ -323,15 +258,6 @@ impl Rule {
         }
     }
 
-    /// Restricts assets to the members the table carries, no entries involved.
-    pub const fn allow_only_assets() -> Self {
-        Self {
-            subject: Subject::Asset,
-            source: RuleSource::InlineAssets,
-            guard: Guard::Always,
-        }
-    }
-
     /// The rule passes below the threshold without a membership check.
     #[must_use]
     pub const fn above(self, amount: u64) -> Self {
@@ -352,15 +278,14 @@ impl Rule {
     pub const fn primary_mode(&self) -> Mode {
         match self.source {
             RuleSource::Lists { present, .. } if present.is_empty() => Mode::Absent,
-            RuleSource::Lists { .. } | RuleSource::InlineAssets => Mode::Present,
+            RuleSource::Lists { .. } => Mode::Present,
         }
     }
 
-    /// The lists the rule consults, empty for the inline source.
+    /// The registry lists the rule consults.
     pub const fn referenced(&self) -> ListSet {
         match self.source {
             RuleSource::Lists { present, absent } => present.union(absent),
-            RuleSource::InlineAssets => ListSet::EMPTY,
         }
     }
 
@@ -368,7 +293,6 @@ impl Rule {
     pub fn alternatives(&self) -> impl Iterator<Item = (ListId, Mode)> {
         let (present, absent) = match self.source {
             RuleSource::Lists { present, absent } => (present, absent),
-            RuleSource::InlineAssets => (ListSet::EMPTY, ListSet::EMPTY),
         };
         present
             .iter()
@@ -378,7 +302,6 @@ impl Rule {
 
     pub fn encoded(&self) -> [u8; 32] {
         let (mask, alternative) = match self.source {
-            RuleSource::InlineAssets => (ListSet::EMPTY, ListSet::EMPTY),
             RuleSource::Lists { present, absent } => match self.primary_mode() {
                 Mode::Present => (present, absent),
                 Mode::Absent => (absent, ListSet::EMPTY),
@@ -420,28 +343,21 @@ impl Rule {
         };
         let mask = ListSet::from_bits(row.mask);
         let alternative = ListSet::from_bits(row.alternative);
-        let source = if mask.is_empty() {
-            if !alternative.is_empty() {
-                return Err(RuleTableError::InlineWithAlternative);
+        if mask.is_empty() {
+            return Err(RuleTableError::EmptyLists);
+        }
+        let source = match mode {
+            Mode::Present => RuleSource::Lists {
+                present: mask,
+                absent: alternative,
+            },
+            Mode::Absent if !alternative.is_empty() => {
+                return Err(RuleTableError::NonCanonicalAlternative)
             }
-            if matches!(mode, Mode::Absent) {
-                return Err(RuleTableError::InlineAbsent);
-            }
-            RuleSource::InlineAssets
-        } else {
-            match mode {
-                Mode::Present => RuleSource::Lists {
-                    present: mask,
-                    absent: alternative,
-                },
-                Mode::Absent if !alternative.is_empty() => {
-                    return Err(RuleTableError::NonCanonicalAlternative)
-                }
-                Mode::Absent => RuleSource::Lists {
-                    present: ListSet::EMPTY,
-                    absent: mask,
-                },
-            }
+            Mode::Absent => RuleSource::Lists {
+                present: ListSet::EMPTY,
+                absent: mask,
+            },
         };
         let threshold = u64::from_be_bytes(row.threshold);
         let guard = match row.guard_tag {
@@ -471,10 +387,7 @@ impl Rule {
             RuleSource::Lists { present, absent } if present.intersects(absent) => {
                 return Err(RuleTableError::ListInBothSets)
             }
-            RuleSource::InlineAssets if !matches!(self.subject, Subject::Asset) => {
-                return Err(RuleTableError::InlineNotAsset)
-            }
-            RuleSource::Lists { .. } | RuleSource::InlineAssets => {}
+            RuleSource::Lists { .. } => {}
         }
         match self.guard {
             Guard::AboveAmount(_) if matches!(self.subject, Subject::Sender) => {
@@ -484,9 +397,6 @@ impl Rule {
             Guard::AboveAmountByAsset if !matches!(self.subject, Subject::OutputOwner) => {
                 Err(RuleTableError::PerAssetGuardNotOwner)
             }
-            Guard::AboveAmountByAsset if matches!(self.source, RuleSource::InlineAssets) => {
-                Err(RuleTableError::PerAssetGuardNotOwner)
-            }
             Guard::Always | Guard::AboveAmount(_) | Guard::AboveAmountByAsset => Ok(()),
         }
     }
@@ -494,20 +404,8 @@ impl Rule {
     const fn signature(&self) -> u32 {
         let (present, absent) = match self.source {
             RuleSource::Lists { present, absent } => (present.bits(), absent.bits()),
-            RuleSource::InlineAssets => (0, 0),
         };
         ((self.subject as u32) << 16) | ((present as u32) << 8) | absent as u32
-    }
-
-    const fn max_answers(&self, load: AnswerLoad) -> usize {
-        match self.source {
-            RuleSource::InlineAssets => 0,
-            RuleSource::Lists { .. } => match self.subject {
-                Subject::Sender => load.senders,
-                Subject::OutputOwner | Subject::Asset => load.outputs,
-                Subject::ExitDestination => 0,
-            },
-        }
     }
 
     const fn disabled() -> Self {
@@ -515,43 +413,22 @@ impl Rule {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct VelocityRow {
+/// Bounds one transfer's outflow of `asset`, zero leaves a bound off.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct OutflowLimit {
     pub asset: [u8; 32],
+    /// The transfer fails above it.
     pub cap: u64,
+    /// The transfer needs the co-signer above it.
     pub cosign_above: u64,
 }
 
-impl VelocityRow {
+impl OutflowLimit {
     pub const EMPTY: Self = Self {
         asset: [0u8; 32],
         cap: 0,
         cosign_above: 0,
     };
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum VelocityMode {
-    Off,
-    /// Each transfer's outflow per mint stays under the row's cap.
-    PerTransfer,
-    /// Row counters carry across a fixed window the record commits.
-    PerWindow {
-        window_slots: u64,
-    },
-}
-
-impl VelocityMode {
-    /// A window without rows fails closed into the windowed path.
-    const fn of(window_slots: u64, velocity_len: u8) -> Self {
-        if window_slots != 0 {
-            Self::PerWindow { window_slots }
-        } else if velocity_len == 0 {
-            Self::Off
-        } else {
-            Self::PerTransfer
-        }
-    }
 }
 
 /// The circuit can enforce every instance.
@@ -562,9 +439,8 @@ pub struct RuleTable {
     inline_assets: [[u8; 32]; MAX_INLINE_ASSETS],
     inline_limits: [u64; MAX_INLINE_ASSETS],
     inline_len: u8,
-    window_slots: u64,
-    velocity: [VelocityRow; MAX_VELOCITY_ASSETS],
-    velocity_len: u8,
+    limits: [OutflowLimit; MAX_OUTFLOW_LIMITS],
+    limit_len: u8,
 }
 
 impl RuleTable {
@@ -575,9 +451,8 @@ impl RuleTable {
             inline_assets: [[0u8; 32]; MAX_INLINE_ASSETS],
             inline_limits: [0; MAX_INLINE_ASSETS],
             inline_len: 0,
-            window_slots: 0,
-            velocity: [VelocityRow::EMPTY; MAX_VELOCITY_ASSETS],
-            velocity_len: 0,
+            limits: [OutflowLimit::EMPTY; MAX_OUTFLOW_LIMITS],
+            limit_len: 0,
         }
     }
 
@@ -587,7 +462,7 @@ impl RuleTable {
             rule_count: 0,
             member_count: 0,
             limit_count: 0,
-            velocity_count: 0,
+            outflow_count: 0,
         }
     }
 
@@ -603,16 +478,8 @@ impl RuleTable {
         &self.inline_limits[..usize::from(self.inline_len)]
     }
 
-    pub const fn window_slots(&self) -> u64 {
-        self.window_slots
-    }
-
-    pub const fn velocity_mode(&self) -> VelocityMode {
-        VelocityMode::of(self.window_slots, self.velocity_len)
-    }
-
-    pub fn velocity(&self) -> &[VelocityRow] {
-        &self.velocity[..usize::from(self.velocity_len)]
+    pub fn limits(&self) -> &[OutflowLimit] {
+        &self.limits[..usize::from(self.limit_len)]
     }
 
     pub const fn is_empty(&self) -> bool {
@@ -629,44 +496,23 @@ impl RuleTable {
         set
     }
 
-    /// Upper bound on answer triples, reached with members disjoint across subjects.
-    pub const fn max_answers(&self, load: AnswerLoad) -> usize {
-        assert!(
-            load.senders <= POLICY_INPUT_SLOTS && load.outputs <= POLICY_OUTPUT_SLOTS,
-            "answer load exceeds the policy openings"
-        );
-        let mut total = 0;
-        let mut i = 0;
-        while i < self.len as usize {
-            total += self.rules[i].max_answers(load);
-            i += 1;
-        }
-        total
-    }
-
     pub fn encode(&self) -> EncodedRuleTable {
         let mut encoded = EncodedRuleTable {
             rule_count: self.len,
-            rules: [[0u8; 32]; MAX_RULES],
             inline_count: self.inline_len,
             inline_assets: self.inline_assets,
             inline_limits: self.inline_limits.map(u64::to_be_bytes),
-            window_slots: self.window_slots.to_be_bytes(),
-            velocity_count: self.velocity_len,
-            velocity_assets: [[0u8; 32]; MAX_VELOCITY_ASSETS],
-            velocity_caps: [[0u8; 8]; MAX_VELOCITY_ASSETS],
-            velocity_cosign: [[0u8; 8]; MAX_VELOCITY_ASSETS],
+            limit_count: self.limit_len,
+            ..EncodedRuleTable::default()
         };
         for (row, rule) in encoded.rules.iter_mut().zip(self.rules()) {
             *row = rule.encoded();
         }
-        encoded.write_velocity_columns(self.velocity());
+        encoded.write_limit_columns(self.limits());
         encoded
     }
 
-    /// The map binds each referenced list to one namespace, an uncovered
-    /// rule fails closed.
-    pub fn hash(&self, sources: &SourceMap) -> Result<[u8; 32], PolicyHashError> {
+    pub fn hash(&self, sources: &SourceMap) -> Result<[u8; 32], HasherError> {
         self.encode().hash(sources)
     }
 }
@@ -678,61 +524,35 @@ pub struct RuleTableBuilder {
     rule_count: usize,
     member_count: usize,
     limit_count: usize,
-    velocity_count: usize,
+    outflow_count: usize,
 }
 
 impl RuleTableBuilder {
     #[must_use]
     pub const fn rule(mut self, rule: Rule) -> Self {
-        if self.rule_count < MAX_RULES {
-            self.table.rules[self.rule_count] = rule;
-        }
-        self.rule_count += 1;
+        push(&mut self.table.rules, &mut self.rule_count, &[rule]);
         self
     }
 
     #[must_use]
     pub const fn inline_assets(mut self, members: &[[u8; 32]]) -> Self {
-        let mut i = 0;
-        while i < members.len() {
-            if self.member_count < MAX_INLINE_ASSETS {
-                self.table.inline_assets[self.member_count] = members[i];
-            }
-            self.member_count += 1;
-            i += 1;
-        }
+        push(
+            &mut self.table.inline_assets,
+            &mut self.member_count,
+            members,
+        );
         self
     }
 
     #[must_use]
     pub const fn inline_limits(mut self, limits: &[u64]) -> Self {
-        let mut i = 0;
-        while i < limits.len() {
-            if self.limit_count < MAX_INLINE_ASSETS {
-                self.table.inline_limits[self.limit_count] = limits[i];
-            }
-            self.limit_count += 1;
-            i += 1;
-        }
+        push(&mut self.table.inline_limits, &mut self.limit_count, limits);
         self
     }
 
     #[must_use]
-    pub const fn windowed(mut self, window_slots: NonZeroU64) -> Self {
-        self.table.window_slots = window_slots.get();
-        self
-    }
-
-    #[must_use]
-    pub const fn velocity(mut self, rows: &[VelocityRow]) -> Self {
-        let mut i = 0;
-        while i < rows.len() {
-            if self.velocity_count < MAX_VELOCITY_ASSETS {
-                self.table.velocity[self.velocity_count] = rows[i];
-            }
-            self.velocity_count += 1;
-            i += 1;
-        }
+    pub const fn limits(mut self, limits: &[OutflowLimit]) -> Self {
+        push(&mut self.table.limits, &mut self.outflow_count, limits);
         self
     }
 
@@ -746,12 +566,12 @@ impl RuleTableBuilder {
         if self.limit_count > MAX_INLINE_ASSETS {
             return Err(RuleTableError::TooManyInlineAssets);
         }
-        if self.velocity_count > MAX_VELOCITY_ASSETS {
-            return Err(RuleTableError::TooManyVelocityAssets);
+        if self.outflow_count > MAX_OUTFLOW_LIMITS {
+            return Err(RuleTableError::TooManyOutflowLimits);
         }
         self.table.len = self.rule_count as u8;
         self.table.inline_len = self.member_count as u8;
-        self.table.velocity_len = self.velocity_count as u8;
+        self.table.limit_len = self.outflow_count as u8;
         let table = self.table;
         let mut m = 0;
         while m < self.member_count {
@@ -760,10 +580,7 @@ impl RuleTableBuilder {
             }
             m += 1;
         }
-        let mut owner_guard = false;
         let mut per_asset_guard = false;
-        let mut inline_rule = false;
-        let mut unguarded_inline = false;
         let mut i = 0;
         while i < self.rule_count {
             let rule = table.rules[i];
@@ -777,29 +594,15 @@ impl RuleTableBuilder {
                 }
                 j += 1;
             }
-            if matches!(rule.source, RuleSource::InlineAssets) {
-                inline_rule = true;
-                unguarded_inline = matches!(rule.guard, Guard::Always);
-            }
-            if matches!(rule.subject, Subject::OutputOwner)
-                && matches!(rule.guard, Guard::AboveAmount(_))
-            {
-                owner_guard = true;
-            }
             if matches!(rule.guard, Guard::AboveAmountByAsset) {
                 per_asset_guard = true;
             }
             i += 1;
         }
-        if inline_rule && self.member_count == 0 {
-            return Err(RuleTableError::InlineWithoutPool);
-        }
-        if !inline_rule && !per_asset_guard && self.member_count > 0 {
+        if !per_asset_guard && self.member_count > 0 {
             return Err(RuleTableError::PoolWithoutInlineRule);
         }
-        if owner_guard && !(unguarded_inline && self.member_count == 1) {
-            return Err(RuleTableError::OwnerGuardWithoutInlineAsset);
-        }
+
         if per_asset_guard {
             if self.member_count == 0 || self.limit_count != self.member_count {
                 return Err(RuleTableError::MissingAssetLimit);
@@ -821,29 +624,23 @@ impl RuleTableBuilder {
         } else if self.limit_count != 0 {
             return Err(RuleTableError::AssetLimitWithoutGuard);
         }
-        if table.window_slots != 0 && self.velocity_count == 0 {
-            return Err(RuleTableError::WindowWithoutVelocity);
-        }
         let mut v = 0;
-        while v < self.velocity_count {
-            let row = table.velocity[v];
-            if is_zero(&row.asset) {
-                return Err(RuleTableError::ZeroVelocityAsset);
+        while v < self.outflow_count {
+            let limit = table.limits[v];
+            if is_zero(&limit.asset) {
+                return Err(RuleTableError::ZeroLimitAsset);
             }
-            if row.cap == 0 && row.cosign_above == 0 {
-                return Err(RuleTableError::VelocityRowWithoutBound);
+            if limit.cap == 0 && limit.cosign_above == 0 {
+                return Err(RuleTableError::LimitWithoutBound);
             }
             let mut w = 0;
             while w < v {
-                if equal(&table.velocity[w].asset, &row.asset) {
-                    return Err(RuleTableError::DuplicateVelocityAsset);
+                if equal(&table.limits[w].asset, &limit.asset) {
+                    return Err(RuleTableError::DuplicateLimitAsset);
                 }
                 w += 1;
             }
             v += 1;
-        }
-        if table.max_answers(GUARANTEED_LOAD) > ANSWER_SLOTS {
-            return Err(RuleTableError::TooManyAnswers);
         }
         Ok(table)
     }
@@ -856,15 +653,20 @@ impl RuleTableBuilder {
     }
 }
 
-const fn is_zero(bytes: &[u8; 32]) -> bool {
+/// Counts every item and stores those that fit, `try_build` refuses an overflowing count.
+const fn push<T: Copy, const N: usize>(slots: &mut [T; N], len: &mut usize, items: &[T]) {
     let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] != 0 {
-            return false;
+    while i < items.len() {
+        if *len < N {
+            slots[*len] = items[i];
         }
+        *len += 1;
         i += 1;
     }
-    true
+}
+
+const fn is_zero(bytes: &[u8; 32]) -> bool {
+    equal(bytes, &[0u8; 32])
 }
 
 const fn equal(left: &[u8; 32], right: &[u8; 32]) -> bool {
@@ -879,7 +681,7 @@ const fn equal(left: &[u8; 32], right: &[u8; 32]) -> bool {
 }
 
 /// Rows past `rule_count` and members past `inline_count` stay zero.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Pod, Zeroable)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Pod, Zeroable)]
 #[repr(C)]
 pub struct EncodedRuleTable {
     pub rule_count: u8,
@@ -887,21 +689,19 @@ pub struct EncodedRuleTable {
     pub inline_count: u8,
     pub inline_assets: [[u8; 32]; MAX_INLINE_ASSETS],
     pub inline_limits: [[u8; 8]; MAX_INLINE_ASSETS],
-    pub window_slots: [u8; 8],
-    pub velocity_count: u8,
-    pub velocity_assets: [[u8; 32]; MAX_VELOCITY_ASSETS],
-    pub velocity_caps: [[u8; 8]; MAX_VELOCITY_ASSETS],
-    pub velocity_cosign: [[u8; 8]; MAX_VELOCITY_ASSETS],
+    pub limit_count: u8,
+    pub limit_assets: [[u8; 32]; MAX_OUTFLOW_LIMITS],
+    pub limit_caps: [[u8; 8]; MAX_OUTFLOW_LIMITS],
+    pub limit_cosign: [[u8; 8]; MAX_OUTFLOW_LIMITS],
 }
 
-/// Wire parts of a table, `encode` checks the counts and nothing else.
+/// Wire parts of a table, `encode` checks the counts and `decode` the rest.
 #[derive(Clone, Copy, Debug)]
 pub struct TableParts<'a> {
     pub rows: &'a [[u8; 32]],
     pub inline_assets: &'a [[u8; 32]],
     pub inline_limits: &'a [u64],
-    pub window_slots: u64,
-    pub velocity: &'a [VelocityRow],
+    pub limits: &'a [OutflowLimit],
 }
 
 impl TableParts<'_> {
@@ -910,8 +710,7 @@ impl TableParts<'_> {
             rows,
             inline_assets: inline,
             inline_limits: limits,
-            window_slots,
-            velocity,
+            limits: outflow,
         } = self;
         if rows.len() > MAX_RULES {
             return Err(RuleTableError::TooManyRules);
@@ -922,32 +721,21 @@ impl TableParts<'_> {
         if limits.len() != inline.len() {
             return Err(RuleTableError::MissingAssetLimit);
         }
-        if velocity.len() > MAX_VELOCITY_ASSETS {
-            return Err(RuleTableError::TooManyVelocityAssets);
+        if outflow.len() > MAX_OUTFLOW_LIMITS {
+            return Err(RuleTableError::TooManyOutflowLimits);
         }
-        let mut encoded = EncodedRuleTable::empty();
-        encoded
-            .rules
-            .get_mut(..rows.len())
-            .ok_or(RuleTableError::TooManyRules)?
-            .copy_from_slice(rows);
-        encoded
-            .inline_assets
-            .get_mut(..inline.len())
-            .ok_or(RuleTableError::TooManyInlineAssets)?
-            .copy_from_slice(inline);
-        encoded.rule_count = rows.len() as u8;
-        encoded.inline_count = inline.len() as u8;
-        let encoded_limits = encoded
-            .inline_limits
-            .get_mut(..limits.len())
-            .ok_or(RuleTableError::TooManyInlineAssets)?;
-        for (dst, limit) in encoded_limits.iter_mut().zip(limits) {
+        let mut encoded = EncodedRuleTable {
+            rule_count: rows.len() as u8,
+            inline_count: inline.len() as u8,
+            limit_count: outflow.len() as u8,
+            ..EncodedRuleTable::default()
+        };
+        encoded.rules[..rows.len()].copy_from_slice(rows);
+        encoded.inline_assets[..inline.len()].copy_from_slice(inline);
+        for (dst, limit) in encoded.inline_limits.iter_mut().zip(limits) {
             *dst = limit.to_be_bytes();
         }
-        encoded.window_slots = window_slots.to_be_bytes();
-        encoded.velocity_count = velocity.len() as u8;
-        encoded.write_velocity_columns(velocity);
+        encoded.write_limit_columns(outflow);
         Ok(encoded)
     }
 }
@@ -955,47 +743,9 @@ impl TableParts<'_> {
 impl EncodedRuleTable {
     pub const SIZE: usize = core::mem::size_of::<Self>();
 
-    pub const fn empty() -> Self {
-        Self {
-            rule_count: 0,
-            rules: [[0u8; 32]; MAX_RULES],
-            inline_count: 0,
-            inline_assets: [[0u8; 32]; MAX_INLINE_ASSETS],
-            inline_limits: [[0u8; 8]; MAX_INLINE_ASSETS],
-            window_slots: [0u8; 8],
-            velocity_count: 0,
-            velocity_assets: [[0u8; 32]; MAX_VELOCITY_ASSETS],
-            velocity_caps: [[0u8; 8]; MAX_VELOCITY_ASSETS],
-            velocity_cosign: [[0u8; 8]; MAX_VELOCITY_ASSETS],
-        }
-    }
-
-    pub const fn window_slots(&self) -> u64 {
-        u64::from_be_bytes(self.window_slots)
-    }
-
-    pub const fn velocity_mode(&self) -> VelocityMode {
-        VelocityMode::of(self.window_slots(), self.velocity_count)
-    }
-
-    pub fn from_parts(rows: &[[u8; 32]], inline: &[[u8; 32]]) -> Result<Self, RuleTableError> {
-        let limits = [0; MAX_INLINE_ASSETS];
-        Self::from_parts_with_limits(rows, inline, &limits[..inline.len().min(MAX_INLINE_ASSETS)])
-    }
-
-    pub fn from_parts_with_limits(
-        rows: &[[u8; 32]],
-        inline: &[[u8; 32]],
-        limits: &[u64],
-    ) -> Result<Self, RuleTableError> {
-        TableParts {
-            rows,
-            inline_assets: inline,
-            inline_limits: limits,
-            window_slots: 0,
-            velocity: &[],
-        }
-        .encode()
+    /// The table bounds a transfer's outflow.
+    pub const fn has_limits(&self) -> bool {
+        self.limit_count != 0
     }
 
     pub fn decode(&self) -> Result<RuleTable, RuleTableError> {
@@ -1004,38 +754,24 @@ impl EncodedRuleTable {
             members,
             limits,
         } = self.counted()?;
-        let padding = self.rules[rows.len()..]
-            .iter()
-            .chain(&self.inline_assets[members.len()..]);
-        if padding.into_iter().any(|slot| *slot != [0u8; 32]) {
-            return Err(RuleTableError::NonZeroPadding);
-        }
-        if self.inline_limits[limits.len()..]
-            .iter()
-            .any(|slot| *slot != [0u8; 8])
+        if !zero_past(&self.rules, rows.len())
+            || !zero_past(&self.inline_assets, members.len())
+            || !zero_past(&self.inline_limits, limits.len())
         {
             return Err(RuleTableError::NonZeroPadding);
         }
-        let velocity = self.velocity_rows()?;
-        let velocity_padding = self.velocity_assets[velocity.len()..]
-            .iter()
-            .any(|slot| *slot != [0u8; 32])
-            || self.velocity_caps[velocity.len()..]
-                .iter()
-                .chain(&self.velocity_cosign[velocity.len()..])
-                .any(|slot| *slot != [0u8; 8]);
-        if velocity_padding {
+        let outflow = self.outflow_limits()?;
+        let count = outflow.len();
+        if !zero_past(&self.limit_assets, count)
+            || !zero_past(&self.limit_caps, count)
+            || !zero_past(&self.limit_cosign, count)
+        {
             return Err(RuleTableError::NonZeroPadding);
         }
-        let decoded_limits: Vec<u64> = limits.iter().copied().map(u64::from_be_bytes).collect();
-        let mut builder = RuleTable::builder()
-            .inline_assets(members)
-            .velocity(&velocity);
-        if let Some(window) = NonZeroU64::new(self.window_slots()) {
-            builder = builder.windowed(window);
-        }
-        if decoded_limits.iter().any(|limit| *limit != 0) {
-            builder = builder.inline_limits(&decoded_limits);
+        let limits: Vec<u64> = limits.iter().copied().map(u64::from_be_bytes).collect();
+        let mut builder = RuleTable::builder().inline_assets(members).limits(&outflow);
+        if limits.iter().any(|limit| *limit != 0) {
+            builder = builder.inline_limits(&limits);
         }
         for row in rows {
             builder = builder.rule(Rule::decode(row)?);
@@ -1054,47 +790,75 @@ impl EncodedRuleTable {
             .fold(ListSet::EMPTY, ListSet::union)
     }
 
-    /// The map binds each referenced list to one namespace, an uncovered
-    /// rule fails closed.
-    pub fn hash(&self, sources: &SourceMap) -> Result<[u8; 32], PolicyHashError> {
-        let Counted {
-            rows,
-            members,
-            limits,
-        } = self.counted().map_err(PolicyHashError::Table)?;
-        if let Some(list_id) = self
-            .referenced()
+    /// The table a policy write stores, every check the circuit leaves to the program.
+    pub fn validate(&self, sources: &SourceMap) -> Result<RuleTable, PolicyTableError> {
+        let table = self.decode()?;
+        let referenced = self.referenced();
+        if !referenced.is_subset(ListSet::AUTHORITY_WRITES) {
+            return Err(RuleTableError::MemberWrittenList.into());
+        }
+        match referenced
             .iter()
-            .find(|list_id| sources.owner_hash(*list_id).is_none())
+            .find(|list_id| sources.registry(*list_id).is_none())
         {
-            return Err(PolicyHashError::MissingSource(list_id));
+            Some(list_id) => Err(PolicyTableError::MissingSource(list_id)),
+            None => Ok(table),
         }
-        let velocity = self.velocity_rows().map_err(PolicyHashError::Table)?;
-        let mut elements = Vec::with_capacity(
-            6 + 2 * MAX_SOURCES + rows.len() + 2 * members.len() + 3 * velocity.len(),
-        );
-        elements.push(POLICY_TABLE_DOMAIN);
-        elements.push(field_u8(POLICY_VERSION));
-        for slot in sources.slots() {
-            elements.push(field_u8(slot.list_id));
-            elements.push(slot.owner_hash);
+    }
+
+    /// Every slot past a count enters as stored, `validate` keeps it zero.
+    pub fn fields(&self, sources: &SourceMap) -> [[u8; 32]; POLICY_TABLE_FIELDS] {
+        let header = [
+            right_align(&POLICY_TABLE_DOMAIN.to_be_bytes()),
+            field_u8(POLICY_TABLE_VERSION),
+        ];
+        let counts = [
+            field_u8(self.rule_count),
+            field_u8(self.inline_count),
+            field_u8(self.limit_count),
+        ];
+        let values = header
+            .into_iter()
+            .chain(
+                sources
+                    .slots()
+                    .iter()
+                    .flat_map(|slot| [field_u8(slot.list_id), slot.registry]),
+            )
+            .chain(counts)
+            .chain(self.rules.iter().copied())
+            .chain(self.inline_assets.iter().copied())
+            .chain(self.inline_limits.iter().map(right_align))
+            .chain(
+                self.limit_assets
+                    .iter()
+                    .zip(&self.limit_caps)
+                    .zip(&self.limit_cosign)
+                    .flat_map(|((asset, cap), cosign)| {
+                        [*asset, right_align(cap), right_align(cosign)]
+                    }),
+            );
+        let mut fields = [[0u8; 32]; POLICY_TABLE_FIELDS];
+        for (field, value) in fields.iter_mut().zip(values) {
+            *field = value;
         }
-        elements.push(field_u8(self.rule_count));
-        // Counts make the variable length sections unambiguous.
-        elements.push(field_u8(self.inline_count));
-        elements.push(field_u8(self.velocity_count));
-        elements.extend_from_slice(rows);
-        for (member, limit) in members.iter().zip(limits) {
-            elements.push(*member);
-            elements.push(field_u64(u64::from_be_bytes(*limit)));
+        fields
+    }
+
+    /// `acc = Poseidon(acc, fields[11c..11c + 11])` from `acc = 0`, mirror
+    /// `prover/server/custom_rings/circuits/policy`.
+    pub fn hash(&self, sources: &SourceMap) -> Result<[u8; 32], HasherError> {
+        let fields = self.fields(sources);
+        let mut acc = [0u8; 32];
+        for chunk in fields.as_chunks::<POLICY_TABLE_RATE>().0 {
+            let mut inputs: [&[u8]; POLICY_TABLE_RATE + 1] = [&[]; POLICY_TABLE_RATE + 1];
+            inputs[0] = &acc;
+            for (input, field) in inputs[1..].iter_mut().zip(chunk) {
+                *input = field;
+            }
+            acc = Poseidon::hashv(&inputs)?;
         }
-        elements.push(field_u64(self.window_slots()));
-        for row in &velocity {
-            elements.push(row.asset);
-            elements.push(field_u64(row.cap));
-            elements.push(field_u64(row.cosign_above));
-        }
-        create_hash_chain_from_slice(&elements).map_err(|_| PolicyHashError::Hashing)
+        Ok(acc)
     }
 
     fn counted(&self) -> Result<Counted<'_>, RuleTableError> {
@@ -1114,33 +878,33 @@ impl EncodedRuleTable {
         })
     }
 
-    fn velocity_rows(&self) -> Result<Vec<VelocityRow>, RuleTableError> {
+    fn outflow_limits(&self) -> Result<Vec<OutflowLimit>, RuleTableError> {
         let assets = self
-            .velocity_assets
-            .get(..usize::from(self.velocity_count))
-            .ok_or(RuleTableError::TooManyVelocityAssets)?;
-        let rows = assets
+            .limit_assets
+            .get(..usize::from(self.limit_count))
+            .ok_or(RuleTableError::TooManyOutflowLimits)?;
+        let limits = assets
             .iter()
-            .zip(&self.velocity_caps)
-            .zip(&self.velocity_cosign)
-            .map(|((asset, cap), cosign)| VelocityRow {
+            .zip(&self.limit_caps)
+            .zip(&self.limit_cosign)
+            .map(|((asset, cap), cosign)| OutflowLimit {
                 asset: *asset,
                 cap: u64::from_be_bytes(*cap),
                 cosign_above: u64::from_be_bytes(*cosign),
             });
-        Ok(rows.collect())
+        Ok(limits.collect())
     }
 
-    fn write_velocity_columns(&mut self, rows: &[VelocityRow]) {
+    fn write_limit_columns(&mut self, limits: &[OutflowLimit]) {
         let columns = self
-            .velocity_assets
+            .limit_assets
             .iter_mut()
-            .zip(&mut self.velocity_caps)
-            .zip(&mut self.velocity_cosign);
-        for (((asset, cap), cosign), row) in columns.zip(rows) {
-            *asset = row.asset;
-            *cap = row.cap.to_be_bytes();
-            *cosign = row.cosign_above.to_be_bytes();
+            .zip(&mut self.limit_caps)
+            .zip(&mut self.limit_cosign);
+        for (((asset, cap), cosign), limit) in columns.zip(limits) {
+            *asset = limit.asset;
+            *cap = limit.cap.to_be_bytes();
+            *cosign = limit.cosign_above.to_be_bytes();
         }
     }
 }
@@ -1151,7 +915,11 @@ struct Counted<'a> {
     limits: &'a [[u8; 8]],
 }
 
-const _: () = assert!(EncodedRuleTable::SIZE == 1227);
+fn zero_past<const N: usize>(slots: &[[u8; N]], len: usize) -> bool {
+    slots[len..].iter().all(|slot| *slot == [0u8; N])
+}
+
+const _: () = assert!(EncodedRuleTable::SIZE == 1219);
 const _: () = assert!(core::mem::align_of::<EncodedRuleTable>() == 1);
 
 #[cfg(test)]
@@ -1166,8 +934,7 @@ mod tests {
     const TABLE: RuleTable = RuleTable::builder()
         .rule(Rule::require(Subject::OutputOwner, ListId::Allow))
         .rule(Rule::forbid(Subject::Sender, ListId::Frozen))
-        .rule(Rule::allow_only_assets())
-        .inline_assets(ASSETS)
+        .rule(Rule::require(Subject::Asset, ListId::Allow))
         .build();
 
     const EMPTY: RuleTable = RuleTable::builder().build();
@@ -1179,40 +946,46 @@ mod tests {
         ))
         .build();
 
-    const RELEASED: RuleTable = RuleTable::builder()
-        .rule(Rule::require(Subject::OutputOwner, ListId::Allow))
-        .rule(Rule::require(Subject::Sender, ListId::Allow))
-        .rule(Rule::forbid(Subject::OutputOwner, ListId::Block))
-        .rule(Rule::forbid(Subject::Sender, ListId::Frozen))
-        .build();
-
-    const WINDOW: NonZeroU64 = NonZeroU64::new(100).unwrap();
-    const ROW: VelocityRow = VelocityRow {
+    const LIMIT: OutflowLimit = OutflowLimit {
         asset: [3u8; 32],
         cap: 1000,
         cosign_above: 400,
     };
-    const WINDOWED: RuleTable = RuleTable::builder()
-        .windowed(WINDOW)
-        .velocity(&[ROW])
-        .build();
-    const PER_TRANSFER: RuleTable = RuleTable::builder().velocity(&[ROW]).build();
+    const LIMITED: RuleTable = RuleTable::builder().limits(&[LIMIT]).build();
 
-    fn velocity_rows(count: u8) -> Vec<VelocityRow> {
+    fn outflow_limits(count: u8) -> Vec<OutflowLimit> {
         (1..=count)
-            .map(|byte| VelocityRow {
+            .map(|byte| OutflowLimit {
                 asset: [byte; 32],
-                ..ROW
+                ..LIMIT
             })
             .collect()
     }
 
-    fn sources(entries: &[(ListId, [u8; 32])]) -> SourceMap {
-        SourceMap::new(entries).unwrap()
+    fn from_parts(
+        rows: &[[u8; 32]],
+        inline: &[[u8; 32]],
+    ) -> Result<EncodedRuleTable, RuleTableError> {
+        let limits = [0; MAX_INLINE_ASSETS];
+        from_parts_with_limits(rows, inline, &limits[..inline.len().min(MAX_INLINE_ASSETS)])
     }
 
-    fn load(senders: usize, outputs: usize) -> AnswerLoad {
-        AnswerLoad { senders, outputs }
+    fn from_parts_with_limits(
+        rows: &[[u8; 32]],
+        inline: &[[u8; 32]],
+        limits: &[u64],
+    ) -> Result<EncodedRuleTable, RuleTableError> {
+        TableParts {
+            rows,
+            inline_assets: inline,
+            inline_limits: limits,
+            limits: &[],
+        }
+        .encode()
+    }
+
+    fn sources(entries: &[(ListId, [u8; 32])]) -> SourceMap {
+        SourceMap::new(entries).unwrap()
     }
 
     /// `tail` is `[guard_tag, mask, mode, subject]`.
@@ -1224,7 +997,6 @@ mod tests {
         row
     }
 
-    /// One answer each under `GUARANTEED_LOAD`.
     fn sender_rules() -> impl Iterator<Item = Rule> {
         ListId::ALL
             .into_iter()
@@ -1252,26 +1024,34 @@ mod tests {
         assert_eq!(rules.len(), 3);
         assert_eq!(rules[0].subject, Subject::OutputOwner);
         assert_eq!(rules[1].primary_mode(), Mode::Absent);
-        assert_eq!(rules[2].source, RuleSource::InlineAssets);
-        assert_eq!(TABLE.inline_assets(), ASSETS);
+        assert_eq!(rules[2], Rule::require(Subject::Asset, ListId::Allow));
+        assert!(TABLE.inline_assets().is_empty());
         assert_eq!(RuleTable::empty(), EMPTY);
         assert!(EMPTY.is_empty());
-        assert_eq!(EMPTY.encode(), EncodedRuleTable::empty());
+        assert_eq!(EMPTY.encode(), EncodedRuleTable::default());
     }
 
     #[test]
-    fn from_namespaces_resolves_and_validates_positionally() {
-        let mut slots = [(0u8, [0u8; 32]); MAX_SOURCES];
-        slots[0] = (1, [9u8; 32]);
-        let map =
-            SourceMap::from_namespaces(&slots, |ns| Ok::<_, ()>(*ns)).expect("positional owners");
-        assert_eq!(map.owner_hash(ListId::Allow), Some(&[9u8; 32]));
-        let mut misplaced = [(0u8, [0u8; 32]); MAX_SOURCES];
-        misplaced[1] = (1, [9u8; 32]);
-        assert!(matches!(
-            SourceMap::from_namespaces(&misplaced, |ns| Ok::<_, ()>(*ns)),
-            Err(SourceMapOwnerError::Map(SourceMapError::NotPositional))
-        ));
+    fn an_own_list_maps_to_the_zero_registry_and_one_curator_serves_the_rest() {
+        let map = sources(&[(ListId::Allow, [0u8; 32]), (ListId::Block, [9u8; 32])]);
+        assert_eq!(map.registry(ListId::Allow), Some(&[0u8; 32]));
+        assert_eq!(map.registry(ListId::Block), Some(&[9u8; 32]));
+        assert_eq!(map.registry(ListId::Frozen), None);
+        assert_eq!(map.curator(), Some([9u8; 32]));
+        assert_eq!(sources(&[(ListId::Allow, [0u8; 32])]).curator(), None);
+        assert_eq!(
+            SourceMap::new(&[(ListId::Allow, [9u8; 32]), (ListId::Block, [8u8; 32])]),
+            Err(SourceMapError::SeveralCurators)
+        );
+        let mut slots = *map.slots();
+        slots[ListId::Frozen.slot()] = PolicySource {
+            list_id: ListId::Frozen as u8,
+            registry: [8u8; 32],
+        };
+        assert_eq!(
+            SourceMap::from_slots(slots),
+            Err(SourceMapError::SeveralCurators)
+        );
     }
 
     #[test]
@@ -1291,8 +1071,8 @@ mod tests {
             packed([1, 0b0100_0000, 1, 1], 2000, 0)
         );
         assert_eq!(
-            Rule::allow_only_assets().encoded(),
-            packed([0, 0, 1, 4], 0, 0)
+            Rule::require(Subject::Asset, ListId::Allow).encoded(),
+            packed([0, 1, 1, 4], 0, 0)
         );
         assert_eq!(
             Rule::any_of(
@@ -1348,7 +1128,10 @@ mod tests {
             .bits(),
             0b0000_0110
         );
-        assert!(Rule::allow_only_assets().referenced().is_empty());
+        assert_eq!(
+            Rule::require(Subject::Asset, ListId::Allow).referenced(),
+            ListSet::single(ListId::Allow)
+        );
         assert_eq!(
             TABLE.referenced(),
             ListSet::of(&[ListId::Allow, ListId::Frozen])
@@ -1362,7 +1145,7 @@ mod tests {
             Rule::require(Subject::OutputOwner, ListId::Allow),
             Rule::forbid(Subject::Sender, ListId::Frozen),
             Rule::require_any(
-                Subject::Asset,
+                Subject::Sender,
                 ListSet::of(&[ListId::Allow, ListId::Approval]),
             ),
             Rule::forbid_all(
@@ -1374,9 +1157,9 @@ mod tests {
                 ListSet::single(ListId::Allow),
                 ListSet::single(ListId::Block),
             ),
-            Rule::allow_only_assets(),
+            Rule::require(Subject::Asset, ListId::Allow),
             Rule::require(Subject::OutputOwner, ListId::Approval).above(2000),
-            Rule::allow_only_assets().above(u64::MAX),
+            Rule::require(Subject::Asset, ListId::Allow).above(u64::MAX),
         ];
         for rule in rules {
             assert_eq!(Rule::decode(&rule.encoded()), Ok(rule));
@@ -1409,16 +1192,16 @@ mod tests {
                     row[29] = 0;
                     row[19] = 0b0000_0010;
                 },
-                RuleTableError::InlineWithAlternative,
+                RuleTableError::EmptyLists,
             ),
             (
                 |row| {
                     row[29] = 0;
                     row[30] = 2;
                 },
-                RuleTableError::InlineAbsent,
+                RuleTableError::EmptyLists,
             ),
-            (|row| row[29] = 0, RuleTableError::InlineNotAsset),
+            (|row| row[29] = 0, RuleTableError::EmptyLists),
             (|row| row[28] = 3, RuleTableError::UnknownGuardTag),
             (|row| row[27] = 1, RuleTableError::ThresholdWithoutGuard),
             (|row| row[28] = 1, RuleTableError::ZeroThreshold),
@@ -1461,17 +1244,22 @@ mod tests {
                 .collect::<Vec<_>>(),
             [(ListId::Frozen, Mode::Absent)]
         );
-        assert_eq!(Rule::allow_only_assets().alternatives().count(), 0);
+        assert_eq!(
+            Rule::require(Subject::Asset, ListId::Allow)
+                .alternatives()
+                .count(),
+            1
+        );
     }
 
     #[test]
-    fn a_group_hash_binds_every_listed_source() {
-        let both = sources(&[(ListId::Allow, [4u8; 32]), (ListId::Frozen, [5u8; 32])]);
-        assert!(GROUP.hash(&both).is_ok());
-        let only_one = sources(&[(ListId::Allow, [4u8; 32])]);
+    fn validation_needs_a_source_for_every_list_of_a_group() {
+        let both = sources(&[(ListId::Allow, [0u8; 32]), (ListId::Frozen, [5u8; 32])]);
+        assert_eq!(GROUP.encode().validate(&both), Ok(GROUP));
+        let only_one = sources(&[(ListId::Allow, [0u8; 32])]);
         assert_eq!(
-            GROUP.hash(&only_one),
-            Err(PolicyHashError::MissingSource(ListId::Frozen))
+            GROUP.encode().validate(&only_one),
+            Err(PolicyTableError::MissingSource(ListId::Frozen))
         );
     }
 
@@ -1498,7 +1286,7 @@ mod tests {
             ),
             Rule::require(Subject::OutputOwner, ListId::Allow).above(5),
             Rule::require(Subject::OutputOwner, ListId::Allow).above(6),
-            Rule::allow_only_assets(),
+            Rule::require(Subject::Asset, ListId::Allow),
         ];
         for (i, a) in variants.iter().enumerate() {
             for b in variants.iter().skip(i + 1) {
@@ -1509,28 +1297,26 @@ mod tests {
 
     #[test]
     fn policy_hash_binds_the_sources_and_the_inline_members() {
-        let map = sources(&[(ListId::Allow, [4u8; 32]), (ListId::Frozen, [5u8; 32])]);
+        let map = sources(&[(ListId::Allow, [0u8; 32]), (ListId::Frozen, [5u8; 32])]);
         let baseline = TABLE.hash(&map).unwrap();
-        let other_owner = sources(&[(ListId::Allow, [4u8; 32]), (ListId::Frozen, [6u8; 32])]);
-        assert_ne!(baseline, TABLE.hash(&other_owner).unwrap());
+        let other_registry = sources(&[(ListId::Allow, [0u8; 32]), (ListId::Frozen, [6u8; 32])]);
+        assert_ne!(baseline, TABLE.hash(&other_registry).unwrap());
         let extra_slot = sources(&[
-            (ListId::Allow, [4u8; 32]),
+            (ListId::Allow, [0u8; 32]),
             (ListId::Frozen, [5u8; 32]),
-            (ListId::Escrow, [7u8; 32]),
+            (ListId::Escrow, [5u8; 32]),
         ]);
         assert_ne!(baseline, TABLE.hash(&extra_slot).unwrap());
         const REORDERED: RuleTable = RuleTable::builder()
             .rule(Rule::forbid(Subject::Sender, ListId::Frozen))
             .rule(Rule::require(Subject::OutputOwner, ListId::Allow))
-            .rule(Rule::allow_only_assets())
-            .inline_assets(ASSETS)
+            .rule(Rule::require(Subject::Asset, ListId::Allow))
             .build();
         assert_ne!(baseline, REORDERED.hash(&map).unwrap());
         const OTHER_ASSETS: RuleTable = RuleTable::builder()
             .rule(Rule::require(Subject::OutputOwner, ListId::Allow))
             .rule(Rule::forbid(Subject::Sender, ListId::Frozen))
-            .rule(Rule::allow_only_assets())
-            .inline_assets(&[[6u8; 32]])
+            .rule(Rule::forbid(Subject::Asset, ListId::Frozen))
             .build();
         assert_ne!(baseline, OTHER_ASSETS.hash(&map).unwrap());
     }
@@ -1551,39 +1337,92 @@ mod tests {
         assert_eq!(LIMITS.inline_limits(), &[5, 7]);
         assert_eq!(LIMITS.encode().decode(), Ok(LIMITS));
         assert_ne!(LIMITS.hash(&map).unwrap(), OTHER.hash(&map).unwrap());
-        assert_eq!(LIMITS.max_answers(GUARANTEED_LOAD), POLICY_OUTPUT_SLOTS);
     }
 
     #[test]
-    fn the_table_hash_is_the_image_hash() {
-        let map = sources(&[
-            (ListId::Allow, [4u8; 32]),
-            (ListId::Block, [8u8; 32]),
-            (ListId::Frozen, [5u8; 32]),
-        ]);
-        for table in [TABLE, EMPTY, GROUP, RELEASED] {
-            assert_eq!(table.hash(&map), table.encode().hash(&map));
-        }
+    fn validation_refuses_an_overlong_count_and_a_rule_without_a_source() {
+        let map = sources(&[(ListId::Allow, [4u8; 32]), (ListId::Frozen, [4u8; 32])]);
+        assert_eq!(TABLE.encode().validate(&map), Ok(TABLE));
         let mut overflowing = TABLE.encode();
         overflowing.rule_count = MAX_RULES as u8 + 1;
         assert_eq!(
-            overflowing.hash(&map),
-            Err(PolicyHashError::Table(RuleTableError::TooManyRules))
+            overflowing.validate(&map),
+            Err(PolicyTableError::Table(RuleTableError::TooManyRules))
+        );
+        let allow_only = sources(&[(ListId::Allow, [4u8; 32])]);
+        assert_eq!(
+            TABLE.encode().validate(&allow_only),
+            Err(PolicyTableError::MissingSource(ListId::Frozen))
         );
     }
 
     #[test]
-    fn a_records_rule_without_a_source_fails_closed() {
+    fn validation_refuses_a_rule_over_a_list_its_members_write() {
+        for list_id in [ListId::RingViewing, ListId::Recovery, ListId::Escrow] {
+            let map = sources(&[(ListId::Allow, [0u8; 32]), (list_id, [0u8; 32])]);
+            let required = RuleTable::builder()
+                .rule(Rule::require(Subject::OutputOwner, list_id))
+                .build();
+            let alternative = RuleTable::builder()
+                .rule(Rule::any_of(
+                    Subject::Sender,
+                    ListSet::single(ListId::Allow),
+                    ListSet::single(list_id),
+                ))
+                .build();
+            for table in [required, alternative] {
+                assert_eq!(
+                    table.encode().validate(&map),
+                    Err(PolicyTableError::Table(RuleTableError::MemberWrittenList)),
+                    "{list_id:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn table_fields_follow_the_circuit_order() {
+        const FULL: RuleTable = RuleTable::builder()
+            .rule(Rule::require(Subject::OutputOwner, ListId::Allow).above_by_asset())
+            .inline_assets(&[[3u8; 32]])
+            .inline_limits(&[9])
+            .limits(&[LIMIT])
+            .build();
         let map = sources(&[(ListId::Allow, [4u8; 32])]);
+        let fields = FULL.encode().fields(&map);
+        assert_eq!(fields[0], right_align(b"CRTB"));
+        assert_eq!(fields[1], field_u8(POLICY_TABLE_VERSION));
+        assert_eq!((fields[2], fields[3]), (field_u8(1), [4u8; 32]));
+        assert_eq!(fields[4], [0u8; 32]);
+        assert_eq!(fields[18..21], [field_u8(1), field_u8(1), field_u8(1)]);
+        assert_eq!(fields[21], FULL.rules()[0].encoded());
+        assert_eq!(fields[37], [3u8; 32]);
+        assert_eq!(fields[45], right_align(&9u64.to_be_bytes()));
         assert_eq!(
-            TABLE.hash(&map),
-            Err(PolicyHashError::MissingSource(ListId::Frozen))
+            fields[53..56],
+            [
+                LIMIT.asset,
+                right_align(&1000u64.to_be_bytes()),
+                right_align(&400u64.to_be_bytes())
+            ]
         );
+        assert!(fields[56..].iter().all(|field| *field == [0u8; 32]));
+    }
+
+    #[test]
+    fn the_hash_absorbs_the_last_source_and_the_last_limit_field() {
+        let map = SourceMap::default();
+        let baseline = LIMITED.hash(&map).unwrap();
+        let last_source = sources(&[(ListId::Escrow, [6u8; 32])]);
+        assert_ne!(baseline, LIMITED.hash(&last_source).unwrap());
+        let mut last_cosign = LIMITED.encode();
+        last_cosign.limit_cosign[MAX_OUTFLOW_LIMITS - 1] = 1u64.to_be_bytes();
+        assert_ne!(baseline, last_cosign.hash(&map).unwrap());
     }
 
     #[test]
     fn an_empty_table_hashes_the_empty_map() {
-        let baseline = EMPTY.hash(&SourceMap::empty()).unwrap();
+        let baseline = EMPTY.hash(&SourceMap::default()).unwrap();
         let with_slot = sources(&[(ListId::Allow, [4u8; 32])]);
         assert_ne!(baseline, EMPTY.hash(&with_slot).unwrap());
     }
@@ -1594,10 +1433,6 @@ mod tests {
             SourceMap::new(&[(ListId::Allow, [4u8; 32]), (ListId::Allow, [5u8; 32]),]),
             Err(SourceMapError::Duplicate)
         );
-        assert_eq!(
-            SourceMap::new(&[(ListId::Allow, [0u8; 32])]),
-            Err(SourceMapError::ZeroOwner)
-        );
         let map = sources(&[(ListId::Frozen, [5u8; 32])]);
         assert_eq!(SourceMap::from_slots(*map.slots()), Ok(map));
         let mut slots = *map.slots();
@@ -1606,56 +1441,46 @@ mod tests {
             SourceMap::from_slots(slots),
             Err(SourceMapError::NotPositional)
         );
-        let mut zero_owner = *map.slots();
-        zero_owner[2].owner_hash = [0u8; 32];
+        let mut empty_with_registry = *map.slots();
+        empty_with_registry[0].registry = [6u8; 32];
         assert_eq!(
-            SourceMap::from_slots(zero_owner),
+            SourceMap::from_slots(empty_with_registry),
             Err(SourceMapError::NotPositional)
         );
     }
 
     #[test]
-    fn an_image_round_trips_at_the_answer_budget() {
+    fn a_full_image_round_trips() {
         let table = with_rules(
             RuleTable::builder()
-                .rule(Rule::allow_only_assets())
-                .inline_assets(&POOL),
-            sender_rules().take(ANSWER_SLOTS),
+                .rule(Rule::require(Subject::OutputOwner, ListId::Allow).above_by_asset())
+                .inline_assets(&POOL)
+                .inline_limits(&[1; MAX_INLINE_ASSETS]),
+            sender_rules().take(MAX_RULES - 1),
         )
         .build();
         let encoded = table.encode();
-        assert_eq!(usize::from(encoded.rule_count), ANSWER_SLOTS + 1);
+        assert_eq!(usize::from(encoded.rule_count), MAX_RULES);
         assert_eq!(usize::from(encoded.inline_count), MAX_INLINE_ASSETS);
         assert_eq!(encoded.decode(), Ok(table));
         assert_eq!(encoded.referenced(), ListSet::from_bits(u8::MAX));
-        assert_eq!(table.max_answers(GUARANTEED_LOAD), ANSWER_SLOTS);
-    }
-
-    #[test]
-    fn a_full_image_packs_and_decodes_to_the_answer_budget_refusal() {
-        let rows: Vec<[u8; 32]> = sender_rules()
-            .take(MAX_RULES - 1)
-            .chain([Rule::allow_only_assets()])
-            .map(|rule| rule.encoded())
-            .collect();
-        let encoded = EncodedRuleTable::from_parts(&rows, &POOL).unwrap();
-        assert_eq!(usize::from(encoded.rule_count), MAX_RULES);
-        assert_eq!(usize::from(encoded.inline_count), MAX_INLINE_ASSETS);
-        assert_eq!(encoded.rules.as_slice(), rows.as_slice());
-        assert_eq!(encoded.inline_assets, POOL);
-        assert_eq!(encoded.decode(), Err(RuleTableError::TooManyAnswers));
+        let rows: Vec<[u8; 32]> = table.rules().iter().map(Rule::encoded).collect();
+        assert_eq!(
+            from_parts_with_limits(&rows, &POOL, &[1; MAX_INLINE_ASSETS]),
+            Ok(encoded)
+        );
         let seventeen: Vec<[u8; 32]> = rows.iter().chain(&rows[..1]).copied().collect();
         assert_eq!(
-            EncodedRuleTable::from_parts(&seventeen, &POOL),
+            from_parts(&seventeen, &POOL),
             Err(RuleTableError::TooManyRules)
         );
         let nine: Vec<[u8; 32]> = POOL.iter().chain(&POOL[..1]).copied().collect();
         assert_eq!(
-            EncodedRuleTable::from_parts(&rows, &nine),
+            from_parts(&rows, &nine),
             Err(RuleTableError::TooManyInlineAssets)
         );
         assert_eq!(
-            EncodedRuleTable::from_parts_with_limits(&rows, &POOL, &[1]),
+            from_parts_with_limits(&rows, &POOL, &[1]),
             Err(RuleTableError::MissingAssetLimit)
         );
     }
@@ -1688,26 +1513,26 @@ mod tests {
     #[test]
     fn try_build_names_each_refusal_and_build_panics_with_its_message() {
         let inline = RuleTable::builder()
-            .rule(Rule::allow_only_assets())
+            .rule(Rule::require(Subject::Asset, ListId::Allow))
             .inline_assets(ASSETS);
         let cases = [
             (
                 with_rules(
                     RuleTable::builder(),
-                    sender_rules().chain([Rule::allow_only_assets()]),
+                    sender_rules().chain([Rule::require(Subject::Asset, ListId::Allow)]),
                 ),
                 RuleTableError::TooManyRules,
             ),
             (
                 RuleTable::builder()
-                    .rule(Rule::allow_only_assets())
+                    .rule(Rule::require(Subject::Asset, ListId::Allow))
                     .inline_assets(&POOL)
                     .inline_assets(ASSETS),
                 RuleTableError::TooManyInlineAssets,
             ),
             (
                 RuleTable::builder()
-                    .rule(Rule::allow_only_assets())
+                    .rule(Rule::require(Subject::Asset, ListId::Allow))
                     .inline_assets(&[[0u8; 32]]),
                 RuleTableError::ZeroInlineAsset,
             ),
@@ -1715,15 +1540,18 @@ mod tests {
                 RuleTable::builder()
                     .rule(Rule {
                         subject: Subject::Sender,
-                        source: RuleSource::InlineAssets,
+                        source: RuleSource::Lists {
+                            present: ListSet::EMPTY,
+                            absent: ListSet::EMPTY,
+                        },
                         guard: Guard::Always,
                     })
                     .inline_assets(ASSETS),
-                RuleTableError::InlineNotAsset,
+                RuleTableError::EmptyLists,
             ),
             (
-                RuleTable::builder().rule(Rule::allow_only_assets()),
-                RuleTableError::InlineWithoutPool,
+                RuleTable::builder().rule(Rule::require_any(Subject::Asset, ListSet::EMPTY)),
+                RuleTableError::EmptyLists,
             ),
             (
                 RuleTable::builder()
@@ -1752,8 +1580,14 @@ mod tests {
                 RuleTableError::ExitDestination,
             ),
             (
-                RuleTable::builder().rule(Rule::require(Subject::Asset, ListId::Approval).above(0)),
+                RuleTable::builder()
+                    .rule(Rule::require(Subject::OutputOwner, ListId::Approval).above(0)),
                 RuleTableError::ZeroThreshold,
+            ),
+            (
+                RuleTable::builder()
+                    .rule(Rule::require(Subject::Asset, ListId::Approval).above_by_asset()),
+                RuleTableError::PerAssetGuardNotOwner,
             ),
             (
                 RuleTable::builder()
@@ -1765,41 +1599,30 @@ mod tests {
                 inline
                     .rule(Rule::require(Subject::OutputOwner, ListId::Allow).above(7))
                     .inline_assets(&[[4u8; 32]]),
-                RuleTableError::OwnerGuardWithoutInlineAsset,
+                RuleTableError::PoolWithoutInlineRule,
             ),
             (
-                RuleTable::builder()
-                    .rule(Rule::require(Subject::OutputOwner, ListId::Allow))
-                    .rule(Rule::forbid(Subject::OutputOwner, ListId::Block))
-                    .rule(Rule::require(Subject::OutputOwner, ListId::Approval)),
-                RuleTableError::TooManyAnswers,
+                RuleTable::builder().limits(&outflow_limits(MAX_OUTFLOW_LIMITS as u8 + 1)),
+                RuleTableError::TooManyOutflowLimits,
             ),
             (
-                RuleTable::builder().windowed(WINDOW),
-                RuleTableError::WindowWithoutVelocity,
-            ),
-            (
-                RuleTable::builder().velocity(&velocity_rows(MAX_VELOCITY_ASSETS as u8 + 1)),
-                RuleTableError::TooManyVelocityAssets,
-            ),
-            (
-                RuleTable::builder().velocity(&[VelocityRow {
+                RuleTable::builder().limits(&[OutflowLimit {
                     asset: [0u8; 32],
-                    ..ROW
+                    ..LIMIT
                 }]),
-                RuleTableError::ZeroVelocityAsset,
+                RuleTableError::ZeroLimitAsset,
             ),
             (
-                RuleTable::builder().velocity(&[VelocityRow {
+                RuleTable::builder().limits(&[OutflowLimit {
                     cap: 0,
                     cosign_above: 0,
-                    ..ROW
+                    ..LIMIT
                 }]),
-                RuleTableError::VelocityRowWithoutBound,
+                RuleTableError::LimitWithoutBound,
             ),
             (
-                RuleTable::builder().velocity(&[ROW, ROW]),
-                RuleTableError::DuplicateVelocityAsset,
+                RuleTable::builder().limits(&[LIMIT, LIMIT]),
+                RuleTableError::DuplicateLimitAsset,
             ),
         ];
         for (builder, expected) in cases {
@@ -1814,113 +1637,82 @@ mod tests {
     }
 
     #[test]
-    fn velocity_rows_round_trip_and_bind_the_hash() {
-        let map = SourceMap::empty();
-        assert_eq!(WINDOWED.velocity(), &[ROW]);
-        assert_eq!(WINDOWED.window_slots(), WINDOW.get());
-        assert_eq!(WINDOWED.encode().decode(), Ok(WINDOWED));
-        assert_eq!(PER_TRANSFER.encode().decode(), Ok(PER_TRANSFER));
-        let eight = velocity_rows(MAX_VELOCITY_ASSETS as u8);
-        let full = RuleTable::builder().velocity(&eight).build();
-        assert_eq!(full.velocity(), eight.as_slice());
+    fn outflow_limits_round_trip_and_bind_the_hash() {
+        let map = SourceMap::default();
+        assert_eq!(LIMITED.limits(), &[LIMIT]);
+        assert_eq!(LIMITED.encode().decode(), Ok(LIMITED));
+        assert!(LIMITED.encode().has_limits());
+        assert!(!EMPTY.encode().has_limits());
+        let eight = outflow_limits(MAX_OUTFLOW_LIMITS as u8);
+        let full = RuleTable::builder().limits(&eight).build();
+        assert_eq!(full.limits(), eight.as_slice());
         assert_eq!(full.encode().decode(), Ok(full));
-        let baseline = WINDOWED.hash(&map).unwrap();
+        let baseline = LIMITED.hash(&map).unwrap();
         let other_cap = RuleTable::builder()
-            .windowed(WINDOW)
-            .velocity(&[VelocityRow { cap: 1001, ..ROW }])
+            .limits(&[OutflowLimit { cap: 1001, ..LIMIT }])
             .build();
         let other_cosign = RuleTable::builder()
-            .windowed(WINDOW)
-            .velocity(&[VelocityRow {
+            .limits(&[OutflowLimit {
                 cosign_above: 401,
-                ..ROW
+                ..LIMIT
             }])
             .build();
-        let other_window = RuleTable::builder()
-            .windowed(NonZeroU64::new(101).unwrap())
-            .velocity(&[ROW])
+        let other_asset = RuleTable::builder()
+            .limits(&[OutflowLimit {
+                asset: [4u8; 32],
+                ..LIMIT
+            }])
             .build();
-        for other in [other_cap, other_cosign, other_window, PER_TRANSFER, EMPTY] {
+        for other in [other_cap, other_cosign, other_asset, EMPTY] {
             assert_ne!(baseline, other.hash(&map).unwrap());
         }
     }
 
     #[test]
-    fn velocity_mode_follows_the_window_and_the_rows_on_both_forms() {
-        let expected = VelocityMode::PerWindow {
-            window_slots: WINDOW.get(),
-        };
-        assert_eq!(WINDOWED.velocity_mode(), expected);
-        assert_eq!(WINDOWED.encode().velocity_mode(), expected);
-        assert_eq!(PER_TRANSFER.velocity_mode(), VelocityMode::PerTransfer);
-        assert_eq!(
-            PER_TRANSFER.encode().velocity_mode(),
-            VelocityMode::PerTransfer
-        );
-        assert_eq!(EMPTY.velocity_mode(), VelocityMode::Off);
-        assert_eq!(EMPTY.encode().velocity_mode(), VelocityMode::Off);
-        let mut window_only = EMPTY.encode();
-        window_only.window_slots = 5u64.to_be_bytes();
-        assert_eq!(
-            window_only.velocity_mode(),
-            VelocityMode::PerWindow { window_slots: 5 }
-        );
-        assert_eq!(
-            window_only.decode(),
-            Err(RuleTableError::WindowWithoutVelocity)
-        );
-    }
-
-    #[test]
-    fn velocity_padding_past_the_count_must_be_zero() {
-        let map = SourceMap::empty();
-        let mut asset_padding = WINDOWED.encode();
-        asset_padding.velocity_assets[1][31] = 1;
+    fn limit_padding_past_the_count_must_be_zero() {
+        let map = SourceMap::default();
+        let mut asset_padding = LIMITED.encode();
+        asset_padding.limit_assets[1][31] = 1;
         assert_eq!(asset_padding.decode(), Err(RuleTableError::NonZeroPadding));
-        let mut cap_padding = WINDOWED.encode();
-        cap_padding.velocity_caps[1][7] = 1;
+        let mut cap_padding = LIMITED.encode();
+        cap_padding.limit_caps[1][7] = 1;
         assert_eq!(cap_padding.decode(), Err(RuleTableError::NonZeroPadding));
-        let mut cosign_padding = WINDOWED.encode();
-        cosign_padding.velocity_cosign[1][7] = 1;
+        let mut cosign_padding = LIMITED.encode();
+        cosign_padding.limit_cosign[1][7] = 1;
         assert_eq!(cosign_padding.decode(), Err(RuleTableError::NonZeroPadding));
-        let mut velocity_count = WINDOWED.encode();
-        velocity_count.velocity_count = MAX_VELOCITY_ASSETS as u8 + 1;
+        let mut limit_count = LIMITED.encode();
+        limit_count.limit_count = MAX_OUTFLOW_LIMITS as u8 + 1;
         assert_eq!(
-            velocity_count.decode(),
-            Err(RuleTableError::TooManyVelocityAssets)
-        );
-        assert_eq!(
-            velocity_count.hash(&map),
-            Err(PolicyHashError::Table(
-                RuleTableError::TooManyVelocityAssets
+            limit_count.validate(&map),
+            Err(PolicyTableError::Table(
+                RuleTableError::TooManyOutflowLimits
             ))
         );
     }
 
     #[test]
-    fn table_parts_pack_the_velocity_section_and_check_its_width() {
+    fn table_parts_pack_the_limit_section_and_check_its_width() {
         let parts = TableParts {
             rows: &[],
             inline_assets: &[],
             inline_limits: &[],
-            window_slots: WINDOW.get(),
-            velocity: &[ROW],
+            limits: &[LIMIT],
         };
-        assert_eq!(parts.encode(), Ok(WINDOWED.encode()));
+        assert_eq!(parts.encode(), Ok(LIMITED.encode()));
         assert_eq!(
             TableParts {
-                velocity: &velocity_rows(MAX_VELOCITY_ASSETS as u8 + 1),
+                limits: &outflow_limits(MAX_OUTFLOW_LIMITS as u8 + 1),
                 ..parts
             }
             .encode(),
-            Err(RuleTableError::TooManyVelocityAssets)
+            Err(RuleTableError::TooManyOutflowLimits)
         );
     }
 
     #[test]
     fn signatures_ignore_the_guard_and_bind_both_sets() {
         let mixed = Rule::any_of(
-            Subject::Asset,
+            Subject::OutputOwner,
             ListSet::single(ListId::Allow),
             ListSet::single(ListId::Block),
         );
@@ -1933,7 +1725,7 @@ mod tests {
         );
         let distinct = RuleTable::builder()
             .rule(Rule::require_any(
-                Subject::Asset,
+                Subject::OutputOwner,
                 ListSet::single(ListId::Allow),
             ))
             .rule(mixed)
@@ -1975,11 +1767,11 @@ mod tests {
         );
         assert_eq!(
             RuleTable::builder()
-                .rule(Rule::allow_only_assets())
+                .rule(Rule::require(Subject::Asset, ListId::Allow))
                 .inline_assets(&[[3u8; 32]])
                 .inline_limits(&[5])
                 .try_build(),
-            Err(RuleTableError::AssetLimitWithoutGuard)
+            Err(RuleTableError::PoolWithoutInlineRule)
         );
     }
 
@@ -2004,126 +1796,40 @@ mod tests {
     #[should_panic(expected = "zero is the padding value")]
     fn zero_inline_members_are_rejected() {
         let _ = RuleTable::builder()
-            .rule(Rule::allow_only_assets())
+            .rule(Rule::require(Subject::Asset, ListId::Allow))
             .inline_assets(&[[0u8; 32]])
             .build();
     }
 
     #[test]
-    fn answers_scale_with_senders_and_outputs_per_subject() {
-        assert_eq!(RELEASED.max_answers(GUARANTEED_LOAD), 10);
-        assert_eq!(RELEASED.max_answers(load(2, 4)), 12);
-        assert_eq!(RELEASED.max_answers(load(5, 4)), 18);
-    }
-
-    #[test]
-    fn a_group_answers_like_one_list() {
-        const GROUPS: RuleTable = RuleTable::builder()
-            .rule(Rule::require_any(
-                Subject::OutputOwner,
-                ListSet::of(&[ListId::Allow, ListId::Approval]),
-            ))
-            .rule(Rule::any_of(
-                Subject::Sender,
-                ListSet::single(ListId::Allow),
-                ListSet::of(&[ListId::Block, ListId::Frozen]),
-            ))
-            .build();
-        const SINGLES: RuleTable = RuleTable::builder()
-            .rule(Rule::require(Subject::OutputOwner, ListId::Allow))
-            .rule(Rule::forbid(Subject::Sender, ListId::Frozen))
-            .build();
-        for load in [GUARANTEED_LOAD, load(2, 4), load(5, 1)] {
-            assert_eq!(GROUPS.max_answers(load), SINGLES.max_answers(load));
-        }
-    }
-
-    #[test]
-    #[should_panic(expected = "answer load exceeds the policy openings")]
-    fn a_load_above_the_openings_is_refused() {
-        let _ = RELEASED.max_answers(AnswerLoad {
-            senders: POLICY_INPUT_SLOTS + 1,
-            outputs: POLICY_OUTPUT_SLOTS,
-        });
-    }
-
-    #[test]
-    fn an_inline_asset_rule_answers_nothing() {
-        const WITH_INLINE: RuleTable = RuleTable::builder()
-            .rule(Rule::require(Subject::Sender, ListId::Allow))
-            .rule(Rule::allow_only_assets())
-            .inline_assets(ASSETS)
-            .build();
-        assert_eq!(WITH_INLINE.max_answers(GUARANTEED_LOAD), 1);
-    }
-
-    #[test]
-    fn a_guard_does_not_lower_the_answer_bound() {
-        const UNGUARDED: RuleTable = RuleTable::builder()
-            .rule(Rule::require(Subject::OutputOwner, ListId::Allow))
-            .rule(Rule::allow_only_assets())
-            .inline_assets(ASSETS)
-            .build();
-        const GUARDED: RuleTable = RuleTable::builder()
+    fn an_owner_guard_needs_no_inline_membership() {
+        let table = RuleTable::builder()
             .rule(Rule::require(Subject::OutputOwner, ListId::Allow).above(7))
-            .rule(Rule::allow_only_assets())
-            .inline_assets(ASSETS)
             .build();
+        assert_eq!(table.rules().len(), 1);
+        // The circuit refuses a transfer of two assets under a scalar owner guard.
+    }
+
+    #[test]
+    fn owner_and_asset_list_guards_can_coexist() {
+        let table = RuleTable::builder()
+            .rule(Rule::require(Subject::OutputOwner, ListId::Allow).above(7))
+            .rule(Rule::require(Subject::Asset, ListId::Allow).above(9))
+            .build();
+        assert_eq!(table.rules().len(), 2);
+    }
+
+    #[test]
+    fn an_asset_rule_reads_lists_and_refuses_an_empty_mask() {
+        let rule = Rule::require(Subject::Asset, ListId::Approval).above(7);
+        let table = RuleTable::builder().rule(rule).build();
+        assert_eq!(table.rules(), &[rule]);
+        assert_eq!(Rule::decode(&rule.encoded()), Ok(rule));
         assert_eq!(
-            GUARDED.max_answers(GUARANTEED_LOAD),
-            UNGUARDED.max_answers(GUARANTEED_LOAD)
+            Rule::decode(&packed([0, 0, 1, 4], 0, 0)),
+            Err(RuleTableError::EmptyLists)
         );
-    }
-
-    #[test]
-    #[should_panic(expected = "exceeds the answer slots")]
-    fn a_table_no_one_key_spend_can_answer_is_rejected() {
-        let _ = RuleTable::builder()
-            .rule(Rule::require(Subject::OutputOwner, ListId::Allow))
-            .rule(Rule::forbid(Subject::OutputOwner, ListId::Block))
-            .rule(Rule::require(Subject::OutputOwner, ListId::Approval))
-            .build();
-    }
-
-    #[test]
-    #[should_panic(expected = "an owner amount guard needs a single unguarded inline asset")]
-    fn an_owner_guard_without_an_inline_asset_is_rejected() {
-        let _ = RuleTable::builder()
-            .rule(Rule::require(Subject::OutputOwner, ListId::Allow).above(7))
-            .build();
-    }
-
-    #[test]
-    #[should_panic(expected = "an owner amount guard needs a single unguarded inline asset")]
-    fn an_owner_guard_beside_two_inline_assets_is_rejected() {
-        let _ = RuleTable::builder()
-            .rule(Rule::require(Subject::OutputOwner, ListId::Allow).above(7))
-            .rule(Rule::allow_only_assets())
-            .inline_assets(&[[3u8; 32], [4u8; 32]])
-            .build();
-    }
-
-    #[test]
-    #[should_panic(expected = "an owner amount guard needs a single unguarded inline asset")]
-    fn an_owner_guard_beside_a_guarded_inline_asset_is_rejected() {
-        let _ = RuleTable::builder()
-            .rule(Rule::require(Subject::OutputOwner, ListId::Allow).above(7))
-            .rule(Rule::allow_only_assets().above(9))
-            .inline_assets(ASSETS)
-            .build();
-    }
-
-    #[test]
-    fn an_asset_guard_needs_no_inline_asset() {
-        const ASSET_GUARD: RuleTable = RuleTable::builder()
-            .rule(Rule::require(Subject::Asset, ListId::Approval).above(7))
-            .build();
-        const BESIDE_INLINE: RuleTable = RuleTable::builder()
-            .rule(Rule::require(Subject::Asset, ListId::Approval).above(7))
-            .rule(Rule::allow_only_assets())
-            .inline_assets(ASSETS)
-            .build();
-        assert_eq!(ASSET_GUARD.rules().len(), 1);
-        assert_eq!(BESIDE_INLINE.rules().len(), 2);
+        let forbid = Rule::forbid(Subject::Asset, ListId::Block);
+        assert_eq!(Rule::decode(&forbid.encoded()), Ok(forbid));
     }
 }

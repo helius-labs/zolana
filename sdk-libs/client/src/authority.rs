@@ -156,22 +156,24 @@ mod tests {
         real_nf.leaf = utxo.nullifier;
         let mut dummy_nf = non_inclusion_proof();
         dummy_nf.leaf = dummy.nullifier;
+        let mut state = MerkleProof {
+            leaf: utxo.utxo_hash,
+            merkle_context: MerkleContext {
+                tree_type: 0,
+                tree: zolana_interface::pda::tree(0),
+            },
+            path: vec![[0u8; 32]; STATE_TREE_HEIGHT],
+            leaf_index: 0,
+            root: [0u8; 32],
+            root_seq: 0,
+            root_index: 0,
+        };
+        state.root = state.path_root().expect("state root");
         let input_utxos = [
             TransferInputUtxo {
                 utxo: utxo.clone(),
                 proof: Some(SpendProof {
-                    state: MerkleProof {
-                        leaf: utxo.utxo_hash,
-                        merkle_context: MerkleContext {
-                            tree_type: 0,
-                            tree: zolana_interface::pda::tree(0),
-                        },
-                        path: vec![[0u8; 32]; STATE_TREE_HEIGHT],
-                        leaf_index: 0,
-                        root: [0u8; 32],
-                        root_seq: 0,
-                        root_index: 0,
-                    },
+                    state,
                     nullifier: real_nf,
                 }),
                 nullifier_proof: None,

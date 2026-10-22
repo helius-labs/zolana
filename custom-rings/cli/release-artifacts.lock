@@ -15,11 +15,6 @@
     "size": 66279562,
     "sha256": "c4a6e3b31546317cf2448b9392dab5a3172caf5c90542230e70a7e17901d9f1f"
   },
-  "compressed_policy_key": {
-    "asset": "custom-ring-compressed-policy-key-v0.4.0-alpha.key",
-    "size": 514037471,
-    "sha256": "632fd1c05ce6e89e58aba2c96054323ed24a1d99d1c148fdeccd837cdb3ffe2f"
-  },
   "delegate_policy_key": {
     "asset": "custom-ring-delegate-policy-key-v0.4.0-alpha.key",
     "size": 176832229,

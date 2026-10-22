@@ -10,14 +10,11 @@ publish = false
 bytemuck = { workspace = true }
 solana-address = { workspace = true }
 thiserror = { workspace = true }
+wincode = { workspace = true }
 zolana-hasher = { workspace = true }
-zolana-interface = { workspace = true }
 
 [dev-dependencies]
-zolana-client = { workspace = true }
 hex = { workspace = true }
 proptest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-zolana-keypair = { workspace = true }
-zolana-transaction = { workspace = true }

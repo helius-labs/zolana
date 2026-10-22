@@ -1,5 +1,5 @@
 import { prepareMerge } from "./prover/merge.js";
-import { prepareTransfer, checkedTransferCache } from "./prover/assembly.js";
+import { prepareTransfer, checkedTransferCache, stateProofReachesRoot } from "./prover/assembly.js";
 import { checkedContextSlot, proveThroughAuthority } from "./prover/indexed.js";
 import {
   assertIsAddress,
@@ -13,6 +13,7 @@ import {
 } from "@solana/kit";
 
 import { ZolanaApi } from "../api/index.js";
+import { initializePoseidon } from "../hasher/index.js";
 import { resolveClientEndpoints } from "../endpoint.js";
 import {
   mergeTransactInstruction,
@@ -44,8 +45,6 @@ import {
   type AuthorizedPrivateTransactionMaterial,
   type BlockhashProvider,
   type ChainReader,
-  type IndexedDepositInputs,
-  type IndexedPolicyInputs,
   type IndexedProofAuthority,
   type IndexerReader,
   type KitRpcAccess,
@@ -54,9 +53,9 @@ import {
   type ProofAuthority,
   type ProofDataSource,
   type ProofReader,
-  type ProofResolution,
   type ProofService,
   type ProvedMerge,
+  type AnonymousRingTransactProofInput,
   type ProvenRingTransact,
   type Prover,
   type TransactionAssembler,
@@ -64,12 +63,17 @@ import {
   type TreeContext,
   type RingProvingConfig,
   type RingMemberProofRequest,
-  type RingMemberRequest,
-  type RingSpendRecordLookup,
   type UserRecordReader,
   type UserRecordsLookup,
-  type RingKeyRegistryEntry,
-  type RingKeyRegistryRegisterProof,
+  type RingMemberPage,
+  type RingMemberPageRequest,
+  type RingMemberRecordResult,
+  type RingRegistryState,
+  type RecordWrite,
+  type RingApplyProofInputs,
+  type RingMemberOpenings,
+  type RingQueueState,
+  type RingRecordReader,
 } from "./ports.js";
 import {
   createKitClients,
@@ -89,16 +93,8 @@ import { assembleMerge } from "./prover/merge.js";
 import type { TeePolicy } from "./prover/tee/registry.js";
 import type { AttestedProver } from "./prover/tee/verify.js";
 import { compressProof } from "./prover/proof.js";
-import type {
-  CustomRingBaseProofRequest,
-  CustomRingDepositProofRequest,
-  CustomRingPolicyProofRequest,
-  CustomRingCompressedPolicyProofRequest,
-  CustomRingRegisterKeyProofRequest,
-  Proof,
-  TransferCircuit,
-  TransferInputs,
-} from "./prover/types.js";
+import type { RingProofRequest } from "./prover/ring.js";
+import type { AssembledTransfer, Proof, TransferCircuit, TransferInputs } from "./prover/types.js";
 import {
   DEFAULT_INDEXER_RPC_CONFIG,
   indexerPollTimeout,
@@ -214,7 +210,8 @@ export class ZolanaClient
     TreeContext,
     TransactionAssembler,
     MergeAssembler,
-    UserRecordReader
+    UserRecordReader,
+    RingRecordReader
 {
   readonly tree: Address;
   readonly treeId: number;
@@ -574,25 +571,50 @@ export class ZolanaClient
     );
   }
 
-  getRingSpendRecord(
-    request: RingMemberRequest,
-    context?: RequestContext,
-  ): Promise<RingSpendRecordLookup> {
-    return this.#indexer.getRingSpendRecord(request, context);
-  }
-
-  getRingKeyRegistryEntry(
+  getRingMemberRecord(
     request: RingMemberProofRequest,
     context?: RequestContext,
-  ): Promise<RingKeyRegistryEntry> {
-    return this.#indexer.getRingKeyRegistryEntry(request, context);
+  ): Promise<RingMemberRecordResult> {
+    return this.#indexer.getRingMemberRecord(request, context);
   }
 
-  getRingKeyRegistryRegisterProof(
-    request: RingMemberProofRequest,
+  getRingMemberRecords(
+    request: RingMemberPageRequest,
     context?: RequestContext,
-  ): Promise<RingKeyRegistryRegisterProof> {
-    return this.#indexer.getRingKeyRegistryRegisterProof(request, context);
+  ): Promise<RingMemberPage> {
+    return this.#indexer.getRingMemberRecords(request, context);
+  }
+
+  getRingMemberRegistryRoot(
+    request: Readonly<{ ringProgramId: Address }>,
+    context?: RequestContext,
+  ): Promise<RingRegistryState> {
+    return this.#indexer.getRingMemberRegistryRoot(request, context);
+  }
+
+  getRingMemberOpenings(
+    request: Readonly<{
+      ringProgramId: Address;
+      members: readonly Bytes32[];
+      expectedRoot: Bytes32;
+    }>,
+    context?: RequestContext,
+  ): Promise<RingMemberOpenings> {
+    return this.#indexer.getRingMemberOpenings(request, context);
+  }
+
+  getRingRecordQueue(
+    request: Readonly<{ ringProgramId: Address }>,
+    context?: RequestContext,
+  ): Promise<RingQueueState> {
+    return this.#indexer.getRingRecordQueue(request, context);
+  }
+
+  getRingApplyProofInputs(
+    request: Readonly<{ ringProgramId: Address; authorityWrites: readonly RecordWrite[] }>,
+    context?: RequestContext,
+  ): Promise<RingApplyProofInputs> {
+    return this.#indexer.getRingApplyProofInputs(request, context);
   }
 
   getUserRecords(
@@ -657,6 +679,8 @@ export class ZolanaClient
         context,
       ),
     ]);
+    // The paired check hashes every state path to its root.
+    await initializePoseidon();
     return this.#pairSpendProofs(commitments, state.proofs, nullifier.proofs);
   }
 
@@ -700,6 +724,7 @@ export class ZolanaClient
             context,
           ),
         ]);
+        await initializePoseidon();
         const paired = this.#pairSpendProofs(
           spent,
           state.proofs,
@@ -781,6 +806,11 @@ export class ZolanaClient
             details: { index },
           });
         }
+        if (!stateProofReachesRoot(stateProof)) {
+          throw new ClientError("CLIENT_STATE_PROOF_ROOT_MISMATCH", {
+            details: { index },
+          });
+        }
         if (!equal(nullifierProof.leaf, commitment.nullifier)) {
           throw new ClientError("CLIENT_NULLIFIER_PROOF_LEAF_MISMATCH", {
             details: { index },
@@ -842,57 +872,37 @@ export class ZolanaClient
     return this.#proofDataSource;
   }
 
-  proveIndexedRingPolicy(
-    inputs: IndexedPolicyInputs,
-    context?: RequestContext,
-  ): Promise<Readonly<{ proof: Uint8Array; resolution: ProofResolution }>> {
-    return this.#proving(async () => {
-      const result = await this.#prover.proveIndexedPolicy(
-        this.#withMinContextSlot(inputs, undefined),
-        context,
-      );
-      return Object.freeze({
-        proof: compressProof(result.proof).toCustomRingProof(),
-        resolution: result.resolution,
-      });
-    });
-  }
-
-  proveCustomRingPolicy(
-    inputs: CustomRingPolicyProofRequest,
-    context?: RequestContext,
-  ): Promise<Uint8Array> {
-    return this.#provingRing(() => this.#prover.proveCustomRingPolicy(inputs, context));
-  }
-
-  proveIndexedRingDeposit(
-    inputs: IndexedDepositInputs,
-    context?: RequestContext,
-  ): Promise<Uint8Array> {
-    return this.#provingRing(() =>
-      this.#prover.proveIndexedDeposit(this.#withMinContextSlot(inputs, undefined), context),
+  /** One ring proof, the 192-byte `CustomRingProof` the ring program verifies. */
+  proveRing(request: RingProofRequest, context?: RequestContext): Promise<Uint8Array> {
+    return this.#proving(async () =>
+      compressProof(await this.#prover.proveRing(request, context)).toCustomRingProof(),
     );
   }
 
-  proveCustomRingCompressedPolicy(
-    inputs: CustomRingCompressedPolicyProofRequest,
+  async proveAnonymousRingTransact(
+    input: AnonymousRingTransactProofInput,
     context?: RequestContext,
-  ): Promise<Uint8Array> {
-    return this.#provingRing(() => this.#prover.proveCustomRingCompressedPolicy(inputs, context));
-  }
-
-  proveCustomRingRegisterKey(
-    inputs: CustomRingRegisterKeyProofRequest,
-    context?: RequestContext,
-  ): Promise<Uint8Array> {
-    return this.#provingRing(() => this.#prover.proveCustomRingRegisterKey(inputs, context));
-  }
-
-  proveCustomRingDelegatePolicy(
-    inputs: CustomRingPolicyProofRequest,
-    context?: RequestContext,
-  ): Promise<Uint8Array> {
-    return this.#provingRing(() => this.#prover.proveCustomRingDelegatePolicy(inputs, context));
+  ): Promise<ProvenRingTransact> {
+    const candidate: unknown = input;
+    if (typeof candidate !== "object" || candidate === null)
+      throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+    checkedAddress(input.ringProgramId, "ringProgramId");
+    if (input.cosigner !== undefined) checkedAddress(input.cosigner, "cosigner");
+    if (input.exitTokenOwner !== undefined) checkedAddress(input.exitTokenOwner, "exitTokenOwner");
+    return this.#proveTransfer(
+      input.proofInputs,
+      {
+        kind: "ringAnonymous",
+        ring: input.ringProgramId,
+        owner: input.owner,
+        ...(input.cosigner === undefined ? {} : { cosigner: input.cosigner }),
+        ...(input.exitTokenOwner === undefined ? {} : { exitTokenOwner: input.exitTokenOwner }),
+      },
+      input.keys,
+      input.config?.indexer,
+      context,
+      input.config?.outputTree,
+    );
   }
 
   async proveRingAuthorityTransact(
@@ -911,20 +921,6 @@ export class ZolanaClient
       context,
       outputTree,
     );
-  }
-
-  proveCustomRingBase(
-    inputs: CustomRingBaseProofRequest,
-    context?: RequestContext,
-  ): Promise<Uint8Array> {
-    return this.#provingRing(() => this.#prover.proveCustomRingBase(inputs, context));
-  }
-
-  proveCustomRingDeposit(
-    inputs: CustomRingDepositProofRequest,
-    context?: RequestContext,
-  ): Promise<Uint8Array> {
-    return this.#provingRing(() => this.#prover.proveCustomRingDeposit(inputs, context));
   }
 
   proveTransferInputs(inputs: TransferInputs, context?: RequestContext): Promise<TransactProof> {
@@ -958,8 +954,9 @@ export class ZolanaClient
           details: { expected: outputTree.treeId, actual: proofInputs.outputTreeId },
         });
       }
+      // Validate the complete output routing before either indexer or prover I/O.
+      const prepared = prepareTransfer(proofInputs, circuit);
       if (this.#proofDataSource === "prover") {
-        const prepared = prepareTransfer(proofInputs, circuit);
         const { proof, trees } = await proveThroughAuthority(
           keys,
           this.#withMinContextSlot(prepared.inputs, config),
@@ -967,7 +964,7 @@ export class ZolanaClient
         );
         const complete = prepared.finish(trees);
         return Object.freeze({
-          data: complete.withProof(compressProof(proof).toTransactProof()),
+          data: withRailProof(complete, circuit, proof),
           roots: complete.roots,
         });
       }
@@ -975,7 +972,7 @@ export class ZolanaClient
       const assembled = assemble(proofInputs, proofs, dummyProofs, circuit);
       const proof = await keys.prove(assembled.proverInputs, context);
       return Object.freeze({
-        data: assembled.withProof(compressProof(proof).toTransactProof()),
+        data: withRailProof(assembled, circuit, proof),
         roots: assembled.roots,
       });
     });
@@ -986,6 +983,7 @@ export class ZolanaClient
       prepared: PreparedMerge;
       keys: ProofAuthority;
       cache?: MergeCacheTarget;
+      ringRegistry?: import("./ports.js").RingMergeRegistryProof;
     }>,
     context?: RequestContext,
   ): Promise<ProvedMerge> {
@@ -999,7 +997,7 @@ export class ZolanaClient
         throw new ClientError("CLIENT_INVALID_MERGE");
       }
       if (this.#proofDataSource === "prover") {
-        const prepared = prepareMerge(input.prepared, this.tree, input.cache);
+        const prepared = prepareMerge(input.prepared, this.tree, input.cache, input.ringRegistry);
         const { proof, trees } = await proveThroughAuthority(
           input.keys,
           this.#withMinContextSlot(prepared.inputs, undefined),
@@ -1014,7 +1012,14 @@ export class ZolanaClient
           outputHash: new Uint8Array(complete.outputHash) as Bytes32,
         });
       }
-      const assembled = await assembleMerge(input.prepared, this, this.tree, context, input.cache);
+      const assembled = await assembleMerge(
+        input.prepared,
+        this,
+        this.tree,
+        context,
+        input.cache,
+        input.ringRegistry,
+      );
       const compressed = compressProof(
         await input.keys.proveMerge(assembled.proverInputs, context),
       );
@@ -1138,10 +1143,6 @@ export class ZolanaClient
     }
   }
 
-  #provingRing(run: () => Promise<Proof>): Promise<Uint8Array> {
-    return this.#proving(async () => compressProof(await run()).toCustomRingProof());
-  }
-
   #withMinContextSlot<T extends Readonly<{ minContextSlot?: bigint }>>(
     inputs: T,
     config: IndexerRpcConfig | undefined,
@@ -1152,6 +1153,23 @@ export class ZolanaClient
       ? inputs
       : { ...inputs, minContextSlot: required };
   }
+}
+
+/** The anonymous selector carries the proof's BSB22 commitment, every other rail proves plain Groth16. */
+function withRailProof(
+  assembled: Pick<AssembledTransfer, "withProof">,
+  circuit: TransferCircuit,
+  proof: Proof,
+): TransactInstructionData {
+  const compressed = compressProof(proof);
+  if (circuit.kind !== "ringAnonymous") return assembled.withProof(compressed.toTransactProof());
+  const { commitment, commitmentPok } = compressed;
+  if (commitment === undefined || commitmentPok === undefined) {
+    throw new ClientError("CLIENT_PROOF_PARSE", {
+      details: { path: "$.proof.proofCommitment", reason: "missing commitment" },
+    });
+  }
+  return assembled.withProof(compressed.toTransactProof(), { commitment, commitmentPok });
 }
 
 /** A `ProofAuthority` is a structural type; a wrong argument fails here rather than as a missing method later. */

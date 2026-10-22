@@ -1,6 +1,11 @@
 package protocol
 
-import "fmt"
+import (
+	"fmt"
+	"slices"
+
+	"github.com/helius-labs/zolana/prover/server/prover/ringauthority"
+)
 
 const (
 	StateTreeHeight     = 32
@@ -81,6 +86,11 @@ var SupportedShapes = []Shape{
 // AutoShapes is the smallest-fit search order. Every supported shape is
 // reachable by automatic selection, so it is the full SupportedShapes list.
 var AutoShapes = SupportedShapes
+
+// RingAuthorityShapes are the supported shapes with a ring authority key, in cost order.
+var RingAuthorityShapes = slices.DeleteFunc(slices.Clone(SupportedShapes), func(shape Shape) bool {
+	return !ringauthority.Fits(shape.NInputs)
+})
 
 // SmallestSupportedShape returns the smallest shape with a key that holds the
 // given real input/output counts, searching the full validation set.

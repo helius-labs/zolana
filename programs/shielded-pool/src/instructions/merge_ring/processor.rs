@@ -34,6 +34,12 @@ pub fn process_merge_ring_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
         None,
         ShieldedPoolError::NonCanonicalRingDataHash,
     )?;
+    check_field_element(
+        ix.member_registry_root,
+        "member registry root",
+        None,
+        ShieldedPoolError::NonCanonicalRoot,
+    )?;
     let clock = Clock::get()?;
     check_not_expired(merge.expiry_unix_ts, &clock)?;
 
@@ -46,12 +52,14 @@ pub fn process_merge_ring_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
     // against the `merge_ring_<n_inputs>_1` key. A policy ring has no
     // `user_record` registry, so the `Ring` binding omits owner identity entirely
     // (see `MergeProof::public_input_hash`); the binding and the declared input
-    // count select the verifying key. The proof does not bind
-    // `merge.output_encryption`; the indexer publishes it unverified.
+    // count select the verifying key. The proof binds `merge.output_encryption`
+    // too.
     let ring_program_id = hash_bytes(merge_accounts.ring_program_id.as_array())?;
     let owner_binding = MergeOwnerBinding::Ring {
         ring_program_id,
         output_ring_data_hash: *ix.output_ring_data_hash,
+        member_registry_root: *ix.member_registry_root,
+        anonymous: ix.anonymous,
     };
 
     // The merged output is indexed by the first input nullifier. The indexer

@@ -17,6 +17,7 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::{Keypair, Signer};
 use solana_pubkey::Pubkey;
 use solana_rpc_client::{
+    mock_sender::MocksMap,
     nonblocking::rpc_client::RpcClient as NonblockingRpcClient,
     rpc_client::{Mocks, RpcClient},
 };
@@ -32,6 +33,12 @@ use zolana_client::{
     rpc::{compile_message, sign_transaction, ComputeBudgetConfig},
     AsyncSolanaRpc, ClientError, ConfirmedInstructionGroups, ProgramAccountsFilter, Rpc, SolanaRpc,
 };
+use zolana_interface::{
+    pda,
+    state::{discriminator::SPL_ASSET_COUNTER, SplAssetCounter, SplAssetRegistry},
+    PROGRAM_ID_PUBKEY,
+};
+use zolana_transaction::{SOL_ASSET_ID, SOL_MINT};
 
 #[test]
 fn get_account_returns_none_for_missing_account() {
@@ -214,6 +221,151 @@ async fn async_filtered_query_decodes_matching_accounts() {
     assert_eq!(accounts.len(), 1);
     assert_eq!(accounts[0].0, pubkey);
     assert_eq!(accounts[0].1.data, data);
+}
+
+fn registry_account(mint: Address, asset_id: u64) -> Value {
+    keyed_account(
+        &pda::spl_asset_registry(&mint),
+        &PROGRAM_ID_PUBKEY,
+        &SplAssetRegistry::account_bytes(mint, asset_id),
+    )
+}
+
+/// The counter at `next_id` and one `getProgramAccounts` answer per page, in page order.
+fn registry_mocks(next_id: u64, pages: Vec<Vec<Value>>) -> MocksMap {
+    let mut data = vec![0; SplAssetCounter::SIZE];
+    data[0] = SPL_ASSET_COUNTER;
+    let start = std::mem::offset_of!(SplAssetCounter, next_id);
+    data[start..start + 8].copy_from_slice(&next_id.to_le_bytes());
+    let counter = keyed_account(
+        &Address::new_from_array(pda::spl_asset_counter().to_bytes()),
+        &PROGRAM_ID_PUBKEY,
+        &data,
+    );
+    let mut mocks = MocksMap::default();
+    mocks.insert(
+        RpcRequest::GetAccountInfo,
+        json!({ "context": { "slot": 1 }, "value": counter["account"] }),
+    );
+    for page in pages {
+        mocks.insert(RpcRequest::GetProgramAccounts, Value::Array(page));
+    }
+    mocks
+}
+
+fn registry_rpc(next_id: u64, pages: Vec<Vec<Value>>) -> SolanaRpc {
+    SolanaRpc::with_client(RpcClient::new_mock_with_mocks_map(
+        "succeeds",
+        registry_mocks(next_id, pages),
+    ))
+}
+
+/// One registered mint per id of `ids`.
+fn registered(ids: std::ops::Range<u64>) -> Vec<Value> {
+    ids.map(|asset_id| registry_account(Address::new_unique(), asset_id))
+        .collect()
+}
+
+#[test]
+fn the_asset_registry_reads_every_registered_mint() {
+    let mint = Address::new_unique();
+    let mut page = registered(2..9);
+    page.push(registry_account(mint, 9));
+    let registry = registry_rpc(10, vec![page])
+        .asset_registry()
+        .expect("registry");
+    assert_eq!(registry.asset_id(&mint).expect("mint"), 9);
+    assert_eq!(registry.asset_id(&SOL_MINT).expect("sol"), SOL_ASSET_ID);
+}
+
+#[test]
+fn an_unregistered_pool_reads_only_sol() {
+    let rpc = SolanaRpc::with_client(RpcClient::new_mock("succeeds".to_owned()));
+    let registry = rpc.asset_registry().expect("registry");
+    assert_eq!(registry.asset_id(&SOL_MINT).expect("sol"), SOL_ASSET_ID);
+}
+
+/// An entry off its mint's address, owned elsewhere or outside the page's ids fails the read, never drops out.
+#[test]
+fn one_invalid_registry_account_fails_the_read() {
+    let mint = Address::new_unique();
+    let elsewhere = keyed_account(
+        &Address::new_unique(),
+        &PROGRAM_ID_PUBKEY,
+        &SplAssetRegistry::account_bytes(mint, 2),
+    );
+    let foreign = keyed_account(
+        &pda::spl_asset_registry(&mint),
+        &Address::new_unique(),
+        &SplAssetRegistry::account_bytes(mint, 2),
+    );
+    let reserved = registry_account(mint, SOL_ASSET_ID);
+    for invalid in [elsewhere, foreign, reserved] {
+        let error = registry_rpc(
+            4,
+            vec![vec![registry_account(Address::new_unique(), 3), invalid]],
+        )
+        .asset_registry()
+        .expect_err("invalid entry");
+        assert!(
+            matches!(error, ClientError::InvalidAssetRegistryAccount { .. }),
+            "{error:?}"
+        );
+    }
+}
+
+#[test]
+fn a_registry_page_short_of_an_allocated_id_fails_the_read() {
+    let error = registry_rpc(10, vec![registered(2..9)])
+        .asset_registry()
+        .expect_err("short page");
+    assert!(
+        matches!(
+            error,
+            ClientError::AssetRegistryPageIncomplete {
+                first: 2,
+                end: 10,
+                found: 7
+            }
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn a_counter_owned_elsewhere_fails_the_read() {
+    let mut mocks = registry_mocks(10, Vec::new());
+    let mut counter = mocks
+        .pop_front_with_request(&RpcRequest::GetAccountInfo)
+        .expect("counter");
+    counter["value"]["owner"] = json!(Address::new_unique().to_string());
+    mocks.insert(RpcRequest::GetAccountInfo, counter);
+    let rpc = SolanaRpc::with_client(RpcClient::new_mock_with_mocks_map("succeeds", mocks));
+    assert!(matches!(
+        rpc.asset_registry(),
+        Err(ClientError::InvalidAssetCounter)
+    ));
+}
+
+/// Open mint registration can pass any single response cap, the read pages the counter's ids.
+#[tokio::test]
+async fn the_async_asset_registry_reads_every_page_the_counter_spans() {
+    let next_id: u64 = 2 + 4_097;
+    let pages = (0..next_id.div_ceil(256))
+        .map(|page| registered((page * 256).max(2)..((page + 1) * 256).min(next_id)))
+        .collect();
+    let rpc = AsyncSolanaRpc::with_client(NonblockingRpcClient::new_mock_with_mocks_map(
+        "succeeds",
+        registry_mocks(next_id, pages),
+    ));
+    let registry = rpc.asset_registry().await.expect("registry");
+    for asset_id in [2, 255, 256, 4_098] {
+        assert_eq!(
+            registry.resolve(asset_id).expect("registered id").asset_id,
+            asset_id
+        );
+    }
+    assert!(registry.resolve(next_id).is_err());
 }
 
 /// A confirmed transaction with one inner instruction, as `getTransaction`

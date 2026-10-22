@@ -138,6 +138,7 @@ function reportRow(value: unknown): SyncReport {
     // These fixtures predate merge-field recovery; no case contains an
     // unresolved merge asset.
     unknownAssetFields: [],
+    pendingAssets: [],
   };
 }
 
@@ -197,6 +198,7 @@ function shieldedTransactions(
             outputContext: {
               hash,
               tree: encodeAddress(hexBytes(fixtureString(slot, "treeBytes"))),
+              treeId: DEFAULT_TREE_ID,
               leafIndex: BigInt(fixtureString(slot, "leafIndex")),
             },
             payload,

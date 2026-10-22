@@ -1,673 +1,408 @@
-use std::path::{Path, PathBuf};
+//! `init`, every step skipped when the chain already holds it, so a rerun resumes.
 
-use custom_ring_program::CustomRingError;
+use anyhow::{anyhow, ensure, Context as _, Result};
 use custom_ring_sdk::{
-    AccountReadError, CreateConfig, CreateConfigError, CreateKeyRegistryRoot, CreatePolicy,
-    CustomRing, CustomRingConfig, EntryError, InitSppRingConfig, PolicyConfig, SetAuthority,
-    SetDepositAudit, SetSourceOwner, SourceOwner, CREATE_CONFIG_COMPUTE_UNIT_LIMIT,
-    CREATE_KEY_REGISTRY_ROOT_COMPUTE_UNIT_LIMIT, CREATE_POLICY_COMPUTE_UNIT_LIMIT,
-    INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT, SET_AUTHORITY_COMPUTE_UNIT_LIMIT,
-    SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT,
+    CreateConfig, CreateMemberRegistry, CustomRing, CustomRingConfig, InitSppRingConfig,
+    ListRegistry, PolicyRules, RingError, RingKind, SetAuthority, SetSourceOwner, SourceOwner,
 };
 use solana_address::Address;
-use solana_instruction::Instruction;
+use solana_keypair::Keypair;
 use solana_signer::Signer;
-use thiserror::Error;
-use zolana_client::SolanaRpc;
-use zolana_interface::error::ShieldedPoolError;
 use zolana_keypair::X25519Pubkey;
-use zolana_ring_rpc::{read_auditor_pubkey, write_auditor_pubkey, KeyFileError};
+use zolana_ring_client::rpc::{read_auditor_pubkey, write_auditor_pubkey};
+use zolana_ring_policy::ListId;
 
 use crate::{
-    catalogue::{CuratorCheck, CuratorError},
-    config::expand_tilde,
-    deploy::{read_program_data, DeployError},
-    line,
-    policy::{
-        list_name, verify_rows, verify_sources, CompiledPolicy, PolicyCommandError, PolicyError,
-    },
-    ring_rpc::{AuditorKeyRelease, RingRpcClient, RingRpcClientError, Trust},
-    step::{IdempotentStep, Observed, StepError, StepOutcome},
-    Context, ContextError, InitArgs,
+    catalogue,
+    config::{expand_tilde, ModeName},
+    controls, deploy, line,
+    policy::{self, CompiledPolicy, PolicySpec},
+    status, Context, InitArgs, Trust,
 };
 
-pub enum AuditorKeySource<'a> {
-    File(&'a Path),
-    /// The config already pins the key.
-    Chain(X25519Pubkey),
-    RingRpc {
-        client: &'a RingRpcClient,
-        release: AuditorKeyRelease<'a>,
-        trust: Trust,
-    },
+const PRESENT: &str = "already present";
+const CREATED: &str = "created";
+const TRANSFERRED: &str = "transferred";
+const NEEDS_UPGRADE_AUTHORITY: &str =
+    "the upgrade authority keypair is needed until the config authority holds the config";
+const POLICY_DRIFT: &str =
+    "the pinned policy differs from ring.toml, `zolana-ring policy set` replaces the table";
+
+#[must_use]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct KeySelection {
+    file_present: bool,
+    hosted_rpc: bool,
+    local_auditor: bool,
+    configured: Option<X25519Pubkey>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[must_use]
-pub struct KeySelection {
-    pub file_present: bool,
-    pub hosted_rpc: bool,
-    pub local_auditor: bool,
-    pub configured: Option<X25519Pubkey>,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[must_use]
-pub enum KeyChoice {
+enum KeyChoice {
     File,
     Chain(X25519Pubkey),
     RingRpc,
 }
 
 /// A file the service did not write must not be pinned against a hosted rpc.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[error("a local auditor key file against a hosted ring rpc")]
-pub struct StrayLocalKey;
+struct StrayLocalKey;
 
 /// `create_config` accepts only the upgrade authority, so a distinct config
 /// authority takes the config over in the same transaction.
-pub struct Init<'a> {
-    pub ring: CustomRing,
-    /// Needed until the config authority holds the config.
-    pub upgrade_authority: Option<&'a dyn Signer>,
-    pub config_authority: &'a dyn Signer,
-    pub auditor_pk: X25519Pubkey,
-    /// `None` for an audit-only ring.
-    pub policy: Option<&'a CompiledPolicy>,
-    pub existing: Option<CustomRingConfig>,
-    pub deposit_audit: Option<bool>,
-}
-
-pub struct InitOutcome {
-    pub config: StepOutcome,
-    pub authority: StepOutcome,
-    pub policy: StepOutcome,
-    /// Every ring, the delegate rail is not tier bound.
-    pub key_registry: StepOutcome,
-    pub ring: StepOutcome,
-    pub deposit_audit: StepOutcome,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[must_use]
-pub struct ConfigOwnership {
-    pub existing: Option<Address>,
-    pub upgrade_authority: Option<Address>,
-    pub config_authority: Address,
+struct ConfigCreation<'a> {
+    deployer: Option<&'a Keypair>,
+    config_authority: &'a Keypair,
+    auditor_pk: X25519Pubkey,
+    has_policy: bool,
+    mode: ModeName,
+    existing: Option<&'a CustomRingConfig>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ConfigOutcome {
+    config: &'static str,
+    authority: &'static str,
+}
+
 #[must_use]
-pub enum ConfigState {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ConfigOwnership {
+    existing: Option<Address>,
+    upgrade_authority: Option<Address>,
+    config_authority: Address,
+}
+
+#[must_use]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ConfigState {
     Missing,
     HeldByUpgradeAuthority,
     HeldByConfigAuthority,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
-#[error("the config on chain is held by {0}, neither the upgrade authority nor config_authority_keypair")]
-pub struct ForeignConfigAuthority(pub Address);
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ForeignConfigAuthority(Address);
 
-#[derive(Debug, Error)]
-pub enum InitError {
-    #[error(transparent)]
-    Encoding(#[from] wincode::Error),
-    #[error(transparent)]
-    Context(#[from] ContextError),
-    #[error(transparent)]
-    KeyFile(#[from] KeyFileError),
-    #[error(transparent)]
-    RingRpc(#[from] RingRpcClientError),
-    #[error(transparent)]
-    AccountRead(#[from] AccountReadError),
-    #[error(transparent)]
-    Policy(#[from] PolicyError),
-    #[error(
-        "the pinned policy differs from ring.toml, `zolana-ring policy set` replaces the table"
-    )]
-    PolicyDrift(#[source] Box<PolicyCommandError>),
-    #[error("the ring is deployed as {}, ring.toml now selects the other tier, redeploy is not a tier change", if *on_chain { "a policy ring" } else { "audit-only" })]
-    TierDrift { on_chain: bool },
-    #[error(transparent)]
-    Curator(#[from] CuratorError),
-    #[error(transparent)]
-    Program(Box<DeployError>),
-    #[error(transparent)]
-    Build(#[from] CreateConfigError),
-    #[error(transparent)]
-    RuleTable(#[from] EntryError),
-    #[error(transparent)]
-    Step(#[from] StepError),
-    #[error("ring config exists under authority {authority} with auditor {auditor}, ring.toml names another operator")]
-    ConfigMismatch { authority: Address, auditor: String },
-    #[error("{path} holds auditor {file}, the ring config pins {chain}. Delete the stale file")]
-    StaleAuditorFile {
-        path: PathBuf,
-        file: String,
-        chain: String,
-    },
-    #[error("program {program} is not deployed, run `deploy` first")]
-    NotDeployed { program: Address },
-    #[error("the policy of {program} is not pinned after create_policy")]
-    NotPinned { program: Address },
-    #[error("program {program} is immutable and has no config, nothing can create one")]
-    Immutable { program: Address },
-    #[error("program {program} is upgradeable by {authority}, ring.toml names {expected}")]
-    ForeignUpgradeAuthority {
-        program: Address,
-        authority: Address,
-        expected: Address,
-    },
-    #[error("the upgrade authority keypair is needed until the config authority holds the config")]
-    UpgradeAuthorityNeeded,
-    #[error("{path} holds an auditor key, but the ring rpc at {url} is not on this machine and holds its own. Pinning this key means only a ring rpc serving it can ever open the ring. Delete the file to take the service's key, or pass --local-auditor to keep it")]
-    LocalAuditorAgainstRemoteRpc { path: PathBuf, url: String },
+#[must_use]
+struct PolicyPin<'a> {
+    authority: &'a Keypair,
+    policy: &'a CompiledPolicy,
 }
 
-pub fn run(ctx: &mut Context, args: InitArgs) -> Result<(), InitError> {
-    let auditor_pubkey_file = ctx.project_path(
-        &expand_tilde(args.auditor_pubkey_file.as_path()).map_err(ContextError::from)?,
-    );
-    let policy = ctx
-        .config
-        .policy
-        .as_ref()
-        .map(|spec| spec.compile(ctx.config.target))
-        .transpose()?;
+pub fn run(ctx: &Context, args: InitArgs) -> Result<()> {
+    let key_file = ctx.path(&expand_tilde(&args.auditor_pubkey_file)?);
+    let compile = |spec: &PolicySpec| spec.compile(ctx.config.target);
+    let policy = ctx.config.policy.as_ref().map(compile).transpose()?;
     let config_authority = ctx.funded_authority()?;
-    let existing = ctx.ring.read_config(&ctx.rpc)?;
-    let held_by_config_authority = existing
+    let existing = ctx.block(ctx.ring.config(ctx.chain()))?;
+    // Only the upgrade authority creates the config, the config authority pins the rest.
+    let held = existing
         .as_ref()
         .is_some_and(|config| config.authority == config_authority.pubkey());
-    // A partial init still needs the upgrade authority to pin the policy.
-    let policy_pinned = ctx.ring.read_policy_config(&ctx.rpc)?.is_some();
-    let upgrade_authority = if held_by_config_authority && policy_pinned {
-        None
-    } else {
-        Some(ctx.config.upgrade_authority().map_err(ContextError::from)?)
+    let upgrade_authority = match held {
+        true => None,
+        false => Some(ctx.config.upgrade_authority()?),
     };
     if let Some(deployer) = upgrade_authority.as_ref().filter(|_| existing.is_none()) {
         let program = ctx.ring.program_id();
-        match read_program_data(&ctx.rpc, ctx.ring)
-            .map_err(|error| InitError::Program(Box::new(error)))?
-            .ok_or(InitError::NotDeployed { program })?
-            .upgrade_authority
-        {
-            None => return Err(InitError::Immutable { program }),
-            Some(authority) if authority != deployer.pubkey() => {
-                return Err(InitError::ForeignUpgradeAuthority {
-                    program,
-                    authority,
-                    expected: deployer.pubkey(),
-                })
-            }
-            Some(_) => {}
-        }
+        let data = deploy::program_data(ctx)?
+            .with_context(|| format!("program {program} is not deployed, run `deploy` first"))?;
+        let authority = data.upgrade_authority.with_context(|| {
+            format!("program {program} is immutable and has no config, nothing can create one")
+        })?;
+        ensure!(
+            authority == deployer.pubkey(),
+            "program {program} is upgradeable by {authority}, ring.toml names {}",
+            deployer.pubkey()
+        );
     }
-    let choice = KeySelection {
-        file_present: auditor_pubkey_file.exists(),
-        hosted_rpc: !ctx.config.urls().ring_rpc_is_local(),
+    let urls = ctx.config.urls();
+    let selection = KeySelection {
+        file_present: key_file.exists(),
+        hosted_rpc: !urls.ring_rpc_is_local(),
         local_auditor: args.local_auditor,
         configured: existing.as_ref().map(|config| config.auditor_pubkey),
-    }
-    .decide()
-    .map_err(|StrayLocalKey| InitError::LocalAuditorAgainstRemoteRpc {
-        path: auditor_pubkey_file.clone(),
-        url: ctx.config.urls().ring_rpc.clone(),
-    })?;
-    let ring_rpc = ctx.ring_rpc();
-    let source = match choice {
-        KeyChoice::File => AuditorKeySource::File(&auditor_pubkey_file),
-        KeyChoice::Chain(auditor_pk) => {
-            if auditor_pubkey_file.exists() {
-                let file = read_auditor_pubkey(auditor_pubkey_file.as_path())?;
-                if file != auditor_pk {
-                    return Err(InitError::StaleAuditorFile {
-                        path: auditor_pubkey_file,
-                        file: hex::encode(file.as_bytes()),
-                        chain: hex::encode(auditor_pk.as_bytes()),
-                    });
-                }
-            }
-            AuditorKeySource::Chain(auditor_pk)
-        }
-        KeyChoice::RingRpc => AuditorKeySource::RingRpc {
-            client: &ring_rpc,
-            release: AuditorKeyRelease {
-                ring: ctx.ring.program_id(),
-                genesis_hash: ctx.genesis_hash()?,
-                authority: upgrade_authority
-                    .as_ref()
-                    .ok_or(InitError::UpgradeAuthorityNeeded)?,
-            },
-            trust: ctx
-                .trust(if args.trust_ring_rpc {
-                    Trust::Unpinned
-                } else {
-                    Trust::Refuse
-                })
-                .map_err(ContextError::from)?,
-        },
     };
-    let auditor_pk = source.resolve()?;
-    let deposit_audit = args
-        .deposit_audit
-        .or_else(|| existing.is_none().then_some(ctx.config.deposit_audit));
-    let outcome = Init {
-        ring: ctx.ring,
-        upgrade_authority: upgrade_authority
-            .as_ref()
-            .map(|keypair| keypair as &dyn Signer),
-        config_authority: &config_authority,
+    let choice = selection.decide().with_context(|| {
+        format!(
+            "{} holds an auditor key, but the ring rpc at {} is not on this machine and holds its own. Pinning this key means only a ring rpc serving it can ever open the ring. Delete the file to take the service's key, or pass --local-auditor to keep it",
+            key_file.display(),
+            urls.ring_rpc
+        )
+    })?;
+    let auditor_pk = match choice {
+        KeyChoice::File => read_auditor_pubkey(&key_file)?,
+        KeyChoice::Chain(auditor_pk) => {
+            if key_file.exists() {
+                let file = read_auditor_pubkey(&key_file)?;
+                ensure!(
+                    file == auditor_pk,
+                    "{} holds auditor {}, the ring config pins {}. Delete the stale file",
+                    key_file.display(),
+                    hex::encode(file.as_bytes()),
+                    hex::encode(auditor_pk.as_bytes())
+                );
+            }
+            auditor_pk
+        }
+        KeyChoice::RingRpc => {
+            let genesis_hash = ctx.rpc().genesis_hash()?;
+            let authority = upgrade_authority
+                .as_ref()
+                .context(NEEDS_UPGRADE_AUTHORITY)?;
+            let trust = ctx.trust(match args.trust_ring_rpc {
+                true => Trust::Unpinned,
+                false => Trust::Refuse,
+            })?;
+            ctx.ring_rpc()
+                .release_auditor_key(ctx.ring.program_id(), genesis_hash, authority)?
+                .require(trust)?
+        }
+    };
+    let has_policy = policy.is_some();
+    let created = ConfigCreation {
+        deployer: upgrade_authority.as_ref(),
+        config_authority,
         auditor_pk,
-        policy: policy.as_ref(),
-        existing,
-        deposit_audit,
+        has_policy,
+        mode: ctx.config.mode,
+        existing: existing.as_ref(),
     }
-    .run(&ctx.rpc)?;
-    if let Some(required) = args.deposit_audit {
-        crate::config::RingConfig::set_deposit_audit(&ctx.config_path, required)
-            .map_err(ContextError::from)?;
-        ctx.config.deposit_audit = required;
-    }
-    // Written after the chain agrees, a failed init must not leave a file
-    // that the next run mistakes for a local key.
-    if matches!(source, AuditorKeySource::RingRpc { .. }) {
-        write_auditor_pubkey(&auditor_pubkey_file, &auditor_pk)?;
+    .send(ctx)?;
+    let (ring, payer) = (ctx.ring, config_authority.pubkey());
+    let send = |instruction| {
+        ctx.send(&[config_authority], &[instruction])
+            .map(|_| CREATED)
+    };
+    // The registry holds the policy, it precedes the policy pin.
+    let member_registry = match ctx.block(ring.registry(ctx.chain()))? {
+        Some(_) => PRESENT,
+        None => send(
+            CreateMemberRegistry {
+                ring,
+                payer,
+                authority: payer,
+            }
+            .instruction(),
+        )?,
+    };
+    let policy = match &policy {
+        None => "absent",
+        Some(policy) => PolicyPin {
+            authority: config_authority,
+            policy,
+        }
+        .send(ctx)?,
+    };
+    // The program registers a policy ring only after its policy is pinned.
+    let spp_ring = match ctx.block(ring.registration(ctx.chain()))? {
+        Some(_) => PRESENT,
+        None => {
+            let config = ctx.ring_config()?;
+            let register = InitSppRingConfig {
+                ring,
+                payer,
+                authority: payer,
+                config: &config,
+            };
+            send(register.instruction()).map(|_| "registered")?
+        }
+    };
+    // Written after the chain agrees, so a failed init leaves no file a rerun takes for a local key.
+    if choice == KeyChoice::RingRpc {
+        write_auditor_pubkey(&key_file, &auditor_pk)?;
         line(
             "auditor pk",
             format_args!(
                 "{} (from {}, written to {})",
                 hex::encode(auditor_pk.as_bytes()),
-                ctx.config.urls().ring_rpc,
-                auditor_pubkey_file.display()
+                urls.ring_rpc,
+                key_file.display()
             ),
         );
     }
-    line("config", outcome.config.label());
-    line(
-        "authority",
-        match outcome.authority {
-            StepOutcome::Created => "transferred",
-            other => other.label(),
-        },
-    );
-    line("policy", outcome.policy.label());
-    line("key registry", outcome.key_registry.label());
-    line("deposit audit", outcome.deposit_audit.label());
-    line(
-        "spp ring",
-        match outcome.ring {
-            StepOutcome::Created => "registered",
-            other => other.label(),
-        },
-    );
-    if matches!(outcome.ring, StepOutcome::Created | StepOutcome::Present) {
-        crate::status::announce(&ctx.config);
-    }
+    line("config", created.config);
+    line("authority", created.authority);
+    line("member registry", member_registry);
+    line("policy", policy);
+    line("spp ring", spp_ring);
+    controls::print_insert_fee(&ctx.ring_config()?);
+    status::announce(&ctx.config);
     Ok(())
 }
 
 impl KeySelection {
     /// A config wins, its key is fixed and a rerun must not touch the service.
-    pub fn decide(self) -> Result<KeyChoice, StrayLocalKey> {
-        if let Some(auditor_pk) = self.configured {
-            return Ok(KeyChoice::Chain(auditor_pk));
+    fn decide(self) -> Result<KeyChoice, StrayLocalKey> {
+        match self.configured {
+            Some(auditor_pk) => Ok(KeyChoice::Chain(auditor_pk)),
+            None if !self.file_present => Ok(KeyChoice::RingRpc),
+            None if self.hosted_rpc && !self.local_auditor => Err(StrayLocalKey),
+            None => Ok(KeyChoice::File),
         }
-        if !self.file_present {
-            return Ok(KeyChoice::RingRpc);
-        }
-        if self.hosted_rpc && !self.local_auditor {
-            return Err(StrayLocalKey);
-        }
-        Ok(KeyChoice::File)
     }
 }
 
-impl AuditorKeySource<'_> {
-    pub fn resolve(&self) -> Result<X25519Pubkey, InitError> {
-        match self {
-            Self::File(path) => Ok(read_auditor_pubkey(path)?),
-            Self::Chain(auditor_pk) => Ok(*auditor_pk),
-            Self::RingRpc {
-                client,
-                release,
-                trust,
-            } => Ok(client.release_auditor_key(release)?.require(*trust)?),
+impl ConfigCreation<'_> {
+    fn send(self, ctx: &Context) -> Result<ConfigOutcome> {
+        let mismatch = |holder: Address, auditor: &X25519Pubkey| {
+            anyhow!(
+                "ring config exists under authority {holder} with auditor {}, ring.toml names another operator",
+                hex::encode(auditor.as_bytes())
+            )
+        };
+        if let Some(config) = self.existing {
+            if config.auditor_pubkey != self.auditor_pk {
+                return Err(mismatch(config.authority, &config.auditor_pubkey));
+            }
+            // The tier is immutable, transact dispatches on it.
+            ensure!(
+                config.has_policy == self.has_policy,
+                "the ring is deployed as {}, ring.toml now selects the other tier, redeploy is not a tier change",
+                if config.has_policy { "a policy ring" } else { "audit-only" }
+            );
+            ensure!(
+                ModeName::of(config.mode) == self.mode,
+                "ring.toml selects the {} mode, the deployed config has another, redeploy is not a mode change",
+                self.mode
+            );
         }
+        let target = self.config_authority.pubkey();
+        let state = ConfigOwnership {
+            existing: self.existing.map(|config| config.authority),
+            upgrade_authority: self.deployer.map(Signer::pubkey),
+            config_authority: target,
+        }
+        .decide()
+        .map_err(|ForeignConfigAuthority(holder)| mismatch(holder, &self.auditor_pk))?;
+        if state == ConfigState::HeldByConfigAuthority {
+            return Ok(ConfigOutcome {
+                config: PRESENT,
+                authority: PRESENT,
+            });
+        }
+        let deployer = self.deployer.context(NEEDS_UPGRADE_AUTHORITY)?;
+        let hand_over = SetAuthority {
+            ring: ctx.ring,
+            authority: deployer.pubkey(),
+            new_authority: target,
+        }
+        .instruction();
+        if state == ConfigState::HeldByUpgradeAuthority {
+            ctx.send(&[self.config_authority, deployer], &[hand_over])?;
+            return Ok(ConfigOutcome {
+                config: PRESENT,
+                authority: TRANSFERRED,
+            });
+        }
+        let kind = match (self.mode, self.has_policy) {
+            (ModeName::Confidential, false) => RingKind::AuditOnly,
+            (ModeName::Confidential, true) => RingKind::Policy,
+            (ModeName::Anonymous, false) => RingKind::Anonymous,
+            (ModeName::Anonymous, true) => RingKind::AnonymousPolicy,
+        };
+        let create = CreateConfig {
+            ring: ctx.ring,
+            payer: target,
+            authority: deployer.pubkey(),
+            auditor_pubkey: self.auditor_pk,
+            kind,
+        };
+        let mut instructions = vec![create.instruction()?];
+        let transfer = deployer.pubkey() != target;
+        if transfer {
+            instructions.push(hand_over);
+        }
+        ctx.send(&[self.config_authority, deployer], &instructions)?;
+        Ok(ConfigOutcome {
+            config: CREATED,
+            authority: if transfer { TRANSFERRED } else { PRESENT },
+        })
     }
 }
 
 impl ConfigOwnership {
-    pub fn decide(self) -> Result<ConfigState, ForeignConfigAuthority> {
+    fn decide(self) -> Result<ConfigState, ForeignConfigAuthority> {
         match self.existing {
             None => Ok(ConfigState::Missing),
-            Some(authority) if authority == self.config_authority => {
+            Some(holder) if holder == self.config_authority => {
                 Ok(ConfigState::HeldByConfigAuthority)
             }
-            Some(authority) if Some(authority) == self.upgrade_authority => {
+            Some(holder) if Some(holder) == self.upgrade_authority => {
                 Ok(ConfigState::HeldByUpgradeAuthority)
             }
-            Some(authority) => Err(ForeignConfigAuthority(authority)),
+            Some(holder) => Err(ForeignConfigAuthority(holder)),
         }
     }
 }
 
-impl Init<'_> {
-    pub fn run(self, rpc: &SolanaRpc) -> Result<InitOutcome, InitError> {
-        let config_authority = self.config_authority.pubkey();
-        let has_policy = self.policy.is_some();
-        if let Some(config) = self
-            .existing
-            .as_ref()
-            .filter(|config| config.auditor_pubkey != self.auditor_pk)
-        {
-            return Err(InitError::ConfigMismatch {
-                authority: config.authority,
-                auditor: hex::encode(config.auditor_pubkey.as_bytes()),
-            });
+impl PolicyPin<'_> {
+    /// Sources are pointed only over rows that agree, a drifted table stays untouched.
+    fn send(self, ctx: &Context) -> Result<&'static str> {
+        let Self { authority, policy } = self;
+        for (list, curator) in &policy.shared_sources {
+            catalogue::check_curator(ctx, *curator, *list)?;
         }
-        // The config's tier is immutable, transact dispatches on it. A ring.toml
-        // that now disagrees would pin policy state the audit path never reads,
-        // or drop rules the ring still enforces.
-        if let Some(config) = self
-            .existing
-            .as_ref()
-            .filter(|config| config.has_policy != has_policy)
-        {
-            return Err(InitError::TierDrift {
-                on_chain: config.has_policy,
-            });
-        }
-        let state = ConfigOwnership {
-            existing: self.existing.as_ref().map(|config| config.authority),
-            upgrade_authority: self.upgrade_authority.map(Signer::pubkey),
-            config_authority,
-        }
-        .decide()
-        .map_err(
-            |ForeignConfigAuthority(authority)| InitError::ConfigMismatch {
-                authority,
-                auditor: hex::encode(self.auditor_pk.as_bytes()),
-            },
-        )?;
-        let (config, authority) = match state {
-            ConfigState::HeldByConfigAuthority => (StepOutcome::Present, StepOutcome::Present),
-            ConfigState::Missing => {
-                let deployer = self.deployer()?;
-                let mut instructions = vec![CreateConfig {
-                    ring: self.ring,
-                    payer: config_authority,
-                    authority: deployer.pubkey(),
-                    auditor_pubkey: self.auditor_pk,
-                    has_policy,
-                }
-                .instruction()?];
-                let transfer = deployer.pubkey() != config_authority;
-                if transfer {
-                    instructions.push(self.hand_over(deployer.pubkey()));
-                }
-                self.step(
-                    rpc,
-                    "create_config",
-                    &[deployer],
-                    CREATE_CONFIG_COMPUTE_UNIT_LIMIT + SET_AUTHORITY_COMPUTE_UNIT_LIMIT,
-                )
-                .ensure_present(Observed::Absent, &instructions)?;
-                (
-                    StepOutcome::Created,
-                    if transfer {
-                        StepOutcome::Created
-                    } else {
-                        StepOutcome::Present
-                    },
-                )
-            }
-            ConfigState::HeldByUpgradeAuthority => {
-                let deployer = self.deployer()?;
-                let authority = self
-                    .step(
-                        rpc,
-                        "set_authority",
-                        &[deployer],
-                        SET_AUTHORITY_COMPUTE_UNIT_LIMIT,
-                    )
-                    .ensure_present(Observed::Absent, &[self.hand_over(deployer.pubkey())])?;
-                (StepOutcome::Present, authority)
-            }
-        };
-        // An audit-only ring pins no policy, only a policy ring runs create_policy
-        // and only its upgrade authority may pin the compiled table.
-        let policy = match self.policy {
-            None => StepOutcome::Absent,
-            Some(policy) => self.pin_policy(rpc, policy)?,
-        };
-        let key_registry = self
-            .step(
-                rpc,
-                "create_key_registry_root",
-                &[],
-                CREATE_KEY_REGISTRY_ROOT_COMPUTE_UNIT_LIMIT,
-            )
-            .ensure_present(
-                Observed::of(&self.ring.read_key_registry_root(rpc)?),
-                &[CreateKeyRegistryRoot {
-                    ring: self.ring,
-                    payer: config_authority,
-                    authority: config_authority,
-                }
-                .instruction()],
-            )?;
-        let deposit_audit = if let Some(required) = self.deposit_audit {
-            if self.ring.read_deposit_audit(rpc)? == required {
-                StepOutcome::Present
-            } else {
-                self.step(
-                    rpc,
-                    "set_deposit_audit",
-                    &[],
-                    custom_ring_sdk::SET_DEPOSIT_AUDIT_COMPUTE_UNIT_LIMIT,
-                )
-                .ensure_present(
-                    Observed::Absent,
-                    &[SetDepositAudit {
-                        ring: self.ring,
-                        payer: config_authority,
-                        authority: config_authority,
-                        required,
+        let outcome = match policy::pinned_if_any(ctx)? {
+            Some(_) => PRESENT,
+            None => {
+                let create = |shared_sources: &[(ListId, CustomRing)]| {
+                    PolicyRules {
+                        ring: ctx.ring,
+                        authority: authority.pubkey(),
+                        rules: &policy.rules,
+                        shared_sources,
                     }
-                    .instruction()?],
-                )?
+                    .create()
+                };
+                // Curators past the transaction size are pointed one by one below.
+                let instruction = match create(&policy.shared_sources) {
+                    Err(RingError::TransactionTooLarge { .. })
+                        if !policy.shared_sources.is_empty() =>
+                    {
+                        create(&[])?
+                    }
+                    result => result?,
+                };
+                ctx.send(&[authority], &[instruction])?;
+                CREATED
             }
-        } else {
-            StepOutcome::Present
         };
-        // The program registers a policy ring only after its policy is pinned.
-        let ring = self
-            .step(
-                rpc,
-                "init_spp_ring_config",
-                &[],
-                INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT,
-            )
-            .ensure_present(
-                Observed::of(&self.ring.read_spp_ring_config(rpc)?),
-                &[InitSppRingConfig {
-                    ring: self.ring,
-                    payer: config_authority,
-                    authority: config_authority,
-                    has_policy,
-                }
-                .instruction()],
-            )?;
-        Ok(InitOutcome {
-            config,
-            authority,
-            policy,
-            key_registry,
-            ring,
-            deposit_audit,
-        })
-    }
-
-    fn pin_policy(
-        &self,
-        rpc: &SolanaRpc,
-        policy: &CompiledPolicy,
-    ) -> Result<StepOutcome, InitError> {
-        for (list_id, curator) in &policy.shared_sources {
-            CuratorCheck {
-                curator: *curator,
-                list: *list_id,
-                address_tree: policy.address_tree,
-            }
-            .run(rpc)?;
-        }
-        let outcome = match Observed::of(&self.ring.read_policy_config(rpc)?) {
-            Observed::Present => StepOutcome::Present,
-            Observed::Absent => self.create_policy(rpc, policy)?,
-        };
-        // Sources are pointed only over rows that agree, a drifted table stays untouched.
-        let config = self.pinned(rpc)?;
-        verify_rows(policy, &config).map_err(policy_drift)?;
-        let config = if self.point_sources(rpc, policy, &config)? {
-            self.pinned(rpc)?
-        } else {
-            config
-        };
-        verify_sources(self.ring, policy, &config).map_err(policy_drift)?;
-        Ok(outcome)
-    }
-
-    /// Curators past the transaction size are pointed one by one afterwards.
-    fn create_policy(
-        &self,
-        rpc: &SolanaRpc,
-        policy: &CompiledPolicy,
-    ) -> Result<StepOutcome, InitError> {
-        let deployer = self.deployer()?;
-        let create = |shared_sources| {
-            CreatePolicy {
-                ring: self.ring,
-                payer: self.config_authority.pubkey(),
-                authority: deployer.pubkey(),
-                address_tree: policy.address_tree,
-                rules: &policy.rules,
-                shared_sources,
-            }
-            .instruction()
-        };
-        let instruction = match create(policy.shared_sources()) {
-            Err(EntryError::TransactionTooLarge { .. }) if !policy.shared_sources.is_empty() => {
-                create(Vec::new())?
-            }
-            result => result?,
-        };
-        Ok(self
-            .step(
-                rpc,
-                "create_policy",
-                &[deployer],
-                CREATE_POLICY_COMPUTE_UNIT_LIMIT,
-            )
-            .ensure_present(Observed::Absent, &[instruction])?)
-    }
-
-    /// `true` when a list was pointed, the config is stale after.
-    fn point_sources(
-        &self,
-        rpc: &SolanaRpc,
-        policy: &CompiledPolicy,
-        config: &PolicyConfig,
-    ) -> Result<bool, InitError> {
+        let pinned = policy::pinned(ctx)?;
+        policy::verify_rows(policy, &pinned).context(POLICY_DRIFT)?;
         let mut pointed = false;
-        for (list_id, curator) in &policy.shared_sources {
-            let observed = if config.source_for(*list_id) == Some(curator.namespace_pda()) {
-                Observed::Present
+        for (list, curator) in &policy.shared_sources {
+            let outcome = if pinned.registry.registry_for(*list)
+                == Some(ListRegistry::Curator(curator.registry_pda()))
+            {
+                PRESENT
             } else {
-                Observed::Absent
+                let point = SetSourceOwner {
+                    ring: ctx.ring,
+                    authority: authority.pubkey(),
+                    list_id: *list,
+                    source: SourceOwner::Shared(*curator),
+                }
+                .instruction()?;
+                ctx.send(&[authority], &[point])?;
+                pointed = true;
+                CREATED
             };
-            let outcome = self
-                .step(
-                    rpc,
-                    "set_policy_source",
-                    &[],
-                    SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT,
-                )
-                .ensure_present(
-                    observed,
-                    &[SetSourceOwner {
-                        ring: self.ring,
-                        authority: self.config_authority.pubkey(),
-                        list_id: *list_id,
-                        source: SourceOwner::Shared(*curator),
-                    }
-                    .instruction()?],
-                )?;
-            pointed |= matches!(outcome, StepOutcome::Created);
             line(
-                list_name(*list_id),
-                format_args!("curator {} {}", curator.program_id(), outcome.label()),
+                list.name(),
+                format_args!("curator {} {outcome}", curator.program_id()),
             );
         }
-        Ok(pointed)
-    }
-
-    fn pinned(&self, rpc: &SolanaRpc) -> Result<PolicyConfig, InitError> {
-        self.ring
-            .read_policy_config(rpc)?
-            .ok_or(InitError::NotPinned {
-                program: self.ring.program_id(),
-            })
-    }
-
-    fn deployer(&self) -> Result<&dyn Signer, InitError> {
-        self.upgrade_authority
-            .ok_or(InitError::UpgradeAuthorityNeeded)
-    }
-
-    fn hand_over(&self, deployer: Address) -> Instruction {
-        SetAuthority {
-            ring: self.ring,
-            authority: deployer,
-            new_authority: self.config_authority.pubkey(),
-        }
-        .instruction()
-    }
-
-    fn step<'r>(
-        &'r self,
-        rpc: &'r SolanaRpc,
-        name: &'static str,
-        co_signers: &'r [&'r dyn Signer],
-        compute_unit_limit: u32,
-    ) -> IdempotentStep<'r> {
-        IdempotentStep {
-            rpc,
-            authority: self.config_authority,
-            co_signers,
-            name,
-            compute_unit_limit,
-            hint,
-        }
-    }
-}
-
-fn policy_drift(error: PolicyCommandError) -> InitError {
-    InitError::PolicyDrift(Box::new(error))
-}
-
-fn hint(code: u32) -> Option<&'static str> {
-    if code == CustomRingError::UnauthorizedInitializer as u32 {
-        Some("the program was deployed with an upgrade authority and only that key may create the config")
-    } else if code == CustomRingError::UnauthorizedAuthority as u32 {
-        Some("the config is held by another authority, `status` shows it")
-    } else if code == CustomRingError::InvalidPolicyRules as u32 {
-        Some("the program refuses the compiled rows, the program log names the refusal")
-    } else if code == ShieldedPoolError::UnauthorizedCaller as u32 {
-        Some("ring creation on this cluster is gated by the SPP ring creation authority")
-    } else {
-        None
+        let pinned = if pointed {
+            policy::pinned(ctx)?
+        } else {
+            pinned
+        };
+        policy::verify_sources(ctx.ring, policy, &pinned).context(POLICY_DRIFT)?;
+        Ok(outcome)
     }
 }
 
@@ -675,14 +410,12 @@ fn hint(code: u32) -> Option<&'static str> {
 mod tests {
     use super::*;
 
-    fn select(file_present: bool, hosted_rpc: bool, local_auditor: bool) -> KeySelection {
-        KeySelection {
-            file_present,
-            hosted_rpc,
-            local_auditor,
-            configured: None,
-        }
-    }
+    const UNCONFIGURED: KeySelection = KeySelection {
+        file_present: false,
+        hosted_rpc: false,
+        local_auditor: false,
+        configured: None,
+    };
 
     #[test]
     fn a_config_wins_over_the_file_and_the_service() {
@@ -691,8 +424,10 @@ mod tests {
             for hosted_rpc in [true, false] {
                 for local_auditor in [true, false] {
                     let selection = KeySelection {
+                        file_present,
+                        hosted_rpc,
+                        local_auditor,
                         configured: Some(pinned),
-                        ..select(file_present, hosted_rpc, local_auditor)
                     };
                     assert_eq!(selection.decide(), Ok(KeyChoice::Chain(pinned)));
                 }
@@ -704,16 +439,34 @@ mod tests {
     fn without_a_config_the_file_is_taken_only_where_the_service_wrote_it() {
         for hosted_rpc in [true, false] {
             for local_auditor in [true, false] {
-                assert_eq!(
-                    select(false, hosted_rpc, local_auditor).decide(),
-                    Ok(KeyChoice::RingRpc)
-                );
+                let selection = KeySelection {
+                    hosted_rpc,
+                    local_auditor,
+                    ..UNCONFIGURED
+                };
+                assert_eq!(selection.decide(), Ok(KeyChoice::RingRpc));
             }
         }
-        assert_eq!(select(true, false, false).decide(), Ok(KeyChoice::File));
-        assert_eq!(select(true, false, true).decide(), Ok(KeyChoice::File));
-        assert_eq!(select(true, true, true).decide(), Ok(KeyChoice::File));
-        assert_eq!(select(true, true, false).decide(), Err(StrayLocalKey));
+        let file = KeySelection {
+            file_present: true,
+            ..UNCONFIGURED
+        };
+        assert_eq!(file.decide(), Ok(KeyChoice::File));
+        let kept = KeySelection {
+            local_auditor: true,
+            ..file
+        };
+        assert_eq!(kept.decide(), Ok(KeyChoice::File));
+        let hosted_kept = KeySelection {
+            hosted_rpc: true,
+            ..kept
+        };
+        assert_eq!(hosted_kept.decide(), Ok(KeyChoice::File));
+        let hosted = KeySelection {
+            hosted_rpc: true,
+            ..file
+        };
+        assert_eq!(hosted.decide(), Err(StrayLocalKey));
     }
 
     #[test]
@@ -721,41 +474,53 @@ mod tests {
         let deployer = Address::new_from_array([1; 32]);
         let target = Address::new_from_array([2; 32]);
         let stranger = Address::new_from_array([3; 32]);
-        let ownership = |existing, upgrade_authority| ConfigOwnership {
-            existing,
-            upgrade_authority,
+        let missing = ConfigOwnership {
+            existing: None,
+            upgrade_authority: Some(deployer),
             config_authority: target,
         };
+        assert_eq!(missing.decide(), Ok(ConfigState::Missing));
+        let no_deployer = ConfigOwnership {
+            upgrade_authority: None,
+            ..missing
+        };
+        assert_eq!(no_deployer.decide(), Ok(ConfigState::Missing));
+        let deployed = ConfigOwnership {
+            existing: Some(deployer),
+            ..missing
+        };
+        assert_eq!(deployed.decide(), Ok(ConfigState::HeldByUpgradeAuthority));
+        let handed_over = ConfigOwnership {
+            existing: Some(target),
+            ..missing
+        };
+        assert_eq!(handed_over.decide(), Ok(ConfigState::HeldByConfigAuthority));
+        let handed_over_no_deployer = ConfigOwnership {
+            existing: Some(target),
+            ..no_deployer
+        };
         assert_eq!(
-            ownership(None, Some(deployer)).decide(),
-            Ok(ConfigState::Missing)
-        );
-        assert_eq!(ownership(None, None).decide(), Ok(ConfigState::Missing));
-        assert_eq!(
-            ownership(Some(deployer), Some(deployer)).decide(),
-            Ok(ConfigState::HeldByUpgradeAuthority)
-        );
-        assert_eq!(
-            ownership(Some(target), Some(deployer)).decide(),
+            handed_over_no_deployer.decide(),
             Ok(ConfigState::HeldByConfigAuthority)
         );
+        let deployed_no_deployer = ConfigOwnership {
+            existing: Some(deployer),
+            ..no_deployer
+        };
         assert_eq!(
-            ownership(Some(target), None).decide(),
-            Ok(ConfigState::HeldByConfigAuthority)
-        );
-        assert_eq!(
-            ownership(Some(deployer), None).decide(),
+            deployed_no_deployer.decide(),
             Err(ForeignConfigAuthority(deployer))
         );
-        assert_eq!(
-            ownership(Some(stranger), Some(deployer)).decide(),
-            Err(ForeignConfigAuthority(stranger))
-        );
-        let same_key = ConfigOwnership {
+        let foreign = ConfigOwnership {
+            existing: Some(stranger),
+            ..missing
+        };
+        assert_eq!(foreign.decide(), Err(ForeignConfigAuthority(stranger)));
+        let one_key = ConfigOwnership {
             existing: Some(deployer),
             upgrade_authority: Some(deployer),
             config_authority: deployer,
         };
-        assert_eq!(same_key.decide(), Ok(ConfigState::HeldByConfigAuthority));
+        assert_eq!(one_key.decide(), Ok(ConfigState::HeldByConfigAuthority));
     }
 }

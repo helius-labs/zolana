@@ -21,6 +21,13 @@ func Fe(value int64) *big.Int {
 	return big.NewInt(value)
 }
 
+func Bit(set bool) int64 {
+	if set {
+		return 1
+	}
+	return 0
+}
+
 // MustHash fails the test if err is non-nil, otherwise returns value.
 func MustHash(t testing.TB, value *big.Int, err error) *big.Int {
 	t.Helper()
@@ -36,6 +43,18 @@ func MustPoseidon(t testing.TB, width int, inputs []*big.Int) *big.Int {
 	return MustHash(t, value, err)
 }
 
+func MustSolanaPkField(t testing.TB, key [32]byte) *big.Int {
+	t.Helper()
+	value, err := protocol.SolanaPkField(key)
+	return MustHash(t, value, err)
+}
+
+func MustPoseidonHash(t testing.TB, inputs ...*big.Int) *big.Int {
+	t.Helper()
+	value, err := poseidon.Hash(inputs)
+	return MustHash(t, value, err)
+}
+
 // MustUtxoHash hashes utxo under the raw id of the tree that holds it.
 func MustUtxoHash(t testing.TB, utxo protocol.Utxo, treeID *big.Int) *big.Int {
 	t.Helper()
@@ -47,6 +66,12 @@ func MustNullifierPk(t testing.TB, secret *big.Int) *big.Int {
 	t.Helper()
 	value, err := protocol.NullifierPk(secret)
 	return MustHash(t, value, err)
+}
+
+// ZeroNullifierPk is Poseidon(0), the nullifier public key of the zero secret.
+func ZeroNullifierPk() *big.Int {
+	value, _ := new(big.Int).SetString("2a09a9fd93c590c26b91effbb2499f07e8f7aa12e2b4940a3aed2411cb65e11c", 16)
+	return value
 }
 
 func MustOwnerHash(t testing.TB, ownerKeyHash, nullifierPk *big.Int) *big.Int {
@@ -136,6 +161,8 @@ func AsBigInt(value frontend.Variable) *big.Int {
 		return big.NewInt(int64(v))
 	case int64:
 		return big.NewInt(v)
+	case uint64:
+		return new(big.Int).SetUint64(v)
 	default:
 		panic("spptest: unsupported frontend.Variable value type")
 	}

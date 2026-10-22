@@ -7,6 +7,8 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+custom-ring-interface = { workspace = true }
+zolana-cli-common = { workspace = true }
 anyhow = { workspace = true }
 # Solana transactions serialize with bincode 1.x wire format; bincode 2.x is not
 # byte-compatible, so this must stay pinned to match the runtime.

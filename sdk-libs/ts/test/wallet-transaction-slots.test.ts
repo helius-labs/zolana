@@ -25,6 +25,7 @@ function reader(events: readonly { leaf: bigint; tags: readonly Bytes32[] }[]) {
               outputContext: {
                 hash: filled(slotIndex + 1),
                 tree: TREE,
+                treeId: 0,
                 leafIndex: event.leaf + BigInt(slotIndex),
               },
               payload: new Uint8Array(),

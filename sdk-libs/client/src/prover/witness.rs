@@ -94,7 +94,7 @@ pub trait WitnessReader {
         let dummy_nullifier_proofs = if dummy_nullifiers.is_empty() {
             Vec::new()
         } else {
-            let tree = pda::tree(padding_tree_id(&groups)?);
+            let tree = pda::tree(padding_tree_id(&groups, dummy_nullifiers)?);
             self.get_non_inclusion_proofs(tree, dummy_nullifiers.to_vec(), config)?
                 .proofs
         };
@@ -226,15 +226,24 @@ fn group_by_tree<'a>(inputs: &[&'a SppProofInputUtxo]) -> Vec<TreeGroup<'a>> {
 
 /// The tree a padding slot's non-inclusion proof is fetched from.
 ///
-/// Padding is hashed under the first input tree (`pad_input_utxos`), and
-/// assembly requires every slot in a tree's run to share that tree's nullifier
-/// root, so the first group is the only right answer. Without a real input
-/// there is no tree at all.
-fn padding_tree_id(groups: &[TreeGroup]) -> Result<u16, ClientError> {
-    groups
-        .first()
-        .map(|group| group.tree_id)
-        .ok_or(ClientError::NoInputs)
+/// The last input tree, the first under compact padding.
+fn padding_tree_id(
+    groups: &[TreeGroup],
+    dummy_nullifiers: &[[u8; 32]],
+) -> Result<u16, ClientError> {
+    let (Some(first), Some(last)) = (groups.first(), groups.last()) else {
+        return Err(ClientError::NoInputs);
+    };
+    let compact = SppProofInputUtxo::compact(first.tree_id)?.nullifier;
+    Ok(
+        match dummy_nullifiers
+            .iter()
+            .all(|nullifier| *nullifier == compact)
+        {
+            true => first.tree_id,
+            false => last.tree_id,
+        },
+    )
 }
 
 /// Put each tree's validated proofs back where its inputs came from.
@@ -282,7 +291,7 @@ impl AsyncWitnessReader for AsyncZolanaIndexer {
         let dummy_tree = if dummy_nullifiers.is_empty() {
             None
         } else {
-            Some(pda::tree(padding_tree_id(&groups)?))
+            Some(pda::tree(padding_tree_id(&groups, dummy_nullifiers)?))
         };
 
         let per_tree = futures::future::try_join_all(groups.iter().map(|group| {

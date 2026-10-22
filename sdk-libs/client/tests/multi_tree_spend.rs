@@ -130,9 +130,9 @@ fn spend_proof(tree_id: u16, root: u8, root_index: u16, nullifier_root: u8) -> S
         state: MerkleProof {
             leaf: field_bytes(0x52),
             merkle_context: context.clone(),
-            path: vec![field_bytes(0x53); STATE_TREE_HEIGHT],
+            path: vec![field_bytes(root); STATE_TREE_HEIGHT],
             leaf_index: 7,
-            root: field_bytes(root),
+            root: [0; 32],
             root_seq: 11,
             root_index,
         },
@@ -159,6 +159,7 @@ fn spend_proofs() -> [SpendProof; 2] {
     ];
     for (proof, input) in proofs.iter_mut().zip(&tx.input_utxos) {
         proof.state.leaf = input.utxo_hash;
+        proof.state.root = proof.state.path_root().expect("state root");
         proof.nullifier.leaf = input.nullifier;
     }
     proofs
@@ -183,13 +184,11 @@ fn two_input_trees_fill_two_slots_in_declaration_order() {
     assert_eq!(witness.tree_ids, vec![FIRST_TREE_ID, SECOND_TREE_ID]);
 
     let slots = &witness.inputs.tree_slots;
-    let populated: Vec<(u16, [u8; 32], [u8; 32])> =
-        vec![(FIRST_TREE_ID, 0x61, 0x71), (SECOND_TREE_ID, 0x62, 0x72)]
-            .into_iter()
-            .map(|(id, utxo_root, nullifier_root)| {
-                (id, field_bytes(utxo_root), field_bytes(nullifier_root))
-            })
-            .collect();
+    let [first, second] = spend_proofs();
+    let populated: Vec<(u16, [u8; 32], [u8; 32])> = vec![
+        (FIRST_TREE_ID, first.state.root, field_bytes(0x71)),
+        (SECOND_TREE_ID, second.state.root, field_bytes(0x72)),
+    ];
 
     for (slot, (id, utxo_root, nullifier_root)) in slots.iter().zip(&populated) {
         assert_eq!(

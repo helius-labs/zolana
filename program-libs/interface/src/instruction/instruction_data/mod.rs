@@ -23,7 +23,7 @@ pub use deposit::{
     RingDepositEntryRef, RingDepositIxData, RingDepositIxDataRef, DEPOSIT_BLINDING_DOMAIN,
     MAX_DEPOSIT_ASSETS,
 };
-pub use merge_ring::{MergeRingIxData, MergeRingIxDataRef};
+pub use merge_ring::{MergeRingIxData, MergeRingIxDataRef, MergeRingPrefix};
 pub use merge_transact::{
     merge_circuit_width, MergeExternalDataHash, MergeOutputEncryption, MergeProof, MergeProofRef,
     MergeTransactIxData, MergeTransactIxDataRef, MAX_MERGE_INPUTS,
@@ -35,8 +35,10 @@ pub use ring_config::{CreateRingConfigData, SetRingActivationData, UpdateRingCon
 #[cfg(feature = "tree")]
 pub use set_tree_fees::SetTreeFeesData;
 pub use transact::{
-    fetch_tag, settlement_accounts, validate_input_tree_contexts, validate_interface_transfers,
-    CacheAccess, CacheWrite, CircuitId, ExternalDataPreimage, InputUtxo, InterfaceTransfer,
-    MessageData, OutputDataRef, OutputUtxo, OwnerTag, ResolvedOutput, TransactIxData,
-    TransactIxDataRef, TransactOutput, TransactOutputRef, TransactProof, TreeContext,
+    amount_field, fetch_tag, settlement_accounts, settlement_mints, validate_input_tree_contexts,
+    validate_interface_transfers, AnonymousParties, CacheAccess, CacheWrite, CircuitId,
+    ExternalDataPreimage, InputUtxo, InterfaceTransfer, MessageData, OutputDataRef, OutputUtxo,
+    OwnerTag, ParsedTransactIxData, PublicLeg, PublicSlotError, PublicSlots, ResolvedOutput,
+    TransactIxData, TransactIxDataRef, TransactOutput, TransactOutputRef, TransactProof,
+    TreeContext, ANONYMOUS_PARTIES,
 };

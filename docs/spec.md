@@ -14,6 +14,7 @@
   - [Policy Rings](#policy-rings)
 - [Glossary](#glossary)
 - [Shielded Address](#shielded-address)
+  - [Ring Address](#ring-address)
 - [Shielded Keypair](#shielded-keypair)
   - [Signing Key](#signing-key)
   - [Nullifier Key](#nullifier-key)
@@ -36,6 +37,7 @@
   - [Blinding Seed](#blinding-seed)
   - [Output Blinding](#output-blinding)
 - [Output UTXO Serialization](#output-utxo-serialization)
+  - [Ring outputs](#ring-outputs)
   - [UTXO Data](#utxo-data)
   - [Transfer](#transfer-2)
     - [Plaintext Layout](#plaintext-layout)
@@ -46,7 +48,6 @@
     - [Instruction Data Layout](#instruction-data-layout-1)
   - [Merge](#merge)
     - [PoseidonCtrV1](#poseidonctrv1)
-    - [Ring merge output encryption](#ring-merge-output-encryption)
 - [SPP Proof - Solana Privacy ZK Proof](#spp-proof---solana-privacy-zk-proof)
 - [Merge Proof - Merge ZK Proof](#merge-proof---merge-zk-proof)
 - [SPP - Solana Privacy Program](#spp---solana-privacy-program)
@@ -60,6 +61,15 @@
     - [merge_transact](#merge_transact)
     - [merge_ring](#merge_ring)
 - [Ring Program Interface](#ring-program-interface)
+  - [Ring configuration](#ring-configuration)
+  - [Member registry](#member-registry)
+  - [Ring transact data](#ring-transact-data)
+  - [Ring tags](#ring-tags)
+  - [Auditor envelope](#auditor-envelope)
+  - [Audit disclosure](#audit-disclosure)
+  - [Audit proof](#audit-proof)
+  - [Policy proof](#policy-proof)
+  - [Deposits, merges and key registration](#ring-deposits-merges-and-key-registration)
 - [ZK Program Interface](#zk-program-interface)
 - [RPC](#rpc)
   - [Indexer](#indexer)
@@ -72,9 +82,6 @@
   - [Prover](#prover)
   - [Relayer](#relayer)
   - [Ring RPC](#ring-rpc)
-    - [get_decrypted_utxos_by_owner](#get_decrypted_utxos_by_owner)
-    - [get_decrypted_transactions_by_owner](#get_decrypted_transactions_by_owner)
-    - [subscribe_to_decrypted_transactions_by_owner](#subscribe_to_decrypted_transactions_by_owner)
   - [Merge Service](#merge-service-1)
   - [Registry](#registry)
     - [Record](#record)
@@ -110,13 +117,13 @@ Source: [`diagrams/architecture.dot`](diagrams/architecture.dot). Regenerate wit
 
 1. Users — own wallets, build encrypted transactions, and authorize spends with Ed25519 transaction signatures.
 2. Photon Indexer — indexes trees + encrypted UTXOs; default-ring users fetch ciphertexts here.
-3. Ring RPC (with auditor) — RPC with auditor keys; decrypts and serves UTXOs to policy-ring users.
+3. Ring RPC (with auditor) holds a ring's auditor key, opens the ring's transactions and serves them to granted readers.
 4. Prover — generates Groth16 proofs. Users can generate client side proofs as well.
 5. Relayer (optional) — fee-payer that submits a transaction on a user's behalf; by default users invoke the programs directly. Targets SPP (default ring), the ZK Swap program, or a Ring program (policy ring).
 6. Forester — processes the nullifier queue into the nullifier tree and closes reclaimable nullifier PDAs.
 7. SPP (Solana Privacy Program) — verifies proofs, updates trees, moves SPL to and from the vaults.
 8. ZK Swap Program — enforces swap logic in a zk proof and settles the swap with a shielded transfer by CPI into a Ring program or directly into SPP.
-9. Ring Programs (1..N) — config programs; verify policy proofs and CPI into SPP.
+9. Ring Programs (1..N) verify a ring's audit and policy proofs and CPI into SPP.
 10. SPL interface — per-mint SPL / Token-22 holding all shielded tokens.
 11. Tree accounts — co-located UTXO tree, nullifier tree, and nullifier queue.
 
@@ -127,14 +134,14 @@ Per-flow sequence diagrams are in the [User Flows](#user-flows) section below.
 
 ### User
 
-Operations 1-4 run against the default ring via [`transact`](#transact) (or [`deposit`](#deposit)), or against a policy ring via the ring program's CPI into `ring_transact` (or [`ring_deposit`](#ring_deposit) for proofless deposits).
+Operations 1-4 run against the default ring via [`transact`](#transact) (or [`deposit`](#deposit)), or against a policy ring via the ring program's CPI into `ring_transact` or an audited [`ring_deposit`](#ring_deposit).
 
 | # | Name | Description | Privacy |
 | --- | --- | --- | --- |
 | 1 | deposit | Deposit SPL tokens into the shielded pool; existing UTXOs can be merged in the same transaction. | sender + amount visible; recipient visible |
 | 2 | deposit | Public deposit without a proof. Allows depositing dynamic amounts, for example for the flow withdraw, swap, deposit. | sender + amount visible; recipient `owner` visible |
 | 3 | withdraw | Withdraw SPL tokens from the shielded pool to a public account. | sender visible (or hidden via an optional relayer); recipient + amount visible |
-| 4 | shielded transfer | Transfer value between shielded balances. | confidential: amount hidden; sender + recipient visible (anonymous in a policy ring) |
+| 4 | shielded transfer | Transfer value between shielded balances. | confidential: amount hidden; sender + recipient visible (hidden in an [anonymous ring](../custom-rings/docs/anonymous-rings.md)) |
 
 ### Protocol
 
@@ -213,8 +220,11 @@ sequenceDiagram
 3. Exit Ring: a ring is exited by a withdraw to an SPL token account, the standard shielded pool, or another ring via a shielded transfer.
 4. Transfers: users invoke the ring program, which CPIs into the SPP program.
 
-**Policy sources:** the reference ring program compiles its rule table into the binary and pins `RuleTable.hash` over a per-list source map at `create_policy`. Each list the table references names the namespace serving it, the ring's own namespace PDA or a curator ring's. One curated list (an OFAC blocklist) serves many rings from one write. The map enters the policy hash as eight positional `(list_id, owner_hash)` slots and the transfer circuit resolves every answer's owner from it. `set_policy_source` lets the ring authority re-point one list only while the stored hash is reproducible from the deployed table, a rebuilt table stays fail closed. Every source claims its entry addresses in the ring's address tree, and the entries live in any tree. The encoding is pinned by `custom-rings/policy` and the cross-language vectors in `custom-rings/sdk/tests/go_policy_vectors.rs`.
+**Policy storage.** The reference ring stores its rule table in its `MemberRegistry` PDA beside the root history of its record tree. Each rule checks the sender, the output owners or the output assets against lists. See [Policy proof](#policy-proof).
 
+Each list membership is a bit of a member record in a registry's 4-ary indexed record tree. See [Member registry](#member-registry). Member writes queue on chain, and an apply proof moves the tree root. A transfer publishes no member list. Its policy proof opens the records privately under roots the registries hold.
+
+Each referenced list uses the ring's own registry or the one curator registry the policy names. Only the config authority signs a table or source update. The program hashes both into `policy_hash` at every table or source update, so a change invalidates proofs over the previous policy immediately. An authority list write raises the registry's floor, so it also binds every later transfer immediately. A curator's authority list write binds its subscribers within `GRACE_SLOTS`.
 
 ### Transfer
 
@@ -261,7 +271,7 @@ Raw fixed-size byte arrays keep their literal types where no alias adds clarity:
 Hashing conventions:
 
 - `Sha256BE` — SHA-256 over the byte preimage, then `digest[0] = 0`, interpreted as a BN254 field element. Zeroing the most-significant byte holds the result below the BN254 field modulus.
-- `hash_bytes_N` — a fixed-length byte commitment. Split the `N` bytes into consecutive 31-byte big-endian chunks, right-align each chunk in a 32-byte BN254 field representation, set `acc = chunk_0`, then fold each remaining chunk as `acc = Poseidon(acc, chunk_i)`. `hash_bytes_0([]) = 0`; a value of at most 31 bytes is its packed field value and invokes no Poseidon permutation. The length is fixed by the calling protocol type and is not encoded or domain-separated. A generic variable-length byte-hash API is forbidden.
+- `hash_bytes_N` — a fixed-length byte commitment. Split the `N` bytes into consecutive 31-byte big-endian chunks, right-align each chunk in a 32-byte BN254 field representation, set `acc = chunk_0`, then fold each remaining chunk as `acc = Poseidon(acc, chunk_i)`. `hash_bytes_0([]) = 0`; a value of at most 31 bytes is its packed field value and invokes no Poseidon permutation. The length is fixed by the calling protocol type and is not encoded or domain-separated. A generic variable-length byte-hash API is forbidden. The 32-byte and 33-byte encodings share a hash namespace. Typed callers must keep their roles separate and must not treat cross-length or cross-role hash equality as identity.
 
 # Shielded Address
 
@@ -271,6 +281,44 @@ In compressed form the signing and nullifier public keys are compressed in an ow
 `ShieldedAddress = (signing_pk, nullifier_pk, viewing_pk)`
 
 `CompressedShieldedAddress = (owner_hash, viewing_pk)`
+
+The 99-byte `ShieldedAddress` encoding is `signing_pk (34) || nullifier_pk (32) || viewing_pk (33)`.
+
+<a id="ring-address"></a>
+## Ring Address
+
+A ring address names a recipient inside one anonymous custom ring. Its
+shielded address carries the wallet's signing and nullifier public keys and,
+as its viewing key, the [ring address key](#derived-secrets) of index `i`. It
+also carries the ring program id and the recipient's pairing rows. Holding it
+lets a sender derive the inbox tags of that address, so a wallet shares it only
+with senders. See [Ring tags](#ring-tags).
+
+```
+ring_address = 0x02 || shielded_address (99) || ring_program_id (32) || count (1) || row (40) * count || checksum (4)
+row          = mint (32) || u64_be(min_amount)
+checksum     = SHA-256("zolana/ring-addr/v2" || every byte before it)[0..4]
+text         = "zolana:" || base58(ring_address) [ "?" query ]
+query        = key=value pairs joined by "&", keys amount (u64 decimal), mint (base58), label (percent-encoded UTF-8)
+```
+
+A row admits a [first contact](#ring-tags) of asset `A` and amount `x` when
+`x >= min_amount` and the row's mint is `A` or all zero. With `count = 0` the
+address has no pair streams. A new address carries the one row of the zero
+mint and amount 0.
+
+Rule. A decoder rejects another version byte, `count > 4`, a length other than
+`137 + 40 * count` bytes and a wrong checksum. It rejects a shielded address
+the [Shielded Address](#shielded-address) decoder rejects, an unknown query key
+and a repeated query key. It rejects text without the `zolana:` prefix, an
+address that is not base58, and an `amount`, `mint` or `label` that does not
+parse. The checksum does not cover the query.
+`test-vectors/ring_address.json` pins the encoding.
+
+The ring program does not check that a sender anchors a pair payment only on a
+first contact the rows admit. A pair payment anchored on a first contact the
+rows do not admit reaches no recipient scan. The SDKs check the rows before
+they take a pair stream.
 
 ## Fixed-byte proof-input encoding
 
@@ -338,7 +386,7 @@ The client-side triple behind a [Shielded Address](#shielded-address): a
 **Methods:**
 
 - `pubkey() -> PublicKey` — the scheme-tagged public key ([Glossary](#glossary)).
-- `sign_message(msg) -> Result<Signature>` — Ed25519 over the raw bytes (RFC 8032, delegated to the host Solana wallet). PDA: error. On the `AnonymousRingEddsa` rail the owner signs the digest `SHA-256(private_tx_hash || external_data_hash)` with this method, and the proof verifies the signature.
+- `sign_message(msg) -> Result<Signature>` — Ed25519 over the raw bytes (RFC 8032, delegated to the host Solana wallet). PDA: error. On the `AnonymousRingEddsa` rail the owner signs the [ring spend message](#ring-spend-message) with this method, and the proof verifies the signature.
 
 ## Nullifier Key
 
@@ -373,6 +421,19 @@ Secrets derive from `view_root`.
 - `recipient_view_tag_secret := HKDF-Expand(view_root, "TSPP/recipient_view_tag", L=32)`
 - `tx_viewing_secret         := HKDF-Expand(view_root, "TSPP/tx_viewing/x25519/v1", L=32)` — seeds the transaction viewing keys.
 
+Each anonymous ring key is an [`X25519Keypair`](#glossary) with the secret
+below:
+
+```
+ring_address_key(R, i) := clamp(HKDF-Expand(view_root, "TSPP/ring_address_key/" || R || u32_be(i), L=32))
+ring_change_key(R)     := clamp(HKDF-Expand(view_root, "TSPP/ring_change_key/" || R, L=32))
+```
+
+`R` is the 32-byte ring program id. `ring_address_key(R, i)` is the viewing key
+of [ring address](#ring-address) index `i`. `ring_change_key(R)` receives the
+spender's change in anonymous ring `R`. The spender finds the change through
+its own spends.
+
 ### Transaction Viewing Key
 
 The transaction viewing key is a single use keypair (ephemeral key) that is deterministically derived for every private transaction.
@@ -393,53 +454,40 @@ This way the transaction viewing key can decrypt both the sender's change and re
 
 ### View Tags
 
-The view-tag types in this section (`sender_view_tag`, `recipient_shared_view_tag`, `recipient_request_view_tag`, `recipient_bootstrap_view_tag`) apply to **anonymous policy rings only**. In the confidential [default ring](#default-ring) every output — sender change, recipients, and the [`merge_transact`](#merge_transact) output — is tagged by its Ed25519 owner pubkey, so a wallet syncs by querying the indexer for its own owner pubkey.
+A view tag is a 32-byte value attached to an output or message. A wallet queries the indexer by exact tag. In the confidential [default ring](#default-ring) every output carries its Ed25519 owner pubkey as its tag. Sender change, recipients and the [`merge_transact`](#merge_transact) output follow the same rule, and a wallet syncs by its own owner pubkey.
 
-Policy rings hide the recipient, so a wallet cannot find its outputs by owner pubkey as in the [default ring](#default-ring). Instead a view tag, a 32-byte value attached to a ciphertext, lets wallets sync by querying the indexer for exact view-tag matches and decrypt only their own transactions. Derivation splits into two cases — tags the sender derives for themselves to discover their own change UTXOs, and tags the sender derives for the recipient to discover incoming transfers.
+An [anonymous ring](../custom-rings/docs/anonymous-rings.md) hides the owner, so every [scheme-9](#ring-outputs) output carries an inbox, pair or free [ring tag](#ring-tags) in its `owner_tag`. A viewing key also has a deposit stream for anonymous ring deposits.
 
-A recipients wallet cannot pre-derive shared tags for every possible sender. Therefore the wallet needs to know which senders to derive view tags for. The first transfer between a new sender-recipient pair uses a tag the recipient can find without prior knowledge of the sender: either `recipient_request_view_tag` (recipient minted, shared out-of-band) or `recipient_bootstrap_view_tag = recipient.viewing_pk` (no coordination required). This first transfer establishes the pair: on decryption the recipient reads `sender_pubkey` from the ciphertext and derives the shared ECDH key, and subsequent transfers from this sender use a shared tag (`recipient_shared_view_tag`) to find transaction. `sender → recipient` and `recipient → sender` produce disjoint tags.
+**Encoding.** A derived tag is `expand_view_tag(IKM, info) := 0x00 || HKDF-SHA256(salt = ∅, IKM, info, L = 31)`. SPP and the indexer do not check the leading byte.
 
-Custom-ring anonymous outputs (scheme `9`, [Output UTXO Serialization](#output-utxo-serialization)) carry no `sender_pubkey`, so they establish no pair.
-
-**Uniqueness.** View tags should not be reused. The indexer must handle the case that these may be used multiple times erroneously and return all ciphertexts matching a single tag value.
-
-**Encoding.**  all view tags are constant length 32 bytes. Shorter view tags are prefixed with 0s.
+**Uniqueness.** View tags should not be reused. The indexer must handle the case that these may be used multiple times erroneously and return all ciphertexts matching a single tag value. No sender reads the indexer to pick a stream index. Readers open every output under a tag.
 
 #### Sender View Tag
 
-1. **`sender_view_tag`**
-  - Derived by: the sender, to index her change utxos.
-  - Tx sent by: the sender
-  - Indexed by: the sender
-  - Derivation: `HKDF-SHA256(salt=∅, IKM=sender_view_tag_secret, info="TSPP/sender_view_tag/" || u64_be(tx_count), L=31)`.
+```
+sender_view_tag(n) = expand_view_tag(sender_view_tag_secret, "TSPP/sender_view_tag/" || u64_be(n))
+```
+
+1. **`sender_view_tag(n)`** is the deposit stream. An anonymous [`ring_deposit`](#ring_deposit) takes the `deposit_next` of the wallet's stored ring state as `n`. Two deposits made between two scans share one tag.
 
 #### Recipient view tag
 
-2. **`recipient_shared_view_tag`**
-    - Derived by: the sender and recipient independently. Sender via `get_send_shared_view_tag` to send the tx, the recipient via `get_recipient_shared_view_tag` to index the tx.
-    - Tx sent by: the sender.
-    - Indexed by: the recipient.
-    - Derivation: two chained HKDFs over the ECDH shared secret.
+```
+recipient_request_view_tag(n) = expand_view_tag(recipient_view_tag_secret, "TSPP/recipient_request_view_tag/" || u64_be(n))
+```
+
+2. **`recipient_shared_view_tag`** chains two HKDFs over an ECDH shared secret:
 
       ```
       shared := ECDH(self.viewing_sk, counterparty_pubkey)
       domain := HKDF-SHA256(salt = ∅, IKM = shared,
                            info = "TSPP/pair-domain/" || R_pubkey, L = 32)
-      return    HKDF-SHA256(salt = ∅, IKM = domain,
-                           info = "TSPP/pair-hint/"   || u64_be(i), L = 31)
+      return    expand_view_tag(domain, "TSPP/pair-hint/" || u64_be(k))
       ```
 
-      `R_pubkey` is the recipient of the direction: `counterparty_pubkey` on the sender side (`get_send_shared_view_tag`), `self.viewing_pk` on the recipient side (`get_recipient_shared_view_tag`). ECDH symmetry plus the matched direction label produces the same byte value across the pair.
-3. **`recipient_request_view_tag`**
-    - Derived by: the recipient. The recipient shares the tag with the sender out-of-band as a `PaymentRequest`.
-    - Tx sent by: the sender.
-    - Indexed by: the recipient. Once the recipient decrypts this transfer, subsequent transfers from the same sender can be indexed by `recipient_shared_view_tag`.
-    - Derivation: `HKDF-SHA256(salt=∅, IKM=recipient_view_tag_secret, info="TSPP/recipient_request_view_tag/" || u64_be(request_count), L=31)`.
-4. **`recipient_bootstrap_view_tag`**
-    - Derived by: anyone — the 32-byte `u` coordinate of `recipient.viewing_pk` (the 33-byte key without its `0x04` tag).
-    - Tx sent by: the sender.
-    - Indexed by: the recipient. Once the recipient decrypts this transfer, subsequent transfers from the same sender can be indexed by `recipient_shared_view_tag`.
-    - [Plaintext Transfer](#plaintext-transfer): sender bundles and recipient slots are indexed by the 32-byte owner tag in place of `viewing_pk`. The slot contains no `sender_pubkey`, so `known_senders` / `known_recipients` are not updated and the next encrypted transfer between the pair is again a first transfer.
+      `R_pubkey` is the recipient of the direction. It is `counterparty_pubkey` on the sender side (`get_send_shared_view_tag`) and `self.viewing_pk` on the recipient side (`get_recipient_shared_view_tag`). ECDH symmetry plus the matched direction label produces the same byte value across the pair.
+3. **`recipient_request_view_tag(n)`** is a recipient-minted stream.
+4. **`recipient_bootstrap_view_tag`** is the 32-byte `u` coordinate of `recipient.viewing_pk`, the key without its `0x04` tag. It tags a [`ring_deposit`](#ring_deposit) outside anonymous mode. [Plaintext Transfer](#plaintext-transfer) sender bundles and recipient slots are indexed by the 32-byte owner tag in place of `viewing_pk`.
 
 
 #### Merge output indexing (removed merge view tag)
@@ -448,26 +496,26 @@ The single-use `merge_view_tag` stream — `merge_view_tag_secret`, a per-user `
 
 #### View Tag Selection
 
-In the [default ring](#default-ring) every output is tagged by its recipient owner pubkey, so the selection below applies only to anonymous policy rings. `merge_transact` outputs are tagged by the owner signing pubkey like every other default-ring output; `merge_ring` outputs are indexed by the first input's published nullifier, not by a view tag. Wallets select recipient tags as follows:
+In the [default ring](#default-ring) every output is tagged by its recipient owner pubkey, a `merge_transact` output included. A `merge_ring` output is indexed by the first input's published nullifier, not by a view tag. A confidential custom ring output takes `recipient_bootstrap_view_tag` of its recipient. An anonymous ring builder fixes the output slot order, then tags each slot:
 
-```mermaid
-flowchart TD
-    Start([prefix recipient]) --> Q1{"wallet has a prior transfer with the recipient? (recipient_pubkey ∈ wallet.known_recipients)"}
-    Q1 -->|Yes| Case22[2. recipient_shared_view_tag]
-    Q1 -->|No| Q2{"request view tag from recipient?"}
-    Q2 -->|Yes| Case211[3. recipient_request_view_tag]
-    Q2 -->|No| Case212[4. recipient_bootstrap_view_tag]
-```
+1. A payment to a ring address takes a pair tag on a live [first contact](#ring-tags) its rows admit, else an inbox tag. At most one payment of a transfer takes a pair tag. A first contact of epoch `e1` is live in epoch `e` while `0 <= e - e1 < K_PAIR_EPOCHS` and `e - last < PAIR_IDLE_EPOCHS`. `PAIR_IDLE_EPOCHS` is 8. `last` is the epoch of the newest pair payment on its stream, `e1` until one. A sender counts only the pair payments its own scans read. A pair that is not live is dead at both ends, and its sender pays the inbox stream again.
+2. A change output and a padding slot take a [free tag](#ring-tags).
+3. An exit to the default ring keeps its owner pubkey tag.
+
+Each payment takes a uniformly random index of its stream in the current epoch. The sender draws again only on an index an earlier slot of the same transaction took. Two payments that draw one index publish one tag twice, and the shared tag links the two outputs publicly.
+
+A sender pairs only on a first contact whose decoys its scans pinned. The first scan whose decoy pool for the first contact's tree holds `ANCHOR_DECOYS = 7` other leaves pins the seven that rank lowest under `SHA-256("zolana/ring-anchor-decoy/v1" || s1 || utxo_hash)`, with `s1` the first contact's slot secret of [Ring tags](#ring-tags). Every anchor read asks for those seven leaves and the first contact in rank order. When the indexer does not prove all eight under one root, the sender retires the first contact, and its next payment to that address takes the inbox stream.
 
 ### Methods
 
 1. `decrypt(ciphertext, tx_viewing_pk) -> Result<Plaintext>` — AES-CTR decryption with key `KDF(ECDH(viewing_sk, tx_viewing_pk))`.
-2. `get_sender_view_tag(tx_count)` — policy-ring anonymous transfers only; tags the sender's own change UTXOs. The default ring tags change by the sender's owner pubkey.
-3. `get_recipient_request_view_tag(request_count)` — used by the recipient to create a view tag for a `PaymentRequest` shared with the sender out-of-band.
-4. `get_send_shared_view_tag(counterparty_pubkey, i)` — sender-side `recipient_shared_view_tag`; used for transfers to a recipient the sender has already paired with.
-5. `get_recipient_shared_view_tag(counterparty_pubkey, i)` — recipient-side `recipient_shared_view_tag`; used during sync to scan transfers from each known sender.
+2. `get_sender_view_tag(n)` returns `sender_view_tag(n)`, the deposit stream of an anonymous ring. The default ring tags change by the sender's owner pubkey.
+3. `get_recipient_request_view_tag(n)` returns `recipient_request_view_tag(n)`.
+4. `get_send_shared_view_tag(counterparty_pubkey, k)` returns the sender-side `recipient_shared_view_tag`.
+5. `get_recipient_shared_view_tag(counterparty_pubkey, k)` returns the recipient-side `recipient_shared_view_tag`.
 6. `merge_output_blinding(first_nullifier)` / `merge_dummy_nullifier(first_nullifier, slot_index)` / `merge_output_key(first_nullifier)` — deterministic merge derivations from the owner's nullifier secret (domain-separated Poseidon; the key is defined under [Merge](#merge)); used by the merge prover when building [`merge_transact`](#merge_transact) / [`merge_ring`](#merge_ring) and by the owner during sync to decrypt merged outputs. Replaces the removed `get_merge_view_tag(merge_count)`.
 7. `get_transaction_viewing_key(first_nullifier: [u8; 32]) -> X25519Keypair` — the per-transaction [X25519 keypair](#transaction-viewing-key) for ECDH encryption to recipients.
+8. `ring_address_key(R, i)` and `ring_change_key(R)` return the anonymous ring keys of [Derived secrets](#derived-secrets).
 
 ## Derivation seed
 
@@ -624,7 +672,10 @@ The [recipient](#recipient) plaintext contains the derived blinding. The
 Other rails have their own rules: [`deposit`](#blinding-derivation) derives the
 blinding from the tree and leaf index; [`ring_deposit`](#ring_deposit) delegates
 freshness to the ring; [merge](#merge) derives `merge_output_blinding` from the
-owner's nullifier secret and the first nullifier.
+owner's nullifier secret and the first nullifier. On the `ConfidentialRingEddsa`,
+`AnonymousRingEddsa` and `RingAuthority` rails an output with a nonzero
+`ring_program_id` takes the [`TXRB` blinding](#ring-outputs) in place of
+`blinding_i`. Its ring secret is a private input the ring's audit proof binds.
 
 ## Empty UTXO
 
@@ -657,8 +708,7 @@ Output UTXO serialization is the per-output ciphertext layout for shielded
 transactions. Each output's ciphertext lives in its own
 [`TransactOutput.data`](#transact) slot; SPP does not parse `data`. Serialization is
 a default-ring convention; policy rings can define their own.
-UTXOs are encrypted with X25519 ECDH and AES-256-CTR, except in the Plaintext
-Transfer and Merge schemes.
+UTXOs use X25519 ECDH and AES-256-CTR, except in the Plaintext Transfer and Merge schemes.
 The shared `tx_viewing_pk` and `salt` are transaction-level fields of the
 [transact](#transact) instruction, not part of any per-output payload. Each output
 is tagged by its owner pubkey (the `owner_tag` value).
@@ -667,9 +717,9 @@ Schemes:
 
 1. Transfer — one sender and `0<=` recipient ciphertexts.
 2. UTXO Split — one ciphertext for M equal-amount outputs under the same owner.
-3. Merge — scheme byte `6`: the merged output's amount and mint encrypted for the owner with a key derived from the owner's nullifier secret (see [Merge](#merge)). On `merge_transact` the merge proof checks the ciphertext; on `merge_ring` SPP publishes it unverified.
+3. Merge — scheme byte `6`, verifiably encrypted: the merge proof binds the merged output's amount and mint, encrypted for the owner under a key derived from the owner's nullifier secret (`output_encryption`, see [Merge](#merge)).
 4. Plaintext Transfer — the Transfer layout with unencrypted payloads.
-5. Ring Anonymous — scheme byte `9`: a custom-ring output in anonymous mode. The body is a [recipient plaintext](#recipient) without `owner_pubkey` or `sender_pubkey`, encrypted under the per-slot schedule below and published without the recipient viewing key. The owner tag is a [view tag](#view-tags), `sender_view_tag` on the sender's own outputs and `recipient_bootstrap_view_tag` on a recipient's. Wallets skip this scheme. The ring auditor reads it through the [Ring RPC](#ring-rpc) with the recipient viewing key from the proved anonymous disclosure.
+5. Ring outputs, scheme bytes `9`, `10` and `11`, are the anonymous, delivered and packed custom-ring outputs, tagged as in [Ring outputs](#ring-outputs).
 
 ## AES Key derivation
 
@@ -689,10 +739,94 @@ ciphertext = AES-256-CTR(key, nonce, plaintext)             // first counter blo
 ```
 
 A [`ring_deposit`](#ring_deposit) ciphertext uses the label
-`"TSPP/ring_deposit"` in place of `"TSPP/tx"` and slot `0`.
+`"TSPP/ring_deposit"` in place of `"TSPP/tx"` and slot `0`. A scheme-9 or
+scheme-10 body takes the audit stream schedule of [Ring outputs](#ring-outputs)
+in place of the HKDF derivation above. A scheme-11 ciphertext takes the HKDF
+derivation.
 
 Integrity is verified by recomputing the UTXO hash from the decrypted plaintext fields and comparing against the covered output's `utxo_hash`. Those hashes are proof-verified on-chain commitments, so a mismatch — from a wrong decryption key or a corrupted ciphertext — is detected with overwhelming probability.
 
+<a id="ring-outputs"></a>
+## Ring outputs
+
+Let `tx_viewing_sk` and `tx_viewing_pk` be the transaction viewing keypair. The
+confidential and anonymous rails derive it as in
+[Transaction Viewing Key](#transaction-viewing-key), and the delegate rail
+uses a random keypair. Let `salt` be the 16-byte transaction salt read as one
+big-endian integer and `i` the output slot. `D`, `pack_be` and `n0` are as in
+[Ring Program Interface](#ring-program-interface), and the audit stream
+schedule as in [Auditor envelope](#auditor-envelope). The ring program rebuilds
+each output's `owner_tag` and `data` from its compact slot in
+[Ring transact data](#ring-transact-data):
+
+```
+packed     owner_tag = u             data = Encrypted(0x0b || 0x04 || u || ciphertext)
+delivered  owner_tag = u             data = Encrypted(0x0a || body)
+anonymous  owner_tag = 0^16 || tag   data = Encrypted(0x09 || body)
+exit       owner_tag = owner's tag   data = Encrypted(0x03 || payload)
+```
+
+`Encrypted` is the [`OutputDataEncoding`](#general-event) variant. The packed
+form serves the confidential and delegate rails at 2 and 4 outputs. The
+delivered form serves the same rails at 8 and 16 outputs. The anonymous form
+serves the anonymous rail. `u` is the u-coordinate of the recipient's viewing
+key. On an anonymous ring that key is a [ring address key](#derived-secrets),
+or the spender's ring change key for change. The packed ciphertext encrypts the
+[Recipient](#recipient) plaintext without its `ring_program_id`, under
+[AES Key derivation](#aes-key-derivation).
+An exit payload is `0x04 || u || ciphertext` of its recipient, and the
+ciphertext encrypts the whole [Recipient](#recipient) plaintext under
+[AES Key derivation](#aes-key-derivation). A delivered or
+anonymous output carries no data, so `data_hash = 0` and `ring_data_hash = 0`.
+
+```
+body = AES-256-CTR under the audit stream schedule of s_i, over
+       asset_address (32) || u64_be(amount)                           // 40 bytes
+```
+
+`asset_address` is the mint address, the preimage of the [UTXO hash](#utxo-hash)
+`asset`. Each ring output's slot secret `s_i` is
+
+```
+packed                   s_i = Poseidon(D("CRAS"), pack_be(tx_viewing_sk), salt, i, n0)
+delivered and anonymous  s_i = Poseidon(D("CRDS"), pack_be(ECDH(tx_viewing_sk, 0x04 || u)), pack_be(tx_viewing_pk),
+                                        pack_be(0x04 || u), salt, i, n0)
+```
+
+The recipient computes the delivered agreement as `ECDH(u_sk, tx_viewing_pk)`,
+with `u_sk` the secret of `0x04 || u`. The slot secret keys the ring output's
+blinding:
+
+```
+ring_secret_i   = Poseidon(D("CRRC"), s_i)                         confidential and delegate rails
+ring_secret_i   = Poseidon(D("CRRA"), s_i, 0^16 || tag_i)          anonymous rail
+ring_blinding_i = Poseidon(D("TXRB"), n0, ring_secret_i, i)
+```
+
+`tag_i` is the slot's 16-byte [ring tag](#ring-tags), and `0^16 || tag_i`, 16
+zero bytes then the tag, is read as one integer. An exit and a padding slot keep `blinding_i` of
+[Output Blinding](#output-blinding). A padding slot carries a free tag on an
+anonymous transfer and a random `u` otherwise. A delivered or anonymous
+padding body is 40 random bytes. A packed padding slot seals a SOL plaintext
+of amount 0 and blinding 0 to a random key.
+`test-vectors/ring-secrets.json` pins the secrets and blindings.
+
+Rule. A reader recomputes the [UTXO hash](#utxo-hash) from its own `owner_hash`,
+the opened asset and amount, the blinding and the data hashes. A packed
+plaintext carries the blinding. The reader of a delivered or anonymous output
+derives it from `s_i` and, on the anonymous rail, the published tag. The hash
+also takes the transaction's ring
+program id and the output's `tree_id`.
+The reader accepts the output only when that hash equals the published
+`utxo_hash`.
+
+Security requirement. One `(key, nonce)` pair encrypts at most one body,
+because two bodies under one pair leak their XOR. Every slot secret hashes the salt, the
+slot and `n0`, and a builder draws a fresh random salt for every proof attempt.
+The proof binds the salt and does not check its freshness.
+
+The [audit proof](#audit-proof) does not certify a padding body, a packed
+ciphertext or an exit payload.
 
 ## UTXO Data
 
@@ -732,8 +866,7 @@ Fields packed in declaration order. Byte vectors are prefixed with a `u16_le` le
 /// 50 B plaintext for confidential transfers with an empty `data` field and no
 /// `ring_program_id`. Anonymous transfers add `owner_pubkey: PublicKey` (34 B)
 /// and `sender_pubkey: X25519Pubkey` (33 B) before `asset_id` and omit
-/// `ring_program_id`. Ring Anonymous outputs (scheme `9`) use the confidential
-/// form. Each populated data record adds `3 + len` bytes. See
+/// `ring_program_id`. Each populated data record adds `3 + len` bytes. See
 /// [UTXO Data](#utxo-data).
 struct TransferRecipientPlaintext {
     /// `1` for SOL; SPL via per-mint Asset registry (`asset_id ≥ 2`).
@@ -960,10 +1093,11 @@ and `private_tx_hash` cover all eight commitments.
 ## Merge
 
 A merger holds the owner's nullifier secret, so it can merge a UTXO the owner
-never saw. A merge instruction therefore contains the two output fields the
+never saw. A merge instruction therefore carries the two output fields the
 owner cannot derive, amount and mint, encrypted for the owner as
-`output_encryption`. The owner rebuilds the output from the merge transaction
-alone, whichever inputs the merger chose.
+`output_encryption`, and the merge proof binds that ciphertext as public
+inputs; the owner rebuilds the output from the merge transaction alone,
+whichever inputs the merger chose.
 
 ```rust
 /// u8-tagged. The variant is the encryption scheme; its tag is the scheme id.
@@ -977,16 +1111,15 @@ The owner selects the scheme in their [registry record](#record)
 (`merge_encryption`), whose `MergeEncryptionScheme` value has the same id as the
 variant tag. [`merge_transact`](#merge_transact) rejects an `output_encryption`
 whose scheme differs from the record, so a delegated merger cannot choose the
-scheme, and the scheme selects the verifying key; the merge proof computes the
-ciphertext and its public-input hash includes it. [`merge_ring`](#merge_ring)
-contains the same field, but SPP does not check it there (see [Ring merge
-output encryption](#ring-merge-output-encryption)). Adding a scheme takes a
-new `MergeOutputEncryption` variant, a `MergeEncryptionScheme` value with the
-same id, and a new merge circuit with its own verifying keys.
+scheme, and the scheme selects the verifying key. [`merge_ring`](#merge_ring)
+carries the same field; the ring program authorizes the merge, and the ring
+merge proof binds the ciphertext the same way. Adding a scheme takes a new
+`MergeOutputEncryption` variant, a `MergeEncryptionScheme` value with the same
+id, and new merge circuits with their own verifying keys.
 
-On the default rail (`merge_transact`) the logged event's `view_tag` is the
-owner signing pubkey (the full ed25519 `owner` key), so the wallet's
-owner-pubkey scan finds it; `merge_ring` instead indexes the output by the first input's published
+On the default rail (`merge_transact`) the emitted event's `view_tag` is the
+owner signing pubkey (the full Ed25519 key), so the wallet's owner-pubkey scan finds
+it; `merge_ring` instead indexes the output by the first input's published
 nullifier (see [Merge output
 indexing](#merge-output-indexing-removed-merge-view-tag)).
 
@@ -1010,12 +1143,10 @@ mint address. `salt` is 16 bytes drawn from the OS RNG per proof
 ([why](#aes-key-derivation)), right-aligned in a field element.
 
 The merged output's `data` slot is rebuilt by the indexer from the instruction
-data (see the [`merge_transact`](#merge_transact) **Event**); SPP logs none of
-it. On `merge_transact` it is `VerifiablyEncrypted(6 || salt || ciphertext)`,
-112 bytes after the scheme byte. On `merge_ring` it is
-`Encrypted(6 || output_ring_data_hash || salt || ciphertext)`, 144 bytes after
-the scheme byte, with the ring data hash leading as in its instruction data.
-The outer tag is `Encrypted` because SPP did not verify that ciphertext.
+data (see the [`merge_transact`](#merge_transact) **Event**); SPP emits none of
+it. It is `VerifiablyEncrypted(6 || [output_ring_data_hash ||] salt || ciphertext)`:
+112 bytes after the scheme byte, 144 on [`merge_ring`](#merge_ring), where the
+ring data hash leads as in its instruction data.
 
 The cipher has no authentication tag. Both SDKs reject a ciphertext element
 that is not a canonical BN254 scalar before decryption. The owner derives `merge_output_key` and
@@ -1024,27 +1155,8 @@ pads, and rejects an element out of its range (`amount >= 2^64`,
 `mint_chunk_0 >= 2^248`, `mint_chunk_1 >= 2^8`). It rebuilds the UTXO with the
 owner from its own keys, `data_hash = 0`, and on `merge_ring` the ring fields
 from the transaction, and accepts it only when its hash equals the published
-`output_utxo_hash`. The owner needs none of the merge's inputs. On `merge_ring`
-this commitment check authenticates the decrypted output, and a wallet must run it
-before it trusts the decrypted amount and mint. Padding slots
+`output_utxo_hash`. The owner needs none of the merge's inputs. Padding slots
 publish `merge_dummy_nullifier(first_nullifier, slot)`.
-
-### Ring merge output encryption
-
-The ring merge proof does not compute or constrain a ciphertext, and its
-public-input hash does not include `output_encryption`. SPP decodes the field
-with the instruction data, but on `merge_ring` it neither compares the scheme
-with a registry record nor checks the ciphertext elements for canonicality. A
-ring that needs a recoverable merge output must
-enforce the ciphertext in its own program before the CPI.
-
-The custom-ring rails do not enforce it. This is an accepted risk: a holder of
-the owner's nullifier secret, such as an operator that opened the owner's
-escrowed nullifier key, can merge a note the owner cannot open and publish a
-ciphertext that does not decrypt to the output. The owner's hash check then
-fails, and ring recovery leaves the merged note unopened. TypeScript wallet
-sync rejects an undecodable merge that names the owner or spends a known wallet
-note, preserving its state and cursors for retry.
 
 # SPP Proof - Solana Privacy ZK Proof
 
@@ -1087,8 +1199,11 @@ input could be zero-padded to look like a fixed-length one. The same applies to
 | `tree_slot_chain` | commitment to the five input tree slots; see [Tree Slot Chain](#tree-slot-chain). SPP populates one slot per declared `tree_contexts` entry |
 | `output_tree_id` | raw `u16` id of `output_tree`; hashed into each output `utxo_hash` |
 | `private_tx_hash` | instruction data; see [Private transaction hash](#private-transaction-hash) |
-| message hash (`AnonymousRingEddsa` only) | `hash_bytes_32(SHA-256(private_tx_hash || external_data_hash))`; SPP computes the digest, the circuit only hashes it |
+| message hash (`AnonymousRingEddsa` only) | `hash_bytes_32(SHA-256(private_tx_hash || external_data_hash))`; SPP computes the digest, the circuit verifies the hidden owner's signature over the [ring spend message](#ring-spend-message) that carries it |
 | `default_owner_pk_hash` (`AnonymousRingEddsa` only) | `hash_bytes_33(0x53 || owner_pk)` when a spent UTXO of the hidden owner belongs to the default ring, otherwise `0`. SPP derives it from `CircuitId::AnonymousRingEddsa.default_owner_tag`; the circuit checks it against the verified hidden Ed25519 key. Address slots do not force publication. |
+| `payer_pk_hash` (`AnonymousRingEddsa` only) | `owner_proof_input_hash(payer)` of the fee payer account. |
+| `cosigner_pk_hash` (`AnonymousRingEddsa` only) | `owner_proof_input_hash(cosigner)` of the 32-byte co-signer address the ring program appends after the instruction data, `0` for the zero address. SPP rejects an anonymous instruction without exactly that 32-byte tail. |
+| `exit_destination_pk_hash` (`AnonymousRingEddsa` only) | `owner_proof_input_hash` of the key every withdrawal leg names, `0` without a withdrawal. A SOL leg names its recipient, and SPP rejects a recipient other than a system account without data. An SPL leg names the owner of its token account, and SPP rejects a token account with a delegate or a close authority or at an address on the ed25519 curve. SPP rejects legs that name two different keys. |
 | `external_data_hash` | recomputed by SPP from the instruction data prefix and the committed accounts; see [external_data_hash](#external_data_hash). A separate public input, not part of the private transaction hash. |
 | public asset/amount slots (`N_PUBLIC_SLOTS = 3`) | six fields: `asset_0, amount_0, asset_1, amount_1, asset_2, amount_2`. SPP aggregates settlement legs by asset in first-appearance order, drops zero-net groups, and pads with `(0, 0)`. Assets use `hash_bytes_32(mint)`, including `Address::default()` for SOL. Each net magnitude fits `u64`; deposits are positive and withdrawals negative in the BN254 field. |
 | `ring_program_id` | `pk_field(ring_config.program_id)` for a policy ring; `0` for default `transact` |
@@ -1096,6 +1211,20 @@ input could be zero-padded to look like a fixed-length one. The same applies to
 | `input_flags` | the dummy-input policy and every input's tree slot index, packed into one field element; see [input_flags](#input-flags) |
 | published output owner hash chain (owner-signed variants) | `RightHashChain4` over per-output tagged Solana identities. `ConfidentialEddsa` includes every resolved owner tag. `ConfidentialRingEddsa` and `AnonymousRingEddsa` use `hash_bytes_33(0x53 || fetch_tag)` for confidential-encrypted slots (scheme byte `3`), and `0` for other encodings. `RingAuthority` omits this field. |
 | cache selection (owner-signed variants) | the cache's raw `u16` `tree_id` and `RightHashChain4` over the UTXO hashes of the cache slots `read_bitmap` selects, in ascending slot order, zero-padded to `n_inputs`. Without a cache read the tree id is `0` and the chain is over `n_inputs` zeros. Selected inputs skip UTXO inclusion. `RingAuthority` omits these fields. |
+
+<a id="ring-spend-message"></a>
+**Ring spend message.** The hidden owner of an `AnonymousRingEddsa` spend signs
+84 bytes with Ed25519:
+
+```
+ring_spend_message = "zolana ring spend v1" (20) || ring_program_id (32) || SHA-256(private_tx_hash || external_data_hash) (32)
+```
+
+The circuit verifies the signature and asserts `hash_bytes_32(ring_program_id)`
+equal to the public `ring_program_id`. It asserts the hidden owner's identity
+different from every signer identity and from each nonzero `payer_pk_hash`,
+`cosigner_pk_hash` and `exit_destination_pk_hash`.
+`test-vectors/ring_spend_message.json` pins the message.
 
 An `AnonymousRingEddsa` proof spending a policy-ring UTXO of the hidden owner must
 keep the hidden identity private: it cannot also spend a default-ring UTXO of the
@@ -1237,12 +1366,14 @@ value while reusing the proof.
 | Inclusion | Each spent input UTXO must be a leaf at `utxo_tree_roots[tree_slot]`, hashed with `tree_ids[tree_slot]`. Padding and address inputs skip inclusion. |
 | Nullifiers | Every input's public nullifier equals its derived [nullifier](#nullifier), including padding and addresses, except [compact padding](#compact-padding); all nonzero input nullifiers must differ. |
 | Nullifier non-inclusion | Every input's derived nullifier must be strictly bracketed by its low leaf at `nullifier_tree_roots[tree_slot]`, including padding, addresses and compact padding. |
-| Output UTXOs | Every output hash uses `output_tree_id` and the derived `blinding_i`, and matches `output_utxo_hashes[i]`, except compact padding. Owner-signed variants recompute `owner_hash` from the recipient identity and nullifier pubkey; `RingAuthority` commits `owner` directly. |
+| Output UTXOs | Every output hash uses `output_tree_id` and the derived `blinding_i`, and matches `output_utxo_hashes[i]`, except compact padding. On `ConfidentialRingEddsa`, `AnonymousRingEddsa` and `RingAuthority` an output with a nonzero `ring_program_id` uses the [`TXRB` blinding](#output-blinding) over a private ring secret. Owner-signed variants recompute `owner_hash` from the recipient identity and nullifier pubkey; `RingAuthority` commits `owner` directly. |
 | Output owner tag | `ConfidentialEddsa` requires every real output's tag to equal its owner identity. Owner-signed ring circuits require real default-ring outputs to publish a confidential marker equal to their owner identity, and real policy-ring outputs to publish zero. A dummy's tag must name an owner signer (a fee payer that owns no input is not one) or a real output owner. This constrains the resolved identity, not whether the tag is encoded as `Inline` or `Account`. The ring circuits also accept zero. Compact padding publishes `0`. `RingAuthority` omits the owner chain. |
 | Balance Conservation | For each active asset, inputs plus public deposits equal outputs plus public withdrawals. Public slots contain distinct assets with nonzero net movements; unused slots are `(0, 0)`. |
 | Private transaction hash | Matches the [derived hash](#private-transaction-hash). |
 | UTXO data | `data_hash` enters `utxo_hash` unchecked. A real output with nonzero `data_hash` must be owned by a signer (`ConfidentialEddsa`, `ConfidentialRingEddsa`), a signer or the hidden Ed25519 key (`AnonymousRingEddsa`), or a spent input's owner (`RingAuthority`). Application and ring proofs interpret the data before CPI into SPP. |
 | Dummy and address policy | Input domains and the capacity gate follow [Input slots](#input-slots). Dummy outputs are [empty UTXOs](#empty-utxo) with derived blindings. Dummies come last on both sides; see [Slot order](#slot-order). |
+
+SDKs reject real default-ring outputs on confidential ring rails unless their payload has the confidential marker and their published tag matches the recipient owner. They also reject confidential-marked real ring outputs. This runs before indexer or prover calls. Zero-amount real notes are included. Genuine dummy padding is exempt. The check does not prove recipient ciphertext.
 
 <a id="input-slots"></a>
 **Input slots.** The domain selects exactly one kind:
@@ -1408,27 +1539,28 @@ transaction with one output uses a 2-output shape and pads the second slot.
 
 **Ring-authority instantiation.** A separate instantiation proves no owner authorization at all: it is the Solana-only ring variant (no in-circuit signature) and keeps every input owner `pk_field` private (omitted from the public input hash). Each input owner is an opaque field element hashed into `owner_hash` exactly like the merge circuit, so a UTXO of any owner scheme can be spent — the prover supplies the owner `pk_field` directly and the proof never checks ownership. The only in-circuit binding is `nullifier_secret` knowledge through `owner_hash`; authorization is the `ring_config` PDA signer plus the ring program's own policy, requiring `ring_authority_transact_is_enabled` set (instruction `ring_authority_transact`). It pairs only with the anonymous owner-tag variant. Because owners do not authorize the spend, shielded value cannot leave the ring here: the public `ring_program_id` is pinned non-zero and **every** non-dummy input *and* output `ring_program_id` must equal it (strict binding, no zero exemption). A default-ring UTXO can neither be spent nor created through this path. The `ring_program_id` check covers shielded UTXOs only: the shared balance constraints still accept negative public amounts, so SPP alone lets an authority transaction withdraw ring value publicly without an owner signature (the authority still needs the input's `nullifier_secret`). A ring program whose policy forbids authority withdrawals must reject public legs on this path itself; the reference policy ring does so on its delegate path (`DelegatePublicLeg`). Supported shapes:
 
-| Circuit | Use | Shape |
-| --- | --- | --- |
-| 2 in 2 out | Ring-authority transact | 2 inputs, 2 outputs |
-| 4 in 4 out | Ring-authority transact | 4 inputs, 4 outputs |
+- the 36 [supported shapes](#supported-shapes) with at most
+  `RING_AUTHORITY_MAX_INPUTS = 40` inputs.
 
-The authority circuit is square. A move uses the smallest supported width at
-least as large as both its input and output counts and pads the rest, so a
-move of width 1 uses 2x2 and one of width 3 uses 4x4.
+`ring_authority_shapes` (`program-libs/interface/src/shape.rs`) keeps the
+grid's cost order. SPP accepts any of these shapes. The SDKs pick the first of
+these shapes that holds the move. `with_shape` in Rust and `withShape` in
+TypeScript select another of these shapes and refuse a shape outside them.
+`test-vectors/ring_authority_shapes.json` pins the set.
 
 
 # Merge Proof - Merge ZK Proof
 
-ZK proof for [`merge_transact`](#merge_transact) and [`merge_ring`](#merge_ring). Consolidates `N` input UTXOs of a single owner and single asset into one output of the same owner, asset, and total amount. Two variants share one skeleton (`prover/server/circuits/spp_merge/shared/transaction.go`). The default merge additionally includes the owner's identity from the user registry record and the output ciphertext of the owner's [merge encryption scheme](#merge); SPP selects its verifying key by scheme, then by width (PoseidonCtrV1: `merge_<N>_1`). The policy-ring merge (verified against `merge_ring_<N>_1`) includes the calling ring's `program_id` and the output `ring_data_hash` the ring program selected, and no ciphertext. The default rail requires the registry record's `merge_encryption` to equal the instruction's scheme (see [`merge_transact`](#merge_transact)); the ring rail is authorized by the ring program.
+ZK proof for [`merge_transact`](#merge_transact) and [`merge_ring`](#merge_ring). Consolidates `N` input UTXOs of a single owner and single asset into one output of the same owner, asset, and total amount. Two variants share one skeleton (`prover/server/circuits/spp_merge/shared/transaction.go`). The default merge binds the owner's identity from the user registry record; SPP selects its verifying key by the `output_encryption` scheme, then by width (PoseidonCtrV1: `merge_<N>_1`). The ring merge (verified against `merge_ring_<N>_1`) binds the calling ring's `program_id`, the ring data preserved by the output, and a member registration that lets the auditor recover the owner's nullifier key. Both bind the output ciphertext. The default rail requires the registry record's `merge_encryption` to equal the instruction's scheme (see [`merge_transact`](#merge_transact)); the ring rail is authorized by the ring program.
+On an anonymous ring the ring merge opens no member registration, and the ring
+program verifies a separate disclosure proof of the merge.
 
-The proof is a 192-byte vanilla Groth16 `a || b || c` (`a`, `c` compressed G1, `b` raw G2) over a single public signal (`public_input_hash`). The proof derives the output blinding from the owner's nullifier secret and the first input's single-use nullifier (`merge_output_blinding`), padding slots publish deterministic dummy nullifiers (`merge_dummy_nullifier`), and the default merge proof encrypts the output's amount and mint for the owner (see [Merge](#merge)), so the owner rebuilds the output from the merge transaction alone.
-
+The proof is a 192-byte vanilla Groth16 `a || b || c` (`a`, `c` compressed G1, `b` raw G2) over a single public signal (`public_input_hash`). The output blinding is derived in-circuit from the owner's nullifier secret and the first input's single-use nullifier (`merge_output_blinding`), padding slots publish deterministic dummy nullifiers (`merge_dummy_nullifier`), and the proof encrypts the output's amount and mint for the owner (see [Merge](#merge)), so the owner rebuilds the output from the merge transaction alone.
 **Requirement.** No signing or viewing secret witness. `nullifier_secret` is required.
 
 **Public Inputs**
 
-The single public signal is `public_input_hash`, one Poseidon [`HashChain4`](#hash-chain-4) over the elements below: a shared 7-element prefix, then the variant tail. The default merge appends the owner's signing identity, nullifier public key and the scheme's elements (`MergeOutputEncryption::append_public_inputs`; PoseidonCtrV1: the right-aligned `salt`, then the three `ciphertext` elements), 13 elements in total. The policy-ring merge appends `output_ring_data_hash` and `ring_program_id`, 9 elements in total. The prefix ends on a complete HashChain4 group, so extending its hash with the tail is equivalent to hashing the full chain (`programs/shielded-pool/src/instructions/merge/verify.rs` `fn public_input_hash`, mirrored by `CommonPublicInputs.Prefix` in the circuits):
+The single public signal is `public_input_hash`, one Poseidon [`HashChain4`](#hash-chain-4) over 13 elements for a default merge or 15 for a ring merge. Both use a shared seven-element prefix. The default tail has two owner fields. The ring tail has the ring data hash, program ID, member registry root and anonymous flag. The salt and three ciphertext elements follow either tail. The SPP verifier and the circuit hash them in the same order.
 
 | Element | Source |
 | --- | --- |
@@ -1439,11 +1571,10 @@ The single public signal is `public_input_hash`, one Poseidon [`HashChain4`](#ha
 | `private_tx_hash` | instruction data; see [Private transaction hash](#private-transaction-hash) |
 | `external_data_hash` | instruction data, recomputed by SPP from the instruction and matched against this public input |
 | `allow_dummy_inputs` | derived by SPP from `input_tree` as in [Input slots](#input-slots); when false every slot must be real or compact padding |
-| variant tail — default merge: `owner_proof_input_hash(user_signing_pk)`, `user_nullifier_pk` | registry signing identity `owner` and registered nullifier public key; must equal the witnessed signing identity and nullifier key |
-| variant tail — policy-ring merge: `output_ring_data_hash`, `ring_program_id` | `ring_program_id` comes from the signing `ring_config` account; `output_ring_data_hash` is the ring data the calling ring program selected. The circuit asserts it against the output UTXO's `ring_data_hash`. |
-| default merge, PoseidonCtrV1: `salt` | `output_encryption` in instruction data, right-aligned in a field element; 16 bytes are canonical without a check |
-| default merge, PoseidonCtrV1: `ciphertext` (three elements) | `output_encryption` in instruction data; computed by the proof as defined under [PoseidonCtrV1](#poseidonctrv1). The `merge_transact` processor rejects an element that is not a canonical BN254 field element (`NonCanonicalMergeCiphertext`) before verifying the proof. |
-
+| variant tail — default merge: `owner_proof_input_hash(user_signing_pk)`, `user_nullifier_pk` | registry Solana signing identity and registered nullifier public key. Both must equal the witnessed keys |
+| variant tail — policy-ring merge: `output_ring_data_hash`, `ring_program_id`, `member_registry_root`, `anonymous` | The ring program signs for `ring_program_id` and sets `anonymous` from its mode. It forwards the selected root from its registry PDA, or zero on an anonymous ring. The circuit requires the data hash on every real input and the output. With `anonymous = 0` it authenticates the owner's registration against that root. |
+| PoseidonCtrV1 `salt` | `output_encryption` in instruction data, right-aligned in a field element; 16 bytes are canonical without a check |
+| PoseidonCtrV1 `ciphertext` (three elements) | `output_encryption` in instruction data; computed by the proof as defined under [PoseidonCtrV1](#poseidonctrv1). SPP rejects an element that is not a canonical BN254 field element (`NonCanonicalMergeCiphertext`) before verifying the proof. |
 **Private Inputs (per input slot)**
 
 | Input | Description |
@@ -1458,10 +1589,11 @@ The single public signal is `public_input_hash`, one Poseidon [`HashChain4`](#ha
 
 | Input | Description |
 | --- | --- |
-| `owner_pk_hash` | `owner_proof_input_hash(signing_pk)`. The default circuit requires it to equal the registry identity; the ring circuit has no registry check. Neither verifies an owner signature. |
+| `owner_pk_hash` | `owner_proof_input_hash(signing_pk)`. The default circuit requires it to equal the user registry identity. The ring circuit opens the same identity in its member registry when `anonymous = 0`. Neither merge circuit verifies an owner signature. |
 | `user_nullifier_pk` | shared owner's nullifier commitment; constrained to `Poseidon(nullifier_secret)` |
 | `nullifier_secret` | owner's symmetric nullifier secret; also seeds the output blinding, the dummy nullifiers, and `merge_output_key` |
 | `mint_chunk_0`, `mint_chunk_1` | the merged mint's `hash_bytes_32` chunks; the circuit derives the single merged `asset = hash_bytes_32(mint)` from them, shared by every real input and the output |
+| Ring member record, path and registered ciphertext hash | With `anonymous = 0` the ring circuit proves a present record for `owner_pk_hash` under `member_registry_root`. Its [`escrow_key`](#member-registry) must hash `user_nullifier_pk` with the registered ciphertext hash. Registration proves the ciphertext encrypts the owner's nullifier secret to the auditor. |
 
 **Checks**
 
@@ -1471,18 +1603,20 @@ The single public signal is `public_input_hash`, one Poseidon [`HashChain4`](#ha
 | Dummy policy | `allow_dummy_inputs` is boolean; when `false`, only compact padding may use `DummyDomain` (the on-chain capacity gate, INV-TRANSACT-33 / INV-MERGE-17). |
 | Slot zero is real | `inputs[0].domain == UtxoDomain`, so its genuine single-use nullifier can seed the output blinding and the dummy nullifiers. |
 | Ownership uniformity | every real input's `owner` equals `userOwnerHash = Poseidon(owner_pk_hash, user_nullifier_pk)`. |
-| Asset uniformity | every real input's `asset` equals the output's `asset`. |
+| Asset uniformity | Every real input uses the output asset. The derived asset field is nonzero. The all-zero SOL mint address remains valid because its hashed asset field is nonzero. |
+| Ring data preservation | Every real input and the output have the same committed `ring_data_hash`. Padding is exempt. Default-ring merges require zero. Ring merges may preserve a common nonzero hash. |
 | Value conservation | `sum(inputs.amount) == output.amount`. |
 | Inclusion | each real input UTXO hash, hashed with `tree_ids[tree_slot]`, is a leaf of the UTXO tree at `utxo_tree_roots[tree_slot]`. |
 | Nullifiers | each real slot's public nullifier equals `Poseidon(utxo_hash, blinding, nullifier_secret)`; each padding slot's equals `merge_dummy_nullifier(nullifier_secret, first_nullifier, slot)` or `0` for compact padding. |
 | Nullifier non-inclusion | every slot's derived nullifier is strictly bracketed by its low leaf at `nullifier_tree_roots[tree_slot]`, compact padding included. |
 | Nullifier distinctness | all nonzero slot nullifiers differ, real and dummy alike. |
 | Input cleanliness — `data_hash` | for each non-dummy input: `data_hash = 0`. UTXOs with `utxo_data` set are not mergeable. Applies to both rails. |
-| Input/output ring fields | for `merge_transact`: real inputs and the output carry `ring_program_id = 0` and `ring_data_hash = 0`. For `merge_ring`: `ring_program_id != 0`, every real input shares it with the CPI caller, and the output's `ring_data_hash` equals the instruction's `output_ring_data_hash`. |
+| Input/output ring fields | For `merge_transact`, real inputs and the output carry `ring_program_id = 0` and `ring_data_hash = 0`. For `merge_ring`, `ring_program_id != 0` and every real input shares it with the CPI caller. Every real input and the output share the instruction's `output_ring_data_hash`. Dummy padding carries zero ring fields. |
 | Deterministic output | the output blinding is `merge_output_blinding(nullifier_secret, first_nullifier)`; the recomputed output hash, with `output_tree_id`, equals the public `output_utxo_hash`, with `owner = userOwnerHash` and `data_hash = 0`. |
-| Output ciphertext (default rail) | the public PoseidonCtrV1 `ciphertext` encrypts `[output.amount, mint_chunk_0, mint_chunk_1]` with `merge_output_key(nullifier_secret, first_nullifier)` and the public `salt`, as defined under [PoseidonCtrV1](#poseidonctrv1). The ring circuit has no ciphertext check. |
+| Output ciphertext | the public PoseidonCtrV1 `ciphertext` encrypts `[output.amount, mint_chunk_0, mint_chunk_1]` under `merge_output_key(nullifier_secret, first_nullifier)` and the public `salt`, as defined under [PoseidonCtrV1](#poseidonctrv1). Both circuits enforce it. |
 | Private transaction hash | Matches the [shared derivation](#private-transaction-hash), with zero address slots and `private_tx_blinding = Poseidon("TXPB", first_nullifier, nullifier_secret)`. |
 | Owner binding (default rail) | `user_signing_pk_hash == owner_pk_hash`, and the witnessed nullifier public key is included in the public-input hash, so the proof verifies only against both keys from the registry record. |
+| Auditor recovery (ring rail) | With `anonymous = 0` a present member record under the selected on-chain root binds `owner_pk_hash`, `user_nullifier_pk` and the registered ciphertext hash. The ring program refuses a missing or stale root. The ciphertext is checked at registration, so the auditor can recover the key that opens the merge output. With `anonymous = 1` the ring program verifies a separate disclosure proof of the merge. See [Deposits, merges and key registration](#ring-deposits-merges-and-key-registration). |
 
 **Circuit shape**
 
@@ -1651,9 +1785,9 @@ operations, and tags 18–21 are maintenance and administration.
 | emit_event | Tag 10; no-op; instruction data is `[EventKind, borsh(body)]` (see [General Event](#general-event)); SPP self-CPI only. |
 | deposit | Tag 11; public deposit without a proof; the recipient `owner` is sent in the clear and the `blinding` is derived from the leaf index. See [`deposit`](#deposit). |
 | transact | Tag 12; implements deposit/withdraw/shielded transfer; verifies proofs, updates trees |
-| merge_transact | Tag 13; consolidates the input slots of an 8-, 24- or 52-input merge shape (same owner, same asset; dummy slots or compact padding fill a shorter merge) into one output UTXO. Permitted whenever the owner's registry record selects a merge encryption scheme and the instruction's `output_encryption` uses that scheme; any caller may submit it, and the merge proof checks the output against the owner's registered signing identity and nullifier key. Input and output UTXOs are default-ring; extension slots are zero. |
+| merge_transact | Tag 13; consolidates the input slots of an 8-, 24- or 52-input merge shape (same owner, same asset; dummy slots or compact padding fill a shorter merge) into one output UTXO. Permitted whenever the owner's registry record selects a merge encryption scheme and the instruction's `output_encryption` uses that scheme; any caller may submit it, and the merge proof binds the output to the owner's registered signing and nullifier keys. Input and output UTXOs are default-ring; extension slots are zero. |
 | ring_deposit | Tag 14; policy-ring analog of `deposit`; public deposit creating a ring-owned UTXO, authorized by an active, signing `ring_config`. See [`ring_deposit`](#ring_deposit). |
-| ring_transact | Tag 15; implements deposit/withdraw/shielded transfer; verifies proofs, updates trees; checks that the encrypted UTXOs decrypt under the ring auditor key and the recipient keys named in the policy proof |
+| ring_transact | Tag 15. SPP verifies the ring settlement proof and updates trees. The invoking custom ring verifies its separate policy and auditor-disclosure proof. Ordinary recipient encryption is wallet delivery data and is not proved. |
 | merge_ring | Tag 16; CPI from an active ring program; consolidates the input slots of an 8-, 24- or 52-input merge shape (same owner, same asset, same `ring_program_id`) into one output UTXO that preserves `ring_program_id`. Mirrors `merge_transact` for policy-ring UTXOs. The ring program runs its own authorization before CPI; the merge proof enforces `data_hash = 0` on inputs and output. |
 | ring_authority_transact | Tag 17; checks the ring config is active and signed, then checks the state transition only includes ring-program-owned UTXOs. UTXO owners do not sign; the ring has full control subject to its policy. |
 | close_nullifier_pdas | Tag 18; gated by `protocol_config.forester_authority`; rejected while the tree is paused. Closes one or more nullifier PDAs whose `tree_id` matches and `queue_index < close_before_index`, returning their rent to the tree, then pays `min(close_reimbursement * n, fee_balance)` to `reimbursement_recipient` (must not be program-owned). |
@@ -1895,31 +2029,40 @@ OVER marks a layout above the 4,096-byte limit:
 | Ring transact anonymous 46 in 2 out, 49x2 compact | 2260 | 4095 | 52 |
 | Merge 8 in 1 out, direct | 640 | 1188 | 13 |
 | Merge 8 in 1 out, execute_sync | 674 | 1320 | 16 |
-| Ring merge 8 in 1 out | 672 | 1252 | 14 |
+| Ring merge 8 in 1 out | 705 | 1285 | 14 |
 | Merge 24 in 1 out, direct | 1152 | 2228 | 29 |
 | Merge 24 in 1 out, execute_sync | 1202 | 2376 | 32 |
-| Ring merge 24 in 1 out | 1184 | 2292 | 30 |
+| Ring merge 24 in 1 out | 1217 | 2325 | 30 |
 | Merge 52 in 1 out, direct | 2048 | 4048 | 57 |
 | Merge 52 in 1 out, execute_sync | 2126 | 4224 OVER | 60 |
-| Ring merge 52 in 1 out | 2080 | 4112 OVER | 58 |
+| Ring merge 52 in 1 out | 2113 | 4145 OVER | 58 |
 | Merge 3 in 1 out, 8 compact, direct | 480 | 863 | 8 |
 | Merge 3 in 1 out, 8 compact, execute_sync | 509 | 990 | 11 |
-| Ring merge 3 in 1 out, 8 compact | 512 | 927 | 9 |
+| Ring merge 3 in 1 out, 8 compact | 545 | 960 | 9 |
 | Merge 9 in 1 out, 24 compact, direct | 672 | 1253 | 14 |
 | Merge 9 in 1 out, 24 compact, execute_sync | 707 | 1386 | 17 |
-| Ring merge 9 in 1 out, 24 compact | 704 | 1317 | 15 |
+| Ring merge 9 in 1 out, 24 compact | 737 | 1350 | 15 |
 | Merge 25 in 1 out, 52 compact, direct | 1184 | 2293 | 30 |
 | Merge 25 in 1 out, 52 compact, execute_sync | 1235 | 2442 | 33 |
-| Ring merge 25 in 1 out, 52 compact | 1216 | 2357 | 31 |
+| Ring merge 25 in 1 out, 52 compact | 1249 | 2390 | 31 |
 | Merge 51 in 1 out, 52 compact, direct | 2016 | 3983 | 56 |
 | Merge 51 in 1 out, 52 compact, execute_sync | 2093 | 4158 OVER | 59 |
-| Ring merge 51 in 1 out, 52 compact | 2048 | 4047 | 57 |
+| Ring merge 51 in 1 out, 52 compact | 2081 | 4080 | 57 |
 
 A full 52-input merge fits when sent directly. Through Squads
 `execute_transaction_sync` it exceeds 4,096 bytes, and the smart account runs
 out of heap; a vault-signed merge fits up to about 50 real inputs. A 52-input
-ring merge fits only with [compact padding](#compact-padding), at most 51 real
-inputs.
+bare SPP ring merge fits only with [compact padding](#compact-padding), at most
+51 real inputs. These ring rows measure SPP's `merge_ring` instruction. The
+reference custom-ring wrapper adds accounts and instruction data. Its minimal
+50-input transaction still fits after adding the registry-root account. Its
+SDK caps merges at 50 and checks the full serialized layout before proving.
+An extra output tree or co-signer can lower that cap. The ring wrapper puts a
+one-byte history selector on the outer transaction and forwards the selected
+32-byte root to SPP. The proof binds that root to the owner's registered key.
+On an anonymous ring the wrapper takes selector 0 and no registry account.
+With its [merge disclosure](#ring-deposits-merges-and-key-registration), the
+merge fits one transaction only at the 8- and 24-input widths.
 
 v1 imposes a second ceiling that the byte count does not show: a message may
 name at most **64 account addresses**, and a transact adds one nullifier PDA per
@@ -2236,10 +2379,10 @@ enum OutputDataEncoding {
     /// Opaque to SPP: a client-serialized [encrypted transfer](#transfer-2) or
     /// [plaintext transfer](#plaintext-transfer) blob.
     Encrypted(Vec<u8>),
-    /// Verifiably-encrypted payload: ciphertext the proof checks against the
-    /// output: the [`merge_transact`](#merge_transact) output, and upcoming auditor
-    /// encryption flows (custom rings with auditor), where the output must be
-    /// provably decryptable by the auditor.
+    /// Verifiably-encrypted payload: ciphertext whose well-formedness is
+    /// proven in-circuit for the [merge output](#merge). Custom-ring transfer
+    /// auditor disclosure is a separate proof-bound message, not this output
+    /// payload. Ordinary recipient payloads are not proved.
     VerifiablyEncrypted(Vec<u8>),
 }
 
@@ -2315,7 +2458,10 @@ struct RingDepositEntry {
 Unlike [`deposit`](#blinding-derivation), a ring entry publishes only
 `owner_utxo_hash`; the owner hash and blinding stay in the recipient ciphertext,
 so SPP cannot derive or check the blinding. The calling ring program authorizes
-the instruction and must use a fresh blinding per output.
+the instruction and must use a fresh blinding per output. The reference SDKs
+draw a random `blinding_secret` per output. The reference ring's audited
+deposit proves each output blinding under the `CRDB` domain. See
+[Deposits, merges and key registration](#ring-deposits-merges-and-key-registration).
 
 **Checks**
 
@@ -2417,12 +2563,9 @@ With discriminator, `N = 24`: `1,152 B` (a `2,228 B` transaction); `N = 52`:
 
 **Discriminator:** 16
 
-**Description.** Policy-ring analog of [`merge_transact`](#merge_transact), invoked via CPI from a ring program. The relationship to `merge_transact` parallels how [`ring_authority_transact`](#ring_authority_transact) relates to [`transact`](#transact). Consolidates `N` input UTXOs sharing the same owner, asset, and `ring_program_id` (matching `ring_config.program_id`) into one output UTXO that preserves `ring_program_id`. The ring program runs its own authorization, including any rules over the input `ring_data_hash` values and its explicitly selected output `ring_data_hash`, before CPI. SPP verifies the merge proof, nullifies inputs, and appends the output. Authorization is delegated to the ring program (the `ring_config` signer); SPP does **not** check the registry `merge_encryption` scheme for `merge_ring`.
+**Description.** Policy-ring analog of [`merge_transact`](#merge_transact), invoked via CPI from a ring program. The relationship to `merge_transact` parallels how [`ring_authority_transact`](#ring_authority_transact) relates to [`transact`](#transact). Consolidates `N` input UTXOs sharing the same owner, asset, and `ring_program_id` (matching `ring_config.program_id`) into one output UTXO that preserves `ring_program_id`. The ring program runs its authorization before CPI. Every real input must have the same committed `ring_data_hash`, and the output preserves it. SPP verifies the merge proof, nullifies inputs, and appends the output. Authorization is delegated to the ring program (the `ring_config` signer); SPP does **not** check the registry `merge_encryption` scheme for `merge_ring`.
 
-The ring program selects the output `ring_data_hash`, the merge proof checks it against the output's `ring_data_hash` and the public-input hash includes it with `ring_program_id`, and the indexer republishes it from the instruction data ahead of the output ciphertext in the rebuilt output's `data` payload ([Merge](#merge)).
-
-The instruction data contains `output_encryption`, but SPP does not check its scheme or canonicality, and the ring merge proof does not constrain it. The indexer publishes it as `Encrypted`, and a ring that needs a recoverable merge output enforces the ciphertext in its own program ([Ring merge output encryption](#ring-merge-output-encryption)).
-
+The ring program forwards the common input `ring_data_hash`, a member-registry root and the `anonymous` flag of its mode. The root is an [accepted own root](#member-registry), or zero on an anonymous ring. The merge proof preserves the hash on the output. With `anonymous = 0` it proves a present owner record under that root. It binds that record's [`escrow_key`](#member-registry) to the nullifier key that encrypts the output. The public statement includes the hash, the root and the flag with `ring_program_id`. The indexer republishes the ring-data hash ahead of the output ciphertext in the rebuilt `data` payload ([Merge](#merge)).
 **Accounts**
 
 | # | Name | W | S | Description |
@@ -2438,25 +2581,33 @@ The instruction data contains `output_encryption`, but SPP does not check its sc
 
 **Instruction data**
 
-[`MergeTransactIxData`](#merge_transact) plus an `output_ring_data_hash: [u8; 32]`
-field: the ring data the calling ring program selected for the output. The merge
-proof asserts it against the output's `ring_data_hash` and folds it into the
-public-input hash; the wallet reads it from the rebuilt [`GeneralEvent`](#general-event)
-to rebuild the merged ring output. `merge_ring` indexes the output by the first input's
-published nullifier — there is no instruction-supplied tag. The ring program
-authorizes the merge, so there is no `user_record` account or registry check; the
-owner identity comes from the witnessed signing key as bound by the input UTXOs.
-The merge proof's circuit branch enforces the policy-ring variant of the
-cleanliness and output-well-formed rules.
+The instruction data is the 32-byte `output_ring_data_hash`, the 32-byte
+`member_registry_root` and the one-byte `anonymous` flag, then
+[`MergeTransactIxData`](#merge_transact). An `anonymous` byte other than 0 or
+1 fails with `InvalidMergeShape`. The reference ring's compact wrapper carries
+a one-byte history index, the ring-data hash, an optional merge disclosure and
+the merge body with `proof.b` compressed. The ring program requires the
+disclosure on an anonymous ring and refuses it elsewhere. On any other ring it
+loads the root at that index from its registry PDA and forwards the full root
+to SPP. The ring-data hash
+must equal every real input's committed hash. The merge proof preserves it on
+the output and folds it into the public-input hash with the selected root.
+The wallet reads the hash from the rebuilt [`GeneralEvent`](#general-event)
+to rebuild the merged ring output. `merge_ring` indexes the output by the first
+input's published nullifier. There is no instruction-supplied tag. SPP does
+not load a user record. With `anonymous = 0` the proof checks the owner record
+against the root selected by the ring program. It binds that record's
+registered auditor ciphertext hash to the owner's nullifier key. The merge circuit also enforces
+the policy-ring cleanliness and output-well-formed rules.
 
 **Checks**
 
 1. The `ring_config` account (account #3) must sign and be unpaused; SPP loads it by owner + discriminator and reads its `program_id`.
 2. `current_unix_ts <= expiry_unix_ts`; each root index is non-stale in `input_tree`; both tree accounts permit their respective writes (`merge_transact` checks 1–3). Authorization is the ring program's responsibility; SPP does not check the registry `merge_encryption` scheme here.
-3. Proof verifies against public inputs (the policy-ring variant: inputs share `ring_program_id` = `ring_config.program_id`; output preserves it; `data_hash = 0` on every non-dummy input and on the output).
+3. Proof verifies against public inputs, after the `output_encryption` ciphertext, ring-data-hash and member-root canonicality checks. The policy-ring variant requires inputs to share `ring_program_id` = `ring_config.program_id`, preserves it on the output, and sets `data_hash = 0` on every non-dummy input and the output. With `anonymous = 0` it also proves the registered member and ciphertext hash under the selected root. SPP checks only the root's canonicality, not its relation to `anonymous`. With `anonymous = 1` the proof opens nothing under the root.
 4. Append `output_utxo_hash` to `output_tree`'s UTXO sparse Merkle tree.
 5. Insert each input nullifier into `input_tree`'s nullifier queue and create its nullifier PDA as in [`transact`](#transact) — exactly the proof-bound nullifiers, including the deterministic dummy-slot nullifiers (`merge_dummy_nullifier`). Duplicates are rejected, so an input cannot be merged twice; this is the replay protection, in place of the removed single-use `merge_view_tag`.
-6. Log a [`MergeEvent`](#general-event) via [`emit_event`](#instructions) self-CPI with `output_view_tag = nullifiers[0]`. The reconstructed [`GeneralEvent`](#general-event) is as for [`merge_transact`](#merge_transact) with `output_ring_data_hash` leading the output's [merge output encoding](#merge) and the outer tag `Encrypted` in place of `VerifiablyEncrypted`.
+6. Emit a [`MergeEvent`](#general-event) via [`emit_event`](#instructions) self-CPI with `output_view_tag = nullifiers[0]`. The reconstructed [`GeneralEvent`](#general-event) is as for [`merge_transact`](#merge_transact) with `output_ring_data_hash` leading the output's [merge output encoding](#merge).
 
 # Ring Program Interface
 
@@ -2488,7 +2639,854 @@ A ring program is free to implement the following instructions, a subset or supe
 
 UTXOs can include a `ring_data` field interpreted by the ring program, hashed into the `ring_data_hash` slot of [UTXO Hash](#utxo-hash). The ring program defines the schema and the hashing scheme.
 
-The reference ring program in `custom-rings/` documents its ring modes and audit encodings in [its README](../custom-rings/README.md#ring-modes).
+The reference ring program in `custom-rings/` documents its ring modes and audit encodings in [its README](../custom-rings/README.md#rings-and-rails).
+
+A ring program adds authorization, audit and policy before it CPIs into SPP.
+SPP still checks note conservation, ownership on owner-signed rails and
+nullifiers. The reference ring lives in `custom-rings/program`, and
+`custom-rings/interface` holds its account layouts, instruction data,
+statements and errors.
+
+Let `HashChain` and `HashChain4` be as in [SPP Proof](#hash-chain-4),
+`hash_bytes_N` as in [Glossary](#glossary), and `owner_proof_input_hash` and
+`pk_field` as in
+[Fixed-byte proof-input encoding](#fixed-byte-proof-input-encoding). This
+section also uses:
+
+- `D(s)`, the four-character tag `s` read as in [Blinding Seed](#blinding-seed).
+  A domain is the first field of every statement, of the policy table's
+  `fields` and of every other preimage that carries one. No two roles share
+  one.
+- `BE(b)`, the bytes `b` read as one big-endian integer.
+- `pack_be(b)`, the 31-byte chunks of `b` from its start, each read as a
+  big-endian integer, the last chunk holding the remaining bytes.
+- `pack_disclosure(b)`, `b` zero padded at its end to a multiple of 31 bytes,
+  then `pack_be`.
+- `low128(x)`, the low 16 bytes of the 32-byte big-endian encoding of field
+  element `x`.
+- `n0`, the transaction's first nullifier, and `ring_id`,
+  `pk_field(ring_program_id)`.
+- `q`, the BN254 scalar modulus.
+- `slot`, the current slot.
+
+Integers in accounts and instruction data are little-endian, except in a rule
+row and in `EncodedRuleTable`. Integers inside a proven plaintext are
+big-endian. Account fields are packed in declaration order with no padding, and
+a field element is its 32-byte big-endian encoding.
+
+**Constants**
+
+```
+EPOCH_SLOTS               = 2^18 slots
+J_INBOX                   = 64 indexes per stream and epoch
+J_PAIR                    = 64 indexes per stream and epoch
+K_PAIR_EPOCHS             = 32 epochs
+ROOT_HISTORY              = 32 roots
+QUAD_HEIGHT               = 10 levels of 4 children, 2^20 leaves
+APPLY_BATCH               = 16 writes
+MEMBER_QUEUE_LIMIT        = 8 writes
+AUTHORITY_RESERVED_LEAVES = 2^16 leaves
+APPLY_DELAY_SLOTS         = 150 slots
+GRACE_SLOTS               = 750 slots
+DEFAULT_INSERT_FEE        = 1,000,000 lamports
+POLICY_TABLE_VERSION      = 11
+```
+
+<a id="ring-configuration"></a>
+## Ring configuration
+
+The reference ring keeps one config at the PDA `["config"]`.
+`CreateMemberRegistry` adds a member registry at `["members"]` and a record
+queue at `["queue"]`. Transfers on a policy ring, a merge outside an anonymous
+ring and an audited deposit in `Registry` mode read the registry. Each read
+grant is a `ReadAccessRecord` at `["reader", sha256(reader)]`. `reader` is the
+34-byte key `0x00 || compressed P-256 key` or `0x01 || Ed25519 key || 0x00`. The
+program creates each account only at its canonical PDA and loads it by owner and
+discriminator.
+
+```rust
+/// Discriminator 10, 471 bytes.
+struct RingProgramConfig {
+    discriminator: u8,
+    authority: Address,
+    auditor_pubkey: X25519Pubkey,
+    bump: u8,
+    /// 1 on a policy ring.
+    has_policy: u8,
+    /// 0 Off, 1 Registry, 2 Anonymous.
+    mode: u8,
+    insert_fee: u64,
+    /// Zero without a co-signer.
+    co_signer: Address,
+    /// Bit 0 transfers, bit 1 deposits, bit 2 withdrawals.
+    co_sign_scope: u8,
+    threshold_count: u8,
+    /// Per-mint withdrawal thresholds, rows past threshold_count unused.
+    thresholds: [(Address, u64); 8],
+    /// Zero without a delegate.
+    delegate: Address,
+    /// The slot `CreateConfig` ran in.
+    created_slot: u64,
+}
+```
+
+Rule. `CreateConfig` carries `auditor_pubkey` and one kind byte, 0
+`AuditOnly`, 1 `Policy`, 2 `Anonymous` or 3 `AnonymousPolicy`. It sets
+`has_policy` for the two policy kinds, `mode` to `Anonymous` for the two
+anonymous kinds and to `Off` otherwise, and `insert_fee` to
+`DEFAULT_INSERT_FEE`. `SetDelegate` carries no data. It sets `delegate` once, to
+its delegate signer, and `mode` to `Registry`, called **key escrow** below. No
+other instruction writes `mode`, `auditor_pubkey` or `has_policy`.
+
+Rule. `SetInsertFee` refuses a nonzero fee below the rent minimum of an empty
+account. `SetCoSigner` refuses withdrawal thresholds when its scope leaves out
+the withdrawal class.
+
+| Operation | Off | Registry | Anonymous |
+| --- | --- | --- | --- |
+| Member transfer | `ConfidentialRingEddsa` rail | `ConfidentialRingEddsa` rail, output nullifier keys escrowed | `AnonymousRingEddsa` rail |
+| Delegate move | Refused | `RingAuthority` rail, signed by `delegate` | Refused |
+| Audited deposit | Proven auditor opening | Also proves each owner's escrow record | Also discloses each owner key |
+| Merge | Proves the owner's escrow record | Proves the owner's escrow record | Separate disclosure proof, no record |
+| `RegisterKey` | Allowed | Allowed | Refused |
+| `SetDelegate` | Policy ring with a registry, enters Registry | Refused, a delegate exists | Refused |
+
+| Tag | Instruction | Signers |
+| --- | --- | --- |
+| 1 | `CreateConfig` | payer, upgrade authority |
+| 2 | `InitSppRingConfig` | payer, config authority, refused on a policy ring before `CreatePolicy` |
+| 3 | `Transact` | payer, every owner signer on the confidential rail, the source signer of every public deposit, a demanded co-signer |
+| 4, 5 | `GrantReadAccess`, `RevokeReadAccess` | config authority, a payer for a grant |
+| 6 | `SetAuthority` | config authority and the new authority |
+| 7, 10, 12 | `CreatePolicy`, `SetPolicySource`, `SetPolicyRules` | config authority |
+| 11 | `SetPaused` | config authority |
+| 18 | `Deposit` | refused in every mode |
+| 20 | `Merge` | payer, a demanded co-signer |
+| 21, 27 | `ClearCoSigner`, `SetCoSigner` | config authority |
+| 24 | `SetDelegate` | upgrade authority, delegate |
+| 25 | `DelegateTransact` | payer, delegate, a demanded co-signer |
+| 28 | `CreateMemberRegistry` | payer, config authority |
+| 29 | `RegisterKey` | member, a payer when a fee is owed |
+| 31 | `AuditedDeposit` | depositor, a demanded co-signer |
+| 39 | `WriteRecords` | member, a payer when a fee is owed |
+| 40 | `AuthorityWriteRecords` | config authority |
+| 41 | `ApplyRecords` | none |
+| 42 | `SetInsertFee` | config authority |
+
+The co-signer is demanded when a transact sets `approval_required`, or when the
+co-signer's scope shares a class with the operation. Every transact and merge is
+a transfer, and an audited deposit is a deposit. A public deposit leg adds the
+deposit class, and a withdrawal leg adds the withdrawal class. A withdrawal
+demands it only for a mint whose withdrawn total exceeds that mint's threshold
+or that has none. `approval_required` without a configured co-signer is refused.
+
+<a id="member-registry"></a>
+## Member registry
+
+A **member** is `owner_proof_input_hash(signing_pk)` for an owner or
+`hash_bytes_32(mint)` for an asset, and lies in `[1, q - 2]`. A **record** is
+`(member, next, lists, escrow_key)`:
+
+```
+leaf       = Poseidon(member, next, lists, escrow_key)
+lists      = sum of 2^(id - 1) over the lists holding the member
+next       = the next present member above member, q - 1 past the largest
+escrow_key = Poseidon(nullifier_pk, hash_bytes_32(ciphertext)) of the member's RegisterKey data, 0 before
+node       = Poseidon(c0, c1, c2, c3), c0 to c3 its children in order
+id         = 1 Allow, 2 Block, 3 Frozen, 4 RingViewing, 5 Recovery, 6 Reader, 7 Approval, 8 Escrow
+```
+
+Writes to lists 1, 2, 3, 6 and 7 need the config authority's signature. A
+member signs the writes to lists 4 and 5 of its own record. Only `RegisterKey`
+sets list 8.
+
+The tree is 4-ary of height `QUAD_HEIGHT`, and an empty leaf is 0. The path
+digit at level `l` is `(index >> 2l) & 3`, leaf level first. The three siblings
+of a level are the other children in ascending order. Leaf 0 holds
+the sentinel `(0, q - 1, 0, 0)`, and a new registry has `next_index = 1`. A
+member `m` is absent when a present low record `L` holds
+`L.member < m < L.next`. `test-vectors/ring-records.json` pins the tree.
+
+```rust
+/// Discriminator 11, 3,094 bytes.
+struct MemberRegistry {
+    discriminator: u8,
+    bump: u8,
+    /// Index of the newest root in `history`.
+    history_cursor: u8,
+    next_index: u32,
+    /// An own root binds only when its `applied` reaches it.
+    floor: u64,
+    prior_floor: u64,
+    /// The slot `floor` rose in.
+    floor_slot: u64,
+    history: [RootEntry; ROOT_HISTORY],
+    /// Zero without a policy.
+    policy_hash: [u8; 32],
+    sources: [SourceSlot; 8],
+    rules: EncodedRuleTable,
+    /// One more at every policy write.
+    generation: u32,
+    /// The slot of the last policy write.
+    generation_slot: u64,
+}
+
+struct RootEntry {
+    root: [u8; 32],
+    /// The `tail` its settlement reached.
+    applied: u64,
+    slot: u64,
+}
+
+/// Slot `i` serves list `i + 1`, empty at `list_id = 0`.
+struct SourceSlot {
+    list_id: u8,
+    /// Zero for the ring's own registry.
+    registry: Address,
+}
+
+/// The table hash reads each big-endian integer as one field.
+struct EncodedRuleTable {
+    rule_count: u8,
+    rules: [[u8; 32]; 16],
+    inline_count: u8,
+    inline_assets: [[u8; 32]; 8],
+    inline_limits: [u64_be; 8],
+    limit_count: u8,
+    limit_assets: [[u8; 32]; 8],
+    limit_caps: [u64_be; 8],
+    limit_cosign: [u64_be; 8],
+}
+
+/// Discriminator 12, 698 bytes, the writes stay in instruction data.
+struct RecordQueue {
+    discriminator: u8,
+    bump: u8,
+    /// Position of the oldest pending write.
+    head: u64,
+    /// Position the next write takes.
+    tail: u64,
+    /// `chain(head - 1)`.
+    chain_head: [u8; 32],
+    /// Position `p` sits at index `p mod APPLY_BATCH`.
+    checkpoints: [QueueCheckpoint; APPLY_BATCH],
+    /// Earliest slot of the next permissionless application.
+    next_apply_slot: u64,
+}
+
+struct QueueCheckpoint {
+    /// `chain(p)`.
+    chain: [u8; 32],
+    /// `slot(p)`, the slot position `p` was queued in.
+    slot: u64,
+}
+```
+
+A queued write is `(member, mask u64, value u64, escrow_key)` with `mask != 0`
+and `value & !mask = 0`:
+
+```
+entry(p)  = Poseidon(D("CRQW"), member, mask, value, escrow_key)
+chain(p)  = Poseidon(chain(p - 1), entry(p)), chain(-1) = 0
+lists'    = (lists & !mask) | value
+escrow'   = escrow_key of the record if nonzero, else escrow_key of the write
+```
+
+Rule. An application applies every write from `head` to `tail - 1` in order.
+A write to an absent member whose new record holds `lists' != 0` or
+`escrow' != 0` relinks its low record to the member. It inserts the new record
+at `next_index` with the low record's old `next`, then increments
+`next_index`. Any other write to an absent member changes nothing. A record is
+never removed.
+
+Rule. `WriteRecords` carries `mask u64 || value u64 || max_fee u64`. It queues
+a write to the record of `owner_proof_input_hash(signer)` with `mask` within
+lists 4 and 5.
+`RegisterKey` refuses an anonymous ring, verifies the
+[register key proof](#ring-deposits-merges-and-key-registration) and queues
+`(member, 2^7, 2^7, escrow_key)`. Both admit a write only when
+
+```
+tail - head < MEMBER_QUEUE_LIMIT
+next_index + (tail - head) + 1 <= 2^20 - AUTHORITY_RESERVED_LEAVES
+```
+
+and a `payer` signer pays `insert_fee` lamports to `authority` unless
+`insert_fee = 0` or the member's signer is `authority`. A write that owes more
+than its `max_fee` is refused.
+
+Rule. `AuthorityWriteRecords` carries `count` writes, 1 to `APPLY_BATCH`,
+within lists 1, 2, 3, 6 and 7 and requires
+`(tail - head) + count <= APPLY_BATCH`. It
+queues them, verifies an apply proof over every pending write and settles.
+`ApplyRecords` needs no signer and is due when
+
+```
+tail > head
+tail - head >= MEMBER_QUEUE_LIMIT  or  slot >= slot(head) + APPLY_DELAY_SLOTS
+slot >= next_apply_slot
+```
+
+A permissionless settlement sets `next_apply_slot = slot + APPLY_DELAY_SLOTS`.
+Every settlement pushes `(new_root, tail, slot)` into `history` and sets
+`next_index = new_next_index`, `head = tail` and
+`chain_head = chain(tail - 1)`. An authority
+settlement also sets `prior_floor = floor`, `floor = tail` and
+`floor_slot = slot`.
+
+The apply proof's statement is
+
+```
+[D("CRAP"), old_root, new_root, old_next_index, new_next_index,
+ chain(head - 1), chain(tail - 1), tail - head]
+```
+
+under `custom-ring-apply-records-1` for one write and
+`custom-ring-apply-records-16` otherwise. `old_root` is the newest history
+root.
+
+Rule. A statement binds an own root by its history index `k`, accepted exactly
+when `history[k]` holds a root and `history[k].applied >= floor`. It binds a
+curator root at index `k` exactly when the curator registry's `history[k]`
+holds a root and one of these holds against its floors:
+
+```
+applied >= floor
+slot < floor_slot + GRACE_SLOTS  and  applied >= prior_floor
+```
+
+Does not check that a member exists when it admits a write, so every pending
+write counts as a possible insert. Does not read lists 4 and 5 in any check or
+proof.
+
+### Local invariants
+
+1. Every history root is the root of the tree that the queued writes, applied
+   in order, produce from the sentinel.
+2. Outside its own record, a member's `WriteRecords` or `RegisterKey` changes
+   at most a low record's `next`. In its own record, `WriteRecords` changes
+   only lists 4 and 5, and `RegisterKey` only list 8 and the escrow key.
+3. A registered escrow key never changes.
+4. After an authority write settles, no own-ring statement binds an earlier
+   root.
+5. Member writes never fill the last `AUTHORITY_RESERVED_LEAVES` leaves.
+
+### Local justification
+
+1. The apply statement binds the newest root, both next indexes and both ends
+   of the program's chain over exactly `tail - head` writes.
+2. `WriteRecords` and `RegisterKey` derive the member from the signer, and
+   `WriteRecords` checks the mask.
+3. The apply circuit keeps a nonzero escrow key.
+4. The authority settlement sets `floor` to the `applied` of the root it
+   pushes.
+5. The admission bound counts every pending write as an insert.
+
+<a id="ring-transact-data"></a>
+## Ring transact data
+
+`Transact` and `DelegateTransact` carry one compact frame. Each section's length
+follows from the rail and the bytes before it, and the program refuses trailing
+bytes with `RingTransactLength`. The program forwards `ring_transact` on
+`Transact` and `ring_authority_transact` on `DelegateTransact`, with the frame
+expanded into the [`transact`](#transact) data. The SPP proof binds the expanded
+data through its `external_data_hash`.
+`test-vectors/ring-transact-expansion.json` pins the expansion. `n_in` and
+`n_out` are the counts of the indexed shape, and `F` is the field count of the
+frame's layout in [Audit disclosure](#audit-disclosure).
+
+```rust
+struct RingTransactData {
+    /// Bit 0 policy, 1 curator, 2 approval_required, 3 previous_epoch,
+    /// 4 anchor, 5 second input tree, 6 data_hash, 7 ring_data_hash.
+    flags: u8,
+    /// Index into `SPP_SUPPORTED_SHAPES` in bits 0 to 5, bit 6 default owner
+    /// tag, bit 7 data free.
+    shape: u8,
+    /// `input_count` in bits 0 to 5, bit 6 key escrow, bit 7 full openings.
+    inputs: u8,
+    audit_proof: CustomRingProof,
+    /// With flag 0.
+    policy_proof: CustomRingProof,
+    /// With flag 0.
+    own_root_index: u8,
+    /// With flag 1.
+    curator_root_index: u8,
+    /// With flag 0 on an anonymous ring.
+    sender_commitment: [u8; 32],
+    /// With flag 4, an index into the instruction's accounts.
+    anchor_tree: u8,
+    /// With flag 4.
+    anchor_root_index: u16,
+    expiry_unix_ts: u32,
+    tx_viewing_u: [u8; 32],
+    salt: [u8; 16],
+    /// `u8` count, then each `InterfaceTransfer`.
+    interface_transfers: Vec<InterfaceTransfer>,
+    /// With flag 6.
+    data_hash: [u8; 32],
+    /// With flag 7.
+    ring_data_hash: [u8; 32],
+    /// 1 to `n_out`, only at 2 and 4 outputs of the confidential and delegate rails.
+    output_count: u8,
+    /// Bit `i` at byte `i / 8`, bit `i % 8`, set for an exit.
+    exit_bitmap: [u8; ceil(output_count / 8)],
+    outputs: [RingOutput; output_count],
+    eph_u: [u8; 32],
+    sealed: [u8; 32],
+    disclosure: [[u8; 32]; F],
+    private_tx_hash: [u8; 32],
+    /// On an anonymous ring, the BSB22 commitment of the SPP proof.
+    commitment: [u8; 32],
+    /// On an anonymous ring.
+    commitment_pok: [u8; 32],
+    /// With shape bit 6.
+    default_owner_tag: [u8; 32],
+    /// `a 32 || b 64 || c 32`, compressed points.
+    spp_proof: [u8; 128],
+    nullifiers: [[u8; 32]; input_count],
+    /// With flag 5, bit `i` spends input `i` from the second tree.
+    tree_bitmap: [u8; ceil(input_count / 8)],
+    /// Two with flag 5.
+    tree_contexts: [TreeContext; 1 or 2],
+}
+```
+
+`CustomRingProof` is
+`a 32 || b 64 || c 32 || commitment 32 || commitment_pok 32`, compressed points
+with one BSB22 commitment. A delivered or anonymous transfer publishes every
+output slot of its shape. A `RingOutput` is one of
+
+```
+packed     hash 32 || u 32 || ciphertext
+delivered  hash 32 || u 32 || body 40
+anonymous  hash 32 || tag 16 || body 40
+exit       hash 32 || owner_tag 32 || payload
+```
+
+The packed ciphertext and the exit payload take `len u16 || bytes`. Under
+shape bit 7 the packed ciphertext takes 49 bytes and the exit payload takes 83
+bytes, both without a prefix.
+[Ring outputs](#ring-outputs) defines the expansion of each kind.
+
+Rule. The expansion widens `expiry_unix_ts` to `u64`, sets
+`tx_viewing_pk = 0x04 || tx_viewing_u`, decompresses `b` of `spp_proof` and
+sets `messages` to one auditor message:
+
+```
+view_tag = auditor_pubkey[1..33]
+data     = 0x04 || eph_u || sealed || disclosure
+```
+
+The circuit is `ConfidentialRingEddsa` on the confidential rail,
+`AnonymousRingEddsa` on the anonymous rail and `RingAuthority` on the delegate
+rail, at the shape the frame names. On an anonymous ring the program appends
+the configured co-signer address after the expanded data, zero without one.
+SPP derives `cosigner_pk_hash` from it. See
+[SPP Proof](#spp-proof---solana-privacy-zk-proof).
+
+### Validation
+
+1. `Transact` takes the anonymous rail on an anonymous ring and the
+   confidential rail otherwise. `DelegateTransact` takes the delegate rail,
+   needs a delegate and is refused on an anonymous ring.
+2. Flags 1 and 2 need flag 0. Flags 3 and 4, shape bit 6 and inputs bit 7 need
+   the anonymous rail.
+3. An SPP key serves the shape, an audit key serves the shape, `input_count`
+   and inputs bit 7, and `1 <= input_count <= n_in`.
+4. Flag 0 equals `has_policy`. Flag 1 is set exactly when a source names a
+   curator, and inputs bit 6 is set exactly under key escrow.
+5. Flag 2 needs a policy with an outflow limit and is refused on the delegate
+   rail.
+6. The delegate rail carries no exit and no public leg.
+7. No disclosure field is zero. See [Audit disclosure](#audit-disclosure).
+8. The payer signs. On the confidential rail every owner signer signs, and a
+   policy ring takes one distinct owner. On the anonymous rail no other SPP
+   account signs, so the payer funds every public deposit. On the delegate rail
+   `delegate` signs. The ring's `ring_auth` PDA sits at SPP's `ring_config` slot
+   and nowhere else.
+9. The source signer of every public deposit signs. A co-signer demanded
+   under [Ring configuration](#ring-configuration) signs and is neither an
+   owner signer nor the delegate.
+10. The own and curator roots pass [root acceptance](#member-registry). The
+    curator registry is the one the sources name, a `["members"]` PDA of its
+    owner program.
+11. An anchor's tree is an unpaused SPP tree account with a UTXO tree root at
+    `anchor_root_index`.
+12. The audit proof and, on a policy ring, the policy proof verify. A proof
+    point that does not decompress fails with `InvalidRingProofPoint`, a
+    circuit without a key with `UnsupportedCircuit`, and a failed pairing with
+    `ProofVerificationFailed`.
+
+Does not check that a tag derives from its stream, or that a body, packed
+ciphertext or exit payload is an encryption. See [Audit proof](#audit-proof).
+
+<a id="ring-tags"></a>
+## Ring tags
+
+A payment to an anonymous ring takes a tag on a stream its recipient scans.
+Let `address_key` be the [ring address key](#derived-secrets) `0x04 || u` of a
+[ring address](#ring-address). Let `s1` be the slot secret `s_i` of a first
+contact as in [Ring outputs](#ring-outputs). The statement epoch `epoch` is
+`slot / EPOCH_SLOTS` of the landing slot, less one under flag 3.
+
+```
+inbox_key      = Poseidon(D("CRIK"), ring_id, pack_be(address_key))
+inbox_tag(e,j) = low128(Poseidon(D("CRIT"), inbox_key, e, j))     j < J_INBOX
+pair_key       = Poseidon(D("CRPK"), s1)
+pair_tag(e,j)  = low128(Poseidon(D("CRPT"), pair_key, e, j))      j < J_PAIR
+free_tag       = low128(x), x uniform below q
+```
+
+Rule. A payment takes an inbox tag or a pair tag at `epoch`. A transfer holds
+at most one pair-tagged slot.
+The **first contact** `N1` of that slot is an output of the same ring with the
+slot's owner and no data. Its blinding is the anonymous-rail
+`ring_blinding_i` of [Ring outputs](#ring-outputs) at slot `i'` and first
+nullifier `n0'`, under `s1` and the tag `T1`:
+
+```
+T1 = inbox_tag(e1, j1) of the slot's address_key
+0 <= epoch - e1 < K_PAIR_EPOCHS
+```
+
+`N1` is a leaf under the anchor root the program reads from the named SPP tree
+account. Does not check that a free tag is random or that a stream index is
+unused. See [View Tag Selection](#view-tag-selection).
+`test-vectors/ring-tags.json` pins the tags.
+
+<a id="auditor-envelope"></a>
+## Auditor envelope
+
+Each ring transfer seals `tx_viewing_sk` to the auditor under a fresh
+ephemeral key `ephemeral_sk`, with public key `0x04 || eph_u`.
+
+```
+dh     = ECDH(ephemeral_sk, auditor_pubkey)
+shared = Poseidon(D("CR_S"), pack_be(dh), pack_be(0x04 || eph_u), pack_be(auditor_pubkey))
+head   = Poseidon(BE("CRING/adt1" || 0x00), shared)
+tail   = Poseidon(BE("CRING/adt1" || 0x01), shared)
+key    = head[1..32] || tail[19]
+nonce  = tail[20..32]
+sealed = AES-256-CTR(key, nonce, tx_viewing_sk)   // first counter block nonce || u32_be(2)
+```
+
+`head` and `tail` use canonical 32-byte big-endian encodings. The steps from
+`head` to `sealed`, with another secret in place of `shared` and another
+plaintext, are the **audit stream schedule**.
+
+<a id="audit-disclosure"></a>
+## Audit disclosure
+
+The disclosure is `F` fields `C[j]`, `j` from 0, each masking the layout's
+field `P[j]` with its own pad:
+
+```
+seed = Poseidon(D("CROD"), pack_be(tx_viewing_sk), salt)
+C[j] = P[j] + Poseidon(seed, j) mod q
+```
+
+`salt` is as in [Ring outputs](#ring-outputs). The layout value is
+`exits | key_escrow << 1 | data_free << 2 | full_openings << 3`. `exits` is set
+when an output exits. `key_escrow` is inputs bit 6, set under key escrow, and
+`data_free` is shape bit 7. `full_openings` is inputs bit 7, set on the
+anonymous entry key. `SeedOut` is SPP's `output_blinding_seed`. See
+[Blinding Seed](#blinding-seed). `owner_key` is an output owner's Solana key
+and `sender_key` the spender's. A padding slot discloses zeros in every layout.
+
+The **packed** layout serves the packed form of [Ring outputs](#ring-outputs),
+over the published outputs:
+
+```
+[SeedOut] if exits
+per output:  [nullifier_pk] unless key_escrow, asset,
+             [data_hash, ring_data_hash] unless data_free,
+             pack_disclosure(owner_key || u64_be(amount))
+```
+
+The **delivered** layout serves the delivered form, over all `m` outputs:
+
+```
+[SeedOut] if exits
+[nullifier_pk per output] unless key_escrow
+pack_disclosure(slot_0 || ... || slot_{m-1})
+slot = owner_key || [0; 8] for a ring output, asset || u64_be(amount) for an exit, with exits
+slot = owner_key for a ring output, without exits
+```
+
+The **anonymous** layouts serve the anonymous form, over all `m` outputs.
+Inputs bit 7 selects the **entry** key
+`custom-ring-audit-anonymous-entry-8-<outputs>`. A transfer that spends a
+default-ring note sets it, since the ring-note key refuses that note.
+Otherwise the program takes the **ring-note** key
+`custom-ring-audit-anonymous-<class>-<outputs>` of the smallest class that
+holds the published inputs:
+
+```
+[SeedOut] if exits
+[sender_nullifier_pk] on the entry key
+nullifier_pk per output
+pack_disclosure([sender_key] || slot_0 || ... || slot_{m-1}), sender_key on the entry key
+slot = owner_key || u for a ring output, asset || u64_be(amount) || [0; 24] for an exit
+ring-note key:   utxo_hash of input 0, then one pair per two later published inputs
+entry key:       pack_disclosure(u64_be(amount) per input slot of the class), asset, blinding per published input
+pair   = prefix(a) * 2^126 + prefix(b), input a before input b, prefix(b) = 0 past the published inputs
+prefix(h) = BE(h[0..16]), below 2^126 for a canonical h
+```
+
+`u` is the recipient key of [Ring outputs](#ring-outputs). The input classes
+are:
+
+```
+2 outputs   ring-note classes 4, 8, 12, 16, 24 and 32 inputs, entry class 8
+4 outputs   ring-note classes 4, 8, 12, 16 and 24 inputs, entry class 8
+8 outputs   ring-note classes 4, 8, 12 and 16 inputs, entry class 8
+16 outputs  ring-note class 1 input
+```
+
+`test-vectors/audit-disclosure.json`,
+`audit-disclosure-delivered.json` and `audit-disclosure-anonymous.json` pin
+the layouts.
+
+Rule. The auditor rebuilds the hash of every ring output and exit, and of a
+padding slot when `SeedOut` is disclosed. The owner is the
+[owner hash](#owner-hash) of `owner_key` and `nullifier_pk`, with
+`nullifier_pk` from the disclosure or, under key escrow, from the owner's
+`RegisterKey` data. An exit's owner key is its public owner tag on the
+delivered and anonymous layouts. A ring output's blinding follows
+[Ring outputs](#ring-outputs) from `tx_viewing_sk`, and a delivered or
+anonymous output's asset and amount come from its body. An exit's blinding is
+`blinding_i` of [Blinding Seed](#blinding-seed) over `SeedOut`, with `i` its
+output slot. Input 0 under the ring-note key opens from the auditor's earlier
+opening of that note, and its owner is the sender. A later input opens as the
+sender's ring note whose UTXO hash starts with its prefix. When more of the
+sender's ring notes carry one prefix than inputs name it, the auditor lists them
+all as candidates for each such input. An entry-key input opens from the
+disclosure under `sender_key` and `sender_nullifier_pk` with no data.
+
+Rule. The program refuses a published field `C[j] = 0` with
+`ZeroDisclosureField`, so two field counts never alias under trailing zeros.
+
+<a id="audit-proof"></a>
+## Audit proof
+
+Every ring transfer carries one audit proof. Every ring proof has one public
+input. It is `HashChain4(statement)` for the audit, policy, apply and register
+key proofs, and `HashChain(statement)` for the deposit and anonymous merge
+proofs. The program rebuilds the audit statement from the frame, its own
+program id, the config, the clock and, under an anchor, the named tree's root:
+
+```
+head      = [D("CRAU"), n0, ring_id, pack_be(0x04 || tx_viewing_u),
+             pack_be(auditor_pubkey), pack_be(0x04 || eph_u),
+             hash_bytes_32(sealed), salt, layout]
+packed    = head || [output_chain, disclosure_chain]
+delivered = head || [output_chain, body_chain, disclosure_chain, recipient_key_chain]
+anonymous = head || [output_chain, body_chain, disclosure_chain, private_tx_hash,
+                     tag_chain, epoch, first_contact_root, sender_commitment]
+```
+
+Each `pack_be` term contributes two elements. `output_chain` is `HashChain4` of
+the published output hashes, `disclosure_chain` of the published fields. Per
+slot, with zeros for an exit, `body_chain` is `HashChain4` of
+`hash_bytes_40(body)`, `recipient_key_chain` of the two elements of
+`pack_be(u)` and `tag_chain` of `0^16 || tag`. `first_contact_root` is 0
+without an anchor, and `sender_commitment` is 0 outside an anonymous policy
+ring. Within one key the chain lengths vary with the layout and the counts,
+and the program reads each length from the frame.
+
+The proof certifies that
+
+1. the envelope seals `tx_viewing_sk` to `auditor_pubkey`,
+2. `tx_viewing_sk` is clamped and is the secret of `tx_viewing_pk`,
+3. every published output is a ring output, an exit or a padding slot,
+4. every ring output blinding follows [Ring outputs](#ring-outputs) and every
+   exit blinding follows [Output Blinding](#output-blinding) over `SeedOut`, and
+5. the disclosure opens to the fields of its layout.
+
+SPP requires each ring output's ring id to equal `ring_id`. The proof also
+certifies that no output carries data on the delivered and anonymous layouts and
+on a packed layout with `data_free`. On the delivered and anonymous layouts it
+certifies that each ring-output body encrypts its asset and amount and that each
+recipient key is canonical. On the anonymous layouts it certifies the payment
+tags, the anchor, `private_tx_hash` and that every spent note belongs to the
+sender. `sender_commitment` is 0 or
+
+```
+Poseidon(D("CRSC"), owner_proof_input_hash(sender_key), private_tx_blinding)
+```
+
+The ring-note key also certifies that every spent note's ring id is `ring_id`,
+and the sender is the owner of input 0. The entry key certifies that every
+spent note carries `sender_nullifier_pk` and no data, and the sender is the
+owner of `sender_key`.
+`test-vectors/ring-statements.json` pins the statements.
+
+<a id="policy-proof"></a>
+## Policy proof
+
+A policy ring transfer also carries one policy proof, under
+`custom-ring-policy-member-<outputs>` on the confidential and anonymous rails.
+Its statement is
+
+```
+[D("CRPO"), private_tx_hash, policy_hash, ring_id, anonymous, approval_required,
+ key_escrow, own_root, curator_root, sender, (asset_k, amount_k) for k = 0, 1, 2]
+```
+
+The delegate key `custom-ring-policy-delegate-<in>x<out>` omits
+`anonymous` and fixes `approval_required = 0` and `key_escrow = 1`. `sender`
+is `owner_proof_input_hash` of the one owner signer on the confidential rail,
+`sender_commitment` on the anonymous rail and 0 on the delegate rail.
+`anonymous` is 1 on the anonymous rail and 0 on the confidential rail.
+`curator_root` is 0 without a curator source. `(asset_k, amount_k)` are SPP's
+public slots, a withdrawal as `q - amount`. On the anonymous rail the rules
+read the `owner_proof_input_hash(sender_key)` that `sender_commitment` hides.
+The delegate key proves one owner for every spent UTXO, and its rules read
+that owner as the sender.
+
+The policy table hash absorbs 77 fields, eleven per Poseidon call:
+
+```
+fields = [D("CRTB"), POLICY_TABLE_VERSION,
+          (list_id, registry_field) per source slot (8),
+          rule_count, inline_count, limit_count,
+          rule rows (16), inline assets (8), inline limits (8),
+          (limit_asset, cap, cosign_above) per limit (8)]
+acc    = 0, then acc = Poseidon(acc, fields[11c .. 11c + 11]) for c = 0 to 6
+policy_hash = acc
+```
+
+Source slot `i` holds `(i + 1, registry_field)` when a rule reads list `i + 1`,
+else `(0, 0)`. `registry_field` is 0 for the ring's own registry and
+`hash_bytes_32(registry)` for a curator's. Inline and limit assets are
+`hash_bytes_32(mint)`. Every field past a count is zero. A rule row is one
+big-endian field of 32 bytes:
+
+```
+row = reserved 19 || alternative u8 || threshold u64_be || guard u8 || mask u8 || mode u8 || subject u8
+```
+
+`subject` is 1 owner, 2 sender or 4 asset, and `mode` is 1 present or 2
+absent. `guard` is 0, 1 or 2, and `threshold` is nonzero exactly when `guard`
+is 1. Bit `i` of `mask` and `alternative` names list `i + 1`. The program
+validates the table at every policy write. It refuses a rule over lists 4, 5
+or 8, a guard on a sender rule and guard 2 outside an owner rule.
+`test-vectors/ring-policy-table.json` pins the hash.
+
+Rule. With `mode = 1`, `P` is `mask` and `A` is `alternative`. With
+`mode = 2`, `P` is empty, `A` is `mask` and `alternative` is 0. A rule holds
+for a subject whose lists are `S` exactly when
+
+```
+(P & S) != 0  or  (A & !S) != 0
+```
+
+The proof certifies that every rule below `rule_count` holds for its subjects. A
+sender rule reads the sender. An owner rule reads every UTXO output with a
+nonzero owner, and an asset rule every UTXO output's asset. Guard 1 exempts an
+output when the outputs of its owner, or under an asset rule of its asset, total
+at most `threshold`. Under an owner rule it requires all UTXO outputs to carry
+the same asset. Guard 2 exempts an output whose owner's outputs of its asset
+total at most that asset's inline limit. It requires an inline limit for the
+asset. No guard exempts the sender. A subject reads list `i + 1` from its record
+under `curator_root` when source slot `i` names a curator, else under
+`own_root`. An absent member is on no list.
+`test-vectors/ring-policy-rules.json` pins the rule semantics.
+
+Rule. On the member key, per active limit row of asset `a`:
+
+```
+others  = sum of the UTXO outputs of a, less the sender's outputs inside the ring
+net     = signed sum of amount_k over the public slots with asset_k = a
+net <= others
+outflow = others - net
+cap != 0 implies outflow <= cap
+approval_required = 1 exactly when some row has cosign_above != 0 and outflow > cosign_above
+```
+
+Rule. Under key escrow the `own_root` record of every UTXO output's owner
+holds an [`escrow_key`](#member-registry) over that output's `nullifier_pk`.
+
+<a id="ring-deposits-merges-and-key-registration"></a>
+## Deposits, merges and key registration
+
+An audited deposit is `tag 31 || CustomRingProof || registry_root_index`
+followed by the exact SPP [`ring_deposit`](#ring_deposit) instruction data.
+Each entry's `encrypted.ciphertext` starts with a capsule, and the recipient
+ciphertext follows it:
+
+```
+capsule   = "CRDEP001" || i u8 || eph_pk 33 || ciphertext 96
+opening   = owner_hash || blinding || owner_key
+blinding  = Poseidon(D("CRDB"), blinding_secret)
+```
+
+`owner_key` is the owner's Ed25519 key on an anonymous ring and zero otherwise.
+Every capsule of one deposit shares `eph_pk`. The capsule of entry `i` encrypts
+bytes `96i` to `96i + 95` of one stream under label `"CRING/dep1"`. The proof
+binds the ring, the destination tree, the full SPP data, each
+`owner_utxo_hash` and each ciphertext. Under key escrow it also binds each
+owner's escrow record under the named root. The `CRDB` domain prevents a deposit
+from opening as a [first contact](#ring-tags). Deposit amounts and mints are
+public. The deposit statement is
+
+```
+statement = [D("CRDP"), context, count, anonymous,
+             (owner_utxo_hash, hash_bytes_96(ciphertext)) for 8 slots, zero past count,
+             pack_be(auditor_pubkey), pack_be(eph_pk), key_escrow, root]
+context   = HashChain(ring_id, hash_bytes_32(tree), len(spp_data), HashChain(pack_be(spp_data)))
+```
+
+`count` is the entry count, `anonymous` is 1 on an anonymous ring and `tree` is
+the address of `ring_deposit`'s `tree_account`. `spp_data` is the forwarded SPP
+instruction data with its tag byte. `key_escrow` is 1 under key escrow with
+`root` the named own root, else both are 0.
+
+A merge on a ring that is not anonymous forwards an own root to SPP's
+[`merge_ring`](#merge_ring) with `anonymous = 0`. SPP's merge proof then opens
+the owner's record and its escrow key. On an anonymous ring the program
+forwards a zero root with `anonymous = 1`. It verifies a separate disclosure
+proof, `custom-ring-merge-anonymous-<width>` for widths 8 and 24:
+
+```
+statement = [D("CRMG"), private_tx_hash, output_utxo_hash, n0, ring_id,
+             pack_be(auditor_pubkey), pack_be(eph_pk), hash_bytes_32(ciphertext),
+             salt, HashChain4(fields)]
+plaintext  = owner_key || nullifier_pk || mint || u64_be(amount) || merge_output_blinding
+             || per slot of the width, the input's utxo_hash or 0 for a dummy
+ciphertext = disclosure_key (32) sealed to auditor_pubkey under "CRING/mrg1"
+seed       = Poseidon(BE("CR_MD"), pack_be(disclosure_key), salt)
+fields[j]  = pack_disclosure(plaintext)[j] + Poseidon(seed, j) mod q
+```
+
+`salt` is the [PoseidonCtrV1](#poseidonctrv1) `salt` of the SPP merge's
+`output_encryption`. `disclosure_key` is 32 random bytes per merge.
+`test-vectors/ring-merge-anonymous.json` pins the statement.
+
+`RegisterKey` carries
+`CustomRingProof || nullifier_pk || eph_u || ciphertext 32 || max_fee u64` and
+proves
+
+```
+nullifier_secret[0] = 0
+nullifier_pk = Poseidon(pack_be(nullifier_secret[1..32]))
+ciphertext   = the nullifier secret sealed to auditor_pubkey under "CRING/nfk1"
+statement    = [D("CRRG"), member, nullifier_pk, pack_be(auditor_pubkey),
+                pack_be(0x04 || eph_u), hash_bytes_32(ciphertext)]
+```
+
+Deposits, merge disclosures and key envelopes use the general stream schedule
+under their own labels, instead of the audit stream schedule:
+
+```
+siloed = Poseidon(D("TMSI"), shared, pack_be(label))
+key    = Poseidon(D("TMSL"), siloed)[16..32] || Poseidon(D("TMSK"), siloed)[16..32]
+nonce  = Poseidon(D("TMSN"), siloed)[20..32]
+```
+
+`shared` is as in [Auditor envelope](#auditor-envelope), over each
+instruction's ephemeral key. The AES counter begins at `nonce || u32_be(2)`.
 
 # ZK Program Interface
 
@@ -2745,79 +3743,61 @@ struct SubmitTransactionResponse {
 
 ## Ring RPC
 
-A Ring RPC holds the ring's auditor key, if configured, and serves decrypted analogues of the indexer's ciphertext endpoints. Lookup is by `signing_pk` (recovered from `owner_pubkey` on decryption).
+The service holds an X25519 auditor key and serves granted readers.
+`getDecryptedTransactions` pages the ring's opened transfers, and
+`getAuditedMerges` pages its opened merges. `getAuditedUtxos` returns the
+opening of each requested UTXO hash. `health`, `createAuditorKey`, `ringStatus`
+and `ringDeposits` complete the methods.
 
-**Authentication.** Every request includes `signing_pk` and a `signature` by that key over the serialized request body. `bound_slot` pins the signature to a slot; the RPC rejects requests where `current_slot > bound_slot + 150`.
+The target of a signed read is the cluster's genesis hash, the service key the
+reader pinned and the ring. A page read signs the method, the target, the page
+bounds, a timestamp and a 32-byte nonce. A `getAuditedUtxos` read signs the
+target, the timestamp, the nonce and the SHA-256 digest of its requested
+hashes, in request order. A granted reader signs with Ed25519
+or a WebAuthn P-256 credential. WebAuthn sends a DER-encoded ECDSA signature
+beside its assertion. The service checks the challenge, origin, relying party
+hash and user flags of the assertion before it verifies the signature. The
+service refuses a request whose timestamp differs from its clock by more than 60
+seconds. The service rejects a replayed nonce and checks the reader's on-chain
+`ReadAccessRecord`. Reader authentication does not grant spending rights.
 
-### `get_decrypted_utxos_by_owner`
+`getDecryptedTransactions` returns per transaction the verified opening of each
+ring, exit or padding slot, and the failure cause of each slot that does not
+open. An anonymous transaction also carries the hidden sender and the opening of
+every spent note. An input whose prefix stays ambiguous under
+[Audit disclosure](#audit-disclosure) carries its `candidates` in place of an
+opening. Under key escrow the service takes each output's
+`nullifier_pk` from the owner's `RegisterKey` data and checks it against the
+owner record's `escrow_key`. A transaction it cannot audit appears as skipped
+with its reason.
 
-Decrypted analogue of [`getEncryptedUtxosByTags`](#getencryptedutxosbytags). Filters spent UTXOs unless `include_spent`.
+`getAuditedUtxos` takes 1 to 100 UTXO hashes and returns, in request order,
+each opening the service has audited or null. Its openings resolve the spent
+notes an anonymous transfer names. See
+[Audit disclosure](#audit-disclosure).
 
-```rust
-struct GetDecryptedUtxosByOwnerRequest {
-    signing_pk: PublicKey,
-    bound_slot: u64,
-    signature: Signature,
-    include_spent: bool,
-    cursor: Option<Vec<u8>>,
-    limit: Option<u32>,
-}
+`getAuditedMerges` opens an anonymous merge from its disclosure. It tries the
+escrowed keys of the registry on any other merge, because the merge names no
+owner. A merge no key opens is listed as unresolved. A request reads at most
+100 registry pages and tries at most 100,000 key and output pairs. A request
+past either bound fails without a partial page.
 
-struct GetDecryptedUtxosByOwnerResponse {
-    context: Context,
-    utxos: Vec<DecryptedUtxoEntry>,
-    next_cursor: Option<Vec<u8>>,
-}
+`ringStatus` reports the ring's SPP activation and whether the ring config
+exists and names the service's auditor key. It also reports the registry's
+root history with each root's applied position and slot, the registry floors
+and the record queue positions. `createAuditorKey` takes a request the config
+authority signs, or the program's upgrade authority while no config exists.
+Its response carries a signature by the service's Ed25519 key, the key
+`health` reports, over
+`"zolana/ring-auditor-key/v2" || genesis_hash || ring_program_id || auditor_pubkey || nonce`.
+`nonce` is the request's nonce.
 
-struct DecryptedUtxoEntry {
-    slot: u64,
-    tx_signature: Signature,
-    utxo: Utxo,
-    /// Nullifier observed in the nullifier tree.
-    spent: bool,
-}
-```
-
-### `get_decrypted_transactions_by_owner`
-
-Decrypted analogue of [`getShieldedTransactionsByTags`](#getshieldedtransactionsbytags).
-
-```rust
-struct GetDecryptedTransactionsByOwnerRequest {
-    signing_pk: PublicKey,
-    bound_slot: u64,
-    signature: Signature,
-    cursor: Option<Vec<u8>>,
-    limit: Option<u32>,
-}
-
-struct GetDecryptedTransactionsByOwnerResponse {
-    context: Context,
-    transactions: Vec<DecryptedTransaction>,
-    next_cursor: Option<Vec<u8>>,
-}
-
-struct DecryptedTransaction {
-    slot: u64,
-    tx_signature: Signature,
-    output_utxos: Vec<Utxo>,
-    nullifiers: Vec<[u8; 32]>,
-}
-```
-
-### `subscribe_to_decrypted_transactions_by_owner`
-
-Streaming analogue of [`subscribeToShieldedTransactionsByTags`](#subscribetoshieldedtransactionsbytags). The RPC closes the stream when `current_slot > bound_slot + 150`; the client re-subscribes with a fresh signature.
-
-```rust
-struct SubscribeToDecryptedTransactionsByOwnerRequest {
-    signing_pk: PublicKey,
-    bound_slot: u64,
-    signature: Signature,
-}
-
-/// Yields one [`DecryptedTransaction`](#get_decrypted_transactions_by_owner) per matching transaction.
-```
+The client binds every reported transfer, deposit and spend to the exact
+confirmed SPP instruction and event. It checks the ring caller, confirmed slot,
+messages, viewing key, salt, ordered nullifiers, output payloads, output hashes
+and tree positions before recovery uses them. The scan still relies on the
+indexer to return the complete history. The full request and response schema
+is in `custom-rings/client/src/rpc.rs`.
 
 ## Merge Service
 
@@ -2840,7 +3820,7 @@ UTXOs with `utxo_data` set (non-zero `data_hash`) cannot be merged since they ar
 
 **Sync.** After each `merge_transact`, the emitted event tags the merged output with the owner signing pubkey, so it surfaces in the wallet's default-ring owner-pubkey scan. The wallet decrypts the output from the merge transaction alone with keys derived from its nullifier secret ([Merge](#merge)), without holding any of the merge's inputs (see [First Time Sync Wallet](#first-time-sync-wallet)).
 
-**Threat model.** The [merge proof](#merge-proof---merge-zk-proof) preserves ownership and value, and on `merge_transact` its public-input hash includes the output ciphertext the owner decrypts, in the scheme the owner registered. On `merge_ring` the ciphertext is unverified ([Ring merge output encryption](#ring-merge-output-encryption)). A service holds the owner's `nullifier_secret`, so it can merge a UTXO the owner never saw; on `merge_transact` the owner still decrypts the merged output, and the UTXO is income rather than a lock on the owner's funds. A service can disclose private information or refuse to process transactions. Building a proof requires the decrypted input UTXOs and the owner's `nullifier_secret`; enabling merging alone does not give a caller those inputs.
+**Threat model.** The [merge proof](#merge-proof---merge-zk-proof) preserves ownership and value and binds the output ciphertext the owner decrypts. A service holds the owner's `nullifier_secret`, so it can merge a UTXO the owner never saw; the owner still decrypts the merged output, and the UTXO is income rather than a lock on the owner's funds. A service can disclose private information or refuse to process transactions. Building a proof requires the decrypted input UTXOs and the owner's `nullifier_secret`; enabling merging alone does not give a caller those inputs.
 
 ## Registry
 
@@ -2938,19 +3918,31 @@ The same flow can be used to resync a wallet or poll.
 ViewingKeyEntry {
     key:                ViewingKey,
     created_at:         i64,
-    tx_count:           u64,
-    request_count:      u64,
-    known_senders:      map<sender_pubkey    → u64>,
-    known_recipients:   map<recipient_pubkey → u64>,
+}
+
+AnonymousRingState {
+    ring:            Address,
+    creation_epoch:  u64,                       // from the ring config's created_slot
+    issued:          Vec<IssuedAddress>,        // index and pairing of each address issued or used
+    scanned_epoch:   Option<u64>,
+    received:        Vec<ReceivedAnchor>,       // first contacts whose pair streams it scans
+    sent:            Vec<SentFirstContact>,     // the newest first contact per address paid
+    deposit_next:    u64,                       // the next deposit stream counter to read and to deposit under
+    decoys:          Map<u16, Vec<DecoyLeaf>>,  // scheme-9 leaves of the ring a scan saw per tree, the decoy pool
 }
 
 Wallet {
     signing_key:        SigningKey,
     viewing_history:    Vec<ViewingKeyEntry>,   // locally retained keys, oldest first
+    anonymous:          Vec<AnonymousRingState>, // one per anonymous ring
     Utxos:              Vec<Utxo>,
     last_synced:        Timestamp,
 }
 ```
+
+A stored `AnonymousRingState` carries version 3. A state of another version
+fails to load. A rescan from `creation_epoch` builds a new state without
+`sent` and without the pairing rows the wallet set.
 
 `viewing_entry` denotes `viewing_history.last()` throughout this section.
 
@@ -2960,9 +3952,17 @@ Wallet {
 
 2. **Default-ring sync and merge sync run as independent parallel branches.**
 
-    1. **Default-ring sync (confidential).** One call: `indexer.getShieldedTransactionsByTags` with the wallet's `owner_pubkey` tag and the `recipient_bootstrap_view_tag` of each retained viewing key. The owner tag matches the wallet's encrypted change bundles, encrypted recipient slots, and [plaintext transfer](#plaintext-transfer) slots. The bootstrap tags match ring deposits and anonymous recipient slots. Try the locally retained viewing keys against each encrypted ciphertext (plaintext slots need none); store the UTXOs with each transaction's `nullifiers`. The owner tag derives from the signing key, so discovery of default-ring outputs does not depend on the viewing key.
+    Every paged read fails on a cursor it already followed.
 
-    2. **Anonymous outputs.** Wallets query no `sender_view_tag`, `recipient_request_view_tag` or shared tag. A [Ring Anonymous](#output-utxo-serialization) output (scheme `9`) the bootstrap query returns is skipped, and the ring auditor reads it through the [Ring RPC](#ring-rpc).
+    1. **Default-ring sync (confidential).** One call: `indexer.getShieldedTransactionsByTags` with the wallet's `owner_pubkey` tag and the `recipient_bootstrap_view_tag` of each retained viewing key. The owner tag matches the wallet's encrypted change bundles, encrypted recipient slots, and [plaintext transfer](#plaintext-transfer) slots. The bootstrap tags match the deposits of confidential rings. Try the locally retained viewing keys against each encrypted ciphertext (plaintext slots need none); store the UTXOs with each transaction's `nullifiers`. The owner tag derives from the signing key, so discovery of default-ring outputs does not depend on the viewing key.
+        Confidential ring outputs also carry the bootstrap tags, so their discovery depends on the retained viewing keys.
+
+    2. **Anonymous-ring sync, after the default-ring sync, under the current viewing key, per ring.** The indexer sees which tags, nullifiers and leaves the wallet asks for, and a wallet that needs unlinkability runs its own indexer. The sync covers the epochs from `scanned_epoch + 1`, or from `creation_epoch` on a fresh state, up to and including the current epoch. A sync that stops before the current epoch leaves the rest to the next sync:
+        1. For each of those epochs, derive the `J_INBOX` inbox tags of the first `min(h + ADDRESS_GAP, 1024)` address indexes. `h` is one past the highest issued index, or 0, and `ADDRESS_GAP = 20`. Derive the `J_PAIR` pair tags of every received anchor in each epoch it is live. A pair payment found extends the anchor's live epochs, and the next pass reads them. See [Ring tags](#ring-tags). Call `indexer.getShieldedTransactionsByTags(tags)`. No request names the tags of two addresses, and an anchor's pair tags count as tags of its own address.
+        2. **Open and store.** Open every output under a derived tag and keep it only on the rule of [Ring outputs](#ring-outputs). A verified note in an unregistered mint stays pending until the mint is registered.
+        3. An inbox note at an unissued address adds that address with a pairing row that admits every payment. An inbox note whose asset and amount its address's rows admit becomes a received anchor. Sub-steps 1 to 3 repeat until no address and no live pair epoch is left unread.
+        4. Read the deposit stream from `deposit_next` until `DEPOSIT_GAP = 128` counters past the highest counter that holds a deposit of the wallet in any ring. Only a deposit that decrypts to the wallet and rebuilds its published UTXO hash moves `deposit_next`. A deposit counts once, at its lowest counter, and never when the wallet already holds it. Then open the ring change of the spends the default-ring sync read, then of every spend of a held or found UTXO of this ring. The scan never asks the indexer for a default-ring nullifier. Re-derive each own spend's transaction key and open its outputs under `ring_change_key`. An output among them under a pair tag of a live sent first contact sets that pair's `last` to the tag's epoch.
+        5. Let `e` be the earlier of the last epoch the sync read and the epoch of the lowest persisted slot an indexer answer reports. Raise `scanned_epoch` to `e - 2`. It stays unchanged when `e - 2` is below `creation_epoch` or not above the stored value. The next sync reads epochs `e - 1` and `e` again. Then drop every received anchor whose last live epoch is at or below `scanned_epoch`. Drop every sent first contact not live in the last epoch read.
 
     3. **Merge outputs.** On the default rail the event tags the output with the owner signing pubkey, so merges surface in the owner-pubkey fetch above. `merge_ring` indexes the output by the first input's published nullifier; `getShieldedTransactionsByNullifiers` returns a transaction for any of its nullifiers, so the wallet finds a ring merge whenever it holds any of its inputs. For each merge transaction, decrypt the output as defined under [Merge](#merge): derive `merge_output_key` and `merge_output_blinding` from the nullifier key and the first nullifier, decrypt the amount and mint, rebuild the UTXO, and check its hash against the published output commitment. The wallet needs none of the merge's inputs; a merge that spends none of its notes is income. Store the rebuilt UTXO with the transaction's `nullifiers`.
 
@@ -2970,7 +3970,7 @@ Wallet {
 
 4. **Mark spent utxos.** For each owned UTXO, compute `nullifier = nullifier_key.nullifier(utxo)` using the wallet-wide [NullifierKey](#nullifierkey) (the call uses `utxo.hash` and `utxo.blinding`), and build the local map `nullifier → utxo`. For every observed transaction nullifier from step 2, look it up; mark matches as spent. One sweep across all decrypted UTXOs.
 
-5. **Set wallet state**: `Utxos`, `last_synced = current_timestamp()`.
+5. **Set wallet state.** Store `Utxos` and the anonymous ring states step 2 returned, and set `last_synced = current_timestamp()`.
 
 ## Merge Flow
 

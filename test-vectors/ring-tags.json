@@ -1,0 +1,90 @@
+{
+  "constants": {
+    "body_len": 40,
+    "epoch_slots": 262144,
+    "j_inbox": 64,
+    "j_pair": 64,
+    "k_pair_epochs": 32,
+    "tag_len": 16
+  },
+  "description": "Ring tag streams. ring_id = hash_bytes(ring_program_id), inbox_key = Poseidon(CRIK, ring_id, pack_be(viewing_pk)), an inbox tag is low128(Poseidon(CRIT, inbox_key, epoch, index)), pair_key = Poseidon(CRPK, first_contact_secret), a pair tag is low128(Poseidon(CRPT, pair_key, epoch, index)). low128 is the low 16 bytes of a canonical field, the owner tag is 0^16 || tag, epoch = slot / epoch_slots. Produced by custom-rings/interface/tests/vectors.rs print_ring_tag_vectors.",
+  "epochs": [
+    {
+      "epoch": 0,
+      "slot": "0"
+    },
+    {
+      "epoch": 0,
+      "slot": "262143"
+    },
+    {
+      "epoch": 1,
+      "slot": "262144"
+    },
+    {
+      "epoch": 6734,
+      "slot": "1765290041"
+    },
+    {
+      "epoch": 70368744177663,
+      "slot": "18446744073709551615"
+    }
+  ],
+  "first_contact_secret": "0f00d67ca70ae43b465fe25e851becc08d1baa64060a07affe2715e34d0d45da",
+  "inbox_key": "14538495f7ce05c8b9f58f5eb1832c05f3a5437c36c94e9bf7f9238b8cd109cf",
+  "inbox_tags": [
+    {
+      "epoch": 0,
+      "index": 0,
+      "tag": "6b4f53f8572ad48f5ba156ba2812bde0"
+    },
+    {
+      "epoch": 6734,
+      "index": 17,
+      "tag": "84cc308823b91afd707d67f5f53167fb"
+    },
+    {
+      "epoch": 70368744177663,
+      "index": 63,
+      "tag": "67e51f552109d481a9b479db49277844"
+    }
+  ],
+  "low128": [
+    {
+      "tag": "00000000000000000000000000000000",
+      "value": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "tag": "ffffffffffffffffffffffffffffffff",
+      "value": "00000000000000000000000000000000ffffffffffffffffffffffffffffffff"
+    },
+    {
+      "tag": "00000000000000000000000000000000",
+      "value": "0000000000000000000000000000000100000000000000000000000000000000"
+    },
+    {
+      "tag": "2833e84879b9709143e1f593f0000000",
+      "value": "30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000000"
+    },
+    {
+      "tag": "f3a5437c36c94e9bf7f9238b8cd109cf",
+      "value": "14538495f7ce05c8b9f58f5eb1832c05f3a5437c36c94e9bf7f9238b8cd109cf"
+    }
+  ],
+  "pair_key": "1288d6740d2683b2ed10d04c95aec546c6c08bc4458576bc0f981061ea5aee32",
+  "pair_tags": [
+    {
+      "epoch": 6734,
+      "index": 0,
+      "tag": "f1854ad9a39428a2d5a16a424b66e26a"
+    },
+    {
+      "epoch": 6765,
+      "index": 63,
+      "tag": "01dd9ad1136ae6e3d7c8569603730d1d"
+    }
+  ],
+  "ring_id": "1f3ebbaea923ad8389d212d2abe6ea3fb16692137f968e37aaa6fc24de30e575",
+  "ring_program_id": "a1bedbf815324f6c89a6c3e0fd1a3754718eabc8e5021f3c597693b0cdea0724",
+  "viewing_pk": "04ebf2f4eec92871878d1f78108333d5c1ebde039a6f484c8e016eef8c71ea1f7e"
+}

@@ -21,8 +21,8 @@ use crate::{
         cache::CacheSelection,
         field::be,
         transact::assembly::{
-            assemble_transaction, validate_shape, AssembledTransaction, OwnerMode, PublicInputs,
-            TransferInputUtxo,
+            assemble_transaction, ring_secrets, validate_shape, AssembledTransaction, OwnerMode,
+            PublicInputs, TransferInputUtxo,
         },
         Shape, TransferInputs, TreeSlotFields,
     },
@@ -130,6 +130,7 @@ impl RingAuthorityProver {
             tree_slots: TreeSlotFields::encode_all(&assembled_inputs.tree_slots),
             output_tree_id: BigUint::from(self.output_tree_id),
             blinding_seed: be(&self.blinding_seed),
+            ring_secrets: ring_secrets(&self.outputs),
             external_data_hash: be(&external_data_hash),
             private_tx_hash: be(&private_tx),
             public_assets: self.public_transfers.assets.map(|asset| be(&asset)),

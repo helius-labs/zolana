@@ -1,5 +1,5 @@
 use borsh::BorshDeserialize;
-use zolana_event::OutputDataEncoding;
+use zolana_event::{OutputDataEncoding, CONFIDENTIAL_DATA_FREE_BODY_LEN};
 use zolana_keypair::{constants::SALT_LEN, x25519::X25519_PUBKEY_LEN, ViewingKey};
 use zolana_transaction::{
     serialization::confidential::*, Data, DecodeCx, EncryptedScheme, TransactionError,
@@ -39,6 +39,12 @@ fn encoded_body(tx: &ViewingKey, recipient: &ViewingKey) -> Vec<u8> {
     let (&scheme_byte, body) = blob.split_first().expect("scheme byte");
     assert_eq!(scheme_byte, EncryptedScheme::Confidential.as_byte());
     body.to_vec()
+}
+
+#[test]
+fn a_data_free_exit_body_has_the_length_ring_frames_carry() {
+    let body = encoded_body(&ViewingKey::new(), &ViewingKey::new());
+    assert_eq!(body.len(), CONFIDENTIAL_DATA_FREE_BODY_LEN);
 }
 
 #[test]

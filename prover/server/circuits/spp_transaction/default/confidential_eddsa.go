@@ -25,7 +25,7 @@ type DefaultRingConfidentialEddsaPublic struct {
 	TreeSlots []shared.TreeSlot
 	// Raw u16 id of the output tree.
 	OutputTreeID frontend.Variable
-	// Hash of input UTXO hashes, output UTXO hashes, address hashes, and external data.
+	// Blinded hash of input UTXO hashes, output UTXO hashes, and address nullifiers.
 	// Dummy UTXOs are represented as zero.
 	PrivateTxHash frontend.Variable
 	// Hash that ties arbitrary data to the proof.

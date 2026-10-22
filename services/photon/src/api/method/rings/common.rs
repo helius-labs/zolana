@@ -383,6 +383,19 @@ fn cursor_bincode_config() -> impl bincode::config::Config {
         .with_fixed_int_encoding()
 }
 
+pub(super) trait StreamCursor: Encode {
+    /// Sorts before every indexed row, no row carries an all-zero signature.
+    const ORIGIN: Self;
+}
+
+/// Frontier of a terminal page, the stream origin while the table is empty.
+pub(super) fn scan_frontier<C: StreamCursor>(
+    kind: CursorKind,
+    tip: Option<C>,
+) -> Result<Base64String, PhotonApiError> {
+    encode_cursor(kind, &tip.unwrap_or(C::ORIGIN)).map(Base64String)
+}
+
 /// Position of the last row returned, or `None` when there were none.
 pub(super) fn next_cursor_from_rows<T>(
     rows: &[T],

@@ -1,116 +1,91 @@
-//! Account layouts, instruction data, and audit statement hashing of the
-//! custom ring program, shared by the program, the SDK, and the services.
+//! Account layouts, instruction data, errors and statements of the custom ring
+//! program, shared by the program, the SDKs and the services.
 
-pub mod base_public_input;
-#[cfg(feature = "verifying-keys")]
-pub mod base_verifying_key;
-#[cfg(feature = "verifying-keys")]
-pub mod compressed_policy_verifying_key;
-#[cfg(feature = "verifying-keys")]
-pub mod delegate_policy_verifying_key;
+pub mod anonymous_output;
+mod bytes;
+pub mod cosign;
 pub mod deposit;
 pub mod deposit_audit;
-#[cfg(feature = "verifying-keys")]
-pub mod deposit_verifying_key;
 pub mod disclosure;
+pub mod domain;
+pub mod error;
 pub mod instruction;
-pub mod key_registry;
-#[cfg(not(target_os = "solana"))]
-pub mod pda;
-pub mod policy_public_input;
-#[cfg(feature = "verifying-keys")]
-pub mod policy_verifying_key;
-#[cfg(feature = "verifying-keys")]
-pub mod register_key_verifying_key;
+pub mod key_catalog;
+pub mod member_registry;
+pub mod merge;
+pub mod ring_keys;
 pub mod state;
+pub mod statement;
+pub mod stream;
+pub mod transact;
 
-/// Proving key file name, as in proving-keys.lock and the prover's
-/// `/proving-keys`, and the sha256 its committed verifying key pins.
+// At the crate root, the generated modules keep their public paths.
 #[cfg(feature = "verifying-keys")]
-pub const PROVING_KEY_SHA256S: &[(&str, [u8; 32])] = &[
-    (
-        "custom_ring_base.key",
-        base_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
-    ),
-    (
-        "custom_ring_compressed_policy.key",
-        compressed_policy_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
-    ),
-    (
-        "custom_ring_delegate_policy.key",
-        delegate_policy_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
-    ),
-    (
-        "custom_ring_deposit.key",
-        deposit_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
-    ),
-    (
-        "custom_ring_policy.key",
-        policy_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
-    ),
-    (
-        "custom_ring_register_key.key",
-        register_key_verifying_key::VERIFYINGKEY_PROVING_KEY_SHA256,
-    ),
-];
+include!("verifying_keys.rs");
 
-pub use base_public_input::{pack32_to_2fe, pack33_to_2fe, CustomRingBasePublicInput, FieldPair};
-pub use deposit::{DepositContext, DepositPublicInput};
-pub use disclosure::{
-    pack_disclosure, unpack_disclosure, DisclosureShape, ANONYMOUS_RING_SHAPES, AUDIT_INPUT_SLOTS,
-    AUDIT_OUTPUT_SLOTS, DISCLOSURE_INPUT_LEN, DISCLOSURE_OUTPUT_LEN, DISCLOSURE_SENDER_LEN,
-};
-pub use instruction::{
-    accounts, tag, CreateConfigIxData, CreateEntryIxData, CustomRingProof,
-    CustomRingTransactIxData, KeyRegistryTransition, PlainGroth16Proof, PolicyTableIxData,
-    ReaderIxData, RegisterKeyIxData, RegisterSpendIxData, SetCoSignerIxData, SetPausedIxData,
-    SetPolicySourceIxData, SetSpendWindowIxData, SourceSpec, UpdateEntryIxData, VelocityRowIxData,
-    WithdrawalThreshold, CREATE_CONFIG_COMPUTE_UNIT_LIMIT,
-    CREATE_KEY_REGISTRY_ROOT_COMPUTE_UNIT_LIMIT, CREATE_POLICY_COMPUTE_UNIT_LIMIT,
-    ENTRY_MUTATION_COMPUTE_UNIT_LIMIT, INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT,
-    READ_ACCESS_COMPUTE_UNIT_LIMIT, REGISTER_KEY_COMPUTE_UNIT_LIMIT,
-    REGISTER_SPEND_COMPUTE_UNIT_LIMIT, SET_AUTHORITY_COMPUTE_UNIT_LIMIT,
-    SET_CO_SIGNER_COMPUTE_UNIT_LIMIT, SET_DELEGATE_COMPUTE_UNIT_LIMIT,
-    SET_PAUSED_COMPUTE_UNIT_LIMIT, SET_POLICY_RULES_COMPUTE_UNIT_LIMIT,
-    SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT, SET_SPEND_WINDOW_COMPUTE_UNIT_LIMIT,
-};
-pub use instruction::{
-    SetDepositAuditIxData, AUDITED_DEPOSIT_COMPUTE_UNIT_LIMIT, SET_DEPOSIT_AUDIT_COMPUTE_UNIT_LIMIT,
-};
-pub use key_registry::{
-    KeyRegistryInsert, KeyRegistryLeaf, KeyRegistryVerifyError, MerklePath, RegisterKeyPublicInput,
-    RegisteredKey, KEY_REGISTRY_CAPACITY, KEY_REGISTRY_HEIGHT,
-};
-pub use policy_public_input::{CompressedPolicyPublicInput, CustomRingPolicyPublicInput};
-pub use state::{
-    CoSignScope, CoSigner, Delegate, FixedWindow, KeyRegistryRoot, PolicyConfig, ReadAccessRecord,
-    RingMode, RingProgramConfig, SourceSlot, SpendWindow, WithdrawalThresholdRow, CONFIG_PDA_SEED,
-    CO_SIGNER, CO_SIGNER_PDA_SEED, DELEGATE, DELEGATE_PDA_SEED, KEY_REGISTRY_EMPTY_ROOT,
-    KEY_REGISTRY_ROOT, KEY_REGISTRY_ROOT_HISTORY, KEY_REGISTRY_ROOT_PDA_SEED,
-    MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS, POLICY_CONFIG, POLICY_CONFIG_PDA_SEED,
-    READ_ACCESS_RECORD, READ_ACCESS_RECORD_PDA_SEED, RING_PROGRAM_CONFIG, SPEND_WINDOW,
-    SPEND_WINDOW_PDA_SEED,
-};
-pub use state::{DepositAudit, DEPOSIT_AUDIT};
+#[cfg(feature = "verifying-keys")]
+pub fn proving_key_hashes() -> impl Iterator<Item = (&'static str, [u8; 32])> {
+    PROVING_KEY_SHA256S.iter().copied()
+}
 
-/// X25519 public key `0x04 || u`, with u little endian.
-pub const TAGGED_X25519_KEY_LEN: usize = 33;
+pub use anonymous_output::*;
+pub use deposit::*;
+pub use deposit_audit::*;
+pub use disclosure::*;
+pub use error::CustomRingError;
+pub use instruction::*;
+pub use member_registry::*;
+pub use merge::*;
+pub use state::*;
+pub use statement::*;
+pub use transact::*;
+
+/// One-byte `0x04` scheme tag followed by a canonical X25519 u-coordinate.
+pub use zolana_event::RECIPIENT_KEY_LEN as TAGGED_X25519_KEY_LEN;
 pub const VIEWING_PUBKEY_TAG: u8 = 4;
 /// AES-256-CTR ciphertext of the 32-byte transaction viewing secret key.
 pub const AUDIT_CIPHERTEXT_LEN: usize = 32;
 /// The auditor message before its disclosure fields.
 pub const AUDITOR_MESSAGE_PREFIX_LEN: usize = TAGGED_X25519_KEY_LEN + AUDIT_CIPHERTEXT_LEN;
-pub const AUDIT_OUTPUT_FIELD_COUNT: usize = 9;
-pub const AUDIT_DISCLOSURE_FIELD_COUNT: usize = AUDIT_OUTPUT_FIELD_COUNT * AUDIT_OUTPUT_SLOTS;
-pub const AUDIT_DISCLOSURE_LEN: usize = 32 * AUDIT_DISCLOSURE_FIELD_COUNT;
-pub const AUDITOR_MESSAGE_LEN: usize = AUDITOR_MESSAGE_PREFIX_LEN + AUDIT_DISCLOSURE_LEN;
+
+pub fn tagged_x25519(u: &[u8; 32]) -> [u8; TAGGED_X25519_KEY_LEN] {
+    let mut key = [VIEWING_PUBKEY_TAG; TAGGED_X25519_KEY_LEN];
+    key[1..].copy_from_slice(u);
+    key
+}
+
+/// `0x04 || eph_u || sealed || disclosure`, published under the auditor's view tag.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AuditorMessage<'a> {
+    pub eph_pk: &'a [u8; TAGGED_X25519_KEY_LEN],
+    pub sealed: &'a [u8; AUDIT_CIPHERTEXT_LEN],
+    pub disclosure: &'a [[u8; 32]],
+}
+
+impl<'a> AuditorMessage<'a> {
+    /// `None` unless the key is tagged and the disclosure has the field count of `layout`.
+    pub fn parse(data: &'a [u8], layout: DisclosureLayout) -> Option<Self> {
+        let (eph_pk, rest) = data.split_first_chunk::<TAGGED_X25519_KEY_LEN>()?;
+        let (sealed, disclosure) = rest.split_first_chunk::<AUDIT_CIPHERTEXT_LEN>()?;
+        if eph_pk[0] != VIEWING_PUBKEY_TAG || disclosure.len() != 32 * layout.field_count() {
+            return None;
+        }
+        Some(Self {
+            eph_pk,
+            sealed,
+            disclosure: disclosure.as_chunks::<32>().0,
+        })
+    }
+
+    pub fn data(
+        eph_u: &[u8; 32],
+        sealed: &[u8; AUDIT_CIPHERTEXT_LEN],
+        disclosure: &[[u8; 32]],
+    ) -> Vec<u8> {
+        [&tagged_x25519(eph_u)[..], sealed, disclosure.as_flattened()].concat()
+    }
+}
 
 pub const READER_KEY_P256: u8 = 0x00;
 pub const READER_KEY_ED25519: u8 = 0x01;
 pub type ReaderKeyBytes = [u8; 34];
-
-pub use deposit_audit::{
-    RingDepositAuditCapsule, RingDepositAuditError, MAX_RING_DEPOSIT_AUDIT_SLOTS,
-    RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN, RING_DEPOSIT_AUDIT_INFO,
-    RING_DEPOSIT_AUDIT_OWNER_KEY_OFFSET, RING_DEPOSIT_AUDIT_PREFIX_LEN,
-};

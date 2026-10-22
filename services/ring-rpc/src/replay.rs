@@ -18,16 +18,17 @@ pub(crate) struct ReplayCheck {
 }
 
 impl ReplayGuard {
-    /// The nonce set only. `authorize` owns the skew rule and hands the same
-    /// clock reading here for the eviction window.
+    /// `now` is read at acceptance, a nonce leaves the set only once its timestamp is stale.
     pub(crate) fn accept(&self, check: ReplayCheck) -> Result<(), Unauthorized> {
+        if check.now.abs_diff(check.timestamp) > AUTH_SKEW.as_secs() {
+            return Err(Unauthorized::StaleTimestamp);
+        }
         let mut rings = self.0.lock().map_err(|_| Unauthorized::Replay)?;
         let accepted = rings.entry(check.ring).or_default();
         accepted.retain(|_, timestamp| check.now.abs_diff(*timestamp) <= AUTH_SKEW.as_secs());
-        if accepted.len() >= MAX_REPLAY_ENTRIES {
-            return Err(Unauthorized::Replay);
-        }
-        if accepted.insert(check.nonce, check.timestamp).is_some() {
+        if accepted.len() >= MAX_REPLAY_ENTRIES
+            || accepted.insert(check.nonce, check.timestamp).is_some()
+        {
             return Err(Unauthorized::Replay);
         }
         Ok(())
@@ -65,9 +66,27 @@ mod tests {
                 Err(Unauthorized::Replay)
             ));
         }
+        assert!(matches!(
+            guard.accept(check(RING, 7, 1_000, 1_000 + skew + 1)),
+            Err(Unauthorized::StaleTimestamp)
+        ));
+    }
+
+    /// A replay granted on the window's edge is accepted only after another request evicted its nonce.
+    #[test]
+    fn a_nonce_evicted_while_its_replay_awaited_is_refused_at_acceptance() {
+        let guard = ReplayGuard::default();
+        let skew = AUTH_SKEW.as_secs();
         guard
-            .accept(check(RING, 7, 1_000, 1_000 + skew + 1))
-            .expect("evicted nonce");
+            .accept(check(RING, 7, 1_000, 1_000))
+            .expect("first use");
+        guard
+            .accept(check(RING, 8, 1_000 + skew + 1, 1_000 + skew + 1))
+            .expect("evicting request");
+        assert!(matches!(
+            guard.accept(check(RING, 7, 1_000, 1_000 + skew + 1)),
+            Err(Unauthorized::StaleTimestamp)
+        ));
     }
 
     /// Nonces are counted per ring, so one reader cannot burn another ring's

@@ -91,6 +91,11 @@ export const ShieldedPoolError = Object.freeze({
   TreeFeeTooHigh: 7080,
   TreeCreationMismatch: 7081,
   NonCanonicalMergeCiphertext: 7082,
+  InvalidAnonymousControlTail: 7083,
+  AnonymousExitDestinationsDiffer: 7084,
+  AnonymousExitTokenAccountShared: 7085,
+  AnonymousExitAccountHasData: 7086,
+  AnonymousExitTokenAccountOnCurve: 7087,
 } as const);
 
 export type ShieldedPoolErrorName = keyof typeof ShieldedPoolError;

@@ -12,6 +12,8 @@ pub mod merge_utils;
 pub mod pda;
 pub mod shape;
 pub mod state;
+#[cfg(feature = "token-account")]
+pub mod token_account;
 pub mod tree_slot;
 pub mod verifying_keys;
 
@@ -61,6 +63,20 @@ pub const MAX_OUTPUTS: usize = 16;
 /// Maximum number of inputs any supported transact circuit shape spends.
 pub const MAX_TRANSACT_INPUTS: usize = 49;
 
+/// The fee payer in every SPP transact account list.
+pub const TRANSACT_PAYER_INDEX: usize = 0;
+/// The signed `RingConfig` in an SPP ring transact account list.
+pub const RING_TRANSACT_RING_CONFIG_INDEX: usize = 4;
+/// Accounts before the input trees in an SPP ring transact account list.
+pub const RING_TRANSACT_ACCOUNT_PREFIX_LEN: usize = RING_TRANSACT_RING_CONFIG_INDEX + 1;
+/// The funding signer in an SPP ring deposit account list.
+pub const RING_DEPOSIT_DEPOSITOR_INDEX: usize = 1;
+/// The signed `RingConfig` in an SPP ring deposit account list.
+pub const RING_DEPOSIT_RING_CONFIG_INDEX: usize = 2;
+/// The signed `RingConfig` in an SPP ring merge account list.
+pub const RING_MERGE_RING_CONFIG_INDEX: usize = 2;
+/// The funding signer in an SPP ring merge account list.
+pub const RING_MERGE_PAYER_INDEX: usize = 3;
 /// `Poseidon(0)`: the nullifier public key of nullifier secret 0.
 pub const ZERO_NULLIFIER_PUBKEY: [u8; 32] = [
     0x2a, 0x09, 0xa9, 0xfd, 0x93, 0xc5, 0x90, 0xc2, 0x6b, 0x91, 0xef, 0xfb, 0xb2, 0x49, 0x9f, 0x07,
@@ -74,6 +90,12 @@ pub const SOL_ASSET_FIELD: [u8; 32] = [
     0x20, 0x98, 0xf5, 0xfb, 0x9e, 0x23, 0x9e, 0xab, 0x3c, 0xea, 0xc3, 0xf2, 0x7b, 0x81, 0xe4, 0x81,
     0xdc, 0x31, 0x24, 0xd5, 0x5f, 0xfe, 0xd5, 0x23, 0xa8, 0x39, 0xee, 0x84, 0x46, 0xb6, 0x48, 0x64,
 ];
+
+/// SOL takes the zero asset address, whose asset field is [`SOL_ASSET_FIELD`].
+pub const SOL_ASSET_ADDRESS: [u8; 32] = [0u8; 32];
+
+pub const SYSTEM_PROGRAM_ID: solana_address::Address =
+    solana_address::Address::new_from_array(pubkey_array!("11111111111111111111111111111111"));
 
 /// Development program id for the shielded-pool program.
 pub const SHIELDED_POOL_PROGRAM_ID: [u8; 32] =

@@ -1,13 +1,15 @@
+import { encodeOutputData, EncryptedScheme } from "../src/transaction/serialization/codecs.js";
 import { address, type Address } from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
 
 import { ClientError, LocalKeys, ZolanaClient } from "../src/client/index.js";
 import { bigintToBytes, bytesField, bytesToBigInt } from "../src/client/internal.js";
-import { assemble, transferPublicInputHash } from "../src/client/prover/assembly.js";
+import { asField, assemble, transferPublicInputHash } from "../src/client/prover/assembly.js";
 import { assembleMergeWithProofs } from "../src/client/prover/merge.js";
 import type { TransferInputs } from "../src/client/prover/types.js";
 import type { NonInclusionProof, SpendProof } from "../src/client/rpc.js";
 import { proofFor } from "./helpers/proofs.js";
+import { stateTree } from "./helpers/state-tree.js";
 import {
   CACHE_CAPACITY,
   NO_CACHE_WRITES,
@@ -72,19 +74,27 @@ function nonInclusionProof(leaf: Bytes32, tree: Address = TREE): NonInclusionPro
   };
 }
 
-function spendProof(input: ProofInputUtxo): SpendProof {
-  return {
+/** The inputs as the leaves of one tree, from index 0. */
+function spendProofs(inputs: readonly ProofInputUtxo[]): SpendProof[] {
+  const state = stateTree(inputs.map((input) => input.hash()));
+  return inputs.map((input, index) => ({
     state: {
       leaf: input.hash(),
       merkleContext: { treeType: 0, tree: TREE },
-      path: Array.from({ length: 32 }, () => bytes(2)),
-      leafIndex: 3n,
-      root: bytes(3),
+      path: state.path(index),
+      leafIndex: BigInt(index),
+      root: state.root,
       rootSeq: 1n,
       rootIndex: STATE_ROOT_INDEX,
     },
     nullifier: nonInclusionProof(input.nullifier()),
-  };
+  }));
+}
+
+function spendProof(input: ProofInputUtxo): SpendProof {
+  const [proof] = spendProofs([input]);
+  if (proof === undefined) throw new Error("one proof per input");
+  return proof;
 }
 
 type Fixture = Readonly<{
@@ -143,9 +153,19 @@ function fixture(
       salt: new Uint8Array(16) as Bytes16,
       outputs: outputs.map((entry) => ({
         utxoHash: entry.hash(TREE_ID),
-        ownerTag: { kind: "inline", value: ownerTag },
+        ownerTag: {
+          kind: "inline",
+          value: entry.ownerAddress?.signingPublicKey.confidentialViewTag() ?? ownerTag,
+        },
+        ...(entry.isDummy()
+          ? {}
+          : {
+              data: encodeOutputData(EncryptedScheme.confidential, Uint8Array.of(1), "encrypted"),
+            }),
       })),
-      resolvedOwnerTags: outputs.map(() => ownerTag),
+      resolvedOwnerTags: outputs.map(
+        (entry) => entry.ownerAddress?.signingPublicKey.confidentialViewTag() ?? ownerTag,
+      ),
       messages: [],
     }),
     blindingSeed: seed,
@@ -345,23 +365,27 @@ describe("a transfer reading its input from a cache", () => {
   it("differs from the uncached proof of the same spend only in the cache selection", () => {
     const value = fixture({ realInputs: 2 });
     const [first, second] = [input(value, 0), input(value, 1)];
-    const proof = spendProof(second);
+    const [firstProof, secondProof] = spendProofs([first, second]);
+    if (firstProof === undefined || secondProof === undefined) expect.unreachable();
     const cached = assemble(
       withCache(value.proofInputs, { reads: [undefined, 0], read: CACHE }),
-      [spendProof(first)],
+      [firstProof],
       [nonInclusionProof(second.nullifier())],
     ).proverInputs.payload;
-    const uncached = assemble(value.proofInputs, [
-      spendProof(first),
-      {
-        ...proof,
-        state: {
-          ...proof.state,
-          path: Array.from({ length: 32 }, () => bytes(0)),
-          leafIndex: 0n,
-        },
-      },
-    ]).proverInputs.payload;
+    const proven = assemble(value.proofInputs, [firstProof, secondProof]).proverInputs.payload;
+    // A cached slot proves no path, the proven one is the only other difference.
+    const uncached: TransferInputs = {
+      ...proven,
+      inputs: proven.inputs.map((slot, index) =>
+        index === 1
+          ? {
+              ...slot,
+              statePathElements: slot.statePathElements.map(() => asField(0n)),
+              statePathIndex: asField(0n),
+            }
+          : slot,
+      ),
+    };
 
     const strip = ({
       cacheTreeId: _tree,
@@ -400,9 +424,10 @@ describe("a transfer reading its input from a cache", () => {
       expect(assembled.instructionData.treeContexts).toEqual([
         { utxoTreeRootIndex: STATE_ROOT_INDEX, nullifierTreeRootIndex: NULLIFIER_ROOT_INDEX },
       ]);
-      expect(payload.treeSlots[0]?.utxoRoot).toBe(bytesField(bytes(3), "root"));
+      const proof = spendProof(proven);
+      expect(payload.treeSlots[0]?.utxoRoot).toBe(bytesField(proof.state.root, "root"));
       expect(payload.inputs[1 - cachedIndex]?.statePathElements[0]).toBe(
-        bytesField(bytes(2), "path"),
+        bytesField(proof.state.path[0] ?? bytes(0), "path"),
       );
       expect(
         payload.inputs[cachedIndex]?.statePathElements.every((element) => element === 0n),
@@ -414,7 +439,7 @@ describe("a transfer reading its input from a cache", () => {
       );
       expect(payload.cacheIsCached).toEqual(reads.map((slot) => (slot === undefined ? 0n : 1n)));
       expect(payload.cacheReadIndex).toEqual([0n, 0n]);
-      expect(payload.publicInputHash).toBe(recomputedPublicInputHash(payload, bytes(3)));
+      expect(payload.publicInputHash).toBe(recomputedPublicInputHash(payload, proof.state.root));
     },
   );
 
@@ -522,7 +547,9 @@ describe("a transfer writing its outputs to a cache", () => {
       fields(emptyCachedInputFields(1)),
     );
     expect(cached.instructionData.treeContexts).toEqual(uncached.instructionData.treeContexts);
-    expect(payload.publicInputHash).toBe(recomputedPublicInputHash(payload, bytes(3)));
+    expect(payload.publicInputHash).toBe(
+      recomputedPublicInputHash(payload, spendProof(spent).state.root),
+    );
   });
 
   it("binds the write cache, not the read cache, when a transfer uses both", () => {
@@ -920,7 +947,7 @@ function mergeFixture() {
   return {
     owner,
     prepared,
-    proofs: prepared.inputs.filter((entry) => !entry.isDummy()).map(spendProof),
+    proofs: spendProofs(prepared.inputs.filter((entry) => !entry.isDummy())),
     dummyProofs: prepared.dummyNullifiers().map((leaf) => nonInclusionProof(leaf)),
   };
 }

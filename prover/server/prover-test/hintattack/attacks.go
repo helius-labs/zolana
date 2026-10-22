@@ -207,6 +207,16 @@ func SubstituteOutOfRangeLookups(t testing.TB, cs constraint.ConstraintSystem, s
 	return substituted
 }
 
+// RegisteredHint is the one registered hint whose name ends in suffix.
+func RegisteredHint(t testing.TB, suffix string) solver.Hint {
+	t.Helper()
+	hint, err := registeredHint(suffix)
+	if err != nil || hint == nil {
+		t.Fatalf("no single registered hint ends in %s: %v", suffix, err)
+	}
+	return hint
+}
+
 func registeredHint(suffix string) (solver.Hint, error) {
 	var found []solver.Hint
 	for _, h := range solver.GetRegisteredHints() {

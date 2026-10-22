@@ -1,9 +1,7 @@
-//! Row encoding and entry addressing over generated inputs.
+//! Row encoding over generated inputs.
 
 use proptest::prelude::*;
-use zolana_ring_policy::{
-    Guard, ListId, ListNamespace, ListSet, Member, Rule, RuleSource, RuleTable, Subject,
-};
+use zolana_ring_policy::{Guard, ListSet, Rule, RuleSource, RuleTable, Subject};
 
 fn subject() -> impl Strategy<Value = Subject> {
     prop_oneof![
@@ -25,7 +23,6 @@ fn guard() -> impl Strategy<Value = Guard> {
 
 fn source() -> impl Strategy<Value = RuleSource> {
     prop_oneof![
-        Just(RuleSource::InlineAssets),
         (any::<u8>(), any::<u8>()).prop_map(|(present, absent)| RuleSource::Lists {
             present: ListSet::from_bits(present),
             absent: ListSet::from_bits(absent),
@@ -39,15 +36,6 @@ fn rule() -> impl Strategy<Value = Rule> {
         source,
         guard,
     })
-}
-
-fn list_id() -> impl Strategy<Value = ListId> {
-    (0..ListId::ALL.len()).prop_map(|slot| ListId::ALL[slot])
-}
-
-/// Members are field elements, the identity hash of any key is one.
-fn member() -> impl Strategy<Value = Member> {
-    any::<[u8; 32]>().prop_map(|key| Member::owner_tag(&key).expect("member"))
 }
 
 /// Rows with zero reserved bytes and tags near the admitted ranges.
@@ -101,36 +89,6 @@ proptest! {
     fn a_decoded_row_re_encodes_to_the_same_bytes(bytes in row_bytes()) {
         if let Ok(rule) = Rule::decode(&bytes) {
             prop_assert_eq!(rule.encoded(), bytes);
-        }
-    }
-
-    #[test]
-    fn entry_addresses_are_injective(
-        pda in any::<[u8; 32]>(),
-        list_id in list_id(),
-        member in member(),
-        tree_id in any::<u16>(),
-        other_pda in any::<[u8; 32]>(),
-        other_list in list_id(),
-        other_member in member(),
-        other_tree in any::<u16>(),
-    ) {
-        let namespace = ListNamespace::new(&pda).expect("namespace");
-        let address = namespace.address(list_id, &member, tree_id).expect("address");
-        let variants = [
-            (pda, other_list, member, tree_id),
-            (pda, list_id, other_member, tree_id),
-            (pda, list_id, member, other_tree),
-            (other_pda, list_id, member, tree_id),
-        ];
-        for (variant_pda, variant_list, variant_member, variant_tree) in variants {
-            let other = ListNamespace::new(&variant_pda)
-                .expect("namespace")
-                .address(variant_list, &variant_member, variant_tree)
-                .expect("address");
-            let same = (variant_pda, variant_list, variant_member, variant_tree)
-                == (pda, list_id, member, tree_id);
-            prop_assert_eq!(other == address, same);
         }
     }
 }

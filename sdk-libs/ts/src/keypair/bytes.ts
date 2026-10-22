@@ -1,4 +1,4 @@
-import { invalidLength } from "./error.js";
+import { KeypairError, invalidLength } from "./error.js";
 
 type FixedBytes<Length extends number> = Uint8Array & {
   readonly __fixedBytesLength: Length;
@@ -94,6 +94,20 @@ export function concatBytes(...parts: readonly Uint8Array[]): Uint8Array {
     offset += part.length;
   }
   return output;
+}
+
+/** `value` refused outside `0..=u32::MAX`. */
+export function checkedU32(value: number, name: string): number {
+  if (!Number.isInteger(value) || value < 0 || value > 0xffff_ffff)
+    throw new KeypairError("KEYPAIR_INVALID_LENGTH", { name, minimum: 0, maximum: 0xffff_ffff });
+  return value;
+}
+
+/** `u32be(value)` right-aligned in one field element. */
+export function u32Field(value: number, name: string): Bytes32 {
+  const field = new Uint8Array(32);
+  new DataView(field.buffer).setUint32(28, checkedU32(value, name), false);
+  return field as Bytes32;
 }
 
 export function u32be(value: number): Uint8Array {

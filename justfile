@@ -102,7 +102,7 @@ test-tree:
 # run (without it `program_test()` finds no .so and the suite skips). Builds
 # the prover server and zolana CLI because transact tests spawn a local prover.
 test-shielded-pool: build-programs build-prover-server build-cli
-    cargo nextest run -p zolana-interface -p zolana-instruction --features zolana-instruction/protocol
+    cargo nextest run -p zolana-interface -p zolana-instruction --features zolana-instruction/protocol,zolana-interface/token-account
     cargo nextest run -p shielded-pool-program --lib --tests
     # Proof-backed binaries spawn a shared prover server on a fixed port; run
     # them serially because nextest isolates tests in separate processes, so a
@@ -115,7 +115,7 @@ test-shielded-pool: build-programs build-prover-server build-cli
 # The proof-backed binaries are gated behind the `proofs` feature, so the plain
 # package run is hermetic by construction.
 test-program-fast: build-programs
-    cargo nextest run -p zolana-interface -p zolana-instruction --features zolana-instruction/protocol
+    cargo nextest run -p zolana-interface -p zolana-instruction --features zolana-instruction/protocol,zolana-interface/token-account
     cargo nextest run -p shielded-pool-program --lib --tests
     cargo nextest run -p zolana-user-registry --tests
     cargo nextest run -p shielded-pool-tests
@@ -294,7 +294,7 @@ fetch-custom-ring-keys:
         fi
         install -m 0644 "$temp_dir/$name" "$keys_dir/$name"
     }
-    release_url="${ZOLANA_RING_KEYS_URL:-https://github.com/helius-labs/zolana/releases/download/custom-ring-keys-v23}"
+    release_url="${ZOLANA_RING_KEYS_URL:-https://github.com/helius-labs/zolana/releases/download/custom-ring-keys-v24}"
     for name in {{custom-ring-keys}}; do
         installed "$name" || fetch "$name" "$release_url/$name"
     done
@@ -305,9 +305,15 @@ fetch-custom-ring-keys:
 ensure-custom-ring-live-keys: fetch-custom-ring-keys check-custom-ring-keys
 
 # The committed verifying keys must be the export of the pinned proving keys.
+# Normalize historical rustfmt skips before comparing generated constants.
 check-custom-ring-keys: build-prover-server
     #!/usr/bin/env bash
     set -euo pipefail
+    python3 prover/server/scripts/generate_ring_keys.py --check
+    if [[ -z "${ZOLANA_XTASK_BIN:-}" ]]; then
+        cargo build -q -p xtask
+        export ZOLANA_XTASK_BIN="$PWD/target/debug/xtask"
+    fi
     export_dir="$(mktemp -d)"
     trap 'rm -rf "$export_dir"' EXIT
     for key in {{custom-ring-keys}}; do
@@ -318,9 +324,11 @@ check-custom-ring-keys: build-prover-server
             exit 1
         fi
         target/prover-server export-vk --keys-file "{{spp-keys-dir}}/$key" --output "$export_dir/$key.vkbin" >/dev/null
-        cargo run -q -p xtask -- bsb22-vk "$export_dir/$key.vkbin" "{{spp-keys-dir}}/$key" "$export_dir" "$module" >/dev/null
-        rustfmt --config-path rustfmt.toml "$export_dir/$module"
-        diff -u "custom-rings/interface/src/$module" "$export_dir/$module"
+        tools/ci/xtask.sh bsb22-vk "$export_dir/$key.vkbin" "{{spp-keys-dir}}/$key" "$export_dir" "$module" >/dev/null
+        sed '/^#\[rustfmt::skip\]$/d' "custom-rings/interface/src/$module" > "$export_dir/committed-$module"
+        sed '/^#\[rustfmt::skip\]$/d' "$export_dir/$module" > "$export_dir/generated-$module"
+        rustfmt --config-path rustfmt.toml "$export_dir/committed-$module" "$export_dir/generated-$module"
+        diff -u "$export_dir/committed-$module" "$export_dir/generated-$module"
     done
 
 # Program-side Groth16 matrices only. CI runs this variant: the client proving
@@ -333,7 +341,6 @@ test-program-proofs-programs-only: build-programs build-prover-server build-cli
 # The full local gate; CI splits it (see test-program-proofs-programs-only).
 test-program-proofs: test-program-proofs-programs-only
     cargo nextest run -p zolana-client --features proofs --test transaction_proving --test merge_proving --test merge_ring_proving --test ring_authority_proving --test ring_transfer_proving --test-threads 1
-    cargo nextest run -p custom-ring-sdk --features proofs --test ring_authority_boundary --test-threads 1
 
 # Export Mollusk's exact-error cases as replayable fuzz fixtures. Only the
 # Mollusk-backed cases in tests/deposit/rejection.rs (the `deposit_rejection`
@@ -364,6 +371,7 @@ test-sdk-libs:
     cargo test --doc -p zolana-keypair
     cargo nextest run -p zolana-event-parser
     cargo nextest run -p zolana-transaction
+    cargo nextest run -p zolana-secret-file
     cargo nextest run -p zolana-client --features client
     # The test harness wallet: its scan, indexer sync and transaction actions.
     cargo nextest run -p zolana-test-utils
@@ -379,6 +387,7 @@ test-sdk-libs:
     cargo nextest run -p custom-ring-cli
     cargo nextest run -p custom-ring-interface
     cargo nextest run -p zolana-ring-policy
+    cargo nextest run -p zolana-ring-member-registry
 
 # The gnark SDK's Go tests and the example provers' tests. Needs Go.
 test-example-provers:
@@ -513,18 +522,12 @@ _test-ts-live test-script: build-programs build-prover-server build-cli fetch-cu
     subject = "sender"
     forbid = "frozen"
     TOML
-    cargo run -q -p zolana-ring-rpc -- keygen --out "$ring_dir/auditor.key"
-    cargo run -q -p custom-ring-cli -- --config "$ring_dir/ring.toml" \
-      init --auditor-pubkey-file "auditor.key.pub"
-    # Reads are grant only, the ring authority included.
-    cargo run -q -p custom-ring-cli -- --config "$ring_dir/ring.toml" \
-      reader grant "$ring_authority"
-
-    # Local mode, the served key is the one the ring config pins.
+    # Derived mode, the service releases the auditor key of every ring, the rings the suites deploy too.
+    cargo run -q -p zolana-ring-rpc -- keygen --kind root --out "$ring_dir/root.secret"
     cargo build -q -p zolana-ring-rpc
     nohup target/debug/ring-rpc serve --port {{localnet-ring-rpc-port}} \
       --indexer-url {{localnet-photon-url}} --rpc-url {{localnet-rpc-url}} \
-      --auditor-key-file "$ring_dir/auditor.key" --ring-program-id "$CUSTOM_RING_PROGRAM_ID" \
+      --root-secret-file "$ring_dir/root.secret" \
       --allow-origin "$ring_origin" --webauthn-rp-id localhost \
       > "$workdir/ring-rpc.log" 2>&1 &
     printf 'waiting for ring rpc %s ' "$ring_rpc_url"
@@ -539,6 +542,12 @@ _test-ts-live test-script: build-programs build-prover-server build-cli fetch-cu
       exit 1
     fi
     echo " ready"
+    # This recipe started the service, its key needs no pin.
+    cargo run -q -p custom-ring-cli -- --config "$ring_dir/ring.toml" \
+      init --auditor-pubkey-file "auditor.key.pub" --trust-ring-rpc
+    # Reads are grant only, the ring authority included.
+    cargo run -q -p custom-ring-cli -- --config "$ring_dir/ring.toml" \
+      reader grant "$ring_authority"
     # The ring-status probe, otherwise exercised only against a hosted rpc.
     cargo run -q -p custom-ring-cli -- --config "$ring_dir/ring.toml" rpc-check
 
@@ -594,7 +603,7 @@ coverage *args="--summary-only":
     packages="$(python3 tools/coverage-packages.py)"
     cargo llvm-cov clean --workspace
     # Unquoted on purpose: the flags must word-split into separate arguments.
-    cargo llvm-cov --no-report $packages --features zolana-client/client,zolana-program/compression
+    cargo llvm-cov --no-report $packages --features zolana-client/client,zolana-program/compression,zolana-interface/token-account
     just coverage-report {{args}}
 
 # Re-render the collected profile data. Split out so `just coverage` and the CI
@@ -615,7 +624,6 @@ coverage-report *args="--summary-only":
 # prover binary and the zolana CLI the spawned server/test rely on.
 test-client-integration: build-prover-server build-cli
     cargo nextest run -p zolana-client --all-features --test-threads 1
-    cargo nextest run -p custom-ring-sdk --features proofs --test ring_authority_boundary --test-threads 1
     cargo test --doc -p zolana-client --all-features
 
 # One real transfer proof through Redis, TransferQueueWorker, and the Rust
@@ -663,7 +671,7 @@ build-cli:
     cargo build -p zolana-cli --target-dir target
 
 test-cli:
-    cargo nextest run -p zolana-cli
+    cargo nextest run -p zolana-cli -p zolana-cli-common
     cargo nextest run -p xtask
 
 # === Bench ===
@@ -1219,8 +1227,8 @@ test-swap-validator: ensure-swap-keys build-programs build-prover-server build-c
 # Custom-ring lifecycle on a local validator
 # (custom-rings/test/tests/ring.rs): create the ring config holding the
 # auditor key, register it with SPP, ring-deposit, then a ring transact whose
-# proof binds the verifiable encryption of the transaction viewing key to the
-# auditor key -- and assert the auditor client decrypts the outputs.
+# proof binds the auditor disclosure to committed notes, then checks that
+# the auditor decrypts those settled notes.
 test-custom-ring-validator filter="all()": fetch-custom-ring-keys build-prover-server build-programs build-cli ensure-photon ensure-smart-account ensure-surfpool
     #!/usr/bin/env bash
     set -euo pipefail
@@ -1234,7 +1242,6 @@ test-custom-ring-validator filter="all()": fetch-custom-ring-keys build-prover-s
     export CUSTOM_RING_PROGRAM_ID
     export SHIELDED_POOL_PROGRAM_ID
     bash tools/test-ring-controls.sh ring -E '{{filter}}'
-    tools/ci/nextest-suite.sh -p custom-ring-sdk -E 'binary(custom_ring_circuit)'
 
 # Two-ring shared policy source lifecycle on a local validator. One curator
 # write refuses the subscriber's transfer, clearing it or re-pointing the
@@ -1480,8 +1487,7 @@ build-localnet-archives dir="target/nextest-archives":
     cargo nextest archive -p swap-test-validator --test swap --test take_verifiable_encryption --test cancel --archive-file {{dir}}/swap-test-validator.tar.zst
     cargo nextest archive -p timelock-escrow-test --test escrow --archive-file {{dir}}/timelock-escrow-test.tar.zst
     cargo nextest archive -p dynamic-swap-test --archive-file {{dir}}/dynamic-swap-test.tar.zst
-    cargo nextest archive -p custom-ring-test-validator --test ring --test shared_sources --test policy_rules --test policy_repin --test windowed_concurrency --archive-file {{dir}}/custom-ring-test-validator.tar.zst
-    cargo nextest archive -p custom-ring-sdk --test custom_ring_circuit --archive-file {{dir}}/custom-ring-sdk.tar.zst
+    cargo nextest archive -p custom-ring-test-validator --test ring --test shared_sources --test policy_rules --test policy_repin --archive-file {{dir}}/custom-ring-test-validator.tar.zst
     cargo nextest archive -p compression-example-test --test compression --archive-file {{dir}}/compression-example-test.tar.zst
     cargo nextest archive -p rfq-test --test rfq --archive-file {{dir}}/rfq-test.tar.zst
 
@@ -1634,12 +1640,12 @@ prover-server-test:
         exit 1
     fi
     cd prover/server
-    # ./circuits/... (gnark solve/prove tests), ./prover/..., and
+    # ./circuits/... and ./custom_rings/... (gnark solve/prove tests), ./prover/..., and
     # ./prover-test/... (reference + integration tests). The circuit and
     # integration tests run real groth16 setup+prove -- TestCircuitProvesFor-
     # SupportedShapes alone proves every supported shape -- so the run can exceed
     # Go's default 10m; the generous timeout is a ceiling, not a floor.
-    go test ./circuits/... ./prover/... ./prover-test/... -timeout 60m
+    go test ./circuits/... ./custom_rings/... ./prover/... ./prover-test/... -timeout 60m
     # The whole `server` package, unfiltered, so a new or renamed test cannot
     # drop out of CI. Its tests bring their own in-process miniredis and need no
     # Redis server or proving keys.

@@ -27,11 +27,17 @@ use super::{
 use crate::{
     prover::{
         field::{right_align, right_align_slice},
-        json::MergeOutputParamsJson,
-        merge::{check_output_ciphertext, MergePublicInputBinding, MergePublicInputs},
+        json::{
+            merge_registration_to_json, secret_json_body, MergeOutputParamsJson,
+            MergeRegistrationJson,
+        },
+        merge::{
+            check_output_ciphertext, MergePublicInputBinding, MergePublicInputs,
+            MergeRegistryBinding,
+        },
         transact::assembly::{assemble_outputs, without_compact_padding},
         verify::MergeProofStatement,
-        ExpectedProvingKey, Proof, ProofCompressed, ProofInputUtxo,
+        ExpectedProvingKey, MergeRegistration, Proof, ProofCompressed, ProofInputUtxo,
     },
     ClientError,
 };
@@ -45,6 +51,7 @@ pub struct PreparedIndexedMerge {
     request: IndexedProofRequest,
     data: MergeTransactIxData,
     ring_data_hash: Option<[u8; 32]>,
+    registry: Option<MergeRegistryBinding>,
 }
 
 pub enum ProvenIndexedMerge {
@@ -54,19 +61,27 @@ pub enum ProvenIndexedMerge {
 
 impl IndexedMergePreparation {
     pub fn prepare(self) -> Result<PreparedIndexedMerge, ClientError> {
-        self.prepare_with_cache(None)
+        self.prepare_with_cache(None, None)
+    }
+
+    pub fn prepare_registered(
+        self,
+        registration: MergeRegistration,
+    ) -> Result<PreparedIndexedMerge, ClientError> {
+        self.prepare_with_cache(None, Some(registration))
     }
 
     pub fn prepare_for_cache(
         self,
         cache: crate::prover::MergeCacheTarget,
     ) -> Result<PreparedIndexedMerge, ClientError> {
-        self.prepare_with_cache(Some(cache))
+        self.prepare_with_cache(Some(cache), None)
     }
 
     fn prepare_with_cache(
         self,
         cache: Option<crate::prover::MergeCacheTarget>,
+        registration: Option<MergeRegistration>,
     ) -> Result<PreparedIndexedMerge, ClientError> {
         if cache.is_some_and(|target| {
             usize::from(target.slot) >= zolana_interface::state::cache::CACHE_CAPACITY
@@ -82,6 +97,12 @@ impl IndexedMergePreparation {
         let ring_hash =
             zolana_transaction::utxo::program_id_proof_input_hash(&merge.ring_program_id)?;
         let ring_data_hash = merge.output_utxo.ring_data_hash.unwrap_or_default();
+        if merge.ring_program_id.is_some() && registration.is_none() {
+            return Err(ClientError::RingMemberUnregistered);
+        }
+        if merge.ring_program_id.is_none() && registration.is_some() {
+            return Err(invalid());
+        }
         let first = merge
             .input_utxos
             .first()
@@ -203,16 +224,17 @@ impl IndexedMergePreparation {
                 MergePublicInputBinding::Ring {
                     output_data_hash: ring_data_hash,
                     program_id_hash: ring_hash,
+                    registry: registration.as_ref().map(MergeRegistration::binding),
                 }
             } else {
                 MergePublicInputBinding::Owner {
                     signing_key_hash: owner_pk_hash,
                     nullifier_public_key: nullifier_pk,
-                    output_encryption: MergeOutputEncryption::PoseidonCtrV1 {
-                        salt: merge.output_ciphertext_salt,
-                        ciphertext: merge.output_ciphertext,
-                    },
                 }
+            },
+            output_encryption: MergeOutputEncryption::PoseidonCtrV1 {
+                salt: merge.output_ciphertext_salt,
+                ciphertext: merge.output_ciphertext,
             },
         }
         .elements(None)?;
@@ -231,7 +253,7 @@ impl IndexedMergePreparation {
             },
             output_tree_id: hex_field(&tree_id_field(merge.output_tree_id)),
             mint_chunks: [hex_field(&mint_chunk_0), hex_field(&mint_chunk_1)],
-            output_ciphertext_salt: merge.ring_program_id.is_none().then(|| hex_field(&salt)),
+            output_ciphertext_salt: hex_field(&salt),
             owner_pk_hash: hex_field(&owner_pk_hash),
             user_nullifier_pk: hex_field(&nullifier_pk),
             user_nullifier_secret: SecretField(Zeroizing::new(right_align_slice(
@@ -242,9 +264,10 @@ impl IndexedMergePreparation {
             allow_dummy_inputs: "0x1",
             output_ring_data_hash: hex_field(&ring_data_hash),
             ring_program_id: hex_field(&ring_hash),
+            registration: registration.as_ref().map(merge_registration_to_json),
         };
         let request = IndexedProofRequest::new(IndexedProofData {
-            witness: Zeroizing::new(serde_json::to_string(&witness).map_err(|_| invalid())?),
+            witness: secret_json_body(&witness)?,
             trees: vec![IndexedTree {
                 tree: zolana_interface::pda::tree(tree_id).to_bytes().into(),
                 id: tree_id,
@@ -274,6 +297,7 @@ impl IndexedMergePreparation {
             request,
             data,
             ring_data_hash: merge.ring_program_id.map(|_| ring_data_hash),
+            registry: registration.as_ref().map(MergeRegistration::binding),
         })
     }
 }
@@ -323,10 +347,15 @@ impl Request for PreparedIndexedMerge {
         data.nullifier_tree_root_index = context.nullifier_tree_root_index;
         data.proof = ProofCompressed::try_from(proof)?.to_merge_proof()?;
         Ok(match self.ring_data_hash {
-            Some(output_ring_data_hash) => ProvenIndexedMerge::Ring(MergeRingIxData {
-                output_ring_data_hash,
-                merge: data,
-            }),
+            Some(output_ring_data_hash) => {
+                let registry = self.registry.ok_or_else(invalid_resolution)?;
+                ProvenIndexedMerge::Ring(MergeRingIxData {
+                    output_ring_data_hash,
+                    member_registry_root: registry.root,
+                    anonymous: registry.anonymous,
+                    merge: data,
+                })
+            }
             None => ProvenIndexedMerge::Merge(data),
         })
     }
@@ -351,9 +380,7 @@ struct PreparedMergeJson {
     output: MergeOutputParamsJson,
     output_tree_id: String,
     mint_chunks: [String; 2],
-    /// Default merge rail only; the merge-ring circuit has no ciphertext.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    output_ciphertext_salt: Option<String>,
+    output_ciphertext_salt: String,
     owner_pk_hash: String,
     user_nullifier_pk: String,
     user_nullifier_secret: SecretField,
@@ -362,6 +389,8 @@ struct PreparedMergeJson {
     allow_dummy_inputs: &'static str,
     output_ring_data_hash: String,
     ring_program_id: String,
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    registration: Option<MergeRegistrationJson>,
 }
 
 #[cfg(test)]
@@ -402,6 +431,76 @@ mod tests {
     }
 
     #[test]
+    fn merge_ring_data_changes_are_rejected_before_witnesses_or_proving() {
+        let owner = ShieldedKeypair::new_ed25519().unwrap();
+        let ring = solana_address::Address::new_from_array([9; 32]);
+        let mut utxo = input(&owner);
+        utxo.utxo.ring_program_id = Some(ring);
+        utxo.ring_data_hash = Some([3; 32]);
+        utxo.utxo_hash = utxo
+            .utxo
+            .hash(&utxo.nullifier_pubkey, &[0; 32], &[3; 32], utxo.tree_id)
+            .unwrap();
+        utxo.nullifier = owner
+            .nullifier_key
+            .nullifier(&utxo.utxo_hash, &utxo.utxo.blinding)
+            .unwrap();
+        let prepared = MergeTransaction::new_with_ring(vec![utxo], ring, None)
+            .unwrap()
+            .encrypt(&owner)
+            .unwrap();
+        let registration = MergeRegistration {
+            root: [1; 32],
+            ciphertext_hash: Some([2; 32]),
+            next: [3; 32],
+            lists: 0,
+            escrow_key: [4; 32],
+            index: 1,
+            path: vec![[0; 32]; 20],
+        };
+        let indexed = IndexedMergePreparation {
+            merge: prepared.clone(),
+            nullifier_key: owner.nullifier_key(),
+        }
+        .prepare_registered(registration.clone())
+        .unwrap();
+        assert_eq!(indexed.request.data.public_inputs.len(), 14);
+        assert_eq!(indexed.request.data.public_inputs[8], registration.root);
+        assert_eq!(indexed.request.data.public_inputs[9], [0; 32]);
+        for change_input in [false, true] {
+            let mut merge = prepared.clone();
+            if change_input {
+                merge.input_utxos[0].ring_data_hash = Some([4; 32]);
+            } else {
+                merge.output_utxo.ring_data_hash = None;
+            }
+            assert!(matches!(
+                IndexedMergePreparation {
+                    merge: merge.clone(),
+                    nullifier_key: owner.nullifier_key(),
+                }
+                .prepare_registered(registration.clone()),
+                Err(ClientError::Transaction(
+                    zolana_transaction::TransactionError::MergeOutputRingDataMismatch
+                ))
+            ));
+            assert!(matches!(
+                crate::MergeProver {
+                    transaction: merge,
+                    nullifier_key: owner.nullifier_key(),
+                    proofs: Vec::new(),
+                    dummy_nullifier_proofs: Vec::new(),
+                    cache: None,
+                }
+                .build(),
+                Err(ClientError::Transaction(
+                    zolana_transaction::TransactionError::MergeOutputRingDataMismatch
+                ))
+            ));
+        }
+    }
+
+    #[test]
     fn prepares_both_owner_rails_without_paths() {
         for owner in [
             ShieldedKeypair::new_ed25519().unwrap(),
@@ -423,6 +522,8 @@ mod tests {
             assert_eq!(prepared.data.output_utxo_hash, output);
             assert_eq!(prepared.data.nullifiers, vec![real_nullifier]);
             assert_eq!(prepared.request.input_trees()[0].id, 3);
+            let witness = &prepared.request.data.witness;
+            assert_eq!(witness.capacity(), witness.len());
             let body: serde_json::Value = serde_json::from_str(&prepared.body().unwrap()).unwrap();
             assert!(body["prepared"].get("treeSlots").is_none());
             assert!(body["prepared"]["inputs"][0]

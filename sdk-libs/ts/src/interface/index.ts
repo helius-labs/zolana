@@ -23,7 +23,7 @@ export {
   encodeTransactInstructionData,
   encodeTreeFeeSchedule,
 } from "./codecs/index.js";
-export { MAX_MERGE_INPUTS, MERGE_INPUT_COUNT } from "./constants.js";
+export { MAX_MERGE_INPUTS, MAX_RING_MERGE_INPUTS, MERGE_INPUT_COUNT } from "./constants.js";
 export { InterfaceError, ShieldedPoolError, decodeShieldedPoolError } from "./errors.js";
 export type {
   DecodedShieldedPoolError,
@@ -32,7 +32,13 @@ export type {
   ShieldedPoolErrorName,
 } from "./errors.js";
 export { externalDataHash } from "./external-data-hash.js";
-export { KEY_REGISTRY_CAPACITY, KEY_REGISTRY_HEIGHT } from "./key-registry.js";
+export {
+  APPLY_BATCH,
+  MEMBER_REGISTRY_CAPACITY,
+  MEMBER_REGISTRY_ROOT_HISTORY,
+  QUAD_ARITY,
+  QUAD_HEIGHT,
+} from "./member-registry.js";
 export type { ExternalDataHashInput, SettlementAccounts } from "./external-data-hash.js";
 export {
   TransactCacheAccounts,
@@ -66,7 +72,15 @@ export {
   nullifierTreeParams,
 } from "./program.js";
 export type { CreateTreeData, NullifierTreeParams } from "./program.js";
-export { SPP_SUPPORTED_SHAPES, selectSppShape, validateSppShape } from "./shape.js";
+export {
+  RING_AUTHORITY_MAX_INPUTS,
+  RING_AUTHORITY_SHAPES,
+  SPP_SUPPORTED_SHAPES,
+  isRingAuthorityShape,
+  ringAuthorityShape,
+  selectSppShape,
+  validateSppShape,
+} from "./shape.js";
 export type { Shape } from "./shape.js";
 export {
   CACHE_ACCOUNT_SIZE,
@@ -118,3 +132,12 @@ export {
 export type { TreeSlot } from "./tree-slot.js";
 export type * from "./types.js";
 export type { ErrorEnvelope } from "../errors/internal.js";
+
+export type {
+  ApplyProofInputs,
+  MemberRecord,
+  QuadPath,
+  QueueEntry,
+  RecordOpening,
+  RecordWriteProofInput,
+} from "./member-registry.js";

@@ -21,10 +21,13 @@ use super::{
     traits::{AsyncRpc, Rpc},
     types::{
         GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse, GetNonInclusionProofsResponse,
-        GetRingKeyRegistryEntryResponse, GetRingKeyRegistryRegisterProofResponse,
-        GetRingSpendRecordResponse, GetShieldedTransactionsByNullifiersResponse,
-        GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
-        GetUserRecordsResponse, RingHistoryOptions, RingMemberProofRequest, RingSpendRecordRequest,
+        GetRingApplyProofInputsRequest, GetRingApplyProofInputsResponse,
+        GetRingMemberOpeningsRequest, GetRingMemberOpeningsResponse, GetRingMemberRecordRequest,
+        GetRingMemberRecordResponse, GetRingMemberRecordsRequest, GetRingMemberRecordsResponse,
+        GetRingMemberRegistryRootRequest, GetRingMemberRegistryRootResponse,
+        GetRingRecordQueueRequest, GetRingRecordQueueResponse,
+        GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
+        GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, RingHistoryOptions,
         ShieldedTransactionStream,
     },
     IndexerRpcConfig,
@@ -113,6 +116,14 @@ impl<T: Rpc + Send + Sync + 'static> AsyncRpc for Blocking<T> {
         signatures: Vec<Signature>,
     ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
         self.run(move |rpc| rpc.get_signature_statuses(signatures))
+            .await
+    }
+
+    async fn get_signature_statuses_with_history(
+        &self,
+        signatures: Vec<Signature>,
+    ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
+        self.run(move |rpc| rpc.get_signature_statuses_with_history(signatures))
             .await
     }
 
@@ -244,27 +255,51 @@ impl<T: Rpc + Send + Sync + 'static> AsyncRpc for Blocking<T> {
             .await
     }
 
-    async fn get_ring_spend_record(
+    async fn get_ring_member_record(
         &self,
-        request: RingSpendRecordRequest,
-    ) -> Result<GetRingSpendRecordResponse, ClientError> {
-        self.run(move |rpc| rpc.get_ring_spend_record(request))
+        request: GetRingMemberRecordRequest,
+    ) -> Result<GetRingMemberRecordResponse, ClientError> {
+        self.run(move |rpc| rpc.get_ring_member_record(request))
             .await
     }
 
-    async fn get_ring_key_registry_entry(
+    async fn get_ring_member_records(
         &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingKeyRegistryEntryResponse, ClientError> {
-        self.run(move |rpc| rpc.get_ring_key_registry_entry(request))
+        request: GetRingMemberRecordsRequest,
+    ) -> Result<GetRingMemberRecordsResponse, ClientError> {
+        self.run(move |rpc| rpc.get_ring_member_records(request))
             .await
     }
 
-    async fn get_ring_key_registry_register_proof(
+    async fn get_ring_member_registry_root(
         &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingKeyRegistryRegisterProofResponse, ClientError> {
-        self.run(move |rpc| rpc.get_ring_key_registry_register_proof(request))
+        request: GetRingMemberRegistryRootRequest,
+    ) -> Result<GetRingMemberRegistryRootResponse, ClientError> {
+        self.run(move |rpc| rpc.get_ring_member_registry_root(request))
+            .await
+    }
+
+    async fn get_ring_member_openings(
+        &self,
+        request: GetRingMemberOpeningsRequest,
+    ) -> Result<GetRingMemberOpeningsResponse, ClientError> {
+        self.run(move |rpc| rpc.get_ring_member_openings(request))
+            .await
+    }
+
+    async fn get_ring_record_queue(
+        &self,
+        request: GetRingRecordQueueRequest,
+    ) -> Result<GetRingRecordQueueResponse, ClientError> {
+        self.run(move |rpc| rpc.get_ring_record_queue(request))
+            .await
+    }
+
+    async fn get_ring_apply_proof_inputs(
+        &self,
+        request: GetRingApplyProofInputsRequest,
+    ) -> Result<GetRingApplyProofInputsResponse, ClientError> {
+        self.run(move |rpc| rpc.get_ring_apply_proof_inputs(request))
             .await
     }
 

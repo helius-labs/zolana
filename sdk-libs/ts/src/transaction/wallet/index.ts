@@ -4,22 +4,44 @@ export {
   type DecryptLabel,
   type DecryptRequest,
   type DeriveRequest,
+  type RingDeliveryRequest,
+  type RingKeys,
+  type RingRecipientKey,
   type ShieldedKeys,
   type TransactionKeyRequest,
 } from "./keys.js";
+export type {
+  AnonymousRingNote,
+  AnonymousRingReport,
+  AnonymousStream,
+  PendingAnonymousNote,
+  RingDeliveredCandidate,
+} from "./anonymous.js";
+export {
+  ADDRESS_GAP,
+  ANONYMOUS_RING_STATE_VERSION,
+  AnonymousRingState,
+  DECOYS_PER_TREE,
+  DEPOSIT_TAG_WINDOW,
+  MAX_FETCH_EPOCHS,
+  MAX_ISSUED_ADDRESSES,
+  PAIR_IDLE_EPOCHS,
+  type DecoyLeaf,
+  type IndexedSpend,
+  type IssuedAddress,
+  type PairAnchor,
+  type ReceivedAnchor,
+  type SentFirstContact,
+  type SerializedAnonymousRingState,
+} from "./anonymous-state.js";
 export {
   encryptAnonymousTransfer,
   encryptConfidentialTransfer,
-  encryptCustomRingTransfer,
   encryptSplit,
-  openSealedMessage,
   type AnonymousRecipientSlot,
-  type AuditWitness,
-  type EncryptedCustomRingTransfer,
   type EncryptedEnvelope,
   type EncryptedSplit,
   type EncryptedTransfer,
-  type SealedMessageInput,
   type SplitBundlePlaintext,
 } from "./encrypt-rails.js";
 export {
@@ -37,6 +59,7 @@ export {
   serializeWallet,
   type SerializedCursor,
   type SerializedNoteReservation,
+  type SerializedPendingNote,
   type SerializedSyncCursors,
   type SerializedWalletState,
 } from "./persistence.js";
@@ -44,7 +67,9 @@ export {
   decryptToBalances,
   decryptTransactions,
   decryptTransactionsWorkerEquivalent,
+  resolvePendingNotes,
   type PrivateBalances,
+  type ResolvedPendingNote,
 } from "./sync.js";
 export { Wallet } from "./state.js";
 export type {

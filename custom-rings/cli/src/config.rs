@@ -1,25 +1,25 @@
 //! `ring.toml`, the answers `new` recorded.
 
 use std::{
-    fmt, io,
+    fmt,
     path::{Path, PathBuf},
     str::FromStr,
 };
 
+use anyhow::{anyhow, bail, ensure, Context as _, Result};
+use custom_ring_interface::RingMode;
 use custom_ring_sdk::CoSignScope;
-use serde::{Deserialize, Serialize};
-use solana_address::Address;
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use solana_address::{error::ParseAddressError, Address};
 use solana_keypair::Keypair;
-use thiserror::Error;
 use toml_edit::{DocumentMut, Item};
-use zolana_client::ProverClient;
+use zolana_client::{prover::tee::TeePolicy, ProverClient};
 use zolana_transaction::SOL_MINT;
 
 use crate::{
-    cosigner::CoSignClass,
-    file::{self, FileError},
-    policy::{render, PolicyError, PolicySpec},
-    ProjectRoot,
+    file,
+    macros::{named_enum, serde_via_str},
+    policy::{render, PolicySpec},
 };
 
 pub const RING_TOML: &str = "ring.toml";
@@ -30,22 +30,22 @@ pub struct RingConfig {
     pub name: String,
     /// `--target` overrides it for one command.
     pub target: Target,
-    #[serde(with = "base58_address")]
-    pub program_id: Address,
+    pub program_id: Base58Address,
     /// Fallback for both authority keypairs.
     pub authority_keypair: PathBuf,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub upgrade_authority_keypair: Option<PathBuf>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub config_authority_keypair: Option<PathBuf>,
+    /// Fixed once `init` creates the config.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub mode: ModeName,
     /// Presence selects the policy tier, `init` pins the compiled table.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy: Option<PolicySpec>,
     /// Applied by `cosigner set` without flags.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cosigner: Option<CoSignerSpec>,
-    #[serde(default)]
-    pub deposit_audit: bool,
     pub localnet: Urls,
     pub devnet: Urls,
 }
@@ -64,92 +64,46 @@ pub struct ThresholdSpec {
     pub above: u64,
 }
 
-#[derive(Debug, Error, PartialEq, Eq)]
-pub enum ThresholdParseError {
-    #[error("expected <mint>=<amount>")]
-    Shape,
-    #[error(transparent)]
-    Mint(#[from] MintParseError),
-    #[error("{0} is not an amount")]
-    Amount(String),
-}
-
-/// `sol` names the native token.
+/// `sol` in any case names the native token, base58 any other mint.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Mint(pub Address);
 
-#[derive(Debug, Error, PartialEq, Eq)]
-#[error("{0} is not a mint")]
-pub struct MintParseError(String);
-
-impl CoSignerSpec {
-    /// `None` without a class, the program refuses an empty scope.
-    pub fn scope(&self) -> Option<CoSignScope> {
-        self.scope
-            .iter()
-            .map(|class| class.scope())
-            .reduce(|scope, class| scope | class)
-    }
-}
-
-impl FromStr for ThresholdSpec {
-    type Err = ThresholdParseError;
-
-    fn from_str(value: &str) -> Result<Self, ThresholdParseError> {
-        let (mint, above) = value.split_once('=').ok_or(ThresholdParseError::Shape)?;
-        let mint = Base58Address(mint.parse::<Mint>()?.0);
-        let above = above
-            .parse()
-            .map_err(|_| ThresholdParseError::Amount(above.to_owned()))?;
-        Ok(Self { mint, above })
-    }
-}
-
-impl FromStr for Mint {
-    type Err = MintParseError;
-
-    fn from_str(value: &str) -> Result<Self, MintParseError> {
-        if value.eq_ignore_ascii_case("sol") {
-            return Ok(Self(SOL_MINT));
-        }
-        value
-            .parse()
-            .map(Self)
-            .map_err(|_| MintParseError(value.to_owned()))
-    }
-}
-
-impl fmt::Display for Mint {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.0 == SOL_MINT {
-            f.write_str("sol")
-        } else {
-            fmt::Display::fmt(&self.0, f)
-        }
-    }
-}
-
-/// Map values take no `#[serde(with)]`, the newtype carries the codec.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Base58Address(pub Address);
 
-impl<'de> serde::Deserialize<'de> for Base58Address {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        base58_address::deserialize(deserializer).map(Self)
+serde_via_str!(Mint, Base58Address);
+
+named_enum! {
+    pub enum Target("target") {
+        Localnet = "localnet",
+        Devnet = "devnet",
     }
 }
 
-impl serde::Serialize for Base58Address {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        base58_address::serialize(&self.0, serializer)
+named_enum! {
+    #[derive(Default)]
+    pub enum ModeName("ring mode") {
+        #[default]
+        Confidential = "confidential",
+        Anonymous = "anonymous",
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, clap::ValueEnum)]
-#[serde(rename_all = "lowercase")]
-pub enum Target {
-    Localnet,
-    Devnet,
+named_enum! {
+    pub enum CoSignClass("operation class") {
+        Transfers = "transfers",
+        Deposits = "deposits",
+        Withdrawals = "withdrawals",
+    }
+}
+
+named_enum! {
+    pub enum Service("service") {
+        Rpc = "rpc",
+        Indexer = "indexer",
+        Prover = "prover",
+        RingRpc = "ring-rpc",
+    }
 }
 
 /// One value per cluster, a missing table reads as the default.
@@ -178,78 +132,85 @@ pub struct Urls {
     /// When set, `init` accepts an auditor key only under this service key.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ring_rpc_pubkey: Option<String>,
-    /// `false` sends `prover` plaintext requests, which carry every proof's
-    /// witness; only for a prover the operator runs. Unset keeps the SDK
-    /// default, which requires a remote prover to attest.
+    /// `false` sends the prover plaintext witnesses, only for a prover the operator runs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prover_tee: Option<bool>,
 }
 
-impl Urls {
-    pub fn prover_client(&self) -> ProverClient {
-        let prover = ProverClient::new(self.prover.clone());
-        match self.prover_tee {
-            Some(false) => prover.without_tee(),
-            Some(true) | None => prover,
+impl ModeName {
+    /// Key escrow is a confidential ring after `delegate set`.
+    pub const fn of(mode: RingMode) -> Self {
+        match mode {
+            RingMode::Off | RingMode::Registry => Self::Confidential,
+            RingMode::Anonymous => Self::Anonymous,
         }
     }
-
-    pub fn port(url: &str) -> Option<u16> {
-        let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
-        let authority = rest.split(['/', '?']).next().unwrap_or_default();
-        authority.rsplit_once(':')?.1.parse().ok()
-    }
-
-    /// Only a ring RPC on this machine takes its auditor key from `keys/`.
-    pub fn ring_rpc_is_local(&self) -> bool {
-        let rest = match self.ring_rpc.split_once("://") {
-            Some((_, rest)) => rest,
-            None => &self.ring_rpc,
-        };
-        let authority = rest.split(['/', '?']).next().unwrap_or_default();
-        let host = match authority.rsplit_once(':') {
-            Some((host, port)) if port.chars().all(|c| c.is_ascii_digit()) => host,
-            _ => authority,
-        };
-        matches!(
-            host.trim_start_matches('[').trim_end_matches(']'),
-            "127.0.0.1" | "localhost" | "0.0.0.0" | "::1"
-        )
-    }
 }
 
-#[derive(Debug, Error)]
-pub enum ConfigError {
-    #[error(transparent)]
-    File(#[from] FileError),
-    #[error("{path} has no target line")]
-    NoTargetLine { path: PathBuf },
-    #[error("{path} line is not KEY=VALUE, {line}")]
-    DotenvLine { path: PathBuf, line: String },
-    #[error("{name} is not set, put it in .env next to ring.toml")]
-    UnsetVariable { name: String },
-    #[error("unclosed placeholder in {text}")]
-    UnclosedPlaceholder { text: String },
-    #[error("HOME is not set")]
-    HomeUnset,
-    #[error("ring_rpc_pubkey {key} is not a base58 key")]
-    RingRpcPubkey { key: String },
-    #[error("cannot serialize ring.toml")]
-    Serialize(#[from] toml::ser::Error),
-    #[error("cannot lay out ring.toml")]
-    Document(#[from] toml_edit::TomlError),
-    #[error(transparent)]
-    Policy(#[from] PolicyError),
-}
-
-impl Target {
-    pub const ALL: [Self; 2] = [Self::Localnet, Self::Devnet];
-
-    pub fn as_str(self) -> &'static str {
+impl CoSignClass {
+    pub const fn scope(self) -> CoSignScope {
         match self {
-            Self::Localnet => "localnet",
-            Self::Devnet => "devnet",
+            Self::Transfers => CoSignScope::TRANSFERS,
+            Self::Deposits => CoSignScope::DEPOSITS,
+            Self::Withdrawals => CoSignScope::WITHDRAWALS,
         }
+    }
+}
+
+impl CoSignerSpec {
+    /// `None` without a class, the program refuses an empty scope.
+    pub fn scope(&self) -> Option<CoSignScope> {
+        self.scope
+            .iter()
+            .map(|class| class.scope())
+            .reduce(|scope, class| scope | class)
+    }
+}
+
+impl FromStr for ThresholdSpec {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, String> {
+        let (mint, above) = value.split_once('=').ok_or("expected <mint>=<amount>")?;
+        Ok(Self {
+            mint: Base58Address(mint.parse::<Mint>()?.0),
+            above: above
+                .parse()
+                .map_err(|_| format!("{above} is not an amount"))?,
+        })
+    }
+}
+
+impl FromStr for Mint {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, String> {
+        let sol = value.eq_ignore_ascii_case("sol").then_some(SOL_MINT);
+        let mint = sol.map_or_else(|| value.parse(), Ok);
+        mint.map(Self).map_err(|_| format!("{value} is not a mint"))
+    }
+}
+
+impl fmt::Display for Mint {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0 == SOL_MINT {
+            true => f.write_str("sol"),
+            false => fmt::Display::fmt(&self.0, f),
+        }
+    }
+}
+
+impl FromStr for Base58Address {
+    type Err = ParseAddressError;
+
+    fn from_str(value: &str) -> Result<Self, ParseAddressError> {
+        value.parse().map(Self)
+    }
+}
+
+impl fmt::Display for Base58Address {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&self.0, f)
     }
 }
 
@@ -279,10 +240,59 @@ fn is_default<T: Default + PartialEq>(value: &T) -> bool {
     *value == T::default()
 }
 
+impl Urls {
+    /// `pinned` replaces the release's enclave pin.
+    pub fn prover_client(&self, pinned: Option<TeePolicy>) -> Result<ProverClient> {
+        let prover = ProverClient::new(self.prover.clone());
+        let plaintext = self.prover_tee == Some(false);
+        match pinned {
+            Some(_) if plaintext => bail!(
+                "ring.toml sets `prover_tee = false` for this cluster, `--prover-tee-policy` pins an enclave, drop one"
+            ),
+            Some(policy) => Ok(prover.with_tee(policy)),
+            None if plaintext => Ok(prover.without_tee()),
+            None => Ok(prover),
+        }
+    }
+
+    pub fn service(&self, service: Service) -> &str {
+        match service {
+            Service::Rpc => &self.rpc,
+            Service::Indexer => &self.indexer,
+            Service::Prover => &self.prover,
+            Service::RingRpc => &self.ring_rpc,
+        }
+    }
+
+    /// The explicit port only, a scheme default is `None`.
+    pub fn port(url: &str) -> Option<u16> {
+        reqwest::Url::parse(url).ok()?.port()
+    }
+
+    /// A loopback, unspecified or `localhost` host.
+    pub fn is_local(url: &str) -> bool {
+        let Some(url) = reqwest::Url::parse(url).ok() else {
+            return false;
+        };
+        let host = url.host_str().unwrap_or_default();
+        host == "localhost"
+            || host
+                .trim_start_matches('[')
+                .trim_end_matches(']')
+                .parse::<std::net::IpAddr>()
+                .is_ok_and(|ip| ip.is_loopback() || ip.is_unspecified())
+    }
+
+    /// Only a ring RPC on this machine takes its auditor key from `keys/`.
+    pub fn ring_rpc_is_local(&self) -> bool {
+        Self::is_local(&self.ring_rpc)
+    }
+}
+
 impl RingConfig {
     /// `.env` next to ring.toml fills `${NAME}` placeholders, the environment wins.
-    pub fn load(path: &Path) -> Result<Self, ConfigError> {
-        let mut config: Self = file::parse_toml(path)?;
+    pub fn load(path: &Path) -> Result<Self> {
+        let mut config: Self = parse_ring_toml(path)?;
         load_dotenv(&path.with_file_name(".env"))?;
         for urls in [&mut config.localnet, &mut config.devnet] {
             for url in [
@@ -305,7 +315,7 @@ impl RingConfig {
     }
 
     /// `ring.toml` as text, the `[policy]` table last with its comments.
-    pub fn render(&self) -> Result<String, ConfigError> {
+    pub fn render(&self) -> Result<String> {
         let plain = Self {
             policy: None,
             ..self.clone()
@@ -318,44 +328,24 @@ impl RingConfig {
     }
 
     /// The rest of the file stays byte for byte.
-    pub fn set_target(path: &Path, target: Target) -> Result<(), ConfigError> {
-        let text = file::read(path)?;
-        let mut replaced = false;
-        let updated: Vec<String> = text
-            .lines()
-            .map(|line| {
-                if line.starts_with("target = ") {
-                    replaced = true;
-                    format!("target = \"{}\"", target.as_str())
-                } else {
-                    line.to_owned()
-                }
-            })
-            .collect();
-        if !replaced {
-            return Err(ConfigError::NoTargetLine {
-                path: path.to_path_buf(),
-            });
-        }
-        Ok(file::write(path, updated.join("\n") + "\n")?)
+    pub fn set_target(path: &Path, target: Target) -> Result<()> {
+        edit(path, |document| {
+            ensure!(
+                document.contains_key("target"),
+                "{} has no target line",
+                path.display()
+            );
+            document["target"] = toml_edit::value(target.as_str());
+            Ok(())
+        })
     }
 
-    pub fn config_authority(&self) -> Result<Keypair, ConfigError> {
-        Ok(file::read_keypair(&expand_tilde(
-            self.config_authority_keypair(),
-        )?)?)
+    pub fn config_authority(&self) -> Result<Keypair> {
+        file::read_keypair(&expand_tilde(self.config_authority_keypair())?)
     }
 
-    pub fn set_deposit_audit(path: &Path, required: bool) -> Result<(), ConfigError> {
-        let mut document: DocumentMut = file::read(path)?.parse()?;
-        document.insert("deposit_audit", toml_edit::value(required));
-        Ok(file::write(path, document.to_string())?)
-    }
-
-    pub fn upgrade_authority(&self) -> Result<Keypair, ConfigError> {
-        Ok(file::read_keypair(&expand_tilde(
-            self.upgrade_authority_keypair(),
-        )?)?)
+    pub fn upgrade_authority(&self) -> Result<Keypair> {
+        file::read_keypair(&expand_tilde(self.upgrade_authority_keypair())?)
     }
 
     pub fn config_authority_keypair(&self) -> &Path {
@@ -370,17 +360,26 @@ impl RingConfig {
             .unwrap_or(&self.authority_keypair)
     }
 
-    pub(crate) fn resolve_keypair_paths(&mut self, root: &ProjectRoot) {
-        self.authority_keypair = root.resolve(&self.authority_keypair);
-        self.config_authority_keypair = self
-            .config_authority_keypair
-            .take()
-            .map(|path| root.resolve(&path));
-        self.upgrade_authority_keypair = self
-            .upgrade_authority_keypair
-            .take()
-            .map(|path| root.resolve(&path));
+    pub(crate) fn resolve_keypair_paths(&mut self, resolve: impl Fn(&Path) -> PathBuf) {
+        self.authority_keypair = resolve(&self.authority_keypair);
+        for path in [
+            &mut self.config_authority_keypair,
+            &mut self.upgrade_authority_keypair,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            *path = resolve(path);
+        }
     }
+}
+
+fn edit(path: &Path, change: impl FnOnce(&mut DocumentMut) -> Result<()>) -> Result<()> {
+    let mut document: DocumentMut = file::read(path)?
+        .parse()
+        .with_context(|| format!("cannot parse {}", path.display()))?;
+    change(&mut document)?;
+    file::write(path, document.to_string())
 }
 
 pub fn redact_url(url: &str) -> String {
@@ -406,53 +405,102 @@ pub fn redact_text(text: &str) -> String {
     out
 }
 
-pub fn expand_tilde(path: &Path) -> Result<PathBuf, ConfigError> {
+pub fn read_tee_policy(path: &Path) -> Result<TeePolicy> {
+    let json = file::read(path)?;
+    TeePolicy::from_file_json(&json)
+        .with_context(|| format!("cannot parse the TEE policy {}", path.display()))
+}
+
+pub fn expand_tilde(path: &Path) -> Result<PathBuf> {
     let Ok(rest) = path.strip_prefix("~") else {
         return Ok(path.to_path_buf());
     };
-    let home = std::env::var_os("HOME").ok_or(ConfigError::HomeUnset)?;
+    let home = std::env::var_os("HOME").context("HOME is not set")?;
     Ok(PathBuf::from(home).join(rest))
 }
 
-/// The file carries base58, not the default byte form.
-mod base58_address {
-    use serde::{Deserialize, Deserializer, Serializer};
-    use solana_address::Address;
+#[derive(Clone, Copy, Debug)]
+struct RemovedKey {
+    table: Option<&'static str>,
+    key: &'static str,
+}
 
-    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Address, D::Error> {
-        let text = String::deserialize(deserializer)?;
-        text.parse().map_err(serde::de::Error::custom)
+const REMOVED_KEYS: [RemovedKey; 3] = [
+    RemovedKey {
+        table: None,
+        key: "deposit_audit",
+    },
+    RemovedKey {
+        table: Some("policy"),
+        key: "address_tree",
+    },
+    RemovedKey {
+        table: Some("policy"),
+        key: "velocity",
+    },
+];
+
+/// Refuses a removed key by name, whatever `T` accepts.
+pub(crate) fn parse_ring_toml<T: DeserializeOwned>(path: &Path) -> Result<T> {
+    let text = file::read(path)?;
+    let removed = removed_keys(&text);
+    if !removed.is_empty() {
+        let (noun, pronoun) = match removed.len() {
+            1 => ("key", "it"),
+            _ => ("keys", "them"),
+        };
+        bail!(
+            "{} keeps the removed {noun} {}, delete {pronoun}",
+            path.display(),
+            removed.join(" and ")
+        );
     }
+    toml::from_str(&text).with_context(|| format!("cannot parse {}", path.display()))
+}
 
-    pub fn serialize<S: Serializer>(address: &Address, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(&address.to_string())
+/// Unparsable text names none, the typed parse reports it.
+fn removed_keys(text: &str) -> Vec<String> {
+    let Ok(document) = toml::from_str::<toml::Table>(text) else {
+        return Vec::new();
+    };
+    REMOVED_KEYS
+        .into_iter()
+        .filter(|removed| removed.set_in(&document))
+        .map(|removed| removed.to_string())
+        .collect()
+}
+
+impl RemovedKey {
+    fn set_in(self, document: &toml::Table) -> bool {
+        let table = match self.table {
+            None => Some(document),
+            Some(name) => document.get(name).and_then(toml::Value::as_table),
+        };
+        table.is_some_and(|table| table.contains_key(self.key))
+    }
+}
+
+impl fmt::Display for RemovedKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.table {
+            None => write!(f, "`{}`", self.key),
+            Some(table) => write!(f, "`[{table}] {}`", self.key),
+        }
     }
 }
 
 /// Never overrides a variable already set.
-fn load_dotenv(path: &Path) -> Result<(), ConfigError> {
-    let text = match std::fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-        Err(source) => {
-            return Err(FileError::Read {
-                path: path.to_path_buf(),
-                source,
-            }
-            .into())
-        }
-    };
-    for line in text.lines() {
-        let line = line.trim();
+fn load_dotenv(path: &Path) -> Result<()> {
+    if !path.exists() {
+        return Ok(());
+    }
+    for line in file::read(path)?.lines().map(str::trim) {
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
-        let Some((key, value)) = line.split_once('=') else {
-            return Err(ConfigError::DotenvLine {
-                path: path.to_path_buf(),
-                line: line.to_owned(),
-            });
-        };
+        let (key, value) = line
+            .split_once('=')
+            .with_context(|| format!("{} line is not KEY=VALUE, {line}", path.display()))?;
         let key = key.trim().strip_prefix("export ").unwrap_or(key.trim());
         if std::env::var_os(key).is_none() {
             std::env::set_var(key, value.trim().trim_matches('"'));
@@ -462,7 +510,7 @@ fn load_dotenv(path: &Path) -> Result<(), ConfigError> {
 }
 
 /// An unset name is an error, a URL never goes out with a placeholder.
-fn expand_env(text: &str) -> Result<String, ConfigError> {
+fn expand_env(text: &str) -> Result<String> {
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
     while let Some(start) = rest.find("${") {
@@ -470,13 +518,10 @@ fn expand_env(text: &str) -> Result<String, ConfigError> {
         let after = &rest[start + 2..];
         let end = after
             .find('}')
-            .ok_or_else(|| ConfigError::UnclosedPlaceholder {
-                text: text.to_owned(),
-            })?;
+            .ok_or_else(|| anyhow!("unclosed placeholder in {text}"))?;
         let name = &after[..end];
-        let value = std::env::var(name).map_err(|_| ConfigError::UnsetVariable {
-            name: name.to_owned(),
-        })?;
+        let value = std::env::var(name)
+            .map_err(|_| anyhow!("{name} is not set, put it in .env next to ring.toml"))?;
         out.push_str(&value);
         rest = &after[end + 1..];
     }
@@ -509,17 +554,11 @@ ring_rpc = "http://127.0.0.1:8785"
 
     #[test]
     fn prover_tee_false_sends_a_remote_prover_plaintext() {
-        let urls = |prover_tee: Option<bool>| Urls {
-            rpc: "https://api.devnet.solana.com".to_owned(),
-            indexer: "https://indexer.example".to_owned(),
-            prover: "https://prover.example".to_owned(),
-            ring_rpc: "https://ring-rpc.example".to_owned(),
-            ring_rpc_pubkey: None,
-            prover_tee,
-        };
-        assert!(!urls(Some(false)).prover_client().has_tee());
-        assert!(urls(None).prover_client().has_tee());
-        assert!(urls(Some(true)).prover_client().has_tee());
+        let urls = |prover_tee| prover_urls("https://prover.example", prover_tee);
+        let client = |prover_tee| urls(prover_tee).prover_client(None).unwrap();
+        assert!(!client(Some(false)).has_tee());
+        assert!(client(None).has_tee());
+        assert!(client(Some(true)).has_tee());
 
         let parsed: Urls = toml::from_str(
             "rpc = \"r\"\nindexer = \"i\"\nprover = \"p\"\nring_rpc = \"g\"\nprover_tee = false\n",
@@ -529,11 +568,83 @@ ring_rpc = "http://127.0.0.1:8785"
     }
 
     #[test]
+    fn a_pinned_tee_policy_attests_even_a_loopback_prover_and_refuses_plaintext() {
+        let policy = TeePolicy::default_deployment().unwrap();
+        let loopback = |prover_tee| prover_urls("http://127.0.0.1:3001", prover_tee);
+        assert!(!loopback(None).prover_client(None).unwrap().has_tee());
+        let pinned = loopback(None).prover_client(Some(policy.clone())).unwrap();
+        assert!(pinned.has_tee());
+        let Err(refused) = loopback(Some(false)).prover_client(Some(policy)) else {
+            panic!("a pinned policy beside prover_tee = false is refused");
+        };
+        assert!(refused.to_string().contains("drop one"), "{refused}");
+    }
+
+    #[test]
+    fn a_tee_policy_file_reads_bare_or_as_a_deployment_pin() {
+        let policy = TeePolicy::default_deployment().unwrap();
+        let bare = serde_json::to_string(&policy).unwrap();
+        let dir = std::env::temp_dir().join(format!("ring-tee-policy-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for (name, json) in [
+            ("bare", bare.clone()),
+            ("pinned", format!(r#"{{"deployment":{bare}}}"#)),
+        ] {
+            let path = dir.join(format!("{name}.json"));
+            std::fs::write(&path, json).unwrap();
+            assert_eq!(read_tee_policy(&path).unwrap(), policy, "{name}");
+        }
+        let unpinned = dir.join("unpinned.json");
+        std::fs::write(&unpinned, r#"{"deployment":null}"#).unwrap();
+        assert!(read_tee_policy(&unpinned).is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    fn prover_urls(prover: &str, prover_tee: Option<bool>) -> Urls {
+        Urls {
+            rpc: "https://api.devnet.solana.com".to_owned(),
+            indexer: "https://indexer.example".to_owned(),
+            prover: prover.to_owned(),
+            ring_rpc: "https://ring-rpc.example".to_owned(),
+            ring_rpc_pubkey: None,
+            prover_tee,
+        }
+    }
+
+    #[test]
     fn port_reads_the_authority_only() {
         assert_eq!(Urls::port("http://127.0.0.1:8899"), Some(8899));
         assert_eq!(Urls::port("http://[::1]:8785/path?x=1:2"), Some(8785));
         assert_eq!(Urls::port("http://localhost"), None);
         assert_eq!(Urls::port("https://example.com/?key=1:2"), None);
+    }
+
+    #[test]
+    fn a_removed_key_is_named_before_the_unknown_field_error() {
+        assert!(removed_keys(EXAMPLE).is_empty());
+        let tree = Address::new_from_array([3; 32]);
+        let earlier = format!(
+            "deposit_audit = true\n{EXAMPLE}\n[policy]\naddress_tree = \"{tree}\"\n\n\
+             [policy.velocity]\nwindow_slots = 216000\nrows = []\n"
+        );
+        assert_eq!(
+            removed_keys(&earlier),
+            [
+                "`deposit_audit`",
+                "`[policy] address_tree`",
+                "`[policy] velocity`"
+            ]
+        );
+        let path = std::env::temp_dir().join(format!("ring-removed-{}.toml", std::process::id()));
+        file::write(&path, format!("deposit_audit = true\n{EXAMPLE}")).unwrap();
+        let refused = parse_ring_toml::<RingConfig>(&path)
+            .unwrap_err()
+            .to_string();
+        let _ = std::fs::remove_file(&path);
+        assert!(
+            refused.ends_with("keeps the removed key `deposit_audit`, delete it"),
+            "{refused}"
+        );
     }
 
     #[test]
@@ -547,6 +658,8 @@ ring_rpc = "http://127.0.0.1:8785"
         assert!(!written.contains("upgrade_authority_keypair"));
         assert!(!written.contains("ring_rpc_pubkey"));
         assert!(!written.contains("policy"));
+        assert_eq!(config.mode, ModeName::Confidential);
+        assert!(!written.contains("mode"));
         assert_eq!(
             toml::from_str::<RingConfig>(&written).expect("reparse"),
             config
@@ -554,13 +667,25 @@ ring_rpc = "http://127.0.0.1:8785"
     }
 
     #[test]
-    fn deposit_audit_defaults_off_and_is_visible_in_the_initial_configuration() {
-        let config: RingConfig = toml::from_str(EXAMPLE).unwrap();
-        assert!(!config.deposit_audit);
-        assert!(config.render().unwrap().contains("deposit_audit = false"));
-        let enabled = format!("deposit_audit = true\n{EXAMPLE}");
-        let config: RingConfig = toml::from_str(&enabled).unwrap();
-        assert!(config.deposit_audit);
+    fn an_anonymous_ring_records_its_mode() {
+        let text = format!("mode = \"anonymous\"\n{EXAMPLE}");
+        let config: RingConfig = toml::from_str(&text).expect("parse");
+        assert_eq!(config.mode, ModeName::of(RingMode::Anonymous));
+        let rendered = config.render().expect("render");
+        assert!(rendered.contains("mode = \"anonymous\""));
+        assert_eq!(
+            toml::from_str::<RingConfig>(&rendered).expect("reparse"),
+            config
+        );
+        let refused = format!("mode = \"registry\"\n{EXAMPLE}");
+        assert!(toml::from_str::<RingConfig>(&refused).is_err());
+    }
+
+    #[test]
+    fn key_escrow_reads_as_the_confidential_ring_it_was_created_as() {
+        assert_eq!(ModeName::of(RingMode::Off), ModeName::Confidential);
+        assert_eq!(ModeName::of(RingMode::Registry), ModeName::Confidential);
+        assert_eq!(ModeName::of(RingMode::Anonymous), ModeName::Anonymous);
     }
 
     #[test]
@@ -571,16 +696,10 @@ ring_rpc = "http://127.0.0.1:8785"
         assert!(policy.rules.is_empty());
         assert!(policy.sources.is_empty());
         let rendered = config.render().expect("render");
-        assert!(rendered.contains(&format!(
-            "[policy]\n# entry and spend record addresses are claimed in the named tree\naddress_tree = \"{}\"",
-            zolana_interface::pda::tree(0)
-        )));
-        let mut normalized = config;
-        normalized.policy.as_mut().expect("policy").address_tree =
-            Some(Base58Address(zolana_interface::pda::tree(0)));
+        assert!(rendered.contains("[policy]"), "{rendered}");
         assert_eq!(
             toml::from_str::<RingConfig>(&rendered).expect("reparse"),
-            normalized
+            config
         );
     }
 
@@ -619,10 +738,30 @@ ring_rpc = "http://127.0.0.1:8785"
         assert!(local("http://127.0.0.1:8785"));
         assert!(local("http://localhost:8785/"));
         assert!(local("http://[::1]:8785"));
+        assert!(local("http://0.0.0.0:8785"));
         assert!(!local("https://d24brah9h1i4q9.cloudfront.net"));
         assert!(!local("http://ring.example.com:8785"));
         // A host that merely starts with a loopback name is not one.
         assert!(!local("http://localhost.example.com:8785"));
+    }
+
+    #[test]
+    fn one_mint_spelling_serves_every_flag() {
+        for sol in ["sol", "SOL", "Sol"] {
+            assert_eq!(sol.parse::<Mint>(), Ok(Mint(SOL_MINT)));
+        }
+        assert_eq!(Mint(SOL_MINT).to_string(), "sol");
+        let mint = Address::new_from_array([7; 32]);
+        assert_eq!(mint.to_string().parse::<Mint>(), Ok(Mint(mint)));
+        assert!("solana".parse::<Mint>().is_err());
+        let sol: ThresholdSpec = "SOL=5".parse().expect("parses");
+        assert_eq!((sol.mint.0, sol.above), (SOL_MINT, 5));
+        assert_eq!(
+            "5".parse::<ThresholdSpec>(),
+            Err("expected <mint>=<amount>".to_owned())
+        );
+        assert!("sol=many".parse::<ThresholdSpec>().is_err());
+        assert!("mint=1".parse::<ThresholdSpec>().is_err());
     }
 
     #[test]
@@ -684,10 +823,8 @@ ring_rpc = "http://127.0.0.1:8785"
             "name = \"x\"\ntarget = \"devnet\"\n\n[localnet]\nrpc = \"a\"\n"
         );
         std::fs::write(&path, "name = \"x\"\n").expect("write");
-        assert!(matches!(
-            RingConfig::set_target(&path, Target::Devnet),
-            Err(ConfigError::NoTargetLine { .. })
-        ));
+        let error = RingConfig::set_target(&path, Target::Devnet).expect_err("no target");
+        assert!(error.to_string().ends_with("has no target line"), "{error}");
         std::fs::remove_dir_all(dir).expect("cleanup");
     }
 
@@ -702,13 +839,13 @@ ring_rpc = "http://127.0.0.1:8785"
             expand_env("http://127.0.0.1:8899").expect("plain"),
             "http://127.0.0.1:8899"
         );
-        assert!(matches!(
-            expand_env("${RING_TEST_UNSET_KEY}"),
-            Err(ConfigError::UnsetVariable { .. })
-        ));
-        assert!(matches!(
-            expand_env("${RING_TEST_KEY"),
-            Err(ConfigError::UnclosedPlaceholder { .. })
-        ));
+        assert!(expand_env("${RING_TEST_UNSET_KEY}")
+            .expect_err("unset")
+            .to_string()
+            .starts_with("RING_TEST_UNSET_KEY is not set"));
+        assert!(expand_env("${RING_TEST_KEY")
+            .expect_err("unclosed")
+            .to_string()
+            .starts_with("unclosed placeholder"));
     }
 }

@@ -68,21 +68,20 @@ impl TakeVerifiableEncryptionProofInputParams {
         let destination_output =
             ProofInputUtxo::try_from((&self.destination_output, self.output_tree_id))
                 .map_err(err)?;
+        let destination_output_hash = destination_output.hash().map_err(err)?;
         let private_tx_hash = PrivateTxHash::new(
             &[
                 order_utxo.hash().map_err(err)?,
                 taker_in.hash().map_err(err)?,
             ],
-            &[
-                source_output.hash().map_err(err)?,
-                destination_output.hash().map_err(err)?,
-            ],
+            &[source_output.hash().map_err(err)?, destination_output_hash],
             &self.private_tx_blinding,
         )
         .hash()
         .map_err(err)?;
         let (ciphertext, _) = destination_ciphertext_with_hash(
             &self.order_utxo.blinding,
+            &destination_output_hash,
             &terms.destination_mint,
             terms.destination_amount,
             &self.destination_output.blinding,

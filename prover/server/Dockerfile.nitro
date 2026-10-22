@@ -30,6 +30,7 @@ ARG CONCURRENCY=2
 ARG KEY_SOURCE=boot
 ARG KMS_KEY_ARN=
 ARG REQUEST_TIMING=
+ARG SERVE=client
 RUN mkdir /out \
     && case $BACKEND in gnark) ;; aeglos-cpu) echo "$BACKEND" > /out/backend ;; *) echo "BACKEND must be gnark or aeglos-cpu" >&2; exit 1 ;; esac \
     && case $REQUEST_TIMING in "") ;; on) echo on > /out/request-timing ;; *) echo "REQUEST_TIMING must be empty or on" >&2; exit 1 ;; esac \
@@ -42,6 +43,7 @@ RUN mkdir /out \
     esac \
     && echo "$KEY_SOURCE" > /out/key-source \
     && sh nitro/routes.sh prover/common/key_downloader.go "$INDEXER_URL" "$KMS_KEY_ARN" > /out/routes \
+    && sh nitro/serve.sh "$SERVE" > /out/serve \
     && printf '%s\n' "$KMS_KEY_ARN" > /out/kms-key \
     && printf '%s\n' "$INDEXER_URL" > /out/indexer-url
 
@@ -50,7 +52,7 @@ RUN mkdir /out \
 FROM alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8 AS release-keys
 
 RUN apk add --no-cache curl=8.14.1-r3 jq=1.8.2-r0
-ARG RELEASE_KEYS_URL=https://github.com/helius-labs/zolana/releases/download/custom-ring-keys-v23
+ARG RELEASE_KEYS_URL=https://github.com/helius-labs/zolana/releases/download/custom-ring-keys-v24
 COPY prover/server/prover/provingkeys/proving-keys.lock /tmp/proving-keys.lock
 RUN set -eu; \
     mkdir /release-keys; \

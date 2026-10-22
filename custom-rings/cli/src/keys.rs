@@ -2,31 +2,33 @@
 
 use std::path::Path;
 
+use anyhow::Result;
 use zolana_keypair::X25519Keypair;
-use zolana_ring_rpc::{write_auditor_key, KeyAccess, KeyFile, KeyFileError};
+use zolana_ring_client::rpc::{read_auditor_key, write_auditor_key};
+use zolana_secret_file::Access;
 
-use crate::{AuditorKeyArgs, ProjectRoot};
-
-pub fn run(project_root: &ProjectRoot, args: AuditorKeyArgs) -> Result<(), KeyFileError> {
-    let key_file = project_root.resolve(&args.key_file);
-    if args.create {
-        let key = write_auditor_key(&key_file)?;
+pub fn run(key_file: &Path, create: bool) -> Result<()> {
+    if create {
+        let key = write_auditor_key(key_file)?;
         println!(
             "auditor key {} created at {}",
             hex::encode(key.pubkey().as_bytes()),
             key_file.display()
         );
     } else {
-        let key = read_auditor_key(&key_file)?;
-        println!("{}", hex::encode(key.pubkey().as_bytes()));
+        println!("{}", hex::encode(read(key_file)?.pubkey().as_bytes()));
     }
     Ok(())
 }
 
-pub(crate) fn read_auditor_key(path: &Path) -> Result<X25519Keypair, KeyFileError> {
-    KeyFile {
-        path,
-        access: KeyAccess::OwnerOnly,
+/// Creates the key a local ring rpc serves when the ring directory has none.
+pub(crate) fn ensure(key_file: &Path) -> Result<()> {
+    if key_file.is_file() {
+        return Ok(());
     }
-    .auditor_key()
+    run(key_file, true)
+}
+
+pub(crate) fn read(path: &Path) -> Result<X25519Keypair> {
+    Ok(read_auditor_key(path, Access::OwnerOnly)?)
 }

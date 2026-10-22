@@ -1,11 +1,8 @@
 package merge_test
 
 import (
-	"fmt"
-	"github.com/consensys/gnark/frontend"
 	mergeshared "github.com/helius-labs/zolana/prover/server/circuits/spp_merge/shared"
 	"github.com/helius-labs/zolana/prover/server/prover-test/aeglosfixture"
-	"math/big"
 	"os"
 	"testing"
 )
@@ -15,23 +12,9 @@ func TestExportAeglosMergeFixtures(t *testing.T) {
 		t.Skip("AEGLOS_FIXTURES is unset")
 	}
 	for _, inputs := range mergeshared.SupportedInputCounts {
-		for _, ring := range []bool{false, true} {
+		for _, rail := range exportedMergeRails {
 			for variant := range 2 {
-				options := mergeFixtureOptions{inputCount: inputs, externalDataHash: big.NewInt(int64(900 + variant))}
-				family := "merge"
-				if ring {
-					family = "merge_ring"
-					options.rail = ringFixtureRail
-					options.ringProgramID = big.NewInt(71)
-					options.inputRingData = []*big.Int{big.NewInt(31), big.NewInt(32)}
-					options.outputRingData = big.NewInt(33)
-				}
-				fixture := buildMergeFixture(t, options)
-				var circuit frontend.Circuit = fixture.defaultCircuit()
-				if ring {
-					circuit = fixture.ringCircuit()
-				}
-				aeglosfixture.Write(t, fmt.Sprintf("%s_%d_1.key", family, inputs), variant, circuit)
+				aeglosfixture.Write(t, rail.keyFile(inputs), variant, newHonestMerge(t, rail, inputs, variant).witness)
 			}
 		}
 	}

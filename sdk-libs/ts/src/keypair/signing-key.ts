@@ -32,7 +32,7 @@ function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
 // does, so this helper answers the same question the runtime would: the
 // cofactorless equation compared over the compressed R bytes, with a
 // small-order R or public key refused and an unreduced y decoded, not rejected.
-function verifyEd25519Strict(
+export function verifyEd25519Strict(
   signature: Uint8Array,
   message: Uint8Array,
   publicKey: Uint8Array,
@@ -55,7 +55,7 @@ export class SigningKey {
     this.#secret = secret;
   }
 
-  static generate(type: SignatureType = "ed25519"): SigningKey {
+  static generate(type: "ed25519" = "ed25519"): SigningKey {
     if (type !== "ed25519") throw new KeypairError("KEYPAIR_INVALID_SIGNATURE_TYPE", { type });
     return new SigningKey(randomBytes(32));
   }

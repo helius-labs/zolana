@@ -34,8 +34,8 @@ func TestMergeRingCompactPaddingSolves(t *testing.T) {
 	fixture := buildMergeFixture(t, mergeFixtureOptions{
 		rail:           ringFixtureRail,
 		ringProgramID:  big.NewInt(0x5a),
-		inputRingData:  []*big.Int{big.NewInt(0xD0), big.NewInt(0xD1)},
-		outputRingData: big.NewInt(0xD2),
+		inputRingData:  []*big.Int{big.NewInt(0xD0), big.NewInt(0xD0)},
+		outputRingData: big.NewInt(0xD0),
 	})
 	padFixtureCompact(fixture)
 	refreshRingPublicInputHash(t, fixture)

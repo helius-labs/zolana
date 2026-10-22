@@ -1,7 +1,3 @@
-mod deposit;
-pub use deposit::IndexedDepositRequest;
-mod policy;
-pub use policy::{IndexedPolicyData, IndexedPolicyLookup, IndexedPolicyRequest, IndexedRegistry};
 mod batch;
 pub use batch::{BatchAnchor, IndexedBatchRequest, ProvenIndexedBatch};
 mod merge;
@@ -342,9 +338,15 @@ impl Request for IndexedProofRequest {
             public_inputs: self.data.public_inputs.iter().map(hex_field).collect(),
             min_context_slot: self.min_context_slot,
         };
-        let mut body = Zeroizing::new(serde_json::to_string(&envelope).map_err(|_| invalid())?);
-        body.pop();
-        body.push_str(",\"prepared\":");
+        let envelope = serde_json::to_string(&envelope).map_err(|_| invalid())?;
+        let head = envelope.strip_suffix('}').ok_or_else(invalid)?;
+        const PREPARED: &str = ",\"prepared\":";
+        // Sized up front, no push reallocates once the witness is in.
+        let mut body = Zeroizing::new(String::with_capacity(
+            head.len() + PREPARED.len() + self.data.witness.len() + 1,
+        ));
+        body.push_str(head);
+        body.push_str(PREPARED);
         body.push_str(&self.data.witness);
         body.push('}');
         Ok(body)
@@ -447,13 +449,11 @@ impl IndexedCircuit {
         match self {
             Self::TransferConfidential | Self::TransferRing => 17,
             Self::TransferRingAuthority => 14,
-            Self::TransferAnonymousRingEddsa => 19,
-            // The prefix without the tree hash, the owner tail, the ciphertext
-            // salt and the three ciphertext elements.
+            Self::TransferAnonymousRingEddsa => 22,
+            // Tree-independent prefix, rail tail, salt and three ciphertext fields.
             Self::Merge => 12,
-            // The prefix without the tree hash and the ring tail; the ring
-            // merge proof binds no ciphertext.
-            Self::MergeRing => 8,
+            // The ring statement also binds the selected member-registry root and the ring mode.
+            Self::MergeRing => 14,
         }
     }
 }
@@ -685,7 +685,9 @@ mod tests {
         let request = IndexedProofRequest::new(request_data())
             .unwrap()
             .with_min_context_slot(42);
-        let body: serde_json::Value = serde_json::from_str(&request.body().unwrap()).unwrap();
+        let body = request.body().unwrap();
+        assert_eq!(body.capacity(), body.len());
+        let body: serde_json::Value = serde_json::from_str(&body).unwrap();
         assert_eq!(body["minContextSlot"], 42);
         assert!(body["prepared"].get("treeSlots").is_none());
     }
@@ -717,8 +719,8 @@ mod tests {
             public_inputs: vec![scalar_one(); count],
         };
         IndexedProofRequest::new(request("merge", 12)).expect("default merge shape");
-        IndexedProofRequest::new(request("merge-ring", 8)).expect("ring merge shape");
-        for (circuit, count) in [("merge", 8), ("merge-ring", 12)] {
+        IndexedProofRequest::new(request("merge-ring", 14)).expect("ring merge shape");
+        for (circuit, count) in [("merge", 13), ("merge-ring", 13)] {
             assert!(matches!(
                 IndexedProofRequest::new(request(circuit, count)),
                 Err(ClientError::InvalidIndexedRequest)

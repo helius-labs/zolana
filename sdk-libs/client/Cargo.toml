@@ -22,6 +22,7 @@ client = ["solana-rpc"]
 proofs = ["reqwest"]
 
 [dependencies]
+custom-ring-interface = { workspace = true }
 zolana-interface = { workspace = true }
 zolana-program = { workspace = true }
 zolana-indexer-api = { workspace = true }
@@ -29,6 +30,7 @@ zolana-event = { workspace = true }
 zolana-event-parser = { workspace = true }
 zolana-hasher = { workspace = true, features = ["std"] }
 zolana-keypair = { workspace = true }
+zolana-ring-policy = { workspace = true }
 zolana-transaction = { workspace = true }
 zolana-user-registry-interface = { workspace = true, features = ["solana"] }
 zeroize = { workspace = true }
@@ -75,6 +77,7 @@ solana-rpc-client = { workspace = true, optional = true }
 solana-commitment-config = { workspace = true, optional = true }
 solana-pubkey = { workspace = true }
 solana-transaction = { workspace = true, features = ["serde"] }
+solana-transaction-error = { workspace = true }
 solana-transaction-status-client-types = { workspace = true }
 tokio = { workspace = true, features = ["time", "rt", "macros", "sync"] }
 
@@ -95,6 +98,14 @@ x509-cert = { workspace = true, features = ["builder"] }
 
 [[test]]
 name = "scan"
+
+# Hermetic: tag stream occupancy against an in-memory indexer.
+[[test]]
+name = "tags"
+
+# Hermetic: the anonymous ring streams against an in-memory indexer.
+[[test]]
+name = "anonymous_sync"
 
 [[test]]
 name = "rpc"

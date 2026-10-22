@@ -1,8 +1,9 @@
 mod public_inputs;
-pub use public_inputs::{MergePublicInputBinding, MergePublicInputs};
+pub use public_inputs::{MergePublicInputBinding, MergePublicInputs, MergeRegistryBinding};
 
 use num_bigint::BigUint;
 use solana_address::Address;
+use zolana_hasher::hash_chain::create_hash_chain_4_from_slice;
 use zolana_hasher::primitives::pack_be;
 use zolana_interface::{
     error::ShieldedPoolError,
@@ -39,7 +40,7 @@ use crate::{
             },
             witness::{attach_input_proofs, SpendProof},
         },
-        MergeInputs, TreeSlotFields,
+        MergeInputs, MergeRegistration, TreeSlotFields,
     },
     rpc::NonInclusionProof,
 };
@@ -81,9 +82,31 @@ pub struct MergeProofResult {
     pub output_ring_data_hash: [u8; 32],
     pub output_ciphertext_salt: Salt,
     pub output_ciphertext: MergeOutputCiphertext,
+    /// The public hash preimage, the ring registration joins it after the common statement.
+    hash_elements: Vec<[u8; 32]>,
 }
 
 impl MergeProofResult {
+    /// An escrow record arrives verified under a chain-selected root, the circuit proves it again.
+    pub fn with_registration(
+        mut self,
+        registration: MergeRegistration,
+    ) -> Result<Self, ClientError> {
+        // An escrow merge binds the registry root, an anonymous one the zero root.
+        if self.ring_program_id.is_none()
+            || (registration.root == [0; 32]) != registration.ciphertext_hash.is_none()
+        {
+            return Err(ClientError::RingMemberUnregistered);
+        }
+        // The root and mode follow the seven common elements, the ring data and the ring program.
+        self.hash_elements
+            .splice(9..9, registration.binding().elements());
+        self.public_input_hash = create_hash_chain_4_from_slice(&self.hash_elements)?;
+        self.inputs.public_input_hash = be(&self.public_input_hash);
+        self.inputs.registration = Some(registration);
+        Ok(self)
+    }
+
     /// Assemble the `merge_transact` instruction data from this proof result and
     /// the proof (`ProofCompressed::to_merge_proof`). The caller passes the
     /// result to the `MergeTransact` builder with the tree / protocol_config /
@@ -106,12 +129,21 @@ impl MergeProofResult {
     }
 
     /// Assemble the `merge_ring` instruction data: the same `merge_transact`
-    /// body wrapped in a [`MergeRingIxData`] with the output `ring_data_hash`
-    /// the ring program selected. The caller passes the result to the
+    /// body wrapped in a [`MergeRingIxData`] preserving the inputs' common
+    /// `ring_data_hash`. The caller passes the result to the
     /// `MergeRing` builder with the tree / ring_config accounts.
     pub fn ring_instruction_data(&self, proof: MergeProof) -> MergeRingIxData {
+        let registry = self.inputs.registration.as_ref().map_or(
+            MergeRegistryBinding {
+                root: [0; 32],
+                anonymous: false,
+            },
+            MergeRegistration::binding,
+        );
         MergeRingIxData {
             output_ring_data_hash: self.output_ring_data_hash,
+            member_registry_root: registry.root,
+            anonymous: registry.anonymous,
             merge: self.instruction_data(proof),
         }
     }
@@ -141,6 +173,13 @@ pub(crate) fn check_output_ciphertext(
 }
 
 impl MergeProver {
+    pub fn build_registered(
+        self,
+        registration: MergeRegistration,
+    ) -> Result<MergeProofResult, ClientError> {
+        self.build()?.with_registration(registration)
+    }
+
     pub fn build(self) -> Result<MergeProofResult, ClientError> {
         let tx = &self.transaction;
         let n_inputs = tx.input_utxos.len();
@@ -260,7 +299,7 @@ impl MergeProver {
         let user_signing_pk_hash = signing_pubkey.owner_proof_input_hash()?;
         let output_ring_data_hash = output_utxo.ring_data_hash.unwrap_or_default();
         let ring_hash = program_id_proof_input_hash(&ring_program_id)?;
-        let public_input_hash = MergePublicInputs {
+        let elements = MergePublicInputs {
             nullifiers: &assembled_inputs.nullifiers,
             output_hash,
             output_tree_id,
@@ -271,19 +310,21 @@ impl MergeProver {
                 MergePublicInputBinding::Ring {
                     output_data_hash: output_ring_data_hash,
                     program_id_hash: ring_hash,
+                    registry: None,
                 }
             } else {
                 MergePublicInputBinding::Owner {
                     signing_key_hash: user_signing_pk_hash,
                     nullifier_public_key: nullifier_pubkey,
-                    output_encryption: MergeOutputEncryption::PoseidonCtrV1 {
-                        salt: output_ciphertext_salt,
-                        ciphertext: output_ciphertext,
-                    },
                 }
             },
+            output_encryption: MergeOutputEncryption::PoseidonCtrV1 {
+                salt: output_ciphertext_salt,
+                ciphertext: output_ciphertext,
+            },
         }
-        .hash(tree_slots_hash_chain(&assembled_inputs.tree_slots)?)?;
+        .elements(Some(tree_slots_hash_chain(&assembled_inputs.tree_slots)?))?;
+        let public_input_hash = create_hash_chain_4_from_slice(&elements)?;
         let user_nullifier_secret = right_align_slice(&*self.nullifier_key.secret())?;
         let output = assembled_outputs
             .outputs
@@ -306,6 +347,7 @@ impl MergeProver {
             public_input_hash: be(&public_input_hash),
             output_ring_data_hash: be(&output_ring_data_hash),
             ring_program_id: be(&ring_hash),
+            registration: None,
         };
         Ok(MergeProofResult {
             inputs,
@@ -322,6 +364,7 @@ impl MergeProver {
             output_ring_data_hash,
             output_ciphertext_salt,
             output_ciphertext,
+            hash_elements: elements,
         })
     }
 }

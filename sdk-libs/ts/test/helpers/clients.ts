@@ -112,22 +112,16 @@ export function ringTransferClient(
   overrides: Partial<RingTransferClient> = {},
 ): RingTransferClient {
   return {
-    proofDataSource: "client",
     tree: TREE,
     treeId: TREE_ID,
     getLatestBlockhash: async () => BLOCKHASH,
     getAccount: async () => undefined,
-    proveRingTransact: notImplemented("proveRingTransact"),
-    proveCustomRingPolicy: notImplemented("proveCustomRingPolicy"),
-    proveCustomRingBase: notImplemented("proveCustomRingBase"),
-    getEncryptedUtxosByTags: notImplemented("getEncryptedUtxosByTags"),
-    getShieldedTransactionsByNullifiers: notImplemented("getShieldedTransactionsByNullifiers"),
-    getMerkleProofs: notImplemented("getMerkleProofs"),
-    getNonInclusionProofs: notImplemented("getNonInclusionProofs"),
     getSlot: notImplemented("getSlot"),
-    getRingSpendRecord: notImplemented("getRingSpendRecord"),
-    getRingKeyRegistryEntry: notImplemented("getRingKeyRegistryEntry"),
-    proveCustomRingCompressedPolicy: notImplemented("proveCustomRingCompressedPolicy"),
+    getRingMemberOpenings: notImplemented("getRingMemberOpenings"),
+    getMerkleProofs: notImplemented("getMerkleProofs"),
+    proveRing: notImplemented("proveRing"),
+    proveRingTransact: notImplemented("proveRingTransact"),
+    proveAnonymousRingTransact: notImplemented("proveAnonymousRingTransact"),
     ...overrides,
   };
 }

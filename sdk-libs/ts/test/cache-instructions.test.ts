@@ -30,7 +30,6 @@ import {
   transactInstruction,
 } from "../src/interface/index.js";
 import { MAX_TRANSACT_INPUTS } from "../src/interface/shape.js";
-import { ringTransactInstruction } from "../src/ring/instructions.js";
 import type {
   Address,
   Bytes16,
@@ -393,28 +392,6 @@ describe("transact cache accounts", () => {
       [CACHE, AccountRole.WRITABLE],
       [WRITER, AccountRole.READONLY_SIGNER],
     ]);
-  });
-
-  it("refuses a cached circuit on the custom-ring transact, which the ring program rejects", async () => {
-    await expect(
-      ringTransactInstruction({
-        ringProgramId: RING_AUTH,
-        payer: PAYER,
-        inputTrees: [TREE],
-        outputTree: OUTPUT_TREE,
-        proof: new Uint8Array(),
-        data: transactData({
-          kind: "confidentialRingEddsaCached",
-          inputs: 2,
-          outputs: 2,
-          publicAssetSlots: 3,
-          cacheAccess: { readBitmap: 1n, writeSlots: NO_CACHE_WRITES },
-        }),
-      }),
-    ).rejects.toMatchObject({
-      code: "RING_CACHE_UNSUPPORTED",
-      details: { kind: "confidentialRingEddsaCached" },
-    });
   });
 });
 

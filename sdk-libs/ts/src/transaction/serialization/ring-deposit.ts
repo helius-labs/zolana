@@ -1,3 +1,4 @@
+import { isCanonicalField } from "../../interface/canonical-field.js";
 import { ringDepositRecipientCiphertext } from "../../interface/ring-deposit-capsule.js";
 import type {
   Address,
@@ -12,6 +13,7 @@ import type { ShieldedPublicKey } from "../../keypair/public-key.js";
 import type { ViewingKeyLike } from "../../keypair/shielded.js";
 
 import { Data, type DataRecord } from "../data.js";
+import { TransactionError } from "../error.js";
 import { Utxo } from "../utxo.js";
 
 /** Rust `RingDepositPlaintext`. */
@@ -117,6 +119,8 @@ export function ringDepositUtxo(
   owner: ShieldedPublicKey,
 ): Utxo {
   const plaintext = decodeRingDepositPlaintext(decrypted);
+  if (!isCanonicalField(plaintext.blinding))
+    throw new TransactionError("TRANSACTION_INVALID_BLINDING");
   const records: DataRecord[] = [{ kind: "ringData", bytes: plaintext.ringData }];
   if (plaintext.utxoData) records.push({ kind: "utxoData", bytes: plaintext.utxoData });
   if (plaintext.memo) records.push({ kind: "memo", bytes: plaintext.memo });

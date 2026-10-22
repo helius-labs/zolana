@@ -52,7 +52,7 @@ func TestTransferDeliveryDefaultsAndFallback(t *testing.T) {
 		common.TransferConfidentialCircuitType, common.TransferRingCircuitType,
 		common.TransferAnonymousRingEddsaCircuitType, common.TransferRingAuthorityCircuitType,
 		common.MergeCircuitType, common.MergeRingCircuitType,
-		common.CustomRingBaseCircuitType, common.CustomRingPolicyCircuitType,
+		common.CircuitType("custom-ring-audit-packed-2"), common.CircuitType("custom-ring-policy-member-2"),
 		common.BatchAddressAppendCircuitType,
 	} {
 		t.Run(string(circuit), func(t *testing.T) {

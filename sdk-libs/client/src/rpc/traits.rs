@@ -18,11 +18,14 @@ use super::{
     transaction::{compile_message, sign_transaction},
     types::{
         GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse, GetNonInclusionProofsResponse,
-        GetRingKeyRegistryEntryResponse, GetRingKeyRegistryRegisterProofResponse,
-        GetRingSpendRecordResponse, GetShieldedTransactionsByNullifiersResponse,
-        GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
-        GetUserRecordsResponse, ProveResult, RingHistoryOptions, RingMemberProofRequest,
-        RingSpendRecordRequest, ShieldedTransactionStream,
+        GetRingApplyProofInputsRequest, GetRingApplyProofInputsResponse,
+        GetRingMemberOpeningsRequest, GetRingMemberOpeningsResponse, GetRingMemberRecordRequest,
+        GetRingMemberRecordResponse, GetRingMemberRecordsRequest, GetRingMemberRecordsResponse,
+        GetRingMemberRegistryRootRequest, GetRingMemberRegistryRootResponse,
+        GetRingRecordQueueRequest, GetRingRecordQueueResponse,
+        GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
+        GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, ProveResult,
+        RingHistoryOptions, ShieldedTransactionStream,
     },
 };
 
@@ -76,6 +79,14 @@ pub trait Rpc {
         signatures: Vec<Signature>,
     ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
         Err(unsupported("get_signature_statuses"))
+    }
+
+    /// Searches past the recent status cache, the default reads only the cache.
+    fn get_signature_statuses_with_history(
+        &self,
+        signatures: Vec<Signature>,
+    ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
+        self.get_signature_statuses(signatures)
     }
 
     fn get_minimum_balance_for_rent_exemption(&self, data_len: usize) -> Result<u64, ClientError> {
@@ -212,25 +223,46 @@ pub trait Rpc {
         Err(unsupported("get_non_inclusion_proofs"))
     }
 
-    fn get_ring_spend_record(
+    fn get_ring_member_record(
         &self,
-        request: RingSpendRecordRequest,
-    ) -> Result<GetRingSpendRecordResponse, ClientError> {
-        Err(unsupported("get_ring_spend_record"))
+        request: GetRingMemberRecordRequest,
+    ) -> Result<GetRingMemberRecordResponse, ClientError> {
+        Err(unsupported("get_ring_member_record"))
     }
 
-    fn get_ring_key_registry_entry(
+    fn get_ring_member_records(
         &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingKeyRegistryEntryResponse, ClientError> {
-        Err(unsupported("get_ring_key_registry_entry"))
+        request: GetRingMemberRecordsRequest,
+    ) -> Result<GetRingMemberRecordsResponse, ClientError> {
+        Err(unsupported("get_ring_member_records"))
     }
 
-    fn get_ring_key_registry_register_proof(
+    fn get_ring_member_registry_root(
         &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingKeyRegistryRegisterProofResponse, ClientError> {
-        Err(unsupported("get_ring_key_registry_register_proof"))
+        request: GetRingMemberRegistryRootRequest,
+    ) -> Result<GetRingMemberRegistryRootResponse, ClientError> {
+        Err(unsupported("get_ring_member_registry_root"))
+    }
+
+    fn get_ring_member_openings(
+        &self,
+        request: GetRingMemberOpeningsRequest,
+    ) -> Result<GetRingMemberOpeningsResponse, ClientError> {
+        Err(unsupported("get_ring_member_openings"))
+    }
+
+    fn get_ring_record_queue(
+        &self,
+        request: GetRingRecordQueueRequest,
+    ) -> Result<GetRingRecordQueueResponse, ClientError> {
+        Err(unsupported("get_ring_record_queue"))
+    }
+
+    fn get_ring_apply_proof_inputs(
+        &self,
+        request: GetRingApplyProofInputsRequest,
+    ) -> Result<GetRingApplyProofInputsResponse, ClientError> {
+        Err(unsupported("get_ring_apply_proof_inputs"))
     }
 
     /// Registry records for up to `MAX_USER_RECORD_OWNERS` owners, read at one
@@ -324,6 +356,14 @@ pub trait AsyncRpc: Send + Sync {
         signatures: Vec<Signature>,
     ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
         Err(unsupported("get_signature_statuses"))
+    }
+
+    /// Searches past the recent status cache, the default reads only the cache.
+    async fn get_signature_statuses_with_history(
+        &self,
+        signatures: Vec<Signature>,
+    ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
+        self.get_signature_statuses(signatures).await
     }
 
     async fn get_minimum_balance_for_rent_exemption(
@@ -442,25 +482,46 @@ pub trait AsyncRpc: Send + Sync {
         Err(unsupported("get_non_inclusion_proofs"))
     }
 
-    async fn get_ring_spend_record(
+    async fn get_ring_member_record(
         &self,
-        request: RingSpendRecordRequest,
-    ) -> Result<GetRingSpendRecordResponse, ClientError> {
-        Err(unsupported("get_ring_spend_record"))
+        request: GetRingMemberRecordRequest,
+    ) -> Result<GetRingMemberRecordResponse, ClientError> {
+        Err(unsupported("get_ring_member_record"))
     }
 
-    async fn get_ring_key_registry_entry(
+    async fn get_ring_member_records(
         &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingKeyRegistryEntryResponse, ClientError> {
-        Err(unsupported("get_ring_key_registry_entry"))
+        request: GetRingMemberRecordsRequest,
+    ) -> Result<GetRingMemberRecordsResponse, ClientError> {
+        Err(unsupported("get_ring_member_records"))
     }
 
-    async fn get_ring_key_registry_register_proof(
+    async fn get_ring_member_registry_root(
         &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingKeyRegistryRegisterProofResponse, ClientError> {
-        Err(unsupported("get_ring_key_registry_register_proof"))
+        request: GetRingMemberRegistryRootRequest,
+    ) -> Result<GetRingMemberRegistryRootResponse, ClientError> {
+        Err(unsupported("get_ring_member_registry_root"))
+    }
+
+    async fn get_ring_member_openings(
+        &self,
+        request: GetRingMemberOpeningsRequest,
+    ) -> Result<GetRingMemberOpeningsResponse, ClientError> {
+        Err(unsupported("get_ring_member_openings"))
+    }
+
+    async fn get_ring_record_queue(
+        &self,
+        request: GetRingRecordQueueRequest,
+    ) -> Result<GetRingRecordQueueResponse, ClientError> {
+        Err(unsupported("get_ring_record_queue"))
+    }
+
+    async fn get_ring_apply_proof_inputs(
+        &self,
+        request: GetRingApplyProofInputsRequest,
+    ) -> Result<GetRingApplyProofInputsResponse, ClientError> {
+        Err(unsupported("get_ring_apply_proof_inputs"))
     }
 
     /// See [`Rpc::get_user_records`].

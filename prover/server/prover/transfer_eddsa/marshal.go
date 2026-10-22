@@ -53,6 +53,7 @@ type TransferParametersJSON struct {
 	ExternalDataHash             string                      `json:"externalDataHash"`
 	PrivateTxHash                string                      `json:"privateTxHash"`
 	BlindingSeed                 string                      `json:"blindingSeed"`
+	RingSecrets                  []string                    `json:"ringSecrets"`
 	PublicAssets                 []string                    `json:"publicAssets"`
 	PublicAmounts                []string                    `json:"publicAmounts"`
 	RingProgramID                string                      `json:"ringProgramId"`
@@ -94,6 +95,7 @@ func (p *TransferParameters) CreateTransferParametersJSON() TransferParametersJS
 		ExternalDataHash:             common.FeHex(p.ExternalDataHash),
 		PrivateTxHash:                common.FeHex(p.PrivateTxHash),
 		BlindingSeed:                 common.FeHex(p.BlindingSeed),
+		RingSecrets:                  common.FeHexSlice(p.RingSecrets),
 		PublicAssets:                 common.FeHexSlice(p.PublicAssets),
 		PublicAmounts:                common.FeHexSlice(p.PublicAmounts),
 		RingProgramID:                common.FeHex(p.RingProgramID),
@@ -166,6 +168,9 @@ func (p *TransferParameters) UpdateWithJSON(params TransferParametersJSON) error
 	}
 	if p.BlindingSeed.Sign() == 0 {
 		return fmt.Errorf("spp: blindingSeed must not be zero")
+	}
+	if p.RingSecrets, err = common.FeFromHexSlice(params.RingSecrets); err != nil {
+		return err
 	}
 	if len(params.PublicAssets) != txcircuit.NPublicSlots || len(params.PublicAmounts) != txcircuit.NPublicSlots {
 		return fmt.Errorf(

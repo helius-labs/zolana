@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
 use solana_address::Address;
+use zolana_hasher::primitives::hash_bytes;
+use zolana_interface::SOL_ASSET_FIELD;
 
 use crate::{error::TransactionError, utxo::WalletUtxo};
 
@@ -66,7 +68,13 @@ impl Balances {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct AssetRegistry(HashMap<u64, Address>);
+pub struct AssetRegistry {
+    mints: HashMap<u64, Address>,
+    /// Inverse of `mints`, a lookup or a duplicate check stays constant at any registry size.
+    ids: HashMap<Address, u64>,
+    /// Keyed by `hash_bytes(mint)`, the asset field a commitment binds.
+    fields: HashMap<[u8; 32], Address>,
+}
 
 impl AssetRegistry {
     pub fn new(
@@ -83,18 +91,21 @@ impl AssetRegistry {
         if asset_id == SOL_ASSET_ID {
             return Err(TransactionError::ReservedAssetId(asset_id));
         }
-        if self.0.contains_key(&asset_id) {
+        if self.mints.contains_key(&asset_id) {
             return Err(TransactionError::DuplicateAssetId(asset_id));
         }
-        if self.0.values().any(|m| m == &mint) {
+        if self.ids.contains_key(&mint) {
             return Err(TransactionError::DuplicateMint(mint));
         }
-        self.0.insert(asset_id, mint);
+        let field = hash_bytes(mint.as_array())?;
+        self.mints.insert(asset_id, mint);
+        self.ids.insert(mint, asset_id);
+        self.fields.insert(field, mint);
         Ok(())
     }
 
     pub fn resolve(&self, asset_id: u64) -> Result<Mint, TransactionError> {
-        self.0
+        self.mints
             .get(&asset_id)
             .copied()
             .map(|asset| Mint::new(asset, asset_id))
@@ -106,25 +117,23 @@ impl AssetRegistry {
     }
 
     pub fn asset_id(&self, mint: &Address) -> Result<u64, TransactionError> {
-        self.0
-            .iter()
-            .find_map(|(id, m)| (m == mint).then_some(*id))
+        self.ids
+            .get(mint)
+            .copied()
             .ok_or(TransactionError::UnknownMint(*mint))
     }
 
     pub fn address_for_field(&self, field: &[u8; 32]) -> Result<Option<Address>, TransactionError> {
-        for mint in self.0.values() {
-            let mint_field = zolana_hasher::primitives::hash_bytes(mint.as_array())?;
-            if &mint_field == field {
-                return Ok(Some(*mint));
-            }
-        }
-        Ok(None)
+        Ok(self.fields.get(field).copied())
     }
 }
 
 impl Default for AssetRegistry {
     fn default() -> Self {
-        Self(HashMap::from([(SOL_ASSET_ID, SOL_MINT)]))
+        Self {
+            mints: HashMap::from([(SOL_ASSET_ID, SOL_MINT)]),
+            ids: HashMap::from([(SOL_MINT, SOL_ASSET_ID)]),
+            fields: HashMap::from([(SOL_ASSET_FIELD, SOL_MINT)]),
+        }
     }
 }

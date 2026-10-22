@@ -32,6 +32,19 @@ impl<R: BlockingRpc, I: BlockingIndexer> ZolanaClient<R, I> {
     ) -> Result<(), ClientError> {
         self.block_on(self.client.confirm_private_transaction(signature))
     }
+
+    /// See [`wait_for_indexed_transaction`].
+    pub fn wait_for_indexed_transaction(
+        &self,
+        signature: Signature,
+        poll: IndexerPollConfig,
+    ) -> Result<(), ClientError> {
+        self.block_on(wait_for_indexed_transaction(
+            &self.client.indexer,
+            signature,
+            poll,
+        ))
+    }
 }
 
 /// Poll the RPC until the signature reaches confirmed commitment.
@@ -53,14 +66,8 @@ async fn wait_for_rpc_confirmation<R: AsyncRpc>(
     )))
 }
 
-/// Poll the indexer until it reports the transaction.
-///
-/// Photon writes every event of a transaction in one indexer slot inside one
-/// database transaction, so a single visible event proves the whole transaction
-/// is indexed. Matching the event against the transaction's view tags would add
-/// no guarantee and would reject legitimate transactions whose events share a
-/// tag.
-async fn wait_for_indexed_transaction<I: AsyncRpc>(
+/// Fails at once on an error `should_retry` rejects, one event shows the whole transaction indexed.
+pub async fn wait_for_indexed_transaction<I: AsyncRpc + ?Sized>(
     indexer: &I,
     signature: Signature,
     retry: IndexerPollConfig,

@@ -13,6 +13,7 @@ ed25519-dalek = { workspace = true }
 aes = { workspace = true }
 ctr = { workspace = true }
 hkdf = { workspace = true }
+percent-encoding = { workspace = true }
 zeroize = { workspace = true }
 sha2 = { workspace = true }
 zolana-hasher = { workspace = true, features = ["std"] }
@@ -53,6 +54,10 @@ path = "tests/hsm_backends.rs"
 [[test]]
 name = "vectors"
 path = "tests/vectors.rs"
+
+[[test]]
+name = "ring_address"
+path = "tests/ring_address.rs"
 
 [[test]]
 name = "serde"

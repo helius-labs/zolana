@@ -214,10 +214,8 @@ func (handler proofStatusHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 				response["message"] = fmt.Sprintf("Job processing failed: %s", errorMsg)
 				response["error"] = errorMsg
 			}
-			for _, field := range []string{"code", "member"} {
-				if value, ok := failureDetails[field].(string); ok {
-					response[field] = value
-				}
+			if code, ok := failureDetails["code"].(string); ok {
+				response["code"] = code
 			}
 			if failedAt, ok := failureDetails["failedAt"]; ok {
 				response["failedAt"] = failedAt
@@ -783,7 +781,6 @@ type Error struct {
 	Code       string
 	Message    string
 	RetryAfter int
-	Member     string
 	cause      error
 }
 
@@ -797,20 +794,16 @@ func keysNotReady() *Error {
 
 // indexedFailure keeps the resolution cause for queue redaction.
 func indexedFailure(err error) *Error {
-	var unregistered *indexed.UnregisteredMemberError
-	switch {
-	case errors.Is(err, indexed.ErrIndexerNotReady):
+	if errors.Is(err, indexed.ErrIndexerNotReady) {
 		failure := notReady("indexer_not_ready", indexed.ErrIndexerNotReady.Error())
 		failure.cause = err
 		return failure
-	case errors.As(err, &unregistered):
-		return &Error{StatusCode: http.StatusUnprocessableEntity, Code: "registry_member_missing", Message: "Output owner has no registered key", Member: unregistered.Member.String(), cause: err}
 	}
 	return &Error{StatusCode: http.StatusBadGateway, Code: "indexer_unavailable", Message: "Indexer proof data is unavailable", cause: err}
 }
 
 // indexerUnavailable reports whether an indexed failure withholds its cause,
-// which the caller then logs. A not-ready or unregistered-member failure tells
+// which the caller then logs. A not-ready failure tells
 // the client everything the prover knows. The resolver's errors are fixed
 // strings that carry no credentials or request data, so the log may hold them.
 func indexerUnavailable(failure *Error) bool {
@@ -851,9 +844,6 @@ func (error *Error) MarshalJSON() ([]byte, error) {
 	body := map[string]string{
 		"code":    error.Code,
 		"message": error.Message,
-	}
-	if error.Member != "" {
-		body["member"] = error.Member
 	}
 	return json.Marshal(body)
 }

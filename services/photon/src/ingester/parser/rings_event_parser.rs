@@ -42,7 +42,8 @@ pub fn parse_rings_events(
             .filter(|key| key.iter().any(|byte| *byte != 0))
             .map(|key| key.to_vec());
         let salt = Some(event.salt)
-            .filter(|salt| salt.iter().any(|byte| *byte != 0))
+            // Zero is a valid salt. Only absent viewing metadata has no salt.
+            .filter(|salt| tx_viewing_pk.is_some() || salt.iter().any(|byte| *byte != 0))
             .map(|salt| salt.to_vec());
 
         let proofless = matches!(

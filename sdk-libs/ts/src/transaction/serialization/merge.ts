@@ -1,15 +1,11 @@
 import type { Address, Bytes16, Bytes32 } from "../../interface/types.js";
-import { BN254_SCALAR_ORDER, fieldAdd, fieldSub } from "../../hasher/index.js";
+import { fieldAdd, fieldSub } from "../../hasher/index.js";
+import { isCanonicalField } from "../../interface/canonical-field.js";
 import { bigIntToBytes, bytesToBigInt } from "../../keypair/bytes.js";
 import { MERGE_OUTPUT_CIPHERTEXT_ELEMENTS, mergeOutputPads } from "../../keypair/merge/index.js";
 import { TransactionError } from "../error.js";
 import { checked, decodeAddress, encodeAddress } from "../internal.js";
-import {
-  EncryptedScheme,
-  decodeOutputData,
-  encodeOutputData,
-  mergeOutputDataEncoding,
-} from "./codecs.js";
+import { EncryptedScheme, decodeOutputData, encodeOutputData } from "./codecs.js";
 
 /** The two output fields a merge proof encrypts for the owner. Rust `MergeOutputPlaintext`. */
 export interface MergeOutputPlaintext {
@@ -85,11 +81,11 @@ export function decryptMergeOutput(body: Uint8Array, key: Bytes32): MergeOutputP
   const [pad0, pad1, pad2] = mergeOutputPads(key, body.subarray(0, SALT_LENGTH));
   const decrypt = (index: number, pad: bigint): bigint => {
     const offset = SALT_LENGTH + 32 * index;
-    const element = bytesToBigInt(body.subarray(offset, offset + 32));
-    if (element >= BN254_SCALAR_ORDER) {
+    const element = body.subarray(offset, offset + 32);
+    if (!isCanonicalField(element)) {
       throw new TransactionError("TRANSACTION_NON_CANONICAL_MERGE_CIPHERTEXT", { index });
     }
-    return fieldSub(element, pad);
+    return fieldSub(bytesToBigInt(element), pad);
   };
   const amount = decrypt(0, pad0);
   const chunk0 = decrypt(1, pad1);
@@ -106,9 +102,9 @@ export function decryptMergeOutput(body: Uint8Array, key: Bytes32): MergeOutputP
 /**
  * A merge output's data slot, as Rust `encode_merge_output_data` and the
  * indexer rebuild it from the merge instruction: `VerifiablyEncrypted(scheme ||
- * salt || ciphertext)` for a default merge, whose proof binds the ciphertext,
- * and `Encrypted(scheme || ring_data_hash || salt || ciphertext)` for a ring
- * merge, whose proof does not.
+ * salt || ciphertext)` for a default merge and `VerifiablyEncrypted(scheme ||
+ * ring_data_hash || salt || ciphertext)` for a ring merge, whose proofs bind the
+ * ciphertext.
  */
 export function encodeMergeOutputData(
   input: Readonly<{
@@ -130,11 +126,7 @@ export function encodeMergeOutputData(
     body.set(part, offset);
     offset += part.length;
   }
-  return encodeOutputData(
-    EncryptedScheme.merge,
-    body,
-    mergeOutputDataEncoding(input.ringDataHash !== undefined),
-  );
+  return encodeOutputData(EncryptedScheme.merge, body);
 }
 
 /** The encrypted body of a merge output slot. */
@@ -142,20 +134,12 @@ export type MergeOutputBody = Readonly<{ ringDataHash?: Bytes32; encrypted: Uint
 
 /**
  * Reads a merge output slot's payload: `undefined` for any other scheme, a
- * payload that does not decode, or an encoding other than the one
- * [`mergeOutputDataEncoding`] gives the body's shape (a ring merge body is led
- * by its ring data hash). A ring merge ciphertext is unverified, so the caller
- * must check the decrypted output against the published commitment.
+ * payload that does not decode, or an encoding other than `"verifiable"`.
  */
 export function readMergeOutputBody(payload: Uint8Array): MergeOutputBody | undefined {
   try {
     const frame = decodeOutputData(payload);
-    if (frame.scheme !== EncryptedScheme.merge) return undefined;
-    const body = splitMergeOutputBody(frame.body);
-    if (body === undefined) return undefined;
-    return frame.encoding === mergeOutputDataEncoding(body.ringDataHash !== undefined)
-      ? body
-      : undefined;
+    return frame.scheme === EncryptedScheme.merge ? splitMergeOutputBody(frame.body) : undefined;
   } catch {
     return undefined;
   }

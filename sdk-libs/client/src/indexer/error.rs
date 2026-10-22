@@ -1,7 +1,7 @@
 use crate::error::ClientError;
 use zolana_indexer_api::error_code::{
-    RING_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED, RING_KEY_REGISTRY_MEMBER_UNREGISTERED,
-    RING_KEY_REGISTRY_OUT_OF_SYNC, RING_KEY_REGISTRY_ROOT_CHANGED, RING_SPEND_RECORD_OUT_OF_SYNC,
+    RING_MEMBER_UNREGISTERED, RING_RECORD_QUEUE_CHANGED, RING_REGISTRY_OUT_OF_SYNC,
+    RING_REGISTRY_PAGE_GAP, RING_REGISTRY_ROOT_CHANGED,
 };
 
 const JSON_RPC_METHOD_NOT_FOUND: i64 = -32601;
@@ -45,13 +45,11 @@ pub(super) fn indexer_error(error: zolana_api::ApiError) -> ClientError {
         zolana_api::ApiError::JsonRpc {
             code: Some(code), ..
         } => match code {
-            RING_KEY_REGISTRY_OUT_OF_SYNC => ClientError::RingKeyRegistryOutOfSync,
-            RING_KEY_REGISTRY_ROOT_CHANGED => ClientError::RingKeyRegistryRootChanged,
-            RING_KEY_REGISTRY_MEMBER_UNREGISTERED => ClientError::RingKeyRegistryMemberUnregistered,
-            RING_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED => {
-                ClientError::RingKeyRegistryMemberAlreadyRegistered
-            }
-            RING_SPEND_RECORD_OUT_OF_SYNC => ClientError::RingSpendRecordOutOfSync,
+            RING_REGISTRY_OUT_OF_SYNC => ClientError::RingRegistryOutOfSync,
+            RING_REGISTRY_ROOT_CHANGED => ClientError::RingRegistryRootChanged,
+            RING_REGISTRY_PAGE_GAP => ClientError::RingRegistryPageGap,
+            RING_MEMBER_UNREGISTERED => ClientError::RingMemberUnregistered,
+            RING_RECORD_QUEUE_CHANGED => ClientError::RingRecordQueueChanged,
             JSON_RPC_INTERNAL_ERROR => ClientError::IndexerUnavailable(message),
             _ => ClientError::Indexer(message),
         },
@@ -87,24 +85,21 @@ mod tests {
     fn preserves_ring_projection_error_codes() {
         let cases = [
             (
-                RING_KEY_REGISTRY_OUT_OF_SYNC,
-                ClientError::RingKeyRegistryOutOfSync,
+                RING_REGISTRY_OUT_OF_SYNC,
+                ClientError::RingRegistryOutOfSync,
             ),
             (
-                RING_KEY_REGISTRY_ROOT_CHANGED,
-                ClientError::RingKeyRegistryRootChanged,
+                RING_REGISTRY_ROOT_CHANGED,
+                ClientError::RingRegistryRootChanged,
+            ),
+            (RING_REGISTRY_PAGE_GAP, ClientError::RingRegistryPageGap),
+            (
+                RING_MEMBER_UNREGISTERED,
+                ClientError::RingMemberUnregistered,
             ),
             (
-                RING_KEY_REGISTRY_MEMBER_UNREGISTERED,
-                ClientError::RingKeyRegistryMemberUnregistered,
-            ),
-            (
-                RING_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED,
-                ClientError::RingKeyRegistryMemberAlreadyRegistered,
-            ),
-            (
-                RING_SPEND_RECORD_OUT_OF_SYNC,
-                ClientError::RingSpendRecordOutOfSync,
+                RING_RECORD_QUEUE_CHANGED,
+                ClientError::RingRecordQueueChanged,
             ),
         ];
         for (code, expected) in cases {

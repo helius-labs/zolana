@@ -193,7 +193,8 @@ function validG2(point: Bytes128): Bytes128 {
   return new Uint8Array(point) as Bytes128;
 }
 
-function compressG2(point: Bytes128): Bytes64 {
+/** Rust `alt_bn128_g2_compress_be`, the SPP proof `b` a ring instruction carries compressed. */
+export function compressG2(point: Bytes128): Bytes64 {
   const [, , y1, y0] = g2Coordinates(point);
   const result = new Uint8Array(point.subarray(0, 64)) as Bytes64;
   if (y1 === 0n && y0 === 0n) return result;
@@ -201,6 +202,40 @@ function compressG2(point: Bytes128): Bytes64 {
     result[0] = (result[0] ?? 0) | 0x80;
   }
   return result;
+}
+
+/** Rust `alt_bn128_g2_decompress_be`, the SPP proof `b` the ring program expands. */
+export function decompressG2(compressed: Bytes64): Bytes128 {
+  const point = checkedBytes(compressed, 64, "proof.b");
+  if (point.every((byte) => byte === 0)) return new Uint8Array(128) as Bytes128;
+  const flags = point[0] ?? 0;
+  // Bit 6 marks infinity, no proof point takes it.
+  if ((flags & 0x40) !== 0) invalidPoint();
+  const x1 = bytesToBigInt(point.subarray(0, 32)) & ((1n << 254n) - 1n);
+  const x0 = bytesToBigInt(point.subarray(32));
+  if (x1 >= BN254_BASE_MODULUS || x0 >= BN254_BASE_MODULUS) invalidPoint();
+  const { Fp2 } = bn254.fields;
+  const x = Fp2.create({ c0: x0, c1: x1 });
+  let y: { c0: bigint; c1: bigint };
+  try {
+    y = Fp2.sqrt(Fp2.add(Fp2.mul(Fp2.sqr(x), x), bn254.G2.Point.CURVE().b));
+  } catch {
+    return invalidPoint();
+  }
+  if (isLargestFp2(y) !== ((flags & 0x80) !== 0)) y = Fp2.neg(y);
+  const result = new Uint8Array(128);
+  [x1, x0, y.c1, y.c0].forEach((value, index) => {
+    result.set(bigintToBytes(value, "proof.b"), index * 32);
+  });
+  return result as Bytes128;
+}
+
+function isLargestFp2(value: Readonly<{ c0: bigint; c1: bigint }>): boolean {
+  return isLargest(value.c1) || (value.c1 === 0n && isLargest(value.c0));
+}
+
+function invalidPoint(): never {
+  throw new ClientError("CLIENT_PROOF_POINT", { details: { field: "proof.b" } });
 }
 
 function validateG1(x: bigint, y: bigint, name: string): void {

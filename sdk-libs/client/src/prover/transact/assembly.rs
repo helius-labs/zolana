@@ -14,9 +14,7 @@ use zolana_keypair::PublicKey;
 use zolana_transaction::{
     instructions::transact::{PrivateTxHash, PublicTransfers, Shape},
     utxo::SppProofInputUtxo,
-    utxo::{
-        derive_output_blinding_seed, derive_private_tx_blinding, derive_transact_output_blinding,
-    },
+    utxo::{derive_output_blinding_seed, derive_private_tx_blinding, OutputSlotBlinding},
     ExternalData, SppProofOutputUtxo,
 };
 
@@ -135,6 +133,21 @@ pub(crate) fn confidential_marked_output_owner_pk_hashes(
         .collect::<Result<Vec<_>, ClientError>>()?;
     hashes.resize(n_outputs, [0u8; 32]);
     Ok(hashes)
+}
+
+/// The ring rails' `ringSecrets`, zero for every slot that is not a ring output.
+pub(crate) fn ring_secret_bytes(
+    outputs: &[SppProofOutputUtxo],
+) -> impl Iterator<Item = [u8; 32]> + '_ {
+    outputs
+        .iter()
+        .map(|output| output.ring_secret.unwrap_or_default())
+}
+
+pub(crate) fn ring_secrets(outputs: &[SppProofOutputUtxo]) -> Vec<BigUint> {
+    ring_secret_bytes(outputs)
+        .map(|secret| be(&secret))
+        .collect()
 }
 
 /// Selects how input ownership is authorized. Ring membership is separate from
@@ -726,12 +739,17 @@ pub(crate) fn assemble_transaction(
     let first_nullifier = inputs.nullifiers.first().ok_or(ClientError::NoInputs)?;
     let output_seed = derive_output_blinding_seed(first_nullifier, blinding_seed)?;
     for (index, output) in outputs.iter().enumerate() {
-        let output_index = u32::try_from(index).map_err(|_| ClientError::TooManyOutputs {
+        let slot_index = u32::try_from(index).map_err(|_| ClientError::TooManyOutputs {
             got: outputs.len(),
             max: u32::MAX as usize,
         })?;
-        let expected =
-            derive_transact_output_blinding(first_nullifier, &output_seed, output_index)?;
+        let expected = OutputSlotBlinding {
+            output,
+            first_nullifier,
+            output_blinding_seed: &output_seed,
+            slot_index,
+        }
+        .derive()?;
         if output.blinding != expected {
             return Err(ClientError::OutputBlindingMismatch { index });
         }
@@ -788,6 +806,7 @@ mod tests {
         OutputDataEncoding, CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
         RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
     };
+    use zolana_hasher::{primitives::right_align, Poseidon};
     use zolana_interface::{
         instruction::{OwnerTag, TransactOutput},
         state::cache::{
@@ -795,6 +814,7 @@ mod tests {
         },
         verifying_keys::{CacheAccess, CacheWrite},
     };
+    use zolana_merkle_tree::MerkleTree;
     use zolana_transaction::instructions::transact::CacheAccounts;
 
     use super::*;
@@ -805,20 +825,9 @@ mod tests {
             .expect("ed25519 keypair")
     }
 
-    fn merkle_proof(tree_id: u16, root: u8, root_index: u16) -> MerkleProof {
-        MerkleProof {
-            leaf: [0u8; 32],
-            merkle_context: MerkleContext {
-                tree_type: 0,
-                tree: zolana_interface::pda::tree(tree_id),
-            },
-            path: vec![[0u8; 32]; STATE_TREE_HEIGHT],
-            leaf_index: 0,
-            root: [root; 32],
-            root_seq: 0,
-            root_index,
-        }
-    }
+    /// Inputs of these seeds fill a marker tree after its marker leaf, so inputs that share
+    /// the tree and the marker share a root.
+    const FIXTURE_SEEDS: u8 = 5;
 
     fn non_inclusion_proof(root: u8, root_index: u16) -> NonInclusionProof {
         NonInclusionProof {
@@ -838,19 +847,9 @@ mod tests {
         }
     }
 
-    /// A real input hashed under `tree_id`, proven against
-    /// `(state_root, state_root_index)` and `(nullifier_root, 7)`. The tree is
-    /// the id and nothing else: its account is `pda::tree(tree_id)`, which the
-    /// proof names because that is what the fetch asked for.
-    fn input_utxo_in(
-        seed: u8,
-        tree_id: u16,
-        state_root: u8,
-        state_root_index: u16,
-        nullifier_root: u8,
-    ) -> TransferInputUtxo {
+    fn fixture_utxo(seed: u8, tree_id: u16) -> SppProofInputUtxo {
         let owner = keypair(seed);
-        let utxo: SppProofInputUtxo = wallet_input(
+        wallet_input(
             Utxo {
                 owner: owner.signing_pubkey(),
                 asset: zolana_transaction::Mint::SOL,
@@ -862,9 +861,44 @@ mod tests {
             &owner.nullifier_key,
             tree_id,
         )
-        .into();
-        let mut state = merkle_proof(tree_id, state_root, state_root_index);
-        state.leaf = utxo.utxo_hash;
+        .into()
+    }
+
+    /// A real input hashed under `tree_id`, proven against the root of the
+    /// `state_root` marker tree at `state_root_index` and `(nullifier_root, 7)`. The tree is
+    /// the id and nothing else: its account is `pda::tree(tree_id)`, which the
+    /// proof names because that is what the fetch asked for.
+    fn input_utxo_in(
+        seed: u8,
+        tree_id: u16,
+        state_root: u8,
+        state_root_index: u16,
+        nullifier_root: u8,
+    ) -> TransferInputUtxo {
+        let mut tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
+        tree.append(&right_align(&[state_root]))
+            .expect("marker leaf");
+        let members: Vec<SppProofInputUtxo> = (0..FIXTURE_SEEDS)
+            .map(|member| fixture_utxo(member, tree_id))
+            .collect();
+        for member in &members {
+            tree.append(&member.utxo_hash).expect("member leaf");
+        }
+        let position = usize::from(seed) + 1;
+        let mut utxo = members[usize::from(seed)].clone();
+        utxo.leaf_index = position as u64;
+        let state = MerkleProof {
+            leaf: utxo.utxo_hash,
+            merkle_context: MerkleContext {
+                tree_type: 0,
+                tree: zolana_interface::pda::tree(tree_id),
+            },
+            path: tree.get_proof_of_leaf(position, true).expect("state path"),
+            leaf_index: utxo.leaf_index,
+            root: tree.root(),
+            root_seq: 0,
+            root_index: state_root_index,
+        };
         let mut nullifier = non_inclusion_proof(nullifier_root, 7);
         nullifier.leaf = utxo.nullifier;
         nullifier.merkle_context.tree = zolana_interface::pda::tree(tree_id);
@@ -873,6 +907,16 @@ mod tests {
             proof: Some(SpendProof { state, nullifier }),
             nullifier_proof: None,
         }
+    }
+
+    /// The state root the real inputs of `tree_id` share.
+    fn state_root(inputs: &[TransferInputUtxo], tree_id: u16) -> [u8; 32] {
+        inputs
+            .iter()
+            .filter(|input| input.utxo.tree_id == tree_id)
+            .find_map(|input| input.proof.as_ref())
+            .map(|proof| proof.state.root)
+            .expect("a real input of the tree")
     }
 
     /// A real input under tree id 0.
@@ -1019,7 +1063,7 @@ mod tests {
             );
             assert_eq!(
                 assembled.tree_slots.first(),
-                Some(&TreeSlot::new(0, [0x12; 32], [0x33; 32]))
+                Some(&TreeSlot::new(0, state_root(&input_utxos, 0), [0x33; 32]))
             );
         }
     }
@@ -1341,7 +1385,7 @@ mod tests {
         assert_eq!(
             assembled.tree_slots,
             [
-                TreeSlot::new(0, [0x11; 32], [0x33; 32]),
+                TreeSlot::new(0, state_root(&input_utxos, 0), [0x33; 32]),
                 TreeSlot::ZERO,
                 TreeSlot::ZERO,
                 TreeSlot::ZERO,
@@ -1385,8 +1429,8 @@ mod tests {
         assert_eq!(
             assembled.tree_slots,
             [
-                TreeSlot::new(0, [0x11; 32], [0x33; 32]),
-                TreeSlot::new(1, [0x12; 32], [0x34; 32]),
+                TreeSlot::new(0, state_root(&input_utxos, 0), [0x33; 32]),
+                TreeSlot::new(1, state_root(&input_utxos, 1), [0x34; 32]),
                 TreeSlot::ZERO,
                 TreeSlot::ZERO,
                 TreeSlot::ZERO,

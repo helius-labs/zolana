@@ -1,86 +1,30 @@
-//! The entry-list primitive for custom rings and the rule table compiled over
-//! it.
-//!
-//! One entry per `(list_id, member)` lives as a zero-amount data UTXO in the SPP
-//! state tree, owned by the ring's namespace PDA, present or absent provably
-//! against SPP's own roots. [`ListId`] names each list, [`ListNamespace`]
-//! keys it, and [`ListEntry`] carries it on the wire. [`RuleTable`] compiles a rule
-//! table over these lists, and [`schema`] types the content of each.
+//! Ring member lists, one bit each in a member registry record, and the rule table over them.
 
-mod entry;
+mod list;
 mod member;
 mod rule_table;
-pub mod schema;
-mod spend;
+mod rules;
 
-pub use entry::{
-    entry_nullifier, entry_seed, mutation_private_tx_hash, EntryState, Leaf, ListEntry, ListId,
-    ListNamespace, ListSet, Writer, ENTRY_OUTPUT_DATA_LEN, LIST_ENTRY_LEN, NAMESPACE_PDA_SEED,
-    ZERO_NULLIFIER_PK,
-};
+pub use list::{ListChange, ListId, ListSet, ListWrite, ListWriteError, Writer};
 pub use member::{Member, MemberError};
 pub use rule_table::{
-    AnswerLoad, EncodedRuleTable, Guard, Mode, PolicyHashError, Rule, RuleSource, RuleTable,
-    RuleTableBuilder, RuleTableError, SourceMap, SourceMapError, SourceMapOwnerError, SourceOwner,
-    Subject, TableParts, VelocityMode, VelocityRow, ANSWER_SLOTS, GUARANTEED_LOAD,
-    MAX_INLINE_ASSETS, MAX_RULES, MAX_SOURCES, MAX_VELOCITY_ASSETS, POLICY_INPUT_SLOTS,
-    POLICY_OUTPUT_SLOTS, POLICY_VERSION,
+    EncodedRuleTable, Guard, Mode, OutflowLimit, PolicySource, PolicyTableError, Rule, RuleSource,
+    RuleTable, RuleTableBuilder, RuleTableError, SourceMap, SourceMapError, Subject, TableParts,
+    MAX_INLINE_ASSETS, MAX_OUTFLOW_LIMITS, MAX_RULES, MAX_SOURCES, N_FOREIGN, POLICY_TABLE_DOMAIN,
+    POLICY_TABLE_FIELDS, POLICY_TABLE_RATE, POLICY_TABLE_VERSION,
 };
-pub use spend::{
-    ring_id_field, spend_counters_disclosure_hash, spend_record_message_tag, spend_seed,
-    SpendCounters, SpendRecord, SPEND_COUNTERS_BODY_LEN, SPEND_COUNTERS_LEN,
-};
+pub use rules::{OutputSubjects, RecordLists, RuleRefusal, TransferSubject, TransferSubjects};
 
-/// At most 31 bytes keeps the packed value below the field modulus.
-const fn packed_ascii<const N: usize>(bytes: &[u8; N]) -> [u8; 32] {
-    assert!(N <= 31);
-    let mut field = [0u8; 32];
-    let mut i = 0;
-    while i < N {
-        field[32 - N + i] = bytes[i];
-        i += 1;
-    }
-    field
+/// The ring id field a UTXO inside the ring carries.
+pub fn ring_id_field(program_id: &[u8; 32]) -> Result<[u8; 32], zolana_hasher::HasherError> {
+    zolana_hasher::primitives::hash_bytes(program_id)
 }
 
-/// Separates address seeds, frozen with every derived address.
-pub const POLICY_ADDRESS_DOMAIN: [u8; 32] = packed_ascii(b"zolana:ring-policy:address:v1");
-/// Separates entry leaves, frozen with every published entry.
-pub const POLICY_RECORD_DOMAIN: [u8; 32] = packed_ascii(b"zolana:ring-policy:record:v1");
-/// Separates policy hashes, frozen with every pinned config.
-pub const POLICY_TABLE_DOMAIN: [u8; 32] = packed_ascii(b"zolana:ring-policy:policy:v1");
-/// Separates spend record address seeds from entry seeds.
-pub const SPEND_ADDRESS_DOMAIN: [u8; 32] = packed_ascii(b"zolana:ring-policy:spend:v1");
-/// Separates spend record leaves from entry leaves.
-pub const SPEND_RECORD_DOMAIN: [u8; 32] = packed_ascii(b"zolana:ring-spend:record:v1");
+/// The source slot field of a curator's member registry, an address can exceed the modulus.
+pub fn registry_field(registry: &[u8; 32]) -> Result<[u8; 32], zolana_hasher::HasherError> {
+    zolana_hasher::primitives::hash_bytes(registry)
+}
 
 pub(crate) fn field_u8(value: u8) -> [u8; 32] {
     zolana_hasher::primitives::right_align(&[value])
-}
-
-pub(crate) fn field_u16(value: u16) -> [u8; 32] {
-    zolana_hasher::primitives::right_align(&value.to_be_bytes())
-}
-
-pub(crate) fn field_u64(value: u64) -> [u8; 32] {
-    zolana_hasher::primitives::right_align(&value.to_be_bytes())
-}
-
-pub(crate) const PLAINTEXT_ENVELOPE_LEN: usize = 5;
-
-/// Scheme byte zero then the little endian content length.
-pub(crate) fn seal_plaintext<const N: usize, const M: usize>(content: [u8; N]) -> [u8; M] {
-    const { assert!(M == PLAINTEXT_ENVELOPE_LEN + N) }
-    let mut out = [0u8; M];
-    out[1..PLAINTEXT_ENVELOPE_LEN].copy_from_slice(&(N as u32).to_le_bytes());
-    out[PLAINTEXT_ENVELOPE_LEN..].copy_from_slice(&content);
-    out
-}
-
-pub(crate) fn open_plaintext(data: &[u8], content_len: usize) -> Option<&[u8]> {
-    let (header, content) = data.split_at_checked(PLAINTEXT_ENVELOPE_LEN)?;
-    (header[0] == 0
-        && header[1..] == (content_len as u32).to_le_bytes()
-        && content.len() == content_len)
-        .then_some(content)
 }

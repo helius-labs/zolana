@@ -52,6 +52,9 @@ export const EncryptedScheme = Object.freeze({
   plaintextTransfer: 7,
   ringDeposit: 8,
   ringAnonymous: 9,
+  ringConfidentialDelivered: 10,
+  /** The packed ring output without the ring id, its ring the transfer's. */
+  ringConfidentialPacked: 11,
 } as const);
 export type EncryptedScheme = (typeof EncryptedScheme)[keyof typeof EncryptedScheme];
 export type OutputDataEncoding = "plaintext" | "encrypted" | "verifiable";
@@ -71,6 +74,8 @@ export function encryptedSchemeFromByte(byte: number): EncryptedScheme {
     case EncryptedScheme.plaintextTransfer:
     case EncryptedScheme.ringDeposit:
     case EncryptedScheme.ringAnonymous:
+    case EncryptedScheme.ringConfidentialDelivered:
+    case EncryptedScheme.ringConfidentialPacked:
       return byte;
     default:
       throw new TransactionError("TRANSACTION_BAD_DISCRIMINATOR", { byte });
@@ -82,26 +87,25 @@ export function encryptedSchemeToByte(scheme: EncryptedScheme): number {
   return encryptedSchemeFromByte(scheme);
 }
 
-/**
- * The encoding a merge output slot is published with: `"verifiable"` for a
- * default merge, whose proof binds the ciphertext, and `"encrypted"` for a ring
- * merge, whose proof does not. Rust `encode_merge_output_data`.
- */
-export function mergeOutputDataEncoding(ringMerge: boolean): OutputDataEncoding {
-  return ringMerge ? "encrypted" : "verifiable";
-}
+/** `0x04 ‖ u`, the recipient key a scheme 3 or scheme 11 body leads with. */
+export const RECIPIENT_KEY_LEN = 33;
+/** Asset id, amount and blinding open every confidential plaintext. */
+const CONFIDENTIAL_PLAINTEXT_HEAD_LEN = 8 + 8 + 32;
+/** Scheme 3 body of an output with no data and no ring id, each one zero byte. */
+export const CONFIDENTIAL_DATA_FREE_BODY_LEN =
+  RECIPIENT_KEY_LEN + CONFIDENTIAL_PLAINTEXT_HEAD_LEN + 2;
+/** Scheme 11 body of an output with no data. */
+export const RING_PACKED_DATA_FREE_BODY_LEN =
+  RECIPIENT_KEY_LEN + CONFIDENTIAL_PLAINTEXT_HEAD_LEN + 1;
 
-/**
- * The default encoding of a scheme's slot. A merge output has two, see
- * [`mergeOutputDataEncoding`]; the default is the default merge's.
- */
+/** The default encoding of a scheme's slot. */
 export function outputDataEncoding(scheme: EncryptedScheme): OutputDataEncoding {
   switch (encryptedSchemeFromByte(scheme)) {
     case EncryptedScheme.proofless:
     case EncryptedScheme.plaintextTransfer:
       return "plaintext";
     case EncryptedScheme.merge:
-      return mergeOutputDataEncoding(false);
+      return "verifiable";
     default:
       return "encrypted";
   }
@@ -196,14 +200,20 @@ class Writer {
 
   u8(value: number): void {
     if (!Number.isInteger(value) || value < 0 || value > 0xff) {
-      throw new TransactionError("TRANSACTION_INVALID_INTEGER", { value, bits: 8 });
+      throw new TransactionError("TRANSACTION_INVALID_INTEGER", {
+        value,
+        bits: 8,
+      });
     }
     this.parts.push(Uint8Array.of(value));
   }
 
   u16(value: number): void {
     if (!Number.isInteger(value) || value < 0 || value > 0xffff) {
-      throw new TransactionError("TRANSACTION_INVALID_INTEGER", { value, bits: 16 });
+      throw new TransactionError("TRANSACTION_INVALID_INTEGER", {
+        value,
+        bits: 16,
+      });
     }
     const bytes = new Uint8Array(2);
     new DataView(bytes.buffer).setUint16(0, value, true);
@@ -212,7 +222,10 @@ class Writer {
 
   u32(value: number): void {
     if (!Number.isInteger(value) || value < 0 || value > 0xffff_ffff) {
-      throw new TransactionError("TRANSACTION_INVALID_INTEGER", { value, bits: 32 });
+      throw new TransactionError("TRANSACTION_INVALID_INTEGER", {
+        value,
+        bits: 32,
+      });
     }
     const bytes = new Uint8Array(4);
     new DataView(bytes.buffer).setUint32(0, value, true);
@@ -395,6 +408,52 @@ export function decodeConfidential(bytes: Uint8Array): ConfidentialOutputPlainte
   };
   reader.exact();
   return result;
+}
+
+/** Rust `RingPackedPlaintext`, the plaintext of a scheme 11 slot, its ring the transfer's. */
+export interface RingPackedPlaintext {
+  readonly assetId: bigint;
+  readonly amount: bigint;
+  readonly blinding: Bytes32;
+  readonly data: Data;
+}
+
+export function encodeRingPacked(value: RingPackedPlaintext): Uint8Array {
+  const writer = new Writer();
+  writer.u64(value.assetId);
+  writer.u64(value.amount);
+  writer.bytes(checked<Bytes32>(value.blinding, 32, "blinding"));
+  writeData(writer, value.data);
+  return writer.finish();
+}
+
+export function decodeRingPacked(bytes: Uint8Array): RingPackedPlaintext {
+  const reader = new Reader(bytes);
+  const result: RingPackedPlaintext = {
+    assetId: reader.u64(),
+    amount: reader.u64(),
+    blinding: reader.take(32) as Bytes32,
+    data: readData(reader),
+  };
+  reader.exact();
+  return result;
+}
+
+/** The note a scheme 11 slot opens to, `ringProgramId` is the ring of the transfer that published it. */
+export function ringPackedUtxo(
+  value: RingPackedPlaintext,
+  owner: ShieldedPublicKey,
+  assets: AssetRegistry,
+  ringProgramId: Address,
+): Utxo {
+  return new Utxo({
+    owner,
+    asset: assets.resolve(value.assetId),
+    amount: value.amount,
+    blinding: value.blinding,
+    data: value.data,
+    ringProgramId,
+  });
 }
 
 export function confidentialUtxo(
@@ -802,20 +861,14 @@ export function splitBundleUtxos(
   );
 }
 
-function encodingAllowed(scheme: EncryptedScheme, encoding: OutputDataEncoding): boolean {
-  return scheme === EncryptedScheme.merge
-    ? encoding === mergeOutputDataEncoding(false) || encoding === mergeOutputDataEncoding(true)
-    : encoding === outputDataEncoding(scheme);
-}
-
 export function encodeOutputData(
   scheme: EncryptedScheme,
   body: Uint8Array,
   encoding = outputDataEncoding(scheme),
 ): Uint8Array {
   const checkedScheme = encryptedSchemeFromByte(scheme);
-  if (!encodingAllowed(checkedScheme, encoding)) {
-    const expectedEncoding = outputDataEncoding(checkedScheme);
+  const expectedEncoding = outputDataEncoding(checkedScheme);
+  if (encoding !== expectedEncoding) {
     throw new TransactionError("TRANSACTION_BAD_DISCRIMINATOR", {
       scheme: checkedScheme,
       encoding,
@@ -866,8 +919,8 @@ export function decodeOutputData(bytes: Uint8Array): Readonly<{
   body: Uint8Array;
 }> {
   const frame = readOutputData(bytes);
-  if (!encodingAllowed(frame.scheme, frame.encoding)) {
-    const expectedEncoding = outputDataEncoding(frame.scheme);
+  const expectedEncoding = outputDataEncoding(frame.scheme);
+  if (frame.encoding !== expectedEncoding) {
     throw new TransactionError("TRANSACTION_BAD_DISCRIMINATOR", {
       scheme: frame.scheme,
       encoding: frame.encoding,
@@ -897,7 +950,9 @@ function outputDataEncodingFromTag(tag: number): OutputDataEncoding {
     case 2:
       return "verifiable";
     default:
-      throw new TransactionError("TRANSACTION_BAD_DISCRIMINATOR", { encodingTag: tag });
+      throw new TransactionError("TRANSACTION_BAD_DISCRIMINATOR", {
+        encodingTag: tag,
+      });
   }
 }
 
@@ -1005,6 +1060,22 @@ export function encryptAnonymous(
 
 export const encryptSplit = encryptAnonymous;
 
+/** `recipient ‖ ciphertext` under the scheme 3 key schedule, Rust `RingPacked`. */
+export function encryptRingPacked(
+  tx: ViewingKeyLike,
+  recipient: X25519PublicKey,
+  value: RingPackedPlaintext,
+  salt: Bytes16,
+  slotIndex: number,
+): Uint8Array {
+  return concat(
+    recipient.toBytes(),
+    inTransactionCategory(() =>
+      tx.encryptSlot(recipient, encodeRingPacked(value), salt, slotIndex),
+    ),
+  );
+}
+
 /**
  * The published body carries the counterparty key in front of the ciphertext.
  * Rust reports a body too short to hold one as `InvalidLength { expected: 33 }`
@@ -1057,9 +1128,24 @@ export function decryptConfidentialAsSender(
   );
 }
 
+/** Rust `RingPacked::decrypt_with_tx_key`, the sender's opening under its transaction key. */
+export function decryptRingPackedAsSender(
+  tx: ViewingKeyLike,
+  body: Uint8Array,
+  salt: Bytes16,
+  slotIndex: number,
+): RingPackedPlaintext {
+  const { key, rest } = inTransactionCategory(() => splitEmbeddedKey(body));
+  return decodeRingPacked(
+    inTransactionCategory(() => tx.decryptSlotEphemeral(key, rest, salt, slotIndex)),
+  );
+}
+
 function requireOwner(utxo: Utxo, owner: ShieldedPublicKey): void {
   if (!equal(utxo.owner.toBytes(), owner.toBytes())) {
-    throw new TransactionError("TRANSACTION_INPUT_OWNER_MISMATCH", { index: 0 });
+    throw new TransactionError("TRANSACTION_INPUT_OWNER_MISMATCH", {
+      index: 0,
+    });
   }
 }
 
@@ -1182,7 +1268,9 @@ export function plaintextTransferFromUtxos(
     const position = blindingPosition(firstNullifier, blindingSeed, utxo.blinding);
     if (position === undefined) throw new TransactionError("TRANSACTION_MISSING_OUTPUT", { index });
     if (position !== index) {
-      throw new TransactionError("TRANSACTION_INVALID_OUTPUT_POSITION", { position });
+      throw new TransactionError("TRANSACTION_INVALID_OUTPUT_POSITION", {
+        position,
+      });
     }
     const change = recipientSlots.length === 0 && equal(utxo.owner.toBytes(), ownerBytes);
     if (change && index === 0 && utxo.asset !== SOL_MINT) {
@@ -1314,16 +1402,22 @@ export function splitBundleFromUtxos(
     validateOwner(utxo, owner.owner, index);
     validateRing(utxo, owner.ringProgramId, index);
     if (utxo.asset !== first.asset) {
-      throw new TransactionError("TRANSACTION_OUTPUT_ASSET_MISMATCH", { index });
+      throw new TransactionError("TRANSACTION_OUTPUT_ASSET_MISMATCH", {
+        index,
+      });
     }
     if (utxo.amount !== first.amount) {
-      throw new TransactionError("TRANSACTION_OUTPUT_AMOUNT_MISMATCH", { index });
+      throw new TransactionError("TRANSACTION_OUTPUT_AMOUNT_MISMATCH", {
+        index,
+      });
     }
     if (!sameData(utxo.data, first.data)) {
       throw new TransactionError("TRANSACTION_OUTPUT_DATA_MISMATCH", { index });
     }
     if (!equal(utxo.blinding, transactOutputBlinding(firstNullifier, blindingSeed, index))) {
-      throw new TransactionError("TRANSACTION_OUTPUT_BLINDING_MISMATCH", { index });
+      throw new TransactionError("TRANSACTION_OUTPUT_BLINDING_MISMATCH", {
+        index,
+      });
     }
   }
   return {
@@ -1339,7 +1433,11 @@ export function splitBundleFromUtxos(
 export function prooflessFromUtxos(
   utxos: readonly Utxo[],
   owner: OwnerContext,
-  cx: Readonly<{ ownerHash: Bytes32; dataHash?: Bytes32; ringDataHash?: Bytes32 }>,
+  cx: Readonly<{
+    ownerHash: Bytes32;
+    dataHash?: Bytes32;
+    ringDataHash?: Bytes32;
+  }>,
 ): ProoflessOutput {
   const utxo = singleUtxo(utxos);
   validateOwner(utxo, owner.owner, 0);

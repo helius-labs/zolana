@@ -1,12 +1,14 @@
-use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
+use solana_program_error::ProgramError;
+use zolana_hasher::{primitives::right_align, sha256::Sha256BE, Hasher, HasherError};
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
         instruction_data::transact::{
-            fetch_tag, validate_input_tree_contexts, validate_interface_transfers,
+            amount_field, fetch_tag, validate_input_tree_contexts, validate_interface_transfers,
             AnonymousRingEddsaProofData, Bsb22Commitment, CircuitId, ExternalDataPreimage,
-            InputUtxo, InterfaceTransfer, MessageData, OwnerTag, TransactIxData, TransactIxDataRef,
-            TransactOutput, TransactProof, TreeContext, MAX_EXTERNAL_DATA_HASH_SLICES,
+            InputUtxo, InterfaceTransfer, MessageData, OwnerTag, PublicLeg, PublicSlotError,
+            PublicSlots, TransactIxData, TransactIxDataRef, TransactOutput, TransactProof,
+            TreeContext, MAX_EXTERNAL_DATA_HASH_SLICES,
         },
         tag,
     },
@@ -250,7 +252,9 @@ fn rejects_retired_field_bearing_payload() {
         c: [3u8; 32],
     });
     let current = owned.serialize().unwrap();
-    let (_, prefix) = TransactIxDataRef::parse_with_external_data_prefix(&current).unwrap();
+    let prefix = TransactIxDataRef::parse_with_tail(&current)
+        .unwrap()
+        .external_data_prefix;
     let field_offset = prefix.len() + 32 + 5;
     let mut retired = Vec::with_capacity(current.len() + 33);
     retired.extend_from_slice(&current[..field_offset]);
@@ -321,6 +325,86 @@ fn interface_transfer_validation_accepts_many_transfers_up_to_limit() {
         validate_interface_transfers(&[InterfaceTransfer::SolDeposit { amount: 0 }]),
         Err(ShieldedPoolError::ZeroInterfaceTransferAmount)
     );
+}
+
+fn public_slots(
+    legs: &[(InterfaceTransfer, Option<[u8; 32]>)],
+) -> Result<PublicSlots, PublicSlotError> {
+    PublicSlots::fold(
+        legs.iter()
+            .map(|&(transfer, mint)| Ok(PublicLeg { transfer, mint })),
+    )
+}
+
+#[test]
+fn public_slots_refuse_a_zero_net_asset() {
+    let mint = [7u8; 32];
+    let deposit = InterfaceTransfer::SplDeposit {
+        amount: 5,
+        spl_interface_bump: 42,
+    };
+    let withdrawal = |amount| InterfaceTransfer::SplWithdrawal {
+        amount,
+        spl_interface_bump: 42,
+    };
+    let mint = Some(mint);
+    assert_eq!(
+        public_slots(&[(deposit, mint), (withdrawal(3), mint)]).map(|slots| slots.amounts()),
+        Ok([2, 0, 0])
+    );
+    assert_eq!(
+        public_slots(&[(deposit, mint), (withdrawal(5), mint)]),
+        Err(PublicSlotError::ZeroNet { asset: [7u8; 32] })
+    );
+}
+
+#[test]
+fn public_slot_errors_keep_the_spp_codes() {
+    let asset = [7u8; 32];
+    for (error, code) in [
+        (PublicSlotError::TooManyAssets { asset }, 7033),
+        (PublicSlotError::AmountOverflow { asset }, 7034),
+        (PublicSlotError::ZeroNet { asset }, 7040),
+    ] {
+        assert_eq!(
+            ProgramError::from(error),
+            ProgramError::Custom(code),
+            "{error:?}"
+        );
+    }
+}
+
+#[test]
+fn amount_field_matches_the_go_signed_amount_vector() {
+    let vector: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../prover/server/prover-test/spp/testdata/field_derivation_vector.json"
+    ))
+    .unwrap();
+    let field = |hex: &str| -> [u8; 32] {
+        let digits = format!("{:0>64}", hex.trim_start_matches("0x"));
+        core::array::from_fn(|index| {
+            u8::from_str_radix(&digits[2 * index..2 * index + 2], 16).unwrap()
+        })
+    };
+    for entry in vector["negative_u64"].as_array().unwrap() {
+        let amount = entry["amount"].as_u64().unwrap();
+        assert_eq!(
+            amount_field(-i128::from(amount)),
+            Ok(field(entry["field"].as_str().unwrap())),
+            "{amount}"
+        );
+    }
+    assert_eq!(amount_field(0), Ok([0u8; 32]));
+    assert_eq!(
+        amount_field(i128::from(u64::MAX)),
+        Ok(right_align(&u64::MAX.to_be_bytes()))
+    );
+    for overflow in [1i128 << 64, -(1i128 << 64)] {
+        assert_eq!(
+            amount_field(overflow),
+            Err(ShieldedPoolError::PublicAssetAmountOverflow)
+        );
+    }
 }
 
 #[test]

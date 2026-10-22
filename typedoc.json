@@ -9,6 +9,7 @@
     "sdk-libs/ts/src/interface/index.ts",
     "sdk-libs/ts/src/keypair/index.ts",
     "sdk-libs/ts/src/ring.ts",
+    "sdk-libs/ts/src/ring-advanced.ts",
     "sdk-libs/ts/src/transaction/index.ts",
     "sdk-libs/ts/src/wallet/index.ts"
   ],

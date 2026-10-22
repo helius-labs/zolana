@@ -1,13 +1,28 @@
 import { expand } from "@noble/hashes/hkdf.js";
 import { sha256 } from "@noble/hashes/sha2.js";
+import { getAddressEncoder, type Address } from "@solana/kit";
 
-import { type Bytes16, type Bytes32, checkedBytes, copyBytes, randomBytes } from "./bytes.js";
+import {
+  type Bytes16,
+  type Bytes32,
+  checkedBytes,
+  checkedU32,
+  concatBytes,
+  copyBytes,
+  randomBytes,
+  u32be,
+} from "./bytes.js";
 import {
   ENC_INFO_RING_DEPOSIT,
+  INFO_RING_ADDRESS_KEY_PREFIX,
+  INFO_RING_CHANGE_KEY_PREFIX,
+  INFO_SENDER_VIEW_TAG_SECRET,
   INFO_TX_VIEWING_X25519,
+  checkedCounter,
   clampViewingSecret,
   hkdfExpand,
   roleExpansion,
+  senderViewTag,
   viewRoot,
   x25519Ecdh,
 } from "./derivation.js";
@@ -20,16 +35,10 @@ import { X25519PublicKey, X25519Keypair } from "./x25519.js";
 export type Salt = Bytes16;
 
 const encoder = new TextEncoder();
+const addressEncoder = getAddressEncoder();
 
 function checkSlotIndex(value: number): number {
-  if (!Number.isInteger(value) || value < 0 || value > 0xffff_ffff) {
-    throw new KeypairError("KEYPAIR_INVALID_LENGTH", {
-      name: "slotIndex",
-      minimum: 0,
-      maximum: 0xffff_ffff,
-    });
-  }
-  return value;
+  return checkedU32(value, "slotIndex");
 }
 
 export class ViewingKey implements ViewingKeyLike {
@@ -99,6 +108,46 @@ export class ViewingKey implements ViewingKeyLike {
 
   recipientBootstrapViewTag(): ViewTag {
     return this.publicKey().u();
+  }
+
+  /** Mirrors Rust `get_sender_view_tag`, the spender's own output at `txCount`. */
+  senderViewTag(txCount: bigint | number): ViewTag {
+    const secret = this.#viewSecret(INFO_SENDER_VIEW_TAG_SECRET);
+    try {
+      return senderViewTag(secret, checkedCounter(txCount, "txCount"));
+    } finally {
+      secret.fill(0);
+    }
+  }
+
+  /** The key of ring address `index` in `ring`, the recipient key its inbox stream derives from. */
+  ringAddressKey(ring: Address, index: number): ViewingKey {
+    return this.#derivedKey(
+      concatBytes(
+        encoder.encode(INFO_RING_ADDRESS_KEY_PREFIX),
+        new Uint8Array(addressEncoder.encode(ring)),
+        u32be(checkedU32(index, "index")),
+      ),
+    );
+  }
+
+  /** The key a sender's change in `ring` is delivered to, found from the sender's own spends. */
+  ringChangeKey(ring: Address): ViewingKey {
+    return this.#derivedKey(
+      concatBytes(
+        encoder.encode(INFO_RING_CHANGE_KEY_PREFIX),
+        new Uint8Array(addressEncoder.encode(ring)),
+      ),
+    );
+  }
+
+  #derivedKey(info: Uint8Array): ViewingKey {
+    const secret = this.#viewSecret(info);
+    try {
+      return ViewingKey.fromBytes(secret as Bytes32);
+    } finally {
+      secret.fill(0);
+    }
   }
 
   transactionViewingKey(firstNullifier: Bytes32): ViewingKey {
@@ -204,13 +253,18 @@ export class ViewingKey implements ViewingKeyLike {
   }
 
   // Cache the role root on first use. Encryption does not need this root.
-  #viewSecret(info: string): Uint8Array {
+  #viewSecret(info: string | Uint8Array): Uint8Array {
     this.#assertUsable();
     this.#viewRoot ??= viewRoot(this.#secret);
+    const infoBytes = typeof info === "string" ? encoder.encode(info) : info;
     try {
-      return expand(sha256, this.#viewRoot, encoder.encode(info), 32);
+      return expand(sha256, this.#viewRoot, infoBytes, 32);
     } catch (error) {
-      throw new KeypairError("KEYPAIR_HKDF", { name: info }, error);
+      throw new KeypairError(
+        "KEYPAIR_HKDF",
+        { name: typeof info === "string" ? info : "ring derivation" },
+        error,
+      );
     }
   }
 

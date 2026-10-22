@@ -2,11 +2,14 @@ import type { Address, Bytes32, RequestContext } from "../interface/types.js";
 import type { NullifierKey } from "../keypair/nullifier-key.js";
 import type { X25519PublicKey } from "../keypair/x25519.js";
 import type { ShieldedAddress, ShieldedKeypair } from "../keypair/shielded.js";
+import { ShieldedPublicKey } from "../keypair/public-key.js";
 import type { ViewingKey } from "../keypair/viewing-key.js";
 import {
   LocalShieldedKeys,
   type DecryptRequest,
   type DeriveRequest,
+  type RingDeliveryRequest,
+  type RingKeys,
   type TransactionKeyRequest,
 } from "../transaction/wallet/keys.js";
 import { ClientError } from "./error.js";
@@ -14,6 +17,7 @@ import { bytesField, hasIndexedMethod, hasProofMethods, poseidon } from "./inter
 import type {
   ProofAuthority,
   ProofService,
+  SecretRingProofRequest,
   WalletKeys,
   IndexedProofInputs,
   IndexedProofResult,
@@ -30,7 +34,7 @@ import type { Field, MergeInputs, ProverInputs } from "./prover/types.js";
  * same two things an enclave-backed implementation does behind its transport.
  * Application code takes `WalletKeys` and never learns which one it holds.
  */
-export class LocalKeys implements WalletKeys {
+export class LocalKeys implements WalletKeys, RingKeys {
   readonly #keys: LocalShieldedKeys;
   readonly #proofs: ProofService;
 
@@ -88,6 +92,22 @@ export class LocalKeys implements WalletKeys {
     return this.#keys.transactionKeys(requests);
   }
 
+  ringAddressKeys(ring: Address, indexes: readonly number[]): Promise<readonly X25519PublicKey[]> {
+    return this.#keys.ringAddressKeys(ring, indexes);
+  }
+
+  ringDeliverySecrets(requests: readonly RingDeliveryRequest[]): Promise<readonly Bytes32[]> {
+    return this.#keys.ringDeliverySecrets(requests);
+  }
+
+  ringChangeKey(ring: Address): Promise<X25519PublicKey> {
+    return this.#keys.ringChangeKey(ring);
+  }
+
+  senderViewTags(counters: readonly bigint[]): Promise<readonly Bytes32[]> {
+    return this.#keys.senderViewTags(counters);
+  }
+
   async prove(inputs: ProverInputs, context?: RequestContext): Promise<Proof> {
     const complete = this.#keys.withNullifierKey((key) => completeTransferInputs(inputs, key));
     return this.#proofs.prove(complete, context);
@@ -105,6 +125,10 @@ export class LocalKeys implements WalletKeys {
       (use) => this.#keys.withNullifierKey(use),
       context,
     );
+  }
+
+  proveRingWithSecret(request: SecretRingProofRequest, context?: RequestContext): Promise<Proof> {
+    return this.#keys.withNullifierKey((key) => proveRingWith(this.#proofs, request, key, context));
   }
 
   destroy(): void {
@@ -138,6 +162,10 @@ export class NullifierKeyProofAuthority implements ProofAuthority {
     return proveIndexedWith(this.#proofs, request, (use) => use(this.#key), context);
   }
 
+  proveRingWithSecret(request: SecretRingProofRequest, context?: RequestContext): Promise<Proof> {
+    return proveRingWith(this.#proofs, request, this.#key, context);
+  }
+
   destroy(): void {
     this.#key.destroy();
   }
@@ -145,14 +173,46 @@ export class NullifierKeyProofAuthority implements ProofAuthority {
 
 type Proof = Awaited<ReturnType<ProofService["prove"]>>;
 
+/** The secret joins the request only for the proof's round trip, a zero lead byte keeps it a field. */
+async function proveRingWith(
+  proofs: ProofService,
+  request: SecretRingProofRequest,
+  key: NullifierKey,
+  context: RequestContext | undefined,
+): Promise<Proof> {
+  const secret = key.secretBytes();
+  const nullifierSecret = new Uint8Array(32) as Bytes32;
+  nullifierSecret.set(secret, 1);
+  secret.fill(0);
+  try {
+    return await proofs.proveRing({ ...request, nullifierSecret }, context);
+  } finally {
+    nullifierSecret.fill(0);
+  }
+}
+
 function completeTransferInputs(inputs: ProverInputs, key: NullifierKey): ProverInputs {
+  const hidden = hiddenOwnerField(inputs);
   return Object.freeze({
-    circuit: inputs.circuit,
+    ...inputs,
     payload: Object.freeze({
       ...inputs.payload,
-      inputs: Object.freeze(inputs.payload.inputs.map((input) => completeInput(input, key))),
+      inputs: Object.freeze(
+        inputs.payload.inputs.map((input) => completeInput(input, key, hidden)),
+      ),
     }),
   });
+}
+
+/** The anonymous rail witnesses owner hash zero for the hidden owner's inputs, the commitment still binds it. */
+function hiddenOwnerField(
+  inputs: Readonly<{ circuit: string; authorization?: Readonly<{ ownerPublicKey: Bytes32 }> }>,
+): bigint | undefined {
+  if (inputs.authorization === undefined) return undefined;
+  return bytesField(
+    ShieldedPublicKey.fromEd25519(inputs.authorization.ownerPublicKey).ownerProofInputHash(),
+    "owner public key",
+  );
 }
 
 function completeMergeInputs(inputs: MergeInputs, key: NullifierKey): MergeInputs {
@@ -164,12 +224,18 @@ function completeMergeInputs(inputs: MergeInputs, key: NullifierKey): MergeInput
 }
 
 /** Fills the secret on this wallet's own real inputs; everything else passes through untouched. */
-function completeInput<T extends PreparedTransferInput>(input: T, key: NullifierKey): T {
+function completeInput<T extends PreparedTransferInput>(
+  input: T,
+  key: NullifierKey,
+  hidden: bigint | undefined,
+): T {
   const nullifierPublicKey = bytesField(key.publicKey(), "nullifier public key");
+  const owner =
+    hidden !== undefined && input.ownerPublicKeyHash === 0n ? hidden : input.ownerPublicKeyHash;
   if (
     input.nullifierSecret !== undefined ||
     input.isDummy !== 0n ||
-    input.circuit.owner !== poseidon([input.ownerPublicKeyHash, nullifierPublicKey])
+    input.circuit.owner !== poseidon([owner, nullifierPublicKey])
   ) {
     return input;
   }
@@ -219,11 +285,12 @@ function completeIndexedInputs(inputs: IndexedProofInputs, key: NullifierKey): I
       throw new ClientError("CLIENT_MERGE_NULLIFIER_KEY_MISMATCH");
     return { ...inputs, payload: { ...inputs.payload, userNullifierSecret: secretField(key) } };
   }
+  const hidden = hiddenOwnerField(inputs);
   return {
     ...inputs,
     payload: {
       ...inputs.payload,
-      inputs: inputs.payload.inputs.map((input) => completeInput(input, key)),
+      inputs: inputs.payload.inputs.map((input) => completeInput(input, key, hidden)),
     },
   };
 }

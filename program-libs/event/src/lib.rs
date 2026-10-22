@@ -21,14 +21,20 @@ pub use merge_output::{
 pub use output_data::MessageData;
 pub use output_utxo::OutputUtxo;
 pub use proofless::{
-    confidential_encrypted_output_body, encode_encrypted_ring_deposit_output,
-    encode_encrypted_ring_deposit_output_ref, encode_output_data, encode_output_data_ref,
+    confidential_encrypted_output_body, encode_confidential_output,
+    encode_encrypted_ring_deposit_output, encode_encrypted_ring_deposit_output_ref,
+    encode_output_data, encode_output_data_ref, encode_ring_anonymous_output,
+    encode_ring_confidential_delivered_output, encode_ring_confidential_packed_output,
     is_confidential_encrypted_output, ring_anonymous_encrypted_output_body,
-    ring_confidential_encrypted_output_body, EncryptedRingDepositData, EncryptedRingDepositDataRef,
+    ring_confidential_delivered_output_body, ring_confidential_encrypted_output_body,
+    ring_confidential_packed_output_body, EncryptedRingDepositData, EncryptedRingDepositDataRef,
     EncryptedRingDepositOutput, EncryptedRingDepositOutputRef, OutputDataEncoding, ProoflessOutput,
-    ProoflessOutputRef, CONFIDENTIAL_ENCRYPTED_SCHEME_TAG, ENCRYPTED_RING_DEPOSIT_OUTPUT_FIXED_LEN,
-    ENCRYPTED_RING_DEPOSIT_SCHEME, PLAINTEXT_OUTPUT_FIXED_LEN, RING_ANONYMOUS_ENCRYPTED_SCHEME_TAG,
-    RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
+    ProoflessOutputRef, RingPackedBody, CONFIDENTIAL_DATA_FREE_BODY_LEN,
+    CONFIDENTIAL_ENCRYPTED_SCHEME_TAG, ENCRYPTED_RING_DEPOSIT_OUTPUT_FIXED_LEN,
+    ENCRYPTED_RING_DEPOSIT_SCHEME, PLAINTEXT_OUTPUT_FIXED_LEN, RECIPIENT_KEY_LEN,
+    RING_ANONYMOUS_ENCRYPTED_SCHEME_TAG, RING_CONFIDENTIAL_DELIVERED_SCHEME_TAG,
+    RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG, RING_CONFIDENTIAL_PACKED_SCHEME_TAG,
+    RING_DELIVERED_BODY_LEN, RING_PACKED_DATA_FREE_BODY_LEN,
 };
 
 /// The indexer-facing view of one state-changing instruction (spec: General

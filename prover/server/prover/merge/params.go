@@ -4,6 +4,7 @@ import (
 	"math/big"
 
 	"github.com/helius-labs/zolana/prover/server/prover/common"
+	customring "github.com/helius-labs/zolana/prover/server/prover/custom_ring"
 )
 
 // InputParams mirrors merge.Input. Only the free per-slot UTXO fields are
@@ -86,14 +87,19 @@ type MergeParameters struct {
 	// Output.RingDataHash and folds it into the public-input hash. Zero on the
 	// default rail.
 	OutputRingDataHash *big.Int
+	// An escrow merge opens the owner's record under MemberRegistryRoot, its escrow key binds UserNullifierPk and RegisteredCiphertextHash.
+	MemberRegistryRoot       *big.Int
+	RegisteredCiphertextHash *big.Int
+	MemberRecord             *customring.RecordOpening
+	// Anonymous binds a zero MemberRegistryRoot and reads no record, RegisteredCiphertextHash and MemberRecord stay nil.
+	Anonymous bool
 
 	ExternalDataHash *big.Int
 	PrivateTxHash    *big.Int
 	AllowDummyInputs *big.Int
 
 	// OutputCiphertextSalt is the per-proof pad nonce of the PoseidonCtrV1
-	// output ciphertext, from the instruction data. Default merge rail only;
-	// nil on the merge-ring rail, whose circuit has no ciphertext.
+	// output ciphertext, from the instruction data.
 	OutputCiphertextSalt *big.Int
 
 	PublicInputHash *big.Int

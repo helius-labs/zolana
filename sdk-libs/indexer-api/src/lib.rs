@@ -18,9 +18,14 @@ pub const GET_SHIELDED_TRANSACTIONS_BY_TAGS: &str = "getShieldedTransactionsByTa
 pub const GET_SHIELDED_TRANSACTIONS_BY_SIGNATURE: &str = "getShieldedTransactionsBySignature";
 pub const GET_SHIELDED_TRANSACTIONS_BY_NULLIFIERS: &str = "getShieldedTransactionsByNullifiers";
 pub const GET_MERKLE_PROOFS: &str = "getMerkleProofs";
-pub const GET_RING_KEY_REGISTRY_ENTRY: &str = "getRingKeyRegistryEntry";
-pub const GET_RING_KEY_REGISTRY_REGISTER_PROOF: &str = "getRingKeyRegistryRegisterProof";
-pub const GET_RING_SPEND_RECORD: &str = "getRingSpendRecord";
+pub const GET_RING_MEMBER_RECORD: &str = "getRingMemberRecord";
+pub const GET_RING_MEMBER_RECORDS: &str = "getRingMemberRecords";
+pub const GET_RING_MEMBER_OPENINGS: &str = "getRingMemberOpenings";
+pub const GET_RING_MEMBER_REGISTRY_ROOT: &str = "getRingMemberRegistryRoot";
+pub const GET_RING_RECORD_QUEUE: &str = "getRingRecordQueue";
+pub const GET_RING_APPLY_PROOF_INPUTS: &str = "getRingApplyProofInputs";
+/// Pages and opening batches include one authentication path per record.
+pub const MAX_RING_MEMBER_PAGE_LIMIT: u64 = 100;
 pub const GET_NON_INCLUSION_PROOFS: &str = "getNonInclusionProofs";
 pub const GET_NULLIFIER_QUEUE_ELEMENTS: &str = "getNullifierQueueElements";
 pub const GET_USER_RECORDS: &str = "getUserRecords";
@@ -33,11 +38,13 @@ const LIMIT_EXPECTATION: &str = "a value between 1 and 1000";
 const LIMIT_ERROR: &str = "value must be between 1 and 1000";
 
 pub mod error_code {
-    pub const RING_KEY_REGISTRY_OUT_OF_SYNC: i64 = -32070;
-    pub const RING_KEY_REGISTRY_ROOT_CHANGED: i64 = -32071;
-    pub const RING_KEY_REGISTRY_MEMBER_UNREGISTERED: i64 = -32072;
-    pub const RING_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED: i64 = -32073;
-    pub const RING_SPEND_RECORD_OUT_OF_SYNC: i64 = -32074;
+    pub const RING_REGISTRY_OUT_OF_SYNC: i64 = -32070;
+    pub const RING_REGISTRY_ROOT_CHANGED: i64 = -32071;
+    pub const RING_MEMBER_UNREGISTERED: i64 = -32072;
+    pub const RING_REGISTRY_PAGE_GAP: i64 = -32075;
+    pub const RING_RECORD_QUEUE_CHANGED: i64 = -32076;
+    // -32073 retired with the register proof endpoint.
+    // -32074 retired with the ring spend records.
 }
 
 /// Associates one canonical JSON-RPC method name with its parameter and result types.
@@ -55,9 +62,12 @@ pub mod method {
     pub struct GetShieldedTransactionsBySignature;
     pub struct GetShieldedTransactionsByNullifiers;
     pub struct GetMerkleProofs;
-    pub struct GetRingKeyRegistryEntry;
-    pub struct GetRingKeyRegistryRegisterProof;
-    pub struct GetRingSpendRecord;
+    pub struct GetRingMemberRecord;
+    pub struct GetRingMemberRecords;
+    pub struct GetRingMemberOpenings;
+    pub struct GetRingMemberRegistryRoot;
+    pub struct GetRingRecordQueue;
+    pub struct GetRingApplyProofInputs;
     pub struct GetNonInclusionProofs;
     pub struct GetNullifierQueueElements;
     pub struct GetUserRecords;
@@ -92,22 +102,40 @@ pub mod method {
         type Response = GetMerkleProofsResponse;
     }
 
-    impl RpcMethod for GetRingKeyRegistryEntry {
-        const NAME: &'static str = GET_RING_KEY_REGISTRY_ENTRY;
-        type Request = RingMemberProofRequest;
-        type Response = GetRingKeyRegistryEntryResponse;
+    impl RpcMethod for GetRingMemberRecord {
+        const NAME: &'static str = GET_RING_MEMBER_RECORD;
+        type Request = GetRingMemberRecordRequest;
+        type Response = GetRingMemberRecordResponse;
     }
 
-    impl RpcMethod for GetRingKeyRegistryRegisterProof {
-        const NAME: &'static str = GET_RING_KEY_REGISTRY_REGISTER_PROOF;
-        type Request = RingMemberProofRequest;
-        type Response = GetRingKeyRegistryRegisterProofResponse;
+    impl RpcMethod for GetRingMemberRecords {
+        const NAME: &'static str = GET_RING_MEMBER_RECORDS;
+        type Request = GetRingMemberRecordsRequest;
+        type Response = GetRingMemberRecordsResponse;
     }
 
-    impl RpcMethod for GetRingSpendRecord {
-        const NAME: &'static str = GET_RING_SPEND_RECORD;
-        type Request = RingSpendRecordRequest;
-        type Response = GetRingSpendRecordResponse;
+    impl RpcMethod for GetRingMemberOpenings {
+        const NAME: &'static str = GET_RING_MEMBER_OPENINGS;
+        type Request = GetRingMemberOpeningsRequest;
+        type Response = GetRingMemberOpeningsResponse;
+    }
+
+    impl RpcMethod for GetRingMemberRegistryRoot {
+        const NAME: &'static str = GET_RING_MEMBER_REGISTRY_ROOT;
+        type Request = GetRingMemberRegistryRootRequest;
+        type Response = GetRingMemberRegistryRootResponse;
+    }
+
+    impl RpcMethod for GetRingRecordQueue {
+        const NAME: &'static str = GET_RING_RECORD_QUEUE;
+        type Request = GetRingRecordQueueRequest;
+        type Response = GetRingRecordQueueResponse;
+    }
+
+    impl RpcMethod for GetRingApplyProofInputs {
+        const NAME: &'static str = GET_RING_APPLY_PROOF_INPUTS;
+        type Request = GetRingApplyProofInputsRequest;
+        type Response = GetRingApplyProofInputsResponse;
     }
 
     impl RpcMethod for GetNonInclusionProofs {
@@ -748,71 +776,261 @@ pub struct GetMerkleProofsResponse {
     pub proofs: Vec<MerkleProof>,
 }
 
+/// A record read at the exact root and append cursor the caller saw on chain.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-pub struct RingMemberProofRequest {
+pub struct GetRingMemberRecordRequest {
     pub ring_program_id: SerializablePubkey,
     pub member: Hash,
+    /// Any root the on-chain history still holds.
     pub expected_root: Hash,
     pub expected_next_index: u64,
 }
 
+/// Up to [`MAX_RING_MEMBER_PAGE_LIMIT`] members under one root the on-chain history holds.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-pub struct GetRingKeyRegistryEntryResponse {
-    pub context: Context,
+pub struct GetRingMemberOpeningsRequest {
+    pub ring_program_id: SerializablePubkey,
+    pub members: Vec<Hash>,
+    pub expected_root: Hash,
+}
+
+/// Page real member leaves at one current, on-chain-checked registry root.
+/// Leaf 0 is the sentinel. Start at 1 and pass `next_leaf_index` to continue.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct GetRingMemberRecordsRequest {
+    pub ring_program_id: SerializablePubkey,
+    pub expected_root: Hash,
+    pub expected_next_index: u64,
+    pub start_index: u64,
+    /// Between 1 and [`MAX_RING_MEMBER_PAGE_LIMIT`].
+    pub limit: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct GetRingMemberRegistryRootRequest {
+    pub ring_program_id: SerializablePubkey,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct GetRingRecordQueueRequest {
+    pub ring_program_id: SerializablePubkey,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct GetRingApplyProofInputsRequest {
+    pub ring_program_id: SerializablePubkey,
+    /// Applied after every pending write.
+    #[serde(default)]
+    pub authority_writes: Vec<RingListWriteView>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct RingListWriteView {
+    pub member: Hash,
+    pub mask: u64,
+    /// Lies inside `mask`.
+    pub value: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct RingRegistryRootView {
     pub root: Hash,
+    /// The on-chain history slot of `root`.
+    pub root_index: u8,
+    /// The queue position applied at the root, checked against the registry floor.
+    pub applied: u64,
     pub next_index: u64,
+}
+
+/// A member's record, with the sealed nullifier key once the member registered one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct RingMemberRecordView {
     pub member: Hash,
     pub next: Hash,
+    /// Bit `i` marks list id `i + 1`.
+    pub lists: u64,
+    pub escrow_key: Hash,
+    /// The RegisterKey signer whose owner tag hashes to `member`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_pubkey: Option<SerializablePubkey>,
+    /// `escrow_key` is `Poseidon(nullifier_pk, hash_bytes(ciphertext))`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nullifier_pk: Option<Hash>,
+    /// Tagged X25519 ephemeral key of the sealed nullifier secret, 33 bytes.
+    #[serde(default)]
+    pub eph_pk: Option<Base64String>,
+    /// AES-256-CTR ciphertext of the nullifier secret, 32 bytes.
+    #[serde(default)]
+    pub ciphertext: Option<Base64String>,
+}
+
+/// A leaf index and the three siblings of every level in ascending child order, leaf level first.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct RingRecordPathView {
     pub index: u64,
-    pub eph_pk: Base64String,
-    pub ciphertext: Base64String,
-    pub proof: Vec<Hash>,
+    pub siblings: Vec<[Hash; 3]>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-pub struct GetRingKeyRegistryRegisterProofResponse {
+pub struct RingMemberOpening {
+    pub present: bool,
+    /// Absent members open the low record, `record.member < member < record.next`.
+    pub record: RingMemberRecordView,
+    pub path: RingRecordPathView,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct GetRingMemberRecordResponse {
     pub context: Context,
+    pub root: RingRegistryRootView,
+    pub opening: RingMemberOpening,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct GetRingMemberOpeningsResponse {
+    pub context: Context,
+    pub root: RingRegistryRootView,
+    /// In request order.
+    pub openings: Vec<RingMemberOpening>,
+}
+
+/// One contiguous member leaf and its authentication path at `root`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct RingIndexedMemberRecordView {
+    pub record: RingMemberRecordView,
+    pub path: RingRecordPathView,
+}
+
+/// A complete leaf-index range. An indexer gap fails the call instead of
+/// shortening the page. A changed root also fails, so pages cannot mix states.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct GetRingMemberRecordsResponse {
+    pub context: Context,
+    pub root: RingRegistryRootView,
+    pub records: Vec<RingIndexedMemberRecordView>,
+    pub next_leaf_index: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct RingRootEntryView {
     pub root: Hash,
-    pub next_index: u64,
-    pub member: Hash,
-    pub low_member: Hash,
-    pub low_next: Hash,
-    pub low_key_hash: Hash,
-    pub low_index: u64,
-    pub low_proof: Vec<Hash>,
-    /// Computed after the predecessor update.
-    pub new_proof: Vec<Hash>,
+    pub applied: u64,
+    pub slot: u64,
 }
 
+/// The projected registry at its tip, `append_path` opens the empty leaf at `next_index`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-pub struct RingSpendRecordRequest {
-    pub ring_program_id: SerializablePubkey,
-    pub member: Hash,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-pub struct RingSpendRecord {
-    pub transaction: ShieldedTransaction,
-    pub output_index: u16,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-pub struct GetRingSpendRecordResponse {
+pub struct GetRingMemberRegistryRootResponse {
     pub context: Context,
-    /// `None` until the member registers.
-    pub record: Option<RingSpendRecord>,
+    /// Entry `i` sits at history slot `i`, `null` for a slot never written.
+    pub history: Vec<Option<RingRootEntryView>>,
+    /// The history slot of the newest root.
+    pub history_cursor: u8,
+    pub next_index: u64,
+    /// The applied position every own-ring root must reach.
+    pub floor: u64,
+    pub prior_floor: u64,
+    /// The slot of the last floor raise.
+    pub floor_slot: u64,
+    /// `null` once the registry is full.
+    pub append_path: Option<RingRecordPathView>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct RingQueueEntryView {
+    pub position: u64,
+    pub member: Hash,
+    pub mask: u64,
+    pub value: u64,
+    /// Zero except on a RegisterKey write.
+    pub escrow_key: Hash,
+    pub slot: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct GetRingRecordQueueResponse {
+    pub context: Context,
+    /// Position of the oldest pending write.
+    pub head: u64,
+    /// Position the next write takes.
+    pub tail: u64,
+    /// The queue chain through position `head - 1`, zero at head 0.
+    pub chain_head: Hash,
+    /// Positions `head..tail`.
+    pub entries: Vec<RingQueueEntryView>,
+}
+
+/// Paths are under the root the preceding writes reached.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct RingRecordWriteView {
+    pub member: Hash,
+    pub mask: u64,
+    pub value: u64,
+    pub escrow_key: Hash,
+    pub exists: bool,
+    pub old_next: Hash,
+    pub old_lists: u64,
+    pub old_escrow: Hash,
+    /// The member's leaf, for an absent member the append leaf after its low record relinks.
+    pub slot: RingRecordPathView,
+    /// An absent member's low record, empty for a present member.
+    pub low: RingMemberRecordView,
+    pub low_path: RingRecordPathView,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct GetRingApplyProofInputsResponse {
+    pub context: Context,
+    pub old_root: Hash,
+    pub new_root: Hash,
+    pub old_next_index: u64,
+    pub new_next_index: u64,
+    pub chain_start: Hash,
+    pub chain_end: Hash,
+    /// In queue order.
+    pub writes: Vec<RingRecordWriteView>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -13,6 +13,6 @@ pub(crate) const DEFAULT_LOG_DIR: &str = "test-ledger";
 pub(crate) const SCOPED_PHOTON_BLOCK_FETCHES: u8 = 8;
 
 pub(crate) const READINESS_TIMEOUT: Duration = Duration::from_secs(180);
-pub(crate) const TERMINATION_GRACE_PERIOD: Duration = Duration::from_secs(3);
+pub(crate) use zolana_cli_common::process::TERMINATION_GRACE_PERIOD;
 
 pub(crate) const READINESS_POLL_INTERVAL: Duration = Duration::from_millis(100);

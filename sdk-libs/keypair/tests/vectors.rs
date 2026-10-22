@@ -14,6 +14,7 @@
 //! `sdk-libs/transaction/tests/merge.rs` asserts it.
 
 use serde::{Deserialize, Serialize};
+use solana_address::Address;
 use zolana_keypair::{
     derivation::{ed25519_derivation_message, is_derivation_input, MERGE_INFO},
     symmetric_apply, ShieldedKeypair, SigningKey, ViewingKey,
@@ -31,6 +32,7 @@ struct KeyDerivationVectors {
     merge_recovery: MergeRecovery,
     derivation_input_guard: Vec<GuardCase>,
     counter_view_tags: Vec<CounterViewTagCase>,
+    ring_derivation: RingDerivation,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
@@ -116,6 +118,31 @@ struct CounterViewTagCase {
 struct CounterTag {
     counter: String,
     tag: String,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+struct RingDerivation {
+    viewing_secret: String,
+    viewing_pubkey: String,
+    recipient_viewing_secret: String,
+    recipient_viewing_pubkey: String,
+    ring_program_id: String,
+    address_keys: Vec<RingAddressKeyCase>,
+    change_key: RingKeyCase,
+    shared_view_tags: Vec<CounterTag>,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+struct RingAddressKeyCase {
+    index: u32,
+    #[serde(flatten)]
+    key: RingKeyCase,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+struct RingKeyCase {
+    secret: String,
+    pubkey: String,
 }
 
 fn scalar_bytes(n: u8) -> [u8; 32] {
@@ -265,6 +292,50 @@ fn compute_counter_view_tags() -> Vec<CounterViewTagCase> {
         .collect()
 }
 
+fn compute_ring_derivation() -> RingDerivation {
+    let viewing_secret = [0x21u8; 32];
+    let recipient_viewing_secret = [0x22u8; 32];
+    let key = ViewingKey::from_bytes(&viewing_secret);
+    let recipient = ViewingKey::from_bytes(&recipient_viewing_secret);
+    let ring = Address::new_from_array([0x11; 32]);
+    let key_case = |derived: ViewingKey| RingKeyCase {
+        secret: hex::encode(derived.secret_bytes().as_slice()),
+        pubkey: hex::encode(derived.pubkey().as_bytes()),
+    };
+    let shared_view_tags = [0u64, 1]
+        .into_iter()
+        .map(|k| {
+            let sent = key
+                .get_send_shared_view_tag(&recipient.pubkey(), k)
+                .unwrap();
+            let received = recipient
+                .get_recipient_shared_view_tag(&key.pubkey(), k)
+                .unwrap();
+            assert_eq!(sent, received);
+            CounterTag {
+                counter: k.to_string(),
+                tag: hex::encode(sent),
+            }
+        })
+        .collect();
+    RingDerivation {
+        viewing_secret: hex::encode(viewing_secret),
+        viewing_pubkey: hex::encode(key.pubkey().as_bytes()),
+        recipient_viewing_secret: hex::encode(recipient_viewing_secret),
+        recipient_viewing_pubkey: hex::encode(recipient.pubkey().as_bytes()),
+        ring_program_id: ring.to_string(),
+        address_keys: [0u32, 1, u32::MAX]
+            .into_iter()
+            .map(|index| RingAddressKeyCase {
+                index,
+                key: key_case(key.ring_address_key(&ring, index).unwrap()),
+            })
+            .collect(),
+        change_key: key_case(key.ring_change_key(&ring).unwrap()),
+        shared_view_tags,
+    }
+}
+
 fn compute(merge_recovery: MergeRecovery) -> KeyDerivationVectors {
     KeyDerivationVectors {
         eddsa_rail: compute_eddsa_rail(),
@@ -275,6 +346,7 @@ fn compute(merge_recovery: MergeRecovery) -> KeyDerivationVectors {
         merge_recovery,
         derivation_input_guard: compute_derivation_input_guard(),
         counter_view_tags: compute_counter_view_tags(),
+        ring_derivation: compute_ring_derivation(),
     }
 }
 

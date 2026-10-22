@@ -29,6 +29,7 @@ pub use asset::{AssetBalance, AssetRegistry, Balances, Mint, SOL_ASSET_ID, SOL_M
 pub use data::{Data, DataRecord};
 pub use decrypt::{
     decrypt, decrypt_spendable, verify_owned, verify_spendable, DecryptionResult, OwnedUtxos,
+    PendingUtxo, ResolvedUtxo, RingDeliveredCandidate, RingDeliveredFind, RingDeliveryContext,
     SpendableDecryptionResult,
 };
 pub use error::{AddressInputError, TransactionError};
@@ -36,12 +37,15 @@ pub use history::{History, HistoryEntry, HistoryKind};
 pub use indexer_types::{DepositPayload, OutputContext, OutputSlot, ShieldedTransaction};
 pub use instructions::transact::{ExternalData, SppProofOutputUtxo};
 pub use keys::{
-    DecryptLabel, DecryptRequest, DeriveRequest, LocalShieldedKeys, ShieldedKeys,
-    TransactionKeyRequest,
+    exactly_one, DecryptLabel, DecryptRequest, DeriveRequest, LocalShieldedKeys,
+    RingDeliveryRequest, RingRecipientKey, ShieldedKeys, TransactionKeyRequest,
 };
-pub use selection::{select_merge, select_spend, select_spend_excluding};
+pub use selection::{
+    select_merge, select_merge_where, select_spend, select_spend_excluding, select_spend_where,
+};
 pub use serialization::{
-    scheme::EncryptedScheme, DecodeCx, OwnerCx, RingDepositPlaintext, UtxoSerialization,
+    scheme::EncryptedScheme, DecodeCx, OwnerCx, RingDeliveredBody, RingDepositPlaintext,
+    UtxoSerialization,
 };
 pub use solana_address::Address;
 pub use utxo::wallet as spendable;
@@ -51,6 +55,7 @@ pub use utxo::{
 };
 pub use zolana_keypair::constants::VIEW_TAG_LEN;
 
+pub const REDACTED: &str = "<redacted>";
 pub const TRANSFER: u8 = 1;
 pub const MERGE: u8 = 3;
 pub const TRANSFER_PLAINTEXT: u8 = 4;

@@ -1,5 +1,6 @@
 import {
   appendTransactionMessageInstructions,
+  blockhash,
   compileTransaction,
   createTransactionMessage,
   getCompiledTransactionMessageDecoder,
@@ -72,6 +73,17 @@ export function compileUnsignedTransaction(options: TransactionCompilerOptions):
   }
   return checkedTransactionSize(compiled, options.sizeShape);
 }
+
+/** @internal The transaction fits version 1, checked before any proof or signature exists. */
+export function checkTransactionFits(options: Omit<TransactionCompilerOptions, "lifetime">): void {
+  compileUnsignedTransaction({ ...options, lifetime: SIZE_PROBE_LIFETIME });
+}
+
+/** @internal Any well-formed blockhash sizes a message the same. */
+export const SIZE_PROBE_LIFETIME: LatestBlockhash = Object.freeze({
+  blockhash: blockhash("11111111111111111111111111111111"),
+  lastValidBlockHeight: 0n,
+});
 
 /** @internal A caller-supplied transaction still has to be version 1. */
 export function assertVersion1Transaction(transaction: Transaction): void {

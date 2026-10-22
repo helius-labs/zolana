@@ -1,0 +1,9 @@
+{
+  "name": "devnet-rings-tee-1",
+  "platform": "aws-nitro",
+  "region": "eu-north-1",
+  "instance_type": "m7i.4xlarge",
+  "enclave_memory_mib": 49152,
+  "backend": "aeglos-cpu",
+  "serve": "rings"
+}

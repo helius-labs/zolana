@@ -1,112 +1,38 @@
-// Fixes circuit capacities and policy encodings for consistent rule
-// selection, amount checks and commitment hashes.
-
 package policy
 
-import (
-	"math/big"
-	"math/bits"
+// Table capacities, mirrored by custom-rings/policy/src/rule_table.rs.
+const (
+	NRules         = 16
+	NInlineAssets  = 8
+	NSources       = 8
+	NOutflowLimits = 8
 )
 
-// Fixed capacities bound the transaction slots, policy rows and shared facts in
-// one proof.
+// Policy table hash layout, mirrored by EncodedRuleTable::hash in custom-rings/policy/src/rule_table.rs.
 const (
-	NInputs       = 5
-	NOutputs      = 4
-	NRules        = 16
-	NListFacts    = 10
-	NInlineAssets = 8
-	NSources      = 8
-	// One spend counter per velocity mint.
-	NVelocityAssets = 8
+	// PolicyTableVersion enters the table hash, every layout change bumps it.
+	PolicyTableVersion = 11
+	PolicyTableFields  = 2 + 2*NSources + 3 + NRules + 2*NInlineAssets + 3*NOutflowLimits
+	// PolicyTableRate fields join the accumulator per Poseidon call, twelve inputs is the syscall maximum.
+	PolicyTableRate = 11
 )
 
-// PolicyVersion is committed in policy_hash.
-const PolicyVersion = 7
+// Every table hash call absorbs a full rate of fields.
+const _ = uint(-(PolicyTableFields % PolicyTableRate))
 
-// Subjects select the transaction value checked against a rule.
+// Rule row values, mirrored by Subject, Mode and the guard tags of Rule::encoded in custom-rings/policy/src/rule_table.rs.
 const (
-	SubjectOutputOwner     = 1
-	SubjectSender          = 2
-	SubjectExitDestination = 3 // Rejected for enabled rules.
-	SubjectAsset           = 4
-)
+	SubjectOutputOwner = 1
+	SubjectSender      = 2
+	SubjectAsset       = 4
 
-// Modes select active list membership or absence at the supplied roots.
-const (
 	ModePresent = 1
 	ModeAbsent  = 2
-)
 
-// Entry states distinguish active membership from a stored revocation.
-const (
-	EntryStateActive  = 1
-	EntryStateCleared = 2
-)
-
-// Guard tags select no exemption, a subject threshold or an owner-and-asset
-// limit.
-const (
 	GuardAlways             = 0
 	GuardAboveAmount        = 1
 	GuardAboveAmountByAsset = 2
 )
 
-// Absence uses an unclaimed address or an unspent cleared entry.
-const (
-	AbsentBranchUnclaimedAddress = 1
-	AbsentBranchCleared          = 2
-)
-
-// Distinct hash domains separate policy commitments from list and spend records.
-const (
-	addressDomainTag      = "zolana:ring-policy:address:v1"
-	recordDomainTag       = "zolana:ring-policy:record:v1"
-	tableDomainTag        = "zolana:ring-policy:policy:v1"
-	spendAddressDomainTag = "zolana:ring-policy:spend:v1"
-	spendRecordDomainTag  = "zolana:ring-spend:record:v1"
-)
-
-var (
-	policyAddressDomain = packedASCII(addressDomainTag)
-	policyRecordDomain  = packedASCII(recordDomainTag)
-	policyTableDomain   = packedASCII(tableDomainTag)
-	SpendAddressDomain  = packedASCII(spendAddressDomainTag)
-	SpendRecordDomain   = packedASCII(spendRecordDomainTag)
-)
-
-// Policy entries use the SOL asset Poseidon(0, 0).
-var solAssetField, _ = new(big.Int).SetString(
-	"2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864", 16)
-
-// Entry UTXOs use the empty ring commitment Poseidon(0, 0).
-var emptyRingHash = solAssetField
-
-// UTXO amounts and thresholds use the same unsigned width.
-const amountBits = 64
-
-// The sum width bounds the larger of the input and output groups.
-var amountSumBits = amountBits + bits.Len(uint(max(NInputs, NOutputs)-1))
-
-// Adding the offset makes the top bit indicate total <= threshold.
-var amountSumOffset = new(big.Int).Lsh(big.NewInt(1), uint(amountSumBits))
-
-// Packed rows bind each field at its encoded byte offset.
-var ruleWeights = struct {
-	mode, listMask, guardTag, threshold, altListMask *big.Int
-}{
-	mode:        new(big.Int).Lsh(big.NewInt(1), 8),
-	listMask:    new(big.Int).Lsh(big.NewInt(1), 16),
-	guardTag:    new(big.Int).Lsh(big.NewInt(1), 24),
-	threshold:   new(big.Int).Lsh(big.NewInt(1), 32),
-	altListMask: new(big.Int).Lsh(big.NewInt(1), 96),
-}
-
-// packedASCII encodes short domain tags as big endian fields without modular
-// reduction.
-func packedASCII(tag string) *big.Int {
-	if len(tag) > 31 {
-		panic("policy domain tag exceeds 31 bytes")
-	}
-	return new(big.Int).SetBytes([]byte(tag))
-}
+// MemberOutputs are the member key capacities, every output opens its own owner and asset entry.
+var MemberOutputs = [...]int{2, 4, 8, 16}

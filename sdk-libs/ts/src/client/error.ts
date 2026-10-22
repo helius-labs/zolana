@@ -34,6 +34,8 @@ export const CANONICAL_CLIENT_ERROR_CODES = Object.freeze([
   "CLIENT_INCOMPLETE_INPUT_PROOFS",
   "CLIENT_STATE_PROOF_LEAF_MISMATCH",
   "CLIENT_STATE_PROOF_TREE_MISMATCH",
+  "CLIENT_STATE_PROOF_ROOT_MISMATCH",
+  "CLIENT_STATE_PROOF_INDEX_MISMATCH",
   "CLIENT_NULLIFIER_PROOF_LEAF_MISMATCH",
   "CLIENT_NULLIFIER_PROOF_TREE_MISMATCH",
   "CLIENT_MISSING_OUTPUT",
@@ -55,12 +57,15 @@ export type CanonicalClientErrorCode = (typeof CANONICAL_CLIENT_ERROR_CODES)[num
 export interface ClientErrorDetailsMap {
   readonly CLIENT_INDEXER_PROOF_DATA_NOT_READY: NoDetails;
   readonly CLIENT_PROVER_INDEXER_UNCONFIGURED: NoDetails;
-  readonly CLIENT_KEY_REGISTRY_OUT_OF_SYNC: MethodDetails;
-  readonly CLIENT_KEY_REGISTRY_ROOT_CHANGED: MethodDetails;
+  readonly CLIENT_MEMBER_REGISTRY_OUT_OF_SYNC: MethodDetails;
+  readonly CLIENT_MEMBER_REGISTRY_ROOT_CHANGED: MethodDetails;
   /** Hex `member`, set only by the prover. */
-  readonly CLIENT_KEY_REGISTRY_MEMBER_UNREGISTERED: Readonly<{ method: string; member?: string }>;
-  readonly CLIENT_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED: MethodDetails;
-  readonly CLIENT_SPEND_RECORD_OUT_OF_SYNC: MethodDetails;
+  readonly CLIENT_MEMBER_REGISTRY_MEMBER_UNREGISTERED: Readonly<{
+    method: string;
+    member?: string;
+  }>;
+  readonly CLIENT_MEMBER_REGISTRY_MEMBER_ALREADY_REGISTERED: MethodDetails;
+  readonly CLIENT_RECORD_QUEUE_CHANGED: MethodDetails;
   readonly CLIENT_KEYPAIR: Readonly<{ code: KeypairErrorCode }>;
   readonly CLIENT_TRANSACTION: Readonly<{ code: TransactionErrorCode }>;
   readonly CLIENT_HASHER: Readonly<{ code: HasherErrorCode }>;
@@ -101,6 +106,8 @@ export interface ClientErrorDetailsMap {
   }>;
   readonly CLIENT_STATE_PROOF_LEAF_MISMATCH: IndexDetails;
   readonly CLIENT_STATE_PROOF_TREE_MISMATCH: IndexDetails;
+  readonly CLIENT_STATE_PROOF_ROOT_MISMATCH: IndexDetails;
+  readonly CLIENT_STATE_PROOF_INDEX_MISMATCH: IndexDetails;
   readonly CLIENT_NULLIFIER_PROOF_LEAF_MISMATCH: IndexDetails;
   readonly CLIENT_NULLIFIER_PROOF_TREE_MISMATCH: IndexDetails;
   readonly CLIENT_MISSING_OUTPUT: NoDetails;
@@ -141,6 +148,12 @@ export interface ClientErrorDetailsMap {
   readonly CLIENT_INVALID_INTEGER: Readonly<{ field?: string; length?: number }> | undefined;
   readonly CLIENT_INVALID_INPUT_CONTEXT: Readonly<{ index?: number }> | undefined;
   readonly CLIENT_INVALID_PROOF_INPUTS: NoDetails;
+  readonly CLIENT_ANONYMOUS_PROOF_WITHOUT_HIDDEN_INPUT: NoDetails;
+  readonly CLIENT_ANONYMOUS_MIXED_DEFAULT_AND_RING_SPEND: NoDetails;
+  readonly CLIENT_ANONYMOUS_PUBLISHED_OWNER_LEAKS_IDENTITY: IndexDetails;
+  readonly CLIENT_ANONYMOUS_SPEND_SIGNATURE_INVALID: NoDetails;
+  readonly CLIENT_ANONYMOUS_EXIT_DESTINATIONS_DIFFER: NoDetails;
+  readonly CLIENT_ANONYMOUS_EXIT_TOKEN_OWNER_MISMATCH: NoDetails;
   readonly CLIENT_INVALID_MERGE: NoDetails;
   readonly CLIENT_MERGE_OUTPUT_MISMATCH: NoDetails;
   readonly CLIENT_INVALID_TRANSACTION: NoDetails;
@@ -184,6 +197,7 @@ export interface ClientErrorDetailsMap {
   readonly CLIENT_NULLIFIER_ROOT_MISMATCH: IndexDetails;
   /** An output blinding is not the one the circuit derives for its slot. */
   readonly CLIENT_OUTPUT_BLINDING_MISMATCH: IndexDetails;
+  readonly CLIENT_OUTPUT_OWNER_MARKER_MISMATCH: IndexDetails;
   /** The proof inputs were built for another output tree than the client's. */
   readonly CLIENT_TREE_ID_MISMATCH: Readonly<{ expected: number; actual: number }>;
   readonly CLIENT_INVALID_MERGE_OUTPUT: NoDetails;
@@ -237,11 +251,11 @@ export type ClientErrorDetails<Code extends ClientErrorCode = ClientErrorCode> =
   ClientErrorDetailsMap[Code];
 
 export const TYPESCRIPT_CLIENT_ERROR_CODES = Object.freeze([
-  "CLIENT_KEY_REGISTRY_OUT_OF_SYNC",
-  "CLIENT_KEY_REGISTRY_ROOT_CHANGED",
-  "CLIENT_KEY_REGISTRY_MEMBER_UNREGISTERED",
-  "CLIENT_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED",
-  "CLIENT_SPEND_RECORD_OUT_OF_SYNC",
+  "CLIENT_MEMBER_REGISTRY_OUT_OF_SYNC",
+  "CLIENT_MEMBER_REGISTRY_ROOT_CHANGED",
+  "CLIENT_MEMBER_REGISTRY_MEMBER_UNREGISTERED",
+  "CLIENT_MEMBER_REGISTRY_MEMBER_ALREADY_REGISTERED",
+  "CLIENT_RECORD_QUEUE_CHANGED",
   "CLIENT_INVALID_CONFIG",
   "CLIENT_UNEXPECTED",
   "CLIENT_INVALID_INTEGER",
@@ -271,6 +285,7 @@ export const TYPESCRIPT_CLIENT_ERROR_CODES = Object.freeze([
   "CLIENT_TOO_MANY_INPUT_TREES",
   "CLIENT_NULLIFIER_ROOT_MISMATCH",
   "CLIENT_OUTPUT_BLINDING_MISMATCH",
+  "CLIENT_OUTPUT_OWNER_MARKER_MISMATCH",
   "CLIENT_TREE_ID_MISMATCH",
   "CLIENT_INVALID_MERGE_OUTPUT",
   "CLIENT_INVALID_MERGE_SHAPE",
@@ -297,6 +312,12 @@ export const TYPESCRIPT_CLIENT_ERROR_CODES = Object.freeze([
   "CLIENT_PROVER_TEE_ATTESTATION",
   "CLIENT_PROVER_TEE_ENCRYPTION",
   "CLIENT_INVALID_RPC_RESPONSE",
+  "CLIENT_ANONYMOUS_PROOF_WITHOUT_HIDDEN_INPUT",
+  "CLIENT_ANONYMOUS_MIXED_DEFAULT_AND_RING_SPEND",
+  "CLIENT_ANONYMOUS_PUBLISHED_OWNER_LEAKS_IDENTITY",
+  "CLIENT_ANONYMOUS_SPEND_SIGNATURE_INVALID",
+  "CLIENT_ANONYMOUS_EXIT_DESTINATIONS_DIFFER",
+  "CLIENT_ANONYMOUS_EXIT_TOKEN_OWNER_MISMATCH",
 ] as const satisfies readonly ClientErrorCode[]);
 
 const CLIENT_ERROR_CODE_SET: ReadonlySet<string> = new Set([
@@ -364,6 +385,11 @@ const NO_DETAIL_CODES: ReadonlySet<ClientErrorCode> = new Set([
   "CLIENT_UNEXPECTED",
   "CLIENT_INDEXER_PROOF_DATA_NOT_READY",
   "CLIENT_PROVER_INDEXER_UNCONFIGURED",
+  "CLIENT_ANONYMOUS_PROOF_WITHOUT_HIDDEN_INPUT",
+  "CLIENT_ANONYMOUS_MIXED_DEFAULT_AND_RING_SPEND",
+  "CLIENT_ANONYMOUS_SPEND_SIGNATURE_INVALID",
+  "CLIENT_ANONYMOUS_EXIT_DESTINATIONS_DIFFER",
+  "CLIENT_ANONYMOUS_EXIT_TOKEN_OWNER_MISMATCH",
 ]);
 
 const OPTIONAL_DETAIL_CODES: ReadonlySet<ClientErrorCode> = new Set([
@@ -397,15 +423,17 @@ const DETAIL_SHAPES: Partial<Readonly<Record<ClientErrorCode, DetailShape>>> = {
   CLIENT_INCOMPLETE_INPUT_PROOFS: { expected: "number", state: "number", nullifier: "number" },
   CLIENT_STATE_PROOF_LEAF_MISMATCH: { index: "number" },
   CLIENT_STATE_PROOF_TREE_MISMATCH: { index: "number" },
+  CLIENT_STATE_PROOF_ROOT_MISMATCH: { index: "number" },
+  CLIENT_STATE_PROOF_INDEX_MISMATCH: { index: "number" },
   CLIENT_NULLIFIER_PROOF_LEAF_MISMATCH: { index: "number" },
   CLIENT_NULLIFIER_PROOF_TREE_MISMATCH: { index: "number" },
   CLIENT_RPC: { method: "string", reason: "string" },
   CLIENT_INDEXER: { method: "string", retryable: "boolean" },
-  CLIENT_KEY_REGISTRY_OUT_OF_SYNC: { method: "string" },
-  CLIENT_KEY_REGISTRY_ROOT_CHANGED: { method: "string" },
-  CLIENT_KEY_REGISTRY_MEMBER_UNREGISTERED: { method: "string", member: "string" },
-  CLIENT_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED: { method: "string" },
-  CLIENT_SPEND_RECORD_OUT_OF_SYNC: { method: "string" },
+  CLIENT_MEMBER_REGISTRY_OUT_OF_SYNC: { method: "string" },
+  CLIENT_MEMBER_REGISTRY_ROOT_CHANGED: { method: "string" },
+  CLIENT_MEMBER_REGISTRY_MEMBER_UNREGISTERED: { method: "string", member: "string" },
+  CLIENT_MEMBER_REGISTRY_MEMBER_ALREADY_REGISTERED: { method: "string" },
+  CLIENT_RECORD_QUEUE_CHANGED: { method: "string" },
   CLIENT_UNSUPPORTED_RPC_METHOD: { method: "string" },
   CLIENT_INDEXER_TIMEOUT: { signature: "string", expectedTags: "number", attempts: "number" },
   CLIENT_INDEXER_NOT_CAUGHT_UP: { target: "string", latest: "string", attempts: "number" },
@@ -413,6 +441,7 @@ const DETAIL_SHAPES: Partial<Readonly<Record<ClientErrorCode, DetailShape>>> = {
   CLIENT_PROOF_PATH_LENGTH: { got: "number", expected: "number", index: "number", kind: "string" },
   CLIENT_PROOF_INPUT_COUNT_MISMATCH: { got: "number", expected: "number" },
   CLIENT_ADDRESS_INPUT_UNSUPPORTED: { index: "number" },
+  CLIENT_ANONYMOUS_PUBLISHED_OWNER_LEAKS_IDENTITY: { index: "number" },
   CLIENT_INVALID_ADDRESS_INPUT: { index: "number" },
   CLIENT_INVALID_CONFIG: { field: "string" },
   CLIENT_INVALID_INTEGER: { field: "string", length: "number" },
@@ -435,6 +464,7 @@ const DETAIL_SHAPES: Partial<Readonly<Record<ClientErrorCode, DetailShape>>> = {
   CLIENT_TOO_MANY_INPUT_TREES: { got: "number", max: "number" },
   CLIENT_NULLIFIER_ROOT_MISMATCH: { index: "number" },
   CLIENT_OUTPUT_BLINDING_MISMATCH: { index: "number" },
+  CLIENT_OUTPUT_OWNER_MARKER_MISMATCH: { index: "number" },
   CLIENT_TREE_ID_MISMATCH: { expected: "number", actual: "number" },
   CLIENT_INVALID_MERGE_SHAPE: { expected: "number", actual: "number" },
   CLIENT_INVALID_CACHE_ACCESS: { field: "string", index: "number" },
@@ -467,7 +497,7 @@ const REQUIRED_DETAIL_FIELDS: Partial<Readonly<Record<ClientErrorCode, readonly 
   CLIENT_INDEXER_TIMEOUT: [],
   CLIENT_PROOF_PATH_LENGTH: ["got", "expected"],
   CLIENT_POLL_TIMED_OUT: ["attempts"],
-  CLIENT_KEY_REGISTRY_MEMBER_UNREGISTERED: ["method"],
+  CLIENT_MEMBER_REGISTRY_MEMBER_UNREGISTERED: ["method"],
   CLIENT_INVALID_CONFIG: [],
   CLIENT_INVALID_INTEGER: [],
   CLIENT_INVALID_INPUT_CONTEXT: [],

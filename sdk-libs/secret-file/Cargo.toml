@@ -1,0 +1,13 @@
+[package]
+name = "zolana-secret-file"
+version = "0.1.0"
+description = "Create and read secret key files with owner-only access."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+hex = { workspace = true }
+libc = { workspace = true }
+thiserror = { workspace = true, features = ["std"] }
+zeroize = { workspace = true }

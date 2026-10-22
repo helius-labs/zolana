@@ -1,0 +1,8 @@
+{
+  "description": "Payload errors of a DecryptedTransaction as the ring rpc serializes them. kinds names every OutputPayloadErrorKind. foreign_body_and_low_order_key holds the errors of one delivered transfer whose slot 2 body opens to another commitment under the published recipient key and whose slot 5 publishes a recipient key without an X25519 agreement. Pinned by the custom-rings/client rpc tests and decoded by the TypeScript RingRpc tests.",
+  "kinds": ["frame", "disclosure", "recipientKey", "commitment", "escrowUnknown"],
+  "foreign_body_and_low_order_key": [
+    { "slotIndex": 2, "kind": "commitment" },
+    { "slotIndex": 5, "kind": "recipientKey" }
+  ]
+}

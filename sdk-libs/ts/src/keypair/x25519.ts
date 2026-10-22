@@ -21,6 +21,11 @@ export class X25519PublicKey {
     return new X25519PublicKey(key);
   }
 
+  /** The inverse of `u`. */
+  static fromU(u: Bytes32): X25519PublicKey {
+    return X25519PublicKey.fromBytes(concatBytes(Uint8Array.of(4), u));
+  }
+
   equals(other: X25519PublicKey): boolean {
     return this.#bytes.every((b, i) => b === other.#bytes[i]);
   }

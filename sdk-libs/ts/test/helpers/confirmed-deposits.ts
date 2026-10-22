@@ -1,12 +1,40 @@
 import { getBase58Decoder, type Address, type Signature } from "@solana/kit";
 import { encodeRingDepositInstructionData } from "../../src/interface/codecs/index.js";
 import { CUSTOM_RING_PROOF_LENGTH } from "../../src/interface/custom-ring-proof.js";
+import { Writer, addressBytes } from "../../src/interface/internal.js";
 import { InstructionTag, SHIELDED_POOL_PROGRAM_ID } from "../../src/interface/program.js";
 import type { Bytes16, Bytes32 } from "../../src/interface/types.js";
 import {
   encodeRingDepositCapsule,
   type RingDepositCapsule,
 } from "../../src/ring/deposit-capsule.js";
+import { EncryptedScheme, encodeOutputData } from "../../src/transaction/serialization/codecs.js";
+
+/** Borsh `RingDepositOutput`, the capsule as its ciphertext. */
+export function ringDepositPayload(
+  input: Readonly<{
+    ring: Address;
+    ownerCommitment: Bytes32;
+    asset: Address;
+    amount: bigint;
+    capsule: RingDepositCapsule;
+  }>,
+): Uint8Array {
+  const ciphertext = encodeRingDepositCapsule(input.capsule);
+  const body = new Writer()
+    .bytes(input.ownerCommitment)
+    .bytes(addressBytes(input.asset))
+    .u64(input.amount, "amount")
+    .u8(0, "dataHash")
+    .bytes(addressBytes(input.ring))
+    .bytes(new Uint8Array(32))
+    .bytes(input.capsule.ephemeralPublicKey)
+    .bytes(new Uint8Array(16))
+    .u32(ciphertext.length, "ciphertext.length")
+    .bytes(ciphertext)
+    .finish();
+  return encodeOutputData(EncryptedScheme.ringDeposit, body, "encrypted");
+}
 
 /** A successful confirmed wrapper and its exact SPP self-CPI ancestry. */
 export function confirmedDepositTransaction(

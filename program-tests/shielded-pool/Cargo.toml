@@ -52,12 +52,15 @@ groth16-solana = { workspace = true }
 zolana-user-registry-interface = { workspace = true }
 zolana-hasher = { workspace = true }
 zolana-merkle-tree = { workspace = true }
+zolana-ring-member-registry = { workspace = true }
+custom-ring-interface = { workspace = true }
 zolana-smart-account-client = { workspace = true }
 zolana-test-utils = { workspace = true, features = ["mollusk"] }
 zolana-tree = { workspace = true }
 mollusk-svm = { workspace = true }
 
 [dev-dependencies]
+custom-ring-sdk = { path = "../../custom-rings/sdk" }
 wincode = { workspace = true }
 # vk::setup reads the verifying key setup markers back from the built program.
 groth16-solana = { workspace = true, features = ["gnark-vk"] }
@@ -137,6 +140,10 @@ name = "ring_config_update_owner"
 path = "tests/ring_config/update_owner.rs"
 
 [[test]]
+name = "ring_config_account_indexes"
+path = "tests/ring_config/account_indexes.rs"
+
+[[test]]
 name = "deposit_functional"
 path = "tests/deposit/functional.rs"
 
@@ -194,6 +201,11 @@ path = "tests/merge/contract.rs"
 [[test]]
 name = "merge_functional"
 path = "tests/merge/functional.rs"
+required-features = ["proofs"]
+
+[[test]]
+name = "merge_custom_ring"
+path = "tests/merge/custom_ring.rs"
 required-features = ["proofs"]
 
 [[test]]

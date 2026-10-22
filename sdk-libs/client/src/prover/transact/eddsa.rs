@@ -113,6 +113,7 @@ impl TransferProver {
             tree_slots: TreeSlotFields::encode_all(&assembled_inputs.tree_slots),
             output_tree_id: BigUint::from(self.output_tree_id),
             blinding_seed: be(&self.blinding_seed),
+            ring_secrets: Vec::new(),
             external_data_hash: be(&external_data_hash),
             private_tx_hash: be(&private_tx),
             public_assets: self.public_transfers.assets.map(|asset| be(&asset)),

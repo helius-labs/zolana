@@ -1,4 +1,4 @@
-use std::collections::{hash_map::Entry, BTreeSet, HashMap, HashSet};
+use std::collections::{hash_map::Entry, BTreeMap, BTreeSet, HashMap, HashSet};
 
 use solana_address::Address;
 use zolana_keypair::{shielded::ShieldedAddress, viewing_key::ViewTag, X25519Pubkey};
@@ -6,7 +6,7 @@ use zolana_transaction::{
     error::TransactionError, utxo::Utxo, AssetBalance, AssetRegistry, DepositPayload, WalletUtxo,
 };
 
-pub const DEFAULT_TAG_WINDOW: u64 = 64;
+pub use zolana_client::{AnonymousRingState, DEFAULT_TAG_WINDOW};
 pub(crate) const SENDER_HISTORY_ROW_BASE: u64 = 1 << 63;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -152,6 +152,8 @@ pub struct Wallet {
     /// Per key, the position everything matching it has been seen through.
     /// Streams advance independently. Nullifier entries die with their spend.
     pub cursors: HashMap<CursorStream, Vec<u8>>,
+    /// The anonymous rings the wallet reads by exact tag, each advanced by `sync_wallet`.
+    pub anonymous_rings: BTreeMap<Address, AnonymousRingState>,
 }
 
 impl Wallet {
@@ -179,7 +181,15 @@ impl Wallet {
             nullifiers: HashSet::new(),
             last_synced: 0,
             cursors: HashMap::new(),
+            anonymous_rings: BTreeMap::new(),
         })
+    }
+
+    /// Every later sync reads the streams of `state`'s ring from its last scanned epoch.
+    #[must_use]
+    pub fn with_anonymous_ring(mut self, state: AnonymousRingState) -> Self {
+        self.anonymous_rings.insert(state.ring(), state);
+        self
     }
 
     #[must_use]

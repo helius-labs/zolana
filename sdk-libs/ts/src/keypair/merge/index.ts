@@ -117,14 +117,27 @@ export const MERGE_OUTPUT_CIPHERTEXT_ELEMENTS = 3;
  * `pads` in `instructions/merge/serialization.rs` and the circuit's `PoseidonCtr`.
  */
 export function mergeOutputPads(key: Bytes32, salt: Uint8Array): readonly [bigint, bigint, bigint] {
-  checkedBytes<Bytes32>(key, 32, "merge output key");
-  if (salt.length !== 16) throw invalidLength("merge output salt", 16, salt.length);
-  const alignedSalt = rightAlign(salt);
-  const pad = (index: number): bigint =>
-    bytesToBigInt(
-      poseidon([fieldU32(DOMAIN_MERGE_OUTPUT_CIPHERTEXT), key, alignedSalt, fieldU32(index)]),
-    );
-  return [pad(0), pad(1), pad(2)];
+  const secret = checkedBytes<Bytes32>(key, 32, "merge output key");
+  try {
+    if (salt.length !== 16) throw invalidLength("merge output salt", 16, salt.length);
+    const alignedSalt = rightAlign(salt);
+    const pad = (index: number): bigint => {
+      const bytes = poseidon([
+        fieldU32(DOMAIN_MERGE_OUTPUT_CIPHERTEXT),
+        secret,
+        alignedSalt,
+        fieldU32(index),
+      ]);
+      try {
+        return bytesToBigInt(bytes);
+      } finally {
+        bytes.fill(0);
+      }
+    };
+    return [pad(0), pad(1), pad(2)];
+  } finally {
+    secret.fill(0);
+  }
 }
 
 /**

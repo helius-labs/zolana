@@ -38,6 +38,34 @@ mod tests {
         assert!(!table_exists(&db, "state_trees").await);
     }
 
+    #[tokio::test]
+    async fn member_registry_migrates_an_already_renamed_custom_ring_index() {
+        use migrations::rings::{
+            m20261017_000001_custom_ring_tables::Migration as Rename,
+            m20261017_000001_member_registry::Migration as Members,
+        };
+        let db = Database::connect("sqlite::memory:").await.unwrap();
+        let before_members = RingsMigrator::migrations()
+            .iter()
+            .position(|migration| migration.name().contains("member_registry"))
+            .unwrap();
+        RingsMigrator::up(&db, Some(before_members as u32))
+            .await
+            .unwrap();
+        let manager = SchemaManager::new(&db);
+        // A main-branch installation has applied the rename before learning
+        // about this branch's member-registry migration.
+        Rename.up(&manager).await.unwrap();
+        Members.up(&manager).await.unwrap();
+        assert!(table_exists(&db, "ring_member_registry_members").await);
+        assert!(table_exists(&db, "custom_ring_cursor").await);
+        assert!(!table_exists(&db, "ring_key_registry_members").await);
+        Members.down(&manager).await.unwrap();
+        assert!(table_exists(&db, "ring_key_registry_members").await);
+        Rename.down(&manager).await.unwrap();
+        assert!(table_exists(&db, "ring_projection_cursor").await);
+    }
+
     async fn table_exists(
         db: &sea_orm_migration::sea_orm::DatabaseConnection,
         table: &str,

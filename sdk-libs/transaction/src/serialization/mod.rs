@@ -11,11 +11,18 @@ pub mod anonymous;
 pub mod confidential;
 pub mod plaintext;
 pub mod proofless;
+pub mod ring_delivered;
 pub mod ring_deposit;
+pub mod ring_packed;
 pub mod scheme;
 
 pub use proofless::{Proofless, ProoflessEncode};
+pub use ring_delivered::{
+    is_contributory, RingDeliveredBody, RingDeliveredUtxo, RingDeliveryOpening, RingDeliverySlot,
+    RingUtxoOwner,
+};
 pub use ring_deposit::RingDepositPlaintext;
+pub use ring_packed::{RingPacked, RingPackedPlaintext};
 
 pub struct DecodeCx<'a> {
     pub viewing_key: &'a ViewingKey,

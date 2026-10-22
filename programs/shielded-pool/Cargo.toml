@@ -19,8 +19,6 @@ profile-program = ["light-program-profiler/profile-program"]
 
 [dependencies]
 arrayvec = { workspace = true }
-ark-bn254 = { version = "0.5", default-features = false }
-ark-ff = { version = "0.5", default-features = false }
 bincode = { workspace = true }
 borsh = { workspace = true }
 bytemuck = { workspace = true }
@@ -35,7 +33,7 @@ pinocchio-system = { workspace = true }
 pinocchio = { workspace = true, features = ["account-resize"] }
 spl-token-2022-interface = { workspace = true }
 tinyvec = { workspace = true }
-zolana-interface = { workspace = true, features = ["borsh"] }
+zolana-interface = { workspace = true, features = ["borsh", "token-account"] }
 zolana-tree = { workspace = true, features = ["account-view", "verify"] }
 zolana-user-registry-interface = { workspace = true }
 

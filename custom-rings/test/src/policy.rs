@@ -1,32 +1,38 @@
-//! Entry writes and governed transfers shared by the policy suites, and the
-//! tables they pin.
-
-use std::num::NonZeroU64;
-use zolana_keypair::X25519Keypair;
+//! Member list writes and governed transfers shared by the policy suites, and
+//! the tables they pin.
 
 use anyhow::{anyhow, Result};
+use std::{
+    thread::sleep,
+    time::{Duration, Instant},
+};
+
+use custom_ring_cli::Landing;
+use custom_ring_interface::MemberRegistry;
 use custom_ring_sdk::{
-    CreateEntry, CustomRing, CustomRingTransfer, CustomRingTransferInput, DepositAsset,
-    EntryProofEnvironment, LiveEntry, PolicyConfig, PoolTree, ProvenTransfer, ReadEntry,
-    RingDeposit, RingDepositReceipt, TransactSend, TransferError, TransferProofEnvironment,
-    UpdateEntry, ENTRY_MUTATION_COMPUTE_UNIT_LIMIT,
+    AuthorityListWrite, CustomRing, CustomRingTransfer, CustomRingTransferInput, DepositAsset,
+    DepositRecipient, ProvenRingTransfer, RingDeposit, RingDepositReceipt, RingError,
 };
 use solana_keypair::Keypair;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{ComputeBudgetConfig, ProverClient, Rpc};
-use zolana_interface::SOL_ASSET_FIELD;
-use zolana_keypair::ShieldedKeypair;
-use zolana_ring_policy::{
-    EntryState, ListId, ListSet, Member, Rule, RuleTable, Subject, VelocityRow,
+use zolana_client::{
+    prover::indexed::ProofDataSource, AnonymousRingState, ProverClient, SolanaRpc, ZolanaClient,
 };
-use zolana_test_utils::test_validator_asserts::{wait_for_indexed_utxo, wait_for_merkle_proof};
+use zolana_interface::SOL_ASSET_FIELD;
+use zolana_keypair::{ShieldedKeypair, X25519Keypair};
+use zolana_ring_policy::{
+    ListChange, ListId, ListSet, Member, OutflowLimit, Rule, RuleTable, Subject,
+};
+use zolana_test_utils::test_validator_asserts::wait_for_merkle_proof;
 use zolana_transaction::{
     instructions::transact::{ConfidentialTransaction, Shape},
     Utxo,
 };
 
-use crate::shared::{custom_ring_program_id, setup_with_extra_rings, RegisterRing, TestEnv, Tier};
+use crate::shared::{
+    custom_ring_program_id, send, setup_with_extra_rings, RegisterRing, TestEnv, Tier,
+};
 
 pub const DEPOSIT: u64 = 1_000_000_000;
 pub const TRANSFER_AMOUNT: u64 = 250_000_000;
@@ -44,34 +50,19 @@ pub const BLOCK_ONLY: RuleTable = RuleTable::builder()
     .rule(Rule::forbid(Subject::OutputOwner, ListId::Block))
     .build();
 
-pub const TOKEN_BLOCK: RuleTable = RuleTable::builder()
-    .rule(Rule::forbid(Subject::Asset, ListId::Block))
-    .build();
+pub const LIMIT_CAP: u64 = 650_000_000;
+pub const LIMIT_COSIGN_ABOVE: u64 = 300_000_000;
 
-pub const VELOCITY_WINDOW_SLOTS: NonZeroU64 = NonZeroU64::new(1_000).unwrap();
-pub const VELOCITY_CAP: u64 = 650_000_000;
-pub const VELOCITY_COSIGN_ABOVE: u64 = 300_000_000;
-
-/// SOL outflow capped per window, dual control above the threshold.
-pub const VELOCITY: RuleTable = RuleTable::builder()
-    .windowed(VELOCITY_WINDOW_SLOTS)
-    .velocity(&[VelocityRow {
+/// SOL outflow capped per transfer, dual control above the threshold.
+pub const OUTFLOW_LIMIT: RuleTable = RuleTable::builder()
+    .limits(&[OutflowLimit {
         asset: SOL_ASSET_FIELD,
-        cap: VELOCITY_CAP,
-        cosign_above: VELOCITY_COSIGN_ABOVE,
+        cap: LIMIT_CAP,
+        cosign_above: LIMIT_COSIGN_ABOVE,
     }])
     .build();
 
-/// SOL outflow capped per transfer, dual control above the threshold, no window.
-pub const TRANSFER_CAP: RuleTable = RuleTable::builder()
-    .velocity(&[VelocityRow {
-        asset: SOL_ASSET_FIELD,
-        cap: VELOCITY_CAP,
-        cosign_above: VELOCITY_COSIGN_ABOVE,
-    }])
-    .build();
-
-/// An Approval entry or no Block entry admits an output owner.
+/// Approval or no Block admits an output owner.
 pub const APPROVAL_OR_UNBLOCKED: RuleTable = RuleTable::builder()
     .rule(Rule::any_of(
         Subject::OutputOwner,
@@ -86,9 +77,8 @@ pub fn owner_member(owner: &ShieldedKeypair) -> Result<Member> {
     )?)
 }
 
-pub fn policy_config<R: Rpc>(ring: CustomRing, rpc: &R) -> Result<PolicyConfig> {
-    ring.read_policy_config(rpc)?
-        .ok_or_else(|| anyhow!("policy config of {}", ring.program_id()))
+pub fn policy_registry(ring: CustomRing, env: &TestEnv) -> Result<Box<MemberRegistry>> {
+    Ok(env.run(ring.require_registry(env.client.as_async()))?)
 }
 
 pub struct CuratedRings {
@@ -107,9 +97,9 @@ impl CuratedRings {
             ring: curator,
             payer: &env.payer,
             auditor_pubkey: X25519Keypair::new().pubkey(),
-            tier: Tier::policy(&BLOCK_ONLY, env.tree),
+            tier: Tier::policy(&BLOCK_ONLY),
         }
-        .send(env.client.rpc())?;
+        .send(&env.client)?;
         Ok(Self {
             env,
             curator,
@@ -129,26 +119,50 @@ pub struct RingNotes<'a> {
 
 impl RingNotes<'_> {
     pub fn deposit(self) -> Result<Vec<Utxo>> {
-        let rpc = self.env.client.rpc();
-        let indexer = self.env.client.indexer();
+        let payer = self.owner;
+        self.deposit_from(payer)
+    }
+
+    /// A separate depositor keeps an anonymous owner out of public signatures.
+    pub fn deposit_from(self, payer: &(dyn Signer + Sync)) -> Result<Vec<Utxo>> {
+        let recipient = DepositRecipient::Confidential(self.owner.shielded_address()?);
+        self.deposit_to(recipient, payer)
+    }
+
+    /// Notes of the owner's hidden identity on an anonymous ring.
+    pub fn deposit_hidden_from(self, payer: &(dyn Signer + Sync)) -> Result<Vec<Utxo>> {
+        let owner = self.owner;
+        let state = AnonymousRingState::new(self.ring.program_id(), 0);
+        self.deposit_to(
+            DepositRecipient::Anonymous {
+                keys: owner,
+                state: &state,
+            },
+            payer,
+        )
+    }
+
+    fn deposit_to(
+        self,
+        recipient: DepositRecipient<'_>,
+        payer: &(dyn Signer + Sync),
+    ) -> Result<Vec<Utxo>> {
+        let env = self.env;
+        let indexer = env.client.indexer();
         (0..self.count)
             .map(|_| {
-                let RingDepositReceipt { utxo, .. } = RingDeposit {
+                let deposit = RingDeposit {
                     ring: self.ring,
-                    payer: self.owner,
-                    recipient: self.owner,
-                    tree: self.env.tree,
+                    payer,
+                    recipient,
+                    tree: env.tree,
                     asset: DepositAsset::Sol,
                     amount: self.amount,
                     cosigner: None,
-                    anonymous_view_tag: None,
-                }
-                .send(custom_ring_sdk::DepositProofEnvironment {
-                    indexer,
-                    rpc,
-                    prover: &zolana_client::ProverClient::local(),
-                })?;
-                let tree_id = custom_ring_sdk::tree_id(rpc, self.env.tree)?;
+                };
+                let RingDepositReceipt { utxo, .. } =
+                    env.run(deposit.send(env.client.as_async()))?;
+                let tree_id = env.tree_id(env.tree)?;
                 let leaf = utxo.hash(
                     &self.owner.nullifier_key.pubkey()?,
                     &[0; 32],
@@ -173,8 +187,10 @@ pub struct PolicyTransfer<'a> {
 }
 
 impl PolicyTransfer<'_> {
-    pub fn prove(self, prover: &ProverClient) -> Result<ProvenTransfer, TransferError> {
-        let tree_id = custom_ring_sdk::tree_id(self.env.client.rpc(), self.env.tree)?;
+    pub fn prove(self, client: &ZolanaClient<SolanaRpc>) -> Result<ProvenRingTransfer, RingError> {
+        let tree_id = self
+            .env
+            .run(custom_ring_sdk::tree_id(client.as_async(), self.env.tree))?;
         let hash = self.note.hash(
             &self.sender.nullifier_key.pubkey()?,
             &[0; 32],
@@ -199,24 +215,23 @@ impl PolicyTransfer<'_> {
         .with_output_tree_id(tree_id)?;
         transfer.transfer_sol(&self.recipient.shielded_address()?, self.amount)?;
         transfer.pad_utxos(Shape::IN1_OUT2, &self.sender.shielded_address()?)?;
-        CustomRingTransfer::new(CustomRingTransferInput {
+        let transfer = CustomRingTransfer::new(CustomRingTransferInput {
             ring: self.ring,
             sender: self.sender,
             nullifier_key: Some(&self.sender.nullifier_key),
             transaction: transfer,
-        })
-        .prove(TransferProofEnvironment {
-            indexer: self.env.client.indexer(),
-            rpc: self.env.client.rpc(),
-            prover,
-        })
+        });
+        client.block_on(transfer.prove(client.as_async()))
     }
 
-    /// Refused at witness build, the unreachable prover is never asked.
+    /// Refused before proving, the unreachable prover is never asked.
     pub fn expect_refusal(self) -> Result<()> {
-        let unreachable = ProverClient::new("http://127.0.0.1:1".to_string());
+        let unreachable = self.env.client_with(
+            ProverClient::new("http://127.0.0.1:1".to_string())
+                .with_proof_data_source(ProofDataSource::Client),
+        );
         match self.prove(&unreachable) {
-            Err(TransferError::PolicyRuleUnsatisfied) => Ok(()),
+            Err(RingError::PolicyRuleUnsatisfied(_)) => Ok(()),
             Err(other) => Err(anyhow!("expected PolicyRuleUnsatisfied, got {other}")),
             Ok(_) => Err(anyhow!(
                 "expected PolicyRuleUnsatisfied, the transfer was proven"
@@ -225,120 +240,79 @@ impl PolicyTransfer<'_> {
     }
 
     /// Returns once photon serves the first output leaf, the next proof sees a synced index.
-    pub fn land(self, prover: &ProverClient) -> Result<Signature> {
+    pub fn land(self) -> Result<Signature> {
         let env = self.env;
         let payer = self.sender;
         let proven = self
-            .prove(prover)
+            .prove(&env.client)
             .map_err(|error| anyhow!("transfer proof failed {error}"))?;
         let landed = proven
-            .data
             .outputs
             .first()
             .ok_or_else(|| anyhow!("transfer output"))?
-            .utxo_hash;
-        let signature = TransactSend {
-            payer,
-            signers: &[],
-            instruction: proven.instruction()?,
-        }
-        .send(env.client.rpc())?;
+            .hash(env.tree_id(env.tree)?)?;
+        let signature = send(env.client.rpc(), payer, &[proven.instruction()?])?;
         wait_for_merkle_proof(env.client.indexer(), env.tree, landed);
         Ok(signature)
     }
 }
 
-pub enum EntryTarget {
-    Claim { list_id: ListId, member: Member },
-    Successor(LiveEntry),
+const INDEXING_TIMEOUT: Duration = Duration::from_secs(90);
+
+/// Polls the indexer until `member`'s record in `ring` carries `list_id` as `present`.
+pub fn wait_for_list(
+    env: &TestEnv,
+    ring: CustomRing,
+    list_id: ListId,
+    member: Member,
+    present: bool,
+) -> Result<()> {
+    let deadline = Instant::now() + INDEXING_TIMEOUT;
+    loop {
+        match env.member_record(ring, member) {
+            Ok(read) if read.listed(list_id) == present => return Ok(()),
+            _ if Instant::now() > deadline => {
+                return Err(anyhow!(
+                    "{list_id:?} of {member:?} not indexed as {present}"
+                ))
+            }
+            _ => sleep(Duration::from_millis(500)),
+        }
+    }
 }
 
-/// Landed and readable through the indexer before `send` returns.
-pub struct EntryWrite<'a> {
+/// One authority list write, readable through the indexer on return.
+pub struct RegistryWrite<'a> {
     pub ring: CustomRing,
-    pub target: EntryTarget,
-    pub state: EntryState,
-    /// Pays the transaction, the ring authority co-signs the mutation.
-    pub fee_payer: &'a dyn Signer,
+    pub list_id: ListId,
+    pub member: Member,
+    pub present: bool,
     pub env: &'a TestEnv,
 }
 
-impl EntryWrite<'_> {
-    pub fn send(self, prover: &ProverClient) -> Result<LiveEntry> {
-        let address_tree = self.address_tree()?;
-        self.send_to(prover, address_tree)
-    }
-
-    fn address_tree(&self) -> Result<PoolTree> {
-        Ok(PoolTree::address_tree(&policy_config(
-            self.ring,
-            self.env.client.rpc(),
-        )?))
-    }
-
-    /// The written version lands in `output_tree`, its address stays in the address tree.
-    pub fn send_to(self, prover: &ProverClient, output_tree: PoolTree) -> Result<LiveEntry> {
+impl RegistryWrite<'_> {
+    pub fn send(self) -> Result<()> {
         let env = self.env;
-        let rpc = env.client.rpc();
-        let indexer = env.client.indexer();
-        let authority = env.payer.pubkey();
-        let environment = EntryProofEnvironment {
-            indexer,
-            rpc,
-            prover,
-        };
-        let address_tree = self.address_tree()?;
-        let proven = match self.target {
-            EntryTarget::Claim { list_id, member } => CreateEntry {
-                ring: self.ring,
-                payer: authority,
-                address_tree,
-                output_tree,
-                list_id,
-                member,
-                state: self.state,
-                content_hash: [0u8; 32],
-            }
-            .prove(environment)?,
-            EntryTarget::Successor(spent) => UpdateEntry {
-                ring: self.ring,
-                payer: authority,
-                address_tree,
-                output_tree,
-                spent,
-                state: self.state,
-                content_hash: [0u8; 32],
-            }
-            .prove(environment)?,
-        };
-        let entry = proven.entry();
-        let instructions = [proven.instruction()?];
-        let signers: Vec<&dyn Signer> = if self.fee_payer.pubkey() == authority {
-            vec![&env.payer]
-        } else {
-            vec![self.fee_payer, &env.payer]
-        };
-        let signature = rpc.create_and_send_transaction(
-            &instructions,
-            self.fee_payer.pubkey(),
-            &signers,
-            ComputeBudgetConfig::new(ENTRY_MUTATION_COMPUTE_UNIT_LIMIT),
-        )?;
-        wait_for_indexed_utxo(indexer, self.ring.namespace_pda().to_bytes(), signature);
-        let live = ReadEntry::new(
-            address_tree.id,
-            self.ring.namespace_pda(),
-            entry.list_id,
-            entry.member,
-        )
-        .read(indexer)?
-        .ok_or_else(|| anyhow!("{:?} entry after the write", entry.list_id))?;
-        assert_eq!(live.entry, entry, "indexed entry equals the mutation");
-        assert_eq!(
-            live.tree_id, output_tree.id,
-            "the version lands in the output tree"
-        );
-        wait_for_merkle_proof(indexer, output_tree.address, live.utxo_hash);
-        Ok(live)
+        let list = ListSet::single(self.list_id);
+        let lists = match self.present {
+            true => ListChange {
+                set: list,
+                clear: ListSet::EMPTY,
+            },
+            false => ListChange {
+                set: ListSet::EMPTY,
+                clear: list,
+            },
+        }
+        .check()?;
+        let write = AuthorityListWrite::new(self.ring, env.payer.pubkey())
+            .with_write(self.member, lists)?;
+        Landing {
+            operation: write.into(),
+            payer: &env.payer,
+            signers: &[],
+        }
+        .settle(&env.client)?;
+        wait_for_list(env, self.ring, self.list_id, self.member, self.present)
     }
 }

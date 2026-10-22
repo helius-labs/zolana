@@ -22,11 +22,6 @@ impl Member {
         Self::from_bytes(identity)
     }
 
-    /// An owner identity SPP derived for any curve.
-    pub fn owner_identity(identity: &[u8; 32]) -> Result<Self, MemberError> {
-        Self::from_bytes(*identity)
-    }
-
     /// The mint, encoded exactly as the `Asset` field of the UTXO hash.
     pub fn asset(mint: &Address) -> Result<Self, MemberError> {
         Self::from_hash_bytes(mint.as_array())
@@ -63,7 +58,7 @@ mod tests {
         let tag = [7u8; 32];
         let member = Member::owner_tag(&tag).unwrap();
         assert_eq!(member.as_bytes(), &solana_owner_identity(&tag).unwrap());
-        assert_eq!(Member::owner_identity(member.as_bytes()).unwrap(), member);
+        assert_eq!(Member::from_bytes(*member.as_bytes()).unwrap(), member);
     }
 
     #[test]

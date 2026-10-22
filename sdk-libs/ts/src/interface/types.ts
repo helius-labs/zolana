@@ -172,7 +172,27 @@ export type CircuitId =
       outputs: number;
       publicAssetSlots: number;
       cacheAccess: CacheAccess;
+    }>
+  | Readonly<{
+      kind: "anonymousRingEddsa";
+      inputs: number;
+      outputs: number;
+      publicAssetSlots: number;
+      proofData: AnonymousRingEddsaProofData;
     }>;
+
+/** Rust `Bsb22Commitment`, the compressed commitment of a committed Groth16 proof. */
+export interface Bsb22Commitment {
+  readonly commitment: Bytes32;
+  readonly commitmentPok: Bytes32;
+}
+
+/** Rust `AnonymousRingEddsaProofData`. */
+export interface AnonymousRingEddsaProofData {
+  readonly bsb22Commitment: Bsb22Commitment;
+  /** Set only when the hidden owner spends a default-ring UTXO, the spend then publishes the owner. */
+  readonly defaultOwnerTag?: Bytes32;
+}
 
 export type InterfaceTransfer =
   | Readonly<{ kind: "solDeposit"; amount: bigint }>

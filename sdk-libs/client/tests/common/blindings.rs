@@ -1,5 +1,5 @@
 use zolana_transaction::{
-    utxo::{derive_output_blinding_seed, derive_transact_output_blinding},
+    utxo::{derive_output_blinding_seed, OutputSlotBlinding},
     SppProofOutputUtxo,
 };
 
@@ -10,11 +10,13 @@ pub fn assign_output_blindings(
 ) {
     let seed = derive_output_blinding_seed(first_nullifier, seed).expect("output seed");
     for (index, output) in outputs.iter_mut().enumerate() {
-        output.blinding = derive_transact_output_blinding(
+        output.blinding = OutputSlotBlinding {
+            output,
             first_nullifier,
-            &seed,
-            u32::try_from(index).expect("slot index"),
-        )
+            output_blinding_seed: &seed,
+            slot_index: u32::try_from(index).expect("slot index"),
+        }
+        .derive()
         .expect("output blinding");
     }
 }

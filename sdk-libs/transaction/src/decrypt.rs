@@ -1,24 +1,40 @@
 use std::collections::{hash_map::Entry, BTreeSet, HashMap, HashSet};
 
 use borsh::BorshDeserialize;
+use custom_ring_interface::{
+    stream::{RingTag, SlotSecret},
+    RING_DELIVERED_BODY_LEN,
+};
 use solana_address::Address;
+use solana_signature::Signature;
 use zolana_event::{split_merge_output_body, EncryptedRingDepositOutput, OutputDataEncoding};
+use zolana_hasher::primitives::is_canonical_bn254_scalar_be;
 use zolana_keypair::{
-    shielded::ShieldedAddress, x25519::X25519_PUBKEY_LEN, KeypairError, X25519Pubkey,
+    shielded::ShieldedAddress, x25519::X25519_PUBKEY_LEN, KeypairError, PublicKey, X25519Pubkey,
 };
 
 use crate::{
     asset::{AssetBalance, AssetRegistry, Balances, Mint},
+    data::Data,
     error::TransactionError,
     indexer_types::{OutputSlot, ShieldedTransaction},
     instructions::merge::MergeOutputPlaintext,
-    keys::{DecryptLabel, DecryptRequest, DeriveRequest, ShieldedKeys, TransactionKeyRequest},
-    serialization::{
-        anonymous::AnonymousRecipient, confidential::Confidential, plaintext::PlaintextTransfer,
-        proofless::Proofless, ring_deposit::RingDepositPlaintext, scheme::EncryptedScheme, OwnerCx,
-        UtxoSerialization,
+    keys::{
+        DecryptLabel, DecryptRequest, DeriveRequest, RingDeliveryRequest, RingRecipientKey,
+        ShieldedKeys, TransactionKeyRequest,
     },
-    utxo::{owner_utxo_hash, Utxo, WalletUtxo},
+    serialization::{
+        anonymous::AnonymousRecipient,
+        confidential::Confidential,
+        plaintext::PlaintextTransfer,
+        proofless::Proofless,
+        ring_delivered::{is_contributory, RingDeliveryOpening, RingDeliverySlot, RingUtxoOwner},
+        ring_deposit::RingDepositPlaintext,
+        ring_packed::RingPacked,
+        scheme::EncryptedScheme,
+        OwnerCx, UtxoSerialization,
+    },
+    utxo::{owner_utxo_hash, Blinding, Utxo, WalletUtxo},
 };
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -30,10 +46,13 @@ pub struct DecryptionResult {
     /// chain checks it, so it is unverified: register the assets that exist
     /// and decrypt again, and the commitment decides.
     pub unknown_asset_ids: BTreeSet<u64>,
-    /// Mints named by authenticated deposits or merge outputs this wallet owns
-    /// that the asset registry has no id for. Those outputs are left out;
+    /// Mints named by authenticated deposits, merge outputs or pending delivered notes this
+    /// wallet owns that the asset registry has no id for. Those outputs are left out;
     /// register the mints and decrypt again.
     pub unknown_mints: BTreeSet<Address>,
+    /// Delivered ring notes whose commitment matched in a mint the registry has
+    /// no id for, [`Self::resolve_pending`] admits them without a rescan.
+    pub pending_assets: Vec<PendingUtxo>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -44,6 +63,66 @@ pub struct SpendableDecryptionResult {
     pub unknown_asset_ids: BTreeSet<u64>,
     /// As on [`DecryptionResult`].
     pub unknown_mints: BTreeSet<Address>,
+    /// As on [`DecryptionResult`].
+    pub pending_assets: Vec<PendingUtxo>,
+}
+
+/// A commitment-verified delivered ring note held back until its mint is registered.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PendingUtxo {
+    pub asset_address: Address,
+    pub amount: u64,
+    pub blinding: Blinding,
+    pub owner: PublicKey,
+    pub nullifier_pk: [u8; 32],
+    pub ring_program_id: Address,
+    pub utxo_hash: [u8; 32],
+    pub tree_id: u16,
+    pub leaf_index: u64,
+    pub slot: u64,
+    pub tx_signature: Signature,
+    pub slot_index: u32,
+}
+
+impl PendingUtxo {
+    /// `None` while the registry still lacks the mint.
+    pub fn resolve(&self, assets: &AssetRegistry) -> Result<Option<WalletUtxo>, TransactionError> {
+        let asset = match assets.mint(&self.asset_address) {
+            Ok(asset) => asset,
+            Err(TransactionError::UnknownMint(_)) => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        Ok(Some(WalletUtxo {
+            utxo: Utxo {
+                owner: self.owner,
+                asset,
+                amount: self.amount,
+                blinding: self.blinding,
+                ring_program_id: Some(self.ring_program_id),
+                data: Data::default(),
+            },
+            nullifier_pubkey: self.nullifier_pk,
+            utxo_hash: self.utxo_hash,
+            nullifier: [0; 32],
+            tx_viewing_key: None,
+            data_hash: None,
+            ring_data_hash: None,
+            tree_id: self.tree_id,
+            leaf_index: self.leaf_index,
+            latest_tree_id: None,
+            slot: self.slot,
+            tx_signature: self.tx_signature,
+            slot_index: self.slot_index,
+        }))
+    }
+}
+
+/// A pending note admitted by [`DecryptionResult::resolve_pending`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResolvedUtxo {
+    pub utxo: WalletUtxo,
+    /// Its nullifier was among the spent ones before it was admitted.
+    pub spent: bool,
 }
 
 impl SpendableDecryptionResult {
@@ -114,6 +193,37 @@ impl SpendableDecryptionResult {
     }
 }
 
+/// One delivered ring output and the slot secret its recipient agreed for it.
+#[derive(Clone)]
+pub struct RingDeliveredCandidate<'a> {
+    pub tx: &'a ShieldedTransaction,
+    pub slot_index: u32,
+    /// The published tag of an anonymous output, `None` for a confidential delivered one.
+    pub tag: Option<RingTag>,
+    pub slot_secret: SlotSecret,
+}
+
+/// What every delivered slot secret of one ring transaction binds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RingDeliveryContext {
+    pub ring: Address,
+    pub tx_viewing_pk: X25519Pubkey,
+    pub salt: [u8; 16],
+    pub first_nullifier: [u8; 32],
+}
+
+/// A candidate whose rebuilt note matched its published commitment.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RingDeliveredFind {
+    /// Index into the candidates.
+    pub candidate: usize,
+    pub utxo_hash: [u8; 32],
+    pub asset_address: Address,
+    pub amount: u64,
+    /// Held in `pending_assets` until its mint is registered.
+    pub pending: bool,
+}
+
 /// Decrypts and verifies notes against the supplied transactions.
 pub fn decrypt_spendable<K: ShieldedKeys + ?Sized>(
     shielded_keys: &K,
@@ -133,6 +243,22 @@ pub fn decrypt<K: ShieldedKeys + ?Sized>(
     let mut decrypted = DecryptionResult::default();
     decrypted.extend(shielded_keys, transactions, assets)?;
     Ok(decrypted)
+}
+
+impl RingDeliveryContext {
+    /// `None` without a ring, a contributory key, a salt or a canonical first nullifier.
+    #[must_use]
+    pub fn of(tx: &ShieldedTransaction) -> Option<Self> {
+        let context = Self {
+            ring: tx.ring_program_id?,
+            tx_viewing_pk: tx.tx_viewing_pk?,
+            salt: tx.salt?,
+            first_nullifier: *tx.nullifiers.first()?,
+        };
+        (is_contributory(&context.tx_viewing_pk)
+            && is_canonical_bn254_scalar_be(&context.first_nullifier))
+        .then_some(context)
+    }
 }
 
 impl DecryptionResult {
@@ -172,36 +298,112 @@ impl DecryptionResult {
                         }
                         Err(error) => return Err(error),
                     };
+                let site = Site {
+                    address: &address,
+                    tx,
+                    slot,
+                    slot_index,
+                };
                 for utxo in decoded.utxos {
-                    let hash = slot.output_context.hash;
-                    found.push(WalletUtxo {
-                        utxo,
-                        nullifier_pubkey: address.nullifier_pubkey,
-                        utxo_hash: hash,
-                        nullifier: [0; 32],
-                        tx_viewing_key: None,
-                        data_hash: decoded.data_hash,
-                        ring_data_hash: decoded.ring_data_hash,
-                        tree_id: slot.output_context.tree_id,
-                        leaf_index: slot.output_context.leaf_index,
-                        latest_tree_id: None,
-                        slot: tx.slot,
-                        tx_signature: tx.tx_signature,
-                        slot_index,
-                    });
+                    found.push(site.wallet_utxo(utxo, decoded.data_hash, decoded.ring_data_hash));
                 }
             }
         }
+        let candidates = confidential_delivered(shielded_keys, transactions)?;
+        let opened = open_delivered(&address, assets, &candidates)?;
+        found.extend(opened.found);
+        self.absorb(
+            shielded_keys,
+            found,
+            transactions,
+            unknown_asset_ids,
+            unknown_mints,
+        )?;
+        self.hold_pending(opened.pending);
+        Ok(())
+    }
+
+    /// Keeps every candidate whose body rebuilds its published commitment, unchanged on error.
+    pub fn extend_ring_delivered<K: ShieldedKeys + ?Sized>(
+        &mut self,
+        shielded_keys: &K,
+        assets: &AssetRegistry,
+        transactions: &[ShieldedTransaction],
+        candidates: &[RingDeliveredCandidate<'_>],
+    ) -> Result<Vec<RingDeliveredFind>, TransactionError> {
+        let address = shielded_keys.address()?;
+        let opened = open_delivered(&address, assets, candidates)?;
+        self.absorb(
+            shielded_keys,
+            opened.found,
+            transactions,
+            BTreeSet::new(),
+            BTreeSet::new(),
+        )?;
+        self.hold_pending(opened.pending);
+        Ok(opened.finds)
+    }
+
+    /// The mint joins `unknown_mints` as every other output's does, a registry refresh resolves it.
+    fn hold_pending(&mut self, pending: Vec<PendingUtxo>) {
+        for waiting in pending {
+            self.unknown_mints.insert(waiting.asset_address);
+            if !self
+                .pending_assets
+                .iter()
+                .any(|held| held.utxo_hash == waiting.utxo_hash)
+            {
+                self.pending_assets.push(waiting);
+            }
+        }
+    }
+
+    /// Admits every pending note the registry now resolves, each one's spent
+    /// state read before it joins `utxos`.
+    pub fn resolve_pending<K: ShieldedKeys + ?Sized>(
+        &mut self,
+        shielded_keys: &K,
+        assets: &AssetRegistry,
+    ) -> Result<Vec<ResolvedUtxo>, TransactionError> {
+        let resolutions = self
+            .pending_assets
+            .iter()
+            .map(|waiting| waiting.resolve(assets))
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut keep = resolutions
+            .iter()
+            .map(Option::is_none)
+            .collect::<Vec<_>>()
+            .into_iter();
+        let mut admitted: Vec<WalletUtxo> = resolutions.into_iter().flatten().collect();
+        // A failed step returns before any note leaves `pending_assets`.
+        assign_nullifiers(shielded_keys, &mut admitted)?;
+        self.pending_assets.retain(|_| keep.next().unwrap_or(true));
+        let resolved: Vec<ResolvedUtxo> = admitted
+            .into_iter()
+            .map(|utxo| ResolvedUtxo {
+                spent: self.spent_nullifiers.contains(&utxo.nullifier),
+                utxo,
+            })
+            .collect();
+        self.utxos
+            .extend(resolved.iter().map(|admitted| admitted.utxo.clone()));
+        sort_by_publication(&mut self.utxos);
+        Ok(resolved)
+    }
+
+    fn absorb<K: ShieldedKeys + ?Sized>(
+        &mut self,
+        shielded_keys: &K,
+        mut found: Vec<WalletUtxo>,
+        transactions: &[ShieldedTransaction],
+        unknown_asset_ids: BTreeSet<u64>,
+        unknown_mints: BTreeSet<Address>,
+    ) -> Result<(), TransactionError> {
         assign_nullifiers(shielded_keys, &mut found)?;
         let mut utxos = self.utxos.clone();
         utxos.extend(found);
-        utxos.sort_by_key(|utxo| {
-            (
-                utxo.slot,
-                utxo.tx_signature.as_ref().to_vec(),
-                utxo.slot_index,
-            )
-        });
+        sort_by_publication(&mut utxos);
         self.utxos = utxos;
         self.spent_nullifiers.extend(
             transactions
@@ -212,6 +414,222 @@ impl DecryptionResult {
         self.unknown_mints.extend(unknown_mints);
         Ok(())
     }
+}
+
+fn sort_by_publication(utxos: &mut [WalletUtxo]) {
+    utxos.sort_by_key(|utxo| {
+        (
+            utxo.slot,
+            utxo.tx_signature.as_ref().to_vec(),
+            utxo.slot_index,
+        )
+    });
+}
+
+#[derive(Clone, Copy)]
+struct Site<'a> {
+    address: &'a ShieldedAddress,
+    tx: &'a ShieldedTransaction,
+    slot: &'a OutputSlot,
+    slot_index: u32,
+}
+
+impl Site<'_> {
+    fn wallet_utxo(
+        &self,
+        utxo: Utxo,
+        data_hash: Option<[u8; 32]>,
+        ring_data_hash: Option<[u8; 32]>,
+    ) -> WalletUtxo {
+        WalletUtxo {
+            utxo,
+            nullifier_pubkey: self.address.nullifier_pubkey,
+            utxo_hash: self.slot.output_context.hash,
+            nullifier: [0; 32],
+            tx_viewing_key: None,
+            data_hash,
+            ring_data_hash,
+            tree_id: self.slot.output_context.tree_id,
+            leaf_index: self.slot.output_context.leaf_index,
+            latest_tree_id: None,
+            slot: self.tx.slot,
+            tx_signature: self.tx.tx_signature,
+            slot_index: self.slot_index,
+        }
+    }
+}
+
+/// What [`open_delivered`] kept, the notes in a registered mint and the ones held back.
+struct OpenedDelivered {
+    found: Vec<WalletUtxo>,
+    pending: Vec<PendingUtxo>,
+    finds: Vec<RingDeliveredFind>,
+}
+
+/// Opens every candidate under its own slot secret, nothing is absorbed here.
+fn open_delivered(
+    address: &ShieldedAddress,
+    assets: &AssetRegistry,
+    candidates: &[RingDeliveredCandidate<'_>],
+) -> Result<OpenedDelivered, TransactionError> {
+    let owner = RingUtxoOwner {
+        signing_pubkey: &address.signing_pubkey,
+        nullifier_pubkey: &address.nullifier_pubkey,
+    };
+    let mut opened = OpenedDelivered {
+        found: Vec::new(),
+        pending: Vec::new(),
+        finds: Vec::new(),
+    };
+    for (index, candidate) in candidates.iter().enumerate() {
+        let tx = candidate.tx;
+        let Some(RingDeliveryContext {
+            ring,
+            first_nullifier,
+            ..
+        }) = RingDeliveryContext::of(tx)
+        else {
+            continue;
+        };
+        let Some(slot) = tx.output_slots.get(candidate.slot_index as usize) else {
+            continue;
+        };
+        let Some(body) = delivered_body(slot) else {
+            continue;
+        };
+        let context = &slot.output_context;
+        let delivered = RingDeliverySlot {
+            ring,
+            first_nullifier,
+            output_index: candidate.slot_index,
+            tag: candidate.tag,
+        }
+        .open(RingDeliveryOpening {
+            body: &body,
+            slot_secret: &candidate.slot_secret,
+            owner,
+            commitment: &context.hash,
+            tree_id: context.tree_id,
+        })?;
+        let Some(delivered) = delivered else {
+            continue;
+        };
+        let asset_address = delivered.utxo.asset.asset;
+        let pending = match assets.mint(&asset_address) {
+            Ok(asset) => {
+                let site = Site {
+                    address,
+                    tx,
+                    slot,
+                    slot_index: candidate.slot_index,
+                };
+                let mut wallet_utxo = site.wallet_utxo(delivered.utxo.clone(), None, None);
+                wallet_utxo.utxo.asset = asset;
+                opened.found.push(wallet_utxo);
+                false
+            }
+            Err(TransactionError::UnknownMint(_)) => {
+                opened.pending.push(PendingUtxo {
+                    asset_address,
+                    amount: delivered.utxo.amount,
+                    blinding: delivered.utxo.blinding,
+                    owner: address.signing_pubkey,
+                    nullifier_pk: address.nullifier_pubkey,
+                    ring_program_id: ring,
+                    utxo_hash: delivered.utxo_hash,
+                    tree_id: context.tree_id,
+                    leaf_index: context.leaf_index,
+                    slot: tx.slot,
+                    tx_signature: tx.tx_signature,
+                    slot_index: candidate.slot_index,
+                });
+                true
+            }
+            Err(error) => return Err(error),
+        };
+        opened.finds.push(RingDeliveredFind {
+            candidate: index,
+            utxo_hash: delivered.utxo_hash,
+            asset_address,
+            amount: delivered.utxo.amount,
+            pending,
+        });
+    }
+    Ok(opened)
+}
+
+/// The 40-byte body of a scheme-9 or scheme-10 slot, `None` for any other slot or length.
+fn delivered_body(slot: &OutputSlot) -> Option<[u8; RING_DELIVERED_BODY_LEN]> {
+    slot.ring_delivered_body(EncryptedScheme::RingAnonymous)
+        .or_else(|| slot.ring_delivered_body(EncryptedScheme::RingConfidentialDelivered))
+}
+
+/// Every scheme-10 slot published under one of the wallet's viewing keys, its owner tag.
+fn confidential_delivered<'a, K: ShieldedKeys + ?Sized>(
+    shielded_keys: &K,
+    transactions: &'a [ShieldedTransaction],
+) -> Result<Vec<RingDeliveredCandidate<'a>>, TransactionError> {
+    let held: HashMap<[u8; 32], X25519Pubkey> = shielded_keys
+        .viewing_public_keys()
+        .into_iter()
+        .map(|pubkey| (pubkey.u(), pubkey))
+        .collect();
+    let mut sites = Vec::new();
+    let mut requests = Vec::new();
+    for tx in transactions {
+        let Some(RingDeliveryContext {
+            tx_viewing_pk,
+            salt,
+            first_nullifier,
+            ..
+        }) = RingDeliveryContext::of(tx)
+        else {
+            continue;
+        };
+        for (position, slot) in tx.output_slots.iter().enumerate() {
+            let Some(&viewing_pubkey) = held.get(&slot.view_tag) else {
+                continue;
+            };
+            if slot
+                .ring_delivered_body(EncryptedScheme::RingConfidentialDelivered)
+                .is_none()
+            {
+                continue;
+            }
+            let output_index =
+                u32::try_from(position).map_err(|_| TransactionError::TooManyOutputs)?;
+            sites.push((tx, output_index));
+            requests.push(RingDeliveryRequest {
+                recipient: RingRecipientKey::Viewing(viewing_pubkey),
+                tx_viewing_pk,
+                salt,
+                output_index,
+                first_nullifier,
+            });
+        }
+    }
+    if requests.is_empty() {
+        return Ok(Vec::new());
+    }
+    let secrets = shielded_keys.ring_delivery_secrets(&requests)?;
+    if secrets.len() != requests.len() {
+        return Err(TransactionError::IncompleteDerivation {
+            got: secrets.len(),
+            want: requests.len(),
+        });
+    }
+    sites
+        .into_iter()
+        .zip(secrets)
+        .map(|((tx, slot_index), secret)| {
+            Ok(RingDeliveredCandidate {
+                tx,
+                slot_index,
+                tag: None,
+                slot_secret: SlotSecret::new(secret)?,
+            })
+        })
+        .collect()
 }
 
 /// Skips unresolved, mismatched and spent notes; spend status covers the supplied batch.
@@ -234,6 +652,8 @@ pub struct OwnedUtxos {
     pub unknown_asset_ids: BTreeSet<u64>,
     /// As on [`DecryptionResult`].
     pub unknown_mints: BTreeSet<Address>,
+    /// As on [`DecryptionResult`].
+    pub pending_assets: Vec<PendingUtxo>,
 }
 
 impl OwnedUtxos {
@@ -276,19 +696,14 @@ impl OwnedUtxos {
             .map(|balance| &mut balance.utxos)
             .chain(std::iter::once(&mut utxos_with_data))
         {
-            utxos.sort_by_key(|utxo| {
-                (
-                    utxo.slot,
-                    utxo.tx_signature.as_ref().to_vec(),
-                    utxo.slot_index,
-                )
-            });
+            sort_by_publication(utxos);
         }
         SpendableDecryptionResult {
             balances: Balances { assets: balances },
             utxos_with_data,
             unknown_asset_ids: self.unknown_asset_ids.clone(),
             unknown_mints: self.unknown_mints.clone(),
+            pending_assets: self.pending_assets.clone(),
         }
     }
 }
@@ -336,6 +751,7 @@ pub fn verify_owned<K: ShieldedKeys + ?Sized>(
         spent,
         unknown_asset_ids: decrypted.unknown_asset_ids.clone(),
         unknown_mints: decrypted.unknown_mints.clone(),
+        pending_assets: decrypted.pending_assets.clone(),
     })
 }
 
@@ -358,6 +774,10 @@ fn decode_slot<K: ShieldedKeys + ?Sized>(
     let Some(output_data) = slot.output_data() else {
         return Ok(None);
     };
+    // An indexer can serve any commitment, one past the modulus is no note.
+    if !is_canonical_bn254_scalar_be(&slot.output_context.hash) {
+        return Ok(None);
+    }
     let owner_cx = OwnerCx {
         owner: address.signing_pubkey,
         assets,
@@ -420,13 +840,10 @@ fn decode_slot<K: ShieldedKeys + ?Sized>(
             if scheme == EncryptedScheme::RingDeposit {
                 return decode_ring_deposit(shielded_keys, address, body, assets);
             }
-            // A ring merge publishes its ciphertext unverified: the ring merge
-            // proof does not bind it, so only the commitment check accepts it.
-            if scheme == EncryptedScheme::Merge {
-                return decode_merge(shielded_keys, address, tx, slot, &blob, owner_cx, true);
-            }
             let (ciphertext, viewing_pubkeys) = match scheme {
-                EncryptedScheme::Confidential | EncryptedScheme::RingConfidential => {
+                EncryptedScheme::Confidential
+                | EncryptedScheme::RingConfidential
+                | EncryptedScheme::RingConfidentialPacked => {
                     let Ok(viewing_pubkey) = Confidential::embedded_viewing_pk(body) else {
                         return Ok(None);
                     };
@@ -469,6 +886,18 @@ fn decode_slot<K: ShieldedKeys + ?Sized>(
                         };
                         Confidential::into_utxos(plaintext, &owner_cx)
                     }
+                    EncryptedScheme::RingConfidentialPacked => {
+                        let Ok(plaintext) = RingPacked::deserialize(&bytes) else {
+                            continue;
+                        };
+                        RingPacked::into_utxos(
+                            plaintext,
+                            &OwnerCx {
+                                ring_program_id: tx.ring_program_id,
+                                ..owner_cx
+                            },
+                        )
+                    }
                     EncryptedScheme::AnonymousRecipient => {
                         let Ok(plaintext) = AnonymousRecipient::deserialize(&bytes) else {
                             continue;
@@ -492,18 +921,17 @@ fn decode_slot<K: ShieldedKeys + ?Sized>(
             Ok(None)
         }
         OutputDataEncoding::VerifiablyEncrypted(blob) => {
-            decode_merge(shielded_keys, address, tx, slot, &blob, owner_cx, false)
+            decode_merge(shielded_keys, address, tx, slot, &blob, owner_cx)
         }
     }
 }
 
 /// A merge output publishes its amount and mint encrypted under a key the
 /// owner derives from the nullifier secret and the first nullifier, so the
-/// owner rebuilds the output from the merge transaction alone. A default merge
-/// proof binds that ciphertext, whichever inputs the merger chose; a ring merge
-/// (`ring`) publishes it unverified. The cipher is unauthenticated: a merge of
-/// another wallet, or a wrong ring merge ciphertext, decrypts to noise, which
-/// the plaintext range check or the commitment rejects.
+/// owner rebuilds the output from the merge transaction alone. The merge
+/// proof binds that ciphertext, whichever inputs the merger chose. The cipher
+/// is unauthenticated, another wallet's merge decrypts to noise the plaintext
+/// range check or the commitment rejects.
 fn decode_merge<K: ShieldedKeys + ?Sized>(
     shielded_keys: &K,
     address: &ShieldedAddress,
@@ -511,7 +939,6 @@ fn decode_merge<K: ShieldedKeys + ?Sized>(
     slot: &OutputSlot,
     blob: &[u8],
     owner_cx: OwnerCx,
-    ring: bool,
 ) -> Result<Option<DecodedSlot>, TransactionError> {
     let Some((&scheme_byte, body)) = blob.split_first() else {
         return Ok(None);
@@ -522,13 +949,15 @@ fn decode_merge<K: ShieldedKeys + ?Sized>(
     let Some((ring_data_hash, encrypted)) = split_merge_output_body(body) else {
         return Ok(None);
     };
-    // A ring merge leads with its output ring data hash, names its ring program
-    // and is published unverified; a slot missing any of these is not a merge
-    // output.
-    if ring_data_hash.is_some() != ring || tx.ring_program_id.is_some() != ring {
+    // A ring merge carries a ring data hash and a ring program, one without the other is no merge.
+    if ring_data_hash.is_some() != tx.ring_program_id.is_some() {
         return Ok(None);
     }
-    let Some(&first_nullifier) = tx.nullifiers.first() else {
+    let Some(&first_nullifier) = tx
+        .nullifiers
+        .first()
+        .filter(|nullifier| is_canonical_bn254_scalar_be(nullifier))
+    else {
         return Ok(None);
     };
     let requests = [
@@ -607,7 +1036,8 @@ fn decode_ring_deposit<K: ShieldedKeys + ?Sized>(
         let Ok(plaintext) = wincode::deserialize_exact::<RingDepositPlaintext>(&bytes) else {
             continue;
         };
-        if owner_utxo_hash(&owner_hash, &plaintext.blinding)? != output.owner_utxo_hash {
+        // The sender picks the plaintext, a blinding outside the field opens no deposit.
+        if owner_utxo_hash(&owner_hash, &plaintext.blinding).ok() != Some(output.owner_utxo_hash) {
             continue;
         }
         let utxo = plaintext.into_utxo(

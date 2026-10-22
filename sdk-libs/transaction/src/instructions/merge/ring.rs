@@ -1,9 +1,13 @@
 use solana_address::Address;
 
-use super::{inputs::validate_merge_inputs, MergeTransaction};
+use super::{
+    inputs::{merge_ring_data_hash, validate_merge_inputs},
+    MergeTransaction,
+};
 use crate::{error::TransactionError, WalletUtxo};
 
 impl MergeTransaction {
+    /// `None` inherits the inputs' common ring data hash, `Some` must equal it.
     pub fn new_with_ring(
         inputs: Vec<WalletUtxo>,
         ring_program_id: Address,
@@ -18,6 +22,14 @@ impl MergeTransaction {
             }
             Ok(())
         })?;
+        let output_ring_data_hash = merge_ring_data_hash(
+            inputs
+                .iter()
+                .enumerate()
+                .filter(|(_, input)| !input.utxo.owner.is_zero())
+                .map(|(index, input)| (index, input.ring_data_hash)),
+            output_ring_data_hash,
+        )?;
 
         Ok(Self {
             output_tree_id: WalletUtxo::default_output_tree_id(&inputs),

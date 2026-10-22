@@ -34,6 +34,7 @@ func TestServedKeysDefaultToEveryKey(t *testing.T) {
 func TestServedKeysMatchPatternsOverKeyNames(t *testing.T) {
 	served := servedKeys(t, "*_49_*", "*_52_*", "batch_address-append_40_4999")
 	for file, want := range map[string]bool{
+		"transfer_old_ring_49_2.key":       false,
 		"transfer_eddsa_ring_49_2.key":     true,
 		"merge_52_1.key":                   true,
 		"batch_address-append_40_4999.key": true,
@@ -308,10 +309,10 @@ func TestQueuedJobIsHeldToItsPathKey(t *testing.T) {
 }
 
 func TestHealthListsTheCircuitsOfServedKeys(t *testing.T) {
-	if got := servedCircuits(servedKeys(t, "merge_*", "custom_ring_base")); !slices.Equal(got, []common.CircuitType{
+	if got := servedCircuits(servedKeys(t, "merge_*", "custom_ring_audit_packed_2")); !slices.Equal(got, []common.CircuitType{
 		common.MergeCircuitType,
 		common.MergeRingCircuitType,
-		common.CustomRingBaseCircuitType,
+		common.CircuitType("custom-ring-audit-packed-2"),
 	}) {
 		t.Fatalf("served circuits %v", got)
 	}

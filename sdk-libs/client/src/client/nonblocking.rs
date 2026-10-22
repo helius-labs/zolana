@@ -20,11 +20,14 @@ use crate::{
     },
     rpc::{
         GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse, GetNonInclusionProofsResponse,
-        GetRingKeyRegistryEntryResponse, GetRingKeyRegistryRegisterProofResponse,
-        GetRingSpendRecordResponse, GetShieldedTransactionsByNullifiersResponse,
-        GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
-        GetUserRecordsResponse, IndexerRpcConfig, ProveResult, RingHistoryOptions,
-        RingMemberProofRequest, RingSpendRecordRequest, ShieldedTransactionStream,
+        GetRingApplyProofInputsRequest, GetRingApplyProofInputsResponse,
+        GetRingMemberOpeningsRequest, GetRingMemberOpeningsResponse, GetRingMemberRecordRequest,
+        GetRingMemberRecordResponse, GetRingMemberRecordsRequest, GetRingMemberRecordsResponse,
+        GetRingMemberRegistryRootRequest, GetRingMemberRegistryRootResponse,
+        GetRingRecordQueueRequest, GetRingRecordQueueResponse,
+        GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
+        GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, IndexerRpcConfig,
+        ProveResult, RingHistoryOptions, ShieldedTransactionStream,
     },
 };
 
@@ -75,6 +78,15 @@ impl<R: AsyncRpc, I: AsyncIndexer> AsyncRpc for AsyncZolanaClient<R, I> {
         signatures: Vec<Signature>,
     ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
         self.rpc.get_signature_statuses(signatures).await
+    }
+
+    async fn get_signature_statuses_with_history(
+        &self,
+        signatures: Vec<Signature>,
+    ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
+        self.rpc
+            .get_signature_statuses_with_history(signatures)
+            .await
     }
 
     async fn get_minimum_balance_for_rent_exemption(
@@ -252,27 +264,46 @@ impl<R: AsyncRpc, I: AsyncIndexer> AsyncRpc for AsyncZolanaClient<R, I> {
         .spend_proofs)
     }
 
-    async fn get_ring_spend_record(
+    async fn get_ring_member_record(
         &self,
-        request: RingSpendRecordRequest,
-    ) -> Result<GetRingSpendRecordResponse, ClientError> {
-        self.indexer.get_ring_spend_record(request).await
+        request: GetRingMemberRecordRequest,
+    ) -> Result<GetRingMemberRecordResponse, ClientError> {
+        self.indexer.get_ring_member_record(request).await
     }
 
-    async fn get_ring_key_registry_entry(
+    async fn get_ring_member_records(
         &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingKeyRegistryEntryResponse, ClientError> {
-        self.indexer.get_ring_key_registry_entry(request).await
+        request: GetRingMemberRecordsRequest,
+    ) -> Result<GetRingMemberRecordsResponse, ClientError> {
+        self.indexer.get_ring_member_records(request).await
     }
 
-    async fn get_ring_key_registry_register_proof(
+    async fn get_ring_member_registry_root(
         &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingKeyRegistryRegisterProofResponse, ClientError> {
-        self.indexer
-            .get_ring_key_registry_register_proof(request)
-            .await
+        request: GetRingMemberRegistryRootRequest,
+    ) -> Result<GetRingMemberRegistryRootResponse, ClientError> {
+        self.indexer.get_ring_member_registry_root(request).await
+    }
+
+    async fn get_ring_member_openings(
+        &self,
+        request: GetRingMemberOpeningsRequest,
+    ) -> Result<GetRingMemberOpeningsResponse, ClientError> {
+        self.indexer.get_ring_member_openings(request).await
+    }
+
+    async fn get_ring_record_queue(
+        &self,
+        request: GetRingRecordQueueRequest,
+    ) -> Result<GetRingRecordQueueResponse, ClientError> {
+        self.indexer.get_ring_record_queue(request).await
+    }
+
+    async fn get_ring_apply_proof_inputs(
+        &self,
+        request: GetRingApplyProofInputsRequest,
+    ) -> Result<GetRingApplyProofInputsResponse, ClientError> {
+        self.indexer.get_ring_apply_proof_inputs(request).await
     }
 
     async fn get_user_records(

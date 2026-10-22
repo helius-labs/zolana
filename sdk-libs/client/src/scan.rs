@@ -20,6 +20,7 @@
 
 use std::collections::HashSet;
 
+use solana_account::Account;
 use solana_address::Address;
 use solana_signature::Signature;
 use zolana_interface::{pda, state::SplAssetRegistry, PROGRAM_ID_PUBKEY};
@@ -31,10 +32,10 @@ use zolana_transaction::{
 
 use crate::{
     error::ClientError,
-    rpc::{EncryptedUtxoMatch, IndexerRpcConfig, Rpc, ShieldedTransaction},
+    rpc::{AsyncRpc, EncryptedUtxoMatch, IndexerRpcConfig, Rpc, ShieldedTransaction},
 };
 
-const PAGE_LIMIT: u32 = 1_000;
+pub(crate) const PAGE_LIMIT: u32 = 1_000;
 
 /// What [`UtxoScan::fetch`] read.
 #[derive(Clone, Debug)]
@@ -92,8 +93,8 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
 
     /// Reads the transactions tagged with the owner tag, which confidential
     /// outputs carry, and with each held viewing key's tag, which deposits
-    /// carry, then the transactions that spent what they hold. Anonymous
-    /// transfers, tagged per counterparty, are not read.
+    /// carry, then the transactions that spent what they hold. Anonymous ring
+    /// streams are read by [`crate::AnonymousRingSync`].
     pub fn fetch<I: Rpc + ?Sized>(&self, indexer: &I) -> Result<UtxoScanResult, ClientError> {
         let fetched = self.fetch_rounds(indexer)?;
         Ok(UtxoScanResult {
@@ -198,21 +199,41 @@ pub fn fetch_asset_id<R: Rpc + ?Sized>(rpc: &R, asset: Address) -> Result<u64, C
     if asset == SOL_MINT {
         return Ok(SOL_ASSET_ID);
     }
+    asset_id(asset, rpc.get_account(pda::spl_asset_registry(&asset))?)
+}
+
+/// [`fetch_asset_id`] over an [`AsyncRpc`].
+pub async fn fetch_asset_id_async<R: AsyncRpc + ?Sized>(
+    rpc: &R,
+    asset: Address,
+) -> Result<u64, ClientError> {
+    if asset == SOL_MINT {
+        return Ok(SOL_ASSET_ID);
+    }
+    asset_id(
+        asset,
+        rpc.get_account(pda::spl_asset_registry(&asset)).await?,
+    )
+}
+
+fn asset_id(asset: Address, account: Option<Account>) -> Result<u64, ClientError> {
     let not_registered = || ClientError::SplAssetNotRegistered { mint: asset };
-    let account = rpc
-        .get_account(pda::spl_asset_registry(&asset))?
-        .ok_or_else(not_registered)?;
-    // Only the pool can create an account at the registry address. Any other
-    // owner means lamports were sent there, not that the mint was registered.
+    let address = pda::spl_asset_registry(&asset);
+    let account = account.ok_or_else(not_registered)?;
+    // Any other owner means lamports were sent there, not that the mint was registered.
     if account.owner != PROGRAM_ID_PUBKEY {
         return Err(not_registered());
     }
-    let invalid = || ClientError::InvalidSplAssetRegistry { mint: asset };
-    let registry = SplAssetRegistry::from_account_bytes(&account.data).map_err(|_| invalid())?;
-    if registry.mint != asset {
-        return Err(invalid());
-    }
-    Ok(registry.asset_id)
+    registry_entry(&address, &account)
+        .map(|(asset_id, _)| asset_id)
+        .ok_or(ClientError::InvalidSplAssetRegistry { mint: asset })
+}
+
+/// The `(asset id, mint)` a pool-owned registry account at its mint's address records.
+pub(crate) fn registry_entry(address: &Address, account: &Account) -> Option<(u64, Address)> {
+    let registry = SplAssetRegistry::from_account_bytes(&account.data).ok()?;
+    (account.owner == PROGRAM_ID_PUBKEY && *address == pda::spl_asset_registry(&registry.mint))
+        .then_some((registry.asset_id, registry.mint))
 }
 
 /// What the rounds of one fetch read and decrypted.
@@ -228,33 +249,32 @@ struct Fetched {
 /// encrypted-output stream, one transaction per output: a deposit transaction
 /// can shield several outputs. Each page read sets `output_tree_id` to the
 /// output tree it names.
-fn tagged_transactions<I: Rpc + ?Sized>(
+pub(crate) fn tagged_transactions<I: Rpc + ?Sized>(
     indexer: &I,
     tags: &[[u8; 32]],
     config: Option<IndexerRpcConfig>,
     output_tree_id: &mut Option<u16>,
 ) -> Result<Vec<ShieldedTransaction>, ClientError> {
     let mut transactions = Vec::new();
-    let mut cursor = None;
+    let mut cursor = PageCursor::default();
     loop {
         let page = indexer.get_shielded_transactions_by_tags(
             tags.to_vec(),
-            cursor.clone(),
+            cursor.current(),
             Some(PAGE_LIMIT),
             config,
         )?;
         *output_tree_id = page.output_tree_id;
         transactions.extend(page.transactions.into_iter().filter(|tx| !tx.proofless));
-        match next_page(&cursor, page.next_cursor, &page.scanned_through)? {
-            Some(next) => cursor = Some(next),
-            None => break,
+        if !cursor.advance(page.next_cursor, &page.scanned_through)? {
+            break;
         }
     }
-    let mut cursor = None;
+    let mut cursor = PageCursor::default();
     loop {
         let page = indexer.get_encrypted_utxos_by_tags(
             tags.to_vec(),
-            cursor.clone(),
+            cursor.current(),
             Some(PAGE_LIMIT),
             config,
         )?;
@@ -264,9 +284,8 @@ fn tagged_transactions<I: Rpc + ?Sized>(
                 .into_iter()
                 .filter_map(EncryptedUtxoMatch::into_proofless_transaction),
         );
-        match next_page(&cursor, page.next_cursor, &page.scanned_through)? {
-            Some(next) => cursor = Some(next),
-            None => break,
+        if !cursor.advance(page.next_cursor, &page.scanned_through)? {
+            break;
         }
     }
     Ok(transactions)
@@ -282,23 +301,51 @@ fn spending_transactions<I: Rpc + ?Sized>(
 ) -> Result<Vec<ShieldedTransaction>, ClientError> {
     let mut transactions = Vec::new();
     for chunk in nullifiers.chunks(PAGE_LIMIT as usize) {
-        let mut cursor = None;
+        let mut cursor = PageCursor::default();
         loop {
             let page = indexer.get_shielded_transactions_by_nullifiers(
                 chunk.to_vec(),
-                cursor.clone(),
+                cursor.current(),
                 Some(PAGE_LIMIT),
                 config,
             )?;
             *output_tree_id = page.output_tree_id;
             transactions.extend(page.transactions);
-            match next_page(&cursor, page.next_cursor, &page.scanned_through)? {
-                Some(next) => cursor = Some(next),
-                None => break,
+            if !cursor.advance(page.next_cursor, &page.scanned_through)? {
+                break;
             }
         }
     }
     Ok(transactions)
+}
+
+/// A paged read's position, a cursor the read already followed fails it.
+#[derive(Debug, Default)]
+pub(crate) struct PageCursor {
+    current: Option<Vec<u8>>,
+    followed: HashSet<Vec<u8>>,
+}
+
+impl PageCursor {
+    pub(crate) fn current(&self) -> Option<Vec<u8>> {
+        self.current.clone()
+    }
+
+    /// Moves past the page read at the current cursor, `false` once that page was the last.
+    pub(crate) fn advance(
+        &mut self,
+        next: Option<Vec<u8>>,
+        scanned_through: &Option<Vec<u8>>,
+    ) -> Result<bool, ClientError> {
+        let Some(next) = next_page(&self.current, next, scanned_through)? else {
+            return Ok(false);
+        };
+        if !self.followed.insert(next.clone()) {
+            return Err(ClientError::IndexerCursorNotAdvanced);
+        }
+        self.current = Some(next);
+        Ok(true)
+    }
 }
 
 /// The cursor of the page after the one read with `cursor`, or `None` when
@@ -306,7 +353,7 @@ fn spending_transactions<I: Rpc + ?Sized>(
 /// says so: the indexer names a cursor on any row, so following it would ask
 /// for an empty page. A cursor that did not move would ask for the same page
 /// forever, so it fails with [`ClientError::IndexerCursorNotAdvanced`].
-fn next_page(
+pub fn next_page(
     cursor: &Option<Vec<u8>>,
     next: Option<Vec<u8>>,
     scanned_through: &Option<Vec<u8>>,

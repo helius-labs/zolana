@@ -1,16 +1,22 @@
+use borsh::BorshDeserialize;
 use solana_address::Address;
+use zolana_event::{MessageData, OutputDataEncoding};
 use zolana_hasher::{
     primitives::{hash_bytes, right_align},
     Hasher, Poseidon,
 };
 use zolana_interface::{state::cache::CACHE_CAPACITY, tree_slot::tree_id_field};
-use zolana_keypair::{random_blinding, shielded::ShieldedAddress};
+use zolana_keypair::{constants::SALT_LEN, random_blinding, shielded::ShieldedAddress, ViewingKey};
 
 use super::{dummy_utxo_hash, owner_utxo_hash, program_id_proof_input_hash, Blinding, UTXO_DOMAIN};
 use crate::{
     data::{Data, DataRecord},
     error::TransactionError,
-    Mint,
+    serialization::{
+        confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
+        UtxoSerialization,
+    },
+    EncryptedScheme, Mint,
 };
 
 /// Canonical ordering key for data records: `RingData` < `UtxoData` < `Memo`,
@@ -45,6 +51,17 @@ pub struct SppProofOutputUtxo {
     )]
     #[cfg_attr(feature = "tsify", tsify(type = "Uint8Array"))]
     pub blinding: Blinding,
+    /// Ring outputs only, the audit proof binds it.
+    #[cfg_attr(
+        feature = "serde",
+        serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            with = "zolana_keypair::serde_helpers::bytes"
+        )
+    )]
+    #[cfg_attr(feature = "tsify", tsify(optional, type = "Uint8Array"))]
+    pub ring_secret: Option<[u8; 32]>,
     #[cfg_attr(
         feature = "serde",
         serde(
@@ -194,6 +211,69 @@ impl SppProofOutputUtxo {
         self.data.records.sort_by_key(canonical_data_order);
     }
 
+    /// The owner's confidential message for slot `slot_index`, under the ring scheme byte inside a ring.
+    pub fn seal(
+        &self,
+        slot_index: u32,
+        tx: &ViewingKey,
+        salt: [u8; SALT_LEN],
+    ) -> Result<MessageData, TransactionError> {
+        let (address, plaintext, cx) = self.confidential_parts(slot_index, tx, salt)?;
+        let mut message = Confidential::encode_plaintext(
+            &plaintext,
+            address.signing_pubkey.confidential_view_tag()?,
+            &cx,
+        )?;
+        if self.ring_program_id.is_some() {
+            let decode = |error: std::io::Error| TransactionError::Deserialize(error.to_string());
+            let OutputDataEncoding::Encrypted(mut blob) =
+                OutputDataEncoding::try_from_slice(&message.data).map_err(decode)?
+            else {
+                return Err(TransactionError::BadDiscriminator(
+                    EncryptedScheme::Confidential.as_byte(),
+                ));
+            };
+            *blob.first_mut().ok_or(TransactionError::MissingOutput)? =
+                EncryptedScheme::RingConfidential.as_byte();
+            message.data = borsh::to_vec(&OutputDataEncoding::Encrypted(blob)).map_err(decode)?;
+        }
+        Ok(message)
+    }
+
+    fn confidential_parts(
+        &self,
+        slot_index: u32,
+        tx: &ViewingKey,
+        salt: [u8; SALT_LEN],
+    ) -> Result<
+        (
+            ShieldedAddress,
+            ConfidentialOutputPlaintext,
+            ConfidentialEncode,
+        ),
+        TransactionError,
+    > {
+        let address = self
+            .owner_address
+            .ok_or(TransactionError::OutputWithoutOwner {
+                slot_index: slot_index as usize,
+            })?;
+        let plaintext = ConfidentialOutputPlaintext {
+            asset_id: self.asset.asset_id,
+            amount: self.amount,
+            blinding: self.blinding,
+            ring_program_id: self.ring_program_id,
+            data: self.data.clone(),
+        };
+        let cx = ConfidentialEncode {
+            tx: tx.clone(),
+            recipient_pubkey: address.viewing_pubkey,
+            salt,
+            slot_index,
+        };
+        Ok((address, plaintext, cx))
+    }
+
     pub fn owner_hash(&self) -> Result<[u8; 32], TransactionError> {
         match &self.owner_address {
             Some(address) => Ok(address.owner_hash()?),
@@ -230,6 +310,10 @@ impl SppProofOutputUtxo {
 
     pub fn is_dummy(&self) -> bool {
         self.owner_address.is_none()
+    }
+
+    pub fn is_ring_output(&self) -> bool {
+        !self.is_dummy() && self.ring_program_id.is_some()
     }
 
     pub fn is_compact(&self) -> bool {

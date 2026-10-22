@@ -1,4 +1,4 @@
-import { address } from "@solana/kit";
+import { address, type Address } from "@solana/kit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { LocalKeys, ZolanaClient } from "../src/client/index.js";
@@ -12,6 +12,7 @@ import { NO_UTXO_ROOT, type Bytes32 } from "../src/interface/index.js";
 import { treeAddress } from "../src/interface/pda/index.js";
 import { bigIntToBytes, bytes16, bytes32 } from "../src/keypair/bytes.js";
 import { ShieldedKeypair, ShieldedPublicKey } from "../src/keypair/index.js";
+import { ringOutputBlinding } from "../src/keypair/transact/index.js";
 import {
   Data,
   type InputUtxo,
@@ -333,7 +334,7 @@ describe("reserved address inputs", () => {
   });
 
   it("proves an address on the owner-signed ring rail", () => {
-    const { proofInputs } = fixture();
+    const { proofInputs } = fixture({ ring: SOL_MINT });
     const request = prepareTransfer(proofInputs, { kind: "ring", ring: SOL_MINT }).inputs;
     expect(request.circuit).toBe("transferRing");
     expect(decodeIndexedInputs(request).lookups.map((lookup) => lookup.commitment)).toEqual([
@@ -478,7 +479,8 @@ function addressWith(
   });
 }
 
-function fixture() {
+/** A real output on `ring` publishes no owner, the ring rail refuses an unmarked default-ring output. */
+function fixture(options: Readonly<{ ring?: Address }> = {}) {
   const keypair = ShieldedKeypair.generate();
   allocatedKeypairs.push(keypair);
   const reserved = ProofInputUtxo.address(
@@ -488,12 +490,23 @@ function fixture() {
   const padding = ProofInputUtxo.compact();
   const seed = bytes32(new Uint8Array(32).fill(8));
   const outputSeed = outputBlindingSeed(reserved.nullifier(), seed);
+  const ringSecret = bytes32(new Uint8Array(32).fill(11));
   const outputs = [
     createProofOutput({
       ownerAddress: keypair.shieldedAddress(),
       asset: SOL_MINT,
       amount: 0n,
-      blinding: transactOutputBlinding(reserved.nullifier(), outputSeed, 0),
+      ...(options.ring === undefined
+        ? { blinding: transactOutputBlinding(reserved.nullifier(), outputSeed, 0) }
+        : {
+            ringProgramId: options.ring,
+            ringSecret,
+            blinding: ringOutputBlinding({
+              firstNullifier: reserved.nullifier(),
+              ringSecret,
+              outputIndex: 0,
+            }),
+          }),
     }),
     createProofOutput({
       asset: SOL_MINT,

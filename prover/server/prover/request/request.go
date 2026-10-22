@@ -11,6 +11,7 @@ import (
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"
+	"github.com/consensys/gnark/constraint"
 	"github.com/consensys/gnark/frontend"
 
 	"github.com/helius-labs/zolana/prover/server/prover/common"
@@ -135,6 +136,25 @@ func (r *Request) Verify(system *common.TransferProofSystem, proof *common.Proof
 		return fmt.Errorf("%w: %v", ErrMalformed, err)
 	}
 	return groth16.Verify(proof.Proof, system.VerifyingKey, public)
+}
+
+// R1CS covers every served SPP key, the anonymous EdDSA rail too though its bodies decode outside Parse.
+func R1CS(shape common.ProofShape) (constraint.ConstraintSystem, error) {
+	switch shape.Circuit {
+	case common.TransferConfidentialCircuitType:
+		return transfer.R1CSTransfer(shape.Inputs, shape.Outputs, transfer.ConfidentialVariant)
+	case common.TransferRingCircuitType:
+		return transfer.R1CSTransfer(shape.Inputs, shape.Outputs, transfer.RingVariant)
+	case common.TransferRingAuthorityCircuitType:
+		return transfer.R1CSTransfer(shape.Inputs, shape.Outputs, transfer.RingAuthorityVariant)
+	case common.TransferAnonymousRingEddsaCircuitType:
+		return transfer.R1CSAnonymousEddsaTransfer(shape.Inputs, shape.Outputs)
+	case common.MergeCircuitType:
+		return merge.R1CSMerge(int(shape.Inputs))
+	case common.MergeRingCircuitType:
+		return merge.R1CSMergeRing(int(shape.Inputs))
+	}
+	return nil, fmt.Errorf("%w: circuit type %q", ErrUnsupported, shape.Circuit)
 }
 
 // check rejects a system for another circuit or shape. Every transfer and merge

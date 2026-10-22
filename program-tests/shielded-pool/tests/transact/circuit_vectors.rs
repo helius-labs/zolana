@@ -15,9 +15,7 @@
 use std::{fs, path::Path};
 
 use serde_json::Value;
-use shielded_pool_program::testing::{
-    amount_field, solana_owner_identity, TransactProof, TransactProofInputs,
-};
+use shielded_pool_program::testing::{solana_owner_identity, TransactProof, TransactProofInputs};
 use zolana_hasher::zero_suffix_hash_chain::create_padded_right_hash_chain_4;
 use zolana_hasher::{
     hash_chain::{
@@ -30,7 +28,7 @@ use zolana_hasher::{
 };
 use zolana_interface::{
     instruction::instruction_data::transact::{
-        AnonymousRingEddsaProofData, Bsb22Commitment, CircuitId, InputUtxo, OwnerTag,
+        amount_field, AnonymousRingEddsaProofData, Bsb22Commitment, CircuitId, InputUtxo, OwnerTag,
         TransactIxData, TransactIxDataRef, TransactOutput, TransactProof as ProofData, TreeContext,
     },
     state::cache::empty_cached_input_fields,
@@ -474,7 +472,12 @@ fn anonymous_ring_eddsa_assembly_matches_the_go_request_fixture() {
         Sha256::hashv(&[private_tx_hash.as_slice(), external_data_hash.as_slice()])
             .expect("sha256"),
         message_digest,
-        "the fixture signs sha256(private_tx_hash || external_data_hash)"
+        "the fixture signs over sha256(private_tx_hash || external_data_hash)"
+    );
+    assert_eq!(
+        hash_bytes(&fe_at(&request, "ringProgramAddress")).expect("ring id"),
+        fe_at(&request, "ringProgramId"),
+        "the signed ring address opens the public ring id"
     );
 
     let owned = TransactIxData {
@@ -512,6 +515,11 @@ fn anonymous_ring_eddsa_assembly_matches_the_go_request_fixture() {
     derived.external_data_hash = external_data_hash;
     derived.ring_program_id = fe_at(&request, "ringProgramId");
     derived.input_flags = fe_at(&request, "inputFlags");
+    derived.anonymous_parties = [
+        fe_at(&request, "payerPkHash"),
+        fe_at(&request, "cosignerPkHash"),
+        fe_at(&request, "exitDestinationPkHash"),
+    ];
     for (slot, asset) in derived
         .public_slot_assets
         .iter_mut()

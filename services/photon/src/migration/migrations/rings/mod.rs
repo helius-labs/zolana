@@ -8,7 +8,11 @@ pub mod m20260809_000001_denormalize_rings_output_ordering;
 pub mod m20260818_000001_rings_transactions_ring_config;
 pub mod m20260818_000002_add_ring_configs;
 pub mod m20260923_000001_ring_projection;
+pub mod m20261016_000001_drop_ring_spend_records;
 pub mod m20261017_000001_custom_ring_tables;
+pub mod m20261017_000001_member_registry;
+pub mod m20261017_000002_zero_transfer_salts;
+pub mod m20261021_000001_record_tree;
 pub mod r20260617_000001_init;
 pub mod r20260624_000001_nullifier_queue_metadata;
 pub mod r20260810_000001_state_root_index;
@@ -30,6 +34,10 @@ pub fn get_rings_migrations() -> Vec<Box<dyn MigrationTrait>> {
         Box::new(m20260818_000002_add_ring_configs::Migration),
         Box::new(r20260916_000001_tree_metadata_tree_id_and_state::Migration),
         Box::new(m20260923_000001_ring_projection::Migration),
+        Box::new(m20261016_000001_drop_ring_spend_records::Migration),
+        Box::new(m20261017_000001_member_registry::Migration),
         Box::new(m20261017_000001_custom_ring_tables::Migration),
+        Box::new(m20261017_000002_zero_transfer_salts::Migration),
+        Box::new(m20261021_000001_record_tree::Migration),
     ]
 }

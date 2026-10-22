@@ -43,7 +43,26 @@ pub fn group(ring: Address, audited: bool, deposits: Vec<([u8; 32], Vec<u8>)>) -
         outer: ParsedInstruction::new(ring, Vec::new(), outer_data, 1),
         inner: vec![
             ParsedInstruction::new(pool, Vec::new(), data, 2),
-            ParsedInstruction::new(pool, Vec::new(), vec![tag::EMIT_EVENT], 3),
+            ParsedInstruction::new(
+                pool,
+                Vec::new(),
+                [
+                    vec![tag::EMIT_EVENT, zolana_event::EventKind::Deposit as u8],
+                    borsh::to_vec(&zolana_event::GeneralEvent {
+                        inputs: Vec::new(),
+                        outputs: Vec::new(),
+                        messages: Vec::new(),
+                        tx_viewing_pk: [0; 33],
+                        salt: [0; 16],
+                        first_output_leaf_index: 0,
+                        output_tree: [0; 32],
+                        spl_transfers: Vec::new(),
+                    })
+                    .unwrap(),
+                ]
+                .concat(),
+                3,
+            ),
         ],
     }
 }

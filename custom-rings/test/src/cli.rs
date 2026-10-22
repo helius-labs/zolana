@@ -3,23 +3,19 @@
 use std::{
     path::PathBuf,
     process::{Command, Output},
-    thread::sleep,
-    time::{Duration, Instant},
 };
 
-use anyhow::{anyhow, bail, Context, Result};
-use custom_ring_cli::{ListName, SENDER_KEYPAIR_FILE};
-use custom_ring_sdk::{CustomRing, ReadEntry};
+use anyhow::{anyhow, Context, Result};
+use custom_ring_cli::{ListName, ModeName, SENDER_KEYPAIR_FILE};
+use custom_ring_sdk::CustomRing;
 use solana_address::Address;
 use solana_keypair::Keypair;
 use zolana_keypair::ShieldedKeypair;
-use zolana_ring_policy::{EntryState, ListId, Member};
-use zolana_test_utils::{
-    localnet::isolated_temp_path, test_validator_asserts::wait_for_merkle_proof,
-};
+use zolana_ring_policy::ListId;
+use zolana_test_utils::localnet::isolated_temp_path;
 
 use crate::{
-    policy::owner_member,
+    policy::{owner_member, wait_for_list},
     shared::{custom_ring_program_id, prover_url, TestEnv},
 };
 
@@ -40,80 +36,31 @@ pub struct RingToml<'a> {
     pub ring_rpc: &'a str,
     /// A `[policy]` block selects the policy tier.
     pub policy: Option<&'a str>,
+    pub mode: ModeName,
 }
-
-const INDEXING_TIMEOUT: Duration = Duration::from_secs(90);
 
 pub struct ListWrite<'a> {
     pub env: &'a TestEnv,
-    pub address_tree: Address,
     pub list_id: ListId,
-    pub member: ListMember<'a>,
-    pub state: EntryState,
-}
-
-pub enum ListMember<'a> {
-    Owner(&'a ShieldedKeypair),
-    Asset(Address),
-}
-
-struct ResolvedMember {
-    flag: &'static str,
-    value: String,
-    member: Member,
+    pub member: &'a ShieldedKeypair,
+    pub present: bool,
 }
 
 impl RingProject {
-    /// Blocks until the indexer serves the written entry and a proof for its leaf.
+    /// Blocks until the indexer serves the written record.
     pub fn write_list(&self, write: ListWrite<'_>) -> Result<()> {
-        let verb = match write.state {
-            EntryState::Active => "add",
-            EntryState::Cleared => "clear",
-        };
+        let verb = if write.present { "add" } else { "clear" };
         let list = ListName::of(write.list_id)?.to_string();
-        let ResolvedMember {
-            flag,
-            value,
-            member,
-        } = write.member.resolve()?;
-        self.run(&["list", verb, &list, flag, &value])?;
-        let indexer = write.env.client.indexer();
+        self.run(&[
+            "list",
+            verb,
+            &list,
+            "--owner",
+            &owner_tag_arg(write.member)?,
+        ])?;
         let ring = CustomRing::new(self.program_id);
-        let namespace = ring.namespace_pda();
-        let address_tree_id = ring
-            .read_policy_config(write.env.client.rpc())?
-            .ok_or_else(|| anyhow!("policy config of {}", self.program_id))?
-            .address_tree_id();
-        let deadline = Instant::now() + INDEXING_TIMEOUT;
-        let live = loop {
-            let read = ReadEntry::new(address_tree_id, namespace, write.list_id, member);
-            match read.read(indexer) {
-                Ok(Some(live)) if live.entry.state == write.state => break live,
-                _ if Instant::now() > deadline => {
-                    bail!("{:?} {:?} entry not indexed", write.list_id, write.state)
-                }
-                _ => sleep(Duration::from_millis(500)),
-            }
-        };
-        wait_for_merkle_proof(indexer, write.address_tree, live.utxo_hash);
-        Ok(())
-    }
-}
-
-impl ListMember<'_> {
-    fn resolve(&self) -> Result<ResolvedMember> {
-        Ok(match self {
-            Self::Owner(owner) => ResolvedMember {
-                flag: "--owner",
-                value: owner_tag_arg(owner)?,
-                member: owner_member(owner)?,
-            },
-            Self::Asset(mint) => ResolvedMember {
-                flag: "--asset",
-                value: mint.to_string(),
-                member: Member::asset(mint)?,
-            },
-        })
+        let member = owner_member(write.member)?;
+        wait_for_list(write.env, ring, write.list_id, member, write.present)
     }
 }
 
@@ -160,12 +107,13 @@ impl RingProject {
         std::fs::write(
             self.dir.join("ring.toml"),
             format!(
-                "name = \"cli\"\ntarget = \"localnet\"\nprogram_id = \"{}\"\n\
+                "name = \"cli\"\ntarget = \"localnet\"\nprogram_id = \"{}\"\nmode = \"{}\"\n\
                  authority_keypair = \"{}\"\nconfig_authority_keypair = \"{}\"\n\n{policy}\
                  [localnet]\nrpc = \"{}\"\nindexer = \"{}\"\nprover = \"{}\"\nring_rpc = \"{}\"\n\n\
                  [devnet]\nrpc = \"https://api.devnet.solana.com\"\nindexer = \"http://indexer.invalid\"\n\
                  prover = \"http://prover.invalid\"\nring_rpc = \"http://ring.invalid\"\n",
                 self.program_id,
+                toml.mode,
                 self.dir.join("upgrade.json").display(),
                 self.dir.join("config.json").display(),
                 toml.env.rpc_url,
@@ -177,7 +125,7 @@ impl RingProject {
         Ok(())
     }
 
-    /// Re-pins under the upgrade authority.
+    /// Re-pins under the config authority.
     pub fn policy_set(&self, block: &str) -> Result<String> {
         let path = self.dir.join("ring.toml");
         let text = std::fs::read_to_string(&path)?;

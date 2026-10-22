@@ -1,55 +1,45 @@
 use std::fmt::Write;
 
-use custom_ring_sdk::{AccountReadError, CustomRing};
+use anyhow::Result;
+use custom_ring_sdk::{CustomRing, QueueStatus, RegistryStatus, RingError, RingMode};
 use solana_signer::Signer;
-use thiserror::Error;
-use zolana_client::{ClientError, Rpc, SolanaRpc};
+use zolana_client::Rpc;
 
 use crate::{
     config::{redact_text, redact_url, RingConfig, Target},
-    deploy::{read_program_data, DeployError},
-    line,
-    policy::print_pinned,
+    controls, deploy, line,
+    policy::{print_pinned, Pinned},
     release::RingProgram,
-    ui::{self, Icon},
+    ui::{self, icon},
     Context,
 };
 
 const EXPLORER: &str = "https://explorer.solana.com/address";
 
-#[derive(Debug, Error)]
-pub enum StatusError {
-    #[error(transparent)]
-    Client(Box<ClientError>),
-    #[error(transparent)]
-    Deploy(Box<DeployError>),
-    #[error(transparent)]
-    AccountRead(#[from] AccountReadError),
-}
-
-impl From<DeployError> for StatusError {
-    fn from(error: DeployError) -> Self {
-        Self::Deploy(Box::new(error))
-    }
-}
-
-pub fn run(ctx: &Context) {
+/// What ring.toml records, then what the chain holds, an unreachable chain ends the listing.
+pub fn run(ctx: &Context) -> Result<()> {
     let config = &ctx.config;
     line("ring", &config.name);
-    line("target", config.target.as_str());
+    line("target", config.target);
     line("program id", config.program_id);
-    match config.config_authority() {
-        Ok(authority) => line("config key", authority.pubkey()),
-        Err(error) => line("config key", format_args!("unavailable ({error})")),
+    for (label, key) in [
+        ("config key", config.config_authority()),
+        ("upgrade key", config.upgrade_authority()),
+    ] {
+        match key {
+            Ok(key) => line(label, key.pubkey()),
+            Err(error) => line(label, format_args!("unavailable ({error})")),
+        }
     }
-    match config.upgrade_authority() {
-        Ok(authority) => line("upgrade key", authority.pubkey()),
-        Err(error) => line("upgrade key", format_args!("unavailable ({error})")),
+    let urls = config.urls();
+    for (label, url) in [
+        ("rpc", &urls.rpc),
+        ("indexer", &urls.indexer),
+        ("prover", &urls.prover),
+        ("ring rpc", &urls.ring_rpc),
+    ] {
+        line(label, redact_url(url));
     }
-    line("rpc", redact_url(&config.urls().rpc));
-    line("indexer", redact_url(&config.urls().indexer));
-    line("prover", redact_url(&config.urls().prover));
-    line("ring rpc", redact_url(&config.urls().ring_rpc));
     match RingProgram::from_lock() {
         Ok(program) => line(
             "release",
@@ -57,28 +47,18 @@ pub fn run(ctx: &Context) {
         ),
         Err(error) => line("release", error),
     }
-
-    if let Err(error) = print_chain(config, ctx.ring, &ctx.rpc) {
-        line(
-            "chain",
-            format_args!(
-                "unreachable at {} ({})",
-                redact_url(&config.urls().rpc),
-                redact_text(&error.to_string())
-            ),
-        );
+    if let Err(error) = print_chain(ctx) {
+        let (rpc, error) = (redact_url(&urls.rpc), redact_text(&error.to_string()));
+        line("chain", format_args!("unreachable at {rpc} ({error})"));
     }
+    Ok(())
 }
 
 pub fn announce(config: &RingConfig) {
     println!();
     ui::heading(
-        Icon::Ring,
-        &format!(
-            "ring {} is live on {}",
-            config.program_id,
-            config.target.as_str()
-        ),
+        icon::RING,
+        &format!("ring {} is live on {}", config.program_id, config.target),
     );
     line("explorer", explorer_link(config));
 }
@@ -105,101 +85,80 @@ fn percent_encode(text: &str) -> String {
     })
 }
 
-fn print_chain(config: &RingConfig, ring: CustomRing, rpc: &SolanaRpc) -> Result<(), StatusError> {
-    if let Ok(authority) = config.config_authority() {
-        let lamports = rpc.get_balance(authority.pubkey())?;
-        line(
-            "balance",
-            format_args!("{} SOL ({lamports} lamports)", lamports as f64 / 1e9),
-        );
+fn print_chain(ctx: &Context) -> Result<()> {
+    let (ring, chain) = (ctx.ring, ctx.chain());
+    if let Ok(authority) = ctx.authority() {
+        let lamports = ctx.rpc().get_balance(authority.pubkey())?;
+        let sol = lamports as f64 / 1e9;
+        line("balance", format_args!("{sol} SOL ({lamports} lamports)"));
     }
-    match rpc.get_account(ring.program_id())? {
-        Some(account) if account.executable => match read_program_data(rpc, ring)? {
-            Some(info) => {
-                let authority = info
-                    .upgrade_authority
-                    .map(|key| key.to_string())
-                    .unwrap_or_else(|| "none (immutable)".to_owned());
-                let configured = config
-                    .upgrade_authority()
-                    .map(|key| key.pubkey().to_string())
-                    .unwrap_or_else(|error| format!("unavailable ({error})"));
-                let relation = if info.upgrade_authority.map(|key| key.to_string())
-                    == Some(configured.clone())
-                {
-                    "matches"
-                } else {
-                    "differs from"
-                };
-                line(
-                    "program",
-                    format_args!(
-                        "deployed, upgrade authority {authority}, {relation} ring.toml {configured}, capacity {} bytes",
-                        info.capacity
-                    ),
-                );
+    line("program", program_state(ctx)?);
+    let status = match ctx.block(ring.status(chain)) {
+        Ok(status) => status,
+        Err(RingError::MissingRingConfig) => {
+            line(
+                "config",
+                format_args!("not created ({})", ring.config_pda()),
+            );
+            // Until the config exists, ring.toml names the tier.
+            if ctx.config.policy.is_none() {
+                line("policy", "none (audit-only ring)");
             }
-            None => line("program", "deployed (not upgradeable)"),
-        },
-        Some(_) => line("program", "account exists but is not executable"),
-        None => line("program", "not deployed"),
-    }
-    let state = ring.read_config(rpc)?;
-    if state.is_some() {
-        line(
-            "deposit audit",
-            if ring.read_deposit_audit(rpc)? {
-                "required"
-            } else {
-                "optional"
-            },
-        );
-    }
-    match &state {
-        Some(state) => line(
-            "config",
-            format_args!(
-                "{} authority {} auditor {}",
-                ring.config_pda(),
-                state.authority,
-                hex::encode(state.auditor_pubkey.as_bytes())
-            ),
+            return Ok(());
+        }
+        Err(error) => return Err(error.into()),
+    };
+    let config = &status.config;
+    let auditor = hex::encode(config.auditor_pubkey.as_bytes());
+    line(
+        "config",
+        format_args!(
+            "{} authority {} auditor {auditor}",
+            ring.config_pda(),
+            config.authority
         ),
-        None => line(
-            "config",
-            format_args!("not created ({})", ring.config_pda()),
-        ),
-    }
-    match ring.read_cosigner(rpc)? {
-        Some(cosigner) => crate::cosigner::print(&cosigner),
+    );
+    line("mode", mode(config.mode));
+    controls::print_insert_fee(config);
+    match &config.co_signer {
+        Some(cosigner) => controls::print_cosigner(cosigner),
         None => line("co-signer", "none"),
     }
-    // Until the config exists, ring.toml names the tier.
-    let has_policy = state
-        .as_ref()
-        .map_or(config.policy.is_some(), |state| state.has_policy);
-    if has_policy {
-        match ring.read_policy_config(rpc)? {
-            Some(policy) => {
-                line("policy", ring.policy_config_pda());
-                print_pinned(ring, &policy);
-            }
-            None => line(
-                "policy",
-                format_args!("not pinned ({})", ring.policy_config_pda()),
-            ),
-        }
-    } else {
-        line("policy", "none (audit-only ring)");
+    match config.delegate {
+        Some(delegate) => line("delegate", delegate),
+        None => line("delegate", "none"),
     }
-    match ring.read_spp_ring_config(rpc)? {
-        Some(state) => line(
+    match &status.registry {
+        Some(registry) => print_registry(ring, registry),
+        None => line(
+            "registry",
+            format_args!("not created ({})", ring.registry_pda()),
+        ),
+    }
+    if let Some(queue) = &status.queue {
+        print_queue(ring, queue);
+    }
+    let pinned = match &status.registry {
+        Some(registry) => Pinned::of(Box::new(*registry.account()))?,
+        None => None,
+    };
+    if !config.has_policy {
+        line("policy", "none (audit-only ring)");
+    } else if let Some(pinned) = pinned {
+        line("policy", ring.registry_pda());
+        print_pinned(ring, &pinned);
+    } else {
+        line("policy", "not pinned");
+    }
+    match status.registration {
+        Some(registration) => line(
             "spp ring",
             format_args!(
-                "{} paused={} authority_transact={}",
+                "{} activated={} paused={} authority_transact={}",
                 ring.ring_auth_pda(),
-                state.is_paused(),
-                state.enabled()
+                registration.activated,
+                registration.paused,
+                registration.authority_rail
             ),
         ),
         None => line(
@@ -208,6 +167,85 @@ fn print_chain(config: &RingConfig, ring: CustomRing, rpc: &SolanaRpc) -> Result
         ),
     }
     Ok(())
+}
+
+fn mode(mode: RingMode) -> &'static str {
+    match mode {
+        RingMode::Off => "confidential",
+        RingMode::Registry => "confidential, every output key escrowed",
+        RingMode::Anonymous => "anonymous",
+    }
+}
+
+/// Every own-ring proof binds a root at or above the floor.
+fn print_registry(ring: CustomRing, registry: &RegistryStatus) {
+    line(
+        "registry",
+        format_args!("{} next index {}", ring.registry_pda(), registry.next_index),
+    );
+    if let Some(newest) = registry.roots.first() {
+        line(
+            "root",
+            format_args!(
+                "{} applied {} at slot {}",
+                hex::encode(newest.root),
+                newest.applied,
+                newest.slot
+            ),
+        );
+    }
+    line("roots", format_args!("{} in history", registry.roots.len()));
+    line(
+        "floor",
+        format_args!(
+            "{} raised at slot {}, prior {}",
+            registry.floor, registry.floor_slot, registry.prior_floor
+        ),
+    );
+}
+
+fn print_queue(ring: CustomRing, queue: &QueueStatus) {
+    line(
+        "queue",
+        format_args!(
+            "{} pending {} at positions {}..{}",
+            ring.queue_pda(),
+            queue.pending,
+            queue.head,
+            queue.tail
+        ),
+    );
+    line(
+        "next apply",
+        format_args!("from slot {}", queue.next_apply_slot),
+    );
+}
+
+fn program_state(ctx: &Context) -> Result<String> {
+    let Some(account) = ctx.rpc().get_account(ctx.ring.program_id())? else {
+        return Ok("not deployed".to_owned());
+    };
+    if !account.executable {
+        return Ok("account exists but is not executable".to_owned());
+    }
+    let Some(data) = deploy::program_data(ctx)? else {
+        return Ok("deployed (not upgradeable)".to_owned());
+    };
+    let configured = ctx.config.upgrade_authority().map(|key| key.pubkey());
+    let relation = match (data.upgrade_authority, &configured) {
+        (Some(authority), Ok(configured)) if authority == *configured => "matches",
+        _ => "differs from",
+    };
+    Ok(format!(
+        "deployed, upgrade authority {}, {relation} ring.toml {}, capacity {} bytes",
+        data.upgrade_authority
+            .map_or_else(|| "none (immutable)".to_owned(), |key| key.to_string()),
+        configured.map_or_else(
+            |error| format!("unavailable ({error})"),
+            |key| key.to_string()
+        ),
+        data.capacity
+    ))
 }
 
 #[cfg(test)]

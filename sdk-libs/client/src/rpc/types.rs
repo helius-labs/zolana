@@ -3,16 +3,23 @@ use std::pin::Pin;
 use futures::Stream;
 use solana_address::Address;
 use solana_signature::Signature;
+use zolana_hasher::{Hasher, Poseidon};
 pub use zolana_indexer_api::{
-    GetRingKeyRegistryEntryResponse, GetRingKeyRegistryRegisterProofResponse,
-    GetRingSpendRecordResponse, RingMemberProofRequest, RingSpendRecord, RingSpendRecordRequest,
+    GetRingApplyProofInputsRequest, GetRingApplyProofInputsResponse, GetRingMemberOpeningsRequest,
+    GetRingMemberOpeningsResponse, GetRingMemberRecordRequest, GetRingMemberRecordResponse,
+    GetRingMemberRecordsRequest, GetRingMemberRecordsResponse, GetRingMemberRegistryRootRequest,
+    GetRingMemberRegistryRootResponse, GetRingRecordQueueRequest, GetRingRecordQueueResponse,
     MAX_USER_RECORD_OWNERS,
 };
 use zolana_keypair::X25519Pubkey;
 pub use zolana_transaction::{OutputContext, OutputSlot, ShieldedTransaction};
 pub use zolana_user_registry_interface::UserRecord;
 
-use crate::{error::ClientError, prover::ProofCompressed};
+use crate::{
+    error::ClientError,
+    prover::ProofCompressed,
+    rpc::{NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT},
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Context {
@@ -156,6 +163,43 @@ pub struct MerkleProof {
     pub root_index: u16,
 }
 
+impl MerkleProof {
+    /// A path off the tree height is refused too, `index` names the proof in errors.
+    pub fn check_leaf(
+        &self,
+        leaf: &[u8; 32],
+        tree: &Address,
+        index: usize,
+    ) -> Result<(), ClientError> {
+        if self.leaf != *leaf {
+            return Err(ClientError::StateProofLeafMismatch { index });
+        }
+        if self.merkle_context.tree != *tree {
+            return Err(ClientError::StateProofTreeMismatch { index });
+        }
+        check_path(&self.path, STATE_TREE_HEIGHT)?;
+        // A bit past the path would give one path a second leaf index.
+        if self.leaf_index >> STATE_TREE_HEIGHT != 0 || self.path_root()? != self.root {
+            return Err(ClientError::StateProofRootMismatch { index });
+        }
+        Ok(())
+    }
+
+    /// Bit `i` of `leaf_index` puts the node right of sibling `i`, each parent `Poseidon(left, right)`.
+    pub fn path_root(&self) -> Result<[u8; 32], ClientError> {
+        let mut node = self.leaf;
+        let mut position = self.leaf_index;
+        for sibling in &self.path {
+            node = match position % 2 {
+                0 => Poseidon::hashv(&[&node, sibling])?,
+                _ => Poseidon::hashv(&[sibling, &node])?,
+            };
+            position /= 2;
+        }
+        Ok(node)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GetMerkleProofsResponse {
     pub context: Context,
@@ -180,6 +224,34 @@ pub struct NonInclusionProof {
     pub root_index: u16,
 }
 
+impl NonInclusionProof {
+    /// A path off the tree height is refused too, `index` names the proof in errors.
+    pub fn check_leaf(
+        &self,
+        leaf: &[u8; 32],
+        tree: &Address,
+        index: usize,
+    ) -> Result<(), ClientError> {
+        if self.leaf != *leaf {
+            return Err(ClientError::NullifierProofLeafMismatch { index });
+        }
+        if self.merkle_context.tree != *tree {
+            return Err(ClientError::NullifierProofTreeMismatch { index });
+        }
+        check_path(&self.path, NULLIFIER_TREE_HEIGHT)
+    }
+}
+
+fn check_path(path: &[[u8; 32]], expected: usize) -> Result<(), ClientError> {
+    if path.len() != expected {
+        return Err(ClientError::ProofPathLength {
+            got: path.len(),
+            expected,
+        });
+    }
+    Ok(())
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GetNonInclusionProofsResponse {
     pub context: Context,
@@ -192,4 +264,56 @@ pub struct ProveResult {
     pub proof: ProofCompressed,
     pub public_inputs: Vec<[u8; 32]>,
     pub circuit_id: u16,
+}
+
+#[cfg(test)]
+mod tests {
+    use zolana_merkle_tree::MerkleTree;
+
+    use super::*;
+
+    /// Leaf 5 of a tree holding leaves 0 to 7.
+    fn proof() -> MerkleProof {
+        let leaves: Vec<[u8; 32]> = (0u8..8)
+            .map(|leaf| zolana_hasher::primitives::right_align(&[leaf + 1]))
+            .collect();
+        let mut tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
+        for leaf in &leaves {
+            tree.append(leaf).unwrap();
+        }
+        MerkleProof {
+            leaf: leaves[5],
+            merkle_context: MerkleContext {
+                tree_type: 0,
+                tree: Address::new_from_array([3; 32]),
+            },
+            path: tree.get_proof_of_leaf(5, true).unwrap(),
+            leaf_index: 5,
+            root: tree.root(),
+            root_seq: 0,
+            root_index: 0,
+        }
+    }
+
+    #[test]
+    fn a_state_proof_is_used_only_when_its_path_reaches_its_root() {
+        let valid = proof();
+        let tree = valid.merkle_context.tree;
+        assert!(valid.check_leaf(&valid.leaf, &tree, 0).is_ok());
+        type Forgery = fn(&mut MerkleProof);
+        let forgeries: &[Forgery] = &[
+            |proof| proof.root[31] ^= 1,
+            |proof| proof.path[3][31] ^= 1,
+            |proof| proof.leaf_index = 4,
+            |proof| proof.leaf_index += 1 << STATE_TREE_HEIGHT,
+        ];
+        for forge in forgeries {
+            let mut forged = proof();
+            forge(&mut forged);
+            assert!(matches!(
+                forged.check_leaf(&forged.leaf, &tree, 2),
+                Err(ClientError::StateProofRootMismatch { index: 2 })
+            ));
+        }
+    }
 }

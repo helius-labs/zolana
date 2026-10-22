@@ -1,10 +1,4 @@
-#[cfg(unix)]
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-use std::{
-    fs::{self, File, OpenOptions},
-    io::Write,
-    path::Path,
-};
+use std::{fs, path::Path};
 
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -13,6 +7,7 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::SolanaRpc;
 use zolana_keypair::ShieldedKeypair;
+use zolana_secret_file::{create_new, Visibility};
 
 use super::{resolve::ResolvedSyncOptions, util::parse_hex_array};
 use crate::{
@@ -205,39 +200,10 @@ fn save_wallet(path: &Path, keypair: &ShieldedKeypair, funding: &Keypair) -> Res
         funding_secret_hex: hex::encode(funding.secret_bytes()),
         funding_pubkey: funding.pubkey().to_string(),
     };
-    write_json_secret_exclusive(path, &file)
-}
-
-/// Write a secret file without ever overwriting an existing one. The file is
-/// created `0o600` up front (exclusive `create_new`), so a wallet key never
-/// exists on disk with looser permissions, even briefly.
-fn write_json_secret_exclusive<T: Serialize>(path: &Path, value: &T) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        if !parent.as_os_str().is_empty() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("failed to create {}", parent.display()))?;
-        }
-    }
-    let bytes = serde_json::to_vec_pretty(value)?;
-    let mut options = OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    options.mode(0o600);
-    let mut file = options
-        .open(path)
-        .with_context(|| format!("failed to write {}", path.display()))?;
-    harden_secret_permissions(&file, path)?;
-    file.write_all(&bytes)?;
-    file.sync_all()?;
-    Ok(())
-}
-
-fn harden_secret_permissions(file: &File, path: &Path) -> Result<()> {
-    #[cfg(unix)]
-    file.set_permissions(fs::Permissions::from_mode(0o600))
-        .with_context(|| format!("failed to set permissions on {}", path.display()))?;
-    #[cfg(not(unix))]
-    let _ = (file, path);
+    // Write a secret file without ever overwriting an existing one. The file is
+    // created `0o600` up front (exclusive `create_new`), so a wallet key never
+    // exists on disk with looser permissions, even briefly.
+    create_new(path, &serde_json::to_vec_pretty(&file)?, Visibility::Secret)?;
     Ok(())
 }
 

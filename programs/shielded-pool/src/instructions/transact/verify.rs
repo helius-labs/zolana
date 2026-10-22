@@ -1,6 +1,4 @@
 use crate::instructions::shared::caused_by;
-use ark_bn254::Fr;
-use ark_ff::PrimeField;
 use arrayvec::ArrayVec as RefArrayVec;
 use light_array_map::pubkey_eq;
 use light_program_profiler::profile;
@@ -16,14 +14,14 @@ use zolana_hasher::{
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::instruction_data::transact::{
-        is_confidential_encrypted_output, CircuitId, InterfaceTransfer, ResolvedOutput,
-        TransactIxDataRef,
+        amount_field, is_confidential_encrypted_output, CircuitId, InterfaceTransfer, PublicLeg,
+        PublicSlots, ResolvedOutput, TransactIxDataRef, ANONYMOUS_PARTIES,
     },
     shape::Shape,
     state::cache::{cached_input_fields, empty_cached_input_fields, CacheAccount},
     tree_slot::{populated_tree_slots_hash_chain, tree_id_field, TreeSlot},
     verifying_keys::OutputOwnerMode,
-    INPUT_TREES, MAX_TRANSACT_INPUTS, N_PUBLIC_SLOTS, SOL_ASSET_FIELD,
+    INPUT_TREES, MAX_TRANSACT_INPUTS, N_PUBLIC_SLOTS,
 };
 
 use crate::instructions::{settlement::Settlement, verifier};
@@ -102,23 +100,31 @@ impl OwnerHashCache {
     }
 }
 
-const ASSIGNED_OUTPUT_OWNERS: u8 = 1 << 0;
-const ASSIGNED_OWNER_SIGNERS: u8 = 1 << 1;
-const ASSIGNED_PUBLIC_TRANSFERS: u8 = 1 << 2;
-const ASSIGNED_INPUT_TREES: u8 = 1 << 3;
-const ASSIGNED_EXTERNAL_DATA: u8 = 1 << 4;
-const ASSIGNED_RING_PROGRAM: u8 = 1 << 5;
-const ASSIGNED_OUTPUT_TREE: u8 = 1 << 6;
-const ASSIGNED_CACHED_INPUTS: u8 = 1 << 7;
+const ASSIGNED_OUTPUT_OWNERS: u16 = 1 << 0;
+const ASSIGNED_OWNER_SIGNERS: u16 = 1 << 1;
+const ASSIGNED_PUBLIC_TRANSFERS: u16 = 1 << 2;
+const ASSIGNED_INPUT_TREES: u16 = 1 << 3;
+const ASSIGNED_EXTERNAL_DATA: u16 = 1 << 4;
+const ASSIGNED_RING_PROGRAM: u16 = 1 << 5;
+const ASSIGNED_OUTPUT_TREE: u16 = 1 << 6;
+const ASSIGNED_CACHED_INPUTS: u16 = 1 << 7;
+const ASSIGNED_ANONYMOUS_PARTIES: u16 = 1 << 8;
 const CACHED_INPUT_FIELDS: usize = 2;
-const ALL_ASSIGNMENTS: u8 = ASSIGNED_OUTPUT_OWNERS
+/// Fields `public_input_hash` folds on the widest rail.
+const PUBLIC_INPUT_FIELDS: usize = 24;
+const _: () = assert!(
+    PUBLIC_INPUT_FIELDS
+        >= 5 + 2 + ANONYMOUS_PARTIES + 1 + 2 * N_PUBLIC_SLOTS + 3 + 1 + CACHED_INPUT_FIELDS
+);
+const ALL_ASSIGNMENTS: u16 = ASSIGNED_OUTPUT_OWNERS
     | ASSIGNED_OWNER_SIGNERS
     | ASSIGNED_PUBLIC_TRANSFERS
     | ASSIGNED_INPUT_TREES
     | ASSIGNED_EXTERNAL_DATA
     | ASSIGNED_RING_PROGRAM
     | ASSIGNED_OUTPUT_TREE
-    | ASSIGNED_CACHED_INPUTS;
+    | ASSIGNED_CACHED_INPUTS
+    | ASSIGNED_ANONYMOUS_PARTIES;
 
 #[derive(Debug)]
 pub struct TransactProofInputs {
@@ -142,7 +148,9 @@ pub struct TransactProofInputs {
     /// circuit-vector tests can pin the assembly; production code writes it
     /// exclusively through `fill_owner_signer_hashes`.
     pub unique_owner_signer_count: u8,
-    assignments: u8,
+    /// Public on the anonymous rail only, the circuit proves each distinct from the hidden owner.
+    pub anonymous_parties: [[u8; 32]; ANONYMOUS_PARTIES],
+    assignments: u16,
     cached_inputs: Option<[[u8; 32]; CACHED_INPUT_FIELDS]>,
 }
 
@@ -158,6 +166,9 @@ impl TransactProofInputs {
         if matches!(circuit.uncached(), CircuitId::ConfidentialEddsa(..)) {
             assignments |= ASSIGNED_RING_PROGRAM;
         }
+        if !circuit.is_anonymous() {
+            assignments |= ASSIGNED_ANONYMOUS_PARTIES;
+        }
         Self {
             tree_slots: RefArrayVec::new(),
             output_tree_id: [0u8; 32],
@@ -169,6 +180,7 @@ impl TransactProofInputs {
             ring_program_id: [0u8; 32],
             input_flags: [0u8; 32],
             unique_owner_signer_count: 0,
+            anonymous_parties: [[0u8; 32]; ANONYMOUS_PARTIES],
             assignments,
             cached_inputs: None,
         }
@@ -177,6 +189,11 @@ impl TransactProofInputs {
     pub(crate) fn assign_ring_program_id(&mut self, ring_program_id: [u8; 32]) {
         self.ring_program_id = ring_program_id;
         self.assignments |= ASSIGNED_RING_PROGRAM;
+    }
+
+    pub(crate) fn assign_anonymous_parties(&mut self, parties: [[u8; 32]; ANONYMOUS_PARTIES]) {
+        self.anonymous_parties = parties;
+        self.assignments |= ASSIGNED_ANONYMOUS_PARTIES;
     }
 
     /// Assign the populated tree slots and the packed input flags.
@@ -317,59 +334,18 @@ impl TransactProofInputs {
         {
             return Err(ShieldedPoolError::InvalidTransactShape.into());
         }
-
-        let mut used_slots = 0usize;
-        for (transfer, settlement) in interface_transfers.iter().zip(settlements.iter()) {
-            let amount = signed_amount(*transfer);
-            if amount == 0 || transfer.is_deposit() != settlement.is_deposit() {
-                return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
-            }
-
-            let hashed_mint = match settlement.spl_asset()? {
-                Some(mint) => hash_bytes(&mint)?,
-                None => SOL_ASSET_FIELD,
-            };
-            match self.public_slot_assets[..used_slots]
-                .iter()
-                .position(|slot_asset| *slot_asset == hashed_mint)
-            {
-                Some(index) => {
-                    let net = self.public_slot_amounts[index]
-                        .checked_add(amount)
-                        .ok_or(ShieldedPoolError::PublicAssetAmountOverflow)?;
-                    self.public_slot_amounts[index] = checked_slot_amount(net)?;
-                }
-                None => {
-                    if used_slots == num_public_asset_slots {
-                        return Err(ShieldedPoolError::TooManyPublicAssets.into());
-                    }
-                    self.public_slot_assets[used_slots] = hashed_mint;
-                    self.public_slot_amounts[used_slots] = checked_slot_amount(amount)?;
-                    used_slots += 1;
-                }
-            }
-        }
-        if self.public_slot_amounts[..used_slots].contains(&0) {
-            return Err(ShieldedPoolError::ZeroNetInterfaceTransferAmount.into());
-        }
+        let slots = PublicSlots::fold(interface_transfers.iter().zip(settlements).map(
+            |(transfer, settlement)| {
+                settlement.spl_asset().map(|mint| PublicLeg {
+                    transfer: *transfer,
+                    mint,
+                })
+            },
+        ))?;
+        self.public_slot_assets = slots.asset_fields()?;
+        self.public_slot_amounts = slots.amounts();
         self.assignments |= ASSIGNED_PUBLIC_TRANSFERS;
         Ok(())
-    }
-}
-
-fn checked_slot_amount(net: i128) -> Result<i128, ProgramError> {
-    if u64::try_from(net.unsigned_abs()).is_err() {
-        return Err(ShieldedPoolError::PublicAssetAmountOverflow.into());
-    }
-    Ok(net)
-}
-
-fn signed_amount(transfer: InterfaceTransfer) -> i128 {
-    let amount = i128::from(transfer.amount());
-    if transfer.is_deposit() {
-        amount
-    } else {
-        -amount
     }
 }
 
@@ -476,7 +452,7 @@ impl<'a> TransactProof<'a> {
             self.ix.outputs.iter().map(|output| output.utxo_hash),
             n_out,
         )?;
-        let mut fields: ArrayVec<[[u8; 32]; 20]> = ArrayVec::new();
+        let mut fields: ArrayVec<[[u8; 32]; PUBLIC_INPUT_FIELDS]> = ArrayVec::new();
         // The circuit's `TreeSlotsHashChain` over the populated slots followed
         // by zeroed ones: each populated slot hash folded onto the precomputed
         // zero suffix of the unused remainder.
@@ -502,6 +478,7 @@ impl<'a> TransactProof<'a> {
                 Some(owner) => solana_owner_identity(owner)?,
                 None => [0u8; 32],
             });
+            fields.extend_from_slice(&self.derived.anonymous_parties);
         }
         fields.push(self.derived.external_data_hash);
         for (asset, amount) in public_slot_assets.iter().zip(public_slot_amounts.iter()) {
@@ -686,7 +663,7 @@ pub fn fixed_signer_hash_chain(
         return Err(ShieldedPoolError::InvalidTransactShape.into());
     }
 
-    // A zero `unique_count` (only hidden-owner or dummy inputs) is valid: the vector
+    // A zero `unique_count` (only dummy inputs) is valid: the vector
     // is all padding and folds to the precomputed zero chain below.
     let shape = ShieldedPoolError::InvalidTransactShape;
     let mut index = unique_count;
@@ -708,26 +685,4 @@ pub fn fixed_signer_hash_chain(
             ))?;
     }
     Ok(chain)
-}
-
-pub fn amount_field(amount: i128) -> Result<[u8; 32], ProgramError> {
-    let magnitude = u64::try_from(amount.unsigned_abs())
-        .map_err(|_| ShieldedPoolError::PublicAssetAmountOverflow)?;
-    let value = Fr::from(magnitude);
-    let limbs = if amount.is_negative() {
-        (-value).into_bigint().0
-    } else {
-        value.into_bigint().0
-    };
-    let mut out = [0u8; 32];
-    for (target, limb) in out
-        .as_chunks_mut::<8>()
-        .0
-        .iter_mut()
-        .rev()
-        .zip(limbs.iter())
-    {
-        target.copy_from_slice(&limb.to_be_bytes());
-    }
-    Ok(out)
 }

@@ -14,6 +14,7 @@ pub use blinding::{
     DOMAIN_MERGE_OUTPUT_KEY,
 };
 pub use encryption::MergeOutputSecrets;
+pub use inputs::merge_ring_data_hash;
 pub use serialization::{MergeOutputCiphertext, MergeOutputPlaintext};
 pub use transaction::MergeProofInputs;
 pub use zolana_interface::instruction::instruction_data::merge_transact::{

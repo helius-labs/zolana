@@ -38,7 +38,6 @@ import {
   cacheAddress,
   nullifierPdaAddress,
   protocolConfigAddress,
-  ringSpendWindowAddress,
   solInterfaceAddress,
   splAssetCounterAddress,
   splAssetRegistryAddress,
@@ -331,28 +330,6 @@ export async function depositInstruction(
     ),
     accounts,
   );
-}
-
-/** An unset co-signer repeats the PDA, the message signer flag comes from the address. */
-export function ringCoSignerMetas(
-  cosignerPda: Address,
-  cosigner: SignerAccount | undefined,
-): AccountMeta[] {
-  return [
-    meta(cosignerPda, false, false),
-    cosigner === undefined ? meta(cosignerPda, false, false) : meta(cosigner, true, false),
-  ];
-}
-
-/** One writable spend window slot per public leg, in leg order. */
-export async function ringSpendWindowMetas(
-  ringProgramId: Address,
-  mints: readonly Address[],
-): Promise<AccountMeta[]> {
-  const windows = await Promise.all(
-    mints.map((mint) => ringSpendWindowAddress(ringProgramId, mint)),
-  );
-  return windows.map((window) => meta(window, false, true));
 }
 
 function settlementAccounts(withdrawal?: TransactWithdrawal): AccountMeta[] {

@@ -73,11 +73,13 @@ type TransferParameters struct {
 
 	PrivateTxHash *big.Int
 	// BlindingSeed is the transaction's private random root seed. The circuit
-	// derives the output blinding seed, every output blinding, and the private
+	// derives the output blinding seed, every default-ring output blinding, and the private
 	// tx blinding from it and the first nullifier, so none of those are sent.
 	// A caller-supplied output blinding must equal the derived one or the proof
 	// fails.
 	BlindingSeed *big.Int
+	// One per output on a ring rail, zero off a ring output, none on the default rail.
+	RingSecrets []*big.Int
 	// PublicAssets/PublicAmounts are the uniform public movement slots, both of
 	// length shared.NPublicSlots.
 	PublicAssets   []*big.Int

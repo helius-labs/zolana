@@ -1,12 +1,26 @@
+use bytemuck::{Pod, Zeroable};
+use thiserror::Error;
+
+use crate::TAGGED_X25519_KEY_LEN;
+
 pub const MAX_RING_DEPOSIT_AUDIT_SLOTS: usize = 8;
 /// One opening is `owner_hash || blinding || owner_key`. The owner key is the
 /// Ed25519 key of an anonymous ring deposit and zero otherwise.
 pub const RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN: usize = 96;
 pub const RING_DEPOSIT_AUDIT_OWNER_KEY_OFFSET: usize = 64;
-pub const RING_DEPOSIT_AUDIT_PREFIX_LEN: usize = 42 + RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN;
+pub const RING_DEPOSIT_AUDIT_PREFIX_LEN: usize = core::mem::size_of::<CapsuleHeader>();
 pub const RING_DEPOSIT_AUDIT_INFO: &[u8; 10] = b"CRING/dep1";
 
 const MAGIC: &[u8; 8] = b"CRDEP001";
+
+#[derive(Clone, Copy, Pod, Zeroable)]
+#[repr(C)]
+struct CapsuleHeader {
+    magic: [u8; 8],
+    slot_index: u8,
+    eph_pk: [u8; TAGGED_X25519_KEY_LEN],
+    ciphertext: [u8; RING_DEPOSIT_AUDIT_CIPHERTEXT_LEN],
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RingDepositAuditCapsule<'a> {
@@ -16,24 +30,16 @@ pub struct RingDepositAuditCapsule<'a> {
     pub recipient_ciphertext: &'a [u8],
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
 pub enum RingDepositAuditError {
+    #[error("ring deposit audit capsule is truncated")]
     Truncated,
+    #[error("ring deposit audit slot exceeds the batch limit")]
     InvalidSlot,
 }
 
-impl core::fmt::Display for RingDepositAuditError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str(match self {
-            Self::Truncated => "ring deposit audit capsule is truncated",
-            Self::InvalidSlot => "ring deposit audit slot exceeds the batch limit",
-        })
-    }
-}
-
-impl std::error::Error for RingDepositAuditError {}
-
 impl<'a> RingDepositAuditCapsule<'a> {
+    /// `None` for an output without the capsule magic.
     pub fn parse(bytes: &'a [u8]) -> Result<Option<Self>, RingDepositAuditError> {
         if !bytes.starts_with(MAGIC) {
             return Ok(None);
@@ -41,33 +47,30 @@ impl<'a> RingDepositAuditCapsule<'a> {
         let (header, recipient_ciphertext) = bytes
             .split_at_checked(RING_DEPOSIT_AUDIT_PREFIX_LEN)
             .ok_or(RingDepositAuditError::Truncated)?;
-        let slot_index = header[8];
-        if usize::from(slot_index) >= MAX_RING_DEPOSIT_AUDIT_SLOTS {
+        let header: &CapsuleHeader = bytemuck::from_bytes(header);
+        if usize::from(header.slot_index) >= MAX_RING_DEPOSIT_AUDIT_SLOTS {
             return Err(RingDepositAuditError::InvalidSlot);
         }
         Ok(Some(Self {
-            slot_index,
-            eph_pk: header[9..42]
-                .try_into()
-                .map_err(|_| RingDepositAuditError::Truncated)?,
-            ciphertext: header[42..RING_DEPOSIT_AUDIT_PREFIX_LEN]
-                .try_into()
-                .map_err(|_| RingDepositAuditError::Truncated)?,
+            slot_index: header.slot_index,
+            eph_pk: &header.eph_pk,
+            ciphertext: &header.ciphertext,
             recipient_ciphertext,
         }))
     }
 
     pub fn encode(self) -> Vec<u8> {
-        let mut bytes =
-            Vec::with_capacity(RING_DEPOSIT_AUDIT_PREFIX_LEN + self.recipient_ciphertext.len());
-        bytes.extend_from_slice(MAGIC);
-        bytes.push(self.slot_index);
-        bytes.extend_from_slice(self.eph_pk);
-        bytes.extend_from_slice(self.ciphertext);
-        bytes.extend_from_slice(self.recipient_ciphertext);
-        bytes
+        let header = CapsuleHeader {
+            magic: *MAGIC,
+            slot_index: self.slot_index,
+            eph_pk: *self.eph_pk,
+            ciphertext: *self.ciphertext,
+        };
+        [bytemuck::bytes_of(&header), self.recipient_ciphertext].concat()
     }
 }
+
+const _: () = assert!(RING_DEPOSIT_AUDIT_PREFIX_LEN == 138);
 
 #[cfg(test)]
 mod tests {

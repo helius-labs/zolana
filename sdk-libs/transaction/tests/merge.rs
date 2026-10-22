@@ -11,8 +11,8 @@ use zolana_transaction::{
         MAX_MERGE_INPUTS,
     },
     utxo::{SppProofInputUtxo, Utxo},
-    Address, AssetRegistry, Data, DataRecord, DecryptRequest, DeriveRequest, Mint, ShieldedKeys,
-    TransactionError, TransactionKeyRequest, WalletUtxo,
+    Address, AssetRegistry, Data, DataRecord, DecryptRequest, DeriveRequest, Mint,
+    RingDeliveryRequest, ShieldedKeys, TransactionError, TransactionKeyRequest, WalletUtxo,
 };
 
 fn inputs(owner: &ShieldedKeypair, count: u8) -> Vec<WalletUtxo> {
@@ -376,11 +376,15 @@ fn default_and_ring_merge_apply_distinct_data_rules() {
     ring_note.nullifier = owner
         .nullifier(&ring_note.utxo_hash, &ring_note.utxo.blinding)
         .unwrap();
-    let result = MergeTransaction::new_with_ring(vec![ring_note], ring, Some([4; 32]))
+    assert_eq!(
+        MergeTransaction::new_with_ring(vec![ring_note.clone()], ring, Some([4; 32])).err(),
+        Some(TransactionError::MergeOutputRingDataMismatch)
+    );
+    let result = MergeTransaction::new_with_ring(vec![ring_note], ring, None)
         .unwrap()
         .encrypt(&owner)
         .unwrap();
-    assert_eq!(result.output_utxo.ring_data_hash, Some([4; 32]));
+    assert_eq!(result.output_utxo.ring_data_hash, Some([3; 32]));
     assert_eq!(result.output_utxo.ring_program_id, Some(ring));
     assert_eq!(result.input_utxo_hashes().unwrap().len(), 1);
     let recovered = recover(&result, &owner, &Default::default());
@@ -510,6 +514,25 @@ impl ShieldedKeys for RecordingKeys {
     ) -> Result<Vec<ViewingKey>, TransactionError> {
         self.keys.borrow_mut().extend_from_slice(requests);
         self.owner.transaction_keys(requests)
+    }
+    fn ring_address_keys(
+        &self,
+        ring: &Address,
+        indexes: &[u32],
+    ) -> Result<Vec<X25519Pubkey>, TransactionError> {
+        self.owner.ring_address_keys(ring, indexes)
+    }
+    fn ring_delivery_secrets(
+        &self,
+        requests: &[RingDeliveryRequest],
+    ) -> Result<Vec<[u8; 32]>, TransactionError> {
+        self.owner.ring_delivery_secrets(requests)
+    }
+    fn ring_change_key(&self, ring: &Address) -> Result<X25519Pubkey, TransactionError> {
+        self.owner.ring_change_key(ring)
+    }
+    fn sender_view_tags(&self, counters: &[u64]) -> Result<Vec<[u8; 32]>, TransactionError> {
+        self.owner.sender_view_tags(counters)
     }
 }
 
@@ -802,6 +825,72 @@ fn merge_output_ciphertext_matches_shared_vectors_and_decrypts_only_under_its_ke
     assert_ne!(
         MergeOutputPlaintext::decrypt(&tampered, &key),
         Ok(plaintext)
+    );
+}
+
+#[test]
+fn ring_merges_preserve_common_committed_data_and_exempt_only_padding() {
+    let owner = keypair(7);
+    let ring = Address::new_from_array([42; 32]);
+    let held_utxos = |hash: Option<[u8; 32]>| {
+        inputs(&owner, 2)
+            .into_iter()
+            .map(|mut held| {
+                held.utxo.ring_program_id = Some(ring);
+                held.ring_data_hash = hash;
+                held.utxo_hash = held
+                    .utxo
+                    .hash(
+                        &held.nullifier_pubkey,
+                        &[0; 32],
+                        &hash.unwrap_or_default(),
+                        held.tree_id,
+                    )
+                    .unwrap();
+                held.nullifier = owner
+                    .nullifier(&held.utxo_hash, &held.utxo.blinding)
+                    .unwrap();
+                held
+            })
+            .collect::<Vec<_>>()
+    };
+    for hash in [None, Some([0; 32]), Some([3; 32])] {
+        let mut result = MergeTransaction::new_with_ring(held_utxos(hash), ring, None)
+            .unwrap()
+            .encrypt(&owner)
+            .unwrap();
+        assert_eq!(
+            result.output_utxo.ring_data_hash.unwrap_or_default(),
+            hash.unwrap_or_default()
+        );
+        result.input_utxo_hashes().unwrap();
+        result.input_utxos[2].ring_data_hash = Some([9; 32]);
+        result.input_utxo_hashes().unwrap();
+        let mut unequal = held_utxos(hash);
+        unequal[1].ring_data_hash = Some([7; 32]);
+        assert_eq!(
+            MergeTransaction::new_with_ring(unequal, ring, None).err(),
+            Some(TransactionError::MergeInputRingDataMismatch { index: 1 })
+        );
+        result.input_utxos[1].ring_data_hash = Some([7; 32]);
+        assert!(matches!(
+            result.input_utxo_hashes(),
+            Err(TransactionError::MergeInputRingDataMismatch { index: 1 })
+        ));
+        let mut changed_output = MergeTransaction::new_with_ring(held_utxos(hash), ring, None)
+            .unwrap()
+            .encrypt(&owner)
+            .unwrap();
+        changed_output.output_utxo.ring_data_hash = Some([8; 32]);
+        assert!(matches!(
+            changed_output.input_utxo_hashes(),
+            Err(TransactionError::MergeOutputRingDataMismatch)
+        ));
+    }
+    // SOL's zero mint address remains a valid nonzero circuit asset identity.
+    assert_ne!(
+        zolana_transaction::instructions::transact::asset_field(&Mint::SOL.asset).unwrap(),
+        [0; 32]
     );
 }
 

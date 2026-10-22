@@ -995,6 +995,8 @@ fn tx_size(args: Vec<String>) {
             payer: payer_pk,
             data: data.clone(),
             output_ring_data_hash: [0u8; 32],
+            member_registry_root: [1u8; 32],
+            anonymous: false,
             cache: None,
         }
         .instruction();

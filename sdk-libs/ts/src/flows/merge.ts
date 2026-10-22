@@ -1,5 +1,5 @@
 import type { Address, Bytes32, RequestContext } from "../interface/types.js";
-import { Merge, PreparedMerge } from "../transaction/instructions/builders.js";
+import { Merge, PreparedMerge, mergeRingDataHash } from "../transaction/instructions/builders.js";
 import { deriveAnswers, wipeByteAnswers } from "../transaction/wallet/key-batch.js";
 import type { ShieldedKeys } from "../transaction/wallet/keys.js";
 import type { ProofInputUtxo } from "../transaction/utxo.js";
@@ -16,6 +16,7 @@ export async function prepareMerge(
 ): Promise<PreparedMerge> {
   const firstNullifier = input.inputs[0]?.nullifier();
   if (firstNullifier === undefined) throw input.invalidAnswers();
+  mergeRingDataHash(input.inputs, input.ring?.outputDataHash);
   const slots = PreparedMerge.dummySlots(input.inputs.length);
   const answers = await input.keys.derive(
     [

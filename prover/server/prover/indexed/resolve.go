@@ -29,10 +29,6 @@ type treeProofs struct {
 }
 
 func Validate(data []byte) error {
-	if requestCircuit(data) == common.CustomRingDepositCircuitType {
-		_, _, err := decodeDeposit(data)
-		return err
-	}
 	if batchCircuit(data) {
 		_, err := decodeBatch(data)
 		return err
@@ -46,14 +42,7 @@ func decodeRequest(data []byte) (Request, *preparedProof, error) {
 	if err != nil {
 		return request, nil, err
 	}
-	if request.Registry != nil && !policyCircuit(request.CircuitType) {
-		return request, nil, fmt.Errorf("unexpected registry request")
-	}
-	maximumTrees := 2
-	if policyCircuit(request.CircuitType) {
-		maximumTrees = 5
-	}
-	if len(request.Trees) == 0 || len(request.Trees) > maximumTrees {
+	if len(request.Trees) == 0 || len(request.Trees) > 2 {
 		return request, nil, fmt.Errorf("invalid input tree count")
 	}
 	for index, tree := range request.Trees {
@@ -66,25 +55,7 @@ func decodeRequest(data []byte) (Request, *preparedProof, error) {
 			}
 		}
 	}
-	expected := 17
-	switch request.CircuitType {
-	case common.TransferRingAuthorityCircuitType:
-		expected = 14
-	case common.TransferAnonymousRingEddsaCircuitType:
-		expected = 19
-	case common.MergeCircuitType:
-		// The prefix without the tree hash, the two-element owner tail, the
-		// ciphertext salt and the three ciphertext elements.
-		expected = 12
-	case common.MergeRingCircuitType:
-		// The prefix without the tree hash and the two-element ring tail; the
-		// ring merge proof binds no ciphertext.
-		expected = 8
-	case common.CustomRingPolicyCircuitType, common.CustomRingDelegatePolicyCircuitType:
-		expected = 19
-	case common.CustomRingCompressedPolicyCircuitType:
-		expected = 20
-	}
+	expected := expectedPublicInputCount(request.CircuitType)
 	if len(request.PublicInputs) != expected {
 		return request, nil, fmt.Errorf("invalid public input count")
 	}
@@ -101,10 +72,22 @@ func decodeRequest(data []byte) (Request, *preparedProof, error) {
 	return request, prepared, err
 }
 
-func (r *Resolver) resolve(ctx context.Context, data []byte) (*Resolved, error) {
-	if requestCircuit(data) == common.CustomRingDepositCircuitType {
-		return r.resolveDeposit(ctx, data)
+func expectedPublicInputCount(circuit common.CircuitType) int {
+	switch circuit {
+	case common.TransferRingAuthorityCircuitType:
+		return 14
+	case common.TransferAnonymousRingEddsaCircuitType:
+		return 22
+	case common.MergeCircuitType:
+		return 12
+	case common.MergeRingCircuitType:
+		// The ring tail binds the member registry root and the anonymous flag.
+		return 14
 	}
+	return 17
+}
+
+func (r *Resolver) resolve(ctx context.Context, data []byte) (*Resolved, error) {
 	if batchCircuit(data) {
 		return r.resolveBatch(ctx, data)
 	}
@@ -128,9 +111,6 @@ func (r *Resolver) resolve(ctx context.Context, data []byte) (*Resolved, error) 
 	defer finishFetch()
 	proofs := make([]treeProofs, len(request.Trees))
 	for index, input := range request.Inputs {
-		if prepared.inputs[index].disabled {
-			continue
-		}
 		group := &proofs[input.TreeSlot]
 		group.inputs = append(group.inputs, index)
 		if input.Commitment != nil {
@@ -138,7 +118,7 @@ func (r *Resolver) resolve(ctx context.Context, data []byte) (*Resolved, error) 
 		}
 	}
 	for _, group := range proofs {
-		if len(group.inputs) == 0 && !prepared.policy {
+		if len(group.inputs) == 0 {
 			return nil, fmt.Errorf("input tree has no real spend")
 		}
 	}
@@ -146,9 +126,6 @@ func (r *Resolver) resolve(ctx context.Context, data []byte) (*Resolved, error) 
 	defer cancel()
 	// 1. Fetch one nullifier snapshot per tree for real and dummy inputs together.
 	tasks, taskContext := errgroup.WithContext(ctx)
-	if prepared.registry != nil {
-		tasks.Go(recovered(func() error { return r.resolvePolicyRegistry(taskContext, request, prepared.registry) }))
-	}
 	for treeIndex, tree := range request.Trees {
 		group := &proofs[treeIndex]
 		leaves := make([]Hash, len(group.realInputs))
@@ -285,24 +262,13 @@ func (r *Resolver) resolve(ctx context.Context, data []byte) (*Resolved, error) 
 	transcript := append([]*big.Int{}, public[:2]...)
 	transcript = append(transcript, treeHash)
 	transcript = append(transcript, public[2:]...)
-	if prepared.policy {
-		value := public[0]
-		for _, field := range append([]*big.Int{treeHash}, public[1:]...) {
-			value, err = prooftranscript.HashFields([]*big.Int{value, field})
-			if err != nil {
-				return nil, err
-			}
-		}
-		*prepared.hash = value
-	} else {
-		*prepared.hash, err = prooftranscript.HashChain4(transcript)
-	}
+	*prepared.hash, err = prooftranscript.HashChain4(transcript)
 	if err != nil {
 		return nil, err
 	}
 	*prepared.slots = slots
 	resolution.PublicInputHash = common.FeHex(*prepared.hash)
-	payload, err := prepared.value.MarshalJSON()
+	payload, err := json.Marshal(prepared.value)
 	if err != nil {
 		return nil, fmt.Errorf("cannot encode resolved inputs")
 	}
@@ -323,16 +289,6 @@ func decodeEnvelope(data []byte) (Request, error) {
 		return request, fmt.Errorf("invalid indexed request")
 	}
 	return request, nil
-}
-
-func requestCircuit(data []byte) common.CircuitType {
-	var meta struct {
-		Circuit common.CircuitType `json:"circuitType"`
-	}
-	if json.Unmarshal(data, &meta) != nil {
-		return ""
-	}
-	return meta.Circuit
 }
 
 func verifyPath(leaf Hash, path []Hash, index uint64, root Hash) error {

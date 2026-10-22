@@ -13,7 +13,10 @@
 //! - ring-config defects on the ring rails (7014 / signer error)
 //! - paused ring configs on both ring transact rails (7042)
 
-use shielded_pool_tests::support::{fixtures::Pool, transact::write_ring_config_account};
+use shielded_pool_tests::support::{
+    fixtures::Pool,
+    transact::{write_ring_config, write_ring_config_account},
+};
 
 use solana_address::Address;
 use solana_instruction::{error::InstructionError, AccountMeta, Instruction};
@@ -103,38 +106,7 @@ fn expect_ix_rejection(
         .assert_rolled_back_except(&[env.rpc.payer.pubkey()]);
 }
 
-/// Materialize a `RingConfig` at a fresh keypair address so tests can
-/// produce the signature the ring rails require without the ring program's
-/// `invoke_signed`. The operational loader validates owner, size,
-/// discriminator, and active state (the `ring_auth` derivation is bound once,
-/// at creation), so a signing keypair account stands in for the canonical PDA.
-fn write_ring_config(
-    env: &mut Pool,
-    owner: Pubkey,
-    discriminator: u8,
-    enabled: bool,
-    paused: bool,
-) -> Keypair {
-    let config = RingConfig {
-        discriminator,
-        authority: Address::new_from_array([9u8; 32]),
-        program_id: Address::new_from_array(RING_TEST_PROGRAM_ID),
-        ring_authority_transact_is_enabled: u8::from(enabled),
-        paused: u8::from(paused),
-        activated: 1,
-        bump: 255,
-    };
-    let keypair = Keypair::new();
-    write_ring_config_account(
-        &mut env.rpc,
-        keypair.pubkey(),
-        owner,
-        bytemuck::bytes_of(&config).to_vec(),
-    );
-    keypair
-}
-
-/// Same, but with governance's `activated` byte cleared, which is how a ring
+/// [`write_ring_config`], but with governance's `activated` byte cleared, which is how a ring
 /// config exists before `set_ring_activation` admits it.
 fn write_inactive_ring_config(env: &mut Pool, enabled: bool, paused: bool) -> Keypair {
     let config = RingConfig {
@@ -491,8 +463,9 @@ fn transact_rejects_a_malformed_wincode_payload() {
         );
     }
     let payload = template.data.get(1..).expect("instruction payload");
-    let (_, external_data_prefix) =
-        TransactIxDataRef::parse_with_external_data_prefix(payload).expect("template parses");
+    let external_data_prefix = TransactIxDataRef::parse_with_tail(payload)
+        .expect("template parses")
+        .external_data_prefix;
     let mut bad_tag = template.data.clone();
     let circuit_tag_offset = 1 + external_data_prefix.len() + 32;
     *bad_tag
@@ -811,11 +784,11 @@ fn ring_authority_transact_rejects_an_owner_signer() {
 }
 
 #[test]
-fn ring_authority_transact_rejects_a_non_square_shape() {
+fn ring_authority_transact_rejects_an_unsupported_shape() {
     let mut env = Pool::initialized();
-    // INV-RING-AUTH-04: the ring-authority keys cover exactly the square
-    // shapes (2,2) and (4,4); (2 inputs, 4 outputs) is wire-valid (and a
-    // supported ring_transact shape) but must fail key selection here.
+    // INV-RING-AUTH-04: the ring-authority keys cover the supported shapes of at
+    // most `RING_AUTHORITY_MAX_INPUTS` inputs; (3 inputs, 3 outputs) is
+    // wire-valid but no rail supports it, so it must fail key selection here.
     let ring_config = write_ring_config(
         &mut env,
         pda::shielded_pool_program_id(),
@@ -823,7 +796,7 @@ fn ring_authority_transact_rejects_a_non_square_shape() {
         true,
         false,
     );
-    let ix = ring_instruction(&env, true, &ring_config, transfer_ix_data(2, 4));
+    let ix = ring_instruction(&env, true, &ring_config, transfer_ix_data(3, 3));
     expect_ix_rejection(
         &mut env,
         ix,

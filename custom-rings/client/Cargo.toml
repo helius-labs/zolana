@@ -13,20 +13,35 @@ solana-rpc = [
     "dep:solana-commitment-config",
     "dep:solana-rpc-client-api",
     "dep:solana-transaction-status-client-types",
+    "dep:tokio",
+]
+rpc = [
+    "dep:base64",
+    "dep:bytemuck",
+    "dep:rand",
+    "dep:serde",
+    "dep:solana-signer",
+    "dep:zolana-secret-file",
 ]
 
 [dependencies]
+base64 = { workspace = true, optional = true }
+bytemuck = { workspace = true, optional = true }
 p256 = { workspace = true }
 hex = { workspace = true }
 custom-ring-interface = { workspace = true }
 curve25519-dalek = { version = "4.1", default-features = false }
+rand = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
 sha2 = { workspace = true }
 solana-address = { workspace = true, features = ["curve25519"] }
 solana-commitment-config = { workspace = true, optional = true }
 solana-rpc-client-api = { workspace = true, optional = true }
 solana-signature = { workspace = true }
+solana-signer = { workspace = true, optional = true }
 solana-transaction-status-client-types = { workspace = true, optional = true }
 thiserror = { workspace = true }
+tokio = { workspace = true, optional = true }
 zeroize = { workspace = true }
 borsh = { workspace = true }
 zolana-client = { workspace = true }
@@ -36,14 +51,17 @@ zolana-interface = { workspace = true }
 zolana-hasher = { workspace = true }
 zolana-indexer-api = { workspace = true }
 zolana-keypair = { workspace = true }
+zolana-ring-member-registry = { workspace = true }
 zolana-ring-policy = { workspace = true }
-zolana-ring-transaction = { workspace = true }
+zolana-secret-file = { workspace = true, optional = true }
 zolana-transaction = { workspace = true }
 
 [dev-dependencies]
-borsh = { workspace = true }
+async-trait = { workspace = true }
 bs58 = { workspace = true }
-zolana-ring-key-registry = { workspace = true }
 serde_json = { workspace = true }
+solana-keypair = { workspace = true }
+solana-signature = { workspace = true, features = ["verify"] }
 solana-transaction-status-client-types = { workspace = true }
-zolana-ring-client = { path = ".", features = ["solana-rpc"] }
+tokio = { workspace = true }
+zolana-ring-client = { path = ".", features = ["rpc", "solana-rpc"] }

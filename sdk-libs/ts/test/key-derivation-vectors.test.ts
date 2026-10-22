@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 
 import { sha256 } from "@noble/hashes/sha2.js";
+import { address } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -93,6 +94,13 @@ type KeyDerivationVectors = Readonly<{
     sender_view_tags: readonly CounterTag[];
     recipient_request_view_tags: readonly CounterTag[];
   }>[];
+  ring_derivation: Readonly<{
+    viewing_secret: string;
+    viewing_pubkey: string;
+    ring_program_id: string;
+    address_keys: readonly Readonly<{ index: number; secret: string; pubkey: string }>[];
+    change_key: Readonly<{ secret: string; pubkey: string }>;
+  }>;
 }>;
 
 type CounterTag = Readonly<{ counter: string; tag: string }>;
@@ -216,6 +224,31 @@ describe("shared key-derivation vectors (test-vectors/key_derivation.json)", () 
       ((element + (pads[index] ?? 0n)) % BN254_SCALAR_ORDER).toString(16).padStart(64, "0"),
     );
     expect(ciphertext).toEqual(section.output_ciphertext);
+  });
+
+  it("derives the sender view tags", () => {
+    for (const section of vectors.counter_view_tags) {
+      const viewing = ViewingKey.fromBytes(bytes(section.viewing_secret) as Bytes32);
+      expect(hex(viewing.publicKey().toBytes())).toBe(section.viewing_pubkey);
+      for (const { counter, tag } of section.sender_view_tags) {
+        expect(hex(viewing.senderViewTag(BigInt(counter)))).toBe(tag);
+      }
+    }
+  });
+
+  it("derives the ring address keys and the change key", () => {
+    const section = vectors.ring_derivation;
+    const viewing = ViewingKey.fromBytes(bytes(section.viewing_secret) as Bytes32);
+    expect(hex(viewing.publicKey().toBytes())).toBe(section.viewing_pubkey);
+    const ring = address(section.ring_program_id);
+    for (const key of section.address_keys) {
+      const derived = viewing.ringAddressKey(ring, key.index);
+      expect(hex(derived.secretBytes())).toBe(key.secret);
+      expect(hex(derived.publicKey().toBytes())).toBe(key.pubkey);
+    }
+    const change = viewing.ringChangeKey(ring);
+    expect(hex(change.secretBytes())).toBe(section.change_key.secret);
+    expect(hex(change.publicKey().toBytes())).toBe(section.change_key.pubkey);
   });
 
   it("detects derivation inputs exactly like Rust", () => {

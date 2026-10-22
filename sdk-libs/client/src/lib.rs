@@ -17,23 +17,35 @@
 //! - `solana-rpc`: concrete Solana RPC adapters
 //! - `client`: `solana-rpc`, the set the CLI and the examples enable
 
+pub mod anonymous;
 pub mod authority;
 pub mod client;
 pub mod error;
 pub mod indexer;
+pub mod program_data;
 pub mod prover;
 pub mod rpc;
 pub mod scan;
+pub mod tags;
 pub mod user_registry;
 
+pub use anonymous::{
+    audit_capsule_payload, AnonymousRingScan, AnonymousRingState, AnonymousRingSync,
+    AnonymousRingUtxo, AnonymousStream, DecoyLeaf, IssuedAddress, PairAnchor, PaymentStream,
+    PaymentTag, ReceivedAnchor, SentFirstContact, TagAllocation, ADDRESS_GAP, ANCHOR_DECOYS,
+    ANONYMOUS_RING_STATE_VERSION, DECOYS_PER_TREE, DEPOSIT_GAP, MAX_FETCH_EPOCHS,
+    MAX_ISSUED_ADDRESSES, PAIR_IDLE_EPOCHS,
+};
 pub use authority::ProofAuthority;
 pub use client::{
-    check_merge_record, check_service_url, AsyncIndexer, AsyncZolanaClient, BlockingIndexer,
-    BlockingRpc, MergeSubmission, ProvedMerge, SignedPrivateTransaction, Submission,
-    UnsignedMessage, ZolanaClient, DEFAULT_TRANSACT_CU_LIMIT, MERGE_CU_LIMIT,
+    check_merge_record, check_service_url, wait_for_indexed_transaction, AsyncIndexer,
+    AsyncZolanaClient, BlockingIndexer, BlockingRpc, MergeSubmission, ProvedMerge,
+    SignedPrivateTransaction, Submission, UnsignedMessage, ZolanaClient, DEFAULT_TRANSACT_CU_LIMIT,
+    MERGE_CU_LIMIT,
 };
 pub use error::ClientError;
 pub use indexer::{AsyncZolanaIndexer, ZolanaIndexer};
+pub use program_data::{program_data, ProgramData, PROGRAM_DATA_METADATA_LEN};
 pub use prover::timing;
 pub use prover::witness::{AsyncWitnessReader, InputWitnesses, WitnessReader};
 pub use prover::{
@@ -62,17 +74,21 @@ pub use rpc::{compile_message, sign_transaction, ComputeBudgetConfig};
 pub use rpc::{transaction_size, TransactionSize};
 pub use rpc::{
     AsyncRpc, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
-    GetMerkleProofsResponse, GetNonInclusionProofsResponse, GetRingKeyRegistryEntryResponse,
-    GetRingKeyRegistryRegisterProofResponse, GetRingSpendRecordResponse,
+    GetMerkleProofsResponse, GetNonInclusionProofsResponse, GetRingApplyProofInputsRequest,
+    GetRingApplyProofInputsResponse, GetRingMemberOpeningsRequest, GetRingMemberOpeningsResponse,
+    GetRingMemberRecordRequest, GetRingMemberRecordResponse, GetRingMemberRecordsRequest,
+    GetRingMemberRecordsResponse, GetRingMemberRegistryRootRequest,
+    GetRingMemberRegistryRootResponse, GetRingRecordQueueRequest, GetRingRecordQueueResponse,
     GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
     GetUserRecordsResponse, IndexedShieldedTransaction, MerkleContext, MerkleProof,
-    NonInclusionProof, OutputContext, OutputSlot, ProveResult, RingHistoryOptions,
-    RingMemberProofRequest, RingSpendRecord, RingSpendRecordRequest, Rpc, ShieldedTransaction,
-    ShieldedTransactionStream, UserRecord, MAX_LOADED_ACCOUNTS_DATA_SIZE, MAX_USER_RECORD_OWNERS,
-    NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
+    NonInclusionProof, OutputContext, OutputSlot, ProveResult, RingHistoryOptions, Rpc,
+    ShieldedTransaction, ShieldedTransactionStream, UserRecord, MAX_LOADED_ACCOUNTS_DATA_SIZE,
+    MAX_USER_RECORD_OWNERS, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 pub use rpc::{IndexerPollConfig, IndexerRpcConfig};
-pub use scan::{fetch_asset_id, UtxoScan, UtxoScanResult};
+pub use scan::{fetch_asset_id, fetch_asset_id_async, next_page, UtxoScan, UtxoScanResult};
+pub use tags::{IndexerReads, TagWindow, DEFAULT_TAG_WINDOW, TAGS_PER_REQUEST};
+pub use zolana_api::BlockingInsideRuntime;
 // `SolanaRpc::send_transaction_with_config` is public but names this type,
 // so callers outside the crate need it to call the method at all.
 pub use solana_rpc_client_api::config::RpcSendTransactionConfig;

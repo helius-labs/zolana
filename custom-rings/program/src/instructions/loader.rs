@@ -1,82 +1,54 @@
-use bytemuck::{from_bytes, from_bytes_mut};
 use custom_ring_interface::{
-    CoSigner, Delegate, DepositAudit, KeyRegistryRoot, PolicyConfig, SpendWindow,
-};
-use custom_ring_interface::{
-    ReadAccessRecord, ReaderKeyBytes, RingMode, RingProgramConfig, TAGGED_X25519_KEY_LEN,
+    CustomRingError, MemberRegistry, RecordQueue, RingAccount, RingProgramConfig,
 };
 use pinocchio::{
     account::{Ref, RefMut},
+    address::address_eq,
     error::ProgramError,
-    AccountView, Address,
+    AccountView, Address, ProgramResult,
 };
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
 use zolana_interface::{
-    instruction::instruction_data::transact::TreeContext,
-    state::{discriminator::TREE_ACCOUNT_DISCRIMINATOR, read_tree_id},
-    tree_slot::{resolve_tree_slot, TreeSlot},
-    BPF_LOADER_UPGRADEABLE_ID, SHIELDED_POOL_PROGRAM_ID,
+    state::discriminator::TREE_ACCOUNT_DISCRIMINATOR, BPF_LOADER_UPGRADEABLE_ID,
+    SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_tree::TreeAccount;
 
-use crate::{error::CustomRingError, instructions::shared::PdaCheck, state::Account};
+/// Owner and discriminator suffice, accounts are created only at their canonical PDA.
+#[inline(always)]
+pub fn load<'a, T: RingAccount>(
+    program_id: &Address,
+    account: &'a AccountView,
+) -> Result<Ref<'a, T>, ProgramError> {
+    if !account.owned_by(program_id) {
+        return Err(T::INVALID.into());
+    }
+    let data = account.try_borrow().map_err(|_| T::INVALID)?;
+    Ref::filter_map(data, T::from_data).map_err(|_| T::INVALID.into())
+}
 
-/// Loads only the canonical config PDA and stored bump.
+#[inline(always)]
+pub fn load_mut<'a, T: RingAccount>(
+    program_id: &Address,
+    account: &'a mut AccountView,
+) -> Result<RefMut<'a, T>, ProgramError> {
+    if !account.owned_by(program_id) {
+        return Err(T::INVALID.into());
+    }
+    let data = account.try_borrow_mut().map_err(|_| T::INVALID)?;
+    RefMut::filter_map(data, T::from_data_mut).map_err(|_| T::INVALID.into())
+}
+
+/// The ring config, its mode byte known.
 #[inline(always)]
 pub fn load_config<'a>(
     program_id: &Address,
     account: &'a AccountView,
 ) -> Result<Ref<'a, RingProgramConfig>, ProgramError> {
-    let config = load_account::<RingProgramConfig>(program_id, account)?;
-    PdaCheck {
-        program_id,
-        address: account.address(),
-        seeds: &[RingProgramConfig::SEED],
-        mismatch: CustomRingError::InvalidConfigPda,
-    }
-    .verify_stored_bump(config.bump)?;
-    Ok(config)
+    load(program_id, account)
 }
 
-/// The config of a ring whose auditor key can receive a proven disclosure.
-pub(crate) struct AuditedConfig {
-    pub auditor_pubkey: [u8; TAGGED_X25519_KEY_LEN],
-    pub has_policy: bool,
-    pub mode: RingMode,
-}
-
-/// Refuses an unknown mode.
-#[inline(always)]
-pub(crate) fn load_audited_config(
-    program_id: &Address,
-    account: &AccountView,
-) -> Result<AuditedConfig, ProgramError> {
-    let config = load_config(program_id, account)?;
-    let mode = config.mode().ok_or(CustomRingError::InvalidRingMode)?;
-    Ok(AuditedConfig {
-        auditor_pubkey: config.auditor_pubkey,
-        has_policy: config.has_policy != 0,
-        mode,
-    })
-}
-
-#[inline(always)]
-pub fn load_config_mut<'a>(
-    program_id: &Address,
-    account: &'a mut AccountView,
-) -> Result<RefMut<'a, RingProgramConfig>, ProgramError> {
-    let address = *account.address();
-    let config = load_account_mut::<RingProgramConfig>(program_id, account)?;
-    PdaCheck {
-        program_id,
-        address: &address,
-        seeds: &[RingProgramConfig::SEED],
-        mismatch: CustomRingError::InvalidConfigPda,
-    }
-    .verify_stored_bump(config.bump)?;
-    Ok(config)
-}
-
+/// The config whose authority is `authority`, the processor checks the signature.
 #[inline(always)]
 pub fn load_authorized_config<'a>(
     program_id: &Address,
@@ -84,313 +56,129 @@ pub fn load_authorized_config<'a>(
     authority: &AccountView,
 ) -> Result<Ref<'a, RingProgramConfig>, ProgramError> {
     let config = load_config(program_id, config)?;
+    check_authority(&config, authority)?;
+    Ok(config)
+}
+
+#[inline(always)]
+pub fn load_authorized_config_mut<'a>(
+    program_id: &Address,
+    config: &'a mut AccountView,
+    authority: &AccountView,
+) -> Result<RefMut<'a, RingProgramConfig>, ProgramError> {
+    let config = load_mut::<RingProgramConfig>(program_id, config)?;
+    check_authority(&config, authority)?;
+    Ok(config)
+}
+
+fn check_authority(config: &RingProgramConfig, authority: &AccountView) -> ProgramResult {
     if authority.address() != &config.authority {
         return Err(CustomRingError::UnauthorizedAuthority.into());
     }
-    Ok(config)
-}
-
-#[inline(always)]
-pub fn load_policy_config<'a>(
-    program_id: &Address,
-    account: &'a AccountView,
-) -> Result<Ref<'a, PolicyConfig>, ProgramError> {
-    let config = load_account::<PolicyConfig>(program_id, account)?;
-    PdaCheck {
-        program_id,
-        address: account.address(),
-        seeds: &[PolicyConfig::SEED],
-        mismatch: CustomRingError::InvalidPolicyConfigPda,
-    }
-    .verify_stored_bump(config.bump)?;
-    Ok(config)
-}
-
-/// `Ok(None)` for the canonical address with no account.
-pub(crate) struct OptionalPda<'a> {
-    pub program_id: &'a Address,
-    pub seeds: &'a [&'a [u8]],
-    pub mismatch: CustomRingError,
-}
-
-impl<'a> OptionalPda<'a> {
-    #[inline(always)]
-    pub fn load<'acc, T: Account>(
-        self,
-        account: &'acc AccountView,
-    ) -> Result<Option<Ref<'acc, T>>, ProgramError> {
-        if account.data_len() == 0 {
-            self.check(account.address()).verify()?;
-            return Ok(None);
-        }
-        let value = load_account::<T>(self.program_id, account)?;
-        self.check(account.address())
-            .verify_stored_bump(value.bump())?;
-        Ok(Some(value))
-    }
-
-    #[inline(always)]
-    pub fn load_mut<'acc, T: Account>(
-        self,
-        account: &'acc mut AccountView,
-    ) -> Result<Option<RefMut<'acc, T>>, ProgramError> {
-        let address = *account.address();
-        if account.data_len() == 0 {
-            self.check(&address).verify()?;
-            return Ok(None);
-        }
-        let value = load_account_mut::<T>(self.program_id, account)?;
-        self.check(&address).verify_stored_bump(value.bump())?;
-        Ok(Some(value))
-    }
-
-    fn check<'b>(&'b self, address: &'b Address) -> PdaCheck<'b> {
-        PdaCheck {
-            program_id: self.program_id,
-            address,
-            seeds: self.seeds,
-            mismatch: self.mismatch,
-        }
-    }
-}
-
-#[inline(always)]
-pub fn load_cosigner<'a>(
-    program_id: &Address,
-    account: &'a AccountView,
-) -> Result<Option<Ref<'a, CoSigner>>, ProgramError> {
-    cosigner_pda(program_id).load(account)
-}
-
-#[inline(always)]
-pub fn load_cosigner_mut<'a>(
-    program_id: &Address,
-    account: &'a mut AccountView,
-) -> Result<Option<RefMut<'a, CoSigner>>, ProgramError> {
-    cosigner_pda(program_id).load_mut(account)
-}
-
-fn cosigner_pda(program_id: &Address) -> OptionalPda<'_> {
-    OptionalPda {
-        program_id,
-        seeds: &[CoSigner::SEED],
-        mismatch: CustomRingError::InvalidCoSigner,
-    }
-}
-
-pub fn load_deposit_audit<'a>(
-    program_id: &Address,
-    account: &'a AccountView,
-) -> Result<Option<Ref<'a, DepositAudit>>, ProgramError> {
-    check_empty_deposit_audit(account)?;
-    let audit = deposit_audit_pda(program_id).load::<DepositAudit>(account)?;
-    if audit.as_deref().is_some_and(|audit| audit.required > 1) {
-        return Err(CustomRingError::InvalidDepositAudit.into());
-    }
-    Ok(audit)
-}
-
-pub fn load_deposit_audit_mut<'a>(
-    program_id: &Address,
-    account: &'a mut AccountView,
-) -> Result<Option<RefMut<'a, DepositAudit>>, ProgramError> {
-    check_empty_deposit_audit(account)?;
-    let audit = deposit_audit_pda(program_id).load_mut::<DepositAudit>(account)?;
-    if audit.as_deref().is_some_and(|audit| audit.required > 1) {
-        return Err(CustomRingError::InvalidDepositAudit.into());
-    }
-    Ok(audit)
-}
-
-fn check_empty_deposit_audit(account: &AccountView) -> Result<(), ProgramError> {
-    if account.data_len() == 0 && !pinocchio_system::check_id(account.owner()) {
-        return Err(CustomRingError::InvalidDepositAudit.into());
-    }
     Ok(())
 }
 
-fn deposit_audit_pda(program_id: &Address) -> OptionalPda<'_> {
-    OptionalPda {
-        program_id,
-        seeds: &[DepositAudit::SEED],
-        mismatch: CustomRingError::InvalidDepositAudit,
-    }
-}
-
 #[inline(always)]
-pub fn load_delegate<'a>(
+pub fn load_registry<'a>(
     program_id: &Address,
     account: &'a AccountView,
-) -> Result<Option<Ref<'a, Delegate>>, ProgramError> {
-    OptionalPda {
-        program_id,
-        seeds: &[Delegate::SEED],
-        mismatch: CustomRingError::InvalidDelegate,
-    }
-    .load(account)
+) -> Result<Ref<'a, MemberRegistry>, ProgramError> {
+    load(program_id, account)
 }
 
 #[inline(always)]
-pub fn load_spend_window<'a>(
-    program_id: &Address,
-    account: &'a AccountView,
-    mint: &Address,
-) -> Result<Option<Ref<'a, SpendWindow>>, ProgramError> {
-    let seeds = [SpendWindow::SEED, mint.as_array()];
-    let window = spend_window_pda(program_id, &seeds).load::<SpendWindow>(account)?;
-    check_window_mint(window.as_deref(), mint)?;
-    Ok(window)
-}
-
-#[inline(always)]
-pub fn load_spend_window_mut<'a>(
+pub fn load_registry_mut<'a>(
     program_id: &Address,
     account: &'a mut AccountView,
-    mint: &Address,
-) -> Result<Option<RefMut<'a, SpendWindow>>, ProgramError> {
-    let seeds = [SpendWindow::SEED, mint.as_array()];
-    let window = spend_window_pda(program_id, &seeds).load_mut::<SpendWindow>(account)?;
-    check_window_mint(window.as_deref(), mint)?;
-    Ok(window)
+) -> Result<RefMut<'a, MemberRegistry>, ProgramError> {
+    load_mut(program_id, account)
 }
 
-fn spend_window_pda<'a>(program_id: &'a Address, seeds: &'a [&'a [u8]; 2]) -> OptionalPda<'a> {
-    OptionalPda {
-        program_id,
-        seeds,
-        mismatch: CustomRingError::InvalidSpendWindow,
-    }
-}
-
-fn check_window_mint(window: Option<&SpendWindow>, mint: &Address) -> Result<(), ProgramError> {
-    if window.is_some_and(|window| window.mint != *mint) {
-        return Err(CustomRingError::InvalidSpendWindow.into());
-    }
-    Ok(())
-}
-
-pub(crate) fn load_key_registry_root_mut<'a>(
-    program_id: &Address,
-    account: &'a mut AccountView,
-) -> Result<RefMut<'a, KeyRegistryRoot>, ProgramError> {
-    let address = *account.address();
-    let root = load_account_mut::<KeyRegistryRoot>(program_id, account)?;
-    verify_key_registry_root_pda(program_id, &address, root.bump)?;
-    Ok(root)
-}
-
-pub fn load_key_registry_root<'a>(
-    program_id: &Address,
-    account: &'a AccountView,
-) -> Result<Ref<'a, KeyRegistryRoot>, ProgramError> {
-    let root = load_account::<KeyRegistryRoot>(program_id, account)?;
-    verify_key_registry_root_pda(program_id, account.address(), root.bump)?;
-    Ok(root)
-}
-
-fn verify_key_registry_root_pda(
-    program_id: &Address,
-    address: &Address,
-    bump: u8,
-) -> Result<(), ProgramError> {
-    PdaCheck {
-        program_id,
-        address,
-        seeds: &[KeyRegistryRoot::SEED],
-        mismatch: CustomRingError::InvalidKeyRegistryRoot,
-    }
-    .verify_stored_bump(bump)
-}
-
-/// The raw id of an SPP tree account, `invalid` for any other account.
-pub fn load_spp_tree_id(
+/// A registry of another ring, the `[b"members"]` PDA of the program owning it.
+pub fn load_curator_registry(
     account: &AccountView,
-    invalid: CustomRingError,
-) -> Result<u16, ProgramError> {
-    check_spp_tree_owner(account, invalid)?;
+) -> Result<Ref<'_, MemberRegistry>, ProgramError> {
+    let invalid = CustomRingError::InvalidCuratorRegistry;
+    let curator_program = *account.owner();
     let data = account.try_borrow().map_err(|_| invalid)?;
-    check_tree_discriminator(&data, invalid)?;
-    Ok(read_tree_id(&data).ok_or(invalid)?)
-}
-
-/// The borrow ends here, a policy tree may alias a tree the SPP CPI writes.
-pub fn load_policy_tree_slot(
-    account: &mut AccountView,
-    context: &TreeContext,
-) -> Result<TreeSlot, ProgramError> {
-    let invalid = CustomRingError::InvalidPolicyTrees;
-    check_spp_tree_owner(account, invalid)?;
-    let pubkey = account.address().to_bytes();
-    let mut data = account.try_borrow_mut().map_err(|_| invalid)?;
-    check_tree_discriminator(&data, invalid)?;
-    let tree = TreeAccount::from_bytes(&mut data, pubkey).map_err(|_| invalid)?;
-    if tree.is_paused() {
+    let registry = Ref::filter_map(data, MemberRegistry::from_data).map_err(|_| invalid)?;
+    let address = Address::derive_address(
+        &[MemberRegistry::SEED],
+        Some(registry.bump),
+        &curator_program,
+    );
+    if !address_eq(account.address(), &address) {
         return Err(invalid.into());
     }
-    resolve_tree_slot(&tree, context).map_err(|_| CustomRingError::StalePolicyRoot.into())
-}
-
-fn check_spp_tree_owner(
-    account: &AccountView,
-    invalid: CustomRingError,
-) -> Result<(), CustomRingError> {
-    if !account.owned_by(&Address::from(SHIELDED_POOL_PROGRAM_ID)) {
-        return Err(invalid);
-    }
-    Ok(())
-}
-
-fn check_tree_discriminator(data: &[u8], invalid: CustomRingError) -> Result<(), CustomRingError> {
-    if data.first() != Some(&TREE_ACCOUNT_DISCRIMINATOR) {
-        return Err(invalid);
-    }
-    Ok(())
+    Ok(registry)
 }
 
 #[inline(always)]
-pub fn load_read_access_record<'a>(
+pub fn load_queue_mut<'a>(
     program_id: &Address,
-    account: &'a AccountView,
-    reader: &ReaderKeyBytes,
-) -> Result<Ref<'a, ReadAccessRecord>, ProgramError> {
-    let record = load_account::<ReadAccessRecord>(program_id, account)?;
-    let seed_hash =
-        ReadAccessRecord::seed_hash(reader).map_err(|_| CustomRingError::HashingFailed)?;
-    let bump = PdaCheck {
-        program_id,
-        address: account.address(),
-        seeds: &[ReadAccessRecord::SEED, &seed_hash],
-        mismatch: CustomRingError::InvalidReadAccessRecord,
-    }
-    .verify()?;
-    if record.reader != *reader || record.bump != bump {
-        return Err(CustomRingError::InvalidReadAccessRecord.into());
-    }
-    Ok(record)
+    account: &'a mut AccountView,
+) -> Result<RefMut<'a, RecordQueue>, ProgramError> {
+    load_mut(program_id, account)
 }
 
-/// Require the shielded-pool program to be among `accounts` and executable.
-///
-/// The lookup scans by address instead of indexing a fixed slot: only SPP's
-/// `transact` layout pins the program account at index 3, while the deposit and
-/// ring-config layouts place it elsewhere, so a single index would be wrong for
-/// at least one forwarded instruction (same reasoning as
-/// `program-tests/ring-test-program`).
+/// The borrow ends here, the tree may be one the SPP CPI writes.
+pub fn load_spp_tree_root(account: &mut AccountView, index: u16) -> Result<[u8; 32], ProgramError> {
+    let missing = CustomRingError::FirstContactRootMissing;
+    if !account.owned_by(&Address::from(SHIELDED_POOL_PROGRAM_ID)) {
+        return Err(missing.into());
+    }
+    let address = account.address().to_bytes();
+    let mut data = account.try_borrow_mut().map_err(|_| missing)?;
+    if data.first() != Some(&TREE_ACCOUNT_DISCRIMINATOR) {
+        return Err(missing.into());
+    }
+    let tree = TreeAccount::from_bytes(&mut data, address).map_err(|_| missing)?;
+    if tree.is_paused() {
+        return Err(CustomRingError::FirstContactTreePaused.into());
+    }
+    tree.get_utxo_tree_root(index).map_err(|_| missing.into())
+}
+
+/// The shielded pool by address, its account position differs per forwarded layout.
 #[inline(always)]
-pub fn validate_spp_program(accounts: &[AccountView]) -> Result<(), ProgramError> {
+pub fn validate_spp_program(accounts: &[AccountView]) -> ProgramResult {
     let spp_id = Address::from(SHIELDED_POOL_PROGRAM_ID);
-    let spp = accounts
+    if !accounts
         .iter()
-        .find(|account| account.address() == &spp_id)
-        .ok_or(CustomRingError::InvalidShieldedPoolProgram)?;
-    if !spp.executable() {
+        .any(|account| account.address() == &spp_id && account.executable())
+    {
         return Err(CustomRingError::InvalidShieldedPoolProgram.into());
     }
     Ok(())
 }
 
+/// The forward raises the ring PDA to a signer, an account SPP debits signs the outer instruction.
+pub fn check_funding_signer(
+    accounts: &[AccountView],
+    index: usize,
+) -> Result<&AccountView, ProgramError> {
+    let funder = accounts
+        .get(index)
+        .ok_or(ProgramError::NotEnoughAccountKeys)?;
+    if !funder.is_signer() {
+        return Err(CustomRingError::MissingFundingSigner.into());
+    }
+    Ok(funder)
+}
+
+pub fn check_co_signer(account: &AccountView, expected: &Address) -> ProgramResult {
+    if !account.is_signer() {
+        return Err(CustomRingError::MissingCoSigner.into());
+    }
+    if account.address() != expected {
+        return Err(CustomRingError::UnauthorizedCoSigner.into());
+    }
+    Ok(())
+}
+
+/// Passes only the program's nonzero loader-v3 upgrade authority.
 #[must_use]
-pub(crate) struct UpgradeAuthorityCheck<'a> {
+pub struct UpgradeAuthorityCheck<'a> {
     pub program_id: &'a Address,
     pub authority: &'a AccountView,
     pub program: &'a AccountView,
@@ -398,90 +186,48 @@ pub(crate) struct UpgradeAuthorityCheck<'a> {
 }
 
 impl UpgradeAuthorityCheck<'_> {
-    pub fn verify(self) -> Result<(), ProgramError> {
-        if self.program.address() != self.program_id {
-            return Err(CustomRingError::UnauthorizedInitializer.into());
+    pub fn verify(self) -> ProgramResult {
+        let unauthorized = CustomRingError::UnauthorizedInitializer;
+        if self.program.address() != self.program_id
+            || self.program.owner().as_array() != &BPF_LOADER_UPGRADEABLE_ID
+        {
+            return Err(unauthorized.into());
         }
-        if self.program.owner().as_array() != &BPF_LOADER_UPGRADEABLE_ID {
-            return Err(CustomRingError::UnauthorizedInitializer.into());
-        }
-        let program_state = self
-            .program
-            .try_borrow()
-            .map_err(|_| ProgramError::AccountBorrowFailed)?;
         let Some(UpgradeableLoaderState::Program {
             programdata_address,
-        }) = decode_loader_state(&program_state)
+        }) = loader_state(self.program)?
         else {
-            return Err(CustomRingError::UnauthorizedInitializer.into());
+            return Err(unauthorized.into());
         };
         if self.program_data.address().as_array() != programdata_address.as_array()
             || self.program_data.owner().as_array() != &BPF_LOADER_UPGRADEABLE_ID
         {
-            return Err(CustomRingError::UnauthorizedInitializer.into());
+            return Err(unauthorized.into());
         }
-        let program_data_state = self
-            .program_data
-            .try_borrow()
-            .map_err(|_| ProgramError::AccountBorrowFailed)?;
         let Some(UpgradeableLoaderState::ProgramData {
-            upgrade_authority_address,
+            upgrade_authority_address: Some(upgrade_authority),
             ..
-        }) = decode_loader_state(&program_data_state)
+        }) = loader_state(self.program_data)?
         else {
-            return Err(CustomRingError::UnauthorizedInitializer.into());
+            return Err(unauthorized.into());
         };
-        if upgrade_authority_address.map(|key| key.to_bytes())
-            != Some(*self.authority.address().as_array())
+        let upgrade_authority = upgrade_authority.to_bytes();
+        if upgrade_authority == [0; 32] || upgrade_authority != self.authority.address().to_bytes()
         {
-            return Err(CustomRingError::UnauthorizedInitializer.into());
+            return Err(unauthorized.into());
         }
         Ok(())
     }
 }
 
-#[inline(always)]
-fn load_account<'a, T: Account>(
-    program_id: &Address,
-    account: &'a AccountView,
-) -> Result<Ref<'a, T>, ProgramError> {
-    check_account::<T>(program_id, account)?;
-    let data = account.try_borrow().map_err(|_| T::NOT_INITIALIZED)?;
-    // Length is checked above and each account is align 1, so this cannot panic.
-    let value = Ref::map(data, |data| from_bytes::<T>(data));
-    if value.discriminator() != T::DISCRIMINATOR {
-        return Err(T::NOT_INITIALIZED.into());
-    }
-    Ok(value)
-}
-
-#[inline(always)]
-fn load_account_mut<'a, T: Account>(
-    program_id: &Address,
-    account: &'a mut AccountView,
-) -> Result<RefMut<'a, T>, ProgramError> {
-    check_account::<T>(program_id, account)?;
-    let data = account.try_borrow_mut().map_err(|_| T::NOT_INITIALIZED)?;
-    let value = RefMut::map(data, |data| from_bytes_mut::<T>(data));
-    if value.discriminator() != T::DISCRIMINATOR {
-        return Err(T::NOT_INITIALIZED.into());
-    }
-    Ok(value)
-}
-
-#[inline(always)]
-fn check_account<T: Account>(
-    program_id: &Address,
-    account: &AccountView,
-) -> Result<(), CustomRingError> {
-    if !account.owned_by(program_id) || account.data_len() != T::SIZE {
-        return Err(T::NOT_INITIALIZED);
-    }
-    Ok(())
-}
-
-fn decode_loader_state(data: &[u8]) -> Option<UpgradeableLoaderState> {
-    bincode::serde::decode_from_slice(data, bincode::config::legacy())
-        .ok()
-        .map(|(state, _)| state)
+/// bincode reads only the enum, the trailing ELF bytes of program data stay untouched.
+fn loader_state(account: &AccountView) -> Result<Option<UpgradeableLoaderState>, ProgramError> {
+    let data = account
+        .try_borrow()
+        .map_err(|_| ProgramError::AccountBorrowFailed)?;
+    Ok(
+        bincode::serde::decode_from_slice(&data, bincode::config::legacy())
+            .ok()
+            .map(|(state, _)| state),
+    )
 }

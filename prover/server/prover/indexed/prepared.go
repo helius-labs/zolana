@@ -12,7 +12,6 @@ import (
 )
 
 type inputTarget struct {
-	disabled               bool
 	slot, nullifier        *big.Int
 	dummy, cached, address bool
 	state, exclusion       *[]*big.Int
@@ -21,12 +20,10 @@ type inputTarget struct {
 }
 
 type preparedProof struct {
-	registry *resolvedPolicy
-	policy   bool
-	value    json.Marshaler
-	inputs   []inputTarget
-	slots    *[]common.TreeSlotParams
-	hash     **big.Int
+	value  any
+	inputs []inputTarget
+	slots  *[]common.TreeSlotParams
+	hash   **big.Int
 }
 
 func transferTargets(inputs []transfer.InputParams, cache transfer.CacheSelectionParams) ([]inputTarget, error) {
@@ -56,9 +53,6 @@ func decodePrepared(request Request) (*preparedProof, error) {
 	}
 	if json.Unmarshal(request.Prepared, &meta) != nil || meta.Circuit != request.CircuitType {
 		return nil, fmt.Errorf("prepared circuit mismatch")
-	}
-	if policyCircuit(request.CircuitType) {
-		return decodePolicy(request)
 	}
 	for _, tree := range request.Trees {
 		if tree.Fallback != nil {
@@ -100,6 +94,9 @@ func decodePrepared(request Request) (*preparedProof, error) {
 		var value merge.MergeParameters
 		if json.Unmarshal(request.Prepared, &value) != nil {
 			return nil, fmt.Errorf("invalid prepared merge")
+		}
+		if value.CircuitType != request.CircuitType {
+			return nil, fmt.Errorf("prepared merge circuit type mismatch")
 		}
 		shape.Inputs, shape.Outputs = uint32(len(value.Inputs)), 1
 		inputs := make([]inputTarget, len(value.Inputs))

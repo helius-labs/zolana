@@ -18,8 +18,8 @@ so a full merge still fits one transaction with the ciphertext. The ciphertext i
 now `output_encryption: MergeOutputEncryption`, a u8-tagged enum whose variant
 is the scheme (PoseidonCtrV1, tag 1, keeps the former salt and ciphertext). The
 registry record's `merge_encryption` replaces `merging_enabled` and must equal
-that scheme on `merge_transact` (INV-MERGE-04). The ring merge proof no longer
-constrains the ciphertext, and SPP does not check it on `merge_ring`
+that scheme on `merge_transact` (INV-MERGE-04). The ring merge proof also
+constrains the ciphertext, and SPP checks it on `merge_ring`
 (INV-RING-MERGE-15).
 
 ## MergeTransact
@@ -95,13 +95,13 @@ constrains the ciphertext, and SPP does not check it on `merge_ring`
   - Suggested test: negative + fuzz; harness: mollusk unit
 
 - [ ] **INV-MERGE-07: the output blob must be verifiably encrypted**
-  - Not applicable post-PR164 (the `encrypted_utxo` field and the `MERGE_ENCRYPTED_UTXO_*` constants were removed, and SPP parses no output blob). The covering `merge_rejects_a_wrong_encrypted_output_scheme` test was removed with the field. The Certora M-03 output ciphertext is a different design: the fixed-size `output_encryption` instruction field, included in the public-input hash on `merge_transact` (INV-MERGE-29, INV-MERGE-30), which the indexer wraps in `VerifiablyEncrypted` (INV-MERGE-14); on `merge_ring` it is unverified and wrapped in `Encrypted` (INV-RING-MERGE-13, INV-RING-MERGE-15).
+  - Not applicable post-PR164 (the `encrypted_utxo` field and the `MERGE_ENCRYPTED_UTXO_*` constants were removed, and SPP parses no output blob). The covering `merge_rejects_a_wrong_encrypted_output_scheme` test was removed with the field. The Certora M-03 output ciphertext is a different design: the fixed-size `output_encryption` instruction field, included in the public-input hash on `merge_transact` and `merge_ring` (INV-MERGE-29, INV-MERGE-30), which the indexer wraps in `VerifiablyEncrypted` (INV-MERGE-14, INV-RING-MERGE-13).
 
 - [x] **INV-MERGE-30: a non-canonical output ciphertext element is rejected before the proof**
   - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `merge_rejects_a_non_canonical_ciphertext_element` (each of the three elements set to `0xff..ff` fails with 7082 and leaves the tree unchanged)
   - Kind: precondition
-  - Statement: `merge_transact` returns Err before the registry check and the proof whenever any `output_encryption` ciphertext element is not a canonical BN254 scalar (big-endian value `>= p`, `MergeOutputEncryption::is_canonical`), so no element can alias the canonical value in the public-input hash. The PoseidonCtrV1 `salt` needs no check: 16 bytes are below the modulus. `merge_ring` does not run this check: its proof does not include the ciphertext (INV-RING-MERGE-15).
-  - Location: `programs/shielded-pool/src/instructions/merge/processor.rs:68-70` (`fn process_merge_transact_ix`), `program-libs/interface/src/instruction/instruction_data/merge_transact.rs` (`fn MergeOutputEncryption::is_canonical`)
+  - Statement: `merge_transact` and `merge_ring` return Err before the proof whenever any `output_encryption` ciphertext element is not a canonical BN254 scalar (big-endian value `>= p`, `MergeOutputEncryption::is_canonical`), so no element can alias the canonical value in the public-input hash. The PoseidonCtrV1 `salt` needs no check: 16 bytes are below the modulus.
+  - Location: `programs/shielded-pool/src/instructions/merge/verify.rs:85-89` (`fn verify`), `program-libs/interface/src/instruction/instruction_data/merge_transact.rs` (`fn MergeOutputEncryption::is_canonical`)
   - Error: `ShieldedPoolError::NonCanonicalMergeCiphertext = 7082`
   - Severity: Medium
   - Suggested test: negative per element; harness: litesvm
@@ -121,7 +121,7 @@ constrains the ciphertext, and SPP does not check it on `merge_ring`
   - Not applicable post-PR164 (the merge encryption flow was restructured: the output ciphertext is keyed by the owner's nullifier secret and the first nullifier (INV-MERGE-29), so no viewing-key public input exists; F-06 re-reviewed 2026-07-27 and closed as MOOT -- no recipient viewing key enters any circuit KDF anymore).
 
 - [ ] **INV-MERGE-10: the ciphertext hash is recomputed on-chain**
-  - Not applicable post-PR164 (no ciphertext hash exists: the Certora M-03 output ciphertext enters the `merge_transact` public-input hash element by element, INV-MERGE-29, after the canonicality check of INV-MERGE-30).
+  - Not applicable post-PR164 (no ciphertext hash exists: the Certora M-03 output ciphertext enters the `merge_transact` and `merge_ring` public-input hashes element by element, INV-MERGE-29, after the canonicality check of INV-MERGE-30).
 
 - [x] **INV-MERGE-11: the merge proof is vanilla Groth16 with the variant's key**
   - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `default_rail_merge_rejects_a_zeroed_proof_exactly` (7008), `default_rail_merge_rejects_undecompressable_proof_points_exactly` (7007); positive side at both declared counts by `program-tests/shielded-pool/tests/merge/functional.rs` `merge_collects_the_exact_forester_fee_from_the_payer` (24 inputs) and `merge_verifies_the_wide_shape_on_chain` (52 inputs), each proving with the workspace prover and requiring the program to accept
@@ -136,15 +136,15 @@ constrains the ciphertext, and SPP does not check it on `merge_ring`
   - Partial coverage: `program-tests/spp-test-validator/tests/lifecycle.rs` `eddsa_merge_covers_every_merge_width` (successful end-to-end verification exercises the chain; no explicit element-count/order assertion); `prover/server/circuits/spp_merge/ciphertext_test.go` `TestMergeCiphertextIsTheLastPublicInputs` pins the position of the last four elements in the circuit preimage only
   - Kind: state
   - Statement: the `merge_transact` public-input hash chains the 7-element prefix (nullifier-chain, output hash, tree-slot chain, output tree id, `private_tx_hash`, `external_data_hash`, `allow_dummy_inputs`), then folds `signing_pk_field` and `nullifier_pk` from the registry record, then the elements `MergeOutputEncryption::append_public_inputs` appends for the scheme. PoseidonCtrV1 appends the right-aligned `salt` and the three `ciphertext` elements, 13 elements in total; a scheme appends at most `MAX_MERGE_OUTPUT_ENCRYPTION_PUBLIC_INPUTS` (4) elements.
-  - Location: `programs/shielded-pool/src/instructions/merge/verify.rs:148-187` (`fn public_input_hash`, `Default` arm), `program-libs/interface/src/instruction/instruction_data/merge_transact.rs` (`fn MergeOutputEncryption::append_public_inputs`)
+  - Location: `programs/shielded-pool/src/instructions/merge/verify.rs:154-199` (`fn public_input_hash`, `Default` arm), `program-libs/interface/src/instruction/instruction_data/merge_transact.rs` (`fn MergeOutputEncryption::append_public_inputs`)
   - Severity: High
   - Suggested test: property (compare against client-side computation in `sdk-libs/keypair`); harness: `cargo test -p`
 
-- [x] **INV-MERGE-29: the default merge public-input hash includes the ciphertext of exactly the output's amount and mint**
-  - Covered by: `prover/server/circuits/spp_merge/ciphertext_test.go` `TestMergeCiphertextIsTheLastPublicInputs`, `TestMergeCircuitRejectsTamperedCiphertext`, `TestMergeCircuitBindsTheSalt` (default rail); `program-tests/shielded-pool/tests/merge/functional.rs` `merge_rejects_a_tampered_output_ciphertext_or_salt` (a real proof with one bit flipped in each ciphertext element or in the salt fails with 7008 and leaves the tree unchanged)
+- [x] **INV-MERGE-29: the merge public-input hash includes the ciphertext of exactly the output's amount and mint**
+  - Covered by: `prover/server/circuits/spp_merge/ciphertext_test.go` `TestMergeCiphertextIsTheLastPublicInputs`, `TestMergeCircuitRejectsTamperedCiphertext`, `TestMergeCircuitBindsTheSalt` (both rails); `program-tests/shielded-pool/tests/merge/functional.rs` `merge_rejects_a_tampered_output_ciphertext_or_salt` (a real proof with one bit flipped in each ciphertext element or in the salt fails with 7008 and leaves the tree unchanged)
   - Kind: postcondition
-  - Statement: on `merge_transact` with PoseidonCtrV1 the merge public-input hash folds `salt` and the three `ciphertext` elements of `output_encryption` from instruction data, and the default circuit constrains `ciphertext[i] = plaintext[i] + Poseidon("TMOC", merge_output_key, salt, i)` with `plaintext = [output.amount, mint_chunk_0, mint_chunk_1]` and `merge_output_key = Poseidon("TMOK", nullifier_secret, first_nullifier)`; the output `asset` is derived from the same mint chunks. A merger or relayer therefore cannot publish a ciphertext that differs from the output it appended, nor change the salt, without failing verification. The ring rail has no such binding (INV-RING-MERGE-15).
-  - Location: `prover/server/circuits/spp_merge/shared/derivation.go:44-71` (`MergeOutputKey`, `MergeOutputCiphertext`), `prover/server/circuits/spp_merge/default.go` (`fn Circuit.outputEncryption`), `programs/shielded-pool/src/instructions/merge/verify.rs:148-187` (`fn public_input_hash`)
+  - Statement: on `merge_transact` and `merge_ring` with PoseidonCtrV1 the merge public-input hash folds `salt` and the three `ciphertext` elements of `output_encryption` from instruction data, and both circuits constrain `ciphertext[i] = plaintext[i] + Poseidon("TMOC", merge_output_key, salt, i)` with `plaintext = [output.amount, mint_chunk_0, mint_chunk_1]` and `merge_output_key = Poseidon("TMOK", nullifier_secret, first_nullifier)`; the output `asset` is derived from the same mint chunks. A merger or relayer therefore cannot publish a ciphertext that differs from the output it appended, nor change the salt, without failing verification.
+  - Location: `prover/server/circuits/spp_merge/shared/derivation.go:44-75` (`MergeOutputKey`, `MergeOutputCiphertext`), `prover/server/circuits/spp_merge/shared/transaction.go` (`fn Transaction.Constrain`), `programs/shielded-pool/src/instructions/merge/verify.rs:154-199` (`fn public_input_hash`)
   - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
   - Severity: High (funds lock: an unopenable output)
   - Suggested test: negative (tampered element, tampered salt); harness: Go circuit tests + program-tests integration (`cargo test-sbf`)
@@ -199,10 +199,10 @@ constrains the ciphertext, and SPP does not check it on `merge_ring`
 
 ### Owner Recovery
 
-- [x] **INV-MERGE-31: the owner decrypts a default merge that includes a note it never saw**
+- [x] **INV-MERGE-31: the owner decrypts a merge that includes a note it never saw**
   - Covered by: `sdk-libs/transaction/tests/decryption.rs` `a_merge_of_a_note_the_owner_never_saw_decrypts_with_the_whole_total` (a merge whose first input is a note the owner never received decrypts to the whole total, 807 = 777 + 30, as the owner's only spendable UTXO)
   - Kind: postcondition
-  - Statement: for any accepted `merge_transact` of the owner's notes, the owner's wallet, given only the merge transaction and its own keys, derives `merge_output_key` and `merge_output_blinding` from the nullifier secret and the first nullifier, decrypts the amount and mint, rebuilds the output with `data_hash = 0` and the transaction's ring fields, and obtains a UTXO whose hash equals the published `output_utxo_hash`; it holds none of the merge's inputs to do so (Certora M-03). A decryption with an element out of range (`amount >= 2^64`, `mint_chunk_0 >= 2^248`, `mint_chunk_1 >= 2^8`) or a hash mismatch is not the owner's output. On `merge_ring` the ciphertext is unverified, so the owner may fail to decrypt the output (INV-RING-MERGE-15); the wallet's hash check rejects a wrong ciphertext.
+  - Statement: for any accepted `merge_transact` or `merge_ring` of the owner's notes, the owner's wallet, given only the merge transaction and its own keys, derives `merge_output_key` and `merge_output_blinding` from the nullifier secret and the first nullifier, decrypts the amount and mint, rebuilds the output with `data_hash = 0` and the transaction's ring fields, and obtains a UTXO whose hash equals the published `output_utxo_hash`; it holds none of the merge's inputs to do so (Certora M-03). A decryption with an element out of range (`amount >= 2^64`, `mint_chunk_0 >= 2^248`, `mint_chunk_1 >= 2^8`) or a hash mismatch is not the owner's output.
   - Location: `sdk-libs/transaction/src/decrypt.rs:436-496` (`fn decode_merge`), `sdk-libs/transaction/src/instructions/merge/serialization.rs` (`MergeOutputPlaintext::decrypt`, `MergeOutputPlaintext::into_utxo`)
   - Severity: High (funds lock)
   - Suggested test: positive (undisclosed first input) + negative (another wallet's merge does not decrypt); harness: `cargo test -p zolana-transaction`
@@ -286,11 +286,13 @@ constrains the ciphertext, and SPP does not check it on `merge_ring`
   - Severity: Critical
   - Suggested test: negative; harness: program-tests integration (`cargo test-sbf`)
 
-- [ ] **INV-RING-MERGE-08: ring public-input shape is the 7-element prefix plus ring data and ring id**
-  - Partial coverage: `program-tests/ring-test-program/tests/ring_lifecycle.rs` `ring_merge_consolidates_inputs` (successful end-to-end verification exercises the chain; no explicit element-count assertion); `prover/server/circuits/spp_merge/ring_test.go` `TestMergeRingPublicInputsHaveNoCiphertextTail` (the circuit solves with the 9-element preimage and rejects one with a salt and ciphertext appended)
+- [ ] **INV-RING-MERGE-08: ring public-input shape is the 7-element prefix plus ring data, ring id, member-registry root, anonymous flag and the scheme's ciphertext elements**
+  - Partial coverage: `program-tests/ring-test-program/tests/ring_lifecycle.rs` `ring_merge_consolidates_inputs` (successful end-to-end verification exercises the chain; no explicit element-count assertion)
+  - Ring-state preservation coverage: [`TestMergeRingPreservesEveryRealInputRingData`](../../../prover/server/circuits/spp_merge/ring_test.go) checks matching nonzero input state, mixed input state and changed output state in the shared circuit used by every ring merge shape.
   - Kind: state
-  - Statement: the `ring_merge_transact` public-input hash chains the 7-element prefix (as in INV-MERGE-12), then folds `output_ring_data_hash` and `ring_program_id`: 9 elements in total. It folds no signing or viewing key field (owner identity is omitted by design) and no `output_encryption` element.
-  - Location: `programs/shielded-pool/src/instructions/merge/verify.rs:148-187` (`fn public_input_hash`, `Ring` arm), `prover/server/circuits/spp_merge/ring.go` (`fn RingCircuit.Define`)
+  - Statement: the `ring_merge_transact` public-input hash chains the 7-element prefix (as in INV-MERGE-12), then folds `output_ring_data_hash`, `ring_program_id`, `member_registry_root` and the `anonymous` flag, then the elements `MergeOutputEncryption::append_public_inputs` appends for the scheme: 15 elements in total with PoseidonCtrV1. It folds no signing or viewing key field (owner identity is omitted by design).
+  - Preservation: every real input commits to the same `ring_data_hash` as the output. A merge cannot replace that state. Genuine dummy inputs are exempt. The SDK inherits the common committed value and rejects mixed inputs or a differing output override before proving.
+  - Location: `programs/shielded-pool/src/instructions/merge/verify.rs:154-199` (`fn public_input_hash`, `Ring` arm), `prover/server/circuits/spp_merge/ring.go` (`fn RingCircuit.Define`)
   - Severity: High
   - Suggested test: property (client-side comparison); harness: `cargo test -p`
 
@@ -319,25 +321,25 @@ constrains the ciphertext, and SPP does not check it on `merge_ring`
 - [ ] **INV-RING-MERGE-13: ring merge event publishes the output ring_data_hash**
   - Partial coverage: `program-tests/ring-test-program/tests/ring_lifecycle.rs` `ring_merge_consolidates_inputs` (successful ring merge exercises the emit; the output `data` payload is not field-asserted)
   - Kind: postcondition
-  - Statement: the rebuilt `GeneralEvent`'s single output contains `Encrypted(6 || output_ring_data_hash || salt || ciphertext)` as its `data` payload (default merge: `VerifiablyEncrypted` without the ring data hash). The outer tag is `Encrypted` because SPP did not verify the ciphertext (INV-RING-MERGE-15). The public-input hash includes the same `output_ring_data_hash` (INV-RING-MERGE-08), so a relayer cannot alter it; it does not include the salt or ciphertext.
+  - Statement: the rebuilt `GeneralEvent`'s single output contains `VerifiablyEncrypted(6 || output_ring_data_hash || salt || ciphertext)` as its `data` payload (default merge: the same without the ring data hash). The public-input hash includes the same `output_ring_data_hash`, salt and ciphertext (INV-RING-MERGE-08), so a relayer cannot alter them.
   - Location: `programs/shielded-pool/src/instructions/merge_ring/processor.rs:57-69` (`fn process_merge_ring_ix`), `merge/event.rs:15-42` (`fn build_merge_event`), `program-libs/event/src/merge_output.rs` (`fn encode_merge_output_data`)
   - Severity: Medium (wallet reconstruction)
   - Suggested test: positive (assert the event output `data` equals the encoding above); harness: litesvm
 
-- [ ] **INV-RING-MERGE-15: SPP does not verify the ring merge output ciphertext**
-  - Partial coverage: `prover/server/circuits/spp_merge/ring_test.go` `TestMergeRingPublicInputsHaveNoCiphertextTail` (circuit side only; no program-level test submits a ring merge with a wrong ciphertext)
-  - Kind: state (accepted risk)
-  - Statement: `ring_merge_transact` decodes `merge.output_encryption` with the instruction data but does not compare its scheme with a registry record, does not check its elements for canonicality, and does not include it in the public-input hash; the ring merge circuit does not constrain a ciphertext. A ring that needs a recoverable merge output must enforce the ciphertext in its own program before the CPI. The custom-ring rails do not, so a holder of the owner's nullifier secret (for example, an operator that opened the escrowed nullifier key) can merge a note the owner cannot open with a ciphertext that does not decrypt to the output. The owner's hash check (INV-MERGE-31) rejects that ciphertext, and recovery leaves the merged note unopened.
+- [ ] **INV-RING-MERGE-15: SPP verifies the ring merge output ciphertext**
+  - Partial coverage: `prover/server/circuits/spp_merge/ciphertext_test.go` `TestMergeCircuitRejectsTamperedCiphertext` (circuit side only; no program-level test submits a ring merge with a wrong ciphertext)
+  - Kind: state
+  - Statement: `ring_merge_transact` decodes `merge.output_encryption` with the instruction data and does not compare its scheme with a registry record. It checks its elements for canonicality (INV-MERGE-30) and includes them in the public-input hash (INV-RING-MERGE-08), and the ring merge circuit constrains the ciphertext (INV-MERGE-29). A holder of the owner's nullifier secret therefore cannot merge a note under a ciphertext that does not decrypt to the output, and the owner recovers the merged note (INV-MERGE-31).
   - Location: `programs/shielded-pool/src/instructions/merge_ring/processor.rs` (`fn process_merge_ring_ix`), `programs/shielded-pool/src/instructions/merge/verify.rs` (`MergeOwnerBinding::Ring`), `prover/server/circuits/spp_merge/ring.go`
-  - Severity: Medium (accepted: a ring merge output can be unrecoverable from its ciphertext)
-  - Suggested test: positive (a ring merge with a ciphertext that does not match the output succeeds and its event uses `Encrypted`); harness: program-tests integration (`cargo test-sbf`)
+  - Severity: Medium
+  - Suggested test: negative (a ring merge with a ciphertext that does not match the output fails with 7008); harness: program-tests integration (`cargo test-sbf`)
 
 ### Nullifier Integrity
 
 - [x] **INV-RING-MERGE-12: merge_ring queues exactly the proof-bound input nullifiers**
   - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` shape tests; compile-level absence of the removed merge_view_tag field in `MergeRingIxData` (`program-libs/interface/src/instruction/instruction_data/merge_ring.rs`)
   - Kind: postcondition
-  - Statement: after a successful `ring_merge_transact`, exactly the proof's 8 input nullifiers are queued and nothing else: the single-use `merge_view_tag` field no longer exists, the emitted output is indexed by the first input nullifier, and `output_ring_data_hash` is proof-bound (eliminates the unvalidated-tag queue-poisoning class, F-02/F-09).
+  - Statement: after a successful `ring_merge_transact`, exactly the proof's input nullifiers for its 8, 24 or 52 input shape are queued and nothing else: the single-use `merge_view_tag` field no longer exists, the emitted output is indexed by the first input nullifier, and `output_ring_data_hash` is proof-bound (eliminates the unvalidated-tag queue-poisoning class, F-02/F-09).
   - Location: `programs/shielded-pool/src/instructions/merge_ring/processor.rs:57-69` (`fn process_merge_ring_ix`), `programs/shielded-pool/src/instructions/merge/verify.rs:23-27, 102-110` (`MergeOwnerBinding::Ring`)
   - Error: `ShieldedPoolError::NullifierTreeUpdateFailed = 7002` (replay), `TransactProofVerificationFailed = 7008` (binding mismatch)
   - Severity: Critical

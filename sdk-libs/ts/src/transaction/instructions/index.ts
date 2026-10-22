@@ -30,7 +30,6 @@ export type {
   PreparedTransfer,
   PrivateTxHashInput,
   PublicAmounts,
-  RecordSlotExtension,
   SettlementTransfer,
   Shape,
 } from "./transact.js";

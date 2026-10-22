@@ -14,7 +14,7 @@ use zolana_transaction::{
         confidential::Confidential,
         plaintext::PlaintextTransfer,
         proofless::Proofless,
-        DecodeCx, OwnerCx, UtxoSerialization,
+        DecodeCx, OwnerCx, RingPacked, UtxoSerialization,
     },
     utxo::Utxo,
     verify_owned, AssetRegistry, EncryptedScheme, LocalShieldedKeys, WalletUtxo,
@@ -72,6 +72,8 @@ impl TxIndex {
                     EncryptedScheme::AnonymousRecipient
                     | EncryptedScheme::Confidential
                     | EncryptedScheme::RingConfidential
+                    | EncryptedScheme::RingConfidentialDelivered
+                    | EncryptedScheme::RingConfidentialPacked
                     | EncryptedScheme::Proofless
                     | EncryptedScheme::PlaintextTransfer
                     | EncryptedScheme::Merge
@@ -86,7 +88,7 @@ impl TxIndex {
                         sender_sites.entry(slot.view_tag).or_default().push(t);
                         classified = true;
                     }
-                    // Wallets do not discover anonymous ring outputs yet.
+                    // Read by exact tag in the anonymous ring sync `sync_wallet` runs.
                     EncryptedScheme::RingAnonymous => continue,
                 }
             }
@@ -509,17 +511,37 @@ impl SyncCtx<'_> {
             let Some((&scheme_byte, body)) = blob.split_first() else {
                 continue;
             };
-            if !matches!(
-                EncryptedScheme::from_byte(scheme_byte),
-                Ok(EncryptedScheme::Confidential | EncryptedScheme::RingConfidential)
-            ) {
-                continue;
-            }
             let encrypted_slot_index = position as u32;
-            let Ok(plaintext) =
-                Confidential::decrypt_with_tx_key(&tx_key, body, salt, encrypted_slot_index)
-            else {
-                continue;
+            let opened = match EncryptedScheme::from_byte(scheme_byte) {
+                Ok(EncryptedScheme::Confidential | EncryptedScheme::RingConfidential) => {
+                    let Ok(plaintext) = Confidential::decrypt_with_tx_key(
+                        &tx_key,
+                        body,
+                        salt,
+                        encrypted_slot_index,
+                    ) else {
+                        continue;
+                    };
+                    plaintext.into_utxo(self.owner, self.assets).ok()
+                }
+                // The packed plaintext leaves the ring id to the transaction.
+                Ok(EncryptedScheme::RingConfidentialPacked) => {
+                    let Ok(plaintext) =
+                        RingPacked::decrypt_with_tx_key(&tx_key, body, salt, encrypted_slot_index)
+                    else {
+                        continue;
+                    };
+                    let cx = OwnerCx {
+                        owner: self.owner,
+                        assets: self.assets,
+                        ring_program_id: tx.ring_program_id,
+                        first_nullifier: Some(*first_nullifier),
+                    };
+                    RingPacked::into_utxos(plaintext, &cx)
+                        .ok()
+                        .and_then(|utxos| utxos.into_iter().next())
+                }
+                _ => continue,
             };
             let Ok(recipient_pk) = Confidential::embedded_viewing_pk(body) else {
                 continue;
@@ -528,7 +550,7 @@ impl SyncCtx<'_> {
             if self.is_self(&recipient_pk) {
                 // The commitment folds this slot's tree id in, so recognizing
                 // our own change hashes under the id the slot reports.
-                if let Ok(candidate) = plaintext.into_utxo(self.owner, self.assets) {
+                if let Some(candidate) = opened {
                     let matches_commitment = candidate
                         .hash(
                             &self.nullifier_pk,
@@ -797,6 +819,30 @@ impl SyncCtx<'_> {
                                 if let Some(utxo) = utxos.first() {
                                     self.record_received(tx, site.1, None, utxo);
                                 }
+                            }
+                        }
+                    }
+                    EncryptedScheme::RingConfidentialDelivered
+                    | EncryptedScheme::RingConfidentialPacked => {
+                        // Opened in its transaction, each key schedule binds the output index.
+                        let decrypted = decrypt(&self.keys, std::slice::from_ref(tx), self.assets)?;
+                        let Some(opened) = verify_owned(&self.keys, &decrypted)?
+                            .utxos
+                            .into_iter()
+                            .find(|opened| opened.slot_index == slot_site.slot_index)
+                        else {
+                            self.report.undecryptable_candidates += 1;
+                            return Ok(outcome);
+                        };
+                        if self.store_recipient_utxos(
+                            vec![opened.utxo.clone()],
+                            slot_site,
+                            None,
+                            None,
+                        )? {
+                            self.processed_slots.insert(site);
+                            if !Self::authored(tx, key)? {
+                                self.record_received(tx, site.1, None, &opened.utxo);
                             }
                         }
                     }

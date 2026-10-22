@@ -14,6 +14,7 @@ import { randomBlinding } from "../keypair/bytes.js";
 import { zeroKeyNullifier, type NullifierKey } from "../keypair/nullifier-key.js";
 import { ShieldedPublicKey } from "../keypair/public-key.js";
 import type { ShieldedAddress, ShieldedKeypair } from "../keypair/shielded.js";
+import { ringOutputBlinding, transactOutputBlinding } from "../keypair/transact/index.js";
 
 import { Data, type DataRecord } from "./data.js";
 import { TransactionError } from "./error.js";
@@ -121,20 +122,35 @@ export interface UtxoCommitmentInput {
   readonly ringProgramId?: Address;
 }
 
+/** A ring commitment under the ring id field, `hashBytes` of the ring program id. */
+export type RingIdCommitmentInput = Omit<UtxoCommitmentInput, "ringProgramId"> & {
+  readonly ringId: Bytes32;
+};
+
+/** A commitment of field values, `assetField` the `hashBytes` of a mint no registry may know. */
+export type FieldCommitmentInput = Omit<RingIdCommitmentInput, "asset"> & {
+  readonly assetField: Bytes32;
+};
+
 function commitmentFields(
-  input: UtxoCommitmentInput & { readonly domain?: number },
+  input: (UtxoCommitmentInput | RingIdCommitmentInput | FieldCommitmentInput) & {
+    readonly domain?: number;
+  },
 ): readonly Bytes32[] {
   checkU64(input.amount, "amount");
   const ringDataHash = input.ringDataHash
     ? checked<Bytes32>(input.ringDataHash, 32, "ring data hash")
     : ZERO_32;
-  if (!input.ringProgramId && !isZero(ringDataHash)) {
+  const ringProgramId =
+    "ringId" in input
+      ? checked<Bytes32>(input.ringId, 32, "ring id")
+      : input.ringProgramId
+        ? hashBytes(decodeAddress(input.ringProgramId))
+        : undefined;
+  if (ringProgramId === undefined && !isZero(ringDataHash)) {
     throw new TransactionError("TRANSACTION_MISSING_RING_PROGRAM_ID");
   }
-  const ringProgramId = input.ringProgramId
-    ? hashBytes(decodeAddress(input.ringProgramId))
-    : ZERO_32;
-  const ringHash = commitmentPoseidon([ringDataHash, ringProgramId]);
+  const ringHash = commitmentPoseidon([ringDataHash, ringProgramId ?? ZERO_32]);
   const ownerCommitment = commitmentPoseidon([
     checked<Bytes32>(input.owner, 32, "owner hash"),
     checked<Bytes32>(input.blinding, 32, "blinding"),
@@ -142,7 +158,9 @@ function commitmentFields(
   return [
     rightAlign(Uint8Array.of(input.domain ?? UTXO_DOMAIN)),
     treeIdField(checkedTreeId(input.treeId)),
-    hashBytes(decodeAddress(input.asset)) as Bytes32,
+    "assetField" in input
+      ? checked<Bytes32>(input.assetField, 32, "asset field")
+      : (hashBytes(decodeAddress(input.asset)) as Bytes32),
     rightAlign(bigintToU64(input.amount)),
     input.dataHash ? checked<Bytes32>(input.dataHash, 32, "data hash") : ZERO_32,
     ringHash,
@@ -188,6 +206,22 @@ function fullOwnerUtxoHash(input: UtxoCommitmentInput, dummy = false): Bytes32 {
     ]);
   }
   return commitmentPoseidon(commitmentFields(input));
+}
+
+export function ringIdUtxoHash(input: RingIdCommitmentInput): Bytes32 {
+  return commitmentPoseidon(commitmentFields(input));
+}
+
+export function fieldUtxoHash(input: FieldCommitmentInput): Bytes32 {
+  return commitmentPoseidon(commitmentFields(input));
+}
+
+/** The dummy commitment, its tree id and blinding over zeros. */
+export function dummyUtxoHash(treeId: TreeId, blinding: Bytes32): Bytes32 {
+  return fullOwnerUtxoHash(
+    { owner: ZERO_32, asset: DUMMY_ASSET, amount: 0n, blinding, treeId: checkedTreeId(treeId) },
+    true,
+  );
 }
 
 export function ownerUtxoHash(ownerHash: Bytes32, blinding: Bytes32): Bytes32;
@@ -279,6 +313,8 @@ export class ProofInputUtxo {
   readonly dataHash?: Bytes32;
   readonly ringDataHash?: Bytes32;
   readonly cacheSlot?: number;
+  /** The position its sync stored, a state proof at another position is refused. */
+  readonly leafIndex?: bigint;
   /**
    * The nullifier an address input publishes, which is the reserved address;
    * absent for state spends and padding. A copy taken at construction, so a
@@ -298,6 +334,7 @@ export class ProofInputUtxo {
       dataHash?: Bytes32;
       ringDataHash?: Bytes32;
       cacheSlot?: number;
+      leafIndex?: bigint;
       /** Compact padding: a dummy that publishes nullifier 0 and is left out of the instruction. */
       compact?: boolean;
       /**
@@ -348,6 +385,17 @@ export class ProofInputUtxo {
       throw new TransactionError("TRANSACTION_NONCANONICAL_DUMMY_INPUT", { field: "compact" });
     }
     if (!this.isAddress()) this.checkCanonicalDummy();
+    if (input.leafIndex !== undefined) {
+      if (
+        typeof input.leafIndex !== "bigint" ||
+        input.leafIndex < 0n ||
+        input.leafIndex >> 64n !== 0n
+      )
+        throw new TransactionError("TRANSACTION_INVALID_POSITION", {
+          position: String(input.leafIndex),
+        });
+      this.leafIndex = input.leafIndex;
+    }
     if (input.cacheSlot !== undefined) {
       this.cacheSlot = checkedCacheSlot(input.cacheSlot);
       if (!this.isAddress() && this.isDummy())
@@ -681,6 +729,8 @@ export interface ProofOutputUtxo {
   readonly amount: bigint;
   readonly blinding: Bytes32;
   readonly ringProgramId?: Address;
+  /** Ring outputs only, the ring program binds it. */
+  readonly ringSecret?: Bytes32;
   readonly ringDataHash?: Bytes32;
   readonly dataHash?: Bytes32;
   readonly ownerTag?: Bytes32;
@@ -717,6 +767,7 @@ export interface ProofOutputInit {
   readonly amount: bigint;
   readonly blinding?: Bytes32;
   readonly ringProgramId?: Address;
+  readonly ringSecret?: Bytes32;
   readonly ringDataHash?: Bytes32;
   readonly dataHash?: Bytes32;
   readonly ownerTag?: Bytes32;
@@ -750,14 +801,19 @@ export function createProofOutput(input: ProofOutputInit): ProofOutputUtxo {
     }
   }
   const data = new Data((input.data ?? new Data()).records());
-  const { ringDataHash: suppliedRingDataHash, ...rest } = input;
+  const { ringDataHash: suppliedRingDataHash, ringSecret: suppliedRingSecret, ...rest } = input;
   const ringDataHash = normalizeRingDataHash(suppliedRingDataHash);
+  const ringSecret =
+    suppliedRingSecret === undefined
+      ? undefined
+      : copy(checked<Bytes32>(suppliedRingSecret, 32, "ring secret"));
   const init: ProofOutputInit = {
     ...rest,
     amount,
     blinding,
     data,
     ...(ringDataHash === undefined ? {} : { ringDataHash }),
+    ...(ringSecret === undefined ? {} : { ringSecret }),
   };
   const ownerHash = (): Bytes32 =>
     input.ownerAddress ? input.ownerAddress.ownerHash() : copy(ZERO_32);
@@ -809,6 +865,28 @@ export function createProofOutput(input: ProofOutputInit): ProofOutputUtxo {
       return createProofOutput({ ...init, cacheSlot: slot });
     },
   });
+}
+
+/** Rust `OutputSlotBlinding`, slot `slotIndex` of the final output order. */
+export interface OutputSlotBlinding {
+  readonly output: ProofOutputUtxo;
+  readonly firstNullifier: Bytes32;
+  readonly outputBlindingSeed: Bytes32;
+  readonly slotIndex: number;
+}
+
+/** The blinding the circuit checks, a ring output's from its ring secret. */
+export function outputSlotBlinding(slot: OutputSlotBlinding): Bytes32 {
+  const { output, firstNullifier, slotIndex } = slot;
+  const ringOutput = !output.isDummy() && output.ringProgramId !== undefined;
+  if (ringOutput !== (output.ringSecret !== undefined))
+    throw new TransactionError(
+      ringOutput ? "TRANSACTION_MISSING_RING_SECRET" : "TRANSACTION_UNEXPECTED_RING_SECRET",
+      { slotIndex },
+    );
+  return output.ringSecret === undefined
+    ? transactOutputBlinding(firstNullifier, slot.outputBlindingSeed, slotIndex)
+    : ringOutputBlinding({ firstNullifier, ringSecret: output.ringSecret, outputIndex: slotIndex });
 }
 
 function isZero(bytes: Uint8Array): boolean {

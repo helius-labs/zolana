@@ -14,6 +14,7 @@ export {
   decodeOutputData,
   decodePlaintextTransfer,
   decodeProofless,
+  decodeRingPacked,
   decodeSplitBundle,
   decodeSplitEncrypted,
   decryptConfidentialAsSender,
@@ -45,6 +46,7 @@ export {
   type OutputDataEncoding,
   type OwnerContext,
   type ProoflessOutput,
+  type RingPackedPlaintext,
   type SeedBundleContext,
   type SplitBundlePlaintext,
   type SplitEncryptedUtxos,
@@ -53,3 +55,12 @@ export {
   type TransferPlaintextSplChange,
   type TransferPlaintextUtxos,
 } from "./codecs.js";
+export {
+  openRingDelivery,
+  ringDeliveryBlinding,
+  ringDeliverySecret,
+  type RingDeliveredNote,
+  type RingDeliveryOpening,
+  type RingDeliverySlot,
+  type RingNoteOwner,
+} from "./ring-delivered.js";

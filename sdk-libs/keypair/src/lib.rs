@@ -46,6 +46,7 @@ pub mod hash;
 pub mod nullifier_key;
 pub mod pda;
 pub mod pubkey;
+pub mod ring_address;
 #[cfg(feature = "serde")]
 pub mod serde_helpers;
 pub mod shielded;
@@ -53,11 +54,12 @@ pub mod signing_key;
 pub mod traits;
 pub mod viewing_key;
 
-pub use encryption::symmetric_apply;
+pub use encryption::{symmetric_apply, symmetric_apply_audit};
 pub use error::KeypairError;
 pub use nullifier_key::NullifierKey;
 pub use pda::ShieldedPda;
 pub use pubkey::{Curve, PublicKey};
+pub use ring_address::{Pairing, PairingRow, RingAddress, RingPaymentRequest};
 pub use shielded::{
     CompressedShieldedAddress, ShieldedAddress, ShieldedKeypair, SHIELDED_ADDRESS_LEN,
 };

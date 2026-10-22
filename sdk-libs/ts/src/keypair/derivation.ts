@@ -8,8 +8,9 @@
 import { expand, extract, hkdf } from "@noble/hashes/hkdf.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 
-import { type Bytes31, type Bytes32 } from "./bytes.js";
+import { type Bytes31, type Bytes32, concatBytes, u64be } from "./bytes.js";
 import { KeypairError } from "./error.js";
+import type { ViewTag } from "./public-key.js";
 import { X25519PublicKey, X25519Keypair } from "./x25519.js";
 
 const encoder = new TextEncoder();
@@ -21,6 +22,16 @@ export const INFO_NF_KEY_ED25519 = "TSPP/nf_key/ed25519/v1";
 export const INFO_VIEW_KEY_ED25519_X25519 = "TSPP/view_key/ed25519/x25519/v1";
 
 export const INFO_TX_VIEWING_X25519 = "TSPP/tx_viewing/x25519/v1";
+
+export const INFO_SENDER_VIEW_TAG_SECRET = "TSPP/sender_view_tag";
+
+export const INFO_SENDER_VIEW_TAG_PREFIX = "TSPP/sender_view_tag/";
+
+/** Followed by the ring program address and the address index. */
+export const INFO_RING_ADDRESS_KEY_PREFIX = "TSPP/ring_address_key/";
+
+/** Followed by the ring program address. */
+export const INFO_RING_CHANGE_KEY_PREFIX = "TSPP/ring_change_key/";
 
 export const ED25519_DERIVATION_MSG = "TSPP/derive/v1";
 
@@ -57,6 +68,8 @@ export const DOMAIN_MERGE_OUTPUT_CIPHERTEXT = 0x544d_4f43;
 export const DOMAIN_TRANSACT_OUTPUT_BLINDING_SEED_V1 = 0x5458_4f53;
 /** `"TXOB"`: one transact output blinding per output slot. */
 export const DOMAIN_TRANSACT_OUTPUT_BLINDING_V1 = 0x5458_4f42;
+/** ASCII `"TXRB"`, a ring output blinding from the ring secret its audit proof binds. */
+export const DOMAIN_TRANSACT_RING_OUTPUT_BLINDING_V1 = 0x5458_5242;
 /** `"TXPB"`: the blinding that keeps the private transaction hash unguessable. */
 export const DOMAIN_PRIVATE_TX_BLINDING_V1 = 0x5458_5042;
 
@@ -173,6 +186,33 @@ export function hkdfExpand(
   } catch (error) {
     throw new KeypairError("KEYPAIR_HKDF", { actual: length }, error);
   }
+}
+
+export const U64_MAX = (1n << 64n) - 1n;
+
+/** A stream counter, `u64` in Rust. */
+export function checkedCounter(value: bigint | number, name: string): bigint {
+  const counter = typeof value === "number" && Number.isSafeInteger(value) ? BigInt(value) : value;
+  if (typeof counter !== "bigint" || counter < 0n || counter > U64_MAX) {
+    throw new KeypairError("KEYPAIR_INVALID_LENGTH", { name, minimum: "0", maximum: "2^64-1" });
+  }
+  return counter;
+}
+
+/** Mirrors Rust `expand_view_tag`, a zero byte then 31 HKDF bytes. */
+export function expandViewTag(ikm: Uint8Array, info: Uint8Array): ViewTag {
+  const tag = new Uint8Array(32);
+  const okm = hkdfExpand(undefined, ikm, info, 31);
+  tag.set(okm, 1);
+  okm.fill(0);
+  return tag as ViewTag;
+}
+
+export function senderViewTag(secret: Uint8Array, txCount: bigint): ViewTag {
+  return expandViewTag(
+    secret,
+    concatBytes(encoder.encode(INFO_SENDER_VIEW_TAG_PREFIX), u64be(txCount)),
+  );
 }
 
 /**

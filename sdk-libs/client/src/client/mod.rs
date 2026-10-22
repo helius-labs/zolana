@@ -30,13 +30,14 @@ use crate::{
     indexer::AsyncZolanaIndexer,
     prover::{
         indexed::{PreparedIndexedTransfer, ProofDataSource},
-        requests::CircuitRequest,
+        requests::{self, CircuitRequest},
         witness::{AsyncWitnessReader, WitnessReader},
-        AsyncProverClient, MergeInputs, Proof, Prover, ProverClient, TransferInputs,
+        AsyncProverClient, MergeInputs, Proof, ProveRequest, Prover, ProverClient, TransferInputs,
     },
     rpc::{AsyncRpc, Blocking, ComputeBudgetConfig, IndexerPollConfig, IndexerRpcConfig, Rpc},
 };
 
+pub use confirmation::wait_for_indexed_transaction;
 pub use merge::{check_merge_record, MergeSubmission, ProvedMerge, MERGE_CU_LIMIT};
 pub use transaction::{SignedPrivateTransaction, Submission, UnsignedMessage};
 pub use validation::check_service_url;
@@ -189,7 +190,7 @@ impl<R, I> AsyncZolanaClient<R, I> {
     /// The prover server, when a transfer takes its indexed route: the server
     /// fetches the proof data. Otherwise the client fetches the data and hands
     /// it to its prover, server or custom.
-    fn indexed_prover(&self) -> Option<&AsyncProverClient> {
+    pub fn indexed_prover(&self) -> Option<&AsyncProverClient> {
         match &self.prover {
             ProverBackend::Server(prover)
                 if prover.proof_data_source() == ProofDataSource::Prover =>
@@ -200,29 +201,27 @@ impl<R, I> AsyncZolanaClient<R, I> {
         }
     }
 
-    /// The transfer proof of a transfer off the indexed route.
-    async fn prove_transfer(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
+    /// One proof from the client's prover, server or custom.
+    pub async fn prove_request(
+        &self,
+        request: &(impl ProveRequest + Sync + ?Sized),
+    ) -> Result<Proof, ClientError> {
         match &self.prover {
-            ProverBackend::Server(prover) => prover.prove_transfer(inputs).await,
+            ProverBackend::Server(prover) => prover.prove(request).await,
             ProverBackend::Custom(prover) => {
-                prove_on_blocking_pool(
-                    Arc::clone(prover),
-                    crate::prover::requests::transfer(inputs)?,
-                )
-                .await
+                prove_on_blocking_pool(Arc::clone(prover), CircuitRequest::of(request)?).await
             }
         }
     }
 
+    /// The transfer proof of a transfer off the indexed route.
+    async fn prove_transfer(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
+        self.prove_request(&requests::transfer(inputs)?).await
+    }
+
     /// The merge proof, from the client's prover.
     async fn prove_merge(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
-        match &self.prover {
-            ProverBackend::Server(prover) => prover.prove_merge(inputs).await,
-            ProverBackend::Custom(prover) => {
-                prove_on_blocking_pool(Arc::clone(prover), crate::prover::requests::merge(inputs)?)
-                    .await
-            }
-        }
+        self.prove_request(&requests::merge(inputs)?).await
     }
 }
 
@@ -339,10 +338,16 @@ impl<R, I> ZolanaClient<R, I> {
         self.client.indexer.inner()
     }
 
-    pub(crate) fn block_on<T>(
+    /// The `async` client underneath, for a blocking caller of an `async` API.
+    pub fn as_async(&self) -> &AsyncZolanaClient<Blocking<R>, Blocking<I>> {
+        &self.client
+    }
+
+    /// Fails with `BlockingInsideRuntime` inside a `current_thread` runtime.
+    pub fn block_on<T, E: From<zolana_api::BlockingInsideRuntime>>(
         &self,
-        future: impl std::future::Future<Output = Result<T, ClientError>>,
-    ) -> Result<T, ClientError> {
+        future: impl std::future::Future<Output = Result<T, E>>,
+    ) -> Result<T, E> {
         self.runtime.block_on(future)
     }
 }

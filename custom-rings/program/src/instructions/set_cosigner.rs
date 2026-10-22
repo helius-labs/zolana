@@ -1,17 +1,11 @@
 use bytemuck::Zeroable;
-use custom_ring_interface::{
-    CoSignScope, CoSigner, SetCoSignerIxData, WithdrawalThresholdRow, MAX_CO_SIGNER_THRESHOLDS,
-};
+use custom_ring_interface::{SetCoSignerIxData, WithdrawalThresholdRow, MAX_CO_SIGNER_THRESHOLDS};
 use pinocchio::{AccountView, Address, ProgramResult};
 use zolana_account_checks::AccountIterator;
 
-use crate::{
-    error::CustomRingError,
-    instructions::{
-        loader::{load_authorized_config, load_cosigner_mut},
-        shared::PdaCreate,
-    },
-    state::CoSignerInitParams,
+use crate::instructions::{
+    loader::load_authorized_config_mut,
+    shared::{no_data, parse},
 };
 
 #[inline(never)]
@@ -20,66 +14,43 @@ pub fn process_set_cosigner_ix(
     accounts: &mut [AccountView],
     data: &[u8],
 ) -> ProgramResult {
-    // 1. Validate the signer, supported scope and unique per-mint thresholds.
-    let SetCoSignerIxData {
-        signer,
-        scope,
-        thresholds,
-    } = wincode::deserialize_exact(data).map_err(|_| CustomRingError::InvalidInstructionData)?;
-    let scope = CoSignScope::new(scope).ok_or(CustomRingError::InvalidCoSignerScope)?;
-    if signer == [0; 32] {
-        return Err(CustomRingError::InvalidCoSigner.into());
-    }
-    if thresholds.len() > MAX_CO_SIGNER_THRESHOLDS {
-        return Err(CustomRingError::InvalidCoSignerThresholds.into());
-    }
+    let ix: SetCoSignerIxData = parse(data)?;
+    // 1. The stored scope and thresholds are valid.
+    let scope = ix.check()?;
     let mut rows = [WithdrawalThresholdRow::zeroed(); MAX_CO_SIGNER_THRESHOLDS];
-    for (index, threshold) in thresholds.iter().enumerate() {
-        if thresholds[..index]
-            .iter()
-            .any(|earlier| earlier.mint == threshold.mint)
-        {
-            return Err(CustomRingError::InvalidCoSignerThresholds.into());
-        }
-        rows[index] = WithdrawalThresholdRow {
+    for (row, threshold) in rows.iter_mut().zip(&ix.thresholds) {
+        *row = WithdrawalThresholdRow {
             mint: Address::new_from_array(threshold.mint),
             amount: threshold.amount.to_le_bytes(),
         };
     }
 
     let mut iter = AccountIterator::new(accounts);
-    let payer = iter.next_signer_mut("payer")?;
     let authority = iter.next_signer("authority")?;
-    let config_account = iter.next_account("config")?;
-    let cosigner_account = iter.next_mut("cosigner")?;
-    let system_program = iter.next_account("system_program")?;
+    let config = iter.next_mut("config")?;
+    // 2. The config authority replaces the co-signer and every threshold.
+    let mut config = load_authorized_config_mut(program_id, config, authority)?;
+    config.co_signer = Address::new_from_array(ix.signer);
+    config.co_sign_scope = scope.bits();
+    config.threshold_count = ix.thresholds.len() as u8;
+    config.thresholds = rows;
+    Ok(())
+}
 
-    // 2. Only the current config authority may create or replace the
-    // requirement.
-    if !pinocchio_system::check_id(system_program.address()) {
-        return Err(CustomRingError::InvalidSystemProgram.into());
-    }
-    load_authorized_config(program_id, config_account, authority)?;
-
-    // 3. Replace in place or initialize the canonical PDA without changing the
-    // ring config.
-    let params = |bump| CoSignerInitParams {
-        signer: Address::new_from_array(signer),
-        scope: scope.bits(),
-        thresholds: rows,
-        threshold_count: thresholds.len() as u8,
-        bump,
-    };
-    if let Some(mut existing) = load_cosigner_mut(program_id, cosigner_account)? {
-        *existing = params(existing.bump).value();
-        return Ok(());
-    }
-    let bump = PdaCreate {
-        program_id,
-        payer,
-        seeds: &[CoSigner::SEED],
-        mismatch: CustomRingError::InvalidCoSigner,
-    }
-    .create::<CoSigner>(cosigner_account)?;
-    params(bump).init(cosigner_account)
+#[inline(never)]
+pub fn process_clear_cosigner_ix(
+    program_id: &Address,
+    accounts: &mut [AccountView],
+    data: &[u8],
+) -> ProgramResult {
+    no_data(data)?;
+    let mut iter = AccountIterator::new(accounts);
+    let authority = iter.next_signer("authority")?;
+    let config = iter.next_mut("config")?;
+    let mut config = load_authorized_config_mut(program_id, config, authority)?;
+    config.co_signer = Address::default();
+    config.co_sign_scope = 0;
+    config.threshold_count = 0;
+    config.thresholds = [WithdrawalThresholdRow::zeroed(); MAX_CO_SIGNER_THRESHOLDS];
+    Ok(())
 }

@@ -14,13 +14,10 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = { workspace = true }
-bincode = { workspace = true }
 bytemuck = { workspace = true }
 clap = { workspace = true }
 console = { workspace = true }
 custom-ring-interface = { workspace = true }
-# Only for the error codes the init hints name.
-custom-ring-program = { path = "../program", features = ["no-entrypoint"] }
 custom-ring-sdk = { path = "../sdk" }
 dialoguer = { workspace = true }
 hex = { workspace = true }
@@ -32,7 +29,7 @@ solana-account = { workspace = true }
 solana-address = { workspace = true }
 solana-instruction = { workspace = true }
 solana-keypair = { workspace = true }
-solana-loader-v3-interface = { workspace = true, features = ["serde"] }
+solana-loader-v3-interface = { workspace = true, features = ["wincode"] }
 solana-sbpf = { workspace = true }
 solana-signature = { workspace = true, features = ["verify"] }
 solana-signer = { workspace = true }
@@ -42,15 +39,18 @@ spl-token-2022-interface = { workspace = true }
 thiserror = { workspace = true }
 toml = { workspace = true }
 toml_edit = { workspace = true }
-wincode = { workspace = true }
+zolana-cli-common = { workspace = true }
 zolana-client = { workspace = true, features = ["solana-rpc"] }
+zolana-event-parser = { workspace = true }
 zolana-indexer-api = { workspace = true }
 zolana-interface = { workspace = true }
 zolana-keypair = { workspace = true }
-zolana-ring-client = { workspace = true, features = ["solana-rpc"] }
+zolana-ring-client = { workspace = true, features = ["rpc", "solana-rpc"] }
+zolana-ring-member-registry = { workspace = true }
 zolana-ring-policy = { workspace = true }
-zolana-ring-rpc = { path = "../../services/ring-rpc" }
-zolana-transaction = { workspace = true }
+zolana-secret-file = { workspace = true }
+zolana-transaction = { workspace = true, features = ["serde"] }
 
 [dev-dependencies]
 solana-rpc-client-api = { workspace = true }
+zolana-event = { workspace = true }

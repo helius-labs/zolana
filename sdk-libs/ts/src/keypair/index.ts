@@ -49,31 +49,27 @@ export { outputBlindingSeed, privateTxBlinding, transactOutputBlinding } from ".
 export {
   auditorMessageData,
   auditorViewTag,
-  auditDisclosureLength,
-  anonymousAuditDisclosureShape,
-  policyPublicInputHash,
-  decryptTransactionViewingSecret,
-  encryptTransactionViewingSecret,
-  isDummyAnonymousOutput,
-  openAnonymousAuditDisclosure,
-  openAuditOutputDisclosure,
+  openTransactionViewingSecret,
   parseAuditorMessage,
+  sealTransactionViewingSecret,
 } from "./audit.js";
-export type {
-  AnonymousAuditDisclosure,
-  AnonymousOutputOpening,
-  AuditDisclosureInput,
-  AuditDisclosureShape,
-  AuditInputOpening,
-  AuditOutputOpening,
-  AuditorEncryption,
-  AuditorMessage,
-  CustomRingBasePublicInput,
-} from "./audit.js";
+export type { AuditorEnvelope, AuditorMessage } from "./audit.js";
 export { ShieldedPublicKey } from "./public-key.js";
 export { SigningKey } from "./signing-key.js";
 export { NullifierKey } from "./nullifier-key.js";
 export { ViewingKey } from "./viewing-key.js";
+export {
+  MAX_PAIRING_ROWS,
+  MAX_RING_ADDRESS_PAYLOAD_LENGTH,
+  Pairing,
+  RING_ADDRESS_CHECKSUM_DOMAIN,
+  RING_ADDRESS_VERSION,
+  RING_PAYMENT_SCHEME,
+  RingAddress,
+  RingPaymentRequest,
+  type PairingRow,
+  type RingPaymentRequestFields,
+} from "./ring-address.js";
 export {
   CompressedShieldedAddress,
   ShieldedAddress,

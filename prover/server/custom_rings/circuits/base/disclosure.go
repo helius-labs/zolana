@@ -4,107 +4,67 @@ import (
 	"math/big"
 
 	"github.com/consensys/gnark/frontend"
+
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
-	"github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
 )
 
 const (
-	AuditOutputSlots       = 4
-	AuditOutputFieldCount  = 9
-	outputDisclosureDomain = 0x4352_5f4f44 // "CR_OD" separates disclosure streams.
+	// InputPrefixLen is the byte width of a spent hash's prefix on a commitment key.
+	InputPrefixLen = 16
+	// InputPrefixBits bounds a prefix of a canonical hash, two of them pack below q.
+	InputPrefixBits = 126
 )
 
-type AuditOutputWires struct {
-	Domain        frontend.Variable
-	TreeID        frontend.Variable
-	OwnerHash     frontend.Variable
-	Asset         frontend.Variable
-	Amount        frontend.Variable
-	Blinding      frontend.Variable
-	DataHash      frontend.Variable
-	RingDataHash  frontend.Variable
-	RingProgramID frontend.Variable
+// PackDisclosure zero pads bytes at the end to whole 31-byte chunks and packs each chunk, the caller bounds every byte.
+func PackDisclosure(api frontend.API, bytes []frontend.Variable) []frontend.Variable {
+	chunks := (len(bytes) + gadget.HashBytesChunkSize - 1) / gadget.HashBytesChunkSize
+	return packBounded(api, append(append([]frontend.Variable{}, bytes...), zeros(chunks*gadget.HashBytesChunkSize-len(bytes))...))
 }
 
-func (w AuditOutputWires) fields() [AuditOutputFieldCount]frontend.Variable {
-	return [AuditOutputFieldCount]frontend.Variable{
-		w.Domain, w.TreeID, w.OwnerHash, w.Asset, w.Amount, w.Blinding,
-		w.DataHash, w.RingDataHash, w.RingProgramID,
+// commitmentTail is hashes[0] in full, then the prefixes of the other hashes two per field, the last half zero for an odd prefix count.
+func commitmentTail(api frontend.API, rc frontend.Rangechecker, hashes []frontend.Variable) []frontend.Variable {
+	prefixes := make([]frontend.Variable, 0, len(hashes))
+	for _, hash := range hashes[1:] {
+		// The canonical split leaves one prefix per hash, the prefix of hash + q would name another note.
+		prefix, _ := gadget.SplitField(api, rc, hash, 8*(32-InputPrefixLen))
+		prefixes = append(prefixes, prefix)
 	}
-}
-
-func (w AuditOutputWires) hash(api frontend.API) frontend.Variable {
-	return shared.UtxoHashCircuit(api, shared.UtxoCircuitFields{
-		Domain: w.Domain, Owner: w.OwnerHash, Asset: w.Asset, Amount: w.Amount,
-		Blinding: w.Blinding, DataHash: w.DataHash, RingDataHash: w.RingDataHash,
-		RingProgramID: w.RingProgramID,
-	}, w.TreeID)
-}
-
-func disclosureElements(
-	api frontend.API,
-	txViewingSk [32]frontend.Variable,
-	salt [16]frontend.Variable,
-	outputs [AuditOutputSlots]AuditOutputWires,
-	countSelected [AuditOutputSlots]frontend.Variable,
-) (frontend.Variable, frontend.Variable) {
-	assertOneHot(api, countSelected[:])
-	active := suffixSums(api, countSelected[:])
-	outputHashes := make([]frontend.Variable, AuditOutputSlots)
-	plaintext := make([]frontend.Variable, 0, AuditOutputSlots*AuditOutputFieldCount)
-	for i, output := range outputs {
-		outputHashes[i] = output.hash(api)
-		for _, field := range output.fields() {
-			plaintext = append(plaintext, api.Mul(active[i], field))
+	shift := new(big.Int).Lsh(big.NewInt(1), InputPrefixBits)
+	tail := []frontend.Variable{hashes[0]}
+	for k := 0; k < len(prefixes); k += 2 {
+		second := frontend.Variable(0)
+		if k+1 < len(prefixes) {
+			second = prefixes[k+1]
 		}
+		// Both prefixes lie below 2^InputPrefixBits, the pair packs without a wrap and decodes to one pair.
+		tail = append(tail, api.Add(api.Mul(prefixes[k], shift), second))
 	}
-
-	saltField := gadget.PackBytesBE(api, salt[:])[0]
-	keyLo, keyHi := Pack32To2FECircuit(api, txViewingSk)
-	ciphertext := make([]frontend.Variable, len(plaintext))
-	for i, value := range plaintext {
-		stream := gadget.PoseidonHash(api, []frontend.Variable{
-			frontend.Variable(new(big.Int).SetUint64(outputDisclosureDomain)),
-			keyLo, keyHi, saltField, frontend.Variable(i),
-		})
-		ciphertext[i] = api.Add(value, stream)
-	}
-	return hashPrefix4(api, outputHashes, countSelected[:]), gadget.HashChain(api, ciphertext)
+	return tail
 }
 
-func hashPrefix4(api frontend.API, values, oneHot []frontend.Variable) frontend.Variable {
-	head := values[0]
-	selected := api.Mul(oneHot[0], head)
-	for start := 1; start < len(values); start += 3 {
-		end := min(start+3, len(values))
-		for stop := start + 1; stop <= end; stop++ {
-			group := []frontend.Variable{head, 0, 0, 0}
-			copy(group[1:], values[start:stop])
-			hash := gadget.PoseidonHash(api, group)
-			selected = api.Add(selected, api.Mul(oneHot[stop-1], hash))
-			if stop == end {
-				head = hash
-			}
-		}
-	}
-	return selected
+// packBounded is gadget.PackBytesBE over bytes the caller bounds where they are produced.
+func packBounded(api frontend.API, bytes []frontend.Variable) []frontend.Variable {
+	return gadget.PackBytesBEWith(api, gadget.BoundedBytes{}, bytes)
 }
 
-func assertOneHot(api frontend.API, oneHot []frontend.Variable) {
-	sum := frontend.Variable(0)
-	for _, bit := range oneHot {
-		api.AssertIsBoolean(bit)
-		sum = api.Add(sum, bit)
-	}
-	api.AssertIsEqual(sum, 1)
+// uintBytes is the big-endian encoding of an unsigned value below 2^(8n), a larger value fails the decomposition.
+func uintBytes(api frontend.API, value frontend.Variable, n int) []frontend.Variable {
+	return gadget.BitsToBytesBE(api, api.ToBinary(value, 8*n))
 }
 
-func suffixSums(api frontend.API, oneHot []frontend.Variable) []frontend.Variable {
-	out := make([]frontend.Variable, len(oneHot))
-	sum := frontend.Variable(0)
-	for i := len(oneHot) - 1; i >= 0; i-- {
-		sum = api.Add(sum, oneHot[i])
-		out[i] = sum
+// masked multiplies every byte by the bit flag, zeroing a slot the disclosure does not open.
+func masked(api frontend.API, flag frontend.Variable, bytes []frontend.Variable) []frontend.Variable {
+	out := make([]frontend.Variable, len(bytes))
+	for i, b := range bytes {
+		out[i] = api.Mul(flag, b)
+	}
+	return out
+}
+
+func zeros(n int) []frontend.Variable {
+	out := make([]frontend.Variable, n)
+	for i := range out {
+		out[i] = 0
 	}
 	return out
 }

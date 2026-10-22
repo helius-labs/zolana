@@ -1,7 +1,9 @@
+import { checkRingOutputOwners } from "./outputs.js";
 import { getAddressDecoder } from "@solana/kit";
 
 import type {
   Address,
+  Bsb22Commitment,
   Bytes32,
   CacheAccess,
   CircuitId,
@@ -14,10 +16,11 @@ import {
   NO_CACHE_WRITES,
   type CachedInputFields,
 } from "../../interface/cache.js";
-import { CACHE_CAPACITY } from "../../interface/state.js";
+import { CACHE_CAPACITY, NULLIFIER_TREE_HEIGHT, STATE_HEIGHT } from "../../interface/state.js";
 import { ADDRESS_DOMAIN, DUMMY_DOMAIN, UTXO_DOMAIN } from "../../interface/program.js";
 import {
-  RING_AUTHORITY_WIDTHS,
+  N_PUBLIC_SLOTS,
+  isRingAuthorityShape,
   selectSppShape,
   signerWidth,
   type Shape,
@@ -32,17 +35,23 @@ import {
   type TreeSlot,
 } from "../../interface/tree-slot.js";
 import { solanaOwnerIdentity } from "../../hasher/index.js";
+import { ShieldedPublicKey } from "../../keypair/public-key.js";
+import { verifyEd25519Strict } from "../../keypair/signing-key.js";
 import {
   SppProofInputs,
   cacheBoundExternalDataHash,
   cacheWriteSlots,
+  ringSpendMessage,
+  transactMessageHash,
+  assetField,
   type CacheWriteRefusal,
   type ExternalData,
+  type SettlementTransfer,
 } from "../../transaction/instructions/transact.js";
 import { EncryptedScheme } from "../../transaction/serialization/codecs.js";
 import {
   ProofInputUtxo,
-  transactOutputBlinding,
+  outputSlotBlinding,
   type ProofOutputUtxo,
   type TreeId,
 } from "../../transaction/utxo.js";
@@ -69,12 +78,12 @@ import {
   rightHashChain,
   rightHashChain4,
 } from "../internal.js";
-import type { NonInclusionProof, SpendProof } from "../rpc.js";
-import { RING_INPUT_SLOTS, RING_OUTPUT_SLOTS } from "./types.js";
+import type { MerkleProof, NonInclusionProof, SpendProof } from "../rpc.js";
+import type { RingSlotOpening } from "./ring.js";
 import type {
+  AnonymousEddsaAuthorization,
   AssembledTransfer,
   CircuitUtxo,
-  CustomRingOpening,
   Field,
   InputRootIndexes,
   ProverInputs,
@@ -85,8 +94,6 @@ import type {
   TreeSlotFields,
 } from "./types.js";
 
-export const STATE_TREE_HEIGHT = 32;
-export const NULLIFIER_TREE_HEIGHT = 40;
 const ZERO_PROOF = Object.freeze({
   a: new Uint8Array(32),
   b: new Uint8Array(64),
@@ -140,10 +147,16 @@ interface CircuitPlan {
   readonly ring: Address | undefined;
   readonly authority: boolean;
   readonly prover: ProverInputs["circuit"];
-  readonly data: "confidentialEddsa" | "confidentialRingEddsa" | "ringAuthority";
+  readonly data:
+    | "confidentialEddsa"
+    | "confidentialRingEddsa"
+    | "ringAuthority"
+    | "anonymousRingEddsa";
   readonly signerSlots: number;
   readonly owners: "every" | "confidentialMarked" | "none";
 }
+
+type AnonymousCircuit = Extract<TransferCircuit, { kind: "ringAnonymous" }>;
 
 function circuitPlan(circuit: TransferCircuit, shape: Shape): CircuitPlan {
   switch (circuit.kind) {
@@ -165,6 +178,15 @@ function circuitPlan(circuit: TransferCircuit, shape: Shape): CircuitPlan {
         signerSlots: signerWidth(shape),
         owners: "confidentialMarked",
       };
+    case "ringAnonymous":
+      return {
+        ring: circuit.ring,
+        authority: false,
+        prover: "transferEddsaRing",
+        data: "anonymousRingEddsa",
+        signerSlots: signerWidth(shape),
+        owners: "confidentialMarked",
+      };
     case "ringAuthority":
       return {
         ring: circuit.ring,
@@ -175,6 +197,21 @@ function circuitPlan(circuit: TransferCircuit, shape: Shape): CircuitPlan {
         owners: "none",
       };
   }
+}
+
+/** Rust `OwnerMode::AnonymousEddsa`, the hidden owner's inputs witness the zero owner hash its signature check consumes. */
+function inputOwnerField(circuit: TransferCircuit): (input: ProofInputUtxo) => bigint {
+  const hidden = circuit.kind === "ringAnonymous" ? hiddenOwner(circuit) : undefined;
+  return (input) =>
+    hidden !== undefined && input.utxo.owner.equals(hidden)
+      ? 0n
+      : bytesField(input.utxo.owner.ownerProofInputHash(), "owner public key");
+}
+
+function hiddenOwner(circuit: AnonymousCircuit): ShieldedPublicKey {
+  return ShieldedPublicKey.fromEd25519(
+    checkedBytes(circuit.owner.publicKey, 32, "owner public key") as Bytes32,
+  );
 }
 
 /** The authority rail forbids default ring inputs and outputs. */
@@ -195,6 +232,8 @@ interface PreparedTransferAssembly<C extends ProverInputs["circuit"] = ProverInp
   readonly inputs: Omit<IndexedProofInputs, "circuit" | "payload"> & {
     readonly circuit: C;
     readonly payload: PreparedTransferInputs;
+    /** Present exactly on `transferEddsaRing`. */
+    readonly authorization?: AnonymousEddsaAuthorization;
   };
   finish(trees: readonly InputTree[]): Omit<AssembledTransfer, "proverInputs">;
 }
@@ -202,17 +241,22 @@ interface PreparedTransferAssembly<C extends ProverInputs["circuit"] = ProverInp
 export function prepareTransfer(
   proofInputs: SppProofInputs,
   circuit: TransferCircuit = { kind: "confidential" },
-): PreparedTransferAssembly {
+): Readonly<{
+  inputs: Exclude<IndexedProofInputs, { circuit: "merge" }>;
+  finish: PreparedTransferAssembly["finish"];
+}> {
   try {
     const checked = checkedTransferPlan(proofInputs, circuit);
-    const slots = prepareSlots(proofInputs.inputUtxos, (input) =>
-      bytesField(input.utxo.owner.ownerProofInputHash(), "owner public key"),
-    );
+    const slots = prepareSlots(proofInputs.inputUtxos, inputOwnerField(circuit));
     const prepared = prepareTransferUnchecked(proofInputs, slots, checked);
-    const { inputs } = prepared;
+    const { circuit: prover, authorization, ...rest } = prepared.inputs;
     return Object.freeze({
-      ...prepared,
-      inputs: Object.freeze({ ...inputs, circuit: inputs.circuit }),
+      finish: prepared.finish,
+      inputs: Object.freeze(
+        prover === "transferEddsaRing"
+          ? { ...rest, circuit: prover, authorization: requireAuthorization(authorization) }
+          : { ...rest, circuit: prover },
+      ),
     });
   } catch (cause) {
     throw fromClientCause(cause);
@@ -226,25 +270,38 @@ function assembleUnchecked(
   circuit: TransferCircuit,
 ): AssembledTransfer {
   const checked = checkedTransferPlan(proofInputs, circuit);
-  const slots = assembleSlots(proofInputs, spendProofs, dummyNullifierProofs, (input) =>
-    bytesField(input.utxo.owner.ownerProofInputHash(), "owner public key"),
+  const slots = assembleSlots(
+    proofInputs,
+    spendProofs,
+    dummyNullifierProofs,
+    inputOwnerField(circuit),
   );
   const prepared = prepareTransferUnchecked(proofInputs, slots, checked);
   const complete = prepared.finish(slots.inputTrees);
+  const payload: TransferInputs = Object.freeze({
+    ...prepared.inputs.payload,
+    inputs: slots.transferInputs,
+    treeSlots: Object.freeze(
+      inputTreeSlots(slots.inputTrees.map((tree) => tree.slot)).map(treeSlotFields),
+    ),
+    publicInputHash: asField(bytesToBigInt(complete.publicInputHash)),
+  });
+  const { circuit: prover, authorization } = prepared.inputs;
   return Object.freeze({
     ...complete,
-    proverInputs: Object.freeze({
-      circuit: prepared.inputs.circuit,
-      payload: Object.freeze({
-        ...prepared.inputs.payload,
-        inputs: slots.transferInputs,
-        treeSlots: Object.freeze(
-          inputTreeSlots(slots.inputTrees.map((tree) => tree.slot)).map(treeSlotFields),
-        ),
-        publicInputHash: asField(bytesToBigInt(complete.publicInputHash)),
-      }),
-    }),
+    proverInputs: Object.freeze(
+      prover === "transferEddsaRing"
+        ? { circuit: prover, payload, authorization: requireAuthorization(authorization) }
+        : { circuit: prover, payload },
+    ),
   });
+}
+
+function requireAuthorization(
+  authorization: AnonymousEddsaAuthorization | undefined,
+): AnonymousEddsaAuthorization {
+  if (authorization === undefined) throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+  return authorization;
 }
 
 function checkedTransferPlan(proofInputs: SppProofInputs, circuit: TransferCircuit) {
@@ -259,10 +316,19 @@ function checkedTransferPlan(proofInputs: SppProofInputs, circuit: TransferCircu
     throw new ClientError("CLIENT_ADDRESS_INPUT_UNSUPPORTED", { details: { index: address } });
   }
   const plan = circuitPlan(circuit, shape);
+  // The ring program admits only the uncached anonymous selector.
+  if (
+    circuit.kind === "ringAnonymous" &&
+    (proofInputs.cacheAccounts.read !== undefined ||
+      proofInputs.cacheAccounts.write !== undefined ||
+      proofInputs.inputUtxos.some((input) => input.cacheSlot !== undefined) ||
+      proofInputs.outputs.some((output) => output.cacheSlot !== undefined))
+  ) {
+    throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+  }
   if (
     plan.authority &&
-    (shape.inputs !== shape.outputs ||
-      !RING_AUTHORITY_WIDTHS.includes(shape.inputs) ||
+    (!isRingAuthorityShape(shape) ||
       proofInputs.externalData.interfaceTransfers.length !== 0 ||
       proofInputs.inputUtxos.some(
         (input) => !input.isDummy() && input.utxo.ringProgramId !== plan.ring,
@@ -282,7 +348,7 @@ function checkedTransferPlan(proofInputs: SppProofInputs, circuit: TransferCircu
   validateOutputBlindings(proofInputs);
   const cache = checkedTransferCache(proofInputs);
 
-  return { plan, cache };
+  return { plan, cache, circuit };
 }
 
 function prepareTransferUnchecked(
@@ -290,7 +356,7 @@ function prepareTransferUnchecked(
   slots: PreparedSlots,
   checked: ReturnType<typeof checkedTransferPlan>,
 ): PreparedTransferAssembly<ProverInputs["circuit"]> {
-  const { plan, cache } = checked;
+  const { plan, cache, circuit } = checked;
   const outputTreeId = proofInputs.outputTreeId;
 
   const { transferInputs, nullifiers, treeIndexes } = slots;
@@ -316,9 +382,16 @@ function prepareTransferUnchecked(
   // inputs and of outputs that carry data, the payer only when it is one of them,
   // matching Rust's `signer_pk_hashes`. The authority rail's width-1 vector
   // is the payer.
+  // The hidden owner authorizes inside the proof, never through the vector.
+  const hiddenSigner =
+    circuit.kind === "ringAnonymous"
+      ? getAddressDecoder().decode(hiddenOwner(circuit).confidentialViewTag())
+      : undefined;
   const signerHashes = plan.authority
     ? [signerIdentity(proofInputs.payer)]
-    : ownerSignerAddresses(proofInputs.inputUtxos, proofInputs.outputs).map(signerIdentity);
+    : ownerSignerAddresses(proofInputs.inputUtxos, proofInputs.outputs)
+        .filter((signer) => signer !== hiddenSigner)
+        .map(signerIdentity);
   if (signerHashes.length > plan.signerSlots) {
     throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
   }
@@ -330,6 +403,16 @@ function prepareTransferUnchecked(
   const ringProgramId = plan.ring === undefined ? 0n : hashBytesBigInt(addressBytes(plan.ring));
   const outputTreeIdField = bytesToBigInt(treeIdField(outputTreeId));
   const cachedInputs = selectedCachedInputs(cache, proofInputs.inputUtxos);
+  const anonymous =
+    circuit.kind === "ringAnonymous"
+      ? anonymousAuthorization({
+          circuit,
+          proofInputs,
+          privateTxHash,
+          externalDataHash,
+          publishedOwners: outputOwnerFields ?? [],
+        })
+      : undefined;
   const publicInputs = transferPublicInputs({
     nullifiers: nullifiers.map(bytesToBigInt),
     outputHashes,
@@ -341,6 +424,9 @@ function prepareTransferUnchecked(
     signerPublicKeyHashes,
     inputFlags: flags,
     publishedOutputOwnerPublicKeyHashes: outputOwnerFields,
+    ...(anonymous === undefined
+      ? {}
+      : { afterPrivateTx: anonymousPublicFields(anonymous.authorization) }),
     ...cachedInputs,
   });
   const common: PreparedTransferInputs = Object.freeze({
@@ -350,6 +436,15 @@ function prepareTransferUnchecked(
     externalDataHash: asField(externalDataHash),
     privateTxHash: asField(privateTxHash),
     blindingSeed: asField(bytesField(proofInputs.blindingSeed, "blinding seed")),
+    ringSecrets: Object.freeze(
+      plan.prover === "transfer"
+        ? []
+        : proofInputs.outputs.map((output) =>
+            asField(
+              output.ringSecret === undefined ? 0n : bytesField(output.ringSecret, "ring secret"),
+            ),
+          ),
+    ),
     publicAssets: Object.freeze(transfers.assets.map(asField)),
     publicAmounts: Object.freeze(transfers.amounts.map(asField)),
     ringProgramId: asField(ringProgramId),
@@ -366,6 +461,7 @@ function prepareTransferUnchecked(
       cache,
       proofInputs.inputUtxos.length,
       proofInputs.outputs.length,
+      anonymous?.defaultOwnerTag,
     ),
     txViewingPk: proofInputs.externalData.txViewingPublicKey.toBytes(),
     salt: new Uint8Array(proofInputs.externalData.salt) as never,
@@ -433,6 +529,7 @@ function prepareTransferUnchecked(
   return Object.freeze({
     inputs: Object.freeze({
       circuit: plan.prover,
+      ...(anonymous === undefined ? {} : { authorization: anonymous.authorization }),
       payload: common,
       trees: slots.treeIds.map((id) => Object.freeze({ id, tree: treeAddress(id) })),
       lookups: proofInputs.inputUtxos.map((input, index) =>
@@ -483,8 +580,34 @@ function prepareTransferUnchecked(
           nullifierRoot: firstTree.slot.nullifierRoot,
           nullifierRootIndex: firstTree.nullifierRootIndex,
         }),
-        withProof(proof: TransactProof): TransactInstructionData {
-          return Object.freeze({ ...instructionData, proof: copyProof(proof) });
+        withProof(proof: TransactProof, commitment?: Bsb22Commitment): TransactInstructionData {
+          const selector = instructionData.circuit;
+          if ((selector.kind === "anonymousRingEddsa") !== (commitment !== undefined)) {
+            throw new ClientError("CLIENT_PROOF_PARSE", {
+              details: {
+                path: "$.proof.proofCommitment",
+                reason: commitment === undefined ? "missing commitment" : "unexpected commitment",
+              },
+            });
+          }
+          return Object.freeze({
+            ...instructionData,
+            proof: copyProof(proof),
+            ...(selector.kind === "anonymousRingEddsa" && commitment !== undefined
+              ? {
+                  circuit: Object.freeze({
+                    ...selector,
+                    proofData: Object.freeze({
+                      ...selector.proofData,
+                      bsb22Commitment: Object.freeze({
+                        commitment: checkedBytes(commitment.commitment, 32, "commitment"),
+                        commitmentPok: checkedBytes(commitment.commitmentPok, 32, "commitmentPok"),
+                      }),
+                    }),
+                  }),
+                }
+              : {}),
+          });
         },
       });
     },
@@ -494,14 +617,21 @@ function prepareTransferUnchecked(
 /**
  * Mirrors Rust `validate_output_blindings`: the circuit asserts every output
  * blinding, padding included, equals the derivation from the first nullifier,
- * the derived seed, and the slot index, so a proof request with any other
- * blinding would be rejected after the expensive round trip.
+ * the derived seed, or a ring output's ring secret, and the slot index, so a
+ * proof request with any other blinding would be rejected after the expensive
+ * round trip.
  */
 function validateOutputBlindings(proofInputs: SppProofInputs): void {
   const firstNullifier = proofInputs.firstNullifier();
-  const outputSeed = proofInputs.outputBlindingSeed();
+  const outputBlindingSeed = proofInputs.outputBlindingSeed();
   proofInputs.outputs.forEach((output, index) => {
-    if (!equal(output.blinding, transactOutputBlinding(firstNullifier, outputSeed, index))) {
+    const expected = outputSlotBlinding({
+      output,
+      firstNullifier,
+      outputBlindingSeed,
+      slotIndex: index,
+    });
+    if (!equal(output.blinding, expected)) {
       throw new ClientError("CLIENT_OUTPUT_BLINDING_MISMATCH", {
         details: { index },
       });
@@ -520,8 +650,11 @@ function publishedOwnerFields(
       return undefined;
     case "every":
       return outputs.map((output) => output.ownerPublicKeyHash);
-    case "confidentialMarked":
-      return confidentialMarkedOutputOwnerHashes(external, outputs.length);
+    case "confidentialMarked": {
+      const published = confidentialMarkedOutputOwnerHashes(external, outputs.length);
+      checkRingOutputOwners(outputs, published);
+      return published;
+    }
   }
 }
 
@@ -607,7 +740,25 @@ function transferCircuit(
   cache: CheckedTransferCache | undefined,
   inputs: number,
   outputs: number,
+  defaultOwnerTag: Bytes32 | undefined,
 ): CircuitId {
+  if (plan.data === "anonymousRingEddsa") {
+    if (cache !== undefined) throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+    // The prover's commitment replaces the zero one in `withProof`.
+    return Object.freeze({
+      kind: plan.data,
+      inputs,
+      outputs,
+      publicAssetSlots: 3,
+      proofData: Object.freeze({
+        bsb22Commitment: Object.freeze({
+          commitment: new Uint8Array(32) as Bytes32,
+          commitmentPok: new Uint8Array(32) as Bytes32,
+        }),
+        ...(defaultOwnerTag === undefined ? {} : { defaultOwnerTag }),
+      }),
+    });
+  }
   if (cache === undefined) {
     return Object.freeze({
       kind: plan.data,
@@ -636,6 +787,104 @@ function transferCircuit(
     case "ringAuthority":
       throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
   }
+}
+
+/** Rust `AnonymousEddsaAuthorization::public_fields`, the elements after `private_tx_hash`. */
+function anonymousPublicFields(authorization: AnonymousEddsaAuthorization): readonly bigint[] {
+  const [payer, cosigner, exit] = authorization.parties;
+  return [
+    hashBytesBigInt(authorization.messageDigest),
+    bytesToBigInt(authorization.defaultOwnerPkHash),
+    bytesToBigInt(payer),
+    bytesToBigInt(cosigner),
+    bytesToBigInt(exit),
+  ];
+}
+
+/** Mirrors Rust `AnonymousAuthorizationPreparation::prepare`. */
+function anonymousAuthorization(
+  input: Readonly<{
+    circuit: AnonymousCircuit;
+    proofInputs: SppProofInputs;
+    privateTxHash: bigint;
+    externalDataHash: bigint;
+    publishedOwners: readonly bigint[];
+  }>,
+): Readonly<{ authorization: AnonymousEddsaAuthorization; defaultOwnerTag: Bytes32 | undefined }> {
+  const { circuit, proofInputs } = input;
+  const owner = hiddenOwner(circuit);
+  const ownerPkHash = owner.ownerProofInputHash();
+  let defaultRing = false;
+  let boundRing = false;
+  for (const spend of proofInputs.inputUtxos) {
+    if (spend.isDummy() || !spend.utxo.owner.equals(owner)) continue;
+    if (spend.utxo.ringProgramId === undefined) defaultRing = true;
+    else boundRing = true;
+  }
+  if (!defaultRing && !boundRing)
+    throw new ClientError("CLIENT_ANONYMOUS_PROOF_WITHOUT_HIDDEN_INPUT");
+  if (defaultRing && boundRing)
+    throw new ClientError("CLIENT_ANONYMOUS_MIXED_DEFAULT_AND_RING_SPEND");
+  // A published owner naming the hidden identity would undo a ring-bound spend's hiding.
+  if (boundRing) {
+    const index = input.publishedOwners.indexOf(bytesToBigInt(ownerPkHash));
+    if (index >= 0)
+      throw new ClientError("CLIENT_ANONYMOUS_PUBLISHED_OWNER_LEAKS_IDENTITY", {
+        details: { index },
+      });
+  }
+  const ownerPublicKey = owner.ed25519();
+  const messageDigest = transactMessageHash(
+    bigintToBytes(input.privateTxHash, "private tx hash") as Bytes32,
+    bigintToBytes(input.externalDataHash, "external data hash") as Bytes32,
+  );
+  const signature = checkedBytes(circuit.owner.signature, 64, "owner signature");
+  // The circuit refuses the same signature after the expensive round trip.
+  if (
+    !verifyEd25519Strict(signature, ringSpendMessage(circuit.ring, messageDigest), ownerPublicKey)
+  )
+    throw new ClientError("CLIENT_ANONYMOUS_SPEND_SIGNATURE_INVALID");
+  const exit = anonymousExitDestination(proofInputs.externalData, circuit.exitTokenOwner);
+  return Object.freeze({
+    authorization: Object.freeze({
+      ownerPublicKey,
+      ownerSignature: new Uint8Array(signature) as AnonymousEddsaAuthorization["ownerSignature"],
+      ringProgramAddress: addressBytes(circuit.ring) as Bytes32,
+      messageDigest,
+      defaultOwnerPkHash: defaultRing ? ownerPkHash : (new Uint8Array(32) as Bytes32),
+      parties: Object.freeze([
+        partyIdentity(proofInputs.payer),
+        partyIdentity(circuit.cosigner),
+        partyIdentity(exit),
+      ] as const),
+    }),
+    defaultOwnerTag: defaultRing ? ownerPublicKey : undefined,
+  });
+}
+
+/** Rust `anonymous_exit_destination`, all withdrawals of one transaction name the same key. */
+function anonymousExitDestination(
+  external: ExternalData,
+  exitTokenOwner: Address | undefined,
+): Address | undefined {
+  const withdrawals = external.interfaceTransfers.filter((transfer) => !transfer.isDeposit);
+  if (withdrawals.some((transfer) => transfer.kind === "spl") !== (exitTokenOwner !== undefined))
+    throw new ClientError("CLIENT_ANONYMOUS_EXIT_TOKEN_OWNER_MISMATCH");
+  // SPP binds an SPL leg's token account owner, never the token account address.
+  const keys = withdrawals.map((transfer) =>
+    transfer.kind === "sol" ? transfer.userSolAccount : exitTokenOwner,
+  );
+  const [exit] = keys;
+  if (keys.some((key) => key !== exit))
+    throw new ClientError("CLIENT_ANONYMOUS_EXIT_DESTINATIONS_DIFFER");
+  return exit;
+}
+
+/** Rust `AnonymousParties::identities`, only an absent party is the zero element. */
+function partyIdentity(party: Address | undefined): Bytes32 {
+  return (
+    party === undefined ? new Uint8Array(32) : solanaOwnerIdentity(addressBytes(party))
+  ) as Bytes32;
 }
 
 /**
@@ -1047,7 +1296,7 @@ function attachPaths(
     ...local,
     statePathElements: Object.freeze(
       proofs.state?.path.map((value) => asField(bytesField(value, "state path element"))) ??
-        Array.from({ length: STATE_TREE_HEIGHT }, () => asField(0n)),
+        Array.from({ length: STATE_HEIGHT }, () => asField(0n)),
     ),
     statePathIndex: asField(proofs.state?.leafIndex ?? 0n),
     nullifierLowValue: asField(bytesField(proofs.nullifier.lowElement, "low element")),
@@ -1064,6 +1313,8 @@ interface TransferPublicInputFields extends CachedInputs {
   outputHashes: readonly bigint[];
   outputTreeId: TreeId;
   privateTxHash: bigint;
+  /** The anonymous rail's authorization elements, absent on every other rail. */
+  afterPrivateTx?: readonly bigint[];
   externalDataHash: bigint;
   publicSlots: readonly bigint[];
   ringProgramId: bigint;
@@ -1084,6 +1335,7 @@ export function transferPublicInputs(input: TransferPublicInputFields): readonly
     rightHashChain4(input.outputHashes),
     bytesToBigInt(treeIdField(input.outputTreeId)),
     input.privateTxHash,
+    ...(input.afterPrivateTx ?? []),
     input.externalDataHash,
     ...input.publicSlots,
     input.ringProgramId,
@@ -1216,7 +1468,7 @@ function createCachedInput(
 ): TransferInput {
   return spendInput(
     input,
-    Array.from({ length: STATE_TREE_HEIGHT }, () => asField(0n)),
+    Array.from({ length: STATE_HEIGHT }, () => asField(0n)),
     0n,
     proof,
     ownerPublicKeyHash,
@@ -1350,50 +1602,21 @@ function outputCircuitUtxo(output: ProofOutputUtxo): CircuitUtxo {
   });
 }
 
-export interface RingOpenings {
-  readonly nIn: number;
-  readonly nOut: number;
-  readonly inputs: readonly CustomRingOpening[];
-  readonly outputs: readonly CustomRingOpening[];
-}
-
-/** A dummy output retains the tree and blinding bound by its SPP commitment and auditor disclosure. */
-export function ringOpenings(proofInputs: SppProofInputs): RingOpenings {
-  if (!(proofInputs instanceof SppProofInputs)) {
-    throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
-  }
-  if (
-    proofInputs.inputUtxos.length > RING_INPUT_SLOTS ||
-    proofInputs.outputs.length > RING_OUTPUT_SLOTS
-  ) {
-    throw new ClientError("CLIENT_PROVER_INPUT");
-  }
-  const outputTreeId = treeIdField(proofInputs.outputTreeId);
-  const inputs = Array.from({ length: RING_INPUT_SLOTS }, (_, index) => {
-    const input = proofInputs.inputUtxos[index];
-    return input === undefined ? zeroOpening(0) : inputOpening(input);
-  });
-  const outputs = Array.from({ length: RING_OUTPUT_SLOTS }, (_, index) => {
-    const output = proofInputs.outputs[index];
-    return output === undefined ? zeroOpening(0) : outputOpening(output, outputTreeId);
-  });
-  return Object.freeze({
-    nIn: proofInputs.inputUtxos.length,
-    nOut: proofInputs.outputs.filter((output) => !output.isCompact()).length,
-    inputs: Object.freeze(inputs),
-    outputs: Object.freeze(outputs),
-  });
-}
-
-/** Mirrors Rust `input_opening`, each slot opens under its own tree. */
-function inputOpening(input: ProofInputUtxo): CustomRingOpening {
-  if (input.isDummy()) return zeroOpening(DUMMY_DOMAIN);
+/** Rust `Opening::input`, a dummy opens its domain, tree and blinding only. */
+export function ringInputOpening(input: ProofInputUtxo): RingSlotOpening {
+  if (input.isDummy())
+    return Object.freeze({
+      ...zeroOpening(DUMMY_DOMAIN),
+      treeId: treeIdField(input.treeId),
+      blinding: input.utxo.blinding,
+    });
   const utxo = inputCircuitUtxo(input);
+  const real = !input.isAddress();
   return Object.freeze({
-    domain: openingField(BigInt(UTXO_DOMAIN)),
+    domain: openingField(utxo.domain),
     treeId: treeIdField(input.treeId),
-    ownerPkHash: input.utxo.owner.ownerProofInputHash(),
-    nullifierPk: input.nullifierPublicKey,
+    ownerPkHash: real ? input.utxo.owner.ownerProofInputHash() : openingField(0n),
+    nullifierPk: real ? input.nullifierPublicKey : openingField(0n),
     asset: openingField(utxo.asset),
     amount: openingField(utxo.amount),
     blinding: openingField(utxo.blinding),
@@ -1403,8 +1626,9 @@ function inputOpening(input: ProofInputUtxo): CustomRingOpening {
   });
 }
 
-/** Owner address presence determines the dummy domain independently of the public owner tag. */
-function outputOpening(output: ProofOutputUtxo, treeId: Bytes32): CustomRingOpening {
+/** Rust `Opening::output`, the output hashed into `outputTreeId`. */
+export function ringOutputOpening(output: ProofOutputUtxo, outputTreeId: TreeId): RingSlotOpening {
+  const treeId = treeIdField(outputTreeId);
   const owner = output.ownerAddress;
   if (owner === undefined) {
     return Object.freeze({
@@ -1428,7 +1652,10 @@ function outputOpening(output: ProofOutputUtxo, treeId: Bytes32): CustomRingOpen
   });
 }
 
-function zeroOpening(domain: number): CustomRingOpening {
+/** Rust `Opening::default`, the slot past a key's used capacity. */
+export const EMPTY_RING_OPENING: RingSlotOpening = zeroOpening(0);
+
+function zeroOpening(domain: number): RingSlotOpening {
   return Object.freeze({
     domain: openingField(BigInt(domain)),
     treeId: openingField(0n),
@@ -1456,10 +1683,12 @@ export function checkedProverInputs(inputs: TransferInputs): ProverInputs {
   }
   const malformed = inputs.inputs.some(
     (input) =>
-      input.statePathElements.length !== STATE_TREE_HEIGHT ||
+      input.statePathElements.length !== STATE_HEIGHT ||
       input.nullifierLowPathElements.length !== NULLIFIER_TREE_HEIGHT,
   );
   if (malformed) throw new ClientError("CLIENT_PROVER_INPUT");
+  if (inputs.ringProgramId !== 0n)
+    checkRingOutputOwners(inputs.outputs, inputs.publishedOutputOwnerPublicKeyHashes);
   return Object.freeze({
     circuit: inputs.ringProgramId === 0n ? "transfer" : "transferRing",
     payload: inputs,
@@ -1480,16 +1709,20 @@ export function validateSpendProof(input: ProofInputUtxo, proof: SpendProof, ind
   if (proof.state.merkleContext.tree !== proof.nullifier.merkleContext.tree) {
     throw new ClientError("CLIENT_PROOF_TREE_MISMATCH", { details: { index } });
   }
-  if (proof.state.path.length !== STATE_TREE_HEIGHT) {
+  if (proof.state.path.length !== STATE_HEIGHT) {
     throw new ClientError("CLIENT_PROOF_PATH_LENGTH", {
       details: {
         index,
         kind: "state",
-        expected: STATE_TREE_HEIGHT,
+        expected: STATE_HEIGHT,
         got: proof.state.path.length,
       },
     });
   }
+  if (!stateProofReachesRoot(proof.state))
+    throw new ClientError("CLIENT_STATE_PROOF_ROOT_MISMATCH", { details: { index } });
+  if (input.leafIndex !== undefined && proof.state.leafIndex !== input.leafIndex)
+    throw new ClientError("CLIENT_STATE_PROOF_INDEX_MISMATCH", { details: { index } });
   if (proof.nullifier.path.length !== NULLIFIER_TREE_HEIGHT) {
     throw new ClientError("CLIENT_PROOF_PATH_LENGTH", {
       details: {
@@ -1500,6 +1733,22 @@ export function validateSpendProof(input: ProofInputUtxo, proof: SpendProof, ind
       },
     });
   }
+}
+
+/** Rust `MerkleProof::path_root`, bit `i` of the leaf index puts the node right of sibling `i`. */
+export function stateProofReachesRoot(proof: MerkleProof): boolean {
+  // A bit past the path would give one path a second leaf index.
+  if (proof.leafIndex >> BigInt(STATE_HEIGHT) !== 0n) return false;
+  const [leaf = 0n, ...siblings] = [proof.leaf, ...proof.path].map(bytesToBigInt);
+  // Poseidon takes no value outside the field, such a path reaches no root.
+  if ([leaf, ...siblings].some((value) => value >= BN254_MODULUS)) return false;
+  let node = leaf;
+  let position = proof.leafIndex;
+  for (const sibling of siblings) {
+    node = (position & 1n) === 0n ? poseidon([node, sibling]) : poseidon([sibling, node]);
+    position >>= 1n;
+  }
+  return node === bytesToBigInt(proof.root);
 }
 
 function validateNullifierProof(
@@ -1524,26 +1773,55 @@ function validateNullifierProof(
   }
 }
 
+/** SPP's public slots in first-use order, Rust `PublicSlots::fold`, zero past the used slots. */
+export interface PublicSlots {
+  /** `hash_bytes` of each mint, SOL under the zero address. */
+  readonly assets: readonly Bytes32[];
+  /** Signed nets, a withdrawal negative. */
+  readonly nets: readonly bigint[];
+}
+
+const U64_MAX = (1n << 64n) - 1n;
+
+export function publicSlots(transfers: readonly SettlementTransfer[]): PublicSlots {
+  const nets = new Map<Address, bigint>();
+  for (const transfer of transfers) {
+    if (transfer.amount === 0n) throw new ClientError("CLIENT_PROVER_INPUT");
+    const asset = transfer.kind === "sol" ? SOL_MINT : transfer.mint;
+    const net = (nets.get(asset) ?? 0n) + (transfer.isDeposit ? transfer.amount : -transfer.amount);
+    if (net > U64_MAX || -net > U64_MAX) throw new ClientError("CLIENT_PROVER_INPUT");
+    nets.set(asset, net);
+  }
+  if (nets.size > N_PUBLIC_SLOTS) throw new ClientError("CLIENT_PROVER_INPUT");
+  if ([...nets.values()].includes(0n)) throw new ClientError("CLIENT_PROVER_INPUT");
+  const pad = <T>(values: readonly T[], zero: T): readonly T[] =>
+    Object.freeze([
+      ...values,
+      ...Array.from({ length: N_PUBLIC_SLOTS - values.length }, () => zero),
+    ]);
+  return Object.freeze({
+    assets: pad([...nets.keys()].map(assetField), new Uint8Array(32) as Bytes32),
+    nets: pad([...nets.values()], 0n),
+  });
+}
+
+/** Rust `PublicSlots::amount_fields`, a withdrawal is `q - |net|`. */
+export function publicAmountFields(slots: PublicSlots): readonly Bytes32[] {
+  return Object.freeze(
+    slots.nets.map(
+      (net) => bigintToBytes(signedField(net, "public amount"), "public amount") as Bytes32,
+    ),
+  );
+}
+
 function publicTransfers(proofInputs: SppProofInputs): Readonly<{
   assets: readonly bigint[];
   amounts: readonly bigint[];
 }> {
-  const aggregated = new Map<Address, bigint>();
-  for (const transfer of proofInputs.externalData.interfaceTransfers) {
-    const asset = transfer.kind === "sol" ? SOL_MINT : transfer.mint;
-    const signed = transfer.isDeposit ? transfer.amount : -transfer.amount;
-    aggregated.set(asset, (aggregated.get(asset) ?? 0n) + signed);
-  }
-  if (aggregated.size > 3) {
-    throw new ClientError("CLIENT_PROVER_INPUT");
-  }
-  const assets = [...aggregated.keys()].map((asset) => hashBytesBigInt(addressBytes(asset)));
-  const amounts = [...aggregated.values()].map((amount) => signedField(amount, "public amount"));
-  while (assets.length < 3) assets.push(0n);
-  while (amounts.length < 3) amounts.push(0n);
+  const slots = publicSlots(proofInputs.externalData.interfaceTransfers);
   return Object.freeze({
-    assets: Object.freeze(assets),
-    amounts: Object.freeze(amounts),
+    assets: Object.freeze(slots.assets.map((asset) => bytesToBigInt(asset))),
+    amounts: Object.freeze(publicAmountFields(slots).map((amount) => bytesToBigInt(amount))),
   });
 }
 

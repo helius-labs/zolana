@@ -6,10 +6,12 @@ import (
 
 	"github.com/consensys/gnark/frontend"
 
+	"github.com/helius-labs/zolana/prover/server/circuits/records"
 	merge "github.com/helius-labs/zolana/prover/server/circuits/spp_merge"
 	mergeshared "github.com/helius-labs/zolana/prover/server/circuits/spp_merge/shared"
 	transaction "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
 	"github.com/helius-labs/zolana/prover/server/prover-test/poseidon"
+	"github.com/helius-labs/zolana/prover/server/prover-test/ringrecords"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 )
@@ -54,6 +56,8 @@ type mergeFixtureOptions struct {
 	inputSlot int
 	// outputNullifierPk publishes the merged output under another nullifier key.
 	outputNullifierPk *big.Int
+	// anonymous sets the merge flag over a zero root and an unread record.
+	anonymous bool
 }
 
 // Slot 0's tree id is fixtureInputTreeID; fixtureOutputTreeID differs from
@@ -127,12 +131,13 @@ type mergeWitnessFixture struct {
 	userSigningPkHash   *big.Int
 	outputRingDataHash  *big.Int
 	ringProgramID       *big.Int
-	// outputCiphertextSalt and outputCiphertext are the default rail's
-	// public-input-hash tail; the ring rail binds neither.
-	outputCiphertextSalt *big.Int
-	outputCiphertext     []*big.Int
-	publicInputPreimage  []*big.Int
-	publicInputHash      *big.Int
+	memberRegistryRoot  *big.Int
+	registeredCtHash    *big.Int
+	memberRecord        records.QuadRecordOpening
+	anonymous           *big.Int
+	outputCiphertext    []*big.Int
+	publicInputPreimage []*big.Int
+	publicInputHash     *big.Int
 }
 
 func buildDefaultWitness(t testing.TB, options mergeFixtureOptions) *merge.Circuit {
@@ -146,8 +151,8 @@ func buildRingWitness(t testing.TB, ringProgramID *big.Int) *merge.RingCircuit {
 	return buildMergeFixture(t, mergeFixtureOptions{
 		rail:           ringFixtureRail,
 		ringProgramID:  ringProgramID,
-		inputRingData:  []*big.Int{big.NewInt(0xD0), big.NewInt(0xD1)},
-		outputRingData: big.NewInt(0xD2),
+		inputRingData:  []*big.Int{big.NewInt(0xD0), big.NewInt(0xD0)},
+		outputRingData: big.NewInt(0xD0),
 	}).ringCircuit()
 }
 
@@ -323,6 +328,12 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 		RingProgramID: ringProgramID,
 	}
 	outHash := mergeUtxoHash(t, outUtxo, fixtureOutputTreeID)
+	outputCiphertext, err := protocol.MergeOutputCiphertext(
+		nullifierSecret, nullifiers[0], fixtureCiphertextSalt, outAmount, fixtureMint,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	externalDataHash := options.externalDataHash
 	if externalDataHash == nil {
@@ -401,6 +412,18 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 	}
 	outputTreeID := big.NewInt(fixtureOutputTreeID)
 	treeSlots := fixtureTreeSlots(treeIDs, slotRoots, slotNullifierRoots)
+	var memberRoot, registeredCtHash *big.Int
+	var memberRecord records.QuadRecordOpening
+	if options.rail == ringFixtureRail {
+		// An anonymous merge binds the zero root its ring program forwards and opens no record.
+		memberRoot, registeredCtHash, memberRecord = big.NewInt(0), big.NewInt(0), ringrecords.UnreadRecordWires()
+		if !options.anonymous {
+			members := ringrecords.New(t)
+			registeredCtHash = big.NewInt(0xC7)
+			members.Apply(t, ringrecords.Entry{Member: ownerKeyHash, Mask: big.NewInt(1 << 7), Value: big.NewInt(1 << 7), EscrowKey: ringrecords.EscrowKey(t, userNullifierPk, registeredCtHash)})
+			memberRoot, memberRecord = members.Root(), members.Opening(ownerKeyHash).RecordWires()
+		}
+	}
 	publicInputPreimage := []*big.Int{
 		spptest.MustRightHashChain4(t, pubNullifiers),
 		outHash,
@@ -410,33 +433,26 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 		externalDataHash,
 		allowDummyInputs,
 	}
-	var outputCiphertextSalt *big.Int
-	var outputCiphertext []*big.Int
 	switch options.rail {
 	case defaultFixtureRail:
-		outputCiphertextSalt = fixtureCiphertextSalt
-		outputCiphertext, err = protocol.MergeOutputCiphertext(
-			nullifierSecret, nullifiers[0], outputCiphertextSalt, outAmount, fixtureMint,
-		)
-		if err != nil {
-			t.Fatal(err)
-		}
 		publicInputPreimage = append(
 			publicInputPreimage,
 			userSigningPkHash,
 			userNullifierPk,
-			outputCiphertextSalt,
 		)
-		publicInputPreimage = append(publicInputPreimage, outputCiphertext...)
 	case ringFixtureRail:
 		publicInputPreimage = append(
 			publicInputPreimage,
 			outputRingData,
 			ringProgramID,
+			memberRoot,
+			big.NewInt(spptest.Bit(options.anonymous)),
 		)
 	default:
 		t.Fatalf("unsupported merge fixture rail: %d", options.rail)
 	}
+	publicInputPreimage = append(publicInputPreimage, fixtureCiphertextSalt)
+	publicInputPreimage = append(publicInputPreimage, outputCiphertext...)
 	publicInputHash := hashChain4(t, publicInputPreimage)
 
 	inputs := mergeshared.NewInputs(inputCount)
@@ -446,6 +462,7 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 	public.OutputHash = outHash
 	public.AllowDummyInputs = allowDummyInputs
 	public.OutputTreeID = outputTreeID
+	public.OutputCiphertextSalt = fixtureCiphertextSalt
 	for k, slot := range treeSlots {
 		public.TreeSlots[k] = transaction.TreeSlot{
 			ID:            slot.ID,
@@ -490,20 +507,23 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 	}
 
 	return &mergeWitnessFixture{
-		inputs:               inputs,
-		output:               merge.Output{RingDataHash: outputRingData},
-		mintChunks:           protocol.MintChunks(fixtureMint),
-		ownerPkHash:          ownerKeyHash,
-		userNullifierPk:      userNullifierPk,
-		userNullifierSecret:  nullifierSecret,
-		public:               public,
-		userSigningPkHash:    userSigningPkHash,
-		outputRingDataHash:   outputRingData,
-		ringProgramID:        ringProgramID,
-		outputCiphertextSalt: outputCiphertextSalt,
-		outputCiphertext:     outputCiphertext,
-		publicInputPreimage:  publicInputPreimage,
-		publicInputHash:      publicInputHash,
+		inputs:              inputs,
+		output:              merge.Output{RingDataHash: outputRingData},
+		mintChunks:          protocol.MintChunks(fixtureMint),
+		ownerPkHash:         ownerKeyHash,
+		userNullifierPk:     userNullifierPk,
+		userNullifierSecret: nullifierSecret,
+		public:              public,
+		userSigningPkHash:   userSigningPkHash,
+		outputRingDataHash:  outputRingData,
+		ringProgramID:       ringProgramID,
+		memberRegistryRoot:  memberRoot,
+		registeredCtHash:    registeredCtHash,
+		memberRecord:        memberRecord,
+		anonymous:           big.NewInt(spptest.Bit(options.anonymous)),
+		outputCiphertext:    outputCiphertext,
+		publicInputPreimage: publicInputPreimage,
+		publicInputHash:     publicInputHash,
 	}
 }
 
@@ -521,7 +541,6 @@ func (f *mergeWitnessFixture) defaultCircuit() *merge.Circuit {
 	assignment.UserNullifierSecret = f.userNullifierSecret
 	assignment.CommonPublicInputs = f.public
 	assignment.UserSigningPkHash = f.userSigningPkHash
-	assignment.OutputCiphertextSalt = f.outputCiphertextSalt
 	assignment.PublicInputHash = f.publicInputHash
 	return assignment
 }
@@ -537,6 +556,10 @@ func (f *mergeWitnessFixture) ringCircuit() *merge.RingCircuit {
 	assignment.CommonPublicInputs = f.public
 	assignment.OutputRingDataHash = f.outputRingDataHash
 	assignment.RingProgramID = f.ringProgramID
+	assignment.MemberRegistryRoot = f.memberRegistryRoot
+	assignment.RegisteredCiphertextHash = f.registeredCtHash
+	assignment.MemberRecord = f.memberRecord
+	assignment.Anonymous = f.anonymous
 	assignment.PublicInputHash = f.publicInputHash
 	return assignment
 }

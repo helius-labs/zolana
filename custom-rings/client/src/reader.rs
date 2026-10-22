@@ -6,7 +6,7 @@ use custom_ring_interface::{READER_KEY_ED25519, READER_KEY_P256};
 use sha2::{Digest, Sha256};
 use solana_address::Address;
 use thiserror::Error;
-use zolana_keypair::PublicKey;
+use zolana_keypair::{KeypairError, PublicKey};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ReaderKey {
@@ -28,6 +28,12 @@ pub enum ReaderKeyError {
     Scheme,
     #[error("reader key body is not a valid key for its scheme")]
     Body,
+}
+
+impl From<KeypairError> for ReaderKeyError {
+    fn from(_: KeypairError) -> Self {
+        Self::Body
+    }
 }
 
 impl ReaderKey {
@@ -109,6 +115,7 @@ impl P256ReaderKey {
 impl FromStr for ReaderKey {
     type Err = ReaderKeyError;
 
+    /// Base58 text is an Ed25519 key, never a hex fallback.
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         if let Ok(address) = text.parse::<Address>() {
             return Self::ed25519(address).map_err(|_| ReaderKeyError::Text);

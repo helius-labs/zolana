@@ -1,19 +1,41 @@
-use std::fmt::Display;
+use std::{
+    collections::{BTreeSet, HashMap},
+    fmt::Display,
+    future::Future,
+    sync::{Arc, Mutex, PoisonError},
+    time::{Duration, Instant},
+};
 
-use anyhow::Context as _;
-
-use custom_ring_interface::{pda, KEY_REGISTRY_CAPACITY};
+use custom_ring_interface::{
+    check_member, queue_chain, tagged_x25519, RecordWriteData, RootEntry, WriteRecordsIxData,
+    MEMBER_REGISTRY_CAPACITY,
+};
 use sea_orm::{DatabaseConnection, DatabaseTransaction, TransactionTrait};
+use solana_clock::DEFAULT_MS_PER_SLOT;
 use solana_pubkey::Pubkey;
 use solana_transaction_status_client_types::TransactionDetails;
-use zolana_indexer_api::{Context as ApiContext, RingMemberProofRequest};
-use zolana_ring_key_registry::FIELD_MAX;
+use tokio::sync::Mutex as AsyncMutex;
+use zolana_indexer_api::{
+    Base64String, Context as ApiContext, GetRingApplyProofInputsRequest,
+    GetRingApplyProofInputsResponse, GetRingMemberOpeningsRequest, GetRingMemberOpeningsResponse,
+    GetRingMemberRecordRequest, GetRingMemberRecordResponse, GetRingMemberRecordsRequest,
+    GetRingMemberRecordsResponse, GetRingMemberRegistryRootRequest,
+    GetRingMemberRegistryRootResponse, GetRingRecordQueueRequest, GetRingRecordQueueResponse, Hash,
+    RingIndexedMemberRecordView, RingMemberOpening, RingMemberRecordView, RingQueueEntryView,
+    RingRecordPathView, RingRecordWriteView, RingRegistryRootView, RingRootEntryView,
+    SerializablePubkey, MAX_RING_MEMBER_PAGE_LIMIT,
+};
+use zolana_ring_indexer::tree::{
+    MemberRecord, OpeningCheck, QuadPath, RecordOpening, RecordTree, RecordWriteProofInput,
+};
 
 use super::{
-    key_registry::MemberKey,
-    load_root,
-    proof::{self, PathOverlay},
-    storage::{self, CustomRingCursor, PredecessorError, RingRoot, RingStore},
+    member_registry::{LoadedRegistry, RecordRead, TreeRead},
+    storage::{
+        self, CustomRingCursor, HistoryRoot, RegistryState, RegistryStore, StoredEntry,
+        StoredRecord,
+    },
+    ChainRead, ChainRegistry,
 };
 use crate::{
     api::{
@@ -24,189 +46,609 @@ use crate::{
     rpc::RpcClient,
 };
 
-pub(crate) struct Insertion {
-    pub context: ApiContext,
-    pub root: RingRoot,
-    pub low: MemberKey,
-    pub low_proof: Vec<[u8; 32]>,
-    pub new_proof: Vec<[u8; 32]>,
+/// The longest a stalled tip misses a chain move.
+pub(super) const CONFIRMATION_AGE: Duration = Duration::from_millis(DEFAULT_MS_PER_SLOT);
+
+pub(crate) trait ChainSource {
+    /// Fails unless `tip` is canonical and the accounts are no older.
+    fn confirmation(
+        &self,
+        tip: &BlockMetadata,
+        state: &RegistryState,
+    ) -> impl Future<Output = Result<Confirmation, CustomRingError>> + Send;
 }
 
-pub(crate) struct MemberPath {
-    pub context: ApiContext,
-    pub root: RingRoot,
-    pub leaf: MemberKey,
-    pub proof: Vec<[u8; 32]>,
+#[derive(Clone)]
+pub(crate) struct Confirmation {
+    context: ApiContext,
+    chain: Arc<ChainRegistry>,
 }
 
-pub(crate) async fn insertion(
+/// Concurrent requests at one tip wait for a single read per ring.
+pub(crate) struct CachedChain {
+    rpc: Arc<RpcClient>,
+    rings: Mutex<HashMap<[u8; 32], Arc<RingCache>>>,
+}
+
+type RingCache = AsyncMutex<Option<Cached>>;
+
+struct Cached {
+    tip: BlockMetadata,
+    read_at: Instant,
+    confirmation: Result<Confirmation, CustomRingError>,
+}
+
+impl CachedChain {
+    pub fn new(rpc: Arc<RpcClient>) -> Self {
+        Self {
+            rpc,
+            rings: Mutex::default(),
+        }
+    }
+
+    fn ring(&self, program: [u8; 32]) -> Arc<RingCache> {
+        let mut rings = self.rings.lock().unwrap_or_else(PoisonError::into_inner);
+        Arc::clone(rings.entry(program).or_default())
+    }
+}
+
+impl ChainSource for CachedChain {
+    async fn confirmation(
+        &self,
+        tip: &BlockMetadata,
+        state: &RegistryState,
+    ) -> Result<Confirmation, CustomRingError> {
+        let ring = self.ring(state.program);
+        let mut cached = ring.lock().await;
+        let fresh = |hit: &&Cached| hit.tip == *tip && hit.read_at.elapsed() < CONFIRMATION_AGE;
+        if let Some(hit) = cached.as_ref().filter(fresh) {
+            return hit.confirmation.clone();
+        }
+        let read_at = Instant::now();
+        let confirmation = self.rpc.confirmation(tip, state).await;
+        *cached = Some(Cached {
+            tip: tip.clone(),
+            read_at,
+            confirmation: confirmation.clone(),
+        });
+        confirmation
+    }
+}
+
+impl ChainSource for RpcClient {
+    async fn confirmation(
+        &self,
+        tip: &BlockMetadata,
+        state: &RegistryState,
+    ) -> Result<Confirmation, CustomRingError> {
+        let context = canonical_context(self, tip)
+            .await
+            .map_err(|error| CustomRingError::OutOfSync(error.to_string()))?;
+        let read = ChainRead {
+            state,
+            min_slot: tip.slot,
+        };
+        let chain = read
+            .load(self)
+            .await
+            .map_err(|error| CustomRingError::OutOfSync(format!("{error:#}")))?;
+        Ok(Confirmation {
+            context,
+            chain: Arc::new(chain),
+        })
+    }
+}
+
+pub(crate) async fn member_record(
     db: &DatabaseConnection,
-    rpc: &RpcClient,
-    request: &RingMemberProofRequest,
-) -> Result<Insertion, PhotonApiError> {
-    // 1. Read the requested root and both paths from one database snapshot.
-    let tx = db.begin().await?;
-    set_transaction_isolation_if_needed(&tx).await?;
-    let snapshot = snapshot(&tx, request).await?;
-    let root = &snapshot.root;
-    if root.next_index >= KEY_REGISTRY_CAPACITY {
-        return Err(PhotonApiError::ValidationError(
-            "key registry capacity exhausted".into(),
-        ));
+    chain: &impl ChainSource,
+    request: GetRingMemberRecordRequest,
+) -> Result<GetRingMemberRecordResponse, PhotonApiError> {
+    let members = std::slice::from_ref(&request.member);
+    check_members(members)?;
+    let read = Snapshot::open(db, &request.ring_program_id)
+        .await?
+        .at_root(&request.expected_root.0)
+        .await?;
+    if read.root.next_index != request.expected_next_index {
+        return Err(CustomRingError::RootChanged.into());
     }
-    let store = RingStore::new(&tx, root.program);
-    if store
-        .member(&request.member.0)
-        .await
-        .map_err(internal)?
-        .is_some()
-    {
-        return Err(CustomRingError::MemberAlreadyRegistered.into());
-    }
-    let low = store
-        .predecessor(&request.member.0)
-        .await
-        .map_err(|error| match error {
-            PredecessorError::NotAbsent => PhotonApiError::ValidationError(error.to_string()),
-            PredecessorError::Storage(error) => internal(error),
-        })?;
-    let low_path = proof::path(&tx, root, low.index).await.map_err(internal)?;
-    if low.hash().map_err(internal)? != low_path.leaf {
-        return Err(internal("key registry predecessor disagrees with its leaf"));
-    }
-    let mut new_path = proof::path(&tx, root, root.next_index)
-        .await
-        .map_err(internal)?;
-    if new_path.leaf != [0; 32] {
-        return Err(internal("key registry append slot is occupied"));
-    }
-    tx.commit().await?;
-    // 2. Rebase the empty append path onto the predecessor's updated root.
-    let mut spliced = low.clone();
-    spliced.next = request.member.0;
-    PathOverlay {
-        updated_index: low.index,
-        updated_leaf: spliced.hash().map_err(internal)?,
-        updated_path: &low_path.siblings,
-    }
-    .apply(root.next_index, &mut new_path)
-    .map_err(internal)?;
-    // 3. Require the proof's block and root to match the chain.
-    let context = confirm(rpc, &snapshot).await?;
-    Ok(Insertion {
+    let GetRingMemberOpeningsResponse {
         context,
-        root: snapshot.root,
-        low,
-        low_proof: low_path.siblings,
-        new_proof: new_path.siblings,
+        root,
+        openings,
+    } = read.openings(chain, members).await?;
+    let [opening] = <[RingMemberOpening; 1]>::try_from(openings)
+        .map_err(|_| internal("one member did not open exactly once"))?;
+    Ok(GetRingMemberRecordResponse {
+        context,
+        root,
+        opening,
     })
 }
 
-pub(crate) async fn member_path(
+pub(crate) async fn member_openings(
     db: &DatabaseConnection,
-    rpc: &RpcClient,
-    request: &RingMemberProofRequest,
-) -> Result<MemberPath, PhotonApiError> {
-    let tx = db.begin().await?;
-    set_transaction_isolation_if_needed(&tx).await?;
-    let snapshot = snapshot(&tx, request).await?;
-    let root = &snapshot.root;
-    let leaf = RingStore::new(&tx, root.program)
-        .member(&request.member.0)
+    chain: &impl ChainSource,
+    request: GetRingMemberOpeningsRequest,
+) -> Result<GetRingMemberOpeningsResponse, PhotonApiError> {
+    check_members(&request.members)?;
+    Snapshot::open(db, &request.ring_program_id)
+        .await?
+        .at_root(&request.expected_root.0)
+        .await?
+        .openings(chain, &request.members)
         .await
-        .map_err(internal)?
-        .ok_or(CustomRingError::MemberUnregistered)?;
-    let path = proof::path(&tx, root, leaf.index).await.map_err(internal)?;
-    if leaf.hash().map_err(internal)? != path.leaf {
-        return Err(internal("key registry member disagrees with its leaf"));
-    }
-    tx.commit().await?;
-    let context = confirm(rpc, &snapshot).await?;
-    Ok(MemberPath {
-        context,
-        root: snapshot.root,
-        leaf,
-        proof: path.siblings,
-    })
 }
 
-async fn check_chain(rpc: &RpcClient, root: &RingRoot) -> anyhow::Result<()> {
-    let program = Pubkey::new_from_array(root.program);
-    anyhow::ensure!(
-        pda::key_registry_root(&program).0.to_bytes() == root.address,
-        "noncanonical key registry address"
-    );
-    let chain = load_root(rpc, &program).await?;
-    anyhow::ensure!(
-        chain.root == root.root && chain.next_index == root.next_index,
-        "on-chain key registry root or cursor has advanced"
-    );
-    Ok(())
-}
-
-struct Snapshot {
-    root: RingRoot,
-    tip: Option<BlockMetadata>,
-}
-
-async fn snapshot(
-    tx: &DatabaseTransaction,
-    request: &RingMemberProofRequest,
-) -> Result<Snapshot, PhotonApiError> {
-    if request.expected_next_index == 0
-        || request.expected_next_index > KEY_REGISTRY_CAPACITY
-        || request.member.0 == [0; 32]
-        || request.member.0 >= FIELD_MAX
-    {
-        return Err(PhotonApiError::ValidationError(
-            "invalid key registry member or cursor".into(),
-        ));
+/// Contiguous, authenticated member leaves at the newest root.
+pub(crate) async fn member_records(
+    db: &DatabaseConnection,
+    chain: &impl ChainSource,
+    request: GetRingMemberRecordsRequest,
+) -> Result<GetRingMemberRecordsResponse, PhotonApiError> {
+    if request.limit == 0 || request.limit > MAX_RING_MEMBER_PAGE_LIMIT {
+        return Err(validation("invalid member registry page limit"));
     }
-    let cursor = storage::cursor(tx)
-        .await
-        .map_err(internal)?
-        .filter(CustomRingCursor::is_ready)
-        .ok_or_else(|| out_of_sync("custom ring indexer is catching up or recovering"))?;
-    if storage::pending_ring(tx, &request.ring_program_id.0.to_bytes())
-        .await
-        .map_err(internal)?
-        .is_some()
-    {
-        return Err(out_of_sync("ring history is being replayed"));
+    if request.start_index == 0 || request.start_index > request.expected_next_index {
+        return Err(validation("invalid member registry page start"));
     }
-    let root = RingStore::new(tx, request.ring_program_id.0.to_bytes())
-        .root()
-        .await
-        .map_err(internal)?
-        .ok_or_else(|| out_of_sync("initialization has not been indexed"))?;
-    if let Some(fault) = &root.fault {
-        return Err(out_of_sync(format!("ring quarantined, {fault}")));
-    }
+    let snapshot = Snapshot::open(db, &request.ring_program_id).await?;
+    let root = HistoryRoot::newest(&snapshot.state);
     if root.root != request.expected_root.0 || root.next_index != request.expected_next_index {
         return Err(CustomRingError::RootChanged.into());
     }
-    Ok(Snapshot {
-        root,
-        tip: cursor.tip,
+    let end = request
+        .start_index
+        .saturating_add(request.limit)
+        .min(root.next_index);
+    let leaves = request.start_index..end;
+    let store = snapshot.store();
+    let rows = store
+        .records_by_index(leaves.clone(), root.applied)
+        .await
+        .map_err(internal)?;
+    if !rows.iter().map(|row| row.record.index).eq(leaves) {
+        return Err(CustomRingError::PageGap.into());
+    }
+    let members = rows
+        .iter()
+        .map(|row| row.record.record.member)
+        .collect::<Vec<_>>();
+    let read = TreeRead {
+        root: &root,
+        records: RecordRead::Leaves(rows),
+        inserts: 0,
+    };
+    let loaded = read.load(&store).await.map_err(internal)?;
+    let records = members
+        .iter()
+        .map(|member| {
+            let opening = loaded.opening(&root, member)?;
+            Ok(RingIndexedMemberRecordView {
+                record: opening.record,
+                path: opening.path,
+            })
+        })
+        .collect::<Result<Vec<_>, PhotonApiError>>()?;
+    let context = snapshot.confirm(chain, Served::Root(&root)).await?.context;
+    Ok(GetRingMemberRecordsResponse {
+        context,
+        root: root_view(&root),
+        records,
+        next_leaf_index: (end < root.next_index).then_some(end),
     })
 }
 
-/// Runs after the read transaction commits.
-async fn confirm(rpc: &RpcClient, snapshot: &Snapshot) -> Result<ApiContext, PhotonApiError> {
-    let context = canonical_context(rpc, snapshot.tip.as_ref())
-        .await
-        .map_err(out_of_sync)?;
-    check_chain(rpc, &snapshot.root)
-        .await
-        .map_err(out_of_sync)?;
-    Ok(context)
+pub(crate) async fn registry_root(
+    db: &DatabaseConnection,
+    chain: &impl ChainSource,
+    request: GetRingMemberRegistryRootRequest,
+) -> Result<GetRingMemberRegistryRootResponse, PhotonApiError> {
+    let snapshot = Snapshot::open(db, &request.ring_program_id).await?;
+    let root = HistoryRoot::newest(&snapshot.state);
+    let append_path = if root.next_index < MEMBER_REGISTRY_CAPACITY {
+        let read = TreeRead {
+            root: &root,
+            records: RecordRead::Members(BTreeSet::new()),
+            inserts: 1,
+        };
+        let loaded = read.load(&snapshot.store()).await.map_err(internal)?;
+        let path = loaded.tree.path(root.next_index).map_err(internal)?;
+        if path.root([0; 32]).map_err(internal)? != root.root {
+            return Err(internal("the append path does not reach the newest root"));
+        }
+        Some(path_view(&path))
+    } else {
+        None
+    };
+    let Confirmed { context, state } = snapshot.confirm(chain, Served::Registry).await?;
+    let registry = &state.registry;
+    Ok(GetRingMemberRegistryRootResponse {
+        context,
+        history: registry.history.iter().map(root_entry_view).collect(),
+        history_cursor: registry.history_cursor,
+        next_index: root.next_index,
+        floor: registry.floor(),
+        prior_floor: registry.prior_floor(),
+        floor_slot: registry.floor_slot(),
+        append_path,
+    })
 }
 
-pub(super) async fn canonical_context(
-    rpc: &RpcClient,
-    tip: Option<&BlockMetadata>,
-) -> anyhow::Result<ApiContext> {
-    let tip = tip.context("cursor has no canonical block")?;
+pub(crate) async fn record_queue(
+    db: &DatabaseConnection,
+    chain: &impl ChainSource,
+    request: GetRingRecordQueueRequest,
+) -> Result<GetRingRecordQueueResponse, PhotonApiError> {
+    let snapshot = Snapshot::open(db, &request.ring_program_id).await?;
+    let entries = snapshot
+        .chained_entries()
+        .await?
+        .iter()
+        .map(|entry| RingQueueEntryView {
+            position: entry.position,
+            member: Hash(entry.write.entry.member),
+            mask: entry.write.entry.mask,
+            value: entry.write.entry.value,
+            escrow_key: Hash(entry.write.entry.escrow_key),
+            slot: entry.slot,
+        })
+        .collect();
+    let Confirmed { context, state } = snapshot.confirm(chain, Served::Queue).await?;
+    Ok(GetRingRecordQueueResponse {
+        context,
+        head: state.queue.head(),
+        tail: state.queue.tail(),
+        chain_head: Hash(state.queue.chain_head),
+        entries,
+    })
+}
+
+pub(crate) async fn apply_proof_inputs(
+    db: &DatabaseConnection,
+    chain: &impl ChainSource,
+    request: GetRingApplyProofInputsRequest,
+) -> Result<GetRingApplyProofInputsResponse, PhotonApiError> {
+    let authority = request
+        .authority_writes
+        .iter()
+        .map(|write| {
+            let lists = WriteRecordsIxData {
+                mask: write.mask.to_le_bytes(),
+                value: write.value.to_le_bytes(),
+            };
+            RecordWriteData {
+                member: write.member.0,
+                lists,
+            }
+            .entry()
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(validation)?;
+    let snapshot = Snapshot::open(db, &request.ring_program_id).await?;
+    let state = &snapshot.state;
+    let count = authority.len() as u64;
+    let refusal = match state.queue.admit_authority_writes(count) {
+        Err(error) => Some(validation(error)),
+        Ok(()) if state.queue.pending() + count == 0 => {
+            Some(validation("the record queue is empty"))
+        }
+        Ok(()) => None,
+    };
+    if let Some(refusal) = refusal {
+        // A refusal of the projected queue stands only while the chain holds the same queue.
+        snapshot.confirm(chain, Served::Application).await?;
+        return Err(refusal);
+    }
+    let store = snapshot.store();
+    let pending = snapshot.chained_entries().await?;
+    let entries = pending
+        .iter()
+        .map(|row| row.write.entry)
+        .chain(authority)
+        .collect::<Vec<_>>();
+    let root = HistoryRoot::newest(state);
+    let loaded = TreeRead::batch(&root, &entries)
+        .load(&store)
+        .await
+        .map_err(internal)?;
+    let inputs = loaded
+        .tree
+        .apply_batch(state.queue.chain_head, &entries)
+        .map_err(internal)?
+        .inputs;
+    if inputs.old_root != root.root {
+        return Err(internal("the loaded tree does not reach the newest root"));
+    }
+    let context = snapshot.confirm(chain, Served::Application).await?.context;
+    Ok(GetRingApplyProofInputsResponse {
+        context,
+        old_root: Hash(inputs.old_root),
+        new_root: Hash(inputs.new_root),
+        old_next_index: inputs.old_next_index,
+        new_next_index: inputs.new_next_index,
+        chain_start: Hash(inputs.chain_start),
+        chain_end: Hash(inputs.chain_end),
+        writes: inputs.writes.iter().map(write_view).collect(),
+    })
+}
+
+fn check_members(members: &[Hash]) -> Result<(), PhotonApiError> {
+    let count = members.len() as u64;
+    if count == 0 || count > MAX_RING_MEMBER_PAGE_LIMIT {
+        return Err(validation("invalid member count"));
+    }
+    members
+        .iter()
+        .try_for_each(|member| check_member(&member.0).map_err(validation))
+}
+
+/// One ring read in a repeatable read transaction at the projection's tip.
+struct Snapshot {
+    tx: DatabaseTransaction,
+    state: RegistryState,
+    tip: Option<BlockMetadata>,
+}
+
+struct RootRead {
+    snapshot: Snapshot,
+    root: HistoryRoot,
+}
+
+struct Confirmed {
+    context: ApiContext,
+    state: RegistryState,
+}
+
+enum Served<'r> {
+    Root(&'r HistoryRoot),
+    Registry,
+    Queue,
+    /// Apply proof inputs, they hold while the queue and the root it applies to stay.
+    Application,
+}
+
+impl Snapshot {
+    /// Fails before any RPC while the projection catches up, replays the ring or holds it quarantined.
+    async fn open(
+        db: &DatabaseConnection,
+        ring_program_id: &SerializablePubkey,
+    ) -> Result<Self, PhotonApiError> {
+        let program = ring_program_id.0.to_bytes();
+        let tx = db.begin().await?;
+        set_transaction_isolation_if_needed(&tx).await?;
+        let cursor = storage::cursor(&tx)
+            .await
+            .map_err(internal)?
+            .filter(CustomRingCursor::is_ready)
+            .ok_or_else(|| out_of_sync("indexer is catching up or recovering"))?;
+        let pending = storage::pending_ring(&tx, &program)
+            .await
+            .map_err(internal)?;
+        if pending.is_some() {
+            return Err(out_of_sync("ring history is being replayed"));
+        }
+        let state = RegistryStore::new(&tx, program)
+            .state()
+            .await
+            .map_err(internal)?
+            .ok_or_else(|| out_of_sync("initialization has not been indexed"))?;
+        if let Some(fault) = &state.fault {
+            return Err(out_of_sync(format!("ring quarantined, {fault}")));
+        }
+        Ok(Self {
+            tx,
+            state,
+            tip: cursor.tip,
+        })
+    }
+
+    fn store(&self) -> RegistryStore<'_, DatabaseTransaction> {
+        RegistryStore::new(&self.tx, self.state.program)
+    }
+
+    /// The newest history entry holding `root`, its applied position decides the floor rule.
+    async fn at_root(self, root: &[u8; 32]) -> Result<RootRead, PhotonApiError> {
+        let (index, entry) = (0u8..)
+            .zip(self.state.registry.history.iter())
+            .filter(|(_, entry)| entry.root == *root && *root != [0; 32])
+            .max_by_key(|(_, entry)| entry.applied())
+            .ok_or(CustomRingError::RootChanged)?;
+        let root = self
+            .store()
+            .root(entry.applied())
+            .await
+            .map_err(internal)?
+            .filter(|stored| stored.root == entry.root && stored.history_index == index)
+            .ok_or_else(|| internal("a history root is missing from the projection"))?;
+        Ok(RootRead {
+            snapshot: self,
+            root,
+        })
+    }
+
+    async fn chained_entries(&self) -> Result<Vec<StoredEntry>, PhotonApiError> {
+        let queue = &self.state.queue;
+        let rows = self
+            .store()
+            .entries(queue.head()..queue.tail())
+            .await
+            .map_err(internal)?;
+        let chained = rows.iter().try_fold(queue.chain_head, |chain, row| {
+            queue_chain(&chain, &row.write.entry)
+        });
+        if !chained.is_ok_and(|end| end == queue.chain_tail()) {
+            return Err(out_of_sync("queue rows do not reach the queue chain"));
+        }
+        Ok(rows)
+    }
+
+    /// Commits the read before the RPC calls.
+    async fn confirm(
+        self,
+        chain: &impl ChainSource,
+        served: Served<'_>,
+    ) -> Result<Confirmed, PhotonApiError> {
+        self.tx.commit().await?;
+        let tip = self
+            .tip
+            .as_ref()
+            .ok_or_else(|| out_of_sync("cursor has no canonical block"))?;
+        let confirmation = chain.confirmation(tip, &self.state).await?;
+        if !served.agrees(&confirmation.chain, &self.state) {
+            return Err(served.moved().into());
+        }
+        Ok(Confirmed {
+            context: confirmation.context,
+            state: self.state,
+        })
+    }
+}
+
+impl RootRead {
+    async fn openings(
+        self,
+        chain: &impl ChainSource,
+        members: &[Hash],
+    ) -> Result<GetRingMemberOpeningsResponse, PhotonApiError> {
+        let root = &self.root;
+        let read = TreeRead {
+            root,
+            records: RecordRead::Members(members.iter().map(|member| member.0).collect()),
+            inserts: 0,
+        };
+        let loaded = read.load(&self.snapshot.store()).await.map_err(internal)?;
+        let openings = members
+            .iter()
+            .map(|member| loaded.opening(root, &member.0))
+            .collect::<Result<Vec<_>, _>>()?;
+        let served = Served::Root(root);
+        let context = self.snapshot.confirm(chain, served).await?.context;
+        Ok(GetRingMemberOpeningsResponse {
+            context,
+            root: root_view(root),
+            openings,
+        })
+    }
+}
+
+impl Served<'_> {
+    fn agrees(&self, chain: &ChainRegistry, state: &RegistryState) -> bool {
+        match self {
+            Self::Root(root) => chain.holds(root),
+            Self::Registry => chain.records_match(state),
+            Self::Queue => chain.queue == state.queue,
+            Self::Application => chain.queue_matches(state),
+        }
+    }
+
+    fn moved(&self) -> CustomRingError {
+        match self {
+            Self::Root(_) => CustomRingError::RootChanged,
+            Self::Application => CustomRingError::QueueChanged,
+            Self::Registry | Self::Queue => {
+                CustomRingError::OutOfSync("the on-chain registry has moved".into())
+            }
+        }
+    }
+}
+
+impl LoadedRegistry {
+    fn opening(
+        &self,
+        root: &HistoryRoot,
+        member: &[u8; 32],
+    ) -> Result<RingMemberOpening, PhotonApiError> {
+        let opening = self.tree.opening(member).map_err(internal)?;
+        OpeningCheck {
+            opening: &opening,
+            root: &root.root,
+            member,
+        }
+        .verify()
+        .map_err(|error| internal(format!("member registry opening disagrees ({error})")))?;
+        let (present, record, path) = match opening {
+            RecordOpening::Present { record, path } => (true, record, path),
+            RecordOpening::Absent { low, path } => (false, low, path),
+        };
+        let stored = self
+            .stored
+            .get(&record.member)
+            .ok_or_else(|| internal("opened record was not loaded"))?;
+        Ok(RingMemberOpening {
+            present,
+            record: record_view(stored),
+            path: path_view(&path),
+        })
+    }
+}
+
+fn record_view(stored: &StoredRecord) -> RingMemberRecordView {
+    let seal = stored.seal;
+    RingMemberRecordView {
+        owner_pubkey: seal.map(|seal| Pubkey::new_from_array(seal.owner_pubkey).into()),
+        nullifier_pk: seal.map(|seal| Hash(seal.nullifier_pk)),
+        eph_pk: seal.map(|seal| Base64String(tagged_x25519(&seal.eph_u).to_vec())),
+        ciphertext: seal.map(|seal| Base64String(seal.ciphertext.to_vec())),
+        ..member_view(&stored.record.record)
+    }
+}
+
+fn member_view(record: &MemberRecord) -> RingMemberRecordView {
+    RingMemberRecordView {
+        member: Hash(record.member),
+        next: Hash(record.next),
+        lists: record.lists,
+        escrow_key: Hash(record.escrow_key),
+        owner_pubkey: None,
+        nullifier_pk: None,
+        eph_pk: None,
+        ciphertext: None,
+    }
+}
+
+fn write_view(write: &RecordWriteProofInput) -> RingRecordWriteView {
+    RingRecordWriteView {
+        member: Hash(write.entry.member),
+        mask: write.entry.mask,
+        value: write.entry.value,
+        escrow_key: Hash(write.entry.escrow_key),
+        exists: write.exists,
+        old_next: Hash(write.old_next),
+        old_lists: write.old_lists,
+        old_escrow: Hash(write.old_escrow),
+        slot: path_view(&write.slot),
+        low: member_view(&write.low),
+        low_path: path_view(&write.low_path),
+    }
+}
+
+fn path_view(path: &QuadPath) -> RingRecordPathView {
+    RingRecordPathView {
+        index: path.index,
+        siblings: path.siblings.iter().map(|level| level.map(Hash)).collect(),
+    }
+}
+
+fn root_view(root: &HistoryRoot) -> RingRegistryRootView {
+    RingRegistryRootView {
+        root: Hash(root.root),
+        root_index: root.history_index,
+        applied: root.applied,
+        next_index: root.next_index,
+    }
+}
+
+fn root_entry_view(entry: &RootEntry) -> Option<RingRootEntryView> {
+    (entry.root != [0; 32]).then(|| RingRootEntryView {
+        root: Hash(entry.root),
+        applied: entry.applied(),
+        slot: entry.slot(),
+    })
+}
+
+async fn canonical_context(rpc: &RpcClient, tip: &BlockMetadata) -> anyhow::Result<ApiContext> {
     let block = rpc.get_block(tip.slot, TransactionDetails::None).await?;
     anyhow::ensure!(
         block.blockhash == tip.blockhash.to_string(),
@@ -222,6 +664,10 @@ fn out_of_sync(reason: impl Display) -> PhotonApiError {
     CustomRingError::OutOfSync(reason.to_string()).into()
 }
 
-pub(super) fn internal(error: impl Display) -> PhotonApiError {
+fn validation(reason: impl Display) -> PhotonApiError {
+    PhotonApiError::ValidationError(reason.to_string())
+}
+
+fn internal(error: impl Display) -> PhotonApiError {
     PhotonApiError::UnexpectedError(format!("{error:#}"))
 }

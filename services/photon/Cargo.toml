@@ -31,7 +31,7 @@ name = "photon-snapshot-loader"
 path = "src/snapshot/loader/main.rs"
 
 [features]
-custom-rings = ["dep:bytemuck", "dep:custom-ring-interface", "dep:zolana-hasher", "dep:zolana-ring-policy", "dep:zolana-ring-key-registry", "dep:zolana-ring-indexer"]
+custom-rings = ["dep:bytemuck", "dep:custom-ring-interface", "dep:zolana-ring-indexer"]
 surfpool-fixture = []
 
 [dependencies]
@@ -54,7 +54,7 @@ once_cell = { workspace = true }
 sea-orm = { workspace = true }
 bytes = { workspace = true }
 base64 = { workspace = true }
-sea-orm-migration = { workspace = true }
+sea-orm-migration = { workspace = true, features = ["sqlx-sqlite"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
@@ -93,16 +93,16 @@ zolana-interface = { path = "../../program-libs/interface", version = "0.1.0", d
 zolana-tree = { workspace = true }
 zolana-user-registry-interface = { workspace = true, features = ["pda"] }
 custom-ring-interface = { workspace = true, optional = true }
-zolana-ring-policy = { workspace = true, optional = true }
-zolana-ring-key-registry = { workspace = true, optional = true }
 zolana-ring-indexer = { workspace = true, optional = true }
-zolana-hasher = { workspace = true, optional = true }
 bytemuck = { workspace = true, optional = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
+hex = { workspace = true }
 serde_norway = { workspace = true }
 wincode = { workspace = true }
+zolana-ring-member-registry = { workspace = true }
+zolana-ring-policy = { workspace = true }
 zolana-interface = { path = "../../program-libs/interface", version = "0.1.0", default-features = false, features = ["borsh", "tree"] }
 
 [[bench]]

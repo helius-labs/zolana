@@ -128,6 +128,32 @@ func TestOutputCiphertextMatchesSharedVectors(t *testing.T) {
 	assert.SolvingFailed(&outputCiphertextCircuit{}, &witness, test.WithCurves(ecc.BN254))
 }
 
+type mintChunkCircuit struct {
+	MintChunks [2]frontend.Variable
+}
+
+func (c *mintChunkCircuit) Define(api frontend.API) error {
+	_ = MergeOutputCiphertext(api, 1, 2, 3, 4, c.MintChunks)
+	return nil
+}
+
+func TestMergeOutputRejectsUndecodableMintChunks(t *testing.T) {
+	maximumHead := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 248), big.NewInt(1))
+	valid := mintChunkCircuit{MintChunks: [2]frontend.Variable{maximumHead, 255}}
+	if err := test.IsSolved(&mintChunkCircuit{}, &valid, ecc.BN254.ScalarField()); err != nil {
+		t.Fatalf("rejected canonical mint chunks: %v", err)
+	}
+	for _, invalid := range [][2]frontend.Variable{
+		{new(big.Int).Lsh(big.NewInt(1), 248), 0},
+		{0, 256},
+	} {
+		witness := mintChunkCircuit{MintChunks: invalid}
+		if err := test.IsSolved(&mintChunkCircuit{}, &witness, ecc.BN254.ScalarField()); err == nil {
+			t.Fatalf("accepted undecodable mint chunks: %v", invalid)
+		}
+	}
+}
+
 // TestRecoveryDomainsAreTheAsciiTags pins the tag byte values; drift here
 // silently breaks wallet recovery.
 func TestRecoveryDomainsAreTheAsciiTags(t *testing.T) {

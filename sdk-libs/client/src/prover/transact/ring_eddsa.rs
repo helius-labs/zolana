@@ -20,8 +20,8 @@ use crate::{
         cache::CacheSelection,
         field::be,
         transact::assembly::{
-            assemble_transaction, confidential_marked_output_owner_pk_hashes, validate_shape,
-            AssembledTransaction, OwnerMode, PublicInputs, TransferInputUtxo,
+            assemble_transaction, confidential_marked_output_owner_pk_hashes, ring_secrets,
+            validate_shape, AssembledTransaction, OwnerMode, PublicInputs, TransferInputUtxo,
         },
         Shape, TransferInputs, TreeSlotFields,
     },
@@ -62,6 +62,8 @@ pub struct RingTransferProofResult {
 
 impl RingTransferProver {
     pub fn build(self) -> Result<RingTransferProofResult, ClientError> {
+        self.external_data
+            .validate_ring_output_markers(&self.outputs)?;
         let shape = self.shape;
         validate_shape(shape, self.inputs.len(), self.outputs.len())?;
         if self.signer_pk_hashes.len() != shape.signer_width() {
@@ -122,6 +124,7 @@ impl RingTransferProver {
             tree_slots: TreeSlotFields::encode_all(&assembled_inputs.tree_slots),
             output_tree_id: BigUint::from(self.output_tree_id),
             blinding_seed: be(&self.blinding_seed),
+            ring_secrets: ring_secrets(&self.outputs),
             external_data_hash: be(&external_data_hash),
             private_tx_hash: be(&private_tx),
             public_assets: self.public_transfers.assets.map(|asset| be(&asset)),

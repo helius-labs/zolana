@@ -124,18 +124,12 @@ it("sizes a merge statement by its rail", () => {
     const prepared = Merge.fromKeypair(owner, [input]).prepare();
     const { inputs } = prepareMerge(prepared, treeAddress(prepared.inputTreeId));
     if (inputs.circuit !== "merge") throw new Error("merge fixture prepared another circuit");
-    // A default merge publishes 12 elements before the tree slots, a ring merge
-    // 8: it binds the output ring data hash and ring program id, no ciphertext.
+    // A default merge publishes 12 elements before the tree slots.
     expect(inputs.publicInputs).toHaveLength(12);
-    const ring = { ...inputs, payload: { ...inputs.payload, ringProgramId: asField(7n) } };
-    const ringStatement = { ...ring, publicInputs: inputs.publicInputs.slice(0, 8) };
     expect(decodeIndexedInputs(inputs).publicInputs).toHaveLength(12);
-    expect(decodeIndexedInputs(ringStatement).publicInputs).toHaveLength(8);
-    for (const request of [ring, { ...inputs, publicInputs: inputs.publicInputs.slice(0, 8) }]) {
-      expect(() => decodeIndexedInputs(request)).toThrow(
-        expect.objectContaining({ code: "CLIENT_INVALID_PROOF_INPUTS" }),
-      );
-    }
+    expect(() =>
+      decodeIndexedInputs({ ...inputs, publicInputs: inputs.publicInputs.slice(0, 8) }),
+    ).toThrow(expect.objectContaining({ code: "CLIENT_INVALID_PROOF_INPUTS" }));
   } finally {
     owner.destroy();
   }
@@ -289,6 +283,7 @@ it("refuses a key holder's merge root at the field modulus as unparsable", async
     const keys = {
       prove: vi.fn(),
       proveMerge: vi.fn(),
+      proveRingWithSecret: vi.fn(),
       proveIndexed: async () => ({
         proof: parseProof(STANDARD_PROOF),
         resolution: {

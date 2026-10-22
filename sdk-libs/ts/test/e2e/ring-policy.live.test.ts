@@ -4,12 +4,12 @@ import { address } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 
 import { createZolanaClient } from "../../src/index.js";
-import { decodeTreeHeadRoots } from "../../src/interface/index.js";
+import { ListId, memberOfTag, pinnedPolicy } from "../../src/ring/advanced.js";
 import {
-  ListId,
   buildRingDepositTransaction,
   buildRingTransferTransaction,
-  fetchRingPolicyConfig,
+  fetchRingMemberRegistry,
+  registryCurrentRoot,
 } from "../../src/ring/index.js";
 import { signSendAndConfirm } from "./live-helpers.js";
 import {
@@ -30,11 +30,11 @@ describe("ring policy", () => {
       indexerUrl: requiredEnv("ZOLANA_INDEXER_URL"),
       proverUrl: requiredEnv("ZOLANA_PROVER_URL"),
       tree: address(requiredEnv("ZOLANA_TREE")),
+      proofDataSource: "client",
     });
     const authority = await keypairSignerFromFile(requiredEnv("RING_AUTHORITY_KEYPAIR"));
-    const policy = await fetchRingPolicyConfig(client, ringProgramId);
-    expect(policy.ruleCount).toBe(4);
-    expect(policy.addressTree).toBe(client.tree);
+    const policy = pinnedPolicy(await fetchRingMemberRegistry(client, ringProgramId));
+    expect(policy.table.rules).toHaveLength(4);
 
     const sender = await freshActor(client);
     const recipient = await freshActor(client);
@@ -45,7 +45,7 @@ describe("ring policy", () => {
         client,
         ringProgramId,
         feePayer: sender.signer.address,
-        recipient: sender.keypair.shieldedAddress(),
+        recipient: { kind: "confidential", address: sender.keypair.shieldedAddress() },
         amount: deposited,
       });
       await signSendAndConfirm(client, deposit, [sender.signer]);
@@ -62,6 +62,7 @@ describe("ring policy", () => {
         amount,
       });
     };
+    // A rule the parties fail refuses the transfer before any proof.
     const refused = async () =>
       expect(transfer()).rejects.toMatchObject({
         code: "RING_BUILD_TRANSFER",
@@ -75,24 +76,20 @@ describe("ring policy", () => {
     await enrolInAllow(client, ringProgramId, authority, [sender, recipient]);
     await signSendAndConfirm(client, await transfer(), [sender.signer]);
 
-    // A frozen sender is refused, the cleared entry admits again through the cleared branch.
+    // A frozen sender is refused until its frozen-list bit is cleared.
     const frozen = await writeList(client, ringProgramId, authority, {
       listId: ListId.frozen,
       tag: senderTag,
       state: "active",
     });
-    expect(frozen).toMatchObject({ kind: "transaction", change: "claimed" });
+    expect(frozen).toEqual({ kind: "transaction", member: memberOfTag(senderTag) });
     await refused();
     const unfrozen = await writeList(client, ringProgramId, authority, {
       listId: ListId.frozen,
       tag: senderTag,
       state: "cleared",
     });
-    expect(unfrozen).toMatchObject({
-      kind: "transaction",
-      change: "moved",
-      entry: { version: 1n },
-    });
+    expect(unfrozen).toEqual({ kind: "transaction", member: memberOfTag(senderTag) });
     await signSendAndConfirm(client, await transfer(), [sender.signer]);
 
     // A blocked recipient is refused even while allowed.
@@ -109,7 +106,7 @@ describe("ring policy", () => {
     });
     await signSendAndConfirm(client, await transfer(), [sender.signer]);
 
-    // A write the entry already carries makes no transaction.
+    // Setting an existing membership bit makes no transaction.
     const again = await writeList(client, ringProgramId, authority, {
       listId: ListId.allow,
       tag: recipientTag,
@@ -117,12 +114,11 @@ describe("ring policy", () => {
     });
     expect(again.kind).toBe("unchanged");
 
-    // The head the SDK reads off the account is the root the indexer proves the latest entry against.
-    const account = await client.getAccount(client.tree);
-    if (account === undefined) throw new Error("address tree missing");
-    const heads = decodeTreeHeadRoots(account.data);
+    // The member record authenticates the same root the registry account currently stores.
+    const registry = await fetchRingMemberRegistry(client, ringProgramId);
     if (again.kind !== "unchanged") throw new Error("unreachable");
-    const { proofs } = await client.getMerkleProofs(client.tree, [again.entry.utxoHash]);
-    expect(proofs[0]?.rootIndex).toBeLessThanOrEqual(heads.stateRootIndex);
+    expect(again.record).toBeDefined();
+    expect(again.root).toEqual(registryCurrentRoot(registry).root);
+    expect(again.nextIndex).toBe(registry.nextIndex);
   }, 900_000);
 });

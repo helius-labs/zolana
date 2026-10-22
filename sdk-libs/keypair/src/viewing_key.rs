@@ -12,10 +12,13 @@ use std::sync::OnceLock;
 use rand::{rngs::OsRng, RngCore};
 use zeroize::Zeroizing;
 
+use solana_address::Address;
+
 use crate::{
     constants::{SALT_LEN, VIEW_TAG_LEN},
     derivation::{
-        self, INFO_RECIPIENT_VIEW_TAG_SECRET, INFO_SENDER_VIEW_TAG_SECRET, INFO_TX_VIEWING_X25519,
+        self, INFO_RECIPIENT_VIEW_TAG_SECRET, INFO_RING_ADDRESS_KEY_PREFIX,
+        INFO_RING_CHANGE_KEY_PREFIX, INFO_SENDER_VIEW_TAG_SECRET, INFO_TX_VIEWING_X25519,
     },
     encryption,
     error::KeypairError,
@@ -102,26 +105,43 @@ impl ViewingKey {
             .get_or_init(|| derivation::view_root(&self.secret))
     }
 
-    pub(crate) fn derive_secret32(&self, info: &[u8]) -> Result<[u8; 32], KeypairError> {
+    pub(crate) fn derive_secret32(&self, info: &[&[u8]]) -> Result<[u8; 32], KeypairError> {
         let mut out = [0u8; 32];
-        derivation::hkdf_expand_prk(self.view_root().as_slice(), &[info], &mut out)?;
+        derivation::hkdf_expand_prk(self.view_root().as_slice(), info, &mut out)?;
         Ok(out)
     }
 
     /// `sender_view_tag_secret` (`info = "TSPP/sender_view_tag"`).
     pub(crate) fn sender_view_tag_secret(&self) -> Result<[u8; 32], KeypairError> {
-        self.derive_secret32(INFO_SENDER_VIEW_TAG_SECRET)
+        self.derive_secret32(&[INFO_SENDER_VIEW_TAG_SECRET])
     }
 
     /// `recipient_view_tag_secret` (`info = "TSPP/recipient_view_tag"`).
     pub(crate) fn recipient_view_tag_secret(&self) -> Result<[u8; 32], KeypairError> {
-        self.derive_secret32(INFO_RECIPIENT_VIEW_TAG_SECRET)
+        self.derive_secret32(&[INFO_RECIPIENT_VIEW_TAG_SECRET])
     }
 
     /// `tx_viewing_secret`, the seed for transaction viewing keys
     /// (`info = "TSPP/tx_viewing/x25519/v1"`).
     pub(crate) fn tx_viewing_secret(&self) -> Result<[u8; 32], KeypairError> {
-        self.derive_secret32(INFO_TX_VIEWING_X25519)
+        self.derive_secret32(&[INFO_TX_VIEWING_X25519])
+    }
+
+    /// The key of ring address `index` in `ring`, the recipient key its inbox stream derives from.
+    pub fn ring_address_key(&self, ring: &Address, index: u32) -> Result<Self, KeypairError> {
+        let secret = Zeroizing::new(self.derive_secret32(&[
+            INFO_RING_ADDRESS_KEY_PREFIX,
+            ring.as_array(),
+            &index.to_be_bytes(),
+        ])?);
+        Ok(Self::from_bytes(&secret))
+    }
+
+    /// The key a sender's change in `ring` is delivered to, found from the sender's own spends.
+    pub fn ring_change_key(&self, ring: &Address) -> Result<Self, KeypairError> {
+        let secret =
+            Zeroizing::new(self.derive_secret32(&[INFO_RING_CHANGE_KEY_PREFIX, ring.as_array()])?);
+        Ok(Self::from_bytes(&secret))
     }
 
     /// Sender-derived view tag for the sender's own change UTXO at `tx_count`;

@@ -1,48 +1,41 @@
 //! The `[policy]` table of `ring.toml` and its compilation to the pinned rule table.
 
-use std::{collections::BTreeMap, fmt, num::NonZeroU64, str::FromStr};
+use std::{cmp::Ordering, collections::BTreeMap, fmt, str::FromStr};
 
 use custom_ring_sdk::CustomRing;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use solana_address::Address;
 use thiserror::Error;
-use zolana_interface::pda;
 use zolana_ring_policy::{
-    Guard, ListId, ListSet, Member, MemberError, Mode, Rule, RuleSource, RuleTable, RuleTableError,
-    Subject, VelocityMode, VelocityRow, Writer, MAX_INLINE_ASSETS, MAX_RULES, MAX_VELOCITY_ASSETS,
+    Guard, ListId, ListSet, Member, MemberError, Mode, OutflowLimit, Rule, RuleSource, RuleTable,
+    RuleTableError, Subject, Writer, MAX_INLINE_ASSETS, MAX_OUTFLOW_LIMITS, MAX_RULES,
 };
 
-use crate::config::{Base58Address, PerCluster, Target};
+use crate::{
+    config::{Base58Address, PerCluster, Target},
+    macros::{named_enum, serde_via_str},
+};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PolicySpec {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub address_tree: Option<Base58Address>,
-    /// Curator program ids by list name, an absent list reads the ring's own entries.
+    /// Curator program ids by list name, an absent list reads the ring's own registry.
     #[serde(default, skip_serializing_if = "PerCluster::is_empty")]
     pub sources: PerCluster<Sources>,
     /// Every rule must hold, in row order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rules: Vec<RuleSpec>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub velocity: Option<VelocitySpec>,
+    /// A sender's outflow per mint and transfer, at most one entry per mint.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub limits: Vec<LimitSpec>,
 }
 
 pub type Sources = BTreeMap<ListName, Base58Address>;
 
+/// A zero `cap` or `cosign_above` leaves that bound off, one of them is nonzero.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct VelocitySpec {
-    /// Zero caps each transfer alone, nonzero resets counters at fixed slot boundaries.
-    #[serde(default)]
-    pub window_slots: u64,
-    pub rows: Vec<VelocityRowSpec>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct VelocityRowSpec {
+pub struct LimitSpec {
     pub asset: Base58Address,
     #[serde(default)]
     pub cap: u64,
@@ -50,7 +43,7 @@ pub struct VelocityRowSpec {
     pub cosign_above: u64,
 }
 
-/// Exactly one of `require`, `forbid`, `any` or `assets` beside the subject.
+/// Exactly one of `require`, `forbid` or `any` beside the subject.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(try_from = "RawRule", into = "RawRule")]
 pub struct RuleSpec {
@@ -72,7 +65,6 @@ pub enum SourceSpec {
     Require(ListName),
     Forbid(ListName),
     Any(Vec<Alternative>),
-    Assets(Vec<Base58Address>),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -86,17 +78,17 @@ pub enum Alternative {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ListName(ListId);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SubjectName {
-    OutputOwner,
-    Sender,
-    Asset,
+named_enum! {
+    pub enum SubjectName("subject") {
+        OutputOwner = "output-owner",
+        Sender = "sender",
+        Asset = "asset",
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CompiledPolicy {
     pub rules: RuleTable,
-    pub address_tree: Address,
     pub shared_sources: Vec<(ListId, CustomRing)>,
 }
 
@@ -104,27 +96,26 @@ pub(crate) struct PolicyRows {
     pub rules: Vec<Rule>,
     pub assets: Vec<[u8; 32]>,
     pub limits: Vec<u64>,
-    pub window_slots: u64,
-    pub velocity: Vec<VelocityRow>,
+    pub outflow: Vec<OutflowLimit>,
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum PolicyError {
+    #[error("asset allowlists use registry lists, replace assets with require or forbid")]
+    InlineAssetsRemoved,
     #[error("unknown list {name}")]
     UnknownList { name: String },
     #[error("the {name} list is written by its members, a rule cannot read it")]
     MemberWrittenList { name: String },
-    #[error("unknown subject {name}")]
-    UnknownSubject { name: String },
-    #[error("a rule names no source, give one of require, forbid, any or assets")]
+    #[error("a rule names no source, give one of require, forbid or any")]
     NoSourceForm,
-    #[error("a rule names several sources, give one of require, forbid, any or assets")]
+    #[error("a rule names several sources, give one of require, forbid or any")]
     SeveralSourceForms,
     #[error("any names no alternative")]
     EmptyAny,
     #[error("{count} rules exceed the {MAX_RULES} rows of the table")]
     TooManyRules { count: usize },
-    #[error("{count} inline assets exceed the {MAX_INLINE_ASSETS} slots of the table")]
+    #[error("{count} mint thresholds exceed the {MAX_INLINE_ASSETS} slots of the table")]
     TooManyAssets { count: usize },
     #[error("the {} source {list} serves no rule", cluster.as_str())]
     UnreferencedSource { list: ListName, cluster: Target },
@@ -136,7 +127,7 @@ pub enum PolicyError {
     EmptyLimits { rule: usize },
     #[error("rule {} takes per-asset limits only for an output-owner list rule", rule + 1)]
     PerAssetGuard { rule: usize },
-    #[error("rule {} defines a different inline asset map", rule + 1)]
+    #[error("rule {} defines a different mint threshold map", rule + 1)]
     ConflictingAssetMap { rule: usize },
     #[error("rule {} threshold {amount} exceeds what a toml integer holds", rule + 1)]
     ThresholdTooLarge { rule: usize, amount: u64 },
@@ -149,19 +140,19 @@ pub enum PolicyError {
     },
     #[error("rule {} is refused, {message}", rule + 1)]
     Refused { rule: usize, message: &'static str },
-    #[error("{count} velocity rows exceed the {MAX_VELOCITY_ASSETS} slots of the table")]
-    TooManyVelocityRows { count: usize },
-    #[error("velocity row {} asset {mint} derives no member", row + 1)]
-    VelocityAsset {
+    #[error("{count} outflow limits exceed the {MAX_OUTFLOW_LIMITS} slots of the table")]
+    TooManyLimits { count: usize },
+    #[error("outflow limit {} asset {mint} derives no member", row + 1)]
+    LimitAsset {
         row: usize,
         mint: Address,
         #[source]
         source: MemberError,
     },
-    #[error("the velocity table is refused, {message}")]
-    VelocityRefused { message: &'static str },
-    #[error("velocity row {} {field} {amount} exceeds what a toml integer holds", row + 1)]
-    VelocityTooLarge {
+    #[error("the outflow limits are refused, {message}")]
+    LimitsRefused { message: &'static str },
+    #[error("outflow limit {} {field} {amount} exceeds what a toml integer holds", row + 1)]
+    LimitTooLarge {
         row: usize,
         field: &'static str,
         amount: u64,
@@ -186,7 +177,7 @@ struct RawRule {
     limits: Option<Vec<AssetLimitSpec>>,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct RawAlternative {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -195,79 +186,44 @@ struct RawAlternative {
     forbid: Option<ListName>,
 }
 
-/// Lowercase kebab-case, the one spelling of every list.
-pub const fn list_name(list_id: ListId) -> &'static str {
-    match list_id {
-        ListId::Allow => "allow",
-        ListId::Block => "block",
-        ListId::Frozen => "frozen",
-        ListId::RingViewing => "ring-viewing",
-        ListId::Recovery => "recovery",
-        ListId::Reader => "reader",
-        ListId::Approval => "approval",
-        ListId::Escrow => "escrow",
-    }
-}
-
-const fn authority_written(list_id: ListId) -> bool {
-    matches!(list_id.writer(), Writer::Authority)
-}
-
-const fn authority_written_count() -> usize {
-    let mut count = 0;
-    let mut i = 0;
-    while i < ListId::ALL.len() {
-        if authority_written(ListId::ALL[i]) {
-            count += 1;
-        }
-        i += 1;
-    }
-    count
-}
+serde_via_str!(ListName);
 
 impl ListName {
-    /// In `ListId::ALL` order.
-    pub const ALL: [Self; authority_written_count()] = {
-        let mut all = [Self(ListId::Allow); authority_written_count()];
-        let mut filled = 0;
-        let mut i = 0;
-        while i < ListId::ALL.len() {
-            if authority_written(ListId::ALL[i]) {
-                all[filled] = Self(ListId::ALL[i]);
-                filled += 1;
-            }
-            i += 1;
-        }
-        all
-    };
+    /// The authority-written lists in `ListId::ALL` order, a lib test pins the set.
+    pub const ALL: [Self; 5] = [
+        Self(ListId::Allow),
+        Self(ListId::Block),
+        Self(ListId::Frozen),
+        Self(ListId::Reader),
+        Self(ListId::Approval),
+    ];
 
     pub const fn id(self) -> ListId {
         self.0
     }
 
     pub const fn as_str(self) -> &'static str {
-        list_name(self.0)
+        self.0.name()
     }
 
     pub fn of(list_id: ListId) -> Result<Self, PolicyError> {
-        if authority_written(list_id) {
-            Ok(Self(list_id))
-        } else {
-            Err(PolicyError::MemberWrittenList {
-                name: list_name(list_id).to_owned(),
-            })
+        match list_id.writer() {
+            Writer::Authority => Ok(Self(list_id)),
+            _ => Err(PolicyError::MemberWrittenList {
+                name: list_id.name().to_owned(),
+            }),
         }
     }
 }
 
 impl PartialOrd for ListName {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
 impl Ord for ListName {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+    fn cmp(&self, other: &Self) -> Ordering {
         self.0.slot().cmp(&other.0.slot())
     }
 }
@@ -278,7 +234,7 @@ impl FromStr for ListName {
     fn from_str(name: &str) -> Result<Self, PolicyError> {
         let list_id = ListId::ALL
             .into_iter()
-            .find(|list_id| list_name(*list_id) == name)
+            .find(|list_id| list_id.name() == name)
             .ok_or_else(|| PolicyError::UnknownList {
                 name: name.to_owned(),
             })?;
@@ -289,20 +245,6 @@ impl FromStr for ListName {
 impl fmt::Display for ListName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
-    }
-}
-
-impl<'de> Deserialize<'de> for ListName {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        String::deserialize(deserializer)?
-            .parse()
-            .map_err(serde::de::Error::custom)
-    }
-}
-
-impl Serialize for ListName {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(self.as_str())
     }
 }
 
@@ -317,55 +259,12 @@ impl clap::ValueEnum for ListName {
 }
 
 impl SubjectName {
-    pub const ALL: [Self; 3] = [Self::OutputOwner, Self::Sender, Self::Asset];
-
     pub const fn subject(self) -> Subject {
         match self {
             Self::OutputOwner => Subject::OutputOwner,
             Self::Sender => Subject::Sender,
             Self::Asset => Subject::Asset,
         }
-    }
-
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::OutputOwner => "output-owner",
-            Self::Sender => "sender",
-            Self::Asset => "asset",
-        }
-    }
-}
-
-impl FromStr for SubjectName {
-    type Err = PolicyError;
-
-    fn from_str(name: &str) -> Result<Self, PolicyError> {
-        Self::ALL
-            .into_iter()
-            .find(|subject| subject.as_str() == name)
-            .ok_or_else(|| PolicyError::UnknownSubject {
-                name: name.to_owned(),
-            })
-    }
-}
-
-impl fmt::Display for SubjectName {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-impl<'de> Deserialize<'de> for SubjectName {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        String::deserialize(deserializer)?
-            .parse()
-            .map_err(serde::de::Error::custom)
-    }
-}
-
-impl Serialize for SubjectName {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(self.as_str())
     }
 }
 
@@ -376,17 +275,14 @@ impl TryFrom<RawRule> for RuleSpec {
         if raw.above.is_some() && raw.limits.is_some() {
             return Err(PolicyError::SeveralGuardForms);
         }
-        let forms = [
+        if raw.assets.is_some() {
+            return Err(PolicyError::InlineAssetsRemoved);
+        }
+        let source = one_form([
             raw.require.map(SourceSpec::Require),
             raw.forbid.map(SourceSpec::Forbid),
             raw.any.map(SourceSpec::Any),
-            raw.assets.map(SourceSpec::Assets),
-        ];
-        let mut named = forms.into_iter().flatten();
-        let source = named.next().ok_or(PolicyError::NoSourceForm)?;
-        if named.next().is_some() {
-            return Err(PolicyError::SeveralSourceForms);
-        }
+        ])?;
         if matches!(&source, SourceSpec::Any(alternatives) if alternatives.is_empty()) {
             return Err(PolicyError::EmptyAny);
         }
@@ -414,7 +310,6 @@ impl From<RuleSpec> for RawRule {
             SourceSpec::Require(list) => raw.require = Some(list),
             SourceSpec::Forbid(list) => raw.forbid = Some(list),
             SourceSpec::Any(alternatives) => raw.any = Some(alternatives),
-            SourceSpec::Assets(mints) => raw.assets = Some(mints),
         }
         raw
     }
@@ -424,12 +319,16 @@ impl TryFrom<RawAlternative> for Alternative {
     type Error = PolicyError;
 
     fn try_from(raw: RawAlternative) -> Result<Self, PolicyError> {
-        match (raw.require, raw.forbid) {
-            (Some(list), None) => Ok(Self::Require(list)),
-            (None, Some(list)) => Ok(Self::Forbid(list)),
-            (None, None) => Err(PolicyError::NoSourceForm),
-            (Some(_), Some(_)) => Err(PolicyError::SeveralSourceForms),
-        }
+        one_form([raw.require.map(Self::Require), raw.forbid.map(Self::Forbid)])
+    }
+}
+
+fn one_form<T, const N: usize>(forms: [Option<T>; N]) -> Result<T, PolicyError> {
+    let mut named = forms.into_iter().flatten();
+    let form = named.next().ok_or(PolicyError::NoSourceForm)?;
+    match named.next() {
+        Some(_) => Err(PolicyError::SeveralSourceForms),
+        None => Ok(form),
     }
 }
 
@@ -438,11 +337,11 @@ impl From<Alternative> for RawAlternative {
         match alternative {
             Alternative::Require(list) => Self {
                 require: Some(list),
-                forbid: None,
+                ..Self::default()
             },
             Alternative::Forbid(list) => Self {
-                require: None,
                 forbid: Some(list),
+                ..Self::default()
             },
         }
     }
@@ -457,18 +356,17 @@ impl Alternative {
 }
 
 impl SourceSpec {
-    /// The lists the rule reads, none for an asset allowlist.
+    /// The registry lists the rule reads.
     pub fn lists(&self) -> Vec<ListName> {
         match self {
             Self::Require(list) | Self::Forbid(list) => vec![*list],
             Self::Any(alternatives) => alternatives.iter().map(|alt| alt.list()).collect(),
-            Self::Assets(_) => Vec::new(),
         }
     }
 }
 
 impl RuleSpec {
-    /// The row of `index`, its inline members appended to `assets`.
+    /// The row of `index`, its mint thresholds merged into `assets` and `limits`.
     pub fn rule(
         &self,
         index: usize,
@@ -480,64 +378,28 @@ impl RuleSpec {
             SourceSpec::Require(list) => Rule::require(subject, list.id()),
             SourceSpec::Forbid(list) => Rule::forbid(subject, list.id()),
             SourceSpec::Any(alternatives) => {
-                let (present, absent) = alternatives.iter().fold(
-                    (ListSet::EMPTY, ListSet::EMPTY),
-                    |(present, absent), alternative| match alternative {
-                        Alternative::Require(list) => {
-                            (present.union(ListSet::single(list.id())), absent)
-                        }
-                        Alternative::Forbid(list) => {
-                            (present, absent.union(ListSet::single(list.id())))
-                        }
-                    },
-                );
-                Rule::any_of(subject, present, absent)
-            }
-            SourceSpec::Assets(mints) => {
-                let mut members = Vec::with_capacity(mints.len());
-                for mint in mints {
-                    let member = Member::asset(&mint.0).map_err(|source| PolicyError::Asset {
-                        rule: index,
-                        mint: mint.0,
-                        source,
-                    })?;
-                    members.push(*member.as_bytes());
-                }
-                merge_assets(index, assets, &members)?;
-                Rule {
-                    subject,
-                    source: RuleSource::InlineAssets,
-                    guard: Guard::Always,
-                }
+                let lists = |require: bool| {
+                    let ids: Vec<ListId> = alternatives
+                        .iter()
+                        .filter(|alt| matches!(alt, Alternative::Require(_)) == require)
+                        .map(|alt| alt.list().id())
+                        .collect();
+                    ListSet::of(&ids)
+                };
+                Rule::any_of(subject, lists(true), lists(false))
             }
         };
         if let Some(configured) = &self.limits {
             if configured.is_empty() {
                 return Err(PolicyError::EmptyLimits { rule: index });
             }
-            if !matches!(subject, Subject::OutputOwner)
-                || matches!(&self.source, SourceSpec::Assets(_))
-            {
+            if !matches!(subject, Subject::OutputOwner) {
                 return Err(PolicyError::PerAssetGuard { rule: index });
             }
-            let mut members = Vec::with_capacity(configured.len());
-            let mut amounts = Vec::with_capacity(configured.len());
-            for limit in configured {
-                let member =
-                    Member::asset(&limit.asset.0).map_err(|source| PolicyError::Asset {
-                        rule: index,
-                        mint: limit.asset.0,
-                        source,
-                    })?;
-                members.push(*member.as_bytes());
-                amounts.push(limit.above);
-            }
-            merge_assets(index, assets, &members)?;
-            if limits.is_empty() {
-                limits.extend_from_slice(&amounts);
-            } else if *limits != amounts {
-                return Err(PolicyError::ConflictingAssetMap { rule: index });
-            }
+            let mints = configured.iter().map(|limit| limit.asset.0);
+            merge(index, assets, &members(index, mints)?)?;
+            let amounts: Vec<u64> = configured.iter().map(|limit| limit.above).collect();
+            merge(index, limits, &amounts)?;
             return Ok(rule.above_by_asset());
         }
         match self.above {
@@ -550,81 +412,68 @@ impl RuleSpec {
     }
 }
 
-fn merge_assets(
+fn members(
     rule: usize,
-    current: &mut Vec<[u8; 32]>,
-    incoming: &[[u8; 32]],
+    mints: impl Iterator<Item = Address>,
+) -> Result<Vec<[u8; 32]>, PolicyError> {
+    let member =
+        |mint| Member::asset(&mint).map_err(|source| PolicyError::Asset { rule, mint, source });
+    mints.map(|mint| Ok(*member(mint)?.as_bytes())).collect()
+}
+
+/// Every per-asset amount guard shares one threshold map.
+fn merge<T: Clone + PartialEq>(
+    rule: usize,
+    current: &mut Vec<T>,
+    incoming: &[T],
 ) -> Result<(), PolicyError> {
     if current.is_empty() {
         current.extend_from_slice(incoming);
-        Ok(())
-    } else if current == incoming {
-        Ok(())
-    } else {
-        Err(PolicyError::ConflictingAssetMap { rule })
+    } else if current != incoming {
+        return Err(PolicyError::ConflictingAssetMap { rule });
     }
+    Ok(())
 }
 
 impl PolicySpec {
-    pub fn address_tree(&self) -> Address {
-        self.address_tree
-            .map(|tree| tree.0)
-            .unwrap_or_else(|| pda::tree(0))
-    }
-
     pub(crate) fn rows(&self) -> Result<PolicyRows, PolicyError> {
-        if self.rules.len() > MAX_RULES {
-            return Err(PolicyError::TooManyRules {
-                count: self.rules.len(),
-            });
+        let count = self.rules.len();
+        if count > MAX_RULES {
+            return Err(PolicyError::TooManyRules { count });
         }
-        let mut assets = Vec::new();
-        let mut limits = Vec::new();
-        let rows = self
+        let (mut assets, mut limits) = (Vec::new(), Vec::new());
+        let rules = self
             .rules
             .iter()
             .enumerate()
             .map(|(index, rule)| rule.rule(index, &mut assets, &mut limits))
             .collect::<Result<Vec<_>, _>>()?;
-        if assets.len() > MAX_INLINE_ASSETS {
-            return Err(PolicyError::TooManyAssets {
-                count: assets.len(),
-            });
+        let count = assets.len();
+        if count > MAX_INLINE_ASSETS {
+            return Err(PolicyError::TooManyAssets { count });
         }
-        let (window_slots, velocity) = match &self.velocity {
-            None => (0, Vec::new()),
-            Some(spec) => (spec.window_slots, spec.rows()?),
-        };
         Ok(PolicyRows {
-            rules: rows,
+            rules,
             assets,
             limits,
-            window_slots,
-            velocity,
+            outflow: self.outflow_limits()?,
         })
     }
 
-    pub fn compile(&self, target: Target) -> Result<CompiledPolicy, PolicyError> {
-        let rows = self.rows()?;
-        let rules = compile_rows(&rows)?;
+    pub fn compile(&self, cluster: Target) -> Result<CompiledPolicy, PolicyError> {
+        let rules = compile_rows(&self.rows()?)?;
         let referenced = rules.referenced();
         let shared_sources = self
             .sources
-            .get(target)
+            .get(cluster)
             .iter()
-            .map(|(list, curator)| {
-                if !referenced.contains(list.id()) {
-                    return Err(PolicyError::UnreferencedSource {
-                        list: *list,
-                        cluster: target,
-                    });
-                }
-                Ok((list.id(), CustomRing::new(curator.0)))
+            .map(|(&list, curator)| match referenced.contains(list.id()) {
+                true => Ok((list.id(), CustomRing::new(curator.0))),
+                false => Err(PolicyError::UnreferencedSource { list, cluster }),
             })
             .collect::<Result<Vec<_>, _>>()?;
         Ok(CompiledPolicy {
             rules,
-            address_tree: self.address_tree(),
             shared_sources,
         })
     }
@@ -642,7 +491,7 @@ impl CompiledPolicy {
         self.shared_sources.clone()
     }
 
-    /// The curator a referenced list reads, `None` for the ring's own entries.
+    /// The curator a referenced list reads, `None` for the ring's own registry.
     pub fn curator(&self, list_id: ListId) -> Option<CustomRing> {
         self.shared_sources
             .iter()
@@ -651,42 +500,31 @@ impl CompiledPolicy {
     }
 }
 
-impl VelocitySpec {
-    fn rows(&self) -> Result<Vec<VelocityRow>, PolicyError> {
-        if self.rows.len() > MAX_VELOCITY_ASSETS {
-            return Err(PolicyError::TooManyVelocityRows {
-                count: self.rows.len(),
-            });
+impl PolicySpec {
+    fn outflow_limits(&self) -> Result<Vec<OutflowLimit>, PolicyError> {
+        let count = self.limits.len();
+        if count > MAX_OUTFLOW_LIMITS {
+            return Err(PolicyError::TooManyLimits { count });
         }
-        self.rows
-            .iter()
-            .enumerate()
-            .map(|(row, spec)| {
-                let member =
-                    Member::asset(&spec.asset.0).map_err(|source| PolicyError::VelocityAsset {
-                        row,
-                        mint: spec.asset.0,
-                        source,
-                    })?;
-                Ok(VelocityRow {
-                    asset: *member.as_bytes(),
-                    cap: spec.cap,
-                    cosign_above: spec.cosign_above,
-                })
+        let limit = |(row, spec): (usize, &LimitSpec)| {
+            let mint = spec.asset.0;
+            let refused = |source| PolicyError::LimitAsset { row, mint, source };
+            Ok(OutflowLimit {
+                asset: *Member::asset(&mint).map_err(refused)?.as_bytes(),
+                cap: spec.cap,
+                cosign_above: spec.cosign_above,
             })
-            .collect()
+        };
+        self.limits.iter().enumerate().map(limit).collect()
     }
 }
 
 impl PolicyRows {
     fn build(&self, rule_count: usize) -> Result<RuleTable, RuleTableError> {
-        let mut builder = RuleTable::builder()
+        let builder = RuleTable::builder()
             .inline_assets(&self.assets)
             .inline_limits(&self.limits)
-            .velocity(&self.velocity);
-        if let Some(window_slots) = NonZeroU64::new(self.window_slots) {
-            builder = builder.windowed(window_slots);
-        }
+            .limits(&self.outflow);
         self.rules[..rule_count]
             .iter()
             .fold(builder, |builder, rule| builder.rule(*rule))
@@ -694,42 +532,33 @@ impl PolicyRows {
     }
 }
 
-/// The builder refusal named with the first row that triggers it, a velocity
-/// refusal names the table.
+/// A refusal names the first row that triggers it, a limit refusal names the limits.
 pub(crate) fn compile_rows(rows: &PolicyRows) -> Result<RuleTable, PolicyError> {
-    rows.build(rows.rules.len()).map_err(|error| match error {
-        RuleTableError::TooManyVelocityAssets
-        | RuleTableError::WindowWithoutVelocity
-        | RuleTableError::ZeroVelocityAsset
-        | RuleTableError::DuplicateVelocityAsset
-        | RuleTableError::VelocityRowWithoutBound => PolicyError::VelocityRefused {
-            message: error.message(),
-        },
-        _ => PolicyError::Refused {
-            rule: first_refusal(rows, error),
-            message: error.message(),
-        },
+    rows.build(rows.rules.len()).map_err(|error| {
+        let message = error.message();
+        match error {
+            RuleTableError::TooManyOutflowLimits
+            | RuleTableError::ZeroLimitAsset
+            | RuleTableError::DuplicateLimitAsset
+            | RuleTableError::LimitWithoutBound => PolicyError::LimitsRefused { message },
+            _ => PolicyError::Refused {
+                rule: (0..rows.rules.len())
+                    .find(|rule| rows.build(rule + 1) == Err(error))
+                    .unwrap_or(rows.rules.len().saturating_sub(1)),
+                message,
+            },
+        }
     })
 }
 
-fn first_refusal(rows: &PolicyRows, error: RuleTableError) -> usize {
-    (1..=rows.rules.len())
-        .find(|len| rows.build(*len) == Err(error))
-        .map_or(rows.rules.len().saturating_sub(1), |len| len - 1)
-}
-
-/// One sentence per velocity row, the wording every listing shares.
-pub fn describe_velocity(row: &VelocityRow, mode: VelocityMode) -> String {
-    let asset = hex::encode(&row.asset[..4]);
-    let per = match mode {
-        VelocityMode::PerWindow { .. } => "per window",
-        VelocityMode::PerTransfer | VelocityMode::Off => "per transfer",
-    };
-    match (row.cap, row.cosign_above) {
+/// One sentence per outflow limit, the wording every listing shares.
+pub fn describe_limit(limit: &OutflowLimit) -> String {
+    let asset = hex::encode(&limit.asset[..4]);
+    match (limit.cap, limit.cosign_above) {
         (0, cosign) => format!("asset {asset}.. needs the co-signer above {cosign} per transfer"),
-        (cap, 0) => format!("asset {asset}.. is capped at {cap} {per}"),
+        (cap, 0) => format!("asset {asset}.. is capped at {cap} per transfer"),
         (cap, cosign) => format!(
-            "asset {asset}.. is capped at {cap} {per} and needs the co-signer above {cosign} per transfer"
+            "asset {asset}.. is capped at {cap} per transfer and needs the co-signer above {cosign}"
         ),
     }
 }
@@ -743,12 +572,11 @@ pub fn describe(rule: &Rule) -> String {
         Subject::ExitDestination => "each exit destination",
     };
     let condition = match rule.source {
-        RuleSource::InlineAssets => "must be one of the listed assets".to_owned(),
         RuleSource::Lists { .. } => rule
             .alternatives()
             .map(|(list_id, mode)| match mode {
-                Mode::Present => format!("must be on the {} list", list_name(list_id)),
-                Mode::Absent => format!("must not be on the {} list", list_name(list_id)),
+                Mode::Present => format!("must be on the {} list", list_id.name()),
+                Mode::Absent => format!("must not be on the {} list", list_id.name()),
             })
             .collect::<Vec<_>>()
             .join(" or "),
@@ -800,58 +628,52 @@ mod tests {
     }
 
     #[test]
-    fn rows_without_a_window_cap_each_transfer() {
+    fn limits_bound_each_transfer() {
         let policy = compiled(&format!(
             r#"
-address_tree = "{CURATOR}"
-
-[velocity]
-rows = [{{ asset = "{MINT}", cap = 1000 }}]
+limits = [{{ asset = "{MINT}", cap = 1000 }}]
 "#
         ))
         .expect("compiles");
-        assert_eq!(policy.rules.velocity_mode(), VelocityMode::PerTransfer);
-        assert_eq!(policy.rules.window_slots(), 0);
+        let limits = policy.rules.limits();
+        assert_eq!(limits.len(), 1);
+        assert_eq!((limits[0].cap, limits[0].cosign_above), (1000, 0));
     }
 
     #[test]
-    fn a_window_without_rows_is_refused() {
+    fn a_limit_without_a_bound_is_refused() {
         let error = compiled(&format!(
             r#"
-address_tree = "{CURATOR}"
-
-[velocity]
-window_slots = 100
-rows = []
+limits = [{{ asset = "{MINT}" }}]
 "#
         ))
-        .expect_err("a window needs rows");
+        .expect_err("a limit needs a bound");
         assert!(matches!(
             error,
-            PolicyError::VelocityRefused { message } if message == "a window needs velocity rows"
+            PolicyError::LimitsRefused { message }
+                if message == "an outflow limit needs a cap or a cosign threshold"
         ));
     }
 
     #[test]
-    fn the_description_reads_the_mode() {
-        let row = VelocityRow {
+    fn the_description_names_each_bound() {
+        let capped = OutflowLimit {
             asset: [3u8; 32],
             cap: 1000,
             cosign_above: 0,
         };
-        assert!(describe_velocity(&row, VelocityMode::PerTransfer).contains("per transfer"));
-        assert!(
-            describe_velocity(&row, VelocityMode::PerWindow { window_slots: 100 })
-                .contains("per window")
-        );
+        assert!(describe_limit(&capped).contains("capped at 1000 per transfer"));
+        let cosigned = OutflowLimit {
+            cosign_above: 400,
+            ..capped
+        };
+        assert!(describe_limit(&cosigned).contains("co-signer above 400"));
     }
 
     #[test]
     fn every_form_parses_and_compiles() {
         let policy = compiled(&format!(
             r#"
-address_tree = "{CURATOR}"
-
 [sources.devnet]
 block = "{CURATOR}"
 
@@ -865,7 +687,7 @@ forbid = "frozen"
 
 [[rules]]
 subject = "asset"
-assets = ["{MINT}"]
+require = "allow"
 
 [[rules]]
 subject = "output-owner"
@@ -885,18 +707,12 @@ above = 1000000
             )
         );
         assert_eq!(rows[1], Rule::forbid(Subject::Sender, ListId::Frozen));
-        assert_eq!(rows[2].source, RuleSource::InlineAssets);
+        assert_eq!(rows[2], Rule::require(Subject::Asset, ListId::Allow));
         assert_eq!(
             rows[3],
             Rule::require(Subject::OutputOwner, ListId::Allow).above(1_000_000)
         );
-        assert_eq!(
-            policy.rules.inline_assets(),
-            [*Member::asset(&Address::from_str_const(MINT))
-                .expect("member")
-                .as_bytes()]
-        );
-        assert_eq!(policy.address_tree, Address::from_str_const(CURATOR));
+        assert!(policy.rules.inline_assets().is_empty());
         assert_eq!(
             policy.shared_sources,
             vec![(
@@ -909,10 +725,9 @@ above = 1000000
     }
 
     #[test]
-    fn an_empty_table_is_a_legal_policy_with_the_default_tree() {
+    fn an_empty_table_is_a_legal_policy() {
         let policy = compiled("").expect("empty table");
         assert!(policy.rules.is_empty());
-        assert_eq!(policy.address_tree, pda::tree(0));
         assert!(policy.shared_sources.is_empty());
     }
 
@@ -982,14 +797,10 @@ limits = [
             compiled(&rows),
             Err(PolicyError::TooManyRules { count: 17 })
         );
-        let mints = (0..9).map(|_| format!("\"{MINT}\"")).collect::<Vec<_>>();
-        assert_eq!(
-            compiled(&format!(
-                "[[rules]]\nsubject = \"asset\"\nassets = [{}]\n",
-                mints.join(", ")
-            )),
-            Err(PolicyError::TooManyAssets { count: 9 })
-        );
+        assert!(spec(&format!(
+            "[[rules]]\nsubject = \"asset\"\nrequire = \"allow\"\"{MINT}\"]\n"
+        ))
+        .is_err());
         assert_eq!(
             compiled(&format!(
                 "[sources.devnet]\nblock = \"{CURATOR}\"\n[[rules]]\nsubject = \"sender\"\nrequire = \"allow\"\n"
@@ -1035,23 +846,11 @@ limits = [
             "[[rules]]\nsubject = \"sender\"\nrequire = \"allow\"\n\
              [[rules]]\nsubject = \"output-owner\"\nrequire = \"allow\"\nabove = 7\n",
         );
-        assert_eq!(
-            guard_without_asset,
-            Err(PolicyError::Refused {
-                rule: 1,
-                message: RuleTableError::OwnerGuardWithoutInlineAsset.message()
-            })
-        );
-        let inline_on_sender = compiled(&format!(
+        assert!(guard_without_asset.is_ok());
+        assert!(spec(&format!(
             "[[rules]]\nsubject = \"sender\"\nassets = [\"{MINT}\"]\n"
-        ));
-        assert_eq!(
-            inline_on_sender,
-            Err(PolicyError::Refused {
-                rule: 0,
-                message: RuleTableError::InlineNotAsset.message()
-            })
-        );
+        ))
+        .is_err());
         assert_eq!(
             PolicyError::Refused {
                 rule: 2,
@@ -1081,8 +880,8 @@ limits = [
             "each output owner must be on the approval list or must not be on the block list"
         );
         assert_eq!(
-            describe(&Rule::allow_only_assets()),
-            "each asset must be one of the listed assets"
+            describe(&Rule::require(Subject::Asset, ListId::Allow)),
+            "each asset must be on the allow list"
         );
         assert_eq!(
             describe(&Rule::require(Subject::Asset, ListId::Allow).above(1_000_000)),

@@ -2,80 +2,46 @@ package policy
 
 import (
 	"github.com/consensys/gnark/frontend"
-	"github.com/consensys/gnark/std/rangecheck"
 
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
-	base "github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
-	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
+	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
 )
 
-// Separates the nullifier key ciphertext from the audit ciphertext, equals Rust NF_KEY_ENC_INFO.
+// Properties:
+// 1. The nullifier key is Poseidon of the 31-byte nullifier secret the envelope seals to
+// AuditorPk, so the auditor recovers the secret behind the escrowed key.
+// 2. The statement binds the member, the key, both tagged envelope keys and the ciphertext
+// hash, and the program queues the escrow write Poseidon(nullifier_pk, ct_hash) from them.
+// 3. No registry record and no UTXO owner is opened, the queue applies the write later.
+
+// NfKeyEncInfo separates the key ciphertext from the audit one, mirrored by NF_KEY_ENC_INFO in custom-rings/client/src/encryption.rs.
 const NfKeyEncInfo = "CRING/nfk1"
 
-// Attests the member's own key claim, unbound to any UTXO owner.
 type KeyRegisterCircuit struct {
 	PublicInputHash frontend.Variable `gnark:",public"`
 
-	RegistryOldRoot frontend.Variable
-	RegistryNewRoot frontend.Variable
 	Member          frontend.Variable
-	NewIndex        frontend.Variable
-
-	// Byte 0 is zero, the 31-byte packing stays below the field order.
 	NullifierSecret [32]frontend.Variable
 	EphSk           [32]frontend.Variable
 	AuditorPk       [32]frontend.Variable
-
-	LowMember frontend.Variable
-	LowNext   frontend.Variable
-	LowKey    frontend.Variable
-	LowIndex  frontend.Variable
-	LowProof  [registry.Height]frontend.Variable
-	NewProof  [registry.Height]frontend.Variable
 }
 
 func (c *KeyRegisterCircuit) Define(api frontend.API) error {
-	// 1. Bound all bytes and limit the nullifier secret to 31 bytes.
-	rangeChecker := rangecheck.New(api)
-	for _, b := range c.NullifierSecret {
-		rangeChecker.Check(b, 8)
-	}
+	// 1. A zero lead byte keeps the secret below q, the envelope's cipher bounds the other 31 bytes.
 	api.AssertIsEqual(c.NullifierSecret[0], 0)
-
-	// 2. Bind the encrypted secret to the registered nullifier public key.
-	secretFE := frontend.Variable(0)
-	for _, b := range c.NullifierSecret {
-		secretFE = api.Add(api.Mul(secretFE, 256), b)
-	}
-	nullifierPk := gadget.PoseidonHash(api, []frontend.Variable{secretFE})
-
-	sealed := base.Envelope{
-		Plaintext: c.NullifierSecret,
-		EphSk:     c.EphSk,
-		AuditorPk: c.AuditorPk,
-		Info:      NfKeyEncInfo,
-	}.Seal(api)
-
-	// 3. Require member absence before inserting the key hash.
-	keyHash := gadget.PoseidonHash(api, []frontend.Variable{nullifierPk, sealed.CiphertextHash})
-	newRoot := registry.Insertion{
-		OldRoot:  c.RegistryOldRoot,
-		Low:      registry.Leaf{Member: c.LowMember, Next: c.LowNext, Key: c.LowKey},
-		LowIndex: c.LowIndex,
-		LowProof: c.LowProof[:],
-		Member:   c.Member,
-		Key:      keyHash,
-		NewIndex: c.NewIndex,
-		NewProof: c.NewProof[:],
-	}.NewRoot(api)
-	api.AssertIsEqual(newRoot, c.RegistryNewRoot)
-
-	// 4. Bind registration to the program's public statement.
-	chain := []frontend.Variable{
-		c.RegistryOldRoot, c.RegistryNewRoot, c.Member,
-		nullifierPk, sealed.AuditorLo, sealed.AuditorHi, sealed.EphLo, sealed.EphHi, sealed.CiphertextHash,
-		c.NewIndex,
-	}
-	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain(api, chain))
+	nullifierPk := gadget.PoseidonHash(api, gadget.PackBytesBEWith(api, gadget.BoundedBytes{}, c.NullifierSecret[1:]))
+	// 2. The envelope seals the same 32 bytes to the auditor, its cipher bounds every ciphertext byte.
+	sealed := base.Envelope{Plaintext: c.NullifierSecret[:], EphSk: c.EphSk, AuditorPk: c.AuditorPk, Info: NfKeyEncInfo}.Seal(api)
+	// 3. The statement names the member and the envelope the program reads from the instruction.
+	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain4(api, c.statement(api, nullifierPk, sealed)))
 	return nil
+}
+
+// statement is [CRRG, member, nullifier_pk, aud0, aud1, eph0, eph1, ct_hash], rebuilt by the
+// program through custom-rings/interface/src/statement.rs.
+func (c *KeyRegisterCircuit) statement(api frontend.API, nullifierPk frontend.Variable, sealed base.Sealed) []frontend.Variable {
+	return []frontend.Variable{
+		base.RegisterKeyDomain, c.Member, nullifierPk, sealed.Auditor[0], sealed.Auditor[1], sealed.Eph[0], sealed.Eph[1],
+		gadget.HashBoundedBytes(api, sealed.Ciphertext),
+	}
 }

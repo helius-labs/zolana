@@ -1,14 +1,37 @@
 use solana_address::Address;
-use zolana_event::MessageData;
+use zolana_event::{is_confidential_encrypted_output, MessageData};
 use zolana_instruction::{SettlementAccounts, TransactExternalData};
 use zolana_interface::instruction::{
-    instruction_data::transact::{InterfaceTransfer, TransactOutput},
+    instruction_data::transact::{InterfaceTransfer, PublicLeg, TransactOutput},
     tag,
 };
 use zolana_interface::pda;
 use zolana_interface::{MAX_INTERFACE_TRANSFERS, SOL_INTERFACE};
 
-use crate::{error::TransactionError, SOL_MINT};
+use crate::{error::TransactionError, SppProofOutputUtxo, SOL_MINT};
+
+/// A live ring-rail output publishes its owner exactly when it exits, `None` publishes none.
+pub fn validate_ring_output_owner(
+    index: usize,
+    ring_bound: bool,
+    owner_identity: [u8; 32],
+    published_identity: Option<[u8; 32]>,
+) -> Result<(), TransactionError> {
+    if !zolana_hasher::primitives::is_canonical_bn254_scalar_be(&owner_identity)
+        || published_identity.is_some_and(|identity| {
+            !zolana_hasher::primitives::is_canonical_bn254_scalar_be(&identity)
+        })
+    {
+        return Err(TransactionError::NonCanonicalField);
+    }
+    if published_identity.is_some() == ring_bound || (!ring_bound && owner_identity == [0; 32]) {
+        return Err(TransactionError::RingOutputMarkerMismatch { index });
+    }
+    if !ring_bound && published_identity != Some(owner_identity) {
+        return Err(TransactionError::OwnerTagMismatch { slot_index: index });
+    }
+    Ok(())
+}
 
 /// One ordered interface transfer, including the accounts committed by the
 /// canonical external-data hash. SPL legs retain their mint so proof public
@@ -92,6 +115,16 @@ impl SettlementTransfer {
         }
     }
 
+    pub fn public_leg(self) -> PublicLeg {
+        PublicLeg {
+            transfer: self.interface_transfer(),
+            mint: match self {
+                Self::Sol { .. } => None,
+                Self::Spl { mint, .. } => Some(mint.to_bytes()),
+            },
+        }
+    }
+
     pub fn interface_transfer(self) -> InterfaceTransfer {
         match self {
             Self::Sol {
@@ -148,6 +181,41 @@ pub struct ExternalData {
 }
 
 impl ExternalData {
+    /// A default-ring exit publishes its actual owner, the ring circuit burns an unmarked one.
+    pub fn validate_ring_output_markers(
+        &self,
+        outputs: &[SppProofOutputUtxo],
+    ) -> Result<(), TransactionError> {
+        for (index, output) in outputs.iter().enumerate() {
+            let Some(owner) = &output.owner_address else {
+                continue;
+            };
+            let marked = self
+                .outputs
+                .get(index)
+                .and_then(|slot| slot.data.as_deref())
+                .is_some_and(is_confidential_encrypted_output);
+            let published = marked
+                .then(|| {
+                    let tag = self
+                        .resolved_owner_tags
+                        .get(index)
+                        .ok_or(TransactionError::OwnerTagMismatch { slot_index: index })?;
+                    Ok::<_, TransactionError>(zolana_hasher::primitives::solana_owner_identity(
+                        tag,
+                    )?)
+                })
+                .transpose()?;
+            validate_ring_output_owner(
+                index,
+                output.ring_program_id.is_some(),
+                owner.signing_pubkey.owner_proof_input_hash()?,
+                published,
+            )?;
+        }
+        Ok(())
+    }
+
     pub fn new(
         tx_viewing_pk: [u8; 33],
         salt: [u8; 16],
@@ -246,12 +314,18 @@ impl ExternalData {
     }
 }
 
-fn validate_settlement_transfers(transfers: &[SettlementTransfer]) -> Result<(), TransactionError> {
+/// SPP refuses a zero amount on any leg before it reads a settlement account.
+pub(super) fn validate_settlement_transfers(
+    transfers: &[SettlementTransfer],
+) -> Result<(), TransactionError> {
     if transfers.len() > MAX_INTERFACE_TRANSFERS {
         return Err(TransactionError::TooManyInterfaceTransfers {
             got: transfers.len(),
             max: MAX_INTERFACE_TRANSFERS,
         });
+    }
+    if transfers.iter().any(|transfer| transfer.amount() == 0) {
+        return Err(TransactionError::ZeroInterfaceTransferAmount);
     }
     for transfer in transfers {
         validate_settlement_transfer(*transfer)?;

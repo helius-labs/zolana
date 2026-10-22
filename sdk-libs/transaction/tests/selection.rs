@@ -11,7 +11,8 @@ use zolana_interface::MAX_INPUT_TREES;
 use zolana_transaction::{
     error::TransactionError,
     instructions::{merge::MAX_MERGE_INPUTS, transact::MAX_SPEND_INPUTS},
-    select_merge, select_spend, select_spend_excluding, Mint, WalletUtxo,
+    select_merge, select_merge_where, select_spend, select_spend_excluding, select_spend_where,
+    Mint, WalletUtxo,
 };
 
 const TOKEN: Mint = Mint::new(Address::new_from_array([7; 32]), 2);
@@ -246,6 +247,78 @@ fn a_merge_is_reported_even_when_excluded_utxos_would_cover_the_amount() {
         Err(TransactionError::SpendNeedsMerge {
             amount,
             max_inputs: MAX_SPEND_INPUTS
+        })
+    );
+}
+
+/// A predicate replaces the default-ring filter, and a lower input cap asks for a merge sooner.
+#[test]
+fn a_spend_predicate_selects_the_utxos_of_one_ring() {
+    let owner = keypair(1);
+    let ring = Address::new_from_array([9; 32]);
+    let ring_utxo = |amount, nonce| {
+        let mut utxo = wallet_utxo(&owner, Mint::SOL, amount, 0, nonce);
+        utxo.utxo.ring_program_id = Some(ring);
+        utxo
+    };
+    let wallet = vec![
+        ring_utxo(40, 1),
+        ring_utxo(30, 2),
+        ring_utxo(20, 3),
+        wallet_utxo(&owner, Mint::SOL, 1_000, 0, 4),
+    ];
+    let in_ring = |utxo: &WalletUtxo| utxo.utxo.ring_program_id == Some(ring);
+    let select = |amount, max_inputs| {
+        select_spend_where(&wallet, Mint::SOL.asset, amount, max_inputs, in_ring)
+    };
+    assert_eq!(amounts(&select(60, MAX_SPEND_INPUTS).unwrap()), [40, 30]);
+    assert_eq!(
+        select(80, 2),
+        Err(TransactionError::SpendNeedsMerge {
+            amount: 80,
+            max_inputs: 2,
+        })
+    );
+    assert_eq!(
+        select(91, MAX_SPEND_INPUTS),
+        Err(TransactionError::InsufficientBalance {
+            requested: 91,
+            available: 90,
+        })
+    );
+    assert_eq!(
+        amounts(&select_spend(&wallet, Mint::SOL.asset, 50).unwrap()),
+        [1_000]
+    );
+}
+
+#[test]
+fn a_merge_predicate_selects_the_utxos_of_one_ring() {
+    let owner = keypair(1);
+    let ring = Address::new_from_array([9; 32]);
+    let mut wallet: Vec<_> = (1..=3)
+        .map(|nonce| {
+            let mut utxo = wallet_utxo(&owner, Mint::SOL, u64::from(nonce), 0, nonce);
+            utxo.utxo.ring_program_id = Some(ring);
+            utxo
+        })
+        .collect();
+    wallet.push(wallet_utxo(&owner, Mint::SOL, 5, 0, 4));
+    let excluded = HashSet::from([wallet[0].nullifier]);
+    let in_ring = |utxo: &WalletUtxo| utxo.utxo.ring_program_id == Some(ring);
+    let selected = select_merge_where(
+        &wallet,
+        Mint::SOL.asset,
+        MAX_MERGE_INPUTS,
+        &excluded,
+        in_ring,
+    )
+    .unwrap();
+    assert_eq!(amounts(&selected), [2, 3]);
+    assert_eq!(
+        select_merge(&wallet, Mint::SOL.asset, MAX_MERGE_INPUTS, &excluded),
+        Err(TransactionError::NothingToMerge {
+            asset: Mint::SOL.asset
         })
     );
 }

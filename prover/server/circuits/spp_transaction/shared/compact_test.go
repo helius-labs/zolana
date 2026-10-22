@@ -193,7 +193,7 @@ func TestCompactOutputRejectsNonzeroTag(t *testing.T) {
 	)
 
 	owner := hiddenOwnerKey(11)
-	var tag frontend.Variable = hiddenOwnerIdentity(t, publicKeyBytes(owner))
+	var tag frontend.Variable = spptest.MustSolanaPkField(t, publicKeyBytes(owner))
 	assignment, _ = anonymousDummyOutputAssignment(t, shape, owner, false, tag)
 	assignment.Outputs[1].Hash = spptest.Fe(0)
 	authorization := authorizeEddsa(t, assignment, owner, owner)

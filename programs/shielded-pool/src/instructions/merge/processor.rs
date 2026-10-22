@@ -66,9 +66,6 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
     let ix = MergeTransactIxDataRef::from_bytes(data)
         .map_err(caused_by(ShieldedPoolError::InvalidMergeShape))?;
     validate_field_elements(&ix)?;
-    if !ix.output_encryption.is_canonical() {
-        return Err(ShieldedPoolError::NonCanonicalMergeCiphertext.into());
-    }
 
     let clock = Clock::get()?;
     check_not_expired(ix.expiry_unix_ts, &clock)?;

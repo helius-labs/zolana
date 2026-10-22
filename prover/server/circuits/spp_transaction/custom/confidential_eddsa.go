@@ -13,6 +13,7 @@ import (
 // 3. The Solana runtime verifies EdDSA signatures; the circuit binds each real input owner to the public signer set.
 // 4. Dummy slots are indistinguishable from real UTXO and address slots.
 // 5. Input nullifiers are distinct and balances are preserved.
+// 6. A ring output's blinding is TXRB over the first nullifier, its slot and a free ring secret the ring's audit proof binds.
 
 type CustomRingConfidentialEddsaPublic struct {
 	// Nullifiers for UTXO, address, and dummy input slots.
@@ -24,7 +25,7 @@ type CustomRingConfidentialEddsaPublic struct {
 	TreeSlots []shared.TreeSlot
 	// Raw u16 id of the output tree.
 	OutputTreeID frontend.Variable
-	// Hash of input UTXO hashes, output UTXO hashes, address hashes, and external data.
+	// Blinded hash of input UTXO hashes, output UTXO hashes, and address nullifiers.
 	// Dummy UTXOs are represented as zero.
 	PrivateTxHash frontend.Variable
 	// Hash that ties arbitrary data to the proof.
@@ -57,6 +58,7 @@ type CustomRingConfidentialEddsaPrivate struct {
 	OutputOwnerPkHashes []frontend.Variable
 	OutputNullifierPks  []frontend.Variable
 	BlindingSeed        frontend.Variable
+	RingSecrets         []frontend.Variable
 }
 
 type CustomRingConfidentialEddsaCircuit struct {
@@ -87,6 +89,7 @@ func NewCustomRingConfidentialEddsaCircuit(shape shared.Shape) (*CustomRingConfi
 			Outputs:             make([]shared.UtxoCircuitFields, shape.NOutputs),
 			OutputOwnerPkHashes: make([]frontend.Variable, shape.NOutputs),
 			OutputNullifierPks:  make([]frontend.Variable, shape.NOutputs),
+			RingSecrets:         make([]frontend.Variable, shape.NOutputs),
 		},
 	}, nil
 }
@@ -103,6 +106,7 @@ func (c *CustomRingConfidentialEddsaCircuit) transaction(api frontend.API) share
 		Inputs:            c.Private.Inputs,
 		Outputs:           c.Private.Outputs,
 		BlindingSeed:      c.Private.BlindingSeed,
+		RingSecrets:       c.Private.RingSecrets,
 		PrivateTxHash:     c.Public.PrivateTxHash,
 		ExternalDataHash:  c.Public.ExternalDataHash,
 		PublicAssets:      c.Public.PublicAssets,

@@ -128,8 +128,7 @@ client fetching, sends every proof to the key-less `/v1/zolana/prove`, polls
 does not route. The setting lives on
 `ProverClient` and `AsyncProverClient`. The `ZolanaClient` method sets it on
 the prover client it holds; a prover given with `with_prover` is handed the
-data by the client. Custom-ring proof environments read it from the prover
-client they are given.
+data by the client. A custom-ring transfer uses the setting for its SPP proof.
 Both modes support cached spends and merge outputs. The forester selects
 client fetching with `--client-proof-data`.
 
@@ -154,7 +153,7 @@ cache outputs. Pass the prepared request to `prove_indexed`, which checks the
 returned roots, verifies the proof and returns transaction data. A ring merge
 returns `ProvenIndexedMerge::Ring`.
 
-Transfer, merge and indexed ring policy requests prefer a proof in the HTTP
+By default, transfer and merge requests ask for the proof in the HTTP
 response. A capacity rejection can retry through the queue when Redis is
-available. Indexed deposit audits use synchronous delivery. Forester batch
-proofs use queued delivery.
+available. Forester batch proofs and the proofs a ring program verifies use
+queued delivery.

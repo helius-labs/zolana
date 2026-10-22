@@ -170,12 +170,8 @@ fn merge_rejects_a_non_canonical_ciphertext_element() {
 
     for element in 0..3 {
         let mut data = merge_ix_data();
-        let mut ciphertext = [fe(42), fe(43), fe(44)];
+        let MergeOutputEncryption::PoseidonCtrV1 { ciphertext, .. } = &mut data.output_encryption;
         *ciphertext.get_mut(element).expect("ciphertext element") = [0xff; 32];
-        data.output_encryption = MergeOutputEncryption::PoseidonCtrV1 {
-            salt: [0; 16],
-            ciphertext,
-        };
         let ix = merge_instruction(&rpc, &tree, record, data);
         let error = rpc
             .create_and_send_default_payer_transaction_with_budget(
@@ -321,6 +317,8 @@ fn merge_ring_rejects_an_unsigned_ring_config() {
         payer: rpc.payer.pubkey(),
         data: merge_ix_data(),
         output_ring_data_hash: fe(99),
+        member_registry_root: fe(1),
+        anonymous: false,
         cache: None,
     }
     .cpi_instruction();
@@ -509,15 +507,25 @@ fn merge_ring_cpi_instruction(
     output_ring_data_hash: [u8; 32],
 ) -> solana_instruction::Instruction {
     MergeRing {
+        data,
+        output_ring_data_hash,
+        ..merge_ring(rpc, tree)
+    }
+    .cpi_instruction()
+}
+
+fn merge_ring(rpc: &ZolanaProgramTest, tree: &Pubkey) -> MergeRing {
+    MergeRing {
         input_tree: *tree,
         output_tree: *tree,
         ring_program_id: Pubkey::new_from_array(zolana_program_test::RING_TEST_PROGRAM_ID),
         payer: rpc.payer.pubkey(),
-        data,
-        output_ring_data_hash,
+        data: merge_ix_data(),
+        output_ring_data_hash: fe(99),
+        member_registry_root: fe(1),
+        anonymous: false,
         cache: None,
     }
-    .cpi_instruction()
 }
 
 /// A valid-shaped `RingConfig` account written at a keypair address, so the
@@ -546,6 +554,38 @@ fn write_fake_ring_config(
         rpc.program_id,
         bytemuck::bytes_of(&config).to_vec(),
     );
+}
+
+/// A caller other than the ring program cannot set the flag that waives the escrow key.
+#[test]
+fn merge_ring_rejects_a_direct_anonymous_caller() {
+    let (mut rpc, tree) = merge_env();
+    let mut ix = MergeRing {
+        anonymous: true,
+        ..merge_ring(&rpc, &tree)
+    }
+    .cpi_instruction();
+    ix.accounts.get_mut(2).expect("ring config meta").is_signer = false;
+    let error = rpc
+        .create_and_send_default_payer_transaction(&[ix], &[])
+        .expect_err("a direct anonymous merge must be rejected");
+    Rejection::custom(u32::from(
+        zolana_account_checks::AccountError::InvalidSigner,
+    ))
+    .assert_litesvm(error);
+}
+
+#[test]
+fn merge_ring_rejects_a_non_boolean_anonymous_flag() {
+    let (mut rpc, tree) = merge_env();
+    let mut ix = merge_ring(&rpc, &tree).cpi_instruction();
+    ix.accounts.get_mut(2).expect("ring config meta").is_signer = false;
+    // The flag after the tag, the ring data hash and the registry root.
+    ix.data[1 + 32 + 32] = 2;
+    let error = rpc
+        .create_and_send_default_payer_transaction(&[ix], &[])
+        .expect_err("a non-boolean flag must be rejected");
+    Rejection::pool(ShieldedPoolError::InvalidMergeShape).assert_litesvm(error);
 }
 
 #[test]
@@ -607,6 +647,8 @@ fn merge_ring_rejects_an_unsigned_payer() {
         payer: outsider,
         data: merge_ix_data(),
         output_ring_data_hash: fe(92),
+        member_registry_root: fe(1),
+        anonymous: false,
         cache: None,
     }
     .cpi_instruction();
@@ -703,6 +745,8 @@ fn merge_ring_rejects_a_paused_tree() {
         payer: rpc.payer.pubkey(),
         data: merge_ix_data(),
         output_ring_data_hash: fe(95),
+        member_registry_root: fe(1),
+        anonymous: false,
         cache: None,
     }
     .instruction();

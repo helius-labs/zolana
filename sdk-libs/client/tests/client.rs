@@ -1,3 +1,6 @@
+#[path = "common/state_root.rs"]
+mod state_root;
+
 use std::{
     io::{Read, Write},
     net::{TcpListener, TcpStream},
@@ -644,6 +647,39 @@ fn confirm_private_transaction_sync_retries_transient_indexer_error() {
     );
 }
 
+/// A permanent indexer error ends the wait at once, a transient one is polled past.
+#[test]
+fn the_indexer_wait_stops_on_a_permanent_error() {
+    let signature = Signature::from([21u8; 64]);
+    let server = MockIndexerServer::respond_with(vec![rpc_error(-32602, "Invalid params")]);
+    let client = ZolanaClient::new(
+        MockSubmitRpc::new(signature),
+        ZolanaIndexer::new(server.url()),
+        ProverClient::new("http://unused.invalid".to_string()),
+    );
+    let error = client
+        .wait_for_indexed_transaction(signature, IndexerPollConfig::new(3, 0, 0))
+        .expect_err("a permanent error is not retried");
+    assert!(
+        !matches!(error, ClientError::PollTimedOut { .. }),
+        "{error:?}"
+    );
+    assert_eq!(server.requests(), ["/getShieldedTransactionsBySignature"]);
+
+    let server = MockIndexerServer::respond_with(vec![
+        rpc_error(-32603, "Internal error"),
+        indexed_transaction_by_signature_response(signature),
+    ]);
+    let client = ZolanaClient::new(
+        MockSubmitRpc::new(signature),
+        ZolanaIndexer::new(server.url()),
+        ProverClient::new("http://unused.invalid".to_string()),
+    );
+    client
+        .wait_for_indexed_transaction(signature, IndexerPollConfig::new(1, 0, 0))
+        .expect("a transient error is retried");
+}
+
 /// An indexer that fails every attempt has not reported a lag, so reporting
 /// `IndexerTimeout` would send the caller looking for a transaction that
 /// was never queried successfully.
@@ -913,7 +949,7 @@ fn merkle_response(tree: Address, leaf: [u8; 32]) -> Value {
             },
             "path": vec![encode_hash([0u8; 32]); STATE_TREE_HEIGHT],
             "leafIndex": 0,
-            "root": encode_hash([3u8; 32]),
+            "root": encode_hash(state_root::lone_root(leaf)),
             "rootSeq": 1,
             "rootIndex": 0,
         }],

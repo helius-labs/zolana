@@ -33,9 +33,9 @@ pub use authority::{
 };
 pub use scan::SyncConfig;
 pub use state::{
-    CursorStream, Filter, PrivateTransaction, PrivateTransactionDirection, PrivateTransactionId,
-    PrivateTransactionKind, PrivateTransactionStatus, RingBalance, SyncReport, ViewingKeyEntry,
-    Wallet, DEFAULT_TAG_WINDOW,
+    AnonymousRingState, CursorStream, Filter, PrivateTransaction, PrivateTransactionDirection,
+    PrivateTransactionId, PrivateTransactionKind, PrivateTransactionStatus, RingBalance,
+    SyncReport, ViewingKeyEntry, Wallet, DEFAULT_TAG_WINDOW,
 };
 pub use sync::{
     get_private_token_balances, get_private_transactions, sync_wallet, sync_wallet_async,

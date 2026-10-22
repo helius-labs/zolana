@@ -40,15 +40,21 @@ type AnonymousEddsaTransferParameters struct {
 	ExternalDataHash *big.Int
 	PrivateTxHash    *big.Int
 	// BlindingSeed is the transaction's private random root seed; the circuit
-	// derives the output blinding seed, every output blinding, and the private
+	// derives the output blinding seed, every default-ring output blinding, and the private
 	// tx blinding from it and the first nullifier.
 	BlindingSeed *big.Int
+	// One per output, zero off a ring output.
+	RingSecrets []*big.Int
 
-	OwnerPublicKey     [32]byte
-	OwnerSignature     [64]byte
-	MessageHashLow     *big.Int
-	MessageHashHigh    *big.Int
-	DefaultOwnerPkHash *big.Int
+	OwnerPublicKey        [32]byte
+	OwnerSignature        [64]byte
+	RingProgramAddress    [32]byte
+	MessageHashLow        *big.Int
+	MessageHashHigh       *big.Int
+	DefaultOwnerPkHash    *big.Int
+	PayerPkHash           *big.Int
+	CosignerPkHash        *big.Int
+	ExitDestinationPkHash *big.Int
 
 	PublicAssets                 []*big.Int
 	PublicAmounts                []*big.Int
@@ -73,11 +79,16 @@ type AnonymousEddsaTransferParametersJSON struct {
 	ExternalDataHash             string                      `json:"externalDataHash"`
 	PrivateTxHash                string                      `json:"privateTxHash"`
 	BlindingSeed                 string                      `json:"blindingSeed"`
+	RingSecrets                  []string                    `json:"ringSecrets"`
 	OwnerPublicKey               string                      `json:"ownerPublicKey"`
 	OwnerSignature               string                      `json:"ownerSignature"`
+	RingProgramAddress           string                      `json:"ringProgramAddress"`
 	MessageHashLow               string                      `json:"messageHashLow"`
 	MessageHashHigh              string                      `json:"messageHashHigh"`
 	DefaultOwnerPkHash           string                      `json:"defaultOwnerPkHash"`
+	PayerPkHash                  string                      `json:"payerPkHash"`
+	CosignerPkHash               string                      `json:"cosignerPkHash"`
+	ExitDestinationPkHash        string                      `json:"exitDestinationPkHash"`
 	PublicAssets                 []string                    `json:"publicAssets"`
 	PublicAmounts                []string                    `json:"publicAmounts"`
 	RingProgramID                string                      `json:"ringProgramId"`
@@ -99,6 +110,7 @@ func (p *AnonymousEddsaTransferParameters) MarshalJSON() ([]byte, error) {
 		ExternalDataHash:             p.ExternalDataHash,
 		PrivateTxHash:                p.PrivateTxHash,
 		BlindingSeed:                 p.BlindingSeed,
+		RingSecrets:                  p.RingSecrets,
 		PublicAssets:                 p.PublicAssets,
 		PublicAmounts:                p.PublicAmounts,
 		RingProgramID:                p.RingProgramID,
@@ -120,11 +132,16 @@ func (p *AnonymousEddsaTransferParameters) MarshalJSON() ([]byte, error) {
 		ExternalDataHash:             base.ExternalDataHash,
 		PrivateTxHash:                base.PrivateTxHash,
 		BlindingSeed:                 base.BlindingSeed,
+		RingSecrets:                  base.RingSecrets,
 		OwnerPublicKey:               "0x" + hex.EncodeToString(p.OwnerPublicKey[:]),
 		OwnerSignature:               "0x" + hex.EncodeToString(p.OwnerSignature[:]),
+		RingProgramAddress:           "0x" + hex.EncodeToString(p.RingProgramAddress[:]),
 		MessageHashLow:               common.FeHex(p.MessageHashLow),
 		MessageHashHigh:              common.FeHex(p.MessageHashHigh),
 		DefaultOwnerPkHash:           common.FeHex(p.DefaultOwnerPkHash),
+		PayerPkHash:                  common.FeHex(p.PayerPkHash),
+		CosignerPkHash:               common.FeHex(p.CosignerPkHash),
+		ExitDestinationPkHash:        common.FeHex(p.ExitDestinationPkHash),
 		PublicAssets:                 base.PublicAssets,
 		PublicAmounts:                base.PublicAmounts,
 		RingProgramID:                base.RingProgramID,
@@ -156,6 +173,7 @@ func (p *AnonymousEddsaTransferParameters) UnmarshalJSON(data []byte) error {
 		ExternalDataHash:             params.ExternalDataHash,
 		PrivateTxHash:                params.PrivateTxHash,
 		BlindingSeed:                 params.BlindingSeed,
+		RingSecrets:                  params.RingSecrets,
 		PublicAssets:                 params.PublicAssets,
 		PublicAmounts:                params.PublicAmounts,
 		RingProgramID:                params.RingProgramID,
@@ -176,6 +194,7 @@ func (p *AnonymousEddsaTransferParameters) UnmarshalJSON(data []byte) error {
 	p.ExternalDataHash = base.ExternalDataHash
 	p.PrivateTxHash = base.PrivateTxHash
 	p.BlindingSeed = base.BlindingSeed
+	p.RingSecrets = base.RingSecrets
 	p.PublicAssets = base.PublicAssets
 	p.PublicAmounts = base.PublicAmounts
 	p.RingProgramID = base.RingProgramID
@@ -191,11 +210,17 @@ func (p *AnonymousEddsaTransferParameters) UnmarshalJSON(data []byte) error {
 	if err := exactBytes(p.OwnerSignature[:], params.OwnerSignature); err != nil {
 		return fmt.Errorf("ownerSignature: %w", err)
 	}
+	if err := exactBytes(p.RingProgramAddress[:], params.RingProgramAddress); err != nil {
+		return fmt.Errorf("ringProgramAddress: %w", err)
+	}
 	var err error
 	for target, encoded := range map[**big.Int]string{
-		&p.MessageHashLow:     params.MessageHashLow,
-		&p.MessageHashHigh:    params.MessageHashHigh,
-		&p.DefaultOwnerPkHash: params.DefaultOwnerPkHash,
+		&p.MessageHashLow:        params.MessageHashLow,
+		&p.MessageHashHigh:       params.MessageHashHigh,
+		&p.DefaultOwnerPkHash:    params.DefaultOwnerPkHash,
+		&p.PayerPkHash:           params.PayerPkHash,
+		&p.CosignerPkHash:        params.CosignerPkHash,
+		&p.ExitDestinationPkHash: params.ExitDestinationPkHash,
 	} {
 		if *target, err = common.FeFromHex(encoded); err != nil {
 			return err
@@ -264,6 +289,10 @@ func (p *AnonymousEddsaTransferParameters) CreateWitness() (frontend.Circuit, er
 		outputOwnerPkHashes[i] = orZero(out.OwnerPkHash)
 		outputNullifierPks[i] = orZero(out.NullifierPk)
 	}
+	ringSecrets, err := ringSecretsWitness(p.RingSecrets, len(p.Outputs))
+	if err != nil {
+		return nil, err
+	}
 	circuit := &customring.CustomRingAnonymousEddsaCircuit{
 		CachedInputs: p.Cache.circuitInputs(int(p.NInputs)),
 		Shape:        txcircuit.Shape{NInputs: int(p.NInputs), NOutputs: int(p.NOutputs)},
@@ -276,6 +305,9 @@ func (p *AnonymousEddsaTransferParameters) CreateWitness() (frontend.Circuit, er
 			MessageHashLow:               p.MessageHashLow,
 			MessageHashHigh:              p.MessageHashHigh,
 			DefaultOwnerPkHash:           p.DefaultOwnerPkHash,
+			PayerPkHash:                  p.PayerPkHash,
+			CosignerPkHash:               p.CosignerPkHash,
+			ExitDestinationPkHash:        p.ExitDestinationPkHash,
 			ExternalDataHash:             p.ExternalDataHash,
 			PublicAssets:                 core.publicAssets,
 			PublicAmounts:                core.publicAmounts,
@@ -292,6 +324,7 @@ func (p *AnonymousEddsaTransferParameters) CreateWitness() (frontend.Circuit, er
 			OutputOwnerPkHashes: outputOwnerPkHashes,
 			OutputNullifierPks:  outputNullifierPks,
 			BlindingSeed:        p.BlindingSeed,
+			RingSecrets:         ringSecrets,
 		},
 	}
 	for i, b := range p.OwnerPublicKey {
@@ -299,6 +332,9 @@ func (p *AnonymousEddsaTransferParameters) CreateWitness() (frontend.Circuit, er
 	}
 	for i, b := range p.OwnerSignature {
 		circuit.Private.OwnerSignature[i] = b
+	}
+	for i, b := range p.RingProgramAddress {
+		circuit.Private.RingProgramAddress[i] = b
 	}
 	return circuit, nil
 }

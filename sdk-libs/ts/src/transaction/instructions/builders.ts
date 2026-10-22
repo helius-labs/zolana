@@ -1,5 +1,6 @@
+import { checkMergeRingDataHash } from "../merge-data.js";
 import type { Address, Bytes16, Bytes32, OwnerTag } from "../../interface/types.js";
-import { randomBlinding, randomSalt } from "../../keypair/bytes.js";
+import { bytesToBigInt, randomBlinding, randomSalt } from "../../keypair/bytes.js";
 import {
   mergeDummyNullifier,
   mergeOutputBlinding,
@@ -17,7 +18,7 @@ import {
   mergePaddedInputCount,
 } from "../../interface/constants.js";
 import { TransactionError } from "../error.js";
-import { checked, decodeAddress, equal } from "../internal.js";
+import { checked, decodeAddress, equal, ZERO_32 } from "../internal.js";
 import { DEFAULT_TREE_ID } from "../../interface/tree-slot.js";
 import { encodeSplitBundle, encryptSplit } from "../serialization/codecs.js";
 import { encryptMergeOutput, type MergeOutputCiphertext } from "../serialization/merge.js";
@@ -48,6 +49,24 @@ function checkedU64(value: bigint, field: string): bigint {
     });
   }
   return value;
+}
+
+/** A merge preserves one committed ring data hash, including an explicit zero. */
+export function mergeRingDataHash(inputs: readonly ProofInputUtxo[], expected?: Bytes32): Bytes32 {
+  const first = inputs.find((input) => !input.isDummy());
+  if (first === undefined) throw new TransactionError("TRANSACTION_NO_INPUTS");
+  const hash = checked<Bytes32>(first.ringDataHash ?? ZERO_32, 32, "merge ring data hash");
+  for (const [index, input] of inputs.entries()) {
+    if (!input.isDummy())
+      checkMergeRingDataHash(
+        bytesToBigInt(input.ringDataHash ?? ZERO_32),
+        bytesToBigInt(hash),
+        index,
+      );
+  }
+  if (expected !== undefined)
+    checkMergeRingDataHash(bytesToBigInt(expected), bytesToBigInt(hash), "output");
+  return hash;
 }
 
 export class PreparedMerge {
@@ -138,6 +157,7 @@ export class PreparedMerge {
         actual: input.dummyNullifiers.length,
       });
     }
+    mergeRingDataHash(input.inputs, input.output.ringDataHash ?? ZERO_32);
     this.inputTreeId = singleInputTreeId(input.inputs);
     this.inputs = Object.freeze([...input.inputs]);
     this.output = input.output;
@@ -308,6 +328,7 @@ export class Merge {
     const firstInput = inputs[0];
     if (!firstInput) throw new TransactionError("TRANSACTION_NO_INPUTS");
     const asset = firstInput.utxo.asset;
+    const ringDataHash = mergeRingDataHash(inputs, input.ring?.outputDataHash);
     let amount = 0n;
     inputs.forEach((spend, index) => {
       if (spend.utxo.owner.signatureType() !== owner.signatureType()) {
@@ -363,9 +384,7 @@ export class Merge {
           ? {}
           : {
               ringProgramId: input.ring.programId,
-              ...(input.ring.outputDataHash === undefined
-                ? {}
-                : { ringDataHash: input.ring.outputDataHash }),
+              ringDataHash,
             }),
       }),
       expiryUnixTs: U64_MAX,

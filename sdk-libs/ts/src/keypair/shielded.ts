@@ -233,7 +233,7 @@ export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
    * keys expand from the signing key's derivation seed, like Rust's
    * `new_ed25519`.
    */
-  static generate(type: SignatureType = "ed25519"): ShieldedKeypair {
+  static generate(type: "ed25519" = "ed25519"): ShieldedKeypair {
     return ShieldedKeypair.fromKeypair(SigningKey.generate(type));
   }
 

@@ -40,9 +40,7 @@ fn merge_payload(
     encode_merge_output_data(MergeOutputDataRef {
         salt: &MERGE_SALT,
         ciphertext: &ciphertext,
-        prefix: ring_data_hash
-            .map(core::slice::from_ref)
-            .unwrap_or_default(),
+        ring_data_hash,
     })
 }
 

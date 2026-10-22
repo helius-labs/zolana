@@ -1,6 +1,7 @@
 package common
 
 import (
+	"fmt"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -37,7 +38,17 @@ func TestLazyKeyManagerBuildsCustomRingKeyPaths(t *testing.T) {
 	keysDir := filepath.Join("tmp", "proving-keys")
 	manager := NewLazyKeyManager(keysDir, &DownloadConfig{})
 
-	for circuitType, filename := range RingKeyFiles {
+	for circuitType, filename := range map[CircuitType]string{
+		"custom-ring-audit-packed-2":       "custom_ring_audit_packed_2.key",
+		"custom-ring-audit-delivered-16":   "custom_ring_audit_delivered_16.key",
+		"custom-ring-audit-anonymous-12-4": "custom_ring_audit_anonymous_12_4.key",
+		"custom-ring-policy-member-8":      "custom_ring_policy_member_8.key",
+		"custom-ring-policy-delegate-4x4":  "custom_ring_policy_delegate_4x4.key",
+		"custom-ring-apply-records-16":     "custom_ring_apply_records_16.key",
+		CustomRingKeyRegisterCircuitType:   "custom_ring_register_key.key",
+		CustomRingDepositCircuitType:       "custom_ring_deposit.key",
+		"custom-ring-merge-anonymous-24":   "custom_ring_merge_anonymous_24.key",
+	} {
 		got := manager.determineRingKeyPath(circuitType)
 		want := filepath.Join(keysDir, filename)
 		if got != want {
@@ -72,10 +83,10 @@ func TestKeyFileIsEmptyForAnUnsupportedShape(t *testing.T) {
 		"removed transfer 1x1":  TransferKeyFile(TransferConfidentialCircuitType, 1, 1),
 		"removed transfer 2x3":  TransferKeyFile(TransferRingCircuitType, 2, 3),
 		"removed transfer 36x2": TransferKeyFile(TransferAnonymousRingEddsaCircuitType, 36, 2),
-		"ring authority 2x4":    TransferKeyFile(TransferRingAuthorityCircuitType, 2, 4),
+		"ring authority 48x2":   TransferKeyFile(TransferRingAuthorityCircuitType, 48, 2),
 		"ring authority 1x1":    TransferKeyFile(TransferRingAuthorityCircuitType, 1, 1),
 		"ring authority 3x3":    TransferKeyFile(TransferRingAuthorityCircuitType, 3, 3),
-		"ring authority 8x8":    TransferKeyFile(TransferRingAuthorityCircuitType, 8, 8),
+		"ring authority 49x2":   TransferKeyFile(TransferRingAuthorityCircuitType, 49, 2),
 		"merge 24x2":            TransferKeyFile(MergeCircuitType, 24, 2),
 		"merge 9x1":             TransferKeyFile(MergeCircuitType, 9, 1),
 		"removed merge 36x1":    TransferKeyFile(MergeRingCircuitType, 36, 1),
@@ -110,14 +121,16 @@ func TestShapeListsMirrorTheirSources(t *testing.T) {
 	}
 }
 
-func TestRingAuthorityKeysAreTheSmallSquareShapes(t *testing.T) {
-	var files []string
+func TestRingAuthorityKeysAreTheRingAuthorityShapes(t *testing.T) {
+	var files, want []string
 	for _, shape := range transferSupportedShapes {
 		if file := TransferKeyFile(TransferRingAuthorityCircuitType, shape[0], shape[1]); file != "" {
 			files = append(files, file)
 		}
 	}
-	want := []string{"transfer_ring_authority_2_2.key", "transfer_ring_authority_4_4.key"}
+	for _, shape := range protocol.RingAuthorityShapes {
+		want = append(want, fmt.Sprintf("transfer_ring_authority_%d_%d.key", shape.NInputs, shape.NOutputs))
+	}
 	if !slices.Equal(files, want) {
 		t.Fatalf("ring authority keys %v, want %v", files, want)
 	}

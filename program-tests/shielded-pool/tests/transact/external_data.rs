@@ -7,8 +7,8 @@ use shielded_pool_program::testing::hash_external_data;
 use zolana_hasher::{sha256::Sha256BE, Hasher};
 use zolana_interface::instruction::{
     instruction_data::transact::{
-        CircuitId, OwnerTag, ResolvedOutput, TransactIxData, TransactIxDataRef, TransactOutput,
-        TransactProof, TreeContext,
+        CircuitId, OwnerTag, ParsedTransactIxData, ResolvedOutput, TransactIxData,
+        TransactIxDataRef, TransactOutput, TransactProof, TreeContext,
     },
     tag::InstructionTag,
 };
@@ -71,7 +71,11 @@ fn inline_owner_tags_hash_only_tag_and_prefix() {
         OwnerTag::Inline(inline_owner),
         OwnerTag::Inline(inline_owner),
     ]);
-    let (ix, prefix) = TransactIxDataRef::parse_with_external_data_prefix(&bytes).unwrap();
+    let ParsedTransactIxData {
+        ix,
+        external_data_prefix: prefix,
+        ..
+    } = TransactIxDataRef::parse_with_tail(&bytes).unwrap();
     let resolved = resolve(
         &ix,
         [
@@ -96,7 +100,11 @@ fn account_owner_tags_append_resolved_addresses_in_output_order() {
         OwnerTag::Inline(inline_owner),
         OwnerTag::Account(ACCOUNT_OWNER_INDEX),
     ]);
-    let (ix, prefix) = TransactIxDataRef::parse_with_external_data_prefix(&bytes).unwrap();
+    let ParsedTransactIxData {
+        ix,
+        external_data_prefix: prefix,
+        ..
+    } = TransactIxDataRef::parse_with_tail(&bytes).unwrap();
     let resolved = resolve(
         &ix,
         [

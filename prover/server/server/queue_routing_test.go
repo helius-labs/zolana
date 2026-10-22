@@ -24,12 +24,12 @@ func TestGetQueueNameForCircuit(t *testing.T) {
 		{common.TransferRingAuthorityCircuitType, "zk_transfer_queue"},
 		{common.MergeCircuitType, "zk_transfer_queue"},
 		{common.MergeRingCircuitType, "zk_transfer_queue"},
-		{common.CustomRingBaseCircuitType, "zk_custom_ring_queue"},
-		{common.CustomRingPolicyCircuitType, "zk_custom_ring_queue"},
-		{common.CustomRingDelegatePolicyCircuitType, "zk_custom_ring_queue"},
-		{common.CustomRingCompressedPolicyCircuitType, "zk_custom_ring_queue"},
+		{common.CircuitType("custom-ring-audit-packed-2"), "zk_custom_ring_queue"},
+		{common.CircuitType("custom-ring-policy-member-2"), "zk_custom_ring_queue"},
+		{common.CircuitType("custom-ring-policy-delegate-2x2"), "zk_custom_ring_queue"},
 		{common.CustomRingKeyRegisterCircuitType, "zk_custom_ring_queue"},
 		{common.CustomRingDepositCircuitType, "zk_custom_ring_queue"},
+		{common.CircuitType("custom-ring-apply-records-16"), "zk_custom_ring_queue"},
 		{common.CircuitType("unknown"), ""},
 	}
 	for _, c := range cases {
@@ -48,7 +48,7 @@ func TestCustomRingWorkerRejectsOtherCircuits(t *testing.T) {
 
 func TestCustomRingFailureDetailsDoNotContainWitnessData(t *testing.T) {
 	const marker = "private-witness-marker"
-	job := &ProofJob{Payload: json.RawMessage(`{"circuitType":"custom-ring-base","txViewingSk":"` + marker + `"}`)}
+	job := &ProofJob{Payload: json.RawMessage(`{"circuitType":"custom-ring-audit-packed-2","txViewingSk":"` + marker + `"}`)}
 
 	worker := &BaseQueueWorker{queueName: "zk_custom_ring_queue"}
 	details := worker.failureDetails(job, errors.New(marker))
@@ -70,12 +70,12 @@ func TestCustomRingCachedFailureDoesNotContainWitnessData(t *testing.T) {
 
 func TestCustomRingIsServedOnEveryRail(t *testing.T) {
 	for _, want := range []common.CircuitType{
-		common.CustomRingBaseCircuitType,
-		common.CustomRingPolicyCircuitType,
-		common.CustomRingDelegatePolicyCircuitType,
-		common.CustomRingCompressedPolicyCircuitType,
+		common.CircuitType("custom-ring-audit-packed-2"),
+		common.CircuitType("custom-ring-policy-member-2"),
+		common.CircuitType("custom-ring-policy-delegate-2x2"),
 		common.CustomRingKeyRegisterCircuitType,
 		common.CustomRingDepositCircuitType,
+		common.CircuitType("custom-ring-apply-records-16"),
 	} {
 		if (proveHandler{}).shouldUseQueueForCircuit(want) {
 			t.Fatalf("%s routed to a queue the server does not have", want)

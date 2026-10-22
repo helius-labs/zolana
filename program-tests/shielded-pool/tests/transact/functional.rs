@@ -582,6 +582,8 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
         public_input_hash,
     });
     prover_inputs.ring_program_id = be(&ring_field);
+    // Dummy outputs carry no ring secret.
+    prover_inputs.ring_secrets = vec![be(&zero); usize::from(n_outputs)];
     if IS_AUTHORITY {
         // The authority rail proves no signatures: its witness carries only the
         // bare payer hash and publishes no output-owner hashes.

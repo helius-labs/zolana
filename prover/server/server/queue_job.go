@@ -721,9 +721,6 @@ func (w *BaseQueueWorker) failureDetails(job *ProofJob, err error) map[string]in
 	var failure *Error
 	if errors.As(err, &failure) {
 		details["code"] = failure.Code
-		if failure.Member != "" {
-			details["member"] = failure.Member
-		}
 	}
 	return details
 }

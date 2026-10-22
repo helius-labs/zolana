@@ -17,9 +17,11 @@
 //! place: proving. That capability lives on the client layer, next to the
 //! witness types that need it, and is deliberately absent here.
 
+use custom_ring_interface::stream::DeliveredSlot;
+use solana_address::Address;
 use zolana_keypair::{
     shielded::{ShieldedAddress, ShieldedKeypair},
-    viewing_key::Salt,
+    viewing_key::{Salt, ViewTag},
     NullifierKey, ViewingKey, X25519Pubkey,
 };
 
@@ -85,6 +87,25 @@ pub struct TransactionKeyRequest {
     pub first_nullifier: [u8; 32],
 }
 
+/// The viewing key a delivered ring output was agreed under.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum RingRecipientKey {
+    /// One of the wallet's viewing keys, the recipient of a confidential delivered output.
+    Viewing(X25519Pubkey),
+    /// Ring address `index` of `ring`, the recipient of an anonymous output.
+    Address { ring: Address, index: u32 },
+}
+
+/// The public context of one delivered ring output slot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RingDeliveryRequest {
+    pub recipient: RingRecipientKey,
+    pub tx_viewing_pk: X25519Pubkey,
+    pub salt: Salt,
+    pub output_index: u32,
+    pub first_nullifier: [u8; 32],
+}
+
 pub trait ShieldedKeys {
     fn address(&self) -> Result<ShieldedAddress, TransactionError>;
 
@@ -101,6 +122,25 @@ pub trait ShieldedKeys {
         requests: &[TransactionKeyRequest],
     ) -> Result<Vec<ViewingKey>, TransactionError>;
 
+    /// The keys of ring addresses `indexes` of `ring`, one per index.
+    fn ring_address_keys(
+        &self,
+        ring: &Address,
+        indexes: &[u32],
+    ) -> Result<Vec<X25519Pubkey>, TransactionError>;
+
+    /// One CRDS slot secret per request, the viewing secret never leaves the holder.
+    fn ring_delivery_secrets(
+        &self,
+        requests: &[RingDeliveryRequest],
+    ) -> Result<Vec<[u8; 32]>, TransactionError>;
+
+    /// The key the sender's change in `ring` is delivered to, the sender agrees with it from `tx_sk`.
+    fn ring_change_key(&self, ring: &Address) -> Result<X25519Pubkey, TransactionError>;
+
+    /// The deposit tags of the current viewing key, one per counter.
+    fn sender_view_tags(&self, counters: &[u64]) -> Result<Vec<ViewTag>, TransactionError>;
+
     fn spendable_utxos(
         &self,
         transactions: &[ShieldedTransaction],
@@ -108,6 +148,14 @@ pub trait ShieldedKeys {
     ) -> Result<SpendableDecryptionResult, TransactionError> {
         decrypt_spendable(self, transactions, assets)?.with_transaction_keys(self)
     }
+}
+
+/// The answer to a one-item request, a holder that answers more or less is refused.
+pub fn exactly_one<T>(answers: Vec<T>) -> Result<T, TransactionError> {
+    let got = answers.len();
+    <[T; 1]>::try_from(answers)
+        .map(|[answer]| answer)
+        .map_err(|_| TransactionError::IncompleteDerivation { got, want: 1 })
 }
 
 pub(crate) fn first_input_transaction_key<K: ShieldedKeys + ?Sized>(
@@ -191,20 +239,19 @@ impl ShieldedKeys for LocalShieldedKeys {
             .iter()
             .map(|request| {
                 let viewing = self.viewing_key(&request.viewing_pubkey)?;
-                let plaintext = match request.label {
+                Ok(match request.label {
                     DecryptLabel::Utxo => viewing.decrypt_utxo(
                         request.ciphertext,
                         &request.tx_viewing_pubkey,
                         request.salt,
                         request.slot_index,
-                    ),
+                    )?,
                     DecryptLabel::RingDeposit => viewing.decrypt_ring_deposit(
                         request.ciphertext,
                         &request.tx_viewing_pubkey,
                         request.salt,
-                    ),
-                }?;
-                Ok(plaintext)
+                    )?,
+                })
             })
             .collect()
     }
@@ -246,6 +293,60 @@ impl ShieldedKeys for LocalShieldedKeys {
             })
             .collect()
     }
+
+    fn ring_address_keys(
+        &self,
+        ring: &Address,
+        indexes: &[u32],
+    ) -> Result<Vec<X25519Pubkey>, TransactionError> {
+        let viewing = self.viewing_key(&self.address.viewing_pubkey)?;
+        indexes
+            .iter()
+            .map(|index| Ok(viewing.ring_address_key(ring, *index)?.pubkey()))
+            .collect()
+    }
+
+    fn ring_delivery_secrets(
+        &self,
+        requests: &[RingDeliveryRequest],
+    ) -> Result<Vec<[u8; 32]>, TransactionError> {
+        let current = self.viewing_key(&self.address.viewing_pubkey)?;
+        requests
+            .iter()
+            .map(|request| {
+                let recipient = match request.recipient {
+                    RingRecipientKey::Viewing(pubkey) => self.viewing_key(&pubkey)?.clone(),
+                    RingRecipientKey::Address { ring, index } => {
+                        current.ring_address_key(&ring, index)?
+                    }
+                };
+                let agreement = recipient.ecdh(&request.tx_viewing_pk)?;
+                let secret = DeliveredSlot {
+                    agreement: &agreement,
+                    tx_viewing_pk: request.tx_viewing_pk.as_bytes(),
+                    recipient_viewing_pk: recipient.pubkey().as_bytes(),
+                    salt: &request.salt,
+                    output_index: request.output_index,
+                    first_nullifier: &request.first_nullifier,
+                }
+                .secret()?;
+                Ok(*secret.as_bytes())
+            })
+            .collect()
+    }
+
+    fn ring_change_key(&self, ring: &Address) -> Result<X25519Pubkey, TransactionError> {
+        let viewing = self.viewing_key(&self.address.viewing_pubkey)?;
+        Ok(viewing.ring_change_key(ring)?.pubkey())
+    }
+
+    fn sender_view_tags(&self, counters: &[u64]) -> Result<Vec<ViewTag>, TransactionError> {
+        let viewing = self.viewing_key(&self.address.viewing_pubkey)?;
+        counters
+            .iter()
+            .map(|counter| Ok(viewing.get_sender_view_tag(*counter)?))
+            .collect()
+    }
 }
 
 /// A software keypair answers the same operations directly, which is what the
@@ -272,5 +373,28 @@ impl ShieldedKeys for ShieldedKeypair {
         requests: &[TransactionKeyRequest],
     ) -> Result<Vec<ViewingKey>, TransactionError> {
         LocalShieldedKeys::from_keypair(self)?.transaction_keys(requests)
+    }
+
+    fn ring_address_keys(
+        &self,
+        ring: &Address,
+        indexes: &[u32],
+    ) -> Result<Vec<X25519Pubkey>, TransactionError> {
+        LocalShieldedKeys::from_keypair(self)?.ring_address_keys(ring, indexes)
+    }
+
+    fn ring_delivery_secrets(
+        &self,
+        requests: &[RingDeliveryRequest],
+    ) -> Result<Vec<[u8; 32]>, TransactionError> {
+        LocalShieldedKeys::from_keypair(self)?.ring_delivery_secrets(requests)
+    }
+
+    fn ring_change_key(&self, ring: &Address) -> Result<X25519Pubkey, TransactionError> {
+        LocalShieldedKeys::from_keypair(self)?.ring_change_key(ring)
+    }
+
+    fn sender_view_tags(&self, counters: &[u64]) -> Result<Vec<ViewTag>, TransactionError> {
+        LocalShieldedKeys::from_keypair(self)?.sender_view_tags(counters)
     }
 }

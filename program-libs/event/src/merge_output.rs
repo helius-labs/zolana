@@ -1,11 +1,14 @@
 use alloc::vec::Vec;
 
-use crate::OutputDataEncoding;
+use crate::{
+    proofless::{encode_framed_output, Framing},
+    OutputDataEncoding,
+};
 
-/// Scheme byte of a PoseidonCtrV1 merge output body. A `merge_transact` output
-/// publishes it inside [`OutputDataEncoding::VerifiablyEncrypted`] (the merge
-/// proof binds the ciphertext); a `merge_ring` output inside
-/// [`OutputDataEncoding::Encrypted`] (the ring merge proof does not).
+/// Scheme byte of a PoseidonCtrV1 merge output body. A `merge_transact` or
+/// `merge_ring` output publishes it inside
+/// [`OutputDataEncoding::VerifiablyEncrypted`] (both merge proofs bind the
+/// ciphertext).
 pub const MERGE_OUTPUT_SCHEME: u8 = 6;
 
 /// Bytes of the per-proof salt the merge output ciphertext is padded under.
@@ -22,32 +25,27 @@ pub const MERGE_OUTPUT_BODY_LEN: usize = MERGE_OUTPUT_SALT_LEN + MERGE_OUTPUT_CI
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MergeOutputDataRef<'a> {
     pub salt: &'a [u8; MERGE_OUTPUT_SALT_LEN],
-    pub ciphertext: &'a [[u8; 32]],
-    /// Elements written before the salt: the output `ring_data_hash` a
-    /// `merge_ring` binds, empty on `merge_transact`. A non-empty prefix
-    /// publishes the output as `Encrypted`, since the ring merge proof does
-    /// not bind the ciphertext.
-    pub prefix: &'a [[u8; 32]],
+    pub ciphertext: &'a [[u8; 32]; 3],
+    /// `None` on `merge_transact`.
+    pub ring_data_hash: Option<&'a [u8; 32]>,
 }
 
 /// Encodes a merge output's data slot: `VerifiablyEncrypted(scheme || salt ||
-/// ciphertext)` for `merge_transact`, `Encrypted(scheme || ring_data_hash ||
-/// salt || ciphertext)` for `merge_ring`. The ring data hash leads, as it does
-/// in the `merge_ring` instruction data.
+/// ciphertext)` for `merge_transact`, `VerifiablyEncrypted(scheme ||
+/// ring_data_hash || salt || ciphertext)` for `merge_ring`. The ring data hash
+/// leads, as it does in the `merge_ring` instruction data.
 pub fn encode_merge_output_data(data: MergeOutputDataRef<'_>) -> Vec<u8> {
-    let mut blob = Vec::with_capacity(
-        1 + MERGE_OUTPUT_SALT_LEN + 32 * (data.prefix.len() + data.ciphertext.len()),
-    );
-    blob.push(MERGE_OUTPUT_SCHEME);
-    blob.extend_from_slice(data.prefix.as_flattened());
-    blob.extend_from_slice(data.salt);
-    blob.extend_from_slice(data.ciphertext.as_flattened());
-    let encoding = if !data.prefix.is_empty() {
-        OutputDataEncoding::Encrypted(blob)
-    } else {
-        OutputDataEncoding::VerifiablyEncrypted(blob)
-    };
-    borsh::to_vec(&encoding).expect("borsh serialization into a Vec cannot fail")
+    encode_framed_output(
+        Framing {
+            encoding_tag: OutputDataEncoding::VERIFIABLY_ENCRYPTED_TAG,
+            scheme: MERGE_OUTPUT_SCHEME,
+        },
+        &[
+            data.ring_data_hash.map_or(&[][..], |hash| &hash[..]),
+            data.salt,
+            data.ciphertext.as_flattened(),
+        ],
+    )
 }
 
 /// Splits a merge output body (after the scheme byte) into the `merge_ring`

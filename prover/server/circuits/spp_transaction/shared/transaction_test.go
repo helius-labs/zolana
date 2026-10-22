@@ -11,6 +11,7 @@ import (
 	defaultring "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/default"
 	. "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
 
+	"github.com/helius-labs/zolana/prover/server/prover-test/ringaudit"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 
@@ -91,6 +92,7 @@ type testOutput struct {
 	Hash        frontend.Variable
 	OwnerPkHash frontend.Variable
 	NullifierPk frontend.Variable
+	RingSecret  frontend.Variable
 }
 
 // testAssignment carries every value any variant needs; the as<Variant>
@@ -211,6 +213,14 @@ func (a *testAssignment) outputNullifierPks() []frontend.Variable {
 	return out
 }
 
+func (a *testAssignment) ringSecrets() []frontend.Variable {
+	out := make([]frontend.Variable, len(a.Outputs))
+	for i := range a.Outputs {
+		out[i] = a.Outputs[i].RingSecret
+	}
+	return out
+}
+
 func asCustomRingConfidentialEddsa(a *testAssignment) frontend.Circuit {
 	return &customring.CustomRingConfidentialEddsaCircuit{
 		CachedInputs: a.CachedInputs,
@@ -236,6 +246,7 @@ func asCustomRingConfidentialEddsa(a *testAssignment) frontend.Circuit {
 			OutputOwnerPkHashes: a.OutputOwnerPkHashes(),
 			OutputNullifierPks:  a.outputNullifierPks(),
 			BlindingSeed:        a.BlindingSeed,
+			RingSecrets:         a.ringSecrets(),
 		},
 	}
 }
@@ -261,6 +272,7 @@ func asCustomRingAuthority(a *testAssignment) frontend.Circuit {
 			InputOwnerPkHashes: a.InputOwnerPkHashes(),
 			Outputs:            a.outputUtxos(),
 			BlindingSeed:       a.BlindingSeed,
+			RingSecrets:        a.ringSecrets(),
 		},
 	}
 }
@@ -410,8 +422,7 @@ func buildCircuitAssignmentExact(
 	outputBlindingSeed, seedErr := protocol.OutputBlindingSeed(firstNullifier, blindingSeed)
 	outputBlindingSeed = spptest.MustHash(t, outputBlindingSeed, seedErr)
 	for i := range outputUtxos {
-		blinding, err := protocol.OutputBlinding(firstNullifier, outputBlindingSeed, i)
-		outputUtxos[i].Blinding = spptest.MustHash(t, blinding, err)
+		outputUtxos[i].Blinding = testOutputBlinding(t, outputUtxos[i], firstNullifier, outputBlindingSeed, testRingSecret(i), i)
 	}
 
 	outputCircuitUtxos := make([]UtxoCircuitFields, shape.NOutputs)
@@ -476,7 +487,7 @@ func buildCircuitAssignmentExact(
 		PublicAmounts:    signedAmounts,
 		// Nonzero test ring id: the custom-ring circuits assert RingProgramID
 		// != 0; the default-ring refresh overrides it back to 0.
-		RingProgramID:       spptest.Fe(0x5A),
+		RingProgramID:       testRingProgramID(t),
 		InputFlags:          testInputFlags(t, true, inputTreeSlots),
 		SignerPkHashes:      signerPkHashes,
 		BindOutputOwnerTags: true,
@@ -517,6 +528,7 @@ func buildCircuitAssignmentExact(
 			Hash:        outputHashVariables[i],
 			OwnerPkHash: outputOwnerPkHashes[i],
 			NullifierPk: outputNullifierPks[i],
+			RingSecret:  testRingSecret(i),
 		}
 	}
 
@@ -759,14 +771,26 @@ func refreshDerivedOutputBlindings(t testing.TB, assignment *testAssignment) {
 	firstNullifier := spptest.AsBigInt(assignment.Inputs[0].Nullifier)
 	seed := assignment.outputBlindingSeed(t)
 	for i := range assignment.Outputs {
-		blinding, err := protocol.OutputBlinding(firstNullifier, seed, i)
-		assignment.Outputs[i].Utxo.Blinding = spptest.MustHash(t, blinding, err)
-		assignment.Outputs[i].Hash = testUtxoHash(
-			t,
-			circuitFieldsToUtxo(assignment.Outputs[i].Utxo),
-			assignment.OutputTreeID,
-		)
+		output := &assignment.Outputs[i]
+		utxo := circuitFieldsToUtxo(output.Utxo)
+		output.Utxo.Blinding = testOutputBlinding(t, utxo, firstNullifier, seed, spptest.AsBigInt(output.RingSecret), i)
+		output.Hash = testUtxoHash(t, circuitFieldsToUtxo(output.Utxo), assignment.OutputTreeID)
 	}
+}
+
+// Distinct per slot.
+func testRingSecret(i int) *big.Int {
+	return spptest.Fe(int64(0x54585242_00 + i))
+}
+
+// testOutputBlinding mirrors Transaction.outputBlinding.
+func testOutputBlinding(t testing.TB, utxo protocol.Utxo, firstNullifier, seed, ringSecret *big.Int, i int) *big.Int {
+	t.Helper()
+	if utxo.RingProgramID.Sign() == 0 {
+		blinding, err := protocol.OutputBlinding(firstNullifier, seed, i)
+		return spptest.MustHash(t, blinding, err)
+	}
+	return ringaudit.RingBlinding(t, firstNullifier, ringSecret, i)
 }
 
 func testOwnerHashForNullifierSecret(nullifierSecret *big.Int) *big.Int {

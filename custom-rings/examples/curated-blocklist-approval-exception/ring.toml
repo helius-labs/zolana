@@ -23,15 +23,13 @@ ring_rpc = "https://d24brah9h1i4q9.cloudfront.net"
 ring_rpc_pubkey = "C8TeRCdueRdXj3y4uFDtNywYThc3qeiH2ZGfcbYZzVSs"
 
 [policy]
-# entry and spend record addresses are claimed in the named tree
-address_tree = "33KVhbT4QtdQDrrrGwwThqD47Dh4Q6tA443t9jMNcWFN"
 
 [policy.sources.localnet]
-# the block list reads the entries of the named curator ring
+# the block list reads the member registry of the named curator ring
 block = "Gy3wjbn1MpGvJNrjinhWuSzLsp7HLazpmbQynmmMd91Z"
 
 [policy.sources.devnet]
-# the block list reads the entries of the named curator ring
+# the block list reads the member registry of the named curator ring
 block = "8tDbqVsQ8ujVVFXP2oSNkAcCTtJgKLJqxqnSCnCYZuCZ"
 
 # each output owner must be on the approval list or must not be on the block list

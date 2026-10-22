@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/helius-labs/zolana/prover/server/prover/common"
+	customring "github.com/helius-labs/zolana/prover/server/prover/custom_ring"
 )
 
 type InputParamsJSON struct {
@@ -47,10 +48,8 @@ type MergeParametersJSON struct {
 	PrivateTxHash       string   `json:"privateTxHash"`
 	PublicInputHash     string   `json:"publicInputHash"`
 	AllowDummyInputs    string   `json:"allowDummyInputs"`
-	// OutputCiphertextSalt is the 16-byte pad nonce of the PoseidonCtrV1 output
-	// ciphertext. Required on the default merge rail; the merge-ring circuit
-	// has no ciphertext, so a merge-ring request must omit it.
-	OutputCiphertextSalt string `json:"outputCiphertextSalt,omitempty"`
+	// OutputCiphertextSalt is the 16-byte pad nonce of the output ciphertext.
+	OutputCiphertextSalt string `json:"outputCiphertextSalt"`
 	// OutputRingDataHash is the ring-data hash the calling ring program carries
 	// in the merge_ring instruction/event, asserted against Output.RingDataHash.
 	// Emitted/consumed only on the merge-ring rail; zero on the default rail.
@@ -58,7 +57,11 @@ type MergeParametersJSON struct {
 	// RingProgramID is the policy-ring merge circuit's top-level public input
 	// (the ring program's pk_field). Emitted/consumed only on the merge-ring rail;
 	// the default merge rail leaves it zero.
-	RingProgramID string `json:"ringProgramId"`
+	RingProgramID            string                    `json:"ringProgramId"`
+	MemberRegistryRoot       string                    `json:"memberRegistryRoot,omitempty"`
+	RegisteredCiphertextHash string                    `json:"registeredCiphertextHash,omitempty"`
+	MemberRecord             *customring.RecordOpening `json:"memberRecord,omitempty"`
+	Anonymous                bool                      `json:"anonymous,omitempty"`
 }
 
 func (p *MergeParameters) MarshalJSON() ([]byte, error) {
@@ -92,9 +95,16 @@ func (p *MergeParameters) CreateMergeParametersJSON() MergeParametersJSON {
 		PrivateTxHash:       common.FeHex(p.PrivateTxHash),
 		PublicInputHash:     common.FeHex(p.PublicInputHash),
 		AllowDummyInputs:    common.FeHex(p.AllowDummyInputs),
+
+		OutputCiphertextSalt: common.FeHex(p.OutputCiphertextSalt),
 	}
-	if circuitType != common.MergeRingCircuitType {
-		paramsJson.OutputCiphertextSalt = common.FeHex(p.OutputCiphertextSalt)
+	if circuitType == common.MergeRingCircuitType {
+		paramsJson.MemberRegistryRoot = common.FeHex(p.MemberRegistryRoot)
+		if !p.Anonymous {
+			paramsJson.RegisteredCiphertextHash = common.FeHex(p.RegisteredCiphertextHash)
+		}
+		paramsJson.MemberRecord = p.MemberRecord
+		paramsJson.Anonymous = p.Anonymous
 	}
 
 	paramsJson.Inputs = make([]InputParamsJSON, len(p.Inputs))
@@ -141,6 +151,27 @@ func (p *MergeParameters) UpdateWithJSON(params MergeParametersJSON) error {
 	if p.OutputRingDataHash, err = common.FeFromHex(params.OutputRingDataHash); err != nil {
 		return err
 	}
+	if p.CircuitType == common.MergeRingCircuitType {
+		if params.MemberRegistryRoot == "" {
+			return fmt.Errorf("merge ring: memberRegistryRoot is required")
+		}
+		// An escrow merge carries the owner's record and ciphertext hash, an anonymous merge neither.
+		if params.Anonymous != (params.RegisteredCiphertextHash == "") || params.Anonymous != (params.MemberRecord == nil) {
+			return fmt.Errorf("merge ring: recovery registration does not match the anonymous flag")
+		}
+		if p.MemberRegistryRoot, err = common.FeFromHex(params.MemberRegistryRoot); err != nil {
+			return fmt.Errorf("memberRegistryRoot: %w", err)
+		}
+		p.Anonymous = params.Anonymous
+		if !p.Anonymous {
+			if p.RegisteredCiphertextHash, err = common.FeFromHex(params.RegisteredCiphertextHash); err != nil {
+				return fmt.Errorf("registeredCiphertextHash: %w", err)
+			}
+		}
+		p.MemberRecord = params.MemberRecord
+	} else if params.MemberRegistryRoot != "" || params.RegisteredCiphertextHash != "" || params.MemberRecord != nil || params.Anonymous {
+		return fmt.Errorf("merge: recovery registration is ring-only")
+	}
 	if p.OwnerPkHash, err = common.FeFromHex(params.OwnerPkHash); err != nil {
 		return err
 	}
@@ -180,18 +211,8 @@ func (p *MergeParameters) UpdateWithJSON(params MergeParametersJSON) error {
 			return err
 		}
 	}
-	if p.CircuitType == common.MergeRingCircuitType {
-		if params.OutputCiphertextSalt != "" {
-			return fmt.Errorf("merge-ring: outputCiphertextSalt is not a merge-ring input")
-		}
-		p.OutputCiphertextSalt = nil
-	} else {
-		if params.OutputCiphertextSalt == "" {
-			return fmt.Errorf("merge: outputCiphertextSalt is required")
-		}
-		if p.OutputCiphertextSalt, err = common.FeFromHex(params.OutputCiphertextSalt); err != nil {
-			return err
-		}
+	if p.OutputCiphertextSalt, err = common.FeFromHex(params.OutputCiphertextSalt); err != nil {
+		return err
 	}
 
 	p.Inputs = make([]InputParams, len(params.Inputs))

@@ -29,9 +29,9 @@ const MergeOutputCiphertextLen = 3
 
 // MergeOutputBlinding derives the merged output's blinding from the owner's
 // nullifier secret and the first (always real) input's single-use nullifier.
-// The nullifier secret is known to the owner alone -- unlike a UTXO blinding,
-// which the sender of that UTXO also knows -- so only the owner can recompute
-// this value off-circuit to recover the output.
+// The nullifier secret is known to the owner and its merger alone -- unlike a
+// UTXO blinding, which the sender of that UTXO also knows -- so only they can
+// recompute this value off-circuit to recover the output.
 func MergeOutputBlinding(api frontend.API, nullifierSecret, firstNullifier frontend.Variable) frontend.Variable {
 	return gadget.PoseidonHash(api, []frontend.Variable{
 		MergeOutputBlindingDomainV1, nullifierSecret, firstNullifier,
@@ -62,6 +62,9 @@ func MergeOutputCiphertext(
 	amount frontend.Variable,
 	mint [2]frontend.Variable,
 ) []frontend.Variable {
+	// The owner decodes these exact byte widths, a wider chunk has no 32-byte mint opening.
+	api.ToBinary(mint[0], 31*8)
+	api.ToBinary(mint[1], 8)
 	ctr := gadget.PoseidonCtr{
 		Domain: MergeOutputCiphertextDomain,
 		Key:    MergeOutputKey(api, nullifierSecret, firstNullifier),
@@ -74,10 +77,10 @@ func MergeOutputCiphertext(
 // MergeDummyNullifier derives the published nullifier of a dummy (padding)
 // input slot from the owner's nullifier secret, the first real input's
 // single-use nullifier, and the slot index. Seeding with the nullifier secret
-// (owner-only) rather than an input blinding (also known to that UTXO's
-// sender) keeps padding nullifiers indistinguishable from real ones, while the
-// fixed derivation prevents a prover from placing an arbitrary wallet
-// nullifier in a dummy slot.
+// (owner and merger only) rather than an input blinding (also known to that
+// UTXO's sender) keeps padding nullifiers indistinguishable from real ones,
+// while the fixed derivation prevents a prover from placing an arbitrary
+// wallet nullifier in a dummy slot.
 func MergeDummyNullifier(
 	api frontend.API,
 	nullifierSecret,

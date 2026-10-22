@@ -2,35 +2,28 @@
 
 use std::{collections::BTreeSet, str::FromStr};
 
+use anyhow::{bail, Result};
 use solana_address::Address;
-use thiserror::Error;
 use zolana_client::SolanaRpc;
-use zolana_interface::pda;
 use zolana_transaction::SOL_MINT;
 
 use crate::{
     catalogue::{discover, Catalogue},
-    config::{Base58Address, Target, Urls},
+    config::{redact_url, Base58Address, ModeName, Target, Urls},
     line,
     policy::{
-        describe, Alternative, AssetLimitSpec, ListName, PolicyError, PolicySpec, RuleSpec,
-        SourceSpec, SubjectName,
+        describe, Alternative, AssetLimitSpec, ListName, PolicySpec, RuleSpec, SourceSpec,
+        SubjectName,
     },
-    ui::{self, Ask, AskError, Icon, Pick, PickMany, Text},
+    ui::{self, icon, Ask},
 };
 
-pub trait Curators {
-    fn catalogue(&mut self, target: Target, rpc_url: &str) -> Catalogue;
-}
-
-pub struct LiveCurators {
-    /// A catalogue path or URL, `None` for the bundled file.
-    pub source: Option<String>,
-}
+/// The curator catalogue of a cluster, read through its RPC URL.
+pub type Curators<'a> = &'a mut dyn FnMut(Target, &str) -> Catalogue;
 
 pub struct Wizard<'a> {
     pub ask: &'a mut dyn Ask,
-    pub curators: &'a mut dyn Curators,
+    pub curators: Curators<'a>,
     pub localnet: Urls,
     pub devnet: Urls,
 }
@@ -40,32 +33,14 @@ pub struct Answers {
     pub target: Target,
     pub localnet: Urls,
     pub devnet: Urls,
+    pub mode: ModeName,
     pub policy: Option<PolicySpec>,
 }
 
-#[derive(Clone, Copy)]
-struct AssetPreset {
-    name: &'static str,
-    mint: Address,
-}
-
-#[derive(Debug, Error)]
-pub enum WizardError {
-    #[error(transparent)]
-    Ask(#[from] AskError),
-    #[error(transparent)]
-    Policy(#[from] PolicyError),
-    #[error("{name} is not kebab-case, use lowercase letters, digits and dashes")]
-    Name { name: String },
-    #[error("{text} is not a base58 address")]
-    Address { text: String },
-}
-
-const POLICY_OPTIONS: [&str; 11] = [
+const POLICY_OPTIONS: [&str; 10] = [
     "participant allowlist",
     "recipient blocklist",
     "sender freeze",
-    "token blocklist",
     "asset allowlist",
     "blocklist with approval exception",
     "per-mint recipient limits",
@@ -78,47 +53,37 @@ const ADVANCED_SOURCES: [&str; 5] = [
     "require a list",
     "forbid a list",
     "either-or lists",
-    "inline asset allowlist",
+    "asset registry list",
     "discard",
 ];
 const ALTERNATIVE_KINDS: [&str; 4] = ["require", "forbid", "done", "discard"];
 const OPTIONAL_GUARDS: [&str; 2] = ["always", "above an amount"];
 const OWNER_GUARDS: [&str; 3] = ["always", "above an amount", "above per-mint amounts"];
-const OWN_ENTRIES: &str = "this ring manages the entries";
-const ANOTHER_CURATOR: &str = "another curator manages the entries";
+const OWN_ENTRIES: &str = "this ring manages the members";
+const ANOTHER_CURATOR: &str = "another curator manages the members";
 const OTHER_MINT: &str = "another mint address";
-const OTHER_MINTS: &str = "other mint addresses";
-const ASSET_PRESETS: [AssetPreset; 2] = [
-    AssetPreset {
-        name: "SOL",
-        mint: SOL_MINT,
-    },
-    AssetPreset {
-        name: "USDC",
-        mint: Address::from_str_const("4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"),
-    },
-];
+const DEVNET_USDC: Address =
+    Address::from_str_const("4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU");
+/// Localnet offers only SOL, USDC is a devnet mint.
+const ASSET_PRESETS: [(&str, Address); 2] = [("SOL", SOL_MINT), ("USDC", DEVNET_USDC)];
 
 pub fn check_name(name: &str) -> Result<(), String> {
     let mut chars = name.chars();
-    let valid = matches!(chars.next(), Some('a'..='z'))
-        && chars.all(|c| matches!(c, 'a'..='z' | '0'..='9' | '-'));
-    if valid {
-        Ok(())
-    } else {
-        Err("use lowercase letters, digits and dashes, a letter first".to_owned())
+    match chars.next() {
+        Some('a'..='z') if chars.all(|c| matches!(c, 'a'..='z' | '0'..='9' | '-')) => Ok(()),
+        _ => Err("use lowercase letters, digits and dashes, a letter first".to_owned()),
     }
 }
 
 fn check_url(text: &str) -> Result<(), String> {
     let rest = text
         .strip_prefix("http://")
-        .or_else(|| text.strip_prefix("https://"))
-        .ok_or_else(|| "a URL starts with http:// or https://".to_owned())?;
-    if rest.split(['/', '?']).next().unwrap_or_default().is_empty() {
-        return Err("a URL names a host".to_owned());
+        .or_else(|| text.strip_prefix("https://"));
+    match rest.map(|rest| rest.split(['/', '?']).next().unwrap_or_default()) {
+        None => Err("a URL starts with http:// or https://".to_owned()),
+        Some("") => Err("a URL names a host".to_owned()),
+        Some(_) => Ok(()),
     }
-    Ok(())
 }
 
 fn check_address(text: &str) -> Result<(), String> {
@@ -127,12 +92,11 @@ fn check_address(text: &str) -> Result<(), String> {
         .map_err(|_| "not a base58 address".to_owned())
 }
 
+/// Below `i64::MAX`, the largest integer a toml file holds.
 fn check_amount(text: &str) -> Result<(), String> {
-    if text.is_empty() {
-        return Ok(());
-    }
-    match text.parse::<u64>() {
-        Ok(amount) if amount != 0 && i64::try_from(amount).is_ok() => Ok(()),
+    match text.parse::<i64>() {
+        _ if text.is_empty() => Ok(()),
+        Ok(amount) if amount > 0 => Ok(()),
         _ => Err(format!(
             "a positive whole number of base units up to {}",
             i64::MAX
@@ -140,37 +104,14 @@ fn check_amount(text: &str) -> Result<(), String> {
     }
 }
 
-fn check_mints(text: &str) -> Result<(), String> {
-    let mut mints = text.split(',').map(str::trim).peekable();
-    if mints.peek().is_none_or(|mint| mint.is_empty()) {
-        return Err("name at least one mint".to_owned());
-    }
-    mints.try_for_each(check_address)
-}
-
-fn parse_address(text: &str) -> Result<Address, WizardError> {
-    Address::from_str(text).map_err(|_| WizardError::Address {
-        text: text.to_owned(),
-    })
-}
-
 fn labels<T: ToString>(items: impl IntoIterator<Item = T>) -> Vec<String> {
     items.into_iter().map(|item| item.to_string()).collect()
 }
 
-fn asset_presets(target: Target) -> &'static [AssetPreset] {
-    match target {
-        Target::Localnet => &ASSET_PRESETS[..1],
-        Target::Devnet => &ASSET_PRESETS,
-    }
-}
-
-fn asset_options(presets: &[AssetPreset], other: &str) -> Vec<String> {
-    presets
-        .iter()
-        .map(|preset| preset.name.to_owned())
-        .chain(std::iter::once(other.to_owned()))
-        .collect()
+fn asset_presets(target: Target, other: &str) -> (&'static [(&'static str, Address)], Vec<String>) {
+    let presets = &ASSET_PRESETS[..if target == Target::Devnet { 2 } else { 1 }];
+    let options = labels(presets.iter().map(|(name, _)| *name).chain([other]));
+    (presets, options)
 }
 
 /// The rows alone, a source no row reads yet is not a refusal mid-loop.
@@ -181,228 +122,157 @@ fn rows_only(spec: &PolicySpec) -> PolicySpec {
     }
 }
 
-impl Curators for LiveCurators {
-    fn catalogue(&mut self, target: Target, rpc_url: &str) -> Catalogue {
-        let source = match self.source.as_deref() {
-            None => "the bundled catalogue".to_owned(),
-            Some(source) if source.starts_with("http://") || source.starts_with("https://") => {
-                crate::config::redact_url(source)
-            }
-            Some(source) => source.to_owned(),
-        };
-        ui::hint(format!("loading curator definitions from {source}"));
-        let mut catalogue = match Catalogue::load(self.source.as_deref()) {
-            Ok(catalogue) => {
-                line("catalogue", "loaded");
-                catalogue
-            }
-            Err(error) => {
-                let error = error.to_string();
-                let error = self.source.as_deref().map_or_else(
-                    || error.clone(),
-                    |location| error.replace(location, &source),
-                );
-                ui::warn(format!("the catalogue is unreadable, {error}"));
-                Catalogue::default()
-            }
-        };
-        let display_rpc_url = crate::config::redact_url(rpc_url);
-        ui::hint(format!(
-            "discovering policy rings on {} through {display_rpc_url}",
-            target.as_str()
-        ));
-        match discover(&SolanaRpc::new(rpc_url.to_owned())) {
-            Ok(found) => {
-                let count = found.len();
-                catalogue.merge(target, found);
-                let rings = match count {
-                    0 => "no policy rings".to_owned(),
-                    1 => "1 policy ring".to_owned(),
-                    _ => format!("{count} policy rings"),
-                };
-                line("discovered", rings);
-            }
-            Err(_) => ui::warn(format!(
-                "ring discovery failed through {display_rpc_url}. Catalogue and manual choices remain"
-            )),
+/// `source` is a catalogue path or URL, `None` for the bundled file. A failure only warns.
+pub fn live_catalogue(source: Option<&str>, target: Target, rpc_url: &str) -> Catalogue {
+    let shown = match source {
+        None => "the bundled catalogue".to_owned(),
+        Some(url) if url.starts_with("http://") || url.starts_with("https://") => redact_url(url),
+        Some(path) => path.to_owned(),
+    };
+    ui::hint(format!("loading curator definitions from {shown}"));
+    let mut catalogue = match Catalogue::load(source) {
+        Ok(catalogue) => {
+            line("catalogue", "loaded");
+            catalogue
         }
-        catalogue
+        Err(error) => {
+            let error = error.to_string();
+            let error = source.map_or(error.clone(), |location| error.replace(location, &shown));
+            ui::warn(format!("the catalogue is unreadable, {error}"));
+            Catalogue::default()
+        }
+    };
+    let rpc = redact_url(rpc_url);
+    ui::hint(format!(
+        "discovering policy rings on {target} through {rpc}"
+    ));
+    match discover(&SolanaRpc::new(rpc_url.to_owned())) {
+        Ok(found) => {
+            let rings = match found.len() {
+                0 => "no policy rings".to_owned(),
+                1 => "1 policy ring".to_owned(),
+                count => format!("{count} policy rings"),
+            };
+            line("discovered", rings);
+            catalogue.merge(target, found);
+        }
+        Err(_) => ui::warn(format!(
+            "ring discovery failed through {rpc}. Catalogue and manual choices remain"
+        )),
     }
+    catalogue
 }
 
 impl Wizard<'_> {
     /// A supplied policy skips every policy question.
-    pub fn run(
-        mut self,
-        name: Option<String>,
-        preset: Option<PolicySpec>,
-    ) -> Result<Answers, WizardError> {
+    pub fn run(mut self, name: Option<String>, preset: Option<PolicySpec>) -> Result<Answers> {
         let name = match name {
-            Some(name) => {
-                check_name(&name).map_err(|_| WizardError::Name { name: name.clone() })?;
-                name
+            Some(name) if check_name(&name).is_err() => {
+                bail!("{name} is not kebab-case, use lowercase letters, digits and dashes")
             }
-            None => self.text("ring name", None, false, &check_name)?,
+            Some(name) => name,
+            None => self.ask.text("ring name", None, false, &check_name)?,
         };
-        ui::heading(Icon::Wizard, "clusters");
+        ui::heading(icon::WIZARD, "clusters");
         let localnet = self.urls("localnet", self.localnet.clone())?;
         let devnet = self.urls("devnet", self.devnet.clone())?;
-        ui::heading(Icon::Wizard, "target");
-        let target = self.target()?;
+        ui::heading(icon::WIZARD, "target");
+        let target = Target::ALL[self.ask.pick("target", &labels(Target::ALL), 0)?];
+        let rpc_url = match target {
+            Target::Localnet => &localnet.rpc,
+            Target::Devnet => &devnet.rpc,
+        };
+        ui::heading(icon::WIZARD, "mode");
+        ui::hint(
+            "an anonymous ring hides the owner of every spend, its auditor still opens every note",
+        );
+        let mode = ModeName::ALL[self.ask.pick("ring mode", &labels(ModeName::ALL), 0)?];
         let policy = match preset {
             Some(policy) => Some(policy),
-            None => {
-                let rpc_url = match target {
-                    Target::Localnet => localnet.rpc.clone(),
-                    Target::Devnet => devnet.rpc.clone(),
-                };
-                self.policy(target, &rpc_url)?
-            }
+            None => self.policy(target, rpc_url)?,
         };
         Ok(Answers {
             name,
             target,
             localnet,
             devnet,
+            mode,
             policy,
         })
     }
 
-    fn text(
-        &mut self,
-        prompt: &str,
-        default: Option<String>,
-        empty: bool,
-        check: &dyn Fn(&str) -> Result<(), String>,
-    ) -> Result<String, WizardError> {
-        Ok(self.ask.text(Text {
-            prompt,
-            default,
-            empty,
-            check,
-        })?)
-    }
-
-    fn pick(
-        &mut self,
-        prompt: &str,
-        items: &[String],
-        default: usize,
-    ) -> Result<usize, WizardError> {
-        Ok(self.ask.pick(Pick {
-            prompt,
-            items,
-            default,
-        })?)
-    }
-
-    fn pick_many(&mut self, prompt: &str, items: &[String]) -> Result<Vec<usize>, WizardError> {
-        Ok(self.ask.pick_many(PickMany { prompt, items })?)
-    }
-
-    fn urls(&mut self, cluster: &str, defaults: Urls) -> Result<Urls, WizardError> {
-        let url = |wizard: &mut Self, service: &str, default: String| {
-            wizard.text(
-                &format!("{cluster} {service} URL"),
-                Some(default),
-                false,
-                &check_url,
-            )
-        };
-        let rpc = url(self, "Solana RPC", defaults.rpc)?;
-        let indexer = url(self, "Photon indexer", defaults.indexer)?;
-        let prover = url(self, "prover", defaults.prover)?;
-        let ring_rpc = url(self, "ring RPC", defaults.ring_rpc)?;
-        let ring_rpc_pubkey = match defaults.ring_rpc_pubkey {
-            Some(key) => self
-                .ask
-                .confirm(
-                    &format!("{cluster} ring RPC service key {key}, accept no other key?"),
-                    true,
-                )?
-                .then_some(key),
-            None => None,
+    fn urls(&mut self, cluster: &str, defaults: Urls) -> Result<Urls> {
+        let mut url = |service: &str, default: String| {
+            let prompt = format!("{cluster} {service} URL");
+            self.ask.text(&prompt, Some(default), false, &check_url)
         };
         Ok(Urls {
-            rpc,
-            indexer,
-            prover,
-            ring_rpc,
-            ring_rpc_pubkey,
+            rpc: url("Solana RPC", defaults.rpc)?,
+            indexer: url("Photon indexer", defaults.indexer)?,
+            prover: url("prover", defaults.prover)?,
+            ring_rpc: url("ring RPC", defaults.ring_rpc)?,
+            ring_rpc_pubkey: match defaults.ring_rpc_pubkey {
+                Some(key) => {
+                    let prompt =
+                        format!("{cluster} ring RPC service key {key}, accept no other key?");
+                    self.ask.confirm(&prompt, true)?.then_some(key)
+                }
+                None => None,
+            },
             prover_tee: None,
         })
     }
 
-    fn target(&mut self) -> Result<Target, WizardError> {
-        let picked = self.pick("target", &labels(Target::ALL.map(Target::as_str)), 0)?;
-        Ok(Target::ALL[picked])
-    }
-
-    fn policy(&mut self, target: Target, rpc_url: &str) -> Result<Option<PolicySpec>, WizardError> {
-        let mut spec = PolicySpec {
-            address_tree: Some(Base58Address(pda::tree(0))),
-            ..Default::default()
-        };
-        ui::heading(Icon::Policy, "policy options");
+    fn policy(&mut self, target: Target, rpc_url: &str) -> Result<Option<PolicySpec>> {
+        let mut spec = PolicySpec::default();
+        ui::heading(icon::POLICY, "policy options");
         ui::hint("pick no option for an audit-only ring");
         let options = labels(POLICY_OPTIONS);
         loop {
-            let option = self.pick("policy option", &options, options.len() - 1)?;
-            let rules = match option {
-                0 => Some(participant_allowlist()),
-                1 => Some(vec![simple_rule(
-                    SubjectName::OutputOwner,
-                    SourceSpec::Forbid(named_list("block")),
-                )]),
-                2 => Some(vec![simple_rule(
-                    SubjectName::Sender,
-                    SourceSpec::Forbid(named_list("frozen")),
-                )]),
-                3 => Some(vec![simple_rule(
-                    SubjectName::Asset,
-                    SourceSpec::Forbid(named_list("block")),
-                )]),
-                4 => Some(vec![self.asset_rule(target, false)?]),
-                5 => Some(vec![simple_rule(
+            let picked = self
+                .ask
+                .pick("policy option", &options, options.len() - 1)?;
+            let rules = match POLICY_OPTIONS[picked] {
+                "participant allowlist" => Some(participant_allowlist()),
+                "recipient blocklist" => Some(vec![forbid(SubjectName::OutputOwner, "block")]),
+                "sender freeze" => Some(vec![forbid(SubjectName::Sender, "frozen")]),
+                "asset allowlist" => Some(vec![self.asset_rule(target, false)?]),
+                "blocklist with approval exception" => Some(vec![simple_rule(
                     SubjectName::OutputOwner,
                     SourceSpec::Any(vec![
                         Alternative::Require(named_list("approval")),
                         Alternative::Forbid(named_list("block")),
                     ]),
                 )]),
-                6 => Some(vec![RuleSpec {
-                    subject: SubjectName::OutputOwner,
-                    source: SourceSpec::Require(named_list("allow")),
-                    above: None,
+                "per-mint recipient limits" => Some(vec![RuleSpec {
                     limits: Some(self.asset_limits(target)?),
+                    ..require(SubjectName::OutputOwner, "allow")
                 }]),
-                7 => self.advanced_rule(target, &spec)?,
-                8 => {
+                "advanced rule" => self.advanced(target, &spec)?,
+                "remove" => {
                     self.remove(&mut spec, target)?;
                     continue;
                 }
-                9 if spec.rules.is_empty() => return Ok(Some(spec)),
-                9 => {
+                "configure policy later" if spec.rules.is_empty() => return Ok(Some(spec)),
+                "configure policy later" => {
                     ui::refusal("the policy already has rules, choose finish");
                     continue;
                 }
+                _ if spec.rules.is_empty() => return Ok(None),
                 _ => {
-                    if spec.rules.is_empty() {
-                        return Ok(None);
-                    }
-                    self.configure_sources(&mut spec, target, rpc_url)?;
+                    self.sources(&mut spec, target, rpc_url)?;
                     spec.compile(target)?;
                     return Ok(Some(spec));
                 }
             };
-            let Some(rules) = rules else {
-                ui::hint("the rule was discarded");
-                continue;
-            };
-            self.add_rules(&mut spec, target, rules);
+            match rules {
+                Some(rules) => self.add_rules(&mut spec, target, rules),
+                None => ui::hint("the rule was discarded"),
+            }
         }
     }
 
+    /// An option whose rows the table refuses is not taken at all.
     fn add_rules(&self, spec: &mut PolicySpec, target: Target, rules: Vec<RuleSpec>) {
         let first = spec.rules.len();
         let mut candidate = spec.clone();
@@ -418,12 +288,8 @@ impl Wizard<'_> {
         }
     }
 
-    fn configure_sources(
-        &mut self,
-        spec: &mut PolicySpec,
-        target: Target,
-        rpc_url: &str,
-    ) -> Result<(), WizardError> {
+    /// Each list the rows read is served by the ring itself or by a curator.
+    fn sources(&mut self, spec: &mut PolicySpec, target: Target, rpc_url: &str) -> Result<()> {
         let referenced: BTreeSet<ListName> = spec
             .rules
             .iter()
@@ -432,68 +298,56 @@ impl Wizard<'_> {
         if referenced.is_empty() {
             return Ok(());
         }
-        ui::heading(Icon::Lists, "list entry sources");
-        let tree = spec.address_tree();
-        line("tree", tree);
-        ui::hint("a discovered curator is offered only when it serves the list and pins this tree");
-        let catalogue = self.curators.catalogue(target, rpc_url);
+        ui::heading(icon::LISTS, "list sources");
+        ui::hint(
+            "a discovered curator is offered only when it serves the list from its own registry",
+        );
+        let catalogue = (self.curators)(target, rpc_url);
         for list in referenced {
-            if let Some(curator) = self.source(target, list, tree, &catalogue)? {
-                spec.sources
-                    .get_mut(target)
-                    .insert(list, Base58Address(curator));
-            }
+            let curated: Vec<(String, Base58Address)> = catalogue
+                .serving(target, list)
+                .map(|(name, curator)| {
+                    let program = curator.program;
+                    let named = match name == program.to_string() {
+                        true => name.to_owned(),
+                        false => format!("{name} ({program})"),
+                    };
+                    (format!("curator {named} manages the members"), program)
+                })
+                .collect();
+            let items = labels(
+                [OWN_ENTRIES]
+                    .into_iter()
+                    .chain(curated.iter().map(|(label, _)| label.as_str()))
+                    .chain([ANOTHER_CURATOR]),
+            );
+            let prompt = format!("who manages the {list} list members?");
+            let curator = match self.ask.pick(&prompt, &items, 0)? {
+                0 => continue,
+                picked if picked <= curated.len() => curated[picked - 1].1,
+                _ => self
+                    .ask
+                    .text("curator program id", None, false, &check_address)?
+                    .parse()?,
+            };
+            spec.sources.get_mut(target).insert(list, curator);
         }
         Ok(())
     }
 
-    fn source(
-        &mut self,
-        target: Target,
-        list: ListName,
-        tree: Address,
-        catalogue: &Catalogue,
-    ) -> Result<Option<Address>, WizardError> {
-        let curated: Vec<(String, Address)> = catalogue
-            .serving(target, list, tree)
-            .map(|(name, curator)| {
-                let program = curator.program.0;
-                let label = if name == program.to_string() {
-                    format!("curator {program} manages the entries")
-                } else {
-                    format!("curator {name} ({program}) manages the entries")
-                };
-                (label, program)
-            })
-            .collect();
-        let mut items = vec![OWN_ENTRIES.to_owned()];
-        items.extend(curated.iter().map(|(label, _)| label.clone()));
-        items.push(ANOTHER_CURATOR.to_owned());
-        let picked = self.pick(&format!("who manages the {list} list entries?"), &items, 0)?;
-        if picked == 0 {
-            return Ok(None);
-        }
-        if let Some((_, program)) = curated.get(picked - 1) {
-            return Ok(Some(*program));
-        }
-        let text = self.text("curator program id", None, false, &check_address)?;
-        Ok(Some(parse_address(&text)?))
-    }
-
     /// A removal that leaves the table refused is undone.
-    fn remove(&mut self, spec: &mut PolicySpec, target: Target) -> Result<(), WizardError> {
+    fn remove(&mut self, spec: &mut PolicySpec, target: Target) -> Result<()> {
         if spec.rules.is_empty() {
             ui::refusal("no rule to remove");
             return Ok(());
         }
-        let rows = spec.rows()?;
-        let sentences: Vec<String> = rows.rules.iter().map(describe).collect();
-        let items: Vec<String> = sentences
-            .iter()
-            .enumerate()
-            .map(|(index, sentence)| format!("{} {sentence}", index + 1))
-            .collect();
-        let picked = self.pick("remove a rule", &items, 0)?;
+        let sentences: Vec<String> = spec.rows()?.rules.iter().map(describe).collect();
+        let items = labels(
+            (1..)
+                .zip(&sentences)
+                .map(|(index, sentence)| format!("{index} {sentence}")),
+        );
+        let picked = self.ask.pick("remove a rule", &items, 0)?;
         let removed = spec.rules.remove(picked);
         match rows_only(spec).compile(target) {
             Ok(_) => line("removed", &sentences[picked]),
@@ -505,20 +359,14 @@ impl Wizard<'_> {
         Ok(())
     }
 
-    fn advanced_rule(
-        &mut self,
-        target: Target,
-        spec: &PolicySpec,
-    ) -> Result<Option<Vec<RuleSpec>>, WizardError> {
+    fn advanced(&mut self, target: Target, spec: &PolicySpec) -> Result<Option<Vec<RuleSpec>>> {
         let kinds = labels(ADVANCED_SOURCES);
-        let source = self.pick("rule source", &kinds, kinds.len() - 1)?;
-        if source == kinds.len() - 1 {
-            return Ok(None);
-        }
-        if source == 3 {
-            return Ok(Some(vec![self.asset_rule(target, true)?]));
-        }
-        let subject = self.subject()?;
+        let source = match self.ask.pick("rule source", &kinds, kinds.len() - 1)? {
+            4 => return Ok(None),
+            3 => return Ok(Some(vec![self.asset_rule(target, true)?])),
+            source => source,
+        };
+        let subject = SubjectName::ALL[self.ask.pick("subject", &labels(SubjectName::ALL), 0)?];
         let source = match source {
             0 => SourceSpec::Require(self.list()?),
             1 => SourceSpec::Forbid(self.list()?),
@@ -531,161 +379,95 @@ impl Wizard<'_> {
             .map(Some)
     }
 
-    fn either_or(&mut self) -> Result<Option<SourceSpec>, WizardError> {
+    fn either_or(&mut self) -> Result<Option<SourceSpec>> {
         let kinds = labels(ALTERNATIVE_KINDS);
         let mut alternatives = Vec::new();
         loop {
-            let kind = self.pick("alternative", &kinds, kinds.len() - 2)?;
-            match kind {
+            let alternative = match self.ask.pick("alternative", &kinds, kinds.len() - 2)? {
                 2 if alternatives.is_empty() => {
                     ui::refusal("an either-or rule needs one alternative, discard it instead");
                     continue;
                 }
-                2 => break,
+                2 => return Ok(Some(SourceSpec::Any(alternatives))),
                 3 => return Ok(None),
-                _ => {}
-            }
-            let list = self.list()?;
-            alternatives.push(if kind == 0 {
-                Alternative::Require(list)
-            } else {
-                Alternative::Forbid(list)
-            });
-        }
-        Ok(Some(SourceSpec::Any(alternatives)))
-    }
-
-    fn mint(&mut self, target: Target) -> Result<Base58Address, WizardError> {
-        let presets = asset_presets(target);
-        let options = asset_options(presets, OTHER_MINT);
-        let picked = self.pick("mint", &options, 0)?;
-        if let Some(preset) = presets.get(picked) {
-            return Ok(Base58Address(preset.mint));
-        }
-        let text = self.text("mint address", None, false, &check_address)?;
-        Ok(Base58Address(parse_address(&text)?))
-    }
-
-    fn mints(&mut self, target: Target) -> Result<Vec<Base58Address>, WizardError> {
-        let presets = asset_presets(target);
-        let options = asset_options(presets, OTHER_MINTS);
-        loop {
-            let picked = self.pick_many("assets", &options)?;
-            if picked.is_empty() {
-                ui::refusal("select at least one asset");
-                continue;
-            }
-            let mut mints: Vec<Base58Address> = picked
-                .iter()
-                .filter_map(|index| presets.get(*index))
-                .map(|preset| Base58Address(preset.mint))
-                .collect();
-            if picked.contains(&presets.len()) {
-                let text =
-                    self.text("mint addresses, comma separated", None, false, &check_mints)?;
-                for mint in text.split(',').map(str::trim) {
-                    let mint = Base58Address(parse_address(mint)?);
-                    if !mints.contains(&mint) {
-                        mints.push(mint);
-                    }
-                }
-            }
-            return Ok(mints);
+                0 => Alternative::Require(self.list()?),
+                _ => Alternative::Forbid(self.list()?),
+            };
+            alternatives.push(alternative);
         }
     }
 
-    fn asset_rule(&mut self, target: Target, ask_guard: bool) -> Result<RuleSpec, WizardError> {
-        let mints = self.mints(target)?;
-        let above = if ask_guard && self.pick("amount guard", &labels(OPTIONAL_GUARDS), 0)? == 1 {
-            Some(self.amount("amount threshold")?)
-        } else {
-            None
-        };
+    fn mint(&mut self, target: Target) -> Result<Base58Address> {
+        let (presets, options) = asset_presets(target, OTHER_MINT);
+        let picked = self.ask.pick("mint", &options, 0)?;
+        if let Some((_, mint)) = presets.get(picked) {
+            return Ok(Base58Address(*mint));
+        }
+        Ok(self
+            .ask
+            .text("mint address", None, false, &check_address)?
+            .parse()?)
+    }
+
+    fn asset_rule(&mut self, _target: Target, ask_guard: bool) -> Result<RuleSpec> {
+        let list = self.list()?;
+        let guarded = ask_guard && self.ask.pick("amount guard", &labels(OPTIONAL_GUARDS), 0)? == 1;
         Ok(RuleSpec {
-            subject: SubjectName::Asset,
-            source: SourceSpec::Assets(mints),
-            above,
-            limits: None,
+            above: guarded
+                .then(|| self.amount("amount threshold"))
+                .transpose()?,
+            ..simple_rule(SubjectName::Asset, SourceSpec::Require(list))
         })
     }
 
-    fn subject(&mut self) -> Result<SubjectName, WizardError> {
-        let picked = self.pick("subject", &labels(SubjectName::ALL), 0)?;
-        Ok(SubjectName::ALL[picked])
+    fn list(&mut self) -> Result<ListName> {
+        Ok(ListName::ALL[self.ask.pick("list", &labels(ListName::ALL), 0)?])
     }
 
-    fn list(&mut self) -> Result<ListName, WizardError> {
-        let picked = self.pick("list", &labels(ListName::ALL), 0)?;
-        Ok(ListName::ALL[picked])
-    }
-
+    /// Scalar owner thresholds require a single mint at transfer time.
     fn guard(
         &mut self,
         target: Target,
-        spec: &PolicySpec,
+        _spec: &PolicySpec,
         mut rule: RuleSpec,
-    ) -> Result<Vec<RuleSpec>, WizardError> {
-        if rule.subject == SubjectName::Sender {
-            return Ok(vec![rule]);
-        }
-        let guards = if rule.subject == SubjectName::OutputOwner {
-            &OWNER_GUARDS[..]
-        } else {
-            &OPTIONAL_GUARDS[..]
+    ) -> Result<Vec<RuleSpec>> {
+        let guards = match rule.subject {
+            SubjectName::Sender => return Ok(vec![rule]),
+            SubjectName::OutputOwner => &OWNER_GUARDS[..],
+            SubjectName::Asset => &OPTIONAL_GUARDS[..],
         };
-        match self.pick("amount guard", &labels(guards), 0)? {
-            0 => Ok(vec![rule]),
+        match self.ask.pick("amount guard", &labels(guards), 0)? {
+            0 => {}
             1 => {
                 rule.above = Some(self.amount("amount threshold")?);
-                if rule.subject != SubjectName::OutputOwner {
-                    return Ok(vec![rule]);
-                }
-                let mint = self.mint(target)?;
-                let dependency = simple_rule(SubjectName::Asset, SourceSpec::Assets(vec![mint]));
-                let already_present = spec.rules.iter().any(|present| present == &dependency);
-                if already_present {
-                    Ok(vec![rule])
-                } else {
-                    Ok(vec![dependency, rule])
-                }
             }
-            _ => {
-                rule.limits = Some(self.asset_limits(target)?);
-                Ok(vec![rule])
-            }
+            _ => rule.limits = Some(self.asset_limits(target)?),
         }
+        Ok(vec![rule])
     }
 
-    fn amount(&mut self, prompt: &str) -> Result<u64, WizardError> {
-        let text = self.text(prompt, None, false, &check_amount)?;
-        Ok(text.parse().expect("a checked amount"))
+    fn amount(&mut self, prompt: &str) -> Result<u64> {
+        Ok(self.ask.text(prompt, None, false, &check_amount)?.parse()?)
     }
 
-    fn asset_limits(&mut self, target: Target) -> Result<Vec<AssetLimitSpec>, WizardError> {
-        let mut limits = Vec::new();
+    fn asset_limits(&mut self, target: Target) -> Result<Vec<AssetLimitSpec>> {
+        let mut limits: Vec<AssetLimitSpec> = Vec::new();
         loop {
-            let asset = loop {
-                let asset = self.mint(target)?;
-                if limits
-                    .iter()
-                    .any(|limit: &AssetLimitSpec| limit.asset == asset)
-                {
-                    ui::refusal("that mint already has a limit");
-                    continue;
-                }
-                break asset;
-            };
+            let asset = self.mint(target)?;
+            if limits.iter().any(|limit| limit.asset == asset) {
+                ui::refusal("that mint already has a limit");
+                continue;
+            }
             let above = self.amount("amount limit")?;
             limits.push(AssetLimitSpec { asset, above });
             if limits.len() == 8 {
                 ui::hint("the policy uses all 8 inline asset slots");
-                break;
+                return Ok(limits);
             }
             if !self.ask.confirm("add another mint limit?", false)? {
-                break;
+                return Ok(limits);
             }
         }
-        Ok(limits)
     }
 }
 
@@ -702,20 +484,19 @@ fn simple_rule(subject: SubjectName, source: SourceSpec) -> RuleSpec {
     }
 }
 
+fn require(subject: SubjectName, list: &str) -> RuleSpec {
+    simple_rule(subject, SourceSpec::Require(named_list(list)))
+}
+
+fn forbid(subject: SubjectName, list: &str) -> RuleSpec {
+    simple_rule(subject, SourceSpec::Forbid(named_list(list)))
+}
+
 fn participant_allowlist() -> Vec<RuleSpec> {
     vec![
-        simple_rule(
-            SubjectName::Sender,
-            SourceSpec::Require(named_list("allow")),
-        ),
-        simple_rule(
-            SubjectName::OutputOwner,
-            SourceSpec::Require(named_list("allow")),
-        ),
-        simple_rule(
-            SubjectName::Sender,
-            SourceSpec::Forbid(named_list("frozen")),
-        ),
+        require(SubjectName::Sender, "allow"),
+        require(SubjectName::OutputOwner, "allow"),
+        forbid(SubjectName::Sender, "frozen"),
     ]
 }
 
@@ -743,22 +524,17 @@ pub(crate) mod tests {
         }
     }
 
-    /// A catalogue serving Block from `CURATOR` on the default tree of both clusters.
-    pub(crate) struct Fixed;
-
-    impl Curators for Fixed {
-        fn catalogue(&mut self, target: Target, _rpc_url: &str) -> Catalogue {
-            let mut catalogue = Catalogue::default();
-            catalogue.merge(
-                target,
-                [Curator {
-                    program: Base58Address(CURATOR),
-                    lists: vec!["block".parse().expect("list")],
-                    address_tree: Base58Address(pda::tree(0)),
-                }],
-            );
-            catalogue
-        }
+    /// A catalogue serving Block from `CURATOR` on both clusters.
+    pub(crate) fn fixed(target: Target, _rpc_url: &str) -> Catalogue {
+        let mut catalogue = Catalogue::default();
+        catalogue.merge(
+            target,
+            [Curator {
+                program: Base58Address(CURATOR),
+                lists: vec!["block".parse().expect("list")],
+            }],
+        );
+        catalogue
     }
 
     /// The URL answers every run shares, defaults accepted.
@@ -770,9 +546,9 @@ pub(crate) mod tests {
             .collect()
     }
 
-    pub(crate) fn run(answers: Vec<Answer>) -> Result<Answers, WizardError> {
+    pub(crate) fn run(answers: Vec<Answer>) -> Result<Answers> {
         let mut ask = Scripted::new(answers);
-        let mut curators = Fixed;
+        let mut curators = fixed;
         let answers = Wizard {
             ask: &mut ask,
             curators: &mut curators,
@@ -792,45 +568,42 @@ pub(crate) mod tests {
     }
 
     fn script_for(target: Target, policy: &[Answer]) -> Vec<Answer> {
+        script_with(target, ModeName::Confidential, policy)
+    }
+
+    fn script_with(target: Target, mode: ModeName, policy: &[Answer]) -> Vec<Answer> {
         let mut answers = cluster_answers();
         answers.push(Answer::Yes(true));
         answers.push(Answer::from(target.as_str()));
+        answers.push(Answer::from(mode.as_str()));
         answers.extend_from_slice(policy);
         answers
     }
 
     #[test]
-    fn devnet_usdc_uses_its_cluster_mint_and_deduplicates_manual_entries() {
-        let usdc = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU";
-        let manual = format!("{usdc},{MINT}");
+    fn asset_allowlist_selects_a_registry_list() {
         let answers = run(script_for(
             Target::Devnet,
             &[
                 Answer::from("asset allowlist"),
-                Answer::from(["SOL", "USDC", OTHER_MINTS]),
-                Answer::from(manual.as_str()),
+                Answer::from("allow"),
                 Answer::from("finish"),
+                Answer::from(OWN_ENTRIES),
             ],
         ))
         .expect("wizard");
         let policy = answers.policy.expect("policy");
+        assert_eq!(policy.rules[0].subject, SubjectName::Asset);
         assert_eq!(
             policy.rules[0].source,
-            SourceSpec::Assets(vec![
-                Base58Address(SOL_MINT),
-                Base58Address(usdc.parse().expect("devnet USDC")),
-                Base58Address(MINT.parse().expect("manual mint")),
-            ])
+            SourceSpec::Require(named_list("allow"))
         );
-        policy.compile(Target::Devnet).expect("compiles");
-        assert!(
-            run(script(&[
-                Answer::from("asset allowlist"),
-                Answer::from(["USDC"]),
-            ]))
-            .is_err(),
-            "local mint addresses must be supplied"
-        );
+        assert!(policy
+            .compile(Target::Devnet)
+            .expect("compiles")
+            .rules
+            .inline_assets()
+            .is_empty());
     }
 
     #[test]
@@ -872,11 +645,23 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn configure_later_records_an_empty_policy_and_the_default_tree() {
+    fn the_mode_is_asked_after_the_target() {
+        let finish = [Answer::from("finish")];
+        let answers =
+            run(script_with(Target::Localnet, ModeName::Anonymous, &finish)).expect("wizard");
+        assert_eq!(answers.mode, ModeName::Anonymous);
+        assert!(answers.policy.is_none());
+        assert_eq!(
+            run(script(&finish)).expect("wizard").mode,
+            ModeName::Confidential
+        );
+    }
+
+    #[test]
+    fn configure_later_records_an_empty_policy() {
         let answers = run(script(&[Answer::from("configure policy later")])).expect("wizard");
         let policy = answers.policy.expect("policy tier");
         assert!(policy.rules.is_empty());
-        assert_eq!(policy.address_tree, Some(Base58Address(pda::tree(0))));
     }
 
     #[test]
@@ -896,7 +681,6 @@ pub(crate) mod tests {
                 .rule(Rule::forbid(Subject::OutputOwner, ListId::Block))
                 .build()
         );
-        assert_eq!(compiled.address_tree, pda::tree(0));
     }
 
     #[test]
@@ -904,7 +688,7 @@ pub(crate) mod tests {
         let answers = run(script(&[
             Answer::from("blocklist with approval exception"),
             Answer::from("finish"),
-            Answer::from(&*format!("curator {CURATOR} manages the entries")),
+            Answer::from(&*format!("curator {CURATOR} manages the members")),
             Answer::from(OWN_ENTRIES),
         ]))
         .expect("wizard");
@@ -961,7 +745,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn an_advanced_owner_threshold_adds_its_asset_rule_atomically() {
+    fn an_owner_threshold_needs_no_inline_asset_rule() {
         let answers = run(script(&[
             Answer::from("advanced rule"),
             Answer::from("require a list"),
@@ -969,16 +753,17 @@ pub(crate) mod tests {
             Answer::from("allow"),
             Answer::from("above an amount"),
             Answer::from("1000000"),
-            Answer::from(OTHER_MINT),
-            Answer::from(MINT),
             Answer::from("finish"),
             Answer::from(OWN_ENTRIES),
         ]))
         .expect("wizard");
-        let policy = answers.policy.expect("policy tier");
-        let compiled = policy.compile(Target::Localnet).expect("compiles");
-        assert_eq!(compiled.rules.rules().len(), 2);
-        assert_eq!(compiled.rules.inline_assets().len(), 1);
+        let compiled = answers
+            .policy
+            .expect("policy")
+            .compile(Target::Localnet)
+            .expect("compiles");
+        assert_eq!(compiled.rules.rules().len(), 1);
+        assert!(compiled.rules.inline_assets().is_empty());
     }
 
     #[test]
@@ -1009,34 +794,28 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn an_advanced_inline_asset_rule_can_carry_a_scalar_guard() {
+    fn an_asset_registry_rule_can_carry_a_scalar_guard() {
         let answers = run(script(&[
             Answer::from("advanced rule"),
-            Answer::from("inline asset allowlist"),
-            Answer::from(["SOL", OTHER_MINTS]),
-            Answer::from(MINT),
+            Answer::from("asset registry list"),
+            Answer::from("allow"),
             Answer::from("above an amount"),
             Answer::from("7"),
             Answer::from("finish"),
+            Answer::from(OWN_ENTRIES),
         ]))
         .expect("wizard");
-        let policy = answers.policy.expect("policy tier");
+        let policy = answers.policy.expect("policy");
         assert_eq!(policy.rules[0].above, Some(7));
-        let SourceSpec::Assets(mints) = &policy.rules[0].source else {
-            panic!("inline assets");
-        };
         assert_eq!(
-            mints.as_slice(),
-            &[
-                Base58Address(SOL_MINT),
-                Base58Address(MINT.parse().expect("mint"))
-            ]
+            policy.rules[0].source,
+            SourceSpec::Require(named_list("allow"))
         );
         policy.compile(Target::Localnet).expect("compiles");
     }
 
     #[test]
-    fn removal_cannot_strand_an_owner_threshold_dependency() {
+    fn removing_an_owner_threshold_leaves_no_asset_dependency() {
         let answers = run(script(&[
             Answer::from("advanced rule"),
             Answer::from("require a list"),
@@ -1044,49 +823,39 @@ pub(crate) mod tests {
             Answer::from("allow"),
             Answer::from("above an amount"),
             Answer::from("1000000"),
-            Answer::from(OTHER_MINT),
-            Answer::from(MINT),
-            Answer::from("remove"),
-            Answer::from("1 each asset must be one of the listed assets"),
             Answer::from("remove"),
             Answer::from(
-                "2 each output owner must be on the allow list when the amount is above 1000000",
+                "1 each output owner must be on the allow list when the amount is above 1000000",
             ),
-            Answer::from("finish"),
+            Answer::from("configure policy later"),
         ]))
         .expect("wizard");
-        let policy = answers.policy.expect("policy tier");
-        assert_eq!(
-            policy.rules.len(),
-            1,
-            "the guard row went, the asset row it needs stayed"
-        );
-        assert!(matches!(policy.rules[0].source, SourceSpec::Assets(_)));
+        assert!(answers.policy.expect("policy").rules.is_empty());
     }
 
     #[test]
-    fn a_ninth_inline_asset_is_refused_without_selecting_the_policy_tier() {
-        let mints = (1..=9)
-            .map(|byte| Address::new_from_array([byte; 32]).to_string())
-            .collect::<Vec<_>>()
-            .join(",");
+    fn asset_membership_is_not_copied_into_the_policy_table() {
         let answers = run(script(&[
             Answer::from("asset allowlist"),
-            Answer::from([OTHER_MINTS]),
-            Answer::from(mints.as_str()),
+            Answer::from("allow"),
             Answer::from("finish"),
+            Answer::from(OWN_ENTRIES),
         ]))
         .expect("wizard");
-        assert!(
-            answers.policy.is_none(),
-            "the refused option was not retained"
-        );
+        let compiled = answers
+            .policy
+            .expect("policy")
+            .compile(Target::Localnet)
+            .expect("compiles");
+        assert!(compiled.rules.inline_assets().is_empty());
+        assert_eq!(compiled.rules.rules().len(), 1);
     }
 
+    /// Asset and owner rules use the same registry list vocabulary.
     #[test]
-    fn answer_slot_exhaustion_refuses_the_whole_added_option() {
+    fn an_asset_list_rule_is_added_with_the_other_rules() {
         let mut ask = Scripted::new([]);
-        let mut curators = Fixed;
+        let mut curators = fixed;
         let wizard = Wizard {
             ask: &mut ask,
             curators: &mut curators,
@@ -1097,32 +866,24 @@ pub(crate) mod tests {
         wizard.add_rules(
             &mut spec,
             Target::Localnet,
+            vec![simple_rule(
+                SubjectName::OutputOwner,
+                SourceSpec::Forbid(named_list("block")),
+            )],
+        );
+        assert_eq!(spec.rules.len(), 1);
+        wizard.add_rules(
+            &mut spec,
+            Target::Localnet,
             vec![
-                simple_rule(
-                    SubjectName::OutputOwner,
-                    SourceSpec::Forbid(named_list("block")),
-                ),
-                simple_rule(SubjectName::Asset, SourceSpec::Forbid(named_list("block"))),
                 simple_rule(
                     SubjectName::Sender,
                     SourceSpec::Forbid(named_list("frozen")),
                 ),
-                simple_rule(
-                    SubjectName::Sender,
-                    SourceSpec::Require(named_list("allow")),
-                ),
+                simple_rule(SubjectName::Asset, SourceSpec::Forbid(named_list("block"))),
             ],
         );
-        assert_eq!(spec.rules.len(), 4, "the table uses all 10 answer slots");
-        wizard.add_rules(
-            &mut spec,
-            Target::Localnet,
-            vec![simple_rule(
-                SubjectName::Sender,
-                SourceSpec::Require(named_list("approval")),
-            )],
-        );
-        assert_eq!(spec.rules.len(), 4, "the eleventh answer was refused");
+        assert_eq!(spec.rules.len(), 3, "the asset list rule was added");
     }
 
     #[test]
@@ -1140,7 +901,7 @@ pub(crate) mod tests {
             }
         }
         let mut ask = Scripted::new(answers);
-        let mut curators = Fixed;
+        let mut curators = fixed;
         let limits = Wizard {
             ask: &mut ask,
             curators: &mut curators,
@@ -1181,7 +942,7 @@ pub(crate) mod tests {
     fn a_supplied_policy_skips_policy_questions() {
         let preset = PolicySpec::default();
         let mut ask = Scripted::new(script(&[]));
-        let mut curators = Fixed;
+        let mut curators = fixed;
         let answers = Wizard {
             ask: &mut ask,
             curators: &mut curators,
@@ -1205,22 +966,24 @@ pub(crate) mod tests {
         for name in ["", "My-Ring", "9ring", "-ring", "a/b", "a_b", "a b"] {
             assert!(check_name(name).is_err(), "{name}");
         }
-        assert!(matches!(
-            run(vec![]).map(|_| ()),
-            Err(WizardError::Ask(AskError::NoAnswer { .. }))
-        ));
+        let unanswered = run(vec![]).map(|_| ()).expect_err("no answers");
+        assert!(unanswered
+            .to_string()
+            .starts_with("no scripted answer for localnet Solana RPC URL"));
         let mut ask = Scripted::new([]);
-        let mut curators = Fixed;
-        assert!(matches!(
-            Wizard {
-                ask: &mut ask,
-                curators: &mut curators,
-                localnet: urls(1),
-                devnet: urls(2),
-            }
-            .run(Some("Bad Name".to_owned()), None),
-            Err(WizardError::Name { name }) if name == "Bad Name"
-        ));
+        let mut curators = fixed;
+        let refused = Wizard {
+            ask: &mut ask,
+            curators: &mut curators,
+            localnet: urls(1),
+            devnet: urls(2),
+        }
+        .run(Some("Bad Name".to_owned()), None)
+        .map(|_| ())
+        .expect_err("not kebab-case");
+        assert!(refused
+            .to_string()
+            .starts_with("Bad Name is not kebab-case"));
     }
 
     #[test]
@@ -1234,8 +997,5 @@ pub(crate) mod tests {
         assert!(check_amount("0").is_err());
         assert!(check_amount("-1").is_err());
         assert!(check_amount(&u64::MAX.to_string()).is_err());
-        assert!(check_mints(&format!("{MINT}, {CURATOR}")).is_ok());
-        assert!(check_mints("").is_err());
-        assert!(check_mints(&format!("{MINT},")).is_err());
     }
 }

@@ -91,8 +91,7 @@ pub struct MergeInputs {
     /// The `hash_bytes_32` chunks of the merged mint; the circuit derives the
     /// asset from them and encrypts them for the owner.
     pub mint_chunks: [BigUint; 2],
-    /// Per-proof pad nonce of the output ciphertext, a public input of the
-    /// default merge only; the merge-ring request omits it.
+    /// Per-proof pad nonce of the output ciphertext, a public input.
     pub output_ciphertext_salt: BigUint,
     /// Shared owner identity: `owner_pk_hash` carries the owner's pk_field on
     /// both owner rails.
@@ -112,6 +111,42 @@ pub struct MergeInputs {
     /// Policy-ring merge only: the ring program's `pk_field`, the merge-ring
     /// circuit's top-level public input. `0` for the default merge.
     pub ring_program_id: BigUint,
+    /// `None` on the default rail.
+    pub registration: Option<MergeRegistration>,
+}
+
+#[derive(Debug, Clone)]
+pub struct MergeRegistration {
+    pub root: [u8; 32],
+    /// `None` in an anonymous ring, whose own merge proof discloses the output key.
+    pub ciphertext_hash: Option<[u8; 32]>,
+    pub next: [u8; 32],
+    pub lists: u64,
+    pub escrow_key: [u8; 32],
+    pub index: u64,
+    pub path: Vec<[u8; 32]>,
+}
+
+impl MergeRegistration {
+    /// An anonymous ring binds a zero root and opens no record.
+    pub fn anonymous() -> Self {
+        Self {
+            root: [0; 32],
+            ciphertext_hash: None,
+            next: [0; 32],
+            lists: 0,
+            escrow_key: [0; 32],
+            index: 0,
+            path: Vec::new(),
+        }
+    }
+
+    pub fn binding(&self) -> crate::prover::merge::MergeRegistryBinding {
+        crate::prover::merge::MergeRegistryBinding {
+            root: self.root,
+            anonymous: self.ciphertext_hash.is_none(),
+        }
+    }
 }
 
 /// Flat witness for the batch address-append circuit used by the nullifier tree
@@ -150,6 +185,8 @@ pub struct TransferInputs {
     /// output blinding seed and the private transaction blinding from it, so
     /// neither is sent.
     pub blinding_seed: BigUint,
+    /// One per output slot on a ring rail, zero for an exit or a dummy, empty on the default rail.
+    pub ring_secrets: Vec<BigUint>,
     pub external_data_hash: BigUint,
     pub private_tx_hash: BigUint,
     /// Uniform public transfer slots (slot 0 = SOL leg, slot 1 = SPL leg); idle

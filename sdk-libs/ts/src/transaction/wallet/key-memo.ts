@@ -10,7 +10,14 @@ import {
   transactionKeyAnswers,
   wipeByteAnswers,
 } from "./key-batch.js";
-import type { DecryptRequest, DeriveRequest, ShieldedKeys, TransactionKeyRequest } from "./keys.js";
+import {
+  isRingKeys,
+  type DecryptRequest,
+  type DeriveRequest,
+  type RingDeliveryRequest,
+  type ShieldedKeys,
+  type TransactionKeyRequest,
+} from "./keys.js";
 import { hex } from "./state.js";
 
 /**
@@ -28,9 +35,11 @@ export class KeyMemo {
   readonly #decrypted = new Map<string, Uint8Array>();
   readonly #derived = new Map<string, Bytes32>();
   readonly #transactionKeys = new Map<string, ViewingKey>();
+  readonly #deliveries = new Map<string, Bytes32>();
   readonly #pendingDecrypt = new Map<string, DecryptRequest>();
   readonly #pendingDerive = new Map<string, DeriveRequest>();
   readonly #pendingTransactionKeys = new Map<string, TransactionKeyRequest>();
+  readonly #pendingDeliveries = new Map<string, RingDeliveryRequest>();
 
   constructor(keys: ShieldedKeys) {
     this.#keys = keys;
@@ -71,11 +80,27 @@ export class KeyMemo {
     return undefined;
   }
 
+  /** The CRDS slot secret of one delivered ring output, Rust `ring_delivery_secrets`. */
+  ringDeliverySecret(request: RingDeliveryRequest): Bytes32 | undefined {
+    const key = deliveryKey(request);
+    const known = this.#deliveries.get(key);
+    if (known !== undefined) return copy(known);
+    this.#pendingDeliveries.set(key, {
+      recipient: request.recipient,
+      txViewingPublicKey: request.txViewingPublicKey,
+      salt: copy(request.salt),
+      outputIndex: request.outputIndex,
+      firstNullifier: copy(request.firstNullifier),
+    });
+    return undefined;
+  }
+
   pending(): boolean {
     return (
       this.#pendingDecrypt.size > 0 ||
       this.#pendingDerive.size > 0 ||
-      this.#pendingTransactionKeys.size > 0
+      this.#pendingTransactionKeys.size > 0 ||
+      this.#pendingDeliveries.size > 0
     );
   }
 
@@ -83,9 +108,15 @@ export class KeyMemo {
     const decrypts = [...this.#pendingDecrypt.entries()];
     const derives = [...this.#pendingDerive.entries()];
     const transactionKeys = [...this.#pendingTransactionKeys.entries()];
+    const deliveries = [...this.#pendingDeliveries.entries()];
     this.#pendingDecrypt.clear();
     this.#pendingDerive.clear();
     this.#pendingTransactionKeys.clear();
+    this.#pendingDeliveries.clear();
+    const keys = this.#keys;
+    // A delivered ring output under a wallet tag never opens without the ring derivations.
+    if (deliveries.length > 0 && !isRingKeys(keys))
+      throw new TransactionError("TRANSACTION_RING_KEYS_REQUIRED");
     // Settled, not raced: a rejection in one call must not lose the fresh keys
     // another call already handed out.
     const settled = await Promise.allSettled([
@@ -113,9 +144,18 @@ export class KeyMemo {
               context,
             ),
           ),
+      deliveries.length === 0 || !isRingKeys(keys)
+        ? []
+        : Promise.resolve().then(() =>
+            keys.ringDeliverySecrets(
+              deliveries.map(([, request]) => request),
+              context,
+            ),
+          ),
     ]);
     const derivations = settled[1].status === "fulfilled" ? settled[1].value : [];
     const minted = settled[2].status === "fulfilled" ? settled[2].value : [];
+    const delivered = settled[3].status === "fulfilled" ? settled[3].value : [];
     const plaintexts: Uint8Array[] = [];
     try {
       decodeBatch(
@@ -130,11 +170,12 @@ export class KeyMemo {
         batchMismatch,
       );
       const derived = deriveAnswers(fulfilled(settled[1]), derives.length, batchMismatch);
-      const keys = transactionKeyAnswers(
+      const answers = transactionKeyAnswers(
         fulfilled(settled[2]),
         transactionKeys.length,
         batchMismatch,
       );
+      const secrets = deriveAnswers(fulfilled(settled[3]), deliveries.length, batchMismatch);
       plaintexts.forEach((plaintext, index) => {
         const request = decrypts[index];
         if (request !== undefined) this.#decrypted.set(request[0], plaintext);
@@ -143,14 +184,19 @@ export class KeyMemo {
         const request = derives[index];
         if (request !== undefined) this.#derived.set(request[0], value);
       });
-      keys.forEach((viewingKey, index) => {
+      answers.forEach((viewingKey, index) => {
         const request = transactionKeys[index];
         if (request !== undefined) this.#transactionKeys.set(request[0], viewingKey);
+      });
+      secrets.forEach((secret, index) => {
+        const request = deliveries[index];
+        if (request !== undefined) this.#deliveries.set(request[0], secret);
       });
     } catch (cause) {
       destroyTransactionKeys(minted);
       wipeByteAnswers(plaintexts);
       wipeByteAnswers(derivations);
+      wipeByteAnswers(delivered);
       throw cause;
     }
   }
@@ -162,7 +208,23 @@ export class KeyMemo {
     this.#decrypted.clear();
     for (const derived of this.#derived.values()) derived.fill(0);
     this.#derived.clear();
+    for (const secret of this.#deliveries.values()) secret.fill(0);
+    this.#deliveries.clear();
   }
+}
+
+function deliveryKey(request: RingDeliveryRequest): string {
+  const recipient =
+    request.recipient.kind === "viewing"
+      ? `viewing|${hex(request.recipient.viewingPublicKey.toBytes())}`
+      : `address|${request.recipient.ring}|${String(request.recipient.index)}`;
+  return [
+    recipient,
+    hex(request.txViewingPublicKey.toBytes()),
+    hex(request.salt),
+    String(request.outputIndex),
+    hex(request.firstNullifier),
+  ].join("|");
 }
 
 function decryptKey(request: DecryptRequest): string {

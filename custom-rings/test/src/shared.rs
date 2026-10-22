@@ -8,13 +8,11 @@
 //! with the mint authority parked on the payer.
 
 use std::path::PathBuf;
-use zolana_keypair::X25519Pubkey;
 
 use anyhow::{anyhow, Context, Result};
-use custom_ring_cli::transact::{self, Probe};
 use custom_ring_sdk::{
-    CreateConfig, CreatePolicy, CustomRing, EntryProofError, InitSppRingConfig, LiveSpendRecord,
-    TransactSend, TRANSACT_COMPUTE_UNIT_LIMIT,
+    compute_unit_limit, CreateConfig, CreateMemberRegistry, CustomRing, InitSppRingConfig,
+    InstructionTag, MemberRecords, PolicyRules, RingError, RingKind,
 };
 use solana_address::Address;
 use solana_instruction::Instruction;
@@ -22,23 +20,25 @@ use solana_keypair::Keypair;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
+    compile_message,
     prover::{indexed::ProofDataSource, SERVER_ADDRESS},
-    ClientError, ComputeBudgetConfig, IndexerRequirement, ProverClient, ProverLaunch, Rpc,
-    SolanaRpc, ZolanaClient, ZolanaIndexer,
+    sign_transaction, ClientError, ComputeBudgetConfig, IndexerRequirement, ProverClient,
+    ProverLaunch, Rpc, SolanaRpc, ZolanaClient, ZolanaIndexer,
 };
 use zolana_interface::{
     pda,
     state::{default_tree_fees, nullifier_tree_params, SplAssetCounter},
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::ShieldedKeypair;
+use zolana_keypair::{ShieldedKeypair, X25519Pubkey};
 use zolana_program::instruction::CreateProtocolConfig;
 use zolana_program::instruction::SetRingActivation;
 use zolana_program_test::{
     create_tree_instructions,
     localnet::{LocalnetPorts, LocalnetValidator, UpgradeableProgram},
 };
-use zolana_ring_policy::{ListId, RuleTable};
+use zolana_ring_client::MemberOpeningRead;
+use zolana_ring_policy::{ListId, Member, RuleTable};
 use zolana_test_utils::wallet::Wallet;
 use zolana_test_utils::{
     localnet::{isolated_temp_path, localnet_indexer_url, localnet_rpc_url, WorkspaceArtifacts},
@@ -136,7 +136,24 @@ impl TestEnv {
 
     /// The raw id a tree hashes its UTXOs under.
     pub fn tree_id(&self, tree: Address) -> Result<u16> {
-        Ok(custom_ring_sdk::tree_id(self.client.rpc(), tree)?)
+        Ok(self.run(custom_ring_sdk::tree_id(self.client.as_async(), tree))?)
+    }
+
+    /// Runs an SDK operation on the blocking client.
+    pub fn run<T>(
+        &self,
+        operation: impl std::future::Future<Output = Result<T, RingError>>,
+    ) -> Result<T, RingError> {
+        self.client.block_on(operation)
+    }
+
+    /// The same services behind `prover`.
+    pub fn client_with(&self, prover: ProverClient) -> ZolanaClient<SolanaRpc> {
+        ZolanaClient::new(
+            SolanaRpc::new(self.rpc_url.clone()),
+            ZolanaIndexer::new(self.indexer_url.clone()),
+            prover,
+        )
     }
 
     /// The tree the cli names by default.
@@ -161,6 +178,16 @@ impl TestEnv {
         let keypair = Keypair::new();
         self.fund(keypair.pubkey(), SIGNER_AIRDROP)?;
         Ok(keypair)
+    }
+
+    pub fn member_record(&self, ring: CustomRing, member: Member) -> Result<MemberOpeningRead> {
+        let records = MemberRecords {
+            ring,
+            members: &[member],
+        };
+        let [read] = <[_; 1]>::try_from(self.run(records.read(self.client.as_async()))?)
+            .map_err(|reads| anyhow!("{} records of {member:?}", reads.len()))?;
+        Ok(read)
     }
 }
 
@@ -189,19 +216,37 @@ pub enum Tier {
     AuditOnly,
     AnonymousAuditOnly,
     Policy {
-        address_tree: Address,
+        rules: &'static RuleTable,
+        shared_sources: Vec<(ListId, CustomRing)>,
+    },
+    AnonymousPolicy {
         rules: &'static RuleTable,
         shared_sources: Vec<(ListId, CustomRing)>,
     },
 }
 
 impl Tier {
-    /// Every referenced list served from the ring's own entries.
-    pub fn policy(rules: &'static RuleTable, address_tree: Address) -> Self {
+    /// Every referenced list served from the ring's own registry.
+    pub fn policy(rules: &'static RuleTable) -> Self {
         Self::Policy {
-            address_tree,
             rules,
             shared_sources: Vec::new(),
+        }
+    }
+
+    pub fn anonymous_policy(rules: &'static RuleTable) -> Self {
+        Self::AnonymousPolicy {
+            rules,
+            shared_sources: Vec::new(),
+        }
+    }
+
+    fn kind(&self) -> RingKind {
+        match self {
+            Self::AuditOnly => RingKind::AuditOnly,
+            Self::AnonymousAuditOnly => RingKind::Anonymous,
+            Self::Policy { .. } => RingKind::Policy,
+            Self::AnonymousPolicy { .. } => RingKind::AnonymousPolicy,
         }
     }
 }
@@ -228,29 +273,37 @@ pub struct PinnedRing<'a> {
 }
 
 impl<'a> RegisterRing<'a> {
-    pub fn send(self, rpc: &SolanaRpc) -> Result<()> {
-        self.pin(rpc)?.register(rpc)
+    pub fn send(self, client: &ZolanaClient<SolanaRpc>) -> Result<()> {
+        self.pin(client)?.register(client.rpc())
     }
 
-    pub fn pin(self, rpc: &SolanaRpc) -> Result<PinnedRing<'a>> {
-        self.configure(rpc)?.pin(rpc)
+    pub fn pin(self, client: &ZolanaClient<SolanaRpc>) -> Result<PinnedRing<'a>> {
+        self.configure(client.rpc())?.pin(client)
     }
 
+    /// A policy ring also gets its registry, the policy lives there.
     pub fn configure(self, rpc: &SolanaRpc) -> Result<ConfiguredRing<'a>> {
         let authority = self.payer.pubkey();
-        let config = CreateConfig {
+        let kind = self.tier.kind();
+        let mut instructions = vec![CreateConfig {
             ring: self.ring,
             payer: authority,
             authority,
             auditor_pubkey: self.auditor_pubkey,
-            has_policy: matches!(self.tier, Tier::Policy { .. }),
-        };
-        let instruction = if matches!(self.tier, Tier::AnonymousAuditOnly) {
-            config.anonymous_instruction()?
-        } else {
-            config.instruction()?
-        };
-        send(rpc, self.payer, &[instruction])?;
+            kind,
+        }
+        .instruction()?];
+        if kind.has_policy() {
+            instructions.push(
+                CreateMemberRegistry {
+                    ring: self.ring,
+                    payer: authority,
+                    authority,
+                }
+                .instruction(),
+            );
+        }
+        send(rpc, self.payer, &instructions)?;
         Ok(ConfiguredRing {
             ring: self.ring,
             payer: self.payer,
@@ -261,39 +314,37 @@ impl<'a> RegisterRing<'a> {
 
 impl<'a> ConfiguredRing<'a> {
     /// The program refuses it for a policy ring until the policy is pinned.
-    pub fn registration(&self) -> Instruction {
+    pub fn registration(&self, client: &ZolanaClient<SolanaRpc>) -> Result<Instruction> {
+        let config = client.block_on(self.ring.require_config(client.as_async()))?;
         let authority = self.payer.pubkey();
-        InitSppRingConfig {
+        Ok(InitSppRingConfig {
             ring: self.ring,
             payer: authority,
             authority,
-            has_policy: matches!(self.tier, Tier::Policy { .. }),
+            config: &config,
         }
-        .instruction()
+        .instruction())
     }
 
-    pub fn pin(self, rpc: &SolanaRpc) -> Result<PinnedRing<'a>> {
-        let registration = self.registration();
-        let authority = self.payer.pubkey();
+    pub fn pin(self, client: &ZolanaClient<SolanaRpc>) -> Result<PinnedRing<'a>> {
+        let registration = self.registration(client)?;
         if let Tier::Policy {
-            address_tree,
+            rules,
+            shared_sources,
+        }
+        | Tier::AnonymousPolicy {
             rules,
             shared_sources,
         } = self.tier
         {
-            send(
-                rpc,
-                self.payer,
-                &[CreatePolicy {
-                    ring: self.ring,
-                    payer: authority,
-                    authority,
-                    address_tree,
-                    rules,
-                    shared_sources,
-                }
-                .instruction()?],
-            )?;
+            let pin = PolicyRules {
+                ring: self.ring,
+                authority: self.payer.pubkey(),
+                rules,
+                shared_sources: &shared_sources,
+            }
+            .create()?;
+            send(client.rpc(), self.payer, &[pin])?;
         }
         Ok(PinnedRing {
             payer: self.payer,
@@ -565,22 +616,6 @@ fn new_actor(rpc: &mut SolanaRpc, assets: &AssetRegistry) -> Result<TestWallet> 
     Ok(TestWallet { wallet, keypair })
 }
 
-pub fn wait_for_spend_record(
-    read: impl Fn() -> Result<Option<LiveSpendRecord>, EntryProofError>,
-    version: u64,
-) -> Result<LiveSpendRecord> {
-    Ok(transact::wait_for(
-        format!("spend record v{version}"),
-        || {
-            Ok(match read() {
-                Ok(Some(live)) if live.record.version == version => Probe::Ready(live),
-                Ok(_) => Probe::NotYet,
-                Err(error) => Probe::Retry(error),
-            })
-        },
-    )?)
-}
-
 /// Send instructions as a transaction **v1** message paid and signed by
 /// `payer`. The compute ceilings ride in the message header, so nothing is
 /// prepended and the caller's first instruction stays at index 0.
@@ -589,15 +624,12 @@ pub fn send(rpc: &SolanaRpc, payer: &dyn Signer, ixs: &[Instruction]) -> Result<
         ixs,
         payer.pubkey(),
         &[payer],
-        ComputeBudgetConfig::new(TRANSACT_COMPUTE_UNIT_LIMIT),
+        ComputeBudgetConfig::new(compute_unit_limit(InstructionTag::Transact)),
     )?)
 }
 
-/// The [`TransactSend`] submission path for a transaction that must be REJECTED:
-/// returns the runtime's typed failure so a test can assert the exact program
-/// error code and the failing instruction index (`Rejection::custom(..).at(0)`,
-/// index 0 because a v1 message carries no compute-budget instruction).
-/// [`TransactSend::send`] stringifies the error, which cannot be asserted on.
+/// Sends a transaction that must be rejected and returns the runtime's typed failure,
+/// the instruction sits at index 0 of a v1 message.
 pub fn send_expecting_rejection(
     rpc: &SolanaRpc,
     payer: &dyn Signer,
@@ -621,12 +653,14 @@ pub struct RejectedTransact<'a> {
 
 impl RejectedTransact<'_> {
     pub fn send(self, rpc: &SolanaRpc) -> Result<ClientError> {
-        let tx = TransactSend {
-            payer: self.payer,
-            signers: self.signers,
-            instruction: self.instruction,
-        }
-        .build(rpc)?;
+        let (blockhash, _) = rpc.get_latest_blockhash()?;
+        let budget = ComputeBudgetConfig::new(compute_unit_limit(InstructionTag::Transact));
+        let message =
+            compile_message(&self.payer.pubkey(), &[self.instruction], blockhash, budget)?;
+        let signers: Vec<&dyn Signer> = std::iter::once(self.payer)
+            .chain(self.signers.iter().copied())
+            .collect();
+        let tx = sign_transaction(message, &signers)?;
         match rpc.client().send_and_confirm_transaction(&tx) {
             Ok(signature) => Err(anyhow!(
                 "transaction {signature} was expected to be rejected but landed"

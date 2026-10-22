@@ -21,7 +21,10 @@ use zolana_program::instruction::RingAuthorityTransact;
 use zolana_program_test::Rejection;
 use zolana_transaction::{
     serialization::confidential::{Confidential, ConfidentialEncode},
-    utxo::{derive_output_blinding_seed, derive_transact_output_blinding, SppProofInputUtxo},
+    utxo::{
+        derive_output_blinding_seed, derive_transact_output_blinding, OutputSlotBlinding,
+        SppProofInputUtxo,
+    },
     Data, ExternalData, OwnerCx, SppProofOutputUtxo, Utxo, UtxoSerialization,
 };
 
@@ -222,11 +225,12 @@ impl RingHarness {
         // first nullifier, then asserts every output blinding against it.
         let blinding_seed = random_blinding();
         let output_blinding_seed = derive_output_blinding_seed(&nullifier, &blinding_seed)?;
-        let output = SppProofOutputUtxo {
+        let mut output = SppProofOutputUtxo {
             owner_address: Some(recipient_address),
             asset: input_utxo.asset,
             amount,
-            blinding: derive_transact_output_blinding(&nullifier, &output_blinding_seed, 0)?,
+            blinding: [0; 32],
+            ring_secret: Some(random_blinding()),
             ring_program_id: Some(ring),
             ring_data_hash: None,
             data_hash: None,
@@ -235,6 +239,13 @@ impl RingHarness {
             cache_slot: None,
             compact: false,
         };
+        output.blinding = OutputSlotBlinding {
+            output: &output,
+            first_nullifier: &nullifier,
+            output_blinding_seed: &output_blinding_seed,
+            slot_index: 0,
+        }
+        .derive()?;
         let output_hash = output.hash(tree_id)?;
         let padding_output = SppProofOutputUtxo {
             owner_tag: Some(recipient_view_tag),

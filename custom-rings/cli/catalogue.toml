@@ -1,11 +1,10 @@
 # Curator rings a policy can read a list from, one table per cluster.
 # A curator joins by pull request and names only the lists it serves from
-# its own entries.
+# its own member registry.
 #
 # [devnet.compliance-desk]
 # program = "<ring program id>"
 # lists = ["block", "frozen"]
-# address_tree = "<address tree>"
 
 [localnet]
 

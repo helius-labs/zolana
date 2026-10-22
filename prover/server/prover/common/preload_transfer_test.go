@@ -7,7 +7,7 @@ import (
 )
 
 func TestRingPreloadRequiresSelectedKey(t *testing.T) {
-	for _, circuit := range []CircuitType{CustomRingBaseCircuitType, CustomRingPolicyCircuitType} {
+	for _, circuit := range []CircuitType{"custom-ring-audit-packed-2", "custom-ring-policy-member-2"} {
 		t.Run(string(circuit), func(t *testing.T) {
 			manager := NewLazyKeyManager(t.TempDir(), &DownloadConfig{AutoDownload: false})
 			err := manager.PreloadCircuits([]string{string(circuit)})

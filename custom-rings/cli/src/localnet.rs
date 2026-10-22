@@ -3,288 +3,155 @@
 use std::{
     env,
     fs::File,
-    io,
-    net::{SocketAddr, TcpStream},
+    net::SocketAddr,
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    thread,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
+use anyhow::{ensure, Context as _, Result};
 use serde::Deserialize;
-use thiserror::Error;
-use zolana_ring_rpc::KeyFileError;
+use zolana_cli_common::{
+    config_dir,
+    process::{answers, process_scope, spawn_owned, stop_owned_listener, wait_until},
+    release::{host_platform, make_executable},
+};
 
 use crate::{
-    config::{ConfigError, RingConfig, Target, Urls},
-    file::{self, FileError},
-    keys, line, probe,
-    release::{self, ReleaseError, RingKey, RingRelease},
-    tool::{Tool, ToolError, SOLANA_TEST_VALIDATOR, ZOLANA},
-    ui::{self, Icon},
-    workspace::{Workspace, WorkspaceError},
-    AuditorKeyArgs, Context, LocalnetArgs, ProjectRoot, AUDITOR_KEY_FILE,
+    config::{RingConfig, Target, Urls},
+    file, keys, line, probe,
+    release::{RingKey, RingRelease, RING_KEYS},
+    tool::{Tool, SOLANA_TEST_VALIDATOR, ZOLANA},
+    ui::{self, icon},
+    workspace::{Workspace, WRONG_TARGET},
+    Context, LocalnetArgs, AUDITOR_KEY_FILE,
 };
 
 /// SIMD-0500 off, the ring program deploys as SBPF v0 like on devnet.
 const SBPF_V0_FEATURE: &str = "B8JJXCy5amZyWG9r7EnUYLwzXSXTxG7GZ1qZ1qggo83g";
-const RING_RPC: Tool = Tool {
-    name: "ring-rpc serve",
-    install: "rerun `zolana-ring localnet`, it downloads the ring rpc of the release",
-};
+const RING_RPC: Tool = Tool::new(
+    "ring-rpc serve",
+    "rerun `zolana-ring localnet`, it downloads the ring rpc of the release",
+);
 const READY_TIMEOUT: Duration = Duration::from_secs(300);
-const STOP_TIMEOUT: Duration = Duration::from_secs(10);
 const POLL: Duration = Duration::from_secs(2);
 
-#[derive(Debug, Error)]
-pub enum LocalnetError {
-    #[error(transparent)]
-    Config(#[from] ConfigError),
-    #[error(transparent)]
-    Release(#[from] ReleaseError),
-    #[error(transparent)]
-    Tool(#[from] ToolError),
-    #[error(transparent)]
-    File(#[from] FileError),
-    #[error(transparent)]
-    KeyFile(#[from] KeyFileError),
-    #[error("{url} carries no port, localnet URLs are http://127.0.0.1:<port>")]
-    Port { url: String },
-    #[error("the prover at {url} serves no custom-ring circuit, install the zolana cli of a newer localnet release")]
-    StaleProver { url: String },
-    #[error("cannot read the prover health at {url}")]
-    ProverHealth {
-        url: String,
-        #[source]
-        source: reqwest::Error,
-    },
-    #[error("{addr} stays busy, stop the listener on it")]
-    PortBusy { addr: SocketAddr },
-    #[error("the ring rpc did not answer on {addr} within {timeout:?}, see {log}")]
-    NotReady {
-        addr: SocketAddr,
-        timeout: Duration,
-        log: PathBuf,
-    },
-    #[error("cannot open the log {path}")]
-    Log {
-        path: PathBuf,
-        #[source]
-        source: io::Error,
-    },
-    #[error(transparent)]
-    Workspace(#[from] WorkspaceError),
-    #[error("local workspace service is unavailable at {0}, run `zolana-ring dev` first")]
-    WorkspaceService(String),
-    #[error("workspace services require a loopback URL, found {0}")]
-    WorkspaceEndpoint(String),
-}
-
-#[derive(Debug, Clone, Copy)]
-struct Ports {
-    rpc: u16,
-    photon: u16,
-    prover: u16,
-    ring_rpc: u16,
-}
-
-#[derive(Debug, Clone, Copy)]
-enum LiveRingRpc {
-    Keep,
-    Replace,
-}
-
-#[must_use]
-struct RingRpc<'a> {
-    release: &'a RingRelease,
-    urls: &'a Urls,
-    auditor_key: PathBuf,
-    program_id: solana_address::Address,
-    log_dir: &'a Path,
+#[derive(Deserialize)]
+struct ProverHealth {
+    circuits: Vec<String>,
 }
 
 /// The target is recorded first, a failed bring-up still leaves ring.toml on localnet.
-pub fn run(
-    config_path: &Path,
-    config: &RingConfig,
-    args: LocalnetArgs,
-) -> Result<(), LocalnetError> {
+pub fn run(config_path: &Path, config: &RingConfig, args: LocalnetArgs) -> Result<()> {
     probe::print_urls(config);
-    if args.no_start {
-        return Ok(());
+    if !args.no_start {
+        bring_up(config, &config_path.with_file_name(AUDITOR_KEY_FILE), true)?;
+        println!("\nlocalnet ready, next `zolana-ring pipeline`");
     }
-    bring_up(config_path, config, LiveRingRpc::Replace)?;
-    println!();
-    println!("localnet ready, next `zolana-ring pipeline`");
     Ok(())
 }
 
 /// Localnet only, `devnet` probes its services instead of starting them.
-pub fn ensure(ctx: &Context) -> Result<(), LocalnetError> {
-    if matches!(ctx.config.target, Target::Localnet) {
-        bring_up(&ctx.config_path, &ctx.config, LiveRingRpc::Keep)?;
+pub fn ensure(ctx: &Context) -> Result<()> {
+    if ctx.config.target == Target::Localnet {
+        bring_up(&ctx.config, &ctx.path(Path::new(AUDITOR_KEY_FILE)), false)?;
     }
     Ok(())
 }
 
 /// A live validator keeps its ledger, the ring rpc is replaced only on request.
-fn bring_up(
-    config_path: &Path,
-    config: &RingConfig,
-    live_ring_rpc: LiveRingRpc,
-) -> Result<(), LocalnetError> {
+fn bring_up(config: &RingConfig, auditor_key: &Path, replace: bool) -> Result<()> {
     if let Some(workspace) = Workspace::from_env()? {
-        return bring_up_workspace(
-            workspace,
-            WorkspaceRun {
-                config_path,
-                config,
-                live_ring_rpc,
-            },
-        );
+        return bring_up_workspace(&workspace, config, auditor_key, replace);
     }
     let urls = config.urls();
-    let ports = Ports::of(urls)?;
+    let [rpc, photon, prover, ring_rpc] = ports(urls)?;
     let release = RingRelease::from_lock()?;
-    if answers(local(ports.rpc)) {
+    if answers(local(rpc)) {
         line("validator", format_args!("{} answers", urls.rpc));
     } else {
-        for tool in [ZOLANA, SOLANA_TEST_VALIDATOR] {
-            tool.check_installed()?;
-        }
+        ZOLANA.check_installed()?;
+        SOLANA_TEST_VALIDATOR.check_installed()?;
         let keys_dir = prover_keys_dir()?;
-        for key in RingKey::ALL {
+        for key in RING_KEYS {
             release.ensure_as(release.key(key)?, &keys_dir.join(key.file_name()))?;
         }
-        start_validator(ports)?;
+        line("validator", "zolana dev start");
+        let mut command = Command::new("zolana");
+        command.args(["dev", "start"]);
+        ZOLANA
+            .named("zolana dev start")
+            .run(dev_start(&mut command, [rpc, photon, prover]))?;
     }
     check_prover_serves_custom_ring(&urls.prover)?;
-    if matches!(live_ring_rpc, LiveRingRpc::Keep) && answers(local(ports.ring_rpc)) {
+    if !replace && answers(local(ring_rpc)) {
         line("ring rpc", format_args!("{} answers", urls.ring_rpc));
         return Ok(());
     }
-    let project_root = ProjectRoot::for_config(config_path);
-    let auditor_key = project_root.resolve(Path::new(AUDITOR_KEY_FILE));
-    if !auditor_key.is_file() {
-        keys::run(
-            &project_root,
-            AuditorKeyArgs {
-                key_file: PathBuf::from(AUDITOR_KEY_FILE),
-                create: true,
-            },
-        )?;
-    }
-    RingRpc {
-        release: &release,
-        urls,
-        auditor_key,
-        program_id: config.program_id,
-        log_dir: &release::config_dir().join("localnet"),
-    }
-    .start(ports.ring_rpc)
+    keys::ensure(auditor_key)?;
+    let (os, arch) = host_platform()?;
+    let binary = release.ensure(release.binary("ring_rpc", os, arch)?)?;
+    make_executable(&binary)?;
+    let command = serve(&binary, config, ring_rpc, auditor_key);
+    start_ring_rpc(command, config, ring_rpc, &scope()?)
 }
 
-struct WorkspaceRun<'a> {
-    config_path: &'a Path,
-    config: &'a RingConfig,
-    live_ring_rpc: LiveRingRpc,
-}
-
-fn bring_up_workspace(workspace: Workspace, run: WorkspaceRun<'_>) -> Result<(), LocalnetError> {
-    let WorkspaceRun {
-        config_path,
-        config,
-        live_ring_rpc,
-    } = run;
-    if config.target != Target::Localnet {
-        return Err(WorkspaceError::WrongTarget.into());
-    }
+/// Every service from the workspace build, the ring rpc in the foreground.
+fn bring_up_workspace(
+    workspace: &Workspace,
+    config: &RingConfig,
+    auditor_key: &Path,
+    replace: bool,
+) -> Result<()> {
+    ensure!(config.target == Target::Localnet, WRONG_TARGET);
     workspace.check_artifacts()?;
     let urls = config.urls();
-    for url in [&urls.rpc, &urls.indexer, &urls.prover, &urls.ring_rpc] {
-        let local = reqwest::Url::parse(url).ok().is_some_and(|url| {
-            url.host_str().is_some_and(|host| {
-                host == "localhost"
-                    || host
-                        .parse::<std::net::IpAddr>()
-                        .is_ok_and(|ip| ip.is_loopback())
-            })
-        });
-        if !local {
-            return Err(LocalnetError::WorkspaceEndpoint(url.clone()));
-        }
+    let services = [&urls.rpc, &urls.indexer, &urls.prover, &urls.ring_rpc];
+    for url in services {
+        ensure!(
+            Urls::is_local(url),
+            "workspace services require a loopback URL, found {url}"
+        );
     }
-    let ports = Ports::of(urls)?;
-    if matches!(live_ring_rpc, LiveRingRpc::Keep) {
-        for (port, url) in [
-            (ports.rpc, &urls.rpc),
-            (ports.photon, &urls.indexer),
-            (ports.prover, &urls.prover),
-            (ports.ring_rpc, &urls.ring_rpc),
-        ] {
-            if !answers(local(port)) {
-                return Err(LocalnetError::WorkspaceService(url.clone()));
-            }
-        }
+    let ports = ports(urls)?;
+    let [rpc, photon, prover, ring_rpc] = ports;
+    if !replace {
+        answering(ports.into_iter().zip(services))?;
         return check_prover_serves_custom_ring(&urls.prover);
     }
-    if answers(local(ports.ring_rpc)) {
-        return Err(LocalnetError::PortBusy {
-            addr: local(ports.ring_rpc),
-        });
-    }
-    if !answers(local(ports.rpc)) {
+    let addr = local(ring_rpc);
+    ensure!(!answers(addr), "{addr} stays busy, stop the listener on it");
+    if !answers(local(rpc)) {
         let snapshots = workspace.account_snapshots()?;
         let mut command = workspace.command()?;
         command
             .args(["dev", "start", "--local"])
-            .args(["--rpc-port", &ports.rpc.to_string()])
-            .args(["--photon-port", &ports.photon.to_string()])
-            .args(["--prover-port", &ports.prover.to_string()])
-            .arg("--photon-start-slot")
-            .arg("0")
-            .arg("--account-dir")
+            .args(["--photon-start-slot", "0", "--account-dir"])
             .arg(snapshots)
             .arg("--sbf-program")
             .arg(zolana_interface::pda::shielded_pool_program_id().to_string())
-            .arg(workspace.shielded_pool_so()?)
-            .args(["--", "--deactivate-feature", SBPF_V0_FEATURE]);
-        ZOLANA
-            .named("workspace zolana dev start")
-            .run(&mut command)?;
+            .arg(workspace.shielded_pool_so()?);
+        let dev_start = dev_start(&mut command, [rpc, photon, prover]);
+        ZOLANA.named("workspace zolana dev start").run(dev_start)?;
     }
-    for (port, url) in [(ports.photon, &urls.indexer), (ports.prover, &urls.prover)] {
-        if !answers(local(port)) {
-            return Err(LocalnetError::WorkspaceService(url.clone()));
-        }
-    }
+    answering([(photon, &urls.indexer), (prover, &urls.prover)])?;
     check_prover_serves_custom_ring(&urls.prover)?;
-    let project_root = ProjectRoot::for_config(config_path);
-    let auditor_key = project_root.resolve(Path::new(AUDITOR_KEY_FILE));
-    if !auditor_key.is_file() {
-        keys::run(
-            &project_root,
-            AuditorKeyArgs {
-                key_file: PathBuf::from(AUDITOR_KEY_FILE),
-                create: true,
-            },
-        )?;
+    keys::ensure(auditor_key)?;
+    ui::heading(icon::RING, "workspace services ready");
+    let next = "zolana-ring pipeline in a second terminal with the same environment";
+    line("next", next);
+    let ring_rpc_binary = workspace.ring_rpc()?;
+    RING_RPC.run(&mut serve(&ring_rpc_binary, config, ring_rpc, auditor_key))
+}
+
+fn answering<'a>(services: impl IntoIterator<Item = (u16, &'a String)>) -> Result<()> {
+    for (port, url) in services {
+        let next = "run `zolana-ring dev` first";
+        ensure!(
+            answers(local(port)),
+            "local workspace service is unavailable at {url}, {next}"
+        );
     }
-    ui::heading(Icon::Ring, "workspace services ready");
-    line(
-        "next",
-        "zolana-ring pipeline in a second terminal with the same environment",
-    );
-    RING_RPC.run(
-        Command::new(workspace.ring_rpc()?)
-            .arg("serve")
-            .args(["--port", &ports.ring_rpc.to_string()])
-            .args(["--indexer-url", &urls.indexer])
-            .args(["--rpc-url", &urls.rpc])
-            .arg("--auditor-key-file")
-            .arg(auditor_key)
-            .args(["--ring-program-id", &config.program_id.to_string()]),
-    )?;
     Ok(())
 }
 
@@ -292,159 +159,160 @@ fn local(port: u16) -> SocketAddr {
     SocketAddr::from(([127, 0, 0, 1], port))
 }
 
-impl Ports {
-    fn of(urls: &Urls) -> Result<Self, LocalnetError> {
-        let port = |url: &str| {
-            Urls::port(url).ok_or_else(|| LocalnetError::Port {
-                url: url.to_owned(),
-            })
-        };
-        Ok(Self {
-            rpc: port(&urls.rpc)?,
-            photon: port(&urls.indexer)?,
-            prover: port(&urls.prover)?,
-            ring_rpc: port(&urls.ring_rpc)?,
-        })
+/// RPC, Photon, prover and ring rpc, in that order.
+fn ports(urls: &Urls) -> Result<[u16; 4]> {
+    let port = |url: &str| {
+        let hint = "localnet URLs are http://127.0.0.1:<port>";
+        Urls::port(url).with_context(|| format!("{url} carries no port, {hint}"))
+    };
+    let [rpc, indexer, prover, ring_rpc] = [&urls.rpc, &urls.indexer, &urls.prover, &urls.ring_rpc];
+    Ok([port(rpc)?, port(indexer)?, port(prover)?, port(ring_rpc)?])
+}
+
+/// The service ports and the SBPF v0 deployment both `zolana dev start` paths take.
+fn dev_start(command: &mut Command, ports: [u16; 3]) -> &mut Command {
+    for (flag, port) in ["--rpc-port", "--photon-port", "--prover-port"]
+        .iter()
+        .zip(ports)
+    {
+        command.arg(flag).arg(port.to_string());
     }
+    command.args(["--", "--deactivate-feature", SBPF_V0_FEATURE])
 }
 
-/// Mirrors the `zolana` cli, `ZOLANA_CONFIG_DIR` does not move it.
-fn prover_keys_dir() -> Result<PathBuf, LocalnetError> {
-    if let Some(dir) = env::var_os("ZOLANA_PROVER_KEYS_DIR") {
-        return Ok(PathBuf::from(dir));
+/// Local mode, `init` pins the key from `keys/`.
+fn serve(binary: &Path, config: &RingConfig, port: u16, auditor_key: &Path) -> Command {
+    let urls = config.urls();
+    let mut command = Command::new(binary);
+    command
+        .args(["serve", "--port", &port.to_string()])
+        .args(["--indexer-url", &urls.indexer, "--rpc-url", &urls.rpc])
+        .arg("--auditor-key-file")
+        .arg(auditor_key)
+        .args(["--ring-program-id", &config.program_id.to_string()]);
+    command
+}
+
+/// Receipts of the services the cli started, the task scope when one is set.
+fn scope() -> Result<PathBuf> {
+    if let Some(scope) = process_scope()? {
+        return Ok(scope);
     }
-    let home = env::var_os("HOME").ok_or(ConfigError::HomeUnset)?;
-    Ok(PathBuf::from(home)
-        .join(".config")
-        .join("zolana")
-        .join("proving-keys"))
+    let scope = config_dir().join("localnet/scope");
+    file::create_dir_all(&scope)?;
+    Ok(scope)
 }
 
-#[derive(Deserialize)]
-struct ProverHealth {
-    circuits: Vec<String>,
-}
-
-/// The prover of an older `zolana` release answers health without the ring circuit.
-fn check_prover_serves_custom_ring(prover_url: &str) -> Result<(), LocalnetError> {
-    let url = probe::service_url(prover_url, "/health");
-    let health = probe::http(POLL, READY_TIMEOUT)
-        .get(&url)
-        .send()
-        .and_then(reqwest::blocking::Response::error_for_status)
-        .and_then(|response| response.json::<ProverHealth>())
-        .map_err(|source| LocalnetError::ProverHealth {
-            url: url.clone(),
-            source,
-        })?;
-    if RingKey::ALL.iter().all(|key| {
-        health
-            .circuits
-            .iter()
-            .any(|circuit| circuit == key.circuit())
-    }) {
-        return Ok(());
-    }
-    Err(LocalnetError::StaleProver { url })
-}
-
-/// `zolana dev start` returns once the validator, Photon and the prover answer.
-fn start_validator(ports: Ports) -> Result<(), LocalnetError> {
-    line("validator", "zolana dev start");
-    ZOLANA.named("zolana dev start").run(
-        Command::new("zolana")
-            .args(["dev", "start"])
-            .args(["--rpc-port", &ports.rpc.to_string()])
-            .args(["--photon-port", &ports.photon.to_string()])
-            .args(["--prover-port", &ports.prover.to_string()])
-            .args(["--", "--deactivate-feature", SBPF_V0_FEATURE]),
-    )?;
+/// Replaces a ring rpc the cli started, a listener it did not start is refused.
+fn start_ring_rpc(
+    mut command: Command,
+    config: &RingConfig,
+    port: u16,
+    scope: &Path,
+) -> Result<()> {
+    stop_owned_listener(scope, port)?;
+    let log_dir = config_dir().join("localnet");
+    file::create_dir_all(&log_dir)?;
+    let log = log_dir.join("ring-rpc.log");
+    let shown = log.display();
+    let open = || File::create(&log).with_context(|| format!("cannot open the log {shown}"));
+    command.stdin(Stdio::null()).stdout(open()?).stderr(open()?);
+    spawn_owned(scope, "ring-rpc", &mut command)?;
+    let addr = local(port);
+    let ready = wait_until(READY_TIMEOUT, POLL, || answers(addr));
+    ensure!(
+        ready,
+        "the ring rpc did not answer on {addr} within {READY_TIMEOUT:?}, see {shown}"
+    );
+    let (url, program) = (&config.urls().ring_rpc, config.program_id);
+    line("ring rpc", format_args!("{url} serving {program}, {shown}"));
     Ok(())
 }
 
-impl RingRpc<'_> {
-    /// Local mode, `init` pins the key from `keys/`.
-    fn start(self, port: u16) -> Result<(), LocalnetError> {
-        let (os, arch) = release::host_platform()?;
-        let binary = self.release.binary("ring_rpc", os, arch)?;
-        let path = self.release.ensure(binary)?;
-        file::make_executable(&path)?;
-        file::create_dir_all(self.log_dir)?;
-        let log = self.log_dir.join("ring-rpc.log");
-        let addr = local(port);
-        stop_listeners(addr)?;
-        let open = || {
-            File::create(&log).map_err(|source| LocalnetError::Log {
-                path: log.clone(),
-                source,
-            })
-        };
-        let (out, err) = (open()?, open()?);
-        RING_RPC.spawn(
-            Command::new(&path)
-                .arg("serve")
-                .args(["--port", &port.to_string()])
-                .args(["--indexer-url", &self.urls.indexer])
-                .args(["--rpc-url", &self.urls.rpc])
-                .arg("--auditor-key-file")
-                .arg(&self.auditor_key)
-                .args(["--ring-program-id", &self.program_id.to_string()])
-                .stdin(Stdio::null())
-                .stdout(out)
-                .stderr(err),
-        )?;
-        if !wait_until(READY_TIMEOUT, || answers(addr)) {
-            return Err(LocalnetError::NotReady {
-                addr,
-                timeout: READY_TIMEOUT,
-                log,
-            });
-        }
-        line(
-            "ring rpc",
-            format_args!(
-                "{} serving {}, {}",
-                self.urls.ring_rpc,
-                self.program_id,
-                log.display()
-            ),
+/// Mirrors the `zolana` cli, `ZOLANA_CONFIG_DIR` does not move it.
+fn prover_keys_dir() -> Result<PathBuf> {
+    if let Some(dir) = env::var_os("ZOLANA_PROVER_KEYS_DIR") {
+        return Ok(PathBuf::from(dir));
+    }
+    let home = env::var_os("HOME").context("HOME is not set")?;
+    Ok(PathBuf::from(home).join(".config/zolana/proving-keys"))
+}
+
+/// The prover of an older `zolana` release answers health without the ring circuit.
+fn check_prover_serves_custom_ring(prover_url: &str) -> Result<()> {
+    let url = probe::service_url(prover_url, "/health");
+    let health: ProverHealth = probe::http(POLL, READY_TIMEOUT)
+        .get(&url)
+        .send()
+        .and_then(reqwest::blocking::Response::error_for_status)
+        .and_then(reqwest::blocking::Response::json)
+        .with_context(|| format!("cannot read the prover health at {url}"))?;
+    let serves = |key: &RingKey| health.circuits.iter().any(|name| name == key.name);
+    let newer = "install the zolana cli of a newer localnet release";
+    ensure!(
+        RING_KEYS.iter().all(serves),
+        "the prover at {url} serves no custom-ring circuit, {newer}"
+    );
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::{TcpListener, TcpStream};
+
+    use super::*;
+
+    #[test]
+    fn a_foreign_listener_on_the_ring_rpc_port_is_refused_and_left_running() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let config: RingConfig = toml::from_str(&format!(
+            "name = \"x\"\ntarget = \"localnet\"\nprogram_id = \"11111111111111111111111111111111\"\nauthority_keypair = \"a.json\"\n\n[localnet]\nrpc = \"r\"\nindexer = \"i\"\nprover = \"p\"\nring_rpc = \"http://{addr}\"\n\n[devnet]\nrpc = \"r\"\nindexer = \"i\"\nprover = \"p\"\nring_rpc = \"g\"\n"
+        ))
+        .expect("ring.toml");
+        let scope = env::temp_dir().join(format!("ring-localnet-scope-{}", std::process::id()));
+        file::create_dir_all(&scope).expect("scope");
+        let command = serve(
+            Path::new("/nonexistent/ring-rpc"),
+            &config,
+            addr.port(),
+            Path::new("k"),
         );
-        Ok(())
+        let error =
+            start_ring_rpc(command, &config, addr.port(), &scope).expect_err("foreign listener");
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "port {} is held by a process this cli did not start",
+                addr.port()
+            )
+        );
+        assert!(
+            TcpStream::connect(addr).is_ok(),
+            "the foreign listener still answers"
+        );
+        std::fs::remove_dir_all(scope).expect("cleanup");
     }
-}
 
-/// A listener left on the port is replaced, as `zolana dev start` does with its services.
-fn stop_listeners(addr: SocketAddr) -> Result<(), LocalnetError> {
-    if !answers(addr) {
-        return Ok(());
-    }
-    let pids = Command::new("lsof")
-        .arg(format!("-ti:{}", addr.port()))
-        .output()
-        .map(|output| String::from_utf8_lossy(&output.stdout).into_owned())
-        .unwrap_or_default();
-    for pid in pids.split_whitespace() {
-        let _ = Command::new("kill").arg(pid).status();
-    }
-    if wait_until(STOP_TIMEOUT, || !answers(addr)) {
-        return Ok(());
-    }
-    Err(LocalnetError::PortBusy { addr })
-}
-
-fn answers(addr: SocketAddr) -> bool {
-    TcpStream::connect_timeout(&addr, POLL).is_ok()
-}
-
-fn wait_until(timeout: Duration, ready: impl Fn() -> bool) -> bool {
-    let started = Instant::now();
-    loop {
-        if ready() {
-            return true;
-        }
-        if started.elapsed() >= timeout {
-            return false;
-        }
-        thread::sleep(POLL);
+    #[test]
+    fn localnet_ports_come_from_each_service_url() {
+        let urls = Urls {
+            rpc: "http://127.0.0.1:8899".to_owned(),
+            indexer: "http://127.0.0.1:8784".to_owned(),
+            prover: "http://127.0.0.1:3001".to_owned(),
+            ring_rpc: "http://127.0.0.1:8785".to_owned(),
+            ring_rpc_pubkey: None,
+            prover_tee: None,
+        };
+        assert_eq!(ports(&urls).expect("ports"), [8899, 8784, 3001, 8785]);
+        let portless = Urls {
+            ring_rpc: "http://localhost".to_owned(),
+            ..urls
+        };
+        let error = ports(&portless).expect_err("no port").to_string();
+        assert!(
+            error.starts_with("http://localhost carries no port"),
+            "{error}"
+        );
     }
 }
