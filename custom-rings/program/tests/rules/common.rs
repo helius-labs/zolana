@@ -258,27 +258,23 @@ pub fn on_curve_g2() -> [u8; 128] {
         .unwrap()
 }
 
-/// A canonical compressed `x` off the curve.
 pub fn off_curve_g1() -> [u8; 32] {
-    (1..=u8::MAX)
-        .map(|x| {
-            let mut point = [0u8; 32];
-            point[31] = x;
-            point
-        })
-        .find(|point| alt_bn128_g1_decompress_be(point).is_err())
-        .expect("a canonical x off the curve")
+    off_curve(|point| alt_bn128_g1_decompress_be(point).is_ok())
+}
+
+pub fn off_curve_g2() -> [u8; 64] {
+    off_curve(|point| alt_bn128_g2_decompress_be(point).is_ok())
 }
 
 /// A canonical compressed `x` off the curve.
-pub fn off_curve_g2() -> [u8; 64] {
+fn off_curve<const N: usize>(on_curve: impl Fn(&[u8; N]) -> bool) -> [u8; N] {
     (1..=u8::MAX)
         .map(|x| {
-            let mut point = [0u8; 64];
-            point[63] = x;
+            let mut point = [0u8; N];
+            point[N - 1] = x;
             point
         })
-        .find(|point| alt_bn128_g2_decompress_be(point).is_err())
+        .find(|point| !on_curve(point))
         .expect("a canonical x off the curve")
 }
 
