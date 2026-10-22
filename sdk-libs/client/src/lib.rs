@@ -86,9 +86,7 @@ pub use rpc::{
 };
 pub use rpc::{IndexerPollConfig, IndexerRpcConfig};
 pub use scan::{fetch_asset_id, fetch_asset_id_async, next_page, UtxoScan, UtxoScanResult};
-pub use tags::{
-    IndexerReads, TagReservations, TagStream, TagWindow, DEFAULT_TAG_WINDOW, TAGS_PER_REQUEST,
-};
+pub use tags::{IndexerReads, TagWindow, DEFAULT_TAG_WINDOW, TAGS_PER_REQUEST};
 pub use zolana_api::BlockingInsideRuntime;
 // `SolanaRpc::send_transaction_with_config` is public but names this type,
 // so callers outside the crate need it to call the method at all.

@@ -437,12 +437,6 @@ pub enum ClientError {
     #[error("indexer did not observe the transaction before the poll timeout")]
     IndexerTimeout,
 
-    #[error("every index of the tag stream is occupied")]
-    TagStreamExhausted,
-
-    #[error("every inbox index of epoch {epoch} is used, the payment waits for the next epoch")]
-    InboxStreamFull { epoch: u64 },
-
     #[error("the ring address names ring {address_ring}, the payment is in ring {ring}")]
     ForeignRingAddress {
         address_ring: Address,

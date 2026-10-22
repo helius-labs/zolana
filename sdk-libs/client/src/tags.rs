@@ -1,12 +1,12 @@
 //! Exact-tag reads of the indexer, an output nobody can decrypt still occupies its tag.
 
 use std::{
-    collections::{BTreeSet, HashMap, HashSet},
+    collections::{HashMap, HashSet},
     future::Future,
 };
 
 use solana_signature::Signature;
-use zolana_keypair::{viewing_key::ViewTag, KeypairError};
+use zolana_keypair::viewing_key::ViewTag;
 
 use crate::{
     error::ClientError,
@@ -37,132 +37,12 @@ impl TagWindow {
         }
     }
 
-    pub fn derive(
-        start: u64,
-        tag_at: impl Fn(u64) -> Result<ViewTag, KeypairError>,
-    ) -> Result<Self, KeypairError> {
-        let tags = indices(start)
-            .map(tag_at)
-            .collect::<Result<Vec<_>, KeypairError>>()?;
-        Ok(Self::new(start, tags))
-    }
-
     pub fn tags(&self) -> Vec<ViewTag> {
         self.by_tag.keys().copied().collect()
     }
 
     pub fn index_of(&self, tag: &ViewTag) -> Option<u64> {
         self.by_tag.get(tag).copied()
-    }
-
-    pub fn occupied<'a>(
-        &self,
-        transactions: impl IntoIterator<Item = &'a ShieldedTransaction>,
-    ) -> BTreeSet<u64> {
-        occupied(&self.by_tag, transactions)
-    }
-
-    pub fn first_free(start: u64, occupied: &BTreeSet<u64>) -> Option<u64> {
-        indices(start).find(|index| !occupied.contains(index))
-    }
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct TagReservations {
-    start: u64,
-    /// The occupied indices of the window at `start`, `None` before its read.
-    occupied: Option<BTreeSet<u64>>,
-    reserved: BTreeSet<u64>,
-}
-
-impl From<u64> for TagReservations {
-    /// Starts the stream at `start`, the lowest index the caller still considers free.
-    fn from(start: u64) -> Self {
-        Self {
-            start,
-            ..Self::default()
-        }
-    }
-}
-
-impl TagReservations {
-    pub fn reserved(&self) -> &BTreeSet<u64> {
-        &self.reserved
-    }
-}
-
-pub struct TagStream<'a, I: ?Sized> {
-    indexer: &'a I,
-    config: Option<IndexerRpcConfig>,
-}
-
-impl<'a, I: AsyncRpc + ?Sized> TagStream<'a, I> {
-    pub fn new(indexer: &'a I) -> Self {
-        Self {
-            indexer,
-            config: None,
-        }
-    }
-
-    #[must_use]
-    pub fn with_indexer_config(mut self, config: IndexerRpcConfig) -> Self {
-        self.config = Some(config);
-        self
-    }
-
-    /// The lowest index at or after `start` with no output under its tag.
-    pub async fn first_free_index(
-        &self,
-        start: u64,
-        tag_at: impl Fn(u64) -> Result<ViewTag, KeypairError>,
-    ) -> Result<u64, ClientError> {
-        self.reserve_index(&mut TagReservations::from(start), tag_at)
-            .await
-    }
-
-    /// The lowest index free in history and not yet reserved, recorded in `reservations`.
-    pub async fn reserve_index(
-        &self,
-        reservations: &mut TagReservations,
-        tag_at: impl Fn(u64) -> Result<ViewTag, KeypairError>,
-    ) -> Result<u64, ClientError> {
-        loop {
-            let occupied = match &reservations.occupied {
-                Some(occupied) => occupied,
-                None => {
-                    let occupied = self.occupied_indices(reservations.start, &tag_at).await?;
-                    reservations.occupied.insert(occupied)
-                }
-            };
-            let free = indices(reservations.start)
-                .find(|index| !occupied.contains(index) && !reservations.reserved.contains(index));
-            match free {
-                Some(index) => {
-                    reservations.reserved.insert(index);
-                    return Ok(index);
-                }
-                None => {
-                    reservations.start = reservations
-                        .start
-                        .checked_add(DEFAULT_TAG_WINDOW)
-                        .ok_or(ClientError::TagStreamExhausted)?;
-                    reservations.occupied = None;
-                }
-            }
-        }
-    }
-
-    /// The indices of the window at `start` with at least one output under their tag.
-    pub async fn occupied_indices(
-        &self,
-        start: u64,
-        tag_at: impl Fn(u64) -> Result<ViewTag, KeypairError>,
-    ) -> Result<BTreeSet<u64>, ClientError> {
-        let window = TagWindow::derive(start, tag_at)?;
-        let transactions = IndexerReads::configured(self.indexer, self.config)
-            .transactions(&window.tags())
-            .await?;
-        Ok(window.occupied(&transactions))
     }
 }
 
@@ -317,18 +197,6 @@ pages! {
     GetShieldedTransactionsByTagsResponse => ShieldedTransaction, transactions;
     GetShieldedTransactionsByNullifiersResponse => ShieldedTransaction, transactions;
     GetEncryptedUtxosByTagsResponse => EncryptedUtxoMatch, matches;
-}
-
-/// The positions of `tags` some output of `transactions` publishes under.
-pub(crate) fn occupied<'a, P: Copy + Ord>(
-    tags: &HashMap<ViewTag, P>,
-    transactions: impl IntoIterator<Item = &'a ShieldedTransaction>,
-) -> BTreeSet<P> {
-    transactions
-        .into_iter()
-        .flat_map(|tx| &tx.output_slots)
-        .filter_map(|slot| tags.get(&slot.view_tag).copied())
-        .collect()
 }
 
 pub(crate) fn indices(start: u64) -> impl Iterator<Item = u64> {
