@@ -55,6 +55,7 @@ pub use utxo::{
 };
 pub use zolana_keypair::constants::VIEW_TAG_LEN;
 
+pub const REDACTED: &str = "<redacted>";
 pub const TRANSFER: u8 = 1;
 pub const MERGE: u8 = 3;
 pub const TRANSFER_PLAINTEXT: u8 = 4;

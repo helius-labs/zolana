@@ -3,7 +3,7 @@
 use solana_signature::Signature;
 
 use super::{SppProofInputUtxo, Utxo};
-use crate::error::TransactionError;
+use crate::{error::TransactionError, REDACTED};
 
 /// A decrypted note with indexer context. Missing data hashes require reconstruction.
 ///
@@ -131,7 +131,7 @@ impl core::fmt::Debug for WalletUtxo {
             .field("nullifier_pubkey", nullifier_pubkey)
             .field("utxo_hash", utxo_hash)
             .field("nullifier", nullifier)
-            .field("tx_viewing_key", &tx_viewing_key.map(|_| "<redacted>"))
+            .field("tx_viewing_key", &tx_viewing_key.map(|_| REDACTED))
             .field("data_hash", data_hash)
             .field("ring_data_hash", ring_data_hash)
             .field("tree_id", tree_id)
