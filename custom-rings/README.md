@@ -141,11 +141,11 @@ blinding.
 SPP has keys for the 38 [supported shapes](../docs/spec.md#supported-shapes)
 of `n_in x n_out`. The ring has audit and policy keys
 for every one of them on the confidential rail. The anonymous rail has keys
-for up to 28 published inputs at 2 outputs, 24 at 4 outputs and 16 at 8
-outputs. It has none at 16 outputs. The SDKs publish every input slot of an
-anonymous transfer, so through them the rail serves shapes up to 24 inputs at
-2 outputs. An anonymous transfer that spends a default-ring note takes at most
-8 inputs. The delegate rail has keys for every shape up to 40 inputs.
+for up to 32 published inputs at 2 outputs, 24 at 4 outputs, 16 at 8 outputs
+and 1 at 16 outputs. The SDKs publish every input slot of an anonymous
+transfer, so through them the rail serves exactly these shapes. An anonymous
+transfer that spends a default-ring note takes at most 8 inputs and 8 outputs.
+The delegate rail has keys for every shape up to 40 inputs.
 
 Every rail has keys for more shapes than fit in one transaction. A v1
 transaction carries at most 4,096 bytes and 64 addresses, and the bytes are
@@ -157,8 +157,8 @@ Without key escrow that ring discloses one more field per output, so more
 shapes exceed the limit. A
 confidential audit-only ring cannot fit 8x16, 48x2 or 49x2. A confidential
 policy ring under key escrow cannot fit 40x2, 48x2 or 49x2. An anonymous
-audit-only ring cannot fit 16x8. An anonymous policy ring cannot fit 16x8 or
-24x4. The delegate rail cannot fit 40x2. A curator, a second input tree,
+policy ring cannot fit 32x2 or 1x16. The delegate rail cannot fit 40x2. A
+curator, a second input tree,
 an exit or a public leg adds bytes. The SDKs measure the transaction before
 they prove and refuse one past the limit.
 

@@ -41,18 +41,23 @@ shows that the body encrypts them to the recipient key the output publishes. The
 auditor opens the body with the X25519 agreement of `tx_viewing_sk` and that
 key, as the recipient does with its own secret.
 
-An **anonymous** disclosure serves the anonymous rail. It adds the hidden
-owner's key and, per ring output, the key its body is sealed to. That key is
-an address key or the sender's ring change key. The auditor again reads a
-ring output's asset and amount from its body. Each spent note is disclosed as
-its UTXO hash. Every ring note is an output of an operation the ring audited,
-so the auditor already holds the opening behind each hash.
+An **anonymous** disclosure serves the anonymous rail. Per ring output it adds
+the key the body is sealed to. That key is an address key or the sender's ring
+change key. The auditor again reads a ring output's asset and amount from its
+body. The first spent note is disclosed as its UTXO hash and each later spent
+note as the first 16 bytes of its hash. Every ring note is an output of an
+operation the ring audited, so the auditor already holds the opening of each
+spent note. The proof shows that the hidden owner owns every spent note. The
+auditor takes the owner of the first note as the sender and finds each later
+note among the sender's ring notes by its prefix. When more of those notes
+carry a prefix than the transfer spends under it, the audit names them all as
+candidates for each such input.
 
 An **anonymous entry** disclosure serves an anonymous transfer that spends a
 default-ring note of the hidden owner. The ring never audited that note, so
-the disclosure opens every spent note fully. It carries the sender's
-nullifier key, which every spent note shares, and each note's amount, asset
-and blinding.
+the disclosure opens every spent note fully. It carries the hidden owner's key
+and the nullifier key that every spent note shares, and each note's amount,
+asset and blinding.
 
 An exit to the default ring carries its owner in its public owner tag. Its
 disclosure slot carries its asset and amount. Its blinding derives from the
