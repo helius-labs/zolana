@@ -3,15 +3,17 @@
 use async_trait::async_trait;
 use curve25519_dalek::constants::{ED25519_BASEPOINT_POINT, EIGHT_TORSION};
 use custom_ring_interface::{
-    CreateConfigIxData, CustomRingMergeIxData, CustomRingMergeIxDataRef, MergeDisclosure,
-    PolicyTableIxData, ReadAccessRecord, ReaderIxData, RingMode, RingProgramConfig,
-    SetCoSignerIxData, SetInsertFeeIxData, SetPausedIxData, SetPolicySourceIxData, SourceSpec,
-    WithdrawalThreshold, WriteRecordsIxData, AUDIT_CIPHERTEXT_LEN, DEFAULT_INSERT_FEE,
-    READ_ACCESS_RECORD_PDA_SEED, RING_PROGRAM_CONFIG,
+    CreateConfigIxData, CustomRingMergeIxData, CustomRingMergeIxDataRef, MemberWriteIxData,
+    MergeDisclosure, PolicyTableIxData, ReadAccessRecord, ReaderIxData, RingMode,
+    RingProgramConfig, SetCoSignerIxData, SetInsertFeeIxData, SetPausedIxData,
+    SetPolicySourceIxData, SourceSpec, WithdrawalThreshold, AUDIT_CIPHERTEXT_LEN,
+    DEFAULT_INSERT_FEE, READ_ACCESS_RECORD_PDA_SEED, RING_PROGRAM_CONFIG,
 };
 use custom_ring_sdk::{
-    tag, CoSignScope, CoSignThreshold, CustomRing, CustomRingConfig, CustomRingMergeInstruction,
-    MemberListWrite, RingError, RingSetup, SourceOwner,
+    tag, CoSignScope, CoSignThreshold, CreateConfig, CreateMemberRegistry, CustomRing,
+    CustomRingConfig, CustomRingMergeInstruction, GrantReader, InitSppRingConfig, MemberListWrite,
+    PolicyRules, RevokeReader, RingError, RingKind, SetAuthority, SetCoSigner, SetDelegate,
+    SetSourceOwner, SourceOwner,
 };
 use solana_account::Account;
 use solana_address::Address;
@@ -29,7 +31,7 @@ use zolana_keypair::{SigningKey, X25519Keypair};
 use zolana_program::instruction::MergeRing;
 use zolana_ring_client::ReaderKey;
 use zolana_ring_policy::{
-    ListId, ListSet, ListWrite, OutflowLimit, PolicyTableError, Rule, RuleTable, RuleTableError,
+    ListChange, ListId, ListSet, OutflowLimit, PolicyTableError, Rule, RuleTable, RuleTableError,
     Subject, TableParts, Writer,
 };
 
@@ -72,6 +74,15 @@ fn reader() -> ReaderKey {
         .as_ed25519()
         .unwrap();
     ReaderKey::ed25519(Address::new_from_array(key)).unwrap()
+}
+
+fn policy<'a>(rules: &'a RuleTable, shared_sources: &'a [(ListId, CustomRing)]) -> PolicyRules<'a> {
+    PolicyRules {
+        ring: ring(),
+        authority: authority(),
+        rules,
+        shared_sources,
+    }
 }
 
 fn split(instruction: &Instruction) -> (u8, &[u8]) {
@@ -117,15 +128,18 @@ async fn config(insert_fee: u64) -> CustomRingConfig {
 }
 
 #[test]
-fn create_config_runs_under_the_upgrade_authority_with_the_ring_setup() {
+fn create_config_runs_under_the_upgrade_authority_with_the_ring_kind() {
     let auditor_pubkey = X25519Keypair::from_bytes(&[5; 32]).pubkey();
-    for (has_policy, anonymous) in [(true, false), (false, true)] {
-        let setup = RingSetup {
+    for kind in [RingKind::Policy, RingKind::Anonymous] {
+        let instruction = CreateConfig {
+            ring: ring(),
+            payer: payer(),
+            authority: authority(),
             auditor_pubkey,
-            has_policy,
-            anonymous,
-        };
-        let instruction = ring().create_config(payer(), authority(), setup).unwrap();
+            kind,
+        }
+        .instruction()
+        .unwrap();
         assert_eq!(instruction.program_id, program());
         assert_eq!(
             instruction.accounts,
@@ -144,16 +158,27 @@ fn create_config_runs_under_the_upgrade_authority_with_the_ring_setup() {
             parse::<CreateConfigIxData>(body),
             CreateConfigIxData {
                 auditor_pubkey: *auditor_pubkey.as_bytes(),
-                has_policy,
-                anonymous,
+                kind,
             }
         );
     }
 }
 
-#[test]
-fn init_spp_ring_config_appends_the_registry_only_on_a_policy_ring() {
-    let audit_only = ring().init_spp_ring_config(payer(), authority(), false);
+#[tokio::test]
+async fn init_spp_ring_config_appends_the_registry_only_on_a_policy_ring() {
+    let policy_config = config(0).await;
+    let mut audit_only_config = policy_config.clone();
+    audit_only_config.has_policy = false;
+    let init = |config| {
+        InitSppRingConfig {
+            ring: ring(),
+            payer: payer(),
+            authority: authority(),
+            config,
+        }
+        .instruction()
+    };
+    let audit_only = init(&audit_only_config);
     let accounts = vec![
         AccountMeta::new(payer(), true),
         AccountMeta::new_readonly(authority(), true),
@@ -165,7 +190,7 @@ fn init_spp_ring_config_appends_the_registry_only_on_a_policy_ring() {
     ];
     assert_eq!(audit_only.accounts, accounts);
     assert_eq!(audit_only.data, [tag::INIT_SPP_RING_CONFIG]);
-    let policy = ring().init_spp_ring_config(payer(), authority(), true);
+    let policy = init(&policy_config);
     assert_eq!(
         policy.accounts,
         [
@@ -179,7 +204,12 @@ fn init_spp_ring_config_appends_the_registry_only_on_a_policy_ring() {
 
 #[test]
 fn create_member_registry_reads_the_config_and_creates_the_registry_and_its_queue() {
-    let instruction = ring().create_member_registry(payer(), authority());
+    let instruction = CreateMemberRegistry {
+        ring: ring(),
+        payer: payer(),
+        authority: authority(),
+    }
+    .instruction();
     assert_eq!(
         instruction.accounts,
         vec![
@@ -199,9 +229,14 @@ fn a_read_access_record_sits_at_the_program_pda_of_the_tagged_reader() {
     let seed_hash = ReadAccessRecord::seed_hash(&reader().to_bytes()).unwrap();
     let record =
         Address::find_program_address(&[READ_ACCESS_RECORD_PDA_SEED, &seed_hash], &program()).0;
-    let grant = ring()
-        .grant_read_access(payer(), authority(), reader())
-        .unwrap();
+    let grant = GrantReader {
+        ring: ring(),
+        payer: payer(),
+        authority: authority(),
+        reader: reader(),
+    }
+    .instruction()
+    .unwrap();
     assert_eq!(
         grant.accounts,
         vec![
@@ -217,9 +252,14 @@ fn a_read_access_record_sits_at_the_program_pda_of_the_tagged_reader() {
     assert_eq!(parse::<ReaderIxData>(body).reader, reader().to_bytes());
 
     let rent_recipient = Address::new_from_array([24; 32]);
-    let revoke = ring()
-        .revoke_read_access(authority(), reader(), rent_recipient)
-        .unwrap();
+    let revoke = RevokeReader {
+        ring: ring(),
+        authority: authority(),
+        reader: reader(),
+        rent_recipient,
+    }
+    .instruction()
+    .unwrap();
     assert_eq!(
         revoke.accounts,
         vec![
@@ -252,7 +292,12 @@ fn a_grant_takes_only_a_canonical_prime_order_ed25519_reader() {
 #[test]
 fn set_authority_takes_both_signers() {
     let new_authority = Address::new_from_array([31; 32]);
-    let instruction = ring().set_authority(authority(), new_authority);
+    let instruction = SetAuthority {
+        ring: ring(),
+        authority: authority(),
+        new_authority,
+    }
+    .instruction();
     assert_eq!(
         instruction.accounts,
         vec![
@@ -265,9 +310,11 @@ fn set_authority_takes_both_signers() {
 }
 
 #[test]
-fn set_paused_reaches_spp_through_the_ring_auth() {
-    for paused in [true, false] {
-        let instruction = ring().set_paused(authority(), paused).unwrap();
+fn pause_and_resume_reach_spp_through_the_ring_auth() {
+    for (instruction, paused) in [
+        (ring().pause(authority()).unwrap(), true),
+        (ring().resume(authority()).unwrap(), false),
+    ] {
         assert_eq!(
             instruction.accounts,
             vec![
@@ -299,9 +346,15 @@ fn co_signer_writes_take_the_authority_and_the_writable_config() {
         },
     ];
     let scope = CoSignScope::TRANSFERS | CoSignScope::WITHDRAWALS;
-    let set = ring()
-        .set_cosigner(authority(), signer, scope, &thresholds)
-        .unwrap();
+    let set = SetCoSigner {
+        ring: ring(),
+        authority: authority(),
+        signer,
+        scope,
+        thresholds: &thresholds,
+    }
+    .instruction()
+    .unwrap();
     assert_eq!(set.accounts, config_write);
     let (ix_tag, body) = split(&set);
     assert_eq!(ix_tag, tag::SET_CO_SIGNER);
@@ -347,22 +400,26 @@ fn set_insert_fee_writes_the_fee_into_the_config() {
 }
 
 #[test]
-fn set_delegate_runs_under_the_upgrade_authority_beside_the_registry() {
+fn set_delegate_runs_under_the_upgrade_authority_and_the_delegate_beside_the_registry() {
     let delegate = Address::new_from_array([34; 32]);
-    let instruction = ring().set_delegate(authority(), delegate);
+    let instruction = SetDelegate {
+        ring: ring(),
+        authority: authority(),
+        delegate,
+    }
+    .instruction();
     assert_eq!(
         instruction.accounts,
         vec![
             AccountMeta::new_readonly(authority(), true),
             AccountMeta::new(ring().config_pda(), false),
+            AccountMeta::new_readonly(delegate, true),
             AccountMeta::new_readonly(ring().registry_pda(), false),
             AccountMeta::new_readonly(program(), false),
             AccountMeta::new_readonly(program_data(), false),
         ]
     );
-    let (ix_tag, body) = split(&instruction);
-    assert_eq!(ix_tag, tag::SET_DELEGATE);
-    assert_eq!(body, delegate.as_array());
+    assert_eq!(instruction.data, [tag::SET_DELEGATE]);
 }
 
 #[test]
@@ -381,9 +438,14 @@ fn a_policy_source_names_a_curator_registry_only_when_shared() {
             vec![AccountMeta::new_readonly(curator.registry_pda(), false)],
         ),
     ] {
-        let instruction = ring()
-            .set_source_owner(authority(), ListId::Allow, owner)
-            .unwrap();
+        let instruction = SetSourceOwner {
+            ring: ring(),
+            authority: authority(),
+            list_id: ListId::Allow,
+            source: owner,
+        }
+        .instruction()
+        .unwrap();
         assert_eq!(
             instruction.accounts,
             [policy_write.clone(), curators].concat()
@@ -414,17 +476,15 @@ fn a_policy_table_names_its_curator_once_and_reproduces_the_pinned_table() {
         .build();
     let curator = CustomRing::new(Address::new_from_array([36; 32]));
     let shared = [(ListId::Frozen, curator), (ListId::Allow, curator)];
+    let table = PolicyRules {
+        ring: ring(),
+        authority: authority(),
+        rules: &rules,
+        shared_sources: &shared,
+    };
     for (instruction, ix_tag) in [
-        (
-            ring().create_policy(authority(), &rules, &shared).unwrap(),
-            tag::CREATE_POLICY,
-        ),
-        (
-            ring()
-                .set_policy_rules(authority(), &rules, &shared)
-                .unwrap(),
-            tag::SET_POLICY_RULES,
-        ),
+        (table.create().unwrap(), tag::CREATE_POLICY),
+        (table.replace().unwrap(), tag::SET_POLICY_RULES),
     ] {
         assert_eq!(
             instruction.accounts,
@@ -466,7 +526,7 @@ fn a_shared_source_for_a_list_no_rule_reads_is_refused() {
         .build();
     let curator = CustomRing::new(Address::new_from_array([37; 32]));
     assert!(matches!(
-        ring().create_policy(authority(), &rules, &[(ListId::Reader, curator)]),
+        policy(&rules, &[(ListId::Reader, curator)]).create(),
         Err(RingError::UnreferencedList(ListId::Reader))
     ));
 }
@@ -477,7 +537,7 @@ fn a_rule_over_a_list_members_write_is_refused_before_the_transaction() {
         .rule(Rule::require(Subject::Sender, ListId::RingViewing))
         .build();
     assert!(matches!(
-        ring().create_policy(authority(), &rules, &[]),
+        policy(&rules, &[]).create(),
         Err(RingError::PolicyTable(PolicyTableError::Table(
             RuleTableError::MemberWrittenList
         )))
@@ -487,10 +547,11 @@ fn a_rule_over_a_list_members_write_is_refused_before_the_transaction() {
 #[tokio::test]
 async fn a_member_list_write_pays_the_insert_fee_only_when_it_owes_one() {
     let member = Address::new_from_array([40; 32]);
-    let lists = ListWrite::new(
-        ListSet::single(ListId::RingViewing),
-        ListSet::single(ListId::Recovery),
-    )
+    let lists = ListChange {
+        set: ListSet::single(ListId::RingViewing),
+        clear: ListSet::single(ListId::Recovery),
+    }
+    .check()
     .unwrap();
     let write = |member| MemberListWrite {
         ring: ring(),
@@ -522,23 +583,32 @@ async fn a_member_list_write_pays_the_insert_fee_only_when_it_owes_one() {
     );
     let (ix_tag, body) = split(&instruction);
     assert_eq!(ix_tag, tag::WRITE_RECORDS);
-    let data = WriteRecordsIxData::parse(body).unwrap();
-    assert_eq!((data.mask(), data.value()), (lists.mask(), lists.value()));
+    let data = MemberWriteIxData::parse(body).unwrap();
+    assert_eq!(
+        (data.lists.mask(), data.lists.value(), data.max_fee()),
+        (lists.mask(), lists.value(), DEFAULT_INSERT_FEE)
+    );
     let identity = solana_owner_identity(member.as_array()).unwrap();
-    data.entry(identity, Writer::Member).unwrap();
+    data.lists.entry(identity, Writer::Member).unwrap();
 
     let by_authority = write(authority()).instruction(&owed).unwrap();
     assert_eq!(by_authority.accounts, record(authority()));
-    let free = config(0).await;
+    let free = write(member).instruction(&config(0).await).unwrap();
+    assert_eq!(free.accounts, record(member));
     assert_eq!(
-        write(member).instruction(&free).unwrap().accounts,
-        record(member)
+        MemberWriteIxData::parse(split(&free).1).unwrap().max_fee(),
+        0
     );
 }
 
 #[tokio::test]
 async fn a_member_list_write_refuses_a_list_the_authority_writes() {
-    let lists = ListWrite::new(ListSet::single(ListId::Allow), ListSet::EMPTY).unwrap();
+    let lists = ListChange {
+        set: ListSet::single(ListId::Allow),
+        clear: ListSet::EMPTY,
+    }
+    .check()
+    .unwrap();
     let write = MemberListWrite {
         ring: ring(),
         payer: payer(),

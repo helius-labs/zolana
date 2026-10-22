@@ -1,20 +1,20 @@
-use std::collections::BTreeSet;
-
-use custom_ring_interface::RingMode;
+use custom_ring_interface::{RingMode, RingRail};
 use solana_address::Address;
 use zolana_client::{AsyncIndexer, AsyncRpc, AsyncZolanaClient};
-use zolana_interface::shape::{ring_authority_shapes, Shape};
+use zolana_interface::shape::Shape;
 use zolana_keypair::{NullifierKey, ShieldedAddress, ViewingKey};
 use zolana_ring_transaction::RingOutputRail;
 use zolana_transaction::{
     instructions::transact::{ConfidentialTransaction, SppProofOutputUtxo},
-    select_spend_where, AssetRegistry, TransactionError, WalletUtxo,
+    AssetRegistry, WalletUtxo,
 };
 
 use super::{
-    packed_or_delivered, sealed, Rail, RailKind, RingTransfer, Spend, Staged, TransferAuthority,
+    packed_or_delivered, sealed,
+    selection::{first_fit, payment_total, widest, Funding},
+    shape_keyed, Rail, RailKind, RingTransfer, Spend, Staged, TransferAuthority,
 };
-use crate::{projection::retry_projection_lag, CustomRing, CustomRingConfig, RingError};
+use crate::{CustomRing, CustomRingConfig, RingError};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DelegateOutput {
@@ -29,15 +29,15 @@ pub struct DelegatePayment {
     pub amount: u64,
 }
 
-#[must_use = "select the notes of the move"]
+#[must_use = "select the inputs of the move"]
 pub struct DelegateMove<'a> {
     pub ring: CustomRing,
     pub delegate: Address,
     pub payer: Address,
     pub source: ShieldedAddress,
     pub source_nullifier_key: &'a NullifierKey,
-    /// The source's notes on any tree.
-    pub notes: &'a [WalletUtxo],
+    /// The source's UTXOs on any tree.
+    pub utxos: &'a [WalletUtxo],
     pub mint: Address,
     /// The change returns to the source.
     pub payments: Vec<DelegatePayment>,
@@ -122,78 +122,52 @@ impl<'a> RingTransfer<Delegated<'a>> {
 }
 
 impl<'a> DelegateMove<'a> {
-    /// The fewest notes of one tree funding the payments whose assembled move fits one transaction.
+    /// The fewest UTXOs of one tree funding the payments whose assembled move fits one transaction.
     pub async fn select<P: AsyncRpc, I: AsyncIndexer>(
         self,
         client: &AsyncZolanaClient<P, I>,
     ) -> Result<DelegateTransfer<'a>, RingError> {
-        let amount = self
-            .payments
-            .iter()
-            .try_fold(0u64, |total, payment| total.checked_add(payment.amount))
-            .ok_or(RingError::OutflowOverflow)?;
-        if amount == 0 {
-            return Err(TransactionError::ZeroSpendAmount.into());
-        }
-        // The shape holds a change slot, the selection may leave none.
-        let outputs = self.payments.len() + 1;
-        let shapes = || ring_authority_shapes().filter(move |shape| shape.n_outputs() >= outputs);
+        let amount = payment_total(self.payments.iter().map(|payment| payment.amount))?;
+        let payments = self.payments.len();
+        let keyed = |shape| shape_keyed(RingRail::Delegate, shape);
         let unkeyed = || RingError::ShapeUnkeyed { rail: "delegate" };
-        let max_inputs = shapes()
-            .map(|shape| shape.n_inputs())
-            .max()
-            .ok_or_else(unkeyed)?;
-        let trees: BTreeSet<u16> = self.notes.iter().map(|note| note.tree_id).collect();
-        let mut candidates: Vec<_> = trees
-            .into_iter()
-            .filter_map(|tree| {
-                let notes = select_spend_where(self.notes, self.mint, amount, max_inputs, |note| {
-                    self.spends(note, tree)
-                })
-                .ok()?;
-                let total: u128 = notes.iter().map(|note| u128::from(note.utxo.amount)).sum();
-                Some(((notes.len(), total, tree), notes))
-            })
-            .collect();
-        candidates.sort_unstable_by_key(|(order, _)| *order);
-        let mut oversized = None;
-        for ((count, _, _), notes) in candidates {
-            let shape = shapes()
-                .find(|shape| shape.n_inputs() >= count)
-                .ok_or_else(unkeyed)?;
-            let transfer = self.transfer(notes).with_shape(shape)?;
-            match retry_projection_lag(|| transfer.assemble(client)).await {
-                Ok(_) => return Ok(transfer),
-                Err(
-                    error @ (RingError::TransactionTooLarge { .. }
-                    | RingError::TooManyAddresses { .. }),
-                ) => {
-                    oversized.get_or_insert(error);
-                }
-                Err(error) => return Err(error),
-            }
-        }
-        Err(oversized.unwrap_or(RingError::DelegateMoveUnfunded {
-            mint: self.mint,
+        let max_inputs = widest(payments, keyed).ok_or_else(unkeyed)?;
+        let funding = Funding {
+            utxos: self.utxos,
+            asset: self.mint,
             amount,
             max_inputs,
-        }))
+        };
+        let attempts = funding
+            .candidates(|utxo| self.spends(utxo))
+            .into_iter()
+            .map(|candidate| {
+                let shape = candidate.shape(payments, keyed).ok_or_else(unkeyed)?;
+                self.transfer(candidate.utxos).with_shape(shape)
+            })
+            .collect();
+        first_fit(attempts, client)
+            .await?
+            .ok_or(RingError::Unfunded {
+                mint: self.mint,
+                amount,
+                max_inputs,
+            })
     }
 
-    fn spends(&self, note: &WalletUtxo, tree: u16) -> bool {
-        note.tree_id == tree
-            && note.utxo.owner == self.source.signing_pubkey
-            && note.utxo.ring_program_id == Some(self.ring.program_id())
+    fn spends(&self, utxo: &WalletUtxo) -> bool {
+        utxo.utxo.owner == self.source.signing_pubkey
+            && utxo.utxo.ring_program_id == Some(self.ring.program_id())
     }
 
-    fn transfer(&self, notes: Vec<WalletUtxo>) -> DelegateTransfer<'a> {
+    fn transfer(&self, utxos: Vec<WalletUtxo>) -> DelegateTransfer<'a> {
         DelegateTransfer::new(DelegateTransferInput {
             ring: self.ring,
             delegate: self.delegate,
             payer: self.payer,
             source: self.source,
             source_nullifier_key: self.source_nullifier_key,
-            inputs: notes,
+            inputs: utxos,
             outputs: self
                 .payments
                 .iter()

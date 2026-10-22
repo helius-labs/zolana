@@ -11,12 +11,11 @@ proofs = ["zolana-client/proofs"]
 async-trait = { workspace = true }
 ed25519-dalek = { workspace = true }
 zolana-event.workspace = true
-borsh = { workspace = true }
-num-bigint = { workspace = true }
 custom-ring-interface = { workspace = true }
 bytemuck = { workspace = true }
 futures = { workspace = true }
 rand = { workspace = true }
+rand_core = { workspace = true }
 solana-account = { workspace = true }
 solana-address = { workspace = true, features = ["curve25519"] }
 solana-instruction = { workspace = true }

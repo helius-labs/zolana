@@ -55,19 +55,8 @@ const PENDING_POLL: Duration = Duration::from_millis(500);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SubmissionStatus {
-    Confirmed {
-        signature: Signature,
-        slot: u64,
-        /// Those of the attempt that landed.
-        first_contacts: Vec<PendingFirstContact>,
-    },
-    Failed {
-        signature: Signature,
-        error: TransactionError,
-    },
-    Pending {
-        signature: Signature,
-    },
+    Settled(SettledSubmission),
+    Pending { signature: Signature },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -75,6 +64,7 @@ pub enum SettledSubmission {
     Confirmed {
         signature: Signature,
         slot: u64,
+        /// Those of the attempt that landed.
         first_contacts: Vec<PendingFirstContact>,
     },
     Failed {
@@ -293,12 +283,6 @@ impl<'a> RingSubmission<'a> {
         payer: &(dyn Signer + Sync),
         signers: &[&(dyn Signer + Sync)],
     ) -> Result<SubmissionStatus, RingError> {
-        if let RingOperation::Deposit(deposit) = &self.operation {
-            deposit.check_public_signers(
-                core::iter::once(payer.pubkey())
-                    .chain(signers.iter().map(|signer| signer.pubkey())),
-            )?;
-        }
         if let Some(terminal) = &self.terminal {
             return Ok(terminal.clone());
         }
@@ -306,6 +290,10 @@ impl<'a> RingSubmission<'a> {
             let (attempt, failure) = match self.pending.take() {
                 Some(attempt) => (attempt, None),
                 None => {
+                    let public: Vec<Address> = core::iter::once(payer.pubkey())
+                        .chain(signers.iter().map(|signer| signer.pubkey()))
+                        .collect();
+                    self.operation.check_public_signers(client, &public).await?;
                     let proved = boxed(|| self.operation.prove(client, payer.pubkey())).await?;
                     check_transaction_size(&payer.pubkey(), &proved.instruction, proved.budget)?;
                     let (blockhash, last_valid_block_height) =
@@ -367,20 +355,7 @@ impl<'a> RingSubmission<'a> {
     ) -> Result<SettledSubmission, RingError> {
         loop {
             match boxed(|| self.send(client, payer, signers)).await? {
-                SubmissionStatus::Confirmed {
-                    signature,
-                    slot,
-                    first_contacts,
-                } => {
-                    return Ok(SettledSubmission::Confirmed {
-                        signature,
-                        slot,
-                        first_contacts,
-                    })
-                }
-                SubmissionStatus::Failed { signature, error } => {
-                    return Ok(SettledSubmission::Failed { signature, error })
-                }
+                SubmissionStatus::Settled(settled) => return Ok(settled),
                 SubmissionStatus::Pending { .. } => tokio::time::sleep(PENDING_POLL).await,
             }
         }
@@ -388,9 +363,9 @@ impl<'a> RingSubmission<'a> {
 
     /// `None` proves again after a stale failure below the attempt limit.
     fn settle(&mut self, signature: Signature, outcome: Outcome) -> Option<SubmissionStatus> {
-        let terminal = match outcome {
+        let settled = match outcome {
             Outcome::Unknown => return Some(SubmissionStatus::Pending { signature }),
-            Outcome::Confirmed { slot } => SubmissionStatus::Confirmed {
+            Outcome::Confirmed { slot } => SettledSubmission::Confirmed {
                 signature,
                 slot,
                 first_contacts: self
@@ -401,22 +376,45 @@ impl<'a> RingSubmission<'a> {
             },
             Outcome::Failed(error) => {
                 self.pending = None;
-                SubmissionStatus::Failed { signature, error }
+                SettledSubmission::Failed { signature, error }
             }
             Outcome::Stale(error) => {
                 self.pending = None;
                 if self.attempts < MAX_ATTEMPTS {
                     return None;
                 }
-                SubmissionStatus::Failed { signature, error }
+                SettledSubmission::Failed { signature, error }
             }
         };
+        let terminal = SubmissionStatus::Settled(settled);
         self.terminal = Some(terminal.clone());
         Some(terminal)
     }
 }
 
 impl RingOperation<'_> {
+    async fn check_public_signers(
+        &self,
+        client: &(impl AsyncRpc + ?Sized),
+        signers: &[Address],
+    ) -> Result<(), RingError> {
+        let signers = signers.iter().copied();
+        match self {
+            Self::Anonymous(transfer) => transfer.check_public_signers(signers),
+            Self::Merge(operation) => {
+                let config = operation.prepared.ring().require_config(client).await?;
+                operation.prepared.check_public_signers(signers, &config)
+            }
+            Self::Deposit(deposit) => deposit.check_public_signers(signers),
+            Self::Transfer(_)
+            | Self::Delegate(_)
+            | Self::RegisterKey(_)
+            | Self::AuthorityListWrite(_)
+            | Self::RecordApplication(_)
+            | Self::Instruction(_) => Ok(()),
+        }
+    }
+
     async fn prove<R: AsyncRpc, I: AsyncIndexer>(
         &self,
         client: &AsyncZolanaClient<R, I>,
@@ -484,7 +482,6 @@ impl RingOperation<'_> {
             Self::Merge(operation) => {
                 let budget = ComputeBudgetConfig::new(compute_unit_limit(InstructionTag::Merge));
                 let config = operation.prepared.ring().require_config(client).await?;
-                operation.prepared.check_public_signers(payer, &config)?;
                 check_transaction_size(
                     &payer,
                     &operation.preview_instruction(payer, &config)?,

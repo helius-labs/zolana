@@ -9,8 +9,8 @@ use rand::{rngs::OsRng, seq::SliceRandom};
 use solana_account::Account;
 use solana_address::Address;
 use zolana_client::{
-    AnonymousRingState, AsyncRpc, ClientError, PaymentStream, SentFirstContact, Shape,
-    TagAllocation,
+    AnonymousRingState, AsyncIndexer, AsyncRpc, AsyncZolanaClient, ClientError, PaymentStream,
+    SentFirstContact, Shape, TagAllocation,
 };
 use zolana_hasher::primitives::{hash_bytes, right_align};
 use zolana_interface::{
@@ -20,18 +20,24 @@ use zolana_interface::{
     tree_slot::tree_id_field,
     SPL_TOKEN_2022_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
 };
-use zolana_keypair::{Curve, PublicKey, RingAddress, SigningKey};
+use zolana_keypair::{Curve, NullifierKey, PublicKey, RingAddress, SigningKey};
 use zolana_ring_transaction::{
     AnonymousSlots, RingDelivery, RingOutputRail, StreamPayment, StreamPosition,
 };
 use zolana_transaction::{
-    instructions::transact::{ring_spend_message, SettlementTransfer, SppProofInputs},
-    Mint,
+    instructions::transact::{
+        ring_spend_message, ConfidentialTransaction, SettlementTransfer, SppProofInputs,
+    },
+    Mint, ShieldedKeys, WalletUtxo,
 };
 
 use super::{
-    owner::Owner, sealed, spends_default_ring, spp::HiddenSpend, transaction_key, Rail, RailKind,
-    RingTransfer, Spend, Staged, TransferAuthority,
+    owner::{CustomRingTransferInput, Owner},
+    sealed,
+    selection::{first_fit, payment_total, widest, Candidate, Funding},
+    spends_default_ring,
+    spp::HiddenSpend,
+    transaction_key, Rail, RailKind, RingTransfer, Spend, Staged, TransferAuthority,
 };
 use crate::{request::Anchor, trees::BoundAnchor, CustomRing, CustomRingConfig, RingError};
 
@@ -72,6 +78,28 @@ pub struct AnonymousPayment {
     pub amount: u64,
 }
 
+/// A payment of the move's asset.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RingPayment {
+    pub to: RingAddress,
+    pub amount: u64,
+}
+
+#[must_use = "select the inputs of the move"]
+pub struct AnonymousMove<'a> {
+    pub ring: CustomRing,
+    pub sender: &'a (dyn ShieldedKeys + Send + Sync),
+    pub nullifier_key: &'a NullifierKey,
+    pub signer: &'a dyn AnonymousSpendSigner,
+    pub state: &'a AnonymousRingState,
+    pub payer: Address,
+    /// The sender's UTXOs on any tree.
+    pub utxos: &'a [WalletUtxo],
+    pub asset: Mint,
+    /// The change returns to the sender.
+    pub payments: Vec<RingPayment>,
+}
+
 /// The owner's spends on an anonymous ring, no transaction signer names the owner.
 pub struct Anonymous<'a> {
     pub(super) owner: Owner<'a>,
@@ -80,9 +108,15 @@ pub struct Anonymous<'a> {
     /// Keyed by the output slot each payment created.
     payments: Vec<(u32, AnonymousPayment)>,
     exit_token_owner: Option<Address>,
+    /// Each staging draws the stream indexes from a fresh one.
+    tag_rng: fn() -> Box<dyn rand_core::CryptoRng + Send>,
 }
 
 pub type AnonymousTransfer<'a> = RingTransfer<Anonymous<'a>>;
+
+fn os_tag_rng() -> Box<dyn rand_core::CryptoRng + Send> {
+    Box::new(rand_core::UnwrapErr(rand_core::OsRng))
+}
 
 impl sealed::Sealed for Anonymous<'_> {}
 
@@ -107,6 +141,7 @@ impl<'a> RingTransfer<Owner<'a>> {
                 state,
                 payments: Vec::new(),
                 exit_token_owner: None,
+                tag_rng: os_tag_rng,
             },
         }
     }
@@ -148,6 +183,140 @@ impl RingTransfer<Anonymous<'_>> {
         self.rail.exit_token_owner = Some(owner);
         self
     }
+
+    #[cfg(test)]
+    #[must_use = "use the updated transfer"]
+    pub(crate) fn with_tag_rng(
+        mut self,
+        tag_rng: fn() -> Box<dyn rand_core::CryptoRng + Send>,
+    ) -> Self {
+        self.rail.tag_rng = tag_rng;
+        self
+    }
+
+    pub(crate) fn check_public_signers(
+        &self,
+        signers: impl IntoIterator<Item = Address>,
+    ) -> Result<(), RingError> {
+        HiddenOwner::of(&self.rail.owner.sender.address()?.signing_pubkey)?.check_signers(signers)
+    }
+}
+
+impl<'a> AnonymousMove<'a> {
+    /// As [`super::DelegateMove::select`], ring UTXOs before an entry spend, the hidden owner signing each candidate.
+    pub async fn select<P: AsyncRpc, I: AsyncIndexer>(
+        self,
+        client: &AsyncZolanaClient<P, I>,
+    ) -> Result<AnonymousTransfer<'a>, RingError> {
+        let amount = payment_total(self.payments.iter().map(|payment| payment.amount))?;
+        let payments = self.payments.len();
+        let owner = self.sender.address()?.signing_pubkey;
+        let ring = Some(self.ring.program_id());
+        let widest_spend = |spends_default_ring| {
+            widest(payments, |shape| {
+                AnonymousShape {
+                    shape,
+                    spends_default_ring,
+                }
+                .keyed()
+            })
+        };
+        let max_inputs =
+            widest_spend(false).ok_or(RingError::ShapeUnkeyed { rail: "anonymous" })?;
+        let funding = Funding {
+            utxos: self.utxos,
+            asset: self.asset.asset,
+            amount,
+            max_inputs,
+        };
+        let ring_only = funding
+            .candidates(|utxo| utxo.utxo.owner == owner && utxo.utxo.ring_program_id == ring);
+        let entries = widest_spend(true).map_or_else(Vec::new, |max_inputs| {
+            Funding {
+                max_inputs,
+                ..funding
+            }
+            .candidates(|utxo| {
+                utxo.utxo.owner == owner
+                    && (utxo.utxo.ring_program_id == ring || utxo.is_default_ring_spendable())
+                    && carries_no_data([utxo.data_hash, utxo.ring_data_hash])
+            })
+        });
+        let attempts = ring_only
+            .iter()
+            .chain(
+                entries
+                    .iter()
+                    .filter(|candidate| !ring_only.contains(candidate)),
+            )
+            .map(|candidate| self.attempt(candidate))
+            .collect();
+        first_fit(attempts, client)
+            .await?
+            .ok_or(RingError::Unfunded {
+                mint: self.asset.asset,
+                amount,
+                max_inputs,
+            })
+    }
+
+    fn attempt(&self, candidate: &Candidate) -> Result<AnonymousTransfer<'a>, RingError> {
+        let spends_default_ring = candidate
+            .utxos
+            .iter()
+            .any(|utxo| utxo.utxo.ring_program_id.is_none());
+        let shape = candidate
+            .shape(self.payments.len(), |shape| {
+                AnonymousShape {
+                    shape,
+                    spends_default_ring,
+                }
+                .keyed()
+            })
+            .ok_or(RingError::ShapeUnkeyed { rail: "anonymous" })?;
+        let transaction = ConfidentialTransaction::new_with_ring(
+            candidate.utxos.clone(),
+            self.payer,
+            self.ring.program_id(),
+        )?;
+        let transfer = RingTransfer::<Owner<'a>>::new(CustomRingTransferInput {
+            ring: self.ring,
+            sender: self.sender,
+            nullifier_key: Some(self.nullifier_key),
+            transaction,
+        })
+        .with_anonymous_signer(self.signer, self.state);
+        self.payments
+            .iter()
+            .try_fold(transfer, |transfer, payment| {
+                transfer.with_payment(AnonymousPayment {
+                    to: payment.to.clone(),
+                    asset: self.asset,
+                    amount: payment.amount,
+                })
+            })?
+            .with_shape(shape)
+    }
+}
+
+/// An anonymous transfer of `shape` publishing every input.
+#[derive(Clone, Copy)]
+pub(super) struct AnonymousShape {
+    pub shape: Shape,
+    pub spends_default_ring: bool,
+}
+
+impl AnonymousShape {
+    pub fn keyed(self) -> bool {
+        self.shape.is_supported()
+            && custom_ring_interface::AnonymousSpend {
+                inputs: self.shape.n_inputs(),
+                outputs: self.shape.n_outputs(),
+                spends_default_ring: self.spends_default_ring,
+            }
+            .audit_key()
+            .is_some()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -182,20 +351,33 @@ pub struct PendingFirstContact {
     pub amount: u64,
 }
 
-/// The slot secret stays out, it opens the payment and its pair stream.
+/// The slot secret opens the payment and its pair stream.
 impl core::fmt::Debug for PendingFirstContact {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let Self {
+            recipient,
+            tree_id,
+            utxo_hash,
+            slot_secret: _,
+            first_nullifier,
+            slot_index,
+            epoch,
+            index,
+            asset,
+            amount,
+        } = self;
         f.debug_struct("PendingFirstContact")
-            .field("recipient", &self.recipient)
-            .field("tree_id", &self.tree_id)
-            .field("utxo_hash", &self.utxo_hash)
-            .field("first_nullifier", &self.first_nullifier)
-            .field("slot_index", &self.slot_index)
-            .field("epoch", &self.epoch)
-            .field("index", &self.index)
-            .field("asset", &self.asset)
-            .field("amount", &self.amount)
-            .finish_non_exhaustive()
+            .field("recipient", recipient)
+            .field("tree_id", tree_id)
+            .field("utxo_hash", utxo_hash)
+            .field("slot_secret", &crate::request::REDACTED)
+            .field("first_nullifier", first_nullifier)
+            .field("slot_index", slot_index)
+            .field("epoch", epoch)
+            .field("index", index)
+            .field("asset", asset)
+            .field("amount", amount)
+            .finish()
     }
 }
 
@@ -308,10 +490,11 @@ impl Anonymous<'_> {
             .collect();
         let mut slots = AnonymousSlots::new(keys.ring_change_key(&ring.program_id())?)
             .with_ring_address_keys(keys.ring_address_keys(&ring.program_id(), &issued)?);
-        let mut allocation = TagAllocation::new(client, self.state, epoch);
+        let mut allocation = TagAllocation::new(self.state, epoch);
+        let mut rng = (self.tag_rng)();
         let mut anchor = None;
         for (slot, payment) in &self.payments {
-            let tag = allocation.allocate(&payment.to).await?;
+            let tag = allocation.allocate(&payment.to, &mut *rng)?;
             let position = match tag.stream {
                 PaymentStream::Inbox => StreamPosition::Inbox(tag.index),
                 PaymentStream::Pair(contact) => {
@@ -337,6 +520,7 @@ impl Anonymous<'_> {
             return Err(RingError::MixedOwners { index });
         }
         check_audit_key(&proof_inputs)?;
+        check_entry_inputs(&proof_inputs)?;
         let anchor = match anchor {
             Some(contact) => Some(self.anchor(client, contact).await?),
             None => None,
@@ -509,6 +693,25 @@ fn check_audit_key(inputs: &SppProofInputs) -> Result<(), RingError> {
         (None, true) => Err(RingError::DefaultRingSpendTooWide { inputs: published }),
         (None, false) => Err(RingError::ShapeUnkeyed { rail: "anonymous" }),
     }
+}
+
+/// The entry key rebuilds every spent UTXO from its opening.
+fn check_entry_inputs(inputs: &SppProofInputs) -> Result<(), RingError> {
+    if !spends_default_ring(&inputs.input_utxos) {
+        return Ok(());
+    }
+    match inputs.input_utxos.iter().position(|input| {
+        !input.is_dummy() && !carries_no_data([input.data_hash, input.ring_data_hash])
+    }) {
+        Some(index) => Err(RingError::EntryInputData { index }),
+        None => Ok(()),
+    }
+}
+
+fn carries_no_data(hashes: [Option<[u8; 32]>; 2]) -> bool {
+    hashes
+        .iter()
+        .all(|hash| hash.is_none_or(|hash| hash == [0; 32]))
 }
 
 struct AnonymousExits<'a> {

@@ -20,7 +20,8 @@ mod tests;
 mod trees;
 
 pub use custom_ring_interface::{
-    compute_unit_limit, tag, CoSignScope, CustomRingProof, InstructionTag, ListRegistry, RingMode,
+    compute_unit_limit, tag, CoSignScope, CustomRingProof, InstructionTag, ListRegistry, RingKind,
+    RingMode,
 };
 pub use zolana_program::instruction::{DepositAsset, DepositSplAccounts};
 
@@ -29,7 +30,10 @@ pub use crate::{
         CoSignThreshold, CustomRing, CustomRingCoSigner, CustomRingConfig, PinnedPolicy,
         QueueStatus, RegistryRoot, RegistryStatus, RingRegistration, RingStatus,
     },
-    admin::{RingSetup, SourceOwner},
+    admin::{
+        CreateConfig, CreateMemberRegistry, GrantReader, InitSppRingConfig, PolicyRules,
+        RevokeReader, SetAuthority, SetCoSigner, SetDelegate, SetSourceOwner, SourceOwner,
+    },
     deposit::{DepositRecipient, PreparedRingDeposit, RingDeposit, RingDepositReceipt},
     error::RingError,
     merge::{
@@ -37,10 +41,11 @@ pub use crate::{
         ProvenCustomRingMerge, RingMergeOperation, MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT,
     },
     pipeline::{
-        Anonymous, AnonymousPayment, AnonymousSpendSigner, AnonymousTransfer, CustomRingTransfer,
-        CustomRingTransferInput, DelegateMove, DelegateOutput, DelegatePayment, DelegateTransfer,
-        DelegateTransferInput, Delegated, Owner, PendingFirstContact, ProvenRingTransfer, Rail,
-        RailKind, RingTransfer, ANCHOR_DECOYS,
+        shape_keyed, Anonymous, AnonymousMove, AnonymousPayment, AnonymousSpendSigner,
+        AnonymousTransfer, CustomRingTransfer, CustomRingTransferInput, DelegateMove,
+        DelegateOutput, DelegatePayment, DelegateTransfer, DelegateTransferInput, Delegated, Owner,
+        PendingFirstContact, ProvenRingTransfer, Rail, RailKind, RingPayment, RingTransfer,
+        ANCHOR_DECOYS,
     },
     records::{
         AuthorityListWrite, MemberListWrite, MemberRecords, ProvenRecordWrite, RecordApplication,

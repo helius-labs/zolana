@@ -15,7 +15,7 @@ use zolana_ring_policy::Member;
 
 use crate::{
     prover::{to_instruction_proof, RingRequest},
-    records::{MemberRead, MemberWriteAccounts, OwnerRead, RecordReads},
+    records::{MemberRead, MemberWrite, OwnerRead, RecordReads},
     request::KeyRegister,
     submission::BoundRoot,
     CustomRing, RingError,
@@ -161,24 +161,24 @@ impl RegisterKey<'_> {
         let proof = RingRequest::new(RingCircuit::RegisterKey, &body)?
             .prove(client, public_input_hash)
             .await?;
+        let write = MemberWrite {
+            ring: self.ring,
+            config: &config,
+            member: signer,
+            payer: self.payer,
+        };
         let mut data = vec![tag::REGISTER_KEY];
         data.extend_from_slice(bytemuck::bytes_of(&RegisterKeyIxData {
             proof: to_instruction_proof(proof)?,
             nullifier_pk,
             eph_u,
             ciphertext: envelope.sealed.ciphertext,
+            max_fee: write.max_fee(),
         }));
-        let accounts = MemberWriteAccounts {
-            ring: self.ring,
-            config: &config,
-            member: signer,
-            payer: self.payer,
-        }
-        .metas();
         Ok(ProvenKeyRegistration {
             instruction: Instruction {
                 program_id: self.ring.program_id(),
-                accounts,
+                accounts: write.metas(),
                 data,
             },
         })

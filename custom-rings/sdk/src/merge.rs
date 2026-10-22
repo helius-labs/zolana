@@ -1,9 +1,9 @@
 //! The custom-ring binding of SPP's owner-preserving merge.
 
 use custom_ring_interface::{
-    key_catalog::RingCircuit, merge_disclosure_field_count, CoSignScope, CustomRingMergeIxData,
-    MergeAnonymousPublicInput, MergeDisclosure, RingMode, ANONYMOUS_MERGE_WIDTHS,
-    AUDIT_CIPHERTEXT_LEN, TAGGED_X25519_KEY_LEN,
+    cosign::CoSignDemand, key_catalog::RingCircuit, merge_disclosure_field_count,
+    CustomRingMergeIxData, MergeAnonymousPublicInput, MergeDisclosure, RingMode,
+    ANONYMOUS_MERGE_WIDTHS, AUDIT_CIPHERTEXT_LEN, TAGGED_X25519_KEY_LEN,
 };
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
@@ -275,14 +275,14 @@ impl PreparedCustomRingMerge {
 
     pub(crate) fn check_public_signers(
         &self,
-        payer: Address,
+        signers: impl IntoIterator<Item = Address>,
         config: &CustomRingConfig,
     ) -> Result<(), RingError> {
         if config.mode != RingMode::Anonymous {
             return Ok(());
         }
         HiddenOwner::of(&self.inner.signing_pubkey)?
-            .check_signers(core::iter::once(payer).chain(merge_co_signer(config)?))
+            .check_signers(signers.into_iter().chain(merge_co_signer(config)?))
     }
 
     fn anonymous_width(&self) -> Result<usize, RingError> {
@@ -525,7 +525,5 @@ impl CustomRingMergeInstruction {
 
 /// A merge is a transfer, no public leg adds a class.
 fn merge_co_signer(config: &CustomRingConfig) -> Result<Option<Address>, RingError> {
-    Ok(config
-        .account()
-        .demanded_co_signer(false, CoSignScope::TRANSFERS, [])?)
+    Ok(CoSignDemand::transact(false, &[]).signer(config.account())?)
 }

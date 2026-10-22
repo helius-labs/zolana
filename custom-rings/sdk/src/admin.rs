@@ -2,8 +2,8 @@
 
 use custom_ring_interface::{
     compute_unit_limit, tag, CoSignScope, CreateConfigIxData, InstructionTag, PolicyTableIxData,
-    ReaderIxData, SetCoSignerIxData, SetInsertFeeIxData, SetPausedIxData, SetPolicySourceIxData,
-    SourceSpec, WithdrawalThreshold,
+    ReaderIxData, RingKind, SetCoSignerIxData, SetInsertFeeIxData, SetPausedIxData,
+    SetPolicySourceIxData, SourceSpec, WithdrawalThreshold,
 };
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
@@ -14,7 +14,9 @@ use zolana_keypair::X25519Pubkey;
 use zolana_ring_client::ReaderKey;
 use zolana_ring_policy::{ListId, Rule, RuleTable, SourceMap};
 
-use crate::{submission::check_transaction_size, CoSignThreshold, CustomRing, RingError};
+use crate::{
+    submission::check_transaction_size, CoSignThreshold, CustomRing, CustomRingConfig, RingError,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SourceOwner {
@@ -22,150 +24,201 @@ pub enum SourceOwner {
     Shared(CustomRing),
 }
 
+/// The upgrade authority signs and becomes the ring authority.
+#[must_use]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct RingSetup {
+pub struct CreateConfig {
+    pub ring: CustomRing,
+    pub payer: Address,
+    pub authority: Address,
     pub auditor_pubkey: X25519Pubkey,
-    pub has_policy: bool,
-    pub anonymous: bool,
+    pub kind: RingKind,
 }
 
-impl CustomRing {
-    /// The upgrade authority signs and becomes the ring authority.
-    pub fn create_config(
-        self,
-        payer: Address,
-        authority: Address,
-        setup: RingSetup,
-    ) -> Result<Instruction, RingError> {
+/// The program builds SPP's registration from the config, a policy ring after its policy.
+#[must_use]
+#[derive(Clone, Copy, Debug)]
+pub struct InitSppRingConfig<'a> {
+    pub ring: CustomRing,
+    pub payer: Address,
+    pub authority: Address,
+    pub config: &'a CustomRingConfig,
+}
+
+/// The record queue is created beside the registry and its sentinel.
+#[must_use]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CreateMemberRegistry {
+    pub ring: CustomRing,
+    pub payer: Address,
+    pub authority: Address,
+}
+
+/// Authorizes `reader` to read the ring through the ring RPC.
+#[must_use]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GrantReader {
+    pub ring: CustomRing,
+    pub payer: Address,
+    pub authority: Address,
+    pub reader: ReaderKey,
+}
+
+#[must_use]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RevokeReader {
+    pub ring: CustomRing,
+    pub authority: Address,
+    pub reader: ReaderKey,
+    pub rent_recipient: Address,
+}
+
+/// Both keys sign, a mistyped address cannot strand the config.
+#[must_use]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SetAuthority {
+    pub ring: CustomRing,
+    pub authority: Address,
+    pub new_authority: Address,
+}
+
+#[must_use]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SetCoSigner<'a> {
+    pub ring: CustomRing,
+    pub authority: Address,
+    pub signer: Address,
+    pub scope: CoSignScope,
+    pub thresholds: &'a [CoSignThreshold],
+}
+
+/// Runs under the upgrade authority, the delegate signs and stays for good.
+#[must_use]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SetDelegate {
+    pub ring: CustomRing,
+    pub authority: Address,
+    pub delegate: Address,
+}
+
+#[must_use]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SetSourceOwner {
+    pub ring: CustomRing,
+    pub authority: Address,
+    pub list_id: ListId,
+    pub source: SourceOwner,
+}
+
+/// A referenced list not shared reads the ring's own registry.
+#[must_use]
+#[derive(Clone, Copy, Debug)]
+pub struct PolicyRules<'a> {
+    pub ring: CustomRing,
+    pub authority: Address,
+    pub rules: &'a RuleTable,
+    pub shared_sources: &'a [(ListId, CustomRing)],
+}
+
+impl CreateConfig {
+    pub fn instruction(self) -> Result<Instruction, RingError> {
         let data = tagged(
             tag::CREATE_CONFIG,
             &CreateConfigIxData {
-                auditor_pubkey: *setup.auditor_pubkey.as_bytes(),
-                has_policy: setup.has_policy,
-                anonymous: setup.anonymous,
+                auditor_pubkey: *self.auditor_pubkey.as_bytes(),
+                kind: self.kind,
             },
         )?;
         let mut accounts = vec![
-            AccountMeta::new(payer, true),
-            AccountMeta::new_readonly(authority, true),
-            AccountMeta::new(self.config_pda(), false),
+            AccountMeta::new(self.payer, true),
+            AccountMeta::new_readonly(self.authority, true),
+            AccountMeta::new(self.ring.config_pda(), false),
             AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
         ];
-        accounts.extend(self.upgrade_metas());
-        Ok(self.ix(accounts, data))
+        accounts.extend(self.ring.upgrade_metas());
+        Ok(self.ring.ix(accounts, data))
     }
+}
 
-    /// The program builds SPP's registration from the config, a policy ring after its policy.
-    pub fn init_spp_ring_config(
-        self,
-        payer: Address,
-        authority: Address,
-        has_policy: bool,
-    ) -> Instruction {
+impl InitSppRingConfig<'_> {
+    pub fn instruction(self) -> Instruction {
+        let ring = self.ring;
         let mut accounts = vec![
-            AccountMeta::new(payer, true),
-            AccountMeta::new_readonly(authority, true),
-            AccountMeta::new_readonly(self.config_pda(), false),
+            AccountMeta::new(self.payer, true),
+            AccountMeta::new_readonly(self.authority, true),
+            AccountMeta::new_readonly(ring.config_pda(), false),
             AccountMeta::new_readonly(pda::protocol_config(), false),
-            AccountMeta::new(self.ring_auth_pda(), false),
+            AccountMeta::new(ring.ring_auth_pda(), false),
             AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
             AccountMeta::new_readonly(pda::shielded_pool_program_id(), false),
         ];
-        if has_policy {
-            accounts.push(AccountMeta::new_readonly(self.registry_pda(), false));
+        if self.config.has_policy {
+            accounts.push(AccountMeta::new_readonly(ring.registry_pda(), false));
         }
-        self.ix(accounts, vec![tag::INIT_SPP_RING_CONFIG])
+        ring.ix(accounts, vec![tag::INIT_SPP_RING_CONFIG])
     }
+}
 
-    /// The record queue is created beside the registry and its sentinel.
-    pub fn create_member_registry(self, payer: Address, authority: Address) -> Instruction {
+impl CreateMemberRegistry {
+    pub fn instruction(self) -> Instruction {
+        let ring = self.ring;
         let accounts = vec![
-            AccountMeta::new(payer, true),
-            AccountMeta::new_readonly(authority, true),
-            AccountMeta::new_readonly(self.config_pda(), false),
-            AccountMeta::new(self.registry_pda(), false),
-            AccountMeta::new(self.queue_pda(), false),
+            AccountMeta::new(self.payer, true),
+            AccountMeta::new_readonly(self.authority, true),
+            AccountMeta::new_readonly(ring.config_pda(), false),
+            AccountMeta::new(ring.registry_pda(), false),
+            AccountMeta::new(ring.queue_pda(), false),
             AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
         ];
-        self.ix(accounts, vec![tag::CREATE_MEMBER_REGISTRY])
+        ring.ix(accounts, vec![tag::CREATE_MEMBER_REGISTRY])
     }
+}
 
-    /// Authorizes `reader` to read the ring through the ring RPC.
-    pub fn grant_read_access(
-        self,
-        payer: Address,
-        authority: Address,
-        reader: ReaderKey,
-    ) -> Result<Instruction, RingError> {
+impl GrantReader {
+    pub fn instruction(self) -> Result<Instruction, RingError> {
+        let ring = self.ring;
         let accounts = vec![
-            AccountMeta::new(payer, true),
-            AccountMeta::new_readonly(authority, true),
-            AccountMeta::new_readonly(self.config_pda(), false),
-            AccountMeta::new(self.read_access_record_pda(&reader), false),
+            AccountMeta::new(self.payer, true),
+            AccountMeta::new_readonly(self.authority, true),
+            AccountMeta::new_readonly(ring.config_pda(), false),
+            AccountMeta::new(ring.read_access_record_pda(&self.reader), false),
             AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
         ];
-        let data = tagged(
-            tag::GRANT_READ_ACCESS,
-            &ReaderIxData {
-                reader: reader.to_bytes(),
-            },
-        )?;
-        Ok(self.ix(accounts, data))
+        Ok(ring.ix(accounts, reader_data(tag::GRANT_READ_ACCESS, self.reader)?))
     }
+}
 
-    pub fn revoke_read_access(
-        self,
-        authority: Address,
-        reader: ReaderKey,
-        rent_recipient: Address,
-    ) -> Result<Instruction, RingError> {
+impl RevokeReader {
+    pub fn instruction(self) -> Result<Instruction, RingError> {
+        let ring = self.ring;
         let accounts = vec![
-            AccountMeta::new_readonly(authority, true),
-            AccountMeta::new_readonly(self.config_pda(), false),
-            AccountMeta::new(self.read_access_record_pda(&reader), false),
-            AccountMeta::new(rent_recipient, false),
+            AccountMeta::new_readonly(self.authority, true),
+            AccountMeta::new_readonly(ring.config_pda(), false),
+            AccountMeta::new(ring.read_access_record_pda(&self.reader), false),
+            AccountMeta::new(self.rent_recipient, false),
         ];
-        let data = tagged(
-            tag::REVOKE_READ_ACCESS,
-            &ReaderIxData {
-                reader: reader.to_bytes(),
-            },
-        )?;
-        Ok(self.ix(accounts, data))
+        Ok(ring.ix(accounts, reader_data(tag::REVOKE_READ_ACCESS, self.reader)?))
     }
+}
 
-    /// Both keys sign, a mistyped address cannot strand the config.
-    pub fn set_authority(self, authority: Address, new_authority: Address) -> Instruction {
+impl SetAuthority {
+    pub fn instruction(self) -> Instruction {
         let accounts = vec![
-            AccountMeta::new_readonly(authority, true),
-            AccountMeta::new_readonly(new_authority, true),
-            AccountMeta::new(self.config_pda(), false),
+            AccountMeta::new_readonly(self.authority, true),
+            AccountMeta::new_readonly(self.new_authority, true),
+            AccountMeta::new(self.ring.config_pda(), false),
         ];
-        self.ix(accounts, vec![tag::SET_AUTHORITY])
+        self.ring.ix(accounts, vec![tag::SET_AUTHORITY])
     }
+}
 
-    pub fn set_paused(self, authority: Address, paused: bool) -> Result<Instruction, RingError> {
-        let data = tagged(tag::SET_PAUSED, &SetPausedIxData { paused })?;
-        let accounts = vec![
-            AccountMeta::new_readonly(authority, true),
-            AccountMeta::new_readonly(self.config_pda(), false),
-            AccountMeta::new(self.ring_auth_pda(), false),
-            AccountMeta::new_readonly(pda::shielded_pool_program_id(), false),
-        ];
-        Ok(self.ix(accounts, data))
-    }
-
-    pub fn set_cosigner(
-        self,
-        authority: Address,
-        signer: Address,
-        scope: CoSignScope,
-        thresholds: &[CoSignThreshold],
-    ) -> Result<Instruction, RingError> {
+impl SetCoSigner<'_> {
+    pub fn instruction(self) -> Result<Instruction, RingError> {
         let body = SetCoSignerIxData {
-            signer: signer.to_bytes(),
-            scope: scope.bits(),
-            thresholds: thresholds
+            signer: self.signer.to_bytes(),
+            scope: self.scope.bits(),
+            thresholds: self
+                .thresholds
                 .iter()
                 .map(|threshold| WithdrawalThreshold {
                     mint: threshold.mint.to_bytes(),
@@ -175,96 +228,63 @@ impl CustomRing {
         };
         body.check()?;
         let data = tagged(tag::SET_CO_SIGNER, &body)?;
-        Ok(self.ix(self.config_write_metas(authority), data))
+        Ok(self
+            .ring
+            .ix(self.ring.config_write_metas(self.authority), data))
     }
+}
 
-    pub fn clear_cosigner(self, authority: Address) -> Instruction {
-        self.ix(
-            self.config_write_metas(authority),
-            vec![tag::CLEAR_CO_SIGNER],
-        )
-    }
-
-    /// [`crate::CustomRingConfig::insert_fee`], zero writes free.
-    pub fn set_insert_fee(self, authority: Address, fee: u64) -> Instruction {
-        let mut data = vec![tag::SET_INSERT_FEE];
-        data.extend_from_slice(bytemuck::bytes_of(&SetInsertFeeIxData {
-            fee: fee.to_le_bytes(),
-        }));
-        self.ix(self.config_write_metas(authority), data)
-    }
-
-    /// Runs under the upgrade authority, the delegate is permanent.
-    pub fn set_delegate(self, authority: Address, delegate: Address) -> Instruction {
+impl SetDelegate {
+    pub fn instruction(self) -> Instruction {
+        let ring = self.ring;
         let mut accounts = vec![
-            AccountMeta::new_readonly(authority, true),
-            AccountMeta::new(self.config_pda(), false),
-            AccountMeta::new_readonly(self.registry_pda(), false),
+            AccountMeta::new_readonly(self.authority, true),
+            AccountMeta::new(ring.config_pda(), false),
+            AccountMeta::new_readonly(self.delegate, true),
+            AccountMeta::new_readonly(ring.registry_pda(), false),
         ];
-        accounts.extend(self.upgrade_metas());
-        let mut data = vec![tag::SET_DELEGATE];
-        data.extend_from_slice(delegate.as_array());
-        self.ix(accounts, data)
+        accounts.extend(ring.upgrade_metas());
+        ring.ix(accounts, vec![tag::SET_DELEGATE])
     }
+}
 
-    pub fn set_source_owner(
-        self,
-        authority: Address,
-        list_id: ListId,
-        source: SourceOwner,
-    ) -> Result<Instruction, RingError> {
-        let mut accounts = self.policy_write_metas(authority);
-        if let SourceOwner::Shared(curator) = source {
+impl SetSourceOwner {
+    pub fn instruction(self) -> Result<Instruction, RingError> {
+        let ring = self.ring;
+        let mut accounts = ring.policy_write_metas(self.authority);
+        if let SourceOwner::Shared(curator) = self.source {
             accounts.push(AccountMeta::new_readonly(curator.registry_pda(), false));
         }
         let data = tagged(
             tag::SET_POLICY_SOURCE,
             &SetPolicySourceIxData {
-                list_id: list_id as u8,
-                source: u8::from(matches!(source, SourceOwner::Shared(_))),
+                list_id: self.list_id as u8,
+                source: u8::from(matches!(self.source, SourceOwner::Shared(_))),
             },
         )?;
-        Ok(self.ix(accounts, data))
+        Ok(ring.ix(accounts, data))
     }
+}
 
-    /// Pins the table and its source map, a referenced list not shared reads the ring's own registry.
-    pub fn create_policy(
-        self,
-        authority: Address,
-        rules: &RuleTable,
-        shared_sources: &[(ListId, CustomRing)],
-    ) -> Result<Instruction, RingError> {
-        self.policy_table(
-            InstructionTag::CreatePolicy,
-            authority,
-            rules,
-            shared_sources,
-        )
+impl PolicyRules<'_> {
+    /// Pins the table and its source map.
+    pub fn create(self) -> Result<Instruction, RingError> {
+        self.table(InstructionTag::CreatePolicy)
     }
 
     /// Replaces the pinned table and the complete source map.
-    pub fn set_policy_rules(
-        self,
-        authority: Address,
-        rules: &RuleTable,
-        shared_sources: &[(ListId, CustomRing)],
-    ) -> Result<Instruction, RingError> {
-        self.policy_table(
-            InstructionTag::SetPolicyRules,
-            authority,
-            rules,
-            shared_sources,
-        )
+    pub fn replace(self) -> Result<Instruction, RingError> {
+        self.table(InstructionTag::SetPolicyRules)
     }
 
     /// Curator registries follow in first-use order.
-    fn policy_table(
-        self,
-        instruction_tag: InstructionTag,
-        authority: Address,
-        rules: &RuleTable,
-        shared_sources: &[(ListId, CustomRing)],
-    ) -> Result<Instruction, RingError> {
+    fn table(self, instruction_tag: InstructionTag) -> Result<Instruction, RingError> {
+        let Self {
+            ring,
+            authority,
+            rules,
+            shared_sources,
+        } = self;
         let referenced = rules.referenced();
         if let Some((list_id, _)) = shared_sources
             .iter()
@@ -297,7 +317,7 @@ impl CustomRing {
             .collect();
         // The program stores one curator, the source map refuses a second.
         rules.encode().validate(&SourceMap::new(&entries)?)?;
-        let mut accounts = self.policy_write_metas(authority);
+        let mut accounts = ring.policy_write_metas(authority);
         accounts.extend(
             curators
                 .iter()
@@ -313,13 +333,53 @@ impl CustomRing {
                 limits: rules.limits().to_vec(),
             },
         )?;
-        let instruction = self.ix(accounts, data);
+        let instruction = ring.ix(accounts, data);
         check_transaction_size(
             &authority,
             &instruction,
             ComputeBudgetConfig::new(compute_unit_limit(instruction_tag)),
         )?;
         Ok(instruction)
+    }
+}
+
+impl CustomRing {
+    pub fn pause(self, authority: Address) -> Result<Instruction, RingError> {
+        self.set_paused(authority, SetPausedIxData { paused: true })
+    }
+
+    pub fn resume(self, authority: Address) -> Result<Instruction, RingError> {
+        self.set_paused(authority, SetPausedIxData { paused: false })
+    }
+
+    pub fn clear_cosigner(self, authority: Address) -> Instruction {
+        self.ix(
+            self.config_write_metas(authority),
+            vec![tag::CLEAR_CO_SIGNER],
+        )
+    }
+
+    /// [`crate::CustomRingConfig::insert_fee`], zero writes free.
+    pub fn set_insert_fee(self, authority: Address, fee: u64) -> Instruction {
+        let mut data = vec![tag::SET_INSERT_FEE];
+        data.extend_from_slice(bytemuck::bytes_of(&SetInsertFeeIxData {
+            fee: fee.to_le_bytes(),
+        }));
+        self.ix(self.config_write_metas(authority), data)
+    }
+
+    fn set_paused(
+        self,
+        authority: Address,
+        state: SetPausedIxData,
+    ) -> Result<Instruction, RingError> {
+        let accounts = vec![
+            AccountMeta::new_readonly(authority, true),
+            AccountMeta::new_readonly(self.config_pda(), false),
+            AccountMeta::new(self.ring_auth_pda(), false),
+            AccountMeta::new_readonly(pda::shielded_pool_program_id(), false),
+        ];
+        Ok(self.ix(accounts, tagged(tag::SET_PAUSED, &state)?))
     }
 
     fn ix(self, accounts: Vec<AccountMeta>, data: Vec<u8>) -> Instruction {
@@ -351,6 +411,15 @@ impl CustomRing {
             AccountMeta::new(self.registry_pda(), false),
         ]
     }
+}
+
+fn reader_data(instruction_tag: u8, reader: ReaderKey) -> Result<Vec<u8>, RingError> {
+    tagged(
+        instruction_tag,
+        &ReaderIxData {
+            reader: reader.to_bytes(),
+        },
+    )
 }
 
 pub(crate) fn tagged<T: SchemaWrite<DefaultConfig, Src = T>>(

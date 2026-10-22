@@ -16,8 +16,8 @@ use zolana_ring_transaction::{
 use zolana_transaction::{
     instructions::transact::{ConfidentialTransaction, Shape, SppProofInputs, SppProofOutputUtxo},
     serialization::{
-        DecodeCx, RingDeliveredNote, RingDeliveryOpening, RingDeliverySlot, RingNoteOwner,
-        RingPacked, UtxoSerialization,
+        DecodeCx, RingDeliveredUtxo, RingDeliveryOpening, RingDeliverySlot, RingPacked,
+        RingUtxoOwner, UtxoSerialization,
     },
     Data, Mint, TransactionError as E, Utxo, WalletUtxo,
 };
@@ -105,14 +105,14 @@ fn delivered_secret(
     .unwrap()
 }
 
-/// The note a delivered body opens to under `secret`, `None` for another key's body.
+/// The UTXO a delivered body opens to under `secret`, `None` for another key's body.
 fn open(
     proof: &SppProofInputs,
     wire: RingOutput<'_>,
     owner: &ShieldedAddress,
     secret: &SlotSecret,
     index: u32,
-) -> Option<RingDeliveredNote> {
+) -> Option<RingDeliveredUtxo> {
     let (tag, body) = match wire {
         RingOutput::Delivered { body, .. } => (None, body),
         RingOutput::Anonymous { tag, body, .. } => (Some(tag), body),
@@ -127,7 +127,7 @@ fn open(
     .open(RingDeliveryOpening {
         body,
         slot_secret: secret,
-        owner: RingNoteOwner {
+        owner: RingUtxoOwner {
             signing_pubkey: &owner.signing_pubkey,
             nullifier_pubkey: &owner.nullifier_pubkey,
         },
@@ -182,7 +182,7 @@ fn a_packed_ring_output_blinds_under_the_cras_secret_and_opens_for_its_owner_key
     let data = proof.external_data.outputs[0].data.as_deref().unwrap();
     let RingPackedBody { key, ciphertext } = ring_confidential_packed_output_body(data).unwrap();
     assert_eq!(key, recipient.viewing_pubkey.as_bytes());
-    let note = RingPacked::decode(
+    let opened = RingPacked::decode(
         &[&key[..], ciphertext].concat(),
         &DecodeCx {
             viewing_key: &receiver.viewing_key,
@@ -193,7 +193,7 @@ fn a_packed_ring_output_blinds_under_the_cras_secret_and_opens_for_its_owner_key
         },
     )
     .unwrap();
-    assert_eq!((note.amount, note.blinding), (3, blinding));
+    assert_eq!((opened.amount, opened.blinding), (3, blinding));
 }
 
 #[test]
@@ -208,9 +208,9 @@ fn a_delivered_output_opens_only_for_the_key_its_owner_tag_names() {
     let published = rail.published_slots(&proof, &address(&sender)).unwrap();
     assert_eq!(published[0].recipient, Some(recipient.viewing_pubkey));
     let secret = delivered_secret(&receiver.viewing_key, &proof, &rail, 0);
-    let note = open(&proof, published[0].wire, &recipient, &secret, 0).unwrap();
+    let opened = open(&proof, published[0].wire, &recipient, &secret, 0).unwrap();
     assert_eq!(
-        (note.utxo.amount, note.utxo.blinding),
+        (opened.utxo.amount, opened.utxo.blinding),
         (3, proof.output_utxos[0].blinding)
     );
     let stranger = delivered_secret(&keypair(3).viewing_key, &proof, &rail, 0);
@@ -245,7 +245,7 @@ fn an_anonymous_payment_binds_its_tag_and_the_change_opens_under_the_change_key(
     );
     let secret = delivered_secret(&address_key, &proof, &rail, 0);
     assert_eq!(
-        open(&proof, published[0].wire, &recipient, &secret, 0).map(|note| note.utxo.amount),
+        open(&proof, published[0].wire, &recipient, &secret, 0).map(|opened| opened.utxo.amount),
         Some(3)
     );
     let Some(AnonymousSlot::Change { tag: change_tag }) = published[1].anonymous else {
@@ -257,7 +257,8 @@ fn an_anonymous_payment_binds_its_tag_and_the_change_opens_under_the_change_key(
     );
     let change = delivered_secret(&change_key, &proof, &rail, 1);
     assert_eq!(
-        open(&proof, published[1].wire, &address(&sender), &change, 1).map(|note| note.utxo.amount),
+        open(&proof, published[1].wire, &address(&sender), &change, 1)
+            .map(|opened| opened.utxo.amount),
         Some(7)
     );
     let tags: std::collections::HashSet<_> =

@@ -4,8 +4,8 @@ use std::collections::BTreeMap;
 
 use custom_ring_interface::{
     key_catalog::RingCircuit, queue_chain, tag, ApplyRecordsIxData, AuthorityWriteRecordsIxData,
-    CustomRingError, MemberRegistry, QueueEntry, RecordQueue, RecordWriteData, WriteRecordsIxData,
-    APPLY_BATCH,
+    CustomRingError, MemberRegistry, MemberWriteIxData, QueueEntry, RecordQueue, RecordWriteData,
+    WriteRecordsIxData, APPLY_BATCH,
 };
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
@@ -149,18 +149,20 @@ pub struct MemberListWrite {
 impl MemberListWrite {
     pub fn instruction(self, config: &CustomRingConfig) -> Result<Instruction, RingError> {
         check_writer(self.lists, Writer::Member)?;
-        let accounts = MemberWriteAccounts {
+        let write = MemberWrite {
             ring: self.ring,
             config,
             member: self.member,
             payer: self.payer,
-        }
-        .metas();
+        };
         let mut data = vec![tag::WRITE_RECORDS];
-        data.extend_from_slice(bytemuck::bytes_of(&WriteRecordsIxData::new(self.lists)));
+        data.extend_from_slice(bytemuck::bytes_of(&MemberWriteIxData {
+            lists: WriteRecordsIxData::new(self.lists),
+            max_fee: write.max_fee(),
+        }));
         Ok(Instruction {
             program_id: self.ring.program_id(),
-            accounts,
+            accounts: write.metas(),
             data,
         })
     }
@@ -479,17 +481,17 @@ pub(crate) fn record_accounts(ring: CustomRing, signer: RecordSigner) -> Vec<Acc
     ]
 }
 
-/// The fee accounts follow when the config charges the member.
 #[must_use]
-pub(crate) struct MemberWriteAccounts<'a> {
+pub(crate) struct MemberWrite<'a> {
     pub ring: CustomRing,
     pub config: &'a CustomRingConfig,
     pub member: Address,
     pub payer: Address,
 }
 
-impl MemberWriteAccounts<'_> {
-    pub(crate) fn metas(self) -> Vec<AccountMeta> {
+impl MemberWrite<'_> {
+    /// The fee accounts follow when the config charges the member.
+    pub(crate) fn metas(&self) -> Vec<AccountMeta> {
         let mut accounts = record_accounts(self.ring, RecordSigner::Member(self.member));
         if self.config.insert_fee_for(&self.member).is_some() {
             accounts.extend([
@@ -499,6 +501,11 @@ impl MemberWriteAccounts<'_> {
             ]);
         }
         accounts
+    }
+
+    /// The fee read here, a raise before the write lands refuses it.
+    pub(crate) fn max_fee(&self) -> [u8; 8] {
+        self.config.insert_fee.to_le_bytes()
     }
 }
 

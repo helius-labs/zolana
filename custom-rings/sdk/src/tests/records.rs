@@ -1,7 +1,7 @@
 use custom_ring_interface::{CustomRingError, QueueEntry, RingMode, APPLY_DELAY_SLOTS};
 use solana_address::Address;
 use zolana_client::ClientError;
-use zolana_ring_policy::{ListId, ListSet, ListWrite, Member, Writer};
+use zolana_ring_policy::{ListChange, ListId, ListSet, ListWrite, Member, Writer};
 
 use super::support::{authority, ring, Chain, Registry, RingSettings, SLOT};
 use crate::{AuthorityListWrite, RecordApplication, RingError};
@@ -10,8 +10,17 @@ fn member(byte: u8) -> Member {
     Member::owner_tag(&[byte; 32]).unwrap()
 }
 
+fn set(list: ListId) -> ListWrite {
+    ListChange {
+        set: ListSet::single(list),
+        clear: ListSet::EMPTY,
+    }
+    .check()
+    .unwrap()
+}
+
 fn allow() -> ListWrite {
-    ListWrite::new(ListSet::single(ListId::Allow), ListSet::EMPTY).unwrap()
+    set(ListId::Allow)
 }
 
 fn writes(count: u8) -> AuthorityListWrite {
@@ -64,7 +73,7 @@ fn an_authority_write_names_each_member_once_and_only_authority_lists() {
         writes(2).with_write(member(1), allow()),
         Err(RingError::DuplicateListWrite { member: repeated }) if repeated == member(1)
     ));
-    let recovery = ListWrite::new(ListSet::single(ListId::Recovery), ListSet::EMPTY).unwrap();
+    let recovery = set(ListId::Recovery);
     assert!(matches!(
         AuthorityListWrite::new(ring(), authority()).with_write(member(1), recovery),
         Err(RingError::ListNotWritable {

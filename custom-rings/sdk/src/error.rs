@@ -106,8 +106,8 @@ pub enum RingError {
     TransactionTooLarge { bytes: usize, limit: usize },
     #[error("the transaction names {addresses} addresses, a v1 transaction carries {limit}")]
     TooManyAddresses { addresses: usize, limit: usize },
-    #[error("no tree holds {amount} of {mint} in {max_inputs} delegate inputs")]
-    DelegateMoveUnfunded {
+    #[error("no tree holds {amount} of {mint} in {max_inputs} inputs")]
+    Unfunded {
         mint: Address,
         amount: u64,
         max_inputs: usize,
@@ -165,6 +165,8 @@ pub enum RingError {
     MissingAnonymousSigner,
     #[error("a default-ring spend of {inputs} inputs fits no entry key, split the transfer")]
     DefaultRingSpendTooWide { inputs: usize },
+    #[error("a default-ring spend opens every input in full, input {index} carries data")]
+    EntryInputData { index: usize },
     #[error("the hidden signer does not match the sender")]
     AnonymousSignerMismatch,
     #[error("public transaction signers must differ from the hidden owner")]

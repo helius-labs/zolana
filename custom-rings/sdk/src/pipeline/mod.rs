@@ -6,6 +6,7 @@ mod compact;
 mod delegate;
 mod owner;
 mod policy;
+mod selection;
 mod spp;
 #[cfg(test)]
 #[path = "../tests/pipeline.rs"]
@@ -13,30 +14,31 @@ mod tests;
 
 use custom_ring_interface::{
     compute_unit_limit,
+    cosign::CoSignDemand,
     stream::{tag_epoch, SenderCommitment},
-    AuditBinding, CoSignScope, CustomRingError, CustomRingProof, InputTrees, InstructionTag,
-    ParsedTransact, PlainGroth16Proof, RingMode, RingProgramConfig, RingRail, Settlement,
+    AuditBinding, CustomRingError, CustomRingProof, InputTrees, InstructionTag, ParsedTransact,
+    PlainGroth16Proof, RingMode, RingProgramConfig, RingRail, Settlement,
     DELIVERED_AUDIT_CAPACITIES, PACKED_AUDIT_CAPACITIES,
 };
 use solana_address::Address;
 use solana_instruction::Instruction;
 use zolana_client::{
     AsyncIndexer, AsyncRpc, AsyncZolanaClient, ClientError, ComputeBudgetConfig, ProofAuthority,
-    TransferInput,
+    Shape, TransferInput,
 };
-use zolana_interface::{instruction::TreeContext, N_PUBLIC_SLOTS, SOL_ASSET_ADDRESS};
+use zolana_interface::{instruction::TreeContext, N_PUBLIC_SLOTS};
 use zolana_keypair::{NullifierKey, ShieldedAddress, ViewingKey, X25519Pubkey};
 use zolana_program::instruction::TransactInterfaceTransferAccounts;
 use zolana_ring_transaction::{PublishedSlot, RingDelivery, RingOutputRail};
 use zolana_transaction::{
-    instructions::transact::{SettlementTransfer, SppProofInputs, SppProofOutputUtxo},
+    instructions::transact::{SppProofInputs, SppProofOutputUtxo},
     utxo::SppProofInputUtxo,
 };
 
 pub use self::{
     anonymous::{
-        Anonymous, AnonymousPayment, AnonymousSpendSigner, AnonymousTransfer, PendingFirstContact,
-        ANCHOR_DECOYS,
+        Anonymous, AnonymousMove, AnonymousPayment, AnonymousSpendSigner, AnonymousTransfer,
+        PendingFirstContact, RingPayment, ANCHOR_DECOYS,
     },
     delegate::{
         DelegateMove, DelegateOutput, DelegatePayment, DelegateTransfer, DelegateTransferInput,
@@ -48,7 +50,7 @@ pub use self::{
 pub(crate) use self::anonymous::HiddenOwner;
 
 use self::{
-    anonymous::AnonymousSpend,
+    anonymous::{AnonymousShape, AnonymousSpend},
     audit::{AnonymousStatement, AuditProving, AuditSeal, SealedAudit},
     compact::{OwnedOutput, OwnedPolicyProof, TransactAccounts, TransactParts},
     policy::{PolicyInputs, PolicyProving, PolicyRead},
@@ -321,13 +323,12 @@ impl Pipeline<'_, '_> {
             .as_ref()
             .is_some_and(|policy| policy.approval_required);
         let transfers = &proof_inputs.external_data.interface_transfers;
-        let co_signer = self.config.account().demanded_co_signer(
-            approval_required,
-            classes(transfers),
-            withdrawals(transfers)
-                .iter()
-                .map(|(mint, total)| (mint, *total)),
-        )?;
+        let legs: Vec<_> = transfers
+            .iter()
+            .map(|transfer| transfer.public_leg())
+            .collect();
+        let co_signer =
+            CoSignDemand::transact(approval_required, &legs).signer(self.config.account())?;
         if co_signer.is_some_and(|co_signer| owner_signers.contains(&co_signer)) {
             return Err(CustomRingError::CoSignerIsOwner.into());
         }
@@ -613,6 +614,22 @@ impl ProvenRingTransfer {
     }
 }
 
+/// Whether `rail` keys a transfer of `shape` publishing every input, none a default-ring UTXO.
+pub fn shape_keyed(rail: RingRail, shape: Shape) -> bool {
+    let outputs = shape.n_outputs();
+    let capacity =
+        PACKED_AUDIT_CAPACITIES.contains(&outputs) || DELIVERED_AUDIT_CAPACITIES.contains(&outputs);
+    match rail {
+        RingRail::Confidential => capacity && shape.is_supported(),
+        RingRail::Delegate => capacity && shape.is_ring_authority(),
+        RingRail::Anonymous => AnonymousShape {
+            shape,
+            spends_default_ring: false,
+        }
+        .keyed(),
+    }
+}
+
 /// The compact data before any proof, sized and hashed as the proven one.
 struct PreviewParts<'a> {
     rail: RingRail,
@@ -713,34 +730,6 @@ fn packed_or_delivered(outputs: usize, rail: &'static str) -> Result<RingDeliver
 
 fn shape_byte(count: usize) -> Result<u8, RingError> {
     u8::try_from(count).map_err(|_| RingError::ShapeUnkeyed { rail: "spp" })
-}
-
-/// A transact is a transfer, each public leg adds its class.
-fn classes(transfers: &[SettlementTransfer]) -> CoSignScope {
-    transfers
-        .iter()
-        .fold(CoSignScope::TRANSFERS, |classes, transfer| {
-            classes
-                | match transfer.is_deposit() {
-                    true => CoSignScope::DEPOSITS,
-                    false => CoSignScope::WITHDRAWALS,
-                }
-        })
-}
-
-fn withdrawals(transfers: &[SettlementTransfer]) -> Vec<(Address, u128)> {
-    let mut totals: Vec<(Address, u128)> = Vec::new();
-    for transfer in transfers.iter().filter(|transfer| !transfer.is_deposit()) {
-        let mint = match transfer {
-            SettlementTransfer::Sol { .. } => Address::new_from_array(SOL_ASSET_ADDRESS),
-            SettlementTransfer::Spl { mint, .. } => *mint,
-        };
-        match totals.iter_mut().find(|(known, _)| *known == mint) {
-            Some((_, total)) => *total += u128::from(transfer.amount()),
-            None => totals.push((mint, u128::from(transfer.amount()))),
-        }
-    }
-    totals
 }
 
 /// Each real input spends once, a repeated nullifier fails on chain after proving.

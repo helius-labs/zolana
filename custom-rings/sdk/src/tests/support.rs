@@ -8,9 +8,9 @@ use std::{
 use async_trait::async_trait;
 use bytemuck::{Pod, Zeroable};
 use custom_ring_interface::{
-    stream::EPOCH_SLOTS, CoSignScope, EscrowKey, MemberRegistry, QueueEntry, RecordQueue, RingMode,
-    RingProgramConfig, SourceSlot, CONFIG_PDA_SEED, DEFAULT_INSERT_FEE, MEMBER_REGISTRY_PDA_SEED,
-    N_SOURCE_SLOTS, RECORD_QUEUE_PDA_SEED, RING_PROGRAM_CONFIG,
+    stream::EPOCH_SLOTS, AppliedAt, CoSignScope, EscrowKey, MemberRegistry, QueueEntry,
+    RecordQueue, RingMode, RingProgramConfig, SourceSlot, CONFIG_PDA_SEED, DEFAULT_INSERT_FEE,
+    MEMBER_REGISTRY_PDA_SEED, N_SOURCE_SLOTS, RECORD_QUEUE_PDA_SEED, RING_PROGRAM_CONFIG,
 };
 use solana_account::Account;
 use solana_address::Address;
@@ -102,7 +102,7 @@ pub(crate) fn wallet(utxo: Utxo, key: &NullifierKey, tree_id: u16, leaf_index: u
     }
 }
 
-pub(crate) fn ring_note(
+pub(crate) fn ring_utxo(
     owner: &ShieldedKeypair,
     asset: Mint,
     amount: u64,
@@ -500,7 +500,13 @@ impl Registry {
     fn account(&self, rules: &RuleTable) -> Account {
         let bump = Address::find_program_address(&[MEMBER_REGISTRY_PDA_SEED], &program()).1;
         let mut registry = MemberRegistry::new(bump, SLOT);
-        registry.push_root(self.root(), 0, SLOT);
+        registry.push_root(
+            self.root(),
+            AppliedAt {
+                applied: 0,
+                slot: SLOT,
+            },
+        );
         let mut sources = [SourceSlot::zeroed(); N_SOURCE_SLOTS];
         for list in rules.referenced().iter() {
             sources[list.slot()].list_id = list as u8;

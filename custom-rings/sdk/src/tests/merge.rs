@@ -4,7 +4,7 @@ use zolana_interface::pda;
 use zolana_keypair::ShieldedKeypair;
 use zolana_transaction::Mint;
 
-use super::support::{keypair, ring, ring_note, Chain, RingSettings, TREE_ID};
+use super::support::{keypair, ring, ring_utxo, Chain, RingSettings, TREE_ID};
 use crate::{
     CustomRingMerge, MergeProofInput, PreparedCustomRingMerge, RingError, RingMergeOperation,
     RingSubmission,
@@ -14,13 +14,14 @@ struct Merge<'a> {
     owner: &'a ShieldedKeypair,
     settings: RingSettings,
     payer: &'a ShieldedKeypair,
+    signers: &'a [&'a (dyn Signer + Sync)],
 }
 
 fn prepared(owner: &ShieldedKeypair) -> PreparedCustomRingMerge {
-    let notes = (0..2)
-        .map(|leaf| ring_note(owner, Mint::SOL, 5, leaf))
+    let utxos = (0..2)
+        .map(|leaf| ring_utxo(owner, Mint::SOL, 5, leaf))
         .collect();
-    CustomRingMerge::new(ring(), notes, None)
+    CustomRingMerge::new(ring(), utxos, None)
         .unwrap()
         .encrypt(owner)
         .unwrap()
@@ -37,27 +38,33 @@ impl Merge<'_> {
             },
         );
         RingSubmission::new(merge)
-            .send(&Chain::ring(self.settings).client(), self.payer, &[])
+            .send(
+                &Chain::ring(self.settings).client(),
+                self.payer,
+                self.signers,
+            )
             .await
             .unwrap_err()
     }
 }
 
-/// The hidden owner never pays or co-signs its anonymous merge.
+/// The hidden owner never pays, signs or co-signs its anonymous merge.
 #[tokio::test]
 async fn an_anonymous_merge_its_owner_would_sign_in_public_is_refused_before_proving() {
     let owner = keypair(1);
+    let unsigned: &[&(dyn Signer + Sync)] = &[];
     let anonymous = RingSettings::new(RingMode::Anonymous);
-    let refusal = |settings, payer| {
+    let refusal = |settings, payer, signers| {
         Merge {
             owner: &owner,
             settings,
             payer,
+            signers,
         }
         .refusal()
     };
     assert!(matches!(
-        refusal(anonymous, &owner).await,
+        refusal(anonymous, &owner, unsigned).await,
         RingError::AnonymousPublicSignerLinksOwner
     ));
     let co_signed = RingSettings {
@@ -66,7 +73,11 @@ async fn an_anonymous_merge_its_owner_would_sign_in_public_is_refused_before_pro
     };
     let payer = keypair(9);
     assert!(matches!(
-        refusal(co_signed, &payer).await,
+        refusal(co_signed, &payer, unsigned).await,
+        RingError::AnonymousPublicSignerLinksOwner
+    ));
+    assert!(matches!(
+        refusal(anonymous, &payer, &[&owner]).await,
         RingError::AnonymousPublicSignerLinksOwner
     ));
     let confidential = ring()
@@ -74,6 +85,6 @@ async fn an_anonymous_merge_its_owner_would_sign_in_public_is_refused_before_pro
         .await
         .unwrap();
     assert!(prepared(&owner)
-        .check_public_signers(owner.pubkey(), &confidential)
+        .check_public_signers([owner.pubkey()], &confidential)
         .is_ok());
 }
