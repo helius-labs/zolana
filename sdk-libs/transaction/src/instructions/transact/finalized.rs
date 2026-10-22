@@ -36,7 +36,7 @@ impl ConfidentialTransaction {
     /// Consume the transaction and fix everything that needs no key material.
     ///
     /// Steps:
-    /// 1. If not already finalized, select a shape, convert wallet inputs and pad
+    /// 1. If not already finalized, select a shape and pad
     ///    the input and output slots.
     /// 2. Derive and assign output blindings using the final slot order,
     ///    refusing a ring output with `MissingRingSecret`.
@@ -94,11 +94,7 @@ impl ConfidentialTransaction {
             ring_program_id: self.ring_program_id,
             owner_tags,
             interface_transfers,
-            tx_viewing_key: if self.addresses.is_empty() {
-                self.inputs.first().and_then(|input| input.tx_viewing_key)
-            } else {
-                None
-            },
+            tx_viewing_key: self.tx_viewing_key,
         })
     }
 }

@@ -206,7 +206,7 @@ fn pending_tree_data(len: usize, payer: &Pubkey, step: &Instruction) -> Vec<u8> 
 }
 
 #[test]
-fn tree_creation_completes_in_two_steps_and_advances_next_tree_id() {
+fn tree_creation_completes_in_four_steps_and_advances_next_tree_id() {
     let mut pool = Pool::initialized();
     let next_tree_id = zolana_program_test::next_tree_id(&pool.rpc).expect("next tree id");
     assert_eq!(next_tree_id, 1);
@@ -219,25 +219,30 @@ fn tree_creation_completes_in_two_steps_and_advances_next_tree_id() {
             .expect("default tree fees"),
     };
     let steps = create.instructions();
-    assert_eq!(steps.len(), 2);
+    assert_eq!(steps.len(), 4);
 
-    let (partial, last) = steps.split_at(1);
-    pool.rpc
-        .create_and_send_default_payer_transaction(partial, &[&pool.authority])
-        .expect("first allocation step");
-    let tree = pool.rpc.account_data(&create.tree()).expect("partial tree");
-    assert_eq!(
-        tree,
-        pending_tree_data(
-            TREE_ALLOCATION_STEP,
-            &pool.rpc.payer.pubkey(),
-            &create.allocation_step()
-        )
-    );
-    assert_eq!(
-        zolana_program_test::next_tree_id(&pool.rpc).expect("next tree id"),
-        2
-    );
+    let (partial, last) = steps.split_at(3);
+    for (index, step) in partial.iter().enumerate() {
+        pool.rpc
+            .create_and_send_default_payer_transaction(
+                core::slice::from_ref(step),
+                &[&pool.authority],
+            )
+            .expect("partial allocation step");
+        let tree = pool.rpc.account_data(&create.tree()).expect("partial tree");
+        assert_eq!(
+            tree,
+            pending_tree_data(
+                (index + 1) * TREE_ALLOCATION_STEP,
+                &pool.rpc.payer.pubkey(),
+                &create.allocation_step()
+            )
+        );
+        assert_eq!(
+            zolana_program_test::next_tree_id(&pool.rpc).expect("next tree id"),
+            2
+        );
+    }
 
     pool.rpc
         .create_and_send_default_payer_transaction(last, &[&pool.authority])

@@ -6,7 +6,8 @@ use zolana_interface::{
         default_tree_fees, nullifier_tree_params, read_tree_id, tree_account_size,
         tree_creation_step_count, tree_id_offset, tree_liquid_working_capital_lamports,
         tree_working_capital_lamports, AT_COST_APPEND_REIMBURSEMENT_LAMPORTS,
-        AT_COST_CLOSE_REIMBURSEMENT_LAMPORTS, NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
+        AT_COST_CLOSE_REIMBURSEMENT_LAMPORTS, NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE,
+        NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE, NULLIFIER_TREE_ROOT_HISTORY_CAPACITY,
         STATE_HEIGHT, STATE_ROOT_HISTORY_CAPACITY, TREE_ALLOCATION_STEP,
     },
     tree_slot::tree_id_field,
@@ -63,11 +64,11 @@ fn working_capital_funds_three_batches_of_live_nullifier_pdas() {
     let canonical = nullifier_tree_params().input_queue_batch_size;
     assert_eq!(
         tree_working_capital_lamports(canonical, nullifier_pda_rent),
-        Some(3 * 24_995 * 967_440)
+        Some(3 * 499_900 * 967_440)
     );
     assert_eq!(
         tree_working_capital_lamports(canonical / 2, nullifier_pda_rent),
-        Some(3 * 12_497 * 967_440)
+        Some(3 * 249_950 * 967_440)
     );
     assert_eq!(tree_working_capital_lamports(canonical, u64::MAX), None);
 }
@@ -115,10 +116,16 @@ fn read_tree_id_reads_the_initialized_id_at_offset_two() {
 }
 
 #[test]
-fn tree_creation_takes_two_allocation_steps() {
+fn tree_creation_takes_four_allocation_steps() {
     assert_eq!(STATE_ROOT_HISTORY_CAPACITY, 500);
-    assert_eq!(tree_account_size(), 18_608);
-    assert_eq!(tree_creation_step_count(), 2);
-    assert!(tree_account_size() > TREE_ALLOCATION_STEP);
-    assert!(tree_account_size() <= 2 * TREE_ALLOCATION_STEP);
+    assert_eq!(NULLIFIER_TREE_ROOT_HISTORY_CAPACITY, 100);
+    assert_eq!(NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE, 4999);
+    assert_eq!(NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE, 499_900);
+    nullifier_tree_params()
+        .validate()
+        .expect("valid production parameters");
+    assert_eq!(tree_account_size(), 40_080);
+    assert_eq!(tree_creation_step_count(), 4);
+    assert!(tree_account_size() > 3 * TREE_ALLOCATION_STEP);
+    assert!(tree_account_size() <= 4 * TREE_ALLOCATION_STEP);
 }

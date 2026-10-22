@@ -62,6 +62,8 @@ use crate::{error::TransactionError, utxo::SppProofInputUtxo, Mint, WalletUtxo, 
 /// - Transfer: [`new`](Self::new) → [`transfer`](Self::transfer) → [`encrypt`](Self::encrypt).
 /// - Deposit: [`new`](Self::new) → [`deposit`](Self::deposit) → [`encrypt`](Self::encrypt).
 /// - Withdraw: [`new`](Self::new) → [`withdraw`](Self::withdraw) → [`encrypt`](Self::encrypt).
+/// - Program-owned inputs: [`from_proof_inputs`](Self::from_proof_inputs) →
+///   [`add_output_utxo`](Self::add_output_utxo) → [`encrypt`](Self::encrypt).
 ///
 /// For SOL, use [`transfer_sol`](Self::transfer_sol), [`deposit_sol`](Self::deposit_sol)
 /// or [`withdraw_sol`](Self::withdraw_sol). Multiple operations can be combined
@@ -90,8 +92,9 @@ use crate::{error::TransactionError, utxo::SppProofInputUtxo, Mint, WalletUtxo, 
 /// ```
 #[derive(Clone)]
 pub struct ConfidentialTransaction {
-    inputs: Vec<WalletUtxo>,
+    inputs: Vec<SppProofInputUtxo>,
     addresses: Vec<SppProofInputUtxo>,
+    tx_viewing_key: Option<[u8; 32]>,
     outputs: Vec<SppProofOutputUtxo>,
     public_transfers: Vec<PublicTransferRequest>,
     payer: Address,
@@ -105,7 +108,7 @@ pub struct ConfidentialTransaction {
 }
 
 impl ConfidentialTransaction {
-    pub fn inputs(&self) -> &[WalletUtxo] {
+    pub fn inputs(&self) -> &[SppProofInputUtxo] {
         &self.inputs
     }
 
@@ -148,6 +151,27 @@ impl ConfidentialTransaction {
     /// nullifier non-inclusion proofs; their signing owners must authorize SPP.
     pub fn new_with_addresses(
         inputs: Vec<WalletUtxo>,
+        addresses: Vec<SppProofInputUtxo>,
+        payer: Address,
+    ) -> Result<Self, TransactionError> {
+        let output_tree_id = WalletUtxo::default_output_tree_id(&inputs);
+        let tx_viewing_key = if addresses.is_empty() {
+            inputs.first().and_then(|input| input.tx_viewing_key)
+        } else {
+            None
+        };
+        let mut transaction = Self::from_validated_inputs(
+            inputs.into_iter().map(SppProofInputUtxo::from).collect(),
+            addresses,
+            payer,
+        )?;
+        transaction.output_tree_id = output_tree_id;
+        transaction.tx_viewing_key = tx_viewing_key;
+        Ok(transaction)
+    }
+
+    fn from_validated_inputs(
+        inputs: Vec<SppProofInputUtxo>,
         addresses: Vec<SppProofInputUtxo>,
         payer: Address,
     ) -> Result<Self, TransactionError> {
@@ -222,7 +246,8 @@ impl ConfidentialTransaction {
             .ok_or(TransactionError::NoInputs)?;
 
         Ok(Self {
-            output_tree_id: WalletUtxo::default_output_tree_id(&inputs),
+            output_tree_id: 0,
+            tx_viewing_key: None,
             inputs,
             addresses,
             outputs: Vec::new(),
@@ -252,6 +277,49 @@ impl ConfidentialTransaction {
         payer: Address,
     ) -> Result<Self, TransactionError> {
         let mut transaction = Self::new_with_addresses(inputs, addresses, payer)?;
+        transaction.compact_padding = true;
+        Ok(transaction)
+    }
+
+    /// Like [`new`](Self::new), for inputs a program SDK
+    /// assembles itself, such as a program-owned UTXO it reconstructs from its
+    /// own state, rather than notes the indexer returned to a wallet. The
+    /// transaction still picks the shape, pads, derives every output blinding
+    /// and encrypts.
+    ///
+    /// Steps:
+    /// 1. Reject compact padding, which the transaction adds itself, and
+    ///    cached inputs, whose cache accounts [`encrypt`](Self::encrypt) does
+    ///    not populate.
+    /// 2. Validate and pad like [`new`](Self::new).
+    ///
+    /// The caller must supply each exact nullifier; construction checks the
+    /// UTXO commitment but cannot recompute nullifiers without key material.
+    /// Slot 0's nullifier seeds every output blinding.
+    pub fn from_proof_inputs(
+        inputs: Vec<SppProofInputUtxo>,
+        payer: Address,
+    ) -> Result<Self, TransactionError> {
+        // 1. Reject padding and cached inputs.
+        for (index, input) in inputs.iter().enumerate() {
+            if input.compact {
+                return Err(TransactionError::CompactProofInput { index });
+            }
+            if input.cache_slot.is_some() {
+                return Err(TransactionError::CachedProofInput { index });
+            }
+        }
+        // 2. Share the wallet constructor's validation.
+        Self::from_validated_inputs(inputs, Vec::new(), payer)
+    }
+
+    /// Like [`from_proof_inputs`](Self::from_proof_inputs), but pads unused
+    /// slots with compact padding, revealing the real input and output counts.
+    pub fn from_proof_inputs_compact(
+        inputs: Vec<SppProofInputUtxo>,
+        payer: Address,
+    ) -> Result<Self, TransactionError> {
+        let mut transaction = Self::from_proof_inputs(inputs, payer)?;
         transaction.compact_padding = true;
         Ok(transaction)
     }

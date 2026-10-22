@@ -149,7 +149,7 @@ fn partially_allocated_tree_is_not_usable() {
     let steps = create.instructions();
     pool.rpc
         .create_and_send_default_payer_transaction(
-            steps.get(..1).expect("allocation steps"),
+            steps.get(..3).expect("allocation steps"),
             &[&pool.authority],
         )
         .expect("allocation steps");
@@ -184,7 +184,7 @@ fn tree_creation_rejects_an_unsigned_authority() {
 fn tree_creation_rejects_non_canonical_nullifier_params() {
     let mut pool = Pool::initialized();
     let canonical = nullifier_tree_params();
-    // Derives 6 roots instead of the account layout's canonical 5.
+    // Derives 101 roots instead of the account layout's canonical 100.
     let wrong_zkp_ratio = NullifierTreeInitParams {
         input_queue_batch_size: canonical.input_queue_batch_size
             + canonical.input_queue_zkp_batch_size,

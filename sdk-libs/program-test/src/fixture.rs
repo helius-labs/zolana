@@ -28,8 +28,9 @@ use zolana_interface::{pda, state::SplAssetRegistry};
 
 use crate::{ProgramTestError, ZolanaProgramTest};
 
-/// Lamports the payer and every actor start with.
-pub const FUNDED_LAMPORTS: u64 = 100_000_000_000;
+/// Lamports the payer and every actor start with, including working capital
+/// when a test creates additional production trees.
+pub const FUNDED_LAMPORTS: u64 = 10_000_000_000_000;
 /// Tokens of [`spl_mint`] the payer's token account starts with.
 pub const PAYER_SPL_BALANCE: u64 = 1_000_000_000;
 /// The pool's asset id for [`spl_mint`]: the fixture registers exactly one SPL

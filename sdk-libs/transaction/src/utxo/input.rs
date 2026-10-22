@@ -10,7 +10,7 @@ use crate::{AddressInputError, Data, Mint, TransactionError};
 /// An input UTXO with every value the transaction and the prover read from it
 /// already computed, so nothing downstream holds key material. Convert from
 /// [`WalletUtxo`](crate::WalletUtxo) when finalizing a transaction.
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 // Serialize-only. These values are produced while finalizing a transaction and
 // never decoded; a deserializer would turn a misspelled field into a dummy.
 #[cfg_attr(

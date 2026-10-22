@@ -151,8 +151,9 @@ impl ZolanaProgramTest {
             .map_err(|e| ProgramTestError::Litesvm(format!("add_program: {e:?}")))?;
 
         let payer = Keypair::new();
-        // Working capital for recoverable nullifier-PDA rent.
-        svm.airdrop(&payer.pubkey(), 1_000_000_000_000)
+        // Working capital for several trees: a 100-root tree with 4,999-value
+        // proofs reserves about 1,451 SOL for recoverable nullifier-PDA rent.
+        svm.airdrop(&payer.pubkey(), 100_000_000_000_000)
             .map_err(|e| ProgramTestError::Litesvm(format!("airdrop: {e:?}")))?;
 
         Ok(Self {

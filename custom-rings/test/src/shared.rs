@@ -51,7 +51,7 @@ use zolana_user_registry_interface::user_registry_program_id;
 
 /// Funds the fee payer for the whole bootstrap (smart accounts, protocol
 /// config, tree allocation) plus every deposit a test drives through it.
-pub const PAYER_AIRDROP: u64 = 100_000_000_000;
+pub const PAYER_AIRDROP: u64 = 10_000_000_000_000;
 /// Each protocol signer only ever pays transaction fees.
 pub const SIGNER_AIRDROP: u64 = 1_000_000_000;
 /// The Squads protocol vault pays rent for the accounts its `execute_sync`

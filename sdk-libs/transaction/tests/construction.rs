@@ -79,7 +79,7 @@ fn dummy(owner: &ShieldedKeypair, tree: u16) -> WalletUtxo {
 }
 #[derive(Debug, PartialEq, Eq)]
 struct Snapshot {
-    inputs: Vec<WalletUtxo>,
+    inputs: Vec<SppProofInputUtxo>,
     outputs: Vec<SppProofOutputUtxo>,
     transfers: Vec<PublicTransferRequest>,
     payer: Address,
@@ -138,6 +138,78 @@ fn constructor_rejects_missing_and_dummy_first_inputs() {
 }
 
 #[test]
+fn proof_input_constructors_match_wallet_padding_modes() {
+    let owner = keypair(1);
+    let sender = owner.shielded_address().unwrap();
+    for compact in [false, true] {
+        let note = wallet_utxo(&owner, Mint::SOL, 42, 7, 1);
+        let input = SppProofInputUtxo::from(&note);
+        let (wallet, proof) = if compact {
+            (
+                ConfidentialTransaction::new_compact(vec![note], payer(&owner)),
+                ConfidentialTransaction::from_proof_inputs_compact(vec![input], payer(&owner)),
+            )
+        } else {
+            (
+                ConfidentialTransaction::new(vec![note], payer(&owner)),
+                ConfidentialTransaction::from_proof_inputs(vec![input], payer(&owner)),
+            )
+        };
+        let finalize = |tx: ConfidentialTransaction| {
+            let mut tx = tx.with_blinding_seed([9; 32]).unwrap();
+            tx.pad_utxos(Shape::IN2_OUT4, &sender).unwrap();
+            tx.finalize(&sender).unwrap()
+        };
+        let wallet = finalize(wallet.unwrap());
+        let proof = finalize(proof.unwrap());
+        assert_eq!(
+            (
+                &proof.input_utxos()[0],
+                proof
+                    .input_utxos()
+                    .iter()
+                    .map(|input| input.compact)
+                    .collect::<Vec<_>>(),
+                proof.output_utxos(),
+                proof.output_tree_id(),
+            ),
+            (
+                &wallet.input_utxos()[0],
+                vec![false, compact],
+                wallet.output_utxos(),
+                wallet.output_tree_id(),
+            ),
+            "proof inputs must preserve wallet behavior with compact={compact}"
+        );
+    }
+}
+
+#[test]
+fn proof_input_constructor_rejects_compact_inputs() {
+    let owner = keypair(1);
+    let real = SppProofInputUtxo::from(wallet_utxo(&owner, Mint::SOL, 42, 7, 1));
+    error(
+        ConfidentialTransaction::from_proof_inputs(
+            vec![real, SppProofInputUtxo::compact(7).unwrap()],
+            payer(&owner),
+        ),
+        E::CompactProofInput { index: 1 },
+    );
+}
+
+#[test]
+fn proof_input_constructor_rejects_cached_inputs() {
+    let owner = keypair(1);
+    let input = SppProofInputUtxo::from(wallet_utxo(&owner, Mint::SOL, 42, 7, 1))
+        .with_cache_slot(0)
+        .unwrap();
+    error(
+        ConfidentialTransaction::from_proof_inputs(vec![input], payer(&owner)),
+        E::CachedProofInput { index: 0 },
+    );
+}
+
+#[test]
 fn constructor_binds_every_committed_input_field_at_each_position() {
     let owner = keypair(1);
     let other = keypair(2);
@@ -170,7 +242,7 @@ fn constructor_binds_every_committed_input_field_at_each_position() {
     metadata.utxo.data = Data::new(vec![DataRecord::Memo(vec![8])]);
     metadata.leaf_index = 900;
     let tx = ConfidentialTransaction::new(vec![metadata.clone()], payer(&owner)).unwrap();
-    assert_eq!(tx.inputs(), [metadata]);
+    assert_eq!(tx.inputs(), [SppProofInputUtxo::from(metadata)]);
 }
 
 #[test]
@@ -221,7 +293,13 @@ fn constructor_enforces_declared_trees_and_preserves_interleaved_input_order() {
         dummy(&owner, 9),
     ];
     let tx = ConfidentialTransaction::new(interleaved.clone(), payer(&owner)).unwrap();
-    assert_eq!(tx.inputs(), interleaved);
+    assert_eq!(
+        tx.inputs(),
+        interleaved
+            .iter()
+            .map(SppProofInputUtxo::from)
+            .collect::<Vec<_>>()
+    );
     assert_eq!(tx.input_tree_ids(), [9, 4]);
     assert_eq!(
         *tx.first_nullifier(),
