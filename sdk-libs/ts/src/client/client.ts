@@ -179,19 +179,14 @@ export interface ZolanaClientConfig {
   readonly proverAsyncPoll?: AsyncPollConfig;
   /**
    * Encrypts every prover call to a prover that attests to the policy. Left
-   * out, a remote prover other than the Helius gateway must attest to
-   * `defaultTeePolicy()`; `false` sends plaintext, which carries every proof's
-   * witness, so only for a prover you run or trust with it.
+   * out, a remote prover gets `defaultTeePolicy()`.
    */
-  readonly proverTee?: TeePolicy | false;
+  readonly proverTee?: TeePolicy;
   readonly fetch?: typeof globalThis.fetch;
   /**
    * Permit plain http to non-loopback indexer and prover URLs.
    *
-   * Off by default: in plaintext the indexer response reveals which UTXOs an
-   * identity owns and the prover request carries the witness, so the transport
-   * carries the protocol's privacy. Set this only where the network is already
-   * private, and never for a public endpoint.
+   * Plain http exposes which UTXOs an identity owns, set it only on a private network.
    */
   readonly allowInsecureHttp?: boolean;
 }

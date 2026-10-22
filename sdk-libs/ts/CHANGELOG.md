@@ -3,9 +3,10 @@
 ## 0.5.0-alpha — unreleased
 
 Proofs go encrypted to an attested Nitro Enclave prover by default, the devnet
-enclave the SDK pins for a Helius devnet RPC URL, and any other remote prover
-must attest to that pin unless the caller opts out. One private transfer can
-pay several recipients, a transaction can reserve an address with a
+enclave the SDK pins for a Helius devnet RPC URL, and every other remote
+prover, the Helius gateway included, must attest to that pin. Only a loopback
+prover takes plaintext. One private transfer can pay several recipients, a
+transaction can reserve an address with a
 non-inclusion proof instead of spending a UTXO, and paying a transaction's fee
 no longer authorizes a spend. A merge publishes its output's amount and mint
 encrypted for the owner with the scheme the owner's registry record names, so
@@ -30,13 +31,13 @@ Breaking
 - Custom-ring auditor envelopes use X25519 keys → create a new auditor configuration with `X25519Keypair`/`X25519PublicKey` before using this version.
 - `ViewingKey` and shielded addresses use X25519 for new transfers and ring deposits → migrate P-256 viewing keys and historical wallet data before using this version.
 - `DST_VIEW_ROOT_P_CONST` is no longer exported from `@heliuslabs/zolana/keypair` → drop the import, X25519 viewing keys derive their view root without it.
-- `ProverClient` and `ZolanaClient` now require a remote prover other than the
-  Helius gateway to attest to `defaultTeePolicy()` and encrypt every call to
-  it, and `ZolanaClient` given a Helius devnet RPC URL and no `proverUrl`
-  proves through `DEFAULT_TEE_PROVER_ENDPOINT` with
-  `proofDataSource: "client"` and refuses `"prover"` → pass `tee: false` to `ProverClient` or
-  `proverTee: false` to `ZolanaClient` for a prover you run, or a policy of its
-  own, and set `proverUrl` to keep another prover.
+- `ProverClient` and `ZolanaClient` now require every remote prover, the
+  Helius gateway included, to attest to `defaultTeePolicy()` and encrypt every
+  call to it, and `ZolanaClient` given a Helius devnet RPC URL and no
+  `proverUrl` proves through `DEFAULT_TEE_PROVER_ENDPOINT` with
+  `proofDataSource: "client"` and refuses `"prover"` → pass a policy of its own
+  for a prover you run, or run it on loopback, and set `proverUrl` to keep
+  another prover.
 - Approval handlers receive a new `multiTransfer` intent for a transfer with
   several payments → handle it, or refuse it explicitly.
 - Ring deposit audit capsules carry a `RING_DEPOSIT_OPENING_LENGTH` (96) byte opening that also discloses the Ed25519 owner key of an anonymous ring deposit, `RingDepositOpening` takes it as `ownerKey` and `openRingDepositOpening` returns it → re-prove audited deposits with this version, a capsule sealed by an earlier version no longer decodes.

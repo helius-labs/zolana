@@ -60,8 +60,7 @@ describe.each([
   {
     name: "ProverClient",
     code: "CLIENT_INVALID_CONFIG",
-    create: (url: string, fetch: typeof globalThis.fetch) =>
-      new ProverClient({ url, fetch, tee: false }),
+    create: (url: string, fetch: typeof globalThis.fetch) => new ProverClient({ url, fetch }),
   },
 ])("$name gateway URL", ({ create, code }) => {
   it.each(["%ED%A0%80", "%FF", "%", "%C0%AF", "", "key%00value"])(
@@ -92,7 +91,6 @@ it("rejects malformed prover credentials through the public client before a requ
         solanaRpcUrl: "https://rpc.example",
         indexerUrl: "https://indexer.example",
         proverUrl: "https://prover.example?api-key=%FF",
-        proverTee: false,
         fetch,
       }),
   ).toThrow(

@@ -45,6 +45,17 @@ describe("resolveClientEndpoints", () => {
     expect(named.prover).toBe("https://prover.example");
   });
 
+  it("recognizes only the default deployment origin and base path", () => {
+    expect(isDefaultTeeProver(new URL(`${DEFAULT_TEE_PROVER_ENDPOINT}/?api-key=k`))).toBe(true);
+    for (const url of [
+      `${DEFAULT_TEE_PROVER_ENDPOINT}/other`,
+      `${DEFAULT_TEE_PROVER_ENDPOINT}:8443`,
+      DEFAULT_TEE_PROVER_ENDPOINT.replace("https:", "http:"),
+      `${DEFAULT_TEE_PROVER_ENDPOINT}.evil.example`,
+    ])
+      expect(isDefaultTeeProver(new URL(url))).toBe(false);
+  });
+
   it("keeps a non-devnet Helius RPC URL's proofs on its gateway", () => {
     const resolved = resolveClientEndpoints({
       solanaRpcUrl: "https://mainnet.helius-rpc.com/?api-key=k",

@@ -9,7 +9,7 @@ function recordingFetch(): { fetch: typeof globalThis.fetch; urls: string[] } {
   const urls: string[] = [];
   const fetch = vi.fn<typeof globalThis.fetch>((input) => {
     urls.push(String(input instanceof Request ? input.url : input));
-    return Promise.reject(new Error("offline"));
+    return Promise.resolve(new Response(null, { status: 404 }));
   });
   return { fetch, urls };
 }
@@ -23,32 +23,30 @@ async function attestationRequest(
 }
 
 describe("default TEE", () => {
-  it("attests a remote prover to the pinned deployment unless told not to", async () => {
+  it("attests a remote prover to the pinned deployment by default", async () => {
     const remote = recordingFetch();
-    const prover = new ProverClient({ url: "https://prover.example", fetch: remote.fetch });
+    const prover = new ProverClient({
+      url: "https://prover.example",
+      fetch: remote.fetch,
+    });
     expect(await attestationRequest(prover, remote.urls)).toMatch(
       /^https:\/\/prover\.example\/tee\/v1\/attestation\?nonce=[0-9a-f]{64}$/u,
     );
-
-    const off = recordingFetch();
-    const plaintext = new ProverClient({
-      url: "https://prover.example",
-      fetch: off.fetch,
-      tee: false,
-    });
-    await expect(plaintext.attest()).rejects.toMatchObject({
-      code: "CLIENT_INVALID_CONFIG",
-      details: { field: "tee" },
-    });
-    expect(off.urls).toEqual([]);
   });
 
-  it("sends a loopback prover and the Helius gateway plaintext", async () => {
-    for (const url of [
-      "http://127.0.0.1:3001",
-      "http://localhost:3001",
-      "https://devnet.helius-rpc.com/v1/zolana?api-key=k",
-    ]) {
+  it("rejects a runtime plaintext opt out", () => {
+    expect(() =>
+      Reflect.construct(ProverClient, [{ url: "https://prover.example", tee: false }]),
+    ).toThrow(
+      expect.objectContaining({
+        code: "CLIENT_INVALID_CONFIG",
+        details: { field: "tee.platform" },
+      }),
+    );
+  });
+
+  it("permits plaintext only for loopback development", async () => {
+    for (const url of ["http://127.0.0.1:3001", "http://localhost:3001"]) {
       const { fetch, urls } = recordingFetch();
       await expect(new ProverClient({ url, fetch }).attest()).rejects.toMatchObject({
         code: "CLIENT_INVALID_CONFIG",
@@ -79,9 +77,7 @@ describe("default TEE", () => {
       ["https://devnet.helius-rpc.com/v1/zolana?api-key=k", false],
       [DEFAULT_TEE_PROVER_ENDPOINT, false],
     ] as const) {
-      expect(new ProverClient({ url, fetch: vi.fn(), tee: false }).hasIndexedRoute, url).toBe(
-        indexed,
-      );
+      expect(new ProverClient({ url, fetch: vi.fn() }).hasIndexedRoute, url).toBe(indexed);
     }
   });
 
