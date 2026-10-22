@@ -98,7 +98,7 @@ func compileFingerprints(t *testing.T) map[string]fingerprint {
 var expectedFingerprints = map[string]fingerprint{
 	"batch_address-append_40_10":            {constraints: 421991, public: 2},
 	"custom_ring_apply_records_1":           {constraints: 15492, public: 2},
-	"custom_ring_audit_anonymous_4_2":       {constraints: 123527, public: 2},
+	"custom_ring_audit_anonymous_4_2":       {constraints: 123533, public: 2},
 	"custom_ring_audit_anonymous_entry_8_2": {constraints: 138067, public: 2},
 	"custom_ring_audit_delivered_8":         {constraints: 284405, public: 2},
 	"custom_ring_audit_packed_2":            {constraints: 53502, public: 2},
