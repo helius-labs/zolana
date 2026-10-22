@@ -104,13 +104,13 @@ capsules and transfer messages client-side.
 
 ### Custom rings
 
-The ring projector queues every `WriteRecords` and `RegisterKey` write in the
-ring's record queue and applies the whole queue to the 4-ary record tree when
+The custom ring indexer queues every `WriteRecords` and `RegisterKey` write in the
+ring's record queue. It applies the whole queue to the 4-ary record tree when
 `ApplyRecords` lands. `AuthorityWriteRecords` queues its own writes behind the
 pending ones, applies the queue the same way and raises the registry floor to
 the applied position. Each application must reach the root and append index the
 instruction recorded. A mismatch stops that ring's projection, logs an error and
-counts `custom_ring_registry_stopped`, and its reads stay unavailable until a
+counts `custom_ring_registry_stopped`. Its reads stay unavailable until a
 rollback of the block lifts the stop.
 
 `getRingMemberRecord` and `getRingMemberOpenings` open members under any root the
@@ -124,14 +124,15 @@ history, the floor fields, the append index and the path of the next empty leaf,
 `getRingRecordQueue` returns the pending writes, and `getRingApplyProofInputs`
 the inputs of the apply proof over them, followed by the authority writes the
 request names. Every read checks the chain's registry and queue accounts after
-its database read. `context.slot` is the projection tip, so a client waits until
-it reaches the slot of its own write.
+its database read. `context.slot` is the custom ring tip, so a client waits
+until it reaches the slot of its own record update.
 
-One ring projector serves the member registry. It runs alongside SPP indexing with
-its own durable cursor and undo journal and applies confirmed blocks in order.
-On a fork it suspends lookups, rewinds its own rows, and replays canonical
-blocks. SPP tables stay untouched. An SPP indexer fork or archive gap can still
-prevent an ordinary SPP proof from being obtained.
+One custom ring indexer serves the member registry. It runs alongside SPP
+indexing with its own durable cursor and undo journal, fetches blocks with
+`--max-concurrent-block-fetches`, and applies confirmed blocks in order. On a
+fork it suspends lookups, rewinds its own rows, and replays canonical blocks.
+SPP tables stay untouched. An SPP indexer fork or archive gap can still prevent
+an ordinary SPP proof from being obtained.
 
 A ring whose instruction fails validation, or whose registry or queue account is
 missing, is quarantined. Its lookups stay unavailable, every other ring keeps
@@ -141,15 +142,17 @@ Late activation resumes from the ring's durable checkpoint after interruption.
 Lookups wait until replay reaches the global custom ring tip.
 
 Use a persistent `--db-url` and run migrations before starting a new binary.
-The default temporary database is discarded on startup. For a fresh ring,
-`--custom-rings-start-slot` may name its creation slot and must repeat the
-stored value on every restart. Do not start after the ring's
-`CREATE_MEMBER_REGISTRY` instruction. Keep RPC history available from that
-slot, and back up the database and its undo journal.
+The default temporary database is discarded on startup. Without
+`--custom-rings-start-slot` the index starts where SPP indexing starts or
+resumes, so rings created earlier are not served. An explicit slot may name a
+ring's creation slot and must repeat the stored value on every restart. Do not
+start after the ring's `CREATE_MEMBER_REGISTRY` instruction. Keep RPC history
+available from that slot, and back up the database and its undo journal.
 
-The member registry answers `-32070` for an unavailable projection, `-32071` for
-a root or append index it no longer serves, `-32075` for a page with a gap, and
-`-32076` when the record queue moved under an apply request.
+Error `-32070` means the member registry index is unavailable, quarantined,
+or catching up. Wait for indexing or recovery. The member registry answers
+`-32071` for a changed root or append index and `-32075` for a page with a gap.
+It answers `-32076` when the record queue moved under an apply request.
 
 Photon fails closed when it cannot safely reconstruct Rings nullifier tree batches. A
 non-contiguous nullifier queue or reconstructed-root mismatch makes the indexer retry the same

@@ -77,18 +77,20 @@ apply to every row. INV-XC-12 tracks the anonymous commitment proof boundary.
 
 ## Summary
 
-- Total invariants: 304
+- Total invariants: 305
   - transact.md: 60 (Transact 45, RingTransact 8, RingAuthorityTransact 7)
   - deposit.md: 35 (Deposit 25, RingDeposit 10)
-  - merge.md: 45 (MergeTransact 22, RingMergeTransact 14, MergeCache 9)
-  - tree.md: 61 (CreateTree 12, BatchUpdateNullifierTree 9, PauseTree 5, nullifier PDAs INV-TRANSACT-46..50, open-PDA accounting 1, CloseNullifierPdas 11, SetTreeFees 10, ClaimTreeLamports 8)  - protocol-config.md: 18 (Create 10, Update 8)
+  - merge.md: 46 (MergeTransact 22, RingMergeTransact 15, MergeCache 9)
+  - tree.md: 61 (CreateTree 12, BatchUpdateNullifierTree 9, PauseTree 5, nullifier PDAs INV-TRANSACT-46..50, open-PDA accounting 1, CloseNullifierPdas 11, SetTreeFees 10, ClaimTreeLamports 8)
+  - protocol-config.md: 18 (Create 10, Update 8)
   - ring-config.md: 26 (Create 9, UpdateOwner 5, Update 6, SetRingActivation 6)
   - spl.md: 22 (CreateAssetCounter 8, CreateSplInterface 14)
   - event.md: 4
   - cross-cutting.md: 33
 - Critical (funds/double-spend/authority takeover): 106
 - High: 115
-- Medium: 77- Not applicable post-PR164: 6 (the both-amounts gate (INV-TRANSACT-12), the merge ciphertext/`merge_view_tag` entries, of which the merge ciphertext entries returned on 2026-10-15 as INV-MERGE-29..31, and the merge owner scheme (INV-MERGE-05); the P256 entries returned with PR172 and are re-scoped, not N/A; IDs retained, never renumbered)
+- Medium: 78
+- Not applicable post-PR164: 6 (the both-amounts gate (INV-TRANSACT-12), the merge ciphertext/`merge_view_tag` entries, of which the merge ciphertext entries returned on 2026-10-15 as INV-MERGE-29..31, and the merge owner scheme (INV-MERGE-05); the P256 entries returned with PR172 and are re-scoped, not N/A; IDs retained, never renumbered)
 - SPEC_DIVERGENCE items: all 8 originally flagged items were resolved by updating
   `docs/spec.md` to match the code (items 1 and 3 were re-corrected on 2026-07-28
   after an audit found the first resolution had not actually landed):
@@ -157,18 +159,19 @@ INV-RING-MERGE-08/-13 restated. The counts below include them.
 
 Current coverage (2026-10-20):
 
-- Covered: 276 / 304- Covered on companion security branches (#175, #176): 2 (the `- [~]` entries:
+- Covered: 276 / 305
+- Covered on companion security branches (#175, #176): 2 (the `- [~]` entries:
   INV-CREATE-AC-07, INV-BATCH-NULL-07 — behavior and tests land with those
   branches)
 - Partial: 20 (condition exercised, but the exact count/delta or the full-batch/localnet leg is not asserted)
 - Pointer: 1 (INV-XC-30, by design: it documents reachability and defers to INV-XC-31 / INV-TRANSACT-44 for coverage; it is counted in cross-cutting's 6 partial+untested below)
 - Not covered: 0
 
-(276 + 2 + 20 + 1 + 5 = 304. The per-file partial+untested column sums to 21
+(277 + 2 + 20 + 1 + 5 = 305. The per-file partial+untested column sums to 21
 because it includes the pointer.)
 
 Per file (covered / partial+untested / companion / not-applicable):
-transact 57/2/0/1, deposit 35/0/0/0, merge 34/6/0/5, tree 56/4/1/0,
+transact 57/2/0/1, deposit 35/0/0/0, merge 34/7/0/5, tree 56/4/1/0,
 protocol-config 18/0/0/0, ring-config 24/2/0/0, spl 21/0/1/0, event 4/0/0/0,
 cross-cutting 27/6/0/0.
 
@@ -287,9 +290,9 @@ Status of the audit findings against the current (post-PR164) tree:
   a proof, so a UTXO with application data only comes from a proven
   transaction, whose circuit requires the owner to sign.
 
-Custom rings now carry a dedicated auditor disclosure in their ring message.
-The custom-ring proof binds that disclosure to the committed notes. The
-recipient output encoding alone does not establish verifiable encryption.
-See [the audit boundary](../../../custom-rings/docs/auditing.md#limits).
-
-Merge output encryption uses `VerifiablyEncrypted(6 || ...)`. Its proof binds the encrypted amount and mint to the merged note. Ordinary recipient ciphertext remains outside the transfer proof.
+Post-audit note: an attempted removal of `OutputDataEncoding::VerifiablyEncrypted`
+(then unused after PR164 removed the merge ciphertext) was **reverted** — the
+variant was kept for upcoming auditor encryption flows (custom rings with
+auditor; PR #177 review, ananas-block). Superseded 2026-10-15: the variant is
+live again, because the merged output is published as
+`VerifiablyEncrypted(6 || ...)` (see the Merge section of `docs/spec.md`).
