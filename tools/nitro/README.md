@@ -100,6 +100,7 @@ Each enclave runs in its own `zolana-enclave@i` unit, which restarts only that e
 Inside the enclave the key tmpfs takes the size `prover/server/nitro/serve.sh` pins for the served key set, and a test checks that it holds every served key plus the largest partial download.
 The prover heap limit is the enclave memory less the tmpfs and 2 GiB for the kernel and root file system.
 `--instance-type` accepts any x86 type with Nitro Enclaves support, 6 vCPUs and 49 GiB, and the enclave scales with it.
+`prover/tee/deployments/*.settings.json` holds the instance, enclave memory, backend and key set of a planned deployment, and a test checks that the memory matches the instance and boots the key set.
 
 ## Prerequisites
 

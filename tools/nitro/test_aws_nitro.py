@@ -28,6 +28,7 @@ SERVE = SERVER / "nitro/serve.sh"
 DOWNLOADER = SERVER / "prover/common/key_downloader.go"
 DOCKERFILE = (SERVER / "Dockerfile.nitro").read_text()
 LOCK = json.loads((SERVER / "prover/provingkeys/proving-keys.lock").read_text())["keys"]
+DEPLOYMENTS = REPOSITORY / "prover/tee/deployments"
 TMPFS_SLACK = 2**30
 MEMTOTAL_GAP_MIB = 1024
 IMAGE = (
@@ -1462,6 +1463,30 @@ class ImageTests(unittest.TestCase):
             aws_nitro.MIN_ENCLAVE_MIB,
             max(minimum_enclave_mib(key_set(name)[0]) for name in key_sets()),
         )
+
+    def test_deployment_settings_fit_their_instance(self):
+        instances = {
+            "m7i.4xlarge": instance_type(
+                VCpuInfo={"DefaultVCpus": 16, "DefaultThreadsPerCore": 2},
+                MemoryInfo={"SizeInMiB": 65536},
+            )
+        }
+        paths = sorted(DEPLOYMENTS.glob("*.settings.json"))
+        self.assertTrue(paths)
+        for path in paths:
+            deployment = json.loads(path.read_text())
+            with self.subTest(path=path.name):
+                name = deployment["name"]
+                self.assertEqual(aws_nitro.gpu.stack_name(name, prefix=""), name)
+                self.assertEqual(deployment["platform"], "aws-nitro")
+                self.assertIn(deployment["backend"], backends())
+                _, memory = aws_nitro.enclave_size(
+                    instances[deployment["instance_type"]]
+                )
+                self.assertEqual(deployment["enclave_memory_mib"], memory)
+                self.assertGreaterEqual(
+                    memory, minimum_enclave_mib(key_set(deployment["serve"])[0])
+                )
 
     def test_enclave_runs_the_nitro_tee_without_a_key_or_public_listener(self):
         self.assertIn("--tee nitro", ENTRYPOINT)
