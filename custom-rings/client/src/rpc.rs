@@ -1,6 +1,9 @@
 //! The ring rpc wire, its signed attestations and the auditor key files.
 
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 use custom_ring_interface::{MemberRegistry, RecordQueue, RingAccount, RootEntry};
 use rand::RngCore;
@@ -22,9 +25,9 @@ use zolana_secret_file::{
 };
 
 use crate::{
-    AuditedInput, AuditedNote, AuditedOutput, AuditedTransaction, InputRing, KnownNote,
+    AuditError, AuditedInput, AuditedOutput, AuditedTransaction, AuditedUtxo, InputRing, KnownUtxo,
     MergeAuditPage, MergeKeys, OutputOpening, OutputPayloadErrorKind, ReaderKey, ReaderKeyError,
-    RingWithdrawal,
+    RingWithdrawal, UtxoOwner,
 };
 
 pub const HEALTH: &str = "health";
@@ -33,18 +36,18 @@ pub const RING_STATUS: &str = "ringStatus";
 pub const RING_DEPOSITS: &str = "ringDeposits";
 pub const GET_DECRYPTED_TRANSACTIONS: &str = "getDecryptedTransactions";
 pub const GET_AUDITED_MERGES: &str = "getAuditedMerges";
-pub const GET_AUDITED_NOTES: &str = "getAuditedNotes";
-/// The most UTXO hashes one `getAuditedNotes` request names.
-pub const AUDITED_NOTES_LIMIT: usize = 100;
+pub const GET_AUDITED_UTXOS: &str = "getAuditedUtxos";
+/// The most UTXO hashes one `getAuditedUtxos` request names.
+pub const AUDITED_UTXOS_LIMIT: usize = 100;
 pub const AUDIT_CURSOR_LIMIT: usize = 256;
 pub const AUDIT_PAGE_LIMIT: u64 = 100;
 pub const DEPOSITS_PAGE_LIMIT: u32 = 50;
 pub const MAX_DEPOSITS_PAGE_LIMIT: u32 = 200;
 const KEY_HEX_LEN: u64 = 64;
-const ATTESTATION_DOMAIN: &[u8] = b"zolana/ring-auditor-key/v1";
-const READ_DOMAIN: &str = "zolana/ring-rpc-read/v1";
+const ATTESTATION_DOMAIN: &[u8] = b"zolana/ring-auditor-key/v2";
+const READ_DOMAIN: &str = "zolana/ring-rpc-read/v2";
 const AUDITOR_KEY_REQUEST_DOMAIN: &str = "zolana/ring-rpc-auditor-key-request/v1";
-const AUDITED_NOTES_DOMAIN: &str = "zolana/ring-rpc-audited-notes/v1";
+const AUDITED_UTXOS_DOMAIN: &str = "zolana/ring-rpc-audited-utxos/v1";
 
 /// One cursor rule for the request builder, the page and the indexer response check.
 pub fn cursor_in_bounds(cursor: &[u8]) -> bool {
@@ -56,8 +59,8 @@ pub fn limit_in_bounds(limit: &Limit) -> bool {
 }
 
 /// One count rule for the note request builder and the service.
-pub fn notes_in_bounds(utxo_hashes: &[Hash]) -> bool {
-    (1..=AUDITED_NOTES_LIMIT).contains(&utxo_hashes.len())
+pub fn utxo_hashes_in_bounds(utxo_hashes: &[Hash]) -> bool {
+    (1..=AUDITED_UTXOS_LIMIT).contains(&utxo_hashes.len())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -233,9 +236,6 @@ pub struct GetDecryptedTransactionsRequest {
     pub auth: ReadAuth,
 }
 
-/// Uses the same signed ring, cursor and limit attestation as transfer reads.
-pub type GetAuditedMergesRequest = GetDecryptedTransactionsRequest;
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct GetAuditedMergesResponse {
@@ -245,36 +245,36 @@ pub struct GetAuditedMergesResponse {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct GetAuditedNotesRequest {
+pub struct GetAuditedUtxosRequest {
     /// Required for derived keys.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ring_program_id: Option<SerializablePubkey>,
-    /// UTXO hashes with their tree id, `1..=AUDITED_NOTES_LIMIT` of them.
+    /// UTXO hashes with their tree id, `1..=AUDITED_UTXOS_LIMIT` of them.
     pub utxo_hashes: Vec<Hash>,
     pub auth: ReadAuth,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct GetAuditedNotesResponse {
+pub struct GetAuditedUtxosResponse {
     /// The backfill's newest page, a later note reads `null` until the backfill passes it.
     pub context: Context,
-    pub value: AuditedNotesPage,
+    pub value: AuditedUtxosPage,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct AuditedNotesPage {
+pub struct AuditedUtxosPage {
     /// In request order, `null` for a note the auditor has not opened.
-    pub notes: Vec<Option<AuditedNoteView>>,
+    pub utxos: Vec<Option<AuditedUtxoView>>,
 }
 
 /// A note the auditor opened, with the transaction that created it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct AuditedNoteView {
+pub struct AuditedUtxoView {
     pub utxo_hash: Hash,
-    pub note: DecryptedNote,
+    pub utxo: DecryptedKnownUtxo,
     pub slot: u64,
     pub tx_signature: SerializableSignature,
     pub event_index: u16,
@@ -425,8 +425,8 @@ pub enum ReadBuildError {
     Cursor,
     #[error("audit page limit is invalid")]
     Limit,
-    #[error("a note read names 1 to {AUDITED_NOTES_LIMIT} UTXO hashes")]
-    Notes,
+    #[error("a UTXO read names 1 to {AUDITED_UTXOS_LIMIT} UTXO hashes")]
+    UtxoHashes,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -502,7 +502,7 @@ pub struct DecryptedOutput {
     pub kind: DecryptedOutputKind,
     /// Absent for a dummy.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub note: Option<DecryptedNote>,
+    pub utxo: Option<DecryptedUtxo>,
     /// The recipient's X25519 u of a ring output.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recipient_u: Option<Hash>,
@@ -522,12 +522,10 @@ pub enum DecryptedOutputKind {
 /// Exact field encodings keep an unknown asset readable.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct DecryptedNote {
+pub struct DecryptedUtxo {
     /// Base58 of it is the owner's Solana address.
     pub owner_key: SerializablePubkey,
-    /// Absent for a deposit, its capsule discloses the owner hash.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub nullifier_pk: Option<Hash>,
+    pub nullifier_pk: Hash,
     pub asset: Hash,
     /// Absent while the asset registry does not know the asset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -536,6 +534,26 @@ pub struct DecryptedNote {
     pub blinding: Hash,
     pub data_hash: Hash,
     pub ring_data_hash: Hash,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct DecryptedKnownUtxo {
+    pub owner_key: SerializablePubkey,
+    /// Exactly one of `nullifier_pk` and `owner_hash`, the latter for a deposited note.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nullifier_pk: Option<Hash>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_hash: Option<Hash>,
+    pub asset: Hash,
+    /// Absent while the asset registry does not know the asset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mint: Option<SerializablePubkey>,
+    pub amount: u64,
+    pub blinding: Hash,
+    pub data_hash: Hash,
+    pub ring_data_hash: Hash,
+    pub tree_id: u16,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -609,9 +627,27 @@ pub trait Attestation {
     fn message(&self, timestamp: u64, nonce: &[u8; 32]) -> Vec<u8>;
 }
 
+/// The paged reads a reader signs, each under its method name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PagedRead {
+    DecryptedTransactions,
+    AuditedMerges,
+}
+
+/// One ring behind one ring rpc on one cluster, every signed read names all three.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReadTarget {
+    /// The genesis hash.
+    pub cluster: [u8; 32],
+    /// The key `health` reports.
+    pub service: Address,
+    pub ring: Address,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReadAttestation {
-    pub ring: Address,
+    pub read: PagedRead,
+    pub target: ReadTarget,
     pub cursor: Option<Base64String>,
     pub limit: Option<Limit>,
 }
@@ -622,12 +658,20 @@ pub struct AuditorKeyAttestation {
     pub genesis_hash: [u8; 32],
 }
 
-/// A note read binds the hashes it names through their digest.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct AuditedNotesAttestation {
-    pub ring: Address,
+pub struct AuditedUtxosAttestation {
+    pub target: ReadTarget,
     /// sha256 of the requested hashes, concatenated in request order.
-    pub notes: [u8; 32],
+    pub utxo_hashes: [u8; 32],
+}
+
+/// The service's statement of the auditor key it holds, bound to the request it answers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AuditorKeyStatement<'a> {
+    pub cluster: &'a [u8; 32],
+    pub ring: &'a Address,
+    pub auditor_pubkey: &'a X25519Pubkey,
+    pub nonce: &'a [u8; 32],
 }
 
 #[must_use]
@@ -641,8 +685,8 @@ pub type ReadRequest = SignedRequest<ReadAttestation>;
 pub type AuditorKeyRequest = SignedRequest<AuditorKeyAttestation>;
 
 #[must_use]
-pub struct AuditedNotesRequest {
-    signed: SignedRequest<AuditedNotesAttestation>,
+pub struct AuditedUtxosRequest {
+    signed: SignedRequest<AuditedUtxosAttestation>,
     utxo_hashes: Vec<Hash>,
 }
 
@@ -660,16 +704,17 @@ pub enum KeyFileError {
     Key(#[from] KeypairError),
 }
 
-pub fn auditor_key_attestation(
-    ring_program_id: &Address,
-    auditor_pubkey: &X25519Pubkey,
-) -> Vec<u8> {
-    [
-        ATTESTATION_DOMAIN,
-        ring_program_id.as_ref(),
-        auditor_pubkey.as_bytes(),
-    ]
-    .concat()
+impl AuditorKeyStatement<'_> {
+    pub fn message(&self) -> Vec<u8> {
+        [
+            ATTESTATION_DOMAIN,
+            &self.cluster[..],
+            self.ring.as_ref(),
+            self.auditor_pubkey.as_bytes(),
+            &self.nonce[..],
+        ]
+        .concat()
+    }
 }
 
 impl RingDepositsRequest {
@@ -739,18 +784,18 @@ impl From<ConfirmedAudit> for DecryptedTransaction {
 
 impl From<AuditedOutput> for DecryptedOutput {
     fn from(output: AuditedOutput) -> Self {
-        let (kind, note, recipient_u, tag) = match output.opening {
+        let (kind, utxo, recipient_u, tag) = match output.opening {
             OutputOpening::Ring {
-                note,
+                utxo,
                 recipient_u,
                 tag,
             } => (
                 DecryptedOutputKind::Ring,
-                Some(note),
+                Some(utxo),
                 Some(recipient_u.into()),
                 tag.map(|tag| tag.field().into()),
             ),
-            OutputOpening::Exit(note) => (DecryptedOutputKind::Exit, Some(note), None, None),
+            OutputOpening::Exit(utxo) => (DecryptedOutputKind::Exit, Some(utxo), None, None),
             OutputOpening::Dummy => (DecryptedOutputKind::Dummy, None, None, None),
         };
         Self {
@@ -761,31 +806,108 @@ impl From<AuditedOutput> for DecryptedOutput {
                 hash: output.context.hash.into(),
             },
             kind,
-            note: note.map(Into::into),
+            utxo: utxo.map(Into::into),
             recipient_u,
             tag,
         }
     }
 }
 
-impl From<AuditedNote> for DecryptedNote {
-    fn from(note: AuditedNote) -> Self {
-        KnownNote::from(note).into()
+impl From<AuditedUtxo> for DecryptedUtxo {
+    fn from(utxo: AuditedUtxo) -> Self {
+        Self {
+            owner_key: utxo.owner_key.into(),
+            nullifier_pk: utxo.nullifier_pk.into(),
+            asset: utxo.asset.into(),
+            mint: utxo.mint.map(Into::into),
+            amount: utxo.amount,
+            blinding: utxo.blinding.into(),
+            data_hash: utxo.data_hash.into(),
+            ring_data_hash: utxo.ring_data_hash.into(),
+        }
     }
 }
 
-impl From<KnownNote> for DecryptedNote {
-    fn from(note: KnownNote) -> Self {
+impl From<KnownUtxo> for DecryptedKnownUtxo {
+    fn from(utxo: KnownUtxo) -> Self {
+        let (nullifier_pk, owner_hash) = match utxo.owner {
+            UtxoOwner::Keyed { nullifier_pk } => (Some(nullifier_pk.into()), None),
+            UtxoOwner::Deposited { owner_hash } => (None, Some(owner_hash.into())),
+        };
         Self {
-            owner_key: note.owner_key.into(),
-            nullifier_pk: note.nullifier_pk.map(Into::into),
-            asset: note.asset.into(),
-            mint: note.mint.map(Into::into),
-            amount: note.amount,
-            blinding: note.blinding.into(),
-            data_hash: note.data_hash.into(),
-            ring_data_hash: note.ring_data_hash.into(),
+            owner_key: utxo.owner_key.into(),
+            nullifier_pk,
+            owner_hash,
+            asset: utxo.asset.into(),
+            mint: utxo.mint.map(Into::into),
+            amount: utxo.amount,
+            blinding: utxo.blinding.into(),
+            data_hash: utxo.data_hash.into(),
+            ring_data_hash: utxo.ring_data_hash.into(),
+            tree_id: utxo.tree_id,
         }
+    }
+}
+
+impl TryFrom<&DecryptedKnownUtxo> for KnownUtxo {
+    type Error = AuditError;
+
+    fn try_from(utxo: &DecryptedKnownUtxo) -> Result<Self, AuditError> {
+        let owner = match (&utxo.nullifier_pk, &utxo.owner_hash) {
+            (Some(nullifier_pk), None) => UtxoOwner::Keyed {
+                nullifier_pk: nullifier_pk.0,
+            },
+            (None, Some(owner_hash)) => UtxoOwner::Deposited {
+                owner_hash: owner_hash.0,
+            },
+            _ => return Err(AuditError::AuditedUtxoOwner),
+        };
+        Ok(Self {
+            owner_key: utxo.owner_key.0.to_bytes(),
+            owner,
+            asset: utxo.asset.0,
+            mint: utxo.mint.map(|mint| mint.0),
+            amount: utxo.amount,
+            blinding: utxo.blinding.0,
+            data_hash: utxo.data_hash.0,
+            ring_data_hash: utxo.ring_data_hash.0,
+            tree_id: utxo.tree_id,
+        })
+    }
+}
+
+impl GetAuditedUtxosResponse {
+    /// Every opening must rebuild the hash it answers, a note of `ring` or of the default ring.
+    pub fn known_utxos(
+        &self,
+        ring: Address,
+        requested: &[Hash],
+    ) -> Result<HashMap<[u8; 32], KnownUtxo>, AuditError> {
+        let utxos = &self.value.utxos;
+        if utxos.len() != requested.len() {
+            return Err(AuditError::AuditedUtxosCount {
+                got: utxos.len(),
+                want: requested.len(),
+            });
+        }
+        let mut known = HashMap::new();
+        for (view, requested) in utxos.iter().zip(requested) {
+            let Some(view) = view else {
+                continue;
+            };
+            let utxo = KnownUtxo::try_from(&view.utxo)?;
+            let rebuilt = [Some(ring), None]
+                .into_iter()
+                .map(|ring| utxo.commitment(ring))
+                .collect::<Result<Vec<_>, _>>()?;
+            if view.utxo_hash != *requested || !rebuilt.contains(&requested.0) {
+                return Err(AuditError::AuditedUtxoMismatch {
+                    utxo_hash: requested.0,
+                });
+            }
+            known.insert(requested.0, utxo);
+        }
+        Ok(known)
     }
 }
 
@@ -904,12 +1026,43 @@ impl From<&RingConfig> for RingActivation {
     }
 }
 
+impl PagedRead {
+    pub const fn method(self) -> &'static str {
+        match self {
+            Self::DecryptedTransactions => GET_DECRYPTED_TRANSACTIONS,
+            Self::AuditedMerges => GET_AUDITED_MERGES,
+        }
+    }
+
+    /// A fresh nonce for every request, signing consumes it.
+    pub fn request(self, target: ReadTarget) -> ReadRequest {
+        SignedRequest::new(ReadAttestation {
+            read: self,
+            target,
+            cursor: None,
+            limit: None,
+        })
+    }
+}
+
+impl ReadTarget {
+    fn lines(&self) -> String {
+        format!(
+            "cluster: {}\nservice: {}\nring: {}",
+            Hash(self.cluster).to_base58(),
+            self.service,
+            self.ring
+        )
+    }
+}
+
 impl Attestation for ReadAttestation {
     fn message(&self, timestamp: u64, nonce: &[u8; 32]) -> Vec<u8> {
         let cursor = self.cursor.as_ref().map_or(&[][..], |cursor| &cursor.0);
         format!(
-            "{READ_DOMAIN}\nring: {}\ntimestamp: {timestamp}\nnonce: {}\nlimit: {}\ncursor: {}",
-            self.ring,
+            "{READ_DOMAIN}\nmethod: {}\n{}\ntimestamp: {timestamp}\nnonce: {}\nlimit: {}\ncursor: {}",
+            self.read.method(),
+            self.target.lines(),
             base64(nonce),
             self.limit.as_ref().map_or(0, Limit::value),
             base64(cursor),
@@ -930,26 +1083,26 @@ impl Attestation for AuditorKeyAttestation {
     }
 }
 
-impl AuditedNotesAttestation {
-    pub fn new(ring: Address, utxo_hashes: &[Hash]) -> Self {
+impl AuditedUtxosAttestation {
+    pub fn new(target: ReadTarget, utxo_hashes: &[Hash]) -> Self {
         let mut digest = Sha256::new();
         for hash in utxo_hashes {
             digest.update(hash.0);
         }
         Self {
-            ring,
-            notes: digest.finalize().into(),
+            target,
+            utxo_hashes: digest.finalize().into(),
         }
     }
 }
 
-impl Attestation for AuditedNotesAttestation {
+impl Attestation for AuditedUtxosAttestation {
     fn message(&self, timestamp: u64, nonce: &[u8; 32]) -> Vec<u8> {
         format!(
-            "{AUDITED_NOTES_DOMAIN}\nring: {}\ntimestamp: {timestamp}\nnonce: {}\nnotes: {}",
-            self.ring,
+            "{AUDITED_UTXOS_DOMAIN}\n{}\ntimestamp: {timestamp}\nnonce: {}\nutxos: {}",
+            self.target.lines(),
             base64(nonce),
-            base64(&self.notes),
+            base64(&self.utxo_hashes),
         )
         .into_bytes()
     }
@@ -1019,12 +1172,13 @@ impl ReadRequest {
     ) -> Result<GetDecryptedTransactionsRequest, ReadBuildError> {
         let auth = self.read_auth(signer)?;
         let ReadAttestation {
-            ring,
+            target,
             cursor,
             limit,
+            ..
         } = self.attestation;
         Ok(GetDecryptedTransactionsRequest {
-            ring_program_id: Some(ring.to_bytes().into()),
+            ring_program_id: Some(target.ring.to_bytes().into()),
             cursor,
             limit,
             auth,
@@ -1032,7 +1186,7 @@ impl ReadRequest {
     }
 }
 
-impl AuditedNotesRequest {
+impl AuditedUtxosRequest {
     pub fn at(self, timestamp: u64) -> Self {
         Self {
             signed: self.signed.at(timestamp),
@@ -1043,9 +1197,9 @@ impl AuditedNotesRequest {
     pub fn sign<S: ReadSigner + ?Sized>(
         self,
         signer: &S,
-    ) -> Result<GetAuditedNotesRequest, ReadBuildError> {
-        Ok(GetAuditedNotesRequest {
-            ring_program_id: Some(self.signed.attestation.ring.to_bytes().into()),
+    ) -> Result<GetAuditedUtxosRequest, ReadBuildError> {
+        Ok(GetAuditedUtxosRequest {
+            ring_program_id: Some(self.signed.attestation.target.ring.to_bytes().into()),
             auth: self.signed.read_auth(signer)?,
             utxo_hashes: self.utxo_hashes,
         })
@@ -1076,26 +1230,22 @@ impl AuditorKeyRequest {
 }
 
 impl GetDecryptedTransactionsRequest {
-    pub fn read(ring: Address) -> ReadRequest {
-        SignedRequest::new(ReadAttestation {
-            ring,
-            cursor: None,
-            limit: None,
-        })
+    pub fn read(target: ReadTarget) -> ReadRequest {
+        PagedRead::DecryptedTransactions.request(target)
     }
 }
 
-impl GetAuditedNotesRequest {
+impl GetAuditedUtxosRequest {
     /// Refuses an empty or oversized read before it is signed.
     pub fn read(
-        ring: Address,
+        target: ReadTarget,
         utxo_hashes: Vec<Hash>,
-    ) -> Result<AuditedNotesRequest, ReadBuildError> {
-        if !notes_in_bounds(&utxo_hashes) {
-            return Err(ReadBuildError::Notes);
+    ) -> Result<AuditedUtxosRequest, ReadBuildError> {
+        if !utxo_hashes_in_bounds(&utxo_hashes) {
+            return Err(ReadBuildError::UtxoHashes);
         }
-        Ok(AuditedNotesRequest {
-            signed: SignedRequest::new(AuditedNotesAttestation::new(ring, &utxo_hashes)),
+        Ok(AuditedUtxosRequest {
+            signed: SignedRequest::new(AuditedUtxosAttestation::new(target, &utxo_hashes)),
             utxo_hashes,
         })
     }

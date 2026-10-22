@@ -5,7 +5,7 @@ use solana_signature::Signature;
 use thiserror::Error;
 use zolana_indexer_api::Base64String;
 use zolana_ring_client::{
-    rpc::{Attestation, AuditorKeyAttestation, AuthorityAuth, ReadAuth},
+    rpc::{Attestation, AuditorKeyAttestation, AuthorityAuth, ReadAuth, WebAuthnAssertion},
     ReaderKey,
 };
 
@@ -53,13 +53,20 @@ pub enum Unauthorized {
     NotRingAuthority,
 }
 
-/// The reader whose key signed `attestation`, its tag picks the verifier.
+/// The service rebuilds the attestation from its own cluster, key and ring.
 #[must_use]
-pub struct ReadCheck<'a> {
+pub struct ReadCheck<'a, A> {
     pub auth: &'a ReadAuth,
-    pub attestation: &'a [u8],
+    pub attestation: &'a A,
     pub now: u64,
     pub origins: &'a Origins,
+}
+
+#[must_use]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReadClaim {
+    pub reader: ReaderKey,
+    pub nonce: [u8; 32],
 }
 
 /// The service binds its own ring and cluster, a client names them but never chooses them.
@@ -77,8 +84,25 @@ pub(crate) struct AuthorityClaim {
     pub nonce: [u8; 32],
 }
 
-impl ReadCheck<'_> {
-    pub fn decide(self) -> Result<ReaderKey, Unauthorized> {
+enum Proof<'a> {
+    Ed25519 {
+        reader: ReaderKey,
+        signature: &'a [u8],
+    },
+    Passkey {
+        reader: ReaderKey,
+        assertion: &'a WebAuthnAssertion,
+        signature_der: &'a [u8],
+    },
+}
+
+struct Ed25519Proof<'a> {
+    signer: Address,
+    signature: &'a [u8],
+}
+
+impl<A: Attestation> ReadCheck<'_, A> {
+    pub fn decide(self) -> Result<ReadClaim, Unauthorized> {
         let Self {
             auth,
             attestation,
@@ -86,27 +110,10 @@ impl ReadCheck<'_> {
             origins,
         } = self;
         fresh(now, auth.timestamp)?;
-        let reader = <[u8; 34]>::try_from(auth.reader.0.as_slice())
-            .ok()
-            .and_then(|tagged| ReaderKey::from_bytes(tagged).ok())
-            .ok_or(Unauthorized::UnknownReaderKey)?;
-        let signature = &auth.signature.0;
-        match (reader, &auth.webauthn) {
-            (ReaderKey::Ed25519(_), Some(_)) => return Err(Unauthorized::UnexpectedAssertion),
-            (ReaderKey::P256(_), None) => return Err(Unauthorized::PasskeyNeedsAssertion),
-            (ReaderKey::Ed25519(key), None) => {
-                verify_ed25519(key.address(), signature, attestation)?
-            }
-            (ReaderKey::P256(key), Some(assertion)) => webauthn::Verification {
-                assertion,
-                signature_der: signature,
-                pubkey: &key,
-                attestation,
-                origins,
-            }
-            .verify()?,
-        }
-        Ok(reader)
+        let nonce = nonce(&auth.nonce)?;
+        let message = attestation.message(auth.timestamp, &nonce);
+        let reader = Proof::decode(auth)?.verify(&message, origins)?;
+        Ok(ReadClaim { reader, nonce })
     }
 }
 
@@ -125,7 +132,11 @@ impl AuthorityCheck<'_> {
         let nonce = nonce(&auth.nonce)?;
         let attestation =
             AuditorKeyAttestation { ring, genesis_hash }.message(auth.timestamp, &nonce);
-        verify_ed25519(auth.authority.0, &auth.signature.0, &attestation)?;
+        Ed25519Proof {
+            signer: auth.authority.0,
+            signature: &auth.signature.0,
+        }
+        .verify(&attestation)?;
         Ok(AuthorityClaim {
             authority: auth.authority.0,
             nonce,
@@ -133,11 +144,85 @@ impl AuthorityCheck<'_> {
     }
 }
 
-fn verify_ed25519(signer: Address, signature: &[u8], message: &[u8]) -> Result<(), Unauthorized> {
-    <[u8; 64]>::try_from(signature)
-        .is_ok_and(|signature| Signature::from(signature).verify(signer.as_ref(), message))
-        .then_some(())
-        .ok_or(Unauthorized::BadSignature)
+impl<'a> Proof<'a> {
+    fn decode(auth: &'a ReadAuth) -> Result<Self, Unauthorized> {
+        let tagged: [u8; 34] = auth
+            .reader
+            .0
+            .as_slice()
+            .try_into()
+            .map_err(|_| Unauthorized::UnknownReaderKey)?;
+        let reader = ReaderKey::from_bytes(tagged).map_err(|_| Unauthorized::UnknownReaderKey)?;
+        match reader {
+            ReaderKey::Ed25519(_) => {
+                if auth.webauthn.is_some() {
+                    return Err(Unauthorized::UnexpectedAssertion);
+                }
+                Ok(Self::Ed25519 {
+                    reader,
+                    signature: &auth.signature.0,
+                })
+            }
+            ReaderKey::P256(_) => {
+                let assertion = auth
+                    .webauthn
+                    .as_ref()
+                    .ok_or(Unauthorized::PasskeyNeedsAssertion)?;
+                Ok(Self::Passkey {
+                    reader,
+                    assertion,
+                    signature_der: &auth.signature.0,
+                })
+            }
+        }
+    }
+
+    fn verify(self, attestation: &[u8], origins: &Origins) -> Result<ReaderKey, Unauthorized> {
+        match self {
+            Self::Ed25519 { reader, signature } => {
+                let ReaderKey::Ed25519(key) = reader else {
+                    return Err(Unauthorized::UnknownReaderKey);
+                };
+                Ed25519Proof {
+                    signer: key.address(),
+                    signature,
+                }
+                .verify(attestation)?;
+                Ok(reader)
+            }
+            Self::Passkey {
+                reader,
+                assertion,
+                signature_der,
+            } => {
+                let ReaderKey::P256(key) = reader else {
+                    return Err(Unauthorized::UnknownReaderKey);
+                };
+                webauthn::Verification {
+                    assertion,
+                    signature_der,
+                    pubkey: &key,
+                    attestation,
+                    origins,
+                }
+                .verify()?;
+                Ok(reader)
+            }
+        }
+    }
+}
+
+impl Ed25519Proof<'_> {
+    fn verify(self, message: &[u8]) -> Result<(), Unauthorized> {
+        let signature: [u8; 64] = self
+            .signature
+            .try_into()
+            .map_err(|_| Unauthorized::BadSignature)?;
+        Signature::from(signature)
+            .verify(self.signer.as_ref(), message)
+            .then_some(())
+            .ok_or(Unauthorized::BadSignature)
+    }
 }
 
 fn fresh(now: u64, timestamp: u64) -> Result<(), Unauthorized> {
@@ -160,18 +245,24 @@ mod tests {
     use solana_keypair::Keypair;
     use solana_signer::Signer;
 
-    use zolana_ring_client::rpc::{unix_now, GetDecryptedTransactionsRequest, ReadAttestation};
+    use zolana_ring_client::rpc::{
+        unix_now, GetDecryptedTransactionsRequest, PagedRead, ReadAttestation, ReadTarget,
+    };
 
     use super::*;
 
-    const RING: Address = Address::new_from_array([5; 32]);
+    const TARGET: ReadTarget = ReadTarget {
+        cluster: [4; 32],
+        service: Address::new_from_array([6; 32]),
+        ring: Address::new_from_array([5; 32]),
+    };
 
     fn wallet() -> Keypair {
         Keypair::new_from_array([42; 32])
     }
 
     fn signed_auth() -> ReadAuth {
-        GetDecryptedTransactionsRequest::read(RING)
+        GetDecryptedTransactionsRequest::read(TARGET)
             .at(unix_now().expect("clock"))
             .sign(&wallet())
             .expect("signed request")
@@ -183,13 +274,12 @@ mod tests {
     }
 
     fn decide_at(auth: &ReadAuth, now: u64) -> Result<ReaderKey, Unauthorized> {
-        let nonce: [u8; 32] = auth.nonce.0.as_slice().try_into().unwrap_or([0; 32]);
         let attestation = ReadAttestation {
-            ring: RING,
+            read: PagedRead::DecryptedTransactions,
+            target: TARGET,
             cursor: None,
             limit: None,
-        }
-        .message(auth.timestamp, &nonce);
+        };
         ReadCheck {
             auth,
             attestation: &attestation,
@@ -197,6 +287,7 @@ mod tests {
             origins: &Origins::default(),
         }
         .decide()
+        .map(|claim| claim.reader)
     }
 
     fn assertion() -> zolana_ring_client::rpc::WebAuthnAssertion {
@@ -254,7 +345,7 @@ mod tests {
     fn a_timestamp_outside_the_skew_is_refused_in_both_directions() {
         let now = unix_now().expect("clock");
         for timestamp in [now - AUTH_SKEW.as_secs() - 1, now + AUTH_SKEW.as_secs() + 1] {
-            let auth = GetDecryptedTransactionsRequest::read(RING)
+            let auth = GetDecryptedTransactionsRequest::read(TARGET)
                 .at(timestamp)
                 .sign(&wallet())
                 .expect("signed request")
@@ -267,7 +358,7 @@ mod tests {
     fn a_timestamp_on_the_skew_boundary_is_accepted() {
         let now = unix_now().expect("clock");
         for timestamp in [now - AUTH_SKEW.as_secs(), now + AUTH_SKEW.as_secs()] {
-            let auth = GetDecryptedTransactionsRequest::read(RING)
+            let auth = GetDecryptedTransactionsRequest::read(TARGET)
                 .at(timestamp)
                 .sign(&wallet())
                 .expect("signed request")

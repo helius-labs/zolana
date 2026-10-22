@@ -30,7 +30,7 @@ use zolana_transaction::{
     OutputContext, OutputSlot, ShieldedTransaction, SppProofOutputUtxo, Utxo, WalletUtxo, SOL_MINT,
 };
 
-use transfer::{data_free, field, x25519_u, Frame, Note, Output, Publish, Rail, Transfer};
+use transfer::{data_free, field, x25519_u, Frame, Output, Publish, Rail, Transfer, UtxoFields};
 
 const RING: Address = Address::new_from_array([42; 32]);
 const SALT: [u8; 16] = [7; 16];
@@ -146,7 +146,7 @@ impl Fixture {
             nullifiers: vec![first_nullifier],
         };
         let ring_output = Output::Ring {
-            note: Note {
+            utxo: UtxoFields {
                 owner_key: self.address.confidential_view_tag().expect("owner key"),
                 nullifier_pk: self.address.nullifier_pubkey,
                 asset_address: output.asset.asset,
@@ -167,7 +167,7 @@ impl Fixture {
             Beside::Alone => (vec![ring_output], vec![published], false),
             Beside::EscrowedMember(other) => {
                 let other = Output::Ring {
-                    note: Note {
+                    utxo: UtxoFields {
                         asset_address: output.asset.asset,
                         amount: 1,
                         ..other
@@ -306,7 +306,7 @@ impl Fixture {
 enum Beside {
     Alone,
     /// Another member of a key-escrow ring, whose record the recovery does not hold.
-    EscrowedMember(Note),
+    EscrowedMember(UtxoFields),
 }
 
 fn output_context(note: &WalletUtxo) -> OutputContext {
@@ -475,10 +475,10 @@ impl TransactionOrigin for History {
 #[tokio::test]
 async fn a_key_escrow_ring_recovers_the_member_beside_other_owners() {
     let fixture = Fixture::new();
-    let other = Note {
+    let other = UtxoFields {
         owner_key: [0x66; 32],
         nullifier_pk: field(0x67),
-        ..Note::default()
+        ..UtxoFields::default()
     };
     let (held, tx) = fixture.encrypt_beside(fixture.output(4), 2, Beside::EscrowedMember(other));
     let history = History {
@@ -696,7 +696,7 @@ async fn recovery_uses_disclosed_ownership_even_when_recipient_delivery_is_unusa
 }
 
 #[tokio::test]
-async fn an_unknown_disclosed_asset_is_unopened_until_its_note_is_confirmed_spent() {
+async fn an_unknown_disclosed_asset_is_unopened_until_its_utxo_is_confirmed_spent() {
     let fixture = Fixture::new();
     let mut output = fixture.output(9);
     output.asset = Mint::new(Address::new_from_array([0x5a; 32]), 99);
@@ -876,7 +876,7 @@ async fn audited_deposit_recovery_preserves_committed_data_hashes() {
 }
 
 #[tokio::test]
-async fn unknown_audited_deposit_mints_remain_unresolved_without_hiding_other_notes() {
+async fn unknown_audited_deposit_mints_remain_unresolved_without_hiding_other_utxos() {
     let fixture = Fixture::new();
     let mint = Mint::new(Address::new_from_array([71; 32]), 2);
     let (known, known_tx) = fixture.deposit(fixture.output(4), 2);
@@ -1029,9 +1029,9 @@ async fn an_indexer_cannot_attach_a_new_valid_disclosure_to_a_confirmed_transfer
 }
 
 #[tokio::test]
-async fn an_indexer_cannot_invent_a_spend_of_a_recoverable_note() {
+async fn an_indexer_cannot_invent_a_spend_of_a_recoverable_utxo() {
     let fixture = Fixture::new();
-    let (note, transaction) = fixture.encrypt(fixture.output(4), 2);
+    let (held, transaction) = fixture.encrypt(fixture.output(4), 2);
     let mut unrelated = transaction.clone();
     unrelated.tx_signature = fixture.signature();
     unrelated.messages.clear();
@@ -1040,7 +1040,7 @@ async fn an_indexer_cannot_invent_a_spend_of_a_recoverable_note() {
     unrelated.salt = None;
     unrelated.nullifiers = vec![[55; 32]];
     let confirmed = origin_fixture::event(&unrelated);
-    unrelated.nullifiers = vec![note.nullifier];
+    unrelated.nullifiers = vec![held.nullifier];
     let history = History {
         confirmed_events: std::collections::HashMap::from([(unrelated.tx_signature, confirmed)]),
         transactions: vec![unrelated, transaction],
@@ -1079,23 +1079,23 @@ async fn an_indexer_cannot_relabel_a_confirmed_deposit_or_move_its_output() {
 }
 
 #[tokio::test]
-async fn a_foreign_invocation_cannot_mark_a_ring_note_spent() {
+async fn a_foreign_invocation_cannot_mark_a_ring_utxo_spent() {
     let fixture = Fixture::new();
-    let (note, transaction) = fixture.encrypt(fixture.output(4), 2);
+    let (held, transaction) = fixture.encrypt(fixture.output(4), 2);
     let mut forged = transaction.clone();
     forged.tx_signature = fixture.signature();
     forged.messages.clear();
     forged.output_slots.clear();
     forged.tx_viewing_pk = None;
     forged.salt = None;
-    forged.nullifiers = vec![note.nullifier];
+    forged.nullifiers = vec![held.nullifier];
     let history = History {
         foreign: vec![forged.tx_signature],
         transactions: vec![forged, transaction],
         ..Default::default()
     };
     let recovered = fixture.run(fixture.recovery(), &history).await.unwrap();
-    assert_eq!(recovered.utxos, vec![note]);
+    assert_eq!(recovered.utxos, vec![held]);
 }
 
 #[tokio::test]
@@ -1143,7 +1143,7 @@ async fn unknown_merge_mints_remain_unresolved_and_still_follow_spends() {
 }
 
 #[tokio::test]
-async fn unproved_recipient_metadata_cannot_block_plain_note_recovery_or_merge() {
+async fn unproved_recipient_metadata_cannot_block_plain_utxo_recovery_or_merge() {
     let fixture = Fixture::new();
     let mut output = fixture.output(9);
     output.data = Data::new(vec![

@@ -1,6 +1,10 @@
 //! `AnonymousRingSync` and `TagAllocation` against an in-memory indexer.
 
-use std::sync::Mutex;
+use std::{
+    collections::{HashMap, HashSet},
+    ops::RangeInclusive,
+    sync::Mutex,
+};
 
 use async_trait::async_trait;
 use custom_ring_interface::{
@@ -9,6 +13,7 @@ use custom_ring_interface::{
     },
     RingDepositAuditCapsule, RING_DELIVERED_BODY_LEN,
 };
+use rand_core::{OsRng, UnwrapErr};
 use solana_address::Address;
 use solana_signature::Signature;
 use zolana_client::{
@@ -16,7 +21,7 @@ use zolana_client::{
     AnonymousStream, AsyncRpc, ClientError, Context, EncryptedUtxoMatch,
     GetEncryptedUtxosByTagsResponse, GetShieldedTransactionsByTagsResponse, IndexerRpcConfig,
     OutputContext, OutputSlot, PaymentStream, SentFirstContact, ShieldedTransaction, TagAllocation,
-    ANONYMOUS_RING_STATE_VERSION,
+    ADDRESS_GAP, ANONYMOUS_RING_STATE_VERSION, DEPOSIT_GAP, PAIR_IDLE_EPOCHS,
 };
 use zolana_event::{
     encode_encrypted_ring_deposit_output, encode_merge_output_data, EncryptedRingDepositData,
@@ -32,10 +37,11 @@ use zolana_transaction::{
     owner_utxo_hash,
     serialization::{ring_deposit::RingDepositPlaintext, RingDeliveredBody, RingDeliverySlot},
     AssetRegistry, DecryptRequest, DeriveRequest, EncryptedScheme, LocalShieldedKeys, Mint,
-    RingDeliveryRequest, ShieldedKeys, TransactionError, TransactionKeyRequest, Utxo,
+    RingDeliveryRequest, ShieldedKeys, TransactionError, TransactionKeyRequest, Utxo, WalletUtxo,
 };
 
 const RING: Address = Address::new_from_array([4; 32]);
+const OTHER_RING: Address = Address::new_from_array([5; 32]);
 const TREE: u16 = 2;
 const SALT: [u8; 16] = [7; 16];
 const CREATION: u64 = 100;
@@ -185,6 +191,8 @@ struct Indexer {
     deposits: Mutex<Vec<EncryptedUtxoMatch>>,
     /// The slot every answer reports persisted, `None` once caught up.
     persisted: Mutex<Option<u64>>,
+    tag_requests: Mutex<Vec<Vec<[u8; 32]>>>,
+    nullifier_requests: Mutex<Vec<Vec<[u8; 32]>>>,
 }
 
 impl Indexer {
@@ -209,6 +217,7 @@ impl AsyncRpc for Indexer {
         _limit: Option<u32>,
         _config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
+        self.tag_requests.lock().unwrap().push(tags.clone());
         let transactions = self.transactions.lock().unwrap();
         Ok(GetShieldedTransactionsByTagsResponse {
             context: self.context(),
@@ -257,6 +266,7 @@ impl AsyncRpc for Indexer {
         _limit: Option<u32>,
         _config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
+        self.nullifier_requests.lock().unwrap().push(nullifiers.clone());
         let transactions = self.transactions.lock().unwrap();
         Ok(GetShieldedTransactionsByNullifiersResponse {
             context: self.context(),
@@ -289,6 +299,18 @@ impl Fixture {
 
     fn recipient_owner(&self) -> ShieldedAddress {
         self.recipient.shielded_address().unwrap()
+    }
+
+    /// The recipient's ring address at `index`, admitting every first contact.
+    fn address(&self, index: u32) -> RingAddress {
+        RingAddress {
+            recipient: ShieldedAddress {
+                viewing_pubkey: address_key(&self.recipient, index),
+                ..self.recipient_owner()
+            },
+            ring_program_id: RING,
+            pairing: Pairing::default(),
+        }
     }
 
     /// A first contact from `sender` at `tag_index` of address 0's inbox stream.
@@ -343,10 +365,10 @@ impl Fixture {
         delivered.remove(0)
     }
 
-    fn change_from(&self, note: &Delivered, epoch: u64, amount: u64, leaf: u64) -> Delivered {
+    fn change_from(&self, utxo: &Delivered, epoch: u64, amount: u64, leaf: u64) -> Delivered {
         let nullifier = self
             .recipient
-            .nullifier(&note.utxo_hash, &note.blinding)
+            .nullifier(&utxo.utxo_hash, &utxo.blinding)
             .unwrap();
         let change_key = self
             .recipient
@@ -374,11 +396,11 @@ impl Fixture {
     /// The recipient's merge of `merge.notes`, tagged by its first nullifier as a ring merge is.
     fn merge(&self, merge: Merge<'_>) -> Merged {
         let nullifiers: Vec<[u8; 32]> = merge
-            .notes
+            .utxos
             .iter()
-            .map(|note| {
+            .map(|utxo| {
                 self.recipient
-                    .nullifier(&note.utxo_hash, &note.blinding)
+                    .nullifier(&utxo.utxo_hash, &utxo.blinding)
                     .unwrap()
             })
             .collect();
@@ -442,8 +464,16 @@ impl Fixture {
 
     /// A ring deposit to the recipient under its deposit tag at `counter`.
     fn deposit(&self, deposit: Deposit) -> Signature {
+        let row = self.deposit_row(&deposit);
+        let tx_signature = row.tx_signature;
+        self.indexer.deposits.lock().unwrap().push(row);
+        tx_signature
+    }
+
+    /// The row an indexer serves for `deposit`, its hash the deposit's commitment.
+    fn deposit_row(&self, deposit: &Deposit) -> EncryptedUtxoMatch {
         let address = self.recipient_owner();
-        let tag = self.recipient.sender_view_tags(&[deposit.counter]).unwrap()[0];
+        let tag = self.deposit_tag(deposit.counter);
         let encrypted = RingDepositPlaintext {
             blinding: deposit.blinding,
             utxo_data: None,
@@ -463,44 +493,52 @@ impl Fixture {
             Framing::Truncated => b"CRDEP001".to_vec(),
         };
         let owner_hash = address.owner_hash().unwrap();
-        let tx_signature = Signature::from([0xd0 + deposit.counter as u8; 64]);
         let payload = encode_encrypted_ring_deposit_output(EncryptedRingDepositOutput {
             owner_utxo_hash: owner_utxo_hash(&owner_hash, &deposit.blinding).unwrap_or([0x0e; 32]),
             asset: Mint::SOL.asset.to_bytes(),
             amount: 25,
             data_hash: None,
-            ring_program_id: RING.to_bytes(),
+            ring_program_id: deposit.ring.to_bytes(),
             ring_data_hash: [0; 32],
             encrypted: EncryptedRingDepositData {
                 ciphertext,
                 ..encrypted
             },
         });
-        self.indexer
-            .deposits
-            .lock()
-            .unwrap()
-            .push(EncryptedUtxoMatch {
-                slot: slot_of(CREATION),
-                tx_signature,
-                output_slot: OutputSlot {
-                    view_tag: tag,
-                    output_context: OutputContext {
-                        hash: nullifier(500 + deposit.counter),
-                        tree_id: TREE,
-                        leaf_index: 500 + deposit.counter,
-                    },
-                    payload,
+        let hash = Utxo {
+            owner: address.signing_pubkey,
+            asset: Mint::SOL,
+            amount: 25,
+            blinding: deposit.blinding,
+            ring_program_id: Some(deposit.ring),
+            data: Default::default(),
+        }
+        .hash(&address.nullifier_pubkey, &[0; 32], &[0; 32], TREE)
+        .unwrap_or(nullifier(500 + deposit.counter));
+        EncryptedUtxoMatch {
+            slot: slot_of(CREATION),
+            tx_signature: Signature::from([(deposit.counter as u8).wrapping_add(0xd0); 64]),
+            output_slot: OutputSlot {
+                view_tag: tag,
+                output_context: OutputContext {
+                    hash,
+                    tree_id: TREE,
+                    leaf_index: 500 + deposit.counter,
                 },
-                tx_viewing_pk: None,
-                salt: None,
-            });
-        tx_signature
+                payload,
+            },
+            tx_viewing_pk: None,
+            salt: None,
+        }
+    }
+
+    fn deposit_tag(&self, counter: u64) -> [u8; 32] {
+        self.recipient.sender_view_tags(&[counter]).unwrap()[0]
     }
 }
 
 struct Merge<'a> {
-    notes: &'a [&'a Delivered],
+    utxos: &'a [&'a Delivered],
     amount: u64,
     epoch: u64,
     leaf: u64,
@@ -515,6 +553,7 @@ struct Deposit {
     counter: u64,
     blinding: [u8; 32],
     framing: Framing,
+    ring: Address,
 }
 
 /// How the recipient ciphertext sits in the ring's audit capsule.
@@ -525,10 +564,10 @@ enum Framing {
 }
 
 fn found(scan: &zolana_client::AnonymousRingScan, utxo_hash: [u8; 32]) -> AnonymousStream {
-    scan.notes
+    scan.utxos
         .iter()
-        .find(|note| note.utxo_hash == utxo_hash)
-        .map(|note| note.stream)
+        .find(|utxo| utxo.utxo_hash == utxo_hash)
+        .map(|utxo| utxo.stream)
         .unwrap_or_else(|| panic!("note {utxo_hash:?} not found"))
 }
 
@@ -654,12 +693,12 @@ async fn a_first_nullifier_off_the_field_under_the_wallet_tag_is_skipped() {
         found(&scan, first.utxo_hash),
         AnonymousStream::Inbox { .. }
     ));
-    assert_eq!(scan.notes.len(), 1);
+    assert_eq!(scan.utxos.len(), 1);
 }
 
 /// A merge spends the wallet's notes, the next sync opens its output from that spend.
 #[tokio::test]
-async fn a_merge_of_the_wallets_notes_is_found_by_the_next_sync() {
+async fn a_merge_of_the_wallets_utxos_is_found_by_the_next_sync() {
     let fixture = Fixture::new();
     let first = fixture.inbox_payment(&fixture.sender, CREATION, 0, 70, 10);
     let second = fixture.inbox_payment(&fixture.sender, CREATION, 1, 30, 20);
@@ -669,19 +708,13 @@ async fn a_merge_of_the_wallets_notes_is_found_by_the_next_sync() {
         .await
         .unwrap();
     let merged = fixture.merge(Merge {
-        notes: &[&first, &second],
+        utxos: &[&first, &second],
         amount: 100,
         epoch: CREATION + 2,
         leaf: 40,
     });
     let next = AnonymousRingSync::new(&fixture.recipient, &assets)
-        .with_known_nullifiers(
-            held.decrypted
-                .utxos
-                .iter()
-                .map(|utxo| utxo.nullifier)
-                .collect(),
-        )
+        .with_held_utxos(&held.decrypted.utxos)
         .fetch(&fixture.indexer, &held.state, slot_of(CREATION + 3))
         .await
         .unwrap();
@@ -776,7 +809,7 @@ async fn a_body_off_the_delivered_length_is_skipped() {
         .await
         .unwrap();
     found(&scan, paid.utxo_hash);
-    assert_eq!(scan.notes.len(), 1);
+    assert_eq!(scan.utxos.len(), 1);
 }
 
 /// The deposit after a malformed capsule is still read.
@@ -787,11 +820,13 @@ async fn a_malformed_deposit_capsule_is_skipped() {
         counter: 0,
         blinding: nullifier(1),
         framing: Framing::Truncated,
+        ring: RING,
     });
     let deposited = fixture.deposit(Deposit {
         counter: 1,
         blinding: nullifier(2),
         framing: Framing::Capsule,
+        ring: RING,
     });
     let assets = AssetRegistry::default();
     let scan = AnonymousRingSync::new(&fixture.recipient, &assets)
@@ -815,11 +850,13 @@ async fn a_deposit_blinding_outside_the_field_is_skipped() {
         counter: 0,
         blinding: [0xff; 32],
         framing: Framing::Capsule,
+        ring: RING,
     });
     let deposited = fixture.deposit(Deposit {
         counter: 1,
         blinding: nullifier(2),
         framing: Framing::Capsule,
+        ring: RING,
     });
     let assets = AssetRegistry::default();
     let scan = AnonymousRingSync::new(&fixture.recipient, &assets)
@@ -838,7 +875,7 @@ async fn a_deposit_blinding_outside_the_field_is_skipped() {
 
 /// A restore knows no issued address, each hit widens the gap window up to address 22.
 #[tokio::test]
-async fn a_restore_from_seed_finds_every_note_over_three_epochs() {
+async fn a_restore_from_seed_finds_every_utxo_over_three_epochs() {
     let fixture = Fixture::new();
     let first = fixture.inbox_payment(&fixture.sender, CREATION, 5, 70, 10);
     let paired = fixture.pair_payment(&first.slot_secret, CREATION + 1, 30, 20);
@@ -872,14 +909,14 @@ async fn a_restore_from_seed_finds_every_note_over_three_epochs() {
         )
         .await
         .unwrap();
-    for note in [
+    for utxo in [
         &first,
         &paired,
         &change,
         &far_delivered[0],
         &farther_delivered[0],
     ] {
-        found(&scan, note.utxo_hash);
+        found(&scan, utxo.utxo_hash);
     }
     let issued: Vec<u32> = scan
         .state
@@ -946,39 +983,28 @@ async fn a_first_contact_below_the_pairing_rows_anchors_no_pair_stream() {
         asset: Mint::SOL.asset,
         amount: 50,
     });
-    let allocated = TagAllocation::new(&fixture.indexer, &sender_state, CREATION + 1)
-        .allocate(&address)
-        .await
+    let allocated = TagAllocation::new(&sender_state, CREATION + 1)
+        .allocate(&address, &mut UnwrapErr(OsRng))
         .unwrap();
     assert_eq!(allocated.stream, PaymentStream::Inbox);
 }
 
+/// Anyone holding the address fills its inbox tags with cheap rows, no payment waits on them.
 #[tokio::test]
-async fn sixty_four_used_inbox_tags_refuse_the_payment_until_the_next_epoch() {
+async fn sixty_four_used_inbox_tags_refuse_no_payment() {
     let fixture = Fixture::new();
     for index in 0..J_INBOX {
         fixture.inbox_payment(&fixture.sender, CREATION, index, 1, 100 + u64::from(index));
     }
-    let address = RingAddress {
-        recipient: ShieldedAddress {
-            viewing_pubkey: address_key(&fixture.recipient, 0),
-            ..fixture.recipient_owner()
-        },
-        ring_program_id: RING,
-        pairing: Pairing::default(),
-    };
     let state = AnonymousRingState::new(RING, CREATION);
-    assert!(matches!(
-        TagAllocation::new(&fixture.indexer, &state, CREATION)
-            .allocate(&address)
-            .await,
-        Err(ClientError::InboxStreamFull { epoch: CREATION })
-    ));
-    let next = TagAllocation::new(&fixture.indexer, &state, CREATION + 1)
-        .allocate(&address)
-        .await
+    let allocated = TagAllocation::new(&state, CREATION)
+        .allocate(&fixture.address(0), &mut UnwrapErr(OsRng))
         .unwrap();
-    assert_eq!((next.stream, next.index.get()), (PaymentStream::Inbox, 0));
+    assert_eq!(allocated.stream, PaymentStream::Inbox);
+    assert_eq!(
+        allocated.tag,
+        inbox_tag(address_key(&fixture.recipient, 0), CREATION, allocated.index.get())
+    );
 }
 
 /// Holds the keys out of reach, every answer is one of the trait's per-request values.
@@ -1059,7 +1085,7 @@ async fn a_slot_without_an_anonymous_body_asks_the_key_holder_nothing() {
         .fetch(&fixture.indexer, &fixture.state(), slot_of(CREATION + 2))
         .await
         .unwrap();
-    assert!(scan.notes.is_empty());
+    assert!(scan.utxos.is_empty());
     assert!(!keys
         .calls
         .lock()
@@ -1082,8 +1108,8 @@ async fn a_remote_holder_that_never_exports_a_viewing_secret_completes_the_sync(
         .fetch(&fixture.indexer, &fixture.state(), slot_of(CREATION + 1))
         .await
         .unwrap();
-    for note in [&first, &paired, &change] {
-        found(&scan, note.utxo_hash);
+    for utxo in [&first, &paired, &change] {
+        found(&scan, utxo.utxo_hash);
     }
     let calls = remote.calls.lock().unwrap();
     for needed in [
@@ -1120,7 +1146,7 @@ fn a_store_of_another_version_rescans_and_a_v1_count_migrates_to_issued_addresse
     assert_eq!((issued, migrated.scanned_epoch()), (vec![0, 1, 2], None));
 }
 
-/// Slot secrets and pair keys link the wallet's payments, neither a print nor a parse error shows one.
+/// Slot secrets and pair keys link payments, neither a print nor a parse error shows one.
 #[test]
 fn a_state_prints_and_refuses_without_its_secrets() {
     let secret: [u8; 32] = core::array::from_fn(|i| 0xa0 + i as u8);
@@ -1143,6 +1169,7 @@ fn a_state_prints_and_refuses_without_its_secrets() {
         address_index: 0,
         pair_key: secret,
         epoch: CREATION,
+        last_epoch: CREATION,
         asset: Mint::SOL.asset,
         amount: 1,
     };
@@ -1161,20 +1188,488 @@ fn a_state_prints_and_refuses_without_its_secrets() {
             .to_string();
         assert!(!error.contains(&text), "{error}");
     }
+    // A stored secret off the field is refused by name.
+    let off_field = hex::encode([0xff; 32]);
+    let mut corrupt = json.clone();
+    corrupt["sent"][0]["slotSecret"] = off_field.clone().into();
+    let error = AnonymousRingState::from_json(&corrupt.to_string())
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("slotSecret is not a field element"),
+        "{error}"
+    );
+    assert!(!error.contains(&off_field), "{error}");
 }
 
-/// A corrupt store's last epoch at the integer maximum reads no epoch instead of overflowing.
-#[tokio::test]
-async fn a_scanned_epoch_at_the_maximum_reads_no_epoch() {
+/// A stored epoch no fetch could reach would stop every later read without an error.
+#[test]
+fn a_stored_epoch_outside_the_ring_is_refused() {
+    let json: serde_json::Value = serde_json::from_str(&Fixture::new().state().to_json()).unwrap();
+    for (field, epoch) in [
+        ("scannedEpoch", u64::MAX),
+        ("scannedEpoch", CREATION - 1),
+        ("creationEpoch", u64::MAX),
+    ] {
+        let mut corrupt = json.clone();
+        corrupt[field] = epoch.into();
+        assert!(matches!(
+            AnonymousRingState::from_json(&corrupt.to_string()),
+            Err(ClientError::AnonymousRingEpoch { epoch: refused }) if refused == epoch
+        ));
+    }
+}
+
+/// A UTXO the wallet holds, `ring` `None` on the default ring.
+fn held(utxo_hash: [u8; 32], nullifier: [u8; 32], ring: Option<Address>) -> WalletUtxo {
+    let owner = keypair(1).shielded_address().unwrap();
+    WalletUtxo {
+        utxo: Utxo {
+            owner: owner.signing_pubkey,
+            asset: Mint::SOL,
+            amount: 1,
+            blinding: [0; 32],
+            ring_program_id: ring,
+            data: Default::default(),
+        },
+        nullifier_pubkey: owner.nullifier_pubkey,
+        utxo_hash,
+        nullifier,
+        tx_viewing_key: None,
+        data_hash: None,
+        ring_data_hash: None,
+        tree_id: TREE,
+        leaf_index: 0,
+        latest_tree_id: None,
+        slot: 0,
+        tx_signature: Signature::default(),
+        slot_index: 0,
+    }
+}
+
+fn inbox_stream(wallet: &ShieldedKeypair, index: u32, epochs: RangeInclusive<u64>) -> Vec<[u8; 32]> {
+    let key = address_key(wallet, index);
+    epochs
+        .flat_map(|epoch| (0..J_INBOX).map(move |j| inbox_tag(key, epoch, j).field()))
+        .collect()
+}
+
+fn tags_asked(indexer: &Indexer) -> usize {
+    indexer.tag_requests.lock().unwrap().iter().map(Vec::len).sum()
+}
+
+fn held_signatures(scan: &zolana_client::AnonymousRingScan) -> Vec<Signature> {
+    scan.decrypted
+        .utxos
+        .iter()
+        .map(|utxo| utxo.tx_signature)
+        .collect()
+}
+
+/// A proofless row of any rail, what anyone holding the address publishes under its tags.
+fn outsider_row(seed: u8, view_tags: &[[u8; 32]], first_leaf: u64) -> ShieldedTransaction {
+    ShieldedTransaction {
+        slot: slot_of(CREATION),
+        tx_signature: Signature::from([seed; 64]),
+        event_index: Some(0),
+        tx_viewing_pk: None,
+        salt: None,
+        output_slots: view_tags
+            .iter()
+            .zip(first_leaf..)
+            .map(|(tag, leaf_index)| OutputSlot {
+                view_tag: *tag,
+                output_context: OutputContext {
+                    hash: nullifier(70_000 + leaf_index),
+                    tree_id: TREE,
+                    leaf_index,
+                },
+                payload: Vec::new(),
+            })
+            .collect(),
+        messages: Vec::new(),
+        nullifiers: Vec::new(),
+        proofless: true,
+        ring_config: None,
+        ring_program_id: None,
+    }
+}
+
+#[test]
+fn payment_indexes_are_uniform_and_distinct_within_a_transaction() {
     let fixture = Fixture::new();
-    fixture.inbox_payment(&fixture.sender, CREATION, 0, 70, 10);
-    let mut json: serde_json::Value = serde_json::from_str(&fixture.state().to_json()).unwrap();
-    json["scannedEpoch"] = u64::MAX.into();
-    let state = AnonymousRingState::from_json(&json.to_string()).unwrap();
+    let state = AnonymousRingState::new(RING, CREATION);
+    let to = fixture.address(0);
+    let rng = &mut UnwrapErr(OsRng);
+    let mut allocation = TagAllocation::new(&state, CREATION);
+    let taken: HashSet<u8> = (0..J_INBOX)
+        .map(|_| allocation.allocate(&to, rng).unwrap().index.get())
+        .collect();
+    assert_eq!(taken.len(), usize::from(J_INBOX));
+    let firsts: HashSet<u8> = (0..32)
+        .map(|_| {
+            TagAllocation::new(&state, CREATION)
+                .allocate(&to, rng)
+                .unwrap()
+                .index
+                .get()
+        })
+        .collect();
+    assert!(firsts.len() > 1, "{firsts:?}");
+}
+
+/// An anonymous spend of a default-ring UTXO carries ring change, found without its nullifier.
+#[tokio::test]
+async fn the_change_scan_asks_for_ring_nullifiers_alone() {
+    let fixture = Fixture::new();
+    let default_nullifier = nullifier(4242);
+    let change_key = fixture
+        .recipient
+        .viewing_key
+        .ring_change_key(&RING)
+        .unwrap()
+        .pubkey();
+    let (entry, delivered) = RingTransfer {
+        sender: &fixture.recipient,
+        nullifiers: vec![default_nullifier],
+        payments: vec![Payment {
+            owner: fixture.recipient_owner(),
+            recipient: change_key,
+            tag: RingTag::from_bytes([0x5c; 31]),
+            amount: 40,
+        }],
+        slot: slot_of(CREATION),
+        leaf: 30,
+    }
+    .build();
+    fixture.indexer.publish(entry.clone());
+    let default_utxo = held(nullifier(4243), default_nullifier, None);
+    let other_ring_nullifier = nullifier(4244);
+    let other_ring_utxo = held(nullifier(4245), other_ring_nullifier, Some(OTHER_RING));
+    let assets = AssetRegistry::default();
+    let blind = AnonymousRingSync::new(&fixture.recipient, &assets)
+        .with_held_utxos([&default_utxo, &other_ring_utxo])
+        .fetch(&fixture.indexer, &fixture.state(), slot_of(CREATION + 2))
+        .await
+        .unwrap();
+    assert!(blind.utxos.is_empty());
+    let scan = AnonymousRingSync::new(&fixture.recipient, &assets)
+        .with_held_utxos([&default_utxo, &other_ring_utxo])
+        .with_default_ring_spends(vec![entry])
+        .fetch(&fixture.indexer, &fixture.state(), slot_of(CREATION + 2))
+        .await
+        .unwrap();
+    assert!(matches!(
+        found(&scan, delivered[0].utxo_hash),
+        AnonymousStream::Change { .. }
+    ));
+    let asked = fixture.indexer.nullifier_requests.lock().unwrap();
+    assert!(!asked.is_empty());
+    assert!(asked
+        .iter()
+        .flatten()
+        .all(|asked| ![default_nullifier, other_ring_nullifier].contains(asked)));
+}
+
+/// Holders of two addresses never meet in one request, nor does a pair stream meet another address.
+#[tokio::test]
+async fn one_request_names_the_tags_of_one_address() {
+    let fixture = Fixture::new();
+    let first = fixture.inbox_payment(&fixture.sender, CREATION, 0, 70, 10);
+    fixture.pair_payment(&first.slot_secret, CREATION + 1, 30, 20);
+    let address_1 = address_key(&fixture.recipient, 1);
+    fixture.indexer.publish(
+        RingTransfer {
+            sender: &fixture.sender,
+            nullifiers: vec![nullifier(40)],
+            payments: vec![Payment {
+                owner: fixture.recipient_owner(),
+                recipient: address_1,
+                tag: inbox_tag(address_1, CREATION + 1, 3),
+                amount: 9,
+            }],
+            slot: slot_of(CREATION + 1),
+            leaf: 40,
+        }
+        .build()
+        .0,
+    );
+    let mut state = fixture.state();
+    state.issue(1, Pairing::default()).unwrap();
     let assets = AssetRegistry::default();
     let scan = AnonymousRingSync::new(&fixture.recipient, &assets)
         .fetch(&fixture.indexer, &state, slot_of(CREATION + 2))
         .await
         .unwrap();
-    assert!(scan.notes.is_empty());
+    assert_eq!((scan.utxos.len(), scan.anchors.len()), (3, 2));
+    let epochs = CREATION..=CREATION + 2;
+    let mut address_of: HashMap<[u8; 32], u32> = HashMap::new();
+    for index in 0..2 + ADDRESS_GAP {
+        for tag in inbox_stream(&fixture.recipient, index, epochs.clone()) {
+            address_of.insert(tag, index);
+        }
+    }
+    for anchor in &scan.anchors {
+        let pair = PairKey::from_bytes(anchor.pair_key).unwrap();
+        for epoch in epochs.clone() {
+            for j in TagIndex::all() {
+                address_of.insert(pair.tag(epoch, j).unwrap().field(), anchor.address_index);
+            }
+        }
+    }
+    for request in fixture.indexer.tag_requests.lock().unwrap().iter() {
+        let addresses: HashSet<u32> = request.iter().map(|tag| address_of[tag]).collect();
+        assert_eq!(addresses.len(), 1, "{addresses:?}");
+    }
+}
+
+#[tokio::test]
+async fn a_deposit_past_an_empty_window_is_found_within_the_gap() {
+    let assets = AssetRegistry::default();
+    let deposit = |counter| Deposit {
+        counter,
+        blinding: nullifier(2),
+        framing: Framing::Capsule,
+        ring: RING,
+    };
+    let fixture = Fixture::new();
+    let past = fixture.deposit(deposit(64));
+    let scan = AnonymousRingSync::new(&fixture.recipient, &assets)
+        .fetch(&fixture.indexer, &fixture.state(), slot_of(CREATION + 1))
+        .await
+        .unwrap();
+    assert_eq!(held_signatures(&scan), [past]);
+    assert_eq!(scan.state.deposit_next(), 65);
+
+    let fixture = Fixture::new();
+    fixture.deposit(deposit(DEPOSIT_GAP));
+    let scan = AnonymousRingSync::new(&fixture.recipient, &assets)
+        .fetch(&fixture.indexer, &fixture.state(), slot_of(CREATION + 1))
+        .await
+        .unwrap();
+    assert!(scan.decrypted.utxos.is_empty());
+    assert_eq!(scan.state.deposit_next(), 0);
+}
+
+/// Rows a lying indexer serves under the wallet's deposit tags open to no deposit and move nothing.
+#[tokio::test]
+async fn rows_that_open_to_no_deposit_of_the_wallet_move_no_counter() {
+    let fixture = Fixture::new();
+    fixture.deposit(Deposit {
+        counter: 3,
+        blinding: nullifier(1),
+        framing: Framing::Truncated,
+        ring: RING,
+    });
+    let mut altered = fixture.deposit_row(&Deposit {
+        counter: 7,
+        blinding: nullifier(2),
+        framing: Framing::Capsule,
+        ring: RING,
+    });
+    altered.output_slot.output_context.hash = nullifier(9_999);
+    fixture.indexer.deposits.lock().unwrap().push(altered);
+    let assets = AssetRegistry::default();
+    let scan = AnonymousRingSync::new(&fixture.recipient, &assets)
+        .fetch(&fixture.indexer, &fixture.state(), slot_of(CREATION + 1))
+        .await
+        .unwrap();
+    assert_eq!(scan.state.deposit_next(), 0);
+}
+
+#[tokio::test]
+async fn a_replayed_deposit_counts_at_its_first_counter() {
+    let fixture = Fixture::new();
+    let deposit = Deposit {
+        counter: 1,
+        blinding: nullifier(2),
+        framing: Framing::Capsule,
+        ring: RING,
+    };
+    let replay = |counter| {
+        let mut row = fixture.deposit_row(&deposit);
+        row.output_slot.view_tag = fixture.deposit_tag(counter);
+        fixture.indexer.deposits.lock().unwrap().push(row);
+    };
+    replay(1);
+    replay(70);
+    let assets = AssetRegistry::default();
+    let scan = AnonymousRingSync::new(&fixture.recipient, &assets)
+        .fetch(&fixture.indexer, &fixture.state(), slot_of(CREATION + 1))
+        .await
+        .unwrap();
+    assert_eq!(scan.state.deposit_next(), 2);
+    replay(5);
+    let next = AnonymousRingSync::new(&fixture.recipient, &assets)
+        .with_held_utxos(&scan.decrypted.utxos)
+        .fetch(&fixture.indexer, &scan.state, slot_of(CREATION + 1))
+        .await
+        .unwrap();
+    assert_eq!(next.state.deposit_next(), 2);
+}
+
+/// The deposit stream is the keypair's, another ring's deposit moves the counter and stays out.
+#[tokio::test]
+async fn a_deposit_into_another_ring_moves_the_counter_alone() {
+    let fixture = Fixture::new();
+    fixture.deposit(Deposit {
+        counter: 0,
+        blinding: nullifier(2),
+        framing: Framing::Capsule,
+        ring: OTHER_RING,
+    });
+    let assets = AssetRegistry::default();
+    let scan = AnonymousRingSync::new(&fixture.recipient, &assets)
+        .fetch(&fixture.indexer, &fixture.state(), slot_of(CREATION + 1))
+        .await
+        .unwrap();
+    assert!(scan.decrypted.utxos.is_empty());
+    assert_eq!(scan.state.deposit_next(), 1);
+}
+
+#[tokio::test]
+async fn outsider_rows_under_the_wallets_tags_join_no_decoy_set() {
+    let fixture = Fixture::new();
+    let own = fixture.inbox_payment(&fixture.sender, CREATION, 0, 70, 10);
+    let tag = inbox_tag(address_key(&fixture.recipient, 0), CREATION, 5).field();
+    for row in 0..10u8 {
+        let mut tags = vec![[0x33; 32]; 10];
+        tags[0] = tag;
+        fixture
+            .indexer
+            .publish(outsider_row(0x40 + row, &tags, 5_000 + 10 * u64::from(row)));
+    }
+    let assets = AssetRegistry::default();
+    let scan = AnonymousRingSync::new(&fixture.recipient, &assets)
+        .fetch(&fixture.indexer, &fixture.state(), slot_of(CREATION + 2))
+        .await
+        .unwrap();
+    found(&scan, own.utxo_hash);
+    let decoys: Vec<[u8; 32]> = scan
+        .state
+        .decoys(TREE)
+        .iter()
+        .map(|leaf| leaf.hash)
+        .collect();
+    assert_eq!(decoys, [own.utxo_hash]);
+}
+
+/// Dust first contacts cost pair tags for `PAIR_IDLE_EPOCHS`, then the state forgets them.
+#[tokio::test]
+async fn dust_first_contacts_stop_costing_tags_once_idle() {
+    let fixture = Fixture::new();
+    let dust = 8u8;
+    for n in 0..dust {
+        fixture.inbox_payment(&keypair(60 + n), CREATION, n, 1, 100 + u64::from(n));
+    }
+    let assets = AssetRegistry::default();
+    let sync = AnonymousRingSync::new(&fixture.recipient, &assets);
+    let first = sync
+        .fetch(&fixture.indexer, &fixture.state(), slot_of(CREATION + 2))
+        .await
+        .unwrap();
+    assert_eq!(first.state.received().len(), usize::from(dust));
+    let addresses = u64::from(1 + ADDRESS_GAP);
+    let tags = u64::from(J_INBOX);
+
+    fixture.indexer.tag_requests.lock().unwrap().clear();
+    let idle = sync
+        .fetch(
+            &fixture.indexer,
+            &first.state,
+            slot_of(CREATION + PAIR_IDLE_EPOCHS + 2),
+        )
+        .await
+        .unwrap();
+    let inbox = addresses * tags * (PAIR_IDLE_EPOCHS + 2);
+    let pairs = u64::from(dust) * tags * (PAIR_IDLE_EPOCHS - 1);
+    assert_eq!(tags_asked(&fixture.indexer) as u64, inbox + pairs);
+    assert!(idle.state.received().is_empty() && idle.anchors.is_empty());
+
+    fixture.indexer.tag_requests.lock().unwrap().clear();
+    sync.fetch(
+        &fixture.indexer,
+        &idle.state,
+        slot_of(CREATION + PAIR_IDLE_EPOCHS + 3),
+    )
+    .await
+    .unwrap();
+    assert_eq!(tags_asked(&fixture.indexer) as u64, addresses * tags * 3);
+}
+
+/// Each pair payment keeps the stream live `PAIR_IDLE_EPOCHS` longer, an idle pair is dead.
+#[tokio::test]
+async fn a_paid_pair_outlives_the_idle_window_of_its_first_contact() {
+    let fixture = Fixture::new();
+    let first = fixture.inbox_payment(&fixture.sender, CREATION, 0, 70, 10);
+    let kept = [6, 12].map(|after| {
+        fixture.pair_payment(&first.slot_secret, CREATION + after, 5, 20 + after)
+    });
+    let dead = fixture.pair_payment(&first.slot_secret, CREATION + 12 + PAIR_IDLE_EPOCHS, 5, 60);
+    let assets = AssetRegistry::default();
+    let scan = AnonymousRingSync::new(&fixture.recipient, &assets)
+        .fetch(
+            &fixture.indexer,
+            &fixture.state(),
+            slot_of(CREATION + 14 + PAIR_IDLE_EPOCHS),
+        )
+        .await
+        .unwrap();
+    for paid in &kept {
+        found(&scan, paid.utxo_hash);
+    }
+    assert!(scan.utxos.iter().all(|utxo| utxo.utxo_hash != dead.utxo_hash));
+    assert!(scan.state.received().is_empty());
+}
+
+/// The sender's own pair payment, read by its change scan, keeps its pair live as the recipient's.
+#[tokio::test]
+async fn the_sender_keeps_a_pair_live_on_its_confirmed_pair_payments() {
+    let fixture = Fixture::new();
+    let first = fixture.inbox_payment(&fixture.sender, CREATION, 0, 70, 10);
+    let mut sender_state = AnonymousRingState::new(RING, CREATION);
+    sender_state.record_first_contact(SentFirstContact {
+        recipient: address_key(&fixture.recipient, 0),
+        tree_id: TREE,
+        leaf_index: 10,
+        utxo_hash: first.utxo_hash,
+        slot_secret: *first.slot_secret.as_bytes(),
+        first_nullifier: nullifier(10),
+        slot_index: 0,
+        epoch: CREATION,
+        index: TagIndex::new(0).unwrap(),
+        asset: Mint::SOL.asset,
+        amount: 70,
+    });
+    let to = fixture.address(0);
+    let stream = |state: &AnonymousRingState, epoch| {
+        TagAllocation::new(state, epoch)
+            .allocate(&to, &mut UnwrapErr(OsRng))
+            .unwrap()
+            .stream
+    };
+    assert!(matches!(
+        stream(&sender_state, CREATION + PAIR_IDLE_EPOCHS - 1),
+        PaymentStream::Pair(_)
+    ));
+    assert_eq!(
+        stream(&sender_state, CREATION + PAIR_IDLE_EPOCHS),
+        PaymentStream::Inbox
+    );
+    fixture.pair_payment(&first.slot_secret, CREATION + 5, 30, 20);
+    let spent = held(nullifier(21), nullifier(20), Some(RING));
+    let assets = AssetRegistry::default();
+    let synced = AnonymousRingSync::new(&fixture.sender, &assets)
+        .with_held_utxos([&spent])
+        .fetch(&fixture.indexer, &sender_state, slot_of(CREATION + 6))
+        .await
+        .unwrap();
+    assert!(matches!(
+        stream(&synced.state, CREATION + PAIR_IDLE_EPOCHS),
+        PaymentStream::Pair(_)
+    ));
+    assert_eq!(
+        stream(&synced.state, CREATION + 5 + PAIR_IDLE_EPOCHS),
+        PaymentStream::Inbox
+    );
 }

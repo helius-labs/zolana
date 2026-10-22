@@ -4,40 +4,33 @@ use std::num::{NonZeroU32, NonZeroUsize};
 
 use custom_ring_interface::RingDepositAuditCapsule;
 use solana_address::Address;
-use zolana_client::{
-    AsyncRpc, IndexerRpcConfig, ProofInputUtxo, RingHistoryOptions, ShieldedTransaction,
-};
+use zolana_client::{AsyncRpc, IndexerRpcConfig, ProofInputUtxo, ShieldedTransaction};
+use zolana_event::EncryptedRingDepositOutput;
 use zolana_hasher::primitives::hash_bytes;
 use zolana_keypair::X25519Keypair;
 
 use crate::{
-    encryption::open_deposit,
+    encryption::{open_deposit, DepositOpening},
     merge_audit::MergeOutput,
-    origin::{ConfirmedEventKind, RingOrigin, TransactionOrigin},
+    origin::{ConfirmedDeposit, ConfirmedEventKind, RingOrigin, TransactionOrigin},
     recover::deposit_output,
-    scan::{pages, DEFAULT_MAX_PAGES, DEFAULT_PAGE_SIZE},
-    types::KnownNote,
+    scan::{RingHistory, RING_HISTORY_MAX_PAGES, RING_HISTORY_PAGE_SIZE},
+    types::{CreatedUtxo, KnownUtxo, UtxoOwner},
     AuditError,
 };
 
 /// `transaction` is bound to `origin` through [`RingOrigin::bind_transaction`].
 #[must_use = "open the notes explicitly"]
-pub struct CreatedNotes<'a> {
+pub struct CreatedUtxos<'a> {
     pub transaction: &'a ShieldedTransaction,
     pub origin: &'a RingOrigin,
     pub ring: Address,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct CreatedNote {
-    pub commitment: [u8; 32],
-    pub slot_index: u32,
-    pub note: KnownNote,
-}
-
 #[must_use = "run or discard the scan explicitly"]
-pub struct CreatedNoteScan {
+pub struct CreatedUtxoScan<'a> {
     ring: Address,
+    auditor: &'a X25519Keypair,
     cursor: Option<Vec<u8>>,
     page_size: NonZeroU32,
     max_pages: NonZeroUsize,
@@ -45,18 +38,26 @@ pub struct CreatedNoteScan {
 }
 
 /// `next_cursor` is live only when the page cap stopped the read.
-pub struct CreatedNotePage {
-    pub notes: Vec<CreatedNote>,
+pub struct CreatedUtxoPage {
+    pub utxos: Vec<CreatedUtxo>,
     pub next_cursor: Option<Vec<u8>>,
 }
 
-impl CreatedNoteScan {
-    pub fn new(ring: Address) -> Self {
+/// A deposit output beside the confirmed bindings of its transaction.
+pub(crate) struct DepositSlot<'a> {
+    pub output: &'a EncryptedRingDepositOutput,
+    pub bindings: &'a [ConfirmedDeposit],
+    pub slot_index: u32,
+}
+
+impl<'a> CreatedUtxoScan<'a> {
+    pub fn new(ring: Address, auditor: &'a X25519Keypair) -> Self {
         Self {
             ring,
+            auditor,
             cursor: None,
-            page_size: DEFAULT_PAGE_SIZE,
-            max_pages: DEFAULT_MAX_PAGES,
+            page_size: RING_HISTORY_PAGE_SIZE,
+            max_pages: RING_HISTORY_MAX_PAGES,
             indexer_config: None,
         }
     }
@@ -83,63 +84,48 @@ impl CreatedNoteScan {
 
     pub async fn run<I: AsyncRpc, O: TransactionOrigin>(
         self,
-        auditor: &X25519Keypair,
         indexer: &I,
         origin: &O,
-    ) -> Result<CreatedNotePage, AuditError> {
+    ) -> Result<CreatedUtxoPage, AuditError> {
         let Self {
             ring,
+            auditor,
             cursor,
             page_size,
             max_pages,
             indexer_config,
         } = self;
-        let (page, _) = pages(cursor, max_pages, |cursor| async move {
-            let options = RingHistoryOptions {
-                ring_program_id: ring,
-                cursor,
-                limit: Some(page_size.get()),
-            };
-            let page = indexer
-                .get_shielded_transactions_by_ring(options, indexer_config)
-                .await?;
-            Ok((page.transactions, page.next_cursor, page.scanned_through))
-        })
+        let page = RingHistory {
+            ring,
+            kinds: &[ConfirmedEventKind::Deposit, ConfirmedEventKind::Merge],
+            cursor,
+            page_size,
+            max_pages,
+            indexer_config,
+        }
+        .bound(indexer, origin)
         .await?;
-        let mut notes = Vec::new();
-        for mut transaction in page.transactions {
-            let event_index = transaction
-                .event_index
-                .ok_or(AuditError::MissingEventIndex)?;
-            let confirmed = origin
-                .origin(transaction.tx_signature, event_index, ring)
-                .await?;
-            if !confirmed.ring_invoked || confirmed.event.kind() == ConfirmedEventKind::Transfer {
-                continue;
-            }
-            confirmed.bind_transaction(&mut transaction, ring)?;
-            notes.extend(
-                CreatedNotes {
-                    transaction: &transaction,
-                    origin: &confirmed,
+        let mut utxos = Vec::new();
+        for (transaction, confirmed) in &page.transactions {
+            utxos.extend(
+                CreatedUtxos {
+                    transaction,
+                    origin: confirmed,
                     ring,
                 }
                 .open(auditor)?,
             );
         }
-        Ok(CreatedNotePage {
-            notes,
+        Ok(CreatedUtxoPage {
+            utxos,
             next_cursor: page.next_cursor,
         })
     }
 }
 
-impl CreatedNotes<'_> {
+impl CreatedUtxos<'_> {
     /// Empty for a transfer and for a confidential ring's deposit or merge.
-    pub fn open(self, auditor: &X25519Keypair) -> Result<Vec<CreatedNote>, AuditError> {
-        if !self.origin.ring_invoked {
-            return Ok(Vec::new());
-        }
+    pub fn open(self, auditor: &X25519Keypair) -> Result<Vec<CreatedUtxo>, AuditError> {
         match self.origin.event.kind() {
             ConfirmedEventKind::Deposit => self.deposits(auditor),
             ConfirmedEventKind::Merge => self.merge(auditor),
@@ -147,25 +133,21 @@ impl CreatedNotes<'_> {
         }
     }
 
-    fn deposits(&self, auditor: &X25519Keypair) -> Result<Vec<CreatedNote>, AuditError> {
-        let mut notes = Vec::new();
+    fn deposits(&self, auditor: &X25519Keypair) -> Result<Vec<CreatedUtxo>, AuditError> {
+        let mut utxos = Vec::new();
         for (slot_index, slot) in (0u32..).zip(&self.transaction.output_slots) {
             let Some(output) = deposit_output(slot, self.ring) else {
                 continue;
             };
-            let Some(binding) = self
-                .origin
-                .deposits
-                .iter()
-                .find(|binding| u32::from(binding.slot_index()) == slot_index)
+            let Some(opening) = (DepositSlot {
+                output: &output,
+                bindings: &self.origin.deposits,
+                slot_index,
+            })
+            .open(auditor)?
             else {
                 continue;
             };
-            let capsule = RingDepositAuditCapsule::parse(&output.encrypted.ciphertext)
-                .ok()
-                .flatten()
-                .ok_or(AuditError::DepositOpeningMismatch)?;
-            let opening = open_deposit(&capsule, auditor, &output.owner_utxo_hash, binding)?;
             // Only an anonymous ring's capsule names the owner key.
             let Some(owner_key) = opening.owner_key else {
                 continue;
@@ -186,44 +168,71 @@ impl CreatedNotes<'_> {
             if commitment != context.hash {
                 return Err(AuditError::DepositOpeningMismatch);
             }
-            notes.push(CreatedNote {
+            utxos.push(CreatedUtxo {
                 commitment,
                 slot_index,
-                note: KnownNote {
+                utxo: KnownUtxo {
                     owner_key,
-                    nullifier_pk: None,
+                    owner: UtxoOwner::Deposited {
+                        owner_hash: opening.owner_hash,
+                    },
                     asset: hash_bytes(mint.as_array())?,
                     mint: Some(mint),
                     amount: output.amount,
                     blinding: *opening.blinding,
                     data_hash,
                     ring_data_hash: output.ring_data_hash,
+                    tree_id: context.tree_id,
                 },
             });
         }
-        Ok(notes)
+        Ok(utxos)
     }
 
-    fn merge(&self, auditor: &X25519Keypair) -> Result<Vec<CreatedNote>, AuditError> {
+    fn merge(&self, auditor: &X25519Keypair) -> Result<Vec<CreatedUtxo>, AuditError> {
         let Some(disclosure) = &self.origin.merge_disclosure else {
             return Ok(Vec::new());
         };
-        let output = MergeOutput::of(self.transaction)?;
-        let opening = output.disclose(auditor, disclosure, self.ring)?;
+        let output = MergeOutput::of(self.transaction, self.ring)?;
+        let opening = output.disclose(auditor, disclosure)?;
         let mint = Address::new_from_array(opening.mint);
-        Ok(vec![CreatedNote {
+        Ok(vec![CreatedUtxo {
             commitment: output.commitment,
             slot_index: 0,
-            note: KnownNote {
+            utxo: KnownUtxo {
                 owner_key: opening.owner_key,
-                nullifier_pk: Some(opening.nullifier_pk),
+                owner: UtxoOwner::Keyed {
+                    nullifier_pk: opening.nullifier_pk,
+                },
                 asset: hash_bytes(mint.as_array())?,
                 mint: Some(mint),
                 amount: opening.amount,
                 blinding: opening.output_blinding,
                 data_hash: [0; 32],
                 ring_data_hash: output.ring_data_hash,
+                tree_id: output.tree_id,
             },
         }])
+    }
+}
+
+impl DepositSlot<'_> {
+    /// `None` without a binding, the capsule proof covers a bound slot alone.
+    pub(crate) fn open(
+        self,
+        auditor: &X25519Keypair,
+    ) -> Result<Option<DepositOpening>, AuditError> {
+        let Some(binding) = self
+            .bindings
+            .iter()
+            .find(|binding| u32::from(binding.slot_index()) == self.slot_index)
+        else {
+            return Ok(None);
+        };
+        let capsule = RingDepositAuditCapsule::parse(&self.output.encrypted.ciphertext)
+            .ok()
+            .flatten()
+            .ok_or(AuditError::DepositOpeningMismatch)?;
+        open_deposit(&capsule, auditor, &self.output.owner_utxo_hash, binding).map(Some)
     }
 }

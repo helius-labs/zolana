@@ -29,7 +29,7 @@ pub use asset::{AssetBalance, AssetRegistry, Balances, Mint, SOL_ASSET_ID, SOL_M
 pub use data::{Data, DataRecord};
 pub use decrypt::{
     decrypt, decrypt_spendable, verify_owned, verify_spendable, DecryptionResult, OwnedUtxos,
-    PendingNote, ResolvedNote, RingDeliveredCandidate, RingDeliveredFind, RingDeliveryContext,
+    PendingUtxo, ResolvedUtxo, RingDeliveredCandidate, RingDeliveredFind, RingDeliveryContext,
     SpendableDecryptionResult,
 };
 pub use error::{AddressInputError, TransactionError};

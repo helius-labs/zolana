@@ -18,7 +18,10 @@ use zolana_client::{
     GetShieldedTransactionsByTagsResponse, IndexedShieldedTransaction, IndexerRpcConfig,
     RingHistoryOptions,
 };
-use zolana_indexer_api::{GetRingMemberRecordsRequest, GetRingMemberRecordsResponse};
+use zolana_indexer_api::{
+    GetRingMemberOpeningsRequest, GetRingMemberOpeningsResponse, GetRingMemberRecordsRequest,
+    GetRingMemberRecordsResponse, GetRingRecordQueueRequest, GetRingRecordQueueResponse,
+};
 use zolana_interface::BPF_LOADER_UPGRADEABLE_ID;
 use zolana_keypair::X25519Pubkey;
 use zolana_ring_client::{
@@ -77,6 +80,17 @@ pub trait TransactionSource: Send + Sync {
         &self,
         request: GetRingMemberRecordsRequest,
     ) -> impl Future<Output = Result<GetRingMemberRecordsResponse, ClientError>> + Send;
+
+    fn ring_member_openings(
+        &self,
+        request: GetRingMemberOpeningsRequest,
+    ) -> impl Future<Output = Result<GetRingMemberOpeningsResponse, ClientError>> + Send;
+
+    /// The pending writes, positions `head..tail`.
+    fn ring_record_queue(
+        &self,
+        ring: Address,
+    ) -> impl Future<Output = Result<GetRingRecordQueueResponse, ClientError>> + Send;
 
     fn reader_granted(
         &self,
@@ -173,13 +187,22 @@ pub struct ChainSource {
     rpc: AsyncSolanaRpc,
 }
 
-struct MergeAuditSource<'a> {
+/// Ring history in strict cursor order, the merge audit reads its registry through it too.
+struct HistorySource<'a> {
     rpc: &'a AsyncSolanaRpc,
     indexer: &'a AsyncZolanaIndexer,
 }
 
+/// Photon orders tag and ring history by the fixed-width cursor it returns, the fields in order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct HistoryPosition {
+    slot: u64,
+    signature: [u8; 64],
+    event_index: u16,
+}
+
 #[async_trait]
-impl AsyncRpc for MergeAuditSource<'_> {
+impl AsyncRpc for HistorySource<'_> {
     async fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
         self.rpc.get_account(address).await
     }
@@ -196,60 +219,62 @@ impl AsyncRpc for MergeAuditSource<'_> {
         options: RingHistoryOptions,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
-        ordered_ring_history(self.indexer, options, config).await
+        let cursor = options.cursor.clone();
+        let response = self
+            .indexer
+            .get_shielded_transactions_by_ring(options, config)
+            .await?;
+        validate_history_order(cursor.as_deref(), &response)?;
+        Ok(response)
     }
 }
 
-async fn ordered_ring_history(
-    indexer: &AsyncZolanaIndexer,
-    options: RingHistoryOptions,
-    config: Option<IndexerRpcConfig>,
-) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
-    let cursor = options.cursor.clone();
-    let response = indexer
-        .get_shielded_transactions_by_ring(options, config)
-        .await?;
-    validate_history_order(cursor.as_deref(), &response)?;
-    Ok(response)
+impl HistoryPosition {
+    fn parse(cursor: &[u8]) -> Option<Self> {
+        let (&2, body) = cursor.split_first()? else {
+            return None;
+        };
+        let (&slot, body) = body.split_first_chunk::<8>()?;
+        let (&signature, body) = body.split_first_chunk::<64>()?;
+        let (&event_index, []) = body.split_first_chunk::<2>()? else {
+            return None;
+        };
+        Some(Self {
+            slot: u64::from_be_bytes(slot),
+            signature,
+            event_index: u16::from_be_bytes(event_index),
+        })
+    }
 }
 
-/// Photon orders tag and ring history by the fixed-width cursor it returns.
-fn history_position(cursor: &[u8]) -> Option<(u64, [u8; 64], u16)> {
-    let (&2, body) = cursor.split_first()? else {
-        return None;
-    };
-    let (&slot, body) = body.split_first_chunk::<8>()?;
-    let (&signature, body) = body.split_first_chunk::<64>()?;
-    let (&event_index, []) = body.split_first_chunk::<2>()? else {
-        return None;
-    };
-    Some((
-        u64::from_be_bytes(slot),
-        signature,
-        u16::from_be_bytes(event_index),
-    ))
-}
-
+/// Rows past the cursor in strict order, the next cursor on the last row, the frontier never behind.
 fn validate_history_order(
     cursor: Option<&[u8]>,
     response: &GetShieldedTransactionsByTagsResponse,
 ) -> Result<(), ClientError> {
     let invalid = || ClientError::Indexer("invalid history cursor or row order".to_owned());
-    let mut previous = match cursor {
-        Some(cursor) => Some(history_position(cursor).ok_or_else(invalid)?),
-        None => None,
-    };
+    let parse = |cursor: &[u8]| HistoryPosition::parse(cursor).ok_or_else(invalid);
+    let mut previous = cursor.map(parse).transpose()?;
     for tx in &response.transactions {
-        let event_index = tx.event_index.ok_or_else(invalid)?;
-        let position = (tx.slot, *tx.tx_signature.as_array(), event_index);
+        let position = HistoryPosition {
+            slot: tx.slot,
+            signature: *tx.tx_signature.as_array(),
+            event_index: tx.event_index.ok_or_else(invalid)?,
+        };
         if previous.is_some_and(|previous| position <= previous) {
             return Err(invalid());
         }
         previous = Some(position);
     }
     if let Some(next) = response.next_cursor.as_deref() {
-        let next = history_position(next).ok_or_else(invalid)?;
-        if Some(next) != previous {
+        if Some(parse(next)?) != previous {
+            return Err(invalid());
+        }
+    }
+    if let Some(frontier) = response.scanned_through.as_deref() {
+        if previous
+            .is_some_and(|previous| parse(frontier).is_ok_and(|frontier| frontier < previous))
+        {
             return Err(invalid());
         }
     }
@@ -281,6 +306,13 @@ impl ChainSource {
         &self.rpc
     }
 
+    fn history(&self) -> HistorySource<'_> {
+        HistorySource {
+            rpc: &self.rpc,
+            indexer: &self.indexer,
+        }
+    }
+
     /// A foreign owner means the account does not exist for its program, not
     /// that it is broken.
     async fn owned_account(
@@ -307,13 +339,7 @@ impl TransactionSource for ChainSource {
             // Either cap fails the read with MergeAuditWorkBudget, never a partial page.
             .with_max_member_pages(MAX_MERGE_MEMBER_PAGES)
             .with_max_candidate_attempts(MAX_MERGE_CANDIDATE_ATTEMPTS)
-            .page(
-                &MergeAuditSource {
-                    rpc: &self.rpc,
-                    indexer: &self.indexer,
-                },
-                &self.rpc,
-            )
+            .page(&self.history(), &self.rpc)
             .await
     }
 
@@ -344,7 +370,9 @@ impl TransactionSource for ChainSource {
             cursor: request.page.cursor().map(ToOwned::to_owned),
             limit: Some(request.page.limit().get()),
         };
-        ordered_ring_history(&self.indexer, options, None).await
+        self.history()
+            .get_shielded_transactions_by_ring(options, None)
+            .await
     }
 
     /// The ring's own signatures name the candidates, and every deposit field
@@ -428,6 +456,24 @@ impl TransactionSource for ChainSource {
         request: GetRingMemberRecordsRequest,
     ) -> Result<GetRingMemberRecordsResponse, ClientError> {
         self.indexer.get_ring_member_records(request).await
+    }
+
+    async fn ring_member_openings(
+        &self,
+        request: GetRingMemberOpeningsRequest,
+    ) -> Result<GetRingMemberOpeningsResponse, ClientError> {
+        self.indexer.get_ring_member_openings(request).await
+    }
+
+    async fn ring_record_queue(
+        &self,
+        ring: Address,
+    ) -> Result<GetRingRecordQueueResponse, ClientError> {
+        self.indexer
+            .get_ring_record_queue(GetRingRecordQueueRequest {
+                ring_program_id: ring.into(),
+            })
+            .await
     }
 
     async fn upgrade_authority(&self, program: Address) -> Result<Option<Address>, ClientError> {
@@ -531,7 +577,8 @@ impl<O: TransactionOrigin> ConfirmedDepositRecords<'_, O> {
 const INVALID_CONFIG: &str = "custom ring config account is invalid";
 const INVALID_READER: &str = "custom ring reader account is invalid";
 
-/// The program's initialized account at the address `bump` derives.
+/// `bump` is the canonical bump of the address `account` was read from.
+#[derive(Clone, Copy)]
 #[must_use]
 struct CanonicalAccount<'a> {
     account: &'a Account,
@@ -540,12 +587,12 @@ struct CanonicalAccount<'a> {
 }
 
 impl CanonicalAccount<'_> {
-    fn decode<T: RingAccount>(&self) -> Option<T> {
+    fn decode<T: RingAccount>(self) -> Option<T> {
         T::decode(&self.account.owner, &self.ring, &self.account.data)
             .filter(|value| value.bump() == self.bump)
     }
 
-    fn configuration(&self) -> Result<RingConfiguration, ClientError> {
+    fn configuration(self) -> Result<RingConfiguration, ClientError> {
         let invalid = || ClientError::Rpc(INVALID_CONFIG.to_owned());
         let config: RingProgramConfig = self.decode().ok_or_else(invalid)?;
         Ok(RingConfiguration {

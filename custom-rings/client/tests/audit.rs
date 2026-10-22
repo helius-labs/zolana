@@ -33,9 +33,9 @@ use zolana_keypair::{ViewingKey, X25519Keypair, X25519Pubkey};
 use zolana_ring_client::{
     auditor_view_tag, ring_event_origin_in, seal_deposits, AnonymousInputs, AuditDisclosure,
     AuditEnvelope, AuditError, AuditedInputOpening, AuditedTransaction, ConfirmedMergeDisclosure,
-    CreatedNote, CreatedNoteScan, CreatedNotes, DepositOpening, InputRing, KnownNote,
+    CreatedUtxo, CreatedUtxoScan, CreatedUtxos, DepositOpening, InputRing, KnownUtxo,
     MergeDisclosureEncryption, MergeOpening, OutputOpening, OutputPayloadError,
-    OutputPayloadErrorKind, RingOrigin, RingScan, TransactionAudit, TransactionOrigin,
+    OutputPayloadErrorKind, RingOrigin, RingScan, TransactionAudit, TransactionOrigin, UtxoOwner,
 };
 use zolana_transaction::{
     derive_output_blinding_seed, owner_utxo_hash, serialization::RingDeliveredBody, AssetRegistry,
@@ -43,8 +43,8 @@ use zolana_transaction::{
 };
 
 use transfer::{
-    audited_opening, auditor, data_free, field, input_opening, x25519_u, Frame, Note, Output,
-    Placement, Publish, Rail, Slot, Transfer,
+    audited_opening, auditor, data_free, field, input_opening, known_utxo, x25519_u, Frame, Output,
+    Placement, Publish, Rail, Slot, Transfer, UtxoFields,
 };
 
 const SOL: Address = Address::new_from_array([0; 32]);
@@ -54,13 +54,13 @@ fn assets() -> AssetRegistry {
     AssetRegistry::new([(7, MINT)]).unwrap()
 }
 
-fn note(owner: u8, asset_address: Address, amount: u64) -> Note {
-    Note {
+fn utxo(owner: u8, asset_address: Address, amount: u64) -> UtxoFields {
+    UtxoFields {
         owner_key: [owner; 32],
         nullifier_pk: field(owner - 0x80),
         asset_address,
         amount,
-        ..Note::default()
+        ..UtxoFields::default()
     }
 }
 
@@ -88,7 +88,7 @@ struct Built {
 
 #[derive(Clone, Copy)]
 struct Spend {
-    note: Note,
+    utxo: UtxoFields,
     blinding: [u8; 32],
 }
 
@@ -105,7 +105,7 @@ fn build_with(transfer: &Transfer, rail: Rail, outputs: Vec<Output>, key_escrow:
 #[derive(Clone, Copy)]
 enum Spending {
     /// Every note a ring note, disclosed by its commitment.
-    RingNotes,
+    RingUtxos,
     /// A default-ring note among them, the entry key opens every note.
     Entry,
 }
@@ -118,9 +118,9 @@ fn build_anonymous(
     spending: Spending,
 ) -> Built {
     let slots = transfer.slots(Rail::Anonymous, &outputs);
-    let sender = spent[0].note;
+    let sender = spent[0].utxo;
     let inputs = match spending {
-        Spending::RingNotes => AnonymousInputs::Commitments(
+        Spending::RingUtxos => AnonymousInputs::Commitments(
             spent
                 .iter()
                 .map(|spend| Some(spend.commitment(transfer, Some(transfer.ring))))
@@ -130,7 +130,7 @@ fn build_anonymous(
             sender_nullifier_pk: sender.nullifier_pk,
             inputs: spent
                 .iter()
-                .map(|spend| Some(input_opening(&spend.note, spend.blinding)))
+                .map(|spend| Some(input_opening(&spend.utxo, spend.blinding)))
                 .collect(),
         },
     };
@@ -139,12 +139,20 @@ fn build_anonymous(
 }
 
 impl Spend {
-    fn commitment(&self, transfer: &Transfer, ring: Option<Address>) -> [u8; 32] {
-        self.note.commitment(Placement {
+    fn placement(&self, transfer: &Transfer, ring: Option<Address>) -> Placement {
+        Placement {
             blinding: self.blinding,
             ring,
             tree_id: transfer.tree_id,
-        })
+        }
+    }
+
+    fn commitment(&self, transfer: &Transfer, ring: Option<Address>) -> [u8; 32] {
+        self.utxo.commitment(self.placement(transfer, ring))
+    }
+
+    fn known(&self, transfer: &Transfer) -> KnownUtxo {
+        known_utxo(&self.utxo, self.placement(transfer, Some(transfer.ring)))
     }
 }
 
@@ -176,13 +184,13 @@ fn publish(
 fn delivered_outputs() -> Vec<Output> {
     let mut outputs: Vec<Output> = (0u8..5)
         .map(|k| Output::Ring {
-            note: note(0xb0 + k, [SOL, MINT][usize::from(k % 2)], 10 + u64::from(k)),
+            utxo: utxo(0xb0 + k, [SOL, MINT][usize::from(k % 2)], 10 + u64::from(k)),
             recipient_u: x25519_u(0x40 + k),
             tag: None,
         })
         .collect();
     outputs.extend([
-        Output::Exit(note(0xe5, SOL, 40)),
+        Output::Exit(utxo(0xe5, SOL, 40)),
         Output::Dummy,
         Output::Dummy,
     ]);
@@ -226,7 +234,7 @@ fn a_key_escrow_transfer_opens_each_slot_under_its_owners_escrowed_key() {
         let outputs = match rail {
             Rail::Packed => vec![
                 delivered_outputs()[0],
-                Output::Exit(note(0xe5, SOL, 40)),
+                Output::Exit(utxo(0xe5, SOL, 40)),
                 Output::Dummy,
             ],
             _ => delivered_outputs(),
@@ -236,8 +244,8 @@ fn a_key_escrow_transfer_opens_each_slot_under_its_owners_escrowed_key() {
             .outputs
             .iter()
             .filter_map(|output| match output {
-                Output::Ring { note, .. } | Output::Exit(note) => {
-                    Some((note.owner_key, note.nullifier_pk))
+                Output::Ring { utxo, .. } | Output::Exit(utxo) => {
+                    Some((utxo.owner_key, utxo.nullifier_pk))
                 }
                 Output::Dummy => None,
             })
@@ -269,37 +277,37 @@ fn a_key_escrow_transfer_opens_each_slot_under_its_owners_escrowed_key() {
 }
 
 #[test]
-fn a_ring_note_input_opens_by_its_commitment_or_is_reported_unseen() {
+fn a_ring_utxo_input_opens_by_its_commitment_or_is_reported_unseen() {
     let (transfer, _, spent) = anonymous_spend();
     let outputs = vec![
         Output::Ring {
-            note: note(0xb5, SOL, 50),
+            utxo: utxo(0xb5, SOL, 50),
             recipient_u: x25519_u(0x50),
             tag: Some(RingTag::from_bytes([0x51; 31])),
         },
         Output::Dummy,
     ];
-    let built = build_anonymous(&transfer, outputs, &spent, Spending::RingNotes);
+    let built = build_anonymous(&transfer, outputs, &spent, Spending::RingUtxos);
     let commitments: Vec<[u8; 32]> = spent
         .iter()
         .map(|spend| spend.commitment(&transfer, Some(transfer.ring)))
         .collect();
-    let known: HashMap<[u8; 32], KnownNote> = commitments
+    let known: HashMap<[u8; 32], KnownUtxo> = commitments
         .iter()
         .zip(&spent)
-        .map(|(commitment, spend)| (*commitment, known_note(spend)))
+        .map(|(commitment, spend)| (*commitment, spend.known(&transfer)))
         .collect();
     let audited = TransactionAudit::new(&built.transaction, built.layout)
-        .with_known_notes(&known)
+        .with_known_utxos(&known)
         .run(&auditor(), &assets())
         .unwrap();
     for ((input, spend), commitment) in audited.inputs.iter().zip(&spent).zip(&commitments) {
         assert_eq!(
             input.opening,
             Some(AuditedInputOpening {
-                asset: spend.note.asset(),
-                mint: Some(spend.note.asset_address),
-                amount: spend.note.amount,
+                asset: spend.utxo.asset(),
+                mint: Some(spend.utxo.asset_address),
+                amount: spend.utxo.amount,
                 blinding: spend.blinding,
                 ring: Some(InputRing::Ring {
                     commitment: *commitment
@@ -308,12 +316,12 @@ fn a_ring_note_input_opens_by_its_commitment_or_is_reported_unseen() {
         );
     }
     let sender = audited.sender.unwrap();
-    assert_eq!(sender.nullifier_pk, Some(spent[0].note.nullifier_pk));
+    assert_eq!(sender.nullifier_pk, Some(spent[0].utxo.nullifier_pk));
     let mut partial = known.clone();
     partial.remove(&commitments[1]);
     assert!(matches!(
         TransactionAudit::new(&built.transaction, built.layout)
-            .with_known_notes(&partial)
+            .with_known_utxos(&partial)
             .run(&auditor(), &assets()),
         Err(AuditError::UnseenInput { commitment }) if commitment == commitments[1]
     ));
@@ -322,7 +330,7 @@ fn a_ring_note_input_opens_by_its_commitment_or_is_reported_unseen() {
 /// The confirmed deposit of `spend` into the ring, its capsule sealed to the auditor.
 fn deposited(transfer: &Transfer, spend: &Spend, owner_key: Option<[u8; 32]>) -> Confirmed {
     let opening = DepositOpening {
-        owner_hash: spend.note.owner_hash(),
+        owner_hash: spend.utxo.owner_hash(),
         blinding: zeroize::Zeroizing::new(spend.blinding),
         owner_key,
     };
@@ -342,8 +350,8 @@ fn deposited(transfer: &Transfer, spend: &Spend, owner_key: Option<[u8; 32]>) ->
     );
     let payload = encode_encrypted_ring_deposit_output(EncryptedRingDepositOutput {
         owner_utxo_hash,
-        asset: spend.note.asset_address.to_bytes(),
-        amount: spend.note.amount,
+        asset: spend.utxo.asset_address.to_bytes(),
+        amount: spend.utxo.amount,
         data_hash: None,
         ring_program_id: transfer.ring.to_bytes(),
         ring_data_hash: [0; 32],
@@ -369,10 +377,10 @@ fn deposited(transfer: &Transfer, spend: &Spend, owner_key: Option<[u8; 32]>) ->
 fn merged(transfer: &Transfer, spend: &Spend) -> Confirmed {
     let salt = [0x4d; 16];
     let opening = MergeOpening {
-        owner_key: spend.note.owner_key,
-        nullifier_pk: spend.note.nullifier_pk,
-        mint: spend.note.asset_address.to_bytes(),
-        amount: spend.note.amount,
+        owner_key: spend.utxo.owner_key,
+        nullifier_pk: spend.utxo.nullifier_pk,
+        mint: spend.utxo.asset_address.to_bytes(),
+        amount: spend.utxo.amount,
         output_blinding: spend.blinding,
         input_commitments: vec![field(0x71); 8],
     };
@@ -402,8 +410,8 @@ struct Confirmed {
 }
 
 impl Confirmed {
-    fn open(&self, transfer: &Transfer) -> Result<Vec<CreatedNote>, AuditError> {
-        CreatedNotes {
+    fn open(&self, transfer: &Transfer) -> Result<Vec<CreatedUtxo>, AuditError> {
+        CreatedUtxos {
             transaction: &self.transaction,
             origin: &self.origin,
             ring: transfer.ring,
@@ -455,50 +463,71 @@ fn confirmed(transaction: &ShieldedTransaction) -> RingOrigin {
 }
 
 #[test]
-fn a_deposited_or_merged_ring_note_opens_as_a_commitment_input() {
+fn a_deposited_or_merged_ring_utxo_opens_as_a_commitment_input() {
     let (transfer, _, spent) = anonymous_spend();
     let outputs = vec![
         Output::Ring {
-            note: note(0xb5, SOL, 50),
+            utxo: utxo(0xb5, SOL, 50),
             recipient_u: x25519_u(0x50),
             tag: Some(RingTag::from_bytes([0x51; 31])),
         },
         Output::Dummy,
     ];
-    let built = build_anonymous(&transfer, outputs, &spent, Spending::RingNotes);
+    let built = build_anonymous(&transfer, outputs, &spent, Spending::RingUtxos);
     assert!(matches!(
         audit(&built.transaction, built.layout),
         Err(AuditError::UnseenInput { .. })
     ));
-    let deposit = deposited(&transfer, &spent[0], Some(spent[0].note.owner_key));
+    let deposit = deposited(&transfer, &spent[0], Some(spent[0].utxo.owner_key));
     let merge = merged(&transfer, &spent[1]);
-    let created: Vec<CreatedNote> = [&deposit, &merge]
+    let created: Vec<CreatedUtxo> = [&deposit, &merge]
         .into_iter()
         .flat_map(|confirmed| confirmed.open(&transfer).unwrap())
         .collect();
+    let utxos: Vec<KnownUtxo> = created.iter().map(|created| created.utxo).collect();
     assert_eq!(
-        created
-            .iter()
-            .map(|created| (created.note.amount, created.note.nullifier_pk))
-            .collect::<Vec<_>>(),
-        [(50, None), (30, Some(spent[1].note.nullifier_pk))]
+        utxos,
+        [
+            KnownUtxo {
+                owner: UtxoOwner::Deposited {
+                    owner_hash: spent[0].utxo.owner_hash(),
+                },
+                ..spent[0].known(&transfer)
+            },
+            spent[1].known(&transfer),
+        ]
     );
-    let known: HashMap<[u8; 32], KnownNote> = created
+    for (created, spend) in created.iter().zip(&spent) {
+        assert_eq!(
+            created.utxo.commitment(Some(transfer.ring)).unwrap(),
+            spend.commitment(&transfer, Some(transfer.ring))
+        );
+    }
+    let known: HashMap<[u8; 32], KnownUtxo> = created
         .iter()
-        .map(|created| (created.commitment, created.note))
+        .map(|created| (created.commitment, created.utxo))
         .collect();
     let audited = TransactionAudit::new(&built.transaction, built.layout)
-        .with_known_notes(&known)
+        .with_known_utxos(&known)
         .run(&auditor(), &assets())
         .unwrap();
-    assert_eq!(
-        audited
-            .inputs
-            .iter()
-            .map(|input| input.opening.map(|opening| opening.amount))
-            .collect::<Vec<_>>(),
-        [Some(50), Some(30)]
-    );
+    let openings: Vec<Option<AuditedInputOpening>> =
+        audited.inputs.iter().map(|input| input.opening).collect();
+    let expected: Vec<Option<AuditedInputOpening>> = spent
+        .iter()
+        .map(|spend| {
+            Some(AuditedInputOpening {
+                asset: spend.utxo.asset(),
+                mint: Some(spend.utxo.asset_address),
+                amount: spend.utxo.amount,
+                blinding: spend.blinding,
+                ring: Some(InputRing::Ring {
+                    commitment: spend.commitment(&transfer, Some(transfer.ring)),
+                }),
+            })
+        })
+        .collect();
+    assert_eq!(openings, expected);
     assert_eq!(audited.sender.unwrap().nullifier_pk, None);
 
     let mut forged = deposit;
@@ -507,28 +536,59 @@ fn a_deposited_or_merged_ring_note_opens_as_a_commitment_input() {
         forged.open(&transfer),
         Err(AuditError::DepositOpeningMismatch)
     ));
+    let mut forged = merge;
+    forged.transaction.output_slots[0].output_context.hash = field(0x7a);
+    assert!(matches!(
+        forged.open(&transfer),
+        Err(AuditError::MergeDisclosureMismatch)
+    ));
     let confidential = deposited(&transfer, &spent[0], None);
     assert_eq!(confidential.open(&transfer).unwrap(), []);
 }
 
-/// One terminal ring history page.
-struct RingHistory(Vec<ShieldedTransaction>);
+/// A ring slot framed as an exit misreads its disclosure, that slot alone is reported.
+#[test]
+fn an_unreadable_anonymous_slot_is_reported_and_the_rest_opens() {
+    let (transfer, _, spent) = anonymous_spend();
+    let outputs = vec![
+        Output::Ring {
+            utxo: utxo(0xb5, SOL, 50),
+            recipient_u: x25519_u(0x50),
+            tag: Some(RingTag::from_bytes([0x51; 31])),
+        },
+        Output::Exit(utxo(0xe5, SOL, 20)),
+    ];
+    let mut built = build_anonymous(&transfer, outputs, &spent, Spending::Entry);
+    built.transaction.output_slots[0].payload = built.transaction.output_slots[1].payload.clone();
+    let audited = audit(&built.transaction, built.layout).unwrap();
+    assert_eq!(
+        audited.payload_errors,
+        [slot_error(0, OutputPayloadErrorKind::Disclosure)]
+    );
+    assert_eq!(opened_slots(&audited), [1]);
+    assert!(audited.sender.is_some());
+}
+
+/// Ring history pages in order, a cursor names the next page and the last one states its frontier.
+struct RingHistory(Vec<Vec<ShieldedTransaction>>);
 
 #[async_trait::async_trait]
 impl AsyncRpc for RingHistory {
     async fn get_shielded_transactions_by_ring(
         &self,
-        _options: zolana_client::RingHistoryOptions,
+        options: zolana_client::RingHistoryOptions,
         _config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, zolana_client::ClientError> {
+        let index = options.cursor.map_or(0, |cursor| usize::from(cursor[0]));
+        let last = index + 1 == self.0.len();
         Ok(GetShieldedTransactionsByTagsResponse {
             context: Context {
                 block_time: 0,
                 slot: 1,
             },
-            transactions: self.0.clone(),
-            next_cursor: None,
-            scanned_through: Some(vec![0]),
+            transactions: self.0[index].clone(),
+            next_cursor: (!last).then(|| vec![index as u8 + 1]),
+            scanned_through: last.then(|| vec![index as u8]),
             output_tree_id: None,
         })
     }
@@ -554,38 +614,70 @@ impl TransactionOrigin for ConfirmedOrigins {
 }
 
 #[tokio::test]
-async fn the_created_note_scan_opens_every_deposit_and_merge_of_the_ring_history() {
-    let (transfer, _, spent) = anonymous_spend();
-    let deposit = deposited(&transfer, &spent[0], Some(spent[0].note.owner_key));
+async fn the_created_utxo_scan_opens_every_deposit_and_merge_of_the_ring_history() {
+    let (transfer, built, spent) = anonymous_spend();
+    let deposit = deposited(&transfer, &spent[0], Some(spent[0].utxo.owner_key));
     let mut merge = merged(&transfer, &spent[1]);
     merge.transaction.tx_signature = Signature::from([0xd1; 64]);
-    let history = RingHistory(vec![deposit.transaction.clone(), merge.transaction.clone()]);
-    let origins = ConfirmedOrigins(HashMap::from([
-        (deposit.transaction.tx_signature, deposit.origin.clone()),
-        (merge.transaction.tx_signature, merge.origin.clone()),
-    ]));
-    let page = CreatedNoteScan::new(transfer.ring)
-        .run(&auditor(), &history, &origins)
+    // A ring transfer and a row the ring never invoked open nothing.
+    let mut foreign = deposited(&transfer, &spent[1], Some(spent[1].utxo.owner_key));
+    foreign.transaction.tx_signature = Signature::from([0xd2; 64]);
+    foreign.origin.ring_invoked = false;
+    let rows = [&deposit, &merge, &foreign];
+    let mut origins: HashMap<Signature, RingOrigin> = rows
+        .iter()
+        .map(|row| (row.transaction.tx_signature, row.origin.clone()))
+        .collect();
+    origins.insert(
+        built.transaction.tx_signature,
+        confirmed(&built.transaction),
+    );
+    let pages = vec![
+        vec![deposit.transaction.clone(), built.transaction.clone()],
+        vec![merge.transaction.clone(), foreign.transaction.clone()],
+    ];
+    let history = RingHistory(pages.clone());
+    let auditor = auditor();
+    let page = CreatedUtxoScan::new(transfer.ring, &auditor)
+        .run(&history, &ConfirmedOrigins(origins.clone()))
         .await
         .unwrap();
-    let opened: Vec<[u8; 32]> = page.notes.iter().map(|note| note.commitment).collect();
+    let opened: Vec<[u8; 32]> = page.utxos.iter().map(|utxo| utxo.commitment).collect();
     assert_eq!(
         opened,
         spent.map(|spend| spend.commitment(&transfer, Some(transfer.ring)))
     );
     assert_eq!(page.next_cursor, None);
+
+    let capped = CreatedUtxoScan::new(transfer.ring, &auditor)
+        .with_max_pages(NonZeroUsize::new(1).unwrap())
+        .run(&history, &ConfirmedOrigins(origins.clone()))
+        .await
+        .unwrap();
+    assert_eq!(capped.utxos.len(), 1);
+    assert_eq!(capped.next_cursor, Some(vec![1]));
+
+    // An indexed row its confirmed event does not match is refused.
+    let mut altered = pages;
+    altered[0][0].output_slots[0].output_context.hash = field(0x7b);
+    assert!(matches!(
+        CreatedUtxoScan::new(transfer.ring, &auditor)
+            .run(&RingHistory(altered), &ConfirmedOrigins(origins))
+            .await,
+        Err(AuditError::ConfirmedEventMismatch)
+    ));
 }
 
 #[test]
 fn a_body_sealed_to_another_recipient_is_flagged_on_its_slot() {
     let transfer = Transfer::fixture();
     let mut built = build(&transfer, Rail::Delivered, delivered_outputs());
-    let Output::Ring { note, .. } = built.outputs[2] else {
+    let Output::Ring { utxo, .. } = built.outputs[2] else {
         panic!("slot 2 is a ring output");
     };
     let foreign = RingDeliveredBody {
-        asset_address: note.asset_address,
-        amount: note.amount,
+        asset_address: utxo.asset_address,
+        amount: utxo.amount,
     }
     .seal(&transfer.delivered_secret(&x25519_u(0x7f), 2))
     .unwrap();
@@ -636,15 +728,15 @@ fn a_ring_slot_without_its_body_or_agreement_is_flagged() {
 fn a_packed_ring_output_opens_without_its_recipient_ciphertext() {
     let outputs = vec![
         Output::Ring {
-            note: Note {
+            utxo: UtxoFields {
                 data_hash: field(0xd1),
                 ring_data_hash: field(0xd2),
-                ..note(0xb1, MINT, 9)
+                ..utxo(0xb1, MINT, 9)
             },
             recipient_u: x25519_u(0x41),
             tag: None,
         },
-        Output::Exit(note(0xe2, MINT, 3)),
+        Output::Exit(utxo(0xe2, MINT, 3)),
         Output::Dummy,
     ];
     let mut built = build(&Transfer::fixture(), Rail::Packed, outputs);
@@ -660,11 +752,11 @@ fn a_packed_ring_output_opens_without_its_recipient_ciphertext() {
 fn an_unknown_asset_keeps_the_verified_opening() {
     let outputs = vec![
         Output::Ring {
-            note: note(0xb1, MINT, 9),
+            utxo: utxo(0xb1, MINT, 9),
             recipient_u: x25519_u(0x41),
             tag: None,
         },
-        Output::Exit(note(0xe2, SOL, 3)),
+        Output::Exit(utxo(0xe2, SOL, 3)),
     ];
     let built = build(&Transfer::fixture(), Rail::Packed, outputs);
     let audited = TransactionAudit::new(&built.transaction, built.layout)
@@ -674,7 +766,7 @@ fn an_unknown_asset_keeps_the_verified_opening() {
     let mints: Vec<_> = audited
         .outputs
         .iter()
-        .map(|output| output.opening.note().unwrap().mint)
+        .map(|output| output.opening.utxo().unwrap().mint)
         .collect();
     assert_eq!(mints, [None, Some(SOL)]);
     assert!(!audit(&built.transaction, built.layout)
@@ -685,31 +777,31 @@ fn an_unknown_asset_keeps_the_verified_opening() {
 fn anonymous_spend() -> (Transfer, Built, [Spend; 2]) {
     let mut transfer = Transfer::fixture();
     transfer.nullifiers.push(field(0x1e));
-    let sender = |asset_address, amount| Note {
+    let sender = |asset_address, amount| UtxoFields {
         owner_key: [0xa1; 32],
         nullifier_pk: field(0x5a),
         asset_address,
         amount,
-        ..Note::default()
+        ..UtxoFields::default()
     };
     let spent = [
         Spend {
-            note: sender(SOL, 50),
+            utxo: sender(SOL, 50),
             blinding: field(0x60),
         },
         Spend {
-            note: sender(MINT, 30),
+            utxo: sender(MINT, 30),
             blinding: field(0x61),
         },
     ];
     let outputs = vec![
         Output::Ring {
-            note: note(0xb5, SOL, 50),
+            utxo: utxo(0xb5, SOL, 50),
             recipient_u: x25519_u(0x50),
             tag: Some(RingTag::from_bytes([0x51; 31])),
         },
         Output::Ring {
-            note: sender(MINT, 30),
+            utxo: sender(MINT, 30),
             recipient_u: x25519_u(0x52),
             tag: Some(RingTag::from_bytes([0x53; 31])),
         },
@@ -754,12 +846,12 @@ fn an_anonymous_input_resolves_to_its_ring_or_the_default_ring() {
     else {
         panic!("unresolved candidates");
     };
-    let earlier = |commitment| (commitment, known_note(&spent[0]));
+    let earlier = |commitment| (commitment, spent[0].known(&transfer));
     let known = HashMap::from([earlier(ring), earlier(default)]);
     let audited = TransactionAudit::new(&built.transaction, built.layout)
         .with_input_trees(&trees)
         .unwrap()
-        .with_known_notes(&known)
+        .with_known_utxos(&known)
         .run(&auditor(), &assets())
         .unwrap();
     assert_eq!(
@@ -775,7 +867,7 @@ fn an_anonymous_input_resolves_to_its_ring_or_the_default_ring() {
     assert_eq!(
         audited.inputs[1].opening,
         Some(AuditedInputOpening {
-            asset: spent[1].note.asset(),
+            asset: spent[1].utxo.asset(),
             mint: Some(MINT),
             amount: 30,
             blinding: spent[1].blinding,
@@ -795,19 +887,6 @@ fn an_anonymous_input_resolves_to_its_ring_or_the_default_ring() {
             inputs: 2
         })
     ));
-}
-
-fn known_note(spend: &Spend) -> KnownNote {
-    KnownNote {
-        owner_key: spend.note.owner_key,
-        nullifier_pk: Some(spend.note.nullifier_pk),
-        asset: spend.note.asset(),
-        mint: Some(spend.note.asset_address),
-        amount: spend.note.amount,
-        blinding: spend.blinding,
-        data_hash: [0; 32],
-        ring_data_hash: [0; 32],
-    }
 }
 
 #[test]
@@ -891,13 +970,8 @@ fn a_message_off_the_layout_is_refused() {
 fn the_layout_comes_from_the_ring_frame() {
     let built = build(&Transfer::fixture(), Rail::Delivered, delivered_outputs());
     let origin = |transact| RingOrigin {
-        ring_invoked: true,
-        event: origin_fixture::event(&built.transaction),
-        signers: Vec::new(),
-        withdrawals: Vec::new(),
-        deposits: Vec::new(),
-        merge_disclosure: None,
         transact,
+        ..confirmed(&built.transaction)
     };
     assert_eq!(
         origin(Some(built.frame.clone()))
@@ -1019,7 +1093,7 @@ fn ring() -> Address {
 
 fn packed_transfer(seed: u8) -> Built {
     let outputs = vec![Output::Ring {
-        note: note(
+        utxo: utxo(
             0xb0 + seed % 0x10,
             [SOL, MINT][usize::from(seed % 2)],
             u64::from(seed),
@@ -1107,16 +1181,16 @@ async fn scan_walks_every_page_and_keeps_only_ring_transactions_tagged_for_the_a
 
 /// A payment to a member, then the member's commitment-key spend of it.
 fn paid_and_spent() -> (Built, Built) {
-    let member = |asset_address, amount| Note {
+    let member = |asset_address, amount| UtxoFields {
         owner_key: [0xa4; 32],
         nullifier_pk: field(0x64),
         asset_address,
         amount,
-        ..Note::default()
+        ..UtxoFields::default()
     };
     let paying = transfer(5);
     let payer = Spend {
-        note: Note {
+        utxo: UtxoFields {
             owner_key: [0xa5; 32],
             ..member(SOL, 70)
         },
@@ -1127,7 +1201,7 @@ fn paid_and_spent() -> (Built, Built) {
         &paying,
         vec![
             Output::Ring {
-                note: member(SOL, 70),
+                utxo: member(SOL, 70),
                 recipient_u: x25519_u(0x54),
                 tag: tag(0x55),
             },
@@ -1138,14 +1212,14 @@ fn paid_and_spent() -> (Built, Built) {
     );
     let spending = transfer(6);
     let received = Spend {
-        note: member(SOL, 70),
+        utxo: member(SOL, 70),
         blinding: paid.slots[0].blinding,
     };
     let spent = build_anonymous(
         &spending,
-        vec![Output::Exit(note(0xe8, SOL, 70)), Output::Dummy],
+        vec![Output::Exit(utxo(0xe8, SOL, 70)), Output::Dummy],
         &[received],
-        Spending::RingNotes,
+        Spending::RingUtxos,
     );
     (paid, spent)
 }
@@ -1184,7 +1258,7 @@ async fn an_input_resolves_against_an_output_the_page_opened_before_it() {
 }
 
 #[tokio::test]
-async fn an_input_an_earlier_page_opened_resolves_through_the_known_notes() {
+async fn an_input_an_earlier_page_opened_resolves_through_the_known_utxos() {
     let (paid, spent) = paid_and_spent();
     let (indexer, origin) = anonymous_page(&[&spent]);
     let scan = || RingScan::new(ring(), auditor().pubkey()).with_mode(RingMode::Anonymous);
@@ -1194,10 +1268,11 @@ async fn an_input_an_earlier_page_opened_resolves_through_the_known_notes() {
     ));
     let known = audit(&paid.transaction, paid.layout)
         .unwrap()
-        .notes()
+        .utxos()
+        .map(|created| (created.commitment, created.utxo))
         .collect();
     let audited = scan()
-        .with_known_notes(known)
+        .with_known_utxos(known)
         .audit(&auditor(), &indexer, &origin, &assets())
         .await
         .expect("audit")

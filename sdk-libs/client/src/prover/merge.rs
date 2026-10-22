@@ -87,7 +87,7 @@ pub struct MergeProofResult {
 }
 
 impl MergeProofResult {
-    /// The caller verified the record under a chain-selected root, the circuit proves it again.
+    /// An escrow record arrives verified under a chain-selected root, the circuit proves it again.
     pub fn with_registration(
         mut self,
         registration: MergeRegistration,

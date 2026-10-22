@@ -129,11 +129,11 @@ fn stack_height_without_a_parent_is_an_error() {
     ));
 }
 
-/// A version 0 transaction resolves later account indexes through a lookup
-/// table. That list is rejected rather than appended.
+/// A version 0 transaction resolves later account indexes through its loaded addresses.
 #[test]
-fn a_lookup_table_is_rejected() {
+fn lookup_table_accounts_resolve_through_the_loaded_addresses() {
     let payer = Address::new_from_array([1u8; 32]);
+    let table = Address::new_from_array([2u8; 32]);
     let json = serde_json::json!({
         "slot": 7,
         "blockTime": null,
@@ -150,7 +150,9 @@ fn a_lookup_table_is_rejected() {
                 "instructions": [
                     { "programIdIndex": 1, "accounts": [0], "data": "", "stackHeight": null }
                 ],
-                "addressTableLookups": []
+                "addressTableLookups": [
+                    { "accountKey": table.to_string(), "writableIndexes": [0], "readonlyIndexes": [1] }
+                ]
             }
         },
         "meta": {
@@ -185,14 +187,21 @@ fn a_lookup_table_is_rejected() {
         },
         "version": 0
     });
-    let transaction: EncodedConfirmedTransactionWithStatusMeta =
-        serde_json::from_value(json).expect("rpc shape");
-    let error = confirmed_origin(transaction, 0, RING)
-        .map(|origin| origin.ring_invoked)
-        .expect_err("lookup table");
+    let parse = |json: &serde_json::Value| {
+        let transaction: EncodedConfirmedTransactionWithStatusMeta =
+            serde_json::from_value(json.clone()).expect("rpc shape");
+        confirmed_origin(transaction, 0, RING)
+    };
+    assert!(parse(&json).expect("loaded addresses").ring_invoked);
+    // A lookup its metadata does not resolve names no account.
+    let mut unresolved = json;
+    unresolved["meta"]
+        .as_object_mut()
+        .expect("meta")
+        .remove("loadedAddresses");
     assert!(matches!(
-        error,
-        AuditError::Client(ClientError::AddressLookupTable)
+        parse(&unresolved),
+        Err(AuditError::Client(ClientError::AddressLookupTable))
     ));
 }
 

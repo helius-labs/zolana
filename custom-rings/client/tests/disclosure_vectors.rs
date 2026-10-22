@@ -17,13 +17,13 @@ use solana_address::Address;
 use zolana_hasher::hash_chain::create_hash_chain_4_from_slice;
 use zolana_ring_client::{
     AnonymousInputs, AuditDisclosure, AuditedInput, AuditedInputOpening, AuditedOutput,
-    DisclosurePad, InputRing, KnownNote, RingOrigin, TransactionAudit,
+    DisclosurePad, InputRing, KnownUtxo, RingOrigin, TransactionAudit,
 };
 use zolana_transaction::{AssetRegistry, ShieldedTransaction};
 
 use transfer::{
-    audited_opening, auditor, data_free, field, input_opening, x25519_u, Frame, Note, Output,
-    Placement, Publish, Rail, Slot, Transfer,
+    audited_opening, auditor, data_free, field, input_opening, known_utxo, x25519_u, Frame, Output,
+    Placement, Publish, Rail, Slot, Transfer, UtxoFields,
 };
 
 const PACKED: &str = include_str!("../../../test-vectors/audit-disclosure.json");
@@ -54,7 +54,7 @@ struct Audit {
     layout: DisclosureLayout,
     outputs: Vec<AuditedOutput>,
     input_trees: Vec<Option<u16>>,
-    known: HashMap<[u8; 32], KnownNote>,
+    known: HashMap<[u8; 32], KnownUtxo>,
     escrowed: HashMap<[u8; 32], [u8; 32]>,
     inputs: Vec<AuditedInput>,
 }
@@ -95,36 +95,36 @@ fn transfer_json(transfer: &Transfer) -> Map<String, Value> {
     map
 }
 
-fn note_json(note: &Note, map: &mut Map<String, Value>) {
-    map.insert("owner_key".into(), hex(note.owner_key).into());
-    map.insert("nullifier_pk".into(), hex(note.nullifier_pk).into());
+fn utxo_json(utxo: &UtxoFields, map: &mut Map<String, Value>) {
+    map.insert("owner_key".into(), hex(utxo.owner_key).into());
+    map.insert("nullifier_pk".into(), hex(utxo.nullifier_pk).into());
     map.insert(
         "asset_address".into(),
-        hex(note.asset_address.as_array()).into(),
+        hex(utxo.asset_address.as_array()).into(),
     );
-    map.insert("asset".into(), hex(note.asset()).into());
-    map.insert("amount".into(), note.amount.into());
-    map.insert("data_hash".into(), hex(note.data_hash).into());
-    map.insert("ring_data_hash".into(), hex(note.ring_data_hash).into());
+    map.insert("asset".into(), hex(utxo.asset()).into());
+    map.insert("amount".into(), utxo.amount.into());
+    map.insert("data_hash".into(), hex(utxo.data_hash).into());
+    map.insert("ring_data_hash".into(), hex(utxo.ring_data_hash).into());
 }
 
 fn slot_json(output: &Output, slot: &Slot) -> Map<String, Value> {
     let mut map = Map::new();
     let kind = match output {
         Output::Ring {
-            note,
+            utxo,
             recipient_u,
             tag,
         } => {
-            note_json(note, &mut map);
+            utxo_json(utxo, &mut map);
             map.insert("recipient_u".into(), hex(recipient_u).into());
             if let Some(tag) = tag {
                 map.insert("tag".into(), hex(tag.as_bytes()).into());
             }
             "ring"
         }
-        Output::Exit(note) => {
-            note_json(note, &mut map);
+        Output::Exit(utxo) => {
+            utxo_json(utxo, &mut map);
             "exit"
         }
         Output::Dummy => "dummy",
@@ -176,8 +176,8 @@ fn escrowed_keys(outputs: &[Output]) -> HashMap<[u8; 32], [u8; 32]> {
     outputs
         .iter()
         .filter_map(|output| match output {
-            Output::Ring { note, .. } | Output::Exit(note) => {
-                Some((note.owner_key, note.nullifier_pk))
+            Output::Ring { utxo, .. } | Output::Exit(utxo) => {
+                Some((utxo.owner_key, utxo.nullifier_pk))
             }
             Output::Dummy => None,
         })
@@ -195,19 +195,19 @@ fn audited_outputs(outputs: &[Output], slots: &[Slot]) -> Vec<AuditedOutput> {
         .collect()
 }
 
-fn ring_note(owner: u8, asset_address: Address, amount: u64) -> Note {
-    Note {
+fn ring_utxo(owner: u8, asset_address: Address, amount: u64) -> UtxoFields {
+    UtxoFields {
         owner_key: [owner; 32],
         nullifier_pk: field(owner - 0x90),
         asset_address,
         amount,
-        ..Note::default()
+        ..UtxoFields::default()
     }
 }
 
 fn ring_output(owner: u8, asset_address: Address, amount: u64) -> Output {
     Output::Ring {
-        note: ring_note(owner, asset_address, amount),
+        utxo: ring_utxo(owner, asset_address, amount),
         recipient_u: x25519_u(owner - 0x70),
         tag: None,
     }
@@ -275,16 +275,16 @@ impl RailCase<'_> {
 
 fn packed_cases() -> Vec<Case> {
     let with_data = Output::Ring {
-        note: Note {
+        utxo: UtxoFields {
             data_hash: field(0xd4),
             ring_data_hash: field(0xe4),
-            ..ring_note(0xb4, SOL, 777)
+            ..ring_utxo(0xb4, SOL, 777)
         },
         recipient_u: x25519_u(0x44),
         tag: None,
     };
     let first = ring_output(0xb1, SOL, 1000);
-    let exit = Output::Exit(ring_note(0xe5, MINT, 40));
+    let exit = Output::Exit(ring_utxo(0xe5, MINT, 40));
     [
         ("none", vec![first, with_data, Output::Dummy], false),
         ("exits", vec![first, exit, Output::Dummy, with_data], false),
@@ -317,7 +317,7 @@ fn delivered_cases() -> Vec<Case> {
     };
     let dense: Vec<Output> = rings(7).chain([Output::Dummy]).collect();
     let exits: Vec<Output> = rings(6)
-        .chain([Output::Exit(ring_note(0xe6, OTHER_MINT, 40)), Output::Dummy])
+        .chain([Output::Exit(ring_utxo(0xe6, OTHER_MINT, 40)), Output::Dummy])
         .collect();
     [
         ("dense", &dense, false),
@@ -359,12 +359,12 @@ impl AnonymousCase {
         let mut transfer = Transfer::fixture();
         transfer.nullifiers.push(field(0x1e));
         let sender_nullifier_pk = field(0x5a);
-        let sender = |asset_address, amount| Note {
+        let sender = |asset_address, amount| UtxoFields {
             owner_key: SENDER_KEY,
             nullifier_pk: sender_nullifier_pk,
             asset_address,
             amount,
-            ..Note::default()
+            ..UtxoFields::default()
         };
         let inbox_u = x25519_u(0x50);
         let inbox_key = InboxKey::derive(&transfer.ring_id(), &tagged_x25519(&inbox_u)).unwrap();
@@ -372,7 +372,7 @@ impl AnonymousCase {
         let pair_key = PairKey::derive(&SlotSecret::new(first_contact).unwrap()).unwrap();
         let change_field = field(0x5c);
         let change = Output::Ring {
-            note: sender(MINT, 500),
+            utxo: sender(MINT, 500),
             recipient_u: x25519_u(0x52),
             tag: Some(RingTag::from_field(&change_field).unwrap()),
         };
@@ -380,7 +380,7 @@ impl AnonymousCase {
         let mut paid = vec![
             (
                 Output::Ring {
-                    note: ring_note(0xb5, SOL, 4000),
+                    utxo: ring_utxo(0xb5, SOL, 4000),
                     recipient_u: inbox_u,
                     tag: Some(inbox_key.tag(EPOCH, TagIndex::new(0).unwrap()).unwrap()),
                 },
@@ -388,7 +388,7 @@ impl AnonymousCase {
             ),
             (
                 Output::Ring {
-                    note: ring_note(0xb6, MINT, 2500),
+                    utxo: ring_utxo(0xb6, MINT, 2500),
                     recipient_u: x25519_u(0x51),
                     tag: Some(pair_key.tag(EPOCH, TagIndex::new(3).unwrap()).unwrap()),
                 },
@@ -397,7 +397,7 @@ impl AnonymousCase {
         ];
         paid.extend(match self.exits {
             true => [
-                (Output::Exit(ring_note(0xe7, SOL, 1000)), Value::Null),
+                (Output::Exit(ring_utxo(0xe7, SOL, 1000)), Value::Null),
                 (change, change_stream),
             ],
             false => [(change, change_stream), (Output::Dummy, Value::Null)],
@@ -414,8 +414,8 @@ impl AnonymousCase {
         ];
         let commitments: Vec<[u8; 32]> = spent
             .iter()
-            .map(|(note, blinding, ring)| {
-                note.commitment(Placement {
+            .map(|(utxo, blinding, ring)| {
+                utxo.commitment(Placement {
                     blinding: *blinding,
                     ring: *ring,
                     tree_id: transfer.tree_id,
@@ -427,7 +427,7 @@ impl AnonymousCase {
                 sender_nullifier_pk,
                 inputs: spent
                     .iter()
-                    .map(|(note, blinding, _)| Some(input_opening(note, *blinding)))
+                    .map(|(utxo, blinding, _)| Some(input_opening(utxo, *blinding)))
                     .collect(),
             },
             AnonymousKey::Commitment => {
@@ -478,16 +478,16 @@ impl AnonymousCase {
                 .iter()
                 .zip(&transfer.nullifiers)
                 .zip(&commitments)
-                .map(|(((note, blinding, ring), nullifier), commitment)| {
+                .map(|(((utxo, blinding, ring), nullifier), commitment)| {
                     json!({
                         "nullifier": hex(nullifier),
-                        "asset_address": hex(note.asset_address.as_array()),
-                        "asset": hex(note.asset()),
-                        "amount": note.amount,
+                        "asset_address": hex(utxo.asset_address.as_array()),
+                        "asset": hex(utxo.asset()),
+                        "amount": utxo.amount,
                         "blinding": hex(blinding),
                         "input_tree_id": transfer.tree_id,
                         "ring": if ring.is_some() { "ring" } else { "default" },
-                        "owner_hash": hex(note.owner_hash()),
+                        "owner_hash": hex(utxo.owner_hash()),
                         "commitment": hex(commitment),
                     })
                 })
@@ -512,20 +512,27 @@ impl AnonymousCase {
         let known = spent
             .iter()
             .zip(&commitments)
-            .map(|(spend, commitment)| (*commitment, known_note(spend)))
+            .map(|((utxo, blinding, ring), commitment)| {
+                let placement = Placement {
+                    blinding: *blinding,
+                    ring: *ring,
+                    tree_id: transfer.tree_id,
+                };
+                (*commitment, known_utxo(utxo, placement))
+            })
             .collect();
         let inputs = spent
             .iter()
             .zip(&transfer.nullifiers)
             .zip(&commitments)
-            .map(|(((note, blinding, ring), nullifier), commitment)| {
+            .map(|(((utxo, blinding, ring), nullifier), commitment)| {
                 let commitment = *commitment;
                 AuditedInput {
                     nullifier: *nullifier,
                     opening: Some(AuditedInputOpening {
-                        asset: note.asset(),
-                        mint: Some(note.asset_address),
-                        amount: note.amount,
+                        asset: utxo.asset(),
+                        mint: Some(utxo.asset_address),
+                        amount: utxo.amount,
                         blinding: *blinding,
                         ring: Some(match ring {
                             Some(_) => InputRing::Ring { commitment },
@@ -563,19 +570,6 @@ fn anonymous_cases() -> Vec<Case> {
     .collect()
 }
 
-fn known_note((note, blinding, _): &(Note, [u8; 32], Option<Address>)) -> KnownNote {
-    KnownNote {
-        owner_key: note.owner_key,
-        nullifier_pk: Some(note.nullifier_pk),
-        asset: note.asset(),
-        mint: Some(note.asset_address),
-        amount: note.amount,
-        blinding: *blinding,
-        data_hash: [0; 32],
-        ring_data_hash: [0; 32],
-    }
-}
-
 fn file_json(description: &str, cases: &[Case]) -> Value {
     json!({
         "description": description,
@@ -598,7 +592,7 @@ fn check_audit(audit: &Audit) {
     let opened = TransactionAudit::new(&audit.transaction, layout)
         .with_input_trees(&audit.input_trees)
         .unwrap()
-        .with_known_notes(&audit.known)
+        .with_known_utxos(&audit.known)
         .with_escrowed_keys(&audit.escrowed)
         .run(&auditor(), &assets())
         .unwrap();

@@ -24,10 +24,10 @@ use tower::Service;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
 use zolana_ring_client::rpc::{
-    auditor_key_attestation, CreateAuditorKeyRequest, CreateAuditorKeyResponse,
-    GetAuditedNotesRequest, GetDecryptedTransactionsRequest, HealthResponse, RingDepositsRequest,
+    CreateAuditorKeyRequest, CreateAuditorKeyResponse, GetAuditedUtxosRequest,
+    GetDecryptedTransactionsRequest, HealthResponse, PagedRead, RingDepositsRequest,
     RingDepositsResponse, RingState, RingStatusRequest, RingStatusResponse, CREATE_AUDITOR_KEY,
-    GET_AUDITED_MERGES, GET_AUDITED_NOTES, GET_DECRYPTED_TRANSACTIONS, HEALTH, RING_DEPOSITS,
+    GET_AUDITED_MERGES, GET_AUDITED_UTXOS, GET_DECRYPTED_TRANSACTIONS, HEALTH, RING_DEPOSITS,
     RING_STATUS,
 };
 
@@ -138,9 +138,9 @@ pub fn rpc_module<S: TransactionSource + 'static>(
         |hub, request: CreateAuditorKeyRequest| async move {
             let _slot = hub.admit(Lane::Authentication)?;
             let service = hub.service(Some(request.ring_program_id.0))?;
-            service.authorize_auditor_key(&request.auth).await?;
+            let statement = service.auditor_key_statement(&request.auth).await?;
+            let signature = hub.sign_attestation(&statement);
             let (ring, auditor_pubkey) = (service.ring(), service.auditor_pubkey());
-            let signature = hub.sign_attestation(&auditor_key_attestation(&ring, &auditor_pubkey));
             Ok(CreateAuditorKeyResponse {
                 ring_program_id: ring.into(),
                 auditor_pubkey: auditor_pubkey.into(),
@@ -200,7 +200,13 @@ pub fn rpc_module<S: TransactionSource + 'static>(
             let service = hub.service(request.ring_program_id.map(|ring| ring.0))?;
             let page = Page::new(request.cursor, request.limit)?;
             let auth = &request.auth;
-            let read = service.authorize(AuditRead { auth, page: &page }).await?;
+            let read = service
+                .authorize(AuditRead {
+                    read: PagedRead::DecryptedTransactions,
+                    auth,
+                    page: &page,
+                })
+                .await?;
             // Decrypting holds a read slot, the authentication slot is free again.
             drop(authentication);
             let _slot = hub.admit(Lane::Read)?;
@@ -216,6 +222,7 @@ pub fn rpc_module<S: TransactionSource + 'static>(
             let page = Page::new(request.cursor, request.limit)?;
             let read = service
                 .authorize(AuditRead {
+                    read: PagedRead::AuditedMerges,
                     auth: &request.auth,
                     page: &page,
                 })
@@ -227,11 +234,11 @@ pub fn rpc_module<S: TransactionSource + 'static>(
     )?;
     method(
         &mut module,
-        GET_AUDITED_NOTES,
-        |hub, request: GetAuditedNotesRequest| async move {
+        GET_AUDITED_UTXOS,
+        |hub, request: GetAuditedUtxosRequest| async move {
             let _authentication = hub.admit(Lane::Authentication)?;
             let service = hub.service(request.ring_program_id.map(|ring| ring.0))?;
-            service.audited_notes(&request).await
+            service.audited_utxos(&request).await
         },
     )?;
     Ok(module)
@@ -415,6 +422,20 @@ mod tests {
             &self,
             _request: zolana_indexer_api::GetRingMemberRecordsRequest,
         ) -> Result<zolana_indexer_api::GetRingMemberRecordsResponse, ClientError> {
+            Err(ClientError::Rpc("unused source".to_owned()))
+        }
+
+        async fn ring_member_openings(
+            &self,
+            _request: zolana_indexer_api::GetRingMemberOpeningsRequest,
+        ) -> Result<zolana_indexer_api::GetRingMemberOpeningsResponse, ClientError> {
+            Err(ClientError::Rpc("unused source".to_owned()))
+        }
+
+        async fn ring_record_queue(
+            &self,
+            _ring: Address,
+        ) -> Result<zolana_indexer_api::GetRingRecordQueueResponse, ClientError> {
             Err(ClientError::Rpc("unused source".to_owned()))
         }
 

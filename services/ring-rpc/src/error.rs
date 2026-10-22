@@ -1,9 +1,11 @@
+use std::fmt::Display;
+
 use jsonrpsee::types::{error::ErrorCode, ErrorObjectOwned};
 use log::error;
 use thiserror::Error;
 use zolana_client::ClientError;
 use zolana_ring_client::{
-    rpc::{KeyFileError, AUDITED_NOTES_LIMIT},
+    rpc::{KeyFileError, AUDITED_UTXOS_LIMIT},
     AuditError,
 };
 
@@ -17,8 +19,8 @@ pub enum RingRpcError {
     RingNotServed,
     #[error("audit page is invalid")]
     InvalidPage,
-    #[error("a note read names 1 to {AUDITED_NOTES_LIMIT} UTXO hashes")]
-    InvalidNoteRequest,
+    #[error("a UTXO read names 1 to {AUDITED_UTXOS_LIMIT} UTXO hashes")]
+    InvalidUtxoRequest,
     #[error("request is unauthorized because {0}")]
     Unauthorized(#[from] Unauthorized),
     #[error("key derivation failed because {0}")]
@@ -37,12 +39,17 @@ pub enum RingRpcError {
     Busy,
 }
 
+/// Upstream errors quote request URLs, a log never carries their API key.
+pub(crate) fn redacted(error: &impl Display) -> String {
+    zolana_api::redact_api_key(&error.to_string()).into_owned()
+}
+
 /// A client sees its own request errors, and only a generic message for a server fault.
 impl From<RingRpcError> for ErrorObjectOwned {
     fn from(failure: RingRpcError) -> Self {
         use RingRpcError::*;
         let (code, message) = match &failure {
-            RingRequired | RingNotServed | InvalidPage | InvalidNoteRequest | Unauthorized(_) => {
+            RingRequired | RingNotServed | InvalidPage | InvalidUtxoRequest | Unauthorized(_) => {
                 let message = failure.to_string();
                 return ErrorObjectOwned::owned(
                     ErrorCode::InvalidRequest.code(),
@@ -52,7 +59,7 @@ impl From<RingRpcError> for ErrorObjectOwned {
             }
             Busy => (ErrorCode::ServerIsBusy, "audit service is busy"),
             Upstream(inner) => {
-                error!("upstream request failed {inner}");
+                error!("upstream request failed {}", redacted(inner));
                 (ErrorCode::InternalError, "upstream request failed")
             }
             Origin(AuditError::MergeAuditWorkBudget) => (
@@ -60,7 +67,7 @@ impl From<RingRpcError> for ErrorObjectOwned {
                 "audit scan exceeded its per-request work budget",
             ),
             Origin(inner) => {
-                error!("transaction origin lookup failed {inner}");
+                error!("transaction origin lookup failed {}", redacted(inner));
                 (ErrorCode::InternalError, "upstream request failed")
             }
             InvalidIndexerResponse => {
@@ -83,6 +90,16 @@ impl From<RingRpcError> for ErrorObjectOwned {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_logged_upstream_error_drops_the_api_key() {
+        let upstream = ClientError::Rpc(
+            "request to https://rpc.example/?api-key=f00dcafe&x=1 failed".to_owned(),
+        );
+        let logged = redacted(&RingRpcError::Upstream(upstream));
+        assert!(!logged.contains("f00dcafe"), "{logged}");
+        assert!(logged.contains("api-key="), "{logged}");
+    }
 
     #[test]
     fn exhausted_merge_scan_has_an_explicit_rpc_error() {

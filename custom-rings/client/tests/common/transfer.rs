@@ -33,8 +33,8 @@ use zolana_interface::{
 use zolana_keypair::{ViewingKey, X25519Keypair, X25519Pubkey};
 use zolana_ring_client::{
     AnonymousDisclosure, AnonymousInputOpening, AnonymousInputs, AnonymousOutputOpening,
-    AuditDisclosure, AuditEnvelope, AuditedNote, DeliveredOutputOpening, DisclosurePad,
-    OutputOpening, PackedOutputOpening,
+    AuditDisclosure, AuditEnvelope, AuditedUtxo, DeliveredOutputOpening, DisclosurePad, KnownUtxo,
+    OutputOpening, PackedOutputOpening, UtxoOwner,
 };
 use zolana_transaction::{
     derive_output_blinding_seed,
@@ -67,7 +67,7 @@ pub fn auditor() -> X25519Keypair {
 }
 
 #[derive(Clone, Copy, Debug, Default)]
-pub struct Note {
+pub struct UtxoFields {
     pub owner_key: [u8; 32],
     pub nullifier_pk: [u8; 32],
     pub asset_address: Address,
@@ -83,7 +83,7 @@ pub struct Placement {
     pub tree_id: u16,
 }
 
-impl Note {
+impl UtxoFields {
     pub fn asset(&self) -> [u8; 32] {
         hash_bytes(self.asset_address.as_array()).unwrap()
     }
@@ -120,11 +120,11 @@ impl Note {
 pub enum Output {
     /// `tag` is the published tag on an anonymous ring.
     Ring {
-        note: Note,
+        utxo: UtxoFields,
         recipient_u: [u8; 32],
         tag: Option<RingTag>,
     },
-    Exit(Note),
+    Exit(UtxoFields),
     Dummy,
 }
 
@@ -209,7 +209,7 @@ impl Transfer {
         let leaf_index = u64::from(index);
         match *output {
             Output::Ring {
-                note,
+                utxo,
                 recipient_u,
                 tag,
             } => {
@@ -237,14 +237,14 @@ impl Transfer {
                 }
                 .blinding(&secret)
                 .unwrap();
-                let hash = note.commitment(Placement {
+                let hash = utxo.commitment(Placement {
                     blinding,
                     ring: Some(self.ring),
                     tree_id: self.tree_id,
                 });
                 let body = RingDeliveredBody {
-                    asset_address: note.asset_address,
-                    amount: note.amount,
+                    asset_address: utxo.asset_address,
+                    amount: utxo.amount,
                 }
                 .seal(&secret)
                 .unwrap();
@@ -273,16 +273,16 @@ impl Transfer {
                     body: (rail != Rail::Packed).then_some(body),
                 }
             }
-            Output::Exit(note) => {
+            Output::Exit(utxo) => {
                 let blinding = self.exit_blinding(index);
-                let hash = note.commitment(Placement {
+                let hash = utxo.commitment(Placement {
                     blinding,
                     ring: None,
                     tree_id: self.tree_id,
                 });
                 let published = RingOutput::Exit {
                     hash: &hash,
-                    owner_tag: &note.owner_key,
+                    owner_tag: &utxo.owner_key,
                     payload: &[0xe0; CONFIDENTIAL_DATA_FREE_BODY_LEN],
                 };
                 Slot {
@@ -558,8 +558,8 @@ impl Transfer {
 
 pub fn data_free(outputs: &[Output]) -> bool {
     outputs.iter().all(|output| match output {
-        Output::Ring { note, .. } | Output::Exit(note) => {
-            note.data_hash == [0; 32] && note.ring_data_hash == [0; 32]
+        Output::Ring { utxo, .. } | Output::Exit(utxo) => {
+            utxo.data_hash == [0; 32] && utxo.ring_data_hash == [0; 32]
         }
         Output::Dummy => true,
     })
@@ -600,29 +600,29 @@ fn wire(slot: &OutputSlot) -> RingOutput<'_> {
 }
 
 pub fn packed_opening(output: &Output) -> Option<PackedOutputOpening> {
-    let (Output::Ring { note, .. } | Output::Exit(note)) = output else {
+    let (Output::Ring { utxo, .. } | Output::Exit(utxo)) = output else {
         return None;
     };
     Some(PackedOutputOpening {
-        owner_key: note.owner_key,
-        nullifier_pk: Some(note.nullifier_pk),
-        asset: note.asset(),
-        amount: note.amount,
-        data_hash: note.data_hash,
-        ring_data_hash: note.ring_data_hash,
+        owner_key: utxo.owner_key,
+        nullifier_pk: Some(utxo.nullifier_pk),
+        asset: utxo.asset(),
+        amount: utxo.amount,
+        data_hash: utxo.data_hash,
+        ring_data_hash: utxo.ring_data_hash,
     })
 }
 
 pub fn delivered_opening(output: &Output) -> DeliveredOutputOpening {
     match output {
-        Output::Ring { note, .. } => DeliveredOutputOpening::Ring {
-            owner_key: note.owner_key,
-            nullifier_pk: Some(note.nullifier_pk),
+        Output::Ring { utxo, .. } => DeliveredOutputOpening::Ring {
+            owner_key: utxo.owner_key,
+            nullifier_pk: Some(utxo.nullifier_pk),
         },
-        Output::Exit(note) => DeliveredOutputOpening::Exit {
-            nullifier_pk: Some(note.nullifier_pk),
-            asset: note.asset(),
-            amount: note.amount,
+        Output::Exit(utxo) => DeliveredOutputOpening::Exit {
+            nullifier_pk: Some(utxo.nullifier_pk),
+            asset: utxo.asset(),
+            amount: utxo.amount,
         },
         Output::Dummy => DeliveredOutputOpening::Dummy,
     }
@@ -631,51 +631,68 @@ pub fn delivered_opening(output: &Output) -> DeliveredOutputOpening {
 pub fn anonymous_opening(output: &Output) -> AnonymousOutputOpening {
     match output {
         Output::Ring {
-            note, recipient_u, ..
+            utxo, recipient_u, ..
         } => AnonymousOutputOpening::Ring {
-            owner_key: note.owner_key,
-            nullifier_pk: note.nullifier_pk,
+            owner_key: utxo.owner_key,
+            nullifier_pk: utxo.nullifier_pk,
             recipient_u: *recipient_u,
         },
-        Output::Exit(note) => AnonymousOutputOpening::Exit {
-            nullifier_pk: note.nullifier_pk,
-            asset: note.asset(),
-            amount: note.amount,
+        Output::Exit(utxo) => AnonymousOutputOpening::Exit {
+            nullifier_pk: utxo.nullifier_pk,
+            asset: utxo.asset(),
+            amount: utxo.amount,
         },
         Output::Dummy => AnonymousOutputOpening::Dummy,
     }
 }
 
 pub fn audited_opening(output: &Output, slot: &Slot) -> OutputOpening {
-    let audited = |note: &Note| AuditedNote {
-        owner_key: note.owner_key,
-        nullifier_pk: note.nullifier_pk,
-        asset: note.asset(),
-        mint: Some(note.asset_address),
-        amount: note.amount,
+    let audited = |utxo: &UtxoFields| AuditedUtxo {
+        owner_key: utxo.owner_key,
+        nullifier_pk: utxo.nullifier_pk,
+        asset: utxo.asset(),
+        mint: Some(utxo.asset_address),
+        amount: utxo.amount,
         blinding: slot.blinding,
-        data_hash: note.data_hash,
-        ring_data_hash: note.ring_data_hash,
+        data_hash: utxo.data_hash,
+        ring_data_hash: utxo.ring_data_hash,
     };
     match output {
         Output::Ring {
-            note,
+            utxo,
             recipient_u,
             tag,
         } => OutputOpening::Ring {
-            note: audited(note),
+            utxo: audited(utxo),
             recipient_u: *recipient_u,
             tag: *tag,
         },
-        Output::Exit(note) => OutputOpening::Exit(audited(note)),
+        Output::Exit(utxo) => OutputOpening::Exit(audited(utxo)),
         Output::Dummy => OutputOpening::Dummy,
     }
 }
 
-pub fn input_opening(note: &Note, blinding: [u8; 32]) -> AnonymousInputOpening {
+/// `note` at `placement` as an earlier audit opened it.
+pub fn known_utxo(utxo: &UtxoFields, placement: Placement) -> KnownUtxo {
+    KnownUtxo {
+        owner_key: utxo.owner_key,
+        owner: UtxoOwner::Keyed {
+            nullifier_pk: utxo.nullifier_pk,
+        },
+        asset: utxo.asset(),
+        mint: Some(utxo.asset_address),
+        amount: utxo.amount,
+        blinding: placement.blinding,
+        data_hash: utxo.data_hash,
+        ring_data_hash: utxo.ring_data_hash,
+        tree_id: placement.tree_id,
+    }
+}
+
+pub fn input_opening(utxo: &UtxoFields, blinding: [u8; 32]) -> AnonymousInputOpening {
     AnonymousInputOpening {
-        asset: note.asset(),
-        amount: note.amount,
+        asset: utxo.asset(),
+        amount: utxo.amount,
         blinding,
     }
 }

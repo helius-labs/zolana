@@ -431,18 +431,18 @@ mod tests {
     fn merge_ring_data_changes_are_rejected_before_witnesses_or_proving() {
         let owner = ShieldedKeypair::new_ed25519().unwrap();
         let ring = solana_address::Address::new_from_array([9; 32]);
-        let mut note = input(&owner);
-        note.utxo.ring_program_id = Some(ring);
-        note.ring_data_hash = Some([3; 32]);
-        note.utxo_hash = note
+        let mut utxo = input(&owner);
+        utxo.utxo.ring_program_id = Some(ring);
+        utxo.ring_data_hash = Some([3; 32]);
+        utxo.utxo_hash = utxo
             .utxo
-            .hash(&note.nullifier_pubkey, &[0; 32], &[3; 32], note.tree_id)
+            .hash(&utxo.nullifier_pubkey, &[0; 32], &[3; 32], utxo.tree_id)
             .unwrap();
-        note.nullifier = owner
+        utxo.nullifier = owner
             .nullifier_key
-            .nullifier(&note.utxo_hash, &note.utxo.blinding)
+            .nullifier(&utxo.utxo_hash, &utxo.utxo.blinding)
             .unwrap();
-        let prepared = MergeTransaction::new_with_ring(vec![note], ring, None)
+        let prepared = MergeTransaction::new_with_ring(vec![utxo], ring, None)
             .unwrap()
             .encrypt(&owner)
             .unwrap();

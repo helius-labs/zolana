@@ -3,30 +3,33 @@
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     fmt,
+    ops::RangeInclusive,
 };
 
 use custom_ring_interface::{
     stream::{
-        tag_epoch, DeliveredSlot, InboxKey, PairKey, RingTag, SlotSecret, TagIndex, J_INBOX,
-        K_PAIR_EPOCHS,
+        tag_epoch, DeliveredSlot, InboxKey, PairKey, RingTag, SlotSecret, TagIndex, K_PAIR_EPOCHS,
     },
     RingDepositAuditCapsule,
 };
+use rand_core::CryptoRng;
 use serde::{Deserialize, Serialize};
 use solana_address::Address;
 use solana_signature::Signature;
+use zolana_event_parser::decode_encrypted_ring_deposit_output_data;
 use zolana_keypair::{Pairing, PairingRow, RingAddress, X25519Pubkey};
 use zolana_ring_policy::ring_id_field;
 use zolana_transaction::{
-    exactly_one, AssetRegistry, DecryptionResult, DepositPayload, EncryptedScheme,
-    RingDeliveredCandidate, RingDeliveryContext, RingDeliveryRequest, RingRecipientKey,
-    ShieldedKeys, ShieldedTransaction, TransactionError, TransactionKeyRequest,
+    exactly_one, verify_owned, AssetRegistry, DecryptionResult, DepositPayload, EncryptedScheme,
+    OutputSlot, RingDeliveredCandidate, RingDeliveryContext, RingDeliveryRequest,
+    RingRecipientKey, ShieldedKeys, ShieldedTransaction, TransactionError, TransactionKeyRequest,
+    WalletUtxo,
 };
 
 use crate::{
     error::ClientError,
     rpc::{AsyncRpc, IndexerRpcConfig},
-    tags::{indices, occupied, IndexerReads, TagWindow},
+    tags::{indices, IndexerReads, TagWindow, DEFAULT_TAG_WINDOW},
 };
 
 /// Unused addresses past the highest issued or used one that a scan still reads.
@@ -37,7 +40,16 @@ pub const MAX_ISSUED_ADDRESSES: u32 = 1 << 10;
 
 pub const DECOYS_PER_TREE: usize = 64;
 
-pub const ANONYMOUS_RING_STATE_VERSION: u32 = 2;
+pub const ANONYMOUS_RING_STATE_VERSION: u32 = 3;
+
+/// Epochs one fetch reads, the next fetch continues past them.
+pub const MAX_FETCH_EPOCHS: u64 = 1 << 10;
+
+/// Epochs a pair stream lives past its last payment, the same at both ends.
+pub const PAIR_IDLE_EPOCHS: u64 = 8;
+
+/// Counters a deposit scan reads past the highest holding a deposit of the wallet.
+pub const DEPOSIT_GAP: u64 = 2 * DEFAULT_TAG_WINDOW;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IssuedAddress {
@@ -52,6 +64,8 @@ pub struct ReceivedAnchor {
     pub pair_key: [u8; 32],
     /// The epoch of the first contact's inbox tag.
     pub epoch: u64,
+    /// The epoch of the newest pair payment found, `epoch` until one.
+    pub last_epoch: u64,
     pub asset: Address,
     pub amount: u64,
 }
@@ -78,6 +92,7 @@ impl fmt::Debug for ReceivedAnchor {
         f.debug_struct("ReceivedAnchor")
             .field("address_index", &self.address_index)
             .field("epoch", &self.epoch)
+            .field("last_epoch", &self.last_epoch)
             .field("asset", &self.asset)
             .field("amount", &self.amount)
             .finish_non_exhaustive()
@@ -100,11 +115,38 @@ impl fmt::Debug for SentFirstContact {
     }
 }
 
-impl SentFirstContact {
-    /// Live from its own epoch for `K_PAIR_EPOCHS` epochs.
-    pub fn is_live(&self, epoch: u64) -> bool {
-        epoch >= self.epoch && epoch - self.epoch < K_PAIR_EPOCHS
+impl ReceivedAnchor {
+    pub fn live_through(&self) -> u64 {
+        pair_live_through(self.epoch, self.last_epoch)
     }
+}
+
+impl SentFirstContact {
+    /// Live without a later pair payment.
+    pub fn is_live(&self, epoch: u64) -> bool {
+        (self.epoch..=pair_live_through(self.epoch, self.epoch)).contains(&epoch)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct SentPair {
+    contact: SentFirstContact,
+    /// The newest pair payment a scan saw the wallet make on it.
+    last_epoch: u64,
+}
+
+impl SentPair {
+    fn live(&self, epoch: u64) -> bool {
+        (self.contact.epoch..=pair_live_through(self.contact.epoch, self.last_epoch))
+            .contains(&epoch)
+    }
+}
+
+/// A proof bounds a pair by its first contact, the idle rule by its last payment.
+fn pair_live_through(first: u64, last: u64) -> u64 {
+    first
+        .saturating_add(K_PAIR_EPOCHS - 1)
+        .min(last.saturating_add(PAIR_IDLE_EPOCHS - 1))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -123,7 +165,7 @@ pub struct AnonymousRingState {
     scanned_epoch: Option<u64>,
     received: Vec<ReceivedAnchor>,
     /// One per recipient key.
-    sent: Vec<SentFirstContact>,
+    sent: Vec<SentPair>,
     deposit_next: u64,
     decoys: BTreeMap<u16, Vec<DecoyLeaf>>,
 }
@@ -176,8 +218,8 @@ impl AnonymousRingState {
         &self.received
     }
 
-    pub fn sent(&self) -> &[SentFirstContact] {
-        &self.sent
+    pub fn sent(&self) -> impl Iterator<Item = &SentFirstContact> {
+        self.sent.iter().map(|sent| &sent.contact)
     }
 
     pub fn deposit_next(&self) -> u64 {
@@ -231,19 +273,78 @@ impl AnonymousRingState {
     pub fn first_contact(&self, recipient: &X25519Pubkey, epoch: u64) -> Option<&SentFirstContact> {
         self.sent
             .iter()
-            .find(|contact| contact.recipient == *recipient && contact.is_live(epoch))
+            .find(|sent| sent.contact.recipient == *recipient && sent.live(epoch))
+            .map(|sent| &sent.contact)
     }
 
     /// A confirmed inbox payment becomes its address's newest first contact.
     pub fn record_first_contact(&mut self, contact: SentFirstContact) {
+        let recorded = SentPair {
+            contact,
+            last_epoch: contact.epoch,
+        };
         match self
             .sent
             .iter_mut()
-            .find(|sent| sent.recipient == contact.recipient)
+            .find(|sent| sent.contact.recipient == contact.recipient)
         {
-            Some(sent) if sent.epoch <= contact.epoch => *sent = contact,
+            Some(sent) if sent.contact.epoch <= contact.epoch => *sent = recorded,
             Some(_) => {}
-            None => self.sent.push(contact),
+            None => self.sent.push(recorded),
+        }
+    }
+
+    /// A pair tag of a live first contact among the outputs of the wallet's own spend.
+    fn note_pair_payment(&mut self, spend: &ShieldedTransaction) -> Result<(), ClientError> {
+        let landed = tag_epoch(spend.slot);
+        let tags: HashSet<[u8; 32]> = spend.output_slots.iter().map(|slot| slot.view_tag).collect();
+        for sent in &mut self.sent {
+            // A proof of epoch e lands in e, or flagged in e + 1.
+            let epochs: Vec<u64> = [landed.saturating_sub(1), landed]
+                .into_iter()
+                .filter(|epoch| *epoch > sent.last_epoch && sent.live(*epoch))
+                .collect();
+            if epochs.is_empty() {
+                continue;
+            }
+            let pair = PairKey::derive(&SlotSecret::new(sent.contact.slot_secret)?)?;
+            for epoch in epochs {
+                for index in TagIndex::all() {
+                    if tags.contains(&pair.tag(epoch, index)?.field()) {
+                        sent.last_epoch = epoch;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Drops the pair streams no later payment can reach.
+    fn prune(&mut self, open: u64) {
+        let scanned = self.scanned_epoch;
+        self.received
+            .retain(|anchor| scanned.is_none_or(|scanned| anchor.live_through() > scanned));
+        self.sent.retain(|sent| sent.live(open));
+    }
+
+    /// At most [`MAX_FETCH_EPOCHS`], the first one past the last scanned.
+    fn fetch_epochs(&self, slot: u64) -> RangeInclusive<u64> {
+        let first = self
+            .scanned_epoch
+            .map_or(self.creation_epoch, |epoch| epoch.saturating_add(1));
+        first..=tag_epoch(slot).min(first.saturating_add(MAX_FETCH_EPOCHS - 1))
+    }
+
+    /// An epoch past every slot's, or a scan before the ring's creation, reads nothing again.
+    fn check_epochs(&self) -> Result<(), ClientError> {
+        let last = tag_epoch(u64::MAX);
+        let refused = |epoch| Err(ClientError::AnonymousRingEpoch { epoch });
+        if self.creation_epoch > last {
+            return refused(self.creation_epoch);
+        }
+        match self.scanned_epoch {
+            Some(epoch) if epoch > last || epoch < self.creation_epoch => refused(epoch),
+            _ => Ok(()),
         }
     }
 
@@ -267,7 +368,17 @@ impl AnonymousRingState {
         &mut self,
         transactions: impl IntoIterator<Item = &'a ShieldedTransaction>,
     ) {
-        for slot in transactions.into_iter().flat_map(|tx| &tx.output_slots) {
+        let ring = self.ring;
+        // Only a leaf shaped as a first contact hides one among its decoys.
+        for slot in transactions
+            .into_iter()
+            .filter(|tx| tx.ring_program_id == Some(ring))
+            .flat_map(|tx| &tx.output_slots)
+            .filter(|slot| {
+                slot.ring_delivered_body(EncryptedScheme::RingAnonymous)
+                    .is_some()
+            })
+        {
             let context = &slot.output_context;
             let leaves = self.decoys.entry(context.tree_id).or_default();
             let leaf = DecoyLeaf {
@@ -310,7 +421,7 @@ pub enum AnonymousStream {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct AnonymousRingNote {
+pub struct AnonymousRingUtxo {
     pub utxo_hash: [u8; 32],
     pub stream: AnonymousStream,
 }
@@ -321,19 +432,26 @@ pub struct AnonymousRingScan {
     pub state: AnonymousRingState,
     /// Every ring note found and every spend read, no later fetch reads a pending note again.
     pub decrypted: DecryptionResult,
-    pub notes: Vec<AnonymousRingNote>,
-    /// Anchors the scan added, each opens a pair stream.
+    pub utxos: Vec<AnonymousRingUtxo>,
+    /// Anchors the scan added whose pair stream is still live.
     pub anchors: Vec<ReceivedAnchor>,
 }
 
-/// Reads every inbox, pair, deposit and change stream of the wallet, each derived by `keys`.
+/// Reads every inbox, pair, deposit, change and merge stream of the wallet, each derived by `keys`.
 #[must_use]
 pub struct AnonymousRingSync<'a, K: ?Sized> {
     keys: &'a K,
     assets: &'a AssetRegistry,
     config: Option<IndexerRpcConfig>,
     deposit_payload: DepositPayload,
-    known_nullifiers: Vec<[u8; 32]>,
+    held: Vec<HeldUtxo>,
+    default_ring_spends: Vec<ShieldedTransaction>,
+}
+
+struct HeldUtxo {
+    ring_program_id: Option<Address>,
+    nullifier: [u8; 32],
+    utxo_hash: [u8; 32],
 }
 
 impl<'a, K: ShieldedKeys + ?Sized> AnonymousRingSync<'a, K> {
@@ -343,7 +461,8 @@ impl<'a, K: ShieldedKeys + ?Sized> AnonymousRingSync<'a, K> {
             assets,
             config: None,
             deposit_payload: audit_capsule_payload,
-            known_nullifiers: Vec::new(),
+            held: Vec::new(),
+            default_ring_spends: Vec::new(),
         }
     }
 
@@ -358,35 +477,46 @@ impl<'a, K: ShieldedKeys + ?Sized> AnonymousRingSync<'a, K> {
         self
     }
 
-    /// Nullifiers of the wallet's ring and default-ring notes, a spend of either carries change.
-    pub fn with_known_nullifiers(mut self, nullifiers: Vec<[u8; 32]>) -> Self {
-        self.known_nullifiers = nullifiers;
+    /// The change scan asks for the nullifiers of the scanned ring's UTXOs among them alone.
+    pub fn with_held_utxos<'u>(mut self, utxos: impl IntoIterator<Item = &'u WalletUtxo>) -> Self {
+        self.held = utxos
+            .into_iter()
+            .map(|held| HeldUtxo {
+                ring_program_id: held.utxo.ring_program_id,
+                nullifier: held.nullifier,
+                utxo_hash: held.utxo_hash,
+            })
+            .collect();
         self
     }
 
-    /// Reads every epoch after `state`'s last through the epoch of `slot`.
+    /// Spends the default-ring sync read, their ring change opens with no nullifier query.
+    pub fn with_default_ring_spends(mut self, transactions: Vec<ShieldedTransaction>) -> Self {
+        self.default_ring_spends = transactions;
+        self
+    }
+
+    /// Reads at most [`MAX_FETCH_EPOCHS`] epochs after `state`'s last, through the epoch of `slot`.
     pub async fn fetch<I: AsyncRpc + ?Sized>(
         &self,
         indexer: &I,
         state: &AnonymousRingState,
         slot: u64,
     ) -> Result<AnonymousRingScan, ClientError> {
-        let open = tag_epoch(slot);
+        let epochs = state.fetch_epochs(slot);
+        let open = *epochs.end();
         let mut scan = Scan {
             sync: self,
             state: state.clone(),
             ring_id: ring_id_field(state.ring.as_array())?,
-            epochs: state
-                .scanned_epoch
-                .map_or(state.creation_epoch, |epoch| epoch.saturating_add(1))
-                ..=open,
+            epochs,
             decrypted: DecryptionResult::default(),
-            notes: Vec::new(),
-            anchors: Vec::new(),
+            utxos: Vec::new(),
+            added: Vec::new(),
             transactions: Vec::new(),
             tagged: HashSet::new(),
-            opened: HashSet::new(),
             spends: HashSet::new(),
+            deposits: HashSet::new(),
         };
         let mut reads = IndexerReads::configured(indexer, self.config);
         scan.streams(&mut reads).await?;
@@ -396,8 +526,8 @@ impl<'a, K: ShieldedKeys + ?Sized> AnonymousRingSync<'a, K> {
         let Scan {
             mut state,
             decrypted,
-            notes,
-            anchors,
+            utxos,
+            added,
             transactions,
             ..
         } = scan;
@@ -410,19 +540,32 @@ impl<'a, K: ShieldedKeys + ?Sized> AnonymousRingSync<'a, K> {
         {
             state.scanned_epoch = Some(scanned);
         }
+        state.prune(open);
+        let anchors = state
+            .received
+            .iter()
+            .filter(|anchor| added.contains(&anchor.pair_key))
+            .copied()
+            .collect();
         Ok(AnonymousRingScan {
             state,
             decrypted,
-            notes,
+            utxos,
             anchors,
         })
     }
 }
 
+/// The recipient's ciphertext inside an audited deposit's capsule, `None` without a capsule.
+pub fn audit_capsule_payload(bytes: &[u8]) -> Result<Option<&[u8]>, TransactionError> {
+    Ok(RingDepositAuditCapsule::parse(bytes)?.map(|capsule| capsule.recipient_ciphertext))
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum StreamKind {
     Inbox,
-    Pair,
+    /// The position of its anchor among the state's received ones.
+    Pair(usize),
 }
 
 #[derive(Clone, Copy)]
@@ -447,7 +590,7 @@ impl TagSite {
                 epoch,
                 index,
             },
-            StreamKind::Pair => AnonymousStream::Pair {
+            StreamKind::Pair(_) => AnonymousStream::Pair {
                 address_index,
                 epoch,
                 index,
@@ -465,69 +608,60 @@ struct Hit<'t> {
 
 const TAGS_PER_ROUND: usize = 4 * crate::tags::TAGS_PER_REQUEST;
 
-struct Streams {
-    inboxes: Vec<(u32, InboxKey)>,
-    pairs: Vec<(ReceivedAnchor, PairKey)>,
+#[derive(Default)]
+struct AddressStreams {
+    inbox: Option<InboxKey>,
+    pairs: Vec<PairRead>,
 }
 
-impl Streams {
-    fn derive<K: ShieldedKeys + ?Sized>(
-        scan: &Scan<'_, '_, K>,
-        addresses: &[u32],
-        anchors: &[ReceivedAnchor],
-    ) -> Result<Self, ClientError> {
-        let mut inboxes = Vec::with_capacity(addresses.len());
-        if !addresses.is_empty() {
-            let keys = scan
-                .sync
-                .keys
-                .ring_address_keys(&scan.state.ring, addresses)?;
-            check_count(keys.len(), addresses.len())?;
-            for (index, key) in addresses.iter().zip(keys) {
-                inboxes.push((*index, InboxKey::derive(&scan.ring_id, key.as_bytes())?));
-            }
-        }
-        let pairs = anchors
-            .iter()
-            .map(|anchor| Ok((*anchor, PairKey::from_bytes(anchor.pair_key)?)))
-            .collect::<Result<_, ClientError>>()?;
-        Ok(Self { inboxes, pairs })
-    }
+struct PairRead {
+    anchor: usize,
+    key: PairKey,
+    epochs: RangeInclusive<u64>,
+}
 
-    fn len(&self) -> usize {
-        self.inboxes.len() + self.pairs.len()
-    }
-
-    fn sites(&self, epochs: &[u64]) -> Result<HashMap<[u8; 32], TagSite>, ClientError> {
+impl AddressStreams {
+    /// Whole epochs per chunk, past `TAGS_PER_ROUND` tags only when one epoch alone is.
+    fn chunks(
+        &self,
+        address_index: u32,
+        epochs: RangeInclusive<u64>,
+    ) -> Result<Vec<HashMap<[u8; 32], TagSite>>, ClientError> {
+        let mut chunks = Vec::new();
         let mut sites = HashMap::new();
-        for &epoch in epochs {
-            for (address_index, inbox) in &self.inboxes {
+        for epoch in epochs {
+            let site = |index, kind| TagSite {
+                address_index,
+                epoch,
+                index,
+                kind,
+            };
+            let mut epoch_sites = Vec::new();
+            if let Some(inbox) = &self.inbox {
                 for index in TagIndex::all() {
-                    let site = TagSite {
-                        address_index: *address_index,
-                        epoch,
-                        index,
-                        kind: StreamKind::Inbox,
-                    };
-                    sites.insert(inbox.tag(epoch, index)?.field(), site);
+                    epoch_sites.push((
+                        inbox.tag(epoch, index)?.field(),
+                        site(index, StreamKind::Inbox),
+                    ));
                 }
             }
-            for (anchor, pair) in &self.pairs {
-                if epoch < anchor.epoch || epoch - anchor.epoch >= K_PAIR_EPOCHS {
-                    continue;
-                }
+            for pair in self.pairs.iter().filter(|pair| pair.epochs.contains(&epoch)) {
                 for index in TagIndex::all() {
-                    let site = TagSite {
-                        address_index: anchor.address_index,
-                        epoch,
-                        index,
-                        kind: StreamKind::Pair,
-                    };
-                    sites.insert(pair.tag(epoch, index)?.field(), site);
+                    epoch_sites.push((
+                        pair.key.tag(epoch, index)?.field(),
+                        site(index, StreamKind::Pair(pair.anchor)),
+                    ));
                 }
             }
+            if !sites.is_empty() && sites.len() + epoch_sites.len() > TAGS_PER_ROUND {
+                chunks.push(std::mem::take(&mut sites));
+            }
+            sites.extend(epoch_sites);
         }
-        Ok(sites)
+        if !sites.is_empty() {
+            chunks.push(sites);
+        }
+        Ok(chunks)
     }
 }
 
@@ -535,57 +669,92 @@ struct Scan<'s, 'a, K: ?Sized> {
     sync: &'s AnonymousRingSync<'a, K>,
     state: AnonymousRingState,
     ring_id: [u8; 32],
-    epochs: core::ops::RangeInclusive<u64>,
+    epochs: RangeInclusive<u64>,
     decrypted: DecryptionResult,
-    notes: Vec<AnonymousRingNote>,
-    anchors: Vec<ReceivedAnchor>,
+    utxos: Vec<AnonymousRingUtxo>,
+    /// Pair keys of the anchors the scan added.
+    added: Vec<[u8; 32]>,
     transactions: Vec<ShieldedTransaction>,
     tagged: HashSet<(Signature, Option<u16>)>,
-    /// A later round's stream still opens its own slots of a transaction read before.
-    opened: HashSet<(Signature, Option<u16>, u32)>,
     /// Spends, a tagged transaction that spends a note still carries change.
     spends: HashSet<(Signature, Option<u16>)>,
+    /// A deposit counts once, a replay under a later counter moves nothing.
+    deposits: HashSet<[u8; 32]>,
 }
 
 impl<K: ShieldedKeys + ?Sized> Scan<'_, '_, K> {
-    /// Rounds repeat until one adds no address or anchor, new streams read over every epoch.
+    /// Rounds repeat until none adds an address or a live pair epoch, a request names one address.
     async fn streams<I: AsyncRpc + ?Sized>(
         &mut self,
         reads: &mut IndexerReads<'_, I>,
     ) -> Result<(), ClientError> {
         let mut read_addresses = BTreeSet::new();
-        let mut read_anchors = HashSet::new();
+        let mut read_through = Vec::new();
         loop {
-            let addresses: Vec<u32> = (0..self.state.address_window())
-                .filter(|index| !read_addresses.contains(index))
-                .collect();
-            let anchors: Vec<ReceivedAnchor> = self
-                .state
-                .received
-                .iter()
-                .filter(|anchor| !read_anchors.contains(&anchor.pair_key))
-                .copied()
-                .collect();
-            if addresses.is_empty() && anchors.is_empty() {
+            let round = self.round(&mut read_addresses, &mut read_through)?;
+            if round.is_empty() {
                 return Ok(());
             }
-            let streams = Streams::derive(self, &addresses, &anchors)?;
-            read_addresses.extend(addresses);
-            read_anchors.extend(anchors.iter().map(|anchor| anchor.pair_key));
-            let per_chunk = (TAGS_PER_ROUND / (usize::from(J_INBOX) * streams.len().max(1))).max(1);
-            let epochs: Vec<u64> = self.epochs.clone().collect();
-            for chunk in epochs.chunks(per_chunk) {
-                let sites = streams.sites(chunk)?;
-                if sites.is_empty() {
-                    continue;
+            for (address_index, streams) in round {
+                for sites in streams.chunks(address_index, self.epochs.clone())? {
+                    let tags: Vec<[u8; 32]> = sites.keys().copied().collect();
+                    let transactions = reads.transactions(&tags).await?;
+                    self.open_streams(&sites, &transactions)?;
+                    self.transactions
+                        .extend(fresh(&mut self.tagged, transactions));
                 }
-                let tags: Vec<[u8; 32]> = sites.keys().copied().collect();
-                let transactions = reads.transactions(&tags).await?;
-                self.open_streams(&sites, &transactions)?;
-                self.transactions
-                    .extend(fresh(&mut self.tagged, transactions));
             }
         }
+    }
+
+    /// The inbox streams and pair epochs of this fetch no earlier round read, by address.
+    fn round(
+        &self,
+        read_addresses: &mut BTreeSet<u32>,
+        read_through: &mut Vec<Option<u64>>,
+    ) -> Result<BTreeMap<u32, AddressStreams>, ClientError> {
+        let mut round: BTreeMap<u32, AddressStreams> = BTreeMap::new();
+        let addresses: Vec<u32> = (0..self.state.address_window())
+            .filter(|index| read_addresses.insert(*index))
+            .collect();
+        if !addresses.is_empty() {
+            let keys = self
+                .sync
+                .keys
+                .ring_address_keys(&self.state.ring, &addresses)?;
+            check_count(keys.len(), addresses.len())?;
+            for (index, key) in addresses.into_iter().zip(keys) {
+                round.entry(index).or_default().inbox =
+                    Some(InboxKey::derive(&self.ring_id, key.as_bytes())?);
+            }
+        }
+        read_through.resize(self.state.received.len(), None);
+        for (anchor, (received, through)) in self
+            .state
+            .received
+            .iter()
+            .zip(read_through.iter_mut())
+            .enumerate()
+        {
+            let from = through.map_or(received.epoch.max(*self.epochs.start()), |epoch| {
+                epoch.saturating_add(1)
+            });
+            let to = received.live_through().min(*self.epochs.end());
+            if from > to {
+                continue;
+            }
+            *through = Some(to);
+            round
+                .entry(received.address_index)
+                .or_default()
+                .pairs
+                .push(PairRead {
+                    anchor,
+                    key: PairKey::from_bytes(received.pair_key)?,
+                    epochs: from..=to,
+                });
+        }
+        Ok(round)
     }
 
     /// Opens every output under a derived tag, an admitted inbox hit anchors a pair stream.
@@ -607,20 +776,14 @@ impl<K: ShieldedKeys + ?Sized> Scan<'_, '_, K> {
                 let Some(site) = sites.get(&slot.view_tag) else {
                     continue;
                 };
-                // Only an anonymous body earns a secret, any address holder publishes under its tags.
+                // Any address holder writes under its tags, only an anonymous body earns a secret.
                 if slot
-                    .encrypted_body(EncryptedScheme::RingAnonymous)
+                    .ring_delivered_body(EncryptedScheme::RingAnonymous)
                     .is_none()
                 {
                     continue;
                 }
                 let output_index = slot_index(position)?;
-                if !self
-                    .opened
-                    .insert((tx.tx_signature, tx.event_index, output_index))
-                {
-                    continue;
-                }
                 hits.push(Hit {
                     tx,
                     output_index,
@@ -664,11 +827,14 @@ impl<K: ShieldedKeys + ?Sized> Scan<'_, '_, K> {
         )?;
         for find in finds {
             let (site, secret) = &secrets_of[find.candidate];
-            self.notes.push(AnonymousRingNote {
+            self.utxos.push(AnonymousRingUtxo {
                 utxo_hash: find.utxo_hash,
                 stream: site.stream(),
             });
-            if site.kind == StreamKind::Pair {
+            if let StreamKind::Pair(anchor) = site.kind {
+                if let Some(anchor) = self.state.received.get_mut(anchor) {
+                    anchor.last_epoch = anchor.last_epoch.max(site.epoch);
+                }
                 continue;
             }
             if !self
@@ -695,55 +861,53 @@ impl<K: ShieldedKeys + ?Sized> Scan<'_, '_, K> {
             {
                 continue;
             }
-            let anchor = ReceivedAnchor {
+            self.state.received.push(ReceivedAnchor {
                 address_index: site.address_index,
                 pair_key,
                 epoch: site.epoch,
+                last_epoch: site.epoch,
                 asset: find.asset_address,
                 amount: find.amount,
-            };
-            self.state.received.push(anchor);
-            self.anchors.push(anchor);
+            });
+            self.added.push(pair_key);
         }
         Ok(())
     }
 
+    /// The default-ring spends open first, then every spend of a ring UTXO, round after round.
     async fn change<I: AsyncRpc + ?Sized>(
         &mut self,
         reads: &mut IndexerReads<'_, I>,
     ) -> Result<(), ClientError> {
         let change_key = self.sync.keys.ring_change_key(&self.state.ring)?;
         let viewing_pubkey = self.sync.keys.address()?.viewing_pubkey;
+        let ring = Some(self.state.ring);
         let mut queried: HashSet<[u8; 32]> = HashSet::new();
         let mut frontier: Vec<[u8; 32]> = self
             .sync
-            .known_nullifiers
+            .held
             .iter()
-            .chain(self.decrypted.utxos.iter().map(|utxo| &utxo.nullifier))
-            .copied()
+            .filter(|held| held.ring_program_id == ring)
+            .map(|held| held.nullifier)
             .collect();
+        let mut spends = fresh(&mut self.spends, self.sync.default_ring_spends.clone());
         loop {
+            self.open_change(&spends, &change_key, viewing_pubkey)?;
+            self.open_merges(&spends)?;
+            self.transactions.extend(spends);
+            frontier.extend(
+                self.decrypted
+                    .utxos
+                    .iter()
+                    .filter(|utxo| utxo.utxo.ring_program_id == ring)
+                    .map(|utxo| utxo.nullifier),
+            );
             frontier.retain(|nullifier| queried.insert(*nullifier));
             if frontier.is_empty() {
                 return Ok(());
             }
-            let spends = fresh(&mut self.spends, reads.spends(&frontier).await?);
-            let before: HashSet<[u8; 32]> = self
-                .decrypted
-                .utxos
-                .iter()
-                .map(|utxo| utxo.nullifier)
-                .collect();
-            self.open_change(&spends, &change_key, viewing_pubkey)?;
-            self.open_merges(&spends)?;
-            self.transactions.extend(spends);
-            frontier = self
-                .decrypted
-                .utxos
-                .iter()
-                .map(|utxo| utxo.nullifier)
-                .filter(|nullifier| !before.contains(nullifier))
-                .collect();
+            spends = fresh(&mut self.spends, reads.spends(&frontier).await?);
+            frontier.clear();
         }
     }
 
@@ -761,6 +925,7 @@ impl<K: ShieldedKeys + ?Sized> Scan<'_, '_, K> {
             .collect();
         let mut candidates = Vec::new();
         let mut first_nullifiers = Vec::new();
+        let mut signed = Vec::new();
         if !own.is_empty() {
             let requests: Vec<TransactionKeyRequest> = own
                 .iter()
@@ -776,10 +941,11 @@ impl<K: ShieldedKeys + ?Sized> Scan<'_, '_, K> {
                 if tx_key.pubkey() != context.tx_viewing_pk {
                     continue;
                 }
+                signed.push(*tx);
                 let agreement = tx_key.ecdh(change_key).map_err(TransactionError::from)?;
                 for (position, slot) in tx.output_slots.iter().enumerate() {
                     if slot
-                        .encrypted_body(EncryptedScheme::RingAnonymous)
+                        .ring_delivered_body(EncryptedScheme::RingAnonymous)
                         .is_none()
                     {
                         continue;
@@ -804,6 +970,11 @@ impl<K: ShieldedKeys + ?Sized> Scan<'_, '_, K> {
                 }
             }
         }
+        // An earlier payment extends the window a later one is checked against.
+        signed.sort_by_key(|tx| tx.slot);
+        for tx in signed {
+            self.state.note_pair_payment(tx)?;
+        }
         let finds = self.decrypted.extend_ring_delivered(
             self.sync.keys,
             self.sync.assets,
@@ -811,7 +982,7 @@ impl<K: ShieldedKeys + ?Sized> Scan<'_, '_, K> {
             &candidates,
         )?;
         for find in finds {
-            self.notes.push(AnonymousRingNote {
+            self.utxos.push(AnonymousRingUtxo {
                 utxo_hash: find.utxo_hash,
                 stream: AnonymousStream::Change {
                     first_nullifier: first_nullifiers[find.candidate],
@@ -843,13 +1014,13 @@ impl<K: ShieldedKeys + ?Sized> Scan<'_, '_, K> {
             let Some(&first_nullifier) = merge.nullifiers.first() else {
                 continue;
             };
-            self.notes.extend(
+            self.utxos.extend(
                 merge
                     .output_slots
                     .iter()
                     .map(|slot| slot.output_context.hash)
                     .filter(|hash| held.contains(hash))
-                    .map(|utxo_hash| AnonymousRingNote {
+                    .map(|utxo_hash| AnonymousRingUtxo {
                         utxo_hash,
                         stream: AnonymousStream::Merge { first_nullifier },
                     }),
@@ -858,46 +1029,86 @@ impl<K: ShieldedKeys + ?Sized> Scan<'_, '_, K> {
         Ok(())
     }
 
+    /// Reads through `DEPOSIT_GAP` counters past the highest deposit of the wallet in any ring.
     async fn deposits<I: AsyncRpc + ?Sized>(
         &mut self,
         reads: &mut IndexerReads<'_, I>,
     ) -> Result<(), ClientError> {
-        loop {
-            let start = self.state.deposit_next;
+        let mut start = self.state.deposit_next;
+        while start < self.state.deposit_next.saturating_add(DEPOSIT_GAP) {
             let counters: Vec<u64> = indices(start).collect();
             let tags = self.sync.keys.sender_view_tags(&counters)?;
             check_count(tags.len(), counters.len())?;
             let window = TagWindow::new(start, tags);
             let deposits = reads.deposits(&window.tags()).await?;
-            let Some(&highest) = window.occupied(&deposits).last() else {
+            if let Some(highest) = self.open_deposits(&window, deposits)? {
+                self.state.deposit_next = self.state.deposit_next.max(highest.saturating_add(1));
+            }
+            let Some(next) = start.checked_add(DEFAULT_TAG_WINDOW) else {
                 return Ok(());
             };
-            let deposits = self.unwrap_deposits(deposits)?;
-            self.decrypted
-                .extend(self.sync.keys, &deposits, self.sync.assets)?;
-            self.state.deposit_next = highest.saturating_add(1);
+            start = next;
         }
+        Ok(())
     }
 
-    /// The ring's framing taken off its deposits, other rings' deposits left as published.
-    fn unwrap_deposits(
-        &self,
+    /// Keeps the ring's deposits, the highest counter holding a new deposit of the wallet.
+    fn open_deposits(
+        &mut self,
+        window: &TagWindow,
         deposits: Vec<ShieldedTransaction>,
-    ) -> Result<Vec<ShieldedTransaction>, ClientError> {
+    ) -> Result<Option<u64>, ClientError> {
         let mut unwrapped = Vec::with_capacity(deposits.len());
+        let mut ours = Vec::new();
         for mut tx in deposits {
+            let Some(ring) = tx.output_slots.first().and_then(deposit_ring) else {
+                continue;
+            };
             let framing = tx.output_slots.iter_mut().try_for_each(|slot| {
-                slot.unwrap_ring_deposit(&self.state.ring, self.sync.deposit_payload)
+                slot.unwrap_ring_deposit(&ring, self.sync.deposit_payload)
             });
             match framing {
-                Ok(()) => unwrapped.push(tx),
-                Err(error @ TransactionError::Serialize(_)) => return Err(error.into()),
-                // A depositor's malformed framing occupies its tag and opens to nothing.
-                Err(_) => {}
+                Ok(()) if ring == self.state.ring => ours.push(tx.clone()),
+                Ok(()) => {}
+                // A depositor's malformed framing opens to nothing.
+                Err(TransactionError::RingDepositCapsule(_)) => continue,
+                Err(error) => return Err(error.into()),
             }
+            unwrapped.push(tx);
         }
-        Ok(unwrapped)
+        let mut opened = DecryptionResult::default();
+        opened.extend(self.sync.keys, &unwrapped, self.sync.assets)?;
+        let owned: HashSet<[u8; 32]> = verify_owned(self.sync.keys, &opened)?
+            .utxos
+            .into_iter()
+            .map(|utxo| utxo.utxo_hash)
+            .collect();
+        self.decrypted
+            .extend(self.sync.keys, &ours, self.sync.assets)?;
+        let held: HashSet<[u8; 32]> = self.sync.held.iter().map(|held| held.utxo_hash).collect();
+        let mut counted: Vec<(u64, [u8; 32])> = unwrapped
+            .iter()
+            .flat_map(|tx| &tx.output_slots)
+            .filter(|slot| {
+                owned.contains(&slot.output_context.hash) && !held.contains(&slot.output_context.hash)
+            })
+            .filter_map(|slot| Some((window.index_of(&slot.view_tag)?, slot.output_context.hash)))
+            .collect();
+        // A replay of a held or counted deposit under a later tag moves nothing.
+        counted.sort_unstable();
+        Ok(counted
+            .into_iter()
+            .filter(|(_, hash)| self.deposits.insert(*hash))
+            .map(|(counter, _)| counter)
+            .max())
     }
+}
+
+/// The ring a deposit output names, `None` for any other output.
+fn deposit_ring(slot: &OutputSlot) -> Option<Address> {
+    decode_encrypted_ring_deposit_output_data(&slot.payload)
+        .ok()
+        .map(|output| Address::new_from_array(output.ring_program_id))
 }
 
 fn fresh(
@@ -908,13 +1119,6 @@ fn fresh(
         .into_iter()
         .filter(|tx| seen.insert((tx.tx_signature, tx.event_index)))
         .collect()
-}
-
-/// The recipient's ciphertext inside an audited deposit's capsule, `None` without a capsule.
-pub fn audit_capsule_payload(bytes: &[u8]) -> Result<Option<&[u8]>, TransactionError> {
-    RingDepositAuditCapsule::parse(bytes)
-        .map(|capsule| capsule.map(|capsule| capsule.recipient_ciphertext))
-        .map_err(|error| TransactionError::Deserialize(error.to_string()))
 }
 
 fn slot_index(position: usize) -> Result<u32, ClientError> {
@@ -946,35 +1150,32 @@ pub struct PaymentTag {
 
 /// One transaction's payment tags in one epoch, at most one of them pair-anchored.
 #[must_use]
-pub struct TagAllocation<'a, I: ?Sized> {
-    indexer: &'a I,
+pub struct TagAllocation<'a> {
     state: &'a AnonymousRingState,
     epoch: u64,
-    config: Option<IndexerRpcConfig>,
-    taken: HashSet<RingTag>,
+    /// The indexes this transaction took, by stream key.
+    taken: HashMap<[u8; 32], BTreeSet<TagIndex>>,
     paired: bool,
 }
 
-impl<'a, I: AsyncRpc + ?Sized> TagAllocation<'a, I> {
+impl<'a> TagAllocation<'a> {
     /// `state` is the sender's, its first contacts anchor pair payments.
-    pub fn new(indexer: &'a I, state: &'a AnonymousRingState, epoch: u64) -> Self {
+    pub fn new(state: &'a AnonymousRingState, epoch: u64) -> Self {
         Self {
-            indexer,
             state,
             epoch,
-            config: None,
-            taken: HashSet::new(),
+            taken: HashMap::new(),
             paired: false,
         }
     }
 
-    pub fn with_indexer_config(mut self, config: IndexerRpcConfig) -> Self {
-        self.config = Some(config);
-        self
-    }
-
-    /// The pair stream of an admitted live first contact, else the inbox stream until it fills.
-    pub async fn allocate(&mut self, address: &RingAddress) -> Result<PaymentTag, ClientError> {
+    /// The pair stream of an admitted live first contact, else the inbox stream, at an index
+    /// `rng` draws.
+    pub fn allocate<R: CryptoRng + ?Sized>(
+        &mut self,
+        address: &RingAddress,
+        rng: &mut R,
+    ) -> Result<PaymentTag, ClientError> {
         if address.ring_program_id != self.state.ring {
             return Err(ClientError::ForeignRingAddress {
                 address_ring: address.ring_program_id,
@@ -990,59 +1191,53 @@ impl<'a, I: AsyncRpc + ?Sized> TagAllocation<'a, I> {
             });
         if let Some(contact) = contact.copied() {
             let pair = PairKey::derive(&SlotSecret::new(contact.slot_secret)?)?;
-            if let Some((index, tag)) = self
-                .lowest_free(|epoch, index| pair.tag(epoch, index))
-                .await?
-            {
-                self.paired = true;
-                return Ok(self.take(PaymentStream::Pair(contact), index, tag));
-            }
+            let index = self.draw(*pair.as_bytes(), rng);
+            self.paired = true;
+            return Ok(PaymentTag {
+                stream: PaymentStream::Pair(contact),
+                epoch: self.epoch,
+                index,
+                tag: pair.tag(self.epoch, index)?,
+            });
         }
         let inbox = InboxKey::derive(
             &ring_id_field(self.state.ring.as_array())?,
             recipient.as_bytes(),
         )?;
-        match self
-            .lowest_free(|epoch, index| inbox.tag(epoch, index))
-            .await?
-        {
-            Some((index, tag)) => Ok(self.take(PaymentStream::Inbox, index, tag)),
-            None => Err(ClientError::InboxStreamFull { epoch: self.epoch }),
-        }
-    }
-
-    fn take(&mut self, stream: PaymentStream, index: TagIndex, tag: RingTag) -> PaymentTag {
-        self.taken.insert(tag);
-        PaymentTag {
-            stream,
+        let index = self.draw(*inbox.as_bytes(), rng);
+        Ok(PaymentTag {
+            stream: PaymentStream::Inbox,
             epoch: self.epoch,
             index,
-            tag,
-        }
+            tag: inbox.tag(self.epoch, index)?,
+        })
     }
 
-    /// The lowest index of the epoch whose tag no output publishes and no earlier payment took.
-    async fn lowest_free(
-        &self,
-        tag_at: impl Fn(u64, TagIndex) -> Result<RingTag, zolana_hasher::HasherError>,
-    ) -> Result<Option<(TagIndex, RingTag)>, ClientError> {
-        let stream = TagIndex::all()
-            .map(|index| Ok((index, tag_at(self.epoch, index)?)))
-            .collect::<Result<Vec<_>, ClientError>>()?;
-        let positions: HashMap<[u8; 32], TagIndex> = stream
-            .iter()
-            .map(|(index, tag)| (tag.field(), *index))
+    /// Uniform over the indexes this transaction left free, over every index once none is.
+    fn draw<R: CryptoRng + ?Sized>(&mut self, stream: [u8; 32], rng: &mut R) -> TagIndex {
+        let taken = self.taken.entry(stream).or_default();
+        let free: Vec<TagIndex> = TagIndex::all()
+            .filter(|index| !taken.contains(index))
             .collect();
-        let tags: Vec<[u8; 32]> = positions.keys().copied().collect();
-        let used = occupied(
-            &positions,
-            &IndexerReads::configured(self.indexer, self.config)
-                .transactions(&tags)
-                .await?,
-        );
-        Ok(stream
-            .into_iter()
-            .find(|(index, tag)| !used.contains(index) && !self.taken.contains(tag)))
+        let pool = match free.is_empty() {
+            true => TagIndex::all().collect(),
+            false => free,
+        };
+        let index = pool[uniform_below(rng, pool.len())];
+        taken.insert(index);
+        index
+    }
+}
+
+/// A draw past the largest multiple of `bound` is drawn again, the rest are uniform.
+fn uniform_below<R: CryptoRng + ?Sized>(rng: &mut R, bound: usize) -> usize {
+    let bound = bound as u64;
+    let zone = u64::MAX - u64::MAX % bound;
+    loop {
+        let value = rng.next_u64();
+        if value < zone {
+            return (value % bound) as usize;
+        }
     }
 }
 
@@ -1082,6 +1277,7 @@ struct AnchorJson {
     address_index: u32,
     pair_key: String,
     epoch: u64,
+    last_epoch: u64,
     asset: String,
     amount: String,
 }
@@ -1100,6 +1296,7 @@ struct ContactJson {
     index: u8,
     asset: String,
     amount: String,
+    last_epoch: u64,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -1147,6 +1344,7 @@ impl AnonymousRingState {
                     address_index: anchor.address_index,
                     pair_key: hex::encode(anchor.pair_key),
                     epoch: anchor.epoch,
+                    last_epoch: anchor.last_epoch,
                     asset: anchor.asset.to_string(),
                     amount: anchor.amount.to_string(),
                 })
@@ -1154,7 +1352,7 @@ impl AnonymousRingState {
             sent: self
                 .sent
                 .iter()
-                .map(|contact| ContactJson {
+                .map(|SentPair { contact, last_epoch }| ContactJson {
                     recipient: hex::encode(contact.recipient.as_bytes()),
                     tree_id: contact.tree_id,
                     leaf_index: contact.leaf_index,
@@ -1166,6 +1364,7 @@ impl AnonymousRingState {
                     index: contact.index.get(),
                     asset: contact.asset.to_string(),
                     amount: contact.amount.to_string(),
+                    last_epoch: *last_epoch,
                 })
                 .collect(),
             deposit_next: self.deposit_next,
@@ -1222,14 +1421,20 @@ impl AnonymousRingState {
             restored.issue(issued.index, Pairing::new(rows)?)?;
         }
         restored.scanned_epoch = state.scanned_epoch;
+        restored.check_epochs()?;
         restored.received = state
             .received
             .iter()
             .map(|anchor| {
                 Ok(ReceivedAnchor {
                     address_index: anchor.address_index,
-                    pair_key: bytes("pairKey", &anchor.pair_key)?,
+                    pair_key: HexField {
+                        name: "pairKey",
+                        text: &anchor.pair_key,
+                    }
+                    .field()?,
                     epoch: anchor.epoch,
+                    last_epoch: anchor.last_epoch,
                     asset: address(&anchor.asset)?,
                     amount: amount(&anchor.amount)?,
                 })
@@ -1239,18 +1444,40 @@ impl AnonymousRingState {
             .sent
             .iter()
             .map(|contact| {
-                Ok(SentFirstContact {
-                    recipient: X25519Pubkey::from_bytes(bytes("recipient", &contact.recipient)?)?,
+                let recorded = SentFirstContact {
+                    recipient: X25519Pubkey::from_bytes(
+                        HexField {
+                            name: "recipient",
+                            text: &contact.recipient,
+                        }
+                        .decode()?,
+                    )?,
                     tree_id: contact.tree_id,
                     leaf_index: contact.leaf_index,
-                    utxo_hash: bytes("utxoHash", &contact.utxo_hash)?,
-                    slot_secret: bytes("slotSecret", &contact.slot_secret)?,
-                    first_nullifier: bytes("firstNullifier", &contact.first_nullifier)?,
+                    utxo_hash: HexField {
+                        name: "utxoHash",
+                        text: &contact.utxo_hash,
+                    }
+                    .decode()?,
+                    slot_secret: HexField {
+                        name: "slotSecret",
+                        text: &contact.slot_secret,
+                    }
+                    .field()?,
+                    first_nullifier: HexField {
+                        name: "firstNullifier",
+                        text: &contact.first_nullifier,
+                    }
+                    .decode()?,
                     slot_index: contact.slot_index,
                     epoch: contact.epoch,
                     index: TagIndex::new(contact.index)?,
                     asset: address(&contact.asset)?,
                     amount: amount(&contact.amount)?,
+                };
+                Ok(SentPair {
+                    contact: recorded,
+                    last_epoch: contact.last_epoch,
                 })
             })
             .collect::<Result<_, ClientError>>()?;
@@ -1262,7 +1489,11 @@ impl AnonymousRingState {
                 .map(|leaf| {
                     Ok(DecoyLeaf {
                         leaf_index: leaf.leaf_index,
-                        hash: bytes("hash", &leaf.hash)?,
+                        hash: HexField {
+                            name: "hash",
+                            text: &leaf.hash,
+                        }
+                        .decode()?,
                     })
                 })
                 .collect::<Result<BTreeSet<_>, ClientError>>()?;
@@ -1274,12 +1505,30 @@ impl AnonymousRingState {
     }
 }
 
-/// Names the field alone, its text may be a slot secret or a pair key.
-fn bytes<const N: usize>(field: &str, text: &str) -> Result<[u8; N], ClientError> {
-    hex::decode(text)
-        .ok()
-        .and_then(|bytes| <[u8; N]>::try_from(bytes).ok())
-        .ok_or_else(|| ClientError::AnonymousRingState(format!("{field} is not {N} hex bytes")))
+/// An error names the field alone, its text may be a slot secret or a pair key.
+struct HexField<'a> {
+    name: &'static str,
+    text: &'a str,
+}
+
+impl HexField<'_> {
+    fn decode<const N: usize>(self) -> Result<[u8; N], ClientError> {
+        hex::decode(self.text)
+            .ok()
+            .and_then(|bytes| <[u8; N]>::try_from(bytes).ok())
+            .ok_or_else(|| {
+                ClientError::AnonymousRingState(format!("{} is not {N} hex bytes", self.name))
+            })
+    }
+
+    /// Slot secrets and pair keys are Poseidon outputs.
+    fn field(self) -> Result<[u8; 32], ClientError> {
+        let name = self.name;
+        let bytes = self.decode()?;
+        SlotSecret::new(bytes)
+            .map(|_| bytes)
+            .map_err(|_| ClientError::AnonymousRingState(format!("{name} is not a field element")))
+    }
 }
 
 /// A serde message can quote the value it refused, the position alone names the fault.
@@ -1290,4 +1539,16 @@ fn unparsed(error: serde_json::Error) -> ClientError {
         error.line(),
         error.column()
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_fetch_reads_at_most_max_fetch_epochs() {
+        let state = AnonymousRingState::new(Address::new_from_array([1; 32]), 3);
+        assert_eq!(state.fetch_epochs(u64::MAX), 3..=3 + MAX_FETCH_EPOCHS - 1);
+        assert_eq!(MAX_FETCH_EPOCHS, 1 << 10);
+    }
 }

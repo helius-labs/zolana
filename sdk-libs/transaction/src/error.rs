@@ -381,6 +381,9 @@ pub enum TransactionError {
 
     #[error("wallet authority error: {0}")]
     Authority(String),
+
+    #[error(transparent)]
+    RingDepositCapsule(#[from] custom_ring_interface::RingDepositAuditError),
 }
 
 impl From<AddressInputError> for TransactionError {

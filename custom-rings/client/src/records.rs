@@ -11,7 +11,7 @@ use zolana_indexer_api::{
 };
 use zolana_keypair::X25519Pubkey;
 use zolana_ring_member_registry::{
-    ApplyProofInputs, MemberRecord, QuadPath, RecordOpening, RecordWriteProofInput,
+    ApplyProofInputs, MemberRecord, OpeningCheck, QuadPath, RecordOpening, RecordWriteProofInput,
 };
 use zolana_ring_policy::ListId;
 
@@ -51,6 +51,28 @@ impl EscrowedRecord<'_> {
     }
 }
 
+impl RegistryTip {
+    /// True only for every record from `start_index` to the page end, read under the tip.
+    #[must_use]
+    pub fn covers(&self, page: &GetRingMemberRecordsResponse, start_index: u64) -> bool {
+        if start_index >= self.next_index {
+            return false;
+        }
+        let end_index =
+            start_index + (self.next_index - start_index).min(MAX_RING_MEMBER_PAGE_LIMIT);
+        page.root.root.0 == self.root
+            && page.root.root_index == self.root_index
+            && page.root.next_index == self.next_index
+            && page.records.len() == (end_index - start_index) as usize
+            && page
+                .records
+                .iter()
+                .enumerate()
+                .all(|(offset, row)| row.path.index == start_index + offset as u64)
+            && page.next_leaf_index == (end_index < self.next_index).then_some(end_index)
+    }
+}
+
 impl MemberOpeningRead {
     /// `member`'s opening under `root`, refused unless the path reaches the root.
     pub fn verify(
@@ -64,9 +86,13 @@ impl MemberOpeningRead {
             true => RecordOpening::Present { record, path },
             false => RecordOpening::Absent { low: record, path },
         };
-        opening
-            .verify(root, member)
-            .map_err(|_| AuditError::InvalidMemberRegistry)?;
+        OpeningCheck {
+            opening: &opening,
+            root,
+            member,
+        }
+        .verify()
+        .map_err(|_| AuditError::InvalidMemberRegistry)?;
         // An absent member's opening carries the low record, its keys belong to another member.
         let registered = view.present.then_some(&view.record);
         Ok(Self {
@@ -157,28 +183,6 @@ pub fn apply_proof_inputs(
             .map(record_write)
             .collect::<Result<_, _>>()?,
     })
-}
-
-/// A short, oversized or gapped page cannot silently reduce registry coverage.
-pub fn complete_member_page(
-    response: &GetRingMemberRecordsResponse,
-    tip: RegistryTip,
-    start_index: u64,
-) -> bool {
-    if start_index >= tip.next_index {
-        return false;
-    }
-    let end_index = start_index + (tip.next_index - start_index).min(MAX_RING_MEMBER_PAGE_LIMIT);
-    response.root.root.0 == tip.root
-        && response.root.root_index == tip.root_index
-        && response.root.next_index == tip.next_index
-        && response.records.len() == (end_index - start_index) as usize
-        && response
-            .records
-            .iter()
-            .enumerate()
-            .all(|(offset, row)| row.path.index == start_index + offset as u64)
-        && response.next_leaf_index == (end_index < tip.next_index).then_some(end_index)
 }
 
 /// The sealed nullifier secret a record view carries, refused when only half of it is present.

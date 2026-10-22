@@ -1,4 +1,4 @@
-//! Mirrors `custom_rings/circuits/base`, each stream keyed by `Poseidon(CR_S, dh, eph_pk, auditor_pk)`.
+//! Mirrors `custom_rings/circuits/base`, streams keyed by `Poseidon(CR_S, dh, eph_pk, auditor_pk)`.
 
 use custom_ring_interface::{
     RingDepositAuditCapsule, AUDIT_CIPHERTEXT_LEN, AUDIT_STREAM_INFO, MAX_RING_DEPOSIT_AUDIT_SLOTS,

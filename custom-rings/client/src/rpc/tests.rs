@@ -6,7 +6,7 @@ use zolana_transaction::OutputContext;
 use super::*;
 use crate::{
     AuditedInputOpening, AuditedSender, OutputPayloadError,
-    OutputPayloadErrorKind::{self, Commitment, EscrowUnknown, Frame, RecipientKey},
+    OutputPayloadErrorKind::{self, Commitment, Disclosure, EscrowUnknown, Frame, RecipientKey},
 };
 
 fn temp_dir(label: &str) -> PathBuf {
@@ -41,40 +41,99 @@ fn auditor_key_request_attestation_is_stable() {
     );
 }
 
+/// The ring at `[7; 32]` behind the service `[2; 32]` on the cluster `[1; 32]`.
+fn target() -> ReadTarget {
+    ReadTarget {
+        cluster: [1; 32],
+        service: Address::new_from_array([2; 32]),
+        ring: Address::new_from_array([7; 32]),
+    }
+}
+
 #[test]
 fn read_attestation_is_stable() {
     let message = ReadAttestation {
-        ring: Address::new_from_array([7; 32]),
+        read: PagedRead::DecryptedTransactions,
+        target: target(),
         cursor: Some(vec![1, 2, 3].into()),
         limit: Some(Limit::new(5).expect("in range")),
     }
     .message(1_700_000_000, &[4; 32]);
     assert_eq!(
         String::from_utf8(message).expect("text"),
-        "zolana/ring-rpc-read/v1\nring: US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx\ntimestamp: 1700000000\nnonce: BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=\nlimit: 5\ncursor: AQID"
+        "zolana/ring-rpc-read/v2\nmethod: getDecryptedTransactions\ncluster: 4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi\nservice: 8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR\nring: US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx\ntimestamp: 1700000000\nnonce: BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=\nlimit: 5\ncursor: AQID"
+    );
+}
+
+/// A reader's signature names its method, cluster, service and ring, each request a fresh nonce.
+#[test]
+fn a_signed_read_names_its_method_and_target_and_draws_its_own_nonce() {
+    let reader = Keypair::new();
+    let sign = |read: PagedRead| {
+        read.request(target())
+            .at(1_700_000_000)
+            .sign(&reader)
+            .unwrap()
+    };
+    let transfers = sign(PagedRead::DecryptedTransactions);
+    let nonce: [u8; 32] = transfers.auth.nonce.0.clone().try_into().unwrap();
+    let signature = Signature::try_from(transfers.auth.signature.0.as_slice()).unwrap();
+    let attested = |read, target| {
+        ReadAttestation {
+            read,
+            target,
+            cursor: None,
+            limit: None,
+        }
+        .message(1_700_000_000, &nonce)
+    };
+    assert!(signature.verify(
+        reader.pubkey().as_ref(),
+        &attested(PagedRead::DecryptedTransactions, target())
+    ));
+    let elsewhere = [
+        ReadTarget {
+            cluster: [9; 32],
+            ..target()
+        },
+        ReadTarget {
+            service: Address::new_from_array([9; 32]),
+            ..target()
+        },
+    ];
+    for other in elsewhere {
+        assert!(!signature.verify(
+            reader.pubkey().as_ref(),
+            &attested(PagedRead::DecryptedTransactions, other)
+        ));
+    }
+    assert!(!signature.verify(
+        reader.pubkey().as_ref(),
+        &attested(PagedRead::AuditedMerges, target())
+    ));
+    assert_ne!(
+        sign(PagedRead::DecryptedTransactions).auth.nonce,
+        transfers.auth.nonce
     );
 }
 
 #[test]
-fn audited_notes_attestation_is_stable() {
-    let message = AuditedNotesAttestation::new(
-        Address::new_from_array([7; 32]),
-        &[Hash([1; 32]), Hash([2; 32])],
-    )
-    .message(1_700_000_000, &[4; 32]);
+fn audited_utxos_attestation_is_stable() {
+    let message = AuditedUtxosAttestation::new(target(), &[Hash([1; 32]), Hash([2; 32])])
+        .message(1_700_000_000, &[4; 32]);
     assert_eq!(
         String::from_utf8(message).expect("text"),
-        "zolana/ring-rpc-audited-notes/v1\nring: US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx\ntimestamp: 1700000000\nnonce: BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=\nnotes: +Biv03ptw7yS+0RzEBEncAbbTvpukCPNdGjAIzXSKk0="
+        "zolana/ring-rpc-audited-utxos/v1\ncluster: 4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi\nservice: 8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR\nring: US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx\ntimestamp: 1700000000\nnonce: BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=\nutxos: +Biv03ptw7yS+0RzEBEncAbbTvpukCPNdGjAIzXSKk0="
     );
 }
 
 #[test]
-fn a_signed_note_read_carries_the_hashes_it_signed() {
+fn a_signed_utxo_read_carries_the_hashes_it_signed() {
     let reader = Keypair::new();
-    let ring = Address::new_from_array([7; 32]);
+    let ring = target().ring;
     let hashes = vec![Hash([1; 32]), Hash([2; 32])];
-    let request = GetAuditedNotesRequest::read(ring, hashes.clone())
-        .expect("note read")
+    let request = GetAuditedUtxosRequest::read(target(), hashes.clone())
+        .expect("utxo read")
         .at(1_700_000_000)
         .sign(&reader)
         .expect("signed");
@@ -82,17 +141,18 @@ fn a_signed_note_read_carries_the_hashes_it_signed() {
     assert_eq!(request.ring_program_id, Some(ring.to_bytes().into()));
     let nonce = request.auth.nonce.0.clone().try_into().expect("nonce");
     let signature = Signature::try_from(request.auth.signature.0.as_slice()).expect("signature");
-    let signed =
-        |hashes: &[Hash]| AuditedNotesAttestation::new(ring, hashes).message(1_700_000_000, &nonce);
+    let signed = |hashes: &[Hash]| {
+        AuditedUtxosAttestation::new(target(), hashes).message(1_700_000_000, &nonce)
+    };
     assert!(signature.verify(reader.pubkey().as_ref(), &signed(&hashes)));
     assert!(!signature.verify(
         reader.pubkey().as_ref(),
         &signed(&[Hash([2; 32]), Hash([1; 32])])
     ));
-    for count in [0, AUDITED_NOTES_LIMIT + 1] {
+    for count in [0, AUDITED_UTXOS_LIMIT + 1] {
         assert!(matches!(
-            GetAuditedNotesRequest::read(ring, vec![Hash([1; 32]); count]),
-            Err(ReadBuildError::Notes)
+            GetAuditedUtxosRequest::read(target(), vec![Hash([1; 32]); count]),
+            Err(ReadBuildError::UtxoHashes)
         ));
     }
 }
@@ -151,8 +211,8 @@ fn a_deposits_cursor_is_exactly_one_signature() {
     }
 }
 
-fn note(seed: u8, mint: Option<Address>) -> AuditedNote {
-    AuditedNote {
+fn utxo(seed: u8, mint: Option<Address>) -> AuditedUtxo {
+    AuditedUtxo {
         owner_key: [seed; 32],
         nullifier_pk: [seed + 1; 32],
         asset: [seed + 2; 32],
@@ -221,12 +281,12 @@ fn a_decrypted_page_keeps_its_wire_json() {
             output(
                 0,
                 OutputOpening::Ring {
-                    note: note(0x10, Some(Address::new_from_array([4; 32]))),
+                    utxo: utxo(0x10, Some(Address::new_from_array([4; 32]))),
                     recipient_u: [6; 32],
                     tag: None,
                 },
             ),
-            output(1, OutputOpening::Exit(note(0x20, None))),
+            output(1, OutputOpening::Exit(utxo(0x20, None))),
             output(2, OutputOpening::Dummy),
         ],
         payload_errors: vec![OutputPayloadError {
@@ -263,16 +323,16 @@ fn an_anonymous_decrypted_page_keeps_its_wire_json() {
             output(
                 0,
                 OutputOpening::Ring {
-                    note: AuditedNote {
+                    utxo: AuditedUtxo {
                         data_hash: [0; 32],
                         ring_data_hash: [0; 32],
-                        ..note(0x10, Some(Address::new_from_array([4; 32])))
+                        ..utxo(0x10, Some(Address::new_from_array([4; 32])))
                     },
                     recipient_u: [6; 32],
                     tag: Some(RingTag::from_bytes([0x31; 31])),
                 },
             ),
-            output(1, OutputOpening::Exit(note(0x20, None))),
+            output(1, OutputOpening::Exit(utxo(0x20, None))),
             output(2, OutputOpening::Dummy),
         ],
         payload_errors: Vec::new(),
@@ -348,9 +408,9 @@ fn payload_errors_keep_the_encoding_of_the_shared_vector() {
     .expect("vector");
     // A new kind fails to compile here, `kinds` and the vector must then name it.
     let named = |kind: OutputPayloadErrorKind| match kind {
-        Frame | RecipientKey | Commitment | EscrowUnknown => kind,
+        Frame | Disclosure | RecipientKey | Commitment | EscrowUnknown => kind,
     };
-    let kinds = [Frame, RecipientKey, Commitment, EscrowUnknown].map(named);
+    let kinds = [Frame, Disclosure, RecipientKey, Commitment, EscrowUnknown].map(named);
     assert_eq!(serde_json::to_value(kinds).unwrap(), vector.kinds);
     let slots = [(2, Commitment), (5, RecipientKey)]
         .map(|(slot_index, kind)| DecryptedPayloadError { slot_index, kind });
@@ -364,8 +424,14 @@ fn payload_errors_keep_the_encoding_of_the_shared_vector() {
 #[test]
 fn ring_status_reads_the_registry_history_and_queue() {
     let mut registry = MemberRegistry::new(7, 100);
-    registry.push_root([5; 32], 3, 120);
-    registry.raise_floor(3, 120);
+    registry.push_root(
+        [5; 32],
+        custom_ring_interface::AppliedAt {
+            applied: 3,
+            slot: 120,
+        },
+    );
+    registry.raise_floor();
     let mut queue = RecordQueue::new(9);
     queue.head = 3u64.to_le_bytes();
     queue.tail = 5u64.to_le_bytes();
@@ -401,8 +467,7 @@ fn ring_status_reads_the_registry_history_and_queue() {
 #[test]
 fn a_signed_read_carries_the_reader_and_the_bounds_it_signed() {
     let reader = Keypair::new();
-    let ring = Address::new_from_array([7; 32]);
-    let request = GetDecryptedTransactionsRequest::read(ring)
+    let request = GetDecryptedTransactionsRequest::read(target())
         .with_cursor(vec![1].into())
         .expect("cursor")
         .with_limit(Limit::new(5).expect("limit"))
@@ -418,7 +483,8 @@ fn a_signed_read_carries_the_reader_and_the_bounds_it_signed() {
             .to_vec()
     );
     let message = ReadAttestation {
-        ring,
+        read: PagedRead::DecryptedTransactions,
+        target: target(),
         cursor: request.cursor.clone(),
         limit: request.limit.clone(),
     }
@@ -429,7 +495,7 @@ fn a_signed_read_carries_the_reader_and_the_bounds_it_signed() {
     let signature = Signature::try_from(request.auth.signature.0.as_slice()).expect("signature");
     assert!(signature.verify(reader.pubkey().as_ref(), &message));
     assert!(matches!(
-        GetDecryptedTransactionsRequest::read(ring).with_cursor(Vec::new().into()),
+        GetDecryptedTransactionsRequest::read(target()).with_cursor(Vec::new().into()),
         Err(ReadBuildError::Cursor)
     ));
 }
@@ -493,4 +559,99 @@ fn malformed_and_zero_auditor_secrets_are_refused() {
         Err(KeyFileError::File(SecretFileError::Hex))
     ));
     std::fs::remove_dir_all(dir).expect("cleanup");
+}
+
+fn small_field(value: u8) -> [u8; 32] {
+    let mut field = [0; 32];
+    field[31] = value;
+    field
+}
+
+/// An audited notes answer is used only where each opening rebuilds the hash it answers.
+#[test]
+fn audited_utxos_are_used_only_when_they_rebuild_their_hashes() {
+    let ring = Address::new_from_array([7; 32]);
+    let mint = Address::new_from_array([3; 32]);
+    let keyed = KnownUtxo {
+        owner_key: [0xa1; 32],
+        owner: UtxoOwner::Keyed {
+            nullifier_pk: small_field(5),
+        },
+        asset: zolana_hasher::primitives::hash_bytes(mint.as_array()).unwrap(),
+        mint: Some(mint),
+        amount: 40,
+        blinding: small_field(6),
+        data_hash: [0; 32],
+        ring_data_hash: [0; 32],
+        tree_id: 3,
+    };
+    let deposited = KnownUtxo {
+        owner: UtxoOwner::Deposited {
+            owner_hash: small_field(9),
+        },
+        amount: 12,
+        ..keyed
+    };
+    let hashes = [keyed, deposited].map(|utxo| utxo.commitment(Some(ring)).unwrap());
+    let hash = |index: usize| Hash(hashes[index]);
+    let view = |utxo: KnownUtxo, utxo_hash: Hash| AuditedUtxoView {
+        utxo_hash,
+        utxo: utxo.into(),
+        slot: 1,
+        tx_signature: Signature::default().into(),
+        event_index: 0,
+        slot_index: 0,
+    };
+    let answer = |utxos: Vec<Option<AuditedUtxoView>>| GetAuditedUtxosResponse {
+        context: Context {
+            slot: 1,
+            block_time: 0,
+        },
+        value: AuditedUtxosPage { utxos },
+    };
+    let full = answer(vec![
+        Some(view(keyed, hash(0))),
+        Some(view(deposited, hash(1))),
+        None,
+    ]);
+    let known = full
+        .known_utxos(ring, &[hash(0), hash(1), Hash([4; 32])])
+        .unwrap();
+    assert_eq!(
+        known,
+        HashMap::from([(hashes[0], keyed), (hashes[1], deposited)])
+    );
+    let tampered = answer(vec![Some(view(
+        KnownUtxo {
+            amount: 41,
+            ..keyed
+        },
+        hash(0),
+    ))]);
+    assert!(matches!(
+        tampered.known_utxos(ring, &[hash(0)]),
+        Err(AuditError::AuditedUtxoMismatch { .. })
+    ));
+    let pair = answer(vec![
+        Some(view(keyed, hash(0))),
+        Some(view(deposited, hash(1))),
+    ]);
+    assert!(matches!(
+        pair.known_utxos(ring, &[hash(1), hash(0)]),
+        Err(AuditError::AuditedUtxoMismatch { .. })
+    ));
+    let mut both = DecryptedKnownUtxo::from(keyed);
+    both.owner_hash = Some(Hash(small_field(9)));
+    let ambiguous = answer(vec![Some(AuditedUtxoView {
+        utxo: both,
+        ..view(keyed, hash(0))
+    })]);
+    assert!(matches!(
+        ambiguous.known_utxos(ring, &[hash(0)]),
+        Err(AuditError::AuditedUtxoOwner)
+    ));
+    assert!(matches!(
+        full.known_utxos(ring, &[hash(0), hash(1)]),
+        Err(AuditError::AuditedUtxosCount { got: 3, want: 2 })
+    ));
 }

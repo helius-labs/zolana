@@ -23,16 +23,16 @@ use crate::{
     audit::{AuditService, AuditServiceInit, ASSET_REFRESH_INTERVAL},
     authorize::Unauthorized,
     config::RootSecret,
-    error::RingRpcError,
+    error::{redacted, RingRpcError},
     keys::{service_keypair, AuditorKeyDerivation, KeySource},
     limits::{
         PublicRequest, RequestRate, MAX_CONCURRENT_AUTHENTICATIONS, MAX_CONCURRENT_DEPOSIT_SCANS,
         MAX_CONCURRENT_READS,
     },
-    notes::AuditStore,
     origins::Origins,
     replay::ReplayGuard,
     upstream::{DepositHistory, DepositPage, TransactionSource},
+    utxos::AuditStore,
 };
 
 const READINESS_CACHE_INTERVAL: Duration = Duration::from_secs(1);
@@ -109,6 +109,7 @@ pub(crate) struct Shared<S> {
     pub(crate) source: S,
     /// Captured at boot, every authority signature and derived key binds to it.
     pub(crate) genesis_hash: [u8; 32],
+    pub(crate) service: Address,
     pub(crate) clock: Clock,
     assets: AsyncMutex<AssetCache>,
     pub(crate) origins: Origins,
@@ -271,17 +272,20 @@ impl<S: TransactionSource> Hub<S> {
     }
 
     /// Every `interval`, the first at once, backfills the local ring and every ring a read opened.
-    pub async fn run_note_backfill(self: Arc<Self>, interval: Duration) {
+    pub async fn run_utxo_backfill(self: Arc<Self>, interval: Duration) {
         let mut ticks = tokio::time::interval(interval);
         loop {
             ticks.tick().await;
             for ring in self.backfill_rings() {
                 let backfill = match self.service(Some(ring)) {
-                    Ok(service) => service.backfill_notes().await,
+                    Ok(service) => service.backfill_utxos().await,
                     Err(error) => Err(error),
                 };
                 if let Err(error) = backfill {
-                    log::warn!("note backfill of ring {ring} failed because {error}");
+                    log::warn!(
+                        "UTXO backfill of ring {ring} failed because {}",
+                        redacted(&error)
+                    );
                 }
             }
         }
@@ -345,7 +349,7 @@ impl<S: TransactionSource> Hub<S> {
                         let status = match hub.probe_upstreams().await {
                             Ok(()) => ReadinessStatus::Ready,
                             Err(error) => {
-                                log::error!("readiness probe failed because {error}");
+                                log::error!("readiness probe failed because {}", redacted(&error));
                                 ReadinessStatus::Unavailable(error.check())
                             }
                         };
@@ -405,6 +409,7 @@ impl<S: TransactionSource> HubBuilder<S> {
         let shared = Shared {
             source: self.source,
             genesis_hash: self.genesis_hash,
+            service: signer.pubkey(),
             clock: self.clock,
             assets: AsyncMutex::new(AssetCache {
                 registry: self.assets,

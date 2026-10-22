@@ -832,30 +832,30 @@ fn merge_output_ciphertext_matches_shared_vectors_and_decrypts_only_under_its_ke
 fn ring_merges_preserve_common_committed_data_and_exempt_only_padding() {
     let owner = keypair(7);
     let ring = Address::new_from_array([42; 32]);
-    let notes = |hash: Option<[u8; 32]>| {
+    let held_utxos = |hash: Option<[u8; 32]>| {
         inputs(&owner, 2)
             .into_iter()
-            .map(|mut note| {
-                note.utxo.ring_program_id = Some(ring);
-                note.ring_data_hash = hash;
-                note.utxo_hash = note
+            .map(|mut held| {
+                held.utxo.ring_program_id = Some(ring);
+                held.ring_data_hash = hash;
+                held.utxo_hash = held
                     .utxo
                     .hash(
-                        &note.nullifier_pubkey,
+                        &held.nullifier_pubkey,
                         &[0; 32],
                         &hash.unwrap_or_default(),
-                        note.tree_id,
+                        held.tree_id,
                     )
                     .unwrap();
-                note.nullifier = owner
-                    .nullifier(&note.utxo_hash, &note.utxo.blinding)
+                held.nullifier = owner
+                    .nullifier(&held.utxo_hash, &held.utxo.blinding)
                     .unwrap();
-                note
+                held
             })
             .collect::<Vec<_>>()
     };
     for hash in [None, Some([0; 32]), Some([3; 32])] {
-        let mut result = MergeTransaction::new_with_ring(notes(hash), ring, None)
+        let mut result = MergeTransaction::new_with_ring(held_utxos(hash), ring, None)
             .unwrap()
             .encrypt(&owner)
             .unwrap();
@@ -866,7 +866,7 @@ fn ring_merges_preserve_common_committed_data_and_exempt_only_padding() {
         result.input_utxo_hashes().unwrap();
         result.input_utxos[2].ring_data_hash = Some([9; 32]);
         result.input_utxo_hashes().unwrap();
-        let mut unequal = notes(hash);
+        let mut unequal = held_utxos(hash);
         unequal[1].ring_data_hash = Some([7; 32]);
         assert_eq!(
             MergeTransaction::new_with_ring(unequal, ring, None).err(),
@@ -877,7 +877,7 @@ fn ring_merges_preserve_common_committed_data_and_exempt_only_padding() {
             result.input_utxo_hashes(),
             Err(TransactionError::MergeInputRingDataMismatch { index: 1 })
         ));
-        let mut changed_output = MergeTransaction::new_with_ring(notes(hash), ring, None)
+        let mut changed_output = MergeTransaction::new_with_ring(held_utxos(hash), ring, None)
             .unwrap()
             .encrypt(&owner)
             .unwrap();

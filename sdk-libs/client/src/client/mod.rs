@@ -343,7 +343,7 @@ impl<R, I> ZolanaClient<R, I> {
         &self.client
     }
 
-    /// Runs `future` on the runtime the blocking client owns.
+    /// Fails with `BlockingInsideRuntime` inside a `current_thread` runtime.
     pub fn block_on<T, E: From<zolana_api::BlockingInsideRuntime>>(
         &self,
         future: impl std::future::Future<Output = Result<T, E>>,

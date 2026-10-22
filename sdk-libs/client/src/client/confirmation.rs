@@ -66,7 +66,7 @@ async fn wait_for_rpc_confirmation<R: AsyncRpc>(
     )))
 }
 
-/// Fails at once on an error `should_retry` refuses, one visible event means every one is indexed.
+/// Fails at once on an error `should_retry` rejects, one event shows the whole transaction indexed.
 pub async fn wait_for_indexed_transaction<I: AsyncRpc + ?Sized>(
     indexer: &I,
     signature: Signature,

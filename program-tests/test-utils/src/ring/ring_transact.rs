@@ -619,7 +619,7 @@ impl RingHarness {
             data: data.clone(),
         }
         .instruction();
-        // The test ring program forwards the data verbatim, SPP's anonymous tail names no co-signer.
+        // The test ring program forwards data verbatim, SPP's anonymous tail names no co-signer.
         if data.circuit.is_anonymous() {
             transfer_ix.data.extend_from_slice(&[0u8; 32]);
         }

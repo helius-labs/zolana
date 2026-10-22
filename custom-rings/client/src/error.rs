@@ -42,6 +42,12 @@ pub enum AuditError {
     InputTreeCount { trees: usize, inputs: usize },
     #[error("spent UTXO {commitment:?} is in no output the auditor opened")]
     UnseenInput { commitment: [u8; 32] },
+    #[error("audited notes answer {got} of {want} requested hashes")]
+    AuditedUtxosCount { got: usize, want: usize },
+    #[error("audited note names both or neither of its nullifier key and owner hash")]
+    AuditedUtxoOwner,
+    #[error("audited note does not rebuild UTXO hash {utxo_hash:?}")]
+    AuditedUtxoMismatch { utxo_hash: [u8; 32] },
     #[error("the transfer names no ring Transact frame its audit layout is bound to")]
     MissingRingTransact,
     #[error("output slot {slot} does not open, {kind:?}")]

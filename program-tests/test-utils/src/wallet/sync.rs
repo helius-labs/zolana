@@ -31,7 +31,7 @@ use zolana_client::{
         GetEncryptedUtxosByTagsResponse, GetShieldedTransactionsByNullifiersResponse,
         GetShieldedTransactionsByTagsResponse, IndexerPollConfig, IndexerRpcConfig,
     },
-    AnonymousRingNote, AnonymousRingScan, AnonymousRingSync, AnonymousStream,
+    AnonymousRingScan, AnonymousRingSync, AnonymousRingUtxo, AnonymousStream,
 };
 
 const DEFAULT_TAG_QUERY_CHUNK: usize = 64;
@@ -285,7 +285,10 @@ where
             &material,
             &Inline(indexer),
             config,
-            indexed_slot,
+            AnonymousScanAt {
+                slot: indexed_slot,
+                default_ring_spends: &txs,
+            },
         ))?
     };
     wallet.set_latest_tree_id(latest_tree_id);
@@ -293,13 +296,18 @@ where
     Ok(report)
 }
 
-/// `indexed_slot` is the newest slot the indexer answered the sync at.
-async fn scan_anonymous_rings<I: AsyncRpc + ?Sized>(
+struct AnonymousScanAt<'a> {
+    /// The newest slot the indexer answered the sync at.
+    slot: u64,
+    default_ring_spends: &'a [ShieldedTransaction],
+}
+
+async fn scan_anonymous_rings<I: AsyncRpc>(
     wallet: &mut Wallet,
     material: &WalletSyncMaterial,
     indexer: &I,
     config: SyncWalletConfig,
-    indexed_slot: u64,
+    at: AnonymousScanAt<'_>,
 ) -> Result<usize, ClientError> {
     if wallet.anonymous_rings.is_empty() {
         return Ok(0);
@@ -313,8 +321,9 @@ async fn scan_anonymous_rings<I: AsyncRpc + ?Sized>(
     let mut stored = 0;
     for state in rings {
         let ring = state.ring();
-        let known = change_frontier(&wallet.utxos, ring);
-        let mut sync = AnonymousRingSync::new(&keys, &wallet.registry).with_known_nullifiers(known);
+        let mut sync = AnonymousRingSync::new(&keys, &wallet.registry)
+            .with_held_utxos(&wallet.utxos)
+            .with_default_ring_spends(at.default_ring_spends.to_vec());
         if let Some((_, deposit_payload)) = wallet
             .ring_deposit_payload
             .filter(|(deposit_ring, _)| *deposit_ring == ring)
@@ -324,23 +333,16 @@ async fn scan_anonymous_rings<I: AsyncRpc + ?Sized>(
         if let Some(indexer_config) = indexer_rpc_config(config) {
             sync = sync.with_indexer_config(indexer_config);
         }
-        let scan = sync.fetch(indexer, &state, indexed_slot).await?;
+        let mut scan = sync.fetch(indexer, &state, at.slot).await?;
+        // The stored state moves past a pending note, no later scan reads it again.
+        if !scan.decrypted.pending_assets.is_empty()
+            && refresh_registry_from_chain_async(wallet, indexer).await? > 0
+        {
+            scan.decrypted.resolve_pending(&keys, &wallet.registry)?;
+        }
         stored += store_anonymous_scan(wallet, &keys, scan)?;
     }
     Ok(stored)
-}
-
-/// An anonymous spend of a ring note or a default-ring note carries change, spent ones included.
-fn change_frontier(utxos: &[WalletUtxo], ring: Address) -> Vec<[u8; 32]> {
-    utxos
-        .iter()
-        .filter(|held| {
-            held.utxo
-                .ring_program_id
-                .is_none_or(|held_ring| held_ring == ring)
-        })
-        .map(|held| held.nullifier)
-        .collect()
 }
 
 /// A blocking indexer under the async ring scan, each read answers before its future returns.
@@ -380,6 +382,13 @@ impl<I: Rpc + Sync + ?Sized> AsyncRpc for Inline<'_, I> {
         self.0
             .get_shielded_transactions_by_nullifiers(nullifiers, cursor, limit, config)
     }
+
+    async fn get_program_accounts(
+        &self,
+        program_id: Address,
+    ) -> Result<Vec<(Address, solana_account::Account)>, ClientError> {
+        self.0.get_program_accounts(program_id)
+    }
 }
 
 fn store_anonymous_scan(
@@ -392,14 +401,14 @@ fn store_anonymous_scan(
         .nullifiers
         .extend(scan.decrypted.spent_nullifiers.iter().copied());
     wallet.anonymous_rings.insert(scan.state.ring(), scan.state);
-    Ok(store_anonymous_notes(wallet, &owned.utxos, &scan.notes))
+    Ok(store_anonymous_utxos(wallet, &owned.utxos, &scan.utxos))
 }
 
 /// A stream payment becomes an inbound transfer row, a note outside every stream a deposit row.
-fn store_anonymous_notes(
+fn store_anonymous_utxos(
     wallet: &mut Wallet,
     owned: &[WalletUtxo],
-    notes: &[AnonymousRingNote],
+    found: &[AnonymousRingUtxo],
 ) -> usize {
     let mut stored = 0;
     for held in owned {
@@ -410,10 +419,10 @@ fn store_anonymous_notes(
         {
             continue;
         }
-        let stream = notes
+        let stream = found
             .iter()
-            .find(|note| note.utxo_hash == held.utxo_hash)
-            .map(|note| note.stream);
+            .find(|ring_utxo| ring_utxo.utxo_hash == held.utxo_hash)
+            .map(|ring_utxo| ring_utxo.stream);
         let kind = match stream {
             Some(AnonymousStream::Change { .. } | AnonymousStream::Merge { .. }) => None,
             Some(AnonymousStream::Inbox { .. } | AnonymousStream::Pair { .. }) => {
@@ -571,8 +580,17 @@ where
     if refreshed > 0 {
         report = wallet.sync_with_material(&material, &txs, now_unix_ts(), config.tag_window)?;
     }
-    report.stored_utxos +=
-        scan_anonymous_rings(wallet, &material, indexer, config, indexed_slot).await?;
+    report.stored_utxos += scan_anonymous_rings(
+        wallet,
+        &material,
+        indexer,
+        config,
+        AnonymousScanAt {
+            slot: indexed_slot,
+            default_ring_spends: &txs,
+        },
+    )
+    .await?;
     wallet.set_latest_tree_id(latest_tree_id);
 
     Ok(report)
@@ -1255,7 +1273,7 @@ mod tests {
         },
         owner_utxo_hash,
         serialization::Proofless,
-        Address, AssetRegistry, Data, EncryptedScheme, Mint, OwnerCx, RingDepositPlaintext, Utxo,
+        Address, AssetRegistry, Data, EncryptedScheme, OwnerCx, RingDepositPlaintext, Utxo,
         UtxoSerialization, WalletUtxo, SOL_MINT,
     };
 
@@ -2442,8 +2460,8 @@ mod tests {
         .with_anonymous_ring(AnonymousRingState::new(ANONYMOUS_RING, 0))
     }
 
-    /// Alice's ring deposit of 100 pays 30 to Bob's ring address 0 on its inbox stream.
-    fn anonymous_payment() -> AnonymousPayment {
+    /// Alice's ring deposit of 100 `mint` pays 30 to Bob's ring address 0 on its inbox stream.
+    fn anonymous_payment(mint: Address) -> AnonymousPayment {
         let alice = ed25519_keypair(3);
         let bob = ed25519_keypair(5);
         let ring = ANONYMOUS_RING;
@@ -2457,9 +2475,13 @@ mod tests {
             memo: None,
             ring_data: Vec::new(),
         };
+        let asset = AssetRegistry::new([(SPL_ASSET_ID, SPL_MINT)])
+            .expect("registry")
+            .mint(&mint)
+            .expect("mint");
         let funded = deposit
             .clone()
-            .into_utxo(alice.signing_pubkey(), Mint::SOL, 100, ring);
+            .into_utxo(alice.signing_pubkey(), asset, 100, ring);
         let mut input = input_utxo(funded, &alice);
         input.ring_data_hash = Some([0; 32]);
         let first_nullifier = input.nullifier;
@@ -2469,7 +2491,7 @@ mod tests {
                 &blinding,
             )
             .expect("owner utxo hash"),
-            asset: *SOL_MINT.as_array(),
+            asset: *mint.as_array(),
             amount: 100,
             data_hash: None,
             ring_program_id: *ring.as_array(),
@@ -2512,9 +2534,11 @@ mod tests {
         let mut transfer =
             ConfidentialTransaction::new_with_ring(vec![input.clone()], Address::default(), ring)
                 .expect("ring transaction");
-        transfer
-            .transfer_sol(&bob_ring_address, 30)
-            .expect("transfer");
+        match mint == SOL_MINT {
+            true => transfer.transfer_sol(&bob_ring_address, 30),
+            false => transfer.transfer(&bob_ring_address, mint, 30),
+        }
+        .expect("transfer");
         let index = TagIndex::new(0).expect("tag index");
         let tag = InboxKey::derive(
             &ring_id_field(ring.as_array()).expect("ring id"),
@@ -2573,7 +2597,7 @@ mod tests {
             bob,
             input,
             indexer,
-        } = anonymous_payment();
+        } = anonymous_payment(SOL_MINT);
         let mut bob_wallet = anonymous_wallet(&bob);
         sync_wallet(&mut bob_wallet, &local_authority(&bob), &indexer).expect("sync");
         let amounts: Vec<_> = bob_wallet.unspent().map(|held| held.utxo.amount).collect();
@@ -2608,7 +2632,7 @@ mod tests {
 
     #[tokio::test]
     async fn async_sync_finds_anonymous_ring_outputs_by_exact_tags() {
-        let AnonymousPayment { bob, indexer, .. } = anonymous_payment();
+        let AnonymousPayment { bob, indexer, .. } = anonymous_payment(SOL_MINT);
         let mut wallet = anonymous_wallet(&bob);
         let report = sync_wallet_async(&mut wallet, &local_authority(&bob), &indexer)
             .await
@@ -2619,41 +2643,47 @@ mod tests {
         assert_eq!(wallet.anonymous_rings[&ANONYMOUS_RING].received().len(), 1);
     }
 
-    /// The entry layout spends a default-ring note, its change lands under the ring change key.
+    /// Bob's payment in a mint his wallet's registry lacks, the chain registry names it.
+    fn unregistered_anonymous_payment() -> AnonymousPayment {
+        let payment = anonymous_payment(SPL_MINT);
+        AnonymousPayment {
+            indexer: MockIndexer {
+                program_accounts: vec![spl_registry_account(SPL_MINT, SPL_ASSET_ID)],
+                ..payment.indexer
+            },
+            ..payment
+        }
+    }
+
+    fn held_amounts(wallet: &Wallet) -> Vec<(Address, u64)> {
+        wallet
+            .unspent()
+            .map(|held| (held.utxo.asset.asset, held.utxo.amount))
+            .collect()
+    }
+
     #[test]
-    fn the_change_frontier_takes_default_ring_notes_and_leaves_other_rings_out() {
-        let owner = ed25519_keypair(9);
-        let held = |ring_program_id, amount: u8| {
-            let mut blinding = [amount; 32];
-            blinding[0] = 0;
-            input_utxo(
-                Utxo {
-                    owner: owner.signing_pubkey(),
-                    asset: Mint::SOL,
-                    amount: u64::from(amount),
-                    blinding,
-                    ring_program_id,
-                    data: Data::default(),
-                },
-                &owner,
-            )
-        };
-        let other = Address::new_from_array([0x0b; 32]);
-        let utxos = [
-            held(Some(ANONYMOUS_RING), 1),
-            held(None, 2),
-            held(Some(other), 3),
-        ];
-        assert_eq!(
-            change_frontier(&utxos, ANONYMOUS_RING),
-            [utxos[0].nullifier, utxos[1].nullifier]
-        );
+    fn an_anonymous_ring_utxo_of_an_unknown_mint_is_stored_after_the_registry_refresh() {
+        let AnonymousPayment { bob, indexer, .. } = unregistered_anonymous_payment();
+        let mut wallet = anonymous_wallet(&bob);
+        sync_wallet(&mut wallet, &local_authority(&bob), &indexer).expect("sync");
+        assert_eq!(held_amounts(&wallet), [(SPL_MINT, 30)]);
+    }
+
+    #[tokio::test]
+    async fn async_sync_stores_an_anonymous_ring_utxo_of_an_unknown_mint() {
+        let AnonymousPayment { bob, indexer, .. } = unregistered_anonymous_payment();
+        let mut wallet = anonymous_wallet(&bob);
+        sync_wallet_async(&mut wallet, &local_authority(&bob), &indexer)
+            .await
+            .expect("async sync");
+        assert_eq!(held_amounts(&wallet), [(SPL_MINT, 30)]);
     }
 
     /// The untracked ring stays unread, its payment never reaches the wallet.
     #[test]
     fn a_wallet_reads_only_the_anonymous_rings_it_tracks() {
-        let AnonymousPayment { bob, indexer, .. } = anonymous_payment();
+        let AnonymousPayment { bob, indexer, .. } = anonymous_payment(SOL_MINT);
         let mut wallet = Wallet::new(
             bob.shielded_address().expect("bob address"),
             AssetRegistry::default(),

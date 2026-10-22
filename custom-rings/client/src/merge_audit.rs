@@ -22,7 +22,7 @@ use zolana_indexer_api::{
 };
 use zolana_interface::instruction::instruction_data::merge_transact::merge_circuit_width;
 use zolana_keypair::{NullifierKey, X25519Keypair, X25519Pubkey};
-use zolana_ring_member_registry::RecordOpening;
+use zolana_ring_member_registry::{OpeningCheck, RecordOpening};
 use zolana_ring_policy::Member;
 use zolana_transaction::{
     instructions::merge::{merge_output_blinding, merge_output_key, MergeOutputPlaintext},
@@ -32,13 +32,11 @@ use zolana_transaction::{
 use crate::{
     encryption::{open_merge_disclosure, MergeOpening},
     origin::{ConfirmedEventKind, ConfirmedMergeDisclosure, TransactionOrigin},
-    records::{complete_member_page, member_record, quad_path, sealed_key, RegistryTip},
-    scan::PageEnd,
+    records::{member_record, quad_path, sealed_key, RegistryTip},
+    scan::{PageEnd, RING_HISTORY_MAX_PAGES, RING_HISTORY_PAGE_SIZE},
     AuditError,
 };
 
-const DEFAULT_PAGE_SIZE: NonZeroU32 = NonZeroU32::new(1000).unwrap();
-const DEFAULT_MAX_PAGES: NonZeroUsize = NonZeroUsize::new(4096).unwrap();
 const DEFAULT_MAX_MEMBER_PAGES: NonZeroUsize =
     NonZeroUsize::new((MEMBER_REGISTRY_CAPACITY - 1).div_ceil(MAX_RING_MEMBER_PAGE_LIMIT) as usize)
         .unwrap();
@@ -68,7 +66,7 @@ pub enum MergeKeys {
     Disclosed { input_commitments: Vec<[u8; 32]> },
 }
 
-/// A confirmed merge no authenticated registration opened, reported rather than dropped.
+/// A confirmed merge no authenticated registration opened.
 pub struct UnresolvedMerge {
     pub tx_signature: Signature,
     pub event_index: u16,
@@ -117,42 +115,56 @@ struct MergeFields {
 struct PendingMerge {
     tx_signature: Signature,
     event_index: u16,
-    output_commitment: [u8; 32],
-    tree_id: u16,
-    ring_data_hash: [u8; 32],
-    first_nullifier: [u8; 32],
+    output: MergeOutput,
     input_nullifiers: Vec<[u8; 32]>,
-    encrypted: Vec<u8>,
     opened: Option<AuditedMerge>,
 }
 
+/// One confirmed merge output, its body length and fields checked.
+pub(crate) struct MergeOutput {
+    pub(crate) commitment: [u8; 32],
+    pub(crate) tree_id: u16,
+    pub(crate) first_nullifier: [u8; 32],
+    pub(crate) width: usize,
+    pub(crate) ring_program_id: [u8; 32],
+    pub(crate) ring_data_hash: [u8; 32],
+    pub(crate) salt: [u8; MERGE_OUTPUT_SALT_LEN],
+    pub(crate) encrypted: Vec<u8>,
+}
+
+/// Key and output attempts across one merge page, bounded by `limit`.
+struct KeySearch<'a> {
+    pending: &'a mut [PendingMerge],
+    attempts: usize,
+    limit: Option<NonZeroUsize>,
+}
+
+/// An anonymous ring merge and the settled leaf its disclosure must reproduce.
+#[must_use]
+struct DisclosedMerge<'a> {
+    auditor: &'a X25519Keypair,
+    disclosure: &'a ConfirmedMergeDisclosure,
+    output: &'a MergeOutput,
+}
+
 impl PendingMerge {
-    fn try_open(&mut self, registered: &RegisteredKey, ring: Address) -> Result<(), AuditError> {
+    fn try_open(&mut self, registered: &RegisteredKey) -> Result<(), AuditError> {
         if self.opened.is_some() {
             return Ok(());
         }
-        let Some(fields) = open_candidate(
-            registered,
-            &self.first_nullifier,
-            &self.encrypted,
-            self.output_commitment,
-            self.tree_id,
-            self.ring_data_hash,
-            ring,
-        )?
-        else {
+        let Some(fields) = self.output.open_candidate(registered)? else {
             return Ok(());
         };
         self.opened = Some(AuditedMerge {
             tx_signature: self.tx_signature,
             event_index: self.event_index,
-            output_commitment: self.output_commitment,
+            output_commitment: self.output.commitment,
             owner_member: registered.member,
             owner_pubkey: registered.owner_pubkey,
             mint: fields.mint,
             amount: fields.amount,
             blinding: fields.blinding,
-            ring_data_hash: self.ring_data_hash,
+            ring_data_hash: self.output.ring_data_hash,
             input_nullifiers: self.input_nullifiers.clone(),
             keys: MergeKeys::Escrowed {
                 nullifier: fields.nullifier,
@@ -168,8 +180,8 @@ impl<'a> MergeAudit<'a> {
             ring,
             auditor,
             cursor: None,
-            page_size: DEFAULT_PAGE_SIZE,
-            max_pages: DEFAULT_MAX_PAGES,
+            page_size: RING_HISTORY_PAGE_SIZE,
+            max_pages: RING_HISTORY_MAX_PAGES,
             max_member_pages: DEFAULT_MAX_MEMBER_PAGES,
             max_candidate_attempts: None,
             indexer_config: None,
@@ -299,9 +311,9 @@ impl<'a> MergeAudit<'a> {
             }
             confirmed.bind_transaction(&mut tx, self.ring)?;
             remember_merge(seen, tx.tx_signature, event_index)?;
-            let output = MergeOutput::of(&tx)?;
+            let output = MergeOutput::of(&tx, self.ring)?;
             if let Some(disclosure) = &confirmed.merge_disclosure {
-                let opening = output.disclose(self.auditor, disclosure, self.ring)?;
+                let opening = output.disclose(self.auditor, disclosure)?;
                 disclosed.push(AuditedMerge {
                     tx_signature: tx.tx_signature,
                     event_index,
@@ -322,12 +334,8 @@ impl<'a> MergeAudit<'a> {
             pending.push(PendingMerge {
                 tx_signature: tx.tx_signature,
                 event_index,
-                output_commitment: output.commitment,
-                tree_id: output.tree_id,
-                ring_data_hash: output.ring_data_hash,
-                first_nullifier: output.first_nullifier,
+                output,
                 input_nullifiers: tx.nullifiers,
-                encrypted: output.encrypted,
                 opened: None,
             });
         }
@@ -337,17 +345,13 @@ impl<'a> MergeAudit<'a> {
                 unresolved: Vec::new(),
             });
         }
-        let mut attempts = 0;
-        self.scan_registry(indexer, registry, |registered| {
-            try_registered_key(
-                &mut pending,
-                registered,
-                self.ring,
-                &mut attempts,
-                self.max_candidate_attempts,
-            )
-        })
-        .await?;
+        let mut search = KeySearch {
+            pending: &mut pending,
+            attempts: 0,
+            limit: self.max_candidate_attempts,
+        };
+        self.scan_registry(indexer, registry, |registered| search.try_key(registered))
+            .await?;
         let mut result = MergeAuditResult {
             opened: disclosed,
             unresolved: Vec::new(),
@@ -359,7 +363,7 @@ impl<'a> MergeAudit<'a> {
                 result.unresolved.push(UnresolvedMerge {
                     tx_signature: merge.tx_signature,
                     event_index: merge.event_index,
-                    output_commitment: merge.output_commitment,
+                    output_commitment: merge.output.commitment,
                 });
             }
         }
@@ -404,7 +408,7 @@ impl<'a> MergeAudit<'a> {
                     limit: MAX_RING_MEMBER_PAGE_LIMIT,
                 })
                 .await?;
-            if !complete_member_page(&response, tip, start_index) {
+            if !tip.covers(&response, start_index) {
                 return Err(AuditError::InvalidMemberRegistry);
             }
             for row in &response.records {
@@ -418,11 +422,15 @@ impl<'a> MergeAudit<'a> {
                 }) {
                     return Err(AuditError::InvalidMemberRegistry);
                 }
-                RecordOpening::Present {
-                    record,
-                    path: quad_path(&row.path)?,
+                OpeningCheck {
+                    opening: &RecordOpening::Present {
+                        record,
+                        path: quad_path(&row.path)?,
+                    },
+                    root: &tip.root,
+                    member: &member,
                 }
-                .verify(&tip.root, &member)
+                .verify()
                 .map_err(|_| AuditError::InvalidMemberRegistry)?;
                 if record.escrow_key != [0; 32] {
                     let sealed =
@@ -453,102 +461,32 @@ impl<'a> MergeAudit<'a> {
     }
 }
 
-fn try_registered_key(
-    pending: &mut [PendingMerge],
-    registered: &RegisteredKey,
-    ring: Address,
-    attempts: &mut usize,
-    limit: Option<NonZeroUsize>,
-) -> Result<bool, AuditError> {
-    for merge in pending.iter_mut().filter(|merge| merge.opened.is_none()) {
-        if limit.is_some_and(|limit| *attempts >= limit.get()) {
-            return Err(AuditError::MergeAuditWorkBudget);
+impl KeySearch<'_> {
+    fn try_key(&mut self, registered: &RegisteredKey) -> Result<bool, AuditError> {
+        for merge in self
+            .pending
+            .iter_mut()
+            .filter(|merge| merge.opened.is_none())
+        {
+            if self.limit.is_some_and(|limit| self.attempts >= limit.get()) {
+                return Err(AuditError::MergeAuditWorkBudget);
+            }
+            self.attempts += 1;
+            merge.try_open(registered)?;
         }
-        *attempts += 1;
-        merge.try_open(registered, ring)?;
+        // Every opening matched its settled commitment, later leaves change nothing.
+        Ok(self.pending.iter().all(|merge| merge.opened.is_some()))
     }
-    // Every opening matched its settled commitment, later leaves change nothing.
-    Ok(pending.iter().all(|merge| merge.opened.is_some()))
-}
-
-/// A malformed confirmed field is an audit error, a commitment miss after it is a key miss.
-fn validate_confirmed_merge_fields(
-    first_nullifier: &[u8; 32],
-    output_commitment: &[u8; 32],
-    ring_data_hash: &[u8; 32],
-    encrypted: &[u8],
-) -> Result<(), AuditError> {
-    if !is_canonical_bn254_scalar_be(first_nullifier)
-        || !is_canonical_bn254_scalar_be(output_commitment)
-        || !is_canonical_bn254_scalar_be(ring_data_hash)
-        || encrypted.len() != MERGE_OUTPUT_BODY_LEN
-        || encrypted[MERGE_OUTPUT_SALT_LEN..]
-            .as_chunks::<32>()
-            .0
-            .iter()
-            .any(|chunk| !is_canonical_bn254_scalar_be(chunk))
-    {
-        return Err(invalid_merge());
-    }
-    Ok(())
-}
-
-/// The ciphertext is unauthenticated, the settled commitment alone decides the opening.
-fn open_candidate(
-    registered: &RegisteredKey,
-    first_nullifier: &[u8; 32],
-    encrypted: &[u8],
-    output_commitment: [u8; 32],
-    tree_id: u16,
-    ring_data_hash: [u8; 32],
-    ring: Address,
-) -> Result<Option<MergeFields>, AuditError> {
-    let key = merge_output_key(&registered.key, first_nullifier)?;
-    let Ok(plain) = MergeOutputPlaintext::decrypt(encrypted, &key) else {
-        return Ok(None);
-    };
-    let blinding = merge_output_blinding(&registered.key, first_nullifier)?;
-    let owner_hash = Poseidon::hashv(&[&registered.member, &registered.key.pubkey()?])?;
-    let Ok(output) = ProofInputUtxo::new(owner_hash, &plain.mint, plain.amount, &blinding, tree_id)
-    else {
-        return Ok(None);
-    };
-    let Ok(output) = output.with_ring(ring_data_hash, &Some(ring)) else {
-        return Ok(None);
-    };
-    let Ok(expected) = output.hash() else {
-        return Ok(None);
-    };
-    if expected != output_commitment {
-        return Ok(None);
-    }
-    Ok(Some(MergeFields {
-        mint: plain.mint,
-        amount: plain.amount,
-        blinding,
-        nullifier: registered.key.nullifier(&output_commitment, &blinding)?,
-    }))
-}
-
-pub(crate) struct MergeOutput {
-    pub(crate) commitment: [u8; 32],
-    pub(crate) tree_id: u16,
-    pub(crate) first_nullifier: [u8; 32],
-    pub(crate) width: usize,
-    pub(crate) ring_data_hash: [u8; 32],
-    pub(crate) encrypted: Vec<u8>,
 }
 
 impl MergeOutput {
-    /// `tx` is bound to its confirmed merge event.
-    pub(crate) fn of(tx: &ShieldedTransaction) -> Result<Self, AuditError> {
-        let ([slot], Some(first_nullifier), Some(width)) = (
-            tx.output_slots.as_slice(),
-            tx.nullifiers.first(),
-            merge_circuit_width(tx.nullifiers.len()),
-        ) else {
+    /// A malformed confirmed field is an audit error, a commitment miss after it is a key miss.
+    pub(crate) fn of(tx: &ShieldedTransaction, ring: Address) -> Result<Self, AuditError> {
+        let [slot] = tx.output_slots.as_slice() else {
             return Err(invalid_merge());
         };
+        let first_nullifier = *tx.nullifiers.first().ok_or_else(invalid_merge)?;
+        let width = merge_circuit_width(tx.nullifiers.len()).ok_or_else(invalid_merge)?;
         let Some(OutputDataEncoding::VerifiablyEncrypted(blob)) = slot.output_data() else {
             return Err(invalid_merge());
         };
@@ -558,18 +496,26 @@ impl MergeOutput {
         let Some((Some(&ring_data_hash), encrypted)) = split_merge_output_body(body) else {
             return Err(invalid_merge());
         };
-        validate_confirmed_merge_fields(
-            first_nullifier,
-            &slot.output_context.hash,
-            &ring_data_hash,
-            encrypted,
-        )?;
+        let commitment = slot.output_context.hash;
+        let (salt, fields) = encrypted
+            .split_first_chunk::<MERGE_OUTPUT_SALT_LEN>()
+            .filter(|_| encrypted.len() == MERGE_OUTPUT_BODY_LEN)
+            .ok_or_else(invalid_merge)?;
+        if ![first_nullifier, commitment, ring_data_hash]
+            .iter()
+            .chain(fields.as_chunks::<32>().0)
+            .all(is_canonical_bn254_scalar_be)
+        {
+            return Err(invalid_merge());
+        }
         Ok(Self {
-            commitment: slot.output_context.hash,
+            commitment,
             tree_id: slot.output_context.tree_id,
-            first_nullifier: *first_nullifier,
+            first_nullifier,
             width,
+            ring_program_id: program_id_proof_input_hash(&Some(ring))?,
             ring_data_hash,
+            salt: *salt,
             encrypted: encrypted.to_vec(),
         })
     }
@@ -578,62 +524,83 @@ impl MergeOutput {
         &self,
         auditor: &X25519Keypair,
         disclosure: &ConfirmedMergeDisclosure,
-        ring: Address,
     ) -> Result<MergeOpening, AuditError> {
         DisclosedMerge {
             auditor,
             disclosure,
-            salt: *self.encrypted.first_chunk().ok_or_else(invalid_merge)?,
-            width: self.width,
-            ring_program_id: program_id_proof_input_hash(&Some(ring))?,
-            ring_data_hash: self.ring_data_hash,
-            tree_id: self.tree_id,
-            output_commitment: self.commitment,
+            output: self,
         }
         .open()
     }
-}
 
-/// An anonymous ring merge and the settled leaf its disclosure must reproduce.
-#[must_use]
-struct DisclosedMerge<'a> {
-    auditor: &'a X25519Keypair,
-    disclosure: &'a ConfirmedMergeDisclosure,
-    salt: [u8; MERGE_OUTPUT_SALT_LEN],
-    width: usize,
-    ring_program_id: [u8; 32],
-    ring_data_hash: [u8; 32],
-    tree_id: u16,
-    output_commitment: [u8; 32],
+    /// The ciphertext is unauthenticated, the settled commitment alone decides the opening.
+    fn open_candidate(
+        &self,
+        registered: &RegisteredKey,
+    ) -> Result<Option<MergeFields>, AuditError> {
+        let key = merge_output_key(&registered.key, &self.first_nullifier)?;
+        let Ok(plain) = MergeOutputPlaintext::decrypt(&self.encrypted, &key) else {
+            return Ok(None);
+        };
+        let blinding = merge_output_blinding(&registered.key, &self.first_nullifier)?;
+        let owner_hash = Poseidon::hashv(&[&registered.member, &registered.key.pubkey()?])?;
+        let Ok(utxo) = ProofInputUtxo::new(
+            owner_hash,
+            &plain.mint,
+            plain.amount,
+            &blinding,
+            self.tree_id,
+        ) else {
+            return Ok(None);
+        };
+        let utxo = ProofInputUtxo {
+            ring_data_hash: self.ring_data_hash,
+            ring_program_id: self.ring_program_id,
+            ..utxo
+        };
+        let Ok(expected) = utxo.hash() else {
+            return Ok(None);
+        };
+        if expected != self.commitment {
+            return Ok(None);
+        }
+        Ok(Some(MergeFields {
+            mint: plain.mint,
+            amount: plain.amount,
+            blinding,
+            nullifier: registered.key.nullifier(&self.commitment, &blinding)?,
+        }))
+    }
 }
 
 impl DisclosedMerge<'_> {
     fn open(self) -> Result<MergeOpening, AuditError> {
+        let output = self.output;
         let opening = open_merge_disclosure(
             self.auditor,
             &X25519Pubkey::from_bytes(self.disclosure.eph_pk)?,
             &self.disclosure.ciphertext,
-            self.salt,
+            output.salt,
             &self.disclosure.fields,
         )?;
-        if opening.input_commitments.len() != self.width {
+        if opening.input_commitments.len() != output.width {
             return Err(invalid_merge());
         }
         let owner_member = Member::owner_tag(&opening.owner_key)?;
         let owner_hash = Poseidon::hashv(&[owner_member.as_bytes(), &opening.nullifier_pk])?;
         let commitment = ProofInputUtxo {
-            ring_data_hash: self.ring_data_hash,
-            ring_program_id: self.ring_program_id,
+            ring_data_hash: output.ring_data_hash,
+            ring_program_id: output.ring_program_id,
             ..ProofInputUtxo::new(
                 owner_hash,
                 &Address::new_from_array(opening.mint),
                 opening.amount,
                 &opening.output_blinding,
-                self.tree_id,
+                output.tree_id,
             )?
         }
         .hash()?;
-        if commitment != self.output_commitment {
+        if commitment != output.commitment {
             return Err(AuditError::MergeDisclosureMismatch);
         }
         Ok(opening)
@@ -823,18 +790,18 @@ mod tests {
             records: (5..8).map(row).collect(),
             next_leaf_index: None,
         };
-        assert!(complete_member_page(&response, tip, 5));
+        assert!(tip.covers(&response, 5));
         response.records[1].path.index = 8;
-        assert!(!complete_member_page(&response, tip, 5));
+        assert!(!tip.covers(&response, 5));
         response.records[1].path.index = 6;
         response.records.pop();
-        assert!(!complete_member_page(&response, tip, 5));
+        assert!(!tip.covers(&response, 5));
         response.records.push(row(7));
         response.next_leaf_index = Some(8);
-        assert!(!complete_member_page(&response, tip, 5));
+        assert!(!tip.covers(&response, 5));
         response.next_leaf_index = None;
         response.root.root = Hash([9; 32]);
-        assert!(!complete_member_page(&response, tip, 5));
+        assert!(!tip.covers(&response, 5));
     }
 
     struct TerminalHistory {
@@ -908,6 +875,48 @@ mod tests {
         ));
     }
 
+    /// A merge row of eight spends, its output at `commitment` in tree 0.
+    struct MergeRow {
+        first_nullifier: [u8; 32],
+        commitment: [u8; 32],
+        ring_data_hash: [u8; 32],
+        salt: [u8; MERGE_OUTPUT_SALT_LEN],
+        ciphertext: [[u8; 32]; 3],
+    }
+
+    impl MergeRow {
+        fn output(&self, ring: Address) -> Result<MergeOutput, AuditError> {
+            let tx = ShieldedTransaction {
+                slot: 0,
+                tx_signature: Signature::default(),
+                event_index: Some(0),
+                tx_viewing_pk: None,
+                salt: None,
+                output_slots: vec![zolana_client::OutputSlot {
+                    view_tag: [0; 32],
+                    output_context: zolana_client::OutputContext {
+                        hash: self.commitment,
+                        tree_id: 0,
+                        leaf_index: 0,
+                    },
+                    payload: zolana_event::encode_merge_output_data(
+                        zolana_event::MergeOutputDataRef {
+                            salt: &self.salt,
+                            ciphertext: &self.ciphertext,
+                            ring_data_hash: Some(&self.ring_data_hash),
+                        },
+                    ),
+                }],
+                messages: Vec::new(),
+                nullifiers: vec![self.first_nullifier; 8],
+                proofless: false,
+                ring_config: None,
+                ring_program_id: Some(ring),
+            };
+            MergeOutput::of(&tx, ring)
+        }
+    }
+
     #[test]
     fn merge_opening_requires_the_registered_key_and_settled_commitment() {
         let ring = Address::new_from_array([9; 32]);
@@ -925,21 +934,6 @@ mod tests {
                 &salt,
             )
             .unwrap();
-        let mut encrypted = salt.to_vec();
-        for element in ciphertext {
-            encrypted.extend_from_slice(&element);
-        }
-        validate_confirmed_merge_fields(&first_nullifier, &[0; 32], &[1; 32], &encrypted).unwrap();
-        let mut malformed = encrypted.clone();
-        malformed[MERGE_OUTPUT_SALT_LEN..MERGE_OUTPUT_SALT_LEN + 32].fill(0xff);
-        assert!(matches!(
-            validate_confirmed_merge_fields(&first_nullifier, &[0; 32], &[1; 32], &malformed),
-            Err(AuditError::InvalidConfirmedEvent(_))
-        ));
-        assert!(matches!(
-            validate_confirmed_merge_fields(&first_nullifier, &[0; 32], &[0xff; 32], &encrypted),
-            Err(AuditError::InvalidConfirmedEvent(_))
-        ));
         let blinding = merge_output_blinding(&registered.key, &first_nullifier).unwrap();
         let owner_hash =
             Poseidon::hashv(&[&registered.member, &registered.key.pubkey().unwrap()]).unwrap();
@@ -949,17 +943,36 @@ mod tests {
             .unwrap()
             .hash()
             .unwrap();
-        let opened = open_candidate(
-            &registered,
-            &first_nullifier,
-            &encrypted,
+        let row = MergeRow {
+            first_nullifier,
             commitment,
-            0,
-            [1; 32],
-            ring,
-        )
-        .unwrap()
-        .unwrap();
+            ring_data_hash: [1; 32],
+            salt,
+            ciphertext,
+        };
+        let mut malformed = [ciphertext[0], ciphertext[1], ciphertext[2]];
+        malformed[0] = [0xff; 32];
+        for row in [
+            MergeRow {
+                ciphertext: malformed,
+                ..row
+            },
+            MergeRow {
+                ring_data_hash: [0xff; 32],
+                ..row
+            },
+            MergeRow {
+                first_nullifier: [0xff; 32],
+                ..row
+            },
+        ] {
+            assert!(matches!(
+                row.output(ring),
+                Err(AuditError::InvalidConfirmedEvent(_))
+            ));
+        }
+        let output = row.output(ring).unwrap();
+        let opened = output.open_candidate(&registered).unwrap().unwrap();
         assert_eq!(
             (opened.mint, opened.amount, opened.blinding),
             (mint, 8, blinding)
@@ -968,71 +981,45 @@ mod tests {
             opened.nullifier,
             registered.key.nullifier(&commitment, &blinding).unwrap()
         );
-        assert!(open_candidate(
-            &registered,
-            &first_nullifier,
-            &encrypted,
-            [2; 32],
-            0,
-            [1; 32],
-            ring
-        )
-        .unwrap()
-        .is_none());
-        let wrong_key = RegisteredKey {
-            member: registered.member,
-            owner_pubkey: None,
-            key: NullifierKey::from_secret([8; 31]),
+        let elsewhere = MergeRow {
+            commitment: [2; 32],
+            ..row
         };
-        assert!(open_candidate(
-            &wrong_key,
-            &first_nullifier,
-            &encrypted,
-            commitment,
-            0,
-            [1; 32],
-            ring
-        )
-        .unwrap()
-        .is_none());
+        assert!(elsewhere
+            .output(ring)
+            .unwrap()
+            .open_candidate(&registered)
+            .unwrap()
+            .is_none());
         for secret in 8..40 {
             let wrong_key = RegisteredKey {
                 member: registered.member,
                 owner_pubkey: None,
                 key: NullifierKey::from_secret([secret; 31]),
             };
-            assert!(open_candidate(
-                &wrong_key,
-                &first_nullifier,
-                &encrypted,
-                commitment,
-                0,
-                [1; 32],
-                ring
-            )
-            .unwrap()
-            .is_none());
+            assert!(output.open_candidate(&wrong_key).unwrap().is_none());
         }
 
+        let wrong_key = RegisteredKey {
+            member: registered.member,
+            owner_pubkey: None,
+            key: NullifierKey::from_secret([8; 31]),
+        };
         let mut pending = PendingMerge {
             tx_signature: Signature::default(),
             event_index: 2,
-            output_commitment: commitment,
-            tree_id: 0,
-            ring_data_hash: [1; 32],
-            first_nullifier,
+            output,
             input_nullifiers: vec![first_nullifier],
-            encrypted,
             opened: None,
         };
-        pending.try_open(&wrong_key, ring).unwrap();
+        pending.try_open(&wrong_key).unwrap();
         assert!(pending.opened.is_none());
-        pending.try_open(&registered, ring).unwrap();
+        pending.try_open(&registered).unwrap();
         let opened = pending.opened.as_ref().unwrap();
         assert_eq!(opened.owner_member, registered.member);
         assert_eq!(opened.output_commitment, commitment);
         assert_eq!(opened.input_nullifiers, [first_nullifier]);
-        pending.try_open(&wrong_key, ring).unwrap();
+        pending.try_open(&wrong_key).unwrap();
         assert_eq!(
             pending.opened.as_ref().unwrap().owner_member,
             registered.member
@@ -1040,23 +1027,20 @@ mod tests {
 
         pending.opened = None;
         let mut pending = [pending];
-        let mut attempts = 0;
-        let limit = Some(NonZeroUsize::new(1).unwrap());
-        assert!(!try_registered_key(&mut pending, &wrong_key, ring, &mut attempts, limit).unwrap());
+        let mut search = KeySearch {
+            pending: &mut pending,
+            attempts: 0,
+            limit: Some(NonZeroUsize::new(1).unwrap()),
+        };
+        assert!(!search.try_key(&wrong_key).unwrap());
         assert!(matches!(
-            try_registered_key(&mut pending, &registered, ring, &mut attempts, limit),
+            search.try_key(&registered),
             Err(AuditError::MergeAuditWorkBudget)
         ));
-        assert!(pending[0].opened.is_none());
-        assert!(try_registered_key(
-            &mut pending,
-            &registered,
-            ring,
-            &mut attempts,
-            Some(NonZeroUsize::new(2).unwrap()),
-        )
-        .unwrap());
-        assert_eq!(attempts, 2);
+        assert!(search.pending[0].opened.is_none());
+        search.limit = Some(NonZeroUsize::new(2).unwrap());
+        assert!(search.try_key(&registered).unwrap());
+        assert_eq!(search.attempts, 2);
     }
 
     /// The Go merge statement of the shared vector, opened through the audit check.
@@ -1088,17 +1072,17 @@ mod tests {
             disclosure: &ConfirmedMergeDisclosure,
         ) -> Result<MergeOpening, AuditError> {
             let tree_id = self.vector.request_array("outputTreeId");
-            DisclosedMerge {
-                auditor,
-                disclosure,
-                salt: self.vector.array("salt"),
+            let output = MergeOutput {
+                commitment: self.vector.request_array("outputUtxoHash"),
+                tree_id: u16::from_be_bytes([tree_id[30], tree_id[31]]),
+                first_nullifier: [0; 32],
                 width: 8,
                 ring_program_id: self.vector.request_array("ringProgramId"),
                 ring_data_hash: self.vector.request_array("outputRingDataHash"),
-                tree_id: u16::from_be_bytes([tree_id[30], tree_id[31]]),
-                output_commitment: self.vector.request_array("outputUtxoHash"),
-            }
-            .open()
+                salt: self.vector.array("salt"),
+                encrypted: Vec::new(),
+            };
+            output.disclose(auditor, disclosure)
         }
 
         fn sealed(&self, opening: &MergeOpening) -> ConfirmedMergeDisclosure {

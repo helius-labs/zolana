@@ -37,7 +37,8 @@ const LABEL_ENCODE_SET: &AsciiSet = &NON_ALPHANUMERIC
     .remove(b'_')
     .remove(b'~');
 
-/// A first contact of `mint` worth `min_amount` or more anchors a pair stream, a zero mint any.
+/// A first contact of `mint` worth `min_amount` or more anchors a pair stream, the zero mint
+/// matches every asset.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PairingRow {
     pub mint: Address,
@@ -92,7 +93,7 @@ impl Default for Pairing {
     }
 }
 
-/// `recipient.viewing_pubkey` is the per-address key the inbox stream derives from.
+/// Shared off chain, never published, `recipient.viewing_pubkey` keys the inbox stream.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct RingAddress {
     pub recipient: ShieldedAddress,

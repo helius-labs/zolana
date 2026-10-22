@@ -1,4 +1,4 @@
-//! What an audit returns, the slot openings and an anonymous transfer's sender and inputs.
+use core::fmt;
 
 use custom_ring_interface::stream::RingTag;
 #[cfg(feature = "rpc")]
@@ -45,18 +45,18 @@ pub struct AuditedOutput {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum OutputOpening {
     Ring {
-        note: AuditedNote,
+        utxo: AuditedUtxo,
         recipient_u: [u8; 32],
         /// `None` outside the anonymous rail.
         tag: Option<RingTag>,
     },
     /// A default-ring note, its owner the published owner tag.
-    Exit(AuditedNote),
+    Exit(AuditedUtxo),
     Dummy,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct AuditedNote {
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct AuditedUtxo {
     /// The raw Solana key whose owner identity the commitment binds.
     pub owner_key: [u8; 32],
     pub nullifier_pk: [u8; 32],
@@ -70,25 +70,44 @@ pub struct AuditedNote {
     pub ring_data_hash: [u8; 32],
 }
 
-/// A ring note an earlier audit opened, what a spend of it names by its UTXO hash alone.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct KnownNote {
+/// A ring or default-ring note an earlier audit opened, indexed by its UTXO hash.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct KnownUtxo {
     pub owner_key: [u8; 32],
-    /// `None` for a deposit, its capsule discloses the owner hash.
-    pub nullifier_pk: Option<[u8; 32]>,
+    pub owner: UtxoOwner,
     pub asset: [u8; 32],
     pub mint: Option<Address>,
     pub amount: u64,
     pub blinding: [u8; 32],
     pub data_hash: [u8; 32],
     pub ring_data_hash: [u8; 32],
+    pub tree_id: u16,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UtxoOwner {
+    Keyed {
+        nullifier_pk: [u8; 32],
+    },
+    /// A deposit capsule discloses the owner hash alone.
+    Deposited {
+        owner_hash: [u8; 32],
+    },
+}
+
+/// A note one transaction created, at its slot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CreatedUtxo {
+    pub commitment: [u8; 32],
+    pub slot_index: u32,
+    pub utxo: KnownUtxo,
 }
 
 /// The sender every spent UTXO of an anonymous transfer belongs to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AuditedSender {
     pub owner_key: [u8; 32],
-    /// Spent UTXO 0's key, every input's under the entry key, `None` for a deposited note.
+    /// Spent UTXO 0's key, every input's under the entry key, `None` when UTXO 0 was deposited.
     pub nullifier_pk: Option<[u8; 32]>,
 }
 
@@ -99,7 +118,7 @@ pub struct AuditedInput {
     pub opening: Option<AuditedInputOpening>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct AuditedInputOpening {
     pub asset: [u8; 32],
     pub mint: Option<Address>,
@@ -137,6 +156,8 @@ pub struct OutputPayloadError {
 pub enum OutputPayloadErrorKind {
     /// No body of the layout's scheme and length, or no tag in the owner tag.
     Frame,
+    /// The slot's disclosure bytes do not parse under the layout.
+    Disclosure,
     /// The recipient key admits no X25519 agreement.
     RecipientKey,
     /// The rebuilt opening hashes to another commitment.
@@ -146,13 +167,14 @@ pub enum OutputPayloadErrorKind {
 }
 
 impl AuditedTransaction {
-    /// Every opened note by its commitment, the entries a [`crate::KnownNotes`] index keeps.
-    pub fn notes(&self) -> impl Iterator<Item = ([u8; 32], KnownNote)> + '_ {
+    /// The ring and exit notes its outputs opened, the index a [`crate::KnownUtxos`] keeps.
+    pub fn utxos(&self) -> impl Iterator<Item = CreatedUtxo> + '_ {
         self.outputs.iter().filter_map(|output| {
-            output
-                .opening
-                .note()
-                .map(|note| (output.context.hash, KnownNote::from(*note)))
+            output.opening.utxo().map(|utxo| CreatedUtxo {
+                commitment: output.context.hash,
+                slot_index: output.slot_index,
+                utxo: KnownUtxo::opened(*utxo, output.context.tree_id),
+            })
         })
     }
 
@@ -161,8 +183,8 @@ impl AuditedTransaction {
         let outputs = self
             .outputs
             .iter()
-            .filter_map(|output| output.opening.note())
-            .map(|note| note.mint);
+            .filter_map(|output| output.opening.utxo())
+            .map(|utxo| utxo.mint);
         let inputs = self
             .inputs
             .iter()
@@ -173,36 +195,21 @@ impl AuditedTransaction {
 }
 
 impl OutputOpening {
-    pub fn note(&self) -> Option<&AuditedNote> {
+    pub fn utxo(&self) -> Option<&AuditedUtxo> {
         match self {
-            Self::Ring { note, .. } | Self::Exit(note) => Some(note),
+            Self::Ring { utxo, .. } | Self::Exit(utxo) => Some(utxo),
             Self::Dummy => None,
         }
     }
 }
 
-impl From<AuditedNote> for KnownNote {
-    fn from(note: AuditedNote) -> Self {
-        Self {
-            owner_key: note.owner_key,
-            nullifier_pk: Some(note.nullifier_pk),
-            asset: note.asset,
-            mint: note.mint,
-            amount: note.amount,
-            blinding: note.blinding,
-            data_hash: note.data_hash,
-            ring_data_hash: note.ring_data_hash,
-        }
-    }
-}
-
-impl AuditedNote {
+impl AuditedUtxo {
     /// `Poseidon(owner_identity(owner_key), nullifier_pk)`.
     pub fn owner_hash(&self) -> Result<[u8; 32], AuditError> {
-        Ok(Poseidon::hashv(&[
-            &solana_owner_identity(&self.owner_key)?,
-            &self.nullifier_pk,
-        ])?)
+        UtxoOwner::Keyed {
+            nullifier_pk: self.nullifier_pk,
+        }
+        .hash(&self.owner_key)
     }
 
     /// The commitment of the note in `tree_id`, `ring` `None` for the default ring.
@@ -211,9 +218,36 @@ impl AuditedNote {
         tree_id: u16,
         ring: Option<Address>,
     ) -> Result<[u8; 32], AuditError> {
+        KnownUtxo::opened(*self, tree_id).commitment(ring)
+    }
+}
+
+impl KnownUtxo {
+    pub fn opened(utxo: AuditedUtxo, tree_id: u16) -> Self {
+        Self {
+            owner_key: utxo.owner_key,
+            owner: UtxoOwner::Keyed {
+                nullifier_pk: utxo.nullifier_pk,
+            },
+            asset: utxo.asset,
+            mint: utxo.mint,
+            amount: utxo.amount,
+            blinding: utxo.blinding,
+            data_hash: utxo.data_hash,
+            ring_data_hash: utxo.ring_data_hash,
+            tree_id,
+        }
+    }
+
+    pub fn owner_hash(&self) -> Result<[u8; 32], AuditError> {
+        self.owner.hash(&self.owner_key)
+    }
+
+    /// The UTXO hash, `ring` `None` for the default ring.
+    pub fn commitment(&self, ring: Option<Address>) -> Result<[u8; 32], AuditError> {
         Ok(ProofInputUtxo {
             domain: right_align(&UTXO_DOMAIN.to_be_bytes()),
-            tree_id: tree_id_field(tree_id),
+            tree_id: tree_id_field(self.tree_id),
             owner_hash: self.owner_hash()?,
             asset: self.asset,
             amount: right_align(&self.amount.to_be_bytes()),
@@ -223,5 +257,97 @@ impl AuditedNote {
             ring_program_id: program_id_proof_input_hash(&ring)?,
         }
         .hash()?)
+    }
+}
+
+impl UtxoOwner {
+    pub fn nullifier_pk(self) -> Option<[u8; 32]> {
+        match self {
+            Self::Keyed { nullifier_pk } => Some(nullifier_pk),
+            Self::Deposited { .. } => None,
+        }
+    }
+
+    fn hash(self, owner_key: &[u8; 32]) -> Result<[u8; 32], AuditError> {
+        match self {
+            Self::Keyed { nullifier_pk } => Ok(Poseidon::hashv(&[
+                &solana_owner_identity(owner_key)?,
+                &nullifier_pk,
+            ])?),
+            Self::Deposited { owner_hash } => Ok(owner_hash),
+        }
+    }
+}
+
+const REDACTED: &str = "<redacted>";
+
+impl fmt::Debug for AuditedUtxo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self {
+            owner_key,
+            nullifier_pk,
+            asset,
+            mint,
+            amount,
+            blinding: _,
+            data_hash,
+            ring_data_hash,
+        } = self;
+        f.debug_struct("AuditedNote")
+            .field("owner_key", owner_key)
+            .field("nullifier_pk", nullifier_pk)
+            .field("asset", asset)
+            .field("mint", mint)
+            .field("amount", amount)
+            .field("blinding", &REDACTED)
+            .field("data_hash", data_hash)
+            .field("ring_data_hash", ring_data_hash)
+            .finish()
+    }
+}
+
+impl fmt::Debug for KnownUtxo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self {
+            owner_key,
+            owner,
+            asset,
+            mint,
+            amount,
+            blinding: _,
+            data_hash,
+            ring_data_hash,
+            tree_id,
+        } = self;
+        f.debug_struct("KnownNote")
+            .field("owner_key", owner_key)
+            .field("owner", owner)
+            .field("asset", asset)
+            .field("mint", mint)
+            .field("amount", amount)
+            .field("blinding", &REDACTED)
+            .field("data_hash", data_hash)
+            .field("ring_data_hash", ring_data_hash)
+            .field("tree_id", tree_id)
+            .finish()
+    }
+}
+
+impl fmt::Debug for AuditedInputOpening {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self {
+            asset,
+            mint,
+            amount,
+            blinding: _,
+            ring,
+        } = self;
+        f.debug_struct("AuditedInputOpening")
+            .field("asset", asset)
+            .field("mint", mint)
+            .field("amount", amount)
+            .field("blinding", &REDACTED)
+            .field("ring", ring)
+            .finish()
     }
 }

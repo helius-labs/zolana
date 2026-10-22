@@ -18,8 +18,8 @@ pub mod scheme;
 
 pub use proofless::{Proofless, ProoflessEncode};
 pub use ring_delivered::{
-    is_contributory, RingDeliveredBody, RingDeliveredNote, RingDeliveryOpening, RingDeliverySlot,
-    RingNoteOwner,
+    is_contributory, RingDeliveredBody, RingDeliveredUtxo, RingDeliveryOpening, RingDeliverySlot,
+    RingUtxoOwner,
 };
 pub use ring_deposit::RingDepositPlaintext;
 pub use ring_packed::{RingPacked, RingPackedPlaintext};

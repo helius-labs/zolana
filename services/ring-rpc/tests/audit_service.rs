@@ -11,7 +11,7 @@ use std::{
     future::Future,
     sync::{
         atomic::{AtomicUsize, Ordering},
-        Arc, Mutex,
+        Arc, LazyLock, Mutex,
     },
     time::Duration,
 };
@@ -29,23 +29,25 @@ use zolana_client::{ClientError, Context, GetShieldedTransactionsByTagsResponse}
 use zolana_event::encode_ring_confidential_delivered_output;
 use zolana_hasher::primitives::right_align;
 use zolana_indexer_api::{
-    Base64String, GetRingMemberRecordsRequest, GetRingMemberRecordsResponse, Hash, Limit,
-    RingIndexedMemberRecordView, RingMemberRecordView, RingRecordPathView, RingRegistryRootView,
+    Base64String, GetRingMemberOpeningsRequest, GetRingMemberOpeningsResponse,
+    GetRingMemberRecordsRequest, GetRingMemberRecordsResponse, GetRingRecordQueueResponse, Hash,
+    Limit, RingIndexedMemberRecordView, RingMemberOpening, RingMemberRecordView,
+    RingQueueEntryView, RingRecordPathView, RingRegistryRootView,
 };
 use zolana_keypair::ViewingKey;
 use zolana_ring_client::P256ReaderKey;
 use zolana_ring_client::{
     auditor_view_tag, ring_event_origin_in,
     rpc::{
-        auditor_key_attestation, unix_now, Attestation, CreateAuditorKeyRequest,
-        CreateAuditorKeyResponse, DecryptedInputRing, DecryptedPayloadError, DecryptedSender,
-        DecryptedTransaction, DecryptedWithdrawal, DepositRecord, GetAuditedMergesResponse,
-        GetAuditedNotesRequest, GetAuditedNotesResponse, GetDecryptedTransactionsRequest,
-        GetDecryptedTransactionsResponse, HealthResponse, KeyMode, ReadAttestation, ReadAuth,
-        ReadBuildError, ReadSignature, ReadSigner, RegistryRoot, RegistryStatus, RingActivation,
+        unix_now, AuditorKeyStatement, CreateAuditorKeyRequest, CreateAuditorKeyResponse,
+        DecryptedInputRing, DecryptedPayloadError, DecryptedSender, DecryptedTransaction,
+        DecryptedWithdrawal, DepositRecord, GetAuditedMergesResponse, GetAuditedUtxosRequest,
+        GetAuditedUtxosResponse, GetDecryptedTransactionsRequest, GetDecryptedTransactionsResponse,
+        HealthResponse, KeyMode, PagedRead, ReadAttestation, ReadAuth, ReadBuildError,
+        ReadSignature, ReadSigner, ReadTarget, RegistryRoot, RegistryStatus, RingActivation,
         RingChainStatus, RingDepositsRequest, RingDepositsResponse, RingState, RingStatusRequest,
-        RingStatusResponse, SkippedReason, WebAuthnAssertion, AUDITED_NOTES_LIMIT,
-        CREATE_AUDITOR_KEY, GET_AUDITED_MERGES, GET_AUDITED_NOTES, GET_DECRYPTED_TRANSACTIONS,
+        RingStatusResponse, SkippedReason, WebAuthnAssertion, AUDITED_UTXOS_LIMIT,
+        CREATE_AUDITOR_KEY, GET_AUDITED_MERGES, GET_AUDITED_UTXOS, GET_DECRYPTED_TRANSACTIONS,
         HEALTH, RING_DEPOSITS, RING_STATUS,
     },
     seal_deposits, AnonymousInputs, AuditDisclosure, AuditError, ConfirmedDeposit, DepositOpening,
@@ -64,8 +66,8 @@ use zolana_transaction::{
 };
 
 use transfer::{
-    data_free, field, input_opening, x25519_u, Frame, Note, Output, Placement, Publish, Rail,
-    Transfer,
+    data_free, field, input_opening, x25519_u, Frame, Output, Placement, Publish, Rail, Transfer,
+    UtxoFields,
 };
 
 /// Raw id of the tree these fixtures publish into. A slot names the id, not the
@@ -73,6 +75,9 @@ use transfer::{
 const TREE_ID: u16 = 4;
 const RING: Address = Address::new_from_array([5; 32]);
 const GENESIS: [u8; 32] = [9; 32];
+const FIXTURE_AUDITOR: [u8; 32] = [0x41; 32];
+/// Ring history reads past it fail, a cycling page set ends there.
+const HISTORY_READ_CAP: usize = 1_000;
 const OTHER_RING: Address = Address::new_from_array([6; 32]);
 const SENDER: Address = Address::new_from_array([7; 32]);
 const RECIPIENT: Address = Address::new_from_array([8; 32]);
@@ -206,34 +211,50 @@ fn origins() -> Origins {
         .expect("origins")
 }
 
+/// Fixture hubs share one auditor key and so one service key.
+static FIXTURE_SERVICE: LazyLock<Address> = LazyLock::new(|| {
+    let fixture = Fixture::new();
+    fixture.hub(fixture.source()).service_pubkey()
+});
+
+fn target(ring: Address) -> ReadTarget {
+    ReadTarget {
+        cluster: GENESIS,
+        service: *FIXTURE_SERVICE,
+        ring,
+    }
+}
+
+fn served(hub: &Hub<StaticSource>, ring: Address) -> ReadTarget {
+    ReadTarget {
+        cluster: GENESIS,
+        service: hub.service_pubkey(),
+        ring,
+    }
+}
+
 fn signed_request<S: ReadSigner + ?Sized>(
     signer: &S,
-    ring: Address,
+    target: ReadTarget,
     timestamp: u64,
 ) -> GetDecryptedTransactionsRequest {
-    GetDecryptedTransactionsRequest::read(ring)
+    GetDecryptedTransactionsRequest::read(target)
         .at(timestamp)
         .sign(signer)
         .expect("signed request")
 }
 
 fn auth<S: ReadSigner + ?Sized>(signer: &S) -> ReadAuth {
-    signed_request(signer, RING, unix_now().expect("clock")).auth
+    signed_request(signer, target(RING), unix_now().expect("clock")).auth
 }
 
 fn decide_now(auth: &ReadAuth, origins: &Origins) -> Result<ReaderKey, Unauthorized> {
-    let nonce: &[u8; 32] = auth
-        .nonce
-        .0
-        .as_slice()
-        .try_into()
-        .map_err(|_| Unauthorized::InvalidNonce)?;
     let attestation = ReadAttestation {
-        ring: RING,
+        read: PagedRead::DecryptedTransactions,
+        target: target(RING),
         cursor: None,
         limit: None,
-    }
-    .message(auth.timestamp, nonce);
+    };
     ReadCheck {
         auth,
         attestation: &attestation,
@@ -241,6 +262,7 @@ fn decide_now(auth: &ReadAuth, origins: &Origins) -> Result<ReaderKey, Unauthori
         origins,
     }
     .decide()
+    .map(|claim| claim.reader)
 }
 
 #[test]
@@ -264,7 +286,7 @@ fn signatures_bind_the_reader_and_request() {
     );
     assert_eq!(
         decide_now(
-            &signed_request(&wallet, OTHER_RING, unix_now().expect("clock")).auth,
+            &signed_request(&wallet, target(OTHER_RING), unix_now().expect("clock")).auth,
             &origins()
         ),
         Err(Unauthorized::BadSignature)
@@ -339,9 +361,11 @@ struct StaticSource {
     examined_limit: Arc<AtomicUsize>,
     /// Per request cursor, empty when every read shares one page.
     pages: HashMap<Option<Vec<u8>>, Paged>,
-    /// The member records leaf 1 onward, every read answering the same root.
-    records: Vec<RingIndexedMemberRecordView>,
+    /// The ring's registry, replaced while a hub serves it.
+    registry: Arc<Mutex<Option<EscrowRegistry>>>,
     record_reads: Arc<AtomicUsize>,
+    opening_reads: Arc<AtomicUsize>,
+    history_reads: Arc<AtomicUsize>,
 }
 
 /// The indexer page one cursor reads.
@@ -361,6 +385,10 @@ struct Examined {
 }
 
 impl StaticSource {
+    fn registry(&self) -> Option<EscrowRegistry> {
+        self.registry.lock().unwrap().clone()
+    }
+
     fn with_transactions(mut self, transactions: Vec<ShieldedTransaction>) -> Self {
         self.origins = transactions
             .iter()
@@ -437,8 +465,14 @@ impl TransactionSource for StaticSource {
         request: RingHistoryPage<'_>,
     ) -> impl Future<Output = Result<GetShieldedTransactionsByTagsResponse, ClientError>> + Send
     {
+        let capped = self.history_reads.fetch_add(1, Ordering::Relaxed) >= HISTORY_READ_CAP;
         let response = self.page_at(request.page, None);
-        async move { Ok(response) }
+        async move {
+            match capped {
+                true => Err(ClientError::Rpc("history read cap".to_owned())),
+                false => Ok(response),
+            }
+        }
     }
 
     fn transaction_origin(
@@ -536,17 +570,23 @@ impl TransactionSource for StaticSource {
         &self,
         ring: Address,
     ) -> impl Future<Output = Result<RingChainStatus, ClientError>> + Send {
-        let status = self.chain.get(&ring).cloned().unwrap_or_default();
+        let mut status = self.chain.get(&ring).cloned().unwrap_or_default();
+        if let Some(registry) = self.registry().filter(|_| ring == RING) {
+            status.registry = Some(registry.status());
+        }
         async move { Ok(status) }
     }
 
-    fn ring_member_records(
+    async fn ring_member_records(
         &self,
         request: GetRingMemberRecordsRequest,
-    ) -> impl Future<Output = Result<GetRingMemberRecordsResponse, ClientError>> + Send {
+    ) -> Result<GetRingMemberRecordsResponse, ClientError> {
         self.record_reads.fetch_add(1, Ordering::Relaxed);
+        let registry = self.registry().expect("registry");
+        // A network page never answers in the same poll.
+        tokio::task::yield_now().await;
         let first = usize::try_from(request.start_index - 1).expect("leaf");
-        let records: Vec<_> = self
+        let records: Vec<_> = registry
             .records
             .iter()
             .skip(first)
@@ -554,21 +594,64 @@ impl TransactionSource for StaticSource {
             .cloned()
             .collect();
         let end = request.start_index + records.len() as u64;
-        let response = GetRingMemberRecordsResponse {
+        Ok(GetRingMemberRecordsResponse {
             context: zolana_indexer_api::Context {
                 block_time: 0,
                 slot: 99,
             },
-            root: RingRegistryRootView {
-                root: request.expected_root,
-                root_index: 0,
-                applied: 0,
-                next_index: request.expected_next_index,
-            },
+            root: registry.root_view(),
             records,
             next_leaf_index: (end < request.expected_next_index).then_some(end),
-        };
-        async move { Ok(response) }
+        })
+    }
+
+    async fn ring_member_openings(
+        &self,
+        request: GetRingMemberOpeningsRequest,
+    ) -> Result<GetRingMemberOpeningsResponse, ClientError> {
+        self.opening_reads.fetch_add(1, Ordering::Relaxed);
+        let registry = self.registry().expect("registry");
+        let openings = request
+            .members
+            .iter()
+            .map(|member| {
+                let row = registry
+                    .records
+                    .iter()
+                    .find(|row| row.record.member == *member)
+                    .expect("registered member");
+                RingMemberOpening {
+                    present: true,
+                    record: row.record.clone(),
+                    path: row.path.clone(),
+                }
+            })
+            .collect();
+        Ok(GetRingMemberOpeningsResponse {
+            context: zolana_indexer_api::Context {
+                block_time: 0,
+                slot: 99,
+            },
+            root: registry.root_view(),
+            openings,
+        })
+    }
+
+    async fn ring_record_queue(
+        &self,
+        _ring: Address,
+    ) -> Result<GetRingRecordQueueResponse, ClientError> {
+        let registry = self.registry().expect("registry");
+        Ok(GetRingRecordQueueResponse {
+            context: zolana_indexer_api::Context {
+                block_time: 0,
+                slot: 99,
+            },
+            head: registry.applied,
+            tail: registry.applied + registry.queue.len() as u64,
+            chain_head: Hash([0; 32]),
+            entries: registry.queue.clone(),
+        })
     }
 
     fn reader_granted(
@@ -629,24 +712,24 @@ fn ring_transfer(seed: u8) -> Transfer {
     }
 }
 
-fn note(owner: u8, asset_address: Address, amount: u64) -> Note {
-    Note {
+fn utxo(owner: u8, asset_address: Address, amount: u64) -> UtxoFields {
+    UtxoFields {
         owner_key: [owner; 32],
         nullifier_pk: field(owner ^ 0x80),
         asset_address,
         amount,
-        ..Note::default()
+        ..UtxoFields::default()
     }
 }
 
-fn sol(owner: u8, amount: u64) -> Note {
-    note(owner, SOL_MINT, amount)
+fn sol(owner: u8, amount: u64) -> UtxoFields {
+    utxo(owner, SOL_MINT, amount)
 }
 
 /// A confidential ring output, its recipient published as the owner tag.
-fn paid(note: Note, recipient_u: [u8; 32]) -> Output {
+fn paid(utxo: UtxoFields, recipient_u: [u8; 32]) -> Output {
     Output::Ring {
-        note,
+        utxo,
         recipient_u,
         tag: None,
     }
@@ -654,7 +737,7 @@ fn paid(note: Note, recipient_u: [u8; 32]) -> Output {
 
 #[derive(Clone, Copy)]
 struct Spend {
-    note: Note,
+    utxo: UtxoFields,
     blinding: [u8; 32],
 }
 
@@ -686,14 +769,14 @@ impl Indexed<'_> {
         self.publish(Rail::Delivered, &disclosure)
     }
 
-    /// The entry key's disclosure, the first spent note's owner the sender.
+    /// The entry key's disclosure, the first spent UTXO's owner the sender.
     fn anonymous(self, spent: &[Option<Spend>]) -> ShieldedTransaction {
-        let sender = spent.iter().flatten().next().expect("a spent note").note;
+        let sender = spent.iter().flatten().next().expect("a spent UTXO").utxo;
         let inputs = AnonymousInputs::Openings {
             sender_nullifier_pk: sender.nullifier_pk,
             inputs: spent
                 .iter()
-                .map(|spend| spend.map(|spend| input_opening(&spend.note, spend.blinding)))
+                .map(|spend| spend.map(|spend| input_opening(&spend.utxo, spend.blinding)))
                 .collect(),
         };
         self.anonymous_with(sender.owner_key, inputs)
@@ -702,7 +785,7 @@ impl Indexed<'_> {
     /// The commitment key's disclosure, each published input named by its UTXO hash.
     fn anonymous_commitments(
         self,
-        sender: Note,
+        sender: UtxoFields,
         spent: &[Option<[u8; 32]>],
     ) -> ShieldedTransaction {
         self.anonymous_with(
@@ -755,7 +838,7 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Self {
-        let auditor = X25519Keypair::new();
+        let auditor = X25519Keypair::from_bytes(&FIXTURE_AUDITOR);
         let auditor_pk = auditor.pubkey();
         let recipient_u = x25519_u(0x40);
         let frames = Frames::default();
@@ -829,8 +912,10 @@ impl Fixture {
             history: Vec::new(),
             examined_limit: Arc::new(AtomicUsize::new(0)),
             pages: HashMap::new(),
-            records: Vec::new(),
+            registry: Arc::default(),
             record_reads: Arc::new(AtomicUsize::new(0)),
+            opening_reads: Arc::new(AtomicUsize::new(0)),
+            history_reads: Arc::new(AtomicUsize::new(0)),
         };
         source.with_transactions(vec![
             self.audited.clone(),
@@ -864,6 +949,7 @@ impl Fixture {
             .service(None)
             .expect("service")
             .read(AuditRead {
+                read: PagedRead::DecryptedTransactions,
                 auth: &auth(&delegate()),
                 page: &page(),
             })
@@ -875,7 +961,7 @@ impl Fixture {
 fn amounts(item: &DecryptedTransaction) -> Vec<u64> {
     item.outputs
         .iter()
-        .map(|output| output.note.as_ref().expect("note").amount)
+        .map(|output| output.utxo.as_ref().expect("utxo").amount)
         .collect()
 }
 
@@ -894,6 +980,7 @@ async fn granted_reader_opens_audited_transfers_and_reports_the_rest() {
     let request = auth(&delegate());
     let response = service
         .read(AuditRead {
+            read: PagedRead::DecryptedTransactions,
             auth: &request,
             page: &page,
         })
@@ -907,7 +994,7 @@ async fn granted_reader_opens_audited_transfers_and_reports_the_rest() {
     };
     assert_eq!(amounts(item), [500, 7]);
     for output in &item.outputs {
-        let mint = output.note.as_ref().and_then(|note| note.mint.as_ref());
+        let mint = output.utxo.as_ref().and_then(|utxo| utxo.mint.as_ref());
         assert_eq!(mint.map(|mint| mint.0), Some(SOL_MINT));
         // The published owner tag, nothing recovered from the recipient's ciphertext.
         assert_eq!(output.recipient_u, Some(Hash(fixture.recipient_u)));
@@ -960,6 +1047,7 @@ async fn a_terminal_indexer_page_has_no_next_audit_cursor() {
     let request = auth(&delegate());
     let response = service
         .read(AuditRead {
+            read: PagedRead::DecryptedTransactions,
             auth: &request,
             page: &page,
         })
@@ -983,6 +1071,7 @@ async fn events_in_one_signature_keep_distinct_ordinals() {
     let request = auth(&delegate());
     let response = service
         .read(AuditRead {
+            read: PagedRead::DecryptedTransactions,
             auth: &request,
             page: &page,
         })
@@ -1004,18 +1093,18 @@ async fn passkey_reader_opens_anonymous_spend_trace() {
     let mut transfer = ring_transfer(70);
     transfer.nullifiers.push(field(0x71));
     let sender = Spend {
-        note: sol(0xa1, 900),
+        utxo: sol(0xa1, 900),
         blinding: field(0x60),
     };
     let tag = RingTag::from_bytes([0x53; 31]);
     let outputs = [
         Output::Ring {
-            note: sol(0xb5, 500),
+            utxo: sol(0xb5, 500),
             recipient_u: x25519_u(0x50),
             tag: Some(RingTag::from_bytes([0x51; 31])),
         },
         Output::Ring {
-            note: sol(0xb6, 501),
+            utxo: sol(0xb6, 501),
             recipient_u: x25519_u(0x52),
             tag: Some(tag),
         },
@@ -1036,7 +1125,7 @@ async fn passkey_reader_opens_anonymous_spend_trace() {
             GET_DECRYPTED_TRANSACTIONS,
             as_object(signed_request(
                 &Passkey::new(46),
-                RING,
+                target(RING),
                 unix_now().expect("clock"),
             )),
         )
@@ -1048,8 +1137,8 @@ async fn passkey_reader_opens_anonymous_spend_trace() {
     assert_eq!(
         item.sender,
         Some(DecryptedSender {
-            owner_key: sender.note.owner_key.into(),
-            nullifier_pk: Some(sender.note.nullifier_pk.into()),
+            owner_key: sender.utxo.owner_key.into(),
+            nullifier_pk: Some(sender.utxo.nullifier_pk.into()),
         })
     );
     let [spent, dummy] = item.inputs.as_slice() else {
@@ -1067,24 +1156,24 @@ async fn passkey_reader_opens_anonymous_spend_trace() {
 }
 
 #[tokio::test]
-async fn an_input_spending_a_note_the_page_opened_resolves_its_ring() {
+async fn an_input_spending_a_utxo_the_page_opened_resolves_its_ring() {
     let fixture = Fixture::new();
-    let notes = SpentNote::new(&fixture);
+    let utxos = SpentUtxo::new(&fixture);
     let opened = Some(DecryptedInputRing::Ring {
-        commitment: notes.commitment.into(),
+        commitment: utxos.commitment.into(),
     });
-    for spent in [&notes.entry, &notes.spent] {
+    for spent in [&utxos.entry, &utxos.spent] {
         let page = fixture
-            .read_anonymous(vec![notes.paid.clone(), spent.clone()])
+            .read_anonymous(vec![utxos.paid.clone(), spent.clone()])
             .await;
         assert_eq!(input_ring(&page), opened);
     }
     // The entry key opens the input itself, only its ring stays open.
     assert!(matches!(
-        input_ring(&fixture.read_anonymous(vec![notes.entry.clone()]).await),
+        input_ring(&fixture.read_anonymous(vec![utxos.entry.clone()]).await),
         Some(DecryptedInputRing::Unresolved { .. })
     ));
-    let alone = fixture.read_anonymous(vec![notes.spent.clone()]).await;
+    let alone = fixture.read_anonymous(vec![utxos.spent.clone()]).await;
     assert!(alone.value.items.is_empty());
     let reasons: Vec<SkippedReason> = alone
         .value
@@ -1095,8 +1184,8 @@ async fn an_input_spending_a_note_the_page_opened_resolves_its_ring() {
     assert_eq!(reasons, [SkippedReason::UnseenInput]);
 }
 
-/// A member paid on an anonymous ring, then two transfers that spend the member's note.
-struct SpentNote {
+/// A member paid on an anonymous ring, then two transfers that spend the member's UTXO.
+struct SpentUtxo {
     paid: ShieldedTransaction,
     /// The commitment key's spend, the input named by its UTXO hash.
     spent: ShieldedTransaction,
@@ -1104,17 +1193,17 @@ struct SpentNote {
     entry: ShieldedTransaction,
     /// The paid output as the spending input names it.
     commitment: [u8; 32],
-    member: Note,
+    member: UtxoFields,
 }
 
-impl SpentNote {
+impl SpentUtxo {
     fn new(fixture: &Fixture) -> Self {
         let auditor = &fixture.auditor.pubkey();
         let member = sol(0xa4, 70);
         let paying = ring_transfer(80);
         let payment = [
             Output::Ring {
-                note: member,
+                utxo: member,
                 recipient_u: x25519_u(0x54),
                 tag: Some(RingTag::from_bytes([0x55; 31])),
             },
@@ -1128,7 +1217,7 @@ impl SpentNote {
             frames: &fixture.frames,
         }
         .anonymous(&[Some(Spend {
-            note: sol(0xa5, 70),
+            utxo: sol(0xa5, 70),
             blinding: field(0x65),
         })]);
         let received = paying.slot(Rail::Anonymous, 0, &payment[0]);
@@ -1150,7 +1239,7 @@ impl SpentNote {
             frames: &fixture.frames,
         }
         .anonymous(&[Some(Spend {
-            note: member,
+            utxo: member,
             blinding: received.blinding,
         })]);
         Self {
@@ -1204,15 +1293,16 @@ async fn read_at(
 ) -> GetDecryptedTransactionsResponse {
     let page = Page::new(cursor.map(|byte| vec![byte].into()), None).expect("page");
     let request = match cursor {
-        Some(byte) => GetDecryptedTransactionsRequest::read(RING)
+        Some(byte) => GetDecryptedTransactionsRequest::read(target(RING))
             .with_cursor(vec![byte].into())
             .expect("cursor"),
-        None => GetDecryptedTransactionsRequest::read(RING),
+        None => GetDecryptedTransactionsRequest::read(target(RING)),
     }
     .sign(&delegate())
     .expect("request");
     service
         .read(AuditRead {
+            read: PagedRead::DecryptedTransactions,
             auth: &request.auth,
             page: &page,
         })
@@ -1220,24 +1310,24 @@ async fn read_at(
         .expect("read")
 }
 
-fn notes_request(hashes: Vec<Hash>) -> GetAuditedNotesRequest {
-    GetAuditedNotesRequest::read(RING, hashes)
-        .expect("note read")
+fn utxos_request(hashes: Vec<Hash>) -> GetAuditedUtxosRequest {
+    GetAuditedUtxosRequest::read(target(RING), hashes)
+        .expect("UTXO read")
         .sign(&delegate())
-        .expect("signed note read")
+        .expect("signed UTXO read")
 }
 
 #[tokio::test]
-async fn an_input_whose_note_an_earlier_page_opened_resolves_through_the_store() {
+async fn an_input_whose_utxo_an_earlier_page_opened_resolves_through_the_store() {
     let fixture = Fixture::new();
-    let notes = SpentNote::new(&fixture);
-    let source = notes.source(
+    let utxos = SpentUtxo::new(&fixture);
+    let source = utxos.source(
         &fixture,
         [
-            (None, paged(vec![notes.paid.clone()], Some(1), None)),
+            (None, paged(vec![utxos.paid.clone()], Some(1), None)),
             (
                 Some(vec![1]),
-                paged(vec![notes.spent.clone()], None, Some(2)),
+                paged(vec![utxos.spent.clone()], None, Some(2)),
             ),
         ],
     );
@@ -1246,7 +1336,7 @@ async fn an_input_whose_note_an_earlier_page_opened_resolves_through_the_store()
     assert_eq!(
         input_ring(&read_at(&service, Some(1)).await),
         Some(DecryptedInputRing::Ring {
-            commitment: notes.commitment.into(),
+            commitment: utxos.commitment.into(),
         })
     );
 }
@@ -1254,37 +1344,37 @@ async fn an_input_whose_note_an_earlier_page_opened_resolves_through_the_store()
 #[tokio::test]
 async fn a_backfill_fills_the_store_before_any_page_read() {
     let fixture = Fixture::new();
-    let notes = SpentNote::new(&fixture);
-    let mut source = notes.source(
+    let utxos = SpentUtxo::new(&fixture);
+    let mut source = utxos.source(
         &fixture,
         [
-            (None, paged(vec![notes.paid.clone()], Some(1), None)),
+            (None, paged(vec![utxos.paid.clone()], Some(1), None)),
             (Some(vec![1]), paged(Vec::new(), None, Some(2))),
         ],
     );
     source.pages.insert(
         Some(vec![9]),
-        paged(vec![notes.spent.clone()], None, Some(10)),
+        paged(vec![utxos.spent.clone()], None, Some(10)),
     );
     let service = fixture.hub(source).service(None).expect("service");
-    service.backfill_notes().await.expect("backfill");
+    service.backfill_utxos().await.expect("backfill");
     let found = service
-        .audited_notes(&notes_request(vec![notes.commitment.into()]))
+        .audited_utxos(&utxos_request(vec![utxos.commitment.into()]))
         .await
-        .expect("note read");
-    let [Some(view)] = found.value.notes.as_slice() else {
-        panic!("the backfill opened the paid note, {:?}", found.value.notes);
+        .expect("UTXO read");
+    let [Some(view)] = found.value.utxos.as_slice() else {
+        panic!("the backfill opened the paid UTXO, {:?}", found.value.utxos);
     };
     assert_eq!(found.context.slot, 99);
     assert_eq!(
-        (view.note.amount, view.note.owner_key.0.to_bytes()),
-        (notes.member.amount, notes.member.owner_key)
+        (view.utxo.amount, view.utxo.owner_key.0.to_bytes()),
+        (utxos.member.amount, utxos.member.owner_key)
     );
-    assert_eq!(view.tx_signature.0, notes.paid.tx_signature);
+    assert_eq!(view.tx_signature.0, utxos.paid.tx_signature);
     assert_eq!(
         input_ring(&read_at(&service, Some(9)).await),
         Some(DecryptedInputRing::Ring {
-            commitment: notes.commitment.into(),
+            commitment: utxos.commitment.into(),
         })
     );
 }
@@ -1292,7 +1382,7 @@ async fn a_backfill_fills_the_store_before_any_page_read() {
 /// The audited deposit of `member` into the ring at `blinding`, its capsule sealed to `auditor`.
 fn audited_deposit(
     auditor: &X25519Pubkey,
-    member: &Note,
+    member: &UtxoFields,
     blinding: [u8; 32],
 ) -> (ShieldedTransaction, Vec<ConfirmedDeposit>) {
     let opening = DepositOpening {
@@ -1356,7 +1446,7 @@ fn audited_deposit(
 }
 
 #[tokio::test]
-async fn a_backfill_opens_a_deposited_note_a_later_spend_names() {
+async fn a_backfill_opens_a_deposited_utxo_a_later_spend_names() {
     let fixture = Fixture::new();
     let member = sol(0xa6, 64);
     let blinding = field(0x66);
@@ -1392,16 +1482,16 @@ async fn a_backfill_opens_a_deposited_note_a_later_spend_names() {
             .collect::<Vec<_>>(),
         [SkippedReason::UnseenInput]
     );
-    service.backfill_notes().await.expect("backfill");
+    service.backfill_utxos().await.expect("backfill");
     let found = service
-        .audited_notes(&notes_request(vec![commitment.into()]))
+        .audited_utxos(&utxos_request(vec![commitment.into()]))
         .await
-        .expect("note read");
-    let [Some(view)] = found.value.notes.as_slice() else {
-        panic!("the backfill opened the deposit, {:?}", found.value.notes);
+        .expect("UTXO read");
+    let [Some(view)] = found.value.utxos.as_slice() else {
+        panic!("the backfill opened the deposit, {:?}", found.value.utxos);
     };
     assert_eq!(
-        (view.note.amount, view.note.nullifier_pk.clone()),
+        (view.utxo.amount, view.utxo.nullifier_pk.clone()),
         (64, None)
     );
     let after = read_at(&service, Some(9)).await;
@@ -1418,7 +1508,7 @@ async fn a_backfill_opens_a_deposited_note_a_later_spend_names() {
 }
 
 #[tokio::test]
-async fn audited_notes_answer_in_request_order_with_null_for_an_unseen_hash() {
+async fn audited_utxos_answer_in_request_order_with_null_for_an_unseen_hash() {
     let fixture = Fixture::new();
     let hub = Arc::new(fixture.hub(fixture.source()));
     let service = hub.service(None).expect("service");
@@ -1430,28 +1520,28 @@ async fn audited_notes_answer_in_request_order_with_null_for_an_unseen_hash() {
         .map(|slot| slot.output_context.hash)
         .collect();
     let unseen = Hash([0x77; 32]);
-    let request = notes_request(vec![outputs[1].into(), unseen, outputs[0].into()]);
+    let request = utxos_request(vec![outputs[1].into(), unseen, outputs[0].into()]);
     let module = rpc_module(hub).expect("module");
-    let response: GetAuditedNotesResponse = module
-        .call(GET_AUDITED_NOTES, as_object(&request))
+    let response: GetAuditedUtxosResponse = module
+        .call(GET_AUDITED_UTXOS, as_object(&request))
         .await
-        .expect("note read");
+        .expect("UTXO read");
     let amounts: Vec<Option<u64>> = response
         .value
-        .notes
+        .utxos
         .iter()
-        .map(|view| view.as_ref().map(|view| view.note.amount))
+        .map(|view| view.as_ref().map(|view| view.utxo.amount))
         .collect();
     assert_eq!(amounts, [Some(7), None, Some(500)]);
-    // A page read opens notes, only the backfill vouches for the history before its context.
+    // A page read opens UTXOs, only the backfill vouches for the history before its context.
     assert_eq!(response.context.slot, 0);
-    let wire = as_object(response.value.notes[0].as_ref().expect("opened note"));
+    let wire = as_object(response.value.utxos[0].as_ref().expect("opened UTXO"));
     let keys: HashSet<&str> = wire.keys().map(String::as_str).collect();
     assert_eq!(
         keys,
         HashSet::from([
             "utxoHash",
-            "note",
+            "utxo",
             "slot",
             "txSignature",
             "eventIndex",
@@ -1466,65 +1556,70 @@ async fn audited_notes_answer_in_request_order_with_null_for_an_unseen_hash() {
 }
 
 #[tokio::test]
-async fn audited_notes_refuse_an_ungranted_reader_a_bad_count_a_changed_hash_and_a_replay() {
+async fn audited_utxos_refuse_an_ungranted_reader_a_bad_count_a_changed_hash_and_a_replay() {
     let fixture = Fixture::new();
     let service = fixture
         .hub(fixture.source())
         .service(None)
         .expect("service");
     let hashes = vec![Hash([0x77; 32])];
-    let stranger_request = GetAuditedNotesRequest::read(RING, hashes.clone())
-        .expect("note read")
+    let stranger_request = GetAuditedUtxosRequest::read(target(RING), hashes.clone())
+        .expect("UTXO read")
         .sign(&stranger())
-        .expect("signed note read");
+        .expect("signed UTXO read");
     assert!(matches!(
-        service.audited_notes(&stranger_request).await,
+        service.audited_utxos(&stranger_request).await,
         Err(RingRpcError::Unauthorized(Unauthorized::NotGranted))
     ));
-    for count in [0, AUDITED_NOTES_LIMIT + 1] {
+    for count in [0, AUDITED_UTXOS_LIMIT + 1] {
         let hashes = vec![Hash([0x77; 32]); count];
         assert!(matches!(
-            GetAuditedNotesRequest::read(RING, hashes.clone()),
-            Err(ReadBuildError::Notes)
+            GetAuditedUtxosRequest::read(target(RING), hashes.clone()),
+            Err(ReadBuildError::UtxoHashes)
         ));
-        let request = GetAuditedNotesRequest {
+        let request = GetAuditedUtxosRequest {
             utxo_hashes: hashes,
-            ..notes_request(vec![Hash([0x77; 32])])
+            ..utxos_request(vec![Hash([0x77; 32])])
         };
         assert!(matches!(
-            service.audited_notes(&request).await,
-            Err(RingRpcError::InvalidNoteRequest)
+            service.audited_utxos(&request).await,
+            Err(RingRpcError::InvalidUtxoRequest)
         ));
     }
-    let mut changed = notes_request(hashes.clone());
+    let mut changed = utxos_request(hashes.clone());
     changed.utxo_hashes = vec![Hash([0x78; 32])];
     assert!(matches!(
-        service.audited_notes(&changed).await,
+        service.audited_utxos(&changed).await,
         Err(RingRpcError::Unauthorized(Unauthorized::BadSignature))
     ));
-    let request = notes_request(hashes);
-    assert!(service.audited_notes(&request).await.is_ok());
+    let request = utxos_request(hashes);
+    assert!(service.audited_utxos(&request).await.is_ok());
     assert!(matches!(
-        service.audited_notes(&request).await,
+        service.audited_utxos(&request).await,
         Err(RingRpcError::Unauthorized(Unauthorized::Replay))
     ));
 }
 
 /// Each owner's record escrowing its nullifier key under one registry root.
+#[derive(Clone)]
 struct EscrowRegistry {
     root: [u8; 32],
     records: Vec<RingIndexedMemberRecordView>,
+    next_index: u64,
+    applied: u64,
+    /// Writes past `applied`, still pending.
+    queue: Vec<RingQueueEntryView>,
 }
 
 impl EscrowRegistry {
-    fn new(owners: &[Note]) -> Self {
+    fn new(owners: &[UtxoFields]) -> Self {
         let sealed = [0x5a; 32];
         let eph_pk = X25519Keypair::new().pubkey();
-        let mut members: Vec<([u8; 32], Note)> = owners
+        let mut members: Vec<([u8; 32], UtxoFields)> = owners
             .iter()
-            .map(|note| {
-                let member = Member::owner_tag(&note.owner_key).expect("owner tag");
-                (*member.as_bytes(), *note)
+            .map(|utxo| {
+                let member = Member::owner_tag(&utxo.owner_key).expect("owner tag");
+                (*member.as_bytes(), *utxo)
             })
             .collect();
         members.sort_by_key(|(member, _)| *member);
@@ -1538,9 +1633,9 @@ impl EscrowRegistry {
             ..MemberRecord::SENTINEL
         }];
         let mut views = Vec::new();
-        for (position, (member, note)) in members.iter().enumerate() {
+        for (position, (member, utxo)) in members.iter().enumerate() {
             let escrow_key = EscrowKey {
-                nullifier_pk: &note.nullifier_pk,
+                nullifier_pk: &utxo.nullifier_pk,
                 ciphertext: &sealed,
             }
             .hash()
@@ -1556,14 +1651,14 @@ impl EscrowRegistry {
                 next: Hash(next(position + 1)),
                 lists: 0,
                 escrow_key: Hash(escrow_key),
-                owner_pubkey: Some(Address::new_from_array(note.owner_key).into()),
-                nullifier_pk: Some(Hash(note.nullifier_pk)),
+                owner_pubkey: Some(Address::new_from_array(utxo.owner_key).into()),
+                nullifier_pk: Some(Hash(utxo.nullifier_pk)),
                 eph_pk: Some(Base64String(eph_pk.as_bytes().to_vec())),
                 ciphertext: Some(Base64String(sealed.to_vec())),
             });
         }
         let tree = MemberRegistryTree::from_records(records).expect("record tree");
-        let records = views
+        let records: Vec<RingIndexedMemberRecordView> = views
             .into_iter()
             .zip(1u64..)
             .map(|(record, index)| {
@@ -1579,49 +1674,90 @@ impl EscrowRegistry {
             .collect();
         Self {
             root: tree.root().expect("root"),
+            next_index: records.len() as u64 + 1,
             records,
+            applied: 0,
+            queue: Vec::new(),
         }
     }
 
-    fn chain(&self) -> RingChainStatus {
-        RingChainStatus {
-            activation: None,
-            registry: Some(RegistryStatus {
-                history: vec![Some(RegistryRoot {
-                    root: Hash(self.root),
-                    applied: 0,
-                    slot: 40,
-                })],
-                history_cursor: 0,
-                next_index: self.records.len() as u32 + 1,
-                floor: 0,
-                prior_floor: 0,
-                floor_slot: 0,
-                queue_head: 0,
-                queue_tail: 0,
-            }),
+    fn applied(mut self, applied: u64) -> Self {
+        self.applied = applied;
+        self
+    }
+
+    /// `owners` registered after the newest application.
+    fn with_pending(mut self, owners: &[UtxoFields]) -> Self {
+        self.queue = owners
+            .iter()
+            .zip(self.applied..)
+            .map(|(utxo, position)| RingQueueEntryView {
+                position,
+                member: Hash(
+                    *Member::owner_tag(&utxo.owner_key)
+                        .expect("owner tag")
+                        .as_bytes(),
+                ),
+                mask: 0,
+                value: 0,
+                escrow_key: Hash([0; 32]),
+                slot: 41,
+            })
+            .collect();
+        self
+    }
+
+    fn status(&self) -> RegistryStatus {
+        RegistryStatus {
+            history: vec![Some(RegistryRoot {
+                root: Hash(self.root),
+                applied: self.applied,
+                slot: 40,
+            })],
+            history_cursor: 0,
+            next_index: u32::try_from(self.next_index).expect("registry size"),
+            floor: 0,
+            prior_floor: 0,
+            floor_slot: 0,
+            queue_head: self.applied,
+            queue_tail: self.applied + self.queue.len() as u64,
+        }
+    }
+
+    fn root_view(&self) -> RingRegistryRootView {
+        RingRegistryRootView {
+            root: Hash(self.root),
+            root_index: 0,
+            applied: self.applied,
+            next_index: self.next_index,
         }
     }
 }
 
 /// A packed transfer of a Registry-mode ring, its owners' nullifier keys left to the registry.
-fn escrowed_source(fixture: &Fixture, owners: &[Note], registered: &[Note]) -> StaticSource {
+fn escrowed_source(
+    fixture: &Fixture,
+    owners: &[UtxoFields],
+    registered: &[UtxoFields],
+) -> StaticSource {
     let audited = Indexed {
         transfer: &ring_transfer(90),
         outputs: &owners
             .iter()
-            .map(|note| paid(*note, fixture.recipient_u))
+            .map(|utxo| paid(*utxo, fixture.recipient_u))
             .collect::<Vec<_>>(),
         auditor: &fixture.auditor.pubkey(),
         signature: 90,
         frames: &fixture.frames,
     }
     .packed_with(true);
-    let mut source = fixture.source().with_transactions(vec![audited]);
+    let mut source = fixture.source().with_transactions(vec![audited.clone()]);
     source.configs.get_mut(&RING).expect("config").mode = RingMode::Registry;
-    let registry = EscrowRegistry::new(registered);
-    source.chain.insert(RING, registry.chain());
-    source.records = registry.records;
+    source.pages = HashMap::from([
+        (None, paged(vec![audited], None, Some(1))),
+        (Some(vec![1]), paged(Vec::new(), None, Some(1))),
+    ]);
+    *source.registry.lock().unwrap() = Some(EscrowRegistry::new(registered));
     source
 }
 
@@ -1632,22 +1768,87 @@ async fn an_escrowed_ring_opens_its_outputs_with_the_keys_its_registry_holds() {
     let source = escrowed_source(&fixture, &owners, &owners);
     let record_reads = source.record_reads.clone();
     let service = fixture.hub(source).service(None).expect("service");
+    service.backfill_utxos().await.expect("backfill");
     let page = read_at(&service, None).await;
     let [item] = page.value.items.as_slice() else {
         panic!("one escrowed transfer, {:?}", page.value.skipped);
     };
     assert!(item.payload_errors.is_empty(), "{:?}", item.payload_errors);
     assert_eq!(amounts(item), [30, 12]);
-    let keys: Vec<Option<Hash>> = item
+    let keys: Vec<Hash> = item
         .outputs
         .iter()
-        .map(|output| output.note.as_ref().expect("note").nullifier_pk.clone())
+        .map(|output| output.utxo.as_ref().expect("utxo").nullifier_pk.clone())
         .collect();
-    assert_eq!(keys, owners.map(|note| Some(Hash(note.nullifier_pk))));
-    // One refresh reads the registry, the unchanged root serves the next page from the map.
+    assert_eq!(keys, owners.map(|utxo| Hash(utxo.nullifier_pk)));
     assert_eq!(record_reads.load(Ordering::Relaxed), 1);
-    read_at(&service, None).await;
+    service.backfill_utxos().await.expect("backfill");
     assert_eq!(record_reads.load(Ordering::Relaxed), 1);
+}
+
+#[tokio::test]
+async fn a_read_never_reads_the_registry() {
+    let fixture = Fixture::new();
+    let owners = [sol(0xc0, 30), sol(0xc1, 12)];
+    let source = escrowed_source(&fixture, &owners, &owners);
+    let record_reads = source.record_reads.clone();
+    let service = fixture.hub(source).service(None).expect("service");
+    let page = read_at(&service, None).await;
+    assert_eq!(
+        escrow_errors(&page),
+        [OutputPayloadErrorKind::EscrowUnknown; 2]
+    );
+    assert_eq!(record_reads.load(Ordering::Relaxed), 0);
+}
+
+#[tokio::test]
+async fn concurrent_backfills_read_the_registry_once() {
+    let fixture = Fixture::new();
+    let owners = [sol(0xc0, 30)];
+    let source = escrowed_source(&fixture, &owners, &owners);
+    let record_reads = source.record_reads.clone();
+    let service = fixture.hub(source).service(None).expect("service");
+    let (first, second) = tokio::join!(service.backfill_utxos(), service.backfill_utxos());
+    first.expect("first backfill");
+    second.expect("second backfill");
+    assert_eq!(record_reads.load(Ordering::Relaxed), 1);
+}
+
+#[tokio::test]
+async fn an_applied_write_rereads_only_the_members_it_names() {
+    let fixture = Fixture::new();
+    let owners = [sol(0xc0, 30), sol(0xc1, 12)];
+    let source = escrowed_source(&fixture, &owners, &owners);
+    let registry = source.registry.clone();
+    *registry.lock().unwrap() = Some(EscrowRegistry::new(&owners[..1]).with_pending(&owners[1..]));
+    let record_reads = source.record_reads.clone();
+    let opening_reads = source.opening_reads.clone();
+    let service = fixture.hub(source).service(None).expect("service");
+    service.backfill_utxos().await.expect("backfill");
+    assert_eq!(
+        escrow_errors(&read_at(&service, None).await),
+        [OutputPayloadErrorKind::EscrowUnknown]
+    );
+
+    *registry.lock().unwrap() = Some(EscrowRegistry::new(&owners).applied(1));
+    service.backfill_utxos().await.expect("backfill");
+    assert!(escrow_errors(&read_at(&service, None).await).is_empty());
+    assert_eq!(record_reads.load(Ordering::Relaxed), 1);
+    assert_eq!(opening_reads.load(Ordering::Relaxed), 1);
+
+    // Writes no refresh saw pending leave only the full scan.
+    let late = [owners[0], owners[1], sol(0xc2, 5)];
+    *registry.lock().unwrap() = Some(EscrowRegistry::new(&late).applied(3));
+    service.backfill_utxos().await.expect("backfill");
+    assert_eq!(record_reads.load(Ordering::Relaxed), 2);
+    assert_eq!(opening_reads.load(Ordering::Relaxed), 1);
+}
+
+fn escrow_errors(page: &GetDecryptedTransactionsResponse) -> Vec<OutputPayloadErrorKind> {
+    let [item] = page.value.items.as_slice() else {
+        panic!("one escrowed transfer, {:?}", page.value.skipped);
+    };
+    item.payload_errors.iter().map(|error| error.kind).collect()
 }
 
 #[tokio::test]
@@ -1656,6 +1857,7 @@ async fn an_owner_the_registry_never_escrowed_reports_its_slot() {
     let owners = [sol(0xc0, 30), sol(0xc1, 12)];
     let source = escrowed_source(&fixture, &owners, &owners[..1]);
     let service = fixture.hub(source).service(None).expect("service");
+    service.backfill_utxos().await.expect("backfill");
     let page = read_at(&service, None).await;
     let [item] = page.value.items.as_slice() else {
         panic!("one escrowed transfer, {:?}", page.value.skipped);
@@ -1670,28 +1872,29 @@ async fn an_owner_the_registry_never_escrowed_reports_its_slot() {
     );
 }
 
-/// A page short of a record keeps no partial key map, the next read refreshes again.
+/// A page short of a record keeps no partial key map, the next backfill reads again.
 #[tokio::test]
 async fn a_registry_page_short_of_a_record_escrows_no_key() {
     let fixture = Fixture::new();
     let owners = [sol(0xc0, 30), sol(0xc1, 12)];
-    let mut source = escrowed_source(&fixture, &owners, &owners);
-    source.records.remove(0);
+    let source = escrowed_source(&fixture, &owners, &owners);
+    source
+        .registry
+        .lock()
+        .unwrap()
+        .as_mut()
+        .expect("registry")
+        .records
+        .remove(0);
     let record_reads = source.record_reads.clone();
     let service = fixture.hub(source).service(None).expect("service");
-    let page = read_at(&service, None).await;
-    let [item] = page.value.items.as_slice() else {
-        panic!("one escrowed transfer, {:?}", page.value.skipped);
-    };
+    service.backfill_utxos().await.expect("backfill");
     assert_eq!(
-        item.payload_errors
-            .iter()
-            .map(|error| error.kind)
-            .collect::<Vec<_>>(),
+        escrow_errors(&read_at(&service, None).await),
         [OutputPayloadErrorKind::EscrowUnknown; 2]
     );
     let refreshed = record_reads.load(Ordering::Relaxed);
-    read_at(&service, None).await;
+    service.backfill_utxos().await.expect("backfill");
     assert!(record_reads.load(Ordering::Relaxed) > refreshed);
 }
 
@@ -1704,30 +1907,30 @@ async fn the_backfill_reads_the_escrowed_keys_before_its_first_page() {
     source.pages = HashMap::from([(None, paged(audited, None, Some(1)))]);
     let record_reads = source.record_reads.clone();
     let service = fixture.hub(source).service(None).expect("service");
-    service.backfill_notes().await.expect("backfill");
+    service.backfill_utxos().await.expect("backfill");
     assert_eq!(record_reads.load(Ordering::Relaxed), 1);
     let hash = fixture_output_hash(&service, &owners[0]).await;
     let found = service
-        .audited_notes(&notes_request(vec![hash]))
+        .audited_utxos(&utxos_request(vec![hash]))
         .await
-        .expect("note read");
+        .expect("UTXO read");
     assert_eq!(
-        found.value.notes[0].as_ref().map(|view| view.note.amount),
+        found.value.utxos[0].as_ref().map(|view| view.utxo.amount),
         Some(30)
     );
 }
 
 /// The commitment of `owner`'s output on the ring's audited page.
-async fn fixture_output_hash(service: &AuditService<StaticSource>, owner: &Note) -> Hash {
+async fn fixture_output_hash(service: &AuditService<StaticSource>, owner: &UtxoFields) -> Hash {
     let page = read_at(service, None).await;
     page.value.items[0]
         .outputs
         .iter()
         .find(|output| {
             output
-                .note
+                .utxo
                 .as_ref()
-                .is_some_and(|note| note.owner_key.0.to_bytes() == owner.owner_key)
+                .is_some_and(|utxo| utxo.owner_key.0.to_bytes() == owner.owner_key)
         })
         .expect("owner output")
         .output_context
@@ -1752,6 +1955,7 @@ async fn confirmed_deposit_and_merge_tag_collisions_do_not_poison_an_audit_page(
     let service = fixture.hub(source).service(None).unwrap();
     let response = service
         .read(AuditRead {
+            read: PagedRead::DecryptedTransactions,
             auth: &auth(&delegate()),
             page: &page(),
         })
@@ -1810,6 +2014,7 @@ async fn recipient_bodies_cannot_poison_an_audit_page_or_trigger_registry_refres
     let service = fixture.hub(source).service(None).unwrap();
     let response = service
         .read(AuditRead {
+            read: PagedRead::DecryptedTransactions,
             auth: &auth(&delegate()),
             page: &page(),
         })
@@ -1841,7 +2046,7 @@ async fn unknown_assets_share_refresh_and_back_off_after_failure() {
     let fixture = Fixture::new();
     let mut source = fixture.source().with_transactions(vec![Indexed {
         transfer: &ring_transfer(8),
-        outputs: &[paid(note(0xb8, asset, 13), fixture.recipient_u)],
+        outputs: &[paid(utxo(0xb8, asset, 13), fixture.recipient_u)],
         auditor: &fixture.auditor.pubkey(),
         signature: 8,
         frames: &fixture.frames,
@@ -1856,17 +2061,19 @@ async fn unknown_assets_share_refresh_and_back_off_after_failure() {
     let p256 = auth(&Passkey::new(46));
     let (first, second) = tokio::join!(
         service.read(AuditRead {
+            read: PagedRead::DecryptedTransactions,
             auth: &ed25519,
             page: &page,
         }),
         service.read(AuditRead {
+            read: PagedRead::DecryptedTransactions,
             auth: &p256,
             page: &page,
         })
     );
     let mint = |response: &GetDecryptedTransactionsResponse| {
-        let note = response.value.items[0].outputs[0].note.as_ref();
-        note.and_then(|note| note.mint.as_ref()).map(|mint| mint.0)
+        let utxo = response.value.items[0].outputs[0].utxo.as_ref();
+        utxo.and_then(|utxo| utxo.mint.as_ref()).map(|mint| mint.0)
     };
     for result in [first, second] {
         assert_eq!(mint(&result.expect("refreshed read")), Some(asset));
@@ -1882,6 +2089,7 @@ async fn unknown_assets_share_refresh_and_back_off_after_failure() {
     for signer in [&delegate() as &dyn ReadSigner, &Passkey::new(46)] {
         let response = service
             .read(AuditRead {
+                read: PagedRead::DecryptedTransactions,
                 auth: &auth(signer),
                 page: &page,
             })
@@ -1901,6 +2109,7 @@ async fn unknown_assets_share_refresh_and_back_off_after_failure() {
     assert!(tokio::time::timeout(
         Duration::from_millis(1),
         service.read(AuditRead {
+            read: PagedRead::DecryptedTransactions,
             auth: &first,
             page: &page,
         })
@@ -1910,6 +2119,7 @@ async fn unknown_assets_share_refresh_and_back_off_after_failure() {
     let second = auth(&Passkey::new(46));
     let response = service
         .read(AuditRead {
+            read: PagedRead::DecryptedTransactions,
             auth: &second,
             page: &page,
         })
@@ -1932,6 +2142,7 @@ async fn only_granted_readers_with_the_configured_auditor_key_can_read() {
         let request = auth(signer);
         assert!(service
             .read(AuditRead {
+                read: PagedRead::DecryptedTransactions,
                 auth: &request,
                 page: &page,
             })
@@ -1944,6 +2155,7 @@ async fn only_granted_readers_with_the_configured_auditor_key_can_read() {
         assert!(matches!(
             service
                 .read(AuditRead {
+                    read: PagedRead::DecryptedTransactions,
                     auth: &request,
                     page: &page,
                 })
@@ -1966,6 +2178,7 @@ async fn only_granted_readers_with_the_configured_auditor_key_can_read() {
     assert!(matches!(
         service
             .read(AuditRead {
+                read: PagedRead::DecryptedTransactions,
                 auth: &request,
                 page: &page,
             })
@@ -1986,6 +2199,7 @@ async fn rows_outside_the_ring_are_dropped() {
     let request = auth(&delegate());
     let response = service
         .read(AuditRead {
+            read: PagedRead::DecryptedTransactions,
             auth: &request,
             page: &page,
         })
@@ -2011,6 +2225,7 @@ async fn origin_cache_separates_event_ordinals_in_one_transaction() {
     let request = auth(&delegate());
     let response = service
         .read(AuditRead {
+            read: PagedRead::DecryptedTransactions,
             auth: &request,
             page: &page,
         })
@@ -2034,6 +2249,7 @@ async fn missing_event_index_fails_closed() {
     assert!(matches!(
         service
             .read(AuditRead {
+                read: PagedRead::DecryptedTransactions,
                 auth: &request,
                 page: &page,
             })
@@ -2053,6 +2269,7 @@ async fn unknown_origins_fail_the_page() {
     assert!(matches!(
         service
             .read(AuditRead {
+                read: PagedRead::DecryptedTransactions,
                 auth: &request,
                 page: &page,
             })
@@ -2072,6 +2289,7 @@ async fn accepted_nonces_are_single_use() {
     let request = auth(&delegate());
     assert!(service
         .read(AuditRead {
+            read: PagedRead::DecryptedTransactions,
             auth: &request,
             page: &page,
         })
@@ -2080,6 +2298,7 @@ async fn accepted_nonces_are_single_use() {
     assert!(matches!(
         service
             .read(AuditRead {
+                read: PagedRead::DecryptedTransactions,
                 auth: &request,
                 page: &page,
             })
@@ -2089,6 +2308,7 @@ async fn accepted_nonces_are_single_use() {
     let distinct = auth(&delegate());
     assert!(service
         .read(AuditRead {
+            read: PagedRead::DecryptedTransactions,
             auth: &distinct,
             page: &page,
         })
@@ -2109,6 +2329,7 @@ async fn indexer_pages_must_match_the_attested_bounds() {
     assert!(matches!(
         service
             .read(AuditRead {
+                read: PagedRead::DecryptedTransactions,
                 auth: &request,
                 page: &page(),
             })
@@ -2124,6 +2345,7 @@ async fn indexer_pages_must_match_the_attested_bounds() {
         assert!(matches!(
             service
                 .read(AuditRead {
+                    read: PagedRead::DecryptedTransactions,
                     auth: &request,
                     page: &page(),
                 })
@@ -2143,6 +2365,7 @@ async fn indexer_pages_must_match_the_attested_bounds() {
         assert!(matches!(
             service
                 .read(AuditRead {
+                    read: PagedRead::DecryptedTransactions,
                     auth: &request,
                     page: &page(),
                 })
@@ -2158,6 +2381,7 @@ async fn indexer_pages_must_match_the_attested_bounds() {
     assert!(matches!(
         service
             .read(AuditRead {
+                read: PagedRead::DecryptedTransactions,
                 auth: &request,
                 page: &page(),
             })
@@ -2169,7 +2393,7 @@ async fn indexer_pages_must_match_the_attested_bounds() {
     source.next_cursor = Some(vec![8]);
     let service = fixture.hub(source).service(None).expect("service");
     let repeated_page = Page::new(Some(vec![8].into()), None).expect("page");
-    let request = GetDecryptedTransactionsRequest::read(RING)
+    let request = GetDecryptedTransactionsRequest::read(target(RING))
         .with_cursor(vec![8].into())
         .expect("cursor")
         .sign(&signer)
@@ -2178,6 +2402,7 @@ async fn indexer_pages_must_match_the_attested_bounds() {
     assert!(matches!(
         service
             .read(AuditRead {
+                read: PagedRead::DecryptedTransactions,
                 auth: &request,
                 page: &repeated_page
             })
@@ -2193,6 +2418,7 @@ async fn indexer_pages_must_match_the_attested_bounds() {
     assert!(matches!(
         service
             .read(AuditRead {
+                read: PagedRead::DecryptedTransactions,
                 auth: &request,
                 page: &page(),
             })
@@ -2204,11 +2430,11 @@ async fn indexer_pages_must_match_the_attested_bounds() {
 #[test]
 fn request_builder_rejects_noncanonical_pages() {
     assert!(matches!(
-        GetDecryptedTransactionsRequest::read(RING).with_cursor(Vec::new().into()),
+        GetDecryptedTransactionsRequest::read(target(RING)).with_cursor(Vec::new().into()),
         Err(ReadBuildError::Cursor)
     ));
     assert!(matches!(
-        GetDecryptedTransactionsRequest::read(RING)
+        GetDecryptedTransactionsRequest::read(target(RING))
             .with_limit(Limit::new(101).expect("indexer limit")),
         Err(ReadBuildError::Limit)
     ));
@@ -2232,7 +2458,7 @@ async fn rpc_wire_uses_camel_case_and_rejects_another_local_ring() {
     let health: HealthResponse = module.call(HEALTH, [(); 0]).await.expect("health");
     assert_eq!(health.mode, KeyMode::Local);
 
-    let request = GetDecryptedTransactionsRequest::read(RING)
+    let request = GetDecryptedTransactionsRequest::read(target(RING))
         .sign(&delegate())
         .expect("request");
     let object = as_object(request);
@@ -2246,7 +2472,8 @@ async fn rpc_wire_uses_camel_case_and_rejects_another_local_ring() {
         .call(
             GET_AUDITED_MERGES,
             as_object(
-                GetDecryptedTransactionsRequest::read(RING)
+                PagedRead::AuditedMerges
+                    .request(target(RING))
                     .sign(&delegate())
                     .expect("merge read request"),
             ),
@@ -2292,8 +2519,24 @@ async fn authorize(
 ) -> Result<(), RingRpcError> {
     hub.service(Some(RING))
         .expect("service")
-        .authorize_auditor_key(&request.auth)
+        .auditor_key_statement(&request.auth)
         .await
+        .map(drop)
+}
+
+/// The service signs the cluster and nonce the authority's request names.
+fn released(created: &CreateAuditorKeyResponse, request: &CreateAuditorKeyRequest) -> bool {
+    let nonce: [u8; 32] = request.auth.nonce.0.as_slice().try_into().expect("nonce");
+    let statement = AuditorKeyStatement {
+        cluster: &request.auth.genesis_hash.0,
+        ring: &request.ring_program_id.0,
+        auditor_pubkey: created.auditor_pubkey.as_key(),
+        nonce: &nonce,
+    };
+    created
+        .signature
+        .0
+        .verify(created.service_pubkey.0.as_ref(), &statement.message())
 }
 
 fn refused(result: Result<(), RingRpcError>, expected: Unauthorized) -> bool {
@@ -2307,15 +2550,15 @@ async fn auditor_keys_are_released_to_the_ring_authorities_only() {
     source.configs.clear();
     let hub = Arc::new(fixture.hub(source));
     let module = rpc_module(hub.clone()).expect("module");
+    let request = signed_by(&deployer());
     let created: CreateAuditorKeyResponse = module
-        .call(CREATE_AUDITOR_KEY, as_object(signed_by(&deployer())))
+        .call(CREATE_AUDITOR_KEY, as_object(&request))
         .await
         .expect("deployer before config");
     assert_eq!(created.auditor_pubkey.as_key(), &fixture.auditor.pubkey());
-    assert!(created.signature.0.verify(
-        created.service_pubkey.0.as_ref(),
-        &auditor_key_attestation(&RING, created.auditor_pubkey.as_key())
-    ));
+    assert!(released(&created, &request));
+    let replayed = signed_by(&deployer());
+    assert!(!released(&created, &replayed));
     assert!(refused(
         authorize(&hub, &signed_by(&authority())).await,
         Unauthorized::NotRingAuthority
@@ -2435,7 +2678,7 @@ async fn invalid_audit_requests_do_not_consume_valid_capacity() {
     let fixture = Fixture::new();
     let module = rpc_module(Arc::new(fixture.hub(fixture.source()))).expect("module");
 
-    let mut request = signed_request(&delegate(), RING, unix_now().expect("clock"));
+    let mut request = signed_request(&delegate(), target(RING), unix_now().expect("clock"));
     request.auth.timestamp += 1;
     let result: Result<GetDecryptedTransactionsResponse, _> = module
         .call(GET_DECRYPTED_TRANSACTIONS, as_object(request))
@@ -2447,7 +2690,7 @@ async fn invalid_audit_requests_do_not_consume_valid_capacity() {
             GET_DECRYPTED_TRANSACTIONS,
             as_object(signed_request(
                 &delegate(),
-                RING,
+                target(RING),
                 unix_now().expect("clock"),
             )),
         )
@@ -2783,11 +3026,13 @@ async fn two_rings_read_only_their_own_transactions() {
         (ring_a, audited_a.tx_signature, 500),
         (ring_b, audited_b.tx_signature, 7),
     ] {
-        let request = signed_request(&delegate(), ring, unix_now().expect("clock")).auth;
+        let request =
+            signed_request(&delegate(), served(&hub, ring), unix_now().expect("clock")).auth;
         let response = hub
             .service(Some(ring))
             .expect("service")
             .read(AuditRead {
+                read: PagedRead::DecryptedTransactions,
                 auth: &request,
                 page: &page,
             })
@@ -2837,11 +3082,12 @@ async fn a_ring_registered_with_another_auditor_stays_closed() {
         None
     );
 
-    let request = signed_request(&delegate(), ring, unix_now().expect("clock")).auth;
+    let request = signed_request(&delegate(), served(&hub, ring), unix_now().expect("clock")).auth;
     let page = page();
     assert!(matches!(
         service
             .read(AuditRead {
+                read: PagedRead::DecryptedTransactions,
                 auth: &request,
                 page: &page,
             })
@@ -2906,14 +3152,14 @@ async fn derived_keys_are_ring_and_cluster_specific() {
         .sign(&deployer())
         .expect("signed request");
     let created: CreateAuditorKeyResponse = module
-        .call(CREATE_AUDITOR_KEY, as_object(request))
+        .call(CREATE_AUDITOR_KEY, as_object(&request))
         .await
         .expect("auditor key");
     assert_eq!(created.auditor_pubkey.as_key(), &key_a);
-    assert!(created.signature.0.verify(
-        created.service_pubkey.0.as_ref(),
-        &auditor_key_attestation(&ring_a, created.auditor_pubkey.as_key())
-    ));
+    assert!(released(&created, &request));
+    let mut other_cluster = request;
+    other_cluster.auth.genesis_hash = Hash([10; 32]);
+    assert!(!released(&created, &other_cluster));
 }
 
 #[tokio::test]
@@ -2938,6 +3184,7 @@ async fn an_indexer_forgery_is_reported_without_hiding_other_verified_outputs() 
     let service = fixture.hub(source).service(None).unwrap();
     let response = service
         .read(AuditRead {
+            read: PagedRead::DecryptedTransactions,
             auth: &auth(&delegate()),
             page: &page(),
         })
@@ -2949,4 +3196,128 @@ async fn an_indexer_forgery_is_reported_without_hiding_other_verified_outputs() 
         response.value.skipped[0].reason,
         zolana_ring_client::rpc::SkippedReason::InvalidAuditData
     );
+}
+
+#[tokio::test]
+async fn an_outsider_row_never_reaches_the_origin_read() {
+    let fixture = Fixture::new();
+    let mut outsider = fixture.foreign_key.clone();
+    outsider.tx_signature = Signature::from([0xee; 64]);
+    outsider.ring_program_id = None;
+    let rows = vec![outsider.clone(), fixture.audited.clone()];
+    let mut source = fixture.source().with_transactions(rows.clone());
+    source.origins.remove(&(
+        outsider.tx_signature,
+        outsider.event_index.expect("event index"),
+    ));
+    source.pages = HashMap::from([(None, paged(rows, None, Some(1)))]);
+    let service = fixture.hub(source).service(None).expect("service");
+    let page = read_at(&service, None).await;
+    let [item] = page.value.items.as_slice() else {
+        panic!("one ring transfer, {:?}", page.value.skipped);
+    };
+    assert_eq!(item.tx_signature.0, fixture.audited.tx_signature);
+    service.backfill_utxos().await.expect("backfill");
+}
+
+#[tokio::test]
+async fn a_read_signed_for_another_method_cluster_or_service_is_refused() {
+    let fixture = Fixture::new();
+    let service = fixture
+        .hub(fixture.source())
+        .service(None)
+        .expect("service");
+    let page = page();
+    let signed = |read: PagedRead, target: ReadTarget| {
+        read.request(target)
+            .sign(&delegate())
+            .expect("request")
+            .auth
+    };
+    let refused = [
+        signed(PagedRead::AuditedMerges, target(RING)),
+        signed(
+            PagedRead::DecryptedTransactions,
+            ReadTarget {
+                cluster: [8; 32],
+                ..target(RING)
+            },
+        ),
+        signed(
+            PagedRead::DecryptedTransactions,
+            ReadTarget {
+                service: Address::new_from_array([3; 32]),
+                ..target(RING)
+            },
+        ),
+    ];
+    for auth in &refused {
+        assert!(matches!(
+            service
+                .read(AuditRead {
+                    read: PagedRead::DecryptedTransactions,
+                    auth,
+                    page: &page,
+                })
+                .await,
+            Err(RingRpcError::Unauthorized(Unauthorized::BadSignature))
+        ));
+    }
+    let valid = signed(PagedRead::DecryptedTransactions, target(RING));
+    service
+        .read(AuditRead {
+            read: PagedRead::DecryptedTransactions,
+            auth: &valid,
+            page: &page,
+        })
+        .await
+        .expect("read");
+}
+
+#[tokio::test]
+async fn a_backfill_stops_at_its_page_budget() {
+    let fixture = Fixture::new();
+    let mut source = fixture.source();
+    source.pages = HashMap::from([
+        (None, paged(Vec::new(), Some(1), None)),
+        (Some(vec![1]), paged(Vec::new(), Some(2), None)),
+        (Some(vec![2]), paged(Vec::new(), Some(1), None)),
+    ]);
+    let reads = source.history_reads.clone();
+    let service = fixture.hub(source).service(None).expect("service");
+    service.backfill_utxos().await.expect("bounded backfill");
+    assert!(reads.load(Ordering::Relaxed) < HISTORY_READ_CAP);
+}
+
+#[tokio::test]
+async fn the_utxo_context_moves_only_at_the_scan_frontier() {
+    let fixture = Fixture::new();
+    let mut source = fixture.source();
+    source.pages = HashMap::from([
+        (None, paged(vec![fixture.audited.clone()], Some(1), None)),
+        (Some(vec![1]), paged(Vec::new(), Some(1), None)),
+    ]);
+    let service = fixture.hub(source).service(None).expect("service");
+    assert!(matches!(
+        service.backfill_utxos().await,
+        Err(RingRpcError::InvalidIndexerResponse)
+    ));
+    let hash = Hash(fixture.audited.output_slots[0].output_context.hash);
+    let found = service
+        .audited_utxos(&utxos_request(vec![hash]))
+        .await
+        .expect("UTXO read");
+    assert!(found.value.utxos[0].is_some());
+    assert_eq!(found.context.slot, 0);
+}
+
+#[tokio::test]
+async fn an_unconfigured_ring_backfills_nothing() {
+    let fixture = Fixture::new();
+    let mut source = fixture.source();
+    source.configs.clear();
+    let reads = source.history_reads.clone();
+    let service = fixture.hub(source).service(None).expect("service");
+    service.backfill_utxos().await.expect("unconfigured ring");
+    assert_eq!(reads.load(Ordering::Relaxed), 0);
 }

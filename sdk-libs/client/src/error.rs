@@ -113,7 +113,7 @@ pub enum ClientError {
     #[error("only transaction version 1 is supported")]
     UnsupportedTransactionVersion,
 
-    #[error("address lookup tables are not supported")]
+    #[error("transaction loads lookup table accounts its metadata does not name")]
     AddressLookupTable,
 
     #[error(
@@ -454,6 +454,9 @@ pub enum ClientError {
 
     #[error("anonymous ring state does not parse because {0}")]
     AnonymousRingState(String),
+
+    #[error("anonymous ring state names epoch {epoch} outside the ring's epochs")]
+    AnonymousRingEpoch { epoch: u64 },
 
     /// The indexer answered a full page with the cursor it was given, so
     /// paging on would read the same page forever.

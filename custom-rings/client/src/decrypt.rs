@@ -30,8 +30,8 @@ use crate::{
     },
     encryption::auditor_view_tag,
     types::{
-        AuditedInput, AuditedInputOpening, AuditedNote, AuditedOutput, AuditedSender,
-        AuditedTransaction, InputRing, KnownNote, OutputOpening, OutputPayloadError,
+        AuditedInput, AuditedInputOpening, AuditedOutput, AuditedSender, AuditedTransaction,
+        AuditedUtxo, InputRing, KnownUtxo, OutputOpening, OutputPayloadError,
         OutputPayloadErrorKind,
     },
     AuditError,
@@ -43,17 +43,16 @@ pub struct TransactionAudit<'a> {
     transaction: &'a ShieldedTransaction,
     layout: DisclosureLayout,
     input_trees: Option<&'a [Option<u16>]>,
-    known_notes: Option<&'a dyn KnownNotes>,
+    known_utxos: Option<&'a dyn KnownUtxos>,
     escrowed_keys: Option<&'a dyn EscrowedKeys>,
 }
 
-/// Notes the auditor opened before.
-pub trait KnownNotes {
-    fn note(&self, commitment: &[u8; 32]) -> Option<KnownNote>;
+pub trait KnownUtxos {
+    fn utxo(&self, commitment: &[u8; 32]) -> Option<KnownUtxo>;
 }
 
-impl KnownNotes for HashMap<[u8; 32], KnownNote> {
-    fn note(&self, commitment: &[u8; 32]) -> Option<KnownNote> {
+impl KnownUtxos for HashMap<[u8; 32], KnownUtxo> {
+    fn utxo(&self, commitment: &[u8; 32]) -> Option<KnownUtxo> {
         self.get(commitment).copied()
     }
 }
@@ -76,12 +75,12 @@ impl<'a> TransactionAudit<'a> {
             transaction,
             layout,
             input_trees: None,
-            known_notes: None,
+            known_utxos: None,
             escrowed_keys: None,
         }
     }
 
-    /// One tree per published nullifier, else [`AuditError::InputTreeCount`].
+    /// Every input commitment binds its tree id.
     pub fn with_input_trees(mut self, trees: &'a [Option<u16>]) -> Result<Self, AuditError> {
         let inputs = self.transaction.nullifiers.len();
         if trees.len() != inputs {
@@ -95,8 +94,8 @@ impl<'a> TransactionAudit<'a> {
     }
 
     /// Opens a commitment-layout input and resolves an entry input's ring.
-    pub fn with_known_notes(mut self, known: &'a dyn KnownNotes) -> Self {
-        self.known_notes = Some(known);
+    pub fn with_known_utxos(mut self, known: &'a dyn KnownUtxos) -> Self {
+        self.known_utxos = Some(known);
         self
     }
 
@@ -188,7 +187,7 @@ impl<'a> TransactionAudit<'a> {
                     disclosure: &disclosure,
                     nullifiers: &tx.nullifiers,
                     trees: self.input_trees,
-                    known: self.known_notes,
+                    known: self.known_utxos,
                 })?;
                 audited.sender = Some(AuditedSender {
                     owner_key: disclosure.sender_key,
@@ -314,7 +313,7 @@ struct SpentInputs<'a> {
     disclosure: &'a AnonymousDisclosure,
     nullifiers: &'a [[u8; 32]],
     trees: Option<&'a [Option<u16>]>,
-    known: Option<&'a dyn KnownNotes>,
+    known: Option<&'a dyn KnownUtxos>,
 }
 
 impl Transfer<'_> {
@@ -343,7 +342,7 @@ impl Transfer<'_> {
                 self.ring_blinding(slot, &secret, None)?
             }
         };
-        let note = AuditedNote {
+        let utxo = AuditedUtxo {
             owner_key: opening.owner_key,
             nullifier_pk,
             asset: opening.asset,
@@ -356,9 +355,9 @@ impl Transfer<'_> {
         self.verify(
             slot,
             match exit {
-                true => OutputOpening::Exit(note),
+                true => OutputOpening::Exit(utxo),
                 false => OutputOpening::Ring {
-                    note,
+                    utxo,
                     recipient_u: slot.owner_tag(),
                     tag: None,
                 },
@@ -433,6 +432,7 @@ impl Transfer<'_> {
                 },
             ),
             AnonymousOutputOpening::Dummy => self.verify(slot, OutputOpening::Dummy),
+            AnonymousOutputOpening::Unreadable => Ok(Err(OutputPayloadErrorKind::Disclosure)),
         }
     }
 
@@ -454,7 +454,7 @@ impl Transfer<'_> {
             return Ok(Err(OutputPayloadErrorKind::RecipientKey));
         };
         let body = RingDeliveredBody::open(body, &secret)?;
-        let note = AuditedNote {
+        let utxo = AuditedUtxo {
             owner_key,
             nullifier_pk,
             asset: hash_bytes(body.asset_address.as_array())?,
@@ -467,7 +467,7 @@ impl Transfer<'_> {
         self.verify(
             slot,
             OutputOpening::Ring {
-                note,
+                utxo,
                 recipient_u,
                 tag,
             },
@@ -479,7 +479,7 @@ impl Transfer<'_> {
         let Some(nullifier_pk) = self.nullifier_pk(&owner_key, exit.nullifier_pk) else {
             return Ok(Err(OutputPayloadErrorKind::EscrowUnknown));
         };
-        let note = AuditedNote {
+        let utxo = AuditedUtxo {
             owner_key,
             nullifier_pk,
             asset: exit.asset,
@@ -489,14 +489,14 @@ impl Transfer<'_> {
             data_hash: [0; 32],
             ring_data_hash: [0; 32],
         };
-        self.verify(slot, OutputOpening::Exit(note))
+        self.verify(slot, OutputOpening::Exit(utxo))
     }
 
     fn verify(&self, slot: Slot<'_>, opening: OutputOpening) -> Result<SlotOpening, AuditError> {
         let tree_id = slot.tree_id();
         let commitment = match &opening {
-            OutputOpening::Ring { note, .. } => note.commitment(tree_id, Some(self.ring))?,
-            OutputOpening::Exit(note) => note.commitment(tree_id, None)?,
+            OutputOpening::Ring { utxo, .. } => utxo.commitment(tree_id, Some(self.ring))?,
+            OutputOpening::Exit(utxo) => utxo.commitment(tree_id, None)?,
             // Without SeedOut the audit proof alone binds a dummy.
             OutputOpening::Dummy if self.seed_out.is_none() => return Ok(Ok(opening)),
             OutputOpening::Dummy => ProofInputUtxo {
@@ -580,36 +580,36 @@ impl Transfer<'_> {
         } = spent;
         match &disclosure.inputs {
             AnonymousInputs::Commitments(hashes) => {
-                let notes = hashes
+                let utxos = hashes
                     .iter()
                     .map(|hash| {
                         hash.map(|commitment| {
                             known
-                                .and_then(|known| known.note(&commitment))
-                                .map(|note| (commitment, note))
+                                .and_then(|known| known.utxo(&commitment))
+                                .map(|utxo| (commitment, utxo))
                                 .ok_or(AuditError::UnseenInput { commitment })
                         })
                         .transpose()
                     })
                     .collect::<Result<Vec<_>, _>>()?;
                 // The circuit proves spent UTXO 0 real.
-                let (_, first) = notes
+                let (_, first) = utxos
                     .first()
                     .copied()
                     .flatten()
                     .ok_or(AuditError::DisclosureLayout)?;
                 Ok(Spent {
-                    sender_nullifier_pk: first.nullifier_pk,
+                    sender_nullifier_pk: first.owner.nullifier_pk(),
                     inputs: nullifiers
                         .iter()
-                        .zip(notes)
-                        .map(|(nullifier, note)| AuditedInput {
+                        .zip(utxos)
+                        .map(|(nullifier, utxo)| AuditedInput {
                             nullifier: *nullifier,
-                            opening: note.map(|(commitment, note)| AuditedInputOpening {
-                                asset: note.asset,
-                                mint: note.mint,
-                                amount: note.amount,
-                                blinding: note.blinding,
+                            opening: utxo.map(|(commitment, utxo)| AuditedInputOpening {
+                                asset: utxo.asset,
+                                mint: utxo.mint,
+                                amount: utxo.amount,
+                                blinding: utxo.blinding,
                                 ring: Some(InputRing::Ring { commitment }),
                             }),
                         })
@@ -627,7 +627,7 @@ impl Transfer<'_> {
                     .map(|(index, (nullifier, opening))| {
                         let opening = opening
                             .map(|opening| {
-                                let note = AuditedNote {
+                                let utxo = AuditedUtxo {
                                     owner_key: disclosure.sender_key,
                                     nullifier_pk: *sender_nullifier_pk,
                                     asset: opening.asset,
@@ -640,12 +640,12 @@ impl Transfer<'_> {
                                 let tree =
                                     trees.and_then(|trees| trees.get(index).copied().flatten());
                                 Ok::<_, AuditError>(AuditedInputOpening {
-                                    asset: note.asset,
-                                    mint: note.mint,
-                                    amount: note.amount,
-                                    blinding: note.blinding,
+                                    asset: utxo.asset,
+                                    mint: utxo.mint,
+                                    amount: utxo.amount,
+                                    blinding: utxo.blinding,
                                     ring: tree
-                                        .map(|tree| self.input_ring(&note, tree, known))
+                                        .map(|tree| self.input_ring(&utxo, tree, known))
                                         .transpose()?,
                                 })
                             })
@@ -666,13 +666,13 @@ impl Transfer<'_> {
 
     fn input_ring(
         &self,
-        note: &AuditedNote,
+        utxo: &AuditedUtxo,
         tree_id: u16,
-        known: Option<&dyn KnownNotes>,
+        known: Option<&dyn KnownUtxos>,
     ) -> Result<InputRing, AuditError> {
-        let ring = note.commitment(tree_id, Some(self.ring))?;
-        let default = note.commitment(tree_id, None)?;
-        let found = |commitment| known.is_some_and(|known| known.note(commitment).is_some());
+        let ring = utxo.commitment(tree_id, Some(self.ring))?;
+        let default = utxo.commitment(tree_id, None)?;
+        let found = |commitment| known.is_some_and(|known| known.utxo(commitment).is_some());
         Ok(match (found(&ring), found(&default)) {
             (true, false) => InputRing::Ring { commitment: ring },
             (false, true) => InputRing::Default {

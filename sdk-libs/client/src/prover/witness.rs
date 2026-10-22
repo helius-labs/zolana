@@ -224,6 +224,8 @@ fn group_by_tree<'a>(inputs: &[&'a SppProofInputUtxo]) -> Vec<TreeGroup<'a>> {
     groups
 }
 
+/// The tree a padding slot's non-inclusion proof is fetched from.
+///
 /// The last input tree, the first under compact padding.
 fn padding_tree_id(
     groups: &[TreeGroup],

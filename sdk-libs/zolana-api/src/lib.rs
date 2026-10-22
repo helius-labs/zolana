@@ -941,7 +941,7 @@ const API_KEY_PARAMETER: &str = "api-key=";
 
 /// `text` with the value after every `api-key=` replaced by `redacted`. The
 /// value ends at the first character a query value does not use unencoded.
-fn redact_api_key(text: &str) -> Cow<'_, str> {
+pub fn redact_api_key(text: &str) -> Cow<'_, str> {
     let lowercase = text.to_ascii_lowercase();
     if !lowercase.contains(API_KEY_PARAMETER) {
         return Cow::Borrowed(text);

@@ -1,4 +1,5 @@
 use borsh::BorshDeserialize;
+use custom_ring_interface::RING_DELIVERED_BODY_LEN;
 use solana_address::Address;
 use zolana_event::{EncryptedRingDepositOutput, MessageData, OutputDataEncoding, ProoflessOutput};
 use zolana_keypair::X25519Pubkey;
@@ -67,6 +68,14 @@ impl OutputSlot {
         };
         let (&scheme_byte, body) = blob.split_first()?;
         (scheme_byte == scheme.as_byte()).then(|| body.to_vec())
+    }
+
+    /// `None` at another scheme or another length.
+    pub fn ring_delivered_body(
+        &self,
+        scheme: EncryptedScheme,
+    ) -> Option<[u8; RING_DELIVERED_BODY_LEN]> {
+        self.encrypted_body(scheme)?.try_into().ok()
     }
 
     /// The UTXO a proofless deposit publishes in the clear: owner hash, asset,

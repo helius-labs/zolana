@@ -341,7 +341,7 @@ fn a_data_free_packed_ring_slot_opens_under_the_transaction_ring_at_its_data_fre
     let recipient = owner.viewing_pubkey();
     let tx = ViewingKey::new();
     let salt = [7; 16];
-    let note = RingPackedPlaintext {
+    let held = RingPackedPlaintext {
         asset_id: 9,
         amount: 17,
         blinding: [1; 32],
@@ -353,7 +353,7 @@ fn a_data_free_packed_ring_slot_opens_under_the_transaction_ring_at_its_data_fre
         salt,
         slot_index: 1,
     };
-    let message = RingPacked::encode_plaintext(&note, recipient.u(), &cx).unwrap();
+    let message = RingPacked::encode_plaintext(&held, recipient.u(), &cx).unwrap();
     let RingPackedBody { key, ciphertext } =
         ring_confidential_packed_output_body(&message.data).unwrap();
     assert_eq!(key.len() + ciphertext.len(), RING_PACKED_DATA_FREE_BODY_LEN);
@@ -380,7 +380,7 @@ fn a_data_free_packed_ring_slot_opens_under_the_transaction_ring_at_its_data_fre
     };
     let utxos = RingPacked::into_utxos(opened.clone(), &owner_cx).unwrap();
     assert_eq!(utxos[0].ring_program_id, Some(ring));
-    assert_eq!(utxos[0].amount, note.amount);
+    assert_eq!(utxos[0].amount, held.amount);
     let outside = OwnerCx {
         ring_program_id: None,
         ..owner_cx

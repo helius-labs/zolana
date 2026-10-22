@@ -1,13 +1,14 @@
 //! Rebuilds a source member's unspent ring notes from what the auditor sees.
 
 use std::{
+    cell::Cell,
     collections::{BTreeSet, HashMap, HashSet},
     num::{NonZeroU32, NonZeroUsize},
 };
 
-use custom_ring_interface::{RingDepositAuditCapsule, RingMode};
+use custom_ring_interface::RingMode;
 use solana_address::Address;
-use zolana_client::{AsyncRpc, IndexerRpcConfig, RingHistoryOptions};
+use zolana_client::{AsyncRpc, IndexerRpcConfig};
 use zolana_event::{
     split_merge_output_body, EncryptedRingDepositOutput, OutputDataEncoding, MERGE_OUTPUT_SCHEME,
 };
@@ -23,16 +24,15 @@ use zolana_transaction::{
 };
 
 use crate::{
+    created::{CreatedUtxos, DepositSlot},
     decrypt::TransactionAudit,
-    encryption::open_deposit,
-    origin::{RingOrigin, TransactionOrigin},
-    scan::{pages, RingScan},
-    types::{OutputOpening, OutputPayloadErrorKind},
+    origin::{ConfirmedEventKind, RingOrigin, TransactionOrigin},
+    scan::{
+        Page, PageEnd, Pages, RingHistory, RingScan, RING_HISTORY_MAX_PAGES, RING_HISTORY_PAGE_SIZE,
+    },
+    types::{KnownUtxo, OutputOpening, OutputPayloadErrorKind},
     AuditError,
 };
-
-const DEFAULT_MAX_PAGES: NonZeroUsize = NonZeroUsize::new(4096).unwrap();
-const DEFAULT_PAGE_SIZE: NonZeroU32 = NonZeroU32::new(1000).unwrap();
 
 #[must_use = "run the recovery explicitly"]
 pub struct RingRecovery<'a> {
@@ -57,7 +57,7 @@ pub struct MemberRecovery<'a> {
 
 /// Application commitments supplied by the note's protocol.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct NoteDataHashes {
+struct UtxoDataHashes {
     pub data_hash: Option<[u8; 32]>,
     pub ring_data_hash: Option<[u8; 32]>,
 }
@@ -79,8 +79,8 @@ impl<'a> RingRecovery<'a> {
             ring_program_id,
             auditor,
             mode: RingMode::Off,
-            page_size: DEFAULT_PAGE_SIZE,
-            max_pages: DEFAULT_MAX_PAGES,
+            page_size: RING_HISTORY_PAGE_SIZE,
+            max_pages: RING_HISTORY_MAX_PAGES,
             indexer_config: None,
         }
     }
@@ -117,12 +117,12 @@ impl<'a> RingRecovery<'a> {
 }
 
 impl SourceMember<'_> {
-    /// The note at `context` and whether it reproduces the leaf there.
-    fn note(
+    /// The UTXO at `context` and whether it reproduces the leaf there.
+    fn wallet_utxo(
         &self,
         utxo: Utxo,
         context: &OutputContext,
-        hashes: NoteDataHashes,
+        hashes: UtxoDataHashes,
         tx: &ShieldedTransaction,
         slot_index: u32,
     ) -> Result<(WalletUtxo, bool), AuditError> {
@@ -132,7 +132,7 @@ impl SourceMember<'_> {
             &hashes.ring_data_hash.unwrap_or_default(),
             context.tree_id,
         )?;
-        let note = WalletUtxo {
+        let held = WalletUtxo {
             nullifier: utxo.nullifier(&context.hash, self.nullifier_key)?,
             utxo,
             nullifier_pubkey: self.address.nullifier_pubkey,
@@ -147,7 +147,7 @@ impl SourceMember<'_> {
             tx_signature: tx.tx_signature,
             slot_index,
         };
-        Ok((note, commitment == context.hash))
+        Ok((held, commitment == context.hash))
     }
 
     fn utxo(&self, asset: zolana_transaction::Mint, amount: u64, blinding: [u8; 32]) -> Utxo {
@@ -170,6 +170,8 @@ struct Found {
     unresolved: Vec<([u8; 32], [u8; 32])>,
     seen: HashSet<[u8; 32]>,
     unknown_mints: BTreeSet<Address>,
+    /// Every note an anonymous transfer may name by hash, in history order.
+    known: HashMap<[u8; 32], KnownUtxo>,
 }
 
 impl<'a> MemberRecovery<'a> {
@@ -185,6 +187,23 @@ impl<'a> MemberRecovery<'a> {
         }
         let owner_hash = self.source.address.owner_hash()?;
         let recovery = &self.recovery;
+        let history = self.ring_history(indexer, origin).await?;
+        let mut found = Found::default();
+        if recovery.mode == RingMode::Anonymous {
+            for (transaction, confirmed) in &history {
+                let created = CreatedUtxos {
+                    transaction,
+                    origin: confirmed,
+                    ring: recovery.ring_program_id,
+                }
+                .open(recovery.auditor)?;
+                found.known.extend(
+                    created
+                        .into_iter()
+                        .map(|created| (created.commitment, created.utxo)),
+                );
+            }
+        }
         let page = RingScan::new(recovery.ring_program_id, recovery.auditor.pubkey())
             .with_page_size(recovery.page_size)
             .with_max_pages(recovery.max_pages)
@@ -194,12 +213,10 @@ impl<'a> MemberRecovery<'a> {
         if page.next_cursor.is_some() {
             return Err(AuditError::IncompleteScan);
         }
-        let mut found = Found::default();
         for confirmed in &page.transactions {
-            self.audited_notes(confirmed, owner_hash, assets, &mut found)?;
+            self.audited_utxos(confirmed, owner_hash, assets, &mut found)?;
         }
-        let deposits = self.deposit_history(indexer, origin).await?;
-        let unsupported_deposits = self.deposited_notes(&deposits, assets, &mut found)?;
+        let unsupported_deposits = self.deposited_utxos(&history, assets, &mut found)?;
         let (spent, merges) = self
             .follow_spends(indexer, origin, assets, &mut found)
             .await?;
@@ -228,7 +245,7 @@ impl<'a> MemberRecovery<'a> {
     }
 
     /// The source's ring outputs in one audited transaction, every opening already proof-bound.
-    fn audited_notes(
+    fn audited_utxos(
         &self,
         (transaction, origin): &(ShieldedTransaction, RingOrigin),
         owner_hash: [u8; 32],
@@ -242,7 +259,13 @@ impl<'a> MemberRecovery<'a> {
         )]);
         let audited = TransactionAudit::new(transaction, layout)
             .with_escrowed_keys(&source_key)
+            .with_known_utxos(&found.known)
             .run(self.recovery.auditor, assets)?;
+        found.known.extend(
+            audited
+                .utxos()
+                .map(|created| (created.commitment, created.utxo)),
+        );
         // Any unopened slot but another owner's escrow miss could hide a source note.
         if let Some(error) = audited
             .payload_errors
@@ -255,14 +278,14 @@ impl<'a> MemberRecovery<'a> {
             });
         }
         for output in &audited.outputs {
-            let OutputOpening::Ring { note, .. } = &output.opening else {
+            let OutputOpening::Ring { utxo: opened, .. } = &output.opening else {
                 continue;
             };
             let context = &output.context;
-            if note.owner_hash()? != owner_hash || !found.seen.insert(context.hash) {
+            if opened.owner_hash()? != owner_hash || !found.seen.insert(context.hash) {
                 continue;
             }
-            let mint = match note.mint.map(|mint| assets.mint(&mint)).transpose() {
+            let mint = match opened.mint.map(|mint| assets.mint(&mint)).transpose() {
                 Ok(mint) => mint,
                 Err(TransactionError::UnknownMint(mint)) => {
                     found.unknown_mints.insert(mint);
@@ -276,79 +299,67 @@ impl<'a> MemberRecovery<'a> {
                     context.hash,
                     self.source
                         .nullifier_key
-                        .nullifier(&context.hash, &note.blinding)?,
+                        .nullifier(&context.hash, &opened.blinding)?,
                 ));
                 continue;
             };
-            let hashes = NoteDataHashes {
-                data_hash: Some(note.data_hash).filter(|hash| *hash != [0; 32]),
-                ring_data_hash: Some(note.ring_data_hash).filter(|hash| *hash != [0; 32]),
+            let hashes = UtxoDataHashes {
+                data_hash: Some(opened.data_hash).filter(|hash| *hash != [0; 32]),
+                ring_data_hash: Some(opened.ring_data_hash).filter(|hash| *hash != [0; 32]),
             };
             let utxo = Utxo {
                 ring_program_id: Some(self.recovery.ring_program_id),
-                ..self.source.utxo(mint, note.amount, note.blinding)
+                ..self.source.utxo(mint, opened.amount, opened.blinding)
             };
             match self
                 .source
-                .note(utxo, context, hashes, transaction, output.slot_index)?
+                .wallet_utxo(utxo, context, hashes, transaction, output.slot_index)?
             {
-                (note, true) => found.candidates.push(note),
-                (note, false) => found.unresolved.push((context.hash, note.nullifier)),
+                (held, true) => found.candidates.push(held),
+                (held, false) => found.unresolved.push((context.hash, held.nullifier)),
             }
         }
         Ok(())
     }
 
-    /// Proofless ring transactions the ring invoked, the deposits among them.
-    async fn deposit_history<I: AsyncRpc, O: TransactionOrigin>(
+    /// The ring's deposits, and on an anonymous ring its merges, the notes a spend names by hash.
+    async fn ring_history<I: AsyncRpc, O: TransactionOrigin>(
         &self,
         indexer: &I,
         origin: &O,
-    ) -> Result<Vec<(ShieldedTransaction, Vec<crate::ConfirmedDeposit>)>, AuditError> {
+    ) -> Result<Vec<(ShieldedTransaction, RingOrigin)>, AuditError> {
         let RingRecovery {
             ring_program_id,
+            mode,
             page_size,
             max_pages,
             indexer_config,
             ..
         } = self.recovery;
-        let (page, _) = pages(None, max_pages, |cursor| async move {
-            let options = RingHistoryOptions {
-                ring_program_id,
-                cursor,
-                limit: Some(page_size.get()),
-            };
-            let page = indexer
-                .get_shielded_transactions_by_ring(options, indexer_config)
-                .await?;
-            Ok((page.transactions, page.next_cursor, page.scanned_through))
-        })
+        let kinds: &[ConfirmedEventKind] = match mode {
+            RingMode::Anonymous => &[ConfirmedEventKind::Deposit, ConfirmedEventKind::Merge],
+            RingMode::Off | RingMode::Registry => &[ConfirmedEventKind::Deposit],
+        };
+        let page = RingHistory {
+            ring: ring_program_id,
+            kinds,
+            cursor: None,
+            page_size,
+            max_pages,
+            indexer_config,
+        }
+        .bound(indexer, origin)
         .await?;
         if page.next_cursor.is_some() {
             return Err(AuditError::IncompleteScan);
         }
-        let mut deposits = Vec::new();
-        for mut transaction in page.transactions {
-            let event_index = transaction
-                .event_index
-                .ok_or(AuditError::MissingEventIndex)?;
-            let confirmed = origin
-                .origin(transaction.tx_signature, event_index, ring_program_id)
-                .await?;
-            if confirmed.ring_invoked
-                && confirmed.event.kind() == crate::ConfirmedEventKind::Deposit
-            {
-                confirmed.bind_transaction(&mut transaction, ring_program_id)?;
-                deposits.push((transaction, confirmed.deposits));
-            }
-        }
-        Ok(deposits)
+        Ok(page.transactions)
     }
 
     /// Disclosed deposits are found without trusting their recipient view tags.
-    fn deposited_notes(
+    fn deposited_utxos(
         &self,
-        deposits: &[(ShieldedTransaction, Vec<crate::ConfirmedDeposit>)],
+        history: &[(ShieldedTransaction, RingOrigin)],
         assets: &AssetRegistry,
         found: &mut Found,
     ) -> Result<Vec<[u8; 32]>, AuditError> {
@@ -356,8 +367,11 @@ impl<'a> MemberRecovery<'a> {
         let owner_hash = self.source.address.owner_hash()?;
         let mut processed = HashSet::new();
         let mut unsupported = Vec::new();
+        let deposits = history
+            .iter()
+            .filter(|(_, confirmed)| confirmed.event.kind() == ConfirmedEventKind::Deposit);
         for (transaction, confirmed) in deposits {
-            for (slot_index, slot) in transaction.output_slots.iter().enumerate() {
+            for (slot_index, slot) in (0u32..).zip(&transaction.output_slots) {
                 let Some(output) = deposit_output(slot, ring) else {
                     continue;
                 };
@@ -365,22 +379,13 @@ impl<'a> MemberRecovery<'a> {
                 if !processed.insert(context.hash) || found.seen.contains(&context.hash) {
                     continue;
                 }
-                let Some(binding) = confirmed
-                    .iter()
-                    .find(|binding| usize::from(binding.slot_index()) == slot_index)
-                else {
-                    unsupported.push(context.hash);
-                    continue;
-                };
-                let capsule = RingDepositAuditCapsule::parse(&output.encrypted.ciphertext)
-                    .map_err(|_| AuditError::DepositOpeningMismatch)?
-                    .ok_or(AuditError::DepositOpeningMismatch)?;
-                let Ok(opening) = open_deposit(
-                    &capsule,
-                    self.recovery.auditor,
-                    &output.owner_utxo_hash,
-                    binding,
-                ) else {
+                let opened = DepositSlot {
+                    output: &output,
+                    bindings: &confirmed.deposits,
+                    slot_index,
+                }
+                .open(self.recovery.auditor);
+                let Ok(Some(opening)) = opened else {
                     unsupported.push(context.hash);
                     continue;
                 };
@@ -388,7 +393,7 @@ impl<'a> MemberRecovery<'a> {
                     continue;
                 }
                 let asset = Address::new_from_array(output.asset);
-                // The deposit proof binds the raw mint, the commitment verifies without a registry id.
+                // The deposit proof binds the raw mint, the commitment needs no registry id.
                 let mint = match assets.mint(&asset) {
                     Ok(mint) => Some(mint),
                     Err(TransactionError::UnknownMint(_)) => None,
@@ -402,22 +407,22 @@ impl<'a> MemberRecovery<'a> {
                         *opening.blinding,
                     )
                 };
-                let hashes = NoteDataHashes {
+                let hashes = UtxoDataHashes {
                     data_hash: output.data_hash,
                     ring_data_hash: Some(output.ring_data_hash),
                 };
-                let (note, opens) =
+                let (held, opens) =
                     self.source
-                        .note(utxo, context, hashes, transaction, slot_index as u32)?;
+                        .wallet_utxo(utxo, context, hashes, transaction, slot_index)?;
                 if !opens {
                     return Err(AuditError::DepositOpeningMismatch);
                 }
                 found.seen.insert(context.hash);
                 if mint.is_some() {
-                    found.candidates.push(note);
+                    found.candidates.push(held);
                 } else {
                     found.unknown_mints.insert(asset);
-                    found.unresolved.push((context.hash, note.nullifier));
+                    found.unresolved.push((context.hash, held.nullifier));
                 }
             }
         }
@@ -527,14 +532,33 @@ impl<'a> MemberRecovery<'a> {
         let mut transactions = Vec::new();
         for batch in nullifiers.chunks(PAGE_LIMIT as usize) {
             let budget = NonZeroUsize::new(*remaining).ok_or(AuditError::IncompleteScan)?;
-            let (page, read) = pages(None, budget, |cursor| async move {
-                let page = indexer
-                    .get_shielded_transactions_by_nullifiers(batch.to_vec(), cursor, None, config)
-                    .await?;
-                Ok((page.transactions, page.next_cursor, page.scanned_through))
+            let read = Cell::new(0);
+            let page = Pages {
+                cursor: None,
+                max_pages: budget,
+            }
+            .read(|cursor| {
+                read.set(read.get() + 1);
+                async move {
+                    let page = indexer
+                        .get_shielded_transactions_by_nullifiers(
+                            batch.to_vec(),
+                            cursor,
+                            None,
+                            config,
+                        )
+                        .await?;
+                    Ok(Page {
+                        transactions: page.transactions,
+                        end: PageEnd {
+                            next_cursor: page.next_cursor,
+                            scanned_through: page.scanned_through,
+                        },
+                    })
+                }
             })
             .await?;
-            *remaining -= read;
+            *remaining -= read.get();
             if page.next_cursor.is_some() {
                 return Err(AuditError::IncompleteScan);
             }
@@ -584,10 +608,11 @@ fn merge_successor(
         merge_output_blinding(source.nullifier_key, first_nullifier)?,
         Some(ring),
     );
-    let hashes = NoteDataHashes {
+    let hashes = UtxoDataHashes {
         data_hash: None,
         ring_data_hash: Some(ring_data_hash),
     };
-    let (successor, opens) = source.note(utxo, &slot.output_context, hashes, transaction, 0)?;
+    let (successor, opens) =
+        source.wallet_utxo(utxo, &slot.output_context, hashes, transaction, 0)?;
     Ok(opens.then_some(successor))
 }

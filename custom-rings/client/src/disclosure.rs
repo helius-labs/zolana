@@ -168,6 +168,8 @@ pub enum AnonymousOutputOpening {
         amount: u64,
     },
     Dummy,
+    /// Decoded from bytes that fit no opening of the slot's kind, encoding refuses it.
+    Unreadable,
 }
 
 /// A spent UTXO of the hidden sender, its data hashes zero.
@@ -460,7 +462,7 @@ impl AnonymousOutputOpening {
     fn nullifier_pk(&self) -> [u8; 32] {
         match self {
             Self::Ring { nullifier_pk, .. } | Self::Exit { nullifier_pk, .. } => *nullifier_pk,
-            Self::Dummy => ZERO,
+            Self::Dummy | Self::Unreadable => ZERO,
         }
     }
 
@@ -481,19 +483,16 @@ impl AnonymousOutputOpening {
                 tail[..AMOUNT_BYTES].copy_from_slice(&amount.to_be_bytes());
             }
             Self::Dummy => {}
+            Self::Unreadable => return Err(AuditError::DisclosureLayout),
         }
         Ok(slot)
     }
 
-    fn read(
-        nullifier_pk: [u8; 32],
-        slot: &[u8; ANONYMOUS_SLOT_BYTES],
-        exit: bool,
-    ) -> Result<Self, AuditError> {
+    fn read(nullifier_pk: [u8; 32], slot: &[u8; ANONYMOUS_SLOT_BYTES], exit: bool) -> Self {
         let head: [u8; KEY_BYTES] = core::array::from_fn(|i| slot[i]);
         let tail: [u8; KEY_BYTES] = core::array::from_fn(|i| slot[KEY_BYTES + i]);
         let (amount, padding) = split_exit_tail(&tail);
-        match exit {
+        let opening = match exit {
             true => zero(&padding).and_then(|()| {
                 Ok(Self::Exit {
                     nullifier_pk,
@@ -507,7 +506,8 @@ impl AnonymousOutputOpening {
                 nullifier_pk,
                 recipient_u: tail,
             }),
-        }
+        };
+        opening.unwrap_or(Self::Unreadable)
     }
 }
 
@@ -599,7 +599,7 @@ impl AnonymousDisclosure {
             .map(|((nullifier_pk, slot), exit)| {
                 AnonymousOutputOpening::read(*nullifier_pk, slot, *exit)
             })
-            .collect::<Result<_, _>>()?;
+            .collect();
         let published = &fields[at.inputs.clone()];
         let inputs = match (layout.key, at.sender_nullifier_pk, &at.input_amounts) {
             (AnonymousAuditKey::Commitment { .. }, None, None) => AnonymousInputs::Commitments(

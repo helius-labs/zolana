@@ -325,10 +325,16 @@ fn nonzero_padding_is_refused() {
     let exit_padding = DISCLOSURE_SENDER_KEY_BYTES + ANONYMOUS_SLOT_BYTES + KEY_AND_AMOUNT_BYTES;
     let mut padded = fields.clone();
     *packed_byte(&mut padded, 6, exit_padding) = 1;
-    assert!(matches!(
-        refused(&anonymous, &exits, &padded),
-        Err(AuditError::DisclosurePadding)
-    ));
+    // One malformed slot decodes unreadable, the others still open.
+    let Ok(AuditDisclosure::Anonymous(decoded)) = refused(&anonymous, &exits, &padded) else {
+        panic!("a decoded anonymous disclosure");
+    };
+    let AuditDisclosure::Anonymous(published) = &anonymous else {
+        panic!("an anonymous disclosure");
+    };
+    let mut expected = published.outputs.clone();
+    expected[1] = AnonymousOutputOpening::Unreadable;
+    assert_eq!(decoded.outputs, expected);
     let unpublished_amount = 2 * DISCLOSURE_INPUT_AMOUNT_BYTES + 7;
     let mut padded = fields;
     *packed_byte(&mut padded, 16, unpublished_amount) = 1;

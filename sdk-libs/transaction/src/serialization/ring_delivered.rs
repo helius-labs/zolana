@@ -60,14 +60,14 @@ pub struct RingDeliverySlot {
 
 /// A delivered output opened to the note its published commitment binds.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RingDeliveredNote {
+pub struct RingDeliveredUtxo {
     /// The mint id is unresolved, an asset registry resolves `utxo.asset.asset`.
     pub utxo: Utxo,
     pub utxo_hash: [u8; 32],
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct RingNoteOwner<'a> {
+pub struct RingUtxoOwner<'a> {
     pub signing_pubkey: &'a PublicKey,
     pub nullifier_pubkey: &'a [u8; 32],
 }
@@ -96,7 +96,7 @@ impl RingDeliverySlot {
     pub fn open(
         &self,
         opening: RingDeliveryOpening<'_>,
-    ) -> Result<Option<RingDeliveredNote>, TransactionError> {
+    ) -> Result<Option<RingDeliveredUtxo>, TransactionError> {
         let body = RingDeliveredBody::open(opening.body, opening.slot_secret)?;
         let utxo = Utxo {
             owner: *opening.owner.signing_pubkey,
@@ -112,7 +112,7 @@ impl RingDeliverySlot {
             &[0; 32],
             opening.tree_id,
         )?;
-        Ok((utxo_hash == *opening.commitment).then_some(RingDeliveredNote { utxo, utxo_hash }))
+        Ok((utxo_hash == *opening.commitment).then_some(RingDeliveredUtxo { utxo, utxo_hash }))
     }
 }
 
@@ -121,7 +121,7 @@ impl RingDeliverySlot {
 pub struct RingDeliveryOpening<'a> {
     pub body: &'a [u8; RING_DELIVERED_BODY_LEN],
     pub slot_secret: &'a SlotSecret,
-    pub owner: RingNoteOwner<'a>,
+    pub owner: RingUtxoOwner<'a>,
     /// The published commitment and the tree it was appended to.
     pub commitment: &'a [u8; 32],
     pub tree_id: u16,
