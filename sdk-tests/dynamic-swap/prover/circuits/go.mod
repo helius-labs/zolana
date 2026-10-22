@@ -4,6 +4,7 @@ go 1.27.1
 
 require (
 	github.com/consensys/gnark v0.16.4
+	github.com/helius-labs/zolana/prover/server v0.0.0
 	zolana/gnarkffiprover v0.0.0
 	zolana/gnarksdk v0.0.0
 )
@@ -14,7 +15,6 @@ require (
 	github.com/consensys/gnark-crypto v0.21.1-0.20260913224755-1409fe592052 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.3 // indirect
 	github.com/google/pprof v0.0.0-20260906184651-6331bc6350fe // indirect
-	github.com/helius-labs/zolana/prover/server v0.0.0 // indirect
 	github.com/iden3/go-iden3-crypto v0.0.17 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect

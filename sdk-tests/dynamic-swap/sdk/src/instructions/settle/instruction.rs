@@ -6,26 +6,26 @@ use zolana_interface::{
 };
 use zolana_program::instruction::nullifier_pda_accounts;
 
-use crate::{err, escrow_authority_pda, tag, SettleIxData, SettleProof};
+use crate::{err, escrow_authority_pda, pool_authority_pda, tag, Groth16ProofBytes, SettleIxData};
 
-/// Settles one escrow -- settle or price-refund -- and closes it. Permissionless:
-/// `caller` only signs and pays fees. The instruction's shape, account list, and
-/// verifying key are identical for both outcomes, and `max_price` is a private
-/// circuit witness, so an observer cannot tell settle from refund.
+/// Fills one escrow before expiry from the pair's committed pool and closes
+/// it. Maker-only: `authority` (the pair authority) signs and pays fees; the
+/// payout is funded from a pool_authority-owned note, so no external funding
+/// UTXO is involved.
 pub struct Settle {
-    pub caller: Pubkey,
+    pub authority: Pubkey,
     pub pair: Pubkey,
     pub escrow: Pubkey,
     pub rent_recipient: Pubkey,
     pub tree: Pubkey,
-    pub proof: SettleProof,
+    pub proof: Groth16ProofBytes,
     pub transact: TransactIxData,
 }
 
 impl Settle {
     pub fn instruction(self) -> Result<Instruction> {
         let Settle {
-            caller,
+            authority,
             pair,
             escrow,
             rent_recipient,
@@ -45,14 +45,16 @@ impl Settle {
         instruction_data.extend_from_slice(&serialized);
 
         let mut accounts = vec![
-            AccountMeta::new(caller, true),
-            AccountMeta::new_readonly(pair, false),
+            AccountMeta::new(authority, true),
+            AccountMeta::new(pair, false),
             AccountMeta::new(escrow, false),
             AccountMeta::new(rent_recipient, false),
-            // Forwarded SPP `transact` CPI tail: payer, output tree, SPP,
-            // System Program, input tree, one nullifier PDA per input, then escrow
-            // authority.
-            AccountMeta::new_readonly(caller, true),
+            // Forwarded SPP `transact` CPI tail: payer (the authority), output
+            // tree, SPP, System Program, input tree, one nullifier PDA per input,
+            // then both owner-signers flipped by the program's CPI: the escrow
+            // authority (order input) and the pool authority (pool input +
+            // data-bearing pool change).
+            AccountMeta::new_readonly(authority, true),
             AccountMeta::new(tree, false),
             AccountMeta::new_readonly(Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
             AccountMeta::new_readonly(Pubkey::default(), false),
@@ -63,6 +65,7 @@ impl Settle {
             escrow_authority_pda(&pair),
             false,
         ));
+        accounts.push(AccountMeta::new_readonly(pool_authority_pda(&pair), false));
 
         Ok(Instruction {
             program_id: dynamic_swap_program::ID,

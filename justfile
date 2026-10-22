@@ -495,9 +495,9 @@ _escrow-zk-keys:
     cargo run --release -p zolana-cli -- build-zk-program --test -p timelock-escrow-program --skip-wasm --skip-sbf
 
 
-ensure-dynamic-swap-keys: (_ensure-example-keys "sdk-tests/dynamic-swap" "dynamic-swap-prover" "dynamic-swap-keys.CHECKSUM" "regen-dynamic-swap-keys" "escrow_open escrow_settle")
+ensure-dynamic-swap-keys: (_ensure-example-keys "sdk-tests/dynamic-swap" "dynamic-swap-prover" "dynamic-swap-keys.CHECKSUM" "regen-dynamic-swap-keys" "escrow_open pool_settle escrow_cancel pool_deposit pool_withdraw pool_rebalance")
 
-regen-dynamic-swap-keys: (_regen-example-keys "sdk-tests/dynamic-swap" "dynamic-swap-prover" "dynamic-swap-keys.CHECKSUM" "escrow_open escrow_settle")
+regen-dynamic-swap-keys: (_regen-example-keys "sdk-tests/dynamic-swap" "dynamic-swap-prover" "dynamic-swap-keys.CHECKSUM" "escrow_open pool_settle escrow_cancel pool_deposit pool_withdraw pool_rebalance")
 
 ensure-compression-keys: (_ensure-example-keys "sdk-tests/compression" "compression-example-prover" "compression-keys.CHECKSUM" "regen-compression-keys" "read")
 
@@ -679,8 +679,11 @@ bench-zk-program-wasm: _zk-program-wasm-keys
 # The profiling dynamic-swap build calls the same profiler syscall
 # solana-test-validator does not register, so it must never land in
 # target/deploy either -- build the bench programs into their own dedicated
-# dir, matching PROFILING_SBF_DIR in dynamic-swap's bench_cu.rs.
+# dir, matching PROFILING_SBF_DIR in dynamic-swap's bench_cu.rs. The pair's
+# destination asset is an SPL mint, so mollusk also needs the SPL Token program.
 bench-dynamic-swap: ensure-dynamic-swap-keys
+    test -f target/deploy/spl_token.so || \
+        solana program dump TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA target/deploy/spl_token.so --url mainnet-beta
     cargo build-sbf --tools-version {{sbf-tools-version}} \
         --sbf-out-dir target/dynamic-swap-bench \
         --manifest-path programs/shielded-pool/Cargo.toml \
@@ -1160,10 +1163,11 @@ test-client-example-optimized-merge-transfer: build-programs build-prover-server
       cargo run -p client-example --example optimized_merge_transfer
 
 # Dynamic-swap example lifecycle tests
-# (sdk-tests/dynamic-swap/test/tests/{pair,negative,escrow_flow,escrow_refund}.rs),
+# (sdk-tests/dynamic-swap/test/tests/{pair,negative,escrow_flow,escrow_cancel,liquidity}.rs),
 # booted through FixtureLocalnet like test-swap-validator; dynamic-swap's own
-# circuits (escrow_open/escrow_settle) prove in-process through the embedded
-# gnark prover. Pass extra nextest args to select a single test binary, e.g.
+# circuits (escrow_open/pool_settle/escrow_cancel/pool_deposit/pool_withdraw/
+# pool_rebalance) prove in-process through the embedded gnark prover. Pass extra
+# nextest args to select a single test binary, e.g.
 # `just test-dynamic-swap --test pair`.
 test-dynamic-swap *args: ensure-dynamic-swap-keys build-programs build-prover-server build-cli ensure-photon
     ZOLANA_PHOTON_BIN="{{photon-bin}}" tools/ci/nextest-suite.sh -p dynamic-swap-test {{args}}
