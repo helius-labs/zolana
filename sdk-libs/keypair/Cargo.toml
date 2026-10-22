@@ -14,7 +14,6 @@ aes = { workspace = true }
 ctr = { workspace = true }
 hkdf = { workspace = true }
 percent-encoding = { workspace = true }
-subtle = { workspace = true }
 zeroize = { workspace = true }
 sha2 = { workspace = true }
 zolana-hasher = { workspace = true, features = ["std"] }

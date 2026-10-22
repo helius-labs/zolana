@@ -11683,7 +11683,6 @@ dependencies = [
  "solana-address 2.6.1",
  "solana-keypair",
  "solana-signer",
- "subtle",
  "thiserror 2.0.20",
  "tokio",
  "tsify",
