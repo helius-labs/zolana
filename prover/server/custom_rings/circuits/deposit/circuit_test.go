@@ -8,9 +8,7 @@ import (
 	"testing"
 
 	"github.com/consensys/gnark-crypto/ecc"
-	"github.com/consensys/gnark/constraint"
 	"github.com/consensys/gnark/frontend"
-	"github.com/consensys/gnark/frontend/cs/r1cs"
 	"github.com/consensys/gnark/test"
 
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
@@ -18,7 +16,9 @@ import (
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/deposit"
 	"github.com/helius-labs/zolana/prover/server/prover-test/refusal"
 	"github.com/helius-labs/zolana/prover/server/prover-test/ringdeposit"
+	"github.com/helius-labs/zolana/prover/server/prover-test/ringkey"
 	"github.com/helius-labs/zolana/prover/server/prover-test/ringrecords"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
 )
 
 func solve(c *deposit.CustomRingDepositCircuit) error {
@@ -82,17 +82,7 @@ func TestDepositRefusals(t *testing.T) {
 }
 
 func TestDepositKey(t *testing.T) {
-	cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &deposit.CustomRingDepositCircuit{}, frontend.WithCompressThreshold(300))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, pinned := cs.GetNbConstraints(), 148936; got != pinned {
-		t.Errorf("deposit constraints=%d, pinned %d", got, pinned)
-	}
-	commitments, ok := cs.GetCommitments().(constraint.Groth16Commitments)
-	if !ok || len(commitments) != 1 || commitments[0].NbPublicCommitted != 0 {
-		t.Errorf("deposit commitments %v", cs.GetCommitments())
-	}
+	ringkey.RequirePinned(t, ringkey.Name(t, common.RingDeposit, 0, 0), ringkey.Compile(t, &deposit.CustomRingDepositCircuit{}))
 }
 
 // depositStatementVector is the deposit case custom-rings/interface/tests/statements.rs writes, the registry root absent without escrow.

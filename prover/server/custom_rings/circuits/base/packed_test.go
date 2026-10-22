@@ -7,6 +7,7 @@ import (
 
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
 	"github.com/helius-labs/zolana/prover/server/prover-test/ringaudit"
+	"github.com/helius-labs/zolana/prover/server/prover-test/ringkey"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 	"github.com/helius-labs/zolana/prover/server/prover/common"
 )
@@ -17,7 +18,7 @@ func compilePacked(t *testing.T, capacity int) *compiledAudit {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return compileAudit(t, keyName(t, common.RingPackedAudit, 0, capacity), circuit, ringaudit.NewPackedAudit(t, capacity).Circuit(t))
+	return compileAudit(t, ringkey.Name(t, common.RingPackedAudit, 0, capacity), circuit, ringaudit.NewPackedAudit(t, capacity).Circuit(t))
 }
 
 // Each case changes one value of an honest packed transfer and rebuilds the statement around it.

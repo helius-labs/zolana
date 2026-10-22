@@ -4,7 +4,6 @@ import (
 	"errors"
 	"math/big"
 	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/consensys/gnark-crypto/ecc"
@@ -12,9 +11,9 @@ import (
 	cs_bn254 "github.com/consensys/gnark/constraint/bn254"
 	"github.com/consensys/gnark/constraint/solver"
 	"github.com/consensys/gnark/frontend"
-	"github.com/consensys/gnark/frontend/cs/r1cs"
 
 	"github.com/helius-labs/zolana/prover/server/prover-test/hintattack"
+	"github.com/helius-labs/zolana/prover/server/prover-test/ringkey"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 )
 
@@ -33,11 +32,7 @@ func compileAudit(t *testing.T, name string, circuit, honest frontend.Circuit) *
 	if c, ok := compiledAudits[name]; ok {
 		return c
 	}
-	cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, circuit, frontend.WithCompressThreshold(300))
-	if err != nil {
-		t.Fatal(err)
-	}
-	c := &compiledAudit{cs: cs}
+	c := &compiledAudit{cs: ringkey.Compile(t, circuit)}
 	c.requireSolved(t, honest)
 	publicInput := reflect.ValueOf(honest).Elem().FieldByName("PublicInputHash")
 	setPublicInput(honest, new(big.Int).Add(spptest.AsBigInt(publicInput.Interface()), big.NewInt(1)))
@@ -96,16 +91,4 @@ func (c *compiledAudit) solve(t *testing.T, assignment frontend.Circuit, options
 		t.Fatal(err)
 	}
 	return c.cs.IsSolved(witness, append(options, hintattack.SkipMissingLookupQueries(t))...)
-}
-
-// registeredHint finds a registered hint by the end of its name.
-func registeredHint(t *testing.T, suffix string) solver.Hint {
-	t.Helper()
-	for _, hint := range solver.GetRegisteredHints() {
-		if strings.HasSuffix(solver.GetHintName(hint), suffix) {
-			return hint
-		}
-	}
-	t.Fatalf("no registered hint ends in %s", suffix)
-	return nil
 }

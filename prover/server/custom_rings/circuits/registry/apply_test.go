@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/consensys/gnark-crypto/ecc"
-	"github.com/consensys/gnark/constraint"
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 	"github.com/consensys/gnark/test"
@@ -13,8 +12,10 @@ import (
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/registry"
 	"github.com/helius-labs/zolana/prover/server/prover-test/refusal"
+	"github.com/helius-labs/zolana/prover/server/prover-test/ringkey"
 	"github.com/helius-labs/zolana/prover/server/prover-test/ringrecords"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
 )
 
 // batch is a host application of entries at one capacity, the statement bound.
@@ -333,27 +334,9 @@ func replacedKeyRoot(t *testing.T) *big.Int {
 	return members.Root()
 }
 
-func compile(t *testing.T, n int) constraint.ConstraintSystem {
-	t.Helper()
-	cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, registry.NewApplyRecordsCircuit(n), frontend.WithCompressThreshold(300))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return cs
-}
-
-// The ring program verifies both keys with one BSB22 commitment over private wires.
 func TestApplyRecordsKeys(t *testing.T) {
-	pinned := map[int]int{1: 15492, registry.ApplyBatch: 232892}
 	for _, n := range registry.ApplyWidths {
-		cs := compile(t, n)
-		if got := cs.GetNbConstraints(); got != pinned[n] {
-			t.Errorf("apply %d constraints=%d, pinned %d", n, got, pinned[n])
-		}
-		commitments, ok := cs.GetCommitments().(constraint.Groth16Commitments)
-		if !ok || len(commitments) != 1 || commitments[0].NbPublicCommitted != 0 {
-			t.Errorf("apply %d commitments %v", n, cs.GetCommitments())
-		}
+		ringkey.RequirePinned(t, ringkey.Name(t, common.RingApplyRecords, n, 0), ringkey.Compile(t, registry.NewApplyRecordsCircuit(n)))
 	}
 	if _, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, registry.NewApplyRecordsCircuit(2)); err == nil {
 		t.Fatal("compiled a capacity no apply key ships")

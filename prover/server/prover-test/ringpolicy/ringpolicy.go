@@ -247,7 +247,7 @@ func (w World) BuildRows(t testing.TB, rows Rows) Witness {
 	}
 	if c := b.Member; c != nil {
 		c.InputChain = inputChain
-		c.Anonymous, c.KeyEscrow, c.ApprovalRequired = flag(w.Anonymous), flag(w.KeyEscrow), flag(w.ApprovalRequired)
+		c.Anonymous, c.KeyEscrow, c.ApprovalRequired = spptest.Bit(w.Anonymous), spptest.Bit(w.KeyEscrow), spptest.Bit(w.ApprovalRequired)
 		c.Sender = big.NewInt(w.Sender)
 		if w.Anonymous {
 			c.Sender = ringaudit.SenderCommitment(t, big.NewInt(w.Sender), big.NewInt(privateTxBlinding))
@@ -372,7 +372,7 @@ func registry(t testing.TB, records map[int64]Record) *ringrecords.Registry {
 		record := records[id]
 		escrow := big.NewInt(0)
 		if record.Registered {
-			escrow = spptest.MustPoseidon(t, 3, []*big.Int{nullifierPk(id), ctHash(id)})
+			escrow = ringrecords.EscrowKey(t, nullifierPk(id), ctHash(id))
 		}
 		lists := new(big.Int).SetUint64(record.Lists)
 		r.Apply(t, ringrecords.Entry{Member: big.NewInt(id), Mask: lists, Value: lists, EscrowKey: escrow})
@@ -426,13 +426,6 @@ func pad[T any](rows []T, i int, zero T) T {
 		return rows[i]
 	}
 	return zero
-}
-
-func flag(set bool) int {
-	if set {
-		return 1
-	}
-	return 0
 }
 
 func nullifierPk(member int64) *big.Int { return big.NewInt(member + 500_000) }

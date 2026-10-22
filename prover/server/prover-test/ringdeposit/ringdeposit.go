@@ -8,7 +8,6 @@ import (
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/deposit"
 	"github.com/helius-labs/zolana/prover/server/prover-test/ringaudit"
 	"github.com/helius-labs/zolana/prover/server/prover-test/ringrecords"
-	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 )
 
@@ -66,15 +65,14 @@ func BuildBlinded(t testing.TB, count int, mode RingMode, blindingOf func(testin
 				for j := range key {
 					key[j] = byte(i + j + 1)
 				}
-				identity, err := protocol.SolanaPkField(key)
-				ownerPkHash = spptest.MustHash(t, identity, err)
+				ownerPkHash = spptest.MustSolanaPkField(t, key)
 			}
 			nullifierPk = spptest.MustNullifierPk(t, big.NewInt(int64(51+i)))
 			secret = big.NewInt(int64(91 + i))
 			if escrow {
 				ctHash = big.NewInt(int64(0xc0 + i))
 				d.Registry.Apply(t, ringrecords.Entry{Member: ownerPkHash, Mask: big.NewInt(ringrecords.EscrowBit), Value: big.NewInt(ringrecords.EscrowBit),
-					EscrowKey: spptest.MustPoseidon(t, 3, []*big.Int{nullifierPk, ctHash})})
+					EscrowKey: ringrecords.EscrowKey(t, nullifierPk, ctHash)})
 			}
 		}
 		c.OwnerPkHashes[i], c.NullifierPks[i], c.BlindingSecrets[i], c.CtHashes[i] = ownerPkHash, nullifierPk, secret, ctHash

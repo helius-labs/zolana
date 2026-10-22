@@ -7,6 +7,7 @@ import (
 
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
 	"github.com/helius-labs/zolana/prover/server/prover-test/ringaudit"
+	"github.com/helius-labs/zolana/prover/server/prover-test/ringkey"
 	"github.com/helius-labs/zolana/prover/server/prover/common"
 )
 
@@ -16,7 +17,7 @@ func compileDelivered(t *testing.T) *compiledAudit {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return compileAudit(t, keyName(t, common.RingDeliveredAudit, 0, 8), circuit, ringaudit.NewDeliveredAudit(t, 8).Circuit(t))
+	return compileAudit(t, ringkey.Name(t, common.RingDeliveredAudit, 0, 8), circuit, ringaudit.NewDeliveredAudit(t, 8).Circuit(t))
 }
 
 // Each case changes one value of an honest transfer whose slot 0 is a ring output, slot 6 the exit and slot 7 a dummy.

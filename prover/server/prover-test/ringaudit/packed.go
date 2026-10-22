@@ -56,7 +56,7 @@ func PackedAuditOf(t testing.TB, capacity, nOut int, exits ...int) PackedAudit {
 func (p PackedAudit) NewRingOutput(t testing.TB, i int) Utxo {
 	t.Helper()
 	return Utxo{
-		Domain: protocol.UtxoDomain, TreeID: OutputTreeID, OwnerPkHash: OwnerIdentity(t, p.OwnerKeys[i]),
+		Domain: protocol.UtxoDomain, TreeID: OutputTreeID, OwnerPkHash: spptest.MustSolanaPkField(t, p.OwnerKeys[i]),
 		NullifierPk: spptest.MustNullifierPk(t, big.NewInt(20+int64(i))), Asset: AssetField(t, Repeat(0x0a)),
 		Amount: 100 + uint64(i), Blinding: p.RingBlinding(t, i),
 		DataHash: big.NewInt(0x61 + int64(i)), RingDataHash: big.NewInt(0x71 + int64(i)), RingProgramID: p.RingProgramID,

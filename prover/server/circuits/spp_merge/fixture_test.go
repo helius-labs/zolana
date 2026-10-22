@@ -420,8 +420,7 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 		if !options.anonymous {
 			members := ringrecords.New(t)
 			registeredCtHash = big.NewInt(0xC7)
-			escrowKey := spptest.MustPoseidon(t, 3, []*big.Int{userNullifierPk, registeredCtHash})
-			members.Apply(t, ringrecords.Entry{Member: ownerKeyHash, Mask: big.NewInt(1 << 7), Value: big.NewInt(1 << 7), EscrowKey: escrowKey})
+			members.Apply(t, ringrecords.Entry{Member: ownerKeyHash, Mask: big.NewInt(1 << 7), Value: big.NewInt(1 << 7), EscrowKey: ringrecords.EscrowKey(t, userNullifierPk, registeredCtHash)})
 			memberRoot, memberRecord = members.Root(), members.Opening(ownerKeyHash).RecordWires()
 		}
 	}
@@ -447,7 +446,7 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 			outputRingData,
 			ringProgramID,
 			memberRoot,
-			anonymousFlag(options.anonymous),
+			big.NewInt(spptest.Bit(options.anonymous)),
 		)
 	default:
 		t.Fatalf("unsupported merge fixture rail: %d", options.rail)
@@ -521,7 +520,7 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 		memberRegistryRoot:  memberRoot,
 		registeredCtHash:    registeredCtHash,
 		memberRecord:        memberRecord,
-		anonymous:           anonymousFlag(options.anonymous),
+		anonymous:           big.NewInt(spptest.Bit(options.anonymous)),
 		outputCiphertext:    outputCiphertext,
 		publicInputPreimage: publicInputPreimage,
 		publicInputHash:     publicInputHash,
@@ -563,13 +562,6 @@ func (f *mergeWitnessFixture) ringCircuit() *merge.RingCircuit {
 	assignment.Anonymous = f.anonymous
 	assignment.PublicInputHash = f.publicInputHash
 	return assignment
-}
-
-func anonymousFlag(anonymous bool) *big.Int {
-	if anonymous {
-		return big.NewInt(1)
-	}
-	return big.NewInt(0)
 }
 
 func hashChain4(t testing.TB, in []*big.Int) *big.Int {

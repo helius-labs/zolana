@@ -8,9 +8,7 @@ import (
 	"testing"
 
 	"github.com/consensys/gnark-crypto/ecc"
-	"github.com/consensys/gnark/constraint"
 	"github.com/consensys/gnark/frontend"
-	"github.com/consensys/gnark/frontend/cs/r1cs"
 	"github.com/consensys/gnark/test"
 
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
@@ -18,8 +16,10 @@ import (
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/policy"
 	"github.com/helius-labs/zolana/prover/server/prover-test/refusal"
 	"github.com/helius-labs/zolana/prover/server/prover-test/ringaudit"
+	"github.com/helius-labs/zolana/prover/server/prover-test/ringkey"
 	"github.com/helius-labs/zolana/prover/server/prover-test/ringrecords"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
 )
 
 // keyEnvelope seals a nullifier secret for member under the default audit keys and binds the statement.
@@ -160,17 +160,6 @@ func TestKeyRegisterRefusals(t *testing.T) {
 	}
 }
 
-// The ring program verifies the key with one BSB22 commitment over private wires.
 func TestKeyRegisterKey(t *testing.T) {
-	cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &policy.KeyRegisterCircuit{}, frontend.WithCompressThreshold(300))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, pinned := cs.GetNbConstraints(), 36991; got != pinned {
-		t.Errorf("register key constraints=%d, pinned %d", got, pinned)
-	}
-	commitments, ok := cs.GetCommitments().(constraint.Groth16Commitments)
-	if !ok || len(commitments) != 1 || commitments[0].NbPublicCommitted != 0 {
-		t.Errorf("register key commitments %v", cs.GetCommitments())
-	}
+	ringkey.RequirePinned(t, ringkey.Name(t, common.RingRegisterKey, 0, 0), ringkey.Compile(t, &policy.KeyRegisterCircuit{}))
 }

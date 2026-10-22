@@ -46,7 +46,7 @@ func structuralRails(t testing.TB) []structuralRail {
 			return asCustomRingConfidentialEddsa(a)
 		}},
 		{name: "anonymous", anonymous: true, new: func(t testing.TB) *testAssignment {
-			return eddsaRingAssignment(t, shape, hiddenOwnerIdentity(t, key))
+			return eddsaRingAssignment(t, shape, spptest.MustSolanaPkField(t, key))
 		}, statement: func(t testing.TB, a *testAssignment) frontend.Circuit {
 			return asCustomRingAnonymousEddsa(a, authorizeEddsaKey(t, a, key, owner))
 		}},
@@ -169,7 +169,7 @@ func TestTransferStructuralInvariantsAcrossRails(t *testing.T) {
 				a.Outputs[0].NullifierPk = spptest.MustNullifierPk(t, spptest.AsBigInt(a.Inputs[0].NullifierSecret))
 				a.Outputs[0].OwnerPkHash = a.Inputs[0].OwnerPkHash
 				if rail.anonymous {
-					a.Outputs[0].OwnerPkHash = hiddenOwnerIdentity(t, publicKeyBytes(hiddenOwnerKey(0x91)))
+					a.Outputs[0].OwnerPkHash = spptest.MustSolanaPkField(t, publicKeyBytes(hiddenOwnerKey(0x91)))
 				}
 				rebuildAfterOwnerChange(t, a)
 				rail.check(t, a, true)

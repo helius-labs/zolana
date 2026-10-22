@@ -13,7 +13,6 @@ import (
 
 	ve "github.com/helius-labs/zolana/prover/server/circuits/encryption"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
-	"github.com/helius-labs/zolana/prover/server/prover-test/poseidon"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 )
@@ -141,7 +140,7 @@ func (k Keys) envelopeSecret(t testing.TB) *big.Int {
 	dhLo, dhHi := pack32(k.dh)
 	ephLo, ephHi := pack33(k.ephPk)
 	auditorLo, auditorHi := pack33(Tagged(k.auditorPk[:]))
-	return hash(t, tag(base.DomSepCRShared), dhLo, dhHi, ephLo, ephHi, auditorLo, auditorHi)
+	return spptest.MustPoseidonHash(t, tag(base.DomSepCRShared), dhLo, dhHi, ephLo, ephHi, auditorLo, auditorHi)
 }
 
 func (k Keys) sealed(t testing.TB, ciphertext []byte) Sealed {
@@ -161,10 +160,10 @@ func (k Keys) sealed(t testing.TB, ciphertext []byte) Sealed {
 func DomainPad(t testing.TB, domain uint64, key [32]byte, salt [16]byte, n int) []*big.Int {
 	t.Helper()
 	keyLo, keyHi := pack32(key)
-	seed := hash(t, new(big.Int).SetUint64(domain), keyLo, keyHi, new(big.Int).SetBytes(salt[:]))
+	seed := spptest.MustPoseidonHash(t, new(big.Int).SetUint64(domain), keyLo, keyHi, new(big.Int).SetBytes(salt[:]))
 	pad := make([]*big.Int, n)
 	for i := range pad {
-		pad[i] = hash(t, seed, big.NewInt(int64(i)))
+		pad[i] = spptest.MustPoseidonHash(t, seed, big.NewInt(int64(i)))
 	}
 	return pad
 }
@@ -249,10 +248,10 @@ func pack33(key [33]byte) (lo, hi *big.Int) {
 // Mirrors ve.KeySchedule.
 func infoKeySchedule(t testing.TB, sharedSecret *big.Int, info string) (key [32]byte, nonce [12]byte) {
 	t.Helper()
-	siloed := hash(t, tag(ve.DomSepSilo), sharedSecret, new(big.Int).SetBytes([]byte(info)))
-	keyLo := spptest.MustFieldBytes(t, hash(t, tag(ve.DomSepKey), siloed))
-	keyHi := spptest.MustFieldBytes(t, hash(t, tag(ve.DomSepKey+1), siloed))
-	nonceRaw := spptest.MustFieldBytes(t, hash(t, tag(ve.DomSepNonce), siloed))
+	siloed := spptest.MustPoseidonHash(t, tag(ve.DomSepSilo), sharedSecret, new(big.Int).SetBytes([]byte(info)))
+	keyLo := spptest.MustFieldBytes(t, spptest.MustPoseidonHash(t, tag(ve.DomSepKey), siloed))
+	keyHi := spptest.MustFieldBytes(t, spptest.MustPoseidonHash(t, tag(ve.DomSepKey+1), siloed))
+	nonceRaw := spptest.MustFieldBytes(t, spptest.MustPoseidonHash(t, tag(ve.DomSepNonce), siloed))
 	copy(key[:16], keyHi[16:])
 	copy(key[16:], keyLo[16:])
 	copy(nonce[:], nonceRaw[20:])
@@ -262,8 +261,8 @@ func infoKeySchedule(t testing.TB, sharedSecret *big.Int, info string) (key [32]
 // AuditStreamKeys mirrors the audit stream schedule of package base.
 func AuditStreamKeys(t testing.TB, secret *big.Int) (key [32]byte, nonce [12]byte) {
 	t.Helper()
-	head := spptest.MustFieldBytes(t, hash(t, new(big.Int).SetBytes(append([]byte(auditEncInfo), 0)), secret))
-	tail := spptest.MustFieldBytes(t, hash(t, new(big.Int).SetBytes(append([]byte(auditEncInfo), 1)), secret))
+	head := spptest.MustFieldBytes(t, spptest.MustPoseidonHash(t, new(big.Int).SetBytes(append([]byte(auditEncInfo), 0)), secret))
+	tail := spptest.MustFieldBytes(t, spptest.MustPoseidonHash(t, new(big.Int).SetBytes(append([]byte(auditEncInfo), 1)), secret))
 	copy(key[:31], head[1:])
 	key[31] = tail[19]
 	copy(nonce[:], tail[20:])
@@ -284,12 +283,6 @@ func ctrEncrypt(t testing.TB, key [32]byte, nonce [12]byte, plaintext []byte) []
 	ciphertext := make([]byte, len(plaintext))
 	cipher.NewCTR(block, counter[:]).XORKeyStream(ciphertext, plaintext)
 	return ciphertext
-}
-
-func hash(t testing.TB, inputs ...*big.Int) *big.Int {
-	t.Helper()
-	value, err := poseidon.Hash(inputs)
-	return spptest.MustHash(t, value, err)
 }
 
 func tag(value uint32) *big.Int {

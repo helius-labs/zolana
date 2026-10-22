@@ -2,6 +2,7 @@ package merge_test
 
 import (
 	"math/big"
+	"slices"
 	"testing"
 
 	"github.com/consensys/gnark-crypto/ecc"
@@ -13,19 +14,12 @@ import (
 	mergeshared "github.com/helius-labs/zolana/prover/server/circuits/spp_merge/shared"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/merge"
 	"github.com/helius-labs/zolana/prover/server/prover-test/refusal"
+	"github.com/helius-labs/zolana/prover/server/prover-test/ringkey"
 	"github.com/helius-labs/zolana/prover/server/prover-test/ringmerge"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
 )
-
-func compile(t *testing.T, n int) constraint.ConstraintSystem {
-	t.Helper()
-	cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, merge.NewAnonymousMergeCircuit(n), frontend.WithCompressThreshold(300))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return cs
-}
 
 func solve(t *testing.T, cs constraint.ConstraintSystem, c *merge.AnonymousMergeCircuit) error {
 	t.Helper()
@@ -38,7 +32,7 @@ func solve(t *testing.T, cs constraint.ConstraintSystem, c *merge.AnonymousMerge
 }
 
 func TestAnonymousMergeSolves(t *testing.T) {
-	cs := compile(t, 8)
+	cs := ringkey.Compile(t, merge.NewAnonymousMergeCircuit(8))
 	if err := solve(t, cs, ringmerge.Build(t, 8).Circuit); err != nil {
 		t.Fatal(err)
 	}
@@ -143,12 +137,12 @@ func TestAnonymousMergeRejectsUnsupportedWidth(t *testing.T) {
 	}
 }
 
+// Every shipped width holds its pin, every width SPP merges solves.
 func TestAnonymousMergeCost(t *testing.T) {
-	pinned := map[int]int{8: 56192, 24: 81698, 52: 126009}
 	for _, n := range mergeshared.SupportedInputCounts {
-		cs := compile(t, n)
-		if got := cs.GetNbConstraints(); got != pinned[n] {
-			t.Errorf("custom-ring-merge-anonymous-%d constraints=%d, pinned %d", n, got, pinned[n])
+		cs := ringkey.Compile(t, merge.NewAnonymousMergeCircuit(n))
+		if slices.Contains(common.MergeAnonymousWidths, n) {
+			ringkey.RequirePinned(t, ringkey.Name(t, common.RingAnonymousMerge, n, 0), cs)
 		}
 		if n == 8 {
 			continue

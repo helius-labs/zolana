@@ -21,6 +21,13 @@ func Fe(value int64) *big.Int {
 	return big.NewInt(value)
 }
 
+func Bit(set bool) int64 {
+	if set {
+		return 1
+	}
+	return 0
+}
+
 // MustHash fails the test if err is non-nil, otherwise returns value.
 func MustHash(t testing.TB, value *big.Int, err error) *big.Int {
 	t.Helper()
@@ -33,6 +40,18 @@ func MustHash(t testing.TB, value *big.Int, err error) *big.Int {
 func MustPoseidon(t testing.TB, width int, inputs []*big.Int) *big.Int {
 	t.Helper()
 	value, err := poseidon.HashWithT(width, inputs)
+	return MustHash(t, value, err)
+}
+
+func MustSolanaPkField(t testing.TB, key [32]byte) *big.Int {
+	t.Helper()
+	value, err := protocol.SolanaPkField(key)
+	return MustHash(t, value, err)
+}
+
+func MustPoseidonHash(t testing.TB, inputs ...*big.Int) *big.Int {
+	t.Helper()
+	value, err := poseidon.Hash(inputs)
 	return MustHash(t, value, err)
 }
 

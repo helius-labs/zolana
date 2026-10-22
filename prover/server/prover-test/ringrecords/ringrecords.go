@@ -7,6 +7,7 @@ import (
 
 	"github.com/helius-labs/zolana/prover/server/circuits/records"
 	"github.com/helius-labs/zolana/prover/server/prover-test/poseidon"
+	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 )
 
 // FieldMax is q-1, the sentinel's next, above every member.
@@ -27,7 +28,13 @@ type Record struct {
 
 func (r Record) Hash(t testing.TB) *big.Int {
 	t.Helper()
-	return mustHash(t, r.Member, r.Next, r.Lists, r.EscrowKey)
+	return spptest.MustPoseidonHash(t, r.Member, r.Next, r.Lists, r.EscrowKey)
+}
+
+// EscrowKey mirrors records.EscrowKey.
+func EscrowKey(t testing.TB, nullifierPk, ctHash *big.Int) *big.Int {
+	t.Helper()
+	return spptest.MustPoseidonHash(t, nullifierPk, ctHash)
 }
 
 // Path mirrors records.QuadPath.
@@ -53,7 +60,7 @@ func (p Path) Root(t testing.TB, leaf *big.Int) *big.Int {
 	for level, siblings := range p.Siblings {
 		digit := int(p.Index>>(2*level)) & (records.Arity - 1)
 		children := append(append(append([]*big.Int{}, siblings[:digit]...), node), siblings[digit:]...)
-		node = mustHash(t, children...)
+		node = spptest.MustPoseidonHash(t, children...)
 	}
 	return node
 }
@@ -116,7 +123,7 @@ func New(t testing.TB) *Registry {
 	r.empty[0] = big.NewInt(0)
 	for level := 1; level <= records.Height; level++ {
 		e := r.empty[level-1]
-		r.empty[level] = mustHash(t, e, e, e, e)
+		r.empty[level] = spptest.MustPoseidonHash(t, e, e, e, e)
 	}
 	for level := range r.nodes {
 		r.nodes[level] = map[uint64]*big.Int{}
@@ -235,7 +242,7 @@ func (r *Registry) set(t testing.TB, index uint64, record Record) {
 	for level := 0; level < records.Height; level++ {
 		parent := index >> (2 * (level + 1))
 		first := parent * records.Arity
-		r.nodes[level+1][parent] = mustHash(t, r.node(level, first), r.node(level, first+1), r.node(level, first+2), r.node(level, first+3))
+		r.nodes[level+1][parent] = spptest.MustPoseidonHash(t, r.node(level, first), r.node(level, first+1), r.node(level, first+2), r.node(level, first+3))
 	}
 }
 
@@ -252,13 +259,4 @@ func fillOnce(old, key *big.Int) *big.Int {
 
 func copied(v *big.Int) *big.Int {
 	return new(big.Int).Set(v)
-}
-
-func mustHash(t testing.TB, inputs ...*big.Int) *big.Int {
-	t.Helper()
-	hash, err := poseidon.Hash(inputs)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return hash
 }

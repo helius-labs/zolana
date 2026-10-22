@@ -125,7 +125,7 @@ func NewAnonymousAudit(t testing.TB, shape base.AnonymousAuditShape) AnonymousAu
 // SenderPkHash is the owner identity of the hidden sender.
 func (a AnonymousAudit) SenderPkHash(t testing.TB) *big.Int {
 	t.Helper()
-	return OwnerIdentity(t, a.SenderKey)
+	return spptest.MustSolanaPkField(t, a.SenderKey)
 }
 
 // SenderUtxo is a UTXO of the hidden sender in the given ring, 0 for the default ring.
@@ -173,7 +173,7 @@ func (a AnonymousAudit) NewAnchor(t testing.TB, payee DeliverySlot, epoch, index
 		Index:          index,
 		LeafIndex:      37,
 	}
-	anchor.Owner = spptest.MustOwnerHash(t, OwnerIdentity(t, payee.OwnerKey), payee.NullifierPk)
+	anchor.Owner = spptest.MustOwnerHash(t, spptest.MustSolanaPkField(t, payee.OwnerKey), payee.NullifierPk)
 	anchor.Blinding = anchor.FirstContactBlinding(t, InboxTag(t, InboxKey(t, a.RingProgramID, payee.RecipientKey), epoch, index))
 	return anchor
 }
@@ -276,8 +276,8 @@ func (a AnonymousAudit) Circuit(t testing.TB) *base.AnonymousAuditCircuit {
 	c.AuditWires = a.wires(a.Layout)
 	for i, output := range a.Outputs {
 		c.Outputs[i] = base.AnonymousOutputWires{DeliveryWires: output.wires(), Stream: base.StreamWires{
-			Tag: output.Stream.Tag, Inbox: bit(output.Stream.Inbox), Pair: bit(output.Stream.Pair),
-			Self: bit(output.Stream.Self), Index: output.Stream.Index,
+			Tag: output.Stream.Tag, Inbox: spptest.Bit(output.Stream.Inbox), Pair: spptest.Bit(output.Stream.Pair),
+			Self: spptest.Bit(output.Stream.Self), Index: output.Stream.Index,
 		}}
 	}
 	c.PrivateTxHash = a.PrivateTxHash(t)
@@ -331,11 +331,4 @@ func spentHashes(t testing.TB, utxos []Utxo) []*big.Int {
 		hashes[i] = utxo.spentHash(t)
 	}
 	return hashes
-}
-
-func bit(set bool) int {
-	if set {
-		return 1
-	}
-	return 0
 }

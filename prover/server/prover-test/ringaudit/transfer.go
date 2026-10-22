@@ -89,7 +89,7 @@ func (tr Transfer) NewRingOutput(t testing.TB, slot DeliverySlot, ringSecret fun
 	secret := tr.DeliveredSlotSecret(t, slot.RecipientKey, slot.Index)
 	return DeliveredOutput{
 		Utxo: Utxo{
-			Domain: protocol.UtxoDomain, TreeID: OutputTreeID, OwnerPkHash: OwnerIdentity(t, slot.OwnerKey),
+			Domain: protocol.UtxoDomain, TreeID: OutputTreeID, OwnerPkHash: spptest.MustSolanaPkField(t, slot.OwnerKey),
 			NullifierPk: slot.NullifierPk, Asset: AssetField(t, slot.AssetAddress), Amount: slot.Amount,
 			Blinding: RingBlinding(t, tr.FirstNullifier, ringSecret(secret), slot.Index),
 			DataHash: big.NewInt(0), RingDataHash: big.NewInt(0), RingProgramID: tr.RingProgramID,
@@ -105,7 +105,7 @@ func (tr Transfer) NewRingOutput(t testing.TB, slot DeliverySlot, ringSecret fun
 func (tr Transfer) NewExit(t testing.TB, i int) DeliveredOutput {
 	t.Helper()
 	return DeliveredOutput{Utxo: Utxo{
-		Domain: protocol.UtxoDomain, TreeID: OutputTreeID, OwnerPkHash: OwnerIdentity(t, Repeat(0xe5)),
+		Domain: protocol.UtxoDomain, TreeID: OutputTreeID, OwnerPkHash: spptest.MustSolanaPkField(t, Repeat(0xe5)),
 		NullifierPk: spptest.MustNullifierPk(t, big.NewInt(23)), Asset: AssetField(t, [32]byte{}), Amount: 40,
 		Blinding: tr.ExitBlinding(t, i), DataHash: big.NewInt(0), RingDataHash: big.NewInt(0), RingProgramID: big.NewInt(0),
 	}}

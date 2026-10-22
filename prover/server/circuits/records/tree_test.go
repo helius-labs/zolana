@@ -6,11 +6,11 @@ import (
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"
-	"github.com/consensys/gnark/frontend/cs/r1cs"
 	"github.com/consensys/gnark/test"
 
 	"github.com/helius-labs/zolana/prover/server/circuits/records"
 	"github.com/helius-labs/zolana/prover/server/prover-test/refusal"
+	"github.com/helius-labs/zolana/prover/server/prover-test/ringkey"
 	"github.com/helius-labs/zolana/prover/server/prover-test/ringrecords"
 )
 
@@ -98,11 +98,7 @@ func TestOpeningConstraintCounts(t *testing.T) {
 		{"present", &presentCount{}, 3399},
 		{"member", &memberCount{}, 3677},
 	} {
-		cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, tc.circuit, frontend.WithCompressThreshold(300))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got := cs.GetNbConstraints(); got != tc.pinned {
+		if got := ringkey.Compile(t, tc.circuit).GetNbConstraints(); got != tc.pinned {
 			t.Errorf("%s opening constraints=%d, pinned %d", tc.name, got, tc.pinned)
 		}
 	}

@@ -10,6 +10,7 @@ import (
 	"github.com/consensys/gnark/constraint/solver"
 
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/base"
+	"github.com/helius-labs/zolana/prover/server/prover-test/hintattack"
 	"github.com/helius-labs/zolana/prover/server/prover-test/ringaudit"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/spptest"
 )
@@ -89,7 +90,7 @@ func TestAnonymousAuditRefusals(t *testing.T) {
 			a.Anchor.Blinding = a.Anchor.FirstContactBlinding(t, otherTag)
 		}},
 		{"first contact of another owner", func(a *ringaudit.AnonymousAudit) {
-			a.Anchor.Owner = spptest.MustOwnerHash(t, ringaudit.OwnerIdentity(t, stranger), payee.NullifierPk)
+			a.Anchor.Owner = spptest.MustOwnerHash(t, spptest.MustSolanaPkField(t, stranger), payee.NullifierPk)
 		}},
 		// The first contact opens under the sums the anchor takes over both pair slots, so only the one pair slot bound refuses.
 		{"two pair slots", func(a *ringaudit.AnonymousAudit) {
@@ -110,7 +111,7 @@ func TestAnonymousAuditRefusals(t *testing.T) {
 			a.Outputs[3] = a.NewPayment(t, change, a.Outputs[3].Stream)
 		}},
 		{"UTXO input at the input count", func(a *ringaudit.AnonymousAudit) { a.InputCount = 1 }},
-		{"input of another owner", func(a *ringaudit.AnonymousAudit) { a.Inputs[1].OwnerPkHash = ringaudit.OwnerIdentity(t, stranger) }},
+		{"input of another owner", func(a *ringaudit.AnonymousAudit) { a.Inputs[1].OwnerPkHash = spptest.MustSolanaPkField(t, stranger) }},
 		{"input 0 a dummy", func(a *ringaudit.AnonymousAudit) { a.Inputs[0] = ringaudit.Dummy(3, big.NewInt(0x9000)) }},
 		{"committed input of the default ring", func(a *ringaudit.AnonymousAudit) { a.Inputs[1] = a.SenderUtxo(t, big.NewInt(0), 60, 52) }},
 		{"SeedOut omitted with an exit published", func(a *ringaudit.AnonymousAudit) { a.Layout.Exits = false }},
@@ -136,7 +137,7 @@ func TestAnonymousAuditRefusals(t *testing.T) {
 			a.Outputs[1] = a.NewPayment(t, alias, inboxStream(t, *a, alias, 0))
 		}},
 		{"sender commitment of another sender", func(a *ringaudit.AnonymousAudit) {
-			a.SenderCommitment = ringaudit.SenderCommitment(t, ringaudit.OwnerIdentity(t, stranger), a.PrivateTxBlinding)
+			a.SenderCommitment = ringaudit.SenderCommitment(t, spptest.MustSolanaPkField(t, stranger), a.PrivateTxBlinding)
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -152,7 +153,7 @@ func TestAnonymousAuditRefusals(t *testing.T) {
 		digest := ringaudit.InboxTagDigest(t, ringaudit.InboxKey(t, a.RingProgramID, inbox.RecipientKey), a.Epoch, 0)
 		alias := new(big.Int).Add(digest, ecc.BN254.ScalarField())
 		a.Outputs[1] = a.NewPayment(t, inbox, ringaudit.Stream{Inbox: true, Index: 0, Tag: ringaudit.Low248(alias)})
-		honest := registeredHint(t, "/gadget.lowBytesHint")
+		honest := hintattack.RegisteredHint(t, "/gadget.lowBytesHint")
 		forged := func(field *big.Int, inputs, outputs []*big.Int) error {
 			if inputs[0].Cmp(digest) == 0 {
 				return honest(field, []*big.Int{alias}, outputs)

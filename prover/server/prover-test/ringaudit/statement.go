@@ -43,8 +43,8 @@ type Layout struct {
 }
 
 func (l Layout) Value() int64 {
-	return int64(bit(l.Exits)*base.LayoutExits | bit(l.Escrow)*base.LayoutEscrow |
-		bit(l.DataFree)*base.LayoutDataFree | bit(l.FullOpenings)*base.LayoutFullOpenings)
+	return spptest.Bit(l.Exits)*base.LayoutExits | spptest.Bit(l.Escrow)*base.LayoutEscrow |
+		spptest.Bit(l.DataFree)*base.LayoutDataFree | spptest.Bit(l.FullOpenings)*base.LayoutFullOpenings
 }
 
 func hasExit(utxos []Utxo) bool {

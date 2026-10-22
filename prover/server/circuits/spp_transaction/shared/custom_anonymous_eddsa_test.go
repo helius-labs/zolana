@@ -156,12 +156,6 @@ func publicKeyBytes(key ed25519.PrivateKey) [32]byte {
 	return [32]byte(key.Public().(ed25519.PublicKey))
 }
 
-func hiddenOwnerIdentity(t testing.TB, key [32]byte) *big.Int {
-	t.Helper()
-	identity, err := protocol.SolanaPkField(key)
-	return spptest.MustHash(t, identity, err)
-}
-
 func rewriteInputAsHiddenOwner(
 	t testing.TB,
 	assignment *testAssignment,
@@ -169,7 +163,7 @@ func rewriteInputAsHiddenOwner(
 	owner ed25519.PrivateKey,
 ) {
 	t.Helper()
-	rewriteInputAsHiddenOwnerWithIdentity(t, assignment, inputIndex, hiddenOwnerIdentity(t, publicKeyBytes(owner)))
+	rewriteInputAsHiddenOwnerWithIdentity(t, assignment, inputIndex, spptest.MustSolanaPkField(t, publicKeyBytes(owner)))
 }
 
 // rewriteInputAsHiddenOwnerWithIdentity marks the input as hidden-owner (zero
@@ -237,7 +231,7 @@ func authorizeEddsaParties(
 		key:     key,
 		low:     new(big.Int).SetBytes(digest[16:]),
 		high:    new(big.Int).SetBytes(digest[:16]),
-		pkHash:  hiddenOwnerIdentity(t, key),
+		pkHash:  spptest.MustSolanaPkField(t, key),
 		parties: parties,
 	}
 	copy(authorization.signature[:], ed25519.Sign(signingPrivate, protocol.RingSpendMessage(testRingProgramAddress, digest)))
@@ -452,7 +446,7 @@ func rewriteOutputAsHiddenOwner(
 	owner ed25519.PrivateKey,
 ) {
 	t.Helper()
-	ownerPkHash := hiddenOwnerIdentity(t, publicKeyBytes(owner))
+	ownerPkHash := spptest.MustSolanaPkField(t, publicKeyBytes(owner))
 	nullifierPk := spptest.AsBigInt(assignment.Outputs[outputIndex].NullifierPk)
 	ownerHash, err := protocol.OwnerHash(ownerPkHash, nullifierPk)
 	if err != nil {
@@ -585,7 +579,7 @@ func TestCustomRingAnonymousEddsaRejectsDummyOutputNamingRingSpender(t *testing.
 	assignment, authorization := anonymousDummyOutputAssignment(t, shape, owner, true, 0)
 	checkCachedWitness(t, ccs, asCustomRingAnonymousEddsa(assignment, authorization), true)
 
-	assignment, authorization = anonymousDummyOutputAssignment(t, shape, owner, true, hiddenOwnerIdentity(t, publicKeyBytes(owner)))
+	assignment, authorization = anonymousDummyOutputAssignment(t, shape, owner, true, spptest.MustSolanaPkField(t, publicKeyBytes(owner)))
 	checkCachedWitness(t, ccs, asCustomRingAnonymousEddsa(assignment, authorization), false)
 }
 
@@ -594,7 +588,7 @@ func TestCustomRingAnonymousEddsaRejectsDummyOutputNamingRingSpender(t *testing.
 func TestCustomRingAnonymousEddsaAcceptsDummyOutputNamingPublishedOwner(t *testing.T) {
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	owner := hiddenOwnerKey(11)
-	assignment, authorization := anonymousDummyOutputAssignment(t, shape, owner, false, hiddenOwnerIdentity(t, publicKeyBytes(owner)))
+	assignment, authorization := anonymousDummyOutputAssignment(t, shape, owner, false, spptest.MustSolanaPkField(t, publicKeyBytes(owner)))
 
 	checkCachedWitness(t, compileEddsaRing(t, shape), asCustomRingAnonymousEddsa(assignment, authorization), true)
 }
@@ -610,7 +604,7 @@ func makeHiddenOwnerAddressSlot(
 	seed *big.Int,
 ) {
 	t.Helper()
-	setAddressSlot(t, &assignment.Inputs[idx], hiddenOwnerIdentity(t, publicKeyBytes(owner)), spptest.Fe(0), seed)
+	setAddressSlot(t, &assignment.Inputs[idx], spptest.MustSolanaPkField(t, publicKeyBytes(owner)), spptest.Fe(0), seed)
 }
 
 // hiddenOwnerAddressAssignment spends a hidden-owner UTXO in input 0 and
@@ -788,7 +782,7 @@ func honestEddsaRing(t testing.TB) (constraint.ConstraintSystem, *testAssignment
 	t.Helper()
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
 	owner := hiddenOwnerKey(0x91)
-	a := eddsaRingAssignment(t, shape, hiddenOwnerIdentity(t, publicKeyBytes(owner)))
+	a := eddsaRingAssignment(t, shape, spptest.MustSolanaPkField(t, publicKeyBytes(owner)))
 	return compileEddsaRing(t, shape), a, owner
 }
 
@@ -796,7 +790,7 @@ func honestEddsaRing(t testing.TB) (constraint.ConstraintSystem, *testAssignment
 // every public signer.
 func TestCustomRingAnonymousEddsaRejectsHiddenOwnerAsPublicSigner(t *testing.T) {
 	ccs, _, owner := honestEddsaRing(t)
-	identity := hiddenOwnerIdentity(t, publicKeyBytes(owner))
+	identity := spptest.MustSolanaPkField(t, publicKeyBytes(owner))
 	for _, slot := range []int{0, 1} {
 		_, a, _ := honestEddsaRing(t)
 		a.SignerPkHashes[slot] = identity
@@ -847,7 +841,7 @@ func TestCustomRingAnonymousEddsaRejectsTorsionAndNonCanonicalKeys(t *testing.T)
 		t.Run(name, func(t *testing.T) {
 			shape := protocol.Shape{NInputs: 2, NOutputs: 2}
 			ccs := compileEddsaRing(t, shape)
-			a := eddsaRingAssignment(t, shape, hiddenOwnerIdentity(t, tc.key))
+			a := eddsaRingAssignment(t, shape, spptest.MustSolanaPkField(t, tc.key))
 			auth := authorizeEddsaKey(t, a, tc.key, owner)
 			message := protocol.RingSpendMessage(testRingProgramAddress, auth.digest())
 			auth.signature = lenientSignature(tc.key, tc.secret, tc.order, message)
@@ -863,7 +857,7 @@ func TestCustomRingAnonymousEddsaRejectsTorsionAndNonCanonicalKeys(t *testing.T)
 // member that pays, co-signs or receives the public exit would link itself.
 func TestCustomRingAnonymousEddsaRejectsOwnerAsPublicParty(t *testing.T) {
 	ccs, _, owner := honestEddsaRing(t)
-	identity := hiddenOwnerIdentity(t, publicKeyBytes(owner))
+	identity := spptest.MustSolanaPkField(t, publicKeyBytes(owner))
 	other := testPayerPkHash()
 	cases := map[string]struct {
 		parties eddsaParties

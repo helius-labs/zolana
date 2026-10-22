@@ -12,60 +12,37 @@ import (
 	"github.com/consensys/gnark/constraint"
 	"github.com/consensys/gnark/constraint/solver"
 	"github.com/consensys/gnark/frontend"
-	"github.com/consensys/gnark/frontend/cs/r1cs"
 	"github.com/consensys/gnark/test"
 
 	"github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
 	"github.com/helius-labs/zolana/prover/server/custom_rings/circuits/policy"
 	"github.com/helius-labs/zolana/prover/server/prover-test/hintattack"
 	"github.com/helius-labs/zolana/prover/server/prover-test/refusal"
+	"github.com/helius-labs/zolana/prover/server/prover-test/ringkey"
 	"github.com/helius-labs/zolana/prover/server/prover-test/ringpolicy"
 	"github.com/helius-labs/zolana/prover/server/prover-test/ringrecords"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
+	"github.com/helius-labs/zolana/prover/server/prover/common"
 )
 
-// pins holds every key's count, compiled with the ring prover's option (prover/custom_ring/ring.go).
-var pins = map[string]int{
-	"member_2": 48455, "member_4": 82348, "member_8": 150253, "member_16": 286047,
-	"delegate_1x2": 48736, "delegate_1x4": 82565, "delegate_1x8": 150391, "delegate_1x16": 285928,
-	"delegate_2x2": 50089, "delegate_2x4": 83918, "delegate_2x8": 151744, "delegate_2x16": 287281,
-	"delegate_3x2": 51442, "delegate_3x4": 85271, "delegate_3x8": 153097,
-	"delegate_4x2": 52795, "delegate_4x4": 86624, "delegate_4x8": 154450, "delegate_4x16": 289987,
-	"delegate_5x2": 54148, "delegate_5x4": 87977, "delegate_5x8": 155803, "delegate_5x16": 291340,
-	"delegate_6x2": 55501, "delegate_6x4": 89330, "delegate_6x8": 157156,
-	"delegate_8x2": 58207, "delegate_8x4": 92036, "delegate_8x8": 159862, "delegate_8x16": 295399,
-	"delegate_12x2": 63619, "delegate_12x4": 97448, "delegate_12x8": 165274,
-	"delegate_16x2": 69031, "delegate_16x4": 102860, "delegate_16x8": 170686,
-	"delegate_24x2": 79855, "delegate_24x4": 113684,
-	"delegate_32x2": 90679, "delegate_40x2": 101503,
-}
-
-// targets cap the keys held to a constraint budget, transaction bytes bound the rest.
-var targets = map[string]int{"member_2": 100_000, "member_4": 100_000, "delegate_2x2": 150_000, "delegate_4x4": 150_000}
+// Budgets bound every key of two or four outputs, transaction size bounds the wider keys.
+var budgets = map[common.RingFamily]int{common.RingMemberPolicy: 100_000, common.RingDelegatePolicy: 150_000}
 
 type policyKey struct {
 	name    string
+	catalog string
+	budget  int
 	circuit func() (frontend.Circuit, error)
 	honest  func() ringpolicy.World
 }
 
 func TestPolicyKeys(t *testing.T) {
-	keys := policyKeys()
-	if len(keys) != len(pins) {
-		t.Fatalf("%d keys, %d pins", len(keys), len(pins))
-	}
-	for _, key := range keys {
+	for _, key := range policyKeys(t) {
 		t.Run(key.name, func(t *testing.T) {
 			cs := compiled(t, key.name, key.circuit)
-			pin, pinned := pins[key.name]
-			target, bounded := targets[key.name]
-			if got := cs.GetNbConstraints(); !pinned || got != pin || bounded && got >= target {
-				t.Fatalf("%d constraints, pinned %d below %d", got, pin, target)
-			}
-			// groth16-solana verifies one BSB22 commitment over private wires only.
-			commitments, ok := cs.GetCommitments().(constraint.Groth16Commitments)
-			if !ok || len(commitments) != 1 || commitments[0].NbPublicCommitted != 0 {
-				t.Fatalf("commitments %+v, want one over private wires", cs.GetCommitments())
+			ringkey.RequirePinned(t, key.catalog, cs)
+			if got := cs.GetNbConstraints(); key.budget != 0 && got >= key.budget {
+				t.Errorf("%d constraints, budget %d", got, key.budget)
 			}
 			requireCompiledSolved(t, cs, key.honest().Build(t))
 		})
@@ -340,15 +317,29 @@ func assetScalarGuarded() ringpolicy.World {
 func delegate2() ringpolicy.World { return ringpolicy.Delegate(shared.Shape{NInputs: 2, NOutputs: 2}) }
 
 // policyKeys lists every key prover/common/ring_keys.go generates, with the honest world it solves.
-func policyKeys() []policyKey {
+func policyKeys(t *testing.T) []policyKey {
+	budget := func(family common.RingFamily, outputs int) int {
+		if outputs > 4 {
+			return 0
+		}
+		return budgets[family]
+	}
 	var keys []policyKey
 	for _, outputs := range policy.MemberOutputs {
-		keys = append(keys, policyKey{name: fmt.Sprintf("member_%d", outputs), circuit: member(outputs), honest: ringpolicy.MemberWorlds[outputs]})
+		keys = append(keys, policyKey{
+			name:    fmt.Sprintf("member_%d", outputs),
+			catalog: ringkey.Name(t, common.RingMemberPolicy, 0, outputs),
+			budget:  budget(common.RingMemberPolicy, outputs),
+			circuit: member(outputs),
+			honest:  ringpolicy.MemberWorlds[outputs],
+		})
 	}
 	for _, ringAuthority := range protocol.RingAuthorityShapes {
 		shape := shared.Shape(ringAuthority)
 		keys = append(keys, policyKey{
 			name:    fmt.Sprintf("delegate_%dx%d", shape.NInputs, shape.NOutputs),
+			catalog: ringkey.Name(t, common.RingDelegatePolicy, shape.NInputs, shape.NOutputs),
+			budget:  budget(common.RingDelegatePolicy, shape.NOutputs),
 			circuit: delegate(shape),
 			honest:  func() ringpolicy.World { return ringpolicy.Delegate(shape) },
 		})
@@ -393,10 +384,7 @@ func compiled(t *testing.T, name string, circuit func() (frontend.Circuit, error
 	if err != nil {
 		t.Fatal(err)
 	}
-	cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, c, frontend.WithCompressThreshold(300))
-	if err != nil {
-		t.Fatal(err)
-	}
+	cs := ringkey.Compile(t, c)
 	compiledKeys.Store(name, cs)
 	return cs
 }
