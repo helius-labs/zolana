@@ -452,12 +452,13 @@ impl<S: TransactionSource> AuditService<S> {
         assets: &AssetRegistry,
     ) -> Result<AuditedTransaction, AuditError> {
         let trees = bound.origin.event.input_tree_ids(bound.transaction);
+        let known = bound.store.known();
         TransactionAudit::new(
             bound.transaction,
             bound.origin.disclosure_layout(bound.mode)?,
         )
         .with_input_trees(&trees)?
-        .with_known_utxos(bound.store)
+        .with_known_utxos(&*known)
         .with_escrowed_keys(bound.store)
         .run(&self.auditor, assets)
     }

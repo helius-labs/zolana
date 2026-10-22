@@ -4,16 +4,15 @@ use std::{
     borrow::Borrow,
     collections::{BTreeMap, HashMap},
     ops::Range,
-    sync::{PoisonError, RwLock},
+    sync::{PoisonError, RwLock, RwLockReadGuard},
     time::Duration,
 };
 
-use custom_ring_interface::InputPrefix;
 use solana_signature::Signature;
 use tokio::sync::Mutex as AsyncMutex;
 use zolana_indexer_api::{Context, Hash, RingQueueEntryView};
 use zolana_ring_client::{
-    rpc::AuditedUtxoView, CreatedUtxo, EscrowedKeys, KnownUtxo, KnownUtxoIndex, KnownUtxos,
+    rpc::AuditedUtxoView, CreatedUtxo, EscrowedKeys, KnownUtxo, KnownUtxoIndex,
 };
 
 pub const UTXO_BACKFILL_INTERVAL: Duration = Duration::from_secs(30);
@@ -55,7 +54,7 @@ pub(crate) struct EscrowedOwner {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct StoredUtxo {
+pub(crate) struct StoredUtxo {
     utxo: KnownUtxo,
     created_in: CreatedIn,
     slot_index: u32,
@@ -184,12 +183,13 @@ impl AuditStore {
         escrow.advance(root);
     }
 
+    /// An audit holds the guard for its full run, no UTXO enters between two of its lookups.
+    pub(crate) fn known(&self) -> RwLockReadGuard<'_, KnownUtxoIndex<StoredUtxo>> {
+        self.utxos.read().unwrap_or_else(PoisonError::into_inner)
+    }
+
     fn stored(&self, utxo_hash: &[u8; 32]) -> Option<StoredUtxo> {
-        self.utxos
-            .read()
-            .unwrap_or_else(PoisonError::into_inner)
-            .get(utxo_hash)
-            .copied()
+        self.known().get(utxo_hash).copied()
     }
 }
 
@@ -203,20 +203,6 @@ impl EscrowMap {
 impl Borrow<KnownUtxo> for StoredUtxo {
     fn borrow(&self) -> &KnownUtxo {
         &self.utxo
-    }
-}
-
-impl KnownUtxos for AuditStore {
-    fn utxo(&self, commitment: &[u8; 32]) -> Option<KnownUtxo> {
-        self.stored(commitment).map(|stored| stored.utxo)
-    }
-
-    fn with_prefix(&self, owner_key: &[u8; 32], prefix: InputPrefix) -> Vec<[u8; 32]> {
-        self.utxos
-            .read()
-            .unwrap_or_else(PoisonError::into_inner)
-            .prefixed(owner_key, prefix)
-            .to_vec()
     }
 }
 
@@ -267,7 +253,7 @@ mod tests {
             event_index: 0,
         };
         let mint = Some(Address::new_from_array([6; 32]));
-        let stored_mint = || store.utxo(&[1; 32]).map(|utxo| utxo.mint);
+        let stored_mint = || store.stored(&[1; 32]).map(|stored| stored.utxo.mint);
         store.record(created_in, [created(None)]);
         store.record(created_in, [created(mint)]);
         assert_eq!(stored_mint(), Some(mint));
