@@ -1,4 +1,4 @@
-/** UTXOs of deposits and anonymous merges, a commitment layout spends them by hash alone, Rust `created`. */
+/** UTXOs of deposits and anonymous merges, a commitment layout names them by hash or prefix, Rust `created`. */
 import { hashBytes, initializePoseidon } from "../hasher/index.js";
 import { addressBytes } from "../interface/internal.js";
 import type { Address, Bytes32, RequestContext } from "../interface/types.js";

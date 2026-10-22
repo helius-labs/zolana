@@ -605,9 +605,8 @@ function readAnonymous(
   const at = anonymousFields(layout);
   const block = unpackDisclosure(slice(fields, at.slots), at.slotBytes);
   try {
-    const first = at.inputs.kind === "openings" ? DISCLOSURE_SENDER_KEY_BYTES : 0;
     const outputs = slice(fields, at.nullifierPks).map((nullifierPk, index) => {
-      const start = first + index * ANONYMOUS_SLOT_BYTES;
+      const start = at.slotStart + index * ANONYMOUS_SLOT_BYTES;
       return readAnonymousOutput(
         nullifierPk,
         block.subarray(start, start + ANONYMOUS_SLOT_BYTES),
@@ -646,7 +645,8 @@ function readCommitments(
       throw new KeypairError("KEYPAIR_DISCLOSURE_FIELD", { name: "inputPrefixPair" });
     return split;
   });
-  if (prefixes.length >= layout.inputs && prefixes.pop() !== undefined)
+  const padding = prefixes.length === layout.inputs ? prefixes.pop() : undefined;
+  if (padding !== undefined)
     throw new KeypairError("KEYPAIR_DISCLOSURE_PADDING", { name: "inputPrefixPair" });
   return Object.freeze({ kind: "commitments", first, prefixes: Object.freeze(prefixes) });
 }

@@ -29,11 +29,11 @@ import { X25519PublicKey } from "../keypair/x25519.js";
 import { KeypairError } from "../keypair/error.js";
 
 import {
+  DUMMY_INPUT,
   knownUtxoHash,
   type AuditedInput,
   type AuditedSender,
   type AuditedUtxo,
-  type InputOpening,
   type InputRing,
   type KnownUtxo,
   type OutputOpening,
@@ -1288,8 +1288,6 @@ function decodeInput(wire: Record<string, unknown>, path: string): AuditedInput 
     }),
   });
 }
-
-const DUMMY_INPUT: InputOpening = Object.freeze({ kind: "dummy" });
 
 /** Rust `DecryptedInputRing`, tagged by `kind`. */
 function decodeInputRing(wire: Record<string, unknown>, path: string): InputRing {

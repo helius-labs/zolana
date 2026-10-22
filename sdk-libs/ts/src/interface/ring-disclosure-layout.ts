@@ -171,6 +171,8 @@ export interface AnonymousFields {
   /** `pack_disclosure` of `slotBytes`, the entry key's sender key ahead of one `ANONYMOUS_SLOT_BYTES` slot per output. */
   readonly slots: FieldRange;
   readonly slotBytes: number;
+  /** Where output slot 0 starts in the packed block, behind the entry key's sender key. */
+  readonly slotStart: number;
   readonly inputs: AnonymousInputFields;
   readonly fieldCount: number;
 }
@@ -237,8 +239,8 @@ export function anonymousFields(layout: AnonymousLayout): AnonymousFields {
   const seedOut = layout.exits ? next.one() : undefined;
   const senderNullifierPk = entry ? next.one() : undefined;
   const nullifierPks = next.run(layout.outputs);
-  const slotBytes =
-    (entry ? DISCLOSURE_SENDER_KEY_BYTES : 0) + ANONYMOUS_SLOT_BYTES * layout.outputs;
+  const slotStart = entry ? DISCLOSURE_SENDER_KEY_BYTES : 0;
+  const slotBytes = slotStart + ANONYMOUS_SLOT_BYTES * layout.outputs;
   const slots = next.run(packedChunks(slotBytes));
   const inputs: AnonymousInputFields =
     senderNullifierPk === undefined
@@ -258,6 +260,7 @@ export function anonymousFields(layout: AnonymousLayout): AnonymousFields {
     nullifierPks,
     slots,
     slotBytes,
+    slotStart,
     inputs,
     fieldCount: next.position,
   });

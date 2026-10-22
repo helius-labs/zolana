@@ -1037,7 +1037,6 @@ async function changeAnonymousRing(
   });
 }
 
-/** `0^16 ‖ tag` owner tags carry a tag, any other owner tag none. */
 function candidateOf(
   transaction: IndexedShieldedTransaction,
   slotIndex: number,

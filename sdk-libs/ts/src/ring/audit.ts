@@ -156,7 +156,7 @@ export type UtxoOwner =
   /** A deposit capsule discloses the owner hash alone. */
   | Readonly<{ kind: "deposited"; ownerHash: Bytes32 }>;
 
-/** Rust `KnownUtxo`, a UTXO an earlier audit opened, a spend names it by its hash alone. */
+/** Rust `KnownUtxo`, a UTXO an earlier audit opened, a later disclosure names it by its hash or prefix. */
 export interface KnownUtxo extends Omit<AuditedUtxo, "nullifierPk"> {
   readonly owner: UtxoOwner;
   readonly treeId: number;
@@ -172,7 +172,7 @@ export interface CreatedRingUtxo {
 /** Rust `KnownUtxos`, UTXOs the auditor opened before. */
 export interface KnownUtxos {
   utxo(commitment: Bytes32): KnownUtxo | undefined;
-  /** The commitments of the notes of `ownerKey` that carry `prefix`. */
+  /** Every opened note of `ownerKey` whose hash carries `prefix`. */
   withPrefix(ownerKey: Bytes32, prefix: InputPrefix): readonly Bytes32[];
 }
 
@@ -627,12 +627,10 @@ class Transfer {
         throw new RingError("RING_AUDIT_UNSEEN_INPUT", {
           details: { commitment: bytesKey(first) },
         });
-      const later = new PrefixedInputs({
-        known: spent.known,
-        sender: zero.ownerKey,
-        first,
-        ringId: ringIdField(this.keys.ring),
-      }).open(published.prefixes);
+      const later = prefixedInputs(
+        { known: spent.known, sender: zero.ownerKey, first, ringId: ringIdField(this.keys.ring) },
+        published.prefixes,
+      );
       return Object.freeze({
         sender: Object.freeze({
           ownerKey: zero.ownerKey,
@@ -641,9 +639,8 @@ class Transfer {
         inputs: spentInputs(nullifiers, [ringInput(first, zero), ...later]),
       });
     }
-    const inputs = nullifiers.map((nullifier, index): AuditedInput => {
-      const opening = published.inputs[index];
-      if (opening === undefined) return Object.freeze({ nullifier, opening: DUMMY_INPUT });
+    const openings = published.inputs.map((opening, index): InputOpening => {
+      if (opening === undefined) return DUMMY_INPUT;
       const utxo = this.opened({
         ownerKey: published.senderKey,
         nullifierPk: published.senderNullifierPk,
@@ -654,15 +651,12 @@ class Transfer {
       const tree = spent.trees?.[index];
       const ring = tree === undefined ? undefined : this.inputRing(utxo, tree, spent.known);
       return Object.freeze({
-        nullifier,
-        opening: Object.freeze({
-          kind: "opened",
-          asset: utxo.asset,
-          ...(utxo.mint === undefined ? {} : { mint: utxo.mint }),
-          amount: utxo.amount,
-          blinding: utxo.blinding,
-          ...(ring === undefined ? {} : { ring }),
-        }),
+        kind: "opened",
+        asset: utxo.asset,
+        ...(utxo.mint === undefined ? {} : { mint: utxo.mint }),
+        amount: utxo.amount,
+        blinding: utxo.blinding,
+        ...(ring === undefined ? {} : { ring }),
       });
     });
     return Object.freeze({
@@ -670,7 +664,7 @@ class Transfer {
         ownerKey: published.senderKey,
         nullifierPk: published.senderNullifierPk,
       }),
-      inputs: Object.freeze(inputs),
+      inputs: spentInputs(nullifiers, openings),
     });
   }
 
@@ -907,65 +901,58 @@ function disclosureSlot<T>(outputs: readonly T[], slot: Slot): T {
   return opening;
 }
 
-/** Rust `PrefixedInputs`, the later inputs among the sender's notes that carry each prefix. */
-class PrefixedInputs {
-  readonly #read = new Map<InputPrefix, PrefixNotes>();
+type PrefixSource = Readonly<{
+  known: KnownUtxos;
+  sender: Bytes32;
+  first: Bytes32;
+  ringId: Bytes32;
+}>;
 
-  constructor(
-    private readonly source: Readonly<{
-      known: KnownUtxos;
-      sender: Bytes32;
-      first: Bytes32;
-      ringId: Bytes32;
-    }>,
-  ) {}
-
-  /** `k` inputs under one prefix open when exactly `k` of the sender's ring notes carry it. */
-  open(prefixes: readonly (InputPrefix | undefined)[]): InputOpening[] {
-    return prefixes.map((prefix) => {
-      if (prefix === undefined) return DUMMY_INPUT;
-      const inputs = prefixes.filter((other) => other === prefix).length;
-      const notes = this.#notes(prefix);
-      const unseen = () =>
-        new RingError("RING_AUDIT_UNSEEN_INPUT_PREFIX", {
-          details: { prefix: prefix.toString(16).padStart(2 * INPUT_PREFIX_BYTES, "0") },
-        });
-      if (notes.notes.length < inputs) throw unseen();
-      if (notes.notes.length > inputs)
-        return Object.freeze({
-          kind: "ambiguous",
-          candidates: Object.freeze(notes.notes.map(({ commitment }) => commitment)),
-        });
-      const note = notes.notes[notes.taken++];
-      if (note === undefined) throw unseen();
-      return ringInput(note.commitment, note.utxo);
+/** `k` inputs under one prefix open when exactly `k` of the sender's ring notes carry it. */
+function prefixedInputs(
+  source: PrefixSource,
+  prefixes: readonly (InputPrefix | undefined)[],
+): InputOpening[] {
+  const positions = new Map<InputPrefix, number[]>();
+  prefixes.forEach((prefix, position) => {
+    if (prefix !== undefined) positions.set(prefix, [...(positions.get(prefix) ?? []), position]);
+  });
+  const openings = prefixes.map(() => DUMMY_INPUT);
+  for (const [prefix, inputs] of positions) {
+    const notes = ringNotes(source, prefix);
+    if (notes.length < inputs.length)
+      throw new RingError("RING_AUDIT_UNSEEN_INPUT_PREFIX", {
+        details: { prefix: prefix.toString(16).padStart(2 * INPUT_PREFIX_BYTES, "0") },
+      });
+    const ambiguous: InputOpening | undefined =
+      notes.length > inputs.length
+        ? Object.freeze({
+            kind: "ambiguous",
+            candidates: Object.freeze(notes.map(({ commitment }) => commitment)),
+          })
+        : undefined;
+    notes.forEach((note, rank) => {
+      const position = inputs[rank];
+      if (position !== undefined)
+        openings[position] = ambiguous ?? ringInput(note.commitment, note.utxo);
     });
   }
-
-  /** One read per prefix, no note opens twice while the store grows. */
-  #notes(prefix: InputPrefix): PrefixNotes {
-    const read = this.#read.get(prefix);
-    if (read !== undefined) return read;
-    const { known, sender, first, ringId } = this.source;
-    const notes = {
-      notes: known.withPrefix(sender, prefix).flatMap((commitment) => {
-        const utxo = known.utxo(commitment);
-        return utxo !== undefined &&
-          !equal(commitment, first) &&
-          equal(knownUtxoHash(utxo, ringId), commitment)
-          ? [Object.freeze({ commitment, utxo })]
-          : [];
-      }),
-      taken: 0,
-    };
-    this.#read.set(prefix, notes);
-    return notes;
-  }
+  return openings;
 }
 
-interface PrefixNotes {
-  readonly notes: readonly Readonly<{ commitment: Bytes32; utxo: KnownUtxo }>[];
-  taken: number;
+function ringNotes(
+  source: PrefixSource,
+  prefix: InputPrefix,
+): readonly Readonly<{ commitment: Bytes32; utxo: KnownUtxo }>[] {
+  const { known, sender, first, ringId } = source;
+  return known.withPrefix(sender, prefix).flatMap((commitment) => {
+    const utxo = known.utxo(commitment);
+    return utxo !== undefined &&
+      !equal(commitment, first) &&
+      equal(knownUtxoHash(utxo, ringId), commitment)
+      ? [Object.freeze({ commitment, utxo })]
+      : [];
+  });
 }
 
 function ringInput(commitment: Bytes32, utxo: KnownUtxo): InputOpening {
@@ -997,7 +984,7 @@ function ownedKey(ownerKey: Bytes32, prefix: InputPrefix): string {
   return `${bytesKey(ownerKey)}:${prefix.toString(16)}`;
 }
 
-const DUMMY_INPUT: InputOpening = Object.freeze({ kind: "dummy" });
+export const DUMMY_INPUT: InputOpening = Object.freeze({ kind: "dummy" });
 const DUMMY: OutputOpening = Object.freeze({ kind: "dummy" });
 const FRAME: SlotOpening = Object.freeze({ ok: false, kind: "frame" });
 const ESCROW_UNKNOWN: SlotOpening = Object.freeze({ ok: false, kind: "escrowUnknown" });

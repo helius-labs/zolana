@@ -1,6 +1,10 @@
 import { X25519PublicKey } from "../keypair/x25519.js";
 import { KeypairError } from "../keypair/error.js";
-import { isAddress } from "@solana/kit";
+import {
+  SOLANA_ERROR__JSON_RPC__INTERNAL_ERROR,
+  SOLANA_ERROR__JSON_RPC__METHOD_NOT_FOUND,
+  isAddress,
+} from "@solana/kit";
 
 import { ZolanaApi, ApiError } from "../api/index.js";
 import { base64String, hash, hashBytes, limit } from "../indexer/scalars.js";
@@ -910,20 +914,17 @@ const RING_PROJECTION_CODES: ReadonlyMap<
   [-32076, "CLIENT_RECORD_QUEUE_CHANGED"],
 ]);
 
-const JSON_RPC_METHOD_NOT_FOUND = -32601;
-/** Photon reports a transient database failure as the internal error. */
-const JSON_RPC_INTERNAL_ERROR = -32603;
-
 function wrapIndexer(cause: unknown, method: string): ClientError {
   if (isClientError(cause)) return cause;
   if (cause instanceof ApiError && cause.code === "API_JSON_RPC") {
     const rpcCode = cause.details?.["rpcCode"];
     const code = typeof rpcCode === "number" ? RING_PROJECTION_CODES.get(rpcCode) : undefined;
     if (code !== undefined) return new ClientError(code, { details: { method } });
-    if (rpcCode === JSON_RPC_METHOD_NOT_FOUND) {
+    if (rpcCode === SOLANA_ERROR__JSON_RPC__METHOD_NOT_FOUND) {
       return new ClientError("CLIENT_UNSUPPORTED_RPC_METHOD", { details: { method }, cause });
     }
-    if (rpcCode === JSON_RPC_INTERNAL_ERROR) {
+    // Photon scrubs a transient database failure and a permanent bug alike to the internal error.
+    if (rpcCode === SOLANA_ERROR__JSON_RPC__INTERNAL_ERROR) {
       return new ClientError("CLIENT_INDEXER", { details: { method, retryable: true }, cause });
     }
   }

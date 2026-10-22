@@ -131,7 +131,7 @@ export function ringTagField(tag: Bytes16): Bytes32 {
   return rightAlign(checkedBytes<Bytes16>(tag, TAG_LEN, "tag"));
 }
 
-/** `undefined` unless the first 16 bytes are zero, the one owner tag form of an anonymous slot. */
+/** `0^16 ‖ tag` is the one owner tag form of an anonymous slot, Rust `RingTag::from_owner_tag`. */
 export function ringTagFromOwnerTag(ownerTag: Bytes32): Bytes16 | undefined {
   const value = checkedBytes<Bytes32>(ownerTag, 32, "owner tag");
   return value.subarray(0, 32 - TAG_LEN).every((byte) => byte === 0) ? low128(value) : undefined;

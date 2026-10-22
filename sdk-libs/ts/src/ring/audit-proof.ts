@@ -240,7 +240,6 @@ function auditDisclosure(
   }
 }
 
-/** A commitment key names spent UTXO 0 by its hash and every later one by its prefix, the entry key opens each in full. */
 function anonymousInputs(
   key: "commitment" | "entry",
   proofInputs: SppProofInputs,

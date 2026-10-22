@@ -154,7 +154,7 @@ class Found {
   /** Commitments without a verified opening, with their nullifier when the key derives one. */
   readonly unresolved: { readonly commitment: Bytes32; readonly nullifier?: Bytes32 }[] = [];
   readonly unknownMints = new Set<Address>();
-  /** Every deposit and merge UTXO of an anonymous ring, its transfers spend them by hash or prefix. */
+  /** Every deposit and merge UTXO of an anonymous ring, its transfer disclosures name them by hash or prefix. */
   readonly created = new KnownUtxoIndex();
   readonly #seen = new Set<string>();
 

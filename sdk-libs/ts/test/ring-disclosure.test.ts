@@ -130,7 +130,6 @@ function anonymous(): Extract<RingDisclosure, { kind: "anonymous" }> {
 }
 const ANONYMOUS_EXITS = [false, true, false, false];
 
-/** A commitment key over four inputs, the third a dummy. */
 function commitments(): Extract<RingDisclosure, { kind: "anonymous" }> {
   return {
     ...anonymous(),
