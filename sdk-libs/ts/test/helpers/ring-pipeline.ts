@@ -41,7 +41,7 @@ import {
   treeAddress,
 } from "../../src/interface/pda/index.js";
 import { SHIELDED_POOL_PROGRAM_ID } from "../../src/interface/program.js";
-import { STATE_HEIGHT, UTXO_ROOT_HISTORY_OFFSET } from "../../src/interface/state.js";
+import { UTXO_ROOT_HISTORY_OFFSET } from "../../src/interface/state.js";
 import { DEFAULT_TREE_ID } from "../../src/interface/tree-slot.js";
 import { TRANSACTION_SIZE_LIMIT } from "../../src/interface/transaction-size.js";
 import type { Bytes31, Bytes32, Bytes128, TransactProof } from "../../src/interface/types.js";
@@ -80,6 +80,7 @@ import { ProofInputUtxo, Utxo } from "../../src/transaction/utxo.js";
 import type { RingKeys, RingRecipientKey } from "../../src/transaction/wallet/keys.js";
 
 import { matchesPage, transactionsPage } from "./clients.js";
+import { stateTreeAt, type StateTree } from "./state-tree.js";
 import { recordTree, type FixtureRecord } from "./member-registry.js";
 import { treeAccount } from "./tree-account.js";
 import {
@@ -148,12 +149,8 @@ export interface SppCall {
   readonly data: ProvenRingTransact["data"];
 }
 
-/** The root and path Photon serves for every leaf of an anchor tree. */
-export const ANCHOR_ROOT = small(0x71);
+/** The root history slot every anchor tree holds its root in. */
 export const ANCHOR_ROOT_INDEX = 3;
-export const ANCHOR_PATH: readonly Bytes32[] = Object.freeze(
-  Array.from({ length: STATE_HEIGHT }, (_, level) => small(0x80 + level)),
-);
 
 /** An SPP tree whose UTXO root history holds `root` at `ANCHOR_ROOT_INDEX`. */
 export function anchorTreeAccount(root: Bytes32): RpcAccount {
@@ -258,6 +255,9 @@ export async function ringFixture(options: RingFixtureOptions = {}) {
   // Hex of every view tag an earlier transaction published.
   const publishedTags = new Set<string>();
   const leaves = new Map<string, bigint>();
+  const placed = new Map<Address, Map<number, Uint8Array>>();
+  const anchorAccounts = new Map<Address, RpcAccount>();
+  const anchorTree = (tree: Address): StateTree => stateTreeAt(placed.get(tree) ?? new Map());
   const merkleRequests: Readonly<{ tree: Address; leaves: readonly Bytes32[] }>[] = [];
   let proofs = 0;
   const reader: Pick<ChainReader, "getAccount"> & Pick<RingRecordReader, "getRingMemberOpenings"> =
@@ -367,6 +367,7 @@ export async function ringFixture(options: RingFixtureOptions = {}) {
       requested: readonly Bytes32[],
     ): Promise<GetMerkleProofsResponse> => {
       merkleRequests.push({ tree, leaves: [...requested] });
+      const state = anchorTree(tree);
       return {
         context,
         proofs: requested.map((leaf) => {
@@ -375,9 +376,9 @@ export async function ringFixture(options: RingFixtureOptions = {}) {
           return {
             leaf,
             merkleContext: { treeType: 3, tree },
-            path: ANCHOR_PATH,
+            path: state.path(Number(leafIndex)),
             leafIndex,
-            root: ANCHOR_ROOT,
+            root: state.root,
             rootSeq: slot,
             rootIndex: ANCHOR_ROOT_INDEX,
           };
@@ -401,11 +402,17 @@ export async function ringFixture(options: RingFixtureOptions = {}) {
     publishTags(tags: readonly Bytes31[]): void {
       for (const tag of tags) publishedTags.add(hex(ringTagField(tag)));
     },
-    /** Photon serves a path for `hash` at `leafIndex` of `tree`, the tree holds its root. */
+    /** Photon serves a path for `hash` at `leafIndex` of `tree`, the tree holds its root unless a test replaced it. */
     placeLeaf(tree: Address, hash: Bytes32, leafIndex: bigint): void {
       leaves.set(`${tree}:${hex(hash)}`, leafIndex);
-      if (!accounts.has(tree)) accounts.set(tree, anchorTreeAccount(ANCHOR_ROOT));
+      const held = placed.get(tree) ?? new Map<number, Uint8Array>();
+      placed.set(tree, held.set(Number(leafIndex), hash));
+      if (accounts.has(tree) && accounts.get(tree) !== anchorAccounts.get(tree)) return;
+      const account = anchorTreeAccount(anchorTree(tree).root);
+      accounts.set(tree, account);
+      anchorAccounts.set(tree, account);
     },
+    anchorTree,
     ...(curatorRing === undefined ? {} : { curatorRing }),
     ...(curatorRegistry === undefined ? {} : { curatorRegistry }),
     ...(curatorTree === undefined ? {} : { curatorTree }),

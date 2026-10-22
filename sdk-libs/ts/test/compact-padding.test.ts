@@ -21,6 +21,7 @@ import {
   createProofOutput,
   transactOutputBlinding,
 } from "../src/transaction/index.js";
+import { stateTree } from "./helpers/state-tree.js";
 
 const PAYER = address("4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi");
 
@@ -35,7 +36,6 @@ function field(value: number): Bytes32 {
   return bytes;
 }
 
-const UTXO_ROOT = field(1);
 const NULLIFIER_ROOT = field(2);
 
 function solInput(keypair: ShieldedKeypair, amount: bigint): ProofInputUtxo {
@@ -65,19 +65,21 @@ function nonInclusionProof(leaf: Bytes32, treeId: number): NonInclusionProof {
   };
 }
 
-function spendProof(input: ProofInputUtxo): SpendProof {
-  return {
+/** The inputs as the leaves of one tree, from index 0. */
+function spendProofs(inputs: readonly ProofInputUtxo[]): SpendProof[] {
+  const state = stateTree(inputs.map((input) => input.hash()));
+  return inputs.map((input, index) => ({
     state: {
       leaf: input.hash(),
       merkleContext: { treeType: 0, tree: treeAddress(input.treeId) },
-      path: Array.from({ length: 32 }, () => field(0)),
-      leafIndex: 0n,
-      root: UTXO_ROOT,
+      path: state.path(index),
+      leafIndex: BigInt(index),
+      root: state.root,
       rootSeq: 1n,
       rootIndex: 0,
     },
     nullifier: nonInclusionProof(input.nullifier(), input.treeId),
-  };
+  }));
 }
 
 function compactTransfer(
@@ -159,7 +161,7 @@ describe("compact padding", () => {
     if (!real || !compactInput) expect.unreachable();
     const proof = nonInclusionProof(compactInput.nullifier(), real.treeId);
 
-    const assembled = assemble(signed, [spendProof(real)], [proof]);
+    const assembled = assemble(signed, spendProofs([real]), [proof]);
     const witness = assembled.proverInputs.payload.inputs[1];
     if (!witness) expect.unreachable();
     expect({
@@ -194,11 +196,11 @@ describe("compact padding", () => {
     const real = signed.inputUtxos[0];
     if (!real) expect.unreachable();
 
-    expect(() => assemble(signed, [spendProof(real)], [])).toThrow(
+    expect(() => assemble(signed, spendProofs([real]), [])).toThrow(
       expect.objectContaining({ code: "CLIENT_MISSING_INPUT_MERKLE_PROOF", details: { index: 1 } }),
     );
     expect(() =>
-      assemble(signed, [spendProof(real)], [nonInclusionProof(field(9), real.treeId)]),
+      assemble(signed, spendProofs([real]), [nonInclusionProof(field(9), real.treeId)]),
     ).toThrow(
       expect.objectContaining({
         code: "CLIENT_NULLIFIER_PROOF_LEAF_MISMATCH",
@@ -363,7 +365,7 @@ describe("compact padding", () => {
       nonInclusionProof(nullifier, prepared.inputTreeId),
     );
 
-    const assembly = assembleMergeWithProofs(prepared, inputs.map(spendProof), tree, dummyProofs);
+    const assembly = assembleMergeWithProofs(prepared, spendProofs(inputs), tree, dummyProofs);
     expect(assembly.nullifiers.slice(3)).toEqual(dummyNullifiers.map(() => new Uint8Array(32)));
     expect(
       assembly.proverInputs.inputs.slice(3).map((input) => ({
@@ -378,7 +380,7 @@ describe("compact padding", () => {
     expect(assembly.instructionData(proof).nullifiers).toEqual(
       inputs.map((input) => input.nullifier()),
     );
-    expect(() => assembleMergeWithProofs(prepared, inputs.map(spendProof), tree, [])).toThrow(
+    expect(() => assembleMergeWithProofs(prepared, spendProofs(inputs), tree, [])).toThrow(
       expect.objectContaining({
         code: "CLIENT_INCOMPLETE_INPUT_PROOFS",
         details: { expected: 5, state: 0, nullifier: 0 },

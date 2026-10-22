@@ -36,6 +36,7 @@ import { treeAddress } from "../src/interface/pda/index.js";
 import { ShieldedKeypair } from "../src/keypair/index.js";
 import { ringOutputBlinding } from "../src/keypair/transact/index.js";
 import { proofFor } from "./helpers/proofs.js";
+import { stateTree } from "./helpers/state-tree.js";
 import {
   ProofInputUtxo,
   SOL_MINT,
@@ -163,13 +164,14 @@ function proofFixture(
     blindingSeed: seed,
     outputTreeId,
   });
+  const state = stateTree([input.hash()]);
   const spendProof: SpendProof = {
     state: {
       leaf: input.hash(),
       merkleContext: { treeType: 0, tree: TREE },
-      path: Array.from({ length: 32 }, () => bytes(0)),
+      path: state.path(0),
       leafIndex: 0n,
-      root: bytes(3),
+      root: state.root,
       rootSeq: 1n,
       rootIndex: 4,
     },
@@ -1039,6 +1041,25 @@ describe("ZolanaClient", () => {
       secret.fill(0);
       nullifierKey.destroy();
     }
+  });
+
+  it("refuses a fetched input state proof whose path does not reach its root", async () => {
+    const fixture = proofFixture();
+    const instance = client(proverFetch());
+    const root = new Uint8Array(fixture.spendProof.state.root) as Bytes32;
+    root[31] = (root[31] ?? 0) ^ 1;
+    vi.spyOn(instance, "getMerkleProofs").mockResolvedValue({
+      context: { blockTime: 1n, slot: 1n },
+      proofs: [{ ...fixture.spendProof.state, root }],
+    });
+    vi.spyOn(instance, "getNonInclusionProofs").mockResolvedValue({
+      context: { blockTime: 1n, slot: 1n },
+      proofs: [fixture.spendProof.nullifier],
+    });
+
+    await expect(
+      instance.getInputMerkleProofs(fixture.proofInputs.inputContexts()),
+    ).rejects.toMatchObject({ code: "CLIENT_STATE_PROOF_ROOT_MISMATCH", details: { index: 0 } });
   });
 
   it("fetches state and nullifier proofs once and in parallel", async () => {

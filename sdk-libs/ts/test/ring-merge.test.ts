@@ -71,6 +71,7 @@ import { ProofInputUtxo, Utxo } from "../src/transaction/utxo.js";
 import { approveUnattended, intentHash } from "../src/transaction/wallet/intent.js";
 import { Wallet } from "../src/transaction/wallet/state.js";
 import { BLOCKHASH } from "./helpers/clients.js";
+import { stateTree } from "./helpers/state-tree.js";
 import { recordTree, type FixtureRecord } from "./helpers/member-registry.js";
 import { proofFor } from "./helpers/proofs.js";
 import {
@@ -185,19 +186,21 @@ function nonInclusion(leaf: Bytes32): NonInclusionProof {
     rootIndex: 0,
   };
 }
-function spendProof(spend: ProofInputUtxo): SpendProof {
-  return {
+/** The spends as the leaves of one tree, in order. */
+function spendProofs(spends: readonly ProofInputUtxo[]): SpendProof[] {
+  const state = stateTree(spends.map((spend) => spend.hash()));
+  return spends.map((spend, index) => ({
     state: {
       leaf: spend.hash(),
       merkleContext: { tree: treeAddress(7), treeType: 0 },
-      path: Array.from({ length: 32 }, () => field(0)),
-      leafIndex: 0n,
-      root: field(1),
+      path: state.path(index),
+      leafIndex: BigInt(index),
+      root: state.root,
       rootSeq: 1n,
       rootIndex: 0,
     },
     nullifier: nonInclusion(spend.nullifier()),
-  };
+  }));
 }
 
 function ringWallet(amounts: readonly bigint[], hashes: readonly Bytes32[] = []): Wallet {
@@ -443,7 +446,7 @@ describe("ring merge", () => {
       const indexed = prepareMerge(prepared, treeAddress(7), undefined, mergeRegistryProof).inputs;
       const complete = assembleMergeWithProofs(
         prepared,
-        inputs.map(spendProof),
+        spendProofs(inputs),
         treeAddress(7),
         prepared.dummyNullifiers().map(nonInclusion),
         undefined,
@@ -538,9 +541,10 @@ describe("ring merge", () => {
     async (proofDataSource) => {
       const inputs = [input(3n), input(5n)];
       const prepared = merge(inputs, 9).prepare();
+      const proofs = spendProofs(inputs);
       const expected = assembleMergeWithProofs(
         prepared,
-        inputs.map(spendProof),
+        proofs,
         treeAddress(7),
         prepared.dummyNullifiers().map(nonInclusion),
         undefined,
@@ -555,7 +559,7 @@ describe("ring merge", () => {
               {
                 tree: treeAddress(7),
                 id: 7,
-                utxoRoot: "0x1",
+                utxoRoot: `0x${Buffer.from(proofs[0]?.state.root ?? []).toString("hex")}`,
                 nullifierRoot: "0x2",
                 utxoRootIndex: 0,
                 nullifierRootIndex: 0,
@@ -565,9 +569,7 @@ describe("ring merge", () => {
         }),
       );
       const client = new ZolanaClient({ treeId: 7, proofDataSource, fetch });
-      const state = vi
-        .spyOn(client, "getInputMerkleProofs")
-        .mockResolvedValue(inputs.map(spendProof));
+      const state = vi.spyOn(client, "getInputMerkleProofs").mockResolvedValue(proofs);
       const nullifier = vi.spyOn(client, "getNonInclusionProofs").mockResolvedValue({
         context: { blockTime: 1n, slot: 1n },
         proofs: prepared.dummyNullifiers().map(nonInclusion),
@@ -606,7 +608,7 @@ describe("ring merge", () => {
       const foreign = { tree: treeAddress(8), treeType: 0 };
       const client = new ZolanaClient({ treeId: 7, proofDataSource: "client", fetch: vi.fn() });
       vi.spyOn(client, "getInputMerkleProofs").mockResolvedValue(
-        inputs.map(spendProof).map((proof, index) =>
+        spendProofs(inputs).map((proof, index) =>
           kind === "spend" && index === 1
             ? {
                 state: { ...proof.state, merkleContext: foreign },
@@ -769,7 +771,7 @@ describe("ring merge", () => {
     const prepared = merge(inputs).prepare();
     const assembly = assembleMergeWithProofs(
       prepared,
-      inputs.map(spendProof),
+      spendProofs(inputs),
       treeAddress(7),
       prepared.dummyNullifiers().map(nonInclusion),
       undefined,
@@ -791,7 +793,7 @@ describe("ring merge", () => {
     const prepared = merge(inputs, 9).prepare();
     const assembly = assembleMergeWithProofs(
       prepared,
-      inputs.map(spendProof),
+      spendProofs(inputs),
       treeAddress(7),
       prepared.dummyNullifiers().map(nonInclusion),
       undefined,
@@ -915,7 +917,7 @@ describe("anonymous ring merge", () => {
         body: mergeProverRequestBody(
           assembleMergeWithProofs(
             prepared,
-            inputs.map(spendProof),
+            spendProofs(inputs),
             treeAddress(7),
             prepared.dummyNullifiers().map(nonInclusion),
             undefined,

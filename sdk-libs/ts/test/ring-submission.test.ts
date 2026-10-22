@@ -23,7 +23,7 @@ import { ringMemberRegistryPda, treeAddress } from "../src/interface/pda/index.j
 import { TREE_STATE_PAUSED } from "../src/interface/state.js";
 import { BLOCKHASH, kitReads } from "./helpers/clients.js";
 import { memberRegistryData, ownedAccount } from "./helpers/ring-accounts.js";
-import { ANCHOR_ROOT, ANCHOR_ROOT_INDEX, anchorTreeAccount } from "./helpers/ring-pipeline.js";
+import { ANCHOR_ROOT_INDEX, anchorTreeAccount } from "./helpers/ring-pipeline.js";
 
 const HASH = new Uint8Array(32) as Bytes32;
 const MEMO = address("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr");
@@ -337,12 +337,13 @@ describe("ring submission ownership", () => {
   });
 
   it("rebuilds a rejected anonymous proof only once its first-contact root left an unpaused tree's slot", async () => {
-    const anchor = { tree: treeAddress(0), rootIndex: ANCHOR_ROOT_INDEX, root: ANCHOR_ROOT };
+    const root = new Uint8Array(32).fill(0x71) as Bytes32;
+    const anchor = { tree: treeAddress(0), rootIndex: ANCHOR_ROOT_INDEX, root };
     const paused = anchorTreeAccount(new Uint8Array(32).fill(0x73) as Bytes32);
     paused.data[1] = TREE_STATE_PAUSED;
     for (const [account, attempts] of [
       [anchorTreeAccount(new Uint8Array(32).fill(0x73) as Bytes32), 3],
-      [anchorTreeAccount(ANCHOR_ROOT), 1],
+      [anchorTreeAccount(root), 1],
       [paused, 1],
     ] as const) {
       const f = await fixture();

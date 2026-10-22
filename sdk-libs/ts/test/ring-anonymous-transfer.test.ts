@@ -90,8 +90,6 @@ import { ringAddressOf } from "../src/wallet/anonymous-sync.js";
 import { BLOCKHASH } from "./helpers/clients.js";
 
 import {
-  ANCHOR_PATH,
-  ANCHOR_ROOT,
   ANCHOR_ROOT_INDEX,
   TREE,
   anchorTreeAccount,
@@ -302,7 +300,8 @@ describe("anonymous ring payment", () => {
       expect(payment.tag).toEqual(pairTag(pairKey(contact.slotSecret), EPOCH, tagIndex(0)));
       expect(data.anchor).toEqual({ tree: anchorSlot, rootIndex: ANCHOR_ROOT_INDEX });
       const tree = treeAddress(treeId);
-      expect(proven.anchor).toEqual({ tree, rootIndex: ANCHOR_ROOT_INDEX, root: ANCHOR_ROOT });
+      const anchored = fixture.anchorTree(tree);
+      expect(proven.anchor).toEqual({ tree, rootIndex: ANCHOR_ROOT_INDEX, root: anchored.root });
       await checkAccounts(instruction, {
         fixture,
         data,
@@ -317,7 +316,7 @@ describe("anonymous ring payment", () => {
       checkAudit(fixture, data, {
         kind: "anonymousAudit",
         epoch: EPOCH,
-        firstContactRoot: ANCHOR_ROOT,
+        firstContactRoot: anchored.root,
       });
       checkDisclosure(fixture, call, data, sender.keypair.shieldedAddress());
       const { audit } = anonymousAudit(fixture);
@@ -325,7 +324,7 @@ describe("anonymous ring payment", () => {
         treeId: treeIdField(treeId),
         slotSecret: contact.slotSecret,
         pathIndex: 40n,
-        path: ANCHOR_PATH,
+        path: anchored.path(40),
       });
       expect(audit.outputs[1]?.stream).toMatchObject({ pair: true, inbox: false, index: 0 });
       // A pair payment opens no new first contact.
@@ -349,12 +348,37 @@ describe("anonymous ring payment", () => {
     noProofs(fixture);
   });
 
+  it("refuses a first contact path that does not reach its root before any proof", async () => {
+    const fixture = await anonymousRing();
+    const sender = anonymousSender();
+    const to = await addressOf(fixture, ShieldedKeypair.generate());
+    const { state, contact } = pairedSender(fixture, to, 5);
+    const served = fixture.client.getMerkleProofs;
+    fixture.client.getMerkleProofs = async (tree, leaves) => {
+      const response = await served(tree, leaves);
+      return {
+        ...response,
+        proofs: response.proofs.map((proof) =>
+          Buffer.from(proof.leaf).equals(Buffer.from(contact.utxoHash))
+            ? { ...proof, path: proof.path.map((node, at) => (at === 3 ? small(0x7f) : node)) }
+            : proof,
+        ),
+      };
+    };
+    await expect(
+      rail({ fixture, sender, transfer: spend(fixture, sender), state })
+        .withPayment({ to, asset: SOL_MINT, amount: 400n })
+        .prove(fixture.client),
+    ).rejects.toThrow(ringError("RING_ANCHOR_INVALID", { reason: "path" }));
+    noProofs(fixture);
+  });
+
   it("refuses a first contact on a paused tree before any proof", async () => {
     const fixture = await anonymousRing();
     const sender = anonymousSender();
     const to = await addressOf(fixture, ShieldedKeypair.generate());
     const { state } = pairedSender(fixture, to, 5);
-    const paused = anchorTreeAccount(ANCHOR_ROOT);
+    const paused = anchorTreeAccount(fixture.anchorTree(treeAddress(5)).root);
     paused.data[1] = TREE_STATE_PAUSED;
     fixture.accounts.set(treeAddress(5), paused);
     await expect(

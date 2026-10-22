@@ -19,6 +19,7 @@ import {
 } from "../src/transaction/index.js";
 import { intentHash, type TransactionIntent } from "../src/transaction/wallet/intent.js";
 import { BLOCKHASH } from "./helpers/clients.js";
+import { stateTree } from "./helpers/state-tree.js";
 import { proofFor } from "./helpers/proofs.js";
 
 const TREE = treeAddress(0);
@@ -92,13 +93,14 @@ function dataTransfer() {
     blindingSeed: seed,
     outputTreeId: 0,
   });
+  const state = stateTree([input.hash()]);
   const spendProof: SpendProof = {
     state: {
       leaf: input.hash(),
       merkleContext: { treeType: 0, tree: TREE },
-      path: Array.from({ length: 32 }, () => bytes(0)),
+      path: state.path(0),
       leafIndex: 0n,
-      root: bytes(3),
+      root: state.root,
       rootSeq: 1n,
       rootIndex: 4,
     },

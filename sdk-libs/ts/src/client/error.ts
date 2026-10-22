@@ -34,6 +34,7 @@ export const CANONICAL_CLIENT_ERROR_CODES = Object.freeze([
   "CLIENT_INCOMPLETE_INPUT_PROOFS",
   "CLIENT_STATE_PROOF_LEAF_MISMATCH",
   "CLIENT_STATE_PROOF_TREE_MISMATCH",
+  "CLIENT_STATE_PROOF_ROOT_MISMATCH",
   "CLIENT_NULLIFIER_PROOF_LEAF_MISMATCH",
   "CLIENT_NULLIFIER_PROOF_TREE_MISMATCH",
   "CLIENT_MISSING_OUTPUT",
@@ -104,6 +105,7 @@ export interface ClientErrorDetailsMap {
   }>;
   readonly CLIENT_STATE_PROOF_LEAF_MISMATCH: IndexDetails;
   readonly CLIENT_STATE_PROOF_TREE_MISMATCH: IndexDetails;
+  readonly CLIENT_STATE_PROOF_ROOT_MISMATCH: IndexDetails;
   readonly CLIENT_NULLIFIER_PROOF_LEAF_MISMATCH: IndexDetails;
   readonly CLIENT_NULLIFIER_PROOF_TREE_MISMATCH: IndexDetails;
   readonly CLIENT_MISSING_OUTPUT: NoDetails;
@@ -419,6 +421,7 @@ const DETAIL_SHAPES: Partial<Readonly<Record<ClientErrorCode, DetailShape>>> = {
   CLIENT_INCOMPLETE_INPUT_PROOFS: { expected: "number", state: "number", nullifier: "number" },
   CLIENT_STATE_PROOF_LEAF_MISMATCH: { index: "number" },
   CLIENT_STATE_PROOF_TREE_MISMATCH: { index: "number" },
+  CLIENT_STATE_PROOF_ROOT_MISMATCH: { index: "number" },
   CLIENT_NULLIFIER_PROOF_LEAF_MISMATCH: { index: "number" },
   CLIENT_NULLIFIER_PROOF_TREE_MISMATCH: { index: "number" },
   CLIENT_RPC: { method: "string", reason: "string" },

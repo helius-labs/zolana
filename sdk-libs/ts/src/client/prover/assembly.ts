@@ -78,7 +78,7 @@ import {
   rightHashChain,
   rightHashChain4,
 } from "../internal.js";
-import type { NonInclusionProof, SpendProof } from "../rpc.js";
+import type { MerkleProof, NonInclusionProof, SpendProof } from "../rpc.js";
 import type { RingSlotOpening } from "./ring.js";
 import type {
   AnonymousEddsaAuthorization,
@@ -1721,6 +1721,8 @@ export function validateSpendProof(input: ProofInputUtxo, proof: SpendProof, ind
       },
     });
   }
+  if (!stateProofReachesRoot(proof.state))
+    throw new ClientError("CLIENT_STATE_PROOF_ROOT_MISMATCH", { details: { index } });
   if (proof.nullifier.path.length !== NULLIFIER_TREE_HEIGHT) {
     throw new ClientError("CLIENT_PROOF_PATH_LENGTH", {
       details: {
@@ -1731,6 +1733,22 @@ export function validateSpendProof(input: ProofInputUtxo, proof: SpendProof, ind
       },
     });
   }
+}
+
+/** Rust `MerkleProof::path_root`, bit `i` of the leaf index puts the node right of sibling `i`. */
+export function stateProofReachesRoot(proof: MerkleProof): boolean {
+  // A bit past the path would give one path a second leaf index.
+  if (proof.leafIndex >> BigInt(STATE_TREE_HEIGHT) !== 0n) return false;
+  const [leaf = 0n, ...siblings] = [proof.leaf, ...proof.path].map(bytesToBigInt);
+  // Poseidon takes no value outside the field, such a path reaches no root.
+  if ([leaf, ...siblings].some((value) => value >= BN254_MODULUS)) return false;
+  let node = leaf;
+  let position = proof.leafIndex;
+  for (const sibling of siblings) {
+    node = (position & 1n) === 0n ? poseidon([node, sibling]) : poseidon([sibling, node]);
+    position >>= 1n;
+  }
+  return node === bytesToBigInt(proof.root);
 }
 
 function validateNullifierProof(

@@ -1,5 +1,5 @@
 import { prepareMerge } from "./prover/merge.js";
-import { prepareTransfer, checkedTransferCache } from "./prover/assembly.js";
+import { prepareTransfer, checkedTransferCache, stateProofReachesRoot } from "./prover/assembly.js";
 import { checkedContextSlot, proveThroughAuthority } from "./prover/indexed.js";
 import {
   assertIsAddress,
@@ -13,6 +13,7 @@ import {
 } from "@solana/kit";
 
 import { ZolanaApi } from "../api/index.js";
+import { initializePoseidon } from "../hasher/index.js";
 import { resolveClientEndpoints } from "../endpoint.js";
 import {
   mergeTransactInstruction,
@@ -678,6 +679,8 @@ export class ZolanaClient
         context,
       ),
     ]);
+    // The paired check hashes every state path to its root.
+    await initializePoseidon();
     return this.#pairSpendProofs(commitments, state.proofs, nullifier.proofs);
   }
 
@@ -721,6 +724,7 @@ export class ZolanaClient
             context,
           ),
         ]);
+        await initializePoseidon();
         const paired = this.#pairSpendProofs(
           spent,
           state.proofs,
@@ -799,6 +803,11 @@ export class ZolanaClient
         }
         if (stateProof.merkleContext.tree !== tree) {
           throw new ClientError("CLIENT_STATE_PROOF_TREE_MISMATCH", {
+            details: { index },
+          });
+        }
+        if (!stateProofReachesRoot(stateProof)) {
+          throw new ClientError("CLIENT_STATE_PROOF_ROOT_MISMATCH", {
             details: { index },
           });
         }
