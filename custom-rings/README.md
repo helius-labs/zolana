@@ -1,7 +1,5 @@
 # Custom rings
 
-No audit report is checked in.
-
 A custom ring is a Solana program that governs a group of SPP notes, the notes
 whose ring program id is its own. Every transfer, deposit and merge of those
 notes passes through the ring program. The program verifies the ring's proofs

@@ -33,7 +33,7 @@ The **payer** is the SPP payer account, and it signs the transaction. Among
 the SPP accounts the ring program accepts no other signer. Nothing on chain
 checks the transaction's Solana fee payer against the hidden owner. The
 TypeScript builders make the SPP payer the Solana fee payer, and Rust's
-`RingSubmission` does not check the fee payer of an anonymous transfer.
+`RingSubmission` refuses a fee payer that is the hidden owner.
 
 The **indexer** serves outputs by exact tag, spends by nullifier and Merkle
 paths by leaf. It sees which tags, nullifiers and leaves a wallet asks for, and
