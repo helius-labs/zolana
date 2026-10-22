@@ -26,7 +26,7 @@ describe("shared constants vector", () => {
     expect(MAX_SPEND_INPUTS).toBe(vector.maxSpendInputs);
   });
 
-  it("defines each tree height in one module", () => {
+  it("defines each shared constant in one module", () => {
     const definitions = (name: string) =>
       [...sourceTexts()]
         .filter(([, source]) => new RegExp(`const ${name} =`, "u").test(source))
@@ -34,5 +34,8 @@ describe("shared constants vector", () => {
     expect(definitions("STATE_HEIGHT")).toEqual(["interface/state.ts"]);
     expect(definitions("NULLIFIER_TREE_HEIGHT")).toEqual(["interface/state.ts"]);
     expect(definitions("STATE_TREE_HEIGHT")).toEqual([]);
+    // The transaction subpath names the same constant `VIEW_TAG_LEN`.
+    expect(definitions("VIEW_TAG_LENGTH")).toEqual(["keypair/constants.ts"]);
+    expect(definitions("VIEW_TAG_LEN")).toEqual([]);
   });
 });
