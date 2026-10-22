@@ -46,9 +46,9 @@ fn temp_dir(label: &str) -> PathBuf {
 
 #[test]
 fn hex_must_be_exactly_64_lowercase_digits() {
-    assert_eq!(*read_hex32(SECRET).expect("hex"), [1; 32]);
+    assert_eq!(*decode_key32(SECRET).expect("hex"), [1; 32]);
     for text in ["abcd", &"zz".repeat(32), &"AA".repeat(32), &"a".repeat(65)] {
-        assert!(matches!(read_hex32(text), Err(SecretFileError::Hex)));
+        assert!(matches!(decode_key32(text), Err(SecretFileError::Hex)));
     }
 }
 
@@ -57,16 +57,27 @@ fn a_pair_round_trips_and_is_never_overwritten() {
     let dir = temp_dir("pair");
     let secret = dir.join("nested/auditor.key");
     let public = dir.join("nested/auditor.key.pub");
-    create_pair((&secret, SECRET.as_bytes()), (&public, b"02ab")).expect("pair");
+    KeyPairFiles {
+        secret_path: &secret,
+        secret: SECRET.as_bytes(),
+        public_path: &public,
+        public: b"02ab",
+    }
+    .create()
+    .expect("pair");
     assert_eq!(
-        read_private(&secret, Access::OwnerOnly, 64)
-            .expect("secret")
-            .as_str(),
-        SECRET
+        *read_key32(&secret, Access::OwnerOnly).expect("secret"),
+        [1; 32]
     );
     assert_eq!(fs::read_to_string(&public).expect("public"), "02ab");
     assert!(matches!(
-        create_pair((&secret, b"other"), (&dir.join("other.pub"), b"other")),
+        KeyPairFiles {
+            secret_path: &secret,
+            secret: b"other",
+            public_path: &dir.join("other.pub"),
+            public: b"other",
+        }
+        .create(),
         Err(SecretFileError::Write { .. })
     ));
     assert!(matches!(
@@ -179,10 +190,35 @@ fn a_symlinked_public_path_leaves_no_secret() {
     fs::write(&target, "unchanged").expect("target");
     std::os::unix::fs::symlink(&target, &public).expect("symlink");
     assert!(matches!(
-        create_pair((&secret, SECRET.as_bytes()), (&public, b"02ab")),
+        KeyPairFiles {
+            secret_path: &secret,
+            secret: SECRET.as_bytes(),
+            public_path: &public,
+            public: b"02ab",
+        }
+        .create(),
         Err(SecretFileError::Write { .. })
     ));
     assert!(!secret.exists());
     assert_eq!(fs::read_to_string(target).expect("target"), "unchanged");
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_fifo_is_refused_without_waiting_for_a_writer() {
+    use std::{ffi::CString, os::unix::ffi::OsStrExt, sync::mpsc, thread, time::Duration};
+    let dir = temp_dir("fifo");
+    let fifo = dir.join("root.key");
+    let name = CString::new(fifo.as_os_str().as_bytes()).expect("path");
+    // SAFETY: name is a NUL-terminated path that outlives the call.
+    assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+    let (sent, read) = mpsc::channel();
+    let path = fifo.clone();
+    thread::spawn(move || sent.send(read_key32(&path, Access::OwnerOnly)));
+    assert!(matches!(
+        read.recv_timeout(Duration::from_secs(5)),
+        Ok(Err(SecretFileError::NotRegular { .. }))
+    ));
     fs::remove_dir_all(dir).expect("cleanup");
 }

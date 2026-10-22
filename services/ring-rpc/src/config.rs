@@ -10,13 +10,9 @@ use rand::RngCore;
 use solana_address::Address;
 use thiserror::Error;
 use zeroize::Zeroizing;
-use zolana_secret_file::{
-    create_new, read_hex32, read_private, Access, SecretFileError, Visibility,
-};
+use zolana_secret_file::{create_new, read_key32, Access, SecretFileError, Visibility};
 
 use crate::{origins::OriginTransport, server::BindPolicy};
-
-const KEY_HEX_LEN: u64 = 64;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -168,7 +164,7 @@ impl RootSecret {
 }
 
 pub fn read_root_secret(path: &Path, access: Access) -> Result<RootSecret, RootSecretError> {
-    RootSecret::from_bytes(*read_hex32(&read_private(path, access, KEY_HEX_LEN)?)?)
+    RootSecret::from_bytes(*read_key32(path, access)?)
 }
 
 pub fn write_root_secret(out: &Path) -> Result<(), RootSecretError> {

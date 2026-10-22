@@ -1,5 +1,4 @@
-//! Key files are created once and never overwritten. A read refuses a link,
-//! a special file, and with [`Access::OwnerOnly`] a file anyone else can open.
+//! Key files are never overwritten, and a read takes only a regular file, owner-only unless [`Access::Shared`].
 
 use std::{
     fs::{self, File, Metadata, OpenOptions},
@@ -10,6 +9,8 @@ use std::{
 
 use thiserror::Error;
 use zeroize::Zeroizing;
+
+const KEY_HEX_LEN: u64 = 64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Access {
@@ -37,14 +38,23 @@ pub enum SecretFileError {
     Shared { path: PathBuf, mode: u32 },
     #[error("{path} is longer than {max} bytes")]
     TooLong { path: PathBuf, max: u64 },
-    #[error("access to {path} cannot be verified on this platform")]
+    #[error("owner-only access to {path} needs unix")]
     AccessCheckUnavailable { path: PathBuf },
     #[error("key text is not 64 lowercase hex characters")]
     Hex,
 }
 
+/// Neither new file remains when either cannot be written.
+#[must_use]
+pub struct KeyPairFiles<'a> {
+    pub secret_path: &'a Path,
+    pub secret: &'a [u8],
+    pub public_path: &'a Path,
+    pub public: &'a [u8],
+}
+
 impl Visibility {
-    #[cfg_attr(not(unix), allow(dead_code))]
+    #[cfg(unix)]
     const fn mode(self) -> u32 {
         match self {
             Self::Secret => 0o600,
@@ -53,12 +63,27 @@ impl Visibility {
     }
 }
 
-/// Creates the parent directories. A failed write leaves no file behind.
+impl KeyPairFiles<'_> {
+    pub fn create(self) -> Result<(), SecretFileError> {
+        create_new(self.secret_path, self.secret, Visibility::Secret)?;
+        create_new(self.public_path, self.public, Visibility::Public).inspect_err(|_| {
+            let _ = fs::remove_file(self.secret_path);
+        })
+    }
+}
+
+/// Creates missing parents, a failed write leaves no file behind.
 pub fn create_new(
     path: &Path,
     bytes: &[u8],
     visibility: Visibility,
 ) -> Result<(), SecretFileError> {
+    #[cfg(not(unix))]
+    if visibility == Visibility::Secret {
+        return Err(SecretFileError::AccessCheckUnavailable {
+            path: path.to_path_buf(),
+        });
+    }
     let failed = |source| SecretFileError::Write {
         path: path.to_path_buf(),
         source,
@@ -71,9 +96,13 @@ pub fn create_new(
     }
     let mut options = OpenOptions::new();
     options.write(true).create_new(true);
-    no_follow(&mut options);
     #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, visibility.mode());
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options
+            .custom_flags(libc::O_NOFOLLOW)
+            .mode(visibility.mode());
+    }
     let mut file = options.open(path).map_err(failed)?;
     if let Err(source) = persist(&mut file, bytes, visibility) {
         drop(file);
@@ -83,15 +112,12 @@ pub fn create_new(
     Ok(())
 }
 
-/// Neither file remains when either cannot be written.
-pub fn create_pair(secret: (&Path, &[u8]), public: (&Path, &[u8])) -> Result<(), SecretFileError> {
-    create_new(secret.0, secret.1, Visibility::Secret)?;
-    create_new(public.0, public.1, Visibility::Public).inspect_err(|_| {
-        let _ = fs::remove_file(secret.0);
-    })
+/// Lowercase hex of a 32-byte key.
+pub fn read_key32(path: &Path, access: Access) -> Result<Zeroizing<[u8; 32]>, SecretFileError> {
+    decode_key32(&read_private(path, access, KEY_HEX_LEN)?)
 }
 
-pub fn read_private(
+fn read_private(
     path: &Path,
     access: Access,
     max_len: u64,
@@ -102,7 +128,12 @@ pub fn read_private(
     };
     let mut options = OpenOptions::new();
     options.read(true);
-    no_follow(&mut options);
+    // A FIFO opens at once and fails the type check.
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::custom_flags(
+        &mut options,
+        libc::O_NOFOLLOW | libc::O_NONBLOCK,
+    );
     let mut file = options.open(path).map_err(failed)?;
     let metadata = file.metadata().map_err(failed)?;
     if !metadata.is_file() {
@@ -127,8 +158,8 @@ pub fn read_private(
         })
 }
 
-pub fn read_hex32(text: &str) -> Result<Zeroizing<[u8; 32]>, SecretFileError> {
-    if text.len() != 64
+fn decode_key32(text: &str) -> Result<Zeroizing<[u8; 32]>, SecretFileError> {
+    if text.len() as u64 != KEY_HEX_LEN
         || !text
             .bytes()
             .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
@@ -141,7 +172,7 @@ pub fn read_hex32(text: &str) -> Result<Zeroizing<[u8; 32]>, SecretFileError> {
 }
 
 fn persist(file: &mut File, bytes: &[u8], visibility: Visibility) -> io::Result<()> {
-    // The umask must not loosen or tighten the mode.
+    // The umask must not tighten the mode.
     #[cfg(unix)]
     file.set_permissions(std::os::unix::fs::PermissionsExt::from_mode(
         visibility.mode(),
@@ -204,14 +235,6 @@ fn check_access(path: &Path, _metadata: &Metadata, access: Access) -> Result<(),
         }),
     }
 }
-
-#[cfg(unix)]
-fn no_follow(options: &mut OpenOptions) {
-    std::os::unix::fs::OpenOptionsExt::custom_flags(options, libc::O_NOFOLLOW);
-}
-
-#[cfg(not(unix))]
-fn no_follow(_options: &mut OpenOptions) {}
 
 #[cfg(test)]
 mod tests;

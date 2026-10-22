@@ -21,7 +21,7 @@ use zolana_indexer_api::{
 use zolana_interface::{state::RingConfig, RING_AUTH_PDA_SEED, SHIELDED_POOL_PROGRAM_ID};
 use zolana_keypair::{KeypairError, X25519Keypair, X25519Pubkey};
 use zolana_secret_file::{
-    create_new, create_pair, read_hex32, read_private, Access, SecretFileError, Visibility,
+    create_new, read_key32, Access, KeyPairFiles, SecretFileError, Visibility,
 };
 
 use crate::{
@@ -43,7 +43,6 @@ pub const AUDIT_CURSOR_LIMIT: usize = 256;
 pub const AUDIT_PAGE_LIMIT: u64 = 100;
 pub const DEPOSITS_PAGE_LIMIT: u32 = 50;
 pub const MAX_DEPOSITS_PAGE_LIMIT: u32 = 200;
-const KEY_HEX_LEN: u64 = 64;
 const ATTESTATION_DOMAIN: &[u8] = b"zolana/ring-auditor-key/v2";
 const READ_DOMAIN: &str = "zolana/ring-rpc-read/v2";
 const AUDITOR_KEY_REQUEST_DOMAIN: &str = "zolana/ring-rpc-auditor-key-request/v1";
@@ -1321,7 +1320,7 @@ pub fn unix_now() -> Result<u64, RequestBuildError> {
 
 /// Lowercase hex, with the public key beside it in `<file>.pub`.
 pub fn read_auditor_key(path: &Path, access: Access) -> Result<X25519Keypair, KeyFileError> {
-    let secret = read_hex32(&read_private(path, access, KEY_HEX_LEN)?)?;
+    let secret = read_key32(path, access)?;
     auditor_keypair(&secret)
 }
 
@@ -1333,13 +1332,19 @@ pub fn auditor_keypair(secret: &[u8; 32]) -> Result<X25519Keypair, KeyFileError>
     Ok(X25519Keypair::from_bytes(secret))
 }
 
-/// Neither file remains when either cannot be written.
+/// Neither new file remains when either cannot be written.
 pub fn write_auditor_key(out: &Path) -> Result<X25519Keypair, KeyFileError> {
     let public_path = public_key_path(out)?;
     let key = X25519Keypair::new();
     let secret = Zeroizing::new(hex::encode(*key.secret_bytes()));
     let public = hex::encode(key.pubkey().as_bytes());
-    create_pair((out, secret.as_bytes()), (&public_path, public.as_bytes()))?;
+    KeyPairFiles {
+        secret_path: out,
+        secret: secret.as_bytes(),
+        public_path: &public_path,
+        public: public.as_bytes(),
+    }
+    .create()?;
     Ok(key)
 }
 
