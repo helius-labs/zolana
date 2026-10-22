@@ -374,11 +374,15 @@ export interface RingRpcOptions {
   readonly fetch?: typeof globalThis.fetch;
   /** Even loopback needs it for plain HTTP. */
   readonly allowInsecureHttp?: boolean;
-  /** Sent to a Helius gateway on every call. Refused when the URL already carries a key. */
+  /** Gateway API key. Supply it here or in the URL's `api-key` query parameter, never both. */
   readonly apiKey?: string;
 }
 
-/** Posts each method under its own path, where a gateway routes and meters it. */
+/**
+ * Ring RPC over HTTPS. Pass a service base URL, such as `https://host/v1/zolana/ring`;
+ * each call appends its method name. API keys are omitted from {@link RingRpc.url}.
+ * Signed reader and authority requests still require their own authorization.
+ */
 export class RingRpc {
   readonly #url: URL;
   readonly #apiKey?: string;

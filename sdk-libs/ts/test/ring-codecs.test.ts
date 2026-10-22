@@ -1126,6 +1126,21 @@ describe("ring rpc gateway", () => {
     );
   });
 
+  it("removes an encoded URL key without rewriting the other query parameters", async () => {
+    const { calls, fetch } = recording();
+    const endpoint = new URL("https://gateway.example/ring?flag&api%2Dkey=k%2B1&x=a%20b&y=~");
+    const original = endpoint.href;
+    const rpc = new RingRpc(endpoint, { fetch });
+
+    await rpc.health();
+
+    expect(endpoint.href).toBe(original);
+    expect(rpc.url).toBe("https://gateway.example/ring?flag&x=a%20b&y=~");
+    expect(calls[0]?.url.href).toBe(
+      "https://gateway.example/ring/health?flag&x=a%20b&y=~&api-key=k%2B1",
+    );
+  });
+
   it.each([
     ["https://gateway.example?api-key=leak1&api-key=leak2", undefined],
     ["https://gateway.example?api-key=leak1", "leak2"],

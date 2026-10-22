@@ -67,27 +67,44 @@ export function checkedApiKey(
   apiKey: unknown,
 ): Readonly<{ endpoint: URL; apiKey?: string }> {
   const invalid = (message: string) => new TransportFailure("config", message, { field: "apiKey" });
-  const queryKeys = endpoint.searchParams.getAll("api-key");
+  // Keep raw pairs so removing a key does not normalize unrelated parameters.
+  const pairs = endpoint.search.slice(1).split("&");
+  const queryKeys = pairs.filter((pair) => new URLSearchParams(`?${pair}`).has("api-key"));
   if (queryKeys.length > 1) throw invalid("endpoint URL contains duplicate API keys");
   if (apiKey !== undefined && typeof apiKey !== "string") throw invalid("API key is invalid");
   if (apiKey !== undefined && queryKeys.length !== 0) {
     throw invalid("API key must have one source");
   }
-  const key = apiKey ?? queryKeys[0];
+  const queryKey = queryKeys[0];
+  let key = apiKey;
+  if (queryKey !== undefined) {
+    const separator = queryKey.indexOf("=");
+    const encoded = separator === -1 ? "" : queryKey.slice(separator + 1);
+    try {
+      // URLSearchParams replaces malformed UTF-8; credentials must decode exactly.
+      key = decodeURIComponent(encoded.replace(/\+/gu, " "));
+    } catch {
+      throw invalid("API key is invalid");
+    }
+  }
   if (key === undefined) return { endpoint };
-  if (key.length === 0 || key.length > MAX_API_KEY_LENGTH || hasControlCharacter(key)) {
+  if (
+    key.length === 0 ||
+    key.length > MAX_API_KEY_LENGTH ||
+    !key.isWellFormed() ||
+    hasControlCharacter(key)
+  ) {
     throw invalid("API key is invalid");
   }
-  // Deleting re-serializes the whole query, so only an endpoint that carried the key pays for it.
-  if (queryKeys.length === 0) return { endpoint, apiKey: key };
+  if (queryKey === undefined) return { endpoint, apiKey: key };
   const stripped = new URL(endpoint.href);
-  stripped.searchParams.delete("api-key");
+  stripped.search = pairs.filter((pair) => pair !== queryKey).join("&");
   return { endpoint: stripped, apiKey: key };
 }
 
 /**
  * A gateway routes and meters by path, so each JSON-RPC method is posted under its own name.
- * A plain JSON-RPC server dispatches on the body and answers on any path.
+ * The server must check path/body agreement before dispatching a metered request.
  */
 export function methodUrl(endpoint: URL, method: string, apiKey: string | undefined): URL {
   const url = new URL(endpoint.href);

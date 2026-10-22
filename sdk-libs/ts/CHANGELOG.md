@@ -670,6 +670,9 @@ Added
 
 Fixed
 
+- `RingRpc` and `ZolanaApi` reject malformed Unicode API keys during
+  construction and preserve unrelated query parameters when extracting a
+  key from the URL.
 - `buildRingTransferTransaction` bound output commitments to the wrong tree on
   a client with a nonzero tree id, each output now commits to the selected
   destination tree.

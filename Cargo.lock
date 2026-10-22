@@ -13304,6 +13304,7 @@ dependencies = [
  "custom-ring-interface",
  "hex",
  "hkdf",
+ "http-body-util",
  "hyper 1.11.1",
  "jsonrpsee",
  "libc",
