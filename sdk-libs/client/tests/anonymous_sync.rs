@@ -266,7 +266,10 @@ impl AsyncRpc for Indexer {
         _limit: Option<u32>,
         _config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
-        self.nullifier_requests.lock().unwrap().push(nullifiers.clone());
+        self.nullifier_requests
+            .lock()
+            .unwrap()
+            .push(nullifiers.clone());
         let transactions = self.transactions.lock().unwrap();
         Ok(GetShieldedTransactionsByNullifiersResponse {
             context: self.context(),
@@ -1003,7 +1006,11 @@ async fn sixty_four_used_inbox_tags_refuse_no_payment() {
     assert_eq!(allocated.stream, PaymentStream::Inbox);
     assert_eq!(
         allocated.tag,
-        inbox_tag(address_key(&fixture.recipient, 0), CREATION, allocated.index.get())
+        inbox_tag(
+            address_key(&fixture.recipient, 0),
+            CREATION,
+            allocated.index.get()
+        )
     );
 }
 
@@ -1247,7 +1254,11 @@ fn held(utxo_hash: [u8; 32], nullifier: [u8; 32], ring: Option<Address>) -> Wall
     }
 }
 
-fn inbox_stream(wallet: &ShieldedKeypair, index: u32, epochs: RangeInclusive<u64>) -> Vec<[u8; 32]> {
+fn inbox_stream(
+    wallet: &ShieldedKeypair,
+    index: u32,
+    epochs: RangeInclusive<u64>,
+) -> Vec<[u8; 32]> {
     let key = address_key(wallet, index);
     epochs
         .flat_map(|epoch| (0..J_INBOX).map(move |j| inbox_tag(key, epoch, j).field()))
@@ -1255,7 +1266,13 @@ fn inbox_stream(wallet: &ShieldedKeypair, index: u32, epochs: RangeInclusive<u64
 }
 
 fn tags_asked(indexer: &Indexer) -> usize {
-    indexer.tag_requests.lock().unwrap().iter().map(Vec::len).sum()
+    indexer
+        .tag_requests
+        .lock()
+        .unwrap()
+        .iter()
+        .map(Vec::len)
+        .sum()
 }
 
 fn held_signatures(scan: &zolana_client::AnonymousRingScan) -> Vec<Signature> {
@@ -1602,9 +1619,8 @@ async fn dust_first_contacts_stop_costing_tags_once_idle() {
 async fn a_paid_pair_outlives_the_idle_window_of_its_first_contact() {
     let fixture = Fixture::new();
     let first = fixture.inbox_payment(&fixture.sender, CREATION, 0, 70, 10);
-    let kept = [6, 12].map(|after| {
-        fixture.pair_payment(&first.slot_secret, CREATION + after, 5, 20 + after)
-    });
+    let kept = [6, 12]
+        .map(|after| fixture.pair_payment(&first.slot_secret, CREATION + after, 5, 20 + after));
     let dead = fixture.pair_payment(&first.slot_secret, CREATION + 12 + PAIR_IDLE_EPOCHS, 5, 60);
     let assets = AssetRegistry::default();
     let scan = AnonymousRingSync::new(&fixture.recipient, &assets)
@@ -1618,7 +1634,10 @@ async fn a_paid_pair_outlives_the_idle_window_of_its_first_contact() {
     for paid in &kept {
         found(&scan, paid.utxo_hash);
     }
-    assert!(scan.utxos.iter().all(|utxo| utxo.utxo_hash != dead.utxo_hash));
+    assert!(scan
+        .utxos
+        .iter()
+        .all(|utxo| utxo.utxo_hash != dead.utxo_hash));
     assert!(scan.state.received().is_empty());
 }
 

@@ -30,8 +30,8 @@ pub mod tags;
 pub mod user_registry;
 
 pub use anonymous::{
-    audit_capsule_payload, AnonymousRingUtxo, AnonymousRingScan, AnonymousRingState,
-    AnonymousRingSync, AnonymousStream, DecoyLeaf, IssuedAddress, PaymentStream, PaymentTag,
+    audit_capsule_payload, AnonymousRingScan, AnonymousRingState, AnonymousRingSync,
+    AnonymousRingUtxo, AnonymousStream, DecoyLeaf, IssuedAddress, PaymentStream, PaymentTag,
     ReceivedAnchor, SentFirstContact, TagAllocation, ADDRESS_GAP, ANONYMOUS_RING_STATE_VERSION,
     DECOYS_PER_TREE, DEPOSIT_GAP, MAX_FETCH_EPOCHS, MAX_ISSUED_ADDRESSES, PAIR_IDLE_EPOCHS,
 };

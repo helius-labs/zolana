@@ -379,7 +379,9 @@ fn auditor_key_is_released_only_to_the_ring_authority() -> Result<()> {
         CreateAuditorKeyRequest::for_ring(ring_program, genesis).sign(authority)
     };
     let authorize = |request: &CreateAuditorKeyRequest| {
-        runtime.block_on(service.auditor_key_statement(&request.auth)).map(drop)
+        runtime
+            .block_on(service.auditor_key_statement(&request.auth))
+            .map(drop)
     };
     let expect_refusal = |result: Result<(), RingRpcError>, expected: Unauthorized| match result {
         Err(RingRpcError::Unauthorized(reason)) if reason == expected => Ok(()),

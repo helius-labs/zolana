@@ -21,9 +21,8 @@ use zolana_keypair::{Pairing, PairingRow, RingAddress, X25519Pubkey};
 use zolana_ring_policy::ring_id_field;
 use zolana_transaction::{
     exactly_one, verify_owned, AssetRegistry, DecryptionResult, DepositPayload, EncryptedScheme,
-    OutputSlot, RingDeliveredCandidate, RingDeliveryContext, RingDeliveryRequest,
-    RingRecipientKey, ShieldedKeys, ShieldedTransaction, TransactionError, TransactionKeyRequest,
-    WalletUtxo,
+    OutputSlot, RingDeliveredCandidate, RingDeliveryContext, RingDeliveryRequest, RingRecipientKey,
+    ShieldedKeys, ShieldedTransaction, TransactionError, TransactionKeyRequest, WalletUtxo,
 };
 
 use crate::{
@@ -297,7 +296,11 @@ impl AnonymousRingState {
     /// A pair tag of a live first contact among the outputs of the wallet's own spend.
     fn note_pair_payment(&mut self, spend: &ShieldedTransaction) -> Result<(), ClientError> {
         let landed = tag_epoch(spend.slot);
-        let tags: HashSet<[u8; 32]> = spend.output_slots.iter().map(|slot| slot.view_tag).collect();
+        let tags: HashSet<[u8; 32]> = spend
+            .output_slots
+            .iter()
+            .map(|slot| slot.view_tag)
+            .collect();
         for sent in &mut self.sent {
             // A proof of epoch e lands in e, or flagged in e + 1.
             let epochs: Vec<u64> = [landed.saturating_sub(1), landed]
@@ -645,7 +648,11 @@ impl AddressStreams {
                     ));
                 }
             }
-            for pair in self.pairs.iter().filter(|pair| pair.epochs.contains(&epoch)) {
+            for pair in self
+                .pairs
+                .iter()
+                .filter(|pair| pair.epochs.contains(&epoch))
+            {
                 for index in TagIndex::all() {
                     epoch_sites.push((
                         pair.key.tag(epoch, index)?.field(),
@@ -1064,9 +1071,10 @@ impl<K: ShieldedKeys + ?Sized> Scan<'_, '_, K> {
             let Some(ring) = tx.output_slots.first().and_then(deposit_ring) else {
                 continue;
             };
-            let framing = tx.output_slots.iter_mut().try_for_each(|slot| {
-                slot.unwrap_ring_deposit(&ring, self.sync.deposit_payload)
-            });
+            let framing = tx
+                .output_slots
+                .iter_mut()
+                .try_for_each(|slot| slot.unwrap_ring_deposit(&ring, self.sync.deposit_payload));
             match framing {
                 Ok(()) if ring == self.state.ring => ours.push(tx.clone()),
                 Ok(()) => {}
@@ -1090,7 +1098,8 @@ impl<K: ShieldedKeys + ?Sized> Scan<'_, '_, K> {
             .iter()
             .flat_map(|tx| &tx.output_slots)
             .filter(|slot| {
-                owned.contains(&slot.output_context.hash) && !held.contains(&slot.output_context.hash)
+                owned.contains(&slot.output_context.hash)
+                    && !held.contains(&slot.output_context.hash)
             })
             .filter_map(|slot| Some((window.index_of(&slot.view_tag)?, slot.output_context.hash)))
             .collect();
@@ -1352,20 +1361,25 @@ impl AnonymousRingState {
             sent: self
                 .sent
                 .iter()
-                .map(|SentPair { contact, last_epoch }| ContactJson {
-                    recipient: hex::encode(contact.recipient.as_bytes()),
-                    tree_id: contact.tree_id,
-                    leaf_index: contact.leaf_index,
-                    utxo_hash: hex::encode(contact.utxo_hash),
-                    slot_secret: hex::encode(contact.slot_secret),
-                    first_nullifier: hex::encode(contact.first_nullifier),
-                    slot_index: contact.slot_index,
-                    epoch: contact.epoch,
-                    index: contact.index.get(),
-                    asset: contact.asset.to_string(),
-                    amount: contact.amount.to_string(),
-                    last_epoch: *last_epoch,
-                })
+                .map(
+                    |SentPair {
+                         contact,
+                         last_epoch,
+                     }| ContactJson {
+                        recipient: hex::encode(contact.recipient.as_bytes()),
+                        tree_id: contact.tree_id,
+                        leaf_index: contact.leaf_index,
+                        utxo_hash: hex::encode(contact.utxo_hash),
+                        slot_secret: hex::encode(contact.slot_secret),
+                        first_nullifier: hex::encode(contact.first_nullifier),
+                        slot_index: contact.slot_index,
+                        epoch: contact.epoch,
+                        index: contact.index.get(),
+                        asset: contact.asset.to_string(),
+                        amount: contact.amount.to_string(),
+                        last_epoch: *last_epoch,
+                    },
+                )
                 .collect(),
             deposit_next: self.deposit_next,
             decoys: self

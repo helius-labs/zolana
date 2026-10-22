@@ -1006,7 +1006,10 @@ mod tests {
     #[test]
     fn delegate_set_signs_with_the_delegate_keypair() {
         let parse = |args: &[&str]| {
-            let argv = ["zolana-ring", "delegate", "set"].iter().chain(args).copied();
+            let argv = ["zolana-ring", "delegate", "set"]
+                .iter()
+                .chain(args)
+                .copied();
             Cli::try_parse_from(argv).map(|cli| cli.command)
         };
         assert!(matches!(
