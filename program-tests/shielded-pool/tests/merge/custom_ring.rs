@@ -5,18 +5,20 @@
 //! ID, SPP registration and tree. This tests the real custom wrapper without
 //! needing an unrelated deposit proof in the merge fixture.
 
+use bytemuck::Zeroable;
 use custom_ring_interface::{
-    CustomRingError, CustomRingMergeIxData, MemberRegistryRoot, RingMode, RingProgramConfig,
-    MEMBER_REGISTRY_EMPTY_ROOT, MEMBER_REGISTRY_ROOT, MEMBER_REGISTRY_ROOT_HISTORY,
-    RING_PROGRAM_CONFIG,
+    CustomRingError, CustomRingMergeIxData, MemberRegistry, RingMode, RingProgramConfig,
+    MEMBER_REGISTRY_EMPTY_ROOT, RING_PROGRAM_CONFIG,
 };
 use custom_ring_sdk::{CustomRing, CustomRingMergeInstruction};
 use shielded_pool_tests::support::{
+    fixtures::Pool,
     merge::{RealRingMerge, RealRingMergeProof},
     transact::{proof_env, tree_progress},
 };
 use solana_account::Account;
 use solana_address::Address;
+use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::ComputeBudgetConfig;
@@ -26,104 +28,95 @@ use zolana_test_utils::nullifier_pda::assert_nullifier_pdas;
 
 const MERGE_CU_LIMIT: u32 = 1_400_000;
 
-fn account(owner: Pubkey, data: Vec<u8>) -> Account {
-    Account {
-        lamports: 1_000_000_000,
-        data,
-        owner,
-        executable: false,
-        rent_epoch: 0,
-    }
-}
-
-fn root_account(program: Pubkey, root: [u8; 32], next_index: u64) -> Account {
-    let (_, bump) = Pubkey::find_program_address(&[MemberRegistryRoot::SEED], &program);
-    let mut history = [[0; 32]; MEMBER_REGISTRY_ROOT_HISTORY];
-    history[0] = root;
-    let root = MemberRegistryRoot {
-        discriminator: MEMBER_REGISTRY_ROOT,
-        next_index: next_index.to_le_bytes(),
-        bump,
-        history_cursor: 0,
-        history,
-    };
-    account(program, bytemuck::bytes_of(&root).to_vec())
-}
-
-fn install_custom_ring(
-    pool: &mut shielded_pool_tests::support::fixtures::Pool,
-    merge: &RealRingMerge,
-) -> CustomRing {
-    let program = merge.ring_program_id;
-    let binary = std::fs::read(workspace_path("target/deploy/custom_ring_program.so"))
-        .expect("build the custom ring SBF program first");
-    pool.rpc
-        .svm
-        .add_program(program, &binary)
-        .expect("replace ring-test stub with custom ring program");
-    let ring = CustomRing::new(Address::new_from_array(program.to_bytes()));
-    let (_, bump) = Pubkey::find_program_address(&[RingProgramConfig::SEED], &program);
-    let auditor_pubkey: [u8; 33] =
-        hex::decode("04708c2645c705baaf44f2ab947574174f9280df58be6fc2f6f2e8881b78a3115a")
-            .expect("auditor public key")
-            .try_into()
-            .expect("tagged key length");
-    let config = RingProgramConfig {
-        discriminator: RING_PROGRAM_CONFIG,
-        authority: Address::new_from_array(pool.authority.pubkey().to_bytes()),
-        auditor_pubkey,
-        bump,
-        has_policy: 0,
-        mode: RingMode::Off as u8,
-    };
-    pool.rpc
-        .svm
-        .set_account(
-            Pubkey::new_from_array(*ring.config_pda().as_array()),
-            account(program, bytemuck::bytes_of(&config).to_vec()),
-        )
-        .expect("write custom ring config");
-    set_root(
-        pool,
-        ring,
-        root_account(program, merge.data.member_registry_root, 2),
-    );
-    ring
-}
-
-fn set_root(
-    pool: &mut shielded_pool_tests::support::fixtures::Pool,
+struct InstalledRing {
     ring: CustomRing,
-    root: Account,
-) {
-    pool.rpc
-        .svm
-        .set_account(
-            Pubkey::new_from_array(*ring.member_registry_root_pda().as_array()),
-            root,
-        )
-        .expect("write member registry root");
+    program: Pubkey,
 }
 
-fn instruction(
-    pool: &shielded_pool_tests::support::fixtures::Pool,
-    ring: CustomRing,
-    merge: &RealRingMerge,
-) -> solana_instruction::Instruction {
-    CustomRingMergeInstruction {
-        ring,
-        input_tree: Address::new_from_array(pool.tree.to_bytes()),
-        output_tree: Address::new_from_array(pool.tree.to_bytes()),
-        payer: Address::new_from_array(pool.rpc.payer.pubkey().to_bytes()),
-        cosigner: None,
-        data: CustomRingMergeIxData {
-            registry_root_index: 0,
-            output_ring_data_hash: merge.data.output_ring_data_hash,
-            disclosure: None,
-            merge: merge.data.merge.clone(),
-        },
+impl InstalledRing {
+    fn install(pool: &mut Pool, merge: &RealRingMerge) -> Self {
+        let program = merge.ring_program_id;
+        let binary = std::fs::read(workspace_path("target/deploy/custom_ring_program.so"))
+            .expect("build the custom ring SBF program first");
+        pool.rpc
+            .svm
+            .add_program(program, &binary)
+            .expect("replace ring-test stub with custom ring program");
+        let installed = Self {
+            ring: CustomRing::new(Address::new_from_array(program.to_bytes())),
+            program,
+        };
+        let (_, bump) = Pubkey::find_program_address(&[RingProgramConfig::SEED], &program);
+        let auditor_pubkey: [u8; 33] =
+            hex::decode("04708c2645c705baaf44f2ab947574174f9280df58be6fc2f6f2e8881b78a3115a")
+                .expect("auditor public key")
+                .try_into()
+                .expect("tagged key length");
+        let config = RingProgramConfig {
+            discriminator: RING_PROGRAM_CONFIG,
+            authority: Address::new_from_array(pool.authority.pubkey().to_bytes()),
+            auditor_pubkey,
+            bump,
+            mode: RingMode::Registry as u8,
+            ..Zeroable::zeroed()
+        };
+        installed.write(
+            pool,
+            installed.ring.config_pda(),
+            bytemuck::bytes_of(&config).to_vec(),
+        );
+        installed.set_registry(pool, installed.registry(merge.data.member_registry_root));
+        installed
     }
-    .instruction()
+
+    fn registry(&self, root: [u8; 32]) -> MemberRegistry {
+        let (_, bump) = Pubkey::find_program_address(&[MemberRegistry::SEED], &self.program);
+        let mut registry = MemberRegistry::new(bump, 0);
+        registry.history[0].root = root;
+        registry
+    }
+
+    fn set_registry(&self, pool: &mut Pool, registry: MemberRegistry) {
+        self.write(
+            pool,
+            self.ring.registry_pda(),
+            bytemuck::bytes_of(&registry).to_vec(),
+        );
+    }
+
+    fn write(&self, pool: &mut Pool, address: Address, data: Vec<u8>) {
+        pool.rpc
+            .svm
+            .set_account(
+                Pubkey::new_from_array(address.to_bytes()),
+                Account {
+                    lamports: 1_000_000_000,
+                    data,
+                    owner: self.program,
+                    executable: false,
+                    rent_epoch: 0,
+                },
+            )
+            .expect("write custom ring account");
+    }
+
+    fn merge_instruction(&self, pool: &Pool, merge: &RealRingMerge) -> Instruction {
+        CustomRingMergeInstruction {
+            ring: self.ring,
+            input_tree: Address::new_from_array(pool.tree.to_bytes()),
+            output_tree: Address::new_from_array(pool.tree.to_bytes()),
+            payer: Address::new_from_array(pool.rpc.payer.pubkey().to_bytes()),
+            co_signer: None,
+            data: CustomRingMergeIxData {
+                registry_root_index: 0,
+                output_ring_data_hash: merge.data.output_ring_data_hash,
+                disclosure: None,
+                merge: merge.data.merge.clone(),
+            },
+        }
+        .instruction()
+        .expect("custom ring merge instruction")
+    }
 }
 
 #[test]
@@ -134,56 +127,41 @@ fn registered_merge_rejects_bad_roots_then_settles_through_spp() {
         real_input_count: 1,
     }
     .build(&mut pool);
-    let ring = install_custom_ring(&mut pool, &merge);
-    let ix = instruction(&pool, ring, &merge);
+    let installed = InstalledRing::install(&mut pool, &merge);
+    let ix = installed.merge_instruction(&pool, &merge);
     let before = tree_progress(&pool.rpc, &pool.tree);
+    let send = |pool: &mut Pool| {
+        pool.rpc
+            .create_and_send_default_payer_transaction_with_budget(
+                std::slice::from_ref(&ix),
+                &[],
+                ComputeBudgetConfig::new(MERGE_CU_LIMIT),
+            )
+    };
 
-    // A missing history root cannot be supplied to the proof verifier.
-    set_root(
-        &mut pool,
-        ring,
-        root_account(merge.ring_program_id, [0; 32], 2),
-    );
-    let error = pool
-        .rpc
-        .create_and_send_default_payer_transaction_with_budget(
-            std::slice::from_ref(&ix),
-            &[],
-            ComputeBudgetConfig::new(MERGE_CU_LIMIT),
-        )
-        .expect_err("unwritten registry root must fail");
-    Rejection::custom(CustomRingError::StaleMemberRegistryRoot as u32).assert_litesvm(error);
+    installed.set_registry(&mut pool, installed.registry([0; 32]));
+    let error = send(&mut pool).expect_err("an empty history slot must fail");
+    Rejection::custom(CustomRingError::RootIndexEmpty as u32).assert_litesvm(error);
+    assert_eq!(tree_progress(&pool.rpc, &pool.tree), before);
+
+    let mut stale = installed.registry(merge.data.member_registry_root);
+    stale.floor = 1u64.to_le_bytes();
+    installed.set_registry(&mut pool, stale);
+    let error = send(&mut pool).expect_err("a root below the floor must fail");
+    Rejection::custom(CustomRingError::RootBelowFloor as u32).assert_litesvm(error);
     assert_eq!(tree_progress(&pool.rpc, &pool.tree), before);
 
     // The empty authenticated tree has no owner record for this proof.
-    set_root(
-        &mut pool,
-        ring,
-        root_account(merge.ring_program_id, MEMBER_REGISTRY_EMPTY_ROOT, 1),
-    );
-    let error = pool
-        .rpc
-        .create_and_send_default_payer_transaction_with_budget(
-            std::slice::from_ref(&ix),
-            &[],
-            ComputeBudgetConfig::new(MERGE_CU_LIMIT),
-        )
-        .expect_err("unregistered owner root must fail");
+    installed.set_registry(&mut pool, installed.registry(MEMBER_REGISTRY_EMPTY_ROOT));
+    let error = send(&mut pool).expect_err("unregistered owner root must fail");
     Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed).assert_litesvm(error);
     assert_eq!(tree_progress(&pool.rpc, &pool.tree), before);
 
-    set_root(
+    installed.set_registry(
         &mut pool,
-        ring,
-        root_account(merge.ring_program_id, merge.data.member_registry_root, 2),
+        installed.registry(merge.data.member_registry_root),
     );
-    pool.rpc
-        .create_and_send_default_payer_transaction_with_budget(
-            &[ix],
-            &[],
-            ComputeBudgetConfig::new(MERGE_CU_LIMIT),
-        )
-        .expect("registered custom ring merge settles through SPP");
+    send(&mut pool).expect("registered custom ring merge settles through SPP");
     let consumed = pool
         .rpc
         .last_transaction_trace()
@@ -231,8 +209,8 @@ fn registered_compact_merge_settles(input_count: usize, real_input_count: usize)
     }
     .build_compact(&mut pool);
     assert_eq!(merge.data.merge.nullifiers.len(), real_input_count);
-    let ring = install_custom_ring(&mut pool, &merge);
-    let ix = instruction(&pool, ring, &merge);
+    let installed = InstalledRing::install(&mut pool, &merge);
+    let ix = installed.merge_instruction(&pool, &merge);
     let before = tree_progress(&pool.rpc, &pool.tree);
     pool.rpc
         .create_and_send_default_payer_transaction_with_budget(
