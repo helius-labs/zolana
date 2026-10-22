@@ -1,6 +1,6 @@
 //! The confidential rail.
 
-use custom_ring_interface::{CustomRingError, RingMode};
+use custom_ring_interface::{CustomRingError, RingMode, RingRail};
 use zolana_client::{AsyncRpc, SettlementAccountValidation};
 use zolana_keypair::NullifierKey;
 use zolana_program::instruction::TransactInterfaceTransferAccounts;
@@ -92,7 +92,7 @@ impl Owner<'_> {
         self.check_settlement_accounts()?;
         let mut transaction = self.transaction.clone();
         transaction.pad_to_canonical_shape(&sender)?;
-        let delivery = packed_or_delivered(transaction.outputs().len(), "confidential")?;
+        let delivery = packed_or_delivered(transaction.outputs().len(), RingRail::Confidential)?;
         let first_nullifier = *transaction.first_nullifier();
         let rail = RingOutputRail::new(transaction_key(self.sender, first_nullifier)?, delivery);
         let proof_inputs = rail.encrypt(transaction, &sender)?;

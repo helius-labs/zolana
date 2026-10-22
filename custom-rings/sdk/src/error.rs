@@ -1,4 +1,4 @@
-use custom_ring_interface::{key_catalog::RingCircuit, CustomRingError};
+use custom_ring_interface::{key_catalog::RingCircuit, CustomRingError, RingRail};
 use solana_address::Address;
 use solana_signature::Signature;
 use thiserror::Error;
@@ -133,8 +133,8 @@ pub enum RingError {
         tree: Address,
         recipient: X25519Pubkey,
     },
-    #[error("the transfer needs a shape no {rail} key serves")]
-    ShapeUnkeyed { rail: &'static str },
+    #[error("the transfer needs a shape no {rail:?} key serves")]
+    ShapeUnkeyed { rail: RingRail },
     #[error("ring output {slot} names no key its body opens under")]
     UndeliveredRingOutput { slot: usize },
     #[error("the policy refuses the transfer, {0}")]

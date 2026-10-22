@@ -1,4 +1,4 @@
-//! The fewest UTXOs of one tree whose assembled transfer fits one transaction.
+//! The fewest UTXOs of one tree whose framed transfer fits one transaction.
 
 use std::collections::BTreeSet;
 
@@ -66,6 +66,38 @@ impl Funding<'_> {
         ranked.sort_unstable_by_key(|(order, _)| *order);
         ranked.into_iter().map(|(_, candidate)| candidate).collect()
     }
+
+    /// Only a size or key refusal moves on to the next attempt.
+    pub async fn first_fit<R: Rail, P: AsyncRpc, I: AsyncIndexer>(
+        &self,
+        attempts: Vec<Result<RingTransfer<R>, RingError>>,
+        client: &AsyncZolanaClient<P, I>,
+    ) -> Result<RingTransfer<R>, RingError> {
+        let mut first_refusal = None;
+        for attempt in attempts {
+            let refusal = match attempt {
+                Ok(transfer) => match retry_projection_lag(|| transfer.measure(client)).await {
+                    Ok(()) => return Ok(transfer),
+                    Err(error) => error,
+                },
+                Err(error) => error,
+            };
+            match refusal {
+                RingError::TransactionTooLarge { .. }
+                | RingError::TooManyAddresses { .. }
+                | RingError::ShapeUnkeyed { .. }
+                | RingError::DefaultRingSpendTooWide { .. } => {
+                    first_refusal.get_or_insert(refusal);
+                }
+                error => return Err(error),
+            }
+        }
+        Err(first_refusal.unwrap_or(RingError::Unfunded {
+            mint: self.asset,
+            amount: self.amount,
+            max_inputs: self.max_inputs,
+        }))
+    }
 }
 
 impl Candidate {
@@ -76,31 +108,4 @@ impl Candidate {
             shape.n_inputs() >= self.utxos.len() && shape.n_outputs() >= outputs && keyed(*shape)
         })
     }
-}
-
-/// `None` without an attempt, else the first that assembles or the first refusal.
-pub(super) async fn first_fit<R: Rail, P: AsyncRpc, I: AsyncIndexer>(
-    attempts: Vec<Result<RingTransfer<R>, RingError>>,
-    client: &AsyncZolanaClient<P, I>,
-) -> Result<Option<RingTransfer<R>>, RingError> {
-    let mut first_refusal = None;
-    for attempt in attempts {
-        let refusal = match attempt {
-            Ok(transfer) => match retry_projection_lag(|| transfer.assemble(client)).await {
-                Ok(_) => return Ok(Some(transfer)),
-                Err(error) => error,
-            },
-            Err(error) => error,
-        };
-        match refusal {
-            RingError::TransactionTooLarge { .. }
-            | RingError::TooManyAddresses { .. }
-            | RingError::ShapeUnkeyed { .. }
-            | RingError::DefaultRingSpendTooWide { .. } => {
-                first_refusal.get_or_insert(refusal);
-            }
-            error => return Err(error),
-        }
-    }
-    first_refusal.map_or(Ok(None), Err)
 }

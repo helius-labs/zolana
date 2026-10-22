@@ -503,7 +503,7 @@ impl MemberWrite<'_> {
         accounts
     }
 
-    /// The fee read here, a raise before the write lands refuses it.
+    /// A fee raise before the write lands refuses it.
     pub(crate) fn max_fee(&self) -> [u8; 8] {
         self.config.insert_fee.to_le_bytes()
     }

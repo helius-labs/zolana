@@ -16,6 +16,7 @@ use zolana_ring_policy::{
 };
 use zolana_transaction::instructions::transact::SppProofInputs;
 
+use super::shape_byte;
 use crate::{
     limits::Outflows,
     prover::{to_instruction_proof, RingRequest},
@@ -267,10 +268,8 @@ impl PolicyInputs {
         let shape = inputs.check_shape()?;
         let circuit = RingCircuit::policy(
             proving.rail,
-            u8::try_from(shape.n_inputs())
-                .map_err(|_| RingError::ShapeUnkeyed { rail: "policy" })?,
-            u8::try_from(shape.n_outputs())
-                .map_err(|_| RingError::ShapeUnkeyed { rail: "policy" })?,
+            shape_byte(shape.n_inputs(), proving.rail)?,
+            shape_byte(shape.n_outputs(), proving.rail)?,
         );
         let public_input_hash = self.statement(proving)?;
         let outputs = inputs

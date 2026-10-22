@@ -11,7 +11,7 @@ use zolana_transaction::{
 
 use super::{
     packed_or_delivered, sealed,
-    selection::{first_fit, payment_total, widest, Funding},
+    selection::{payment_total, widest, Funding},
     shape_keyed, Rail, RailKind, RingTransfer, Spend, Staged, TransferAuthority,
 };
 use crate::{CustomRing, CustomRingConfig, RingError};
@@ -114,7 +114,9 @@ impl<'a> RingTransfer<Delegated<'a>> {
     /// Unset, staging pads to the cheapest supported shape.
     pub fn with_shape(mut self, shape: Shape) -> Result<Self, RingError> {
         if !shape.is_ring_authority() {
-            return Err(RingError::ShapeUnkeyed { rail: "delegate" });
+            return Err(RingError::ShapeUnkeyed {
+                rail: RingRail::Delegate,
+            });
         }
         self.rail.shape = Some(shape);
         Ok(self)
@@ -122,7 +124,7 @@ impl<'a> RingTransfer<Delegated<'a>> {
 }
 
 impl<'a> DelegateMove<'a> {
-    /// The fewest UTXOs of one tree funding the payments whose assembled move fits one transaction.
+    /// The fewest UTXOs of one tree funding the payments whose move fits one transaction.
     pub async fn select<P: AsyncRpc, I: AsyncIndexer>(
         self,
         client: &AsyncZolanaClient<P, I>,
@@ -130,7 +132,9 @@ impl<'a> DelegateMove<'a> {
         let amount = payment_total(self.payments.iter().map(|payment| payment.amount))?;
         let payments = self.payments.len();
         let keyed = |shape| shape_keyed(RingRail::Delegate, shape);
-        let unkeyed = || RingError::ShapeUnkeyed { rail: "delegate" };
+        let unkeyed = || RingError::ShapeUnkeyed {
+            rail: RingRail::Delegate,
+        };
         let max_inputs = widest(payments, keyed).ok_or_else(unkeyed)?;
         let funding = Funding {
             utxos: self.utxos,
@@ -146,13 +150,7 @@ impl<'a> DelegateMove<'a> {
                 self.transfer(candidate.utxos).with_shape(shape)
             })
             .collect();
-        first_fit(attempts, client)
-            .await?
-            .ok_or(RingError::Unfunded {
-                mint: self.mint,
-                amount,
-                max_inputs,
-            })
+        funding.first_fit(attempts, client).await
     }
 
     fn spends(&self, utxo: &WalletUtxo) -> bool {
@@ -230,7 +228,7 @@ impl Delegated<'_> {
             Some(shape) => transaction.pad_utxos(shape, &self.source)?,
             None => transaction.pad_to_canonical_shape(&self.source)?,
         };
-        let delivery = packed_or_delivered(transaction.outputs().len(), "delegate")?;
+        let delivery = packed_or_delivered(transaction.outputs().len(), RingRail::Delegate)?;
         // The delegate holds no viewing key of the member, a fresh transaction key seals the move.
         let rail = RingOutputRail::new(ViewingKey::new(), delivery);
         let proof_inputs = rail.encrypt(transaction, &self.source)?;
@@ -239,7 +237,9 @@ impl Delegated<'_> {
             proof_inputs.output_utxos.len(),
         );
         if !shape.is_ring_authority() {
-            return Err(RingError::ShapeUnkeyed { rail: "delegate" });
+            return Err(RingError::ShapeUnkeyed {
+                rail: RingRail::Delegate,
+            });
         }
         Ok(Staged {
             proof_inputs,

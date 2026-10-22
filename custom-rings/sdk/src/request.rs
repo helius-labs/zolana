@@ -11,6 +11,7 @@ use zolana_ring_policy::{EncodedRuleTable, SourceMap, MAX_SOURCES};
 use zolana_transaction::{
     instructions::transact::SppProofOutputUtxo,
     utxo::{ProofInputUtxo, SppProofInputUtxo},
+    REDACTED,
 };
 
 use crate::{prover::fe, RingError};
@@ -19,10 +20,8 @@ use crate::{prover::fe, RingError};
 #[path = "tests/request.rs"]
 mod tests;
 
-pub(crate) const REDACTED: &str = "<redacted>";
-
 /// One transaction slot as SPP hashes it, its owner split into the identity and the nullifier key.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Opening {
     #[serde(with = "fe")]
@@ -45,6 +44,35 @@ pub(crate) struct Opening {
     pub ring_data_hash: [u8; 32],
     #[serde(with = "fe")]
     pub ring_program_id: [u8; 32],
+}
+
+impl core::fmt::Debug for Opening {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let Self {
+            domain,
+            tree_id,
+            owner_pk_hash,
+            nullifier_pk,
+            asset,
+            amount,
+            blinding: _,
+            data_hash,
+            ring_data_hash,
+            ring_program_id,
+        } = self;
+        f.debug_struct("Opening")
+            .field("domain", domain)
+            .field("tree_id", tree_id)
+            .field("owner_pk_hash", owner_pk_hash)
+            .field("nullifier_pk", nullifier_pk)
+            .field("asset", asset)
+            .field("amount", amount)
+            .field("blinding", &REDACTED)
+            .field("data_hash", data_hash)
+            .field("ring_data_hash", ring_data_hash)
+            .field("ring_program_id", ring_program_id)
+            .finish()
+    }
 }
 
 impl Opening {
@@ -192,7 +220,6 @@ pub(crate) struct Anchor {
     pub path: Vec<[u8; 32]>,
 }
 
-/// The slot secret opens the payment and its pair stream.
 impl core::fmt::Debug for Anchor {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let Self {
@@ -200,24 +227,24 @@ impl core::fmt::Debug for Anchor {
             asset,
             amount,
             slot_secret: _,
-            first_nullifier,
+            first_nullifier: _,
             slot_index,
             epoch,
             index,
-            path_index,
-            path,
+            path_index: _,
+            path: _,
         } = self;
         f.debug_struct("Anchor")
             .field("tree_id", tree_id)
             .field("asset", asset)
             .field("amount", amount)
             .field("slot_secret", &REDACTED)
-            .field("first_nullifier", first_nullifier)
+            .field("first_nullifier", &REDACTED)
             .field("slot_index", slot_index)
             .field("epoch", epoch)
             .field("index", index)
-            .field("path_index", path_index)
-            .field("path", path)
+            .field("path_index", &REDACTED)
+            .field("path", &REDACTED)
             .finish()
     }
 }
@@ -552,7 +579,7 @@ pub(crate) struct KeyRegister {
     pub auditor_pk: X25519Pubkey,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct MergeSlot {
     #[serde(with = "fe")]
@@ -565,6 +592,25 @@ pub(crate) struct MergeSlot {
     pub blinding: [u8; 32],
     #[serde(with = "fe")]
     pub ring_data_hash: [u8; 32],
+}
+
+impl core::fmt::Debug for MergeSlot {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let Self {
+            domain,
+            tree_id,
+            amount,
+            blinding: _,
+            ring_data_hash,
+        } = self;
+        f.debug_struct("MergeSlot")
+            .field("domain", domain)
+            .field("tree_id", tree_id)
+            .field("amount", amount)
+            .field("blinding", &REDACTED)
+            .field("ring_data_hash", ring_data_hash)
+            .finish()
+    }
 }
 
 #[derive(Serialize)]

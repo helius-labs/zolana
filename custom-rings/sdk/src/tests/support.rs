@@ -38,7 +38,7 @@ use zolana_ring_member_registry::{MemberRecord, MemberRegistryTree, RecordOpenin
 use zolana_ring_policy::{Member, RuleTable};
 use zolana_transaction::{
     instructions::transact::ShieldedTransaction, utxo::SppProofInputUtxo, Data, Mint, Utxo,
-    WalletUtxo,
+    WalletUtxo, REDACTED,
 };
 use zolana_tree::TreeAccount;
 
@@ -122,6 +122,12 @@ pub(crate) fn ring_utxo(
         TREE_ID,
         leaf,
     )
+}
+
+pub(crate) fn redacts(printed: &str, fields: &[&str]) -> bool {
+    fields
+        .iter()
+        .all(|field| printed.contains(&format!("{field}: {REDACTED:?}")))
 }
 
 pub(crate) fn account<T: Pod>(owner: Address, value: &T) -> Account {
@@ -242,6 +248,7 @@ pub(crate) struct Chain {
     registry: Option<Arc<Registry>>,
     /// The leaves of every Merkle proof request.
     pub proof_requests: Arc<Mutex<Vec<Vec<[u8; 32]>>>>,
+    pub witness_requests: Arc<Mutex<Vec<Vec<[u8; 32]>>>>,
 }
 
 impl Chain {
@@ -338,10 +345,19 @@ impl Chain {
 
     /// The indexed route, the prover fetches the input proofs and no witness is read here.
     pub(crate) fn client(self) -> AsyncZolanaClient<Chain, Chain> {
+        self.client_on(ProofDataSource::Prover)
+    }
+
+    /// The client route, an assembly reads its input witnesses here.
+    pub(crate) fn witness_client(self) -> AsyncZolanaClient<Chain, Chain> {
+        self.client_on(ProofDataSource::Client)
+    }
+
+    fn client_on(self, source: ProofDataSource) -> AsyncZolanaClient<Chain, Chain> {
         AsyncZolanaClient::new(
             self.clone(),
             self,
-            AsyncProverClient::local().with_proof_data_source(ProofDataSource::Prover),
+            AsyncProverClient::local().with_proof_data_source(source),
         )
     }
 }
@@ -468,13 +484,18 @@ impl AsyncRpc for Chain {
     }
 }
 
+/// No test proves on the client route.
 impl AsyncWitnessReader for Chain {
     fn input_witnesses(
         &self,
-        _inputs: &[&SppProofInputUtxo],
+        inputs: &[&SppProofInputUtxo],
         _dummy_nullifiers: &[[u8; 32]],
         _config: Option<IndexerRpcConfig>,
     ) -> impl std::future::Future<Output = Result<InputWitnesses, ClientError>> + Send {
+        self.witness_requests
+            .lock()
+            .unwrap()
+            .push(inputs.iter().map(|input| input.utxo_hash).collect());
         std::future::ready(Err(ClientError::NoInputs))
     }
 }

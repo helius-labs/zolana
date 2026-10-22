@@ -92,7 +92,7 @@ pub struct SetCoSigner<'a> {
     pub thresholds: &'a [CoSignThreshold],
 }
 
-/// Runs under the upgrade authority, the delegate signs and stays for good.
+/// Runs under the upgrade authority, the delegate signs and is permanent.
 #[must_use]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SetDelegate {
@@ -413,15 +413,6 @@ impl CustomRing {
     }
 }
 
-fn reader_data(instruction_tag: u8, reader: ReaderKey) -> Result<Vec<u8>, RingError> {
-    tagged(
-        instruction_tag,
-        &ReaderIxData {
-            reader: reader.to_bytes(),
-        },
-    )
-}
-
 pub(crate) fn tagged<T: SchemaWrite<DefaultConfig, Src = T>>(
     instruction_tag: u8,
     body: &T,
@@ -429,4 +420,13 @@ pub(crate) fn tagged<T: SchemaWrite<DefaultConfig, Src = T>>(
     let mut data = vec![instruction_tag];
     data.extend(wincode::serialize(body)?);
     Ok(data)
+}
+
+fn reader_data(instruction_tag: u8, reader: ReaderKey) -> Result<Vec<u8>, RingError> {
+    tagged(
+        instruction_tag,
+        &ReaderIxData {
+            reader: reader.to_bytes(),
+        },
+    )
 }

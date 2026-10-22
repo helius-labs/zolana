@@ -309,7 +309,7 @@ async fn an_inbox_payment_becomes_the_senders_first_contact_once_it_lands() {
     let [contact] = assembled.first_contacts.as_slice() else {
         panic!("one inbox payment, {:?}", assembled.first_contacts);
     };
-    let output = &assembled.proof_inputs.output_utxos[usize::from(contact.slot_index)];
+    let output = &assembled.frame.proof_inputs.output_utxos[usize::from(contact.slot_index)];
     assert_eq!(
         (contact.recipient, contact.index, contact.epoch),
         (
@@ -322,6 +322,7 @@ async fn an_inbox_payment_becomes_the_senders_first_contact_once_it_lands() {
     assert_eq!(
         contact.slot_secret,
         *assembled
+            .frame
             .rail
             .slot_secret(&paid.recipient.viewing_pubkey, &contact.first_nullifier, 0)
             .unwrap()
@@ -333,13 +334,13 @@ async fn an_inbox_payment_becomes_the_senders_first_contact_once_it_lands() {
 }
 
 #[test]
-fn a_pending_first_contact_prints_no_slot_secret() {
+fn a_pending_first_contact_prints_neither_its_slot_secret_nor_its_leaf() {
     let contact = PendingFirstContact {
         recipient: crate::tests::support::auditor().pubkey(),
         tree_id: TREE_ID,
-        utxo_hash: [1; 32],
+        utxo_hash: [0xab; 32],
         slot_secret: [0xab; 32],
-        first_nullifier: [2; 32],
+        first_nullifier: [0xab; 32],
         slot_index: 0,
         epoch: 3,
         index: TagIndex::new(4).unwrap(),
@@ -347,7 +348,11 @@ fn a_pending_first_contact_prints_no_slot_secret() {
         amount: 5,
     };
     let printed = format!("{contact:?}");
-    assert!(printed.contains("slot_secret: \"<redacted>\"") && !printed.contains("171, 171"));
+    assert!(crate::tests::support::redacts(
+        &printed,
+        &["recipient", "utxo_hash", "slot_secret", "first_nullifier"]
+    ));
+    assert!(!printed.contains("171, 171"));
 }
 
 /// `state` keeping `leaves` of tree 0 as decoys, the shape a scan leaves behind.
@@ -438,6 +443,11 @@ async fn a_pair_payment_anchors_its_first_contact_among_seven_decoys() {
         .with_payment(payment(&paid, 4))
         .unwrap();
     let staged = stage_anonymous(&transfer, &chain).await.unwrap();
+    let Spend::Anonymous(spend) = &staged.spend else {
+        unreachable!("an anonymous ring stages its rail");
+    };
+    assert!(chain.proof_requests.lock().unwrap().is_empty());
+    let anchor = spend.anchor(&chain).await.unwrap().unwrap();
     let requests = chain.proof_requests.lock().unwrap().clone();
     let [leaves] = requests.as_slice() else {
         panic!("one anchor fetch, {requests:?}");
@@ -451,15 +461,14 @@ async fn a_pair_payment_anchors_its_first_contact_among_seven_decoys() {
         distinct.into_iter().copied().collect::<BTreeSet<_>>(),
         paired.pinned()
     );
-    let Spend::Anonymous(spend) = &staged.spend else {
-        unreachable!("an anonymous ring stages its rail");
-    };
-    let bound = spend.bound_anchor().unwrap();
-    assert_eq!(bound.tree, pda::tree(TREE_ID));
-    assert!(bound.holds(&chain).await.unwrap());
-    let anchor = spend.anchor_witness().unwrap();
+    assert_eq!(anchor.bound.tree, pda::tree(TREE_ID));
+    assert!(anchor.bound.holds(&chain).await.unwrap());
     assert_eq!(
-        (anchor.path_index, anchor.slot_secret, anchor.epoch),
+        (
+            anchor.request.path_index,
+            anchor.request.slot_secret,
+            anchor.request.epoch
+        ),
         (contact.leaf_index, contact.slot_secret, contact.epoch)
     );
     let RingDelivery::Anonymous(slots) = staged.rail.delivery() else {
@@ -470,6 +479,63 @@ async fn a_pair_payment_anchors_its_first_contact_among_seven_decoys() {
         Some(StreamPosition::Pair(_))
     ));
     assert!(spend.first_contacts.is_empty());
+}
+
+struct CountingSigner {
+    key: zolana_keypair::SigningKey,
+    signed: std::sync::atomic::AtomicUsize,
+}
+
+#[async_trait::async_trait]
+impl AnonymousSpendSigner for CountingSigner {
+    fn public_key(&self) -> zolana_keypair::PublicKey {
+        self.key.pubkey()
+    }
+
+    async fn sign(&self, message: &[u8]) -> Result<[u8; 64], RingError> {
+        self.signed
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        AnonymousSpendSigner::sign(&self.key, message).await
+    }
+}
+
+#[tokio::test]
+async fn an_anonymous_selection_reads_no_anchor_path_and_asks_no_signature() {
+    use crate::tests::support::{keypair, payer};
+    use std::sync::atomic::Ordering;
+    let sender = keypair(1);
+    let paid = ring_address(&keypair(2));
+    let paired = Paired::new(&paid);
+    let chain = paired.chain();
+    let client = chain.clone().client();
+    let signer = CountingSigner {
+        key: sender.signing_key.clone(),
+        signed: Default::default(),
+    };
+    let utxos = [ring_utxo(&sender, Mint::SOL, 10, 0)];
+    let owner = MoveSender {
+        sender: &sender,
+        state: &paired.state,
+        payer: payer(),
+    };
+    let transfer = AnonymousMove {
+        signer: &signer,
+        ..owner.anonymous_move(
+            &utxos,
+            vec![RingPayment {
+                to: paid.clone(),
+                amount: 4,
+            }],
+        )
+    }
+    .select(&client)
+    .await
+    .unwrap();
+    assert!(chain.proof_requests.lock().unwrap().is_empty());
+    assert_eq!(signer.signed.load(Ordering::SeqCst), 0);
+    transfer.assemble(&client).await.unwrap();
+    assert_eq!(chain.proof_requests.lock().unwrap().len(), 1);
+    assert_eq!(signer.signed.load(Ordering::SeqCst), 1);
 }
 
 /// A grown pool keeps the pin, the next read names the same leaves.
@@ -489,11 +555,13 @@ async fn every_anchor_read_of_a_contact_names_the_same_leaves() {
     let later = with_decoys(&paired.state, &grown);
     for state in [&paired.state, &later] {
         let transaction = ring_transaction(vec![ring_utxo(sender, Mint::SOL, 10, 0)]);
-        let transfer = owner_transfer(sender, transaction)
+        owner_transfer(sender, transaction)
             .with_anonymous_signer(&sender.signing_key, state)
             .with_payment(payment(&paid, 4))
+            .unwrap()
+            .assemble(&chain.clone().client())
+            .await
             .unwrap();
-        stage_anonymous(&transfer, &chain).await.unwrap();
     }
     let requests = chain.proof_requests.lock().unwrap().clone();
     let [first, second] = requests.as_slice() else {
@@ -526,24 +594,25 @@ async fn a_refused_pinned_leaf_names_the_first_contact_to_retire() {
     let sender = &crate::tests::support::keypair(1);
     let paid = ring_address(&crate::tests::support::keypair(2));
     let paired = Paired::new(&paid);
+    let chain = paired.chain();
     let transaction = ring_transaction(vec![ring_utxo(sender, Mint::SOL, 10, 0)]);
     let transfer = owner_transfer(sender, transaction)
         .with_anonymous_signer(&sender.signing_key, &paired.state)
         .with_payment(payment(&paid, 4))
         .unwrap();
-    let pair = paired
-        .state
-        .pair_anchor(&paired.contact.recipient, paired.contact.epoch)
-        .unwrap();
+    let staged = stage_anonymous(&transfer, &chain).await.unwrap();
+    let Spend::Anonymous(spend) = &staged.spend else {
+        unreachable!("an anonymous ring stages its rail");
+    };
     let refused = FailingIndexer(|| ClientError::Indexer("leaf not found".to_owned()));
     assert!(matches!(
-        transfer.rail.anchor(&refused, pair).await,
+        spend.anchor(&refused).await,
         Err(RingError::FirstContactLeavesRefused { tree, recipient })
             if tree == pda::tree(TREE_ID) && recipient == paired.contact.recipient
     ));
     let unavailable = FailingIndexer(|| ClientError::IndexerUnavailable("timeout".to_owned()));
     assert!(matches!(
-        transfer.rail.anchor(&unavailable, pair).await,
+        spend.anchor(&unavailable).await,
         Err(RingError::Client(ClientError::IndexerUnavailable(_)))
     ));
 }
@@ -607,11 +676,16 @@ async fn a_fault_on_any_pinned_proof_refuses_the_read_as_one_on_the_anchor() {
     let sender = &crate::tests::support::keypair(1);
     let paid = ring_address(&crate::tests::support::keypair(2));
     let paired = Paired::new(&paid);
+    let chain = paired.chain();
     let transaction = ring_transaction(vec![ring_utxo(sender, Mint::SOL, 10, 0)]);
     let transfer = owner_transfer(sender, transaction)
         .with_anonymous_signer(&sender.signing_key, &paired.state)
         .with_payment(payment(&paid, 4))
         .unwrap();
+    let staged = stage_anonymous(&transfer, &chain).await.unwrap();
+    let Spend::Anonymous(spend) = &staged.spend else {
+        unreachable!("an anonymous ring stages its rail");
+    };
     let pair = paired
         .state
         .pair_anchor(&paired.contact.recipient, paired.contact.epoch)
@@ -625,7 +699,7 @@ async fn a_fault_on_any_pinned_proof_refuses_the_read_as_one_on_the_anchor() {
             };
             assert!(
                 matches!(
-                    transfer.rail.anchor(&faulty, pair).await,
+                    spend.anchor(&faulty).await,
                     Err(RingError::FirstContactLeavesRefused { tree, recipient })
                         if tree == pda::tree(TREE_ID) && recipient == paired.contact.recipient
                 ),
@@ -650,7 +724,7 @@ async fn a_first_contact_root_the_program_would_not_read_is_refused_before_provi
     let tree = pda::tree(TREE_ID);
     let unsettled = paired.chain().with_unsettled_leaf([9; 32], 3);
     assert!(matches!(
-        stage_anonymous(&transfer, &unsettled).await,
+        transfer.assemble(&unsettled.client()).await,
         Err(RingError::FirstContactRootStale { tree: stale, root_index: 1 }) if stale == tree
     ));
     let chain = paired.chain();
@@ -659,7 +733,7 @@ async fn a_first_contact_root_the_program_would_not_read_is_refused_before_provi
         .unwrap()
         .set_paused(true);
     assert!(matches!(
-        stage_anonymous(&transfer, &chain.with(tree, paused)).await,
+        transfer.assemble(&chain.with(tree, paused).client()).await,
         Err(RingError::Program(CustomRingError::FirstContactTreePaused))
     ));
 }
@@ -687,11 +761,11 @@ async fn a_default_ring_spend_previews_the_hidden_owners_published_key() {
         .with_anonymous_signer(&sender.signing_key, &state)
         .with_payment(payment(&paid, 4))
         .unwrap();
-    let assembled = transfer
-        .assemble(&Chain::ring(anonymous()).client())
+    let unwitnessed = transfer
+        .frame(&Chain::ring(anonymous()).client())
         .await
         .unwrap();
-    let instruction = assembled.instruction().unwrap();
+    let instruction = unwitnessed.instruction().unwrap();
     let parsed = RingTransactData::parse(&instruction.data[1..], RingRail::Anonymous).unwrap();
     assert_eq!(
         parsed.data().anonymous.unwrap().default_owner_tag,
@@ -770,7 +844,7 @@ async fn an_anonymous_move_takes_the_widest_keyed_spend_and_refuses_past_it() {
     let widest = pay(32).select(&client).await.unwrap();
     let assembled = widest.assemble(&client).await.unwrap();
     assert_eq!(
-        assembled.proof_inputs.check_shape().unwrap(),
+        assembled.frame.proof_inputs.check_shape().unwrap(),
         zolana_client::Shape::IN32_OUT2
     );
     assert!(matches!(
@@ -825,6 +899,7 @@ async fn an_anonymous_move_past_the_transaction_size_is_refused_before_proving()
         fits.assemble(&client)
             .await
             .unwrap()
+            .frame
             .proof_inputs
             .check_shape()
             .unwrap(),
@@ -866,9 +941,10 @@ async fn an_anonymous_move_spends_ring_utxos_before_an_entry() {
         }
     };
     let ring_only = spend(20).await;
-    assert!(!ring_only.parts.full_openings);
+    assert!(!ring_only.frame.parts.full_openings);
     assert_eq!(
         ring_only
+            .frame
             .proof_inputs
             .input_utxos
             .iter()
@@ -876,7 +952,7 @@ async fn an_anonymous_move_spends_ring_utxos_before_an_entry() {
             .count(),
         4
     );
-    assert!(spend(30).await.parts.full_openings);
+    assert!(spend(30).await.frame.parts.full_openings);
     let refused = AnonymousMove {
         entry: EntrySpend::Refuse,
         ..owner.anonymous_move(
@@ -889,6 +965,36 @@ async fn an_anonymous_move_spends_ring_utxos_before_an_entry() {
     };
     assert!(matches!(
         refused.select(client).await,
+        Err(RingError::Unfunded { amount: 30, .. })
+    ));
+}
+
+/// Only a mix of ring and default-ring UTXOs funds the move, the prover refuses one.
+#[tokio::test]
+async fn an_anonymous_move_never_mixes_ring_and_default_ring_utxos() {
+    use crate::tests::support::{keypair, payer};
+    let sender = keypair(1);
+    let paid = ring_address(&keypair(2));
+    let state = AnonymousRingState::new(ring().program_id(), 0);
+    let mut utxos = vec![default_ring_utxo(&sender, 25, 10)];
+    utxos.extend((0..4).map(|leaf| ring_utxo(&sender, Mint::SOL, 5, leaf)));
+    let owner = MoveSender {
+        sender: &sender,
+        state: &state,
+        payer: payer(),
+    };
+    let selection = owner
+        .anonymous_move(
+            &utxos,
+            vec![RingPayment {
+                to: paid.clone(),
+                amount: 30,
+            }],
+        )
+        .select(&Chain::ring(anonymous()).client())
+        .await;
+    assert!(matches!(
+        selection,
         Err(RingError::Unfunded { amount: 30, .. })
     ));
 }
@@ -1017,12 +1123,12 @@ async fn an_anonymous_transfer_lands_in_its_epoch_or_the_next_one() {
         .unwrap();
     let epoch = assembled.epoch.unwrap();
     let proven = ProvenRingTransfer {
-        ring: assembled.ring,
+        ring: assembled.frame.ring,
         config: assembled.config,
         bound: assembled.bound,
-        parts: assembled.parts,
-        accounts: assembled.accounts,
-        tx_viewing_key: assembled.rail.tx_viewing_key().clone(),
+        tx_viewing_key: assembled.frame.rail.tx_viewing_key().clone(),
+        parts: assembled.frame.parts,
+        accounts: assembled.frame.accounts,
         outputs: Vec::new(),
         co_signer: None,
         epoch: assembled.epoch,
@@ -1119,7 +1225,9 @@ async fn only_the_configured_delegate_moves_utxos_on_an_escrowed_policy_ring() {
     ));
     assert!(matches!(
         stage(escrowed, delegate, member, utxos(41)).await,
-        Err(RingError::ShapeUnkeyed { rail: "delegate" })
+        Err(RingError::ShapeUnkeyed {
+            rail: RingRail::Delegate
+        })
     ));
 }
 
@@ -1148,7 +1256,9 @@ async fn a_delegate_move_pads_to_any_ring_authority_shape_it_is_given() {
     };
     assert!(matches!(
         transfer().with_shape(Shape::IN48_OUT2),
-        Err(RingError::ShapeUnkeyed { rail: "delegate" })
+        Err(RingError::ShapeUnkeyed {
+            rail: RingRail::Delegate
+        })
     ));
     let chain = Chain::ring(RingSettings {
         has_policy: true,
@@ -1204,17 +1314,13 @@ async fn selected(
 ) -> (zolana_client::Shape, u16) {
     let assembled = transfer.assemble(client).await.unwrap();
     (
-        assembled.proof_inputs.check_shape().unwrap(),
-        assembled.proof_inputs.input_utxos[0].tree_id,
+        assembled.frame.proof_inputs.check_shape().unwrap(),
+        assembled.frame.proof_inputs.input_utxos[0].tree_id,
     )
 }
 
 /// A delegate move on a policy ring with one member paying another.
-fn move_client(
-    member: &ShieldedKeypair,
-    recipient: &ShieldedKeypair,
-    delegate: Address,
-) -> AsyncZolanaClient<Chain, Chain> {
+fn move_chain(members: [&ShieldedKeypair; 2], delegate: Address) -> Chain {
     use crate::tests::support::Registry;
     Chain::ring(RingSettings {
         has_policy: true,
@@ -1223,10 +1329,9 @@ fn move_client(
     })
     .with_tree(1)
     .with_registry(
-        Registry::new(&[(member, 1), (recipient, 1)]),
+        Registry::new(&members.map(|member| (member, 1))),
         &crate::tests::pipeline_rules(),
     )
-    .client()
 }
 
 /// Forty UTXOs fit when the delegate pays, a separate payer's address and signature do not.
@@ -1236,7 +1341,7 @@ async fn a_delegate_move_takes_the_fewest_utxos_whose_transaction_fits() {
     let member = keypair(1);
     let recipient = keypair(2);
     let delegate = Address::new_from_array([0x44; 32]);
-    let client = move_client(&member, &recipient, delegate);
+    let client = move_chain([&member, &recipient], delegate).client();
     let assets = AssetRegistry::default();
     let fixture = MoveFixture {
         member: &member,
@@ -1293,6 +1398,66 @@ async fn a_delegate_move_takes_the_fewest_utxos_whose_transaction_fits() {
     }
 }
 
+/// Trees 1 and 2 append to tree 3, the extra tree account takes their moves past the limit.
+#[tokio::test]
+async fn a_selection_over_three_candidates_reads_only_the_chosen_inputs() {
+    use crate::tests::support::{keypair, wallet};
+    let member = keypair(1);
+    let recipient = keypair(2);
+    let delegate = Address::new_from_array([0x44; 32]);
+    let chain = move_chain([&member, &recipient], delegate)
+        .with_tree(2)
+        .with_tree(3);
+    let client = chain.clone().witness_client();
+    let assets = AssetRegistry::default();
+    let fixture = MoveFixture {
+        member: &member,
+        recipient: recipient.shielded_address().unwrap(),
+        delegate,
+        assets: &assets,
+    };
+    let utxos: Vec<WalletUtxo> = [1u16, 2, 3]
+        .into_iter()
+        .flat_map(|tree| (0..40).map(move |leaf| (tree, leaf)))
+        .map(|(tree, leaf)| WalletUtxo {
+            latest_tree_id: Some(3),
+            ..wallet(
+                ring_utxo(&member, Mint::SOL, 1, leaf).utxo,
+                &member.nullifier_key,
+                tree,
+                leaf,
+            )
+        })
+        .collect();
+    let chosen = fixture
+        .delegate_move(MoveCase {
+            utxos: &utxos,
+            payer: delegate,
+            amounts: &[40],
+        })
+        .select(&client)
+        .await
+        .unwrap();
+    assert!(chain.witness_requests.lock().unwrap().is_empty());
+    assert!(matches!(
+        chosen.assemble(&client).await,
+        Err(RingError::Client(ClientError::NoInputs))
+    ));
+    let mut chosen_inputs: Vec<[u8; 32]> = utxos
+        .iter()
+        .filter(|utxo| utxo.tree_id == 3)
+        .map(|utxo| utxo.utxo_hash)
+        .collect();
+    chosen_inputs.sort_unstable();
+    let requests = chain.witness_requests.lock().unwrap().clone();
+    let [requested] = requests.as_slice() else {
+        panic!("one witness read, {requests:?}");
+    };
+    let mut requested = requested.clone();
+    requested.sort_unstable();
+    assert_eq!(requested, chosen_inputs);
+}
+
 /// Sixteen payments fill the widest delegate output count, an exact funding needs no change slot.
 #[tokio::test]
 async fn a_delegate_move_takes_a_change_slot_only_for_change() {
@@ -1300,7 +1465,7 @@ async fn a_delegate_move_takes_a_change_slot_only_for_change() {
     let member = keypair(1);
     let recipient = keypair(2);
     let delegate = Address::new_from_array([0x44; 32]);
-    let client = move_client(&member, &recipient, delegate);
+    let client = move_chain([&member, &recipient], delegate).client();
     let assets = AssetRegistry::default();
     let exact = [ring_utxo(&member, Mint::SOL, 16, 0)];
     let over = [ring_utxo(&member, Mint::SOL, 17, 0)];
@@ -1323,7 +1488,9 @@ async fn a_delegate_move_takes_a_change_slot_only_for_change() {
     );
     assert!(matches!(
         sixteen(&over).select(&client).await,
-        Err(RingError::ShapeUnkeyed { rail: "delegate" })
+        Err(RingError::ShapeUnkeyed {
+            rail: RingRail::Delegate
+        })
     ));
 }
 
@@ -1672,7 +1839,12 @@ async fn transfer_bytes(rail: Measured, shape: zolana_client::Shape) -> usize {
     let client = chain.client();
     let state = AnonymousRingState::new(ring().program_id(), 0);
     let assets = AssetRegistry::default();
-    let assembled = match rail {
+    let size = FrameSize {
+        client: &client,
+        rail,
+        shape,
+    };
+    match rail {
         Measured::Confidential | Measured::ConfidentialPolicy => {
             let mut transaction = ring_transaction(utxos);
             for recipient in &recipients {
@@ -1685,7 +1857,7 @@ async fn transfer_bytes(rail: Measured, shape: zolana_client::Shape) -> usize {
                     )
                     .unwrap();
             }
-            owner_transfer(&sender, transaction).assemble(&client).await
+            size.of(&owner_transfer(&sender, transaction)).await
         }
         Measured::Anonymous | Measured::AnonymousPolicy => {
             let mut transfer = owner_transfer(&sender, ring_transaction(utxos))
@@ -1695,10 +1867,10 @@ async fn transfer_bytes(rail: Measured, shape: zolana_client::Shape) -> usize {
                     .with_payment(payment(&ring_address(recipient), 1))
                     .unwrap();
             }
-            transfer.assemble(&client).await
+            size.of(&transfer).await
         }
         Measured::Delegate => {
-            DelegateTransfer::new(DelegateTransferInput {
+            let transfer = DelegateTransfer::new(DelegateTransferInput {
                 ring: ring(),
                 delegate,
                 payer: payer(),
@@ -1714,25 +1886,39 @@ async fn transfer_bytes(rail: Measured, shape: zolana_client::Shape) -> usize {
                     })
                     .collect(),
             })
-            .with_assets(&assets)
-            .assemble(&client)
-            .await
+            .with_assets(&assets);
+            size.of(&transfer).await
         }
-    };
-    match assembled {
-        Ok(assembled) => {
-            assert_eq!(assembled.proof_inputs.check_shape().unwrap(), shape);
-            zolana_client::transaction_size(
-                &payer(),
-                &[assembled.instruction().unwrap()],
-                ComputeBudgetConfig::new(0),
-            )
-            .unwrap()
-            .bytes
+    }
+}
+
+#[derive(Clone, Copy)]
+struct FrameSize<'c> {
+    client: &'c AsyncZolanaClient<Chain, Chain>,
+    rail: Measured,
+    shape: zolana_client::Shape,
+}
+
+impl FrameSize<'_> {
+    /// A refusal past the v1 ceiling carries the bytes of the framed transfer.
+    async fn of<R: Rail>(self, transfer: &RingTransfer<R>) -> usize {
+        match transfer.frame(self.client).await {
+            Ok(unwitnessed) => {
+                assert_eq!(
+                    unwitnessed.frame.proof_inputs.check_shape().unwrap(),
+                    self.shape
+                );
+                zolana_client::transaction_size(
+                    &crate::tests::support::payer(),
+                    &[unwitnessed.instruction().unwrap()],
+                    ComputeBudgetConfig::new(0),
+                )
+                .unwrap()
+                .bytes
+            }
+            Err(RingError::TransactionTooLarge { bytes, .. }) => bytes,
+            Err(error) => panic!("{:?} {:?}: {error}", self.rail, self.shape),
         }
-        // Assembly refuses a transfer past the v1 ceiling, the error carries its size.
-        Err(RingError::TransactionTooLarge { bytes, .. }) => bytes,
-        Err(error) => panic!("{rail:?} {shape:?}: {error}"),
     }
 }
 
