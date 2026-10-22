@@ -76,23 +76,15 @@ ring_errors! {
     // 8171 retired.
     // 8172 retired.
     MissingFundingSigner = 8173 => "forwarded funding account must sign on entry",
-    // 8174 retired.
-    UnexpectedMemberRegistryRoot = 8175 => "the statement binds no member registry root",
-    UnexpectedApproval = 8176 => "approval needs a member transfer under outflow limits",
-    InvalidSettlementAccounts = 8177 => "settlement accounts do not match the public legs",
-    TooManyPublicLegs = 8178 => "too many public legs",
-    InvalidAuditedDeposit = 8179 => "audited deposit does not wrap an SPP deposit",
-    InvalidDepositData = 8180 => "forwarded deposit data is invalid",
-    // 8181 retired.
-    // 8182 retired.
-    // 8183 retired.
-    InvalidRingMode = 8184 => "the ring mode is unknown",
-    AnonymousRingRefused = 8185 => "an anonymous ring refuses this operation",
-    InvalidAnonymousOutput = 8186 => "an anonymous ring output must carry a zero owner tag",
-    InvalidAnonymousSigner = 8187 => "an anonymous ring transaction takes no owner signer",
-    InvalidMergeDisclosure = 8188 =>
+    InvalidRingMode = 8174 => "the ring mode is unknown",
+    AnonymousRingRefused = 8175 => "an anonymous ring refuses this operation",
+    // 8176 retired.
+    InvalidAnonymousOutput = 8177 => "an anonymous ring output must carry a zero owner tag",
+    InvalidAnonymousSigner = 8178 => "an anonymous ring transaction takes no owner signer",
+    InvalidMergeDisclosure = 8179 =>
         "the merge disclosure does not match the ring mode or the auditor key",
-    // 8189 to 8191 retired.
+    InvalidDepositData = 8180 => "forwarded deposit data is invalid",
+    // 8181 to 8191 retired.
     MissingOwnerSigner = 8192 => "forwarded owner signer must sign on entry",
     // 8193 to 8197 retired.
     MissingMergeDisclosure = 8198 => "an anonymous ring merge carries its disclosure proof",
@@ -138,6 +130,11 @@ ring_errors! {
     CoSignerIsDelegate = 8237 => "dual control needs a co-signer other than the delegate",
     InvalidRingProofPoint = 8238 => "a ring proof point does not decompress",
     ThresholdsWithoutWithdrawals = 8239 => "co-signer thresholds need the withdrawal scope",
+    UnexpectedMemberRegistryRoot = 8240 => "the statement binds no member registry root",
+    UnexpectedApproval = 8241 => "approval needs a member transfer under outflow limits",
+    InvalidSettlementAccounts = 8242 => "settlement accounts do not match the public legs",
+    TooManyPublicLegs = 8243 => "too many public legs",
+    InvalidAuditedDeposit = 8244 => "audited deposit does not wrap an SPP deposit",
 }
 
 impl From<CustomRingError> for ProgramError {
