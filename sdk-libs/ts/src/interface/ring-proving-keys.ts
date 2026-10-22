@@ -5,37 +5,37 @@ export const RING_PROVING_KEY_SHA256S: Readonly<Record<string, string>> = Object
   "custom_ring_apply_records_16.key":
     "1019a112fae03241b1539d88866cc82054eb0587a66683bff47acfc08c218534",
   "custom_ring_audit_anonymous_12_2.key":
-    "f58c908b89d8affb7c0eb3d13252ff11b78c1a855acbd24afaf6fdb59c4dace2",
+    "ecffd6e90577458575ce9a0ae09db8dcf6a8a1c2ba022e81c3bcdbcb63041c44",
   "custom_ring_audit_anonymous_12_4.key":
-    "5b1fe62bf86125b68e9618bd57e09a76417e95d6c6576bb69b22ed6661117748",
+    "c6355018555b9123dfdb77103e5cf59a2aebb9075567568d3d4a60383b051193",
   "custom_ring_audit_anonymous_12_8.key":
-    "7643f015be5f5f245507b07c4796731f1511a65d660e08e737934b6f630a0801",
+    "50e561c8250afeb558b3e566958221556b95c5de6b81513c517d168faa408a87",
   "custom_ring_audit_anonymous_16_2.key":
-    "65ab5bd5fa91969123efd608be026e0db5ad3b5b8979f16e3624b843d475da7e",
+    "f79762cfebcaee8345ff0801a01914b319fad72472bc8ddc3d023f38bf49ae1b",
   "custom_ring_audit_anonymous_16_4.key":
-    "7c535a1674a6752be0310135a017101f6ba46cbba980af38cd19f8ad302f9028",
+    "22547cd587214750f5ea9ae2da041e60cb463b2b2944ac7cc735f59e4a1a2a70",
   "custom_ring_audit_anonymous_16_8.key":
-    "d0d6193b61fa61bd7c9fdca58c23acb70b7db0c3f8e69987a42687c09d7f0c09",
+    "6893ec5dc641edc855e5a6e69f67aa58123de5ab19d18fc21a45b785910525ba",
   "custom_ring_audit_anonymous_1_16.key":
     "c27e5847fe6059919923e586ee13037cd40d1833a83bcb12fe3b4bf588d53f5c",
   "custom_ring_audit_anonymous_24_2.key":
-    "7e292addb3b328af4f478d77022a47a5fec50e05246c1115facbea1712544b67",
+    "fd810419f6f4bcc9c002940951bf7f2058485be8b84f5e45207f8825f05c67bd",
   "custom_ring_audit_anonymous_24_4.key":
-    "3a95015a1452ad639ec8e08b794caf775dda58dc81e8ddfa7a83e35733df9560",
+    "7882a676a73c5f78954bbe7b70de938d090eaf8e24f085e4613177011dd829c9",
   "custom_ring_audit_anonymous_32_2.key":
-    "208b2c68388b9e32c9841772cafba848c0c80c1de717bc7954fe29775684b4db",
+    "1fb73e72c92a02d001945ba6fc629009b7c769b45dd49f6201fd404762c49c11",
   "custom_ring_audit_anonymous_4_2.key":
-    "35ba80b8492e794445d865a991202268723e9afeda867c9816f308591f698e59",
+    "980f73cc690eca0b5e5162f1ea18c4981c698d8bee4685708ff6b43d86821c73",
   "custom_ring_audit_anonymous_4_4.key":
-    "a16f83d3af261ee76614891b04ef84cdd7e9700d22031f7e4cc11c2e2508acbe",
+    "6eab25d270f3c1f63dccbeae3352eebefd9d04575c2349ea5765a2ca9989c94b",
   "custom_ring_audit_anonymous_4_8.key":
-    "222296776a21ee9be1fa60750711751665618d569feff57be4bf8f52945b7375",
+    "703111f2d57a94a32c496dc69d99edaa5e8c6b53a2049193c750b0504f3d06f4",
   "custom_ring_audit_anonymous_8_2.key":
-    "0319ed816cc688e93a392f12cf3233a7908bb9921d98829d2b6333a03181c7ad",
+    "7bcd1c552eef79f9e0a10e8a83a8aa40899e12269529ebcb452f2a2dfa4d3d84",
   "custom_ring_audit_anonymous_8_4.key":
-    "569b6945273d879001b8b7b9d50e7b199368baf747690a61d5ebcc11ea6e147e",
+    "3dac9cd84e4463d6344d715389a943baa20e8dfcf930930df843d7bbaf27ca29",
   "custom_ring_audit_anonymous_8_8.key":
-    "365d190b9771df76de3f192f21222112ebe546f25fd4656518a4ff5de64adb81",
+    "355cbc38bcba1c88f8ab4a8ff778b6be9a07d0f30f317b980876e9735f279cb5",
   "custom_ring_audit_anonymous_entry_8_2.key":
     "faefdddb575e731b3b6118c318676ba151d12c112fdd1fec3348caf2b19ae66e",
   "custom_ring_audit_anonymous_entry_8_4.key":
