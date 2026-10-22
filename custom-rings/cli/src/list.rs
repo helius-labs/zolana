@@ -7,7 +7,7 @@ use custom_ring_interface::{
 };
 use custom_ring_sdk::{
     AuthorityListWrite, CustomRing, MemberListWrite, MemberRecords, RecordApplication, RingError,
-    SourceOwner,
+    RingMode, SetSourceOwner, SourceOwner,
 };
 use solana_address::Address;
 use solana_keypair::Keypair;
@@ -146,6 +146,7 @@ impl MemberList {
             applied: read.record().map_or(0, |record| record.lists),
             queued: pending.record_after(&member, read.record()).lists,
         };
+        let payer = record_payer(ctx, &sender)?;
         let queued = match change.stage(list_id, lists) {
             Stage::Applied => {
                 line("list", "already there");
@@ -153,25 +154,31 @@ impl MemberList {
             }
             Stage::Queued => {
                 line("list", "already queued");
-                ctx.fund(sender.pubkey(), SENDER_FEE_BUDGET)?;
-                Queued::now(ctx)?
+                ctx.fund(payer.pubkey(), SENDER_FEE_BUDGET)?;
+                Queued::now(&ctx.zolana, ctx.ring)?
             }
             Stage::Unsent => {
                 let write = MemberListWrite {
                     ring: ctx.ring,
-                    payer: sender.pubkey(),
+                    payer: payer.pubkey(),
                     member: sender.pubkey(),
                     lists: change.write(list_id)?,
                 };
-                ctx.fund(sender.pubkey(), write_budget(&config, &sender.pubkey()))?;
-                ctx.send(&[&sender], &[write.instruction(&config)?])?;
+                ctx.fund(payer.pubkey(), write_budget(&config, &sender.pubkey()))?;
+                warn_link(ctx, sender.pubkey());
+                let signers: Vec<&dyn Signer> = match payer.pubkey() == sender.pubkey() {
+                    true => vec![&sender],
+                    false => vec![payer, &sender],
+                };
+                ctx.send(&signers, &[write.instruction(&config)?])?;
                 line("list", change.outcome());
                 let fee = insert_fee(&config, &sender.pubkey());
                 line("insert fee", format_args!("{fee} lamports"));
-                Queued::now(ctx)?
+                Queued::now(&ctx.zolana, ctx.ring)?
             }
         };
-        queued.apply(ctx, &sender)?;
+        warn_link(ctx, payer.pubkey());
+        queued.apply(&ctx.zolana, payer)?;
         line("queue", "applied");
         Ok(())
     }
@@ -190,10 +197,11 @@ impl ValueEnum for MemberList {
 impl ListChange {
     fn write(self, list_id: ListId) -> Result<ListWrite, ListWriteError> {
         let list = ListSet::single(list_id);
-        match self {
-            Self::Set => ListWrite::new(list, ListSet::EMPTY),
-            Self::Clear => ListWrite::new(ListSet::EMPTY, list),
-        }
+        let (set, clear) = match self {
+            Self::Set => (list, ListSet::EMPTY),
+            Self::Clear => (ListSet::EMPTY, list),
+        };
+        zolana_ring_policy::ListChange { set, clear }.check()
     }
 
     const fn present(self) -> bool {
@@ -312,7 +320,7 @@ impl ListUpdate<'_> {
             changes: &writes,
         }
         .send(
-            || Ok(queue(ctx)?.pending()),
+            || Ok(queue(&ctx.zolana, ctx.ring)?.pending()),
             |batch| ctx.submit(batch, self.authority, &[]).map(drop),
         )?;
         Ok(outcomes)
@@ -376,9 +384,13 @@ fn set_source(ctx: &Context, list_id: ListId, source: SourceOwner) -> Result<()>
     let outcome = if registry.registry_for(list_id) == Some(expected_registry(source)) {
         "already present"
     } else {
-        let point = ctx
-            .ring
-            .set_source_owner(authority.pubkey(), list_id, source)?;
+        let point = SetSourceOwner {
+            ring: ctx.ring,
+            authority: authority.pubkey(),
+            list_id,
+            source,
+        }
+        .instruction()?;
         ctx.send(&[authority], &[point])?;
         "created"
     };
@@ -406,13 +418,15 @@ fn set_source(ctx: &Context, list_id: ListId, source: SourceOwner) -> Result<()>
 
 /// Anyone may apply a due queue, the sender pays.
 fn apply(ctx: &Context) -> Result<()> {
-    let queue = queue(ctx)?;
+    let queue = queue(&ctx.zolana, ctx.ring)?;
     line("pending", queue.pending());
     match queue.apply_due(ctx.rpc().get_slot()?) {
         Ok(()) => {
-            let payer = ctx.sender()?;
+            let sender = ctx.sender()?;
+            let payer = record_payer(ctx, &sender)?;
             ctx.fund(payer.pubkey(), SENDER_FEE_BUDGET)?;
-            let signature = ctx.submit(RecordApplication::new(ctx.ring), &payer, &[])?;
+            warn_link(ctx, payer.pubkey());
+            let signature = ctx.submit(RecordApplication::new(ctx.ring), payer, &[])?;
             line("queue", "applied");
             line("application", signature);
         }
@@ -427,6 +441,22 @@ fn apply(ctx: &Context) -> Result<()> {
         Err(error) => return Err(RingError::from(error).into()),
     }
     Ok(())
+}
+
+/// An anonymous ring's hidden owner never pays, the fee payer does.
+fn record_payer<'a>(ctx: &'a Context, member: &'a Keypair) -> Result<&'a Keypair> {
+    let mode = ctx.ring_config()?.mode;
+    match mode {
+        RingMode::Anonymous => ctx.member_payer(mode, member.pubkey()),
+        RingMode::Off | RingMode::Registry => Ok(member),
+    }
+}
+
+fn warn_link(ctx: &Context, signer: Address) {
+    let ring = ctx.ring.program_id();
+    ui::warn(format!(
+        "{signer} signs, the chain links that key to ring {ring}"
+    ));
 }
 
 fn not_due(queue: &RecordQueue) -> String {

@@ -6,12 +6,15 @@ use anyhow::{anyhow, ensure, Result};
 use custom_ring_interface::ANONYMOUS_MERGE_WIDTHS;
 use custom_ring_sdk::{CustomRingMerge, MergeProofInput, RingMergeOperation, RingMode};
 use solana_address::Address;
+use solana_signer::Signer;
 use zolana_interface::pda;
 use zolana_keypair::ShieldedKeypair;
 use zolana_transaction::{select_merge_where, SpendableDecryptionResult, WalletUtxo, SOL_MINT};
 
 use crate::{
-    assets, line,
+    assets,
+    fund::MIN_AUTHORITY_BALANCE,
+    line,
     member::KeyEnrolment,
     transact::{CoSigner, Demand},
     wallet::WalletScan,
@@ -60,8 +63,9 @@ pub fn run(ctx: &Context, args: MergeArgs) -> Result<()> {
             output_tree: tree,
         },
     );
-    let payer = ctx.funded_authority()?;
-    // Only an anonymous merge opens no member record, any other opens the owner's escrowed key.
+    let payer = ctx.member_payer(config.mode, sender.pubkey())?;
+    ctx.fund(payer.pubkey(), MIN_AUTHORITY_BALANCE)?;
+    // The merge proves the owner's escrowed key.
     if config.mode != RingMode::Anonymous {
         KeyEnrolment {
             funder: payer,

@@ -10,7 +10,7 @@ use zolana_transaction::SOL_MINT;
 
 use crate::{
     assets,
-    controls::ring_auditor_key,
+    controls::{ring_auditor_key, DualControl},
     file, line, records,
     transact::{CoSigner, Demand, PAYER_FEE_BUDGET, SENDER_FEE_BUDGET},
     Context, DelegateMoveArgs,
@@ -29,6 +29,11 @@ pub fn run_move(ctx: &Context, args: DelegateMoveArgs) -> Result<()> {
         "the delegate keypair {} is not the ring's delegate {stored}",
         delegate.pubkey()
     );
+    DualControl {
+        cosigner: config.co_signer.as_ref().map(|cosigner| cosigner.signer),
+        delegate: Some(stored),
+    }
+    .check()?;
     let cosigner = CoSigner::read(ctx, &args.cosigner)?;
     let move_cosigner = cosigner.sign(&config, Demand::Transfer)?;
     // The auditor key decrypts recovery material, only the delegate signs.
@@ -74,7 +79,7 @@ pub fn run_move(ctx: &Context, args: DelegateMoveArgs) -> Result<()> {
             payer: authority.pubkey(),
             source,
             source_nullifier_key: &nullifier_key,
-            notes: &recovered.utxos,
+            utxos: &recovered.utxos,
             mint,
             payments: args
                 .to

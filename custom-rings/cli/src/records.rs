@@ -4,7 +4,7 @@ use std::fmt::Display;
 
 use anyhow::{bail, ensure, Result};
 use custom_ring_interface::{queue_chain, CustomRingError, QueueEntry, RecordQueue};
-use custom_ring_sdk::{CustomRingConfig, MemberRecords, RecordApplication, RingError};
+use custom_ring_sdk::{CustomRing, CustomRingConfig, MemberRecords, RecordApplication, RingError};
 use solana_address::Address;
 use solana_signer::Signer;
 use zolana_client::{BlockingIndexer, BlockingRpc, Rpc, ZolanaClient};
@@ -13,13 +13,14 @@ use zolana_ring_client::records::MemberOpeningRead;
 use zolana_ring_member_registry::MemberRecord;
 use zolana_ring_policy::Member;
 
-use crate::{transact::SENDER_FEE_BUDGET, wait_for, Context, Probe};
+use crate::{transact::SENDER_FEE_BUDGET, wait_for, Context, Landing, Probe, Zolana};
 
 pub const NO_MEMBER_REGISTRY: &str =
     "the ring has no member registry, its authority must run `zolana-ring init` first";
 
 #[must_use]
-pub(crate) struct Queued {
+pub struct Queued {
+    ring: CustomRing,
     tail: u64,
 }
 
@@ -64,19 +65,20 @@ pub(crate) fn patiently<T>(
 }
 
 impl Queued {
-    pub(crate) fn now(ctx: &Context) -> Result<Self> {
+    pub fn now(zolana: &Zolana, ring: CustomRing) -> Result<Self> {
         Ok(Self {
-            tail: queue(ctx)?.tail(),
+            ring,
+            tail: queue(zolana, ring)?.tail(),
         })
     }
 
-    pub(crate) fn apply(self, ctx: &Context, payer: &(dyn Signer + Sync)) -> Result<()> {
+    pub fn apply(self, zolana: &Zolana, payer: &(dyn Signer + Sync)) -> Result<()> {
         let due = wait_for("the record queue to come due", || {
-            let queue = queue(ctx)?;
+            let queue = queue(zolana, self.ring)?;
             if queue.head() >= self.tail {
                 return Ok(Probe::Ready(false));
             }
-            match queue.apply_due(ctx.rpc().get_slot()?) {
+            match queue.apply_due(zolana.rpc().get_slot()?) {
                 Ok(()) => Ok(Probe::Ready(true)),
                 Err(CustomRingError::ApplyNotDue | CustomRingError::ApplyTooSoon) => {
                     Ok(Probe::NotYet)
@@ -87,10 +89,16 @@ impl Queued {
         if !due {
             return Ok(());
         }
-        match ctx.submit(RecordApplication::new(ctx.ring), payer, &[]) {
+        let applied = Landing {
+            operation: RecordApplication::new(self.ring).into(),
+            payer,
+            signers: &[],
+        }
+        .settle(zolana);
+        match applied {
             Ok(_) => Ok(()),
             // A rival application can land after the due check.
-            Err(_) if queue(ctx)?.head() >= self.tail => Ok(()),
+            Err(_) if queue(zolana, self.ring)?.head() >= self.tail => Ok(()),
             Err(error) => Err(error),
         }
     }
@@ -100,7 +108,7 @@ impl PendingWrites {
     /// Read again until the indexer serves the head and tail the chain holds.
     pub(crate) fn read(ctx: &Context) -> Result<Self> {
         wait_for("the indexer to serve the record queue", || {
-            let queue = queue(ctx)?;
+            let queue = queue(&ctx.zolana, ctx.ring)?;
             let served = ctx
                 .zolana
                 .indexer()
@@ -170,15 +178,15 @@ pub(crate) fn write_budget(config: &CustomRingConfig, writer: &Address) -> u64 {
     SENDER_FEE_BUDGET.saturating_add(insert_fee(config, writer))
 }
 
-pub(crate) fn queue(ctx: &Context) -> Result<RecordQueue> {
-    Ok(ctx.block(ctx.ring.require_queue(ctx.chain()))?)
+pub(crate) fn queue(zolana: &Zolana, ring: CustomRing) -> Result<RecordQueue> {
+    Ok(zolana.block_on(ring.require_queue(zolana.as_async()))?)
 }
 
 #[cfg(test)]
 pub(crate) mod fixtures {
     use std::sync::atomic::{AtomicU8, Ordering};
 
-    use custom_ring_interface::{MemberRegistry, QueueEntry};
+    use custom_ring_interface::{AppliedAt, MemberRegistry, QueueEntry};
     use custom_ring_sdk::CustomRing;
     use solana_account::Account;
     use solana_address::Address;
@@ -286,7 +294,13 @@ pub(crate) mod fixtures {
                 _ => &self.tree,
             };
             let mut registry = MemberRegistry::new(bump, 0);
-            registry.push_root(tree.root().unwrap(), 0, 0);
+            registry.push_root(
+                tree.root().unwrap(),
+                AppliedAt {
+                    applied: 0,
+                    slot: 0,
+                },
+            );
             Ok(Some(Account {
                 lamports: 1,
                 data: bytemuck::bytes_of(&registry).to_vec(),

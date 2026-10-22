@@ -70,6 +70,12 @@ struct ScanOutcome<'a> {
 /// The addresses and first contacts a state holds, what no scan can rebuild.
 struct Decisions<'a>(&'a AnonymousRingState);
 
+/// Held while a store's files change, any part file found under it is a crashed run's.
+#[must_use]
+struct StoreLock {
+    _file: fs::File,
+}
+
 #[derive(Deserialize)]
 struct Versioned {
     version: u32,
@@ -115,20 +121,27 @@ impl AnonymousRingStore {
         &self,
         change: impl FnOnce(&mut AnonymousRingState) -> Result<T>,
     ) -> Result<T> {
+        self.update_locked(|state, _| change(state))
+    }
+
+    fn update_locked<T>(
+        &self,
+        change: impl FnOnce(&mut AnonymousRingState, &StoreLock) -> Result<T>,
+    ) -> Result<T> {
         // Two runs replacing from one load would drop an issued index.
-        let _lock = self.lock()?;
+        let lock = self.lock()?;
         let stored = self.load()?;
         let mut state = stored.clone();
-        let outcome = change(&mut state)?;
+        let outcome = change(&mut state, &lock)?;
         if state != stored || !self.path.exists() {
-            replace_private(&self.path, state.to_json())?;
+            lock.replace(&self.path, state.to_json())?;
         }
         Ok(outcome)
     }
 
     /// `None` until a scan keeps its notes.
-    fn kept_notes(&self) -> Result<Option<Vec<WalletUtxo>>> {
-        let path = self.notes_path();
+    fn kept_utxos(&self) -> Result<Option<Vec<WalletUtxo>>> {
+        let path = self.utxos_path();
         match fs::read(&path) {
             Ok(bytes) => serde_json::from_slice(&bytes)
                 .map(Some)
@@ -138,11 +151,11 @@ impl AnonymousRingStore {
         }
     }
 
-    fn notes_path(&self) -> PathBuf {
+    fn utxos_path(&self) -> PathBuf {
         self.path.with_extension("notes.json")
     }
 
-    fn lock(&self) -> Result<fs::File> {
+    fn lock(&self) -> Result<StoreLock> {
         let path = self.path.with_extension("lock");
         if let Some(dir) = path.parent() {
             file::create_dir_all(dir)?;
@@ -155,7 +168,7 @@ impl AnonymousRingStore {
             .with_context(|| format!("cannot open {}", path.display()))?;
         lock.lock()
             .with_context(|| format!("cannot lock {}", path.display()))?;
-        Ok(lock)
+        Ok(StoreLock { _file: lock })
     }
 
     /// A version 1 store restarts at the ring's creation epoch.
@@ -216,7 +229,7 @@ impl ScanAt<'_> {
             return Ok(spendable);
         };
         let stored = store.load()?;
-        let kept = store.kept_notes()?;
+        let kept = store.kept_utxos()?;
         let from = match kept {
             Some(_) => stored,
             None => {
@@ -226,37 +239,29 @@ impl ScanAt<'_> {
             }
         };
         let kept = kept.unwrap_or_default();
-        // A spend's transaction carries its change, any note the ring can spend leads to it.
-        let known = owned
-            .history
-            .utxos
-            .iter()
-            .filter(|held| held.utxo.ring_program_id.is_none_or(|id| id == self.ring))
-            .chain(&kept)
-            .map(|held| held.nullifier)
-            .collect();
         let synced = zolana.block_on(
             AnonymousRingSync::new(keys, registry)
                 .with_indexer_config(config)
                 .with_deposit_payload(zolana_ring_client::deposit_payload)
-                .with_known_nullifiers(known)
+                .with_held_utxos(owned.history.utxos.iter().chain(&kept))
+                .with_default_ring_spends(owned.history.transactions.clone())
                 .fetch(zolana.as_async().indexer(), &from, self.slot),
         )?;
         let found = verify_owned(keys, &synced.decrypted)?
             .spendable()
             .with_transaction_keys(keys)?;
-        let notes = ScanOutcome {
+        let utxos = ScanOutcome {
             state: synced.state,
             found: &found.utxos().cloned().collect::<Vec<_>>(),
             spent: &synced.decrypted.spent_nullifiers,
         }
         .record(store)?;
-        for note in notes {
+        for utxo in utxos {
             if !spendable
                 .utxos()
-                .any(|held| held.utxo_hash == note.utxo_hash)
+                .any(|held| held.utxo_hash == utxo.utxo_hash)
             {
-                spendable.utxos_with_data.push(note);
+                spendable.utxos_with_data.push(utxo);
             }
         }
         spendable.unknown_asset_ids.extend(found.unknown_asset_ids);
@@ -273,18 +278,18 @@ impl ScanOutcome<'_> {
             found,
             spent,
         } = self;
-        store.update(|current| {
-            let mut notes = store.kept_notes()?.unwrap_or_default();
-            notes.retain(|note| !spent.contains(&note.nullifier));
-            for note in found {
-                if !notes.iter().any(|kept| kept.utxo_hash == note.utxo_hash) {
-                    notes.push(note.clone());
+        store.update_locked(|current, lock| {
+            let mut utxos = store.kept_utxos()?.unwrap_or_default();
+            utxos.retain(|utxo| !spent.contains(&utxo.nullifier));
+            for utxo in found {
+                if !utxos.iter().any(|kept| kept.utxo_hash == utxo.utxo_hash) {
+                    utxos.push(utxo.clone());
                 }
             }
-            replace_private(&store.notes_path(), serde_json::to_vec(&notes)?)?;
+            lock.replace(&store.utxos_path(), serde_json::to_vec(&utxos)?)?;
             Decisions(current).onto(&mut state)?;
             *current = state;
-            Ok(notes)
+            Ok(utxos)
         })
     }
 }
@@ -298,6 +303,21 @@ impl Decisions<'_> {
             state.record_first_contact(*contact);
         }
         Ok(())
+    }
+}
+
+impl StoreLock {
+    /// Owner-only, a crash leaves the previous contents whole.
+    fn replace(&self, path: &Path, contents: impl AsRef<[u8]>) -> Result<()> {
+        let part = path.with_added_extension("part");
+        let _ = fs::remove_file(&part);
+        create_new(&part, contents.as_ref(), Visibility::Secret)
+            .with_context(|| format!("cannot write {}", part.display()))?;
+        fs::rename(&part, path)
+            .inspect_err(|_| {
+                let _ = fs::remove_file(&part);
+            })
+            .with_context(|| format!("cannot write {}", path.display()))
     }
 }
 
@@ -315,20 +335,6 @@ impl Context {
         }
         .open()
     }
-}
-
-/// Owner-only, a crash leaves the previous contents whole.
-fn replace_private(path: &Path, contents: impl AsRef<[u8]>) -> Result<()> {
-    let part = path.with_added_extension("part");
-    // Under the store's lock any part is a crashed run's.
-    let _ = fs::remove_file(&part);
-    create_new(&part, contents.as_ref(), Visibility::Secret)
-        .with_context(|| format!("cannot write {}", part.display()))?;
-    fs::rename(&part, path)
-        .inspect_err(|_| {
-            let _ = fs::remove_file(&part);
-        })
-        .with_context(|| format!("cannot write {}", path.display()))
 }
 
 fn x25519_pubkey(text: &str) -> Result<X25519Pubkey> {
@@ -496,9 +502,9 @@ mod tests {
         let member = Member::new(1, "crashed-part");
         let path = member.state_file();
         let part = path.with_added_extension("part");
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let lock = member.store.lock().unwrap();
         fs::write(&part, b"torn").unwrap();
-        replace_private(&path, b"whole").unwrap();
+        lock.replace(&path, b"whole").unwrap();
         assert_eq!(fs::read(&path).unwrap(), b"whole");
         assert!(!part.exists());
         #[cfg(unix)]

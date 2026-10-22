@@ -13,7 +13,7 @@ pub use render::render;
 
 use anyhow::{ensure, Context as _, Result};
 use custom_ring_interface::{ListRegistry, MemberRegistry};
-use custom_ring_sdk::{CustomRing, PinnedPolicy};
+use custom_ring_sdk::{CustomRing, PinnedPolicy, PolicyRules};
 use solana_signer::Signer;
 use zolana_ring_policy::RuleTable;
 
@@ -175,11 +175,13 @@ fn set(ctx: &Context, yes: bool) -> Result<()> {
         format_args!("the table of {program} stays, the change was not confirmed"),
     )?;
     let authority = ctx.funded_authority()?;
-    let replace = ctx.ring.set_policy_rules(
-        authority.pubkey(),
-        &compiled.rules,
-        &compiled.shared_sources(),
-    )?;
+    let replace = PolicyRules {
+        ring: ctx.ring,
+        authority: authority.pubkey(),
+        rules: &compiled.rules,
+        shared_sources: &compiled.shared_sources(),
+    }
+    .replace()?;
     ctx.send(&[authority], &[replace])?;
     let (before, after) = (
         current.registry.generation(),

@@ -9,7 +9,7 @@ use zolana_keypair::ShieldedKeypair;
 use zolana_ring_policy::Member;
 
 use crate::{
-    fund::TopUp,
+    fund::{TopUp, MIN_AUTHORITY_BALANCE},
     line,
     records::{self, write_budget, PendingWrites, Queued, Stage},
     transact::SENDER_FEE_BUDGET,
@@ -55,7 +55,7 @@ pub fn key(ctx: &Context, command: KeyCommand) -> Result<()> {
         Plan::AlreadyQueued => {
             line("key", "already queued");
             ctx.fund(sender.pubkey(), SENDER_FEE_BUDGET)?;
-            Queued::now(ctx)?
+            Queued::now(&ctx.zolana, ctx.ring)?
         }
         Plan::Enroll => {
             ctx.fund(sender.pubkey(), write_budget(&config, &sender.pubkey()))?;
@@ -64,7 +64,7 @@ pub fn key(ctx: &Context, command: KeyCommand) -> Result<()> {
             queued
         }
     };
-    queued.apply(ctx, &member)?;
+    queued.apply(&ctx.zolana, &member)?;
     line("queue", "applied");
     Ok(())
 }
@@ -73,7 +73,7 @@ impl KeyEnrolment<'_> {
     pub(crate) fn ensure(self, ctx: &Context) -> Result<()> {
         let funder = self.funder;
         if let Some(queued) = self.queue(ctx)? {
-            queued.apply(ctx, funder)?;
+            queued.apply(&ctx.zolana, funder)?;
             line("member keys", "applied");
         }
         Ok(())
@@ -82,12 +82,25 @@ impl KeyEnrolment<'_> {
     /// `None` when every member already escrows its key.
     pub(crate) fn queue(self, ctx: &Context) -> Result<Option<Queued>> {
         let config = ctx.ring_config()?;
+        let stages = self
+            .members
+            .iter()
+            .map(|member| key_stage(ctx, member))
+            .collect::<Result<Vec<_>>>()?;
+        let top_ups = self
+            .members
+            .iter()
+            .zip(&stages)
+            .filter(|(_, stage)| **stage == Stage::Unsent)
+            .map(|(member, _)| write_budget(&config, &member.pubkey()))
+            .fold(MIN_AUTHORITY_BALANCE, u64::saturating_add);
+        ctx.fund(self.funder.pubkey(), top_ups)?;
         let mut queued = None;
-        for member in self.members {
-            let outcome = match key_stage(ctx, member)? {
+        for (member, stage) in self.members.iter().zip(stages) {
+            let outcome = match stage {
                 Stage::Applied => "already registered",
                 Stage::Queued => {
-                    queued = Some(Queued::now(ctx)?);
+                    queued = Some(Queued::now(&ctx.zolana, ctx.ring)?);
                     "already queued"
                 }
                 Stage::Unsent => {
@@ -109,7 +122,7 @@ impl KeyEnrolment<'_> {
 
 fn register(ctx: &Context, member: &ShieldedKeypair) -> Result<Queued> {
     ctx.submit(registration(ctx.ring, member)?, member, &[])?;
-    Queued::now(ctx)
+    Queued::now(&ctx.zolana, ctx.ring)
 }
 
 /// A submission, so a registry root another batch moved is proved again.

@@ -2,7 +2,8 @@
 
 use anyhow::{anyhow, ensure, Context as _, Result};
 use custom_ring_sdk::{
-    CustomRing, CustomRingConfig, ListRegistry, RingError, RingSetup, SourceOwner,
+    CreateConfig, CreateMemberRegistry, CustomRing, CustomRingConfig, InitSppRingConfig,
+    ListRegistry, PolicyRules, RingError, RingKind, SetAuthority, SetSourceOwner, SourceOwner,
 };
 use solana_address::Address;
 use solana_keypair::Keypair;
@@ -44,6 +45,7 @@ enum KeyChoice {
     RingRpc,
 }
 
+/// A file the service did not write must not be pinned against a hosted rpc.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[error("a local auditor key file against a hosted ring rpc")]
 struct StrayLocalKey;
@@ -178,7 +180,14 @@ pub fn run(ctx: &Context, args: InitArgs) -> Result<()> {
     // The registry holds the policy, it precedes the policy pin.
     let member_registry = match ctx.block(ring.registry(ctx.chain()))? {
         Some(_) => PRESENT,
-        None => send(ring.create_member_registry(payer, payer))?,
+        None => send(
+            CreateMemberRegistry {
+                ring,
+                payer,
+                authority: payer,
+            }
+            .instruction(),
+        )?,
     };
     let policy = match &policy {
         None => "absent",
@@ -191,7 +200,16 @@ pub fn run(ctx: &Context, args: InitArgs) -> Result<()> {
     // The program registers a policy ring only after its policy is pinned.
     let spp_ring = match ctx.block(ring.registration(ctx.chain()))? {
         Some(_) => PRESENT,
-        None => send(ring.init_spp_ring_config(payer, payer, has_policy)).map(|_| "registered")?,
+        None => {
+            let config = ctx.ring_config()?;
+            let register = InitSppRingConfig {
+                ring,
+                payer,
+                authority: payer,
+                config: &config,
+            };
+            send(register.instruction()).map(|_| "registered")?
+        }
     };
     // Written after the chain agrees, so a failed init leaves no file a rerun takes for a local key.
     if choice == KeyChoice::RingRpc {
@@ -267,7 +285,12 @@ impl ConfigCreation<'_> {
             });
         }
         let deployer = self.deployer.context(NEEDS_UPGRADE_AUTHORITY)?;
-        let hand_over = ctx.ring.set_authority(deployer.pubkey(), target);
+        let hand_over = SetAuthority {
+            ring: ctx.ring,
+            authority: deployer.pubkey(),
+            new_authority: target,
+        }
+        .instruction();
         if state == ConfigState::HeldByUpgradeAuthority {
             ctx.send(&[self.config_authority, deployer], &[hand_over])?;
             return Ok(ConfigOutcome {
@@ -275,12 +298,20 @@ impl ConfigCreation<'_> {
                 authority: TRANSFERRED,
             });
         }
-        let setup = RingSetup {
-            auditor_pubkey: self.auditor_pk,
-            has_policy: self.has_policy,
-            anonymous: self.mode == ModeName::Anonymous,
+        let kind = match (self.mode, self.has_policy) {
+            (ModeName::Confidential, false) => RingKind::AuditOnly,
+            (ModeName::Confidential, true) => RingKind::Policy,
+            (ModeName::Anonymous, false) => RingKind::Anonymous,
+            (ModeName::Anonymous, true) => RingKind::AnonymousPolicy,
         };
-        let mut instructions = vec![ctx.ring.create_config(target, deployer.pubkey(), setup)?];
+        let create = CreateConfig {
+            ring: ctx.ring,
+            payer: target,
+            authority: deployer.pubkey(),
+            auditor_pubkey: self.auditor_pk,
+            kind,
+        };
+        let mut instructions = vec![create.instruction()?];
         let transfer = deployer.pubkey() != target;
         if transfer {
             instructions.push(hand_over);
@@ -318,9 +349,14 @@ impl PolicyPin<'_> {
         let outcome = match policy::pinned_if_any(ctx)? {
             Some(_) => PRESENT,
             None => {
-                let create = |sources: &[(ListId, CustomRing)]| {
-                    ctx.ring
-                        .create_policy(authority.pubkey(), &policy.rules, sources)
+                let create = |shared_sources: &[(ListId, CustomRing)]| {
+                    PolicyRules {
+                        ring: ctx.ring,
+                        authority: authority.pubkey(),
+                        rules: &policy.rules,
+                        shared_sources,
+                    }
+                    .create()
                 };
                 // Curators past the transaction size are pointed one by one below.
                 let instruction = match create(&policy.shared_sources) {
@@ -344,11 +380,13 @@ impl PolicyPin<'_> {
             {
                 PRESENT
             } else {
-                let point = ctx.ring.set_source_owner(
-                    authority.pubkey(),
-                    *list,
-                    SourceOwner::Shared(*curator),
-                )?;
+                let point = SetSourceOwner {
+                    ring: ctx.ring,
+                    authority: authority.pubkey(),
+                    list_id: *list,
+                    source: SourceOwner::Shared(*curator),
+                }
+                .instruction()?;
                 ctx.send(&[authority], &[point])?;
                 pointed = true;
                 CREATED

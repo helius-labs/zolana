@@ -9,10 +9,10 @@ use zolana_keypair::X25519Pubkey;
 use zolana_ring_client::{
     auditor_view_tag,
     rpc::{
-        auditor_key_attestation, CreateAuditorKeyRequest, CreateAuditorKeyResponse,
+        AuditorKeyStatement, CreateAuditorKeyRequest, CreateAuditorKeyResponse,
         DecryptedTransaction, DecryptedTransactionsPage, GetDecryptedTransactionsRequest,
-        GetDecryptedTransactionsResponse, RingState, RingStatusRequest, RingStatusResponse,
-        CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS, RING_STATUS,
+        GetDecryptedTransactionsResponse, HealthResponse, ReadTarget, RingState, RingStatusRequest,
+        RingStatusResponse, CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS, HEALTH, RING_STATUS,
     },
 };
 
@@ -89,13 +89,25 @@ impl RingRpcClient {
         authority: &dyn Signer,
     ) -> Result<AttestedAuditorKey> {
         let request = CreateAuditorKeyRequest::for_ring(ring, genesis_hash).sign(authority)?;
+        let nonce: [u8; 32] = request
+            .auth
+            .nonce
+            .0
+            .as_slice()
+            .try_into()
+            .context("the signed request carries no 32-byte nonce")?;
         let created: CreateAuditorKeyResponse = self.call(CREATE_AUDITOR_KEY, request)?;
         let service_pubkey = created.service_pubkey.0;
         let auditor_pk = *created.auditor_pubkey.as_key();
-        let attestation = auditor_key_attestation(&ring, &auditor_pk);
+        let statement = AuditorKeyStatement {
+            cluster: &genesis_hash,
+            ring: &ring,
+            auditor_pubkey: &auditor_pk,
+            nonce: &nonce,
+        };
         let url = &self.url;
         ensure!(
-            created.signature.0.verify(service_pubkey.as_ref(), &attestation),
+            created.signature.0.verify(service_pubkey.as_ref(), &statement.message()),
             "the ring rpc at {url} returned an auditor key its service key {service_pubkey} did not sign"
         );
         Ok(AttestedAuditorKey {
@@ -110,6 +122,12 @@ impl RingRpcClient {
         self.call(RING_STATUS, RingStatusRequest { ring_program_id })
     }
 
+    /// The key a signed read binds.
+    pub fn service_pubkey(&self) -> Result<Address> {
+        let health: HealthResponse = self.call(HEALTH, json!([]))?;
+        Ok(health.service_pubkey.0)
+    }
+
     pub fn check_serves(&self, ring: Address) -> Result<()> {
         ensure!(
             self.state(ring)? == RingState::Served,
@@ -121,14 +139,14 @@ impl RingRpcClient {
     /// A failed read is retried, a transaction the service skipped is final.
     pub fn wait_for_decrypted(
         &self,
-        ring: Address,
+        target: ReadTarget,
         reader: &dyn Signer,
         signature: Signature,
         event_index: u16,
     ) -> Result<DecryptedTransaction> {
         wait_for("ring rpc to open the transaction", || {
             find_decrypted(signature, event_index, |cursor| {
-                let mut request = GetDecryptedTransactionsRequest::read(ring);
+                let mut request = GetDecryptedTransactionsRequest::read(target);
                 if let Some(cursor) = cursor {
                     request = request.with_cursor(cursor)?;
                 }

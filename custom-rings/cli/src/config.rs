@@ -13,7 +13,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use solana_address::{error::ParseAddressError, Address};
 use solana_keypair::Keypair;
 use toml_edit::{DocumentMut, Item};
-use zolana_client::ProverClient;
+use zolana_client::{prover::tee::TeePolicy, ProverClient};
 use zolana_transaction::SOL_MINT;
 
 use crate::{
@@ -241,11 +241,17 @@ fn is_default<T: Default + PartialEq>(value: &T) -> bool {
 }
 
 impl Urls {
-    pub fn prover_client(&self) -> ProverClient {
+    /// `pinned` replaces the release's enclave pin.
+    pub fn prover_client(&self, pinned: Option<TeePolicy>) -> Result<ProverClient> {
         let prover = ProverClient::new(self.prover.clone());
-        match self.prover_tee {
-            Some(false) => prover.without_tee(),
-            _ => prover,
+        let plaintext = self.prover_tee == Some(false);
+        match pinned {
+            Some(_) if plaintext => bail!(
+                "ring.toml sets `prover_tee = false` for this cluster, `--prover-tee-policy` pins an enclave, drop one"
+            ),
+            Some(policy) => Ok(prover.with_tee(policy)),
+            None if plaintext => Ok(prover.without_tee()),
+            None => Ok(prover),
         }
     }
 
@@ -399,6 +405,12 @@ pub fn redact_text(text: &str) -> String {
     out
 }
 
+pub fn read_tee_policy(path: &Path) -> Result<TeePolicy> {
+    let json = file::read(path)?;
+    TeePolicy::from_file_json(&json)
+        .with_context(|| format!("cannot parse the TEE policy {}", path.display()))
+}
+
 pub fn expand_tilde(path: &Path) -> Result<PathBuf> {
     let Ok(rest) = path.strip_prefix("~") else {
         return Ok(path.to_path_buf());
@@ -542,23 +554,61 @@ ring_rpc = "http://127.0.0.1:8785"
 
     #[test]
     fn prover_tee_false_sends_a_remote_prover_plaintext() {
-        let urls = |prover_tee: Option<bool>| Urls {
-            rpc: "https://api.devnet.solana.com".to_owned(),
-            indexer: "https://indexer.example".to_owned(),
-            prover: "https://prover.example".to_owned(),
-            ring_rpc: "https://ring-rpc.example".to_owned(),
-            ring_rpc_pubkey: None,
-            prover_tee,
-        };
-        assert!(!urls(Some(false)).prover_client().has_tee());
-        assert!(urls(None).prover_client().has_tee());
-        assert!(urls(Some(true)).prover_client().has_tee());
+        let urls = |prover_tee| prover_urls("https://prover.example", prover_tee);
+        let client = |prover_tee| urls(prover_tee).prover_client(None).unwrap();
+        assert!(!client(Some(false)).has_tee());
+        assert!(client(None).has_tee());
+        assert!(client(Some(true)).has_tee());
 
         let parsed: Urls = toml::from_str(
             "rpc = \"r\"\nindexer = \"i\"\nprover = \"p\"\nring_rpc = \"g\"\nprover_tee = false\n",
         )
         .expect("ring.toml urls");
         assert_eq!(parsed.prover_tee, Some(false));
+    }
+
+    #[test]
+    fn a_pinned_tee_policy_attests_even_a_loopback_prover_and_refuses_plaintext() {
+        let policy = TeePolicy::default_deployment().unwrap();
+        let loopback = |prover_tee| prover_urls("http://127.0.0.1:3001", prover_tee);
+        assert!(!loopback(None).prover_client(None).unwrap().has_tee());
+        let pinned = loopback(None).prover_client(Some(policy.clone())).unwrap();
+        assert!(pinned.has_tee());
+        let Err(refused) = loopback(Some(false)).prover_client(Some(policy)) else {
+            panic!("a pinned policy beside prover_tee = false is refused");
+        };
+        assert!(refused.to_string().contains("drop one"), "{refused}");
+    }
+
+    #[test]
+    fn a_tee_policy_file_reads_bare_or_as_a_deployment_pin() {
+        let policy = TeePolicy::default_deployment().unwrap();
+        let bare = serde_json::to_string(&policy).unwrap();
+        let dir = std::env::temp_dir().join(format!("ring-tee-policy-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for (name, json) in [
+            ("bare", bare.clone()),
+            ("pinned", format!(r#"{{"deployment":{bare}}}"#)),
+        ] {
+            let path = dir.join(format!("{name}.json"));
+            std::fs::write(&path, json).unwrap();
+            assert_eq!(read_tee_policy(&path).unwrap(), policy, "{name}");
+        }
+        let unpinned = dir.join("unpinned.json");
+        std::fs::write(&unpinned, r#"{"deployment":null}"#).unwrap();
+        assert!(read_tee_policy(&unpinned).is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    fn prover_urls(prover: &str, prover_tee: Option<bool>) -> Urls {
+        Urls {
+            rpc: "https://api.devnet.solana.com".to_owned(),
+            indexer: "https://indexer.example".to_owned(),
+            prover: prover.to_owned(),
+            ring_rpc: "https://ring-rpc.example".to_owned(),
+            ring_rpc_pubkey: None,
+            prover_tee,
+        }
     }
 
     #[test]

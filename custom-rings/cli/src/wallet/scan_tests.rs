@@ -46,7 +46,7 @@ struct Ledger {
     queried: Mutex<Vec<[u8; 32]>>,
 }
 
-struct Note {
+struct DepositedUtxo {
     hash: [u8; 32],
     nullifier: [u8; 32],
 }
@@ -69,7 +69,7 @@ struct RingTransfer<'a> {
 
 impl Ledger {
     /// A default-ring note, the plain scan finds it under the owner's viewing tag.
-    fn deposit(&mut self, owner: &ShieldedKeypair, amount: u64) -> Note {
+    fn deposit(&mut self, owner: &ShieldedKeypair, amount: u64) -> DepositedUtxo {
         let address = owner.shielded_address().unwrap();
         let mut blinding = [0; 32];
         blinding[31] = 9;
@@ -116,7 +116,7 @@ impl Ledger {
             tx_viewing_pk: None,
             salt: None,
         });
-        Note {
+        DepositedUtxo {
             hash,
             nullifier: owner.nullifier(&hash, &utxo.blinding).unwrap(),
         }
@@ -336,7 +336,7 @@ impl Member {
         .fetch(zolana)
         .unwrap()
         .utxos()
-        .map(|note| note.utxo_hash)
+        .map(|utxo| utxo.utxo_hash)
         .collect()
     }
 }
@@ -398,7 +398,7 @@ fn a_restored_wallet_scans_from_the_rings_creation_epoch() {
 }
 
 #[test]
-fn a_second_scan_resumes_from_the_saved_epoch_and_keeps_its_notes() {
+fn a_second_scan_resumes_from_the_saved_epoch_and_keeps_its_utxos() {
     let wallet = Member::new(1, "resumed-scan");
     let mut ledger = Ledger::default();
     let paid = ledger.inbox_payment(&wallet, EPOCH);

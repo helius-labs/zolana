@@ -4,6 +4,7 @@ mod macros;
 
 pub mod address;
 pub mod assets;
+pub mod audit;
 pub mod authority;
 pub mod catalogue;
 pub mod config;
@@ -45,8 +46,8 @@ use anyhow::{bail, ensure, Context as _, Result};
 use clap::{Args, FromArgMatches, Parser, Subcommand};
 use custom_ring_interface::{compute_unit_limit, CustomRingError, InstructionTag};
 use custom_ring_sdk::{
-    CustomRing, CustomRingConfig, PendingFirstContact, RingError, RingOperation, RingSubmission,
-    SettledSubmission, MERGE_DEFAULT_INPUT_COUNT,
+    CustomRing, CustomRingConfig, PendingFirstContact, RingError, RingMode, RingOperation,
+    RingSubmission, SettledSubmission, MERGE_DEFAULT_INPUT_COUNT,
 };
 use solana_address::Address;
 use solana_instruction::{error::InstructionError, Instruction};
@@ -55,8 +56,9 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction_error::TransactionError;
 use zolana_client::{
-    AsyncZolanaClient, Blocking, BlockingIndexer, BlockingInsideRuntime, BlockingRpc, ClientError,
-    ComputeBudgetConfig, IndexerPollConfig, Rpc, SolanaRpc, ZolanaClient, ZolanaIndexer,
+    prover::tee::TeePolicy, AsyncZolanaClient, Blocking, BlockingIndexer, BlockingInsideRuntime,
+    BlockingRpc, ClientError, ComputeBudgetConfig, IndexerPollConfig, Rpc, SolanaRpc, ZolanaClient,
+    ZolanaIndexer,
 };
 use zolana_interface::error::ShieldedPoolError;
 use zolana_keypair::ShieldedAddress;
@@ -67,6 +69,7 @@ pub use crate::{
     config::{CoSignClass, Mint, ModeName, RingConfig, Service, Target, ThresholdSpec, RING_TOML},
     list::{MemberArgs, MemberList},
     policy::ListName,
+    records::Queued,
     ring_rpc::{RingRpcClient, Trust},
     transact::{Funding, Recipient},
     ui::{line, Ask},
@@ -105,6 +108,23 @@ pub struct Cli {
     /// A curator catalogue file or URL instead of the bundled one.
     #[arg(long, global = true, env = "RING_CATALOGUE")]
     pub catalogue: Option<String>,
+    /// Require the prover to attest to the TEE policy in FILE, bare or as a {"deployment": ...}
+    /// pin file, in place of the release pin.
+    #[arg(
+        long,
+        value_name = "FILE",
+        global = true,
+        env = "RING_PROVER_TEE_POLICY"
+    )]
+    pub prover_tee_policy: Option<PathBuf>,
+    /// Pays the member operations of an anonymous ring, never the hidden owner.
+    #[arg(
+        long,
+        value_name = "FILE",
+        global = true,
+        env = "RING_FEE_PAYER_KEYPAIR"
+    )]
+    pub fee_payer_keypair: Option<PathBuf>,
     #[command(subcommand)]
     pub command: Command,
 }
@@ -166,6 +186,8 @@ pub enum Command {
     Policy(PolicyCommand),
     /// Print the local auditor key's public key, or create the key file.
     AuditorKey(AuditorKeyArgs),
+    /// Open the ring's transactions with the auditor key, read from the indexer.
+    Audit(AuditArgs),
     /// Issue a `zolana:` address of the member, what an anonymous ring pays.
     Address(AddressArgs),
 }
@@ -255,10 +277,12 @@ pub enum InsertFeeCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum DelegateCommand {
-    /// Set the delegate once, signed by the upgrade authority holding the ring auditor key.
+    /// Set the delegate once, signed by the delegate and by the upgrade authority holding the ring
+    /// auditor key.
     Set {
+        /// The delegate's keypair, it signs the set and every later move.
         #[arg(long)]
-        delegate: Address,
+        delegate_keypair: PathBuf,
     },
     Show,
     /// Move a source member's ring balance to shielded addresses over the delegate rail.
@@ -361,6 +385,16 @@ pub struct LocalnetArgs {
 }
 
 #[derive(Debug, Args)]
+pub struct AuditArgs {
+    /// The X25519 auditor read key the ring config pins.
+    #[arg(long, default_value = AUDITOR_KEY_FILE)]
+    pub auditor_key: PathBuf,
+    /// Continue from the hex cursor an earlier run printed.
+    #[arg(long)]
+    pub cursor: Option<String>,
+}
+
+#[derive(Debug, Args)]
 pub struct AuditorKeyArgs {
     /// The auditor secret a local ring rpc serves, its `.pub` sits beside it.
     #[arg(long, default_value = AUDITOR_KEY_FILE)]
@@ -432,7 +466,7 @@ pub struct TransactArgs {
 #[derive(Debug, Args)]
 pub struct TransferArgs {
     /// Each recipient, a base58 shielded address on a confidential ring, a `zolana:` request
-    /// on an anonymous one.
+    /// on an anonymous one, or a shielded address with `--default-ring`.
     #[arg(required = true, num_args = 1..)]
     pub to: Vec<Recipient>,
     /// Base units each recipient receives, a request's own amount or the default when absent.
@@ -445,12 +479,15 @@ pub struct TransferArgs {
     #[arg(long)]
     pub token_account: Option<Address>,
     /// `deposit` funds the payments with two fresh deposits, `held` spends the sender's notes
-    /// of the ring and of the default ring.
+    /// of the ring, and of the default ring unless the ring is anonymous.
     #[arg(long, value_enum, default_value_t = Funding::Deposit)]
     pub funding: Funding,
     /// The fewest output slots, dummies fill what the payments and the change leave.
     #[arg(long)]
     pub outputs: Option<usize>,
+    /// An anonymous ring pays each shielded recipient a default-ring note, the value leaves the ring.
+    #[arg(long)]
+    pub default_ring: bool,
     #[command(flatten)]
     pub cosigner: CosignerArg,
 }
@@ -508,6 +545,18 @@ pub struct Context {
     pub catalogue: Option<String>,
     ask: RefCell<Box<dyn Ask>>,
     authority: OnceCell<Keypair>,
+    fee_payer_keypair: Option<PathBuf>,
+    fee_payer: OnceCell<Keypair>,
+}
+
+#[must_use]
+pub struct ContextSetup {
+    pub config_path: PathBuf,
+    pub config: RingConfig,
+    pub ask: Box<dyn Ask>,
+    pub catalogue: Option<String>,
+    pub prover_tee_policy: Option<TeePolicy>,
+    pub fee_payer_keypair: Option<PathBuf>,
 }
 
 pub enum Probe<T> {
@@ -516,18 +565,28 @@ pub enum Probe<T> {
     Retry(anyhow::Error),
 }
 
-pub(crate) struct Landed {
+pub struct Landed {
     pub signature: Signature,
     pub first_contacts: Vec<PendingFirstContact>,
 }
 
-impl Context {
-    pub fn new(
-        config_path: PathBuf,
-        mut config: RingConfig,
-        ask: Box<dyn Ask>,
-        catalogue: Option<String>,
-    ) -> Self {
+#[must_use]
+pub struct Landing<'a> {
+    pub operation: RingOperation<'a>,
+    pub payer: &'a (dyn Signer + Sync),
+    pub signers: &'a [&'a (dyn Signer + Sync)],
+}
+
+impl ContextSetup {
+    pub fn open(self) -> Result<Context> {
+        let ContextSetup {
+            config_path,
+            mut config,
+            ask,
+            catalogue,
+            prover_tee_policy,
+            fee_payer_keypair,
+        } = self;
         let root = config_path
             .parent()
             .filter(|path| !path.as_os_str().is_empty())
@@ -538,9 +597,9 @@ impl Context {
         let zolana = ZolanaClient::new(
             SolanaRpc::new(urls.rpc.clone()),
             ZolanaIndexer::new(&urls.indexer),
-            urls.prover_client(),
+            urls.prover_client(prover_tee_policy)?,
         );
-        Self {
+        Ok(Context {
             ring: CustomRing::new(config.program_id.0),
             config_path,
             root,
@@ -549,9 +608,38 @@ impl Context {
             catalogue,
             ask: RefCell::new(ask),
             authority: OnceCell::new(),
+            fee_payer_keypair,
+            fee_payer: OnceCell::new(),
+        })
+    }
+}
+
+impl Landing<'_> {
+    /// Resent until the cluster settles it, a stale root is proved again.
+    pub fn settle(self, zolana: &Zolana) -> Result<Landed> {
+        let mut submission = RingSubmission::new(self.operation);
+        let settled = zolana.block_on(submission.send_until_settled(
+            zolana.as_async(),
+            self.payer,
+            self.signers,
+        ))?;
+        match settled {
+            SettledSubmission::Confirmed {
+                signature,
+                first_contacts,
+                ..
+            } => Ok(Landed {
+                signature,
+                first_contacts,
+            }),
+            SettledSubmission::Failed { signature, error } => {
+                Err(RingError::Rejected { signature, error }.into())
+            }
         }
     }
+}
 
+impl Context {
     /// Relative to the ring directory, an absolute or `~` path as given.
     pub fn path(&self, path: &Path) -> PathBuf {
         resolve(&self.root, path)
@@ -584,6 +672,28 @@ impl Context {
         }
         let authority = self.config.config_authority()?;
         Ok(self.authority.get_or_init(|| authority))
+    }
+
+    /// An anonymous ring's member operations take `--fee-payer-keypair`, apart from the hidden owner.
+    pub(crate) fn member_payer(&self, mode: RingMode, owner: Address) -> Result<&Keypair> {
+        if mode != RingMode::Anonymous {
+            return self.authority();
+        }
+        let payer = match self.fee_payer.get() {
+            Some(payer) => payer,
+            None => {
+                let path = self.fee_payer_keypair.as_deref().context(
+                    "an anonymous ring pays its member operations from --fee-payer-keypair, a key apart from the hidden owner",
+                )?;
+                let payer = file::read_keypair(&self.path(path))?;
+                self.fee_payer.get_or_init(|| payer)
+            }
+        };
+        ensure!(
+            payer.pubkey() != owner,
+            "the fee payer {owner} is the hidden owner, paying would publish it"
+        );
+        Ok(payer)
     }
 
     /// For a step that only pays fees and small rent.
@@ -645,7 +755,6 @@ impl Context {
             })
     }
 
-    /// Resent until the cluster settles it, a stale root is proved again.
     pub fn submit<'a>(
         &self,
         operation: impl Into<RingOperation<'a>>,
@@ -661,20 +770,12 @@ impl Context {
         payer: &(dyn Signer + Sync),
         signers: &[&(dyn Signer + Sync)],
     ) -> Result<Landed> {
-        let mut submission = RingSubmission::new(operation);
-        match self.block(submission.send_until_settled(self.chain(), payer, signers))? {
-            SettledSubmission::Confirmed {
-                signature,
-                first_contacts,
-                ..
-            } => Ok(Landed {
-                signature,
-                first_contacts,
-            }),
-            SettledSubmission::Failed { signature, error } => {
-                Err(RingError::Rejected { signature, error }.into())
-            }
+        Landing {
+            operation: operation.into(),
+            payer,
+            signers,
         }
+        .settle(&self.zolana)
     }
 
     pub fn wait_for_indexed(&self, signature: Signature) -> Result<()> {
@@ -818,7 +919,20 @@ pub fn run(cli: Cli) -> Result<()> {
         Command::Localnet(args) => localnet::run(&cli.config, &config, args)?,
         Command::Url { service } => println!("{}", config.urls().service(service)),
         command => {
-            let mut ctx = Context::new(cli.config, config, ask, cli.catalogue);
+            let prover_tee_policy = cli
+                .prover_tee_policy
+                .as_deref()
+                .map(config::read_tee_policy)
+                .transpose()?;
+            let mut ctx = ContextSetup {
+                config_path: cli.config,
+                config,
+                ask,
+                catalogue: cli.catalogue,
+                prover_tee_policy,
+                fee_payer_keypair: cli.fee_payer_keypair,
+            }
+            .open()?;
             dispatch(&mut ctx, command)?;
         }
     }
@@ -848,6 +962,7 @@ fn dispatch(ctx: &mut Context, command: Command) -> Result<()> {
         Command::List(command) => list::run(ctx, command),
         Command::Policy(command) => policy::run(ctx, command),
         Command::AuditorKey(args) => keys::run(&ctx.path(&args.key_file), args.create),
+        Command::Audit(args) => audit::run(ctx, args),
         Command::Address(args) => address::run(ctx, args),
         Command::New(_)
         | Command::Target { .. }
@@ -886,6 +1001,22 @@ mod tests {
     #[test]
     fn the_command_tree_is_well_formed() {
         Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn delegate_set_signs_with_the_delegate_keypair() {
+        let parse = |args: &[&str]| {
+            let argv = ["zolana-ring", "delegate", "set"].iter().chain(args).copied();
+            Cli::try_parse_from(argv).map(|cli| cli.command)
+        };
+        assert!(matches!(
+            parse(&["--delegate-keypair", "keys/delegate.json"]),
+            Ok(Command::Delegate(DelegateCommand::Set { delegate_keypair }))
+                if delegate_keypair == Path::new("keys/delegate.json")
+        ));
+        let address = Address::new_from_array([7; 32]).to_string();
+        assert!(parse(&["--delegate", &address]).is_err());
+        assert!(parse(&[]).is_err());
     }
 
     #[test]

@@ -41,6 +41,7 @@ toml = { workspace = true }
 toml_edit = { workspace = true }
 zolana-cli-common = { workspace = true }
 zolana-client = { workspace = true, features = ["solana-rpc"] }
+zolana-event-parser = { workspace = true }
 zolana-indexer-api = { workspace = true }
 zolana-interface = { workspace = true }
 zolana-keypair = { workspace = true }
