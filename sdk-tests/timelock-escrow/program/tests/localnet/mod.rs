@@ -79,7 +79,10 @@ pub fn creator_transactions(
             Some(50),
             Some(IndexerRpcConfig::at_slot(slot)),
         )?
-        .transactions)
+        .items
+        .into_iter()
+        .flat_map(|item| item.events)
+        .collect())
 }
 
 pub fn send(
