@@ -158,7 +158,7 @@ const client = await createZolanaClient({
 });
 ```
 
-The SDK's default policy pins the `devnet-d-tee-1` enclave measurements and
+The SDK's default policy pins the indexed `devnet-d-tee-2` enclave measurements and
 attested HPKE public key. No `proverTee` policy override is needed for these
 endpoints. See the [TEE deployment pin](../../prover/tee/README.md#building-on-it)
 for the measured build and verified policy source. Attestation, certificate,

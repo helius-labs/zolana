@@ -26,8 +26,8 @@ Any compose the API key holder deploys under the same app derives the same key a
 
 ## Building on it
 
-The SDK pins `devnet-d-tee-1`, the devnet Nitro Enclave prover at `https://d1unet9hn0mci0.cloudfront.net` (`DEFAULT_PROVER_URL` in Rust, `DEFAULT_TEE_PROVER_ENDPOINT` in TypeScript), in `sdk-libs/client/src/prover/tee/policy.json` and its TypeScript mirror `default.ts`. The matching Photon endpoint is `https://d21d98xh5lgv3b.cloudfront.net`.
-The enclave was built from prover source commit `81d8f9cefed610247c9bd4cf69c3cf8553e0b731`, with build tooling from `f0a9bb48e9c16d15835f87bb462379ed2220e8c0`, in the [measured build](https://github.com/helius-labs/zolana/actions/runs/39691894680). Both SDKs pin its PCR0–PCR2 measurements and attested HPKE public key from the [verified deployment policy](https://github.com/helius-labs/zolana-examples/blob/858aa579823177472f7b5ac334b4efef1c366045/devnet-tee-policy.json). Clients use this policy automatically; no caller-supplied policy is needed for this deployment.
+The SDK pins `devnet-d-tee-2`, the indexed devnet Nitro Enclave prover at `https://d1unet9hn0mci0.cloudfront.net` (`DEFAULT_PROVER_URL` in Rust, `DEFAULT_TEE_PROVER_ENDPOINT` in TypeScript), in `sdk-libs/client/src/prover/tee/policy.json` and its TypeScript mirror `default.ts`. The matching Photon endpoint is `https://d21d98xh5lgv3b.cloudfront.net`.
+The enclave was built from prover source commit `81d8f9cefed610247c9bd4cf69c3cf8553e0b731`, with build tooling from `92a2e088c300f6b62722dd699b68288d6150332e`, in the [measured build](https://github.com/helius-labs/zolana/actions/runs/39738684498). Both SDKs pin its PCR0–PCR2 measurements and attested HPKE public key in the bundled default policy. Clients use this policy automatically; no caller-supplied policy is needed for this deployment.
 Every prover client requires a remote prover to attest to that pin and encrypts each call to it, except a loopback prover and the Helius gateway, which cannot relay encrypted requests.
 In Rust, `ProverClient::without_tee` and `AsyncProverClient::without_tee` send plaintext and `with_tee` takes another policy; `ProverClient::attest` returns the verified `AttestedProver` on demand.
 In TypeScript, `tee: false` on `ProverClient` and `proverTee: false` on `ZolanaClient` send plaintext, and a `ZolanaClient` given a Helius devnet RPC URL proves through the pinned prover.
@@ -38,28 +38,26 @@ A TEE client calls the prover at its own URL, because attestation needs its `/te
 ## devnet-d: v0.5.0-alpha
 
 [devnet-d-v0.5.0-alpha.json](deployments/devnet-d-v0.5.0-alpha.json) pins the
-parallel v0.5.0-alpha deployment. Use the SDKs from
-[v0.5.0-alpha](https://github.com/helius-labs/zolana/releases/tag/v0.5.0-alpha),
-protocol commit `81d8f9cefed610247c9bd4cf69c3cf8553e0b731`.
+v0.5.0-alpha deployment measurements. Use the updated SDKs from
+[v0.5.0-alpha](https://github.com/helius-labs/zolana/releases/tag/v0.5.0-alpha).
+The deployed protocol programs use commit `81d8f9cefed610247c9bd4cf69c3cf8553e0b731`.
 Its client prover runs Aeglos CPU in a Nitro Enclave and fetches indexed proof
-data from Photon. The SDK's bundled default policy pins a separate deployment;
-select this policy explicitly when using these endpoints.
+data from Photon. The SDK's bundled default policy pins this deployment and its
+attested HPKE key; an explicit policy override is optional.
 
 | Service | URL |
 | --- | --- |
 | Client TEE prover | `https://d1unet9hn0mci0.cloudfront.net` |
 | Photon JSON-RPC | `https://d21d98xh5lgv3b.cloudfront.net` |
 
-Copy the policy JSON into your application. In Rust:
+Use the bundled default policy. In Rust:
 
 ```rust
 use zolana_client::prover::{
-    indexed::ProofDataSource, tee::TeePolicy, ProverClient,
+    indexed::ProofDataSource, tee::DEFAULT_PROVER_URL, ProverClient,
 };
 
-let policy_json = std::fs::read_to_string("devnet-d-v0.5.0-alpha.json")?;
-let prover = ProverClient::new("https://d1unet9hn0mci0.cloudfront.net".into())
-    .with_tee(TeePolicy::from_file_json(&policy_json)?)
+let prover = ProverClient::new(DEFAULT_PROVER_URL.into())
     .with_proof_data_source(ProofDataSource::Prover);
 prover.attest()?;
 ```
@@ -67,34 +65,32 @@ prover.attest()?;
 In TypeScript:
 
 ```ts
-import { ZolanaClient, teePolicyFromJson } from "@heliuslabs/zolana/client";
-import pin from "./devnet-d-v0.5.0-alpha.json" with { type: "json" };
+import { ZolanaClient } from "@heliuslabs/zolana/client";
 
 const client = new ZolanaClient({
   solanaRpcUrl: "https://api.devnet.solana.com",
   indexerUrl: "https://d21d98xh5lgv3b.cloudfront.net",
   proverUrl: "https://d1unet9hn0mci0.cloudfront.net",
-  proverTee: teePolicyFromJson(pin.deployment),
   proofDataSource: "prover",
 });
 await client.attestProver();
 ```
 
-The explicit proof-data setting uses `/indexed`, including
+The prover proof-data setting uses `/indexed`, including
 `/prove/transfer_confidential_1_2/indexed`, so the prover fetches Merkle proofs.
 From the repository root, check attestation and encrypted proving-key digests:
 
 ```sh
-cargo run -p xtask -- tee-check https://d1unet9hn0mci0.cloudfront.net \
-  --policy prover/tee/deployments/devnet-d-v0.5.0-alpha.json
+cargo run -p xtask -- tee-check https://d1unet9hn0mci0.cloudfront.net
 ```
 
 The policy matches the measured EIF from
 [publisher run 39738684498](https://github.com/helius-labs/zolana/actions/runs/39738684498),
 with EIF SHA256 `a8cf5a57439c4725fc5f7450a283550a5eac7a98e75bc35fe23d72bd93384166`.
 Live attestation, encrypted key checks and an encrypted indexed proof were
-verified against it. A future enclave build requires a newly measured and
-reviewed policy; applications should vendor the reviewed file with their code.
+verified against it. A future enclave build requires newly measured and
+reviewed SDK pins. Applications selecting another reviewed policy can pass it
+explicitly with `with_tee`, `proverTee`, or the xtask's `--policy` option.
 
 ## Roles
 
