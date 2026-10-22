@@ -314,6 +314,7 @@ async function assembleStagedTransfer<T>(
       : undefined;
     const approvalRequired = policy?.approvalRequired ?? false;
     const coSigner = demandedCoSigner({
+      ringProgramId,
       configured: config.coSigner,
       approvalRequired,
       transfers: proofInputs.externalData.interfaceTransfers,

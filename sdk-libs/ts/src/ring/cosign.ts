@@ -49,6 +49,7 @@ export function transactDemand(transfers: readonly SettlementTransfer[]): CoSign
 /** Rust `CoSignDemand::signer`, the approval bit demands the co-signer whatever its scope. */
 export function demandedCoSigner(
   input: Readonly<{
+    ringProgramId: Address;
     configured: RingCoSigner | undefined;
     approvalRequired: boolean;
     transfers: readonly SettlementTransfer[];
@@ -57,16 +58,15 @@ export function demandedCoSigner(
     delegate?: Address;
   }>,
 ): Address | undefined {
-  const { configured } = input;
-  if (input.approvalRequired && configured === undefined)
-    throw new RingError("RING_COSIGNER_REQUIRED", {
-      details: { reason: "approvalWithoutCoSigner" },
-    });
-  const demanded =
-    configured !== undefined &&
-    (input.approvalRequired || inScope(configured, transactDemand(input.transfers)))
-      ? configured.signer
-      : undefined;
+  // Supplied with the configured signer, the check only answers whether the demand names it.
+  const supplied = checkRingCoSigner({
+    ringProgramId: input.ringProgramId,
+    configured: input.configured,
+    supplied: input.configured?.signer,
+    demand: transactDemand(input.transfers),
+    approvalRequired: input.approvalRequired,
+  });
+  const demanded = supplied === undefined ? undefined : signerAddress(supplied);
   // Rust `CoSignerIsOwner` and `CoSignerIsDelegate`, dual control needs a second key.
   if (demanded !== undefined && input.ownerSigners.includes(demanded))
     throw new RingError("RING_COSIGNER_REQUIRED", {

@@ -462,7 +462,10 @@ describe("policy ring", () => {
     const recipient = ShieldedKeypair.generate();
     const fixture = await curatedRing([sender, recipient]);
     await expect(prove(fixture, sender, transferTo(fixture, sender, [recipient]))).rejects.toThrow(
-      ringError("RING_COSIGNER_REQUIRED"),
+      ringError("RING_COSIGNER_REQUIRED", {
+        ringProgramId: fixture.ringProgramId,
+        reason: "approvalWithoutCoSigner",
+      }),
     );
     expect(fixture.ringRequests).toHaveLength(0);
   });
