@@ -1,13 +1,18 @@
 # Member records
 
-A ring keeps its lists in member records, and a registered owner's record
-binds its escrowed nullifier key. The records form the ring's member registry,
-a 4-ary indexed Merkle tree. The ring program keeps the tree's recent roots on
-chain, and Photon stores the records. A write enters a queue on chain, and an
-apply proof moves the tree to its next root. A policy proof opens records
-under a root the registry holds, so list facts stay private. The account
-layouts, the queue chain and the apply statement are in
-[Member registry](../../docs/spec.md#member-registry).
+A ring keeps its lists in member records, and a registered owner's record binds
+its escrowed nullifier key. The records form the ring's member registry, a
+4-ary indexed Merkle tree that belongs to the ring alone. The ring program
+keeps the tree's recent roots on chain, and Photon stores the records. Members
+queue their writes on chain, and an apply proof moves the tree to its next
+root. The config authority's writes apply in their own instruction and raise
+the registry's root floor, so a revocation applies to every later transfer. A
+policy proof opens records under a root the registry holds and reveals no
+record it opened. The records themselves are public. The account layouts, the
+queue chain and the apply statement are in
+[Member registry](../../docs/spec.md#member-registry), and the constants this
+guide names are in
+[Ring Program Interface](../../docs/spec.md#ring-program-interface).
 
 ## Members and lists
 
@@ -24,8 +29,8 @@ and an escrow key. Eight lists exist, and each list has one writer:
 - The member itself writes `RingViewing` and `Recovery`.
 - Only a key registration sets `Escrow`, and it also fills the escrow key.
 
-[The policy guide](../../docs/ring-policy.md#rules) names the lists a rule
-reads.
+[The policy guide](../../docs/ring-policy.md#rules) says which of these lists
+a rule reads.
 
 The tree starts with a sentinel record at leaf 0. Every member lies strictly
 between the sentinel and the largest field element, so every absent member has
@@ -54,67 +59,74 @@ second one before proving. An anonymous ring refuses key registration. See
 [Creating an anonymous ring](anonymous-rings.md#creating-an-anonymous-ring).
 
 The config authority writes with `AuthorityWriteRecords`. One instruction
-carries 1 to 16 writes over the authority lists and an apply proof. The
-program appends the writes behind every pending member write. The proof then
+carries 1 to `APPLY_BATCH` writes over the authority lists and an apply proof.
+The program appends the writes behind every pending write. The proof then
 applies the whole queue in one step, so the authority's writes apply in the
 same transaction.
 
 ## Applying the queue
 
 `ApplyRecords` applies every pending write and needs no signer. Anyone may
-send it once the queue is due. A queue is due when it holds 8 member writes,
-or when its oldest write waited `APPLY_DELAY_SLOTS` slots. At least
-`APPLY_DELAY_SLOTS` slots separate two permissionless applications. An
-authority write neither waits for nor moves that window.
+send it once the queue is due. A queue is due when it holds
+`MEMBER_QUEUE_LIMIT` writes, or when its oldest write waited
+`APPLY_DELAY_SLOTS` slots. At least `APPLY_DELAY_SLOTS` slots separate two
+permissionless applications. An authority write neither waits for nor moves
+that window.
 
 The proof binds the old root, the new root, the next free leaf before and
 after, and the hash chain of exactly the pending writes. The program keeps the
 chain of every queued write, so an application cannot drop, reorder or invent
-a write. A one-write queue uses the one-write key, and a longer queue uses the
-16-write key.
+a write.
 
 ## Queue and leaf limits
 
-One application covers at most 16 writes. The queue holds at most 8 pending
-member writes, and a ninth fails with `QueueFull` until an application runs.
-An authority write adds up to 16 writes less the pending ones, so the
-authority can always write 8 records in one instruction.
+The tree holds `2^20` leaves, the sentinel included, so a registry holds at
+most `2^20 - 1` member records. One application covers at most `APPLY_BATCH`
+writes. The queue holds at most `MEMBER_QUEUE_LIMIT` pending writes, member
+writes and key registrations alike, and one more fails with `QueueFull` until
+an application runs. An authority write adds up to `APPLY_BATCH` writes less
+the pending ones, so the authority can always write
+`APPLY_BATCH - MEMBER_QUEUE_LIMIT` records in one instruction.
 
-The tree holds `2^20` leaves. The last `2^16` leaves are the authority's
-reserve. A member write or a key registration is refused with
-`AuthorityLeafReserve` once it could enter that reserve. The program counts
-every pending write as a possible insert, because only the application knows
-whether a member exists. No leaf check applies to an authority write, so a
-registry whose member share is full still accepts `Block` and `Frozen` writes
-over existing members.
+The last `AUTHORITY_RESERVED_LEAVES` leaves are the authority's reserve. A
+member write or a key registration is refused with `AuthorityLeafReserve` once
+it could enter that reserve. The program counts every pending write as a
+possible insert, because only the application knows whether a member exists. No
+leaf check applies to an authority write, so a registry whose member share is
+full still accepts `Block` and `Frozen` writes over existing members.
 
 ## The insert fee
 
 A member write or a key registration pays the ring's insert fee to the config
-authority. A new config starts at `DEFAULT_INSERT_FEE`, enough lamports to open
-an empty authority account. The config authority changes the fee with
-`SetInsertFee`. A write that the config authority signs pays no fee. With a fee
-of zero the write takes no payer, authority or system account.
+authority. It names the most it pays, and a higher fee refuses it with
+`InsertFeeAboveMax`. Both SDKs name the fee they read from the config, so the
+program refuses the write when the fee rises before it lands. A new config
+starts at `DEFAULT_INSERT_FEE`. The config authority changes the fee with
+`SetInsertFee`, which refuses a nonzero fee below the rent minimum of an empty
+account. A paid write therefore lands even when the authority account holds no
+lamports. A write that the config authority signs pays no fee and ignores its
+maximum. With a fee of zero the write takes no payer, authority or system
+account.
 
 ## Roots, floors and curators
 
-The registry keeps the last 32 roots. Each root records the queue position it
-applied and its slot. A policy transfer names the history index of each
-registry root its proof binds. A merge on a confidential ring and an audited deposit under key
-escrow do the same.
+The registry keeps the last `ROOT_HISTORY` roots. Each root records the queue
+position it applied and its slot. A policy transfer names the history index of
+each registry root its proof binds. A merge on a confidential ring and an
+audited deposit under key escrow do the same.
 
 Every authority write raises the registry's floor to the queue position it
 applied. A transfer that binds a root of the ring's own registry below the
-floor fails with `RootBelowFloor`. A revocation by the
-authority therefore binds every later transfer of the ring immediately. A
-member write raises no floor.
+floor fails with `RootBelowFloor`. A revocation by the authority therefore
+applies to every later transfer of the ring immediately. A member write raises
+no floor.
 
 A ring that reads a list from a curator's registry accepts a curator root at
 or above the curator's floor. It also accepts a root at or above the curator's
 previous floor for `GRACE_SLOTS` slots after the curator raised it. A root
 outside both fails with `CuratorRootStale`. A curator's revocation therefore
-binds its subscribers within `GRACE_SLOTS`, and a transfer proven shortly before
-a curator write still lands.
+applies to its subscribers within `GRACE_SLOTS`, and a transfer proven shortly
+before a curator write still lands.
 
 ## Indexing
 
@@ -128,11 +140,12 @@ every opening against a root the registry holds before they prove.
 
 `zolana-ring list add|clear <list> --owner <address>` or `--asset <mint>`
 sends authority writes. Each batch carries its apply proof, and the first
-batch takes the room the pending writes leave. `list join|leave ring-viewing|recovery`
-sends the member write of `keys/sender-keypair.json`, then applies the queue
-once it is due. `list apply` sends the permissionless application, and
-`key register` escrows the sender's key. `insert-fee set|show` writes and reads
-the fee, and `status` prints the newest root, the floor and the queue.
+batch takes the room the pending writes leave.
+`list join|leave ring-viewing|recovery` sends the member write of
+`keys/sender-keypair.json`, then applies the queue once it is due.
+`list apply` sends the permissionless application, and `key register` escrows
+the sender's key. `insert-fee set|show` writes and reads the fee, and `status`
+prints the newest root, the floor and the queue.
 
 In Rust, `MemberListWrite { ring, payer, member, lists }.instruction(&config)`
 builds a member write. `AuthorityListWrite::new(ring, authority)` takes one
@@ -147,11 +160,12 @@ exports `memberListWriteInstruction`, `AuthorityListWrite`,
 
 ## Pitfalls
 
-An authority write proves over the current queue. A member write that
-lands between the proof and the authority's transaction changes the queue, and
-the authority's proof fails. Rust's `RingSubmission` proves the batch again
-over the new queue. A batch that does not fit beside the new queue fails with
-`AuthorityBatchSplit`.
+An authority write proves over the current queue. A member write or a key
+registration that lands between the proof and the authority's transaction
+changes the queue, and the authority's proof fails. Rust's `RingSubmission`
+proves the batch again over the new queue. A batch that does not fit beside
+the new queue fails with `AuthorityBatchSplit`.
 
-A transfer that binds an old root fails once 32 later applications replace it
-in the history. Both SDKs prove again when a bound root leaves the history.
+A transfer that binds an old root fails once `ROOT_HISTORY` later applications
+replace it in the history. Both SDKs prove again when a bound root leaves the
+history.
