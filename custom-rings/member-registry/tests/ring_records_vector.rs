@@ -359,7 +359,6 @@ fn compute_vectors() -> RecordVectors {
     use ListId::{Allow, Approval, Block, Frozen, Reader, Recovery, RingViewing};
     let mut registry = Registry::new();
     let none = ListSet::EMPTY;
-    // Both members insert past the sentinel, the second after the first relinked it.
     let first = registry.apply(
         "authority_inserts_after_a_relink",
         vec![

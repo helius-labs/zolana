@@ -18,7 +18,6 @@ use crate::instructions::{
 /// The registry follows the config on a policy ring.
 const REGISTRY_INDEX: usize = 1;
 
-/// Copied out before the SPP CPI.
 pub(super) struct PolicyRoots<'a> {
     pub proof: &'a CustomRingProof,
     pub policy_hash: [u8; 32],

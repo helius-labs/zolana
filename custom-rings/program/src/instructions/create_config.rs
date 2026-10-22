@@ -37,7 +37,7 @@ pub fn process_create_config_ix(
     let program = iter.next_account("program")?;
     let program_data = iter.next_account("program_data")?;
 
-    // 1. The caller controls the deployed binary the config configures.
+    // 1. The signer holds the upgrade authority of the deployed binary.
     check_system_program(system_program)?;
     UpgradeAuthorityCheck {
         program_id,
@@ -46,7 +46,7 @@ pub fn process_create_config_ix(
         program_data,
     }
     .verify()?;
-    // 2. The envelope proves agreement with the tagged canonical X25519 key.
+    // 2. A canonical auditor key of large order keeps every envelope agreement contributory.
     if !is_x25519_key(&auditor_pubkey) {
         return Err(CustomRingError::InvalidAuditorPubkey.into());
     }

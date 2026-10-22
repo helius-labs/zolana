@@ -1,4 +1,4 @@
-//! Config, policy and read access writes, and the budgets every instruction declares.
+//! Config, policy and read access writes and their declared budgets.
 
 use custom_ring_interface::{
     stream::{tag_epoch, EPOCH_SLOTS},

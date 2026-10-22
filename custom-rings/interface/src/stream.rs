@@ -9,7 +9,7 @@ use zolana_hasher::{
 
 use crate::{domain, TAGGED_X25519_KEY_LEN, VIEWING_PUBKEY_TAG};
 
-/// `epoch = slot / EPOCH_SLOTS`, the statement epoch the program derives.
+/// The tag epoch length, the statement epoch is the landing slot's or the one before.
 pub const EPOCH_SLOTS: u64 = 1 << 18;
 /// A 6-bit index in the circuit.
 pub const J_INBOX: u8 = 64;

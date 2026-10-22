@@ -43,7 +43,7 @@ pub fn process_set_delegate_ix(
     if !config.has_policy() {
         return Err(CustomRingError::DelegateRequiresPolicy.into());
     }
-    // 4. The delegate recovers nullifier secrets from the records every output key escrows into.
+    // 4. Registry mode escrows every output nullifier key in the member registry.
     load_registry(program_id, registry)?;
     config.delegate = *delegate.address();
     config.mode = RingMode::Registry as u8;

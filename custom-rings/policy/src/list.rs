@@ -2,7 +2,6 @@ use thiserror::Error;
 
 use crate::MAX_SOURCES;
 
-/// The sole axis the program authorizes a list write on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Writer {
     Authority,
@@ -11,7 +10,7 @@ pub enum Writer {
 
 macro_rules! lists {
     ($($variant:ident = $id:literal, $name:literal => $writer:ident,)*) => {
-        /// The on-chain discriminant of a list, never the unused source slot `0`.
+        /// Never `0`, the byte of an empty source slot.
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]
         #[repr(u8)]
         pub enum ListId {
@@ -59,7 +58,6 @@ impl ListId {
         1 << self.slot()
     }
 
-    /// The bit of a member record's `lists` bitmap.
     pub const fn record_bit(self) -> u64 {
         ListSet::single(self).record_bits()
     }

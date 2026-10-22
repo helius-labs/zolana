@@ -152,7 +152,6 @@ pub fn validate_spp_program(accounts: &[AccountView]) -> ProgramResult {
     Ok(())
 }
 
-/// The forward raises the ring PDA to a signer, an account SPP debits signs the outer instruction.
 pub fn check_funding_signer(
     accounts: &[AccountView],
     index: usize,

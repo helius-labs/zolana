@@ -1,4 +1,4 @@
-//! The ring program on LiteSVM, every refusal that precedes proof verification.
+//! The ring program's refusals ahead of proof verification, on LiteSVM.
 
 mod anonymous_rules;
 mod common;

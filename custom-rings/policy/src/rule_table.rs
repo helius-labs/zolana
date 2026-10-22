@@ -52,7 +52,6 @@ pub enum SourceMapError {
     SeveralCurators,
 }
 
-/// A table the program refuses to store.
 #[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
 pub enum PolicyTableError {
     #[error("no source serves a list a rule reads")]
@@ -63,7 +62,7 @@ pub enum PolicyTableError {
 
 macro_rules! rule_errors {
     ($($variant:ident => $message:literal,)*) => {
-        /// A table or a row the circuit cannot enforce.
+        /// A table or a row the program refuses.
         #[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
         pub enum RuleTableError {
             $(#[error($message)] $variant,)*
@@ -282,7 +281,6 @@ impl Rule {
         }
     }
 
-    /// The registry lists the rule consults.
     pub const fn referenced(&self) -> ListSet {
         match self.source {
             RuleSource::Lists { present, absent } => present.union(absent),
@@ -770,7 +768,6 @@ impl TableParts<'_> {
 impl EncodedRuleTable {
     pub const SIZE: usize = core::mem::size_of::<Self>();
 
-    /// The table bounds a transfer's outflow.
     pub const fn has_limits(&self) -> bool {
         self.limit_count != 0
     }
@@ -1834,7 +1831,6 @@ mod tests {
             .rule(Rule::require(Subject::OutputOwner, ListId::Allow).above(7))
             .build();
         assert_eq!(table.rules().len(), 1);
-        // The circuit refuses a transfer of two assets under a scalar owner guard.
     }
 
     #[test]

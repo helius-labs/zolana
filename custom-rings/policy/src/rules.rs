@@ -36,9 +36,9 @@ pub struct TransferSubjects<'a> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TransferSubject {
     Sender,
-    /// The owner of output `n`.
+    /// A position in `TransferSubjects::outputs`.
     Owner(usize),
-    /// The asset of output `n`.
+    /// A position in `TransferSubjects::outputs`.
     Asset(usize),
 }
 

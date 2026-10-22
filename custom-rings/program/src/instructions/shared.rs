@@ -137,7 +137,7 @@ impl RingAuth {
 }
 
 impl PlacedRingAuth {
-    /// Raises the PDA to a signer, the caller checks every account SPP debits.
+    /// Raises the PDA alone to a signer.
     #[inline(never)]
     pub fn invoke<A: AsRef<AccountView>>(&self, accounts: &[A], data: &[u8]) -> ProgramResult {
         if accounts.len() > MAX_CPI_ACCOUNTS {

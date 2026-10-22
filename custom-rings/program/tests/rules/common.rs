@@ -24,8 +24,7 @@ pub const PROGRAM: Address = Address::new_from_array([0x52; 32]);
 pub const SYSTEM: Address = Address::new_from_array([0; 32]);
 const LOADER: Address = Address::new_from_array(BPF_LOADER_UPGRADEABLE_ID);
 const SOL: u64 = 1_000_000_000;
-/// What `ComputeBudgetConfig` writes for a ring proof instruction.
-const UNITS: u32 = 1_400_000;
+const UNITS: u32 = compute_unit_limit(InstructionTag::Transact);
 const LOADED_ACCOUNTS_DATA: u32 = 64 * 1024 * 1024;
 
 pub fn pda(seed: &[u8]) -> Address {

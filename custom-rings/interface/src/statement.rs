@@ -1,5 +1,4 @@
-//! The single public input of every ring proof, `HashChain4(statement)`, rebuilt by
-//! the program from values it holds or derives.
+//! The `HashChain4` public input of the audit, policy, apply and register key proofs.
 
 use zolana_hasher::{
     hash_chain::create_hash_chain_4_from_slice,
@@ -80,10 +79,6 @@ pub struct AuditStatement<'a> {
 }
 
 impl AuditStatement<'_> {
-    /// `head ‖ [output_chain, disclosure_chain]` packed,
-    /// `head ‖ [output_chain, body_chain, disclosure_chain, recipient_key_chain]` delivered,
-    /// `head ‖ [output_chain, body_chain, disclosure_chain, private_tx_hash, tag_chain,
-    /// epoch, first_contact_root, sender_commitment]` anonymous.
     pub fn elements(&self) -> Result<Vec<[u8; 32]>, HasherError> {
         let mut elements = self.head.elements()?.to_vec();
         let hashes: Vec<[u8; 32]> = self.outputs.iter().map(|output| *output.hash()).collect();
@@ -163,9 +158,6 @@ pub struct PolicyStatement<'a> {
 }
 
 impl PolicyStatement<'_> {
-    /// `[CRPO, private_tx_hash, policy_hash, ring_id, anonymous, approval_required,
-    /// key_escrow, own_root, curator_root, sender, (asset_k, amount_k) x 3]`, the
-    /// delegate key without `anonymous`.
     pub fn elements(&self) -> Vec<[u8; 32]> {
         let mut elements = vec![
             domain::field(domain::POLICY_STATEMENT),

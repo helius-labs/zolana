@@ -291,7 +291,6 @@ pub struct RegisterKeyIxData {
     pub max_fee: [u8; 8],
 }
 
-/// Tag 42.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Pod, Zeroable)]
 #[repr(C)]
 pub struct SetInsertFeeIxData {

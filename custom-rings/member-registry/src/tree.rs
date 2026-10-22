@@ -121,7 +121,6 @@ impl ApplyProofInputs {
     }
 }
 
-/// The one implementation of the tree over every store.
 pub trait RecordTree: RecordStore {
     fn root(&self) -> Result<[u8; 32], Self::Error> {
         node_at(self, self.next_index()?, NodePosition::ROOT)

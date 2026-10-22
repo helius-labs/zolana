@@ -14,7 +14,7 @@ pub struct CoSignDemand {
 }
 
 impl CoSignDemand {
-    /// A transact is a transfer, each public leg adds its class and its withdrawal.
+    /// A transact is a transfer, each leg adds its class and a withdrawal its amount.
     pub fn transact(approval_required: bool, legs: &[PublicLeg]) -> Self {
         let mut classes = CoSignScope::TRANSFERS;
         let mut withdrawals: Vec<(Address, u128)> = Vec::new();

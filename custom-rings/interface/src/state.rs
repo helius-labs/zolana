@@ -182,7 +182,7 @@ pub struct RingProgramConfig {
     pub thresholds: [WithdrawalThresholdRow; MAX_CO_SIGNER_THRESHOLDS],
     /// Zero without a delegate.
     pub delegate: Address,
-    /// Little endian, the slot `CreateConfig` ran in, a restored wallet scans from its epoch.
+    /// Little endian, the slot `CreateConfig` ran in.
     pub created_slot: [u8; 8],
 }
 
@@ -319,7 +319,7 @@ pub struct AppliedAt {
 pub struct MemberRegistry {
     pub discriminator: u8,
     pub bump: u8,
-    /// Slot of the newest root in `history`.
+    /// Index of the newest root in `history`.
     pub history_cursor: u8,
     /// Little endian, the leaf the next insert takes.
     pub next_index: [u8; 4],
@@ -616,7 +616,6 @@ pub struct PendingApplication<'a> {
 }
 
 impl PendingApplication<'_> {
-    /// The statement the apply proof is verified against.
     pub fn statement(&self, data: &ApplyRecordsIxData) -> ApplyRecordsStatement {
         ApplyRecordsStatement {
             old_root: self.registry.current_root(),

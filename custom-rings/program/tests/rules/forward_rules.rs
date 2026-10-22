@@ -1,4 +1,4 @@
-//! A merge and an audited deposit bind an own registry root under the floor.
+//! Merge and audited deposit refusals ahead of the forward.
 
 use bytemuck::Zeroable;
 use custom_ring_interface::{
