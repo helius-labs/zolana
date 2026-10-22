@@ -6,7 +6,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Context, Result};
-use custom_ring_cli::{ListName, SENDER_KEYPAIR_FILE};
+use custom_ring_cli::{ListName, ModeName, SENDER_KEYPAIR_FILE};
 use custom_ring_sdk::CustomRing;
 use solana_address::Address;
 use solana_keypair::Keypair;
@@ -36,6 +36,7 @@ pub struct RingToml<'a> {
     pub ring_rpc: &'a str,
     /// A `[policy]` block selects the policy tier.
     pub policy: Option<&'a str>,
+    pub mode: ModeName,
 }
 
 pub struct ListWrite<'a> {
@@ -106,12 +107,13 @@ impl RingProject {
         std::fs::write(
             self.dir.join("ring.toml"),
             format!(
-                "name = \"cli\"\ntarget = \"localnet\"\nprogram_id = \"{}\"\n\
+                "name = \"cli\"\ntarget = \"localnet\"\nprogram_id = \"{}\"\nmode = \"{}\"\n\
                  authority_keypair = \"{}\"\nconfig_authority_keypair = \"{}\"\n\n{policy}\
                  [localnet]\nrpc = \"{}\"\nindexer = \"{}\"\nprover = \"{}\"\nring_rpc = \"{}\"\n\n\
                  [devnet]\nrpc = \"https://api.devnet.solana.com\"\nindexer = \"http://indexer.invalid\"\n\
                  prover = \"http://prover.invalid\"\nring_rpc = \"http://ring.invalid\"\n",
                 self.program_id,
+                toml.mode,
                 self.dir.join("upgrade.json").display(),
                 self.dir.join("config.json").display(),
                 toml.env.rpc_url,
