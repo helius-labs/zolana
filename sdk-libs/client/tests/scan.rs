@@ -50,6 +50,8 @@ struct Indexer {
     page_size: usize,
     /// Answers every page as full, with the cursor it was given.
     stuck_cursor: bool,
+    /// Answers every page as full, its cursor alternating between two values.
+    alternating_cursor: bool,
 }
 
 impl Indexer {
@@ -77,6 +79,18 @@ impl Indexer {
             return Page {
                 rows: items.into_iter().take(size).collect(),
                 next_cursor: Some(cursor.unwrap_or_default()),
+                scanned_through: None,
+            };
+        }
+        if self.alternating_cursor {
+            let next = if cursor.as_deref() == Some(&[1]) {
+                2
+            } else {
+                1
+            };
+            return Page {
+                rows: items.into_iter().take(size).collect(),
+                next_cursor: Some(vec![next]),
                 scanned_through: None,
             };
         }
@@ -484,6 +498,25 @@ fn a_cursor_that_does_not_advance_fails_instead_of_paging_forever() {
         UtxoScan::new(&owner, &assets).fetch(&indexer),
         Err(ClientError::IndexerCursorNotAdvanced)
     ));
+}
+
+/// An indexer that alternates two cursors would be paged forever too.
+#[test]
+fn alternating_cursors_fail_instead_of_paging_forever() {
+    let owner = keypair(7);
+    let (first_deposit, _) = deposit(&owner, 30, 1);
+    let indexer = Indexer {
+        deposits: vec![first_deposit],
+        alternating_cursor: true,
+        ..Indexer::default()
+    };
+    let assets = AssetRegistry::default();
+
+    assert!(matches!(
+        UtxoScan::new(&owner, &assets).fetch(&indexer),
+        Err(ClientError::IndexerCursorNotAdvanced)
+    ));
+    assert!(indexer.reads.borrow().len() <= 3);
 }
 
 #[test]

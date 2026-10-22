@@ -256,26 +256,25 @@ pub(crate) fn tagged_transactions<I: Rpc + ?Sized>(
     output_tree_id: &mut Option<u16>,
 ) -> Result<Vec<ShieldedTransaction>, ClientError> {
     let mut transactions = Vec::new();
-    let mut cursor = None;
+    let mut cursor = PageCursor::default();
     loop {
         let page = indexer.get_shielded_transactions_by_tags(
             tags.to_vec(),
-            cursor.clone(),
+            cursor.current(),
             Some(PAGE_LIMIT),
             config,
         )?;
         *output_tree_id = page.output_tree_id;
         transactions.extend(page.transactions.into_iter().filter(|tx| !tx.proofless));
-        match next_page(&cursor, page.next_cursor, &page.scanned_through)? {
-            Some(next) => cursor = Some(next),
-            None => break,
+        if !cursor.advance(page.next_cursor, &page.scanned_through)? {
+            break;
         }
     }
-    let mut cursor = None;
+    let mut cursor = PageCursor::default();
     loop {
         let page = indexer.get_encrypted_utxos_by_tags(
             tags.to_vec(),
-            cursor.clone(),
+            cursor.current(),
             Some(PAGE_LIMIT),
             config,
         )?;
@@ -285,9 +284,8 @@ pub(crate) fn tagged_transactions<I: Rpc + ?Sized>(
                 .into_iter()
                 .filter_map(EncryptedUtxoMatch::into_proofless_transaction),
         );
-        match next_page(&cursor, page.next_cursor, &page.scanned_through)? {
-            Some(next) => cursor = Some(next),
-            None => break,
+        if !cursor.advance(page.next_cursor, &page.scanned_through)? {
+            break;
         }
     }
     Ok(transactions)
@@ -303,23 +301,51 @@ fn spending_transactions<I: Rpc + ?Sized>(
 ) -> Result<Vec<ShieldedTransaction>, ClientError> {
     let mut transactions = Vec::new();
     for chunk in nullifiers.chunks(PAGE_LIMIT as usize) {
-        let mut cursor = None;
+        let mut cursor = PageCursor::default();
         loop {
             let page = indexer.get_shielded_transactions_by_nullifiers(
                 chunk.to_vec(),
-                cursor.clone(),
+                cursor.current(),
                 Some(PAGE_LIMIT),
                 config,
             )?;
             *output_tree_id = page.output_tree_id;
             transactions.extend(page.transactions);
-            match next_page(&cursor, page.next_cursor, &page.scanned_through)? {
-                Some(next) => cursor = Some(next),
-                None => break,
+            if !cursor.advance(page.next_cursor, &page.scanned_through)? {
+                break;
             }
         }
     }
     Ok(transactions)
+}
+
+/// A paged read's position, a cursor the read already followed fails it.
+#[derive(Debug, Default)]
+pub(crate) struct PageCursor {
+    current: Option<Vec<u8>>,
+    followed: HashSet<Vec<u8>>,
+}
+
+impl PageCursor {
+    pub(crate) fn current(&self) -> Option<Vec<u8>> {
+        self.current.clone()
+    }
+
+    /// Moves past the page read at the current cursor, `false` once that page was the last.
+    pub(crate) fn advance(
+        &mut self,
+        next: Option<Vec<u8>>,
+        scanned_through: &Option<Vec<u8>>,
+    ) -> Result<bool, ClientError> {
+        let Some(next) = next_page(&self.current, next, scanned_through)? else {
+            return Ok(false);
+        };
+        if !self.followed.insert(next.clone()) {
+            return Err(ClientError::IndexerCursorNotAdvanced);
+        }
+        self.current = Some(next);
+        Ok(true)
+    }
 }
 
 /// The cursor of the page after the one read with `cursor`, or `None` when
