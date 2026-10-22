@@ -435,11 +435,6 @@ impl PreparedIndexedTransfer {
     pub fn private_tx_hash(&self) -> [u8; 32] {
         self.data.private_tx_hash
     }
-
-    /// Proof placeholders of the final size, a transaction that cannot fit fails before proving.
-    pub fn transaction_template(&self) -> &TransactIxData {
-        &self.data
-    }
 }
 
 impl Request for PreparedIndexedTransfer {
