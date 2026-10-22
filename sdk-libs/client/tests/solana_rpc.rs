@@ -115,7 +115,10 @@ fn filter() -> ProgramAccountsFilter {
 
 #[test]
 fn filter_maps_to_data_size_and_base64_memcmp() {
-    let config = filter().with_memcmp(1, vec![7, 8]).rpc_config();
+    let config = filter()
+        .with_memcmp(1, vec![7, 8])
+        .with_min_context_slot(42)
+        .rpc_config();
 
     assert_eq!(
         config.filters,
@@ -133,6 +136,8 @@ fn filter_maps_to_data_size_and_base64_memcmp() {
         config.account_config.commitment,
         Some(CommitmentConfig::confirmed())
     );
+    assert_eq!(config.account_config.min_context_slot, Some(42));
+    assert_eq!(filter().rpc_config().account_config.min_context_slot, None);
 }
 
 #[test]

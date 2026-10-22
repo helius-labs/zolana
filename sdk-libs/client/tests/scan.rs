@@ -42,6 +42,9 @@ const TREE: u16 = 2;
 struct Indexer {
     registrations: Vec<(Address, Account)>,
     registry_reads: RefCell<usize>,
+    registry_required_slots: RefCell<Vec<Option<u64>>>,
+    /// When set, registry reads fail until this node reaches the required slot.
+    registry_slot: Option<u64>,
     registry_fails: bool,
     /// Served by the view tags of their outputs.
     tagged: Vec<ShieldedTransaction>,
@@ -116,14 +119,27 @@ impl Rpc for Indexer {
         filter: &ProgramAccountsFilter,
     ) -> Result<Vec<(Address, Account)>, ClientError> {
         assert_eq!(program_id, PROGRAM_ID_PUBKEY);
+        assert_eq!(filter.data_size(), SplAssetRegistry::SIZE);
         assert_eq!(
-            *filter,
-            ProgramAccountsFilter::new(SplAssetRegistry::SIZE).with_memcmp(
+            filter.memcmp_filters().collect::<Vec<_>>(),
+            vec![(
                 0,
-                [zolana_interface::state::discriminator::SPL_ASSET_REGISTRY]
-            )
+                &[zolana_interface::state::discriminator::SPL_ASSET_REGISTRY][..]
+            )]
         );
         *self.registry_reads.borrow_mut() += 1;
+        self.registry_required_slots
+            .borrow_mut()
+            .push(filter.min_context_slot());
+        if self
+            .registry_slot
+            .zip(filter.min_context_slot())
+            .is_some_and(|(slot, required)| slot < required)
+        {
+            return Err(ClientError::Rpc(
+                "minimum context slot has not been reached".into(),
+            ));
+        }
         if self.registry_fails {
             return Err(ClientError::Rpc("registry unavailable".into()));
         }
@@ -861,6 +877,7 @@ fn discovery_reuses_pages_and_follows_newly_resolved_nullifiers() {
         "the caller owns its registry"
     );
     assert_eq!(*indexer.registry_reads.borrow(), 1);
+    assert_eq!(*indexer.registry_required_slots.borrow(), vec![Some(42)]);
     assert_eq!(indexer.reads_of("get_shielded_transactions_by_tags"), 1);
     assert_eq!(indexer.reads_of("get_encrypted_utxos_by_tags"), 1);
     assert_eq!(
@@ -881,6 +898,101 @@ fn discovery_reuses_pages_and_follows_newly_resolved_nullifiers() {
         1,
         "the returned registry avoids another lookup"
     );
+}
+
+#[test]
+fn discovery_requires_the_scan_slot_and_all_fetched_transaction_slots() {
+    for (required_slot, newest_slot, expected) in
+        [(None, 90, 90), (Some(120), 90, 120), (Some(42), 90, 90)]
+    {
+        let owner = keypair(7);
+        let mint = Mint::new(MINT, 2);
+        let (unknown, _) = asset_deposit(&owner, mint, 30, 1);
+        let (mut known, _) = deposit(&owner, 7, 2);
+        known.slot = newest_slot;
+        let indexer = Indexer {
+            deposits: vec![unknown, known],
+            registrations: vec![registration(mint)],
+            page_size: 100,
+            ..Indexer::default()
+        };
+        let assets = AssetRegistry::default();
+        let scan = UtxoScan::new(&owner, &assets).with_asset_discovery();
+        let scan = match required_slot {
+            Some(slot) => scan.with_indexer_config(IndexerRpcConfig::at_slot(slot)),
+            None => scan,
+        }
+        .fetch(&indexer)
+        .unwrap();
+        assert_eq!(
+            *indexer.registry_required_slots.borrow(),
+            vec![Some(expected)]
+        );
+        assert_eq!(
+            scan.spendable.balances.get_balance(MINT).unwrap().amount,
+            30
+        );
+        assert_eq!(
+            scan.spendable
+                .balances
+                .get_balance(SOL_MINT)
+                .unwrap()
+                .amount,
+            7
+        );
+    }
+}
+
+#[test]
+fn discovery_in_a_nullifier_round_requires_that_transactions_slot() {
+    let owner = keypair(7);
+    let (initial, first) = deposit(&owner, 30, 1);
+    let mint = Mint::new(MINT, 2);
+    let (mut transfer, _) = confidential(&owner, mint, 2);
+    transfer.slot = 97;
+    transfer.output_slots[0].view_tag = [99; 32];
+    transfer.nullifiers = vec![first.nullifier];
+    let indexer = Indexer {
+        deposits: vec![initial],
+        spends: vec![transfer],
+        registrations: vec![registration(mint)],
+        page_size: 100,
+        ..Indexer::default()
+    };
+    let assets = AssetRegistry::default();
+    let scan = UtxoScan::new(&owner, &assets)
+        .with_indexer_config(IndexerRpcConfig::at_slot(42))
+        .with_asset_discovery()
+        .fetch(&indexer)
+        .unwrap();
+    assert_eq!(*indexer.registry_required_slots.borrow(), vec![Some(97)]);
+    assert_eq!(
+        scan.spendable.balances.get_balance(MINT).unwrap().amount,
+        19
+    );
+    assert!(scan.history.unknown_asset_ids.is_empty());
+    assert_eq!(indexer.reads_of("get_shielded_transactions_by_tags"), 1);
+    assert_eq!(indexer.reads_of("get_encrypted_utxos_by_tags"), 1);
+}
+
+#[test]
+fn a_lagging_registry_node_cannot_return_a_successful_partial_scan() {
+    let owner = keypair(7);
+    let (mut deposit, _) = asset_deposit(&owner, Mint::new(MINT, 2), 30, 1);
+    deposit.slot = 90;
+    let indexer = Indexer {
+        deposits: vec![deposit],
+        registry_slot: Some(89),
+        page_size: 100,
+        ..Indexer::default()
+    };
+    let assets = AssetRegistry::default();
+    assert!(matches!(
+        UtxoScan::new(&owner, &assets).with_asset_discovery().fetch(&indexer),
+        Err(ClientError::Rpc(message)) if message == "minimum context slot has not been reached"
+    ));
+    assert_eq!(*indexer.registry_required_slots.borrow(), vec![Some(90)]);
+    assert_eq!(assets, AssetRegistry::default());
 }
 
 #[test]
@@ -1066,7 +1178,7 @@ fn invalid_or_conflicting_registry_listings_fail() {
             ..Indexer::default()
         };
         assert!(matches!(
-            fetch_spl_asset_registrations(&indexer),
+            fetch_spl_asset_registrations(&indexer, None),
             Err(ClientError::InvalidSplAssetRegistration { .. })
         ));
     }
@@ -1074,7 +1186,11 @@ fn invalid_or_conflicting_registry_listings_fail() {
         registrations: vec![valid],
         ..Indexer::default()
     };
-    assert_eq!(fetch_spl_asset_registrations(&indexer).unwrap(), vec![mint]);
+    assert_eq!(
+        fetch_spl_asset_registrations(&indexer, Some(42)).unwrap(),
+        vec![mint]
+    );
+    assert_eq!(*indexer.registry_required_slots.borrow(), vec![Some(42)]);
 }
 
 #[test]
@@ -1086,7 +1202,7 @@ fn filtered_registry_reads_cannot_fall_back_to_an_unfiltered_listing() {
         }
     }
     assert!(matches!(
-        fetch_spl_asset_registrations(&Unfiltered),
+        fetch_spl_asset_registrations(&Unfiltered, Some(42)),
         Err(ClientError::UnsupportedRpcMethod(
             "get_program_accounts_filtered"
         ))

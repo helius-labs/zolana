@@ -50,8 +50,9 @@ pub trait Rpc {
         Err(unsupported("get_program_accounts"))
     }
 
-    /// Every returned account must satisfy `filter`. Unsupported filtered
-    /// reads fail; they do not fall back to listing every program account.
+    /// Every returned account must satisfy `filter`, and the RPC context must
+    /// reach its minimum slot. Unsupported reads fail; they do not fall back
+    /// to listing every program account or reading at an older slot.
     fn get_program_accounts_filtered(
         &self,
         program_id: Address,

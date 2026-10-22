@@ -28,6 +28,7 @@ impl ProgramAccountsFilter {
             account_config: RpcAccountInfoConfig {
                 encoding: Some(UiAccountEncoding::Base64),
                 commitment: Some(CommitmentConfig::confirmed()),
+                min_context_slot: self.min_context_slot(),
                 ..RpcAccountInfoConfig::default()
             },
             ..RpcProgramAccountsConfig::default()

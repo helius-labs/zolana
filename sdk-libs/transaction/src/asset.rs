@@ -66,7 +66,10 @@ impl Balances {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct AssetRegistry(HashMap<u64, Address>);
+pub struct AssetRegistry {
+    by_id: HashMap<u64, Address>,
+    by_mint: HashMap<Address, u64>,
+}
 
 impl AssetRegistry {
     pub fn new(
@@ -83,18 +86,19 @@ impl AssetRegistry {
         if asset_id == SOL_ASSET_ID {
             return Err(TransactionError::ReservedAssetId(asset_id));
         }
-        if self.0.contains_key(&asset_id) {
+        if self.by_id.contains_key(&asset_id) {
             return Err(TransactionError::DuplicateAssetId(asset_id));
         }
-        if self.0.values().any(|m| m == &mint) {
+        if self.by_mint.contains_key(&mint) {
             return Err(TransactionError::DuplicateMint(mint));
         }
-        self.0.insert(asset_id, mint);
+        self.by_id.insert(asset_id, mint);
+        self.by_mint.insert(mint, asset_id);
         Ok(())
     }
 
     pub fn resolve(&self, asset_id: u64) -> Result<Mint, TransactionError> {
-        self.0
+        self.by_id
             .get(&asset_id)
             .copied()
             .map(|asset| Mint::new(asset, asset_id))
@@ -106,14 +110,14 @@ impl AssetRegistry {
     }
 
     pub fn asset_id(&self, mint: &Address) -> Result<u64, TransactionError> {
-        self.0
-            .iter()
-            .find_map(|(id, m)| (m == mint).then_some(*id))
+        self.by_mint
+            .get(mint)
+            .copied()
             .ok_or(TransactionError::UnknownMint(*mint))
     }
 
     pub fn address_for_field(&self, field: &[u8; 32]) -> Result<Option<Address>, TransactionError> {
-        for mint in self.0.values() {
+        for mint in self.by_id.values() {
             let mint_field = zolana_hasher::primitives::hash_bytes(mint.as_array())?;
             if &mint_field == field {
                 return Ok(Some(*mint));
@@ -125,6 +129,9 @@ impl AssetRegistry {
 
 impl Default for AssetRegistry {
     fn default() -> Self {
-        Self(HashMap::from([(SOL_ASSET_ID, SOL_MINT)]))
+        Self {
+            by_id: HashMap::from([(SOL_ASSET_ID, SOL_MINT)]),
+            by_mint: HashMap::from([(SOL_MINT, SOL_ASSET_ID)]),
+        }
     }
 }

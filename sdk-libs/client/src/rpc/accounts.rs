@@ -1,9 +1,11 @@
 /// Filters sent with a `getProgramAccounts` request. A service that cannot
-/// apply them must fail rather than silently perform an unfiltered read.
+/// apply them or honor the minimum context slot must fail rather than silently
+/// perform an unfiltered or stale read.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProgramAccountsFilter {
     data_size: usize,
     memcmp: Vec<MemcmpFilter>,
+    min_context_slot: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -17,6 +19,7 @@ impl ProgramAccountsFilter {
         Self {
             data_size,
             memcmp: Vec::new(),
+            min_context_slot: None,
         }
     }
 
@@ -27,6 +30,17 @@ impl ProgramAccountsFilter {
             bytes: bytes.into(),
         });
         self
+    }
+
+    /// Fail the request if the RPC node has not reached `slot`.
+    #[must_use]
+    pub fn with_min_context_slot(mut self, slot: u64) -> Self {
+        self.min_context_slot = Some(slot);
+        self
+    }
+
+    pub fn min_context_slot(&self) -> Option<u64> {
+        self.min_context_slot
     }
 
     pub fn matches(&self, data: &[u8]) -> bool {

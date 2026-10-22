@@ -96,9 +96,12 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
     ///
     /// At most one filtered registry read is made, only when an unknown
     /// asset is encountered. Already fetched transactions are decrypted
-    /// again and newly discovered nullifiers are followed normally. Outputs
-    /// in assets still unknown after discovery are skipped and reported in
-    /// the result's `unknown_asset_ids` and `unknown_mints` fields. Unknown
+    /// again and newly discovered nullifiers are followed normally.
+    /// The registry read requires the greater of `indexer_config.require_slot`
+    /// and every transaction slot fetched so far; a lagging Solana RPC fails
+    /// rather than returning a stale registry listing.
+    /// Outputs in assets still unknown after discovery are skipped and reported
+    /// in the result's `unknown_asset_ids` and `unknown_mints` fields. Unknown
     /// ids are sender-provided and unverified; they do not fail the scan.
     /// RPC failures and invalid or conflicting registrations still fail it.
     /// The supplied registry is unchanged; the result carries the updated
@@ -161,7 +164,12 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
             decrypted.extend(self.keys, &batch, &assets)?;
             transactions.append(&mut batch);
             if self.discover_assets && !registry_refreshed && has_unknown_assets(&decrypted) {
-                for mint in fetch_spl_asset_registrations(indexer)? {
+                let min_context_slot = transactions
+                    .iter()
+                    .map(|tx| tx.slot)
+                    .chain(self.indexer_config.and_then(|config| config.require_slot))
+                    .max();
+                for mint in fetch_spl_asset_registrations(indexer, min_context_slot)? {
                     match assets.asset_id(&mint.asset) {
                         Ok(asset_id) if asset_id == mint.asset_id => continue,
                         Ok(_) => {
@@ -249,9 +257,17 @@ fn has_unknown_assets(decrypted: &DecryptionResult) -> bool {
 /// checked again, including its owner and canonical mint PDA. A malformed,
 /// conflicting listing or an unsupported RPC method fails instead of reading
 /// as empty. An asset absent from the listing is simply not returned.
-pub fn fetch_spl_asset_registrations<R: Rpc + ?Sized>(rpc: &R) -> Result<Vec<Mint>, ClientError> {
-    let filter =
+/// `min_context_slot` requires a node caught up to that slot; a lagging node
+/// fails the lookup instead of returning an incomplete registry listing.
+pub fn fetch_spl_asset_registrations<R: Rpc + ?Sized>(
+    rpc: &R,
+    min_context_slot: Option<u64>,
+) -> Result<Vec<Mint>, ClientError> {
+    let mut filter =
         ProgramAccountsFilter::new(SplAssetRegistry::SIZE).with_memcmp(0, [SPL_ASSET_REGISTRY]);
+    if let Some(slot) = min_context_slot {
+        filter = filter.with_min_context_slot(slot);
+    }
     let accounts = rpc.get_program_accounts_filtered(PROGRAM_ID_PUBKEY, &filter)?;
     let mut assets = AssetRegistry::default();
     let mut registrations = Vec::with_capacity(accounts.len());

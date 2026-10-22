@@ -161,11 +161,16 @@ assets = scan.asset_registry;
 ```
 
 An unknown asset triggers one filtered `getProgramAccounts` read of the
-pool's SPL registrations, validated by owner, layout and mint PDA. The scan
-decrypts its already fetched transactions again and follows newly resolved
+pool's SPL registrations, validated by owner, layout and mint PDA. The lookup
+requires the greater of `require_slot` and every transaction slot fetched so
+far. A lagging Solana RPC fails the scan. Registry validation and merging use
+indexed mint lookups, so loading registrations takes linear time.
+
+The scan decrypts its already fetched transactions again and follows newly resolved
 nullifiers without repeating tag queries. `fetch_spl_asset_registrations`
-exposes the same validated lookup separately. Reuse the returned registry to
-cache the mappings across scans; the input registry is unchanged, including
+exposes the same validated lookup separately with an optional minimum context
+slot. Reuse the returned registry to cache mappings across scans; the input
+registry is unchanged, including
 on failure. Outputs in assets still unresolved after discovery are skipped;
 the scan continues following known assets' nullifiers and reports the remaining
 ids and mints through `unknown_asset_ids` and `unknown_mints` in both `spendable`
@@ -174,8 +179,8 @@ history; an unknown id is sender-provided and is not evidence of a valid asset
 or balance. RPC failures and invalid or conflicting registrations still fail
 the scan. Leave discovery disabled for an explicit asset allowlist.
 Custom `Rpc` implementations must support
-`get_program_accounts_filtered`; discovery never falls back to an unfiltered
-program listing.
+`get_program_accounts_filtered`, including its minimum context slot; discovery
+never falls back to an unfiltered or stale program listing.
 
 `IndexedTransferPreparation` selects confidential, ring, ring-authority or
 anonymous EdDSA authorization. `IndexedMergePreparation` supports both merge rails and
