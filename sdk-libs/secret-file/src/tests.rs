@@ -1,8 +1,36 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::{
+    alloc::{GlobalAlloc, Layout, System},
+    cell::Cell,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 use super::*;
 
 const SECRET: &str = "0101010101010101010101010101010101010101010101010101010101010101";
+
+struct CountReallocs;
+
+thread_local! {
+    static REALLOCS: Cell<usize> = const { Cell::new(0) };
+}
+
+unsafe impl GlobalAlloc for CountReallocs {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        System.alloc(layout)
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        System.dealloc(ptr, layout)
+    }
+
+    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+        REALLOCS.with(|count| count.set(count.get() + 1));
+        System.realloc(ptr, layout, new_size)
+    }
+}
+
+#[global_allocator]
+static ALLOCATOR: CountReallocs = CountReallocs;
 
 fn temp_dir(label: &str) -> PathBuf {
     static NEXT: AtomicUsize = AtomicUsize::new(0);
@@ -81,6 +109,18 @@ fn a_shared_file_is_refused_unless_allowed() {
 }
 
 #[test]
+fn a_read_never_reallocates() {
+    let dir = temp_dir("realloc");
+    let secret = dir.join("root.key");
+    create_new(&secret, SECRET.as_bytes(), Visibility::Secret).expect("secret");
+    let before = REALLOCS.with(Cell::get);
+    let text: Zeroizing<String> = read_private(&secret, Access::OwnerOnly, 64).expect("secret");
+    assert_eq!(REALLOCS.with(Cell::get), before);
+    assert_eq!(text.as_str(), SECRET);
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
 fn a_file_longer_than_the_limit_is_refused() {
     let dir = temp_dir("oversized");
     let secret = dir.join("root.key");
@@ -88,6 +128,18 @@ fn a_file_longer_than_the_limit_is_refused() {
     assert!(matches!(
         read_private(&secret, Access::Shared, 64),
         Err(SecretFileError::TooLong { max: 64, .. })
+    ));
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn a_file_that_is_not_utf8_is_refused() {
+    let dir = temp_dir("utf8");
+    let secret = dir.join("root.key");
+    fs::write(&secret, [0xff; 64]).expect("write");
+    assert!(matches!(
+        read_private(&secret, Access::Shared, 64),
+        Err(SecretFileError::Read { source, .. }) if source.kind() == io::ErrorKind::InvalidData
     ));
     fs::remove_dir_all(dir).expect("cleanup");
 }

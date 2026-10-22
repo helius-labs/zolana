@@ -4,6 +4,7 @@
 use std::{
     fs::{self, File, Metadata, OpenOptions},
     io::{self, Read, Write},
+    mem,
     path::{Path, PathBuf},
 };
 
@@ -102,7 +103,7 @@ pub fn read_private(
     let mut options = OpenOptions::new();
     options.read(true);
     no_follow(&mut options);
-    let file = options.open(path).map_err(failed)?;
+    let mut file = options.open(path).map_err(failed)?;
     let metadata = file.metadata().map_err(failed)?;
     if !metadata.is_file() {
         return Err(SecretFileError::NotRegular {
@@ -110,17 +111,20 @@ pub fn read_private(
         });
     }
     check_access(path, &metadata, access)?;
-    let mut text = Zeroizing::new(String::new());
-    file.take(max_len.saturating_add(1))
-        .read_to_string(&mut text)
-        .map_err(failed)?;
-    if text.len() as u64 > max_len {
+    let mut bytes = read_up_to(&mut file, max_len.saturating_add(1)).map_err(failed)?;
+    if bytes.len() as u64 > max_len {
         return Err(SecretFileError::TooLong {
             path: path.to_path_buf(),
             max: max_len,
         });
     }
-    Ok(text)
+    String::from_utf8(mem::take(&mut *bytes))
+        .map(Zeroizing::new)
+        .map_err(|error| {
+            let source = io::Error::new(io::ErrorKind::InvalidData, error.utf8_error());
+            drop(Zeroizing::new(error.into_bytes()));
+            failed(source)
+        })
 }
 
 pub fn read_hex32(text: &str) -> Result<Zeroizing<[u8; 32]>, SecretFileError> {
@@ -146,6 +150,27 @@ fn persist(file: &mut File, bytes: &[u8], visibility: Visibility) -> io::Result<
     let _ = visibility;
     file.write_all(bytes)?;
     file.sync_all()
+}
+
+/// One fixed buffer, a reallocation would free an unwiped copy.
+fn read_up_to(file: &mut File, limit: u64) -> io::Result<Zeroizing<Vec<u8>>> {
+    let limit = usize::try_from(limit).unwrap_or(usize::MAX);
+    let mut bytes = Zeroizing::new(Vec::new());
+    bytes
+        .try_reserve_exact(limit)
+        .map_err(|_| io::Error::from(io::ErrorKind::OutOfMemory))?;
+    bytes.resize(limit, 0);
+    let mut filled = 0;
+    while filled < limit {
+        match file.read(&mut bytes[filled..]) {
+            Ok(0) => break,
+            Ok(read) => filled += read,
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(error),
+        }
+    }
+    bytes.truncate(filled);
+    Ok(bytes)
 }
 
 #[cfg(unix)]
