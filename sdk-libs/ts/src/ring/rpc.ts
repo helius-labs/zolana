@@ -22,7 +22,7 @@ import {
   checkedApiKey,
   checkedEndpoint,
   checkedFetch,
-  methodUrl,
+  serviceUrl,
 } from "../services/transport.js";
 import { wireDecoder } from "../interface/decode.js";
 import { addressBytes, copyBytes } from "../interface/internal.js";
@@ -634,7 +634,7 @@ export class RingRpc {
       return await postJsonRpc(
         {
           fetch: this.#fetch,
-          url: methodUrl(this.#url, method, this.#apiKey),
+          url: serviceUrl(this.#url, method, this.#apiKey),
           rpcMethod: method,
           params,
           id: 1,

@@ -445,6 +445,10 @@ append `/health`, `/ringStatus`, or the other method name. A URL containing
 control characters and at most 4,096 UTF-16 code units. `ringRpc.url` omits
 the API key, and transport errors omit credentials and response bodies.
 
+The indexer and prover use the same key validation and preserve unrelated URL
+query encoding, including prover polling and attestation calls. Supply a
+prover's gateway key in `ZolanaClientConfig.proverUrl` as `?api-key=...`.
+
 For a local service, opt into HTTP explicitly:
 
 ```ts
@@ -460,6 +464,12 @@ authority's signature. A proxy must forward method paths and preserve the
 JSON-RPC body; the server rejects a path/body mismatch with `-32601`.
 See the [server's gateway routes](../../services/ring-rpc/README.md#gateway-routes)
 for the routing and deployment contract.
+
+To verify an isolated gateway with all five Ring RPC routes enabled, set
+`RING_GATEWAY_URL` to its service base URL and `RING_GATEWAY_API_KEY` to a test
+key, then run `npx vitest run test/e2e/ring-gateway.live.test.ts` from this
+directory. The suite checks both SDK key sources, authentication failures,
+method routing, and rejection of mismatched, batched, or ambiguous bodies.
 
 A deploy that fails after its buffer exists names the buffer in the
 `RING_DEPLOY_PROGRAM` error details. Pass the same buffer keypair again to

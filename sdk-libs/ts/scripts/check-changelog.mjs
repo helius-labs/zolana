@@ -7,6 +7,14 @@ const version = JSON.parse(
   readFileSync(new URL("../package.json", import.meta.url), "utf8"),
 ).version;
 const changelog = readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8");
+const currentEntry = changelog.split(/^## /mu)[1] ?? "";
+const items = currentEntry.match(/^- /gmu)?.length ?? 0;
+if (items > 20) {
+  console.error(
+    `CHANGELOG.md current entry has ${items} items; merge related facts to stay within the 20-item limit. See CHANGELOG-RULES.md.`,
+  );
+  process.exit(1);
+}
 const heading = changelog.split("\n").find((line) => line.startsWith("## "));
 const escaped = version.replace(/[.\\^$*+?()[\]{}|]/g, "\\$&");
 const date = release ? "\\d{4}-\\d{2}-\\d{2}" : "(\\d{4}-\\d{2}-\\d{2}|unreleased)";

@@ -39,7 +39,7 @@ import {
   checkedApiKey,
   checkedEndpoint,
   checkedFetch,
-  methodUrl,
+  serviceUrl,
   type TransportFailureKind,
 } from "../services/transport.js";
 
@@ -169,7 +169,7 @@ export class ZolanaApi {
       throw schemaError("API_INVALID_REQUEST", descriptor.name, error);
     }
 
-    const url = methodUrl(this.#baseUrl, descriptor.name, this.#apiKey);
+    const url = serviceUrl(this.#baseUrl, descriptor.name, this.#apiKey);
 
     let result: unknown;
     try {

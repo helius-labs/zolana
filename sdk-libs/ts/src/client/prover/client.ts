@@ -48,9 +48,12 @@ import {
 } from "../internal.js";
 import {
   TransportFailure,
+  checkedApiKey,
   checkedFetch,
   isLoopbackHost,
   readBoundedJson,
+  serviceUrl,
+  setUrlQuery,
 } from "../../services/transport.js";
 import { parseCheckedProof } from "./proof.js";
 import { MAX_ATTEMPTS, RETRY_DELAY_MS } from "./retry.js";
@@ -186,6 +189,7 @@ function teeSession(
 export class ProverClient {
   readonly #fetch: typeof globalThis.fetch;
   readonly #url: URL;
+  readonly #apiKey: string | undefined;
   /** The Helius gateway routes only the key-less `/prove` and `/prove/status`. */
   readonly #keyless: boolean;
   readonly #indexed: boolean;
@@ -215,14 +219,15 @@ export class ProverClient {
     const url = checkedServiceUrl(input.url, "url", input.allowInsecureHttp ?? false);
     this.#keyless = isZolanaGateway(url);
     this.#indexed = !this.#keyless && !isDefaultTeeProver(url);
-    url.pathname = `${url.pathname.replace(/\/+$/u, "")}${PROVE_PATH}`;
     try {
+      const keyed = checkedApiKey(url, undefined);
+      this.#url = keyed.endpoint;
+      this.#apiKey = keyed.apiKey;
       this.#fetch = checkedFetch(input.fetch);
     } catch (error) {
       if (!(error instanceof TransportFailure)) throw error;
-      throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "fetch" } });
+      throw new ClientError("CLIENT_INVALID_CONFIG", { details: error.facts });
     }
-    this.#url = url;
     this.#asyncPoll = asyncPollConfig(input.asyncPoll);
     this.#tee = teeSession(input.tee, url, this.#keyless);
   }
@@ -242,17 +247,14 @@ export class ProverClient {
     }
     const request = composeSignal(context, "attest");
     try {
-      return await this.#tee.attest(this.#fetch, this.#siblingUrl(ATTESTATION_PATH), request);
+      return await this.#tee.attest(this.#fetch, this.#routeUrl(ATTESTATION_PATH), request);
     } finally {
       request.cleanup();
     }
   }
 
-  /** A path beside `/prove`, keeping any gateway prefix and query. */
-  #siblingUrl(path: string): URL {
-    const url = new URL(this.#url);
-    url.pathname = url.pathname.replace(/\/prove$/u, path);
-    return url;
+  #routeUrl(path: string): URL {
+    return serviceUrl(this.#url, path, this.#apiKey);
   }
 
   #call(
@@ -262,7 +264,7 @@ export class ProverClient {
   ): ProverCall {
     return {
       fetch: this.#fetch,
-      attestationUrl: this.#siblingUrl(ATTESTATION_PATH),
+      attestationUrl: this.#routeUrl(ATTESTATION_PATH),
       url,
       method: post === undefined ? "GET" : "POST",
       headers: post?.headers ?? {},
@@ -403,7 +405,7 @@ export class ProverClient {
 
   /** The circuits the server serves. */
   async health(context?: RequestContext): Promise<ProverHealth> {
-    const url = this.#siblingUrl(HEALTH_PATH);
+    const url = this.#routeUrl(HEALTH_PATH);
     const request = composeSignal(context, "health");
     try {
       const response = await sendCall(this.#tee, this.#call(url, request));
@@ -442,7 +444,7 @@ export class ProverClient {
    * such key; a key the prover lacks or cannot load is only reported.
    */
   async checkProvingKeys(context?: RequestContext): Promise<ProvingKeyReport> {
-    const url = this.#siblingUrl(PROVING_KEYS_PATH);
+    const url = this.#routeUrl(PROVING_KEYS_PATH);
     const request = composeSignal(context, "provingKeys");
     try {
       const response = await sendCall(this.#tee, this.#call(url, request));
@@ -477,8 +479,7 @@ export class ProverClient {
     if (route === "indexed" && !this.#indexed) {
       throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "proofDataSource" } });
     }
-    const url = this.#keyUrl(key);
-    if (route === "indexed") url.pathname += INDEXED_PATH;
+    const url = this.#keyUrl(key, route === "indexed" ? INDEXED_PATH : "");
     let delivery: Delivery = route === "queued" ? "queued" : "inResponse";
     const signal = composeSignal(context, "prove");
     try {
@@ -559,11 +560,11 @@ export class ProverClient {
    * path, so a gateway sends both to the prover pool that serves the key.
    * On the Helius gateway, `/prove`, where the prover reads the key from the body.
    */
-  #keyUrl(key: ExpectedProvingKey): URL {
-    const url = new URL(this.#url);
-    if (this.#keyless) return url;
-    url.pathname += `/${encodeURIComponent(key.name.replace(/\.key$/u, ""))}`;
-    return url;
+  #keyUrl(key: ExpectedProvingKey, suffix = ""): URL {
+    const path = this.#keyless
+      ? PROVE_PATH
+      : `${PROVE_PATH}/${encodeURIComponent(key.name.replace(/\.key$/u, ""))}`;
+    return this.#routeUrl(`${path}${suffix}`);
   }
 
   async #poll(
@@ -575,9 +576,8 @@ export class ProverClient {
     if (!/^[A-Za-z0-9_-]{1,256}$/u.test(jobId)) {
       throw new ClientError("CLIENT_PROVER_JOB", { details: { method: "prove" } });
     }
-    const url = this.#keyUrl(key);
-    url.pathname += STATUS_PATH;
-    url.searchParams.set("jobId", jobId);
+    const url = this.#keyUrl(key, STATUS_PATH);
+    setUrlQuery(url, "jobId", jobId);
     const intervalCap = Math.max(INITIAL_POLL_INTERVAL_MS, this.#asyncPoll.pollIntervalCapMs);
     let interval = INITIAL_POLL_INTERVAL_MS;
     const maxWaitMs = this.#asyncPoll.maxWaitMs;

@@ -102,19 +102,23 @@ export function checkedApiKey(
   return { endpoint: stripped, apiKey: key };
 }
 
-/**
- * A gateway routes and meters by path, so each JSON-RPC method is posted under its own name.
- * The server must check path/body agreement before dispatching a metered request.
- */
-export function methodUrl(endpoint: URL, method: string, apiKey: string | undefined): URL {
+/** Append a service path before its query, preserving the endpoint's query encoding. */
+export function serviceUrl(endpoint: URL, path: string, apiKey?: string): URL {
   const url = new URL(endpoint.href);
-  url.pathname = `${url.pathname.replace(/\/+$/u, "")}/${method}`;
-  if (apiKey !== undefined) {
-    // Appended as text, since `searchParams` would re-encode the endpoint's other parameters.
-    const pair = `api-key=${encodeURIComponent(apiKey)}`;
-    url.search = url.search === "" ? pair : `${url.search.slice(1)}&${pair}`;
-  }
+  url.pathname = `${url.pathname.replace(/\/+$/u, "")}/${path.replace(/^\/+/u, "")}`;
+  if (apiKey !== undefined) setUrlQuery(url, "api-key", apiKey);
   return url;
+}
+
+/** Replace one query parameter without re-encoding any of the others. */
+export function setUrlQuery(url: URL, name: string, value: string): void {
+  const kept = url.search
+    .slice(1)
+    .split("&")
+    .filter((pair) => !new URLSearchParams(`?${pair}`).has(name))
+    .join("&");
+  const pair = `${encodeURIComponent(name)}=${encodeURIComponent(value)}`;
+  url.search = kept === "" ? pair : `${kept}&${pair}`;
 }
 
 function hasControlCharacter(value: string): boolean {
