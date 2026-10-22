@@ -5,7 +5,7 @@ use zolana_hasher::primitives::solana_owner_identity;
 use zolana_ring_policy::Writer;
 
 use crate::instructions::{
-    insert_fee::{InsertFeeAccounts, MemberWrite},
+    insert_fee::MemberWrite,
     loader::{load_config, load_queue_mut, load_registry},
 };
 
@@ -37,8 +37,8 @@ pub fn process_write_records_ix(
         entry: &entry,
         max_fee: ix.max_fee(),
     };
-    if let Some(lamports) = write.fee()? {
-        InsertFeeAccounts::validate_and_parse(&mut iter, &config)?.pay(lamports)?;
+    if let Some(fee) = write.validate_fee(&mut iter)? {
+        fee.pay()?;
     }
     // 4. The chained entry waits in the queue for the next application.
     write.push(&mut queue)

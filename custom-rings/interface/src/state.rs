@@ -244,6 +244,12 @@ impl RingProgramConfig {
     pub fn delegate(&self) -> Option<&Address> {
         (self.delegate != Address::default()).then_some(&self.delegate)
     }
+
+    /// `None` when the authority writes or the ring charges no fee.
+    pub fn insert_fee_for(&self, writer: &Address) -> Option<u64> {
+        let fee = self.insert_fee();
+        (fee != 0 && *writer != self.authority).then_some(fee)
+    }
 }
 
 /// Nonzero subset of the class bits.

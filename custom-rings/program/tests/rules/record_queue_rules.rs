@@ -261,6 +261,20 @@ fn the_insert_fee_goes_to_the_config_authority_only() {
         ),
         CustomRingError::FeeRecipient,
     );
+    refused(
+        ring.send(
+            register_key(
+                &member.pubkey(),
+                &key_registration(),
+                Some(Fee {
+                    payer: payer.pubkey(),
+                    recipient: elsewhere,
+                }),
+            ),
+            &[&member, &payer],
+        ),
+        CustomRingError::FeeRecipient,
+    );
     let before = ring.lamports(&authority);
     ring.send(
         write_records(
@@ -511,14 +525,15 @@ fn an_anonymous_ring_registers_no_key() {
 fn a_key_registration_obeys_the_member_queue_limit() {
     let mut ring = Ring::new(Setup::AuditOnly);
     let member = Keypair::new();
+    let fee = ring.fee();
     reaches_verification(ring.send(
-        register_key(&member.pubkey(), &key_registration(), None),
+        register_key(&member.pubkey(), &key_registration(), Some(fee)),
         &[&member],
     ));
     queue_member_writes(&mut ring, MEMBER_QUEUE_LIMIT);
     refused(
         ring.send(
-            register_key(&member.pubkey(), &key_registration(), None),
+            register_key(&member.pubkey(), &key_registration(), Some(fee)),
             &[&member],
         ),
         CustomRingError::QueueFull,
@@ -561,18 +576,19 @@ fn a_record_write_needs_its_writer_signature() {
 fn an_undecodable_ring_proof_point_has_its_own_code() {
     let mut ring = Ring::new(Setup::AuditOnly);
     let member = Keypair::new();
+    let fee = ring.fee();
     let mut registration = key_registration();
     registration.proof.groth16.proof_c = off_curve_g1();
     refused(
         ring.send(
-            register_key(&member.pubkey(), &registration, None),
+            register_key(&member.pubkey(), &registration, Some(fee)),
             &[&member],
         ),
         CustomRingError::InvalidRingProofPoint,
     );
     refused(
         ring.send(
-            register_key(&member.pubkey(), &key_registration(), None),
+            register_key(&member.pubkey(), &key_registration(), Some(fee)),
             &[&member],
         ),
         CustomRingError::ProofVerificationFailed,

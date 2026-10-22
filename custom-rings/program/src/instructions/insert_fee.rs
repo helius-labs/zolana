@@ -9,7 +9,6 @@ use zolana_account_checks::AccountIterator;
 
 use crate::instructions::shared::check_system_program;
 
-/// A member record write, its writer pays the insert fee unless it is the config authority.
 #[must_use]
 pub(crate) struct MemberWrite<'c> {
     pub config: &'c RingProgramConfig,
@@ -19,15 +18,27 @@ pub(crate) struct MemberWrite<'c> {
 }
 
 impl MemberWrite<'_> {
-    pub fn fee(&self) -> Result<Option<u64>, CustomRingError> {
-        let fee = self.config.insert_fee();
-        if fee == 0 || self.writer == &self.config.authority {
+    pub fn validate_fee<'a>(
+        &self,
+        accounts: &mut AccountIterator<'a>,
+    ) -> Result<Option<InsertFee<'a>>, ProgramError> {
+        let Some(lamports) = self.config.insert_fee_for(self.writer) else {
             return Ok(None);
+        };
+        if lamports > self.max_fee {
+            return Err(CustomRingError::InsertFeeAboveMax.into());
         }
-        if fee > self.max_fee {
-            return Err(CustomRingError::InsertFeeAboveMax);
+        let payer = accounts.next_signer_mut("payer")?;
+        let authority = accounts.next_mut("authority")?;
+        check_system_program(accounts.next_account("system_program")?)?;
+        if authority.address() != &self.config.authority {
+            return Err(CustomRingError::FeeRecipient.into());
         }
-        Ok(Some(fee))
+        Ok(Some(InsertFee {
+            payer,
+            authority,
+            lamports,
+        }))
     }
 
     pub fn push(self, queue: &mut RecordQueue) -> ProgramResult {
@@ -36,31 +47,19 @@ impl MemberWrite<'_> {
     }
 }
 
-/// Read only when a fee is owed.
-pub(crate) struct InsertFeeAccounts<'a> {
+#[must_use]
+pub(crate) struct InsertFee<'a> {
     payer: &'a AccountView,
     authority: &'a AccountView,
+    lamports: u64,
 }
 
-impl<'a> InsertFeeAccounts<'a> {
-    pub fn validate_and_parse(
-        accounts: &mut AccountIterator<'a>,
-        config: &RingProgramConfig,
-    ) -> Result<Self, ProgramError> {
-        let payer = accounts.next_signer_mut("payer")?;
-        let authority = accounts.next_mut("authority")?;
-        check_system_program(accounts.next_account("system_program")?)?;
-        if authority.address() != &config.authority {
-            return Err(CustomRingError::FeeRecipient.into());
-        }
-        Ok(Self { payer, authority })
-    }
-
-    pub fn pay(self, lamports: u64) -> ProgramResult {
+impl InsertFee<'_> {
+    pub fn pay(self) -> ProgramResult {
         Transfer {
             from: self.payer,
             to: self.authority,
-            lamports,
+            lamports: self.lamports,
         }
         .invoke()
     }

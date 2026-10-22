@@ -7,7 +7,7 @@ use zolana_account_checks::AccountIterator;
 use zolana_hasher::primitives::solana_owner_identity;
 
 use crate::instructions::{
-    insert_fee::{InsertFeeAccounts, MemberWrite},
+    insert_fee::MemberWrite,
     loader::{load_config, load_queue_mut, load_registry},
     verifier::{ring_key, RingProof},
 };
@@ -44,14 +44,14 @@ pub fn process_register_key_ix(
     // 3. The member share of the queue and of the leaves keeps room for the authority.
     let mut queue = load_queue_mut(program_id, queue)?;
     queue.admit_member_write(&*load_registry(program_id, registry)?)?;
-    // 4. A fee above what the writer signed for refuses before the pairing.
+    // 4. The fee and its accounts are checked before the pairing.
     let write = MemberWrite {
         config: &config,
         writer: member.address(),
         entry: &entry,
         max_fee: ix.max_fee(),
     };
-    let fee = write.fee()?;
+    let fee = write.validate_fee(&mut iter)?;
     // 5. The proof seals the nullifier secret behind `nullifier_pk` to the ring's auditor.
     let statement = RegisterKeyStatement {
         member: &identity,
@@ -69,8 +69,8 @@ pub fn process_register_key_ix(
     }
     .verify()?;
     // 6. The writer pays the authority, then the entry waits for the next application.
-    if let Some(lamports) = fee {
-        InsertFeeAccounts::validate_and_parse(&mut iter, &config)?.pay(lamports)?;
+    if let Some(fee) = fee {
+        fee.pay()?;
     }
     write.push(&mut queue)
 }
