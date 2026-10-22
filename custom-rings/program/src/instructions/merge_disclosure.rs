@@ -3,10 +3,10 @@ use custom_ring_interface::{
     MergeAnonymousPublicInput, MergeDisclosureRef, RingProgramConfig, VIEWING_PUBKEY_TAG,
 };
 use pinocchio::{Address, ProgramResult};
-use zolana_hasher::primitives::hash_bytes;
 use zolana_interface::instruction::instruction_data::merge_transact::{
     merge_circuit_width, MergeOutputEncryption, MergeTransactIxDataRef,
 };
+use zolana_ring_policy::ring_id_field;
 
 use crate::instructions::verifier::{ring_key, RingProof};
 
@@ -48,7 +48,7 @@ impl MergeAudit<'_> {
             private_tx_hash: merge.private_tx_hash,
             output_utxo_hash: merge.output_utxo_hash,
             first_nullifier,
-            ring_id: &hash_bytes(self.program_id.as_array()).map_err(CustomRingError::from)?,
+            ring_id: &ring_id_field(self.program_id.as_array()).map_err(CustomRingError::from)?,
             auditor_pk: &self.config.auditor_pubkey,
             eph_pk: disclosure.eph_pk,
             ciphertext: disclosure.ciphertext,

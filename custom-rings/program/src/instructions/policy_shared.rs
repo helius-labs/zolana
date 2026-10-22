@@ -10,6 +10,7 @@ pub(crate) struct BoundTable {
     pub sources: [SourceSlot; N_SOURCE_SLOTS],
 }
 
+#[must_use]
 pub(crate) struct TableBinding<'a> {
     pub program_id: &'a Address,
     pub table: &'a PolicyTableIxData,

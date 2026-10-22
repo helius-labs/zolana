@@ -610,6 +610,7 @@ const fn checkpoint_index(position: u64) -> usize {
     (position % QUEUE_CAPACITY as u64) as usize
 }
 
+#[must_use]
 pub struct PendingApplication<'a> {
     pub registry: &'a mut MemberRegistry,
     pub queue: &'a mut RecordQueue,

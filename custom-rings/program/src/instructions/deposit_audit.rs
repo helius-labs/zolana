@@ -17,9 +17,9 @@ pub(crate) struct AuditedDeposit<'a> {
 impl<'a> AuditedDeposit<'a> {
     pub fn parse(data: &'a [u8]) -> Result<Self, CustomRingError> {
         let (prefix, spp_data) = data
-            .split_at_checked(core::mem::size_of::<AuditedDepositPrefix>())
+            .split_at_checked(AuditedDepositPrefix::SIZE)
             .ok_or(CustomRingError::InvalidInstructionData)?;
-        let prefix: &AuditedDepositPrefix = bytemuck::from_bytes(prefix);
+        let prefix = AuditedDepositPrefix::parse(prefix)?;
         if prefix.tag != tag::AUDITED_DEPOSIT || spp_data.first() != Some(&tag::DEPOSIT) {
             return Err(CustomRingError::InvalidAuditedDeposit);
         }

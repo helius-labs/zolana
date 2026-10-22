@@ -93,18 +93,19 @@ impl AnonymousSpend {
             true => (ANONYMOUS_ENTRY_OUTPUTS.contains(&self.outputs)
                 && self.inputs <= ANONYMOUS_ENTRY_CLASS)
                 .then_some(AnonymousAuditKey::Entry),
-            false => anonymous_audit_class(self.inputs, self.outputs)
+            false => self
+                .commitment_class()
                 .map(|class| AnonymousAuditKey::Commitment { class }),
         }
     }
-}
 
-/// The smallest commitment class holding `inputs` for `outputs`, `None` when no key serves it.
-pub fn anonymous_audit_class(inputs: usize, outputs: usize) -> Option<usize> {
-    ANONYMOUS_AUDIT_CLASSES
-        .iter()
-        .find(|(capacity, _)| *capacity == outputs)
-        .and_then(|(_, classes)| classes.iter().copied().find(|class| *class >= inputs))
+    /// The smallest commitment class holding the inputs, `None` when no key serves them.
+    fn commitment_class(self) -> Option<usize> {
+        ANONYMOUS_AUDIT_CLASSES
+            .iter()
+            .find(|(capacity, _)| *capacity == self.outputs)
+            .and_then(|(_, classes)| classes.iter().copied().find(|class| *class >= self.inputs))
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

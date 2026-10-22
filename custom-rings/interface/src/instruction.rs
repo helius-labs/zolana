@@ -313,6 +313,7 @@ macro_rules! fixed_ix_data {
 }
 
 fixed_ix_data!(
+    AuditedDepositPrefix,
     WriteRecordsIxData,
     MemberWriteIxData,
     ApplyRecordsIxData,

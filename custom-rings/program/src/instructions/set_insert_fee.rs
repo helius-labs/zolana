@@ -20,7 +20,7 @@ pub fn process_set_insert_fee_ix(
     // 1. The config authority sets the fee its own writes never pay.
     let mut config = load_authorized_config_mut(program_id, config, authority)?;
     // 2. A fee under the rent minimum cannot fund an empty authority, every paid write would fail.
-    let fee = u64::from_le_bytes(ix.fee);
+    let fee = ix.fee();
     if fee != 0 && fee < Rent::get()?.try_minimum_balance(0)? {
         return Err(CustomRingError::InsertFeeBelowRent.into());
     }
