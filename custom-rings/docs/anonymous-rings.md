@@ -289,9 +289,12 @@ viewing secret never leaves the key holder.
 
 ## Limits
 
-Owners are Ed25519 keys. A ring output carries no data. The anonymous rail
-serves fewer shapes than the confidential rail, and a transfer that spends a
-default-ring note fewer still. See [the shapes](../README.md#shapes).
+Owners are Ed25519 keys. A ring output carries no data. An anonymous transfer
+carries no SPP [address slot](../../docs/spec.md#input-slots), because its audit
+proof rebuilds `private_tx_hash` with an empty address chain. The Rust SDK
+refuses such a slot before signing. The anonymous rail serves fewer shapes than
+the confidential rail, and a transfer that spends a default-ring note fewer
+still. See [the shapes](../README.md#shapes).
 
 Inbox tags are public to every holder of an address, so a holder counts the
 inbox payments the address receives per epoch. A first contact pairs only after

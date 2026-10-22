@@ -502,7 +502,7 @@ In the [default ring](#default-ring) every output is tagged by its recipient own
 2. A change output and a padding slot take a [free tag](#ring-tags).
 3. An exit to the default ring keeps its owner pubkey tag.
 
-Each payment takes a uniformly random index of its stream in the current epoch. The sender draws again only on an index an earlier slot of the same transaction took. Two payments that draw one index publish one tag twice, and the shared tag links the two outputs publicly.
+Each payment takes a uniformly random index of its stream in the current epoch. The sender draws again only on an index an earlier slot of the same transaction took. Two payments of different transactions can draw one index of one stream in one epoch. They then publish the same tag, and that tag links the two outputs publicly.
 
 A sender pairs only on a first contact whose decoys its scans pinned. The first scan whose decoy pool for the first contact's tree holds `ANCHOR_DECOYS = 7` other leaves pins the seven that rank lowest under `SHA-256("zolana/ring-anchor-decoy/v1" || s1 || utxo_hash)`, with `s1` the first contact's slot secret of [Ring tags](#ring-tags). Every anchor read asks for those seven leaves and the first contact in rank order. When the indexer does not prove all eight under one root, the sender retires the first contact, and its next payment to that address takes the inbox stream.
 
@@ -1373,7 +1373,7 @@ value while reusing the proof.
 | UTXO data | `data_hash` enters `utxo_hash` unchecked. A real output with nonzero `data_hash` must be owned by a signer (`ConfidentialEddsa`, `ConfidentialRingEddsa`), a signer or the hidden Ed25519 key (`AnonymousRingEddsa`), or a spent input's owner (`RingAuthority`). Application and ring proofs interpret the data before CPI into SPP. |
 | Dummy and address policy | Input domains and the capacity gate follow [Input slots](#input-slots). Dummy outputs are [empty UTXOs](#empty-utxo) with derived blindings. Dummies come last on both sides; see [Slot order](#slot-order). |
 
-SDKs reject real default-ring outputs on confidential ring rails unless their payload has the confidential marker and their published tag matches the recipient owner. They also reject confidential-marked real ring outputs. This runs before indexer or prover calls. Zero-amount real notes are included. Genuine dummy padding is exempt. The check does not prove recipient ciphertext.
+SDKs reject real default-ring outputs on the `ConfidentialRingEddsa` and `AnonymousRingEddsa` rails unless their payload has the confidential marker and their published tag matches the recipient owner. They also reject confidential-marked real ring outputs. This runs before indexer or prover calls. Zero-amount real notes are included. Genuine dummy padding is exempt. The check does not prove recipient ciphertext.
 
 <a id="input-slots"></a>
 **Input slots.** The domain selects exactly one kind:
@@ -1546,7 +1546,7 @@ transaction with one output uses a 2-output shape and pads the second slot.
 grid's cost order. SPP accepts any of these shapes. The SDKs pick the first of
 these shapes that holds the move. `with_shape` in Rust and `withShape` in
 TypeScript select another of these shapes and refuse a shape outside them.
-`test-vectors/ring_authority_shapes.json` pins the set.
+`test-vectors/ring_keyed_shapes.json` pins the set under `ring_authority`.
 
 
 # Merge Proof - Merge ZK Proof
@@ -1787,7 +1787,7 @@ operations, and tags 18–21 are maintenance and administration.
 | transact | Tag 12; implements deposit/withdraw/shielded transfer; verifies proofs, updates trees |
 | merge_transact | Tag 13; consolidates the input slots of an 8-, 24- or 52-input merge shape (same owner, same asset; dummy slots or compact padding fill a shorter merge) into one output UTXO. Permitted whenever the owner's registry record selects a merge encryption scheme and the instruction's `output_encryption` uses that scheme; any caller may submit it, and the merge proof binds the output to the owner's registered signing and nullifier keys. Input and output UTXOs are default-ring; extension slots are zero. |
 | ring_deposit | Tag 14; policy-ring analog of `deposit`; public deposit creating a ring-owned UTXO, authorized by an active, signing `ring_config`. See [`ring_deposit`](#ring_deposit). |
-| ring_transact | Tag 15. SPP verifies the ring settlement proof and updates trees. The invoking custom ring verifies its separate policy and auditor-disclosure proof. Ordinary recipient encryption is wallet delivery data and is not proved. |
+| ring_transact | Tag 15. SPP verifies its [SPP proof](#spp-proof---solana-privacy-zk-proof) and updates trees. The reference ring program verifies its [audit proof](#audit-proof) and, when the ring has a policy, its [policy proof](#policy-proof) before it invokes `ring_transact`. |
 | merge_ring | Tag 16; CPI from an active ring program; consolidates the input slots of an 8-, 24- or 52-input merge shape (same owner, same asset, same `ring_program_id`) into one output UTXO that preserves `ring_program_id`. Mirrors `merge_transact` for policy-ring UTXOs. The ring program runs its own authorization before CPI; the merge proof enforces `data_hash = 0` on inputs and output. |
 | ring_authority_transact | Tag 17; checks the ring config is active and signed, then checks the state transition only includes ring-program-owned UTXOs. UTXO owners do not sign; the ring has full control subject to its policy. |
 | close_nullifier_pdas | Tag 18; gated by `protocol_config.forester_authority`; rejected while the tree is paused. Closes one or more nullifier PDAs whose `tree_id` matches and `queue_index < close_before_index`, returning their rent to the tree, then pays `min(close_reimbursement * n, fee_balance)` to `reimbursement_recipient` (must not be program-owned). |
@@ -2380,9 +2380,9 @@ enum OutputDataEncoding {
     /// [plaintext transfer](#plaintext-transfer) blob.
     Encrypted(Vec<u8>),
     /// Verifiably-encrypted payload: ciphertext whose well-formedness is
-    /// proven in-circuit for the [merge output](#merge). Custom-ring transfer
-    /// auditor disclosure is a separate proof-bound message, not this output
-    /// payload. Ordinary recipient payloads are not proved.
+    /// proven in-circuit for the [merge output](#merge). A ring transfer output
+    /// stays `Encrypted`, and the ring's [audit proof](#audit-proof) binds each
+    /// delivered or anonymous body.
     VerifiablyEncrypted(Vec<u8>),
 }
 
@@ -2639,7 +2639,7 @@ A ring program is free to implement the following instructions, a subset or supe
 
 UTXOs can include a `ring_data` field interpreted by the ring program, hashed into the `ring_data_hash` slot of [UTXO Hash](#utxo-hash). The ring program defines the schema and the hashing scheme.
 
-The reference ring program in `custom-rings/` documents its ring modes and audit encodings in [its README](../custom-rings/README.md#rings-and-rails).
+The reference ring program in `custom-rings/` documents its ring modes in [its README](../custom-rings/README.md#rings-and-rails).
 
 A ring program adds authorization, audit and policy before it CPIs into SPP.
 SPP still checks note conservation, ownership on owner-signed rails and
@@ -2754,13 +2754,13 @@ the withdrawal class.
 | Tag | Instruction | Signers |
 | --- | --- | --- |
 | 1 | `CreateConfig` | payer, upgrade authority |
-| 2 | `InitSppRingConfig` | payer, config authority, refused on a policy ring before `CreatePolicy` |
+| 2 | `InitSppRingConfig` | payer, config authority |
 | 3 | `Transact` | payer, every owner signer on the confidential rail, the source signer of every public deposit, a demanded co-signer |
 | 4, 5 | `GrantReadAccess`, `RevokeReadAccess` | config authority, a payer for a grant |
 | 6 | `SetAuthority` | config authority and the new authority |
 | 7, 10, 12 | `CreatePolicy`, `SetPolicySource`, `SetPolicyRules` | config authority |
 | 11 | `SetPaused` | config authority |
-| 18 | `Deposit` | refused in every mode |
+| 18 | `Deposit` | none |
 | 20 | `Merge` | payer, a demanded co-signer |
 | 21, 27 | `ClearCoSigner`, `SetCoSigner` | config authority |
 | 24 | `SetDelegate` | upgrade authority, delegate |
@@ -2772,6 +2772,9 @@ the withdrawal class.
 | 40 | `AuthorityWriteRecords` | config authority |
 | 41 | `ApplyRecords` | none |
 | 42 | `SetInsertFee` | config authority |
+
+`InitSppRingConfig` is refused on a policy ring before `CreatePolicy`, and
+`Deposit` is refused in every mode.
 
 The co-signer is demanded when a transact sets `approval_required`, or when the
 co-signer's scope shares a class with the operation. Every transact and merge is
@@ -2913,7 +2916,8 @@ next_index + (tail - head) + 1 <= 2^20 - AUTHORITY_RESERVED_LEAVES
 
 and a `payer` signer pays `insert_fee` lamports to `authority` unless
 `insert_fee = 0` or the member's signer is `authority`. A write that owes more
-than its `max_fee` is refused.
+than its `max_fee` is refused. `RegisterKey` checks the fee, the payer's
+signature and the fee recipient before it verifies its proof.
 
 Rule. `AuthorityWriteRecords` carries `count` writes, 1 to `APPLY_BATCH`,
 within lists 1, 2, 3, 6 and 7 and requires
@@ -2956,8 +2960,7 @@ slot < floor_slot + GRACE_SLOTS  and  applied >= prior_floor
 ```
 
 Does not check that a member exists when it admits a write, so every pending
-write counts as a possible insert. Does not read lists 4 and 5 in any check or
-proof.
+write counts as a possible insert. No policy rule reads lists 4 and 5.
 
 ### Local invariants
 
@@ -3926,7 +3929,7 @@ AnonymousRingState {
     issued:          Vec<IssuedAddress>,        // index and pairing of each address issued or used
     scanned_epoch:   Option<u64>,
     received:        Vec<ReceivedAnchor>,       // first contacts whose pair streams it scans
-    sent:            Vec<SentFirstContact>,     // the newest first contact per address paid
+    sent:            Vec<SentFirstContact>,     // the newest first contact per address paid, stored with its last pair epoch and its decoys once pinned
     deposit_next:    u64,                       // the next deposit stream counter to read and to deposit under
     decoys:          Map<u16, Vec<DecoyLeaf>>,  // scheme-9 leaves of the ring a scan saw per tree, the decoy pool
 }

@@ -45,8 +45,8 @@ costs 284,405 at 8 outputs and 524,519 at 16.
 
 The anonymous audit statement also names the hidden sender to the auditor. Its
 keys come in input classes per output count, and the outputs dominate the cost.
-The 4-input class has 123,527 constraints at 2 outputs, 185,360 at 4 and
-310,756 at 8. The 32-input class has 171,190 at 2 outputs, and the 1-input
+The 4-input class has 123,533 constraints at 2 outputs, 185,366 at 4 and
+310,762 at 8. The 32-input class has 171,252 at 2 outputs, and the 1-input
 class has 554,690 at 16. A transfer that spends a default-ring note uses the
 entry key, which opens every spent note. The entry key has 138,067 constraints
 at 2 outputs, 199,900 at 4 and 325,296 at 8.
