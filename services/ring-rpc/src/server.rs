@@ -563,8 +563,6 @@ mod tests {
         handle.stopped().await;
     }
 
-    /// A gateway prices ring RPC by path, so a path runs only the method it
-    /// names; `/` serves every method.
     #[tokio::test]
     async fn a_path_runs_only_the_method_it_names() {
         let server_port = port();
@@ -593,6 +591,7 @@ mod tests {
 
         for path in ["/", "/health", "/health/", "/v1/zolana/ring/health"] {
             let answer = call(path, named(HEALTH)).await;
+            assert_eq!(answer["result"]["mode"], "local", "{path}: {answer}");
             assert!(
                 answer["result"]["servicePubkey"].is_string(),
                 "{path}: {answer}"
@@ -702,34 +701,6 @@ mod tests {
                 .await
                 .is_err()
         );
-        handle.stop().expect("stop");
-        handle.stopped().await;
-    }
-
-    #[tokio::test]
-    async fn server_answers_each_method_on_its_gateway_path() {
-        // Clients post each method under its own path so a gateway can route and
-        // meter it. `/health` is also the GET probe, so a POST there must still
-        // reach the method the body names.
-        let server_port = port();
-        let handle = run_server(
-            hub(source(), Origins::default()),
-            options(server_port, Duration::from_secs(1)),
-        )
-        .await
-        .expect("server");
-        let client = reqwest::Client::new();
-        for path in ["/health", "/v1/zolana/ring/health"] {
-            let response = client
-                .post(format!("http://127.0.0.1:{server_port}{path}"))
-                .json(&serde_json::json!({ "jsonrpc": "2.0", "id": 1, "method": HEALTH }))
-                .send()
-                .await
-                .expect("health");
-            assert_eq!(response.status(), StatusCode::OK, "{path}");
-            let body: serde_json::Value = response.json().await.expect("body");
-            assert_eq!(body["result"]["mode"], "local", "{path}");
-        }
         handle.stop().expect("stop");
         handle.stopped().await;
     }

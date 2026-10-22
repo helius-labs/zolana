@@ -59,7 +59,7 @@ export function checkedEndpoint(value: unknown, policy: EndpointPolicy): URL {
 const MAX_API_KEY_LENGTH = 4096;
 
 /**
- * Takes the gateway key from the endpoint query or from `apiKey`, never both, and returns the
+ * Takes the API key from the endpoint query or from `apiKey`, never both, and returns the
  * endpoint without it so the key rides only on requests, never on a displayed URL.
  */
 export function checkedApiKey(

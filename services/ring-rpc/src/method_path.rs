@@ -1,7 +1,5 @@
-//! A call on any path but `/` runs only when its JSON-RPC body names the
-//! path's last segment. A gateway routes and prices ring RPC by path, so the
-//! method that runs must be the one the path names; `/` serves every method
-//! to a self-hosted client.
+//! Method paths accept only a single JSON-RPC call naming their last segment.
+//! `/` retains the unrestricted JSON-RPC endpoint for existing clients.
 
 use std::{
     borrow::Cow,

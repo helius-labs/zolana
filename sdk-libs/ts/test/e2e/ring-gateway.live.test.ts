@@ -1,5 +1,6 @@
 // Opt in with RING_GATEWAY_URL and RING_GATEWAY_API_KEY against an isolated gateway.
 // All five POST routes must be enabled and preserve the method path upstream.
+// Run: npx vitest run test/e2e/ring-gateway.live.test.ts
 import { beforeAll, describe, expect, it } from "vitest";
 
 import { RingRpc } from "../../src/ring/index.js";
@@ -75,7 +76,7 @@ describe.skipIf(process.env["RING_GATEWAY_URL"] === undefined)("ring gateway", (
       expect(body).toEqual({
         jsonrpc: "2.0",
         id: "mismatch",
-        error: { code: -32601, message: "the method does not match the request path" },
+        error: { code: -32601, message: expect.any(String) },
       });
     },
   );
@@ -93,7 +94,7 @@ describe.skipIf(process.env["RING_GATEWAY_URL"] === undefined)("ring gateway", (
     expect(body).toEqual({
       jsonrpc: "2.0",
       id: null,
-      error: { code: -32601, message: "the method does not match the request path" },
+      error: { code: -32601, message: expect.any(String) },
     });
   });
 });

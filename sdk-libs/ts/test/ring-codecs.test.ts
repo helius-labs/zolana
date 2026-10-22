@@ -1051,19 +1051,27 @@ describe("ring status", () => {
 describe("ring rpc gateway", () => {
   const recording = () => {
     const calls: { url: URL; method: unknown }[] = [];
-    const fetch = (async (input: URL | string, init?: RequestInit) => {
-      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
+      const body: unknown = JSON.parse(String(init?.body));
+      if (
+        typeof body !== "object" ||
+        body === null ||
+        !("method" in body) ||
+        typeof body.method !== "string"
+      ) {
+        throw new Error("expected a JSON-RPC method");
+      }
       calls.push({ url: new URL(String(input)), method: body["method"] });
       const result =
         body["method"] === "health"
           ? { mode: "derived", servicePubkey: addressOf(22) }
           : { ringProgramId: addressOf(7), state: "uninitialized", servicePubkey: addressOf(22) };
       return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result }), JSON_HEADERS);
-    }) as typeof globalThis.fetch;
+    });
     return { calls, fetch };
   };
 
-  it("posts each method under its own path with the key and the endpoint query", async () => {
+  it("posts health and status on method paths with the key and endpoint query", async () => {
     const { calls, fetch } = recording();
     const rpc = new RingRpc("https://gateway.example/v1/zolana/ring/?tenant=alpha", {
       fetch,
@@ -1166,8 +1174,9 @@ describe("ring rpc gateway", () => {
   );
 
   it("keeps the key out of a transport failure", async () => {
-    const fetch = (async () =>
-      new Response("upstream down", { status: 502 })) as typeof globalThis.fetch;
+    const fetch = vi.fn<typeof globalThis.fetch>(() =>
+      Promise.resolve(new Response("upstream down", { status: 502 })),
+    );
 
     const error = await new RingRpc("https://gateway.example", { fetch, apiKey: "secret-key" })
       .health()

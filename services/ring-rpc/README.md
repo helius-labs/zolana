@@ -63,24 +63,12 @@ Photon is an integrity boundary for transaction rows, slots, signatures, ciphert
 
 The server accepts loopback binds only, put a TLS proxy in front of it for remote clients. `--insecure-public-bind` lifts that for a test deployment and serves the decrypted audit data over plain HTTP. Keep the proxy request body limit at or below the service limit.
 
-The TypeScript SDK and `zolana-ring` CLI take a service base URL and append the JSON-RPC method, preserving its query parameters. For example, `https://gateway.example/v1/zolana/ring?api-key=KEY` becomes `POST /v1/zolana/ring/ringStatus?api-key=KEY`. In `ring.toml`, use `ring_rpc = "https://gateway.example/v1/zolana/ring?api-key=${HELIUS_API_KEY}"` to load the key from the environment.
+The TypeScript SDK and `zolana-ring` CLI take a service base URL and append the JSON-RPC method, preserving its query parameters. For example, `https://ring-rpc.example?api-key=KEY` becomes `POST /ringStatus?api-key=KEY`. In `ring.toml`, use `ring_rpc = "https://ring-rpc.example?api-key=${RING_RPC_API_KEY}"` to load the key from the environment.
 
-A call posted to any path but `/` runs only when its JSON-RPC body is one call naming the path's last segment: `/ringStatus` and `/v1/zolana/ring/ringStatus` run `ringStatus` and refuse every other method with error `-32601`. `/` remains available to existing self-hosted JSON-RPC clients. Proxies must preserve the method path; rewriting it to `/` removes the path check.
+A call posted to any path but `/` runs only when its JSON-RPC body is one call naming the path's last segment: `/ringStatus` and `/rpc/ringStatus` run `ringStatus` and refuse every other method with error `-32601`. `/` remains available to existing self-hosted JSON-RPC clients. Proxies must preserve the method path; rewriting it to `/` removes the path check.
 
-### Gateway routes
-
-Configure exact POST routes under `/v1/zolana/ring` and forward the original path and JSON-RPC body. Gatekeeper owns API-key authentication, per-key limits, and prices; Ring RPC owns request validation and signed reader/authority authorization. An API key alone does not grant access to decrypted transactions.
-
-| Path suffix and JSON-RPC method | Gatekeeper method |
-| --- | --- |
-| `health` | `zolanaRingHealth` |
-| `createAuditorKey` | `zolanaRingCreateAuditorKey` |
-| `ringStatus` | `zolanaRingStatus` |
-| `ringDeposits` | `zolanaRingDeposits` |
-| `getDecryptedTransactions` | `zolanaRingGetDecryptedTransactions` |
-
-Deploy path validation and configure prices before enabling these routes. Do not expose the unrestricted root through a metered gateway route. Keep one backend process per service key while replay nonces are held in memory, and disable gateway retries of signed POST requests because an accepted nonce cannot be reused. The gateway integration is tracked in [monorepo #20892](https://github.com/helius-labs/monorepo/pull/20892), which supersedes #20125.
+Disable automatic proxy retries of signed POST requests because an accepted nonce cannot be reused.
 
 `GET /health` reports the service identity. `GET /ready` checks Photon and Solana RPC. In local mode it also checks that the ring config still names the auditor key held here. In derived mode it re-reads the cluster genesis hash and fails when it differs from the one captured at boot, because that hash binds every derived key. A failed probe names the check in the response body.
 
-One request rate window gates every JSON RPC method and `GET /ready`, so nothing reaches an upstream unmetered. `health`, `ringStatus` and `ringDeposits` are unauthenticated and take that gate alone. `createAuditorKey` takes the authentication gate and its concurrency slot, since it verifies a signature and reads the chain. In local mode `ringDeposits` answers for the served ring only, like `ringStatus`. `getDecryptedTransactions` adds a global concurrency slot, one page at a time for each reader, and the read authorization. Key files must have owner access only unless the operator selects the shared file option.
+One request rate window gates every JSON RPC method and `GET /ready` before any upstream read. `health`, `ringStatus` and `ringDeposits` are unauthenticated and take that gate alone. `createAuditorKey` takes the authentication gate and its concurrency slot, since it verifies a signature and reads the chain. In local mode `ringDeposits` answers for the served ring only, like `ringStatus`. `getDecryptedTransactions` adds a global concurrency slot, one page at a time for each reader, and the read authorization. Key files must have owner access only unless the operator selects the shared file option.
