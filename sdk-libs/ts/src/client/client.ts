@@ -166,6 +166,10 @@ export interface ZolanaClientConfig {
    * out, a remote prover gets `defaultTeePolicy()`.
    */
   readonly proverTee?: TeePolicy;
+  /**
+   * Sends every HTTP request the client makes: Solana RPC, indexer and prover.
+   * `solanaRpcSubscriptions` connects over a WebSocket instead.
+   */
   readonly fetch?: typeof globalThis.fetch;
   /**
    * Permit plain http to non-loopback indexer and prover URLs.
@@ -248,6 +252,7 @@ export class ZolanaClient
       ...(endpoints.solanaRpcSubscriptions === undefined
         ? {}
         : { solanaRpcSubscriptionsUrl: endpoints.solanaRpcSubscriptions }),
+      ...(input.fetch === undefined ? {} : { fetch: input.fetch }),
     });
     const allowInsecureHttp = input.allowInsecureHttp ?? false;
     const indexerUrl = checkedServiceUrl(
