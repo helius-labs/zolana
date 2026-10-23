@@ -174,6 +174,9 @@ Changed
 - `decodeOutputData` returns a ring merge output slot framed `"encrypted"`
   instead of `"verifiable"`, and merge decryption rejects non-canonical
   ciphertext with `TRANSACTION_NON_CANONICAL_MERGE_CIPHERTEXT`.
+- `ProverClient` sends a proof on the Helius gateway to its proving key's path,
+  `/v1/zolana/prove/<key>`, and polls `/v1/zolana/prove/<key>/status`, as on
+  any other prover; the gateway serves no key-less proof path.
 
 Fixed
 

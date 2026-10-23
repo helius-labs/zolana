@@ -44,7 +44,7 @@ function isHeliusDevnet(rpc: string | URL | undefined): boolean {
 /**
  * Whether `url` is the Helius gateway's zolana namespace on a
  * `*.helius-rpc.com` host. It serves the indexer at `/v1/zolana/<method>` and
- * proofs only at the key-less `/v1/zolana/prove` and `/v1/zolana/prove/status`,
+ * proofs at `/v1/zolana/prove/<key>`, polled at `/v1/zolana/prove/<key>/status`,
  * with no indexed route.
  */
 export function isZolanaGateway(url: URL): boolean {

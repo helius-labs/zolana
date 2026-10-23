@@ -1105,7 +1105,7 @@ describe("prover request routing", () => {
     expect(urls[0]?.search).toBe("?tenant=alpha&flag&x=a%20b&y=~&api-key=k%2B1");
     expect(urls[1]?.search).toBe("?tenant=alpha&flag&x=a%20b&y=~&api-key=k%2B1&jobId=job-123");
   });
-  it("sends a proof and its poll through the TEE session to the Helius gateway's key-less paths", async () => {
+  it("sends a proof and its poll through the TEE session to the Helius gateway's key paths", async () => {
     const urls: URL[] = [];
     const send = vi.spyOn(TeeSession.prototype, "send").mockImplementation(async (call) => {
       urls.push(new URL(call.url));
@@ -1126,8 +1126,8 @@ describe("prover request routing", () => {
 
     expect(fetch).not.toHaveBeenCalled();
     expect(urls.map((url) => url.pathname)).toEqual([
-      "/v1/zolana/prove",
-      "/v1/zolana/prove/status",
+      "/v1/zolana/prove/transfer_confidential_2_2",
+      "/v1/zolana/prove/transfer_confidential_2_2/status",
     ]);
     expect(urls.map((url) => url.searchParams.get("api-key"))).toEqual(["k", "k"]);
     expect(urls[1]?.searchParams.get("jobId")).toBe("job-123");

@@ -65,6 +65,7 @@ func echo(status int) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		w.Header().Set("Retry-After", "3")
+		w.Header().Set("X-Helius-Metering-Units", "4")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
 		_, _ = w.Write([]byte(r.Method + ":" + r.Header.Get("Content-Type") + ":" + string(body)))
@@ -94,7 +95,10 @@ func TestWrapDecryptsAndEncrypts(t *testing.T) {
 	if recorder.Code != http.StatusTooManyRequests {
 		t.Fatalf("outer status %d", recorder.Code)
 	}
-	if recorder.Header().Get(HeaderVersion) != Version || recorder.Header().Get("Retry-After") != "3" {
+	// A gateway meters an encrypted proof from the answer's plaintext headers.
+	if recorder.Header().Get(HeaderVersion) != Version ||
+		recorder.Header().Get("Retry-After") != "3" ||
+		recorder.Header().Get("X-Helius-Metering-Units") != "4" {
 		t.Fatalf("headers %v", recorder.Header())
 	}
 	if bytes.Contains(recorder.Body.Bytes(), []byte("secret")) {
