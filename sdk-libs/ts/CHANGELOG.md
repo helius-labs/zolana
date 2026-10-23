@@ -182,7 +182,7 @@ Changed
 
 Fixed
 
-- `DEFAULT_TEE_PROVER_ENDPOINT` and `defaultTeePolicy()` now select the devnet-d-tee-2 enclave and fetch Merkle proof data on its prover, so default devnet proving accepts the current enclave's attestation and supports `proofDataSource: "prover"`.
+- `DEFAULT_TEE_PROVER_ENDPOINT` and `defaultTeePolicy()` now select the devnet-d-tee-3 enclave and fetch Merkle proof data on its prover, so default devnet proving accepts the current enclave's attestation and supports `proofDataSource: "prover"`.
 - `syncWallet` failed with `CLIENT_INVALID_RPC_RESPONSE` on any indexed transaction whose published viewing key is not a valid X25519 key, now such a transaction is read without a viewing key and its outputs count as undecryptable, as do outputs under a small-order transaction key.
 - `syncWallet` could not recover a merge output without every input, and
   committed past an unreadable owned merge; it now recovers merge outputs

@@ -34,8 +34,8 @@ In TypeScript, `tee` on `ProverClient` and `proverTee` on `ZolanaClient` take an
 The `zolana` commands that prove take `--prover-tee` to require the pin from a loopback prover too, and `--prover-tee-policy <file>` for another pin.
 `zolana vks check --prover-url <url>` attests a TEE prover before it checks its proving keys.
 
-The SDK pins `devnet-d-tee-2`, the indexed devnet Nitro Enclave prover at `https://d1unet9hn0mci0.cloudfront.net` (`DEFAULT_PROVER_URL` in Rust, `DEFAULT_TEE_PROVER_ENDPOINT` in TypeScript), in `sdk-libs/prover-tee/src/policy.json` and its TypeScript mirror `default.ts`. The matching Photon endpoint is `https://d21d98xh5lgv3b.cloudfront.net`.
-The enclave was built from prover source commit `81d8f9cefed610247c9bd4cf69c3cf8553e0b731`, with build tooling from `92a2e088c300f6b62722dd699b68288d6150332e`, in the [measured build](https://github.com/helius-labs/zolana/actions/runs/39738684498). Both SDKs pin its PCR0–PCR2 measurements and attested HPKE public key in the bundled default policy. Clients use this policy automatically; no caller-supplied policy is needed for this deployment.
+The SDK pins `devnet-d-tee-3`, the indexed devnet Nitro Enclave prover at `https://d1unet9hn0mci0.cloudfront.net` (`DEFAULT_PROVER_URL` in Rust, `DEFAULT_TEE_PROVER_ENDPOINT` in TypeScript), in `sdk-libs/prover-tee/src/policy.json` and its TypeScript mirror `default.ts`. The matching Photon endpoint is `https://d21d98xh5lgv3b.cloudfront.net`.
+The enclave was built from prover source commit `0e63ff3672c0eb648c02f4a429376e95845a05b4`, with build tooling from `7fbe43dd8085cb87feb229539273c71586d3099e`, in the [measured build](https://github.com/helius-labs/zolana/actions/runs/39996194428). Both SDKs pin its PCR0–PCR2 measurements and attested HPKE public key in the bundled default policy. Clients use this policy automatically; no caller-supplied policy is needed for this deployment.
 A TEE client calls the prover at its own URL, because attestation needs its `/tee/v1/attestation` route and encrypted calls need its `Zolana-Tee` headers.
 
 A TypeScript client given a Helius devnet RPC URL and no `proverUrl` proves through the pinned prover without forwarding the RPC API key.
@@ -101,8 +101,8 @@ cargo run -p xtask -- tee-check https://d1unet9hn0mci0.cloudfront.net
 ```
 
 The policy matches the measured EIF from
-[publisher run 39738684498](https://github.com/helius-labs/zolana/actions/runs/39738684498),
-with EIF SHA256 `a8cf5a57439c4725fc5f7450a283550a5eac7a98e75bc35fe23d72bd93384166`.
+[publisher run 39996194428](https://github.com/helius-labs/zolana/actions/runs/39996194428),
+with EIF SHA256 `899e588fd0678d69dcc13b4a65317187639730dd072abeca6df0600d7db3df02`.
 Live attestation, encrypted key checks and an encrypted indexed proof were
 verified against it. A future enclave build requires newly measured and
 reviewed SDK pins. Applications selecting another reviewed policy can pass it

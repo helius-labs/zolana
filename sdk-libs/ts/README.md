@@ -161,7 +161,7 @@ witness, and `proverTee` names another policy. A new prover image or key fails
 attestation until the client takes the new pins from an SDK release or a
 reviewed policy, never from the prover's own answer.
 
-The SDK's default policy pins the indexed `devnet-d-tee-2` enclave measurements and
+The SDK's default policy pins the indexed `devnet-d-tee-3` enclave measurements and
 attested HPKE public key. No `proverTee` policy override is needed for these
 endpoints. See the [TEE deployment pin](../../prover/tee/README.md#building-on-it)
 for the measured build and verified policy source. Attestation, certificate,

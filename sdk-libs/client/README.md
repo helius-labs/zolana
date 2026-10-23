@@ -77,7 +77,7 @@ only public tree data, and refuses every other proof. Pass the prover client to
 For the current devnet deployment, use Photon at
 `https://d21d98xh5lgv3b.cloudfront.net` and `tee::DEFAULT_PROVER_URL` at
 `https://d1unet9hn0mci0.cloudfront.net`. The default policy pins the PCR0–PCR2
-measurements and attested HPKE key of indexed `devnet-d-tee-2`; no caller-supplied
+measurements and attested HPKE key of indexed `devnet-d-tee-3`; no caller-supplied
 policy is needed. See the [TEE deployment pin](../../prover/tee/README.md#building-on-it)
 for its measured-build and policy provenance. Verification still checks the
 attestation signature and certificate chain, nonce, freshness, measurements and
