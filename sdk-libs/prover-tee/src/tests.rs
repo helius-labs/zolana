@@ -14,12 +14,10 @@ use super::{
     HPKE_INFO, RESPONSE_EXPORT,
 };
 
-const PROBE_ATTESTATION: &str =
-    include_str!("../../../../../prover/tee/testdata/probe_attestation.json");
-const PROBE_POLICY: &str = include_str!("../../../../../prover/tee/testdata/probe_policy.json");
-const VECTORS: &str = include_str!("../../../../../prover/tee/testdata/vectors.json");
-const LIVE_ATTESTATION: &str =
-    include_str!("../../../../../prover/tee/testdata/live_attestation.json");
+const PROBE_ATTESTATION: &str = include_str!("../../../prover/tee/testdata/probe_attestation.json");
+const PROBE_POLICY: &str = include_str!("../../../prover/tee/testdata/probe_policy.json");
+const VECTORS: &str = include_str!("../../../prover/tee/testdata/vectors.json");
+const LIVE_ATTESTATION: &str = include_str!("../../../prover/tee/testdata/live_attestation.json");
 
 #[derive(Deserialize)]
 struct ProbeFixture {
@@ -158,14 +156,14 @@ struct LiveFixture {
 #[test]
 fn the_live_nitro_enclave_passes_the_aws_chain_and_its_pinned_image() {
     let fixture: LiveFixture = serde_json::from_str(include_str!(
-        "../../../../../prover/tee/testdata/nitro_live_attestation.json"
+        "../../../prover/tee/testdata/nitro_live_attestation.json"
     ))
     .unwrap();
     let nonce = bytes::<32>(&fixture.nonce);
     let attestation =
         || serde_json::from_value::<Attestation>(fixture.attestation.clone()).unwrap();
     let file: TeePolicyFile = serde_json::from_str(include_str!(
-        "../../../../../prover/tee/testdata/nitro_live_policy.json"
+        "../../../prover/tee/testdata/nitro_live_policy.json"
     ))
     .unwrap();
     let policy = file.deployment.unwrap();
@@ -227,7 +225,7 @@ fn the_archived_deployment_accepts_its_attestation() {
     let attestation =
         || serde_json::from_value::<Attestation>(fixture.attestation.clone()).unwrap();
     let file: TeePolicyFile = serde_json::from_str(include_str!(
-        "../../../../../prover/tee/testdata/live_policy.json"
+        "../../../prover/tee/testdata/live_policy.json"
     ))
     .unwrap();
     let policy = file.deployment.unwrap();
@@ -319,8 +317,8 @@ fn a_policy_file_is_a_pin_file_or_a_bare_policy() {
 #[test]
 fn the_published_deployment_pins_load() {
     for pin in [
-        include_str!("../../../../../prover/tee/deployments/nitro-c7a.json"),
-        include_str!("../../../../../prover/tee/deployments/devnet-d-v0.5.0-alpha.json"),
+        include_str!("../../../prover/tee/deployments/nitro-c7a.json"),
+        include_str!("../../../prover/tee/deployments/devnet-d-v0.5.0-alpha.json"),
     ] {
         assert_eq!(
             TeePolicy::from_file_json(pin).unwrap().platform(),

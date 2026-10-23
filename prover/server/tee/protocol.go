@@ -8,6 +8,7 @@ import (
 	"crypto/hpke"
 	"crypto/sha256"
 	"crypto/sha512"
+	"net/url"
 	"strings"
 )
 
@@ -67,7 +68,9 @@ func requestAAD(method, requestURI string) []byte {
 	path, query, _ := strings.Cut(requestURI, "?")
 	var kept []string
 	for _, pair := range strings.Split(query, "&") {
-		if key, _, _ := strings.Cut(pair, "="); pair == "" || key == apiKeyParam {
+		key, _, _ := strings.Cut(pair, "=")
+		decoded, err := url.QueryUnescape(key)
+		if pair == "" || (err == nil && decoded == apiKeyParam) {
 			continue
 		}
 		kept = append(kept, pair)

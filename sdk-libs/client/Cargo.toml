@@ -30,6 +30,7 @@ zolana-event-parser = { workspace = true }
 zolana-hasher = { workspace = true, features = ["std"] }
 zolana-keypair = { workspace = true }
 zolana-transaction = { workspace = true }
+zolana-prover-tee = { workspace = true }
 zolana-user-registry-interface = { workspace = true, features = ["solana"] }
 zeroize = { workspace = true }
 zolana-api = { workspace = true, default-features = false }
@@ -37,23 +38,14 @@ num-bigint = { workspace = true }
 num-traits = { workspace = true }
 solana-address = { workspace = true }
 thiserror = { workspace = true }
-aes-gcm = { workspace = true }
-ciborium = { workspace = true }
-ciborium-ll = { workspace = true }
-coset = { workspace = true }
-dcap-qvl = { workspace = true }
 hex = { workspace = true, features = ["serde"] }
-hpke = { workspace = true }
 httpdate = { workspace = true }
-p384 = { workspace = true }
 rand_core = { workspace = true }
-sha2 = { workspace = true }
 http = { workspace = true }
 reqwest = { workspace = true, features = ["blocking"], optional = true }
 url = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-x509-cert = { workspace = true }
 solana-bn254 = { workspace = true }
 groth16-solana = { workspace = true }
 # The address-append verifying keys pin the proving keys batch proofs are
@@ -80,6 +72,9 @@ tokio = { workspace = true, features = ["time", "rt", "macros", "sync"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
+zolana-prover-tee = { workspace = true, features = ["test-fixtures"] }
+aes-gcm = { workspace = true }
+hpke = { workspace = true }
 base64 = { workspace = true }
 # solana-rpc-client 4.1's send path. Kept so the v1 serde-order repro can
 # call the same `bincode::serialize` that client used.
@@ -91,8 +86,6 @@ zolana-merkle-tree = { workspace = true }
 rand = { workspace = true }
 serial_test = { workspace = true }
 wincode = { workspace = true }
-p384 = { workspace = true, features = ["alloc"] }
-x509-cert = { workspace = true, features = ["builder"] }
 
 [[test]]
 name = "scan"

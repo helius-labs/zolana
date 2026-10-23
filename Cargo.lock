@@ -12882,10 +12882,6 @@ dependencies = [
  "bincode 1.3.3",
  "borsh",
  "bs58",
- "ciborium",
- "ciborium-ll",
- "coset",
- "dcap-qvl",
  "futures",
  "groth16-solana",
  "hex",
@@ -12894,14 +12890,12 @@ dependencies = [
  "httpdate",
  "num-bigint 0.4.8",
  "num-traits",
- "p384",
  "rand 0.8.8",
  "rand_core 0.9.5",
  "reqwest",
  "serde",
  "serde_json",
  "serial_test",
- "sha2 0.10.9",
  "solana-account 4.3.2",
  "solana-address 2.6.1",
  "solana-bn254",
@@ -12921,7 +12915,6 @@ dependencies = [
  "tokio",
  "url",
  "wincode",
- "x509-cert",
  "zeroize",
  "zolana-api",
  "zolana-event",
@@ -12932,6 +12925,7 @@ dependencies = [
  "zolana-keypair",
  "zolana-merkle-tree",
  "zolana-program",
+ "zolana-prover-tee",
  "zolana-transaction",
  "zolana-tree",
  "zolana-user-registry-interface",
@@ -13213,6 +13207,28 @@ dependencies = [
  "zolana-keypair",
  "zolana-program",
  "zolana-transaction",
+]
+
+[[package]]
+name = "zolana-prover-tee"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm",
+ "ciborium",
+ "ciborium-ll",
+ "coset",
+ "dcap-qvl",
+ "form_urlencoded",
+ "hex",
+ "hpke",
+ "p384",
+ "rand_core 0.9.5",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.20",
+ "x509-cert",
+ "zeroize",
 ]
 
 [[package]]

@@ -194,6 +194,7 @@ Fixed
 - `ConfidentialTransfer` encoded the padding slots of a self-paid transfer
   differently from the sender's change, so an observer could tell them apart;
   padding now uses the same encoding as change.
+- `ProverClient` encrypted requests now survive gateway removal of percent-encoded `api-key` query parameters while keeping other query bytes authenticated.
 
 ## 0.4.1-alpha — 2026-10-08
 
