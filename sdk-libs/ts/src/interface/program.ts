@@ -20,18 +20,18 @@ export interface CreateTreeData {
   readonly fees: TreeFeeSchedule;
 }
 
-export const SHIELDED_POOL_PROGRAM_ID = address("sppU489D7A4U1exNo1oeMGZtLEofq3a6o2fR7UeoWB6");
-export const USER_REGISTRY_PROGRAM_ID = address("regyS5rkAcw2YzDJCmTwCTHs2s246FXxbmuRZ42u2PD");
+export const SHIELDED_POOL_PROGRAM_ID = address("spp3CfN2Y7se74A27bBpnAkmjXyEb2YmmZafhFrC9xt");
+export const USER_REGISTRY_PROGRAM_ID = address("regy3WAeRXMYuMYxr5iK3Bf9Arr3PcxGxyzAddbiqDQ");
 export const SOL_INTERFACE = encodeBase58(
   Uint8Array.from([
-    25, 103, 86, 200, 133, 185, 152, 90, 206, 95, 120, 116, 156, 29, 95, 209, 115, 140, 160, 250,
-    226, 120, 50, 30, 39, 35, 88, 131, 164, 254, 252, 146,
+    57, 234, 222, 217, 123, 228, 230, 232, 84, 166, 31, 212, 32, 61, 124, 189, 111, 192, 176, 105,
+    98, 211, 150, 177, 42, 231, 139, 133, 216, 66, 188, 207,
   ]),
 );
 export const SHIELDED_POOL_CPI_AUTHORITY = encodeBase58(
   Uint8Array.from([
-    69, 71, 220, 185, 216, 143, 158, 144, 194, 192, 35, 58, 192, 36, 234, 87, 129, 254, 240, 115,
-    136, 34, 89, 207, 13, 241, 99, 80, 189, 28, 84, 235,
+    231, 159, 118, 137, 156, 23, 134, 42, 170, 73, 246, 220, 194, 211, 204, 77, 34, 241, 59, 125,
+    158, 152, 138, 84, 162, 33, 96, 26, 58, 253, 91, 23,
   ]),
 );
 export const SPL_TOKEN_PROGRAM_ID = address("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");

@@ -144,15 +144,15 @@ The public dashboard reports protocol and service health.
 | Service    | URL                                                | Notes                                                                                     |
 | ---------- | -------------------------------------------------- | ----------------------------------------------------------------------------------------- |
 | Solana RPC | `https://devnet.helius-rpc.com/?api-key=<API_KEY>` | Helius key. Fund the payer with [devnet SOL](https://www.helius.dev/docs/rpc/devnet-sol). |
-| Indexer    | `https://d2xah7tnhdhcom.cloudfront.net`            | Fetches encrypted state.                                                                  |
-| Prover     | `https://d55y5ksdsm1vw.cloudfront.net`             | Generates ZK proofs in a Nitro Enclave the SDK attests and encrypts every request to.     |
+| Indexer    | `https://d21d98xh5lgv3b.cloudfront.net`            | Fetches encrypted state.                                                                  |
+| Prover     | `https://d1unet9hn0mci0.cloudfront.net`            | Generates ZK proofs in a Nitro Enclave the SDK attests and encrypts every request to.     |
 | Dashboard  | `https://djq45ljnl16bl.cloudfront.net`             | Shows public protocol and service health.                                                 |
 
 ```ts
 const client = await createZolanaClient({
   solanaRpcUrl: `https://devnet.helius-rpc.com/?api-key=${process.env.API_KEY!}`,
-  indexerUrl: "https://d2xah7tnhdhcom.cloudfront.net",
-  proverUrl: "https://d55y5ksdsm1vw.cloudfront.net",
+  indexerUrl: "https://d21d98xh5lgv3b.cloudfront.net",
+  proverUrl: "https://d1unet9hn0mci0.cloudfront.net",
 });
 ```
 
@@ -160,6 +160,12 @@ Every remote prover must attest to `defaultTeePolicy()` before it receives a
 witness, and `proverTee` names another policy. A new prover image or key fails
 attestation until the client takes the new pins from an SDK release or a
 reviewed policy, never from the prover's own answer.
+
+The SDK's default policy pins the indexed `devnet-d-tee-2` enclave measurements and
+attested HPKE public key. No `proverTee` policy override is needed for these
+endpoints. See the [TEE deployment pin](../../prover/tee/README.md#building-on-it)
+for the measured build and verified policy source. Attestation, certificate,
+nonce, freshness and HPKE-key verification remain required.
 
 On localnet, start the stack first with `zolana dev start`. The local test
 validator (`:8899`), Photon indexer (`:8784`), and prover (`:3001`) then
@@ -170,9 +176,9 @@ endpoint configuration.
 const client = await createZolanaClient({});
 ```
 
-The default Nitro deployment and the Helius gateway take client-fetched proof
-data. Other provers fetch Merkle data by default. Configure their `PROVER_INDEXER_URL`
-for the same network. Set `proofDataSource: "client"` to fetch proof data in
+The Helius gateway takes client-fetched proof data. Other provers, including
+the default Nitro deployment, fetch Merkle data by default. Configure their
+`PROVER_INDEXER_URL` for the same network. Set `proofDataSource: "client"` to fetch proof data in
 the SDK instead. Both routes support ring transfers, merges and caches.
 `LocalKeys` supports both modes. A remote key holder must implement
 `IndexedProofAuthority.proveIndexed` for prover fetching. Returned roots

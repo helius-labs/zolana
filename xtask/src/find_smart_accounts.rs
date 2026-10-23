@@ -10,7 +10,9 @@ use zolana_smart_account_client::{
 };
 use zolana_test_utils::smart_account::SMART_ACCOUNT_PROGRAM_ID;
 
-use crate::init_protocol::{expected_role_members, read_program_config, to_address, Cluster};
+use crate::init_protocol::{
+    expected_role_members, read_program_config, to_address, verify_role_members, Cluster,
+};
 
 const SCAN_PROGRESS_STEP: u128 = 100_000;
 
@@ -21,6 +23,7 @@ pub struct Options {
     protocol_config: Option<Pubkey>,
     max_index: Option<u128>,
     accept_existing_threshold: bool,
+    allowed_extra_members: Vec<Pubkey>,
 }
 
 impl Options {
@@ -31,6 +34,7 @@ impl Options {
         let mut protocol_config = None;
         let mut max_index = None;
         let mut accept_existing_threshold = false;
+        let mut allowed_extra_members = Vec::new();
 
         let mut args = args.into_iter();
         while let Some(arg) = args.next() {
@@ -74,6 +78,14 @@ impl Options {
                     }));
                 }
                 "--accept-existing-threshold" => accept_existing_threshold = true,
+                "--allow-extra-member" => {
+                    let value = args
+                        .next()
+                        .unwrap_or_else(|| usage_and_exit("--allow-extra-member missing value"));
+                    allowed_extra_members.push(Pubkey::from_str(&value).unwrap_or_else(|e| {
+                        usage_and_exit(&format!("--allow-extra-member {value:?}: {e}"))
+                    }));
+                }
                 "--help" | "-h" => {
                     print_help();
                     std::process::exit(0);
@@ -93,6 +105,7 @@ impl Options {
             protocol_config,
             max_index,
             accept_existing_threshold,
+            allowed_extra_members,
         }
     }
 
@@ -227,21 +240,13 @@ pub fn run(options: Options) -> Result<()> {
                 role.threshold()
             );
         }
-        let missing: Vec<String> = expected_members
-            .iter()
-            .filter(|expected| !member_keys.contains(expected))
-            .map(|expected| expected.to_string())
-            .collect();
-        if member_keys.len() != expected_members.len() || !missing.is_empty() {
-            bail!(
-                "{} settings {settings} does not contain exactly the expected {} members; \
-                 found {}, missing [{}]",
-                role.label(),
-                expected_members.len(),
-                member_keys.len(),
-                missing.join(", ")
-            );
-        }
+        verify_role_members(
+            role.label(),
+            &settings,
+            &member_keys,
+            expected_members,
+            &options.allowed_extra_members,
+        )?;
         println!(
             "{}_settings={settings} {}_vault={vault} seed={} threshold={threshold} members={}",
             role.label(),
@@ -256,6 +261,12 @@ pub fn run(options: Options) -> Result<()> {
     for role in Role::ALL {
         let (settings, _) = role.settings_pda(base_index);
         println!("  --{}-settings {settings} \\", role.label());
+    }
+    if options.accept_existing_threshold {
+        println!("  --accept-existing-threshold \\");
+    }
+    for member in &options.allowed_extra_members {
+        println!("  --allow-extra-member {member} \\");
     }
 
     Ok(())
@@ -283,6 +294,8 @@ fn print_help() {
     println!("                                        and cross-check tree/ring/forester");
     println!("  --accept-existing-threshold           report a set whose threshold predates");
     println!("                                        this build's role policy");
+    println!("  --allow-extra-member <PUBKEY>          preserve this additional existing member;");
+    println!("                                        repeat for each explicitly allowed key");
     println!("  --max-index <N>                       scan bound, default: the live Squads");
     println!("                                        smart_account_index");
     println!("  -h | --help                           print this help");

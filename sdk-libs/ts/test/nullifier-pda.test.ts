@@ -133,8 +133,8 @@ describe("nullifier PDA accounts", () => {
 
   it("matches the fixed Rust PDA vector", async () => {
     expect(await nullifierPda(TREE, filled(7, 32))).toEqual([
-      address("HT4BbdfZvtEf5pDQHp5E3x4AV8qnTKFL4Bd13yhsK67w"),
-      255,
+      address("H1tMM3DkFTTKKoWNQfwLnDTUVkALGhML2ggWfqa724B"),
+      252,
     ]);
   });
 
