@@ -46,8 +46,8 @@ paths:
                     filters:
                       $ref: '#/components/schemas/HistoryFilters'
                       description: |-
-                        Slot bounds. Resume a caught-up read with `slot.gt` set to the last
-                        page's `context.slot`.
+                        Slot bounds. Resume a caught-up, uncapped read with `slot.gt` set to
+                        the last page's `context.slot`.
                     limit:
                       oneOf:
                       - type: 'null'
@@ -147,9 +147,10 @@ paths:
                         - type: 'null'
                         - $ref: '#/components/schemas/PaginationToken'
                           description: |-
-                            Token for the next page, null when no more results match. A reader
-                            that is caught up resumes later with `filters.slot.gt` set to this
-                            page's `context.slot`.
+                            Token for the next page, null when no more results match. A caught-up
+                            read without an `lt` or `lte` bound resumes later with `filters.slot.gt`
+                            set to this page's `context.slot`; a capped read covered only the slots
+                            below its cap.
         '429':
           description: Exceeded rate limit.
           content:
@@ -587,8 +588,8 @@ paths:
                     filters:
                       $ref: '#/components/schemas/HistoryFilters'
                       description: |-
-                        Slot bounds. Resume a caught-up read with `slot.gt` set to the last
-                        page's `context.slot`.
+                        Slot bounds. Resume a caught-up, uncapped read with `slot.gt` set to
+                        the last page's `context.slot`.
                     limit:
                       oneOf:
                       - type: 'null'
@@ -680,9 +681,10 @@ paths:
                         - type: 'null'
                         - $ref: '#/components/schemas/PaginationToken'
                           description: |-
-                            Token for the next page, null when no more results match. A reader
-                            that is caught up resumes later with `filters.slot.gt` set to this
-                            page's `context.slot`.
+                            Token for the next page, null when no more results match. A caught-up
+                            read without an `lt` or `lte` bound resumes later with `filters.slot.gt`
+                            set to this page's `context.slot`; a capped read covered only the slots
+                            below its cap.
         '429':
           description: Exceeded rate limit.
           content:
@@ -877,8 +879,8 @@ paths:
                     filters:
                       $ref: '#/components/schemas/HistoryFilters'
                       description: |-
-                        Slot bounds. Resume a caught-up read with `slot.gt` set to the last
-                        page's `context.slot`.
+                        Slot bounds. Resume a caught-up, uncapped read with `slot.gt` set to
+                        the last page's `context.slot`.
                     limit:
                       oneOf:
                       - type: 'null'
@@ -978,9 +980,10 @@ paths:
                         - type: 'null'
                         - $ref: '#/components/schemas/PaginationToken'
                           description: |-
-                            Token for the next page, null when no more results match. A reader
-                            that is caught up resumes later with `filters.slot.gt` set to this
-                            page's `context.slot`.
+                            Token for the next page, null when no more results match. A caught-up
+                            read without an `lt` or `lte` bound resumes later with `filters.slot.gt`
+                            set to this page's `context.slot`; a capped read covered only the slots
+                            below its cap.
         '429':
           description: Exceeded rate limit.
           content:

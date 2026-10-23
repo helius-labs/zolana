@@ -99,7 +99,9 @@ An empty tag list without a ring is rejected. Nonempty tags still narrow the sca
 
 Pages follow `getTransactionsForAddress`: pass `paginationToken` back with the
 same filters until it is null. To resume after new indexing, read again with
-`filters: { slot: { gt } }` set to the last page's `context.slot`.
+`filters: { slot: { gt } }` set to the last page's `context.slot`. That slot is
+covered only by a read without an `lt` or `lte` bound; a capped read covered the
+slots below its cap.
 Ciphertexts stay opaque to Photon. Auditor recovery decrypts the returned deposit
 capsules and transfer messages client-side.
 

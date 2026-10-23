@@ -354,7 +354,8 @@ transaction, so `limit` never splits a transaction. Pass the returned
 `paginationToken` back unchanged, with the same filters, until it is `null`.
 To resume a later scan, keep the final page's `context.slot` and send
 `filters: { slot: { gt } }` with it; every match at or below that slot has been
-returned, including when the scan matched nothing. A checkpoint applies only to
+returned, including when the scan matched nothing. That holds only for a scan
+without an `lt` or `lte` bound: a capped scan covered the slots below its cap. A checkpoint applies only to
 the tags or nullifiers already scanned. Pages run in ascending slot and
 signature-byte order, and `minContextSlot` gates freshness independently.
 

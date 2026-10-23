@@ -337,20 +337,25 @@ pub(super) fn page_sql_conditions(
 }
 
 /// Rows below the first indexed block were never ingested, so a silent resume
-/// from that gap, by token or by slot filter, would skip them forever.
+/// from that gap would skip them forever.
+///
+/// The read still needs every slot from the later of two points: the token's
+/// own slot, whose remaining transactions follow the token, and the slot after
+/// the filter's floor.
 pub(super) async fn ensure_resume_indexed(
     tx: &DatabaseTransaction,
     page: &PageRequest,
 ) -> Result<(), PhotonApiError> {
-    let Some(resume) = page
-        .pagination_token
-        .map(|token| token.slot())
-        .max(page.filters.slot.floor())
-    else {
+    let Some(needed) = page.pagination_token.map(|token| token.slot()).max(
+        page.filters
+            .slot
+            .floor()
+            .map(|floor| floor.saturating_add(1)),
+    ) else {
         return Ok(());
     };
     let backend = tx.get_database_backend();
-    let floor = tx
+    let first_block = tx
         .query_one(sea_orm::Statement::from_string(
             backend,
             "SELECT MIN(slot) AS slot FROM blocks".to_owned(),
@@ -358,8 +363,8 @@ pub(super) async fn ensure_resume_indexed(
         .await?
         .and_then(|row| row.try_get::<Option<i64>>("", "slot").ok())
         .flatten();
-    let complete = match floor {
-        Some(floor) => resume.saturating_add(1) >= u64_from_i64(floor, "slot")?,
+    let complete = match first_block {
+        Some(first_block) => needed >= u64_from_i64(first_block, "slot")?,
         None => false,
     };
     if !complete {

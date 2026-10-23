@@ -20,8 +20,8 @@ Breaking
   with events or outputs grouped per Solana transaction, and `auditRing` takes
   and returns `paginationToken` in place of `cursor` and `nextCursor` → upgrade
   Photon with the SDK, pass `paginationToken` back until it is `null`, and
-  resume a later scan with `filters: { slot: { gt } }` set to the final page's
-  `context.slot`.
+  resume a later scan without `lt` or `lte` bounds with
+  `filters: { slot: { gt } }` set to the final page's `context.slot`.
 - `RingReadRequest.withCursor` becomes `withPaginationToken` beside a new
   `withFilters`, signed reads use the same page envelope, a numeric transaction
   limit and optional `withMinContextSlot`, and `RING_READ_CURSOR` becomes

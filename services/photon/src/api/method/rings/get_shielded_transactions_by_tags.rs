@@ -1167,20 +1167,30 @@ mod tests {
     }
 
     /// Rows below the first indexed block were never ingested, so a silent
-    /// resume from that gap, by token or by slot filter, would skip them forever.
+    /// resume from that gap would skip them forever. A token still needs the
+    /// rest of its own slot, a `gt` filter only the slots after its bound.
     #[tokio::test]
-    async fn a_resume_below_the_indexed_floor_is_rejected() {
+    async fn a_resume_that_needs_unindexed_history_is_rejected() {
         let db = setup().await;
+        let token = |slot| {
+            Some(PaginationToken::new(
+                slot,
+                signature_from_bytes(&[1; 64]).unwrap().0,
+            ))
+        };
+        // Indexing starts at slot 7.
         for request in [
             GetRingsByNullifiersRequest {
-                pagination_token: Some(PaginationToken::new(
-                    0,
-                    signature_from_bytes(&[1; 64]).unwrap().0,
-                )),
+                pagination_token: token(0),
                 ..nullifiers_request(5, 10)
             },
             GetRingsByNullifiersRequest {
                 filters: HistoryFilters::after_slot(0),
+                ..nullifiers_request(5, 10)
+            },
+            // Slot 6 may hold transactions after the token that were never indexed.
+            GetRingsByNullifiersRequest {
+                pagination_token: token(6),
                 ..nullifiers_request(5, 10)
             },
         ] {
@@ -1190,16 +1200,26 @@ mod tests {
                     if message.contains("history")
             ));
         }
-        // Resuming right below the first block skips nothing.
-        get_shielded_transactions_by_nullifiers(
-            &db,
+        for request in [
             GetRingsByNullifiersRequest {
                 filters: HistoryFilters::after_slot(6),
                 ..nullifiers_request(5, 10)
             },
-        )
-        .await
-        .unwrap();
+            // The filter drops the rest of slot 6, so the token needs nothing below 7.
+            GetRingsByNullifiersRequest {
+                pagination_token: token(6),
+                filters: HistoryFilters::after_slot(6),
+                ..nullifiers_request(5, 10)
+            },
+            GetRingsByNullifiersRequest {
+                pagination_token: token(7),
+                ..nullifiers_request(5, 10)
+            },
+        ] {
+            get_shielded_transactions_by_nullifiers(&db, request)
+                .await
+                .unwrap();
+        }
     }
 
     /// Slot bounds select the transactions inside them.

@@ -520,7 +520,8 @@ impl SlotFilter {
 
 impl HistoryFilters {
     /// Everything after `slot`, how a caught-up reader resumes from the
-    /// `context.slot` of its last page.
+    /// `context.slot` of its last page. Only a read without an `lt` or `lte`
+    /// bound has covered every slot through that `context.slot`.
     pub const fn after_slot(slot: u64) -> Self {
         Self {
             slot: SlotFilter {
@@ -547,9 +548,10 @@ pub struct Page<T> {
     pub output_tree_id: Option<u16>,
     #[cfg_attr(feature = "openapi", schema(inline))]
     pub items: Vec<T>,
-    /// Token for the next page, null when no more results match. A reader
-    /// that is caught up resumes later with `filters.slot.gt` set to this
-    /// page's `context.slot`.
+    /// Token for the next page, null when no more results match. A caught-up
+    /// read without an `lt` or `lte` bound resumes later with `filters.slot.gt`
+    /// set to this page's `context.slot`; a capped read covered only the slots
+    /// below its cap.
     #[serde(deserialize_with = "Option::deserialize")]
     #[cfg_attr(feature = "openapi", schema(required = true))]
     pub pagination_token: Option<PaginationToken>,
@@ -930,8 +932,8 @@ pub struct GetRingsByTagsRequest {
     pub pagination_token: Option<PaginationToken>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<Limit>,
-    /// Slot bounds. Resume a caught-up read with `slot.gt` set to the last
-    /// page's `context.slot`.
+    /// Slot bounds. Resume a caught-up, uncapped read with `slot.gt` set to
+    /// the last page's `context.slot`.
     #[serde(default, skip_serializing_if = "HistoryFilters::is_empty")]
     pub filters: HistoryFilters,
     /// Restrict the match to one ring. Its config account is derived from this
@@ -952,8 +954,8 @@ pub struct GetRingsByNullifiersRequest {
     pub pagination_token: Option<PaginationToken>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<Limit>,
-    /// Slot bounds. Resume a caught-up read with `slot.gt` set to the last
-    /// page's `context.slot`.
+    /// Slot bounds. Resume a caught-up, uncapped read with `slot.gt` set to
+    /// the last page's `context.slot`.
     #[serde(default, skip_serializing_if = "HistoryFilters::is_empty")]
     pub filters: HistoryFilters,
     #[serde(default, skip_serializing_if = "Option::is_none")]

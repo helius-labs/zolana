@@ -2571,15 +2571,18 @@ token ends the read.
 A reader that has caught up resumes a later read with `filters.slot.gt` set to
 the last page's `context.slot`. The service indexes a block together with its
 transactions and in slot order, so that snapshot held every match at or below
-`context.slot`, even when no item matched. A checkpoint covers only the tags,
+`context.slot`, even when no item matched. This holds only for a read without
+an `lt` or `lte` bound: a capped read has covered the slots below its cap, not
+every slot through `context.slot`. A checkpoint covers only the tags,
 nullifiers, or ring filter already queried; newly learned keys must be scanned
 from their own beginning.
 
 `minContextSlot` is a freshness gate, independent of the token and the filters.
 The service answers only from a snapshot that has reached `minContextSlot`, the
 token's slot, and the slot below the filtered range; otherwise it returns
-JSON-RPC `-32016` with `data.contextSlot`. A token or slot filter that resumes
-below the first indexed block is rejected. Clients store tokens unchanged. The
+JSON-RPC `-32016` with `data.contextSlot`. A read that still needs a slot below
+the first indexed block is rejected: a token needs the rest of its own slot, a
+`gt` or `gte` bound the slots after its floor. Clients store tokens unchanged. The
 version-one token encoding is
 `1:<canonical u64 decimal slot>:<canonical base58 Solana signature>`; other
 versions and noncanonical encodings are invalid.
