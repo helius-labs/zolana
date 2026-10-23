@@ -45,6 +45,7 @@ members = [
     "sdk-libs/transaction",
     "services/photon",
     "services/ring-rpc",
+    "services/rpc-http",
     "sdk-tests/client/rust",
     "sdk-tests/compression/program",
     "sdk-tests/compression/prover",
@@ -111,6 +112,7 @@ custom-ring-interface = { path = "custom-rings/interface", version = "0.1.0" }
 zolana-ring-client = { path = "custom-rings/client", version = "0.1.0" }
 zolana-ring-transaction = { path = "custom-rings/transaction", version = "0.1.0" }
 zolana-indexer-api = { path = "sdk-libs/indexer-api", version = "0.1.0" }
+zolana-rpc-http = { path = "services/rpc-http", version = "0.1.0" }
 zolana-merkle-tree = { path = "sdk-libs/merkle-tree", version = "4.0.0" }
 zolana-smart-account-client = { path = "sdk-libs/smart-account-client", version = "0.1.0" }
 zolana-test-utils = { path = "program-tests/test-utils", version = "0.1.0" }

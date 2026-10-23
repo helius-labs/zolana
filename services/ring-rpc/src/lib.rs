@@ -6,7 +6,7 @@ mod error;
 mod hub;
 mod keys;
 mod limits;
-mod method_path;
+mod metering;
 mod origins;
 mod replay;
 mod server;

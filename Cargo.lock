@@ -6000,6 +6000,7 @@ dependencies = [
  "zolana-ring-indexer",
  "zolana-ring-key-registry",
  "zolana-ring-policy",
+ "zolana-rpc-http",
  "zolana-tree",
  "zolana-user-registry-interface",
 ]
@@ -13304,7 +13305,6 @@ dependencies = [
  "custom-ring-interface",
  "hex",
  "hkdf",
- "http-body-util",
  "hyper 1.11.1",
  "jsonrpsee",
  "libc",
@@ -13339,6 +13339,7 @@ dependencies = [
  "zolana-keypair",
  "zolana-ring-client",
  "zolana-ring-transaction",
+ "zolana-rpc-http",
  "zolana-transaction",
 ]
 
@@ -13353,6 +13354,19 @@ dependencies = [
  "zolana-interface",
  "zolana-keypair",
  "zolana-transaction",
+]
+
+[[package]]
+name = "zolana-rpc-http"
+version = "0.1.0"
+dependencies = [
+ "http-body-util",
+ "hyper 1.11.1",
+ "jsonrpsee",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower",
 ]
 
 [[package]]
