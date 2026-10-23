@@ -418,21 +418,27 @@ pub enum ClientError {
     #[error("indexer did not observe the transaction before the poll timeout")]
     IndexerTimeout,
 
-    /// A transaction whose send went unanswered did not land before its
-    /// blockhash expired: past it, neither the RPC's status cache nor, for a
-    /// shielded-pool transaction, the indexer has it. It can no longer land,
-    /// so sending it again is safe.
-    #[error("transaction {signature} expired before it landed")]
+    /// A private transaction did not succeed and no longer can: the RPC does
+    /// not hold it, its blockhash expired, and the indexer, at or past the
+    /// slot where it expired, has no record of it. A new transaction is safe
+    /// to send; the signed one can no longer land.
+    #[error("transaction {signature} expired without succeeding")]
     TransactionExpired {
         signature: solana_signature::Signature,
     },
 
-    /// Whether a transaction whose send went unanswered landed could not be
-    /// told: the status lookups kept failing, it landed and did not confirm,
-    /// without its last valid block height it was never seen, or, past its
-    /// blockhash, the indexer could not be read. It may still land: wait for
-    /// it again before sending it again.
-    #[error("whether transaction {signature} landed is unknown: {message}")]
+    /// Solana confirmed the private transaction, but the indexer did not
+    /// record it before the wait ended.
+    #[error("transaction {signature} is confirmed but not indexed: {message}")]
+    TransactionNotIndexed {
+        signature: solana_signature::Signature,
+        message: String,
+    },
+
+    /// The wait for a private transaction ended before its outcome was
+    /// known. It may have landed or may still land: wait again before
+    /// sending a new one.
+    #[error("whether transaction {signature} succeeded is unknown: {message}")]
     TransactionOutcomeUnknown {
         signature: solana_signature::Signature,
         message: String,

@@ -258,7 +258,7 @@ impl<'a> Submission<'a> {
 
     /// Prove, sign with `signers`, send through `client` and wait until the
     /// transaction is confirmed and indexed, as
-    /// [`AsyncZolanaClient::submit_transaction`] does. `signers` are the fee
+    /// [`AsyncZolanaClient::submit_private_transaction`] does. `signers` are the fee
     /// payer and the native owners the transaction's inputs name; one keypair
     /// playing both roles signs once.
     pub async fn send<R: AsyncRpc, I: AsyncIndexer>(
@@ -269,7 +269,7 @@ impl<'a> Submission<'a> {
         let unsigned = self.finish_unsigned(client).await?;
         let transaction = sign_transaction(unsigned.message, signers)?;
         client
-            .submit_transaction(transaction, unsigned.last_valid_block_height)
+            .submit_private_transaction(transaction, unsigned.last_valid_block_height)
             .await
     }
 

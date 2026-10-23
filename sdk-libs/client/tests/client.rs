@@ -564,95 +564,73 @@ fn a_client_writes_its_configured_ceilings_into_the_header() {
     );
 }
 
-/// A send whose response was lost, for a transaction the status cache no
-/// longer holds once its blockhash expired: the indexer has it, so it landed.
-/// Waiting for it by its signature, as after a restart, ends the same way.
-/// Neither confirms it again through the status cache.
-#[test]
-fn a_lost_send_gone_from_the_status_cache_is_found_at_the_indexer() {
+/// A signed transaction whose only instruction calls `program_id`, and the
+/// blocking client over [`LostSendRpc`] and an indexer answering `answers`.
+fn lost_send(
+    program_id: Pubkey,
+    answers: Vec<Value>,
+) -> (
+    VersionedTransaction,
+    ZolanaClient<LostSendRpc>,
+    MockIndexerServer,
+) {
     let payer = Keypair::new();
+    let instruction = solana_instruction::Instruction::new_with_bytes(program_id, &[0], Vec::new());
     let message = compile_message(
         &payer.pubkey(),
-        &[solana_instruction::Instruction::new_with_bytes(
-            zolana_interface::PROGRAM_ID_PUBKEY,
-            &[0],
-            Vec::new(),
-        )],
+        &[instruction],
         Hash::default(),
         zolana_client::ComputeBudgetConfig::new(200_000),
     )
     .unwrap();
-    let transaction = sign_transaction(message, &[&payer]).unwrap();
-    let signature = transaction.signatures[0];
-    let server = MockIndexerServer::respond_by_path(vec![
-        (
-            "/getShieldedTransactionsBySignature",
-            indexed_transaction_by_signature_response(signature),
-        ),
-        (
-            "/getShieldedTransactionsBySignature",
-            indexed_transaction_by_signature_response(signature),
-        ),
-        (
-            "/getShieldedTransactionsBySignature",
-            indexed_transaction_by_signature_response(signature),
-        ),
-        (
-            "/getShieldedTransactionsBySignature",
-            indexed_transaction_by_signature_response(signature),
-        ),
-    ]);
-    let rpc = LostSendRpc::default();
-    let statuses = Arc::clone(&rpc.statuses);
+    let server = MockIndexerServer::respond_with(answers);
     let client = ZolanaClient::new(
-        rpc,
+        LostSendRpc,
         ZolanaIndexer::new(server.url()),
         ProverClient::new("http://unused.invalid".to_string()),
     )
     .with_indexer_poll_config(IndexerPollConfig::new(0, 0, 0));
-
-    assert_eq!(
-        client.submit_transaction_sync(transaction, 100).unwrap(),
-        signature
-    );
-    assert_eq!(*statuses.lock().unwrap(), 1);
-    client
-        .wait_for_private_transaction_sync(signature, Some(100))
-        .unwrap();
-    assert_eq!(*statuses.lock().unwrap(), 2);
-    assert_eq!(server.requests().len(), 4);
+    (
+        sign_transaction(message, &[&payer]).unwrap(),
+        client,
+        server,
+    )
 }
 
-/// The same lost send when the indexer does not have it either: it never
-/// landed, and sending it again is safe.
+/// A send whose response was lost, gone from the status cache: the indexer
+/// has it, so it succeeded. The client does not read the message, so a
+/// private transaction made through another program's CPI is waited for
+/// too.
+#[test]
+fn a_lost_send_the_indexer_has_succeeded() {
+    let signature = Signature::from([4u8; 64]);
+    let (transaction, client, server) = lost_send(
+        Pubkey::new_unique(),
+        vec![indexed_transaction_by_signature_response(signature)],
+    );
+    let sent = transaction.signatures[0];
+    assert_eq!(
+        client
+            .submit_private_transaction_sync(transaction, 100)
+            .unwrap(),
+        sent
+    );
+    assert_eq!(server.requests(), ["/getShieldedTransactionsBySignature"]);
+}
+
+/// The same send when the indexer, past the slot where the blockhash
+/// expired, does not have it: it never succeeded.
 #[test]
 fn a_lost_send_the_indexer_lacks_has_expired() {
-    let payer = Keypair::new();
-    let message = compile_message(
-        &payer.pubkey(),
-        &[solana_instruction::Instruction::new_with_bytes(
-            zolana_interface::PROGRAM_ID_PUBKEY,
-            &[0],
-            Vec::new(),
-        )],
-        Hash::default(),
-        zolana_client::ComputeBudgetConfig::new(200_000),
-    )
-    .unwrap();
-    let transaction = sign_transaction(message, &[&payer]).unwrap();
-    let server = MockIndexerServer::respond_with(vec![rpc_result(json!({
-        "context": { "blockTime": 12, "slot": 1 },
-        "transactions": [],
-    }))]);
-    let client = ZolanaClient::new(
-        LostSendRpc::default(),
-        ZolanaIndexer::new(server.url()),
-        ProverClient::new("http://unused.invalid".to_string()),
-    )
-    .with_indexer_poll_config(IndexerPollConfig::new(0, 0, 0));
-
+    let (transaction, client, server) = lost_send(
+        zolana_interface::PROGRAM_ID_PUBKEY,
+        vec![rpc_result(json!({
+            "context": { "blockTime": 12, "slot": 1 },
+            "transactions": [],
+        }))],
+    );
     assert!(matches!(
-        client.submit_transaction_sync(transaction, 100),
+        client.submit_private_transaction_sync(transaction, 100),
         Err(ClientError::TransactionExpired { .. })
     ));
     let _ = server.requests();
@@ -947,18 +925,12 @@ fn funded_utxo(keypair: &ShieldedKeypair, amount: u64) -> WalletUtxo {
     }
 }
 
-/// An RPC whose send fails without the chain's verdict, whose status cache
-/// holds nothing, past every blockhash. Counts the status lookups.
-#[derive(Default)]
-struct LostSendRpc {
-    statuses: Arc<Mutex<u32>>,
-}
+/// An RPC whose send fails without the chain's verdict and whose status
+/// cache holds nothing, at block height 200 and slot 1.
+struct LostSendRpc;
 
 impl Rpc for LostSendRpc {
-    fn process_transaction(
-        &self,
-        _transaction: VersionedTransaction,
-    ) -> Result<Signature, ClientError> {
+    fn process_transaction(&self, _: VersionedTransaction) -> Result<Signature, ClientError> {
         Err(ClientError::Rpc("connection reset".into()))
     }
 
@@ -967,7 +939,6 @@ impl Rpc for LostSendRpc {
         signatures: Vec<Signature>,
     ) -> Result<Vec<Option<solana_transaction_status_client_types::TransactionStatus>>, ClientError>
     {
-        *self.statuses.lock().unwrap() += 1;
         Ok(vec![None; signatures.len()])
     }
 
@@ -977,10 +948,6 @@ impl Rpc for LostSendRpc {
 
     fn get_slot(&self) -> Result<u64, ClientError> {
         Ok(1)
-    }
-
-    fn confirm_transaction(&self, _signature: Signature) -> Result<bool, ClientError> {
-        Ok(false)
     }
 }
 
