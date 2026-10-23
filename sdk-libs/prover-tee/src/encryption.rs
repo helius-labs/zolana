@@ -52,6 +52,12 @@ impl EncryptedRequest {
     pub fn decrypt(&self, encrypted: &[u8]) -> Result<(u16, Vec<u8>), TeeError> {
         decrypt_response(&self.response_key, encrypted)
     }
+
+    /// The key that decrypts the answer, for a holder other than the sender.
+    /// An HPKE export, it opens no request.
+    pub fn response_key(&self) -> &[u8; 32] {
+        &self.response_key
+    }
 }
 
 pub fn decrypt_response(key: &[u8; 32], encrypted: &[u8]) -> Result<(u16, Vec<u8>), TeeError> {
@@ -75,7 +81,12 @@ pub(crate) fn request_aad(method: &str, request_uri: &str) -> String {
     let (path, query) = request_uri.split_once('?').unwrap_or((request_uri, ""));
     let kept: Vec<&str> = query
         .split('&')
-        .filter(|pair| !pair.is_empty() && pair.split('=').next() != Some(API_KEY_PARAM))
+        .filter(|pair| {
+            !pair.is_empty()
+                && form_urlencoded::parse(pair.as_bytes())
+                    .next()
+                    .is_none_or(|(key, _)| key != API_KEY_PARAM)
+        })
         .collect();
     if kept.is_empty() {
         format!("{method} {path}")

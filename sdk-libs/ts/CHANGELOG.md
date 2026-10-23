@@ -174,6 +174,9 @@ Changed
 - `decodeOutputData` returns a ring merge output slot framed `"encrypted"`
   instead of `"verifiable"`, and merge decryption rejects non-canonical
   ciphertext with `TRANSACTION_NON_CANONICAL_MERGE_CIPHERTEXT`.
+- `ProverClient` sends a proof on the Helius gateway to its proving key's path,
+  `/v1/zolana/prove/<key>`, and polls `/v1/zolana/prove/<key>/status`, as on
+  any other prover; the gateway serves no key-less proof path.
 
 Fixed
 
@@ -194,6 +197,7 @@ Fixed
 - `ConfidentialTransfer` encoded the padding slots of a self-paid transfer
   differently from the sender's change, so an observer could tell them apart;
   padding now uses the same encoding as change.
+- `ProverClient` encrypted requests now survive gateway removal of percent-encoded `api-key` query parameters while keeping other query bytes authenticated.
 
 ## 0.4.1-alpha — 2026-10-08
 

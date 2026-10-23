@@ -65,6 +65,7 @@ func echo(status int) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		w.Header().Set("Retry-After", "3")
+		w.Header().Set("X-Helius-Metering-Units", "4")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
 		_, _ = w.Write([]byte(r.Method + ":" + r.Header.Get("Content-Type") + ":" + string(body)))
@@ -94,7 +95,10 @@ func TestWrapDecryptsAndEncrypts(t *testing.T) {
 	if recorder.Code != http.StatusTooManyRequests {
 		t.Fatalf("outer status %d", recorder.Code)
 	}
-	if recorder.Header().Get(HeaderVersion) != Version || recorder.Header().Get("Retry-After") != "3" {
+	// A gateway meters an encrypted proof from the answer's plaintext headers.
+	if recorder.Header().Get(HeaderVersion) != Version ||
+		recorder.Header().Get("Retry-After") != "3" ||
+		recorder.Header().Get("X-Helius-Metering-Units") != "4" {
 		t.Fatalf("headers %v", recorder.Header())
 	}
 	if bytes.Contains(recorder.Body.Bytes(), []byte("secret")) {
@@ -202,13 +206,15 @@ func assertRejected(t *testing.T, recorder *httptest.ResponseRecorder, reached b
 
 func TestWrapIgnoresTheCredentialAProxyMoves(t *testing.T) {
 	s := testServer(t)
-	for _, target := range []string{"/prove/merge/status?jobId=a&api-key=other", "/prove/merge/status?jobId=a"} {
-		request, responseKey := encryptedRequest(t, s, http.MethodGet, "/prove/merge/status?api-key=k&jobId=a", nil)
-		request.RequestURI = target
-		recorder := httptest.NewRecorder()
-		s.Wrap(echo(http.StatusOK)).ServeHTTP(recorder, request)
-		if _, _, err := decryptResponse(responseKey, recorder.Body.Bytes()); err != nil {
-			t.Fatalf("%s: %v", target, err)
+	for _, name := range []string{"api-key", "api%2Dkey", "%61pi-%6bey", "%61%70%69%2d%6b%65%79"} {
+		for _, target := range []string{"/prove/merge/status?jobId=a&api-key=other", "/prove/merge/status?jobId=a"} {
+			request, responseKey := encryptedRequest(t, s, http.MethodGet, "/prove/merge/status?"+name+"=k&jobId=a", nil)
+			request.RequestURI = target
+			recorder := httptest.NewRecorder()
+			s.Wrap(echo(http.StatusOK)).ServeHTTP(recorder, request)
+			if _, _, err := decryptResponse(responseKey, recorder.Body.Bytes()); err != nil {
+				t.Fatalf("%s: %v", target, err)
+			}
 		}
 	}
 }

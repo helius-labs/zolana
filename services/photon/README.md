@@ -13,6 +13,11 @@ Photon indexes Rings shielded-pool transactions and exposes the Rings JSON-RPC A
 Photon is built from the Zolana Cargo workspace so its event parser, tree
 layout, SDK contract, and localnet tests always use the same source revision.
 
+On method paths such as `/v1/zolana/getUserRecords`, Photon accepts only a
+single JSON-RPC call naming that method. Batches, duplicate method fields,
+and path/body mismatches return HTTP 400 before execution, so a gateway can
+route and price calls by URL ([gateway contract](../../docs/gateway.md)). Root JSON-RPC and GET health checks stay available.
+
 ## Quick Start
 
 Run against a local validator:

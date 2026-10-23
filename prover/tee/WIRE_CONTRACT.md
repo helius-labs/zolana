@@ -126,6 +126,7 @@ A proxy keeps the path and the non-credential query pairs as sent.
 It forwards `Zolana-Tee`, `Zolana-Tee-Enc` and `Zolana-Tee-Ciphertext`, and passes octet-stream bodies through unchanged.
 For browsers it allows the three headers in CORS preflight and exposes `Zolana-Tee`.
 An authorization subrequest to the prover must drop `Zolana-Tee`, or the prover tries to decrypt it.
+[`docs/gateway.md`](../../docs/gateway.md) is the contract for a gateway in front of every Zolana service.
 
 ## Errors
 

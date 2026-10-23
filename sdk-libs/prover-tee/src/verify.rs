@@ -2,7 +2,7 @@ use std::fmt;
 
 use sha2::{Digest, Sha256, Sha512};
 
-use super::{
+use crate::{
     platform::{mismatch, Anchors},
     Attestation, GpuRequirement, Platform, PlatformIdentity, TeeError, TeePolicy, NONCE_SIZE,
     REPORT_DOMAIN,
@@ -10,7 +10,6 @@ use super::{
 
 /// A prover that passed [`verify`] for one session nonce.
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[non_exhaustive]
 pub struct AttestedProver {
     pub platform: Platform,
     pub hpke_public_key: [u8; 32],
@@ -59,7 +58,18 @@ pub fn verify(
     nonce: &[u8; NONCE_SIZE],
     now_secs: u64,
 ) -> Result<AttestedProver, TeeError> {
-    Trust::at(now_secs).verify(attestation, Session { policy, nonce })
+    verify_with(attestation, policy, nonce, now_secs, &Anchors::PRODUCTION)
+}
+
+/// [`verify`] against `anchors` in place of the vendor roots.
+pub fn verify_with(
+    attestation: Attestation,
+    policy: &TeePolicy,
+    nonce: &[u8; NONCE_SIZE],
+    now_secs: u64,
+    anchors: &Anchors,
+) -> Result<AttestedProver, TeeError> {
+    Trust { now_secs, anchors }.verify(attestation, Session { policy, nonce })
 }
 
 impl fmt::Display for AttestedProver {

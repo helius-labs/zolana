@@ -65,9 +65,11 @@ The server accepts loopback binds only, put a TLS proxy in front of it for remot
 
 The TypeScript SDK and `zolana-ring` CLI take a service base URL and append the JSON-RPC method, preserving its query parameters. For example, `https://ring-rpc.example?api-key=KEY` becomes `POST /ringStatus?api-key=KEY`. In `ring.toml`, use `ring_rpc = "https://ring-rpc.example?api-key=${RING_RPC_API_KEY}"` to load the key from the environment.
 
-A call posted to any path but `/` runs only when its JSON-RPC body is one call naming the path's last segment: `/ringStatus` and `/rpc/ringStatus` run `ringStatus` and refuse every other method with error `-32601`. `/` remains available to existing self-hosted JSON-RPC clients. Proxies must preserve the method path; rewriting it to `/` removes the path check.
+A call posted to any path but `/` runs only when its JSON-RPC body is one call naming the path's last segment: `/ringStatus` and `/v1/zolana/ring/ringStatus` run `ringStatus` and refuse every other method with HTTP 400 and JSON-RPC error `-32601`. A gateway that routes and prices by path therefore prices the method that runs and does not bill these refusals as successful calls. `/` remains available to existing self-hosted JSON-RPC clients. Proxies must preserve the method path; rewriting it to `/` removes the path check.
 
-Disable automatic proxy retries of signed POST requests because an accepted nonce cannot be reused.
+The check runs before RPC execution, nonce consumption and metering, so a gateway forwards the body without inspecting it ([gateway contract](../../docs/gateway.md)). Disable automatic proxy retries of signed POST requests: a 5xx or lost response does not prove that the call's nonce was unused, so the caller handles the outcome rather than a transparent resend.
+
+A successful `ringDeposits` answers `x-helius-metering-units` with one unit for every 50 signatures it asked to examine, rounded up, so a 200-signature page bills four times a default one. Other methods answer a bounded page or one lookup and report none, which a gateway bills as one unit.
 
 `GET /health` reports the service identity. `GET /ready` checks Photon and Solana RPC. In local mode it also checks that the ring config still names the auditor key held here. In derived mode it re-reads the cluster genesis hash and fails when it differs from the one captured at boot, because that hash binds every derived key. A failed probe names the check in the response body.
 

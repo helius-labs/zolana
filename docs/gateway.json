@@ -1,0 +1,21 @@
+{
+  "credential": "api-key",
+  "meteringUnitsHeader": "X-Helius-Metering-Units",
+  "routes": [
+    { "method": "POST", "path": "/v1/zolana/prove/{key}", "origin": "prover" },
+    { "method": "GET", "path": "/v1/zolana/prove/{key}/status", "origin": "prover" },
+    { "method": "GET", "path": "/v1/zolana/proving-keys", "origin": "prover" },
+    { "method": "GET", "path": "/v1/zolana/tee/v1/attestation", "origin": "prover" },
+    { "method": "POST", "path": "/v1/zolana/{method}", "origin": "photon" },
+    { "method": "POST", "path": "/v1/zolana/ring/{method}", "origin": "ringRpc" }
+  ],
+  "requestHeaders": [
+    "Content-Type",
+    "Zolana-Tee",
+    "Zolana-Tee-Enc",
+    "Zolana-Tee-Ciphertext",
+    "X-Sync",
+    "X-Async"
+  ],
+  "responseHeaders": ["Content-Type", "Zolana-Tee", "Retry-After"]
+}

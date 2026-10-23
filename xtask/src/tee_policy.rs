@@ -20,7 +20,7 @@ use zolana_client::{
 };
 
 const MEASURE: &str = "tools/nitro/aws_nitro.py measure";
-const RUST_POLICY: &str = "sdk-libs/client/src/prover/tee/policy.json";
+const RUST_POLICY: &str = "sdk-libs/prover-tee/src/policy.json";
 const TS_POLICY: &str = "sdk-libs/ts/src/client/prover/tee/default.ts";
 
 pub struct TeePolicyOptions {
