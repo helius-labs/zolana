@@ -418,6 +418,32 @@ pub enum ClientError {
     #[error("indexer did not observe the transaction before the poll timeout")]
     IndexerTimeout,
 
+    /// A private transaction did not succeed and no longer can: the RPC does
+    /// not hold it, its blockhash expired, and the indexer, at or past the
+    /// slot where it expired, has no record of it. A new transaction is safe
+    /// to send; the signed one can no longer land.
+    #[error("transaction {signature} expired without succeeding")]
+    TransactionExpired {
+        signature: solana_signature::Signature,
+    },
+
+    /// Solana confirmed the private transaction, but the indexer did not
+    /// record it before the wait ended.
+    #[error("transaction {signature} is confirmed but not indexed: {message}")]
+    TransactionNotIndexed {
+        signature: solana_signature::Signature,
+        message: String,
+    },
+
+    /// The wait for a private transaction ended before its outcome was
+    /// known. It may have landed or may still land: wait again before
+    /// sending a new one.
+    #[error("whether transaction {signature} succeeded is unknown: {message}")]
+    TransactionOutcomeUnknown {
+        signature: solana_signature::Signature,
+        message: String,
+    },
+
     /// The indexer answered a full page with the cursor it was given, so
     /// paging on would read the same page forever.
     #[error("indexer returned the cursor it was given; paging would not end")]

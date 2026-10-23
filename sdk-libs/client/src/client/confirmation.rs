@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use solana_signature::Signature;
+use solana_transaction_status_client_types::TransactionConfirmationStatus;
 
 use crate::{
     error::ClientError,
@@ -22,6 +23,34 @@ impl<R: AsyncRpc, I: AsyncIndexer> AsyncZolanaClient<R, I> {
         wait_for_rpc_confirmation(self.rpc(), signature, self.indexer_config.poll).await?;
         wait_for_indexed_transaction(&self.indexer, signature, self.indexer_config.poll).await
     }
+
+    /// Wait for `signature`, a private transaction sent before, for at most
+    /// the client's indexer poll schedule. It ends:
+    ///
+    /// - `Ok` once the indexer has it, so reads see its notes, with or without
+    ///   `last_valid_block_height`;
+    /// - with the chain's error once Solana confirms it failed;
+    /// - [`ClientError::TransactionExpired`] once the RPC does not hold it,
+    ///   its blockhash expired after `last_valid_block_height`, and the
+    ///   indexer, at or past the slot where it expired, has no record of it;
+    /// - [`ClientError::TransactionNotIndexed`] when Solana confirmed it but
+    ///   the indexer did not record it in time;
+    /// - [`ClientError::TransactionOutcomeUnknown`] otherwise. Waiting again
+    ///   resumes.
+    pub async fn wait_for_private_transaction(
+        &self,
+        signature: Signature,
+        last_valid_block_height: Option<u64>,
+    ) -> Result<(), ClientError> {
+        settle(
+            &self.rpc,
+            &self.indexer,
+            signature,
+            last_valid_block_height,
+            self.indexer_config.poll,
+        )
+        .await
+    }
 }
 
 impl<R: BlockingRpc, I: BlockingIndexer> ZolanaClient<R, I> {
@@ -31,6 +60,18 @@ impl<R: BlockingRpc, I: BlockingIndexer> ZolanaClient<R, I> {
         signature: Signature,
     ) -> Result<(), ClientError> {
         self.block_on(self.client.confirm_private_transaction(signature))
+    }
+
+    /// See [`AsyncZolanaClient::wait_for_private_transaction`].
+    pub fn wait_for_private_transaction_sync(
+        &self,
+        signature: Signature,
+        last_valid_block_height: Option<u64>,
+    ) -> Result<(), ClientError> {
+        self.block_on(
+            self.client
+                .wait_for_private_transaction(signature, last_valid_block_height),
+        )
     }
 }
 
@@ -96,5 +137,252 @@ fn indexer_poll_timeout(retry: IndexerPollConfig, last_error: Option<String>) ->
             last_error: Some(last_error),
         },
         None => ClientError::IndexerTimeout,
+    }
+}
+
+/// [`AsyncZolanaClient::wait_for_private_transaction`] over `rpc` and
+/// `indexer`. Each round reads the status cache, the expiry once the cache
+/// lacks the transaction, then the indexer.
+async fn settle(
+    rpc: &impl AsyncRpc,
+    indexer: &impl AsyncRpc,
+    signature: Signature,
+    last_valid_block_height: Option<u64>,
+    poll: IndexerPollConfig,
+) -> Result<(), ClientError> {
+    let (mut confirmed, mut expired_at, mut error) = (false, None, None);
+    for delay in std::iter::once(Duration::ZERO).chain(poll.backoff()) {
+        tokio::time::sleep(delay).await;
+        let mut unseen = false;
+        match rpc.get_signature_statuses(vec![signature]).await {
+            Ok(statuses) => match statuses.into_iter().next().flatten() {
+                Some(status)
+                    if status.confirmation_status
+                        != Some(TransactionConfirmationStatus::Processed) =>
+                {
+                    match status.err {
+                        Some(failure) => {
+                            return Err(ClientError::SolanaRpcTransaction {
+                                operation: "process_transaction",
+                                source: failure.into(),
+                            })
+                        }
+                        None => confirmed = true,
+                    }
+                }
+                Some(_) => {}
+                None => unseen = !confirmed,
+            },
+            Err(failure) => error = Some(failure.to_string()),
+        }
+        if unseen && expired_at.is_none() {
+            match expiry_slot(rpc, last_valid_block_height).await {
+                Ok(slot) => expired_at = slot,
+                Err(failure) => error = Some(failure.to_string()),
+            }
+        }
+        match indexer
+            .get_shielded_transactions_by_signature(signature, None)
+            .await
+        {
+            Ok(found) if !found.transactions.is_empty() => return Ok(()),
+            Ok(found) if unseen && expired_at.is_some_and(|slot| found.context.slot >= slot) => {
+                return Err(ClientError::TransactionExpired { signature })
+            }
+            Ok(_) => {}
+            Err(failure) => error = Some(failure.to_string()),
+        }
+    }
+    let message = error.unwrap_or_else(|| "the indexer does not have it yet".into());
+    Err(if confirmed {
+        ClientError::TransactionNotIndexed { signature, message }
+    } else {
+        ClientError::TransactionOutcomeUnknown { signature, message }
+    })
+}
+
+/// The RPC's slot once its block height passed `last_valid_block_height`: a
+/// transaction with that blockhash landed by then or never will.
+async fn expiry_slot(
+    rpc: &impl AsyncRpc,
+    last_valid_block_height: Option<u64>,
+) -> Result<Option<u64>, ClientError> {
+    match last_valid_block_height {
+        Some(height) if rpc.get_block_height().await? > height => Ok(Some(rpc.get_slot().await?)),
+        _ => Ok(None),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex;
+
+    use async_trait::async_trait;
+    use solana_transaction::TransactionError as ChainError;
+    use solana_transaction_status_client_types::TransactionStatus;
+
+    use super::*;
+    use crate::rpc::{
+        Context, GetShieldedTransactionsBySignatureResponse, IndexedShieldedTransaction,
+        ShieldedTransaction,
+    };
+
+    /// A Solana RPC and its indexer: the status cache holds `status`, the
+    /// block height stays `height` and the slot 100; the indexer, at
+    /// `indexer_slot`, has the transaction when `indexed`. Counts the status
+    /// lookups.
+    struct Chain {
+        status: Option<TransactionStatus>,
+        height: u64,
+        indexed: bool,
+        indexer_slot: u64,
+        lookups: Mutex<u32>,
+    }
+
+    impl Chain {
+        fn new(status: Option<TransactionStatus>, height: u64) -> Self {
+            Self {
+                status,
+                height,
+                indexed: false,
+                indexer_slot: 100,
+                lookups: Mutex::new(0),
+            }
+        }
+    }
+
+    fn landed(err: Option<ChainError>) -> Option<TransactionStatus> {
+        Some(TransactionStatus {
+            slot: 1,
+            confirmations: Some(1),
+            status: Ok(()),
+            err,
+            confirmation_status: Some(TransactionConfirmationStatus::Confirmed),
+        })
+    }
+
+    #[async_trait]
+    impl AsyncRpc for Chain {
+        async fn get_block_height(&self) -> Result<u64, ClientError> {
+            Ok(self.height)
+        }
+
+        async fn get_slot(&self) -> Result<u64, ClientError> {
+            Ok(100)
+        }
+
+        async fn get_signature_statuses(
+            &self,
+            _: Vec<Signature>,
+        ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
+            *self.lookups.lock().unwrap() += 1;
+            Ok(vec![self.status.clone()])
+        }
+
+        async fn get_shielded_transactions_by_signature(
+            &self,
+            signature: Signature,
+            _: Option<crate::rpc::IndexerRpcConfig>,
+        ) -> Result<GetShieldedTransactionsBySignatureResponse, ClientError> {
+            let found = IndexedShieldedTransaction {
+                event_index: 0,
+                transaction: ShieldedTransaction {
+                    slot: 1,
+                    tx_signature: signature,
+                    event_index: Some(0),
+                    tx_viewing_pk: None,
+                    salt: None,
+                    output_slots: Vec::new(),
+                    messages: Vec::new(),
+                    nullifiers: Vec::new(),
+                    proofless: false,
+                    ring_config: None,
+                    ring_program_id: None,
+                },
+            };
+            Ok(GetShieldedTransactionsBySignatureResponse {
+                context: Context {
+                    block_time: 0,
+                    slot: self.indexer_slot,
+                },
+                output_tree_id: None,
+                transactions: self.indexed.then_some(found).into_iter().collect(),
+            })
+        }
+    }
+
+    const QUICK: IndexerPollConfig = IndexerPollConfig {
+        num_retries: 2,
+        delay_ms: 1,
+        max_delay_ms: 1,
+    };
+
+    async fn settled(chain: &Chain, height: Option<u64>) -> Result<(), ClientError> {
+        settle(chain, chain, Signature::from([3; 64]), height, QUICK).await
+    }
+
+    /// The status cache holds recent transactions only: the indexer finds one
+    /// that landed long ago, with or without its last valid block height.
+    #[tokio::test(start_paused = true)]
+    async fn the_indexer_finds_a_transaction_the_cache_dropped() {
+        let old = Chain {
+            indexed: true,
+            ..Chain::new(None, 1_000)
+        };
+        assert!(settled(&old, Some(100)).await.is_ok());
+        assert!(settled(&old, None).await.is_ok());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_failure_solana_confirmed_is_the_chains_error() {
+        let refused = Chain::new(landed(Some(ChainError::InsufficientFundsForFee)), 99);
+        assert!(matches!(
+            settled(&refused, Some(100)).await,
+            Err(ClientError::SolanaRpcTransaction { source, .. })
+                if source.get_transaction_error() == Some(ChainError::InsufficientFundsForFee)
+        ));
+    }
+
+    /// Expired only once the blockhash expired and the indexer reached the
+    /// slot where it did; an indexer behind that slot cannot tell.
+    #[tokio::test(start_paused = true)]
+    async fn expired_only_once_the_indexer_passed_the_expiry() {
+        let expired = Chain::new(None, 101);
+        assert!(matches!(
+            settled(&expired, Some(100)).await,
+            Err(ClientError::TransactionExpired { .. })
+        ));
+
+        let behind = Chain {
+            indexer_slot: 99,
+            ..Chain::new(None, 101)
+        };
+        assert!(matches!(
+            settled(&behind, Some(100)).await,
+            Err(ClientError::TransactionOutcomeUnknown { .. })
+        ));
+    }
+
+    /// A transaction Solana confirmed that the indexer never records, such as
+    /// a pool call without a private event, ends neither done nor expired.
+    #[tokio::test(start_paused = true)]
+    async fn confirmed_without_an_event_is_not_indexed() {
+        let confirmed = Chain::new(landed(None), 1_000);
+        assert!(matches!(
+            settled(&confirmed, Some(100)).await,
+            Err(ClientError::TransactionNotIndexed { .. })
+        ));
+    }
+
+    /// A block height that never passes the last valid one cannot hold the
+    /// wait past its schedule.
+    #[tokio::test(start_paused = true)]
+    async fn a_frozen_block_height_ends_unknown_on_schedule() {
+        let frozen = Chain::new(None, 99);
+        assert!(matches!(
+            settled(&frozen, Some(100)).await,
+            Err(ClientError::TransactionOutcomeUnknown { .. })
+        ));
+        assert_eq!(*frozen.lookups.lock().unwrap(), QUICK.num_retries + 1);
     }
 }

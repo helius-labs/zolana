@@ -60,6 +60,13 @@ blockhash request. Merge submissions use the same rule.
 The ten-second limit controls prefetch reuse; blockhash expiration follows chain
 state and the returned `last_valid_block_height`.
 
+After a send whose response was lost, or a restart,
+`wait_for_private_transaction_sync(signature, last_valid_block_height)` tells
+what became of a deposit, transfer or merge: done once the indexer has it,
+the chain's error, `TransactionExpired` once a new transaction is safe,
+`TransactionNotIndexed` when Solana confirmed it but the indexer lags, or
+`TransactionOutcomeUnknown` when the client's poll schedule runs out first.
+
 `Submission::with_prover(Arc<dyn Prover>)` proves one submission with a
 prover of the caller's, such as one on the device; `with_prover` on either
 client builds one that proves every submission that way. Either prover only
