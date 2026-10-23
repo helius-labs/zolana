@@ -38,6 +38,11 @@ Breaking
   `proofDataSource: "client"` and refuses `"prover"` → pass a policy of its own
   for a prover you run, or run it on loopback, and set `proverUrl` to keep
   another prover.
+- `ProverClient` binds an encrypted call to its route below the prover URL
+  rather than the URL's full path, so a proxy can serve the prover under a
+  path of its own, and a TEE prover built before this version refuses a call
+  sent through `/v1/zolana` or such a proxy → run a prover built from this
+  version.
 - Approval handlers receive a new `multiTransfer` intent for a transfer with
   several payments → handle it, or refuse it explicitly.
 - Ring deposit audit capsules carry a `RING_DEPOSIT_OPENING_LENGTH` (96) byte opening that also discloses the Ed25519 owner key of an anonymous ring deposit, `RingDepositOpening` takes it as `ownerKey` and `openRingDepositOpening` returns it → re-prove audited deposits with this version, a capsule sealed by an earlier version no longer decodes.

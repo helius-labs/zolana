@@ -2,6 +2,7 @@ import { Aes256Gcm, CipherSuite, DhkemX25519HkdfSha256, HkdfSha256 } from "@hpke
 import { gcm } from "@noble/ciphers/aes.js";
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 
+import { ZOLANA_GATEWAY_PATH } from "../../../endpoint.js";
 import { ClientError } from "../../error.js";
 
 export const HEADER_VERSION = "Zolana-Tee";
@@ -31,8 +32,9 @@ export type EncryptedRequest = Readonly<{
 }>;
 
 /**
- * Binds `method` and the request target without its `api-key` pairs as AAD,
- * so the encrypted body decrypts only on the route it was sent to.
+ * Binds `method` and `requestUri` without its `api-key` pairs as AAD, so the
+ * encrypted body decrypts only on the route it was sent to. `requestUri` is
+ * the path below the prover URL and its query.
  */
 export async function encryptRequest(
   hpkePublicKey: Uint8Array,
@@ -54,12 +56,17 @@ export async function encryptRequest(
 }
 
 /**
- * The method, path and query minus every `api-key` parameter, so a proxy can
- * move the credential while the route and job stay bound.
+ * The method, route and query minus every `api-key` parameter, so a proxy can
+ * move the credential while the route and job stay bound. The route is the
+ * path without the gateway prefix, as the prover receives it; a client passes
+ * the path below its prover URL, so a proxy can serve the prover under any path.
  */
 export function requestAad(method: string, requestUri: string): string {
   const separator = requestUri.indexOf("?");
-  const path = separator === -1 ? requestUri : requestUri.slice(0, separator);
+  const received = separator === -1 ? requestUri : requestUri.slice(0, separator);
+  const path = received.startsWith(`${ZOLANA_GATEWAY_PATH}/`)
+    ? received.slice(ZOLANA_GATEWAY_PATH.length)
+    : received;
   const query = separator === -1 ? "" : requestUri.slice(separator + 1);
   const kept = query
     .split("&")

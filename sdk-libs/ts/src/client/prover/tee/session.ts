@@ -41,6 +41,8 @@ export type ProverCall = Readonly<{
   fetch: typeof globalThis.fetch;
   attestationUrl: URL;
   url: URL;
+  /** `url`'s path below the prover URL, what an encrypted call binds. */
+  route: string;
   method: "GET" | "POST";
   headers: Readonly<Record<string, string>>;
   body?: string;
@@ -202,7 +204,7 @@ export class TeeSession {
       encrypted = await encryptRequest(
         key,
         call.method,
-        `${call.url.pathname}${call.url.search}`,
+        `${call.route}${call.url.search}`,
         plaintext,
       );
     } finally {

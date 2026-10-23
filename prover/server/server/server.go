@@ -650,7 +650,7 @@ func RunWithQueue(config *Config, redisQueue *RedisQueue, keyManager *common.Laz
 // JSON-RPC, dispatches on the body's method, and therefore answers on any path
 // at all. The prover is the only half of the pair that dispatches on the path,
 // which is why only the prover has to care.
-const gatewayPrefix = "/v1/zolana"
+const gatewayPrefix = tee.GatewayPrefix
 
 // handleBoth registers h under its own path and under the gateway prefix, so
 // one handler serves a direct caller on the ALB and a gateway caller alike.

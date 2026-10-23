@@ -898,7 +898,7 @@ impl AsyncProverClient {
 
     async fn exchange(&self, call: &Call<'_>) -> Result<Answer<'_>, CallError> {
         let recipient = self.recipient().await.map_err(CallError::Refused)?;
-        let mut prepared = call.prepare(recipient)?;
+        let mut prepared = call.prepare(recipient, &self.endpoint)?;
         let response = self
             .send_http(prepared.request(call))
             .await

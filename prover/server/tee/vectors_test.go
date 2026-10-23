@@ -38,10 +38,14 @@ type aadCase struct {
 	AAD           string `json:"aad"`
 }
 
-// aadTargets cover where a proxy may put, repeat or drop the credential.
+// aadTargets cover where a proxy may put, repeat or drop the credential, and
+// which paths drop the gateway prefix.
 var aadTargets = [][2]string{
 	{"GET", "/health"},
 	{"POST", "/v1/zolana/prove/transfer_2_2?api-key=k"},
+	{"POST", "/v1/zolana/v1/zolana/prove/x"},
+	{"POST", "/v1/zolanax/prove/x"},
+	{"GET", "/v1/zolana?jobId=a"},
 	{"GET", "/prove/merge_8_1/status?api-key=k&jobId=a1"},
 	{"GET", "/prove/merge_8_1/status?jobId=a1&api-key=k"},
 	{"GET", "/tee/v1/attestation?nonce=ab&api-key=k1&api-key=k2"},

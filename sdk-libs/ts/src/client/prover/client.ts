@@ -52,6 +52,7 @@ import {
   checkedFetch,
   isLoopbackHost,
   readBoundedJson,
+  servicePath,
   serviceUrl,
   setUrlQuery,
 } from "../../services/transport.js";
@@ -248,6 +249,7 @@ export class ProverClient {
       fetch: this.#fetch,
       attestationUrl: this.#routeUrl(ATTESTATION_PATH),
       url,
+      route: servicePath(this.#url, url),
       method: post === undefined ? "GET" : "POST",
       headers: post?.headers ?? {},
       ...(post === undefined ? {} : { body: post.body }),
