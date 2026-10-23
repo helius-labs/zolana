@@ -67,7 +67,7 @@ The TypeScript SDK and `zolana-ring` CLI take a service base URL and append the 
 
 A call posted to any path but `/` runs only when its JSON-RPC body is one call naming the path's last segment: `/ringStatus` and `/v1/zolana/ring/ringStatus` run `ringStatus` and refuse every other method with HTTP 400 and JSON-RPC error `-32601`. A gateway that routes and prices by path therefore prices the method that runs and does not bill these refusals as successful calls. `/` remains available to existing self-hosted JSON-RPC clients. Proxies must preserve the method path; rewriting it to `/` removes the path check.
 
-The check runs before RPC execution, nonce consumption and metering, so a gateway forwards the body without inspecting it. Disable automatic proxy retries of signed POST requests: a 5xx or lost response does not prove that the call's nonce was unused, so the caller handles the outcome rather than a transparent resend.
+The check runs before RPC execution, nonce consumption and metering, so a gateway forwards the body without inspecting it ([gateway contract](../../docs/gateway.md)). Disable automatic proxy retries of signed POST requests: a 5xx or lost response does not prove that the call's nonce was unused, so the caller handles the outcome rather than a transparent resend.
 
 A successful `ringDeposits` answers `x-helius-metering-units` with one unit for every 50 signatures it asked to examine, rounded up, so a 200-signature page bills four times a default one. Other methods answer a bounded page or one lookup and report none, which a gateway bills as one unit.
 
