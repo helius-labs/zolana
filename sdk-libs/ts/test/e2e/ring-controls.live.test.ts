@@ -8,6 +8,7 @@ import {
 } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 import { ClientError } from "../../src/client/error.js";
+import { waitForProjection } from "../../src/client/retry.js";
 import type {
   RingSubmissionStatus,
   RingSubmissionTransport,
@@ -16,6 +17,7 @@ import type {
 import { wireDecoder } from "../../src/interface/decode.js";
 import { postJsonRpc } from "../../src/services/jsonrpc.js";
 import { setRingActivationInstruction } from "../../src/interface/instructions/index.js";
+import { SPEND_RECORD_PROJECTION_ERRORS } from "../../src/ring/projection.js";
 import { SOL_MINT } from "../../src/transaction/asset.js";
 import { SPL_TOKEN_2022_PROGRAM_ID, ZERO_NULLIFIER_PK } from "../../src/interface/program.js";
 import { ShieldedAddress } from "../../src/keypair/shielded.js";
@@ -344,8 +346,12 @@ describe("fresh ring controls", () => {
       const senderMember = memberOfIdentity(
         sender.keypair.shieldedAddress().signingPublicKey.ownerProofInputHash(),
       );
+      // The spend record projection lags settlement; retry it as the SDK reader does.
       const senderRecord = async () => {
-        const { record } = await client.getRingSpendRecord({ ringProgramId, member: senderMember });
+        const { record } = await waitForProjection(
+          (context) => client.getRingSpendRecord({ ringProgramId, member: senderMember }, context),
+          SPEND_RECORD_PROJECTION_ERRORS,
+        );
         if (record === null) throw new Error("spend record missing");
         return record;
       };
