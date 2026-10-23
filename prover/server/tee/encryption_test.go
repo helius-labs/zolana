@@ -226,14 +226,40 @@ func TestWrapRejectsTamperedBody(t *testing.T) {
 	assertRejected(t, recorder, reached, codeDecryptionFailed)
 }
 
-func TestWrapPassesPlainRequests(t *testing.T) {
+func TestWrapRefusesPlainWitnessBeforeReadingOrDispatch(t *testing.T) {
 	s := testServer(t)
-	request := httptest.NewRequest(http.MethodPost, "/prove/merge", strings.NewReader("plain"))
-	request.Header.Set("Content-Type", "text/plain")
-	recorder := httptest.NewRecorder()
-	s.Wrap(echo(http.StatusOK)).ServeHTTP(recorder, request)
-	if recorder.Body.String() != "POST:text/plain:plain" || recorder.Header().Get(HeaderVersion) != "" {
-		t.Fatalf("body %q", recorder.Body.String())
+	for _, path := range []string{
+		"/prove/merge_8_1", "/prove/merge_8_1/indexed", "/prove",
+		"/v1/zolana/prove/merge_8_1", "/v1/zolana/prove", "/future-proof-route",
+	} {
+		t.Run(path, func(t *testing.T) {
+			body := strings.NewReader(`{"privateWitness":"secret"}`)
+			request := httptest.NewRequest(http.MethodPost, path, body)
+			recorder := httptest.NewRecorder()
+			reached := false
+			s.Wrap(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { reached = true })).ServeHTTP(recorder, request)
+			assertRejected(t, recorder, reached, codeRequired)
+			if int64(body.Len()) != body.Size() || strings.Contains(recorder.Body.String(), "secret") {
+				t.Fatal("plaintext witness was read or reflected")
+			}
+		})
+	}
+}
+
+func TestWrapAllowsOnlyPlainPublicRoutes(t *testing.T) {
+	s := testServer(t)
+	for _, path := range []string{
+		"/auth", "/ready", "/health", "/proving-keys",
+		"/v1/zolana/proving-keys", AttestationPath, "/v1/zolana" + AttestationPath,
+	} {
+		t.Run(path, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, path, nil)
+			recorder := httptest.NewRecorder()
+			s.Wrap(echo(http.StatusOK)).ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusOK || recorder.Body.String() != "GET::" {
+				t.Fatalf("status %d body %q", recorder.Code, recorder.Body.String())
+			}
+		})
 	}
 }
 

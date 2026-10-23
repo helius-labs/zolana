@@ -399,7 +399,7 @@ pub(crate) struct VksSourceOptions {
 #[derive(Args, Debug, Clone, PartialEq)]
 #[command(group(
     ArgGroup::new("vks_prover_tee")
-        .args(["prover_tee", "prover_tee_policy", "no_prover_tee"])
+        .args(["prover_tee", "prover_tee_policy"])
         .multiple(true)
         .requires("prover_url")
 ))]
@@ -436,7 +436,7 @@ pub(crate) struct ProverTeeOptions {
     #[arg(
         long = "prover-tee",
         env = "ZOLANA_PROVER_TEE",
-        help = "Require the prover to attest to the TEE deployment this release pins, a loopback prover and the Helius gateway included (other provers require it by default)"
+        help = "Require the prover to attest to the TEE deployment this release pins, a loopback prover included (other provers require it by default)"
     )]
     pub(crate) prover_tee: bool,
 
@@ -447,23 +447,11 @@ pub(crate) struct ProverTeeOptions {
         help = "Require the prover to attest to the TEE policy in FILE, bare or as a {\"deployment\": ...} pin file (implies --prover-tee, wins over the release pin)"
     )]
     pub(crate) prover_tee_policy: Option<std::path::PathBuf>,
-
-    #[arg(
-        long = "no-prover-tee",
-        env = "ZOLANA_NO_PROVER_TEE",
-        conflicts_with_all = ["prover_tee", "prover_tee_policy"],
-        help = "Send the prover plaintext requests, which carry every proof's witness; only for a prover you run or trust with it"
-    )]
-    pub(crate) no_prover_tee: bool,
 }
 
 impl ProverTeeOptions {
-    /// `prover` as these options ask: attested to the required policy, in
-    /// plaintext under --no-prover-tee, else as the client defaults.
+    /// `prover` attested to the required policy, else as the client defaults.
     pub(crate) fn apply(&self, prover: ProverClient) -> Result<ProverClient> {
-        if self.no_prover_tee {
-            return Ok(prover.without_tee());
-        }
         Ok(match self.policy()? {
             Some(policy) => prover.with_tee(policy),
             None => prover,
@@ -2138,7 +2126,6 @@ mod tests {
             ProverTeeOptions {
                 prover_tee: true,
                 prover_tee_policy: Some("/tmp/policy.json".into()),
-                no_prover_tee: false,
             }
         );
 
@@ -2173,27 +2160,6 @@ mod tests {
     }
 
     #[test]
-    fn no_prover_tee_parses_alone_and_conflicts_with_requiring_tee() {
-        let Some(CliCommand::Merge(opts)) =
-            parse_cli(&["merge", "--mint", "SOL", "--no-prover-tee"]).command
-        else {
-            panic!("expected merge command");
-        };
-        assert!(opts.network.tee.no_prover_tee);
-
-        for flag in ["--prover-tee", "--prover-tee-policy=/tmp/policy.json"] {
-            let error =
-                Cli::try_parse_from(["zolana", "merge", "--mint", "SOL", "--no-prover-tee", flag])
-                    .expect_err(flag);
-            assert_eq!(
-                error.kind(),
-                clap::error::ErrorKind::ArgumentConflict,
-                "{flag}"
-            );
-        }
-    }
-
-    #[test]
     fn a_policy_file_implies_tee_and_wins_over_the_release_pin() {
         let bare = TeePolicy::from_json(PROBE_POLICY).expect("probe policy");
         let pinned = format!(r#"{{"deployment":{PROBE_POLICY}}}"#);
@@ -2203,7 +2169,6 @@ mod tests {
                 let tee = ProverTeeOptions {
                     prover_tee,
                     prover_tee_policy: Some(path.clone()),
-                    no_prover_tee: false,
                 };
                 assert_eq!(tee.policy().expect(name), Some(bare.clone()), "{name}");
             }
@@ -2214,7 +2179,6 @@ mod tests {
         let error = ProverTeeOptions {
             prover_tee: false,
             prover_tee_policy: Some(path.clone()),
-            no_prover_tee: false,
         }
         .policy()
         .expect_err("unpinned file");
@@ -2232,7 +2196,6 @@ mod tests {
         let tee = ProverTeeOptions {
             prover_tee: true,
             prover_tee_policy: None,
-            no_prover_tee: false,
         };
         match TeePolicy::default_deployment() {
             Err(TeeError::NoDefaultDeployment) => {

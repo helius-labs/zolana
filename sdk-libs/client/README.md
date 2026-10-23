@@ -66,12 +66,12 @@ client builds one that proves every submission that way. Either prover only
 proves what the client hands it, so the client fetches the proof data itself
 and nothing reaches a prover server.
 
-A prover server client attests a remote prover to the deployment the SDK
-pins, `tee::DEFAULT_PROVER_URL`, and encrypts every call to it. A loopback
-prover and the Helius gateway, which cannot relay encrypted requests, get
-plaintext. `ProverClient::without_tee()` sends plaintext, which carries every
-proof's witness, so use it only for a prover you run or trust with it;
-`with_tee(policy)` takes another policy. Pass the prover client to
+A prover server client attests every remote prover, the Helius gateway
+included, to the deployment the SDK pins, `tee::DEFAULT_PROVER_URL`, and
+encrypts every call to it. Only a loopback prover without a proxy gets
+plaintext. `with_tee(policy)` takes another policy. `for_tree_batches()`
+sends nullifier-tree batch proofs in plaintext to any prover, as they carry
+only public tree data, and refuses every other proof. Pass the prover client to
 `ZolanaClient::new`.
 
 ## Merging

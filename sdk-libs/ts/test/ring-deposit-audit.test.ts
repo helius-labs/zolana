@@ -383,7 +383,7 @@ describe("deposit disclosure", () => {
         expect(JSON.parse(String(options?.body))).toEqual(customRingDepositProofRequest(input));
         return Response.json(proofFor(String(options?.body)));
       });
-      const prover = new ProverClient({ tee: false, url: "https://prover.example", fetch });
+      const prover = new ProverClient({ url: "http://127.0.0.1:3001", fetch });
       await expect(prover.proveCustomRingDeposit(input)).resolves.toEqual({
         a: new Uint8Array(64),
         b: new Uint8Array(128),

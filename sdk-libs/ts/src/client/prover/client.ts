@@ -57,7 +57,6 @@ import {
 } from "../../services/transport.js";
 import { parseCheckedProof } from "./proof.js";
 import { MAX_ATTEMPTS, RETRY_DELAY_MS } from "./retry.js";
-import { DEFAULT_TEE_POLICY_FILE } from "./tee/default.js";
 import { defaultTeePolicy } from "./tee/policy.js";
 import type { TeePolicy } from "./tee/registry.js";
 import { TeeSession, sendCall, type ProverCall } from "./tee/session.js";
@@ -168,24 +167,6 @@ export interface ProvingKeyReport {
   readonly keys: readonly ProvingKeyCheck[];
 }
 
-/**
- * The session a prover gets: the caller's policy, none for `false`, else the
- * pinned default deployment except on loopback and on the Helius gateway, which
- * cannot relay encrypted requests.
- */
-function teeSession(
-  tee: TeePolicy | false | undefined,
-  url: URL,
-  gateway: boolean,
-): TeeSession | undefined {
-  if (tee === false) return undefined;
-  if (tee !== undefined) return new TeeSession(tee);
-  if (gateway || isLoopbackHost(url.hostname) || DEFAULT_TEE_POLICY_FILE.deployment === null) {
-    return undefined;
-  }
-  return new TeeSession(defaultTeePolicy());
-}
-
 export class ProverClient {
   readonly #fetch: typeof globalThis.fetch;
   readonly #url: URL;
@@ -205,11 +186,9 @@ export class ProverClient {
       allowInsecureHttp?: boolean;
       /**
        * Encrypts every call, health and key checks included, to a prover that
-       * attests to the policy. Left out, a remote prover other than the Helius
-       * gateway gets `defaultTeePolicy()`; `false` sends plaintext, which carries
-       * every proof's witness.
+       * attests to the policy. Left out, a remote prover gets `defaultTeePolicy()`.
        */
-      tee?: TeePolicy | false;
+      tee?: TeePolicy;
     }>,
   ) {
     const candidate: unknown = input;
@@ -229,7 +208,9 @@ export class ProverClient {
       throw new ClientError("CLIENT_INVALID_CONFIG", { details: error.facts });
     }
     this.#asyncPoll = asyncPollConfig(input.asyncPoll);
-    this.#tee = teeSession(input.tee, url, this.#keyless);
+    const policy =
+      input.tee === undefined && !isLoopbackHost(url.hostname) ? defaultTeePolicy() : input.tee;
+    this.#tee = policy === undefined ? undefined : new TeeSession(policy);
   }
 
   /**

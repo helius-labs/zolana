@@ -496,7 +496,6 @@ describe("reserved address inputs", () => {
         solanaRpcUrl: "http://127.0.0.1:8899",
         indexerUrl: "http://127.0.0.1:8784",
         proverUrl: "http://127.0.0.1:3001",
-        proverTee: false,
         tree: treeAddress(0),
         fetch,
         proofDataSource,

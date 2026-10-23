@@ -244,6 +244,11 @@ impl ExpectedProvingKey {
         Ok(Self { name, sha256 })
     }
 
+    /// Its proofs carry only public tree data.
+    pub(crate) fn is_address_append(&self) -> bool {
+        lookup(ADDRESS_APPEND_KEYS, &self.name) == Some(self.sha256)
+    }
+
     /// Compare the digest a prover reported for a proof with this key.
     pub(crate) fn check(&self, reported: Option<[u8; 32]>) -> Result<(), ClientError> {
         match reported {

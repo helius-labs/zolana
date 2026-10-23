@@ -120,7 +120,7 @@ function fixture(owners: readonly Owner[], specialSlots = false) {
 
 function setup(transaction: ReturnType<typeof fixture>, source: ProofDataSource = "client") {
   const network = vi.fn<typeof fetch>();
-  const client = new ZolanaClient({ proofDataSource: source, proverTee: false, fetch: network });
+  const client = new ZolanaClient({ proofDataSource: source, fetch: network });
   const merkle = vi.spyOn(client, "getMerkleProofs").mockResolvedValue({
     context: { blockTime: 1n, slot: 1n },
     proofs: transaction.proofs.map((proof) => proof.state),

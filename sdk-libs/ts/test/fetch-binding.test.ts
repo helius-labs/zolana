@@ -43,7 +43,7 @@ describe("fetch binding", () => {
           ringProgramId: address("11111111111111111111111111111111"),
         })
         .catch(() => undefined);
-      new ProverClient({ tee: false, url: "https://prover.example" });
+      new ProverClient({ url: "https://prover.example" });
       expect(calls.length).toBeGreaterThanOrEqual(2);
     } finally {
       vi.unstubAllGlobals();

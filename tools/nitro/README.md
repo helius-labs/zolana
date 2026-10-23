@@ -81,7 +81,8 @@ Proving keys download on first use into a tmpfs in enclave memory and verify aga
 The parent cannot read an encrypted request or its answer.
 It sees the request path, the query, the timing and the sizes.
 The path names the proving key, so the parent learns the circuit shape of each proof.
-A request without `Zolana-Tee` travels in plaintext, and the SDK policy decides whether a client refuses that.
+The enclave rejects a request without `Zolana-Tee` outside the attestation, `/auth`, `/ready`, `/health` and `/proving-keys` routes.
+CloudFront and the parent have read that request by then, so point only attesting clients at a deployment.
 
 ## Sizing
 

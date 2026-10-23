@@ -158,6 +158,11 @@ const client = await createZolanaClient({
 });
 ```
 
+Every remote prover must attest to `defaultTeePolicy()` before it receives a
+witness, and `proverTee` names another policy. A new prover image or key fails
+attestation until the client takes the new pins from an SDK release or a
+reviewed policy, never from the prover's own answer.
+
 On localnet, start the stack first with `zolana dev start`. The local test
 validator (`:8899`), Photon indexer (`:8784`), and prover (`:3001`) then
 listen, and the client connects to them automatically without needing
@@ -167,7 +172,8 @@ endpoint configuration.
 const client = await createZolanaClient({});
 ```
 
-The prover fetches Merkle data by default. Configure its `PROVER_INDEXER_URL`
+The default Nitro deployment and the Helius gateway take client-fetched proof
+data. Other provers fetch Merkle data by default. Configure their `PROVER_INDEXER_URL`
 for the same network. Set `proofDataSource: "client"` to fetch proof data in
 the SDK instead. Both routes support ring transfers, merges and caches.
 `LocalKeys` supports both modes. A remote key holder must implement

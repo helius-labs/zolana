@@ -176,7 +176,6 @@ describe("owners of outputs that carry data", () => {
       solanaRpcUrl: "http://127.0.0.1:8899",
       indexerUrl: "http://127.0.0.1:8784",
       proverUrl: "http://127.0.0.1:3001",
-      proverTee: false,
       proofDataSource: "client",
       tree: TREE,
       fetch,

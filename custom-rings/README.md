@@ -391,6 +391,28 @@ against the lock. Ports default to 40899 (RPC), 40784 (Photon) and 43001
 `RING_TEST_PHOTON_PORT` and `RING_TEST_PROVER_PORT` override them. An occupied
 port refuses the run. Logs remain in the printed scratch directory.
 
+## Prover trust policy
+
+A remote prover must attest to the policy the SDK bundles. For another
+deployment, set `prover_tee_policy` next to `prover` in the `[localnet]` or
+`[devnet]` table of `ring.toml`.
+
+```toml
+[devnet]
+prover = "https://your-approved-prover.example"
+prover_tee_policy = "keys/prover-policy.json"
+```
+
+A relative path resolves from the directory of `ring.toml`, and absolute and
+`~/` paths work as given. The file holds a bare TEE policy or
+`{ "deployment": <policy> }`. Only the selected target's file loads, and a
+missing, malformed or null policy stops a proving command at startup, never
+falling back to plaintext or the bundled policy. Without the setting a loopback
+prover takes plaintext, and with it a loopback prover must attest too. Take the
+measurements and keys from a reviewed release as
+[Updating pins](../prover/tee/README.md#updating-pins) describes, never from the
+prover's own answer.
+
 ## The pipeline and what each step locks in
 
 `zolana-ring new` is a wizard. It asks for the ring name, the service URLs of
