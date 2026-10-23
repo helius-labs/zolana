@@ -64,33 +64,36 @@ describe("wallet persistence", () => {
     expect(serialized).not.toMatch(/txCount|requestCount|knownSenders|knownRecipients/u);
   });
 
-  it("round-trips sync cursors on every stream", () => {
+  it("round-trips sync checkpoints on every stream, the full u64 slot range included", () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
-    wallet._setSyncCursor("transactions", "aa".repeat(32), `1:${1n}:${SIGNATURE}`);
-    wallet._setSyncCursor("proofless", "bb".repeat(32), `1:${2n}:${SIGNATURE}`);
-    wallet._setSyncCursor("nullifiers", "cc".repeat(32), `1:${3n}:${SIGNATURE}`);
+    wallet._setSyncCheckpoint("transactions", "aa".repeat(32), 1n);
+    wallet._setSyncCheckpoint("proofless", "bb".repeat(32), 2n);
+    wallet._setSyncCheckpoint("nullifiers", "cc".repeat(32), 0xffff_ffff_ffff_ffffn);
 
     const serialized = serializeWallet(wallet);
     const restored = deserializeWallet(serialized);
 
-    expect(restored._syncCursor("transactions", "aa".repeat(32))).toEqual(`1:${1n}:${SIGNATURE}`);
-    expect(restored._syncCursor("proofless", "bb".repeat(32))).toEqual(`1:${2n}:${SIGNATURE}`);
-    expect(restored._syncCursor("nullifiers", "cc".repeat(32))).toEqual(`1:${3n}:${SIGNATURE}`);
+    expect(restored._syncCheckpoint("transactions", "aa".repeat(32))).toBe(1n);
+    expect(restored._syncCheckpoint("proofless", "bb".repeat(32))).toBe(2n);
+    expect(restored._syncCheckpoint("nullifiers", "cc".repeat(32))).toBe(0xffff_ffff_ffff_ffffn);
+    expect(JSON.parse(serialized).syncCheckpoints.transactions).toEqual([
+      { key: "aa".repeat(32), slot: "1" },
+    ]);
     expect(serializeWallet(restored)).toBe(serialized);
   });
 
-  it("accepts version 2 state with empty cursors", () => {
+  it("accepts version 2 state with no checkpoints", () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
-    wallet._setSyncCursor("transactions", "aa".repeat(32), `1:${1n}:${SIGNATURE}`);
+    wallet._setSyncCheckpoint("transactions", "aa".repeat(32), 1n);
     const snapshot = JSON.parse(serializeWallet(wallet)) as Record<string, unknown>;
     snapshot["version"] = 2;
-    delete snapshot["syncCursors"];
+    delete snapshot["syncCheckpoints"];
 
     const restored = deserializeWallet(JSON.stringify(snapshot));
 
-    expect(restored._syncCursor("transactions", "aa".repeat(32))).toBeUndefined();
+    expect(restored._syncCheckpoint("transactions", "aa".repeat(32))).toBeUndefined();
   });
 
   it.each([3, 4, 5])("accepts version %s state and drops its byte cursors", (version) => {
@@ -107,10 +110,10 @@ describe("wallet persistence", () => {
 
     const restored = deserializeWallet(JSON.stringify(snapshot));
 
-    expect(restored._syncCursor("transactions", "aa".repeat(32))).toBeUndefined();
+    expect(restored._syncCheckpoint("transactions", "aa".repeat(32))).toBeUndefined();
   });
 
-  it("drops a persisted cursor for a nullifier already spent", () => {
+  it("drops a persisted checkpoint for a nullifier already spent", () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
     wallet._replace({
@@ -119,29 +122,34 @@ describe("wallet persistence", () => {
       nullifiers: new Set(["dd".repeat(32)]),
     });
     const snapshot = JSON.parse(serializeWallet(wallet)) as {
-      syncCursors: { nullifiers: { key: string; cursor: string }[] };
+      syncCheckpoints: { nullifiers: { key: string; slot: string }[] };
     };
-    snapshot.syncCursors.nullifiers.push({
-      key: "dd".repeat(32),
-      cursor: `1:1:${SIGNATURE}`,
-    });
+    snapshot.syncCheckpoints.nullifiers.push({ key: "dd".repeat(32), slot: "1" });
 
     const restored = deserializeWallet(JSON.stringify(snapshot));
 
-    expect(restored._syncCursor("nullifiers", "dd".repeat(32))).toBeUndefined();
+    expect(restored._syncCheckpoint("nullifiers", "dd".repeat(32))).toBeUndefined();
   });
 
   it("rejects unsupported or malformed persisted state", () => {
     expect(() => deserializeWallet('{"version":1}')).toThrow("TRANSACTION_DESERIALIZE");
     expect(() => deserializeWallet("not json")).toThrow("TRANSACTION_DESERIALIZE");
-    const withBadCursor = (key: string) =>
+    const withCheckpoint = (entry: Record<string, unknown>) =>
       JSON.stringify({
         ...(JSON.parse(
           serializeWallet(new Wallet({ identity: ShieldedKeypair.generate().shieldedAddress() })),
         ) as Record<string, unknown>),
-        syncCursors: { transactions: [{ key, cursor: "AQI=" }], proofless: [], nullifiers: [] },
+        syncCheckpoints: { transactions: [entry], proofless: [], nullifiers: [] },
       });
-    expect(() => deserializeWallet(withBadCursor("zz"))).toThrow("TRANSACTION_DESERIALIZE");
+    for (const entry of [
+      { key: "zz", slot: "1" },
+      { key: "aa".repeat(32), slot: "-1" },
+      { key: "aa".repeat(32), slot: "18446744073709551616" },
+      { key: "aa".repeat(32), slot: 1 },
+      { key: "aa".repeat(32), cursor: `1:1:${SIGNATURE}` },
+    ]) {
+      expect(() => deserializeWallet(withCheckpoint(entry))).toThrow("TRANSACTION_DESERIALIZE");
+    }
 
     const wallet = new Wallet({ identity: ShieldedKeypair.generate().shieldedAddress() });
     const legacy = JSON.parse(serializeWallet(wallet)) as {

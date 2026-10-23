@@ -1,4 +1,3 @@
-import { checkedCursor } from "../../interface/cursor.js";
 import { getBase64Decoder } from "@solana/kit";
 
 import { wireDecoder } from "../../interface/decode.js";
@@ -15,7 +14,7 @@ import { AssetRegistry, SOL_ASSET_ID } from "../asset.js";
 import {
   Wallet,
   hex,
-  type CursorStream,
+  type CheckpointStream,
   type PrivateTransaction,
   type PendingWalletSubmission,
   type PrivateTransactionDirection,
@@ -71,16 +70,17 @@ interface SerializedPrivateTransaction {
   readonly counterpartyViewingPublicKey?: string;
 }
 
-export interface SerializedCursor {
-  /** Lowercase hex of the tag or nullifier the stream position belongs to. */
+export interface SerializedSyncCheckpoint {
+  /** Lowercase hex of the tag or nullifier the checkpoint belongs to. */
   readonly key: string;
-  readonly cursor: string;
+  /** Decimal slot through which every match of the key has been seen. */
+  readonly slot: string;
 }
 
-export interface SerializedSyncCursors {
-  readonly transactions: readonly SerializedCursor[];
-  readonly proofless: readonly SerializedCursor[];
-  readonly nullifiers: readonly SerializedCursor[];
+export interface SerializedSyncCheckpoints {
+  readonly transactions: readonly SerializedSyncCheckpoint[];
+  readonly proofless: readonly SerializedSyncCheckpoint[];
+  readonly nullifiers: readonly SerializedSyncCheckpoint[];
 }
 
 /** Version 3 wire names remain frozen for persisted snapshot compatibility. */
@@ -108,7 +108,7 @@ export interface SerializedWalletState {
   readonly transactions: readonly SerializedPrivateTransaction[];
   readonly nullifiers: readonly string[];
   readonly lastSynced: string;
-  readonly syncCursors: SerializedSyncCursors;
+  readonly syncCheckpoints: SerializedSyncCheckpoints;
   readonly reservations: readonly SerializedNoteReservation[];
   readonly pendingSubmissions: readonly Readonly<{
     id: string;
@@ -139,10 +139,10 @@ export function serializeWallet(wallet: Wallet): string {
     transactions: state.transactions.map(serializeTransaction),
     nullifiers: [...state.nullifiers].sort().map((value) => encode(unhex(value))),
     lastSynced: wallet.lastSynced.toString(),
-    syncCursors: {
-      transactions: serializeCursors(wallet, "transactions"),
-      proofless: serializeCursors(wallet, "proofless"),
-      nullifiers: serializeCursors(wallet, "nullifiers"),
+    syncCheckpoints: {
+      transactions: serializeCheckpoints(wallet, "transactions"),
+      proofless: serializeCheckpoints(wallet, "proofless"),
+      nullifiers: serializeCheckpoints(wallet, "nullifiers"),
     },
     pendingSubmissions: wallet.pendingSubmissions().map((pending) => ({
       id: pending.id,
@@ -164,10 +164,13 @@ export function serializeWallet(wallet: Wallet): string {
   return JSON.stringify(snapshot);
 }
 
-function serializeCursors(wallet: Wallet, stream: CursorStream): readonly SerializedCursor[] {
+function serializeCheckpoints(
+  wallet: Wallet,
+  stream: CheckpointStream,
+): readonly SerializedSyncCheckpoint[] {
   return wallet
-    ._cursorEntries(stream)
-    .map(([key, position]) => Object.freeze({ key, cursor: position }))
+    ._checkpointEntries(stream)
+    .map(([key, slot]) => Object.freeze({ key, slot: slot.toString() }))
     .sort((left, right) => (left.key < right.key ? -1 : left.key > right.key ? 1 : 0));
 }
 
@@ -240,11 +243,11 @@ function hydrate(value: unknown): Wallet {
     viewingKeyHistory,
     lastSynced: signed(snapshot["lastSynced"], "lastSynced"),
   });
-  // Versions before 6 predate chain-position cursors, their first sync
-  // rescans history once.
+  // Versions before 6 predate slot checkpoints, their first sync rescans
+  // history once.
   if (version === 6) {
-    hydrateCursors(wallet, snapshot["syncCursors"]);
-    wallet._forgetNullifierCursors(nullifiers);
+    hydrateCheckpoints(wallet, snapshot["syncCheckpoints"]);
+    wallet._forgetNullifierCheckpoints(nullifiers);
   }
   if (version >= 3 && snapshot["reservations"] !== undefined) {
     hydrateReservations(wallet, snapshot["reservations"], version);
@@ -338,21 +341,15 @@ function hydrateReservations(wallet: Wallet, value: unknown, version: number): v
   );
 }
 
-function hydrateCursors(wallet: Wallet, value: unknown): void {
-  const streams = record(value, "syncCursors");
+function hydrateCheckpoints(wallet: Wallet, value: unknown): void {
+  const streams = record(value, "syncCheckpoints");
   for (const stream of ["transactions", "proofless", "nullifiers"] as const) {
-    array(streams[stream], `syncCursors.${stream}`).forEach((entry, index) => {
-      const field = `syncCursors.${stream}[${String(index)}]`;
+    array(streams[stream], `syncCheckpoints.${stream}`).forEach((entry, index) => {
+      const field = `syncCheckpoints.${stream}[${String(index)}]`;
       const item = record(entry, field);
       const key = item["key"];
       if (typeof key !== "string" || !/^[0-9a-f]{64}$/u.test(key)) fail(`${field}.key`);
-      let cursor: string;
-      try {
-        cursor = checkedCursor(item["cursor"]);
-      } catch {
-        return fail(`${field}.cursor`);
-      }
-      wallet._setSyncCursor(stream, key, cursor);
+      wallet._setSyncCheckpoint(stream, key, unsigned(item["slot"], `${field}.slot`));
     });
   }
 }

@@ -2520,24 +2520,35 @@ struct MerkleContext {
 }
 ```
 
-History reads use the following shared pagination contract. JSON field names
-are camelCase. `after` is an opaque, canonical string returned as `cursor` by a
-previous read. The service orders transactions by ascending slot and then raw
-signature bytes, which is deterministic but is not within-block execution order.
-All three history methods share this order and checkpoint format.
+History reads use the following shared pagination contract, modelled on
+`getTransactionsForAddress`. JSON field names are camelCase. The service orders
+transactions by ascending slot and then raw signature bytes, which is
+deterministic but is not within-block execution order. All three history
+methods share this order and token format.
 
 ```rust
 struct PageOptions {
-    after: Option<String>,
+    pagination_token: Option<String>,
     /// 1–1000 Solana transactions; defaults to 1000.
     limit: Option<u32>,
+    filters: Option<HistoryFilters>,
     min_context_slot: Option<u64>,
+}
+struct HistoryFilters {
+    slot: Option<SlotFilter>,
+}
+/// Every bound present applies.
+struct SlotFilter {
+    gt: Option<u64>,
+    gte: Option<u64>,
+    lt: Option<u64>,
+    lte: Option<u64>,
 }
 struct Page<T> {
     context: Context,
     items: Vec<T>,
-    cursor: Option<String>,
-    has_more: bool,
+    /// `None` once no more results match.
+    pagination_token: Option<String>,
 }
 struct TransactionEvents<T> {
     slot: u64,
@@ -2552,19 +2563,24 @@ struct TransactionOutputs<T> {
 ```
 
 `limit` bounds transaction items. Matching events and outputs of one transaction
-are never split. `hasMore` is true only when lookahead finds another matching
-transaction. A nonterminal cursor names the last complete transaction returned;
-a terminal cursor names the global rings history scanned through, even when no
-item matched. An empty history has a null cursor. Reusing an `after` from another
-stream never moves the returned checkpoint backward. A checkpoint covers only
-the tags, nullifiers, or ring filter already queried; newly learned keys must be
-scanned from their own beginning.
+are never split. A page carries a `paginationToken` only when lookahead finds
+another matching transaction. The token names the last transaction returned,
+and the next request passes it back unchanged with the same filters. A null
+token ends the read.
 
-`context.slot` and the checkpoint describe the same database snapshot.
-`minContextSlot` is a freshness gate, independent of the exclusive `after`
-bound. An index behind the required slot returns JSON-RPC `-32016` with
-`data.contextSlot`. A cursor older than retained indexed history is rejected.
-Clients store cursors unchanged. The version-one wire encoding is
+A reader that has caught up resumes a later read with `filters.slot.gt` set to
+the last page's `context.slot`. The service indexes a block together with its
+transactions and in slot order, so that snapshot held every match at or below
+`context.slot`, even when no item matched. A checkpoint covers only the tags,
+nullifiers, or ring filter already queried; newly learned keys must be scanned
+from their own beginning.
+
+`minContextSlot` is a freshness gate, independent of the token and the filters.
+The service answers only from a snapshot that has reached `minContextSlot`, the
+token's slot, and the slot below the filtered range; otherwise it returns
+JSON-RPC `-32016` with `data.contextSlot`. A token or slot filter that resumes
+below the first indexed block is rejected. Clients store tokens unchanged. The
+version-one token encoding is
 `1:<canonical u64 decimal slot>:<canonical base58 Solana signature>`; other
 versions and noncanonical encodings are invalid.
 
@@ -2575,8 +2591,9 @@ Returns encrypted UTXO ciphertexts whose tag matches any of the given values.
 ```rust
 struct GetEncryptedUtxosByTagsRequest {
     tags: Vec<[u8; 32]>,
-    after: Option<String>,
+    pagination_token: Option<String>,
     limit: Option<u32>,
+    filters: Option<HistoryFilters>,
     min_context_slot: Option<u64>,
 }
 
@@ -2600,8 +2617,9 @@ Returns every shielded event of a Solana transaction where any output or message
 ```rust
 struct GetShieldedTransactionsByTagsRequest {
     tags: Vec<[u8; 32]>,
-    after: Option<String>,
+    pagination_token: Option<String>,
     limit: Option<u32>,
+    filters: Option<HistoryFilters>,
     min_context_slot: Option<u64>,
 }
 

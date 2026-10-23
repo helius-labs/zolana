@@ -136,8 +136,7 @@ describe("transport configuration", () => {
         success({
           context: { blockTime: 0, slot: 9 },
           items: transactionItems([]),
-          cursor: `1:${9}:${SIGNATURE}`,
-          hasMore: false,
+          paginationToken: null,
         }),
       ),
     );
@@ -145,17 +144,17 @@ describe("transport configuration", () => {
 
     const response = await api.getShieldedTransactionsByNullifiers({
       nullifiers: [HASH],
-      after: `1:${7n}:${SIGNATURE}`,
+      paginationToken: `1:${7n}:${SIGNATURE}`,
       limit: 1000n,
     } as never);
 
-    expect(response.cursor).toEqual(`1:${9n}:${SIGNATURE}`);
+    expect(response.paginationToken).toBeNull();
     expect(String(injected.mock.calls[0]?.[0])).toBe(
       "https://rpc.example.test/getShieldedTransactionsByNullifiers",
     );
     expect(JSON.parse(String(injected.mock.calls[0]?.[1]?.body))).toMatchObject({
       method: "getShieldedTransactionsByNullifiers",
-      params: { nullifiers: [HASH], after: `1:${7}:${SIGNATURE}`, limit: 1000 },
+      params: { nullifiers: [HASH], paginationToken: `1:${7}:${SIGNATURE}`, limit: 1000 },
     });
   });
 
@@ -327,7 +326,7 @@ describe("integers past the safe-integer bound", () => {
 
   it("does not rewrite a digit run inside a string payload", async () => {
     const payload = "99999999999999999999";
-    const body = `{"id":"test-account","jsonrpc":"2.0","result":{"context":{"blockTime":0,"slot":1},"items":[{"slot":0,"signature":"${SIGNATURE}","outputs":[{"slot":0,"txSignature":"${SIGNATURE}","outputSlot":{"viewTag":"${HASH}","outputContext":{"hash":"${HASH}","tree":"${treeAddress(0)}","treeId":0,"leafIndex":0},"payload":"${payload}"}}]}],"cursor":"1:0:${SIGNATURE}","hasMore":false}}`;
+    const body = `{"id":"test-account","jsonrpc":"2.0","result":{"context":{"blockTime":0,"slot":1},"items":[{"slot":0,"signature":"${SIGNATURE}","outputs":[{"slot":0,"txSignature":"${SIGNATURE}","outputSlot":{"viewTag":"${HASH}","outputContext":{"hash":"${HASH}","tree":"${treeAddress(0)}","treeId":0,"leafIndex":0},"payload":"${payload}"}}]}],"paginationToken":null}}`;
     const api = respondWith(body);
 
     const response = await api.getEncryptedUtxosByTags({ tags: [HASH] } as never);

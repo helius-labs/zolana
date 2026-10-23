@@ -1,5 +1,5 @@
-import { nextPageCursor } from "../interface/page.js";
-import type { Cursor } from "../client/rpc.js";
+import { nextPageToken } from "../interface/page.js";
+import type { PaginationToken } from "../client/rpc.js";
 import { X25519PublicKey, X25519Keypair } from "../keypair/x25519.js";
 import { SOLANA_OWNER_TAG, hashBytes, initializePoseidon } from "../hasher/index.js";
 
@@ -111,8 +111,8 @@ export interface AuditedRingTransaction {
 
 export interface RingAuditPage {
   readonly transactions: readonly AuditedRingTransaction[];
-  /** Present only when `maxPages` stopped the scan short of the stream end. */
-  readonly next?: Cursor;
+  /** Present only when `maxPages` stopped the scan short of the history's end, pass it back to continue. */
+  readonly paginationToken?: PaginationToken;
 }
 
 const DEFAULT_PAGE_SIZE = 100;
@@ -334,7 +334,7 @@ export async function auditRing(
     /** The ring's on-chain mode, `"off"` when omitted. */
     mode?: RingMode;
     origin?: TransactionOrigin;
-    after?: Cursor;
+    paginationToken?: PaginationToken;
     pageSize?: number;
     maxPages?: number;
   }>,
@@ -349,21 +349,21 @@ export async function auditRing(
   );
   const transactions: AuditedRingTransaction[] = [];
   let assetsRefreshed = false;
-  let after = input.after;
+  let token = input.paginationToken;
   for (let page = 0; page < maxPages; page++) {
     const response = await input.client.getShieldedTransactionsByTags(
       {
         tags: [viewTag],
         limit: pageSize,
-        ...(after === undefined ? {} : { after }),
+        ...(token === undefined ? {} : { paginationToken: token }),
       },
       undefined,
       context,
     );
-    const next = nextPageCursor(
+    const next = nextPageToken(
       response,
-      after,
-      () => new RingError("RING_RPC", { details: { reason: "invalid ring scan cursor" } }),
+      token,
+      () => new RingError("RING_RPC", { details: { reason: "invalid ring scan token" } }),
     );
     for (const transaction of response.items.flatMap((item) => item.events)) {
       if (transaction.eventIndex === undefined) {
@@ -399,11 +399,11 @@ export async function auditRing(
       }
     }
     if (next === null) return Object.freeze({ transactions: Object.freeze(transactions) });
-    after = next;
+    token = next;
   }
   return Object.freeze({
     transactions: Object.freeze(transactions),
-    ...(after === undefined ? {} : { next: after }),
+    ...(token === undefined ? {} : { paginationToken: token }),
   });
 }
 

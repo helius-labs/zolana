@@ -20,8 +20,8 @@ use solana_rpc_client_api::{
 use solana_signature::Signature;
 use zolana_api::ZolanaApi;
 use zolana_client::{
-    rpc::Cursor, AsyncRpc, AsyncSolanaRpc, AsyncZolanaIndexer, ClientError,
-    GetShieldedTransactionsByTagsResponse,
+    AsyncRpc, AsyncSolanaRpc, AsyncZolanaIndexer, ClientError,
+    GetShieldedTransactionsByTagsResponse, HistoryFilters, PaginationToken,
 };
 use zolana_interface::{
     state::SplAssetRegistry, BPF_LOADER_UPGRADEABLE_ID, SHIELDED_POOL_PROGRAM_ID,
@@ -81,8 +81,9 @@ pub trait TransactionSource: Send + Sync {
 #[must_use]
 pub struct TransactionPage {
     pub tag: [u8; 32],
-    pub after: Option<Cursor>,
+    pub pagination_token: Option<PaginationToken>,
     pub limit: NonZeroU32,
+    pub filters: HistoryFilters,
     pub min_context_slot: Option<u64>,
 }
 
@@ -179,8 +180,9 @@ impl TransactionSource for ChainSource {
     {
         self.indexer.get_shielded_transactions_by_tags(
             vec![request.tag],
-            request.after,
+            request.pagination_token,
             Some(request.limit.get()),
+            request.filters,
             request
                 .min_context_slot
                 .map(zolana_client::IndexerRpcConfig::at_slot),
@@ -305,7 +307,13 @@ impl TransactionSource for ChainSource {
 
     async fn health(&self) -> Result<(), ClientError> {
         self.indexer
-            .get_shielded_transactions_by_tags(vec![[0; 32]], None, Some(1), None)
+            .get_shielded_transactions_by_tags(
+                vec![[0; 32]],
+                None,
+                Some(1),
+                HistoryFilters::default(),
+                None,
+            )
             .await?;
         self.rpc.health().await
     }

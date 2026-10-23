@@ -518,8 +518,7 @@ describe("lineage walk", () => {
             ),
           ),
         ),
-        cursor: null,
-        hasMore: false,
+        paginationToken: null,
       }),
     );
     return {
@@ -594,20 +593,14 @@ describe("lineage walk", () => {
     await expect(read(indexer)).rejects.toMatchObject({ code: "RING_ENTRY_LINEAGE_BROKEN" });
   });
 
-  it("keeps paging until a page carries no next position", async () => {
+  it("keeps paging until a page carries no pagination token", async () => {
     const claim = spender(owner.entryHashes(v0, FIXTURE_TREE_ID).address, [slot(v0)], "claim");
     const pages = [
-      transactionsPage({ cursor: chainPosition(1n), hasMore: true }),
-      transactionsPage({
-        items: transactionItems([claim]),
-        cursor: chainPosition(2n),
-        hasMore: false,
-      }),
-      transactionsPage({ cursor: chainPosition(3n), hasMore: false }),
+      transactionsPage({ paginationToken: chainPosition(1n) }),
+      transactionsPage({ items: transactionItems([claim]), paginationToken: null }),
+      transactionsPage({ paginationToken: null }),
     ];
-    const byNullifiers = vi.fn(
-      async () => pages.shift() ?? transactionsPage({ cursor: chainPosition(9n), hasMore: false }),
-    );
+    const byNullifiers = vi.fn(async () => pages.shift() ?? transactionsPage());
     const indexer = syncReads({ getShieldedTransactionsByNullifiers: byNullifiers });
     await expect(read(indexer)).resolves.toMatchObject({ entry: v0 });
     expect(byNullifiers).toHaveBeenCalledTimes(3);
@@ -629,8 +622,7 @@ describe("lineage walk", () => {
     const byTags = vi.fn(async () =>
       matchesPage({
         items: outputItems([match(v0), match(blocked), match(stray), match(v1, OTHER_TREE)]),
-        cursor: null,
-        hasMore: false,
+        paginationToken: null,
       }),
     );
     const live = await readRingEntries({

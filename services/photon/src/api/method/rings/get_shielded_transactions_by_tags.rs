@@ -1,9 +1,10 @@
 use std::collections::BTreeMap;
 
 use super::common::{
-    after_sql_condition, bind_u64_as_i64, chain_position, ensure_after_indexed, hash_from_vec,
-    int_list_sql, require_context, rings_output_slot_from_parts, signature_from_bytes, tags_sql,
-    truncate_transactions, u16_from_i16, u64_from_i64, validate_nullifiers, validate_tags,
+    bind_u64_as_i64, chain_position, ensure_resume_indexed, hash_from_vec, int_list_sql,
+    page_sql_conditions, require_context, rings_output_slot_from_parts, signature_from_bytes,
+    tags_sql, truncate_transactions, u16_from_i16, u64_from_i64, validate_nullifiers,
+    validate_tags,
 };
 use crate::api::error::PhotonApiError;
 use crate::common::bind_sql_value;
@@ -14,9 +15,9 @@ use sea_orm::{
 };
 use solana_pubkey::Pubkey;
 use zolana_indexer_api::{
-    Base64String, Cursor, GetRingsByNullifiersRequest, GetRingsByTagsRequest,
+    Base64String, GetRingsByNullifiersRequest, GetRingsByTagsRequest,
     GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsByTagsResponse, Hash,
-    IndexedShieldedTransaction, RingsMessage, RingsOutputSlot, SerializablePubkey,
+    IndexedShieldedTransaction, PageRequest, RingsMessage, RingsOutputSlot, SerializablePubkey,
     ShieldedTransaction, TransactionEvents,
 };
 use zolana_interface::pda;
@@ -54,13 +55,6 @@ struct RingsMessageRow {
     payload: Vec<u8>,
 }
 
-/// Just enough of a row to build a position from.
-#[derive(FromQueryResult, Debug)]
-struct ScanPositionRow {
-    slot: i64,
-    signature: Vec<u8>,
-}
-
 #[derive(FromQueryResult, Debug)]
 struct RingsNullifierRow {
     rings_tx_id: i64,
@@ -82,11 +76,14 @@ pub async fn get_shielded_transactions_by_tags(
         conn,
         RingsQuery {
             values: &request.tags,
-            after: request.after,
-            limit: request.limit.unwrap_or_default().value(),
+            page: PageRequest {
+                pagination_token: request.pagination_token,
+                limit: request.limit.unwrap_or_default().value(),
+                filters: request.filters,
+                min_context_slot: request.min_context_slot,
+            },
             match_by: MatchBy::Tags,
             ring_config,
-            min_context_slot: request.min_context_slot,
         },
     )
     .await
@@ -101,11 +98,14 @@ pub async fn get_shielded_transactions_by_nullifiers(
         conn,
         RingsQuery {
             values: &request.nullifiers,
-            after: request.after,
-            limit: request.limit.unwrap_or_default().value(),
+            page: PageRequest {
+                pagination_token: request.pagination_token,
+                limit: request.limit.unwrap_or_default().value(),
+                filters: request.filters,
+                min_context_slot: request.min_context_slot,
+            },
             match_by: MatchBy::Nullifiers,
             ring_config: None,
-            min_context_slot: request.min_context_slot,
         },
     )
     .await
@@ -119,11 +119,9 @@ enum MatchBy {
 
 struct RingsQuery<'a> {
     values: &'a [Hash],
-    after: Option<Cursor>,
-    limit: u64,
+    page: PageRequest,
     match_by: MatchBy,
     ring_config: Option<Pubkey>,
-    min_context_slot: Option<u64>,
 }
 
 async fn get_shielded_transactions(
@@ -133,22 +131,13 @@ async fn get_shielded_transactions(
     let tx = conn.begin().await?;
     crate::api::set_transaction_isolation_if_needed(&tx).await?;
     let context = extract_context(&tx).await?;
-    require_context(context.slot, query.min_context_slot, query.after)?;
+    require_context(context.slot, &query.page)?;
     let output_tree_id = newest_unpaused_tree_id(&tx).await?;
-    if let Some(after) = &query.after {
-        ensure_after_indexed(&tx, after).await?;
-    }
+    ensure_resume_indexed(&tx, &query.page).await?;
     let mut rows = fetch_matching_rings_transactions(&tx, &query).await?;
-    let has_more = truncate_transactions(&mut rows, query.limit, |row| {
+    let pagination_token = truncate_transactions(&mut rows, query.page.limit, |row| {
         chain_position(row.slot, &row.signature)
     })?;
-    let cursor = if has_more {
-        rows.last()
-            .map(|row| chain_position(row.slot, &row.signature))
-            .transpose()?
-    } else {
-        scan_position(&tx).await?.max(query.after)
-    };
     let events = hydrate_shielded_transactions(&tx, rows).await?;
     let items = TransactionEvents::group(
         events.into_iter().map(|event| event.transaction).collect(),
@@ -159,44 +148,8 @@ async fn get_shielded_transactions(
         context,
         output_tree_id,
         items,
-        cursor,
-        has_more,
+        pagination_token,
     })
-}
-
-/// The last position in the transaction stream.
-///
-/// Read inside the caller's transaction, so it describes the snapshot the scan
-/// saw. `None` only when the table is empty.
-///
-/// Sound while positions are only appended: a row later inserted below this one
-/// would be skipped by anyone resuming here.
-pub(super) async fn scan_position(
-    tx: &DatabaseTransaction,
-) -> Result<Option<Cursor>, PhotonApiError> {
-    let backend = tx.get_database_backend();
-    // Not `ORDER BY slot, signature DESC LIMIT 1`: no index covers that
-    // ordering, so it would sort the whole table. Pinning the slot first is an
-    // index lookup on `idx_rings_transactions_slot_id`.
-    let sql = "SELECT
-            pt.slot AS slot,
-            pt.signature AS signature
-         FROM rings_transactions pt
-         WHERE pt.slot = (SELECT MAX(slot) FROM rings_transactions)
-         ORDER BY pt.signature DESC
-         LIMIT 1"
-        .to_string();
-
-    let Some(row) = tx
-        .query_all(Statement::from_sql_and_values(backend, sql, Vec::new()))
-        .await?
-        .into_iter()
-        .next()
-    else {
-        return Ok(None);
-    };
-    let row = ScanPositionRow::from_query_result(&row, "")?;
-    Ok(Some(chain_position(row.slot, &row.signature)?))
 }
 
 pub(super) async fn hydrate_shielded_transactions(
@@ -346,20 +299,14 @@ async fn fetch_matching_rings_transactions(
         backend,
         &mut params,
     );
-    let after_filter = query
-        .after
-        .as_ref()
-        .map(|after| after_sql_condition("pt", after, backend, &mut params))
-        .transpose()?
-        .map(|condition| format!("AND {condition}"))
-        .unwrap_or_default();
+    let page_filter = page_sql_conditions("pt", &query.page, backend, &mut params)?;
     let selection_ring = ring_filter_sql(query.ring_config, backend, &mut params);
-    let lookahead = bind_u64_as_i64(&mut params, backend, query.limit + 1)?;
+    let lookahead = bind_u64_as_i64(&mut params, backend, query.page.limit + 1)?;
     let result_ring = ring_filter_sql(query.ring_config, backend, &mut params);
     let sql = format!(
         "WITH selected AS (
         SELECT DISTINCT pt.slot, pt.signature FROM rings_transactions pt
-        WHERE ({match_filter}) {after_filter} {selection_ring}
+        WHERE ({match_filter}) {page_filter} {selection_ring}
         ORDER BY pt.slot ASC, pt.signature ASC LIMIT {lookahead}
     ) SELECT pt.rings_tx_id, pt.slot, pt.signature, pt.event_index, pt.tx_viewing_pk,
         pt.salt, pt.proofless, pt.ring_config, rc.program_id AS ring_program_id
@@ -490,7 +437,9 @@ mod tests {
     use crate::monitor::tree_metadata_sync::{upsert_tree_metadata, TreeAccountData};
     use sea_orm::{Database, EntityTrait, Set};
     use sea_orm_migration::MigratorTrait;
-    use zolana_indexer_api::{GetRingsByNullifiersRequest, Limit};
+    use zolana_indexer_api::{
+        GetRingsByNullifiersRequest, HistoryFilters, Limit, PaginationToken, Positioned, SlotFilter,
+    };
 
     const OUTPUT_TREE: [u8; 32] = [8; 32];
     const OUTPUT_TREE_ID: u16 = 3;
@@ -564,10 +513,9 @@ mod tests {
         let response = get_shielded_transactions_by_nullifiers(
             &db,
             GetRingsByNullifiersRequest {
-                min_context_slot: None,
                 nullifiers: vec![hash(3), hash(4)],
-                after: None,
                 limit: Some(Limit::new(10).unwrap()),
+                ..Default::default()
             },
         )
         .await
@@ -676,9 +624,9 @@ mod tests {
         let db = setup().await;
         let mut request = GetRingsByNullifiersRequest {
             nullifiers: vec![hash(3)],
-            after: None,
             limit: Some(Limit::new(1).unwrap()),
             min_context_slot: Some(8),
+            ..Default::default()
         };
         let error = get_shielded_transactions_by_nullifiers(&db, request.clone())
             .await
@@ -695,29 +643,36 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(page.items.len(), 1);
-        assert!(!page.has_more);
-        request.after = page.cursor;
-        let empty = get_shielded_transactions_by_nullifiers(&db, request)
+        assert_eq!(page.pagination_token, None);
+        request.filters = HistoryFilters::after_slot(page.context.slot);
+        let empty = get_shielded_transactions_by_nullifiers(&db, request.clone())
             .await
             .unwrap();
         assert!(empty.items.is_empty());
-        assert_eq!(empty.cursor, page.cursor);
-        assert!(!empty.has_more);
+        assert_eq!(empty.pagination_token, None);
+        // A snapshot short of the filtered range cannot say the range is empty.
+        request.filters = HistoryFilters::after_slot(page.context.slot + 1);
+        let error: jsonrpsee::types::ErrorObjectOwned =
+            get_shielded_transactions_by_nullifiers(&db, request)
+                .await
+                .unwrap_err()
+                .into();
+        assert_eq!(error.code(), -32016);
         // A nullifier checkpoint also resumes an unrelated tag stream.
         let tags = get_shielded_transactions_by_tags(
             &db,
             GetRingsByTagsRequest {
                 tags: vec![hash(6)],
-                after: page.cursor,
                 limit: Some(Limit::new(1).unwrap()),
+                filters: HistoryFilters::after_slot(page.context.slot),
                 min_context_slot: Some(7),
-                ring_program_id: None,
+                ..Default::default()
             },
         )
         .await
         .unwrap();
         assert!(tags.items.is_empty());
-        assert_eq!(tags.cursor, page.cursor);
+        assert_eq!(tags.pagination_token, None);
     }
 
     #[tokio::test]
@@ -749,21 +704,24 @@ mod tests {
         insert_history_output(&db, 4, Some(config), zolana_event::tag::RING_DEPOSIT).await;
         let request = GetRingsByTagsRequest {
             tags: vec![hash(6), hash(24)],
-            after: None,
             limit: Some(Limit::new(1).unwrap()),
             min_context_slot: Some(7),
-            ring_program_id: None,
+            ..Default::default()
         };
         let first = get_encrypted_utxos_by_tags(&db, request.clone())
             .await
             .unwrap();
         assert_eq!(first.items.len(), 1);
         assert_eq!(first.items[0].outputs.len(), 2);
-        assert!(first.has_more);
+        assert_eq!(
+            first.pagination_token,
+            Some(first.items[0].position()),
+            "a truncated page ends at its last transaction"
+        );
         let second = get_encrypted_utxos_by_tags(
             &db,
             GetRingsByTagsRequest {
-                after: first.cursor,
+                pagination_token: first.pagination_token,
                 ..request
             },
         )
@@ -771,8 +729,7 @@ mod tests {
         .unwrap();
         assert_eq!(second.items.len(), 1);
         assert_eq!(second.items[0].outputs.len(), 1);
-        assert!(!second.has_more);
-        assert!(second.cursor > first.cursor);
+        assert_eq!(second.pagination_token, None);
     }
 
     async fn tags_query(
@@ -782,11 +739,10 @@ mod tests {
         get_shielded_transactions_by_tags(
             db,
             GetRingsByTagsRequest {
-                min_context_slot: None,
                 tags: vec![hash(6)],
-                after: None,
                 limit: Some(Limit::new(10).unwrap()),
                 ring_program_id: ring_program_id.map(SerializablePubkey::from),
+                ..Default::default()
             },
         )
         .await
@@ -912,11 +868,10 @@ mod tests {
         insert_history_output(&db, 5, Some(Pubkey::new_unique()), tag::RING_DEPOSIT).await;
         insert_history_output(&db, 6, None, tag::DEPOSIT).await;
         let request = GetRingsByTagsRequest {
-            min_context_slot: None,
             tags: vec![],
-            after: None,
             limit: Some(Limit::new(2).unwrap()),
             ring_program_id: Some(SerializablePubkey::from(ring)),
+            ..Default::default()
         };
 
         // 1. Unknown recipient tags must not exclude ring deposits.
@@ -942,7 +897,7 @@ mod tests {
                 .expect("transaction item")
                 .proofless
         );
-        assert!(first.has_more);
+        assert!(first.pagination_token.is_some());
         assert!(first
             .items
             .iter()
@@ -953,8 +908,7 @@ mod tests {
         let second = get_shielded_transactions_by_tags(
             &db,
             GetRingsByTagsRequest {
-                min_context_slot: None,
-                after: first.cursor,
+                pagination_token: first.pagination_token,
                 ..request.clone()
             },
         )
@@ -973,12 +927,11 @@ mod tests {
                 .0,
             vec![4]
         );
-        let terminal = second.cursor.expect("terminal scan frontier");
+        assert_eq!(second.pagination_token, None);
         let resumed = get_shielded_transactions_by_tags(
             &db,
             GetRingsByTagsRequest {
-                min_context_slot: None,
-                after: Some(terminal),
+                filters: HistoryFilters::after_slot(second.context.slot),
                 ..request.clone()
             },
         )
@@ -994,12 +947,11 @@ mod tests {
             outputs.items.iter().flat_map(|item| &item.outputs).count(),
             2
         );
-        assert!(outputs.has_more);
+        assert!(outputs.pagination_token.is_some());
         let rest = get_encrypted_utxos_by_tags(
             &db,
             GetRingsByTagsRequest {
-                min_context_slot: None,
-                after: outputs.cursor,
+                pagination_token: outputs.pagination_token,
                 ..request.clone()
             },
         )
@@ -1017,10 +969,9 @@ mod tests {
                 .0,
             vec![4]
         );
-        assert!(rest.cursor.is_some());
+        assert_eq!(rest.pagination_token, None);
 
         let unscoped = GetRingsByTagsRequest {
-            min_context_slot: None,
             ring_program_id: None,
             ..request
         };
@@ -1038,73 +989,59 @@ mod tests {
     #[tokio::test]
     async fn nullifier_lookup_returns_no_unmatched_transactions() {
         let db = setup().await;
-        let response = get_shielded_transactions_by_nullifiers(
-            &db,
-            GetRingsByNullifiersRequest {
-                min_context_slot: None,
-                nullifiers: vec![hash(5)],
-                after: None,
-                limit: Some(Limit::new(10).unwrap()),
-            },
-        )
-        .await
-        .unwrap();
+        let response = get_shielded_transactions_by_nullifiers(&db, nullifiers_request(5, 10))
+            .await
+            .unwrap();
         assert!(response.items.is_empty());
     }
 
-    /// An unspent nullifier matches nothing, so without a reported position the
-    /// caller rescans the whole stream on every sync.
+    fn nullifiers_request(nullifier: u8, limit: u64) -> GetRingsByNullifiersRequest {
+        GetRingsByNullifiersRequest {
+            nullifiers: vec![hash(nullifier)],
+            limit: Some(Limit::new(limit).unwrap()),
+            ..Default::default()
+        }
+    }
+
+    /// An unspent nullifier matches nothing. The page's context slot is how far
+    /// the scan reached, so the next sync does not rescan the whole stream.
     #[tokio::test]
-    async fn an_empty_nullifier_page_still_reports_how_far_it_scanned() {
+    async fn an_empty_page_resumes_from_its_context_slot() {
         let db = setup().await;
-        let response = get_shielded_transactions_by_nullifiers(
-            &db,
-            GetRingsByNullifiersRequest {
-                min_context_slot: None,
-                nullifiers: vec![hash(5)],
-                after: None,
-                limit: Some(Limit::new(10).unwrap()),
-            },
-        )
-        .await
-        .unwrap();
+        let response = get_shielded_transactions_by_nullifiers(&db, nullifiers_request(5, 10))
+            .await
+            .unwrap();
 
         assert!(response.items.is_empty());
-        assert!(!response.has_more, "no matching transactions remain");
-        let latest = response.cursor.expect("an exhausted scan reports its tip");
+        assert_eq!(
+            response.pagination_token, None,
+            "no matching transactions remain"
+        );
 
-        // The same query from that position must still be empty.
         let resumed = get_shielded_transactions_by_nullifiers(
             &db,
             GetRingsByNullifiersRequest {
-                min_context_slot: None,
-                nullifiers: vec![hash(5)],
-                after: Some(latest),
-                limit: Some(Limit::new(10).unwrap()),
+                filters: HistoryFilters::after_slot(response.context.slot),
+                ..nullifiers_request(5, 10)
             },
         )
         .await
         .unwrap();
         assert!(resumed.items.is_empty());
-        assert_eq!(
-            resumed.cursor,
-            Some(latest),
-            "a stream that has not moved reports the same tip"
-        );
+        assert_eq!(resumed.pagination_token, None);
+        assert_eq!(resumed.context.slot, response.context.slot);
     }
 
-    /// The position claims nothing matches at or before it, true only when the
-    /// scan ran out of rows rather than out of room.
+    /// A token claims more results, true only when the scan ran out of room
+    /// rather than out of rows.
     #[tokio::test]
-    async fn an_exactly_full_terminal_page_has_no_continuation() {
+    async fn an_exactly_full_last_page_has_no_token() {
         let db = setup().await;
         let response = get_shielded_transactions_by_nullifiers(
             &db,
             GetRingsByNullifiersRequest {
-                min_context_slot: None,
                 nullifiers: vec![hash(3), hash(4)],
-                after: None,
-                limit: Some(Limit::new(1).unwrap()),
+                ..nullifiers_request(3, 1)
             },
         )
         .await
@@ -1114,34 +1051,21 @@ mod tests {
             response.items.iter().flat_map(|item| &item.events).count(),
             1
         );
-        assert!(
-            !response.has_more,
+        assert_eq!(
+            response.pagination_token, None,
             "exactly reaching the limit does not imply more transactions"
-        );
-        assert!(
-            response.cursor.is_some(),
-            "a truncated page names where the next one starts"
         );
     }
 
-    /// The position must not skip a spend that lands after it.
+    /// A block indexes atomically with its transactions, so resuming after the
+    /// last context slot cannot skip a spend that lands later.
     #[tokio::test]
-    async fn resuming_from_a_scan_position_still_finds_a_later_spend() {
+    async fn resuming_from_a_context_slot_still_finds_a_later_spend() {
         let db = setup().await;
-        let first = get_shielded_transactions_by_nullifiers(
-            &db,
-            GetRingsByNullifiersRequest {
-                min_context_slot: None,
-                nullifiers: vec![hash(5)],
-                after: None,
-                limit: Some(Limit::new(10).unwrap()),
-            },
-        )
-        .await
-        .unwrap();
-        let latest = first
-            .cursor
-            .expect("a scan that reached the end reports where");
+        let first = get_shielded_transactions_by_nullifiers(&db, nullifiers_request(5, 10))
+            .await
+            .unwrap();
+        assert_eq!(first.pagination_token, None);
 
         // A later transaction spends the nullifier the caller is watching.
         blocks::Entity::insert(blocks::ActiveModel {
@@ -1197,10 +1121,8 @@ mod tests {
         let resumed = get_shielded_transactions_by_nullifiers(
             &db,
             GetRingsByNullifiersRequest {
-                min_context_slot: None,
-                nullifiers: vec![hash(5)],
-                after: Some(latest),
-                limit: Some(Limit::new(10).unwrap()),
+                filters: HistoryFilters::after_slot(first.context.slot),
+                ..nullifiers_request(5, 10)
             },
         )
         .await
@@ -1208,71 +1130,119 @@ mod tests {
         assert_eq!(
             resumed.items.iter().flat_map(|item| &item.events).count(),
             1,
-            "the spend landed after that position, so resuming there must still see it"
+            "the spend landed after that slot, so resuming there must still see it"
         );
     }
 
-    /// The transaction order is shared by every stream, so a tip learned from
+    /// The transaction order is shared by every stream, so a slot reached by
     /// the tag stream resumes the nullifier stream without a translation step.
     #[tokio::test]
-    async fn a_position_from_one_stream_resumes_another() {
+    async fn a_context_slot_from_one_stream_resumes_another() {
         let db = setup().await;
         let tags = get_shielded_transactions_by_tags(
             &db,
             GetRingsByTagsRequest {
-                min_context_slot: None,
                 tags: vec![hash(9)],
-                after: None,
                 limit: Some(Limit::new(10).unwrap()),
-                ring_program_id: None,
+                ..Default::default()
             },
         )
         .await
         .unwrap();
-        let latest = tags.cursor.expect("terminal page reports the tip");
+        assert_eq!(tags.pagination_token, None);
 
         let resumed = get_shielded_transactions_by_nullifiers(
             &db,
             GetRingsByNullifiersRequest {
-                min_context_slot: None,
-                nullifiers: vec![hash(3)],
-                after: Some(latest),
-                limit: Some(Limit::new(10).unwrap()),
+                filters: HistoryFilters::after_slot(tags.context.slot),
+                ..nullifiers_request(3, 10)
             },
         )
         .await
         .unwrap();
         assert!(
             resumed.items.is_empty(),
-            "the spend sits at the tip, so a resume from it sees nothing new"
+            "the spend sits at that slot, so a resume after it sees nothing new"
         );
     }
 
     /// Rows below the first indexed block were never ingested, so a silent
-    /// resume from that gap would skip them forever.
+    /// resume from that gap, by token or by slot filter, would skip them forever.
     #[tokio::test]
-    async fn an_after_below_the_indexed_floor_is_rejected() {
+    async fn a_resume_below_the_indexed_floor_is_rejected() {
         let db = setup().await;
-        let result = get_shielded_transactions_by_nullifiers(
+        for request in [
+            GetRingsByNullifiersRequest {
+                pagination_token: Some(PaginationToken::new(
+                    0,
+                    signature_from_bytes(&[1; 64]).unwrap().0,
+                )),
+                ..nullifiers_request(5, 10)
+            },
+            GetRingsByNullifiersRequest {
+                filters: HistoryFilters::after_slot(0),
+                ..nullifiers_request(5, 10)
+            },
+        ] {
+            assert!(matches!(
+                get_shielded_transactions_by_nullifiers(&db, request).await,
+                Err(PhotonApiError::ValidationError(message))
+                    if message.contains("history")
+            ));
+        }
+        // Resuming right below the first block skips nothing.
+        get_shielded_transactions_by_nullifiers(
             &db,
             GetRingsByNullifiersRequest {
-                min_context_slot: None,
-                nullifiers: vec![hash(5)],
-                after: Some(Cursor::new(0, signature_from_bytes(&[1; 64]).unwrap().0)),
-                limit: Some(Limit::new(10).unwrap()),
+                filters: HistoryFilters::after_slot(6),
+                ..nullifiers_request(5, 10)
             },
         )
-        .await;
-        assert!(matches!(
-            result,
-            Err(PhotonApiError::ValidationError(message))
-                if message.contains("history")
-        ));
+        .await
+        .unwrap();
+    }
+
+    /// Slot bounds select the transactions inside them.
+    #[tokio::test]
+    async fn slot_filters_select_only_the_bounded_range() {
+        let db = setup().await;
+        let request = |slot: SlotFilter| GetRingsByNullifiersRequest {
+            filters: HistoryFilters { slot },
+            ..nullifiers_request(3, 10)
+        };
+        for (slot, expected) in [
+            (
+                SlotFilter {
+                    gte: Some(7),
+                    lte: Some(7),
+                    ..Default::default()
+                },
+                1,
+            ),
+            (
+                SlotFilter {
+                    lt: Some(7),
+                    ..Default::default()
+                },
+                0,
+            ),
+            (
+                SlotFilter {
+                    gt: Some(6),
+                    ..Default::default()
+                },
+                1,
+            ),
+        ] {
+            let page = get_shielded_transactions_by_nullifiers(&db, request(slot))
+                .await
+                .unwrap();
+            assert_eq!(page.items.len(), expected, "{slot:?}");
+        }
     }
 
     /// A page never splits a transaction. The second event of the boundary
-    /// signature belongs to the same transaction item, so the position skips
-    /// nothing on resume.
+    /// signature belongs to the same transaction item.
     #[tokio::test]
     async fn a_truncated_page_completes_its_boundary_signature() {
         let db = setup().await;
@@ -1305,39 +1275,16 @@ mod tests {
         .await
         .unwrap();
 
-        let response = get_shielded_transactions_by_nullifiers(
-            &db,
-            GetRingsByNullifiersRequest {
-                min_context_slot: None,
-                nullifiers: vec![hash(3)],
-                after: None,
-                limit: Some(Limit::new(1).unwrap()),
-            },
-        )
-        .await
-        .unwrap();
+        let response = get_shielded_transactions_by_nullifiers(&db, nullifiers_request(3, 1))
+            .await
+            .unwrap();
         assert_eq!(
             response.items.iter().flat_map(|item| &item.events).count(),
             2,
             "both events of the boundary signature come back"
         );
-        let next = response
-            .cursor
-            .expect("a truncated page names its boundary");
-
-        let resumed = get_shielded_transactions_by_nullifiers(
-            &db,
-            GetRingsByNullifiersRequest {
-                min_context_slot: None,
-                nullifiers: vec![hash(3)],
-                after: Some(next),
-                limit: Some(Limit::new(10).unwrap()),
-            },
-        )
-        .await
-        .unwrap();
-        assert!(
-            resumed.items.is_empty(),
+        assert_eq!(
+            response.pagination_token, None,
             "the boundary signature was completed, so nothing was left behind"
         );
     }

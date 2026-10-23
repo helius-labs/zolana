@@ -113,7 +113,8 @@ pub fn test_documentation_generation() -> anyhow::Result<()> {
         assert!(result["required"]
             .as_array()
             .unwrap()
-            .contains(&serde_json::json!("cursor")));
+            .contains(&serde_json::json!("paginationToken")));
+        assert!(result["properties"].get("hasMore").is_none());
         let group = &result["properties"]["items"]["items"];
         assert_eq!(
             group["properties"][field]["items"]["$ref"],

@@ -1,7 +1,7 @@
 import type { MergeEncryptionScheme } from "../interface/state.js";
-import type { Address, Cursor, Signature } from "../interface/types.js";
+import type { Address, HistoryFilters, PaginationToken, Signature } from "../interface/types.js";
 
-export type { Cursor } from "../interface/types.js";
+export type { HistoryFilters, PaginationToken, SlotFilter } from "../interface/types.js";
 
 export type Base64String = string & { readonly __base64: unique symbol };
 export type Hash = string & { readonly __hash32Base58: unique symbol };
@@ -60,8 +60,9 @@ export interface RingKeyRegistryEntry extends RingMemberProofContext {
 
 export interface GetRingsByTagsRequest {
   readonly tags: readonly Hash[];
-  readonly after?: Cursor;
+  readonly paginationToken?: PaginationToken;
   readonly limit?: Limit;
+  readonly filters?: HistoryFilters;
   readonly minContextSlot?: bigint;
   /**
    * Restrict the match to one ring. Its config account is derived from this
@@ -72,8 +73,9 @@ export interface GetRingsByTagsRequest {
 
 export interface GetRingsByNullifiersRequest {
   readonly nullifiers: readonly Hash[];
-  readonly after?: Cursor;
+  readonly paginationToken?: PaginationToken;
   readonly limit?: Limit;
+  readonly filters?: HistoryFilters;
   readonly minContextSlot?: bigint;
 }
 
@@ -107,8 +109,8 @@ export interface Page<T> {
   readonly outputTreeId?: number;
   readonly context: IndexerContext;
   readonly items: readonly T[];
-  readonly cursor: Cursor | null;
-  readonly hasMore: boolean;
+  /** The next page's token, `null` when the history has no more results. */
+  readonly paginationToken: PaginationToken | null;
 }
 export interface TransactionEvents<T> {
   readonly slot: bigint;

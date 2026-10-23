@@ -143,6 +143,7 @@ fn main() -> Result<()> {
         vec![sender_address.confidential_view_tag()?],
         None,
         Some(50),
+        zolana_client::HistoryFilters::default(),
         Some(IndexerRpcConfig::at_slot(merge_slot)),
     )?;
     let transactions = response

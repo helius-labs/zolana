@@ -97,9 +97,9 @@ transfers and merges without recipient tags. The filter uses the SPP instruction
 ring-config account, including rings whose registration was not indexed.
 An empty tag list without a ring is rejected. Nonempty tags still narrow the scan.
 
-The existing page limit and chain positions apply. Follow `next` while pages
-are truncated. Save `latest` from the terminal page and pass it as `after` to
-resume after new indexing.
+Pages follow `getTransactionsForAddress`: pass `paginationToken` back with the
+same filters until it is null. To resume after new indexing, read again with
+`filters: { slot: { gt } }` set to the last page's `context.slot`.
 Ciphertexts stay opaque to Photon. Auditor recovery decrypts the returned deposit
 capsules and transfer messages client-side.
 

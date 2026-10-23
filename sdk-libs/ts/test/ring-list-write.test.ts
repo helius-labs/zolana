@@ -490,8 +490,7 @@ describe("list writes", () => {
             ),
           ),
         ),
-        cursor: null,
-        hasMore: false,
+        paginationToken: null,
       }),
     );
     return {

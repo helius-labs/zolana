@@ -94,6 +94,7 @@ pub fn assert_balances_after_transfer<R: BlockingRpc>(
         ],
         None,
         Some(50),
+        zolana_client::HistoryFilters::default(),
         Some(IndexerRpcConfig::at_slot(slot)),
     )?;
     assert_eq!(

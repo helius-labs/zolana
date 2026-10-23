@@ -197,8 +197,7 @@ async function serviceRequestUrls(
           result: {
             context: { blockTime: 1, slot: 1 },
             items: transactionItems([]),
-            cursor: null,
-            hasMore: false,
+            paginationToken: null,
           },
         }),
         { headers: { "content-type": "application/json" } },
@@ -546,8 +545,8 @@ describe("ZolanaClient", () => {
     });
   });
 
-  it("accepts a nullifier response that reports how far the scan reached", async () => {
-    // Strict decoding must still accept the indexer's explicit stream tip.
+  it("reads the snapshot slot of a nullifier page that ends the history", async () => {
+    // An unspent nullifier matches nothing, the snapshot slot is the checkpoint.
     const fetch = vi.fn<typeof globalThis.fetch>(() =>
       Promise.resolve(
         new Response(
@@ -557,8 +556,7 @@ describe("ZolanaClient", () => {
             result: {
               context: { blockTime: 1, slot: 9 },
               items: transactionItems([]),
-              cursor: `1:${3}:${"1".repeat(64)}`,
-              hasMore: false,
+              paginationToken: null,
             },
           }),
           { headers: { "content-type": "application/json" } },
@@ -570,11 +568,11 @@ describe("ZolanaClient", () => {
       nullifiers: [bytes(7)],
     });
 
-    expect(response.hasMore).toBe(false);
-    expect(response.cursor).toEqual(`1:${3n}:${"1".repeat(64)}`);
+    expect(response.paginationToken).toBeNull();
+    expect(response.context.slot).toBe(9n);
   });
 
-  it("accepts tag responses that report how far the scan reached", async () => {
+  it("reads the snapshot slot of tag pages that end the history", async () => {
     const responseBody = (_rows: "transactions" | "matches") =>
       JSON.stringify({
         id: "test-account",
@@ -582,8 +580,7 @@ describe("ZolanaClient", () => {
         result: {
           context: { blockTime: 1, slot: 9 },
           items: [],
-          hasMore: false,
-          cursor: `1:${4}:${"1".repeat(64)}`,
+          paginationToken: null,
         },
       });
     const transactionFetch = vi.fn<typeof globalThis.fetch>(() =>
@@ -608,8 +605,8 @@ describe("ZolanaClient", () => {
       tags: [bytes(7)],
     });
 
-    expect(transactions.cursor).toEqual(`1:${4n}:${"1".repeat(64)}`);
-    expect(encryptedUtxos.cursor).toEqual(`1:${4n}:${"1".repeat(64)}`);
+    expect(transactions).toMatchObject({ context: { slot: 9n }, paginationToken: null });
+    expect(encryptedUtxos).toMatchObject({ context: { slot: 9n }, paginationToken: null });
   });
 
   it("reads a malformed transaction viewing key as absent, never as a bad response", async () => {
@@ -645,16 +642,14 @@ describe("ZolanaClient", () => {
       const transactions = await responding({
         context: { blockTime: 1, slot: 9 },
         items: transactionItems([transaction]),
-        cursor: `1:1:${"1".repeat(64)}`,
-        hasMore: false,
+        paginationToken: null,
       }).getShieldedTransactionsByTags({ tags: [bytes(7)] });
       const matches = await responding({
         context: { blockTime: 1, slot: 9 },
         items: outputItems([
           { slot: 1, txSignature: "1".repeat(64), outputSlot: slot, txViewingPk, salt },
         ]),
-        cursor: `1:1:${"1".repeat(64)}`,
-        hasMore: false,
+        paginationToken: null,
       }).getEncryptedUtxosByTags({ tags: [bytes(7)] });
       return {
         transaction: transactions.items.flatMap((item) => item.events)[0],
@@ -694,8 +689,7 @@ describe("ZolanaClient", () => {
             result: {
               context: { blockTime: 1, slot: 9 },
               items: transactionItems([]),
-              cursor: `1:${2}:${"1".repeat(64)}`,
-              hasMore: false,
+              paginationToken: null,
             },
           }),
           { headers: { "content-type": "application/json" } },
@@ -707,11 +701,12 @@ describe("ZolanaClient", () => {
 
     const response = await instance.getShieldedTransactionsByNullifiers({
       nullifiers: [nullifier],
-      after: `1:${1n}:${"1".repeat(64) as Signature}`,
+      paginationToken: `1:${1n}:${"1".repeat(64) as Signature}`,
+      filters: { slot: { gt: 0n } },
       limit: 1000,
     });
 
-    expect(response.cursor).toEqual(`1:${2n}:${"1".repeat(64)}`);
+    expect(response.paginationToken).toBeNull();
     expect(String(fetch.mock.calls[0]?.[0])).toBe(
       "http://127.0.0.1:8784/getShieldedTransactionsByNullifiers",
     );
@@ -719,7 +714,8 @@ describe("ZolanaClient", () => {
       method: "getShieldedTransactionsByNullifiers",
       params: {
         nullifiers: [getBase58Decoder().decode(nullifier)],
-        after: `1:${1}:${"1".repeat(64)}`,
+        paginationToken: `1:${1}:${"1".repeat(64)}`,
+        filters: { slot: { gt: 0 } },
         limit: 1000,
       },
     });
@@ -759,8 +755,7 @@ describe("ZolanaClient", () => {
         result: {
           context: { blockTime: 1, slot: 4 },
           items: transactionItems([]),
-          cursor: `1:${4}:${"1".repeat(64)}`,
-          hasMore: false,
+          paginationToken: null,
         },
       });
     });
@@ -769,7 +764,7 @@ describe("ZolanaClient", () => {
       tags: [],
       ringProgramId: TREE,
       limit: 3,
-      after: `1:${1n}:${"1".repeat(64) as Signature}`,
+      paginationToken: `1:${1n}:${"1".repeat(64) as Signature}`,
     });
     expect(requests).toEqual([
       expect.objectContaining({
@@ -777,7 +772,7 @@ describe("ZolanaClient", () => {
           tags: [],
           ringProgramId: TREE,
           limit: 3,
-          after: `1:${1}:${"1".repeat(64)}`,
+          paginationToken: `1:${1}:${"1".repeat(64)}`,
         },
       }),
     ]);

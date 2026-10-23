@@ -1,6 +1,6 @@
 import type { Page } from "../client/rpc.js";
-import { checkedCursor } from "../interface/cursor.js";
-import { validatePage } from "../interface/page.js";
+import { checkedPaginationToken } from "../interface/pagination-token.js";
+import { checkedHistoryFilters, validatePage } from "../interface/page.js";
 import { ed25519 } from "@noble/curves/ed25519.js";
 import {
   createSignableMessage,
@@ -14,9 +14,10 @@ import type {
   Bytes32,
   Bytes33,
   Bytes64,
-  Cursor,
-  RequestContext,
+  HistoryFilters,
   PageOptions,
+  PaginationToken,
+  RequestContext,
   Signature,
 } from "../interface/types.js";
 import { RING_VELOCITY_SLOTS } from "../client/prover/types.js";
@@ -65,18 +66,19 @@ const AUDITOR_KEY_REQUEST_DOMAIN = "zolana/ring-rpc-auditor-key-request/v1";
 /** Rust `AUDIT_PAGE_LIMIT`. */
 export const RING_READ_PAGE_LIMIT = 100;
 
-/** Mirrors Rust `ReadAttestation::bytes`. */
+/** Mirrors Rust `ReadAttestation::bytes`, an absent bound or token signs as an empty value. */
 export function ringReadAttestation(
   input: Readonly<{
     ringProgramId: Address;
     timestamp: bigint;
     nonce: Bytes32;
-    after?: Cursor;
+    paginationToken?: PaginationToken;
+    filters?: HistoryFilters;
     minContextSlot?: bigint;
     limit?: number;
   }>,
 ): Uint8Array {
-  const after = input.after ?? "";
+  const slot = input.filters?.slot;
   return encoder.encode(
     [
       READ_DOMAIN,
@@ -84,7 +86,11 @@ export function ringReadAttestation(
       `timestamp: ${input.timestamp}`,
       `nonce: ${base64Decoder.decode(input.nonce)}`,
       `limit: ${input.limit ?? 0}`,
-      `after: ${after}`,
+      `pagination-token: ${input.paginationToken ?? ""}`,
+      `slot-gt: ${slot?.gt ?? ""}`,
+      `slot-gte: ${slot?.gte ?? ""}`,
+      `slot-lt: ${slot?.lt ?? ""}`,
+      `slot-lte: ${slot?.lte ?? ""}`,
       `min-context-slot: ${input.minContextSlot ?? 0n}`,
     ].join("\n"),
   );
@@ -135,7 +141,8 @@ export function messageSignerReader(signer: MessagePartialSigner): RingReadSigne
 /** Mirrors Rust `GetDecryptedTransactionsRequest` after `ReadRequest::sign`. */
 export interface SignedRingRead {
   readonly ringProgramId: Address;
-  readonly after?: Cursor;
+  readonly paginationToken?: PaginationToken;
+  readonly filters?: HistoryFilters;
   readonly minContextSlot?: bigint;
   readonly limit?: number;
   readonly reader: Uint8Array;
@@ -148,7 +155,8 @@ export interface SignedRingRead {
 export class RingReadRequest {
   readonly #ringProgramId: Address;
   readonly #nonce: Bytes32;
-  #after?: Cursor;
+  #paginationToken?: PaginationToken;
+  #filters: HistoryFilters | undefined;
   #minContextSlot?: bigint;
   #limit?: number;
   #timestamp?: bigint;
@@ -162,8 +170,15 @@ export class RingReadRequest {
     return new RingReadRequest(ringProgramId);
   }
 
-  withAfter(after: Cursor): this {
-    this.#after = checkedReadAfter(after);
+  /** The previous page's token, signed with the request. */
+  withPaginationToken(token: PaginationToken): this {
+    this.#paginationToken = checkedReadPaginationToken(token);
+    return this;
+  }
+
+  /** Slot bounds, every bound is signed with the request. */
+  withFilters(filters: HistoryFilters): this {
+    this.#filters = checkedReadFilters(filters);
     return this;
   }
 
@@ -190,21 +205,26 @@ export class RingReadRequest {
         ringProgramId: this.#ringProgramId,
         timestamp,
         nonce: this.#nonce,
-        ...(this.#after === undefined ? {} : { after: this.#after }),
-        ...(this.#limit === undefined ? {} : { limit: this.#limit }),
-        ...(this.#minContextSlot === undefined ? {} : { minContextSlot: this.#minContextSlot }),
+        ...this.#controls(),
       }),
     );
     return Object.freeze({
       ringProgramId: this.#ringProgramId,
-      ...(this.#after === undefined ? {} : { after: this.#after }),
-      ...(this.#limit === undefined ? {} : { limit: this.#limit }),
-      ...(this.#minContextSlot === undefined ? {} : { minContextSlot: this.#minContextSlot }),
+      ...this.#controls(),
       reader: signer.reader,
       timestamp,
       nonce: this.#nonce,
       signature,
     });
+  }
+
+  #controls(): Pick<SignedRingRead, "paginationToken" | "filters" | "limit" | "minContextSlot"> {
+    return {
+      ...(this.#paginationToken === undefined ? {} : { paginationToken: this.#paginationToken }),
+      ...(this.#filters === undefined ? {} : { filters: this.#filters }),
+      ...(this.#limit === undefined ? {} : { limit: this.#limit }),
+      ...(this.#minContextSlot === undefined ? {} : { minContextSlot: this.#minContextSlot }),
+    };
   }
 }
 
@@ -564,7 +584,7 @@ export class RingRpc {
     });
   }
 
-  /** Each page is signed again, the attestation binds the nonce, the position and the time. */
+  /** Each page is signed again, the attestation binds the nonce, the page controls and the time. */
   async getDecryptedTransactions(
     input: Readonly<
       PageOptions & {
@@ -576,7 +596,9 @@ export class RingRpc {
     context?: RequestContext,
   ): Promise<DecryptedRingTransactionsPage> {
     let request = RingReadRequest.read(input.ringProgramId);
-    if (input.after !== undefined) request = request.withAfter(input.after);
+    if (input.paginationToken !== undefined)
+      request = request.withPaginationToken(input.paginationToken);
+    if (input.filters !== undefined) request = request.withFilters(input.filters);
     if (input.limit !== undefined) request = request.withLimit(input.limit);
     if (input.minContextSlot !== undefined)
       request = request.withMinContextSlot(input.minContextSlot);
@@ -595,7 +617,12 @@ export class RingRpc {
         "getDecryptedTransactions",
         {
           ringProgramId: checked.ringProgramId,
-          ...(checked.after === undefined ? {} : { after: checked.after }),
+          ...(checked.paginationToken === undefined
+            ? {}
+            : { paginationToken: checked.paginationToken }),
+          ...(checked.filters?.slot === undefined
+            ? {}
+            : { filters: { slot: wireSlotFilter(checked.filters.slot) } }),
           ...(checked.limit === undefined ? {} : { limit: Number(checked.limit) }),
           ...(checked.minContextSlot === undefined
             ? {}
@@ -621,14 +648,16 @@ export class RingRpc {
         context,
       ),
       "result",
-      ["context", "items", "cursor", "hasMore"],
+      ["context", "items", "paginationToken"],
     );
     const wireContext = exactResponseRecord(wire["context"], "result.context", [
       "slot",
       "blockTime",
     ]);
-    const cursor = wire["cursor"] === null ? null : decodeCursor(wire["cursor"], "result.cursor");
-    if (typeof wire["hasMore"] !== "boolean") throw invalid("result.hasMore");
+    const paginationToken =
+      wire["paginationToken"] === null
+        ? null
+        : decodePaginationToken(wire["paginationToken"], "result.paginationToken");
     const page = Object.freeze({
       context: Object.freeze({
         slot: integer(wireContext["slot"], "result.context.slot"),
@@ -660,17 +689,21 @@ export class RingRpc {
           return Object.freeze({ slot, signature: groupSignature, events, skipped });
         }),
       ),
-      cursor,
-      hasMore: wire["hasMore"],
+      paginationToken,
     });
+    // Ring RPC drops other rings' events and forwards Photon's token, so a
+    // token may lie past the last item or end an empty page.
     try {
       validatePage(page, {
-        ...(checked.after === undefined ? {} : { after: checked.after }),
+        ...(checked.paginationToken === undefined
+          ? {}
+          : { paginationToken: checked.paginationToken }),
+        ...(checked.filters === undefined ? {} : { filters: checked.filters }),
         limit: BigInt(checked.limit ?? RING_READ_PAGE_LIMIT),
         ...(checked.minContextSlot === undefined ? {} : { minContextSlot: checked.minContextSlot }),
       });
     } catch {
-      throw invalid("result.cursor");
+      throw invalid("result.paginationToken");
     }
     return page;
   }
@@ -905,12 +938,23 @@ function exactResponseRecord(
   return result;
 }
 
-function decodeCursor(value: unknown, path: string): Cursor {
+function decodePaginationToken(value: unknown, path: string): PaginationToken {
   try {
-    return checkedCursor(value);
+    return checkedPaginationToken(value);
   } catch {
     throw invalid(path);
   }
+}
+
+/** Bounds become JSON numbers, exact because `checkedReadFilters` caps them at the safe range. */
+function wireSlotFilter(
+  slot: NonNullable<HistoryFilters["slot"]>,
+): Readonly<Record<string, number>> {
+  return Object.fromEntries(
+    Object.entries(slot).flatMap(([bound, value]) =>
+      value === undefined ? [] : [[bound, Number(value)]],
+    ),
+  );
 }
 
 function invalidRequest(field: string): RingError {
@@ -940,12 +984,16 @@ function requestBytes(value: unknown, length: number, field: string): Uint8Array
   return new Uint8Array(value);
 }
 
-function checkedReadAfter(after: unknown): Cursor {
+function checkedReadPaginationToken(token: unknown): PaginationToken {
   try {
-    return checkedCursor(after);
+    return checkedPaginationToken(token);
   } catch {
-    throw new RingError("RING_READ_AFTER", { details: {} });
+    throw new RingError("RING_READ_PAGINATION_TOKEN", { details: {} });
   }
+}
+
+function checkedReadFilters(filters: unknown): HistoryFilters | undefined {
+  return checkedHistoryFilters(filters, invalidRequest);
 }
 
 function checkedReadLimit(limit: unknown): number {
@@ -971,7 +1019,8 @@ function checkedUnixTimestamp(value: unknown, field: string): bigint {
 const SIGNED_READ_FIELDS = new Set([
   "minContextSlot",
   "ringProgramId",
-  "after",
+  "paginationToken",
+  "filters",
   "limit",
   "reader",
   "timestamp",
@@ -1025,7 +1074,11 @@ function checkedSignedRead(value: unknown): SignedRingRead {
     read["minContextSlot"] === undefined
       ? undefined
       : checkedUnixTimestamp(read["minContextSlot"], "minContextSlot");
-  const after = read["after"] === undefined ? undefined : checkedReadAfter(read["after"]);
+  const paginationToken =
+    read["paginationToken"] === undefined
+      ? undefined
+      : checkedReadPaginationToken(read["paginationToken"]);
+  const filters = checkedReadFilters(read["filters"]);
   const limit = read["limit"] === undefined ? undefined : checkedReadLimit(read["limit"]);
   const timestamp = checkedUnixTimestamp(read["timestamp"], "timestamp");
   const signature = read["signature"];
@@ -1036,7 +1089,8 @@ function checkedSignedRead(value: unknown): SignedRingRead {
       nonce,
       timestamp,
       signature: requestBytes(signature, 64, "signature"),
-      ...(after === undefined ? {} : { after }),
+      ...(paginationToken === undefined ? {} : { paginationToken }),
+      ...(filters === undefined ? {} : { filters }),
       ...(limit === undefined ? {} : { limit }),
       ...(minContextSlot === undefined ? {} : { minContextSlot }),
     });
@@ -1063,7 +1117,8 @@ function checkedSignedRead(value: unknown): SignedRingRead {
       authenticatorData: new Uint8Array(authenticatorData),
       clientDataJSON: new Uint8Array(clientDataJSON),
     }),
-    ...(after === undefined ? {} : { after }),
+    ...(paginationToken === undefined ? {} : { paginationToken }),
+    ...(filters === undefined ? {} : { filters }),
     ...(limit === undefined ? {} : { limit }),
     ...(minContextSlot === undefined ? {} : { minContextSlot }),
   });

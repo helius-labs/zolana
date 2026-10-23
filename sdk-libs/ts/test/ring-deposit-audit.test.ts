@@ -629,7 +629,7 @@ describe("deposit recovery", () => {
       ...ringAuditReader({
         getShieldedTransactionsByTags: async (input) =>
           transactionsPage(
-            input.ringProgramId === undefined ? {} : { cursor: chainPosition(1n), hasMore: true },
+            input.ringProgramId === undefined ? {} : { paginationToken: chainPosition(1n) },
           ),
       }),
       getShieldedTransactionsByNullifiers: async () => transactionsPage(),
@@ -722,12 +722,11 @@ describe("deposit recovery", () => {
         getShieldedTransactionsByTags: async (input) =>
           transactionsPage({
             items: transactionItems(input.ringProgramId === RING ? history : []),
-            cursor: null,
-            hasMore: false,
+            paginationToken: null,
           }),
       }),
       getShieldedTransactionsByNullifiers: vi.fn(async () =>
-        transactionsPage({ items: transactionItems(spends), cursor: null, hasMore: false }),
+        transactionsPage({ items: transactionItems(spends), paginationToken: null }),
       ),
     };
     const params = {

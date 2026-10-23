@@ -1,6 +1,6 @@
 use anyhow::{anyhow, bail, Result};
 use solana_address::Address;
-use zolana_client::{EncryptedUtxoMatch, Rpc};
+use zolana_client::{EncryptedUtxoMatch, HistoryFilters, Rpc};
 use zolana_interface::event::OutputDataEncoding;
 use zolana_program::{
     derive_output_blinding_seed, derive_transact_output_blinding, program::ACCOUNT_BLINDING_SEED,
@@ -74,13 +74,14 @@ pub fn decode_wallet_utxo(
 }
 
 pub fn discover_account(indexer: &impl Rpc, pda: Address) -> Result<DiscoveredAccount> {
-    let mut after = None;
+    let mut token = None;
     let mut matches = Vec::new();
     loop {
         let response = indexer.get_shielded_transactions_by_tags(
             vec![pda.to_bytes()],
-            after,
+            token,
             Some(100),
+            HistoryFilters::default(),
             None,
         )?;
         for transaction in response.items.into_iter().flat_map(|item| item.events) {
@@ -101,8 +102,8 @@ pub fn discover_account(indexer: &impl Rpc, pda: Address) -> Result<DiscoveredAc
                 matches.push((indexed, first_nullifier, u32::try_from(index)?));
             }
         }
-        after = response.cursor.filter(|_| response.has_more);
-        if after.is_none() {
+        token = response.pagination_token;
+        if token.is_none() {
             break;
         }
     }
@@ -111,6 +112,7 @@ pub fn discover_account(indexer: &impl Rpc, pda: Address) -> Result<DiscoveredAc
             vec![*nullifier],
             None,
             Some(1),
+            HistoryFilters::default(),
             None,
         )?;
         Ok(!input_utxo.items.is_empty())

@@ -8,9 +8,9 @@ use zolana_keypair::X25519Keypair;
 use solana_address::Address;
 use solana_signature::Signature;
 use zolana_client::{
-    rpc::{Cursor, GetShieldedTransactionsByNullifiersResponse},
-    ClientError, Context, GetShieldedTransactionsByTagsResponse, IndexerRpcConfig, ProofInputUtxo,
-    Rpc,
+    rpc::GetShieldedTransactionsByNullifiersResponse, ClientError, Context,
+    GetShieldedTransactionsByTagsResponse, HistoryFilters, IndexerRpcConfig, PaginationToken,
+    ProofInputUtxo, Rpc,
 };
 use zolana_event::{
     encode_encrypted_ring_deposit_output, encode_merge_output_data, EncryptedRingDepositOutput,
@@ -326,15 +326,15 @@ impl Rpc for History {
                 |event| (event.slot, event.tx_signature),
             ),
             output_tree_id: None,
-            cursor: None,
-            has_more: false,
+            pagination_token: None,
         })
     }
     fn get_shielded_transactions_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        _since: Option<Cursor>,
+        _token: Option<PaginationToken>,
         _limit: Option<u32>,
+        _filters: HistoryFilters,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
         self.read(config)?;
@@ -360,16 +360,16 @@ impl Rpc for History {
                 |event| (event.slot, event.tx_signature),
             ),
             output_tree_id: None,
-            cursor: None,
-            has_more: false,
+            pagination_token: None,
         })
     }
 
     fn get_shielded_transactions_by_nullifiers(
         &self,
         nullifiers: Vec<[u8; 32]>,
-        _since: Option<Cursor>,
+        _token: Option<PaginationToken>,
         _limit: Option<u32>,
+        _filters: HistoryFilters,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
         self.read(config)?;
@@ -392,8 +392,7 @@ impl Rpc for History {
                 |event| (event.slot, event.tx_signature),
             ),
             output_tree_id: None,
-            cursor: None,
-            has_more: false,
+            pagination_token: None,
         })
     }
 }

@@ -37,7 +37,10 @@ use zolana_transaction::{
 
 use crate::{
     error::ClientError,
-    rpc::{EncryptedUtxoMatch, IndexerRpcConfig, ProgramAccountsFilter, Rpc, ShieldedTransaction},
+    rpc::{
+        EncryptedUtxoMatch, HistoryFilters, IndexerRpcConfig, ProgramAccountsFilter, Rpc,
+        ShieldedTransaction,
+    },
 };
 
 const PAGE_LIMIT: u32 = 1_000;
@@ -334,16 +337,17 @@ fn tagged_transactions<I: Rpc + ?Sized>(
     output_tree_id: &mut Option<u16>,
 ) -> Result<Vec<ShieldedTransaction>, ClientError> {
     let mut transactions = Vec::new();
-    let mut cursor = None;
+    let mut token = None;
     loop {
         let page = indexer.get_shielded_transactions_by_tags(
             tags.to_vec(),
-            cursor,
+            token,
             Some(PAGE_LIMIT),
+            HistoryFilters::default(),
             config,
         )?;
         let next = page
-            .continuation(cursor)
+            .continuation(token)
             .map_err(|_| ClientError::IndexerCursorNotAdvanced)?;
         *output_tree_id = page.output_tree_id;
         transactions.extend(
@@ -353,16 +357,21 @@ fn tagged_transactions<I: Rpc + ?Sized>(
                 .filter(|tx| !tx.proofless),
         );
         match next {
-            Some(next) => cursor = Some(next),
+            Some(next) => token = Some(next),
             None => break,
         }
     }
-    let mut cursor = None;
+    let mut token = None;
     loop {
-        let page =
-            indexer.get_encrypted_utxos_by_tags(tags.to_vec(), cursor, Some(PAGE_LIMIT), config)?;
+        let page = indexer.get_encrypted_utxos_by_tags(
+            tags.to_vec(),
+            token,
+            Some(PAGE_LIMIT),
+            HistoryFilters::default(),
+            config,
+        )?;
         let next = page
-            .continuation(cursor)
+            .continuation(token)
             .map_err(|_| ClientError::IndexerCursorNotAdvanced)?;
         *output_tree_id = page.output_tree_id;
         transactions.extend(
@@ -372,7 +381,7 @@ fn tagged_transactions<I: Rpc + ?Sized>(
                 .filter_map(EncryptedUtxoMatch::into_proofless_transaction),
         );
         match next {
-            Some(next) => cursor = Some(next),
+            Some(next) => token = Some(next),
             None => break,
         }
     }
@@ -389,21 +398,22 @@ fn spending_transactions<I: Rpc + ?Sized>(
 ) -> Result<Vec<ShieldedTransaction>, ClientError> {
     let mut transactions = Vec::new();
     for chunk in nullifiers.chunks(PAGE_LIMIT as usize) {
-        let mut cursor = None;
+        let mut token = None;
         loop {
             let page = indexer.get_shielded_transactions_by_nullifiers(
                 chunk.to_vec(),
-                cursor,
+                token,
                 Some(PAGE_LIMIT),
+                HistoryFilters::default(),
                 config,
             )?;
             let next = page
-                .continuation(cursor)
+                .continuation(token)
                 .map_err(|_| ClientError::IndexerCursorNotAdvanced)?;
             *output_tree_id = page.output_tree_id;
             transactions.extend(page.items.into_iter().flat_map(|item| item.events));
             match next {
-                Some(next) => cursor = Some(next),
+                Some(next) => token = Some(next),
                 None => break,
             }
         }

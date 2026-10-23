@@ -1,7 +1,7 @@
 import { type Address, type Signature } from "@solana/kit";
 
-import type { Bytes16, Bytes32, Cursor, PageOptions } from "../interface/types.js";
-export type { Cursor } from "../interface/types.js";
+import type { Bytes16, Bytes32, PageOptions, PaginationToken } from "../interface/types.js";
+export type { HistoryFilters, PaginationToken, SlotFilter } from "../interface/types.js";
 
 import type { X25519PublicKey } from "../keypair/x25519.js";
 import type { IndexedShieldedTransaction } from "../transaction/instructions/transact.js";
@@ -12,7 +12,6 @@ export {
 } from "./retry.js";
 export type { IndexerPollConfig, IndexerRpcConfig } from "./retry.js";
 
-export { compareCursors } from "../interface/cursor.js";
 export type { PageOptions } from "../interface/types.js";
 
 export interface RpcContext {
@@ -41,8 +40,8 @@ export interface EncryptedUtxoMatch {
 export interface Page<T> {
   readonly context: RpcContext;
   readonly items: readonly T[];
-  readonly cursor: Cursor | null;
-  readonly hasMore: boolean;
+  /** Pass back as `paginationToken` for the next page, `null` when the history has no more results. */
+  readonly paginationToken: PaginationToken | null;
 }
 export interface TransactionEvents<T> {
   readonly slot: bigint;

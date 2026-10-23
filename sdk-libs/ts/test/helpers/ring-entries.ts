@@ -136,8 +136,7 @@ export function entryProofReads(
               ),
             ),
           ),
-          cursor: null,
-          hasMore: false,
+          paginationToken: null,
         });
       },
     ),

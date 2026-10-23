@@ -20,7 +20,7 @@ export interface WalletStateStore {
 /**
  * The authenticated boundary in front of the store. `open` must refuse a
  * sealed snapshot it did not seal for the same wallet, a store that can be
- * modified would otherwise advance the persisted cursors past owned history.
+ * modified would otherwise advance the persisted checkpoints past owned history.
  * `walletSnapshotCipher` is the shipped implementation.
  */
 export interface WalletStateCipher {

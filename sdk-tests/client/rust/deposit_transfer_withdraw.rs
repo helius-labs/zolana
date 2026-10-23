@@ -100,6 +100,7 @@ fn main() -> Result<()> {
             vec![sender_tag],
             None,
             Some(50),
+            zolana_client::HistoryFilters::default(),
             Some(IndexerRpcConfig::at_slot(slot)),
         )?;
 
@@ -178,6 +179,7 @@ fn main() -> Result<()> {
             vec![sender_tag],
             None,
             Some(50),
+            zolana_client::HistoryFilters::default(),
             Some(IndexerRpcConfig::at_slot(slot)),
         )?;
         let transactions = response
@@ -260,6 +262,7 @@ fn main() -> Result<()> {
             vec![sender_tag],
             None,
             Some(50),
+            zolana_client::HistoryFilters::default(),
             Some(IndexerRpcConfig::at_slot(slot)),
         )?;
         let transactions = response

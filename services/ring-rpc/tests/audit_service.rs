@@ -17,9 +17,9 @@ use solana_keypair::Keypair;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    rpc::Cursor, ClientError, Context, GetShieldedTransactionsByTagsResponse, ProofInputUtxo,
+    ClientError, Context, GetShieldedTransactionsByTagsResponse, PaginationToken, ProofInputUtxo,
 };
-use zolana_indexer_api::{Base64String, Hash, Limit};
+use zolana_indexer_api::{Base64String, Hash, HistoryFilters, Limit};
 use zolana_interface::instruction::MessageData;
 use zolana_keypair::{constants::SALT_LEN, ViewingKey};
 use zolana_ring_client::P256ReaderKey;
@@ -212,7 +212,8 @@ fn decide_now(auth: &ReadAuth, origins: &Origins) -> Result<Claim, Unauthorized>
             ring: RING,
             timestamp: auth.timestamp,
             nonce,
-            after: None,
+            pagination_token: None,
+            filters: HistoryFilters::default(),
             min_context_slot: None,
             limit: None,
         },
@@ -294,7 +295,9 @@ fn passkeys_require_canonical_same_origin_assertions() {
 struct StaticSource {
     transactions: Vec<ShieldedTransaction>,
     origins: HashMap<(Signature, u16), bool>,
-    next: Option<Cursor>,
+    next: Option<PaginationToken>,
+    /// The filters each upstream page was asked with, in call order.
+    filters_seen: Arc<std::sync::Mutex<Vec<HistoryFilters>>>,
     /// Per ring, so a read can never be authorized against another ring's
     /// config.
     configs: HashMap<Address, RingConfiguration>,
@@ -312,12 +315,8 @@ struct StaticSource {
     examined_limit: Arc<AtomicUsize>,
 }
 
-fn chain_position(n: u8) -> Cursor {
-    Cursor::new(u64::from(n), Signature::from([n; 64]))
-}
-
-fn wire(position: Cursor) -> zolana_indexer_api::Cursor {
-    position
+fn chain_position(n: u8) -> PaginationToken {
+    PaginationToken::new(u64::from(n), Signature::from([n; 64]))
 }
 
 /// One ring signature and the deposits it made.
@@ -355,11 +354,10 @@ impl TransactionSource for StaticSource {
             .get(&request.tag)
             .cloned()
             .unwrap_or_else(|| self.transactions.clone());
-        let terminal = transactions
-            .iter()
-            .map(|event| Cursor::new(event.slot, event.tx_signature))
-            .max()
-            .max(request.after);
+        self.filters_seen
+            .lock()
+            .expect("filters poisoned")
+            .push(request.filters);
         let response = GetShieldedTransactionsByTagsResponse {
             context: Context {
                 block_time: 0,
@@ -368,8 +366,7 @@ impl TransactionSource for StaticSource {
             items: zolana_client::rpc::TransactionEvents::group(transactions, |event| {
                 (event.slot, event.tx_signature)
             }),
-            cursor: self.next.or(terminal),
-            has_more: self.next.is_some(),
+            pagination_token: self.next,
             output_tree_id: Some(TREE_ID),
         };
         async move { Ok(response) }
@@ -641,6 +638,7 @@ impl Fixture {
             transactions: Vec::new(),
             origins: HashMap::new(),
             next: None,
+            filters_seen: Arc::default(),
             configs: HashMap::from([(
                 RING,
                 RingConfiguration {
@@ -727,6 +725,47 @@ async fn a_freshness_gate_is_signed_before_any_asset_read() {
 }
 
 #[tokio::test]
+async fn slot_filters_are_signed_and_forwarded_upstream() {
+    let fixture = Fixture::new();
+    let source = fixture.source();
+    let filters_seen = source.filters_seen.clone();
+    let service = fixture.hub(source).service().unwrap();
+    let request = GetDecryptedTransactionsRequest::read(RING)
+        .with_filters(HistoryFilters::after_slot(5))
+        .sign(&delegate())
+        .unwrap();
+    assert_eq!(request.filters, HistoryFilters::after_slot(5));
+    let tampered = PageOptions::default()
+        .with_filters(HistoryFilters::after_slot(6))
+        .build()
+        .unwrap();
+    assert!(matches!(
+        service
+            .read(AuditRead {
+                auth: &request.auth,
+                page: &tampered
+            })
+            .await,
+        Err(RingRpcError::Unauthorized(Unauthorized::BadSignature))
+    ));
+    let original = PageOptions::default()
+        .with_filters(HistoryFilters::after_slot(5))
+        .build()
+        .unwrap();
+    service
+        .read(AuditRead {
+            auth: &request.auth,
+            page: &original,
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        *filters_seen.lock().unwrap(),
+        vec![HistoryFilters::after_slot(5)]
+    );
+}
+
+#[tokio::test]
 async fn granted_reader_opens_audited_transfers_and_reports_the_rest() {
     let fixture = Fixture::new();
     let service = fixture.hub(fixture.source()).service().expect("service");
@@ -741,10 +780,7 @@ async fn granted_reader_opens_audited_transfers_and_reports_the_rest() {
         .expect("read");
 
     assert_eq!(response.context.slot, 99);
-    assert_eq!(
-        response.cursor,
-        Some(Cursor::new(42, Signature::from([3; 64])))
-    );
+    assert_eq!(response.pagination_token, None);
     let events: Vec<_> = response
         .items
         .iter()
@@ -1108,10 +1144,7 @@ async fn rows_outside_the_ring_are_dropped() {
         response.items.iter().flat_map(|item| &item.skipped).count(),
         2
     );
-    assert_eq!(
-        response.cursor,
-        Some(Cursor::new(42, Signature::from([3; 64])))
-    );
+    assert_eq!(response.pagination_token, None);
 }
 
 #[tokio::test]
@@ -1119,9 +1152,9 @@ async fn an_empty_filtered_page_retains_its_continuation() {
     let fixture = Fixture::new();
     let mut foreign = fixture.audited.clone();
     foreign.ring_program_id = None;
-    let cursor = Cursor::new(foreign.slot, foreign.tx_signature);
+    let token = PaginationToken::new(foreign.slot, foreign.tx_signature);
     let mut source = fixture.source().with_transactions(vec![foreign]);
-    source.next = Some(cursor);
+    source.next = Some(token);
     let service = fixture.hub(source).service().unwrap();
     let response = service
         .read(AuditRead {
@@ -1131,8 +1164,7 @@ async fn an_empty_filtered_page_retains_its_continuation() {
         .await
         .unwrap();
     assert!(response.items.is_empty());
-    assert_eq!(response.cursor, Some(cursor));
-    assert!(response.has_more);
+    assert_eq!(response.pagination_token, Some(token));
 }
 
 #[tokio::test]
@@ -1239,7 +1271,7 @@ async fn accepted_nonces_are_single_use() {
 async fn an_attested_limit_keeps_the_boundary_transaction_whole() {
     let fixture = Fixture::new();
     let first = fixture.audited.clone();
-    let boundary = Cursor::new(first.slot, first.tx_signature);
+    let boundary = PaginationToken::new(first.slot, first.tx_signature);
     let mut second = first.clone();
     second.event_index = Some(1);
     let mut source = fixture.source().with_transactions(vec![first, second]);
@@ -1270,7 +1302,7 @@ async fn an_attested_limit_keeps_the_boundary_transaction_whole() {
         response.items.iter().flat_map(|item| &item.events).count(),
         2
     );
-    assert_eq!(response.cursor, Some(wire(boundary)));
+    assert_eq!(response.pagination_token, Some(boundary));
 }
 
 #[tokio::test]
@@ -1297,11 +1329,11 @@ async fn indexer_pages_must_match_the_attested_bounds() {
     source.next = Some(chain_position(8));
     let service = fixture.hub(source).service().expect("service");
     let repeated_page = PageOptions::default()
-        .with_after(&wire(chain_position(8)))
+        .with_pagination_token(chain_position(8))
         .build()
         .expect("page");
     let request = GetDecryptedTransactionsRequest::read(RING)
-        .with_after(wire(chain_position(8)))
+        .with_pagination_token(chain_position(8))
         .sign(&signer)
         .expect("request")
         .auth;

@@ -12,10 +12,10 @@ use solana_address::Address;
 use solana_signature::Signature;
 use zolana_client::{
     fetch_asset_id, fetch_spl_asset_registrations,
-    rpc::GetShieldedTransactionsByNullifiersResponse, ClientError, Context, Cursor,
-    EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse, GetShieldedTransactionsByTagsResponse,
-    IndexerRpcConfig, OutputContext, OutputSlot, ProgramAccountsFilter, Rpc, ShieldedTransaction,
-    UtxoScan,
+    rpc::GetShieldedTransactionsByNullifiersResponse, ClientError, Context, EncryptedUtxoMatch,
+    GetEncryptedUtxosByTagsResponse, GetShieldedTransactionsByTagsResponse, HistoryFilters,
+    IndexerRpcConfig, OutputContext, OutputSlot, PaginationToken, ProgramAccountsFilter, Rpc,
+    ShieldedTransaction, UtxoScan,
 };
 use zolana_event::{
     encode_merge_output_data, EncryptedRingDepositOutput, MergeOutputDataRef, OutputDataEncoding,
@@ -59,8 +59,8 @@ struct Indexer {
     reads: RefCell<Vec<&'static str>>,
     /// Rows per page; one when zero.
     page_size: usize,
-    /// Answers every page as full, with the cursor it was given.
-    stuck_cursor: bool,
+    /// Answers every page with the token it was given.
+    stuck_token: bool,
 }
 
 impl Indexer {
@@ -79,50 +79,49 @@ impl Indexer {
             .count()
     }
 
-    /// Pages never split the matching rows of one transaction.
+    /// Pages never split the matching rows of one transaction, and carry a
+    /// token only when a lookahead row shows more to read.
     fn page<T>(
         &self,
         mut items: Vec<T>,
-        after: Option<Cursor>,
-        position: impl Fn(&T) -> Cursor,
+        after: Option<PaginationToken>,
+        position: impl Fn(&T) -> PaginationToken,
     ) -> Page<T> {
         let size = self.page_size.max(1);
         items.sort_by_key(&position);
-        let latest = items.last().map(&position);
-        if self.stuck_cursor {
+        if self.stuck_token {
+            let latest = items.last().map(&position);
             return Page {
                 rows: items.into_iter().take(size).collect(),
                 next: Some(
                     after
                         .or(latest)
-                        .unwrap_or(Cursor::new(0, Signature::default())),
+                        .unwrap_or(PaginationToken::new(0, Signature::default())),
                 ),
-                latest: None,
             };
         }
         let mut remaining = items
             .into_iter()
-            .filter(|item| after.is_none_or(|after| position(item) > after));
+            .filter(|item| after.is_none_or(|after| position(item) > after))
+            .peekable();
         let mut rows: Vec<T> = remaining.by_ref().take(size).collect();
-        let next = if rows.len() >= size {
-            let boundary = position(rows.last().unwrap());
-            rows.extend(remaining.take_while(|item| position(item) == boundary));
-            Some(boundary)
-        } else {
-            None
-        };
-        Page {
-            rows,
-            next,
-            latest: latest.filter(|_| next.is_none()),
+        let mut next = None;
+        if let Some(boundary) = rows.last().map(&position) {
+            while remaining
+                .peek()
+                .is_some_and(|item| position(item) == boundary)
+            {
+                rows.extend(remaining.next());
+            }
+            next = remaining.peek().map(|_| boundary);
         }
+        Page { rows, next }
     }
 }
 
 struct Page<T> {
     rows: Vec<T>,
-    next: Option<Cursor>,
-    latest: Option<Cursor>,
+    next: Option<PaginationToken>,
 }
 
 const CONTEXT: Context = Context {
@@ -167,8 +166,9 @@ impl Rpc for Indexer {
     fn get_shielded_transactions_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        cursor: Option<Cursor>,
+        token: Option<PaginationToken>,
         _limit: Option<u32>,
+        _filters: HistoryFilters,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
         self.read("get_shielded_transactions_by_tags", config);
@@ -186,9 +186,8 @@ impl Rpc for Indexer {
         let Page {
             rows: transactions,
             next,
-            latest,
-        } = self.page(matching, cursor, |item| {
-            Cursor::new(item.slot, item.tx_signature)
+        } = self.page(matching, token, |item| {
+            PaginationToken::new(item.slot, item.tx_signature)
         });
         Ok(GetShieldedTransactionsByTagsResponse {
             context: CONTEXT,
@@ -196,16 +195,16 @@ impl Rpc for Indexer {
             items: zolana_client::rpc::TransactionEvents::group(transactions, |event| {
                 (event.slot, event.tx_signature)
             }),
-            cursor: next.or(latest),
-            has_more: next.is_some(),
+            pagination_token: next,
         })
     }
 
     fn get_encrypted_utxos_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        cursor: Option<Cursor>,
+        token: Option<PaginationToken>,
         _limit: Option<u32>,
+        _filters: HistoryFilters,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
         self.read("get_encrypted_utxos_by_tags", config);
@@ -218,9 +217,8 @@ impl Rpc for Indexer {
         let Page {
             rows: matches,
             next,
-            latest,
-        } = self.page(matching, cursor, |item| {
-            Cursor::new(item.slot, item.tx_signature)
+        } = self.page(matching, token, |item| {
+            PaginationToken::new(item.slot, item.tx_signature)
         });
         Ok(GetEncryptedUtxosByTagsResponse {
             context: CONTEXT,
@@ -228,20 +226,20 @@ impl Rpc for Indexer {
             items: zolana_client::rpc::TransactionOutputs::group(matches, |event| {
                 (event.slot, event.tx_signature)
             }),
-            cursor: next.or(latest),
-            has_more: next.is_some(),
+            pagination_token: next,
         })
     }
 
     fn get_shielded_transactions_by_nullifiers(
         &self,
         nullifiers: Vec<[u8; 32]>,
-        cursor: Option<Cursor>,
+        token: Option<PaginationToken>,
         _limit: Option<u32>,
+        _filters: HistoryFilters,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
         self.read("get_shielded_transactions_by_nullifiers", config);
-        if cursor.is_none() {
+        if token.is_none() {
             self.queried_nullifiers
                 .borrow_mut()
                 .extend(nullifiers.iter().copied());
@@ -255,9 +253,8 @@ impl Rpc for Indexer {
         let Page {
             rows: transactions,
             next,
-            latest,
-        } = self.page(matching, cursor, |item| {
-            Cursor::new(item.slot, item.tx_signature)
+        } = self.page(matching, token, |item| {
+            PaginationToken::new(item.slot, item.tx_signature)
         });
         Ok(GetShieldedTransactionsByNullifiersResponse {
             context: CONTEXT,
@@ -265,8 +262,7 @@ impl Rpc for Indexer {
             items: zolana_client::rpc::TransactionEvents::group(transactions, |event| {
                 (event.slot, event.tx_signature)
             }),
-            cursor: next.or(latest),
-            has_more: next.is_some(),
+            pagination_token: next,
         })
     }
 }
@@ -519,7 +515,7 @@ fn fetch_follows_spends_the_wallet_tags_do_not_reach() {
 }
 
 #[test]
-fn a_stream_ends_at_a_page_short_of_the_page_size() {
+fn a_stream_ends_where_the_indexer_reports_no_more_results() {
     let owner = keypair(9);
     let owner_tag = owner
         .shielded_address()
@@ -544,9 +540,9 @@ fn a_stream_ends_at_a_page_short_of_the_page_size() {
     let scan = UtxoScan::new(&owner, &assets).fetch(&indexer).unwrap();
     assert_eq!(scan.spendable.utxos().count(), 3);
 
-    // A full page is followed to the empty page that ends the stream; a
-    // shorter page ends it.
-    assert_eq!(indexer.reads_of("get_shielded_transactions_by_tags"), 2);
+    // Paging follows the token until the indexer reports no more results, so
+    // a page that is exactly full ends the stream without another read.
+    assert_eq!(indexer.reads_of("get_shielded_transactions_by_tags"), 1);
     assert_eq!(indexer.reads_of("get_encrypted_utxos_by_tags"), 2);
     assert_eq!(
         indexer.reads_of("get_shielded_transactions_by_nullifiers"),
@@ -554,15 +550,14 @@ fn a_stream_ends_at_a_page_short_of_the_page_size() {
     );
 }
 
-/// An indexer that hands back the cursor it was given would be paged
-/// forever.
+/// An indexer that hands back the token it was given would be paged forever.
 #[test]
-fn a_cursor_that_does_not_advance_fails_instead_of_paging_forever() {
+fn a_token_that_does_not_advance_fails_instead_of_paging_forever() {
     let owner = keypair(7);
     let (first_deposit, _) = deposit(&owner, 30, 1);
     let indexer = Indexer {
         deposits: vec![first_deposit],
-        stuck_cursor: true,
+        stuck_token: true,
         ..Indexer::default()
     };
     let assets = AssetRegistry::default();

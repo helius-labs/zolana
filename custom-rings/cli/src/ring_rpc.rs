@@ -218,14 +218,15 @@ impl RingRpcClient {
         let response: GetDecryptedTransactionsResponse =
             self.call(GET_DECRYPTED_TRANSACTIONS, serde_json::to_value(request)?)?;
         response
-            .validate(
-                request.after,
-                request.limit.as_ref().map_or(
+            .validate(&zolana_indexer_api::PageRequest {
+                pagination_token: request.pagination_token,
+                limit: request.limit.as_ref().map_or(
                     zolana_ring_rpc::AUDIT_PAGE_LIMIT,
                     zolana_indexer_api::Limit::value,
                 ),
-                request.min_context_slot,
-            )
+                filters: request.filters,
+                min_context_slot: request.min_context_slot,
+            })
             .map_err(|_| RingRpcClientError::InvalidPage)?;
         for item in &response.items {
             item.validate()
@@ -244,11 +245,11 @@ impl RingRpcClient {
             signature,
         } = lookup;
         wait_for("ring rpc to open the transaction".to_owned(), || {
-            let mut after = None;
+            let mut token = None;
             loop {
                 let mut request = GetDecryptedTransactionsRequest::read(ring);
-                if let Some(next) = after.take() {
-                    request = request.with_after(next);
+                if let Some(next) = token.take() {
+                    request = request.with_pagination_token(next);
                 }
                 let page = match self.decrypted_transactions(&request.sign(reader)?) {
                     Ok(page) => page,
@@ -273,8 +274,8 @@ impl RingRpcClient {
                         reason: skipped.reason,
                     });
                 }
-                match page.cursor.filter(|_| page.has_more) {
-                    Some(next) => after = Some(next),
+                match page.pagination_token {
+                    Some(next) => token = Some(next),
                     None => return Ok(Probe::NotYet),
                 }
             }

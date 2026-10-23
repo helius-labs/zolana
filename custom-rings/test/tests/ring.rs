@@ -267,7 +267,13 @@ fn localnet_bring_up_is_live() -> Result<()> {
     let indexed = env
         .client
         .indexer()
-        .get_shielded_transactions_by_tags(vec![UNUSED_VIEW_TAG], None, Some(10), None)
+        .get_shielded_transactions_by_tags(
+            vec![UNUSED_VIEW_TAG],
+            None,
+            Some(10),
+            zolana_client::HistoryFilters::default(),
+            None,
+        )
         .map_err(|e| anyhow!("indexer {} failed {e:?}", env.indexer_url))?;
     assert!(
         indexed.items.is_empty(),

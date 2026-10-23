@@ -1,4 +1,5 @@
-import { checkedCursor } from "../interface/cursor.js";
+import { checkedHistoryFilters } from "../interface/page.js";
+import { checkedPaginationToken } from "../interface/pagination-token.js";
 import { KeypairError } from "../keypair/error.js";
 import { X25519PublicKey } from "../keypair/x25519.js";
 import { isAddress } from "@solana/kit";
@@ -22,6 +23,8 @@ import type {
   Bytes16,
   Bytes32,
   Bytes33,
+  HistoryFilters,
+  PaginationToken,
   RequestContext,
   Signature,
 } from "../interface/types.js";
@@ -45,7 +48,6 @@ import {
   type IndexerRpcConfig,
 } from "./retry.js";
 import {
-  type Cursor,
   type EncryptedUtxoMatch,
   type GetByNullifiersRequest,
   type GetByTagsRequest,
@@ -84,9 +86,7 @@ export class ZolanaIndexer {
           {
             tags: owned.tags.map((tag) => hash(tag)),
             ...(owned.ringProgramId === undefined ? {} : { ringProgramId: owned.ringProgramId }),
-            ...(owned.after === undefined ? {} : { after: owned.after }),
-            ...(owned.limit === undefined ? {} : { limit: limit(BigInt(owned.limit)) }),
-            ...(owned.minContextSlot === undefined ? {} : { minContextSlot: owned.minContextSlot }),
+            ...wirePageControls(owned),
           },
           context,
         );
@@ -110,9 +110,7 @@ export class ZolanaIndexer {
           {
             tags: owned.tags.map((tag) => hash(tag)),
             ...(owned.ringProgramId === undefined ? {} : { ringProgramId: owned.ringProgramId }),
-            ...(owned.after === undefined ? {} : { after: owned.after }),
-            ...(owned.limit === undefined ? {} : { limit: limit(BigInt(owned.limit)) }),
-            ...(owned.minContextSlot === undefined ? {} : { minContextSlot: owned.minContextSlot }),
+            ...wirePageControls(owned),
           },
           context,
         );
@@ -135,9 +133,7 @@ export class ZolanaIndexer {
         const response = await this.#api.getShieldedTransactionsByNullifiers(
           {
             nullifiers: owned.nullifiers.map((nullifier) => hash(nullifier)),
-            ...(owned.after === undefined ? {} : { after: owned.after }),
-            ...(owned.limit === undefined ? {} : { limit: limit(BigInt(owned.limit)) }),
-            ...(owned.minContextSlot === undefined ? {} : { minContextSlot: owned.minContextSlot }),
+            ...wirePageControls(owned),
           },
           context,
         );
@@ -409,32 +405,56 @@ function convertRegistryRecord(
 }
 
 function copyTagRequest(request: GetByTagsRequest): GetByTagsRequest {
-  const after = copiedPosition(request.after);
   return Object.freeze({
     tags: copyFixedBytes(request.tags, 32, "tags") as readonly Bytes32[],
     ...(request.ringProgramId === undefined ? {} : { ringProgramId: request.ringProgramId }),
-    ...(after === undefined ? {} : { after }),
-    ...(request.limit === undefined ? {} : { limit: checkedPageLimit(request.limit) }),
-    ...(request.minContextSlot === undefined ? {} : { minContextSlot: request.minContextSlot }),
+    ...copyPageControls(request),
   });
 }
 
 function copyNullifierRequest(request: GetByNullifiersRequest): GetByNullifiersRequest {
-  const after = copiedPosition(request.after);
   return Object.freeze({
     nullifiers: copyFixedBytes(request.nullifiers, 32, "nullifiers") as readonly Bytes32[],
-    ...(after === undefined ? {} : { after }),
-    ...(request.limit === undefined ? {} : { limit: checkedPageLimit(request.limit) }),
-    ...(request.minContextSlot === undefined ? {} : { minContextSlot: request.minContextSlot }),
+    ...copyPageControls(request),
   });
 }
 
-function copiedPosition(position: Cursor | undefined): Cursor | undefined {
-  if (position === undefined) return undefined;
+interface PageControls {
+  readonly paginationToken?: PaginationToken;
+  readonly limit?: number;
+  readonly filters?: HistoryFilters;
+  readonly minContextSlot?: bigint;
+}
+
+function copyPageControls(request: PageControls): PageControls {
+  const paginationToken = copiedPaginationToken(request.paginationToken);
+  const filters = checkedHistoryFilters(
+    request.filters,
+    (field) => new ClientError("CLIENT_INVALID_CONFIG", { details: { field } }),
+  );
+  return {
+    ...(paginationToken === undefined ? {} : { paginationToken }),
+    ...(request.limit === undefined ? {} : { limit: checkedPageLimit(request.limit) }),
+    ...(filters === undefined ? {} : { filters }),
+    ...(request.minContextSlot === undefined ? {} : { minContextSlot: request.minContextSlot }),
+  };
+}
+
+function wirePageControls(owned: PageControls) {
+  return {
+    ...(owned.paginationToken === undefined ? {} : { paginationToken: owned.paginationToken }),
+    ...(owned.limit === undefined ? {} : { limit: limit(BigInt(owned.limit)) }),
+    ...(owned.filters === undefined ? {} : { filters: owned.filters }),
+    ...(owned.minContextSlot === undefined ? {} : { minContextSlot: owned.minContextSlot }),
+  };
+}
+
+function copiedPaginationToken(token: PaginationToken | undefined): PaginationToken | undefined {
+  if (token === undefined) return undefined;
   try {
-    return checkedCursor(position);
+    return checkedPaginationToken(token);
   } catch {
-    throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "after" } });
+    throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "paginationToken" } });
   }
 }
 
@@ -520,8 +540,7 @@ function convertEncryptedUtxosResponse(
         }),
       ),
     ),
-    cursor: response.cursor,
-    hasMore: response.hasMore,
+    paginationToken: response.paginationToken,
   });
 }
 
@@ -562,8 +581,7 @@ function convertShieldedTransactionsResponse(
         }),
       ),
     ),
-    cursor: response.cursor,
-    hasMore: response.hasMore,
+    paginationToken: response.paginationToken,
   });
 }
 

@@ -25,8 +25,9 @@ pub(super) fn ring_history_request(
         .transpose()?;
     Ok(GetRingsByTagsRequest {
         tags: Vec::new(),
-        after: options.after,
+        pagination_token: options.pagination_token,
         limit,
+        filters: options.filters,
         ring_program_id: Some(SerializablePubkey(options.ring_program_id)),
         min_context_slot: None,
     })
@@ -83,8 +84,7 @@ pub(super) fn convert_shielded_transactions_response(
                 })
             })
             .collect::<Result<Vec<_>, ClientError>>()?,
-        cursor: response.cursor,
-        has_more: response.has_more,
+        pagination_token: response.pagination_token,
     })
 }
 
@@ -329,23 +329,24 @@ mod tests {
     #[test]
     fn ring_history_request_pins_the_ring_without_a_view_tag() {
         let ring = solana_address::Address::new_from_array([19; 32]);
-        let after = crate::rpc::Cursor::new(7, solana_signature::Signature::from([7; 64]));
+        let token = crate::rpc::PaginationToken::new(7, solana_signature::Signature::from([7; 64]));
         let request = super::ring_history_request(crate::rpc::RingHistoryOptions {
             ring_program_id: ring,
-            after: Some(after),
+            pagination_token: Some(token),
             limit: Some(17),
+            filters: crate::rpc::HistoryFilters::after_slot(3),
         })
         .unwrap();
         assert!(request.tags.is_empty());
         assert_eq!(request.ring_program_id.unwrap().0, ring);
-        let wire = request.after.unwrap();
-        assert_eq!(wire.slot(), 7);
-        assert_eq!(wire.signature(), after.signature());
+        assert_eq!(request.pagination_token, Some(token));
+        assert_eq!(request.filters.slot.gt, Some(3));
         assert_eq!(request.limit.unwrap().value(), 17);
         assert!(super::ring_history_request(crate::rpc::RingHistoryOptions {
             ring_program_id: ring,
-            after: None,
-            limit: Some(0)
+            pagination_token: None,
+            limit: Some(0),
+            filters: Default::default(),
         })
         .is_err());
     }

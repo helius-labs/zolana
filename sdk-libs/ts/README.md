@@ -347,14 +347,16 @@ Persist wallet state with `serializeWallet` and restore it with
 `deserializeWallet`. Persist key material separately. Serialized wallet state
 contains UTXO data and must be encrypted at rest.
 
-History reads accept `{after?, limit?, minContextSlot?}` and return
-`{context, items, cursor, hasMore}`. `items` groups the events or outputs of each
-Solana transaction, so `limit` never splits a transaction. Pass the returned
-`cursor` unchanged as `after` while `hasMore` is true. Keep a terminal cursor,
-including one from an empty page, to resume a later scan. Cursors share an
-ascending slot and signature-byte order; a checkpoint applies only to the
-filters already scanned. `minContextSlot` gates freshness independently from
-`after`.
+History reads accept `{paginationToken?, limit?, filters?, minContextSlot?}`
+and return `{context, items, paginationToken}`, the shape of Helius
+`getTransactionsForAddress`. `items` groups the events or outputs of each Solana
+transaction, so `limit` never splits a transaction. Pass the returned
+`paginationToken` back unchanged, with the same filters, until it is `null`.
+To resume a later scan, keep the final page's `context.slot` and send
+`filters: { slot: { gt } }` with it; every match at or below that slot has been
+returned, including when the scan matched nothing. A checkpoint applies only to
+the tags or nullifiers already scanned. Pages run in ascending slot and
+signature-byte order, and `minContextSlot` gates freshness independently.
 
 `syncPersistedWallet` runs `syncWallet` and, only after the sync commits,
 seals the serialized wallet through a `WalletStateCipher` and saves it through

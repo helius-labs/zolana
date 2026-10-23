@@ -15,11 +15,12 @@ use solana_signature::Signature;
 use zolana_client::{
     indexer::{AsyncZolanaIndexer, ZolanaIndexer},
     rpc::{
-        AsyncRpc, Context, Cursor, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
+        AsyncRpc, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
         GetMerkleProofsResponse, GetNonInclusionProofsResponse,
         GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsByTagsResponse,
-        GetUserRecordsResponse, MerkleContext, MerkleProof, NonInclusionProof, OutputContext,
-        OutputSlot, RingSpendRecordRequest, Rpc, ShieldedTransaction, UserRecord,
+        GetUserRecordsResponse, HistoryFilters, MerkleContext, MerkleProof, NonInclusionProof,
+        OutputContext, OutputSlot, PaginationToken, RingSpendRecordRequest, Rpc,
+        ShieldedTransaction, UserRecord,
     },
     ClientError,
 };
@@ -87,13 +88,19 @@ fn get_encrypted_utxos_by_tags_encodes_request_and_decodes_matches() {
             },
             "txViewingPk": STANDARD.encode(&tx_viewing_pk_bytes),
         }]}],
-        "cursor": position(7, 9).to_string(), "hasMore": true,
+        "paginationToken": position(7, 9).to_string(),
     }));
     let server = MockServer::respond_once(response);
     let indexer = ZolanaIndexer::new(server.url());
 
     let got = indexer
-        .get_encrypted_utxos_by_tags(vec![tag_a, tag_b], Some(position(3, 1)), Some(7), None)
+        .get_encrypted_utxos_by_tags(
+            vec![tag_a, tag_b],
+            Some(position(3, 1)),
+            Some(7),
+            HistoryFilters::default(),
+            None,
+        )
         .expect("encrypted UTXO lookup");
     let request = server.request();
 
@@ -103,7 +110,7 @@ fn get_encrypted_utxos_by_tags_encodes_request_and_decodes_matches() {
         request.body["params"],
         json!({
             "tags": [encode_hash_string(tag_a), encode_hash_string(tag_b)],
-            "after": position(3, 1).to_string(),
+            "paginationToken": position(3, 1).to_string(),
             "limit": 7,
         })
     );
@@ -133,8 +140,7 @@ fn get_encrypted_utxos_by_tags_encodes_request_and_decodes_matches() {
                 }],
                 |event| (event.slot, event.tx_signature)
             ),
-            cursor: Some(position(7, 9)),
-            has_more: true,
+            pagination_token: Some(position(7, 9)),
         }
     );
 }
@@ -168,13 +174,19 @@ fn get_shielded_transactions_by_tags_maps_output_hashes_and_nullifiers() {
             "nullifiers": [encode_hash_string(nullifier)],
             "proofless": true,
         }]}],
-        "cursor": position(50, 14).to_string(), "hasMore": true,
+        "paginationToken": position(50, 14).to_string(),
     }));
     let server = MockServer::respond_once(response);
     let indexer = ZolanaIndexer::new(server.url());
 
     let got = indexer
-        .get_shielded_transactions_by_tags(vec![tag], None, Some(1), None)
+        .get_shielded_transactions_by_tags(
+            vec![tag],
+            None,
+            Some(1),
+            HistoryFilters::default(),
+            None,
+        )
         .expect("shielded transaction lookup");
     let request = server.request();
 
@@ -219,8 +231,7 @@ fn get_shielded_transactions_by_tags_maps_output_hashes_and_nullifiers() {
                 }],
                 |event| (event.slot, event.tx_signature)
             ),
-            cursor: Some(position(50, 14)),
-            has_more: true,
+            pagination_token: Some(position(50, 14)),
         }
     );
 }
@@ -272,7 +283,7 @@ fn get_shielded_transactions_by_nullifiers_uses_dedicated_rpc() {
     let nullifier_b = bytes32(25);
     let response = rpc_result(json!({
         "context": { "blockTime": 52, "slot": 9 },
-        "items": [], "cursor": position(9, 2).to_string(), "hasMore": false,
+        "items": [], "paginationToken": null,
     }));
     let server = MockServer::respond_once(response);
     let indexer = ZolanaIndexer::new(server.url());
@@ -282,6 +293,7 @@ fn get_shielded_transactions_by_nullifiers_uses_dedicated_rpc() {
             vec![nullifier_a, nullifier_b],
             Some(position(2, 1)),
             Some(3),
+            HistoryFilters::after_slot(1),
             None,
         )
         .expect("nullifier transaction lookup");
@@ -296,8 +308,9 @@ fn get_shielded_transactions_by_nullifiers_uses_dedicated_rpc() {
                 encode_hash_string(nullifier_a),
                 encode_hash_string(nullifier_b)
             ],
-            "after": position(2, 1).to_string(),
+            "paginationToken": position(2, 1).to_string(),
             "limit": 3,
+            "filters": { "slot": { "gt": 1 } },
         })
     );
     assert_eq!(
@@ -311,8 +324,7 @@ fn get_shielded_transactions_by_nullifiers_uses_dedicated_rpc() {
             // field rather than naming a tree it cannot vouch for.
             output_tree_id: None,
             items: Vec::new(),
-            cursor: Some(position(9, 2)),
-            has_more: false,
+            pagination_token: None,
         }
     );
 }
@@ -502,7 +514,13 @@ fn wraps_json_rpc_errors() {
     let indexer = ZolanaIndexer::new(server.url());
 
     let err = indexer
-        .get_encrypted_utxos_by_tags(vec![bytes32(1)], None, None, None)
+        .get_encrypted_utxos_by_tags(
+            vec![bytes32(1)],
+            None,
+            None,
+            HistoryFilters::default(),
+            None,
+        )
         .expect_err("JSON-RPC errors must surface");
     let _ = server.request();
 
@@ -582,13 +600,13 @@ fn rejects_malformed_output_slot_hash() {
             "messages": [],
             "nullifiers": [],
             "proofless": true,
-        }]}], "cursor": position(1, 52).to_string(), "hasMore": false,
+        }]}], "paginationToken": null,
     }));
     let server = MockServer::respond_once(response);
     let indexer = ZolanaIndexer::new(server.url());
 
     let err = indexer
-        .get_shielded_transactions_by_tags(vec![tag], None, None, None)
+        .get_shielded_transactions_by_tags(vec![tag], None, None, HistoryFilters::default(), None)
         .expect_err("short output hash must fail");
     let _ = server.request();
 
@@ -801,8 +819,8 @@ fn signature(value: u8) -> Signature {
     Signature::from([value; 64])
 }
 
-fn position(slot: u64, byte: u8) -> Cursor {
-    Cursor::new(slot, signature(byte))
+fn position(slot: u64, byte: u8) -> PaginationToken {
+    PaginationToken::new(slot, signature(byte))
 }
 
 fn encode_hash_string(hash: [u8; 32]) -> String {

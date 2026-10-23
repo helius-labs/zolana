@@ -8,7 +8,7 @@ use custom_ring_sdk::{CustomRing, ReadEntry, ReadSpendRecord};
 use solana_address::Address;
 use zolana_client::{
     rpc::GetShieldedTransactionsByNullifiersResponse, AsyncRpc, ClientError, Context,
-    IndexerRpcConfig, Rpc,
+    HistoryFilters, IndexerRpcConfig, PaginationToken, Rpc,
 };
 use zolana_ring_policy::{ListId, Member};
 
@@ -33,8 +33,7 @@ impl Indexer {
             },
             items: Vec::new(),
             output_tree_id: None,
-            cursor: None,
-            has_more: false,
+            pagination_token: None,
         }
     }
 
@@ -47,8 +46,9 @@ impl Rpc for Indexer {
     fn get_shielded_transactions_by_nullifiers(
         &self,
         _nullifiers: Vec<[u8; 32]>,
-        _since: Option<zolana_client::rpc::Cursor>,
+        _token: Option<PaginationToken>,
         _limit: Option<u32>,
+        _filters: HistoryFilters,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
         Ok(self.read(config))
@@ -60,8 +60,9 @@ impl AsyncRpc for Indexer {
     async fn get_shielded_transactions_by_nullifiers(
         &self,
         _nullifiers: Vec<[u8; 32]>,
-        _since: Option<zolana_client::rpc::Cursor>,
+        _token: Option<PaginationToken>,
         _limit: Option<u32>,
+        _filters: HistoryFilters,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
         Ok(self.read(config))

@@ -1,4 +1,4 @@
-import type { Address, Bytes32, Cursor, Signature } from "../../interface/types.js";
+import type { Address, Bytes32, Signature } from "../../interface/types.js";
 import type { X25519PublicKey } from "../../keypair/x25519.js";
 import type { ShieldedAddress } from "../../keypair/shielded.js";
 
@@ -55,17 +55,19 @@ export type PrivateTransactionKind =
 export type PrivateTransactionDirection = "inbound" | "outbound" | "selfTransfer";
 
 /**
- * Streams the wallet keeps read positions in.
+ * Streams the wallet keeps checkpoints in.
  *
  * They are separate because reaching the tip of one says nothing about the
- * others, and sharing a cursor would skip rows in whichever stream is behind.
- * `transactions` and `proofless` are keyed by view tag; `nullifiers` by
- * nullifier.
+ * others, and sharing a checkpoint would skip rows in whichever stream is
+ * behind. `transactions` and `proofless` are keyed by view tag; `nullifiers`
+ * by nullifier.
  */
-export type CursorStream = "transactions" | "proofless" | "nullifiers";
+export type CheckpointStream = "transactions" | "proofless" | "nullifiers";
 
 /** @internal */
-export type SyncCursorAdvances = Readonly<Record<CursorStream, ReadonlyMap<string, Cursor>>>;
+export type SyncCheckpointAdvances = Readonly<
+  Record<CheckpointStream, ReadonlyMap<string, bigint>>
+>;
 
 /** @internal Submission reservations end only after settlement or an observed spend. */
 export interface UtxoReservation {
@@ -90,7 +92,7 @@ export interface SyncDelta {
   readonly nullifiers: ReadonlySet<string>;
   readonly viewingKeyHistory: readonly ViewingKeyEntry[];
   readonly lastSynced: bigint;
-  readonly cursors: SyncCursorAdvances;
+  readonly checkpoints: SyncCheckpointAdvances;
   readonly registryAdditions: readonly Readonly<{ assetId: bigint; mint: Address }>[];
 }
 
@@ -204,21 +206,21 @@ export class Wallet {
   #nullifiers = new Set<string>();
   #lastSynced = 0n;
   /**
-   * Read position per stream and key, the chain position everything matching
-   * that key has been seen through on that stream. Mirrors Rust's
-   * `Wallet::cursors`.
+   * Checkpoint per stream and key: the slot through which everything matching
+   * that key on that stream has been seen. The next sync resumes strictly
+   * above it. Mirrors Rust's `Wallet::checkpoints`.
    *
-   * Per key rather than one shared position, because the key set GROWS. Tags
+   * Per key rather than one shared slot, because the key set GROWS. Tags
    * come from a local counter plus a window, and a second device spending
    * beyond that window makes the counter lag by more than the window absorbs.
    * A tag learned late must be scanned from the beginning even though other
-   * tags have advanced far past those slots, so a single position would skip
+   * tags have advanced far past those slots, so a single checkpoint would skip
    * those transactions permanently.
    *
-   * Serialized as a chain position in snapshot version 6, an older snapshot
-   * restores with empty cursors and rescans history once.
+   * Serialized in snapshot version 6, an older snapshot restores with no
+   * checkpoints and rescans history once.
    */
-  #syncCursors = new Map<string, Cursor>();
+  #syncCheckpoints = new Map<string, bigint>();
   #revision = 0;
   #syncQueue: Promise<unknown> = Promise.resolve();
   #reservations: UtxoReservation[] = [];
@@ -244,19 +246,19 @@ export class Wallet {
   }
 
   /**
-   * Position this key's stream has been read to, or `undefined` for a key never
-   * scanned -- which must start from the beginning, not from another key's
-   * position.
+   * Slot this key's stream has been read through, or `undefined` for a key
+   * never scanned -- which must start from the beginning, not from another
+   * key's checkpoint.
    *
    * @internal
    */
-  _syncCursor(stream: CursorStream, key: string): Cursor | undefined {
-    return this.#syncCursors.get(`${stream}|${key}`);
+  _syncCheckpoint(stream: CheckpointStream, key: string): bigint | undefined {
+    return this.#syncCheckpoints.get(`${stream}|${key}`);
   }
 
   /** @internal */
-  _setSyncCursor(stream: CursorStream, key: string, position: Cursor): void {
-    this.#syncCursors.set(`${stream}|${key}`, position);
+  _setSyncCheckpoint(stream: CheckpointStream, key: string, slot: bigint): void {
+    this.#syncCheckpoints.set(`${stream}|${key}`, slot);
   }
 
   /**
@@ -267,16 +269,16 @@ export class Wallet {
    *
    * @internal
    */
-  _forgetNullifierCursors(spent: ReadonlySet<string>): void {
-    for (const nullifier of spent) this.#syncCursors.delete(`nullifiers|${nullifier}`);
+  _forgetNullifierCheckpoints(spent: ReadonlySet<string>): void {
+    for (const nullifier of spent) this.#syncCheckpoints.delete(`nullifiers|${nullifier}`);
   }
 
   /** @internal */
-  _cursorEntries(stream: CursorStream): readonly (readonly [string, Cursor])[] {
+  _checkpointEntries(stream: CheckpointStream): readonly (readonly [string, bigint])[] {
     const prefix = `${stream}|`;
-    return [...this.#syncCursors]
+    return [...this.#syncCheckpoints]
       .filter(([key]) => key.startsWith(prefix))
-      .map(([key, position]) => [key.slice(prefix.length), position] as const);
+      .map(([key, slot]) => [key.slice(prefix.length), slot] as const);
   }
 
   registerAsset(assetId: bigint, mint: Address): void {
@@ -416,7 +418,7 @@ export class Wallet {
     this.#nullifiers = new Set(input.nullifiers);
     // A spent nullifier is never queried again, so its watermark is dead weight.
     // Both key spaces are lowercase hex of the same bytes, so the sets line up.
-    this._forgetNullifierCursors(this.#nullifiers);
+    this._forgetNullifierCheckpoints(this.#nullifiers);
     const unspent = new Set(
       this.#utxos.filter((entry) => !entry.spent).map((entry) => hex(entry.outputContext.hash)),
     );
@@ -564,8 +566,8 @@ export class Wallet {
   _clone(): Wallet {
     const clone = new Wallet({ identity: this.identity, registry: this.#registry });
     clone._replace({ ...this._state(), lastSynced: this.#lastSynced });
-    for (const [key, position] of this.#syncCursors) {
-      clone.#syncCursors.set(key, position);
+    for (const [key, slot] of this.#syncCheckpoints) {
+      clone.#syncCheckpoints.set(key, slot);
     }
     clone.#reservations = [...this.#reservations];
     clone.#pendingSubmissions = [...this.#pendingSubmissions];
@@ -573,7 +575,7 @@ export class Wallet {
   }
 
   /**
-   * Rows, cursors, and registry additions land in one synchronous step, a
+   * Rows, checkpoints, and registry additions land in one synchronous step, a
    * revision moved by another writer since the snapshot refuses the commit.
    * @internal
    */
@@ -598,11 +600,11 @@ export class Wallet {
     for (const addition of delta.registryAdditions) {
       this.#registry.register(addition.assetId, addition.mint);
     }
-    // Cursors land before `_replace`, a cursor for a nullifier spent in the
-    // same delta is pruned within the same commit.
+    // Checkpoints land before `_replace`, a checkpoint for a nullifier spent
+    // in the same delta is pruned within the same commit.
     for (const stream of ["transactions", "proofless", "nullifiers"] as const) {
-      for (const [key, cursor] of delta.cursors[stream]) {
-        this._setSyncCursor(stream, key, cursor);
+      for (const [key, slot] of delta.checkpoints[stream]) {
+        this._setSyncCheckpoint(stream, key, slot);
       }
     }
     this._replace({

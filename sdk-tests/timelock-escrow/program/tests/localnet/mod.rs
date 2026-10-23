@@ -77,6 +77,7 @@ pub fn creator_transactions(
             ],
             None,
             Some(50),
+            zolana_client::HistoryFilters::default(),
             Some(IndexerRpcConfig::at_slot(slot)),
         )?
         .items

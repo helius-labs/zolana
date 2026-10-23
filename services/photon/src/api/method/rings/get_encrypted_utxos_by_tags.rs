@@ -1,9 +1,8 @@
 use super::common::{
-    after_sql_condition, bind_u64_as_i64, chain_position, ensure_after_indexed, require_context,
+    bind_u64_as_i64, chain_position, ensure_resume_indexed, page_sql_conditions, require_context,
     rings_output_slot_from_parts, signature_from_bytes, tags_sql, truncate_transactions,
     u64_from_i64, validate_tags,
 };
-use super::get_shielded_transactions_by_tags::scan_position;
 use crate::api::error::PhotonApiError;
 use crate::common::bind_sql_value;
 use crate::common::indexer_context::{extract as extract_context, newest_unpaused_tree_id};
@@ -14,7 +13,7 @@ use sea_orm::{
 use solana_pubkey::Pubkey;
 use zolana_indexer_api::{
     Base64String, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse, GetRingsByTagsRequest, Hash,
-    TransactionOutputs,
+    PageRequest, TransactionOutputs,
 };
 use zolana_interface::pda;
 
@@ -37,26 +36,22 @@ pub async fn get_encrypted_utxos_by_tags(
     request: GetRingsByTagsRequest,
 ) -> Result<GetEncryptedUtxosByTagsResponse, PhotonApiError> {
     validate_tags(&request.tags, request.ring_program_id.as_ref())?;
-    let limit = request.limit.clone().unwrap_or_default().value();
+    let page = PageRequest {
+        pagination_token: request.pagination_token,
+        limit: request.limit.clone().unwrap_or_default().value(),
+        filters: request.filters,
+        min_context_slot: request.min_context_slot,
+    };
     let tx = conn.begin().await?;
     crate::api::set_transaction_isolation_if_needed(&tx).await?;
     let context = extract_context(&tx).await?;
-    require_context(context.slot, request.min_context_slot, request.after)?;
+    require_context(context.slot, &page)?;
     let output_tree_id = newest_unpaused_tree_id(&tx).await?;
-    if let Some(after) = &request.after {
-        ensure_after_indexed(&tx, after).await?;
-    }
-    let mut rows = fetch_encrypted_utxo_rows(&tx, &request).await?;
-    let has_more = truncate_transactions(&mut rows, limit, |row| {
+    ensure_resume_indexed(&tx, &page).await?;
+    let mut rows = fetch_encrypted_utxo_rows(&tx, &request, &page).await?;
+    let pagination_token = truncate_transactions(&mut rows, page.limit, |row| {
         chain_position(row.slot, &row.signature)
     })?;
-    let cursor = if has_more {
-        rows.last()
-            .map(|row| chain_position(row.slot, &row.signature))
-            .transpose()?
-    } else {
-        scan_position(&tx).await?.max(request.after)
-    };
     let outputs = rows
         .into_iter()
         .map(|row| {
@@ -82,14 +77,14 @@ pub async fn get_encrypted_utxos_by_tags(
         context,
         output_tree_id,
         items,
-        cursor,
-        has_more,
+        pagination_token,
     })
 }
 
 async fn fetch_encrypted_utxo_rows(
     tx: &DatabaseTransaction,
     request: &GetRingsByTagsRequest,
+    page: &PageRequest,
 ) -> Result<Vec<EncryptedUtxoRow>, PhotonApiError> {
     let backend = tx.get_database_backend();
     let mut params = Vec::new();
@@ -98,25 +93,15 @@ async fn fetch_encrypted_utxo_rows(
         .as_ref()
         .map(|program| pda::ring_auth(&program.0).0);
     let selection_tags = tag_filter_sql(&request.tags, ring_config, backend, &mut params);
-    let after_filter = request
-        .after
-        .as_ref()
-        .map(|after| after_sql_condition("po", after, backend, &mut params))
-        .transpose()?
-        .map(|condition| format!("AND {condition}"))
-        .unwrap_or_default();
+    let page_filter = page_sql_conditions("po", page, backend, &mut params)?;
     let selection_ring = ring_filter_sql(ring_config, backend, &mut params);
-    let lookahead = bind_u64_as_i64(
-        &mut params,
-        backend,
-        request.limit.clone().unwrap_or_default().value() + 1,
-    )?;
+    let lookahead = bind_u64_as_i64(&mut params, backend, page.limit + 1)?;
     let result_tags = tag_filter_sql(&request.tags, ring_config, backend, &mut params);
     let result_ring = ring_filter_sql(ring_config, backend, &mut params);
     let sql = format!("WITH selected AS (
         SELECT DISTINCT po.slot, po.signature FROM rings_outputs po
         JOIN rings_transactions pt ON pt.rings_tx_id = po.rings_tx_id
-        WHERE {selection_tags} {after_filter} {selection_ring}
+        WHERE {selection_tags} {page_filter} {selection_ring}
         ORDER BY po.slot ASC, po.signature ASC LIMIT {lookahead}
     ) SELECT pt.slot, pt.signature, pt.event_index, po.output_index, po.view_tag,
         po.output_tree, tm.tree_id, po.leaf_index, po.utxo_hash, pt.tx_viewing_pk, pt.salt, pop.payload

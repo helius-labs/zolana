@@ -59,16 +59,16 @@ pub use rpc::SettlementAccountValidation;
 pub use rpc::{compile_message, sign_transaction, ComputeBudgetConfig, ProgramAccountsFilter};
 pub use rpc::{transaction_size, TransactionSize};
 pub use rpc::{
-    AsyncRpc, Context, Cursor, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
+    AsyncRpc, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
     GetMerkleProofsResponse, GetNonInclusionProofsResponse, GetRingKeyRegistryEntryResponse,
     GetRingKeyRegistryRegisterProofResponse, GetRingSpendRecordResponse,
     GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
-    GetUserRecordsResponse, IndexedShieldedTransaction, MerkleContext, MerkleProof,
-    NonInclusionProof, OutputContext, OutputSlot, Page, ProveResult, RingHistoryOptions,
-    RingMemberProofRequest, RingSpendRecord, RingSpendRecordRequest, Rpc, ShieldedTransaction,
-    ShieldedTransactionStream, TransactionEvents, TransactionOutputs, UserRecord,
-    MAX_LOADED_ACCOUNTS_DATA_SIZE, MAX_USER_RECORD_OWNERS, NULLIFIER_TREE_HEIGHT,
-    STATE_TREE_HEIGHT,
+    GetUserRecordsResponse, HistoryFilters, IndexedShieldedTransaction, MerkleContext, MerkleProof,
+    NonInclusionProof, OutputContext, OutputSlot, Page, PaginationToken, ProveResult,
+    RingHistoryOptions, RingMemberProofRequest, RingSpendRecord, RingSpendRecordRequest, Rpc,
+    ShieldedTransaction, ShieldedTransactionStream, SlotFilter, TransactionEvents,
+    TransactionOutputs, UserRecord, MAX_LOADED_ACCOUNTS_DATA_SIZE, MAX_USER_RECORD_OWNERS,
+    NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 pub use rpc::{IndexerPollConfig, IndexerRpcConfig};
 pub use scan::{fetch_asset_id, fetch_spl_asset_registrations, UtxoScan, UtxoScanResult};

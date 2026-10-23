@@ -131,9 +131,11 @@ export {
   atSlot,
 } from "./retry.js";
 export type {
-  Cursor,
+  HistoryFilters,
   PageOptions,
   Page,
+  PaginationToken,
+  SlotFilter,
   TransactionEvents,
   TransactionOutputs,
   EncryptedUtxoMatch,

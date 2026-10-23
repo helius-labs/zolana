@@ -65,8 +65,7 @@ function recorder(): Readonly<{
   const nullifiers = vi.fn(async () => ({
     context: { blockTime: 0n, slot: 1n },
     items: transactionItems([]),
-    cursor: null,
-    hasMore: false,
+    paginationToken: null,
   }));
   const client = {
     getShieldedTransactionsByTags: (
@@ -76,8 +75,7 @@ function recorder(): Readonly<{
       return Promise.resolve({
         context: { blockTime: 0n, slot: 1n },
         items: transactionItems([]),
-        cursor: null,
-        hasMore: false,
+        paginationToken: null,
       });
     },
     getEncryptedUtxosByTags: (request: Readonly<{ tags: readonly Bytes32[]; limit?: number }>) => {
@@ -85,8 +83,7 @@ function recorder(): Readonly<{
       return Promise.resolve({
         context: { blockTime: 0n, slot: 1n },
         items: outputItems([]),
-        cursor: null,
-        hasMore: false,
+        paginationToken: null,
       });
     },
     getShieldedTransactionsByNullifiers: nullifiers,

@@ -4,8 +4,10 @@ use solana_address::Address;
 use solana_signature::Signature;
 use solana_signer::{Signer, SignerError};
 use thiserror::Error;
-use zolana_client::rpc::Cursor;
-use zolana_indexer_api::{Base64String, Hash, Limit, SerializablePubkey, SerializableSignature};
+use zolana_indexer_api::{
+    Base64String, Hash, HistoryFilters, Limit, PaginationToken, SerializablePubkey,
+    SerializableSignature,
+};
 use zolana_keypair::X25519Pubkey;
 use zolana_ring_client::{ReaderKey, ReaderKeyError};
 
@@ -20,8 +22,9 @@ pub const AUDIT_PAGE_LIMIT: u64 = 100;
 pub(crate) const DEPOSITS_PAGE_LIMIT: u32 = 50;
 pub(crate) const MAX_DEPOSITS_PAGE_LIMIT: u32 = 200;
 
-fn attested_after(after: Option<Cursor>) -> String {
-    after.map_or_else(String::new, |cursor| cursor.to_string())
+/// An absent token or bound signs as the empty string.
+fn attested<T: ToString>(value: Option<T>) -> String {
+    value.map_or_else(String::new, |value| value.to_string())
 }
 
 pub(crate) fn limit_in_bounds(limit: &Limit) -> bool {
@@ -192,11 +195,13 @@ pub struct GetDecryptedTransactionsRequest {
     /// Required for derived keys.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ring_program_id: Option<SerializablePubkey>,
-    /// Resume strictly after the given transaction.
+    /// The previous page's token. Read the next page with the same filters.
     #[serde(default)]
-    pub after: Option<Cursor>,
+    pub pagination_token: Option<PaginationToken>,
     #[serde(default)]
     pub limit: Option<Limit>,
+    #[serde(default, skip_serializing_if = "HistoryFilters::is_empty")]
+    pub filters: HistoryFilters,
     #[serde(default)]
     pub min_context_slot: Option<u64>,
     pub auth: ReadAuth,
@@ -257,8 +262,9 @@ pub enum ReadBuildError {
 #[must_use]
 pub struct ReadRequest {
     ring: Address,
-    after: Option<Cursor>,
+    pagination_token: Option<PaginationToken>,
     limit: Option<Limit>,
+    filters: HistoryFilters,
     min_context_slot: Option<u64>,
     timestamp: Option<u64>,
     nonce: [u8; 32],
@@ -270,7 +276,8 @@ pub struct ReadAttestation<'a> {
     pub ring: Address,
     pub timestamp: u64,
     pub nonce: &'a [u8; 32],
-    pub after: Option<Cursor>,
+    pub pagination_token: Option<PaginationToken>,
+    pub filters: HistoryFilters,
     pub min_context_slot: Option<u64>,
     pub limit: Option<Limit>,
 }
@@ -287,8 +294,8 @@ pub struct DecryptedTransactionGroup {
 }
 
 impl zolana_indexer_api::Positioned for DecryptedTransactionGroup {
-    fn position(&self) -> Cursor {
-        Cursor::new(self.slot, self.signature.0)
+    fn position(&self) -> PaginationToken {
+        PaginationToken::new(self.slot, self.signature.0)
     }
 }
 
@@ -481,7 +488,8 @@ impl GetDecryptedTransactionsRequest {
     pub fn read(ring: Address) -> ReadRequest {
         ReadRequest {
             ring,
-            after: None,
+            pagination_token: None,
+            filters: HistoryFilters::default(),
             min_context_slot: None,
             limit: None,
             timestamp: None,
@@ -491,8 +499,13 @@ impl GetDecryptedTransactionsRequest {
 }
 
 impl ReadRequest {
-    pub fn with_after(mut self, after: Cursor) -> Self {
-        self.after = Some(after);
+    pub fn with_pagination_token(mut self, token: PaginationToken) -> Self {
+        self.pagination_token = Some(token);
+        self
+    }
+
+    pub fn with_filters(mut self, filters: HistoryFilters) -> Self {
+        self.filters = filters;
         self
     }
 
@@ -523,7 +536,8 @@ impl ReadRequest {
             ring: self.ring,
             timestamp,
             nonce: &self.nonce,
-            after: self.after,
+            pagination_token: self.pagination_token,
+            filters: self.filters,
             min_context_slot: self.min_context_slot,
             limit: self.limit.clone(),
         }
@@ -537,9 +551,10 @@ impl ReadRequest {
         };
         Ok(GetDecryptedTransactionsRequest {
             ring_program_id: Some(self.ring.to_bytes().into()),
-            after: self.after,
-            min_context_slot: self.min_context_slot,
+            pagination_token: self.pagination_token,
             limit: self.limit,
+            filters: self.filters,
+            min_context_slot: self.min_context_slot,
             auth: ReadAuth {
                 reader: signer.reader()?.to_bytes().to_vec().into(),
                 timestamp,
@@ -610,12 +625,16 @@ const AUDITOR_KEY_REQUEST_DOMAIN: &str = "zolana/ring-rpc-auditor-key-request/v1
 impl ReadAttestation<'_> {
     pub fn bytes(&self) -> Vec<u8> {
         format!(
-            "{READ_DOMAIN}\nring: {}\ntimestamp: {}\nnonce: {}\nlimit: {}\nafter: {}\nmin-context-slot: {}",
+            "{READ_DOMAIN}\nring: {}\ntimestamp: {}\nnonce: {}\nlimit: {}\npagination-token: {}\nslot-gt: {}\nslot-gte: {}\nslot-lt: {}\nslot-lte: {}\nmin-context-slot: {}",
             self.ring,
             self.timestamp,
             base64(self.nonce),
             self.limit.as_ref().map_or(0, Limit::value),
-            attested_after(self.after),
+            attested(self.pagination_token),
+            attested(self.filters.slot.gt),
+            attested(self.filters.slot.gte),
+            attested(self.filters.slot.lt),
+            attested(self.filters.slot.lte),
             self.min_context_slot.unwrap_or(0),
         )
         .into_bytes()
@@ -710,10 +729,29 @@ mod tests {
     }
 
     #[test]
-    fn a_position_round_trips_between_wire_and_domain() {
-        let position = Cursor::new(7, Signature::from([9; 64]));
-        assert_eq!(position.to_string().parse::<Cursor>().unwrap(), position);
-        assert_eq!(attested_after(None), "");
+    fn a_read_request_carries_the_token_and_filters_and_refuses_after() {
+        let auth = serde_json::json!({
+            "reader": "AQ==",
+            "timestamp": 1,
+            "nonce": "AQ==",
+            "signature": "AQ==",
+        });
+        let token = PaginationToken::new(7, Signature::from([9; 64]));
+        let request: GetDecryptedTransactionsRequest = serde_json::from_value(serde_json::json!({
+            "paginationToken": token.to_string(),
+            "filters": { "slot": { "gt": 3 } },
+            "auth": auth,
+        }))
+        .expect("request");
+        assert_eq!(request.pagination_token, Some(token));
+        assert_eq!(request.filters, HistoryFilters::after_slot(3));
+        assert!(
+            serde_json::from_value::<GetDecryptedTransactionsRequest>(serde_json::json!({
+                "after": token.to_string(),
+                "auth": auth,
+            }))
+            .is_err()
+        );
     }
 
     #[test]
@@ -736,7 +774,7 @@ mod tests {
     }
 
     /// The deposits cursor is a Solana signature, a different rule from the
-    /// audit read's after position.
+    /// audit read's pagination token.
     #[test]
     fn a_deposits_cursor_is_exactly_one_signature() {
         assert_eq!(
@@ -759,18 +797,35 @@ mod tests {
 
     #[test]
     fn read_attestation_is_stable() {
-        let message = ReadAttestation {
+        let mut attestation = ReadAttestation {
             ring: Address::new_from_array([7; 32]),
             timestamp: 1_700_000_000,
             nonce: &[4; 32],
-            after: Some(Cursor::new(3, Signature::from([1; 64]))),
+            pagination_token: Some(PaginationToken::new(3, Signature::from([1; 64]))),
+            filters: HistoryFilters::default(),
             min_context_slot: None,
             limit: Some(Limit::new(5).expect("in range")),
-        }
-        .bytes();
+        };
+        let prefix = "zolana/ring-rpc-read/v2\nring: US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx\ntimestamp: 1700000000\nnonce: BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=\nlimit: 5\npagination-token: 1:3:2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6ijwfYmfZYsKRxboQMPh3R4kUhXRVdtSXFXMheka4Rc4P2\n";
         assert_eq!(
-            String::from_utf8(message).expect("text"),
-            "zolana/ring-rpc-read/v2\nring: US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx\ntimestamp: 1700000000\nnonce: BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=\nlimit: 5\nafter: 1:3:2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6ijwfYmfZYsKRxboQMPh3R4kUhXRVdtSXFXMheka4Rc4P2\nmin-context-slot: 0"
+            String::from_utf8(attestation.bytes()).expect("text"),
+            format!("{prefix}slot-gt: \nslot-gte: \nslot-lt: \nslot-lte: \nmin-context-slot: 0")
+        );
+        // Every control a reader sets is signed, so none can be swapped in transit.
+        attestation.filters = HistoryFilters {
+            slot: zolana_indexer_api::SlotFilter {
+                gt: Some(1),
+                gte: Some(2),
+                lt: Some(9),
+                lte: Some(8),
+            },
+        };
+        attestation.min_context_slot = Some(4);
+        assert_eq!(
+            String::from_utf8(attestation.bytes()).expect("text"),
+            format!(
+                "{prefix}slot-gt: 1\nslot-gte: 2\nslot-lt: 9\nslot-lte: 8\nmin-context-slot: 4"
+            )
         );
     }
 }

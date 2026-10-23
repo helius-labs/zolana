@@ -20,8 +20,8 @@ use solana_address::Address;
 use solana_signature::Signature;
 use zeroize::Zeroizing;
 use zolana_client::{
-    rpc::Cursor, Context, GetShieldedTransactionsByTagsResponse, IndexerRpcConfig, ProofInputUtxo,
-    Rpc, ShieldedTransaction,
+    Context, GetShieldedTransactionsByTagsResponse, HistoryFilters, IndexerRpcConfig,
+    PaginationToken, ProofInputUtxo, Rpc, ShieldedTransaction,
 };
 use zolana_hasher::{primitives::hash_bytes, Hasher, Poseidon};
 use zolana_interface::{
@@ -813,7 +813,7 @@ fn unknown_asset_id_is_an_error() {
     ));
 }
 
-/// Cursor paging plus the message-tag filter. Photon's tag filter is an OR over
+/// Token paging plus the message-tag filter. Photon's tag filter is an OR over
 /// output tags and message tags, so a transaction can arrive because an output
 /// tag matched; the scan drops those.
 struct PagedIndexer {
@@ -824,21 +824,22 @@ struct PagedIndexer {
 }
 
 /// A position whose slot is a page index, the mock pages by index, not by row.
-fn page_position(index: usize) -> Cursor {
-    Cursor::new(index as u64, Signature::default())
+fn page_position(index: usize) -> PaginationToken {
+    PaginationToken::new(index as u64, Signature::default())
 }
 
 impl Rpc for PagedIndexer {
     fn get_shielded_transactions_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        after: Option<Cursor>,
+        token: Option<PaginationToken>,
         limit: Option<u32>,
+        _filters: HistoryFilters,
         _config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, zolana_client::ClientError> {
         assert_eq!(tags, vec![self.expected_tag]);
         self.requested.borrow_mut().push(limit);
-        let page_index = after.map_or(0, |position| position.slot() as usize);
+        let page_index = token.map_or(0, |position| position.slot() as usize);
         let transactions = self.pages.get(page_index).cloned().unwrap_or_default();
         let next = (page_index + 1 < self.pages.len()).then(|| page_position(page_index + 1));
         Ok(GetShieldedTransactionsByTagsResponse {
@@ -849,8 +850,7 @@ impl Rpc for PagedIndexer {
             items: zolana_client::rpc::TransactionEvents::group(transactions, |event| {
                 (event.slot, event.tx_signature)
             }),
-            cursor: next,
-            has_more: next.is_some(),
+            pagination_token: next,
             output_tree_id: None,
         })
     }
@@ -1120,7 +1120,7 @@ fn the_page_size_is_asked_for_on_every_round_trip() {
     );
 }
 
-/// A scan cut short by `max_pages` hands back the cursor of the page it did
+/// A scan cut short by `max_pages` hands back the token of the page it did
 /// not read, and resuming there repeats nothing and skips nothing.
 #[test]
 fn a_scan_stopped_by_max_pages_resumes_where_it_stopped() {
@@ -1138,18 +1138,18 @@ fn a_scan_stopped_by_max_pages_resumes_where_it_stopped() {
         .with_max_pages(NonZeroUsize::new(2).expect("page limit"))
         .run(env)
         .expect("first scan");
-    let after = stopped.next.expect("unread history");
+    let token = stopped.pagination_token.expect("unread history");
     assert_eq!(
         signatures(&stopped.transactions),
         signatures(&pages[..2].concat())
     );
 
     let resumed = RingScan::new(ring, &auditor_pk)
-        .with_after(after)
+        .with_pagination_token(token)
         .with_max_pages(NonZeroUsize::new(2).expect("page limit"))
         .run(env)
         .expect("resumed scan");
-    assert_eq!(resumed.next, None);
+    assert_eq!(resumed.pagination_token, None);
     assert_eq!(signatures(&resumed.transactions), signatures(&pages[2]));
 }
 
@@ -1170,12 +1170,12 @@ fn an_empty_page_does_not_end_the_scan() {
         })
         .expect("scan");
 
-    assert_eq!(page.next, None);
+    assert_eq!(page.pagination_token, None);
     assert_eq!(signatures(&page.transactions), signatures(&pages[1]));
 }
 
 #[test]
-fn a_cursor_at_the_end_of_history_returns_an_empty_page() {
+fn a_token_at_the_end_of_history_returns_an_empty_page() {
     let ring = Address::new_from_array([9u8; 32]);
     let auditor_pk = X25519Keypair::new().pubkey();
     let pages = paged_history(&auditor_pk, 2);
@@ -1183,7 +1183,7 @@ fn a_cursor_at_the_end_of_history_returns_an_empty_page() {
     let indexer = indexer(&auditor_pk, pages);
 
     let page = RingScan::new(ring, &auditor_pk)
-        .with_after(page_position(2))
+        .with_pagination_token(page_position(2))
         .with_max_pages(NonZeroUsize::new(2).expect("page limit"))
         .run(RingEnvironment {
             indexer: &indexer,
@@ -1192,19 +1192,20 @@ fn a_cursor_at_the_end_of_history_returns_an_empty_page() {
         .expect("scan");
 
     assert!(page.transactions.is_empty());
-    assert_eq!(page.next, None);
+    assert_eq!(page.pagination_token, None);
     assert_eq!(origin.lookups.get(), 0);
 }
 
 #[test]
-fn a_missing_continuation_fails_before_origin_lookup() {
-    struct MissingContinuation(Cell<usize>);
-    impl Rpc for MissingContinuation {
+fn a_token_that_does_not_advance_fails_before_origin_lookup() {
+    struct StuckToken(Cell<usize>);
+    impl Rpc for StuckToken {
         fn get_shielded_transactions_by_tags(
             &self,
             _tags: Vec<[u8; 32]>,
-            _after: Option<Cursor>,
+            token: Option<PaginationToken>,
             _limit: Option<u32>,
+            _filters: HistoryFilters,
             _config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByTagsResponse, zolana_client::ClientError> {
             self.0.set(self.0.get() + 1);
@@ -1215,19 +1216,20 @@ fn a_missing_continuation_fails_before_origin_lookup() {
                 },
                 items: vec![],
                 output_tree_id: None,
-                cursor: None,
-                has_more: true,
+                pagination_token: token,
             })
         }
     }
     let ring = Address::new_from_array([9; 32]);
     let auditor = X25519Keypair::new().pubkey();
-    let indexer = MissingContinuation(Cell::new(0));
+    let indexer = StuckToken(Cell::new(0));
     let origin = ring_origins(ring, &[]);
-    let result = RingScan::new(ring, &auditor).run(RingEnvironment {
-        indexer: &indexer,
-        origin: &origin,
-    });
+    let result = RingScan::new(ring, &auditor)
+        .with_pagination_token(page_position(0))
+        .run(RingEnvironment {
+            indexer: &indexer,
+            origin: &origin,
+        });
     assert!(matches!(result, Err(AuditError::CursorNotAdvanced)));
     assert_eq!(indexer.0.get(), 1);
     assert_eq!(origin.lookups.get(), 0);

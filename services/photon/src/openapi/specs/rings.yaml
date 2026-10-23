@@ -43,13 +43,11 @@ paths:
                   required:
                   - tags
                   properties:
-                    after:
-                      oneOf:
-                      - type: 'null'
-                      - $ref: '#/components/schemas/Cursor'
-                        description: |-
-                          Resume strictly after the given transaction. Keep a separate checkpoint
-                          for each stream and filter set; new filters must start from their beginning.
+                    filters:
+                      $ref: '#/components/schemas/HistoryFilters'
+                      description: |-
+                        Slot bounds. Resume a caught-up read with `slot.gt` set to the last
+                        page's `context.slot`.
                     limit:
                       oneOf:
                       - type: 'null'
@@ -60,6 +58,11 @@ paths:
                       - 'null'
                       format: u-int64
                       minimum: 0
+                    paginationToken:
+                      oneOf:
+                      - type: 'null'
+                      - $ref: '#/components/schemas/PaginationToken'
+                        description: The previous page's token. Read the next page with the same filters.
                     ringProgramId:
                       oneOf:
                       - type: 'null'
@@ -104,21 +107,14 @@ paths:
                     - '2.0'
                   result:
                     type: object
-                    description: One bounded page. A terminal cursor is also returned when no item matched.
+                    description: One bounded page, shaped like a `getTransactionsForAddress` result.
                     required:
                     - context
                     - items
-                    - cursor
-                    - hasMore
+                    - paginationToken
                     properties:
                       context:
                         $ref: '#/components/schemas/Context'
-                      cursor:
-                        oneOf:
-                        - type: 'null'
-                        - $ref: '#/components/schemas/Cursor'
-                      hasMore:
-                        type: boolean
                       items:
                         type: array
                         items:
@@ -146,6 +142,14 @@ paths:
                         - 'null'
                         format: u-int16
                         minimum: 0
+                      paginationToken:
+                        oneOf:
+                        - type: 'null'
+                        - $ref: '#/components/schemas/PaginationToken'
+                          description: |-
+                            Token for the next page, null when no more results match. A reader
+                            that is caught up resumes later with `filters.slot.gt` set to this
+                            page's `context.slot`.
         '429':
           description: Exceeded rate limit.
           content:
@@ -580,10 +584,11 @@ paths:
                   required:
                   - nullifiers
                   properties:
-                    after:
-                      oneOf:
-                      - type: 'null'
-                      - $ref: '#/components/schemas/Cursor'
+                    filters:
+                      $ref: '#/components/schemas/HistoryFilters'
+                      description: |-
+                        Slot bounds. Resume a caught-up read with `slot.gt` set to the last
+                        page's `context.slot`.
                     limit:
                       oneOf:
                       - type: 'null'
@@ -598,6 +603,11 @@ paths:
                       type: array
                       items:
                         $ref: '#/components/schemas/Hash'
+                    paginationToken:
+                      oneOf:
+                      - type: 'null'
+                      - $ref: '#/components/schemas/PaginationToken'
+                        description: The previous page's token. Read the next page with the same filters.
                   additionalProperties: false
         required: true
       responses:
@@ -630,21 +640,14 @@ paths:
                     - '2.0'
                   result:
                     type: object
-                    description: One bounded page. A terminal cursor is also returned when no item matched.
+                    description: One bounded page, shaped like a `getTransactionsForAddress` result.
                     required:
                     - context
                     - items
-                    - cursor
-                    - hasMore
+                    - paginationToken
                     properties:
                       context:
                         $ref: '#/components/schemas/Context'
-                      cursor:
-                        oneOf:
-                        - type: 'null'
-                        - $ref: '#/components/schemas/Cursor'
-                      hasMore:
-                        type: boolean
                       items:
                         type: array
                         items:
@@ -672,6 +675,14 @@ paths:
                         - 'null'
                         format: u-int16
                         minimum: 0
+                      paginationToken:
+                        oneOf:
+                        - type: 'null'
+                        - $ref: '#/components/schemas/PaginationToken'
+                          description: |-
+                            Token for the next page, null when no more results match. A reader
+                            that is caught up resumes later with `filters.slot.gt` set to this
+                            page's `context.slot`.
         '429':
           description: Exceeded rate limit.
           content:
@@ -863,13 +874,11 @@ paths:
                   required:
                   - tags
                   properties:
-                    after:
-                      oneOf:
-                      - type: 'null'
-                      - $ref: '#/components/schemas/Cursor'
-                        description: |-
-                          Resume strictly after the given transaction. Keep a separate checkpoint
-                          for each stream and filter set; new filters must start from their beginning.
+                    filters:
+                      $ref: '#/components/schemas/HistoryFilters'
+                      description: |-
+                        Slot bounds. Resume a caught-up read with `slot.gt` set to the last
+                        page's `context.slot`.
                     limit:
                       oneOf:
                       - type: 'null'
@@ -880,6 +889,11 @@ paths:
                       - 'null'
                       format: u-int64
                       minimum: 0
+                    paginationToken:
+                      oneOf:
+                      - type: 'null'
+                      - $ref: '#/components/schemas/PaginationToken'
+                        description: The previous page's token. Read the next page with the same filters.
                     ringProgramId:
                       oneOf:
                       - type: 'null'
@@ -924,21 +938,14 @@ paths:
                     - '2.0'
                   result:
                     type: object
-                    description: One bounded page. A terminal cursor is also returned when no item matched.
+                    description: One bounded page, shaped like a `getTransactionsForAddress` result.
                     required:
                     - context
                     - items
-                    - cursor
-                    - hasMore
+                    - paginationToken
                     properties:
                       context:
                         $ref: '#/components/schemas/Context'
-                      cursor:
-                        oneOf:
-                        - type: 'null'
-                        - $ref: '#/components/schemas/Cursor'
-                      hasMore:
-                        type: boolean
                       items:
                         type: array
                         items:
@@ -966,6 +973,14 @@ paths:
                         - 'null'
                         format: u-int16
                         minimum: 0
+                      paginationToken:
+                        oneOf:
+                        - type: 'null'
+                        - $ref: '#/components/schemas/PaginationToken'
+                          description: |-
+                            Token for the next page, null when no more results match. A reader
+                            that is caught up resumes later with `filters.slot.gt` set to this
+                            page's `context.slot`.
         '429':
           description: Exceeded rate limit.
           content:
@@ -1147,8 +1162,6 @@ components:
           format: u-int64
           description: Highest slot the indexer has persisted, for slot-based freshness checks.
           minimum: 0
-    Cursor:
-      type: string
     EncryptedUtxoMatch:
       type: object
       required:
@@ -1176,6 +1189,13 @@ components:
     Hash:
       type: string
       description: A 32-byte hash represented as a base58 string.
+    HistoryFilters:
+      type: object
+      description: Narrows a history read, in the shape of `getTransactionsForAddress` filters.
+      properties:
+        slot:
+          $ref: '#/components/schemas/SlotFilter'
+      additionalProperties: false
     IndexedShieldedTransaction:
       type: object
       required:
@@ -1309,6 +1329,8 @@ components:
         value:
           $ref: '#/components/schemas/Hash'
       additionalProperties: false
+    PaginationToken:
+      type: string
     RingsMessage:
       type: object
       required:
@@ -1429,6 +1451,35 @@ components:
           oneOf:
           - type: 'null'
           - $ref: '#/components/schemas/Base64String'
+    SlotFilter:
+      type: object
+      description: Slot bounds of a history read. Every bound present applies.
+      properties:
+        gt:
+          type:
+          - integer
+          - 'null'
+          format: u-int64
+          minimum: 0
+        gte:
+          type:
+          - integer
+          - 'null'
+          format: u-int64
+          minimum: 0
+        lt:
+          type:
+          - integer
+          - 'null'
+          format: u-int64
+          minimum: 0
+        lte:
+          type:
+          - integer
+          - 'null'
+          format: u-int64
+          minimum: 0
+      additionalProperties: false
     UserRecord:
       type: object
       description: A user registry record, the shielded address a Solana pubkey publishes.

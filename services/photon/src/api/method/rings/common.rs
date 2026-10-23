@@ -15,8 +15,9 @@ use sea_orm::{
 };
 use solana_signature::{Signature, SIGNATURE_BYTES};
 use zolana_indexer_api::{
-    Base64String, Cursor, Hash, MerkleContext, MerkleProof, NonInclusionProof, RingsOutputContext,
-    RingsOutputSlot, SerializablePubkey, SerializableSignature, PAGE_LIMIT,
+    Base64String, Hash, MerkleContext, MerkleProof, NonInclusionProof, PageRequest,
+    PaginationToken, RingsOutputContext, RingsOutputSlot, SerializablePubkey,
+    SerializableSignature, PAGE_LIMIT,
 };
 
 pub(super) fn validate_tags(
@@ -293,7 +294,7 @@ pub(super) fn bind_u64_as_i64(
 /// `a > x OR (a = x AND b > y)`, where each page costs more than the last.
 pub(super) fn after_sql_condition(
     alias: &str,
-    after: &Cursor,
+    after: &PaginationToken,
     backend: DatabaseBackend,
     params: &mut Vec<Value>,
 ) -> Result<String, PhotonApiError> {
@@ -304,12 +305,50 @@ pub(super) fn after_sql_condition(
     ))
 }
 
+/// The page's position predicates, each prefixed with `AND`: strictly after
+/// the token and inside every slot bound.
+pub(super) fn page_sql_conditions(
+    alias: &str,
+    page: &PageRequest,
+    backend: DatabaseBackend,
+    params: &mut Vec<Value>,
+) -> Result<String, PhotonApiError> {
+    let mut conditions = Vec::new();
+    if let Some(token) = &page.pagination_token {
+        conditions.push(after_sql_condition(alias, token, backend, params)?);
+    }
+    let slot = &page.filters.slot;
+    for (operator, bound) in [
+        (">", slot.gt),
+        (">=", slot.gte),
+        ("<", slot.lt),
+        ("<=", slot.lte),
+    ] {
+        if let Some(bound) = bound {
+            let bound = bind_u64_as_i64(params, backend, bound)?;
+            conditions.push(format!("{alias}.slot {operator} {bound}"));
+        }
+    }
+    Ok(conditions
+        .into_iter()
+        .map(|condition| format!("AND {condition}"))
+        .collect::<Vec<_>>()
+        .join(" "))
+}
+
 /// Rows below the first indexed block were never ingested, so a silent resume
-/// from that gap would skip them forever.
-pub(super) async fn ensure_after_indexed(
+/// from that gap, by token or by slot filter, would skip them forever.
+pub(super) async fn ensure_resume_indexed(
     tx: &DatabaseTransaction,
-    after: &Cursor,
+    page: &PageRequest,
 ) -> Result<(), PhotonApiError> {
+    let Some(resume) = page
+        .pagination_token
+        .map(|token| token.slot())
+        .max(page.filters.slot.floor())
+    else {
+        return Ok(());
+    };
     let backend = tx.get_database_backend();
     let floor = tx
         .query_one(sea_orm::Statement::from_string(
@@ -320,31 +359,36 @@ pub(super) async fn ensure_after_indexed(
         .and_then(|row| row.try_get::<Option<i64>>("", "slot").ok())
         .flatten();
     let complete = match floor {
-        Some(floor) => after.slot().saturating_add(1) >= u64_from_i64(floor, "slot")?,
+        Some(floor) => resume.saturating_add(1) >= u64_from_i64(floor, "slot")?,
         None => false,
     };
     if !complete {
         return Err(PhotonApiError::ValidationError(
-            "after precedes the indexed history".to_string(),
+            "the requested history precedes the indexed history".to_string(),
         ));
     }
     Ok(())
 }
 
 /// The position of one fetched row's transaction.
-pub(super) fn chain_position(slot: i64, signature: &[u8]) -> Result<Cursor, PhotonApiError> {
-    Ok(Cursor::new(
+pub(super) fn chain_position(
+    slot: i64,
+    signature: &[u8],
+) -> Result<PaginationToken, PhotonApiError> {
+    Ok(PaginationToken::new(
         u64_from_i64(slot, "slot")?,
         Signature::from(signature_array(signature)?),
     ))
 }
 
-/// Keep at most `limit` complete transactions; the query includes one lookahead transaction.
+/// Keep at most `limit` complete transactions; the query includes one lookahead
+/// transaction. Returns the next page's token, the position of the last
+/// transaction kept, when the lookahead shows more results.
 pub(super) fn truncate_transactions<T>(
     rows: &mut Vec<T>,
     limit: u64,
-    position: impl Fn(&T) -> Result<Cursor, PhotonApiError>,
-) -> Result<bool, PhotonApiError> {
+    position: impl Fn(&T) -> Result<PaginationToken, PhotonApiError>,
+) -> Result<Option<PaginationToken>, PhotonApiError> {
     let mut count = 0;
     let mut previous = None;
     for (index, row) in rows.iter().enumerate() {
@@ -358,24 +402,21 @@ pub(super) fn truncate_transactions<T>(
             count += 1;
             if count > limit {
                 rows.truncate(index);
-                return Ok(true);
+                return Ok(previous);
             }
             previous = Some(current);
         }
     }
-    Ok(false)
+    Ok(None)
 }
 
-pub(super) fn require_context(
-    context_slot: u64,
-    minimum: Option<u64>,
-    after: Option<Cursor>,
-) -> Result<(), PhotonApiError> {
-    let required = minimum
-        .into_iter()
-        .chain(after.map(|cursor| cursor.slot()))
-        .max();
-    if required.is_some_and(|required| context_slot < required) {
+/// A snapshot that has not reached the request's floor would answer the end of
+/// a history it has not indexed yet.
+pub(super) fn require_context(context_slot: u64, page: &PageRequest) -> Result<(), PhotonApiError> {
+    if page
+        .context_floor()
+        .is_some_and(|required| context_slot < required)
+    {
         return Err(PhotonApiError::MinimumContextSlot { context_slot });
     }
     Ok(())
@@ -720,7 +761,7 @@ mod tests {
     /// ORDER BY is the other half, and the two have to agree.
     #[test]
     fn the_since_predicate_reads_from_the_table_it_is_told_to() {
-        let after = Cursor::new(42, Signature::from([7u8; 64]));
+        let after = PaginationToken::new(42, Signature::from([7u8; 64]));
         let mut params = Vec::new();
         let sql = after_sql_condition("po", &after, DatabaseBackend::Postgres, &mut params)
             .expect("condition");
@@ -738,7 +779,7 @@ mod tests {
     /// scan at the equivalent OR chain.
     #[test]
     fn the_since_predicate_is_a_row_comparison_so_the_index_can_seek() {
-        let after = Cursor::new(42, Signature::from([7u8; 64]));
+        let after = PaginationToken::new(42, Signature::from([7u8; 64]));
         let mut params = Vec::new();
         let sql = after_sql_condition("po", &after, DatabaseBackend::Postgres, &mut params)
             .expect("condition");
@@ -757,7 +798,7 @@ mod tests {
     /// The aliases are not interchangeable.
     #[test]
     fn the_transactions_predicate_still_reads_from_the_transactions_table() {
-        let after = Cursor::new(42, Signature::from([7u8; 64]));
+        let after = PaginationToken::new(42, Signature::from([7u8; 64]));
         let mut params = Vec::new();
         let sql = after_sql_condition("pt", &after, DatabaseBackend::Postgres, &mut params)
             .expect("condition");

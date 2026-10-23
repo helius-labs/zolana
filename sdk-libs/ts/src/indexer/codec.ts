@@ -1,8 +1,7 @@
-import { validatePage } from "../interface/page.js";
-import { checkedCursor } from "../interface/cursor.js";
+import { SLOT_BOUNDS, checkedHistoryFilters, validatePage } from "../interface/page.js";
+import { checkedPaginationToken } from "../interface/pagination-token.js";
 import { treeAddress } from "../interface/pda/index.js";
 import type {
-  Cursor,
   EncryptedUtxoMatch,
   GetEncryptedUtxosByTagsResponse,
   GetMerkleProofsRequest,
@@ -25,10 +24,13 @@ import type {
   GetRingSpendRecordResponse,
   GetUserRecordsRequest,
   GetUserRecordsResponse,
+  HistoryFilters,
+  PaginationToken,
   RingMemberProofRequest,
   RingMemberRequest,
   RingKeyRegistryEntry,
   RingKeyRegistryRegisterProof,
+  SlotFilter,
   UserRecord,
 } from "./types.js";
 import { MAX_USER_RECORD_OWNERS } from "../interface/indexer-limits.js";
@@ -380,15 +382,76 @@ function optional<T>(
   return value === undefined || value === null ? undefined : decode(value, path);
 }
 
-function chainPosition(value: unknown, path: string): Cursor {
+function paginationToken(value: unknown, path: string): PaginationToken {
   try {
-    return checkedCursor(value);
+    return checkedPaginationToken(value);
   } catch {
-    return schemaFailure("INDEXER_SCHEMA_INVALID_TYPE", path, "a pagination cursor");
+    return schemaFailure("INDEXER_SCHEMA_INVALID_TYPE", path, "a pagination token");
   }
 }
-function encodeCursor(value: Cursor, path: string): string {
-  return chainPosition(value, path);
+
+function historyFilters(value: unknown, path: string): HistoryFilters {
+  const record = object(value, path, ["slot"]);
+  const slot = optional(record["slot"], `${path}.slot`, slotFilter);
+  return slot === undefined ? {} : { slot };
+}
+
+function slotFilter(value: unknown, path: string): SlotFilter {
+  const record = object(value, path, SLOT_BOUNDS);
+  const filter: { -readonly [K in keyof SlotFilter]: SlotFilter[K] } = {};
+  for (const bound of SLOT_BOUNDS) {
+    const slot = optional(record[bound], `${path}.${bound}`, u64);
+    if (slot !== undefined) filter[bound] = slot;
+  }
+  return filter;
+}
+
+/** Unknown keys are refused, a filter must never be dropped in silence. */
+function encodeHistoryFilters(value: unknown, path: string): WireObject | undefined {
+  const slot = checkedHistoryFilters(value, (field) =>
+    schemaFailure("INDEXER_SCHEMA_INVALID_TYPE", `$.${field}`, "known slot bounds"),
+  )?.slot;
+  if (slot === undefined) return undefined;
+  const bounds: WireObject = {};
+  for (const bound of SLOT_BOUNDS) {
+    const bigint = slot[bound];
+    if (bigint !== undefined) bounds[bound] = toU64(bigint, `${path}.slot.${bound}`);
+  }
+  return Object.keys(bounds).length === 0 ? undefined : { slot: bounds };
+}
+
+function pageControls(
+  record: WireObject,
+): Pick<GetRingsByTagsRequest, "paginationToken" | "limit" | "filters" | "minContextSlot"> {
+  const token = optional(record["paginationToken"], "$.paginationToken", paginationToken);
+  const filters = optional(record["filters"], "$.filters", historyFilters);
+  const minContextSlot = optional(record["minContextSlot"], "$.minContextSlot", u64);
+  const pageLimit =
+    record["limit"] === undefined || record["limit"] === null
+      ? undefined
+      : checkedPageLimit(record["limit"], "$.limit");
+  return {
+    ...(token === undefined ? {} : { paginationToken: token }),
+    ...(pageLimit === undefined ? {} : { limit: pageLimit }),
+    ...(filters?.slot === undefined ? {} : { filters }),
+    ...(minContextSlot === undefined ? {} : { minContextSlot }),
+  };
+}
+
+function encodePageControls(
+  value: Pick<GetRingsByTagsRequest, "paginationToken" | "limit" | "filters" | "minContextSlot">,
+): WireObject {
+  const filters = encodeHistoryFilters(value.filters, "$.filters");
+  return {
+    ...(value.paginationToken === undefined
+      ? {}
+      : { paginationToken: paginationToken(value.paginationToken, "$.paginationToken") }),
+    ...(value.limit === undefined ? {} : { limit: toU64(value.limit, "$.limit") }),
+    ...(filters === undefined ? {} : { filters }),
+    ...(value.minContextSlot === undefined
+      ? {}
+      : { minContextSlot: toU64(value.minContextSlot, "$.minContextSlot") }),
+  };
 }
 
 function context(value: unknown, path: string): IndexerContext {
@@ -553,23 +616,18 @@ function nonInclusionProof(value: unknown, path: string): NonInclusionProof {
   };
 }
 
+const PAGE_CONTROLS = ["paginationToken", "limit", "filters", "minContextSlot"] as const;
+
 function decodeRingsByTagsRequest(value: unknown): GetRingsByTagsRequest {
-  const record = object(value, "$", ["tags", "after", "limit", "ringProgramId", "minContextSlot"]);
-  const after = optional(record["after"], "$.after", chainPosition);
-  const minContextSlot = optional(record["minContextSlot"], "$.minContextSlot", u64);
-  const pageLimit =
-    record["limit"] === undefined || record["limit"] === null
-      ? undefined
-      : checkedPageLimit(record["limit"], "$.limit");
+  const record = object(value, "$", ["tags", "ringProgramId", ...PAGE_CONTROLS]);
+  const controls = pageControls(record);
   const ringProgramId = optional(record["ringProgramId"], "$.ringProgramId", checkedAddress);
   const tags = array(record["tags"], "$.tags", checkedHash);
   if (tags.length === 0 && ringProgramId === undefined)
     schemaFailure("INDEXER_SCHEMA_INVALID_TYPE", "$.tags", "nonempty tags or ringProgramId");
   return {
     tags,
-    ...(after === undefined ? {} : { after }),
-    ...(minContextSlot === undefined ? {} : { minContextSlot }),
-    ...(pageLimit === undefined ? {} : { limit: pageLimit }),
+    ...controls,
     ...(ringProgramId === undefined ? {} : { ringProgramId }),
   };
 }
@@ -577,56 +635,32 @@ function decodeRingsByTagsRequest(value: unknown): GetRingsByTagsRequest {
 export function encodeRingsByTagsRequest(value: GetRingsByTagsRequest): WireObject {
   const decoded = decodeRingsByTagsRequest({
     tags: value.tags,
-    ...(value.after === undefined ? {} : { after: encodeCursor(value.after, "$.after") }),
-    ...(value.limit === undefined ? {} : { limit: toU64(value.limit, "$.limit") }),
-    ...(value.minContextSlot === undefined
-      ? {}
-      : { minContextSlot: toU64(value.minContextSlot, "$.minContextSlot") }),
+    ...encodePageControls(value),
     ...(value.ringProgramId === undefined ? {} : { ringProgramId: value.ringProgramId }),
   });
   return {
     tags: [...decoded.tags],
-    ...(decoded.after === undefined ? {} : { after: encodeCursor(decoded.after, "$.after") }),
-    ...(decoded.limit === undefined ? {} : { limit: Number(decoded.limit) }),
-    ...(decoded.minContextSlot === undefined
-      ? {}
-      : { minContextSlot: toU64(decoded.minContextSlot, "$.minContextSlot") }),
+    ...encodePageControls(decoded),
     ...(decoded.ringProgramId === undefined ? {} : { ringProgramId: decoded.ringProgramId }),
   };
 }
 
 function decodeRingsByNullifiersRequest(value: unknown): GetRingsByNullifiersRequest {
-  const record = object(value, "$", ["nullifiers", "after", "limit", "minContextSlot"]);
-  const after = optional(record["after"], "$.after", chainPosition);
-  const minContextSlot = optional(record["minContextSlot"], "$.minContextSlot", u64);
-  const pageLimit =
-    record["limit"] === undefined || record["limit"] === null
-      ? undefined
-      : checkedPageLimit(record["limit"], "$.limit");
+  const record = object(value, "$", ["nullifiers", ...PAGE_CONTROLS]);
   return {
     nullifiers: array(record["nullifiers"], "$.nullifiers", checkedHash),
-    ...(after === undefined ? {} : { after }),
-    ...(minContextSlot === undefined ? {} : { minContextSlot }),
-    ...(pageLimit === undefined ? {} : { limit: pageLimit }),
+    ...pageControls(record),
   };
 }
 
 export function encodeRingsByNullifiersRequest(value: GetRingsByNullifiersRequest): WireObject {
   const decoded = decodeRingsByNullifiersRequest({
     nullifiers: value.nullifiers,
-    ...(value.after === undefined ? {} : { after: encodeCursor(value.after, "$.after") }),
-    ...(value.limit === undefined ? {} : { limit: toU64(value.limit, "$.limit") }),
-    ...(value.minContextSlot === undefined
-      ? {}
-      : { minContextSlot: toU64(value.minContextSlot, "$.minContextSlot") }),
+    ...encodePageControls(value),
   });
   return {
     nullifiers: [...decoded.nullifiers],
-    ...(decoded.after === undefined ? {} : { after: encodeCursor(decoded.after, "$.after") }),
-    ...(decoded.limit === undefined ? {} : { limit: Number(decoded.limit) }),
-    ...(decoded.minContextSlot === undefined
-      ? {}
-      : { minContextSlot: toU64(decoded.minContextSlot, "$.minContextSlot") }),
+    ...encodePageControls(decoded),
   };
 }
 
@@ -643,11 +677,13 @@ function decodePage<T>(
   child: "events" | "outputs",
   decode: (v: unknown, p: string) => T,
 ) {
-  const record = object(value, "$", ["context", "items", "cursor", "hasMore", "outputTreeId"]);
+  const record = object(value, "$", ["context", "items", "paginationToken", "outputTreeId"]);
   const outputTreeId = optional(record["outputTreeId"], "$.outputTreeId", u16);
   const pageContext = context(record["context"], "$.context");
-  const cursor = record["cursor"] === null ? null : chainPosition(record["cursor"], "$.cursor");
-  const hasMore = boolean(record["hasMore"], "$.hasMore");
+  const token =
+    record["paginationToken"] === null
+      ? null
+      : paginationToken(record["paginationToken"], "$.paginationToken");
   const items = array(record["items"], "$.items", (v, p) => {
     const row = object(v, p, ["slot", "signature", child]);
     const slot = u64(row["slot"], `${p}.slot`);
@@ -658,16 +694,19 @@ function decodePage<T>(
     return { slot, signature, entries };
   });
   try {
-    validatePage({ context: pageContext, items, cursor, hasMore });
+    validatePage({ context: pageContext, items, paginationToken: token });
   } catch {
-    schemaFailure("INDEXER_SCHEMA_INVALID_TYPE", "$.cursor", "a consistent pagination checkpoint");
+    schemaFailure(
+      "INDEXER_SCHEMA_INVALID_TYPE",
+      "$.paginationToken",
+      "a consistent pagination token",
+    );
   }
   return {
     ...(outputTreeId === undefined ? {} : { outputTreeId }),
     context: pageContext,
     items,
-    cursor,
-    hasMore,
+    paginationToken: token,
   };
 }
 

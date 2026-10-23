@@ -381,23 +381,24 @@ impl<'de> Deserialize<'de> for SerializablePubkey {
     }
 }
 
-/// A server-issued checkpoint. Its string representation is shared by all paginated streams.
+/// A server-issued position in a history read, `"1:<slot>:<signature>"`.
+/// Pass it back unchanged to read the next page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Cursor {
+pub struct PaginationToken {
     slot: u64,
     signature: Signature,
 }
 
 #[cfg(feature = "openapi")]
-impl utoipa::PartialSchema for Cursor {
+impl utoipa::PartialSchema for PaginationToken {
     fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
         <String as utoipa::PartialSchema>::schema()
     }
 }
 #[cfg(feature = "openapi")]
-impl utoipa::ToSchema for Cursor {}
+impl utoipa::ToSchema for PaginationToken {}
 
-impl Cursor {
+impl PaginationToken {
     #[doc(hidden)]
     pub const fn new(slot: u64, signature: Signature) -> Self {
         Self { slot, signature }
@@ -412,69 +413,131 @@ impl Cursor {
     }
 }
 
-impl fmt::Display for Cursor {
+impl fmt::Display for PaginationToken {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "1:{}:{}", self.slot, self.signature)
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
-#[error("invalid pagination cursor")]
-pub struct ParseCursorError;
+#[error("invalid pagination token")]
+pub struct ParsePaginationTokenError;
 
-impl FromStr for Cursor {
-    type Err = ParseCursorError;
+impl FromStr for PaginationToken {
+    type Err = ParsePaginationTokenError;
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         if value.len() > 112 {
-            return Err(ParseCursorError);
+            return Err(ParsePaginationTokenError);
         }
         let mut parts = value.split(':');
         if parts.next() != Some("1") {
-            return Err(ParseCursorError);
+            return Err(ParsePaginationTokenError);
         }
         let slot = parts
             .next()
-            .ok_or(ParseCursorError)?
+            .ok_or(ParsePaginationTokenError)?
             .parse()
-            .map_err(|_| ParseCursorError)?;
+            .map_err(|_| ParsePaginationTokenError)?;
         let signature = parts
             .next()
-            .ok_or(ParseCursorError)?
+            .ok_or(ParsePaginationTokenError)?
             .parse()
-            .map_err(|_| ParseCursorError)?;
+            .map_err(|_| ParsePaginationTokenError)?;
         if parts.next().is_some() {
-            return Err(ParseCursorError);
+            return Err(ParsePaginationTokenError);
         }
-        let cursor = Self { slot, signature };
-        if cursor.to_string() != value {
-            return Err(ParseCursorError);
+        let token = Self { slot, signature };
+        if token.to_string() != value {
+            return Err(ParsePaginationTokenError);
         }
-        Ok(cursor)
+        Ok(token)
     }
 }
 
-impl Serialize for Cursor {
+impl Serialize for PaginationToken {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.collect_str(self)
     }
 }
-impl<'de> Deserialize<'de> for Cursor {
+impl<'de> Deserialize<'de> for PaginationToken {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        deserialize_from_str(deserializer, "a pagination cursor")
+        deserialize_from_str(deserializer, "a pagination token")
     }
 }
-impl Ord for Cursor {
+impl Ord for PaginationToken {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         (self.slot, self.signature.as_ref()).cmp(&(other.slot, other.signature.as_ref()))
     }
 }
-impl PartialOrd for Cursor {
+impl PartialOrd for PaginationToken {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
-/// One bounded page. A terminal cursor is also returned when no item matched.
+/// Narrows a history read, in the shape of `getTransactionsForAddress` filters.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct HistoryFilters {
+    #[serde(default, skip_serializing_if = "SlotFilter::is_unbounded")]
+    pub slot: SlotFilter,
+}
+
+/// Slot bounds of a history read. Every bound present applies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SlotFilter {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gt: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gte: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lt: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lte: Option<u64>,
+}
+
+impl SlotFilter {
+    pub const fn is_unbounded(&self) -> bool {
+        self.gt.is_none() && self.gte.is_none() && self.lt.is_none() && self.lte.is_none()
+    }
+
+    pub fn contains(&self, slot: u64) -> bool {
+        self.gt.is_none_or(|bound| slot > bound)
+            && self.gte.is_none_or(|bound| slot >= bound)
+            && self.lt.is_none_or(|bound| slot < bound)
+            && self.lte.is_none_or(|bound| slot <= bound)
+    }
+
+    /// The newest slot below the range. An answer from a snapshot that has not
+    /// reached it would end the read before the range begins.
+    pub fn floor(&self) -> Option<u64> {
+        self.gt.max(self.gte.and_then(|bound| bound.checked_sub(1)))
+    }
+}
+
+impl HistoryFilters {
+    /// Everything after `slot`, how a caught-up reader resumes from the
+    /// `context.slot` of its last page.
+    pub const fn after_slot(slot: u64) -> Self {
+        Self {
+            slot: SlotFilter {
+                gt: Some(slot),
+                gte: None,
+                lt: None,
+                lte: None,
+            },
+        }
+    }
+
+    pub const fn is_empty(&self) -> bool {
+        self.slot.is_unbounded()
+    }
+}
+
+/// One bounded page, shaped like a `getTransactionsForAddress` result.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -484,9 +547,12 @@ pub struct Page<T> {
     pub output_tree_id: Option<u16>,
     #[cfg_attr(feature = "openapi", schema(inline))]
     pub items: Vec<T>,
+    /// Token for the next page, null when no more results match. A reader
+    /// that is caught up resumes later with `filters.slot.gt` set to this
+    /// page's `context.slot`.
+    #[serde(deserialize_with = "Option::deserialize")]
     #[cfg_attr(feature = "openapi", schema(required = true))]
-    pub cursor: Option<Cursor>,
-    pub has_more: bool,
+    pub pagination_token: Option<PaginationToken>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
@@ -494,66 +560,86 @@ pub struct Page<T> {
 pub struct InvalidPage;
 
 impl<T> Page<T> {
-    /// Return the next request's cursor, rejecting an incomplete page that cannot advance.
-    pub fn continuation(&self, after: Option<Cursor>) -> Result<Option<Cursor>, InvalidPage> {
-        if !self.has_more {
-            return Ok(None);
+    /// The next request's token, `None` once no more results match. A token
+    /// that does not advance past the request's is rejected.
+    pub fn continuation(
+        &self,
+        requested: Option<PaginationToken>,
+    ) -> Result<Option<PaginationToken>, InvalidPage> {
+        match self.pagination_token {
+            Some(token) if requested.is_some_and(|requested| token <= requested) => {
+                Err(InvalidPage)
+            }
+            token => Ok(token),
         }
-        match self.cursor {
-            Some(cursor) if after.is_none_or(|after| cursor > after) => Ok(Some(cursor)),
-            _ => Err(InvalidPage),
-        }
+    }
+}
+
+/// The controls a page answers. Every page is validated against the request
+/// that produced it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct PageRequest {
+    pub pagination_token: Option<PaginationToken>,
+    pub limit: u64,
+    pub filters: HistoryFilters,
+    pub min_context_slot: Option<u64>,
+}
+
+impl PageRequest {
+    /// The slot an answering snapshot must have reached: the requested
+    /// freshness, the token's position, and the slot below the filtered range.
+    pub fn context_floor(&self) -> Option<u64> {
+        self.min_context_slot
+            .max(self.pagination_token.map(|token| token.slot()))
+            .max(self.filters.slot.floor())
     }
 }
 
 #[doc(hidden)]
 pub trait Positioned {
-    fn position(&self) -> Cursor;
+    fn position(&self) -> PaginationToken;
 }
 
 impl<T: Positioned> Page<T> {
-    /// An indexer continuation stops at the last complete transaction returned.
-    pub fn validate_indexed(
-        &self,
-        after: Option<Cursor>,
-        limit: u64,
-        minimum: Option<u64>,
-    ) -> Result<(), InvalidPage> {
-        self.validate(after, limit, minimum)?;
-        if self.has_more && self.items.last().map(Positioned::position) != self.cursor {
+    /// An indexer page ends at the last complete transaction returned, so its
+    /// token is that transaction's position.
+    pub fn validate_indexed(&self, request: &PageRequest) -> Result<(), InvalidPage> {
+        self.validate(request)?;
+        if self
+            .pagination_token
+            .is_some_and(|token| self.items.last().map(Positioned::position) != Some(token))
+        {
             return Err(InvalidPage);
         }
         Ok(())
     }
-    /// Validate ordering, completeness markers, and correlation with the requested range.
-    pub fn validate(
-        &self,
-        after: Option<Cursor>,
-        limit: u64,
-        minimum: Option<u64>,
-    ) -> Result<(), InvalidPage> {
-        if self.items.len() as u64 > limit
-            || minimum.is_some_and(|minimum| self.context.slot < minimum)
+    /// Validate ordering, freshness and correlation with the request.
+    pub fn validate(&self, request: &PageRequest) -> Result<(), InvalidPage> {
+        if self.items.len() as u64 > request.limit
+            || request
+                .context_floor()
+                .is_some_and(|floor| self.context.slot < floor)
             || self
-                .cursor
-                .is_some_and(|cursor| cursor.slot() > self.context.slot)
+                .pagination_token
+                .is_some_and(|token| token.slot() > self.context.slot)
         {
             return Err(InvalidPage);
         }
-        let mut previous = after;
+        let mut previous = request.pagination_token;
         for item in &self.items {
             let position = item.position();
             if position.slot() > self.context.slot
+                || !request.filters.slot.contains(position.slot())
                 || previous.is_some_and(|previous| position <= previous)
             {
                 return Err(InvalidPage);
             }
             previous = Some(position);
         }
-        if self.cursor < previous {
+        if self.pagination_token.is_some() && self.pagination_token < previous {
             return Err(InvalidPage);
         }
-        self.continuation(after)?;
+        self.continuation(request.pagination_token)?;
         Ok(())
     }
 }
@@ -579,13 +665,13 @@ pub struct TransactionOutputs<T, S = SerializableSignature> {
 }
 
 impl<T, S: Copy + Into<Signature>> Positioned for TransactionEvents<T, S> {
-    fn position(&self) -> Cursor {
-        Cursor::new(self.slot, self.signature.into())
+    fn position(&self) -> PaginationToken {
+        PaginationToken::new(self.slot, self.signature.into())
     }
 }
 impl<T, S: Copy + Into<Signature>> Positioned for TransactionOutputs<T, S> {
-    fn position(&self) -> Cursor {
-        Cursor::new(self.slot, self.signature.into())
+    fn position(&self) -> PaginationToken {
+        PaginationToken::new(self.slot, self.signature.into())
     }
 }
 
@@ -661,7 +747,7 @@ fn group_transactions<T, S: Copy + Into<Signature>>(
     for row in rows {
         let (slot, signature) = header(&row);
         groups
-            .entry(Cursor::new(slot, signature.into()))
+            .entry(PaginationToken::new(slot, signature.into()))
             .or_insert_with(|| (slot, signature, Vec::new()))
             .2
             .push(row);
@@ -839,12 +925,15 @@ pub struct Context {
 pub struct GetRingsByTagsRequest {
     /// Empty tags require a ring and select its full history.
     pub tags: Vec<Hash>,
-    /// Resume strictly after the given transaction. Keep a separate checkpoint
-    /// for each stream and filter set; new filters must start from their beginning.
+    /// The previous page's token. Read the next page with the same filters.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub after: Option<Cursor>,
+    pub pagination_token: Option<PaginationToken>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<Limit>,
+    /// Slot bounds. Resume a caught-up read with `slot.gt` set to the last
+    /// page's `context.slot`.
+    #[serde(default, skip_serializing_if = "HistoryFilters::is_empty")]
+    pub filters: HistoryFilters,
     /// Restrict the match to one ring. Its config account is derived from this
     /// program id, so the filter needs no indexed registration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -858,10 +947,15 @@ pub struct GetRingsByTagsRequest {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GetRingsByNullifiersRequest {
     pub nullifiers: Vec<Hash>,
+    /// The previous page's token. Read the next page with the same filters.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub after: Option<Cursor>,
+    pub pagination_token: Option<PaginationToken>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<Limit>,
+    /// Slot bounds. Resume a caught-up read with `slot.gt` set to the last
+    /// page's `context.slot`.
+    #[serde(default, skip_serializing_if = "HistoryFilters::is_empty")]
+    pub filters: HistoryFilters,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub min_context_slot: Option<u64>,
 }
@@ -1250,20 +1344,24 @@ mod tests {
     }
 
     #[test]
-    fn cursor_is_canonical_and_portable() {
-        let cursor = Cursor::new(7, Signature::default());
+    fn pagination_token_is_canonical_and_portable() {
+        let token = PaginationToken::new(7, Signature::default());
         let encoded = format!("1:7:{}", "1".repeat(64));
-        assert_eq!(cursor.to_string(), encoded);
-        assert_eq!(encoded.parse::<Cursor>().unwrap(), cursor);
-        assert_eq!(serde_json::to_value(cursor).unwrap(), encoded);
+        assert_eq!(token.to_string(), encoded);
+        assert_eq!(encoded.parse::<PaginationToken>().unwrap(), token);
+        assert_eq!(serde_json::to_value(token).unwrap(), encoded);
         for invalid in [
             format!("1:07:{}", "1".repeat(64)),
             format!("2:7:{}", "1".repeat(64)),
             format!("1:18446744073709551616:{}", "1".repeat(64)),
             "1:7:invalid".into(),
         ] {
-            assert!(invalid.parse::<Cursor>().is_err());
+            assert!(invalid.parse::<PaginationToken>().is_err());
         }
+    }
+
+    #[test]
+    fn a_page_is_shaped_like_get_transactions_for_address() {
         let page = GetShieldedTransactionsByTagsResponse {
             context: Context {
                 block_time: 3,
@@ -1271,51 +1369,223 @@ mod tests {
             },
             output_tree_id: Some(4),
             items: vec![],
-            cursor: Some(cursor),
-            has_more: false,
+            pagination_token: None,
         };
-        page.validate(None, 1, Some(7)).unwrap();
-        let value = serde_json::to_value(page).unwrap();
-        assert_eq!(value["cursor"], encoded);
-        assert_eq!(value["hasMore"], false);
+        let value = serde_json::to_value(&page).unwrap();
+        assert!(value["paginationToken"].is_null());
         assert_eq!(value["outputTreeId"], 4);
         assert_eq!(value["context"]["blockTime"], 3);
-        assert!(value.get("next").is_none());
-        assert!(value.get("latest").is_none());
+        assert!(value.get("hasMore").is_none());
+        assert!(value.get("cursor").is_none());
+
+        // A missing token is not the end of the history, so a response from
+        // before `paginationToken` existed is refused.
+        let mut legacy = value;
+        legacy.as_object_mut().unwrap().remove("paginationToken");
+        legacy["cursor"] = serde_json::Value::Null;
+        legacy["hasMore"] = false.into();
+        assert!(serde_json::from_value::<GetShieldedTransactionsByTagsResponse>(legacy).is_err());
     }
 
     #[test]
-    fn cursors_order_by_slot_then_signature_bytes() {
-        let low = Cursor::new(5, Signature::from([1; 64]));
-        let same_slot = Cursor::new(5, Signature::from([2; 64]));
+    fn requests_carry_get_transactions_for_address_filters() {
+        let request = GetRingsByTagsRequest {
+            tags: vec![Hash::from([1; 32])],
+            filters: HistoryFilters::after_slot(9),
+            ..Default::default()
+        };
+        let value = serde_json::to_value(&request).unwrap();
+        assert_eq!(value["filters"], serde_json::json!({ "slot": { "gt": 9 } }));
+        assert!(value.get("paginationToken").is_none());
+        let unfiltered = serde_json::to_value(GetRingsByTagsRequest::default()).unwrap();
+        assert!(unfiltered.get("filters").is_none());
+
+        let parsed: GetRingsByNullifiersRequest = serde_json::from_value(serde_json::json!({
+            "nullifiers": [],
+            "filters": { "slot": { "gte": 3, "lte": 5 } },
+        }))
+        .unwrap();
+        assert_eq!(parsed.filters.slot.gte, Some(3));
+        assert_eq!(parsed.filters.slot.lte, Some(5));
+        for invalid in [
+            serde_json::json!({ "nullifiers": [], "filters": { "blockTime": {} } }),
+            serde_json::json!({ "nullifiers": [], "filters": { "slot": { "eq": 3 } } }),
+            serde_json::json!({ "nullifiers": [], "after": "x" }),
+        ] {
+            assert!(serde_json::from_value::<GetRingsByNullifiersRequest>(invalid).is_err());
+        }
+    }
+
+    #[test]
+    fn slot_filters_bound_the_range_and_its_floor() {
+        let filter = SlotFilter {
+            gt: Some(4),
+            gte: Some(3),
+            lt: Some(9),
+            lte: Some(10),
+        };
+        assert!(!filter.contains(4));
+        assert!(filter.contains(5));
+        assert!(filter.contains(8));
+        assert!(!filter.contains(9));
+        assert_eq!(filter.floor(), Some(4));
+        let inclusive = SlotFilter {
+            gte: Some(6),
+            ..Default::default()
+        };
+        assert_eq!(inclusive.floor(), Some(5));
+        let from_genesis = SlotFilter {
+            gte: Some(0),
+            ..Default::default()
+        };
+        assert_eq!(from_genesis.floor(), None);
+        assert_eq!(SlotFilter::default().floor(), None);
+        assert!(SlotFilter::default().contains(0));
+    }
+
+    #[test]
+    fn tokens_order_by_slot_then_signature_bytes() {
+        let low = PaginationToken::new(5, Signature::from([1; 64]));
+        let same_slot = PaginationToken::new(5, Signature::from([2; 64]));
         assert!(low < same_slot);
-        assert!(same_slot < Cursor::new(6, Signature::default()));
+        assert!(same_slot < PaginationToken::new(6, Signature::default()));
+    }
+
+    fn events_at(slot: u64, byte: u8) -> TransactionEvents<()> {
+        TransactionEvents {
+            slot,
+            signature: Signature::from([byte; 64]).into(),
+            events: vec![()],
+        }
     }
 
     #[test]
-    fn page_rejects_nonadvancing_and_stale_checkpoints() {
-        let cursor = Cursor::new(7, Signature::default());
-        let mut page = GetShieldedTransactionsByTagsResponse {
+    fn a_page_answers_only_from_a_snapshot_that_reached_the_request() {
+        let token = PaginationToken::new(7, Signature::default());
+        let page = Page::<TransactionEvents<()>> {
             context: Context {
                 block_time: 0,
                 slot: 7,
             },
             output_tree_id: None,
             items: vec![],
-            cursor: Some(cursor),
-            has_more: true,
+            pagination_token: None,
         };
-        assert!(page.validate(Some(cursor), 1, None).is_err());
-        page.has_more = false;
-        page.validate(Some(cursor), 1, Some(7)).unwrap();
-        assert!(page.validate(None, 1, Some(8)).is_err());
-        page.cursor = None;
-        assert!(page.validate(Some(cursor), 1, None).is_err());
+        let request = |pagination_token, filters, min_context_slot| PageRequest {
+            pagination_token,
+            limit: 1,
+            filters,
+            min_context_slot,
+        };
+        page.validate(&request(Some(token), HistoryFilters::default(), Some(7)))
+            .unwrap();
+        page.validate(&request(None, HistoryFilters::after_slot(7), None))
+            .unwrap();
+        for stale in [
+            request(None, HistoryFilters::default(), Some(8)),
+            request(
+                Some(PaginationToken::new(8, Signature::default())),
+                HistoryFilters::default(),
+                None,
+            ),
+            request(None, HistoryFilters::after_slot(8), None),
+            request(
+                None,
+                HistoryFilters {
+                    slot: SlotFilter {
+                        gte: Some(9),
+                        ..Default::default()
+                    },
+                },
+                None,
+            ),
+        ] {
+            assert_eq!(page.validate(&stale), Err(InvalidPage));
+        }
     }
 
     #[test]
-    fn continuation_requires_an_advancing_cursor_when_more_history_remains() {
-        let after = Cursor::new(7, Signature::default());
+    fn a_page_rejects_items_outside_the_request() {
+        let mut page = Page::<TransactionEvents<()>> {
+            context: Context {
+                block_time: 0,
+                slot: 10,
+            },
+            output_tree_id: None,
+            items: vec![events_at(6, 1), events_at(8, 1)],
+            pagination_token: None,
+        };
+        let request = PageRequest {
+            pagination_token: None,
+            limit: 2,
+            filters: HistoryFilters::after_slot(5),
+            min_context_slot: None,
+        };
+        page.validate_indexed(&request).unwrap();
+        for filters in [
+            HistoryFilters::after_slot(6),
+            HistoryFilters {
+                slot: SlotFilter {
+                    lt: Some(8),
+                    ..Default::default()
+                },
+            },
+        ] {
+            assert_eq!(
+                page.validate(&PageRequest { filters, ..request }),
+                Err(InvalidPage)
+            );
+        }
+        assert_eq!(
+            page.validate(&PageRequest {
+                pagination_token: Some(page.items[0].position()),
+                ..request
+            }),
+            Err(InvalidPage)
+        );
+        assert_eq!(
+            page.validate(&PageRequest {
+                limit: 1,
+                ..request
+            }),
+            Err(InvalidPage)
+        );
+        page.items.swap(0, 1);
+        assert_eq!(page.validate(&request), Err(InvalidPage));
+    }
+
+    #[test]
+    fn an_indexer_token_is_the_last_transaction_returned() {
+        let last = events_at(8, 2);
+        let mut page = Page::<TransactionEvents<()>> {
+            context: Context {
+                block_time: 0,
+                slot: 10,
+            },
+            output_tree_id: None,
+            items: vec![events_at(6, 1), last.clone()],
+            pagination_token: Some(last.position()),
+        };
+        let request = PageRequest {
+            limit: 2,
+            ..Default::default()
+        };
+        page.validate_indexed(&request).unwrap();
+        // A sparser reader may pass a token beyond its own last item.
+        let beyond = PaginationToken::new(9, Signature::default());
+        page.pagination_token = Some(beyond);
+        page.validate(&request).unwrap();
+        assert_eq!(page.validate_indexed(&request), Err(InvalidPage));
+        page.items.clear();
+        page.validate(&request).unwrap();
+        assert_eq!(page.validate_indexed(&request), Err(InvalidPage));
+        page.pagination_token = Some(PaginationToken::new(11, Signature::default()));
+        assert_eq!(page.validate(&request), Err(InvalidPage));
+    }
+
+    #[test]
+    fn continuation_requires_an_advancing_token() {
+        let requested = PaginationToken::new(7, Signature::default());
         let mut page = Page::<()> {
             context: Context {
                 block_time: 0,
@@ -1323,22 +1593,17 @@ mod tests {
             },
             output_tree_id: None,
             items: vec![],
-            cursor: None,
-            has_more: true,
+            pagination_token: None,
         };
-        for cursor in [
-            None,
-            Some(after),
-            Some(Cursor::new(6, Signature::default())),
-        ] {
-            page.cursor = cursor;
-            assert_eq!(page.continuation(Some(after)), Err(InvalidPage));
+        assert_eq!(page.continuation(Some(requested)), Ok(None));
+        for token in [requested, PaginationToken::new(6, Signature::default())] {
+            page.pagination_token = Some(token);
+            assert_eq!(page.continuation(Some(requested)), Err(InvalidPage));
         }
-        let next = Cursor::new(8, Signature::default());
-        page.cursor = Some(next);
-        assert_eq!(page.continuation(Some(after)), Ok(Some(next)));
-        page.has_more = false;
-        assert_eq!(page.continuation(Some(after)), Ok(None));
+        let next = PaginationToken::new(8, Signature::default());
+        page.pagination_token = Some(next);
+        assert_eq!(page.continuation(Some(requested)), Ok(Some(next)));
+        assert_eq!(page.continuation(None), Ok(Some(next)));
     }
 
     #[test]

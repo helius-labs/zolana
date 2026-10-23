@@ -1,4 +1,4 @@
-import { nextPageCursor } from "../interface/page.js";
+import { nextPageToken, validateIndexedPage } from "../interface/page.js";
 import type { DepositPayloadDecoder } from "../transaction/serialization/ring-deposit.js";
 import {
   getAddressEncoder,
@@ -8,7 +8,6 @@ import {
 } from "@solana/kit";
 
 import { runKitRpc } from "../client/kit.js";
-import { compareCursors, type Cursor } from "../client/rpc.js";
 import { initializePoseidon } from "../hasher/index.js";
 import type { IndexerReader, KitRpcAccess } from "../client/ports.js";
 import { ClientError } from "../client/error.js";
@@ -20,7 +19,13 @@ import {
 import { decodeSplAssetRegistry } from "../interface/accounts.js";
 import { SHIELDED_POOL_PROGRAM_ID } from "../interface/program.js";
 import { StateDiscriminator } from "../interface/state.js";
-import type { Address, Bytes32, RequestContext } from "../interface/types.js";
+import type {
+  Address,
+  Bytes32,
+  HistoryFilters,
+  PaginationToken,
+  RequestContext,
+} from "../interface/types.js";
 import { TransactionError } from "../transaction/error.js";
 import type { IndexedShieldedTransaction } from "../transaction/instructions/transact.js";
 import { decodeOutputData } from "../transaction/serialization/codecs.js";
@@ -40,11 +45,11 @@ import { decryptTransactions } from "../transaction/wallet/sync.js";
 import { WalletError, wrapWalletError } from "./error.js";
 import { bytesKey } from "./internal.js";
 import {
-  advanceSessionCursors,
+  advanceSessionCheckpoints,
   beginSyncSession,
   ensureSessionAsset,
   sealSyncDelta,
-  sessionCursor,
+  sessionCheckpoint,
   type WalletSyncSession,
 } from "./sync-session.js";
 
@@ -297,43 +302,64 @@ interface CollectByTagsInput {
   readonly pageLimit: number;
   readonly nextRpcConfig: () => IndexerRpcConfig;
   readonly out: Map<string, IndexedShieldedTransaction>;
-  /** Where this group of tags was read to last sync, or undefined for never. */
-  readonly from: Cursor | undefined;
+  /** The slot this group of tags was read through last sync, or undefined for never. */
+  readonly checkpoint: bigint | undefined;
 }
 
-/** One page of a position-ordered stream, reduced to what paging needs. */
-interface Page {
-  readonly cursor: Cursor | null;
-  readonly hasMore: boolean;
+/** The controls of one page of a resumable scan. */
+interface ScanControls {
+  readonly paginationToken?: PaginationToken;
+  readonly filters?: HistoryFilters;
 }
 
+/** One indexer page, reduced to what a resumable scan needs. */
+interface ScanPage {
+  readonly context: { readonly slot: bigint };
+  readonly items: readonly { readonly slot: bigint; readonly signature: string }[];
+  readonly paginationToken: PaginationToken | null;
+}
+
+/**
+ * Reads a chunk's history above its checkpoint and returns the next
+ * checkpoint, the final page's snapshot slot. Photon commits each block with
+ * its transactions, so that page proves every match at or below the slot was
+ * returned. Tokens only continue this scan, they are never persisted.
+ */
 async function readChunk(
   method: string,
-  start: Cursor | undefined,
-  request: (after: Cursor | undefined) => Promise<Page>,
-): Promise<Cursor | undefined> {
-  let after = start;
+  checkpoint: bigint | undefined,
+  pageLimit: number,
+  request: (controls: ScanControls) => Promise<ScanPage>,
+): Promise<bigint> {
+  const invalid = (path: string) => () =>
+    new ClientError("CLIENT_INVALID_RPC_RESPONSE", { details: { method, path } });
+  const filters = checkpoint === undefined ? undefined : { slot: { gt: checkpoint } };
+  let token: PaginationToken | undefined;
   for (;;) {
-    const page = await request(after);
-    const invalid = () =>
-      new ClientError("CLIENT_INVALID_RPC_RESPONSE", {
-        details: { method, path: "$.cursor" },
-      });
-    const next = nextPageCursor(page, after, invalid);
-    if (after !== undefined && (page.cursor === null || compareCursors(page.cursor, after) < 0))
-      throw invalid();
-    if (next === null) return page.cursor ?? after;
-    after = next;
+    const controls: ScanControls = {
+      ...(filters === undefined ? {} : { filters }),
+      ...(token === undefined ? {} : { paginationToken: token }),
+    };
+    const page = await request(controls);
+    try {
+      validateIndexedPage(page, { ...controls, limit: BigInt(pageLimit) });
+    } catch {
+      throw invalid("$")();
+    }
+    const next = nextPageToken(page, token, invalid("$.paginationToken"));
+    if (next === null) return page.context.slot;
+    token = next;
   }
 }
 
 async function collectShieldedTransactions(
   input: CollectByTagsInput,
   context?: RequestContext,
-): Promise<Cursor | undefined> {
-  return readChunk("getShieldedTransactionsByTags", input.from, async (after) => {
+): Promise<bigint> {
+  const method = "getShieldedTransactionsByTags";
+  return readChunk(method, input.checkpoint, input.pageLimit, async (controls) => {
     const response = await input.indexer.getShieldedTransactionsByTags(
-      { tags: input.chunk, limit: input.pageLimit, ...(after === undefined ? {} : { after }) },
+      { tags: input.chunk, limit: input.pageLimit, ...controls },
       input.nextRpcConfig(),
       context,
     );
@@ -345,20 +371,18 @@ async function collectShieldedTransactions(
       const key = shieldedTransactionKey(transaction);
       if (!input.out.has(key)) input.out.set(key, transaction);
     }
-    return {
-      cursor: response.cursor,
-      hasMore: response.hasMore,
-    };
+    return response;
   });
 }
 
 async function collectProoflessDeposits(
   input: CollectByTagsInput,
   context?: RequestContext,
-): Promise<Cursor | undefined> {
-  return readChunk("getEncryptedUtxosByTags", input.from, async (after) => {
+): Promise<bigint> {
+  const method = "getEncryptedUtxosByTags";
+  return readChunk(method, input.checkpoint, input.pageLimit, async (controls) => {
     const response = await input.indexer.getEncryptedUtxosByTags(
-      { tags: input.chunk, limit: input.pageLimit, ...(after === undefined ? {} : { after }) },
+      { tags: input.chunk, limit: input.pageLimit, ...controls },
       input.nextRpcConfig(),
       context,
     );
@@ -384,29 +408,25 @@ async function collectProoflessDeposits(
         }),
       );
     }
-    return {
-      cursor: response.cursor,
-      hasMore: response.hasMore,
-    };
+    return response;
   });
 }
 
 /**
- * Buckets keys by the position their stream was last read to.
+ * Buckets keys by the checkpoint their stream was last read through.
  *
- * A chunk carries one resume position, so keys at different positions cannot
+ * A chunk carries one slot filter, so keys at different checkpoints cannot
  * share a request. `undefined` (never queried) is its own group.
  */
-function groupByResumePoint(
+function groupByCheckpoint(
   keys: readonly Bytes32[],
-  positionFor: (key: Bytes32) => Cursor | undefined,
-): readonly { readonly from: Cursor | undefined; readonly keys: Bytes32[] }[] {
-  const groups = new Map<string, { from: Cursor | undefined; keys: Bytes32[] }>();
+  checkpointFor: (key: Bytes32) => bigint | undefined,
+): readonly { readonly checkpoint: bigint | undefined; readonly keys: Bytes32[] }[] {
+  const groups = new Map<bigint | undefined, { checkpoint: bigint | undefined; keys: Bytes32[] }>();
   for (const key of keys) {
-    const from = positionFor(key);
-    const groupKey = from ?? "";
-    const group = groups.get(groupKey);
-    if (group === undefined) groups.set(groupKey, { from, keys: [key] });
+    const checkpoint = checkpointFor(key);
+    const group = groups.get(checkpoint);
+    if (group === undefined) groups.set(checkpoint, { checkpoint, keys: [key] });
     else group.keys.push(key);
   }
   return [...groups.values()];
@@ -418,27 +438,22 @@ interface CollectByNullifiersInput {
   readonly pageLimit: number;
   readonly nextRpcConfig: () => IndexerRpcConfig;
   readonly out: Map<string, IndexedShieldedTransaction>;
-  /** Where this chunk was read to last time, if it has been read before. */
-  readonly start?: Cursor;
+  /** The slot this chunk was read through last time, if it has been read before. */
+  readonly checkpoint: bigint | undefined;
 }
 
 /**
- * Returns how far the scan reached, or `undefined` if the indexer did not say.
- *
- * The position comes from the terminal cursor, even without rows: an unspent nullifier
- * matches nothing, so there is no last row to take a position from.
+ * Returns the slot the scan reached. An unspent nullifier matches nothing, so
+ * the checkpoint comes from the snapshot, not from a row.
  */
 async function collectShieldedTransactionsByNullifiers(
   input: CollectByNullifiersInput,
   context?: RequestContext,
-): Promise<Cursor | undefined> {
-  return readChunk("getShieldedTransactionsByNullifiers", input.start, async (after) => {
+): Promise<bigint> {
+  const method = "getShieldedTransactionsByNullifiers";
+  return readChunk(method, input.checkpoint, input.pageLimit, async (controls) => {
     const response = await input.indexer.getShieldedTransactionsByNullifiers(
-      {
-        nullifiers: input.chunk,
-        limit: input.pageLimit,
-        ...(after === undefined ? {} : { after }),
-      },
+      { nullifiers: input.chunk, limit: input.pageLimit, ...controls },
       input.nextRpcConfig(),
       context,
     );
@@ -447,10 +462,7 @@ async function collectShieldedTransactionsByNullifiers(
       const key = shieldedTransactionKey(transaction);
       if (!input.out.has(key)) input.out.set(key, transaction);
     }
-    return {
-      cursor: response.cursor,
-      hasMore: response.hasMore,
-    };
+    return response;
   });
 }
 
@@ -523,14 +535,14 @@ async function runWalletSync(
     const transactions = new Map<string, IndexedShieldedTransaction>();
     const deposits = new Map<string, IndexedShieldedTransaction>();
     const tags = walletQueryTags(session.staging, keys);
-    // Tags are grouped by where each was last read to, because a chunk can only
-    // carry one cursor. Mixing a tag at the tip with one learned this sync would
-    // resume the new tag from the old one's position and skip its history
-    // permanently -- which is why the watermarks are per tag, not per wallet.
-    // `undefined` (never queried) is its own group.
+    // Tags are grouped by the slot each was last read through, because a chunk
+    // carries one slot filter. Mixing a tag at the tip with one learned this
+    // sync would resume the new tag from the old one's checkpoint and skip its
+    // history permanently -- which is why checkpoints are per tag, not per
+    // wallet. `undefined` (never queried) is its own group.
     for (const stream of ["transactions", "proofless"] as const) {
-      const groups = groupByResumePoint(tags, (tag) =>
-        sessionCursor(session, stream, bytesKey(tag)),
+      const groups = groupByCheckpoint(tags, (tag) =>
+        sessionCheckpoint(session, stream, bytesKey(tag)),
       );
 
       for (const group of groups) {
@@ -538,46 +550,42 @@ async function runWalletSync(
           const chunk = group.keys.slice(offset, offset + chunkSize);
           const collect =
             stream === "transactions" ? collectShieldedTransactions : collectProoflessDeposits;
-          const furthest = await collect(
+          const checkpoint = await collect(
             {
               indexer: input.client,
               chunk,
               pageLimit,
               nextRpcConfig,
               out: stream === "transactions" ? transactions : deposits,
-              from: group.from,
+              checkpoint: group.checkpoint,
             },
             context,
           );
-          if (furthest !== undefined) {
-            advanceSessionCursors(session, stream, chunk, furthest);
-          }
+          advanceSessionCheckpoints(session, stream, chunk, checkpoint);
         }
       }
     }
 
     const scanNullifiers = async (nullifiers: readonly Bytes32[]): Promise<void> => {
-      const groups = groupByResumePoint(nullifiers, (nullifier) =>
-        sessionCursor(session, "nullifiers", bytesKey(nullifier)),
+      const groups = groupByCheckpoint(nullifiers, (nullifier) =>
+        sessionCheckpoint(session, "nullifiers", bytesKey(nullifier)),
       );
 
       for (const group of groups) {
         for (let offset = 0; offset < group.keys.length; offset += chunkSize) {
           const chunk = group.keys.slice(offset, offset + chunkSize);
-          const furthest = await collectShieldedTransactionsByNullifiers(
+          const checkpoint = await collectShieldedTransactionsByNullifiers(
             {
               indexer: input.client,
               chunk,
               pageLimit,
               nextRpcConfig,
               out: transactions,
-              ...(group.from === undefined ? {} : { start: group.from }),
+              checkpoint: group.checkpoint,
             },
             context,
           );
-          if (furthest !== undefined) {
-            advanceSessionCursors(session, "nullifiers", chunk, furthest);
-          }
+          advanceSessionCheckpoints(session, "nullifiers", chunk, checkpoint);
         }
       }
     };
@@ -653,7 +661,7 @@ async function runWalletSync(
       }
     }
     // An unresolved asset means a fetched UTXO was not stored. A commit would
-    // advance the cursors past it and lose the UTXO until a full rescan.
+    // advance the checkpoints past it and lose the UTXO until a full rescan.
     if (
       report.unknownAssetIds.length > 0 ||
       report.unknownAssetFields.length > 0 ||

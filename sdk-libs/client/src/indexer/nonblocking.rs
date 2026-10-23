@@ -8,12 +8,13 @@ use zolana_api::{SerializableSignature, ZolanaApi};
 use crate::{
     error::ClientError,
     rpc::{
-        AsyncRpc, Context, Cursor, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
+        AsyncRpc, Context, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
         GetNonInclusionProofsResponse, GetRingKeyRegistryEntryResponse,
         GetRingKeyRegistryRegisterProofResponse, GetRingSpendRecordResponse,
         GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
-        GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, IndexerRpcConfig,
-        RingHistoryOptions, RingMemberProofRequest, RingSpendRecordRequest,
+        GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, HistoryFilters,
+        IndexerRpcConfig, PaginationToken, RingHistoryOptions, RingMemberProofRequest,
+        RingSpendRecordRequest,
     },
 };
 
@@ -74,8 +75,9 @@ impl AsyncRpc for AsyncZolanaIndexer {
     async fn get_encrypted_utxos_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        after: Option<Cursor>,
+        pagination_token: Option<PaginationToken>,
         limit: Option<u32>,
+        filters: HistoryFilters,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
         wait_for_indexer_async(
@@ -86,8 +88,9 @@ impl AsyncRpc for AsyncZolanaIndexer {
                     .api
                     .get_encrypted_utxos_by_tags(
                         tags.iter().copied().map(encode_hash).collect(),
-                        after,
+                        pagination_token,
                         limit.map(u64::from),
+                        filters,
                         config.and_then(|config| config.require_slot),
                     )
                     .await
@@ -112,8 +115,7 @@ impl AsyncRpc for AsyncZolanaIndexer {
                             })
                         })
                         .collect::<Result<Vec<_>, ClientError>>()?,
-                    cursor: response.cursor,
-                    has_more: response.has_more,
+                    pagination_token: response.pagination_token,
                 })
             },
         )
@@ -123,8 +125,9 @@ impl AsyncRpc for AsyncZolanaIndexer {
     async fn get_shielded_transactions_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        after: Option<Cursor>,
+        pagination_token: Option<PaginationToken>,
         limit: Option<u32>,
+        filters: HistoryFilters,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
         wait_for_indexer_async(
@@ -135,8 +138,9 @@ impl AsyncRpc for AsyncZolanaIndexer {
                     .api
                     .get_shielded_transactions_by_tags(
                         tags.iter().copied().map(encode_hash).collect(),
-                        after,
+                        pagination_token,
                         limit.map(u64::from),
+                        filters,
                         config.and_then(|config| config.require_slot),
                     )
                     .await
@@ -194,8 +198,9 @@ impl AsyncRpc for AsyncZolanaIndexer {
     async fn get_shielded_transactions_by_nullifiers(
         &self,
         nullifiers: Vec<[u8; 32]>,
-        after: Option<Cursor>,
+        pagination_token: Option<PaginationToken>,
         limit: Option<u32>,
+        filters: HistoryFilters,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
         wait_for_indexer_async(
@@ -206,8 +211,9 @@ impl AsyncRpc for AsyncZolanaIndexer {
                     .api
                     .get_shielded_transactions_by_nullifiers(
                         nullifiers.iter().copied().map(encode_hash).collect(),
-                        after,
+                        pagination_token,
                         limit.map(u64::from),
+                        filters,
                         config.and_then(|config| config.require_slot),
                     )
                     .await

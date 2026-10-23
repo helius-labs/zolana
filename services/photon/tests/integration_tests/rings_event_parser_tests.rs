@@ -61,7 +61,8 @@ use zolana_event::{
 };
 use zolana_indexer_api::{
     GetMerkleProofsRequest, GetNonInclusionProofsRequest, GetRingsByTagsRequest,
-    GetShieldedTransactionsBySignatureRequest, Hash, SerializablePubkey, SerializableSignature,
+    GetShieldedTransactionsBySignatureRequest, Hash, HistoryFilters, SerializablePubkey,
+    SerializableSignature,
 };
 use zolana_interface::instruction::{
     instruction_data::merge_transact::{MergeProof, MERGE_DEFAULT_INPUT_COUNT},
@@ -477,11 +478,9 @@ async fn both_tag_endpoints_honour_the_ring_filter() {
 
     for ring_program_id in [None, Some(ours)] {
         let request = GetRingsByTagsRequest {
-            min_context_slot: None,
             tags: vec![Hash::from(view_tag)],
-            after: None,
-            limit: None,
             ring_program_id,
+            ..Default::default()
         };
         let shielded = get_shielded_transactions_by_tags(&db, request.clone())
             .await
@@ -503,16 +502,14 @@ async fn both_tag_endpoints_honour_the_ring_filter() {
             3,
             "ring_program_id={ring_program_id:?}"
         );
-        assert!(shielded.cursor.is_some());
-        assert!(encrypted.cursor.is_some());
+        assert_eq!(shielded.pagination_token, None);
+        assert_eq!(encrypted.pagination_token, None);
     }
 
     let other_ring = GetRingsByTagsRequest {
-        min_context_slot: None,
         tags: vec![Hash::from(view_tag)],
-        after: None,
-        limit: None,
         ring_program_id: Some(theirs),
+        ..Default::default()
     };
     let shielded = get_shielded_transactions_by_tags(&db, other_ring.clone())
         .await
@@ -522,18 +519,14 @@ async fn both_tag_endpoints_honour_the_ring_filter() {
         .expect("utxo lookup");
     assert!(shielded.items.is_empty());
     assert!(encrypted.items.is_empty());
+    assert_eq!(shielded.pagination_token, None);
+    assert_eq!(encrypted.pagination_token, None);
 
-    let shielded_frontier = shielded
-        .cursor
-        .expect("an exhausted transaction scan reports its frontier");
-    let encrypted_frontier = encrypted
-        .cursor
-        .expect("an exhausted UTXO scan reports its frontier");
+    // An exhausted scan resumes after the slot its snapshot reached.
     let resumed_shielded = get_shielded_transactions_by_tags(
         &db,
         GetRingsByTagsRequest {
-            min_context_slot: None,
-            after: Some(shielded_frontier),
+            filters: HistoryFilters::after_slot(shielded.context.slot),
             ..other_ring.clone()
         },
     )
@@ -542,8 +535,7 @@ async fn both_tag_endpoints_honour_the_ring_filter() {
     let resumed_encrypted = get_encrypted_utxos_by_tags(
         &db,
         GetRingsByTagsRequest {
-            min_context_slot: None,
-            after: Some(encrypted_frontier),
+            filters: HistoryFilters::after_slot(encrypted.context.slot),
             ..other_ring
         },
     )
@@ -551,8 +543,8 @@ async fn both_tag_endpoints_honour_the_ring_filter() {
     .expect("resume UTXO scan");
     assert!(resumed_shielded.items.is_empty());
     assert!(resumed_encrypted.items.is_empty());
-    assert_eq!(resumed_shielded.cursor, Some(shielded_frontier));
-    assert_eq!(resumed_encrypted.cursor, Some(encrypted_frontier));
+    assert_eq!(resumed_shielded.pagination_token, None);
+    assert_eq!(resumed_encrypted.pagination_token, None);
 }
 
 #[test]
@@ -1731,21 +1723,16 @@ async fn assert_rings_api_exposes_output_hashes(
         .unwrap()
         .expect("output payload should exist");
     let request = GetRingsByTagsRequest {
-        min_context_slot: None,
         tags: vec![Hash::try_from(output.view_tag.clone()).unwrap()],
-        after: None,
-        limit: None,
-        ring_program_id: None,
+        ..Default::default()
     };
 
     let shielded = get_shielded_transactions_by_tags(db, request.clone())
         .await
         .unwrap();
     assert_eq!(shielded.context.block_time, UNSHIELD_SLOT as i64);
-    // A short page is terminal, so it reports the stream tip rather than a
-    // next page to follow.
-    assert!(!shielded.has_more);
-    assert!(shielded.cursor.is_some());
+    // A short page is the last one.
+    assert_eq!(shielded.pagination_token, None);
     assert!(!shielded.items.is_empty());
     let output_slot = shielded
         .items
@@ -1773,7 +1760,7 @@ async fn assert_rings_api_exposes_output_hashes(
 
     // The tag queries ORDER BY these copies. The columns are nullable, so an
     // ingester that stopped writing them would leave rows sorting last and
-    // paging in an order the cursor cannot follow, with nothing else failing.
+    // paging in an order the token cannot follow, with nothing else failing.
     assert_eq!(
         output.signature.as_deref(),
         Some(rings_tx.signature.as_slice()),
@@ -1809,8 +1796,7 @@ async fn assert_rings_api_exposes_output_hashes(
 
     let encrypted = get_encrypted_utxos_by_tags(db, request).await.unwrap();
     assert_eq!(encrypted.context.block_time, UNSHIELD_SLOT as i64);
-    assert!(!encrypted.has_more);
-    assert!(encrypted.cursor.is_some());
+    assert_eq!(encrypted.pagination_token, None);
     assert!(!encrypted.items.is_empty());
     let encrypted_match = encrypted
         .items

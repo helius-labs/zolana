@@ -19,13 +19,13 @@ pub use traits::{AsyncRpc, Rpc};
 pub use transaction::{compile_message, sign_transaction, SettlementAccountValidation};
 pub use transaction_size::{transaction_size, TransactionSize};
 pub use types::{
-    Context, Cursor, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
+    Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
     GetNonInclusionProofsResponse, GetRingKeyRegistryEntryResponse,
     GetRingKeyRegistryRegisterProofResponse, GetRingSpendRecordResponse,
     GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
-    GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, IndexedShieldedTransaction,
-    MerkleContext, MerkleProof, NonInclusionProof, OutputContext, OutputSlot, Page, ProveResult,
-    RingHistoryOptions, RingMemberProofRequest, RingSpendRecord, RingSpendRecordRequest,
-    ShieldedTransaction, ShieldedTransactionStream, TransactionEvents, TransactionOutputs,
-    UserRecord, MAX_USER_RECORD_OWNERS,
+    GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, HistoryFilters,
+    IndexedShieldedTransaction, MerkleContext, MerkleProof, NonInclusionProof, OutputContext,
+    OutputSlot, Page, PaginationToken, ProveResult, RingHistoryOptions, RingMemberProofRequest,
+    RingSpendRecord, RingSpendRecordRequest, ShieldedTransaction, ShieldedTransactionStream,
+    SlotFilter, TransactionEvents, TransactionOutputs, UserRecord, MAX_USER_RECORD_OWNERS,
 };

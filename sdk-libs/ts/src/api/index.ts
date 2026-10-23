@@ -307,7 +307,7 @@ function isObject(value: unknown): value is JsonObject {
 
 function safeSchemaPath(path: string): string | undefined {
   const knownField =
-    "(?:blockTime|context|hash|highElement|highElementIndex|leaf|leafIndex|leaves|limit|lowElement|lowElementIndex|matches|mergeEncryption|merkleContext|next|nullifierPubkey|nullifiers|outputContext|outputSlot|outputSlots|owner|owners|path|payload|proofless|proofs|records|root|rootIndex|rootSeq|salt|latest|signature|after|slot|tags|transactions|tree|treeAccount|treeType|txSignature|txViewingPk|viewTag|viewingPubkey)";
+    "(?:blockTime|context|events|filters|gt|gte|hash|highElement|highElementIndex|items|leaf|leafIndex|leaves|limit|lowElement|lowElementIndex|lt|lte|matches|mergeEncryption|merkleContext|minContextSlot|nullifierPubkey|nullifiers|outputContext|outputSlot|outputSlots|outputs|owner|owners|paginationToken|path|payload|proofless|proofs|records|root|rootIndex|rootSeq|salt|signature|slot|tags|transactions|tree|treeAccount|treeType|txSignature|txViewingPk|viewTag|viewingPubkey)";
   const pattern = new RegExp(`^\\$(?:(?:\\.${knownField})|(?:\\[\\d+\\]))*$`, "u");
   return path.length <= 256 && pattern.test(path) ? path : undefined;
 }

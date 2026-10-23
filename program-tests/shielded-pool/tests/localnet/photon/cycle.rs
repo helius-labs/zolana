@@ -45,8 +45,13 @@ fn phase_bootstrap() -> TestResult<CycleEnv> {
     let mut rpc = SolanaRpc::new(rpc_url.clone());
     let indexer = ZolanaIndexer::new(indexer_url.clone()).with_http_trace();
     rpc.assert_executable(&program_id)?;
-    let unknown_transactions =
-        indexer.get_shielded_transactions_by_tags(vec![[253u8; 32]], None, Some(10), None)?;
+    let unknown_transactions = indexer.get_shielded_transactions_by_tags(
+        vec![[253u8; 32]],
+        None,
+        Some(10),
+        zolana_client::HistoryFilters::default(),
+        None,
+    )?;
     assert!(
         unknown_transactions.items.is_empty(),
         "unknown tag should not return transactions"
@@ -147,9 +152,13 @@ fn phase_shield(env: &mut CycleEnv) -> TestResult<PayerShield> {
         env.tree_id
     );
     assert!(indexed_deposit.tx_viewing_pk.is_none());
-    let unknown_utxos =
-        env.indexer
-            .get_encrypted_utxos_by_tags(vec![[254u8; 32]], None, Some(10), None)?;
+    let unknown_utxos = env.indexer.get_encrypted_utxos_by_tags(
+        vec![[254u8; 32]],
+        None,
+        Some(10),
+        zolana_client::HistoryFilters::default(),
+        None,
+    )?;
     assert!(
         unknown_utxos.items.is_empty(),
         "unknown tag should not return encrypted UTXOs"
@@ -601,9 +610,10 @@ fn phase_unshield_indexer_assertions(
             vec![recipient_view_tag],
             None,
             Some(1),
+            zolana_client::HistoryFilters::default(),
             None,
         )?;
-        if response.items.len() == 1 && response.has_more {
+        if response.items.len() == 1 && response.pagination_token.is_some() {
             Ok(Some(response))
         } else {
             Ok(None)
@@ -611,13 +621,29 @@ fn phase_unshield_indexer_assertions(
     })?;
     let second_page = indexer.get_shielded_transactions_by_tags(
         vec![recipient_view_tag],
-        first_page.cursor,
+        first_page.pagination_token,
         Some(1),
+        zolana_client::HistoryFilters::default(),
         None,
     )?;
     assert!(
         !second_page.items.is_empty(),
         "paginated transaction query should return a second page"
+    );
+    // A caught-up reader resumes after the slot its last page answered from.
+    let resumed = indexer.get_shielded_transactions_by_tags(
+        vec![recipient_view_tag],
+        None,
+        Some(1),
+        zolana_client::HistoryFilters::after_slot(second_page.context.slot),
+        None,
+    )?;
+    assert!(
+        resumed
+            .items
+            .iter()
+            .all(|item| item.slot > second_page.context.slot),
+        "a slot filter returns only transactions after the resume slot"
     );
 
     let public_recipient_after = account_lamports(&env.rpc, &unshield.public_recipient)?;

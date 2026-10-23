@@ -1,11 +1,11 @@
-import { nextPageCursor } from "../interface/page.js";
+import { nextPageToken } from "../interface/page.js";
 import type { Address, Signature } from "@solana/kit";
 
 import { ClientError } from "../client/error.js";
 import { concatBytes } from "../keypair/bytes.js";
 import { ownerHash } from "../keypair/hash.js";
 import type { IndexerReader, RingSpendRecordLookup } from "../client/ports.js";
-import type { Cursor } from "../client/rpc.js";
+import type { PaginationToken } from "../client/rpc.js";
 import {
   RING_ANSWER_SLOTS,
   RING_INLINE_ASSET_SLOTS,
@@ -973,11 +973,11 @@ export async function readRingEntries(
   const pairs = new Map<string, EntryPair>();
   await collectPages(
     "getEncryptedUtxosByTags",
-    (after) =>
+    (token) =>
       input.indexer.getEncryptedUtxosByTags(
         {
           tags: [tag],
-          ...(after === undefined ? {} : { after }),
+          ...(token === undefined ? {} : { paginationToken: token }),
           ...(input.pageLimit === undefined ? {} : { limit: input.pageLimit }),
         },
         undefined,
@@ -1212,9 +1212,9 @@ async function fetchSpenders(
   const spenders: IndexedShieldedTransaction[] = [];
   await collectPages(
     "getShieldedTransactionsByNullifiers",
-    (after) =>
+    (token) =>
       indexer.getShieldedTransactionsByNullifiers(
-        { nullifiers, ...(after === undefined ? {} : { after }) },
+        { nullifiers, ...(token === undefined ? {} : { paginationToken: token }) },
         undefined,
         context,
       ),
@@ -1265,30 +1265,29 @@ async function decodeSuccessor(
   return { entry, utxoHash: hashes.utxoHash, nullifier: hashes.nullifier, tree, treeId };
 }
 
-interface PositionPage {
-  readonly cursor: Cursor | null;
-  readonly hasMore: boolean;
+interface TokenPage {
+  readonly paginationToken: PaginationToken | null;
 }
 
-/** Continue while the server reports more transactions. */
-async function collectPages<P extends PositionPage>(
+/** Continue until the server's token runs out. */
+async function collectPages<P extends TokenPage>(
   method: string,
-  request: (after: Cursor | undefined) => Promise<P>,
+  request: (token: PaginationToken | undefined) => Promise<P>,
   absorb: (page: P) => void,
 ): Promise<void> {
-  let after: Cursor | undefined;
+  let token: PaginationToken | undefined;
   for (;;) {
-    const page = await request(after);
-    const next = nextPageCursor(
+    const page = await request(token);
+    const next = nextPageToken(
       page,
-      after,
+      token,
       () =>
         new ClientError("CLIENT_INVALID_RPC_RESPONSE", {
-          details: { method, path: "$.cursor" },
+          details: { method, path: "$.paginationToken" },
         }),
     );
     absorb(page);
     if (next === null) return;
-    after = next;
+    token = next;
   }
 }

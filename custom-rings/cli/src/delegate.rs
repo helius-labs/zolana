@@ -366,9 +366,9 @@ mod tests {
     use custom_ring_sdk::CustomRing;
     use solana_signature::Signature;
     use zolana_client::{
-        rpc::{Cursor, GetShieldedTransactionsByNullifiersResponse},
-        Context, GetShieldedTransactionsByTagsResponse, IndexerRpcConfig, ProofInputUtxo,
-        ShieldedTransaction,
+        rpc::GetShieldedTransactionsByNullifiersResponse, Context,
+        GetShieldedTransactionsByTagsResponse, HistoryFilters, IndexerRpcConfig, PaginationToken,
+        ProofInputUtxo, ShieldedTransaction,
     };
     use zolana_keypair::{constants::SALT_LEN, ShieldedKeypair};
     use zolana_ring_client::{AuditorEncryption, OriginError, RingOrigin, TransactionOrigin};
@@ -718,13 +718,20 @@ mod tests {
             _options: zolana_client::RingHistoryOptions,
             config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
-            self.get_shielded_transactions_by_tags(Vec::new(), None, None, config)
+            self.get_shielded_transactions_by_tags(
+                Vec::new(),
+                None,
+                None,
+                HistoryFilters::default(),
+                config,
+            )
         }
         fn get_shielded_transactions_by_tags(
             &self,
             _tags: Vec<[u8; 32]>,
-            _since: Option<Cursor>,
+            _token: Option<PaginationToken>,
             _limit: Option<u32>,
+            _filters: HistoryFilters,
             _config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
             Ok(GetShieldedTransactionsByTagsResponse {
@@ -737,16 +744,16 @@ mod tests {
                     self.transactions.clone(),
                     |event| (event.slot, event.tx_signature),
                 ),
-                cursor: None,
-                has_more: false,
+                pagination_token: None,
             })
         }
 
         fn get_shielded_transactions_by_nullifiers(
             &self,
             nullifiers: Vec<[u8; 32]>,
-            _since: Option<Cursor>,
+            _token: Option<PaginationToken>,
             _limit: Option<u32>,
+            _filters: HistoryFilters,
             _config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
             Ok(GetShieldedTransactionsByNullifiersResponse {
@@ -763,8 +770,7 @@ mod tests {
                         .collect::<Vec<_>>(),
                     |event| (event.slot, event.tx_signature),
                 ),
-                cursor: None,
-                has_more: false,
+                pagination_token: None,
             })
         }
     }

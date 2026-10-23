@@ -4,9 +4,10 @@ use futures::Stream;
 use solana_address::Address;
 use solana_signature::Signature;
 pub use zolana_indexer_api::{
-    Context, Cursor, GetRingKeyRegistryEntryResponse, GetRingKeyRegistryRegisterProofResponse,
-    GetRingSpendRecordResponse, Page, RingMemberProofRequest, RingSpendRecord,
-    RingSpendRecordRequest, TransactionEvents, TransactionOutputs, MAX_USER_RECORD_OWNERS,
+    Context, GetRingKeyRegistryEntryResponse, GetRingKeyRegistryRegisterProofResponse,
+    GetRingSpendRecordResponse, HistoryFilters, Page, PaginationToken, RingMemberProofRequest,
+    RingSpendRecord, RingSpendRecordRequest, SlotFilter, TransactionEvents, TransactionOutputs,
+    MAX_USER_RECORD_OWNERS,
 };
 use zolana_keypair::X25519Pubkey;
 pub use zolana_transaction::{OutputContext, OutputSlot, ShieldedTransaction};
@@ -76,8 +77,9 @@ pub type GetShieldedTransactionsByTagsResponse =
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RingHistoryOptions {
     pub ring_program_id: Address,
-    pub after: Option<Cursor>,
+    pub pagination_token: Option<PaginationToken>,
     pub limit: Option<u32>,
+    pub filters: HistoryFilters,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

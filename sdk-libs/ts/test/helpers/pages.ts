@@ -45,11 +45,5 @@ export function ringPage<C, T extends Event, S extends Event>(input: {
     group.skipped.push(event);
   }
   groups.sort((a, b) => (a.slot < b.slot ? -1 : a.slot > b.slot ? 1 : 0));
-  const last = groups.at(-1);
-  return {
-    context: input.context,
-    items: groups,
-    cursor: input.value.next ?? (last === undefined ? null : `1:${last.slot}:${last.signature}`),
-    hasMore: input.value.next !== undefined,
-  };
+  return { context: input.context, items: groups, paginationToken: input.value.next ?? null };
 }

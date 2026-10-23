@@ -1189,8 +1189,7 @@ describe("ring audit", () => {
       getShieldedTransactionsByTags: async () =>
         transactionsPage({
           items: transactionItems([transaction, transaction]),
-          cursor: null,
-          hasMore: false,
+          paginationToken: null,
         }),
       solanaRpc: { getProgramAccounts },
       commitment: "confirmed",
@@ -1214,9 +1213,9 @@ describe("ring audit", () => {
     expect(assets.resolve(2n)).toBe(mint);
   });
 
-  it("rejects a missing continuation before doing any audit work", async () => {
+  it("rejects a malformed pagination token before doing any audit work", async () => {
     const getShieldedTransactionsByTags = vi.fn(async () =>
-      transactionsPage({ cursor: null, hasMore: true }),
+      transactionsPage({ paginationToken: "invalid" }),
     );
     const ringInvoked = vi.fn(async () => true);
     await expect(
@@ -1248,7 +1247,7 @@ describe("ring audit", () => {
     const getProgramAccounts = vi.fn(() => ({ send: async () => [] }));
     const client = ringAuditReader({
       getShieldedTransactionsByTags: async () =>
-        transactionsPage({ items: transactionItems([transaction]), cursor: null, hasMore: false }),
+        transactionsPage({ items: transactionItems([transaction]), paginationToken: null }),
       solanaRpc: { getProgramAccounts },
       commitment: "confirmed",
     });

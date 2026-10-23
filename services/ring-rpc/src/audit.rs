@@ -2,8 +2,8 @@ use std::{num::NonZeroU32, sync::Arc, time::Duration};
 
 use custom_ring_interface::RingMode;
 use solana_address::Address;
-use zolana_client::{rpc::Cursor, GetShieldedTransactionsByTagsResponse};
-use zolana_indexer_api::Limit;
+use zolana_client::GetShieldedTransactionsByTagsResponse;
+use zolana_indexer_api::{HistoryFilters, Limit, PageRequest, PaginationToken};
 use zolana_keypair::{X25519Keypair, X25519Pubkey};
 use zolana_ring_client::{AuditError, AuditedTransaction, RingWithdrawal, TransactionAudit};
 use zolana_transaction::instructions::transact::canonical_shape;
@@ -28,17 +28,19 @@ pub(crate) const ASSET_REFRESH_INTERVAL: Duration = Duration::from_secs(60);
 pub(crate) const MAX_ASSET_REGISTRY_ACCOUNTS: usize = 4_096;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Page {
-    after: Option<Cursor>,
+    pagination_token: Option<PaginationToken>,
     limit: NonZeroU32,
     attested_limit: Option<Limit>,
+    filters: HistoryFilters,
     min_context_slot: Option<u64>,
 }
 
 #[derive(Default)]
 #[must_use]
 pub struct PageOptions {
-    after: Option<Cursor>,
+    pagination_token: Option<PaginationToken>,
     limit: Option<Limit>,
+    filters: HistoryFilters,
     min_context_slot: Option<u64>,
 }
 
@@ -65,8 +67,14 @@ pub struct AuditRead<'a> {
 
 impl PageOptions {
     #[must_use = "use the updated options"]
-    pub fn with_after(mut self, after: &Cursor) -> Self {
-        self.after = Some(*after);
+    pub fn with_pagination_token(mut self, token: PaginationToken) -> Self {
+        self.pagination_token = Some(token);
+        self
+    }
+
+    #[must_use = "use the updated options"]
+    pub fn with_filters(mut self, filters: HistoryFilters) -> Self {
+        self.filters = filters;
         self
     }
 
@@ -94,7 +102,8 @@ impl PageOptions {
             .and_then(NonZeroU32::new)
             .ok_or(RingRpcError::InvalidPage)?;
         Ok(Page {
-            after: self.after,
+            pagination_token: self.pagination_token,
+            filters: self.filters,
             min_context_slot: self.min_context_slot,
             limit,
             attested_limit,
@@ -103,12 +112,18 @@ impl PageOptions {
 }
 
 impl Page {
-    pub fn after(&self) -> Option<Cursor> {
-        self.after
-    }
-
     pub fn limit(&self) -> NonZeroU32 {
         self.limit
+    }
+
+    /// What the indexer page must answer.
+    fn request(&self) -> PageRequest {
+        PageRequest {
+            pagination_token: self.pagination_token,
+            limit: u64::from(self.limit.get()),
+            filters: self.filters,
+            min_context_slot: self.min_context_slot,
+        }
     }
 }
 
@@ -183,7 +198,8 @@ impl<S: TransactionSource> AuditService<S> {
             ring: self.ring,
             timestamp: request.auth.timestamp,
             nonce: &nonce,
-            after: request.page.after,
+            pagination_token: request.page.pagination_token,
+            filters: request.page.filters,
             min_context_slot: request.page.min_context_slot,
             limit: request.page.attested_limit.clone(),
         };
@@ -230,18 +246,18 @@ impl<S: TransactionSource> AuditService<S> {
         page: &Page,
         mode: RingMode,
     ) -> Result<GetDecryptedTransactionsResponse, RingRpcError> {
-        let after = page.after();
         let response = self
             .shared
             .source
             .transactions_by_tag(TransactionPage {
                 tag: self.view_tag,
-                after,
+                pagination_token: page.pagination_token,
+                filters: page.filters,
                 min_context_slot: page.min_context_slot,
                 limit: page.limit(),
             })
             .await?;
-        validate_indexer_response(&response, page, after, self.view_tag)?;
+        validate_indexer_response(&response, page, self.view_tag)?;
         let mut assets = self.shared.cached_assets().await;
         let mut refreshed_assets = false;
 
@@ -304,8 +320,7 @@ impl<S: TransactionSource> AuditService<S> {
             context: response.context,
             output_tree_id: None,
             items,
-            cursor: response.cursor,
-            has_more: response.has_more,
+            pagination_token: response.pagination_token,
         })
     }
 }
@@ -329,11 +344,10 @@ fn skipped_reason(error: &AuditError) -> SkippedReason {
 fn validate_indexer_response(
     response: &GetShieldedTransactionsByTagsResponse,
     page: &Page,
-    after: Option<Cursor>,
     auditor_tag: [u8; 32],
 ) -> Result<(), RingRpcError> {
     response
-        .validate_indexed(after, u64::from(page.limit.get()), page.min_context_slot)
+        .validate_indexed(&page.request())
         .map_err(|_| RingRpcError::InvalidIndexerResponse)?;
     for group in &response.items {
         group

@@ -297,6 +297,7 @@ pub fn setup_merge_scenario(utxo_count: usize, amount: u64) -> Result<MergeScena
         vec![view_tag],
         None,
         Some(50),
+        zolana_client::HistoryFilters::default(),
         Some(IndexerRpcConfig::at_slot(slot)),
     )?;
     let balances = decrypt_spendable(

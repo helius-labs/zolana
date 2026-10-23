@@ -1,14 +1,13 @@
 import { address, type Address } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 
-import type { Bytes32, Signature } from "../src/interface/index.js";
+import type { Bytes32 } from "../src/interface/index.js";
 import { ShieldedKeypair } from "../src/keypair/index.js";
 import { Data, Utxo, Wallet } from "../src/transaction/index.js";
 import { AssetRegistry } from "../src/transaction/asset.js";
 import type { SyncDelta } from "../src/transaction/wallet/state.js";
 
 const TREE = address("3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3");
-const SIGNATURE = "1".repeat(64) as Signature;
 const MINT = address("So11111111111111111111111111111111111111112");
 
 function filled(value: number): Bytes32 {
@@ -48,7 +47,7 @@ function deltaFrom(
   return {
     ...wallet._state(),
     lastSynced: 7n,
-    cursors: {
+    checkpoints: {
       transactions: new Map(),
       proofless: new Map(),
       nullifiers: new Map(),
@@ -59,7 +58,7 @@ function deltaFrom(
 }
 
 describe("wallet commit machinery", () => {
-  it("commits rows, cursors, and registry additions in one step", () => {
+  it("commits rows, checkpoints, and registry additions in one step", () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = walletWith(keypair, []);
     const revision = wallet._revision;
@@ -69,8 +68,8 @@ describe("wallet commit machinery", () => {
       deltaFrom(
         staged,
         {
-          cursors: {
-            transactions: new Map([["aa", `1:${9n}:${SIGNATURE}`]]),
+          checkpoints: {
+            transactions: new Map([["aa", 9n]]),
             proofless: new Map(),
             nullifiers: new Map(),
           },
@@ -82,7 +81,7 @@ describe("wallet commit machinery", () => {
 
     expect(wallet.utxos()).toHaveLength(2);
     expect(wallet.lastSynced).toBe(7n);
-    expect(wallet._syncCursor("transactions", "aa")).toEqual(`1:${9n}:${SIGNATURE}`);
+    expect(wallet._syncCheckpoint("transactions", "aa")).toEqual(9n);
     expect(wallet.registry.assetId(MINT)).toBe(2n);
     expect(wallet._revision).toBe(revision + 1);
   });
@@ -100,7 +99,7 @@ describe("wallet commit machinery", () => {
     expect(() => wallet._commitSync(deltaFrom(staged), revision)).not.toThrow();
   });
 
-  it("refuses a stale revision and leaves state and cursors untouched", () => {
+  it("refuses a stale revision and leaves state and checkpoints untouched", () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = walletWith(keypair, [10n]);
     const staged = walletWith(keypair, [10n, 20n]);
@@ -108,8 +107,8 @@ describe("wallet commit machinery", () => {
     expect(() =>
       wallet._commitSync(
         deltaFrom(staged, {
-          cursors: {
-            transactions: new Map([["aa", `1:${9n}:${SIGNATURE}`]]),
+          checkpoints: {
+            transactions: new Map([["aa", 9n]]),
             proofless: new Map(),
             nullifiers: new Map(),
           },
@@ -118,10 +117,10 @@ describe("wallet commit machinery", () => {
       ),
     ).toThrow("TRANSACTION_WALLET_STATE_STALE");
     expect(wallet.utxos()).toHaveLength(1);
-    expect(wallet._syncCursor("transactions", "aa")).toBeUndefined();
+    expect(wallet._syncCheckpoint("transactions", "aa")).toBeUndefined();
   });
 
-  it("refuses a duplicate output before touching registry or cursors", () => {
+  it("refuses a duplicate output before touching registry or checkpoints", () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = walletWith(keypair, []);
     const entry = utxoEntry(keypair, 10n, 0);
@@ -132,8 +131,8 @@ describe("wallet commit machinery", () => {
           wallet,
           {
             utxos: [entry, entry],
-            cursors: {
-              transactions: new Map([["aa", `1:${9n}:${SIGNATURE}`]]),
+            checkpoints: {
+              transactions: new Map([["aa", 9n]]),
               proofless: new Map(),
               nullifiers: new Map(),
             },
@@ -144,7 +143,7 @@ describe("wallet commit machinery", () => {
       ),
     ).toThrow("TRANSACTION_DUPLICATE_OUTPUT");
     expect(() => wallet.registry.assetId(MINT)).toThrow("TRANSACTION_UNKNOWN_MINT");
-    expect(wallet._syncCursor("transactions", "aa")).toBeUndefined();
+    expect(wallet._syncCheckpoint("transactions", "aa")).toBeUndefined();
   });
 
   it("refuses a conflicting registry addition without applying earlier ones", () => {
@@ -175,19 +174,19 @@ describe("wallet commit machinery", () => {
     );
   });
 
-  it("clones independently, cursors included", () => {
+  it("clones independently, checkpoints included", () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = walletWith(keypair, [10n]);
-    wallet._setSyncCursor("transactions", "aa", `1:${3n}:${SIGNATURE}`);
+    wallet._setSyncCheckpoint("transactions", "aa", 3n);
 
     const clone = wallet._clone();
-    clone._setSyncCursor("transactions", "aa", `1:${4n}:${SIGNATURE}`);
+    clone._setSyncCheckpoint("transactions", "aa", 4n);
     clone._replace({ utxos: [], transactions: [], nullifiers: new Set() });
 
     expect(wallet.utxos()).toHaveLength(1);
-    expect(wallet._syncCursor("transactions", "aa")).toEqual(`1:${3n}:${SIGNATURE}`);
+    expect(wallet._syncCheckpoint("transactions", "aa")).toEqual(3n);
     expect(clone.utxos()).toHaveLength(0);
-    expect(clone._syncCursor("transactions", "aa")).toEqual(`1:${4n}:${SIGNATURE}`);
+    expect(clone._syncCheckpoint("transactions", "aa")).toEqual(4n);
   });
 
   it("serializes locked spans and survives a failing one", async () => {

@@ -25,8 +25,8 @@ use sea_orm_migration::MigratorTrait;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use zolana_indexer_api::{
-    Cursor, GetRingsByTagsRequest, GetShieldedTransactionsBySignatureRequest,
-    GetShieldedTransactionsByTagsResponse, Hash, Limit, SerializableSignature,
+    GetRingsByTagsRequest, GetShieldedTransactionsBySignatureRequest,
+    GetShieldedTransactionsByTagsResponse, Hash, Limit, PaginationToken, SerializableSignature,
 };
 use zolana_interface::pda;
 
@@ -56,7 +56,7 @@ pub struct LookupCost {
 pub struct Page {
     pub signatures: Vec<Signature>,
     pub hydrated: usize,
-    pub next: Option<Cursor>,
+    pub next: Option<PaginationToken>,
 }
 
 pub fn signature_at(index: u64) -> Signature {
@@ -83,7 +83,7 @@ pub async fn fresh_rings_database() -> DatabaseConnection {
 /// derived from that endpoint reporting no next position rather than assumed.
 pub async fn resolve<F, Fut>(target: Signature, mut fetch: F) -> LookupCost
 where
-    F: FnMut(Option<Cursor>) -> Fut,
+    F: FnMut(Option<PaginationToken>) -> Fut,
     Fut: Future<Output = Page>,
 {
     let mut cost = LookupCost {
@@ -143,7 +143,7 @@ pub async fn resolve_by_tags(
                 .map(|item| item.tx_signature.0)
                 .collect(),
             hydrated: page.items.iter().flat_map(|item| &item.events).count(),
-            next: page.cursor,
+            next: page.pagination_token,
         }
     })
     .await
@@ -152,17 +152,16 @@ pub async fn resolve_by_tags(
 pub async fn tag_page(
     db: &DatabaseConnection,
     view_tag: [u8; 32],
-    after: Option<Cursor>,
+    pagination_token: Option<PaginationToken>,
     page_limit: u64,
 ) -> GetShieldedTransactionsByTagsResponse {
     get_shielded_transactions_by_tags(
         db,
         GetRingsByTagsRequest {
-            min_context_slot: None,
             tags: vec![Hash::from(view_tag)],
-            after,
+            pagination_token,
             limit: Some(Limit::new(page_limit).expect("page limit is within the shared bounds")),
-            ring_program_id: None,
+            ..Default::default()
         },
     )
     .await

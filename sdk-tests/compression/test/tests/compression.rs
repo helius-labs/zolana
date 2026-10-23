@@ -62,6 +62,7 @@ fn assert_account(
                 vec![wallet_utxo.nullifier],
                 None,
                 Some(1),
+                zolana_client::HistoryFilters::default(),
                 None
             )?
             .items

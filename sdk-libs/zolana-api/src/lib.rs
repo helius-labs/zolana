@@ -37,8 +37,9 @@ use zolana_indexer_api::{
     RpcMethod,
 };
 
+use zolana_indexer_api::PageRequest;
 pub use zolana_indexer_api::{
-    Base64String, Context, Cursor, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
+    Base64String, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
     GetMerkleProofsRequest, GetMerkleProofsResponse, GetNonInclusionProofsRequest,
     GetNonInclusionProofsResponse, GetNullifierQueueElementsRequest,
     GetNullifierQueueElementsResponse, GetRingKeyRegistryEntryResponse,
@@ -46,11 +47,12 @@ pub use zolana_indexer_api::{
     GetRingsByNullifiersRequest, GetRingsByTagsRequest,
     GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureRequest,
     GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
-    GetUserRecordsRequest, GetUserRecordsResponse, Hash, IndexedShieldedTransaction, Limit,
-    MerkleContext, MerkleProof, NonInclusionProof, NullifierQueueElement, RingMemberProofRequest,
-    RingSpendRecord, RingSpendRecordRequest, RingsOutputContext, RingsOutputSlot,
-    SerializablePubkey, SerializableSignature, ShieldedTransaction, UserRecord,
-    MAX_USER_RECORD_OWNERS, PAGE_LIMIT,
+    GetUserRecordsRequest, GetUserRecordsResponse, Hash, HistoryFilters,
+    IndexedShieldedTransaction, Limit, MerkleContext, MerkleProof, NonInclusionProof,
+    NullifierQueueElement, PaginationToken, RingMemberProofRequest, RingSpendRecord,
+    RingSpendRecordRequest, RingsOutputContext, RingsOutputSlot, SerializablePubkey,
+    SerializableSignature, ShieldedTransaction, SlotFilter, UserRecord, MAX_USER_RECORD_OWNERS,
+    PAGE_LIMIT,
 };
 
 const JSON_RPC_VERSION: &str = "2.0";
@@ -568,21 +570,28 @@ impl ZolanaApi {
     pub async fn get_encrypted_utxos_by_tags(
         &self,
         tags: Vec<Hash>,
-        after: Option<Cursor>,
+        pagination_token: Option<PaginationToken>,
         limit: Option<u64>,
+        filters: HistoryFilters,
         min_context_slot: Option<u64>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ApiError> {
         let response = self
             .call::<GetEncryptedUtxosByTags>(GetRingsByTagsRequest {
                 tags,
-                after,
+                pagination_token,
                 limit: optional_limit(limit)?,
+                filters,
                 min_context_slot,
                 ring_program_id: None,
             })
             .await?;
         response
-            .validate_indexed(after, limit.unwrap_or(PAGE_LIMIT), min_context_slot)
+            .validate_indexed(&PageRequest {
+                pagination_token,
+                limit: limit.unwrap_or(PAGE_LIMIT),
+                filters,
+                min_context_slot,
+            })
             .map_err(|_| ApiError::InvalidPage)?;
         for group in &response.items {
             group
@@ -595,26 +604,20 @@ impl ZolanaApi {
     pub async fn get_shielded_transactions_by_tags(
         &self,
         tags: Vec<Hash>,
-        after: Option<Cursor>,
+        pagination_token: Option<PaginationToken>,
         limit: Option<u64>,
+        filters: HistoryFilters,
         min_context_slot: Option<u64>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ApiError> {
-        let response = self
-            .call::<GetShieldedTransactionsByTags>(GetRingsByTagsRequest {
-                tags,
-                after,
-                limit: optional_limit(limit)?,
-                min_context_slot,
-                ring_program_id: None,
-            })
-            .await?;
-        validate_events_page(
-            &response,
-            after,
-            limit.unwrap_or(PAGE_LIMIT),
+        self.get_shielded_transactions(GetRingsByTagsRequest {
+            tags,
+            pagination_token,
+            limit: optional_limit(limit)?,
+            filters,
             min_context_slot,
-        )?;
-        Ok(response)
+            ring_program_id: None,
+        })
+        .await
     }
 
     pub async fn get_shielded_transactions_by_signature(
@@ -631,34 +634,42 @@ impl ZolanaApi {
         &self,
         request: GetRingsByTagsRequest,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ApiError> {
-        let after = request.after;
-        let limit = request.limit.as_ref().map_or(PAGE_LIMIT, Limit::value);
-        let minimum = request.min_context_slot;
+        let page = PageRequest {
+            pagination_token: request.pagination_token,
+            limit: request.limit.as_ref().map_or(PAGE_LIMIT, Limit::value),
+            filters: request.filters,
+            min_context_slot: request.min_context_slot,
+        };
         let response = self.call::<GetShieldedTransactionsByTags>(request).await?;
-        validate_events_page(&response, after, limit, minimum)?;
+        validate_events_page(&response, &page)?;
         Ok(response)
     }
 
     pub async fn get_shielded_transactions_by_nullifiers(
         &self,
         nullifiers: Vec<Hash>,
-        after: Option<Cursor>,
+        pagination_token: Option<PaginationToken>,
         limit: Option<u64>,
+        filters: HistoryFilters,
         min_context_slot: Option<u64>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ApiError> {
         let response = self
             .call::<GetShieldedTransactionsByNullifiers>(GetRingsByNullifiersRequest {
                 nullifiers,
-                after,
+                pagination_token,
                 limit: optional_limit(limit)?,
+                filters,
                 min_context_slot,
             })
             .await?;
         validate_events_page(
             &response,
-            after,
-            limit.unwrap_or(PAGE_LIMIT),
-            min_context_slot,
+            &PageRequest {
+                pagination_token,
+                limit: limit.unwrap_or(PAGE_LIMIT),
+                filters,
+                min_context_slot,
+            },
         )?;
         Ok(response)
     }
@@ -823,14 +834,16 @@ impl BlockingZolanaApi {
     pub fn get_encrypted_utxos_by_tags(
         &self,
         tags: Vec<Hash>,
-        after: Option<Cursor>,
+        pagination_token: Option<PaginationToken>,
         limit: Option<u64>,
+        filters: HistoryFilters,
         min_context_slot: Option<u64>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ApiError> {
         self.runtime.block_on(self.api.get_encrypted_utxos_by_tags(
             tags,
-            after,
+            pagination_token,
             limit,
+            filters,
             min_context_slot,
         ))
     }
@@ -838,15 +851,17 @@ impl BlockingZolanaApi {
     pub fn get_shielded_transactions_by_tags(
         &self,
         tags: Vec<Hash>,
-        after: Option<Cursor>,
+        pagination_token: Option<PaginationToken>,
         limit: Option<u64>,
+        filters: HistoryFilters,
         min_context_slot: Option<u64>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ApiError> {
         self.runtime
             .block_on(self.api.get_shielded_transactions_by_tags(
                 tags,
-                after,
+                pagination_token,
                 limit,
+                filters,
                 min_context_slot,
             ))
     }
@@ -872,15 +887,17 @@ impl BlockingZolanaApi {
     pub fn get_shielded_transactions_by_nullifiers(
         &self,
         nullifiers: Vec<Hash>,
-        after: Option<Cursor>,
+        pagination_token: Option<PaginationToken>,
         limit: Option<u64>,
+        filters: HistoryFilters,
         min_context_slot: Option<u64>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ApiError> {
         self.runtime
             .block_on(self.api.get_shielded_transactions_by_nullifiers(
                 nullifiers,
-                after,
+                pagination_token,
                 limit,
+                filters,
                 min_context_slot,
             ))
     }
@@ -1007,12 +1024,10 @@ fn user_records_request(
 
 fn validate_events_page(
     response: &GetShieldedTransactionsByTagsResponse,
-    after: Option<Cursor>,
-    limit: u64,
-    minimum: Option<u64>,
+    page: &PageRequest,
 ) -> Result<(), ApiError> {
     response
-        .validate_indexed(after, limit, minimum)
+        .validate_indexed(page)
         .map_err(|_| ApiError::InvalidPage)?;
     for group in &response.items {
         group

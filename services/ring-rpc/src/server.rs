@@ -213,9 +213,10 @@ pub fn rpc_module<S: TransactionSource + 'static>(
             if let Some(slot) = request.min_context_slot {
                 page = page.with_min_context_slot(slot);
             }
-            if let Some(after) = &request.after {
-                page = page.with_after(after);
+            if let Some(token) = request.pagination_token {
+                page = page.with_pagination_token(token);
             }
+            page = page.with_filters(request.filters);
             if let Some(limit) = request.limit {
                 page = page.with_limit(limit).map_err(ErrorObjectOwned::from)?;
             }
