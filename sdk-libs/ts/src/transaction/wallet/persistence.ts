@@ -1,5 +1,6 @@
 import { getBase64Decoder } from "@solana/kit";
 
+import { bytesKey } from "../../interface/bytes.js";
 import { wireDecoder } from "../../interface/decode.js";
 import type { Address, Bytes32, Bytes33, Signature } from "../../interface/types.js";
 import type { Bytes34 } from "../../keypair/bytes.js";
@@ -13,7 +14,6 @@ import { Utxo } from "../utxo.js";
 import { AssetRegistry, SOL_ASSET_ID } from "../asset.js";
 import {
   Wallet,
-  hex,
   type CursorStream,
   type PrivateTransaction,
   type PendingWalletSubmission,
@@ -222,11 +222,11 @@ function hydrate(value: unknown): Wallet {
   const transactions = array(snapshot["transactions"], "transactions").map(deserializeTransaction);
   const nullifiers = new Set(
     array(snapshot["nullifiers"], "nullifiers").map((value, index) =>
-      hex(bytes(value, 32, `nullifiers[${String(index)}]`)),
+      bytesKey(bytes(value, 32, `nullifiers[${String(index)}]`)),
     ),
   );
   const utxos = decodedUtxos.map((entry) =>
-    entry.spent || !nullifiers.has(hex(entry.nullifier))
+    entry.spent || !nullifiers.has(bytesKey(entry.nullifier))
       ? entry
       : Object.freeze({ ...entry, spent: true }),
   );
@@ -278,13 +278,15 @@ function hydrate(value: unknown): Wallet {
           `${path}.lastValidBlockHeight`,
         ),
       };
-      const known = new Map(wallet.utxos().map((entry) => [hex(entry.outputContext.hash), entry]));
+      const known = new Map(
+        wallet.utxos().map((entry) => [bytesKey(entry.outputContext.hash), entry]),
+      );
       if (
-        new Set(pending.utxoHashes.map(hex)).size !== pending.utxoHashes.length ||
-        pending.utxoHashes.some((hash) => !known.has(hex(hash)))
+        new Set(pending.utxoHashes.map(bytesKey)).size !== pending.utxoHashes.length ||
+        pending.utxoHashes.some((hash) => !known.has(bytesKey(hash)))
       )
         fail(`${path}.noteHashes`);
-      const unspent = pending.utxoHashes.filter((hash) => !known.get(hex(hash))?.spent);
+      const unspent = pending.utxoHashes.filter((hash) => !known.get(bytesKey(hash))?.spent);
       const reservation = wallet._reservationEntries().find((entry) => entry.id === id);
       if (
         unspent.length !== 0 &&
@@ -292,7 +294,7 @@ function hydrate(value: unknown): Wallet {
           reservation.expiresAtMs !== null ||
           reservation.utxoHashes.length !== pending.utxoHashes.length ||
           reservation.utxoHashes.some(
-            (hash, index) => hex(hash) !== hex(pending.utxoHashes[index]!),
+            (hash, index) => bytesKey(hash) !== bytesKey(pending.utxoHashes[index]!),
           ))
       )
         fail(`${path}.reservation`);
@@ -319,8 +321,8 @@ function hydrateReservations(wallet: Wallet, value: unknown, version: number): v
       seen.add(id);
       const utxoHashes = array(item["noteHashes"], `${path}.noteHashes`).map((hash, hashIndex) => {
         const decoded = bytes(hash, 32, `${path}.noteHashes[${String(hashIndex)}]`) as Bytes32;
-        if (reserved.has(hex(decoded))) fail(`${path}.noteHashes`);
-        reserved.add(hex(decoded));
+        if (reserved.has(bytesKey(decoded))) fail(`${path}.noteHashes`);
+        reserved.add(bytesKey(decoded));
         return decoded;
       });
       return Object.freeze({

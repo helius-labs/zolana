@@ -1,8 +1,9 @@
 import { ctr } from "@noble/ciphers/aes.js";
 
-import { concatBytes, copyBytes, u32be } from "./bytes.js";
+import { copyBytes, u32be } from "./bytes.js";
 import { ENC_INFO_TRANSFER, HPKE_PREFIX, hkdfExpand, x25519Ecdh } from "./derivation.js";
 import type { X25519PublicKey } from "./x25519.js";
+import { concatBytes } from "../interface/bytes.js";
 
 const encoder = new TextEncoder();
 

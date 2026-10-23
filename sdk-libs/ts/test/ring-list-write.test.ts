@@ -19,7 +19,7 @@ import {
 import { SHIELDED_POOL_PROGRAM_ID } from "../src/interface/program.js";
 import type { Bytes32, TransactProof } from "../src/interface/types.js";
 
-import { bigintToBytes, bytesToBigInt } from "../src/client/internal.js";
+import { bigintToBytes } from "../src/client/internal.js";
 import { ringPolicyNamespaceAddress } from "../src/ring/config.js";
 import {
   proveRingEntryTransition,
@@ -51,6 +51,7 @@ import {
   ringProgramConfigData,
 } from "./helpers/ring-accounts.js";
 import { filled as fill, treeAccount } from "./helpers/tree-account.js";
+import { bytesToBigInt } from "../src/interface/bytes.js";
 
 await initializePoseidon();
 

@@ -1,9 +1,9 @@
 import type { BlockhashProvider } from "../client/ports.js";
 import { compileUnsignedTransaction } from "../flows/compile.js";
+import { equalBytes } from "../interface/bytes.js";
 import { addressBytes } from "../interface/internal.js";
 import type { Address, RequestContext, Transaction } from "../interface/types.js";
 import { U64_MAX, ZERO_32 } from "../transaction/internal.js";
-import { equalBytes } from "../wallet/internal.js";
 
 import { fetchRingConfigs, ringPolicyNamespaceAddress } from "./config.js";
 import { proveRingEntryTransition, type RingEntryProofClient } from "./entry-proof.js";

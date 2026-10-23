@@ -30,7 +30,6 @@ import {
   auditorViewTag,
   parseAuditorMessage,
 } from "../src/keypair/audit.js";
-import { bytesToBigInt } from "../src/keypair/bytes.js";
 import { symmetricApply } from "../src/keypair/merge/index.js";
 import { ShieldedKeypair } from "../src/keypair/shielded.js";
 import { SigningKey } from "../src/keypair/signing-key.js";
@@ -109,6 +108,7 @@ import { LocalShieldedKeys } from "../src/transaction/wallet/keys.js";
 import { withTransactionKey } from "../src/wallet/private-transaction.js";
 import { transactOutputBlinding } from "../src/keypair/transact/index.js";
 import { recordShape } from "../src/ring/velocity.js";
+import { bytesToBigInt } from "../src/interface/bytes.js";
 
 const RING = address("9vyTbYGyh3cwxkAQpjjFQGXmdJP6p9B6YcQ5pNuXPNbh");
 /** Every input proves from tree 0, the id the builders default to; the ring is not a tree. */

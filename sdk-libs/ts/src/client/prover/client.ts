@@ -16,13 +16,13 @@ import {
   parseIndexedResponse,
   resolvedTrees,
 } from "./indexed.js";
+import { bytesToBigInt } from "../../interface/bytes.js";
 import { KEY_REGISTRY_CAPACITY, KEY_REGISTRY_HEIGHT } from "../../interface/key-registry.js";
 import { RING_DEPOSIT_AUDIT_SLOTS } from "./types.js";
 import { isCanonicalField } from "../../interface/canonical-field.js";
 import { INPUT_TREES, treeIdField, type TreeSlot } from "../../interface/tree-slot.js";
 import { DUMMY_DOMAIN } from "../../interface/program.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
-import { bytesToBigInt } from "../../keypair/bytes.js";
 import { poseidon } from "../../keypair/poseidon.js";
 
 import { InterfaceError } from "../../interface/errors.js";
@@ -93,6 +93,7 @@ import type {
   TransferOutput,
   TreeSlotFields,
 } from "./types.js";
+import { isObject } from "../../services/jsonrpc.js";
 
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 /** An error body is a code and a message; anything larger is not read. */
@@ -1314,10 +1315,6 @@ async function decodeResponse(response: Response): Promise<unknown> {
     if (error.kind === "text") throw new ClientError("CLIENT_PROVER_TEXT");
     throw new ClientError("CLIENT_PROVER_JSON");
   }
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 const MAX_REASON_CHARS = 200;

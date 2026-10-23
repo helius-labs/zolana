@@ -1,6 +1,7 @@
+import { bytesToBigInt } from "../../interface/bytes.js";
 import type { Address, Bytes16, Bytes32 } from "../../interface/types.js";
 import { BN254_SCALAR_ORDER, fieldAdd, fieldSub } from "../../hasher/index.js";
-import { bigIntToBytes, bytesToBigInt } from "../../keypair/bytes.js";
+import { bigIntToBytes } from "../../keypair/bytes.js";
 import { MERGE_OUTPUT_CIPHERTEXT_ELEMENTS, mergeOutputPads } from "../../keypair/merge/index.js";
 import { TransactionError } from "../error.js";
 import { checked, decodeAddress, encodeAddress } from "../internal.js";

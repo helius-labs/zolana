@@ -1,7 +1,6 @@
 import { address } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 
-import { bytesToBigInt } from "../src/client/internal.js";
 import { assemble, prepareTransfer } from "../src/client/prover/assembly.js";
 import { assembleMergeWithProofs, prepareMerge } from "../src/client/prover/merge.js";
 import type { NonInclusionProof, SpendProof } from "../src/client/rpc.js";
@@ -21,6 +20,7 @@ import {
   createProofOutput,
   transactOutputBlinding,
 } from "../src/transaction/index.js";
+import { bytesToBigInt } from "../src/interface/bytes.js";
 
 const PAYER = address("4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi");
 

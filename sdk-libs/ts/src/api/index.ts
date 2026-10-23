@@ -33,7 +33,7 @@ import {
   getRingKeyRegistryRegisterProofMethod,
   getUserRecordsMethod,
 } from "../indexer/methods/index.js";
-import { postJsonRpc } from "../services/jsonrpc.js";
+import { postJsonRpc, isObject } from "../services/jsonrpc.js";
 import {
   TransportFailure,
   checkedApiKey,
@@ -45,8 +45,6 @@ import {
 
 const REQUEST_ID = "test-account";
 const MAX_BODY_BYTES = 1024 * 1024;
-
-type JsonObject = Record<string, unknown>;
 
 export class ApiError extends Error {
   readonly code: `API_${string}`;
@@ -297,10 +295,6 @@ function schemaError(
       },
     },
   );
-}
-
-function isObject(value: unknown): value is JsonObject {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function safeSchemaPath(path: string): string | undefined {

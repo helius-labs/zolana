@@ -1,11 +1,11 @@
 import type { ViewingKey } from "../keypair/viewing-key.js";
 import { hashBytes } from "../hasher/index.js";
-import { checkedBytes, concatBytes } from "../keypair/bytes.js";
+import { checkedBytes } from "../keypair/bytes.js";
+import { concatBytes, equalBytes } from "../interface/bytes.js";
 import { RING_SPEND_COUNTERS_SLOT_INDEX } from "../interface/constants.js";
 import type { Bytes16, Bytes32, MessageData, RequestContext } from "../interface/types.js";
 import { openSealedMessage, type SealedMessageInput } from "../transaction/wallet/encrypt-rails.js";
 import type { ShieldedKeys } from "../transaction/wallet/keys.js";
-import { equalBytes } from "../wallet/internal.js";
 import { withTransactionKey } from "../wallet/private-transaction.js";
 import { RingError } from "./error.js";
 import {

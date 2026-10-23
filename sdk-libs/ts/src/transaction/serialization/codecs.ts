@@ -1,3 +1,4 @@
+import { concatBytes, equalBytes } from "../../interface/bytes.js";
 import type { Address, Bytes16, Bytes32, Bytes33 } from "../../interface/types.js";
 import type { Bytes34 } from "../../keypair/bytes.js";
 import { ShieldedPublicKey } from "../../keypair/public-key.js";
@@ -7,7 +8,7 @@ import type { ViewingKey } from "../../keypair/viewing-key.js";
 
 import { Data, type DataRecord } from "../data.js";
 import { TransactionError } from "../error.js";
-import { checked, concat, copy, decodeAddress, encodeAddress, equal } from "../internal.js";
+import { checked, copy, decodeAddress, encodeAddress } from "../internal.js";
 import { SOL_MINT, type AssetRegistry } from "../asset.js";
 import { SPP_SUPPORTED_SHAPES } from "../../interface/shape.js";
 import { Utxo, resolveRingProgramId, transactOutputBlinding } from "../utxo.js";
@@ -240,7 +241,7 @@ class Writer {
   }
 
   finish(): Uint8Array {
-    return concat(...this.parts);
+    return concatBytes(...this.parts);
   }
 }
 
@@ -822,7 +823,7 @@ export function encodeOutputData(
       expectedEncoding,
     });
   }
-  const blob = concat(Uint8Array.of(checkedScheme), body);
+  const blob = concatBytes(Uint8Array.of(checkedScheme), body);
   const writer = new Writer();
   writer.u8(outputDataEncodingTag(encoding));
   writer.u32(blob.length);
@@ -985,7 +986,7 @@ export function encryptConfidential(
   salt: Bytes16,
   slotIndex: number,
 ): Uint8Array {
-  return concat(
+  return concatBytes(
     recipient.toBytes(),
     inTransactionCategory(() =>
       tx.encryptSlot(recipient, encodeConfidential(value), salt, slotIndex),
@@ -1058,7 +1059,7 @@ export function decryptConfidentialAsSender(
 }
 
 function requireOwner(utxo: Utxo, owner: ShieldedPublicKey): void {
-  if (!equal(utxo.owner.toBytes(), owner.toBytes())) {
+  if (!equalBytes(utxo.owner.toBytes(), owner.toBytes())) {
     throw new TransactionError("TRANSACTION_INPUT_OWNER_MISMATCH", { index: 0 });
   }
 }
@@ -1128,7 +1129,7 @@ function singleUtxo(utxos: readonly Utxo[]): Utxo {
 }
 
 function validateOwner(utxo: Utxo, owner: ShieldedPublicKey, index: number): void {
-  if (!equal(utxo.owner.toBytes(), owner.toBytes())) {
+  if (!equalBytes(utxo.owner.toBytes(), owner.toBytes())) {
     throw new TransactionError("TRANSACTION_OUTPUT_OWNER_MISMATCH", { index });
   }
 }
@@ -1150,7 +1151,8 @@ function blindingPosition(
   blinding: Bytes32,
 ): number | undefined {
   for (let position = 0; position < MAX_OUTPUT_SLOTS; position++) {
-    if (equal(transactOutputBlinding(firstNullifier, seed, position), blinding)) return position;
+    if (equalBytes(transactOutputBlinding(firstNullifier, seed, position), blinding))
+      return position;
   }
   return undefined;
 }
@@ -1184,7 +1186,7 @@ export function plaintextTransferFromUtxos(
     if (position !== index) {
       throw new TransactionError("TRANSACTION_INVALID_OUTPUT_POSITION", { position });
     }
-    const change = recipientSlots.length === 0 && equal(utxo.owner.toBytes(), ownerBytes);
+    const change = recipientSlots.length === 0 && equalBytes(utxo.owner.toBytes(), ownerBytes);
     if (change && index === 0 && utxo.asset !== SOL_MINT) {
       spl = { amount: utxo.amount, assetId: owner.assets.assetId(utxo.asset) };
       splData = new Data(utxo.data.records());
@@ -1264,7 +1266,7 @@ export function anonymousSenderFromUtxos(
     if (utxo.asset === SOL_MINT) {
       if (
         solSeen ||
-        !equal(utxo.blinding, transactOutputBlinding(firstNullifier, blindingSeed, slots.sol))
+        !equalBytes(utxo.blinding, transactOutputBlinding(firstNullifier, blindingSeed, slots.sol))
       ) {
         throw new TransactionError("TRANSACTION_INVALID_OUTPUT_POSITION", {
           position: slots.sol,
@@ -1276,7 +1278,7 @@ export function anonymousSenderFromUtxos(
     } else {
       if (
         splSeen ||
-        !equal(utxo.blinding, transactOutputBlinding(firstNullifier, blindingSeed, slots.spl))
+        !equalBytes(utxo.blinding, transactOutputBlinding(firstNullifier, blindingSeed, slots.spl))
       ) {
         throw new TransactionError("TRANSACTION_INVALID_OUTPUT_POSITION", {
           position: slots.spl,
@@ -1322,7 +1324,7 @@ export function splitBundleFromUtxos(
     if (!sameData(utxo.data, first.data)) {
       throw new TransactionError("TRANSACTION_OUTPUT_DATA_MISMATCH", { index });
     }
-    if (!equal(utxo.blinding, transactOutputBlinding(firstNullifier, blindingSeed, index))) {
+    if (!equalBytes(utxo.blinding, transactOutputBlinding(firstNullifier, blindingSeed, index))) {
       throw new TransactionError("TRANSACTION_OUTPUT_BLINDING_MISMATCH", { index });
     }
   }
@@ -1367,6 +1369,8 @@ function sameData(left: Data, right: Data): boolean {
   if (leftRecords.length !== rightRecords.length) return false;
   return leftRecords.every((record, index) => {
     const other = rightRecords[index];
-    return other !== undefined && record.kind === other.kind && equal(record.bytes, other.bytes);
+    return (
+      other !== undefined && record.kind === other.kind && equalBytes(record.bytes, other.bytes)
+    );
   });
 }

@@ -1,8 +1,7 @@
+import { bytesKey } from "../interface/bytes.js";
 import type { Address, Bytes32 } from "../interface/types.js";
 import type { CursorStream, SyncDelta } from "../transaction/wallet/state.js";
 import { Wallet } from "../transaction/wallet/state.js";
-
-import { bytesKey } from "./internal.js";
 
 /** @internal */
 export interface WalletSyncSession {

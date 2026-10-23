@@ -1,8 +1,8 @@
 import { BN254_SCALAR_ORDER } from "../hasher/index.js";
+import { bytesToBigInt, equalBytes } from "../interface/bytes.js";
 import { KEY_REGISTRY_CAPACITY, KEY_REGISTRY_HEIGHT } from "../interface/key-registry.js";
 import type { Bytes32 } from "../interface/types.js";
-import { bigIntBytes, bytesToBigInt, poseidon } from "../transaction/internal.js";
-import { equalBytes } from "../wallet/internal.js";
+import { bigIntBytes, poseidon } from "../transaction/internal.js";
 import { RingError } from "./error.js";
 
 export { KEY_REGISTRY_CAPACITY, KEY_REGISTRY_HEIGHT };

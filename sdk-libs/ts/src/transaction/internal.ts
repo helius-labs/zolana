@@ -1,7 +1,7 @@
-import { sha256 } from "@noble/hashes/sha2.js";
 import { getAddressDecoder, getAddressEncoder, getBase58Encoder } from "@solana/kit";
 import { MAX_POSEIDON_INPUTS, poseidon as hash } from "../hasher/index.js";
 
+import { bytesToBigInt } from "../interface/bytes.js";
 import type { Address, Bytes16, Bytes32, Bytes33 } from "../interface/types.js";
 export { hashBytes } from "../hasher/index.js";
 export { sha256Be } from "../keypair/hash.js";
@@ -19,15 +19,6 @@ export const U64_MAX = 0xffff_ffff_ffff_ffffn;
 
 export function copy<T extends Uint8Array>(bytes: T): T {
   return new Uint8Array(bytes) as T;
-}
-
-export function equal(left: Uint8Array, right: Uint8Array): boolean {
-  if (left.length !== right.length) return false;
-  let difference = 0;
-  for (let index = 0; index < left.length; index++) {
-    difference |= (left.at(index) ?? 0) ^ (right.at(index) ?? 0);
-  }
-  return difference === 0;
 }
 
 export function checked<T extends Uint8Array>(
@@ -54,12 +45,6 @@ export function checkU64(value: bigint, name: string): bigint {
       actual: value.toString(),
     });
   }
-  return value;
-}
-
-export function bytesToBigInt(bytes: Uint8Array): bigint {
-  let value = 0n;
-  for (const byte of bytes) value = (value << 8n) | BigInt(byte);
   return value;
 }
 
@@ -155,20 +140,6 @@ export function rightHashChain(values: readonly Bytes32[]): Bytes32 {
     hash = poseidon([values[index] as Bytes32, hash]);
   }
   return hash;
-}
-
-export function sha256Bytes(bytes: Uint8Array): Bytes32 {
-  return sha256(bytes) as Bytes32;
-}
-
-export function concat(...parts: readonly Uint8Array[]): Uint8Array {
-  const result = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0));
-  let offset = 0;
-  for (const part of parts) {
-    result.set(part, offset);
-    offset += part.length;
-  }
-  return result;
 }
 
 export function random16(): Bytes16 {

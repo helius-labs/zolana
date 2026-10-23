@@ -1,12 +1,12 @@
 import { getBase58Decoder } from "@solana/kit";
 import { bytesToHex } from "@noble/hashes/utils.js";
+import { equalBytes } from "../../interface/bytes.js";
 import { wireDecoder } from "../../interface/decode.js";
 import { treeAddress } from "../../interface/pda/index.js";
 import {
   STATE_ROOT_HISTORY_CAPACITY,
   NULLIFIER_TREE_ROOT_HISTORY_CAPACITY,
 } from "../../interface/state.js";
-import { equal as equalBytes } from "../../transaction/internal.js";
 import { ClientError } from "../error.js";
 import { checkedBytes, bytesField } from "../internal.js";
 import type { IndexedPolicyInputs, IndexedDepositInputs, IndexedRegistry } from "../ports.js";

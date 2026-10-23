@@ -1,6 +1,7 @@
 import { ed25519 } from "@noble/curves/ed25519.js";
 import { getAddressEncoder } from "@solana/kit";
 
+import { equalBytes } from "../../interface/bytes.js";
 import type { Address, Bytes16, Bytes32, Bytes64, RequestContext } from "../../interface/types.js";
 import { checkedBytes } from "../../keypair/bytes.js";
 import {
@@ -21,7 +22,6 @@ import { ShieldedAddress, type ShieldedKeypair } from "../../keypair/shielded.js
 import { ViewingKey } from "../../keypair/viewing-key.js";
 
 import { TransactionError } from "../error.js";
-import { equal } from "../internal.js";
 
 /**
  * Which cipher label a ciphertext was sealed under. Every UTXO ciphertext a
@@ -284,7 +284,9 @@ export class LocalShieldedKeys implements ShieldedKeys {
       throw new TransactionError("TRANSACTION_DESERIALIZE", { field: "viewingPublicKey" });
     }
     const wanted = publicKey.toBytes();
-    const key = this.#viewing.find((candidate) => equal(candidate.publicKey().toBytes(), wanted));
+    const key = this.#viewing.find((candidate) =>
+      equalBytes(candidate.publicKey().toBytes(), wanted),
+    );
     if (key === undefined) throw new TransactionError("TRANSACTION_MISSING_CURRENT_VIEWING_KEY");
     return key;
   }
@@ -293,8 +295,8 @@ export class LocalShieldedKeys implements ShieldedKeys {
     const current = this.#viewing[0];
     if (
       current === undefined ||
-      !equal(current.publicKey().toBytes(), this.#address.viewingPublicKey.toBytes()) ||
-      !equal(this.#nullifier.publicKey(), this.#address.nullifierPublicKey)
+      !equalBytes(current.publicKey().toBytes(), this.#address.viewingPublicKey.toBytes()) ||
+      !equalBytes(this.#nullifier.publicKey(), this.#address.nullifierPublicKey)
     ) {
       this.destroy();
       throw new TransactionError("TRANSACTION_KEYS_IDENTITY_MISMATCH");
@@ -310,9 +312,9 @@ export class LocalShieldedKeys implements ShieldedKeys {
 export function checkKeysIdentity(keys: ShieldedKeys, identity: ShieldedAddress): void {
   const address = keys.address();
   if (
-    !equal(address.signingPublicKey.toBytes(), identity.signingPublicKey.toBytes()) ||
-    !equal(address.nullifierPublicKey, identity.nullifierPublicKey) ||
-    !equal(address.viewingPublicKey.toBytes(), identity.viewingPublicKey.toBytes())
+    !equalBytes(address.signingPublicKey.toBytes(), identity.signingPublicKey.toBytes()) ||
+    !equalBytes(address.nullifierPublicKey, identity.nullifierPublicKey) ||
+    !equalBytes(address.viewingPublicKey.toBytes(), identity.viewingPublicKey.toBytes())
   ) {
     throw new TransactionError("TRANSACTION_KEYS_IDENTITY_MISMATCH");
   }
@@ -332,7 +334,10 @@ export function checkViewingPublicKeys(
     throw new TransactionError("TRANSACTION_DESERIALIZE", { field: "viewingPublicKeys" });
   }
   const current = held[0];
-  if (current === undefined || !equal(current.toBytes(), identity.viewingPublicKey.toBytes())) {
+  if (
+    current === undefined ||
+    !equalBytes(current.toBytes(), identity.viewingPublicKey.toBytes())
+  ) {
     throw new TransactionError("TRANSACTION_MISSING_CURRENT_VIEWING_KEY");
   }
   return held;

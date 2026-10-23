@@ -8,6 +8,7 @@ import type {
   WalletKeys,
 } from "../client/ports.js";
 import { withProofDataRetry } from "../client/retry.js";
+import { bytesKey, equalBytes } from "../interface/bytes.js";
 import type { Address, Bytes32, RequestContext, Transaction } from "../interface/types.js";
 import type { ShieldedAddress } from "../keypair/shielded.js";
 import type { PreparedMerge } from "../transaction/instructions/builders.js";
@@ -35,7 +36,7 @@ import {
   type TransactionIntent,
 } from "../transaction/wallet/intent.js";
 import { WalletError, wrapWalletError } from "./error.js";
-import { bytesKey, equalBytes, reserveWalletEntries } from "./internal.js";
+import { reserveWalletEntries } from "./internal.js";
 import { proofInputFromEntry } from "./private-transaction.js";
 import { internalMergeRecord, type MergeRecord } from "./registry.js";
 

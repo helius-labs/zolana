@@ -2,6 +2,7 @@ import { X25519PublicKey, X25519Keypair } from "../keypair/x25519.js";
 import { SOLANA_OWNER_TAG, hashBytes, initializePoseidon } from "../hasher/index.js";
 
 import type { IndexerReader, KitRpcAccess } from "../client/ports.js";
+import { concatBytes, equalBytes } from "../interface/bytes.js";
 import type {
   Address,
   Bytes16,
@@ -25,12 +26,12 @@ import {
   type AuditOutputOpening,
   type AuditorMessage,
 } from "../keypair/audit.js";
-import { bigIntToBytes, concatBytes } from "../keypair/bytes.js";
+import { bigIntToBytes } from "../keypair/bytes.js";
 import { clampViewingSecret } from "../keypair/derivation.js";
 import { ownerHash } from "../keypair/hash.js";
 import { ViewingKey } from "../keypair/viewing-key.js";
 import { TransactionError } from "../transaction/error.js";
-import { commitmentPoseidon, equal, rightAlign, ZERO_32 } from "../transaction/internal.js";
+import { commitmentPoseidon, rightAlign, ZERO_32 } from "../transaction/internal.js";
 import { addressBytes, encodeBase58 } from "../interface/internal.js";
 import { UTXO_DOMAIN } from "../interface/program.js";
 import { treeIdField } from "../interface/tree-slot.js";
@@ -126,7 +127,7 @@ export function auditorMessage(
 ): AuditorMessage {
   const viewTag = auditorViewTag(auditorPublicKey);
   const tagged = transaction.messages.flatMap((message, index) =>
-    equal(message.viewTag, viewTag) ? [index] : [],
+    equalBytes(message.viewTag, viewTag) ? [index] : [],
   );
   const index = tagged[0];
   if (index === undefined) {
@@ -255,7 +256,7 @@ export function auditRingTransaction(
       const dummy = anonymousOutput !== undefined && isDummyAnonymousOutput(anonymousOutput);
       if (
         opening === undefined ||
-        (!dummy && !equal(auditOpeningHash(opening), slot.outputContext.hash))
+        (!dummy && !equalBytes(auditOpeningHash(opening), slot.outputContext.hash))
       ) {
         throw new RingError("RING_AUDIT_OUTPUT_MISMATCH", {
           details: { reason: "commitment", slotIndex },
@@ -362,7 +363,7 @@ export async function auditRing(
         throw new RingError("RING_RPC", { details: { reason: "missing event index" } });
       }
       if (transaction.ringProgramId !== input.ringProgramId) continue;
-      if (!transaction.messages.some((message) => equal(message.viewTag, viewTag))) continue;
+      if (!transaction.messages.some((message) => equalBytes(message.viewTag, viewTag))) continue;
       if (
         !(await origin.ringInvoked(
           transaction.txSignature,
@@ -392,7 +393,7 @@ export async function auditRing(
     }
     const next = response.nextCursor;
     if (next === undefined) return Object.freeze({ transactions: Object.freeze(transactions) });
-    if (cursor !== undefined && equal(cursor, next)) {
+    if (cursor !== undefined && equalBytes(cursor, next)) {
       throw new RingError("RING_RPC", { details: { reason: "ring scan cursor did not advance" } });
     }
     cursor = next;
@@ -438,7 +439,7 @@ function carriedRecord(
     output.asset === SOL_MINT &&
     output.amount === 0n &&
     output.ringProgramId === undefined &&
-    equal(output.blinding, record.blinding) &&
+    equalBytes(output.blinding, record.blinding) &&
     output.recipientViewingPublicKey.equals(input.txViewingPublicKey);
   if (record.version !== 0n && !carrier) return INVALID_RECORD;
   return { kind: "record", record };
@@ -509,10 +510,10 @@ function auditOutput(
       ? ZERO_32
       : (hashBytes(addressBytes(plaintext.ringProgramId, "ringProgramId")) as Bytes32);
   if (
-    !equal(hashBytes(addressBytes(asset, "asset")), opening.asset) ||
-    !equal(rightAlign(bigIntToBytes(plaintext.amount, 8)), opening.amount) ||
-    !equal(plaintext.blinding, opening.blinding) ||
-    !equal(ringProgramId, opening.ringProgramId)
+    !equalBytes(hashBytes(addressBytes(asset, "asset")), opening.asset) ||
+    !equalBytes(rightAlign(bigIntToBytes(plaintext.amount, 8)), opening.amount) ||
+    !equalBytes(plaintext.blinding, opening.blinding) ||
+    !equalBytes(ringProgramId, opening.ringProgramId)
   ) {
     throw new RingError("RING_AUDIT_OUTPUT_MISMATCH", {
       details: { reason: "plaintext", slotIndex },
@@ -622,8 +623,8 @@ function anonymousTrace(disclosure: AnonymousAuditDisclosure): DecryptedAnonymou
           (input) =>
             input.treeId !== 0 ||
             input.amount !== 0n ||
-            !equal(input.asset, ZERO_32) ||
-            !equal(input.blinding, ZERO_32),
+            !equalBytes(input.asset, ZERO_32) ||
+            !equalBytes(input.blinding, ZERO_32),
         )
         .map((input) =>
           Object.freeze({ treeId: input.treeId, amount: input.amount, asset: input.asset }),

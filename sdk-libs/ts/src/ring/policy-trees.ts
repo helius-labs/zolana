@@ -5,6 +5,7 @@ import {
   RING_STATE_PATH_LENGTH,
 } from "../client/prover/types.js";
 import type { MerkleProof, NonInclusionProof } from "../client/rpc.js";
+import { equalBytes } from "../interface/bytes.js";
 import { decodeTreeHeadRoots, decodeTreeId } from "../interface/codecs/index.js";
 import { nullifierPdaAddress } from "../interface/pda/index.js";
 import { SHIELDED_POOL_PROGRAM_ID } from "../interface/program.js";
@@ -17,7 +18,6 @@ import type {
   TreeHeadRoots,
 } from "../interface/types.js";
 import { ZERO_32 } from "../transaction/internal.js";
-import { equalBytes } from "../wallet/internal.js";
 
 import { RingError } from "./error.js";
 import type { LeafTree } from "./policy.js";

@@ -1,3 +1,4 @@
+import { bytesToBigInt, equalBytes } from "../../interface/bytes.js";
 import type {
   Address,
   Bytes16,
@@ -31,7 +32,6 @@ import {
   addressBytes,
   bigintToBytes,
   bytesField,
-  bytesToBigInt,
   checkedBytes,
   field,
   rightHashChain4,
@@ -175,7 +175,7 @@ function assembleMergeUnchecked(
           details: { index: dummyIndex - 1 },
         });
       }
-      if (!equal(proof.leaf, nullifier)) {
+      if (!equalBytes(proof.leaf, nullifier)) {
         throw new ClientError("CLIENT_NULLIFIER_PROOF_LEAF_MISMATCH", {
           details: { index: dummyIndex - 1 },
         });
@@ -229,7 +229,7 @@ function assembleMergeUnchecked(
       });
     } else {
       if (
-        !equal(proof.state.root, inputTree.slot.utxoRoot) ||
+        !equalBytes(proof.state.root, inputTree.slot.utxoRoot) ||
         proof.state.rootIndex !== inputTree.utxoRootIndex
       ) {
         throw new ClientError("CLIENT_INPUT_TREE_ROOT_MISMATCH", {
@@ -555,7 +555,7 @@ function checkNullifierRoot(
   index: number,
 ): void {
   if (
-    !equal(proof.root, inputTree.slot.nullifierRoot) ||
+    !equalBytes(proof.root, inputTree.slot.nullifierRoot) ||
     proof.rootIndex !== inputTree.nullifierRootIndex
   ) {
     throw new ClientError("CLIENT_NULLIFIER_ROOT_MISMATCH", {
@@ -588,18 +588,18 @@ function validatePreparedMerge(prepared: PreparedMerge): void {
         throw new ClientError("CLIENT_INVALID_MERGE");
       total += input.utxo.amount;
     }
-    if (!input.isDummy() && !equal(input.nullifierPublicKey, prepared.nullifierPublicKey)) {
+    if (!input.isDummy() && !equalBytes(input.nullifierPublicKey, prepared.nullifierPublicKey)) {
       throw new ClientError("CLIENT_MERGE_NULLIFIER_KEY_MISMATCH");
     }
     if (
       !input.isDummy() &&
-      !equal(input.utxo.owner.toBytes(), prepared.signingPublicKey.toBytes())
+      !equalBytes(input.utxo.owner.toBytes(), prepared.signingPublicKey.toBytes())
     ) {
       throw new ClientError("CLIENT_MERGE_SIGNING_KEY_MISMATCH");
     }
   });
   if (
-    !equal(
+    !equalBytes(
       prepared.output.ownerAddress?.signingPublicKey.toBytes() ?? new Uint8Array(),
       prepared.signingPublicKey.toBytes(),
     )
@@ -621,13 +621,4 @@ function copyMergeProof(
 
 function asField(value: bigint): Field {
   return field(value, "merge field") as Field;
-}
-
-function equal(left: Uint8Array, right: Uint8Array): boolean {
-  if (left.length !== right.length) return false;
-  let difference = 0;
-  for (let index = 0; index < left.length; index++) {
-    difference |= (left[index] ?? 0) ^ (right[index] ?? 0);
-  }
-  return difference === 0;
 }

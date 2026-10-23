@@ -1,5 +1,6 @@
 import { address } from "@solana/kit";
 
+import { concatBytes, equalBytes } from "../../interface/bytes.js";
 import { NO_CACHE_WRITES, bindCacheWrite } from "../../interface/cache.js";
 import {
   externalDataHash as interfaceExternalDataHash,
@@ -25,7 +26,7 @@ import {
   type Signature,
   type TransactOutput,
 } from "../../interface/types.js";
-import { randomBlinding, randomSalt } from "../../keypair/bytes.js";
+import { randomBlinding, randomSalt, randomBytes } from "../../keypair/bytes.js";
 import { X25519PublicKey } from "../../keypair/x25519.js";
 import { ShieldedKeypair, type ShieldedAddress } from "../../keypair/shielded.js";
 import { ViewingKey } from "../../keypair/viewing-key.js";
@@ -37,14 +38,11 @@ import {
   bigIntBytes,
   checkU64,
   checked,
-  concat,
   copy,
   decodeAddress,
-  equal,
   hashBytes,
   nonZeroHashChain,
   poseidon,
-  sha256Bytes,
 } from "../internal.js";
 import { EncryptedScheme, encodeOutputData, encryptConfidential } from "../serialization/codecs.js";
 import {
@@ -61,6 +59,7 @@ import {
 } from "../utxo.js";
 import { DEFAULT_TREE_ID, MAX_INPUT_TREES } from "../../interface/tree-slot.js";
 import { Mint, SOL_ASSET_ID, type AssetRegistry } from "../asset.js";
+import { sha256Bytes } from "../../keypair/hash.js";
 
 export type { Shape };
 export const SPP_SUPPORTED_SHAPES = INTERFACE_SUPPORTED_SHAPES;
@@ -706,7 +705,7 @@ export function cacheBoundExternalDataHash(
 
 export function transactMessageHash(privateTxHash: Bytes32, externalDataHash: Bytes32): Bytes32 {
   return sha256Bytes(
-    concat(
+    concatBytes(
       checked<Bytes32>(privateTxHash, 32, "private tx hash"),
       checked<Bytes32>(externalDataHash, 32, "external data hash"),
     ),
@@ -1035,8 +1034,8 @@ export class ConfidentialTransfer {
         throw new TransactionError("TRANSACTION_DUMMY_INPUT_NOT_ALLOWED", { index });
       }
       if (
-        !equal(input.utxo.owner.toBytes(), owner.signingPublicKey.toBytes()) ||
-        !equal(input.nullifierPublicKey, owner.nullifierPublicKey)
+        !equalBytes(input.utxo.owner.toBytes(), owner.signingPublicKey.toBytes()) ||
+        !equalBytes(input.nullifierPublicKey, owner.nullifierPublicKey)
       ) {
         throw new TransactionError("TRANSACTION_INPUT_OWNER_MISMATCH", { index });
       }
@@ -1297,7 +1296,7 @@ export function prepareRingAuthorityTransfer(
       });
     }
     if (
-      !equal(
+      !equalBytes(
         spend.utxo.owner.ownerProofInputHash(),
         input.owner.signingPublicKey.ownerProofInputHash(),
       )
@@ -1406,7 +1405,7 @@ function appendRecordSlot(
   const senderOutput = fields.outputs.findIndex(
     (output) =>
       output.ownerAddress !== undefined &&
-      equal(output.ownerAddress.signingPublicKey.toBytes(), sender),
+      equalBytes(output.ownerAddress.signingPublicKey.toBytes(), sender),
   );
   const templateIndex =
     senderOutput >= 0
@@ -1425,7 +1424,7 @@ function appendRecordSlot(
     );
   }
   const expected = transactOutputBlinding(fields.firstNullifier, outputSeed, outputs.length);
-  if (!equal(extension.output.blinding, expected)) {
+  if (!equalBytes(extension.output.blinding, expected)) {
     throw new TransactionError("TRANSACTION_OUTPUT_BLINDING_MISMATCH", {
       reason: "recordBlinding",
     });
@@ -1471,7 +1470,7 @@ function namedInputOwnerTag(
   for (const spend of inputs) {
     if (spend.isDummy()) continue;
     const tag = spend.utxo.owner.confidentialViewTag();
-    if (!equal(tag, payerBytes)) return tag;
+    if (!equalBytes(tag, payerBytes)) return tag;
   }
   return undefined;
 }
@@ -1516,7 +1515,7 @@ function finalizeTransfer(
   // An owner who is also the fee payer is already account index 0, so the tag
   // costs 2 bytes instead of the 33 an inline owner needs.
   const senderResolved = prepared.owner.confidentialViewTag();
-  const senderTag: OwnerTag = equal(senderResolved, decodeAddress(prepared.payer))
+  const senderTag: OwnerTag = equalBytes(senderResolved, decodeAddress(prepared.payer))
     ? { kind: "account", index: 0 }
     : { kind: "inline", value: senderResolved };
 
@@ -1561,7 +1560,9 @@ function finalizeTransfer(
       outputs.push({
         utxoHash,
         // Match a real output to the sender, including its account encoding.
-        ownerTag: equal(padTag, senderResolved) ? senderTag : { kind: "inline", value: padTag },
+        ownerTag: equalBytes(padTag, senderResolved)
+          ? senderTag
+          : { kind: "inline", value: padTag },
         data: randomBytes(dummyLength),
       });
       resolved.push(padTag);
@@ -1666,12 +1667,6 @@ function outputInit(output: ProofOutputUtxo): ProofOutputInit {
     ...(output.ownerTag === undefined ? {} : { ownerTag: output.ownerTag }),
     ...(output.compact === true ? { compact: true } : {}),
   };
-}
-
-function randomBytes(length: number): Uint8Array {
-  const bytes = new Uint8Array(length);
-  globalThis.crypto.getRandomValues(bytes);
-  return bytes;
 }
 
 /**

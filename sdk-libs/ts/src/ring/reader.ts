@@ -10,11 +10,11 @@ import {
 } from "@solana/kit";
 
 import type { ChainReader } from "../client/ports.js";
+import { equalBytes } from "../interface/bytes.js";
 import { SYSTEM_PROGRAM, meta, type SignerAccount } from "../interface/instructions/index.js";
 import { addressBytes, encodeBase58, Reader, sha256 } from "../interface/internal.js";
 import type { Bytes32, Bytes33, RequestContext } from "../interface/types.js";
 import { ShieldedPublicKey } from "../keypair/public-key.js";
-import { equal } from "../transaction/internal.js";
 
 import { ringConfigAddress } from "../interface/pda/index.js";
 import { RingError } from "./error.js";
@@ -92,7 +92,8 @@ export function checkedReaderKey(reader: ReaderKey): ReaderKey {
     let canonical = false;
     try {
       const point = ed25519.Point.fromBytes(body);
-      canonical = equal(point.toBytes(), body) && point.isTorsionFree() && !point.isSmallOrder();
+      canonical =
+        equalBytes(point.toBytes(), body) && point.isTorsionFree() && !point.isSmallOrder();
     } catch {
       canonical = false;
     }

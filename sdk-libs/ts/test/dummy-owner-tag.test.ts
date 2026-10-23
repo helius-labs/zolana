@@ -23,7 +23,8 @@ import {
   type PreparedTransfer,
   type SppProofInputs,
 } from "../src/transaction/index.js";
-import { concat, nonZeroHashChain } from "../src/transaction/internal.js";
+import { nonZeroHashChain } from "../src/transaction/internal.js";
+import { concatBytes } from "../src/interface/bytes.js";
 
 // A fee sponsor that owns nothing in the transfer. The tag rule must never let
 // a padding slot attribute the transaction to it.
@@ -277,7 +278,7 @@ describe("dummy output owner tags", () => {
           blinding,
         }),
       ).toEqual(byHand);
-      expect(signed.messageHash()).toEqual(sha256Bytes(concat(byHand, externalDataHash)));
+      expect(signed.messageHash()).toEqual(sha256Bytes(concatBytes(byHand, externalDataHash)));
       expectDerivedBlindings(prepared, signed);
     }
   });

@@ -6,7 +6,7 @@ import type {
   Bytes33,
   EncryptedRingDepositData,
 } from "../../interface/types.js";
-import { Reader, Writer, encodeBase58 } from "../../interface/internal.js";
+import { Reader, Writer, encodeBase58, byteVector } from "../../interface/internal.js";
 import { X25519PublicKey } from "../../keypair/x25519.js";
 import type { ShieldedPublicKey } from "../../keypair/public-key.js";
 import type { ViewingKeyLike } from "../../keypair/shielded.js";
@@ -20,10 +20,6 @@ export interface RingDepositPlaintext {
   readonly utxoData?: Uint8Array;
   readonly memo?: Uint8Array;
   readonly ringData: Uint8Array;
-}
-
-function byteVector(writer: Writer, value: Uint8Array, name: string): void {
-  writer.u16(value.length, `${name}.length`).bytes(value);
 }
 
 function readByteVector(reader: Reader, name: string): Uint8Array {

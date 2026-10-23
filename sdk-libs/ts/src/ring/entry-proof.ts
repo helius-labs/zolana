@@ -1,5 +1,5 @@
 import type { ChainReader, ProofReader, Prover } from "../client/ports.js";
-import { bytesField, bytesToBigInt, inputFlags } from "../client/internal.js";
+import { bytesField, inputFlags } from "../client/internal.js";
 import {
   NULLIFIER_TREE_HEIGHT,
   STATE_TREE_HEIGHT,
@@ -18,6 +18,7 @@ import type {
   TransferOutput,
 } from "../client/prover/types.js";
 import type { NonInclusionProof } from "../client/rpc.js";
+import { bytesToBigInt } from "../interface/bytes.js";
 import { externalDataHash } from "../interface/external-data-hash.js";
 import { addressBytes } from "../interface/internal.js";
 import {

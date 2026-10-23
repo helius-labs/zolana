@@ -22,6 +22,7 @@ import {
   type CustomRingPolicyProofRequest,
 } from "../client/prover/types.js";
 import { hashBytes } from "../hasher/index.js";
+import { equalBytes } from "../interface/bytes.js";
 import { addressBytes } from "../interface/internal.js";
 import { InstructionTag } from "../interface/program.js";
 import { compileUnsignedTransaction } from "../flows/compile.js";
@@ -122,7 +123,6 @@ import {
   type RingSubmissionAttempt,
   type RingSubmissionBuildState,
 } from "./submission.js";
-import { equalBytes } from "../wallet/internal.js";
 import { resolveRingOutputTree, ringTreeIdResolver } from "./trees.js";
 import { treeAddress } from "../interface/pda/index.js";
 

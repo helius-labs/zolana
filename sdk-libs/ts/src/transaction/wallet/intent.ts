@@ -1,6 +1,7 @@
 import { getAddressEncoder, isAddress } from "@solana/kit";
 import { sha256 } from "@noble/hashes/sha2.js";
 
+import { equalBytes } from "../../interface/bytes.js";
 import type {
   Address,
   Bytes32,
@@ -730,13 +731,4 @@ function u64(value: bigint): Uint8Array {
   const bytes = new Uint8Array(8);
   new DataView(bytes.buffer).setBigUint64(0, value, true);
   return bytes;
-}
-
-function equalBytes(left: Uint8Array, right: Uint8Array): boolean {
-  if (left.length !== right.length) return false;
-  let difference = 0;
-  for (let index = 0; index < left.length; index++) {
-    difference |= (left[index] ?? 0) ^ (right[index] ?? 0);
-  }
-  return difference === 0;
 }

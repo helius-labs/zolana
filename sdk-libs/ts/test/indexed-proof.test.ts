@@ -11,13 +11,9 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { wireDecoder } from "../src/interface/decode.js";
 import { inputTreeSlots } from "../src/interface/tree-slot.js";
-import {
-  BN254_MODULUS,
-  bigintToBytes,
-  bytesToBigInt,
-  checkedBytes,
-} from "../src/client/internal.js";
+import { BN254_MODULUS, bigintToBytes, checkedBytes } from "../src/client/internal.js";
 import { asField, resolvedPublicInputHash } from "../src/client/prover/assembly.js";
+import { bytesToBigInt } from "../src/interface/bytes.js";
 
 const ONE_INPUT_MERGE_WIDTH = 8;
 const STANDARD_PROOF = proofFor({ circuitType: "merge", inputs: Array(ONE_INPUT_MERGE_WIDTH) });

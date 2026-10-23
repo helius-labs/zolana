@@ -50,12 +50,6 @@ export function bytes64(bytes: Uint8Array): Bytes64 {
   return checkedBytes<Bytes64>(bytes, 64, "bytes64");
 }
 
-export function bytesToBigInt(bytes: Uint8Array): bigint {
-  let value = 0n;
-  for (const byte of bytes) value = (value << 8n) | BigInt(byte);
-  return value;
-}
-
 /**
  * The Rust counterpart is `bigint_to_be_bytes_array`, which takes a `BigUint`
  * and returns `HasherError::InvalidInputLength` when the value needs more bytes
@@ -86,20 +80,16 @@ function bigIntByteWidth(value: bigint): number {
   return width;
 }
 
-export function concatBytes(...parts: readonly Uint8Array[]): Uint8Array {
-  const output = new Uint8Array(parts.reduce((length, part) => length + part.length, 0));
-  let offset = 0;
-  for (const part of parts) {
-    output.set(part, offset);
-    offset += part.length;
-  }
-  return output;
-}
-
 export function u32be(value: number): Uint8Array {
   const bytes = new Uint8Array(4);
   new DataView(bytes.buffer).setUint32(0, value, false);
   return bytes;
+}
+
+export function fieldU32(value: number): Bytes32 {
+  const field = new Uint8Array(32);
+  new DataView(field.buffer).setUint32(28, value, false);
+  return field as Bytes32;
 }
 
 export function u64be(value: bigint): Uint8Array {

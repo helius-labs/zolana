@@ -1,12 +1,13 @@
 import { bn254 } from "@noble/curves/bn254.js";
 
+import { bytesToBigInt } from "../../interface/bytes.js";
 import { wireDecoder } from "../../interface/decode.js";
 import { CUSTOM_RING_PROOF_LENGTH } from "../../interface/custom-ring-proof.js";
 import type { ExpectedProvingKey } from "../../interface/proving-keys.js";
 import type { Bytes32, Bytes64, Bytes128, TransactProof } from "../../interface/types.js";
 
 import { ClientError } from "../error.js";
-import { bigintToBytes, bytesToBigInt, checkedBytes } from "../internal.js";
+import { bigintToBytes, checkedBytes } from "../internal.js";
 import type { CompressedProof, Proof } from "./types.js";
 
 const BN254_BASE_MODULUS =

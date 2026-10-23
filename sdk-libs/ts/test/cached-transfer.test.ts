@@ -2,7 +2,7 @@ import { address, type Address } from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
 
 import { ClientError, LocalKeys, ZolanaClient } from "../src/client/index.js";
-import { bigintToBytes, bytesField, bytesToBigInt } from "../src/client/internal.js";
+import { bigintToBytes, bytesField } from "../src/client/internal.js";
 import { assemble, transferPublicInputHash } from "../src/client/prover/assembly.js";
 import { assembleMergeWithProofs } from "../src/client/prover/merge.js";
 import type { TransferInputs } from "../src/client/prover/types.js";
@@ -38,7 +38,7 @@ import {
   transactOutputBlinding,
   type ProofOutputUtxo,
 } from "../src/transaction/index.js";
-import { concat } from "../src/transaction/internal.js";
+import { bytesToBigInt, concatBytes } from "../src/interface/bytes.js";
 
 const TREE_ID = 0;
 const TREE = treeAddress(TREE_ID);
@@ -511,7 +511,7 @@ describe("a transfer writing its outputs to a cache", () => {
     expect(payload.privateTxHash).toBe(uncached.proverInputs.payload.privateTxHash);
     expect(writing.messageHash()).toEqual(
       sha256Bytes(
-        concat(
+        concatBytes(
           bigintToBytes(payload.privateTxHash, "private tx hash"),
           bigintToBytes(payload.externalDataHash, "external data hash"),
         ),
@@ -561,12 +561,12 @@ describe("the digest the owners sign", () => {
     const bound = bindCacheWrite(external, { cache: CACHE, writeSlots: writeSlots([[0, 3]]) });
 
     expect(writing.privateTxHash()).toEqual(value.proofInputs.privateTxHash());
-    expect(writing.messageHash()).toEqual(sha256Bytes(concat(writing.privateTxHash(), bound)));
+    expect(writing.messageHash()).toEqual(sha256Bytes(concatBytes(writing.privateTxHash(), bound)));
     expect(writing.messageHash()).not.toEqual(
-      sha256Bytes(concat(writing.privateTxHash(), external)),
+      sha256Bytes(concatBytes(writing.privateTxHash(), external)),
     );
     expect(value.proofInputs.messageHash()).toEqual(
-      sha256Bytes(concat(value.proofInputs.privateTxHash(), external)),
+      sha256Bytes(concatBytes(value.proofInputs.privateTxHash(), external)),
     );
     expect(withCache(value.proofInputs, { reads: [0], read: CACHE }).messageHash()).toEqual(
       value.proofInputs.messageHash(),
@@ -591,7 +591,7 @@ describe("the digest the owners sign", () => {
     expect(resalted.privateTxHash()).toEqual(base.privateTxHash());
     expect(resalted.messageHash()).not.toEqual(base.messageHash());
     expect(resalted.messageHash()).toEqual(
-      sha256Bytes(concat(base.privateTxHash(), resalted.externalData.hash())),
+      sha256Bytes(concatBytes(base.privateTxHash(), resalted.externalData.hash())),
     );
   });
 

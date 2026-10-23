@@ -12,7 +12,6 @@ import {
   type Bytes34,
   type Bytes64,
   checkedBytes,
-  concatBytes,
   copyBytes,
 } from "./bytes.js";
 import { X25519_PUBLIC_KEY_LENGTH } from "./constants.js";
@@ -25,6 +24,7 @@ import { ShieldedPublicKey, type SignatureType, type ViewTag } from "./public-ke
 import { SigningKey } from "./signing-key.js";
 import { type Salt, ViewingKey } from "./viewing-key.js";
 import { X25519PublicKey } from "./x25519.js";
+import { concatBytes } from "../interface/bytes.js";
 
 const addressDecoder = getAddressDecoder();
 

@@ -1,10 +1,6 @@
+import { bytesKey } from "../interface/bytes.js";
 import type { Bytes32 } from "../interface/types.js";
-import {
-  hex,
-  type UtxoReservation,
-  type Wallet,
-  type WalletUtxo,
-} from "../transaction/wallet/state.js";
+import { type UtxoReservation, type Wallet, type WalletUtxo } from "../transaction/wallet/state.js";
 
 /** A built transaction dies with its blockhash on roughly the same clock. */
 export const DEFAULT_RESERVATION_TTL_MS = 120_000n;
@@ -36,5 +32,5 @@ export function extendReservation(wallet: Wallet, id: string): void {
 export function unreserved(
   reserved: ReadonlySet<string>,
 ): (entry: Readonly<{ outputContext: Readonly<{ hash: Bytes32 }> }>) => boolean {
-  return (entry) => !reserved.has(hex(entry.outputContext.hash));
+  return (entry) => !reserved.has(bytesKey(entry.outputContext.hash));
 }

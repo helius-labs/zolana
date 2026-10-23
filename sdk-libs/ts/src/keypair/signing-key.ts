@@ -1,17 +1,11 @@
 import { ed25519 } from "@noble/curves/ed25519.js";
 import { sha512 } from "@noble/hashes/sha2.js";
 
-import {
-  type Bytes32,
-  type Bytes64,
-  checkedBytes,
-  concatBytes,
-  copyBytes,
-  randomBytes,
-} from "./bytes.js";
+import { type Bytes32, type Bytes64, checkedBytes, copyBytes, randomBytes } from "./bytes.js";
 import { ed25519DerivationMessage, isDerivationInput } from "./derivation.js";
 import { KeypairError, wrapKeypairError } from "./error.js";
 import { ShieldedPublicKey, type SignatureType } from "./public-key.js";
+import { concatBytes } from "../interface/bytes.js";
 
 const ED25519_ORDER = ed25519.Point.Fn.ORDER;
 

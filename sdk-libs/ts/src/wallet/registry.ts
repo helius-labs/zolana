@@ -17,6 +17,7 @@ import { compileUnsignedTransaction } from "../flows/compile.js";
 import { DEFAULT_COMPUTE_UNIT_LIMIT } from "../flows/internal.js";
 import type { BlockhashProvider, ChainReader } from "../client/ports.js";
 import type { RpcAccount } from "../client/rpc.js";
+import { equalBytes, bytesKey } from "../interface/bytes.js";
 import {
   SYSTEM_PROGRAM,
   signerAddress,
@@ -37,9 +38,7 @@ import { ShieldedPublicKey } from "../keypair/public-key.js";
 import { X25519PublicKey } from "../keypair/x25519.js";
 import { ShieldedAddress, type ShieldedKeypair } from "../keypair/shielded.js";
 
-import { hex } from "../transaction/wallet/state.js";
 import { WalletError, wrapWalletError } from "./error.js";
-import { equalBytes } from "./internal.js";
 
 type AccountReader = Pick<ChainReader, "getAccount">;
 type ProgramAccountReader = Pick<ChainReader, "getProgramAccounts">;
@@ -277,7 +276,7 @@ function signingPublicKeyFromRecord(owner: Address): ShieldedPublicKey {
 
 /** The key format of `fetchViewingKeyOwners`, the compressed viewing key as hex. */
 export function viewingKeyIndex(viewingPublicKey: Uint8Array | X25519PublicKey): string {
-  return hex(
+  return bytesKey(
     viewingPublicKey instanceof X25519PublicKey ? viewingPublicKey.toBytes() : viewingPublicKey,
   );
 }

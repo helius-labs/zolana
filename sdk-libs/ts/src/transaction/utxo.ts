@@ -1,5 +1,6 @@
 import { address } from "@solana/kit";
 
+import { equalBytes, isZero } from "../interface/bytes.js";
 import type { Address, Bytes32 } from "../interface/types.js";
 import {
   ADDRESS_DOMAIN,
@@ -25,12 +26,11 @@ import {
   commitmentPoseidon,
   copy,
   decodeAddress,
-  equal,
   hashBytes,
   poseidon,
   rightAlign,
-  sha256Bytes,
 } from "./internal.js";
+import { sha256Bytes } from "../keypair/hash.js";
 
 export type Blinding = Bytes32;
 
@@ -519,10 +519,10 @@ export class ProofInputUtxo {
       throw new TransactionError("TRANSACTION_ADDRESS_INPUT_NONEMPTY_FIELD", { field });
     }
     const hash = addressUtxoHash(this.utxo, this.treeId);
-    if (!equal(this.nullifierPublicKey, ZERO_NULLIFIER_PK)) {
+    if (!equalBytes(this.nullifierPublicKey, ZERO_NULLIFIER_PK)) {
       throw new TransactionError("TRANSACTION_ADDRESS_INPUT_NULLIFIER_PUBLIC_KEY_MISMATCH");
     }
-    if (!equal(this.#nullifier, zeroKeyNullifier(hash, this.utxo.blinding))) {
+    if (!equalBytes(this.#nullifier, zeroKeyNullifier(hash, this.utxo.blinding))) {
       throw new TransactionError("TRANSACTION_ADDRESS_INPUT_NULLIFIER_MISMATCH");
     }
     return hash;
@@ -677,7 +677,7 @@ function noncanonicalDummyField(input: ProofInputUtxo): string | undefined {
   if (!isZero(committedHash(input.dataHash))) return "data_hash";
   if (!isZero(committedHash(input.ringDataHash))) return "ring_data_hash";
   if (!isZero(input.nullifierPublicKey)) return "nullifier_public_key";
-  if (!equal(input.nullifier(), dummyNullifier(input.utxo, input.treeId))) return "nullifier";
+  if (!equalBytes(input.nullifier(), dummyNullifier(input.utxo, input.treeId))) return "nullifier";
   return undefined;
 }
 
@@ -819,8 +819,4 @@ export function createProofOutput(input: ProofOutputInit): ProofOutputUtxo {
       return createProofOutput({ ...init, cacheSlot: slot });
     },
   });
-}
-
-function isZero(bytes: Uint8Array): boolean {
-  return bytes.every((byte) => byte === 0);
 }

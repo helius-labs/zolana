@@ -57,6 +57,7 @@ import {
   sha256,
   unsigned,
   unsignedBigint,
+  byteVector,
 } from "../internal.js";
 
 function encoded<T>(
@@ -71,10 +72,6 @@ function encoded<T>(
     fail("INTERFACE_INVALID_LENGTH", { expected: size, actual: bytes.length });
   }
   return bytes;
-}
-
-function byteVector(writer: Writer, value: Uint8Array, name: string): void {
-  writer.u16(value.length, `${name}.length`).bytes(value);
 }
 
 function writeDepositData(writer: Writer, value: DepositInstructionData): void {

@@ -1,7 +1,8 @@
 import { x25519 } from "@noble/curves/ed25519.js";
 
-import { type Bytes32, type Bytes33, checkedBytes, concatBytes, randomBytes } from "./bytes.js";
+import { type Bytes32, type Bytes33, checkedBytes, randomBytes } from "./bytes.js";
 import { KeypairError } from "./error.js";
+import { concatBytes } from "../interface/bytes.js";
 
 /** Tagged X25519 public key with one canonical little-endian u encoding. */
 export class X25519PublicKey {

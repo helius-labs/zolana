@@ -1,5 +1,6 @@
 import { X25519PublicKey, X25519Keypair } from "../keypair/x25519.js";
 import { hashBytes } from "../hasher/index.js";
+import { equalBytes, isZero } from "../interface/bytes.js";
 import { addressBytes, copyBytes } from "../interface/internal.js";
 import { pack33 } from "../interface/merge-utils.js";
 import {
@@ -14,7 +15,7 @@ import type { Address, Bytes32, Bytes96 } from "../interface/types.js";
 import { auditSharedSecret } from "../keypair/audit.js";
 import { isCanonicalField } from "../interface/canonical-field.js";
 import { symmetricApply } from "../keypair/merge/index.js";
-import { bigIntBytes, equal, hashChain } from "../transaction/internal.js";
+import { bigIntBytes, hashChain } from "../transaction/internal.js";
 import { ownerUtxoHash } from "../transaction/utxo.js";
 import { RingError } from "./error.js";
 import { ConfirmedDeposit } from "./origin.js";
@@ -122,7 +123,7 @@ export function openRingDepositOpening(
         !isCanonicalField(ownerHash) ||
         !isCanonicalField(blinding) ||
         !isCanonicalField(ownerCommitment) ||
-        !equal(ownerUtxoHash(ownerHash, blinding), ownerCommitment)
+        !equalBytes(ownerUtxoHash(ownerHash, blinding), ownerCommitment)
       )
         throw new RingError("RING_AUDIT_MESSAGE");
     } catch (cause) {
@@ -139,10 +140,6 @@ export function openRingDepositOpening(
     shared?.fill(0);
     plaintext?.fill(0);
   }
-}
-
-function isZero(bytes: Uint8Array): boolean {
-  return bytes.every((byte) => byte === 0);
 }
 
 export function ringDepositContextHash(ring: Address, tree: Address, sppWire: Uint8Array): Bytes32 {
