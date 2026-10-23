@@ -4,10 +4,14 @@
 mod transfer_fixtures;
 
 use transfer_fixtures::{build_unified_transfer, keypair_from_index, UnifiedTransferSpec};
-use zolana_event::SplTransfer;
-use zolana_keypair::ShieldedKeypair;
+use zolana_event::{OutputDataEncoding, SplTransfer};
+use zolana_keypair::{ShieldedKeypair, SigningKey};
 use zolana_transaction::{
-    decrypt_sent, AssetRegistry, HistoryKind, ShieldedTransaction, TransactionDetail, SOL_MINT,
+    decrypt_sent,
+    serialization::plaintext::{PlaintextEncode, PlaintextTransfer},
+    utxo::derive_transact_output_blinding,
+    AssetRegistry, Data, HistoryKind, Mint, OwnerCx, ShieldedTransaction, TransactionDetail,
+    TransactionError, Utxo, UtxoSerialization, SOL_MINT,
 };
 
 /// A transfer of `amount` from `sender` to `recipient` that keeps `change`,
@@ -79,17 +83,14 @@ fn the_sender_opens_every_output_it_paid_and_nobody_else_does() {
         .unwrap()
         .expect("the sender derives the published transaction key");
     let outputs: Vec<_> = sent
-        .outputs
+        .utxos
         .iter()
         .map(|output| (output.slot_index, output.amount, output.owned))
         .collect();
     assert_eq!(outputs, [(0, 30, true), (2, 70, false)]);
+    assert_eq!(sent.utxos[0].recipient_viewing_pk, sender.viewing_pubkey());
     assert_eq!(
-        sent.outputs[0].recipient_viewing_pk,
-        sender.viewing_pubkey()
-    );
-    assert_eq!(
-        sent.outputs[1].recipient_viewing_pk,
+        sent.utxos[1].recipient_viewing_pk,
         recipient.viewing_pubkey()
     );
     assert!(sent.unknown_asset_ids.is_empty());
@@ -216,4 +217,82 @@ fn each_event_infers_its_own_spending() {
         read(&sender, &[sent, received], &[vec![], vec![withdrawal(9)]]),
         [(HistoryKind::Sent, 50)]
     );
+}
+
+/// Owners sharing a viewing key derive the same transaction key, so neither
+/// can tell which of them sent a transfer between them.
+#[test]
+fn a_shared_viewing_key_cannot_tell_its_sender() {
+    let sender = keypair_from_index(1);
+    let sharer = ShieldedKeypair::with_viewing_key(
+        SigningKey::from_ed25519_bytes(&[0x30; 32]),
+        sender.viewing_key.clone(),
+    )
+    .unwrap();
+    let tx = transfer(&sender, &sharer, 70, 30);
+    for wallet in [&sender, &sharer] {
+        assert_eq!(
+            decrypt_sent(wallet, &tx, &AssetRegistry::default()),
+            Err(TransactionError::AmbiguousSender)
+        );
+    }
+}
+
+/// A sent transfer with an output the sender does not read cannot say what
+/// the sender paid.
+#[test]
+fn a_sent_output_in_another_format_is_unreadable() {
+    let (sender, recipient) = (keypair_from_index(1), keypair_from_index(2));
+    let mut tx = transfer(&sender, &recipient, 70, 30);
+    tx.output_slots[2].payload = borsh::to_vec(&OutputDataEncoding::Plaintext(vec![7])).unwrap();
+    assert_eq!(
+        decrypt_sent(&sender, &tx, &AssetRegistry::default()),
+        Err(TransactionError::SentOutputUnreadable { slot_index: 2 })
+    );
+}
+
+/// A plaintext transfer has a merge's shape, nullifiers and no transaction
+/// viewing key: what the recipient reads in it is received.
+#[test]
+fn a_plaintext_payment_is_received_not_merged() {
+    let (sender, recipient) = (keypair_from_index(1), keypair_from_index(2));
+    let assets = AssetRegistry::default();
+    let (first_nullifier, blinding_seed) = ([0x0c; 32].map(|byte: u8| byte & 0x0f), [7; 32]);
+    let payment = Utxo {
+        owner: recipient.signing_pubkey(),
+        asset: Mint::SOL,
+        amount: 70,
+        blinding: derive_transact_output_blinding(&first_nullifier, &blinding_seed, 0).unwrap(),
+        ring_program_id: None,
+        data: Data::default(),
+    };
+    let owner = OwnerCx {
+        owner: sender.signing_pubkey(),
+        assets: &assets,
+        ring_program_id: None,
+        first_nullifier: Some(first_nullifier),
+    };
+    let encode = PlaintextEncode {
+        blinding_seed,
+        first_nullifier,
+    };
+    let plaintext =
+        PlaintextTransfer::from_utxos(std::slice::from_ref(&payment), &owner, &encode).unwrap();
+    let mut blob = vec![PlaintextTransfer::SCHEME.as_byte()];
+    blob.extend(PlaintextTransfer::serialize(&plaintext).unwrap());
+    let mut tx = without_payment(transfer(&sender, &recipient, 70, 30));
+    tx.tx_viewing_pk = None;
+    tx.salt = None;
+    tx.nullifiers = vec![first_nullifier];
+    tx.output_slots.truncate(1);
+    tx.output_slots[0].payload = borsh::to_vec(&OutputDataEncoding::Plaintext(blob)).unwrap();
+    tx.output_slots[0].output_context.hash = payment
+        .hash(
+            &recipient.nullifier_key.pubkey().unwrap(),
+            &[0; 32],
+            &[0; 32],
+            0,
+        )
+        .unwrap();
+    assert_eq!(read(&recipient, &[tx], &[]), [(HistoryKind::Received, 70)]);
 }

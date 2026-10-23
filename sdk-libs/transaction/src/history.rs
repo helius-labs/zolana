@@ -36,7 +36,7 @@ use std::{
 
 use solana_address::Address;
 use solana_signature::Signature;
-use zolana_event::SplTransfer;
+use zolana_event::{OutputDataEncoding, SplTransfer};
 
 use crate::{
     asset::{AssetRegistry, SOL_MINT},
@@ -45,6 +45,7 @@ use crate::{
     indexer_types::ShieldedTransaction,
     keys::ShieldedKeys,
     sent::{decrypt_sent, SentOutput},
+    serialization::scheme::EncryptedScheme,
     utxo::WalletUtxo,
 };
 
@@ -225,14 +226,14 @@ impl TransactionDetail {
             let spent = match decrypt_sent(shielded_keys, tx, assets)? {
                 Some(sent) => {
                     let paid: Vec<&SentOutput> =
-                        sent.outputs.iter().filter(|output| !output.owned).collect();
+                        sent.utxos.iter().filter(|output| !output.owned).collect();
                     change.pays_another |= !paid.is_empty();
                     let spent = sender_spent(&received, &paid, legs);
                     detail.unknown_asset_ids.extend(sent.unknown_asset_ids);
-                    detail.sent.extend(sent.outputs);
+                    detail.sent.extend(sent.utxos);
                     spent
                 }
-                None if tx.may_be_merge() && !tx.nullifiers.is_empty() => received.clone(),
+                None if is_merge(tx) && !received.is_empty() => received.clone(),
                 None => BTreeMap::new(),
             };
             merge_into(&mut change.received, &received);
@@ -274,6 +275,17 @@ fn sender_spent(
             (mint, amount.saturating_sub(deposited))
         })
         .collect()
+}
+
+/// Whether `tx` has a merge's shape and only merge outputs. A plaintext
+/// transfer has the shape too.
+fn is_merge(tx: &ShieldedTransaction) -> bool {
+    tx.may_be_merge()
+        && !tx.nullifiers.is_empty()
+        && tx.output_slots.iter().all(|slot| {
+            matches!(slot.output_data(), Some(OutputDataEncoding::Encrypted(blob))
+                if blob.first() == Some(&EncryptedScheme::Merge.as_byte()))
+        })
 }
 
 fn merge_into(total: &mut BTreeMap<Address, u64>, amounts: &BTreeMap<Address, u64>) {

@@ -7,13 +7,14 @@
 //! change. Nobody else derives the key the transaction publishes, so a match
 //! also proves the wallet sent it.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 
 use zolana_event::OutputDataEncoding;
 use zolana_keypair::X25519Pubkey;
 
 use crate::{
     asset::{AssetRegistry, Mint},
+    decrypt::{decrypt, verify_owned},
     error::TransactionError,
     indexer_types::ShieldedTransaction,
     keys::{ShieldedKeys, TransactionKeyRequest},
@@ -29,8 +30,8 @@ pub struct SentOutput {
     pub recipient_viewing_pk: X25519Pubkey,
     pub asset: Mint,
     pub amount: u64,
-    /// Encrypted to one of this wallet's viewing keys: its change, or a
-    /// payment to itself.
+    /// This wallet's: its commitment rebuilds with this wallet's keys. Its
+    /// change, or a payment to itself.
     pub owned: bool,
 }
 
@@ -38,7 +39,7 @@ pub struct SentOutput {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SentTransaction {
     /// In output order. Padding opens under no key and is left out.
-    pub outputs: Vec<SentOutput>,
+    pub utxos: Vec<SentOutput>,
     /// Asset ids that outputs name and the registry does not know. Those
     /// outputs are left out.
     pub unknown_asset_ids: BTreeSet<u64>,
@@ -46,8 +47,12 @@ pub struct SentTransaction {
 
 /// `tx` as the wallet that sent it reads it: `None` unless the transaction
 /// viewing key `tx` publishes is one that `shielded_keys` derives from the
-/// first nullifier. Confidential and ring-confidential outputs open; outputs
-/// of other schemes, such as an anonymous sender bundle, are not read.
+/// first nullifier. Confidential and ring-confidential outputs open; an
+/// output in any other format fails with
+/// [`TransactionError::SentOutputUnreadable`], since what the wallet paid in
+/// it is unknown. Owners can share a viewing key and so derive the same
+/// transaction key: an output encrypted to this wallet's viewing key that is
+/// not this wallet's fails with [`TransactionError::AmbiguousSender`].
 pub fn decrypt_sent<K: ShieldedKeys + ?Sized>(
     shielded_keys: &K,
     tx: &ShieldedTransaction,
@@ -73,21 +78,35 @@ pub fn decrypt_sent<K: ShieldedKeys + ?Sized>(
     else {
         return Ok(None);
     };
+    let mine: HashSet<[u8; 32]> = verify_owned(
+        shielded_keys,
+        &decrypt(shielded_keys, std::slice::from_ref(tx), assets)?,
+    )?
+    .utxos
+    .into_iter()
+    .map(|utxo| utxo.utxo_hash)
+    .collect();
     let mut sent = SentTransaction::default();
     for (position, slot) in tx.output_slots.iter().enumerate() {
         let slot_index = u32::try_from(position).map_err(|_| TransactionError::TooManyOutputs)?;
-        let Some(OutputDataEncoding::Encrypted(blob)) = slot.output_data() else {
+        // An empty slot is padding.
+        let Some(data) = slot.output_data() else {
             continue;
         };
-        let Some((&scheme, body)) = blob.split_first() else {
-            continue;
+        let body = match &data {
+            OutputDataEncoding::Encrypted(blob) => match blob.split_first() {
+                Some((&scheme, body))
+                    if matches!(
+                        EncryptedScheme::from_byte(scheme),
+                        Ok(EncryptedScheme::Confidential | EncryptedScheme::RingConfidential)
+                    ) =>
+                {
+                    body
+                }
+                _ => return Err(TransactionError::SentOutputUnreadable { slot_index }),
+            },
+            _ => return Err(TransactionError::SentOutputUnreadable { slot_index }),
         };
-        if !matches!(
-            EncryptedScheme::from_byte(scheme),
-            Ok(EncryptedScheme::Confidential | EncryptedScheme::RingConfidential)
-        ) {
-            continue;
-        }
         let (Ok(recipient_viewing_pk), Ok(plaintext)) = (
             Confidential::embedded_viewing_pk(body),
             Confidential::decrypt_with_tx_key(&tx_key, body, salt, slot_index),
@@ -102,12 +121,16 @@ pub fn decrypt_sent<K: ShieldedKeys + ?Sized>(
             }
             Err(error) => return Err(error),
         };
-        sent.outputs.push(SentOutput {
+        let owned = mine.contains(&slot.output_context.hash);
+        if !owned && viewing_pubkeys.contains(&recipient_viewing_pk) {
+            return Err(TransactionError::AmbiguousSender);
+        }
+        sent.utxos.push(SentOutput {
             slot_index,
             recipient_viewing_pk,
             asset,
             amount: plaintext.amount,
-            owned: viewing_pubkeys.contains(&recipient_viewing_pk),
+            owned,
         });
     }
     Ok(Some(sent))
