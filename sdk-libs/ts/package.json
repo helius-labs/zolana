@@ -77,6 +77,7 @@
     "@phala/dcap-qvl": "^0.6.5",
     "@solana-program/system": "^0.14.1",
     "@solana-program/token": "^0.16.1",
+    "@solana/rpc-spec-types": "^8.3.0",
     "bn.js": "^5.2.5",
     "cborg": "^6.1.3"
   },

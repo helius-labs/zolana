@@ -195,6 +195,14 @@ Fixed
   differently from the sender's change, so an observer could tell them apart;
   padding now uses the same encoding as change.
 - `ProverClient` encrypted requests now survive gateway removal of percent-encoded `api-key` query parameters while keeping other query bytes authenticated.
+- `ZolanaClient` sent its Solana RPC requests, `solanaRpc` included, through
+  the global `fetch` and ignored `ZolanaClientConfig.fetch`; they now go
+  through the configured `fetch` like indexer and prover requests, while
+  `solanaRpcSubscriptions` stays on its WebSocket.
+
+Dependencies
+
+- `@solana/rpc-spec-types` ^8.3.0 (new).
 
 ## 0.4.1-alpha — 2026-10-08
 
