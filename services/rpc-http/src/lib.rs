@@ -1,5 +1,7 @@
-//! Method paths accept only a single JSON-RPC call naming their last segment.
-//! `/` retains the unrestricted JSON-RPC endpoint for existing clients.
+//! A call on any path but `/` runs only when its JSON-RPC body names the
+//! path's last segment. A gateway routes and prices RPC calls by path, so the
+//! method that runs must be the one the path names; `/` serves every method
+//! to a self-hosted client.
 
 use std::{
     borrow::Cow,
@@ -21,8 +23,8 @@ use tower::{Layer, Service};
 const MISMATCH: &str = "the method does not match the request path";
 
 #[derive(Clone, Copy)]
-pub(crate) struct MethodPathLayer {
-    pub(crate) max_body_size: usize,
+pub struct MethodPathLayer {
+    pub max_body_size: usize,
 }
 
 impl<Inner> Layer<Inner> for MethodPathLayer {
@@ -37,7 +39,7 @@ impl<Inner> Layer<Inner> for MethodPathLayer {
 }
 
 #[derive(Clone)]
-pub(crate) struct MethodPath<Inner> {
+pub struct MethodPath<Inner> {
     inner: Inner,
     max_body_size: usize,
 }
@@ -112,6 +114,9 @@ fn refusal(id: Option<Id<'_>>, code: ErrorCode, message: &str) -> HttpResponse {
         "id": id,
     });
     let mut response = hyper::Response::new(HttpBody::from(body.to_string()));
+    // This request never reached RPC execution. An opaque HTTP proxy must
+    // recognize the refusal without parsing the JSON-RPC error to bill it.
+    *response.status_mut() = hyper::StatusCode::BAD_REQUEST;
     response
         .headers_mut()
         .insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
@@ -124,9 +129,78 @@ mod tests {
         atomic::{AtomicUsize, Ordering},
         Arc,
     };
-    use tower::ServiceExt;
+    use tower::{service_fn, ServiceExt};
 
     use super::*;
+
+    /// This is the execution barrier for path-based billing: a rejected call
+    /// must not reach the RPC handler, consume an auth nonce, or report units.
+    #[tokio::test]
+    async fn rejects_ambiguous_calls_before_rpc_execution() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let executed = calls.clone();
+        let service = MethodPathLayer { max_body_size: 128 }.layer(service_fn(
+            move |request: HttpRequest| {
+                executed.fetch_add(1, Ordering::SeqCst);
+                async move { Ok::<_, BoxError>(HttpResponse::new(request.into_body())) }
+            },
+        ));
+        for (body, code) in [
+            (
+                r#"{"method":"getDecryptedTransactions","id":7}"#.to_owned(),
+                -32601,
+            ),
+            (r#"[{"method":"health"}]"#.to_owned(), -32601),
+            (
+                r#"{"method":"health","method":"ringDeposits"}"#.to_owned(),
+                -32601,
+            ),
+            (
+                r#"{"method":"ringDeposits","method":"health"}"#.to_owned(),
+                -32601,
+            ),
+            (r#"{"id":7}"#.to_owned(), -32601),
+            ("not json".to_owned(), -32601),
+            (" ".repeat(129), -32600),
+        ] {
+            let response = service
+                .clone()
+                .oneshot(
+                    HttpRequest::builder()
+                        .method("POST")
+                        .uri("/v1/zolana/ring/health/")
+                        .body(HttpBody::from(body.clone()))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), hyper::StatusCode::BAD_REQUEST);
+            assert!(!response.headers().contains_key("x-helius-metering-units"));
+            let bytes = response.into_body().collect().await.unwrap().to_bytes();
+            let answer: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(answer["error"]["code"], code, "{body}");
+            assert_eq!(calls.load(Ordering::SeqCst), 0, "{body}");
+        }
+
+        // JSON escaping is legal; forward the original bytes after checking
+        // the decoded method so jsonrpsee sees exactly the client's call.
+        let body = r#"{ "jsonrpc":"2.0", "method":"he\u0061lth", "id":7 }"#;
+        let response = service
+            .oneshot(
+                HttpRequest::builder()
+                    .method("POST")
+                    .uri("/v1/zolana/ring/health/?q=%61")
+                    .body(HttpBody::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            response.into_body().collect().await.unwrap().to_bytes(),
+            body
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
 
     #[tokio::test]
     async fn matching_calls_preserve_the_body_for_every_method() {
@@ -135,11 +209,11 @@ mod tests {
         });
         let service = MethodPathLayer { max_body_size: 256 }.layer(inner);
         for method in [
-            crate::api::HEALTH,
-            crate::api::RING_STATUS,
-            crate::api::RING_DEPOSITS,
-            crate::api::CREATE_AUDITOR_KEY,
-            crate::api::GET_DECRYPTED_TRANSACTIONS,
+            "health",
+            "ringStatus",
+            "ringDeposits",
+            "createAuditorKey",
+            "getDecryptedTransactions",
         ] {
             let body = format!(
                 r#"{{ "jsonrpc": "2.0", "id": "request", "method": "{method}", "params": {{}} }}"#

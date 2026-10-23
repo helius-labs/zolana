@@ -19,7 +19,6 @@ anyhow = { workspace = true }
 clap = { workspace = true }
 hex = { workspace = true }
 hkdf = { workspace = true }
-http-body-util = { workspace = true }
 hyper = { workspace = true }
 jsonrpsee = { workspace = true }
 libc = { workspace = true }
@@ -51,6 +50,7 @@ zeroize = { workspace = true }
 zolana-api = { workspace = true, features = ["reqwest"] }
 zolana-client = { workspace = true, features = ["solana-rpc"] }
 zolana-indexer-api = { workspace = true }
+zolana-rpc-http = { workspace = true }
 zolana-interface = { workspace = true }
 zolana-keypair = { workspace = true }
 zolana-ring-client = { workspace = true, features = ["solana-rpc"] }
