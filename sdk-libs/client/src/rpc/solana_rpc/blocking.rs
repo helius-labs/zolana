@@ -140,12 +140,16 @@ impl SolanaRpc {
         transact_output_view_tags_from_instruction_groups(&groups)
     }
 
-    /// The public settlement legs of `signature`, as
+    /// The public settlement legs of each shielded-pool event of
+    /// `signature`, at the event's `event_index`, as
     /// [`public_transfers_from_instruction_groups`] rebuilds them from the
     /// confirmed transaction. The indexer does not publish them, and
     /// [`TransactionDetail::read`](zolana_transaction::TransactionDetail::read)
     /// needs them for a withdrawal the wallet sent.
-    pub fn public_transfers(&self, signature: &Signature) -> Result<Vec<SplTransfer>, ClientError> {
+    pub fn public_transfers(
+        &self,
+        signature: &Signature,
+    ) -> Result<Vec<Vec<SplTransfer>>, ClientError> {
         let groups = self.fetch_confirmed_instruction_groups(signature)?;
         public_transfers_from_instruction_groups(&groups)
     }

@@ -53,7 +53,7 @@ fn withdrawal(amount: u64) -> SplTransfer {
 fn read(
     wallet: &ShieldedKeypair,
     events: &[ShieldedTransaction],
-    public: &[SplTransfer],
+    public: &[Vec<SplTransfer>],
 ) -> Vec<(HistoryKind, u64)> {
     let detail =
         TransactionDetail::read(wallet, events, public, &AssetRegistry::default()).unwrap();
@@ -113,7 +113,7 @@ fn one_transaction_reads_as_its_history_entries() {
         keypair_from_index(2),
         keypair_from_index(3),
     );
-    let tx = transfer(&sender, &recipient, 70, 30);
+    let tx = numbered(transfer(&sender, &recipient, 70, 30), 0);
 
     assert_eq!(read(&sender, std::slice::from_ref(&tx), &[]), [(Sent, 70)]);
     assert_eq!(
@@ -124,7 +124,7 @@ fn one_transaction_reads_as_its_history_entries() {
 
     // A payment that also withdraws counts its public part as sent.
     assert_eq!(
-        read(&sender, std::slice::from_ref(&tx), &[withdrawal(5)]),
+        read(&sender, std::slice::from_ref(&tx), &[vec![withdrawal(5)]]),
         [(Sent, 75)]
     );
 
@@ -132,7 +132,11 @@ fn one_transaction_reads_as_its_history_entries() {
     // either the transaction moved notes within the wallet.
     let kept = without_payment(tx.clone());
     assert_eq!(
-        read(&sender, std::slice::from_ref(&kept), &[withdrawal(50)]),
+        read(
+            &sender,
+            std::slice::from_ref(&kept),
+            &[vec![withdrawal(50)]]
+        ),
         [(Withdrawal, 50)]
     );
     assert_eq!(read(&sender, &[kept], &[]), [(SelfTransfer, 30)]);
@@ -153,5 +157,63 @@ fn one_transaction_reads_as_its_history_entries() {
     assert_eq!(
         TransactionDetail::read(&sender, &[], &[], &AssetRegistry::default()).unwrap(),
         TransactionDetail::default()
+    );
+}
+
+fn deposit(amount: u64) -> SplTransfer {
+    SplTransfer {
+        is_deposit: true,
+        amount,
+        asset: None,
+    }
+}
+
+/// `tx` as the event the indexer numbers `event_index` in its transaction.
+fn numbered(mut tx: ShieldedTransaction, event_index: u16) -> ShieldedTransaction {
+    tx.event_index = Some(event_index);
+    tx
+}
+
+/// An event's public legs net before what it spent is inferred, so their
+/// order does not matter: 20 kept, 100 deposited and 110 withdrawn spent 30.
+#[test]
+fn public_legs_net_in_any_order() {
+    let (sender, recipient) = (keypair_from_index(1), keypair_from_index(2));
+    let kept = numbered(without_payment(transfer(&sender, &recipient, 70, 20)), 0);
+    for legs in [
+        vec![deposit(100), withdrawal(110)],
+        vec![withdrawal(110), deposit(100)],
+    ] {
+        assert_eq!(
+            read(&sender, std::slice::from_ref(&kept), &[legs]),
+            [(HistoryKind::Withdrawal, 10)]
+        );
+    }
+}
+
+/// Spending is inferred for each event: a payment received in another event
+/// of the same transaction is not something the wallet spent.
+#[test]
+fn each_event_infers_its_own_spending() {
+    let (sender, recipient, other) = (
+        keypair_from_index(1),
+        keypair_from_index(2),
+        keypair_from_index(3),
+    );
+    let sent = numbered(transfer(&sender, &recipient, 70, 30), 0);
+    let received = numbered(transfer(&other, &sender, 20, 5), 1);
+    assert_eq!(sent.tx_signature, received.tx_signature);
+    assert_eq!(
+        read(
+            &sender,
+            &[sent.clone(), received.clone()],
+            &[vec![], vec![]]
+        ),
+        [(HistoryKind::Sent, 50)]
+    );
+    // A leg of the incoming event is not the sender's either.
+    assert_eq!(
+        read(&sender, &[sent, received], &[vec![], vec![withdrawal(9)]]),
+        [(HistoryKind::Sent, 50)]
     );
 }

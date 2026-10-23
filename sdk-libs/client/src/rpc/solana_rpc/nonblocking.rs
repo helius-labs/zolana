@@ -134,7 +134,7 @@ impl AsyncSolanaRpc {
     pub async fn public_transfers(
         &self,
         signature: &Signature,
-    ) -> Result<Vec<SplTransfer>, ClientError> {
+    ) -> Result<Vec<Vec<SplTransfer>>, ClientError> {
         let groups = self.fetch_confirmed_instruction_groups(signature).await?;
         public_transfers_from_instruction_groups(&groups)
     }

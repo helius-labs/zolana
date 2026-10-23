@@ -6,10 +6,10 @@ use solana_transaction_status_client_types::{
     option_serializer::OptionSerializer, EncodedConfirmedTransactionWithStatusMeta,
     EncodedTransaction, UiCompiledInstruction, UiInstruction, UiLoadedAddresses, UiMessage,
 };
-use zolana_event::{EventKind, SplTransfer};
+use zolana_event::SplTransfer;
 use zolana_event_parser::{
-    event_kind_from_indexed, general_event_from_indexed, indexed_events_from_instruction_groups,
-    InstructionGroup, ParsedInstruction,
+    general_event_from_indexed, indexed_events_from_instruction_groups, InstructionGroup,
+    ParsedInstruction,
 };
 use zolana_interface::{
     instruction::{
@@ -56,27 +56,25 @@ pub fn transact_output_view_tags_from_instruction_groups(
     ))
 }
 
-/// The public settlement legs of the shielded-pool deposits and transacts in
-/// `groups`, rebuilt from their events as an indexer rebuilds them: the
-/// amount and mint each one took into the pool or paid out of it, in event
-/// and leg order. A merge settles nothing publicly.
+/// The public settlement legs of each shielded-pool event in `groups`,
+/// rebuilt from the event as an indexer rebuilds it: the amount and mint each
+/// leg took into the pool or paid out of it. One list per event, at the
+/// index the indexer gives the event (`event_index`): both number the events
+/// of the deposit, transact and merge instructions in instruction order
+/// ([`indexed_events_from_instruction_groups`]). A merge settles nothing
+/// publicly, so its list is empty.
 pub fn public_transfers_from_instruction_groups(
     groups: &ConfirmedInstructionGroups,
-) -> Result<Vec<SplTransfer>, ClientError> {
+) -> Result<Vec<Vec<SplTransfer>>, ClientError> {
     let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
-    let mut transfers = Vec::new();
-    for event in indexed_events_from_instruction_groups(program_id, &groups.groups) {
-        if !matches!(
-            event_kind_from_indexed(&event),
-            Some(EventKind::Deposit | EventKind::Transact)
-        ) {
-            continue;
-        }
-        let general = general_event_from_indexed(&event)
-            .map_err(|err| ClientError::Rpc(format!("rebuild a shielded-pool event: {err:?}")))?;
-        transfers.extend(general.spl_transfers.iter().cloned());
-    }
-    Ok(transfers)
+    indexed_events_from_instruction_groups(program_id, &groups.groups)
+        .iter()
+        .map(|event| {
+            general_event_from_indexed(event)
+                .map(|general| general.spl_transfers.clone())
+                .map_err(|err| ClientError::Rpc(format!("rebuild a shielded-pool event: {err:?}")))
+        })
+        .collect()
 }
 
 /// Returns the output `view_tag`s if `instruction` is a `TRANSACT` call to
