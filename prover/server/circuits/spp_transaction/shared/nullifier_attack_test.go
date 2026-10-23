@@ -59,7 +59,7 @@ func refreshNullifierAttackHashes(t testing.TB, assignment *testAssignment, inpu
 func TestDummyInputRejectsAttackerChosenNullifier(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	assignment := buildDummyInputShield(t, 125)
 	assert.SolvingSucceeded(circuit, asCustomRingConfidentialEddsa(assignment), test.WithCurves(ecc.BN254))
 
@@ -77,7 +77,7 @@ func TestDummyInputRejectsAttackerChosenNullifier(t *testing.T) {
 func TestDummyInputRejectsZeroNullifier(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	assignment := buildDummyInputShield(t, 125)
 	assignment.Inputs[0].Nullifier = spptest.Fe(0)
 	refreshNullifierAttackHashes(t, assignment, []*big.Int{spptest.Fe(0)})
@@ -95,7 +95,7 @@ func TestDummyInputRejectsZeroNullifier(t *testing.T) {
 func TestCircuitRejectsSharedNullifierAcrossSlots(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 
 	// Duplicate slot 0 into slot 1: identical private witness and public signals,

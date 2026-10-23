@@ -66,7 +66,7 @@ func TestWindowedPolicyRejectsNamespaceAddressClaim(t *testing.T) {
 		s.outputs[i].TreeID = big.NewInt(addressTreeID)
 	}
 
-	shape := shared.Shape{NInputs: len(s.inputs), NOutputs: len(s.outputs)}
+	shape := shared.NewShape(len(s.inputs), len(s.outputs))
 	assignment, err := spp.NewCustomRingConfidentialEddsaCircuit(shape)
 	if err != nil {
 		t.Fatal(err)
@@ -144,7 +144,7 @@ func TestWindowedPolicyRejectsNamespaceAddressClaim(t *testing.T) {
 	for i, slot := range s.treeSlots(t) {
 		assignment.Public.TreeSlots[i] = shared.TreeSlot{ID: slot.ID, UtxoRoot: slot.UtxoRoot, NullifierRoot: slot.NullifierRoot}
 	}
-	signers := make([]*big.Int, shape.SignerWidth())
+	signers := make([]*big.Int, shape.SignerWidth)
 	for i := range signers {
 		signers[i] = zero
 	}

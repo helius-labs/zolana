@@ -32,7 +32,7 @@ type ProofSystem struct {
 }
 
 func Compile(shape protocol.Shape) (constraint.ConstraintSystem, error) {
-	txShape := txcircuit.Shape{NInputs: shape.NInputs, NOutputs: shape.NOutputs}
+	txShape := txcircuit.NewShape(shape.NInputs, shape.NOutputs)
 	circuit, err := customring.NewCustomRingConfidentialEddsaCircuit(txShape)
 	if err != nil {
 		return nil, err

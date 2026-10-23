@@ -351,6 +351,9 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 			return nil, err
 		}
 		ps.ProvingKeySha256 = digest
+		if ps.SignerWidth, ps.HiddenOwners, err = TransferKeyFileDimensions(lowerPath); err != nil {
+			return nil, err
+		}
 		// Transfer variants are resolved from canonical key filenames. The
 		// HasCommitment header retains its historical value independently of the rail.
 		ring := strings.Contains(lowerPath, "ring")

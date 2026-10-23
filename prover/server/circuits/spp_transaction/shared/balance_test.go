@@ -17,7 +17,7 @@ import (
 func TestCircuitRejectsBalanceMismatch(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	asset := spptest.Fe(7)
 	inputs := []protocol.Utxo{
 		sampleUtxoWithAssetAndAmount(10, asset, spptest.Fe(100)),
@@ -80,7 +80,7 @@ func TestCircuitAcceptsPublicSolMovement(t *testing.T) {
 
 	t.Run("deposit", func(t *testing.T) {
 		assert := test.NewAssert(t)
-		circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+		circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 		assets, amounts := solPublicSlot(25)
 		assignment := buildCircuitAssignmentExact(
 			t,
@@ -96,7 +96,7 @@ func TestCircuitAcceptsPublicSolMovement(t *testing.T) {
 
 	t.Run("withdraw", func(t *testing.T) {
 		assert := test.NewAssert(t)
-		circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+		circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 		assets, amounts := solPublicSlot(-25)
 		assignment := buildCircuitAssignmentExact(
 			t,
@@ -116,7 +116,7 @@ func TestCircuitAcceptsPublicSolMovement(t *testing.T) {
 func TestCircuitAcceptsPublicSolMovementInSecondSlot(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	solAsset := protocol.SolAsset()
 	assets, amounts := splPublicSlot(solAsset, 25)
 	assignment := buildCircuitAssignmentExact(
@@ -134,7 +134,7 @@ func TestCircuitAcceptsPublicSolMovementInSecondSlot(t *testing.T) {
 func TestCircuitAcceptsPublicSplDeposit(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	publicAsset := spptest.Fe(77)
 	assets, amounts := splPublicSlot(publicAsset, 25)
 	assignment := buildCircuitAssignmentExact(
@@ -152,7 +152,7 @@ func TestCircuitAcceptsPublicSplDeposit(t *testing.T) {
 func TestCircuitRejectsPublicSplAssetMismatch(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	privateAsset := spptest.Fe(77)
 	assets, amounts := splPublicSlot(spptest.Fe(88), 25)
 	assignment := buildCircuitAssignmentExact(
@@ -170,7 +170,7 @@ func TestCircuitRejectsPublicSplAssetMismatch(t *testing.T) {
 func TestCircuitRejectsDuplicateActivePublicAssets(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	asset := spptest.Fe(77)
 	assets, amounts := noPublicSlots()
 	assets[0] = new(big.Int).Set(asset)
@@ -192,7 +192,7 @@ func TestCircuitRejectsDuplicateActivePublicAssets(t *testing.T) {
 func TestCircuitRejectsPhantomPublicSplMovement(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	privateAsset := spptest.Fe(77)
 	assets, amounts := splPublicSlot(spptest.Fe(88), 25)
 	assignment := buildCircuitAssignmentExact(
@@ -212,7 +212,7 @@ func TestCircuitRejectsPhantomPublicSplMovement(t *testing.T) {
 func TestCircuitConservesTwoDistinctAssets(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	a := spptest.Fe(77)
 	b := spptest.Fe(91)
 	assignment := buildCircuitAssignmentFromUtxos(
@@ -236,7 +236,7 @@ func TestCircuitConservesTwoDistinctAssets(t *testing.T) {
 func TestCircuitRejectsCrossAssetValueConversion(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	a := spptest.Fe(77)
 	b := spptest.Fe(91)
 	assignment := buildCircuitAssignmentFromUtxos(
@@ -259,7 +259,7 @@ func TestCircuitRejectsCrossAssetValueConversion(t *testing.T) {
 func TestCircuitConservesPublicSplAlongsidePrivateAsset(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	publicAsset := spptest.Fe(77)
 	privateAsset := spptest.Fe(91)
 	assets, amounts := splPublicSlot(publicAsset, 25)
@@ -284,7 +284,7 @@ func TestCircuitConservesPublicSplAlongsidePrivateAsset(t *testing.T) {
 func TestCircuitAcceptsPublicSplWithdraw(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	asset := spptest.Fe(77)
 	assets, amounts := splPublicSlot(asset, -25)
 	assignment := buildCircuitAssignmentExact(
@@ -301,7 +301,7 @@ func TestCircuitAcceptsPublicSplWithdraw(t *testing.T) {
 func TestCircuitAcceptsSimultaneousSolAndSplDeposit(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	solAsset := protocol.SolAsset()
 	splAsset := spptest.Fe(77)
 
@@ -334,7 +334,7 @@ func TestCircuitAcceptsSimultaneousSolAndSplDeposit(t *testing.T) {
 func TestCircuitAcceptsThreeDistinctPublicAssets(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 3, NOutputs: 3}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	assets := [NPublicSlots]*big.Int{protocol.SolAsset(), spptest.Fe(77), spptest.Fe(91)}
 	amounts := [NPublicSlots]*big.Int{big.NewInt(25), big.NewInt(30), big.NewInt(35)}
 	assignment := buildCircuitAssignmentExact(
@@ -367,7 +367,7 @@ func TestCircuitRejectsNonZeroPublicAssetWithoutAmount(t *testing.T) {
 	for name, slot := range map[string]int{"first_slot": 0, "second_slot": 1, "third_slot": 2} {
 		t.Run(name, func(t *testing.T) {
 			assert := test.NewAssert(t)
-			circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+			circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 			assets, amounts := noPublicSlots()
 			assets[slot] = spptest.Fe(88)
 			assignment := buildCircuitAssignmentExact(

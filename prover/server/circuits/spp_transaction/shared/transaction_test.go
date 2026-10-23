@@ -20,7 +20,7 @@ import (
 func TestTransactionRejectsMalformedTreeSlots(t *testing.T) {
 	newTransaction := func() Transaction {
 		return Transaction{
-			Shape:           Shape{NInputs: 1, NOutputs: 1},
+			Shape:           NewShape(1, 1),
 			Inputs:          NewInputs(1),
 			Outputs:         make([]UtxoCircuitFields, 1),
 			Nullifiers:      make([]frontend.Variable, 1),
@@ -43,19 +43,56 @@ func TestTransactionRejectsMalformedTreeSlots(t *testing.T) {
 	}
 }
 
+// txShape is the circuit shape with protocol dimensions for a host shape.
+func txShape(shape protocol.Shape) Shape {
+	return NewShape(shape.NInputs, shape.NOutputs)
+}
+
+// hostShape drops the circuit-only dimensions of a shape.
+func hostShape(shape Shape) protocol.Shape {
+	return protocol.Shape{NInputs: shape.NInputs, NOutputs: shape.NOutputs}
+}
+
 func TestShapeValidate(t *testing.T) {
-	if err := (Shape{NInputs: 0, NOutputs: 1}).Validate(); err == nil {
-		t.Fatal("expected error for zero inputs")
-	}
-	if err := (Shape{NInputs: 1, NOutputs: 0}).Validate(); err == nil {
-		t.Fatal("expected error for zero outputs")
-	}
-	if err := (Shape{NInputs: 1, NOutputs: 1}).Validate(); err != nil {
+	valid := NewShape(1, 1)
+	if err := valid.Validate(); err != nil {
 		t.Fatalf("valid shape rejected: %v", err)
+	}
+	for name, mutate := range map[string]func(*Shape){
+		"zero inputs":        func(s *Shape) { s.NInputs = 0 },
+		"zero outputs":       func(s *Shape) { s.NOutputs = 0 },
+		"zero signer width":  func(s *Shape) { s.SignerWidth = 0 },
+		"zero hidden owners": func(s *Shape) { s.NHiddenOwners = 0 },
+	} {
+		shape := valid
+		mutate(&shape)
+		if err := shape.Validate(); err == nil {
+			t.Fatalf("%s: expected an error", name)
+		}
 	}
 }
 
-func TestShapeSignerWidth(t *testing.T) {
+func TestNewShapeHasProtocolDimensions(t *testing.T) {
+	shape := NewShape(3, 2)
+	want := Shape{NInputs: 3, NOutputs: 2, SignerWidth: ProtocolSignerWidth(3), NHiddenOwners: 1}
+	if shape != want {
+		t.Fatalf("got %+v want %+v", shape, want)
+	}
+	if !shape.IsProtocol() {
+		t.Fatal("NewShape is not the protocol shape")
+	}
+	shape.SignerWidth++
+	if shape.IsProtocol() {
+		t.Fatal("a wider signer vector is reported as the protocol shape")
+	}
+	shape = NewShape(3, 2)
+	shape.NHiddenOwners = 2
+	if shape.IsProtocol() {
+		t.Fatal("two hidden owners are reported as the protocol shape")
+	}
+}
+
+func TestProtocolSignerWidth(t *testing.T) {
 	cases := []struct {
 		nInputs int
 		want    int
@@ -69,7 +106,7 @@ func TestShapeSignerWidth(t *testing.T) {
 		{51, 10},
 	}
 	for _, tc := range cases {
-		if got := (Shape{NInputs: tc.nInputs, NOutputs: 1}).SignerWidth(); got != tc.want {
+		if got := ProtocolSignerWidth(tc.nInputs); got != tc.want {
 			t.Fatalf("signer width for %d inputs: got %d want %d", tc.nInputs, got, tc.want)
 		}
 		if OwnerSignerSlots(tc.nInputs)+tc.nInputs+FixedTransactAddresses > MaxTransactionAddresses {
@@ -143,7 +180,7 @@ func (a *testAssignment) TransactionSignerPkHashes() []frontend.Variable {
 	if a.SignerPkHashes != nil {
 		return a.SignerPkHashes
 	}
-	out := make([]frontend.Variable, a.Shape.SignerWidth())
+	out := make([]frontend.Variable, a.Shape.SignerWidth)
 	for i := range out {
 		out[i] = 0
 	}
@@ -522,7 +559,7 @@ func buildCircuitAssignmentExact(
 
 	circuit := &testAssignment{
 		CachedInputs:     emptyCache(t, shape.NInputs),
-		Shape:            Shape(shape),
+		Shape:            txShape(shape),
 		Inputs:           inputs,
 		Outputs:          outputs,
 		BlindingSeed:     blindingSeed,

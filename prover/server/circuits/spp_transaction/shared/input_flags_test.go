@@ -64,7 +64,7 @@ func setAllowDummyInputs(t testing.TB, a *testAssignment, allowDummyInputs bool)
 func TestCircuitAcceptsInputsFromSeveralTreeSlots(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	moveInputToSlot(t, assignment, 1, 1)
 
@@ -79,7 +79,7 @@ func TestCircuitAcceptsInputsFromSeveralTreeSlots(t *testing.T) {
 func TestCircuitRejectsInputFlagsTreeIndexMismatch(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	moveInputToSlot(t, assignment, 1, 1)
 
@@ -96,7 +96,7 @@ func TestCircuitRejectsInputFlagsTreeIndexMismatch(t *testing.T) {
 func TestCircuitRejectsInputFlagsWiderThanTheShape(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	width := uint(1 + TreeIndexBits*shape.NInputs)
 	assignment.InputFlags = new(big.Int).SetBit(spptest.AsBigInt(assignment.InputFlags), int(width), 1)
@@ -110,7 +110,7 @@ func TestCircuitRejectsInputFlagsWiderThanTheShape(t *testing.T) {
 func TestCircuitRejectsInputFlagsIndexOutsidePublishedSlots(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	assignment.Inputs[0].TreeSlot = spptest.Fe(InputTrees)
 	setAllowDummyInputs(t, assignment, true)

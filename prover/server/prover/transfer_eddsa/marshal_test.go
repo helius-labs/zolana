@@ -248,7 +248,7 @@ func sampleTransferParams(variant Variant) *TransferParameters {
 			NullifierPk: big.NewInt(0x3333),
 		}
 	}
-	signers := txcircuit.Shape{NInputs: nInputs, NOutputs: nOutputs}.SignerWidth()
+	signers := txcircuit.ProtocolSignerWidth(nInputs)
 	publishedOwners := nOutputs
 	if variant == RingAuthorityVariant {
 		signers = 1

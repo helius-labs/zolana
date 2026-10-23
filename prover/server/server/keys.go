@@ -27,9 +27,23 @@ const keyFileSuffix = ".key"
 // knownKeyFiles is every key file this binary proves.
 var knownKeyFiles = common.KeyFiles()
 
-// ServedKeys is the set of proving key files a deployment proves.
+// ServedKeys is the set of proving key files a deployment proves. Lockfile
+// keys are listed; a non-protocol transfer key (see
+// common.NonProtocolTransferKeyShape) is served when no pattern restricts the
+// set or a pattern matches its name.
 type ServedKeys struct {
-	files []string
+	files    []string
+	patterns []string
+}
+
+// knownKeyFile reports whether file is a lockfile key or a well-formed
+// non-protocol transfer key.
+func knownKeyFile(file string) bool {
+	if slices.Contains(knownKeyFiles, file) {
+		return true
+	}
+	_, ok := common.NonProtocolTransferKeyShape(file)
+	return ok
 }
 
 // ParseServedKeys resolves --serve patterns (path.Match syntax, over key names
@@ -53,6 +67,9 @@ func ParseServedKeys(patterns []string) (*ServedKeys, error) {
 				matched = true
 			}
 		}
+		if _, ok := common.NonProtocolTransferKeyShape(pattern + keyFileSuffix); ok {
+			matched = true
+		}
 		if !matched {
 			return nil, fmt.Errorf("--serve pattern %q matches no proving key", pattern)
 		}
@@ -63,12 +80,26 @@ func ParseServedKeys(patterns []string) (*ServedKeys, error) {
 			files = append(files, file)
 		}
 	}
-	return &ServedKeys{files: files}, nil
+	return &ServedKeys{files: files, patterns: patterns}, nil
 }
 
 // Serves reports whether file is served. A nil set serves every key.
 func (keys *ServedKeys) Serves(file string) bool {
-	return keys == nil || slices.Contains(keys.files, file)
+	if keys == nil || slices.Contains(keys.files, file) {
+		return true
+	}
+	if _, ok := common.NonProtocolTransferKeyShape(file); !ok {
+		return false
+	}
+	if len(keys.patterns) == 0 {
+		return true
+	}
+	for _, pattern := range keys.patterns {
+		if ok, _ := path.Match(pattern, keyName(file)); ok {
+			return true
+		}
+	}
+	return false
 }
 
 // Names lists the served keys as their paths name them.
@@ -131,7 +162,7 @@ func keyNotServed(file string) *Error {
 // that does not exist or that this deployment does not serve.
 func pathKey(r *http.Request, served *ServedKeys) (string, *Error) {
 	file := r.PathValue("key") + keyFileSuffix
-	if !slices.Contains(knownKeyFiles, file) {
+	if !knownKeyFile(file) {
 		return "", &Error{
 			StatusCode: http.StatusNotFound,
 			Code:       "unknown_proving_key",

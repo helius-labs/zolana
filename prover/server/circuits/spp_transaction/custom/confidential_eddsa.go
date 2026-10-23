@@ -67,6 +67,8 @@ type CustomRingConfidentialEddsaCircuit struct {
 	Private CustomRingConfidentialEddsaPrivate
 }
 
+// NewCustomRingConfidentialEddsaCircuit sizes the circuit from the shape, including
+// the public signer vector width.
 func NewCustomRingConfidentialEddsaCircuit(shape shared.Shape) (*CustomRingConfidentialEddsaCircuit, error) {
 	if err := shape.Validate(); err != nil {
 		return nil, err
@@ -78,7 +80,7 @@ func NewCustomRingConfidentialEddsaCircuit(shape shared.Shape) (*CustomRingConfi
 			Nullifiers:                   make([]frontend.Variable, shape.NInputs),
 			OutputHashes:                 make([]frontend.Variable, shape.NOutputs),
 			TreeSlots:                    shared.NewTreeSlots(),
-			SignerPkHashes:               make([]frontend.Variable, shape.SignerWidth()),
+			SignerPkHashes:               make([]frontend.Variable, shape.SignerWidth),
 			PublishedOutputOwnerPkHashes: make([]frontend.Variable, shape.NOutputs),
 		},
 		Private: CustomRingConfidentialEddsaPrivate{
@@ -120,7 +122,7 @@ func (c *CustomRingConfidentialEddsaCircuit) transaction(api frontend.API) share
 func (c *CustomRingConfidentialEddsaCircuit) Define(api frontend.API) error {
 	tx := c.transaction(api)
 	if err := tx.ValidateLayout(
-		shared.LengthCheck{Name: "signer pk hash", Got: len(c.Public.SignerPkHashes), Want: c.Shape.SignerWidth()},
+		shared.LengthCheck{Name: "signer pk hash", Got: len(c.Public.SignerPkHashes), Want: c.Shape.SignerWidth},
 		shared.LengthCheck{Name: "input owner pk hash", Got: len(c.Private.InputOwnerPkHashes), Want: c.Shape.NInputs},
 		shared.LengthCheck{Name: "output owner pk hash", Got: len(c.Private.OutputOwnerPkHashes), Want: c.Shape.NOutputs},
 		shared.LengthCheck{Name: "output nullifier pk", Got: len(c.Private.OutputNullifierPks), Want: c.Shape.NOutputs},

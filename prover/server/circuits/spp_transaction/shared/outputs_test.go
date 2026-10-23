@@ -57,7 +57,7 @@ func refreshOutputAttackHashes(t testing.TB, assignment *testAssignment) {
 func TestCircuitRejectsBadOutputHash(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	assignment.Outputs[0].Hash = spptest.Fe(999)
 
@@ -99,7 +99,7 @@ func TestCircuitRejectsDuplicateOutputCommitmentWithRefreshedPublicInputs(t *tes
 	refreshOutputAttackHashes(t, assignment)
 
 	test.NewAssert(t).SolvingFailed(
-		MustNewDefaultRingConfidentialEddsaCircuit(Shape(shape)),
+		MustNewDefaultRingConfidentialEddsaCircuit(txShape(shape)),
 		asDefaultRingConfidentialEddsa(assignment),
 		test.WithCurves(ecc.BN254),
 	)
@@ -115,7 +115,7 @@ func TestCircuitRejectsStaleOutputBlindings(t *testing.T) {
 	refreshOutputAttackHashes(t, assignment)
 
 	test.NewAssert(t).SolvingFailed(
-		MustNewDefaultRingConfidentialEddsaCircuit(Shape(shape)),
+		MustNewDefaultRingConfidentialEddsaCircuit(txShape(shape)),
 		asDefaultRingConfidentialEddsa(assignment),
 		test.WithCurves(ecc.BN254),
 	)
@@ -128,7 +128,7 @@ func TestCircuitRejectsFreelyChosenDummyOutputBlinding(t *testing.T) {
 	refreshOutputAttackHashes(t, assignment)
 
 	test.NewAssert(t).SolvingFailed(
-		MustNewDefaultRingConfidentialEddsaCircuit(Shape(shape)),
+		MustNewDefaultRingConfidentialEddsaCircuit(txShape(shape)),
 		asDefaultRingConfidentialEddsa(assignment),
 		test.WithCurves(ecc.BN254),
 	)

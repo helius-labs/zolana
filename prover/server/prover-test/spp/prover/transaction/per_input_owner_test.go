@@ -41,7 +41,7 @@ func mustNewSolanaCircuit(shape txcircuit.Shape) *customring.CustomRingConfident
 
 func solveAssignment(t *testing.T, shape protocol.Shape, built proofAssignment) {
 	t.Helper()
-	circuit := mustNewSolanaCircuit(txcircuit.Shape(shape))
+	circuit := mustNewSolanaCircuit(txcircuit.NewShape(shape.NInputs, shape.NOutputs))
 	if err := test.IsSolved(circuit, built.witness, ecc.BN254.ScalarField()); err != nil {
 		t.Fatalf("assignment must solve the circuit: %v", err)
 	}

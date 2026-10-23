@@ -333,3 +333,37 @@ func TestInputHashSeparatesKeyPaths(t *testing.T) {
 		t.Fatalf("one body hashed alike on different key paths: %v", hashes)
 	}
 }
+
+func TestServedKeysIncludeNonProtocolTransferKeys(t *testing.T) {
+	custom := "transfer_eddsa_ring_2_2_h2.key"
+	if !servedKeys(t).Serves(custom) {
+		t.Fatal("the default set does not serve a non-protocol transfer key")
+	}
+	onlyEddsa := servedKeys(t, "transfer_eddsa_ring_*")
+	if !onlyEddsa.Serves(custom) || onlyEddsa.Serves("transfer_ring_2_2_s1.key") {
+		t.Fatal("patterns do not select non-protocol transfer keys")
+	}
+	exact := servedKeys(t, "transfer_eddsa_ring_2_2_h2")
+	if !exact.Serves(custom) || exact.Serves("transfer_eddsa_ring_2_2.key") {
+		t.Fatal("an exact non-protocol pattern does not select only its key")
+	}
+	for _, file := range []string{
+		"transfer_eddsa_ring_7_2_h2.key",
+		"transfer_ring_2_2_h2.key",
+		"transfer_eddsa_ring_2_2_h3.key",
+		"transfer_ring_authority_2_2_s1.key",
+		"merge_24_1_s2.key",
+	} {
+		if knownKeyFile(file) || servedKeys(t).Serves(file) {
+			t.Errorf("%s is not a key this prover proves", file)
+		}
+	}
+}
+
+func TestKeyPathReachesANonProtocolKey(t *testing.T) {
+	mux := proofMux(t, nil)
+	response := post(mux, "/prove/transfer_ring_2_2_s1", transferRequest(t))
+	if response.Code != http.StatusBadRequest || errorCode(t, response) != "proving_key_mismatch" {
+		t.Fatalf("a protocol body on a non-protocol key path got %d %q", response.Code, response.Body.String())
+	}
+}
