@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import { InterfaceError } from "../src/interface/index.js";
-import { RingError, wrapRingError } from "../src/ring/error.js";
 import { WalletError, wrapWalletError } from "../src/wallet/error.js";
 
 describe("error envelope", () => {
@@ -20,10 +19,10 @@ describe("error envelope", () => {
 
   it("keeps the cause reachable but out of serialization", () => {
     const cause = new Error("inner");
-    const error = new RingError("RING_RPC", { cause });
+    const error = new WalletError("WALLET_SYNC", { cause });
     expect(error.cause).toBe(cause);
     expect(JSON.stringify(error)).not.toContain("inner");
-    expect(JSON.parse(JSON.stringify(error))).toEqual({ name: "RingError", code: "RING_RPC" });
+    expect(JSON.parse(JSON.stringify(error))).toEqual({ name: "WalletError", code: "WALLET_SYNC" });
   });
 
   it("keeps the outer operation code and records the wrapped chain", () => {
@@ -36,8 +35,8 @@ describe("error envelope", () => {
   });
 
   it("returns a same-code wrap unchanged", () => {
-    const inner = new RingError("RING_BUILD_TRANSFER");
-    expect(wrapRingError("RING_BUILD_TRANSFER", inner)).toBe(inner);
+    const inner = new WalletError("WALLET_BUILD_TRANSFER");
+    expect(wrapWalletError("WALLET_BUILD_TRANSFER", inner)).toBe(inner);
   });
 
   it("sanitizes interface details and lifts the wrapped code", () => {

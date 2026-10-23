@@ -30,10 +30,9 @@ import { defaultSolanaRpcSubscriptionsUrl, runKitRpc } from "../src/client/kit.j
 import { BN254_MODULUS, bigintToBytes, bytesField, checkedBytes } from "../src/client/internal.js";
 import { asField, assemble } from "../src/client/prover/assembly.js";
 import type { NonInclusionProof } from "../src/client/rpc.js";
-import type { Bytes16, Bytes31, Bytes32 } from "../src/interface/index.js";
+import type { Bytes16, Bytes32 } from "../src/interface/index.js";
 import { treeAddress } from "../src/interface/pda/index.js";
-import { NullifierKey, ShieldedKeypair, ShieldedPublicKey } from "../src/keypair/index.js";
-import { withRecordSlotSecret } from "../src/ring/velocity.js";
+import { ShieldedKeypair } from "../src/keypair/index.js";
 import { proofFor } from "./helpers/proofs.js";
 import {
   ProofInputUtxo,
@@ -1176,82 +1175,6 @@ describe("prover indexer fetching", () => {
     },
   );
 
-  it("completes the indexed record slot without fetching client proofs", async () => {
-    const fixture = proofFixture({ dummyInputs: 1, ring: FOREIGN_TREE });
-    const zeroKey = NullifierKey.fromSecret(new Uint8Array(31) as Bytes31);
-    const record = ProofInputUtxo.fromNullifierKey(
-      new Utxo({
-        owner: ShieldedPublicKey.fromEd25519(bytes(44)),
-        asset: SOL_MINT,
-        amount: 0n,
-        blinding: bytes(2),
-        ringProgramId: FOREIGN_TREE,
-      }),
-      zeroKey,
-    );
-    zeroKey.destroy();
-    const transaction = new SppProofInputs({
-      ...fixture.proofInputs,
-      inputUtxos: [fixture.proofInputs.inputUtxos[0]!, record],
-    });
-    const tree = {
-      tree: TREE,
-      id: TREE_ID,
-      utxoRoot: fixture.spendProof.state.root,
-      nullifierRoot: fixture.spendProof.nullifier.root,
-      utxoRootIndex: fixture.spendProof.state.rootIndex,
-      nullifierRootIndex: fixture.spendProof.nullifier.rootIndex,
-    };
-    const prepared = prepareTransfer(transaction, { kind: "ring", ring: FOREIGN_TREE });
-    const complete = prepared.finish([
-      {
-        treeId: TREE_ID,
-        slot: tree,
-        utxoRootIndex: tree.utxoRootIndex,
-        nullifierRootIndex: tree.nullifierRootIndex,
-      },
-    ]);
-    const hex = (value: Bytes32) => `0x${bytesField(value, "field").toString(16)}`;
-    const fetch = vi.fn<typeof globalThis.fetch>(async () =>
-      Response.json({
-        ...proofFor({ circuitType: "transfer-ring", nInputs: 2, nOutputs: 2 }),
-        resolution: {
-          publicInputHash: hex(complete.publicInputHash),
-          trees: [
-            { ...tree, utxoRoot: hex(tree.utxoRoot), nullifierRoot: hex(tree.nullifierRoot) },
-          ],
-        },
-      }),
-    );
-    const instance = new ZolanaClient({ fetch });
-    const state = vi.spyOn(instance, "getMerkleProofs");
-    const nullifier = vi.spyOn(instance, "getNonInclusionProofs");
-    const keys = LocalKeys.fromKeypair(fixture.keypair, instance.proofService);
-    try {
-      const result = await instance.proveRingTransact(
-        transaction,
-        FOREIGN_TREE,
-        withRecordSlotSecret(keys, record.nullifier()),
-      );
-      expect(result.data.circuit.kind).toBe("confidentialRingEddsa");
-      expect(state).not.toHaveBeenCalled();
-      expect(nullifier).not.toHaveBeenCalled();
-      expect(fetch).toHaveBeenCalledOnce();
-      expect(String(fetch.mock.calls[0]?.[0])).toMatch(/\/prove\/transfer_ring_2_2\/indexed$/u);
-      const body: unknown = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
-      const decoder = wireDecoder(() => new Error("invalid body"));
-      const payload = decoder.record(decoder.record(body, "body")["prepared"], "prepared");
-      const inputs = decoder.list(payload["inputs"], "inputs");
-      expect(decoder.record(inputs[0], "input")["nullifierSecret"]).toMatch(
-        /^0x[1-9a-f][0-9a-f]*$/u,
-      );
-      expect(decoder.record(inputs[1], "record")["nullifierSecret"]).toBe("0x0");
-    } finally {
-      keys.destroy();
-      fixture.keypair.destroy();
-    }
-  });
-
   for (const ring of [undefined, FOREIGN_TREE]) {
     it(`matches locally resolved transfer data for ${ring === undefined ? "pool" : "ring"}`, async () => {
       const fixture = proofFixture({ dummyInputs: 1 });
@@ -1420,4 +1343,78 @@ it("copies resolved roots before client proof data can change", () => {
   } finally {
     fixture.keypair.destroy();
   }
+});
+
+describe("indexed prover failures", () => {
+  const SERVER_TEXT = "photon echoed caller data";
+
+  async function prove(fetch: typeof globalThis.fetch): Promise<unknown> {
+    const fixture = proofFixture();
+    const prover = new ProverClient({
+      url: "http://127.0.0.1:3001",
+      fetch,
+      asyncPoll: { pollIntervalCapMs: 1, maxWaitMs: 1_000 },
+    });
+    const keys = LocalKeys.fromKeypair(fixture.keypair, prover);
+    try {
+      return await keys.proveIndexed(prepareTransfer(fixture.proofInputs).inputs);
+    } finally {
+      keys.destroy();
+      fixture.keypair.destroy();
+    }
+  }
+
+  /** Refuses sync admission, queues, then reports `status` for the job. */
+  function queued(status: Readonly<Record<string, unknown>>) {
+    return vi.fn<typeof globalThis.fetch>(async (_url, init) => {
+      if (init?.method !== "POST") return Response.json({ status: "failed", ...status });
+      if (new Headers(init.headers).get("X-Sync") === "true")
+        return new Response(null, { status: 429 });
+      return Response.json({ jobId: "job-1" }, { status: 202 });
+    });
+  }
+
+  it.each([
+    [
+      404,
+      new Response("404 page not found", { status: 404 }),
+      "CLIENT_PROVER_INDEXER_UNCONFIGURED",
+    ],
+    [
+      404,
+      Response.json({ code: "indexer_unconfigured", message: SERVER_TEXT }, { status: 404 }),
+      "CLIENT_PROVER_INDEXER_UNCONFIGURED",
+    ],
+    // A key the prover does not serve is not a prover without an indexer.
+    [
+      404,
+      Response.json({ code: "proving_key_not_served", message: SERVER_TEXT }, { status: 404 }),
+      "CLIENT_PROVER_HTTP",
+    ],
+    [
+      503,
+      Response.json({ code: "indexer_not_ready", message: SERVER_TEXT }, { status: 503 }),
+      "CLIENT_INDEXER_PROOF_DATA_NOT_READY",
+    ],
+    [
+      502,
+      Response.json({ code: "indexer_unavailable", message: SERVER_TEXT }, { status: 502 }),
+      "CLIENT_PROVER_HTTP",
+    ],
+  ] as const)("maps a %i indexed answer to %s", async (_status, response, code) => {
+    const error = await prove(vi.fn<typeof globalThis.fetch>(async () => response)).catch(
+      (cause: unknown) => cause,
+    );
+    expect(error).toMatchObject({ code });
+    expect(JSON.stringify(error)).not.toContain(SERVER_TEXT);
+  });
+
+  it("branches a failed job on its code, never on its error text", async () => {
+    await expect(prove(queued({ code: "indexer_not_ready" }))).rejects.toMatchObject({
+      code: "CLIENT_INDEXER_PROOF_DATA_NOT_READY",
+    });
+    await expect(prove(queued({ error: "indexer proof data not ready" }))).rejects.toMatchObject({
+      code: "CLIENT_PROVER_SERVER",
+    });
+  });
 });

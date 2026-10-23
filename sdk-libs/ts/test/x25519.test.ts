@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { X25519PublicKey, X25519Keypair, isSmallOrder } from "../src/keypair/x25519.js";
 
-describe("custom-ring X25519 envelope keys", () => {
+describe("X25519 envelope keys", () => {
   it("rejects key aliases and P-256 tags", () => {
     const basepoint = Uint8Array.of(4, 9, ...new Uint8Array(31));
     expect(X25519PublicKey.fromBytes(basepoint).toBytes()).toEqual(basepoint);

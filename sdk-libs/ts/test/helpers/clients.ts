@@ -10,8 +10,6 @@ import type {
 } from "../../src/client/rpc.js";
 import { DEFAULT_TREE_ID } from "../../src/interface/tree-slot.js";
 import { treeAddress } from "../../src/interface/pda/index.js";
-import type { RingAuditReader } from "../../src/ring/audit.js";
-import type { RingTransferClient } from "../../src/ring/transfer.js";
 import type {
   DepositClient,
   PrivateTransactionClient,
@@ -105,44 +103,6 @@ export function privateTransactionClient(
     getAccount: async () => undefined,
     assembleAuthorizedPrivateTransaction: notImplemented("assembleAuthorizedPrivateTransaction"),
     ...overrides,
-  };
-}
-
-export function ringTransferClient(
-  overrides: Partial<RingTransferClient> = {},
-): RingTransferClient {
-  return {
-    proofDataSource: "client",
-    tree: TREE,
-    treeId: TREE_ID,
-    getLatestBlockhash: async () => BLOCKHASH,
-    getAccount: async () => undefined,
-    proveRingTransact: notImplemented("proveRingTransact"),
-    proveCustomRingPolicy: notImplemented("proveCustomRingPolicy"),
-    proveCustomRingBase: notImplemented("proveCustomRingBase"),
-    getEncryptedUtxosByTags: notImplemented("getEncryptedUtxosByTags"),
-    getShieldedTransactionsByNullifiers: notImplemented("getShieldedTransactionsByNullifiers"),
-    getMerkleProofs: notImplemented("getMerkleProofs"),
-    getNonInclusionProofs: notImplemented("getNonInclusionProofs"),
-    getSlot: notImplemented("getSlot"),
-    getRingSpendRecord: notImplemented("getRingSpendRecord"),
-    getRingKeyRegistryEntry: notImplemented("getRingKeyRegistryEntry"),
-    proveCustomRingCompressedPolicy: notImplemented("proveCustomRingCompressedPolicy"),
-    ...overrides,
-  };
-}
-
-export function ringAuditReader(
-  input: Readonly<{
-    getShieldedTransactionsByTags: RingAuditReader["getShieldedTransactionsByTags"];
-    solanaRpc?: object;
-    commitment?: Commitment;
-  }>,
-): RingAuditReader {
-  return {
-    getShieldedTransactionsByTags: input.getShieldedTransactionsByTags,
-    solanaRpc: solanaRpcReads(input.solanaRpc ?? {}),
-    commitment: input.commitment ?? "confirmed",
   };
 }
 

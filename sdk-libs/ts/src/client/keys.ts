@@ -115,9 +115,8 @@ export class LocalKeys implements WalletKeys {
 }
 
 /**
- * The proving half over a nullifier key held without its wallet: the ring
- * delegate spends a member's notes under the key the auditor opened from the
- * key registry. The key is copied here and destroyed with this object.
+ * The proving half over a nullifier key held without its wallet. The key is
+ * copied here and destroyed with this object.
  */
 export class NullifierKeyProofAuthority implements ProofAuthority {
   readonly #key: NullifierKey;

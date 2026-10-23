@@ -28,17 +28,6 @@ const ALLOWED: Readonly<Record<string, readonly string[]>> = {
     "transaction",
   ],
   wallet: ["client", "errors", "flows", "hasher", "interface", "keypair", "transaction"],
-  ring: [
-    "client",
-    "errors",
-    "flows",
-    "hasher",
-    "interface",
-    "keypair",
-    "services",
-    "transaction",
-    "wallet",
-  ],
 };
 
 function walk(dir: string): string[] {

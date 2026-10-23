@@ -26,7 +26,7 @@ a defect.
 ## Architecture and dependency direction
 
 - Dependencies flow from protocol primitives to transaction and domain logic,
-  then shared flows, wallet and ring orchestration, client adapters, and public
+  then shared flows, wallet orchestration, client adapters, and public
   barrels. Lower layers MUST NOT import concrete clients or orchestration.
 - `test/boundaries.test.ts` is the executable layer map. Change it only with a
   documented architectural reason. Never add an exception for convenience.
