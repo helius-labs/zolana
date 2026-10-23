@@ -1325,18 +1325,23 @@ build-spp-keys:
             "program-libs/tree/src/nullifier_tree/verify/verifying_keys" \
             "${module}.rs"
     done
-    python3 prover/server/scripts/generate_lockfile.py "$keys_dir"
+    python3 prover/server/scripts/generate_lockfile.py "$keys_dir" --prover prover/server/light-prover
 
 # Upload the local proving keys to their immutable S3 version folder; the prefix
-# (proving-keys/<version-hash>) comes from the committed lockfile. Needs the aws
-# CLI with bucket write access. Full rotation (regen keys +
-# vkeys + lock + upload) is prover/server/scripts/rotate_proving_keys.sh.
+# (proving-keys/<version-hash>) comes from the committed lockfile, and only the
+# keys it pins are uploaded. Needs the aws CLI with bucket write access. Full
+# rotation (regen keys + vkeys + lock + upload) is
+# prover/server/scripts/rotate_proving_keys.sh.
 publish-spp-keys:
     #!/usr/bin/env bash
     set -euo pipefail
     bucket="${ZOLANA_PROVING_KEYS_BUCKET:-zolana-proving-keys}"
     prefix="$(python3 -c "import json; print(json.load(open('prover/server/prover/provingkeys/proving-keys.lock'))['prefix'])")"
-    aws s3 sync "{{spp-keys-dir}}/" "s3://$bucket/$prefix/" --exclude '*' --include '*.key'
+    pinned=()
+    for key in $(python3 -c "import json; print(' '.join(json.load(open('prover/server/prover/provingkeys/proving-keys.lock'))['keys']))"); do
+        pinned+=(--include "$key")
+    done
+    aws s3 sync "{{spp-keys-dir}}/" "s3://$bucket/$prefix/" --exclude '*' "${pinned[@]}"
 
 build-photon:
     cargo build --locked -p photon-indexer --bin photon --target-dir target

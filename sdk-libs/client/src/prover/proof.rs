@@ -1,7 +1,7 @@
 use groth16_solana::groth16::negate_g1_be;
 use num_traits::Num;
 use serde::{Deserialize, Serialize};
-use solana_bn254::compression::prelude::alt_bn128_g1_compress_be;
+use solana_bn254::compression::prelude::{alt_bn128_g1_compress_be, alt_bn128_g2_compress_be};
 use zolana_interface::instruction::{
     instruction_data::{
         merge_transact::MergeProof,
@@ -127,6 +127,11 @@ impl ProofCompressed {
             b: self.b,
             c: self.c,
         })
+    }
+
+    pub fn compressed_b(&self) -> Result<[u8; 64], ClientError> {
+        alt_bn128_g2_compress_be(&self.b)
+            .map_err(|e| ClientError::ProofParse(format!("failed to compress proof_b: {e:?}")))
     }
 
     /// The proof of a nullifier-tree batch update ([`NullifierTreeProof`]):
