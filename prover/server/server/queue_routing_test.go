@@ -1,12 +1,7 @@
 package server
 
 import (
-	"encoding/json"
-	"errors"
-	"fmt"
 	"github.com/helius-labs/zolana/prover/server/prover/common"
-	"github.com/helius-labs/zolana/prover/server/prover/indexed"
-	"strings"
 	"testing"
 )
 
@@ -24,75 +19,11 @@ func TestGetQueueNameForCircuit(t *testing.T) {
 		{common.TransferRingAuthorityCircuitType, "zk_transfer_queue"},
 		{common.MergeCircuitType, "zk_transfer_queue"},
 		{common.MergeRingCircuitType, "zk_transfer_queue"},
-		{common.CustomRingBaseCircuitType, "zk_custom_ring_queue"},
-		{common.CustomRingPolicyCircuitType, "zk_custom_ring_queue"},
-		{common.CustomRingDelegatePolicyCircuitType, "zk_custom_ring_queue"},
-		{common.CustomRingCompressedPolicyCircuitType, "zk_custom_ring_queue"},
-		{common.CustomRingKeyRegisterCircuitType, "zk_custom_ring_queue"},
-		{common.CustomRingDepositCircuitType, "zk_custom_ring_queue"},
 		{common.CircuitType("unknown"), ""},
 	}
 	for _, c := range cases {
 		if got := GetQueueNameForCircuit(c.circuit); got != c.queue {
 			t.Errorf("GetQueueNameForCircuit(%s) = %q, want %q", c.circuit, got, c.queue)
-		}
-	}
-}
-
-func TestCustomRingWorkerRejectsOtherCircuits(t *testing.T) {
-	worker := &BaseQueueWorker{queueName: "zk_custom_ring_queue"}
-	if _, err := worker.generatePreparedProof(&indexed.Resolved{Payload: json.RawMessage(`{"circuitType":"transfer"}`)}, ""); err == nil {
-		t.Fatal("custom ring worker accepted a transfer proof")
-	}
-}
-
-func TestCustomRingFailureDetailsDoNotContainWitnessData(t *testing.T) {
-	const marker = "private-witness-marker"
-	job := &ProofJob{Payload: json.RawMessage(`{"circuitType":"custom-ring-base","txViewingSk":"` + marker + `"}`)}
-
-	worker := &BaseQueueWorker{queueName: "zk_custom_ring_queue"}
-	details := worker.failureDetails(job, errors.New(marker))
-	encoded := fmt.Sprint(details)
-	if strings.Contains(encoded, marker) {
-		t.Fatal("failure details contain witness data")
-	}
-}
-
-func TestCustomRingCachedFailureDoesNotContainWitnessData(t *testing.T) {
-	const marker = "cached-private-witness-marker"
-	worker := &BaseQueueWorker{queueName: "zk_custom_ring_queue"}
-
-	message := worker.cachedFailureMessage(map[string]interface{}{"error": marker})
-	if strings.Contains(message, marker) {
-		t.Fatal("cached failure contains witness data")
-	}
-}
-
-func TestCustomRingIsServedOnEveryRail(t *testing.T) {
-	for _, want := range []common.CircuitType{
-		common.CustomRingBaseCircuitType,
-		common.CustomRingPolicyCircuitType,
-		common.CustomRingDelegatePolicyCircuitType,
-		common.CustomRingCompressedPolicyCircuitType,
-		common.CustomRingKeyRegisterCircuitType,
-		common.CustomRingDepositCircuitType,
-	} {
-		if (proveHandler{}).shouldUseQueueForCircuit(want) {
-			t.Fatalf("%s routed to a queue the server does not have", want)
-		}
-		queued := proveHandler{enableQueue: true, redisQueue: &RedisQueue{}}
-		if !queued.shouldUseQueueForCircuit(want) {
-			t.Fatalf("%s skipped the queue the server has", want)
-		}
-		found := false
-		for _, circuit := range servedCircuits(nil) {
-			if circuit == want {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Fatalf("%s missing from the served circuits", want)
 		}
 	}
 }

@@ -29,7 +29,6 @@ keys_dir="${1:-$server_dir/proving-keys}"
 bucket="${ZOLANA_PROVING_KEYS_BUCKET:-zolana-proving-keys}"
 
 cd "$server_dir"
-source scripts/ring_keys.sh
 # keys_dir may be relative to prover/server; some steps below run from the repo
 # root, so pin it to an absolute path first.
 mkdir -p "$keys_dir"
@@ -42,9 +41,6 @@ bash scripts/generate_keys_transfer.sh "$keys_dir"
 
 echo "==> generating merge proving keys"
 bash scripts/generate_keys_merge.sh "$keys_dir"
-
-echo "==> generating custom ring proving keys and their verifying keys"
-bash scripts/generate_keys_custom_ring.sh "$keys_dir"
 
 # The batched nullifier-tree (address-append) circuits build on circuits/gadget
 # just like transfer/merge, so a gadget change rotates them too. Their vkeys are
@@ -84,20 +80,14 @@ echo "==> refreshing circuit fingerprints"
 echo "    paste the printed values into prover/server/prover/fingerprint/fingerprint_test.go"
 
 echo "==> regenerating proving-keys.lock"
-release_flags=()
-sync_excludes=()
-for key in "${ring_keys[@]}"; do
-    release_flags+=(--release "$key")
-    sync_excludes+=(--exclude "$key")
-done
-python3 scripts/generate_lockfile.py "$keys_dir" "${release_flags[@]}"
+python3 scripts/generate_lockfile.py "$keys_dir"
 
 # The lock's prefix carries the new version hash; upload the full key set into that
 # immutable version folder. Old version folders are left untouched, so previously
 # published CLIs keep working -- no overwrite and no CloudFront invalidation.
 lock_prefix="$(python3 -c "import json; print(json.load(open('prover/provingkeys/proving-keys.lock'))['prefix'])")"
 echo "==> uploading proving keys to s3://$bucket/$lock_prefix/ (immutable version folder)"
-aws s3 sync "$keys_dir/" "s3://$bucket/$lock_prefix/" --exclude '*' --include '*.key' "${sync_excludes[@]}"
+aws s3 sync "$keys_dir/" "s3://$bucket/$lock_prefix/" --exclude '*' --include '*.key'
 
 cat <<EOF
 
@@ -113,6 +103,4 @@ Still MANUAL (one reviewed PR, so pk <-> vk <-> lock all move together):
      (its hash drives the CI cache key automatically -- no tag bump)
   4. update PROVING_KEY_SHA256S in sdk-libs/ts/src/interface/proving-keys.ts
      to the new lockfile digests (test/proving-keys.test.ts pins it)
-  5. publish ${ring_keys[*]} with
-     just release-custom-rings <tag> --upload --prerelease
 EOF

@@ -26,7 +26,6 @@ cargo run --release --locked -p zolana-cli -- zk compile --test -p timelock-escr
 build --manifest-path sdk-tests/timelock-escrow/program/Cargo.toml -- --locked --features bpf-entrypoint
 build --manifest-path sdk-tests/dynamic-swap/program/Cargo.toml -- --locked --features bpf-entrypoint
 build --manifest-path sdk-tests/compression/program/Cargo.toml -- --locked --features bpf-entrypoint
-build --manifest-path custom-rings/program/Cargo.toml -- --locked --features bpf-entrypoint
 
 # cargo build-sbf exits 0 on a frame overflow.
 frame_error='overflows the maximum allowed frame space|overwrites values in the frame'

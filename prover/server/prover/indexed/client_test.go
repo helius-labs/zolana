@@ -59,11 +59,9 @@ func TestResolverConfigErrorsHideCredentials(t *testing.T) {
 
 func TestPreparationOutcomes(t *testing.T) {
 	for err, outcome := range map[error]string{
-		nil:                                      "success",
-		ErrIndexerNotReady:                       "not_ready",
-		&UnregisteredMemberError{}:               "rejected",
-		&UnregisteredMemberError{mismatch: true}: "mismatch",
-		errors.New("upstream"):                   "error",
+		nil:                    "success",
+		ErrIndexerNotReady:     "not_ready",
+		errors.New("upstream"): "error",
 	} {
 		if got := preparationOutcome(err); got != outcome {
 			t.Fatalf("%v labelled %s", err, got)

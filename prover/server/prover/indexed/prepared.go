@@ -21,12 +21,10 @@ type inputTarget struct {
 }
 
 type preparedProof struct {
-	registry *resolvedPolicy
-	policy   bool
-	value    json.Marshaler
-	inputs   []inputTarget
-	slots    *[]common.TreeSlotParams
-	hash     **big.Int
+	value  json.Marshaler
+	inputs []inputTarget
+	slots  *[]common.TreeSlotParams
+	hash   **big.Int
 }
 
 func transferTargets(inputs []transfer.InputParams, cache transfer.CacheSelectionParams) ([]inputTarget, error) {
@@ -56,9 +54,6 @@ func decodePrepared(request Request) (*preparedProof, error) {
 	}
 	if json.Unmarshal(request.Prepared, &meta) != nil || meta.Circuit != request.CircuitType {
 		return nil, fmt.Errorf("prepared circuit mismatch")
-	}
-	if policyCircuit(request.CircuitType) {
-		return decodePolicy(request)
 	}
 	for _, tree := range request.Trees {
 		if tree.Fallback != nil {

@@ -215,7 +215,7 @@ Use SSM to read them.
 The parent passes the enclave only the encrypted seed and role credentials, and the enclave trusts neither beyond what KMS proves.
 An indexer that requires an API key does not work, because the parent could read it, so use a keyless indexer or client-supplied proof data.
 
-The enclave serves the transfer, merge and custom ring keys.
+The enclave serves the transfer and merge keys.
 It does not serve the batch address-append keys of the forester, because the key tmpfs and the heap are sized for client keys.
 
 A new image, indexer or instance type requires a new deployment name, and so a new KMS key and a new build.

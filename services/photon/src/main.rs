@@ -22,8 +22,6 @@ use photon_indexer::migration::{
     MigratorTrait, RingsMigrator,
 };
 
-#[cfg(feature = "custom-rings")]
-use photon_indexer::custom_rings::{CustomRingIndexer, StartSlot};
 use photon_indexer::monitor::continuously_monitor_photon;
 use photon_indexer::rpc::{BlockHeaders, RpcClient};
 use photon_indexer::snapshot::{
@@ -85,17 +83,6 @@ struct Args {
     /// Disable API
     #[arg(long, action = clap::ArgAction::SetTrue)]
     disable_api: bool,
-
-    /// Run without the custom ring indexer and its RPC methods.
-    #[cfg(feature = "custom-rings")]
-    #[arg(long, action = clap::ArgAction::SetTrue)]
-    disable_custom_rings: bool,
-
-    /// First indexed custom ring slot, the SPP indexer's last indexed slot by
-    /// default.
-    #[cfg(feature = "custom-rings")]
-    #[arg(long, conflicts_with = "disable_custom_rings")]
-    custom_rings_start_slot: Option<u64>,
 
     /// Metrics endpoint in the format `host:port`
     /// If provided, metrics will be sent to the specified statsd server.
@@ -399,9 +386,9 @@ async fn main() -> Result<()> {
 
     load_snapshot_if_present(&args, db_conn.clone(), rpc_client.clone()).await?;
 
-    let (custom_rings_handle, indexer_handle, monitor_handle) = if args.disable_indexing {
+    let (indexer_handle, monitor_handle) = if args.disable_indexing {
         info!("Indexing is disabled");
-        (None, None, None)
+        (None, None)
     } else {
         let last_indexed_slot = match &args.start_slot {
             Some(start_slot) => match start_slot.as_str() {
@@ -432,30 +419,6 @@ async fn main() -> Result<()> {
             }
         };
 
-        #[cfg(feature = "custom-rings")]
-        let custom_rings_handle = if args.disable_custom_rings {
-            None
-        } else {
-            // Blocks before an explicit index start are not linkable. Without
-            // one the index starts where SPP indexing starts or resumes, so
-            // rings created earlier need the explicit slot.
-            let custom_rings_start = match args.custom_rings_start_slot {
-                Some(slot) => StartSlot::Explicit(slot.saturating_sub(1)),
-                None => StartSlot::Derived(last_indexed_slot),
-            };
-            Some(
-                CustomRingIndexer {
-                    db: db_conn.clone(),
-                    rpc: rpc_client.clone(),
-                    start: custom_rings_start,
-                    block_fetches: max_concurrent_block_fetches,
-                }
-                .spawn(),
-            )
-        };
-        #[cfg(not(feature = "custom-rings"))]
-        let custom_rings_handle: Option<tokio::task::JoinHandle<()>> = None;
-
         info!("Starting indexer...");
 
         info!("Syncing tree metadata...");
@@ -481,7 +444,6 @@ async fn main() -> Result<()> {
         };
 
         (
-            custom_rings_handle,
             Some(continuously_index_new_blocks(
                 block_stream_config,
                 db_conn.clone(),
@@ -503,12 +465,6 @@ async fn main() -> Result<()> {
         None
     } else {
         let api = PhotonApi::new(db_conn.clone(), rpc_client.clone());
-        #[cfg(feature = "custom-rings")]
-        let api = if args.disable_custom_rings {
-            api.without_custom_rings()
-        } else {
-            api
-        };
         Some(
             ApiServer {
                 api,
@@ -522,10 +478,6 @@ async fn main() -> Result<()> {
 
     match tokio::signal::ctrl_c().await {
         Ok(()) => {
-            if let Some(handle) = custom_rings_handle {
-                handle.abort();
-                let _ = handle.await;
-            }
             if let Some(indexer_handle) = indexer_handle {
                 info!("Shutting down indexer...");
                 indexer_handle.abort();

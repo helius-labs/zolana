@@ -10,7 +10,6 @@ import (
 	"github.com/helius-labs/zolana/prover/server/logging"
 	"github.com/helius-labs/zolana/prover/server/prover/backend"
 	"github.com/helius-labs/zolana/prover/server/prover/common"
-	customring "github.com/helius-labs/zolana/prover/server/prover/custom_ring"
 	"github.com/helius-labs/zolana/prover/server/prover/extractor"
 	"github.com/helius-labs/zolana/prover/server/prover/indexed"
 	mergeprover "github.com/helius-labs/zolana/prover/server/prover/merge"
@@ -320,8 +319,6 @@ func runCli() {
 						_, err = s.VerifyingKey.WriteRawTo(&buf)
 					case *common.TransferProofSystem:
 						_, err = s.VerifyingKey.WriteRawTo(&buf)
-					case *common.RingProofSystem:
-						_, err = s.VerifyingKey.WriteRawTo(&buf)
 					default:
 						return fmt.Errorf("unknown proving system type")
 					}
@@ -474,7 +471,7 @@ func runCli() {
 					&cli.StringFlag{Name: "keys-dir", Usage: "Directory where key files are stored", Value: "./proving-keys/", Required: false},
 					&cli.StringSliceFlag{
 						Name:  "circuit",
-						Usage: "Specify enabled circuits including custom-ring-base and custom-ring-policy",
+						Usage: "Specify enabled circuits",
 					},
 					&cli.StringSliceFlag{
 						Name:    "serve",
@@ -680,9 +677,6 @@ func runCli() {
 						if startAll || enabledCircuitsMap["transfer"] || enableServer {
 							startWorker("transfer", server.NewTransferQueueWorker(workerConfig, transferExecution))
 						}
-						if startAll || ringCircuitEnabled(enabledCircuits) {
-							startWorker("custom-ring", server.NewCustomRingQueueWorker(workerConfig))
-						}
 
 						logging.Logger().Info().
 							Strs("workers_started", workersStarted).
@@ -870,7 +864,6 @@ func runCli() {
 		},
 	}
 
-	app.Commands = append(app.Commands, ringCommands()...)
 	if err := app.Run(os.Args); err != nil {
 		logging.Logger().Fatal().Err(err).Msg("App failed.")
 	}
@@ -1135,18 +1128,6 @@ func startCleanupRoutines(redisQueue *server.RedisQueue) {
 	}()
 }
 
-func writeKey(path string, write func(io.Writer) (int64, error)) error {
-	file, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	if _, err := write(file); err != nil {
-		file.Close()
-		return fmt.Errorf("write %s: %w", path, err)
-	}
-	return file.Close()
-}
-
 // Validate before narrowing the CLI value or allocating a circuit's signer
 // vector: oversized counts leave no transaction address budget for that vector.
 func transferSetupInputCount(value uint) (uint32, error) {
@@ -1155,113 +1136,4 @@ func transferSetupInputCount(value uint) (uint32, error) {
 		return 0, fmt.Errorf("setup-transfer: n-inputs must be between 1 and %d, got %d", maxInputs, value)
 	}
 	return uint32(value), nil
-}
-
-func checkRingKeyName(path string, want string) error {
-	if filepath.Base(path) != want {
-		return fmt.Errorf("output file must be named %s", want)
-	}
-	return nil
-}
-
-func writeRingProofSystem(ps *common.RingProofSystem, path string) error {
-	want, ok := common.RingKeyFiles[ps.CircuitType]
-	if !ok {
-		return fmt.Errorf("no key file for circuit %s", ps.CircuitType)
-	}
-	if err := checkRingKeyName(path, want); err != nil {
-		return err
-	}
-	file, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-
-	written, writeErr := ps.WriteTo(file)
-	closeErr := file.Close()
-	if writeErr != nil {
-		return writeErr
-	}
-	if closeErr != nil {
-		return closeErr
-	}
-	logging.Logger().Info().
-		Str("circuit", string(ps.CircuitType)).
-		Int64("bytes_written", written).
-		Str("output", path).
-		Msg("Proving system written")
-	return nil
-}
-
-func ringCommands() []*cli.Command {
-	commands := make([]*cli.Command, 0, 2*len(customring.RingCircuits))
-	for _, ring := range customring.RingCircuits {
-		commands = append(commands, ringSetupCommand(ring), ringConvertCommand(ring))
-	}
-	return commands
-}
-
-func ringSetupCommand(ring customring.RingCircuit) *cli.Command {
-	name := string(ring.Type)
-	return &cli.Command{
-		Name: "setup-" + name,
-		Flags: []cli.Flag{
-			&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
-			&cli.StringFlag{Name: "pk-out", Usage: "Also write the gnark proving key (pk.WriteTo), the release asset convert-" + name + " reads"},
-			&cli.StringFlag{Name: "vk-out", Usage: "Also write the raw gnark verifying key (vk.WriteRawTo)"},
-		},
-		Action: func(context *cli.Context) error {
-			if err := checkRingKeyName(context.String("output"), common.RingKeyFiles[ring.Type]); err != nil {
-				return err
-			}
-			ps, err := ring.Setup()
-			if err != nil {
-				return err
-			}
-			if path := context.String("pk-out"); path != "" {
-				if err := writeKey(path, ps.ProvingKey.WriteTo); err != nil {
-					return err
-				}
-			}
-			if path := context.String("vk-out"); path != "" {
-				if err := writeKey(path, ps.VerifyingKey.WriteRawTo); err != nil {
-					return err
-				}
-			}
-			return writeRingProofSystem(ps, context.String("output"))
-		},
-	}
-}
-
-func ringConvertCommand(ring customring.RingCircuit) *cli.Command {
-	name := string(ring.Type)
-	return &cli.Command{
-		Name:  "convert-" + name,
-		Usage: "Wrap an existing " + name + " gnark pk/vk pair into a proving system file without a new setup",
-		Flags: []cli.Flag{
-			&cli.StringFlag{Name: "pk", Usage: "gnark proving key (pk.WriteTo)", Required: true},
-			&cli.StringFlag{Name: "vk", Usage: "gnark verifying key (vk.WriteRawTo or WriteTo)", Required: true},
-			&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
-		},
-		Action: func(context *cli.Context) error {
-			ps, err := customring.Convert{
-				Circuit:          ring,
-				ProvingKeyPath:   context.String("pk"),
-				VerifyingKeyPath: context.String("vk"),
-			}.Run()
-			if err != nil {
-				return err
-			}
-			return writeRingProofSystem(ps, context.String("output"))
-		},
-	}
-}
-
-func ringCircuitEnabled(circuits []string) bool {
-	for _, circuit := range circuits {
-		if common.CircuitType(circuit).IsRing() {
-			return true
-		}
-	}
-	return false
 }

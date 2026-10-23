@@ -1424,7 +1424,7 @@ class ImageTests(unittest.TestCase):
             for base in re.findall(r"^FROM (\S+)", dockerfile, re.M)
             if base not in stages and base != "${BACKEND}"
         ]
-        self.assertEqual(len(bases), 3)
+        self.assertEqual(len(bases), 2)
         self.assertTrue(
             all(re.search(r"@sha256:[0-9a-f]{64}$", base) for base in bases)
         )

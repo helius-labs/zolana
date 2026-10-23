@@ -2,7 +2,7 @@
 # Build one service image locally and publish it to ECR under the same rules as
 # .github/workflows/publish-image.yml, then optionally roll an ECS service to it.
 #
-#   tools/publish-image.sh <photon|prover|forester|ring-rpc> [options]
+#   tools/publish-image.sh <photon|prover|forester> [options]
 #
 #   --tag TAG            image tag, default <service>-<branch>-<sha12>
 #   --push               push to ECR, without it the image is only built and smoke tested
@@ -58,7 +58,6 @@ case "$service" in
     photon)   repository=zolana-photon;   context=.;             file=services/photon/Dockerfile ;;
     prover)   repository=zolana-prover;   context=prover/server; file=prover/server/Dockerfile.light ;;
     forester) repository=zolana-forester; context=.;             file=forester/Dockerfile ;;
-    ring-rpc) repository=zolana-ring-rpc; context=.;             file=services/ring-rpc/Dockerfile ;;
     *) echo "unknown service $service" >&2; exit 2 ;;
 esac
 [[ -f "$file" ]] || { echo "$file is missing on this commit" >&2; exit 1; }
@@ -108,10 +107,6 @@ case "$service" in
         ;;
     prover)   docker run --rm "$tag_image" --help >/dev/null ;;
     forester) docker run --rm "$tag_image" --version ;;
-    ring-rpc)
-        docker run --rm "$tag_image" --help >/dev/null
-        test "$(docker run --rm --entrypoint id "$tag_image" -u)" = 10002
-        ;;
 esac
 echo "built $tag_image"
 

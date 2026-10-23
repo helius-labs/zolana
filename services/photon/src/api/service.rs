@@ -1,14 +1,6 @@
 use std::sync::Arc;
-#[cfg(feature = "custom-rings")]
-use zolana_indexer_api::{
-    method::{GetRingKeyRegistryEntry, GetRingKeyRegistryRegisterProof, GetRingSpendRecord},
-    GetRingKeyRegistryEntryResponse, GetRingKeyRegistryRegisterProofResponse,
-    GetRingSpendRecordResponse, RingMemberProofRequest, RingSpendRecordRequest,
-};
 
 use crate::api::root_index_cache::RootIndexCache;
-#[cfg(feature = "custom-rings")]
-use crate::custom_rings::{key_registry, spend_record};
 use crate::rpc::RpcClient;
 use sea_orm::{ConnectionTrait, DatabaseConnection, Statement};
 use utoipa::openapi::{RefOr, Schema};
@@ -41,8 +33,6 @@ use super::{
     },
 };
 pub struct PhotonApi {
-    #[cfg(feature = "custom-rings")]
-    custom_rings: bool,
     db_conn: Arc<DatabaseConnection>,
     rpc_client: Arc<RpcClient>,
     root_index_cache: Arc<RootIndexCache>,
@@ -70,25 +60,10 @@ where
 impl PhotonApi {
     pub fn new(db_conn: Arc<DatabaseConnection>, rpc_client: Arc<RpcClient>) -> Self {
         Self {
-            #[cfg(feature = "custom-rings")]
-            custom_rings: true,
             db_conn,
             rpc_client,
             root_index_cache: Arc::new(RootIndexCache::new()),
         }
-    }
-
-    /// Serve the shielded pool methods only.
-    #[cfg(feature = "custom-rings")]
-    #[must_use]
-    pub fn without_custom_rings(mut self) -> Self {
-        self.custom_rings = false;
-        self
-    }
-
-    #[cfg(feature = "custom-rings")]
-    pub(crate) fn custom_rings_enabled(&self) -> bool {
-        self.custom_rings
     }
 
     /// Start the task that keeps the root-index ring current.
@@ -189,30 +164,6 @@ impl PhotonApi {
         get_user_records(self.db_conn.as_ref(), &self.rpc_client, request).await
     }
 
-    #[cfg(feature = "custom-rings")]
-    pub async fn get_ring_spend_record(
-        &self,
-        request: RingSpendRecordRequest,
-    ) -> Result<GetRingSpendRecordResponse, PhotonApiError> {
-        spend_record::lookup(&self.db_conn, &self.rpc_client, request).await
-    }
-
-    #[cfg(feature = "custom-rings")]
-    pub async fn get_ring_key_registry_entry(
-        &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingKeyRegistryEntryResponse, PhotonApiError> {
-        key_registry::lookup(&self.db_conn, &self.rpc_client, request).await
-    }
-
-    #[cfg(feature = "custom-rings")]
-    pub async fn get_ring_key_registry_register_proof(
-        &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingKeyRegistryRegisterProofResponse, PhotonApiError> {
-        key_registry::register(&self.db_conn, &self.rpc_client, request).await
-    }
-
     pub fn rings_method_api_specs() -> Vec<OpenApiSpec> {
         vec![
             method_api_spec::<GetEncryptedUtxosByTags>(),
@@ -223,12 +174,6 @@ impl PhotonApi {
             method_api_spec::<GetNonInclusionProofs>(),
             method_api_spec::<GetNullifierQueueElements>(),
             method_api_spec::<GetUserRecords>(),
-            #[cfg(feature = "custom-rings")]
-            method_api_spec::<GetRingKeyRegistryEntry>(),
-            #[cfg(feature = "custom-rings")]
-            method_api_spec::<GetRingKeyRegistryRegisterProof>(),
-            #[cfg(feature = "custom-rings")]
-            method_api_spec::<GetRingSpendRecord>(),
         ]
     }
 }

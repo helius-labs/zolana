@@ -1,5 +1,4 @@
-# Publishes the service images to our own ECR: photon, the prover, the forester,
-# the ring RPC.
+# Publishes the service images to our own ECR: photon, the prover, the forester.
 #
 # These live here, not in the infra repository, because this is the repo that
 # owns the code. Building them from infra meant infra CI checked out this
@@ -70,7 +69,7 @@ on:
         required: true
         default: photon
         type: choice
-        options: [photon, prover, forester, ring-rpc]
+        options: [photon, prover, forester]
       channel:
         description: >-
           release enforces the commit-naming tag and requires the commit to be
@@ -184,8 +183,8 @@ jobs:
               echo "description=Zolana shielded-pool indexer" >> "$GITHUB_OUTPUT"
               ;;
             prover)
-              # Bakes only the custom-ring keys; object-store keys are fetched at
-              # runtime and verified. prover/server/Dockerfile bakes all of them.
+              # Keys are fetched at runtime and verified, prover/server/Dockerfile
+              # bakes them instead.
               echo "repository=zolana-prover" >> "$GITHUB_OUTPUT"
               echo "context=prover/server" >> "$GITHUB_OUTPUT"
               echo "file=prover/server/Dockerfile.light" >> "$GITHUB_OUTPUT"
@@ -200,13 +199,6 @@ jobs:
               echo "file=forester/Dockerfile" >> "$GITHUB_OUTPUT"
               echo "title=Zolana Forester" >> "$GITHUB_OUTPUT"
               echo "description=Zolana queue and tree maintenance service" >> "$GITHUB_OUTPUT"
-              ;;
-            ring-rpc)
-              echo "repository=zolana-ring-rpc" >> "$GITHUB_OUTPUT"
-              echo "context=." >> "$GITHUB_OUTPUT"
-              echo "file=services/ring-rpc/Dockerfile" >> "$GITHUB_OUTPUT"
-              echo "title=Zolana Ring RPC" >> "$GITHUB_OUTPUT"
-              echo "description=Zolana custom ring audit RPC" >> "$GITHUB_OUTPUT"
               ;;
             *)
               echo "::error::unknown service $SERVICE"; exit 1 ;;
@@ -354,10 +346,6 @@ jobs:
               ;;
             forester)
               docker run --rm "$image" --version
-              ;;
-            ring-rpc)
-              docker run --rm "$image" --help >/dev/null
-              test "$(docker run --rm --entrypoint id "$image" -u)" = 10002
               ;;
           esac
       - name: Publish immutable tags

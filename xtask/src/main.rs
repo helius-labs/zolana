@@ -234,10 +234,6 @@ fn print_program_ids() {
         "SWAP_PROGRAM_ID={}",
         bs58::encode(swap_program::ID).into_string()
     );
-    println!(
-        "CUSTOM_RING_PROGRAM_ID={}",
-        zolana_test_utils::localnet::CUSTOM_RING_PROGRAM_ADDRESS
-    );
     println!("DEFAULT_TREE_ADDRESS={}", zolana_interface::pda::tree(0));
 }
 
