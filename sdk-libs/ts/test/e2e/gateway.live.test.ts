@@ -43,7 +43,10 @@ describe("services behind a gateway", () => {
       proofDataSource: "client",
       indexerConfig: { poll: { numRetries: 120, delayMs: 250n, maxDelayMs: 2_000n } },
     });
-    ring = new RingRpc(new URL("/v1/zolana/ring", gateway.url), { apiKey: API_KEY });
+    ring = new RingRpc(new URL("/v1/zolana/ring", gateway.url), {
+      apiKey: API_KEY,
+      allowInsecureHttp: true,
+    });
   });
 
   afterAll(async () => {
@@ -85,7 +88,7 @@ describe("services behind a gateway", () => {
     expect(unitsSince(from)).toBe(4);
     await ring.ringDeposits({ ringProgramId });
     expect(unitsSince(from)).toBe(5);
-  });
+  }, 120_000);
 
   it("deposits, transfers and withdraws with every read and proof through the gateway", async () => {
     const owner = await freshActor(client);

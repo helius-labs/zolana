@@ -35,12 +35,13 @@ under the `Zolana-Tee` headers.
 
 ## Billing
 
-A 2xx answer bills its `X-Helius-Metering-Units`, a positive integer, or one
-unit when the origin sends none. The prover reports a proof's tier
-([`TRANSFER_SERVICE.md`](../prover/server/TRANSFER_SERVICE.md)), and ring RPC
-reports a `ringDeposits` page by the signatures it examines. Any other status
-bills nothing: Photon and ring RPC answer 400 before a call runs when the path
-and the body name different methods, or when the body is not one JSON-RPC call.
+A 2xx answer bills its route's price times its `X-Helius-Metering-Units`, a
+positive integer, or one unit when the origin sends none. The prover reports a
+proof's tier ([`TRANSFER_SERVICE.md`](../prover/server/TRANSFER_SERVICE.md)),
+and ring RPC reports a `ringDeposits` page by the signatures it examines. Any
+other status bills nothing: Photon and ring RPC answer 400 before a call runs
+when the path and the body name different methods, or when the body is not one
+JSON-RPC call.
 
 A gateway does not retry a POST. A 5xx or lost answer does not prove that the
 origin did no work: a proof may have run, and a signed ring call may have used
