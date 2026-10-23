@@ -187,18 +187,20 @@ impl<'a> MergeSubmission<'a> {
     }
 
     /// Prove, sign with `fee_payer`, send through `client` and wait until the
-    /// merge is confirmed and indexed.
+    /// merge is confirmed and indexed, as
+    /// [`AsyncZolanaClient::submit_transaction`] does.
     pub async fn send<R: AsyncRpc, I: AsyncIndexer>(
         &self,
         client: &AsyncZolanaClient<R, I>,
         fee_payer: &dyn Signer,
     ) -> Result<Signature, ClientError> {
         let unsigned = self.finish_unsigned(client, fee_payer.pubkey()).await?;
-        let signature = client
-            .process_transaction(sign_transaction(unsigned.message, &[fee_payer])?)
-            .await?;
-        client.confirm_private_transaction(signature).await?;
-        Ok(signature)
+        client
+            .submit_transaction(
+                sign_transaction(unsigned.message, &[fee_payer])?,
+                unsigned.last_valid_block_height,
+            )
+            .await
     }
 
     /// See [`Self::prove`].

@@ -32,6 +32,18 @@ pub fn compile_message(
     .map_err(|error| ClientError::TransactionCompile(error.to_string()))
 }
 
+/// Set the priority fee of `message`, a v1 message, to `lamports`: the whole
+/// transaction's, which a v1 message carries in its header, not a price per
+/// compute unit. The header is signed but not proved, so a proved message
+/// takes a new fee as it is.
+pub fn set_priority_fee(message: &mut VersionedMessage, lamports: u64) -> Result<(), ClientError> {
+    let VersionedMessage::V1(message) = message else {
+        return Err(ClientError::UnsupportedTransactionVersion);
+    };
+    message.config.priority_fee = Some(lamports);
+    Ok(())
+}
+
 pub(crate) fn ensure_version_1(message: &VersionedMessage) -> Result<(), ClientError> {
     match message {
         VersionedMessage::V1(_) => Ok(()),

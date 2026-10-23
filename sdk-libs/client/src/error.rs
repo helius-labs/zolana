@@ -418,6 +418,26 @@ pub enum ClientError {
     #[error("indexer did not observe the transaction before the poll timeout")]
     IndexerTimeout,
 
+    /// A transaction whose send went unanswered did not land before its
+    /// blockhash expired: past it, neither the RPC's status cache nor, for a
+    /// shielded-pool transaction, the indexer has it. It can no longer land,
+    /// so sending it again is safe.
+    #[error("transaction {signature} expired before it landed")]
+    TransactionExpired {
+        signature: solana_signature::Signature,
+    },
+
+    /// Whether a transaction whose send went unanswered landed could not be
+    /// told: the status lookups kept failing, it landed and did not confirm,
+    /// without its last valid block height it was never seen, or, past its
+    /// blockhash, the indexer could not be read. It may still land: wait for
+    /// it again before sending it again.
+    #[error("whether transaction {signature} landed is unknown: {message}")]
+    TransactionOutcomeUnknown {
+        signature: solana_signature::Signature,
+        message: String,
+    },
+
     /// The indexer answered a full page with the cursor it was given, so
     /// paging on would read the same page forever.
     #[error("indexer returned the cursor it was given; paging would not end")]

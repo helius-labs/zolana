@@ -60,6 +60,21 @@ blockhash request. Merge submissions use the same rule.
 The ten-second limit controls prefetch reuse; blockhash expiration follows chain
 state and the returned `last_valid_block_height`.
 
+`submit_transaction_sync(transaction, last_valid_block_height)` sends a
+transaction signed elsewhere and waits the same way, and `send` goes through
+it. A send that fails after the transaction may have gone out, such as one
+whose confirmation the RPC lost, is looked up instead of failed: it ends with
+the chain's error when the chain refused it, `ClientError::TransactionExpired`
+once it can no longer land, so sending it again is safe, and
+`ClientError::TransactionOutcomeUnknown` when that cannot be told.
+`wait_for_private_transaction_sync(signature, last_valid_block_height)` looks
+up a transaction sent before the same way, such as one in flight when the
+application closed. The RPC's status cache holds recent transactions only, so
+past its last valid block height a transaction the cache lacks is looked for
+at the indexer. `set_priority_fee(&mut message, lamports)` sets the priority
+fee of a message already built, a proved one included: the header is signed,
+not proved.
+
 `Submission::with_prover(Arc<dyn Prover>)` proves one submission with a
 prover of the caller's, such as one on the device; `with_prover` on either
 client builds one that proves every submission that way. Either prover only
