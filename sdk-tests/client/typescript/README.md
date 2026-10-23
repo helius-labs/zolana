@@ -98,3 +98,17 @@ The recipe brings up the same stack as `just test-ts-example` and selects the
 example with `ZOLANA_TS_EXAMPLE=optimized-merge-transfer`, which the example's
 Vitest config reads; against an already running stack, set it before
 `npm run test:ts:example`.
+
+## Recover after a lost send response or restart
+
+[`private-transaction-recovery.ts`](private-transaction-recovery.ts) shows the
+application-owned send path: sign, durably save the signature and blockhash
+expiry height with the wallet's input reservations, send once, and call
+`waitForPrivateTransaction` even if the send response was lost. Its recovery
+function accepts the same checkpoint after a restart and distinguishes indexed,
+expired, confirmed-but-not-indexed, and unknown outcomes.
+
+Use this for deposits, transfers, withdrawals and merges. Registration uses
+ordinary chain confirmation because it has no private event. The existing
+happy-path examples keep `confirmTransaction` and their landed-slot freshness
+gates; the recovery example covers the ambiguous-send path explicitly.

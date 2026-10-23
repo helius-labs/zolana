@@ -100,7 +100,7 @@ export interface UserRecordReader {
   ): Promise<UserRecordsLookup>;
 }
 
-export interface IndexerReader {
+export interface IndexerReader extends PrivateTransactionReader {
   getEncryptedUtxosByTags(
     request: GetByTagsRequest,
     config?: IndexerRpcConfig,
@@ -116,6 +116,10 @@ export interface IndexerReader {
     config?: IndexerRpcConfig,
     context?: RequestContext,
   ): Promise<GetShieldedTransactionsByNullifiersResponse>;
+}
+
+/** Indexed private effects of one Solana signature. */
+export interface PrivateTransactionReader {
   getShieldedTransactionsBySignature(
     signature: Signature,
     config?: IndexerRpcConfig,
@@ -301,6 +305,16 @@ export interface TransactionConfirmer {
     config?: IndexerRpcConfig,
     context?: RequestContext,
   ): Promise<bigint>;
+}
+
+/** Recovery only: never signs, sends or rebuilds a transaction. */
+export interface PrivateTransactionWaiter {
+  waitForPrivateTransaction(
+    signature: Signature,
+    lastValidBlockHeight?: bigint,
+    config?: IndexerRpcConfig,
+    context?: RequestContext,
+  ): Promise<void>;
 }
 
 export interface KitRpcAccess {

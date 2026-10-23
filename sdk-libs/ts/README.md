@@ -109,6 +109,30 @@ console.log(getPrivateTransactions(wallet));
 direct client calls, `atSlot(slot)` builds the same gate as a per-request
 config.
 
+For lost send responses and restart recovery, persist the signed transaction's
+signature and `lastValidBlockHeight` **before** the send, together with the
+wallet's input reservations, then call
+`client.waitForPrivateTransaction(signature, lastValidBlockHeight)`. It resolves
+when the private effects are indexed, including after the signature leaves
+Solana's recent status cache. It never signs, sends or rebuilds.
+
+| `ClientError.code`                               | Application action                                                                           |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------- |
+| `CLIENT_TRANSACTION_EXPIRED`                     | Sync before building a replacement; expiry and a caught-up indexer prove no private effects. |
+| `CLIENT_TRANSACTION_NOT_INDEXED`                 | Confirmed on chain; keep the checkpoint and wait for indexing.                               |
+| `CLIENT_TRANSACTION_OUTCOME_UNKNOWN`             | Keep the checkpoint and input reservations; retry the same signature.                        |
+| `CLIENT_RPC` with `reason: "transaction failed"` | Report the confirmed chain failure and sync before another attempt.                          |
+| `CLIENT_ABORTED`                                 | Waiting was cancelled; keep the checkpoint.                                                  |
+
+`confirmPrivateTransaction` uses the same engine without an expiry height, so
+handle the new outcome codes in place of the former indexer timeout codes.
+Both methods use confirmed commitment and stop at the poll limit or an overall
+60-second deadline; pass `context.timeoutMs` to change it. A timeout does not
+mean expiry. The RPC and a complete private-event indexer must serve the same
+network. Use this only for deposits, transfers, withdrawals and merges, with a
+recent blockhash; registration and durable-nonce transactions need their own
+confirmation. See the [send and restart recovery example](../../sdk-tests/client/typescript/private-transaction-recovery.ts).
+
 For an Ed25519 spending wallet, the shielded keypair and the Solana signer must use
 the same owner seed, as shown above.
 

@@ -142,7 +142,7 @@ pub trait Rpc {
     }
 
     /// Whether `error` is transient for the post-submission confirmation poll
-    /// (`wait_for_indexed_transaction`). Indexer data-plane polling
+    /// (`wait_for_private_transaction`). Indexer data-plane polling
     /// (`IndexerPollConfig::poll_until`, the merkle-proof retry loop) deliberately
     /// retries every error and does not consult this.
     fn should_retry(&self, error: &ClientError) -> bool {

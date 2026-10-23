@@ -38,6 +38,10 @@ export const CANONICAL_CLIENT_ERROR_CODES = Object.freeze([
   "CLIENT_NULLIFIER_PROOF_TREE_MISMATCH",
   "CLIENT_MISSING_OUTPUT",
   "CLIENT_RPC",
+  "CLIENT_TRANSACTION_EXPIRED",
+  "CLIENT_TRANSACTION_NOT_INDEXED",
+  "CLIENT_TRANSACTION_OUTCOME_UNKNOWN",
+
   "CLIENT_INDEXER",
   "CLIENT_UNSUPPORTED_RPC_METHOD",
   "CLIENT_INDEXER_TIMEOUT",
@@ -99,6 +103,16 @@ export interface ClientErrorDetailsMap {
   readonly CLIENT_NULLIFIER_PROOF_TREE_MISMATCH: IndexDetails;
   readonly CLIENT_MISSING_OUTPUT: NoDetails;
   readonly CLIENT_RPC: Readonly<{ method?: string; reason?: string }>;
+  readonly CLIENT_TRANSACTION_EXPIRED: Readonly<{ signature: string; causeCode?: ClientErrorCode }>;
+  readonly CLIENT_TRANSACTION_NOT_INDEXED: Readonly<{
+    signature: string;
+    causeCode?: ClientErrorCode;
+  }>;
+  readonly CLIENT_TRANSACTION_OUTCOME_UNKNOWN: Readonly<{
+    signature: string;
+    causeCode?: ClientErrorCode;
+  }>;
+
   /** Carries no response text: an indexer body can hold caller data. */
   readonly CLIENT_INDEXER: Readonly<{ method: string; retryable: boolean }>;
   readonly CLIENT_UNSUPPORTED_RPC_METHOD: MethodDetails;
@@ -389,6 +403,10 @@ const DETAIL_SHAPES: Partial<Readonly<Record<ClientErrorCode, DetailShape>>> = {
   CLIENT_NULLIFIER_PROOF_LEAF_MISMATCH: { index: "number" },
   CLIENT_NULLIFIER_PROOF_TREE_MISMATCH: { index: "number" },
   CLIENT_RPC: { method: "string", reason: "string" },
+  CLIENT_TRANSACTION_EXPIRED: { signature: "string", causeCode: "string" },
+  CLIENT_TRANSACTION_NOT_INDEXED: { signature: "string", causeCode: "string" },
+  CLIENT_TRANSACTION_OUTCOME_UNKNOWN: { signature: "string", causeCode: "string" },
+
   CLIENT_INDEXER: { method: "string", retryable: "boolean" },
   CLIENT_UNSUPPORTED_RPC_METHOD: { method: "string" },
   CLIENT_INDEXER_TIMEOUT: { signature: "string", expectedTags: "number", attempts: "number" },
@@ -447,6 +465,10 @@ const REQUIRED_DETAIL_FIELDS: Partial<Readonly<Record<ClientErrorCode, readonly 
   CLIENT_PROVER_SERVER: [],
   CLIENT_PROOF_PARSE: [],
   CLIENT_RPC: [],
+  CLIENT_TRANSACTION_EXPIRED: ["signature"],
+  CLIENT_TRANSACTION_NOT_INDEXED: ["signature"],
+  CLIENT_TRANSACTION_OUTCOME_UNKNOWN: ["signature"],
+
   CLIENT_FIELD_TOO_LONG: [],
   CLIENT_INDEXER_TIMEOUT: [],
   CLIENT_PROOF_PATH_LENGTH: ["got", "expected"],
@@ -593,6 +615,7 @@ function validateClientError(code: unknown, details: unknown): asserts code is C
 function matchesFieldKind(value: unknown, kind: FieldKind, field: string): boolean {
   if (field === "status" && value === "failed") return true;
   if (kind === "number") return typeof value === "number" && Number.isSafeInteger(value);
+  if (field === "causeCode") return typeof value === "string" && CLIENT_ERROR_CODE_SET.has(value);
   if (kind === "retryCause") return isRetryErrorCause(value);
   if (kind === "object") return isPlainObject(value);
   return typeof value === kind;

@@ -606,12 +606,12 @@ function wrapIndexer(cause: unknown, method: string): ClientError {
 function apiRetryable(cause: unknown): boolean {
   if (typeof cause !== "object" || cause === null || !("details" in cause)) return false;
   const details: unknown = cause.details;
-  return (
-    typeof details === "object" &&
-    details !== null &&
-    "retryable" in details &&
-    details.retryable === true
-  );
+  if (typeof details !== "object" || details === null) return false;
+  // Photon uses -32603 for transient database failures too; match the Rust
+  // indexer adapter without treating malformed envelopes as retryable.
+  if (externalCode(cause) === "API_JSON_RPC" && "rpcCode" in details && details.rpcCode === -32603)
+    return true;
+  return "retryable" in details && details.retryable === true;
 }
 
 function externalCode(cause: unknown): string | undefined {

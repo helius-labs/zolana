@@ -195,8 +195,9 @@ export function sendAndConfirmFactory(
         `transaction is ${String(size)} bytes, over ${String(TRANSACTION_SIZE_LIMIT)}`,
       );
     }
-    await sendTransaction(signed, { commitment: "confirmed" });
     const signature = getSignatureFromTransaction(signed);
+    // For durable recovery, checkpoint before send as in private-transaction-recovery.ts.
+    await sendTransaction(signed, { commitment: "confirmed" });
     const slot = await client.confirmTransaction(signature);
     return { signature, slot };
   };
@@ -209,10 +210,11 @@ export async function signSendAndConfirm(
 ): Promise<ConfirmedTransaction> {
   const signed = await signTransactionWithSigners(signers, transaction);
   assertIsTransactionWithBlockhashLifetime(signed);
+  const signature = getSignatureFromTransaction(signed);
+  // For durable recovery, checkpoint before send as in private-transaction-recovery.ts.
   await sendTransactionWithoutConfirmingFactory({ rpc: client.solanaRpc })(signed, {
     commitment: "confirmed",
   });
-  const signature = getSignatureFromTransaction(signed);
   const slot = await client.confirmTransaction(signature);
   return { signature, slot };
 }

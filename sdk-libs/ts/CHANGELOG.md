@@ -1,6 +1,30 @@
 # Changelog
 
-## 0.5.0-alpha — 2026-10-21
+## 0.5.1-alpha — unreleased
+
+Private transaction recovery resumes from a saved signature after a lost send
+response or restart. Confirmation and recovery share one bounded wait and
+distinguish expiry, delayed indexing and an unknown outcome.
+
+Breaking
+
+- `ZolanaClient.confirmPrivateTransaction` uses confirmed private-event evidence and returns `CLIENT_TRANSACTION_NOT_INDEXED` or `CLIENT_TRANSACTION_OUTCOME_UNKNOWN` when unresolved → handle these codes instead of indexer timeout errors and use `confirmTransaction` separately when finalized commitment is required.
+
+Added
+
+- `ZolanaClient.waitForPrivateTransaction` and `PrivateTransactionWaiter` recover a deposit, transfer, withdrawal or merge without resending, with `CLIENT_TRANSACTION_EXPIRED` only after blockhash expiry and a caught-up indexer prove no private effects.
+- `PrivateTransactionReader` exposes the signature lookup capability for recovery adapters.
+
+Changed
+
+- `ZolanaClient.confirmPrivateTransaction` and `waitForPrivateTransaction` stop at the poll limit or an overall 60-second deadline, adjustable with `RequestContext.timeoutMs`, including hung requests.
+
+Fixed
+
+- `ZolanaClient.confirmTransaction` checks the requested commitment before reporting a chain failure, so a processed failure no longer ends a confirmed wait.
+- `ZolanaClient` now retries Photon internal JSON-RPC errors during polling while malformed responses still stop the wait.
+
+## 0.5.0-alpha — 2026-10-23
 
 Proofs go encrypted to an attested Nitro Enclave prover by default, the devnet
 enclave the SDK pins for a Helius devnet RPC URL, and every other remote

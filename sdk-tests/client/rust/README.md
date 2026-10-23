@@ -157,3 +157,20 @@ the gap in production. The indexing wait grows with tree depth and indexer load,
 and the transfer proof grows with its shape -- a wide transfer proof costs
 seconds, and in the cached flow all of it overlaps the merge proof instead of
 following it.
+
+## Recover after a lost send response or restart
+
+[`recover_private_transaction.rs`](recover_private_transaction.rs) reads a
+signature and optional blockhash expiry height saved **before** the send and
+reports the outcome without sending again:
+
+```bash
+cargo run -p client-example --example recover_private_transaction -- <signature> <last-valid-block-height>
+```
+
+It uses `ZOLANA_LOCALNET_URL` and `ZOLANA_INDEXER_URL` or the local defaults.
+The indexer must cover all private events on that network. Use this for deposits,
+transfers, withdrawals and merges; registration emits no private event.
+Preserve the checkpoint and wallet reservations on an unknown outcome, and
+preserve the checkpoint while a confirmed transaction waits for indexing.
+The normal examples keep their landed-slot gates for subsequent reads.

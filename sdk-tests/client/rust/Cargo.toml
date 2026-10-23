@@ -37,3 +37,7 @@ path = "merge_transfer.rs"
 [[example]]
 name = "optimized_merge_transfer"
 path = "optimized_merge_transfer.rs"
+
+[[example]]
+name = "recover_private_transaction"
+path = "recover_private_transaction.rs"

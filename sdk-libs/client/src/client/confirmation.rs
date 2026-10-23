@@ -11,32 +11,41 @@ use crate::{
 use super::{AsyncIndexer, AsyncZolanaClient, BlockingIndexer, BlockingRpc, ZolanaClient};
 
 impl<R: AsyncRpc, I: AsyncIndexer> AsyncZolanaClient<R, I> {
-    /// Wait until Solana confirms the transaction and Photon has indexed a
-    /// Rings event for it.
-    ///
-    /// Confirming first turns a transaction that failed on chain into a chain
-    /// error, instead of an indexer timeout that blames the wrong subsystem.
+    /// Wait for a private transaction's indexed effects using the same bounded
+    /// recovery rules as [`Self::wait_for_private_transaction`], without an
+    /// expiry height. This can return `TransactionNotIndexed` or
+    /// `TransactionOutcomeUnknown`; neither permits rebuilding the transaction.
     pub async fn confirm_private_transaction(
         &self,
         signature: Signature,
     ) -> Result<(), ClientError> {
-        wait_for_rpc_confirmation(self.rpc(), signature, self.indexer_config.poll).await?;
-        wait_for_indexed_transaction(&self.indexer, signature, self.indexer_config.poll).await
+        self.wait_for_private_transaction(signature, None).await
     }
 
-    /// Wait for `signature`, a private transaction sent before, for at most
-    /// the client's indexer poll schedule. It ends:
+    /// Recover a previously sent deposit, transfer, withdrawal or merge by its
+    /// signature. Never signs, sends or rebuilds a transaction.
     ///
-    /// - `Ok` once the indexer has it, so reads see its notes, with or without
-    ///   `last_valid_block_height`;
-    /// - with the chain's error once Solana confirms it failed;
-    /// - [`ClientError::TransactionExpired`] once the RPC does not hold it,
-    ///   its blockhash expired after `last_valid_block_height`, and the
-    ///   indexer, at or past the slot where it expired, has no record of it;
-    /// - [`ClientError::TransactionNotIndexed`] when Solana confirmed it but
-    ///   the indexer did not record it in time;
-    /// - [`ClientError::TransactionOutcomeUnknown`] otherwise. Waiting again
-    ///   resumes.
+    /// Returns `Ok` once the indexer has its private event, including when the
+    /// signature has left Solana's recent status cache. A confirmed on-chain
+    /// failure returns the chain error. Otherwise:
+    ///
+    /// - [`ClientError::TransactionExpired`]: the signature is absent, the
+    ///   block height passed `last_valid_block_height`, and the indexer has
+    ///   persisted through a slot sampled after expiry without its event;
+    /// - [`ClientError::TransactionNotIndexed`]: confirmed on chain, but not
+    ///   indexed before the wait ended;
+    /// - [`ClientError::TransactionOutcomeUnknown`]: insufficient evidence.
+    ///
+    /// The indexer must index every private event on the same network as the
+    /// RPC. Registration, arbitrary program calls and durable-nonce transactions
+    /// are outside this contract. Persist the signed transaction's signature and
+    /// last valid block height before sending; only `TransactionExpired` permits
+    /// rebuilding after an ambiguous send. Other unresolved outcomes can be
+    /// queried again with the same signature.
+    ///
+    /// Stops at the client's poll limit or transaction wait timeout (60 seconds
+    /// by default), including time spent in requests. A blocking RPC adapter's
+    /// underlying request may continue after this method returns.
     pub async fn wait_for_private_transaction(
         &self,
         signature: Signature,
@@ -48,6 +57,7 @@ impl<R: AsyncRpc, I: AsyncIndexer> AsyncZolanaClient<R, I> {
             signature,
             last_valid_block_height,
             self.indexer_config.poll,
+            self.transaction_wait_timeout,
         )
         .await
     }
@@ -75,125 +85,99 @@ impl<R: BlockingRpc, I: BlockingIndexer> ZolanaClient<R, I> {
     }
 }
 
-/// Poll the RPC until the signature reaches confirmed commitment.
-async fn wait_for_rpc_confirmation<R: AsyncRpc>(
-    rpc: &R,
-    signature: Signature,
-    retry: IndexerPollConfig,
-) -> Result<(), ClientError> {
-    for delay in std::iter::once(Duration::ZERO).chain(retry.backoff()) {
-        if !delay.is_zero() {
-            tokio::time::sleep(delay).await;
-        }
-        if rpc.confirm_transaction(signature).await? {
-            return Ok(());
-        }
-    }
-    Err(ClientError::Rpc(format!(
-        "signature not confirmed: {signature}"
-    )))
-}
-
-/// Poll the indexer until it reports the transaction.
-///
-/// Photon writes every event of a transaction in one indexer slot inside one
-/// database transaction, so a single visible event proves the whole transaction
-/// is indexed. Matching the event against the transaction's view tags would add
-/// no guarantee and would reject legitimate transactions whose events share a
-/// tag.
-async fn wait_for_indexed_transaction<I: AsyncRpc>(
-    indexer: &I,
-    signature: Signature,
-    retry: IndexerPollConfig,
-) -> Result<(), ClientError> {
-    let mut last_error = None;
-    for delay in std::iter::once(Duration::ZERO).chain(retry.backoff()) {
-        if !delay.is_zero() {
-            tokio::time::sleep(delay).await;
-        }
-        match indexer
-            .get_shielded_transactions_by_signature(signature, None)
-            .await
-        {
-            Ok(response) if !response.transactions.is_empty() => return Ok(()),
-            Ok(_) => last_error = None,
-            Err(error) if indexer.should_retry(&error) => last_error = Some(error.to_string()),
-            Err(error) => return Err(error),
-        }
-    }
-    Err(indexer_poll_timeout(retry, last_error))
-}
-
-/// Classify an exhausted poll by how the *final* attempt went, since that is
-/// the freshest evidence of what the indexer is doing now: an attempt that
-/// answered without the transaction means the indexer is behind, and one that
-/// failed means it never answered, which is not a lag report the caller should
-/// act on. Earlier failures inside the window are deliberately not reported --
-/// a blip the indexer recovered from should not be blamed for a genuine lag.
-fn indexer_poll_timeout(retry: IndexerPollConfig, last_error: Option<String>) -> ClientError {
-    match last_error {
-        Some(last_error) => ClientError::PollTimedOut {
-            attempts: retry.num_retries.saturating_add(1),
-            last_error: Some(last_error),
-        },
-        None => ClientError::IndexerTimeout,
-    }
-}
-
-/// [`AsyncZolanaClient::wait_for_private_transaction`] over `rpc` and
-/// `indexer`. Each round reads the status cache, the expiry once the cache
-/// lacks the transaction, then the indexer.
+/// Photon persists every event of a transaction atomically. One visible event
+/// therefore proves its private effects are indexed, even after the RPC cache
+/// forgets it. An empty answer is evidence only after the expiry watermark.
 async fn settle(
     rpc: &impl AsyncRpc,
     indexer: &impl AsyncRpc,
     signature: Signature,
     last_valid_block_height: Option<u64>,
     poll: IndexerPollConfig,
+    timeout: Duration,
 ) -> Result<(), ClientError> {
     let (mut confirmed, mut expired_at, mut error) = (false, None, None);
-    for delay in std::iter::once(Duration::ZERO).chain(poll.backoff()) {
-        tokio::time::sleep(delay).await;
-        let mut unseen = false;
-        match rpc.get_signature_statuses(vec![signature]).await {
-            Ok(statuses) => match statuses.into_iter().next().flatten() {
-                Some(status)
-                    if status.confirmation_status
-                        != Some(TransactionConfirmationStatus::Processed) =>
-                {
-                    match status.err {
-                        Some(failure) => {
-                            return Err(ClientError::SolanaRpcTransaction {
-                                operation: "process_transaction",
-                                source: failure.into(),
-                            })
+    let result = tokio::time::timeout(timeout, async {
+        for delay in std::iter::once(Duration::ZERO).chain(poll.backoff()) {
+            tokio::time::sleep(delay).await;
+            let mut unseen = false;
+            match rpc.get_signature_statuses(vec![signature]).await {
+                Ok(statuses) if statuses.len() != 1 => {
+                    error = Some("invalid signature status response");
+                    return None;
+                }
+                Ok(statuses) => match statuses.into_iter().next().flatten() {
+                    Some(status)
+                        if matches!(
+                            status.confirmation_status,
+                            Some(
+                                TransactionConfirmationStatus::Confirmed
+                                    | TransactionConfirmationStatus::Finalized
+                            )
+                        ) =>
+                    {
+                        match status.err {
+                            Some(failure) => {
+                                return Some(Err(ClientError::SolanaRpcTransaction {
+                                    operation: "process_transaction",
+                                    source: failure.into(),
+                                }))
+                            }
+                            None => confirmed = true,
                         }
-                        None => confirmed = true,
+                    }
+                    // A missing confirmationStatus is not proof of confirmation.
+                    Some(_) => {}
+                    None => unseen = !confirmed,
+                },
+                Err(_) => error = Some("Solana signature status lookup failed"),
+            }
+            if unseen && expired_at.is_none() {
+                match expiry_slot(rpc, last_valid_block_height).await {
+                    Ok(slot) => expired_at = slot,
+                    Err(_) => error = Some("Solana blockhash expiry lookup failed"),
+                }
+            }
+            match indexer
+                .get_shielded_transactions_by_signature(signature, None)
+                .await
+            {
+                Ok(found)
+                    if found
+                        .transactions
+                        .iter()
+                        .any(|event| event.transaction.tx_signature != signature) =>
+                {
+                    error = Some("indexer returned another transaction's event");
+                    return None;
+                }
+                Ok(found) if !found.transactions.is_empty() => return Some(Ok(())),
+                Ok(found)
+                    if unseen && expired_at.is_some_and(|slot| found.context.slot >= slot) =>
+                {
+                    return Some(Err(ClientError::TransactionExpired { signature }))
+                }
+                Ok(_) => error = None,
+                Err(failure) => {
+                    error = Some("indexer lookup failed");
+                    if !indexer.should_retry(&failure) {
+                        return None;
                     }
                 }
-                Some(_) => {}
-                None => unseen = !confirmed,
-            },
-            Err(failure) => error = Some(failure.to_string()),
-        }
-        if unseen && expired_at.is_none() {
-            match expiry_slot(rpc, last_valid_block_height).await {
-                Ok(slot) => expired_at = slot,
-                Err(failure) => error = Some(failure.to_string()),
             }
         }
-        match indexer
-            .get_shielded_transactions_by_signature(signature, None)
-            .await
-        {
-            Ok(found) if !found.transactions.is_empty() => return Ok(()),
-            Ok(found) if unseen && expired_at.is_some_and(|slot| found.context.slot >= slot) => {
-                return Err(ClientError::TransactionExpired { signature })
-            }
-            Ok(_) => {}
-            Err(failure) => error = Some(failure.to_string()),
-        }
+        None
+    })
+    .await;
+    if let Ok(Some(result)) = result {
+        return result;
     }
-    let message = error.unwrap_or_else(|| "the indexer does not have it yet".into());
+    let message = if result.is_err() {
+        "transaction wait deadline elapsed"
+    } else {
+        error.unwrap_or("the indexer does not have it yet")
+    }
+    .into();
     Err(if confirmed {
         ClientError::TransactionNotIndexed { signature, message }
     } else {
@@ -318,7 +302,15 @@ mod tests {
     };
 
     async fn settled(chain: &Chain, height: Option<u64>) -> Result<(), ClientError> {
-        settle(chain, chain, Signature::from([3; 64]), height, QUICK).await
+        settle(
+            chain,
+            chain,
+            Signature::from([3; 64]),
+            height,
+            QUICK,
+            Duration::from_secs(60),
+        )
+        .await
     }
 
     /// The status cache holds recent transactions only: the indexer finds one
@@ -384,5 +376,267 @@ mod tests {
             Err(ClientError::TransactionOutcomeUnknown { .. })
         ));
         assert_eq!(*frozen.lookups.lock().unwrap(), QUICK.num_retries + 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn missing_confirmation_status_is_not_a_confirmed_failure() {
+        let mut status = landed(Some(ChainError::InsufficientFundsForFee)).unwrap();
+        status.confirmation_status = None;
+        status.confirmations = Some(0);
+        let chain = Chain::new(Some(status), 99);
+        let outcome = settled(&chain, Some(100)).await;
+        assert!(
+            matches!(outcome, Err(ClientError::TransactionOutcomeUnknown { .. })),
+            "unconfirmed failure must remain unknown, got {outcome:?}"
+        );
+    }
+
+    struct NeverAnswers;
+
+    #[async_trait]
+    impl AsyncRpc for NeverAnswers {
+        async fn get_shielded_transactions_by_signature(
+            &self,
+            _: Signature,
+            _: Option<crate::rpc::IndexerRpcConfig>,
+        ) -> Result<GetShieldedTransactionsBySignatureResponse, ClientError> {
+            std::future::pending().await
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn deadline_bounds_a_hung_indexer_request() {
+        let chain = Chain::new(landed(None), 99);
+        let outcome = tokio::time::timeout(
+            Duration::from_millis(50),
+            settle(
+                &chain,
+                &NeverAnswers,
+                Signature::from([3; 64]),
+                Some(100),
+                QUICK,
+                Duration::from_millis(10),
+            ),
+        )
+        .await;
+        assert!(
+            matches!(outcome, Ok(Err(ClientError::TransactionNotIndexed { .. }))),
+            "the 10 ms deadline must bound a hung request: {outcome:?}"
+        );
+    }
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct RecoveryVector {
+        name: String,
+        last_valid_block_height: Option<u64>,
+        rounds: Vec<RecoveryRound>,
+        outcome: String,
+    }
+
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct RecoveryRound {
+        status: String,
+        failed: bool,
+        height: u64,
+        slot: u64,
+        indexer_slot: u64,
+        indexed: bool,
+        indexer_error: bool,
+    }
+
+    struct ScriptedChain {
+        rounds: Vec<RecoveryRound>,
+        reads: Mutex<usize>,
+    }
+
+    impl ScriptedChain {
+        fn round(&self) -> &RecoveryRound {
+            &self.rounds[self.reads.lock().unwrap().saturating_sub(1)]
+        }
+    }
+
+    #[async_trait]
+    impl AsyncRpc for ScriptedChain {
+        fn should_retry(&self, _: &ClientError) -> bool {
+            true
+        }
+
+        async fn get_signature_statuses(
+            &self,
+            _: Vec<Signature>,
+        ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
+            *self.reads.lock().unwrap() += 1;
+            let round = self.round();
+            match round.status.as_str() {
+                "absent" => Ok(vec![None]),
+                "rpcError" => Err(ClientError::Rpc("unavailable".into())),
+                "invalid" => Ok(vec![]),
+                _ => {
+                    let mut status =
+                        landed(round.failed.then_some(ChainError::InsufficientFundsForFee))
+                            .unwrap();
+                    status.confirmation_status = match round.status.as_str() {
+                        "processed" => Some(TransactionConfirmationStatus::Processed),
+                        "confirmed" => Some(TransactionConfirmationStatus::Confirmed),
+                        "finalized" => Some(TransactionConfirmationStatus::Finalized),
+                        "missing" => None,
+                        other => panic!("unknown vector status {other}"),
+                    };
+                    Ok(vec![Some(status)])
+                }
+            }
+        }
+        async fn get_block_height(&self) -> Result<u64, ClientError> {
+            Ok(self.round().height)
+        }
+        async fn get_slot(&self) -> Result<u64, ClientError> {
+            Ok(self.round().slot)
+        }
+        async fn get_shielded_transactions_by_signature(
+            &self,
+            signature: Signature,
+            _: Option<crate::rpc::IndexerRpcConfig>,
+        ) -> Result<GetShieldedTransactionsBySignatureResponse, ClientError> {
+            let round = self.round();
+            if round.indexer_error {
+                return Err(ClientError::Rpc("unavailable".into()));
+            }
+            let chain = Chain {
+                indexed: round.indexed,
+                indexer_slot: round.indexer_slot,
+                ..Chain::new(None, round.height)
+            };
+            chain
+                .get_shielded_transactions_by_signature(signature, None)
+                .await
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn matches_typescript_recovery_vectors() {
+        let vectors: Vec<RecoveryVector> = serde_json::from_str(include_str!(
+            "../../../../test-vectors/private_transaction_confirmation.json"
+        ))
+        .unwrap();
+        for vector in vectors {
+            let attempts = vector.rounds.len();
+            let chain = ScriptedChain {
+                rounds: vector.rounds,
+                reads: Mutex::new(0),
+            };
+            let result = settle(
+                &chain,
+                &chain,
+                Signature::from([3; 64]),
+                vector.last_valid_block_height,
+                IndexerPollConfig::new(u32::try_from(attempts - 1).unwrap(), 0, 0),
+                Duration::from_secs(60),
+            )
+            .await;
+            let outcome = match result {
+                Ok(()) => "indexed",
+                Err(ClientError::TransactionExpired { .. }) => "expired",
+                Err(ClientError::TransactionNotIndexed { .. }) => "notIndexed",
+                Err(ClientError::TransactionOutcomeUnknown { .. }) => "unknown",
+                Err(ClientError::SolanaRpcTransaction { .. }) => "failed",
+                other => panic!("unexpected outcome {other:?}"),
+            };
+            assert_eq!(outcome, vector.outcome, "{}", vector.name);
+            assert_eq!(*chain.reads.lock().unwrap(), attempts, "{}", vector.name);
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn deadline_bounds_a_hung_rpc_without_claiming_expiry() {
+        struct HungRpc;
+        #[async_trait]
+        impl AsyncRpc for HungRpc {
+            async fn get_signature_statuses(
+                &self,
+                _: Vec<Signature>,
+            ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
+                std::future::pending().await
+            }
+        }
+        let chain = Chain::new(None, 1_000);
+        let start = tokio::time::Instant::now();
+        assert!(matches!(
+            settle(
+                &HungRpc,
+                &chain,
+                Signature::from([3; 64]),
+                Some(100),
+                QUICK,
+                Duration::from_millis(10)
+            )
+            .await,
+            Err(ClientError::TransactionOutcomeUnknown { .. })
+        ));
+        assert_eq!(start.elapsed(), Duration::from_millis(10));
+        assert_eq!(*chain.lookups.lock().unwrap(), 0);
+    }
+    #[tokio::test(start_paused = true)]
+    async fn an_event_for_another_signature_cannot_confirm_this_transaction() {
+        struct WrongSignature;
+        #[async_trait]
+        impl AsyncRpc for WrongSignature {
+            async fn get_shielded_transactions_by_signature(
+                &self,
+                _: Signature,
+                _: Option<crate::rpc::IndexerRpcConfig>,
+            ) -> Result<GetShieldedTransactionsBySignatureResponse, ClientError> {
+                let chain = Chain {
+                    indexed: true,
+                    ..Chain::new(None, 100)
+                };
+                chain
+                    .get_shielded_transactions_by_signature(Signature::from([4; 64]), None)
+                    .await
+            }
+        }
+        let chain = Chain::new(None, 101);
+        assert!(matches!(
+            settle(
+                &chain,
+                &WrongSignature,
+                Signature::from([3; 64]),
+                Some(100),
+                QUICK,
+                Duration::from_secs(60)
+            )
+            .await,
+            Err(ClientError::TransactionOutcomeUnknown { .. })
+        ));
+        assert_eq!(*chain.lookups.lock().unwrap(), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn permanent_indexer_failure_stops_without_losing_confirmation() {
+        struct InvalidIndexer;
+        #[async_trait]
+        impl AsyncRpc for InvalidIndexer {
+            async fn get_shielded_transactions_by_signature(
+                &self,
+                _: Signature,
+                _: Option<crate::rpc::IndexerRpcConfig>,
+            ) -> Result<GetShieldedTransactionsBySignatureResponse, ClientError> {
+                Err(ClientError::Rpc("secret invalid response body".into()))
+            }
+        }
+        let chain = Chain::new(landed(None), 101);
+        let result = settle(
+            &chain,
+            &InvalidIndexer,
+            Signature::from([3; 64]),
+            Some(100),
+            QUICK,
+            Duration::from_secs(60),
+        )
+        .await;
+        assert!(
+            matches!(result, Err(ClientError::TransactionNotIndexed { message, .. }) if message == "indexer lookup failed")
+        );
+        assert_eq!(*chain.lookups.lock().unwrap(), 1);
     }
 }

@@ -60,12 +60,34 @@ blockhash request. Merge submissions use the same rule.
 The ten-second limit controls prefetch reuse; blockhash expiration follows chain
 state and the returned `last_valid_block_height`.
 
-After a send whose response was lost, or a restart,
-`wait_for_private_transaction_sync(signature, last_valid_block_height)` tells
-what became of a deposit, transfer or merge: done once the indexer has it,
-the chain's error, `TransactionExpired` once a new transaction is safe,
-`TransactionNotIndexed` when Solana confirmed it but the indexer lags, or
-`TransactionOutcomeUnknown` when the client's poll schedule runs out first.
+After a lost send response or a restart,
+`wait_for_private_transaction_sync(signature, last_valid_block_height)`
+(async: `wait_for_private_transaction`) recovers a deposit, transfer, withdrawal
+or merge. Save the **signed transaction's signature and last valid block height
+before sending**, alongside its wallet reservations. Use `finish_unsigned` and
+sign explicitly when the application needs this checkpoint; `Submission::send`
+does not persist one for you.
+
+| Outcome | Application action |
+| --- | --- |
+| `Ok(())` | Private effects are indexed; sync and persist the wallet. |
+| Confirmed chain error | Report the rejected transaction and sync before another attempt. |
+| `TransactionExpired` | No private effects through the expiry slot; sync before building a replacement. |
+| `TransactionNotIndexed` | Confirmed, but effects are not yet readable; keep the checkpoint and wait again. |
+| `TransactionOutcomeUnknown` | Keep the checkpoint and reservations; wait again with the same signature. |
+
+`confirm_private_transaction` uses the same recovery engine without an expiry
+height. Its unresolved errors are now `TransactionNotIndexed` and
+`TransactionOutcomeUnknown`, replacing the former indexer timeout errors.
+Both methods stop at the poll limit or a 60-second overall deadline, including
+requests; `with_transaction_wait_timeout` adjusts that deadline. Timeouts never
+prove expiry. With a blocking RPC adapter, its underlying request may outlive
+the wait, so configure the adapter's own transport timeout too.
+
+The RPC and complete private-event indexer must serve the same network, using
+confirmed commitment. Registration, arbitrary program calls, and durable-nonce
+transactions do not fit this contract. Recovery never sends or rebuilds.
+See the [restart recovery example](../../sdk-tests/client/rust/recover_private_transaction.rs).
 
 `Submission::with_prover(Arc<dyn Prover>)` proves one submission with a
 prover of the caller's, such as one on the device; `with_prover` on either

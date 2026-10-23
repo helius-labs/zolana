@@ -1,0 +1,324 @@
+[
+  {
+    "name": "indexed after cache eviction",
+    "lastValidBlockHeight": 100,
+    "rounds": [
+      {
+        "status": "absent",
+        "failed": false,
+        "height": 101,
+        "slot": 100,
+        "indexerSlot": 100,
+        "indexed": true,
+        "indexerError": false
+      }
+    ],
+    "outcome": "indexed"
+  },
+  {
+    "name": "indexed without saved height",
+    "lastValidBlockHeight": null,
+    "rounds": [
+      {
+        "status": "absent",
+        "failed": false,
+        "height": 101,
+        "slot": 100,
+        "indexerSlot": 100,
+        "indexed": true,
+        "indexerError": false
+      }
+    ],
+    "outcome": "indexed"
+  },
+  {
+    "name": "confirmed chain failure",
+    "lastValidBlockHeight": 100,
+    "rounds": [
+      {
+        "status": "confirmed",
+        "failed": true,
+        "height": 101,
+        "slot": 100,
+        "indexerSlot": 100,
+        "indexed": true,
+        "indexerError": false
+      }
+    ],
+    "outcome": "failed"
+  },
+  {
+    "name": "processed failure is not final",
+    "lastValidBlockHeight": 100,
+    "rounds": [
+      {
+        "status": "processed",
+        "failed": true,
+        "height": 101,
+        "slot": 100,
+        "indexerSlot": 100,
+        "indexed": false,
+        "indexerError": false
+      }
+    ],
+    "outcome": "unknown"
+  },
+  {
+    "name": "missing confirmation status is not final",
+    "lastValidBlockHeight": 100,
+    "rounds": [
+      {
+        "status": "missing",
+        "failed": true,
+        "height": 101,
+        "slot": 100,
+        "indexerSlot": 100,
+        "indexed": false,
+        "indexerError": false
+      }
+    ],
+    "outcome": "unknown"
+  },
+  {
+    "name": "height equal to last valid remains valid",
+    "lastValidBlockHeight": 100,
+    "rounds": [
+      {
+        "status": "absent",
+        "failed": false,
+        "height": 100,
+        "slot": 100,
+        "indexerSlot": 100,
+        "indexed": false,
+        "indexerError": false
+      }
+    ],
+    "outcome": "unknown"
+  },
+  {
+    "name": "expired and fully indexed",
+    "lastValidBlockHeight": 100,
+    "rounds": [
+      {
+        "status": "absent",
+        "failed": false,
+        "height": 101,
+        "slot": 100,
+        "indexerSlot": 100,
+        "indexed": false,
+        "indexerError": false
+      }
+    ],
+    "outcome": "expired"
+  },
+  {
+    "name": "expired but indexer behind",
+    "lastValidBlockHeight": 100,
+    "rounds": [
+      {
+        "status": "absent",
+        "failed": false,
+        "height": 101,
+        "slot": 100,
+        "indexerSlot": 99,
+        "indexed": false,
+        "indexerError": false
+      }
+    ],
+    "outcome": "unknown"
+  },
+  {
+    "name": "no expiry without saved height",
+    "lastValidBlockHeight": null,
+    "rounds": [
+      {
+        "status": "absent",
+        "failed": false,
+        "height": 101,
+        "slot": 100,
+        "indexerSlot": 100,
+        "indexed": false,
+        "indexerError": false
+      }
+    ],
+    "outcome": "unknown"
+  },
+  {
+    "name": "confirmed without indexed effects",
+    "lastValidBlockHeight": 100,
+    "rounds": [
+      {
+        "status": "confirmed",
+        "failed": false,
+        "height": 101,
+        "slot": 100,
+        "indexerSlot": 100,
+        "indexed": false,
+        "indexerError": false
+      }
+    ],
+    "outcome": "notIndexed"
+  },
+  {
+    "name": "confirmation survives cache eviction",
+    "lastValidBlockHeight": 100,
+    "rounds": [
+      {
+        "status": "confirmed",
+        "failed": false,
+        "height": 101,
+        "slot": 100,
+        "indexerSlot": 100,
+        "indexed": false,
+        "indexerError": false
+      },
+      {
+        "status": "absent",
+        "failed": false,
+        "height": 101,
+        "slot": 100,
+        "indexerSlot": 100,
+        "indexed": false,
+        "indexerError": false
+      }
+    ],
+    "outcome": "notIndexed"
+  },
+  {
+    "name": "indexer proves success during RPC outage",
+    "lastValidBlockHeight": 100,
+    "rounds": [
+      {
+        "status": "rpcError",
+        "failed": false,
+        "height": 101,
+        "slot": 100,
+        "indexerSlot": 100,
+        "indexed": true,
+        "indexerError": false
+      }
+    ],
+    "outcome": "indexed"
+  },
+  {
+    "name": "RPC outage is not absence",
+    "lastValidBlockHeight": 100,
+    "rounds": [
+      {
+        "status": "rpcError",
+        "failed": false,
+        "height": 101,
+        "slot": 100,
+        "indexerSlot": 100,
+        "indexed": false,
+        "indexerError": false
+      }
+    ],
+    "outcome": "unknown"
+  },
+  {
+    "name": "indexer outage is not absence",
+    "lastValidBlockHeight": 100,
+    "rounds": [
+      {
+        "status": "absent",
+        "failed": false,
+        "height": 101,
+        "slot": 100,
+        "indexerSlot": 100,
+        "indexed": false,
+        "indexerError": true
+      }
+    ],
+    "outcome": "unknown"
+  },
+  {
+    "name": "transient indexer failure recovers",
+    "lastValidBlockHeight": 100,
+    "rounds": [
+      {
+        "status": "confirmed",
+        "failed": false,
+        "height": 101,
+        "slot": 100,
+        "indexerSlot": 100,
+        "indexed": false,
+        "indexerError": true
+      },
+      {
+        "status": "confirmed",
+        "failed": false,
+        "height": 101,
+        "slot": 100,
+        "indexerSlot": 100,
+        "indexed": true,
+        "indexerError": false
+      }
+    ],
+    "outcome": "indexed"
+  },
+  {
+    "name": "processed status after expiry stays uncertain",
+    "lastValidBlockHeight": 100,
+    "rounds": [
+      {
+        "status": "processed",
+        "failed": false,
+        "height": 101,
+        "slot": 100,
+        "indexerSlot": 100,
+        "indexed": false,
+        "indexerError": false
+      }
+    ],
+    "outcome": "unknown"
+  },
+  {
+    "name": "finalized transaction has indexed effects",
+    "lastValidBlockHeight": 100,
+    "rounds": [
+      {
+        "status": "finalized",
+        "failed": false,
+        "height": 101,
+        "slot": 100,
+        "indexerSlot": 100,
+        "indexed": true,
+        "indexerError": false
+      }
+    ],
+    "outcome": "indexed"
+  },
+  {
+    "name": "missing confirmation status can have indexed effects",
+    "lastValidBlockHeight": 100,
+    "rounds": [
+      {
+        "status": "missing",
+        "failed": false,
+        "height": 101,
+        "slot": 100,
+        "indexerSlot": 100,
+        "indexed": true,
+        "indexerError": false
+      }
+    ],
+    "outcome": "indexed"
+  },
+  {
+    "name": "invalid status batch is not absence",
+    "lastValidBlockHeight": 100,
+    "rounds": [
+      {
+        "status": "invalid",
+        "failed": false,
+        "height": 101,
+        "slot": 100,
+        "indexerSlot": 100,
+        "indexed": false,
+        "indexerError": false
+      }
+    ],
+    "outcome": "unknown"
+  }
+]

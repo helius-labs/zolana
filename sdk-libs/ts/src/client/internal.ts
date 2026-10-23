@@ -285,6 +285,29 @@ export function composeSignal(context: RequestContext | undefined, method: strin
   }
 }
 
+/** Bounds the whole operation, even if an adapter ignores its abort signal. */
+export async function runWithDeadline<T>(
+  context: RequestContext,
+  method: string,
+  run: (context: RequestContext) => Promise<T>,
+): Promise<T> {
+  const operation = composeSignal(context, method);
+  let abort: () => void = () => {};
+  const aborted = new Promise<never>((_resolve, reject) => {
+    abort = () => reject(requestError(method, operation));
+  });
+  operation.signal.addEventListener("abort", abort, { once: true });
+  try {
+    return await Promise.race([run({ signal: operation.signal }), aborted]);
+  } catch (cause) {
+    if (operation.signal.aborted) throw requestError(method, operation);
+    throw cause;
+  } finally {
+    operation.signal.removeEventListener("abort", abort);
+    operation.cleanup();
+  }
+}
+
 export function requestError(method: string, signal: ComposedSignal): ClientError {
   return new ClientError(
     signal.timedOut()

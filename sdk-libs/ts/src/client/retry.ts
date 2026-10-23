@@ -1,7 +1,7 @@
 import type { RequestContext } from "../interface/types.js";
 
 import { ClientError, isClientError, type ClientErrorCode, type RetryErrorCause } from "./error.js";
-import { composeSignal } from "./internal.js";
+import { runWithDeadline } from "./internal.js";
 import type { ProofDataSource } from "./ports.js";
 
 export type { RetryErrorCause } from "./error.js";
@@ -145,6 +145,7 @@ export async function pollUntil<T>(
   const poll = validatePollConfig(options.config ?? DEFAULT_INDEXER_POLL_CONFIG);
   let lastCause: RetryErrorCause | undefined;
   for (const delay of pollSchedule(poll)) {
+    if (options.context?.signal?.aborted) throw new ClientError("CLIENT_ABORTED");
     if (delay !== 0n) await sleep(delay, options.context);
     try {
       const response = await request();
@@ -218,42 +219,37 @@ export async function waitForProjection<T>(
   maxWaitMs: number = PROJECTION_TIMEOUT_MS,
 ): Promise<T> {
   let last: ClientError | undefined;
-  const operation = composeSignal(overallContext(context, maxWaitMs), "waitForProjection");
-  const attemptContext = Object.freeze({ signal: operation.signal });
-  let rejectAborted: ((error: ClientError) => void) | undefined;
-  const aborted = new Promise<never>((_resolve, reject) => {
-    rejectAborted = reject;
-  });
-  const abort = (): void => rejectAborted?.(new ClientError("CLIENT_ABORTED"));
-  operation.signal.addEventListener("abort", abort, { once: true });
   try {
-    const result = await pollUntil<ProjectionAttempt<T>>(
-      async () => {
-        try {
-          const value = await Promise.race([read(attemptContext), aborted]);
-          return { kind: "ready", value };
-        } catch (cause) {
-          if (!isClientError(cause) || !retryable.has(cause.code)) throw cause;
-          last = cause;
-          return { kind: "retry", error: cause };
-        }
-      },
-      (attempt) => attempt.kind === "ready",
-      {
-        config: poll,
-        context: attemptContext,
-        retryErrors: false,
-        onTimeout: (config) => last ?? pollTimedOut(config),
+    return await runWithDeadline(
+      overallContext(context, maxWaitMs),
+      "waitForProjection",
+      async (attemptContext) => {
+        const result = await pollUntil<ProjectionAttempt<T>>(
+          async () => {
+            try {
+              const value = await read(attemptContext);
+              return { kind: "ready", value };
+            } catch (cause) {
+              if (!isClientError(cause) || !retryable.has(cause.code)) throw cause;
+              last = cause;
+              return { kind: "retry", error: cause };
+            }
+          },
+          (attempt) => attempt.kind === "ready",
+          {
+            config: poll,
+            context: attemptContext,
+            retryErrors: false,
+            onTimeout: (config) => last ?? pollTimedOut(config),
+          },
+        );
+        if (result.kind === "retry") throw result.error;
+        return result.value;
       },
     );
-    if (result.kind === "retry") throw result.error;
-    return result.value;
   } catch (cause) {
-    if (operation.timedOut()) throw last ?? pollTimedOut(poll);
+    if (isClientError(cause) && cause.code === "CLIENT_TIMEOUT") throw last ?? pollTimedOut(poll);
     throw cause;
-  } finally {
-    operation.signal.removeEventListener("abort", abort);
-    operation.cleanup();
   }
 }
 

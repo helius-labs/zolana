@@ -29,6 +29,8 @@ export type {
   Prover,
   TransactionAssembler,
   TransactionConfirmer,
+  PrivateTransactionReader,
+  PrivateTransactionWaiter,
   TreeContext,
   RegistryRecord,
   UserRecordReader,
