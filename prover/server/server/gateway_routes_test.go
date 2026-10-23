@@ -39,3 +39,20 @@ func TestPlainHandleIsNotPublishedUnderPrefix(t *testing.T) {
 		t.Fatalf("got %d, want %d", rec.Code, http.StatusNotFound)
 	}
 }
+
+// Clients outside the repository call these exact paths.
+func TestProofPathsAreStable(t *testing.T) {
+	mux := proofMux(t, nil)
+	for _, prefix := range []string{"", gatewayPrefix} {
+		for path, pattern := range map[string]string{
+			"/prove/custom_key":         "/prove/{key}",
+			"/prove/custom_key/indexed": "/prove/{key}/indexed",
+			"/prove/custom_key/status":  "/prove/{key}/status",
+		} {
+			_, got := mux.Handler(httptest.NewRequest(http.MethodPost, prefix+path, nil))
+			if got != prefix+pattern {
+				t.Fatalf("%s%s: matched %q, want %q", prefix, path, got, prefix+pattern)
+			}
+		}
+	}
+}
