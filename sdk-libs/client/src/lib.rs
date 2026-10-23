@@ -56,9 +56,7 @@ pub use prover::{spawn_prover, ProverLaunch};
 pub use rpc::solana_rpc::{AsyncSolanaRpc, ConfirmedInstructionGroups, SolanaRpc};
 pub use rpc::Blocking;
 pub use rpc::SettlementAccountValidation;
-pub use rpc::{
-    compile_message, set_priority_fee, sign_transaction, ComputeBudgetConfig, ProgramAccountsFilter,
-};
+pub use rpc::{compile_message, sign_transaction, ComputeBudgetConfig, ProgramAccountsFilter};
 pub use rpc::{transaction_size, TransactionSize};
 pub use rpc::{
     AsyncRpc, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,

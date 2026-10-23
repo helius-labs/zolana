@@ -1,9 +1,7 @@
 use std::time::Duration;
 
 use solana_signature::Signature;
-use solana_transaction::versioned::VersionedTransaction;
-use solana_transaction_error::TransactionError as ChainError;
-use solana_transaction_status_client_types::{TransactionConfirmationStatus, TransactionStatus};
+use solana_transaction_status_client_types::TransactionConfirmationStatus;
 
 use crate::{
     error::ClientError,
@@ -24,29 +22,6 @@ impl<R: AsyncRpc, I: AsyncIndexer> AsyncZolanaClient<R, I> {
     ) -> Result<(), ClientError> {
         wait_for_rpc_confirmation(self.rpc(), signature, self.indexer_config.poll).await?;
         wait_for_indexed_transaction(&self.indexer, signature, self.indexer_config.poll).await
-    }
-
-    /// Send `transaction`, a signed private transaction: a deposit, transfer
-    /// or merge, which the indexer records once it succeeds. Then wait as
-    /// [`Self::wait_for_private_transaction`] does. A send the chain refused
-    /// fails at once; any other failed send may have landed, so it is waited
-    /// for too.
-    pub async fn submit_private_transaction(
-        &self,
-        transaction: VersionedTransaction,
-        last_valid_block_height: u64,
-    ) -> Result<Signature, ClientError> {
-        let signature = *transaction.signatures.first().ok_or_else(|| {
-            ClientError::SolanaTransactionSigning("the transaction is not signed".into())
-        })?;
-        if let Err(failure) = self.rpc.process_transaction(transaction).await {
-            if refused(&failure) {
-                return Err(failure);
-            }
-        }
-        self.wait_for_private_transaction(signature, Some(last_valid_block_height))
-            .await?;
-        Ok(signature)
     }
 
     /// Wait for `signature`, a private transaction sent before, for at most
@@ -85,18 +60,6 @@ impl<R: BlockingRpc, I: BlockingIndexer> ZolanaClient<R, I> {
         signature: Signature,
     ) -> Result<(), ClientError> {
         self.block_on(self.client.confirm_private_transaction(signature))
-    }
-
-    /// See [`AsyncZolanaClient::submit_private_transaction`].
-    pub fn submit_private_transaction_sync(
-        &self,
-        transaction: VersionedTransaction,
-        last_valid_block_height: u64,
-    ) -> Result<Signature, ClientError> {
-        self.block_on(
-            self.client
-                .submit_private_transaction(transaction, last_valid_block_height),
-        )
     }
 
     /// See [`AsyncZolanaClient::wait_for_private_transaction`].
@@ -177,17 +140,6 @@ fn indexer_poll_timeout(retry: IndexerPollConfig, last_error: Option<String>) ->
     }
 }
 
-/// Whether the chain refused `failure`'s transaction, in simulation or after
-/// it ran, so it never succeeded. A simulation that found it already
-/// processed is no refusal: it may have landed.
-fn refused(failure: &ClientError) -> bool {
-    matches!(failure, ClientError::SolanaRpcTransaction { source, .. }
-    if !matches!(
-        source.get_transaction_error(),
-        None | Some(ChainError::AlreadyProcessed)
-    ))
-}
-
 /// [`AsyncZolanaClient::wait_for_private_transaction`] over `rpc` and
 /// `indexer`. Each round reads the status cache, the expiry once the cache
 /// lacks the transaction, then the indexer.
@@ -204,15 +156,20 @@ async fn settle(
         let mut unseen = false;
         match rpc.get_signature_statuses(vec![signature]).await {
             Ok(statuses) => match statuses.into_iter().next().flatten() {
-                Some(status) if is_confirmed(&status) => match status.err {
-                    Some(failure) => {
-                        return Err(ClientError::SolanaRpcTransaction {
-                            operation: "process_transaction",
-                            source: failure.into(),
-                        })
+                Some(status)
+                    if status.confirmation_status
+                        != Some(TransactionConfirmationStatus::Processed) =>
+                {
+                    match status.err {
+                        Some(failure) => {
+                            return Err(ClientError::SolanaRpcTransaction {
+                                operation: "process_transaction",
+                                source: failure.into(),
+                            })
+                        }
+                        None => confirmed = true,
                     }
-                    None => confirmed = true,
-                },
+                }
                 Some(_) => {}
                 None => unseen = !confirmed,
             },
@@ -256,20 +213,13 @@ async fn expiry_slot(
     }
 }
 
-/// Whether `status` is at confirmed commitment or beyond, as Solana's
-/// `TransactionStatus::satisfies_commitment` tells it.
-fn is_confirmed(status: &TransactionStatus) -> bool {
-    match &status.confirmation_status {
-        Some(level) => *level != TransactionConfirmationStatus::Processed,
-        None => status.confirmations.is_none_or(|count| count > 1),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;
 
     use async_trait::async_trait;
+    use solana_transaction::TransactionError as ChainError;
+    use solana_transaction_status_client_types::TransactionStatus;
 
     use super::*;
     use crate::rpc::{
@@ -434,27 +384,5 @@ mod tests {
             Err(ClientError::TransactionOutcomeUnknown { .. })
         ));
         assert_eq!(*frozen.lookups.lock().unwrap(), QUICK.num_retries + 1);
-    }
-
-    /// A send refused in simulation never ran; one found already processed
-    /// may have landed.
-    #[test]
-    fn only_a_refusal_ends_a_failed_send() {
-        let preflight = |err: &str| {
-            let result: solana_rpc_client_api::response::RpcSimulateTransactionResult =
-                serde_json::from_str(&format!(r#"{{"err":"{err}"}}"#)).unwrap();
-            ClientError::SolanaRpcTransaction {
-                operation: "process_transaction",
-                source: solana_rpc_client_api::request::RpcError::RpcResponseError {
-                    code: -32002,
-                    message: "Transaction simulation failed".into(),
-                    data: solana_rpc_client_api::request::RpcResponseErrorData::SendTransactionPreflightFailure(result),
-                }
-                .into(),
-            }
-        };
-        assert!(refused(&preflight("InsufficientFundsForFee")));
-        assert!(!refused(&preflight("AlreadyProcessed")));
-        assert!(!refused(&ClientError::Rpc("connection reset".into())));
     }
 }

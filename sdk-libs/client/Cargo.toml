@@ -67,7 +67,6 @@ solana-rpc-client = { workspace = true, optional = true }
 solana-commitment-config = { workspace = true, optional = true }
 solana-pubkey = { workspace = true }
 solana-transaction = { workspace = true, features = ["serde"] }
-solana-transaction-error = { workspace = true }
 solana-transaction-status-client-types = { workspace = true }
 tokio = { workspace = true, features = ["time", "rt", "macros", "sync"] }
 

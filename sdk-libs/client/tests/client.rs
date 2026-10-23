@@ -564,102 +564,6 @@ fn a_client_writes_its_configured_ceilings_into_the_header() {
     );
 }
 
-/// A signed transaction whose only instruction calls `program_id`, and the
-/// blocking client over [`LostSendRpc`] and an indexer answering `answers`.
-fn lost_send(
-    program_id: Pubkey,
-    answers: Vec<Value>,
-) -> (
-    VersionedTransaction,
-    ZolanaClient<LostSendRpc>,
-    MockIndexerServer,
-) {
-    let payer = Keypair::new();
-    let instruction = solana_instruction::Instruction::new_with_bytes(program_id, &[0], Vec::new());
-    let message = compile_message(
-        &payer.pubkey(),
-        &[instruction],
-        Hash::default(),
-        zolana_client::ComputeBudgetConfig::new(200_000),
-    )
-    .unwrap();
-    let server = MockIndexerServer::respond_with(answers);
-    let client = ZolanaClient::new(
-        LostSendRpc,
-        ZolanaIndexer::new(server.url()),
-        ProverClient::new("http://unused.invalid".to_string()),
-    )
-    .with_indexer_poll_config(IndexerPollConfig::new(0, 0, 0));
-    (
-        sign_transaction(message, &[&payer]).unwrap(),
-        client,
-        server,
-    )
-}
-
-/// A send whose response was lost, gone from the status cache: the indexer
-/// has it, so it succeeded. The client does not read the message, so a
-/// private transaction made through another program's CPI is waited for
-/// too.
-#[test]
-fn a_lost_send_the_indexer_has_succeeded() {
-    let signature = Signature::from([4u8; 64]);
-    let (transaction, client, server) = lost_send(
-        Pubkey::new_unique(),
-        vec![indexed_transaction_by_signature_response(signature)],
-    );
-    let sent = transaction.signatures[0];
-    assert_eq!(
-        client
-            .submit_private_transaction_sync(transaction, 100)
-            .unwrap(),
-        sent
-    );
-    assert_eq!(server.requests(), ["/getShieldedTransactionsBySignature"]);
-}
-
-/// The same send when the indexer, past the slot where the blockhash
-/// expired, does not have it: it never succeeded.
-#[test]
-fn a_lost_send_the_indexer_lacks_has_expired() {
-    let (transaction, client, server) = lost_send(
-        zolana_interface::PROGRAM_ID_PUBKEY,
-        vec![rpc_result(json!({
-            "context": { "blockTime": 12, "slot": 1 },
-            "transactions": [],
-        }))],
-    );
-    assert!(matches!(
-        client.submit_private_transaction_sync(transaction, 100),
-        Err(ClientError::TransactionExpired { .. })
-    ));
-    let _ = server.requests();
-}
-
-#[test]
-fn set_priority_fee_writes_the_v1_header() {
-    let payer = Pubkey::new_unique();
-    let mut message = compile_message(
-        &payer,
-        &[],
-        Hash::default(),
-        zolana_client::ComputeBudgetConfig::new(200_000),
-    )
-    .unwrap();
-    zolana_client::set_priority_fee(&mut message, 7_000).unwrap();
-    let VersionedMessage::V1(v1) = &message else {
-        panic!("a v1 message");
-    };
-    assert_eq!(v1.config.priority_fee, Some(7_000));
-    assert_eq!(v1.config.compute_unit_limit, Some(200_000));
-
-    let mut legacy = VersionedMessage::Legacy(solana_message::legacy::Message::default());
-    assert!(matches!(
-        zolana_client::set_priority_fee(&mut legacy, 1),
-        Err(ClientError::UnsupportedTransactionVersion)
-    ));
-}
-
 #[test]
 fn confirm_private_transaction_sync_times_out_when_indexer_lags() {
     let signature = Signature::from([9u8; 64]);
@@ -922,32 +826,6 @@ fn funded_utxo(keypair: &ShieldedKeypair, amount: u64) -> WalletUtxo {
         slot: 0,
         tx_signature: solana_signature::Signature::default(),
         slot_index: 0,
-    }
-}
-
-/// An RPC whose send fails without the chain's verdict and whose status
-/// cache holds nothing, at block height 200 and slot 1.
-struct LostSendRpc;
-
-impl Rpc for LostSendRpc {
-    fn process_transaction(&self, _: VersionedTransaction) -> Result<Signature, ClientError> {
-        Err(ClientError::Rpc("connection reset".into()))
-    }
-
-    fn get_signature_statuses(
-        &self,
-        signatures: Vec<Signature>,
-    ) -> Result<Vec<Option<solana_transaction_status_client_types::TransactionStatus>>, ClientError>
-    {
-        Ok(vec![None; signatures.len()])
-    }
-
-    fn get_block_height(&self) -> Result<u64, ClientError> {
-        Ok(200)
-    }
-
-    fn get_slot(&self) -> Result<u64, ClientError> {
-        Ok(1)
     }
 }
 
