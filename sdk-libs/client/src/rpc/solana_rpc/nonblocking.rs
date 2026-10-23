@@ -15,12 +15,14 @@ use solana_transaction_status_client_types::{
     EncodedConfirmedTransactionWithStatusMeta, TransactionStatus, UiTransactionEncoding,
 };
 
+use zolana_event::SplTransfer;
+
 use crate::{error::ClientError, rpc::AsyncRpc};
 
 use super::{
     accounts::{filtered_program_accounts, pubkey_from_address, ProgramAccountsFilter},
     transaction::{
-        instruction_groups_from_confirmed_transaction,
+        instruction_groups_from_confirmed_transaction, public_transfers_from_instruction_groups,
         transact_output_view_tags_from_instruction_groups, ConfirmedInstructionGroups,
     },
     DEFAULT_POLL_INTERVAL,
@@ -126,6 +128,15 @@ impl AsyncSolanaRpc {
     ) -> Result<Vec<[u8; 32]>, ClientError> {
         let groups = self.fetch_confirmed_instruction_groups(signature).await?;
         transact_output_view_tags_from_instruction_groups(&groups)
+    }
+
+    /// As [`SolanaRpc::public_transfers`](super::SolanaRpc::public_transfers).
+    pub async fn public_transfers(
+        &self,
+        signature: &Signature,
+    ) -> Result<Vec<SplTransfer>, ClientError> {
+        let groups = self.fetch_confirmed_instruction_groups(signature).await?;
+        public_transfers_from_instruction_groups(&groups)
     }
 }
 

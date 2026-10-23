@@ -36,8 +36,17 @@ use std::{
 
 use solana_address::Address;
 use solana_signature::Signature;
+use zolana_event::SplTransfer;
 
-use crate::{indexer_types::ShieldedTransaction, utxo::WalletUtxo};
+use crate::{
+    asset::{AssetRegistry, SOL_MINT},
+    decrypt::{decrypt, verify_owned},
+    error::TransactionError,
+    indexer_types::ShieldedTransaction,
+    keys::ShieldedKeys,
+    sent::{decrypt_sent, SentOutput},
+    utxo::WalletUtxo,
+};
 
 /// What a transaction did to the wallet's balance of one asset.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -138,6 +147,95 @@ impl History {
             }
         }
         balance_changes
+    }
+}
+
+/// One Solana transaction as a wallet that took part in it reads it, without
+/// the rest of its history: what [`History::entries`] reports for it and,
+/// when the wallet sent it, every output it paid.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TransactionDetail {
+    /// One entry per asset the transaction moved for the wallet, as
+    /// [`History::entries`] classifies it.
+    pub entries: Vec<HistoryEntry>,
+    /// When the wallet sent the transaction, its confidential outputs in
+    /// order, the recipients' included; empty otherwise.
+    pub sent: Vec<SentOutput>,
+    /// As on [`DecryptionResult`](crate::DecryptionResult). Outputs in these
+    /// assets are missing from the entries.
+    pub unknown_asset_ids: BTreeSet<u64>,
+    /// As on [`DecryptionResult`](crate::DecryptionResult).
+    pub unknown_mints: BTreeSet<Address>,
+}
+
+impl TransactionDetail {
+    /// `events` are the shielded-pool events of one Solana transaction, as
+    /// an indexer lists them by signature, and `public` its public
+    /// settlement legs, as its events publish them.
+    ///
+    /// [`History::entries`] needs the UTXOs a transaction spent, which come
+    /// from the wallet's earlier transactions. A wallet that sent this one
+    /// knows what it spent without them: it opens every confidential output
+    /// with the transaction viewing key ([`decrypt_sent`]), and a transact
+    /// balances its inputs and public deposits against its outputs and public
+    /// withdrawals. A merge gives back exactly what it spent. Otherwise the
+    /// wallet spent nothing here and only receives.
+    pub fn read<K: ShieldedKeys + ?Sized>(
+        shielded_keys: &K,
+        events: &[ShieldedTransaction],
+        public: &[SplTransfer],
+        assets: &AssetRegistry,
+    ) -> Result<Self, TransactionError> {
+        let Some(first) = events.first() else {
+            return Ok(Self::default());
+        };
+        let owned = verify_owned(shielded_keys, &decrypt(shielded_keys, events, assets)?)?;
+        let mut detail = Self {
+            unknown_asset_ids: owned.unknown_asset_ids,
+            unknown_mints: owned.unknown_mints,
+            ..Self::default()
+        };
+        let mut change = BalanceChange {
+            slot: first.slot,
+            deposit: events.iter().any(|tx| tx.proofless),
+            ..BalanceChange::default()
+        };
+        for utxo in &owned.utxos {
+            add(&mut change.received, utxo);
+        }
+        let mut sender = false;
+        for tx in events {
+            if let Some(sent) = decrypt_sent(shielded_keys, tx, assets)? {
+                sender = true;
+                detail.sent.extend(sent.outputs);
+                detail.unknown_asset_ids.extend(sent.unknown_asset_ids);
+            }
+        }
+        if sender {
+            let mut spent = change.received.clone();
+            for output in detail.sent.iter().filter(|output| !output.owned) {
+                change.pays_another = true;
+                let amount = spent.entry(output.asset.asset).or_default();
+                *amount = amount.saturating_add(output.amount);
+            }
+            for leg in public {
+                let mint = leg.asset.map_or(SOL_MINT, Address::new_from_array);
+                let amount = spent.entry(mint).or_default();
+                *amount = if leg.is_deposit {
+                    amount.saturating_sub(leg.amount)
+                } else {
+                    amount.saturating_add(leg.amount)
+                };
+            }
+            change.spent = spent;
+        } else if events
+            .iter()
+            .any(|tx| tx.may_be_merge() && !tx.nullifiers.is_empty())
+        {
+            change.spent = change.received.clone();
+        }
+        detail.entries = change.entries(first.tx_signature).collect();
+        Ok(detail)
     }
 }
 

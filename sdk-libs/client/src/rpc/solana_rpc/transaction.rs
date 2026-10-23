@@ -6,7 +6,11 @@ use solana_transaction_status_client_types::{
     option_serializer::OptionSerializer, EncodedConfirmedTransactionWithStatusMeta,
     EncodedTransaction, UiCompiledInstruction, UiInstruction, UiLoadedAddresses, UiMessage,
 };
-use zolana_event_parser::{InstructionGroup, ParsedInstruction};
+use zolana_event::{EventKind, SplTransfer};
+use zolana_event_parser::{
+    event_kind_from_indexed, general_event_from_indexed, indexed_events_from_instruction_groups,
+    InstructionGroup, ParsedInstruction,
+};
 use zolana_interface::{
     instruction::{
         instruction_data::transact::{fetch_tag, TransactIxData},
@@ -50,6 +54,29 @@ pub fn transact_output_view_tags_from_instruction_groups(
     Err(ClientError::Rpc(
         "confirmed transaction has no shielded-pool TRANSACT instruction".into(),
     ))
+}
+
+/// The public settlement legs of the shielded-pool deposits and transacts in
+/// `groups`, rebuilt from their events as an indexer rebuilds them: the
+/// amount and mint each one took into the pool or paid out of it, in event
+/// and leg order. A merge settles nothing publicly.
+pub fn public_transfers_from_instruction_groups(
+    groups: &ConfirmedInstructionGroups,
+) -> Result<Vec<SplTransfer>, ClientError> {
+    let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
+    let mut transfers = Vec::new();
+    for event in indexed_events_from_instruction_groups(program_id, &groups.groups) {
+        if !matches!(
+            event_kind_from_indexed(&event),
+            Some(EventKind::Deposit | EventKind::Transact)
+        ) {
+            continue;
+        }
+        let general = general_event_from_indexed(&event)
+            .map_err(|err| ClientError::Rpc(format!("rebuild a shielded-pool event: {err:?}")))?;
+        transfers.extend(general.spl_transfers.iter().cloned());
+    }
+    Ok(transfers)
 }
 
 /// Returns the output `view_tag`s if `instruction` is a `TRANSACT` call to
