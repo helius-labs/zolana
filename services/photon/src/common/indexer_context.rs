@@ -4,8 +4,8 @@ use crate::{
     migration::Expr,
 };
 use sea_orm::{
-    ColumnTrait, DatabaseConnection, EntityTrait, FromQueryResult, QueryFilter, QueryOrder,
-    QuerySelect, Select,
+    ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, FromQueryResult, QueryFilter,
+    QueryOrder, QuerySelect, Select,
 };
 
 use zolana_indexer_api::Context;
@@ -35,7 +35,7 @@ fn latest_block() -> Select<blocks::Entity> {
         .order_by_desc(blocks::Column::Slot)
 }
 
-pub async fn extract(conn: &DatabaseConnection) -> Result<Context, PhotonApiError> {
+pub async fn extract<C: ConnectionTrait>(conn: &C) -> Result<Context, PhotonApiError> {
     let context = latest_block()
         .into_model::<ContextModel>()
         .one(conn)
@@ -64,8 +64,8 @@ pub async fn extract(conn: &DatabaseConnection) -> Result<Context, PhotonApiErro
 // output tree, so it has to stay current. Index `create_tree` and `pause_tree`
 // as they land instead of only scanning tree accounts at startup, and skip a
 // tree whose UTXO tree is full, which needs the UTXO tree's `next_index`.
-pub async fn newest_unpaused_tree_id(
-    conn: &DatabaseConnection,
+pub async fn newest_unpaused_tree_id<C: ConnectionTrait>(
+    conn: &C,
 ) -> Result<Option<u16>, PhotonApiError> {
     let model = tree_metadata::Entity::find()
         .select_only()

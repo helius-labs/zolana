@@ -1,3 +1,4 @@
+import { transactionItems } from "../../test/helpers/pages.js";
 import { describe, expect, it, vi } from "vitest";
 
 import { treeAddress } from "../../src/interface/pda/index.js";
@@ -133,9 +134,9 @@ describe("transport configuration", () => {
     const injected = vi.fn<typeof globalThis.fetch>(() =>
       Promise.resolve(
         success({
-          context: { blockTime: 0, slot: 1 },
-          transactions: [],
-          nextCursor: "Ag==",
+          context: { blockTime: 0, slot: 9 },
+          items: transactionItems([]),
+          paginationToken: null,
         }),
       ),
     );
@@ -143,17 +144,17 @@ describe("transport configuration", () => {
 
     const response = await api.getShieldedTransactionsByNullifiers({
       nullifiers: [HASH],
-      cursor: "AQ==",
+      paginationToken: `1:${7n}:${SIGNATURE}`,
       limit: 1000n,
     } as never);
 
-    expect(response.nextCursor).toBe("Ag==");
+    expect(response.paginationToken).toBeNull();
     expect(String(injected.mock.calls[0]?.[0])).toBe(
       "https://rpc.example.test/getShieldedTransactionsByNullifiers",
     );
     expect(JSON.parse(String(injected.mock.calls[0]?.[1]?.body))).toMatchObject({
       method: "getShieldedTransactionsByNullifiers",
-      params: { nullifiers: [HASH], cursor: "AQ==", limit: 1000 },
+      params: { nullifiers: [HASH], paginationToken: `1:${7}:${SIGNATURE}`, limit: 1000 },
     });
   });
 
@@ -325,11 +326,11 @@ describe("integers past the safe-integer bound", () => {
 
   it("does not rewrite a digit run inside a string payload", async () => {
     const payload = "99999999999999999999";
-    const body = `{"id":"test-account","jsonrpc":"2.0","result":{"context":{"blockTime":0,"slot":1},"matches":[{"slot":0,"txSignature":"${SIGNATURE}","outputSlot":{"viewTag":"${HASH}","outputContext":{"hash":"${HASH}","tree":"${treeAddress(0)}","treeId":0,"leafIndex":0},"payload":"${payload}"}}]}}`;
+    const body = `{"id":"test-account","jsonrpc":"2.0","result":{"context":{"blockTime":0,"slot":1},"items":[{"slot":0,"signature":"${SIGNATURE}","outputs":[{"slot":0,"txSignature":"${SIGNATURE}","outputSlot":{"viewTag":"${HASH}","outputContext":{"hash":"${HASH}","tree":"${treeAddress(0)}","treeId":0,"leafIndex":0},"payload":"${payload}"}}]}],"paginationToken":null}}`;
     const api = respondWith(body);
 
     const response = await api.getEncryptedUtxosByTags({ tags: [HASH] } as never);
 
-    expect(response.matches[0]?.outputSlot.payload).toBe(payload);
+    expect(response.items.flatMap((item) => item.outputs)[0]?.outputSlot.payload).toBe(payload);
   });
 });

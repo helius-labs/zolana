@@ -22,7 +22,7 @@ use zolana_transaction::{
 
 use super::authority::{SyncWalletAuthority, WalletSyncMaterial};
 use super::state::{
-    CursorStream, PrivateTransaction, PrivateTransactionDirection, PrivateTransactionId,
+    CheckpointStream, PrivateTransaction, PrivateTransactionDirection, PrivateTransactionId,
     PrivateTransactionKind, PrivateTransactionStatus, SyncReport, ViewingKeyEntry, Wallet,
     DEFAULT_TAG_WINDOW, SENDER_HISTORY_ROW_BASE,
 };
@@ -1184,8 +1184,8 @@ impl Wallet {
         );
         // A spent nullifier is never queried again, so its watermark is dead
         // weight.
-        self.cursors.retain(|stream, _| match stream {
-            CursorStream::Nullifiers(nullifier) => !self.nullifiers.contains(nullifier),
+        self.checkpoints.retain(|stream, _| match stream {
+            CheckpointStream::Nullifiers(nullifier) => !self.nullifiers.contains(nullifier),
             _ => true,
         });
         self.transactions.sort_by(|a, b| {

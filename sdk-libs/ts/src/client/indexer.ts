@@ -1,9 +1,11 @@
+import { checkedHistoryFilters } from "../interface/page.js";
+import { checkedPaginationToken } from "../interface/pagination-token.js";
 import { KeypairError } from "../keypair/error.js";
 import { X25519PublicKey } from "../keypair/x25519.js";
 import { isAddress } from "@solana/kit";
 
 import { ZolanaApi, ApiError } from "../api/index.js";
-import { base64String, hash, hashBytes, limit } from "../indexer/scalars.js";
+import { hash, hashBytes, limit } from "../indexer/scalars.js";
 import type {
   EncryptedUtxoMatch as WireEncryptedUtxoMatch,
   GetEncryptedUtxosByTagsResponse as WireGetEncryptedUtxosByTagsResponse,
@@ -21,6 +23,8 @@ import type {
   Bytes16,
   Bytes32,
   Bytes33,
+  HistoryFilters,
+  PaginationToken,
   RequestContext,
   Signature,
 } from "../interface/types.js";
@@ -82,8 +86,7 @@ export class ZolanaIndexer {
           {
             tags: owned.tags.map((tag) => hash(tag)),
             ...(owned.ringProgramId === undefined ? {} : { ringProgramId: owned.ringProgramId }),
-            ...(owned.cursor === undefined ? {} : { cursor: base64String(owned.cursor) }),
-            ...(owned.limit === undefined ? {} : { limit: limit(BigInt(owned.limit)) }),
+            ...wirePageControls(owned),
           },
           context,
         );
@@ -107,8 +110,7 @@ export class ZolanaIndexer {
           {
             tags: owned.tags.map((tag) => hash(tag)),
             ...(owned.ringProgramId === undefined ? {} : { ringProgramId: owned.ringProgramId }),
-            ...(owned.cursor === undefined ? {} : { cursor: base64String(owned.cursor) }),
-            ...(owned.limit === undefined ? {} : { limit: limit(BigInt(owned.limit)) }),
+            ...wirePageControls(owned),
           },
           context,
         );
@@ -131,8 +133,7 @@ export class ZolanaIndexer {
         const response = await this.#api.getShieldedTransactionsByNullifiers(
           {
             nullifiers: owned.nullifiers.map((nullifier) => hash(nullifier)),
-            ...(owned.cursor === undefined ? {} : { cursor: base64String(owned.cursor) }),
-            ...(owned.limit === undefined ? {} : { limit: limit(BigInt(owned.limit)) }),
+            ...wirePageControls(owned),
           },
           context,
         );
@@ -404,26 +405,57 @@ function convertRegistryRecord(
 }
 
 function copyTagRequest(request: GetByTagsRequest): GetByTagsRequest {
-  if (request.cursor !== undefined && !(request.cursor instanceof Uint8Array)) {
-    throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "cursor" } });
-  }
   return Object.freeze({
     tags: copyFixedBytes(request.tags, 32, "tags") as readonly Bytes32[],
     ...(request.ringProgramId === undefined ? {} : { ringProgramId: request.ringProgramId }),
-    ...(request.cursor === undefined ? {} : { cursor: new Uint8Array(request.cursor) }),
-    ...(request.limit === undefined ? {} : { limit: checkedPageLimit(request.limit) }),
+    ...copyPageControls(request),
   });
 }
 
 function copyNullifierRequest(request: GetByNullifiersRequest): GetByNullifiersRequest {
-  if (request.cursor !== undefined && !(request.cursor instanceof Uint8Array)) {
-    throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "cursor" } });
-  }
   return Object.freeze({
     nullifiers: copyFixedBytes(request.nullifiers, 32, "nullifiers") as readonly Bytes32[],
-    ...(request.cursor === undefined ? {} : { cursor: new Uint8Array(request.cursor) }),
-    ...(request.limit === undefined ? {} : { limit: checkedPageLimit(request.limit) }),
+    ...copyPageControls(request),
   });
+}
+
+interface PageControls {
+  readonly paginationToken?: PaginationToken;
+  readonly limit?: number;
+  readonly filters?: HistoryFilters;
+  readonly minContextSlot?: bigint;
+}
+
+function copyPageControls(request: PageControls): PageControls {
+  const paginationToken = copiedPaginationToken(request.paginationToken);
+  const filters = checkedHistoryFilters(
+    request.filters,
+    (field) => new ClientError("CLIENT_INVALID_CONFIG", { details: { field } }),
+  );
+  return {
+    ...(paginationToken === undefined ? {} : { paginationToken }),
+    ...(request.limit === undefined ? {} : { limit: checkedPageLimit(request.limit) }),
+    ...(filters === undefined ? {} : { filters }),
+    ...(request.minContextSlot === undefined ? {} : { minContextSlot: request.minContextSlot }),
+  };
+}
+
+function wirePageControls(owned: PageControls) {
+  return {
+    ...(owned.paginationToken === undefined ? {} : { paginationToken: owned.paginationToken }),
+    ...(owned.limit === undefined ? {} : { limit: limit(BigInt(owned.limit)) }),
+    ...(owned.filters === undefined ? {} : { filters: owned.filters }),
+    ...(owned.minContextSlot === undefined ? {} : { minContextSlot: owned.minContextSlot }),
+  };
+}
+
+function copiedPaginationToken(token: PaginationToken | undefined): PaginationToken | undefined {
+  if (token === undefined) return undefined;
+  try {
+    return checkedPaginationToken(token);
+  } catch {
+    throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "paginationToken" } });
+  }
 }
 
 function checkedPageLimit(value: number): number {
@@ -495,17 +527,20 @@ function convertEncryptedUtxosResponse(
 ): GetEncryptedUtxosByTagsResponse {
   return Object.freeze({
     context: Object.freeze({ blockTime: response.context.blockTime, slot: response.context.slot }),
-    matches: Object.freeze(
-      response.matches.map((item, index) =>
-        convertEncryptedUtxoMatch(item, method, `$.matches[${String(index)}]`),
+    items: Object.freeze(
+      response.items.map((group, index) =>
+        Object.freeze({
+          slot: group.slot,
+          signature: group.signature,
+          outputs: Object.freeze(
+            group.outputs.map((item, outputIndex) =>
+              convertEncryptedUtxoMatch(item, method, `$.items[${index}].outputs[${outputIndex}]`),
+            ),
+          ),
+        }),
       ),
     ),
-    ...(response.nextCursor === undefined
-      ? {}
-      : { nextCursor: decodeBase64(response.nextCursor, "nextCursor") }),
-    ...(response.scannedThrough === undefined
-      ? {}
-      : { scannedThrough: decodeBase64(response.scannedThrough, "scannedThrough") }),
+    paginationToken: response.paginationToken,
   });
 }
 
@@ -533,17 +568,20 @@ function convertShieldedTransactionsResponse(
 ): GetShieldedTransactionsByTagsResponse {
   return Object.freeze({
     context: Object.freeze({ blockTime: response.context.blockTime, slot: response.context.slot }),
-    transactions: Object.freeze(
-      response.transactions.map((item, index) =>
-        convertShieldedTransaction(item, method, `$.transactions[${String(index)}]`),
+    items: Object.freeze(
+      response.items.map((group, index) =>
+        Object.freeze({
+          slot: group.slot,
+          signature: group.signature,
+          events: Object.freeze(
+            group.events.map((item, eventIndex) =>
+              convertShieldedTransaction(item, method, `$.items[${index}].events[${eventIndex}]`),
+            ),
+          ),
+        }),
       ),
     ),
-    ...(response.nextCursor === undefined
-      ? {}
-      : { nextCursor: decodeBase64(response.nextCursor, "nextCursor") }),
-    ...(response.scannedThrough === undefined
-      ? {}
-      : { scannedThrough: decodeBase64(response.scannedThrough, "scannedThrough") }),
+    paginationToken: response.paginationToken,
   });
 }
 
@@ -708,6 +746,12 @@ function wrapIndexer(cause: unknown, method: string): ClientError {
   if (isClientError(cause)) return cause;
   if (cause instanceof ApiError && cause.code === "API_JSON_RPC") {
     const rpcCode = cause.details?.["rpcCode"];
+    if (rpcCode === -32016) {
+      return new ClientError("CLIENT_INDEXER", {
+        details: { method, retryable: true },
+        cause,
+      });
+    }
     const code = typeof rpcCode === "number" ? RING_PROJECTION_CODES.get(rpcCode) : undefined;
     if (code !== undefined) return new ClientError(code, { details: { method } });
   }

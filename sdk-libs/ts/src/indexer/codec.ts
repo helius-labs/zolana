@@ -1,3 +1,5 @@
+import { SLOT_BOUNDS, checkedHistoryFilters, validatePage } from "../interface/page.js";
+import { checkedPaginationToken } from "../interface/pagination-token.js";
 import { treeAddress } from "../interface/pda/index.js";
 import type {
   EncryptedUtxoMatch,
@@ -22,10 +24,13 @@ import type {
   GetRingSpendRecordResponse,
   GetUserRecordsRequest,
   GetUserRecordsResponse,
+  HistoryFilters,
+  PaginationToken,
   RingMemberProofRequest,
   RingMemberRequest,
   RingKeyRegistryEntry,
   RingKeyRegistryRegisterProof,
+  SlotFilter,
   UserRecord,
 } from "./types.js";
 import { MAX_USER_RECORD_OWNERS } from "../interface/indexer-limits.js";
@@ -377,6 +382,78 @@ function optional<T>(
   return value === undefined || value === null ? undefined : decode(value, path);
 }
 
+function paginationToken(value: unknown, path: string): PaginationToken {
+  try {
+    return checkedPaginationToken(value);
+  } catch {
+    return schemaFailure("INDEXER_SCHEMA_INVALID_TYPE", path, "a pagination token");
+  }
+}
+
+function historyFilters(value: unknown, path: string): HistoryFilters {
+  const record = object(value, path, ["slot"]);
+  const slot = optional(record["slot"], `${path}.slot`, slotFilter);
+  return slot === undefined ? {} : { slot };
+}
+
+function slotFilter(value: unknown, path: string): SlotFilter {
+  const record = object(value, path, SLOT_BOUNDS);
+  const filter: { -readonly [K in keyof SlotFilter]: SlotFilter[K] } = {};
+  for (const bound of SLOT_BOUNDS) {
+    const slot = optional(record[bound], `${path}.${bound}`, u64);
+    if (slot !== undefined) filter[bound] = slot;
+  }
+  return filter;
+}
+
+/** Unknown keys are refused, a filter must never be dropped in silence. */
+function encodeHistoryFilters(value: unknown, path: string): WireObject | undefined {
+  const slot = checkedHistoryFilters(value, (field) =>
+    schemaFailure("INDEXER_SCHEMA_INVALID_TYPE", `$.${field}`, "known slot bounds"),
+  )?.slot;
+  if (slot === undefined) return undefined;
+  const bounds: WireObject = {};
+  for (const bound of SLOT_BOUNDS) {
+    const bigint = slot[bound];
+    if (bigint !== undefined) bounds[bound] = toU64(bigint, `${path}.slot.${bound}`);
+  }
+  return Object.keys(bounds).length === 0 ? undefined : { slot: bounds };
+}
+
+function pageControls(
+  record: WireObject,
+): Pick<GetRingsByTagsRequest, "paginationToken" | "limit" | "filters" | "minContextSlot"> {
+  const token = optional(record["paginationToken"], "$.paginationToken", paginationToken);
+  const filters = optional(record["filters"], "$.filters", historyFilters);
+  const minContextSlot = optional(record["minContextSlot"], "$.minContextSlot", u64);
+  const pageLimit =
+    record["limit"] === undefined || record["limit"] === null
+      ? undefined
+      : checkedPageLimit(record["limit"], "$.limit");
+  return {
+    ...(token === undefined ? {} : { paginationToken: token }),
+    ...(pageLimit === undefined ? {} : { limit: pageLimit }),
+    ...(filters?.slot === undefined ? {} : { filters }),
+    ...(minContextSlot === undefined ? {} : { minContextSlot }),
+  };
+}
+
+function encodePageControls(
+  value: Pick<GetRingsByTagsRequest, "paginationToken" | "limit" | "filters" | "minContextSlot">,
+): WireObject {
+  const filters = encodeHistoryFilters(value.filters, "$.filters");
+  return {
+    ...(value.paginationToken === undefined
+      ? {}
+      : { paginationToken: paginationToken(value.paginationToken, "$.paginationToken") }),
+    ...(value.limit === undefined ? {} : { limit: toU64(value.limit, "$.limit") }),
+    ...(filters === undefined ? {} : { filters }),
+    ...(value.minContextSlot === undefined
+      ? {}
+      : { minContextSlot: toU64(value.minContextSlot, "$.minContextSlot") }),
+  };
+}
+
 function context(value: unknown, path: string): IndexerContext {
   // `object` rejects any key not listed here, so a new wire field must be added
   // in the same release that starts sending it.
@@ -539,21 +616,18 @@ function nonInclusionProof(value: unknown, path: string): NonInclusionProof {
   };
 }
 
+const PAGE_CONTROLS = ["paginationToken", "limit", "filters", "minContextSlot"] as const;
+
 function decodeRingsByTagsRequest(value: unknown): GetRingsByTagsRequest {
-  const record = object(value, "$", ["tags", "cursor", "limit", "ringProgramId"]);
-  const cursor = optional(record["cursor"], "$.cursor", checkedBase64);
-  const pageLimit =
-    record["limit"] === undefined || record["limit"] === null
-      ? undefined
-      : checkedPageLimit(record["limit"], "$.limit");
+  const record = object(value, "$", ["tags", "ringProgramId", ...PAGE_CONTROLS]);
+  const controls = pageControls(record);
   const ringProgramId = optional(record["ringProgramId"], "$.ringProgramId", checkedAddress);
   const tags = array(record["tags"], "$.tags", checkedHash);
   if (tags.length === 0 && ringProgramId === undefined)
     schemaFailure("INDEXER_SCHEMA_INVALID_TYPE", "$.tags", "nonempty tags or ringProgramId");
   return {
     tags,
-    ...(cursor === undefined ? {} : { cursor }),
-    ...(pageLimit === undefined ? {} : { limit: pageLimit }),
+    ...controls,
     ...(ringProgramId === undefined ? {} : { ringProgramId }),
   };
 }
@@ -561,42 +635,32 @@ function decodeRingsByTagsRequest(value: unknown): GetRingsByTagsRequest {
 export function encodeRingsByTagsRequest(value: GetRingsByTagsRequest): WireObject {
   const decoded = decodeRingsByTagsRequest({
     tags: value.tags,
-    ...(value.cursor === undefined ? {} : { cursor: value.cursor }),
-    ...(value.limit === undefined ? {} : { limit: toU64(value.limit, "$.limit") }),
+    ...encodePageControls(value),
     ...(value.ringProgramId === undefined ? {} : { ringProgramId: value.ringProgramId }),
   });
   return {
     tags: [...decoded.tags],
-    ...(decoded.cursor === undefined ? {} : { cursor: decoded.cursor }),
-    ...(decoded.limit === undefined ? {} : { limit: Number(decoded.limit) }),
+    ...encodePageControls(decoded),
     ...(decoded.ringProgramId === undefined ? {} : { ringProgramId: decoded.ringProgramId }),
   };
 }
 
 function decodeRingsByNullifiersRequest(value: unknown): GetRingsByNullifiersRequest {
-  const record = object(value, "$", ["nullifiers", "cursor", "limit"]);
-  const cursor = optional(record["cursor"], "$.cursor", checkedBase64);
-  const pageLimit =
-    record["limit"] === undefined || record["limit"] === null
-      ? undefined
-      : checkedPageLimit(record["limit"], "$.limit");
+  const record = object(value, "$", ["nullifiers", ...PAGE_CONTROLS]);
   return {
     nullifiers: array(record["nullifiers"], "$.nullifiers", checkedHash),
-    ...(cursor === undefined ? {} : { cursor }),
-    ...(pageLimit === undefined ? {} : { limit: pageLimit }),
+    ...pageControls(record),
   };
 }
 
 export function encodeRingsByNullifiersRequest(value: GetRingsByNullifiersRequest): WireObject {
   const decoded = decodeRingsByNullifiersRequest({
     nullifiers: value.nullifiers,
-    ...(value.cursor === undefined ? {} : { cursor: value.cursor }),
-    ...(value.limit === undefined ? {} : { limit: toU64(value.limit, "$.limit") }),
+    ...encodePageControls(value),
   });
   return {
     nullifiers: [...decoded.nullifiers],
-    ...(decoded.cursor === undefined ? {} : { cursor: decoded.cursor }),
-    ...(decoded.limit === undefined ? {} : { limit: Number(decoded.limit) }),
+    ...encodePageControls(decoded),
   };
 }
 
@@ -608,45 +672,84 @@ export function encodeShieldedTransactionsBySignatureRequest(
   };
 }
 
-export function decodeEncryptedUtxosResponse(value: unknown): GetEncryptedUtxosByTagsResponse {
-  const record = object(value, "$", [
-    "context",
-    "matches",
-    "nextCursor",
-    "scannedThrough",
-    "outputTreeId",
-  ]);
-  const nextCursor = optional(record["nextCursor"], "$.nextCursor", checkedBase64);
-  const scannedThrough = optional(record["scannedThrough"], "$.scannedThrough", checkedBase64);
+function decodePage<T>(
+  value: unknown,
+  child: "events" | "outputs",
+  decode: (v: unknown, p: string) => T,
+) {
+  const record = object(value, "$", ["context", "items", "paginationToken", "outputTreeId"]);
   const outputTreeId = optional(record["outputTreeId"], "$.outputTreeId", u16);
+  const pageContext = context(record["context"], "$.context");
+  const token =
+    record["paginationToken"] === null
+      ? null
+      : paginationToken(record["paginationToken"], "$.paginationToken");
+  const items = array(record["items"], "$.items", (v, p) => {
+    const row = object(v, p, ["slot", "signature", child]);
+    const slot = u64(row["slot"], `${p}.slot`);
+    const signature = checkedSignature(row["signature"], `${p}.signature`);
+    const entries = array(row[child], `${p}.${child}`, decode);
+    if (entries.length === 0)
+      schemaFailure("INDEXER_SCHEMA_INVALID_TYPE", p, "a nonempty transaction");
+    return { slot, signature, entries };
+  });
+  try {
+    validatePage({ context: pageContext, items, paginationToken: token });
+  } catch {
+    schemaFailure(
+      "INDEXER_SCHEMA_INVALID_TYPE",
+      "$.paginationToken",
+      "a consistent pagination token",
+    );
+  }
   return {
     ...(outputTreeId === undefined ? {} : { outputTreeId }),
-    context: context(record["context"], "$.context"),
-    matches: array(record["matches"], "$.matches", encryptedUtxoMatch),
-    ...(nextCursor === undefined ? {} : { nextCursor }),
-    ...(scannedThrough === undefined ? {} : { scannedThrough }),
+    context: pageContext,
+    items,
+    paginationToken: token,
+  };
+}
+
+export function decodeEncryptedUtxosResponse(value: unknown): GetEncryptedUtxosByTagsResponse {
+  const page = decodePage(value, "outputs", encryptedUtxoMatch);
+  return {
+    ...page,
+    items: page.items.map(({ entries: outputs, ...header }) => {
+      if (
+        outputs.some(
+          (output) => output.slot !== header.slot || output.txSignature !== header.signature,
+        )
+      )
+        schemaFailure("INDEXER_SCHEMA_INVALID_TYPE", "$.items", "matching transaction headers");
+      return { ...header, outputs };
+    }),
   };
 }
 
 export function decodeShieldedTransactionsResponse(
   value: unknown,
 ): GetShieldedTransactionsByTagsResponse {
-  const record = object(value, "$", [
-    "context",
-    "transactions",
-    "nextCursor",
-    "scannedThrough",
-    "outputTreeId",
-  ]);
-  const nextCursor = optional(record["nextCursor"], "$.nextCursor", checkedBase64);
-  const scannedThrough = optional(record["scannedThrough"], "$.scannedThrough", checkedBase64);
-  const outputTreeId = optional(record["outputTreeId"], "$.outputTreeId", u16);
+  const page = decodePage(value, "events", indexedTransaction);
   return {
-    ...(outputTreeId === undefined ? {} : { outputTreeId }),
-    context: context(record["context"], "$.context"),
-    transactions: array(record["transactions"], "$.transactions", indexedTransaction),
-    ...(nextCursor === undefined ? {} : { nextCursor }),
-    ...(scannedThrough === undefined ? {} : { scannedThrough }),
+    ...page,
+    items: page.items.map(({ entries: events, ...header }) => {
+      let previous = -1;
+      for (const event of events) {
+        if (
+          event.slot !== header.slot ||
+          event.txSignature !== header.signature ||
+          event.eventIndex === undefined ||
+          event.eventIndex <= previous
+        )
+          schemaFailure(
+            "INDEXER_SCHEMA_INVALID_TYPE",
+            "$.items",
+            "ordered events matching the transaction header",
+          );
+        previous = event.eventIndex;
+      }
+      return { ...header, events };
+    }),
   };
 }
 

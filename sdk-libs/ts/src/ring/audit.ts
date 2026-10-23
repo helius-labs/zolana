@@ -1,3 +1,5 @@
+import { nextPageToken } from "../interface/page.js";
+import type { PaginationToken } from "../client/rpc.js";
 import { X25519PublicKey, X25519Keypair } from "../keypair/x25519.js";
 import { SOLANA_OWNER_TAG, hashBytes, initializePoseidon } from "../hasher/index.js";
 
@@ -109,7 +111,8 @@ export interface AuditedRingTransaction {
 
 export interface RingAuditPage {
   readonly transactions: readonly AuditedRingTransaction[];
-  readonly nextCursor?: Uint8Array;
+  /** Present only when `maxPages` stopped the scan short of the history's end, pass it back to continue. */
+  readonly paginationToken?: PaginationToken;
 }
 
 const DEFAULT_PAGE_SIZE = 100;
@@ -331,7 +334,7 @@ export async function auditRing(
     /** The ring's on-chain mode, `"off"` when omitted. */
     mode?: RingMode;
     origin?: TransactionOrigin;
-    cursor?: Uint8Array;
+    paginationToken?: PaginationToken;
     pageSize?: number;
     maxPages?: number;
   }>,
@@ -346,18 +349,23 @@ export async function auditRing(
   );
   const transactions: AuditedRingTransaction[] = [];
   let assetsRefreshed = false;
-  let cursor = input.cursor;
+  let token = input.paginationToken;
   for (let page = 0; page < maxPages; page++) {
     const response = await input.client.getShieldedTransactionsByTags(
       {
         tags: [viewTag],
         limit: pageSize,
-        ...(cursor === undefined ? {} : { cursor }),
+        ...(token === undefined ? {} : { paginationToken: token }),
       },
       undefined,
       context,
     );
-    for (const transaction of response.transactions) {
+    const next = nextPageToken(
+      response,
+      token,
+      () => new RingError("RING_RPC", { details: { reason: "invalid ring scan token" } }),
+    );
+    for (const transaction of response.items.flatMap((item) => item.events)) {
       if (transaction.eventIndex === undefined) {
         throw new RingError("RING_RPC", { details: { reason: "missing event index" } });
       }
@@ -390,16 +398,12 @@ export async function auditRing(
         transactions.push(auditRingTransaction(audit));
       }
     }
-    const next = response.nextCursor;
-    if (next === undefined) return Object.freeze({ transactions: Object.freeze(transactions) });
-    if (cursor !== undefined && equal(cursor, next)) {
-      throw new RingError("RING_RPC", { details: { reason: "ring scan cursor did not advance" } });
-    }
-    cursor = next;
+    if (next === null) return Object.freeze({ transactions: Object.freeze(transactions) });
+    token = next;
   }
   return Object.freeze({
     transactions: Object.freeze(transactions),
-    ...(cursor === undefined ? {} : { nextCursor: cursor }),
+    ...(token === undefined ? {} : { paginationToken: token }),
   });
 }
 

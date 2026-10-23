@@ -47,7 +47,7 @@ pub enum AuditError {
         asset_id: u64,
         source: TransactionError,
     },
-    #[error("ring scan cursor did not advance")]
+    #[error("ring scan pagination token did not advance")]
     CursorNotAdvanced,
     #[error("ring transaction event index is unavailable")]
     MissingEventIndex,

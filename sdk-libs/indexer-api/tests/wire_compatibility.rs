@@ -14,8 +14,8 @@ use zolana_indexer_api::{
 fn a_read_response_tolerates_a_field_it_does_not_know() {
     let page = serde_json::json!({
         "context": { "blockTime": 3, "slot": 1, "somethingLater": 9 },
-        "matches": [],
-        "nextCursor": null,
+        "items": [],
+        "paginationToken": null,
         "aFieldFromAFutureRelease": { "nested": true },
     });
     let response: GetEncryptedUtxosByTagsResponse =
@@ -29,8 +29,8 @@ fn a_read_response_tolerates_a_field_it_does_not_know() {
 fn a_read_response_survives_an_indexer_that_omits_the_append_target() {
     let page = serde_json::json!({
         "context": { "blockTime": 3, "slot": 1 },
-        "transactions": [],
-        "nextCursor": null,
+        "items": [],
+        "paginationToken": null,
     });
     let response: GetShieldedTransactionsByTagsResponse =
         serde_json::from_value(page).expect("an absent append target is readable");

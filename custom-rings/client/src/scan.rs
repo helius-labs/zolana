@@ -21,7 +21,7 @@ use std::{
 use zolana_keypair::{X25519Keypair, X25519Pubkey};
 
 use solana_signature::Signature;
-use zolana_client::{IndexerRpcConfig, Rpc};
+use zolana_client::{HistoryFilters, IndexerRpcConfig, PaginationToken, Rpc};
 use zolana_transaction::{AssetRegistry, ShieldedTransaction};
 
 use crate::{
@@ -44,12 +44,15 @@ impl<I, O> Copy for RingEnvironment<'_, I, O> {}
 
 pub struct RingScanPage {
     pub transactions: Vec<ShieldedTransaction>,
-    pub next_cursor: Option<Vec<u8>>,
+    /// Where to resume when the page budget ran out, `None` once no more
+    /// results remain.
+    pub pagination_token: Option<PaginationToken>,
 }
 
 pub struct AuditedPage {
     pub transactions: Vec<AuditedTransaction>,
-    pub next_cursor: Option<Vec<u8>>,
+    /// As on [`RingScanPage`].
+    pub pagination_token: Option<PaginationToken>,
 }
 
 #[must_use = "run or discard the scan explicitly"]
@@ -60,7 +63,7 @@ pub struct AuditedPage {
 pub struct RingScan<'a> {
     ring_program_id: solana_address::Address,
     auditor_key: &'a X25519Pubkey,
-    cursor: Option<Vec<u8>>,
+    pagination_token: Option<PaginationToken>,
     page_size: NonZeroU32,
     max_pages: NonZeroUsize,
     indexer_config: Option<IndexerRpcConfig>,
@@ -72,7 +75,7 @@ pub struct RingAudit<'a> {
     ring_program_id: solana_address::Address,
     auditor: &'a X25519Keypair,
     mode: RingMode,
-    cursor: Option<Vec<u8>>,
+    pagination_token: Option<PaginationToken>,
     page_size: NonZeroU32,
     max_pages: NonZeroUsize,
     indexer_config: Option<IndexerRpcConfig>,
@@ -92,7 +95,7 @@ impl<'a> RingScan<'a> {
         Self {
             ring_program_id,
             auditor_key,
-            cursor: None,
+            pagination_token: None,
             page_size: DEFAULT_PAGE_SIZE,
             max_pages: DEFAULT_MAX_PAGES,
             indexer_config: None,
@@ -100,8 +103,8 @@ impl<'a> RingScan<'a> {
     }
 
     #[must_use = "use the updated scan"]
-    pub fn with_cursor(mut self, cursor: Vec<u8>) -> Self {
-        self.cursor = Some(cursor);
+    pub fn with_pagination_token(mut self, token: PaginationToken) -> Self {
+        self.pagination_token = Some(token);
         self
     }
 
@@ -137,16 +140,20 @@ impl<'a> RingScan<'a> {
     ) -> Result<RingScanPage, AuditError> {
         let view_tag = auditor_view_tag(self.auditor_key);
         let mut transactions = Vec::new();
-        let mut cursor = self.cursor;
+        let mut token = self.pagination_token;
         let mut origins: HashMap<(Signature, u16), bool> = HashMap::new();
         for _ in 0..self.max_pages.get() {
             let page = env.indexer.get_shielded_transactions_by_tags(
                 vec![view_tag],
-                cursor.clone(),
+                token,
                 Some(self.page_size.get()),
+                HistoryFilters::default(),
                 self.indexer_config,
             )?;
-            for tx in page.transactions {
+            let next = page
+                .continuation(token)
+                .map_err(|_| AuditError::CursorNotAdvanced)?;
+            for tx in page.items.into_iter().flat_map(|item| item.events) {
                 if tx.ring_program_id != Some(self.ring_program_id) {
                     continue;
                 }
@@ -175,20 +182,17 @@ impl<'a> RingScan<'a> {
                     transactions.push(tx);
                 }
             }
-            let Some(next) = page.next_cursor else {
+            let Some(next) = next else {
                 return Ok(RingScanPage {
                     transactions,
-                    next_cursor: None,
+                    pagination_token: None,
                 });
             };
-            if cursor.as_ref() == Some(&next) {
-                return Err(AuditError::CursorNotAdvanced);
-            }
-            cursor = Some(next);
+            token = Some(next);
         }
         Ok(RingScanPage {
             transactions,
-            next_cursor: cursor,
+            pagination_token: token,
         })
     }
 }
@@ -199,7 +203,7 @@ impl<'a> RingAudit<'a> {
             ring_program_id,
             auditor,
             mode: RingMode::Off,
-            cursor: None,
+            pagination_token: None,
             page_size: DEFAULT_PAGE_SIZE,
             max_pages: DEFAULT_MAX_PAGES,
             indexer_config: None,
@@ -214,8 +218,8 @@ impl<'a> RingAudit<'a> {
     }
 
     #[must_use = "use the updated audit"]
-    pub fn with_cursor(mut self, cursor: Vec<u8>) -> Self {
-        self.cursor = Some(cursor);
+    pub fn with_pagination_token(mut self, token: PaginationToken) -> Self {
+        self.pagination_token = Some(token);
         self
     }
 
@@ -249,8 +253,8 @@ impl<'a> RingAudit<'a> {
             .with_page_size(self.page_size)
             .with_max_pages(self.max_pages)
             .indexer_config(self.indexer_config);
-        if let Some(cursor) = self.cursor {
-            scan = scan.with_cursor(cursor);
+        if let Some(token) = self.pagination_token {
+            scan = scan.with_pagination_token(token);
         }
         let page = scan.run(env)?;
         let transactions = page
@@ -267,7 +271,7 @@ impl<'a> RingAudit<'a> {
             .collect::<Result<_, _>>()?;
         Ok(AuditedPage {
             transactions,
-            next_cursor: page.next_cursor,
+            pagination_token: page.pagination_token,
         })
     }
 }

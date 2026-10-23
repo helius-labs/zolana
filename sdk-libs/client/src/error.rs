@@ -431,10 +431,13 @@ pub enum ClientError {
     #[error("indexer did not observe the transaction before the poll timeout")]
     IndexerTimeout,
 
-    /// The indexer answered a full page with the cursor it was given, so
-    /// paging on would read the same page forever.
-    #[error("indexer returned the cursor it was given; paging would not end")]
+    /// The indexer answered with a pagination token that does not advance
+    /// past the one it was given, so paging on would never end.
+    #[error("indexer returned a pagination token that does not advance; paging would not end")]
     IndexerCursorNotAdvanced,
+
+    #[error("minimum context slot has not been reached; highest indexed slot is {indexed}")]
+    IndexerMinimumContextSlot { indexed: u64 },
 
     #[error("indexer did not reach slot {required} within {attempts} attempts; highest indexed slot is {indexed}")]
     IndexerNotCaughtUp {

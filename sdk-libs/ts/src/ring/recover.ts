@@ -1,7 +1,9 @@
+import { nextPageToken } from "../interface/page.js";
 import { X25519Keypair } from "../keypair/x25519.js";
 import type { Address } from "@solana/kit";
 
 import type { IndexerReader } from "../client/ports.js";
+import type { PaginationToken } from "../client/rpc.js";
 import type { Bytes32, RequestContext } from "../interface/types.js";
 import { mergePaddedInputCount } from "../interface/constants.js";
 import { PAGE_LIMIT } from "../interface/indexer-limits.js";
@@ -105,7 +107,7 @@ export async function recoverRingMemberNotes(
     },
     context,
   );
-  if (page.nextCursor !== undefined) throw new RingError("RING_RECOVERY_INCOMPLETE");
+  if (page.paginationToken !== undefined) throw new RingError("RING_RECOVERY_INCOMPLETE");
   const treeIds = new Map<Address, TreeId>();
   // 2. Rebuild disclosed openings and retain unresolved commitments explicitly.
   const deposits = await recoverDeposits(input, origin, depositSource, treeIds, context);
@@ -270,19 +272,24 @@ async function recoverDeposits(
 ): Promise<{ unsupported: Bytes32[]; candidates: Candidate[] }> {
   const found = new Map<string, Bytes32>();
   const candidates = new Map<string, Candidate>();
-  let cursor: Uint8Array | undefined;
+  let token: PaginationToken | undefined;
   for (let page = 0; page < (input.maxPages ?? 32); page++) {
     const response = await input.client.getShieldedTransactionsByTags(
       {
         tags: [],
         ringProgramId: input.ringProgramId,
         limit: input.pageSize ?? 100,
-        ...(cursor === undefined ? {} : { cursor }),
+        ...(token === undefined ? {} : { paginationToken: token }),
       },
       undefined,
       context,
     );
-    for (const transaction of response.transactions) {
+    const next = nextPageToken(
+      response,
+      token,
+      () => new RingError("RING_RPC", { details: { reason: "invalid deposit scan token" } }),
+    );
+    for (const transaction of response.items.flatMap((item) => item.events)) {
       if (!transaction.proofless) continue;
       for (const [slotIndex, slot] of transaction.outputSlots.entries()) {
         let deposit;
@@ -370,13 +377,9 @@ async function recoverDeposits(
         }
       }
     }
-    if (response.scannedThrough !== undefined || response.nextCursor === undefined)
+    if (next === null)
       return { unsupported: [...found.values()], candidates: [...candidates.values()] };
-    if (cursor !== undefined && equal(cursor, response.nextCursor))
-      throw new RingError("RING_RPC", {
-        details: { reason: "deposit scan cursor did not advance" },
-      });
-    cursor = response.nextCursor;
+    token = next;
   }
   throw new RingError("RING_RECOVERY_INCOMPLETE");
 }
@@ -388,22 +391,23 @@ async function spendingTransactions(
   context?: RequestContext,
 ): Promise<readonly IndexedShieldedTransaction[]> {
   const transactions: IndexedShieldedTransaction[] = [];
-  let cursor: Uint8Array | undefined;
+  let token: PaginationToken | undefined;
   for (;;) {
     if (budget.remaining <= 0) throw new RingError("RING_RECOVERY_INCOMPLETE");
     budget.remaining--;
     const page = await client.getShieldedTransactionsByNullifiers(
-      { nullifiers, ...(cursor === undefined ? {} : { cursor }) },
+      { nullifiers, ...(token === undefined ? {} : { paginationToken: token }) },
       undefined,
       context,
     );
-    transactions.push(...page.transactions);
-    if (page.scannedThrough !== undefined || page.nextCursor === undefined) return transactions;
-    if (cursor !== undefined && equal(cursor, page.nextCursor))
-      throw new RingError("RING_RPC", {
-        details: { reason: "nullifier scan cursor did not advance" },
-      });
-    cursor = page.nextCursor;
+    const next = nextPageToken(
+      page,
+      token,
+      () => new RingError("RING_RPC", { details: { reason: "invalid nullifier scan token" } }),
+    );
+    transactions.push(...page.items.flatMap((item) => item.events));
+    if (next === null) return transactions;
+    token = next;
   }
 }
 

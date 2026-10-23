@@ -37,6 +37,7 @@ use zolana_indexer_api::{
     RpcMethod,
 };
 
+use zolana_indexer_api::PageRequest;
 pub use zolana_indexer_api::{
     Base64String, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
     GetMerkleProofsRequest, GetMerkleProofsResponse, GetNonInclusionProofsRequest,
@@ -46,11 +47,12 @@ pub use zolana_indexer_api::{
     GetRingsByNullifiersRequest, GetRingsByTagsRequest,
     GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureRequest,
     GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
-    GetUserRecordsRequest, GetUserRecordsResponse, Hash, IndexedShieldedTransaction, Limit,
-    MerkleContext, MerkleProof, NonInclusionProof, NullifierQueueElement, RingMemberProofRequest,
-    RingSpendRecord, RingSpendRecordRequest, RingsOutputContext, RingsOutputSlot,
-    SerializablePubkey, SerializableSignature, ShieldedTransaction, UserRecord,
-    MAX_USER_RECORD_OWNERS, PAGE_LIMIT,
+    GetUserRecordsRequest, GetUserRecordsResponse, Hash, HistoryFilters,
+    IndexedShieldedTransaction, Limit, MerkleContext, MerkleProof, NonInclusionProof,
+    NullifierQueueElement, PaginationToken, RingMemberProofRequest, RingSpendRecord,
+    RingSpendRecordRequest, RingsOutputContext, RingsOutputSlot, SerializablePubkey,
+    SerializableSignature, ShieldedTransaction, SlotFilter, UserRecord, MAX_USER_RECORD_OWNERS,
+    PAGE_LIMIT,
 };
 
 const JSON_RPC_VERSION: &str = "2.0";
@@ -416,6 +418,10 @@ pub enum ApiError {
         message: &'static str,
     },
     MissingResult(&'static str),
+    InvalidPage,
+    MinimumContextSlot {
+        context_slot: u64,
+    },
 }
 
 /// Every `api-key` value is masked: a `reqwest` error and a custom client's
@@ -435,6 +441,10 @@ impl fmt::Display for ApiError {
                 message,
             } => format!("JSON-RPC error from {method}: code={code:?} message={message:?}"),
             Self::InvalidRequest { field, message } => format!("invalid {field}: {message}"),
+            Self::MinimumContextSlot { context_slot } => {
+                format!("minimum context slot has not been reached; context slot is {context_slot}")
+            }
+            Self::InvalidPage => "invalid pagination response".to_owned(),
             Self::MissingResult(method) => {
                 format!("JSON-RPC response from {method} omitted result")
             }
@@ -501,6 +511,7 @@ struct JsonRpcResponse<R> {
 struct JsonRpcError {
     code: Option<i64>,
     message: Option<String>,
+    data: Option<serde_json::Value>,
 }
 
 impl ZolanaApi {
@@ -559,28 +570,51 @@ impl ZolanaApi {
     pub async fn get_encrypted_utxos_by_tags(
         &self,
         tags: Vec<Hash>,
-        cursor: Option<Base64String>,
+        pagination_token: Option<PaginationToken>,
         limit: Option<u64>,
+        filters: HistoryFilters,
+        min_context_slot: Option<u64>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ApiError> {
-        self.call::<GetEncryptedUtxosByTags>(GetRingsByTagsRequest {
-            tags,
-            cursor,
-            limit: optional_limit(limit)?,
-            ring_program_id: None,
-        })
-        .await
+        let response = self
+            .call::<GetEncryptedUtxosByTags>(GetRingsByTagsRequest {
+                tags,
+                pagination_token,
+                limit: optional_limit(limit)?,
+                filters,
+                min_context_slot,
+                ring_program_id: None,
+            })
+            .await?;
+        response
+            .validate_indexed(&PageRequest {
+                pagination_token,
+                limit: limit.unwrap_or(PAGE_LIMIT),
+                filters,
+                min_context_slot,
+            })
+            .map_err(|_| ApiError::InvalidPage)?;
+        for group in &response.items {
+            group
+                .validate_outputs(|output| (output.slot, output.tx_signature.0))
+                .map_err(|_| ApiError::InvalidPage)?;
+        }
+        Ok(response)
     }
 
     pub async fn get_shielded_transactions_by_tags(
         &self,
         tags: Vec<Hash>,
-        cursor: Option<Base64String>,
+        pagination_token: Option<PaginationToken>,
         limit: Option<u64>,
+        filters: HistoryFilters,
+        min_context_slot: Option<u64>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ApiError> {
-        self.call::<GetShieldedTransactionsByTags>(GetRingsByTagsRequest {
+        self.get_shielded_transactions(GetRingsByTagsRequest {
             tags,
-            cursor,
+            pagination_token,
             limit: optional_limit(limit)?,
+            filters,
+            min_context_slot,
             ring_program_id: None,
         })
         .await
@@ -600,21 +634,44 @@ impl ZolanaApi {
         &self,
         request: GetRingsByTagsRequest,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ApiError> {
-        self.call::<GetShieldedTransactionsByTags>(request).await
+        let page = PageRequest {
+            pagination_token: request.pagination_token,
+            limit: request.limit.as_ref().map_or(PAGE_LIMIT, Limit::value),
+            filters: request.filters,
+            min_context_slot: request.min_context_slot,
+        };
+        let response = self.call::<GetShieldedTransactionsByTags>(request).await?;
+        validate_events_page(&response, &page)?;
+        Ok(response)
     }
 
     pub async fn get_shielded_transactions_by_nullifiers(
         &self,
         nullifiers: Vec<Hash>,
-        cursor: Option<Base64String>,
+        pagination_token: Option<PaginationToken>,
         limit: Option<u64>,
+        filters: HistoryFilters,
+        min_context_slot: Option<u64>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ApiError> {
-        self.call::<GetShieldedTransactionsByNullifiers>(GetRingsByNullifiersRequest {
-            nullifiers,
-            cursor,
-            limit: optional_limit(limit)?,
-        })
-        .await
+        let response = self
+            .call::<GetShieldedTransactionsByNullifiers>(GetRingsByNullifiersRequest {
+                nullifiers,
+                pagination_token,
+                limit: optional_limit(limit)?,
+                filters,
+                min_context_slot,
+            })
+            .await?;
+        validate_events_page(
+            &response,
+            &PageRequest {
+                pagination_token,
+                limit: limit.unwrap_or(PAGE_LIMIT),
+                filters,
+                min_context_slot,
+            },
+        )?;
+        Ok(response)
     }
 
     pub async fn get_merkle_proofs(
@@ -777,23 +834,36 @@ impl BlockingZolanaApi {
     pub fn get_encrypted_utxos_by_tags(
         &self,
         tags: Vec<Hash>,
-        cursor: Option<Base64String>,
+        pagination_token: Option<PaginationToken>,
         limit: Option<u64>,
+        filters: HistoryFilters,
+        min_context_slot: Option<u64>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ApiError> {
-        self.runtime
-            .block_on(self.api.get_encrypted_utxos_by_tags(tags, cursor, limit))
+        self.runtime.block_on(self.api.get_encrypted_utxos_by_tags(
+            tags,
+            pagination_token,
+            limit,
+            filters,
+            min_context_slot,
+        ))
     }
 
     pub fn get_shielded_transactions_by_tags(
         &self,
         tags: Vec<Hash>,
-        cursor: Option<Base64String>,
+        pagination_token: Option<PaginationToken>,
         limit: Option<u64>,
+        filters: HistoryFilters,
+        min_context_slot: Option<u64>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ApiError> {
-        self.runtime.block_on(
-            self.api
-                .get_shielded_transactions_by_tags(tags, cursor, limit),
-        )
+        self.runtime
+            .block_on(self.api.get_shielded_transactions_by_tags(
+                tags,
+                pagination_token,
+                limit,
+                filters,
+                min_context_slot,
+            ))
     }
 
     pub fn get_shielded_transactions_by_signature(
@@ -817,13 +887,19 @@ impl BlockingZolanaApi {
     pub fn get_shielded_transactions_by_nullifiers(
         &self,
         nullifiers: Vec<Hash>,
-        cursor: Option<Base64String>,
+        pagination_token: Option<PaginationToken>,
         limit: Option<u64>,
+        filters: HistoryFilters,
+        min_context_slot: Option<u64>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ApiError> {
-        self.runtime.block_on(
-            self.api
-                .get_shielded_transactions_by_nullifiers(nullifiers, cursor, limit),
-        )
+        self.runtime
+            .block_on(self.api.get_shielded_transactions_by_nullifiers(
+                nullifiers,
+                pagination_token,
+                limit,
+                filters,
+                min_context_slot,
+            ))
     }
 
     pub fn get_merkle_proofs(
@@ -946,11 +1022,36 @@ fn user_records_request(
     Ok(GetUserRecordsRequest { owners })
 }
 
+fn validate_events_page(
+    response: &GetShieldedTransactionsByTagsResponse,
+    page: &PageRequest,
+) -> Result<(), ApiError> {
+    response
+        .validate_indexed(page)
+        .map_err(|_| ApiError::InvalidPage)?;
+    for group in &response.items {
+        group
+            .validate_events(|event| (event.slot, event.tx_signature.0, event.event_index))
+            .map_err(|_| ApiError::InvalidPage)?;
+    }
+    Ok(())
+}
+
 fn unwrap_response<M>(response: JsonRpcResponse<M::Response>) -> Result<M::Response, ApiError>
 where
     M: RpcMethod,
 {
     if let Some(error) = response.error {
+        if error.code == Some(-32016) {
+            if let Some(context_slot) = error
+                .data
+                .as_ref()
+                .and_then(|data| data.get("contextSlot"))
+                .and_then(serde_json::Value::as_u64)
+            {
+                return Err(ApiError::MinimumContextSlot { context_slot });
+            }
+        }
         return Err(ApiError::JsonRpc {
             method: M::NAME,
             code: error.code,

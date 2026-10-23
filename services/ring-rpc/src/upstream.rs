@@ -1,4 +1,4 @@
-use std::{future::Future, marker::PhantomData, time::Duration};
+use std::{future::Future, marker::PhantomData, num::NonZeroU32, time::Duration};
 
 use bytemuck::Pod;
 use custom_ring_interface::{
@@ -21,7 +21,7 @@ use solana_signature::Signature;
 use zolana_api::ZolanaApi;
 use zolana_client::{
     AsyncRpc, AsyncSolanaRpc, AsyncZolanaIndexer, ClientError,
-    GetShieldedTransactionsByTagsResponse,
+    GetShieldedTransactionsByTagsResponse, HistoryFilters, PaginationToken,
 };
 use zolana_interface::{
     state::SplAssetRegistry, BPF_LOADER_UPGRADEABLE_ID, SHIELDED_POOL_PROGRAM_ID,
@@ -33,15 +33,12 @@ use zolana_ring_client::{
 };
 use zolana_transaction::AssetRegistry;
 
-use crate::{
-    api::DepositRecord,
-    audit::{Page, MAX_ASSET_REGISTRY_ACCOUNTS},
-};
+use crate::{api::DepositRecord, audit::MAX_ASSET_REGISTRY_ACCOUNTS};
 
 pub trait TransactionSource: Send + Sync {
     fn transactions_by_tag(
         &self,
-        request: TransactionPage<'_>,
+        request: TransactionPage,
     ) -> impl Future<Output = Result<GetShieldedTransactionsByTagsResponse, ClientError>> + Send;
 
     fn transaction_origin(
@@ -80,10 +77,14 @@ pub trait TransactionSource: Send + Sync {
     fn asset_registry(&self) -> impl Future<Output = Result<AssetRegistry, ClientError>> + Send;
 }
 
+#[derive(Clone, Copy)]
 #[must_use]
-pub struct TransactionPage<'a> {
+pub struct TransactionPage {
     pub tag: [u8; 32],
-    pub page: &'a Page,
+    pub pagination_token: Option<PaginationToken>,
+    pub limit: NonZeroU32,
+    pub filters: HistoryFilters,
+    pub min_context_slot: Option<u64>,
 }
 
 #[derive(Clone, Copy)]
@@ -174,14 +175,17 @@ impl ChainSource {
 impl TransactionSource for ChainSource {
     fn transactions_by_tag(
         &self,
-        request: TransactionPage<'_>,
+        request: TransactionPage,
     ) -> impl Future<Output = Result<GetShieldedTransactionsByTagsResponse, ClientError>> + Send
     {
         self.indexer.get_shielded_transactions_by_tags(
             vec![request.tag],
-            request.page.cursor().map(ToOwned::to_owned),
-            Some(request.page.limit().get()),
-            None,
+            request.pagination_token,
+            Some(request.limit.get()),
+            request.filters,
+            request
+                .min_context_slot
+                .map(zolana_client::IndexerRpcConfig::at_slot),
         )
     }
 
@@ -303,7 +307,13 @@ impl TransactionSource for ChainSource {
 
     async fn health(&self) -> Result<(), ClientError> {
         self.indexer
-            .get_shielded_transactions_by_tags(vec![[0; 32]], None, Some(1), None)
+            .get_shielded_transactions_by_tags(
+                vec![[0; 32]],
+                None,
+                Some(1),
+                HistoryFilters::default(),
+                None,
+            )
             .await?;
         self.rpc.health().await
     }

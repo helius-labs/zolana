@@ -56,9 +56,9 @@ export { AssetRegistry, SOL_ASSET_ID, SOL_MINT } from "../asset.js";
 export {
   deserializeWallet,
   serializeWallet,
-  type SerializedCursor,
+  type SerializedSyncCheckpoint,
   type SerializedNoteReservation,
-  type SerializedSyncCursors,
+  type SerializedSyncCheckpoints,
   type SerializedWalletState,
 } from "./persistence.js";
 export {

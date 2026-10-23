@@ -25,9 +25,11 @@ pub(super) fn ring_history_request(
         .transpose()?;
     Ok(GetRingsByTagsRequest {
         tags: Vec::new(),
-        cursor: encode_cursor(options.cursor),
+        pagination_token: options.pagination_token,
         limit,
+        filters: options.filters,
         ring_program_id: Some(SerializablePubkey(options.ring_program_id)),
+        min_context_slot: None,
     })
 }
 
@@ -58,18 +60,31 @@ pub(super) fn convert_shielded_transactions_response(
     response: zolana_api::GetShieldedTransactionsByTagsResponse,
 ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
     Ok(GetShieldedTransactionsByTagsResponse {
-        context: convert_context(response.context),
+        context: response.context,
         output_tree_id: response.output_tree_id,
-        transactions: response
-            .transactions
+        items: response
+            .items
             .into_iter()
             .enumerate()
-            .map(|(index, item)| {
-                convert_shielded_transaction(&format!("transactions[{index}]"), item)
+            .map(|(group_index, group)| {
+                Ok(zolana_indexer_api::TransactionEvents {
+                    slot: group.slot,
+                    signature: group.signature.0,
+                    events: group
+                        .events
+                        .into_iter()
+                        .enumerate()
+                        .map(|(index, item)| {
+                            convert_shielded_transaction(
+                                &format!("items[{group_index}].events[{index}]"),
+                                item,
+                            )
+                        })
+                        .collect::<Result<Vec<_>, ClientError>>()?,
+                })
             })
-            .collect::<Result<Vec<_>, _>>()?,
-        next_cursor: response.next_cursor.map(Into::into),
-        scanned_through: response.scanned_through.map(Into::into),
+            .collect::<Result<Vec<_>, ClientError>>()?,
+        pagination_token: response.pagination_token,
     })
 }
 
@@ -241,10 +256,6 @@ pub(super) fn encode_pubkey(address: Address) -> SerializablePubkey {
     SerializablePubkey::from(address.to_bytes())
 }
 
-pub(super) fn encode_cursor(cursor: Option<Vec<u8>>) -> Option<Base64String> {
-    cursor.map(Base64String::from)
-}
-
 /// Chosen by the sender, a malformed key reads as absent and leaves its outputs undecryptable.
 fn decode_optional_x25519(
     value: Option<Base64String>,
@@ -318,20 +329,24 @@ mod tests {
     #[test]
     fn ring_history_request_pins_the_ring_without_a_view_tag() {
         let ring = solana_address::Address::new_from_array([19; 32]);
+        let token = crate::rpc::PaginationToken::new(7, solana_signature::Signature::from([7; 64]));
         let request = super::ring_history_request(crate::rpc::RingHistoryOptions {
             ring_program_id: ring,
-            cursor: Some(vec![7]),
+            pagination_token: Some(token),
             limit: Some(17),
+            filters: crate::rpc::HistoryFilters::after_slot(3),
         })
         .unwrap();
         assert!(request.tags.is_empty());
         assert_eq!(request.ring_program_id.unwrap().0, ring);
-        assert_eq!(request.cursor.unwrap().0, vec![7]);
+        assert_eq!(request.pagination_token, Some(token));
+        assert_eq!(request.filters.slot.gt, Some(3));
         assert_eq!(request.limit.unwrap().value(), 17);
         assert!(super::ring_history_request(crate::rpc::RingHistoryOptions {
             ring_program_id: ring,
-            cursor: None,
-            limit: Some(0)
+            pagination_token: None,
+            limit: Some(0),
+            filters: Default::default(),
         })
         .is_err());
     }

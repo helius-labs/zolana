@@ -1022,8 +1022,8 @@ mod tests {
     use solana_pubkey::Pubkey;
     use zolana_client::{
         rpc::GetShieldedTransactionsByNullifiersResponse, ClientError, Context,
-        GetMerkleProofsResponse, GetNonInclusionProofsResponse, IndexerRpcConfig, MerkleContext,
-        ShieldedTransaction,
+        GetMerkleProofsResponse, GetNonInclusionProofsResponse, HistoryFilters, IndexerRpcConfig,
+        MerkleContext, PaginationToken, ShieldedTransaction,
     };
     use zolana_interface::state::{default_tree_fees, nullifier_tree_params};
     use zolana_keypair::ShieldedKeypair;
@@ -1527,15 +1527,17 @@ mod tests {
         fn get_shielded_transactions_by_nullifiers(
             &self,
             nullifiers: Vec<[u8; 32]>,
-            cursor: Option<Vec<u8>>,
+            token: Option<PaginationToken>,
             limit: Option<u32>,
+            filters: HistoryFilters,
             config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
             Rpc::get_shielded_transactions_by_nullifiers(
                 &self.lineages,
                 nullifiers,
-                cursor,
+                token,
                 limit,
+                filters,
                 config,
             )
         }

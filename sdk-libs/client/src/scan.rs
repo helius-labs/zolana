@@ -37,7 +37,10 @@ use zolana_transaction::{
 
 use crate::{
     error::ClientError,
-    rpc::{EncryptedUtxoMatch, IndexerRpcConfig, ProgramAccountsFilter, Rpc, ShieldedTransaction},
+    rpc::{
+        EncryptedUtxoMatch, HistoryFilters, IndexerRpcConfig, ProgramAccountsFilter, Rpc,
+        ShieldedTransaction,
+    },
 };
 
 const PAGE_LIMIT: u32 = 1_000;
@@ -334,37 +337,51 @@ fn tagged_transactions<I: Rpc + ?Sized>(
     output_tree_id: &mut Option<u16>,
 ) -> Result<Vec<ShieldedTransaction>, ClientError> {
     let mut transactions = Vec::new();
-    let mut cursor = None;
+    let mut token = None;
     loop {
         let page = indexer.get_shielded_transactions_by_tags(
             tags.to_vec(),
-            cursor.clone(),
+            token,
             Some(PAGE_LIMIT),
+            HistoryFilters::default(),
             config,
         )?;
+        let next = page
+            .continuation(token)
+            .map_err(|_| ClientError::IndexerCursorNotAdvanced)?;
         *output_tree_id = page.output_tree_id;
-        transactions.extend(page.transactions.into_iter().filter(|tx| !tx.proofless));
-        match next_page(&cursor, page.next_cursor, &page.scanned_through)? {
-            Some(next) => cursor = Some(next),
+        transactions.extend(
+            page.items
+                .into_iter()
+                .flat_map(|item| item.events)
+                .filter(|tx| !tx.proofless),
+        );
+        match next {
+            Some(next) => token = Some(next),
             None => break,
         }
     }
-    let mut cursor = None;
+    let mut token = None;
     loop {
         let page = indexer.get_encrypted_utxos_by_tags(
             tags.to_vec(),
-            cursor.clone(),
+            token,
             Some(PAGE_LIMIT),
+            HistoryFilters::default(),
             config,
         )?;
+        let next = page
+            .continuation(token)
+            .map_err(|_| ClientError::IndexerCursorNotAdvanced)?;
         *output_tree_id = page.output_tree_id;
         transactions.extend(
-            page.matches
+            page.items
                 .into_iter()
+                .flat_map(|item| item.outputs)
                 .filter_map(EncryptedUtxoMatch::into_proofless_transaction),
         );
-        match next_page(&cursor, page.next_cursor, &page.scanned_through)? {
-            Some(next) => cursor = Some(next),
+        match next {
+            Some(next) => token = Some(next),
             None => break,
         }
     }
@@ -381,40 +398,25 @@ fn spending_transactions<I: Rpc + ?Sized>(
 ) -> Result<Vec<ShieldedTransaction>, ClientError> {
     let mut transactions = Vec::new();
     for chunk in nullifiers.chunks(PAGE_LIMIT as usize) {
-        let mut cursor = None;
+        let mut token = None;
         loop {
             let page = indexer.get_shielded_transactions_by_nullifiers(
                 chunk.to_vec(),
-                cursor.clone(),
+                token,
                 Some(PAGE_LIMIT),
+                HistoryFilters::default(),
                 config,
             )?;
+            let next = page
+                .continuation(token)
+                .map_err(|_| ClientError::IndexerCursorNotAdvanced)?;
             *output_tree_id = page.output_tree_id;
-            transactions.extend(page.transactions);
-            match next_page(&cursor, page.next_cursor, &page.scanned_through)? {
-                Some(next) => cursor = Some(next),
+            transactions.extend(page.items.into_iter().flat_map(|item| item.events));
+            match next {
+                Some(next) => token = Some(next),
                 None => break,
             }
         }
     }
     Ok(transactions)
-}
-
-/// The cursor of the page after the one read with `cursor`, or `None` when
-/// that was the last. A page that is not full is the last, `scanned_through`
-/// says so: the indexer names a cursor on any row, so following it would ask
-/// for an empty page. A cursor that did not move would ask for the same page
-/// forever, so it fails with [`ClientError::IndexerCursorNotAdvanced`].
-fn next_page(
-    cursor: &Option<Vec<u8>>,
-    next: Option<Vec<u8>>,
-    scanned_through: &Option<Vec<u8>>,
-) -> Result<Option<Vec<u8>>, ClientError> {
-    let Some(next) = next.filter(|_| scanned_through.is_none()) else {
-        return Ok(None);
-    };
-    if cursor.as_ref() == Some(&next) {
-        return Err(ClientError::IndexerCursorNotAdvanced);
-    }
-    Ok(Some(next))
 }

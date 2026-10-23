@@ -158,9 +158,9 @@ export type {
   KeyRegistryInsertProofInput,
 } from "@heliuslabs/zolana/ring";
 export type {
-  SerializedCursor,
+  SerializedSyncCheckpoint,
   SerializedNoteReservation,
-  SerializedSyncCursors,
+  SerializedSyncCheckpoints,
 } from "@heliuslabs/zolana/transaction";
 export type { SettlementTransfer } from "@heliuslabs/zolana/transaction";
 export { encodeTransactInstructionData, transactCpiAccounts } from "@heliuslabs/zolana/interface";
@@ -192,9 +192,9 @@ export {
 } from "@heliuslabs/zolana/transaction";
 export type {
   RingRpcOptions as RootRingRpcOptions,
-  SerializedCursor as RootSerializedCursor,
+  SerializedSyncCheckpoint as RootSerializedSyncCheckpoint,
   SerializedNoteReservation as RootSerializedNoteReservation,
-  SerializedSyncCursors as RootSerializedSyncCursors,
+  SerializedSyncCheckpoints as RootSerializedSyncCheckpoints,
   SyncPersistedWalletResult as RootSyncPersistedWalletResult,
   SyncWalletInput as RootSyncWalletInput,
   WalletStateStore as RootWalletStateStore,

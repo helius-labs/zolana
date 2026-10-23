@@ -1,3 +1,4 @@
+import { nextPageToken, validateIndexedPage } from "../interface/page.js";
 import type { DepositPayloadDecoder } from "../transaction/serialization/ring-deposit.js";
 import {
   getAddressEncoder,
@@ -18,7 +19,13 @@ import {
 import { decodeSplAssetRegistry } from "../interface/accounts.js";
 import { SHIELDED_POOL_PROGRAM_ID } from "../interface/program.js";
 import { StateDiscriminator } from "../interface/state.js";
-import type { Address, Bytes32, RequestContext } from "../interface/types.js";
+import type {
+  Address,
+  Bytes32,
+  HistoryFilters,
+  PaginationToken,
+  RequestContext,
+} from "../interface/types.js";
 import { TransactionError } from "../transaction/error.js";
 import type { IndexedShieldedTransaction } from "../transaction/instructions/transact.js";
 import { decodeOutputData } from "../transaction/serialization/codecs.js";
@@ -38,11 +45,11 @@ import { decryptTransactions } from "../transaction/wallet/sync.js";
 import { WalletError, wrapWalletError } from "./error.js";
 import { bytesKey } from "./internal.js";
 import {
-  advanceSessionCursors,
+  advanceSessionCheckpoints,
   beginSyncSession,
   ensureSessionAsset,
   sealSyncDelta,
-  sessionCursor,
+  sessionCheckpoint,
   type WalletSyncSession,
 } from "./sync-session.js";
 
@@ -67,7 +74,7 @@ export interface SyncWalletConfig {
   readonly depositPayloadDecoder?: DepositPayloadDecoder;
   /** Stable tags and nullifiers per indexer request. Defaults to 64. */
   readonly queryChunk?: number;
-  /** Rows requested per indexer page. Defaults to Photon's maximum, 1000. */
+  /** Solana transactions requested per indexer page. Defaults to Photon's maximum, 1000. */
   readonly pageLimit?: number;
   /**
    * Slot the indexer must have persisted before its answers are used. Unset
@@ -245,10 +252,9 @@ function compareBySlotThenSignature(
 }
 
 /**
- * Photon can emit multiple shielded events in one Solana transaction. The
- * current wire response does not expose its event index, so the committed
- * output contexts (or nullifiers for an outputless event) form the stable
- * event identity instead of collapsing every event under the signature.
+ * Output contexts and nullifiers identify both indexed events and synthesized
+ * proofless deposits, which have no event index. A signature alone would
+ * collapse multiple events in one transaction.
  */
 function shieldedTransactionKey(transaction: IndexedShieldedTransaction): string {
   return [
@@ -259,22 +265,6 @@ function shieldedTransactionKey(transaction: IndexedShieldedTransaction): string
     ),
     ...transaction.nullifiers.map(bytesKey),
   ].join("|");
-}
-
-function checkedNextCursor(
-  method: string,
-  cursor: Uint8Array | undefined,
-  seen: Set<string>,
-): Uint8Array | undefined {
-  if (cursor === undefined) return undefined;
-  const key = bytesKey(cursor);
-  if (seen.has(key)) {
-    throw new ClientError("CLIENT_INVALID_RPC_RESPONSE", {
-      details: { method, path: "$.nextCursor" },
-    });
-  }
-  seen.add(key);
-  return cursor;
 }
 
 /**
@@ -312,54 +302,68 @@ interface CollectByTagsInput {
   readonly pageLimit: number;
   readonly nextRpcConfig: () => IndexerRpcConfig;
   readonly out: Map<string, IndexedShieldedTransaction>;
-  /** Where this group of tags was read to last sync, or undefined for never. */
-  readonly from: Uint8Array | undefined;
+  /** The slot this group of tags was read through last sync, or undefined for never. */
+  readonly checkpoint: bigint | undefined;
 }
 
-/** One page of a cursor-ordered stream, reduced to what paging needs. */
-interface Page {
-  readonly nextCursor?: Uint8Array | undefined;
-  /** Where the server says its scan reached on a terminal page. */
-  readonly scannedThrough?: Uint8Array | undefined;
+/** The controls of one page of a resumable scan. */
+interface ScanControls {
+  readonly paginationToken?: PaginationToken;
+  readonly filters?: HistoryFilters;
+}
+
+/** One indexer page, reduced to what a resumable scan needs. */
+interface ScanPage {
+  readonly context: { readonly slot: bigint };
+  readonly items: readonly { readonly slot: bigint; readonly signature: string }[];
+  readonly paginationToken: PaginationToken | null;
 }
 
 /**
- * Reads one chunk until the stream offers no further cursor.
- *
- * A cursor means there may be more, whatever the page size. Stopping on a short
- * page would make the non-advancing-cursor guard unreachable. Mirrors the Rust
- * SDK, which must agree or the two clients read different amounts.
+ * Reads a chunk's history above its checkpoint and returns the next
+ * checkpoint, the final page's snapshot slot. Photon commits each block with
+ * its transactions, so that page proves every match at or below the slot was
+ * returned. Tokens only continue this scan, they are never persisted.
  */
 async function readChunk(
   method: string,
-  start: Uint8Array | undefined,
-  request: (cursor: Uint8Array | undefined) => Promise<Page>,
-): Promise<Uint8Array | undefined> {
-  let cursor = start;
-  let furthest = start;
-  // Seeded with the resume point, so an indexer handing back the cursor it was
-  // given trips the guard immediately rather than after a wasted round trip.
-  const seenCursors = new Set<string>(start === undefined ? [] : [bytesKey(start)]);
+  checkpoint: bigint | undefined,
+  pageLimit: number,
+  request: (controls: ScanControls) => Promise<ScanPage>,
+): Promise<bigint> {
+  const invalid = (path: string) => () =>
+    new ClientError("CLIENT_INVALID_RPC_RESPONSE", { details: { method, path } });
+  const filters = checkpoint === undefined ? undefined : { slot: { gt: checkpoint } };
+  let token: PaginationToken | undefined;
   for (;;) {
-    const page = await request(cursor);
-    furthest = page.scannedThrough ?? page.nextCursor ?? furthest;
-    const next = checkedNextCursor(method, page.nextCursor, seenCursors);
-    if (next === undefined) return furthest;
-    cursor = next;
+    const controls: ScanControls = {
+      ...(filters === undefined ? {} : { filters }),
+      ...(token === undefined ? {} : { paginationToken: token }),
+    };
+    const page = await request(controls);
+    try {
+      validateIndexedPage(page, { ...controls, limit: BigInt(pageLimit) });
+    } catch {
+      throw invalid("$")();
+    }
+    const next = nextPageToken(page, token, invalid("$.paginationToken"));
+    if (next === null) return page.context.slot;
+    token = next;
   }
 }
 
 async function collectShieldedTransactions(
   input: CollectByTagsInput,
   context?: RequestContext,
-): Promise<Uint8Array | undefined> {
-  return readChunk("getShieldedTransactionsByTags", input.from, async (cursor) => {
+): Promise<bigint> {
+  const method = "getShieldedTransactionsByTags";
+  return readChunk(method, input.checkpoint, input.pageLimit, async (controls) => {
     const response = await input.indexer.getShieldedTransactionsByTags(
-      { tags: input.chunk, limit: input.pageLimit, ...(cursor === undefined ? {} : { cursor }) },
+      { tags: input.chunk, limit: input.pageLimit, ...controls },
       input.nextRpcConfig(),
       context,
     );
-    for (const transaction of response.transactions) {
+    for (const transaction of response.items.flatMap((item) => item.events)) {
       // Photon can surface a proofless deposit here before flagging it. Those
       // are collected from the encrypted-utxo endpoint instead, so taking them
       // twice would store the same UTXO under two keys.
@@ -367,24 +371,22 @@ async function collectShieldedTransactions(
       const key = shieldedTransactionKey(transaction);
       if (!input.out.has(key)) input.out.set(key, transaction);
     }
-    return {
-      nextCursor: response.nextCursor,
-      scannedThrough: response.scannedThrough,
-    };
+    return response;
   });
 }
 
 async function collectProoflessDeposits(
   input: CollectByTagsInput,
   context?: RequestContext,
-): Promise<Uint8Array | undefined> {
-  return readChunk("getEncryptedUtxosByTags", input.from, async (cursor) => {
+): Promise<bigint> {
+  const method = "getEncryptedUtxosByTags";
+  return readChunk(method, input.checkpoint, input.pageLimit, async (controls) => {
     const response = await input.indexer.getEncryptedUtxosByTags(
-      { tags: input.chunk, limit: input.pageLimit, ...(cursor === undefined ? {} : { cursor }) },
+      { tags: input.chunk, limit: input.pageLimit, ...controls },
       input.nextRpcConfig(),
       context,
     );
-    for (const match of response.matches) {
+    for (const match of response.items.flatMap((item) => item.outputs)) {
       if (match.txViewingPk !== undefined || match.salt !== undefined) continue;
       const key = [
         match.txSignature,
@@ -406,29 +408,25 @@ async function collectProoflessDeposits(
         }),
       );
     }
-    return {
-      nextCursor: response.nextCursor,
-      scannedThrough: response.scannedThrough,
-    };
+    return response;
   });
 }
 
 /**
- * Buckets keys by the position their stream was last read to.
+ * Buckets keys by the checkpoint their stream was last read through.
  *
- * A chunk carries one cursor, so keys at different positions cannot share a
- * request. `undefined` (never queried) is its own group.
+ * A chunk carries one slot filter, so keys at different checkpoints cannot
+ * share a request. `undefined` (never queried) is its own group.
  */
-function groupByResumePoint(
+function groupByCheckpoint(
   keys: readonly Bytes32[],
-  cursorFor: (key: Bytes32) => Uint8Array | undefined,
-): readonly { readonly from: Uint8Array | undefined; readonly keys: Bytes32[] }[] {
-  const groups = new Map<string, { from: Uint8Array | undefined; keys: Bytes32[] }>();
+  checkpointFor: (key: Bytes32) => bigint | undefined,
+): readonly { readonly checkpoint: bigint | undefined; readonly keys: Bytes32[] }[] {
+  const groups = new Map<bigint | undefined, { checkpoint: bigint | undefined; keys: Bytes32[] }>();
   for (const key of keys) {
-    const from = cursorFor(key);
-    const groupKey = from === undefined ? "" : bytesKey(from);
-    const group = groups.get(groupKey);
-    if (group === undefined) groups.set(groupKey, { from, keys: [key] });
+    const checkpoint = checkpointFor(key);
+    const group = groups.get(checkpoint);
+    if (group === undefined) groups.set(checkpoint, { checkpoint, keys: [key] });
     else group.keys.push(key);
   }
   return [...groups.values()];
@@ -440,41 +438,31 @@ interface CollectByNullifiersInput {
   readonly pageLimit: number;
   readonly nextRpcConfig: () => IndexerRpcConfig;
   readonly out: Map<string, IndexedShieldedTransaction>;
-  /** Where this chunk was read to last time, if it has been read before. */
-  readonly start?: Uint8Array;
+  /** The slot this chunk was read through last time, if it has been read before. */
+  readonly checkpoint: bigint | undefined;
 }
 
 /**
- * Returns how far the scan reached, or `undefined` if the indexer did not say.
- *
- * The position comes from `scannedThrough`, not from the rows: an unspent
- * nullifier matches nothing, so there is no last row to take a position from.
- * An indexer that does not report it leaves the caller starting from zero next
- * time, which is exactly the old behaviour.
+ * Returns the slot the scan reached. An unspent nullifier matches nothing, so
+ * the checkpoint comes from the snapshot, not from a row.
  */
 async function collectShieldedTransactionsByNullifiers(
   input: CollectByNullifiersInput,
   context?: RequestContext,
-): Promise<Uint8Array | undefined> {
-  return readChunk("getShieldedTransactionsByNullifiers", input.start, async (cursor) => {
+): Promise<bigint> {
+  const method = "getShieldedTransactionsByNullifiers";
+  return readChunk(method, input.checkpoint, input.pageLimit, async (controls) => {
     const response = await input.indexer.getShieldedTransactionsByNullifiers(
-      {
-        nullifiers: input.chunk,
-        limit: input.pageLimit,
-        ...(cursor === undefined ? {} : { cursor }),
-      },
+      { nullifiers: input.chunk, limit: input.pageLimit, ...controls },
       input.nextRpcConfig(),
       context,
     );
-    for (const transaction of response.transactions) {
+    for (const transaction of response.items.flatMap((item) => item.events)) {
       if (transaction.proofless) continue;
       const key = shieldedTransactionKey(transaction);
       if (!input.out.has(key)) input.out.set(key, transaction);
     }
-    return {
-      nextCursor: response.nextCursor,
-      scannedThrough: response.scannedThrough,
-    };
+    return response;
   });
 }
 
@@ -547,14 +535,14 @@ async function runWalletSync(
     const transactions = new Map<string, IndexedShieldedTransaction>();
     const deposits = new Map<string, IndexedShieldedTransaction>();
     const tags = walletQueryTags(session.staging, keys);
-    // Tags are grouped by where each was last read to, because a chunk can only
-    // carry one cursor. Mixing a tag at the tip with one learned this sync would
-    // resume the new tag from the old one's position and skip its history
-    // permanently -- which is why the watermarks are per tag, not per wallet.
-    // `undefined` (never queried) is its own group.
+    // Tags are grouped by the slot each was last read through, because a chunk
+    // carries one slot filter. Mixing a tag at the tip with one learned this
+    // sync would resume the new tag from the old one's checkpoint and skip its
+    // history permanently -- which is why checkpoints are per tag, not per
+    // wallet. `undefined` (never queried) is its own group.
     for (const stream of ["transactions", "proofless"] as const) {
-      const groups = groupByResumePoint(tags, (tag) =>
-        sessionCursor(session, stream, bytesKey(tag)),
+      const groups = groupByCheckpoint(tags, (tag) =>
+        sessionCheckpoint(session, stream, bytesKey(tag)),
       );
 
       for (const group of groups) {
@@ -562,46 +550,42 @@ async function runWalletSync(
           const chunk = group.keys.slice(offset, offset + chunkSize);
           const collect =
             stream === "transactions" ? collectShieldedTransactions : collectProoflessDeposits;
-          const furthest = await collect(
+          const checkpoint = await collect(
             {
               indexer: input.client,
               chunk,
               pageLimit,
               nextRpcConfig,
               out: stream === "transactions" ? transactions : deposits,
-              from: group.from,
+              checkpoint: group.checkpoint,
             },
             context,
           );
-          if (furthest !== undefined) {
-            advanceSessionCursors(session, stream, chunk, furthest);
-          }
+          advanceSessionCheckpoints(session, stream, chunk, checkpoint);
         }
       }
     }
 
     const scanNullifiers = async (nullifiers: readonly Bytes32[]): Promise<void> => {
-      const groups = groupByResumePoint(nullifiers, (nullifier) =>
-        sessionCursor(session, "nullifiers", bytesKey(nullifier)),
+      const groups = groupByCheckpoint(nullifiers, (nullifier) =>
+        sessionCheckpoint(session, "nullifiers", bytesKey(nullifier)),
       );
 
       for (const group of groups) {
         for (let offset = 0; offset < group.keys.length; offset += chunkSize) {
           const chunk = group.keys.slice(offset, offset + chunkSize);
-          const furthest = await collectShieldedTransactionsByNullifiers(
+          const checkpoint = await collectShieldedTransactionsByNullifiers(
             {
               indexer: input.client,
               chunk,
               pageLimit,
               nextRpcConfig,
               out: transactions,
-              ...(group.from === undefined ? {} : { start: group.from }),
+              checkpoint: group.checkpoint,
             },
             context,
           );
-          if (furthest !== undefined) {
-            advanceSessionCursors(session, "nullifiers", chunk, furthest);
-          }
+          advanceSessionCheckpoints(session, "nullifiers", chunk, checkpoint);
         }
       }
     };
@@ -677,7 +661,7 @@ async function runWalletSync(
       }
     }
     // An unresolved asset means a fetched UTXO was not stored. A commit would
-    // advance the cursors past it and lose the UTXO until a full rescan.
+    // advance the checkpoints past it and lose the UTXO until a full rescan.
     if (
       report.unknownAssetIds.length > 0 ||
       report.unknownAssetFields.length > 0 ||

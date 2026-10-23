@@ -367,8 +367,8 @@ mod tests {
     use solana_signature::Signature;
     use zolana_client::{
         rpc::GetShieldedTransactionsByNullifiersResponse, Context,
-        GetShieldedTransactionsByTagsResponse, IndexerRpcConfig, ProofInputUtxo,
-        ShieldedTransaction,
+        GetShieldedTransactionsByTagsResponse, HistoryFilters, IndexerRpcConfig, PaginationToken,
+        ProofInputUtxo, ShieldedTransaction,
     };
     use zolana_keypair::{constants::SALT_LEN, ShieldedKeypair};
     use zolana_ring_client::{AuditorEncryption, OriginError, RingOrigin, TransactionOrigin};
@@ -718,13 +718,20 @@ mod tests {
             _options: zolana_client::RingHistoryOptions,
             config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
-            self.get_shielded_transactions_by_tags(Vec::new(), None, None, config)
+            self.get_shielded_transactions_by_tags(
+                Vec::new(),
+                None,
+                None,
+                HistoryFilters::default(),
+                config,
+            )
         }
         fn get_shielded_transactions_by_tags(
             &self,
             _tags: Vec<[u8; 32]>,
-            _cursor: Option<Vec<u8>>,
+            _token: Option<PaginationToken>,
             _limit: Option<u32>,
+            _filters: HistoryFilters,
             _config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
             Ok(GetShieldedTransactionsByTagsResponse {
@@ -733,17 +740,20 @@ mod tests {
                     slot: 1,
                 },
                 output_tree_id: Some(0),
-                transactions: self.transactions.clone(),
-                next_cursor: None,
-                scanned_through: None,
+                items: zolana_client::rpc::TransactionEvents::group(
+                    self.transactions.clone(),
+                    |event| (event.slot, event.tx_signature),
+                ),
+                pagination_token: None,
             })
         }
 
         fn get_shielded_transactions_by_nullifiers(
             &self,
             nullifiers: Vec<[u8; 32]>,
-            _cursor: Option<Vec<u8>>,
+            _token: Option<PaginationToken>,
             _limit: Option<u32>,
+            _filters: HistoryFilters,
             _config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
             Ok(GetShieldedTransactionsByNullifiersResponse {
@@ -752,14 +762,15 @@ mod tests {
                     slot: 1,
                 },
                 output_tree_id: Some(0),
-                transactions: self
-                    .transactions
-                    .iter()
-                    .filter(|tx| tx.nullifiers.iter().any(|spent| nullifiers.contains(spent)))
-                    .cloned()
-                    .collect(),
-                next_cursor: None,
-                scanned_through: Some(Vec::new()),
+                items: zolana_client::rpc::TransactionEvents::group(
+                    self.transactions
+                        .iter()
+                        .filter(|tx| tx.nullifiers.iter().any(|spent| nullifiers.contains(spent)))
+                        .cloned()
+                        .collect::<Vec<_>>(),
+                    |event| (event.slot, event.tx_signature),
+                ),
+                pagination_token: None,
             })
         }
     }

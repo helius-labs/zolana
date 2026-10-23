@@ -16,6 +16,23 @@ bindings, which the program forwards to `transact` through a CPI.
 
 Breaking
 
+- Indexer history reads accept `paginationToken`, `limit`, `filters.slot`
+  bounds and `minContextSlot` and return `{context, items, paginationToken}`
+  with events or outputs grouped per Solana transaction, and `auditRing` takes
+  and returns `paginationToken` in place of `cursor` and `nextCursor` → upgrade
+  Photon with the SDK, pass `paginationToken` back until it is `null`, and
+  resume a later scan without `lt` or `lte` bounds with
+  `filters: { slot: { gt } }` set to the final page's `context.slot`.
+- `RingReadRequest.withCursor` becomes `withPaginationToken` beside a new
+  `withFilters`, signed reads use the same page envelope, a numeric transaction
+  limit and optional `withMinContextSlot`, and `RING_READ_CURSOR` becomes
+  `RING_READ_PAGINATION_TOKEN` → upgrade reader clients alongside Ring RPC for
+  the new signed contract.
+- `serializeWallet` writes snapshot version 6 with slot checkpoints, and
+  `SerializedCursor` and `SerializedSyncCursors` become
+  `SerializedSyncCheckpoint` and `SerializedSyncCheckpoints` → restore earlier
+  snapshots with `deserializeWallet`, which retains wallet state and rescans
+  once.
 - `RingRpc` now posts each JSON-RPC method beneath its base URL and accepts
   `RingRpcOptions.apiKey` or the URL's `api-key`, while `RingRpc.url` omits the key;
   service clients reject malformed or conflicting credentials during construction
@@ -177,6 +194,9 @@ Changed
 
 Fixed
 
+- Ring history and recovery scans reject a malformed or nonadvancing pagination
+  token instead of accepting incomplete history. Indexer polling retries a
+  minimum-context-slot error when the caller has requested a freshness wait.
 - `syncWallet` failed with `CLIENT_INVALID_RPC_RESPONSE` on any indexed transaction whose published viewing key is not a valid X25519 key, now such a transaction is read without a viewing key and its outputs count as undecryptable, as do outputs under a small-order transaction key.
 - `auditRingTransaction`, `auditRing` and `recoverRingMemberNotes` rejected the auditor message of an anonymous ring, and `decodeRingProgramConfig` threw on one; they now take `mode: "anonymous"`, report hidden senders, inputs and recipients in `anonymous` like `RingRpc.getDecryptedTransactions`, and the config decodes with `mode` while transaction builders keep refusing an anonymous ring.
 - `syncWallet` and custom ring recovery could not recover a merge output

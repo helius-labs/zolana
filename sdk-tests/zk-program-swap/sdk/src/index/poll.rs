@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Result};
-use zolana_client::Rpc;
+use zolana_client::{HistoryFilters, Rpc};
 use zolana_keypair::ShieldedKeypair;
 use zolana_transaction::ShieldedTransaction;
 
@@ -37,19 +37,25 @@ pub(crate) fn collect_tagged<I: Rpc, T>(
         .confidential_view_tag()
         .map_err(err)?;
     let mut found = Vec::new();
-    let mut cursor = None;
+    let mut token = None;
     loop {
         let page = indexer
-            .get_shielded_transactions_by_tags(vec![owner_tag], cursor, None, None)
+            .get_shielded_transactions_by_tags(
+                vec![owner_tag],
+                token,
+                None,
+                HistoryFilters::default(),
+                None,
+            )
             .map_err(err)?;
-        for tx in &page.transactions {
+        for tx in page.items.iter().flat_map(|item| &item.events) {
             if let Some(item) = scan(tx)? {
                 found.push(item);
             }
         }
-        let Some(next) = page.next_cursor else {
+        let Some(next) = page.pagination_token else {
             return Ok(found);
         };
-        cursor = Some(next);
+        token = Some(next);
     }
 }

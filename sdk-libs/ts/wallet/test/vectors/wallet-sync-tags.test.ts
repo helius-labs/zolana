@@ -1,3 +1,4 @@
+import { transactionItems, outputItems } from "../../../test/helpers/pages.js";
 import { describe, expect, it, vi } from "vitest";
 
 import type { Bytes32 } from "../../../src/interface/index.js";
@@ -63,18 +64,27 @@ function recorder(): Readonly<{
   const deposits: { tags: string[]; limit: number | undefined }[] = [];
   const nullifiers = vi.fn(async () => ({
     context: { blockTime: 0n, slot: 1n },
-    transactions: [],
+    items: transactionItems([]),
+    paginationToken: null,
   }));
   const client = {
     getShieldedTransactionsByTags: (
       request: Readonly<{ tags: readonly Bytes32[]; limit?: number }>,
     ) => {
       shielded.push({ tags: request.tags.map(hex), limit: request.limit });
-      return Promise.resolve({ context: { blockTime: 0n, slot: 1n }, transactions: [] });
+      return Promise.resolve({
+        context: { blockTime: 0n, slot: 1n },
+        items: transactionItems([]),
+        paginationToken: null,
+      });
     },
     getEncryptedUtxosByTags: (request: Readonly<{ tags: readonly Bytes32[]; limit?: number }>) => {
       deposits.push({ tags: request.tags.map(hex), limit: request.limit });
-      return Promise.resolve({ context: { blockTime: 0n, slot: 1n }, matches: [] });
+      return Promise.resolve({
+        context: { blockTime: 0n, slot: 1n },
+        items: outputItems([]),
+        paginationToken: null,
+      });
     },
     getShieldedTransactionsByNullifiers: nullifiers,
   };

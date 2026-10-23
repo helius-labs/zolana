@@ -1,23 +1,20 @@
-use std::{collections::HashMap, num::NonZeroU32, sync::Arc, time::Duration};
+use std::{num::NonZeroU32, sync::Arc, time::Duration};
 
 use custom_ring_interface::RingMode;
 use solana_address::Address;
-use solana_signature::Signature;
 use zolana_client::GetShieldedTransactionsByTagsResponse;
-use zolana_indexer_api::{Base64String, Limit};
+use zolana_indexer_api::{HistoryFilters, Limit, PageRequest, PaginationToken};
 use zolana_keypair::{X25519Keypair, X25519Pubkey};
-use zolana_ring_client::{
-    AuditError, AuditedTransaction, RingOrigin, RingWithdrawal, TransactionAudit,
-};
+use zolana_ring_client::{AuditError, AuditedTransaction, RingWithdrawal, TransactionAudit};
 use zolana_transaction::instructions::transact::canonical_shape;
 
 use crate::{
     api::{
-        cursor_in_bounds, limit_in_bounds, AuthorityAuth, DecryptedAnonymousInput,
-        DecryptedAnonymousRecipient, DecryptedAnonymousTrace, DecryptedOutput,
-        DecryptedSpendCounter, DecryptedSpendRecord, DecryptedTransaction,
-        DecryptedTransactionsPage, DecryptedWithdrawal, GetDecryptedTransactionsResponse,
-        ReadAttestation, ReadAuth, SkippedReason, SkippedTransaction, AUDIT_PAGE_LIMIT,
+        limit_in_bounds, AuthorityAuth, DecryptedAnonymousInput, DecryptedAnonymousRecipient,
+        DecryptedAnonymousTrace, DecryptedOutput, DecryptedSpendCounter, DecryptedSpendRecord,
+        DecryptedTransaction, DecryptedTransactionGroup, DecryptedWithdrawal,
+        GetDecryptedTransactionsResponse, ReadAttestation, ReadAuth, SkippedReason,
+        SkippedTransaction, AUDIT_PAGE_LIMIT,
     },
     authorize::{self, AuthorityCheck, ReadCheck, Unauthorized},
     error::RingRpcError,
@@ -31,16 +28,20 @@ pub(crate) const ASSET_REFRESH_INTERVAL: Duration = Duration::from_secs(60);
 pub(crate) const MAX_ASSET_REGISTRY_ACCOUNTS: usize = 4_096;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Page {
-    cursor: Option<Vec<u8>>,
+    pagination_token: Option<PaginationToken>,
     limit: NonZeroU32,
     attested_limit: Option<Limit>,
+    filters: HistoryFilters,
+    min_context_slot: Option<u64>,
 }
 
 #[derive(Default)]
 #[must_use]
 pub struct PageOptions {
-    cursor: Option<Vec<u8>>,
+    pagination_token: Option<PaginationToken>,
     limit: Option<Limit>,
+    filters: HistoryFilters,
+    min_context_slot: Option<u64>,
 }
 
 pub struct AuditService<S> {
@@ -66,15 +67,23 @@ pub struct AuditRead<'a> {
 
 impl PageOptions {
     #[must_use = "use the updated options"]
-    pub fn with_cursor(mut self, cursor: Base64String) -> Result<Self, RingRpcError> {
-        if !cursor_in_bounds(&cursor.0) {
-            return Err(RingRpcError::InvalidPage);
-        }
-        self.cursor = Some(cursor.0);
-        Ok(self)
+    pub fn with_pagination_token(mut self, token: PaginationToken) -> Self {
+        self.pagination_token = Some(token);
+        self
     }
 
     #[must_use = "use the updated options"]
+    pub fn with_filters(mut self, filters: HistoryFilters) -> Self {
+        self.filters = filters;
+        self
+    }
+
+    #[must_use = "use the updated options"]
+    pub fn with_min_context_slot(mut self, slot: u64) -> Self {
+        self.min_context_slot = Some(slot);
+        self
+    }
+
     pub fn with_limit(mut self, limit: Limit) -> Result<Self, RingRpcError> {
         if !limit_in_bounds(&limit) {
             return Err(RingRpcError::InvalidPage);
@@ -93,7 +102,9 @@ impl PageOptions {
             .and_then(NonZeroU32::new)
             .ok_or(RingRpcError::InvalidPage)?;
         Ok(Page {
-            cursor: self.cursor,
+            pagination_token: self.pagination_token,
+            filters: self.filters,
+            min_context_slot: self.min_context_slot,
             limit,
             attested_limit,
         })
@@ -101,12 +112,18 @@ impl PageOptions {
 }
 
 impl Page {
-    pub fn cursor(&self) -> Option<&[u8]> {
-        self.cursor.as_deref()
-    }
-
     pub fn limit(&self) -> NonZeroU32 {
         self.limit
+    }
+
+    /// What the indexer page must answer.
+    fn request(&self) -> PageRequest {
+        PageRequest {
+            pagination_token: self.pagination_token,
+            limit: u64::from(self.limit.get()),
+            filters: self.filters,
+            min_context_slot: self.min_context_slot,
+        }
     }
 }
 
@@ -181,7 +198,9 @@ impl<S: TransactionSource> AuditService<S> {
             ring: self.ring,
             timestamp: request.auth.timestamp,
             nonce: &nonce,
-            cursor: request.page.cursor.as_deref(),
+            pagination_token: request.page.pagination_token,
+            filters: request.page.filters,
+            min_context_slot: request.page.min_context_slot,
             limit: request.page.attested_limit.clone(),
         };
         let claim = ReadCheck::new(request.auth, &attestation)
@@ -232,81 +251,76 @@ impl<S: TransactionSource> AuditService<S> {
             .source
             .transactions_by_tag(TransactionPage {
                 tag: self.view_tag,
-                page,
+                pagination_token: page.pagination_token,
+                filters: page.filters,
+                min_context_slot: page.min_context_slot,
+                limit: page.limit(),
             })
             .await?;
         validate_indexer_response(&response, page, self.view_tag)?;
         let mut assets = self.shared.cached_assets().await;
         let mut refreshed_assets = false;
 
-        let mut audited = Vec::new();
-        let mut skipped = Vec::new();
-        let mut origins: HashMap<(Signature, u16), RingOrigin> = HashMap::new();
-        for tx in response.transactions {
-            if tx.ring_program_id != Some(self.ring) {
-                continue;
-            }
-            let event_index = tx.event_index.ok_or(RingRpcError::InvalidIndexerResponse)?;
-            let origin_key = (tx.tx_signature, event_index);
-            let origin = match origins.get(&origin_key) {
-                Some(known) => known.clone(),
-                None => {
-                    let found = self
-                        .shared
-                        .source
-                        .transaction_origin(tx.tx_signature, event_index, self.ring)
-                        .await?;
-                    origins.insert(origin_key, found.clone());
-                    found
-                }
+        let mut items = Vec::new();
+        for group in response.items {
+            let mut item = DecryptedTransactionGroup {
+                slot: group.slot,
+                signature: group.signature.into(),
+                events: Vec::new(),
+                skipped: Vec::new(),
             };
-            if !origin.ring_invoked {
-                continue;
-            }
-            let mut result = (TransactionAudit {
-                auditor: &self.auditor,
-                transaction: &tx,
-                assets: &assets,
-            })
-            .run_with_mode(mode);
-            if matches!(result, Err(AuditError::UnknownAsset { .. })) && !refreshed_assets {
-                assets = self.shared.refresh_assets().await?;
-                refreshed_assets = true;
-                result = (TransactionAudit {
+            for tx in group.events {
+                if tx.ring_program_id != Some(self.ring) {
+                    continue;
+                }
+                let event_index = tx.event_index.ok_or(RingRpcError::InvalidIndexerResponse)?;
+                let origin = self
+                    .shared
+                    .source
+                    .transaction_origin(tx.tx_signature, event_index, self.ring)
+                    .await?;
+                if !origin.ring_invoked {
+                    continue;
+                }
+                let mut result = (TransactionAudit {
                     auditor: &self.auditor,
                     transaction: &tx,
                     assets: &assets,
                 })
                 .run_with_mode(mode);
-            }
-            match result {
-                Ok(opened) => {
-                    audited.push((opened, tx.nullifiers, origin.signers, origin.withdrawals))
+                if matches!(result, Err(AuditError::UnknownAsset { .. })) && !refreshed_assets {
+                    assets = self.shared.refresh_assets().await?;
+                    refreshed_assets = true;
+                    result = (TransactionAudit {
+                        auditor: &self.auditor,
+                        transaction: &tx,
+                        assets: &assets,
+                    })
+                    .run_with_mode(mode);
                 }
-                Err(reason) => skipped.push(SkippedTransaction {
-                    slot: tx.slot,
-                    tx_signature: tx.tx_signature.into(),
-                    reason: skipped_reason(&reason),
-                }),
+                match result {
+                    Ok(opened) => item.events.push(decrypted_transaction(
+                        opened,
+                        tx.nullifiers,
+                        origin.signers,
+                        origin.withdrawals,
+                    )),
+                    Err(reason) => item.skipped.push(SkippedTransaction {
+                        slot: tx.slot,
+                        tx_signature: tx.tx_signature.into(),
+                        reason: skipped_reason(&reason),
+                    }),
+                }
+            }
+            if !item.events.is_empty() || !item.skipped.is_empty() {
+                items.push(item);
             }
         }
-        let items = audited
-            .into_iter()
-            .map(|(opened, nullifiers, signers, withdrawals)| {
-                decrypted_transaction(opened, nullifiers, signers, withdrawals)
-            })
-            .collect();
-
         Ok(GetDecryptedTransactionsResponse {
-            context: zolana_indexer_api::Context {
-                block_time: response.context.block_time,
-                slot: response.context.slot,
-            },
-            value: DecryptedTransactionsPage {
-                items,
-                skipped,
-                cursor: response.next_cursor.map(Into::into),
-            },
+            context: response.context,
+            output_tree_id: None,
+            items,
+            pagination_token: response.pagination_token,
         })
     }
 }
@@ -332,26 +346,26 @@ fn validate_indexer_response(
     page: &Page,
     auditor_tag: [u8; 32],
 ) -> Result<(), RingRpcError> {
-    if response.transactions.len() > page.limit.get() as usize
-        || response
-            .next_cursor
-            .as_ref()
-            .is_some_and(|cursor| !cursor_in_bounds(cursor) || page.cursor.as_ref() == Some(cursor))
-    {
-        return Err(RingRpcError::InvalidIndexerResponse);
-    }
-    for transaction in &response.transactions {
-        let has_auditor_message = transaction
-            .messages
-            .iter()
-            .any(|message| message.view_tag == auditor_tag);
-        // Compact padding leaves trailing slots out of the instruction, so a
-        // transaction publishes at most, not exactly, its circuit's slots.
-        let supported_shape = !transaction.nullifiers.is_empty()
-            && canonical_shape(transaction.nullifiers.len(), transaction.output_slots.len())
-                .is_ok();
-        if has_auditor_message && !supported_shape {
-            return Err(RingRpcError::InvalidIndexerResponse);
+    response
+        .validate_indexed(&page.request())
+        .map_err(|_| RingRpcError::InvalidIndexerResponse)?;
+    for group in &response.items {
+        group
+            .validate_events(|event| (event.slot, event.tx_signature, event.event_index))
+            .map_err(|_| RingRpcError::InvalidIndexerResponse)?;
+        for transaction in &group.events {
+            let has_auditor_message = transaction
+                .messages
+                .iter()
+                .any(|message| message.view_tag == auditor_tag);
+            // Compact padding leaves trailing slots out of the instruction, so a
+            // transaction publishes at most, not exactly, its circuit's slots.
+            let supported_shape = !transaction.nullifiers.is_empty()
+                && canonical_shape(transaction.nullifiers.len(), transaction.output_slots.len())
+                    .is_ok();
+            if has_auditor_message && !supported_shape {
+                return Err(RingRpcError::InvalidIndexerResponse);
+            }
         }
     }
     Ok(())

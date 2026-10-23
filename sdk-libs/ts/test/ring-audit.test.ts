@@ -1,3 +1,4 @@
+import { transactionItems } from "./helpers/pages.js";
 import { X25519PublicKey, X25519Keypair } from "../src/keypair/x25519.js";
 import { SOLANA_OWNER_TAG, hashBytes, initializePoseidon } from "../src/hasher/index.js";
 import { describe, expect, it } from "vitest";
@@ -615,7 +616,9 @@ describe("anonymous ring audit", () => {
     const client = {
       ...ringAuditReader({
         getShieldedTransactionsByTags: async (input) =>
-          transactionsPage(input.ringProgramId === undefined ? { transactions: [indexed] } : {}),
+          transactionsPage(
+            input.ringProgramId === undefined ? { items: transactionItems([indexed]) } : {},
+          ),
       }),
       getShieldedTransactionsByNullifiers: async () => transactionsPage(),
     };

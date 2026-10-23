@@ -114,7 +114,7 @@ pub struct SyncReport {
 /// One key on one indexer stream. `ViewTag` is `[u8; 32]`, so the variant is
 /// what stops a tag being read as a nullifier.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum CursorStream {
+pub enum CheckpointStream {
     /// Shielded transactions matched by output view tag.
     Tags(ViewTag),
     /// Shielded transactions matched by spent nullifier.
@@ -123,7 +123,7 @@ pub enum CursorStream {
     Proofless(ViewTag),
 }
 
-impl CursorStream {
+impl CheckpointStream {
     /// The tag or nullifier, for building the query.
     pub fn value(self) -> [u8; 32] {
         match self {
@@ -149,9 +149,9 @@ pub struct Wallet {
     /// spent.
     pub nullifiers: HashSet<[u8; 32]>,
     pub last_synced: i64,
-    /// Per key, the position everything matching it has been seen through.
+    /// Per key, the slot everything matching it has been seen through.
     /// Streams advance independently. Nullifier entries die with their spend.
-    pub cursors: HashMap<CursorStream, Vec<u8>>,
+    pub checkpoints: HashMap<CheckpointStream, u64>,
 }
 
 impl Wallet {
@@ -178,7 +178,7 @@ impl Wallet {
             transactions: Vec::new(),
             nullifiers: HashSet::new(),
             last_synced: 0,
-            cursors: HashMap::new(),
+            checkpoints: HashMap::new(),
         })
     }
 

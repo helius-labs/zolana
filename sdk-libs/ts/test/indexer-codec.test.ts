@@ -1,3 +1,4 @@
+import { transactionItems, outputItems } from "./helpers/pages.js";
 import { address } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 
@@ -5,6 +6,7 @@ import {
   decodeEncryptedUtxosResponse,
   decodeShieldedTransactionsResponse,
   decodeShieldedTransactionsBySignatureResponse,
+  encodeRingsByNullifiersRequest,
   encodeRingsByTagsRequest,
   decodeRingKeyRegistryEntry,
   decodeRingKeyRegistryRegisterProof,
@@ -328,6 +330,38 @@ describe("rings-by-tags request encoding", () => {
     expect(encodeRingsByTagsRequest({ tags: [TAG] })).toEqual({ tags: [TAG] });
   });
 
+  it("carries the pagination token and every slot bound, and drops an empty filter", () => {
+    const paginationToken = `1:7:${"1".repeat(64)}`;
+    expect(
+      encodeRingsByTagsRequest({
+        tags: [TAG],
+        paginationToken,
+        filters: { slot: { gt: 1n, gte: 2n, lt: 9n, lte: 8n } },
+        minContextSlot: 7n,
+      }),
+    ).toEqual({
+      tags: [TAG],
+      paginationToken,
+      filters: { slot: { gt: 1, gte: 2, lt: 9, lte: 8 } },
+      minContextSlot: 7,
+    });
+    expect(encodeRingsByTagsRequest({ tags: [TAG], filters: { slot: {} } })).toEqual({
+      tags: [TAG],
+    });
+    expect(encodeRingsByNullifiersRequest({ nullifiers: [TAG], filters: {} })).toEqual({
+      nullifiers: [TAG],
+    });
+  });
+
+  it.each([
+    ["a non-canonical token", { paginationToken: "1:07:x" }],
+    ["an unknown filter", { filters: { blockTime: { gt: 1n } } }],
+    ["an unknown slot bound", { filters: { slot: { eq: 1n } } }],
+    ["a negative slot bound", { filters: { slot: { gt: -1n } } }],
+  ])("rejects %s", (_name, controls) => {
+    expect(() => encodeRingsByTagsRequest({ tags: [TAG], ...controls } as never)).toThrow();
+  });
+
   it("rejects a ring filter that is not an address", () => {
     expect(() =>
       encodeRingsByTagsRequest({
@@ -339,27 +373,45 @@ describe("rings-by-tags request encoding", () => {
 });
 
 describe("shielded transactions by tags response", () => {
-  const page = { context: { blockTime: 1, slot: 2 }, transactions: [], nextCursor: null };
+  const signature = "1".repeat(64);
+  const event = {
+    slot: 3,
+    eventIndex: 0,
+    txSignature: signature,
+    outputSlots: [],
+    messages: [],
+    nullifiers: [],
+    proofless: false,
+  };
+  const page = { context: { blockTime: 1, slot: 3 }, items: [], paginationToken: null };
 
-  it("accepts the scan position newer indexers report, and pages without it", () => {
+  it("decodes a null token as the end of the history and a token as the next page", () => {
     expect(decodeShieldedTransactionsResponse(page)).toEqual({
-      context: { blockTime: 1n, slot: 2n },
-      transactions: [],
+      context: { blockTime: 1n, slot: 3n },
+      items: transactionItems([]),
+      paginationToken: null,
     });
-    expect(decodeShieldedTransactionsResponse({ ...page, scannedThrough: "AQID" })).toEqual({
-      context: { blockTime: 1n, slot: 2n },
-      transactions: [],
-      scannedThrough: "AQID",
-    });
-    expect(() => decodeShieldedTransactionsResponse({ ...page, extra: 1 })).toThrow();
     expect(
-      decodeEncryptedUtxosResponse({
-        context: page.context,
-        matches: [],
-        nextCursor: null,
-        scannedThrough: "AQID",
-      }),
-    ).toEqual({ context: { blockTime: 1n, slot: 2n }, matches: [], scannedThrough: "AQID" });
+      decodeShieldedTransactionsResponse({
+        ...page,
+        items: transactionItems([event]),
+        paginationToken: `1:${3}:${signature}`,
+      }).paginationToken,
+    ).toBe(`1:${3}:${signature}`);
+    expect(
+      decodeEncryptedUtxosResponse({ ...page, items: outputItems([]) }).paginationToken,
+    ).toBeNull();
+  });
+
+  it.each([
+    { extra: 1 },
+    { cursor: `1:${3}:${signature}` },
+    { hasMore: false },
+    { paginationToken: undefined },
+    { paginationToken: `1:${4}:${signature}` },
+    { paginationToken: "invalid" },
+  ])("rejects a page with the old or an inconsistent token shape: %j", (change) => {
+    expect(() => decodeShieldedTransactionsResponse({ ...page, ...change })).toThrow();
   });
 });
 
@@ -372,6 +424,7 @@ describe("Photon tree metadata", () => {
   const match = { slot: 1, txSignature: "1".repeat(64), outputSlot: output };
   const transaction = {
     slot: 1,
+    eventIndex: 0,
     txSignature: match.txSignature,
     outputSlots: [output],
     messages: [],
@@ -381,11 +434,16 @@ describe("Photon tree metadata", () => {
   const context = { blockTime: 0, slot: 1 };
 
   it("decodes tree identity and append suggestions on every response shape", () => {
-    const page = { context, matches: [match], outputTreeId: 9 };
+    const page = {
+      context,
+      items: outputItems([match]),
+      outputTreeId: 9,
+      paginationToken: null,
+    };
     const before = structuredClone(page);
     const decoded = decodeEncryptedUtxosResponse(page);
     expect(decoded.outputTreeId).toBe(9);
-    expect(decoded.matches[0]?.outputSlot.outputContext).toEqual({
+    expect(decoded.items.flatMap((item) => item.outputs)[0]?.outputSlot.outputContext).toEqual({
       hash: TAG,
       tree: treeAddress(7),
       treeId: 7,
@@ -393,8 +451,12 @@ describe("Photon tree metadata", () => {
     });
     expect(page).toEqual(before);
     expect(
-      decodeShieldedTransactionsResponse({ context, transactions: [transaction], outputTreeId: 0 })
-        .outputTreeId,
+      decodeShieldedTransactionsResponse({
+        context,
+        items: transactionItems([transaction]),
+        outputTreeId: 0,
+        paginationToken: null,
+      }).outputTreeId,
     ).toBe(0);
     expect(
       decodeShieldedTransactionsBySignatureResponse({
@@ -404,16 +466,22 @@ describe("Photon tree metadata", () => {
       }).outputTreeId,
     ).toBe(65535);
     expect(
-      decodeEncryptedUtxosResponse({ context, matches: [], outputTreeId: null }).outputTreeId,
+      decodeEncryptedUtxosResponse({
+        context,
+        items: [],
+        paginationToken: null,
+        outputTreeId: null,
+      }).outputTreeId,
     ).toBeUndefined();
   });
 
   it.each([-1, 65536, 1.5, "7"])("rejects malformed tree IDs: %s", (treeId) => {
     const page = {
       context,
-      matches: [
+      items: outputItems([
         { ...match, outputSlot: { ...output, outputContext: { ...output.outputContext, treeId } } },
-      ],
+      ]),
+      paginationToken: null,
     };
     const before = structuredClone(page);
     expect(() => decodeEncryptedUtxosResponse(page)).toThrowError(
@@ -421,10 +489,20 @@ describe("Photon tree metadata", () => {
     );
     expect(page).toEqual(before);
     expect(() =>
-      decodeEncryptedUtxosResponse({ context, matches: [], outputTreeId: treeId }),
+      decodeEncryptedUtxosResponse({
+        context,
+        items: [],
+        paginationToken: null,
+        outputTreeId: treeId,
+      }),
     ).toThrowError(expect.objectContaining({ code: "INDEXER_SCHEMA_INVALID_INTEGER" }));
     expect(() =>
-      decodeShieldedTransactionsResponse({ context, transactions: [], outputTreeId: treeId }),
+      decodeShieldedTransactionsResponse({
+        context,
+        items: [],
+        paginationToken: null,
+        outputTreeId: treeId,
+      }),
     ).toThrowError(expect.objectContaining({ code: "INDEXER_SCHEMA_INVALID_INTEGER" }));
     expect(() =>
       decodeShieldedTransactionsBySignatureResponse({
@@ -441,7 +519,11 @@ describe("Photon tree metadata", () => {
       { outputContext: missing, code: "INDEXER_SCHEMA_INVALID_INTEGER" },
       { outputContext: { ...missing, treeId: 8 }, code: "INDEXER_SCHEMA_INVALID_TREE" },
     ]) {
-      const page = { context, matches: [{ ...match, outputSlot: { ...output, outputContext } }] };
+      const page = {
+        context,
+        items: outputItems([{ ...match, outputSlot: { ...output, outputContext } }]),
+        paginationToken: null,
+      };
       const before = structuredClone(page);
       expect(() => decodeEncryptedUtxosResponse(page)).toThrowError(
         expect.objectContaining({ code }),

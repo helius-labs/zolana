@@ -210,9 +210,13 @@ pub fn rpc_module<S: TransactionSource + 'static>(
             }
             .map_err(ErrorObjectOwned::from)?;
             let mut page = PageOptions::default();
-            if let Some(cursor) = request.cursor {
-                page = page.with_cursor(cursor).map_err(ErrorObjectOwned::from)?;
+            if let Some(slot) = request.min_context_slot {
+                page = page.with_min_context_slot(slot);
             }
+            if let Some(token) = request.pagination_token {
+                page = page.with_pagination_token(token);
+            }
+            page = page.with_filters(request.filters);
             if let Some(limit) = request.limit {
                 page = page.with_limit(limit).map_err(ErrorObjectOwned::from)?;
             }
@@ -351,7 +355,7 @@ mod tests {
     impl TransactionSource for TestSource {
         async fn transactions_by_tag(
             &self,
-            _request: TransactionPage<'_>,
+            _request: TransactionPage,
         ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
             Err(ClientError::Rpc("unused source".to_owned()))
         }

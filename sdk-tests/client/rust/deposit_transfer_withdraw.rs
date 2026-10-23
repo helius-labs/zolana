@@ -100,13 +100,19 @@ fn main() -> Result<()> {
             vec![sender_tag],
             None,
             Some(50),
+            zolana_client::HistoryFilters::default(),
             Some(IndexerRpcConfig::at_slot(slot)),
         )?;
 
         // 1.2. Decrypt them. Each note comes back as a `WalletUtxo`
         // carrying its commitment, nullifier, tree id and leaf index, so
         // nothing downstream needs a key, or a second lookup, to spend it.
-        let balances = decrypt_spendable(&sender, &response.transactions, &assets)
+        let transactions = response
+            .items
+            .into_iter()
+            .flat_map(|item| item.events)
+            .collect::<Vec<_>>();
+        let balances = decrypt_spendable(&sender, &transactions, &assets)
             .map_err(|e| anyhow!("decrypt sender transactions: {e:?}"))?
             .balances;
 
@@ -173,9 +179,15 @@ fn main() -> Result<()> {
             vec![sender_tag],
             None,
             Some(50),
+            zolana_client::HistoryFilters::default(),
             Some(IndexerRpcConfig::at_slot(slot)),
         )?;
-        let sender_balances = decrypt_spendable(&sender, &response.transactions, &assets)
+        let transactions = response
+            .items
+            .into_iter()
+            .flat_map(|item| item.events)
+            .collect::<Vec<_>>();
+        let sender_balances = decrypt_spendable(&sender, &transactions, &assets)
             .map_err(|e| anyhow!("decrypt sender transactions: {e:?}"))?
             .balances;
         let sender_balance = sender_balances
@@ -250,9 +262,15 @@ fn main() -> Result<()> {
             vec![sender_tag],
             None,
             Some(50),
+            zolana_client::HistoryFilters::default(),
             Some(IndexerRpcConfig::at_slot(slot)),
         )?;
-        let sender_balances = decrypt_spendable(&sender, &response.transactions, &assets)
+        let transactions = response
+            .items
+            .into_iter()
+            .flat_map(|item| item.events)
+            .collect::<Vec<_>>();
+        let sender_balances = decrypt_spendable(&sender, &transactions, &assets)
             .map_err(|e| anyhow!("decrypt sender transactions: {e:?}"))?
             .balances;
         let sender_balance = sender_balances

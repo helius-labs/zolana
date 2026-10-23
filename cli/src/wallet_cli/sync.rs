@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
 use solana_signature::Signature;
 use zolana_client::{
-    EncryptedUtxoMatch, IndexerPollConfig, IndexerRpcConfig, Rpc, SolanaRpc, UtxoScan,
-    ZolanaIndexer,
+    EncryptedUtxoMatch, HistoryFilters, IndexerPollConfig, IndexerRpcConfig, Rpc, SolanaRpc,
+    UtxoScan, ZolanaIndexer,
 };
 use zolana_transaction::SpendableDecryptionResult;
 
@@ -86,18 +86,28 @@ pub(super) fn wait_for_indexed_utxo(
 ) -> Result<EncryptedUtxoMatch> {
     let response = indexer_poll()
         .poll_until(
-            || indexer.get_encrypted_utxos_by_tags(vec![tag], None, Some(50), None),
+            || {
+                indexer.get_encrypted_utxos_by_tags(
+                    vec![tag],
+                    None,
+                    Some(50),
+                    HistoryFilters::default(),
+                    None,
+                )
+            },
             |response| {
                 response
-                    .matches
+                    .items
                     .iter()
+                    .flat_map(|item| &item.outputs)
                     .any(|item| item.tx_signature == signature)
             },
         )
         .with_context(|| format!("timed out waiting for Photon to index {signature}"))?;
     response
-        .matches
+        .items
         .into_iter()
+        .flat_map(|item| item.outputs)
         .find(|item| item.tx_signature == signature)
         .with_context(|| format!("Photon returned no indexed output for {signature}"))
 }

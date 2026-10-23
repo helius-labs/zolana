@@ -1,3 +1,4 @@
+import { transactionItems, outputItems } from "./helpers/pages.js";
 import { encodeRingDepositCapsule } from "../src/ring/deposit-capsule.js";
 import {
   address,
@@ -107,8 +108,18 @@ function mergePayload(
   }
 }
 
-interface RequestWithCursor {
-  readonly cursor?: Uint8Array;
+interface RequestWithControls {
+  readonly paginationToken?: string;
+  readonly filters?: Readonly<{ slot?: Readonly<{ gt?: bigint }> }>;
+}
+
+/** The checkpoint a request resumes above, `undefined` for a scan from the beginning. */
+function floorOf(request: RequestWithControls | undefined): bigint | undefined {
+  return request?.filters?.slot?.gt;
+}
+
+function position(slot: bigint): string {
+  return `1:${slot}:${SIGNATURE}`;
 }
 
 function mergeAfterSplit() {
@@ -267,29 +278,29 @@ describe("wallet sync atomicity", () => {
     return {
       getEncryptedUtxosByTags: vi.fn(async () => ({
         context: { blockTime: 1_700_000_000n, slot: 0n },
-        matches: [],
+        items: outputItems([]),
+        paginationToken: null,
       })),
       getShieldedTransactionsByNullifiers: vi.fn(),
     };
   }
 
-  it("queries the bootstrap tag in both streams and resumes its own cursor", async () => {
+  it("queries the bootstrap tag in both streams and resumes above its own checkpoint", async () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
-    const cursor = Uint8Array.of(4, 5);
-    const page = { context: { blockTime: 1_700_000_000n, slot: 0n }, scannedThrough: cursor };
-    const transactions = vi.fn(
-      async (_request: { tags: readonly Bytes32[]; cursor?: Uint8Array }) => ({
-        ...page,
-        transactions: [],
-      }),
-    );
-    const proofless = vi.fn(
-      async (_request: { tags: readonly Bytes32[]; cursor?: Uint8Array }) => ({
-        ...page,
-        matches: [],
-      }),
-    );
+    const page = {
+      context: { blockTime: 1_700_000_000n, slot: 4n },
+      paginationToken: null,
+    };
+    type TagRequest = RequestWithControls & { readonly tags: readonly Bytes32[] };
+    const transactions = vi.fn(async (_request: TagRequest) => ({
+      ...page,
+      items: transactionItems([]),
+    }));
+    const proofless = vi.fn(async (_request: TagRequest) => ({
+      ...page,
+      items: outputItems([]),
+    }));
     const client = syncReads({
       getShieldedTransactionsByTags: transactions,
       getEncryptedUtxosByTags: proofless,
@@ -313,25 +324,123 @@ describe("wallet sync atomicity", () => {
     await syncWallet({ wallet, keys, client, config: { queryChunk: 1 } });
     for (const query of [transactions, proofless]) {
       const resumed = query.mock.calls.find(([request]) => isBootstrap(request));
-      expect(resumed?.[0].cursor).toEqual(cursor);
+      expect(floorOf(resumed?.[0])).toBe(4n);
     }
   });
 
-  it("commits no cursor from a sync that failed partway", async () => {
+  it("checkpoints the final page's snapshot slot and keeps the filter across pages", async () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
     const keys = LocalShieldedKeys.fromKeypair(keypair);
-    const cursor = Uint8Array.of(1, 2, 3);
+    const unrelated = (slot: bigint) => ({
+      slot,
+      txSignature: SIGNATURE,
+      outputSlots: [],
+      messages: [],
+      nullifiers: [],
+      proofless: false,
+    });
+    // Each sync reads one truncated page, then the end from a newer snapshot.
+    const pages = (first: bigint, last: bigint) => [
+      {
+        context: { blockTime: 1_700_000_000n, slot: first + 1n },
+        items: transactionItems([unrelated(first)]),
+        paginationToken: position(first),
+      },
+      {
+        context: { blockTime: 1_700_000_000n, slot: last },
+        items: transactionItems([]),
+        paginationToken: null,
+      },
+    ];
+    let queue = pages(9n, 12n);
+    const getShieldedTransactionsByTags = vi.fn(
+      async (_request: RequestWithControls) => queue.shift() ?? queue[0]!,
+    );
+    const client = syncReads({ getShieldedTransactionsByTags, ...emptyTagPages() });
+
+    await syncWallet({ wallet, keys, client, config: { queryChunk: 64 } });
+    expect(new Set(wallet._checkpointEntries("transactions").map(([, slot]) => slot))).toEqual(
+      new Set([12n]),
+    );
+    expect(getShieldedTransactionsByTags.mock.calls.map(([request]) => request)).toEqual([
+      expect.not.objectContaining({ filters: expect.anything() }),
+      expect.objectContaining({ paginationToken: position(9n) }),
+    ]);
+
+    queue = pages(14n, 20n);
+    getShieldedTransactionsByTags.mockClear();
+    await syncWallet({ wallet, keys, client, config: { queryChunk: 64 } });
+    expect(getShieldedTransactionsByTags.mock.calls.map(([request]) => request)).toEqual([
+      expect.objectContaining({ filters: { slot: { gt: 12n } } }),
+      expect.objectContaining({ filters: { slot: { gt: 12n } }, paginationToken: position(14n) }),
+    ]);
+    expect(new Set(wallet._checkpointEntries("transactions").map(([, slot]) => slot))).toEqual(
+      new Set([20n]),
+    );
+  });
+
+  it("rejects a snapshot behind the committed checkpoint", async () => {
+    const keypair = ShieldedKeypair.generate();
+    const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+    const keys = LocalShieldedKeys.fromKeypair(keypair);
+    let tip = 10n;
+    const getShieldedTransactionsByTags = vi.fn(async (_request: RequestWithControls) => ({
+      context: { blockTime: 1_700_000_000n, slot: tip },
+      items: transactionItems([]),
+      paginationToken: null,
+    }));
+    const client = syncReads({ getShieldedTransactionsByTags, ...emptyTagPages() });
+
+    await syncWallet({ wallet, keys, client });
+    tip = 8n;
+    const before = serializeWallet(wallet);
+    await expect(syncWallet({ wallet, keys, client })).rejects.toMatchObject({
+      code: "WALLET_SYNC",
+    });
+    expect(serializeWallet(wallet)).toBe(before);
+
+    expect(wallet._checkpointEntries("transactions").map(([, value]) => value)).toEqual(
+      expect.arrayContaining([10n]),
+    );
+  });
+
+  it("rejects conflicting page positions before another read or wallet commit", async () => {
+    const keypair = ShieldedKeypair.generate();
+    const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+    const keys = LocalShieldedKeys.fromKeypair(keypair);
+    const before = serializeWallet(wallet);
+    let calls = 0;
+    // An indexer page ends at its last transaction, a token on an empty page is a lie.
+    const getShieldedTransactionsByTags = vi.fn(async (_request: RequestWithControls) => ({
+      context: { blockTime: 1_700_000_000n, slot: 10n },
+      items: transactionItems([]),
+      paginationToken: calls++ === 0 ? position(5n) : null,
+    }));
+    const client = syncReads({ getShieldedTransactionsByTags, ...emptyTagPages() });
+
+    await expect(syncWallet({ wallet, keys, client })).rejects.toMatchObject({
+      code: "WALLET_SYNC",
+      causeCode: "CLIENT_INVALID_RPC_RESPONSE",
+    });
+    expect(getShieldedTransactionsByTags).toHaveBeenCalledTimes(1);
+    expect(serializeWallet(wallet)).toBe(before);
+  });
+
+  it("commits no checkpoint from a sync that failed partway", async () => {
+    const keypair = ShieldedKeypair.generate();
+    const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+    const keys = LocalShieldedKeys.fromKeypair(keypair);
     // Chunk size 1 splits the wallet's two tags into two calls, the first
-    // returns a cursor, the second dies.
+    // reaches a checkpoint, the second dies.
     let served = 0;
-    const getShieldedTransactionsByTags = vi.fn(async (_request: RequestWithCursor) => {
+    const getShieldedTransactionsByTags = vi.fn(async (_request: RequestWithControls) => {
       served += 1;
       if (served === 2) throw new Error("indexer down");
       return {
-        context: { blockTime: 1_700_000_000n, slot: 0n },
-        transactions: [],
-        scannedThrough: cursor,
+        context: { blockTime: 1_700_000_000n, slot: 3n },
+        items: transactionItems([]),
+        paginationToken: null,
       };
     });
     const client = syncReads({
@@ -348,29 +457,29 @@ describe("wallet sync atomicity", () => {
     getShieldedTransactionsByTags.mockClear();
     await syncWallet({ wallet, keys, client, config: { queryChunk: 1 } });
     for (const call of getShieldedTransactionsByTags.mock.calls) {
-      expect(call[0]?.cursor).toBeUndefined();
+      expect(call[0]?.filters).toBeUndefined();
     }
   });
 
-  it("runs concurrent syncs one after the other over the committed cursor", async () => {
+  it("runs concurrent syncs one after the other over the committed checkpoint", async () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
     const keys = LocalShieldedKeys.fromKeypair(keypair);
-    const cursor = Uint8Array.of(7, 7);
+    const tip = 7n;
     let release: (() => void) | undefined;
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
     let firstCall = true;
-    const getShieldedTransactionsByTags = vi.fn(async (request: { cursor?: Uint8Array }) => {
+    const getShieldedTransactionsByTags = vi.fn(async (_request: RequestWithControls) => {
       if (firstCall) {
         firstCall = false;
         await gate;
       }
       return {
-        context: { blockTime: 1_700_000_000n, slot: 0n },
-        transactions: [],
-        ...(request.cursor === undefined ? { scannedThrough: cursor } : {}),
+        context: { blockTime: 1_700_000_000n, slot: tip },
+        items: transactionItems([]),
+        paginationToken: null,
       };
     });
     const client = syncReads({
@@ -385,8 +494,8 @@ describe("wallet sync atomicity", () => {
     await second;
 
     const calls = getShieldedTransactionsByTags.mock.calls;
-    expect(calls[0]?.[0]?.cursor).toBeUndefined();
-    expect(calls.at(-1)?.[0]?.cursor).toEqual(cursor);
+    expect(floorOf(calls[0]?.[0])).toBeUndefined();
+    expect(floorOf(calls.at(-1)?.[0])).toBe(tip);
   });
 
   it("fails a sync overtaken by another writer and keeps the newer state", async () => {
@@ -398,12 +507,16 @@ describe("wallet sync atomicity", () => {
       release = resolve;
     });
     let firstCall = true;
-    const getShieldedTransactionsByTags = vi.fn(async (_request: RequestWithCursor) => {
+    const getShieldedTransactionsByTags = vi.fn(async (_request: RequestWithControls) => {
       if (firstCall) {
         firstCall = false;
         await gate;
       }
-      return { context: { blockTime: 1_700_000_000n, slot: 0n }, transactions: [] };
+      return {
+        context: { blockTime: 1_700_000_000n, slot: 0n },
+        items: transactionItems([]),
+        paginationToken: null,
+      };
     });
     const client = syncReads({
       getShieldedTransactionsByTags,
@@ -423,18 +536,18 @@ describe("wallet sync atomicity", () => {
     expect(wallet.lastSynced).toBe(42n);
   });
 
-  it("resumes from persisted cursors after a restart", async () => {
+  it("resumes from persisted checkpoints after a restart", async () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
     const keys = LocalShieldedKeys.fromKeypair(keypair);
-    const cursor = Uint8Array.of(5, 5, 5);
+    const tip = 5n;
     let served = 0;
-    const getShieldedTransactionsByTags = vi.fn(async (_request: RequestWithCursor) => {
+    const getShieldedTransactionsByTags = vi.fn(async (_request: RequestWithControls) => {
       served += 1;
       return {
-        context: { blockTime: 1_700_000_000n, slot: 0n },
-        transactions: [],
-        ...(served === 1 ? { scannedThrough: cursor } : {}),
+        context: { blockTime: 1_700_000_000n, slot: tip },
+        items: transactionItems([]),
+        paginationToken: null,
       };
     });
     const client = syncReads({
@@ -447,8 +560,7 @@ describe("wallet sync atomicity", () => {
     getShieldedTransactionsByTags.mockClear();
     await syncWallet({ wallet: restored, keys, client });
 
-    const call = getShieldedTransactionsByTags.mock.calls[0]?.[0];
-    expect(call?.cursor).toEqual(cursor);
+    expect(floorOf(getShieldedTransactionsByTags.mock.calls[0]?.[0])).toBe(tip);
   });
 
   it("refuses keys that describe another wallet before querying any tag", async () => {
@@ -456,7 +568,8 @@ describe("wallet sync atomicity", () => {
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
     const getShieldedTransactionsByTags = vi.fn(async () => ({
       context: { blockTime: 1_700_000_000n, slot: 0n },
-      transactions: [],
+      items: transactionItems([]),
+      paginationToken: null,
     }));
     const client = syncReads({ getShieldedTransactionsByTags, ...emptyTagPages() });
 
@@ -486,7 +599,8 @@ describe("wallet sync freshness", () => {
         jsonrpc: "2.0",
         result: {
           context: { blockTime: 1, slot },
-          [method === "getEncryptedUtxosByTags" ? "matches" : "transactions"]: [],
+          items: [],
+          paginationToken: null,
         },
       });
     });
@@ -541,11 +655,13 @@ describe("wallet sync", () => {
     const client = syncReads({
       getShieldedTransactionsByTags: vi.fn(async () => ({
         context: { blockTime: 1_700_000_000n, slot: 0n },
-        transactions: [],
+        items: transactionItems([]),
+        paginationToken: null,
       })),
       getEncryptedUtxosByTags: vi.fn(async () => ({
         context: { blockTime: 1_700_000_000n, slot: 0n },
-        matches: [],
+        items: outputItems([]),
+        paginationToken: null,
       })),
       getShieldedTransactionsByNullifiers: vi.fn(),
     });
@@ -560,28 +676,22 @@ describe("wallet sync", () => {
     expect(report).toMatchObject({ storedUtxos: 0, unparsedTransactions: 0 });
   });
 
-  it("resumes each tag stream from where it was read to", async () => {
+  it("resumes each tag stream above the slot it was read through", async () => {
     // Without this every sync re-reads the wallet's whole history: 569 ECDH
     // operations for a wallet holding a handful of UTXOs, growing forever.
     const keypair = ShieldedKeypair.generate();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
-    const cursor = Uint8Array.of(1, 2, 3);
-    // One page carrying a cursor, then the end. Repeating a cursor would trip
-    // the SDK's loop guard, which is a different behaviour under test.
-    let served = 0;
-    const getShieldedTransactionsByTags = vi.fn(async (_request: RequestWithCursor) => {
-      served += 1;
-      return {
-        context: { blockTime: 1_700_000_000n, slot: 0n },
-        transactions: [],
-        ...(served === 1 ? { nextCursor: cursor } : {}),
-      };
-    });
+    const getShieldedTransactionsByTags = vi.fn(async (_request: RequestWithControls) => ({
+      context: { blockTime: 1_700_000_000n, slot: 5n },
+      items: transactionItems([]),
+      paginationToken: null,
+    }));
     const client = syncReads({
       getShieldedTransactionsByTags,
       getEncryptedUtxosByTags: vi.fn(async () => ({
         context: { blockTime: 1_700_000_000n, slot: 0n },
-        matches: [],
+        items: outputItems([]),
+        paginationToken: null,
       })),
       getShieldedTransactionsByNullifiers: vi.fn(),
     });
@@ -589,32 +699,33 @@ describe("wallet sync", () => {
 
     await syncWallet({ wallet, keys, client });
     const calls = () => getShieldedTransactionsByTags.mock.calls;
-    const firstCall = calls()[0]?.[0];
-    expect(firstCall?.cursor).toBeUndefined();
+    expect(floorOf(calls()[0]?.[0])).toBeUndefined();
 
     getShieldedTransactionsByTags.mockClear();
     await syncWallet({ wallet, keys, client });
-    const secondCall = calls()[0]?.[0];
-    expect(secondCall?.cursor).toEqual(cursor);
+    expect(calls()[0]?.[0]).toMatchObject({ filters: { slot: { gt: 5n } } });
+    expect(calls()[0]?.[0]?.paginationToken).toBeUndefined();
   });
 
-  it("does not resume a newly learned tag from another tag's position", async () => {
-    // The trap the per-tag watermarks exist for. Tags come from a counter plus a
+  it("does not resume a newly learned tag from another tag's checkpoint", async () => {
+    // The trap the per-tag checkpoints exist for. Tags come from a counter plus a
     // window, so one can be learned after others have advanced far past the
-    // slots it needs. Sharing a cursor would skip its history permanently.
+    // slots it needs. Sharing a checkpoint would skip its history permanently.
     const keypair = ShieldedKeypair.generate();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
-    wallet._setSyncCursor("transactions", "deadbeef", Uint8Array.of(9, 9, 9));
+    wallet._setSyncCheckpoint("transactions", "deadbeef", 9n);
 
-    const getShieldedTransactionsByTags = vi.fn(async (_request: RequestWithCursor) => ({
+    const getShieldedTransactionsByTags = vi.fn(async (_request: RequestWithControls) => ({
       context: { blockTime: 1_700_000_000n, slot: 0n },
-      transactions: [],
+      items: transactionItems([]),
+      paginationToken: null,
     }));
     const client = syncReads({
       getShieldedTransactionsByTags,
       getEncryptedUtxosByTags: vi.fn(async () => ({
         context: { blockTime: 1_700_000_000n, slot: 0n },
-        matches: [],
+        items: outputItems([]),
+        paginationToken: null,
       })),
       getShieldedTransactionsByNullifiers: vi.fn(),
     });
@@ -625,10 +736,10 @@ describe("wallet sync", () => {
       client,
     });
 
-    // The wallet's real tags have no watermark, so every query starts at the
-    // beginning -- the unrelated tag's cursor must not leak into them.
+    // The wallet's real tags have no checkpoint, so every query starts at the
+    // beginning -- the unrelated tag's checkpoint must not leak into them.
     for (const call of getShieldedTransactionsByTags.mock.calls) {
-      expect(call[0]?.cursor).toBeUndefined();
+      expect(call[0]?.filters).toBeUndefined();
     }
   });
 
@@ -691,13 +802,15 @@ describe("wallet sync", () => {
     const wallet = unknownMintWallet(keypair);
     const emptyPage = vi.fn(async () => ({
       context: { blockTime: 1n, slot: 0n },
-      transactions: [],
+      items: transactionItems([]),
+      paginationToken: null,
     }));
     const client = syncReads({
       getShieldedTransactionsByTags: emptyPage,
       getEncryptedUtxosByTags: vi.fn(async () => ({
         context: { blockTime: 1n, slot: 0n },
-        matches: [],
+        items: outputItems([]),
+        paginationToken: null,
       })),
       getShieldedTransactionsByNullifiers: emptyPage,
     });
@@ -735,15 +848,18 @@ describe("wallet sync", () => {
       solanaRpc: solanaRpcReads({ getProgramAccounts: () => ({ send }) }),
       getShieldedTransactionsByTags: vi.fn(async () => ({
         context: { blockTime: 1n, slot: 0n },
-        transactions: [],
+        items: transactionItems([]),
+        paginationToken: null,
       })),
       getEncryptedUtxosByTags: vi.fn(async () => ({
         context: { blockTime: 1n, slot: 0n },
-        matches: [],
+        items: outputItems([]),
+        paginationToken: null,
       })),
       getShieldedTransactionsByNullifiers: vi.fn(async () => ({
         context: { blockTime: 1n, slot: 0n },
-        transactions: [],
+        items: transactionItems([]),
+        paginationToken: null,
       })),
     });
 
@@ -759,17 +875,17 @@ describe("wallet sync", () => {
     expect(wallet.balance(SPL_MINT)).toMatchObject({ assetId: 2n, amount: 42n });
   });
 
-  it("holds the cursors until the registry resolves every held mint", async () => {
+  it("holds the checkpoints until the registry resolves every held mint", async () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = unknownMintWallet(keypair);
     const keys = LocalShieldedKeys.fromKeypair(keypair);
-    const requestCursors: (Uint8Array | undefined)[] = [];
-    const tagPage = vi.fn(async (request: { cursor?: Uint8Array }) => {
-      requestCursors.push(request.cursor);
+    const requestFloors: (bigint | undefined)[] = [];
+    const tagPage = vi.fn(async (request: RequestWithControls) => {
+      requestFloors.push(floorOf(request));
       return {
-        context: { blockTime: 1n, slot: 0n },
-        transactions: [],
-        scannedThrough: Uint8Array.of(6, 6),
+        context: { blockTime: 1n, slot: 6n },
+        items: transactionItems([]),
+        paginationToken: null,
       };
     });
     const accountData = new Uint8Array(48);
@@ -795,11 +911,13 @@ describe("wallet sync", () => {
       getShieldedTransactionsByTags: tagPage,
       getEncryptedUtxosByTags: vi.fn(async () => ({
         context: { blockTime: 1n, slot: 0n },
-        matches: [],
+        items: outputItems([]),
+        paginationToken: null,
       })),
       getShieldedTransactionsByNullifiers: vi.fn(async () => ({
         context: { blockTime: 1n, slot: 0n },
-        transactions: [],
+        items: transactionItems([]),
+        paginationToken: null,
       })),
     });
     const store = {
@@ -826,7 +944,7 @@ describe("wallet sync", () => {
 
     scan = () => [registration];
     await syncPersistedWallet({ wallet, keys, client, store, cipher: plainCipher });
-    expect(requestCursors.every((cursor) => cursor === undefined)).toBe(true);
+    expect(requestFloors.every((floor) => floor === undefined)).toBe(true);
     expect(wallet.balance(SPL_MINT).amount).toBe(42n);
     expect(store.save).toHaveBeenCalledTimes(1);
   });
@@ -1209,7 +1327,7 @@ describe("wallet sync", () => {
   });
 
   it.each(["malformed", "out of range", "wrong commitment"] as const)(
-    "does not commit past an owned ring merge with %s ciphertext, and retries its cursor",
+    "does not commit past an owned ring merge with %s ciphertext, and retries its checkpoint",
     async (corruption) => {
       const keypair = ShieldedKeypair.generate();
       const keys = LocalShieldedKeys.fromKeypair(keypair);
@@ -1252,10 +1370,10 @@ describe("wallet sync", () => {
             ? mergePayload(keypair, firstNullifier, 43n, ringDataHash)
             : payload.map((byte, index) => (index >= payload.length - 32 ? 255 : byte));
       let outputPayload = broken;
-      const getShieldedTransactionsByNullifiers = vi.fn(async (_request: RequestWithCursor) => ({
+      const getShieldedTransactionsByNullifiers = vi.fn(async (_request: RequestWithControls) => ({
         context: { blockTime: 10n, slot: 10n },
-        scannedThrough: Uint8Array.of(8),
-        transactions: [
+        paginationToken: null,
+        items: transactionItems([
           {
             slot: 2n,
             txSignature: SIGNATURE,
@@ -1280,17 +1398,18 @@ describe("wallet sync", () => {
               },
             ],
           },
-        ],
+        ]),
       }));
       const client = syncReads({
         getShieldedTransactionsByTags: async () => ({
           context: { blockTime: 10n, slot: 10n },
-          transactions: [],
-          scannedThrough: Uint8Array.of(7),
+          items: transactionItems([]),
+          paginationToken: null,
         }),
         getEncryptedUtxosByTags: async () => ({
           context: { blockTime: 10n, slot: 10n },
-          matches: [],
+          items: outputItems([]),
+          paginationToken: null,
         }),
         getShieldedTransactionsByNullifiers,
       });
@@ -1310,7 +1429,7 @@ describe("wallet sync", () => {
         outputPayload = payload;
         getShieldedTransactionsByNullifiers.mockClear();
         await syncPersistedWallet({ wallet, keys, client, store, cipher: plainCipher });
-        expect(getShieldedTransactionsByNullifiers.mock.calls[0]?.[0].cursor).toBeUndefined();
+        expect(getShieldedTransactionsByNullifiers.mock.calls[0]?.[0].filters).toBeUndefined();
         expect(wallet.utxos().find((entry) => !entry.spent)?.utxo.amount).toBe(42n);
         expect(store.save).toHaveBeenCalledOnce();
       } finally {
@@ -2384,16 +2503,19 @@ describe("wallet sync", () => {
     other.destroy();
     const client = syncReads({
       getShieldedTransactionsByTags: vi.fn(async () => ({
-        context: { blockTime: 1n, slot: 0n },
-        transactions: [transaction],
+        context: { blockTime: 1n, slot: 10n },
+        items: transactionItems([transaction]),
+        paginationToken: null,
       })),
       getEncryptedUtxosByTags: vi.fn(async () => ({
-        context: { blockTime: 1n, slot: 0n },
-        matches: [],
+        context: { blockTime: 1n, slot: 10n },
+        items: outputItems([]),
+        paginationToken: null,
       })),
       getShieldedTransactionsByNullifiers: vi.fn(async () => ({
-        context: { blockTime: 1n, slot: 0n },
-        transactions: [],
+        context: { blockTime: 1n, slot: 10n },
+        items: transactionItems([]),
+        paginationToken: null,
       })),
     });
     const before = serializeWallet(wallet);
@@ -2430,33 +2552,39 @@ describe("wallet sync", () => {
       };
     });
     wallet._replace({ ...wallet._state(), utxos: entries });
-    const cursor = Uint8Array.of(7);
-    const spendingTransaction = {
-      slot: 9n,
+    const truncatedAt = position(7n);
+    // An indexer page ends at its last transaction, so the truncated page
+    // carries an unrelated one at the token's position.
+    const unrelated = {
+      slot: 7n,
       txSignature: SIGNATURE,
       outputSlots: [],
       messages: [],
-      nullifiers: [entries[0]!.nullifier],
+      nullifiers: [],
       proofless: false,
     } as const;
+    const spendingTransaction = { ...unrelated, slot: 9n, nullifiers: [entries[0]!.nullifier] };
     const getShieldedTransactionsByTags = vi.fn(async () => ({
       context: { blockTime: 1n, slot: 0n },
-      transactions: [],
+      items: transactionItems([]),
+      paginationToken: null,
     }));
     const getEncryptedUtxosByTags = vi.fn(async () => ({
       context: { blockTime: 1n, slot: 0n },
-      matches: [],
+      items: outputItems([]),
+      paginationToken: null,
     }));
     const getShieldedTransactionsByNullifiers = vi
       .fn()
       .mockResolvedValueOnce({
-        context: { blockTime: 1n, slot: 0n },
-        transactions: [],
-        nextCursor: cursor,
+        context: { blockTime: 1n, slot: 10n },
+        items: transactionItems([unrelated]),
+        paginationToken: truncatedAt,
       })
       .mockResolvedValueOnce({
-        context: { blockTime: 1n, slot: 0n },
-        transactions: [spendingTransaction],
+        context: { blockTime: 1n, slot: 10n },
+        items: transactionItems([spendingTransaction]),
+        paginationToken: null,
       });
     const client = syncReads({
       getShieldedTransactionsByTags,
@@ -2484,7 +2612,7 @@ describe("wallet sync", () => {
     });
     expect(getShieldedTransactionsByNullifiers.mock.calls[1]?.[0]).toMatchObject({
       nullifiers: unspent,
-      cursor,
+      paginationToken: truncatedAt,
       limit: 1000,
     });
   });
@@ -2514,17 +2642,20 @@ describe("wallet sync", () => {
     const getShieldedTransactionsByNullifiers = vi.fn(
       async (_request: Readonly<{ nullifiers: readonly Bytes32[] }>) => ({
         context: { blockTime: 1n, slot: 0n },
-        transactions: [],
+        items: transactionItems([]),
+        paginationToken: null,
       }),
     );
     const client = syncReads({
       getShieldedTransactionsByTags: vi.fn(async () => ({
         context: { blockTime: 1n, slot: 0n },
-        transactions: [],
+        items: transactionItems([]),
+        paginationToken: null,
       })),
       getEncryptedUtxosByTags: vi.fn(async () => ({
         context: { blockTime: 1n, slot: 0n },
-        matches: [],
+        items: outputItems([]),
+        paginationToken: null,
       })),
       getShieldedTransactionsByNullifiers,
     });
@@ -2543,10 +2674,10 @@ describe("wallet sync", () => {
     });
   });
 
-  it("resumes the nullifier stream from where the indexer said it scanned to", async () => {
+  it("resumes the nullifier stream above the slot the indexer's snapshot reached", async () => {
     // The rows cannot supply this. An unspent UTXO matches nothing, so there is
-    // no last row whose position could be remembered, and every sync would walk
-    // the whole stream again.
+    // no last row whose slot could be remembered, and every sync would walk the
+    // whole stream again.
     const keypair = ShieldedKeypair.generate();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
     // Blinding is a field element, so the leading byte has to stay below the
@@ -2567,36 +2698,38 @@ describe("wallet sync", () => {
       ],
     });
 
-    const scannedThrough = Uint8Array.of(4, 2);
+    const tip = 42n;
     const getShieldedTransactionsByNullifiers = vi.fn(
-      async (_request: Readonly<{ nullifiers: readonly Bytes32[]; cursor?: Uint8Array }>) => ({
-        context: { blockTime: 1n, slot: 0n },
-        transactions: [],
-        scannedThrough,
+      async (_request: RequestWithControls & { readonly nullifiers: readonly Bytes32[] }) => ({
+        context: { blockTime: 1n, slot: tip },
+        items: transactionItems([]),
+        paginationToken: null,
       }),
     );
     const client = syncReads({
       getShieldedTransactionsByTags: vi.fn(async () => ({
         context: { blockTime: 1n, slot: 0n },
-        transactions: [],
+        items: transactionItems([]),
+        paginationToken: null,
       })),
       getEncryptedUtxosByTags: vi.fn(async () => ({
         context: { blockTime: 1n, slot: 0n },
-        matches: [],
+        items: outputItems([]),
+        paginationToken: null,
       })),
       getShieldedTransactionsByNullifiers,
     });
     const keys = LocalShieldedKeys.fromKeypair(keypair);
 
     await syncWallet({ wallet, keys, client });
-    expect(getShieldedTransactionsByNullifiers.mock.calls[0]?.[0]?.cursor).toBeUndefined();
+    expect(floorOf(getShieldedTransactionsByNullifiers.mock.calls[0]?.[0])).toBeUndefined();
 
     getShieldedTransactionsByNullifiers.mockClear();
     await syncWallet({ wallet, keys, client });
-    expect(getShieldedTransactionsByNullifiers.mock.calls[0]?.[0]?.cursor).toEqual(scannedThrough);
+    expect(floorOf(getShieldedTransactionsByNullifiers.mock.calls[0]?.[0])).toBe(tip);
   });
 
-  it("rejects a non-advancing nullifier cursor", async () => {
+  it("rejects a non-advancing nullifier page", async () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
     const blinding = bytes(30);
@@ -2618,11 +2751,20 @@ describe("wallet sync", () => {
         },
       ],
     });
-    const cursor = Uint8Array.of(8);
+    const repeated = position(8n);
     const getShieldedTransactionsByNullifiers = vi.fn(async () => ({
-      context: { blockTime: 1n, slot: 0n },
-      transactions: [],
-      nextCursor: cursor,
+      context: { blockTime: 1n, slot: 10n },
+      items: transactionItems([
+        {
+          slot: 8n,
+          txSignature: SIGNATURE,
+          outputSlots: [],
+          messages: [],
+          nullifiers: [],
+          proofless: false,
+        },
+      ]),
+      paginationToken: repeated,
     }));
 
     await expect(
@@ -2632,11 +2774,13 @@ describe("wallet sync", () => {
         client: syncReads({
           getShieldedTransactionsByTags: vi.fn(async () => ({
             context: { blockTime: 1n, slot: 0n },
-            transactions: [],
+            items: transactionItems([]),
+            paginationToken: null,
           })),
           getEncryptedUtxosByTags: vi.fn(async () => ({
             context: { blockTime: 1n, slot: 0n },
-            matches: [],
+            items: outputItems([]),
+            paginationToken: null,
           })),
           getShieldedTransactionsByNullifiers,
         }),
@@ -2684,18 +2828,21 @@ describe("wallet sync", () => {
     } as const;
     const getShieldedTransactionsByNullifiers = vi.fn(
       async (_request: Readonly<{ nullifiers: readonly Bytes32[] }>) => ({
-        context: { blockTime: 1n, slot: 0n },
-        transactions: [spendingTransaction],
+        context: { blockTime: 1n, slot: 10n },
+        items: transactionItems([spendingTransaction]),
+        paginationToken: null,
       }),
     );
     const client = syncReads({
       getShieldedTransactionsByTags: vi.fn(async () => ({
-        context: { blockTime: 1n, slot: 0n },
-        transactions: [],
+        context: { blockTime: 1n, slot: 10n },
+        items: transactionItems([]),
+        paginationToken: null,
       })),
       getEncryptedUtxosByTags: vi.fn(async () => ({
-        context: { blockTime: 1n, slot: 0n },
-        matches: [{ slot: 9n, txSignature: SIGNATURE, outputSlot }],
+        context: { blockTime: 1n, slot: 10n },
+        items: outputItems([{ slot: 9n, txSignature: SIGNATURE, outputSlot }]),
+        paginationToken: null,
       })),
       getShieldedTransactionsByNullifiers,
     });
@@ -2715,13 +2862,22 @@ describe("wallet sync", () => {
     expect(wallet.utxos()[0]?.spent).toBe(true);
   });
 
-  it("rejects a non-advancing indexer cursor", async () => {
+  it("rejects a non-advancing indexer page", async () => {
     const keypair = ShieldedKeypair.generate();
-    const cursor = Uint8Array.of(9);
+    const repeated = position(9n);
     const getShieldedTransactionsByTags = vi.fn(async () => ({
-      context: { blockTime: 1n, slot: 0n },
-      transactions: [],
-      nextCursor: cursor,
+      context: { blockTime: 1n, slot: 10n },
+      items: transactionItems([
+        {
+          slot: 9n,
+          txSignature: SIGNATURE,
+          outputSlots: [],
+          messages: [],
+          nullifiers: [],
+          proofless: false,
+        },
+      ]),
+      paginationToken: repeated,
     }));
     const client = syncReads({
       getShieldedTransactionsByTags,
@@ -2765,12 +2921,14 @@ describe("wallet sync", () => {
     });
     const client = syncReads({
       getShieldedTransactionsByTags: vi.fn(async () => ({
-        context: { blockTime: 1n, slot: 0n },
-        transactions: [transaction(1), transaction(2)],
+        context: { blockTime: 1n, slot: 10n },
+        items: transactionItems([transaction(1), transaction(2)]),
+        paginationToken: null,
       })),
       getEncryptedUtxosByTags: vi.fn(async () => ({
-        context: { blockTime: 1n, slot: 0n },
-        matches: [],
+        context: { blockTime: 1n, slot: 10n },
+        items: outputItems([]),
+        paginationToken: null,
       })),
     });
 

@@ -381,8 +381,384 @@ impl<'de> Deserialize<'de> for SerializablePubkey {
     }
 }
 
+/// A server-issued position in a history read, `"1:<slot>:<signature>"`.
+/// Pass it back unchanged to read the next page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PaginationToken {
+    slot: u64,
+    signature: Signature,
+}
+
+#[cfg(feature = "openapi")]
+impl utoipa::PartialSchema for PaginationToken {
+    fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
+        <String as utoipa::PartialSchema>::schema()
+    }
+}
+#[cfg(feature = "openapi")]
+impl utoipa::ToSchema for PaginationToken {}
+
+impl PaginationToken {
+    #[doc(hidden)]
+    pub const fn new(slot: u64, signature: Signature) -> Self {
+        Self { slot, signature }
+    }
+    #[doc(hidden)]
+    pub const fn slot(&self) -> u64 {
+        self.slot
+    }
+    #[doc(hidden)]
+    pub const fn signature(&self) -> Signature {
+        self.signature
+    }
+}
+
+impl fmt::Display for PaginationToken {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "1:{}:{}", self.slot, self.signature)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[error("invalid pagination token")]
+pub struct ParsePaginationTokenError;
+
+impl FromStr for PaginationToken {
+    type Err = ParsePaginationTokenError;
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        if value.len() > 112 {
+            return Err(ParsePaginationTokenError);
+        }
+        let mut parts = value.split(':');
+        if parts.next() != Some("1") {
+            return Err(ParsePaginationTokenError);
+        }
+        let slot = parts
+            .next()
+            .ok_or(ParsePaginationTokenError)?
+            .parse()
+            .map_err(|_| ParsePaginationTokenError)?;
+        let signature = parts
+            .next()
+            .ok_or(ParsePaginationTokenError)?
+            .parse()
+            .map_err(|_| ParsePaginationTokenError)?;
+        if parts.next().is_some() {
+            return Err(ParsePaginationTokenError);
+        }
+        let token = Self { slot, signature };
+        if token.to_string() != value {
+            return Err(ParsePaginationTokenError);
+        }
+        Ok(token)
+    }
+}
+
+impl Serialize for PaginationToken {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_str(self)
+    }
+}
+impl<'de> Deserialize<'de> for PaginationToken {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserialize_from_str(deserializer, "a pagination token")
+    }
+}
+impl Ord for PaginationToken {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        (self.slot, self.signature.as_ref()).cmp(&(other.slot, other.signature.as_ref()))
+    }
+}
+impl PartialOrd for PaginationToken {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+/// Narrows a history read, in the shape of `getTransactionsForAddress` filters.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct HistoryFilters {
+    #[serde(default, skip_serializing_if = "SlotFilter::is_unbounded")]
+    pub slot: SlotFilter,
+}
+
+/// Slot bounds of a history read. Every bound present applies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SlotFilter {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gt: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gte: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lt: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lte: Option<u64>,
+}
+
+impl SlotFilter {
+    pub const fn is_unbounded(&self) -> bool {
+        self.gt.is_none() && self.gte.is_none() && self.lt.is_none() && self.lte.is_none()
+    }
+
+    pub fn contains(&self, slot: u64) -> bool {
+        self.gt.is_none_or(|bound| slot > bound)
+            && self.gte.is_none_or(|bound| slot >= bound)
+            && self.lt.is_none_or(|bound| slot < bound)
+            && self.lte.is_none_or(|bound| slot <= bound)
+    }
+
+    /// The newest slot below the range. An answer from a snapshot that has not
+    /// reached it would end the read before the range begins.
+    pub fn floor(&self) -> Option<u64> {
+        self.gt.max(self.gte.and_then(|bound| bound.checked_sub(1)))
+    }
+}
+
+impl HistoryFilters {
+    /// Everything after `slot`, how a caught-up reader resumes from the
+    /// `context.slot` of its last page. Only a read without an `lt` or `lte`
+    /// bound has covered every slot through that `context.slot`.
+    pub const fn after_slot(slot: u64) -> Self {
+        Self {
+            slot: SlotFilter {
+                gt: Some(slot),
+                gte: None,
+                lt: None,
+                lte: None,
+            },
+        }
+    }
+
+    pub const fn is_empty(&self) -> bool {
+        self.slot.is_unbounded()
+    }
+}
+
+/// One bounded page, shaped like a `getTransactionsForAddress` result.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct Page<T> {
+    pub context: Context,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_tree_id: Option<u16>,
+    #[cfg_attr(feature = "openapi", schema(inline))]
+    pub items: Vec<T>,
+    /// Token for the next page, null when no more results match. A caught-up
+    /// read without an `lt` or `lte` bound resumes later with `filters.slot.gt`
+    /// set to this page's `context.slot`; a capped read covered only the slots
+    /// below its cap.
+    #[serde(deserialize_with = "Option::deserialize")]
+    #[cfg_attr(feature = "openapi", schema(required = true))]
+    pub pagination_token: Option<PaginationToken>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[error("invalid pagination response")]
+pub struct InvalidPage;
+
+impl<T> Page<T> {
+    /// The next request's token, `None` once no more results match. A token
+    /// that does not advance past the request's is rejected.
+    pub fn continuation(
+        &self,
+        requested: Option<PaginationToken>,
+    ) -> Result<Option<PaginationToken>, InvalidPage> {
+        match self.pagination_token {
+            Some(token) if requested.is_some_and(|requested| token <= requested) => {
+                Err(InvalidPage)
+            }
+            token => Ok(token),
+        }
+    }
+}
+
+/// The controls a page answers. Every page is validated against the request
+/// that produced it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct PageRequest {
+    pub pagination_token: Option<PaginationToken>,
+    pub limit: u64,
+    pub filters: HistoryFilters,
+    pub min_context_slot: Option<u64>,
+}
+
+impl PageRequest {
+    /// The slot an answering snapshot must have reached: the requested
+    /// freshness, the token's position, and the slot below the filtered range.
+    pub fn context_floor(&self) -> Option<u64> {
+        self.min_context_slot
+            .max(self.pagination_token.map(|token| token.slot()))
+            .max(self.filters.slot.floor())
+    }
+}
+
+#[doc(hidden)]
+pub trait Positioned {
+    fn position(&self) -> PaginationToken;
+}
+
+impl<T: Positioned> Page<T> {
+    /// An indexer page ends at the last complete transaction returned, so its
+    /// token is that transaction's position.
+    pub fn validate_indexed(&self, request: &PageRequest) -> Result<(), InvalidPage> {
+        self.validate(request)?;
+        if self
+            .pagination_token
+            .is_some_and(|token| self.items.last().map(Positioned::position) != Some(token))
+        {
+            return Err(InvalidPage);
+        }
+        Ok(())
+    }
+    /// Validate ordering, freshness and correlation with the request.
+    pub fn validate(&self, request: &PageRequest) -> Result<(), InvalidPage> {
+        if self.items.len() as u64 > request.limit
+            || request
+                .context_floor()
+                .is_some_and(|floor| self.context.slot < floor)
+            || self
+                .pagination_token
+                .is_some_and(|token| token.slot() > self.context.slot)
+        {
+            return Err(InvalidPage);
+        }
+        let mut previous = request.pagination_token;
+        for item in &self.items {
+            let position = item.position();
+            if position.slot() > self.context.slot
+                || !request.filters.slot.contains(position.slot())
+                || previous.is_some_and(|previous| position <= previous)
+            {
+                return Err(InvalidPage);
+            }
+            previous = Some(position);
+        }
+        if self.pagination_token.is_some() && self.pagination_token < previous {
+            return Err(InvalidPage);
+        }
+        self.continuation(request.pagination_token)?;
+        Ok(())
+    }
+}
+
+/// All matching events of one Solana transaction.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TransactionEvents<T, S = SerializableSignature> {
+    pub slot: u64,
+    pub signature: S,
+    pub events: Vec<T>,
+}
+
+/// All matching outputs of one Solana transaction.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TransactionOutputs<T, S = SerializableSignature> {
+    pub slot: u64,
+    pub signature: S,
+    pub outputs: Vec<T>,
+}
+
+impl<T, S: Copy + Into<Signature>> Positioned for TransactionEvents<T, S> {
+    fn position(&self) -> PaginationToken {
+        PaginationToken::new(self.slot, self.signature.into())
+    }
+}
+impl<T, S: Copy + Into<Signature>> Positioned for TransactionOutputs<T, S> {
+    fn position(&self) -> PaginationToken {
+        PaginationToken::new(self.slot, self.signature.into())
+    }
+}
+
+impl<T, S: Copy + Into<Signature>> TransactionEvents<T, S> {
+    #[doc(hidden)]
+    pub fn group(events: Vec<T>, header: impl Fn(&T) -> (u64, S)) -> Vec<Self> {
+        group_transactions(events, header)
+            .into_iter()
+            .map(|(slot, signature, events)| Self {
+                slot,
+                signature,
+                events,
+            })
+            .collect()
+    }
+    /// Check that a transaction contains its own events in event-index order.
+    pub fn validate_events(
+        &self,
+        position: impl Fn(&T) -> (u64, Signature, Option<u16>),
+    ) -> Result<(), InvalidPage> {
+        if self.events.is_empty() {
+            return Err(InvalidPage);
+        }
+        let mut previous = None;
+        for event in &self.events {
+            let (slot, signature, index) = position(event);
+            if slot != self.slot
+                || signature != self.signature.into()
+                || index.is_none()
+                || previous.is_some_and(|previous| index <= Some(previous))
+            {
+                return Err(InvalidPage);
+            }
+            previous = index;
+        }
+        Ok(())
+    }
+}
+
+impl<T, S: Copy + Into<Signature>> TransactionOutputs<T, S> {
+    #[doc(hidden)]
+    pub fn group(outputs: Vec<T>, header: impl Fn(&T) -> (u64, S)) -> Vec<Self> {
+        group_transactions(outputs, header)
+            .into_iter()
+            .map(|(slot, signature, outputs)| Self {
+                slot,
+                signature,
+                outputs,
+            })
+            .collect()
+    }
+    pub fn validate_outputs(
+        &self,
+        position: impl Fn(&T) -> (u64, Signature),
+    ) -> Result<(), InvalidPage> {
+        if self.outputs.is_empty()
+            || self
+                .outputs
+                .iter()
+                .any(|output| position(output) != (self.slot, self.signature.into()))
+        {
+            return Err(InvalidPage);
+        }
+        Ok(())
+    }
+}
+
+fn group_transactions<T, S: Copy + Into<Signature>>(
+    rows: Vec<T>,
+    header: impl Fn(&T) -> (u64, S),
+) -> Vec<(u64, S, Vec<T>)> {
+    let mut groups = std::collections::BTreeMap::new();
+    for row in rows {
+        let (slot, signature) = header(&row);
+        groups
+            .entry(PaginationToken::new(slot, signature.into()))
+            .or_insert_with(|| (slot, signature, Vec::new()))
+            .2
+            .push(row);
+    }
+    groups.into_values().collect()
+}
+
 /// A Solana transaction signature represented as a base58 string.
-#[derive(Default, Debug, Clone, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[cfg_attr(feature = "openapi", schema(value_type = String))]
 pub struct SerializableSignature(pub Signature);
@@ -390,6 +766,12 @@ pub struct SerializableSignature(pub Signature);
 impl From<Signature> for SerializableSignature {
     fn from(value: Signature) -> Self {
         Self(value)
+    }
+}
+
+impl From<SerializableSignature> for Signature {
+    fn from(value: SerializableSignature) -> Self {
+        value.0
     }
 }
 
@@ -530,7 +912,7 @@ impl<'de> Deserialize<'de> for Limit {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Copy, Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Context {
@@ -545,14 +927,21 @@ pub struct Context {
 pub struct GetRingsByTagsRequest {
     /// Empty tags require a ring and select its full history.
     pub tags: Vec<Hash>,
+    /// The previous page's token. Read the next page with the same filters.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cursor: Option<Base64String>,
+    pub pagination_token: Option<PaginationToken>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<Limit>,
+    /// Slot bounds. Resume a caught-up, uncapped read with `slot.gt` set to
+    /// the last page's `context.slot`.
+    #[serde(default, skip_serializing_if = "HistoryFilters::is_empty")]
+    pub filters: HistoryFilters,
     /// Restrict the match to one ring. Its config account is derived from this
     /// program id, so the filter needs no indexed registration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ring_program_id: Option<SerializablePubkey>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_context_slot: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -560,10 +949,17 @@ pub struct GetRingsByTagsRequest {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GetRingsByNullifiersRequest {
     pub nullifiers: Vec<Hash>,
+    /// The previous page's token. Read the next page with the same filters.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cursor: Option<Base64String>,
+    pub pagination_token: Option<PaginationToken>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<Limit>,
+    /// Slot bounds. Resume a caught-up, uncapped read with `slot.gt` set to
+    /// the last page's `context.slot`.
+    #[serde(default, skip_serializing_if = "HistoryFilters::is_empty")]
+    pub filters: HistoryFilters,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_context_slot: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -578,29 +974,7 @@ pub struct EncryptedUtxoMatch {
     pub salt: Option<Base64String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-pub struct GetEncryptedUtxosByTagsResponse {
-    pub context: Context,
-    /// Where a new output should be appended: the newest tree the pool has that
-    /// is not paused. A property of the pool, not of any returned note, so it
-    /// is reported even when nothing matched -- a wallet that has never
-    /// transacted still learns where to append without a second call.
-    ///
-    /// `None` when every tree is paused, or when this indexer has not synced
-    /// tree metadata yet. Neither is an append target, and a reader that needs
-    /// one should refuse at that point rather than pick a doomed id.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub output_tree_id: Option<u16>,
-    /// Output-level matches. With tags these carry a requested view tag; with
-    /// an empty tag set they contain all outputs in the selected ring.
-    pub matches: Vec<EncryptedUtxoMatch>,
-    pub next_cursor: Option<Base64String>,
-    /// Where the scan reached on a terminal page, including an empty page.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub scanned_through: Option<Base64String>,
-}
+pub type GetEncryptedUtxosByTagsResponse = Page<TransactionOutputs<EncryptedUtxoMatch>>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -665,23 +1039,7 @@ pub struct ShieldedTransaction {
     pub ring_program_id: Option<SerializablePubkey>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-pub struct GetShieldedTransactionsByTagsResponse {
-    pub context: Context,
-    /// The newest unpaused tree, as on [`GetEncryptedUtxosByTagsResponse`].
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub output_tree_id: Option<u16>,
-    /// Transaction-level matches with all output slots. With tags, each
-    /// transaction has at least one requested view tag; with an empty tag set,
-    /// the response contains the selected ring's full history.
-    pub transactions: Vec<ShieldedTransaction>,
-    pub next_cursor: Option<Base64String>,
-    /// Where the scan reached on a terminal page, including an empty page.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub scanned_through: Option<Base64String>,
-}
+pub type GetShieldedTransactionsByTagsResponse = Page<TransactionEvents<ShieldedTransaction>>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -709,28 +1067,7 @@ pub struct GetShieldedTransactionsBySignatureResponse {
     pub transactions: Vec<IndexedShieldedTransaction>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-pub struct GetShieldedTransactionsByNullifiersResponse {
-    pub context: Context,
-    /// The newest unpaused tree, as on [`GetEncryptedUtxosByTagsResponse`].
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub output_tree_id: Option<u16>,
-    /// Transaction-level matches; each returned transaction spends at least one
-    /// requested nullifier and includes all of its output and input slots.
-    pub transactions: Vec<ShieldedTransaction>,
-    pub next_cursor: Option<Base64String>,
-    /// Where the scan reached, when it ran out of rows rather than filling a
-    /// page.
-    ///
-    /// `next_cursor` is the last returned row's position, and a query for
-    /// unspent nullifiers returns none. Present only on a page the limit did not
-    /// truncate, which is when "no match exists at or before this position"
-    /// holds.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub scanned_through: Option<Base64String>,
-}
+pub type GetShieldedTransactionsByNullifiersResponse = Page<TransactionEvents<ShieldedTransaction>>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -1009,72 +1346,266 @@ mod tests {
     }
 
     #[test]
-    fn response_shape_stays_camel_case() {
-        let value = serde_json::to_value(GetEncryptedUtxosByTagsResponse {
-            context: Context {
-                block_time: 3,
-                slot: 1,
-            },
-            output_tree_id: Some(4),
-            matches: vec![EncryptedUtxoMatch {
-                slot: 1,
-                tx_signature: SerializableSignature(Signature::from([9u8; 64])),
-                output_slot: RingsOutputSlot {
-                    view_tag: Hash::from([1; 32]),
-                    output_context: RingsOutputContext {
-                        hash: Hash::from([2; 32]),
-                        tree: SerializablePubkey::from([3; 32]),
-                        tree_id: 5,
-                        leaf_index: 2,
-                    },
-                    payload: Base64String(vec![4]),
-                },
-                tx_viewing_pk: None,
-                salt: None,
-            }],
-            next_cursor: Some(Base64String(vec![1])),
-            scanned_through: None,
-        })
-        .unwrap();
-        assert!(value.get("nextCursor").is_some());
-        assert!(value.get("next_cursor").is_none());
-        assert!(value["context"].get("blockTime").is_some());
-        assert!(value["context"].get("block_time").is_none());
-        assert_eq!(value["outputTreeId"], 4);
-        assert!(value.get("output_tree_id").is_none());
-
-        let output_context = &value["matches"][0]["outputSlot"]["outputContext"];
-        assert_eq!(output_context["treeId"], 5);
-        assert!(output_context.get("tree_id").is_none());
-        // The account stays alongside the id for one release, so a reader can
-        // move to the id before the account goes.
-        assert!(output_context.get("tree").is_some());
+    fn pagination_token_is_canonical_and_portable() {
+        let token = PaginationToken::new(7, Signature::default());
+        let encoded = format!("1:7:{}", "1".repeat(64));
+        assert_eq!(token.to_string(), encoded);
+        assert_eq!(encoded.parse::<PaginationToken>().unwrap(), token);
+        assert_eq!(serde_json::to_value(token).unwrap(), encoded);
+        for invalid in [
+            format!("1:07:{}", "1".repeat(64)),
+            format!("2:7:{}", "1".repeat(64)),
+            format!("1:18446744073709551616:{}", "1".repeat(64)),
+            "1:7:invalid".into(),
+        ] {
+            assert!(invalid.parse::<PaginationToken>().is_err());
+        }
     }
 
     #[test]
-    fn a_tag_page_reads_an_index_that_reports_its_resume_point() {
-        // A reader that refuses the field cannot open the ring.
-        let page = serde_json::json!({
-            "context": { "blockTime": 3, "slot": 1 },
-            "transactions": [],
-            "nextCursor": null,
-            "scannedThrough": "AQID",
-        });
-        let response: GetShieldedTransactionsByTagsResponse =
-            serde_json::from_value(page).expect("a reported resume point is readable");
-        assert_eq!(response.scanned_through, Some(Base64String(vec![1, 2, 3])));
+    fn a_page_is_shaped_like_get_transactions_for_address() {
+        let page = GetShieldedTransactionsByTagsResponse {
+            context: Context {
+                block_time: 3,
+                slot: 7,
+            },
+            output_tree_id: Some(4),
+            items: vec![],
+            pagination_token: None,
+        };
+        let value = serde_json::to_value(&page).unwrap();
+        assert!(value["paginationToken"].is_null());
+        assert_eq!(value["outputTreeId"], 4);
+        assert_eq!(value["context"]["blockTime"], 3);
+        assert!(value.get("hasMore").is_none());
+        assert!(value.get("cursor").is_none());
 
-        // An index that reports none sends no such key.
-        let quiet = serde_json::json!({
-            "context": { "blockTime": 3, "slot": 1 },
-            "transactions": [],
-            "nextCursor": null,
-        });
-        let response: GetShieldedTransactionsByTagsResponse =
-            serde_json::from_value(quiet).expect("an absent resume point is readable");
-        assert_eq!(response.scanned_through, None);
-        let value = serde_json::to_value(&response).expect("serialize");
-        assert!(value.get("scannedThrough").is_none());
+        // A missing token is not the end of the history, so a response from
+        // before `paginationToken` existed is refused.
+        let mut legacy = value;
+        legacy.as_object_mut().unwrap().remove("paginationToken");
+        legacy["cursor"] = serde_json::Value::Null;
+        legacy["hasMore"] = false.into();
+        assert!(serde_json::from_value::<GetShieldedTransactionsByTagsResponse>(legacy).is_err());
+    }
+
+    #[test]
+    fn requests_carry_get_transactions_for_address_filters() {
+        let request = GetRingsByTagsRequest {
+            tags: vec![Hash::from([1; 32])],
+            filters: HistoryFilters::after_slot(9),
+            ..Default::default()
+        };
+        let value = serde_json::to_value(&request).unwrap();
+        assert_eq!(value["filters"], serde_json::json!({ "slot": { "gt": 9 } }));
+        assert!(value.get("paginationToken").is_none());
+        let unfiltered = serde_json::to_value(GetRingsByTagsRequest::default()).unwrap();
+        assert!(unfiltered.get("filters").is_none());
+
+        let parsed: GetRingsByNullifiersRequest = serde_json::from_value(serde_json::json!({
+            "nullifiers": [],
+            "filters": { "slot": { "gte": 3, "lte": 5 } },
+        }))
+        .unwrap();
+        assert_eq!(parsed.filters.slot.gte, Some(3));
+        assert_eq!(parsed.filters.slot.lte, Some(5));
+        for invalid in [
+            serde_json::json!({ "nullifiers": [], "filters": { "blockTime": {} } }),
+            serde_json::json!({ "nullifiers": [], "filters": { "slot": { "eq": 3 } } }),
+            serde_json::json!({ "nullifiers": [], "after": "x" }),
+        ] {
+            assert!(serde_json::from_value::<GetRingsByNullifiersRequest>(invalid).is_err());
+        }
+    }
+
+    #[test]
+    fn slot_filters_bound_the_range_and_its_floor() {
+        let filter = SlotFilter {
+            gt: Some(4),
+            gte: Some(3),
+            lt: Some(9),
+            lte: Some(10),
+        };
+        assert!(!filter.contains(4));
+        assert!(filter.contains(5));
+        assert!(filter.contains(8));
+        assert!(!filter.contains(9));
+        assert_eq!(filter.floor(), Some(4));
+        let inclusive = SlotFilter {
+            gte: Some(6),
+            ..Default::default()
+        };
+        assert_eq!(inclusive.floor(), Some(5));
+        let from_genesis = SlotFilter {
+            gte: Some(0),
+            ..Default::default()
+        };
+        assert_eq!(from_genesis.floor(), None);
+        assert_eq!(SlotFilter::default().floor(), None);
+        assert!(SlotFilter::default().contains(0));
+    }
+
+    #[test]
+    fn tokens_order_by_slot_then_signature_bytes() {
+        let low = PaginationToken::new(5, Signature::from([1; 64]));
+        let same_slot = PaginationToken::new(5, Signature::from([2; 64]));
+        assert!(low < same_slot);
+        assert!(same_slot < PaginationToken::new(6, Signature::default()));
+    }
+
+    fn events_at(slot: u64, byte: u8) -> TransactionEvents<()> {
+        TransactionEvents {
+            slot,
+            signature: Signature::from([byte; 64]).into(),
+            events: vec![()],
+        }
+    }
+
+    #[test]
+    fn a_page_answers_only_from_a_snapshot_that_reached_the_request() {
+        let token = PaginationToken::new(7, Signature::default());
+        let page = Page::<TransactionEvents<()>> {
+            context: Context {
+                block_time: 0,
+                slot: 7,
+            },
+            output_tree_id: None,
+            items: vec![],
+            pagination_token: None,
+        };
+        let request = |pagination_token, filters, min_context_slot| PageRequest {
+            pagination_token,
+            limit: 1,
+            filters,
+            min_context_slot,
+        };
+        page.validate(&request(Some(token), HistoryFilters::default(), Some(7)))
+            .unwrap();
+        page.validate(&request(None, HistoryFilters::after_slot(7), None))
+            .unwrap();
+        for stale in [
+            request(None, HistoryFilters::default(), Some(8)),
+            request(
+                Some(PaginationToken::new(8, Signature::default())),
+                HistoryFilters::default(),
+                None,
+            ),
+            request(None, HistoryFilters::after_slot(8), None),
+            request(
+                None,
+                HistoryFilters {
+                    slot: SlotFilter {
+                        gte: Some(9),
+                        ..Default::default()
+                    },
+                },
+                None,
+            ),
+        ] {
+            assert_eq!(page.validate(&stale), Err(InvalidPage));
+        }
+    }
+
+    #[test]
+    fn a_page_rejects_items_outside_the_request() {
+        let mut page = Page::<TransactionEvents<()>> {
+            context: Context {
+                block_time: 0,
+                slot: 10,
+            },
+            output_tree_id: None,
+            items: vec![events_at(6, 1), events_at(8, 1)],
+            pagination_token: None,
+        };
+        let request = PageRequest {
+            pagination_token: None,
+            limit: 2,
+            filters: HistoryFilters::after_slot(5),
+            min_context_slot: None,
+        };
+        page.validate_indexed(&request).unwrap();
+        for filters in [
+            HistoryFilters::after_slot(6),
+            HistoryFilters {
+                slot: SlotFilter {
+                    lt: Some(8),
+                    ..Default::default()
+                },
+            },
+        ] {
+            assert_eq!(
+                page.validate(&PageRequest { filters, ..request }),
+                Err(InvalidPage)
+            );
+        }
+        assert_eq!(
+            page.validate(&PageRequest {
+                pagination_token: Some(page.items[0].position()),
+                ..request
+            }),
+            Err(InvalidPage)
+        );
+        assert_eq!(
+            page.validate(&PageRequest {
+                limit: 1,
+                ..request
+            }),
+            Err(InvalidPage)
+        );
+        page.items.swap(0, 1);
+        assert_eq!(page.validate(&request), Err(InvalidPage));
+    }
+
+    #[test]
+    fn an_indexer_token_is_the_last_transaction_returned() {
+        let last = events_at(8, 2);
+        let mut page = Page::<TransactionEvents<()>> {
+            context: Context {
+                block_time: 0,
+                slot: 10,
+            },
+            output_tree_id: None,
+            items: vec![events_at(6, 1), last.clone()],
+            pagination_token: Some(last.position()),
+        };
+        let request = PageRequest {
+            limit: 2,
+            ..Default::default()
+        };
+        page.validate_indexed(&request).unwrap();
+        // A sparser reader may pass a token beyond its own last item.
+        let beyond = PaginationToken::new(9, Signature::default());
+        page.pagination_token = Some(beyond);
+        page.validate(&request).unwrap();
+        assert_eq!(page.validate_indexed(&request), Err(InvalidPage));
+        page.items.clear();
+        page.validate(&request).unwrap();
+        assert_eq!(page.validate_indexed(&request), Err(InvalidPage));
+        page.pagination_token = Some(PaginationToken::new(11, Signature::default()));
+        assert_eq!(page.validate(&request), Err(InvalidPage));
+    }
+
+    #[test]
+    fn continuation_requires_an_advancing_token() {
+        let requested = PaginationToken::new(7, Signature::default());
+        let mut page = Page::<()> {
+            context: Context {
+                block_time: 0,
+                slot: 10,
+            },
+            output_tree_id: None,
+            items: vec![],
+            pagination_token: None,
+        };
+        assert_eq!(page.continuation(Some(requested)), Ok(None));
+        for token in [requested, PaginationToken::new(6, Signature::default())] {
+            page.pagination_token = Some(token);
+            assert_eq!(page.continuation(Some(requested)), Err(InvalidPage));
+        }
+        let next = PaginationToken::new(8, Signature::default());
+        page.pagination_token = Some(next);
+        assert_eq!(page.continuation(Some(requested)), Ok(Some(next)));
+        assert_eq!(page.continuation(None), Ok(Some(next)));
     }
 
     #[test]

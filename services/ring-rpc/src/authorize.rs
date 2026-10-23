@@ -328,7 +328,9 @@ mod tests {
                 ring: RING,
                 timestamp: auth.timestamp,
                 nonce: &nonce,
-                cursor: None,
+                pagination_token: None,
+                filters: Default::default(),
+                min_context_slot: None,
                 limit: None,
             },
         )

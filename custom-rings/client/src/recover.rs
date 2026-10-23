@@ -175,7 +175,7 @@ impl<'a> MemberRecovery<'a> {
             .with_max_pages(self.recovery.max_pages)
             .indexer_config(self.recovery.indexer_config)
             .run(ring)?;
-        if page.next_cursor.is_some() {
+        if page.pagination_token.is_some() {
             return Err(RecoveryError::IncompleteScan);
         }
 
@@ -480,17 +480,21 @@ impl<I: Rpc, O: TransactionOrigin> DepositHistory<'_, I, O> {
     fn read(self) -> Result<Vec<DepositHistoryEntry>, RecoveryError> {
         let mut deposits = Vec::new();
         let mut seen = HashSet::new();
-        let mut cursor = None;
+        let mut token = None;
         for _ in 0..self.max_pages.get() {
             let page = self.environment.indexer.get_shielded_transactions_by_ring(
                 zolana_client::rpc::RingHistoryOptions {
                     ring_program_id: self.ring,
-                    cursor: cursor.clone(),
+                    pagination_token: token,
                     limit: Some(self.page_size.get()),
+                    filters: Default::default(),
                 },
                 self.indexer_config,
             )?;
-            for transaction in page.transactions {
+            let next = page
+                .continuation(token)
+                .map_err(|_| AuditError::CursorNotAdvanced)?;
+            for transaction in page.items.into_iter().flat_map(|item| item.events) {
                 if !transaction.proofless {
                     continue;
                 }
@@ -538,16 +542,10 @@ impl<I: Rpc, O: TransactionOrigin> DepositHistory<'_, I, O> {
                     }
                 }
             }
-            if page.scanned_through.is_some() {
-                return Ok(deposits);
-            }
-            let Some(next) = page.next_cursor else {
+            let Some(next) = next else {
                 return Ok(deposits);
             };
-            if cursor.as_ref() == Some(&next) {
-                return Err(AuditError::CursorNotAdvanced.into());
-            }
-            cursor = Some(next);
+            token = Some(next);
         }
         Err(RecoveryError::IncompleteScan)
     }
@@ -564,7 +562,7 @@ impl<I: Rpc> SpendHistory<'_, I> {
     fn read(self) -> Result<Vec<ShieldedTransaction>, RecoveryError> {
         let mut transactions = Vec::new();
         for batch in self.nullifiers.chunks(PAGE_LIMIT as usize) {
-            let mut cursor = None;
+            let mut token = None;
             loop {
                 *self.remaining_queries = self
                     .remaining_queries
@@ -572,21 +570,19 @@ impl<I: Rpc> SpendHistory<'_, I> {
                     .ok_or(RecoveryError::IncompleteScan)?;
                 let page = self.indexer.get_shielded_transactions_by_nullifiers(
                     batch.to_vec(),
-                    cursor.clone(),
+                    token,
                     None,
+                    Default::default(),
                     self.indexer_config,
                 )?;
-                transactions.extend(page.transactions);
-                if page.scanned_through.is_some() {
-                    break;
-                }
-                let Some(next) = page.next_cursor else {
+                let next = page
+                    .continuation(token)
+                    .map_err(|_| AuditError::CursorNotAdvanced)?;
+                transactions.extend(page.items.into_iter().flat_map(|item| item.events));
+                let Some(next) = next else {
                     break;
                 };
-                if cursor.as_ref() == Some(&next) {
-                    return Err(AuditError::CursorNotAdvanced.into());
-                }
-                cursor = Some(next);
+                token = Some(next);
             }
         }
         Ok(transactions)
@@ -666,14 +662,19 @@ mod tests {
     use std::cell::RefCell;
 
     use zolana_client::{
-        rpc::GetShieldedTransactionsByNullifiersResponse, ClientError, Context, IndexerRpcConfig,
+        rpc::GetShieldedTransactionsByNullifiersResponse, ClientError, Context, HistoryFilters,
+        IndexerRpcConfig, PaginationToken,
     };
 
     use super::*;
 
     struct Query {
         nullifiers: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
+        token: Option<PaginationToken>,
+    }
+
+    fn position() -> PaginationToken {
+        PaginationToken::new(1, solana_signature::Signature::default())
     }
 
     #[derive(Default)]
@@ -686,24 +687,22 @@ mod tests {
         fn get_shielded_transactions_by_nullifiers(
             &self,
             nullifiers: Vec<[u8; 32]>,
-            cursor: Option<Vec<u8>>,
+            token: Option<PaginationToken>,
             _limit: Option<u32>,
+            _filters: HistoryFilters,
             _config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
             assert!(nullifiers.len() <= PAGE_LIMIT as usize);
-            self.queries.borrow_mut().push(Query {
-                nullifiers,
-                cursor: cursor.clone(),
-            });
+            self.queries.borrow_mut().push(Query { nullifiers, token });
+            let last = token.is_some() && !self.stuck;
             Ok(GetShieldedTransactionsByNullifiersResponse {
                 context: Context {
                     block_time: 0,
                     slot: 1,
                 },
-                transactions: Vec::new(),
+                items: Vec::new(),
                 output_tree_id: None,
-                next_cursor: Some(vec![1]),
-                scanned_through: (cursor.is_some() && !self.stuck).then(|| vec![1]),
+                pagination_token: (!last).then(position),
             })
         }
     }
@@ -736,18 +735,15 @@ mod tests {
             vec![1000, 1000, 1, 1]
         );
         assert_eq!(
-            queries
-                .iter()
-                .map(|query| query.cursor.clone())
-                .collect::<Vec<_>>(),
-            vec![None, Some(vec![1]), None, Some(vec![1])]
+            queries.iter().map(|query| query.token).collect::<Vec<_>>(),
+            vec![None, Some(position()), None, Some(position())]
         );
         assert_eq!(queries[2].nullifiers, nullifiers[1000..]);
         assert_eq!(remaining_queries, 0);
     }
 
     #[test]
-    fn refuses_a_cursor_that_does_not_advance() {
+    fn refuses_a_token_that_does_not_advance() {
         let indexer = Paginated {
             stuck: true,
             ..Default::default()

@@ -1,5 +1,5 @@
 use anyhow::{bail, Result};
-use zolana_client::Rpc;
+use zolana_client::{HistoryFilters, Rpc};
 use zolana_interface::event::OutputDataEncoding;
 use zolana_keypair::{ShieldedPda, ViewingKey};
 use zolana_transaction::{
@@ -35,12 +35,18 @@ pub fn discover_escrow_note<I: Rpc>(indexer: &I, owner: &ShieldedPda) -> Result<
         .shielded_address()?
         .confidential_view_tag()
         .map_err(err)?;
-    let mut cursor = None;
+    let mut token = None;
     loop {
         let page = indexer
-            .get_shielded_transactions_by_tags(vec![tag], cursor, None, None)
+            .get_shielded_transactions_by_tags(
+                vec![tag],
+                token,
+                None,
+                HistoryFilters::default(),
+                None,
+            )
             .map_err(err)?;
-        for tx in &page.transactions {
+        for tx in page.items.iter().flat_map(|item| &item.events) {
             if let Some((order_utxo_hash, plaintext)) =
                 decode_order_slot(tx, &tag, owner.viewing_key())?
             {
@@ -54,8 +60,8 @@ pub fn discover_escrow_note<I: Rpc>(indexer: &I, owner: &ShieldedPda) -> Result<
                 });
             }
         }
-        match page.next_cursor {
-            Some(next) => cursor = Some(next),
+        match page.pagination_token {
+            Some(next) => token = Some(next),
             None => bail!("no escrow order note found for the escrow_authority view tag"),
         }
     }

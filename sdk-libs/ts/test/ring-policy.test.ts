@@ -1,3 +1,4 @@
+import { transactionItems, outputItems } from "./helpers/pages.js";
 import { getAddressDecoder, type Address, type Signature } from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
 
@@ -50,7 +51,7 @@ import {
 import { RingError } from "../src/ring/error.js";
 import { bigIntBytes } from "../src/transaction/internal.js";
 
-import { matchesPage, syncReads, transactionsPage } from "./helpers/clients.js";
+import { chainPosition, matchesPage, syncReads, transactionsPage } from "./helpers/clients.js";
 
 await initializePoseidon();
 
@@ -510,12 +511,14 @@ describe("lineage walk", () => {
   function indexerOf(transactions: readonly IndexedShieldedTransaction[]) {
     const byNullifiers = vi.fn(async (request: { nullifiers: readonly Bytes32[] }) =>
       transactionsPage({
-        transactions: transactions.filter((transaction) =>
-          transaction.nullifiers.some((spent) =>
-            request.nullifiers.some((asked) => Buffer.from(asked).equals(spent)),
+        items: transactionItems(
+          transactions.filter((transaction) =>
+            transaction.nullifiers.some((spent) =>
+              request.nullifiers.some((asked) => Buffer.from(asked).equals(spent)),
+            ),
           ),
         ),
-        scannedThrough: new Uint8Array([1]),
+        paginationToken: null,
       }),
     );
     return {
@@ -590,20 +593,14 @@ describe("lineage walk", () => {
     await expect(read(indexer)).rejects.toMatchObject({ code: "RING_ENTRY_LINEAGE_BROKEN" });
   });
 
-  it("keeps paging until a page carries scannedThrough", async () => {
+  it("keeps paging until a page carries no pagination token", async () => {
     const claim = spender(owner.entryHashes(v0, FIXTURE_TREE_ID).address, [slot(v0)], "claim");
     const pages = [
-      transactionsPage({ nextCursor: new Uint8Array([1]) }),
-      transactionsPage({
-        transactions: [claim],
-        nextCursor: new Uint8Array([2]),
-        scannedThrough: new Uint8Array([2]),
-      }),
-      transactionsPage({ scannedThrough: new Uint8Array([3]) }),
+      transactionsPage({ paginationToken: chainPosition(1n) }),
+      transactionsPage({ items: transactionItems([claim]), paginationToken: null }),
+      transactionsPage({ paginationToken: null }),
     ];
-    const byNullifiers = vi.fn(
-      async () => pages.shift() ?? transactionsPage({ scannedThrough: new Uint8Array([9]) }),
-    );
+    const byNullifiers = vi.fn(async () => pages.shift() ?? transactionsPage());
     const indexer = syncReads({ getShieldedTransactionsByNullifiers: byNullifiers });
     await expect(read(indexer)).resolves.toMatchObject({ entry: v0 });
     expect(byNullifiers).toHaveBeenCalledTimes(3);
@@ -623,7 +620,10 @@ describe("lineage walk", () => {
       outputSlot: slot(value, tree),
     });
     const byTags = vi.fn(async () =>
-      matchesPage({ matches: [match(v0), match(blocked), match(stray), match(v1, OTHER_TREE)] }),
+      matchesPage({
+        items: outputItems([match(v0), match(blocked), match(stray), match(v1, OTHER_TREE)]),
+        paginationToken: null,
+      }),
     );
     const live = await readRingEntries({
       indexer: syncReads({ ...walker, getEncryptedUtxosByTags: byTags }),

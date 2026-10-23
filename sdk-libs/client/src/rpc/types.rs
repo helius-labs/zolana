@@ -4,8 +4,9 @@ use futures::Stream;
 use solana_address::Address;
 use solana_signature::Signature;
 pub use zolana_indexer_api::{
-    GetRingKeyRegistryEntryResponse, GetRingKeyRegistryRegisterProofResponse,
-    GetRingSpendRecordResponse, RingMemberProofRequest, RingSpendRecord, RingSpendRecordRequest,
+    Context, GetRingKeyRegistryEntryResponse, GetRingKeyRegistryRegisterProofResponse,
+    GetRingSpendRecordResponse, HistoryFilters, Page, PaginationToken, RingMemberProofRequest,
+    RingSpendRecord, RingSpendRecordRequest, SlotFilter, TransactionEvents, TransactionOutputs,
     MAX_USER_RECORD_OWNERS,
 };
 use zolana_keypair::X25519Pubkey;
@@ -13,13 +14,6 @@ pub use zolana_transaction::{OutputContext, OutputSlot, ShieldedTransaction};
 pub use zolana_user_registry_interface::UserRecord;
 
 use crate::{error::ClientError, prover::ProofCompressed};
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Context {
-    pub block_time: i64,
-    /// Highest slot the indexer has persisted.
-    pub slot: u64,
-}
 
 /// Registry records read from the chain no earlier than `context.slot`, one
 /// per requested owner in request order.
@@ -74,39 +68,18 @@ impl EncryptedUtxoMatch {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct GetEncryptedUtxosByTagsResponse {
-    pub context: Context,
-    /// Where the indexer says a new output should be appended. A property of
-    /// the pool rather than of any match, so it is reported even for an empty
-    /// page: a wallet that has never transacted learns its output tree from
-    /// the same sync.
-    ///
-    /// `None` when the indexer has no answer -- every tree paused, or tree
-    /// metadata not yet synced. A caller that needs an output tree refuses
-    /// here rather than picking an id.
-    pub output_tree_id: Option<u16>,
-    pub matches: Vec<EncryptedUtxoMatch>,
-    pub next_cursor: Option<Vec<u8>>,
-    pub scanned_through: Option<Vec<u8>>,
-}
+pub type GetEncryptedUtxosByTagsResponse = Page<TransactionOutputs<EncryptedUtxoMatch, Signature>>;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct GetShieldedTransactionsByTagsResponse {
-    pub context: Context,
-    /// As on [`GetEncryptedUtxosByTagsResponse`].
-    pub output_tree_id: Option<u16>,
-    pub transactions: Vec<ShieldedTransaction>,
-    pub next_cursor: Option<Vec<u8>>,
-    pub scanned_through: Option<Vec<u8>>,
-}
+pub type GetShieldedTransactionsByTagsResponse =
+    Page<TransactionEvents<ShieldedTransaction, Signature>>;
 
 /// Page through every shielded transaction emitted by one custom ring.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RingHistoryOptions {
     pub ring_program_id: Address,
-    pub cursor: Option<Vec<u8>>,
+    pub pagination_token: Option<PaginationToken>,
     pub limit: Option<u32>,
+    pub filters: HistoryFilters,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -123,18 +96,8 @@ pub struct GetShieldedTransactionsBySignatureResponse {
     pub transactions: Vec<IndexedShieldedTransaction>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct GetShieldedTransactionsByNullifiersResponse {
-    pub context: Context,
-    /// As on [`GetEncryptedUtxosByTagsResponse`].
-    pub output_tree_id: Option<u16>,
-    pub transactions: Vec<ShieldedTransaction>,
-    pub next_cursor: Option<Vec<u8>>,
-    /// Where the indexer's scan reached. Set only on a page the limit did not
-    /// truncate. Unspent nullifiers match nothing, so `next_cursor` is `None`
-    /// for them and this is the only resume point.
-    pub scanned_through: Option<Vec<u8>>,
-}
+pub type GetShieldedTransactionsByNullifiersResponse =
+    Page<TransactionEvents<ShieldedTransaction, Signature>>;
 
 /// Stream of shielded transactions pushed as they land, one per matching transaction.
 pub type ShieldedTransactionStream =

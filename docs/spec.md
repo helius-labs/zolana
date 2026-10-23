@@ -2520,6 +2520,73 @@ struct MerkleContext {
 }
 ```
 
+History reads use the following shared pagination contract, modelled on
+`getTransactionsForAddress`. JSON field names are camelCase. The service orders
+transactions by ascending slot and then raw signature bytes, which is
+deterministic but is not within-block execution order. All three history
+methods share this order and token format.
+
+```rust
+struct PageOptions {
+    pagination_token: Option<String>,
+    /// 1–1000 Solana transactions; defaults to 1000.
+    limit: Option<u32>,
+    filters: Option<HistoryFilters>,
+    min_context_slot: Option<u64>,
+}
+struct HistoryFilters {
+    slot: Option<SlotFilter>,
+}
+/// Every bound present applies.
+struct SlotFilter {
+    gt: Option<u64>,
+    gte: Option<u64>,
+    lt: Option<u64>,
+    lte: Option<u64>,
+}
+struct Page<T> {
+    context: Context,
+    items: Vec<T>,
+    /// `None` once no more results match.
+    pagination_token: Option<String>,
+}
+struct TransactionEvents<T> {
+    slot: u64,
+    signature: Signature,
+    events: Vec<T>,
+}
+struct TransactionOutputs<T> {
+    slot: u64,
+    signature: Signature,
+    outputs: Vec<T>,
+}
+```
+
+`limit` bounds transaction items. Matching events and outputs of one transaction
+are never split. A page carries a `paginationToken` only when lookahead finds
+another matching transaction. The token names the last transaction returned,
+and the next request passes it back unchanged with the same filters. A null
+token ends the read.
+
+A reader that has caught up resumes a later read with `filters.slot.gt` set to
+the last page's `context.slot`. The service indexes a block together with its
+transactions and in slot order, so that snapshot held every match at or below
+`context.slot`, even when no item matched. This holds only for a read without
+an `lt` or `lte` bound: a capped read has covered the slots below its cap, not
+every slot through `context.slot`. A checkpoint covers only the tags,
+nullifiers, or ring filter already queried; newly learned keys must be scanned
+from their own beginning.
+
+`minContextSlot` is a freshness gate, independent of the token and the filters.
+The service answers only from a snapshot that has reached `minContextSlot`, the
+token's slot, and the slot below the filtered range; otherwise it returns
+JSON-RPC `-32016` with `data.contextSlot`. A read that still needs a slot below
+the first indexed block is rejected: a token needs the rest of its own slot, a
+`gt` or `gte` bound the slots after its floor. Clients store tokens unchanged. The
+version-one token encoding is
+`1:<canonical u64 decimal slot>:<canonical base58 Solana signature>`; other
+versions and noncanonical encodings are invalid.
+
 ### `getEncryptedUtxosByTags`
 
 Returns encrypted UTXO ciphertexts whose tag matches any of the given values.
@@ -2527,15 +2594,13 @@ Returns encrypted UTXO ciphertexts whose tag matches any of the given values.
 ```rust
 struct GetEncryptedUtxosByTagsRequest {
     tags: Vec<[u8; 32]>,
-    cursor: Option<Vec<u8>>,
+    pagination_token: Option<String>,
     limit: Option<u32>,
+    filters: Option<HistoryFilters>,
+    min_context_slot: Option<u64>,
 }
 
-struct GetEncryptedUtxosByTagsResponse {
-    context: Context,
-    matches: Vec<EncryptedUtxoMatch>,
-    next_cursor: Option<Vec<u8>>,
-}
+type GetEncryptedUtxosByTagsResponse = Page<TransactionOutputs<EncryptedUtxoMatch>>;
 
 struct EncryptedUtxoMatch {
     slot: u64,
@@ -2550,24 +2615,24 @@ struct EncryptedUtxoMatch {
 
 ### `getShieldedTransactionsByTags`
 
-Returns full shielded transactions where any output's tag matches. Includes all sibling output slots and the transaction's nullifier set.
+Returns every shielded event of a Solana transaction where any output or message tag matches. Includes sibling events, output slots, and nullifiers. A ring filter restricts returned events to that ring. `getShieldedTransactionsByNullifiers` uses the same request options and response shape, selecting transactions by consumed nullifiers.
 
 ```rust
 struct GetShieldedTransactionsByTagsRequest {
     tags: Vec<[u8; 32]>,
-    cursor: Option<Vec<u8>>,
+    pagination_token: Option<String>,
     limit: Option<u32>,
+    filters: Option<HistoryFilters>,
+    min_context_slot: Option<u64>,
 }
 
-struct GetShieldedTransactionsByTagsResponse {
-    context: Context,
-    transactions: Vec<ShieldedTransaction>,
-    next_cursor: Option<Vec<u8>>,
-}
+type GetShieldedTransactionsByTagsResponse = Page<TransactionEvents<ShieldedTransaction>>;
 
 struct ShieldedTransaction {
     slot: u64,
     tx_signature: Signature,
+    /// Stable instruction/event order within this transaction.
+    event_index: u16,
     /// `None` when there is nothing to decrypt: `proofless`, or a
     /// [Plaintext Transfer](#plaintext-transfer) blob.
     tx_viewing_pk: Option<X25519Pubkey>,

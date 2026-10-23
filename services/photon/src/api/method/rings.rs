@@ -20,19 +20,16 @@ pub use get_user_records::get_user_records;
 
 #[cfg(test)]
 mod tests {
-    use super::common::{decode_cursor, encode_cursor, validate_proof_leaves, CursorKind};
-    use super::get_encrypted_utxos_by_tags::EncryptedUtxoCursor;
-    use super::get_shielded_transactions_by_tags::ShieldedTxCursor;
+    use super::common::validate_proof_leaves;
     use crate::api::error::PhotonApiError;
     use crate::common::bn254::BN254_FIELD_SIZE_MINUS_ONE_BYTES;
     use crate::common::rings_tree::RingsTreeKind;
     use serde_json::Value;
-    use solana_signature::SIGNATURE_BYTES;
     use zolana_indexer_api::{
         Base64String, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
-        GetMerkleProofsRequest, Hash, MerkleContext, NonInclusionProof, RingsMessage,
-        RingsOutputContext, RingsOutputSlot, SerializablePubkey, SerializableSignature,
-        ShieldedTransaction,
+        GetMerkleProofsRequest, Hash, MerkleContext, NonInclusionProof, PaginationToken,
+        RingsMessage, RingsOutputContext, RingsOutputSlot, SerializablePubkey,
+        SerializableSignature, ShieldedTransaction,
     };
 
     fn hash(value: u8) -> Hash {
@@ -44,50 +41,12 @@ mod tests {
     }
 
     #[test]
-    fn cursor_codecs_round_trip_typed_values() {
-        let signature = [7; SIGNATURE_BYTES];
-        let encrypted = EncryptedUtxoCursor {
-            slot: 42,
-            signature,
-            event_index: 3,
-            output_index: 5,
-        };
-        let encrypted_cursor =
-            Base64String(encode_cursor(CursorKind::EncryptedUtxos, &encrypted).unwrap());
-        assert_eq!(
-            decode_cursor::<EncryptedUtxoCursor>(CursorKind::EncryptedUtxos, &encrypted_cursor)
-                .unwrap(),
-            encrypted
-        );
-
-        let shielded = ShieldedTxCursor {
-            slot: 43,
-            signature,
-            event_index: 8,
-        };
-        let shielded_cursor =
-            Base64String(encode_cursor(CursorKind::ShieldedTxByTags, &shielded).unwrap());
-        assert_eq!(
-            decode_cursor::<ShieldedTxCursor>(CursorKind::ShieldedTxByTags, &shielded_cursor)
-                .unwrap(),
-            shielded
-        );
-
-        let mut malformed_cursor = shielded_cursor.0.clone();
-        malformed_cursor.push(1);
-        assert!(decode_cursor::<ShieldedTxCursor>(
-            CursorKind::ShieldedTxByTags,
-            &Base64String(malformed_cursor)
-        )
-        .is_err());
-
-        // Tags and nullifiers share this cursor byte for byte, so without the
-        // kind one resumes mid-scan in the other and skips silently.
-        assert!(decode_cursor::<ShieldedTxCursor>(
-            CursorKind::ShieldedTxByNullifiers,
-            &shielded_cursor
-        )
-        .is_err());
+    fn one_position_serves_every_rings_stream() {
+        let position = PaginationToken::new(42, SerializableSignature::default().0);
+        let json = serde_json::to_value(position).unwrap();
+        assert_eq!(json, position.to_string());
+        let round_tripped: PaginationToken = serde_json::from_value(json).unwrap();
+        assert_eq!(round_tripped, position);
     }
 
     #[test]
@@ -231,22 +190,22 @@ mod tests {
     }
 
     #[test]
-    fn serializes_response_cursor_like_rings_spec() {
+    fn serializes_response_positions_like_rings_spec() {
         let value = serde_json::to_value(GetEncryptedUtxosByTagsResponse {
             context: Context {
                 block_time: 10,
                 slot: 1,
             },
             output_tree_id: Some(4),
-            matches: Vec::new(),
-            next_cursor: Some(Base64String(vec![1, 2, 3])),
-            scanned_through: None,
+            items: Vec::new(),
+            pagination_token: Some(PaginationToken::new(1, SerializableSignature::default().0)),
         })
         .unwrap();
 
         assert!(matches!(value, Value::Object(_)));
-        assert!(value.get("nextCursor").is_some());
-        assert!(value.get("next_cursor").is_none());
+        assert!(value["paginationToken"].is_string());
+        assert!(value.get("hasMore").is_none());
+        assert!(value.get("cursor").is_none());
         assert_eq!(value["outputTreeId"], 4);
         assert!(value.get("output_tree_id").is_none());
     }

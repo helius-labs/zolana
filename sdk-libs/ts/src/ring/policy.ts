@@ -1,9 +1,11 @@
+import { nextPageToken } from "../interface/page.js";
 import type { Address, Signature } from "@solana/kit";
 
 import { ClientError } from "../client/error.js";
 import { concatBytes } from "../keypair/bytes.js";
 import { ownerHash } from "../keypair/hash.js";
 import type { IndexerReader, RingSpendRecordLookup } from "../client/ports.js";
+import type { PaginationToken } from "../client/rpc.js";
 import {
   RING_ANSWER_SLOTS,
   RING_INLINE_ASSET_SLOTS,
@@ -971,18 +973,18 @@ export async function readRingEntries(
   const pairs = new Map<string, EntryPair>();
   await collectPages(
     "getEncryptedUtxosByTags",
-    (cursor) =>
+    (token) =>
       input.indexer.getEncryptedUtxosByTags(
         {
           tags: [tag],
-          ...(cursor === undefined ? {} : { cursor }),
+          ...(token === undefined ? {} : { paginationToken: token }),
           ...(input.pageLimit === undefined ? {} : { limit: input.pageLimit }),
         },
         undefined,
         context,
       ),
     (page) => {
-      for (const match of page.matches) {
+      for (const match of page.items.flatMap((item) => item.outputs)) {
         const entry = tryDecodeListEntry(match.outputSlot.payload);
         if (entry === undefined) continue;
         pairs.set(pairKey(entry), { listId: entry.listId, member: entry.member });
@@ -1210,13 +1212,13 @@ async function fetchSpenders(
   const spenders: IndexedShieldedTransaction[] = [];
   await collectPages(
     "getShieldedTransactionsByNullifiers",
-    (cursor) =>
+    (token) =>
       indexer.getShieldedTransactionsByNullifiers(
-        { nullifiers, ...(cursor === undefined ? {} : { cursor }) },
+        { nullifiers, ...(token === undefined ? {} : { paginationToken: token }) },
         undefined,
         context,
       ),
-    (page) => spenders.push(...page.transactions),
+    (page) => spenders.push(...page.items.flatMap((item) => item.events)),
   );
   return spenders;
 }
@@ -1263,31 +1265,29 @@ async function decodeSuccessor(
   return { entry, utxoHash: hashes.utxoHash, nullifier: hashes.nullifier, tree, treeId };
 }
 
-interface CursorPage {
-  readonly nextCursor?: Uint8Array | undefined;
-  readonly scannedThrough?: Uint8Array | undefined;
+interface TokenPage {
+  readonly paginationToken: PaginationToken | null;
 }
 
-/** A terminal page still names a cursor, only `scannedThrough` ends the round. */
-async function collectPages<P extends CursorPage>(
+/** Continue until the server's token runs out. */
+async function collectPages<P extends TokenPage>(
   method: string,
-  request: (cursor: Uint8Array | undefined) => Promise<P>,
+  request: (token: PaginationToken | undefined) => Promise<P>,
   absorb: (page: P) => void,
 ): Promise<void> {
-  const seen = new Set<string>();
-  let cursor: Uint8Array | undefined;
+  let token: PaginationToken | undefined;
   for (;;) {
-    const page = await request(cursor);
+    const page = await request(token);
+    const next = nextPageToken(
+      page,
+      token,
+      () =>
+        new ClientError("CLIENT_INVALID_RPC_RESPONSE", {
+          details: { method, path: "$.paginationToken" },
+        }),
+    );
     absorb(page);
-    const next = page.scannedThrough === undefined ? page.nextCursor : undefined;
-    if (next === undefined) return;
-    const key = bytesKey(next);
-    if (seen.has(key)) {
-      throw new ClientError("CLIENT_INVALID_RPC_RESPONSE", {
-        details: { method, path: "$.nextCursor" },
-      });
-    }
-    seen.add(key);
-    cursor = next;
+    if (next === null) return;
+    token = next;
   }
 }

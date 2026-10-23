@@ -85,7 +85,7 @@ describe("example: deposit, transfer, withdraw", () => {
     const balancesAfterDeposit = await decryptToBalances({
       keypair: senderKeypair,
       registry: assets,
-      transactions: depositResponse.transactions,
+      transactions: depositResponse.items.flatMap((item) => item.events),
     });
     const depositBalance = balancesAfterDeposit.balance(SOL_MINT);
     expect(depositBalance.amount).toBe(DEPOSIT_AMOUNT);
@@ -133,7 +133,7 @@ describe("example: deposit, transfer, withdraw", () => {
     const balancesAfterTransfer = await decryptToBalances({
       keypair: senderKeypair,
       registry: assets,
-      transactions: transferResponse.transactions,
+      transactions: transferResponse.items.flatMap((item) => item.events),
     });
     const transferBalance = balancesAfterTransfer.balance(SOL_MINT);
     expect(transferBalance.amount).toBe(DEPOSIT_AMOUNT - TRANSFER_AMOUNT);
@@ -189,7 +189,7 @@ describe("example: deposit, transfer, withdraw", () => {
     const balancesAfterWithdrawal = await decryptToBalances({
       keypair: senderKeypair,
       registry: assets,
-      transactions: withdrawalResponse.transactions,
+      transactions: withdrawalResponse.items.flatMap((item) => item.events),
     });
     const withdrawalBalance = balancesAfterWithdrawal.balance(SOL_MINT);
     expect(withdrawalBalance.amount).toBe(DEPOSIT_AMOUNT - TRANSFER_AMOUNT - WITHDRAW_AMOUNT);

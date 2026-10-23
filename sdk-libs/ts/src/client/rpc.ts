@@ -1,6 +1,8 @@
-import type { Address, Signature } from "@solana/kit";
+import { type Address, type Signature } from "@solana/kit";
 
-import type { Bytes16, Bytes32 } from "../interface/types.js";
+import type { Bytes16, Bytes32, PageOptions, PaginationToken } from "../interface/types.js";
+export type { HistoryFilters, PaginationToken, SlotFilter } from "../interface/types.js";
+
 import type { X25519PublicKey } from "../keypair/x25519.js";
 import type { IndexedShieldedTransaction } from "../transaction/instructions/transact.js";
 
@@ -10,23 +12,21 @@ export {
 } from "./retry.js";
 export type { IndexerPollConfig, IndexerRpcConfig } from "./retry.js";
 
+export type { PageOptions } from "../interface/types.js";
+
 export interface RpcContext {
   readonly blockTime: bigint;
   /** Highest slot the indexer has persisted. */
   readonly slot: bigint;
 }
 
-export interface GetByTagsRequest {
+export interface GetByTagsRequest extends PageOptions {
   readonly tags: readonly Bytes32[];
   readonly ringProgramId?: Address;
-  readonly cursor?: Uint8Array;
-  readonly limit?: number;
 }
 
-export interface GetByNullifiersRequest {
+export interface GetByNullifiersRequest extends PageOptions {
   readonly nullifiers: readonly Bytes32[];
-  readonly cursor?: Uint8Array;
-  readonly limit?: number;
 }
 
 export interface EncryptedUtxoMatch {
@@ -37,31 +37,27 @@ export interface EncryptedUtxoMatch {
   readonly salt?: Bytes16;
 }
 
-export interface GetEncryptedUtxosByTagsResponse {
+export interface Page<T> {
   readonly context: RpcContext;
-  readonly matches: readonly EncryptedUtxoMatch[];
-  readonly nextCursor?: Uint8Array;
-  readonly scannedThrough?: Uint8Array;
+  readonly items: readonly T[];
+  /** Pass back as `paginationToken` for the next page, `null` when the history has no more results. */
+  readonly paginationToken: PaginationToken | null;
 }
-
-export interface GetShieldedTransactionsByTagsResponse {
-  readonly context: RpcContext;
-  readonly transactions: readonly IndexedShieldedTransaction[];
-  readonly nextCursor?: Uint8Array;
-  readonly scannedThrough?: Uint8Array;
+export interface TransactionEvents<T> {
+  readonly slot: bigint;
+  readonly signature: Signature;
+  readonly events: readonly T[];
 }
-
-export interface GetShieldedTransactionsByNullifiersResponse {
-  readonly context: RpcContext;
-  readonly transactions: readonly IndexedShieldedTransaction[];
-  readonly nextCursor?: Uint8Array;
-  /**
-   * Where the indexer's scan reached. Present only on a page the limit did not
-   * truncate. Unspent nullifiers match nothing, so `nextCursor` is absent for
-   * them and this is the only resume point.
-   */
-  readonly scannedThrough?: Uint8Array;
+export interface TransactionOutputs<T> {
+  readonly slot: bigint;
+  readonly signature: Signature;
+  readonly outputs: readonly T[];
 }
+export type GetEncryptedUtxosByTagsResponse = Page<TransactionOutputs<EncryptedUtxoMatch>>;
+export type GetShieldedTransactionsByTagsResponse = Page<
+  TransactionEvents<IndexedShieldedTransaction>
+>;
+export type GetShieldedTransactionsByNullifiersResponse = GetShieldedTransactionsByTagsResponse;
 
 export interface GetShieldedTransactionsBySignatureResponse {
   readonly context: RpcContext;

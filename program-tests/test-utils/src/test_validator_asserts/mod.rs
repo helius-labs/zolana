@@ -20,8 +20,8 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 pub use spl_deposit::{assert_spl_deposit, SplDepositAssertArgs};
 use zolana_client::{
-    ClientError, EncryptedUtxoMatch, MerkleProof, NonInclusionProof, Rpc, ShieldedTransaction,
-    SolanaRpc,
+    ClientError, EncryptedUtxoMatch, HistoryFilters, MerkleProof, NonInclusionProof, Rpc,
+    ShieldedTransaction, SolanaRpc,
 };
 use zolana_interface::{instruction::deposit_blinding, pda, state::state_root_offset};
 use zolana_program::instruction::AssetDeposit;
@@ -236,23 +236,26 @@ pub fn wait_for_indexed_utxo<I: Rpc>(
 ) -> EncryptedUtxoMatch {
     let label = format!("indexed UTXO for signature {signature} tag {tag:?}");
     wait_for(&label, || {
-        let mut cursor = None;
+        let mut token = None;
         loop {
             let response = indexer.get_encrypted_utxos_by_tags(
                 vec![tag],
-                cursor,
+                token,
                 Some(TAG_PAGE_LIMIT),
+                HistoryFilters::default(),
                 None,
             )?;
             if let Some(item) = response
-                .matches
+                .items
+                .into_iter()
+                .flat_map(|item| item.outputs)
                 .into_iter()
                 .find(|item| item.tx_signature == signature)
             {
                 return Ok(Some(item));
             }
-            cursor = response.next_cursor;
-            if cursor.is_none() {
+            token = response.pagination_token;
+            if token.is_none() {
                 return Ok(None);
             }
         }
@@ -369,23 +372,26 @@ pub fn wait_for_indexed_transaction<I: Rpc>(
 ) -> ShieldedTransaction {
     let label = format!("indexed transaction for signature {signature} tag {tag:?}");
     wait_for(&label, || {
-        let mut cursor = None;
+        let mut token = None;
         loop {
             let response = indexer.get_shielded_transactions_by_tags(
                 vec![tag],
-                cursor,
+                token,
                 Some(TAG_PAGE_LIMIT),
+                HistoryFilters::default(),
                 None,
             )?;
             if let Some(item) = response
-                .transactions
+                .items
+                .into_iter()
+                .flat_map(|item| item.events)
                 .into_iter()
                 .find(|item| item.tx_signature == signature)
             {
                 return Ok(Some(item));
             }
-            cursor = response.next_cursor;
-            if cursor.is_none() {
+            token = response.pagination_token;
+            if token.is_none() {
                 return Ok(None);
             }
         }

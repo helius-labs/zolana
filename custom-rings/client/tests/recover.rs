@@ -9,7 +9,8 @@ use solana_address::Address;
 use solana_signature::Signature;
 use zolana_client::{
     rpc::GetShieldedTransactionsByNullifiersResponse, ClientError, Context,
-    GetShieldedTransactionsByTagsResponse, IndexerRpcConfig, ProofInputUtxo, Rpc,
+    GetShieldedTransactionsByTagsResponse, HistoryFilters, IndexerRpcConfig, PaginationToken,
+    ProofInputUtxo, Rpc,
 };
 use zolana_event::{
     encode_encrypted_ring_deposit_output, encode_merge_output_data, EncryptedRingDepositOutput,
@@ -320,17 +321,20 @@ impl Rpc for History {
                 block_time: 0,
                 slot: INDEXED,
             },
-            transactions: self.transactions.clone(),
+            items: zolana_client::rpc::TransactionEvents::group(
+                self.transactions.clone(),
+                |event| (event.slot, event.tx_signature),
+            ),
             output_tree_id: None,
-            next_cursor: None,
-            scanned_through: Some(Vec::new()),
+            pagination_token: None,
         })
     }
     fn get_shielded_transactions_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        _cursor: Option<Vec<u8>>,
+        _token: Option<PaginationToken>,
         _limit: Option<u32>,
+        _filters: HistoryFilters,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
         self.read(config)?;
@@ -339,31 +343,33 @@ impl Rpc for History {
                 block_time: 0,
                 slot: INDEXED,
             },
-            transactions: self
-                .transactions
-                .iter()
-                .filter(|tx| {
-                    tx.messages
-                        .iter()
-                        .any(|message| tags.contains(&message.view_tag))
-                        || tx
-                            .output_slots
+            items: zolana_client::rpc::TransactionEvents::group(
+                self.transactions
+                    .iter()
+                    .filter(|tx| {
+                        tx.messages
                             .iter()
-                            .any(|slot| tags.contains(&slot.view_tag))
-                })
-                .cloned()
-                .collect(),
+                            .any(|message| tags.contains(&message.view_tag))
+                            || tx
+                                .output_slots
+                                .iter()
+                                .any(|slot| tags.contains(&slot.view_tag))
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>(),
+                |event| (event.slot, event.tx_signature),
+            ),
             output_tree_id: None,
-            next_cursor: None,
-            scanned_through: Some(Vec::new()),
+            pagination_token: None,
         })
     }
 
     fn get_shielded_transactions_by_nullifiers(
         &self,
         nullifiers: Vec<[u8; 32]>,
-        _cursor: Option<Vec<u8>>,
+        _token: Option<PaginationToken>,
         _limit: Option<u32>,
+        _filters: HistoryFilters,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
         self.read(config)?;
@@ -373,19 +379,20 @@ impl Rpc for History {
                 block_time: 0,
                 slot: INDEXED,
             },
-            transactions: self
-                .transactions
-                .iter()
-                .filter(|tx| {
-                    tx.nullifiers
-                        .iter()
-                        .any(|nullifier| nullifiers.contains(nullifier))
-                })
-                .cloned()
-                .collect(),
+            items: zolana_client::rpc::TransactionEvents::group(
+                self.transactions
+                    .iter()
+                    .filter(|tx| {
+                        tx.nullifiers
+                            .iter()
+                            .any(|nullifier| nullifiers.contains(nullifier))
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>(),
+                |event| (event.slot, event.tx_signature),
+            ),
             output_tree_id: None,
-            next_cursor: Some(vec![1]),
-            scanned_through: Some(vec![1]),
+            pagination_token: None,
         })
     }
 }

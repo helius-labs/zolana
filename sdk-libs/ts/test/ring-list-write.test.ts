@@ -1,3 +1,4 @@
+import { transactionItems } from "./helpers/pages.js";
 import { X25519Keypair } from "../src/keypair/x25519.js";
 import {
   AccountRole,
@@ -482,12 +483,14 @@ describe("list writes", () => {
     const live = input.live ?? [];
     const byNullifiers = vi.fn(async (request: { nullifiers: readonly Bytes32[] }) =>
       transactionsPage({
-        transactions: live.filter((transaction) =>
-          transaction.nullifiers.some((spent) =>
-            request.nullifiers.some((asked) => Buffer.from(asked).equals(spent)),
+        items: transactionItems(
+          live.filter((transaction) =>
+            transaction.nullifiers.some((spent) =>
+              request.nullifiers.some((asked) => Buffer.from(asked).equals(spent)),
+            ),
           ),
         ),
-        scannedThrough: new Uint8Array([1]),
+        paginationToken: null,
       }),
     );
     return {

@@ -23,8 +23,9 @@ pub use types::{
     GetNonInclusionProofsResponse, GetRingKeyRegistryEntryResponse,
     GetRingKeyRegistryRegisterProofResponse, GetRingSpendRecordResponse,
     GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
-    GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, IndexedShieldedTransaction,
-    MerkleContext, MerkleProof, NonInclusionProof, OutputContext, OutputSlot, ProveResult,
-    RingHistoryOptions, RingMemberProofRequest, RingSpendRecord, RingSpendRecordRequest,
-    ShieldedTransaction, ShieldedTransactionStream, UserRecord, MAX_USER_RECORD_OWNERS,
+    GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, HistoryFilters,
+    IndexedShieldedTransaction, MerkleContext, MerkleProof, NonInclusionProof, OutputContext,
+    OutputSlot, Page, PaginationToken, ProveResult, RingHistoryOptions, RingMemberProofRequest,
+    RingSpendRecord, RingSpendRecordRequest, ShieldedTransaction, ShieldedTransactionStream,
+    SlotFilter, TransactionEvents, TransactionOutputs, UserRecord, MAX_USER_RECORD_OWNERS,
 };

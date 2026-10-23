@@ -1,3 +1,4 @@
+import { transactionItems } from "./helpers/pages.js";
 import { X25519Keypair } from "../src/keypair/x25519.js";
 import { ClientError } from "../src/client/error.js";
 import {
@@ -1186,7 +1187,10 @@ describe("ring audit", () => {
     }));
     const client = ringAuditReader({
       getShieldedTransactionsByTags: async () =>
-        transactionsPage({ transactions: [transaction, transaction] }),
+        transactionsPage({
+          items: transactionItems([transaction, transaction]),
+          paginationToken: null,
+        }),
       solanaRpc: { getProgramAccounts },
       commitment: "confirmed",
     });
@@ -1209,6 +1213,24 @@ describe("ring audit", () => {
     expect(assets.resolve(2n)).toBe(mint);
   });
 
+  it("rejects a malformed pagination token before doing any audit work", async () => {
+    const getShieldedTransactionsByTags = vi.fn(async () =>
+      transactionsPage({ paginationToken: "invalid" }),
+    );
+    const ringInvoked = vi.fn(async () => true);
+    await expect(
+      auditRing({
+        client: ringAuditReader({ getShieldedTransactionsByTags }),
+        auditor: X25519Keypair.generate(),
+        ringProgramId: RING,
+        assets: new AssetRegistry(),
+        origin: { ringInvoked },
+      }),
+    ).rejects.toMatchObject({ code: "RING_RPC" });
+    expect(getShieldedTransactionsByTags).toHaveBeenCalledTimes(1);
+    expect(ringInvoked).not.toHaveBeenCalled();
+  });
+
   it("throws after one refresh when the chain does not know the id either", async () => {
     const auditor = X25519Keypair.generate();
     const mint = getAddressDecoder().decode(scalar(41));
@@ -1224,7 +1246,8 @@ describe("ring audit", () => {
     const transaction = indexed(proofInputs);
     const getProgramAccounts = vi.fn(() => ({ send: async () => [] }));
     const client = ringAuditReader({
-      getShieldedTransactionsByTags: async () => transactionsPage({ transactions: [transaction] }),
+      getShieldedTransactionsByTags: async () =>
+        transactionsPage({ items: transactionItems([transaction]), paginationToken: null }),
       solanaRpc: { getProgramAccounts },
       commitment: "confirmed",
     });

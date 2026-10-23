@@ -5,7 +5,8 @@ use solana_signature::Signature;
 use solana_signer::{Signer, SignerError};
 use thiserror::Error;
 use zolana_indexer_api::{
-    Base64String, Context, Hash, Limit, SerializablePubkey, SerializableSignature,
+    Base64String, Hash, HistoryFilters, Limit, PaginationToken, SerializablePubkey,
+    SerializableSignature,
 };
 use zolana_keypair::X25519Pubkey;
 use zolana_ring_client::{ReaderKey, ReaderKeyError};
@@ -17,15 +18,13 @@ pub const CREATE_AUDITOR_KEY: &str = "createAuditorKey";
 pub const RING_STATUS: &str = "ringStatus";
 pub const RING_DEPOSITS: &str = "ringDeposits";
 pub const GET_DECRYPTED_TRANSACTIONS: &str = "getDecryptedTransactions";
-pub(crate) const AUDIT_CURSOR_LIMIT: usize = 256;
-pub(crate) const AUDIT_PAGE_LIMIT: u64 = 100;
+pub const AUDIT_PAGE_LIMIT: u64 = 100;
 pub(crate) const DEPOSITS_PAGE_LIMIT: u32 = 50;
 pub(crate) const MAX_DEPOSITS_PAGE_LIMIT: u32 = 200;
 
-/// The one cursor rule, shared by the request builder, the page options and
-/// the indexer response check.
-pub(crate) fn cursor_in_bounds(cursor: &[u8]) -> bool {
-    !cursor.is_empty() && cursor.len() <= AUDIT_CURSOR_LIMIT
+/// An absent token or bound signs as the empty string.
+fn attested<T: ToString>(value: Option<T>) -> String {
+    value.map_or_else(String::new, |value| value.to_string())
 }
 
 pub(crate) fn limit_in_bounds(limit: &Limit) -> bool {
@@ -196,11 +195,15 @@ pub struct GetDecryptedTransactionsRequest {
     /// Required for derived keys.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ring_program_id: Option<SerializablePubkey>,
-    /// Opaque indexer cursor.
+    /// The previous page's token. Read the next page with the same filters.
     #[serde(default)]
-    pub cursor: Option<Base64String>,
+    pub pagination_token: Option<PaginationToken>,
     #[serde(default)]
     pub limit: Option<Limit>,
+    #[serde(default, skip_serializing_if = "HistoryFilters::is_empty")]
+    pub filters: HistoryFilters,
+    #[serde(default)]
+    pub min_context_slot: Option<u64>,
     pub auth: ReadAuth,
 }
 
@@ -252,8 +255,6 @@ pub enum ReadBuildError {
     Request(#[from] RequestBuildError),
     #[error(transparent)]
     Reader(#[from] ReaderKeyError),
-    #[error("audit cursor is invalid")]
-    Cursor,
     #[error("audit page limit is invalid")]
     Limit,
 }
@@ -261,8 +262,10 @@ pub enum ReadBuildError {
 #[must_use]
 pub struct ReadRequest {
     ring: Address,
-    cursor: Option<Base64String>,
+    pagination_token: Option<PaginationToken>,
     limit: Option<Limit>,
+    filters: HistoryFilters,
+    min_context_slot: Option<u64>,
     timestamp: Option<u64>,
     nonce: [u8; 32],
 }
@@ -273,23 +276,45 @@ pub struct ReadAttestation<'a> {
     pub ring: Address,
     pub timestamp: u64,
     pub nonce: &'a [u8; 32],
-    pub cursor: Option<&'a [u8]>,
+    pub pagination_token: Option<PaginationToken>,
+    pub filters: HistoryFilters,
+    pub min_context_slot: Option<u64>,
     pub limit: Option<Limit>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct GetDecryptedTransactionsResponse {
-    pub context: Context,
-    pub value: DecryptedTransactionsPage,
-}
+pub type GetDecryptedTransactionsResponse = zolana_indexer_api::Page<DecryptedTransactionGroup>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct DecryptedTransactionsPage {
-    pub items: Vec<DecryptedTransaction>,
+pub struct DecryptedTransactionGroup {
+    pub slot: u64,
+    pub signature: SerializableSignature,
+    pub events: Vec<DecryptedTransaction>,
     pub skipped: Vec<SkippedTransaction>,
-    pub cursor: Option<Base64String>,
+}
+
+impl zolana_indexer_api::Positioned for DecryptedTransactionGroup {
+    fn position(&self) -> PaginationToken {
+        PaginationToken::new(self.slot, self.signature.0)
+    }
+}
+
+impl DecryptedTransactionGroup {
+    pub fn validate(&self) -> Result<(), zolana_indexer_api::InvalidPage> {
+        if self.events.is_empty() && self.skipped.is_empty()
+            || self
+                .events
+                .iter()
+                .any(|event| event.slot != self.slot || event.tx_signature != self.signature)
+            || self
+                .skipped
+                .iter()
+                .any(|event| event.slot != self.slot || event.tx_signature != self.signature)
+        {
+            return Err(zolana_indexer_api::InvalidPage);
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -463,7 +488,9 @@ impl GetDecryptedTransactionsRequest {
     pub fn read(ring: Address) -> ReadRequest {
         ReadRequest {
             ring,
-            cursor: None,
+            pagination_token: None,
+            filters: HistoryFilters::default(),
+            min_context_slot: None,
             limit: None,
             timestamp: None,
             nonce: fresh_nonce(),
@@ -472,12 +499,19 @@ impl GetDecryptedTransactionsRequest {
 }
 
 impl ReadRequest {
-    pub fn with_cursor(mut self, cursor: Base64String) -> Result<Self, ReadBuildError> {
-        if !cursor_in_bounds(&cursor.0) {
-            return Err(ReadBuildError::Cursor);
-        }
-        self.cursor = Some(cursor);
-        Ok(self)
+    pub fn with_pagination_token(mut self, token: PaginationToken) -> Self {
+        self.pagination_token = Some(token);
+        self
+    }
+
+    pub fn with_filters(mut self, filters: HistoryFilters) -> Self {
+        self.filters = filters;
+        self
+    }
+
+    pub fn with_min_context_slot(mut self, slot: u64) -> Self {
+        self.min_context_slot = Some(slot);
+        self
     }
 
     pub fn with_limit(mut self, limit: Limit) -> Result<Self, ReadBuildError> {
@@ -502,7 +536,9 @@ impl ReadRequest {
             ring: self.ring,
             timestamp,
             nonce: &self.nonce,
-            cursor: self.cursor.as_ref().map(|cursor| cursor.0.as_slice()),
+            pagination_token: self.pagination_token,
+            filters: self.filters,
+            min_context_slot: self.min_context_slot,
             limit: self.limit.clone(),
         }
         .bytes();
@@ -515,8 +551,10 @@ impl ReadRequest {
         };
         Ok(GetDecryptedTransactionsRequest {
             ring_program_id: Some(self.ring.to_bytes().into()),
-            cursor: self.cursor,
+            pagination_token: self.pagination_token,
             limit: self.limit,
+            filters: self.filters,
+            min_context_slot: self.min_context_slot,
             auth: ReadAuth {
                 reader: signer.reader()?.to_bytes().to_vec().into(),
                 timestamp,
@@ -581,18 +619,23 @@ pub fn unix_now() -> Result<u64, RequestBuildError> {
         .map_err(|_| RequestBuildError::Clock)
 }
 
-const READ_DOMAIN: &str = "zolana/ring-rpc-read/v1";
+const READ_DOMAIN: &str = "zolana/ring-rpc-read/v2";
 const AUDITOR_KEY_REQUEST_DOMAIN: &str = "zolana/ring-rpc-auditor-key-request/v1";
 
 impl ReadAttestation<'_> {
     pub fn bytes(&self) -> Vec<u8> {
         format!(
-            "{READ_DOMAIN}\nring: {}\ntimestamp: {}\nnonce: {}\nlimit: {}\ncursor: {}",
+            "{READ_DOMAIN}\nring: {}\ntimestamp: {}\nnonce: {}\nlimit: {}\npagination-token: {}\nslot-gt: {}\nslot-gte: {}\nslot-lt: {}\nslot-lte: {}\nmin-context-slot: {}",
             self.ring,
             self.timestamp,
             base64(self.nonce),
             self.limit.as_ref().map_or(0, Limit::value),
-            base64(self.cursor.unwrap_or_default()),
+            attested(self.pagination_token),
+            attested(self.filters.slot.gt),
+            attested(self.filters.slot.gte),
+            attested(self.filters.slot.lt),
+            attested(self.filters.slot.lte),
+            self.min_context_slot.unwrap_or(0),
         )
         .into_bytes()
     }
@@ -656,11 +699,7 @@ mod tests {
     /// `Limit` cannot hold zero, so the smallest audit page the wire can carry
     /// is one.
     #[test]
-    fn an_audit_page_holds_at_its_cursor_and_limit_bounds() {
-        assert!(!cursor_in_bounds(&[]));
-        assert!(cursor_in_bounds(&vec![1; AUDIT_CURSOR_LIMIT]));
-        assert!(!cursor_in_bounds(&vec![1; AUDIT_CURSOR_LIMIT + 1]));
-
+    fn an_audit_page_holds_at_its_limit_bound() {
         assert!(limit_in_bounds(&Limit::new(1).expect("indexer limit")));
         assert!(limit_in_bounds(
             &Limit::new(AUDIT_PAGE_LIMIT).expect("indexer limit")
@@ -689,8 +728,53 @@ mod tests {
         }
     }
 
+    #[test]
+    fn a_read_request_carries_the_token_and_filters_and_refuses_after() {
+        let auth = serde_json::json!({
+            "reader": "AQ==",
+            "timestamp": 1,
+            "nonce": "AQ==",
+            "signature": "AQ==",
+        });
+        let token = PaginationToken::new(7, Signature::from([9; 64]));
+        let request: GetDecryptedTransactionsRequest = serde_json::from_value(serde_json::json!({
+            "paginationToken": token.to_string(),
+            "filters": { "slot": { "gt": 3 } },
+            "auth": auth,
+        }))
+        .expect("request");
+        assert_eq!(request.pagination_token, Some(token));
+        assert_eq!(request.filters, HistoryFilters::after_slot(3));
+        assert!(
+            serde_json::from_value::<GetDecryptedTransactionsRequest>(serde_json::json!({
+                "after": token.to_string(),
+                "auth": auth,
+            }))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn decrypted_groups_require_events_matching_the_header() {
+        let mut group = DecryptedTransactionGroup {
+            slot: 7,
+            signature: Signature::from([1; 64]).into(),
+            events: vec![],
+            skipped: vec![SkippedTransaction {
+                slot: 8,
+                tx_signature: Signature::from([1; 64]).into(),
+                reason: SkippedReason::InvalidAuditData,
+            }],
+        };
+        assert!(group.validate().is_err());
+        group.skipped[0].slot = 7;
+        group.validate().unwrap();
+        group.skipped.clear();
+        assert!(group.validate().is_err());
+    }
+
     /// The deposits cursor is a Solana signature, a different rule from the
-    /// opaque audit cursor.
+    /// audit read's pagination token.
     #[test]
     fn a_deposits_cursor_is_exactly_one_signature() {
         assert_eq!(
@@ -703,7 +787,7 @@ mod tests {
             deposits_request(None, None).before().expect("no cursor"),
             None
         );
-        for length in [0, 63, 65, AUDIT_CURSOR_LIMIT] {
+        for length in [0, 63, 65, 128] {
             assert!(matches!(
                 deposits_request(None, Some(vec![1; length])).before(),
                 Err(RingRpcError::InvalidPage)
@@ -713,17 +797,35 @@ mod tests {
 
     #[test]
     fn read_attestation_is_stable() {
-        let message = ReadAttestation {
+        let mut attestation = ReadAttestation {
             ring: Address::new_from_array([7; 32]),
             timestamp: 1_700_000_000,
             nonce: &[4; 32],
-            cursor: Some(&[1, 2, 3]),
+            pagination_token: Some(PaginationToken::new(3, Signature::from([1; 64]))),
+            filters: HistoryFilters::default(),
+            min_context_slot: None,
             limit: Some(Limit::new(5).expect("in range")),
-        }
-        .bytes();
+        };
+        let prefix = "zolana/ring-rpc-read/v2\nring: US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx\ntimestamp: 1700000000\nnonce: BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=\nlimit: 5\npagination-token: 1:3:2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6ijwfYmfZYsKRxboQMPh3R4kUhXRVdtSXFXMheka4Rc4P2\n";
         assert_eq!(
-            String::from_utf8(message).expect("text"),
-            "zolana/ring-rpc-read/v1\nring: US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx\ntimestamp: 1700000000\nnonce: BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=\nlimit: 5\ncursor: AQID"
+            String::from_utf8(attestation.bytes()).expect("text"),
+            format!("{prefix}slot-gt: \nslot-gte: \nslot-lt: \nslot-lte: \nmin-context-slot: 0")
+        );
+        // Every control a reader sets is signed, so none can be swapped in transit.
+        attestation.filters = HistoryFilters {
+            slot: zolana_indexer_api::SlotFilter {
+                gt: Some(1),
+                gte: Some(2),
+                lt: Some(9),
+                lte: Some(8),
+            },
+        };
+        attestation.min_context_slot = Some(4);
+        assert_eq!(
+            String::from_utf8(attestation.bytes()).expect("text"),
+            format!(
+                "{prefix}slot-gt: 1\nslot-gte: 2\nslot-lt: 9\nslot-lte: 8\nmin-context-slot: 4"
+            )
         );
     }
 }

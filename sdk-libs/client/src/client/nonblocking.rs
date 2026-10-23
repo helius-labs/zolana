@@ -23,9 +23,9 @@ use crate::{
         GetRingKeyRegistryEntryResponse, GetRingKeyRegistryRegisterProofResponse,
         GetRingSpendRecordResponse, GetShieldedTransactionsByNullifiersResponse,
         GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
-        GetUserRecordsResponse, IndexerRpcConfig, ProgramAccountsFilter, ProveResult,
-        RingHistoryOptions, RingMemberProofRequest, RingSpendRecordRequest,
-        ShieldedTransactionStream,
+        GetUserRecordsResponse, HistoryFilters, IndexerRpcConfig, PaginationToken,
+        ProgramAccountsFilter, ProveResult, RingHistoryOptions, RingMemberProofRequest,
+        RingSpendRecordRequest, ShieldedTransactionStream,
     },
 };
 
@@ -138,15 +138,17 @@ impl<R: AsyncRpc, I: AsyncIndexer> AsyncRpc for AsyncZolanaClient<R, I> {
     async fn get_encrypted_utxos_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
+        pagination_token: Option<PaginationToken>,
         limit: Option<u32>,
+        filters: HistoryFilters,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
         self.indexer
             .get_encrypted_utxos_by_tags(
                 tags,
-                cursor,
+                pagination_token,
                 limit,
+                filters,
                 Some(config.unwrap_or(self.indexer_config)),
             )
             .await
@@ -155,15 +157,17 @@ impl<R: AsyncRpc, I: AsyncIndexer> AsyncRpc for AsyncZolanaClient<R, I> {
     async fn get_shielded_transactions_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
+        pagination_token: Option<PaginationToken>,
         limit: Option<u32>,
+        filters: HistoryFilters,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
         self.indexer
             .get_shielded_transactions_by_tags(
                 tags,
-                cursor,
+                pagination_token,
                 limit,
+                filters,
                 Some(config.unwrap_or(self.indexer_config)),
             )
             .await
@@ -195,15 +199,17 @@ impl<R: AsyncRpc, I: AsyncIndexer> AsyncRpc for AsyncZolanaClient<R, I> {
     async fn get_shielded_transactions_by_nullifiers(
         &self,
         nullifiers: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
+        pagination_token: Option<PaginationToken>,
         limit: Option<u32>,
+        filters: HistoryFilters,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
         self.indexer
             .get_shielded_transactions_by_nullifiers(
                 nullifiers,
-                cursor,
+                pagination_token,
                 limit,
+                filters,
                 Some(config.unwrap_or(self.indexer_config)),
             )
             .await

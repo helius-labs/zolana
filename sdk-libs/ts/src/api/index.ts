@@ -190,7 +190,9 @@ export class ZolanaApi {
     }
 
     try {
-      return descriptor.decodeResponse(result);
+      const response = descriptor.decodeResponse(result);
+      descriptor.validateResponse?.(response, request);
+      return response;
     } catch (error) {
       throw schemaError("API_INVALID_RESULT", descriptor.name, error);
     }
@@ -305,7 +307,7 @@ function isObject(value: unknown): value is JsonObject {
 
 function safeSchemaPath(path: string): string | undefined {
   const knownField =
-    "(?:blockTime|context|hash|highElement|highElementIndex|leaf|leafIndex|leaves|limit|lowElement|lowElementIndex|matches|mergeEncryption|merkleContext|nextCursor|nullifierPubkey|nullifiers|outputContext|outputSlot|outputSlots|owner|owners|path|payload|proofless|proofs|records|root|rootIndex|rootSeq|salt|scannedThrough|slot|tags|transactions|tree|treeAccount|treeType|txSignature|txViewingPk|viewTag|viewingPubkey)";
+    "(?:blockTime|context|events|filters|gt|gte|hash|highElement|highElementIndex|items|leaf|leafIndex|leaves|limit|lowElement|lowElementIndex|lt|lte|matches|mergeEncryption|merkleContext|minContextSlot|nullifierPubkey|nullifiers|outputContext|outputSlot|outputSlots|outputs|owner|owners|paginationToken|path|payload|proofless|proofs|records|root|rootIndex|rootSeq|salt|signature|slot|tags|transactions|tree|treeAccount|treeType|txSignature|txViewingPk|viewTag|viewingPubkey)";
   const pattern = new RegExp(`^\\$(?:(?:\\.${knownField})|(?:\\[\\d+\\]))*$`, "u");
   return path.length <= 256 && pattern.test(path) ? path : undefined;
 }
