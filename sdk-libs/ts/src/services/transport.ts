@@ -105,9 +105,18 @@ export function checkedApiKey(
 /** Append a service path before its query, preserving the endpoint's query encoding. */
 export function serviceUrl(endpoint: URL, path: string, apiKey?: string): URL {
   const url = new URL(endpoint.href);
-  url.pathname = `${url.pathname.replace(/\/+$/u, "")}/${path.replace(/^\/+/u, "")}`;
+  url.pathname = `${basePath(endpoint)}/${path.replace(/^\/+/u, "")}`;
   if (apiKey !== undefined) setUrlQuery(url, "api-key", apiKey);
   return url;
+}
+
+/** The path of a `serviceUrl(endpoint, ...)` URL below `endpoint`. */
+export function servicePath(endpoint: URL, url: URL): string {
+  return url.pathname.slice(basePath(endpoint).length);
+}
+
+function basePath(endpoint: URL): string {
+  return endpoint.pathname.replace(/\/+$/u, "");
 }
 
 /** Replace one query parameter without re-encoding any of the others. */

@@ -145,7 +145,13 @@ func TestWrapRejectsRebinding(t *testing.T) {
 		code   string
 	}
 	cases := map[string]rejection{
-		"other job":    {func(r *http.Request) { r.RequestURI = "/prove/transfer_2_2/status?jobId=other" }, codeDecryptionFailed},
+		"other job": {func(r *http.Request) { r.RequestURI = "/prove/transfer_2_2/status?jobId=other" }, codeDecryptionFailed},
+		"other key under the gateway": {func(r *http.Request) {
+			r.RequestURI = GatewayPrefix + "/prove/merge_8_1/status?jobId=abc"
+		}, codeDecryptionFailed},
+		"gateway prefix twice": {func(r *http.Request) {
+			r.RequestURI = GatewayPrefix + GatewayPrefix + "/prove/transfer_2_2/status?jobId=abc"
+		}, codeDecryptionFailed},
 		"other method": {func(r *http.Request) { r.Method = http.MethodPut }, codeDecryptionFailed},
 		"bad enc":      {func(r *http.Request) { r.Header.Set(HeaderEnc, strings.Repeat("00", 32)) }, codeDecryptionFailed},
 		"version":      {func(r *http.Request) { r.Header.Set(HeaderVersion, "v2") }, codeVersionUnsupported},
@@ -211,6 +217,20 @@ func TestWrapIgnoresTheCredentialAProxyMoves(t *testing.T) {
 			if _, _, err := decryptResponse(responseKey, recorder.Body.Bytes()); err != nil {
 				t.Fatalf("%s: %v", target, err)
 			}
+		}
+	}
+}
+
+// A client binds the route below its prover URL, wherever a proxy mounts it.
+func TestWrapOpensARouteBareOrUnderTheGatewayPrefix(t *testing.T) {
+	s := testServer(t)
+	for _, target := range []string{"/prove/transfer_2_2?jobId=a", GatewayPrefix + "/prove/transfer_2_2?jobId=a"} {
+		request, responseKey := encryptedRequest(t, s, http.MethodPost, "/prove/transfer_2_2?jobId=a", []byte(`{}`))
+		request.RequestURI = target
+		recorder := httptest.NewRecorder()
+		s.Wrap(echo(http.StatusOK)).ServeHTTP(recorder, request)
+		if _, _, err := decryptResponse(responseKey, recorder.Body.Bytes()); err != nil {
+			t.Fatalf("%s: %v", target, err)
 		}
 	}
 }

@@ -6,7 +6,6 @@ use std::{
 
 use http::StatusCode;
 use rand_core::{OsRng, TryRngCore};
-use url::Url;
 
 use super::{
     verify_with, Anchors, Attestation, AttestedProver, EncryptedRequest, TeeError, TeePolicy,
@@ -194,17 +193,14 @@ impl TeeSession {
         }
     }
 
+    /// `route` is the path below the prover URL and its query.
     pub fn encrypt(
         key: &[u8; 32],
         method: &str,
-        url: &Url,
+        route: &str,
         body: &[u8],
     ) -> Result<EncryptedRequest, ClientError> {
-        let request_uri = match url.query() {
-            Some(query) => format!("{}?{query}", url.path()),
-            None => url.path().to_string(),
-        };
-        Ok(EncryptedRequest::encrypt(key, method, &request_uri, body)?)
+        Ok(EncryptedRequest::encrypt(key, method, route, body)?)
     }
 
     /// Refuses an unencrypted success and passes an unencrypted failure through

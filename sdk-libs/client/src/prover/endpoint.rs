@@ -107,6 +107,20 @@ impl ProverEndpoint {
         Ok(url)
     }
 
+    /// What an encrypted call to `url` binds: its path below this base, then
+    /// its query, so a proxy can serve the prover under any path.
+    pub(crate) fn route(&self, url: &Url) -> String {
+        let base = self
+            .base
+            .as_ref()
+            .map_or("", |base| base.path().trim_end_matches('/'));
+        let path = url.path().strip_prefix(base).unwrap_or(url.path());
+        match url.query() {
+            Some(query) => format!("{path}?{query}"),
+            None => path.to_owned(),
+        }
+    }
+
     pub(crate) fn redacted(&self) -> String {
         redact_api_key(self.base.as_ref().map_or("", Url::as_str))
     }

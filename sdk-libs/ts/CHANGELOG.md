@@ -41,6 +41,11 @@ Breaking
   `proofDataSource: "client"` and refuses `"prover"` → pass a policy of its own
   for a prover you run, or run it on loopback, and set `proverUrl` to keep
   another prover.
+- `ProverClient` binds an encrypted call to its route below the prover URL
+  rather than the URL's full path, so a proxy can serve the prover under a
+  path of its own, and a TEE prover built before this version refuses a call
+  sent through `/v1/zolana` or such a proxy → run a prover built from this
+  version.
 - Approval handlers receive a new `multiTransfer` intent for a transfer with
   several payments → handle it, or refuse it explicitly.
 - `KeypairErrorCode` drops `KEYPAIR_ZERO_SCALAR`, X25519 viewing keys are clamped and cannot be zero → remove it from exhaustive matches.
