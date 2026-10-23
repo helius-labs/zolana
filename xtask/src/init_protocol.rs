@@ -125,6 +125,7 @@ pub struct Options {
     upgrade_authority: Option<PathBuf>,
     reuse_settings: Option<[Pubkey; 5]>,
     accept_existing_threshold: bool,
+    allowed_extra_members: Vec<Pubkey>,
     zero_tree_fees: bool,
     resume: bool,
     config_flags: ProtocolConfigFlags,
@@ -141,6 +142,7 @@ impl Options {
         let mut upgrade_authority = None;
         let mut reuse_settings: [Option<Pubkey>; 5] = [None; 5];
         let mut accept_existing_threshold = false;
+        let mut allowed_extra_members = Vec::new();
         let mut zero_tree_fees = false;
         let mut resume = false;
         let mut config_flags = ProtocolConfigFlags::default();
@@ -211,6 +213,14 @@ impl Options {
                         parse_bool(args.next(), &arg);
                 }
                 "--accept-existing-threshold" => accept_existing_threshold = true,
+                "--allow-extra-member" => {
+                    let value = args
+                        .next()
+                        .unwrap_or_else(|| usage_and_exit("--allow-extra-member missing value"));
+                    allowed_extra_members.push(Pubkey::from_str(&value).unwrap_or_else(|e| {
+                        usage_and_exit(&format!("--allow-extra-member {value:?}: {e}"))
+                    }));
+                }
                 "--zero-tree-fees" => zero_tree_fees = true,
                 "--resume" => resume = true,
                 "--yes" => yes = true,
@@ -261,6 +271,9 @@ impl Options {
                 ))
             }
         };
+        if !allowed_extra_members.is_empty() && reuse_settings.is_none() {
+            usage_and_exit("--allow-extra-member requires all five --*-settings addresses");
+        }
 
         Self {
             cluster,
@@ -270,6 +283,7 @@ impl Options {
             upgrade_authority,
             reuse_settings,
             accept_existing_threshold,
+            allowed_extra_members,
             zero_tree_fees,
             resume,
             config_flags,
@@ -435,13 +449,15 @@ pub(crate) fn expected_role_members() -> [&'static [Pubkey]; 5] {
 
 /// `expected_threshold` of `None` accepts whatever threshold the settings
 /// account already carries, for reusing a deployment created under an earlier
-/// role policy. The member set is still pinned either way.
+/// role policy. Every expected member remains required; additional members
+/// must be explicitly allowed by public key.
 fn verify_settings_policy(
     label: &str,
     settings_key: &Pubkey,
     data: &[u8],
     expected_members: &[Pubkey],
     expected_threshold: Option<u16>,
+    allowed_extra_members: &[Pubkey],
 ) -> Result<()> {
     let threshold = settings_threshold(data)
         .with_context(|| format!("decoding {label} smart account settings {settings_key}"))?;
@@ -455,18 +471,43 @@ fn verify_settings_policy(
     }
     let member_keys = settings_member_keys(data)
         .with_context(|| format!("decoding {label} smart account settings {settings_key}"))?;
-    if member_keys.len() != expected_members.len() {
-        bail!(
-            "{label} smart account settings {settings_key} has {} members, expected exactly {}",
-            member_keys.len(),
-            expected_members.len()
-        );
+    verify_role_members(
+        label,
+        settings_key,
+        &member_keys,
+        expected_members,
+        allowed_extra_members,
+    )
+}
+
+/// Preserve explicitly named additional members of an existing role while
+/// retaining every expected member. Ownership, discriminator and PDA checks
+/// remain mandatory in the caller.
+pub(crate) fn verify_role_members(
+    label: &str,
+    settings_key: &Pubkey,
+    member_keys: &[Pubkey],
+    expected_members: &[Pubkey],
+    allowed_extra_members: &[Pubkey],
+) -> Result<()> {
+    for (index, member) in member_keys.iter().enumerate() {
+        if member_keys[..index].contains(member) {
+            bail!("{label} smart account settings {settings_key} has duplicate member {member}");
+        }
     }
     for expected in expected_members {
         if !member_keys.contains(expected) {
             bail!(
                 "{label} smart account settings {settings_key} does not list expected member \
                  {expected}"
+            );
+        }
+    }
+    for member in member_keys {
+        if !expected_members.contains(member) && !allowed_extra_members.contains(member) {
+            bail!(
+                "{label} smart account settings {settings_key} has unexpected member {member}; \
+                 pass --allow-extra-member {member} to preserve this existing member"
             );
         }
     }
@@ -483,6 +524,7 @@ fn load_reused_roles(
     rpc: &SolanaRpc,
     settings_keys: &[Pubkey; 5],
     accept_existing_threshold: bool,
+    allowed_extra_members: &[Pubkey],
 ) -> Result<[RoleAddrs; 5]> {
     let mut roles = Vec::with_capacity(Role::ALL.len());
     for ((role, settings_key), expected_members) in Role::ALL
@@ -507,6 +549,7 @@ fn load_reused_roles(
             &account.data,
             expected_members,
             (!accept_existing_threshold).then(|| role.threshold()),
+            allowed_extra_members,
         )?;
         let seed = settings_seed(&account.data).with_context(|| {
             format!(
@@ -1073,7 +1116,14 @@ pub fn run(options: Options) -> Result<()> {
     let reused_roles = options
         .reuse_settings
         .as_ref()
-        .map(|settings| load_reused_roles(&rpc, settings, options.accept_existing_threshold))
+        .map(|settings| {
+            load_reused_roles(
+                &rpc,
+                settings,
+                options.accept_existing_threshold,
+                &options.allowed_extra_members,
+            )
+        })
         .transpose()
         .context("resolving the smart accounts to reuse")?;
     let roles = reused_roles.unwrap_or_else(|| derive_roles(program_config.smart_account_index));
@@ -1115,6 +1165,7 @@ pub fn run(options: Options) -> Result<()> {
     println!("deploy_upgrade_authority={deploy_upgrade_authority:?}");
     println!("smart_account_index={}", program_config.smart_account_index);
     println!("reuse_existing_smart_accounts={}", reused_roles.is_some());
+    println!("allowed_extra_members={:?}", options.allowed_extra_members);
     println!(
         "tree_creation_is_permissionless={}",
         options.config_flags.tree_creation_is_permissionless
@@ -1288,6 +1339,8 @@ fn print_help() {
     println!("  --accept-existing-threshold           reuse settings whose threshold predates");
     println!("                                        this build's role policy (members still");
     println!("                                        pinned); allows 1..=5 protocol signers");
+    println!("  --allow-extra-member <PUBKEY>          preserve this additional member when");
+    println!("                                        reusing settings; repeat for each key");
     println!("  --tree-creation-permissionless <true|false>       default: false");
     println!("  --ring-activation-permissionless <true|false>     default: false");
     println!("  --spl-interface-creation-permissionless <true|false>");
@@ -1296,6 +1349,10 @@ fn print_help() {
     println!("  --dry-run                             derive + print addresses, send nothing");
     println!("  -h | --help                           print this help");
 }
+
+#[cfg(test)]
+#[path = "init_protocol_members_test.rs"]
+mod members_tests;
 
 #[cfg(test)]
 mod tests {

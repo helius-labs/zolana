@@ -53,7 +53,7 @@ use crate::instructions::{
 mod entrypoint {
     pinocchio::entrypoint!(crate::process_instruction);
 }
-pinocchio::address::declare_id!("sppU489D7A4U1exNo1oeMGZtLEofq3a6o2fR7UeoWB6");
+pinocchio::address::declare_id!("spp3CfN2Y7se74A27bBpnAkmjXyEb2YmmZafhFrC9xt");
 
 #[profile]
 pub fn process_instruction(

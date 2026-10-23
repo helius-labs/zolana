@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.0-alpha — unreleased
+## 0.5.0-alpha — 2026-10-21
 
 Proofs go encrypted to an attested Nitro Enclave prover by default, the devnet
 enclave the SDK pins for a Helius devnet RPC URL, and every other remote
@@ -26,19 +26,20 @@ Breaking
   passing the payload through → stay on 0.4.1-alpha for custom ring flows,
   and pass `depositPayloadDecoder` to `syncWallet` for a framed ring deposit
   payload.
+- `SHIELDED_POOL_PROGRAM_ID` is `spp3CfN2Y7se74A27bBpnAkmjXyEb2YmmZafhFrC9xt` and `USER_REGISTRY_PROGRAM_ID` is `regy3WAeRXMYuMYxr5iK3Bf9Arr3PcxGxyzAddbiqDQ`, with new tree, registry, vault and authority addresses → use the fresh deployment, register new keys and fund new notes; earlier deployment accounts and notes remain separate.
 - `NULLIFIER_TREE_ROOT_HISTORY_CAPACITY` returns to 100 with 4,999-nullifier proofs, `NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE` is 499,900, and `TREE_ACCOUNT_SIZE` is 40,080 → use a program built with this layout and four tree creation steps.
 - `ShieldedKeypairLike` requires `nullifierKey()` → return an owned key copy that proof completion destroys after use.
 - `DecodedProgramTransaction.toProofInputs` is renamed to `encryptWithKeys` → call `transaction.encryptWithKeys(keys, options)` to encrypt outputs and build SPP proof inputs.
-- `SigningKey` and `ShieldedPublicKey` accept only Ed25519 ownership and PDA public keys, and `SignatureType` drops `"p256"` → migrate P-256-owned notes and registry records before upgrading.
+- `SigningKey` and `ShieldedPublicKey` accept only Ed25519 ownership and PDA public keys, and `SignatureType` drops `"p256"` → register fresh Ed25519 keys on the new deployment.
 - `UserRecord` and `RegistryRecord` drop `ownerP256`, and `getRegisterInstructionAsync`, `decodeUserRecordAccount` and `fetchUserRecord` write and read the registry record without a P-256 owner key → register again on a registry program built from this version, a record in the earlier layout fails with `WALLET_INVALID_USER_RECORD`.
 - `MergeTransactInstructionData` drops `eddsaOwner` → remove it from merge data you build and send merge instructions built by this version, the program refuses the earlier layout.
-- `ViewingKey` and shielded addresses use X25519 for new transfers and ring deposits → migrate P-256 viewing keys and historical wallet data before using this version.
+- `ViewingKey` and shielded addresses use X25519 for new transfers and ring deposits → derive new viewing keys and use new shielded addresses for the fresh deployment.
 - `DST_VIEW_ROOT_P_CONST` is no longer exported from `@heliuslabs/zolana/keypair` → drop the import, X25519 viewing keys derive their view root without it.
 - `ProverClient` and `ZolanaClient` now require every remote prover, the
   Helius gateway included, to attest to `defaultTeePolicy()` and encrypt every
   call to it, and `ZolanaClient` given a Helius devnet RPC URL and no
   `proverUrl` proves through `DEFAULT_TEE_PROVER_ENDPOINT` with
-  `proofDataSource: "client"` and refuses `"prover"` → pass a policy of its own
+  `proofDataSource: "prover"` → pass a policy of its own
   for a prover you run, or run it on loopback, and set `proverUrl` to keep
   another prover.
 - `ProverClient` binds an encrypted call to its route below the prover URL
@@ -119,7 +120,7 @@ Added
 - `DEFAULT_TEE_PROVER_ENDPOINT` is the pinned deployment's prover URL, for a
   client that names its prover, and `ProverClient.hasIndexedRoute` says
   whether the prover reads proof data from its own indexer, false for the
-  Helius gateway and `DEFAULT_TEE_PROVER_ENDPOINT`.
+  Helius gateway.
 - `ProofInputUtxo.address(owner, seed, treeId)` reserves an address of an
   Ed25519 or PDA owner with a non-inclusion proof and no spent UTXO, which only
   the default confidential transfer proves; `isAddress()`,
@@ -181,6 +182,7 @@ Changed
 
 Fixed
 
+- `DEFAULT_TEE_PROVER_ENDPOINT` and `defaultTeePolicy()` now select the devnet-d-tee-2 enclave and fetch Merkle proof data on its prover, so default devnet proving accepts the current enclave's attestation and supports `proofDataSource: "prover"`.
 - `syncWallet` failed with `CLIENT_INVALID_RPC_RESPONSE` on any indexed transaction whose published viewing key is not a valid X25519 key, now such a transaction is read without a viewing key and its outputs count as undecryptable, as do outputs under a small-order transaction key.
 - `syncWallet` could not recover a merge output without every input, and
   committed past an unreadable owned merge; it now recovers merge outputs

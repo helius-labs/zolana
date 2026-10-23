@@ -77,7 +77,7 @@ pub const SOL_ASSET_FIELD: [u8; 32] = [
 
 /// Development program id for the shielded-pool program.
 pub const SHIELDED_POOL_PROGRAM_ID: [u8; 32] =
-    pubkey_array!("sppU489D7A4U1exNo1oeMGZtLEofq3a6o2fR7UeoWB6");
+    pubkey_array!("spp3CfN2Y7se74A27bBpnAkmjXyEb2YmmZafhFrC9xt");
 
 /// [`SHIELDED_POOL_PROGRAM_ID`] as a `Pubkey`, used by instruction builders.
 pub const PROGRAM_ID_PUBKEY: solana_pubkey::Pubkey =
@@ -118,29 +118,24 @@ pub const SPL_INTERFACE_PDA_SEED: &[u8] = b"spl_asset_vault";
 /// `find_program_address(&[b"cpi_authority"], SHIELDED_POOL_PROGRAM_ID)`.
 /// Kept as a constant so the SBF program validates settlement accounts with a
 /// direct equality check.
-pub const SHIELDED_POOL_CPI_AUTHORITY: [u8; 32] = [
-    69, 71, 220, 185, 216, 143, 158, 144, 194, 192, 35, 58, 192, 36, 234, 87, 129, 254, 240, 115,
-    136, 34, 89, 207, 13, 241, 99, 80, 189, 28, 84, 235,
-];
+pub const SHIELDED_POOL_CPI_AUTHORITY: [u8; 32] =
+    pubkey_array!("GbAD545QqvKKigMT3YkSA1V5PQBmyPHuNyRiXQPBQfJn");
 
 /// [`SHIELDED_POOL_CPI_AUTHORITY`] as a `Pubkey`.
 pub const SHIELDED_POOL_CPI_AUTHORITY_PUBKEY: solana_pubkey::Pubkey =
     solana_pubkey::Pubkey::new_from_array(SHIELDED_POOL_CPI_AUTHORITY);
 
 /// Bump for `SHIELDED_POOL_CPI_AUTHORITY`.
-pub const SHIELDED_POOL_CPI_AUTHORITY_BUMP: u8 = 255;
+pub const SHIELDED_POOL_CPI_AUTHORITY_BUMP: u8 = 253;
 
 /// Canonical native-SOL custody PDA:
 /// `find_program_address(&[b"sol_interface", &[0]], SHIELDED_POOL_PROGRAM_ID)`.
 /// Hardcoded so builders and the SBF program avoid the runtime derivation; the
 /// `pda::sol_interface_const_matches_derivation` test pins it.
-pub const SOL_INTERFACE: [u8; 32] = [
-    25, 103, 86, 200, 133, 185, 152, 90, 206, 95, 120, 116, 156, 29, 95, 209, 115, 140, 160, 250,
-    226, 120, 50, 30, 39, 35, 88, 131, 164, 254, 252, 146,
-];
+pub const SOL_INTERFACE: [u8; 32] = pubkey_array!("4u5xeYyt3s9iQWiSxLXbFD1XebTKJa3YduTwdecBF5ZG");
 
 /// Canonical bump for [`SOL_INTERFACE`].
-pub const SOL_INTERFACE_BUMP: u8 = 252;
+pub const SOL_INTERFACE_BUMP: u8 = 255;
 
 /// [`SOL_INTERFACE`] as a `Pubkey`.
 pub const SOL_INTERFACE_PUBKEY: solana_pubkey::Pubkey =

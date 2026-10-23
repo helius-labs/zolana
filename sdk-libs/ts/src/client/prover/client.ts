@@ -20,7 +20,7 @@ import {
   type ProvingKeyCircuit,
 } from "../../interface/proving-keys.js";
 import type { RequestContext } from "../../interface/types.js";
-import { isDefaultTeeProver, isZolanaGateway } from "../../endpoint.js";
+import { isZolanaGateway } from "../../endpoint.js";
 
 import { ClientError } from "../error.js";
 import {
@@ -161,7 +161,7 @@ export class ProverClient {
     }
     const url = checkedServiceUrl(input.url, "url", input.allowInsecureHttp ?? false);
     this.#keyless = isZolanaGateway(url);
-    this.#indexed = !this.#keyless && !isDefaultTeeProver(url);
+    this.#indexed = !this.#keyless;
     try {
       const keyed = checkedApiKey(url, undefined);
       this.#url = keyed.endpoint;
@@ -179,7 +179,7 @@ export class ProverClient {
 
   /**
    * Whether the prover reads proof data from its own indexer. The Helius
-   * gateway and the default TEE prover have no `/indexed` route.
+   * gateway has no `/indexed` route.
    */
   get hasIndexedRoute(): boolean {
     return this.#indexed;
