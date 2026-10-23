@@ -19,15 +19,14 @@ import type {
   SlotReader,
 } from "../client/ports.js";
 import { savePersistedWallet, type WalletPersistence } from "../wallet/persisted.js";
+import { equalBytes, bytesKey } from "../interface/bytes.js";
 import type { Bytes32, RequestContext, Transaction } from "../interface/types.js";
 import {
-  hex,
   type UtxoReservation,
   type Wallet,
   type WalletUtxo,
   type PendingWalletSubmission,
 } from "../transaction/wallet/state.js";
-import { equalBytes } from "../wallet/internal.js";
 import { assertVersion1Transaction } from "../flows/compile.js";
 import { RingError, RingProgramError } from "./error.js";
 
@@ -109,7 +108,7 @@ export class RingTransactionSubmission {
     this.#reservation = input.reservation ?? NO_RESERVATION;
     this.#windowChanged = input.windowChanged;
     this.#wallet = input.wallet;
-    this.#id = input.reservationId ?? hex(crypto.getRandomValues(new Uint8Array(16)));
+    this.#id = input.reservationId ?? bytesKey(crypto.getRandomValues(new Uint8Array(16)));
     this.#utxoHashes = (input.utxoHashes ?? []).map((hash) => new Uint8Array(hash) as Bytes32);
   }
 
@@ -321,9 +320,9 @@ export async function reconcileRingSubmissions(
         input.wallet
           .utxos()
           .filter((entry) => !entry.spent)
-          .map((entry) => hex(entry.outputContext.hash)),
+          .map((entry) => bytesKey(entry.outputContext.hash)),
       );
-      if (!pending.utxoHashes.some((hash) => unspent.has(hex(hash)))) {
+      if (!pending.utxoHashes.some((hash) => unspent.has(bytesKey(hash)))) {
         input.wallet._releaseReservation(pending.id);
         input.wallet._removePendingSubmission(pending.id);
       }
@@ -374,7 +373,7 @@ export function checkRetainedEntries(wallet: Wallet, entries: readonly WalletUtx
     );
     if (!unspent) {
       throw new RingError("RING_RESERVED_INPUT_SPENT", {
-        details: { utxoHash: hex(entry.outputContext.hash) },
+        details: { utxoHash: bytesKey(entry.outputContext.hash) },
       });
     }
   }

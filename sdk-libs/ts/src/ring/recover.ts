@@ -2,6 +2,7 @@ import { X25519Keypair } from "../keypair/x25519.js";
 import type { Address } from "@solana/kit";
 
 import type { IndexerReader } from "../client/ports.js";
+import { bytesKey, equalBytes, isZero } from "../interface/bytes.js";
 import type { Bytes32, RequestContext } from "../interface/types.js";
 import { mergePaddedInputCount } from "../interface/constants.js";
 import { PAGE_LIMIT } from "../interface/indexer-limits.js";
@@ -15,13 +16,11 @@ import type {
   IndexedShieldedTransaction,
   OutputContext,
 } from "../transaction/instructions/transact.js";
-import { equal } from "../transaction/internal.js";
 import { EncryptedScheme, readOutputData } from "../transaction/serialization/codecs.js";
 import { decryptMergeOutput, readMergeOutputBody } from "../transaction/serialization/merge.js";
 import { decodeRingDepositOutput } from "../transaction/serialization/ring-deposit.js";
 import { Utxo, type TreeId } from "../transaction/utxo.js";
 import type { WalletUtxo } from "../transaction/wallet/state.js";
-import { bytesKey } from "../wallet/internal.js";
 import { auditRing, type AuditedRingOutput, type RingAuditReader } from "./audit.js";
 import type { RingMode } from "./codecs.js";
 import { RingError } from "./error.js";
@@ -86,7 +85,7 @@ export async function recoverRingMemberNotes(
   context?: RequestContext,
 ): Promise<RecoveredRingNotes> {
   // 1. Bind nullifier material to the requested member before scanning history.
-  if (!equal(input.nullifierKey.publicKey(), input.source.nullifierPublicKey))
+  if (!equalBytes(input.nullifierKey.publicKey(), input.source.nullifierPublicKey))
     throw new RingError("RING_NULLIFIER_KEY_MISMATCH");
   const rpcOrigin = new RpcTransactionOrigin(input.client.solanaRpc);
   const origin = new CachedTransactionOrigin(input.origin ?? rpcOrigin);
@@ -127,8 +126,8 @@ export async function recoverRingMemberNotes(
       // An anonymous output's owner is proven by its rebuilt opening, a published tag names a confidential one.
       const owned =
         transaction.anonymous === undefined
-          ? equal(memberOfTag(output.ownerTag), sourceMember)
-          : opening !== undefined && equal(opening.ownerHash, sourceOwnerHash);
+          ? equalBytes(memberOfTag(output.ownerTag), sourceMember)
+          : opening !== undefined && equalBytes(opening.ownerHash, sourceOwnerHash);
       if (!owned) continue;
       if (opening === undefined) {
         unopened.push(outputContext.hash);
@@ -155,7 +154,7 @@ export async function recoverRingMemberNotes(
         ...(isZero(opening.ringDataHash) ? {} : { ringDataHash: opening.ringDataHash }),
       };
       if (
-        !equal(
+        !equalBytes(
           utxo.hash(input.source.nullifierPublicKey, treeId, hashes.dataHash, hashes.ringDataHash),
           outputContext.hash,
         )
@@ -257,10 +256,6 @@ export async function recoverRingMemberNotes(
   });
 }
 
-function isZero(bytes: Uint8Array): boolean {
-  return bytes.every((byte) => byte === 0);
-}
-
 async function recoverDeposits(
   input: RingRecoveryParams,
   origin: TransactionOrigin,
@@ -332,7 +327,7 @@ async function recoverDeposits(
           continue;
         }
         try {
-          if (!equal(opening.ownerHash, input.source.ownerHash())) continue;
+          if (!equalBytes(opening.ownerHash, input.source.ownerHash())) continue;
           let treeId = treeIds.get(slot.outputContext.tree);
           if (treeId === undefined) {
             treeId = await input.resolveTreeId(slot.outputContext.tree);
@@ -346,7 +341,7 @@ async function recoverDeposits(
             ringProgramId: deposit.ringProgramId,
           });
           if (
-            !equal(
+            !equalBytes(
               utxo.hash(
                 input.source.nullifierPublicKey,
                 treeId,
@@ -372,7 +367,7 @@ async function recoverDeposits(
     }
     if (response.scannedThrough !== undefined || response.nextCursor === undefined)
       return { unsupported: [...found.values()], candidates: [...candidates.values()] };
-    if (cursor !== undefined && equal(cursor, response.nextCursor))
+    if (cursor !== undefined && equalBytes(cursor, response.nextCursor))
       throw new RingError("RING_RPC", {
         details: { reason: "deposit scan cursor did not advance" },
       });
@@ -399,7 +394,7 @@ async function spendingTransactions(
     );
     transactions.push(...page.transactions);
     if (page.scannedThrough !== undefined || page.nextCursor === undefined) return transactions;
-    if (cursor !== undefined && equal(cursor, page.nextCursor))
+    if (cursor !== undefined && equalBytes(cursor, page.nextCursor))
       throw new RingError("RING_RPC", {
         details: { reason: "nullifier scan cursor did not advance" },
       });
@@ -453,7 +448,7 @@ async function recoverMerge(
     treeIds.set(slot.outputContext.tree, treeId);
   }
   if (
-    !equal(
+    !equalBytes(
       utxo.hash(input.source.nullifierPublicKey, treeId, undefined, ringDataHash),
       slot.outputContext.hash,
     )

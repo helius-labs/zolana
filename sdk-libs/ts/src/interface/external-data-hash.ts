@@ -1,6 +1,7 @@
 import { encodeTransactExternalData } from "./codecs/index.js";
 import { addressBytes, copyBytes, fail, sha256, unsigned } from "./internal.js";
 import type { Address, Bytes32, TransactExternalData } from "./types.js";
+import { concatBytes } from "./bytes.js";
 
 export interface SettlementAccounts {
   readonly asset: Address;
@@ -46,17 +47,7 @@ export function externalDataHash(input: ExternalDataHashInput): Bytes32 {
     if (resolved === undefined) fail("INTERFACE_INVALID_LENGTH", { name: position });
     parts.push(copyBytes(resolved, 32, position));
   });
-  const digest = sha256(concat(parts));
+  const digest = sha256(concatBytes(...parts));
   digest[0] = 0;
   return digest as Bytes32;
-}
-
-function concat(parts: readonly Uint8Array[]): Uint8Array {
-  const bytes = new Uint8Array(parts.reduce((length, part) => length + part.length, 0));
-  let offset = 0;
-  for (const part of parts) {
-    bytes.set(part, offset);
-    offset += part.length;
-  }
-  return bytes;
 }

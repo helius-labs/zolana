@@ -1,4 +1,5 @@
 import type { ChainReader } from "../client/ports.js";
+import { equalBytes, bytesKey } from "../interface/bytes.js";
 import {
   type Address,
   type Bytes32,
@@ -9,7 +10,7 @@ import { MAX_INPUT_TREES } from "../interface/tree-slot.js";
 import { ShieldedAddress } from "../keypair/shielded.js";
 import { WithdrawalTarget } from "../transaction/instructions/transact.js";
 import { MAX_TRANSFER_PAYMENTS } from "../transaction/wallet/intent.js";
-import { hex, type Wallet, type WalletUtxo } from "../transaction/wallet/state.js";
+import { type Wallet, type WalletUtxo } from "../transaction/wallet/state.js";
 
 import { reservedUtxoKeys, unreserved } from "../flows/reserve.js";
 import { resolveWithdrawalSettlement } from "../flows/settlement.js";
@@ -22,7 +23,7 @@ import {
   type SpendSelectionErrors,
 } from "../flows/select.js";
 import { WalletError, wrapWalletError } from "./error.js";
-import { equalBytes, reserveWalletEntries } from "./internal.js";
+import { reserveWalletEntries } from "./internal.js";
 import { resolveRegisteredAddress } from "./registry.js";
 
 export { resolveWithdrawalSettlement as resolveWithdrawal };
@@ -487,7 +488,7 @@ export function createSplit(params: SplitParams): CreatedSplit {
     }
     throw new WalletError("WALLET_INSUFFICIENT_BALANCE");
   }
-  const hash = hex(selected.outputContext.hash);
+  const hash = bytesKey(selected.outputContext.hash);
   if (selected.utxo.ringProgramId !== undefined) {
     throw new WalletError("WALLET_SPLIT_INPUT_RING_MISMATCH", { details: { hash } });
   }

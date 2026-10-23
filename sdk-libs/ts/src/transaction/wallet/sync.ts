@@ -1,3 +1,4 @@
+import { equalBytes, bytesKey } from "../../interface/bytes.js";
 import { ringDepositRecipientCiphertext } from "../../interface/ring-deposit-capsule.js";
 import { mergePaddedInputCount } from "../../interface/constants.js";
 import type { Address, Bytes16, Bytes32, Bytes33, RequestContext } from "../../interface/types.js";
@@ -9,7 +10,7 @@ import type { ViewingKey } from "../../keypair/viewing-key.js";
 import { initializePoseidon } from "../../hasher/index.js";
 import { DEFAULT_TREE_ID } from "../../interface/tree-slot.js";
 import { TransactionError } from "../error.js";
-import { copy, decodeAddress, equal } from "../internal.js";
+import { copy, decodeAddress } from "../internal.js";
 import { SENDER_SLOT_COUNT } from "../instructions/transact.js";
 import type { IndexedShieldedTransaction, OutputContext } from "../instructions/transact.js";
 import {
@@ -60,7 +61,6 @@ import {
   type ViewingKeyEntry,
   type WalletUtxo,
   Wallet,
-  hex,
 } from "./state.js";
 
 const U64_MAX = 0xffff_ffff_ffff_ffffn;
@@ -151,7 +151,7 @@ function buildTagIndex(transactions: readonly IndexedShieldedTransaction[]): Tag
       } catch {
         continue;
       }
-      const tag = hex(slot.viewTag);
+      const tag = bytesKey(slot.viewTag);
       if (scheme === EncryptedScheme.anonymousSender || scheme === EncryptedScheme.split) {
         pushInto(senderSites, tag, transaction);
       } else {
@@ -170,8 +170,8 @@ function compareBigints(left: bigint, right: bigint): number {
 
 /** Addresses order by their 32 bytes, which base58 text does not preserve. */
 function compareAssets(left: Address, right: Address): number {
-  const leftBytes = hex(decodeAddress(left));
-  const rightBytes = hex(decodeAddress(right));
+  const leftBytes = bytesKey(decodeAddress(left));
+  const rightBytes = bytesKey(decodeAddress(right));
   return leftBytes < rightBytes ? -1 : leftBytes > rightBytes ? 1 : 0;
 }
 
@@ -180,10 +180,10 @@ function ensureViewingKeyEntries(
   history: readonly ViewingKeyEntry[],
   viewingPublicKeys: readonly X25519PublicKey[],
 ): readonly ViewingKeyEntry[] {
-  const known = new Set(history.map((entry) => hex(entry.viewingPublicKey.toBytes())));
+  const known = new Set(history.map((entry) => bytesKey(entry.viewingPublicKey.toBytes())));
   const entries = [...history];
   for (const key of viewingPublicKeys) {
-    const id = hex(key.toBytes());
+    const id = bytesKey(key.toBytes());
     if (known.has(id)) continue;
     known.add(id);
     entries.push(newViewingKeyEntry(key, 0n));
@@ -282,7 +282,7 @@ class SyncPass {
     this.#viewingPublicKeys = input.viewingPublicKeys;
     this.#keys = input.keys;
     this.#selfViewingPublicKeys = new Set(
-      input.selfViewingPublicKeys.map((key) => hex(key.toBytes())),
+      input.selfViewingPublicKeys.map((key) => bytesKey(key.toBytes())),
     );
     this.#assets = input.assets;
     this.#transactions = input.transactions;
@@ -290,7 +290,7 @@ class SyncPass {
     this.#rows = [];
     this.#rowIndexes = new Map();
     for (const row of input.rows) this.#record(row);
-    this.#outputHashes = new Set(this.#utxos.map((entry) => hex(entry.outputContext.hash)));
+    this.#outputHashes = new Set(this.#utxos.map((entry) => bytesKey(entry.outputContext.hash)));
   }
 
   utxos(): readonly WalletUtxo[] {
@@ -317,8 +317,8 @@ class SyncPass {
     return [...fields.values()]
       .map((field) => new Uint8Array(field) as Bytes32)
       .sort((left, right) => {
-        const leftKey = hex(left);
-        const rightKey = hex(right);
+        const leftKey = bytesKey(left);
+        const rightKey = bytesKey(right);
         return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
       });
   }
@@ -335,8 +335,8 @@ class SyncPass {
     dataHash: Bytes32 | undefined,
     ringDataHash: Bytes32 | undefined,
   ): "stored" | "skipped" | "pending" {
-    if (!equal(utxo.owner.toBytes(), this.#owner.toBytes())) return "skipped";
-    const outputId = hex(outputContext.hash);
+    if (!equalBytes(utxo.owner.toBytes(), this.#owner.toBytes())) return "skipped";
+    const outputId = bytesKey(outputContext.hash);
     if (this.#outputHashes.has(outputId)) return "skipped";
     const nullifier = this.#keys.derive({
       kind: "nullifier",
@@ -371,7 +371,7 @@ class SyncPass {
    */
   #storeInTx(utxo: Utxo, tx: IndexedShieldedTransaction): void {
     const hash = utxo.hash(this.#nullifierPublicKey, SYNC_TREE_ID);
-    const slot = tx.outputSlots.find((candidate) => equal(candidate.outputContext.hash, hash));
+    const slot = tx.outputSlots.find((candidate) => equalBytes(candidate.outputContext.hash, hash));
     if (slot === undefined) {
       this.undecryptableCandidates++;
       return;
@@ -389,7 +389,7 @@ class SyncPass {
     let stored = false;
     for (const utxo of utxos) {
       if (
-        !equal(
+        !equalBytes(
           utxo.hash(this.#nullifierPublicKey, SYNC_TREE_ID, dataHash, ringDataHash),
           outputContext.hash,
         )
@@ -445,7 +445,7 @@ class SyncPass {
           value.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 255)
         ) {
           const field = new Uint8Array(value as number[]) as Bytes32;
-          assetCandidate().fields.set(hex(field), field);
+          assetCandidate().fields.set(bytesKey(field), field);
         }
       }
     }
@@ -457,10 +457,10 @@ class SyncPass {
   }
 
   #spentAmounts(nullifiers: readonly Bytes32[]): ReadonlyMap<Address, bigint> {
-    const spent = new Set(nullifiers.map(hex));
+    const spent = new Set(nullifiers.map(bytesKey));
     const byAsset = new Map<Address, bigint>();
     for (const entry of this.#utxos) {
-      if (!spent.has(hex(entry.nullifier))) continue;
+      if (!spent.has(bytesKey(entry.nullifier))) continue;
       const total = (byAsset.get(entry.utxo.asset) ?? 0n) + entry.utxo.amount;
       if (total > U64_MAX) throw new TransactionError("TRANSACTION_WALLET_BALANCE_OVERFLOW");
       byAsset.set(entry.utxo.asset, total);
@@ -469,8 +469,8 @@ class SyncPass {
   }
 
   #spentEntries(nullifiers: readonly Bytes32[]): readonly WalletUtxo[] {
-    const spent = new Set(nullifiers.map(hex));
-    return this.#utxos.filter((entry) => spent.has(hex(entry.nullifier)));
+    const spent = new Set(nullifiers.map(bytesKey));
+    return this.#utxos.filter((entry) => spent.has(bytesKey(entry.nullifier)));
   }
 
   #recordReceived(
@@ -515,7 +515,7 @@ class SyncPass {
   }
 
   #isSelf(viewingPublicKey: X25519PublicKey): boolean {
-    return this.#selfViewingPublicKeys.has(hex(viewingPublicKey.toBytes()));
+    return this.#selfViewingPublicKeys.has(bytesKey(viewingPublicKey.toBytes()));
   }
 
   /**
@@ -591,7 +591,7 @@ class SyncPass {
     const firstNullifier = tx.nullifiers[0];
     if (published === undefined || firstNullifier === undefined) return false;
     const txKey = this.#keys.transactionKey({ viewingPublicKey, firstNullifier });
-    return txKey !== undefined && equal(txKey.publicKey().toBytes(), published.toBytes());
+    return txKey !== undefined && equalBytes(txKey.publicKey().toBytes(), published.toBytes());
   }
 
   /** The embedded viewing key and committed UTXO identify change. */
@@ -607,7 +607,7 @@ class SyncPass {
     }
     const txKey = this.#keys.transactionKey({ viewingPublicKey, firstNullifier });
     if (txKey === undefined) return;
-    if (!equal(txKey.publicKey().toBytes(), tx.txViewingPublicKey.toBytes())) return;
+    if (!equalBytes(txKey.publicKey().toBytes(), tx.txViewingPublicKey.toBytes())) return;
     if (this.#processedOutbound.has(index)) return;
     this.#processedOutbound.add(index);
     this.#decodeOutboundSlots(tx, txKey, salt);
@@ -636,7 +636,10 @@ class SyncPass {
               (candidate.asset === SOL_MINT &&
                 change.length === 1 &&
                 change[0]?.asset !== SOL_MINT)) &&
-            equal(candidate.hash(this.#nullifierPublicKey, SYNC_TREE_ID), slot.outputContext.hash)
+            equalBytes(
+              candidate.hash(this.#nullifierPublicKey, SYNC_TREE_ID),
+              slot.outputContext.hash,
+            )
           ) {
             change.push(candidate);
             return;
@@ -940,16 +943,16 @@ class SyncPass {
 
   /** Check after every key round and newly discovered input has been resolved. */
   assertOwnedMergesDecoded(sites: readonly Site[], identityTag: Bytes32): void {
-    const ownedNullifiers = new Set(this.#utxos.map((entry) => hex(entry.nullifier)));
+    const ownedNullifiers = new Set(this.#utxos.map((entry) => bytesKey(entry.nullifier)));
     for (const site of sites) {
       if (this.#processedSlots.has(`${String(site.transaction)}:${String(site.slot)}`)) continue;
       const tx = this.#transactions[site.transaction];
       const slot = tx?.outputSlots[site.slot];
       if (tx === undefined || slot === undefined) continue;
-      if (this.#outputHashes.has(hex(slot.outputContext.hash))) continue;
+      if (this.#outputHashes.has(bytesKey(slot.outputContext.hash))) continue;
       if (
-        equal(slot.viewTag, identityTag) ||
-        tx.nullifiers.some((nullifier) => ownedNullifiers.has(hex(nullifier)))
+        equalBytes(slot.viewTag, identityTag) ||
+        tx.nullifiers.some((nullifier) => ownedNullifiers.has(bytesKey(nullifier)))
       ) {
         throw new TransactionError("TRANSACTION_MERGE_OUTPUT_UNDECRYPTABLE");
       }
@@ -1004,7 +1007,7 @@ class SyncPass {
         ...(tx.ringProgramId === undefined ? {} : { ringProgramId: tx.ringProgramId }),
       });
       const hash = utxo.hash(this.#nullifierPublicKey, SYNC_TREE_ID, undefined, body.ringDataHash);
-      if (!equal(hash, slot.outputContext.hash)) {
+      if (!equalBytes(hash, slot.outputContext.hash)) {
         this.undecryptableCandidates++;
         return;
       }
@@ -1075,10 +1078,10 @@ class SyncPass {
   processStableTags(input: Readonly<{ identityTag: Bytes32; index: TagIndex }>): void {
     const { index } = input;
     const recipientSites = (tag: string): readonly Site[] => index.recipientSites.get(tag) ?? [];
-    const identityTag = hex(input.identityTag);
+    const identityTag = bytesKey(input.identityTag);
 
     for (const viewingPublicKey of this.#viewingPublicKeys) {
-      for (const site of recipientSites(hex(viewingPublicKey.x()))) {
+      for (const site of recipientSites(bytesKey(viewingPublicKey.x()))) {
         this.decodeSlot(viewingPublicKey, site);
       }
       for (const site of recipientSites(identityTag)) this.decodeSlot(viewingPublicKey, site);
@@ -1156,12 +1159,12 @@ function commitPass(
   const current = input.wallet._state();
   const nullifiers = new Set(current.nullifiers);
   for (const tx of input.transactions) {
-    for (const nullifier of tx.nullifiers) nullifiers.add(hex(nullifier));
+    for (const nullifier of tx.nullifiers) nullifiers.add(bytesKey(nullifier));
   }
   const utxos = pass
     .utxos()
     .map((entry) =>
-      entry.spent || !nullifiers.has(hex(entry.nullifier))
+      entry.spent || !nullifiers.has(bytesKey(entry.nullifier))
         ? entry
         : Object.freeze({ ...entry, spent: true }),
     );

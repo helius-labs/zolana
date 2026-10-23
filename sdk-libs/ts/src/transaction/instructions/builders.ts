@@ -1,3 +1,4 @@
+import { equalBytes } from "../../interface/bytes.js";
 import type { Address, Bytes16, Bytes32, OwnerTag } from "../../interface/types.js";
 import { randomBlinding, randomSalt } from "../../keypair/bytes.js";
 import {
@@ -17,7 +18,7 @@ import {
   mergePaddedInputCount,
 } from "../../interface/constants.js";
 import { TransactionError } from "../error.js";
-import { checked, decodeAddress, equal } from "../internal.js";
+import { checked, decodeAddress } from "../internal.js";
 import { DEFAULT_TREE_ID } from "../../interface/tree-slot.js";
 import { encodeSplitBundle, encryptSplit } from "../serialization/codecs.js";
 import { encryptMergeOutput, type MergeOutputCiphertext } from "../serialization/merge.js";
@@ -313,10 +314,10 @@ export class Merge {
       if (spend.utxo.owner.signatureType() !== owner.signatureType()) {
         throw new TransactionError("TRANSACTION_MERGE_INPUT_RAIL_MISMATCH", { index });
       }
-      if (!equal(spend.utxo.owner.toBytes(), owner.toBytes())) {
+      if (!equalBytes(spend.utxo.owner.toBytes(), owner.toBytes())) {
         throw new TransactionError("TRANSACTION_MERGE_INPUT_OWNER_MISMATCH", { index });
       }
-      if (!equal(spend.nullifierPublicKey, address.nullifierPublicKey)) {
+      if (!equalBytes(spend.nullifierPublicKey, address.nullifierPublicKey)) {
         throw new TransactionError("TRANSACTION_MERGE_INPUT_NULLIFIER_KEY_MISMATCH", { index });
       }
       if (spend.utxo.asset !== asset) {
@@ -478,10 +479,10 @@ export class ConfidentialSplit {
     if (input.input.isDummy()) {
       throw new TransactionError("TRANSACTION_SPLIT_INPUT_IS_DUMMY");
     }
-    if (!equal(input.input.utxo.owner.toBytes(), input.owner.signingPublicKey.toBytes())) {
+    if (!equalBytes(input.input.utxo.owner.toBytes(), input.owner.signingPublicKey.toBytes())) {
       throw new TransactionError("TRANSACTION_SPLIT_INPUT_OWNER_MISMATCH");
     }
-    if (!equal(input.input.nullifierPublicKey, input.owner.nullifierPublicKey)) {
+    if (!equalBytes(input.input.nullifierPublicKey, input.owner.nullifierPublicKey)) {
       throw new TransactionError("TRANSACTION_SPLIT_INPUT_NULLIFIER_KEY_MISMATCH");
     }
     if (input.input.utxo.asset !== input.asset) {
@@ -629,10 +630,10 @@ export class PreparedSplit {
     input.outputs.forEach((output, index) => {
       const expectedAmount = index < input.numOutputs ? perOutputAmount : 0n;
       if (
-        !equal(output.ownerHash(), input.owner.ownerHash()) ||
+        !equalBytes(output.ownerHash(), input.owner.ownerHash()) ||
         output.asset !== input.input.utxo.asset ||
         output.amount !== expectedAmount ||
-        !equal(output.blinding, transactOutputBlinding(firstNullifier, outputSeed, index)) ||
+        !equalBytes(output.blinding, transactOutputBlinding(firstNullifier, outputSeed, index)) ||
         output.ringProgramId !== undefined ||
         output.ringDataHash !== undefined ||
         output.dataHash !== undefined ||
@@ -697,7 +698,7 @@ export class PreparedSplit {
     // A split is self-owned throughout. When the owner is the fee payer the tag
     // is already account index 0 and costs 2 bytes instead of 33; a sponsored
     // split carries the inline tag.
-    const ownerTag: OwnerTag = equal(tag, decodeAddress(this.payer))
+    const ownerTag: OwnerTag = equalBytes(tag, decodeAddress(this.payer))
       ? { kind: "account", index: 0 }
       : { kind: "inline", value: tag };
     const outputs = this.outputs.map((output, index) => ({

@@ -11,10 +11,10 @@ import {
   disabledRuleAnswer,
   type CustomRingRuleAnswer,
 } from "../client/prover/types.js";
+import { bytesKey, equalBytes } from "../interface/bytes.js";
 import type { TreeSlot } from "../interface/tree-slot.js";
 import type { Address, Bytes32, RequestContext, TreeContext } from "../interface/types.js";
 import type { ProofInputUtxo, ProofOutputUtxo, TreeId } from "../transaction/utxo.js";
-import { bytesKey, equalBytes } from "../wallet/internal.js";
 
 import type { RingPolicyConfig } from "./codecs.js";
 import { RingError } from "./error.js";

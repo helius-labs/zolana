@@ -1,6 +1,7 @@
 import { unsigned } from "./internal.js";
-import { poseidon, rightAlign } from "./merge-utils.js";
+import { poseidon } from "./merge-utils.js";
 import type { Bytes32 } from "./types.js";
+import { rightAlign } from "./bytes.js";
 
 /**
  * Tree slots a transact or merge proof carries in its public inputs. Every

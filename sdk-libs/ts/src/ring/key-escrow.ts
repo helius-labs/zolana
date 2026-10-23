@@ -2,11 +2,10 @@ import { isClientError } from "../client/error.js";
 import type { ProofDataSource } from "../client/ports.js";
 import type { CustomRingOpening, CustomRingRegistryKey } from "../client/prover/types.js";
 import { hashBytes } from "../hasher/index.js";
+import { bytesKey, bytesToBigInt, equalBytes } from "../interface/bytes.js";
 import { UTXO_DOMAIN } from "../interface/program.js";
 import type { Address, Bytes32, RequestContext } from "../interface/types.js";
 import { ownerHash } from "../keypair/hash.js";
-import { bytesToBigInt } from "../transaction/internal.js";
-import { bytesKey, equalBytes } from "../wallet/internal.js";
 
 import { fetchRingKeyRegistryRoot } from "./config.js";
 import { RingError } from "./error.js";

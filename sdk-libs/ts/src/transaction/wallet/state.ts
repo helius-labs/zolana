@@ -1,3 +1,4 @@
+import { bytesKey } from "../../interface/bytes.js";
 import type { Address, Bytes32, Signature } from "../../interface/types.js";
 import type { X25519PublicKey } from "../../keypair/x25519.js";
 import type { ShieldedAddress } from "../../keypair/shielded.js";
@@ -422,7 +423,7 @@ export class Wallet {
   ): void {
     const hashes = new Set<string>();
     for (const entry of input.utxos) {
-      const hash = hex(entry.outputContext.hash);
+      const hash = bytesKey(entry.outputContext.hash);
       if (hashes.has(hash)) {
         throw new TransactionError("TRANSACTION_DUPLICATE_OUTPUT", { hash });
       }
@@ -437,12 +438,14 @@ export class Wallet {
     // Both key spaces are lowercase hex of the same bytes, so the sets line up.
     this._forgetNullifierCursors(this.#nullifiers);
     const unspent = new Set(
-      this.#utxos.filter((entry) => !entry.spent).map((entry) => hex(entry.outputContext.hash)),
+      this.#utxos
+        .filter((entry) => !entry.spent)
+        .map((entry) => bytesKey(entry.outputContext.hash)),
     );
     this.#reservations = this.#reservations.filter((reservation) =>
       reservation.expiresAtMs === null
-        ? reservation.utxoHashes.some((utxoHash) => unspent.has(hex(utxoHash)))
-        : reservation.utxoHashes.every((utxoHash) => unspent.has(hex(utxoHash))),
+        ? reservation.utxoHashes.some((utxoHash) => unspent.has(bytesKey(utxoHash)))
+        : reservation.utxoHashes.every((utxoHash) => unspent.has(bytesKey(utxoHash))),
     );
     if (input.viewingKeyHistory !== undefined) {
       this.#viewingKeyHistory = input.viewingKeyHistory.map(snapshotViewingKeyEntry);
@@ -459,9 +462,9 @@ export class Wallet {
   ): UtxoReservation {
     this.#sweepReservations(input.nowMs);
     const reserved = this._reservedUtxoKeys(input.nowMs);
-    const known = new Map(this.#utxos.map((entry) => [hex(entry.outputContext.hash), entry]));
+    const known = new Map(this.#utxos.map((entry) => [bytesKey(entry.outputContext.hash), entry]));
     for (const utxoHash of input.utxoHashes) {
-      const key = hex(utxoHash);
+      const key = bytesKey(utxoHash);
       const entry = known.get(key);
       if (entry === undefined || entry.spent) {
         throw new TransactionError("TRANSACTION_RESERVED_NOTE_UNAVAILABLE", { hash: key });
@@ -504,21 +507,23 @@ export class Wallet {
   _reservedUtxoKeys(nowMs: bigint): ReadonlySet<string> {
     const keys = new Set<string>();
     for (const reservation of this._activeReservations(nowMs)) {
-      for (const utxoHash of reservation.utxoHashes) keys.add(hex(utxoHash));
+      for (const utxoHash of reservation.utxoHashes) keys.add(bytesKey(utxoHash));
     }
     return keys;
   }
 
   #sweepReservations(nowMs: bigint): void {
     const unspent = new Set(
-      this.#utxos.filter((entry) => !entry.spent).map((entry) => hex(entry.outputContext.hash)),
+      this.#utxos
+        .filter((entry) => !entry.spent)
+        .map((entry) => bytesKey(entry.outputContext.hash)),
     );
     this.#reservations = this.#reservations.filter(
       (reservation) =>
         (reservation.expiresAtMs === null || reservation.expiresAtMs > nowMs) &&
         (reservation.expiresAtMs === null
-          ? reservation.utxoHashes.some((utxoHash) => unspent.has(hex(utxoHash)))
-          : reservation.utxoHashes.every((utxoHash) => unspent.has(hex(utxoHash)))),
+          ? reservation.utxoHashes.some((utxoHash) => unspent.has(bytesKey(utxoHash)))
+          : reservation.utxoHashes.every((utxoHash) => unspent.has(bytesKey(utxoHash)))),
     );
   }
 
@@ -530,12 +535,14 @@ export class Wallet {
   /** @internal */
   _restoreReservations(reservations: readonly UtxoReservation[]): void {
     const unspent = new Set(
-      this.#utxos.filter((entry) => !entry.spent).map((entry) => hex(entry.outputContext.hash)),
+      this.#utxos
+        .filter((entry) => !entry.spent)
+        .map((entry) => bytesKey(entry.outputContext.hash)),
     );
     this.#reservations = reservations.filter((reservation) =>
       reservation.expiresAtMs === null
-        ? reservation.utxoHashes.some((utxoHash) => unspent.has(hex(utxoHash)))
-        : reservation.utxoHashes.every((utxoHash) => unspent.has(hex(utxoHash))),
+        ? reservation.utxoHashes.some((utxoHash) => unspent.has(bytesKey(utxoHash)))
+        : reservation.utxoHashes.every((utxoHash) => unspent.has(bytesKey(utxoHash))),
     );
   }
 
@@ -604,7 +611,7 @@ export class Wallet {
     }
     const hashes = new Set<string>();
     for (const entry of delta.utxos) {
-      const hash = hex(entry.outputContext.hash);
+      const hash = bytesKey(entry.outputContext.hash);
       if (hashes.has(hash)) {
         throw new TransactionError("TRANSACTION_DUPLICATE_OUTPUT", { hash });
       }
@@ -639,11 +646,7 @@ export class Wallet {
 function randomReservationId(): string {
   const bytes = new Uint8Array(16);
   globalThis.crypto.getRandomValues(bytes);
-  return hex(bytes);
-}
-
-export function hex(bytes: Uint8Array): string {
-  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return bytesKey(bytes);
 }
 
 function checkedBalance(amount: bigint): bigint {

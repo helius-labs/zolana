@@ -14,6 +14,7 @@ import {
 
 import { ZolanaApi } from "../api/index.js";
 import { resolveClientEndpoints } from "../endpoint.js";
+import { equalBytes } from "../interface/bytes.js";
 import {
   mergeTransactInstruction,
   transactInstruction,
@@ -773,7 +774,7 @@ export class ZolanaClient
             details: { index },
           });
         }
-        if (!equal(stateProof.leaf, commitment.utxoHash)) {
+        if (!equalBytes(stateProof.leaf, commitment.utxoHash)) {
           throw new ClientError("CLIENT_STATE_PROOF_LEAF_MISMATCH", {
             details: { index },
           });
@@ -783,7 +784,7 @@ export class ZolanaClient
             details: { index },
           });
         }
-        if (!equal(nullifierProof.leaf, commitment.nullifier)) {
+        if (!equalBytes(nullifierProof.leaf, commitment.nullifier)) {
           throw new ClientError("CLIENT_NULLIFIER_PROOF_LEAF_MISMATCH", {
             details: { index },
           });
@@ -1071,7 +1072,7 @@ export class ZolanaClient
     if (!hasMergeOutputBinding(proved)) {
       throw new ClientError("CLIENT_INVALID_MERGE");
     }
-    if (!equal(proved.outputHash, proved.data.outputUtxoHash)) {
+    if (!equalBytes(proved.outputHash, proved.data.outputUtxoHash)) {
       throw new ClientError("CLIENT_MERGE_OUTPUT_MISMATCH");
     }
     checkedAddress(input.feePayer, "feePayer");
@@ -1328,15 +1329,6 @@ function decodeRpcAccount(
       cause,
     });
   }
-}
-
-function equal(left: Uint8Array, right: Uint8Array): boolean {
-  if (left.length !== right.length) return false;
-  let difference = 0;
-  for (let index = 0; index < left.length; index++) {
-    difference |= (left[index] ?? 0) ^ (right[index] ?? 0);
-  }
-  return difference === 0;
 }
 
 /** The one field pair the assembler binds, the rest of `ProvedMerge` stays unclaimed. */

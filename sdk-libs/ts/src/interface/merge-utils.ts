@@ -3,15 +3,10 @@ import { MAX_POSEIDON_INPUTS, poseidon as hash } from "../hasher/index.js";
 import { InterfaceError } from "./errors.js";
 import { copyBytes } from "./internal.js";
 import type { Bytes32 } from "./types.js";
+import { bytesToBigInt, rightAlign } from "./bytes.js";
 
 const BN254_MODULUS =
   21_888_242_871_839_275_222_246_405_745_257_275_088_548_364_400_416_034_343_698_204_186_575_808_495_617n;
-
-function bytesToBigInt(bytes: Uint8Array): bigint {
-  let value = 0n;
-  for (const byte of bytes) value = (value << 8n) | BigInt(byte);
-  return value;
-}
 
 // The bounds are checked here rather than left to the module so a rejection
 // still arrives as the `INTERFACE_HASH` its callers catch, with the detail that
@@ -30,12 +25,6 @@ export function poseidon(inputs: readonly Uint8Array[]): Bytes32 {
     }
   });
   return hash(inputs) as Bytes32;
-}
-
-export function rightAlign(bytes: Uint8Array): Bytes32 {
-  const result = new Uint8Array(32);
-  result.set(bytes, 32 - bytes.length);
-  return result as Bytes32;
 }
 
 function checkedCompressedKey(compressed: Uint8Array): Uint8Array {

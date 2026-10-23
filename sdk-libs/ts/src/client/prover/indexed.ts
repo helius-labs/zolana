@@ -1,3 +1,4 @@
+import { bytesToBigInt } from "../../interface/bytes.js";
 import type { ExpectedProvingKey } from "../../interface/proving-keys.js";
 import {
   STATE_ROOT_HISTORY_CAPACITY,
@@ -31,7 +32,6 @@ import {
   BN254_MODULUS,
   bigintToBytes,
   bytesField,
-  bytesToBigInt,
   checkedBytes,
   hasIndexedMethod,
 } from "../internal.js";

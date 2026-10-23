@@ -1,3 +1,4 @@
+import { bytesKey } from "../../interface/bytes.js";
 import type { Bytes32, RequestContext } from "../../interface/types.js";
 import { decodeBatch } from "../../interface/decode.js";
 import type { ViewingKey } from "../../keypair/viewing-key.js";
@@ -11,7 +12,6 @@ import {
   wipeByteAnswers,
 } from "./key-batch.js";
 import type { DecryptRequest, DeriveRequest, ShieldedKeys, TransactionKeyRequest } from "./keys.js";
-import { hex } from "./state.js";
 
 /**
  * Synchronous view over a `ShieldedKeys` for code that decodes in one pass
@@ -61,7 +61,7 @@ export class KeyMemo {
 
   /** Owned by the memo until `destroy`; callers use it, they do not destroy it. */
   transactionKey(request: TransactionKeyRequest): ViewingKey | undefined {
-    const key = `${hex(request.viewingPublicKey.toBytes())}|${hex(request.firstNullifier)}`;
+    const key = `${bytesKey(request.viewingPublicKey.toBytes())}|${bytesKey(request.firstNullifier)}`;
     const known = this.#transactionKeys.get(key);
     if (known !== undefined) return known;
     this.#pendingTransactionKeys.set(key, {
@@ -168,26 +168,26 @@ export class KeyMemo {
 function decryptKey(request: DecryptRequest): string {
   return [
     request.label,
-    hex(request.viewingPublicKey.toBytes()),
-    hex(request.txViewingPublicKey.toBytes()),
-    hex(request.salt),
+    bytesKey(request.viewingPublicKey.toBytes()),
+    bytesKey(request.txViewingPublicKey.toBytes()),
+    bytesKey(request.salt),
     String(request.slotIndex),
-    hex(request.ciphertext),
+    bytesKey(request.ciphertext),
   ].join("|");
 }
 
 function deriveKey(request: DeriveRequest): string {
   switch (request.kind) {
     case "nullifier":
-      return `nullifier|${hex(request.utxoHash)}|${hex(request.blinding)}`;
+      return `nullifier|${bytesKey(request.utxoHash)}|${bytesKey(request.blinding)}`;
     case "mergeDummyNullifier":
-      return `mergeDummy|${hex(request.firstNullifier)}|${String(request.slotIndex)}`;
+      return `mergeDummy|${bytesKey(request.firstNullifier)}|${String(request.slotIndex)}`;
     case "mergeOutputBlinding":
-      return `mergeBlinding|${hex(request.firstNullifier)}`;
+      return `mergeBlinding|${bytesKey(request.firstNullifier)}`;
     case "mergePrivateTxBlinding":
-      return `mergePrivateTxBlinding|${hex(request.firstNullifier)}`;
+      return `mergePrivateTxBlinding|${bytesKey(request.firstNullifier)}`;
     case "mergeOutputKey":
-      return `mergeOutputKey|${hex(request.firstNullifier)}`;
+      return `mergeOutputKey|${bytesKey(request.firstNullifier)}`;
   }
 }
 

@@ -6,6 +6,7 @@ import { ViewingKey } from "../keypair/viewing-key.js";
 import { randomBlinding } from "../keypair/bytes.js";
 import { transactOutputBlinding } from "../keypair/transact/index.js";
 import { hashBytes } from "../hasher/index.js";
+import { equalBytes } from "../interface/bytes.js";
 import type { Shape } from "../interface/shape.js";
 import { SPP_SUPPORTED_SHAPES } from "../interface/shape.js";
 import type { Bytes31, Bytes32, MessageData, RequestContext } from "../interface/types.js";
@@ -13,7 +14,6 @@ import { Utxo, ProofInputUtxo, createProofOutput } from "../transaction/utxo.js"
 import type { ProofOutputUtxo } from "../transaction/utxo.js";
 import { SOL_MINT } from "../transaction/asset.js";
 import { U64_MAX, decodeAddress } from "../transaction/internal.js";
-import { equalBytes } from "../wallet/internal.js";
 import type { SealedMessageInput } from "../transaction/wallet/encrypt-rails.js";
 import type { ShieldedKeys } from "../transaction/wallet/keys.js";
 import type {

@@ -7,11 +7,11 @@ import {
   RING_VELOCITY_SLOTS,
   type CustomRingVelocityRow,
 } from "../client/prover/types.js";
+import { bytesToBigInt, equalBytes } from "../interface/bytes.js";
 import type { Address, Bytes32, Bytes33 } from "../interface/types.js";
 import { Reader, addressBytes, encodeBase58 } from "../interface/internal.js";
 
-import { ZERO_32, bytesToBigInt } from "../transaction/internal.js";
-import { equalBytes } from "../wallet/internal.js";
+import { ZERO_32 } from "../transaction/internal.js";
 
 import { RingError } from "./error.js";
 import { checkedRegistryField, KEY_REGISTRY_CAPACITY } from "./key-registry-tree.js";

@@ -38,10 +38,10 @@ import type {
   TransactionConfirmer,
 } from "../client/ports.js";
 import { assertVersion1Transaction, LOADED_ACCOUNTS_DATA_SIZE_LIMIT } from "../flows/compile.js";
+import { equalBytes } from "../interface/bytes.js";
 import { SYSTEM_PROGRAM, meta, type SignerAccount } from "../interface/instructions/index.js";
 import { Reader, Writer, addressBytes, encodeBase58, sha256 } from "../interface/internal.js";
 import type { Address, Bytes32, RequestContext } from "../interface/types.js";
-import { equalBytes } from "../wallet/internal.js";
 
 import { ringPolicyConfigAddress } from "../interface/pda/index.js";
 import { BPF_LOADER_UPGRADEABLE_ID, ringProgramDataAddress } from "./config.js";

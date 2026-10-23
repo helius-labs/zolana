@@ -2,7 +2,6 @@ import { address } from "@solana/kit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { LocalKeys, ZolanaClient } from "../src/client/index.js";
-import { bytesToBigInt } from "../src/client/internal.js";
 import { assembleMergeWithProofs } from "../src/client/prover/merge.js";
 import { assemble, prepareTransfer } from "../src/client/prover/assembly.js";
 import { decodeIndexedInputs } from "../src/client/prover/indexed.js";
@@ -32,6 +31,7 @@ import {
   type ProgramFinalizedTransaction,
 } from "../src/transaction/index.js";
 import { proofFor } from "./helpers/proofs.js";
+import { bytesToBigInt } from "../src/interface/bytes.js";
 
 describe("reserved address inputs", () => {
   afterEach(() => {

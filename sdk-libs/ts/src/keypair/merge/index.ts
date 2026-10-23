@@ -1,13 +1,6 @@
 import { ctr } from "@noble/ciphers/aes.js";
 
-import {
-  type Bytes32,
-  bigIntToBytes,
-  bytesToBigInt,
-  checkedBytes,
-  concatBytes,
-  copyBytes,
-} from "../bytes.js";
+import { type Bytes32, bigIntToBytes, checkedBytes, copyBytes, fieldU32 } from "../bytes.js";
 import {
   DOMAIN_MERGE_DUMMY_NULLIFIER,
   DOMAIN_MERGE_OUTPUT_BLINDING_V1,
@@ -22,6 +15,7 @@ import { invalidLength } from "../error.js";
 import type { NullifierKey } from "../nullifier-key.js";
 import { poseidon } from "../poseidon.js";
 import { privateTxBlinding } from "../transact/index.js";
+import { bytesToBigInt, concatBytes, rightAlign } from "../../interface/bytes.js";
 
 export const MERGE_INFO = copyBytes(MERGE_INFO_BYTES);
 
@@ -172,16 +166,4 @@ function alignedNullifierSecret(nullifierKey: NullifierKey): Bytes32 {
   } finally {
     secret.fill(0);
   }
-}
-
-function fieldU32(value: number): Bytes32 {
-  const field = new Uint8Array(32);
-  new DataView(field.buffer).setUint32(28, value, false);
-  return field as Bytes32;
-}
-
-function rightAlign(bytes: Uint8Array): Bytes32 {
-  const field = new Uint8Array(32);
-  field.set(bytes, 32 - bytes.length);
-  return field as Bytes32;
 }

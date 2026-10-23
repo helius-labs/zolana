@@ -1,6 +1,7 @@
 import type { X25519PublicKey } from "../keypair/x25519.js";
 import type { Address, Commitment, Signature } from "@solana/kit";
 
+import { equalBytes } from "../interface/bytes.js";
 import type {
   Instruction,
   MergeTransactInstructionData,
@@ -19,7 +20,6 @@ import type { InputUtxoContext, SppProofInputs } from "../transaction/instructio
 import type { TransactionIntent } from "../transaction/wallet/intent.js";
 import { intentHash } from "../transaction/wallet/intent.js";
 import type { ShieldedKeys } from "../transaction/wallet/keys.js";
-import { equal } from "../transaction/internal.js";
 
 import type { LatestBlockhash, SolanaRpc } from "./kit.js";
 import type { ProverHealth, ProvingKeyReport } from "./prover/client.js";
@@ -538,7 +538,10 @@ export function authorizedPrivateTransactionMaterial(
 ): AuthorizedPrivateTransactionMaterial | undefined {
   if (!(value instanceof AuthorizedPrivateTransaction)) return undefined;
   const state = authorizedPrivateTransactions.get(value);
-  if (state === undefined || !equal(intentHash(state.material.intent), state.approvedIntentHash)) {
+  if (
+    state === undefined ||
+    !equalBytes(intentHash(state.material.intent), state.approvedIntentHash)
+  ) {
     return undefined;
   }
   return state.material;

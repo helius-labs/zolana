@@ -1,4 +1,4 @@
-import { type Bytes32, checkedBytes } from "../bytes.js";
+import { type Bytes32, checkedBytes, fieldU32 } from "../bytes.js";
 import {
   DOMAIN_PRIVATE_TX_BLINDING_V1,
   DOMAIN_TRANSACT_OUTPUT_BLINDING_SEED_V1,
@@ -56,10 +56,4 @@ export function transactOutputBlinding(
     checkedBytes<Bytes32>(outputBlindingSeed, 32, "output blinding seed"),
     fieldU32(index),
   ]) as Bytes32;
-}
-
-function fieldU32(value: number): Bytes32 {
-  const field = new Uint8Array(32);
-  new DataView(field.buffer).setUint32(28, value, false);
-  return field as Bytes32;
 }

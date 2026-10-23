@@ -96,6 +96,6 @@ function invalidEnvelopeFailure(): TransportFailure {
   });
 }
 
-function isObject(value: unknown): value is JsonObject {
+export function isObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

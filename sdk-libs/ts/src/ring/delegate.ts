@@ -3,6 +3,7 @@ import type { BlockhashProvider, KitRpcAccess, ProofService, WalletKeys } from "
 import { compileUnsignedTransaction } from "../flows/compile.js";
 import { reserveEntries, reservedUtxoKeys, unreserved } from "../flows/reserve.js";
 import { selectUtxos } from "../flows/select.js";
+import { equalBytes } from "../interface/bytes.js";
 import { signerAddress, type SignerAccount } from "../interface/instructions/index.js";
 import { RING_AUTHORITY_MAX_WIDTH } from "../interface/shape.js";
 import type { Address, RequestContext, Transaction } from "../interface/types.js";
@@ -23,7 +24,6 @@ import {
   type TransactionIntent,
 } from "../transaction/wallet/intent.js";
 import { Wallet, type UtxoReservation, type WalletUtxo } from "../transaction/wallet/state.js";
-import { equalBytes } from "../wallet/internal.js";
 import { withTransactionKey } from "../wallet/private-transaction.js";
 import { fetchSplAssetRegistrations } from "../wallet/sync.js";
 import { fetchRingCoSigner, fetchRingDelegate } from "./config.js";

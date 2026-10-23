@@ -146,6 +146,10 @@ export class Writer {
   }
 }
 
+export function byteVector(writer: Writer, value: Uint8Array, name: string): void {
+  writer.u16(value.length, `${name}.length`).bytes(value);
+}
+
 export class Reader {
   #offset = 0;
 

@@ -3,6 +3,7 @@ import { compileUnsignedTransaction } from "../flows/compile.js";
 import { reserveEntries, reservedUtxoKeys, unreserved } from "../flows/reserve.js";
 import { selectUtxos } from "../flows/select.js";
 import { initializePoseidon } from "../hasher/index.js";
+import { equalBytes } from "../interface/bytes.js";
 import { MAX_MERGE_INPUTS, MERGE_INPUT_COUNT } from "../interface/constants.js";
 import type { SignerAccount } from "../interface/instructions/index.js";
 import type { Address, Bytes32, RequestContext, Transaction } from "../interface/types.js";
@@ -18,7 +19,6 @@ import {
   type ApprovalHandler,
   type TransactionIntent,
 } from "../transaction/wallet/intent.js";
-import { equalBytes } from "../wallet/internal.js";
 import { fetchRingCoSigner } from "./config.js";
 import { checkRingCoSigner, TRANSFER_DEMAND } from "./cosign.js";
 import { RingError, wrapRingError } from "./error.js";

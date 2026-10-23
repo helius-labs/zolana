@@ -1,8 +1,7 @@
 import type { Address, Signature } from "@solana/kit";
 
 import { ClientError } from "../client/error.js";
-import { concatBytes } from "../keypair/bytes.js";
-import { ownerHash } from "../keypair/hash.js";
+import { ownerHash, sha256Bytes } from "../keypair/hash.js";
 import type { IndexerReader, RingSpendRecordLookup } from "../client/ports.js";
 import {
   RING_ANSWER_SLOTS,
@@ -14,6 +13,7 @@ import {
   type CustomRingVelocityRow,
 } from "../client/prover/types.js";
 import { hashBytes, solanaOwnerIdentity } from "../hasher/index.js";
+import { bytesKey, bytesToBigInt, concatBytes, equalBytes } from "../interface/bytes.js";
 import { Reader, Writer, addressBytes } from "../interface/internal.js";
 import { ADDRESS_DOMAIN, UTXO_DOMAIN, ZERO_NULLIFIER_PK } from "../interface/program.js";
 import { treeIdField } from "../interface/tree-slot.js";
@@ -27,14 +27,11 @@ import type {
 import {
   ZERO_32,
   bigIntBytes,
-  bytesToBigInt,
   decodeAddress,
   poseidon,
   rightAlign,
-  sha256Bytes,
 } from "../transaction/internal.js";
 import { EncryptedScheme, readOutputData } from "../transaction/serialization/codecs.js";
-import { bytesKey, equalBytes } from "../wallet/internal.js";
 
 import type { RingPolicyConfig, RingPolicySource } from "./codecs.js";
 import { RingError } from "./error.js";

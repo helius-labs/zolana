@@ -2,8 +2,9 @@ import type { ShieldedAddress, ShieldedKeypair } from "../keypair/shielded.js";
 import { deserializeWallet } from "../transaction/wallet/persistence.js";
 
 import { WalletError } from "./error.js";
-import { base64Bytes, base64Text, equalBytes } from "./internal.js";
+import { base64Bytes, base64Text } from "./internal.js";
 import type { WalletStateCipher } from "./persisted.js";
+import { equalBytes } from "../interface/bytes.js";
 
 const SNAPSHOT_DOMAIN = "zolana/wallet-snapshot/v1";
 const ENVELOPE_VERSION = 1;

@@ -15,6 +15,7 @@ import {
   type IndexerPollConfig,
   type IndexerRpcConfig,
 } from "../client/retry.js";
+import { bytesKey } from "../interface/bytes.js";
 import { decodeSplAssetRegistry } from "../interface/accounts.js";
 import { SHIELDED_POOL_PROGRAM_ID } from "../interface/program.js";
 import { StateDiscriminator } from "../interface/state.js";
@@ -36,7 +37,6 @@ import {
 import { decryptTransactions } from "../transaction/wallet/sync.js";
 
 import { WalletError, wrapWalletError } from "./error.js";
-import { bytesKey } from "./internal.js";
 import {
   advanceSessionCursors,
   beginSyncSession,

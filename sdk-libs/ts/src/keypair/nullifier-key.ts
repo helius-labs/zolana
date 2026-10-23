@@ -2,12 +2,7 @@ import { type Bytes31, type Bytes32, checkedBytes, copyBytes } from "./bytes.js"
 import { BLINDING_LENGTH } from "./constants.js";
 import { KeypairError } from "./error.js";
 import { poseidon } from "./poseidon.js";
-
-function rightAlign(bytes: Uint8Array): Bytes32 {
-  const output = new Uint8Array(32);
-  output.set(bytes, 32 - bytes.length);
-  return output as Bytes32;
-}
+import { rightAlign } from "../interface/bytes.js";
 
 /** Poseidon over the commitment, the blinding and the right-aligned secret: the one nullifier derivation. */
 function deriveNullifier(utxoHash: Bytes32, blinding: Bytes32, secret: Bytes32): Bytes32 {

@@ -8,15 +8,15 @@ import type {
 import { ClientError } from "../client/error.js";
 import { compileUnsignedTransaction } from "../flows/compile.js";
 import { hashBytes, initializePoseidon } from "../hasher/index.js";
+import { equalBytes, rightAlign } from "../interface/bytes.js";
 import { addressBytes } from "../interface/internal.js";
-import { pack33, rightAlign } from "../interface/merge-utils.js";
+import { pack33 } from "../interface/merge-utils.js";
 import type { Address, Bytes31, Bytes32, RequestContext, Transaction } from "../interface/types.js";
 import { auditSharedSecret } from "../keypair/audit.js";
 import { symmetricApply } from "../keypair/merge/index.js";
 import { NullifierKey } from "../keypair/nullifier-key.js";
 import { bigIntBytes, hashChain, poseidon } from "../transaction/internal.js";
 import type { ShieldedAddress } from "../keypair/shielded.js";
-import { equalBytes } from "../wallet/internal.js";
 import type { RingKeyRegistryRoot } from "./codecs.js";
 import { fetchRingKeyRegistryRoot, fetchRingProgramConfig } from "./config.js";
 import { RingError } from "./error.js";

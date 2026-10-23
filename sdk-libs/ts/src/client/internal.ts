@@ -1,4 +1,3 @@
-import { sha256 } from "@noble/hashes/sha2.js";
 import {
   assertIsSignature,
   getAddressEncoder,
@@ -8,6 +7,7 @@ import {
 } from "@solana/kit";
 import { HasherFailure, MAX_POSEIDON_INPUTS, poseidon as hash } from "../hasher/index.js";
 
+import { bytesToBigInt } from "../interface/bytes.js";
 import type {
   Address,
   Bytes16,
@@ -97,12 +97,6 @@ export function checkedBytes<Length extends 16 | 31 | 32 | 33 | 64 | 128>(
     });
   }
   return new Uint8Array(value) as never;
-}
-
-export function bytesToBigInt(bytes: Uint8Array): bigint {
-  let value = 0n;
-  for (const byte of bytes) value = (value << 8n) | BigInt(byte);
-  return value;
 }
 
 export function bigintToBytes(value: bigint, name: string, length = 32): Uint8Array {
@@ -245,10 +239,6 @@ export function hashBytesBigInt(bytes: Uint8Array): bigint {
     });
   }
   return bytesToBigInt(hashBytes(bytes));
-}
-
-export function sha256Bytes(bytes: Uint8Array): Bytes32 {
-  return new Uint8Array(sha256(bytes)) as Bytes32;
 }
 
 export function addressBytes(value: Address): Bytes32 {

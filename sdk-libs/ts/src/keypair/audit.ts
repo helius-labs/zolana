@@ -1,4 +1,5 @@
 import { X25519PublicKey, X25519Keypair } from "./x25519.js";
+import { bytesToBigInt, concatBytes, isZero, rightAlign } from "../interface/bytes.js";
 import {
   inputTreeSlots,
   treeIdField,
@@ -20,9 +21,7 @@ import {
   type Bytes32,
   type Bytes33,
   bigIntToBytes,
-  bytesToBigInt,
   checkedBytes,
-  concatBytes,
   u32be,
 } from "./bytes.js";
 import { symmetricApply } from "./merge/index.js";
@@ -115,12 +114,6 @@ export interface AuditorMessage {
 export interface AuditorEncryption {
   readonly ephemeralSecret: Bytes32;
   readonly message: AuditorMessage;
-}
-
-function rightAlign(bytes: Uint8Array): Bytes32 {
-  const output = new Uint8Array(32);
-  output.set(bytes, 32 - bytes.length);
-  return output as Bytes32;
 }
 
 function hashChain(values: readonly Bytes32[]): Bytes32 {
@@ -471,10 +464,6 @@ function anonymousPlaintextLength(shape: AuditDisclosureShape): number | undefin
     shape.inputs * DISCLOSURE_INPUT_LEN +
     shape.outputs * DISCLOSURE_OUTPUT_LEN
   );
-}
-
-function isZero(bytes: Uint8Array): boolean {
-  return bytes.every((byte) => byte === 0);
 }
 
 function checkedUnsigned(value: bigint, max: bigint, name: string): bigint {

@@ -11,7 +11,7 @@ import { LocalShieldedKeys } from "../src/transaction/wallet/keys.js";
 import { TransactionError } from "../src/transaction/error.js";
 import { checked } from "../src/transaction/internal.js";
 import { BN254_SCALAR_ORDER } from "../src/hasher/index.js";
-import { bigIntToBytes, bytesToBigInt } from "../src/keypair/bytes.js";
+import { bigIntToBytes } from "../src/keypair/bytes.js";
 import { treeAddress } from "../src/interface/pda/index.js";
 import type { Address, Bytes16, Bytes32 } from "../src/interface/types.js";
 import { NullifierKey, ShieldedKeypair, type Bytes31 } from "../src/keypair/index.js";
@@ -31,6 +31,7 @@ import {
   splitMergeOutputBody,
   type MergeOutputCiphertext,
 } from "../src/transaction/serialization/merge.js";
+import { bytesToBigInt } from "../src/interface/bytes.js";
 
 type MergeRecoveryVector = Readonly<{
   nullifier_secret: string;

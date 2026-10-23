@@ -1,12 +1,12 @@
 import { getBase58Encoder } from "@solana/kit";
 
 import { runKitRpc, type SolanaRpc } from "../client/kit.js";
+import { equalBytes } from "../interface/bytes.js";
 import { MAX_CACHE_WRITES } from "../interface/cache.js";
 import { wireDecoder } from "../interface/decode.js";
 import { Reader, sha256 } from "../interface/internal.js";
 import { decodeRingDepositInstructionData } from "../interface/codecs/index.js";
 import { CUSTOM_RING_PROOF_LENGTH } from "../interface/custom-ring-proof.js";
-import { equal } from "../transaction/internal.js";
 import {
   AUDITED_RING_DEPOSIT_TAG,
   encodeRingDepositCapsule,
@@ -113,7 +113,7 @@ export class ConfirmedDeposit {
               wrapper.data[0] !== AUDITED_RING_DEPOSIT_TAG
             )
               return [];
-            if (!equal(wrapper.data.subarray(CUSTOM_RING_PROOF_LENGTH + 2), source.data))
+            if (!equalBytes(wrapper.data.subarray(CUSTOM_RING_PROOF_LENGTH + 2), source.data))
               throw invalid("auditedDeposit");
             return ConfirmedDeposit.#decode(source.data);
           }
@@ -128,8 +128,8 @@ export class ConfirmedDeposit {
   authenticate(capsule: RingDepositCapsule, ownerCommitment: Bytes32): void {
     if (
       capsule.slotIndex !== this.slotIndex ||
-      !equal(ownerCommitment, this.#ownerCommitment) ||
-      !equal(sha256(encodeRingDepositCapsule(capsule)), this.#capsuleHash)
+      !equalBytes(ownerCommitment, this.#ownerCommitment) ||
+      !equalBytes(sha256(encodeRingDepositCapsule(capsule)), this.#capsuleHash)
     ) {
       throw new RingError("RING_AUDIT_MESSAGE", {
         details: { reason: "unconfirmed deposit capsule" },

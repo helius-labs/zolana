@@ -1,5 +1,6 @@
 import { getAddressDecoder } from "@solana/kit";
 
+import { bytesToBigInt, equalBytes } from "../../interface/bytes.js";
 import type {
   Address,
   Bytes32,
@@ -59,7 +60,6 @@ import {
   addressBytes,
   bigintToBytes,
   bytesField,
-  bytesToBigInt,
   checkedBytes,
   field,
   hashChain4,
@@ -501,7 +501,7 @@ function validateOutputBlindings(proofInputs: SppProofInputs): void {
   const firstNullifier = proofInputs.firstNullifier();
   const outputSeed = proofInputs.outputBlindingSeed();
   proofInputs.outputs.forEach((output, index) => {
-    if (!equal(output.blinding, transactOutputBlinding(firstNullifier, outputSeed, index))) {
+    if (!equalBytes(output.blinding, transactOutputBlinding(firstNullifier, outputSeed, index))) {
       throw new ClientError("CLIENT_OUTPUT_BLINDING_MISMATCH", {
         details: { index },
       });
@@ -877,7 +877,7 @@ export function assembleSlots(
           });
         } else if (
           proof.state.merkleContext.tree !== expectedTree ||
-          !equal(proof.state.root, openRun.state.root) ||
+          !equalBytes(proof.state.root, openRun.state.root) ||
           proof.state.rootIndex !== openRun.state.index
         ) {
           throw new ClientError("CLIENT_INPUT_TREE_ROOT_MISMATCH", {
@@ -1168,7 +1168,7 @@ function checkNullifierRoot(
 ): void {
   if (
     proof.merkleContext.tree !== expectedTree ||
-    !equal(proof.root, run.nullifierRoot) ||
+    !equalBytes(proof.root, run.nullifierRoot) ||
     proof.rootIndex !== run.nullifierRootIndex
   ) {
     throw new ClientError("CLIENT_NULLIFIER_ROOT_MISMATCH", {
@@ -1467,12 +1467,12 @@ export function checkedProverInputs(inputs: TransferInputs): ProverInputs {
 }
 
 export function validateSpendProof(input: ProofInputUtxo, proof: SpendProof, index: number): void {
-  if (!equal(input.hash(), proof.state.leaf)) {
+  if (!equalBytes(input.hash(), proof.state.leaf)) {
     throw new ClientError("CLIENT_STATE_PROOF_LEAF_MISMATCH", {
       details: { index },
     });
   }
-  if (!equal(input.nullifier(), proof.nullifier.leaf)) {
+  if (!equalBytes(input.nullifier(), proof.nullifier.leaf)) {
     throw new ClientError("CLIENT_NULLIFIER_PROOF_LEAF_MISMATCH", {
       details: { index },
     });
@@ -1507,7 +1507,7 @@ function validateNullifierProof(
   proof: NonInclusionProof,
   index: number,
 ): void {
-  if (!equal(input.nullifier(), proof.leaf)) {
+  if (!equalBytes(input.nullifier(), proof.leaf)) {
     throw new ClientError("CLIENT_NULLIFIER_PROOF_LEAF_MISMATCH", {
       details: { index },
     });
@@ -1558,15 +1558,6 @@ export function asField(value: bigint): Field {
 
 export function asInteger(value: bigint): Field {
   return value as Field;
-}
-
-function equal(left: Uint8Array, right: Uint8Array): boolean {
-  if (left.length !== right.length) return false;
-  let difference = 0;
-  for (let index = 0; index < left.length; index++) {
-    difference |= (left[index] ?? 0) ^ (right[index] ?? 0);
-  }
-  return difference === 0;
 }
 
 function copyProof(proof: TransactProof): TransactProof {

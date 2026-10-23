@@ -3,6 +3,7 @@ import {
   type AuthorizedPrivateTransaction,
 } from "../client/ports.js";
 import { initializePoseidon } from "../hasher/index.js";
+import { equalBytes } from "../interface/bytes.js";
 import type { Address, Bytes32, Instruction, RequestContext } from "../interface/types.js";
 import { treeAddress } from "../interface/pda/index.js";
 import { DEFAULT_TREE_ID } from "../interface/tree-slot.js";
@@ -29,7 +30,6 @@ import type { Wallet, WalletUtxo } from "../transaction/wallet/state.js";
 
 import { UnsignedPrivateTransaction } from "./actions.js";
 import { WalletError } from "./error.js";
-import { equalBytes } from "./internal.js";
 
 function intentMismatch(field: string): WalletError {
   return new WalletError("WALLET_INTENT_MISMATCH", { details: { field } });

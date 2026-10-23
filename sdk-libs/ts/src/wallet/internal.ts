@@ -40,29 +40,6 @@ export function copy32(value: Uint8Array, field: string): Bytes32 {
   return new Uint8Array(value) as Bytes32;
 }
 
-export function equalBytes(left: Uint8Array, right: Uint8Array): boolean {
-  if (left.length !== right.length) return false;
-  let difference = 0;
-  for (let index = 0; index < left.length; index++) {
-    difference |= (left[index] ?? 0) ^ (right[index] ?? 0);
-  }
-  return difference === 0;
-}
-
-export function bytesKey(value: Uint8Array): string {
-  return [...value].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-export function concat(...parts: readonly Uint8Array[]): Uint8Array {
-  const output = new Uint8Array(parts.reduce((total, part) => total + part.length, 0));
-  let offset = 0;
-  for (const part of parts) {
-    output.set(part, offset);
-    offset += part.length;
-  }
-  return output;
-}
-
 /** Bytes per `String.fromCharCode` call: a spread of a whole megabyte-sized array overflows the stack. */
 const BASE64_CHUNK = 0x8000;
 

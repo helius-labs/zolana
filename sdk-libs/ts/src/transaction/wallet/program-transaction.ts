@@ -1,3 +1,4 @@
+import { bytesToBigInt, equalBytes } from "../../interface/bytes.js";
 import { wireDecoder } from "../../interface/decode.js";
 import { BN254_SCALAR_ORDER } from "../../hasher/index.js";
 import { splInterfaceWithBump, treeAddress } from "../../interface/pda/index.js";
@@ -22,7 +23,7 @@ import {
   type ExternalData,
   type SettlementTransfer,
 } from "../instructions/transact.js";
-import { U64_MAX, bytesToBigInt, checked, copy, decodeAddress, equal } from "../internal.js";
+import { U64_MAX, checked, copy, decodeAddress } from "../internal.js";
 import {
   ProofInputUtxo,
   Utxo,
@@ -252,7 +253,7 @@ export function bindProgramTransaction<Input>(
     const transaction = await decodeProgramTransaction(result["finalizedTx"], assets);
     if (transaction.payer !== expectedPayer)
       throw new TransactionError("TRANSACTION_PROGRAM_PAYER_MISMATCH");
-    if (!equal(transaction.sender.toBytes(), expectedSender))
+    if (!equalBytes(transaction.sender.toBytes(), expectedSender))
       throw new TransactionError("TRANSACTION_PROGRAM_SENDER_MISMATCH");
     return Object.freeze({ proofInputs, publicHash, transaction });
   };
@@ -294,7 +295,7 @@ export async function decodeProgramTransaction(
 
   const first = inputs[0];
   if (first === undefined) throw new TransactionError("TRANSACTION_NO_INPUTS");
-  if (!equal(first.nullifier(), firstNullifier)) {
+  if (!equalBytes(first.nullifier(), firstNullifier)) {
     throw new TransactionError("TRANSACTION_FIRST_NULLIFIER_MISMATCH");
   }
   if (outputHashes.length !== outputs.length) {
@@ -305,7 +306,7 @@ export async function decodeProgramTransaction(
   }
   outputs.forEach((output, slotIndex) => {
     const utxoHash = outputHashes[slotIndex];
-    if (utxoHash === undefined || !equal(output.hash(outputTreeId), utxoHash)) {
+    if (utxoHash === undefined || !equalBytes(output.hash(outputTreeId), utxoHash)) {
       throw new TransactionError("TRANSACTION_OUTPUT_HASH_MISMATCH", { slotIndex });
     }
   });
@@ -334,7 +335,10 @@ export async function decodeProgramTransaction(
         const output = frozenOutputs[slotIndex];
         const slot = encrypted.payload[slotIndex];
         const data = output?.isDummy() ? randomBytes(dummyLength) : slot?.data;
-        if (data === undefined || (slot !== undefined && !equal(slot.viewTag, entry.resolved))) {
+        if (
+          data === undefined ||
+          (slot !== undefined && !equalBytes(slot.viewTag, entry.resolved))
+        ) {
           throw new TransactionError("TRANSACTION_OWNER_TAG_MISMATCH", { slotIndex });
         }
         const utxoHash = frozenHashes[slotIndex];
@@ -399,7 +403,10 @@ export function toProgramWalletUtxo(
   const nullifierPublicKey = checked<Bytes32>(input.nullifierPublicKey, 32, "nullifier public key");
   const utxoHash = checked<Bytes32>(utxo.outputContext.hash, 32, "UTXO hash");
   if (
-    !equal(utxo.utxo.hash(nullifierPublicKey, treeId, utxo.dataHash, utxo.ringDataHash), utxoHash)
+    !equalBytes(
+      utxo.utxo.hash(nullifierPublicKey, treeId, utxo.dataHash, utxo.ringDataHash),
+      utxoHash,
+    )
   ) {
     throw new TransactionError("TRANSACTION_INPUT_OWNER_MISMATCH", { reason: "utxoHash" });
   }
@@ -454,13 +461,13 @@ function checkOwnerTags(
     const viewTag = output.isCompact()
       ? new Uint8Array(32)
       : (output.ownerAddress?.confidentialViewTag() ?? output.ownerTag);
-    if (viewTag === undefined || !equal(entry.resolved, viewTag)) {
+    if (viewTag === undefined || !equalBytes(entry.resolved, viewTag)) {
       throw new TransactionError("TRANSACTION_OWNER_TAG_MISMATCH", {
         slotIndex,
         reason: "viewTag",
       });
     }
-    if (entry.tag.kind === "inline" && !equal(entry.tag.value, entry.resolved)) {
+    if (entry.tag.kind === "inline" && !equalBytes(entry.tag.value, entry.resolved)) {
       throw new TransactionError("TRANSACTION_OWNER_TAG_MISMATCH", {
         slotIndex,
         reason: "inline",
@@ -468,7 +475,7 @@ function checkOwnerTags(
     }
     if (
       entry.tag.kind === "account" &&
-      (entry.tag.index !== 0 || !equal(entry.resolved, payerBytes))
+      (entry.tag.index !== 0 || !equalBytes(entry.resolved, payerBytes))
     ) {
       throw new TransactionError("TRANSACTION_OWNER_TAG_MISMATCH", {
         slotIndex,
@@ -508,7 +515,7 @@ function proofInput(value: unknown, path: string, assets: AssetRegistry): ProofI
     })),
     ...optional(entry, "cacheSlot", path, (item, field) => ({ cacheSlot: u8(item, field) })),
   });
-  if (!equal(input.hash(), utxoHash)) {
+  if (!equalBytes(input.hash(), utxoHash)) {
     throw new TransactionError("TRANSACTION_INPUT_HASH_MISMATCH", { field: path });
   }
   return input;
