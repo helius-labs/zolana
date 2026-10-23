@@ -1,0 +1,29 @@
+{
+  "source": "https://github.com/helius-labs/zolana",
+  "services": {
+    "photon": {
+      "repository": "zolana-photon",
+      "context": ".",
+      "file": "services/photon/Dockerfile",
+      "title": "Zolana Photon",
+      "description": "Zolana shielded-pool indexer",
+      "smoke": "tools/check-photon-image.sh \"$image\""
+    },
+    "prover": {
+      "repository": "zolana-prover",
+      "context": "prover/server",
+      "file": "prover/server/Dockerfile.light",
+      "title": "Zolana Prover",
+      "description": "Zolana Groth16 proving server",
+      "smoke": "docker run --rm \"$image\" --help >/dev/null"
+    },
+    "forester": {
+      "repository": "zolana-forester",
+      "context": ".",
+      "file": "forester/Dockerfile",
+      "title": "Zolana Forester",
+      "description": "Zolana queue and tree maintenance service",
+      "smoke": "docker run --rm \"$image\" --version"
+    }
+  }
+}

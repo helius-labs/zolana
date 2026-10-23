@@ -17,15 +17,20 @@ build() {
     return "${PIPESTATUS[0]}"
 }
 
-build --manifest-path programs/user-registry/Cargo.toml -- --locked --features bpf-entrypoint
-build --manifest-path programs/shielded-pool/Cargo.toml -- --locked --features bpf-entrypoint
-build --manifest-path program-tests/ring-test-program/Cargo.toml -- --locked
-build --manifest-path program-tests/spp-recorder-program/Cargo.toml -- --locked
-build --manifest-path sdk-tests/zk-program-swap/program/Cargo.toml -- --locked --features bpf-entrypoint
-cargo run --release --locked -p zolana-cli -- zk compile --test -p timelock-escrow-program --skip-wasm
-build --manifest-path sdk-tests/timelock-escrow/program/Cargo.toml -- --locked --features bpf-entrypoint
-build --manifest-path sdk-tests/dynamic-swap/program/Cargo.toml -- --locked --features bpf-entrypoint
-build --manifest-path sdk-tests/compression/program/Cargo.toml -- --locked --features bpf-entrypoint
+# Arguments replace the list below with one program of the calling repository.
+if [[ $# -gt 0 ]]; then
+    build "$@"
+else
+    build --manifest-path programs/user-registry/Cargo.toml -- --locked --features bpf-entrypoint
+    build --manifest-path programs/shielded-pool/Cargo.toml -- --locked --features bpf-entrypoint
+    build --manifest-path program-tests/ring-test-program/Cargo.toml -- --locked
+    build --manifest-path program-tests/spp-recorder-program/Cargo.toml -- --locked
+    build --manifest-path sdk-tests/zk-program-swap/program/Cargo.toml -- --locked --features bpf-entrypoint
+    cargo run --release --locked -p zolana-cli -- zk compile --test -p timelock-escrow-program --skip-wasm
+    build --manifest-path sdk-tests/timelock-escrow/program/Cargo.toml -- --locked --features bpf-entrypoint
+    build --manifest-path sdk-tests/dynamic-swap/program/Cargo.toml -- --locked --features bpf-entrypoint
+    build --manifest-path sdk-tests/compression/program/Cargo.toml -- --locked --features bpf-entrypoint
+fi
 
 # cargo build-sbf exits 0 on a frame overflow.
 frame_error='overflows the maximum allowed frame space|overwrites values in the frame'

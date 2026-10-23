@@ -6,11 +6,11 @@
 # measure that name. zolana-infra pins the EIF by sha256 and its PCRs in the
 # environment's nitro_prover, and binds the KMS key policy to the same PCRs.
 #
-#   image  <registry>/zolana-prover-nitro:prover-nitro-zolana-<sha12>-<deployment>
+#   image  <registry>/<repository>:prover-nitro-zolana-<sha12>-<deployment>
 #   EIF    s3://<NITRO_EIF_BUCKET>/<deployment>/<sha12>/prover.eif
 #          s3://<NITRO_EIF_BUCKET>/<deployment>/<sha12>/measurements.json
 #
-# Requires, in the image-publish environment:
+# Requires, in the caller's image-publish environment:
 #   vars.AWS_IMAGE_PUBLISHER_ROLE_ARN  image_publisher_role_arn from infra/bootstrap
 #   vars.NITRO_EIF_BUCKET              nitro_eif_bucket from infra/bootstrap
 
@@ -53,6 +53,43 @@ on:
         required: false
         default: ""
         type: string
+  workflow_call:
+    inputs:
+      deployment:
+        required: true
+        type: string
+      kms_key_arn:
+        required: true
+        type: string
+      source_commit:
+        type: string
+        default: ""
+      backend:
+        type: string
+        default: gnark
+      concurrency:
+        type: string
+        default: "2"
+      request_timing:
+        type: boolean
+        default: false
+      indexer_url:
+        type: string
+        default: ""
+      zolana_path:
+        description: Zolana tree in the checkout, empty for the repository root
+        type: string
+        default: ""
+      submodules:
+        type: boolean
+        default: false
+      repository:
+        description: ECR repository, empty for zolana-prover-nitro
+        type: string
+        default: ""
+    secrets:
+      AEGLOS_DEPLOY_KEY:
+        required: false
 
 concurrency:
   group: publish-nitro-${{ inputs.deployment }}
@@ -64,7 +101,8 @@ permissions:
 env:
   AWS_REGION: eu-north-1
   REGISTRY: 558215002830.dkr.ecr.eu-north-1.amazonaws.com
-  REPOSITORY: zolana-prover-nitro
+  REPOSITORY: ${{ inputs.repository || 'zolana-prover-nitro' }}
+  ZOLANA: ${{ inputs.zolana_path || '.' }}
 
 jobs:
   publish:
@@ -85,10 +123,12 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           path: build-tools
+          submodules: ${{ inputs.submodules == true }}
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           ref: ${{ inputs.source_commit || github.sha }}
           path: source
+          submodules: ${{ inputs.submodules == true }}
       - name: Resolve the build
         id: plan
         env:
@@ -113,14 +153,17 @@ jobs:
             || { echo "::error::unknown backend" >&2; exit 1; }
           [[ $CONCURRENCY =~ ^[1-9][0-9]?$ ]] \
             || { echo "::error::concurrency must be 1 to 99" >&2; exit 1; }
+          [[ -f ../build-tools/$ZOLANA/prover/server/Dockerfile.nitro && -d $ZOLANA/prover/server ]] \
+            || { echo "::error::zolana_path $ZOLANA holds no zolana tree" >&2; exit 1; }
           # Validate with the same parser that writes the measured egress routes.
-          sh ../build-tools/prover/server/nitro/routes.sh prover/server/prover/common/key_downloader.go "$INDEXER_URL" "$KMS_KEY_ARN" > /dev/null
+          sh "../build-tools/$ZOLANA/prover/server/nitro/routes.sh" "$ZOLANA/prover/server/prover/common/key_downloader.go" "$INDEXER_URL" "$KMS_KEY_ARN" > /dev/null
           source_commit=$(git rev-parse HEAD)
           [[ -z $SOURCE_COMMIT || $source_commit == "$SOURCE_COMMIT" ]] \
             || { echo "::error::checkout differs from source_commit" >&2; exit 1; }
           commit=${source_commit:0:12}
           {
             echo "source_commit=$source_commit"
+            echo "build_tools_commit=$(git -C "../build-tools/$ZOLANA" rev-parse HEAD)"
             echo "deployment=$DEPLOYMENT"
             echo "kms_key_arn=$KMS_KEY_ARN"
             echo "tag=prover-nitro-zolana-$commit-$DEPLOYMENT"
@@ -142,13 +185,13 @@ jobs:
           export GIT_CONFIG_COUNT=1
           export GIT_CONFIG_KEY_0='url.git@github.com:.insteadOf'
           export GIT_CONFIG_VALUE_0='https://github.com/'
-          tools/gpu/fetch-aeglos.sh "$RUNNER_TEMP/aeglos-source" cpu
+          "$ZOLANA/tools/gpu/fetch-aeglos.sh" "$RUNNER_TEMP/aeglos-source" cpu
           echo "contexts=aeglos_source=$RUNNER_TEMP/aeglos-source" >> "$GITHUB_OUTPUT"
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
         with:
           role-to-assume: ${{ vars.AWS_IMAGE_PUBLISHER_ROLE_ARN }}
-          role-session-name: zolana-prover-nitro-publish
+          role-session-name: ${{ env.REPOSITORY }}-publish
           aws-region: ${{ env.AWS_REGION }}
       - uses: aws-actions/amazon-ecr-login@d539f0932e70871a027e9d5a9d8fc38589180a64 # v2
       # The EIF upload below refuses an existing object by itself.
@@ -163,20 +206,22 @@ jobs:
       - name: Read prover build settings
         id: prover-build
         run: |
-          if [[ -f prover/server/release-settings.sh ]]; then
-            sh prover/server/release-settings.sh >> "$GITHUB_OUTPUT"
+          if [[ -f $ZOLANA/prover/server/release-settings.sh ]]; then
+            settings=$(sh "$ZOLANA/prover/server/release-settings.sh")
+            # Build contexts resolve from the workspace root.
+            printf '%s\n' "$settings" | sed 's|^\(extension_context=[^=]*=\)|\1source/|' >> "$GITHUB_OUTPUT"
           else
-            source prover/server/release-build.env
+            source "$ZOLANA/prover/server/release-build.env"
             echo "goamd64=$PROVER_RELEASE_GOAMD64" >> "$GITHUB_OUTPUT"
             echo "pgo=$PROVER_RELEASE_PGO" >> "$GITHUB_OUTPUT"
           fi
       - name: Use the versioned build tooling
-        run: cp ../build-tools/prover/server/build-aeglos.sh prover/server/build-aeglos.sh
+        run: cp "../build-tools/$ZOLANA/prover/server/build-aeglos.sh" "$ZOLANA/prover/server/build-aeglos.sh"
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         id: build
         with:
-          context: source
-          file: build-tools/prover/server/Dockerfile.nitro
+          context: source/${{ env.ZOLANA }}
+          file: build-tools/${{ env.ZOLANA }}/prover/server/Dockerfile.nitro
           platforms: linux/amd64
           build-contexts: |
             ${{ steps.aeglos.outputs.contexts }}
@@ -196,7 +241,7 @@ jobs:
           labels: |
             org.opencontainers.image.title=Zolana Nitro Enclave prover
             org.opencontainers.image.revision=${{ steps.plan.outputs.source_commit }}
-            org.zolana.build-tools.revision=${{ github.sha }}
+            org.zolana.build-tools.revision=${{ steps.plan.outputs.build_tools_commit }}
             org.opencontainers.image.licenses=Apache-2.0
           cache-from: ${{ inputs.backend == 'gnark' && 'type=gha,scope=publish-nitro' || '' }}
           cache-to: ${{ inputs.backend == 'gnark' && 'type=gha,mode=max,scope=publish-nitro' || '' }}
@@ -216,7 +261,7 @@ jobs:
           INDEXER_URL: ${{ inputs.indexer_url }}
         run: |
           docker pull --quiet --platform linux/amd64 "$IMAGE"
-          ../build-tools/prover/server/nitro/build-eif.sh "$IMAGE" eif
+          "../build-tools/$ZOLANA/prover/server/nitro/build-eif.sh" "$IMAGE" eif
           [[ $(jq -r .kms_key eif/measurements.json) == "$KMS_KEY_ARN" ]] \
             || { echo "::error::the image names another KMS key" >&2; exit 1; }
           jq -e --arg backend "$BACKEND" --arg source "$SOURCE_COMMIT" --arg indexer "$INDEXER_URL" --argjson concurrency "$CONCURRENCY" \
