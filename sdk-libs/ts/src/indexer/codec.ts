@@ -81,7 +81,7 @@ const I64_MAX = (1n << 63n) - 1n;
 const U64_MAX = (1n << 64n) - 1n;
 const U16_MAX = 65_535;
 
-function object(value: unknown, path: string, fields: readonly string[]): WireObject {
+export function object(value: unknown, path: string, fields: readonly string[]): WireObject {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return schemaFailure("INDEXER_SCHEMA_INVALID_TYPE", path, "an object", value);
   }
@@ -94,7 +94,7 @@ function object(value: unknown, path: string, fields: readonly string[]): WireOb
   return record;
 }
 
-function array<T>(
+export function array<T>(
   value: unknown,
   path: string,
   decode: (item: unknown, itemPath: string) => T,
@@ -133,7 +133,12 @@ function inRange(
   return integer;
 }
 
-function wireInteger(value: unknown, path: string, minimum: bigint, maximum: bigint): bigint {
+export function wireInteger(
+  value: unknown,
+  path: string,
+  minimum: bigint,
+  maximum: bigint,
+): bigint {
   if (typeof value !== "number" || !Number.isSafeInteger(value)) {
     return schemaFailure("INDEXER_SCHEMA_INVALID_INTEGER", path, "a safe JSON integer", value);
   }
@@ -192,7 +197,7 @@ function mergeEncryptionScheme(value: unknown, path: string): MergeEncryptionSch
   return integer;
 }
 
-function u16(value: unknown, path: string): number {
+export function u16(value: unknown, path: string): number {
   const integer = wireInteger(value, path, 0n, BigInt(U16_MAX));
   return Number(integer);
 }
@@ -227,7 +232,12 @@ function checkedPageLimit(value: unknown, path: string) {
  * tolerance, not a shape we emit, which is why a value past the safe-integer
  * bound is reported here rather than encoded.
  */
-function toWireInteger(value: bigint, path: string, minimum: bigint, maximum: bigint): number {
+export function toWireInteger(
+  value: bigint,
+  path: string,
+  minimum: bigint,
+  maximum: bigint,
+): number {
   if (value < minimum || value > maximum) {
     return schemaFailure(
       "INDEXER_SCHEMA_INVALID_INTEGER",
@@ -260,7 +270,7 @@ function optional<T>(
   return value === undefined || value === null ? undefined : decode(value, path);
 }
 
-function context(value: unknown, path: string): IndexerContext {
+export function context(value: unknown, path: string): IndexerContext {
   // `object` rejects any key not listed here, so a new wire field must be added
   // in the same release that starts sending it.
   const record = object(value, path, ["blockTime", "slot"]);
@@ -320,7 +330,7 @@ function encryptedUtxoMatch(value: unknown, path: string): EncryptedUtxoMatch {
   };
 }
 
-function indexedTransaction(value: unknown, path: string): IndexedShieldedTransaction {
+export function indexedTransaction(value: unknown, path: string): IndexedShieldedTransaction {
   const record = object(value, path, [
     "slot",
     "txSignature",

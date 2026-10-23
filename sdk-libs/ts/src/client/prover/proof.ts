@@ -177,6 +177,16 @@ function validG2(point: Bytes128): Bytes128 {
   return new Uint8Array(point) as Bytes128;
 }
 
+export function compressG2(point: Bytes128): Bytes64 {
+  const [, , y1, y0] = g2Coordinates(point);
+  const result = new Uint8Array(point.subarray(0, 64)) as Bytes64;
+  if (y1 === 0n && y0 === 0n) return result;
+  if (isLargest(y1) || (y1 === 0n && isLargest(y0))) {
+    result[0] = (result[0] ?? 0) | 0x80;
+  }
+  return result;
+}
+
 function validateG1(x: bigint, y: bigint, name: string): void {
   if (
     x >= BN254_BASE_MODULUS ||

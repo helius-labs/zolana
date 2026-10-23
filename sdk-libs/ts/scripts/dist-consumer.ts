@@ -106,3 +106,4 @@ export type {
   SyncWalletInput as RootSyncWalletInput,
   WalletStateStore as RootWalletStateStore,
 } from "@heliuslabs/zolana";
+export { ProverClient, indexerCodec } from "@heliuslabs/zolana/internal";

@@ -16,13 +16,14 @@ import {
   ProverClient,
   mergeProverRequestBody,
   proverRequestBody,
+  type ProverRefusal,
 } from "../src/client/prover/client.js";
 import { TeeSession } from "../src/client/prover/tee/session.js";
 import { proofFor } from "./helpers/proofs.js";
 import type { NonInclusionProof } from "../src/client/rpc.js";
 import type { Bytes32 } from "../src/interface/index.js";
 import { MERGE_INPUT_COUNT } from "../src/interface/constants.js";
-import { PROVING_KEY_SHA256S } from "../src/interface/proving-keys.js";
+import { PROVING_KEY_SHA256S, expectedProvingKey } from "../src/interface/proving-keys.js";
 import { treeAddress } from "../src/interface/pda/index.js";
 import { INPUT_TREES, ZERO_TREE_SLOT } from "../src/interface/tree-slot.js";
 import type {
@@ -922,6 +923,94 @@ describe("dummy prover inputs", () => {
       dataHash: 0n,
       ringDataHash: 0n,
       ringProgramId: 0n,
+    });
+  });
+});
+
+describe("indexed prover failures", () => {
+  const SERVER_TEXT = "photon echoed caller data";
+
+  function prove(fetch: typeof globalThis.fetch, refusal?: ProverRefusal): Promise<unknown> {
+    const prover = new ProverClient({
+      url: "http://127.0.0.1:3001",
+      fetch,
+      asyncPoll: { pollIntervalCapMs: 1, maxWaitMs: 1_000 },
+    });
+    return prover.send(
+      "{}",
+      "indexed",
+      expectedProvingKey({ circuit: "transfer-confidential", nInputs: 2, nOutputs: 2 }),
+      undefined,
+      refusal,
+    );
+  }
+
+  function queued(status: Readonly<Record<string, unknown>>) {
+    return vi.fn<typeof globalThis.fetch>(async (_url, init) => {
+      if (init?.method !== "POST") return Response.json({ status: "failed", ...status });
+      if (new Headers(init.headers).get("X-Sync") === "true")
+        return new Response(null, { status: 429 });
+      return Response.json({ jobId: "job-1" }, { status: 202 });
+    });
+  }
+
+  it.each([
+    [
+      404,
+      new Response("404 page not found", { status: 404 }),
+      "CLIENT_PROVER_INDEXER_UNCONFIGURED",
+    ],
+    [
+      404,
+      Response.json({ code: "indexer_unconfigured", message: SERVER_TEXT }, { status: 404 }),
+      "CLIENT_PROVER_INDEXER_UNCONFIGURED",
+    ],
+    // A key the prover does not serve is not a prover without an indexer.
+    [
+      404,
+      Response.json({ code: "proving_key_not_served", message: SERVER_TEXT }, { status: 404 }),
+      "CLIENT_PROVER_HTTP",
+    ],
+    [
+      503,
+      Response.json({ code: "indexer_not_ready", message: SERVER_TEXT }, { status: 503 }),
+      "CLIENT_INDEXER_PROOF_DATA_NOT_READY",
+    ],
+    [
+      502,
+      Response.json({ code: "indexer_unavailable", message: SERVER_TEXT }, { status: 502 }),
+      "CLIENT_PROVER_HTTP",
+    ],
+  ] as const)("maps a %i indexed answer to %s", async (_status, response, code) => {
+    const error = await prove(vi.fn<typeof globalThis.fetch>(async () => response)).catch(
+      (cause: unknown) => cause,
+    );
+    expect(error).toMatchObject({ code });
+    expect(JSON.stringify(error)).not.toContain(SERVER_TEXT);
+  });
+
+  it("maps a refusal through the caller's hook whether proved in the response or queued", async () => {
+    const mapped = new Error("mapped");
+    const refusal: ProverRefusal = (body) => (body["code"] === "caller_code" ? mapped : undefined);
+    for (const fetch of [
+      vi.fn<typeof globalThis.fetch>(async () =>
+        Response.json({ code: "caller_code", message: SERVER_TEXT }, { status: 422 }),
+      ),
+      queued({ code: "caller_code" }),
+    ]) {
+      await expect(prove(fetch, refusal)).rejects.toBe(mapped);
+    }
+    await expect(prove(queued({ code: "indexer_not_ready" }), refusal)).rejects.toMatchObject({
+      code: "CLIENT_INDEXER_PROOF_DATA_NOT_READY",
+    });
+  });
+
+  it("branches a failed job on its code, never on its error text", async () => {
+    await expect(prove(queued({ code: "indexer_not_ready" }))).rejects.toMatchObject({
+      code: "CLIENT_INDEXER_PROOF_DATA_NOT_READY",
+    });
+    await expect(prove(queued({ error: "indexer proof data not ready" }))).rejects.toMatchObject({
+      code: "CLIENT_PROVER_SERVER",
     });
   });
 });
