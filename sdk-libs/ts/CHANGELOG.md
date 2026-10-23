@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.0-alpha — 2026-10-21
+## 0.5.0-alpha — 2026-10-23
 
 Proofs go encrypted to an attested Nitro Enclave prover by default, the devnet
 enclave the SDK pins for a Helius devnet RPC URL, and every other remote
