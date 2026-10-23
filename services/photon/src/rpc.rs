@@ -173,17 +173,6 @@ impl RpcClient {
         }
     }
 
-    pub async fn get_blocks(
-        &self,
-        slots: std::ops::RangeInclusive<u64>,
-    ) -> Result<Vec<u64>, RpcError> {
-        self.call(
-            "getBlocks",
-            json!([slots.start(), slots.end(), { "commitment": "confirmed" }]),
-        )
-        .await
-    }
-
     pub async fn get_account(&self, pubkey: &Pubkey) -> Result<Account, RpcError> {
         let response: ContextValue<Option<EncodedAccount>> = self
             .call(
