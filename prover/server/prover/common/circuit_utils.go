@@ -32,6 +32,16 @@ type BatchProofSystem struct {
 	ProvingKeySha256 [32]byte
 }
 
+type ExtensionProofSystem struct {
+	CircuitType      CircuitType
+	ProvingKey       groth16.ProvingKey
+	VerifyingKey     groth16.VerifyingKey
+	ConstraintSystem constraint.ConstraintSystem
+	// ProvingKeySha256 is the sha256 of the key file this system was read
+	// from, computed while reading it (see ReadSystemFromFile).
+	ProvingKeySha256 [32]byte
+}
+
 // TransferProofSystem holds the keys and constraints for one transaction shape.
 // HasCommitment preserves a legacy key-header bit, not the verifier configuration.
 // Confidential selects the owner-tag-binding variant.

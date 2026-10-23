@@ -24,9 +24,6 @@ import (
 // its path paid for.
 const keyFileSuffix = ".key"
 
-// knownKeyFiles is every key file this binary proves.
-var knownKeyFiles = common.KeyFiles()
-
 // ServedKeys is the set of proving key files a deployment proves.
 type ServedKeys struct {
 	files []string
@@ -36,7 +33,7 @@ type ServedKeys struct {
 // without ".key"). None serves every key. A pattern matching no key is an
 // error, so a typo cannot silently shrink a pool to nothing.
 func ParseServedKeys(patterns []string) (*ServedKeys, error) {
-	all := knownKeyFiles
+	all := common.KeyFiles()
 	if len(patterns) == 0 {
 		return &ServedKeys{files: all}, nil
 	}
@@ -73,7 +70,7 @@ func (keys *ServedKeys) Serves(file string) bool {
 
 // Names lists the served keys as their paths name them.
 func (keys *ServedKeys) Names() []string {
-	files := knownKeyFiles
+	files := common.KeyFiles()
 	if keys != nil {
 		files = keys.files
 	}
@@ -131,7 +128,7 @@ func keyNotServed(file string) *Error {
 // that does not exist or that this deployment does not serve.
 func pathKey(r *http.Request, served *ServedKeys) (string, *Error) {
 	file := r.PathValue("key") + keyFileSuffix
-	if !slices.Contains(knownKeyFiles, file) {
+	if !slices.Contains(common.KeyFiles(), file) {
 		return "", &Error{
 			StatusCode: http.StatusNotFound,
 			Code:       "unknown_proving_key",

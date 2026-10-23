@@ -72,6 +72,18 @@ func getMaxConcurrency() int {
 	return MinConcurrencyPerWorker
 }
 
+func getExtensionMaxConcurrency() int {
+	if val := os.Getenv("EXTENSION_WORKER_CONCURRENCY"); val != "" {
+		if concurrency, err := strconv.Atoi(val); err == nil && concurrency > 0 {
+			logging.Logger().Info().
+				Int("max_concurrency", concurrency).
+				Msg("Using EXTENSION_WORKER_CONCURRENCY")
+			return concurrency
+		}
+	}
+	return getMaxConcurrency()
+}
+
 // calculateConcurrency computes per-worker concurrency from total memory.
 // Formula: (TotalRAM - Reserve) / (MemoryPerProof * NumWorkers)
 func calculateConcurrency(totalMemGB int) int {
@@ -146,6 +158,10 @@ type WorkerConfig struct {
 
 func NewAddressAppendQueueWorker(config WorkerConfig) *BaseQueueWorker {
 	return newQueueWorker("zk_address_append_queue", config, NewExecution(getMaxConcurrency()))
+}
+
+func NewExtensionQueueWorker(config WorkerConfig) *BaseQueueWorker {
+	return newQueueWorker(extensionQueue, config, NewExecution(getExtensionMaxConcurrency()))
 }
 
 // NewTransferQueueWorker shares execution permits with direct transfers.
@@ -278,6 +294,8 @@ func (w *BaseQueueWorker) processJobs(indexedJobs bool) bool {
 			circuitType = "address-append"
 		case "zk_transfer_queue":
 			circuitType = "transfer"
+		case extensionQueue:
+			circuitType = "extension"
 		}
 		QueueWaitTime.WithLabelValues(circuitType).Observe(queueWaitTime)
 	}
@@ -647,6 +665,13 @@ func (w *BaseQueueWorker) removeFromProcessingQueue(item string) {
 	}
 }
 
+func (w *BaseQueueWorker) redactProofError(err error) error {
+	if w.queueName == extensionQueue {
+		return errExtensionProof
+	}
+	return err
+}
+
 func (w *BaseQueueWorker) redactJobError(job *ProofJob, err error) error {
 	if errors.Is(err, indexed.ErrIndexerNotReady) {
 		return indexed.ErrIndexerNotReady
@@ -654,7 +679,7 @@ func (w *BaseQueueWorker) redactJobError(job *ProofJob, err error) error {
 	if job.Indexed {
 		return errIndexedProof
 	}
-	return err
+	return w.redactProofError(err)
 }
 
 func (w *BaseQueueWorker) cachedFailureMessage(cachedFailure map[string]interface{}) string {
@@ -662,7 +687,7 @@ func (w *BaseQueueWorker) cachedFailureMessage(cachedFailure map[string]interfac
 	if !ok {
 		errorMessage = "Proof generation failed (cached failure)"
 	}
-	return errorMessage
+	return w.redactProofError(errors.New(errorMessage)).Error()
 }
 
 // failureDetails describes a failed job for both the failed queue and the job
@@ -696,6 +721,9 @@ func (w *BaseQueueWorker) failureDetails(job *ProofJob, err error) map[string]in
 	var failure *Error
 	if errors.As(err, &failure) {
 		details["code"] = failure.Code
+		if len(failure.Detail) > 0 {
+			details["detail"] = failure.Detail
+		}
 	}
 	return details
 }

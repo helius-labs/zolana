@@ -163,9 +163,13 @@ jobs:
       - name: Read prover build settings
         id: prover-build
         run: |
-          source prover/server/release-build.env
-          echo "goamd64=$PROVER_RELEASE_GOAMD64" >> "$GITHUB_OUTPUT"
-          echo "pgo=$PROVER_RELEASE_PGO" >> "$GITHUB_OUTPUT"
+          if [[ -f prover/server/release-settings.sh ]]; then
+            sh prover/server/release-settings.sh >> "$GITHUB_OUTPUT"
+          else
+            source prover/server/release-build.env
+            echo "goamd64=$PROVER_RELEASE_GOAMD64" >> "$GITHUB_OUTPUT"
+            echo "pgo=$PROVER_RELEASE_PGO" >> "$GITHUB_OUTPUT"
+          fi
       - name: Use the versioned build tooling
         run: cp ../build-tools/prover/server/build-aeglos.sh prover/server/build-aeglos.sh
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
@@ -174,9 +178,12 @@ jobs:
           context: source
           file: build-tools/prover/server/Dockerfile.nitro
           platforms: linux/amd64
-          build-contexts: ${{ steps.aeglos.outputs.contexts }}
+          build-contexts: |
+            ${{ steps.aeglos.outputs.contexts }}
+            ${{ steps.prover-build.outputs.extension_context }}
           build-args: |
             BACKEND=${{ inputs.backend }}
+            PROVER_EXTENSION_REF=${{ steps.prover-build.outputs.extension_ref }}
             CONCURRENCY=${{ inputs.concurrency }}
             REQUEST_TIMING=${{ inputs.request_timing && 'on' || '' }}
             GOAMD64=${{ steps.prover-build.outputs.goamd64 }}

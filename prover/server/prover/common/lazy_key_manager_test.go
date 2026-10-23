@@ -33,6 +33,19 @@ func TestLazyKeyManagerBuildsTransferKeyPaths(t *testing.T) {
 	}
 }
 
+func TestLazyKeyManagerBuildsExtensionKeyPaths(t *testing.T) {
+	withSquareExtension(t)
+	keysDir := filepath.Join("tmp", "proving-keys")
+	manager := NewLazyKeyManager(keysDir, &DownloadConfig{})
+
+	if got, want := manager.determineExtensionKeyPath(squareExtension.Type), filepath.Join(keysDir, squareExtension.KeyFile); got != want {
+		t.Fatalf("extension path mismatch: got %q, want %q", got, want)
+	}
+	if got := manager.determineExtensionKeyPath(TransferRingCircuitType); got != "" {
+		t.Fatalf("transfer ring resolved to the extension key %q", got)
+	}
+}
+
 // A proof's path names its key file, so the prover must name every key the
 // lockfile pins, and no other.
 func TestKeyFilesAreTheLockfileKeys(t *testing.T) {
@@ -66,6 +79,8 @@ func TestKeyFileIsEmptyForAnUnsupportedShape(t *testing.T) {
 		"removed merge 51x1":    TransferKeyFile(MergeCircuitType, 51, 1),
 		"address append 40x100": BatchKeyFile(BatchAddressAppendCircuitType, 40, 100),
 		"transfer as a batch":   BatchKeyFile(TransferConfidentialCircuitType, 40, 10),
+		"unknown extension":     ExtensionKeyFile("extension-unknown"),
+		"transfer as extension": ExtensionKeyFile(TransferConfidentialCircuitType),
 	} {
 		if file != "" {
 			t.Errorf("%s: got %q", name, file)

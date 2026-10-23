@@ -12,6 +12,7 @@ func TestSyncProofTimeout(t *testing.T) {
 		circuit common.CircuitType
 		timeout time.Duration
 	}{
+		{testExtension, 5 * time.Minute},
 		{common.TransferAnonymousRingEddsaCircuitType, 5 * time.Minute},
 		{common.BatchAddressAppendCircuitType, 5 * time.Minute},
 		{common.TransferConfidentialCircuitType, 5 * time.Minute},

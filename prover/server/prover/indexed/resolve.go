@@ -28,32 +28,52 @@ type treeProofs struct {
 	realInputs []int
 }
 
+type Resolution func(context.Context, *Resolver) (*Resolved, error)
+
+// Decode validates an extension circuit's indexed request.
+type Decode func(data []byte) (Resolution, error)
+
+type Limits struct {
+	Trees        int
+	PublicInputs int
+}
+
+var extensions = map[common.CircuitType]Decode{}
+
+// Register runs in an extension package init.
+func Register(circuit common.CircuitType, decode Decode) {
+	if _, exists := extensions[circuit]; exists {
+		panic(fmt.Sprintf("indexed circuit %s is already registered", circuit))
+	}
+	extensions[circuit] = decode
+}
+
 func Validate(data []byte) error {
 	if batchCircuit(data) {
 		_, err := decodeBatch(data)
 		return err
 	}
-	_, _, err := decodeRequest(data)
+	_, err := decode(data)
 	return err
 }
 
-func decodeRequest(data []byte) (Request, *preparedProof, error) {
-	request, err := decodeEnvelope(data)
+func decode(data []byte) (Resolution, error) {
+	if extension, ok := extensions[requestCircuit(data)]; ok {
+		return extension(data)
+	}
+	request, prepared, err := decodeRequest(data)
 	if err != nil {
+		return nil, err
+	}
+	return func(ctx context.Context, r *Resolver) (*Resolved, error) {
+		return r.ResolvePrepared(ctx, request, prepared)
+	}, nil
+}
+
+func decodeRequest(data []byte) (Request, *Prepared, error) {
+	var request Request
+	if err := DecodeEnvelope(data, &request); err != nil {
 		return request, nil, err
-	}
-	if len(request.Trees) == 0 || len(request.Trees) > 2 {
-		return request, nil, fmt.Errorf("invalid input tree count")
-	}
-	for index, tree := range request.Trees {
-		if _, err := decodeHash(tree.Address); err != nil {
-			return request, nil, fmt.Errorf("invalid tree address")
-		}
-		for _, previous := range request.Trees[:index] {
-			if tree.ID == previous.ID || tree.Address == previous.Address {
-				return request, nil, fmt.Errorf("duplicate input tree")
-			}
-		}
 	}
 	expected := 17
 	switch request.CircuitType {
@@ -70,47 +90,87 @@ func decodeRequest(data []byte) (Request, *preparedProof, error) {
 		// ring merge proof binds no ciphertext.
 		expected = 8
 	}
-	if len(request.PublicInputs) != expected {
-		return request, nil, fmt.Errorf("invalid public input count")
+	if err := request.Check(Limits{Trees: 2, PublicInputs: expected}); err != nil {
+		return request, nil, err
+	}
+	prepared, err := decodePrepared(request)
+	return request, prepared, err
+}
+
+func (request Request) Check(limits Limits) error {
+	if len(request.Trees) == 0 || len(request.Trees) > limits.Trees {
+		return fmt.Errorf("invalid input tree count")
+	}
+	for index, tree := range request.Trees {
+		if _, err := decodeHash(tree.Address); err != nil {
+			return fmt.Errorf("invalid tree address")
+		}
+		for _, previous := range request.Trees[:index] {
+			if tree.ID == previous.ID || tree.Address == previous.Address {
+				return fmt.Errorf("duplicate input tree")
+			}
+		}
+	}
+	if len(request.PublicInputs) != limits.PublicInputs {
+		return fmt.Errorf("invalid public input count")
 	}
 	for _, encoded := range request.PublicInputs {
 		field, err := common.FeFromHex(encoded)
 		if err != nil || encoded == "" {
-			return request, nil, fmt.Errorf("invalid public input")
+			return fmt.Errorf("invalid public input")
 		}
-		if _, err := hashField(field); err != nil {
-			return request, nil, err
+		if _, err := HashField(field); err != nil {
+			return err
 		}
 	}
-	prepared, err := decodePrepared(request)
-	return request, prepared, err
+	if requestCircuit(request.Prepared) != request.CircuitType {
+		return fmt.Errorf("prepared circuit mismatch")
+	}
+	return nil
+}
+
+// Admit holds one of the resolver's concurrent preparation permits.
+func (r *Resolver) Admit(ctx context.Context) (release func(), err error) {
+	select {
+	case r.permits <- struct{}{}:
+		return func() { <-r.permits }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 func (r *Resolver) resolve(ctx context.Context, data []byte) (*Resolved, error) {
 	if batchCircuit(data) {
 		return r.resolveBatch(ctx, data)
 	}
-	trace := timing.FromContext(ctx)
-	finishDecode := trace.Start("indexer_decode")
-	request, prepared, err := decodeRequest(data)
+	finishDecode := timing.FromContext(ctx).Start("indexer_decode")
+	resolution, err := decode(data)
 	finishDecode()
 	if err != nil {
 		return nil, err
 	}
+	return resolution(ctx, r)
+}
+
+// ResolvePrepared fetches and binds the tree paths of a checked request.
+func (r *Resolver) ResolvePrepared(ctx context.Context, request Request, prepared *Prepared) (*Resolved, error) {
+	if len(prepared.Inputs) != len(request.Inputs) {
+		return nil, fmt.Errorf("prepared %d inputs for %d request inputs", len(prepared.Inputs), len(request.Inputs))
+	}
+	trace := timing.FromContext(ctx)
 	finishAdmission := trace.Start("indexer_admission")
 	defer finishAdmission()
-	select {
-	case r.permits <- struct{}{}:
-		defer func() { <-r.permits }()
-	case <-ctx.Done():
-		return nil, ctx.Err()
+	release, err := r.Admit(ctx)
+	if err != nil {
+		return nil, err
 	}
+	defer release()
 	finishAdmission()
 	finishFetch := trace.Start("indexer_fetch")
 	defer finishFetch()
 	proofs := make([]treeProofs, len(request.Trees))
 	for index, input := range request.Inputs {
-		if prepared.inputs[index].disabled {
+		if prepared.Inputs[index].Disabled {
 			continue
 		}
 		group := &proofs[input.TreeSlot]
@@ -120,7 +180,7 @@ func (r *Resolver) resolve(ctx context.Context, data []byte) (*Resolved, error) 
 		}
 	}
 	for _, group := range proofs {
-		if len(group.inputs) == 0 {
+		if len(group.inputs) == 0 && !prepared.EmptyTrees {
 			return nil, fmt.Errorf("input tree has no real spend")
 		}
 	}
@@ -128,6 +188,9 @@ func (r *Resolver) resolve(ctx context.Context, data []byte) (*Resolved, error) 
 	defer cancel()
 	// 1. Fetch one nullifier snapshot per tree for real and dummy inputs together.
 	tasks, taskContext := errgroup.WithContext(ctx)
+	if prepared.Fetch != nil {
+		tasks.Go(recovered(func() error { return prepared.Fetch(taskContext, r) }))
+	}
 	for treeIndex, tree := range request.Trees {
 		group := &proofs[treeIndex]
 		leaves := make([]Hash, len(group.realInputs))
@@ -136,7 +199,7 @@ func (r *Resolver) resolve(ctx context.Context, data []byte) (*Resolved, error) 
 		}
 		nullifiers := make([]Hash, len(group.inputs))
 		for index, input := range group.inputs {
-			prepared.inputs[input].nullifier.FillBytes(nullifiers[index][:])
+			prepared.Inputs[input].Nullifier.FillBytes(nullifiers[index][:])
 		}
 		if len(leaves) != 0 {
 			tasks.Go(recovered(func() error {
@@ -195,10 +258,10 @@ func (r *Resolver) resolve(ctx context.Context, data []byte) (*Resolved, error) 
 			state, _ := common.FeFromHex(fallback.UtxoRoot)
 			exclusion, _ := common.FeFromHex(fallback.NullifierRoot)
 			if len(group.state.Proofs) == 0 {
-				stateRoot.Root, _ = hashField(state)
+				stateRoot.Root, _ = HashField(state)
 				stateRoot.RootIndex = fallback.UtxoRootIndex
 			}
-			nullifierRoot.Root, _ = hashField(exclusion)
+			nullifierRoot.Root, _ = HashField(exclusion)
 			nullifierRoot.RootIndex = fallback.NullifierRootIndex
 		}
 		if len(group.exclusion.Proofs) != 0 {
@@ -210,37 +273,37 @@ func (r *Resolver) resolve(ctx context.Context, data []byte) (*Resolved, error) 
 			if proof.Leaf != *request.Inputs[input].Commitment || proof.MerkleContext.Tree != tree.Address || proof.MerkleContext.TreeType != 1 || proof.Root != stateRoot.Root || proof.RootIndex != stateRoot.RootIndex || proof.RootSeq != stateRoot.RootSeq || len(proof.Path) != 32 {
 				return nil, fmt.Errorf("state proof binding mismatch")
 			}
-			if err := verifyPath(proof.Leaf, proof.Path, proof.LeafIndex, proof.Root); err != nil {
+			if err := VerifyPath(proof.Leaf, proof.Path, proof.LeafIndex, proof.Root); err != nil {
 				return nil, err
 			}
 			states[input] = proof
 		}
 		for index, input := range group.inputs {
 			proof := group.exclusion.Proofs[index]
-			expected, err := hashField(prepared.inputs[input].nullifier)
+			expected, err := HashField(prepared.Inputs[input].Nullifier)
 			if err != nil || proof.Leaf != expected || proof.MerkleContext.Tree != tree.Address || proof.MerkleContext.TreeType != 2 || proof.Root != nullifierRoot.Root || proof.RootIndex != nullifierRoot.RootIndex || proof.RootSeq != nullifierRoot.RootSeq || len(proof.Path) != 40 {
 				return nil, fmt.Errorf("nullifier proof binding mismatch")
 			}
-			low, err := proof.LowElement.field()
+			low, err := proof.LowElement.Field()
 			if err != nil {
 				return nil, err
 			}
-			high, err := proof.HighElement.field()
-			if err != nil || low.Cmp(prepared.inputs[input].nullifier) >= 0 || high.Cmp(prepared.inputs[input].nullifier) <= 0 {
+			high, err := proof.HighElement.Field()
+			if err != nil || low.Cmp(prepared.Inputs[input].Nullifier) >= 0 || high.Cmp(prepared.Inputs[input].Nullifier) <= 0 {
 				return nil, fmt.Errorf("invalid nullifier exclusion range")
 			}
 			leaf, err := prooftranscript.HashFields([]*big.Int{low, high})
 			if err != nil {
 				return nil, err
 			}
-			leafHash, err := hashField(leaf)
+			leafHash, err := HashField(leaf)
 			if err != nil {
 				return nil, err
 			}
-			if err := verifyPath(leafHash, proof.Path, proof.LowElementIndex, proof.Root); err != nil {
+			if err := VerifyPath(leafHash, proof.Path, proof.LowElementIndex, proof.Root); err != nil {
 				return nil, err
 			}
-			prepared.inputs[input].apply(states[input], proof)
+			prepared.Inputs[input].apply(states[input], proof)
 		}
 		slots[treeIndex] = common.TreeSlotParams{ID: new(big.Int).SetUint64(uint64(tree.ID)), UtxoRoot: new(big.Int).SetBytes(stateRoot.Root[:]), NullifierRoot: new(big.Int).SetBytes(nullifierRoot.Root[:])}
 		resolution.Trees[treeIndex] = common.ResolvedTree{Tree: tree.Address, ID: tree.ID, UtxoRoot: stateRoot.Root.hex(), NullifierRoot: nullifierRoot.Root.hex(), UtxoRootIndex: stateRoot.RootIndex, NullifierRootIndex: nullifierRoot.RootIndex}
@@ -261,48 +324,62 @@ func (r *Resolver) resolve(ctx context.Context, data []byte) (*Resolved, error) 
 	if err != nil {
 		return nil, fmt.Errorf("invalid public input")
 	}
-	transcript := append([]*big.Int{}, public[:2]...)
-	transcript = append(transcript, treeHash)
-	transcript = append(transcript, public[2:]...)
-	*prepared.hash, err = prooftranscript.HashChain4(transcript)
+	if prepared.Statement != nil {
+		*prepared.Hash, err = prepared.Statement(public, treeHash)
+	} else {
+		transcript := append([]*big.Int{}, public[:2]...)
+		transcript = append(transcript, treeHash)
+		transcript = append(transcript, public[2:]...)
+		*prepared.Hash, err = prooftranscript.HashChain4(transcript)
+	}
 	if err != nil {
 		return nil, err
 	}
-	*prepared.slots = slots
-	resolution.PublicInputHash = common.FeHex(*prepared.hash)
-	payload, err := prepared.value.MarshalJSON()
+	*prepared.Slots = slots
+	resolution.PublicInputHash = common.FeHex(*prepared.Hash)
+	payload, err := prepared.Value.MarshalJSON()
 	if err != nil {
 		return nil, fmt.Errorf("cannot encode resolved inputs")
 	}
 	return &Resolved{Payload: payload, Resolution: resolution}, nil
 }
 
-func decodeEnvelope(data []byte) (Request, error) {
-	var request Request
+// DecodeEnvelope rejects unknown fields and trailing data.
+func DecodeEnvelope(data []byte, request any) error {
 	if len(data) > 1<<20 {
-		return request, fmt.Errorf("invalid indexed request")
+		return fmt.Errorf("invalid indexed request")
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&request); err != nil {
-		return request, fmt.Errorf("invalid indexed request: %w", err)
+	if err := decoder.Decode(request); err != nil {
+		return fmt.Errorf("invalid indexed request: %w", err)
 	}
 	if decoder.Decode(new(any)) != io.EOF {
-		return request, fmt.Errorf("invalid indexed request")
+		return fmt.Errorf("invalid indexed request")
 	}
-	return request, nil
+	return nil
 }
 
-func verifyPath(leaf Hash, path []Hash, index uint64, root Hash) error {
+func requestCircuit(data []byte) common.CircuitType {
+	var meta struct {
+		Circuit common.CircuitType `json:"circuitType"`
+	}
+	if json.Unmarshal(data, &meta) != nil {
+		return ""
+	}
+	return meta.Circuit
+}
+
+func VerifyPath(leaf Hash, path []Hash, index uint64, root Hash) error {
 	if len(path) > 63 || index >= uint64(1)<<len(path) {
 		return fmt.Errorf("invalid proof path index")
 	}
-	hash, err := leaf.field()
+	hash, err := leaf.Field()
 	if err != nil {
 		return err
 	}
 	for level, sibling := range path {
-		value, err := sibling.field()
+		value, err := sibling.Field()
 		if err != nil {
 			return err
 		}
