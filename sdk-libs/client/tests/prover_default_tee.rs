@@ -19,7 +19,7 @@ use zolana_client::{
 use zolana_interface::{verifying_keys::CircuitId, N_PUBLIC_SLOTS};
 
 const RECORDED_ATTESTATION: &str =
-    include_str!("../../../prover/tee/testdata/devnet_d_tee_2_attestation.json");
+    include_str!("../../../prover/tee/testdata/devnet_d_tee_3_attestation.json");
 const TRANSFER: &str =
     include_str!("../../../prover/server/prover/request/testdata/transfer-2x2.json");
 const TRANSFER_KEY: &str = "transfer_confidential_2_2.key";
@@ -32,7 +32,7 @@ struct RecordedAttestation {
 }
 
 #[test]
-fn the_release_policy_accepts_the_measured_devnet_d_tee_2_attestation() {
+fn the_release_policy_accepts_the_measured_devnet_d_tee_3_attestation() {
     let fixture: RecordedAttestation = serde_json::from_str(RECORDED_ATTESTATION).unwrap();
     let nonce: [u8; 32] = hex::decode(fixture.nonce).unwrap().try_into().unwrap();
     let policy = TeePolicy::default_deployment().unwrap();
@@ -67,7 +67,7 @@ fn the_new_deployment_refuses_the_retired_hpke_key_pin() {
         panic!("the default deployment must remain Nitro");
     };
     pins.hpke_public_key = Some(
-        hex::decode("f88ce265f3a519822d1fb7b1927d00e3d92c9dd3dc151cf9eebcb8fedd995f1a")
+        hex::decode("91c087bcca7e3ba33d893b3f2f9768bef3553d30b1db0db248b8e20c35d4f00e")
             .unwrap()
             .try_into()
             .unwrap(),
