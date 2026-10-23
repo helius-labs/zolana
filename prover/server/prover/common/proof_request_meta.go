@@ -59,7 +59,7 @@ func ParseProofRequestMeta(data []byte) (ProofRequestMeta, error) {
 
 	// Transfer and merge circuits are keyed by their fixed shape instead of a
 	// tree height, so they are exempt from the tree-height requirement below.
-	isFixedShape := CircuitType(circuitType).IsTransfer() || CircuitType(circuitType).IsRing()
+	isFixedShape := CircuitType(circuitType).IsTransfer()
 
 	// Extract nInputs/nOutputs (transfer circuits only). For logging/metrics; the
 	// handler re-reads the authoritative values from the unmarshalled params.
@@ -88,7 +88,7 @@ func ParseProofRequestMeta(data []byte) (ProofRequestMeta, error) {
 		numInputs = len(inclusionInputs)
 	}
 	// Transfer circuits report their shape via nInputs/nOutputs.
-	if isFixedShape && !CircuitType(circuitType).IsRing() {
+	if isFixedShape {
 		numInputs = int(nInputs)
 	}
 

@@ -1,4 +1,3 @@
-import { ringDepositRecipientCiphertext } from "../../interface/ring-deposit-capsule.js";
 import type {
   Address,
   Bytes16,
@@ -7,9 +6,7 @@ import type {
   EncryptedRingDepositData,
 } from "../../interface/types.js";
 import { Reader, Writer, encodeBase58, byteVector } from "../../interface/internal.js";
-import { X25519PublicKey } from "../../keypair/x25519.js";
 import type { ShieldedPublicKey } from "../../keypair/public-key.js";
-import type { ViewingKeyLike } from "../../keypair/shielded.js";
 
 import { Data, type DataRecord } from "../data.js";
 import { Utxo } from "../utxo.js";
@@ -87,23 +84,6 @@ export function decodeRingDepositOutput(body: Uint8Array): RingDepositOutput {
     ringDataHash,
     encrypted: Object.freeze({ txViewingPublicKey, salt, ciphertext }),
   });
-}
-
-/** Rust `RingDepositPlaintext::decrypt` + `into_utxo`. The ring data record is always present, the UTXO is ring-bound. */
-export function decryptRingDepositUtxo(
-  output: RingDepositOutput,
-  key: ViewingKeyLike,
-  owner: ShieldedPublicKey,
-): Utxo {
-  return ringDepositUtxo(
-    output,
-    key.decryptRingDeposit(
-      ringDepositRecipientCiphertext(output.encrypted.ciphertext),
-      X25519PublicKey.fromBytes(output.encrypted.txViewingPublicKey),
-      output.encrypted.salt,
-    ),
-    owner,
-  );
 }
 
 /** The UTXO a ring deposit describes, from its envelope already opened with the viewing key. */

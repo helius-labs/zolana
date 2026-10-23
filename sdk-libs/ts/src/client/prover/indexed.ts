@@ -8,18 +8,11 @@ import { getBase58Decoder } from "@solana/kit";
 import { wireDecoder } from "../../interface/decode.js";
 import { MERGE_SUPPORTED_INPUT_COUNTS } from "../../interface/constants.js";
 import { treeAddress } from "../../interface/pda/index.js";
-import {
-  inputTreeSlots,
-  treeSlotsHashChain,
-  NO_UTXO_ROOT,
-  type TreeSlot,
-} from "../../interface/tree-slot.js";
+import { inputTreeSlots, NO_UTXO_ROOT, type TreeSlot } from "../../interface/tree-slot.js";
 import { ADDRESS_DOMAIN } from "../../interface/program.js";
 import { selectSppShape } from "../../interface/shape.js";
 import type { Bytes32, RequestContext } from "../../interface/types.js";
-import { hashChain } from "../../transaction/internal.js";
 import type {
-  IndexedPolicyInputs,
   IndexedProofAuthority,
   IndexedProofInputs,
   IndexedProofResult,
@@ -211,44 +204,6 @@ export function resolvedTrees(
       });
     }),
   );
-}
-
-/** A tree without a state or nullifier lookup keeps the root and position the client sent for it. */
-export function checkPolicyResolution(
-  inputs: IndexedPolicyInputs,
-  resolution: ProofResolution,
-): void {
-  bindResolution(resolution, inputs.trees, (slots) =>
-    bytesToBigInt(
-      hashChain([
-        ...inputs.publicInputs.slice(0, 1),
-        treeSlotsHashChain(inputTreeSlots(slots)),
-        ...inputs.publicInputs.slice(1),
-      ]),
-    ),
-  );
-  resolution.trees.forEach((tree, index) => {
-    const sent = inputs.trees[index];
-    if (
-      sent === undefined ||
-      tree.utxoRootIndex >= STATE_ROOT_HISTORY_CAPACITY ||
-      (!opensAt(inputs.lookups, index, "commitment") &&
-        (bytesToBigInt(tree.utxoRoot) !== bytesToBigInt(sent.utxoRoot) ||
-          tree.utxoRootIndex !== sent.utxoRootIndex)) ||
-      (!opensAt(inputs.lookups, index, "nullifier") &&
-        (bytesToBigInt(tree.nullifierRoot) !== bytesToBigInt(sent.nullifierRoot) ||
-          tree.nullifierRootIndex !== sent.nullifierRootIndex))
-    )
-      throw unparsable();
-  });
-}
-
-/** A deposit resolves no tree, its statement is the hash the request carries. */
-export function checkDepositResolution(
-  publicInputHash: Bytes32,
-  resolution: ProofResolution,
-): void {
-  bindResolution(resolution, [], () => bytesToBigInt(publicInputHash));
 }
 
 export function contextSlotJson(slot: unknown): Readonly<{ minContextSlot?: number }> {

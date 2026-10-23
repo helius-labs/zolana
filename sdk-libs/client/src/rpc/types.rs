@@ -3,11 +3,7 @@ use std::pin::Pin;
 use futures::Stream;
 use solana_address::Address;
 use solana_signature::Signature;
-pub use zolana_indexer_api::{
-    GetRingKeyRegistryEntryResponse, GetRingKeyRegistryRegisterProofResponse,
-    GetRingSpendRecordResponse, RingMemberProofRequest, RingSpendRecord, RingSpendRecordRequest,
-    MAX_USER_RECORD_OWNERS,
-};
+pub use zolana_indexer_api::MAX_USER_RECORD_OWNERS;
 use zolana_keypair::X25519Pubkey;
 pub use zolana_transaction::{OutputContext, OutputSlot, ShieldedTransaction};
 pub use zolana_user_registry_interface::UserRecord;

@@ -134,7 +134,7 @@ covers the whole group) and referenced from the coverage matrix.
 - [x] **INV-TRANSACT-11: anonymous proofs require a valid BSB22 commitment**
   - Statement: AnonymousRingEddsa carries its lookup commitment in the selector. Invalid encodings return 7007 and failed verification returns 7008.
   - Location: `programs/shielded-pool/src/instructions/transact/verify.rs`
-  - Covered by: `custom-rings/test/tests/ring.rs` `an_anonymous_ring_hides_owners_and_preserves_auditor_access` rejects malformed commitments and PoKs, a well-formed invalid PoK, then spends the unchanged valid proof.
+  - Covered by: `program-tests/ring-test-program/tests/anonymous_ring_lifecycle.rs` `anonymous_ring_transfer_updates_recipient_wallet` rejects a malformed commitment (7007) and spends the unchanged valid proof, and `cross_rail_proof_grafting_is_rejected` fails a zeroed commitment at pairing (7008).
   - Severity: Critical (spend authorization)
 
 - [ ] **INV-TRANSACT-12: both public amounts set is rejected**
@@ -473,7 +473,7 @@ covers the whole group) and referenced from the coverage matrix.
   - Suggested test: golden vector (exists: `program-tests/shielded-pool/tests/transact/circuit_vectors.rs`); harness: `cargo nextest run -p shielded-pool-tests --test transact_circuit_vectors`
 
 - [x] **INV-RING-TRANSACT-06: anonymous ownership stays private on the wire**
-  - Covered by: `custom-rings/test/tests/ring.rs` anonymous lifecycle and `prover/server/circuits/spp_transaction/shared/custom_anonymous_eddsa_test.go`.
+  - Covered by: `program-tests/ring-test-program/tests/anonymous_ring_lifecycle.rs` and `prover/server/circuits/spp_transaction/shared/custom_anonymous_eddsa_test.go`.
   - Statement: the anonymous selector publishes no owner key. Its circuit rejects default-ring hidden inputs, public owner signers and published output owners. The default-owner hash element is fixed to zero.
   - Severity: High (confidentiality and binding)
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { CUSTOM_RING_PROOF_LENGTH, compressProof, parseProof } from "../src/client/prover/proof.js";
+import { compressProof, parseProof } from "../src/client/prover/proof.js";
 import type { Proof } from "../src/client/prover/types.js";
 
 const ZERO_POINT = ["0x0", "0x0"];
@@ -21,7 +21,7 @@ const G2 = new Uint8Array([
 ]);
 
 describe("proof compression", () => {
-  it("keeps the raw G2 point and compresses it only for the custom-ring proof", () => {
+  it("keeps the raw G2 point", () => {
     const proof = {
       a: new Uint8Array(64),
       b: G2,
@@ -32,7 +32,6 @@ describe("proof compression", () => {
     const compressed = compressProof(proof);
     expect(compressed.b).toEqual(G2);
     expect(compressed.toTransactProof().b).toEqual(G2);
-    expect(compressed.toCustomRingProof().subarray(32, 96)).toEqual(G2.slice(0, 64));
   });
 
   it("rejects a G2 point off the curve", () => {
@@ -81,14 +80,11 @@ describe("proof compression", () => {
     expect(bareCoordinates.a).toEqual(prefixedCoordinates.a);
   });
 
-  it("carries the BSB22 commitment pair and lays out the custom-ring proof", () => {
+  it("carries the BSB22 commitment pair", () => {
     const generator = ["0x1", "0x2"];
     const plain = parseProof(ZERO_PROOF);
     expect(plain.commitment).toBeUndefined();
     expect(plain.commitmentPok).toBeUndefined();
-    expect(() => compressProof(plain).toCustomRingProof()).toThrow(
-      expect.objectContaining({ code: "CLIENT_PROOF_PARSE" }),
-    );
 
     const proof = parseProof({
       ...ZERO_PROOF,
@@ -101,13 +97,6 @@ describe("proof compression", () => {
     expect(proof.commitmentPok).toEqual(new Uint8Array(64));
 
     const compressed = compressProof(proof);
-    const audit = compressed.toCustomRingProof();
-    expect(audit).toHaveLength(CUSTOM_RING_PROOF_LENGTH);
-    expect(audit.subarray(0, 32)).toEqual(compressed.a);
-    expect(audit.subarray(32, 96)).toEqual(new Uint8Array(64));
-    expect(audit.subarray(96, 128)).toEqual(compressed.c);
-    expect(audit.subarray(128, 160)).toEqual(compressed.commitment);
-    expect(audit.subarray(160, 192)).toEqual(compressed.commitmentPok);
     expect(compressed.commitment?.[0]).toBe(0);
     expect(compressed.commitment?.[31]).toBe(1);
     expect(compressed.commitmentPok).toEqual(new Uint8Array(32));

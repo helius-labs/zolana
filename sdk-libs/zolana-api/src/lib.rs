@@ -30,7 +30,6 @@ use zeroize::Zeroizing;
 use zolana_indexer_api::{
     method::{
         GetEncryptedUtxosByTags, GetMerkleProofs, GetNonInclusionProofs, GetNullifierQueueElements,
-        GetRingKeyRegistryEntry, GetRingKeyRegistryRegisterProof, GetRingSpendRecord,
         GetShieldedTransactionsByNullifiers, GetShieldedTransactionsBySignature,
         GetShieldedTransactionsByTags, GetUserRecords,
     },
@@ -41,15 +40,12 @@ pub use zolana_indexer_api::{
     Base64String, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
     GetMerkleProofsRequest, GetMerkleProofsResponse, GetNonInclusionProofsRequest,
     GetNonInclusionProofsResponse, GetNullifierQueueElementsRequest,
-    GetNullifierQueueElementsResponse, GetRingKeyRegistryEntryResponse,
-    GetRingKeyRegistryRegisterProofResponse, GetRingSpendRecordResponse,
-    GetRingsByNullifiersRequest, GetRingsByTagsRequest,
+    GetNullifierQueueElementsResponse, GetRingsByNullifiersRequest, GetRingsByTagsRequest,
     GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureRequest,
     GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
     GetUserRecordsRequest, GetUserRecordsResponse, Hash, IndexedShieldedTransaction, Limit,
-    MerkleContext, MerkleProof, NonInclusionProof, NullifierQueueElement, RingMemberProofRequest,
-    RingSpendRecord, RingSpendRecordRequest, RingsOutputContext, RingsOutputSlot,
-    SerializablePubkey, SerializableSignature, ShieldedTransaction, UserRecord,
+    MerkleContext, MerkleProof, NonInclusionProof, NullifierQueueElement, RingsOutputContext,
+    RingsOutputSlot, SerializablePubkey, SerializableSignature, ShieldedTransaction, UserRecord,
     MAX_USER_RECORD_OWNERS, PAGE_LIMIT,
 };
 
@@ -629,27 +625,6 @@ impl ZolanaApi {
         .await
     }
 
-    pub async fn get_ring_spend_record(
-        &self,
-        request: RingSpendRecordRequest,
-    ) -> Result<GetRingSpendRecordResponse, ApiError> {
-        self.call::<GetRingSpendRecord>(request).await
-    }
-
-    pub async fn get_ring_key_registry_entry(
-        &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingKeyRegistryEntryResponse, ApiError> {
-        self.call::<GetRingKeyRegistryEntry>(request).await
-    }
-
-    pub async fn get_ring_key_registry_register_proof(
-        &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingKeyRegistryRegisterProofResponse, ApiError> {
-        self.call::<GetRingKeyRegistryRegisterProof>(request).await
-    }
-
     pub async fn get_non_inclusion_proofs(
         &self,
         tree_account: SerializablePubkey,
@@ -833,30 +808,6 @@ impl BlockingZolanaApi {
     ) -> Result<GetMerkleProofsResponse, ApiError> {
         self.runtime
             .block_on(self.api.get_merkle_proofs(tree_account, leaves))
-    }
-
-    pub fn get_ring_spend_record(
-        &self,
-        request: RingSpendRecordRequest,
-    ) -> Result<GetRingSpendRecordResponse, ApiError> {
-        self.runtime
-            .block_on(self.api.get_ring_spend_record(request))
-    }
-
-    pub fn get_ring_key_registry_entry(
-        &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingKeyRegistryEntryResponse, ApiError> {
-        self.runtime
-            .block_on(self.api.get_ring_key_registry_entry(request))
-    }
-
-    pub fn get_ring_key_registry_register_proof(
-        &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingKeyRegistryRegisterProofResponse, ApiError> {
-        self.runtime
-            .block_on(self.api.get_ring_key_registry_register_proof(request))
     }
 
     pub fn get_non_inclusion_proofs(

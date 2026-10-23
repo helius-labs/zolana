@@ -3,7 +3,6 @@ import { address } from "@solana/kit";
 
 import { ZolanaApi } from "../src/api/index.js";
 import { ProverClient } from "../src/client/prover/client.js";
-import { RingRpc } from "../src/ring/rpc.js";
 
 // A browser's `fetch` throws "Illegal invocation" unless called on the global,
 // which a stored method reference is not. The stub enforces the same rule.
@@ -36,7 +35,6 @@ describe("fetch binding", () => {
     const { fetch, calls } = strictFetch();
     vi.stubGlobal("fetch", fetch);
     try {
-      await new RingRpc("http://ring.example", { allowInsecureHttp: true }).health();
       await new ZolanaApi({ url: "https://indexer.example" })
         .getEncryptedUtxosByTags({
           tags: [],
@@ -44,7 +42,7 @@ describe("fetch binding", () => {
         })
         .catch(() => undefined);
       new ProverClient({ url: "https://prover.example" });
-      expect(calls.length).toBeGreaterThanOrEqual(2);
+      expect(calls.length).toBeGreaterThanOrEqual(1);
     } finally {
       vi.unstubAllGlobals();
     }

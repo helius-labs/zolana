@@ -8,8 +8,6 @@ const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const SRC = [join(ROOT, "src")];
 const TESTS = ["test", "api/test", "transaction/test", "wallet/test"].map((dir) => join(ROOT, dir));
 
-/** Compile-time program id constants, the one place a bare brand cast is trusted. */
-const ALLOWED_AS_ADDRESS = new Set(["src/ring/config.ts"]);
 /** The checked Kit signature bridge, plus the gate's own pattern. */
 const ALLOWED_DOUBLE_CAST = new Set(["src/keypair/shielded.ts", "test/casts.test.ts"]);
 /** The one audited launder for partial client fakes. */
@@ -36,7 +34,7 @@ function offenders(
 
 describe("cast restrictions", () => {
   it("decodes wire strings instead of casting them to Address or Signature", () => {
-    expect(offenders(SRC, /as (Address|Signature)[^A-Za-z]/u, ALLOWED_AS_ADDRESS)).toEqual([]);
+    expect(offenders(SRC, /as (Address|Signature)[^A-Za-z]/u, new Set())).toEqual([]);
   });
 
   it("keeps double casts out of production and test code", () => {

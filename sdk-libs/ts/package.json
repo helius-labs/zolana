@@ -33,10 +33,6 @@
       "types": "./dist/keypair/index.d.ts",
       "import": "./dist/keypair/index.js"
     },
-    "./ring": {
-      "types": "./dist/ring.d.ts",
-      "import": "./dist/ring.js"
-    },
     "./transaction": {
       "types": "./dist/transaction/index.d.ts",
       "import": "./dist/transaction/index.js"
@@ -61,7 +57,6 @@
     "lint": "oxlint --deny-warnings src test api/test transaction/test wallet/test scripts bench",
     "test": "vitest run --exclude \"test/e2e/**\"",
     "test:e2e": "vitest run --no-file-parallelism test/e2e",
-    "test:ring-controls:live": "node scripts/run-ring-controls-live.mjs",
     "check": "npm run format:check && npm run lint && npm run changelog:check && npm run typecheck && npm run test && npm run build && npm run check:dist",
     "loadtest": "npm run build && node bench/loadtest.ts",
     "check:dist": "tsc -p tsconfig.dist.json && tsc -p tsconfig.bench.json"

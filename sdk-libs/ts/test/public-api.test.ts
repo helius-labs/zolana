@@ -10,9 +10,7 @@ import {
   type Transaction,
   type TransactionSigner,
 } from "@solana/kit";
-import { describe, expect, expectTypeOf, it, vi } from "vitest";
-
-import type { CustomRingSourceOwner } from "../src/client/index.js";
+import { describe, expect, it, vi } from "vitest";
 
 import { EncryptedScheme, decodeOutputData } from "../src/transaction/index.js";
 // The encoder stays internal; only the decoders are needed by a relayed client.
@@ -96,13 +94,6 @@ function onlyInstructionAccounts(transaction: Transaction) {
 }
 
 describe("public package surface", () => {
-  it("exports every type named by the custom-ring public API", () => {
-    expectTypeOf<CustomRingSourceOwner>().toMatchTypeOf<{
-      readonly listId: number;
-      readonly ownerHash: Bytes32;
-    }>();
-  });
-
   it("creates the default client and initializes protocol crypto", async () => {
     const client = await createZolanaClient();
     expect(client.tree).toBe(TREE);
@@ -111,9 +102,6 @@ describe("public package surface", () => {
     expect(client.proveTransact).toBeTypeOf("function");
     expect("rpc" in client).toBe(false);
     expect(client.proveRingTransact).toBeTypeOf("function");
-    expect(client.proveCustomRingPolicy).toBeTypeOf("function");
-    expect(client.proveCustomRingBase).toBeTypeOf("function");
-    expect(client.proveCustomRingDeposit).toBeTypeOf("function");
   });
 
   it("exposes only the objects needed for the common wallet flow", () => {
@@ -138,7 +126,6 @@ describe("public package surface", () => {
     expect(sdk.buildWithdrawalTransaction).toBeTypeOf("function");
     expect(sdk.buildSplitTransaction).toBeTypeOf("function");
     expect(sdk.buildMergeTransaction).toBeTypeOf("function");
-    expect(sdk.buildRingEntryTransaction).toBeTypeOf("function");
     expect(sdk.fetchAssetMetadata).toBeTypeOf("function");
     expect(sdk.AssetMetadataCache).toBeTypeOf("function");
     expect(sdk.formatAmount).toBeTypeOf("function");
@@ -238,38 +225,6 @@ describe("public package surface", () => {
     ).resolves.toBeDefined();
     expect(getAccount).not.toHaveBeenCalled();
     expect(getLatestBlockhash).toHaveBeenCalledOnce();
-  });
-
-  it("keeps the ring instruction surface in the ring entry point only", async () => {
-    const [ring, ...others] = await Promise.all([
-      import("../src/ring.js"),
-      import("../src/index.js"),
-      import("../src/client/index.js"),
-      import("../src/addresses.js"),
-      import("../src/instructions.js"),
-      import("../src/interface/index.js"),
-      import("../src/transaction/index.js"),
-    ]);
-    for (const name of [
-      "ringConfigAddress",
-      "createRingConfigInstruction",
-      "initSppRingConfigInstruction",
-      "ringTransactInstruction",
-      "proveCustomRingTransfer",
-      "createRingPolicyInstruction",
-      "setRingPolicyRulesInstruction",
-      "setRingPolicySourceInstruction",
-      "buildRingCreatePolicyTransaction",
-      "createRingEntryInstruction",
-      "buildRingListWriteTransaction",
-      "deployRingProgram",
-      "registerRingKeyInstruction",
-      "prepareRingKeyRegistration",
-      "recoverRingMemberNotes",
-    ] as const) {
-      expect(ring[name]).toBeTypeOf("function");
-      for (const other of others) expect(other).not.toHaveProperty(name);
-    }
   });
 
   it("builds the merging opt-in as an unsigned transaction", async () => {

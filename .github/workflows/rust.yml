@@ -209,29 +209,6 @@ jobs:
           key: proving-keys-${{ hashFiles('prover/server/prover/provingkeys/proving-keys.lock') }}
       - run: just test-program-proofs-programs-only
 
-  test-custom-ring:
-    name: tests / custom-ring
-    runs-on: ubuntu-latest
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
-        with:
-          go-version-file: prover/server/go.mod
-          cache-dependency-path: prover/server/go.sum
-      - uses: ./.github/actions/setup-rust
-        with:
-          shared-key: custom-ring
-          private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
-      - name: Cache proving keys
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: prover/server/proving-keys
-          key: custom-ring-keys-${{ hashFiles('prover/server/prover/provingkeys/proving-keys.lock') }}
-      - run: just test-custom-ring
-      # No key recipe may rewrite the committed verifying keys.
-      - run: git diff --exit-code -- custom-rings/interface/src
-
   build-photon:
     name: build / photon
     runs-on: ubuntu-latest
@@ -310,7 +287,6 @@ jobs:
           path: |
             target/debug/zolana
             target/debug/xtask
-            target/debug/zolana-ring
             target/debug/photon
             target/prover-server
           if-no-files-found: error
@@ -388,31 +364,11 @@ jobs:
           - name: compression lifecycle
             recipe: test-compression-validator
             runner: ubuntu-latest
-          # Velocity is the slowest ring test.
-          - name: custom-ring lifecycle
-            recipe: test-custom-ring-validator 'not test(=a_velocity_ring_bounds_each_senders_outflow)'
-            runner: ubuntu-latest
-          - name: custom-ring velocity
-            recipe: test-custom-ring-validator 'test(=a_velocity_ring_bounds_each_senders_outflow)'
-            runner: ubuntu-latest
-          - name: custom-ring shared sources
-            recipe: test-custom-ring-shared
-            runner: ubuntu-latest
-          - name: custom-ring policy rules
-            recipe: test-custom-ring-rules
-            runner: ubuntu-latest
-          - name: custom-ring policy re-pin
-            recipe: test-custom-ring-repin
-            runner: ubuntu-latest
           - name: rfq settlement
             recipe: test-rfq-validator
             runner: ubuntu-latest
     env:
       AGAVE_VERSION: v4.2.2
-      # GH_TOKEN is for the gh-release custom-ring key downloads
-      # (ensure-custom-ring-keys); SPP proving keys come from CloudFront and
-      # the example programs' test keys from the build job, and need no token.
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       ZOLANA_PHOTON_BIN: target/bin/photon
       ZOLANA_PREBUILT: "1"
       ZOLANA_XTASK_BIN: target/debug/xtask
@@ -472,7 +428,7 @@ jobs:
         with:
           name: localnet-tests-${{ github.sha }}
           path: target/nextest-archives
-      - run: chmod 0755 target/debug/zolana target/debug/xtask target/debug/zolana-ring target/debug/photon target/prover-server
+      - run: chmod 0755 target/debug/zolana target/debug/xtask target/debug/photon target/prover-server
       - name: Download example test keys
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:

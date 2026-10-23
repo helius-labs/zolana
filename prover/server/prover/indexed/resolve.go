@@ -29,10 +29,6 @@ type treeProofs struct {
 }
 
 func Validate(data []byte) error {
-	if requestCircuit(data) == common.CustomRingDepositCircuitType {
-		_, _, err := decodeDeposit(data)
-		return err
-	}
 	if batchCircuit(data) {
 		_, err := decodeBatch(data)
 		return err
@@ -46,14 +42,7 @@ func decodeRequest(data []byte) (Request, *preparedProof, error) {
 	if err != nil {
 		return request, nil, err
 	}
-	if request.Registry != nil && !policyCircuit(request.CircuitType) {
-		return request, nil, fmt.Errorf("unexpected registry request")
-	}
-	maximumTrees := 2
-	if policyCircuit(request.CircuitType) {
-		maximumTrees = 5
-	}
-	if len(request.Trees) == 0 || len(request.Trees) > maximumTrees {
+	if len(request.Trees) == 0 || len(request.Trees) > 2 {
 		return request, nil, fmt.Errorf("invalid input tree count")
 	}
 	for index, tree := range request.Trees {
@@ -80,10 +69,6 @@ func decodeRequest(data []byte) (Request, *preparedProof, error) {
 		// The prefix without the tree hash and the two-element ring tail; the
 		// ring merge proof binds no ciphertext.
 		expected = 8
-	case common.CustomRingPolicyCircuitType, common.CustomRingDelegatePolicyCircuitType:
-		expected = 19
-	case common.CustomRingCompressedPolicyCircuitType:
-		expected = 20
 	}
 	if len(request.PublicInputs) != expected {
 		return request, nil, fmt.Errorf("invalid public input count")
@@ -102,9 +87,6 @@ func decodeRequest(data []byte) (Request, *preparedProof, error) {
 }
 
 func (r *Resolver) resolve(ctx context.Context, data []byte) (*Resolved, error) {
-	if requestCircuit(data) == common.CustomRingDepositCircuitType {
-		return r.resolveDeposit(ctx, data)
-	}
 	if batchCircuit(data) {
 		return r.resolveBatch(ctx, data)
 	}
@@ -138,7 +120,7 @@ func (r *Resolver) resolve(ctx context.Context, data []byte) (*Resolved, error) 
 		}
 	}
 	for _, group := range proofs {
-		if len(group.inputs) == 0 && !prepared.policy {
+		if len(group.inputs) == 0 {
 			return nil, fmt.Errorf("input tree has no real spend")
 		}
 	}
@@ -146,9 +128,6 @@ func (r *Resolver) resolve(ctx context.Context, data []byte) (*Resolved, error) 
 	defer cancel()
 	// 1. Fetch one nullifier snapshot per tree for real and dummy inputs together.
 	tasks, taskContext := errgroup.WithContext(ctx)
-	if prepared.registry != nil {
-		tasks.Go(recovered(func() error { return r.resolvePolicyRegistry(taskContext, request, prepared.registry) }))
-	}
 	for treeIndex, tree := range request.Trees {
 		group := &proofs[treeIndex]
 		leaves := make([]Hash, len(group.realInputs))
@@ -285,18 +264,7 @@ func (r *Resolver) resolve(ctx context.Context, data []byte) (*Resolved, error) 
 	transcript := append([]*big.Int{}, public[:2]...)
 	transcript = append(transcript, treeHash)
 	transcript = append(transcript, public[2:]...)
-	if prepared.policy {
-		value := public[0]
-		for _, field := range append([]*big.Int{treeHash}, public[1:]...) {
-			value, err = prooftranscript.HashFields([]*big.Int{value, field})
-			if err != nil {
-				return nil, err
-			}
-		}
-		*prepared.hash = value
-	} else {
-		*prepared.hash, err = prooftranscript.HashChain4(transcript)
-	}
+	*prepared.hash, err = prooftranscript.HashChain4(transcript)
 	if err != nil {
 		return nil, err
 	}
@@ -323,16 +291,6 @@ func decodeEnvelope(data []byte) (Request, error) {
 		return request, fmt.Errorf("invalid indexed request")
 	}
 	return request, nil
-}
-
-func requestCircuit(data []byte) common.CircuitType {
-	var meta struct {
-		Circuit common.CircuitType `json:"circuitType"`
-	}
-	if json.Unmarshal(data, &meta) != nil {
-		return ""
-	}
-	return meta.Circuit
 }
 
 func verifyPath(leaf Hash, path []Hash, index uint64, root Hash) error {

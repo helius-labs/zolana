@@ -3,11 +3,7 @@ set -euo pipefail
 
 # Package E rotation, local half only: regenerate every proving key whose circuit
 # moved, regenerate the verifying keys both Rust crates embed, and regenerate the
-# lockfile. It does NOT upload to S3 and does NOT publish the custom-ring release
-# assets; those stay with the key owner.
-#
-# custom_ring_base is deliberately skipped: its circuit is unchanged, and gnark's
-# Setup is non-deterministic, so regenerating it would churn a frozen key.
+# lockfile. It does NOT upload to S3. The upload stays with the key owner.
 
 server_dir="$(cd "$(dirname "$0")/.." && pwd)"
 repo_root="$(cd "$server_dir/../.." && pwd)"
@@ -25,18 +21,8 @@ bash scripts/generate_keys_transfer.sh "$keys_dir"
 echo "==> generating merge proving keys"
 bash scripts/generate_keys_merge.sh "$keys_dir"
 
-echo "==> generating the custom-ring policy proving key and its verifying key"
-vkey_dir="$repo_root/custom-rings/interface/src"
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "$tmp_dir"' EXIT
-(cd "$repo_root" && cargo build -q -p xtask)
-xtask="$repo_root/target/debug/xtask"
-./light-prover setup-custom-ring-policy \
-    --output "$keys_dir/custom_ring_policy.key" \
-    --vk-out "$tmp_dir/custom_ring_policy.vkbin"
-"$xtask" bsb22-vk "$tmp_dir/custom_ring_policy.vkbin" "$keys_dir/custom_ring_policy.key" \
-    "$vkey_dir" "policy_verifying_key.rs"
-rustfmt "$vkey_dir/policy_verifying_key.rs"
 
 echo "==> generating batch address-append proving keys"
 for spec in "10" "4999"; do
@@ -64,6 +50,6 @@ for spec in "10" "4999"; do
 done
 
 echo "==> regenerating proving-keys.lock"
-python3 scripts/generate_lockfile.py "$keys_dir" --release custom_ring_policy.key --release custom_ring_base.key
+python3 scripts/generate_lockfile.py "$keys_dir"
 
-echo "==> local rotation complete; S3 upload and the custom-ring release are the owner's step"
+echo "==> local rotation complete; S3 upload is the owner's step"

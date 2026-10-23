@@ -1,5 +1,4 @@
 import { equalBytes, bytesKey } from "../../interface/bytes.js";
-import { ringDepositRecipientCiphertext } from "../../interface/ring-deposit-capsule.js";
 import { mergePaddedInputCount } from "../../interface/constants.js";
 import type { Address, Bytes16, Bytes32, Bytes33, RequestContext } from "../../interface/types.js";
 import { type ShieldedPublicKey } from "../../keypair/public-key.js";
@@ -276,7 +275,7 @@ class SyncPass {
       selfViewingPublicKeys: readonly X25519PublicKey[];
     }>,
   ) {
-    this.#depositPayloadDecoder = input.depositPayloadDecoder ?? ringDepositRecipientCiphertext;
+    this.#depositPayloadDecoder = input.depositPayloadDecoder ?? ((bytes) => bytes);
     this.#owner = input.identity.signingPublicKey;
     this.#nullifierPublicKey = input.identity.nullifierPublicKey;
     this.#viewingPublicKeys = input.viewingPublicKeys;

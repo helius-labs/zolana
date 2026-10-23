@@ -1,7 +1,3 @@
-mod deposit;
-pub use deposit::IndexedDepositRequest;
-mod policy;
-pub use policy::{IndexedPolicyData, IndexedPolicyLookup, IndexedPolicyRequest, IndexedRegistry};
 mod batch;
 pub use batch::{BatchAnchor, IndexedBatchRequest, ProvenIndexedBatch};
 mod merge;

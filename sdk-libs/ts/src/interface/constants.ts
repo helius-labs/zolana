@@ -20,5 +20,3 @@ export const MERGE_SUPPORTED_INPUT_COUNTS: readonly number[] = Object.freeze([
 export function mergePaddedInputCount(realInputs: number): number | undefined {
   return MERGE_SUPPORTED_INPUT_COUNTS.find((count) => count >= realInputs);
 }
-
-export const RING_SPEND_COUNTERS_SLOT_INDEX = 0xffff_ffff;

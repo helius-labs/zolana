@@ -21,10 +21,8 @@ use super::{
     traits::{AsyncRpc, Rpc},
     types::{
         GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse, GetNonInclusionProofsResponse,
-        GetRingKeyRegistryEntryResponse, GetRingKeyRegistryRegisterProofResponse,
-        GetRingSpendRecordResponse, GetShieldedTransactionsByNullifiersResponse,
-        GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
-        GetUserRecordsResponse, RingHistoryOptions, RingMemberProofRequest, RingSpendRecordRequest,
+        GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
+        GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, RingHistoryOptions,
         ShieldedTransactionStream,
     },
     IndexerRpcConfig, ProgramAccountsFilter,
@@ -251,30 +249,6 @@ impl<T: Rpc + Send + Sync + 'static> AsyncRpc for Blocking<T> {
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetNonInclusionProofsResponse, ClientError> {
         self.run(move |rpc| rpc.get_non_inclusion_proofs(tree_account, leaves, config))
-            .await
-    }
-
-    async fn get_ring_spend_record(
-        &self,
-        request: RingSpendRecordRequest,
-    ) -> Result<GetRingSpendRecordResponse, ClientError> {
-        self.run(move |rpc| rpc.get_ring_spend_record(request))
-            .await
-    }
-
-    async fn get_ring_key_registry_entry(
-        &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingKeyRegistryEntryResponse, ClientError> {
-        self.run(move |rpc| rpc.get_ring_key_registry_entry(request))
-            .await
-    }
-
-    async fn get_ring_key_registry_register_proof(
-        &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingKeyRegistryRegisterProofResponse, ClientError> {
-        self.run(move |rpc| rpc.get_ring_key_registry_register_proof(request))
             .await
     }
 

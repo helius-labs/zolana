@@ -22,7 +22,6 @@ import (
 
 	"github.com/consensys/gnark/constraint"
 
-	customring "github.com/helius-labs/zolana/prover/server/prover/custom_ring"
 	mergeprover "github.com/helius-labs/zolana/prover/server/prover/merge"
 	nulltree "github.com/helius-labs/zolana/prover/server/prover/nullifier_tree"
 	eddsaprover "github.com/helius-labs/zolana/prover/server/prover/transfer_eddsa"
@@ -63,24 +62,6 @@ func compileFingerprints(t *testing.T) map[string]fingerprint {
 	anonymousRing, err := eddsaprover.R1CSAnonymousEddsaTransfer(2, 4)
 	add("transfer_eddsa_ring_2_4", anonymousRing, err)
 
-	customRing, err := customring.R1CSPolicy()
-	add("custom_ring_policy", customRing, err)
-
-	delegate, err := customring.R1CSDelegatePolicy()
-	add("custom_ring_delegate_policy", delegate, err)
-
-	audit, err := customring.R1CSBase()
-	add("custom_ring_base", audit, err)
-
-	compressed, err := customring.R1CSCompressedPolicy()
-	add("custom_ring_compressed_policy", compressed, err)
-
-	registerKey, err := customring.R1CSKeyRegister()
-	add("custom_ring_register_key", registerKey, err)
-
-	deposit, err := customring.R1CSDeposit()
-	add("custom_ring_deposit", deposit, err)
-
 	merged, err := mergeprover.R1CSMerge(24)
 	add("merge_24_1", merged, err)
 
@@ -97,19 +78,13 @@ func compileFingerprints(t *testing.T) map[string]fingerprint {
 // prover/server/prover/provingkeys/proving-keys.lock. Regenerate with
 // UPDATE_FINGERPRINTS=1 after a full key rotation.
 var expectedFingerprints = map[string]fingerprint{
-	"transfer_confidential_2_4":     {constraints: 57558, public: 2},
-	"transfer_ring_2_4":             {constraints: 57684, public: 2},
-	"transfer_ring_authority_2_2":   {constraints: 51913, public: 2},
-	"transfer_eddsa_ring_2_4":       {constraints: 109382, public: 2},
-	"custom_ring_policy":            {constraints: 463087, public: 2},
-	"custom_ring_compressed_policy": {constraints: 1137117, public: 2},
-	"custom_ring_register_key":      {constraints: 80819, public: 2},
-	"custom_ring_deposit":           {constraints: 208516, public: 2},
-	"custom_ring_delegate_policy":   {constraints: 450712, public: 2},
-	"custom_ring_base":              {constraints: 124723, public: 2},
-	"merge_24_1":                    {constraints: 527430, public: 2},
-	"merge_ring_24_1":               {constraints: 526077, public: 2},
-	"batch_address-append_40_10":    {constraints: 421991, public: 2},
+	"transfer_confidential_2_4":   {constraints: 57558, public: 2},
+	"transfer_ring_2_4":           {constraints: 57684, public: 2},
+	"transfer_ring_authority_2_2": {constraints: 51913, public: 2},
+	"transfer_eddsa_ring_2_4":     {constraints: 109382, public: 2},
+	"merge_24_1":                  {constraints: 527430, public: 2},
+	"merge_ring_24_1":             {constraints: 526077, public: 2},
+	"batch_address-append_40_10":  {constraints: 421991, public: 2},
 }
 
 func TestCircuitFingerprintsMatchRotatedKeys(t *testing.T) {

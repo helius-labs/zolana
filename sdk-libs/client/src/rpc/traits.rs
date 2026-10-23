@@ -18,11 +18,9 @@ use super::{
     transaction::{compile_message, sign_transaction},
     types::{
         GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse, GetNonInclusionProofsResponse,
-        GetRingKeyRegistryEntryResponse, GetRingKeyRegistryRegisterProofResponse,
-        GetRingSpendRecordResponse, GetShieldedTransactionsByNullifiersResponse,
-        GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
-        GetUserRecordsResponse, ProveResult, RingHistoryOptions, RingMemberProofRequest,
-        RingSpendRecordRequest, ShieldedTransactionStream,
+        GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
+        GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, ProveResult,
+        RingHistoryOptions, ShieldedTransactionStream,
     },
     ProgramAccountsFilter,
 };
@@ -222,27 +220,6 @@ pub trait Rpc {
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetNonInclusionProofsResponse, ClientError> {
         Err(unsupported("get_non_inclusion_proofs"))
-    }
-
-    fn get_ring_spend_record(
-        &self,
-        request: RingSpendRecordRequest,
-    ) -> Result<GetRingSpendRecordResponse, ClientError> {
-        Err(unsupported("get_ring_spend_record"))
-    }
-
-    fn get_ring_key_registry_entry(
-        &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingKeyRegistryEntryResponse, ClientError> {
-        Err(unsupported("get_ring_key_registry_entry"))
-    }
-
-    fn get_ring_key_registry_register_proof(
-        &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingKeyRegistryRegisterProofResponse, ClientError> {
-        Err(unsupported("get_ring_key_registry_register_proof"))
     }
 
     /// Registry records for up to `MAX_USER_RECORD_OWNERS` owners, read at one
@@ -460,27 +437,6 @@ pub trait AsyncRpc: Send + Sync {
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetNonInclusionProofsResponse, ClientError> {
         Err(unsupported("get_non_inclusion_proofs"))
-    }
-
-    async fn get_ring_spend_record(
-        &self,
-        request: RingSpendRecordRequest,
-    ) -> Result<GetRingSpendRecordResponse, ClientError> {
-        Err(unsupported("get_ring_spend_record"))
-    }
-
-    async fn get_ring_key_registry_entry(
-        &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingKeyRegistryEntryResponse, ClientError> {
-        Err(unsupported("get_ring_key_registry_entry"))
-    }
-
-    async fn get_ring_key_registry_register_proof(
-        &self,
-        request: RingMemberProofRequest,
-    ) -> Result<GetRingKeyRegistryRegisterProofResponse, ClientError> {
-        Err(unsupported("get_ring_key_registry_register_proof"))
     }
 
     /// See [`Rpc::get_user_records`].

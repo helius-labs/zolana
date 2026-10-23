@@ -33,22 +33,6 @@ func TestLazyKeyManagerBuildsTransferKeyPaths(t *testing.T) {
 	}
 }
 
-func TestLazyKeyManagerBuildsCustomRingKeyPaths(t *testing.T) {
-	keysDir := filepath.Join("tmp", "proving-keys")
-	manager := NewLazyKeyManager(keysDir, &DownloadConfig{})
-
-	for circuitType, filename := range RingKeyFiles {
-		got := manager.determineRingKeyPath(circuitType)
-		want := filepath.Join(keysDir, filename)
-		if got != want {
-			t.Fatalf("%s path mismatch: got %q, want %q", circuitType, got, want)
-		}
-	}
-	if got := manager.determineRingKeyPath(TransferRingCircuitType); got != "" {
-		t.Fatalf("transfer ring resolved to the ring key %q", got)
-	}
-}
-
 // A proof's path names its key file, so the prover must name every key the
 // lockfile pins, and no other.
 func TestKeyFilesAreTheLockfileKeys(t *testing.T) {
@@ -82,8 +66,6 @@ func TestKeyFileIsEmptyForAnUnsupportedShape(t *testing.T) {
 		"removed merge 51x1":    TransferKeyFile(MergeCircuitType, 51, 1),
 		"address append 40x100": BatchKeyFile(BatchAddressAppendCircuitType, 40, 100),
 		"transfer as a batch":   BatchKeyFile(TransferConfidentialCircuitType, 40, 10),
-		"unknown custom ring":   RingKeyFile("custom-ring-unknown"),
-		"transfer as ring":      RingKeyFile(TransferConfidentialCircuitType),
 	} {
 		if file != "" {
 			t.Errorf("%s: got %q", name, file)
