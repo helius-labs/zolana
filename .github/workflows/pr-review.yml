@@ -1,0 +1,201 @@
+name: pr review
+
+# Advisory Codex review for each pushed PR head. Posts inline review comments
+# with suggested fixes or flags. Not a required check.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    name: pr review / codex
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Fork PRs get no secrets; bot PRs are generated.
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.type != 'Bot'
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      review: ${{ steps.codex.outputs.final-message }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Codex runs read-only without network, so git history and GitHub API
+      # context are collected here.
+      - name: Collect review context
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p .ci/review
+          git diff "$BASE...$HEAD" > .ci/review/diff.patch
+          git diff --name-only "$BASE...$HEAD" > .ci/review/files.txt
+          mapfile -t files < .ci/review/files.txt
+          git log --format='%h %ad %s' --date=short -n 30 "$BASE" -- "${files[@]}" > .ci/review/history.txt
+          git log --format=%H -n 20 "$BASE" -- "${files[@]}" \
+            | while read -r sha; do gh api "repos/$GITHUB_REPOSITORY/commits/$sha/pulls" -q '.[].number' || true; done \
+            | sort -un | tail -n 5 \
+            | while read -r n; do
+                echo "## PR #$n"
+                gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$n/comments" -q '.[] | "- \(.path): \(.body)"' || true
+              done > .ci/review/prior-comments.md
+
+      - name: Codex review
+        id: codex
+        uses: openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e # v1.12
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          sandbox: read-only
+          prompt: |
+            Review a pull request to Zolana. Do not modify files. Do not use the network.
+
+            Precomputed context in `.ci/review/`:
+
+            - `files.txt`: changed files
+            - `diff.patch`: the PR diff against its base
+            - `history.txt`: recent commits that touched those files
+            - `prior-comments.md`: review comments from earlier PRs that touched those files
+
+            Review the change in five independent passes:
+
+            1. Instruction compliance: root `CLAUDE.md`, any `CLAUDE.md` in directories of changed files, and `NAMING.md`. Flag only rules the file states explicitly.
+            2. Bugs in the diff: focus on large ones, such as logic errors, missing account or signer checks, panics in onchain code, and serialization layout changes. Ignore nitpicks and likely false positives.
+            3. Protocol consistency: changes that contradict `docs/spec.md`, or that change protocol behavior without updating it.
+            4. History and prior review: changes that undo a recent deliberate fix in `history.txt`, and comments in `prior-comments.md` that also apply here.
+            5. Code comments in the changed files, and whether the change follows them.
+
+            Skip `Cargo.lock`, `package-lock.json`, generated files, and pre-existing issues. Skip anything rustfmt, clippy, cargo-machete, or the test suites already catch.
+
+            Score each candidate issue from 0 to 100 for confidence that it is real:
+
+            - 0: false positive or pre-existing issue
+            - 25: might be real, not verified
+            - 50: real but minor
+            - 75: verified, important, or explicitly called out in an instruction file
+            - 100: certain and frequent
+
+            Report only issues scoring 80 or higher, as `findings`. Return an empty list when there are none. For each finding:
+
+            - `path`, `start_line`, `end_line`: the line range in the file at the PR head. Prefer lines inside a hunk in `diff.patch`.
+            - `title`: one sentence.
+            - `reason`: for example "CLAUDE.md: meaningful errors" or "bug".
+            - `body`: what is wrong and why, in at most two sentences.
+            - `suggestion`: the exact replacement text for lines `start_line` to `end_line`, with the original indentation, or null. Give one only when the fix is complete and limited to those lines.
+          output-schema: |
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["findings"],
+              "properties": {
+                "findings": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["path", "start_line", "end_line", "title", "reason", "body", "suggestion"],
+                    "properties": {
+                      "path": { "type": "string" },
+                      "start_line": { "type": "integer" },
+                      "end_line": { "type": "integer" },
+                      "title": { "type": "string" },
+                      "reason": { "type": "string" },
+                      "body": { "type": "string" },
+                      "suggestion": { "type": ["string", "null"] }
+                    }
+                  }
+                }
+              }
+            }
+
+  # Separate job so the write token never shares a runner with Codex or PR code.
+  comment:
+    name: pr review / comment
+    needs: review
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Post inline review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REVIEW: ${{ needs.review.outputs.review }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          PR: ${{ github.event.pull_request.number }}
+        shell: python
+        run: |
+          import hashlib, json, os, re, subprocess
+
+          repo, pr, head = os.environ["GITHUB_REPOSITORY"], os.environ["PR"], os.environ["HEAD"]
+
+          def gh(*args, data=None):
+              cmd = ["gh", "api", *args] + (["--input", "-"] if data is not None else [])
+              stdin = json.dumps(data) if data is not None else None
+              return subprocess.run(cmd, input=stdin, capture_output=True, text=True, check=True).stdout
+
+          def pages(path):
+              return [item for page in json.loads(gh("--paginate", "--slurp", path)) for item in page]
+
+          # GitHub only accepts inline comments on lines inside a diff hunk.
+          hunks = {}
+          for f in pages(f"repos/{repo}/pulls/{pr}/files"):
+              hunks[f["filename"]] = [
+                  (int(m[1]), int(m[1]) + int(m[2] or 1) - 1)
+                  for m in re.finditer(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@", f.get("patch", ""), re.M)
+              ]
+
+          seen = set()
+          for c in pages(f"repos/{repo}/pulls/{pr}/comments") + pages(f"repos/{repo}/pulls/{pr}/reviews"):
+              if c["user"]["login"] == "github-actions[bot]":
+                  seen.update(re.findall(r"<!-- codex-pr-review:(\w+) -->", c.get("body") or ""))
+
+          comments, outside = [], []
+          for f in json.loads(os.environ["REVIEW"])["findings"]:
+              fp = hashlib.sha1(f"{f['path']}:{f['title']}".encode()).hexdigest()[:12]
+              if fp in seen:
+                  continue
+              label = "Fix" if f["suggestion"] is not None else "Flag"
+              text = f"**{label}:** {f['title']}\n\n{f['body']}\n\n_Reason: {f['reason']}_"
+              if f["suggestion"] is not None:
+                  text += f"\n\n```suggestion\n{f['suggestion'].rstrip(chr(10))}\n```"
+              text += f"\n<!-- codex-pr-review:{fp} -->"
+              start, end = f["start_line"], f["end_line"]
+              if any(a <= start <= end <= b for a, b in hunks.get(f["path"], [])):
+                  comment = {"path": f["path"], "line": end, "side": "RIGHT", "body": text}
+                  if start < end:
+                      comment.update(start_line=start, start_side="RIGHT")
+                  comments.append(comment)
+              else:
+                  outside.append(f"`{f['path']}:{start}`\n\n{text}")
+
+          if not comments and not outside:
+              print("No new findings.")
+              raise SystemExit
+
+          body = f"Codex review for {head[:7]}."
+          if outside:
+              body += "\n\nOutside the diff:\n\n" + "\n\n---\n\n".join(outside)
+          review = {"commit_id": head, "event": "COMMENT", "body": body, "comments": comments}
+          try:
+              gh("-X", "POST", f"repos/{repo}/pulls/{pr}/reviews", data=review)
+          except subprocess.CalledProcessError:
+              # One rejected inline position fails the whole review; fall back to the review body.
+              review["body"] += "\n\n---\n\n" + "\n\n---\n\n".join(f"`{c['path']}:{c['line']}`\n\n{c['body']}" for c in comments)
+              review["comments"] = []
+              gh("-X", "POST", f"repos/{repo}/pulls/{pr}/reviews", data=review)
