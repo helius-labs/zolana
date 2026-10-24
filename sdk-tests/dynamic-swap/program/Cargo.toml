@@ -20,10 +20,16 @@ no-entrypoint = []
 cpi = ["no-entrypoint"]
 test-sbf = []
 profile-program = ["light-program-profiler/profile-program"]
+circuits = [
+    "dep:zolana-transaction",
+    "zolana-program/client",
+    "zolana-program/setup",
+    "zolana-program/parallel",
+]
+r1cs-export = ["zolana-program/r1cs-export"]
 
 [dependencies]
 borsh = { workspace = true }
-groth16-solana = { workspace = true, features = ["bsb22"] }
 light-program-profiler = { workspace = true }
 pinocchio = { workspace = true, features = ["cpi"] }
 pinocchio-system = { workspace = true }
@@ -33,8 +39,15 @@ wincode = { workspace = true }
 zolana-account-checks = { workspace = true }
 zolana-hasher = { workspace = true }
 zolana-interface = { workspace = true }
-zolana-program = { workspace = true, features = ["cpi"] }
-bytemuck = { workspace = true }
+zolana-program = { workspace = true, features = ["cpi", "verifier"] }
+zolana-transaction = { workspace = true, optional = true }
+# `min_const_generics`: without it bytemuck only implements Pod/Zeroable for
+# arrays up to 32 elements, and `Pair` holds the 33-byte tagged X25519 maker
+# encryption key. The feature is purely additive.
+bytemuck = { workspace = true, features = ["min_const_generics"] }
+
+[dev-dependencies]
+zolana-account-checks = { workspace = true, features = ["test-only"] }
 
 [lints.rust.unexpected_cfgs]
 level = "allow"

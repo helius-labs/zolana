@@ -9,7 +9,6 @@ autotests = false
 anyhow = { workspace = true }
 bytemuck = { workspace = true }
 dynamic-swap-program = { path = "../program" }
-dynamic-swap-prover = { path = "../prover" }
 dynamic-swap-sdk = { path = "../sdk" }
 solana-address = { workspace = true }
 solana-instruction = { workspace = true }
@@ -18,6 +17,7 @@ solana-pubkey = { workspace = true }
 solana-rpc-client = { workspace = true }
 solana-signature = { workspace = true }
 solana-signer = { workspace = true }
+wincode = { workspace = true }
 zolana-client = { workspace = true, features = ["solana-rpc"] }
 zolana-interface = { workspace = true }
 zolana-keypair = { workspace = true }
@@ -58,5 +58,9 @@ name = "escrow_flow"
 path = "tests/escrow_flow.rs"
 
 [[test]]
-name = "escrow_refund"
-path = "tests/escrow_refund.rs"
+name = "escrow_cancel"
+path = "tests/escrow_cancel.rs"
+
+[[test]]
+name = "liquidity"
+path = "tests/liquidity.rs"
