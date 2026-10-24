@@ -15,10 +15,9 @@ use zolana_interface::{
     state::{discriminator::RING_CONFIG, RingConfig},
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_program::instruction::{
-    CreateRingConfig, SetRingActivation, UpdateRingConfig, UpdateRingConfigOwner,
-};
+use zolana_program::instruction::{CreateRingConfig, UpdateRingConfig, UpdateRingConfigOwner};
 use zolana_program_test::{Rejection, RING_TEST_PROGRAM_ID};
+use zolana_protocol_instructions::SetRingActivation;
 use zolana_smart_account_client::execute_sync_ix;
 
 use super::RingHarness;

@@ -57,7 +57,7 @@ branch="$(git rev-parse --abbrev-ref HEAD | tr -c 'A-Za-z0-9._\n' '-')"
 case "$service" in
     photon)   repository=zolana-photon;   context=.;             file=services/photon/Dockerfile ;;
     prover)   repository=zolana-prover;   context=prover/server; file=prover/server/Dockerfile.light ;;
-    forester) repository=zolana-forester; context=.;             file=forester/Dockerfile ;;
+    forester) repository=zolana-forester; context=.;             file=protocol/forester/Dockerfile ;;
     *) echo "unknown service $service" >&2; exit 2 ;;
 esac
 [[ -f "$file" ]] || { echo "$file is missing on this commit" >&2; exit 1; }

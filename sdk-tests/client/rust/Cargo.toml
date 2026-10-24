@@ -9,6 +9,7 @@ autoexamples = false
 path = "src/lib.rs"
 
 [dependencies]
+zolana-protocol-instructions = { workspace = true }
 anyhow = { workspace = true }
 bytemuck = { workspace = true }
 solana-address = { workspace = true }
@@ -19,7 +20,7 @@ solana-signature = { workspace = true }
 solana-signer = { workspace = true }
 zolana-client = { workspace = true, features = ["solana-rpc"] }
 zolana-interface = { workspace = true }
-zolana-program = { workspace = true, features = ["protocol-instructions"] }
+zolana-program = { workspace = true }
 zolana-keypair = { workspace = true }
 zolana-program-test = { workspace = true, features = ["localnet"] }
 zolana-test-utils = { workspace = true }

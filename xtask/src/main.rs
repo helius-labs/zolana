@@ -10,15 +10,9 @@ use sha2::{Digest, Sha256};
 
 mod check_deps;
 mod create_release;
-mod find_smart_accounts;
-mod init_protocol;
 mod loadtest;
-mod set_tree_fees;
 mod tee_check;
 mod tee_policy;
-mod tree_fees;
-mod update_protocol_config;
-mod upgrade_shielded_pool;
 
 fn main() {
     let mut args = env::args().skip(1);
@@ -111,42 +105,6 @@ fn main() {
             }
         }
         Some("program-ids") => print_program_ids(),
-        Some("init-protocol") => {
-            if let Err(error) = init_protocol::run(init_protocol::Options::parse(args.collect())) {
-                eprintln!("init-protocol failed: {error:?}");
-                std::process::exit(1);
-            }
-        }
-        Some("find-smart-accounts") => {
-            if let Err(error) =
-                find_smart_accounts::run(find_smart_accounts::Options::parse(args.collect()))
-            {
-                eprintln!("find-smart-accounts failed: {error:?}");
-                std::process::exit(1);
-            }
-        }
-        Some("update-protocol-config") => {
-            if let Err(error) =
-                update_protocol_config::run(update_protocol_config::Options::parse(args.collect()))
-            {
-                eprintln!("update-protocol-config failed: {error:?}");
-                std::process::exit(1);
-            }
-        }
-        Some("upgrade-shielded-pool") => {
-            if let Err(error) =
-                upgrade_shielded_pool::run(upgrade_shielded_pool::Options::parse(args.collect()))
-            {
-                eprintln!("upgrade-shielded-pool failed: {error:?}");
-                std::process::exit(1);
-            }
-        }
-        Some("set-tree-fees") => {
-            if let Err(error) = set_tree_fees::run(set_tree_fees::Options::parse(args.collect())) {
-                eprintln!("set-tree-fees failed: {error:?}");
-                std::process::exit(1);
-            }
-        }
         Some("create-release") => {
             if let Err(error) = create_release::run(create_release::Options::parse(args.collect()))
             {
@@ -446,13 +404,6 @@ fn print_help() {
         "  vk-json <vk_json> <zkey> <out_dir> <filename>         Export one JSON verifying key as Rust source"
     );
     println!("  program-ids              Print local validator program ids as shell assignments");
-    println!("  init-protocol            Initialize the protocol on a cluster (see --help)");
-    println!(
-        "  find-smart-accounts      Recover an existing deployment's authority smart accounts"
-    );
-    println!("  update-protocol-config   Update protocol config flags on a cluster (see --help)");
-    println!("  upgrade-shielded-pool    Execute a loader-v3 upgrade through the protocol Squads");
-    println!("  set-tree-fees            Set a pool tree's forester fee schedule (see --help)");
     println!(
         "  create-release           Build the localnet release artifacts + lockfile (see --help)"
     );

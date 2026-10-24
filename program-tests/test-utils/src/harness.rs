@@ -25,9 +25,8 @@ use zolana_interface::{
     SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{ShieldedKeypair, SigningKey};
-use zolana_program::instruction::{
-    CreateAssetCounter, CreateProtocolConfig, CreateSplInterface, CreateTree,
-};
+use zolana_program::instruction::CreateSplInterface;
+use zolana_protocol_instructions::{CreateAssetCounter, CreateProtocolConfig, CreateTree};
 use zolana_smart_account_client::execute_sync_each;
 use zolana_transaction::{AssetRegistry, ShieldedTransaction, Utxo, WalletUtxo};
 use zolana_tree::NullifierTreeInitParams;

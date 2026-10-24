@@ -196,7 +196,7 @@ jobs:
               # crates, so building from forester/ cannot work.
               echo "repository=zolana-forester" >> "$GITHUB_OUTPUT"
               echo "context=." >> "$GITHUB_OUTPUT"
-              echo "file=forester/Dockerfile" >> "$GITHUB_OUTPUT"
+              echo "file=protocol/forester/Dockerfile" >> "$GITHUB_OUTPUT"
               echo "title=Zolana Forester" >> "$GITHUB_OUTPUT"
               echo "description=Zolana queue and tree maintenance service" >> "$GITHUB_OUTPUT"
               ;;

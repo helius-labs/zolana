@@ -2,8 +2,7 @@ use solana_address::Address;
 use solana_hash::Hash;
 use solana_instruction::Instruction;
 use solana_keypair::Signer;
-use solana_message::{v1, VersionedMessage};
-use solana_pubkey::Pubkey;
+use solana_message::VersionedMessage;
 use solana_transaction::versioned::VersionedTransaction;
 use zolana_interface::instruction::InterfaceTransfer;
 use zolana_program::instruction::TransactInterfaceTransferAccounts;
@@ -22,16 +21,16 @@ pub fn compile_message(
     recent_blockhash: Hash,
     compute_budget: ComputeBudgetConfig,
 ) -> Result<VersionedMessage, ClientError> {
-    v1::Message::try_compile_with_config(
+    zolana_protocol_transaction::compile_message(
         payer,
         instructions,
         recent_blockhash,
-        compute_budget.transaction_config(),
+        compute_budget,
     )
-    .map(VersionedMessage::V1)
-    .map_err(|error| ClientError::TransactionCompile(error.to_string()))
+    .map_err(Into::into)
 }
 
+#[cfg(feature = "solana-rpc")]
 pub(crate) fn ensure_version_1(message: &VersionedMessage) -> Result<(), ClientError> {
     match message {
         VersionedMessage::V1(_) => Ok(()),
@@ -52,23 +51,7 @@ pub fn sign_transaction(
     message: VersionedMessage,
     signers: &[&dyn Signer],
 ) -> Result<VersionedTransaction, ClientError> {
-    ensure_version_1(&message)?;
-    let mut unique: Vec<(Pubkey, &dyn Signer)> = Vec::with_capacity(signers.len());
-    for signer in signers {
-        let pubkey = signer
-            .try_pubkey()
-            .map_err(|error| ClientError::SolanaTransactionSigning(error.to_string()))?;
-        if unique.iter().any(|(kept, _)| *kept == pubkey) {
-            continue;
-        }
-        unique.push((pubkey, *signer));
-    }
-    let unique = unique
-        .into_iter()
-        .map(|(_, signer)| signer)
-        .collect::<Vec<_>>();
-    VersionedTransaction::try_new(message, &unique)
-        .map_err(|error| ClientError::SolanaTransactionSigning(error.to_string()))
+    zolana_protocol_transaction::sign_transaction(message, signers).map_err(Into::into)
 }
 
 #[must_use]

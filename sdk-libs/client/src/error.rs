@@ -487,6 +487,22 @@ impl ClientError {
     }
 }
 
+impl From<zolana_protocol_transaction::Error> for ClientError {
+    fn from(error: zolana_protocol_transaction::Error) -> Self {
+        match error {
+            zolana_protocol_transaction::Error::Compile(message) => {
+                Self::TransactionCompile(message)
+            }
+            zolana_protocol_transaction::Error::Signing(message) => {
+                Self::SolanaTransactionSigning(message)
+            }
+            zolana_protocol_transaction::Error::UnsupportedVersion => {
+                Self::UnsupportedTransactionVersion
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

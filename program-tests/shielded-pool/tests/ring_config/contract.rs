@@ -10,10 +10,9 @@ use zolana_interface::{
     pda,
     state::{discriminator::RING_CONFIG, RingConfig},
 };
-use zolana_program::instruction::{
-    CreateRingConfig, SetRingActivation, UpdateRingConfig, UpdateRingConfigOwner,
-};
+use zolana_program::instruction::{CreateRingConfig, UpdateRingConfig, UpdateRingConfigOwner};
 use zolana_program_test::{Rejection, RING_TEST_PROGRAM_ID};
+use zolana_protocol_instructions::SetRingActivation;
 use zolana_test_utils::backend::LiteSvmPoolBackend;
 
 /// Backend with the ring test program loaded: the `ring_auth` PDA can only

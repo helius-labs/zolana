@@ -44,8 +44,11 @@ default:
 
 # Preserve module-like subcommands without requiring unstable module support in
 # older `just` versions.
+protocol *args:
+    cargo run -p zolana-protocol-cli -- {{args}}
+
 forester *args:
-    just --justfile forester/justfile {{args}}
+    just --justfile protocol/forester/justfile {{args}}
 
 prover *args:
     just --justfile prover/server/justfile {{args}}
@@ -105,7 +108,7 @@ test-tree:
 # run (without it `program_test()` finds no .so and the suite skips). Builds
 # the prover server and zolana CLI because transact tests spawn a local prover.
 test-shielded-pool: build-programs build-prover-server build-cli
-    cargo nextest run -p zolana-interface -p zolana-instruction --features zolana-instruction/protocol
+    cargo nextest run -p zolana-interface -p zolana-instruction -p zolana-protocol-instructions
     cargo nextest run -p shielded-pool-program --lib --tests
     # Proof-backed binaries spawn a shared prover server on a fixed port; run
     # them serially because nextest isolates tests in separate processes, so a
@@ -118,7 +121,7 @@ test-shielded-pool: build-programs build-prover-server build-cli
 # The proof-backed binaries are gated behind the `proofs` feature, so the plain
 # package run is hermetic by construction.
 test-program-fast: build-programs
-    cargo nextest run -p zolana-interface -p zolana-instruction --features zolana-instruction/protocol
+    cargo nextest run -p zolana-interface -p zolana-instruction -p zolana-protocol-instructions
     cargo nextest run -p shielded-pool-program --lib --tests
     cargo nextest run -p zolana-user-registry --tests
     cargo nextest run -p shielded-pool-tests
@@ -369,7 +372,7 @@ test-programs: build-programs build-prover-server build-cli
 # proof-backed binaries are gated behind the `proofs` feature, so the plain
 # package run is hermetic by construction.
 test-proofless-programs: build-programs
-    cargo test -p zolana-interface -p zolana-instruction --features zolana-instruction/protocol
+    cargo test -p zolana-interface -p zolana-instruction -p zolana-protocol-instructions
     cargo test -p shielded-pool-program --lib --tests
     cargo nextest run -p shielded-pool-tests
 

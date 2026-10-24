@@ -10,10 +10,6 @@ repository.workspace = true
 name = "zolana_instruction"
 
 [features]
-# Builders for protocol operations: protocol-authority and fee-authority
-# administration, tree creation, ring activation, and the forester's nullifier
-# tree maintenance. Off by default so programs and wallets never compile them.
-protocol = []
 # The shielded pool's transact instruction as a signed CPI from a pinocchio
 # program.
 cpi = ["dep:pinocchio"]
@@ -27,7 +23,6 @@ thiserror = { workspace = true }
 wincode = { workspace = true }
 zolana-hasher = { workspace = true }
 zolana-interface = { workspace = true, features = ["borsh", "tree"] }
-zolana-tree = { workspace = true }
 
 [dev-dependencies]
 borsh = { workspace = true }

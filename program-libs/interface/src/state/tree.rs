@@ -23,7 +23,7 @@ pub const DEFAULT_APPEND_REIMBURSEMENT_LAMPORTS: u64 = 0;
 pub const DEFAULT_CLOSE_REIMBURSEMENT_LAMPORTS: u64 = 0;
 
 /// What one nullifier-tree batch append costs a forester: one transaction base
-/// fee. `xtask set-tree-fees` spreads it over the zkp batch when it computes a
+/// fee. `zolana-protocol set-tree-fees` spreads it over the zkp batch when it computes a
 /// schedule that runs at cost.
 pub const AT_COST_APPEND_REIMBURSEMENT_LAMPORTS: u64 = 5_000;
 
@@ -32,11 +32,11 @@ pub const AT_COST_APPEND_REIMBURSEMENT_LAMPORTS: u64 = 5_000;
 /// forester pays one base fee per transaction and closes as many PDAs as fit in
 /// it, so the per-close figure only means anything against a transaction's
 /// limits -- and the 64-address limit of a v1 transaction binds before its
-/// 4,096 bytes do. 57 closes fit (`forester/tests/close_nullifier_pdas.rs` pins that),
+/// 4,096 bytes do. 57 closes fit (`protocol/forester/tests/close_nullifier_pdas.rs` pins that),
 /// which makes this 88, and the two together price a 4999-nullifier zkp batch at
-/// 90 lamports per nullifier (`xtask::tree_fees` pins that).
+/// 90 lamports per nullifier (`protocol/cli/src/tree_fees.rs` pins that).
 ///
-/// `xtask set-tree-fees` measures `closes_per_transaction` from a real
+/// `zolana-protocol set-tree-fees` measures `closes_per_transaction` from a real
 /// transaction rather than reading this constant, so an operator's schedule
 /// tracks the instruction it will actually send.
 pub const AT_COST_CLOSE_REIMBURSEMENT_LAMPORTS: u64 = 88;

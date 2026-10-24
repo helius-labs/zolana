@@ -11,6 +11,7 @@ mollusk = ["dep:mollusk-svm", "dep:solana-program-error"]
 parallel = ["dep:rayon"]
 
 [dependencies]
+zolana-protocol-instructions = { workspace = true }
 anyhow = { workspace = true }
 base64 = { workspace = true }
 borsh = { workspace = true }
@@ -43,7 +44,7 @@ zolana-event-parser = { workspace = true }
 zolana-hasher = { workspace = true }
 zolana-keypair = { workspace = true }
 zolana-merkle-tree = { workspace = true }
-zolana-program = { workspace = true, features = ["protocol-instructions"] }
+zolana-program = { workspace = true }
 zolana-program-test = { workspace = true, features = ["localnet"] }
 zolana-transaction = { workspace = true }
 zolana-tree = { workspace = true }

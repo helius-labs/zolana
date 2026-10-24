@@ -12,11 +12,12 @@ use zolana_interface::{
     pda, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::ShieldedKeypair;
-use zolana_program::instruction::{Deposit, RingDeposit, SetRingActivation};
+use zolana_program::instruction::{Deposit, RingDeposit};
 use zolana_program_test::{
     ring_deposit_output_from_event, rpc_state_root, single_deposit_view, TestIndexer,
     ZolanaProgramTest, RING_TEST_PROGRAM_ID,
 };
+use zolana_protocol_instructions::SetRingActivation;
 use zolana_test_utils::wallet::{
     KeypairWalletAuthority, SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW,
 };

@@ -1,0 +1,67 @@
+# Forester
+
+Forester drains the shielded-pool nullifier queue, proves batch tree updates,
+submits them through the forester smart-account vault, and closes reclaimable
+nullifier PDAs. Batch input construction and local gnark proving live in
+[`forester-prover`](../forester-prover); reference trees and authority helpers
+are shared with the other tools under [`protocol`](../README.md).
+
+## Development
+
+```bash
+cargo check -p forester --all-targets
+cargo test -p forester
+```
+
+## Commands
+
+All commands read `RPC_URL` and `PHOTON_URL` from the environment (a local
+`.env` is loaded). `run` additionally needs `PAYER` and either
+`FORESTER_KEYS_DIR` (local gnark keys) or `PROVER_URL` (remote prover);
+`close-nullifier-pdas` needs `PAYER` and `--settings`; `info` uses `PAYER` only to
+report the forester balance when it is set.
+
+```bash
+cargo run -p forester -- info [--tree <PUBKEY>] [--json]
+cargo run -p forester -- run --settings <PUBKEY> [--tree <PUBKEY>] [--watch] [--dry-run] ...
+cargo run -p forester -- close-nullifier-pdas --settings <PUBKEY> [--account-index N] [--tree <PUBKEY>] [--from-seq N] [--max-transactions N] [--watch] [--poll-secs S]
+```
+
+### Reimbursements across workers
+
+`batch_update_nullifier_tree` caches proofs that arrive out of order and pays
+the append reimbursement for the whole applied cascade to the recipient of the
+call that triggers it, including updates other workers cached earlier: the cache
+records no submitter. Workers that share the forester authority but pay their
+own transaction fees should split reimbursements among themselves or submit
+in queue order.
+
+### `close-nullifier-pdas`
+
+Every queued nullifier owns an eleven-byte PDA funded from the tree; only
+accounts that start with the nullifier PDA discriminator count as open. Once a
+successor queue batch is fully appended, the tree's `close_before_index`
+advances past the preceding batch and its PDAs become closable by the
+forester; closing returns the PDA rent to the tree. Like `run`, the close is
+gated to `protocol_config.forester_authority`, so it is submitted through the
+forester smart-account vault (`--settings`, `--account-index`) with `PAYER`
+signing as a member. Batch storage may be reused before that point.
+`close-nullifier-pdas` performs the cleanup:
+
+1. reads `close_before_index` (`w`) from the tree account;
+2. fetches the queued nullifiers with sequence `< w` from Photon
+   (`getNullifierQueueElements`, paged);
+3. drops PDAs that no longer exist (`getMultipleAccounts`, 100 per call);
+4. packs the rest into `close_nullifier_pdas` instructions, deriving the
+   capacity from the 4096-byte and 64-account transaction limits (57 closes per
+   transaction; the at-cost fee schedule uses this capacity);
+5. submits them with `PAYER` as fee payer and reimbursement recipient,
+   replanning if another forester instance wins a PDA race.
+
+`--watch` repeats with `--poll-secs` between passes and only rescans sequences
+it has not already closed. On restart, pass the last completed watermark via
+`--from-seq` (and persist it in the process supervisor) to avoid rescanning from
+the first sequence (queue sequences start at 1). Failed watch passes retain
+their scan watermark and retry instead of terminating the daemon. `info` prints
+`close_before_index` and a per-batch `reclaimable` flag so the remaining cleanup
+work is visible without a payer key.

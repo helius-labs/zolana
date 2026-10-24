@@ -32,8 +32,8 @@ fn default_tree_fees_are_sponsored_for_every_batch_size() {
 
 /// The documented at-cost figures: the close rate is
 /// `ceil(append / closes_per_transaction)` at the count
-/// `forester/tests/close_nullifier_pdas.rs` pins, and the pair prices the
-/// canonical zkp batch at the 90 lamports per nullifier `xtask::tree_fees`
+/// `protocol/forester/tests/close_nullifier_pdas.rs` pins, and the pair prices the
+/// canonical zkp batch at the 90 lamports per nullifier `protocol/cli/src/tree_fees.rs`
 /// pins.
 #[test]
 fn at_cost_reimbursements_match_the_pinned_closes_per_transaction() {

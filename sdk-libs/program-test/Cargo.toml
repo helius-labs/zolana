@@ -16,6 +16,7 @@ localnet = ["zolana-client/client"]
 # `<workspace>/target/deploy/shielded_pool_program.so`.
 
 [dependencies]
+zolana-protocol-instructions = { workspace = true }
 base64 = { workspace = true }
 litesvm = { workspace = true }
 num-bigint = { workspace = true }
@@ -35,7 +36,7 @@ solana-transaction-error = { workspace = true }
 thiserror = { workspace = true }
 zolana-client = { workspace = true }
 zolana-interface = { workspace = true }
-zolana-program = { workspace = true, features = ["protocol-instructions"] }
+zolana-program = { workspace = true }
 zolana-event = { workspace = true }
 zolana-event-parser = { workspace = true }
 zolana-keypair = { workspace = true }

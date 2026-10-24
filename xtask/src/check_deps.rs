@@ -7,8 +7,8 @@
 //!   depends on both `zolana-program` and a `zolana-zk-*` crate: ZK programs go
 //!   through `zolana-program`, standalone circuits use the zk crates directly.
 //!
-//! Both rules cover the normal and build graph, so tests may pull in what they
-//! need.
+//! These rules cover the normal and build graph, so tests may pull in what they
+//! need. Crates under `protocol/` must also keep those graphs free of `sdk-libs`.
 
 use std::{path::Path, process::Command};
 
@@ -28,11 +28,13 @@ struct Dependency {
     name: String,
     optional: bool,
     dev: bool,
+    sdk: bool,
 }
 
 struct Package {
     name: String,
     dependencies: Vec<Dependency>,
+    protocol: bool,
 }
 
 pub fn run(root: &Path) -> Result<()> {
@@ -89,11 +91,16 @@ fn packages(root: &Path) -> Result<Vec<Package>> {
                             .and_then(Value::as_bool)
                             .unwrap_or(false),
                         dev: dependency.get("kind").and_then(Value::as_str) == Some("dev"),
+                        sdk: dependency
+                            .get("path")
+                            .and_then(Value::as_str)
+                            .is_some_and(|path| path.contains("/sdk-libs/")),
                     })
                 })
                 .collect::<Result<_>>()?;
             Ok(Package {
                 name: field("name")?.to_string(),
+                protocol: field("manifest_path")?.contains("/protocol/"),
                 dependencies,
             })
         })
@@ -103,6 +110,15 @@ fn packages(root: &Path) -> Result<Vec<Package>> {
 fn violations(packages: &[Package]) -> Vec<String> {
     let mut violations = Vec::new();
     for package in packages {
+        if package.protocol {
+            for dependency in package
+                .dependencies
+                .iter()
+                .filter(|dependency| !dependency.dev && dependency.sdk)
+            {
+                violations.push(format!("{} depends on SDK crate {}: protocol operations use program-libs and protocol crates", package.name, dependency.name));
+            }
+        }
         let zk_dependencies: Vec<&Dependency> = package
             .dependencies
             .iter()
@@ -139,4 +155,23 @@ fn violations(packages: &[Package]) -> Vec<String> {
         }
     }
     violations
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn protocol_crates_reject_sdk_dependencies_including_optional_ones() {
+        let packages = [Package {
+            name: "forester".into(),
+            protocol: true,
+            dependencies: vec![Dependency {
+                name: "zolana-client".into(),
+                optional: true,
+                dev: false,
+                sdk: true,
+            }],
+        }];
+        assert_eq!(violations(&packages), vec!["forester depends on SDK crate zolana-client: protocol operations use program-libs and protocol crates"]);
+    }
 }

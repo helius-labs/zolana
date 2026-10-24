@@ -35,7 +35,6 @@ No feature is on by default.
 | none | `no_std`: the `zolana-instruction` re-export and `CompressedProof`. |
 | `cpi` | The SPP `transact` instruction as a signed CPI from a pinocchio program. |
 | `compression` | Compressed accounts for pinocchio programs (implies `cpi`). |
-| `protocol-instructions` | Builders for protocol operations: authority administration, tree creation, ring activation and nullifier tree maintenance. |
 | `circuit` | The DSL, `conversion`, `hasher`, the input and UTXO types, `ConfidentialTransaction` and R1CS synthesis. Needs `std`. |
 | `client` | The native run, the SPP transaction, loading proving keys, proving, verifying and transaction encryption. |
 | `setup` | Includes `client`; adds test setup, writing proving keys and exporting the verifying key. |

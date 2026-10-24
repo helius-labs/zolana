@@ -5,7 +5,7 @@ use zolana_interface::{
     instruction::{CreateProtocolConfigData, UpdateProtocolConfigData},
     pda,
 };
-use zolana_program::instruction::{
+use zolana_protocol_instructions::{
     ClaimTreeLamports, CreateProtocolConfig, PauseTree, SetTreeFees, UpdateProtocolConfig,
 };
 

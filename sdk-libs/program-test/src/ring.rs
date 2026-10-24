@@ -10,9 +10,10 @@ use zolana_interface::{
 };
 use zolana_keypair::shielded::ShieldedAddress;
 use zolana_program::instruction::{
-    DepositAsset, DepositSplAccounts, RingAssetDeposit, RingDeposit, SetRingActivation,
-    UpdateRingConfig, UpdateRingConfigOwner,
+    DepositAsset, DepositSplAccounts, RingAssetDeposit, RingDeposit, UpdateRingConfig,
+    UpdateRingConfigOwner,
 };
+use zolana_protocol_instructions::SetRingActivation;
 use zolana_transaction::{owner_utxo_hash, serialization::RingDepositPlaintext, Blinding};
 
 use crate::{

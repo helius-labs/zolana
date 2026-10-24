@@ -1,0 +1,51 @@
+[package]
+name = "forester"
+version = "1.1.0"
+edition = "2021"
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[features]
+default = ["local-prover"]
+local-prover = ["zolana-forester-prover/gnark"]
+
+[dependencies]
+zolana-forester-prover = { workspace = true, default-features = false }
+zolana-protocol-transaction = { workspace = true }
+bs58 = { workspace = true }
+reqwest = { workspace = true, features = ["blocking"] }
+serde = { workspace = true }
+solana-address = { workspace = true }
+zolana-protocol-instructions = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+hex = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+dotenvy = "0.15"
+
+# Solana client + transaction building.
+solana-account = { workspace = true }
+solana-commitment-config = { workspace = true }
+solana-hash = { workspace = true }
+solana-instruction = { workspace = true }
+solana-keypair = { workspace = true }
+solana-message = { workspace = true }
+solana-pubkey = { workspace = true }
+solana-rpc-client = { workspace = true }
+solana-rpc-client-api = { workspace = true }
+solana-signature = { workspace = true }
+solana-signer = { workspace = true }
+solana-transaction = { workspace = true }
+
+# Shielded-pool interface for instruction-data shapes and builders.
+zolana-interface = { workspace = true }
+
+# Tree + nullifier-queue state for the read-only `info` report.
+zolana-tree = { workspace = true }
+
+zolana-smart-account-client = { workspace = true }
+num-bigint = { workspace = true }

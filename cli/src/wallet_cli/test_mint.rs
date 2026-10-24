@@ -11,7 +11,8 @@ use zolana_interface::{
     SPL_TOKEN_INITIALIZE_MINT2_DISCRIMINATOR, SPL_TOKEN_MINT_ACCOUNT_LEN,
     SPL_TOKEN_MINT_TO_DISCRIMINATOR, SPL_TOKEN_PROGRAM_ID,
 };
-use zolana_program::instruction::{CreateAssetCounter, CreateSplInterface};
+use zolana_program::instruction::CreateSplInterface;
+use zolana_protocol_instructions::CreateAssetCounter;
 use zolana_transaction::Address;
 
 use super::{
