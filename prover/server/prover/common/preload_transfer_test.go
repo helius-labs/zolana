@@ -2,8 +2,22 @@ package common
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestExtensionPreloadRequiresSelectedKey(t *testing.T) {
+	withSquareExtension(t)
+	circuit := squareExtension.Type
+	manager := NewLazyKeyManager(t.TempDir(), &DownloadConfig{AutoDownload: false})
+	err := manager.PreloadCircuits([]string{string(circuit)})
+	if err == nil || !strings.Contains(err.Error(), manager.determineExtensionKeyPath(circuit)) {
+		t.Fatalf("selected extension key was not required: %v", err)
+	}
+	if err := manager.PreloadCircuits([]string{string(circuit) + ":1:1"}); err == nil {
+		t.Fatal("extension preload accepted a shape")
+	}
+}
 
 func TestTransferPreloadSelection(t *testing.T) {
 	manager := NewLazyKeyManager(t.TempDir(), &DownloadConfig{AutoDownload: false})

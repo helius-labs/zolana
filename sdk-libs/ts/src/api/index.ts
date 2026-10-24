@@ -81,52 +81,52 @@ export class ZolanaApi {
     request: GetRingsByTagsRequest,
     context?: RequestContext,
   ): Promise<GetEncryptedUtxosByTagsResponse> {
-    return this.#call(getEncryptedUtxosByTagsMethod, request, context);
+    return this.call(getEncryptedUtxosByTagsMethod, request, context);
   }
 
   getShieldedTransactionsByTags(
     request: GetRingsByTagsRequest,
     context?: RequestContext,
   ): Promise<GetShieldedTransactionsByTagsResponse> {
-    return this.#call(getShieldedTransactionsByTagsMethod, request, context);
+    return this.call(getShieldedTransactionsByTagsMethod, request, context);
   }
 
   getShieldedTransactionsByNullifiers(
     request: GetRingsByNullifiersRequest,
     context?: RequestContext,
   ): Promise<GetShieldedTransactionsByNullifiersResponse> {
-    return this.#call(getShieldedTransactionsByNullifiersMethod, request, context);
+    return this.call(getShieldedTransactionsByNullifiersMethod, request, context);
   }
 
   getShieldedTransactionsBySignature(
     request: GetShieldedTransactionsBySignatureRequest,
     context?: RequestContext,
   ): Promise<GetShieldedTransactionsBySignatureResponse> {
-    return this.#call(getShieldedTransactionsBySignatureMethod, request, context);
+    return this.call(getShieldedTransactionsBySignatureMethod, request, context);
   }
 
   getMerkleProofs(
     request: GetMerkleProofsRequest,
     context?: RequestContext,
   ): Promise<GetMerkleProofsResponse> {
-    return this.#call(getMerkleProofsMethod, request, context);
+    return this.call(getMerkleProofsMethod, request, context);
   }
 
   getNonInclusionProofs(
     request: GetNonInclusionProofsRequest,
     context?: RequestContext,
   ): Promise<GetNonInclusionProofsResponse> {
-    return this.#call(getNonInclusionProofsMethod, request, context);
+    return this.call(getNonInclusionProofsMethod, request, context);
   }
 
   getUserRecords(
     request: GetUserRecordsRequest,
     context?: RequestContext,
   ): Promise<GetUserRecordsResponse> {
-    return this.#call(getUserRecordsMethod, request, context);
+    return this.call(getUserRecordsMethod, request, context);
   }
 
-  async #call<Request, Response>(
+  async call<Request, Response>(
     descriptor: MethodDescriptor<Request, Response>,
     request: Request,
     context?: RequestContext,

@@ -10,6 +10,23 @@ on:
         description: SDK version to build, without the leading v
         required: true
         type: string
+  # Another repository publishes its package docs to its own Pages site.
+  workflow_call:
+    inputs:
+      package_dir:
+        required: true
+        type: string
+      tag_prefix:
+        required: true
+        type: string
+      public_base_url:
+        required: true
+        type: string
+      zolana_dir:
+        required: true
+        type: string
+      version:
+        type: string
 
 concurrency:
   group: typescript-sdk-docs
@@ -22,7 +39,10 @@ env:
   NODE_VERSION: "24"
   # Future canonical base: https://www.helius.dev/privacy/api
   # Change this only after the Helius website proxies that path to /zolana/ts-sdk.
-  PUBLIC_BASE_URL: https://helius-labs.github.io/zolana/ts-sdk
+  PUBLIC_BASE_URL: ${{ inputs.public_base_url || 'https://helius-labs.github.io/zolana/ts-sdk' }}
+  PACKAGE_DIR: ${{ inputs.package_dir || 'sdk-libs/ts' }}
+  TAG_PREFIX: ${{ inputs.tag_prefix || 'ts-sdk-v' }}
+  ZOLANA_DIR: ${{ inputs.zolana_dir || '.' }}
 
 jobs:
   build:
@@ -37,6 +57,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
+          submodules: ${{ env.ZOLANA_DIR != '.' }}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -48,11 +69,11 @@ jobs:
           MANUAL_VERSION: ${{ inputs.version }}
         run: |
           if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
-            if [[ "$GITHUB_REF_NAME" != ts-sdk-v* ]]; then
+            if [[ "$GITHUB_REF_NAME" != "$TAG_PREFIX"* ]]; then
               echo "unexpected release tag: $GITHUB_REF_NAME" >&2
               exit 1
             fi
-            version="${GITHUB_REF_NAME#ts-sdk-v}"
+            version="${GITHUB_REF_NAME#"$TAG_PREFIX"}"
           else
             version="$MANUAL_VERSION"
           fi
@@ -62,14 +83,18 @@ jobs:
             echo "version is not valid SemVer without build metadata: $version" >&2
             exit 1
           fi
+          package="$(node -p "JSON.parse(require('node:fs').readFileSync('$PACKAGE_DIR/package.json')).name")"
           package_version="$(node -p \
-            "JSON.parse(require('node:fs').readFileSync('sdk-libs/ts/package.json')).version")"
+            "JSON.parse(require('node:fs').readFileSync('$PACKAGE_DIR/package.json')).version")"
           if [[ "$version" != "$package_version" ]]; then
-            echo "tag version $version does not match @heliuslabs/zolana $package_version" >&2
+            echo "tag version $version does not match $package $package_version" >&2
             exit 1
           fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "should_publish=${{ github.event_name == 'push' }}" >> "$GITHUB_OUTPUT"
+          {
+            echo "package=$package"
+            echo "version=$version"
+            echo "should_publish=${{ github.event_name == 'push' }}"
+          } >> "$GITHUB_OUTPUT"
       - name: Generate API reference
         env:
           VERSION: ${{ steps.release.outputs.version }}
@@ -95,7 +120,7 @@ jobs:
         env:
           VERSION: ${{ steps.release.outputs.version }}
         run: |
-          node sdk-libs/ts/scripts/assemble-api-docs-site.mjs \
+          node "$ZOLANA_DIR/sdk-libs/ts/scripts/assemble-api-docs-site.mjs" \
             --site-dir "$RUNNER_TEMP/api-docs-site" \
             --docs-dir target/typedoc-release \
             --public-base-url "$PUBLIC_BASE_URL" \
@@ -103,16 +128,17 @@ jobs:
       - name: Persist published versions
         if: steps.release.outputs.should_publish == 'true'
         env:
+          PACKAGE: ${{ steps.release.outputs.package }}
           VERSION: ${{ steps.release.outputs.version }}
         run: |
           git -C "$RUNNER_TEMP/api-docs-site" add --all
           if git -C "$RUNNER_TEMP/api-docs-site" diff --cached --quiet; then
-            echo "@heliuslabs/zolana v$VERSION is already persisted"
+            echo "$PACKAGE v$VERSION is already persisted"
           else
             git -C "$RUNNER_TEMP/api-docs-site" \
               -c user.name=github-actions[bot] \
               -c user.email=41898282+github-actions[bot]@users.noreply.github.com \
-              commit -m "docs: publish @heliuslabs/zolana v$VERSION"
+              commit -m "docs: publish $PACKAGE v$VERSION"
             git -C "$RUNNER_TEMP/api-docs-site" push origin HEAD:gh-pages
           fi
       - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3

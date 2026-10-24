@@ -7,9 +7,9 @@ use std::{
 
 use groth16_solana::vk::setup::{ProvingKeySource, SetupKind};
 use sha2::{Digest, Sha256};
+use xtask::create_release;
 
 mod check_deps;
-mod create_release;
 mod loadtest;
 mod tee_check;
 mod tee_policy;
@@ -106,8 +106,10 @@ fn main() {
         }
         Some("program-ids") => print_program_ids(),
         Some("create-release") => {
-            if let Err(error) = create_release::run(create_release::Options::parse(args.collect()))
-            {
+            if let Err(error) = create_release::run(
+                create_release::Options::parse(args.collect(), &create_release::Localnet),
+                &create_release::Localnet,
+            ) {
                 eprintln!("create-release failed: {error:?}");
                 std::process::exit(1);
             }

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
-if [[ $# != 3 ]]; then
-    echo "Usage: $0 AEGLOS_ARCHIVE_DIRECTORY (CUDA_ARCH | cpu) OUTPUT" >&2
+if [[ $# != 3 && $# != 4 ]]; then
+    echo "Usage: $0 AEGLOS_ARCHIVE_DIRECTORY (CUDA_ARCH | cpu) OUTPUT [MAIN_PACKAGE_DIRECTORY]" >&2
     exit 1
 fi
 if [[ ! $2 =~ ^(sm_[0-9]+|cpu)$ ]]; then
@@ -27,8 +27,11 @@ else
     read -r _ archive < "$lock"
     tar -xf "$1/$archive" -C "$scratch/aeglos"
 fi
+main=${4:-$prover}
+modules=("$prover" "$scratch/aeglos")
+[[ $main == "$prover" ]] || modules+=("$(cd "$main" && GOWORK=off go list -m -f '{{.Dir}}')")
 export GOWORK="$scratch/go.work"
-go work init "$prover" "$scratch/aeglos"
+go work init "${modules[@]}"
 # Force the exact release versions before Go traverses Aeglos's older graph.
 # The old graph contains a removed tooling repository. These are the versions
 # workspace MVS would select from the newer prover requirements in any case.
@@ -38,7 +41,7 @@ for dependency in "${gnark[@]}"; do
     (cd "$scratch/aeglos" && GOWORK=off go mod edit "-require=$dependency@$version")
 done
 # Workspace mode reaches a gnark tool module no source serves.
-for module in "$prover" "$scratch/aeglos"; do
+for module in "${modules[@]}"; do
     (cd "$module" && GOWORK=off go mod download && GOWORK=off go mod verify)
 done
 workspace=$(go list -m -f '{{.Path}} {{if .Replace}}{{.Replace.Version}}{{else}}{{.Version}}{{end}}' "${gnark[@]}")
@@ -49,9 +52,9 @@ if [[ $workspace != "$standalone" ]]; then
 fi
 if [[ $2 == cpu ]]; then
     make -C "$scratch/aeglos" -j "${BUILD_JOBS:-4}" CPU_BUILD_DIR="$scratch/build" cpu
-    PROVER_CGO=1 PROVER_BUILD_TAGS=aeglos_cpu CGO_LDFLAGS="-L$scratch/build" sh "$prover/build-release.sh" "$3" "$prover"
+    PROVER_CGO=1 PROVER_BUILD_TAGS=aeglos_cpu CGO_LDFLAGS="-L$scratch/build" sh "$prover/build-release.sh" "$3" "$main"
 else
     make -C "$scratch/aeglos" -j "${BUILD_JOBS:-4}" ARCH="$2" BUILD_DIR="$scratch/build" PREFIX="$scratch/native" install
     PROVER_CGO=1 GOAMD64="${GOAMD64:-$PROVER_GPU_GOAMD64}" PROVER_BUILD_TAGS=aeglos \
-        CGO_LDFLAGS="-L$scratch/native/lib -L/usr/local/cuda/lib64" sh "$prover/build-release.sh" "$3" "$prover"
+        CGO_LDFLAGS="-L$scratch/native/lib -L/usr/local/cuda/lib64" sh "$prover/build-release.sh" "$3" "$main"
 fi

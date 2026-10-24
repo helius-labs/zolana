@@ -3,7 +3,8 @@ set -eu
 PATH=/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/bin
 
 parent_cid=3
-# Holds every served key plus the largest partial download.
+# Holds every served key, the baked release keys moved in below included,
+# plus the largest partial download.
 keys_mib=15360
 
 # Any child exit ends the enclave for the parent to restart.
@@ -15,6 +16,14 @@ watch() {
 
 ip link set lo up
 mount -t tmpfs -o "size=${keys_mib}m,mode=0700,uid=65532,gid=65532" proving-keys /proving-keys
+baked=
+for key in /usr/share/zolana/release-keys/*.key; do
+    [ -f "$key" ] || continue
+    name=$(basename "$key" .key)
+    mv "$key" /proving-keys/
+    chown 65532:65532 "/proving-keys/$name.key"
+    baked="$baked $name"
+done
 chown 65532:65532 /dev/nsm
 
 # TLS to these names terminates in the enclave.
@@ -45,6 +54,9 @@ set -- start --require-optimized-build --server-only --auto-download --preload-k
     --keys-dir /proving-keys --prover-address 127.0.0.1:3001 --metrics-address 127.0.0.1:9998 \
     --tee nitro --transfer-concurrency "$concurrency" \
     --serve 'transfer_*' --serve 'merge_*'
+for name in $baked; do
+    set -- "$@" --serve "$name"
+done
 indexer=$(cat /etc/zolana-nitro/indexer-url)
 [ -z "$indexer" ] || set -- "$@" --indexer-url "$indexer"
 export GOMEMLIMIT="${heap_mib}MiB"

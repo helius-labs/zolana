@@ -55,13 +55,13 @@ func TestProvingKeysReportCoversPinnedLoadedAndLocalKeys(t *testing.T) {
 
 func TestProvingKeysReportPinnedKeyAvailableWithAutoDownload(t *testing.T) {
 	pinned := sha256.Sum256([]byte("merge_24_1"))
-	release := sha256.Sum256([]byte("custom_ring_policy"))
+	release := sha256.Sum256([]byte("release_asset"))
 	useTestManifest(t, &lockManifest{
 		Prefix: "proving-keys/test",
 		Keys: map[string]lockEntry{
 			"merge_24_1.key": {Sha256: hex.EncodeToString(pinned[:]), Size: 1},
 			// Release assets are never auto-downloaded, so they stay unavailable.
-			"custom_ring_policy.key": {Sha256: hex.EncodeToString(release[:]), Size: 1, Source: "release"},
+			"release_asset.key": {Sha256: hex.EncodeToString(release[:]), Size: 1, Source: "release"},
 		},
 	})
 	manager := NewLazyKeyManager(t.TempDir(), &DownloadConfig{AutoDownload: true})
@@ -71,8 +71,8 @@ func TestProvingKeysReportPinnedKeyAvailableWithAutoDownload(t *testing.T) {
 		t.Fatalf("ProvingKeysReport: %v", err)
 	}
 	want := []ProvingKeyStatus{
-		{Name: "custom_ring_policy.key", ExpectedSha256: strPtr(hex.EncodeToString(release[:])), Available: false},
 		{Name: "merge_24_1.key", ExpectedSha256: strPtr(hex.EncodeToString(pinned[:])), Available: true},
+		{Name: "release_asset.key", ExpectedSha256: strPtr(hex.EncodeToString(release[:])), Available: false},
 	}
 	if !reflect.DeepEqual(report.Keys, want) {
 		t.Fatalf("keys = %+v, want %+v", report.Keys, want)

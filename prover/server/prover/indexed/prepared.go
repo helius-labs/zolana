@@ -1,6 +1,7 @@
 package indexed
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math/big"
@@ -11,20 +12,34 @@ import (
 	transfer "github.com/helius-labs/zolana/prover/server/prover/transfer_eddsa"
 )
 
-type inputTarget struct {
-	disabled               bool
-	slot, nullifier        *big.Int
-	dummy, cached, address bool
-	state, exclusion       *[]*big.Int
-	stateIndex, low, high  **big.Int
-	exclusionIndex         **big.Int
+type Input struct {
+	Disabled       bool
+	Nullifier      *big.Int
+	State          *[]*big.Int
+	StateIndex     **big.Int
+	Exclusion      *[]*big.Int
+	ExclusionIndex **big.Int
+	Low, High      **big.Int
 }
 
-type preparedProof struct {
-	value  json.Marshaler
-	inputs []inputTarget
-	slots  *[]common.TreeSlotParams
-	hash   **big.Int
+type inputTarget struct {
+	Input
+	slot                   *big.Int
+	dummy, cached, address bool
+}
+
+// The resolver writes paths, tree slots and the hash through these pointers.
+type Prepared struct {
+	Value  json.Marshaler
+	Inputs []Input
+	Slots  *[]common.TreeSlotParams
+	Hash   **big.Int
+	// EmptyTrees admits a tree without a real spend.
+	EmptyTrees bool
+	// Fetch runs beside the tree fetches.
+	Fetch func(context.Context, *Resolver) error
+	// Statement defaults to HashChain4 when nil.
+	Statement func(public []*big.Int, trees *big.Int) (*big.Int, error)
 }
 
 func transferTargets(inputs []transfer.InputParams, cache transfer.CacheSelectionParams) ([]inputTarget, error) {
@@ -35,11 +50,14 @@ func transferTargets(inputs []transfer.InputParams, cache transfer.CacheSelectio
 	for index := range inputs {
 		input := &inputs[index]
 		result[index] = inputTarget{
-			slot: input.TreeSlot, nullifier: input.Nullifier, dummy: input.IsDummy.Sign() != 0,
+			slot: input.TreeSlot, dummy: input.IsDummy.Sign() != 0,
 			address: input.Utxo.Domain.Cmp(big.NewInt(txcircuit.AddressDomain)) == 0,
-			state:   &input.StatePathElements, stateIndex: &input.StatePathIndex,
-			exclusion: &input.NullifierLowPathElements, exclusionIndex: &input.NullifierLowPathIndex,
-			low: &input.NullifierLowValue, high: &input.NullifierNextValue,
+			Input: Input{
+				Nullifier: input.Nullifier,
+				State:     &input.StatePathElements, StateIndex: &input.StatePathIndex,
+				Exclusion: &input.NullifierLowPathElements, ExclusionIndex: &input.NullifierLowPathIndex,
+				Low: &input.NullifierLowValue, High: &input.NullifierNextValue,
+			},
 		}
 		if len(cache.IsCached) != 0 {
 			result[index].cached = cache.IsCached[index].Sign() != 0
@@ -48,19 +66,18 @@ func transferTargets(inputs []transfer.InputParams, cache transfer.CacheSelectio
 	return result, nil
 }
 
-func decodePrepared(request Request) (*preparedProof, error) {
-	var meta struct {
-		Circuit common.CircuitType `json:"circuitType"`
-	}
-	if json.Unmarshal(request.Prepared, &meta) != nil || meta.Circuit != request.CircuitType {
-		return nil, fmt.Errorf("prepared circuit mismatch")
-	}
+func decodePrepared(request Request) (*Prepared, error) {
 	for _, tree := range request.Trees {
 		if tree.Fallback != nil {
 			return nil, fmt.Errorf("unexpected fallback roots")
 		}
 	}
-	var prepared preparedProof
+	var prepared struct {
+		value  json.Marshaler
+		inputs []inputTarget
+		slots  *[]common.TreeSlotParams
+		hash   **big.Int
+	}
 	shape := common.ProofShape{Circuit: request.CircuitType}
 	switch request.CircuitType {
 	case common.TransferConfidentialCircuitType, common.TransferRingCircuitType, common.TransferRingAuthorityCircuitType:
@@ -76,7 +93,7 @@ func decodePrepared(request Request) (*preparedProof, error) {
 		if err != nil {
 			return nil, err
 		}
-		prepared = preparedProof{value: &value, inputs: inputs, slots: &value.TreeSlots, hash: &value.PublicInputHash}
+		prepared.value, prepared.inputs, prepared.slots, prepared.hash = &value, inputs, &value.TreeSlots, &value.PublicInputHash
 	case common.TransferAnonymousRingEddsaCircuitType:
 		var value transfer.AnonymousEddsaTransferParameters
 		if json.Unmarshal(request.Prepared, &value) != nil {
@@ -90,7 +107,7 @@ func decodePrepared(request Request) (*preparedProof, error) {
 		if err != nil {
 			return nil, err
 		}
-		prepared = preparedProof{value: &value, inputs: inputs, slots: &value.TreeSlots, hash: &value.PublicInputHash}
+		prepared.value, prepared.inputs, prepared.slots, prepared.hash = &value, inputs, &value.TreeSlots, &value.PublicInputHash
 	case common.MergeCircuitType, common.MergeRingCircuitType:
 		var value merge.MergeParameters
 		if json.Unmarshal(request.Prepared, &value) != nil {
@@ -101,13 +118,16 @@ func decodePrepared(request Request) (*preparedProof, error) {
 		for index := range value.Inputs {
 			input := &value.Inputs[index]
 			inputs[index] = inputTarget{
-				slot: input.TreeSlot, nullifier: input.Nullifier, dummy: input.Domain.Cmp(big.NewInt(1)) == 0,
-				state: &input.StatePathElements, stateIndex: &input.StatePathIndex,
-				exclusion: &input.NullifierLowPathElements, exclusionIndex: &input.NullifierLowPathIndex,
-				low: &input.NullifierLowValue, high: &input.NullifierNextValue,
+				slot: input.TreeSlot, dummy: input.Domain.Cmp(big.NewInt(1)) == 0,
+				Input: Input{
+					Nullifier: input.Nullifier,
+					State:     &input.StatePathElements, StateIndex: &input.StatePathIndex,
+					Exclusion: &input.NullifierLowPathElements, ExclusionIndex: &input.NullifierLowPathIndex,
+					Low: &input.NullifierLowValue, High: &input.NullifierNextValue,
+				},
 			}
 		}
-		prepared = preparedProof{value: &value, inputs: inputs, slots: &value.TreeSlots, hash: &value.PublicInputHash}
+		prepared.value, prepared.inputs, prepared.slots, prepared.hash = &value, inputs, &value.TreeSlots, &value.PublicInputHash
 	default:
 		return nil, fmt.Errorf("unsupported indexed circuit")
 	}
@@ -129,43 +149,47 @@ func decodePrepared(request Request) (*preparedProof, error) {
 			return nil, fmt.Errorf("input lookup mismatch")
 		}
 		opened[lookup.TreeSlot] = true
-		if len(*input.state) != 0 || len(*input.exclusion) != 0 || (*input.stateIndex).Sign() != 0 || (*input.exclusionIndex).Sign() != 0 || (*input.low).Sign() != 0 || (*input.high).Sign() != 0 {
+		if len(*input.State) != 0 || len(*input.Exclusion) != 0 || (*input.StateIndex).Sign() != 0 || (*input.ExclusionIndex).Sign() != 0 || (*input.Low).Sign() != 0 || (*input.High).Sign() != 0 {
 			return nil, fmt.Errorf("prepared request contains indexer data")
 		}
 		// Compact padding publishes nullifier 0 but proves non-inclusion of its
 		// derived dummy nullifier, which the lookup carries.
-		compact := input.dummy && input.nullifier.Sign() == 0
+		compact := input.dummy && input.Nullifier.Sign() == 0
 		if compact != (lookup.Nullifier != nil) {
 			return nil, fmt.Errorf("input lookup mismatch")
 		}
 		if compact {
-			nullifier, err := lookup.Nullifier.field()
+			nullifier, err := lookup.Nullifier.Field()
 			if err != nil {
 				return nil, err
 			}
-			prepared.inputs[index].nullifier = nullifier
+			prepared.inputs[index].Nullifier = nullifier
 		}
-		if _, err := hashField(prepared.inputs[index].nullifier); err != nil {
+		if _, err := HashField(prepared.inputs[index].Nullifier); err != nil {
 			return nil, err
 		}
 	}
-	return &prepared, nil
+	inputs := make([]Input, len(prepared.inputs))
+	for index, input := range prepared.inputs {
+		inputs[index] = input.Input
+	}
+	return &Prepared{Value: prepared.value, Inputs: inputs, Slots: prepared.slots, Hash: prepared.hash}, nil
 }
 
-func (input inputTarget) apply(state *stateProof, exclusion nullifierProof) {
+func (input Input) apply(state *stateProof, exclusion nullifierProof) {
 	if state == nil {
-		*input.state = make([]*big.Int, 32)
-		for index := range *input.state {
-			(*input.state)[index] = new(big.Int)
+		*input.State = make([]*big.Int, 32)
+		for index := range *input.State {
+			(*input.State)[index] = new(big.Int)
 		}
 	} else {
-		*input.state = fields(state.Path)
-		*input.stateIndex = new(big.Int).SetUint64(state.LeafIndex)
+		*input.State = fields(state.Path)
+		*input.StateIndex = new(big.Int).SetUint64(state.LeafIndex)
 	}
-	*input.exclusion = fields(exclusion.Path)
-	*input.exclusionIndex = new(big.Int).SetUint64(exclusion.LowElementIndex)
-	*input.low = new(big.Int).SetBytes(exclusion.LowElement[:])
-	*input.high = new(big.Int).SetBytes(exclusion.HighElement[:])
+	*input.Exclusion = fields(exclusion.Path)
+	*input.ExclusionIndex = new(big.Int).SetUint64(exclusion.LowElementIndex)
+	*input.Low = new(big.Int).SetBytes(exclusion.LowElement[:])
+	*input.High = new(big.Int).SetBytes(exclusion.HighElement[:])
 }
 
 func fields(hashes []Hash) []*big.Int {

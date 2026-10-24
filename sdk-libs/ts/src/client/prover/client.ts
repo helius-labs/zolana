@@ -90,6 +90,8 @@ const PROVING_KEYS_PATH = "/proving-keys";
 const ATTESTATION_PATH = "/tee/v1/attestation";
 type Delivery = "inResponse" | "queued";
 type Route = "sync" | "queued" | "indexed";
+/** Maps an indexed refusal body to the caller's error, `undefined` keeps the prover's own. */
+export type ProverRefusal = (body: Readonly<Record<string, unknown>>) => Error | undefined;
 
 /// Polling cadence and ceiling for queued (async) proofs. A Redis-backed prover
 /// returns a job handle instead of a proof, and the client polls the proving
@@ -227,13 +229,13 @@ export class ProverClient {
       nInputs: inputs.payload.inputs.length,
       nOutputs: inputs.payload.outputs.length,
     });
-    return parseCheckedProof(await this.#send(body, "sync", key, context), key);
+    return parseCheckedProof(await this.send(body, "sync", key, context), key);
   }
 
   async proveMerge(inputs: MergeInputs, context?: RequestContext): Promise<Proof> {
     const body = JSON.stringify(mergeProverRequest(inputs, completeSecret));
     const key = provingKeyFor({ circuit: mergeCircuit(inputs), nInputs: inputs.inputs.length });
-    return parseCheckedProof(await this.#send(body, "sync", key, context), key);
+    return parseCheckedProof(await this.send(body, "sync", key, context), key);
   }
 
   async proveIndexed(
@@ -255,7 +257,7 @@ export class ProverClient {
           },
     );
     const body = JSON.stringify(indexedRequestEnvelope(inputs, prepared));
-    const result = parseIndexedResponse(await this.#send(body, "indexed", key, context), key);
+    const result = parseIndexedResponse(await this.send(body, "indexed", key, context), key);
     resolvedTrees(inputs, result.resolution);
     return result;
   }
@@ -294,13 +296,16 @@ export class ProverClient {
   }
 
   /**
-   * Compare the prover's proving keys (`GET /proving-keys`) with the
-   * proving-key sha256 each committed verifying key pins, so a prover on
-   * another key set fails before the first proof instead of on-chain. A
+   * Compare the prover's proving keys (`GET /proving-keys`) with `pins`, by
+   * default the proving-key sha256 each committed verifying key pins, so a
+   * prover on another key set fails before the first proof instead of on-chain. A
    * differing digest throws `CLIENT_PROVER_PROVING_KEYS_MISMATCH` naming every
    * such key; a key the prover lacks or cannot load is only reported.
    */
-  async checkProvingKeys(context?: RequestContext): Promise<ProvingKeyReport> {
+  async checkProvingKeys(
+    context?: RequestContext,
+    pins: Readonly<Record<string, string>> = PROVING_KEY_SHA256S,
+  ): Promise<ProvingKeyReport> {
     const url = this.#routeUrl(PROVING_KEYS_PATH);
     const request = composeSignal(context, "provingKeys");
     try {
@@ -321,17 +326,18 @@ export class ProverClient {
           },
         });
       }
-      return checkProverKeys(decodeProverKeys(await decodeResponse(response)));
+      return checkProverKeys(decodeProverKeys(await decodeResponse(response)), pins);
     } finally {
       request.cleanup();
     }
   }
 
-  async #send(
+  async send(
     body: string,
     route: Route,
     key: ExpectedProvingKey,
     context?: RequestContext,
+    refusal?: ProverRefusal,
   ): Promise<unknown> {
     if (route === "indexed" && !this.#indexed) {
       throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "proofDataSource" } });
@@ -370,7 +376,7 @@ export class ProverClient {
             }
             // Rust fails fast on any non-success status; only a transport failure retries.
             if (!response.ok) {
-              if (route === "indexed") throw await indexedHttpFailure(response, attempt);
+              if (route === "indexed") throw await indexedHttpFailure(response, attempt, refusal);
               throw new ClientError("CLIENT_PROVER_HTTP", {
                 details: {
                   method: "prove",
@@ -393,7 +399,7 @@ export class ProverClient {
               typeof value["jobId"] === "string" &&
               value["proof"] === undefined
             ) {
-              return await this.#poll(value["jobId"], signal, route, key);
+              return await this.#poll(value["jobId"], signal, route, key, refusal);
             }
             return value;
           } finally {
@@ -429,6 +435,7 @@ export class ProverClient {
     signal: ComposedSignal,
     route: Route,
     key: ExpectedProvingKey,
+    refusal: ProverRefusal | undefined,
   ): Promise<unknown> {
     if (!/^[A-Za-z0-9_-]{1,256}$/u.test(jobId)) {
       throw new ClientError("CLIENT_PROVER_JOB", { details: { method: "prove" } });
@@ -497,7 +504,7 @@ export class ProverClient {
         const status = isObject(value) ? value["status"] : undefined;
         if (status === "failed") {
           throw (
-            (route === "indexed" ? indexedFailure(value) : undefined) ??
+            (route === "indexed" ? indexedFailure(value, refusal) : undefined) ??
             new ClientError("CLIENT_PROVER_SERVER", {
               details: { method: "proveStatus", status: "failed" },
             })
@@ -558,12 +565,13 @@ function decodeProverKeys(
   });
 }
 
-/** Compare a prover's keys with every proving key the SDK knows, as Rust `ProverKeys::check`. */
+/** Compare a prover's keys with every pinned proving key, as Rust `ProverKeys::check`. */
 function checkProverKeys(
   prover: Readonly<{ prefix: string; keys: readonly ProverKeyStatus[] }>,
+  pins: Readonly<Record<string, string>>,
 ): ProvingKeyReport {
   const mismatched: string[] = [];
-  const keys = Object.entries(PROVING_KEY_SHA256S).map(([name, pinned]): ProvingKeyCheck => {
+  const keys = Object.entries(pins).map(([name, pinned]): ProvingKeyCheck => {
     const status = prover.keys.find((key) => key.name === name);
     if (status === undefined) {
       return Object.freeze({ name, served: false, available: false, loaded: false });
@@ -840,9 +848,13 @@ async function proverReason(response: Response): Promise<Readonly<{ reason?: str
 }
 
 /** Indexed failures carry caller data in their message, only the `code` is read. */
-async function indexedHttpFailure(response: Response, attempt: number): Promise<ClientError> {
+async function indexedHttpFailure(
+  response: Response,
+  attempt: number,
+  refusal: ProverRefusal | undefined,
+): Promise<Error> {
   const body = await errorBody(response);
-  const typed = indexedFailure(body);
+  const typed = indexedFailure(body, refusal);
   if (typed !== undefined) return typed;
   // An old prover has no indexed route and answers a bare 404. A coded one, such
   // as a key the prover does not serve, is reported as it is.
@@ -854,8 +866,10 @@ async function indexedHttpFailure(response: Response, attempt: number): Promise<
   });
 }
 
-function indexedFailure(body: unknown): ClientError | undefined {
+function indexedFailure(body: unknown, refusal: ProverRefusal | undefined): Error | undefined {
   if (!isObject(body)) return undefined;
+  const refused = refusal?.(body);
+  if (refused !== undefined) return refused;
   switch (body["code"]) {
     case "indexer_not_ready":
       return new ClientError("CLIENT_INDEXER_PROOF_DATA_NOT_READY");

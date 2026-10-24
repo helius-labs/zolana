@@ -360,7 +360,7 @@ function checkStatement(inputs: IndexedProofInputs): void {
 }
 
 /** The requested trees in order, their slots reproducing the statement the caller authorized. */
-function bindResolution(
+export function bindResolution(
   resolution: ProofResolution,
   requested: readonly IndexedTree[],
   statement: (slots: readonly TreeSlot[]) => bigint,
@@ -446,7 +446,7 @@ function u16(value: unknown, fail: () => ClientError): number {
   return value;
 }
 
-function opensAt<Kind extends "commitment" | "nullifier">(
+export function opensAt<Kind extends "commitment" | "nullifier">(
   lookups: readonly Readonly<Record<Kind, Uint8Array | null> & { treeSlot: number }>[],
   index: number,
   kind: Kind,
