@@ -59,7 +59,7 @@ pub enum Commands {
         #[arg(long)]
         dry_run: bool,
         /// Serve Prometheus metrics on `host:port`, e.g. 0.0.0.0:9999. Omitted
-        /// serves nothing. Names come from protocol/forester/metrics-contract.json.
+        /// serves nothing. Names come from protocol-ops/forester/metrics-contract.json.
         #[arg(long)]
         metrics_address: Option<String>,
         /// Zkp-batch proofs to run at once.

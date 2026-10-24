@@ -32,9 +32,9 @@ pub const AT_COST_APPEND_REIMBURSEMENT_LAMPORTS: u64 = 5_000;
 /// forester pays one base fee per transaction and closes as many PDAs as fit in
 /// it, so the per-close figure only means anything against a transaction's
 /// limits -- and the 64-address limit of a v1 transaction binds before its
-/// 4,096 bytes do. 57 closes fit (`protocol/forester/tests/close_nullifier_pdas.rs` pins that),
+/// 4,096 bytes do. 57 closes fit (`protocol-ops/forester/tests/close_nullifier_pdas.rs` pins that),
 /// which makes this 88, and the two together price a 4999-nullifier zkp batch at
-/// 90 lamports per nullifier (`protocol/cli/src/tree_fees.rs` pins that).
+/// 90 lamports per nullifier (`protocol-ops/cli/src/tree_fees.rs` pins that).
 ///
 /// `zolana-protocol set-tree-fees` measures `closes_per_transaction` from a real
 /// transaction rather than reading this constant, so an operator's schedule

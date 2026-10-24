@@ -4,7 +4,7 @@ Forester drains the shielded-pool nullifier queue, proves batch tree updates,
 submits them through the forester smart-account vault, and closes reclaimable
 nullifier PDAs. Batch input construction and local gnark proving live in
 [`forester-prover`](../forester-prover); reference trees and authority helpers
-are shared with the other tools under [`protocol`](../README.md).
+are shared with the other tools under [`protocol-ops`](../README.md).
 
 ## Development
 

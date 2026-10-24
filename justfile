@@ -48,7 +48,7 @@ protocol *args:
     cargo run -p zolana-protocol-cli -- {{args}}
 
 forester *args:
-    just --justfile protocol/forester/justfile {{args}}
+    just --justfile protocol-ops/forester/justfile {{args}}
 
 prover *args:
     just --justfile prover/server/justfile {{args}}

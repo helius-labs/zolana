@@ -20,7 +20,7 @@
     "forester": {
       "repository": "zolana-forester",
       "context": ".",
-      "file": "protocol/forester/Dockerfile",
+      "file": "protocol-ops/forester/Dockerfile",
       "title": "Zolana Forester",
       "description": "Zolana queue and tree maintenance service",
       "smoke": "docker run --rm \"$image\" --version"

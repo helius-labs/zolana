@@ -8,7 +8,7 @@
 //!   through `zolana-program`, standalone circuits use the zk crates directly.
 //!
 //! These rules cover the normal and build graph, so tests may pull in what they
-//! need. Crates under `protocol/` must also keep those graphs free of `sdk-libs`.
+//! need. Crates under `protocol-ops/` must also keep those graphs free of `sdk-libs`.
 
 use std::{path::Path, process::Command};
 
@@ -100,7 +100,7 @@ fn packages(root: &Path) -> Result<Vec<Package>> {
                 .collect::<Result<_>>()?;
             Ok(Package {
                 name: field("name")?.to_string(),
-                protocol: field("manifest_path")?.contains("/protocol/"),
+                protocol: field("manifest_path")?.contains("/protocol-ops/"),
                 dependencies,
             })
         })

@@ -3,9 +3,9 @@
 # The forester links protocol libraries and the gnark circuit archive, so
 # the Docker build context must be the repository root.
 #
-#   docker build -f protocol/forester/Dockerfile .
+#   docker build -f protocol-ops/forester/Dockerfile .
 #
-# A bare `docker build protocol/forester/` will NOT work; the root .dockerignore keeps the
+# A bare `docker build protocol-ops/forester/` will NOT work; the root .dockerignore keeps the
 # context small.
 #
 # No build secret is needed. The workspace's three git dependencies

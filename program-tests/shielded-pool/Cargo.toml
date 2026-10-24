@@ -17,7 +17,7 @@ proofs = []
 [dependencies]
 zolana-protocol-instructions = { workspace = true }
 anyhow = { workspace = true }
-forester = { path = "../../protocol/forester" }
+forester = { path = "../../protocol-ops/forester" }
 solana-instruction = { workspace = true }
 solana-clock = { workspace = true }
 serial_test = { workspace = true }

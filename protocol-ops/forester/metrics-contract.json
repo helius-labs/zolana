@@ -1,7 +1,7 @@
 {
   "description": "Forester metrics contract \u2014 single source of truth for metric names. Both the Rust forester crate and the k8s monitoring repo validate against this file.",
   "notes": [
-    "The `epoch`-labelled entries and the two epoch gauges describe the upstream Light Protocol epoch/registry design. This fork's forester submits through a smart-account vault and has no epoch concept, so it does not serve them; see protocol/forester/src/metrics.rs.",
+    "The `epoch`-labelled entries and the two epoch gauges describe the upstream Light Protocol epoch/registry design. This fork's forester submits through a smart-account vault and has no epoch concept, so it does not serve them; see protocol-ops/forester/src/metrics.rs.",
     "forester_batches_submitted_total is this fork's replacement for forester_transactions_processed_total: the same 'work completed' counter, keyed by tree rather than by epoch. It is additive, so consumers validating served-names-are-listed are unaffected."
   ],
   "metrics": [

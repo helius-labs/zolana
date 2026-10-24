@@ -1,7 +1,7 @@
 //! Prometheus metrics for the forester, served over plain HTTP.
 //!
 //! Only the metrics this forester can actually populate are served. The names
-//! come from `protocol/forester/metrics-contract.json`, and `contract_covers_served_names`
+//! come from `protocol-ops/forester/metrics-contract.json`, and `contract_covers_served_names`
 //! below asserts that every served name appears there.
 //!
 //! Six contract entries are deliberately NOT served: `forester_epoch_detected`,

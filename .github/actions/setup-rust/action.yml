@@ -37,7 +37,7 @@ runs:
       with:
         go-version-file: prover/server/go.mod
         cache-dependency-path: |
-          protocol/forester-prover/go/go.sum
+          protocol-ops/forester-prover/go/go.sum
           sdk-libs/gnark-ffi-prover/build-helper/go/go.sum
     - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       with:

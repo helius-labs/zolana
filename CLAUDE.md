@@ -45,7 +45,7 @@ layering and optional circuit dependencies.
 - `program-tests`: internal test crates and test-only SBF programs.
 - `sdk-libs`: externally useful Rust SDK crates.
 - `cli`: local developer/operator tooling.
-- `protocol`: operator CLI, forester and batch prover, protocol instructions,
+- `protocol-ops`: operator CLI, forester and batch prover, protocol instructions,
   smart-account client, and reference Merkle trees.
 - `prover`: proof client and prover server.
 - `sdk-tests/zk-standalone`: a standalone circuit fixture for Zolana CLI,
@@ -102,7 +102,7 @@ sdk-tests/zk-standalone/ -- standalone circuit fixture and its verifier program
                           (litesvm test: sdk-tests/zk-tests)
 
 cli/                   -- root Zolana developer/operator CLI
-protocol/              -- protocol operation libraries and binaries
+protocol-ops/          -- protocol operation libraries and binaries
 prover/                -- Rust prover client and Go prover server
 xtask/                 -- workspace maintenance tools
 ```
@@ -410,7 +410,7 @@ impl CreateSplInterface {
   from `zolana_instruction`)
 - Builders for protocol operations (protocol and fee authority administration,
   tree creation, ring activation, forester maintenance) live in
-  `protocol/instructions` (`zolana-protocol-instructions`).
+  `protocol-ops/instructions` (`zolana-protocol-instructions`).
   `CreateSplInterface` stays ungated: the protocol config can open it to
   everyone, and users register their own mints.
 
@@ -673,7 +673,7 @@ what they push.
 Before archiving the standalone Photon repository, update external deployment
 configuration that consumes its old `<run>-<sha>` or `latest` tags to use a new
 immutable `photon-zolana-*` or `sha-*` tag from this repository. Keep the
-base-image digests in `services/photon/Dockerfile`, `protocol/forester/Dockerfile` and
+base-image digests in `services/photon/Dockerfile`, `protocol-ops/forester/Dockerfile` and
 `prover/server/Dockerfile.light` updated through reviewed changes -- all three
 images are attested, and a mutable base tag would let one commit produce
 different bytes.
