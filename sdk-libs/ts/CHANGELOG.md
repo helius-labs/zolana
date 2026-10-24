@@ -4,7 +4,13 @@
 
 Packages that extend the protocol build on this one through an entry point
 outside semver, and the prover and indexer clients carry the requests such a
-package defines.
+package defines. External wallets use `ed25519DerivationMessage(publicKey)` to
+derive their shielded identity. The bare-payload helper is removed because its
+signatures are rejected by the wallet keys constructors.
+
+Breaking
+
+- `ed25519DerivationPayload()` is removed → sign the exact bytes from `ed25519DerivationMessage(publicKey)` and pass the signature to `LocalKeys.fromDerivationSeed()`.
 
 Added
 

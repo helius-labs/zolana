@@ -39,7 +39,6 @@ export {
   OFFCHAIN_MESSAGE_MAGIC,
   TSPP_APPLICATION_DOMAIN,
   ed25519DerivationMessage,
-  ed25519DerivationPayload,
   isDerivationInput,
 } from "./derivation.js";
 export { poseidon } from "./poseidon.js";
