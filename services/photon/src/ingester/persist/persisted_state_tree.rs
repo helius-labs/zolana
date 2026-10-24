@@ -60,46 +60,12 @@ where
         .dedup()
         .collect::<Vec<(Vec<u8>, i32, i64)>>();
 
-    let mut params = Vec::new();
-    let mut placeholders = Vec::new();
-
-    for (index, (tree, tree_kind, node_idx)) in all_required_node_indices.into_iter().enumerate() {
-        let param_index = index * 3; // each location contributes three parameters
-        params.push(Value::from(tree));
-        params.push(Value::from(tree_kind));
-        params.push(Value::from(node_idx));
-        placeholders.push(format!(
-            "(${}, ${}, ${})",
-            param_index + 1,
-            param_index + 2,
-            param_index + 3
-        ));
-    }
-
-    let placeholder_str = placeholders.join(", ");
-    let sql = format!(
-            "WITH vals(tree, tree_kind, node_idx) AS (VALUES {}) SELECT st.* FROM state_trees st JOIN vals v ON st.tree = v.tree AND st.tree_kind = v.tree_kind AND st.node_idx = v.node_idx",
-            placeholder_str
-        );
-
-    let proof_nodes = state_trees::Entity::find()
-        .from_raw_sql(Statement::from_sql_and_values(
-            txn_or_conn.get_database_backend(),
-            &sql,
-            params,
-        ))
-        .all(txn_or_conn)
-        .await?;
-
-    let mut result = proof_nodes
-        .iter()
-        .map(|node| {
-            (
-                (node.tree.clone(), node.tree_kind, node.node_idx),
-                node.clone(),
-            )
-        })
-        .collect::<HashMap<(Vec<u8>, i32, i64), state_trees::Model>>();
+    let mut result = query_proof_nodes_chunked(
+        txn_or_conn,
+        all_required_node_indices,
+        MAX_PROOF_NODE_LOCATIONS_PER_QUERY,
+    )
+    .await?;
 
     if include_empty_leaves {
         for (tree, tree_kind, index) in leaf_nodes_locations.iter() {
@@ -124,6 +90,65 @@ where
         }
     }
 
+    Ok(result)
+}
+
+/// One `VALUES` join binds three parameters per node location, and a single
+/// bind is capped at 65,535 parameters by Postgres' extended protocol (32,766
+/// by SQLite). A full `getMerkleProofs` page of 1,000 spread leaves asks for
+/// roughly 33,000 locations, so one unchunked join turned such a page into a
+/// deterministic "bind message has N parameter formats but maximum is
+/// 65535" error, well inside the endpoint's advertised page limit.
+const MAX_PROOF_NODE_LOCATIONS_PER_QUERY: usize = 10_000;
+
+async fn query_proof_nodes_chunked<T>(
+    txn_or_conn: &T,
+    node_locations: Vec<(Vec<u8>, i32, i64)>,
+    max_locations_per_query: usize,
+) -> Result<HashMap<(Vec<u8>, i32, i64), state_trees::Model>, DbErr>
+where
+    T: ConnectionTrait + TransactionTrait,
+{
+    let mut result = HashMap::new();
+    for chunk in node_locations.chunks(max_locations_per_query) {
+        let mut params = Vec::with_capacity(chunk.len() * 3);
+        let mut placeholders = Vec::with_capacity(chunk.len());
+
+        for (index, (tree, tree_kind, node_idx)) in chunk.iter().enumerate() {
+            let param_index = index * 3; // each location contributes three parameters
+            params.push(Value::from(tree.clone()));
+            params.push(Value::from(*tree_kind));
+            params.push(Value::from(*node_idx));
+            placeholders.push(format!(
+                "(${}, ${}, ${})",
+                param_index + 1,
+                param_index + 2,
+                param_index + 3
+            ));
+        }
+
+        let placeholder_str = placeholders.join(", ");
+        let sql = format!(
+            "WITH vals(tree, tree_kind, node_idx) AS (VALUES {}) SELECT st.* FROM state_trees st JOIN vals v ON st.tree = v.tree AND st.tree_kind = v.tree_kind AND st.node_idx = v.node_idx",
+            placeholder_str
+        );
+
+        let proof_nodes = state_trees::Entity::find()
+            .from_raw_sql(Statement::from_sql_and_values(
+                txn_or_conn.get_database_backend(),
+                &sql,
+                params,
+            ))
+            .all(txn_or_conn)
+            .await?;
+
+        result.extend(proof_nodes.iter().map(|node| {
+            (
+                (node.tree.clone(), node.tree_kind, node.node_idx),
+                node.clone(),
+            )
+        }));
+    }
     Ok(result)
 }
 
@@ -326,6 +351,50 @@ mod tests {
     use crate::ingester::persist::leaf_node::leaf_index_to_node_index;
     use crate::ingester::persist::{compute_parent_hash, MerkleProofWithContext};
     use zolana_indexer_api::{Hash, SerializablePubkey};
+
+    /// One unchunked `VALUES` join exceeds the 65,535-parameter bind limit on
+    /// a full page of spread proof leaves; the chunked query must return
+    /// exactly the rows one unchunked query would.
+    #[tokio::test]
+    async fn proof_node_queries_chunk_the_same_nodes_as_one_query() {
+        use sea_orm::{EntityTrait, Set};
+        use sea_orm_migration::MigratorTrait;
+
+        let db = sea_orm::Database::connect("sqlite::memory:").await.unwrap();
+        crate::migration::RingsMigrator::up(&db, None)
+            .await
+            .unwrap();
+
+        let tree = vec![7u8; 32];
+        let inserted: Vec<_> = [(1, 3), (2, 3), (3, 3), (4, 2), (5, 2), (6, 1)]
+            .into_iter()
+            .map(|(node_idx, level)| state_trees::ActiveModel {
+                tree: Set(tree.clone()),
+                tree_kind: Set(1),
+                node_idx: Set(node_idx),
+                level: Set(level),
+                hash: Set(vec![node_idx as u8; 32]),
+                leaf_idx: Set(None),
+                seq: Set(None),
+            })
+            .collect();
+        state_trees::Entity::insert_many(inserted)
+            .exec(&db)
+            .await
+            .unwrap();
+
+        let locations: Vec<(Vec<u8>, i32, i64)> = (1..=6)
+            .map(|node_idx| (tree.clone(), 1, node_idx))
+            .collect();
+
+        let one_query = query_proof_nodes_chunked(&db, locations.clone(), usize::MAX)
+            .await
+            .unwrap();
+        let one_location_per_query = query_proof_nodes_chunked(&db, locations, 1).await.unwrap();
+
+        assert_eq!(one_query.len(), 6);
+        assert_eq!(one_query, one_location_per_query);
+    }
 
     fn node_index_to_leaf_index(index: i64, tree_height: u32) -> Option<i64> {
         let first_leaf_index = 1_i64.checked_shl(tree_height.checked_sub(1)?)?;
