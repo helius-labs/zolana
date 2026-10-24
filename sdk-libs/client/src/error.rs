@@ -246,6 +246,12 @@ pub enum ClientError {
     #[error("the prover has no indexer for indexed proofs")]
     ProverIndexerUnconfigured,
 
+    #[error("the prover rejected the request with code {code}")]
+    ProverRejected {
+        code: String,
+        detail: std::collections::BTreeMap<String, String>,
+    },
+
     #[error("invalid indexed proof request")]
     InvalidIndexedRequest,
 

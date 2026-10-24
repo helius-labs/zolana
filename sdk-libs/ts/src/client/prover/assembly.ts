@@ -1293,7 +1293,7 @@ export function createOutput(output: ProofOutputUtxo, outputTreeId: TreeId): Tra
   });
 }
 
-function inputCircuitUtxo(input: ProofInputUtxo, dummy = false): CircuitUtxo {
+export function inputCircuitUtxo(input: ProofInputUtxo, dummy = false): CircuitUtxo {
   const owner = dummy
     ? 0n
     : poseidon([
@@ -1324,7 +1324,7 @@ function inputCircuitUtxo(input: ProofInputUtxo, dummy = false): CircuitUtxo {
   });
 }
 
-function outputCircuitUtxo(output: ProofOutputUtxo): CircuitUtxo {
+export function outputCircuitUtxo(output: ProofOutputUtxo): CircuitUtxo {
   const dummy = output.isDummy();
   return Object.freeze({
     domain: asField(BigInt(dummy ? DUMMY_DOMAIN : UTXO_DOMAIN)),

@@ -18,9 +18,8 @@ const DEFAULT_SURFPOOL_VERSION: &str = "1.6.0";
 const PHOTON_LINUX_BUILDER_IMAGE: &str = "rust:1.97-bookworm";
 
 pub struct Options {
-    tag: String,
-    set: ReleaseSet,
-    deploy_dir: PathBuf,
+    pub tag: String,
+    pub deploy_dir: PathBuf,
     staging_dir: PathBuf,
     lock_path: PathBuf,
     upload: bool,
@@ -29,20 +28,28 @@ pub struct Options {
 
 struct ReleaseUpload<'a> {
     options: &'a Options,
+    title: String,
+    notes: String,
     assets: &'a [PathBuf],
     target: &'a str,
 }
 
 /// Which assets a release carries, each set has its own lock and cli.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ReleaseSet {
-    Localnet,
+pub trait ReleaseSet {
+    /// Each cli embeds its own lock, so a release of one set never rewrites the other's.
+    fn lock_path(&self) -> &'static str;
+    fn title(&self, tag: &str) -> String;
+    fn notes(&self, tag: &str) -> String;
+    fn cli_binaries(&self) -> &'static [CliBinary];
+    /// Stages every asset except the clis and returns the lock naming them.
+    fn lock(&self, options: &Options, staging: &Path, host: (&str, &str)) -> Result<Value>;
 }
 
+pub struct Localnet;
+
 impl Options {
-    pub fn parse(args: Vec<String>) -> Self {
+    pub fn parse(args: Vec<String>, set: &impl ReleaseSet) -> Self {
         let mut tag = None;
-        let set = ReleaseSet::Localnet;
         let mut deploy_dir = PathBuf::from("target/deploy");
         let mut staging_dir = PathBuf::from("target/release-staging");
         let mut lock_path = None;
@@ -72,7 +79,6 @@ impl Options {
 
         Self {
             tag: tag.unwrap_or_else(|| usage_and_exit("--tag is required")),
-            set,
             deploy_dir,
             staging_dir,
             lock_path: lock_path.unwrap_or_else(|| PathBuf::from(set.lock_path())),
@@ -82,47 +88,42 @@ impl Options {
     }
 }
 
-impl ReleaseSet {
-    /// Each cli embeds its own lock, so a release of one set never rewrites the other's.
-    fn lock_path(self) -> &'static str {
-        match self {
-            Self::Localnet => "cli/release-artifacts.lock",
-        }
+impl ReleaseSet for Localnet {
+    fn lock_path(&self) -> &'static str {
+        "cli/release-artifacts.lock"
     }
 
-    fn title(self, tag: &str) -> String {
-        match self {
-            Self::Localnet => tag.to_string(),
-        }
+    fn title(&self, tag: &str) -> String {
+        tag.to_string()
     }
 
-    fn notes(self, tag: &str) -> String {
-        match self {
-            Self::Localnet => format!("Zolana localnet artifacts {tag}"),
-        }
+    fn notes(&self, tag: &str) -> String {
+        format!("Zolana localnet artifacts {tag}")
     }
 
-    fn cli_binaries(self) -> &'static [CliBinary] {
-        match self {
-            Self::Localnet => &[CliBinary {
-                package: "zolana-cli",
-                bin: "zolana",
-                asset_stem: "zolana",
-            }],
-        }
+    fn cli_binaries(&self) -> &'static [CliBinary] {
+        &[CliBinary {
+            package: "zolana-cli",
+            bin: "zolana",
+            asset_stem: "zolana",
+        }]
+    }
+
+    fn lock(&self, options: &Options, staging: &Path, host: (&str, &str)) -> Result<Value> {
+        localnet_lock(options, staging, host)
     }
 }
 
-struct CliBinary {
-    package: &'static str,
-    bin: &'static str,
-    asset_stem: &'static str,
+pub struct CliBinary {
+    pub package: &'static str,
+    pub bin: &'static str,
+    pub asset_stem: &'static str,
 }
 
-struct ProgramSource {
-    role: &'static str,
-    file: &'static str,
-    asset_stem: &'static str,
+pub struct ProgramSource {
+    pub role: &'static str,
+    pub file: &'static str,
+    pub asset_stem: &'static str,
 }
 
 const PROGRAM_SOURCES: [ProgramSource; 3] = [
@@ -143,13 +144,14 @@ const PROGRAM_SOURCES: [ProgramSource; 3] = [
     },
 ];
 
-pub fn run(options: Options) -> Result<()> {
+pub const PROVING_KEYS_DIR: &str = "prover/server/proving-keys";
+pub const PROVING_KEYS_LOCK: &str = "prover/server/prover/provingkeys/proving-keys.lock";
+
+pub fn run(options: Options, set: &impl ReleaseSet) -> Result<()> {
     let (os, arch) = current_platform()?;
     let staging = &options.staging_dir;
     reset_dir(staging)?;
-    let lock = match options.set {
-        ReleaseSet::Localnet => localnet_lock(&options, staging, (os, arch))?,
-    };
+    let lock = set.lock(&options, staging, (os, arch))?;
     let mut serialized = serde_json::to_string_pretty(&lock)?;
     serialized.push('\n');
     fs::write(&options.lock_path, serialized)
@@ -157,13 +159,15 @@ pub fn run(options: Options) -> Result<()> {
     println!("wrote lockfile {}", options.lock_path.display());
 
     // Build the CLI binaries last so they embed the just-written lockfile.
-    let cli_assets = build_cli_binaries(&options, staging, (os, arch))?;
+    let cli_assets = build_cli_binaries(&options, set, staging, (os, arch))?;
     let mut assets = staged_asset_paths(staging, &lock);
     assets.extend(cli_assets);
 
     if options.upload {
         ReleaseUpload {
             options: &options,
+            title: set.title(&options.tag),
+            notes: set.notes(&options.tag),
             assets: &assets,
             target: &git_head()?,
         }
@@ -235,7 +239,25 @@ fn localnet_lock(options: &Options, staging: &Path, host: (&str, &str)) -> Resul
     }))
 }
 
-fn stage_program(source: &ProgramSource, path: &Path, tag: &str, staging: &Path) -> Result<Value> {
+pub fn read_json(path: &Path) -> Result<Value> {
+    let contents =
+        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
+    serde_json::from_str(&contents).with_context(|| format!("failed to parse {}", path.display()))
+}
+
+pub fn pinned_sha256(prover_lock: &Value, file: &str) -> Result<String> {
+    prover_lock["keys"][file]["sha256"]
+        .as_str()
+        .map(str::to_string)
+        .ok_or_else(|| anyhow!("{PROVING_KEYS_LOCK} pins no {file}"))
+}
+
+pub fn stage_program(
+    source: &ProgramSource,
+    path: &Path,
+    tag: &str,
+    staging: &Path,
+) -> Result<Value> {
     let asset = format!("{}-{}.so", source.asset_stem, tag);
     let staged = stage_file(path, &staging.join(&asset))?;
     Ok(json!({
@@ -283,13 +305,14 @@ fn build_binaries(options: &Options, staging: &Path, host: (&str, &str)) -> Resu
 /// Each cli embeds its set's lockfile, so it is built after it and is not an entry in it.
 fn build_cli_binaries(
     options: &Options,
+    set: &impl ReleaseSet,
     staging: &Path,
     host: (&str, &str),
 ) -> Result<Vec<PathBuf>> {
     let repo = repo_root()?;
     let mut assets = Vec::new();
     for (os, arch) in release_targets(host) {
-        for cli in options.set.cli_binaries() {
+        for cli in set.cli_binaries() {
             let asset = format!("{}-{os}-{arch}-{}", cli.asset_stem, options.tag);
             let path = staging.join(&asset);
             build_rust_binary(&repo, cli.package, cli.bin, &path, (os, arch) == host)?;
@@ -300,7 +323,7 @@ fn build_cli_binaries(
 }
 
 /// The host platform plus linux-x64 (deduped when the host already is linux-x64).
-fn release_targets<'a>(host: (&'a str, &'a str)) -> Vec<(&'a str, &'a str)> {
+pub fn release_targets<'a>(host: (&'a str, &'a str)) -> Vec<(&'a str, &'a str)> {
     let mut targets = vec![host];
     if host != ("linux", "x64") {
         targets.push(("linux", "x64"));
@@ -308,7 +331,7 @@ fn release_targets<'a>(host: (&'a str, &'a str)) -> Vec<(&'a str, &'a str)> {
     targets
 }
 
-fn binary_json(role: &str, os: &str, arch: &str, asset: &str, path: &Path) -> Result<Value> {
+pub fn binary_json(role: &str, os: &str, arch: &str, asset: &str, path: &Path) -> Result<Value> {
     let staged = checksum_file(path)?;
     Ok(json!({
         "role": role,
@@ -361,7 +384,13 @@ fn build_prover(repo: &Path, os: &str, arch: &str, out: &Path) -> Result<()> {
 /// The host build uses cargo directly; linux-x64 builds in a Docker container so
 /// no host cross-linker is needed. Both are cache-first via the shared
 /// `target`/`target-linux-x64` dirs, so building a second binary is incremental.
-fn build_rust_binary(repo: &Path, package: &str, bin: &str, out: &Path, host: bool) -> Result<()> {
+pub fn build_rust_binary(
+    repo: &Path,
+    package: &str,
+    bin: &str,
+    out: &Path,
+    host: bool,
+) -> Result<()> {
     if host {
         build_rust_binary_host(repo, package, bin, out)
     } else {
@@ -413,7 +442,7 @@ fn build_rust_binary_linux_x64(repo: &Path, package: &str, bin: &str, out: &Path
     Ok(())
 }
 
-fn repo_root() -> Result<PathBuf> {
+pub fn repo_root() -> Result<PathBuf> {
     let output = Command::new("git")
         .args(["rev-parse", "--show-toplevel"])
         .output()
@@ -465,12 +494,12 @@ fn git_head() -> Result<String> {
     Ok(String::from_utf8(output.stdout)?.trim().to_string())
 }
 
-struct Checksum {
-    size: u64,
-    sha256: String,
+pub struct Checksum {
+    pub size: u64,
+    pub sha256: String,
 }
 
-fn stage_file(src: &Path, dest: &Path) -> Result<Checksum> {
+pub fn stage_file(src: &Path, dest: &Path) -> Result<Checksum> {
     fs::copy(src, dest)
         .with_context(|| format!("failed to copy {} -> {}", src.display(), dest.display()))?;
     checksum_file(dest)
@@ -491,17 +520,17 @@ fn sha256_hex(bytes: &[u8]) -> String {
 }
 
 fn staged_asset_paths(staging: &Path, lock: &Value) -> Vec<PathBuf> {
-    let mut names = Vec::new();
-    if let Some(programs) = lock.get("programs").and_then(Value::as_array) {
-        names.extend(programs.iter().filter_map(asset_name));
-    }
-    if let Some(name) = lock.get("accounts").and_then(asset_name) {
-        names.push(name);
-    }
-    if let Some(binaries) = lock.get("binaries").and_then(Value::as_array) {
-        names.extend(binaries.iter().filter_map(asset_name));
-    }
-    names.iter().map(|name| staging.join(name)).collect()
+    lock.as_object()
+        .into_iter()
+        .flat_map(|lock| lock.values())
+        .flat_map(|value| {
+            value
+                .as_array()
+                .map_or(std::slice::from_ref(value), Vec::as_slice)
+        })
+        .filter_map(asset_name)
+        .map(|name| staging.join(name))
+        .collect()
 }
 
 fn asset_name(value: &Value) -> Option<String> {
@@ -576,9 +605,9 @@ impl ReleaseUpload<'_> {
                     "--target".to_string(),
                     self.target.to_string(),
                     "--title".to_string(),
-                    self.options.set.title(tag),
+                    self.title.clone(),
                     "--notes".to_string(),
-                    self.options.set.notes(tag),
+                    self.notes.clone(),
                 ];
                 if self.options.prerelease {
                     args.push("--prerelease".to_string());
@@ -706,7 +735,7 @@ fn reset_dir(dir: &Path) -> Result<()> {
     Ok(())
 }
 
-fn require_file(path: &Path, hint: &str) -> Result<()> {
+pub fn require_file(path: &Path, hint: &str) -> Result<()> {
     if !path.is_file() {
         bail!("missing artifact {}: {hint}", path.display());
     }
@@ -754,37 +783,36 @@ mod tests {
 
     #[test]
     fn release_upload_preserves_the_other_bundle_and_existing_assets() {
-        for set in [ReleaseSet::Localnet] {
-            let options = Options {
-                tag: "v1".to_string(),
-                set,
-                deploy_dir: PathBuf::new(),
-                staging_dir: PathBuf::new(),
-                lock_path: PathBuf::new(),
-                upload: true,
-                prerelease: true,
-            };
-            let assets = [PathBuf::from("/stage/bundle")];
-            let upload = ReleaseUpload {
-                options: &options,
-                assets: &assets,
-                target: "released-commit",
-            };
-            assert_eq!(
-                upload.args(Some("released-commit")).unwrap(),
-                ["release", "upload", "v1", "/stage/bundle"]
-            );
-            assert!(upload.args(Some("other-commit")).is_err());
-            let create = upload.args(None).unwrap();
-            assert_eq!(
-                &create[..5],
-                ["release", "create", "v1", "--target", "released-commit"]
-            );
-            assert!(create.iter().any(|arg| arg == "--prerelease"));
-            assert_eq!(create.last().unwrap(), "/stage/bundle");
-            for forbidden in ["delete", "--clobber", "--cleanup-tag"] {
-                assert!(!create.iter().any(|arg| arg == forbidden));
-            }
+        let options = Options {
+            tag: "v1".to_string(),
+            deploy_dir: PathBuf::new(),
+            staging_dir: PathBuf::new(),
+            lock_path: PathBuf::new(),
+            upload: true,
+            prerelease: true,
+        };
+        let assets = [PathBuf::from("/stage/bundle")];
+        let upload = ReleaseUpload {
+            options: &options,
+            title: "v1".to_string(),
+            notes: "v1".to_string(),
+            assets: &assets,
+            target: "released-commit",
+        };
+        assert_eq!(
+            upload.args(Some("released-commit")).unwrap(),
+            ["release", "upload", "v1", "/stage/bundle"]
+        );
+        assert!(upload.args(Some("other-commit")).is_err());
+        let create = upload.args(None).unwrap();
+        assert_eq!(
+            &create[..5],
+            ["release", "create", "v1", "--target", "released-commit"]
+        );
+        assert!(create.iter().any(|arg| arg == "--prerelease"));
+        assert_eq!(create.last().unwrap(), "/stage/bundle");
+        for forbidden in ["delete", "--clobber", "--cleanup-tag"] {
+            assert!(!create.iter().any(|arg| arg == forbidden));
         }
     }
 
@@ -919,13 +947,14 @@ mod tests {
             "binaries": [{"asset": "prover"}, {"asset": "photon"}],
         });
         let paths = staged_asset_paths(Path::new("/stage"), &lock);
-        let names: Vec<_> = paths
+        let mut names: Vec<_> = paths
             .iter()
             .map(|p| p.file_name().unwrap().to_str().unwrap())
             .collect();
+        names.sort_unstable();
         assert_eq!(
             names,
-            ["a.so", "b.so", "accounts.tar.gz", "prover", "photon"]
+            ["a.so", "accounts.tar.gz", "b.so", "photon", "prover"]
         );
     }
 

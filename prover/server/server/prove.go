@@ -13,7 +13,10 @@ import (
 	transfereddsa "github.com/helius-labs/zolana/prover/server/prover/transfer_eddsa"
 )
 
-var errIndexedProof = errors.New("indexed proof failed")
+var (
+	errExtensionProof = errors.New("extension proof failed")
+	errIndexedProof   = errors.New("indexed proof failed")
+)
 
 type circuitProver struct {
 	keys      *common.LazyKeyManager
@@ -30,6 +33,9 @@ func (p circuitProver) prove(payload []byte) (*common.Proof, *Error) {
 }
 
 func (p circuitProver) dispatch(circuit common.CircuitType, payload []byte) (*common.Proof, *Error) {
+	if extension, ok := common.LookupExtension(circuit); ok {
+		return p.extension(extension, payload)
+	}
 	switch circuit {
 	case common.BatchAddressAppendCircuitType:
 		return p.batchAddressAppend(payload)
@@ -79,6 +85,36 @@ func (p circuitProver) eddsaTransfer(payload []byte) (*common.Proof, *Error) {
 		return nil, provingError(fmt.Errorf("transfer-eddsa: %w", err))
 	}
 	return proved(transfereddsa.AnonymousEddsaProof{System: ps, Parameters: &params, Prover: backend.Prover(p.trace)}.Prove())
+}
+
+func (p circuitProver) extension(circuit common.ExtensionCircuit, payload []byte) (*common.Proof, *Error) {
+	request := circuit.Request()
+	if failure := p.decode(payload, request); failure != nil {
+		return nil, extensionFailure(failure)
+	}
+	if failure := p.admission.admit(circuit.KeyFile); failure != nil {
+		return nil, failure
+	}
+	finishKeys := p.trace.Start("keys")
+	ps, err := p.keys.GetExtensionSystem(circuit.Type)
+	finishKeys()
+	if err != nil {
+		return nil, extensionFailure(provingError(fmt.Errorf("%s: %w", circuit.Type, err)))
+	}
+	proof, err := common.ExtensionProof{System: ps, Request: request, Prover: backend.Prover(p.trace)}.Prove()
+	if err != nil {
+		return nil, extensionFailure(provingError(err))
+	}
+	return proof, nil
+}
+
+// extensionFailure is what a client reads of a failed extension request,
+// on every path: errExtensionProof under the failure's own code, so the code
+// still says whether the request or the proof failed. The text can carry
+// private inputs, so the failure rides along only as the unexported cause,
+// which the caller that reports it logs through loggedCause.
+func extensionFailure(failure *Error) *Error {
+	return withCause(&Error{StatusCode: failure.StatusCode, Code: failure.Code, Message: errExtensionProof.Error()}, failure)
 }
 
 func (p circuitProver) batchAddressAppend(payload []byte) (*common.Proof, *Error) {

@@ -268,6 +268,44 @@ func (ps *TransferProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
 	return totalRead, nil
 }
 
+func (ps *ExtensionProofSystem) WriteTo(w io.Writer) (int64, error) {
+	var total int64
+
+	written, err := ps.ProvingKey.WriteTo(w)
+	total += written
+	if err != nil {
+		return total, err
+	}
+	written, err = ps.VerifyingKey.WriteTo(w)
+	total += written
+	if err != nil {
+		return total, err
+	}
+	written, err = ps.ConstraintSystem.WriteTo(w)
+	total += written
+	return total, err
+}
+
+func (ps *ExtensionProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
+	var total int64
+	ps.ProvingKey = groth16.NewProvingKey(ecc.BN254)
+	read, err := ps.ProvingKey.UnsafeReadFrom(r)
+	total += read
+	if err != nil {
+		return total, err
+	}
+	ps.VerifyingKey = groth16.NewVerifyingKey(ecc.BN254)
+	read, err = ps.VerifyingKey.UnsafeReadFrom(r)
+	total += read
+	if err != nil {
+		return total, err
+	}
+	ps.ConstraintSystem = groth16.NewCS(ecc.BN254)
+	read, err = ps.ConstraintSystem.ReadFrom(r)
+	total += read
+	return total, err
+}
+
 // readKeyFile deserializes the key file at path through read and hashes every
 // byte on the way, so the reported digest is of the bytes actually loaded, for
 // lockfile and local keys alike. Bytes the deserializer leaves unread are hashed
@@ -296,7 +334,17 @@ func readKeyFile(path string, read func(io.Reader) (int64, error)) ([32]byte, er
 
 func ReadSystemFromFile(path string) (interface{}, error) {
 	lowerPath := strings.ToLower(filepath.Base(path))
-	if strings.Contains(lowerPath, "transfer") {
+	if circuitType := extensionOfKeyFile(lowerPath); circuitType != "" {
+		ps := &ExtensionProofSystem{
+			CircuitType: circuitType,
+		}
+		digest, err := readKeyFile(path, ps.UnsafeReadFrom)
+		if err != nil {
+			return nil, err
+		}
+		ps.ProvingKeySha256 = digest
+		return ps, nil
+	} else if strings.Contains(lowerPath, "transfer") {
 		ps := new(TransferProofSystem)
 		digest, err := readKeyFile(path, ps.UnsafeReadFrom)
 		if err != nil {
@@ -353,6 +401,15 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 	} else {
 		return nil, fmt.Errorf("unrecognized proving key file: %s", path)
 	}
+}
+
+func extensionOfKeyFile(name string) CircuitType {
+	for _, circuit := range extensions {
+		if circuit.KeyFile == name {
+			return circuit.Type
+		}
+	}
+	return ""
 }
 
 func (ps *BatchProofSystem) WriteTo(w io.Writer) (int64, error) {

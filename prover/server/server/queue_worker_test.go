@@ -97,7 +97,8 @@ func blockingPhoton(t *testing.T) (*indexed.Resolver, <-chan struct{}) {
 
 func TestEveryWorkerResolvesIndexedJobs(t *testing.T) {
 	constructors := map[string]func(WorkerConfig) *BaseQueueWorker{
-		"append": NewAddressAppendQueueWorker,
+		"append":    NewAddressAppendQueueWorker,
+		"extension": NewExtensionQueueWorker,
 		"transfer": func(config WorkerConfig) *BaseQueueWorker {
 			return NewTransferQueueWorker(config, NewExecution(1))
 		},

@@ -10,7 +10,7 @@ const (
 	// TransferRingCircuitType is the confidential policy-ring transfer.
 	TransferRingCircuitType CircuitType = "transfer-ring"
 
-	// TransferAnonymousRingEddsaCircuitType is the custom-ring transfer with an
+	// TransferAnonymousRingEddsaCircuitType is the ring transfer with an
 	// in-circuit Ed25519 authorization shared by every hidden-owner input.
 	TransferAnonymousRingEddsaCircuitType CircuitType = "transfer-eddsa-ring"
 

@@ -1098,7 +1098,7 @@ class HostTests(unittest.TestCase):
     def test_proxy_workers_exceed_the_indexer_concurrency(self):
         default = re.search(
             r'Name: "indexer-concurrency".*?Value: (\d+)',
-            (SERVER / "main.go").read_text(),
+            (SERVER / "app/app.go").read_text(),
         ).group(1)
         self.assertGreater(host.PROXY_WORKERS, int(default))
 
@@ -1422,9 +1422,9 @@ class ImageTests(unittest.TestCase):
         bases = [
             base
             for base in re.findall(r"^FROM (\S+)", dockerfile, re.M)
-            if base not in stages and base != "${BACKEND}"
+            if base not in stages and "${" not in base
         ]
-        self.assertEqual(len(bases), 2)
+        self.assertEqual(len(bases), 3)
         self.assertTrue(
             all(re.search(r"@sha256:[0-9a-f]{64}$", base) for base in bases)
         )
