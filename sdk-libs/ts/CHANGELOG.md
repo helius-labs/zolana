@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.1-alpha — unreleased
+
+External wallets use `ed25519DerivationMessage(publicKey)` to derive their
+shielded identity. The bare-payload helper is removed because its signatures
+are rejected by the wallet keys constructors.
+
+Breaking
+
+- `ed25519DerivationPayload()` is removed → sign the exact bytes from `ed25519DerivationMessage(publicKey)` and pass the signature to `LocalKeys.fromDerivationSeed()`.
+
 ## 0.5.0-alpha — 2026-10-23
 
 Proofs go encrypted to an attested Nitro Enclave prover by default, the devnet

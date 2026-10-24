@@ -1,8 +1,14 @@
+import { ed25519 } from "@noble/curves/ed25519.js";
 import { getAddressDecoder } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 
 import type { Bytes32, Bytes64 } from "../src/interface/index.js";
-import { KeypairError, ShieldedKeypair, SigningKey } from "../src/keypair/index.js";
+import {
+  ed25519DerivationMessage,
+  KeypairError,
+  ShieldedKeypair,
+  SigningKey,
+} from "../src/keypair/index.js";
 import { LocalShieldedKeys, Utxo, SOL_MINT } from "../src/transaction/index.js";
 
 function hex(value: Uint8Array): string {
@@ -13,7 +19,8 @@ function fixture() {
   const signing = SigningKey.fromEd25519Bytes(new Uint8Array(32).fill(42) as Bytes32);
   const publicKey = signing.publicKey().ed25519();
   const solanaPublicKey = getAddressDecoder().decode(publicKey);
-  const seed = signing.derivationSeed() as Bytes64;
+  const seed = ed25519.sign(ed25519DerivationMessage(publicKey), new Uint8Array(32).fill(42));
+  expect(seed).toEqual(signing.derivationSeed());
   const expected = ShieldedKeypair.fromKeypair(
     SigningKey.fromEd25519Bytes(new Uint8Array(32).fill(42) as Bytes32),
   );
@@ -21,9 +28,12 @@ function fixture() {
 }
 
 describe("LocalShieldedKeys", () => {
-  it("reproduces the software identity from a derivation seed without exposing a signer", async () => {
+  it("reproduces the software identity from an external signature over the public message helper", async () => {
+    expect(await import("../src/keypair/index.js")).not.toHaveProperty("ed25519DerivationPayload");
     const { solanaPublicKey, seed, expected } = fixture();
+    const original = seed.slice();
     const keys = LocalShieldedKeys.fromDerivationSeed({ solanaPublicKey, derivationSeed: seed });
+    expect(seed).toEqual(original);
     const identity = keys.address();
 
     expect(hex(identity.signingPublicKey.toBytes())).toBe(
@@ -91,6 +101,19 @@ describe("LocalShieldedKeys", () => {
         code: "TRANSACTION_INVALID_DERIVATION_SEED",
       }),
     );
+  });
+
+  it("rejects a valid signature over the bare payload without modifying it", () => {
+    const { solanaPublicKey } = fixture();
+    const seed = ed25519.sign(
+      new TextEncoder().encode("TSPP/derive/v1"),
+      new Uint8Array(32).fill(42),
+    );
+    const original = seed.slice();
+    expect(() =>
+      LocalShieldedKeys.fromDerivationSeed({ solanaPublicKey, derivationSeed: seed }),
+    ).toThrowError(expect.objectContaining({ code: "TRANSACTION_INVALID_DERIVATION_SEED" }));
+    expect(seed).toEqual(original);
   });
 
   it("rejects a seed whose width is not the eddsa rail's", () => {

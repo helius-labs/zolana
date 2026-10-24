@@ -1,6 +1,11 @@
 export { bindProgramTransaction } from "@heliuslabs/zolana/transaction";
 export type { ProgramTransaction } from "@heliuslabs/zolana/transaction";
-export { X25519PublicKey, X25519Keypair, ShieldedPda } from "@heliuslabs/zolana/keypair";
+export {
+  ed25519DerivationMessage,
+  X25519PublicKey,
+  X25519Keypair,
+  ShieldedPda,
+} from "@heliuslabs/zolana/keypair";
 /** Named exports the changelog promises, resolved through the package exports map. */
 export {
   MAX_INPUT_TREES,

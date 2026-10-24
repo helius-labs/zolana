@@ -117,8 +117,12 @@ wallet derivations (`ShieldedKeys`: `decrypt`, `derive`, `transactionKeys`) and
 proving (`ProofAuthority`: `prove`, `proveMerge`). Methods return derived values,
 not long-lived secrets, and accept batches so an enclave or hardware wallet can
 answer each phase in one round trip. `LocalKeys` provides both roles for keys
-held in-process; `LocalKeys.fromDerivationSeed` creates them from a browser
-wallet signature over the derivation message. The Solana signature over the
+held in-process; `LocalKeys.fromDerivationSeed` verifies the wallet signature over
+`ed25519DerivationMessage(publicKey)` from `@heliuslabs/zolana/keypair`, where
+`publicKey` is the wallet's 32-byte Ed25519 public key. The wallet must sign these
+exact off-chain message v0 bytes; signing only `TSPP/derive/v1` or using another
+envelope is rejected. A wallet unable to sign these bytes is unsupported for this
+derivation. The signature is secret key material. The Solana signature over the
 finished transaction remains with the app signer.
 
 ### Transaction format
