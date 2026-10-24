@@ -2,6 +2,9 @@
 
 Compute unit profiling for the dynamic-swap create_pair/update_price/create_escrow/settle/cancel/withdraw_liquidity/rebalance_liquidity instructions, replayed under mollusk. Every PDA account (Pair, Escrow) and the shielded-pool tree account are built directly, as if the prior instruction chain already ran -- only the ONE instruction under measurement is actually replayed. Only the dynamic-swap program is profiled; the shielded-pool program is built plain, so the CU its CPI consumes is charged to the `cpi_spp_*` row as a black box and its internal functions do not appear here. update_price never verifies a proof or CPI into SPP at all (the whole point of keeping it cheap), and neither does skip_expired, which advances the FIFO order queue past an expired head; deposit_liquidity (the maker's shielded note into a pool note, IN1_OUT2 with one compact output), create_escrow (taker-only, IN1_OUT2), settle (pool-funded, maker-only, IN2_OUT4 with one compact output), cancel (after expiry, IN1_OUT2 with one compact output), withdraw_liquidity (IN1_OUT2 with one compact output and an SPL withdrawal), and rebalance_liquidity (IN5_OUT4, dummy-padded) each verify their own Groth16 proof and then CPI SPP `transact`, which verifies its own. Each proof-carrying instruction's section also records its proving times (SPP transfer proof plus the dynamic-swap circuit proof) and the serialized size of the version 1 transaction these instructions are sent as, which states its compute ceilings in the message header and may run to 4096 bytes.
 
+These measurements are the baseline from the former gnark application circuits.
+The Rust `zolana-program` circuit migration changes proof generation and verifier
+keys; the tables have not been measured again for that implementation.
 Regenerate with `just bench-dynamic-swap`.
 
 ## Definitions

@@ -1,10 +1,8 @@
-use dynamic_swap_program::instructions::{
-    cancel::CancelPublicInput,
-    settle::SettlePublicInput,
-    shared::u64_right_align,
-    verifier::{verify_groth16, CompressedGroth16Proof},
+use dynamic_swap_program::{
+    circuits::{EscrowCancel, EscrowCancelPrivateInputs, PoolSettle, PoolSettlePrivateInputs},
+    instructions::shared::u64_right_align,
+    verifier::{escrow_cancel, pool_settle},
 };
-use dynamic_swap_prover::{EscrowCancelProofInputs, OrderProof, PoolSettleProofInputs};
 use dynamic_swap_sdk::{
     instructions::{
         cancel::CancelProofInputParams,
@@ -13,7 +11,9 @@ use dynamic_swap_sdk::{
     shared::transaction_blindings,
     state::{order_data_hash, PoolUtxo},
 };
+use std::sync::OnceLock;
 use zolana_keypair::ShieldedKeypair;
+use zolana_program::{CompressedProof, Groth16Prover, SolanaProof, ZkCircuit};
 use zolana_transaction::{
     instructions::transact::{asset_field, PrivateTxHash, SppProofOutputUtxo},
     utxo::{
@@ -85,29 +85,20 @@ fn order_in(recipient_owner_hash: &[u8; 32]) -> SppProofInputUtxo {
     )
 }
 
-fn compressed(proof: &OrderProof) -> CompressedGroth16Proof<'_> {
-    CompressedGroth16Proof {
-        a: &proof.proof_a,
-        b: &proof.proof_b,
-        c: &proof.proof_c,
-        commitment: None,
-    }
-}
-
-fn verify_settle(proof: &OrderProof, public_input_hash: [u8; 32]) -> bool {
-    verify_groth16(
-        compressed(proof),
+fn verify_settle(proof: &SolanaProof, public_input_hash: [u8; 32]) -> bool {
+    zolana_program::verifier::verify_groth16(
+        &CompressedProof::try_from(proof).unwrap(),
         public_input_hash,
-        &dynamic_swap_program::verifying_keys::pool_settle::VERIFYINGKEY,
+        &pool_settle::VERIFYINGKEY,
     )
     .is_ok()
 }
 
-fn verify_cancel(proof: &OrderProof, public_input_hash: [u8; 32]) -> bool {
-    verify_groth16(
-        compressed(proof),
+fn verify_cancel(proof: &SolanaProof, public_input_hash: [u8; 32]) -> bool {
+    zolana_program::verifier::verify_groth16(
+        &CompressedProof::try_from(proof).unwrap(),
         public_input_hash,
-        &dynamic_swap_program::verifying_keys::escrow_cancel::VERIFYINGKEY,
+        &escrow_cancel::VERIFYINGKEY,
     )
     .is_ok()
 }
@@ -208,59 +199,55 @@ fn sample_cancel() -> CancelProofInputParams {
     }
 }
 
-fn settle_public_hash(inputs: &PoolSettleProofInputs) -> [u8; 32] {
-    SettlePublicInput {
-        private_tx_hash: &inputs.private_tx_hash,
-        execution_price: inputs.execution_price,
-        order_in_hash: &inputs.order_in_hash,
-        destination_asset: &inputs.destination_asset,
-        pool_authority_owner_hash: &inputs.pool_authority_owner_hash,
-        max_order_size: inputs.max_order_size,
-        receipt_owner_hash: &inputs.receipt_owner_hash,
-        first_nullifier: &inputs.first_nullifier,
+fn settle_public_hash(inputs: &PoolSettle) -> [u8; 32] {
+    pool_settle::PublicInputs {
+        execution_price: inputs.public.execution_price,
+        order_in_hash: inputs.public.order_in_hash,
+        destination_asset: inputs.public.destination_asset,
+        pool_authority_owner_hash: inputs.public.pool_authority_owner_hash,
+        max_order_size: inputs.public.max_order_size,
+        receipt_owner_hash: inputs.public.receipt_owner_hash,
+        first_nullifier: inputs.public.first_nullifier,
     }
-    .hash()
+    .hash(&inputs.private.private_tx_hash)
     .unwrap()
 }
 
-fn cancel_public_hash(inputs: &EscrowCancelProofInputs) -> [u8; 32] {
-    CancelPublicInput {
-        private_tx_hash: &inputs.private_tx_hash,
-        order_in_hash: &inputs.order_in_hash,
-        first_nullifier: &inputs.first_nullifier,
+fn cancel_public_hash(inputs: &EscrowCancel) -> [u8; 32] {
+    escrow_cancel::PublicInputs {
+        order_in_hash: inputs.public.order_in_hash,
+        first_nullifier: inputs.public.first_nullifier,
     }
-    .hash()
+    .hash(&inputs.private.private_tx_hash)
     .unwrap()
 }
 
 // Keep transcript hashes consistent so attacks exercise the recovery checks.
-fn refresh_settle_hashes(inputs: &mut PoolSettleProofInputs) {
-    inputs.private_tx_hash = PrivateTxHash::new(
+fn refresh_settle_hashes(inputs: &mut PoolSettle) {
+    inputs.private.private_tx_hash = PrivateTxHash::new(
         &[
-            inputs.order_in.hash().unwrap(),
-            inputs.pool_in.hash().unwrap(),
+            inputs.private.order_in.hash().unwrap(),
+            inputs.private.pool_in.hash().unwrap(),
         ],
         &[
-            inputs.recipient_out.hash().unwrap(),
-            inputs.pool_change.hash().unwrap(),
-            inputs.maker_receipt.hash().unwrap(),
+            inputs.private.recipient_out.hash().unwrap(),
+            inputs.private.pool_change.hash().unwrap(),
+            inputs.private.maker_receipt.hash().unwrap(),
         ],
-        &inputs.private_tx_blinding,
+        &inputs.private.private_tx_blinding,
     )
     .hash()
     .unwrap();
-    inputs.public_input_hash = settle_public_hash(inputs);
 }
 
-fn refresh_cancel_hashes(inputs: &mut EscrowCancelProofInputs) {
-    inputs.private_tx_hash = PrivateTxHash::new(
-        &[inputs.order_in.hash().unwrap()],
-        &[inputs.refund_out.hash().unwrap()],
-        &inputs.private_tx_blinding,
+fn refresh_cancel_hashes(inputs: &mut EscrowCancel) {
+    inputs.private.private_tx_hash = PrivateTxHash::new(
+        &[inputs.private.order_in.hash().unwrap()],
+        &[inputs.private.refund_out.hash().unwrap()],
+        &inputs.private.private_tx_blinding,
     )
     .hash()
     .unwrap();
-    inputs.public_input_hash = cancel_public_hash(inputs);
 }
 
 /// Replace the private transaction blinding and `outputs` blindings with the
@@ -283,26 +270,32 @@ fn settle_and_refund_prove_and_recover_without_ciphertext() {
     for price in PRICES {
         let params = sample_settle(price);
         let inputs = params.to_proof_inputs().unwrap();
-        let proof = inputs.prove().expect("prove settlement outcome");
+        static PROVER: OnceLock<Groth16Prover<PoolSettle>> = OnceLock::new();
+        let prover = PROVER.get_or_init(|| Groth16Prover::new_with_test_setup().unwrap());
+        let proof = prover
+            .prove(&inputs)
+            .expect("prove settlement outcome")
+            .proof;
         assert!(
-            verify_settle(&proof, inputs.public_input_hash),
+            verify_settle(&proof, settle_public_hash(&inputs)),
             "settlement must verify against the program key"
         );
 
         // The taker holds the order opening. The only settlement datum it
         // needs for recovery is the first published nullifier.
         let blinding_seed = settle_blinding_seed(&params.order_in.utxo.blinding).unwrap();
-        let seed = derive_output_blinding_seed(&inputs.first_nullifier, &blinding_seed).unwrap();
-        let mut recovered = inputs.recipient_out.clone();
+        let seed =
+            derive_output_blinding_seed(&inputs.public.first_nullifier, &blinding_seed).unwrap();
+        let mut recovered = inputs.private.recipient_out.clone();
         recovered.blinding =
-            derive_transact_output_blinding(&inputs.first_nullifier, &seed, 0).unwrap();
+            derive_transact_output_blinding(&inputs.public.first_nullifier, &seed, 0).unwrap();
         assert_eq!(
             recovered.hash().unwrap(),
-            inputs.recipient_out.hash().unwrap()
+            inputs.private.recipient_out.hash().unwrap()
         );
 
         let mut forged = inputs.clone();
-        forged.first_nullifier = fe(17);
+        forged.public.first_nullifier = fe(17);
         assert!(!verify_settle(&proof, settle_public_hash(&forged)));
     }
 }
@@ -311,23 +304,23 @@ fn settle_and_refund_prove_and_recover_without_ciphertext() {
 fn settle_rejects_unrecoverable_outputs_and_maker_selected_blinding_seed() {
     for price in PRICES {
         let good = sample_settle(price).to_proof_inputs().unwrap();
-        good.prove().expect("positive control");
+        good.check_constraints().expect("positive control");
         for attack in 0..5 {
             let mut inputs = good.clone();
             match attack {
-                0 => inputs.recipient_out.blinding = fe(29),
-                1 => inputs.pool_change.blinding = fe(29),
-                2 => inputs.maker_receipt.blinding = fe(29),
-                3 => inputs.private_tx_blinding = fe(29),
+                0 => inputs.private.recipient_out.blinding = fe(29),
+                1 => inputs.private.pool_change.blinding = fe(29),
+                2 => inputs.private.maker_receipt.blinding = fe(29),
+                3 => inputs.private.private_tx_blinding = fe(29),
                 _ => {
-                    let first_nullifier = inputs.first_nullifier;
-                    let PoolSettleProofInputs {
+                    let first_nullifier = inputs.public.first_nullifier;
+                    let PoolSettlePrivateInputs {
                         private_tx_blinding,
                         recipient_out,
                         pool_change,
                         maker_receipt,
                         ..
-                    } = &mut inputs;
+                    } = &mut inputs.private;
                     reseed(
                         &first_nullifier,
                         &fe(29),
@@ -342,7 +335,7 @@ fn settle_rejects_unrecoverable_outputs_and_maker_selected_blinding_seed() {
             }
             refresh_settle_hashes(&mut inputs);
             assert!(
-                inputs.prove().is_err(),
+                inputs.check_constraints().is_err(),
                 "accepted recovery attack {attack} at price {price}"
             );
         }
@@ -371,40 +364,45 @@ fn sdk_rejects_unrecoverable_settlement() {
 fn cancel_proves_and_recovers_without_ciphertext() {
     let params = sample_cancel();
     let inputs = params.to_proof_inputs().unwrap();
-    let proof = inputs.prove().expect("prove cancel");
+    static PROVER: OnceLock<Groth16Prover<EscrowCancel>> = OnceLock::new();
+    let prover = PROVER.get_or_init(|| Groth16Prover::new_with_test_setup().unwrap());
+    let proof = prover.prove(&inputs).expect("prove cancel").proof;
     assert!(
-        verify_cancel(&proof, inputs.public_input_hash),
+        verify_cancel(&proof, cancel_public_hash(&inputs)),
         "cancel must verify against the program key"
     );
 
     let blinding_seed = cancel_blinding_seed(&params.order_in.utxo.blinding).unwrap();
-    let seed = derive_output_blinding_seed(&inputs.first_nullifier, &blinding_seed).unwrap();
-    let mut recovered = inputs.refund_out.clone();
+    let seed = derive_output_blinding_seed(&inputs.public.first_nullifier, &blinding_seed).unwrap();
+    let mut recovered = inputs.private.refund_out.clone();
     recovered.blinding =
-        derive_transact_output_blinding(&inputs.first_nullifier, &seed, 0).unwrap();
-    assert_eq!(recovered.hash().unwrap(), inputs.refund_out.hash().unwrap());
+        derive_transact_output_blinding(&inputs.public.first_nullifier, &seed, 0).unwrap();
+    assert_eq!(
+        recovered.hash().unwrap(),
+        inputs.private.refund_out.hash().unwrap()
+    );
 
     let mut forged = inputs.clone();
-    forged.first_nullifier = fe(17);
+    forged.public.first_nullifier = fe(17);
     assert!(!verify_cancel(&proof, cancel_public_hash(&forged)));
 }
 
 #[test]
 fn cancel_rejects_unrecoverable_refund_and_canceller_selected_blinding_seed() {
     let good = sample_cancel().to_proof_inputs().unwrap();
-    good.prove().expect("positive control");
+    good.check_constraints().expect("positive control");
     for attack in 0..3 {
         let mut inputs = good.clone();
         match attack {
-            0 => inputs.refund_out.blinding = fe(29),
-            1 => inputs.private_tx_blinding = fe(29),
+            0 => inputs.private.refund_out.blinding = fe(29),
+            1 => inputs.private.private_tx_blinding = fe(29),
             _ => {
-                let first_nullifier = inputs.first_nullifier;
-                let EscrowCancelProofInputs {
+                let first_nullifier = inputs.public.first_nullifier;
+                let EscrowCancelPrivateInputs {
                     private_tx_blinding,
                     refund_out,
                     ..
-                } = &mut inputs;
+                } = &mut inputs.private;
                 reseed(
                     &first_nullifier,
                     &fe(29),
@@ -414,7 +412,10 @@ fn cancel_rejects_unrecoverable_refund_and_canceller_selected_blinding_seed() {
             }
         }
         refresh_cancel_hashes(&mut inputs);
-        assert!(inputs.prove().is_err(), "accepted recovery attack {attack}");
+        assert!(
+            inputs.check_constraints().is_err(),
+            "accepted recovery attack {attack}"
+        );
     }
 }
 
@@ -427,4 +428,83 @@ fn sdk_rejects_unrecoverable_cancel() {
         .unwrap_err()
         .to_string()
         .contains("refund_out blinding"));
+}
+
+#[test]
+fn settle_rejects_diverted_outputs_and_incorrect_pool_accounting() {
+    for price in PRICES {
+        let good = sample_settle(price).to_proof_inputs().unwrap();
+        for attack in 0..11 {
+            let mut inputs = good.clone();
+            match attack {
+                0 => inputs.private.recipient_out.owner_hash = fe(29),
+                1 => inputs.private.recipient_out.amount = u64_right_align(ORDER_AMOUNT + 1),
+                2 => inputs.private.recipient_out.asset = fe(29),
+                3 => inputs.private.pool_change.owner_hash = fe(29),
+                4 => inputs.private.pool_change.amount = u64_right_align(POOL_AMOUNT + 1),
+                5 => inputs.private.pool_change.data_hash = u64_right_align(POOL_BOOKED),
+                6 => inputs.private.maker_receipt.owner_hash = fe(29),
+                7 => inputs.private.maker_receipt.amount = u64_right_align(ORDER_AMOUNT + 1),
+                8 => inputs.private.pool_in.owner_hash = fe(29),
+                9 => inputs.private.min_price = MIN_PRICE + 1,
+                _ => inputs.public.execution_price = 0,
+            }
+            refresh_settle_hashes(&mut inputs);
+            assert!(
+                inputs.check_constraints().is_err(),
+                "accepted settlement attack {attack} at price {price}"
+            );
+        }
+    }
+}
+
+#[test]
+fn cancel_rejects_diverted_refund_or_changed_order_opening() {
+    let good = sample_cancel().to_proof_inputs().unwrap();
+    for attack in 0..8 {
+        let mut inputs = good.clone();
+        match attack {
+            0 => inputs.private.refund_out.owner_hash = fe(29),
+            1 => inputs.private.refund_out.amount = u64_right_align(ORDER_AMOUNT - 1),
+            2 => inputs.private.refund_out.asset = fe(29),
+            3 => inputs.private.refund_out.data_hash = fe(29),
+            4 => inputs.private.order_amount = ORDER_AMOUNT + 1,
+            5 => inputs.private.min_price = MIN_PRICE + 1,
+            6 => inputs.public.order_in_hash = fe(29),
+            _ => inputs.private.refund_out.ring_program_id = fe(29),
+        }
+        refresh_cancel_hashes(&mut inputs);
+        assert!(
+            inputs.check_constraints().is_err(),
+            "accepted cancel attack {attack}"
+        );
+    }
+}
+
+#[test]
+fn settlement_clamps_booked_change_at_the_reservation_boundary() {
+    for price in PRICES {
+        for booked in [MAX_ORDER_SIZE - 1, MAX_ORDER_SIZE, MAX_ORDER_SIZE + 1] {
+            let mut params = sample_settle(price);
+            params.pool_booked_in = booked;
+            params.pool_in.data_hash = Some(u64_right_align(booked));
+            let expected_booked = booked.saturating_sub(MAX_ORDER_SIZE);
+            params.pool_change.data_hash = Some(u64_right_align(expected_booked));
+            let good = params.to_proof_inputs().unwrap();
+            good.check_constraints().unwrap_or_else(|error| {
+                panic!("rejected booked={booked} at price={price}: {error}")
+            });
+
+            let mut forged = good.clone();
+            forged.private.pool_change.data_hash = u64_right_align(expected_booked + 1);
+            refresh_settle_hashes(&mut forged);
+            let error = forged.check_constraints().unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("the pool change does not consume the full reservation"),
+                "unexpected rejection at booked={booked}, price={price}: {error}"
+            );
+        }
+    }
 }

@@ -2,14 +2,13 @@ use light_program_profiler::profile;
 use pinocchio::{address::address_eq, error::ProgramError, AccountView, ProgramResult};
 use wincode::{SchemaRead, SchemaWrite};
 use zolana_account_checks::AccountIterator;
-use zolana_hasher::{Hasher, Poseidon};
 use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 
 use crate::{
     error::DynamicSwapError,
     instructions::{
-        shared::{cpi_spp_transact_signed, pool_authority_owner_hash, u64_right_align},
-        verifier::{verify_groth16, CompressedGroth16Proof, Groth16ProofBytes},
+        shared::{cpi_spp_transact_signed, pool_authority_owner_hash},
+        verifier::Groth16ProofBytes,
     },
     state::load_pair_mut,
 };
@@ -25,28 +24,6 @@ pub struct RebalanceLiquidityIxData {
     /// counted. `0` is a pure merge/split/re-blind.
     pub credit: u64,
     pub transact: TransactIxData,
-}
-
-/// `pool_rebalance`'s public-input hash: `Poseidon(PrivateTxHash,
-/// PoolAuthorityOwnerHash, DestinationAsset, Credit)`. Field order and encoding
-/// must match the circuit's `PublicInputs.Check`.
-pub struct PoolRebalancePublicInput<'a> {
-    pub private_tx_hash: &'a [u8; 32],
-    pub pool_authority_owner_hash: &'a [u8; 32],
-    pub destination_asset: &'a [u8; 32],
-    pub credit: u64,
-}
-
-impl PoolRebalancePublicInput<'_> {
-    pub fn hash(&self) -> Result<[u8; 32], ProgramError> {
-        Poseidon::hashv(&[
-            self.private_tx_hash.as_slice(),
-            self.pool_authority_owner_hash.as_slice(),
-            self.destination_asset.as_slice(),
-            u64_right_align(self.credit).as_slice(),
-        ])
-        .map_err(|_| DynamicSwapError::HashingFailed.into())
-    }
 }
 
 /// Restructures the pool (merge, split, re-blind, redistribute booked) and
@@ -78,22 +55,18 @@ pub fn process_rebalance_liquidity_ix(accounts: &mut [AccountView], data: &[u8])
     }
 
     let pool_owner_hash = pool_authority_owner_hash(&pair_address)?;
-    verify_groth16(
-        CompressedGroth16Proof {
-            a: &proof.proof_a,
-            b: &proof.proof_b,
-            c: &proof.proof_c,
-            commitment: None,
-        },
-        PoolRebalancePublicInput {
-            private_tx_hash: &transact.private_tx_hash,
-            pool_authority_owner_hash: &pool_owner_hash,
-            destination_asset: &pair.destination_asset,
+    crate::verifier::pool_rebalance::Verifier {
+        proof: &proof.to_compressed(),
+        public_inputs: crate::verifier::pool_rebalance::PublicInputs {
+            pool_authority_owner_hash: pool_owner_hash,
+            destination_asset: pair.destination_asset,
             credit,
-        }
-        .hash()?,
-        &crate::verifying_keys::pool_rebalance::VERIFYINGKEY,
-    )?;
+        },
+        private_tx_hash: &transact.private_tx_hash,
+        transfers: &[],
+    }
+    .verify()
+    .map_err(|_| DynamicSwapError::ProofVerificationFailed)?;
 
     {
         let mut pair = load_pair_mut(pair_account)?;

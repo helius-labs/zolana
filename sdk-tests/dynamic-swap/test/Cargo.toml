@@ -9,7 +9,6 @@ autotests = false
 anyhow = { workspace = true }
 bytemuck = { workspace = true }
 dynamic-swap-program = { path = "../program" }
-dynamic-swap-prover = { path = "../prover" }
 dynamic-swap-sdk = { path = "../sdk" }
 solana-address = { workspace = true }
 solana-instruction = { workspace = true }

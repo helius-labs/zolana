@@ -1,9 +1,8 @@
 use anyhow::{bail, Result};
-use dynamic_swap_program::instructions::create_escrow::EscrowOpenPublicInput;
-use dynamic_swap_prover::{EscrowOpenProofInputs, ProofInputUtxo};
+use dynamic_swap_program::circuits::{EscrowOpen, EscrowOpenPrivateInputs, EscrowOpenPublicInputs};
 use zolana_keypair::hash::owner_hash;
 use zolana_transaction::instructions::transact::{asset_field, PrivateTxHash, SppProofOutputUtxo};
-use zolana_transaction::utxo::SppProofInputUtxo;
+use zolana_transaction::utxo::{ProofInputUtxo, SppProofInputUtxo};
 
 use crate::{err, shared::check_output_utxo, state::order_data_hash};
 
@@ -51,10 +50,10 @@ pub struct EscrowOpenProofInputParams {
     pub taker_change: SppProofOutputUtxo,
     /// The escrow_authority PDA's owner-hash (see
     /// `state::escrow_authority_address`); the program recomputes and binds the
-    /// same value to `OrderOut.Owner`.
+    /// same value to `order_out.owner_hash`.
     pub escrow_authority_owner_hash: [u8; 32],
     /// The pair's source-asset commitment (`Pair.source_asset` =
-    /// `asset_field(source_mint)`); bound to `SourceIn.Asset`.
+    /// `asset_field(source_mint)`); bound to `source_in.asset`.
     pub source_asset: [u8; 32],
     pub public_price_floor: u64,
     pub price_tolerance: u64,
@@ -72,7 +71,7 @@ pub struct EscrowOpenProofInputParams {
 }
 
 impl EscrowOpenProofInputParams {
-    pub fn to_proof_inputs(&self) -> Result<EscrowOpenProofInputs> {
+    pub fn to_proof_inputs(&self) -> Result<EscrowOpen> {
         let source_in = ProofInputUtxo::try_from(&self.source_in).map_err(err)?;
         let order_out =
             ProofInputUtxo::try_from((&self.order_out, self.output_tree_id)).map_err(err)?;
@@ -127,7 +126,7 @@ impl EscrowOpenProofInputParams {
 
         // The real shape is 1-in/2-out, exactly the supported IN1_OUT2 shape --
         // no padding. Output order (order, taker_change) must match the
-        // circuit's `privateTxHashInputs` and the program's output index.
+        // circuit's private transaction hash and the program's output index.
         let private_tx_hash = PrivateTxHash::new(
             &[source_in.hash().map_err(err)?],
             &[
@@ -139,33 +138,24 @@ impl EscrowOpenProofInputParams {
         .hash()
         .map_err(err)?;
 
-        let public_input_hash = EscrowOpenPublicInput {
-            private_tx_hash: &private_tx_hash,
-            escrow_authority_owner_hash: &self.escrow_authority_owner_hash,
-            source_asset: &self.source_asset,
-            public_price_floor: self.public_price_floor,
-            price_tolerance: self.price_tolerance,
-            min_order_amount: self.min_order_amount,
-            max_order_size: self.max_order_size,
-        }
-        .hash()
-        .map_err(err)?;
-
-        Ok(EscrowOpenProofInputs {
-            public_input_hash,
-            private_tx_hash,
-            escrow_authority_owner_hash: self.escrow_authority_owner_hash,
-            source_asset: self.source_asset,
-            public_price_floor: self.public_price_floor,
-            price_tolerance: self.price_tolerance,
-            min_order_amount: self.min_order_amount,
-            max_order_size: self.max_order_size,
-            order_amount: self.order_amount,
-            min_price: self.min_price,
-            source_in,
-            order_out,
-            taker_change,
-            private_tx_blinding: self.private_tx_blinding,
+        Ok(EscrowOpen {
+            private: EscrowOpenPrivateInputs {
+                private_tx_hash,
+                order_amount: self.order_amount,
+                min_price: self.min_price,
+                source_in: source_in.into(),
+                order_out: order_out.into(),
+                taker_change: taker_change.into(),
+                private_tx_blinding: self.private_tx_blinding,
+            },
+            public: EscrowOpenPublicInputs {
+                escrow_authority_owner_hash: self.escrow_authority_owner_hash,
+                source_asset: self.source_asset,
+                public_price_floor: self.public_price_floor,
+                price_tolerance: self.price_tolerance,
+                min_order_amount: self.min_order_amount,
+                max_order_size: self.max_order_size,
+            },
         })
     }
 }

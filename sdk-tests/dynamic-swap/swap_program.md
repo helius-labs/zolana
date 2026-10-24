@@ -14,6 +14,32 @@
 - The payout destination stays confidential: the proof checks that the recipient owner-hash equals the taker's source UTXO owner. It appears only in the order UTXO's composite data hash and encrypted maker handoff.
 - The `escrow_authority` and `pool_authority` nullifier secrets are hardcoded to 0: escrow- and pool-note spend linkage is already public (`escrow_utxo_hash` lives in the escrow account, deposit amounts are public), and spends are gated by the proofs, the signer checks, and the liquidity accounting.
 
+## Rust Circuits and Builds
+
+The six application circuits live in [`program/src/circuits/`](program/src/circuits)
+behind the program crate's `circuits` feature. They use the `zolana-program`
+Rust circuit SDK, following the timelock escrow example: `escrow_open`,
+`pool_settle`, `escrow_cancel`, `pool_deposit`, `pool_withdraw`, and
+`pool_rebalance`. The SDK proves them with arkworks Groth16. The shielded-pool
+transfer proof still comes from the SPP prover.
+
+The program verifies application proofs through generated modules in
+[`program/src/verifier/`](program/src/verifier). Each module defines its public
+inputs and verifier; its `.vk.rs` companion contains the verifying key and setup
+metadata. The SDK prepares the same public inputs when generating a proof.
+
+Run `just build-dynamic-swap-program` to compile the circuits, generate keys and
+verifier modules, and build the SBF program. `just ensure-dynamic-swap-keys`
+prepares just the circuits and keys; `just regen-dynamic-swap-keys` updates those
+outputs after a circuit change. Build artifacts, including each circuit's
+`.r1cs`, `.pk`, and `.pk.sha256`, live in `target/zk/dynamic-swap-program`.
+`just test-zolana-program-release` checks the generated verifier modules against
+the committed files and runs the Rust circuit tests.
+
+These recipes use the SDK's deterministic insecure test setup (`--test`), which
+is unsafe for production. A deployment needs its own setup and matching generated
+verifier modules; see the [ZK program SDK setup documentation](../../sdk-libs/program/README.md#keys-for-a-deployment).
+
 ## Instructions
 
 | # | Instruction | Tag | Description | Accounts Read | Accounts Modified | Access control |
@@ -143,11 +169,12 @@ trusting a ciphertext. Settle's other outputs, the pool change (`1`) and the
 maker receipt (`2`), derive from the same seed, so the taker can compute their
 blindings too.
 
-The native program reads the first nullifier from SPP input 0 and appends it to
-each circuit's public input hash: `Poseidon(private_tx_hash, execution_price,
-order_hash, destination_asset, pool_authority_owner_hash, max_order_size,
-receipt_owner_hash, first_nullifier)` for settle and `Poseidon(private_tx_hash,
-order_hash, first_nullifier)` for cancel. The circuits bind the same value, so
+The native program reads the first nullifier from SPP input 0. The generated
+verifiers hash the public fields followed by `private_tx_hash`:
+`Poseidon(execution_price, order_hash, destination_asset,
+pool_authority_owner_hash, max_order_size, receipt_owner_hash, first_nullifier,
+private_tx_hash)` for settle and `Poseidon(order_hash, first_nullifier,
+private_tx_hash)` for cancel. The circuits check the same value, so
 neither the maker nor a canceller can substitute a seed or nullifier that
 defeats recovery.
 

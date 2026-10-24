@@ -1,6 +1,7 @@
 use anyhow::{bail, Result};
-use dynamic_swap_program::instructions::{settle::SettlePublicInput, shared::u64_right_align};
-use dynamic_swap_prover::{PoolSettleProofInputs, ProofInputUtxo};
+use dynamic_swap_program::circuits::{PoolSettle, PoolSettlePrivateInputs, PoolSettlePublicInputs};
+use dynamic_swap_program::instructions::shared::u64_right_align;
+use zolana_transaction::utxo::ProofInputUtxo;
 use zolana_transaction::{
     instructions::transact::{asset_field, PrivateTxHash, SppProofOutputUtxo},
     utxo::SppProofInputUtxo,
@@ -61,7 +62,7 @@ pub struct SettleProofInputParams {
 }
 
 impl SettleProofInputParams {
-    pub fn to_proof_inputs(&self) -> Result<PoolSettleProofInputs> {
+    pub fn to_proof_inputs(&self) -> Result<PoolSettle> {
         if self.execution_price == 0 {
             bail!("execution_price must be nonzero");
         }
@@ -173,7 +174,7 @@ impl SettleProofInputParams {
         }
 
         // 2-in/3-out; output order (recipient, pool_change, maker_receipt)
-        // must match the circuit's `privateTxHashInputs` and the program.
+        // must match the circuit's private transaction hash and the program.
         let pool_in_hash = pool_in.hash().map_err(err)?;
         let private_tx_hash = PrivateTxHash::new(
             &[order_in_hash, pool_in_hash],
@@ -187,38 +188,28 @@ impl SettleProofInputParams {
         .hash()
         .map_err(err)?;
 
-        let public_input_hash = SettlePublicInput {
-            private_tx_hash: &private_tx_hash,
-            execution_price: self.execution_price,
-            order_in_hash: &order_in_hash,
-            destination_asset: &self.destination_asset,
-            pool_authority_owner_hash: &self.pool_authority_owner_hash,
-            max_order_size: self.max_order_size,
-            receipt_owner_hash: &self.receipt_owner_hash,
-            first_nullifier: &first_nullifier,
-        }
-        .hash()
-        .map_err(err)?;
-
-        Ok(PoolSettleProofInputs {
-            public_input_hash,
-            private_tx_hash,
-            first_nullifier,
-            execution_price: self.execution_price,
-            order_in_hash,
-            destination_asset: self.destination_asset,
-            pool_authority_owner_hash: self.pool_authority_owner_hash,
-            max_order_size: self.max_order_size,
-            receipt_owner_hash: self.receipt_owner_hash,
-            order_amount: self.order_amount,
-            recipient_owner_hash: self.recipient_owner_hash,
-            min_price: self.min_price,
-            order_in,
-            pool_in,
-            recipient_out,
-            pool_change,
-            maker_receipt,
-            private_tx_blinding: self.private_tx_blinding,
+        Ok(PoolSettle {
+            private: PoolSettlePrivateInputs {
+                private_tx_hash,
+                order_amount: self.order_amount,
+                recipient_owner_hash: self.recipient_owner_hash,
+                min_price: self.min_price,
+                order_in: order_in.into(),
+                pool_in: pool_in.into(),
+                recipient_out: recipient_out.into(),
+                pool_change: pool_change.into(),
+                maker_receipt: maker_receipt.into(),
+                private_tx_blinding: self.private_tx_blinding,
+            },
+            public: PoolSettlePublicInputs {
+                first_nullifier,
+                execution_price: self.execution_price,
+                order_in_hash,
+                destination_asset: self.destination_asset,
+                pool_authority_owner_hash: self.pool_authority_owner_hash,
+                max_order_size: self.max_order_size,
+                receipt_owner_hash: self.receipt_owner_hash,
+            },
         })
     }
 }

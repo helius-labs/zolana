@@ -19,6 +19,12 @@ Swapping in reverse uses a separate pair with the tokens reversed. The market ma
 
 Opening an order and settling it are separate Solana transactions. Settlement exchanges the locked input tokens and the pool's payout tokens atomically: both transfers land or neither does.
 
+The six application proofs use Rust circuits in the dynamic-swap program crate,
+through the `zolana-program` SDK and arkworks Groth16, as in the timelock escrow
+example. The shielded-pool prover supplies the separate private-transfer proof.
+See [Rust circuits and builds](swap_program.md#rust-circuits-and-builds) for the
+circuit list and development commands.
+
 ## Actors
 
 | Actor | Role | Trust |

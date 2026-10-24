@@ -2,7 +2,6 @@ use light_program_profiler::profile;
 use pinocchio::{address::address_eq, error::ProgramError, AccountView, ProgramResult};
 use wincode::{SchemaRead, SchemaWrite};
 use zolana_account_checks::AccountIterator;
-use zolana_hasher::{Hasher, Poseidon};
 use zolana_interface::instruction::instruction_data::transact::{
     InterfaceTransfer, TransactIxData,
 };
@@ -10,8 +9,8 @@ use zolana_interface::instruction::instruction_data::transact::{
 use crate::{
     error::DynamicSwapError,
     instructions::{
-        shared::{cpi_spp_transact_signed, pool_authority_owner_hash, u64_right_align},
-        verifier::{verify_groth16, CompressedGroth16Proof, Groth16ProofBytes},
+        shared::{cpi_spp_transact_signed, pool_authority_owner_hash},
+        verifier::Groth16ProofBytes,
     },
     state::load_pair_mut,
 };
@@ -26,25 +25,6 @@ pub struct WithdrawLiquidityIxData {
     pub proof: Groth16ProofBytes,
     pub amount: u64,
     pub transact: TransactIxData,
-}
-
-pub struct PoolWithdrawPublicInput<'a> {
-    pub private_tx_hash: &'a [u8; 32],
-    pub pool_authority_owner_hash: &'a [u8; 32],
-    pub destination_asset: &'a [u8; 32],
-    pub amount: u64,
-}
-
-impl PoolWithdrawPublicInput<'_> {
-    pub fn hash(&self) -> Result<[u8; 32], ProgramError> {
-        Poseidon::hashv(&[
-            self.private_tx_hash.as_slice(),
-            self.pool_authority_owner_hash.as_slice(),
-            self.destination_asset.as_slice(),
-            u64_right_align(self.amount).as_slice(),
-        ])
-        .map_err(|_| DynamicSwapError::HashingFailed.into())
-    }
 }
 
 // Withdraws destination-asset SPL tokens from the pair's liquidity pool into
@@ -120,22 +100,18 @@ pub fn process_withdraw_liquidity_ix(accounts: &mut [AccountView], data: &[u8]) 
     let pool_owner_hash = pool_authority_owner_hash(&pair_address)?;
     // Step 10: Build the proof's public-input hash.
     // Step 11: Verify the pool-withdraw proof.
-    verify_groth16(
-        CompressedGroth16Proof {
-            a: &proof.proof_a,
-            b: &proof.proof_b,
-            c: &proof.proof_c,
-            commitment: None,
-        },
-        PoolWithdrawPublicInput {
-            private_tx_hash: &transact.private_tx_hash,
-            pool_authority_owner_hash: &pool_owner_hash,
-            destination_asset: &pair.destination_asset,
+    crate::verifier::pool_withdraw::Verifier {
+        proof: &proof.to_compressed(),
+        public_inputs: crate::verifier::pool_withdraw::PublicInputs {
+            pool_authority_owner_hash: pool_owner_hash,
+            destination_asset: pair.destination_asset,
             amount,
-        }
-        .hash()?,
-        &crate::verifying_keys::pool_withdraw::VERIFYINGKEY,
-    )?;
+        },
+        private_tx_hash: &transact.private_tx_hash,
+        transfers: &[],
+    }
+    .verify()
+    .map_err(|_| DynamicSwapError::ProofVerificationFailed)?;
 
     // Step 12: Check that the forwarded shielded-pool accounts are present.
     let spp_accounts = iter.remaining()?;

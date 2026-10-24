@@ -11,7 +11,9 @@ pub use crate::verifier_codegen::render_verifier;
 /// The hook of a ZK program: its verifier hashes the public fields with the
 /// transfer-aware transaction hash into the one public input.
 #[cfg(feature = "r1cs-export")]
-pub fn write_program_r1cs<P: crate::ZkProgramCircuit>(
+pub fn write_program_r1cs<
+    P: crate::ZkCircuit<Circuit: crate::circuit::Circuit<Output: crate::circuit::PublicHashOutput>>,
+>(
     name: &str,
     layout: &[(&'static str, crate::PublicFieldKind)],
 ) {

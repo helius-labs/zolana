@@ -7,7 +7,6 @@ use pinocchio::{
 };
 use wincode::{SchemaRead, SchemaWrite};
 use zolana_account_checks::AccountIterator;
-use zolana_hasher::{Hasher, Poseidon};
 use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 
 use crate::{
@@ -15,9 +14,9 @@ use crate::{
     instructions::{
         shared::{
             close_escrow_account, cpi_spp_transact_signed_multi, derive_authority_pda,
-            pool_authority_owner_hash, u64_right_align,
+            pool_authority_owner_hash,
         },
-        verifier::{verify_groth16, CompressedGroth16Proof, Groth16ProofBytes},
+        verifier::Groth16ProofBytes,
     },
     state::{load_escrow_mut, load_pair_mut},
 };
@@ -29,46 +28,6 @@ pub struct SettleIxData {
     /// fills or refunds according to the order's committed minimum price.
     pub proof: Groth16ProofBytes,
     pub transact: TransactIxData,
-}
-
-/// `pool_settle`'s public-input hash: `Poseidon(PrivateTxHash, ExecutionPrice,
-/// OrderInHash, DestinationAsset, PoolAuthorityOwnerHash, MaxOrderSize,
-/// ReceiptOwnerHash, FirstNullifier)`. The recipient owner-hash is deliberately absent -- it is
-/// re-opened in-circuit together with the private minimum price from the order
-/// UTXO's composite DataHash (pinned by `OrderInHash`), which keeps both the
-/// payout destination and fill condition confidential.
-/// `ExecutionPrice` is the escrow's stored price (always nonzero);
-/// `PoolAuthorityOwnerHash` binds the pool input and change to program-locked
-/// liquidity; `MaxOrderSize` enters the change note's booked clamp;
-/// `ReceiptOwnerHash` fixes the maker receipt destination; `FirstNullifier` is
-/// read from SPP input 0 here, so the settler cannot substitute the nullifier
-/// the recipient's payout blinding derives from. Field order and encoding must
-/// match the circuit's `PublicInputs.Check`.
-pub struct SettlePublicInput<'a> {
-    pub private_tx_hash: &'a [u8; 32],
-    pub execution_price: u64,
-    pub order_in_hash: &'a [u8; 32],
-    pub destination_asset: &'a [u8; 32],
-    pub pool_authority_owner_hash: &'a [u8; 32],
-    pub max_order_size: u64,
-    pub receipt_owner_hash: &'a [u8; 32],
-    pub first_nullifier: &'a [u8; 32],
-}
-
-impl SettlePublicInput<'_> {
-    pub fn hash(&self) -> Result<[u8; 32], ProgramError> {
-        Poseidon::hashv(&[
-            self.private_tx_hash.as_slice(),
-            u64_right_align(self.execution_price).as_slice(),
-            self.order_in_hash.as_slice(),
-            self.destination_asset.as_slice(),
-            self.pool_authority_owner_hash.as_slice(),
-            u64_right_align(self.max_order_size).as_slice(),
-            self.receipt_owner_hash.as_slice(),
-            self.first_nullifier.as_slice(),
-        ])
-        .map_err(|_| DynamicSwapError::HashingFailed.into())
-    }
 }
 
 /// Fills the order at the head of the pair's queue before expiry from the
@@ -138,30 +97,26 @@ pub fn process_settle_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
     }
 
     let pool_owner_hash = pool_authority_owner_hash(&pair_address)?;
-    verify_groth16(
-        CompressedGroth16Proof {
-            a: &proof.proof_a,
-            b: &proof.proof_b,
-            c: &proof.proof_c,
-            commitment: None,
-        },
-        SettlePublicInput {
-            private_tx_hash: &transact.private_tx_hash,
+    crate::verifier::pool_settle::Verifier {
+        proof: &proof.to_compressed(),
+        public_inputs: crate::verifier::pool_settle::PublicInputs {
             execution_price: escrow.execution_price,
-            order_in_hash: &escrow.order_utxo_hash,
-            destination_asset: &pair.destination_asset,
-            pool_authority_owner_hash: &pool_owner_hash,
+            order_in_hash: escrow.order_utxo_hash,
+            destination_asset: pair.destination_asset,
+            pool_authority_owner_hash: pool_owner_hash,
             max_order_size: pair.max_order_size,
-            receipt_owner_hash: &pair.maker_receipt_owner_hash,
-            first_nullifier: &transact
+            receipt_owner_hash: pair.maker_receipt_owner_hash,
+            first_nullifier: transact
                 .inputs
                 .first()
                 .ok_or(DynamicSwapError::InvalidInstructionData)?
                 .nullifier_hash,
-        }
-        .hash()?,
-        &crate::verifying_keys::pool_settle::VERIFYINGKEY,
-    )?;
+        },
+        private_tx_hash: &transact.private_tx_hash,
+        transfers: &[],
+    }
+    .verify()
+    .map_err(|_| DynamicSwapError::ProofVerificationFailed)?;
 
     // Release the reservation and advance the queue. `available_liquidity`
     // stays untouched: the pool dropped by owed while the bound already
