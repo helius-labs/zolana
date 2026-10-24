@@ -37,7 +37,13 @@ struct Args {
     port: u16,
 
     /// URL of the RPC server
-    #[arg(short, long, default_value = "http://127.0.0.1:8899")]
+    #[arg(
+        short,
+        long,
+        env = photon_indexer::common::RPC_URL_ENV,
+        hide_env_values = true,
+        default_value = "http://127.0.0.1:8899"
+    )]
     rpc_url: String,
 
     /// The start slot to begin indexing from. If "latest", the latest slot is used.

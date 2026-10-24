@@ -16,6 +16,8 @@ pub mod rings_tree;
 
 use crate::rpc::RpcClient;
 
+pub const RPC_URL_ENV: &str = "PHOTON_RPC_URL";
+
 pub fn relative_project_path(path: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(path)
 }
