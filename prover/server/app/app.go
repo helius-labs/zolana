@@ -679,7 +679,7 @@ func Run(args []string) error {
 						if startAll || enabledCircuitsMap["transfer"] || enableServer {
 							startWorker("transfer", server.NewTransferQueueWorker(workerConfig, transferExecution))
 						}
-						if len(common.Extensions()) != 0 && (startAll || extensionCircuitEnabled(enabledCircuits)) {
+						if startsExtensionWorker(enabledCircuits, enableServer, served) {
 							startWorker("extension", server.NewExtensionQueueWorker(workerConfig))
 						}
 
@@ -1275,6 +1275,19 @@ func extensionConvertCommand(circuit common.ExtensionCircuit) *cli.Command {
 			return writeExtensionProofSystem(circuit, ps, context.String("output"))
 		},
 	}
+}
+
+// The HTTP server queues every extension proof on the extension queue.
+func startsExtensionWorker(circuits []string, enableServer bool, served *server.ServedKeys) bool {
+	if len(common.Extensions()) == 0 {
+		return false
+	}
+	if len(circuits) == 0 || extensionCircuitEnabled(circuits) {
+		return true
+	}
+	return enableServer && slices.ContainsFunc(common.Extensions(), func(circuit common.ExtensionCircuit) bool {
+		return served.Serves(circuit.KeyFile)
+	})
 }
 
 func extensionCircuitEnabled(circuits []string) bool {
