@@ -3,6 +3,7 @@ mod find_smart_accounts;
 mod init_protocol;
 mod rpc;
 mod set_tree_fees;
+mod transaction;
 mod tree_fees;
 mod update_protocol_config;
 mod upgrade_shielded_pool;

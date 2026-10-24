@@ -1,13 +1,13 @@
 use std::{path::PathBuf, str::FromStr};
 
 use crate::rpc::SolanaRpc;
+use crate::transaction::ComputeBudgetConfig;
 use anyhow::{anyhow, bail, Context, Result};
 use solana_address::Address;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{instruction::UpdateProtocolConfigData, pda, state::ProtocolConfig};
 use zolana_protocol_instructions::UpdateProtocolConfig;
-use zolana_protocol_transaction::ComputeBudgetConfig;
 use zolana_smart_account_client::roles::Role;
 use zolana_smart_account_client::{execute_sync_ix, settings_pda, smart_account_pda};
 

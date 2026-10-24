@@ -22,7 +22,6 @@ client = ["solana-rpc"]
 proofs = ["reqwest"]
 
 [dependencies]
-zolana-protocol-transaction = { workspace = true }
 zolana-interface = { workspace = true }
 zolana-program = { workspace = true }
 zolana-indexer-api = { workspace = true }

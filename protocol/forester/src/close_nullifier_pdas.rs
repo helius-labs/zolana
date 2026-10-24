@@ -1,6 +1,9 @@
 use std::{thread, time::Duration};
 
 use crate::photon::{NullifierQueueElement, PhotonClient, PAGE_LIMIT};
+use crate::transaction::{
+    compile_message, sign_transaction, transaction_size, ComputeBudgetConfig, TransactionSize,
+};
 use anyhow::{anyhow, bail, Result};
 use solana_account::Account;
 use solana_commitment_config::CommitmentConfig;
@@ -12,9 +15,6 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_interface::{pda, NullifierPda};
 use zolana_protocol_instructions::CloseNullifierPdas;
-use zolana_protocol_transaction::{
-    compile_message, sign_transaction, transaction_size, ComputeBudgetConfig, TransactionSize,
-};
 use zolana_smart_account_client::{execute_sync_ix, smart_account_pda};
 use zolana_tree::TreeAccount;
 

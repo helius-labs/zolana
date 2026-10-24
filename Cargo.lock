@@ -3535,7 +3535,6 @@ dependencies = [
  "zolana-forester-prover",
  "zolana-interface",
  "zolana-protocol-instructions",
- "zolana-protocol-transaction",
  "zolana-smart-account-client",
  "zolana-tree",
 ]
@@ -12628,7 +12627,6 @@ dependencies = [
  "zolana-keypair",
  "zolana-merkle-tree",
  "zolana-program",
- "zolana-protocol-transaction",
  "zolana-prover-tee",
  "zolana-transaction",
  "zolana-tree",
@@ -12944,6 +12942,7 @@ dependencies = [
  "solana-account 4.3.2",
  "solana-address 2.6.1",
  "solana-commitment-config",
+ "solana-hash",
  "solana-instruction",
  "solana-keypair",
  "solana-loader-v3-interface 7.0.0",
@@ -12953,9 +12952,9 @@ dependencies = [
  "solana-rpc-client",
  "solana-signature",
  "solana-signer",
+ "solana-transaction",
  "zolana-interface",
  "zolana-protocol-instructions",
- "zolana-protocol-transaction",
  "zolana-smart-account-client",
  "zolana-tree",
 ]
@@ -12970,20 +12969,6 @@ dependencies = [
  "solana-pubkey 4.2.1",
  "zolana-interface",
  "zolana-tree",
-]
-
-[[package]]
-name = "zolana-protocol-transaction"
-version = "0.1.0"
-dependencies = [
- "solana-address 2.6.1",
- "solana-hash",
- "solana-instruction",
- "solana-keypair",
- "solana-message",
- "solana-signer",
- "solana-transaction",
- "thiserror 2.0.20",
 ]
 
 [[package]]

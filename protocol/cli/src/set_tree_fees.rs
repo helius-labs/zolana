@@ -1,6 +1,7 @@
 use std::{path::PathBuf, str::FromStr};
 
 use crate::rpc::SolanaRpc;
+use crate::transaction::ComputeBudgetConfig;
 use anyhow::{anyhow, bail, Context, Result};
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
@@ -9,7 +10,6 @@ use zolana_interface::{
     state::{ProtocolConfig, TreeFeeSchedule},
 };
 use zolana_protocol_instructions::SetTreeFees;
-use zolana_protocol_transaction::ComputeBudgetConfig;
 use zolana_smart_account_client::execute_sync_ix;
 use zolana_tree::TreeAccount;
 

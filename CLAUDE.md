@@ -46,7 +46,7 @@ layering and optional circuit dependencies.
 - `sdk-libs`: externally useful Rust SDK crates.
 - `cli`: local developer/operator tooling.
 - `protocol`: operator CLI, forester and batch prover, protocol instructions,
-  smart-account client, reference Merkle trees, and transaction construction.
+  smart-account client, and reference Merkle trees.
 - `prover`: proof client and prover server.
 - `sdk-tests/zk-standalone`: a standalone circuit fixture for Zolana CLI,
   wasm and SBF integration tests against the pinned zk-tools dependency.
@@ -182,8 +182,8 @@ carrying transaction simply fits.
   constant per language: `solana_message::v1::MAX_TRANSACTION_SIZE` in Rust,
   `TRANSACTION_SIZE_LIMIT` in `sdk-libs/ts`. Do not hand-roll a third.
 - **The budget lives in the message header**, not in compute-budget
-  instructions. Build through `zolana_client::compile_message` (SDKs) or
-  `zolana_protocol_transaction::compile_message` (protocol operators) and
+  instructions. Build through `zolana_client::compile_message` (SDKs) or the
+  operator's local `transaction::compile_message` helper and
   `ComputeBudgetConfig`; never construct a `v1::TransactionConfig` at a call
   site.
 - **An unset header field is zero, not a default.** Omitting either the

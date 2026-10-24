@@ -32,7 +32,6 @@ members = [
     "sdk-libs/instruction",
     "protocol/smart-account",
     "protocol/instructions",
-    "protocol/transaction",
     "protocol/cli",
     "protocol/forester-prover",
     "sdk-libs/zolana-api",
@@ -81,7 +80,6 @@ form_urlencoded = "1.2.2"
 time = ">=0.3, <0.3.46"
 
 # Local workspace crates.
-zolana-protocol-transaction = { path = "protocol/transaction", version = "0.1.0" }
 zolana-protocol-instructions = { path = "protocol/instructions", version = "0.1.0" }
 zolana-forester-prover = { path = "protocol/forester-prover", version = "0.1.0", default-features = false }
 zolana-event = { path = "program-libs/event", version = "0.1.0" }

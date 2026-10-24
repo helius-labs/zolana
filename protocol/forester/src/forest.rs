@@ -8,6 +8,7 @@
 //! signed by a smart-account member. Proof generation lives in `prover/client`;
 //! this module handles submission once a proof and root are ready.
 
+use crate::transaction::{compile_message, sign_transaction, ComputeBudgetConfig};
 use solana_commitment_config::CommitmentConfig;
 use solana_hash::Hash;
 use solana_instruction::Instruction;
@@ -20,7 +21,6 @@ use solana_signer::Signer;
 use solana_transaction::versioned::VersionedTransaction;
 use zolana_interface::instruction::BatchUpdateNullifierTreeData;
 use zolana_protocol_instructions::BatchUpdateNullifierTree;
-use zolana_protocol_transaction::{compile_message, sign_transaction, ComputeBudgetConfig};
 use zolana_smart_account_client::{execute_sync_ix, smart_account_pda};
 
 #[derive(Debug, thiserror::Error)]
@@ -242,7 +242,7 @@ mod tests {
             solana_message::v1::TransactionConfig::empty()
                 .with_compute_unit_limit(200_000)
                 .with_loaded_accounts_data_size_limit(
-                    zolana_protocol_transaction::MAX_LOADED_ACCOUNTS_DATA_SIZE
+                    crate::transaction::MAX_LOADED_ACCOUNTS_DATA_SIZE
                 ),
         );
         assert_eq!(message.lifetime_specifier, blockhash);

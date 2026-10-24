@@ -12,7 +12,6 @@ local-prover = ["zolana-forester-prover/gnark"]
 
 [dependencies]
 zolana-forester-prover = { workspace = true, default-features = false }
-zolana-protocol-transaction = { workspace = true }
 bs58 = { workspace = true }
 reqwest = { workspace = true, features = ["blocking"] }
 serde = { workspace = true }

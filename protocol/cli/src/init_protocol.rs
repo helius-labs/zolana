@@ -1,6 +1,7 @@
 use std::{path::PathBuf, str::FromStr};
 
 use crate::rpc::SolanaRpc;
+use crate::transaction::ComputeBudgetConfig;
 use anyhow::{anyhow, bail, Context, Result};
 use solana_account::Account;
 use solana_address::Address;
@@ -18,7 +19,6 @@ use zolana_interface::{
     BPF_LOADER_UPGRADEABLE_PUBKEY, NULLIFIER_PDA_SIZE, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_protocol_instructions::{CreateAssetCounter, CreateProtocolConfig, CreateTree};
-use zolana_protocol_transaction::ComputeBudgetConfig;
 use zolana_smart_account_client::{
     create_role_smart_account_ix,
     roles::Role,

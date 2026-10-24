@@ -8,9 +8,10 @@ This directory owns the tools and libraries used to operate Zolana.
 | `forester` | Drain ready nullifier batches, submit updates through the forester vault, close reclaimable nullifier PDAs, and report metrics. |
 | `forester-prover` | Build batch address-append inputs and prove with existing gnark keys through Go FFI or a remote prover. |
 | `instructions` | Protocol administration and maintenance instruction builders; account data and tags remain in `program-libs/interface`. |
-| `transaction` | Shared Solana v1 message compilation, signing, compute budgets, and size limits. |
 | `smart-account` | Authority vault derivations, smart-account instruction builders, role policies, and settings decoding. |
 | `merkle-tree` | Reference state and indexed nullifier trees shared with test infrastructure. |
+
+Transaction helpers live separately in forester, the protocol CLI, and the SDK.
 
 The protocol CLI and forester depend on protocol crates and `program-libs`, with
 no Rust dependency on `sdk-libs`. Wallet and application SDKs remain there.
@@ -46,7 +47,7 @@ for a remote-only forester without the Go archive.
 
 ```sh
 cargo test -p forester -p zolana-forester-prover -p zolana-protocol-cli \
-  -p zolana-protocol-instructions -p zolana-protocol-transaction \
+  -p zolana-protocol-instructions \
   -p zolana-smart-account-client -p zolana-merkle-tree
 ```
 

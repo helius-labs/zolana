@@ -12,6 +12,7 @@ pub mod logging;
 pub mod metrics;
 pub mod photon;
 pub mod run;
+pub mod transaction;
 
 pub use forest::{batch_update_nullifier_tree_once, ForestError, ForestParams};
 

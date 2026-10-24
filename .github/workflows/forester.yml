@@ -44,4 +44,4 @@ jobs:
       - run: go test ./...
         working-directory: protocol/forester-prover/go
       - run: cargo check -p forester -p zolana-protocol-cli --all-targets
-      - run: cargo test -p forester -p zolana-forester-prover -p zolana-protocol-cli -p zolana-protocol-instructions -p zolana-protocol-transaction -p zolana-smart-account-client -p zolana-merkle-tree
+      - run: cargo test -p forester -p zolana-forester-prover -p zolana-protocol-cli -p zolana-protocol-instructions -p zolana-smart-account-client -p zolana-merkle-tree

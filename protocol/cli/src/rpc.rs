@@ -1,3 +1,4 @@
+use crate::transaction::{compile_message, sign_transaction, ComputeBudgetConfig};
 use anyhow::{bail, Result};
 use solana_account::Account;
 use solana_address::Address;
@@ -6,7 +7,6 @@ use solana_instruction::Instruction;
 use solana_rpc_client::rpc_client::RpcClient;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_protocol_transaction::{compile_message, sign_transaction, ComputeBudgetConfig};
 
 pub struct SolanaRpc(RpcClient);
 impl SolanaRpc {
