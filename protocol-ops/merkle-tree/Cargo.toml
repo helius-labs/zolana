@@ -12,7 +12,7 @@ zolana-hasher = { workspace = true }
 thiserror = { workspace = true }
 num-bigint = { workspace = true }
 num-traits = { workspace = true }
-zolana-indexed-array = { workspace = true }
 
 [dev-dependencies]
+num-bigint = { workspace = true, features = ["rand"] }
 rand = { workspace = true }

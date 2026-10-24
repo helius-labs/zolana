@@ -1,14 +1,14 @@
 use std::{fmt::Debug, marker::PhantomData};
 
-use num_bigint::BigUint;
-use num_traits::{CheckedAdd, CheckedSub, Num, ToBytes, Unsigned, Zero};
-use thiserror::Error;
-use zolana_hasher::{bigint::bigint_to_be_bytes_array, Hasher, HasherError};
-use zolana_indexed_array::{
+use crate::indexed_array::{
     array::{IndexedArray, IndexedElement},
     errors::IndexedArrayError,
     HIGHEST_ADDRESS_PLUS_ONE,
 };
+use num_bigint::BigUint;
+use num_traits::{CheckedAdd, CheckedSub, Num, ToBytes, Unsigned, Zero};
+use thiserror::Error;
+use zolana_hasher::{bigint::bigint_to_be_bytes_array, Hasher, HasherError};
 
 use crate::{MerkleTree, ReferenceMerkleTreeError};
 

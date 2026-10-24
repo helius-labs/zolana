@@ -4,7 +4,6 @@ members = [
     "program-libs/account-checks",
     "program-libs/event",
     "program-libs/hasher",
-    "program-libs/indexed-array",
     "program-libs/interface",
     "program-libs/user-registry-interface",
     "program-libs/tree",
@@ -115,7 +114,6 @@ groth16-solana = { git = "https://github.com/Lightprotocol/groth16-solana", rev 
 light-array-map = "0.2.0"
 zolana-account-checks = { path = "program-libs/account-checks", version = "0.8.0", default-features = false }
 zolana-hasher = { path = "program-libs/hasher", version = "5.0.0", default-features = false }
-zolana-indexed-array = { path = "program-libs/indexed-array", version = "0.3.0" }
 light-poseidon = "0.4.0"
 # Pinned to the head of the mollusk-0.15 branch (Lightprotocol/light-program-profiler).
 # Switch back to a released version once that lands upstream.

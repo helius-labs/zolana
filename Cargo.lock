@@ -12710,17 +12710,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "zolana-indexed-array"
-version = "0.3.0"
-dependencies = [
- "num-bigint 0.4.8",
- "num-traits",
- "rand 0.8.8",
- "thiserror 2.0.20",
- "zolana-hasher",
-]
-
-[[package]]
 name = "zolana-indexer-api"
 version = "0.1.0"
 dependencies = [
@@ -12839,7 +12828,6 @@ dependencies = [
  "rand 0.8.8",
  "thiserror 2.0.20",
  "zolana-hasher",
- "zolana-indexed-array",
 ]
 
 [[package]]
@@ -13113,7 +13101,6 @@ dependencies = [
  "zolana-client",
  "zolana-event",
  "zolana-hasher",
- "zolana-indexed-array",
  "zolana-merkle-tree",
 ]
 

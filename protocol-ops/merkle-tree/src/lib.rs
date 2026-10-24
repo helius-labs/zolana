@@ -1,10 +1,11 @@
 pub mod indexed;
+pub mod indexed_array;
 
 use std::marker::PhantomData;
 
+use crate::indexed_array::errors::IndexedArrayError;
 use thiserror::Error;
 use zolana_hasher::{errors::HasherError, Hasher};
-use zolana_indexed_array::errors::IndexedArrayError;
 
 #[derive(Debug, Error, PartialEq)]
 pub enum ReferenceMerkleTreeError {

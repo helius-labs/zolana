@@ -1,5 +1,3 @@
-//! # light-indexed-array
-//!
 //! Indexed array for indexed Merkle trees. Stores elements as
 //! a sorted linked list with index, value, and next-index pointers.
 //!

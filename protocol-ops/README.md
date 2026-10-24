@@ -9,7 +9,7 @@ This directory owns the tools and libraries used to operate Zolana.
 | `forester-prover` | Build batch address-append inputs and prove with existing gnark keys through Go FFI or a remote prover. |
 | `instructions` | Protocol administration and maintenance instruction builders; account data and tags remain in `program-libs/interface`. |
 | `smart-account` | Authority vault derivations, smart-account instruction builders, role policies, and settings decoding. |
-| `merkle-tree` | Reference state and indexed nullifier trees shared with test infrastructure. |
+| `merkle-tree` | Reference state and indexed nullifier trees, including their indexed-array storage, shared with test infrastructure. |
 
 Transaction helpers live separately in forester, the protocol CLI, and the SDK.
 

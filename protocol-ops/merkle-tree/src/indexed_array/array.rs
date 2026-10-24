@@ -4,7 +4,7 @@ use num_bigint::BigUint;
 use num_traits::{CheckedAdd, CheckedSub, ToBytes, Unsigned, Zero};
 use zolana_hasher::{bigint::bigint_to_be_bytes_array, Hasher};
 
-use crate::{changelog::RawIndexedElement, errors::IndexedArrayError};
+use super::{changelog::RawIndexedElement, errors::IndexedArrayError};
 
 #[derive(Clone, Debug, Default)]
 pub struct IndexedElement<I>
