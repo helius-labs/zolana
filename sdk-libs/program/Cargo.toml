@@ -36,10 +36,6 @@ zolana-tree = { workspace = true, optional = true }
 
 [features]
 default = []
-# Builders for protocol operations: protocol-authority and fee-authority
-# administration, tree creation, ring activation, and the forester's nullifier
-# tree maintenance. Off by default so programs and wallets never compile them.
-protocol-instructions = ["zolana-instruction/protocol"]
 # The shielded pool's transact instruction as a signed CPI from a pinocchio
 # program.
 cpi = ["zolana-instruction/cpi"]

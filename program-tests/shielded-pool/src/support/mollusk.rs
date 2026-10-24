@@ -9,10 +9,11 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{state::TreeFeeSchedule, PROGRAM_ID_PUBKEY, SHIELDED_POOL_PROGRAM_ID};
-use zolana_program::instruction::{
-    ClaimTreeLamports, CreateProtocolConfig, Deposit, PauseTree, SetTreeFees,
-};
+use zolana_program::instruction::Deposit;
 use zolana_program_test::ZolanaProgramTest;
+use zolana_protocol_instructions::{
+    ClaimTreeLamports, CreateProtocolConfig, PauseTree, SetTreeFees,
+};
 use zolana_test_utils::mollusk::{
     mollusk_instruction, mollusk_with_program, snapshot_instruction_accounts,
 };

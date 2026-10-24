@@ -17,9 +17,7 @@
 //!
 //! The `cpi` feature adds `cpi`, the transact CPI for pinocchio programs.
 //!
-//! The builders for protocol operations (protocol and fee authority
-//! administration, tree creation, ring activation, and the forester's
-//! nullifier tree maintenance) sit behind the non-default `protocol` feature.
+//! Protocol authority and maintenance builders live in `zolana-protocol-instructions`.
 //!
 //! What does not belong here: anything that needs randomness, signing, or
 //! encryption. Those stay in the host-only SDK crates (`zolana-keypair`,

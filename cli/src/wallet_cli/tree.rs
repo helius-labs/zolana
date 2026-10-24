@@ -3,7 +3,7 @@ use solana_keypair::{read_keypair_file, Keypair};
 use solana_signer::Signer;
 use zolana_client::{ComputeBudgetConfig, Rpc, SolanaRpc};
 use zolana_interface::state::{default_tree_fees, nullifier_tree_params, TreeFeeSchedule};
-use zolana_program::instruction::{CreateProtocolConfig, CreateTree, SetTreeFees};
+use zolana_protocol_instructions::{CreateProtocolConfig, CreateTree, SetTreeFees};
 use zolana_transaction::Address;
 
 use super::{

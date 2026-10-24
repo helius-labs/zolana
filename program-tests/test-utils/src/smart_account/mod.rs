@@ -7,7 +7,7 @@
 //! layout the SPP tests share: the localnet fixture `ProgramConfig` starts at
 //! index 0, so the roles sit at seeds 1..=5 in `Role::ALL` creation order
 //! (protocol, tree, ring, merge, forester), with the same thresholds
-//! `xtask init-protocol` deploys.
+//! `zolana-protocol init-protocol` deploys.
 
 use std::{fs, path::Path};
 
@@ -26,7 +26,7 @@ pub use zolana_smart_account_client::{
 };
 
 // Anchor account discriminator: sha256("account:ProgramConfig")[0..8]
-pub const PROGRAM_CONFIG_ACCOUNT_DISCRIMINATOR: [u8; 8] = [196, 210, 90, 231, 144, 149, 140, 63];
+pub use zolana_smart_account_client::PROGRAM_CONFIG_ACCOUNT_DISCRIMINATOR;
 const PROGRAM_CONFIG_ACCOUNT_LEN: usize = 160;
 const PROGRAM_CONFIG_DISCRIMINATOR_END: usize = 8;
 const PROGRAM_CONFIG_TREASURY_START: usize = 64;
@@ -118,7 +118,7 @@ pub struct StandardSigners {
 /// Derive the five standard role accounts from the shared role table
 /// (`zolana_smart_account_client::roles`) above the localnet fixture's base
 /// index 0: protocol/tree/ring/merge/forester at seeds 1..=5, the same table
-/// `xtask init-protocol` deploys with.
+/// `zolana-protocol init-protocol` deploys with.
 pub fn standard_accounts() -> StandardAccounts {
     let (protocol_settings, _) = Role::Protocol.settings_pda(0);
     let (protocol_vault, _) = smart_account_pda(&protocol_settings, 0);

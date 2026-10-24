@@ -250,7 +250,7 @@ services:
     image: ${FORESTER_IMAGE:-sergeytimoshin/zolana-forester:devnet}
     build:
       context: ..
-      dockerfile: forester/Dockerfile
+      dockerfile: protocol-ops/forester/Dockerfile
     profiles:
       - forester
     restart: unless-stopped

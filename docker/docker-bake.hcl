@@ -40,12 +40,12 @@ target "prover-forester" {
   tags = ["${REGISTRY}/zolana-prover-forester:${TAG}"]
 }
 
-# Forester binary (Rust). Built from forester/Dockerfile with the whole zolana
+# Forester binary (Rust). Built from protocol-ops/forester/Dockerfile with the whole zolana
 # workspace as context. NOT in the default group (the continuous worker isn't
 # built yet).
 target "forester" {
   context = "."
-  dockerfile = "forester/Dockerfile"
+  dockerfile = "protocol-ops/forester/Dockerfile"
   platforms = split(",", PLATFORMS)
   tags = ["${REGISTRY}/zolana-forester:${TAG}"]
 }

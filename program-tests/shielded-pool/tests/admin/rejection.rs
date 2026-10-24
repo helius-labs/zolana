@@ -13,10 +13,9 @@ use zolana_interface::{
         default_tree_fees, nullifier_tree_params, ProtocolConfig, RingConfig, MAX_FEE_PER_NULLIFIER,
     },
 };
-use zolana_program::instruction::{
-    CreateAssetCounter, CreateProtocolConfig, CreateRingConfig, CreateTree,
-};
+use zolana_program::instruction::CreateRingConfig;
 use zolana_program_test::{next_tree_id, Rejection, RING_TEST_PROGRAM_ID};
+use zolana_protocol_instructions::{CreateAssetCounter, CreateProtocolConfig, CreateTree};
 use zolana_test_utils::mollusk::{
     empty_placeholder_account, expect_err_exact, mollusk_pubkey, sweep_account_matrix,
     AccountMutation, Expected,

@@ -4,8 +4,9 @@ on:
   push:
     branches: [main]
     paths:
-      - "forester/**"
-      - "program-libs/interface/**"
+      - "protocol-ops/**"
+      - "program-libs/**"
+      - "prover/server/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - ".github/workflows/forester.yml"
@@ -13,8 +14,9 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
-      - "forester/**"
-      - "program-libs/interface/**"
+      - "protocol-ops/**"
+      - "program-libs/**"
+      - "prover/server/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - ".github/workflows/forester.yml"
@@ -29,9 +31,6 @@ env:
   CARGO_INCREMENTAL: "0"
   RUST_BACKTRACE: "1"
 
-# Forester e2e + compressible jobs were removed in the shielded-pool reshape.
-# The forester crate is currently a CLI skeleton; foresting logic and its
-# integration tests will be reintroduced against the new combined tree type.
 jobs:
   unit:
     name: forester / compile + test
@@ -42,8 +41,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
-      - run: cargo check -p forester --all-targets
-        # The crate had no unit tests when this job was written, so it only
-        # compiled them. It now has coverage for config resolution and the
-        # metrics exposition format, which is worth nothing unless CI runs it.
-      - run: cargo test -p forester
+      - run: go test ./...
+        working-directory: protocol-ops/forester-prover/go
+      - run: cargo check -p forester -p zolana-protocol-cli --all-targets
+      - run: cargo test -p forester -p zolana-forester-prover -p zolana-protocol-cli -p zolana-protocol-instructions -p zolana-smart-account-client -p zolana-merkle-tree

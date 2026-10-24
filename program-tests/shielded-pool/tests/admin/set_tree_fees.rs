@@ -9,8 +9,8 @@ use zolana_interface::{
     instruction::UpdateProtocolConfigData,
     state::{nullifier_tree_params, TreeFeeSchedule, MAX_FEE_PER_NULLIFIER},
 };
-use zolana_program::instruction::SetTreeFees;
 use zolana_program_test::Rejection;
+use zolana_protocol_instructions::SetTreeFees;
 use zolana_test_utils::mollusk::{
     expect_err_exact, mollusk_pubkey, sweep_account_matrix, AccountMutation, Expected,
 };

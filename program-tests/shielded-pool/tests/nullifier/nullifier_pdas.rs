@@ -16,8 +16,9 @@ use zolana_interface::{
     },
     NullifierPda, NULLIFIER_PDA_SIZE, N_PUBLIC_SLOTS,
 };
-use zolana_program::instruction::{CloseNullifierPdas, Transact};
+use zolana_program::instruction::Transact;
 use zolana_program_test::{ProgramTestError, Rejection, Rpc, TransactionTrace, ZolanaProgramTest};
+use zolana_protocol_instructions::CloseNullifierPdas;
 use zolana_test_utils::{
     nullifier_pda::{
         assert_nullifier_pda, assert_nullifier_pdas, assert_nullifier_pdas_absent,
