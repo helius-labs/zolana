@@ -270,6 +270,8 @@ Changed
 
 Fixed
 
+- `buildSplitTransaction` can automatically select one note from a
+  wallet spanning more than two trees instead of rejecting the whole wallet.
 - `syncWallet` ignored the `requireSlot` and `poll` of the client's
   `indexerConfig` and now applies them, exposed as `SyncClient.indexerConfig`,
   whenever `SyncWalletConfig.requireSlot` or `retry` is unset.
