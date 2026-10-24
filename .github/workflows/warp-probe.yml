@@ -1,0 +1,57 @@
+name: warp probe
+
+# Same jobs on both runners, cold, to compare wall time. Delete with the branch.
+on:
+  push:
+    branches: [alex/warp-probe]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  zk-program:
+    name: zk program / ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, warp-ubuntu-2404-x64-16x]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - run: nproc && free -g
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Configure git auth for private cargo git deps
+        env:
+          TOKEN: ${{ secrets.PRIVATE_LIBS_TOKEN }}
+        run: git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
+      - run: rustup show active-toolchain
+      - uses: taiki-e/install-action@43aecc8d72668fbcfe75c31400bc4f890f1c5853 # v2
+        with:
+          tool: just,nextest
+      - run: rustup target add wasm32-unknown-unknown
+      - run: just test-zolana-program-unit
+      - run: just test-zolana-program-release
+      - run: just check-wasm
+
+  go-tests:
+    name: go test / ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, warp-ubuntu-2404-x64-16x]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 75
+    steps:
+      - run: nproc && free -g
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: prover/server/go.mod
+          cache-dependency-path: prover/server/go.sum
+      - uses: extractions/setup-just@v2
+      - run: just prover-server-test
