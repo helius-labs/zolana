@@ -17,6 +17,30 @@ env:
   SBF_TOOLS_VERSION: v1.54
 
 jobs:
+  changes:
+    name: typescript / changes
+    runs-on: ubuntu-latest
+    outputs:
+      rust: ${{ steps.filter.outputs.rust }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 2
+      # Same ignore list as rust.yml. The wasm tests do not import the TS SDK.
+      - id: filter
+        run: |
+          if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
+            echo rust=true >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          ignored='^(.*\.md|LICENSE[^/]*|\.gitignore|prover/server/.*|sdk-libs/ts/.*|sdk-tests/client/typescript/.*|package\.json|package-lock\.json)$'
+          if git diff --name-only --no-renames HEAD^1 HEAD | grep -vE "$ignored" > /dev/null; then
+            echo rust=true >> "$GITHUB_OUTPUT"
+          else
+            echo rust=false >> "$GITHUB_OUTPUT"
+          fi
+
   check:
     name: typescript / check
     runs-on: ubuntu-latest
@@ -73,8 +97,7 @@ jobs:
 
   e2e:
     name: typescript / e2e
-    runs-on: ubuntu-latest
-    needs: check
+    runs-on: ${{ vars.ZOLANA_CI_RUNNER || 'warp-ubuntu-2404-x64-16x' }}
     timeout-minutes: 120
     env:
       AGAVE_VERSION: v4.2.2
@@ -90,7 +113,7 @@ jobs:
           cache-dependency-path: prover/server/go.sum
       - uses: ./.github/actions/setup-rust
         with:
-          shared-key: typescript-e2e
+          shared-key: typescript
       - run: rustup target add wasm32-unknown-unknown
       - name: Install Anza CLI
         uses: ./.github/actions/install-anza
@@ -121,8 +144,7 @@ jobs:
 
   escrow-e2e:
     name: typescript / escrow e2e
-    runs-on: ubuntu-latest
-    needs: check
+    runs-on: ${{ vars.ZOLANA_CI_RUNNER || 'warp-ubuntu-2404-x64-16x' }}
     timeout-minutes: 120
     env:
       AGAVE_VERSION: v4.2.2
@@ -138,7 +160,8 @@ jobs:
           cache-dependency-path: prover/server/go.sum
       - uses: ./.github/actions/setup-rust
         with:
-          shared-key: typescript-escrow
+          shared-key: typescript
+          save-cache: "true"
       - name: Install the wasm toolchains
         run: |
           rustup target add wasm32-unknown-unknown
@@ -173,7 +196,9 @@ jobs:
 
   zk-program-wasm:
     name: typescript / zk program wasm
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.ZOLANA_CI_RUNNER || 'warp-ubuntu-2404-x64-16x' }}
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -184,7 +209,7 @@ jobs:
           cache-dependency-path: sdk-libs/program/tests/wasm/package-lock.json
       - uses: ./.github/actions/setup-rust
         with:
-          shared-key: zk-program-wasm
+          shared-key: typescript
       # Threaded builds need the pinned nightly with rust-src for build-std.
       - name: Install the wasm toolchains
         run: |

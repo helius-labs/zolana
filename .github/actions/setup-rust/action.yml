@@ -6,6 +6,10 @@ inputs:
     description: Swatinem rust-cache shared-key for cross-workflow cache reuse.
     required: false
     default: rust-workspace
+  save-cache:
+    description: Save the Cargo cache on main. One job per shared-key saves, so the keys fit the repo's 10 GB cache limit.
+    required: false
+    default: "false"
   install-just:
     description: Install the `just` task runner via taiki-e/install-action.
     required: false
@@ -35,7 +39,7 @@ runs:
     - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       with:
         shared-key: ${{ inputs.shared-key }}
-        save-if: ${{ github.ref == 'refs/heads/main' }}
+        save-if: ${{ github.ref == 'refs/heads/main' && inputs.save-cache == 'true' }}
     # `just` runs the test recipes and those now use `cargo nextest run`, so the
     # runner needs both. nextest is installed for every job that sets up Rust.
     - if: inputs.install-just == 'true'

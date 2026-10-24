@@ -10,7 +10,6 @@ use crate::ingester::persist::indexed_merkle_tree::{
 };
 use crate::ingester::persist::leaf_node::{i64_from_u64, u64_from_i64, usize_from_i64};
 use crate::ingester::persist::persisted_indexed_merkle_tree::persist_indexed_tree_updates;
-use num_bigint::BigUint;
 use sea_orm::{
     sea_query::Expr, ColumnTrait, DatabaseTransaction, EntityTrait, QueryFilter, QueryOrder,
     QuerySelect,
@@ -210,29 +209,24 @@ async fn low_element_for_value(
     batch_elements: &HashMap<u64, indexed_trees::Model>,
     value: &[u8; 32],
 ) -> Result<indexed_trees::Model, IngesterError> {
-    let value_big = BigUint::from_bytes_be(value);
-    let mut candidates = Vec::new();
-
+    let mut db_candidate = None;
     if let Some(db_element) = db_low_element(txn, tree, value).await? {
         let leaf_index = u64_from_i64(db_element.leaf_index, "indexed leaf index")?;
         if !batch_elements.contains_key(&leaf_index) {
-            candidates.push(db_element);
+            db_candidate = Some(db_element);
         }
     } else if !batch_elements.contains_key(&0) {
-        candidates.push(get_zeroeth_nullifier_exclusion_range(
+        db_candidate = Some(get_zeroeth_nullifier_exclusion_range(
             tree.to_bytes().to_vec(),
         ));
     }
-    candidates.extend(batch_elements.values().cloned());
 
-    let mut best: Option<(indexed_trees::Model, BigUint)> = None;
-
-    for element in candidates {
-        let element_value =
-            BigUint::from_bytes_be(&fixed_32(element.value.clone(), "indexed value")?);
-        let element_next_value =
-            BigUint::from_bytes_be(&fixed_32(element.next_value.clone(), "indexed next value")?);
-        if element_value < value_big && value_big < element_next_value {
+    // Big-endian 32-byte values order the same as the numbers they encode.
+    let mut best: Option<(&indexed_trees::Model, [u8; 32])> = None;
+    for element in db_candidate.iter().chain(batch_elements.values()) {
+        let element_value = fixed_32(element.value.clone(), "indexed value")?;
+        let element_next_value = fixed_32(element.next_value.clone(), "indexed next value")?;
+        if element_value < *value && *value < element_next_value {
             match &best {
                 Some((_, best_value)) if element_value <= *best_value => {}
                 _ => best = Some((element, element_value)),
@@ -240,7 +234,7 @@ async fn low_element_for_value(
         }
     }
 
-    best.map(|(element, _)| element).ok_or_else(|| {
+    best.map(|(element, _)| element.clone()).ok_or_else(|| {
         IngesterError::ParserError(
             "Queued nullifier does not fit any existing exclusion range".to_string(),
         )

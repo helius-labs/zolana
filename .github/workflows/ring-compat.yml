@@ -47,7 +47,7 @@ jobs:
     name: tests / ring compat
     needs: enabled
     if: needs.enabled.outputs.enabled == 'true'
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.ZOLANA_CI_RUNNER || 'warp-ubuntu-2404-x64-16x' }}
     timeout-minutes: 120
     env:
       AGAVE_VERSION: v4.2.2

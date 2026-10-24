@@ -1021,7 +1021,8 @@ test-ring-validator-proof-cu: build-programs build-prover-server build-cli ensur
 # 8x16) on the confidential, ring EdDSA and anonymous ring rails, and the 52-input
 # plain and ring merges, on a validator that enforces the 4,096-byte v1 ceiling.
 # Prints each transaction's bytes and compute units.
-test-max-shapes-validator: build-programs build-prover-server build-cli ensure-photon ensure-smart-account
+# CI runs each `filter` on its own runner.
+test-max-shapes-validator package="" filter="all()": build-programs build-prover-server build-cli ensure-photon ensure-smart-account
     #!/usr/bin/env bash
     set -euo pipefail
     eval "$(tools/ci/xtask.sh program-ids)"
@@ -1037,10 +1038,10 @@ test-max-shapes-validator: build-programs build-prover-server build-cli ensure-p
     export ZOLANA_PHOTON_BIN="{{photon-bin}}"
     export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
-    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
-      tools/ci/nextest-suite.sh -p spp-test-validator --test max_shapes --no-capture
-    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
-      tools/ci/nextest-suite.sh -p ring-test-program --test max_shapes --no-capture
+    for package in {{ if package == "" { "spp-test-validator ring-test-program" } else { package } }}; do
+      env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+        tools/ci/nextest-suite.sh -p "$package" --test max_shapes -E '{{filter}}' --no-capture
+    done
 
 # Regenerate services/photon/tests/fixtures/ring_transact.json from a real ring
 # CPI. The fixture is committed; Photon replays it without a validator. Run this

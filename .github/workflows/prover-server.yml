@@ -19,7 +19,7 @@ concurrency:
 jobs:
   go-tests:
     name: prover-server / go test
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.ZOLANA_CI_RUNNER || 'warp-ubuntu-2404-x64-16x' }}
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     # gnark circuit compilation across the full TestCombined / TestInclusion /
     # TestNonInclusion / batch_* CSV fixtures can take ~30-45 min; allow
