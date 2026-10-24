@@ -1,7 +1,9 @@
 import {
   assertIsTransactionWithBlockhashLifetime,
   getSignatureFromTransaction,
+  isSolanaError,
   sendTransactionWithoutConfirmingFactory,
+  SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE,
   signTransactionWithSigners,
   type Signature,
   type Transaction,
@@ -42,8 +44,15 @@ export async function sendPrivateTransaction(
     await sendTransactionWithoutConfirmingFactory({ rpc: client.solanaRpc })(signed, {
       commitment: "confirmed",
     });
-  } catch {
-    // A lost send response does not prove rejection. Recover the same signature.
+  } catch (error) {
+    // The RPC refused it in preflight, so it was never broadcast: report the
+    // rejection, then discard the checkpoint and release the reservations.
+    if (
+      isSolanaError(error, SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE)
+    )
+      throw error;
+    // Any other failure, such as a lost response, does not prove rejection.
+    // Recover the same signature.
   }
   await client.waitForPrivateTransaction(pending.signature, pending.lastValidBlockHeight);
   return pending;
@@ -67,7 +76,9 @@ export async function recoverPrivateTransaction(
       case "CLIENT_TRANSACTION_OUTCOME_UNKNOWN":
         return "unknown";
       default:
-        throw error; // Keep the checkpoint; surface chain failures and cancellation.
+        // Keep the checkpoint. A chain failure (`CLIENT_TRANSACTION_FAILED`) and
+        // cancellation end here, as does an RPC or indexer that cannot answer.
+        throw error;
     }
   }
 }

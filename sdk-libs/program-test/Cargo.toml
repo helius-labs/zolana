@@ -32,6 +32,7 @@ solana-signature = { workspace = true }
 solana-signer = { workspace = true }
 solana-transaction = { workspace = true }
 solana-transaction-error = { workspace = true }
+solana-transaction-status-client-types = { workspace = true }
 thiserror = { workspace = true }
 zolana-client = { workspace = true }
 zolana-interface = { workspace = true }

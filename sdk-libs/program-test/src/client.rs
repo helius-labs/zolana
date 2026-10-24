@@ -14,6 +14,7 @@ use solana_clock::Clock;
 use solana_hash::Hash;
 use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
+use solana_transaction_status_client_types::{TransactionConfirmationStatus, TransactionStatus};
 use zolana_client::{
     rpc::{
         Context, GetMerkleProofsResponse, GetNonInclusionProofsResponse,
@@ -122,6 +123,43 @@ impl Rpc for ProgramTestHandle {
         transaction: VersionedTransaction,
     ) -> Result<Signature, ClientError> {
         self.send(transaction)
+    }
+
+    /// litesvm runs a transaction as it is sent, so a traced one is final, and
+    /// it forgets none of them: the recent cache and the history are one.
+    fn get_signature_statuses(
+        &self,
+        signatures: Vec<Signature>,
+    ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
+        let harness = self.lock();
+        let slot = harness.svm.get_sysvar::<Clock>().slot;
+        Ok(signatures
+            .iter()
+            .map(|signature| {
+                let trace = harness
+                    .transaction_traces()
+                    .iter()
+                    .rfind(|trace| trace.signature == *signature)?;
+                let err = match &trace.outcome {
+                    TransactionOutcome::Succeeded => None,
+                    TransactionOutcome::Failed(error) => Some(error.clone()),
+                };
+                Some(TransactionStatus {
+                    slot,
+                    confirmations: None,
+                    status: err.clone().map_or(Ok(()), Err),
+                    err,
+                    confirmation_status: Some(TransactionConfirmationStatus::Finalized),
+                })
+            })
+            .collect())
+    }
+
+    fn get_signature_statuses_with_history(
+        &self,
+        signatures: Vec<Signature>,
+    ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
+        Rpc::get_signature_statuses(self, signatures)
     }
 
     /// litesvm runs a transaction as it is sent, so one the harness accepted

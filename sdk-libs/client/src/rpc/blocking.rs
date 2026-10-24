@@ -7,6 +7,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use solana_account::Account;
 use solana_address::Address;
+use solana_epoch_info::EpochInfo;
 use solana_hash::Hash;
 use solana_rpc_client_api::config::RpcSendTransactionConfig;
 use solana_signature::Signature;
@@ -122,6 +123,18 @@ impl<T: Rpc + Send + Sync + 'static> AsyncRpc for Blocking<T> {
     ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
         self.run(move |rpc| rpc.get_signature_statuses(signatures))
             .await
+    }
+
+    async fn get_signature_statuses_with_history(
+        &self,
+        signatures: Vec<Signature>,
+    ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
+        self.run(move |rpc| rpc.get_signature_statuses_with_history(signatures))
+            .await
+    }
+
+    async fn get_epoch_info(&self) -> Result<EpochInfo, ClientError> {
+        self.run(|rpc| rpc.get_epoch_info()).await
     }
 
     async fn get_minimum_balance_for_rent_exemption(

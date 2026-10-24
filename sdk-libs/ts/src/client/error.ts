@@ -38,10 +38,10 @@ export const CANONICAL_CLIENT_ERROR_CODES = Object.freeze([
   "CLIENT_NULLIFIER_PROOF_TREE_MISMATCH",
   "CLIENT_MISSING_OUTPUT",
   "CLIENT_RPC",
+  "CLIENT_TRANSACTION_FAILED",
   "CLIENT_TRANSACTION_EXPIRED",
   "CLIENT_TRANSACTION_NOT_INDEXED",
   "CLIENT_TRANSACTION_OUTCOME_UNKNOWN",
-
   "CLIENT_INDEXER",
   "CLIENT_UNSUPPORTED_RPC_METHOD",
   "CLIENT_INDEXER_TIMEOUT",
@@ -103,6 +103,8 @@ export interface ClientErrorDetailsMap {
   readonly CLIENT_NULLIFIER_PROOF_TREE_MISMATCH: IndexDetails;
   readonly CLIENT_MISSING_OUTPUT: NoDetails;
   readonly CLIENT_RPC: Readonly<{ method?: string; reason?: string }>;
+  /** `transactionError` is the chain's error in Solana's JSON encoding. */
+  readonly CLIENT_TRANSACTION_FAILED: Readonly<{ signature: string; transactionError: string }>;
   readonly CLIENT_TRANSACTION_EXPIRED: Readonly<{ signature: string; causeCode?: ClientErrorCode }>;
   readonly CLIENT_TRANSACTION_NOT_INDEXED: Readonly<{
     signature: string;
@@ -112,16 +114,12 @@ export interface ClientErrorDetailsMap {
     signature: string;
     causeCode?: ClientErrorCode;
   }>;
-
   /** Carries no response text: an indexer body can hold caller data. */
   readonly CLIENT_INDEXER: Readonly<{ method: string; retryable: boolean }>;
   readonly CLIENT_UNSUPPORTED_RPC_METHOD: MethodDetails;
+  /** @deprecated Private confirmation now reports transaction-specific unresolved outcomes. */
   readonly CLIENT_INDEXER_TIMEOUT:
-    | Readonly<{
-        signature?: string;
-        expectedTags?: number;
-        attempts?: number;
-      }>
+    | Readonly<{ signature?: string; expectedTags?: number; attempts?: number }>
     | undefined;
   readonly CLIENT_INDEXER_NOT_CAUGHT_UP: Readonly<{
     target: string;
@@ -307,8 +305,11 @@ const CLIENT_ERROR_CODE_SET: ReadonlySet<string> = new Set([
   ...TYPESCRIPT_CLIENT_ERROR_CODES,
 ]);
 
-/** The three transient causes Rust's `RetryErrorCause` can hold. */
-export type RetryErrorCause = Readonly<{ category: "rpc" | "indexer" | "indexerTimeout" }>;
+/** The side of the system a transient failure came from. */
+export type RetryErrorCause =
+  | Readonly<{ category: "rpc" | "indexer" }>
+  /** @deprecated Retained for errors constructed by older SDK integrations. */
+  | Readonly<{ category: "indexerTimeout" }>;
 
 export type ClientErrorCause =
   | Readonly<{ category: "client"; code: ClientErrorCode }>
@@ -370,8 +371,8 @@ const NO_DETAIL_CODES: ReadonlySet<ClientErrorCode> = new Set([
 ]);
 
 const OPTIONAL_DETAIL_CODES: ReadonlySet<ClientErrorCode> = new Set([
-  "CLIENT_FIELD_TOO_LONG",
   "CLIENT_INDEXER_TIMEOUT",
+  "CLIENT_FIELD_TOO_LONG",
   "CLIENT_INVALID_CONFIG",
   "CLIENT_INVALID_INTEGER",
   "CLIENT_INVALID_INPUT_CONTEXT",
@@ -403,10 +404,10 @@ const DETAIL_SHAPES: Partial<Readonly<Record<ClientErrorCode, DetailShape>>> = {
   CLIENT_NULLIFIER_PROOF_LEAF_MISMATCH: { index: "number" },
   CLIENT_NULLIFIER_PROOF_TREE_MISMATCH: { index: "number" },
   CLIENT_RPC: { method: "string", reason: "string" },
+  CLIENT_TRANSACTION_FAILED: { signature: "string", transactionError: "string" },
   CLIENT_TRANSACTION_EXPIRED: { signature: "string", causeCode: "string" },
   CLIENT_TRANSACTION_NOT_INDEXED: { signature: "string", causeCode: "string" },
   CLIENT_TRANSACTION_OUTCOME_UNKNOWN: { signature: "string", causeCode: "string" },
-
   CLIENT_INDEXER: { method: "string", retryable: "boolean" },
   CLIENT_UNSUPPORTED_RPC_METHOD: { method: "string" },
   CLIENT_INDEXER_TIMEOUT: { signature: "string", expectedTags: "number", attempts: "number" },
@@ -462,15 +463,15 @@ const DETAIL_SHAPES: Partial<Readonly<Record<ClientErrorCode, DetailShape>>> = {
 };
 
 const REQUIRED_DETAIL_FIELDS: Partial<Readonly<Record<ClientErrorCode, readonly string[]>>> = {
+  CLIENT_INDEXER_TIMEOUT: [],
   CLIENT_PROVER_SERVER: [],
   CLIENT_PROOF_PARSE: [],
   CLIENT_RPC: [],
+  CLIENT_TRANSACTION_FAILED: ["signature", "transactionError"],
   CLIENT_TRANSACTION_EXPIRED: ["signature"],
   CLIENT_TRANSACTION_NOT_INDEXED: ["signature"],
   CLIENT_TRANSACTION_OUTCOME_UNKNOWN: ["signature"],
-
   CLIENT_FIELD_TOO_LONG: [],
-  CLIENT_INDEXER_TIMEOUT: [],
   CLIENT_PROOF_PATH_LENGTH: ["got", "expected"],
   CLIENT_POLL_TIMED_OUT: ["attempts"],
   CLIENT_INVALID_CONFIG: [],

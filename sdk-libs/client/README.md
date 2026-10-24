@@ -65,8 +65,15 @@ After a lost send response or a restart,
 (async: `wait_for_private_transaction`) recovers a deposit, transfer, withdrawal
 or merge. Save the **signed transaction's signature and last valid block height
 before sending**, alongside its wallet reservations. Use `finish_unsigned` and
-sign explicitly when the application needs this checkpoint; `Submission::send`
-does not persist one for you.
+sign explicitly when the application needs this checkpoint. `Submission::send`
+recovers a send whose response was lost within its own wait, but persists no
+checkpoint across a restart.
+After broadcast, service failures from `Submission::send` and
+`MergeSubmission::send` return `PrivateTransactionRecoveryFailed` with the
+signature, last valid block height and original `source` error. Save those
+coordinates before retrying the wait; inspect `source` for a confirmed chain
+failure. Transaction-specific expiry and unresolved outcomes retain their
+existing variants and signature fields.
 
 | Outcome | Application action |
 | --- | --- |
@@ -75,18 +82,27 @@ does not persist one for you.
 | `TransactionExpired` | No private effects through the expiry slot; sync before building a replacement. |
 | `TransactionNotIndexed` | Confirmed, but effects are not yet readable; keep the checkpoint and wait again. |
 | `TransactionOutcomeUnknown` | Keep the checkpoint and reservations; wait again with the same signature. |
+| Any other error | The RPC or indexer cannot answer as configured; keep the checkpoint, fix the service and wait again. |
 
 `confirm_private_transaction` uses the same recovery engine without an expiry
 height. Its unresolved errors are now `TransactionNotIndexed` and
 `TransactionOutcomeUnknown`, replacing the former indexer timeout errors.
 Both methods stop at the poll limit or a 60-second overall deadline, including
 requests; `with_transaction_wait_timeout` adjusts that deadline. Timeouts never
-prove expiry. With a blocking RPC adapter, its underlying request may outlive
+prove expiry. An indexed event received before the deadline still proves success
+if the RPC never answers; a confirmed chain failure read before it takes precedence.
+With a blocking RPC adapter, its underlying request may outlive
 the wait, so configure the adapter's own transport timeout too.
 
-The RPC and complete private-event indexer must serve the same network, using
-confirmed commitment. Registration, arbitrary program calls, and durable-nonce
-transactions do not fit this contract. Recovery never sends or rebuilds.
+The RPC and complete private-event indexer must serve the same network. Expiry
+is read at confirmed commitment from one `getEpochInfo` answer, and statuses
+are searched in the RPC's ledger as well as its recent cache, so a custom RPC
+adapter implements `get_signature_statuses_with_history` and `get_epoch_info`.
+`Submission::send` and `MergeSubmission::send` broadcast once through
+`send_transaction_with_config` with confirmed preflight, then use that recovery
+wait instead of the adapter's combined send-and-confirm method.
+Registration, arbitrary program calls, and durable-nonce transactions do not
+fit this contract. Recovery never sends or rebuilds.
 See the [restart recovery example](../../sdk-tests/client/rust/recover_private_transaction.rs).
 
 `Submission::with_prover(Arc<dyn Prover>)` proves one submission with a

@@ -285,22 +285,29 @@ export function composeSignal(context: RequestContext | undefined, method: strin
   }
 }
 
-/** Bounds the whole operation, even if an adapter ignores its abort signal. */
+/**
+ * Bounds the whole operation, even if an adapter ignores its abort signal.
+ * `onTimeout` builds the error for this deadline only: a timeout that a
+ * request inside `run` raised on its own timer passes through unchanged.
+ */
 export async function runWithDeadline<T>(
   context: RequestContext,
   method: string,
   run: (context: RequestContext) => Promise<T>,
+  onTimeout?: () => ClientError,
 ): Promise<T> {
   const operation = composeSignal(context, method);
+  const ended = (): ClientError =>
+    operation.timedOut() && onTimeout !== undefined ? onTimeout() : requestError(method, operation);
   let abort: () => void = () => {};
   const aborted = new Promise<never>((_resolve, reject) => {
-    abort = () => reject(requestError(method, operation));
+    abort = () => reject(ended());
   });
   operation.signal.addEventListener("abort", abort, { once: true });
   try {
     return await Promise.race([run({ signal: operation.signal }), aborted]);
   } catch (cause) {
-    if (operation.signal.aborted) throw requestError(method, operation);
+    if (operation.signal.aborted) throw ended();
     throw cause;
   } finally {
     operation.signal.removeEventListener("abort", abort);

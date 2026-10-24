@@ -104,9 +104,19 @@ Vitest config reads; against an already running stack, set it before
 [`private-transaction-recovery.ts`](private-transaction-recovery.ts) shows the
 application-owned send path: sign, durably save the signature and blockhash
 expiry height with the wallet's input reservations, send once, and call
-`waitForPrivateTransaction` even if the send response was lost. Its recovery
-function accepts the same checkpoint after a restart and distinguishes indexed,
-expired, confirmed-but-not-indexed, and unknown outcomes.
+`waitForPrivateTransaction` even if the send response was lost. A preflight
+rejection proves the transaction was never broadcast, so it is reported at
+once. Its recovery function accepts the same checkpoint after a restart and
+distinguishes indexed, expired, confirmed-but-not-indexed, and unknown
+outcomes.
+
+`sdk-libs/ts/test/e2e/private-recovery.live.test.ts` exercises recovery against a
+validator and Photon: it drops a real deposit's send response, recovers from a
+fresh client, and checks indexed success with a hung status request. It also
+signs a deposit without sending it, waits for its blockhash to expire, rejects
+a cached Photon response from before expiry, then permits replacement once
+Photon has persisted through the expiry bank. `just test-ts-e2e` includes this
+suite; these deposit and recovery cases do not require a prover.
 
 Use this for deposits, transfers, withdrawals and merges. Registration uses
 ordinary chain confirmation because it has no private event. The existing

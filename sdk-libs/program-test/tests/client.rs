@@ -4,6 +4,7 @@
 
 use solana_keypair::Keypair;
 use solana_signer::Signer;
+use solana_transaction_status_client_types::TransactionConfirmationStatus;
 use zolana_client::Rpc;
 use zolana_keypair::{hash::owner_hash, ShieldedKeypair};
 use zolana_program_test::ZolanaProgramTest;
@@ -70,6 +71,17 @@ fn the_handle_serves_the_proofs_the_chain_verifies() {
             .expect("nullifier root")
     );
     assert!(handle.confirm_transaction(signature).expect("confirm"));
+    let statuses = handle
+        .get_signature_statuses_with_history(vec![signature])
+        .expect("status");
+    let [Some(status)] = statuses.as_slice() else {
+        panic!("the harness forgets no transaction it ran: {statuses:?}");
+    };
+    assert_eq!(status.err, None);
+    assert_eq!(
+        status.confirmation_status,
+        Some(TransactionConfirmationStatus::Finalized)
+    );
     assert_eq!(
         handle
             .get_shielded_transactions_by_signature(signature, None)

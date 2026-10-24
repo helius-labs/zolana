@@ -645,9 +645,9 @@ fn confirm_private_transaction_sync_retries_transient_indexer_error() {
     );
 }
 
-/// A confirmed transaction stays confirmed when every indexer request fails;
-/// the outcome carries a sanitized explanation, not the server response.
-
+/// A confirmed transaction stays confirmed when every indexer request fails
+/// transiently; the outcome carries a sanitized explanation, not the server
+/// response.
 #[test]
 fn confirm_private_transaction_sync_retains_confirmation_during_indexer_outage() {
     let signature = Signature::from([20u8; 64]);
@@ -875,7 +875,7 @@ impl Rpc for MockSubmitRpc {
         Ok(self.signature)
     }
 
-    fn get_signature_statuses(
+    fn get_signature_statuses_with_history(
         &self,
         signatures: Vec<Signature>,
     ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
@@ -907,11 +907,11 @@ impl Rpc for MockSubmitRpc {
 
 #[async_trait]
 impl AsyncRpc for MockSubmitRpc {
-    async fn get_signature_statuses(
+    async fn get_signature_statuses_with_history(
         &self,
         signatures: Vec<Signature>,
     ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
-        Rpc::get_signature_statuses(self, signatures)
+        Rpc::get_signature_statuses_with_history(self, signatures)
     }
 
     async fn confirm_transaction(&self, _signature: Signature) -> Result<bool, ClientError> {

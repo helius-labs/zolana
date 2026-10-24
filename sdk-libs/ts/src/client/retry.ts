@@ -170,30 +170,6 @@ export async function pollUntil<T>(
   });
 }
 
-/**
- * Classify an exhausted poll by how the final attempt went, since that is the
- * freshest evidence of what the indexer is doing now. An attempt that answered
- * without the transaction means the indexer is behind; one that failed means it
- * never answered, which is not a lag report the caller should act on.
- */
-export function indexerPollTimeout(
-  config: IndexerPollConfig,
-  lastCause: RetryErrorCause | undefined,
-  signature?: string,
-): ClientError {
-  if (lastCause !== undefined) {
-    return new ClientError("CLIENT_POLL_TIMED_OUT", {
-      details: { attempts: attempts(config), lastCause },
-    });
-  }
-  return new ClientError("CLIENT_INDEXER_TIMEOUT", {
-    details: {
-      attempts: attempts(config),
-      ...(signature === undefined ? {} : { signature }),
-    },
-  });
-}
-
 export function withProofDataRetry<T>(
   source: ProofDataSource,
   prove: (context?: RequestContext) => Promise<T>,
@@ -219,38 +195,34 @@ export async function waitForProjection<T>(
   maxWaitMs: number = PROJECTION_TIMEOUT_MS,
 ): Promise<T> {
   let last: ClientError | undefined;
-  try {
-    return await runWithDeadline(
-      overallContext(context, maxWaitMs),
-      "waitForProjection",
-      async (attemptContext) => {
-        const result = await pollUntil<ProjectionAttempt<T>>(
-          async () => {
-            try {
-              const value = await read(attemptContext);
-              return { kind: "ready", value };
-            } catch (cause) {
-              if (!isClientError(cause) || !retryable.has(cause.code)) throw cause;
-              last = cause;
-              return { kind: "retry", error: cause };
-            }
-          },
-          (attempt) => attempt.kind === "ready",
-          {
-            config: poll,
-            context: attemptContext,
-            retryErrors: false,
-            onTimeout: (config) => last ?? pollTimedOut(config),
-          },
-        );
-        if (result.kind === "retry") throw result.error;
-        return result.value;
-      },
-    );
-  } catch (cause) {
-    if (isClientError(cause) && cause.code === "CLIENT_TIMEOUT") throw last ?? pollTimedOut(poll);
-    throw cause;
-  }
+  return runWithDeadline(
+    overallContext(context, maxWaitMs),
+    "waitForProjection",
+    async (attemptContext) => {
+      const result = await pollUntil<ProjectionAttempt<T>>(
+        async () => {
+          try {
+            const value = await read(attemptContext);
+            return { kind: "ready", value };
+          } catch (cause) {
+            if (!isClientError(cause) || !retryable.has(cause.code)) throw cause;
+            last = cause;
+            return { kind: "retry", error: cause };
+          }
+        },
+        (attempt) => attempt.kind === "ready",
+        {
+          config: poll,
+          context: attemptContext,
+          retryErrors: false,
+          onTimeout: (config) => last ?? pollTimedOut(config),
+        },
+      );
+      if (result.kind === "retry") throw result.error;
+      return result.value;
+    },
+    () => last ?? pollTimedOut(poll),
+  );
 }
 
 function* pollSchedule(config: IndexerPollConfig): IterableIterator<bigint> {
@@ -261,11 +233,11 @@ function* pollSchedule(config: IndexerPollConfig): IterableIterator<bigint> {
 export function retryCause(error: unknown): RetryErrorCause | undefined {
   if (!isClientError(error)) return undefined;
   switch (error.code) {
+    case "CLIENT_INDEXER_TIMEOUT":
+      return INDEXER_TIMEOUT_CAUSE;
     case "CLIENT_RPC":
     case "CLIENT_INVALID_RPC_RESPONSE":
       return RPC_CAUSE;
-    case "CLIENT_INDEXER_TIMEOUT":
-      return INDEXER_TIMEOUT_CAUSE;
     case "CLIENT_INDEXER":
       return retryableDetail(error) ? INDEXER_CAUSE : undefined;
     case "CLIENT_TIMEOUT":

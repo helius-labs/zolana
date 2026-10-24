@@ -1,6 +1,7 @@
 import {
   commitmentReached,
   readSignatureStatus,
+  transactionFailed,
   waitForPrivateTransaction,
 } from "./confirmation.js";
 import { prepareMerge } from "./prover/merge.js";
@@ -457,19 +458,24 @@ export class ZolanaClient
   /**
    * Recover a sent deposit, transfer, withdrawal or merge from its signature.
    * Resolves once Photon has its private event, even after Solana's recent
-   * status cache forgets it. Confirmed chain failures throw `CLIENT_RPC`.
+   * status cache forgets it. A confirmed chain failure, also found in the
+   * RPC's ledger, throws `CLIENT_TRANSACTION_FAILED`.
    *
    * `CLIENT_TRANSACTION_EXPIRED` requires blockhash expiry plus an absent
    * signature and a caught-up indexer; only this outcome permits rebuilding
    * after an ambiguous send. `CLIENT_TRANSACTION_NOT_INDEXED` means confirmed
    * effects are not yet readable; `CLIENT_TRANSACTION_OUTCOME_UNKNOWN` means
-   * insufficient evidence. Retry either with the same signature.
+   * insufficient evidence. Retry either with the same signature. A failure
+   * that waiting cannot fix (an RPC or indexer without the method, or an
+   * indexer answer that is malformed or not retryable) throws as itself.
    *
    * Uses confirmed commitment and a complete indexer on the same network.
    * Excludes registration, arbitrary program calls and durable-nonce sends.
    * Persist signature and blockhash height before sending. Never resubmits.
    * Stops at the poll limit or the overall `context.timeoutMs` (default 60s),
    * including pending requests. Caller cancellation throws `CLIENT_ABORTED`.
+   * An indexed event received before the deadline still proves success if
+   * the RPC hangs; a confirmed chain failure read before it takes precedence.
    */
   async waitForPrivateTransaction(
     signature: Signature,
@@ -522,11 +528,7 @@ export class ZolanaClient
   ): Promise<bigint | undefined> {
     const status = await readSignatureStatus(this, signature, context);
     if (status === null || !commitmentReached(status.commitment, this.commitment)) return undefined;
-    if (status.failed) {
-      throw new ClientError("CLIENT_RPC", {
-        details: { method: "getSignatureStatuses", reason: "transaction failed" },
-      });
-    }
+    if (status.error !== null) throw transactionFailed(signature, status.error);
     return status.slot;
   }
 
