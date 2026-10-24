@@ -132,13 +132,12 @@ impl KmsShieldedKeypair {
             .expect("RFC 8410 ed25519 SPKI")
             .try_into()
             .expect("32-byte ed25519 public key");
-        let envelope = derivation::ed25519_derivation_message(&ed25519_pubkey);
         let seed = runtime
             .block_on(
                 client
                     .sign()
                     .key_id(key_id)
-                    .message(Blob::new(envelope))
+                    .message(Blob::new(derivation::ED25519_DERIVATION_MSG))
                     .message_type(MessageType::Raw)
                     .signing_algorithm(SigningAlgorithmSpec::Ed25519Sha512)
                     .send(),

@@ -33,14 +33,11 @@ pub const INFO_PDA_NF_KEY: &[u8] = b"TSPP/pda_nf/v1";
 
 pub const INFO_PDA_VIEW_KEY: &[u8] = b"TSPP/pda_view/v1";
 
-/// Payload of the off-chain message an ed25519 owner signs (RFC 8032,
-/// deterministic) to obtain the derivation seed, the root of the ed25519
-/// rail's nullifier and viewing secrets. The signed bytes are
-/// [`ed25519_derivation_message`], never this bare payload.
+/// Canonical bytes every Ed25519 wallet signs to derive its private roles.
 pub const ED25519_DERIVATION_MSG: &[u8] = b"TSPP/derive/v1";
 
-/// An ed25519 `derivation_seed` is the RFC 8032 signature over
-/// [`ed25519_derivation_message`].
+/// An Ed25519 derivation seed is the RFC 8032 signature over
+/// [`ED25519_DERIVATION_MSG`].
 pub const ED25519_SEED_LEN: usize = 64;
 
 /// Every payload under this prefix is a derivation-seed payload (the PDA
@@ -49,29 +46,7 @@ pub const DERIVATION_PAYLOAD_PREFIX: &[u8] = b"TSPP/derive/";
 
 pub const OFFCHAIN_MESSAGE_MAGIC: [u8; 16] = *b"\xffsolana offchain";
 
-/// `sha256(ED25519_DERIVATION_MSG)`; pinned by a test.
-pub const TSPP_APPLICATION_DOMAIN: [u8; 32] = [
-    0x1d, 0x32, 0xa8, 0x85, 0x33, 0xaf, 0x12, 0xd3, 0x5e, 0x5a, 0xc6, 0xfc, 0xe8, 0x17, 0xa4, 0xcb,
-    0x81, 0x0b, 0xcc, 0x41, 0x15, 0x38, 0x6b, 0x14, 0xa7, 0x8e, 0x8b, 0x2e, 0xf0, 0x9d, 0x86, 0x4c,
-];
-
-/// Solana off-chain message v0: magic || version=0 || application_domain ||
-/// format=0 (restricted ASCII) || signer_count=1 || signer || len u16 LE ||
-/// payload. This is the exact byte string the eddsa rail signs.
-pub fn ed25519_derivation_message(signer_pubkey: &[u8; 32]) -> Vec<u8> {
-    let payload = ED25519_DERIVATION_MSG;
-    let mut message = Vec::with_capacity(85 + payload.len());
-    message.extend_from_slice(&OFFCHAIN_MESSAGE_MAGIC);
-    message.push(0);
-    message.extend_from_slice(&TSPP_APPLICATION_DOMAIN);
-    message.push(0);
-    message.push(1);
-    message.extend_from_slice(signer_pubkey);
-    message.extend_from_slice(&(payload.len() as u16).to_le_bytes());
-    message.extend_from_slice(payload);
-    message
-}
-/// True when signing `message` would produce a derivation seed: the payload,
+/// True when `message` contains a reserved derivation payload,
 /// bare or off-chain encoded, begins with [`DERIVATION_PAYLOAD_PREFIX`].
 pub fn is_derivation_input(message: &[u8]) -> bool {
     message.starts_with(DERIVATION_PAYLOAD_PREFIX)
@@ -207,7 +182,7 @@ pub(crate) fn view_root(secret: &X25519Keypair) -> Zeroizing<[u8; 32]> {
 
 /// Expands both role secrets from a `derivation_seed` produced by a
 /// hardware-resident signing key: an ed25519 signature over
-/// [`ed25519_derivation_message`].
+/// [`ED25519_DERIVATION_MSG`].
 pub fn expand_roles(seed: &[u8], curve: Curve) -> Result<(NullifierKey, ViewingKey), KeypairError> {
     let rail = Rail::from_curve(curve)?;
     let expected = rail.seed_len();

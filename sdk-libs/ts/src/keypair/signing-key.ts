@@ -2,7 +2,7 @@ import { ed25519 } from "@noble/curves/ed25519.js";
 import { sha512 } from "@noble/hashes/sha2.js";
 
 import { type Bytes32, type Bytes64, checkedBytes, copyBytes, randomBytes } from "./bytes.js";
-import { ed25519DerivationMessage, isDerivationInput } from "./derivation.js";
+import { ed25519DerivationPayload, isDerivationInput } from "./derivation.js";
 import { KeypairError, wrapKeypairError } from "./error.js";
 import { ShieldedPublicKey, type SignatureType } from "./public-key.js";
 import { concatBytes } from "../interface/bytes.js";
@@ -84,10 +84,10 @@ export class SigningKey {
     }
   }
 
-  /** Deterministic off-chain signature that seeds the nullifier and viewing roles. */
+  /** Deterministic signature that seeds the nullifier and viewing roles. */
   derivationSeed(): Uint8Array {
     this.#assertUsable();
-    const message = ed25519DerivationMessage(ed25519.getPublicKey(this.#secret) as Bytes32);
+    const message = ed25519DerivationPayload();
     return ed25519.sign(message, this.#secret);
   }
 

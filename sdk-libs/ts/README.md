@@ -118,7 +118,8 @@ proving (`ProofAuthority`: `prove`, `proveMerge`). Methods return derived values
 not long-lived secrets, and accept batches so an enclave or hardware wallet can
 answer each phase in one round trip. `LocalKeys` provides both roles for keys
 held in-process; `LocalKeys.fromDerivationSeed` creates them from a browser
-wallet signature over the derivation message. The Solana signature over the
+wallet signature over `ed25519DerivationPayload()` from `@heliuslabs/zolana/keypair`,
+the same `TSPP/derive/v1` bytes software signers use. The Solana signature over the
 finished transaction remains with the app signer.
 
 ### Transaction format

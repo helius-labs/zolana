@@ -6,7 +6,7 @@ import type { Address, Bytes16, Bytes32, Bytes64, RequestContext } from "../../i
 import { checkedBytes } from "../../keypair/bytes.js";
 import {
   checkedDerivationSeed,
-  ed25519DerivationMessage,
+  ed25519DerivationPayload,
   roleExpansion,
 } from "../../keypair/derivation.js";
 import {
@@ -156,7 +156,7 @@ export class LocalShieldedKeys implements ShieldedKeys {
 
   /**
    * The roles behind a Solana wallet: `derivationSeed` is that wallet's
-   * Ed25519 signature over `ed25519DerivationMessage(publicKey)`, verified
+   * Ed25519 signature over `ed25519DerivationPayload()`, verified
    * here so a seed that is the right width but not that signature fails
    * before it derives anything.
    */
@@ -170,9 +170,7 @@ export class LocalShieldedKeys implements ShieldedKeys {
     );
     const seed = checkedDerivationSeed<Bytes64>(input.derivationSeed, "ed25519");
     try {
-      if (
-        !ed25519.verify(seed, ed25519DerivationMessage(publicKey), publicKey, { zip215: false })
-      ) {
+      if (!ed25519.verify(seed, ed25519DerivationPayload(), publicKey, { zip215: false })) {
         throw new TransactionError("TRANSACTION_INVALID_DERIVATION_SEED");
       }
       return roleExpansion(seed, "ed25519", (roles) => {

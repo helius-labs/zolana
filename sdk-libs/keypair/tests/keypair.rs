@@ -209,9 +209,7 @@ fn role_expansion_from_a_device_seed_matches_the_software_path() {
 }
 
 #[test]
-fn offchain_derivation_message_is_pinned_and_detected() {
-    cases::derivation::application_domain_is_payload_hash();
-    cases::derivation::offchain_derivation_message_golden();
+fn derivation_inputs_are_detected() {
     cases::derivation::derivation_inputs_are_detected();
 }
 

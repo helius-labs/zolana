@@ -50,9 +50,11 @@ impl SigningKey {
 
     /// Derives private roles from the deterministic signature over the dedicated message.
     pub fn derivation_seed(&self) -> Result<Zeroizing<Vec<u8>>, KeypairError> {
-        let message = derivation::ed25519_derivation_message(self.inner.verifying_key().as_bytes());
         Ok(Zeroizing::new(
-            self.inner.sign(&message).to_bytes().to_vec(),
+            self.inner
+                .sign(derivation::ED25519_DERIVATION_MSG)
+                .to_bytes()
+                .to_vec(),
         ))
     }
 }

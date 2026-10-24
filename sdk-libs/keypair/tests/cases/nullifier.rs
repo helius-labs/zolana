@@ -1,7 +1,6 @@
 use zolana_keypair::{
-    constants::BLINDING_LEN,
-    derivation::{ed25519_derivation_message, ED25519_DERIVATION_MSG},
-    KeypairError, NullifierKey, ShieldedKeypair, SigningKey, ViewingKey, X25519Pubkey,
+    constants::BLINDING_LEN, derivation::ED25519_DERIVATION_MSG, KeypairError, NullifierKey,
+    ShieldedKeypair, SigningKey, ViewingKey, X25519Pubkey,
 };
 
 use crate::KeypairWorld;
@@ -15,10 +14,7 @@ fn dalek_sign(secret: &[u8; 32], message: &[u8]) -> [u8; 64] {
 }
 
 fn dalek_derivation_seed(secret: &[u8; 32]) -> [u8; 64] {
-    let pubkey = ed25519_dalek::SigningKey::from_bytes(secret)
-        .verifying_key()
-        .to_bytes();
-    dalek_sign(secret, &ed25519_derivation_message(&pubkey))
+    dalek_sign(secret, b"TSPP/derive/v1")
 }
 
 pub(crate) fn expand_nullifier_secret(seed: &[u8], info: &[u8]) -> [u8; BLINDING_LEN] {
@@ -42,10 +38,6 @@ pub(crate) fn derivation_seed_matches_rail_primitives() {
     assert_eq!(
         ed.derivation_seed().unwrap().as_slice(),
         dalek_derivation_seed(&[7u8; 32])
-    );
-    assert_ne!(
-        ed.derivation_seed().unwrap().as_slice(),
-        dalek_sign(&[7u8; 32], ED25519_DERIVATION_MSG)
     );
 }
 
@@ -91,10 +83,6 @@ pub(crate) fn primitives_refuse_derivation_inputs() {
     let ed = SigningKey::from_ed25519_bytes(&[7u8; 32]);
     assert_eq!(
         ed.sign_message(ED25519_DERIVATION_MSG),
-        Err(KeypairError::DerivationInput)
-    );
-    assert_eq!(
-        ed.sign_message(&ed25519_derivation_message(&[7u8; 32])),
         Err(KeypairError::DerivationInput)
     );
     assert_eq!(

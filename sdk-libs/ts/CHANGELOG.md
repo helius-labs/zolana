@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.5.1-alpha — unreleased
+
+Browser wallets and software signers derive the same shielded identity by
+signing the exact `TSPP/derive/v1` bytes. Externally supplied derivation
+signatures are verified against that message and the wallet public key.
+
+Breaking
+
+- `SigningKey.derivationSeed()` and `ShieldedKeypair.fromKeypair()` now derive from the bare payload, changing software-derived keys → register the new identity and fund fresh notes; existing notes still require their original keys.
+- `ed25519DerivationMessage` and `TSPP_APPLICATION_DOMAIN` are removed → sign `ed25519DerivationPayload()` and pass the signature to `LocalKeys.fromDerivationSeed()` or `LocalShieldedKeys.fromDerivationSeed()`, which reject envelope signatures.
+
+Fixed
+
+- `LocalShieldedKeys.fromDerivationSeed()` accepts a valid browser signature over `ed25519DerivationPayload()` and derives the same keys as the software signer.
+
 ## 0.5.0-alpha — 2026-10-23
 
 Proofs go encrypted to an attested Nitro Enclave prover by default, the devnet

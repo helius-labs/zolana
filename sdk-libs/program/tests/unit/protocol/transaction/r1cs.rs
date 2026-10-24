@@ -303,8 +303,8 @@ fn a_forged_public_hash_breaks_the_public_hash_binding() {
 }
 
 /// Pins each program shape's exported constraints, its assignment and its
-/// public hash. A change here changes the program's proving key: the R1CS and
-/// Picus digests move with any added, removed or reordered row or variable
+/// public hash. The R1CS and Picus digests change the program's proving key
+/// and move with any added, removed or reordered row or variable
 /// (including the public hash allocation order), the `.wtns` digest with any
 /// change to the assignment, and the public hash with the transaction hashing.
 #[test]
@@ -337,26 +337,26 @@ const PROGRAM_DIGESTS: [[&str; 4]; 4] = [
     [
         "81db26551d2d90ffab46c87183b65b0b88a8ceba3ff4e2c52f3315f0ea54e51f",
         "49dbb526cc8776943a301a9746f11ee8dd248c3fe05ff0b79d0a182f17cf0654",
-        "58be4572c790e62c1c3dc23bb8123a50c5931ab94496558c92ac2272093f9031",
-        "1262ad8b978066f99ab7fe58ff7f40c6a83b7b5c7142e2c9a7bb5b3ae7835ff3",
+        "ed27c432a015e6aa1f74ad13ae964bb2f80480e4822fdbc848251ef578d3864c",
+        "15c73e16ad3d92077a6030a3dd43ed09a339c6738c8751e331e32e6b5910941a",
     ],
     [
         "9cea6f7c74326343563826489647963297c72902bc83ee8c5928473f95e2ce36",
         "4a7148af03ad96a5d9bc0a15a96e21f69c6ef00c8b9bea685a73019fb793d946",
-        "97b7bcbe81a6fc4b8ecf50984460c194cf0ca3ea744ec769874a857ac23f9755",
-        "00ab9a4969c8eda551d93955a0d8c831a869e1a3c635a10aee5358b8b23616e2",
+        "407e7f624682055e8a6a0efef41d0e60f7cd320cbd962c1cce73617dd670f0af",
+        "16682707671bebb09578276e4067fa93f96f622850413004f4e2b543971098b1",
     ],
     [
         "398dc661f890cadbc3de360ba2dffa6c9d515568b0c2a96cd18540c65639d9be",
         "4f764322e38ba8ae831dadc5750a46a2cc37d8325bd2e3153ab63d8f53a7d358",
-        "91f3b27bdf29ad8f6bbe141e5cafd240858833a69197b2da6101c708918b8214",
-        "22466475981df2cc061b43b0c2f1f60cfef7edc937fb4f37360bb02ebed4cfe4",
+        "26c1efddfce50dd4c0b14edaf5dab57521c97bc35f883caad62ca0c6cdaf715f",
+        "0a116ed54ac6fcc5d4f5ea408d2b0450fe17b6912edc323b0ee080e430ff96e5",
     ],
     [
         "27a591fae137b594301495ce9da44a5943bfdd1fe5b8cbfe9b0fe6eaefe4f4f8",
         "6422be7de1bfce3e9eb7fbc3f686ad809919062cbc58f1b3e670216834d7a29b",
-        "f7cbdbc90484b2da6bb722ee70d6e5ece22462f0568b76ff531b4f5f660d6769",
-        "1bae2c3566190acf2905515514e3bad74cbb22831cb214773188fc28c2eacb81",
+        "56e0da21a10117f7bd2c207795062dc0823f701289c855447d2cf3bfd7e0f948",
+        "20fe84cf10e8d373fadad01761cb0c62758d6455091e347cd2b920801e6468b5",
     ],
 ];
 

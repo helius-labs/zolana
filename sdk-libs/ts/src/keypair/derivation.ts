@@ -30,12 +30,6 @@ export const OFFCHAIN_MESSAGE_MAGIC = Uint8Array.from([
   0xff, 0x73, 0x6f, 0x6c, 0x61, 0x6e, 0x61, 0x20, 0x6f, 0x66, 0x66, 0x63, 0x68, 0x61, 0x69, 0x6e,
 ]);
 
-/** `sha256(ED25519_DERIVATION_MSG)`, pinned by a test. */
-export const TSPP_APPLICATION_DOMAIN = Uint8Array.from([
-  0x1d, 0x32, 0xa8, 0x85, 0x33, 0xaf, 0x12, 0xd3, 0x5e, 0x5a, 0xc6, 0xfc, 0xe8, 0x17, 0xa4, 0xcb,
-  0x81, 0x0b, 0xcc, 0x41, 0x15, 0x38, 0x6b, 0x14, 0xa7, 0x8e, 0x8b, 0x2e, 0xf0, 0x9d, 0x86, 0x4c,
-]);
-
 export const HPKE_PREFIX = "TSPP/hpke/";
 
 export const ENC_INFO_TRANSFER = "TSPP/tx";
@@ -62,34 +56,7 @@ export const DOMAIN_PRIVATE_TX_BLINDING_V1 = 0x5458_5042;
 
 const DERIVATION_PAYLOAD_PREFIX_BYTES = encoder.encode(DERIVATION_PAYLOAD_PREFIX);
 
-/**
- * Solana off-chain message v0: magic || version=0 || application_domain ||
- * format=0 (restricted ASCII) || signer_count=1 || signer || len u16 LE ||
- * payload. This is the exact byte string the eddsa rail signs.
- */
-export function ed25519DerivationMessage(signerPublicKey: Bytes32): Uint8Array {
-  const payload = encoder.encode(ED25519_DERIVATION_MSG);
-  const message = new Uint8Array(85 + payload.length);
-  message.set(OFFCHAIN_MESSAGE_MAGIC, 0);
-  message[16] = 0;
-  message.set(TSPP_APPLICATION_DOMAIN, 17);
-  message[49] = 0;
-  message[50] = 1;
-  message.set(signerPublicKey, 51);
-  message[83] = payload.length & 0xff;
-  message[84] = payload.length >> 8;
-  message.set(payload, 85);
-  return message;
-}
-
-/**
- * The bare payload, what a browser wallet signs. Phantom refuses the off-chain
- * envelope because its first byte, `0xff`, reads as a transaction header to
- * it, so wallets sign `"TSPP/derive/v1"` as text. The guard treats both as
- * derivation inputs. The seed, and so the keys, differ from the envelope's:
- * a wallet key gives one shielded address through a browser wallet and
- * another through a software signer.
- */
+/** Canonical bytes every Ed25519 wallet signs to derive its private roles. */
 export function ed25519DerivationPayload(): Uint8Array {
   return encoder.encode(ED25519_DERIVATION_MSG);
 }
@@ -116,7 +83,7 @@ function offchainV0Payload(message: Uint8Array): Uint8Array | undefined {
 }
 
 /**
- * True when signing `message` would produce a derivation seed: the payload,
+ * True when `message` contains a reserved derivation payload,
  * bare or off-chain encoded, begins with `DERIVATION_PAYLOAD_PREFIX`.
  */
 export function isDerivationInput(message: Uint8Array): boolean {

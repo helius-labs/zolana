@@ -19,7 +19,7 @@ import {
   ShieldedPublicKey,
   SigningKey,
   ViewingKey,
-  ed25519DerivationMessage,
+  ed25519DerivationPayload,
   symmetricApply,
   type Bytes16,
   type Bytes32,
@@ -153,7 +153,7 @@ describe("shielded key material", () => {
       expect(() => key.sign(payload)).toThrow(KeypairError);
     }
     const ed25519Key = SigningKey.generate("ed25519");
-    const message = ed25519DerivationMessage(ed25519Key.publicKey().ed25519());
+    const message = ed25519DerivationPayload();
     expect(() => ed25519Key.sign(message)).toThrow(KeypairError);
   });
 

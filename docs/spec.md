@@ -490,8 +490,8 @@ rejects a low-order peer ([ViewingKey](#viewingkey)).
 
 Sign: the wallet's Ed25519 key, checked by SPP as the signer account.
 
-- `derivation_seed := Ed25519_sign(signing_sk, derivation_message)` — deterministic (RFC 8032), so any wallet that signs off-chain messages reconstructs the keypair and the Ed25519 secret never leaves the wallet. The 64-byte seed is itself secret material: whoever holds it derives both role keys.
-- `derivation_message` — the Solana off-chain message v0 encoding of the payload `"TSPP/derive/v1"`: `"\xffsolana offchain" || version=0 || application_domain || format=0 || signer_count=1 || signing_pk || u16_le(payload_len) || payload`, with `application_domain := SHA-256("TSPP/derive/v1")`.
+- `derivation_seed := Ed25519_sign(signing_sk, derivation_message)` — deterministic (RFC 8032), so any wallet that signs these bytes reconstructs the keypair and the Ed25519 secret never leaves the wallet. The 64-byte seed is itself secret material: whoever holds it derives both role keys.
+- `derivation_message` — exactly the UTF-8 bytes of `"TSPP/derive/v1"`, without an envelope, prefix, suffix or terminator. Browser wallets and software signers sign the same bytes and derive the same identity; wallet constructors taking a signature and signing public key verify the signature against these exact bytes and that key. Envelope signatures are not accepted.
 - `nf_info = "TSPP/nf_key/ed25519/v1"`, `view_info = "TSPP/view_key/ed25519/x25519/v1"`.
 
 ## HSM

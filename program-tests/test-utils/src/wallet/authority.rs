@@ -255,8 +255,7 @@ impl ClientEd25519WalletAuthority {
         let solana_pubkey = solana_pubkey.into();
         let ed25519_pubkey = *solana_pubkey.as_array();
         let signing_pubkey = PublicKey::from_ed25519(&ed25519_pubkey);
-        let message = derivation::ed25519_derivation_message(&ed25519_pubkey);
-        if !signing_pubkey.verify_message(&message, derivation_seed) {
+        if !signing_pubkey.verify_message(derivation::ED25519_DERIVATION_MSG, derivation_seed) {
             return Err(TransactionError::InvalidDerivationSeed);
         }
 

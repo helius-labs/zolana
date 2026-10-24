@@ -15,7 +15,7 @@
 
 use serde::{Deserialize, Serialize};
 use zolana_keypair::{
-    derivation::{ed25519_derivation_message, is_derivation_input, MERGE_INFO},
+    derivation::{is_derivation_input, ED25519_DERIVATION_MSG, MERGE_INFO},
     symmetric_apply, ShieldedKeypair, SigningKey, ViewingKey,
 };
 
@@ -128,13 +128,12 @@ fn compute_eddsa_rail() -> EddsaRail {
     let signing_secret = [7u8; 32];
     let signing_key = SigningKey::from_ed25519_bytes(&signing_secret);
     let signer_pubkey = signing_key.pubkey().as_ed25519().unwrap();
-    let derivation_message = ed25519_derivation_message(&signer_pubkey);
     let derivation_seed = signing_key.derivation_seed().unwrap();
     let keypair = ShieldedKeypair::from_keypair(signing_key).unwrap();
     EddsaRail {
         signing_secret: hex::encode(signing_secret),
         signer_pubkey: hex::encode(signer_pubkey),
-        derivation_message: hex::encode(derivation_message),
+        derivation_message: hex::encode(ED25519_DERIVATION_MSG),
         derivation_seed: hex::encode(derivation_seed.as_slice()),
         nullifier_secret: hex::encode(keypair.nullifier_key.secret().as_slice()),
         nullifier_pubkey: hex::encode(keypair.nullifier_key.pubkey().unwrap()),
@@ -210,8 +209,14 @@ fn compute_key_schedule() -> KeySchedule {
 }
 
 fn compute_derivation_input_guard() -> Vec<GuardCase> {
-    let signer_pubkey = [7u8; 32];
-    let wrapped = ed25519_derivation_message(&signer_pubkey);
+    // Fixed off-chain input exercises the signing guard, not a supported seed format.
+    let wrapped = hex::decode(concat!(
+        "ff736f6c616e61206f6666636861696e00",
+        "1d32a88533af12d35e5ac6fce817a4cb810bcc4115386b14a78e8b2ef09d864c0001",
+        "0707070707070707070707070707070707070707070707070707070707070707",
+        "0e00545350502f6465726976652f7631",
+    ))
+    .unwrap();
     let truncated = wrapped
         .get(..wrapped.len() - 1)
         .expect("message is non-empty")

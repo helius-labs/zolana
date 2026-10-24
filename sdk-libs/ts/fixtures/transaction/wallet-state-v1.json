@@ -71,7 +71,7 @@
       {
         "hashBytes": "2626262626262626262626262626262626262626262626262626262626262626",
         "leafIndex": "1",
-        "nullifierBytes": "173355bc2fcb7ecf5cda2e786970ced8631d0b1c28072fb51be31c84b24a81e2",
+        "nullifierBytes": "226c9e0eb105b85699f05c5e70f770ad60efd8aacaa0f559fef09e3d167cd6a0",
         "spent": false,
         "utxo": {
           "amount": "40",
@@ -85,7 +85,7 @@
       {
         "hashBytes": "2727272727272727272727272727272727272727272727272727272727272727",
         "leafIndex": "2",
-        "nullifierBytes": "22e55a7596ccf6bf706f94655bc07d548f8a36a4a7ef2c818455a10cb3c5dafb",
+        "nullifierBytes": "2a5ccab386ebf828ede877e08d0d1dca9a50c296c602d3bed0ece98e16976a83",
         "spent": false,
         "utxo": {
           "amount": "70",
@@ -99,7 +99,7 @@
       {
         "hashBytes": "2828282828282828282828282828282828282828282828282828282828282828",
         "leafIndex": "3",
-        "nullifierBytes": "18a81538d867e61dee4a7f0fd973ec9215284ea5176c0a2619165f339b561f65",
+        "nullifierBytes": "10b4bd1c3c960fc64f27affcf33af2fd4ca592f8b99a31963edf09381ceae29e",
         "spent": true,
         "utxo": {
           "amount": "5",

@@ -37,8 +37,6 @@ export {
   ED25519_SEED_LEN,
   DERIVATION_PAYLOAD_PREFIX,
   OFFCHAIN_MESSAGE_MAGIC,
-  TSPP_APPLICATION_DOMAIN,
-  ed25519DerivationMessage,
   ed25519DerivationPayload,
   isDerivationInput,
 } from "./derivation.js";

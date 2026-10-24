@@ -1,14 +1,8 @@
 import { readFileSync } from "node:fs";
 
-import { sha256 } from "@noble/hashes/sha2.js";
 import { describe, expect, it } from "vitest";
 
-import {
-  ED25519_DERIVATION_MSG,
-  TSPP_APPLICATION_DOMAIN,
-  ed25519DerivationMessage,
-  isDerivationInput,
-} from "../src/keypair/derivation.js";
+import { ed25519DerivationPayload, isDerivationInput } from "../src/keypair/derivation.js";
 import {
   NullifierKey,
   ShieldedKeypair,
@@ -119,18 +113,12 @@ function assertRail(section: RailVectors, signing: SigningKey): void {
 }
 
 describe("shared key-derivation vectors (test-vectors/key_derivation.json)", () => {
-  it("pins the application domain to the payload hash", () => {
-    expect(hex(TSPP_APPLICATION_DOMAIN)).toBe(
-      hex(sha256(new TextEncoder().encode(ED25519_DERIVATION_MSG))),
-    );
-  });
-
   it("derives the eddsa rail", () => {
     const section = vectors.eddsa_rail;
     const signing = SigningKey.fromEd25519Bytes(bytes(section.signing_secret) as Bytes32);
     const signerPubkey = signing.publicKey().ed25519();
     expect(hex(signerPubkey)).toBe(section.signer_pubkey);
-    expect(hex(ed25519DerivationMessage(signerPubkey))).toBe(section.derivation_message);
+    expect(hex(ed25519DerivationPayload())).toBe(section.derivation_message);
     assertRail(section, signing);
   });
 

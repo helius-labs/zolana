@@ -4,8 +4,8 @@ use hsm::kms::{
     ed25519_client, ed25519_client_failing_after_bootstrap, KmsShieldedKeypair, KEY_ID,
 };
 use zolana_keypair::{
-    derivation::{ed25519_derivation_message, ED25519_DERIVATION_MSG},
-    Curve, KeypairError, ShieldedKeypair, ShieldedKeypairTrait, SigningKey,
+    derivation::ED25519_DERIVATION_MSG, Curve, KeypairError, ShieldedKeypair, ShieldedKeypairTrait,
+    SigningKey,
 };
 
 const SECRET: [u8; 32] = [11u8; 32];
@@ -67,13 +67,8 @@ fn kms_backend_signs_like_software_and_guards_derivation_inputs() {
     assert!(kms.signing_pubkey().verify_message(msg, &signature));
     assert_eq!(rules.sign.num_calls(), 2);
 
-    let signer = software.signing_pubkey().as_ed25519().unwrap();
     assert_eq!(
         kms.sign_message(ED25519_DERIVATION_MSG),
-        Err(KeypairError::DerivationInput)
-    );
-    assert_eq!(
-        kms.sign_message(&ed25519_derivation_message(&signer)),
         Err(KeypairError::DerivationInput)
     );
     assert_eq!(rules.sign.num_calls(), 2);
