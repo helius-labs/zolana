@@ -6,7 +6,7 @@ This directory owns the tools and libraries used to operate Zolana.
 | --- | --- |
 | `cli` | `zolana-protocol`: initialize protocol authorities, discover smart accounts, update configuration and tree fees, and execute program upgrades. |
 | `forester` | Drain ready nullifier batches, submit updates through the forester vault, close reclaimable nullifier PDAs, and report metrics. |
-| `forester-prover` | Build batch address-append inputs and prove with existing gnark keys through Go FFI or a remote prover. |
+| `forester-prover` | Build batch address-append inputs and prove with existing gnark keys using native Rust or a remote prover. |
 | `instructions` | Protocol administration and maintenance instruction builders; account data and tags remain in `program-libs/interface`. |
 | `smart-account` | Authority vault derivations, smart-account instruction builders, role policies, and settings decoding. |
 | `merkle-tree` | Reference state and indexed nullifier trees, including their indexed-array storage, shared with test infrastructure. |
@@ -33,17 +33,19 @@ Forester uses `RPC_URL`, `PHOTON_URL`, and `PAYER`. Set `FORESTER_KEYS_DIR` to a
 directory containing the existing `batch_address-append_40_<batch-size>.key`
 files to prove in process. The worker reconstructs the reference tree and
 builds inputs locally in this mode. No separate prover or Redis is needed.
-Keys load lazily and remain cached; their SHA-256 digests must match the
-checked-in verifier. The FFI archive uses the existing Go circuit and key
-loader under `prover/server`, and does not generate or replace proving keys.
-Building local proving support requires the Go version in `prover/server/go.mod`
-and a C compiler.
+Key metadata loads lazily after verifying the existing file's SHA-256 against
+the checked-in verifier. Native Rust reads the original compressed queries,
+solves the serialized R1CS, and constructs the quotient with disk-backed FFTs.
+It does not generate or replace proving keys and does not build or link Go.
+The 4,999 key is about 74 GB; allow approximately 32 GB more for temporary
+solver files. See [`forester-prover`](forester-prover/README.md) for the
+standalone proof command and memory measurement.
 
 Alternatively, set `PROVER_URL` to use the existing remote prover service.
 `--client-proof-data` builds inputs locally before sending them; otherwise
 the remote prover resolves indexed proof data. `FORESTER_KEYS_DIR` selects
 local proving when both variables are set. Build with `--no-default-features`
-for a remote-only forester without the Go archive.
+for a remote-only forester without the native proving dependencies.
 
 ```sh
 cargo test -p forester -p zolana-forester-prover -p zolana-protocol-cli \
@@ -52,7 +54,7 @@ cargo test -p forester -p zolana-forester-prover -p zolana-protocol-cli \
 ```
 
 The ignored `local_batch_proof` test additionally loads an existing pinned
-40x10 key from `FORESTER_TEST_KEYS_DIR`, generates a proof through Go FFI, and
+40x10 key from `FORESTER_TEST_KEYS_DIR`, generates a proof in native Rust, and
 verifies it with the checked-in Solana verifier.
 
 ```sh

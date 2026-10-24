@@ -41,7 +41,5 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
-      - run: go test ./...
-        working-directory: protocol-ops/forester-prover/go
       - run: cargo check -p forester -p zolana-protocol-cli --all-targets
       - run: cargo test -p forester -p zolana-forester-prover -p zolana-protocol-cli -p zolana-protocol-instructions -p zolana-smart-account-client -p zolana-merkle-tree

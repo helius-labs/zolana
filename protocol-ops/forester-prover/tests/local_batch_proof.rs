@@ -1,4 +1,4 @@
-#![cfg(feature = "gnark")]
+#![cfg(feature = "native")]
 
 use std::path::PathBuf;
 use zolana_forester_prover::{build_inputs, reference_nullifier_tree, ProverClient};

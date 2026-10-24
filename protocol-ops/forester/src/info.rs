@@ -201,7 +201,7 @@ pub fn run(config: &ForesterConfig, tree: Pubkey, json_output: bool) -> Result<(
         None => println!("forester key: unset (set PAYER)"),
     }
     if let Some(keys) = &config.proving_keys_dir {
-        println!("prover: local gnark ({})", keys.display());
+        println!("prover: native Rust ({})", keys.display());
     } else {
         println!("prover: {}", prover_url.as_deref().unwrap_or("unset"));
     }

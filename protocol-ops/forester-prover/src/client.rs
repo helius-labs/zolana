@@ -22,8 +22,8 @@ enum Backend {
         endpoint: String,
         http: Client,
     },
-    #[cfg(feature = "gnark")]
-    Local(crate::local::LocalProver),
+    #[cfg(feature = "native")]
+    Local(crate::native::LocalProver),
 }
 impl ProverClient {
     pub fn new(endpoint: String) -> Result<Self> {
@@ -40,18 +40,22 @@ impl ProverClient {
         })
     }
     pub fn local(keys: PathBuf) -> Result<Self> {
-        #[cfg(feature = "gnark")]
+        Self::local_with_scratch(keys, std::env::temp_dir().join("zolana-forester-prover"))
+    }
+    pub fn local_with_scratch(keys: PathBuf, scratch: PathBuf) -> Result<Self> {
+        #[cfg(feature = "native")]
         {
             Ok(Self {
-                backend: Backend::Local(crate::local::LocalProver::new(keys)),
+                backend: Backend::Local(crate::native::LocalProver::new(keys, scratch)),
                 source: ProofDataSource::Client,
             })
         }
-        #[cfg(not(feature = "gnark"))]
+        #[cfg(not(feature = "native"))]
         {
             Err(Error::Prover(format!(
-                "local proving at {} requires the gnark feature",
-                keys.display()
+                "local proving at {} with scratch {} requires the native feature",
+                keys.display(),
+                scratch.display()
             )))
         }
     }
@@ -67,7 +71,7 @@ impl ProverClient {
     pub fn check_proving_keys(&self) -> Result<ProvingKeyReport> {
         match &self.backend {
             Backend::Remote { .. } => check_report(self.get("/proving-keys")?),
-            #[cfg(feature = "gnark")]
+            #[cfg(feature = "native")]
             Backend::Local(_) => Ok(ProvingKeyReport {
                 prefix: "local (key digests checked on load)".into(),
             }),
@@ -94,14 +98,17 @@ impl ProverClient {
         inputs: &BatchAddressAppendInputs,
     ) -> Result<zolana_interface::instruction::NullifierTreeProof> {
         let key = ExpectedProvingKey::batch_address_append(inputs.tree_height, inputs.batch_size)?;
-        let body = serde_json::to_string(&inputs.to_json())?;
-        let value = match &self.backend {
-            Backend::Remote { .. } => self.send(&body, &key, false)?,
-            #[cfg(feature = "gnark")]
-            Backend::Local(local) => local.prove(&key, &body)?,
+        let verified = match &self.backend {
+            Backend::Remote { .. } => {
+                let body = serde_json::to_string(&inputs.to_json())?;
+                proof::decode(&self.send(&body, &key, false)?, &key)?.compress()?
+            }
+            #[cfg(feature = "native")]
+            Backend::Local(local) => local
+                .prove(&key, inputs)
+                .map_err(|error| Error::Prover(format!("{error:#}")))?
+                .compress()?,
         };
-        // Both transports verify against the checked-in on-chain key before submission.
-        let verified = proof::decode(&value, &key)?.compress()?;
         let hash = proof::coordinate(&inputs.public_input_hash.to_str_radix(16))?;
         proof::verify(&verified, hash, inputs.batch_size)?;
         Ok(verified)
@@ -109,7 +116,7 @@ impl ProverClient {
     fn remote(&self) -> Result<(&str, &Client)> {
         match &self.backend {
             Backend::Remote { endpoint, http } => Ok((endpoint, http)),
-            #[cfg(feature = "gnark")]
+            #[cfg(feature = "native")]
             Backend::Local(_) => Err(Error::Prover(
                 "indexed HTTP calls are unavailable for local proving".into(),
             )),

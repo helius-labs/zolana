@@ -1,6 +1,6 @@
 # Build the SPP forester binary.
 #
-# The forester links protocol libraries and the gnark circuit archive, so
+# The forester links the native Rust protocol libraries, so
 # the Docker build context must be the repository root.
 #
 #   docker build -f protocol-ops/forester/Dockerfile .
@@ -22,12 +22,9 @@
 # pins also shares the base layers.
 #
 # Keep the builder aligned with rust-toolchain.toml.
-FROM golang:1.27.1@sha256:162be5298a40ed317005c8339c6de4d10d3eef336d66dc8e9259b03ab9d3a6d2 AS go-toolchain
 
 FROM rust:1.98.1-slim-bookworm@sha256:ebd900bae66fd508b466cef82d64a83a5fb34682e4c8b2797a42908bddc95a57 AS builder
 WORKDIR /app
-COPY --from=go-toolchain /usr/local/go /usr/local/go
-ENV PATH="/usr/local/go/bin:${PATH}"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \

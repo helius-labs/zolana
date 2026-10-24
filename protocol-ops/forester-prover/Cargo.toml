@@ -2,16 +2,24 @@
 name = "zolana-forester-prover"
 version = "0.1.0"
 publish = false
-description = "Batch nullifier-tree proofs with existing gnark keys, locally through Go FFI or over HTTP."
+description = "Batch nullifier-tree proofs from existing gnark keys, using bounded-memory native Rust or over HTTP."
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
 [features]
-default = ["gnark"]
-gnark = []
+default = ["native"]
+native = ["dep:ark-bn254", "dep:ark-ec", "dep:ark-ff", "dep:rand", "dep:rayon", "dep:sha2", "dep:fs2"]
 
 [dependencies]
+ark-bn254 = { workspace = true, optional = true }
+ark-ec = { version = "0.5", features = ["parallel"], optional = true }
+ark-ff = { workspace = true, optional = true }
+rand = { workspace = true, optional = true }
+rayon = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
+fs2 = { version = "0.4", optional = true }
+
 anyhow = { workspace = true }
 groth16-solana = { workspace = true }
 hex = { workspace = true }
@@ -28,3 +36,11 @@ zolana-hasher = { workspace = true }
 zolana-interface = { workspace = true }
 zolana-merkle-tree = { workspace = true }
 zolana-tree = { workspace = true, features = ["verify"] }
+
+[dev-dependencies]
+ark-poly = "0.5"
+
+[[bin]]
+name = "forester-prove"
+path = "src/bin/forester-prove.rs"
+required-features = ["native"]

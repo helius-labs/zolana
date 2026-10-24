@@ -32,13 +32,6 @@ runs:
     - name: Install workspace Rust toolchain
       shell: bash
       run: rustup show active-toolchain
-    - name: Install Go for protocol proving
-      uses: actions/setup-go@v5
-      with:
-        go-version-file: prover/server/go.mod
-        cache-dependency-path: |
-          protocol-ops/forester-prover/go/go.sum
-          sdk-libs/gnark-ffi-prover/build-helper/go/go.sum
     - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       with:
         shared-key: ${{ inputs.shared-key }}

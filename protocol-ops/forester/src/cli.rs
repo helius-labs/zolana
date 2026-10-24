@@ -30,7 +30,7 @@ pub enum Commands {
     },
     /// Prove and submit ready nullifier-tree zkp-batches. Reads RPC_URL,
     /// PHOTON_URL and PAYER from the environment. FORESTER_KEYS_DIR selects
-    /// local gnark proving; otherwise PROVER_URL selects the remote service.
+    /// local Rust proving; otherwise PROVER_URL selects the remote service.
     Run {
         /// Pool tree whose nullifier queue to drain.
         #[arg(long, default_value_t = default_tree())]

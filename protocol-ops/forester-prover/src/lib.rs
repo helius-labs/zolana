@@ -3,8 +3,8 @@ mod client;
 mod error;
 mod inputs;
 mod key;
-#[cfg(feature = "gnark")]
-mod local;
+#[cfg(feature = "native")]
+mod native;
 mod proof;
 mod witness;
 pub use client::{redact_api_key, ProverClient};

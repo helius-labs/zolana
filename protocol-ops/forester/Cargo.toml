@@ -8,7 +8,7 @@ publish = false
 
 [features]
 default = ["local-prover"]
-local-prover = ["zolana-forester-prover/gnark"]
+local-prover = ["zolana-forester-prover/native"]
 
 [dependencies]
 zolana-forester-prover = { workspace = true, default-features = false }
