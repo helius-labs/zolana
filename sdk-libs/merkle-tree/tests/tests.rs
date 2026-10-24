@@ -766,3 +766,46 @@ fn test_get_proof_by_indices_for_existent_or_non_existent_leaves() {
         assert_eq!(p.len(), 4);
     }
 }
+
+fn rejected_append_leaves_no_phantom<H>(canopy_depth: usize)
+where
+    H: Hasher,
+{
+    const HEIGHT: usize = 4;
+    let mut mt = MerkleTree::<H>::new(HEIGHT, canopy_depth);
+    let capacity = 1 << HEIGHT;
+    for i in 0..capacity {
+        mt.append(&[u8::try_from(i).expect("fits a byte"); 32])
+            .expect("fills the tree");
+    }
+    let root = mt.root();
+
+    let rejected = mt.append(&[255; 32]);
+
+    assert!(rejected.is_err(), "canopy depth {canopy_depth}");
+    // Pushing the leaf before the capacity check left one unread extra
+    // leaf in the layer, which later operations could read as a sibling.
+    assert_eq!(mt.leaves().len(), capacity, "canopy depth {canopy_depth}");
+    assert_eq!(mt.root(), root, "canopy depth {canopy_depth}");
+    let proof = mt
+        .get_proof_of_leaf(capacity - 1, true)
+        .expect("leaf proof");
+    assert!(
+        mt.verify(
+            &[u8::try_from(capacity - 1).expect("fits a byte"); 32],
+            &proof,
+            capacity - 1
+        )
+        .expect("verifies"),
+        "canopy depth {canopy_depth}"
+    );
+}
+
+#[test]
+fn a_rejected_append_leaves_no_phantom_leaf() {
+    for canopy_depth in 0..=2 {
+        rejected_append_leaves_no_phantom::<Poseidon>(canopy_depth);
+        rejected_append_leaves_no_phantom::<Keccak>(canopy_depth);
+        rejected_append_leaves_no_phantom::<Sha256>(canopy_depth);
+    }
+}
