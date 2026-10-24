@@ -24,7 +24,9 @@ use zolana_interface::{
     INPUT_TREES, MAX_INPUT_TREES,
 };
 
-use super::{endpoint::ProverEndpoint, field::right_align_slice, ExpectedProvingKey, Proof, Shape};
+use super::{
+    endpoint::ProverEndpoint, field::right_align_slice, Delivery, ExpectedProvingKey, Proof, Shape,
+};
 use crate::ClientError;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -46,34 +48,23 @@ impl ProofDataSource {
     }
 }
 
-pub(crate) use sealed::Request;
+pub trait Request {
+    type Output;
 
-mod sealed {
-    use zeroize::Zeroizing;
+    fn body(&self) -> Result<Zeroizing<String>, ClientError>;
 
-    use crate::{
-        prover::{Delivery, ExpectedProvingKey, Proof},
-        ClientError,
-    };
+    fn proving_key(&self) -> Result<ExpectedProvingKey, ClientError>;
 
-    pub trait Request {
-        type Output;
-
-        fn body(&self) -> Result<Zeroizing<String>, ClientError>;
-
-        fn proving_key(&self) -> Result<ExpectedProvingKey, ClientError>;
-
-        /// `None` takes the client's transfer rail.
-        fn delivery(&self) -> Option<Delivery> {
-            None
-        }
-
-        fn finish(
-            &self,
-            proof: Proof,
-            resolution: serde_json::Value,
-        ) -> Result<Self::Output, ClientError>;
+    /// `None` takes the client's transfer rail.
+    fn delivery(&self) -> Option<Delivery> {
+        None
     }
+
+    fn finish(
+        &self,
+        proof: Proof,
+        resolution: serde_json::Value,
+    ) -> Result<Self::Output, ClientError>;
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -421,7 +412,7 @@ impl ProofResolution {
         Ok(create_hash_chain_4_from_slice(&transcript)?)
     }
 
-    fn check_trees(
+    pub fn check_trees(
         &self,
         expected: impl IntoIterator<Item = (Address, u16)>,
     ) -> Result<(), ClientError> {
@@ -518,7 +509,7 @@ struct ResolvedTreeJson {
     nullifier_root_index: u16,
 }
 
-fn decode_resolution(value: serde_json::Value) -> Result<ProofResolution, ClientError> {
+pub fn decode_resolution(value: serde_json::Value) -> Result<ProofResolution, ClientError> {
     let raw: ResolutionJson = serde_json::from_value(value).map_err(|_| invalid_resolution())?;
     let trees = raw
         .trees
@@ -542,13 +533,13 @@ fn decode_resolution(value: serde_json::Value) -> Result<ProofResolution, Client
     })
 }
 
-fn serialize_address<S: serde::Serializer>(
+pub fn serialize_address<S: serde::Serializer>(
     value: &Address,
     serializer: S,
 ) -> Result<S::Ok, S::Error> {
     serializer.serialize_str(&value.to_string())
 }
-fn serialize_commitment<S: serde::Serializer>(
+pub fn serialize_commitment<S: serde::Serializer>(
     value: &Option<[u8; 32]>,
     serializer: S,
 ) -> Result<S::Ok, S::Error> {
@@ -557,7 +548,7 @@ fn serialize_commitment<S: serde::Serializer>(
         .serialize(serializer)
 }
 
-pub(crate) fn hex_field(field: &[u8; 32]) -> String {
+pub fn hex_field(field: &[u8; 32]) -> String {
     format!("0x{}", BigUint::from_bytes_be(field).to_str_radix(16))
 }
 
@@ -567,7 +558,7 @@ fn scalar_one() -> [u8; 32] {
     field
 }
 
-pub(crate) fn decode_field(value: &str) -> Result<[u8; 32], ClientError> {
+pub fn decode_field(value: &str) -> Result<[u8; 32], ClientError> {
     let digits = value.strip_prefix("0x").ok_or_else(invalid_resolution)?;
     if digits.is_empty()
         || digits.len() > 64
@@ -588,7 +579,7 @@ pub(crate) fn decode_field(value: &str) -> Result<[u8; 32], ClientError> {
 fn invalid() -> ClientError {
     ClientError::InvalidIndexedRequest
 }
-fn invalid_resolution() -> ClientError {
+pub fn invalid_resolution() -> ClientError {
     ClientError::ProofParse("invalid proof resolution".to_owned())
 }
 

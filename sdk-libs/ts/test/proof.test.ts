@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { compressProof, parseProof } from "../src/client/prover/proof.js";
+import { compressG2, compressProof, parseProof } from "../src/client/prover/proof.js";
 import type { Proof } from "../src/client/prover/types.js";
 
 const ZERO_POINT = ["0x0", "0x0"];
@@ -21,7 +21,7 @@ const G2 = new Uint8Array([
 ]);
 
 describe("proof compression", () => {
-  it("keeps the raw G2 point", () => {
+  it("keeps the raw G2 point and compresses it only through `compressG2`", () => {
     const proof = {
       a: new Uint8Array(64),
       b: G2,
@@ -32,6 +32,7 @@ describe("proof compression", () => {
     const compressed = compressProof(proof);
     expect(compressed.b).toEqual(G2);
     expect(compressed.toTransactProof().b).toEqual(G2);
+    expect(compressG2(compressed.b)).toEqual(G2.slice(0, 64));
   });
 
   it("rejects a G2 point off the curve", () => {

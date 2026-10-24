@@ -16,7 +16,7 @@ const JSON_RPC_INTERNAL_ERROR: i64 = -32603;
 /// response lost while reading its body.
 ///
 /// The message comes from `ApiError`'s display, which masks the `api-key`.
-pub(super) fn indexer_error(error: zolana_api::ApiError) -> ClientError {
+pub fn indexer_error(error: zolana_api::ApiError) -> ClientError {
     let message = error.to_string();
     match error {
         #[cfg(feature = "reqwest")]

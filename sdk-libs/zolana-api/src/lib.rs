@@ -659,7 +659,7 @@ impl ZolanaApi {
             .await
     }
 
-    async fn call<M>(&self, params: M::Request) -> Result<M::Response, ApiError>
+    pub async fn call<M>(&self, params: M::Request) -> Result<M::Response, ApiError>
     where
         M: RpcMethod,
     {

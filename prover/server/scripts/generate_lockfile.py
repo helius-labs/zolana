@@ -14,19 +14,20 @@ folder while a new CLI uses the new one -- and human-readable filenames are
 preserved within each version folder.
 
 Usage:
-    generate_lockfile.py <keys-dir> [--out <lockfile>] [--prefix <base-prefix>]
+    generate_lockfile.py <keys-dir> --prover <light-prover> [--out <lockfile>] [--prefix <base-prefix>]
     generate_lockfile.py <keys-dir> --release <name>... --only-release
 
 Defaults: keys-dir positional,
 out=prover/server/prover/provingkeys/proving-keys.lock (the file the Go
 `provingkeys` package embeds), base-prefix=proving-keys (a `/<version-hash>`
-segment is appended). Only `*.key` files are included (CHECKSUM and tooling are
-not distributed by the downloader).
+segment is appended). The full lockfile pins exactly the keys
+`<light-prover> key-files` lists.
 """
 import argparse
 import hashlib
 import json
 import os
+import subprocess
 import sys
 
 CHUNK = 1024 * 1024
@@ -48,6 +49,10 @@ def main() -> int:
         "--prefix",
         default="proving-keys",
         help="object key prefix under the distribution base URL",
+    )
+    parser.add_argument(
+        "--prover",
+        help="prover binary whose key-files the full lockfile pins",
     )
     parser.add_argument(
         "--release",
@@ -83,9 +88,15 @@ def main() -> int:
     if args.only_release:
         return pin_release_entries(keys_dir, out, args.release)
 
-    names = sorted(n for n in os.listdir(keys_dir) if n.endswith(".key"))
-    if not names:
-        print(f"no *.key files in {keys_dir}", file=sys.stderr)
+    if not args.prover:
+        print("the full lockfile needs --prover", file=sys.stderr)
+        return 1
+    names = sorted(
+        subprocess.run([args.prover, "key-files"], check=True, capture_output=True, text=True).stdout.split()
+    )
+    missing = [n for n in names if not os.path.isfile(os.path.join(keys_dir, n))]
+    if not names or missing:
+        print(f"{keys_dir} misses proving keys {missing or names}", file=sys.stderr)
         return 1
 
     keys = {}

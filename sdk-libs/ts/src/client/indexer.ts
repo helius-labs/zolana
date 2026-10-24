@@ -449,7 +449,7 @@ function convertShieldedTransactionsBySignatureResponse(
   });
 }
 
-function convertShieldedTransaction(
+export function convertShieldedTransaction(
   item: WireShieldedTransaction,
   method: string,
   path: string,
@@ -495,7 +495,7 @@ function convertOutputSlot(
   });
 }
 
-function decodeX25519(value: string, method: string, path: string): X25519PublicKey {
+export function decodeX25519(value: string, method: string, path: string): X25519PublicKey {
   const bytes = decodeBase64(value, path);
   if (bytes.length !== 33) throw invalidResponse(method, path, 33, bytes.length);
   try {
@@ -573,7 +573,7 @@ async function pollIndexer<T extends Readonly<{ context: Readonly<{ slot: bigint
   }
 }
 
-function wrapIndexer(cause: unknown, method: string): ClientError {
+export function wrapIndexer(cause: unknown, method: string): ClientError {
   if (isClientError(cause)) return cause;
   const code = externalCode(cause);
   if (code === "API_ABORTED") return new ClientError("CLIENT_ABORTED", { details: { method } });
@@ -633,7 +633,7 @@ function safePath(cause: unknown): Readonly<{ path?: string }> {
   return typeof details.path === "string" ? { path: details.path } : {};
 }
 
-function invalidResponse(
+export function invalidResponse(
   method: string,
   path: string,
   expected?: number,

@@ -29,6 +29,10 @@
       "types": "./dist/interface/index.d.ts",
       "import": "./dist/interface/index.js"
     },
+    "./internal": {
+      "types": "./dist/internal.d.ts",
+      "import": "./dist/internal.js"
+    },
     "./keypair": {
       "types": "./dist/keypair/index.d.ts",
       "import": "./dist/keypair/index.js"

@@ -473,7 +473,15 @@ fn typed_failure(body: &serde_json::Value) -> Option<ClientError> {
     Some(match body.get("code")?.as_str()? {
         "indexer_not_ready" => ClientError::IndexerProofDataNotReady,
         "indexer_unconfigured" => ClientError::ProverIndexerUnconfigured,
-        _ => return None,
+        code => ClientError::ProverRejected {
+            code: code.to_owned(),
+            detail: body
+                .get("detail")?
+                .as_object()?
+                .iter()
+                .map(|(key, value)| Some((key.clone(), value.as_str()?.to_owned())))
+                .collect::<Option<_>>()?,
+        },
     })
 }
 
@@ -2964,9 +2972,18 @@ mod tests {
         }
     }
 
+    fn rejection() -> Value {
+        json!({
+            "code": "subject_refused",
+            "message": "subject refused",
+            "detail": { "subject": "s" },
+        })
+    }
+
     #[test]
     fn error_codes_map_to_typed_failures() {
         for (status, body, expected) in [
+            (422, rejection(), "ProverRejected"),
             (
                 503,
                 json!({"code": "indexer_not_ready"}),
@@ -2977,6 +2994,11 @@ mod tests {
                 json!({"code": "indexer_unconfigured"}),
                 "ProverIndexerUnconfigured",
             ),
+            (
+                422,
+                json!({"code": "subject_refused", "message": "subject refused"}),
+                "ProverServer",
+            ),
             (409, json!({"code": "unknown_code"}), "ProverServer"),
         ] {
             let server = MockServer::respond_with(vec![MockResponse::json(status, body)]);
@@ -2984,6 +3006,10 @@ mod tests {
                 .send("{}", Delivery::InResponse, &test_key())
                 .unwrap_err();
             assert!(format!("{error:?}").starts_with(expected), "{error:?}");
+            if let ClientError::ProverRejected { code, detail } = error {
+                assert_eq!(code, "subject_refused");
+                assert_eq!(detail.get("subject").map(String::as_str), Some("s"));
+            }
         }
     }
 
@@ -3025,6 +3051,16 @@ mod tests {
         assert!(matches!(error, ClientError::ProverServer(_)), "{error:?}");
     }
 
+    #[test]
+    fn indexed_requests_keep_typed_refusals() {
+        let (request, _) = indexed_fixture();
+        let server = MockServer::respond_with(vec![MockResponse::json(422, rejection())]);
+        assert!(matches!(
+            queued_prover_client(server.url()).prove_indexed(&request),
+            Err(ClientError::ProverRejected { .. })
+        ));
+    }
+
     fn failed_job(mut status: Value) -> Vec<MockResponse> {
         status["status"] = json!("failed");
         status["error"] = json!("indexer proof data not ready");
@@ -3037,6 +3073,7 @@ mod tests {
     #[test]
     fn failed_jobs_map_codes_on_both_clients() {
         for (code, expected) in [
+            (rejection(), "ProverRejected"),
             (
                 json!({"code": "indexer_not_ready"}),
                 "IndexerProofDataNotReady",

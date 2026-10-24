@@ -2,13 +2,25 @@
 
 ## 0.5.1-alpha — unreleased
 
-External wallets use `ed25519DerivationMessage(publicKey)` to derive their
-shielded identity. The bare-payload helper is removed because its signatures
-are rejected by the wallet keys constructors.
+Packages that extend the protocol build on this one through an entry point
+outside semver, and the prover and indexer clients carry the requests such a
+package defines. External wallets use `ed25519DerivationMessage(publicKey)` to
+derive their shielded identity. The bare-payload helper is removed because its
+signatures are rejected by the wallet keys constructors.
 
 Breaking
 
 - `ed25519DerivationPayload()` is removed → sign the exact bytes from `ed25519DerivationMessage(publicKey)` and pass the signature to `LocalKeys.fromDerivationSeed()`.
+
+Added
+
+- `@heliuslabs/zolana/internal` exposes the building blocks an extension
+  package composes, and the `.d.ts` files keep `@internal` declarations such
+  as `Wallet._replace`, both outside semver.
+- `ZolanaApi.call` sends a typed indexer request, `ProverClient.send` maps a
+  prover refusal through a `ProverRefusal` of the caller, and
+  `checkProvingKeys` checks key pins the caller passes, so another package
+  proves and indexes over the same transports.
 
 ## 0.5.0-alpha — 2026-10-23
 

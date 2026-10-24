@@ -216,6 +216,9 @@ func (handler proofStatusHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 			if code, ok := failureDetails["code"].(string); ok {
 				response["code"] = code
 			}
+			if detail, ok := failureDetails["detail"]; ok {
+				response["detail"] = detail
+			}
 			if failedAt, ok := failureDetails["failedAt"]; ok {
 				response["failedAt"] = failedAt
 			}
@@ -519,8 +522,8 @@ func (handler queueStatsHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 
 	response := map[string]interface{}{
 		"queues":       stats,
-		"totalPending": stats["zk_address_append_queue"] + stats["zk_transfer_queue"],
-		"totalActive":  stats["zk_address_append_processing_queue"] + stats["zk_transfer_processing_queue"],
+		"totalPending": stats["zk_address_append_queue"] + stats["zk_transfer_queue"] + stats[extensionQueue],
+		"totalActive":  stats["zk_address_append_processing_queue"] + stats["zk_transfer_processing_queue"] + stats["zk_extension_processing_queue"],
 		"totalFailed":  stats["zk_failed_queue"],
 		"timestamp":    time.Now().Unix(),
 	}
@@ -780,6 +783,7 @@ type Error struct {
 	Code       string
 	Message    string
 	RetryAfter int
+	Detail     map[string]string
 	cause      error
 }
 
@@ -793,18 +797,22 @@ func keysNotReady() *Error {
 
 // indexedFailure keeps the resolution cause for queue redaction.
 func indexedFailure(err error) *Error {
-	if errors.Is(err, indexed.ErrIndexerNotReady) {
+	var rejection *indexed.Rejection
+	switch {
+	case errors.Is(err, indexed.ErrIndexerNotReady):
 		failure := notReady("indexer_not_ready", indexed.ErrIndexerNotReady.Error())
 		failure.cause = err
 		return failure
+	case errors.As(err, &rejection):
+		return &Error{StatusCode: http.StatusUnprocessableEntity, Code: rejection.Code, Message: rejection.Message, Detail: rejection.Detail, cause: err}
 	}
 	return &Error{StatusCode: http.StatusBadGateway, Code: "indexer_unavailable", Message: "Indexer proof data is unavailable", cause: err}
 }
 
 // indexerUnavailable reports whether an indexed failure withholds its cause,
-// which the caller then logs. A not-ready failure tells the client everything
-// the prover knows. The resolver's errors are fixed strings that carry no
-// credentials or request data, so the log may hold them.
+// which the caller then logs. A not-ready or rejected failure tells
+// the client everything the prover knows. The resolver's errors are fixed
+// strings that carry no credentials or request data, so the log may hold them.
 func indexerUnavailable(failure *Error) bool {
 	return failure.Code == "indexer_unavailable"
 }
@@ -840,9 +848,13 @@ func loggedCause(err error) error {
 }
 
 func (error *Error) MarshalJSON() ([]byte, error) {
-	body := map[string]string{
+	body := map[string]any{
 		"code":    error.Code,
 		"message": error.Message,
+	}
+	// Nested, so a detail key never replaces a response field.
+	if len(error.Detail) > 0 {
+		body["detail"] = error.Detail
 	}
 	return json.Marshal(body)
 }
@@ -957,7 +969,11 @@ func servedCircuits(served *ServedKeys) []common.CircuitType {
 
 // allCircuits is every circuit this binary proves.
 func allCircuits() []common.CircuitType {
-	return append(common.TransferCircuitTypes(), common.BatchAddressAppendCircuitType)
+	circuits := append(common.TransferCircuitTypes(), common.BatchAddressAppendCircuitType)
+	for _, extension := range common.Extensions() {
+		circuits = append(circuits, extension.Type)
+	}
+	return circuits
 }
 
 func (handler proveHandler) handleAsyncProof(w http.ResponseWriter, r *http.Request, buf []byte, meta common.ProofRequestMeta) {
@@ -1232,9 +1248,11 @@ func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Reque
 }
 
 // syncProofFailure is the error a sync client receives for a failed proof. An
-// indexed client reads only the redacted message, as on the queue path, so the
-// cause it withholds is logged here, the one place it survives. A failure that
-// withholds nothing reaches the client whole and is not logged.
+// indexed or extension client reads only the redacted message, as on the
+// queue path (an extension failure arrives already redacted by
+// extensionFailure), so the cause it withholds is logged here, the one place
+// it survives. A failure that withholds nothing reaches the client whole and
+// is not logged.
 func (handler proveHandler) syncProofFailure(circuit common.CircuitType, failure *Error) *Error {
 	if handler.indexed {
 		failure = withCause(provingError(errIndexedProof), failure)
@@ -1249,14 +1267,18 @@ func (handler proveHandler) syncProofFailure(circuit common.CircuitType, failure
 }
 
 // syncPanicFailure logs a recovered panic unredacted and returns the error a
-// sync client receives, which for an indexed proof names no cause.
+// sync client receives, which for an indexed or extension proof names no
+// cause.
 func (handler proveHandler) syncPanicFailure(circuit common.CircuitType, recovered interface{}) *Error {
 	logging.Logger().Error().
 		Interface("panic", recovered).
 		Str("circuit_type", string(circuit)).
 		Msg("Panic recovered in proof processing")
-	if handler.indexed {
+	switch {
+	case handler.indexed:
 		recovered = errIndexedProof
+	case circuit.IsExtension():
+		recovered = errExtensionProof
 	}
 	return unexpectedError(fmt.Errorf("internal error during proof processing: %v", recovered))
 }
@@ -1271,6 +1293,9 @@ func (handler proveHandler) isBatchOperation(circuitType common.CircuitType) boo
 }
 
 func GetQueueNameForCircuit(circuitType common.CircuitType) string {
+	if circuitType.IsExtension() {
+		return extensionQueue
+	}
 	if circuitType.IsTransfer() {
 		return "zk_transfer_queue"
 	}
@@ -1281,6 +1306,9 @@ func GetQueueNameForCircuit(circuitType common.CircuitType) string {
 }
 
 func (handler proveHandler) getEstimatedTime(circuitType common.CircuitType) string {
+	if circuitType.IsExtension() {
+		return "1-10 seconds"
+	}
 	switch circuitType {
 	case common.BatchAddressAppendCircuitType:
 		return "1-5 minutes"
@@ -1293,12 +1321,12 @@ func (handler proveHandler) getEstimatedTime(circuitType common.CircuitType) str
 
 const maxSyncProofTimeout = 5 * time.Minute
 
-// Every transfer and merge key loads lazily on its first request,
+// Every transfer, merge and extension key loads lazily on its first request,
 // downloading it first when it is not on disk, so the sync bound covers that
 // load. A cold 49-input key is ~400 MB and its load alone outlasts a bound
 // sized for the proof.
 func (handler proveHandler) syncProofTimeout(circuitType common.CircuitType) time.Duration {
-	if isTransferCircuit(circuitType) {
+	if circuitType.IsExtension() || isTransferCircuit(circuitType) {
 		return maxSyncProofTimeout
 	}
 	// A 4999-leaf append is ~211M constraints: ~90s warm on 192 cores, several

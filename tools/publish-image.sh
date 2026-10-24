@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Build one service image locally and publish it to ECR under the same rules as
-# .github/workflows/publish-image.yml, then optionally roll an ECS service to it.
+# .github/workflows/publish-service-image.yml, then optionally roll an ECS service to it.
 #
-#   tools/publish-image.sh <photon|prover|forester> [options]
+#   tools/publish-image.sh <service of tools/images.json> [options]
 #
 #   --tag TAG            image tag, default <service>-<branch>-<sha12>
 #   --push               push to ECR, without it the image is only built and smoke tested
@@ -54,12 +54,13 @@ region="${AWS_REGION:-eu-north-1}"
 sha="$(git rev-parse HEAD)"
 branch="$(git rev-parse --abbrev-ref HEAD | tr -c 'A-Za-z0-9._\n' '-')"
 
-case "$service" in
-    photon)   repository=zolana-photon;   context=.;             file=services/photon/Dockerfile ;;
-    prover)   repository=zolana-prover;   context=prover/server; file=prover/server/Dockerfile.light ;;
-    forester) repository=zolana-forester; context=.;             file=forester/Dockerfile ;;
-    *) echo "unknown service $service" >&2; exit 2 ;;
-esac
+images="$root/tools/images.json"
+spec="$(jq -e --arg service "$service" '.services[$service]' "$images")" \
+    || { echo "unknown service $service" >&2; exit 2; }
+field() { jq -r --arg key "$1" '.[$key]' <<< "$spec"; }
+repository="$(field repository)"
+context="$(field context)"
+file="$(field file)"
 [[ -f "$file" ]] || { echo "$file is missing on this commit" >&2; exit 1; }
 repository="${repository_override:-$repository}"
 container="${container:-$service}"
@@ -84,10 +85,13 @@ sha_image="$image:sha-$sha"
 tag_image="$image:$tag"
 
 build_args=(--platform linux/amd64)
-if [[ "$service" == prover ]]; then
-    # shellcheck source=/dev/null
-    source prover/server/release-build.env
-    build_args+=(--build-arg "GOAMD64=$PROVER_RELEASE_GOAMD64" --build-arg "PROVER_PGO=$PROVER_RELEASE_PGO")
+if [[ -f "$context/release-settings.sh" ]]; then
+    settings="$(sh "$context/release-settings.sh")"
+    setting() { sed -n "s/^$1=//p" <<< "$settings"; }
+    build_args+=(--build-arg "GOAMD64=$(setting goamd64)" --build-arg "PROVER_PGO=$(setting pgo)")
+    build_args+=(--build-arg "PROVER_EXTENSION_REF=$(setting extension_ref)")
+    extension_context="$(setting extension_context)"
+    [[ -z "$extension_context" ]] || build_args+=(--build-context "$extension_context")
 fi
 
 docker buildx build \
@@ -96,18 +100,11 @@ docker buildx build \
     --tag "$sha_image" \
     --tag "$tag_image" \
     --label "org.opencontainers.image.revision=$sha" \
-    --label "org.opencontainers.image.source=https://github.com/helius-labs/zolana" \
+    --label "org.opencontainers.image.source=$(jq -r .source "$images")" \
     --load \
     "$context"
 
-case "$service" in
-    photon)
-        docker run --rm --entrypoint photon "$tag_image" --version
-        test "$(docker run --rm --entrypoint id "$tag_image" -u)" = 10001
-        ;;
-    prover)   docker run --rm "$tag_image" --help >/dev/null ;;
-    forester) docker run --rm "$tag_image" --version ;;
-esac
+image="$tag_image" bash -c "$(field smoke)"
 echo "built $tag_image"
 
 [[ $push -eq 1 ]] || exit 0

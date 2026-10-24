@@ -28,7 +28,7 @@ func batchFixture(t *testing.T) (BatchRequest, []Hash) {
 	hashes := make([]Hash, len(values))
 	for i := range values {
 		values[i] = big.NewInt(int64(100 + i))
-		hashes[i], err = hashField(values[i])
+		hashes[i], err = HashField(values[i])
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -229,7 +229,7 @@ func TestIndexedBatchRecoversAfterAnchorReorg(t *testing.T) {
 	if _, err := resolver.Resolve(context.Background(), encoded(t, request)); err != nil {
 		t.Fatal(err)
 	}
-	values[0], _ = hashField(big.NewInt(500))
+	values[0], _ = HashField(big.NewInt(500))
 	rebuilt, err := newBatchTree(40)
 	if err != nil {
 		t.Fatal(err)
@@ -275,7 +275,7 @@ func TestIndexedBatchReorgInvalidatesPendingPrefix(t *testing.T) {
 	if _, err := resolver.Resolve(context.Background(), encoded(t, request)); err != nil {
 		t.Fatal(err)
 	}
-	values[0], _ = hashField(big.NewInt(500))
+	values[0], _ = HashField(big.NewInt(500))
 	request.PreviousBatches = []string{batchChain(t, values[:10])}
 	request.StartIndex = 11
 	request.HashchainHash = batchChain(t, values[10:])
@@ -306,7 +306,7 @@ func TestIndexedBatchResumesAfterCancelledRequest(t *testing.T) {
 	}
 	for i := range values {
 		value := big.NewInt(int64(100 + i))
-		values[i], _ = hashField(value)
+		values[i], _ = HashField(value)
 		if i < 1000 {
 			if err := tree.append(value, nil); err != nil {
 				t.Fatal(err)
@@ -376,7 +376,7 @@ func TestIndexedBatchTimeoutClassification(t *testing.T) {
 		}
 		for i := range values {
 			value := big.NewInt(int64(100 + i))
-			values[i], _ = hashField(value)
+			values[i], _ = HashField(value)
 			if i < 100 {
 				if err := tree.append(value, nil); err != nil {
 					t.Fatal(err)

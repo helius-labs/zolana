@@ -17,7 +17,9 @@ on:
       - "prover/server/Dockerfile.light"
       - "tools/images/**"
       - "justfile"
-      - "prover/server/main.go"
+      - "prover/server/app/app.go"
+      - "prover/server/release-build.env"
+      - "prover/server/release-settings.sh"
       - "prover/server/prover/common/key_downloader.go"
       - "prover/server/prover/provingkeys/proving-keys.lock"
       - ".github/workflows/publish-gpu.yml"
@@ -36,7 +38,9 @@ on:
       - "prover/server/Dockerfile.light"
       - "tools/images/**"
       - "justfile"
-      - "prover/server/main.go"
+      - "prover/server/app/app.go"
+      - "prover/server/release-build.env"
+      - "prover/server/release-settings.sh"
       - "prover/server/prover/common/key_downloader.go"
       - "prover/server/prover/provingkeys/proving-keys.lock"
       - ".github/workflows/publish-gpu.yml"
@@ -53,7 +57,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: sudo apt-get update && sudo apt-get install -y shellcheck
-      - run: shellcheck tools/gpu/*.sh tools/check-photon-image.sh prover/server/build-aeglos.sh prover/server/nitro/*.sh
+      - run: shellcheck tools/gpu/*.sh tools/check-photon-image.sh prover/server/build-aeglos.sh prover/server/release-settings.sh prover/server/nitro/*.sh
       - run: python3 -m unittest discover -s tools/gpu -p 'test_*.py'
         env:
           GPU_GATEWAY_TEST: '1'

@@ -50,6 +50,6 @@ for spec in "10" "4999"; do
 done
 
 echo "==> regenerating proving-keys.lock"
-python3 scripts/generate_lockfile.py "$keys_dir"
+python3 scripts/generate_lockfile.py "$keys_dir" --prover ./light-prover
 
 echo "==> local rotation complete; S3 upload is the owner's step"
