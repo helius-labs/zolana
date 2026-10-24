@@ -1,10 +1,16 @@
+#[cfg(feature = "circuits")]
+pub mod circuits;
 pub mod error;
+#[cfg(not(feature = "r1cs-export"))]
 pub mod instructions;
 pub mod state;
-pub mod verifying_keys;
+#[cfg(not(feature = "r1cs-export"))]
+pub mod verifier;
 
+#[cfg(not(feature = "r1cs-export"))]
 use pinocchio::{address::address_eq, error::ProgramError, AccountView, Address, ProgramResult};
 
+#[cfg(not(feature = "r1cs-export"))]
 use crate::instructions::{
     process_cancel_ix, process_create_escrow_ix, process_create_pair_ix,
     process_deposit_liquidity_ix, process_rebalance_liquidity_ix, process_settle_ix,
@@ -52,13 +58,18 @@ pub const ESCROW_NULLIFIER_PUBKEY: [u8; 32] = [
     0xe8, 0xf7, 0xaa, 0x12, 0xe2, 0xb4, 0x94, 0x0a, 0x3a, 0xed, 0x24, 0x11, 0xcb, 0x65, 0xe1, 0x1c,
 ];
 
-#[cfg(all(feature = "bpf-entrypoint", not(feature = "no-entrypoint")))]
+#[cfg(all(
+    feature = "bpf-entrypoint",
+    not(feature = "no-entrypoint"),
+    not(feature = "r1cs-export")
+))]
 mod entrypoint {
     pinocchio::entrypoint!(crate::process_instruction);
 }
 
 pinocchio::address::declare_id!("EMwmRvBALYSDxkmCJNpgyyJu383mG88GLLwC5PxREox4");
 
+#[cfg(not(feature = "r1cs-export"))]
 pub fn process_instruction(
     program_id: &Address,
     accounts: &mut [AccountView],

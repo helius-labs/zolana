@@ -1,7 +1,9 @@
 use anyhow::{bail, Result};
-use dynamic_swap_program::instructions::deposit_liquidity::PoolDepositPublicInput;
-use dynamic_swap_prover::{PoolDepositProofInputs, ProofInputUtxo};
+use dynamic_swap_program::circuits::{
+    PoolDeposit, PoolDepositPrivateInputs, PoolDepositPublicInputs,
+};
 use zolana_keypair::ShieldedAddress;
+use zolana_transaction::utxo::ProofInputUtxo;
 use zolana_transaction::{
     instructions::transact::{asset_field, PrivateTxHash},
     utxo::SppProofInputUtxo,
@@ -38,7 +40,7 @@ pub struct DepositProofInputParams {
 }
 
 impl DepositProofInputParams {
-    pub fn to_proof_inputs(&self) -> Result<PoolDepositProofInputs> {
+    pub fn to_proof_inputs(&self) -> Result<PoolDeposit> {
         if self.amount == 0 {
             bail!("deposit amount must be nonzero");
         }
@@ -74,24 +76,18 @@ impl DepositProofInputParams {
         .hash()
         .map_err(err)?;
 
-        let public_input_hash = PoolDepositPublicInput {
-            private_tx_hash: &private_tx_hash,
-            pool_authority_owner_hash: &pool_authority_owner_hash,
-            destination_asset: &self.destination_asset,
-            amount: self.amount,
-        }
-        .hash()
-        .map_err(err)?;
-
-        Ok(PoolDepositProofInputs {
-            public_input_hash,
-            private_tx_hash,
-            pool_authority_owner_hash,
-            destination_asset: self.destination_asset,
-            amount: self.amount,
-            source_in,
-            pool_out,
-            private_tx_blinding: self.private_tx_blinding,
+        Ok(PoolDeposit {
+            private: PoolDepositPrivateInputs {
+                private_tx_hash,
+                source_in: source_in.into(),
+                pool_out: pool_out.into(),
+                private_tx_blinding: self.private_tx_blinding,
+            },
+            public: PoolDepositPublicInputs {
+                pool_authority_owner_hash,
+                destination_asset: self.destination_asset,
+                amount: self.amount,
+            },
         })
     }
 }

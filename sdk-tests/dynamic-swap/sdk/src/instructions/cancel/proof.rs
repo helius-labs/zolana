@@ -1,6 +1,8 @@
 use anyhow::{bail, Result};
-use dynamic_swap_program::instructions::cancel::CancelPublicInput;
-use dynamic_swap_prover::{EscrowCancelProofInputs, ProofInputUtxo};
+use dynamic_swap_program::circuits::{
+    EscrowCancel, EscrowCancelPrivateInputs, EscrowCancelPublicInputs,
+};
+use zolana_transaction::utxo::ProofInputUtxo;
 use zolana_transaction::{
     instructions::transact::{PrivateTxHash, SppProofOutputUtxo},
     utxo::SppProofInputUtxo,
@@ -36,7 +38,7 @@ pub struct CancelProofInputParams {
 }
 
 impl CancelProofInputParams {
-    pub fn to_proof_inputs(&self) -> Result<EscrowCancelProofInputs> {
+    pub fn to_proof_inputs(&self) -> Result<EscrowCancel> {
         let order_in = ProofInputUtxo::try_from(&self.order_in).map_err(err)?;
         let refund_out =
             ProofInputUtxo::try_from((&self.refund_out, self.output_tree_id)).map_err(err)?;
@@ -86,25 +88,20 @@ impl CancelProofInputParams {
         .hash()
         .map_err(err)?;
 
-        let public_input_hash = CancelPublicInput {
-            private_tx_hash: &private_tx_hash,
-            order_in_hash: &order_in_hash,
-            first_nullifier: &first_nullifier,
-        }
-        .hash()
-        .map_err(err)?;
-
-        Ok(EscrowCancelProofInputs {
-            public_input_hash,
-            private_tx_hash,
-            first_nullifier,
-            order_in_hash,
-            order_amount: self.order_amount,
-            recipient_owner_hash: self.recipient_owner_hash,
-            min_price: self.min_price,
-            order_in,
-            refund_out,
-            private_tx_blinding: self.private_tx_blinding,
+        Ok(EscrowCancel {
+            private: EscrowCancelPrivateInputs {
+                private_tx_hash,
+                order_amount: self.order_amount,
+                recipient_owner_hash: self.recipient_owner_hash,
+                min_price: self.min_price,
+                order_in: order_in.into(),
+                refund_out: refund_out.into(),
+                private_tx_blinding: self.private_tx_blinding,
+            },
+            public: EscrowCancelPublicInputs {
+                first_nullifier,
+                order_in_hash,
+            },
         })
     }
 }

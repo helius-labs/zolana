@@ -6,17 +6,15 @@ use pinocchio::{
 };
 use wincode::{SchemaRead, SchemaWrite};
 use zolana_account_checks::AccountIterator;
-use zolana_hasher::{Hasher, Poseidon};
 use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 
 use crate::{
     error::DynamicSwapError,
     instructions::{
         shared::{
-            cpi_spp_transact_signed, escrow_authority_owner_hash, u64_right_align, verify_pda,
-            CreatePdaAccount,
+            cpi_spp_transact_signed, escrow_authority_owner_hash, verify_pda, CreatePdaAccount,
         },
-        verifier::{verify_groth16, CompressedGroth16Proof, Groth16ProofBytes},
+        verifier::Groth16ProofBytes,
     },
     state::{discriminator::ESCROW, load_pair_mut, Escrow},
 };
@@ -34,46 +32,6 @@ pub struct CreateEscrowIxData {
     /// immutable tolerance `X`, the live price must be in `[F, F + 2X]`.
     pub public_price_floor: u64,
     pub transact: TransactIxData,
-}
-
-/// `escrow_open`'s public-input hash: `Poseidon(PrivateTxHash,
-/// EscrowAuthorityOwnerHash, SourceAsset, PublicPriceFloor, PriceTolerance,
-/// MinOrderAmount, MaxOrderSize)`. The
-/// recipient and private minimum price are deliberately absent -- the
-/// recipient is bound in-circuit to the source UTXO's owner, and their
-/// composite commitment becomes the order UTXO's DataHash. Neither private
-/// value appears on-chain. Field order and encoding must match the circuit's
-/// `PublicInputs.Check`.
-pub struct EscrowOpenPublicInput<'a> {
-    pub private_tx_hash: &'a [u8; 32],
-    /// The escrow_authority PDA's owner-hash, recomputed on-chain (see
-    /// `escrow_authority_owner_hash`); binds `OrderOut.Owner`.
-    pub escrow_authority_owner_hash: &'a [u8; 32],
-    /// The pair's source-asset commitment (`Pair.source_asset`); binds
-    /// `SourceIn.Asset`.
-    pub source_asset: &'a [u8; 32],
-    pub public_price_floor: u64,
-    pub price_tolerance: u64,
-    pub min_order_amount: u64,
-    /// The pair's immutable `max_order_size`; the circuit enforces
-    /// `owed <= max_order_size` so the reservation taken below always covers
-    /// the order.
-    pub max_order_size: u64,
-}
-
-impl EscrowOpenPublicInput<'_> {
-    pub fn hash(&self) -> Result<[u8; 32], ProgramError> {
-        Poseidon::hashv(&[
-            self.private_tx_hash.as_slice(),
-            self.escrow_authority_owner_hash.as_slice(),
-            self.source_asset.as_slice(),
-            u64_right_align(self.public_price_floor).as_slice(),
-            u64_right_align(self.price_tolerance).as_slice(),
-            u64_right_align(self.min_order_amount).as_slice(),
-            u64_right_align(self.max_order_size).as_slice(),
-        ])
-        .map_err(|_| DynamicSwapError::HashingFailed.into())
-    }
 }
 
 /// Output order the `escrow_open` circuit commits to (exact IN1_OUT2 shape, no
@@ -143,27 +101,21 @@ pub fn process_create_escrow_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
     // The recipient and minimum price are not public inputs: the circuit binds
     // the recipient to the taker's `SourceIn.Owner` and commits both private
     // values as the order UTXO's DataHash, so the program never sees them.
-    let public_input_hash = EscrowOpenPublicInput {
-        private_tx_hash: &transact.private_tx_hash,
-        escrow_authority_owner_hash: &escrow_authority_owner_hash,
-        source_asset: &source_asset,
-        public_price_floor,
-        price_tolerance: pair.price_tolerance,
-        min_order_amount: pair.min_order_amount,
-        max_order_size: pair.max_order_size,
-    }
-    .hash()?;
-
-    verify_groth16(
-        CompressedGroth16Proof {
-            a: &proof.proof_a,
-            b: &proof.proof_b,
-            c: &proof.proof_c,
-            commitment: None,
+    crate::verifier::escrow_open::Verifier {
+        proof: &proof.to_compressed(),
+        public_inputs: crate::verifier::escrow_open::PublicInputs {
+            escrow_authority_owner_hash,
+            source_asset,
+            public_price_floor,
+            price_tolerance: pair.price_tolerance,
+            min_order_amount: pair.min_order_amount,
+            max_order_size: pair.max_order_size,
         },
-        public_input_hash,
-        &crate::verifying_keys::escrow_open::VERIFYINGKEY,
-    )?;
+        private_tx_hash: &transact.private_tx_hash,
+        transfers: &[],
+    }
+    .verify()
+    .map_err(|_| DynamicSwapError::ProofVerificationFailed)?;
 
     // `order_utxo_hash` is not read from instruction data -- it is derived here
     // directly from the transact CPI's own outputs (the proof already commits to

@@ -1,11 +1,12 @@
 use anyhow::{bail, Result};
-use dynamic_swap_program::instructions::rebalance_liquidity::PoolRebalancePublicInput;
-use dynamic_swap_prover::{
-    PoolRebalanceProofInputs, ProofInputUtxo, REBALANCE_INPUT_SLOTS, REBALANCE_OUTPUT_SLOTS,
+use dynamic_swap_program::circuits::{
+    PoolRebalance, PoolRebalancePrivateInputs, PoolRebalancePublicInputs, REBALANCE_INPUT_SLOTS,
+    REBALANCE_OUTPUT_SLOTS,
 };
 use solana_address::Address;
 use zolana_interface::instruction::instruction_data::transact::{OwnerTag, TransactOutput};
 use zolana_keypair::{random_salt, viewing_key::random_blinding, ShieldedAddress, ViewingKeyTrait};
+use zolana_transaction::utxo::ProofInputUtxo;
 use zolana_transaction::{
     instructions::transact::{
         asset_field, ExternalData, PrivateTxHash, SppProofInputs, SppProofOutputUtxo,
@@ -73,7 +74,7 @@ pub struct PreparedRebalance {
 
 /// The rebalance proof inputs together with the padded slot vectors.
 pub struct RebalanceProofBundle {
-    pub proof_inputs: PoolRebalanceProofInputs,
+    pub proof_inputs: PoolRebalance,
 }
 
 impl RebalanceProofInputParams {
@@ -289,15 +290,6 @@ impl PreparedRebalance {
                 .hash()
                 .map_err(err)?;
 
-        let public_input_hash = PoolRebalancePublicInput {
-            private_tx_hash: &private_tx_hash,
-            pool_authority_owner_hash: &self.pool_authority_owner_hash,
-            destination_asset: &self.destination_asset,
-            credit: self.credit,
-        }
-        .hash()
-        .map_err(err)?;
-
         let inputs: [ProofInputUtxo; REBALANCE_INPUT_SLOTS] = input_utxos
             .try_into()
             .map_err(|_| err("input slot count mismatch"))?;
@@ -306,15 +298,18 @@ impl PreparedRebalance {
             .map_err(|_| err("output slot count mismatch"))?;
 
         Ok(RebalanceProofBundle {
-            proof_inputs: PoolRebalanceProofInputs {
-                public_input_hash,
-                private_tx_hash,
-                pool_authority_owner_hash: self.pool_authority_owner_hash,
-                destination_asset: self.destination_asset,
-                credit: self.credit,
-                inputs,
-                outputs,
-                private_tx_blinding: self.private_tx_blinding,
+            proof_inputs: PoolRebalance {
+                private: PoolRebalancePrivateInputs {
+                    private_tx_hash,
+                    inputs: inputs.map(Into::into),
+                    outputs: outputs.map(Into::into),
+                    private_tx_blinding: self.private_tx_blinding,
+                },
+                public: PoolRebalancePublicInputs {
+                    pool_authority_owner_hash: self.pool_authority_owner_hash,
+                    destination_asset: self.destination_asset,
+                    credit: self.credit,
+                },
             },
         })
     }

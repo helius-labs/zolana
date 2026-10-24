@@ -1,8 +1,10 @@
 use anyhow::{bail, Result};
-use dynamic_swap_program::instructions::withdraw_liquidity::PoolWithdrawPublicInput;
-use dynamic_swap_prover::{PoolWithdrawProofInputs, ProofInputUtxo};
+use dynamic_swap_program::circuits::{
+    PoolWithdraw, PoolWithdrawPrivateInputs, PoolWithdrawPublicInputs,
+};
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::instructions::transact::{asset_field, PrivateTxHash};
+use zolana_transaction::utxo::ProofInputUtxo;
 
 use crate::state::PoolUtxo;
 
@@ -38,7 +40,7 @@ pub struct WithdrawProofInputParams {
 }
 
 impl WithdrawProofInputParams {
-    pub fn to_proof_inputs(&self) -> Result<PoolWithdrawProofInputs> {
+    pub fn to_proof_inputs(&self) -> Result<PoolWithdraw> {
         if self.amount == 0 {
             bail!("withdrawal amount must be nonzero");
         }
@@ -84,24 +86,18 @@ impl WithdrawProofInputParams {
         .hash()
         .map_err(err)?;
 
-        let public_input_hash = PoolWithdrawPublicInput {
-            private_tx_hash: &private_tx_hash,
-            pool_authority_owner_hash: &pool_authority_owner_hash,
-            destination_asset: &self.destination_asset,
-            amount: self.amount,
-        }
-        .hash()
-        .map_err(err)?;
-
-        Ok(PoolWithdrawProofInputs {
-            public_input_hash,
-            private_tx_hash,
-            pool_authority_owner_hash,
-            destination_asset: self.destination_asset,
-            amount: self.amount,
-            pool_in,
-            pool_out,
-            private_tx_blinding: self.private_tx_blinding,
+        Ok(PoolWithdraw {
+            private: PoolWithdrawPrivateInputs {
+                private_tx_hash,
+                pool_in: pool_in.into(),
+                pool_out: pool_out.into(),
+                private_tx_blinding: self.private_tx_blinding,
+            },
+            public: PoolWithdrawPublicInputs {
+                pool_authority_owner_hash,
+                destination_asset: self.destination_asset,
+                amount: self.amount,
+            },
         })
     }
 }

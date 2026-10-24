@@ -2,14 +2,13 @@ use light_program_profiler::profile;
 use pinocchio::{error::ProgramError, AccountView, ProgramResult};
 use wincode::{SchemaRead, SchemaWrite};
 use zolana_account_checks::AccountIterator;
-use zolana_hasher::{Hasher, Poseidon};
 use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 
 use crate::{
     error::DynamicSwapError,
     instructions::{
-        shared::{cpi_spp_transact_signed, pool_authority_owner_hash, u64_right_align},
-        verifier::{verify_groth16, CompressedGroth16Proof, Groth16ProofBytes},
+        shared::{cpi_spp_transact_signed, pool_authority_owner_hash},
+        verifier::Groth16ProofBytes,
     },
     state::load_pair_mut,
 };
@@ -19,25 +18,6 @@ pub struct DepositLiquidityIxData {
     pub proof: Groth16ProofBytes,
     pub amount: u64,
     pub transact: TransactIxData,
-}
-
-pub struct PoolDepositPublicInput<'a> {
-    pub private_tx_hash: &'a [u8; 32],
-    pub pool_authority_owner_hash: &'a [u8; 32],
-    pub destination_asset: &'a [u8; 32],
-    pub amount: u64,
-}
-
-impl PoolDepositPublicInput<'_> {
-    pub fn hash(&self) -> Result<[u8; 32], ProgramError> {
-        Poseidon::hashv(&[
-            self.private_tx_hash.as_slice(),
-            self.pool_authority_owner_hash.as_slice(),
-            self.destination_asset.as_slice(),
-            u64_right_align(self.amount).as_slice(),
-        ])
-        .map_err(|_| DynamicSwapError::HashingFailed.into())
-    }
 }
 
 // Moves a public amount of the depositor's shielded destination asset into the
@@ -102,22 +82,18 @@ pub fn process_deposit_liquidity_ix(accounts: &mut [AccountView], data: &[u8]) -
         let pool_owner_hash = pool_authority_owner_hash(&pair_address)?;
         // Step 7: Build the proof's public-input hash.
         // Step 8: Verify the pool-deposit proof.
-        verify_groth16(
-            CompressedGroth16Proof {
-                a: &proof.proof_a,
-                b: &proof.proof_b,
-                c: &proof.proof_c,
-                commitment: None,
-            },
-            PoolDepositPublicInput {
-                private_tx_hash: &transact.private_tx_hash,
-                pool_authority_owner_hash: &pool_owner_hash,
-                destination_asset: &pair.destination_asset,
+        crate::verifier::pool_deposit::Verifier {
+            proof: &proof.to_compressed(),
+            public_inputs: crate::verifier::pool_deposit::PublicInputs {
+                pool_authority_owner_hash: pool_owner_hash,
+                destination_asset: pair.destination_asset,
                 amount,
-            }
-            .hash()?,
-            &crate::verifying_keys::pool_deposit::VERIFYINGKEY,
-        )?;
+            },
+            private_tx_hash: &transact.private_tx_hash,
+            transfers: &[],
+        }
+        .verify()
+        .map_err(|_| DynamicSwapError::ProofVerificationFailed)?;
 
         // Step 9: Add the amount to available liquidity without overflow.
         pair.available_liquidity = pair

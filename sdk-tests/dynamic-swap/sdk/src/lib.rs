@@ -8,15 +8,10 @@ use solana_pubkey::Pubkey;
 
 pub use dynamic_swap_program::{
     instructions::{
-        cancel::{CancelIxData, CancelPublicInput},
-        create_escrow::{CreateEscrowIxData, EscrowOpenPublicInput},
-        create_pair::CreatePairData,
-        deposit_liquidity::{DepositLiquidityIxData, PoolDepositPublicInput},
-        rebalance_liquidity::{PoolRebalancePublicInput, RebalanceLiquidityIxData},
-        settle::{SettleIxData, SettlePublicInput},
-        update_price::UpdatePriceData,
-        verifier::Groth16ProofBytes,
-        withdraw_liquidity::{PoolWithdrawPublicInput, WithdrawLiquidityIxData},
+        cancel::CancelIxData, create_escrow::CreateEscrowIxData, create_pair::CreatePairData,
+        deposit_liquidity::DepositLiquidityIxData, rebalance_liquidity::RebalanceLiquidityIxData,
+        settle::SettleIxData, update_price::UpdatePriceData, verifier::Groth16ProofBytes,
+        withdraw_liquidity::WithdrawLiquidityIxData,
     },
     state::{Escrow, Pair},
     tag, ESCROW_AUTHORITY_PDA_SEED, ESCROW_NULLIFIER_PUBKEY, ID, POOL_AUTHORITY_PDA_SEED,

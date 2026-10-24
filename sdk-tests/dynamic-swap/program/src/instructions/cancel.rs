@@ -7,14 +7,13 @@ use pinocchio::{
 };
 use wincode::{SchemaRead, SchemaWrite};
 use zolana_account_checks::AccountIterator;
-use zolana_hasher::{Hasher, Poseidon};
 use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 
 use crate::{
     error::DynamicSwapError,
     instructions::{
         shared::{close_escrow_account, cpi_spp_transact_signed},
-        verifier::{verify_groth16, CompressedGroth16Proof, Groth16ProofBytes},
+        verifier::Groth16ProofBytes,
     },
     state::{load_escrow_mut, load_pair_mut},
 };
@@ -27,30 +26,6 @@ pub struct CancelIxData {
     /// DataHash.
     pub proof: Groth16ProofBytes,
     pub transact: TransactIxData,
-}
-
-/// `escrow_cancel`'s public-input hash: `Poseidon(PrivateTxHash, OrderInHash,
-/// FirstNullifier)`. The recipient owner-hash and private minimum price are
-/// re-opened in-circuit from the order UTXO's composite DataHash (pinned by
-/// `OrderInHash`), so both stay confidential. `FirstNullifier` is read from SPP
-/// input 0 here, so the canceller cannot substitute the nullifier the refund
-/// blinding derives from. Field order and encoding must match the circuit's
-/// `PublicInputs.Check`.
-pub struct CancelPublicInput<'a> {
-    pub private_tx_hash: &'a [u8; 32],
-    pub order_in_hash: &'a [u8; 32],
-    pub first_nullifier: &'a [u8; 32],
-}
-
-impl CancelPublicInput<'_> {
-    pub fn hash(&self) -> Result<[u8; 32], ProgramError> {
-        Poseidon::hashv(&[
-            self.private_tx_hash.as_slice(),
-            self.order_in_hash.as_slice(),
-            self.first_nullifier.as_slice(),
-        ])
-        .map_err(|_| DynamicSwapError::HashingFailed.into())
-    }
 }
 
 /// Refunds one escrow after expiry. Permissionless: the caller only pays fees;
@@ -106,25 +81,21 @@ pub fn process_cancel_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
         return Err(DynamicSwapError::NotYetExpired.into());
     }
 
-    verify_groth16(
-        CompressedGroth16Proof {
-            a: &proof.proof_a,
-            b: &proof.proof_b,
-            c: &proof.proof_c,
-            commitment: None,
-        },
-        CancelPublicInput {
-            private_tx_hash: &transact.private_tx_hash,
-            order_in_hash: &escrow.order_utxo_hash,
-            first_nullifier: &transact
+    crate::verifier::escrow_cancel::Verifier {
+        proof: &proof.to_compressed(),
+        public_inputs: crate::verifier::escrow_cancel::PublicInputs {
+            order_in_hash: escrow.order_utxo_hash,
+            first_nullifier: transact
                 .inputs
                 .first()
                 .ok_or(DynamicSwapError::InvalidInstructionData)?
                 .nullifier_hash,
-        }
-        .hash()?,
-        &crate::verifying_keys::escrow_cancel::VERIFYINGKEY,
-    )?;
+        },
+        private_tx_hash: &transact.private_tx_hash,
+        transfers: &[],
+    }
+    .verify()
+    .map_err(|_| DynamicSwapError::ProofVerificationFailed)?;
 
     // Release the reservation in full: the order was never filled, so the
     // exact `max_order_size` taken at create_escrow returns to the bound.
