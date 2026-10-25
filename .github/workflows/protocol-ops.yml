@@ -1,4 +1,4 @@
-name: forester
+name: protocol-ops
 
 on:
   push:
@@ -9,7 +9,9 @@ on:
       - "prover/server/**"
       - "Cargo.toml"
       - "Cargo.lock"
-      - ".github/workflows/forester.yml"
+      - "rust-toolchain.toml"
+      - ".cargo/**"
+      - ".github/workflows/protocol-ops.yml"
       - ".github/actions/setup-rust/**"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
@@ -19,7 +21,9 @@ on:
       - "prover/server/**"
       - "Cargo.toml"
       - "Cargo.lock"
-      - ".github/workflows/forester.yml"
+      - "rust-toolchain.toml"
+      - ".cargo/**"
+      - ".github/workflows/protocol-ops.yml"
       - ".github/actions/setup-rust/**"
 
 concurrency:
@@ -33,7 +37,7 @@ env:
 
 jobs:
   unit:
-    name: forester / compile + test
+    name: protocol-ops / compile + test
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
@@ -41,7 +45,12 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
+      - name: Check Rust formatting
+        run: cargo fmt -p forester -p zolana-forester-prover -p zolana-protocol-cli -p zolana-protocol-instructions -p zolana-smart-account-client -p zolana-merkle-tree -- --check
       - run: go test ./...
         working-directory: protocol-ops/forester-prover/go
-      - run: cargo check -p forester -p zolana-protocol-cli --all-targets
+      - name: Check protocol crates
+        run: cargo clippy -p forester -p zolana-forester-prover -p zolana-protocol-cli -p zolana-protocol-instructions -p zolana-smart-account-client -p zolana-merkle-tree --all-targets -- -D warnings
+      - name: Check remote-only proving
+        run: cargo check -p forester -p zolana-forester-prover --no-default-features --all-targets
       - run: cargo test -p forester -p zolana-forester-prover -p zolana-protocol-cli -p zolana-protocol-instructions -p zolana-smart-account-client -p zolana-merkle-tree

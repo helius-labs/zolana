@@ -1,11 +1,14 @@
 name: rust
 
 # No job here reads the TypeScript SDK or its example; typescript.yml covers
-# them. Vectors shared with Rust live in test-vectors/, which still triggers.
+# them. protocol-ops.yml covers protocol operations. Vectors shared with Rust
+# live in test-vectors/, which still triggers.
 on:
   push:
     branches: [main]
     paths-ignore:
+      - "protocol-ops/**"
+      - ".github/workflows/protocol-ops.yml"
       - "prover/server/**"
       - "**/*.md"
       - "LICENSE*"
@@ -17,6 +20,8 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths-ignore:
+      - "protocol-ops/**"
+      - ".github/workflows/protocol-ops.yml"
       - "prover/server/**"
       - "**/*.md"
       - "LICENSE*"

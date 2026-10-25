@@ -79,6 +79,7 @@ jobs:
       - uses: ./zolana/.github/actions/setup-rust
         with:
           shared-key: ring-compat
+          install-go: "false"
       - uses: ./zolana/.github/actions/install-anza
         with:
           version: ${{ env.AGAVE_VERSION }}

@@ -18,6 +18,10 @@ inputs:
       dependencies need a PAT or fine-grained token passed in via secrets.
     required: false
     default: ""
+  install-go:
+    description: Install the protocol proving Go toolchain; disable when the caller already sets up Go from another checkout.
+    required: false
+    default: "true"
 
 runs:
   using: composite
@@ -33,6 +37,7 @@ runs:
       shell: bash
       run: rustup show active-toolchain
     - name: Install Go for protocol proving
+      if: inputs.install-go == 'true'
       uses: actions/setup-go@v5
       with:
         go-version-file: prover/server/go.mod
