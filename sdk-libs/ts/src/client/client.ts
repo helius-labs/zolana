@@ -310,7 +310,11 @@ export class ZolanaClient
 
     let prover: ProverClient | undefined;
     if (localProver === undefined) {
-      const proverUrl = checkedServiceUrl(endpoints.prover, endpoints.proverField, allowInsecureHttp);
+      const proverUrl = checkedServiceUrl(
+        endpoints.prover,
+        endpoints.proverField,
+        allowInsecureHttp,
+      );
       try {
         prover = new ProverClient({
           url: proverUrl,
@@ -896,7 +900,9 @@ export class ZolanaClient
 
   /** See `ProverClient.checkProvingKeys`: run it before the first proof. */
   checkProverProvingKeys(context?: RequestContext): Promise<ProvingKeyReport> {
-    return this.#proving(() => this.#httpProver("checkProverProvingKeys").checkProvingKeys(context));
+    return this.#proving(() =>
+      this.#httpProver("checkProverProvingKeys").checkProvingKeys(context),
+    );
   }
 
   /** Attests the prover now against `proverTee`. */

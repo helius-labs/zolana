@@ -411,15 +411,18 @@ describe("ZolanaClient", () => {
       { field: "proofDataSource", config: { proofDataSource: "prover" } },
     ];
     for (const { field, config } of cases) {
-      expect(() =>
-        new ZolanaClient({
-          solanaRpcUrl: "http://127.0.0.1:8899",
-          indexerUrl: "http://127.0.0.1:8784",
-          prover: local,
-          tree: TREE,
-          ...config,
-        }),
-      ).toThrowError(expect.objectContaining({ code: "CLIENT_INVALID_CONFIG", details: { field } }));
+      expect(
+        () =>
+          new ZolanaClient({
+            solanaRpcUrl: "http://127.0.0.1:8899",
+            indexerUrl: "http://127.0.0.1:8784",
+            prover: local,
+            tree: TREE,
+            ...config,
+          }),
+      ).toThrowError(
+        expect.objectContaining({ code: "CLIENT_INVALID_CONFIG", details: { field } }),
+      );
     }
   });
 
