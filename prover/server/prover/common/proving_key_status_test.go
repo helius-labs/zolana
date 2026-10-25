@@ -59,9 +59,8 @@ func TestProvingKeysReportPinnedKeyAvailableWithAutoDownload(t *testing.T) {
 	useTestManifest(t, &lockManifest{
 		Prefix: "proving-keys/test",
 		Keys: map[string]lockEntry{
-			"merge_24_1.key": {Sha256: hex.EncodeToString(pinned[:]), Size: 1},
-			// Release assets are never auto-downloaded, so they stay unavailable.
-			"release_asset.key": {Sha256: hex.EncodeToString(release[:]), Size: 1, Source: "release"},
+			"merge_24_1.key":    {Sha256: hex.EncodeToString(pinned[:]), Size: 1},
+			"release_asset.key": {Sha256: hex.EncodeToString(release[:]), Size: 1, Source: "release", URL: "https://keys.example/release_asset.key"},
 		},
 	})
 	manager := NewLazyKeyManager(t.TempDir(), &DownloadConfig{AutoDownload: true})
@@ -72,7 +71,7 @@ func TestProvingKeysReportPinnedKeyAvailableWithAutoDownload(t *testing.T) {
 	}
 	want := []ProvingKeyStatus{
 		{Name: "merge_24_1.key", ExpectedSha256: strPtr(hex.EncodeToString(pinned[:])), Available: true},
-		{Name: "release_asset.key", ExpectedSha256: strPtr(hex.EncodeToString(release[:])), Available: false},
+		{Name: "release_asset.key", ExpectedSha256: strPtr(hex.EncodeToString(release[:])), Available: true},
 	}
 	if !reflect.DeepEqual(report.Keys, want) {
 		t.Fatalf("keys = %+v, want %+v", report.Keys, want)

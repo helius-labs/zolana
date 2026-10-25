@@ -320,7 +320,7 @@ func fetchRange(url string, file *os.File, digest hash.Hash, start int64, end in
 
 // EnsureProvingKey makes the proving key at keyPath available and verified
 // against the embedded lockfile. Keys pinned in the lockfile are downloaded from
-// the object store when missing or when the on-disk copy fails its pinned
+// their pinned source when missing or when the on-disk copy fails its pinned
 // sha256; keys not in the lockfile are never downloaded (they must already exist
 // locally, e.g. a locally generated key). When autoDownload is false, a missing
 // or mismatched pinned key is an error and no file is removed.
@@ -360,14 +360,6 @@ func EnsureProvingKey(keyPath string, autoDownload bool, config *DownloadConfig)
 		}
 	}
 
-	if entry.Source != "" {
-		return fmt.Errorf(
-			"key %s is a %s asset and is not on the object store",
-			filename,
-			entry.Source,
-		)
-	}
-
 	if !autoDownload {
 		if fileExists {
 			return fmt.Errorf("key file %s exists but does not match the lockfile checksum (auto-download disabled)", filename)
@@ -380,10 +372,20 @@ func EnsureProvingKey(keyPath string, autoDownload bool, config *DownloadConfig)
 	}
 
 	url := objectURL(manifest.Prefix, filename)
+	switch entry.Source {
+	case "":
+	case "release":
+		if entry.URL == "" {
+			return fmt.Errorf("release key %s has no download URL", filename)
+		}
+		url = entry.URL
+	default:
+		return fmt.Errorf("key %s has unsupported source %q", filename, entry.Source)
+	}
 	logging.Logger().Info().
 		Str("file", filename).
 		Str("url", url).
-		Msg("Downloading proving key from object store")
+		Msg("Downloading proving key")
 
 	if err := downloadAndVerify(url, keyPath, entry, config); err != nil {
 		return err
