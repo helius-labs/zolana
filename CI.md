@@ -2,17 +2,20 @@
 
 Current behavior in this branch. Links contain the exact path filters and command arguments. PR filters consider the whole PR; changes to shared Cargo files can select broader checks.
 
+Changes under `programs/` run every validation workflow.
+
 Most validation jobs skip draft PRs. TypeScript and deployment-script checks also run on drafts.
 
 1. [Protocol operations](.github/workflows/protocol-ops.yml)
 
     **Triggered by:** PR/main changes to:
 
-    1. `protocol-ops/`.
-    2. `program-libs/`.
-    3. `prover/server/`.
-    4. `services/photon/`.
-    5. Shared Cargo, toolchain, or CI setup files.
+    1. `programs/`.
+    2. `protocol-ops/`.
+    3. `program-libs/`.
+    4. `prover/server/`.
+    5. `services/photon/`.
+    6. Shared Cargo, toolchain, or CI setup files.
 
     **Runs:**
 
@@ -29,7 +32,7 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
 
 2. [Rust workspace](.github/workflows/rust.yml)
 
-    **Triggered by:** PR/main changes outside these ignored paths:
+    **Triggered by:** PR/main changes outside these ignored paths; `programs/**` overrides the exclusions:
 
     1. `protocol-ops/**`.
     2. `.github/workflows/protocol-ops.yml`.
@@ -117,9 +120,10 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
 
     1. Photon.
     2. Program libraries.
-    3. Shielded-pool or ring fixtures.
-    4. Selected SDK dependencies.
-    5. Shared build configuration.
+    3. `programs/`.
+    4. Ring fixtures.
+    5. Selected SDK dependencies.
+    6. Shared build configuration.
 
     **Runs:**
 
@@ -135,8 +139,9 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
 
     **Triggered by:** PR/main changes to:
 
-    1. `prover/`.
-    2. This workflow.
+    1. `programs/`.
+    2. `prover/`.
+    3. This workflow.
 
     **Runs:**
 
@@ -159,16 +164,17 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
     1. Changed-file filter: `git diff`.
     2. `zolana-client` async transfer: `cargo nextest run`.
 
-    The path gate skips the test for ops-only, TypeScript-only, and Markdown-only PRs.
+    The path gate skips the test for ops-only, TypeScript-only, and Markdown-only PRs outside `programs/`.
 
 7. [Verifying-key smoke test](.github/workflows/xtask-verifying-keys.yml)
 
     **Triggered by:** PR/main changes to:
 
-    1. `xtask/`.
-    2. `prover/`.
-    3. Shared Rust setup.
-    4. This workflow.
+    1. `programs/`.
+    2. `xtask/`.
+    3. `prover/`.
+    4. Shared Rust setup.
+    5. This workflow.
 
     **Runs:**
 
@@ -178,8 +184,9 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
 
     **Triggered by:** PR/main changes to:
 
-    1. `prover/server/`.
-    2. This workflow.
+    1. `programs/`.
+    2. `prover/server/`.
+    3. This workflow.
 
     **Runs:**
 
@@ -190,12 +197,13 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
 
 9. [Ring compatibility](.github/workflows/ring-compat.yml)
 
-    **Triggered by:** PR changes to:
+    **Triggered by:**
 
-    1. Photon or prover.
-    2. Programs or SDKs.
-    3. CLI.
-    4. Shared build inputs or ring CI.
+    1. PR changes to Photon or prover.
+    2. PR changes to programs or SDKs.
+    3. PR changes to CLI.
+    4. PR changes to shared build inputs or ring CI.
+    5. Main changes to `programs/`.
 
     **Runs:**
 
@@ -207,10 +215,11 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
 
     **Triggered by:** PR/main changes to:
 
-    1. GPU, Nitro, or image tools.
-    2. Selected prover build and release inputs.
-    3. `justfile`.
-    4. Their workflows.
+    1. `programs/`.
+    2. GPU, Nitro, or image tools.
+    3. Selected prover build and release inputs.
+    4. `justfile`.
+    5. Their workflows.
 
     **Runs:**
 
@@ -223,9 +232,10 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
 
     **Triggered by:**
 
-    1. PR/main changes to Photon or image build inputs.
-    2. `photon-zolana-*` tags.
-    3. Manual dispatch.
+    1. PR/main changes to `programs/`.
+    2. PR/main changes to Photon or image build inputs.
+    3. `photon-zolana-*` tags.
+    4. Manual dispatch.
 
     **Runs:**
 

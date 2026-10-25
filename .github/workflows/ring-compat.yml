@@ -1,7 +1,11 @@
 name: ring-compat
 
-# The custom ring happy path, built against this pull request's zolana.
+# The custom ring happy path, built against the selected Zolana revision.
 on:
+  push:
+    branches: [main]
+    paths:
+      - "programs/**"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
@@ -33,7 +37,7 @@ jobs:
   enabled:
     name: ring compat / enabled
     runs-on: ubuntu-24.04
-    if: github.event.pull_request.draft == false
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     outputs:
       enabled: ${{ steps.key.outputs.enabled }}
     steps:
@@ -59,7 +63,7 @@ jobs:
           ref: main
           ssh-key: ${{ secrets.RING_COMPAT_SSH_KEY }}
           persist-credentials: false
-      # This pull request takes the place of the ring repository's zolana submodule.
+      # The selected revision takes the place of the ring repository's zolana submodule.
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           path: zolana

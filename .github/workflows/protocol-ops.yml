@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
     paths:
+      - "programs/**"
       - "protocol-ops/**"
       - "program-libs/**"
       - "prover/server/**"
@@ -17,6 +18,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
+      - "programs/**"
       - "protocol-ops/**"
       - "program-libs/**"
       - "prover/server/**"

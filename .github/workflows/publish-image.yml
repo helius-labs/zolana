@@ -17,6 +17,7 @@ on:
     branches: [main]
     tags: ["photon-zolana-*"]
     paths:
+      - "programs/**"
       - "services/photon/**"
       - "program-libs/**"
       - "sdk-libs/event/**"
@@ -35,6 +36,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
+      - "programs/**"
       - "services/photon/**"
       - "program-libs/**"
       - "sdk-libs/event/**"

@@ -6,7 +6,7 @@ on:
     paths:
       - "services/photon/**"
       - "program-libs/**"
-      - "programs/shielded-pool/**"
+      - "programs/**"
       - "program-tests/ring-test-program/**"
       - "sdk-libs/event/**"
       - "sdk-libs/indexer-api/**"
@@ -22,7 +22,7 @@ on:
     paths:
       - "services/photon/**"
       - "program-libs/**"
-      - "programs/shielded-pool/**"
+      - "programs/**"
       - "program-tests/ring-test-program/**"
       - "sdk-libs/event/**"
       - "sdk-libs/indexer-api/**"

@@ -1,11 +1,12 @@
 name: xtask
 
 # The verifying-key smoke runs the xtask codegen against the Go prover server's
-# export-vk, so xtask and the prover are its inputs.
+# export-vk. Program changes also run this as part of the full suite.
 on:
   push:
     branches: [main]
     paths:
+      - "programs/**"
       - "xtask/**"
       - "prover/**"
       - ".github/actions/setup-rust/**"
@@ -13,6 +14,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
+      - "programs/**"
       - "xtask/**"
       - "prover/**"
       - ".github/actions/setup-rust/**"

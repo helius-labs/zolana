@@ -6,30 +6,34 @@ name: rust
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - "protocol-ops/**"
-      - ".github/workflows/protocol-ops.yml"
-      - "prover/server/**"
-      - "**/*.md"
-      - "LICENSE*"
-      - ".gitignore"
-      - "sdk-libs/ts/**"
-      - "sdk-tests/client/typescript/**"
-      - "package.json"
-      - "package-lock.json"
+    paths:
+      - "**"
+      - "!protocol-ops/**"
+      - "!.github/workflows/protocol-ops.yml"
+      - "!prover/server/**"
+      - "!**/*.md"
+      - "!LICENSE*"
+      - "!.gitignore"
+      - "!sdk-libs/ts/**"
+      - "!sdk-tests/client/typescript/**"
+      - "!package.json"
+      - "!package-lock.json"
+      - "programs/**"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-    paths-ignore:
-      - "protocol-ops/**"
-      - ".github/workflows/protocol-ops.yml"
-      - "prover/server/**"
-      - "**/*.md"
-      - "LICENSE*"
-      - ".gitignore"
-      - "sdk-libs/ts/**"
-      - "sdk-tests/client/typescript/**"
-      - "package.json"
-      - "package-lock.json"
+    paths:
+      - "**"
+      - "!protocol-ops/**"
+      - "!.github/workflows/protocol-ops.yml"
+      - "!prover/server/**"
+      - "!**/*.md"
+      - "!LICENSE*"
+      - "!.gitignore"
+      - "!sdk-libs/ts/**"
+      - "!sdk-tests/client/typescript/**"
+      - "!package.json"
+      - "!package-lock.json"
+      - "programs/**"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
