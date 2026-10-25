@@ -6,6 +6,8 @@ on:
     branches: [main]
     paths:
       - "programs/**"
+      - "tools/ci/custom-rings-protocol-ops.patch"
+      - ".github/workflows/ring-compat.yml"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
@@ -17,6 +19,7 @@ on:
       - "cli/**"
       - "justfile"
       - "tools/build-programs.sh"
+      - "tools/ci/custom-rings-protocol-ops.patch"
       - ".cargo/**"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -60,7 +63,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: helius-labs/zolana-custom-rings
-          ref: main
+          ref: 9b6a50dd8c397768b29305c02ec605d65a4f13a8
           ssh-key: ${{ secrets.RING_COMPAT_SSH_KEY }}
           persist-credentials: false
       # The selected revision takes the place of the ring repository's zolana submodule.
@@ -68,6 +71,8 @@ jobs:
         with:
           path: zolana
           persist-credentials: false
+      - name: Migrate protocol-ops imports in the compatibility fixture
+        run: git apply zolana/tools/ci/custom-rings-protocol-ops.patch
       - name: Free runner disk
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \

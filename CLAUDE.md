@@ -6,7 +6,7 @@
 implementation cleanup unless that is the explicit task. If code, tests, and the
 spec disagree, treat the code or tests as suspect first.
 
-Document CI changes in the root [`CI.md`](CI.md) in the same commit. Keep its
+Document CI changes in [`.github/CI.md`](.github/CI.md) in the same commit. Keep its
 workflow triggers and run commands up to date.
 
 ## Repo Structure

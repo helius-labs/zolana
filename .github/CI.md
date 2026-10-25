@@ -6,7 +6,7 @@ Changes under `programs/` run every validation workflow.
 
 Most validation jobs skip draft PRs. TypeScript and deployment-script checks also run on drafts.
 
-1. [Protocol operations](.github/workflows/protocol-ops.yml)
+1. [Protocol operations](workflows/protocol-ops.yml)
 
     **Triggered by:** PR/main changes to:
 
@@ -30,7 +30,7 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
     9. `zolana-smart-account-client`: `cargo test`.
     10. `zolana-merkle-tree`: `cargo test`.
 
-2. [Rust workspace](.github/workflows/rust.yml)
+2. [Rust workspace](workflows/rust.yml)
 
     **Triggered by:** PR/main changes outside these ignored paths; `programs/**` overrides the exclusions:
 
@@ -96,7 +96,7 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
     47. RFQ settlement: `just test-rfq-validator`.
     48. Coverage: `just coverage`.
 
-3. [TypeScript](.github/workflows/typescript.yml)
+3. [TypeScript](workflows/typescript.yml)
 
     **Triggered by:**
 
@@ -114,7 +114,7 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
     8. `zolana-zk-standalone-fixture`: `cargo test`.
     9. Standalone Wasm: `node --test`.
 
-4. [Photon](.github/workflows/photon.yml)
+4. [Photon](workflows/photon.yml)
 
     **Triggered by:** PR/main changes to:
 
@@ -135,7 +135,7 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
 
     Protocol-ops changes do not select this workflow.
 
-5. [Prover server](.github/workflows/prover-server.yml)
+5. [Prover server](workflows/prover-server.yml)
 
     **Triggered by:** PR/main changes to:
 
@@ -152,7 +152,7 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
     5. `prover/server/tee`: `go test`.
     6. TEE release tests: `python3 scripts/test_release_tee.py`.
 
-6. [Async prover](.github/workflows/async-prover.yml)
+6. [Async prover](workflows/async-prover.yml)
 
     **Triggered by:**
 
@@ -166,7 +166,7 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
 
     The path gate skips the test for ops-only, TypeScript-only, and Markdown-only PRs outside `programs/`.
 
-7. [Verifying-key smoke test](.github/workflows/xtask-verifying-keys.yml)
+7. [Verifying-key smoke test](workflows/xtask-verifying-keys.yml)
 
     **Triggered by:** PR/main changes to:
 
@@ -180,7 +180,7 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
 
     1. `xtask` verifying-key smoke test: `just xtask-create-verifying-keys-smoke`.
 
-8. [Formal verification](.github/workflows/formal-verification.yml)
+8. [Formal verification](workflows/formal-verification.yml)
 
     **Triggered by:** PR/main changes to:
 
@@ -195,7 +195,7 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
     3. Lean definition drift: `git diff --exit-code`.
     4. Lean proofs: `lake build`.
 
-9. [Ring compatibility](.github/workflows/ring-compat.yml)
+9. [Ring compatibility](workflows/ring-compat.yml)
 
     **Triggered by:**
 
@@ -204,14 +204,17 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
     3. PR changes to CLI.
     4. PR changes to shared build inputs or ring CI.
     5. Main changes to `programs/`.
+    6. PR/main changes to `tools/ci/custom-rings-protocol-ops.patch`.
+    7. Main changes to this workflow.
 
     **Runs:**
 
-    1. Custom-ring compatibility: `just test-ring-compat`.
+    1. Protocol-ops import migration: `git apply`.
+    2. Custom-ring compatibility: `just test-ring-compat`.
 
-    Requires the private checkout key.
+    Uses the pinned custom-ring fixture at `9b6a50dd` and requires the private checkout key.
 
-10. [Deployment scripts](.github/workflows/gpu-deploy-scripts.yml)
+10. [Deployment scripts](workflows/gpu-deploy-scripts.yml)
 
     **Triggered by:** PR/main changes to:
 
@@ -228,7 +231,7 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
     3. `tools/nitro`: `python3 -m unittest discover`.
     4. `tools/images`: `python3 -m unittest discover`.
 
-11. [Service images](.github/workflows/publish-image.yml)
+11. [Service images](workflows/publish-image.yml)
 
     **Triggered by:**
 
@@ -243,7 +246,7 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
     2. Photon smoke test: `tools/check-photon-image.sh`.
     3. Service publication: `uses: ./.github/workflows/publish-service-image.yml` (tags/manual only).
 
-12. [Reusable service publisher](.github/workflows/publish-service-image.yml)
+12. [Reusable service publisher](workflows/publish-service-image.yml)
 
     **Triggered by:**
 
@@ -258,7 +261,7 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
     5. Image publication: `docker push`.
     6. Provenance: `actions/attest-build-provenance`.
 
-13. [GPU images](.github/workflows/publish-gpu.yml)
+13. [GPU images](workflows/publish-gpu.yml)
 
     **Triggered by:**
 
@@ -273,7 +276,7 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
     4. Image publication: `docker push`.
     5. Provenance: `actions/attest-build-provenance`.
 
-14. [Nitro images](.github/workflows/publish-nitro.yml)
+14. [Nitro images](workflows/publish-nitro.yml)
 
     **Triggered by:**
 
@@ -288,7 +291,7 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
     4. Enclave publication: `aws s3api put-object`.
     5. Provenance: `actions/attest-build-provenance`.
 
-15. [TEE deployment](.github/workflows/deploy-tee.yml)
+15. [TEE deployment](workflows/deploy-tee.yml)
 
     **Triggered by:**
 
@@ -300,7 +303,7 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
     2. Provenance: `actions/attest-build-provenance`.
     3. CVM deployment: `prover/server/scripts/release_tee.sh`.
 
-16. [TypeScript documentation](.github/workflows/typescript-docs.yml)
+16. [TypeScript documentation](workflows/typescript-docs.yml)
 
     **Triggered by:**
 
@@ -317,7 +320,7 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
 
     Reusable calls inherit the caller's event.
 
-17. [PR-only enforcement](.github/workflows/enforce-pr-only.yml)
+17. [PR-only enforcement](workflows/enforce-pr-only.yml)
 
     **Triggered by:**
 
