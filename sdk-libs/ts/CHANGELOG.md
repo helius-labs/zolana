@@ -2,13 +2,11 @@
 
 ## 0.5.1-alpha — unreleased
 
-Packages that extend the protocol build on this one through an entry point
-outside semver, and the prover and indexer clients carry the requests such a
-package defines. External wallets use `ed25519DerivationMessage(publicKey)` to
-derive their shielded identity. The bare-payload helper is removed because its
-signatures are rejected by the wallet keys constructors. Anonymous transfer and
-ring deposit encryption move to `@heliuslabs/zolana-custom-rings`, and wallet
-sync skips those outputs without decrypting them.
+Extension packages use a separate entry point and define requests carried by
+the prover and indexer clients. External wallets derive their shielded identity
+from `ed25519DerivationMessage(publicKey)`, while anonymous transfer and ring
+deposit encryption move to `@heliuslabs/zolana-custom-rings`. Wallets can use an
+in-process prover with client-fetched proof data.
 
 Breaking
 
@@ -39,6 +37,14 @@ Added
   `senderViewTag`, `recipientRequestViewTag`, `sendSharedViewTags` and
   `recipientSharedViewTags`, and a `SharedViewTags` derives the shared tag of
   every transfer index from one key agreement.
+
+- `ZolanaClientConfig.prover` takes a `ProofService` (`prove` / `proveMerge`)
+  instead of `proverUrl`; proof data stays `client`, and HTTP-only methods
+  (`proverHealth`, `checkProverProvingKeys`, `attestProver`) fail with
+  `CLIENT_INVALID_CONFIG`.
+- `createLocalProofService(prove)` builds that service from a handler that
+  receives the same `/prove` JSON body `ProverClient` would post and returns
+  the prover's JSON response.
 
 Changed
 

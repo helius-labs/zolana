@@ -21,6 +21,7 @@ export {
   ClientError,
   DEFAULT_INDEXER_POLL_CONFIG,
   LocalKeys,
+  createLocalProofService,
   type ClientErrorCode,
   type IndexerPollConfig,
   type ProofAuthority,

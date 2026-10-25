@@ -4,6 +4,7 @@ import type {
   IndexedProofResult,
   PreparedTransferInput,
   PreparedMergeInputs,
+  ProofService,
 } from "../ports.js";
 import {
   decodeIndexedInputs,
@@ -602,6 +603,36 @@ export function proverRequestBody(inputs: ProverInputs): ProverRequestBody {
 /** The merge counterpart of `proverRequestBody`. */
 export function mergeProverRequestBody(inputs: MergeInputs): ProverRequestBody {
   return mergeProverRequest(inputs, pendingSecret);
+}
+
+/**
+ * A `ProofService` that proves by posting the same JSON body `ProverClient`
+ * would send to `/prove`, without HTTP. `prove` receives that body and must
+ * return the prover's JSON response (the object with `proof` and
+ * `provingKeySha256`). Used by an in-page wasm prover.
+ */
+export function createLocalProofService(
+  prove: (body: string, context?: RequestContext) => Promise<unknown>,
+): ProofService {
+  if (typeof prove !== "function") {
+    throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "prove" } });
+  }
+  return Object.freeze({
+    async prove(inputs: ProverInputs, context?: RequestContext): Promise<Proof> {
+      const body = JSON.stringify(proverRequest(inputs, completeSecret));
+      const key = provingKeyFor({
+        circuit: transferCircuit(inputs),
+        nInputs: inputs.payload.inputs.length,
+        nOutputs: inputs.payload.outputs.length,
+      });
+      return parseCheckedProof(await prove(body, context), key);
+    },
+    async proveMerge(inputs: MergeInputs, context?: RequestContext): Promise<Proof> {
+      const body = JSON.stringify(mergeProverRequest(inputs, completeSecret));
+      const key = provingKeyFor({ circuit: mergeCircuit(inputs), nInputs: inputs.inputs.length });
+      return parseCheckedProof(await prove(body, context), key);
+    },
+  });
 }
 
 /** A merge inside a custom ring is proven by the `merge-ring` circuit. */

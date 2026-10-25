@@ -48,6 +48,7 @@ export type {
   RetryErrorCause,
 } from "./error.js";
 export {
+  createLocalProofService,
   mergeProverRequestBody,
   proverRequestBody,
   type AsyncPollConfig,
