@@ -15,9 +15,9 @@ Transaction helpers live separately in forester, the protocol CLI, and the SDK.
 
 Changes anywhere under `protocol-ops/` trigger `protocol-ops / compile + test`:
 Rust formatting, Clippy, Go bridge tests, remote-only compilation, and tests for
-the six crates above. Changes limited to this directory skip the Rust SDK and
-TypeScript suites. Merkle-tree changes also run Photon tests. Changes to shared
-workspace files or SDK code still trigger their respective suites.
+the six crates above. Changes limited to this directory skip the Rust SDK,
+TypeScript, and Photon suites. Changes to shared workspace files or SDK code
+still trigger their respective suites.
 
 The protocol CLI and forester depend on protocol crates and `program-libs`, with
 no Rust dependency on `sdk-libs`. Wallet and application SDKs remain there.
