@@ -7,7 +7,11 @@ import { runKitRpc } from "./kit.js";
 import type { KitRpcAccess, PrivateTransactionReader } from "./ports.js";
 import type { GetShieldedTransactionsBySignatureResponse } from "./rpc.js";
 import { backoff, isRetryable, type IndexerPollConfig } from "./retry.js";
-import { decodeTransactionError, UNRECOGNIZED_TRANSACTION_ERROR } from "./transaction-error.js";
+import {
+  decodeTransactionError,
+  UNRECOGNIZED_TRANSACTION_ERROR,
+  type DecodedTransactionError,
+} from "./transaction-error.js";
 
 const DEFAULT_WAIT_TIMEOUT_MS = 60_000;
 const MAX_U64 = 0xffff_ffff_ffff_ffffn;
@@ -16,13 +20,7 @@ const MAX_U64 = 0xffff_ffff_ffff_ffffn;
 interface SignatureStatus {
   readonly slot: bigint;
   readonly commitment: Commitment | null;
-  /** The transaction's error in Solana's JSON encoding, `null` when it succeeded. */
-  readonly error: string | null;
-  /**
-   * `err` was present and not a known Solana variant. A confirmed status is
-   * still a chain failure; the response text is not retained.
-   */
-  readonly unrecognizedError: boolean;
+  readonly error: DecodedTransactionError;
 }
 
 export async function readSignatureStatus(
@@ -52,12 +50,10 @@ export async function readSignatureStatus(
   )
     throw invalidResponse("getSignatureStatuses", "confirmationStatus");
   if (!Object.hasOwn(status, "err")) throw invalidResponse("getSignatureStatuses", "err");
-  const transactionError = decodeTransactionError(status["err"]);
   return {
     slot: rpcU64(status["slot"], "getSignatureStatuses"),
     commitment: reached ?? null,
-    error: transactionError.kind === "failed" ? transactionError.text : null,
-    unrecognizedError: transactionError.kind === "unrecognized",
+    error: decodeTransactionError(status["err"]),
   };
 }
 
@@ -69,9 +65,15 @@ export function commitmentReached(reached: Commitment | null, required: Commitme
   );
 }
 
-export function transactionFailed(signature: Signature, transactionError: string): ClientError {
+export function transactionFailed(
+  signature: Signature,
+  error: Exclude<DecodedTransactionError, { kind: "success" }>,
+): ClientError {
   return new ClientError("CLIENT_TRANSACTION_FAILED", {
-    details: { signature, transactionError },
+    details: {
+      signature,
+      transactionError: error.kind === "failed" ? error.text : UNRECOGNIZED_TRANSACTION_ERROR,
+    },
   });
 }
 
@@ -120,8 +122,6 @@ export async function waitForPrivateTransaction(
   let expiredAt: bigint | undefined;
   let causeCode: ClientErrorCode | undefined;
   let chainFailure: ClientError | undefined;
-  // One ledger search after the blockhash expires is enough: it can no longer land.
-  let ledgerMiss = false;
   const unresolved = (): ClientError =>
     new ClientError(
       confirmed ? "CLIENT_TRANSACTION_NOT_INDEXED" : "CLIENT_TRANSACTION_OUTCOME_UNKNOWN",
@@ -137,65 +137,39 @@ export async function waitForPrivateTransaction(
     else round.cause ??= error.code;
   };
 
-  // The recent cache is polled every round. The ledger is searched when that
-  // cache misses and the signature may already have left it.
+  // A single history-enabled read covers recent sends and restart recovery.
+  // Only the requests are caught: a confirmed failure must escape immediately.
   const chainRound = async (attemptContext: RequestContext): Promise<ChainRound> => {
     const round: ChainRound = { unseen: false };
-    // A confirmed transaction neither fails nor expires later.
     if (confirmed) return round;
-
-    // `true` when this lookup decided the round. Absence is `false`.
-    const apply = (status: SignatureStatus | null): boolean => {
-      if (status === null) return false;
+    let status: SignatureStatus | null;
+    try {
+      status = await readSignatureStatus(client, signature, attemptContext, true);
+    } catch (error) {
+      failedLookup(error, round);
+      return round;
+    }
+    if (status !== null) {
       if (commitmentReached(status.commitment, "confirmed")) {
-        if (status.unrecognizedError || status.error !== null) {
-          chainFailure = transactionFailed(
-            signature,
-            status.error ?? UNRECOGNIZED_TRANSACTION_ERROR,
-          );
+        if (status.error.kind !== "success") {
+          chainFailure = transactionFailed(signature, status.error);
           throw chainFailure;
         }
         confirmed = true;
       }
-      return true;
-    };
-    const read = async (history: boolean): Promise<SignatureStatus | null | undefined> => {
+      return round;
+    }
+    if (lastValidBlockHeight !== undefined && expiredAt === undefined) {
+      let bank: Awaited<ReturnType<typeof readEpochInfo>>;
       try {
-        return await readSignatureStatus(client, signature, attemptContext, history);
+        bank = await readEpochInfo(client, attemptContext);
       } catch (error) {
         failedLookup(error, round);
-        return undefined;
-      }
-    };
-
-    const cached = await read(false);
-    if (cached === undefined || apply(cached)) return round;
-    if (ledgerMiss) {
-      round.unseen = true;
-      return round;
-    }
-    if (lastValidBlockHeight === undefined) {
-      const historic = await read(true);
-      if (historic !== undefined && !apply(historic)) round.unseen = true;
-      return round;
-    }
-    try {
-      // Height and slot of one bank: a transaction with this blockhash
-      // landed before that slot or never will.
-      const bank = await readEpochInfo(client, attemptContext);
-      if (bank.blockHeight <= lastValidBlockHeight) {
-        round.unseen = true;
         return round;
       }
-      if (expiredAt === undefined) expiredAt = bank.absoluteSlot;
-      const historic = await read(true);
-      if (historic !== undefined && !apply(historic)) {
-        round.unseen = true;
-        ledgerMiss = true;
-      }
-    } catch (error) {
-      failedLookup(error, round);
+      if (bank.blockHeight > lastValidBlockHeight) expiredAt = bank.absoluteSlot;
     }
+    round.unseen = true;
     return round;
   };
 

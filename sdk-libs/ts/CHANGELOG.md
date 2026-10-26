@@ -19,7 +19,7 @@ Added
 Changed
 
 - `ZolanaClient.confirmPrivateTransaction` and `waitForPrivateTransaction` stop at the poll limit or an overall 60-second deadline, adjustable with `RequestContext.timeoutMs`, including hung requests.
-- `ZolanaClient.confirmPrivateTransaction` and `waitForPrivateTransaction` poll the recent status cache. The ledger search runs when that cache misses and either no expiry height was saved or the blockhash has expired.
+- `ZolanaClient.confirmPrivateTransaction` and `waitForPrivateTransaction` use one history-enabled status read per round. Confirmed chain failures end the wait immediately, including failures found only in history; an unavailable indexer cannot delay or hide them.
 - `ClientErrorDetailsMap.CLIENT_INDEXER_TIMEOUT` and the `indexerTimeout` retry cause remain available for compatibility and are deprecated in favor of transaction-specific unresolved outcomes.
 
 Fixed

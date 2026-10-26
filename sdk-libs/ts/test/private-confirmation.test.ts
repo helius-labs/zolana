@@ -36,6 +36,7 @@ function harness(
     fatalIndexer?: boolean;
     transactionError?: unknown;
     statusAwaitsIndexer?: boolean;
+    historyOnly?: boolean;
   }> = {},
 ) {
   let statusReads = 0;
@@ -54,16 +55,16 @@ function harness(
     methods.push(method);
     requests.push({ method, params: request["params"] });
     if (init?.signal) signals.set(method, init.signal);
+    let history = false;
     if (method === "getSignatureStatuses") {
       const params = Array.isArray(request["params"]) ? request["params"] : [];
       const config = params[1];
-      const history =
+      history =
         typeof config === "object" &&
         config !== null &&
         "searchTransactionHistory" in config &&
         config.searchTransactionHistory === true;
-      // A ledger search belongs to the cache read that preceded it.
-      if (!history) statusReads++;
+      statusReads++;
     }
     if (method === "getShieldedTransactionsBySignature") {
       indexerReads++;
@@ -80,7 +81,7 @@ function harness(
         if (round.status === "rpcError")
           throw new TypeError("secret server error with api-key=hidden");
         const status =
-          round.status === "absent"
+          round.status === "absent" || (options.historyOnly && !history)
             ? null
             : {
                 slot: 42,
@@ -231,10 +232,6 @@ describe("private confirmation and recovery", () => {
     await expect(outcome(fixture.client.waitForPrivateTransaction(SIGNATURE, 100n))).resolves.toBe(
       "expired",
     );
-    expect(fixture.requests).toContainEqual({
-      method: "getSignatureStatuses",
-      params: [[SIGNATURE]],
-    });
     expect(
       fixture.requests.filter(
         (request) =>
@@ -257,7 +254,6 @@ describe("private confirmation and recovery", () => {
     expect(sorted(fixture.methods)).toEqual([
       "getShieldedTransactionsBySignature",
       "getSignatureStatuses",
-      "getSignatureStatuses",
     ]);
     expect(fixture.requests).toContainEqual({
       method: "getSignatureStatuses",
@@ -265,19 +261,17 @@ describe("private confirmation and recovery", () => {
     });
   });
 
-  it("does not search the ledger before the blockhash expires", async () => {
+  it("a history miss cannot prove expiry while the blockhash is still valid", async () => {
     const fixture = harness([{ ...DEFAULT_ROUND, height: 100 }]);
     await expect(outcome(fixture.client.waitForPrivateTransaction(SIGNATURE, 100n))).resolves.toBe(
       "unknown",
     );
     expect(fixture.requests).toContainEqual({
       method: "getSignatureStatuses",
-      params: [[SIGNATURE]],
-    });
-    expect(fixture.requests).not.toContainEqual({
-      method: "getSignatureStatuses",
       params: [[SIGNATURE], { searchTransactionHistory: true }],
     });
+    expect(fixture.statusReads()).toBe(1);
+    expect(fixture.methods).not.toContain("sendTransaction");
   });
 
   it("asks Solana and the indexer in the same round", async () => {
@@ -432,6 +426,43 @@ describe("private confirmation and recovery", () => {
       await result;
     }
   });
+
+  it.each(["indexed", "hung"])(
+    "a failure found only in history wins immediately with the indexer %s",
+    async (indexer) => {
+      vi.useFakeTimers();
+      const fixture = harness(
+        [{ ...DEFAULT_ROUND, status: "finalized", failed: true, indexed: indexer === "indexed" }],
+        {
+          historyOnly: true,
+          ...(indexer === "hung" ? { hang: "getShieldedTransactionsBySignature" } : {}),
+        },
+      );
+      const controller = new AbortController();
+      const observed = vi.fn();
+      const result = rejection(
+        fixture.client.waitForPrivateTransaction(SIGNATURE, 100n, undefined, {
+          timeoutMs: 60_000,
+          signal: controller.signal,
+        }),
+      ).then(observed);
+      try {
+        await vi.advanceTimersByTimeAsync(1);
+        expect(observed).toHaveBeenCalledWith(
+          expect.objectContaining({ code: "CLIENT_TRANSACTION_FAILED" }),
+        );
+        if (indexer === "hung") {
+          expect(fixture.signals.get("getShieldedTransactionsBySignature")?.aborted).toBe(true);
+        }
+        expect(fixture.indexerReads()).toBe(1);
+        expect(fixture.methods).not.toContain("sendTransaction");
+        expect(vi.getTimerCount()).toBe(0);
+      } finally {
+        controller.abort();
+        await result;
+      }
+    },
+  );
 
   it("confirmTransaction reports a confirmed failure the same way", async () => {
     const fixture = harness([{ ...DEFAULT_ROUND, status: "confirmed", failed: true }]);

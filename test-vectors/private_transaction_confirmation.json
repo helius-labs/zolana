@@ -320,5 +320,30 @@
       }
     ],
     "outcome": "unknown"
+  },
+  {
+    "name": "indexer catches the first expiry bank while the chain advances",
+    "lastValidBlockHeight": 100,
+    "rounds": [
+      {
+        "status": "absent",
+        "failed": false,
+        "height": 101,
+        "slot": 100,
+        "indexerSlot": 99,
+        "indexed": false,
+        "indexerError": false
+      },
+      {
+        "status": "absent",
+        "failed": false,
+        "height": 120,
+        "slot": 120,
+        "indexerSlot": 100,
+        "indexed": false,
+        "indexerError": false
+      }
+    ],
+    "outcome": "expired"
   }
 ]

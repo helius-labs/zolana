@@ -128,11 +128,12 @@ Solana's recent status cache. It never signs, sends or rebuilds.
 `confirmPrivateTransaction` uses the same engine without an expiry height, so
 handle the new outcome codes in place of the former indexer timeout codes.
 Both methods use confirmed commitment and read expiry from one `getEpochInfo`
-answer. Each round polls the recent status cache. The ledger is searched when
-that cache misses and either no expiry height was saved or the blockhash has
-expired. They stop at the poll limit or an overall 60-second deadline; pass
-`context.timeoutMs` to change it. A timeout does not mean expiry. The RPC and a complete private-event indexer must serve the same
-network. Use this only for deposits, transfers, withdrawals and merges, with a
+answer. Each round makes one history-enabled signature status request, covering
+recent sends and restart recovery through the same path. Once confirmed, only
+the indexer is polled. The first observed expiry bank remains the watermark while
+the indexer catches up. They stop at the poll limit or an overall 60-second
+deadline; pass `context.timeoutMs` to change it. A timeout does not mean expiry.
+The RPC and a complete private-event indexer must serve the same network. Use this only for deposits, transfers, withdrawals and merges, with a
 recent blockhash; registration and durable-nonce transactions need their own
 confirmation. See the [send and restart recovery example](../../sdk-tests/client/typescript/private-transaction-recovery.ts).
 

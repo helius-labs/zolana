@@ -528,11 +528,11 @@ export class ZolanaClient
   ): Promise<bigint | undefined> {
     const status = await readSignatureStatus(this, signature, context);
     if (status === null || !commitmentReached(status.commitment, this.commitment)) return undefined;
-    if (status.unrecognizedError)
+    if (status.error.kind === "unrecognized")
       throw new ClientError("CLIENT_INVALID_RPC_RESPONSE", {
         details: { method: "getSignatureStatuses", path: "err" },
       });
-    if (status.error !== null) throw transactionFailed(signature, status.error);
+    if (status.error.kind === "failed") throw transactionFailed(signature, status.error);
     return status.slot;
   }
 
