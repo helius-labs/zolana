@@ -1,6 +1,8 @@
 use borsh::BorshDeserialize;
 use solana_address::Address;
-use zolana_event::{EncryptedRingDepositOutput, MessageData, OutputDataEncoding, ProoflessOutput};
+use zolana_event::{
+    EncryptedRingDepositOutput, MessageData, OutputDataEncoding, ProoflessOutput, SplTransfer,
+};
 use zolana_keypair::X25519Pubkey;
 
 use crate::{
@@ -28,6 +30,13 @@ pub struct ShieldedTransaction {
     pub proofless: bool,
     pub ring_config: Option<solana_address::Address>,
     pub ring_program_id: Option<solana_address::Address>,
+    /// Public settlement legs of this event.
+    ///
+    /// `Some` is what the indexer stored, including an empty list when the
+    /// event settled nothing. `None` means the indexer recorded the event
+    /// before it stored legs, and [`TransactionDetail::read`] takes them from
+    /// its `public` argument instead.
+    pub spl_transfers: Option<Vec<SplTransfer>>,
 }
 
 impl ShieldedTransaction {

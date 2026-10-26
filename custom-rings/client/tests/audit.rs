@@ -182,6 +182,7 @@ fn transaction(
         proofless: false,
         ring_config: None,
         ring_program_id: Some(Address::new_from_array([9u8; 32])),
+        spl_transfers: None,
     }
 }
 

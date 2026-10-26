@@ -403,6 +403,7 @@ fn spend_fixture_in(output_tree_id: u16) -> (RingsTransactionUpdate, [u8; 32], S
             payload: record.to_output_data().to_vec(),
         }],
         nullifiers: vec![],
+        spl_transfers: Vec::new(),
     };
     (event, namespace, record)
 }

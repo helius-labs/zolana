@@ -211,6 +211,7 @@ pub fn build_transfer(
         proofless: false,
         ring_config: None,
         ring_program_id: None,
+        spl_transfers: None,
     };
     (tx, recipient_utxo, change)
 }
@@ -344,6 +345,7 @@ pub fn build_unified_transfer(
         proofless: false,
         ring_config: None,
         ring_program_id: None,
+        spl_transfers: None,
     };
     (tx, change_utxo, recipient_utxo)
 }
@@ -424,6 +426,7 @@ pub fn split_transaction(
             proofless: false,
             ring_config: None,
             ring_program_id: None,
+            spl_transfers: None,
         },
         outputs,
     )

@@ -67,6 +67,7 @@ fn self_consistent_deposit(
         proofless: true,
         ring_config: None,
         ring_program_id: None,
+        spl_transfers: None,
     }
 }
 
@@ -130,6 +131,7 @@ fn sync_discovers_and_spends_proofless_deposit() {
         proofless: false,
         ring_config: None,
         ring_program_id: None,
+        spl_transfers: None,
     };
     wallet
         .sync(

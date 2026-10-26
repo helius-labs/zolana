@@ -105,6 +105,9 @@ pub struct RingsTransactionUpdate {
     pub outputs: Vec<RingsOutputUpdate>,
     pub messages: Vec<RingsMessageUpdate>,
     pub nullifiers: Vec<RingsNullifierUpdate>,
+    /// Public settlement legs. Always known for an event parsed from the chain:
+    /// empty when the event settled nothing.
+    pub spl_transfers: Vec<zolana_event::SplTransfer>,
 }
 
 /// A ring registering itself with the pool. `program_id` is written once at

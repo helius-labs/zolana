@@ -192,6 +192,32 @@ fn public_legs_net_in_any_order() {
     }
 }
 
+/// Legs the indexer stored replace the chain list, and an empty stored list
+/// is a recorded "settled nothing", so a chain withdrawal is not applied.
+#[test]
+fn recorded_settlement_legs_replace_the_chain_list() {
+    let (sender, recipient) = (keypair_from_index(1), keypair_from_index(2));
+    let mut kept = numbered(without_payment(transfer(&sender, &recipient, 70, 20)), 0);
+    kept.spl_transfers = Some(vec![deposit(100), withdrawal(110)]);
+    assert_eq!(
+        read(&sender, std::slice::from_ref(&kept), &[]),
+        [(HistoryKind::Withdrawal, 10)]
+    );
+    assert_eq!(
+        read(&sender, std::slice::from_ref(&kept), &[vec![withdrawal(1)]]),
+        [(HistoryKind::Withdrawal, 10)]
+    );
+    kept.spl_transfers = Some(vec![]);
+    assert_eq!(
+        read(
+            &sender,
+            std::slice::from_ref(&kept),
+            &[vec![withdrawal(110)]]
+        ),
+        [(HistoryKind::SelfTransfer, 20)]
+    );
+}
+
 /// Spending is inferred for each event: a payment received in another event
 /// of the same transaction is not something the wallet spent.
 #[test]

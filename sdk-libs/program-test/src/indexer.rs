@@ -425,6 +425,7 @@ pub fn shielded_transaction_from_general_event(
         nullifiers,
         proofless,
         messages: event.messages.clone(),
+        spl_transfers: Some(event.spl_transfers.clone()),
     }
 }
 

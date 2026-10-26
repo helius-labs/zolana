@@ -172,9 +172,12 @@ pub struct TransactionDetail {
 impl TransactionDetail {
     /// `events` are the shielded-pool events of one Solana transaction, as
     /// an indexer lists them by signature, each with its `event_index`.
-    /// `public` holds each event's public settlement legs at that index, as
-    /// `zolana_client::SolanaRpc::public_transfers` rebuilds them; an event
-    /// without an index, or past the list, has none.
+    /// An event whose [`ShieldedTransaction::spl_transfers`] is `Some` uses
+    /// those legs, including an empty list when it settled nothing. `public`
+    /// supplies the legs of an event that left the field `None`, at that
+    /// event's `event_index`, as
+    /// `zolana_client::SolanaRpc::public_transfers` rebuilds them from the
+    /// confirmed transaction. An event with neither has none.
     ///
     /// [`History::entries`] needs the UTXOs a transaction spent, which come
     /// from the wallet's earlier transactions. Each event says what the
@@ -219,10 +222,7 @@ impl TransactionDetail {
                     add(&mut received, utxo);
                 }
             }
-            let legs = tx
-                .event_index
-                .and_then(|index| public.get(usize::from(index)))
-                .map_or(&[][..], Vec::as_slice);
+            let legs = settlement_legs(tx, public);
             let spent = match decrypt_sent(shielded_keys, tx, assets)? {
                 Some(sent) => {
                     let paid: Vec<&SentOutput> =
@@ -242,6 +242,21 @@ impl TransactionDetail {
         detail.entries = change.entries(first.tx_signature).collect();
         Ok(detail)
     }
+}
+
+/// Legs the event itself recorded, or the chain list at `event_index` when
+/// the indexer has not stored them.
+fn settlement_legs<'a>(
+    tx: &'a ShieldedTransaction,
+    public: &'a [Vec<SplTransfer>],
+) -> &'a [SplTransfer] {
+    if let Some(legs) = &tx.spl_transfers {
+        return legs;
+    }
+    tx.event_index
+        .and_then(|index| public.get(usize::from(index)))
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
 }
 
 /// What the wallet spent in an event it sent, per mint: what came back to it,

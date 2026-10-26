@@ -18,6 +18,7 @@ import type {
   RingsMessage,
   RingsOutputContext,
   RingsOutputSlot,
+  SplTransfer,
   SignatureIndexedShieldedTransaction,
   GetRingSpendRecordResponse,
   GetUserRecordsRequest,
@@ -416,6 +417,16 @@ function outputSlot(value: unknown, path: string): RingsOutputSlot {
   };
 }
 
+function splTransfer(value: unknown, path: string): SplTransfer {
+  const record = object(value, path, ["isDeposit", "amount", "asset"]);
+  const asset = optional(record["asset"], `${path}.asset`, checkedAddress);
+  return {
+    isDeposit: boolean(record["isDeposit"], `${path}.isDeposit`),
+    amount: unboundedU64(record["amount"], `${path}.amount`),
+    ...(asset === undefined ? {} : { asset }),
+  };
+}
+
 function message(value: unknown, path: string): RingsMessage {
   const record = object(value, path, ["viewTag", "payload"]);
   return {
@@ -450,11 +461,15 @@ function indexedTransaction(value: unknown, path: string): IndexedShieldedTransa
     "proofless",
     "ringConfig",
     "ringProgramId",
+    "splTransfers",
   ]);
   const txViewingPk = optional(record["txViewingPk"], `${path}.txViewingPk`, checkedBase64);
   const salt = optional(record["salt"], `${path}.salt`, checkedBase64);
   const ringConfig = optional(record["ringConfig"], `${path}.ringConfig`, checkedAddress);
   const ringProgramId = optional(record["ringProgramId"], `${path}.ringProgramId`, checkedAddress);
+  const splTransfers = optional(record["splTransfers"], `${path}.splTransfers`, (item, itemPath) =>
+    array(item, itemPath, splTransfer),
+  );
   return {
     slot: unboundedU64(record["slot"], `${path}.slot`),
     txSignature: checkedSignature(record["txSignature"], `${path}.txSignature`),
@@ -469,6 +484,7 @@ function indexedTransaction(value: unknown, path: string): IndexedShieldedTransa
     proofless: boolean(record["proofless"], `${path}.proofless`),
     ...(ringConfig === undefined ? {} : { ringConfig }),
     ...(ringProgramId === undefined ? {} : { ringProgramId }),
+    ...(splTransfers === undefined ? {} : { splTransfers }),
   };
 }
 

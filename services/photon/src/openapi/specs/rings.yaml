@@ -1374,12 +1374,43 @@ components:
           type: integer
           format: u-int64
           minimum: 0
+        splTransfers:
+          type:
+          - array
+          - 'null'
+          items:
+            $ref: '#/components/schemas/SplTransfer'
+          description: |-
+            Public settlement legs of this event.
+
+            `None` when the indexer recorded the event before it stored them.
+            `Some([])` when the event settled nothing.
         txSignature:
           $ref: '#/components/schemas/SerializableSignature'
         txViewingPk:
           oneOf:
           - type: 'null'
           - $ref: '#/components/schemas/Base64String'
+    SplTransfer:
+      type: object
+      description: |-
+        One public settlement leg of a shielded-pool event.
+
+        `asset` is absent for native SOL. `amount` is a decimal string so a value
+        past `2^53` survives JSON.
+      required:
+      - isDeposit
+      - amount
+      properties:
+        amount:
+          type: string
+        asset:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/SerializablePubkey'
+            description: Mint. Absent for native SOL.
+        isDeposit:
+          type: boolean
     UserRecord:
       type: object
       description: A user registry record, the shielded address a Solana pubkey publishes.

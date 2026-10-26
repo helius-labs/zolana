@@ -65,6 +65,7 @@ fn publication(note: &WalletUtxo, output_slots: Vec<OutputSlot>) -> ShieldedTran
         proofless: false,
         ring_config: None,
         ring_program_id: None,
+        spl_transfers: None,
     }
 }
 

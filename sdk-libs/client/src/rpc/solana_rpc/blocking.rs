@@ -143,9 +143,11 @@ impl SolanaRpc {
     /// The public settlement legs of each shielded-pool event of
     /// `signature`, at the event's `event_index`, as
     /// [`public_transfers_from_instruction_groups`] rebuilds them from the
-    /// confirmed transaction. The indexer does not publish them, and
+    /// confirmed transaction. An indexer that has stored the legs returns
+    /// them on the event; this is how a caller fills an event whose
+    /// `spl_transfers` is absent, which
     /// [`TransactionDetail::read`](zolana_transaction::TransactionDetail::read)
-    /// needs them for a withdrawal the wallet sent.
+    /// needs for a withdrawal the wallet sent.
     pub fn public_transfers(
         &self,
         signature: &Signature,

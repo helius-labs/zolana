@@ -361,6 +361,43 @@ describe("shielded transactions by tags response", () => {
       }),
     ).toEqual({ context: { blockTime: 1n, slot: 2n }, matches: [], scannedThrough: "AQID" });
   });
+
+  it("decodes recorded settlement legs and keeps a row that predates them", () => {
+    const transaction = {
+      slot: 1,
+      txSignature: "1".repeat(64),
+      outputSlots: [],
+      messages: [],
+      nullifiers: [],
+      proofless: false,
+    };
+    const context = { blockTime: 0, slot: 1 };
+    const absent = decodeShieldedTransactionsResponse({ context, transactions: [transaction] });
+    expect(absent.transactions[0]?.splTransfers).toBeUndefined();
+
+    const empty = decodeShieldedTransactionsResponse({
+      context,
+      transactions: [{ ...transaction, splTransfers: [] }],
+    });
+    expect(empty.transactions[0]?.splTransfers).toEqual([]);
+
+    const decoded = decodeShieldedTransactionsResponse({
+      context,
+      transactions: [
+        {
+          ...transaction,
+          splTransfers: [
+            { isDeposit: false, amount: "9007199254740993", asset: RING },
+            { isDeposit: true, amount: 1 },
+          ],
+        },
+      ],
+    });
+    expect(decoded.transactions[0]?.splTransfers).toEqual([
+      { isDeposit: false, amount: 9007199254740993n, asset: RING },
+      { isDeposit: true, amount: 1n },
+    ]);
+  });
 });
 
 describe("Photon tree metadata", () => {

@@ -12,7 +12,11 @@ no longer authorizes a spend. A merge publishes its output's amount and mint
 encrypted for the owner with the scheme the owner's registry record names, so
 wallet sync recovers a default merge output from the merge transaction alone,
 and the SDK seals and proves a transaction built by a ZK program's WebAssembly
-bindings, which the program forwards to `transact` through a CPI.
+bindings, which the program forwards to `transact` through a CPI. An indexed
+shielded transaction carries `splTransfers` when the indexer stored that
+event's public settlement legs: absent when the event was indexed before
+that, and an empty list when the event settled nothing. A leg's `amount` is
+a decimal string.
 
 Breaking
 

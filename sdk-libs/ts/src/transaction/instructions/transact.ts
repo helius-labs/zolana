@@ -1778,4 +1778,13 @@ export interface IndexedShieldedTransaction {
   readonly proofless: boolean;
   readonly ringConfig?: Address;
   readonly ringProgramId?: Address;
+  /**
+   * Public settlement legs. Absent when the indexer recorded the event before
+   * it stored them. Empty when the event settled nothing.
+   */
+  readonly splTransfers?: readonly Readonly<{
+    isDeposit: boolean;
+    amount: bigint;
+    asset?: Address;
+  }>[];
 }

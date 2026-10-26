@@ -211,6 +211,7 @@ fn get_shielded_transactions_by_tags_maps_output_hashes_and_nullifiers() {
                 messages: vec![],
                 ring_config: None,
                 ring_program_id: None,
+                spl_transfers: None,
             }],
             next_cursor: Some(vec![23]),
             scanned_through: None,

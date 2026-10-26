@@ -57,6 +57,8 @@ pub enum RingsTransactions {
     Salt,
     Proofless,
     MergeViewTag,
+    /// Borsh `Vec<SplTransfer>`. NULL when the row predates settlement-leg storage.
+    SplTransfers,
 }
 
 #[derive(Copy, Clone, Iden)]

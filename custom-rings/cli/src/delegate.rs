@@ -704,6 +704,7 @@ mod tests {
                 proofless: false,
                 ring_config: None,
                 ring_program_id: Some(ring().program_id()),
+                spl_transfers: None,
             }
         }
     }

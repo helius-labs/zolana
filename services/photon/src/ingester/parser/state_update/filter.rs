@@ -305,6 +305,7 @@ mod tests {
                 input_queue_seq: 0,
                 nullifier: [7; 32],
             }],
+            spl_transfers: Vec::new(),
         }
     }
 }

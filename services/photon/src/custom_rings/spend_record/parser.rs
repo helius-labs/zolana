@@ -128,6 +128,19 @@ impl ShieldedEvent<'_> {
                 .ring_config
                 .map(|key| Pubkey::new_from_array(key).into()),
             ring_program_id: Some(program.into()),
+            spl_transfers: Some(
+                event
+                    .spl_transfers
+                    .iter()
+                    .map(|transfer| zolana_indexer_api::SplTransfer {
+                        is_deposit: transfer.is_deposit,
+                        amount: transfer.amount,
+                        asset: transfer
+                            .asset
+                            .map(|mint| Pubkey::new_from_array(mint).into()),
+                    })
+                    .collect(),
+            ),
         })
     }
 }

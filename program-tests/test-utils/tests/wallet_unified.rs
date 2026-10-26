@@ -162,6 +162,7 @@ fn fresh_sync_decrypts_chained_merges_seen_out_of_order() {
         proofless: false,
         ring_config: None,
         ring_program_id: None,
+        spl_transfers: None,
     };
     let merge_context = &merge.output_slots[0].output_context;
     let chained_nullifier = output
@@ -208,6 +209,7 @@ fn fresh_sync_decrypts_chained_merges_seen_out_of_order() {
         proofless: false,
         ring_config: None,
         ring_program_id: None,
+        spl_transfers: None,
     };
     let authority = KeypairWalletAuthority::new(Address::default(), &alice);
 
@@ -308,6 +310,7 @@ fn sync_recovers_a_compact_merge() {
         proofless: false,
         ring_config: None,
         ring_program_id: None,
+        spl_transfers: None,
     };
     let authority = KeypairWalletAuthority::new(Address::default(), &alice);
     let mut wallet = Wallet::new(alice.shielded_address().unwrap(), assets).unwrap();
@@ -383,6 +386,7 @@ fn sync_recovers_a_ring_merge_tagged_by_its_first_nullifier() {
         proofless: false,
         ring_config: None,
         ring_program_id: Some(ring),
+        spl_transfers: None,
     };
     let mut wallet = Wallet::new(alice.shielded_address().unwrap(), assets).unwrap();
     wallet.utxos.push(WalletUtxo {

@@ -635,6 +635,37 @@ pub struct RingsMessage {
     pub payload: Base64String,
 }
 
+mod u64_decimal {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(value: &u64, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&value.to_string())
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u64, D::Error> {
+        let raw = String::deserialize(deserializer)?;
+        raw.parse::<u64>()
+            .map_err(|err| serde::de::Error::custom(format!("invalid u64 decimal: {err}")))
+    }
+}
+
+/// One public settlement leg of a shielded-pool event.
+///
+/// `asset` is absent for native SOL. `amount` is a decimal string so a value
+/// past `2^53` survives JSON.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SplTransfer {
+    pub is_deposit: bool,
+    #[serde(with = "u64_decimal")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String))]
+    pub amount: u64,
+    /// Mint. Absent for native SOL.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asset: Option<SerializablePubkey>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -663,6 +694,12 @@ pub struct ShieldedTransaction {
     /// "ring whose program is unknown here".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ring_program_id: Option<SerializablePubkey>,
+    /// Public settlement legs of this event.
+    ///
+    /// `None` when the indexer recorded the event before it stored them.
+    /// `Some([])` when the event settled nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spl_transfers: Option<Vec<SplTransfer>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -394,6 +394,7 @@ fn merge(
         proofless: false,
         ring_config: None,
         ring_program_id: None,
+        spl_transfers: None,
     };
     (tx, merged)
 }
@@ -412,6 +413,7 @@ fn spend(owner: &ShieldedKeypair, input: &Note, nonce: u8) -> ShieldedTransactio
         proofless: false,
         ring_config: None,
         ring_program_id: None,
+        spl_transfers: None,
     }
 }
 
@@ -832,6 +834,7 @@ fn confidential(owner: &ShieldedKeypair, mint: Mint, nonce: u8) -> (ShieldedTran
             proofless: false,
             ring_config: None,
             ring_program_id: None,
+            spl_transfers: None,
         },
         received,
     )

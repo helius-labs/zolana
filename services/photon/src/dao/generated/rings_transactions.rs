@@ -22,6 +22,10 @@ pub struct Model {
     #[sea_orm(column_type = "VarBinary(StringLen::None)", nullable)]
     pub salt: Option<Vec<u8>>,
     pub proofless: bool,
+    /// Borsh `Vec<SplTransfer>`. NULL when this row was indexed before settlement
+    /// legs were stored; an empty encoding when the event settled nothing.
+    #[sea_orm(column_type = "VarBinary(StringLen::None)", nullable)]
+    pub spl_transfers: Option<Vec<u8>>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

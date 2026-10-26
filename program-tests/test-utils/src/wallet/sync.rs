@@ -999,6 +999,7 @@ fn proofless_deposit_from_indexed_match(
         proofless: true,
         ring_config: None,
         ring_program_id: None,
+        spl_transfers: None,
     }))
 }
 
@@ -1030,6 +1031,7 @@ fn convert_sync_transaction(
         proofless: false,
         ring_config: tx.ring_config,
         ring_program_id: tx.ring_program_id,
+        spl_transfers: None,
     })
 }
 
@@ -1147,6 +1149,7 @@ mod tests {
                     proofless: false,
                     ring_config: None,
                     ring_program_id: None,
+                    spl_transfers: None,
                 })
                 .collect();
             (transactions, next)
@@ -1198,6 +1201,7 @@ mod tests {
                     proofless: false,
                     ring_config: None,
                     ring_program_id: None,
+                    spl_transfers: None,
                 })
                 .collect();
             (transactions, next, scanned_through)
@@ -2530,6 +2534,7 @@ mod tests {
                 proofless: false,
                 ring_config: None,
                 ring_program_id: None,
+                spl_transfers: None,
             }],
             matches: Vec::new(),
             program_accounts: Vec::new(),
@@ -2858,6 +2863,7 @@ mod tests {
             proofless: false,
             ring_config: None,
             ring_program_id: None,
+            spl_transfers: None,
         }
     }
 
@@ -2916,6 +2922,7 @@ mod tests {
             proofless: false,
             ring_config: None,
             ring_program_id: None,
+            spl_transfers: None,
         }
     }
 

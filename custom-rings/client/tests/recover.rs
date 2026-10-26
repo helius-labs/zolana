@@ -165,6 +165,7 @@ impl Fixture {
             proofless: false,
             ring_config: None,
             ring_program_id: Some(RING),
+            spl_transfers: None,
         };
         (held, transaction)
     }
@@ -215,6 +216,7 @@ impl Fixture {
             proofless: false,
             ring_config: None,
             ring_program_id: Some(RING),
+            spl_transfers: None,
         };
         (held, transaction)
     }

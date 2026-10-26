@@ -9,6 +9,7 @@ pub mod m20260818_000001_rings_transactions_ring_config;
 pub mod m20260818_000002_add_ring_configs;
 pub mod m20260923_000001_ring_projection;
 pub mod m20261017_000001_custom_ring_tables;
+pub mod m20261025_000001_rings_spl_transfers;
 pub mod r20260617_000001_init;
 pub mod r20260624_000001_nullifier_queue_metadata;
 pub mod r20260810_000001_state_root_index;
@@ -31,5 +32,6 @@ pub fn get_rings_migrations() -> Vec<Box<dyn MigrationTrait>> {
         Box::new(r20260916_000001_tree_metadata_tree_id_and_state::Migration),
         Box::new(m20260923_000001_ring_projection::Migration),
         Box::new(m20261017_000001_custom_ring_tables::Migration),
+        Box::new(m20261025_000001_rings_spl_transfers::Migration),
     ]
 }

@@ -169,6 +169,7 @@ mod tests {
             proofless: true,
             ring_config: Some(pubkey(11)),
             ring_program_id: Some(pubkey(12)),
+            spl_transfers: None,
         })
         .unwrap();
 
@@ -182,6 +183,7 @@ mod tests {
         assert!(value.get("output_slots").is_none());
         assert!(value.get("ring_config").is_none());
         assert!(value.get("ring_program_id").is_none());
+        assert!(value.get("splTransfers").is_none());
 
         let message = &value["messages"][0];
         assert!(message.get("viewTag").is_some());

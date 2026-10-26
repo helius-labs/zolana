@@ -129,6 +129,16 @@ pub(super) fn convert_shielded_transaction(
         proofless: item.proofless,
         ring_config: item.ring_config.map(|key| key.0),
         ring_program_id: item.ring_program_id.map(|key| key.0),
+        spl_transfers: item.spl_transfers.map(|transfers| {
+            transfers
+                .into_iter()
+                .map(|transfer| zolana_event::SplTransfer {
+                    is_deposit: transfer.is_deposit,
+                    amount: transfer.amount,
+                    asset: transfer.asset.map(|mint| mint.0.to_bytes()),
+                })
+                .collect()
+        }),
     })
 }
 

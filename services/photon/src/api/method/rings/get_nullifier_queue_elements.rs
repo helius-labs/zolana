@@ -120,6 +120,7 @@ mod tests {
             tx_viewing_pk: Set(None),
             salt: Set(None),
             proofless: Set(false),
+            spl_transfers: Set(None),
         })
         .exec(&db)
         .await

@@ -35,6 +35,7 @@ pub(super) struct MatchedRingsTxRow {
     proofless: bool,
     ring_config: Option<Vec<u8>>,
     ring_program_id: Option<Vec<u8>>,
+    spl_transfers: Option<Vec<u8>>,
 }
 
 #[derive(FromQueryResult, Debug)]
@@ -323,6 +324,7 @@ pub(super) async fn hydrate_shielded_transactions(
                         .ring_program_id
                         .map(SerializablePubkey::try_from)
                         .transpose()?,
+                    spl_transfers: spl_transfers_from_row(row.spl_transfers)?,
                 },
             })
         })
@@ -398,7 +400,8 @@ async fn fetch_matching_rings_transactions(
             pt.salt AS salt,
             pt.proofless AS proofless,
             pt.ring_config AS ring_config,
-            rc.program_id AS ring_program_id
+            rc.program_id AS ring_program_id,
+            pt.spl_transfers AS spl_transfers
          FROM rings_transactions pt
          LEFT JOIN ring_configs rc ON rc.ring_config = pt.ring_config
          WHERE ({match_filter})
@@ -559,6 +562,28 @@ fn shielded_tx_cursor(
     encode_cursor(kind, &cursor)
 }
 
+fn spl_transfers_from_row(
+    bytes: Option<Vec<u8>>,
+) -> Result<Option<Vec<zolana_indexer_api::SplTransfer>>, PhotonApiError> {
+    let Some(bytes) = bytes else {
+        return Ok(None);
+    };
+    let transfers = crate::common::spl_transfers::decode(&bytes)
+        .map_err(|err| PhotonApiError::UnexpectedError(format!("decode settlement legs: {err}")))?;
+    Ok(Some(
+        transfers
+            .into_iter()
+            .map(|transfer| zolana_indexer_api::SplTransfer {
+                is_deposit: transfer.is_deposit,
+                amount: transfer.amount,
+                asset: transfer
+                    .asset
+                    .map(|mint| SerializablePubkey(Pubkey::new_from_array(mint))),
+            })
+            .collect(),
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -568,7 +593,7 @@ mod tests {
     };
     use crate::migration::RingsMigrator;
     use crate::monitor::tree_metadata_sync::{upsert_tree_metadata, TreeAccountData};
-    use sea_orm::{Database, EntityTrait, Set};
+    use sea_orm::{ActiveModelTrait, Database, EntityTrait, Set};
     use sea_orm_migration::MigratorTrait;
     use zolana_indexer_api::{GetRingsByNullifiersRequest, Limit};
 
@@ -617,6 +642,7 @@ mod tests {
             tx_viewing_pk: Set(None),
             salt: Set(None),
             proofless: Set(false),
+            spl_transfers: Set(None),
         })
         .exec(&db)
         .await
@@ -654,6 +680,44 @@ mod tests {
 
         assert_eq!(response.transactions.len(), 1);
         assert_eq!(response.transactions[0].nullifiers, vec![hash(3), hash(4)]);
+    }
+
+    #[tokio::test]
+    async fn settlement_legs_are_absent_until_the_row_records_them() {
+        let db = setup().await;
+        let request = GetRingsByNullifiersRequest {
+            nullifiers: vec![hash(3)],
+            cursor: None,
+            limit: Some(Limit::new(10).unwrap()),
+        };
+        let absent = get_shielded_transactions_by_nullifiers(&db, request.clone())
+            .await
+            .unwrap();
+        assert!(absent.transactions[0].spl_transfers.is_none());
+
+        let encoded = crate::common::spl_transfers::encode(&[zolana_event::SplTransfer {
+            is_deposit: false,
+            amount: 110,
+            asset: None,
+        }])
+        .unwrap();
+        rings_transactions::ActiveModel {
+            rings_tx_id: Set(1),
+            spl_transfers: Set(Some(encoded)),
+            ..Default::default()
+        }
+        .update(&db)
+        .await
+        .unwrap();
+
+        let recorded = get_shielded_transactions_by_nullifiers(&db, request)
+            .await
+            .unwrap();
+        let legs = recorded.transactions[0].spl_transfers.as_deref().unwrap();
+        assert_eq!(legs.len(), 1);
+        assert!(!legs[0].is_deposit);
+        assert_eq!(legs[0].amount, 110);
+        assert!(legs[0].asset.is_none());
     }
 
     async fn insert_output_tree_metadata(db: &DatabaseConnection) {
@@ -698,6 +762,7 @@ mod tests {
             tx_viewing_pk: Set(None),
             salt: Set(None),
             proofless: Set(false),
+            spl_transfers: Set(None),
         })
         .exec(&db)
         .await
@@ -831,6 +896,7 @@ mod tests {
             tx_viewing_pk: Set(None),
             salt: Set(None),
             proofless: Set(source_tag == zolana_event::tag::RING_DEPOSIT),
+            spl_transfers: Set(None),
         })
         .exec(db)
         .await
@@ -1080,6 +1146,7 @@ mod tests {
             tx_viewing_pk: Set(None),
             salt: Set(None),
             proofless: Set(false),
+            spl_transfers: Set(None),
         })
         .exec(&db)
         .await
