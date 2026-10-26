@@ -36,7 +36,10 @@ import {
 } from "../services/transport.js";
 
 const REQUEST_ID = "test-account";
-const MAX_BODY_BYTES = 1024 * 1024;
+// Private-tx pages carry ciphertexts. 1 MiB rejected common Photon pages after
+// a heavy fill (`API_RESPONSE_TOO_LARGE`); 4 MiB covers denser pages while the
+// sync layer still halves `pageLimit` if a response overflows.
+const MAX_BODY_BYTES = 4 * 1024 * 1024;
 
 export class ApiError extends Error {
   readonly code: `API_${string}`;
