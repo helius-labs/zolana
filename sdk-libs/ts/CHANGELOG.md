@@ -22,6 +22,10 @@ Added
   `checkProvingKeys` checks key pins the caller passes, so another package
   proves and indexes over the same transports.
 
+Fixed
+
+- `ProverClient` requests with a trailing slash remain decryptable when the gateway trims it; update the prover with the SDK.
+
 ## 0.5.0-alpha — 2026-10-23
 
 Proofs go encrypted to an attested Nitro Enclave prover by default, the devnet

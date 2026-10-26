@@ -328,3 +328,18 @@ func TestReplayedRequestsUseFreshResponseNonces(t *testing.T) {
 		})
 	}
 }
+
+func TestWrapAcceptsProxyTrailingSlashNormalization(t *testing.T) {
+	s := testServer(t)
+	for _, suffix := range []string{"", "/", "//"} {
+		target := "/v1/zolana/prove/sample" + suffix + "?id=a%20b"
+		request, responseKey := encryptedRequest(t, s, http.MethodPost, target, []byte(`{"value":1}`))
+		request.RequestURI = "/v1/zolana/prove/sample?id=a%20b"
+		request.URL.Path = "/v1/zolana/prove/sample"
+		recorder := httptest.NewRecorder()
+		s.Wrap(echo(http.StatusOK)).ServeHTTP(recorder, request)
+		if _, _, err := decryptResponse(responseKey, recorder.Body.Bytes()); err != nil {
+			t.Fatalf("%s: %v", target, err)
+		}
+	}
+}

@@ -67,12 +67,16 @@ func GPUNonce(nonce, hpkePublicKey []byte) [32]byte {
 
 // requestAAD binds the method, route and query minus every api-key parameter,
 // so a proxy can move the credential while the route and job stay bound. The
-// route is the path without GatewayPrefix, and a client binds the path below
+// route ignores trailing slashes and GatewayPrefix, and a client binds the path below
 // the prover URL it was given, so a proxy can serve the prover under any path.
 func requestAAD(method, requestURI string) []byte {
 	path, query, _ := strings.Cut(requestURI, "?")
 	if route, ok := strings.CutPrefix(path, GatewayPrefix); ok && strings.HasPrefix(route, "/") {
 		path = route
+	}
+	path = strings.TrimRight(path, "/")
+	if path == "" {
+		path = "/"
 	}
 	var kept []string
 	for _, pair := range strings.Split(query, "&") {

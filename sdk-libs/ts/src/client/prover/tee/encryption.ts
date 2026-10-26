@@ -58,15 +58,16 @@ export async function encryptRequest(
 /**
  * The method, route and query minus every `api-key` parameter, so a proxy can
  * move the credential while the route and job stay bound. The route is the
- * path without the gateway prefix, as the prover receives it; a client passes
+ * path without trailing slashes or the gateway prefix, as the prover receives it; a client passes
  * the path below its prover URL, so a proxy can serve the prover under any path.
  */
 export function requestAad(method: string, requestUri: string): string {
   const separator = requestUri.indexOf("?");
   const received = separator === -1 ? requestUri : requestUri.slice(0, separator);
-  const path = received.startsWith(`${ZOLANA_GATEWAY_PATH}/`)
+  const route = received.startsWith(`${ZOLANA_GATEWAY_PATH}/`)
     ? received.slice(ZOLANA_GATEWAY_PATH.length)
     : received;
+  const path = route.replace(/\/+$/, "") || "/";
   const query = separator === -1 ? "" : requestUri.slice(separator + 1);
   const kept = query
     .split("&")
