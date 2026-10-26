@@ -21,6 +21,18 @@ Added
   prover refusal through a `ProverRefusal` of the caller, and
   `checkProvingKeys` checks key pins the caller passes, so another package
   proves and indexes over the same transports.
+- `ClientErrorCode` adds `CLIENT_INDEXER_RESPONSE_TOO_LARGE` when an indexer
+  JSON-RPC body exceeds the client's response size ceiling.
+
+Changed
+
+- The indexer API transport accepts response bodies up to 4 MiB (was 1 MiB).
+
+Fixed
+
+- `syncWallet` halves `pageLimit` and retries the same page when the indexer
+  returns `CLIENT_INDEXER_RESPONSE_TOO_LARGE`, down to a floor of 10, instead
+  of failing the sync on a dense private-tx page.
 
 ## 0.5.0-alpha — 2026-10-23
 

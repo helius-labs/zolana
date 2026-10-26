@@ -9,7 +9,7 @@ import {
 import { runKitRpc } from "../client/kit.js";
 import { initializePoseidon } from "../hasher/index.js";
 import type { IndexerReader, KitRpcAccess } from "../client/ports.js";
-import { ClientError } from "../client/error.js";
+import { ClientError, isClientError } from "../client/error.js";
 import {
   DEFAULT_INDEXER_POLL_CONFIG,
   type IndexerPollConfig,
@@ -48,6 +48,34 @@ import {
 
 const addressEncoder = getAddressEncoder();
 const base64Decoder = getBase64Decoder();
+
+/** Floor when sync halves `pageLimit` after `CLIENT_INDEXER_RESPONSE_TOO_LARGE`. */
+const MIN_SYNC_PAGE_LIMIT = 10;
+
+function isIndexerResponseTooLarge(error: unknown): boolean {
+  return isClientError(error) && error.code === "CLIENT_INDEXER_RESPONSE_TOO_LARGE";
+}
+
+/**
+ * Runs an indexer page fetch, and if the response exceeds the client body
+ * ceiling, halves `page.limit` and retries the same cursor. Shared across
+ * collectors so a learned limit sticks for the rest of the sync.
+ */
+async function withAdaptivePageLimit<T>(
+  page: { limit: number },
+  request: (limit: number) => Promise<T>,
+): Promise<T> {
+  for (;;) {
+    try {
+      return await request(page.limit);
+    } catch (error) {
+      if (!isIndexerResponseTooLarge(error) || page.limit <= MIN_SYNC_PAGE_LIMIT) {
+        throw error;
+      }
+      page.limit = Math.max(MIN_SYNC_PAGE_LIMIT, Math.floor(page.limit / 2));
+    }
+  }
+}
 const base64Encoder = getBase64Encoder();
 
 /** Kit access is required only when the wallet holds a mint the registry cannot resolve. */
@@ -309,7 +337,8 @@ interface CollectByTagsInput {
     "getEncryptedUtxosByTags" | "getShieldedTransactionsByTags"
   >;
   readonly chunk: readonly Bytes32[];
-  readonly pageLimit: number;
+  /** Mutable so a too-large page can shrink the limit for the rest of the sync. */
+  readonly page: { limit: number };
   readonly nextRpcConfig: () => IndexerRpcConfig;
   readonly out: Map<string, IndexedShieldedTransaction>;
   /** Where this group of tags was read to last sync, or undefined for never. */
@@ -354,10 +383,12 @@ async function collectShieldedTransactions(
   context?: RequestContext,
 ): Promise<Uint8Array | undefined> {
   return readChunk("getShieldedTransactionsByTags", input.from, async (cursor) => {
-    const response = await input.indexer.getShieldedTransactionsByTags(
-      { tags: input.chunk, limit: input.pageLimit, ...(cursor === undefined ? {} : { cursor }) },
-      input.nextRpcConfig(),
-      context,
+    const response = await withAdaptivePageLimit(input.page, (limit) =>
+      input.indexer.getShieldedTransactionsByTags(
+        { tags: input.chunk, limit, ...(cursor === undefined ? {} : { cursor }) },
+        input.nextRpcConfig(),
+        context,
+      ),
     );
     for (const transaction of response.transactions) {
       // Photon can surface a proofless deposit here before flagging it. Those
@@ -379,10 +410,12 @@ async function collectProoflessDeposits(
   context?: RequestContext,
 ): Promise<Uint8Array | undefined> {
   return readChunk("getEncryptedUtxosByTags", input.from, async (cursor) => {
-    const response = await input.indexer.getEncryptedUtxosByTags(
-      { tags: input.chunk, limit: input.pageLimit, ...(cursor === undefined ? {} : { cursor }) },
-      input.nextRpcConfig(),
-      context,
+    const response = await withAdaptivePageLimit(input.page, (limit) =>
+      input.indexer.getEncryptedUtxosByTags(
+        { tags: input.chunk, limit, ...(cursor === undefined ? {} : { cursor }) },
+        input.nextRpcConfig(),
+        context,
+      ),
     );
     for (const match of response.matches) {
       if (match.txViewingPk !== undefined || match.salt !== undefined) continue;
@@ -437,7 +470,8 @@ function groupByResumePoint(
 interface CollectByNullifiersInput {
   readonly indexer: Pick<IndexerReader, "getShieldedTransactionsByNullifiers">;
   readonly chunk: readonly Bytes32[];
-  readonly pageLimit: number;
+  /** Mutable so a too-large page can shrink the limit for the rest of the sync. */
+  readonly page: { limit: number };
   readonly nextRpcConfig: () => IndexerRpcConfig;
   readonly out: Map<string, IndexedShieldedTransaction>;
   /** Where this chunk was read to last time, if it has been read before. */
@@ -457,14 +491,16 @@ async function collectShieldedTransactionsByNullifiers(
   context?: RequestContext,
 ): Promise<Uint8Array | undefined> {
   return readChunk("getShieldedTransactionsByNullifiers", input.start, async (cursor) => {
-    const response = await input.indexer.getShieldedTransactionsByNullifiers(
-      {
-        nullifiers: input.chunk,
-        limit: input.pageLimit,
-        ...(cursor === undefined ? {} : { cursor }),
-      },
-      input.nextRpcConfig(),
-      context,
+    const response = await withAdaptivePageLimit(input.page, (limit) =>
+      input.indexer.getShieldedTransactionsByNullifiers(
+        {
+          nullifiers: input.chunk,
+          limit,
+          ...(cursor === undefined ? {} : { cursor }),
+        },
+        input.nextRpcConfig(),
+        context,
+      ),
     );
     for (const transaction of response.transactions) {
       if (transaction.proofless) continue;
@@ -520,7 +556,9 @@ async function runWalletSync(
 ): Promise<SyncReport> {
   try {
     const chunkSize = positiveInteger(input.config?.queryChunk ?? 64, "queryChunk");
-    const pageLimit = positiveInteger(input.config?.pageLimit ?? 1_000, "pageLimit", 1_000);
+    const page = {
+      limit: positiveInteger(input.config?.pageLimit ?? 1_000, "pageLimit", 1_000),
+    };
     const clientConfig = input.client.indexerConfig;
     const poll = input.config?.retry ?? clientConfig?.poll ?? DEFAULT_INDEXER_POLL_CONFIG;
     const decryptConfig = {
@@ -566,7 +604,7 @@ async function runWalletSync(
             {
               indexer: input.client,
               chunk,
-              pageLimit,
+              page,
               nextRpcConfig,
               out: stream === "transactions" ? transactions : deposits,
               from: group.from,
@@ -592,7 +630,7 @@ async function runWalletSync(
             {
               indexer: input.client,
               chunk,
-              pageLimit,
+              page,
               nextRpcConfig,
               out: transactions,
               ...(group.from === undefined ? {} : { start: group.from }),

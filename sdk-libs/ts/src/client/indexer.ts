@@ -589,6 +589,12 @@ export function wrapIndexer(cause: unknown, method: string): ClientError {
       cause,
     });
   }
+  if (code === "API_RESPONSE_TOO_LARGE") {
+    return new ClientError("CLIENT_INDEXER_RESPONSE_TOO_LARGE", {
+      details: { method },
+      cause,
+    });
+  }
   if (code === "API_INVALID_RESULT") {
     return new ClientError("CLIENT_INVALID_RPC_RESPONSE", {
       details: { method, ...safePath(cause) },

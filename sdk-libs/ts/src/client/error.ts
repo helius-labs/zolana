@@ -101,6 +101,8 @@ export interface ClientErrorDetailsMap {
   readonly CLIENT_RPC: Readonly<{ method?: string; reason?: string }>;
   /** Carries no response text: an indexer body can hold caller data. */
   readonly CLIENT_INDEXER: Readonly<{ method: string; retryable: boolean }>;
+  /** Indexer JSON-RPC body exceeded the client's response size ceiling. */
+  readonly CLIENT_INDEXER_RESPONSE_TOO_LARGE: MethodDetails;
   readonly CLIENT_UNSUPPORTED_RPC_METHOD: MethodDetails;
   readonly CLIENT_INDEXER_TIMEOUT:
     | Readonly<{
@@ -252,6 +254,7 @@ export const TYPESCRIPT_CLIENT_ERROR_CODES = Object.freeze([
   "CLIENT_REQUEST",
   "CLIENT_INVALID_POLL_CONFIG",
   "CLIENT_INVALID_INDEXER",
+  "CLIENT_INDEXER_RESPONSE_TOO_LARGE",
   "CLIENT_PROOF_POINT",
   "CLIENT_PROOF_TREE_MISMATCH",
   "CLIENT_INPUT_TREE_ROOT_MISMATCH",
@@ -390,6 +393,7 @@ const DETAIL_SHAPES: Partial<Readonly<Record<ClientErrorCode, DetailShape>>> = {
   CLIENT_NULLIFIER_PROOF_TREE_MISMATCH: { index: "number" },
   CLIENT_RPC: { method: "string", reason: "string" },
   CLIENT_INDEXER: { method: "string", retryable: "boolean" },
+  CLIENT_INDEXER_RESPONSE_TOO_LARGE: { method: "string" },
   CLIENT_UNSUPPORTED_RPC_METHOD: { method: "string" },
   CLIENT_INDEXER_TIMEOUT: { signature: "string", expectedTags: "number", attempts: "number" },
   CLIENT_INDEXER_NOT_CAUGHT_UP: { target: "string", latest: "string", attempts: "number" },

@@ -13,6 +13,7 @@ import {
   Wallet,
   type ShieldedKeys,
 } from "../../../src/transaction/index.js";
+import { ClientError } from "../../../src/client/error.js";
 import { syncWallet, type SyncClient } from "../../../src/wallet/index.js";
 import fixture from "../../../vectors/wallet-sync-tags-v1.json" with { type: "json" };
 
@@ -128,6 +129,47 @@ describe("wallet sync stable-tag vectors", () => {
     expect(recorded.shielded[0]?.limit).toBe(1000);
     expect(recorded.deposits[0]?.limit).toBe(1000);
     expect(recorded.nullifiers).not.toHaveBeenCalled();
+  });
+
+
+  it("halves pageLimit and retries when an indexer page is too large", async () => {
+    const owner = keypair();
+    const limits: number[] = [];
+    let attempts = 0;
+    const client: SyncClient = {
+      getShieldedTransactionsByTags: (request) => {
+        limits.push(request.limit ?? -1);
+        attempts += 1;
+        if (attempts === 1) {
+          return Promise.reject(
+            new ClientError("CLIENT_INDEXER_RESPONSE_TOO_LARGE", {
+              details: { method: "getShieldedTransactionsByTags" },
+            }),
+          );
+        }
+        return Promise.resolve({ context: { blockTime: 0n, slot: 1n }, transactions: [] });
+      },
+      getEncryptedUtxosByTags: (request) => {
+        limits.push(request.limit ?? -1);
+        return Promise.resolve({ context: { blockTime: 0n, slot: 1n }, matches: [] });
+      },
+      getShieldedTransactionsByNullifiers: async () => ({
+        context: { blockTime: 0n, slot: 1n },
+        transactions: [],
+      }),
+    };
+
+    await syncWallet({
+      wallet: new Wallet({ identity: owner.shieldedAddress() }),
+      keys: keysFor(owner, [owner.viewingKey()]),
+      client,
+      config: { pageLimit: 200 },
+    });
+
+    expect(limits[0]).toBe(200);
+    expect(limits[1]).toBe(100);
+    // Deposit collector inherits the shrunk limit from the shared page state.
+    expect(limits[2]).toBe(100);
   });
 
   for (const item of fixture.cases as readonly Case[]) {
