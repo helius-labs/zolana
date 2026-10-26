@@ -131,7 +131,6 @@ describe("wallet sync stable-tag vectors", () => {
     expect(recorded.nullifiers).not.toHaveBeenCalled();
   });
 
-
   it("halves pageLimit and retries when an indexer page is too large", async () => {
     const owner = keypair();
     const limits: number[] = [];
