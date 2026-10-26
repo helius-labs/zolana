@@ -65,7 +65,9 @@ type IndexerAnswer =
 /**
  * Photon persists every event of a transaction atomically. One visible event
  * therefore proves its private effects are indexed, even after the RPC cache
- * forgets it. An empty answer is evidence only after the expiry watermark.
+ * forgets it. An empty answer establishes expiry only after the indexer has
+ * processed through the slot where we first observed a confirmed block height
+ * beyond the saved last valid height.
  *
  * Each round asks Solana and the indexer at once. A lookup that failed is
  * asked again next round, unless waiting cannot fix it: an RPC without the

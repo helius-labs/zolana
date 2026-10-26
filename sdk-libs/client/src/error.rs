@@ -418,8 +418,8 @@ pub enum ClientError {
     #[error("indexer did not observe the transaction before the poll timeout")]
     IndexerTimeout,
 
-    /// Absent from chain history and a complete indexer through the confirmed
-    /// bank that proved the blockhash expired. A replacement is safe.
+    /// Absent from chain history and a complete indexer through the slot where
+    /// blockhash expiry was first observed. A replacement is safe.
     #[error("transaction {signature} expired without succeeding")]
     TransactionExpired {
         signature: solana_signature::Signature,

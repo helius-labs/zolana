@@ -322,7 +322,7 @@
     "outcome": "unknown"
   },
   {
-    "name": "indexer catches the first expiry bank while the chain advances",
+    "name": "indexer reaches the slot where expiry was first observed while the chain advances",
     "lastValidBlockHeight": 100,
     "rounds": [
       {

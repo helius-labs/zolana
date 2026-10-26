@@ -115,7 +115,7 @@ validator and Photon: it drops a real deposit's send response, recovers from a
 fresh client, and checks indexed success with a hung status request. It also
 signs a deposit without sending it, waits for its blockhash to expire, rejects
 a cached Photon response from before expiry, then permits replacement once
-Photon has persisted through the expiry bank. `just test-ts-e2e` includes this
+Photon has processed through the slot where expiry was observed. `just test-ts-e2e` includes this
 suite; these deposit and recovery cases do not require a prover.
 
 Use this for deposits, transfers, withdrawals and merges. Registration uses

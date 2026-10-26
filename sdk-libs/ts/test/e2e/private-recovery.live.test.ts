@@ -115,7 +115,7 @@ describe("private recovery with a validator and Photon", { concurrent: false }, 
     expect(sends).toBe(1);
   }, 60_000);
 
-  it("requires Photon to persist through the expiry bank before allowing replacement", async () => {
+  it("requires Photon to process the slot where expiry was observed before allowing replacement", async () => {
     const fresh = await client();
     const owner = await actor(fresh, 202);
     const airdrop = await fresh.solanaRpc

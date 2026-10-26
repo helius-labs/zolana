@@ -81,9 +81,10 @@ the native RPC when the application needs this recovery flow.
 The wait uses the client's poll schedule, bounded by 60 seconds including
 requests. Timeouts never prove expiry. Each round reads Solana's signature
 history and the indexer together; after confirmation, only the indexer is
-polled. Expiry requires an absent signature, a confirmed bank past the saved
-block height, and an indexer persisted through that bank's slot without the
-event. The first expiry bank remains the watermark while indexing catches up.
+polled. Expiry requires an absent signature and a confirmed block height beyond the
+saved last valid height. The indexer must have processed through the slot where
+expiry was first observed, without finding the transaction's event. That slot
+stays fixed while the indexer catches up.
 Indexed evidence survives an RPC timeout; a confirmed chain failure takes
 precedence.
 
