@@ -391,71 +391,6 @@ fn a_legacy_transaction_is_not_sent() {
     assert!(matches!(error, ClientError::UnsupportedTransactionVersion));
 }
 
-/// Private transaction recovery reads the expiry watermark's block height and
-/// slot from one confirmed bank, whatever commitment the client was built
-/// with, and asks for the signature's status beyond the recent cache.
-#[test]
-fn recovery_reads_pin_confirmed_commitment_and_search_history() {
-    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
-    let address = listener.local_addr().expect("local address");
-    let (sender, receiver) = mpsc::channel();
-    thread::spawn(move || {
-        for result in [
-            json!({ "context": { "slot": 7 }, "value": [null] }),
-            json!({
-                "epoch": 0,
-                "slotIndex": 7,
-                "slotsInEpoch": 432000,
-                "absoluteSlot": 7,
-                "blockHeight": 6,
-                "transactionCount": null,
-            }),
-        ] {
-            let (stream, body) = read_request(&listener);
-            respond(stream, &body["id"], result);
-            sender.send(body).expect("test still listening");
-        }
-    });
-
-    let rpc = SolanaRpc::with_client(RpcClient::new_with_commitment(
-        format!("http://{address}"),
-        CommitmentConfig::processed(),
-    ));
-    let signature = Signature::from([7; 64]);
-    assert_eq!(
-        rpc.get_signature_statuses_with_history(vec![signature])
-            .expect("statuses"),
-        vec![None]
-    );
-    let info = rpc.get_epoch_info().expect("epoch info");
-    assert_eq!((info.block_height, info.absolute_slot), (6, 7));
-
-    let statuses = receiver
-        .recv_timeout(Duration::from_secs(5))
-        .expect("statuses request");
-    assert_eq!(statuses["method"], "getSignatureStatuses");
-    assert_eq!(
-        statuses["params"],
-        json!([[signature.to_string()], { "searchTransactionHistory": true }])
-    );
-    let epoch = receiver
-        .recv_timeout(Duration::from_secs(5))
-        .expect("epoch request");
-    assert_eq!(epoch["method"], "getEpochInfo");
-    assert_eq!(epoch["params"], json!([{ "commitment": "confirmed" }]));
-}
-
-fn respond(mut stream: TcpStream, id: &Value, result: Value) {
-    let body = json!({ "jsonrpc": "2.0", "result": result, "id": id }).to_string();
-    let response = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-        body.len()
-    );
-    stream
-        .write_all(response.as_bytes())
-        .expect("write response");
-}
-
 struct SendTransactionRequest {
     stream: TcpStream,
     id: Value,
@@ -463,21 +398,6 @@ struct SendTransactionRequest {
 }
 
 fn read_send_transaction(listener: &TcpListener) -> SendTransactionRequest {
-    let (stream, body) = read_request(listener);
-    assert_eq!(body["method"].as_str(), Some("sendTransaction"));
-    let encoded = body["params"]
-        .get(0)
-        .and_then(Value::as_str)
-        .expect("base64 transaction")
-        .to_owned();
-    SendTransactionRequest {
-        stream,
-        id: body["id"].clone(),
-        encoded,
-    }
-}
-
-fn read_request(listener: &TcpListener) -> (TcpStream, Value) {
     let started = Instant::now();
     listener.set_nonblocking(true).expect("nonblocking");
     let mut stream = loop {
@@ -486,11 +406,11 @@ fn read_request(listener: &TcpListener) -> (TcpStream, Value) {
             Err(error) if error.kind() == ErrorKind::WouldBlock => {
                 assert!(
                     started.elapsed() < Duration::from_secs(5),
-                    "timed out waiting for a request"
+                    "timed out waiting for sendTransaction"
                 );
                 thread::sleep(Duration::from_millis(10));
             }
-            Err(error) => panic!("accept request: {error}"),
+            Err(error) => panic!("accept sendTransaction: {error}"),
         }
     };
     stream.set_nonblocking(false).expect("blocking");
@@ -522,10 +442,20 @@ fn read_request(listener: &TcpListener) -> (TcpStream, Value) {
     let body_at = header_end + 4;
     while buf.len() < body_at + content_length {
         let read = stream.read(&mut chunk).expect("read body");
-        assert!(read > 0, "truncated request body");
+        assert!(read > 0, "truncated sendTransaction body");
         buf.extend_from_slice(&chunk[..read]);
     }
-    let body: Value =
-        serde_json::from_slice(&buf[body_at..body_at + content_length]).expect("request json");
-    (stream, body)
+    let body: Value = serde_json::from_slice(&buf[body_at..body_at + content_length])
+        .expect("sendTransaction json");
+    assert_eq!(body["method"].as_str(), Some("sendTransaction"));
+    let encoded = body["params"]
+        .get(0)
+        .and_then(Value::as_str)
+        .expect("base64 transaction")
+        .to_owned();
+    SendTransactionRequest {
+        stream,
+        id: body["id"].clone(),
+        encoded,
+    }
 }

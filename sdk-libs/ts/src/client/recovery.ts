@@ -1,4 +1,4 @@
-import type { Commitment, Signature } from "@solana/kit";
+import type { Signature } from "@solana/kit";
 import { wireDecoder } from "../interface/decode.js";
 import type { RequestContext } from "../interface/types.js";
 import { ClientError, isClientError, type ClientErrorCode } from "./error.js";
@@ -7,33 +7,24 @@ import { runKitRpc } from "./kit.js";
 import type { KitRpcAccess, PrivateTransactionReader } from "./ports.js";
 import type { GetShieldedTransactionsBySignatureResponse } from "./rpc.js";
 import { backoff, isRetryable, type IndexerPollConfig } from "./retry.js";
-import {
-  decodeTransactionError,
-  UNRECOGNIZED_TRANSACTION_ERROR,
-  type DecodedTransactionError,
-} from "./transaction-error.js";
-
 const DEFAULT_WAIT_TIMEOUT_MS = 60_000;
 const MAX_U64 = 0xffff_ffff_ffff_ffffn;
 
 /** Only the evidence needed for confirmation; server error text never escapes. */
 interface SignatureStatus {
-  readonly slot: bigint;
-  readonly commitment: Commitment | null;
-  readonly error: DecodedTransactionError;
+  readonly confirmed: boolean;
+  readonly failed: boolean;
 }
 
-export async function readSignatureStatus(
+async function readSignatureStatus(
   client: KitRpcAccess,
   signature: Signature,
   context?: RequestContext,
-  searchTransactionHistory = false,
 ): Promise<SignatureStatus | null> {
   const response: unknown = await runKitRpc("getSignatureStatuses", context, (abortSignal) =>
-    (searchTransactionHistory
-      ? client.solanaRpc.getSignatureStatuses([signature], { searchTransactionHistory })
-      : client.solanaRpc.getSignatureStatuses([signature])
-    ).send({ abortSignal }),
+    client.solanaRpc
+      .getSignatureStatuses([signature], { searchTransactionHistory: true })
+      .send({ abortSignal }),
   );
   const decode = wireDecoder((path) => invalidResponse("getSignatureStatuses", path));
   const values = decode.list(decode.record(response, "result")["value"], "result.value");
@@ -51,30 +42,10 @@ export async function readSignatureStatus(
     throw invalidResponse("getSignatureStatuses", "confirmationStatus");
   if (!Object.hasOwn(status, "err")) throw invalidResponse("getSignatureStatuses", "err");
   return {
-    slot: rpcU64(status["slot"], "getSignatureStatuses"),
-    commitment: reached ?? null,
-    error: decodeTransactionError(status["err"]),
+    confirmed: reached === "confirmed" || reached === "finalized",
+    // Any non-null error is failure evidence. Never copy server text into errors.
+    failed: status["err"] !== null,
   };
-}
-
-export function commitmentReached(reached: Commitment | null, required: Commitment): boolean {
-  if (reached === null) return false;
-  return (
-    reached === "finalized" ||
-    (required !== "finalized" && (reached === "confirmed" || required === "processed"))
-  );
-}
-
-export function transactionFailed(
-  signature: Signature,
-  error: Exclude<DecodedTransactionError, { kind: "success" }>,
-): ClientError {
-  return new ClientError("CLIENT_TRANSACTION_FAILED", {
-    details: {
-      signature,
-      transactionError: error.kind === "failed" ? error.text : UNRECOGNIZED_TRANSACTION_ERROR,
-    },
-  });
 }
 
 /** What one round learned from Solana. */
@@ -144,15 +115,15 @@ export async function waitForPrivateTransaction(
     if (confirmed) return round;
     let status: SignatureStatus | null;
     try {
-      status = await readSignatureStatus(client, signature, attemptContext, true);
+      status = await readSignatureStatus(client, signature, attemptContext);
     } catch (error) {
       failedLookup(error, round);
       return round;
     }
     if (status !== null) {
-      if (commitmentReached(status.commitment, "confirmed")) {
-        if (status.error.kind !== "success") {
-          chainFailure = transactionFailed(signature, status.error);
+      if (status.confirmed) {
+        if (status.failed) {
+          chainFailure = new ClientError("CLIENT_TRANSACTION_FAILED", { details: { signature } });
           throw chainFailure;
         }
         confirmed = true;

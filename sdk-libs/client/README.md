@@ -60,52 +60,37 @@ blockhash request. Merge submissions use the same rule.
 The ten-second limit controls prefetch reuse; blockhash expiration follows chain
 state and the returned `last_valid_block_height`.
 
-After a lost send response or a restart,
+After a lost send response or a restart, call
 `wait_for_private_transaction_sync(signature, last_valid_block_height)`
-(async: `wait_for_private_transaction`) recovers a deposit, transfer, withdrawal
-or merge. Save the **signed transaction's signature and last valid block height
-before sending**, alongside its wallet reservations. Use `finish_unsigned` and
-sign explicitly when the application needs this checkpoint. `Submission::send`
-recovers a send whose response was lost within its own wait, but persists no
-checkpoint across a restart.
-After broadcast, service failures from `Submission::send` and
-`MergeSubmission::send` return `PrivateTransactionRecoveryFailed` with the
-signature, last valid block height and original `source` error. Save those
-coordinates before retrying the wait; inspect `source` for a confirmed chain
-failure. Transaction-specific expiry and unresolved outcomes retain their
-existing variants and signature fields.
+(async: `wait_for_private_transaction`) on a client using `SolanaRpc` /
+`AsyncSolanaRpc`. Recovery uses the native Solana client directly and never
+signs, sends or rebuilds. Save the **signed transaction's signature and last
+valid block height before sending**, together with the wallet's reservations.
+Use `finish_unsigned`, sign explicitly, save the checkpoint, then send through
+the native RPC when the application needs this recovery flow.
 
 | Outcome | Application action |
 | --- | --- |
 | `Ok(())` | Private effects are indexed; sync and persist the wallet. |
 | Confirmed chain error | Report the rejected transaction and sync before another attempt. |
-| `TransactionExpired` | No private effects through the expiry slot; sync before building a replacement. |
-| `TransactionNotIndexed` | Confirmed, but effects are not yet readable; keep the checkpoint and wait again. |
-| `TransactionOutcomeUnknown` | Keep the checkpoint and reservations; wait again with the same signature. |
-| Any other error | The RPC or indexer cannot answer as configured; keep the checkpoint, fix the service and wait again. |
+| `TransactionExpired` | Expired with no private effects; sync before building a replacement. |
+| `TransactionNotIndexed` | Confirmed, but not indexed; keep the checkpoint and wait again. |
+| `TransactionOutcomeUnknown` | Keep the checkpoint and reservations; wait again. |
+| Any other error | Keep the checkpoint, fix the service and wait again. |
 
-`confirm_private_transaction` uses the same recovery engine without an expiry
-height. Its unresolved errors are now `TransactionNotIndexed` and
-`TransactionOutcomeUnknown`, replacing the former indexer timeout errors.
-Both methods stop at the poll limit or a 60-second overall deadline, including
-requests; `with_transaction_wait_timeout` adjusts that deadline. Timeouts never
-prove expiry. An indexed event received before the deadline still proves success
-if the RPC never answers; a confirmed chain failure read before it takes precedence.
-With a blocking RPC adapter, its underlying request may outlive
-the wait, so configure the adapter's own transport timeout too.
+The wait uses the client's poll schedule, bounded by 60 seconds including
+requests. Timeouts never prove expiry. Each round reads Solana's signature
+history and the indexer together; after confirmation, only the indexer is
+polled. Expiry requires an absent signature, a confirmed bank past the saved
+block height, and an indexer persisted through that bank's slot without the
+event. The first expiry bank remains the watermark while indexing catches up.
+Indexed evidence survives an RPC timeout; a confirmed chain failure takes
+precedence.
 
-The RPC and complete private-event indexer must serve the same network. Expiry
-is read at confirmed commitment from one `getEpochInfo` answer. Each round
-makes one history-enabled signature status request, covering recent sends and
-restart recovery through the same path. A custom recovery RPC adapter implements
-`get_signature_statuses_with_history` and `get_epoch_info`. Once confirmed, only
-the indexer is polled. The first observed expiry bank remains the watermark while
-the indexer catches up.
-`Submission::send` and `MergeSubmission::send` broadcast once through
-`send_transaction_with_config` with confirmed preflight, then use that recovery
-wait instead of the adapter's combined send-and-confirm method.
-Registration, arbitrary program calls, and durable-nonce transactions do not
-fit this contract. Recovery never sends or rebuilds.
+Use a complete private-event indexer on the RPC's network. This applies to
+deposits, transfers, withdrawals and merges with recent blockhashes. Omit the
+height if unknown; recovery then cannot establish expiry. Existing submission
+and confirmation methods retain their behavior.
 See the [restart recovery example](../../sdk-tests/client/rust/recover_private_transaction.rs).
 
 `Submission::with_prover(Arc<dyn Prover>)` proves one submission with a

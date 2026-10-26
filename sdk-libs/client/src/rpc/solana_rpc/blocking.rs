@@ -6,7 +6,6 @@ use std::{
 use solana_account::Account;
 use solana_address::Address;
 use solana_commitment_config::CommitmentConfig;
-use solana_epoch_info::EpochInfo;
 use solana_hash::Hash;
 use solana_pubkey::Pubkey;
 use solana_rpc_client::{
@@ -254,22 +253,6 @@ impl Rpc for SolanaRpc {
             .get_signature_statuses(&signatures)
             .map(|response| response.value)
             .map_err(|err| ClientError::Rpc(format!("get_signature_statuses: {err}")))
-    }
-
-    fn get_signature_statuses_with_history(
-        &self,
-        signatures: Vec<Signature>,
-    ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
-        self.client
-            .get_signature_statuses_with_history(&signatures)
-            .map(|response| response.value)
-            .map_err(|err| ClientError::Rpc(format!("get_signature_statuses_with_history: {err}")))
-    }
-
-    fn get_epoch_info(&self) -> Result<EpochInfo, ClientError> {
-        self.client
-            .get_epoch_info_with_commitment(CommitmentConfig::confirmed())
-            .map_err(|err| ClientError::Rpc(format!("get_epoch_info: {err}")))
     }
 
     fn health(&self) -> Result<(), ClientError> {

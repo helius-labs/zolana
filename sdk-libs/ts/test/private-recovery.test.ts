@@ -1,7 +1,6 @@
 import { signature } from "@solana/kit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import vectors from "../../../test-vectors/private_transaction_confirmation.json" with { type: "json" };
-import transactionErrors from "../../../test-vectors/solana_transaction_errors.json" with { type: "json" };
 import { ClientError, ZolanaClient } from "../src/client/index.js";
 import { isRetryable, retryCause, waitForProjection } from "../src/client/retry.js";
 import { wireDecoder } from "../src/interface/decode.js";
@@ -35,6 +34,7 @@ function harness(
     malformedIndexer?: boolean;
     fatalIndexer?: boolean;
     transactionError?: unknown;
+    omitError?: boolean;
     statusAwaitsIndexer?: boolean;
     historyOnly?: boolean;
   }> = {},
@@ -86,7 +86,13 @@ function harness(
             : {
                 slot: 42,
                 confirmations: 0,
-                err: round.failed ? (options.transactionError ?? "InsufficientFundsForFee") : null,
+                ...(options.omitError
+                  ? {}
+                  : {
+                      err: round.failed
+                        ? (options.transactionError ?? "InsufficientFundsForFee")
+                        : null,
+                    }),
                 ...(round.status === "missing" ? {} : { confirmationStatus: round.status }),
               };
         result = {
@@ -215,7 +221,7 @@ describe("legacy error compatibility", () => {
   });
 });
 
-describe("private confirmation and recovery", () => {
+describe("private transaction recovery", () => {
   it.each(vectors)("matches Rust: $name", async (vector) => {
     const fixture = harness(vector.rounds);
     const height =
@@ -246,19 +252,6 @@ describe("private confirmation and recovery", () => {
     });
     expect(fixture.methods).not.toContain("getBlockHeight");
     expect(fixture.methods).not.toContain("getSlot");
-  });
-
-  it("uses recovery for confirmPrivateTransaction when the RPC cache has evicted the signature", async () => {
-    const fixture = harness([{ ...DEFAULT_ROUND, indexed: true }]);
-    await fixture.client.confirmPrivateTransaction(SIGNATURE);
-    expect(sorted(fixture.methods)).toEqual([
-      "getShieldedTransactionsBySignature",
-      "getSignatureStatuses",
-    ]);
-    expect(fixture.requests).toContainEqual({
-      method: "getSignatureStatuses",
-      params: [[SIGNATURE], { searchTransactionHistory: true }],
-    });
   });
 
   it("a history miss cannot prove expiry while the blockhash is still valid", async () => {
@@ -295,17 +288,14 @@ describe("private confirmation and recovery", () => {
     expect(fixture.indexerReads()).toBe(3);
   });
 
-  it("reports a confirmed failure with the chain's error, not as a retryable RPC blip", async () => {
+  it("reports a confirmed failure as terminal", async () => {
     const fixture = harness([{ ...DEFAULT_ROUND, status: "finalized", failed: true }], {
       transactionError: { InstructionError: [0, { Custom: 7001 }] },
     });
     const error = await rejection(fixture.client.waitForPrivateTransaction(SIGNATURE, 100n));
     expect(error).toMatchObject({
       code: "CLIENT_TRANSACTION_FAILED",
-      details: {
-        signature: SIGNATURE,
-        transactionError: '{"InstructionError":[0,{"Custom":7001}]}',
-      },
+      details: { signature: SIGNATURE },
     });
     expect(isRetryable(error)).toBe(false);
   });
@@ -320,34 +310,12 @@ describe("private confirmation and recovery", () => {
     const error = await rejection(fixture.client.waitForPrivateTransaction(SIGNATURE, 100n));
     expect(error).toMatchObject({
       code: "CLIENT_TRANSACTION_FAILED",
-      details: { signature: SIGNATURE, transactionError: "Unrecognized" },
+      details: { signature: SIGNATURE },
     });
     expect(JSON.stringify(error)).not.toContain("secret");
     expect(isRetryable(error)).toBe(false);
     expect(fixture.methods).not.toContain("getEpochInfo");
   });
-
-  it.each(transactionErrors)(
-    "decodes Rust's transaction error encoding: %j",
-    async (transactionError) => {
-      const fixture = harness([{ ...DEFAULT_ROUND, status: "finalized", failed: true }], {
-        transactionError,
-      });
-      await expect(fixture.client.waitForPrivateTransaction(SIGNATURE, 100n)).rejects.toMatchObject(
-        {
-          code: "CLIENT_TRANSACTION_FAILED",
-          details: {
-            signature: SIGNATURE,
-            transactionError:
-              typeof transactionError === "string"
-                ? transactionError
-                : JSON.stringify(transactionError),
-          },
-        },
-      );
-      expect(fixture.methods).not.toContain("sendTransaction");
-    },
-  );
 
   it.each([
     false,
@@ -373,26 +341,22 @@ describe("private confirmation and recovery", () => {
     { ProgramExecutionTemporarilyRestricted: { account_index: -1 } },
     { AlreadyProcessed: null },
     { DuplicateInstruction: 0, ApiKey: "SecretToken123" },
-  ])("rejects malformed transaction errors without exposing them: %j", async (transactionError) => {
-    const fixture = harness([{ ...DEFAULT_ROUND, status: "finalized", failed: true }], {
-      transactionError,
-    });
-    const error = await rejection(fixture.client.confirmTransaction(SIGNATURE));
-    expect(error).toMatchObject({
-      code: "CLIENT_INVALID_RPC_RESPONSE",
-      details: { method: "getSignatureStatuses", path: "err" },
-    });
-    expect(JSON.stringify(error)).not.toContain("SecretToken123");
-    expect(fixture.methods).toEqual(["getSignatureStatuses"]);
-    const waited = await rejection(fixture.client.waitForPrivateTransaction(SIGNATURE, 100n));
-    expect(waited).toMatchObject({
-      code: "CLIENT_TRANSACTION_FAILED",
-      details: { signature: SIGNATURE, transactionError: "Unrecognized" },
-    });
-    expect(JSON.stringify(waited)).not.toContain("SecretToken123");
-    expect(fixture.methods).not.toContain("sendTransaction");
-    expect(fixture.methods).not.toContain("getEpochInfo");
-  });
+  ])(
+    "treats unfamiliar non-null errors as failures without exposing them: %j",
+    async (transactionError) => {
+      const fixture = harness([{ ...DEFAULT_ROUND, status: "finalized", failed: true }], {
+        transactionError,
+      });
+      const waited = await rejection(fixture.client.waitForPrivateTransaction(SIGNATURE, 100n));
+      expect(waited).toMatchObject({
+        code: "CLIENT_TRANSACTION_FAILED",
+        details: { signature: SIGNATURE },
+      });
+      expect(JSON.stringify(waited)).not.toContain("SecretToken123");
+      expect(fixture.methods).not.toContain("sendTransaction");
+      expect(fixture.methods).not.toContain("getEpochInfo");
+    },
+  );
 
   it("reports a confirmed chain failure immediately and aborts a hung indexer", async () => {
     vi.useFakeTimers();
@@ -413,7 +377,7 @@ describe("private confirmation and recovery", () => {
       expect(observed).toHaveBeenCalledWith(
         expect.objectContaining({
           code: "CLIENT_TRANSACTION_FAILED",
-          details: { signature: SIGNATURE, transactionError: "InsufficientFundsForFee" },
+          details: { signature: SIGNATURE },
         }),
       );
       expect(fixture.signals.get("getShieldedTransactionsBySignature")?.aborted).toBe(true);
@@ -463,15 +427,6 @@ describe("private confirmation and recovery", () => {
       }
     },
   );
-
-  it("confirmTransaction reports a confirmed failure the same way", async () => {
-    const fixture = harness([{ ...DEFAULT_ROUND, status: "confirmed", failed: true }]);
-    await expect(fixture.client.confirmTransaction(SIGNATURE)).rejects.toMatchObject({
-      code: "CLIENT_TRANSACTION_FAILED",
-      details: { signature: SIGNATURE, transactionError: "InsufficientFundsForFee" },
-    });
-    expect(fixture.requests).toEqual([{ method: "getSignatureStatuses", params: [[SIGNATURE]] }]);
-  });
 
   it("rejects an indexer event for a different signature", async () => {
     const fixture = harness([{ ...DEFAULT_ROUND, indexed: true }, DEFAULT_ROUND], {
@@ -599,13 +554,13 @@ describe("private confirmation and recovery", () => {
     expect(fixture.indexerReads()).toBe(1);
   });
 
-  it("confirmTransaction does not report an unconfirmed failure as final", async () => {
-    const fixture = harness([{ ...DEFAULT_ROUND, status: "processed", failed: true }]);
-    await expect(fixture.client.confirmTransaction(SIGNATURE)).rejects.toMatchObject({
-      code: "CLIENT_RPC",
-      details: { reason: "signature not confirmed" },
+  it("does not mistake a missing error field for success or absence", async () => {
+    const fixture = harness([{ ...DEFAULT_ROUND, status: "confirmed" }], { omitError: true });
+    await expect(fixture.client.waitForPrivateTransaction(SIGNATURE, 100n)).rejects.toMatchObject({
+      code: "CLIENT_TRANSACTION_OUTCOME_UNKNOWN",
+      details: { signature: SIGNATURE, causeCode: "CLIENT_INVALID_RPC_RESPONSE" },
     });
-    expect(fixture.methods).toEqual(["getSignatureStatuses"]);
+    expect(fixture.methods).not.toContain("getEpochInfo");
   });
 
   it("validates heights and deadlines before I/O", async () => {

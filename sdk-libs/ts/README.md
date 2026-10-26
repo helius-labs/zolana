@@ -109,40 +109,37 @@ console.log(getPrivateTransactions(wallet));
 direct client calls, `atSlot(slot)` builds the same gate as a per-request
 config.
 
-For lost send responses and restart recovery, persist the signed transaction's
-signature and `lastValidBlockHeight` **before** the send, together with the
-wallet's input reservations, then call
+For lost send responses and restart recovery, save the signed transaction's
+signature and `lastValidBlockHeight` **before** sending, together with the
+wallet's input reservations. Then call
 `client.waitForPrivateTransaction(signature, lastValidBlockHeight)`. It resolves
 when the private effects are indexed, including after the signature leaves
-Solana's recent status cache. It never signs, sends or rebuilds.
+Solana's recent status cache. Recovery never signs, sends or rebuilds.
 
-| `ClientError.code`                   | Application action                                                                           |
-| ------------------------------------ | -------------------------------------------------------------------------------------------- |
-| `CLIENT_TRANSACTION_EXPIRED`         | Sync before building a replacement; expiry and a caught-up indexer prove no private effects. |
-| `CLIENT_TRANSACTION_NOT_INDEXED`     | Confirmed on chain; keep the checkpoint and wait for indexing.                               |
-| `CLIENT_TRANSACTION_OUTCOME_UNKNOWN` | Keep the checkpoint and input reservations; retry the same signature.                        |
-| `CLIENT_TRANSACTION_FAILED`          | Report the confirmed chain failure (`transactionError`) and sync before another attempt.     |
-| `CLIENT_ABORTED`                     | Waiting was cancelled; keep the checkpoint.                                                  |
-| Any other code                       | The RPC or indexer cannot answer as configured; keep the checkpoint, fix it and wait again.  |
+| `ClientError.code`                   | Application action                                                   |
+| ------------------------------------ | -------------------------------------------------------------------- |
+| `CLIENT_TRANSACTION_EXPIRED`         | Expired with no private effects; sync before building a replacement. |
+| `CLIENT_TRANSACTION_NOT_INDEXED`     | Confirmed on chain; keep the checkpoint and wait for indexing.       |
+| `CLIENT_TRANSACTION_OUTCOME_UNKNOWN` | Keep the checkpoint and input reservations; wait again.              |
+| `CLIENT_TRANSACTION_FAILED`          | Report the confirmed failure and sync before another attempt.        |
+| `CLIENT_ABORTED`                     | Waiting was cancelled; keep the checkpoint.                          |
+| Any other code                       | Keep the checkpoint, fix the service and wait again.                 |
 
-`confirmPrivateTransaction` uses the same engine without an expiry height, so
-handle the new outcome codes in place of the former indexer timeout codes.
-Both methods use confirmed commitment and read expiry from one `getEpochInfo`
-answer. Each round makes one history-enabled signature status request, covering
-recent sends and restart recovery through the same path. Once confirmed, only
-the indexer is polled. The first observed expiry bank remains the watermark while
-the indexer catches up. They stop at the poll limit or an overall 60-second
-deadline; pass `context.timeoutMs` to change it. A timeout does not mean expiry.
-The RPC and a complete private-event indexer must serve the same network. Use this only for deposits, transfers, withdrawals and merges, with a
-recent blockhash; registration and durable-nonce transactions need their own
-confirmation. See the [send and restart recovery example](../../sdk-tests/client/typescript/private-transaction-recovery.ts).
+The wait reads Solana's signature history and the indexer together at confirmed
+commitment. Expiry requires an absent signature, a confirmed bank past the saved
+block height, and an indexer persisted through that bank's slot without the
+event. The first expiry bank remains the watermark while indexing catches up.
+After confirmation, only the indexer is polled. The wait ends at the poll limit
+or a 60-second default deadline, including requests; use `RequestContext` to
+change the deadline or cancel. Indexed evidence survives an RPC timeout;
+a confirmed chain failure takes precedence, and cancellation always throws
+`CLIENT_ABORTED`.
 
-An indexed event received before the deadline still proves success if the RPC
-never answers; a confirmed chain failure read before it takes precedence.
-Caller cancellation always throws `CLIENT_ABORTED`. The legacy
-`CLIENT_INDEXER_TIMEOUT` error and `indexerTimeout` retry cause remain accepted
-for compatibility; new private confirmation calls use the transaction-specific
-outcomes above.
+Use a complete private-event indexer on the RPC's network. This applies to
+deposits, transfers, withdrawals and merges with recent blockhashes. Omit the
+height if unknown; recovery then cannot establish expiry. Existing submission
+and confirmation methods retain their behavior.
+See the [send and restart recovery example](../../sdk-tests/client/typescript/private-transaction-recovery.ts).
 
 For an Ed25519 spending wallet, the shielded keypair and the Solana signer must use
 the same owner seed, as shown above.

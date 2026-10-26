@@ -15,10 +15,12 @@ mod blocking;
 mod confirmation;
 mod merge;
 mod nonblocking;
+#[cfg(feature = "solana-rpc")]
+mod recovery;
 mod transaction;
 mod validation;
 
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use zolana_api::BlockingRuntime;
 
@@ -99,7 +101,6 @@ pub struct AsyncZolanaClient<R, I = AsyncZolanaIndexer> {
     cu_limit: u32,
     priority_fee_lamports: Option<u64>,
     indexer_config: IndexerRpcConfig,
-    transaction_wait_timeout: Duration,
 }
 
 impl<R, I> AsyncZolanaClient<R, I> {
@@ -125,7 +126,6 @@ impl<R, I> AsyncZolanaClient<R, I> {
             cu_limit: DEFAULT_TRANSACT_CU_LIMIT,
             priority_fee_lamports: None,
             indexer_config: IndexerRpcConfig::default(),
-            transaction_wait_timeout: Duration::from_secs(60),
         }
     }
 
@@ -146,14 +146,6 @@ impl<R, I> AsyncZolanaClient<R, I> {
             cu_limit: self.cu_limit,
             priority_fee_lamports: self.priority_fee_lamports,
         }
-    }
-
-    /// Overall deadline for private transaction confirmation and recovery,
-    /// including network requests. Defaults to 60 seconds; expiry is still
-    /// decided by block height and indexer evidence, never by this timeout.
-    pub fn with_transaction_wait_timeout(mut self, timeout: Duration) -> Self {
-        self.transaction_wait_timeout = timeout;
-        self
     }
 
     pub fn with_indexer_poll_config(mut self, config: IndexerPollConfig) -> Self {
@@ -322,12 +314,6 @@ impl<R, I> ZolanaClient<R, I> {
     /// See [`AsyncZolanaClient::compute_budget`].
     pub fn compute_budget(&self) -> ComputeBudgetConfig {
         self.client.compute_budget()
-    }
-
-    /// See [`AsyncZolanaClient::with_transaction_wait_timeout`].
-    pub fn with_transaction_wait_timeout(mut self, timeout: Duration) -> Self {
-        self.client = self.client.with_transaction_wait_timeout(timeout);
-        self
     }
 
     pub fn with_indexer_poll_config(mut self, config: IndexerPollConfig) -> Self {

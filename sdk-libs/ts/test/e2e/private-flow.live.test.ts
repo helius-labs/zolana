@@ -917,7 +917,7 @@ describe("live SDK lifecycle", { concurrent: false }, () => {
     await sync(harness.client, owner, { pageLimit: 1 });
     const submittedInput = unspent(owner);
 
-    await transfer({
+    const broadcast = await transfer({
       client: harness.client,
       wallet: owner.wallet,
       keys: owner.keys,
@@ -931,7 +931,9 @@ describe("live SDK lifecycle", { concurrent: false }, () => {
       get(target, property) {
         if (property === "getEncryptedUtxosByTags") {
           return async () => {
-            throw new ClientError("CLIENT_POLL_TIMED_OUT", { details: { attempts: 1 } });
+            throw new ClientError("CLIENT_INDEXER_TIMEOUT", {
+              details: { signature: broadcast.signature, attempts: 1 },
+            });
           };
         }
         const value = Reflect.get(target, property);
@@ -947,7 +949,7 @@ describe("live SDK lifecycle", { concurrent: false }, () => {
       }),
     ).rejects.toMatchObject({
       code: "WALLET_SYNC",
-      causeCode: "CLIENT_POLL_TIMED_OUT",
+      causeCode: "CLIENT_INDEXER_TIMEOUT",
     });
     expect(owner.wallet.balance(SOL_MINT).amount).toBe(50_000_000n);
 

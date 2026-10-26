@@ -415,46 +415,24 @@ pub enum ClientError {
     #[error("rpc backend does not implement method `{0}`")]
     UnsupportedRpcMethod(&'static str),
 
-    /// Retained for callers matching older SDK errors; private confirmation
-    /// now returns `TransactionNotIndexed` or `TransactionOutcomeUnknown`.
-    #[deprecated(note = "handle TransactionNotIndexed and TransactionOutcomeUnknown instead")]
     #[error("indexer did not observe the transaction before the poll timeout")]
     IndexerTimeout,
 
-    /// A post-broadcast failure that does not itself carry the transaction's
-    /// identity. Keep these recovery coordinates and inspect `source` before
-    /// deciding whether to wait again or report a confirmed chain failure.
-    #[error("private transaction {signature} could not be settled: {source}")]
-    PrivateTransactionRecoveryFailed {
-        signature: solana_signature::Signature,
-        last_valid_block_height: u64,
-        #[source]
-        source: Box<ClientError>,
-    },
-
-    /// A private transaction did not succeed and no longer can: neither the
-    /// RPC's status cache nor its ledger holds it, its blockhash expired, and
-    /// the indexer, at or past the slot where it expired, has no record of
-    /// it. A new transaction is safe to send; the signed one can no longer
-    /// land.
+    /// Absent from chain history and a complete indexer through the confirmed
+    /// bank that proved the blockhash expired. A replacement is safe.
     #[error("transaction {signature} expired without succeeding")]
     TransactionExpired {
         signature: solana_signature::Signature,
     },
 
-    /// Solana confirmed the private transaction, but the indexer did not
-    /// record it before the wait ended. `message` says why the wait ended:
-    /// its deadline, a lookup that failed in its last round, or an indexer
-    /// that has not caught up. It never carries a server's response text.
+    /// Confirmed on chain, but the indexer did not provide its private effects.
     #[error("transaction {signature} is confirmed but not indexed: {message}")]
     TransactionNotIndexed {
         signature: solana_signature::Signature,
         message: String,
     },
 
-    /// The wait for a private transaction ended before its outcome was
-    /// known. It may have landed or may still land: wait again before
-    /// sending a new one. `message` is as for [`Self::TransactionNotIndexed`].
+    /// Insufficient evidence. Keep the checkpoint and wait again.
     #[error("whether transaction {signature} succeeded is unknown: {message}")]
     TransactionOutcomeUnknown {
         signature: solana_signature::Signature,
@@ -533,15 +511,6 @@ impl ClientError {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    #[allow(deprecated)]
-    fn older_indexer_timeout_handlers_still_compile() {
-        assert_eq!(
-            ClientError::IndexerTimeout.to_string(),
-            "indexer did not observe the transaction before the poll timeout"
-        );
-    }
 
     #[derive(Debug, PartialEq, Eq, thiserror::Error)]
     #[error("busy")]

@@ -1,9 +1,4 @@
-import {
-  commitmentReached,
-  readSignatureStatus,
-  transactionFailed,
-  waitForPrivateTransaction,
-} from "./confirmation.js";
+import { waitForPrivateTransaction } from "./recovery.js";
 import { prepareMerge } from "./prover/merge.js";
 import { prepareTransfer, checkedTransferCache } from "./prover/assembly.js";
 import { checkedContextSlot, proveThroughAuthority } from "./prover/indexed.js";
@@ -92,7 +87,12 @@ import type { TeePolicy } from "./prover/tee/registry.js";
 import type { AttestedProver } from "./prover/tee/verify.js";
 import { compressProof } from "./prover/proof.js";
 import type { TransferCircuit, TransferInputs } from "./prover/types.js";
-import { DEFAULT_INDEXER_RPC_CONFIG, pollUntil, validatePollConfig } from "./retry.js";
+import {
+  DEFAULT_INDEXER_RPC_CONFIG,
+  indexerPollTimeout,
+  pollUntil,
+  validatePollConfig,
+} from "./retry.js";
 import {
   type GetByNullifiersRequest,
   type GetByTagsRequest,
@@ -446,36 +446,15 @@ export class ZolanaClient
     );
   }
 
-  /** Alias for `waitForPrivateTransaction` without an expiry height. */
-  confirmPrivateTransaction(
-    signature: Signature,
-    config?: IndexerRpcConfig,
-    context?: RequestContext,
-  ): Promise<void> {
-    return this.waitForPrivateTransaction(signature, undefined, config, context);
-  }
-
   /**
-   * Recover a sent deposit, transfer, withdrawal or merge from its signature.
-   * Resolves once Photon has its private event, even after Solana's recent
-   * status cache forgets it. A confirmed chain failure, also found in the
-   * RPC's ledger, throws `CLIENT_TRANSACTION_FAILED`.
+   * Recover a private transaction by signature without sending it again.
+   * Save its signature and last valid block height before sending. Only
+   * CLIENT_TRANSACTION_EXPIRED permits rebuilding after an ambiguous send;
+   * unresolved outcomes keep the checkpoint for another wait.
    *
-   * `CLIENT_TRANSACTION_EXPIRED` requires blockhash expiry plus an absent
-   * signature and a caught-up indexer; only this outcome permits rebuilding
-   * after an ambiguous send. `CLIENT_TRANSACTION_NOT_INDEXED` means confirmed
-   * effects are not yet readable; `CLIENT_TRANSACTION_OUTCOME_UNKNOWN` means
-   * insufficient evidence. Retry either with the same signature. A failure
-   * that waiting cannot fix (an RPC or indexer without the method, or an
-   * indexer answer that is malformed or not retryable) throws as itself.
-   *
-   * Uses confirmed commitment and a complete indexer on the same network.
-   * Excludes registration, arbitrary program calls and durable-nonce sends.
-   * Persist signature and blockhash height before sending. Never resubmits.
-   * Stops at the poll limit or the overall `context.timeoutMs` (default 60s),
-   * including pending requests. Caller cancellation throws `CLIENT_ABORTED`.
-   * An indexed event received before the deadline still proves success if
-   * the RPC hangs; a confirmed chain failure read before it takes precedence.
+   * Requires a complete private-event indexer on the RPC's network. The wait
+   * uses the configured poll schedule and a 60-second default deadline,
+   * including requests. RequestContext can override the deadline or cancel.
    */
   async waitForPrivateTransaction(
     signature: Signature,
@@ -488,9 +467,25 @@ export class ZolanaClient
       this,
       signature,
       lastValidBlockHeight,
-      validatePollConfig(this.#configOr(config).poll),
+      this.#configOr(config).poll,
       context,
     );
+  }
+
+  /**
+   * Wait until Solana confirms the transaction and Photon has indexed a Rings
+   * event for it.
+   *
+   * Confirming first turns a transaction that failed on chain into a chain
+   * error, instead of an indexer timeout that blames the wrong subsystem.
+   */
+  async confirmPrivateTransaction(
+    signature: Signature,
+    config?: IndexerRpcConfig,
+    context?: RequestContext,
+  ): Promise<void> {
+    await this.confirmTransaction(signature, config, context);
+    await this.#pollIndexedTransaction(signature, config, context);
   }
 
   /**
@@ -504,6 +499,8 @@ export class ZolanaClient
   ): Promise<bigint> {
     checkedSignature(signature);
     const poll = validatePollConfig(this.#configOr(config).poll);
+    // Rust's `wait_for_rpc_confirmation` propagates every RPC error with `?` and
+    // only retries a signature that is merely not confirmed yet.
     const slot = await pollUntil(
       () => this.#signatureConfirmed(signature, context),
       (landed) => landed !== undefined,
@@ -521,19 +518,52 @@ export class ZolanaClient
     return slot as bigint;
   }
 
+  /**
+   * Photon lags the chain, so an on-chain confirmation alone is not enough for a
+   * caller that reads its own outputs back immediately.
+   *
+   * Every Rings event of one Solana transaction is persisted in a single
+   * database transaction, so a single visible event proves the whole transaction
+   * is indexed. Matching the event against the transaction's view tags would add
+   * no guarantee and would reject legitimate transactions whose events share a
+   * tag.
+   */
+  async #pollIndexedTransaction(
+    signature: Signature,
+    config: IndexerRpcConfig | undefined,
+    context: RequestContext | undefined,
+  ): Promise<void> {
+    const resolved = this.#configOr(config);
+    const poll = validatePollConfig(resolved.poll);
+    // The poll below is the wait, so the inner request must not also gate on a slot.
+    const request = Object.freeze({ poll: resolved.poll });
+    await pollUntil(
+      () => this.getShieldedTransactionsBySignature(signature, request, context),
+      (response) => response.transactions.length > 0,
+      {
+        config: poll,
+        ...(context === undefined ? {} : { context }),
+        onTimeout: (exhausted, lastCause) => indexerPollTimeout(exhausted, lastCause, signature),
+      },
+    );
+  }
+
   /** Landed slot when the signature reached this client's commitment, else undefined. */
   async #signatureConfirmed(
     signature: Signature,
     context?: RequestContext,
   ): Promise<bigint | undefined> {
-    const status = await readSignatureStatus(this, signature, context);
-    if (status === null || !commitmentReached(status.commitment, this.commitment)) return undefined;
-    if (status.error.kind === "unrecognized")
-      throw new ClientError("CLIENT_INVALID_RPC_RESPONSE", {
-        details: { method: "getSignatureStatuses", path: "err" },
+    const { value } = await runKitRpc("getSignatureStatuses", context, (abortSignal) =>
+      this.solanaRpc.getSignatureStatuses([signature]).send({ abortSignal }),
+    );
+    const status = value[0];
+    if (status === null || status === undefined) return undefined;
+    if (status.err !== null) {
+      throw new ClientError("CLIENT_RPC", {
+        details: { method: "getSignatureStatuses", reason: "transaction failed" },
       });
-    if (status.error.kind === "failed") throw transactionFailed(signature, status.error);
-    return status.slot;
+    }
+    return commitmentReached(status.confirmationStatus, this.commitment) ? status.slot : undefined;
   }
 
   getMerkleProofs(
@@ -1186,6 +1216,17 @@ function checkedSignature(value: Signature): void {
 
 function isCommitment(value: unknown): value is Commitment {
   return value === "processed" || value === "confirmed" || value === "finalized";
+}
+
+const COMMITMENT_RANK: Readonly<Record<Commitment, number>> = Object.freeze({
+  processed: 0,
+  confirmed: 1,
+  finalized: 2,
+});
+
+function commitmentReached(reached: Commitment | null, required: Commitment): boolean {
+  if (reached === null) return false;
+  return COMMITMENT_RANK[reached] >= COMMITMENT_RANK[required];
 }
 
 function decodeRpcAccount(

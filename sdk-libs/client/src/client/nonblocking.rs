@@ -4,7 +4,6 @@ use crate::{prover::witness::AsyncWitnessReader, rpc::AsyncRpc};
 
 use solana_account::Account;
 use solana_address::Address;
-use solana_epoch_info::EpochInfo;
 use solana_hash::Hash;
 use solana_rpc_client_api::config::RpcSendTransactionConfig;
 use solana_signature::Signature;
@@ -84,19 +83,6 @@ impl<R: AsyncRpc, I: AsyncIndexer> AsyncRpc for AsyncZolanaClient<R, I> {
         signatures: Vec<Signature>,
     ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
         self.rpc.get_signature_statuses(signatures).await
-    }
-
-    async fn get_signature_statuses_with_history(
-        &self,
-        signatures: Vec<Signature>,
-    ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
-        self.rpc
-            .get_signature_statuses_with_history(signatures)
-            .await
-    }
-
-    async fn get_epoch_info(&self) -> Result<EpochInfo, ClientError> {
-        self.rpc.get_epoch_info().await
     }
 
     async fn get_minimum_balance_for_rent_exemption(

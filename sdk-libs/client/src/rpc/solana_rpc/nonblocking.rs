@@ -4,7 +4,6 @@ use async_trait::async_trait;
 use solana_account::Account;
 use solana_address::Address;
 use solana_commitment_config::CommitmentConfig;
-use solana_epoch_info::EpochInfo;
 use solana_hash::Hash;
 use solana_rpc_client::{
     api::config::{RpcSendTransactionConfig, RpcTransactionConfig},
@@ -232,24 +231,6 @@ impl AsyncRpc for AsyncSolanaRpc {
             .await
             .map(|response| response.value)
             .map_err(|err| ClientError::Rpc(format!("get_signature_statuses: {err}")))
-    }
-
-    async fn get_signature_statuses_with_history(
-        &self,
-        signatures: Vec<Signature>,
-    ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
-        self.client
-            .get_signature_statuses_with_history(&signatures)
-            .await
-            .map(|response| response.value)
-            .map_err(|err| ClientError::Rpc(format!("get_signature_statuses_with_history: {err}")))
-    }
-
-    async fn get_epoch_info(&self) -> Result<EpochInfo, ClientError> {
-        self.client
-            .get_epoch_info_with_commitment(CommitmentConfig::confirmed())
-            .await
-            .map_err(|err| ClientError::Rpc(format!("get_epoch_info: {err}")))
     }
 
     async fn health(&self) -> Result<(), ClientError> {

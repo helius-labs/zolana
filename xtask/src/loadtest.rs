@@ -34,7 +34,7 @@ use solana_keypair::Keypair;
 use solana_signer::Signer;
 // `Rpc` is in scope for send_transaction_with_config, which is a
 // trait method rather than an inherent one on SolanaRpc.
-use zolana_client::{ClientError, Rpc, RpcSendTransactionConfig, SolanaRpc, ZolanaClient};
+use zolana_client::{Rpc, RpcSendTransactionConfig, SolanaRpc, ZolanaClient};
 use zolana_keypair::ShieldedKeypair;
 use zolana_test_utils::wallet::{
     create_transfer_sync, sign_private_transaction_sync, sync_wallet, KeypairWalletAuthority,
@@ -536,7 +536,7 @@ fn worker(
 
         let mark = Instant::now();
         if let Err(error) = client.confirm_private_transaction_sync(signature) {
-            classify_confirmation(&error, stats, &mut backoff);
+            classify(&error.to_string(), stats, &mut backoff);
             continue;
         }
         timing.confirm_ms = mark.elapsed().as_millis() as u64;
@@ -561,33 +561,10 @@ fn classify(message: &str, stats: &mut Stats, backoff: &mut Duration) {
     // Truncated: these carry request ids and addresses that would make every
     // occurrence look distinct and defeat the grouping.
     let key: String = message.chars().take(160).collect();
-    let lowered = message.to_ascii_lowercase();
-    let throttled = lowered.contains("403") || lowered.contains("429") || lowered.contains("rate");
-    record(key, throttled, stats, backoff);
-}
-
-/// A confirmation outcome names its transaction, which would make every
-/// occurrence its own key, so it is grouped by outcome and cause instead. The
-/// SDK keeps response text, which can carry an API key, out of the outcome,
-/// so a throttled lookup shows only as a failed one and is backed off as
-/// upstream pressure.
-fn classify_confirmation(error: &ClientError, stats: &mut Stats, backoff: &mut Duration) {
-    let (outcome, cause) = match error {
-        ClientError::TransactionNotIndexed { message, .. } => ("confirmed, not indexed", message),
-        ClientError::TransactionOutcomeUnknown { message, .. } => ("outcome unknown", message),
-        other => return classify(&other.to_string(), stats, backoff),
-    };
-    record(
-        format!("{outcome}: {cause}"),
-        cause.ends_with("lookup failed"),
-        stats,
-        backoff,
-    );
-}
-
-fn record(key: String, throttled: bool, stats: &mut Stats, backoff: &mut Duration) {
     *stats.errors.entry(key).or_insert(0) += 1;
-    if throttled {
+
+    let lowered = message.to_ascii_lowercase();
+    if lowered.contains("403") || lowered.contains("429") || lowered.contains("rate") {
         stats.throttled += 1;
         thread::sleep(*backoff);
         *backoff = (*backoff * 2).min(Duration::from_secs(30));

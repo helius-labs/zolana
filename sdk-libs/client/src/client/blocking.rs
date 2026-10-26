@@ -1,6 +1,5 @@
 use solana_account::Account;
 use solana_address::Address;
-use solana_epoch_info::EpochInfo;
 use solana_hash::Hash;
 use solana_rpc_client_api::config::RpcSendTransactionConfig;
 use solana_signature::Signature;
@@ -79,17 +78,6 @@ impl<R: BlockingRpc, I: BlockingIndexer> Rpc for ZolanaClient<R, I> {
         signatures: Vec<Signature>,
     ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
         self.block_on(self.client.get_signature_statuses(signatures))
-    }
-
-    fn get_signature_statuses_with_history(
-        &self,
-        signatures: Vec<Signature>,
-    ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
-        self.block_on(self.client.get_signature_statuses_with_history(signatures))
-    }
-
-    fn get_epoch_info(&self) -> Result<EpochInfo, ClientError> {
-        self.block_on(self.client.get_epoch_info())
     }
 
     fn get_minimum_balance_for_rent_exemption(&self, data_len: usize) -> Result<u64, ClientError> {

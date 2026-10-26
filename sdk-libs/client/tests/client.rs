@@ -17,7 +17,6 @@ use solana_pubkey::Pubkey;
 use solana_rpc_client_api::config::RpcSendTransactionConfig;
 use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
-use solana_transaction_status_client_types::{TransactionConfirmationStatus, TransactionStatus};
 use zolana_client::{
     client::{AsyncZolanaClient, SignedPrivateTransaction, Submission, ZolanaClient},
     indexer::{AsyncZolanaIndexer, ZolanaIndexer},
@@ -584,7 +583,7 @@ fn confirm_private_transaction_sync_times_out_when_indexer_lags() {
         .expect_err("empty indexer response should time out");
     let _ = server.requests();
 
-    assert!(matches!(error, ClientError::TransactionNotIndexed { .. }));
+    assert!(matches!(error, ClientError::IndexerTimeout));
 }
 
 #[test]
@@ -645,11 +644,11 @@ fn confirm_private_transaction_sync_retries_transient_indexer_error() {
     );
 }
 
-/// A confirmed transaction stays confirmed when every indexer request fails
-/// transiently; the outcome carries a sanitized explanation, not the server
-/// response.
+/// An indexer that fails every attempt has not reported a lag, so reporting
+/// `IndexerTimeout` would send the caller looking for a transaction that
+/// was never queried successfully.
 #[test]
-fn confirm_private_transaction_sync_retains_confirmation_during_indexer_outage() {
+fn confirm_private_transaction_sync_surfaces_the_last_transient_error() {
     let signature = Signature::from([20u8; 64]);
     let server = MockIndexerServer::respond_with(vec![
         rpc_error(-32603, "Internal error"),
@@ -673,15 +672,17 @@ fn confirm_private_transaction_sync_retains_confirmation_during_indexer_outage()
             "/getShieldedTransactionsBySignature",
         ]
     );
-    let ClientError::TransactionNotIndexed {
-        signature: actual,
-        message,
+    let ClientError::PollTimedOut {
+        attempts,
+        last_error,
     } = error
     else {
-        panic!("expected TransactionNotIndexed, got {error:?}");
+        panic!("expected PollTimedOut, got {error:?}");
     };
-    assert_eq!(actual, signature);
-    assert_eq!(message, "indexer lookup failed");
+    assert_eq!(attempts, 2);
+    assert!(last_error
+        .expect("the last transient error is kept")
+        .contains("Internal error"));
 }
 
 /// One signature can carry several Rings events, and nothing stops two of
@@ -875,31 +876,6 @@ impl Rpc for MockSubmitRpc {
         Ok(self.signature)
     }
 
-    fn get_signature_statuses(
-        &self,
-        signatures: Vec<Signature>,
-    ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
-        Ok(signatures
-            .iter()
-            .map(|_| {
-                Some(TransactionStatus {
-                    slot: 1,
-                    confirmations: Some(1),
-                    status: Ok(()),
-                    err: None,
-                    confirmation_status: Some(TransactionConfirmationStatus::Confirmed),
-                })
-            })
-            .collect())
-    }
-
-    fn get_signature_statuses_with_history(
-        &self,
-        signatures: Vec<Signature>,
-    ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
-        Rpc::get_signature_statuses(self, signatures)
-    }
-
     fn confirm_transaction(&self, _signature: Signature) -> Result<bool, ClientError> {
         Ok(true)
     }
@@ -914,20 +890,6 @@ impl Rpc for MockSubmitRpc {
 
 #[async_trait]
 impl AsyncRpc for MockSubmitRpc {
-    async fn get_signature_statuses(
-        &self,
-        signatures: Vec<Signature>,
-    ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
-        Rpc::get_signature_statuses(self, signatures)
-    }
-
-    async fn get_signature_statuses_with_history(
-        &self,
-        signatures: Vec<Signature>,
-    ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
-        Rpc::get_signature_statuses_with_history(self, signatures)
-    }
-
     async fn confirm_transaction(&self, _signature: Signature) -> Result<bool, ClientError> {
         Ok(true)
     }

@@ -187,24 +187,18 @@ impl<'a> MergeSubmission<'a> {
     }
 
     /// Prove, sign with `fee_payer`, send through `client` and wait until the
-    /// merge is confirmed and indexed, recovering a send whose response was
-    /// lost as [`AsyncZolanaClient::wait_for_private_transaction`] does.
-    /// Post-broadcast service errors carry the signature and expiry height in
-    /// [`ClientError::PrivateTransactionRecoveryFailed`]. Use
-    /// [`Self::finish_unsigned`] to persist a checkpoint before broadcasting
-    /// when recovery must survive a process restart.
+    /// merge is confirmed and indexed.
     pub async fn send<R: AsyncRpc, I: AsyncIndexer>(
         &self,
         client: &AsyncZolanaClient<R, I>,
         fee_payer: &dyn Signer,
     ) -> Result<Signature, ClientError> {
         let unsigned = self.finish_unsigned(client, fee_payer.pubkey()).await?;
-        client
-            .send_private_transaction(
-                sign_transaction(unsigned.message, &[fee_payer])?,
-                unsigned.last_valid_block_height,
-            )
-            .await
+        let signature = client
+            .process_transaction(sign_transaction(unsigned.message, &[fee_payer])?)
+            .await?;
+        client.confirm_private_transaction(signature).await?;
+        Ok(signature)
     }
 
     /// See [`Self::prove`].

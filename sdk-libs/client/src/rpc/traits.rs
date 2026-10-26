@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 use solana_account::Account;
 use solana_address::Address;
-use solana_epoch_info::EpochInfo;
 use solana_hash::Hash;
 use solana_instruction::Instruction;
 use solana_keypair::Signer;
@@ -89,22 +88,6 @@ pub trait Rpc {
         Err(unsupported("get_signature_statuses"))
     }
 
-    /// [`Self::get_signature_statuses`], also searching the ledger for
-    /// signatures that have left the recent status cache.
-    fn get_signature_statuses_with_history(
-        &self,
-        signatures: Vec<Signature>,
-    ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
-        Err(unsupported("get_signature_statuses_with_history"))
-    }
-
-    /// The epoch, block height and slot of one bank at confirmed commitment.
-    /// One request answers all of them, so the slot cannot come from a node
-    /// behind the one that reported the block height.
-    fn get_epoch_info(&self) -> Result<EpochInfo, ClientError> {
-        Err(unsupported("get_epoch_info"))
-    }
-
     fn get_minimum_balance_for_rent_exemption(&self, data_len: usize) -> Result<u64, ClientError> {
         Err(unsupported("get_minimum_balance_for_rent_exemption"))
     }
@@ -159,7 +142,7 @@ pub trait Rpc {
     }
 
     /// Whether `error` is transient for the post-submission confirmation poll
-    /// (`wait_for_private_transaction`). Indexer data-plane polling
+    /// (`wait_for_indexed_transaction`). Indexer data-plane polling
     /// (`IndexerPollConfig::poll_until`, the merkle-proof retry loop) deliberately
     /// retries every error and does not consult this.
     fn should_retry(&self, error: &ClientError) -> bool {
@@ -340,19 +323,6 @@ pub trait AsyncRpc: Send + Sync {
         Err(unsupported("get_signature_statuses"))
     }
 
-    /// As [`Rpc::get_signature_statuses_with_history`].
-    async fn get_signature_statuses_with_history(
-        &self,
-        signatures: Vec<Signature>,
-    ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
-        Err(unsupported("get_signature_statuses_with_history"))
-    }
-
-    /// As [`Rpc::get_epoch_info`].
-    async fn get_epoch_info(&self) -> Result<EpochInfo, ClientError> {
-        Err(unsupported("get_epoch_info"))
-    }
-
     async fn get_minimum_balance_for_rent_exemption(
         &self,
         data_len: usize,
@@ -390,7 +360,10 @@ pub trait AsyncRpc: Send + Sync {
         Err(unsupported("transact_output_view_tags_from_signature"))
     }
 
-    /// As [`Rpc::should_retry`].
+    /// Whether `error` is transient for the post-submission confirmation poll
+    /// (`wait_for_indexed_transaction_async`). Indexer data-plane polling
+    /// (`IndexerPollConfig::poll_until`) deliberately retries every error and does
+    /// not consult this.
     fn should_retry(&self, error: &ClientError) -> bool {
         false
     }

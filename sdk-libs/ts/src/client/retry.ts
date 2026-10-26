@@ -170,6 +170,30 @@ export async function pollUntil<T>(
   });
 }
 
+/**
+ * Classify an exhausted poll by how the final attempt went, since that is the
+ * freshest evidence of what the indexer is doing now. An attempt that answered
+ * without the transaction means the indexer is behind; one that failed means it
+ * never answered, which is not a lag report the caller should act on.
+ */
+export function indexerPollTimeout(
+  config: IndexerPollConfig,
+  lastCause: RetryErrorCause | undefined,
+  signature?: string,
+): ClientError {
+  if (lastCause !== undefined) {
+    return new ClientError("CLIENT_POLL_TIMED_OUT", {
+      details: { attempts: attempts(config), lastCause },
+    });
+  }
+  return new ClientError("CLIENT_INDEXER_TIMEOUT", {
+    details: {
+      attempts: attempts(config),
+      ...(signature === undefined ? {} : { signature }),
+    },
+  });
+}
+
 export function withProofDataRetry<T>(
   source: ProofDataSource,
   prove: (context?: RequestContext) => Promise<T>,
@@ -233,11 +257,11 @@ function* pollSchedule(config: IndexerPollConfig): IterableIterator<bigint> {
 export function retryCause(error: unknown): RetryErrorCause | undefined {
   if (!isClientError(error)) return undefined;
   switch (error.code) {
-    case "CLIENT_INDEXER_TIMEOUT":
-      return INDEXER_TIMEOUT_CAUSE;
     case "CLIENT_RPC":
     case "CLIENT_INVALID_RPC_RESPONSE":
       return RPC_CAUSE;
+    case "CLIENT_INDEXER_TIMEOUT":
+      return INDEXER_TIMEOUT_CAUSE;
     case "CLIENT_INDEXER":
       return retryableDetail(error) ? INDEXER_CAUSE : undefined;
     case "CLIENT_TIMEOUT":

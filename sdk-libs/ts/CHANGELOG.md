@@ -3,31 +3,19 @@
 ## 0.5.1-alpha — unreleased
 
 Private transaction recovery resumes from a saved signature after a lost send
-response or restart. Confirmation and recovery share one bounded wait and
-distinguish expiry, delayed indexing and an unknown outcome.
-
-Breaking
-
-- `ZolanaClient.confirmPrivateTransaction` uses confirmed private-event evidence and returns `CLIENT_TRANSACTION_NOT_INDEXED` or `CLIENT_TRANSACTION_OUTCOME_UNKNOWN` when unresolved → handle these codes instead of indexer timeout errors and use `confirmTransaction` separately when finalized commitment is required.
-- `ZolanaClient.confirmTransaction`, `confirmPrivateTransaction` and `waitForPrivateTransaction` throw `CLIENT_TRANSACTION_FAILED` with the signature and the chain's `transactionError` for a confirmed failure, which retry helpers do not retry → match that code instead of `CLIENT_RPC` with `reason: "transaction failed"`.
+response or restart. The explicit wait distinguishes expiry, delayed indexing
+and an unknown outcome without changing existing confirmation APIs.
 
 Added
 
-- `ZolanaClient.waitForPrivateTransaction` and `PrivateTransactionWaiter` recover a deposit, transfer, withdrawal or merge without resending, report a confirmed failure even after Solana's recent status cache forgets it, and throw `CLIENT_TRANSACTION_EXPIRED` only after blockhash expiry and a caught-up indexer prove no private effects.
+- `ZolanaClient.waitForPrivateTransaction` and `PrivateTransactionWaiter` recover a deposit, transfer, withdrawal or merge without resending, using the saved signature and optional last valid block height.
+- `ClientError` distinguishes confirmed failure (`CLIENT_TRANSACTION_FAILED`), expiry without private effects (`CLIENT_TRANSACTION_EXPIRED`), delayed indexing (`CLIENT_TRANSACTION_NOT_INDEXED`) and an unresolved outcome (`CLIENT_TRANSACTION_OUTCOME_UNKNOWN`) during recovery.
+- `ZolanaClient.waitForPrivateTransaction` bounds requests with a 60-second default deadline, supports `RequestContext` cancellation, preserves indexed success during RPC outages and reports confirmed chain failures immediately.
 - `PrivateTransactionReader` exposes the signature lookup capability for recovery adapters.
-
-Changed
-
-- `ZolanaClient.confirmPrivateTransaction` and `waitForPrivateTransaction` stop at the poll limit or an overall 60-second deadline, adjustable with `RequestContext.timeoutMs`, including hung requests.
-- `ZolanaClient.confirmPrivateTransaction` and `waitForPrivateTransaction` use one history-enabled status read per round. Confirmed chain failures end the wait immediately, including failures found only in history; an unavailable indexer cannot delay or hide them.
-- `ClientErrorDetailsMap.CLIENT_INDEXER_TIMEOUT` and the `indexerTimeout` retry cause remain available for compatibility and are deprecated in favor of transaction-specific unresolved outcomes.
 
 Fixed
 
-- `ZolanaClient.confirmPrivateTransaction` and `waitForPrivateTransaction` report a confirmed chain failure immediately even when the indexer hangs. A known Solana error is returned as its canonical encoding; a confirmed `err` that is not a known variant is `transactionError: "Unrecognized"`. Neither path echoes response text. `confirmTransaction` still rejects an undecodable `err` as `CLIENT_INVALID_RPC_RESPONSE`.
-- `ZolanaClient.confirmPrivateTransaction` and `waitForPrivateTransaction` retain indexed success at their deadline when the RPC lookup hangs, while caller cancellation still throws `CLIENT_ABORTED`.
-- `ZolanaClient.confirmTransaction` checks the requested commitment before reporting a chain failure, so a processed failure no longer ends a confirmed wait.
-- `ZolanaClient` now retries Photon internal JSON-RPC errors during polling while malformed responses still stop the wait.
+- `ZolanaClient` retries Photon internal JSON-RPC errors during polling while malformed responses still stop the wait.
 
 ## 0.5.0-alpha — 2026-10-23
 
