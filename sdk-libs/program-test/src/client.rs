@@ -17,8 +17,9 @@ use solana_transaction::versioned::VersionedTransaction;
 use zolana_client::{
     rpc::{
         Context, GetMerkleProofsResponse, GetNonInclusionProofsResponse,
-        GetShieldedTransactionsBySignatureResponse, IndexedShieldedTransaction, IndexerRpcConfig,
-        MerkleContext, MerkleProof, NonInclusionProof,
+        GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
+        IndexedShieldedTransaction, IndexerRpcConfig, MerkleContext, MerkleProof,
+        NonInclusionProof,
     },
     ClientError, ProverClient, Rpc, RpcSendTransactionConfig, WitnessReader, ZolanaClient,
 };
@@ -154,6 +155,38 @@ impl Rpc for ProgramTestHandle {
             context: context(&harness),
             output_tree_id: None,
             transactions,
+        })
+    }
+
+    /// Every transaction an output or message tag matches, in one page.
+    fn get_shielded_transactions_by_tags(
+        &self,
+        tags: Vec<[u8; 32]>,
+        _cursor: Option<Vec<u8>>,
+        _limit: Option<u32>,
+        _config: Option<IndexerRpcConfig>,
+    ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
+        let harness = self.lock();
+        let transactions = harness
+            .indexer()
+            .transactions()
+            .iter()
+            .filter(|transaction| {
+                transaction
+                    .output_slots
+                    .iter()
+                    .map(|slot| &slot.view_tag)
+                    .chain(transaction.messages.iter().map(|message| &message.view_tag))
+                    .any(|tag| tags.contains(tag))
+            })
+            .cloned()
+            .collect();
+        Ok(GetShieldedTransactionsByTagsResponse {
+            context: context(&harness),
+            output_tree_id: None,
+            transactions,
+            next_cursor: None,
+            scanned_through: None,
         })
     }
 
