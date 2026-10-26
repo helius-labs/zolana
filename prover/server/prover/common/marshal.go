@@ -268,7 +268,7 @@ func (ps *TransferProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
 	return totalRead, nil
 }
 
-func (ps *RingProofSystem) WriteTo(w io.Writer) (int64, error) {
+func (ps *ExtensionProofSystem) WriteTo(w io.Writer) (int64, error) {
 	var total int64
 
 	written, err := ps.ProvingKey.WriteTo(w)
@@ -286,7 +286,7 @@ func (ps *RingProofSystem) WriteTo(w io.Writer) (int64, error) {
 	return total, err
 }
 
-func (ps *RingProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
+func (ps *ExtensionProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
 	var total int64
 	ps.ProvingKey = groth16.NewProvingKey(ecc.BN254)
 	read, err := ps.ProvingKey.UnsafeReadFrom(r)
@@ -334,8 +334,8 @@ func readKeyFile(path string, read func(io.Reader) (int64, error)) ([32]byte, er
 
 func ReadSystemFromFile(path string) (interface{}, error) {
 	lowerPath := strings.ToLower(filepath.Base(path))
-	if circuitType, ok := ringCircuitOfKeyFile(filepath.Base(lowerPath)); ok {
-		ps := &RingProofSystem{
+	if circuitType := extensionOfKeyFile(lowerPath); circuitType != "" {
+		ps := &ExtensionProofSystem{
 			CircuitType: circuitType,
 		}
 		digest, err := readKeyFile(path, ps.UnsafeReadFrom)
@@ -403,13 +403,13 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 	}
 }
 
-func ringCircuitOfKeyFile(name string) (CircuitType, bool) {
-	for circuitType, file := range RingKeyFiles {
-		if file == name {
-			return circuitType, true
+func extensionOfKeyFile(name string) CircuitType {
+	for _, circuit := range extensions {
+		if circuit.KeyFile == name {
+			return circuit.Type
 		}
 	}
-	return "", false
+	return ""
 }
 
 func (ps *BatchProofSystem) WriteTo(w io.Writer) (int64, error) {

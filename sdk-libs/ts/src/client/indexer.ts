@@ -2,7 +2,7 @@ import { KeypairError } from "../keypair/error.js";
 import { X25519PublicKey } from "../keypair/x25519.js";
 import { isAddress } from "@solana/kit";
 
-import { ZolanaApi, ApiError } from "../api/index.js";
+import { ZolanaApi } from "../api/index.js";
 import { base64String, hash, hashBytes, limit } from "../indexer/scalars.js";
 import type {
   EncryptedUtxoMatch as WireEncryptedUtxoMatch,
@@ -26,16 +26,8 @@ import type {
 } from "../interface/types.js";
 import type { IndexedShieldedTransaction } from "../transaction/instructions/transact.js";
 
-import { ClientError, isClientError, type ClientErrorCode } from "./error.js";
-import type {
-  RegistryRecord,
-  RingMemberProofRequest,
-  RingMemberRequest,
-  RingSpendRecordLookup,
-  RingKeyRegistryEntry,
-  RingKeyRegistryRegisterProof,
-  UserRecordsLookup,
-} from "./ports.js";
+import { ClientError, isClientError } from "./error.js";
+import type { RegistryRecord, UserRecordsLookup } from "./ports.js";
 import { decodeBase64 } from "./internal.js";
 import {
   DEFAULT_INDEXER_POLL_CONFIG,
@@ -143,87 +135,6 @@ export class ZolanaIndexer {
     });
   }
 
-  async getRingSpendRecord(
-    request: RingMemberRequest,
-    context?: RequestContext,
-  ): Promise<RingSpendRecordLookup> {
-    const method = "getRingSpendRecord";
-    try {
-      const response = await this.#api.getRingSpendRecord(
-        { ringProgramId: request.ringProgramId, member: hash(request.member) },
-        context,
-      );
-      const record = response.record;
-      return Object.freeze({
-        context: response.context,
-        record:
-          record === null
-            ? null
-            : Object.freeze({
-                transaction: convertShieldedTransaction(
-                  record.transaction,
-                  method,
-                  "record.transaction",
-                ),
-                outputIndex: record.outputIndex,
-              }),
-      });
-    } catch (cause) {
-      throw wrapIndexer(cause, method);
-    }
-  }
-
-  async getRingKeyRegistryEntry(
-    request: RingMemberProofRequest,
-    context?: RequestContext,
-  ): Promise<RingKeyRegistryEntry> {
-    const method = "getRingKeyRegistryEntry";
-    try {
-      const wire = memberRequest(request);
-      const response = await this.#api.getRingKeyRegistryEntry(wire, context);
-      checkMemberResponse(wire, response);
-      return Object.freeze({
-        context: response.context,
-        root: hashBytes(response.root),
-        member: hashBytes(response.member),
-        nextIndex: response.nextIndex,
-        next: hashBytes(response.next),
-        index: response.index,
-        ephemeralPublicKey: decodeX25519(response.ephPk, method, "$.ephPk"),
-        ciphertext: decodeCiphertext(response.ciphertext, method, "$.ciphertext"),
-        proof: Object.freeze(response.proof.map(hashBytes)),
-      });
-    } catch (cause) {
-      throw wrapIndexer(cause, method);
-    }
-  }
-
-  async getRingKeyRegistryRegisterProof(
-    request: RingMemberProofRequest,
-    context?: RequestContext,
-  ): Promise<RingKeyRegistryRegisterProof> {
-    const method = "getRingKeyRegistryRegisterProof";
-    try {
-      const wire = memberRequest(request);
-      const response = await this.#api.getRingKeyRegistryRegisterProof(wire, context);
-      checkMemberResponse(wire, response);
-      return Object.freeze({
-        context: response.context,
-        root: hashBytes(response.root),
-        member: hashBytes(response.member),
-        nextIndex: response.nextIndex,
-        lowMember: hashBytes(response.lowMember),
-        lowNext: hashBytes(response.lowNext),
-        lowKeyHash: hashBytes(response.lowKeyHash),
-        lowIndex: response.lowIndex,
-        lowProof: Object.freeze(response.lowProof.map(hashBytes)),
-        newProof: Object.freeze(response.newProof.map(hashBytes)),
-      });
-    } catch (cause) {
-      throw wrapIndexer(cause, method);
-    }
-  }
-
   getUserRecords(
     owners: readonly Address[],
     config?: IndexerRpcConfig,
@@ -329,36 +240,6 @@ export class ZolanaIndexer {
       }
     });
   }
-}
-
-function memberRequest(request: RingMemberProofRequest) {
-  return Object.freeze({
-    ringProgramId: request.ringProgramId,
-    member: hash(request.member),
-    expectedRoot: hash(request.expectedRoot),
-    expectedNextIndex: request.expectedNextIndex,
-  });
-}
-
-function checkMemberResponse(
-  request: ReturnType<typeof memberRequest>,
-  response: Readonly<{ root: string; member: string; nextIndex: bigint }>,
-): void {
-  if (
-    response.root !== request.expectedRoot ||
-    response.member !== request.member ||
-    response.nextIndex !== request.expectedNextIndex
-  ) {
-    throw new ClientError("CLIENT_INVALID_RPC_RESPONSE", {
-      details: { method: "ringMemberProof", path: "$.result" },
-    });
-  }
-}
-
-function decodeCiphertext(value: string, method: string, path: string): Bytes32 {
-  const bytes = decodeBase64(value, path);
-  if (bytes.length !== 32) throw invalidResponse(method, path, 32, bytes.length);
-  return bytes as Bytes32;
 }
 
 function copyOwners(owners: readonly Address[]): readonly Address[] {
@@ -568,7 +449,7 @@ function convertShieldedTransactionsBySignatureResponse(
   });
 }
 
-function convertShieldedTransaction(
+export function convertShieldedTransaction(
   item: WireShieldedTransaction,
   method: string,
   path: string,
@@ -615,7 +496,7 @@ function convertOutputSlot(
   });
 }
 
-function decodeX25519(value: string, method: string, path: string): X25519PublicKey {
+export function decodeX25519(value: string, method: string, path: string): X25519PublicKey {
   const bytes = decodeBase64(value, path);
   if (bytes.length !== 33) throw invalidResponse(method, path, 33, bytes.length);
   try {
@@ -693,25 +574,8 @@ async function pollIndexer<T extends Readonly<{ context: Readonly<{ slot: bigint
   }
 }
 
-/** Photon's ring projection codes, `zolana_indexer_api::error_code`. */
-const RING_PROJECTION_CODES: ReadonlyMap<
-  number,
-  Extract<ClientErrorCode, `CLIENT_KEY_REGISTRY_${string}` | "CLIENT_SPEND_RECORD_OUT_OF_SYNC">
-> = new Map([
-  [-32070, "CLIENT_KEY_REGISTRY_OUT_OF_SYNC"],
-  [-32071, "CLIENT_KEY_REGISTRY_ROOT_CHANGED"],
-  [-32072, "CLIENT_KEY_REGISTRY_MEMBER_UNREGISTERED"],
-  [-32073, "CLIENT_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED"],
-  [-32074, "CLIENT_SPEND_RECORD_OUT_OF_SYNC"],
-]);
-
-function wrapIndexer(cause: unknown, method: string): ClientError {
+export function wrapIndexer(cause: unknown, method: string): ClientError {
   if (isClientError(cause)) return cause;
-  if (cause instanceof ApiError && cause.code === "API_JSON_RPC") {
-    const rpcCode = cause.details?.["rpcCode"];
-    const code = typeof rpcCode === "number" ? RING_PROJECTION_CODES.get(rpcCode) : undefined;
-    if (code !== undefined) return new ClientError(code, { details: { method } });
-  }
   const code = externalCode(cause);
   if (code === "API_ABORTED") return new ClientError("CLIENT_ABORTED", { details: { method } });
   if (code === "API_TIMEOUT") {
@@ -770,7 +634,7 @@ function safePath(cause: unknown): Readonly<{ path?: string }> {
   return typeof details.path === "string" ? { path: details.path } : {};
 }
 
-function invalidResponse(
+export function invalidResponse(
   method: string,
   path: string,
   expected?: number,

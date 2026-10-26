@@ -1,12 +1,15 @@
 // Refuses a release whose version has no changelog entry. `--release` also
 // demands the publish date, so `prepublishOnly` blocks an undated publish.
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const release = process.argv.includes("--release");
-const version = JSON.parse(
-  readFileSync(new URL("../package.json", import.meta.url), "utf8"),
-).version;
-const changelog = readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8");
+const dir = process.argv.slice(2).find((arg) => !arg.startsWith("--"));
+const root =
+  dir === undefined ? new URL("../", import.meta.url) : pathToFileURL(`${resolve(dir)}/`);
+const version = JSON.parse(readFileSync(new URL("package.json", root), "utf8")).version;
+const changelog = readFileSync(new URL("CHANGELOG.md", root), "utf8");
 const heading = changelog.split("\n").find((line) => line.startsWith("## "));
 const escaped = version.replace(/[.\\^$*+?()[\]{}|]/g, "\\$&");
 const date = release ? "\\d{4}-\\d{2}-\\d{2}" : "(\\d{4}-\\d{2}-\\d{2}|unreleased)";

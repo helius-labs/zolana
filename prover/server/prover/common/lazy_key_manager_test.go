@@ -33,19 +33,16 @@ func TestLazyKeyManagerBuildsTransferKeyPaths(t *testing.T) {
 	}
 }
 
-func TestLazyKeyManagerBuildsCustomRingKeyPaths(t *testing.T) {
+func TestLazyKeyManagerBuildsExtensionKeyPaths(t *testing.T) {
+	withSquareExtension(t)
 	keysDir := filepath.Join("tmp", "proving-keys")
 	manager := NewLazyKeyManager(keysDir, &DownloadConfig{})
 
-	for circuitType, filename := range RingKeyFiles {
-		got := manager.determineRingKeyPath(circuitType)
-		want := filepath.Join(keysDir, filename)
-		if got != want {
-			t.Fatalf("%s path mismatch: got %q, want %q", circuitType, got, want)
-		}
+	if got, want := manager.determineExtensionKeyPath(squareExtension.Type), filepath.Join(keysDir, squareExtension.KeyFile); got != want {
+		t.Fatalf("extension path mismatch: got %q, want %q", got, want)
 	}
-	if got := manager.determineRingKeyPath(TransferRingCircuitType); got != "" {
-		t.Fatalf("transfer ring resolved to the ring key %q", got)
+	if got := manager.determineExtensionKeyPath(TransferRingCircuitType); got != "" {
+		t.Fatalf("transfer ring resolved to the extension key %q", got)
 	}
 }
 
@@ -82,8 +79,8 @@ func TestKeyFileIsEmptyForAnUnsupportedShape(t *testing.T) {
 		"removed merge 51x1":    TransferKeyFile(MergeCircuitType, 51, 1),
 		"address append 40x100": BatchKeyFile(BatchAddressAppendCircuitType, 40, 100),
 		"transfer as a batch":   BatchKeyFile(TransferConfidentialCircuitType, 40, 10),
-		"unknown custom ring":   RingKeyFile("custom-ring-unknown"),
-		"transfer as ring":      RingKeyFile(TransferConfidentialCircuitType),
+		"unknown extension":     ExtensionKeyFile("extension-unknown"),
+		"transfer as extension": ExtensionKeyFile(TransferConfidentialCircuitType),
 	} {
 		if file != "" {
 			t.Errorf("%s: got %q", name, file)

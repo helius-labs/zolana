@@ -30,10 +30,9 @@ import { defaultSolanaRpcSubscriptionsUrl, runKitRpc } from "../src/client/kit.j
 import { BN254_MODULUS, bigintToBytes, bytesField, checkedBytes } from "../src/client/internal.js";
 import { asField, assemble } from "../src/client/prover/assembly.js";
 import type { NonInclusionProof } from "../src/client/rpc.js";
-import type { Bytes16, Bytes31, Bytes32 } from "../src/interface/index.js";
+import type { Bytes16, Bytes32 } from "../src/interface/index.js";
 import { treeAddress } from "../src/interface/pda/index.js";
-import { NullifierKey, ShieldedKeypair, ShieldedPublicKey } from "../src/keypair/index.js";
-import { withRecordSlotSecret } from "../src/ring/velocity.js";
+import { ShieldedKeypair } from "../src/keypair/index.js";
 import { proofFor } from "./helpers/proofs.js";
 import {
   ProofInputUtxo,
@@ -420,7 +419,6 @@ describe("ZolanaClient", () => {
 
   it("fetches proof data on the client for a prover on the Helius gateway", () => {
     for (const config of [
-      { solanaRpcUrl: "https://beta-devnet.helius-rpc.com/?api-key=k" },
       {
         solanaRpcUrl: RPC_URL,
         proverUrl: "https://beta-devnet.helius-rpc.com/v1/zolana?api-key=k",
@@ -1175,82 +1173,6 @@ describe("prover indexer fetching", () => {
       }
     },
   );
-
-  it("completes the indexed record slot without fetching client proofs", async () => {
-    const fixture = proofFixture({ dummyInputs: 1, ring: FOREIGN_TREE });
-    const zeroKey = NullifierKey.fromSecret(new Uint8Array(31) as Bytes31);
-    const record = ProofInputUtxo.fromNullifierKey(
-      new Utxo({
-        owner: ShieldedPublicKey.fromEd25519(bytes(44)),
-        asset: SOL_MINT,
-        amount: 0n,
-        blinding: bytes(2),
-        ringProgramId: FOREIGN_TREE,
-      }),
-      zeroKey,
-    );
-    zeroKey.destroy();
-    const transaction = new SppProofInputs({
-      ...fixture.proofInputs,
-      inputUtxos: [fixture.proofInputs.inputUtxos[0]!, record],
-    });
-    const tree = {
-      tree: TREE,
-      id: TREE_ID,
-      utxoRoot: fixture.spendProof.state.root,
-      nullifierRoot: fixture.spendProof.nullifier.root,
-      utxoRootIndex: fixture.spendProof.state.rootIndex,
-      nullifierRootIndex: fixture.spendProof.nullifier.rootIndex,
-    };
-    const prepared = prepareTransfer(transaction, { kind: "ring", ring: FOREIGN_TREE });
-    const complete = prepared.finish([
-      {
-        treeId: TREE_ID,
-        slot: tree,
-        utxoRootIndex: tree.utxoRootIndex,
-        nullifierRootIndex: tree.nullifierRootIndex,
-      },
-    ]);
-    const hex = (value: Bytes32) => `0x${bytesField(value, "field").toString(16)}`;
-    const fetch = vi.fn<typeof globalThis.fetch>(async () =>
-      Response.json({
-        ...proofFor({ circuitType: "transfer-ring", nInputs: 2, nOutputs: 2 }),
-        resolution: {
-          publicInputHash: hex(complete.publicInputHash),
-          trees: [
-            { ...tree, utxoRoot: hex(tree.utxoRoot), nullifierRoot: hex(tree.nullifierRoot) },
-          ],
-        },
-      }),
-    );
-    const instance = new ZolanaClient({ fetch });
-    const state = vi.spyOn(instance, "getMerkleProofs");
-    const nullifier = vi.spyOn(instance, "getNonInclusionProofs");
-    const keys = LocalKeys.fromKeypair(fixture.keypair, instance.proofService);
-    try {
-      const result = await instance.proveRingTransact(
-        transaction,
-        FOREIGN_TREE,
-        withRecordSlotSecret(keys, record.nullifier()),
-      );
-      expect(result.data.circuit.kind).toBe("confidentialRingEddsa");
-      expect(state).not.toHaveBeenCalled();
-      expect(nullifier).not.toHaveBeenCalled();
-      expect(fetch).toHaveBeenCalledOnce();
-      expect(String(fetch.mock.calls[0]?.[0])).toMatch(/\/prove\/transfer_ring_2_2\/indexed$/u);
-      const body: unknown = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
-      const decoder = wireDecoder(() => new Error("invalid body"));
-      const payload = decoder.record(decoder.record(body, "body")["prepared"], "prepared");
-      const inputs = decoder.list(payload["inputs"], "inputs");
-      expect(decoder.record(inputs[0], "input")["nullifierSecret"]).toMatch(
-        /^0x[1-9a-f][0-9a-f]*$/u,
-      );
-      expect(decoder.record(inputs[1], "record")["nullifierSecret"]).toBe("0x0");
-    } finally {
-      keys.destroy();
-      fixture.keypair.destroy();
-    }
-  });
 
   for (const ring of [undefined, FOREIGN_TREE]) {
     it(`matches locally resolved transfer data for ${ring === undefined ? "pool" : "ring"}`, async () => {

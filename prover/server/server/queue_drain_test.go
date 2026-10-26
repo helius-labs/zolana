@@ -16,8 +16,8 @@ func TestQueueWorkersDrainBeforeWaitReturns(t *testing.T) {
 		"append": func(q *RedisQueue) *BaseQueueWorker {
 			return NewAddressAppendQueueWorker(WorkerConfig{Queue: q, Ready: ready})
 		},
-		"ring": func(q *RedisQueue) *BaseQueueWorker {
-			return NewCustomRingQueueWorker(WorkerConfig{Queue: q, Ready: ready})
+		"extension": func(q *RedisQueue) *BaseQueueWorker {
+			return NewExtensionQueueWorker(WorkerConfig{Queue: q, Ready: ready})
 		},
 		"transfer": func(q *RedisQueue) *BaseQueueWorker {
 			return NewTransferQueueWorker(WorkerConfig{Queue: q, Ready: ready}, NewExecution(1))

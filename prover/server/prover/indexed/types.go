@@ -12,7 +12,6 @@ import (
 )
 
 type Request struct {
-	Registry       *RegistryRequest   `json:"registry,omitempty"`
 	CircuitType    common.CircuitType `json:"circuitType"`
 	Prepared       json.RawMessage    `json:"prepared"`
 	Trees          []Tree             `json:"trees"`
@@ -97,7 +96,7 @@ func decodeHash(value string) (Hash, error) {
 	return result, nil
 }
 
-func hashField(value *big.Int) (Hash, error) {
+func HashField(value *big.Int) (Hash, error) {
 	var result Hash
 	if value == nil || value.Sign() < 0 || value.Cmp(fr.Modulus()) >= 0 {
 		return result, fmt.Errorf("noncanonical field")
@@ -106,9 +105,9 @@ func hashField(value *big.Int) (Hash, error) {
 	return result, nil
 }
 
-func (h Hash) field() (*big.Int, error) {
+func (h Hash) Field() (*big.Int, error) {
 	value := new(big.Int).SetBytes(h[:])
-	_, err := hashField(value)
+	_, err := HashField(value)
 	return value, err
 }
 

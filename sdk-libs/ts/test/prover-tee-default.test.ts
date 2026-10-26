@@ -70,24 +70,24 @@ describe("default TEE", () => {
     );
   });
 
-  it("has no indexed route on the Helius gateway or the default TEE prover", () => {
+  it("has an indexed route on the default TEE prover but not the Helius gateway", () => {
     for (const [url, indexed] of [
       ["https://prover.example", true],
       ["http://127.0.0.1:3001", true],
       ["https://devnet.helius-rpc.com/v1/zolana?api-key=k", false],
-      [DEFAULT_TEE_PROVER_ENDPOINT, false],
+      [DEFAULT_TEE_PROVER_ENDPOINT, true],
     ] as const) {
       expect(new ProverClient({ url, fetch: vi.fn() }).hasIndexedRoute, url).toBe(indexed);
     }
   });
 
-  it("proves through the default TEE prover with client proof data on Helius devnet", async () => {
+  it("proves through the default TEE prover with server proof data on Helius devnet", async () => {
     const { fetch, urls } = recordingFetch();
     const client = new ZolanaClient({
       solanaRpcUrl: "https://devnet.helius-rpc.com/?api-key=k",
       fetch,
     });
-    expect(client.proofDataSource).toBe("client");
+    expect(client.proofDataSource).toBe("prover");
     await client.attestProver().catch(() => undefined);
     expect(urls.find((url) => url.includes("/tee/v1/attestation"))).toMatch(
       new RegExp(
@@ -95,17 +95,13 @@ describe("default TEE", () => {
         "u",
       ),
     );
-    expect(
-      () =>
+    for (const proofDataSource of ["client", "prover"] as const) {
+      expect(
         new ZolanaClient({
           solanaRpcUrl: "https://devnet.helius-rpc.com/?api-key=k",
-          proofDataSource: "prover",
-        }),
-    ).toThrow(
-      expect.objectContaining({
-        code: "CLIENT_INVALID_CONFIG",
-        details: { field: "proofDataSource" },
-      }),
-    );
+          proofDataSource,
+        }).proofDataSource,
+      ).toBe(proofDataSource);
+    }
   });
 });

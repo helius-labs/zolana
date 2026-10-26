@@ -1,14 +1,20 @@
 import {
   createSolanaRpc,
+  createSolanaRpcFromTransport,
   createSolanaRpcSubscriptions,
   isSolanaError,
   setTransactionMessageLifetimeUsingBlockhash,
   SOLANA_ERROR__JSON_RPC__METHOD_NOT_FOUND,
+  SOLANA_ERROR__RPC__TRANSPORT_HTTP_ERROR,
+  SolanaError,
   type Rpc,
+  type RpcResponse,
   type RpcSubscriptions,
+  type RpcTransport,
   type SolanaRpcApi,
   type SolanaRpcSubscriptionsApi,
 } from "@solana/kit";
+import { parseJsonWithBigInts, stringifyJsonWithBigInts } from "@solana/rpc-spec-types";
 
 import type { RequestContext } from "../interface/types.js";
 
@@ -25,10 +31,15 @@ export interface LatestBlockhash {
   readonly lastValidBlockHeight: bigint;
 }
 
+/**
+ * Without `fetch`, Solana RPC uses Kit's default transport and the global
+ * `fetch`. Subscriptions use a WebSocket either way.
+ */
 export function createKitClients(
   input: Readonly<{
     solanaRpcUrl: string | URL;
     solanaRpcSubscriptionsUrl?: string | URL;
+    fetch?: typeof globalThis.fetch;
   }>,
 ): Readonly<{ solanaRpc: SolanaRpc; solanaRpcSubscriptions: SolanaRpcSubscriptions }> {
   const rpcUrl = urlString(input.solanaRpcUrl, "solanaRpcUrl", ["http:", "https:"]);
@@ -37,9 +48,41 @@ export function createKitClients(
       ? defaultSolanaRpcSubscriptionsUrl(rpcUrl)
       : urlString(input.solanaRpcSubscriptionsUrl, "solanaRpcSubscriptionsUrl", ["ws:", "wss:"]);
   return Object.freeze({
-    solanaRpc: createSolanaRpc(rpcUrl),
+    solanaRpc:
+      input.fetch === undefined
+        ? createSolanaRpc(rpcUrl)
+        : createSolanaRpcFromTransport(fetchRpcTransport(rpcUrl, input.fetch)),
     solanaRpcSubscriptions: createSolanaRpcSubscriptions(subscriptionsUrl),
   });
+}
+
+/**
+ * Kit's Solana RPC HTTP transport over a caller's `fetch`: integers cross the
+ * wire as bigints and a non-2xx status throws Kit's
+ * `SOLANA_ERROR__RPC__TRANSPORT_HTTP_ERROR`. Identical concurrent requests are
+ * not coalesced.
+ */
+function fetchRpcTransport(url: string, fetch: typeof globalThis.fetch): RpcTransport {
+  return async <TResponse>({
+    payload,
+    signal,
+  }: Parameters<RpcTransport>[0]): Promise<RpcResponse<TResponse>> => {
+    const response = await fetch(url, {
+      body: stringifyJsonWithBigInts(payload),
+      headers: { accept: "application/json", "content-type": "application/json; charset=utf-8" },
+      method: "POST",
+      ...(signal === undefined ? {} : { signal }),
+    });
+    if (!response.ok) {
+      throw new SolanaError(SOLANA_ERROR__RPC__TRANSPORT_HTTP_ERROR, {
+        headers: response.headers,
+        message: response.statusText,
+        statusCode: response.status,
+      });
+    }
+    // Kit's RPC layer applies the method's response transformers to this value.
+    return parseJsonWithBigInts(await response.text()) as RpcResponse<TResponse>;
+  };
 }
 
 export async function runKitRpc<T>(

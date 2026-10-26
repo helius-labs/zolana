@@ -46,8 +46,6 @@ import {
   type AuthorizedPrivateTransactionMaterial,
   type BlockhashProvider,
   type ChainReader,
-  type IndexedDepositInputs,
-  type IndexedPolicyInputs,
   type IndexedProofAuthority,
   type IndexerReader,
   type KitRpcAccess,
@@ -57,7 +55,6 @@ import {
   type TransactKeys,
   type ProofDataSource,
   type ProofReader,
-  type ProofResolution,
   type ProofService,
   type ProvedMerge,
   type ProvenRingTransact,
@@ -66,13 +63,8 @@ import {
   type TransactionConfirmer,
   type TreeContext,
   type RingProvingConfig,
-  type RingMemberProofRequest,
-  type RingMemberRequest,
-  type RingSpendRecordLookup,
   type UserRecordReader,
   type UserRecordsLookup,
-  type RingKeyRegistryEntry,
-  type RingKeyRegistryRegisterProof,
 } from "./ports.js";
 import {
   createKitClients,
@@ -92,16 +84,7 @@ import { assembleMerge } from "./prover/merge.js";
 import type { TeePolicy } from "./prover/tee/registry.js";
 import type { AttestedProver } from "./prover/tee/verify.js";
 import { compressProof } from "./prover/proof.js";
-import type {
-  CustomRingBaseProofRequest,
-  CustomRingDepositProofRequest,
-  CustomRingPolicyProofRequest,
-  CustomRingCompressedPolicyProofRequest,
-  CustomRingRegisterKeyProofRequest,
-  Proof,
-  TransferCircuit,
-  TransferInputs,
-} from "./prover/types.js";
+import type { TransferCircuit, TransferInputs } from "./prover/types.js";
 import {
   DEFAULT_INDEXER_RPC_CONFIG,
   indexerPollTimeout,
@@ -147,8 +130,8 @@ const DEFAULT_COMMITMENT: Commitment = "confirmed";
 
 export interface ZolanaClientConfig {
   /**
-   * `"prover"` unless set; `"client"` on the Helius gateway and on the default
-   * TEE prover, which both refuse `"prover"`.
+   * `"prover"` unless set; `"client"` on the Helius gateway, which refuses
+   * `"prover"`.
    */
   readonly proofDataSource?: ProofDataSource;
   /**
@@ -183,6 +166,10 @@ export interface ZolanaClientConfig {
    * out, a remote prover gets `defaultTeePolicy()`.
    */
   readonly proverTee?: TeePolicy;
+  /**
+   * Sends every HTTP request the client makes: Solana RPC, indexer and prover.
+   * `solanaRpcSubscriptions` connects over a WebSocket instead.
+   */
   readonly fetch?: typeof globalThis.fetch;
   /**
    * Permit plain http to non-loopback indexer and prover URLs.
@@ -265,6 +252,7 @@ export class ZolanaClient
       ...(endpoints.solanaRpcSubscriptions === undefined
         ? {}
         : { solanaRpcSubscriptionsUrl: endpoints.solanaRpcSubscriptions }),
+      ...(input.fetch === undefined ? {} : { fetch: input.fetch }),
     });
     const allowInsecureHttp = input.allowInsecureHttp ?? false;
     const indexerUrl = checkedServiceUrl(
@@ -572,27 +560,6 @@ export class ZolanaClient
     );
   }
 
-  getRingSpendRecord(
-    request: RingMemberRequest,
-    context?: RequestContext,
-  ): Promise<RingSpendRecordLookup> {
-    return this.#indexer.getRingSpendRecord(request, context);
-  }
-
-  getRingKeyRegistryEntry(
-    request: RingMemberProofRequest,
-    context?: RequestContext,
-  ): Promise<RingKeyRegistryEntry> {
-    return this.#indexer.getRingKeyRegistryEntry(request, context);
-  }
-
-  getRingKeyRegistryRegisterProof(
-    request: RingMemberProofRequest,
-    context?: RequestContext,
-  ): Promise<RingKeyRegistryRegisterProof> {
-    return this.#indexer.getRingKeyRegistryRegisterProof(request, context);
-  }
-
   getUserRecords(
     owners: readonly Address[],
     config?: IndexerRpcConfig,
@@ -864,59 +831,6 @@ export class ZolanaClient
     return this.#proofDataSource;
   }
 
-  proveIndexedRingPolicy(
-    inputs: IndexedPolicyInputs,
-    context?: RequestContext,
-  ): Promise<Readonly<{ proof: Uint8Array; resolution: ProofResolution }>> {
-    return this.#proving(async () => {
-      const result = await this.#prover.proveIndexedPolicy(
-        this.#withMinContextSlot(inputs, undefined),
-        context,
-      );
-      return Object.freeze({
-        proof: compressProof(result.proof).toCustomRingProof(),
-        resolution: result.resolution,
-      });
-    });
-  }
-
-  proveCustomRingPolicy(
-    inputs: CustomRingPolicyProofRequest,
-    context?: RequestContext,
-  ): Promise<Uint8Array> {
-    return this.#provingRing(() => this.#prover.proveCustomRingPolicy(inputs, context));
-  }
-
-  proveIndexedRingDeposit(
-    inputs: IndexedDepositInputs,
-    context?: RequestContext,
-  ): Promise<Uint8Array> {
-    return this.#provingRing(() =>
-      this.#prover.proveIndexedDeposit(this.#withMinContextSlot(inputs, undefined), context),
-    );
-  }
-
-  proveCustomRingCompressedPolicy(
-    inputs: CustomRingCompressedPolicyProofRequest,
-    context?: RequestContext,
-  ): Promise<Uint8Array> {
-    return this.#provingRing(() => this.#prover.proveCustomRingCompressedPolicy(inputs, context));
-  }
-
-  proveCustomRingRegisterKey(
-    inputs: CustomRingRegisterKeyProofRequest,
-    context?: RequestContext,
-  ): Promise<Uint8Array> {
-    return this.#provingRing(() => this.#prover.proveCustomRingRegisterKey(inputs, context));
-  }
-
-  proveCustomRingDelegatePolicy(
-    inputs: CustomRingPolicyProofRequest,
-    context?: RequestContext,
-  ): Promise<Uint8Array> {
-    return this.#provingRing(() => this.#prover.proveCustomRingDelegatePolicy(inputs, context));
-  }
-
   async proveRingAuthorityTransact(
     proofInputs: SppProofInputs,
     ringProgramId: Address,
@@ -933,20 +847,6 @@ export class ZolanaClient
       context,
       outputTree,
     );
-  }
-
-  proveCustomRingBase(
-    inputs: CustomRingBaseProofRequest,
-    context?: RequestContext,
-  ): Promise<Uint8Array> {
-    return this.#provingRing(() => this.#prover.proveCustomRingBase(inputs, context));
-  }
-
-  proveCustomRingDeposit(
-    inputs: CustomRingDepositProofRequest,
-    context?: RequestContext,
-  ): Promise<Uint8Array> {
-    return this.#provingRing(() => this.#prover.proveCustomRingDeposit(inputs, context));
   }
 
   proveTransferInputs(inputs: TransferInputs, context?: RequestContext): Promise<TransactProof> {
@@ -1158,10 +1058,6 @@ export class ZolanaClient
     } catch (cause) {
       throw fromClientCause(cause);
     }
-  }
-
-  #provingRing(run: () => Promise<Proof>): Promise<Uint8Array> {
-    return this.#proving(async () => compressProof(await run()).toCustomRingProof());
   }
 
   #withMinContextSlot<T extends Readonly<{ minContextSlot?: bigint }>>(

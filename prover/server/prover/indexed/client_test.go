@@ -3,6 +3,7 @@ package indexed
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -48,6 +49,22 @@ func TestIndexerResponseBoundary(t *testing.T) {
 	}
 }
 
+func TestIndexerErrorKeepsOnlyItsCode(t *testing.T) {
+	resolver, err := NewResolver(Config{URL: "http://indexer.test", Concurrency: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver.client.Transport = roundTripFunc(func(*http.Request) (*http.Response, error) {
+		body := `{"jsonrpc":"2.0","id":"getEntry","error":{"code":-32070,"message":"private upstream details"}}`
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(body))}, nil
+	})
+	_, err = resolver.RPC(context.Background(), "getEntry", nil)
+	var failure *RPCError
+	if !errors.As(err, &failure) || failure.Code != -32070 || strings.Contains(err.Error(), "private") {
+		t.Fatalf("indexer error %v", err)
+	}
+}
+
 func TestResolverConfigErrorsHideCredentials(t *testing.T) {
 	for _, url := range []string{"ftp://user:secret@indexer.test/?api-key=secret", "http://user:secret@indexer.test/?api-key=secret"} {
 		_, err := NewResolver(Config{URL: url, Concurrency: 1})
@@ -59,11 +76,11 @@ func TestResolverConfigErrorsHideCredentials(t *testing.T) {
 
 func TestPreparationOutcomes(t *testing.T) {
 	for err, outcome := range map[error]string{
-		nil:                                      "success",
-		ErrIndexerNotReady:                       "not_ready",
-		&UnregisteredMemberError{}:               "rejected",
-		&UnregisteredMemberError{mismatch: true}: "mismatch",
-		errors.New("upstream"):                   "error",
+		nil:                             "success",
+		ErrIndexerNotReady:              "not_ready",
+		&Rejection{Outcome: "rejected"}: "rejected",
+		fmt.Errorf("%w", &Rejection{Outcome: "mismatch"}): "mismatch",
+		errors.New("upstream"):                            "error",
 	} {
 		if got := preparationOutcome(err); got != outcome {
 			t.Fatalf("%v labelled %s", err, got)

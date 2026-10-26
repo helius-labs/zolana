@@ -20,18 +20,12 @@ import type {
   RingsOutputSlot,
   SplTransfer,
   SignatureIndexedShieldedTransaction,
-  GetRingSpendRecordResponse,
   GetUserRecordsRequest,
   GetUserRecordsResponse,
-  RingMemberProofRequest,
-  RingMemberRequest,
-  RingKeyRegistryEntry,
-  RingKeyRegistryRegisterProof,
   UserRecord,
 } from "./types.js";
 import { MAX_USER_RECORD_OWNERS } from "../interface/indexer-limits.js";
 import { isMergeEncryptionScheme, type MergeEncryptionScheme } from "../interface/state.js";
-import { KEY_REGISTRY_CAPACITY, KEY_REGISTRY_HEIGHT } from "../interface/key-registry.js";
 import {
   checkedAddress,
   checkedBase64,
@@ -42,117 +36,6 @@ import {
 } from "./scalars.js";
 
 type WireObject = Record<string, unknown>;
-
-export function encodeRingMemberRequest(
-  value: RingMemberRequest,
-): Readonly<Record<string, unknown>> {
-  return {
-    ringProgramId: checkedAddress(value.ringProgramId, "ringProgramId"),
-    member: checkedHash(value.member, "member"),
-  };
-}
-
-export function encodeRingMemberProofRequest(
-  value: RingMemberProofRequest,
-): Readonly<Record<string, unknown>> {
-  return {
-    ...encodeRingMemberRequest(value),
-    expectedRoot: checkedHash(value.expectedRoot, "expectedRoot"),
-    expectedNextIndex: toWireInteger(
-      value.expectedNextIndex,
-      "expectedNextIndex",
-      1n,
-      KEY_REGISTRY_CAPACITY,
-    ),
-  };
-}
-
-function indexedPath(value: unknown, path: string) {
-  const proof = array(value, path, checkedHash);
-  if (proof.length !== KEY_REGISTRY_HEIGHT) {
-    return schemaFailure(
-      "INDEXER_SCHEMA_INVALID_TYPE",
-      path,
-      `${String(KEY_REGISTRY_HEIGHT)} siblings`,
-      value,
-    );
-  }
-  return proof;
-}
-
-function memberContext(record: WireObject) {
-  return {
-    context: context(record["context"], "context"),
-    root: checkedHash(record["root"], "root"),
-    member: checkedHash(record["member"], "member"),
-    nextIndex: wireInteger(record["nextIndex"], "nextIndex", 1n, KEY_REGISTRY_CAPACITY),
-  };
-}
-
-export function decodeRingKeyRegistryRegisterProof(value: unknown): RingKeyRegistryRegisterProof {
-  const row = object(value, "$", [
-    "context",
-    "root",
-    "member",
-    "nextIndex",
-    "lowMember",
-    "lowNext",
-    "lowKeyHash",
-    "lowIndex",
-    "lowProof",
-    "newProof",
-  ]);
-  const common = memberContext(row);
-  return {
-    ...common,
-    lowMember: checkedHash(row["lowMember"], "lowMember"),
-    lowNext: checkedHash(row["lowNext"], "lowNext"),
-    lowKeyHash: checkedHash(row["lowKeyHash"], "lowKeyHash"),
-    lowIndex: wireInteger(row["lowIndex"], "lowIndex", 0n, common.nextIndex - 1n),
-    lowProof: indexedPath(row["lowProof"], "lowProof"),
-    newProof: indexedPath(row["newProof"], "newProof"),
-  };
-}
-
-export function decodeRingKeyRegistryEntry(value: unknown): RingKeyRegistryEntry {
-  const row = object(value, "$", [
-    "context",
-    "root",
-    "member",
-    "nextIndex",
-    "next",
-    "index",
-    "ephPk",
-    "ciphertext",
-    "proof",
-  ]);
-  const common = memberContext(row);
-  return {
-    ...common,
-    next: checkedHash(row["next"], "next"),
-    index: wireInteger(row["index"], "index", 1n, common.nextIndex - 1n),
-    ephPk: checkedBase64(row["ephPk"], "ephPk"),
-    ciphertext: checkedBase64(row["ciphertext"], "ciphertext"),
-    proof: indexedPath(row["proof"], "proof"),
-  };
-}
-
-export function decodeRingSpendRecordResponse(value: unknown): GetRingSpendRecordResponse {
-  const row = object(value, "$", ["context", "record"]);
-  const indexed = context(row["context"], "context");
-  if (row["record"] === null) return { context: indexed, record: null };
-  const record = object(row["record"], "record", ["transaction", "outputIndex"]);
-  const transaction = indexedTransaction(record["transaction"], "record.transaction");
-  const outputIndex = u16(record["outputIndex"], "record.outputIndex");
-  if (outputIndex >= transaction.outputSlots.length)
-    return schemaFailure(
-      "INDEXER_SCHEMA_INVALID_INTEGER",
-      "record.outputIndex",
-      "an existing output",
-      outputIndex,
-    );
-  return { context: indexed, record: { transaction, outputIndex } };
-}
 
 export function encodeUserRecordsRequest(value: GetUserRecordsRequest): WireObject {
   const owners: unknown = value.owners;
@@ -199,7 +82,7 @@ const I64_MAX = (1n << 63n) - 1n;
 const U64_MAX = (1n << 64n) - 1n;
 const U16_MAX = 65_535;
 
-function object(value: unknown, path: string, fields: readonly string[]): WireObject {
+export function object(value: unknown, path: string, fields: readonly string[]): WireObject {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return schemaFailure("INDEXER_SCHEMA_INVALID_TYPE", path, "an object", value);
   }
@@ -212,7 +95,7 @@ function object(value: unknown, path: string, fields: readonly string[]): WireOb
   return record;
 }
 
-function array<T>(
+export function array<T>(
   value: unknown,
   path: string,
   decode: (item: unknown, itemPath: string) => T,
@@ -251,7 +134,12 @@ function inRange(
   return integer;
 }
 
-function wireInteger(value: unknown, path: string, minimum: bigint, maximum: bigint): bigint {
+export function wireInteger(
+  value: unknown,
+  path: string,
+  minimum: bigint,
+  maximum: bigint,
+): bigint {
   if (typeof value !== "number" || !Number.isSafeInteger(value)) {
     return schemaFailure("INDEXER_SCHEMA_INVALID_INTEGER", path, "a safe JSON integer", value);
   }
@@ -310,7 +198,7 @@ function mergeEncryptionScheme(value: unknown, path: string): MergeEncryptionSch
   return integer;
 }
 
-function u16(value: unknown, path: string): number {
+export function u16(value: unknown, path: string): number {
   const integer = wireInteger(value, path, 0n, BigInt(U16_MAX));
   return Number(integer);
 }
@@ -345,7 +233,12 @@ function checkedPageLimit(value: unknown, path: string) {
  * tolerance, not a shape we emit, which is why a value past the safe-integer
  * bound is reported here rather than encoded.
  */
-function toWireInteger(value: bigint, path: string, minimum: bigint, maximum: bigint): number {
+export function toWireInteger(
+  value: bigint,
+  path: string,
+  minimum: bigint,
+  maximum: bigint,
+): number {
   if (value < minimum || value > maximum) {
     return schemaFailure(
       "INDEXER_SCHEMA_INVALID_INTEGER",
@@ -378,7 +271,7 @@ function optional<T>(
   return value === undefined || value === null ? undefined : decode(value, path);
 }
 
-function context(value: unknown, path: string): IndexerContext {
+export function context(value: unknown, path: string): IndexerContext {
   // `object` rejects any key not listed here, so a new wire field must be added
   // in the same release that starts sending it.
   const record = object(value, path, ["blockTime", "slot"]);
@@ -448,7 +341,7 @@ function encryptedUtxoMatch(value: unknown, path: string): EncryptedUtxoMatch {
   };
 }
 
-function indexedTransaction(value: unknown, path: string): IndexedShieldedTransaction {
+export function indexedTransaction(value: unknown, path: string): IndexedShieldedTransaction {
   const record = object(value, path, [
     "slot",
     "txSignature",

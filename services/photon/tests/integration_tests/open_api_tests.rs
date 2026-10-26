@@ -7,12 +7,6 @@ const METHODS: &[&str] = &[
     "getMerkleProofs",
     "getNonInclusionProofs",
     "getNullifierQueueElements",
-    #[cfg(feature = "custom-rings")]
-    "getRingKeyRegistryEntry",
-    #[cfg(feature = "custom-rings")]
-    "getRingKeyRegistryRegisterProof",
-    #[cfg(feature = "custom-rings")]
-    "getRingSpendRecord",
     "getShieldedTransactionsByNullifiers",
     "getShieldedTransactionsBySignature",
     "getShieldedTransactionsByTags",

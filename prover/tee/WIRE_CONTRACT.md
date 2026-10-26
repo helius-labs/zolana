@@ -94,13 +94,14 @@ The recipient is `hpke_public_key`, and the info is `zolana/prover-tee/v1`.
 `Zolana-Tee-Enc` carries the encapsulated key.
 A GET carries its encrypted bytes in `Zolana-Tee-Ciphertext`, because fetch refuses a GET body.
 Every other method carries them as an `application/octet-stream` body.
-The AAD is the method and the request target without its `api-key` parameters:
+The AAD is the method, the route and the query without its `api-key` parameters:
 
 ```
-aad = METHOD " " path [ "?" query ]
+aad = METHOD " " route [ "?" query ]
 ```
 
-The path is the one sent.
+The route is the path below the prover's base, such as `/prove/transfer_2_2`.
+A client drops the path of the prover URL it was given, and the prover drops a leading `/v1/zolana` once, so the route stays the same wherever a proxy mounts the prover.
 The query keeps its pairs in order and drops empty pairs and every pair whose key is `api-key`.
 The AAD omits `?` when no pair remains.
 The answer is AES-256-GCM with a fresh random 12-byte nonce and empty AAD, under the 32-byte HPKE export `zolana/prover-tee/v1/response`.
@@ -122,7 +123,8 @@ The AAD never covers it, so a proxy can move or strip it.
 
 ## Proxies
 
-A proxy keeps the path and the non-credential query pairs as sent.
+A proxy can serve the prover under any path, and delivers the route bare or under `/v1/zolana`.
+It keeps the non-credential query pairs as sent.
 It forwards `Zolana-Tee`, `Zolana-Tee-Enc` and `Zolana-Tee-Ciphertext`, and passes octet-stream bodies through unchanged.
 For browsers it allows the three headers in CORS preflight and exposes `Zolana-Tee`.
 An authorization subrequest to the prover must drop `Zolana-Tee`, or the prover tries to decrypt it.

@@ -4,12 +4,12 @@ export const DEFAULT_TEE_POLICY_FILE: Readonly<{ deployment: unknown }> = Object
     platform: "aws-nitro",
     measurements: [
       {
-        pcr0: "be10184fd4ed9744f3245c0597e91243e61ae24fdcdb7bb0440181d286286ece47f3395db4de7cca284c535df82158e8",
+        pcr0: "659a43741fdbf38ffff53326499754ac1f6901d43eb0fe319362aa98f1743c1e2a61fd99d3f95ea86f539e14afe5b6d5",
         pcr1: "4b4d5b3661b3efc12920900c80e126e4ce783c522de6c02a2a5bf7af3a2b9327b86776f188e4be1c1c404a129dbda493",
-        pcr2: "846d50cc7cf2da51f83efff19eee29d0668040d2158156f0ca678a7c5174c21e7e48fa8436b917a62a73a122e63a12b5",
+        pcr2: "2900a9860a2ccf135c61a7584b53ffd222637f4981c65c7351e298e61253cd7a7a608708801b2075d88549803841f618",
       },
     ],
-    hpke_public_key: "314835fc8354eaf213bfab520111126a6e9bd35b3251d08be762fb10ea395257",
+    hpke_public_key: "270e90208e7f79a8fe1ca1b2eb6670421a3ae95b4119928a915cbd8977c2e055",
     gpu: "optional",
     max_age_secs: 600,
   },

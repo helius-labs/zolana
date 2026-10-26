@@ -11,13 +11,8 @@ import type {
   GetShieldedTransactionsBySignatureRequest,
   GetShieldedTransactionsBySignatureResponse,
   GetShieldedTransactionsByTagsResponse,
-  GetRingSpendRecordResponse,
   GetUserRecordsRequest,
   GetUserRecordsResponse,
-  RingMemberProofRequest,
-  RingMemberRequest,
-  RingKeyRegistryEntry,
-  RingKeyRegistryRegisterProof,
 } from "../indexer/types.js";
 import type { IndexerSchemaError } from "../indexer/scalars.js";
 import {
@@ -28,9 +23,6 @@ import {
   getShieldedTransactionsBySignatureMethod,
   getShieldedTransactionsByTagsMethod,
   type MethodDescriptor,
-  getRingSpendRecordMethod,
-  getRingKeyRegistryEntryMethod,
-  getRingKeyRegistryRegisterProofMethod,
   getUserRecordsMethod,
 } from "../indexer/methods/index.js";
 import { postJsonRpc, isObject } from "../services/jsonrpc.js";
@@ -89,73 +81,52 @@ export class ZolanaApi {
     request: GetRingsByTagsRequest,
     context?: RequestContext,
   ): Promise<GetEncryptedUtxosByTagsResponse> {
-    return this.#call(getEncryptedUtxosByTagsMethod, request, context);
+    return this.call(getEncryptedUtxosByTagsMethod, request, context);
   }
 
   getShieldedTransactionsByTags(
     request: GetRingsByTagsRequest,
     context?: RequestContext,
   ): Promise<GetShieldedTransactionsByTagsResponse> {
-    return this.#call(getShieldedTransactionsByTagsMethod, request, context);
+    return this.call(getShieldedTransactionsByTagsMethod, request, context);
   }
 
   getShieldedTransactionsByNullifiers(
     request: GetRingsByNullifiersRequest,
     context?: RequestContext,
   ): Promise<GetShieldedTransactionsByNullifiersResponse> {
-    return this.#call(getShieldedTransactionsByNullifiersMethod, request, context);
-  }
-
-  getRingSpendRecord(
-    request: RingMemberRequest,
-    context?: RequestContext,
-  ): Promise<GetRingSpendRecordResponse> {
-    return this.#call(getRingSpendRecordMethod, request, context);
-  }
-
-  getRingKeyRegistryEntry(
-    request: RingMemberProofRequest,
-    context?: RequestContext,
-  ): Promise<RingKeyRegistryEntry> {
-    return this.#call(getRingKeyRegistryEntryMethod, request, context);
-  }
-
-  getRingKeyRegistryRegisterProof(
-    request: RingMemberProofRequest,
-    context?: RequestContext,
-  ): Promise<RingKeyRegistryRegisterProof> {
-    return this.#call(getRingKeyRegistryRegisterProofMethod, request, context);
+    return this.call(getShieldedTransactionsByNullifiersMethod, request, context);
   }
 
   getShieldedTransactionsBySignature(
     request: GetShieldedTransactionsBySignatureRequest,
     context?: RequestContext,
   ): Promise<GetShieldedTransactionsBySignatureResponse> {
-    return this.#call(getShieldedTransactionsBySignatureMethod, request, context);
+    return this.call(getShieldedTransactionsBySignatureMethod, request, context);
   }
 
   getMerkleProofs(
     request: GetMerkleProofsRequest,
     context?: RequestContext,
   ): Promise<GetMerkleProofsResponse> {
-    return this.#call(getMerkleProofsMethod, request, context);
+    return this.call(getMerkleProofsMethod, request, context);
   }
 
   getNonInclusionProofs(
     request: GetNonInclusionProofsRequest,
     context?: RequestContext,
   ): Promise<GetNonInclusionProofsResponse> {
-    return this.#call(getNonInclusionProofsMethod, request, context);
+    return this.call(getNonInclusionProofsMethod, request, context);
   }
 
   getUserRecords(
     request: GetUserRecordsRequest,
     context?: RequestContext,
   ): Promise<GetUserRecordsResponse> {
-    return this.#call(getUserRecordsMethod, request, context);
+    return this.call(getUserRecordsMethod, request, context);
   }
 
-  async #call<Request, Response>(
+  async call<Request, Response>(
     descriptor: MethodDescriptor<Request, Response>,
     request: Request,
     context?: RequestContext,

@@ -14,9 +14,6 @@ use zolana_program_test::localnet::{LocalnetPorts, LocalnetValidator, Upgradeabl
 use zolana_smart_account_client::SMART_ACCOUNT_PROGRAM_ID;
 use zolana_user_registry_interface::user_registry_program_id;
 
-/// Arbitrary, the shared binary serves any genesis address.
-pub const CUSTOM_RING_PROGRAM_ADDRESS: &str = "9vyTbYGyh3cwxkAQpjjFQGXmdJP6p9B6YcQ5pNuXPNbh";
-
 pub const ZERO: [u8; 32] = [0u8; 32];
 // Blinding positions in the fixed-position output layout
 // `[spl_change, sol_change, recipients...]`.

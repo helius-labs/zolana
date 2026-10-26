@@ -2577,185 +2577,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "custom-ring-cli"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bincode 2.0.1",
- "bytemuck",
- "clap",
- "console",
- "custom-ring-interface",
- "custom-ring-program",
- "custom-ring-sdk",
- "dialoguer",
- "hex",
- "reqwest",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "solana-account 4.3.2",
- "solana-address 2.6.1",
- "solana-instruction",
- "solana-keypair",
- "solana-loader-v3-interface 8.0.1",
- "solana-rpc-client-api",
- "solana-sbpf",
- "solana-signature",
- "solana-signer",
- "solana-system-interface 3.2.0",
- "solana-transaction-error",
- "spl-token-2022-interface 2.1.0",
- "thiserror 2.0.20",
- "toml 0.8.23",
- "toml_edit 0.22.27",
- "wincode",
- "zolana-client",
- "zolana-indexer-api",
- "zolana-interface",
- "zolana-keypair",
- "zolana-ring-client",
- "zolana-ring-policy",
- "zolana-ring-rpc",
- "zolana-transaction",
-]
-
-[[package]]
-name = "custom-ring-interface"
-version = "0.1.0"
-dependencies = [
- "bytemuck",
- "groth16-solana",
- "serde_json",
- "solana-address 2.6.1",
- "wincode",
- "zolana-hasher",
- "zolana-interface",
- "zolana-ring-policy",
-]
-
-[[package]]
-name = "custom-ring-program"
-version = "0.1.0"
-dependencies = [
- "bincode 2.0.1",
- "bytemuck",
- "curve25519-dalek",
- "custom-ring-interface",
- "ed25519-dalek",
- "groth16-solana",
- "hex",
- "mollusk-svm",
- "pinocchio 0.11.2",
- "pinocchio-system",
- "solana-account 4.3.2",
- "solana-curve25519 4.0.1",
- "solana-instruction",
- "solana-loader-v3-interface 8.0.1",
- "solana-program-error",
- "solana-pubkey 4.2.1",
- "thiserror 2.0.20",
- "wincode",
- "x25519-dalek",
- "zolana-account-checks",
- "zolana-hasher",
- "zolana-interface",
- "zolana-program",
- "zolana-ring-policy",
- "zolana-test-utils",
- "zolana-tree",
-]
-
-[[package]]
-name = "custom-ring-sdk"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "borsh",
- "bytemuck",
- "curve25519-dalek",
- "custom-ring-interface",
- "futures",
- "groth16-solana",
- "hex",
- "num-bigint 0.4.8",
- "rand 0.8.8",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "solana-account 4.3.2",
- "solana-address 2.6.1",
- "solana-hash",
- "solana-instruction",
- "solana-instruction-error",
- "solana-message",
- "solana-pubkey 4.2.1",
- "solana-rpc-client",
- "solana-rpc-client-api",
- "solana-signature",
- "solana-signer",
- "solana-transaction",
- "solana-transaction-error",
- "solana-transaction-status-client-types",
- "thiserror 2.0.20",
- "tokio",
- "wincode",
- "zeroize",
- "zolana-client",
- "zolana-event",
- "zolana-hasher",
- "zolana-indexer-api",
- "zolana-interface",
- "zolana-keypair",
- "zolana-merkle-tree",
- "zolana-program",
- "zolana-ring-client",
- "zolana-ring-key-registry",
- "zolana-ring-policy",
- "zolana-ring-transaction",
- "zolana-test-utils",
- "zolana-transaction",
- "zolana-tree",
-]
-
-[[package]]
-name = "custom-ring-test-validator"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bincode 2.0.1",
- "custom-ring-cli",
- "custom-ring-interface",
- "custom-ring-program",
- "custom-ring-sdk",
- "hex",
- "serde_json",
- "solana-address 2.6.1",
- "solana-instruction",
- "solana-keypair",
- "solana-message",
- "solana-rpc-client-api",
- "solana-signature",
- "solana-signer",
- "solana-system-interface 3.2.0",
- "tokio",
- "zeroize",
- "zolana-client",
- "zolana-interface",
- "zolana-keypair",
- "zolana-program",
- "zolana-program-test",
- "zolana-ring-client",
- "zolana-ring-policy",
- "zolana-ring-rpc",
- "zolana-ring-transaction",
- "zolana-test-utils",
- "zolana-transaction",
- "zolana-tree",
- "zolana-user-registry-interface",
-]
-
-[[package]]
 name = "darling"
 version = "0.20.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2929,7 +2750,7 @@ dependencies = [
  "derive_more 2.1.1",
  "hex",
  "log",
- "p256 0.14.0",
+ "p256",
  "parity-scale-codec",
  "pem 4.0.0",
  "rustls-pki-types",
@@ -2952,7 +2773,7 @@ checksum = "0e8f2341b6a0f80654c55d0753d420aa306c97b5234c3a47f7e4ccfb6a695b2e"
 dependencies = [
  "ecdsa 0.17.0",
  "ed25519-dalek",
- "p256 0.14.0",
+ "p256",
  "p384",
  "ring",
  "rustls-pki-types",
@@ -3104,16 +2925,6 @@ dependencies = [
  "rustc_version",
  "syn 2.0.119",
  "unicode-xid",
-]
-
-[[package]]
-name = "dialoguer"
-version = "0.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25f104b501bf2364e78d0d3974cbc774f738f5865306ed128e1e0d7499c0ad96"
-dependencies = [
- "console",
- "shell-words",
 ]
 
 [[package]]
@@ -5757,18 +5568,6 @@ checksum = "13c45bb4a6ae1280ec0803b1ef9d3455eb50f01efbbe1447ab020f1d54fba9d8"
 
 [[package]]
 name = "p256"
-version = "0.13.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c9863ad85fa8f4460f9c48cb909d38a0d689dba1f6f6988a5e3e0d31071bcd4b"
-dependencies = [
- "ecdsa 0.16.9",
- "elliptic-curve 0.13.8",
- "primeorder 0.13.6",
- "sha2 0.10.9",
-]
-
-[[package]]
-name = "p256"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2c9239b2dbc807adbbe147e8cf72ea7450c3a0aabe62cb8e75ff4ec22e1f72a"
@@ -5776,7 +5575,7 @@ dependencies = [
  "ecdsa 0.17.0",
  "elliptic-curve 0.14.1",
  "primefield",
- "primeorder 0.14.0",
+ "primeorder",
  "sha2 0.11.0",
 ]
 
@@ -5790,7 +5589,7 @@ dependencies = [
  "elliptic-curve 0.14.1",
  "fiat-crypto 0.3.0",
  "primefield",
- "primeorder 0.14.0",
+ "primeorder",
  "sha2 0.11.0",
 ]
 
@@ -5948,13 +5747,11 @@ dependencies = [
  "bincode 2.0.1",
  "borsh",
  "bs58",
- "bytemuck",
  "bytes",
  "cadence",
  "cadence-macros",
  "clap",
  "criterion",
- "custom-ring-interface",
  "futures",
  "http-body-util",
  "hyper 1.11.1",
@@ -5994,12 +5791,8 @@ dependencies = [
  "yellowstone-grpc-proto",
  "zolana-event",
  "zolana-event-parser",
- "zolana-hasher",
  "zolana-indexer-api",
  "zolana-interface",
- "zolana-ring-indexer",
- "zolana-ring-key-registry",
- "zolana-ring-policy",
  "zolana-rpc-http",
  "zolana-tree",
  "zolana-user-registry-interface",
@@ -6242,15 +6035,6 @@ dependencies = [
 
 [[package]]
 name = "primeorder"
-version = "0.13.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "353e1ca18966c16d9deb1c69278edbc5f194139612772bd9537af60ac231e1e6"
-dependencies = [
- "elliptic-curve 0.13.8",
-]
-
-[[package]]
-name = "primeorder"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5c9f42978c78a00e3d68f69fc03e57a234debae69da4020a4fb588fcdcd07b06"
@@ -6267,7 +6051,7 @@ version = "3.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e67ba7e9b2b56446f1d419b1d807906278ffa1a658a8a5d8a39dcb1f5a78614f"
 dependencies = [
- "toml_edit 0.25.13+spec-1.1.0",
+ "toml_edit",
 ]
 
 [[package]]
@@ -6449,21 +6233,6 @@ name = "protoc-bin-vendored-win32"
 version = "3.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "95067976aca6421a523e491fce939a3e65249bac4b977adee0ee9771568e8aa3"
-
-[[package]]
-name = "psl"
-version = "2.1.232"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62834e308cc83aea5e30cd8c80b8aa82cdb104a3240c7f210d4f68d46e29f308"
-dependencies = [
- "psl-types",
-]
-
-[[package]]
-name = "psl-types"
-version = "2.0.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "33cb294fe86a74cbcf50d4445b37da762029549ebeea341421c7c70370f86cac"
 
 [[package]]
 name = "ptr_meta"
@@ -7743,15 +7512,6 @@ dependencies = [
 
 [[package]]
 name = "serde_spanned"
-version = "0.6.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf41e0cfaf7226dca15e8197172c295a782857fcb97fad1808a166870dee75a3"
-dependencies = [
- "serde",
-]
-
-[[package]]
-name = "serde_spanned"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e7523beb55eece201a2356bee0bbca0d1ab466c14c07703b2e0ee6d42cb0c2c"
@@ -7930,12 +7690,6 @@ dependencies = [
  "bytes",
  "memmap2",
 ]
-
-[[package]]
-name = "shell-words"
-version = "1.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc6fe69c597f9c37bfeeeeeb33da3530379845f10be461a66d16d03eca2ded77"
 
 [[package]]
 name = "shielded-pool-program"
@@ -11139,38 +10893,17 @@ dependencies = [
 
 [[package]]
 name = "toml"
-version = "0.8.23"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc1beb996b9d83529a9e75c17a1686767d148d70663143c7854d8b4a09ced362"
-dependencies = [
- "serde",
- "serde_spanned 0.6.9",
- "toml_datetime 0.6.11",
- "toml_edit 0.22.27",
-]
-
-[[package]]
-name = "toml"
 version = "1.1.6+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "920602543f0911ab71da12c50d59701da54c196d1a2bf5cb4b75667f137a406a"
 dependencies = [
  "indexmap 2.14.2",
  "serde_core",
- "serde_spanned 1.1.2",
- "toml_datetime 1.1.1+spec-1.1.0",
+ "serde_spanned",
+ "toml_datetime",
  "toml_parser",
  "toml_writer",
- "winnow 1.0.4",
-]
-
-[[package]]
-name = "toml_datetime"
-version = "0.6.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22cddaf88f4fbc13c51aebbf5f8eceb5c7c5a9da2ac40a13519eb5b0a0e8f11c"
-dependencies = [
- "serde",
+ "winnow",
 ]
 
 [[package]]
@@ -11184,28 +10917,14 @@ dependencies = [
 
 [[package]]
 name = "toml_edit"
-version = "0.22.27"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41fe8c660ae4257887cf66394862d21dbca4a6ddd26f04a3560410406a2f819a"
-dependencies = [
- "indexmap 2.14.2",
- "serde",
- "serde_spanned 0.6.9",
- "toml_datetime 0.6.11",
- "toml_write",
- "winnow 0.7.15",
-]
-
-[[package]]
-name = "toml_edit"
 version = "0.25.13+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6975367e4d2ef766d86af01ffad14b622fecc8d4357a998fbc4deb6e9bacaf9b"
 dependencies = [
  "indexmap 2.14.2",
- "toml_datetime 1.1.1+spec-1.1.0",
+ "toml_datetime",
  "toml_parser",
- "winnow 1.0.4",
+ "winnow",
 ]
 
 [[package]]
@@ -11214,14 +10933,8 @@ version = "1.1.3+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d38ac1cf9b95face32296c0a3ede1fdc270627c9d9c02a7274dd6d960dc4d56"
 dependencies = [
- "winnow 1.0.4",
+ "winnow",
 ]
-
-[[package]]
-name = "toml_write"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5d99f8c9a7727884afe522e9bd5edbfc91a3312b36a77b5fb8926e4c31a41801"
 
 [[package]]
 name = "toml_writer"
@@ -11496,7 +11209,7 @@ dependencies = [
  "serde_json",
  "target-tuple",
  "termcolor",
- "toml 1.1.6+spec-1.1.0",
+ "toml",
 ]
 
 [[package]]
@@ -12517,15 +12230,6 @@ checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
 
 [[package]]
 name = "winnow"
-version = "0.7.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df79d97927682d2fd8adb29682d1140b343be4ac0f08fd68b7765d9c059d3945"
-dependencies = [
- "memchr",
-]
-
-[[package]]
-name = "winnow"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23b97319f7b8343df12cc98938e5c3eb436064524c8d2b4e30a1d3a36eecdf81"
@@ -13229,147 +12933,6 @@ dependencies = [
  "thiserror 2.0.20",
  "x509-cert",
  "zeroize",
-]
-
-[[package]]
-name = "zolana-ring-client"
-version = "0.1.0"
-dependencies = [
- "borsh",
- "bs58",
- "curve25519-dalek",
- "custom-ring-interface",
- "hex",
- "p256 0.13.2",
- "serde_json",
- "sha2 0.10.9",
- "solana-address 2.6.1",
- "solana-commitment-config",
- "solana-rpc-client-api",
- "solana-signature",
- "solana-transaction-status-client-types",
- "thiserror 2.0.20",
- "zeroize",
- "zolana-client",
- "zolana-event",
- "zolana-event-parser",
- "zolana-hasher",
- "zolana-indexer-api",
- "zolana-interface",
- "zolana-keypair",
- "zolana-ring-client",
- "zolana-ring-key-registry",
- "zolana-ring-policy",
- "zolana-ring-transaction",
- "zolana-transaction",
-]
-
-[[package]]
-name = "zolana-ring-indexer"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "custom-ring-interface",
- "serde",
- "solana-address 2.6.1",
- "wincode",
- "zolana-event",
- "zolana-hasher",
- "zolana-indexer-api",
- "zolana-interface",
- "zolana-ring-key-registry",
- "zolana-ring-policy",
-]
-
-[[package]]
-name = "zolana-ring-key-registry"
-version = "0.1.0"
-dependencies = [
- "custom-ring-interface",
- "thiserror 2.0.20",
- "zolana-hasher",
- "zolana-merkle-tree",
-]
-
-[[package]]
-name = "zolana-ring-policy"
-version = "0.1.0"
-dependencies = [
- "bytemuck",
- "hex",
- "proptest",
- "serde",
- "serde_json",
- "solana-address 2.6.1",
- "thiserror 2.0.20",
- "zolana-client",
- "zolana-hasher",
- "zolana-interface",
- "zolana-keypair",
- "zolana-transaction",
-]
-
-[[package]]
-name = "zolana-ring-rpc"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64 0.22.1",
- "bincode 2.0.1",
- "bytemuck",
- "clap",
- "custom-ring-interface",
- "hex",
- "hkdf",
- "hyper 1.11.1",
- "jsonrpsee",
- "libc",
- "log",
- "p256 0.13.2",
- "psl",
- "rand 0.8.8",
- "reqwest",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "solana-account 4.3.2",
- "solana-account-decoder-client-types",
- "solana-address 2.6.1",
- "solana-commitment-config",
- "solana-keypair",
- "solana-loader-v3-interface 8.0.1",
- "solana-rpc-client",
- "solana-rpc-client-api",
- "solana-signature",
- "solana-signer",
- "thiserror 2.0.20",
- "tokio",
- "tower",
- "tower-http 0.7.1",
- "tracing-subscriber",
- "zeroize",
- "zolana-api",
- "zolana-client",
- "zolana-indexer-api",
- "zolana-interface",
- "zolana-keypair",
- "zolana-ring-client",
- "zolana-ring-transaction",
- "zolana-rpc-http",
- "zolana-transaction",
-]
-
-[[package]]
-name = "zolana-ring-transaction"
-version = "0.1.0"
-dependencies = [
- "borsh",
- "solana-address 2.6.1",
- "solana-signature",
- "zolana-event",
- "zolana-interface",
- "zolana-keypair",
- "zolana-transaction",
 ]
 
 [[package]]

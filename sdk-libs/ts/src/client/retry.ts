@@ -1,6 +1,7 @@
+import { extractCauseCode } from "../errors/internal.js";
 import type { RequestContext } from "../interface/types.js";
 
-import { ClientError, isClientError, type ClientErrorCode, type RetryErrorCause } from "./error.js";
+import { ClientError, isClientError, type RetryErrorCause } from "./error.js";
 import { composeSignal } from "./internal.js";
 import type { ProofDataSource } from "./ports.js";
 
@@ -51,7 +52,7 @@ const PROJECTION_POLL = createIndexerPollConfig(240, 500n, 500n);
 
 type ProjectionAttempt<T> =
   | Readonly<{ kind: "ready"; value: T }>
-  | Readonly<{ kind: "retry"; error: ClientError }>;
+  | Readonly<{ kind: "retry"; error: Error }>;
 
 export function createIndexerPollConfig(
   numRetries: number,
@@ -129,10 +130,7 @@ export interface PollUntilOptions {
    * Build the error for an exhausted schedule. Receives the cause of the final
    * attempt, or `undefined` when that attempt answered without a match.
    */
-  readonly onTimeout?: (
-    config: IndexerPollConfig,
-    lastCause: RetryErrorCause | undefined,
-  ) => ClientError;
+  readonly onTimeout?: (config: IndexerPollConfig, lastCause: RetryErrorCause | undefined) => Error;
 }
 
 export async function pollUntil<T>(
@@ -212,12 +210,12 @@ export function withProofDataRetry<T>(
 /** Refetches correlated chain and indexer state while an indexer projection catches up. */
 export async function waitForProjection<T>(
   read: (context: RequestContext) => Promise<T>,
-  retryable: ReadonlySet<ClientErrorCode>,
+  retryable: ReadonlySet<string>,
   context?: RequestContext,
   poll: IndexerPollConfig = PROJECTION_POLL,
   maxWaitMs: number = PROJECTION_TIMEOUT_MS,
 ): Promise<T> {
-  let last: ClientError | undefined;
+  let last: Error | undefined;
   const operation = composeSignal(overallContext(context, maxWaitMs), "waitForProjection");
   const attemptContext = Object.freeze({ signal: operation.signal });
   let rejectAborted: ((error: ClientError) => void) | undefined;
@@ -233,7 +231,8 @@ export async function waitForProjection<T>(
           const value = await Promise.race([read(attemptContext), aborted]);
           return { kind: "ready", value };
         } catch (cause) {
-          if (!isClientError(cause) || !retryable.has(cause.code)) throw cause;
+          const code = extractCauseCode(cause);
+          if (!(cause instanceof Error) || code === undefined || !retryable.has(code)) throw cause;
           last = cause;
           return { kind: "retry", error: cause };
         }

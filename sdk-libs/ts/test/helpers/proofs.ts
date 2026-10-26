@@ -4,14 +4,13 @@ const ZERO_POINT = ["0x0", "0x0"];
 
 /**
  * The key file the Go prover proves a posted request with, mirroring its
- * `determineTransferKeyPath`, `mergeKeyPath` and `determineRingKeyPath`.
+ * `determineTransferKeyPath` and `mergeKeyPath`.
  */
 function provingKeyNameOf(body: Record<string, unknown>): string {
   const circuitType = String(body["circuitType"]);
   if (circuitType === "merge" || circuitType === "merge-ring") {
     return `${circuitType.replaceAll("-", "_")}_${(body["inputs"] as unknown[]).length}_1.key`;
   }
-  if (circuitType.startsWith("custom-ring-")) return `${circuitType.replaceAll("-", "_")}.key`;
   return `${circuitType.replaceAll("-", "_")}_${String(body["nInputs"])}_${String(body["nOutputs"])}.key`;
 }
 

@@ -13,8 +13,6 @@ export { LocalKeys } from "../client/keys.js";
 export type { ProofAuthority, ProofService, WalletKeys } from "../client/ports.js";
 export type {
   AnonymousRecipientSlot,
-  AuditWitness,
-  EncryptedCustomRingTransfer,
   EncryptedEnvelope,
   EncryptedSplit,
   EncryptedTransfer,

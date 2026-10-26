@@ -1,17 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { ZolanaApi } from "../src/api/index.js";
-import { RingRpc } from "../src/ring/rpc.js";
 import { ProverClient } from "../src/client/prover/client.js";
 import { ZolanaClient } from "../src/client/index.js";
 
 const clients = [
-  {
-    name: "RingRpc",
-    code: "RING_RPC_CONFIG",
-    create: (url: string, fetch: typeof globalThis.fetch, apiKey?: string) =>
-      new RingRpc(url, { fetch, ...(apiKey === undefined ? {} : { apiKey }) }),
-  },
   {
     name: "ZolanaApi",
     code: "API_INVALID_CONFIG",

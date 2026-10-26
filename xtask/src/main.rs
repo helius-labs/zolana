@@ -7,9 +7,9 @@ use std::{
 
 use groth16_solana::vk::setup::{ProvingKeySource, SetupKind};
 use sha2::{Digest, Sha256};
+use xtask::create_release;
 
 mod check_deps;
-mod create_release;
 mod find_smart_accounts;
 mod init_protocol;
 mod loadtest;
@@ -148,8 +148,10 @@ fn main() {
             }
         }
         Some("create-release") => {
-            if let Err(error) = create_release::run(create_release::Options::parse(args.collect()))
-            {
+            if let Err(error) = create_release::run(
+                create_release::Options::parse(args.collect(), &create_release::Localnet),
+                &create_release::Localnet,
+            ) {
                 eprintln!("create-release failed: {error:?}");
                 std::process::exit(1);
             }
@@ -233,10 +235,6 @@ fn print_program_ids() {
     println!(
         "SWAP_PROGRAM_ID={}",
         bs58::encode(swap_program::ID).into_string()
-    );
-    println!(
-        "CUSTOM_RING_PROGRAM_ID={}",
-        zolana_test_utils::localnet::CUSTOM_RING_PROGRAM_ADDRESS
     );
     println!("DEFAULT_TREE_ADDRESS={}", zolana_interface::pda::tree(0));
 }

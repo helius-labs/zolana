@@ -28,7 +28,7 @@ func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) 
 func fixture(t *testing.T) (Request, response[stateProof], response[nullifierProof]) {
 	t.Helper()
 	toHash := func(value int64) Hash {
-		hash, err := hashField(big.NewInt(value))
+		hash, err := HashField(big.NewInt(value))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -43,7 +43,7 @@ func fixture(t *testing.T) (Request, response[stateProof], response[nullifierPro
 				t.Fatal(err)
 			}
 		}
-		result, err := hashField(hash)
+		result, err := HashField(hash)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -80,7 +80,7 @@ func fixture(t *testing.T) (Request, response[stateProof], response[nullifierPro
 	if err != nil {
 		t.Fatal(err)
 	}
-	leafHash, err := hashField(leaf)
+	leafHash, err := HashField(leaf)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +178,7 @@ func TestResolveFetchesCompactPaddingByLookupNullifier(t *testing.T) {
 	}
 	prepared.Inputs[1].Nullifier = "0x0"
 	request.Prepared = encoded(t, prepared)
-	derived, err := hashField(big.NewInt(200))
+	derived, err := HashField(big.NewInt(200))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,7 +237,7 @@ func TestResolveRejectsCompactPaddingLookupMismatch(t *testing.T) {
 	if err := json.Unmarshal(request.Prepared, &prepared); err != nil {
 		t.Fatal(err)
 	}
-	derived, err := hashField(big.NewInt(200))
+	derived, err := HashField(big.NewInt(200))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -497,5 +497,43 @@ func TestResolveAddressOnlyFetchesNoStateProof(t *testing.T) {
 	}
 	if value.TreeSlots[0].UtxoRoot.Sign() != 0 {
 		t.Fatal("address-only tree requires no state root")
+	}
+}
+
+func TestExtensionRequestsResolveThroughTheirDecoder(t *testing.T) {
+	const circuit common.CircuitType = "test-extension"
+	resolved := &Resolved{Payload: json.RawMessage(`{}`)}
+	Register(circuit, func(data []byte) (Resolution, error) {
+		if !strings.Contains(string(data), `"ok":true`) {
+			return nil, errors.New("rejected body")
+		}
+		return func(context.Context, *Resolver) (*Resolved, error) { return resolved, nil }, nil
+	})
+	t.Cleanup(func() { delete(extensions, circuit) })
+	if Validate([]byte(`{"circuitType":"test-extension","ok":false}`)) == nil {
+		t.Fatal("extension decoder skipped")
+	}
+	resolver, err := NewResolver(Config{URL: "http://indexer.test", Concurrency: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := resolver.Resolve(context.Background(), []byte(`{"circuitType":"test-extension","ok":true}`))
+	if err != nil || got != resolved {
+		t.Fatalf("extension resolution %v %v", got, err)
+	}
+}
+
+func TestResolvePreparedRejectsAnInputCountMismatch(t *testing.T) {
+	resolver, err := NewResolver(Config{URL: "http://indexer.test", Concurrency: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver.client.Transport = roundTripFunc(func(*http.Request) (*http.Response, error) {
+		t.Fatal("a mismatched request reached the indexer")
+		return nil, nil
+	})
+	request := Request{Trees: make([]Tree, 1), Inputs: make([]Lookup, 2)}
+	if _, err := resolver.ResolvePrepared(context.Background(), request, &Prepared{Inputs: make([]Input, 1)}); err == nil {
+		t.Fatal("mismatched input counts resolved")
 	}
 }

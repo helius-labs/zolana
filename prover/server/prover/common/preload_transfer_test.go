@@ -6,18 +6,16 @@ import (
 	"testing"
 )
 
-func TestRingPreloadRequiresSelectedKey(t *testing.T) {
-	for _, circuit := range []CircuitType{CustomRingBaseCircuitType, CustomRingPolicyCircuitType} {
-		t.Run(string(circuit), func(t *testing.T) {
-			manager := NewLazyKeyManager(t.TempDir(), &DownloadConfig{AutoDownload: false})
-			err := manager.PreloadCircuits([]string{string(circuit)})
-			if err == nil || !strings.Contains(err.Error(), manager.determineRingKeyPath(circuit)) {
-				t.Fatalf("selected ring key was not required: %v", err)
-			}
-			if err := manager.PreloadCircuits([]string{string(circuit) + ":1:1"}); err == nil {
-				t.Fatal("ring preload accepted a shape")
-			}
-		})
+func TestExtensionPreloadRequiresSelectedKey(t *testing.T) {
+	withSquareExtension(t)
+	circuit := squareExtension.Type
+	manager := NewLazyKeyManager(t.TempDir(), &DownloadConfig{AutoDownload: false})
+	err := manager.PreloadCircuits([]string{string(circuit)})
+	if err == nil || !strings.Contains(err.Error(), manager.determineExtensionKeyPath(circuit)) {
+		t.Fatalf("selected extension key was not required: %v", err)
+	}
+	if err := manager.PreloadCircuits([]string{string(circuit) + ":1:1"}); err == nil {
+		t.Fatal("extension preload accepted a shape")
 	}
 }
 

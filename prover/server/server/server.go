@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"github.com/helius-labs/zolana/prover/server/logging"
 	"github.com/helius-labs/zolana/prover/server/prover/common"
-	customring "github.com/helius-labs/zolana/prover/server/prover/custom_ring"
 	"github.com/helius-labs/zolana/prover/server/prover/indexed"
 	"github.com/helius-labs/zolana/prover/server/prover/timing"
 	"github.com/helius-labs/zolana/prover/server/tee"
@@ -214,10 +213,11 @@ func (handler proofStatusHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 				response["message"] = fmt.Sprintf("Job processing failed: %s", errorMsg)
 				response["error"] = errorMsg
 			}
-			for _, field := range []string{"code", "member"} {
-				if value, ok := failureDetails[field].(string); ok {
-					response[field] = value
-				}
+			if code, ok := failureDetails["code"].(string); ok {
+				response["code"] = code
+			}
+			if detail, ok := failureDetails["detail"]; ok {
+				response["detail"] = detail
 			}
 			if failedAt, ok := failureDetails["failedAt"]; ok {
 				response["failedAt"] = failedAt
@@ -522,8 +522,8 @@ func (handler queueStatsHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 
 	response := map[string]interface{}{
 		"queues":       stats,
-		"totalPending": stats["zk_address_append_queue"] + stats["zk_transfer_queue"] + stats["zk_custom_ring_queue"],
-		"totalActive":  stats["zk_address_append_processing_queue"] + stats["zk_transfer_processing_queue"] + stats["zk_custom_ring_processing_queue"],
+		"totalPending": stats["zk_address_append_queue"] + stats["zk_transfer_queue"] + stats[extensionQueue],
+		"totalActive":  stats["zk_address_append_processing_queue"] + stats["zk_transfer_processing_queue"] + stats["zk_extension_processing_queue"],
 		"totalFailed":  stats["zk_failed_queue"],
 		"timestamp":    time.Now().Unix(),
 	}
@@ -650,7 +650,7 @@ func RunWithQueue(config *Config, redisQueue *RedisQueue, keyManager *common.Laz
 // JSON-RPC, dispatches on the body's method, and therefore answers on any path
 // at all. The prover is the only half of the pair that dispatches on the path,
 // which is why only the prover has to care.
-const gatewayPrefix = "/v1/zolana"
+const gatewayPrefix = tee.GatewayPrefix
 
 // handleBoth registers h under its own path and under the gateway prefix, so
 // one handler serves a direct caller on the ALB and a gateway caller alike.
@@ -783,7 +783,7 @@ type Error struct {
 	Code       string
 	Message    string
 	RetryAfter int
-	Member     string
+	Detail     map[string]string
 	cause      error
 }
 
@@ -797,20 +797,20 @@ func keysNotReady() *Error {
 
 // indexedFailure keeps the resolution cause for queue redaction.
 func indexedFailure(err error) *Error {
-	var unregistered *indexed.UnregisteredMemberError
+	var rejection *indexed.Rejection
 	switch {
 	case errors.Is(err, indexed.ErrIndexerNotReady):
 		failure := notReady("indexer_not_ready", indexed.ErrIndexerNotReady.Error())
 		failure.cause = err
 		return failure
-	case errors.As(err, &unregistered):
-		return &Error{StatusCode: http.StatusUnprocessableEntity, Code: "registry_member_missing", Message: "Output owner has no registered key", Member: unregistered.Member.String(), cause: err}
+	case errors.As(err, &rejection):
+		return &Error{StatusCode: http.StatusUnprocessableEntity, Code: rejection.Code, Message: rejection.Message, Detail: rejection.Detail, cause: err}
 	}
 	return &Error{StatusCode: http.StatusBadGateway, Code: "indexer_unavailable", Message: "Indexer proof data is unavailable", cause: err}
 }
 
 // indexerUnavailable reports whether an indexed failure withholds its cause,
-// which the caller then logs. A not-ready or unregistered-member failure tells
+// which the caller then logs. A not-ready or rejected failure tells
 // the client everything the prover knows. The resolver's errors are fixed
 // strings that carry no credentials or request data, so the log may hold them.
 func indexerUnavailable(failure *Error) bool {
@@ -848,12 +848,13 @@ func loggedCause(err error) error {
 }
 
 func (error *Error) MarshalJSON() ([]byte, error) {
-	body := map[string]string{
+	body := map[string]any{
 		"code":    error.Code,
 		"message": error.Message,
 	}
-	if error.Member != "" {
-		body["member"] = error.Member
+	// Nested, so a detail key never replaces a response field.
+	if len(error.Detail) > 0 {
+		body["detail"] = error.Detail
 	}
 	return json.Marshal(body)
 }
@@ -969,8 +970,8 @@ func servedCircuits(served *ServedKeys) []common.CircuitType {
 // allCircuits is every circuit this binary proves.
 func allCircuits() []common.CircuitType {
 	circuits := append(common.TransferCircuitTypes(), common.BatchAddressAppendCircuitType)
-	for _, ring := range customring.RingCircuits {
-		circuits = append(circuits, ring.Type)
+	for _, extension := range common.Extensions() {
+		circuits = append(circuits, extension.Type)
 	}
 	return circuits
 }
@@ -1247,9 +1248,9 @@ func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Reque
 }
 
 // syncProofFailure is the error a sync client receives for a failed proof. An
-// indexed or custom-ring client reads only the redacted message, as on the
-// queue path (a custom-ring failure arrives already redacted by
-// customRingFailure), so the cause it withholds is logged here, the one place
+// indexed or extension client reads only the redacted message, as on the
+// queue path (an extension failure arrives already redacted by
+// extensionFailure), so the cause it withholds is logged here, the one place
 // it survives. A failure that withholds nothing reaches the client whole and
 // is not logged.
 func (handler proveHandler) syncProofFailure(circuit common.CircuitType, failure *Error) *Error {
@@ -1266,7 +1267,7 @@ func (handler proveHandler) syncProofFailure(circuit common.CircuitType, failure
 }
 
 // syncPanicFailure logs a recovered panic unredacted and returns the error a
-// sync client receives, which for an indexed or custom-ring proof names no
+// sync client receives, which for an indexed or extension proof names no
 // cause.
 func (handler proveHandler) syncPanicFailure(circuit common.CircuitType, recovered interface{}) *Error {
 	logging.Logger().Error().
@@ -1276,8 +1277,8 @@ func (handler proveHandler) syncPanicFailure(circuit common.CircuitType, recover
 	switch {
 	case handler.indexed:
 		recovered = errIndexedProof
-	case circuit.IsRing():
-		recovered = errCustomRingProof
+	case circuit.IsExtension():
+		recovered = errExtensionProof
 	}
 	return unexpectedError(fmt.Errorf("internal error during proof processing: %v", recovered))
 }
@@ -1292,8 +1293,8 @@ func (handler proveHandler) isBatchOperation(circuitType common.CircuitType) boo
 }
 
 func GetQueueNameForCircuit(circuitType common.CircuitType) string {
-	if circuitType.IsRing() {
-		return "zk_custom_ring_queue"
+	if circuitType.IsExtension() {
+		return extensionQueue
 	}
 	if circuitType.IsTransfer() {
 		return "zk_transfer_queue"
@@ -1305,7 +1306,7 @@ func GetQueueNameForCircuit(circuitType common.CircuitType) string {
 }
 
 func (handler proveHandler) getEstimatedTime(circuitType common.CircuitType) string {
-	if circuitType.IsRing() {
+	if circuitType.IsExtension() {
 		return "1-10 seconds"
 	}
 	switch circuitType {
@@ -1320,12 +1321,12 @@ func (handler proveHandler) getEstimatedTime(circuitType common.CircuitType) str
 
 const maxSyncProofTimeout = 5 * time.Minute
 
-// Every transfer, merge and custom-ring key loads lazily on its first request,
+// Every transfer, merge and extension key loads lazily on its first request,
 // downloading it first when it is not on disk, so the sync bound covers that
 // load. A cold 49-input key is ~400 MB and its load alone outlasts a bound
 // sized for the proof.
 func (handler proveHandler) syncProofTimeout(circuitType common.CircuitType) time.Duration {
-	if circuitType.IsRing() || isTransferCircuit(circuitType) {
+	if circuitType.IsExtension() || isTransferCircuit(circuitType) {
 		return maxSyncProofTimeout
 	}
 	// A 4999-leaf append is ~211M constraints: ~90s warm on 192 cores, several

@@ -217,7 +217,7 @@ func WriteProvingSystem(system interface{}, path string, pathVkey string) error 
 		written, err = s.WriteTo(file)
 	case *TransferProofSystem:
 		written, err = s.WriteTo(file)
-	case *RingProofSystem:
+	case *ExtensionProofSystem:
 		written, err = s.WriteTo(file)
 	default:
 		return fmt.Errorf("unknown proving system type")
@@ -237,7 +237,7 @@ func WriteProvingSystem(system interface{}, path string, pathVkey string) error 
 			vk = s.VerifyingKey
 		case *TransferProofSystem:
 			vk = s.VerifyingKey
-		case *RingProofSystem:
+		case *ExtensionProofSystem:
 			vk = s.VerifyingKey
 		}
 

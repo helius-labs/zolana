@@ -1,0 +1,97 @@
+name: ring-compat
+
+# The custom ring happy path, built against this pull request's zolana.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "services/photon/**"
+      - "prover/server/**"
+      - "programs/**"
+      - "program-libs/**"
+      - "sdk-libs/**"
+      - "cli/**"
+      - "justfile"
+      - "tools/build-programs.sh"
+      - ".cargo/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/actions/**"
+      - ".github/workflows/ring-compat.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  enabled:
+    name: ring compat / enabled
+    runs-on: ubuntu-24.04
+    if: github.event.pull_request.draft == false
+    outputs:
+      enabled: ${{ steps.key.outputs.enabled }}
+    steps:
+      # Fork pull requests get no secrets.
+      - id: key
+        env:
+          RING_COMPAT_SSH_KEY: ${{ secrets.RING_COMPAT_SSH_KEY }}
+        run: echo "enabled=${{ env.RING_COMPAT_SSH_KEY != '' }}" >> "$GITHUB_OUTPUT"
+
+  happy-path:
+    name: tests / ring compat
+    needs: enabled
+    if: needs.enabled.outputs.enabled == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      AGAVE_VERSION: v4.2.2
+      SBF_TOOLS_VERSION: v1.54
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          repository: helius-labs/zolana-custom-rings
+          ref: main
+          ssh-key: ${{ secrets.RING_COMPAT_SSH_KEY }}
+          persist-credentials: false
+      # This pull request takes the place of the ring repository's zolana submodule.
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          path: zolana
+          persist-credentials: false
+      - name: Free runner disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          sudo docker image prune --all --force
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "24"
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: prover/go.mod
+          cache-dependency-path: prover/go.sum
+      - uses: ./zolana/.github/actions/setup-rust
+        with:
+          shared-key: ring-compat
+      - uses: ./zolana/.github/actions/install-anza
+        with:
+          version: ${{ env.AGAVE_VERSION }}
+      - uses: ./zolana/.github/actions/install-sbf-tools
+        with:
+          version: ${{ env.SBF_TOOLS_VERSION }}
+      - name: Cache proving keys
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: zolana/prover/server/proving-keys
+          key: proving-keys-${{ hashFiles('zolana/prover/server/prover/provingkeys/proving-keys.lock', 'prover/ring/proving-keys.lock') }}
+      - run: npm ci
+      - run: just test-ring-compat
+      - name: Dump service logs on failure
+        if: failure()
+        run: find target/ts-sdk-e2e -name '*.log' -print -exec tail -200 {} \; 2>/dev/null || echo "(no logs)"

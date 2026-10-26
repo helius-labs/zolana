@@ -2,7 +2,6 @@ import { bn254 } from "@noble/curves/bn254.js";
 
 import { bytesToBigInt } from "../../interface/bytes.js";
 import { wireDecoder } from "../../interface/decode.js";
-import { CUSTOM_RING_PROOF_LENGTH } from "../../interface/custom-ring-proof.js";
 import type { ExpectedProvingKey } from "../../interface/proving-keys.js";
 import type { Bytes32, Bytes64, Bytes128, TransactProof } from "../../interface/types.js";
 
@@ -12,8 +11,6 @@ import type { CompressedProof, Proof } from "./types.js";
 
 const BN254_BASE_MODULUS =
   21_888_242_871_839_275_222_246_405_745_257_275_088_696_311_157_297_823_662_689_037_894_645_226_208_583n;
-
-export { CUSTOM_RING_PROOF_LENGTH };
 
 export function compressProof(proof: Proof): CompressedProof {
   const a = compressG1(checkedBytes(proof.a, 64, "proof.a"), "proof.a");
@@ -69,20 +66,6 @@ export function compressedProof(
         b: new Uint8Array(b) as Bytes128,
         c: new Uint8Array(c) as Bytes32,
       });
-    },
-    toCustomRingProof(): Uint8Array {
-      if (commitment === undefined || commitmentPok === undefined) {
-        throw new ClientError("CLIENT_PROOF_PARSE", {
-          details: { path: "$.proof.proofCommitment", reason: "missing commitment" },
-        });
-      }
-      const bytes = new Uint8Array(CUSTOM_RING_PROOF_LENGTH);
-      bytes.set(a, 0);
-      bytes.set(compressG2(b), 32);
-      bytes.set(c, 96);
-      bytes.set(commitment, 128);
-      bytes.set(commitmentPok, 160);
-      return bytes;
     },
   });
 }
@@ -194,7 +177,7 @@ function validG2(point: Bytes128): Bytes128 {
   return new Uint8Array(point) as Bytes128;
 }
 
-function compressG2(point: Bytes128): Bytes64 {
+export function compressG2(point: Bytes128): Bytes64 {
   const [, , y1, y0] = g2Coordinates(point);
   const result = new Uint8Array(point.subarray(0, 64)) as Bytes64;
   if (y1 === 0n && y0 === 0n) return result;

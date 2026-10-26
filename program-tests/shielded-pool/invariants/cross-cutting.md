@@ -9,7 +9,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Covered by: `program-tests/shielded-pool/tests/dispatch/validation.rs` `rejects_the_wrong_program_before_dispatch`
   - Kind: precondition
   - Affects: all 18 instructions
-  - Statement: `process_instruction` returns Err whenever the invoked `program_id` differs from the declared program id `sppU489D7A4U1exNo1oeMGZtLEofq3a6o2fR7UeoWB6`.
+  - Statement: `process_instruction` returns Err whenever the invoked `program_id` differs from the declared program id `spp3CfN2Y7se74A27bBpnAkmjXyEb2YmmZafhFrC9xt`.
   - Location: `programs/shielded-pool/src/lib.rs:38-40` (`fn process_instruction`)
   - Error: `ProgramError::IncorrectProgramId`
   - Severity: Medium
@@ -127,7 +127,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
 - [x] **INV-XC-12: proof encoding and rail must match the selected circuit**
   - Statement: the selector chooses the verifying key and commitment handling. A wrong selector family is rejected before account parsing. Retired P-256 selector tags 3 and 6 fail decoding.
   - Covered by: `program-libs/interface/tests/circuit.rs` and `program-tests/shielded-pool/tests/transact/validate_circuit.rs`.
-  - Covered by: `custom-rings/test/tests/ring.rs` `an_anonymous_ring_hides_owners_and_preserves_auditor_access` rejects a valid hidden-owner proof relabeled as ConfidentialRingEddsa and verifies the tree is unchanged.
+  - Covered by: `program-tests/ring-test-program/tests/anonymous_ring_lifecycle.rs` `cross_rail_proof_grafting_is_rejected` rejects a valid hidden-owner proof relabeled as ConfidentialRingEddsa and an EdDSA proof relabeled as AnonymousRingEddsa.
   - Severity: Critical (cross-rail grafting)
 
 - [x] **INV-XC-13: undecompressable proof points are an encoding error, not a verification error**

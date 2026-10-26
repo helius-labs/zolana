@@ -7,7 +7,6 @@ import (
 
 	"github.com/helius-labs/zolana/prover/server/prover/backend"
 	"github.com/helius-labs/zolana/prover/server/prover/common"
-	customring "github.com/helius-labs/zolana/prover/server/prover/custom_ring"
 	nullifiertree "github.com/helius-labs/zolana/prover/server/prover/nullifier_tree"
 	"github.com/helius-labs/zolana/prover/server/prover/request"
 	"github.com/helius-labs/zolana/prover/server/prover/timing"
@@ -15,8 +14,8 @@ import (
 )
 
 var (
-	errCustomRingProof = errors.New("custom ring proof failed")
-	errIndexedProof    = errors.New("indexed proof failed")
+	errExtensionProof = errors.New("extension proof failed")
+	errIndexedProof   = errors.New("indexed proof failed")
 )
 
 type circuitProver struct {
@@ -34,8 +33,8 @@ func (p circuitProver) prove(payload []byte) (*common.Proof, *Error) {
 }
 
 func (p circuitProver) dispatch(circuit common.CircuitType, payload []byte) (*common.Proof, *Error) {
-	if circuit.IsRing() {
-		return p.ring(circuit, payload)
+	if extension, ok := common.LookupExtension(circuit); ok {
+		return p.extension(extension, payload)
 	}
 	switch circuit {
 	case common.BatchAddressAppendCircuitType:
@@ -88,36 +87,34 @@ func (p circuitProver) eddsaTransfer(payload []byte) (*common.Proof, *Error) {
 	return proved(transfereddsa.AnonymousEddsaProof{System: ps, Parameters: &params, Prover: backend.Prover(p.trace)}.Prove())
 }
 
-func (p circuitProver) ring(circuit common.CircuitType, payload []byte) (*common.Proof, *Error) {
-	finishParameters := p.trace.Start("parameters")
-	request, err := customring.DecodeRequest(circuit, payload)
-	finishParameters()
-	if err != nil {
-		return nil, customRingFailure(malformedBodyError(err))
+func (p circuitProver) extension(circuit common.ExtensionCircuit, payload []byte) (*common.Proof, *Error) {
+	request := circuit.Request()
+	if failure := p.decode(payload, request); failure != nil {
+		return nil, extensionFailure(failure)
 	}
-	if failure := p.admission.admit(common.RingKeyFile(circuit)); failure != nil {
+	if failure := p.admission.admit(circuit.KeyFile); failure != nil {
 		return nil, failure
 	}
 	finishKeys := p.trace.Start("keys")
-	ps, err := p.keys.GetRingSystem(circuit)
+	ps, err := p.keys.GetExtensionSystem(circuit.Type)
 	finishKeys()
 	if err != nil {
-		return nil, customRingFailure(provingError(fmt.Errorf("%s: %w", circuit, err)))
+		return nil, extensionFailure(provingError(fmt.Errorf("%s: %w", circuit.Type, err)))
 	}
-	proof, err := customring.RingProof{System: ps, Parameters: request, Prover: backend.Prover(p.trace)}.Prove()
+	proof, err := common.ExtensionProof{System: ps, Request: request, Prover: backend.Prover(p.trace)}.Prove()
 	if err != nil {
-		return nil, customRingFailure(provingError(err))
+		return nil, extensionFailure(provingError(err))
 	}
 	return proof, nil
 }
 
-// customRingFailure is what a client reads of a failed custom-ring request,
-// on every path: errCustomRingProof under the failure's own code, so the code
+// extensionFailure is what a client reads of a failed extension request,
+// on every path: errExtensionProof under the failure's own code, so the code
 // still says whether the request or the proof failed. The text can carry
 // private inputs, so the failure rides along only as the unexported cause,
 // which the caller that reports it logs through loggedCause.
-func customRingFailure(failure *Error) *Error {
-	return withCause(&Error{StatusCode: failure.StatusCode, Code: failure.Code, Message: errCustomRingProof.Error()}, failure)
+func extensionFailure(failure *Error) *Error {
+	return withCause(&Error{StatusCode: failure.StatusCode, Code: failure.Code, Message: errExtensionProof.Error()}, failure)
 }
 
 func (p circuitProver) batchAddressAppend(payload []byte) (*common.Proof, *Error) {

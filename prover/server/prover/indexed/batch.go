@@ -86,7 +86,7 @@ func decodeBatch(data []byte) (BatchRequest, error) {
 		if err != nil || value == "" {
 			return request, fmt.Errorf("invalid batch commitment")
 		}
-		if _, err := hashField(field); err != nil {
+		if _, err := HashField(field); err != nil {
 			return request, err
 		}
 	}
@@ -220,7 +220,7 @@ func (r *Resolver) resolveBatch(ctx context.Context, data []byte) (result *Resol
 		if next < request.AnchorIndex {
 			limit = min(limit, request.AnchorIndex-next)
 		}
-		body, err := r.rpc(ctx, "getNullifierQueueElements", struct {
+		body, err := r.RPC(ctx, "getNullifierQueueElements", struct {
 			Tree  string `json:"treeAccount"`
 			Start uint64 `json:"startSeq"`
 			Limit uint64 `json:"limit"`
@@ -242,7 +242,7 @@ func (r *Resolver) resolveBatch(ctx context.Context, data []byte) (result *Resol
 			if element.Seq != next {
 				return nil, fmt.Errorf("indexer batch sequence mismatch")
 			}
-			value, err := element.Value.field()
+			value, err := element.Value.Field()
 			if err != nil {
 				return nil, err
 			}

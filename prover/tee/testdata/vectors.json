@@ -8,13 +8,13 @@
   "gpu_nonce": "a60303f260939f6351f9ae36813887f29d56809a05f5379712dc1f3ce039405d",
   "method": "POST",
   "request_uri": "/v1/zolana/prove/transfer_2_2?api-key=k",
-  "enc": "d57d58d985d5e74a657ba8d35a7c44020b70a7bb2485b5b70c631a670d867029",
-  "ciphertext": "b3a7aad4a8f1f786913cb9e76dea5054a893a9f5f55502d055d9f0c4bfdc775adbd0d727fd",
+  "enc": "6828aaf2fb92da6438ad6cd76426049a00d0c346e4499c342c8c371f7d6d535f",
+  "ciphertext": "134095a0847bb8e110f928050dee72caf80eff78146bb422cc7a1080730bcff1f12bbc5d9f",
   "plaintext": "{\"inputs\":[\"secret\"]}",
-  "response_key": "6cdd0d870824d20a0d49e35e4fd5efc7aa1d1d02cde58c455d34d45fa3fcf93e",
+  "response_key": "05692f14a640f109dc57583e13090b07e51672af03441bdb15ef0ad766c87139",
   "response_status": 200,
   "response_body": "{\"proof\":\"ok\"}",
-  "encrypted_response": "458aeb3721728301508e11bda7408dfe9cf0fef050cd35727f3bb94ed23fb45538256f50928b6e8c4018acdf",
+  "encrypted_response": "1bf03def0ec31b3aaf991808a46732d1703980cf11e4ec1500fe2ce6f9abd0e903faf93d34d66a16b36ab411",
   "aad_cases": [
     {
       "method": "GET",
@@ -24,7 +24,22 @@
     {
       "method": "POST",
       "request_target": "/v1/zolana/prove/transfer_2_2?api-key=k",
-      "aad": "POST /v1/zolana/prove/transfer_2_2"
+      "aad": "POST /prove/transfer_2_2"
+    },
+    {
+      "method": "POST",
+      "request_target": "/v1/zolana/v1/zolana/prove/x",
+      "aad": "POST /v1/zolana/prove/x"
+    },
+    {
+      "method": "POST",
+      "request_target": "/v1/zolanax/prove/x",
+      "aad": "POST /v1/zolanax/prove/x"
+    },
+    {
+      "method": "GET",
+      "request_target": "/v1/zolana?jobId=a",
+      "aad": "GET /v1/zolana?jobId=a"
     },
     {
       "method": "GET",
@@ -54,7 +69,7 @@
     {
       "method": "POST",
       "request_target": "/v1/zolana/prove/transfer_2_2?api%2Dkey=k\u0026jobId=%61%31\u0026q=a%20b+c",
-      "aad": "POST /v1/zolana/prove/transfer_2_2?jobId=%61%31\u0026q=a%20b+c"
+      "aad": "POST /prove/transfer_2_2?jobId=%61%31\u0026q=a%20b+c"
     },
     {
       "method": "GET",

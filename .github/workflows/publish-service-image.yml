@@ -1,0 +1,316 @@
+# Builds, smoke tests, publishes and attests one service image of the calling
+# repository, described by its tools/images.json.
+#
+# Two channels, because one rule could not fit both jobs:
+#
+#   release  the tag must name the commit (<service>-zolana-<sha12>) and the
+#            commit must be on main or on a release/* branch, which holds a
+#            stack's program-compatible line (release/devnet-c).
+#   preview  any branch, any tag. Still immutable, still attested; it just does
+#            not claim to be a release.
+#
+# Requires, in the caller's image-publish environment:
+#   vars.AWS_IMAGE_PUBLISHER_ROLE_ARN  image_publisher_role_arn from infra/bootstrap
+
+name: publish-service-image
+
+on:
+  workflow_call:
+    inputs:
+      service:
+        required: true
+        type: string
+      channel:
+        required: true
+        type: string
+      image_tag:
+        required: true
+        type: string
+      submodules:
+        type: boolean
+        default: false
+      release_source_check:
+        type: string
+        default: tools/check-release-source.sh
+
+permissions:
+  contents: read
+
+env:
+  # OUR registry. public.ecr.aws/f7o9l7p1/photon is the UPSTREAM Helius photon --
+  # different code, binaries in /app, running as root -- so publishing the fork's
+  # image there would have put two unrelated things behind one name. This
+  # workflow never actually published, so nothing was ever pushed there.
+  REGISTRY: 558215002830.dkr.ecr.eu-north-1.amazonaws.com
+  AWS_REGION: eu-north-1
+
+jobs:
+  publish:
+    name: publish / ${{ inputs.service }}
+    runs-on: ubuntu-24.04
+    environment: image-publish
+    permissions:
+      contents: read
+      id-token: write
+      # Signing a provenance statement for the published image.
+      attestations: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          submodules: ${{ inputs.submodules }}
+      - name: Resolve the build
+        id: plan
+        env:
+          SERVICE: ${{ inputs.service }}
+          CHANNEL: ${{ inputs.channel }}
+        run: |
+          if ! jq -e --arg service "$SERVICE" '.services[$service]' tools/images.json >/dev/null; then
+            echo "::error::unknown service $SERVICE"; exit 1
+          fi
+          {
+            jq -r --arg service "$SERVICE" \
+              '.services[$service] | to_entries[] | select(.key != "smoke") | "\(.key)=\(.value)"' \
+              tools/images.json
+            echo "service=$SERVICE"
+            echo "channel=$CHANNEL"
+          } >> "$GITHUB_OUTPUT"
+
+      # Release is the strict channel: the tag must name the commit, and the
+      # commit must be on main or a release/* branch. Preview exists because that rule would ban what
+      # we actually do -- every image running on devnet today was built from a
+      # feature branch -- and an unenforceable rule gets bypassed rather than
+      # followed. A preview build is still attested and still immutable; it just
+      # does not claim to be a release.
+      #
+      # Both channels are checked here, because the `-zolana-` shape is what
+      # tells a reader (and infra's image pins) that a tag carries the release
+      # guarantees. Enforcing it on release alone would leave preview free to
+      # mint a name it has not earned.
+      - name: Validate the tag
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+          RELEASE_SOURCE_CHECK: ${{ inputs.release_source_check }}
+          SERVICE: ${{ steps.plan.outputs.service }}
+          CHANNEL: ${{ steps.plan.outputs.channel }}
+        run: |
+          if [[ "$CHANNEL" != release ]]; then
+            if [[ "$IMAGE_TAG" == *-zolana-* || "$IMAGE_TAG" == gpu-* ]]; then
+              echo "::error::preview tag $IMAGE_TAG must not use a release or GPU naming scheme" >&2
+              exit 1
+            fi
+            exit 0
+          fi
+
+          expected_tag="${SERVICE}-zolana-${GITHUB_SHA:0:12}"
+          if [[ "$IMAGE_TAG" != "$expected_tag" ]]; then
+            echo "::error::release tag $IMAGE_TAG must be $expected_tag" >&2
+            exit 1
+          fi
+
+          if ! "$RELEASE_SOURCE_CHECK" "$GITHUB_SHA"; then
+            echo "::error::a release must be built from a commit on main or a release/* branch" >&2
+            exit 1
+          fi
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          role-to-assume: ${{ vars.AWS_IMAGE_PUBLISHER_ROLE_ARN }}
+          # Names the service so CloudTrail attributes a publish to the thing
+          # that was actually published.
+          role-session-name: zolana-${{ steps.plan.outputs.service }}-publish
+          aws-region: ${{ env.AWS_REGION }}
+      # Private ECR, so no registry-type override. The caller's role trusts the
+      # caller's own OIDC subject, `repo:<caller>:environment:image-publish`,
+      # which declaring `environment:` above makes GitHub present instead of the
+      # ref, and reaches only the caller's ECR repositories. One environment
+      # covers every service and both channels: what separates release from
+      # preview is what this workflow enforces, not which role the job may
+      # assume.
+      - uses: aws-actions/amazon-ecr-login@d539f0932e70871a027e9d5a9d8fc38589180a64 # v2
+      - id: metadata
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ steps.plan.outputs.repository }}
+          flavor: latest=false
+          tags: |
+            type=raw,value=${{ inputs.image_tag }}
+            type=sha,format=long,prefix=sha-
+          labels: |
+            org.opencontainers.image.title=${{ steps.plan.outputs.title }}
+            org.opencontainers.image.description=${{ steps.plan.outputs.description }}
+            org.opencontainers.image.licenses=Apache-2.0
+      - name: Refuse to overwrite published tags
+        env:
+          IMAGE_TAGS: ${{ steps.metadata.outputs.tags }}
+          ECR_REPOSITORY: ${{ steps.plan.outputs.repository }}
+          SERVICE: ${{ steps.plan.outputs.service }}
+        run: |
+          while IFS= read -r image; do
+            [[ -n "$image" ]] || continue
+            tag="${image##*:}"
+            [[ "$tag" != sha-* ]] || continue
+            set +e
+            error="$(aws ecr describe-images \
+              --region "$AWS_REGION" \
+              --repository-name "$ECR_REPOSITORY" \
+              --image-ids "imageTag=$tag" 2>&1)"
+            status=$?
+            set -e
+            if [[ $status -eq 0 ]]; then
+              echo "Refusing to overwrite published $SERVICE tag: $tag" >&2
+              exit 1
+            fi
+            if [[ "$error" != *ImageNotFoundException* ]]; then
+              echo "$error" >&2
+              exit "$status"
+            fi
+          done <<< "$IMAGE_TAGS"
+      # Settings come from the build context, not the service name.
+      - name: Read prover build settings
+        id: prover-build
+        env:
+          CONTEXT: ${{ steps.plan.outputs.context }}
+        run: |
+          if [[ -f "$CONTEXT/release-settings.sh" ]]; then
+            sh "$CONTEXT/release-settings.sh" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: ${{ steps.plan.outputs.context }}
+          file: ${{ steps.plan.outputs.file }}
+          platforms: linux/amd64
+          build-contexts: ${{ steps.prover-build.outputs.extension_context }}
+          build-args: |
+            GOAMD64=${{ steps.prover-build.outputs.goamd64 }}
+            PROVER_PGO=${{ steps.prover-build.outputs.pgo }}
+            PROVER_EXTENSION_REF=${{ steps.prover-build.outputs.extension_ref }}
+          load: true
+          push: false
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+          # Per service. A Go build, a Rust build and photon's share nothing, so
+          # one mode=max scope had all three evicting each other out of the
+          # 10 GB the whole repository gets.
+          cache-from: type=gha,scope=publish-${{ steps.plan.outputs.service }}
+          cache-to: type=gha,mode=max,scope=publish-${{ steps.plan.outputs.service }}
+      # Proves the image runs before anything is pushed. The binaries differ per
+      # service, so the check does too -- a shared "it built" would assert
+      # nothing about whether the thing inside starts.
+      - name: Smoke-test release image
+        env:
+          IMAGE_TAGS: ${{ steps.metadata.outputs.tags }}
+          SERVICE: ${{ steps.plan.outputs.service }}
+        run: |
+          image="$(printf '%s\n' "$IMAGE_TAGS" | awk -F: '$NF !~ /^sha-/ { print; exit }')"
+          test -n "$image"
+          smoke="$(jq -r --arg service "$SERVICE" '.services[$service].smoke' tools/images.json)"
+          image="$image" bash -c "$smoke"
+      - name: Publish immutable tags
+        id: publish
+        env:
+          IMAGE_TAGS: ${{ steps.metadata.outputs.tags }}
+          ECR_REPOSITORY: ${{ steps.plan.outputs.repository }}
+          SERVICE: ${{ steps.plan.outputs.service }}
+        run: |
+          sha_image=""
+          release_image=""
+          while IFS= read -r image; do
+            [[ -n "$image" ]] || continue
+            tag="${image##*:}"
+            if [[ "$tag" == sha-* ]]; then
+              sha_image="$image"
+            else
+              release_image="$image"
+            fi
+          done <<< "$IMAGE_TAGS"
+          test -n "$sha_image"
+          test -n "$release_image"
+
+          # Our ECR repositories are created with IMMUTABLE tags, so the registry
+          # itself refuses to move a published tag -- the checks here are kept as
+          # a clearer error than a push rejection, not as the only guard.
+          # Publish the commit alias first and reuse that exact remote image for
+          # the requested tag, so both can be compared after publication.
+          sha_tag="${sha_image##*:}"
+          set +e
+          error="$(aws ecr describe-images \
+            --region "$AWS_REGION" \
+            --repository-name "$ECR_REPOSITORY" \
+            --image-ids "imageTag=$sha_tag" 2>&1)"
+          status=$?
+          set -e
+          if [[ $status -eq 0 ]]; then
+            echo "Reusing existing $SERVICE commit tag: $sha_tag"
+            docker pull "$sha_image"
+          elif [[ "$error" == *ImageNotFoundException* ]]; then
+            docker push "$sha_image"
+          else
+            echo "$error" >&2
+            exit "$status"
+          fi
+
+          remote_digest() {
+            local tag="$1"
+            local digest
+            for _ in {1..10}; do
+              if digest="$(aws ecr describe-images \
+                --region "$AWS_REGION" \
+                --repository-name "$ECR_REPOSITORY" \
+                --image-ids "imageTag=$tag" \
+                --query 'imageDetails[0].imageDigest' \
+                --output text 2>/dev/null)" && [[ "$digest" != None ]]; then
+                printf '%s\n' "$digest"
+                return 0
+              fi
+              sleep 2
+            done
+            echo "Could not resolve remote digest for $SERVICE tag: $tag" >&2
+            return 1
+          }
+
+          sha_digest="$(remote_digest "$sha_tag")"
+
+          release_tag="${release_image##*:}"
+          set +e
+          error="$(aws ecr describe-images \
+            --region "$AWS_REGION" \
+            --repository-name "$ECR_REPOSITORY" \
+            --image-ids "imageTag=$release_tag" 2>&1)"
+          status=$?
+          set -e
+          if [[ $status -eq 0 ]]; then
+            echo "Refusing to overwrite published $SERVICE tag: $release_tag" >&2
+            exit 1
+          fi
+          if [[ "$error" != *ImageNotFoundException* ]]; then
+            echo "$error" >&2
+            exit "$status"
+          fi
+          docker tag "$sha_image" "$release_image"
+          docker push "$release_image"
+
+          release_digest="$(remote_digest "$release_tag")"
+          if [[ "$release_digest" != "$sha_digest" ]]; then
+            echo "$SERVICE release tag digest $release_digest does not match commit tag $sha_digest" >&2
+            exit 1
+          fi
+
+          echo "digest=$release_digest" >> "$GITHUB_OUTPUT"
+          echo "image=$release_image" >> "$GITHUB_OUTPUT"
+
+      # Binds the published digest to the commit, workflow and runner that
+      # produced it, so "this image is what CI built from that source" becomes
+      # checkable rather than assumed:
+      #
+      #   gh attestation verify oci://<image> --owner helius-labs
+      #
+      # Recorded in GitHub's attestation store rather than pushed to the
+      # registry: ECR's support for OCI referrers is uneven, and a failed
+      # attestation push after a successful image push would leave a published
+      # image behind a red job.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ steps.plan.outputs.repository }}
+          subject-digest: ${{ steps.publish.outputs.digest }}

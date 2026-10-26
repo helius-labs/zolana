@@ -93,8 +93,8 @@ impl ProofCompressed {
         }
     }
 
-    /// Split a committed custom-ring proof into the unchanged transact proof
-    /// triple and the BSB22 payload embedded in `CircuitId::AnonymousRingEddsa`.
+    /// Split a committed proof into the unchanged transact proof triple and
+    /// the BSB22 payload embedded in `CircuitId::AnonymousRingEddsa`.
     pub fn into_committed_transact_parts(
         self,
     ) -> Result<(TransactProof, Bsb22Commitment), ClientError> {
@@ -129,8 +129,6 @@ impl ProofCompressed {
         })
     }
 
-    /// `b` in the 64-byte compressed G2 encoding, for the one format that
-    /// still carries the proof fully compressed: the custom-ring policy proof.
     pub fn compressed_b(&self) -> Result<[u8; 64], ClientError> {
         alt_bn128_g2_compress_be(&self.b)
             .map_err(|e| ClientError::ProofParse(format!("failed to compress proof_b: {e:?}")))

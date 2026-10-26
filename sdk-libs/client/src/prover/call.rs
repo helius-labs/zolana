@@ -17,6 +17,7 @@ use crate::{
     error::ClientError,
     prover::{
         client::Delivery,
+        endpoint::ProverEndpoint,
         tee::{
             EncryptedRequest, TeeSession, HEADER_CIPHERTEXT, HEADER_ENC, HEADER_VERSION, VERSION,
         },
@@ -89,8 +90,13 @@ impl<'a> Call<'a> {
         }
     }
 
-    /// `recipient` is set exactly when the client requires a TEE.
-    pub fn prepare<'s>(&self, recipient: Option<Recipient<'s>>) -> Result<Prepared<'s>, CallError> {
+    /// `recipient` is set exactly when the client requires a TEE, and
+    /// `endpoint` is the base `url` was built on.
+    pub fn prepare<'s>(
+        &self,
+        recipient: Option<Recipient<'s>>,
+        endpoint: &ProverEndpoint,
+    ) -> Result<Prepared<'s>, CallError> {
         let mut headers = HeaderMap::new();
         match self.delivery {
             Some(Delivery::InResponse) => insert(&mut headers, "X-Sync", "true")?,
@@ -112,7 +118,7 @@ impl<'a> Call<'a> {
         let encrypted = TeeSession::encrypt(
             &recipient.key,
             self.method.as_str(),
-            self.url,
+            &endpoint.route(self.url),
             self.body.unwrap_or_default().as_bytes(),
         )
         .map_err(CallError::Refused)?;
@@ -240,6 +246,8 @@ pub(crate) fn transport_error(error: ApiError) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use zolana_prover_tee::FixtureProver;
+
     use crate::prover::tee::{FixtureSession, NitroFixture, TeePolicy};
 
     fn session() -> TeeSession {
@@ -252,10 +260,13 @@ mod tests {
     }
 
     fn encrypted<'s>(session: &'s TeeSession, call: &Call<'_>) -> Prepared<'s> {
-        call.prepare(Some(Recipient {
-            session,
-            key: [9; 32],
-        }))
+        call.prepare(
+            Some(Recipient {
+                session,
+                key: [9; 32],
+            }),
+            &ProverEndpoint::parse("https://prover.example"),
+        )
         .ok()
         .unwrap()
     }
@@ -308,5 +319,45 @@ mod tests {
         );
         assert!(prepared.body.is_some());
         assert!(!prepared.headers.contains_key(HEADER_CIPHERTEXT));
+    }
+
+    /// A proxy that serves the prover under its own path forwards the route
+    /// bare or under the gateway prefix; the call opens on either.
+    #[test]
+    fn an_encrypted_call_binds_the_route_below_its_prover_url() {
+        let prover = FixtureProver::from_ikm(&[0x5a; 32]);
+        let session = session();
+        let endpoint =
+            ProverEndpoint::parse("https://app.example/api/tvc/zolana/prover/?api-key=k");
+        let url = endpoint.url("/prove/merge_8_1/status").unwrap();
+        let prepared = Call::get(&url, Duration::from_secs(1))
+            .prepare(
+                Some(Recipient {
+                    session: &session,
+                    key: prover.hpke_public_key(),
+                }),
+                &endpoint,
+            )
+            .ok()
+            .unwrap();
+        let enc = hex::decode(&prepared.headers[HEADER_ENC]).unwrap();
+        let body = hex::decode(&prepared.headers[HEADER_CIPHERTEXT]).unwrap();
+        for target in [
+            "/prove/merge_8_1/status",
+            "/v1/zolana/prove/merge_8_1/status?api-key=other",
+        ] {
+            assert!(prover.open("GET", target, &enc, &body).is_ok(), "{target}");
+        }
+        assert!(prover
+            .open("GET", "/v1/zolana/prove/transfer_2_2/status", &enc, &body)
+            .is_err());
+        assert!(prover
+            .open(
+                "GET",
+                "/api/tvc/zolana/prover/prove/merge_8_1/status",
+                &enc,
+                &body
+            )
+            .is_err());
     }
 }

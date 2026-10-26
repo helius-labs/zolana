@@ -29,16 +29,14 @@ func (r *Resolver) Resolve(ctx context.Context, data []byte) (*Resolved, error) 
 }
 
 func preparationOutcome(err error) string {
-	var unregistered *UnregisteredMemberError
+	var rejection *Rejection
 	switch {
 	case err == nil:
 		return "success"
 	case errors.Is(err, ErrIndexerNotReady):
 		return "not_ready"
-	case errors.As(err, &unregistered) && unregistered.mismatch:
-		return "mismatch"
-	case errors.As(err, &unregistered):
-		return "rejected"
+	case errors.As(err, &rejection):
+		return rejection.Outcome
 	}
 	return "error"
 }

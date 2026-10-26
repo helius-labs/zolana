@@ -32,7 +32,7 @@ type BatchProofSystem struct {
 	ProvingKeySha256 [32]byte
 }
 
-type RingProofSystem struct {
+type ExtensionProofSystem struct {
 	CircuitType      CircuitType
 	ProvingKey       groth16.ProvingKey
 	VerifyingKey     groth16.VerifyingKey

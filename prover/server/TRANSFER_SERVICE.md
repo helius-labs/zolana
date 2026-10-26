@@ -103,11 +103,10 @@ on demand and readiness does not guarantee a warm proof unless explicit
 preload circuits are set. `--preload-circuits transfer-confidential:2:2`
 selects one shape. A circuit name without a shape loads its supported shapes.
 `rpc` and `local-rpc` preload all transfer and merge shapes. The compose default preloads selected transfer 2×2 shapes and merge 24×1.
-Provision memory for the selected keys and workers. `Dockerfile.light` holds
-the binary and the custom-ring keys in `/proving-keys`, and fetches other keys
-there on first use. A volume mounted at `/proving-keys` replaces the baked
-keys, so it must hold the custom-ring keys too: `just fetch-custom-ring-keys`
-puts them in `prover/server/proving-keys`, which `compose.transfer.yml` mounts.
+Provision memory for the selected keys and workers. The `Dockerfile.light`
+prover fetches keys into `/proving-keys` on first use. An image built with
+`PROVER_EXTENSION_REF` also bakes the extension release keys there, and a volume mounted
+at `/proving-keys` replaces them, so the volume must hold them too.
 
 ## Capacity and monitoring
 

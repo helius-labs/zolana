@@ -4,7 +4,7 @@ import { InterfaceError } from "./errors.js";
  * The sha256 of every proving key the program's verifying keys were
  * generated from, by key file name as `proving-keys.lock` and the prover's
  * `GET /proving-keys` name them. Mirrors the `PROVING_KEY_SHA256S` tables of
- * the Rust interface, nullifier-tree and custom-ring crates;
+ * the Rust interface and nullifier-tree crates;
  * `test/proving-keys.test.ts` pins it to
  * `prover/server/prover/provingkeys/proving-keys.lock`. A proving-key
  * rotation updates this table in the same change.
@@ -14,15 +14,6 @@ export const PROVING_KEY_SHA256S: Readonly<Record<string, string>> = Object.free
     "589c90ea00bc771e7b61c28c20290c4dfaa9a33790d7231261d7bbe621459843",
   "batch_address-append_40_4999.key":
     "367fd7d2f534810ec684b7dbbadfd90dc65550d26989a2f2945d4719702001de",
-  "custom_ring_base.key": "6a99eb09a8f5b5286c032f461550a894c2a8b522f246678f3987ee542e7c6f5c",
-  "custom_ring_compressed_policy.key":
-    "836c3d218a67d87d45a900fc8b45594ce9ef2fcc26122b26776e8c0e002995c8",
-  "custom_ring_delegate_policy.key":
-    "5cca9ae5ae6034b6f29e2b6c6506513fc1bd51ea979218fca54ee0f0b2a9e5af",
-  "custom_ring_deposit.key": "248bf150c4717700d5c978a47d6b6b394bed00d8fb61f29c7ea2142261ca2c64",
-  "custom_ring_policy.key": "506d4e70b89aa188c891ecd8c63ef74fc99edd605dbe40a2a1ffbee1fe3bfd1e",
-  "custom_ring_register_key.key":
-    "6f4ce5a730b7d61a8938ab9798ac3d520d1b8e818b337eeb9ff68ffb8d332bc1",
   "merge_24_1.key": "459cefcc03b48ecf9629dd494e9b6441ffd05833123b47473338a7e0dc8fa63d",
   "merge_52_1.key": "5c1bc43dc2d84753c40c3c30e4b319d441efdab80440bba16de1e1bbf613fbd4",
   "merge_8_1.key": "babf71dc8da512f9a35c5d9b6f39297c4727b14ab70c9e1e5f5e5822838765c8",
@@ -222,21 +213,15 @@ export type ProvingKeyCircuit =
       readonly nOutputs: number;
     }
   | { readonly circuit: "merge"; readonly nInputs: number }
-  | { readonly circuit: "merge-ring"; readonly nInputs: number }
-  | { readonly circuit: "custom-ring-base" }
-  | { readonly circuit: "custom-ring-policy" }
-  | { readonly circuit: "custom-ring-compressed-policy" }
-  | { readonly circuit: "custom-ring-delegate-policy" }
-  | { readonly circuit: "custom-ring-deposit" }
-  | { readonly circuit: "custom-ring-register-key" };
+  | { readonly circuit: "merge-ring"; readonly nInputs: number };
 
 /** The proving key a proof must come from. */
 export type ExpectedProvingKey = Readonly<{ name: string; sha256: string }>;
 
 /**
  * The key file the prover proves `request` with and the sha256 its verifying
- * key pins, mirroring the prover's `determineTransferKeyPath`, `mergeKeyPath`
- * and `determineRingKeyPath`. A shape without a committed verifying key throws
+ * key pins, mirroring the prover's `determineTransferKeyPath` and
+ * `mergeKeyPath`. A shape without a committed verifying key throws
  * `INTERFACE_INVALID_SHAPE`: the program could not verify its proof.
  */
 export function expectedProvingKey(request: ProvingKeyCircuit): ExpectedProvingKey {
@@ -262,13 +247,5 @@ function provingKeyName(request: ProvingKeyCircuit): string {
       return `merge_${request.nInputs}_1.key`;
     case "merge-ring":
       return `merge_ring_${request.nInputs}_1.key`;
-    case "custom-ring-base":
-    case "custom-ring-policy":
-    case "custom-ring-compressed-policy":
-    case "custom-ring-delegate-policy":
-    case "custom-ring-deposit":
-    case "custom-ring-register-key":
-      // The prover's `RingKeyFiles`: custom-ring-<x> is custom_ring_<x>.key.
-      return `${request.circuit.replaceAll("-", "_")}.key`;
   }
 }

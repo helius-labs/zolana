@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -59,21 +60,21 @@ func decodeError(t *testing.T, response *httptest.ResponseRecorder) map[string]s
 }
 
 func TestIndexedFailureCodes(t *testing.T) {
-	member := indexed.Hash{31: 7}
+	rejection := &indexed.Rejection{Code: "subject_missing", Message: "Subject is missing", Detail: map[string]string{"subject": "s"}}
 	cases := []struct {
 		err        error
 		status     int
 		code       string
 		retryAfter int
-		member     string
+		subject    string
 	}{
 		{indexed.ErrIndexerNotReady, http.StatusServiceUnavailable, "indexer_not_ready", notReadyRetryAfterSecs, ""},
-		{&indexed.UnregisteredMemberError{Member: member}, http.StatusUnprocessableEntity, "registry_member_missing", 0, member.String()},
+		{fmt.Errorf("resolve: %w", rejection), http.StatusUnprocessableEntity, "subject_missing", 0, "s"},
 		{errors.New("upstream detail"), http.StatusBadGateway, "indexer_unavailable", 0, ""},
 	}
 	for _, c := range cases {
 		failure := indexedFailure(c.err)
-		if failure.StatusCode != c.status || failure.Code != c.code || failure.RetryAfter != c.retryAfter || failure.Member != c.member {
+		if failure.StatusCode != c.status || failure.Code != c.code || failure.RetryAfter != c.retryAfter || failure.Detail["subject"] != c.subject {
 			t.Fatalf("%v mapped to %+v", c.err, failure)
 		}
 		if bytes.Contains([]byte(failure.Message), []byte("upstream detail")) {
@@ -85,14 +86,38 @@ func TestIndexedFailureCodes(t *testing.T) {
 func TestQueuedIndexedFailuresCarryTheirCode(t *testing.T) {
 	worker := &BaseQueueWorker{queueName: "zk_transfer_queue"}
 	job := &ProofJob{Indexed: true, Payload: json.RawMessage(`{"circuitType":"transfer"}`)}
-	member := indexed.Hash{31: 7}
-	details := worker.failureDetails(job, indexedFailure(&indexed.UnregisteredMemberError{Member: member}))
-	if details["code"] != "registry_member_missing" || details["member"] != member.String() || details["error"] != errIndexedProof.Error() {
-		t.Fatalf("unregistered member details %v", details)
+	details := worker.failureDetails(job, indexedFailure(&indexed.Rejection{Code: "subject_missing", Detail: map[string]string{"subject": "s"}}))
+	if details["code"] != "subject_missing" || details["detail"].(map[string]string)["subject"] != "s" || details["error"] != errIndexedProof.Error() {
+		t.Fatalf("rejection details %v", details)
 	}
 	details = worker.failureDetails(job, indexedFailure(indexed.ErrIndexerNotReady))
 	if details["code"] != "indexer_not_ready" || details["error"] != indexed.ErrIndexerNotReady.Error() {
 		t.Fatalf("not ready details %v", details)
+	}
+}
+
+func TestRejectionDetailIsNested(t *testing.T) {
+	detail := map[string]string{"subject": "s", "code": "forged", "status": "forged"}
+	failure := indexedFailure(&indexed.Rejection{Code: "subject_missing", Message: "Subject is missing", Detail: detail})
+	body, err := failure.MarshalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var response struct {
+		Code    string            `json:"code"`
+		Message string            `json:"message"`
+		Detail  map[string]string `json:"detail"`
+	}
+	if err := json.Unmarshal(body, &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Code != "subject_missing" || response.Message != "Subject is missing" || response.Detail["subject"] != "s" {
+		t.Fatalf("response %+v", response)
+	}
+	worker := &BaseQueueWorker{queueName: "zk_transfer_queue"}
+	details := worker.failureDetails(&ProofJob{Indexed: true}, failure)
+	if details["code"] != "subject_missing" || details["status"] != nil || details["detail"].(map[string]string)["subject"] != "s" {
+		t.Fatalf("details %v", details)
 	}
 }
 

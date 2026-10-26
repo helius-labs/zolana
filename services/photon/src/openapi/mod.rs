@@ -9,14 +9,12 @@ use zolana_indexer_api::{
     Base64String, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
     GetMerkleProofsRequest, GetMerkleProofsResponse, GetNonInclusionProofsRequest,
     GetNonInclusionProofsResponse, GetNullifierQueueElementsRequest,
-    GetNullifierQueueElementsResponse, GetRingKeyRegistryEntryResponse,
-    GetRingKeyRegistryRegisterProofResponse, GetRingSpendRecordResponse, GetRingsByTagsRequest,
+    GetNullifierQueueElementsResponse, GetRingsByTagsRequest,
     GetShieldedTransactionsBySignatureRequest, GetShieldedTransactionsBySignatureResponse,
     GetShieldedTransactionsByTagsResponse, GetUserRecordsRequest, GetUserRecordsResponse, Hash,
     IndexedShieldedTransaction, Limit, MerkleContext, MerkleProof, NonInclusionProof,
-    NullifierQueueElement, RingMemberProofRequest, RingSpendRecord, RingSpendRecordRequest,
-    RingsMessage, RingsOutputContext, RingsOutputSlot, SerializablePubkey, SerializableSignature,
-    ShieldedTransaction, UserRecord,
+    NullifierQueueElement, RingsMessage, RingsOutputContext, RingsOutputSlot, SerializablePubkey,
+    SerializableSignature, ShieldedTransaction, UserRecord,
 };
 
 use crate::common::relative_project_path;
@@ -75,12 +73,6 @@ const RINGS_API_TEST_SPEC_FILE: &str = "rings.test.yaml";
     GetUserRecordsRequest,
     GetUserRecordsResponse,
     UserRecord,
-    RingMemberProofRequest,
-    GetRingKeyRegistryEntryResponse,
-    GetRingKeyRegistryRegisterProofResponse,
-    RingSpendRecordRequest,
-    RingSpendRecord,
-    GetRingSpendRecordResponse,
 )))]
 struct ApiDoc;
 

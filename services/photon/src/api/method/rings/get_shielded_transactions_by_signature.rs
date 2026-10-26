@@ -23,8 +23,7 @@ pub async fn get_shielded_transactions_by_signature(
     crate::api::set_transaction_isolation_if_needed(&tx).await?;
 
     let signature = request.tx_signature.0.into();
-    let matched_txs =
-        fetch_rings_transactions_by_signature(&tx, signature, EventFilter::All).await?;
+    let matched_txs = fetch_rings_transactions_by_signature(&tx, signature).await?;
     let transactions = hydrate_shielded_transactions(&tx, matched_txs).await?;
     tx.commit().await?;
 
@@ -35,47 +34,13 @@ pub async fn get_shielded_transactions_by_signature(
     })
 }
 
-#[cfg(feature = "custom-rings")]
-pub(crate) async fn shielded_transaction_at(
-    tx: &DatabaseTransaction,
-    signature: [u8; SIGNATURE_BYTES],
-    event_index: u16,
-) -> Result<Option<zolana_indexer_api::ShieldedTransaction>, PhotonApiError> {
-    let matched =
-        fetch_rings_transactions_by_signature(tx, signature, EventFilter::At(event_index)).await?;
-    Ok(hydrate_shielded_transactions(tx, matched)
-        .await?
-        .pop()
-        .map(|indexed| indexed.transaction))
-}
-
-enum EventFilter {
-    All,
-    #[cfg(feature = "custom-rings")]
-    At(u16),
-}
-
 async fn fetch_rings_transactions_by_signature(
     tx: &DatabaseTransaction,
     signature: [u8; SIGNATURE_BYTES],
-    events: EventFilter,
 ) -> Result<Vec<MatchedRingsTxRow>, PhotonApiError> {
     let backend = tx.get_database_backend();
     let mut params = Vec::new();
     let signature = bind_sql_value(&mut params, backend, signature.to_vec());
-    let event_filter = match events {
-        #[cfg(feature = "custom-rings")]
-        EventFilter::At(index) => {
-            let index = i16::try_from(index).map_err(|_| {
-                PhotonApiError::ValidationError(format!("Event index {index} does not fit in i16"))
-            })?;
-            format!(
-                "AND pt.event_index = {}",
-                bind_sql_value(&mut params, backend, index)
-            )
-        }
-        EventFilter::All => String::new(),
-    };
     let limit = bind_u64_as_i64(&mut params, backend, PAGE_LIMIT)?;
     let sql = format!(
         "SELECT
@@ -88,7 +53,7 @@ async fn fetch_rings_transactions_by_signature(
             pt.proofless AS proofless,
             pt.spl_transfers AS spl_transfers
          FROM rings_transactions pt
-         WHERE pt.signature = {signature} {event_filter}
+         WHERE pt.signature = {signature}
          ORDER BY pt.event_index ASC
          LIMIT {limit}"
     );

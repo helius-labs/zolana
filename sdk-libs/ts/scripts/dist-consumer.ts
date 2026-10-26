@@ -1,7 +1,11 @@
-export { P256ReaderKey } from "@heliuslabs/zolana/ring";
 export { bindProgramTransaction } from "@heliuslabs/zolana/transaction";
 export type { ProgramTransaction } from "@heliuslabs/zolana/transaction";
-export { X25519PublicKey, X25519Keypair, ShieldedPda } from "@heliuslabs/zolana/keypair";
+export {
+  ed25519DerivationMessage,
+  X25519PublicKey,
+  X25519Keypair,
+  ShieldedPda,
+} from "@heliuslabs/zolana/keypair";
 /** Named exports the changelog promises, resolved through the package exports map. */
 export {
   MAX_INPUT_TREES,
@@ -35,23 +39,8 @@ export type {
   ProverInputs,
   TransactionAssembler,
   TreeContext,
-  RingKeyRegistryReader,
-  RingMemberProofRequest,
-  RingMemberRequest,
-  RingSpendRecordLookup,
-  RingSpendRecordReader,
-  RingKeyRegistryEntry,
-  RingKeyRegistryRegisterProof,
-  RingSubmissionTransport,
-  CustomRingCompressedPolicyProofRequest,
-  CustomRingRegistryInsertion,
-  CustomRingRegisterKeyProofRequest,
-  CustomRingDepositProofRequest,
-  CustomRingVelocityProofInput,
-  CustomRingSpendRecordProofInput,
   WalletKeys,
 } from "@heliuslabs/zolana/client";
-export { velocityProofInputOff } from "@heliuslabs/zolana/client";
 export { LocalKeys, NullifierKeyProofAuthority } from "@heliuslabs/zolana/client";
 export type {
   DecryptRequest,
@@ -81,82 +70,6 @@ export type {
   WalletStateStore,
 } from "@heliuslabs/zolana/wallet";
 export { syncPersistedWallet, syncWallet } from "@heliuslabs/zolana/wallet";
-export type {
-  CustomRingBasePublicInput,
-  DecryptedAnonymousRingTrace,
-  RingAuditReader,
-  RingRpcOptions,
-  RingTransferClient,
-} from "@heliuslabs/zolana/ring";
-export {
-  buildRingDelegateTransferTransaction,
-  createRingDelegateSubmission,
-  prepareRingSpendRegistration,
-  createRingSpendRegistrationSubmission,
-  buildRingSpendRegistrationTransaction,
-  createRingTransferSubmission,
-  createRingWithdrawalSubmission,
-  createRingExitSubmission,
-  createKitRingSubmissionTransport,
-  readRingVelocityState,
-  createRingKeyRegistryRootInstruction,
-  fetchRingKeyRegistryRoot,
-  ringKeyRegistryRootAddress,
-  decodeRingKeyRegistryRoot,
-  prepareRingKeyRegistration,
-  createRingKeyRegistrationSubmission,
-  buildRingKeyRegistrationTransaction,
-  sealNullifierKey,
-  openNullifierKey,
-  registeredKeyHash,
-  registerKeyPublicInputHash,
-  fetchRingSealedKey,
-  openRingSealedKey,
-  recoverRingMemberNotes,
-  buildRingDelegateRecoveredTransaction,
-  createRingDelegateRecoveredSubmission,
-  registerRingKeyInstruction,
-  spendRecordMessageTag,
-  buildRingDepositTransaction,
-  initializeRingConfigInstructions,
-  setRingDepositAuditInstruction,
-  fetchRingDepositAudit,
-  decodeRingDepositAudit,
-  ringDepositAuditAddress,
-  sealRingDepositOpenings,
-  openRingDepositOpening,
-  ConfirmedDeposit,
-  ringDepositContextHash,
-  ringDepositPublicInputHash,
-} from "@heliuslabs/zolana/ring";
-export type {
-  RingDelegateTransferClient,
-  RingDepositClient,
-  RingDepositAudit,
-  RingDepositOpening,
-  AuditedDepositSource,
-  RingDelegateTransferParams,
-  RingSpendRegistrationClient,
-  RingSpendRegistrationParams,
-  RingSpendRegistrationPreparation,
-  RingTransactionSubmission,
-  RingSubmissionResult,
-  RingKeyRegistryRoot,
-  RingKeyRegistrationClient,
-  RingKeyRegistrationParams,
-  RingKeyRegistrationPreparation,
-  RingSealedKeyClient,
-  RingSealedKeyEntry,
-  SealedNullifierKey,
-  NullifierKeyEnvelope,
-  RegisterKeyStatement,
-  RingRecoveryClient,
-  RingRecoveryParams,
-  RecoveredRingNotes,
-  RingDelegateRecoveredParams,
-  VelocityFacts,
-  KeyRegistryInsertProofInput,
-} from "@heliuslabs/zolana/ring";
 export type {
   SerializedCursor,
   SerializedNoteReservation,
@@ -191,7 +104,6 @@ export {
   toProgramWalletUtxo,
 } from "@heliuslabs/zolana/transaction";
 export type {
-  RingRpcOptions as RootRingRpcOptions,
   SerializedCursor as RootSerializedCursor,
   SerializedNoteReservation as RootSerializedNoteReservation,
   SerializedSyncCursors as RootSerializedSyncCursors,
@@ -199,12 +111,4 @@ export type {
   SyncWalletInput as RootSyncWalletInput,
   WalletStateStore as RootWalletStateStore,
 } from "@heliuslabs/zolana";
-
-export {
-  RING_DEPOSIT_AUDIT_SLOTS,
-  encodeRingDepositCapsule,
-  readRingDepositCapsule,
-  buildRingMergeTransaction,
-  createRingMergeSubmission,
-  customRingDepositPayload,
-} from "@heliuslabs/zolana/ring";
+export { ProverClient, indexerCodec } from "@heliuslabs/zolana/internal";

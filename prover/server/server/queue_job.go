@@ -72,12 +72,12 @@ func getMaxConcurrency() int {
 	return MinConcurrencyPerWorker
 }
 
-func getCustomRingMaxConcurrency() int {
-	if val := os.Getenv("CUSTOM_RING_WORKER_CONCURRENCY"); val != "" {
+func getExtensionMaxConcurrency() int {
+	if val := os.Getenv("EXTENSION_WORKER_CONCURRENCY"); val != "" {
 		if concurrency, err := strconv.Atoi(val); err == nil && concurrency > 0 {
 			logging.Logger().Info().
 				Int("max_concurrency", concurrency).
-				Msg("Using CUSTOM_RING_WORKER_CONCURRENCY")
+				Msg("Using EXTENSION_WORKER_CONCURRENCY")
 			return concurrency
 		}
 	}
@@ -160,8 +160,8 @@ func NewAddressAppendQueueWorker(config WorkerConfig) *BaseQueueWorker {
 	return newQueueWorker("zk_address_append_queue", config, NewExecution(getMaxConcurrency()))
 }
 
-func NewCustomRingQueueWorker(config WorkerConfig) *BaseQueueWorker {
-	return newQueueWorker("zk_custom_ring_queue", config, NewExecution(getCustomRingMaxConcurrency()))
+func NewExtensionQueueWorker(config WorkerConfig) *BaseQueueWorker {
+	return newQueueWorker(extensionQueue, config, NewExecution(getExtensionMaxConcurrency()))
 }
 
 // NewTransferQueueWorker shares execution permits with direct transfers.
@@ -294,8 +294,8 @@ func (w *BaseQueueWorker) processJobs(indexedJobs bool) bool {
 			circuitType = "address-append"
 		case "zk_transfer_queue":
 			circuitType = "transfer"
-		case "zk_custom_ring_queue":
-			circuitType = "custom-ring"
+		case extensionQueue:
+			circuitType = "extension"
 		}
 		QueueWaitTime.WithLabelValues(circuitType).Observe(queueWaitTime)
 	}
@@ -666,8 +666,8 @@ func (w *BaseQueueWorker) removeFromProcessingQueue(item string) {
 }
 
 func (w *BaseQueueWorker) redactProofError(err error) error {
-	if w.queueName == "zk_custom_ring_queue" {
-		return errCustomRingProof
+	if w.queueName == extensionQueue {
+		return errExtensionProof
 	}
 	return err
 }
@@ -721,8 +721,8 @@ func (w *BaseQueueWorker) failureDetails(job *ProofJob, err error) map[string]in
 	var failure *Error
 	if errors.As(err, &failure) {
 		details["code"] = failure.Code
-		if failure.Member != "" {
-			details["member"] = failure.Member
+		if len(failure.Detail) > 0 {
+			details["detail"] = failure.Detail
 		}
 	}
 	return details

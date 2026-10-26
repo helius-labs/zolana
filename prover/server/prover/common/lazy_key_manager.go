@@ -14,7 +14,7 @@ type LazyKeyManager struct {
 	mu                sync.RWMutex
 	batchSystems      map[string]*BatchProofSystem
 	transferSystems   map[string]*TransferProofSystem
-	ringSystems       map[string]*RingProofSystem
+	extensionSystems  map[string]*ExtensionProofSystem
 	keysDir           string
 	downloadConfig    *DownloadConfig
 	loadingInProgress map[string]chan struct{}
@@ -30,7 +30,7 @@ func NewLazyKeyManager(keysDir string, downloadConfig *DownloadConfig) *LazyKeyM
 	return &LazyKeyManager{
 		batchSystems:      make(map[string]*BatchProofSystem),
 		transferSystems:   make(map[string]*TransferProofSystem),
-		ringSystems:       make(map[string]*RingProofSystem),
+		extensionSystems:  make(map[string]*ExtensionProofSystem),
 		keysDir:           keysDir,
 		downloadConfig:    downloadConfig,
 		loadingInProgress: make(map[string]chan struct{}),
@@ -38,10 +38,10 @@ func NewLazyKeyManager(keysDir string, downloadConfig *DownloadConfig) *LazyKeyM
 	}
 }
 
-func (m *LazyKeyManager) GetRingSystem(circuitType CircuitType) (*RingProofSystem, error) {
+func (m *LazyKeyManager) GetExtensionSystem(circuitType CircuitType) (*ExtensionProofSystem, error) {
 	key := string(circuitType)
 	m.mu.RLock()
-	if ps, exists := m.ringSystems[key]; exists {
+	if ps, exists := m.extensionSystems[key]; exists {
 		m.mu.RUnlock()
 		return ps, nil
 	}
@@ -51,7 +51,7 @@ func (m *LazyKeyManager) GetRingSystem(circuitType CircuitType) (*RingProofSyste
 	if loadChan == nil {
 		m.waitForLoading(key)
 		m.mu.RLock()
-		ps, exists := m.ringSystems[key]
+		ps, exists := m.extensionSystems[key]
 		m.mu.RUnlock()
 		if exists {
 			return ps, nil
@@ -60,7 +60,7 @@ func (m *LazyKeyManager) GetRingSystem(circuitType CircuitType) (*RingProofSyste
 	}
 	defer m.releaseLoadingLock(key, loadChan)
 
-	keyPath := m.determineRingKeyPath(circuitType)
+	keyPath := m.determineExtensionKeyPath(circuitType)
 	if keyPath == "" {
 		return nil, fmt.Errorf("no key file mapping for circuit %s", circuitType)
 	}
@@ -71,12 +71,12 @@ func (m *LazyKeyManager) GetRingSystem(circuitType CircuitType) (*RingProofSyste
 	if err != nil {
 		return nil, fmt.Errorf("failed to load key %s: %w", keyPath, err)
 	}
-	ps, ok := system.(*RingProofSystem)
+	ps, ok := system.(*ExtensionProofSystem)
 	if !ok {
-		return nil, fmt.Errorf("expected RingProofSystem but got %T", system)
+		return nil, fmt.Errorf("expected ExtensionProofSystem but got %T", system)
 	}
 	m.mu.Lock()
-	m.ringSystems[key] = ps
+	m.extensionSystems[key] = ps
 	m.loadedDigests[filepath.Base(keyPath)] = ps.ProvingKeySha256
 	m.mu.Unlock()
 	return ps, nil
@@ -410,13 +410,14 @@ func (m *LazyKeyManager) determineTransferKeyPath(circuitType CircuitType, nInpu
 	return m.keyPathOf(TransferKeyFile(circuitType, nInputs, nOutputs))
 }
 
-// RingKeyFile names a custom-ring circuit's key file, or "" for none.
-func RingKeyFile(circuitType CircuitType) string {
-	return RingKeyFiles[circuitType]
+// ExtensionKeyFile names an extension circuit's key file, or "" for none.
+func ExtensionKeyFile(circuitType CircuitType) string {
+	circuit, _ := LookupExtension(circuitType)
+	return circuit.KeyFile
 }
 
-func (m *LazyKeyManager) determineRingKeyPath(circuitType CircuitType) string {
-	return m.keyPathOf(RingKeyFile(circuitType))
+func (m *LazyKeyManager) determineExtensionKeyPath(circuitType CircuitType) string {
+	return m.keyPathOf(ExtensionKeyFile(circuitType))
 }
 
 // keyFileCircuits maps every proving key file the prover proves with to the
@@ -443,8 +444,8 @@ func keyFileCircuits() map[string]CircuitType {
 	for _, shape := range batchAddressAppendShapes {
 		files[BatchKeyFile(BatchAddressAppendCircuitType, shape[0], shape[1])] = BatchAddressAppendCircuitType
 	}
-	for circuit, file := range RingKeyFiles {
-		files[file] = circuit
+	for _, circuit := range extensions {
+		files[circuit.KeyFile] = circuit.Type
 	}
 	return files
 }
@@ -466,7 +467,7 @@ func (m *LazyKeyManager) GetStats() map[string]interface{} {
 	return map[string]interface{}{
 		"batch_systems_loaded":    len(m.batchSystems),
 		"transfer_systems_loaded": len(m.transferSystems),
-		"groth16_systems_loaded":  len(m.ringSystems),
+		"groth16_systems_loaded":  len(m.extensionSystems),
 		"keys_loading":            len(m.loadingInProgress),
 	}
 }
@@ -530,7 +531,7 @@ func (m *LazyKeyManager) CircuitKeyPaths(circuits []string) ([]string, error) {
 			return nil, err
 		}
 		if !matched {
-			if path := m.determineRingKeyPath(CircuitType(circuit)); path != "" {
+			if path := m.determineExtensionKeyPath(CircuitType(circuit)); path != "" {
 				paths, matched = []string{path}, true
 			}
 		}
@@ -631,8 +632,8 @@ func (m *LazyKeyManager) cacheSystem(keyPath string, system interface{}) error {
 			Str("cache_key", key).
 			Msg("Cached TransferProofSystem")
 
-	case *RingProofSystem:
-		m.ringSystems[string(ps.CircuitType)] = ps
+	case *ExtensionProofSystem:
+		m.extensionSystems[string(ps.CircuitType)] = ps
 		m.loadedDigests[filepath.Base(keyPath)] = ps.ProvingKeySha256
 
 	default:

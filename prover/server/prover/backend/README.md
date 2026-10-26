@@ -6,7 +6,7 @@ prove with Gnark on CPU. `PROVER_BACKEND` set to `gnark`, `aeglos` or
 `aeglos-cpu` overrides the default, and startup logs the selected backend.
 The two tags exclude each other, and a build with both fails to compile.
 The `start` and `prove` commands reject an unknown backend or an unavailable GPU.
-Transfers, anonymous EdDSA transfers, merges, custom rings, and forester proofs
+Transfers, anonymous EdDSA transfers, merges, extension circuits, and forester proofs
 use the same backend boundary.
 
 The GPU build requires CUDA 12.8 and Linux x86-64. The private

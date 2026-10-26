@@ -19,6 +19,9 @@ const (
 	// HeaderCiphertext carries the encrypted bytes of a GET, fetch refuses a GET body.
 	HeaderCiphertext = "Zolana-Tee-Ciphertext"
 	NonceSize        = 32
+	// GatewayPrefix is the path the Helius gateway serves the prover under.
+	// Every route under it runs the same handler as the bare route.
+	GatewayPrefix = "/v1/zolana"
 
 	// Domain separation for every hash and HPKE context the protocol binds.
 	reportDomain   = "zolana/prover-tee/v1/report"
@@ -62,10 +65,15 @@ func GPUNonce(nonce, hpkePublicKey []byte) [32]byte {
 	return out
 }
 
-// requestAAD binds the method, path and query minus every api-key parameter,
-// so a proxy can move the credential while the route and job stay bound.
+// requestAAD binds the method, route and query minus every api-key parameter,
+// so a proxy can move the credential while the route and job stay bound. The
+// route is the path without GatewayPrefix, and a client binds the path below
+// the prover URL it was given, so a proxy can serve the prover under any path.
 func requestAAD(method, requestURI string) []byte {
 	path, query, _ := strings.Cut(requestURI, "?")
+	if route, ok := strings.CutPrefix(path, GatewayPrefix); ok && strings.HasPrefix(route, "/") {
+		path = route
+	}
 	var kept []string
 	for _, pair := range strings.Split(query, "&") {
 		key, _, _ := strings.Cut(pair, "=")

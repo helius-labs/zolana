@@ -39,37 +39,12 @@ export {
   OFFCHAIN_MESSAGE_MAGIC,
   TSPP_APPLICATION_DOMAIN,
   ed25519DerivationMessage,
-  ed25519DerivationPayload,
   isDerivationInput,
 } from "./derivation.js";
 export { poseidon } from "./poseidon.js";
 export { ownerHash, sha256Be, sha256Bytes, splitBigEndian128 } from "./hash.js";
 export { mergePrivateTxBlinding, symmetricApply } from "./merge/index.js";
 export { outputBlindingSeed, privateTxBlinding, transactOutputBlinding } from "./transact/index.js";
-export {
-  auditorMessageData,
-  auditorViewTag,
-  auditDisclosureLength,
-  anonymousAuditDisclosureShape,
-  policyPublicInputHash,
-  decryptTransactionViewingSecret,
-  encryptTransactionViewingSecret,
-  isDummyAnonymousOutput,
-  openAnonymousAuditDisclosure,
-  openAuditOutputDisclosure,
-  parseAuditorMessage,
-} from "./audit.js";
-export type {
-  AnonymousAuditDisclosure,
-  AnonymousOutputOpening,
-  AuditDisclosureInput,
-  AuditDisclosureShape,
-  AuditInputOpening,
-  AuditOutputOpening,
-  AuditorEncryption,
-  AuditorMessage,
-  CustomRingBasePublicInput,
-} from "./audit.js";
 export { ShieldedPublicKey } from "./public-key.js";
 export { SigningKey } from "./signing-key.js";
 export { NullifierKey } from "./nullifier-key.js";

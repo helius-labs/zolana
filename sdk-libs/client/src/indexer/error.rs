@@ -1,8 +1,4 @@
 use crate::error::ClientError;
-use zolana_indexer_api::error_code::{
-    RING_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED, RING_KEY_REGISTRY_MEMBER_UNREGISTERED,
-    RING_KEY_REGISTRY_OUT_OF_SYNC, RING_KEY_REGISTRY_ROOT_CHANGED, RING_SPEND_RECORD_OUT_OF_SYNC,
-};
 
 const JSON_RPC_METHOD_NOT_FOUND: i64 = -32601;
 const JSON_RPC_INTERNAL_ERROR: i64 = -32603;
@@ -20,7 +16,7 @@ const JSON_RPC_INTERNAL_ERROR: i64 = -32603;
 /// response lost while reading its body.
 ///
 /// The message comes from `ApiError`'s display, which masks the `api-key`.
-pub(super) fn indexer_error(error: zolana_api::ApiError) -> ClientError {
+pub fn indexer_error(error: zolana_api::ApiError) -> ClientError {
     let message = error.to_string();
     match error {
         #[cfg(feature = "reqwest")]
@@ -43,18 +39,9 @@ pub(super) fn indexer_error(error: zolana_api::ApiError) -> ClientError {
             ..
         } => ClientError::UnsupportedRpcMethod(method),
         zolana_api::ApiError::JsonRpc {
-            code: Some(code), ..
-        } => match code {
-            RING_KEY_REGISTRY_OUT_OF_SYNC => ClientError::RingKeyRegistryOutOfSync,
-            RING_KEY_REGISTRY_ROOT_CHANGED => ClientError::RingKeyRegistryRootChanged,
-            RING_KEY_REGISTRY_MEMBER_UNREGISTERED => ClientError::RingKeyRegistryMemberUnregistered,
-            RING_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED => {
-                ClientError::RingKeyRegistryMemberAlreadyRegistered
-            }
-            RING_SPEND_RECORD_OUT_OF_SYNC => ClientError::RingSpendRecordOutOfSync,
-            JSON_RPC_INTERNAL_ERROR => ClientError::IndexerUnavailable(message),
-            _ => ClientError::Indexer(message),
-        },
+            code: Some(JSON_RPC_INTERNAL_ERROR),
+            ..
+        } => ClientError::IndexerUnavailable(message),
         _ => ClientError::Indexer(message),
     }
 }
@@ -81,44 +68,6 @@ mod tests {
             indexer_error(zolana_api::ApiError::Request(error)),
             ClientError::IndexerUnavailable(_)
         ));
-    }
-
-    #[test]
-    fn preserves_ring_projection_error_codes() {
-        let cases = [
-            (
-                RING_KEY_REGISTRY_OUT_OF_SYNC,
-                ClientError::RingKeyRegistryOutOfSync,
-            ),
-            (
-                RING_KEY_REGISTRY_ROOT_CHANGED,
-                ClientError::RingKeyRegistryRootChanged,
-            ),
-            (
-                RING_KEY_REGISTRY_MEMBER_UNREGISTERED,
-                ClientError::RingKeyRegistryMemberUnregistered,
-            ),
-            (
-                RING_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED,
-                ClientError::RingKeyRegistryMemberAlreadyRegistered,
-            ),
-            (
-                RING_SPEND_RECORD_OUT_OF_SYNC,
-                ClientError::RingSpendRecordOutOfSync,
-            ),
-        ];
-        for (code, expected) in cases {
-            let actual = indexer_error(zolana_api::ApiError::JsonRpc {
-                method: "ringMethod",
-                code: Some(code),
-                message: Some("projection error".into()),
-            });
-            assert_eq!(
-                std::mem::discriminant(&actual),
-                std::mem::discriminant(&expected),
-                "code {code}"
-            );
-        }
     }
 
     #[test]

@@ -94,8 +94,8 @@ func (s *Server) Wrap(next http.Handler) http.Handler {
 // Exact paths only, none may carry a witness.
 func publicPlaintextPath(path string) bool {
 	switch path {
-	case "/auth", "/ready", "/health", "/proving-keys", "/v1/zolana/proving-keys",
-		AttestationPath, "/v1/zolana" + AttestationPath:
+	case "/auth", "/ready", "/health", "/proving-keys", GatewayPrefix + "/proving-keys",
+		AttestationPath, GatewayPrefix + AttestationPath:
 		return true
 	default:
 		return false

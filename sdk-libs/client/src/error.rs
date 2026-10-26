@@ -13,16 +13,6 @@ use crate::prover::tee::TeeError;
 pub enum ClientError {
     #[error("address input {index} is not supported by merge or ring authority proofs")]
     AddressInputUnsupported { index: usize },
-    #[error("the ring key-registry indexer is catching up or recovering")]
-    RingKeyRegistryOutOfSync,
-    #[error("the ring key-registry root has changed")]
-    RingKeyRegistryRootChanged,
-    #[error("the member has not registered a nullifier key")]
-    RingKeyRegistryMemberUnregistered,
-    #[error("the member already registered a nullifier key")]
-    RingKeyRegistryMemberAlreadyRegistered,
-    #[error("the ring spend-record indexer is catching up or recovering")]
-    RingSpendRecordOutOfSync,
     #[error("deposit builder error: {0}")]
     DepositBuild(#[from] DepositBuildError),
 
@@ -256,8 +246,11 @@ pub enum ClientError {
     #[error("the prover has no indexer for indexed proofs")]
     ProverIndexerUnconfigured,
 
-    #[error("the ring key registry holds no matching nullifier key for member {member:?}")]
-    RegistryMemberMissing { member: [u8; 32] },
+    #[error("the prover rejected the request with code {code}")]
+    ProverRejected {
+        code: String,
+        detail: std::collections::BTreeMap<String, String>,
+    },
 
     #[error("invalid indexed proof request")]
     InvalidIndexedRequest,

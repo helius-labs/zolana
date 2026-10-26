@@ -4,10 +4,7 @@ use url::{Host, Url};
 
 use crate::{
     error::ClientError,
-    prover::{
-        tee::{ATTESTATION_PATH, DEFAULT_PROVER_URL},
-        ExpectedProvingKey,
-    },
+    prover::{tee::ATTESTATION_PATH, ExpectedProvingKey},
 };
 
 const API_KEY: &str = "api-key";
@@ -59,18 +56,6 @@ impl ProverEndpoint {
         })
     }
 
-    /// Whether this is [`DEFAULT_PROVER_URL`], whose enclave has no indexer.
-    pub(crate) fn is_default_tee_prover(&self) -> bool {
-        let default = Url::parse(DEFAULT_PROVER_URL).ok();
-        self.base
-            .as_ref()
-            .zip(default.as_ref())
-            .is_some_and(|(url, default)| {
-                url.origin() == default.origin()
-                    && url.path().trim_end_matches('/') == default.path().trim_end_matches('/')
-            })
-    }
-
     /// `path` is slash-separated segments, such as `/prove/merge_24_1`.
     pub(crate) fn url(&self, path: &str) -> Result<Url, ClientError> {
         let invalid = || ClientError::Prover("invalid prover URL".into());
@@ -105,6 +90,20 @@ impl ProverEndpoint {
         url.query_pairs_mut()
             .append_pair("nonce", &hex::encode(nonce));
         Ok(url)
+    }
+
+    /// What an encrypted call to `url` binds: its path below this base, then
+    /// its query, so a proxy can serve the prover under any path.
+    pub(crate) fn route(&self, url: &Url) -> String {
+        let base = self
+            .base
+            .as_ref()
+            .map_or("", |base| base.path().trim_end_matches('/'));
+        let path = url.path().strip_prefix(base).unwrap_or(url.path());
+        match url.query() {
+            Some(query) => format!("{path}?{query}"),
+            None => path.to_owned(),
+        }
     }
 
     pub(crate) fn redacted(&self) -> String {
@@ -192,26 +191,6 @@ mod tests {
             "not a url",
         ] {
             assert!(!ProverEndpoint::parse(url).is_loopback(), "{url}");
-        }
-    }
-
-    #[test]
-    fn default_deployment_requires_its_origin_and_base_path() {
-        assert!(ProverEndpoint::parse(DEFAULT_PROVER_URL).is_default_tee_prover());
-        assert!(
-            ProverEndpoint::parse(&format!("{DEFAULT_PROVER_URL}/?api-key=k"))
-                .is_default_tee_prover()
-        );
-        for url in [
-            format!("{DEFAULT_PROVER_URL}/other"),
-            format!("{DEFAULT_PROVER_URL}:8443"),
-            DEFAULT_PROVER_URL.replace("https:", "http:"),
-            format!("{DEFAULT_PROVER_URL}.evil.example"),
-        ] {
-            assert!(
-                !ProverEndpoint::parse(&url).is_default_tee_prover(),
-                "{url}"
-            );
         }
     }
 

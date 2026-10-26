@@ -1,6 +1,32 @@
 # Changelog
 
-## 0.5.0-alpha — unreleased
+## 0.5.1-alpha — unreleased
+
+Packages that extend the protocol build on this one through an entry point
+outside semver, and the prover and indexer clients carry the requests such a
+package defines. External wallets use `ed25519DerivationMessage(publicKey)` to
+derive their shielded identity. The bare-payload helper is removed because its
+signatures are rejected by the wallet keys constructors.
+
+Breaking
+
+- `ed25519DerivationPayload()` is removed → sign the exact bytes from `ed25519DerivationMessage(publicKey)` and pass the signature to `LocalKeys.fromDerivationSeed()`.
+
+Added
+
+- `@heliuslabs/zolana/internal` exposes the building blocks an extension
+  package composes, and the `.d.ts` files keep `@internal` declarations such
+  as `Wallet._replace`, both outside semver.
+- `ZolanaApi.call` sends a typed indexer request, `ProverClient.send` maps a
+  prover refusal through a `ProverRefusal` of the caller, and
+  `checkProvingKeys` checks key pins the caller passes, so another package
+  proves and indexes over the same transports.
+- `IndexedShieldedTransaction.splTransfers` carries an event's public settlement
+  legs when the indexer stored them, is absent for an event indexed before
+  that, and is empty when the event settled nothing; a leg's `amount` is a
+  decimal string.
+
+## 0.5.0-alpha — 2026-10-23
 
 Proofs go encrypted to an attested Nitro Enclave prover by default, the devnet
 enclave the SDK pins for a Helius devnet RPC URL, and every other remote
@@ -12,40 +38,43 @@ no longer authorizes a spend. A merge publishes its output's amount and mint
 encrypted for the owner with the scheme the owner's registry record names, so
 wallet sync recovers a default merge output from the merge transaction alone,
 and the SDK seals and proves a transaction built by a ZK program's WebAssembly
-bindings, which the program forwards to `transact` through a CPI. An indexed
-shielded transaction carries `splTransfers` when the indexer stored that
-event's public settlement legs: absent when the event was indexed before
-that, and an empty list when the event settled nothing. A leg's `amount` is
-a decimal string.
+bindings, which the program forwards to `transact` through a CPI.
 
 Breaking
 
-- `RingRpc` now posts each JSON-RPC method beneath its base URL and accepts
-  `RingRpcOptions.apiKey` or the URL's `api-key`, while `RingRpc.url` omits the key;
-  service clients reject malformed or conflicting credentials during construction
-  and preserve unrelated URL queries → forward method paths unchanged and supply
-  the API key in one place.
+- `@heliuslabs/zolana/ring` is removed with the custom ring, auditor and key
+  registry exports of the root, `client`, `interface`, `keypair`,
+  `transaction` and `wallet` entry points, `ZolanaClient` drops its custom
+  ring proofs and ring indexer reads, `ClientErrorCode` drops
+  `CLIENT_KEY_REGISTRY_*` and `CLIENT_SPEND_RECORD_OUT_OF_SYNC`,
+  `CompressedProof` drops `toCustomRingProof`, `PROVING_KEY_SHA256S` drops the
+  custom ring keys, and `SyncWalletConfig.depositPayloadDecoder` defaults to
+  passing the payload through → stay on 0.4.1-alpha for custom ring flows,
+  and pass `depositPayloadDecoder` to `syncWallet` for a framed ring deposit
+  payload.
+- `SHIELDED_POOL_PROGRAM_ID` is `spp3CfN2Y7se74A27bBpnAkmjXyEb2YmmZafhFrC9xt` and `USER_REGISTRY_PROGRAM_ID` is `regy3WAeRXMYuMYxr5iK3Bf9Arr3PcxGxyzAddbiqDQ`, with new tree, registry, vault and authority addresses → use the fresh deployment, register new keys and fund new notes; earlier deployment accounts and notes remain separate.
 - `NULLIFIER_TREE_ROOT_HISTORY_CAPACITY` returns to 100 with 4,999-nullifier proofs, `NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE` is 499,900, and `TREE_ACCOUNT_SIZE` is 40,080 → use a program built with this layout and four tree creation steps.
 - `ShieldedKeypairLike` requires `nullifierKey()` → return an owned key copy that proof completion destroys after use.
 - `DecodedProgramTransaction.toProofInputs` is renamed to `encryptWithKeys` → call `transaction.encryptWithKeys(keys, options)` to encrypt outputs and build SPP proof inputs.
-- `SigningKey` and `ShieldedPublicKey` accept only Ed25519 ownership and PDA public keys, and `SignatureType` drops `"p256"` → migrate P-256-owned notes and registry records before upgrading, use `P256ReaderKey` from `@heliuslabs/zolana/ring` for passkey audit access.
+- `SigningKey` and `ShieldedPublicKey` accept only Ed25519 ownership and PDA public keys, and `SignatureType` drops `"p256"` → register fresh Ed25519 keys on the new deployment.
 - `UserRecord` and `RegistryRecord` drop `ownerP256`, and `getRegisterInstructionAsync`, `decodeUserRecordAccount` and `fetchUserRecord` write and read the registry record without a P-256 owner key → register again on a registry program built from this version, a record in the earlier layout fails with `WALLET_INVALID_USER_RECORD`.
 - `MergeTransactInstructionData` drops `eddsaOwner` → remove it from merge data you build and send merge instructions built by this version, the program refuses the earlier layout.
-- `openRingDepositOpening` requires a `ConfirmedDeposit` → obtain it from the confirmed audited transaction or `RpcTransactionOrigin.confirmedDeposits`, and supply `depositSource` when recovery uses a custom confirmation provider.
-- Custom-ring auditor envelopes use X25519 keys → create a new auditor configuration with `X25519Keypair`/`X25519PublicKey` before using this version.
-- `ViewingKey` and shielded addresses use X25519 for new transfers and ring deposits → migrate P-256 viewing keys and historical wallet data before using this version.
+- `ViewingKey` and shielded addresses use X25519 for new transfers and ring deposits → derive new viewing keys and use new shielded addresses for the fresh deployment.
 - `DST_VIEW_ROOT_P_CONST` is no longer exported from `@heliuslabs/zolana/keypair` → drop the import, X25519 viewing keys derive their view root without it.
 - `ProverClient` and `ZolanaClient` now require every remote prover, the
   Helius gateway included, to attest to `defaultTeePolicy()` and encrypt every
   call to it, and `ZolanaClient` given a Helius devnet RPC URL and no
   `proverUrl` proves through `DEFAULT_TEE_PROVER_ENDPOINT` with
-  `proofDataSource: "client"` and refuses `"prover"` → pass a policy of its own
+  `proofDataSource: "prover"` → pass a policy of its own
   for a prover you run, or run it on loopback, and set `proverUrl` to keep
   another prover.
+- `ProverClient` binds an encrypted call to its route below the prover URL
+  rather than the URL's full path, so a proxy can serve the prover under a
+  path of its own, and a TEE prover built before this version refuses a call
+  sent through `/v1/zolana` or such a proxy → run a prover built from this
+  version.
 - Approval handlers receive a new `multiTransfer` intent for a transfer with
   several payments → handle it, or refuse it explicitly.
-- Ring deposit audit capsules carry a `RING_DEPOSIT_OPENING_LENGTH` (96) byte opening that also discloses the Ed25519 owner key of an anonymous ring deposit, `RingDepositOpening` takes it as `ownerKey` and `openRingDepositOpening` returns it → re-prove audited deposits with this version, a capsule sealed by an earlier version no longer decodes.
-- `setRingPolicyRulesInstruction` and `buildRingSetPolicyRulesTransaction` now pass the ring config as the second account and the program refuses a windowed velocity table on an anonymous ring → rebuild the instruction with this version and keep anonymous rings on per-transfer caps.
 - `KeypairErrorCode` drops `KEYPAIR_ZERO_SCALAR`, X25519 viewing keys are clamped and cannot be zero → remove it from exhaustive matches.
 - `KeypairErrorCode` drops `KEYPAIR_INVALID_PREHASH_LENGTH` with P-256 signing → remove it from exhaustive matches.
 - `CircuitId` kinds `ringEddsa` and `ringEddsaCached` are now `confidentialRingEddsa` and `confidentialRingEddsaCached` → rename them in matches and hand-built instruction data, the encoded bytes are unchanged.
@@ -81,9 +110,8 @@ Breaking
 - `transactInstruction` (`getTransactInstructionAsync`) and
   `buildUnsignedTransaction` require `ownerSigners`, the Ed25519 and PDA owners
   of inputs and of outputs that carry data in first-occurrence order, the fee
-  payer too when it is one of them, and `RingEntryTransitionInput` and
-  `RingEntryTransitionProofInputs` no longer take `payer` → pass those owners,
-  or `[]` when there are none, and drop `payer`.
+  payer too when it is one of them → pass those owners, or `[]` when there are
+  none.
 - `MergeInputs` and `PreparedMergeInputs` replace `asset` with required
   `mintChunks` and `outputCiphertextSalt` → pass the mint's two field chunks
   and the merge output ciphertext salt, or use the SDK's merge builders.
@@ -104,7 +132,6 @@ Added
 - `ShieldedPda.withViewingKey(pda, nullifierKey, viewingKey)` takes ownership of the supplied privacy keys and exposes a PDA owner without a signing secret.
 - `ZolanaClient.proveTransact` accepts an array mixing `ShieldedKeypair` and `ShieldedPda`, matches each real input by tagged signing identity regardless of order, and refuses missing or conflicting owner keys.
 - `Mint.fromRegistry(assets, address)` retains a validated mint address and asset ID on `Utxo.mint` and `ProofOutputUtxo.mint`, allowing `encryptConfidentialTransfer` to omit `assets` when every real output retains its mint metadata.
-- `RingRpc.getDecryptedTransactions` returns hidden senders, inputs and recipients in `anonymous` for authorized anonymous-ring audit readers.
 - `buildMultiTransferTransaction(params)` pays up to fifteen recipients of
   one asset in one private transfer, each a `TransferPayment` in order (a
   single payment stays a `transfer` intent), accepts a `feePayer` other than
@@ -119,7 +146,7 @@ Added
 - `DEFAULT_TEE_PROVER_ENDPOINT` is the pinned deployment's prover URL, for a
   client that names its prover, and `ProverClient.hasIndexedRoute` says
   whether the prover reads proof data from its own indexer, false for the
-  Helius gateway and `DEFAULT_TEE_PROVER_ENDPOINT`.
+  Helius gateway.
 - `ProofInputUtxo.address(owner, seed, treeId)` reserves an address of an
   Ed25519 or PDA owner with a non-inclusion proof and no spent UTXO, which only
   the default confidential transfer proves; `isAddress()`,
@@ -181,15 +208,15 @@ Changed
 
 Fixed
 
+- `DEFAULT_TEE_PROVER_ENDPOINT` and `defaultTeePolicy()` now select the devnet-d-tee-3 enclave and fetch Merkle proof data on its prover, so default devnet proving accepts the current enclave's attestation and supports `proofDataSource: "prover"`.
 - `syncWallet` failed with `CLIENT_INVALID_RPC_RESPONSE` on any indexed transaction whose published viewing key is not a valid X25519 key, now such a transaction is read without a viewing key and its outputs count as undecryptable, as do outputs under a small-order transaction key.
-- `auditRingTransaction`, `auditRing` and `recoverRingMemberNotes` rejected the auditor message of an anonymous ring, and `decodeRingProgramConfig` threw on one; they now take `mode: "anonymous"`, report hidden senders, inputs and recipients in `anonymous` like `RingRpc.getDecryptedTransactions`, and the config decodes with `mode` while transaction builders keep refusing an anonymous ring.
-- `syncWallet` and custom ring recovery could not recover a merge output
-  without every input, and `syncWallet` committed past an unreadable owned
-  merge; both now recover merge outputs from valid ciphertext alone,
+- `syncWallet` could not recover a merge output without every input, and
+  committed past an unreadable owned merge; it now recovers merge outputs
+  from valid ciphertext alone,
   `syncWallet` rejects an unreadable owned merge with cause
   `TRANSACTION_MERGE_OUTPUT_UNDECRYPTABLE` while preserving wallet state and
-  cursors, and `Merge.fromKeypair`, wallet merge building, wallet sync and ring
-  recovery wipe temporary merge output keys on both success and failure.
+  cursors, and `Merge.fromKeypair`, wallet merge building and wallet sync wipe
+  temporary merge output keys on both success and failure.
 - `ZolanaClient.assembleAuthorizedPrivateTransaction` did not list the owner
   of an output that carries data as a transaction signer, and
   `ZolanaClient.proveTransact` left that owner out of the proof's signer
@@ -199,6 +226,14 @@ Fixed
   differently from the sender's change, so an observer could tell them apart;
   padding now uses the same encoding as change.
 - `ProverClient` encrypted requests now survive gateway removal of percent-encoded `api-key` query parameters while keeping other query bytes authenticated.
+- `ZolanaClient` sent its Solana RPC requests, `solanaRpc` included, through
+  the global `fetch` and ignored `ZolanaClientConfig.fetch`; they now go
+  through the configured `fetch` like indexer and prover requests, while
+  `solanaRpcSubscriptions` stays on its WebSocket.
+
+Dependencies
+
+- `@solana/rpc-spec-types` ^8.3.0 (new).
 
 ## 0.4.1-alpha — 2026-10-08
 

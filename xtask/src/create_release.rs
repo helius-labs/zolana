@@ -18,9 +18,8 @@ const DEFAULT_SURFPOOL_VERSION: &str = "1.6.0";
 const PHOTON_LINUX_BUILDER_IMAGE: &str = "rust:1.97-bookworm";
 
 pub struct Options {
-    tag: String,
-    set: ReleaseSet,
-    deploy_dir: PathBuf,
+    pub tag: String,
+    pub deploy_dir: PathBuf,
     staging_dir: PathBuf,
     lock_path: PathBuf,
     upload: bool,
@@ -29,21 +28,28 @@ pub struct Options {
 
 struct ReleaseUpload<'a> {
     options: &'a Options,
+    title: String,
+    notes: String,
     assets: &'a [PathBuf],
     target: &'a str,
 }
 
 /// Which assets a release carries, each set has its own lock and cli.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ReleaseSet {
-    Localnet,
-    CustomRings,
+pub trait ReleaseSet {
+    /// Each cli embeds its own lock, so a release of one set never rewrites the other's.
+    fn lock_path(&self) -> &'static str;
+    fn title(&self, tag: &str) -> String;
+    fn notes(&self, tag: &str) -> String;
+    fn cli_binaries(&self) -> &'static [CliBinary];
+    /// Stages every asset except the clis and returns the lock naming them.
+    fn lock(&self, options: &Options, staging: &Path, host: (&str, &str)) -> Result<Value>;
 }
 
+pub struct Localnet;
+
 impl Options {
-    pub fn parse(args: Vec<String>) -> Self {
+    pub fn parse(args: Vec<String>, set: &impl ReleaseSet) -> Self {
         let mut tag = None;
-        let mut set = ReleaseSet::Localnet;
         let mut deploy_dir = PathBuf::from("target/deploy");
         let mut staging_dir = PathBuf::from("target/release-staging");
         let mut lock_path = None;
@@ -58,7 +64,6 @@ impl Options {
             };
             match arg.as_str() {
                 "--tag" => tag = Some(next("--tag")),
-                "--custom-rings" => set = ReleaseSet::CustomRings,
                 "--deploy-dir" => deploy_dir = PathBuf::from(next("--deploy-dir")),
                 "--staging-dir" => staging_dir = PathBuf::from(next("--staging-dir")),
                 "--lock-path" => lock_path = Some(PathBuf::from(next("--lock-path"))),
@@ -74,7 +79,6 @@ impl Options {
 
         Self {
             tag: tag.unwrap_or_else(|| usage_and_exit("--tag is required")),
-            set,
             deploy_dir,
             staging_dir,
             lock_path: lock_path.unwrap_or_else(|| PathBuf::from(set.lock_path())),
@@ -84,55 +88,42 @@ impl Options {
     }
 }
 
-impl ReleaseSet {
-    /// Each cli embeds its own lock, so a release of one set never rewrites the other's.
-    fn lock_path(self) -> &'static str {
-        match self {
-            Self::Localnet => "cli/release-artifacts.lock",
-            Self::CustomRings => "custom-rings/cli/release-artifacts.lock",
-        }
+impl ReleaseSet for Localnet {
+    fn lock_path(&self) -> &'static str {
+        "cli/release-artifacts.lock"
     }
 
-    fn title(self, tag: &str) -> String {
-        match self {
-            Self::Localnet => tag.to_string(),
-            Self::CustomRings => format!("custom-rings {tag}"),
-        }
+    fn title(&self, tag: &str) -> String {
+        tag.to_string()
     }
 
-    fn notes(self, tag: &str) -> String {
-        match self {
-            Self::Localnet => format!("Zolana localnet artifacts {tag}"),
-            Self::CustomRings => format!("Zolana custom ring artifacts {tag}"),
-        }
+    fn notes(&self, tag: &str) -> String {
+        format!("Zolana localnet artifacts {tag}")
     }
 
-    fn cli_binaries(self) -> &'static [CliBinary] {
-        match self {
-            Self::Localnet => &[CliBinary {
-                package: "zolana-cli",
-                bin: "zolana",
-                asset_stem: "zolana",
-            }],
-            Self::CustomRings => &[CliBinary {
-                package: "custom-ring-cli",
-                bin: "zolana-ring",
-                asset_stem: "zolana-ring",
-            }],
-        }
+    fn cli_binaries(&self) -> &'static [CliBinary] {
+        &[CliBinary {
+            package: "zolana-cli",
+            bin: "zolana",
+            asset_stem: "zolana",
+        }]
+    }
+
+    fn lock(&self, options: &Options, staging: &Path, host: (&str, &str)) -> Result<Value> {
+        localnet_lock(options, staging, host)
     }
 }
 
-struct CliBinary {
-    package: &'static str,
-    bin: &'static str,
-    asset_stem: &'static str,
+pub struct CliBinary {
+    pub package: &'static str,
+    pub bin: &'static str,
+    pub asset_stem: &'static str,
 }
 
-struct ProgramSource {
-    role: &'static str,
-    file: &'static str,
-    asset_stem: &'static str,
+pub struct ProgramSource {
+    pub role: &'static str,
+    pub file: &'static str,
+    pub asset_stem: &'static str,
 }
 
 const PROGRAM_SOURCES: [ProgramSource; 3] = [
@@ -153,69 +144,14 @@ const PROGRAM_SOURCES: [ProgramSource; 3] = [
     },
 ];
 
-const PROVING_KEYS_DIR: &str = "prover/server/proving-keys";
-const PROVING_KEYS_LOCK: &str = "prover/server/prover/provingkeys/proving-keys.lock";
+pub const PROVING_KEYS_DIR: &str = "prover/server/proving-keys";
+pub const PROVING_KEYS_LOCK: &str = "prover/server/prover/provingkeys/proving-keys.lock";
 
-struct RingKeySource {
-    section: &'static str,
-    prover_file: &'static str,
-    asset_stem: &'static str,
-}
-
-impl RingKeySource {
-    fn asset(&self, tag: &str) -> String {
-        format!("{}-{tag}.key", self.asset_stem)
-    }
-}
-
-const RING_KEY_SOURCES: [RingKeySource; 6] = [
-    RingKeySource {
-        section: "proving_key",
-        prover_file: "custom_ring_policy.key",
-        asset_stem: "custom-ring-policy-key",
-    },
-    RingKeySource {
-        section: "audit_key",
-        prover_file: "custom_ring_base.key",
-        asset_stem: "custom-ring-base-key",
-    },
-    RingKeySource {
-        section: "compressed_policy_key",
-        prover_file: "custom_ring_compressed_policy.key",
-        asset_stem: "custom-ring-compressed-policy-key",
-    },
-    RingKeySource {
-        section: "delegate_policy_key",
-        prover_file: "custom_ring_delegate_policy.key",
-        asset_stem: "custom-ring-delegate-policy-key",
-    },
-    RingKeySource {
-        section: "register_key",
-        prover_file: "custom_ring_register_key.key",
-        asset_stem: "custom-ring-register-key",
-    },
-    RingKeySource {
-        section: "deposit_key",
-        prover_file: "custom_ring_deposit.key",
-        asset_stem: "custom-ring-deposit-key",
-    },
-];
-
-/// Deployed per ring under its own id, shipped by the custom-rings set alone.
-const RING_PROGRAM_SOURCE: ProgramSource = ProgramSource {
-    role: "ring_program",
-    file: "custom_ring_program.so",
-    asset_stem: "custom-ring-program",
-};
-
-pub fn run(options: Options) -> Result<()> {
+pub fn run(options: Options, set: &impl ReleaseSet) -> Result<()> {
     let (os, arch) = current_platform()?;
     let staging = &options.staging_dir;
     reset_dir(staging)?;
-    let lock = match options.set {
-        ReleaseSet::Localnet => localnet_lock(&options, staging, (os, arch))?,
-        ReleaseSet::CustomRings => custom_rings_lock(&options, staging, (os, arch))?,
-    };
+    let lock = set.lock(&options, staging, (os, arch))?;
     let mut serialized = serde_json::to_string_pretty(&lock)?;
     serialized.push('\n');
     fs::write(&options.lock_path, serialized)
@@ -223,13 +159,15 @@ pub fn run(options: Options) -> Result<()> {
     println!("wrote lockfile {}", options.lock_path.display());
 
     // Build the CLI binaries last so they embed the just-written lockfile.
-    let cli_assets = build_cli_binaries(&options, staging, (os, arch))?;
+    let cli_assets = build_cli_binaries(&options, set, staging, (os, arch))?;
     let mut assets = staged_asset_paths(staging, &lock);
     assets.extend(cli_assets);
 
     if options.upload {
         ReleaseUpload {
             options: &options,
+            title: set.title(&options.tag),
+            notes: set.notes(&options.tag),
             assets: &assets,
             target: &git_head()?,
         }
@@ -301,65 +239,25 @@ fn localnet_lock(options: &Options, staging: &Path, host: (&str, &str)) -> Resul
     }))
 }
 
-fn custom_rings_lock(options: &Options, staging: &Path, host: (&str, &str)) -> Result<Value> {
-    let path = options.deploy_dir.join(RING_PROGRAM_SOURCE.file);
-    require_file(&path, "run `just build-programs` first")?;
-    let repo = repo_root()?;
-    let mut lock = json!({
-        "release_tag": options.tag,
-        "ring_program": stage_program(&RING_PROGRAM_SOURCE, &path, &options.tag, staging)?,
-    });
-    let prover_lock = read_json(&repo.join(PROVING_KEYS_LOCK))?;
-    for source in &RING_KEY_SOURCES {
-        let key_source = repo.join(PROVING_KEYS_DIR).join(source.prover_file);
-        require_file(&key_source, "run `just ensure-custom-ring-live-keys` first")?;
-        let asset = source.asset(&options.tag);
-        let staged = stage_file(&key_source, &staging.join(&asset))?;
-        let pinned = pinned_sha256(&prover_lock, source.prover_file)?;
-        if staged.sha256 != pinned {
-            bail!(
-                "{} hashes to {}, {PROVING_KEYS_LOCK} pins {pinned}, run `just regen-custom-ring-keys` to rotate both",
-                source.prover_file,
-                staged.sha256
-            );
-        }
-        lock[source.section] = json!({
-            "asset": asset,
-            "size": staged.size,
-            "sha256": staged.sha256,
-        });
-    }
-    let mut binaries = Vec::new();
-    for (os, arch) in release_targets(host) {
-        let asset = format!("ring-rpc-{os}-{arch}-{}", options.tag);
-        let path = staging.join(&asset);
-        build_rust_binary(
-            &repo,
-            "zolana-ring-rpc",
-            "ring-rpc",
-            &path,
-            (os, arch) == host,
-        )?;
-        binaries.push(binary_json("ring_rpc", os, arch, &asset, &path)?);
-    }
-    lock["binaries"] = json!(binaries);
-    Ok(lock)
-}
-
-fn read_json(path: &Path) -> Result<Value> {
+pub fn read_json(path: &Path) -> Result<Value> {
     let contents =
         fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
     serde_json::from_str(&contents).with_context(|| format!("failed to parse {}", path.display()))
 }
 
-fn pinned_sha256(prover_lock: &Value, file: &str) -> Result<String> {
+pub fn pinned_sha256(prover_lock: &Value, file: &str) -> Result<String> {
     prover_lock["keys"][file]["sha256"]
         .as_str()
         .map(str::to_string)
         .ok_or_else(|| anyhow!("{PROVING_KEYS_LOCK} pins no {file}"))
 }
 
-fn stage_program(source: &ProgramSource, path: &Path, tag: &str, staging: &Path) -> Result<Value> {
+pub fn stage_program(
+    source: &ProgramSource,
+    path: &Path,
+    tag: &str,
+    staging: &Path,
+) -> Result<Value> {
     let asset = format!("{}-{}.so", source.asset_stem, tag);
     let staged = stage_file(path, &staging.join(&asset))?;
     Ok(json!({
@@ -407,13 +305,14 @@ fn build_binaries(options: &Options, staging: &Path, host: (&str, &str)) -> Resu
 /// Each cli embeds its set's lockfile, so it is built after it and is not an entry in it.
 fn build_cli_binaries(
     options: &Options,
+    set: &impl ReleaseSet,
     staging: &Path,
     host: (&str, &str),
 ) -> Result<Vec<PathBuf>> {
     let repo = repo_root()?;
     let mut assets = Vec::new();
     for (os, arch) in release_targets(host) {
-        for cli in options.set.cli_binaries() {
+        for cli in set.cli_binaries() {
             let asset = format!("{}-{os}-{arch}-{}", cli.asset_stem, options.tag);
             let path = staging.join(&asset);
             build_rust_binary(&repo, cli.package, cli.bin, &path, (os, arch) == host)?;
@@ -424,7 +323,7 @@ fn build_cli_binaries(
 }
 
 /// The host platform plus linux-x64 (deduped when the host already is linux-x64).
-fn release_targets<'a>(host: (&'a str, &'a str)) -> Vec<(&'a str, &'a str)> {
+pub fn release_targets<'a>(host: (&'a str, &'a str)) -> Vec<(&'a str, &'a str)> {
     let mut targets = vec![host];
     if host != ("linux", "x64") {
         targets.push(("linux", "x64"));
@@ -432,7 +331,7 @@ fn release_targets<'a>(host: (&'a str, &'a str)) -> Vec<(&'a str, &'a str)> {
     targets
 }
 
-fn binary_json(role: &str, os: &str, arch: &str, asset: &str, path: &Path) -> Result<Value> {
+pub fn binary_json(role: &str, os: &str, arch: &str, asset: &str, path: &Path) -> Result<Value> {
     let staged = checksum_file(path)?;
     Ok(json!({
         "role": role,
@@ -485,18 +384,17 @@ fn build_prover(repo: &Path, os: &str, arch: &str, out: &Path) -> Result<()> {
 /// The host build uses cargo directly; linux-x64 builds in a Docker container so
 /// no host cross-linker is needed. Both are cache-first via the shared
 /// `target`/`target-linux-x64` dirs, so building a second binary is incremental.
-fn build_rust_binary(repo: &Path, package: &str, bin: &str, out: &Path, host: bool) -> Result<()> {
+pub fn build_rust_binary(
+    repo: &Path,
+    package: &str,
+    bin: &str,
+    out: &Path,
+    host: bool,
+) -> Result<()> {
     if host {
         build_rust_binary_host(repo, package, bin, out)
     } else {
         build_rust_binary_linux_x64(repo, package, bin, out)
-    }
-}
-
-fn binary_features(bin: &str) -> &'static [&'static str] {
-    match bin {
-        "photon" => &["--features", "custom-rings"],
-        _ => &[],
     }
 }
 
@@ -505,7 +403,6 @@ fn build_rust_binary_host(repo: &Path, package: &str, bin: &str, out: &Path) -> 
     let status = Command::new("cargo")
         .current_dir(repo)
         .args(["build", "--release", "-p", package, "--bin", bin])
-        .args(binary_features(bin))
         .status()
         .with_context(|| format!("failed to run cargo build for {bin}"))?;
     if !status.success() {
@@ -519,9 +416,8 @@ fn build_rust_binary_host(repo: &Path, package: &str, bin: &str, out: &Path) -> 
 fn build_rust_binary_linux_x64(repo: &Path, package: &str, bin: &str, out: &Path) -> Result<()> {
     println!("building {bin} linux-x64 (docker {PHOTON_LINUX_BUILDER_IMAGE})");
     let mount = format!("{}:/work", path_str(repo)?);
-    let features = binary_features(bin).join(" ");
     let build = format!(
-        "set -e; apt-get update -qq && apt-get install -y -qq pkg-config libssl-dev protobuf-compiler cmake clang build-essential >/dev/null 2>&1; cargo build --release -p {package} --bin {bin} {features} --target-dir /work/target-linux-x64"
+        "set -e; apt-get update -qq && apt-get install -y -qq pkg-config libssl-dev protobuf-compiler cmake clang build-essential >/dev/null 2>&1; cargo build --release -p {package} --bin {bin} --target-dir /work/target-linux-x64"
     );
     let status = Command::new("docker")
         .args([
@@ -546,7 +442,7 @@ fn build_rust_binary_linux_x64(repo: &Path, package: &str, bin: &str, out: &Path
     Ok(())
 }
 
-fn repo_root() -> Result<PathBuf> {
+pub fn repo_root() -> Result<PathBuf> {
     let output = Command::new("git")
         .args(["rev-parse", "--show-toplevel"])
         .output()
@@ -598,12 +494,12 @@ fn git_head() -> Result<String> {
     Ok(String::from_utf8(output.stdout)?.trim().to_string())
 }
 
-struct Checksum {
-    size: u64,
-    sha256: String,
+pub struct Checksum {
+    pub size: u64,
+    pub sha256: String,
 }
 
-fn stage_file(src: &Path, dest: &Path) -> Result<Checksum> {
+pub fn stage_file(src: &Path, dest: &Path) -> Result<Checksum> {
     fs::copy(src, dest)
         .with_context(|| format!("failed to copy {} -> {}", src.display(), dest.display()))?;
     checksum_file(dest)
@@ -624,22 +520,17 @@ fn sha256_hex(bytes: &[u8]) -> String {
 }
 
 fn staged_asset_paths(staging: &Path, lock: &Value) -> Vec<PathBuf> {
-    let mut names = Vec::new();
-    if let Some(programs) = lock.get("programs").and_then(Value::as_array) {
-        names.extend(programs.iter().filter_map(asset_name));
-    }
-    for key in std::iter::once("ring_program")
-        .chain(RING_KEY_SOURCES.iter().map(|source| source.section))
-        .chain(std::iter::once("accounts"))
-    {
-        if let Some(name) = lock.get(key).and_then(asset_name) {
-            names.push(name);
-        }
-    }
-    if let Some(binaries) = lock.get("binaries").and_then(Value::as_array) {
-        names.extend(binaries.iter().filter_map(asset_name));
-    }
-    names.iter().map(|name| staging.join(name)).collect()
+    lock.as_object()
+        .into_iter()
+        .flat_map(|lock| lock.values())
+        .flat_map(|value| {
+            value
+                .as_array()
+                .map_or(std::slice::from_ref(value), Vec::as_slice)
+        })
+        .filter_map(asset_name)
+        .map(|name| staging.join(name))
+        .collect()
 }
 
 fn asset_name(value: &Value) -> Option<String> {
@@ -714,9 +605,9 @@ impl ReleaseUpload<'_> {
                     "--target".to_string(),
                     self.target.to_string(),
                     "--title".to_string(),
-                    self.options.set.title(tag),
+                    self.title.clone(),
                     "--notes".to_string(),
-                    self.options.set.notes(tag),
+                    self.notes.clone(),
                 ];
                 if self.options.prerelease {
                     args.push("--prerelease".to_string());
@@ -844,7 +735,7 @@ fn reset_dir(dir: &Path) -> Result<()> {
     Ok(())
 }
 
-fn require_file(path: &Path, hint: &str) -> Result<()> {
+pub fn require_file(path: &Path, hint: &str) -> Result<()> {
     if !path.is_file() {
         bail!("missing artifact {}: {hint}", path.display());
     }
@@ -873,17 +764,10 @@ fn print_help() {
     println!("prover; Docker for the linux Rust binaries). Regenerates");
     println!("cli/release-artifacts.lock; the CLI binary is built last so it embeds the");
     println!("final lockfile (and is therefore uploaded but not a lockfile entry).");
-    println!("With --custom-rings the set is the ring program, its two prover keys, the ring");
-    println!("rpc and the zolana-ring cli.");
     println!();
     println!("Requires: go, cargo, and docker (for the linux-x64 photon build).");
     println!();
     println!("Options:");
-    println!(
-        "  --custom-rings          Release the ring program, its two prover keys, the ring rpc"
-    );
-    println!("                          and the zolana-ring cli only,");
-    println!("                          regenerating custom-rings/cli/release-artifacts.lock");
     println!("  --deploy-dir <dir>      Program .so directory (default target/deploy)");
     println!("  --staging-dir <dir>     Asset staging dir (default target/release-staging)");
     println!("  --lock-path <path>      Lockfile to regenerate (default by set)");
@@ -899,37 +783,36 @@ mod tests {
 
     #[test]
     fn release_upload_preserves_the_other_bundle_and_existing_assets() {
-        for set in [ReleaseSet::Localnet, ReleaseSet::CustomRings] {
-            let options = Options {
-                tag: "v1".to_string(),
-                set,
-                deploy_dir: PathBuf::new(),
-                staging_dir: PathBuf::new(),
-                lock_path: PathBuf::new(),
-                upload: true,
-                prerelease: true,
-            };
-            let assets = [PathBuf::from("/stage/bundle")];
-            let upload = ReleaseUpload {
-                options: &options,
-                assets: &assets,
-                target: "released-commit",
-            };
-            assert_eq!(
-                upload.args(Some("released-commit")).unwrap(),
-                ["release", "upload", "v1", "/stage/bundle"]
-            );
-            assert!(upload.args(Some("other-commit")).is_err());
-            let create = upload.args(None).unwrap();
-            assert_eq!(
-                &create[..5],
-                ["release", "create", "v1", "--target", "released-commit"]
-            );
-            assert!(create.iter().any(|arg| arg == "--prerelease"));
-            assert_eq!(create.last().unwrap(), "/stage/bundle");
-            for forbidden in ["delete", "--clobber", "--cleanup-tag"] {
-                assert!(!create.iter().any(|arg| arg == forbidden));
-            }
+        let options = Options {
+            tag: "v1".to_string(),
+            deploy_dir: PathBuf::new(),
+            staging_dir: PathBuf::new(),
+            lock_path: PathBuf::new(),
+            upload: true,
+            prerelease: true,
+        };
+        let assets = [PathBuf::from("/stage/bundle")];
+        let upload = ReleaseUpload {
+            options: &options,
+            title: "v1".to_string(),
+            notes: "v1".to_string(),
+            assets: &assets,
+            target: "released-commit",
+        };
+        assert_eq!(
+            upload.args(Some("released-commit")).unwrap(),
+            ["release", "upload", "v1", "/stage/bundle"]
+        );
+        assert!(upload.args(Some("other-commit")).is_err());
+        let create = upload.args(None).unwrap();
+        assert_eq!(
+            &create[..5],
+            ["release", "create", "v1", "--target", "released-commit"]
+        );
+        assert!(create.iter().any(|arg| arg == "--prerelease"));
+        assert_eq!(create.last().unwrap(), "/stage/bundle");
+        for forbidden in ["delete", "--clobber", "--cleanup-tag"] {
+            assert!(!create.iter().any(|arg| arg == forbidden));
         }
     }
 
@@ -1057,68 +940,21 @@ mod tests {
     }
 
     #[test]
-    fn custom_rings_lock_shape_matches_the_ring_cli_parser() {
-        let mut lock = json!({
-            "release_tag": "v1",
-            "ring_program": {"asset": "custom-ring-program-v1.so", "size": 1, "sha256": "x"},
-            "proving_key": {"asset": RING_KEY_SOURCES[0].asset("v1"), "size": 1, "sha256": "x"},
-            "audit_key": {"asset": RING_KEY_SOURCES[1].asset("v1"), "size": 1, "sha256": "x"},
-            "binaries": [{"role": "ring_rpc", "os": "linux", "arch": "x64", "asset": "ring-rpc-linux-x64-v1", "size": 1, "sha256": "x"}],
-        });
-        for source in &RING_KEY_SOURCES {
-            lock[source.section] = json!({"asset": source.asset("v1"), "size": 1, "sha256": "x"});
-        }
-        for section in std::iter::once("ring_program")
-            .chain(RING_KEY_SOURCES.iter().map(|source| source.section))
-        {
-            for key in ["asset", "size", "sha256"] {
-                assert!(lock[section].get(key).is_some(), "{section} missing {key}");
-            }
-        }
-        assert_eq!(
-            staged_asset_paths(Path::new("/stage"), &lock),
-            vec![
-                PathBuf::from("/stage/custom-ring-program-v1.so"),
-                PathBuf::from("/stage/custom-ring-policy-key-v1.key"),
-                PathBuf::from("/stage/custom-ring-base-key-v1.key"),
-                PathBuf::from("/stage/custom-ring-compressed-policy-key-v1.key"),
-                PathBuf::from("/stage/custom-ring-delegate-policy-key-v1.key"),
-                PathBuf::from("/stage/custom-ring-register-key-v1.key"),
-                PathBuf::from("/stage/custom-ring-deposit-key-v1.key"),
-                PathBuf::from("/stage/ring-rpc-linux-x64-v1"),
-            ]
-        );
-        assert_eq!(ReleaseSet::CustomRings.cli_binaries().len(), 1);
-        assert_eq!(ReleaseSet::CustomRings.title("v1"), "custom-rings v1");
-        assert_eq!(
-            ReleaseSet::CustomRings.lock_path(),
-            "custom-rings/cli/release-artifacts.lock"
-        );
-    }
-
-    #[test]
     fn staged_asset_paths_lists_every_asset() {
         let lock = json!({
             "programs": [{"asset": "a.so"}, {"asset": "b.so"}],
-            "ring_program": {"asset": "ring.so"},
             "accounts": {"asset": "accounts.tar.gz"},
             "binaries": [{"asset": "prover"}, {"asset": "photon"}],
         });
         let paths = staged_asset_paths(Path::new("/stage"), &lock);
-        let names: Vec<_> = paths
+        let mut names: Vec<_> = paths
             .iter()
             .map(|p| p.file_name().unwrap().to_str().unwrap())
             .collect();
+        names.sort_unstable();
         assert_eq!(
             names,
-            [
-                "a.so",
-                "b.so",
-                "ring.so",
-                "accounts.tar.gz",
-                "prover",
-                "photon"
-            ]
+            ["a.so", "accounts.tar.gz", "b.so", "photon", "prover"]
         );
     }
 

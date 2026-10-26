@@ -63,8 +63,6 @@ async fn start_server(
 }
 
 fn build_rpc_module(api_and_indexer: PhotonApi) -> Result<RpcModule<PhotonApi>, anyhow::Error> {
-    #[cfg(feature = "custom-rings")]
-    let custom_rings = api_and_indexer.custom_rings_enabled();
     let mut module = RpcModule::new(api_and_indexer);
 
     module.register_async_method(
@@ -192,36 +190,6 @@ fn build_rpc_module(api_and_indexer: PhotonApi) -> Result<RpcModule<PhotonApi>, 
         },
     )?;
 
-    #[cfg(feature = "custom-rings")]
-    if custom_rings {
-        module.register_async_method(
-            zolana_indexer_api::GET_RING_KEY_REGISTRY_ENTRY,
-            |params, context, _| async move {
-                context
-                    .get_ring_key_registry_entry(params.parse()?)
-                    .await
-                    .map_err(ErrorObjectOwned::from)
-            },
-        )?;
-        module.register_async_method(
-            zolana_indexer_api::GET_RING_KEY_REGISTRY_REGISTER_PROOF,
-            |params, context, _| async move {
-                context
-                    .get_ring_key_registry_register_proof(params.parse()?)
-                    .await
-                    .map_err(ErrorObjectOwned::from)
-            },
-        )?;
-        module.register_async_method(
-            zolana_indexer_api::GET_RING_SPEND_RECORD,
-            |params, context, _| async move {
-                context
-                    .get_ring_spend_record(params.parse()?)
-                    .await
-                    .map_err(ErrorObjectOwned::from)
-            },
-        )?;
-    }
     Ok(module)
 }
 
@@ -318,33 +286,7 @@ mod tests {
         assert!(methods.contains(&"getNonInclusionProofs"));
         assert!(methods.contains(&"getNullifierQueueElements"));
         assert!(methods.contains(&"getUserRecords"));
-        #[cfg(not(feature = "custom-rings"))]
-        for method in CUSTOM_RING_METHODS {
-            assert!(!methods.contains(&method));
-        }
     }
-
-    #[cfg(feature = "custom-rings")]
-    #[tokio::test]
-    async fn registers_custom_ring_methods_unless_disabled() {
-        let module = build_rpc_module(test_api().await).unwrap();
-        let methods = module.method_names().collect::<Vec<_>>();
-        for method in CUSTOM_RING_METHODS {
-            assert!(methods.contains(&method));
-        }
-
-        let module = build_rpc_module(test_api().await.without_custom_rings()).unwrap();
-        let methods = module.method_names().collect::<Vec<_>>();
-        for method in CUSTOM_RING_METHODS {
-            assert!(!methods.contains(&method));
-        }
-    }
-
-    const CUSTOM_RING_METHODS: [&str; 3] = [
-        "getRingKeyRegistryEntry",
-        "getRingKeyRegistryRegisterProof",
-        "getRingSpendRecord",
-    ];
 
     async fn test_api() -> PhotonApi {
         let db = Database::connect("sqlite::memory:").await.unwrap();

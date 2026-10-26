@@ -117,8 +117,12 @@ wallet derivations (`ShieldedKeys`: `decrypt`, `derive`, `transactionKeys`) and
 proving (`ProofAuthority`: `prove`, `proveMerge`). Methods return derived values,
 not long-lived secrets, and accept batches so an enclave or hardware wallet can
 answer each phase in one round trip. `LocalKeys` provides both roles for keys
-held in-process; `LocalKeys.fromDerivationSeed` creates them from a browser
-wallet signature over the derivation message. The Solana signature over the
+held in-process; `LocalKeys.fromDerivationSeed` verifies the wallet signature over
+`ed25519DerivationMessage(publicKey)` from `@heliuslabs/zolana/keypair`, where
+`publicKey` is the wallet's 32-byte Ed25519 public key. The wallet must sign these
+exact off-chain message v0 bytes; signing only `TSPP/derive/v1` or using another
+envelope is rejected. A wallet unable to sign these bytes is unsupported for this
+derivation. The signature is secret key material. The Solana signature over the
 finished transaction remains with the app signer.
 
 ### Transaction format
@@ -137,24 +141,22 @@ A client needs a
 [Helius API key](https://dashboard.helius.dev/).
 
 The Solana RPC, Photon indexer, and prover must target the same devnet release.
-Custom-ring authorities and auditors use the separate ring RPC. The public
-dashboard reports protocol and service health.
+The public dashboard reports protocol and service health.
 
 **Devnet:**
 
 | Service    | URL                                                | Notes                                                                                     |
 | ---------- | -------------------------------------------------- | ----------------------------------------------------------------------------------------- |
 | Solana RPC | `https://devnet.helius-rpc.com/?api-key=<API_KEY>` | Helius key. Fund the payer with [devnet SOL](https://www.helius.dev/docs/rpc/devnet-sol). |
-| Indexer    | `https://d2xah7tnhdhcom.cloudfront.net`            | Fetches encrypted state.                                                                  |
-| Prover     | `https://d55y5ksdsm1vw.cloudfront.net`             | Generates ZK proofs in a Nitro Enclave the SDK attests and encrypts every request to.     |
-| Ring RPC   | `https://d24brah9h1i4q9.cloudfront.net`            | Releases and uses custom-ring auditor keys.                                               |
+| Indexer    | `https://d21d98xh5lgv3b.cloudfront.net`            | Fetches encrypted state.                                                                  |
+| Prover     | `https://d1unet9hn0mci0.cloudfront.net`            | Generates ZK proofs in a Nitro Enclave the SDK attests and encrypts every request to.     |
 | Dashboard  | `https://djq45ljnl16bl.cloudfront.net`             | Shows public protocol and service health.                                                 |
 
 ```ts
 const client = await createZolanaClient({
   solanaRpcUrl: `https://devnet.helius-rpc.com/?api-key=${process.env.API_KEY!}`,
-  indexerUrl: "https://d2xah7tnhdhcom.cloudfront.net",
-  proverUrl: "https://d55y5ksdsm1vw.cloudfront.net",
+  indexerUrl: "https://d21d98xh5lgv3b.cloudfront.net",
+  proverUrl: "https://d1unet9hn0mci0.cloudfront.net",
 });
 ```
 
@@ -162,6 +164,12 @@ Every remote prover must attest to `defaultTeePolicy()` before it receives a
 witness, and `proverTee` names another policy. A new prover image or key fails
 attestation until the client takes the new pins from an SDK release or a
 reviewed policy, never from the prover's own answer.
+
+The SDK's default policy pins the indexed `devnet-d-tee-3` enclave measurements and
+attested HPKE public key. No `proverTee` policy override is needed for these
+endpoints. See the [TEE deployment pin](../../prover/tee/README.md#building-on-it)
+for the measured build and verified policy source. Attestation, certificate,
+nonce, freshness and HPKE-key verification remain required.
 
 On localnet, start the stack first with `zolana dev start`. The local test
 validator (`:8899`), Photon indexer (`:8784`), and prover (`:3001`) then
@@ -172,13 +180,12 @@ endpoint configuration.
 const client = await createZolanaClient({});
 ```
 
-The default Nitro deployment and the Helius gateway take client-fetched proof
-data. Other provers fetch Merkle data by default. Configure their `PROVER_INDEXER_URL`
-for the same network. Set `proofDataSource: "client"` to fetch proof data in
+The Helius gateway takes client-fetched proof data. Other provers, including
+the default Nitro deployment, fetch Merkle data by default. Configure their
+`PROVER_INDEXER_URL` for the same network. Set `proofDataSource: "client"` to fetch proof data in
 the SDK instead. Both routes support ring transfers, merges and caches.
 `LocalKeys` supports both modes. A remote key holder must implement
-`IndexedProofAuthority.proveIndexed` for prover fetching. Policy proofs also
-fetch list paths and escrow memberships through the prover. Returned roots
+`IndexedProofAuthority.proveIndexed` for prover fetching. Returned roots
 must reproduce the requested public statement before transaction assembly. A
 prover started without an indexer refuses these requests with
 `CLIENT_PROVER_INDEXER_UNCONFIGURED`.
@@ -397,86 +404,6 @@ give each live wallet its own stored snapshot. Snapshots saved before cursors
 were serialized still load, the first sync rescans history once and then
 saves the current format.
 
-## Custom Rings
-
-Besides the permissionless default Ring, regulated entities can create custom Rings.
-Custom Rings are simple Solana programs for compliance and policy control. Each Ring deploys its own program. It has a program
-upgrade authority, a protocol authority, and an auditor key. The default Ring does not have an auditor key.
-
-The auditor key lives in a Ring RPC. The Ring authority grants view access.
-Helius can host that RPC; the authority can host it itself. The forester is
-shared with the default Ring.
-
-Rings support confidential transactions only. Anonymous transfers that
-would use a relayer are not supported. A Ring is audit-only or carries a
-policy, a rule table over lists of members whose addresses the Ring claims in
-its address tree. The tier is fixed when the Ring config is created.
-
-Set a Ring up in this order.
-
-1. `deployRingProgram` deploys or upgrades the Ring program from a
-   `RingProgramBinary` and returns once the program is usable,
-   `verifyRingProgram` checks the deployed bytes.
-2. `createRingConfigInstruction` stores the auditor key and the tier.
-3. A policy Ring pins its rule table with `buildRingCreatePolicyTransaction`
-   over its address tree.
-4. `initSppRingConfigInstruction` registers the Ring with the pool, a policy
-   Ring only after its policy exists.
-5. On a permissioned pool the governance authority activates the Ring with
-   `getSetRingActivationInstructionAsync` from `@heliuslabs/zolana/instructions`.
-6. `buildRingListWriteTransaction` fills the lists and
-   `grantReadAccessInstruction` admits readers.
-
-Build exact Ring entries, in-ring transfers, shielded exits, and public
-withdrawals with `buildRingEntryTransaction`, `buildRingTransferTransaction`,
-`buildRingExitTransaction`, and `buildRingWithdrawalTransaction`. `RingRpc`
-reads decrypted Ring transactions for a granted reader. The same surface is
-available from `@heliuslabs/zolana/ring`.
-
-Connect to a hosted Ring RPC with its service base URL and your API key:
-
-```ts
-import { RingRpc } from "@heliuslabs/zolana/ring";
-
-const ringRpc = new RingRpc("https://gateway.example/v1/zolana/ring", {
-  apiKey: "YOUR_HELIUS_API_KEY",
-});
-const health = await ringRpc.health({ timeoutMs: 10_000 });
-```
-
-Use the gateway URL supplied by your operator. Pass the base URL once; calls
-append `/health`, `/ringStatus`, or the other method name. A URL containing
-`?api-key=...` also works, but supplying the key both ways is a
-`RING_RPC_CONFIG` error. Keys must be nonempty, well-formed Unicode without
-control characters and at most 4,096 UTF-16 code units. `ringRpc.url` omits
-the API key, and transport errors omit credentials and response bodies.
-
-For a local service, opt into HTTP explicitly:
-
-```ts
-const localRingRpc = new RingRpc("http://127.0.0.1:8785", {
-  allowInsecureHttp: true,
-});
-```
-
-Every call accepts a `RequestContext` with `signal` and `timeoutMs`. An API
-key grants gateway access; reading decrypted transactions still requires a
-granted reader's signature, and creating an auditor key requires the ring
-authority's signature. A proxy must forward method paths and preserve the
-JSON-RPC body; the server rejects a path/body mismatch with `-32601`.
-See [server operation](../../services/ring-rpc/README.md#operation) for the HTTP
-path and proxy requirements.
-
-A deploy that fails after its buffer exists names the buffer in the
-`RING_DEPLOY_PROGRAM` error details. Pass the same buffer keypair again to
-resume, or reclaim its rent with `closeBufferInstruction`.
-
-The deploy path is tested on Agave 4.0.2. The shipped Ring binaries are
-SBPF v0 and do not load on Agave 4.1.2.
-
-The live ring controls test is described in
-[test/e2e/RING-CONTROLS.md](test/e2e/RING-CONTROLS.md).
-
 ## Public API
 
 Common exports from `@heliuslabs/zolana` include:
@@ -490,15 +417,12 @@ Common exports from `@heliuslabs/zolana` include:
 - amounts: `fetchAssetMetadata`, `AssetMetadataCache`, `formatAmount`,
   `parseAmount`.
 - registration: `buildRegistrationTransaction`, `buildKeyUpdateTransaction`.
-- Rings: `buildRingEntryTransaction`, `buildRingTransferTransaction`,
-  `buildRingExitTransaction`, `buildRingWithdrawalTransaction`,
-  `listRegisteredRings`, `RingRpc`.
 
 Advanced protocol users can import low-level instruction builders from
 `@heliuslabs/zolana/instructions`. PDA helpers are available from
 `@heliuslabs/zolana/addresses`; additional typed surfaces are exposed under
-`@heliuslabs/zolana/client`, `/interface`, `/keypair`, `/ring`, `/transaction`,
-and `/wallet`.
+`@heliuslabs/zolana/client`, `/interface`, `/keypair`, `/transaction`, and
+`/wallet`.
 
 ## API reference
 
@@ -526,10 +450,8 @@ Pages URLs remain available as the backing origin.
 
 - Ed25519 is the supported owner scheme for registration and private
   transactions. `ShieldedKeypair.generate()` defaults to Ed25519.
-- Viewing and auditor keys use X25519. P-256-owned notes, registry records,
-  viewing keys and wallet snapshots are unsupported.
-- Passkey access to ring audit traces uses `P256ReaderKey` from
-  `@heliuslabs/zolana/ring`.
+- Viewing keys use X25519. P-256-owned notes, registry records, viewing keys
+  and wallet snapshots are unsupported.
 - Non-loopback indexer and prover URLs must use HTTPS.
 - Protect signer seeds and shielded key material. Encrypt serialized wallet
   state and avoid logging private balances, UTXOs, or keys.
