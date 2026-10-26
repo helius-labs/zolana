@@ -2,12 +2,12 @@ import type { Commitment, Signature } from "@solana/kit";
 import { wireDecoder } from "../interface/decode.js";
 import type { RequestContext } from "../interface/types.js";
 import { ClientError, isClientError, type ClientErrorCode } from "./error.js";
-import { runWithDeadline } from "./internal.js";
+import { runWithDeadline, sleep } from "./internal.js";
 import { runKitRpc } from "./kit.js";
 import type { KitRpcAccess, PrivateTransactionReader } from "./ports.js";
 import type { GetShieldedTransactionsBySignatureResponse } from "./rpc.js";
-import { isRetryable, pollUntil, type IndexerPollConfig } from "./retry.js";
-import { transactionErrorText } from "./transaction-error.js";
+import { backoff, isRetryable, type IndexerPollConfig } from "./retry.js";
+import { decodeTransactionError, UNRECOGNIZED_TRANSACTION_ERROR } from "./transaction-error.js";
 
 const DEFAULT_WAIT_TIMEOUT_MS = 60_000;
 const MAX_U64 = 0xffff_ffff_ffff_ffffn;
@@ -18,6 +18,11 @@ interface SignatureStatus {
   readonly commitment: Commitment | null;
   /** The transaction's error in Solana's JSON encoding, `null` when it succeeded. */
   readonly error: string | null;
+  /**
+   * `err` was present and not a known Solana variant. A confirmed status is
+   * still a chain failure; the response text is not retained.
+   */
+  readonly unrecognizedError: boolean;
 }
 
 export async function readSignatureStatus(
@@ -46,10 +51,13 @@ export async function readSignatureStatus(
     reached !== "finalized"
   )
     throw invalidResponse("getSignatureStatuses", "confirmationStatus");
+  if (!Object.hasOwn(status, "err")) throw invalidResponse("getSignatureStatuses", "err");
+  const transactionError = decodeTransactionError(status["err"]);
   return {
     slot: rpcU64(status["slot"], "getSignatureStatuses"),
     commitment: reached ?? null,
-    error: transactionErrorText(status["err"]),
+    error: transactionError.kind === "failed" ? transactionError.text : null,
+    unrecognizedError: transactionError.kind === "unrecognized",
   };
 }
 
@@ -111,6 +119,9 @@ export async function waitForPrivateTransaction(
   let indexed = false;
   let expiredAt: bigint | undefined;
   let causeCode: ClientErrorCode | undefined;
+  let chainFailure: ClientError | undefined;
+  // One ledger search after the blockhash expires is enough: it can no longer land.
+  let ledgerMiss = false;
   const unresolved = (): ClientError =>
     new ClientError(
       confirmed ? "CLIENT_TRANSACTION_NOT_INDEXED" : "CLIENT_TRANSACTION_OUTCOME_UNKNOWN",
@@ -126,40 +137,69 @@ export async function waitForPrivateTransaction(
     else round.cause ??= error.code;
   };
 
-  // Confirmation and the watermark are recorded as soon as they are read, so
-  // an indexer request still pending at the deadline cannot lose them.
+  // The recent cache is polled every round. The ledger is searched when that
+  // cache misses and the signature may already have left it.
   const chainRound = async (attemptContext: RequestContext): Promise<ChainRound> => {
     const round: ChainRound = { unseen: false };
     // A confirmed transaction neither fails nor expires later.
     if (confirmed) return round;
-    let status: SignatureStatus | null | undefined;
-    try {
-      status = await readSignatureStatus(client, signature, attemptContext, true);
-    } catch (error) {
-      failedLookup(error, round);
-    }
-    if (status === null) {
-      round.unseen = true;
-    } else if (status !== undefined && commitmentReached(status.commitment, "confirmed")) {
-      if (status.error !== null) {
-        throw transactionFailed(signature, status.error);
+
+    // `true` when this lookup decided the round. Absence is `false`.
+    const apply = (status: SignatureStatus | null): boolean => {
+      if (status === null) return false;
+      if (commitmentReached(status.commitment, "confirmed")) {
+        if (status.unrecognizedError || status.error !== null) {
+          chainFailure = transactionFailed(
+            signature,
+            status.error ?? UNRECOGNIZED_TRANSACTION_ERROR,
+          );
+          throw chainFailure;
+        }
+        confirmed = true;
       }
-      confirmed = true;
-    }
-    if (round.unseen && expiredAt === undefined && lastValidBlockHeight !== undefined) {
+      return true;
+    };
+    const read = async (history: boolean): Promise<SignatureStatus | null | undefined> => {
       try {
-        // Height and slot of one bank: a transaction with this blockhash
-        // landed before that slot or never will.
-        const bank = await readEpochInfo(client, attemptContext);
-        if (bank.blockHeight > lastValidBlockHeight) expiredAt = bank.absoluteSlot;
+        return await readSignatureStatus(client, signature, attemptContext, history);
       } catch (error) {
         failedLookup(error, round);
+        return undefined;
       }
+    };
+
+    const cached = await read(false);
+    if (cached === undefined || apply(cached)) return round;
+    if (ledgerMiss) {
+      round.unseen = true;
+      return round;
+    }
+    if (lastValidBlockHeight === undefined) {
+      const historic = await read(true);
+      if (historic !== undefined && !apply(historic)) round.unseen = true;
+      return round;
+    }
+    try {
+      // Height and slot of one bank: a transaction with this blockhash
+      // landed before that slot or never will.
+      const bank = await readEpochInfo(client, attemptContext);
+      if (bank.blockHeight <= lastValidBlockHeight) {
+        round.unseen = true;
+        return round;
+      }
+      if (expiredAt === undefined) expiredAt = bank.absoluteSlot;
+      const historic = await read(true);
+      if (historic !== undefined && !apply(historic)) {
+        round.unseen = true;
+        ledgerMiss = true;
+      }
+    } catch (error) {
+      failedLookup(error, round);
     }
     return round;
   };
 
-  let deadlineError: ClientError | undefined;
+  const schedule = [0n, ...backoff(poll)];
   try {
     await runWithDeadline(
       { ...context, timeoutMs: context?.timeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS },
@@ -173,54 +213,52 @@ export async function waitForPrivateTransaction(
               : AbortSignal.any([attemptContext.signal, controller.signal]),
         };
         try {
-          await pollUntil(
-            async () => {
-              if (waitContext.signal?.aborted) throw new ClientError("CLIENT_ABORTED");
-              const [chain, found] = await Promise.all([
-                // A confirmed failure rejects immediately, even if the indexer hangs.
-                chainRound(waitContext),
-                // This loop owns freshness. A nested requireSlot poll could consume its deadline.
-                client
-                  .getShieldedTransactionsBySignature(signature, { poll }, waitContext)
-                  .then((response) => {
-                    if (waitContext.signal?.aborted) throw new ClientError("CLIENT_ABORTED");
-                    if (
-                      response.transactions.some(
-                        (event) => event.transaction.txSignature !== signature,
-                      )
-                    ) {
-                      throw invalidResponse("getShieldedTransactionsBySignature", "transactions");
-                    }
-                    indexed = response.transactions.length > 0;
-                    return response;
-                  })
-                  .then(
-                    (response): IndexerAnswer => ({ response }),
-                    (error: unknown): IndexerAnswer => ({ error }),
-                  ),
-              ]);
-              if (waitContext.signal?.aborted) throw new ClientError("CLIENT_ABORTED");
-              causeCode = chain.cause;
-              if ("error" in found) {
-                const { error } = found;
-                if (!isClientError(error) || error.code === "CLIENT_ABORTED") throw error;
-                if (error.code === "CLIENT_INVALID_RPC_RESPONSE" || !isRetryable(error))
-                  throw error;
-                causeCode ??= error.code;
-              } else {
-                const { response } = found;
-                // Photon commits every private event of a transaction atomically.
-                if (indexed) return true;
-                if (chain.unseen && expiredAt !== undefined && response.context.slot >= expiredAt) {
-                  throw new ClientError("CLIENT_TRANSACTION_EXPIRED", { details: { signature } });
-                }
-              }
-              if (chain.unsupported !== undefined) throw chain.unsupported;
-              return false;
-            },
-            (indexed) => indexed,
-            { config: poll, context: waitContext, retryErrors: false, onTimeout: unresolved },
-          );
+          for (const delay of schedule) {
+            if (waitContext.signal?.aborted) throw new ClientError("CLIENT_ABORTED");
+            if (delay !== 0n) await sleep(delay, waitContext);
+            const [chain, found] = await Promise.all([
+              // A confirmed failure rejects immediately, even if the indexer hangs.
+              chainRound(waitContext),
+              // This loop owns freshness. A nested requireSlot poll could consume its deadline.
+              client
+                .getShieldedTransactionsBySignature(signature, { poll }, waitContext)
+                .then((response) => {
+                  if (waitContext.signal?.aborted) throw new ClientError("CLIENT_ABORTED");
+                  if (
+                    response.transactions.some(
+                      (event) => event.transaction.txSignature !== signature,
+                    )
+                  ) {
+                    throw invalidResponse("getShieldedTransactionsBySignature", "transactions");
+                  }
+                  indexed = response.transactions.length > 0;
+                  return response;
+                })
+                .then(
+                  (response): IndexerAnswer => ({ response }),
+                  (error: unknown): IndexerAnswer => ({ error }),
+                ),
+            ]);
+            // A finished round is evidence. Cancellation applies to the next one.
+            causeCode = chain.cause;
+            if ("error" in found) {
+              const { error } = found;
+              if (!isClientError(error) || error.code === "CLIENT_ABORTED") throw error;
+              if (error.code === "CLIENT_INVALID_RPC_RESPONSE" || !isRetryable(error)) throw error;
+              causeCode ??= error.code;
+            } else if (indexed) {
+              // Photon commits every private event of a transaction atomically.
+              return;
+            } else if (
+              chain.unseen &&
+              expiredAt !== undefined &&
+              found.response.context.slot >= expiredAt
+            ) {
+              throw new ClientError("CLIENT_TRANSACTION_EXPIRED", { details: { signature } });
+            }
+            if (chain.unsupported !== undefined) throw chain.unsupported;
+          }
+          throw unresolved();
         } finally {
           // Stop a pending sibling request when a definitive chain failure wins.
           controller.abort();
@@ -228,15 +266,22 @@ export async function waitForPrivateTransaction(
       },
       () => {
         causeCode = "CLIENT_TIMEOUT";
-        deadlineError = unresolved();
-        return deadlineError;
+        return unresolved();
       },
     );
   } catch (error) {
-    // Preserve positive evidence if only the RPC request remained pending.
-    // Identity limits this to our deadline, never caller cancellation or a
-    // confirmed chain failure received before it.
-    if (indexed && deadlineError !== undefined && error === deadlineError) return;
+    // A failure already read beats the deadline. Indexed success beats a
+    // deadline whose RPC request never answered. Caller cancellation does not.
+    if (chainFailure !== undefined) throw chainFailure;
+    if (
+      indexed &&
+      causeCode === "CLIENT_TIMEOUT" &&
+      isClientError(error) &&
+      (error.code === "CLIENT_TRANSACTION_NOT_INDEXED" ||
+        error.code === "CLIENT_TRANSACTION_OUTCOME_UNKNOWN")
+    ) {
+      return;
+    }
     throw error;
   }
 }

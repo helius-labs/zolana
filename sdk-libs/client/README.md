@@ -95,9 +95,11 @@ With a blocking RPC adapter, its underlying request may outlive
 the wait, so configure the adapter's own transport timeout too.
 
 The RPC and complete private-event indexer must serve the same network. Expiry
-is read at confirmed commitment from one `getEpochInfo` answer, and statuses
-are searched in the RPC's ledger as well as its recent cache, so a custom RPC
-adapter implements `get_signature_statuses_with_history` and `get_epoch_info`.
+is read at confirmed commitment from one `getEpochInfo` answer. Each round
+polls the recent status cache. The ledger is searched when that cache misses
+and either no expiry height was saved or the blockhash has expired, so a
+custom RPC adapter implements `get_signature_statuses`,
+`get_signature_statuses_with_history` and `get_epoch_info`.
 `Submission::send` and `MergeSubmission::send` broadcast once through
 `send_transaction_with_config` with confirmed preflight, then use that recovery
 wait instead of the adapter's combined send-and-confirm method.

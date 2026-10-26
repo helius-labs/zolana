@@ -5,7 +5,7 @@ use solana_rpc_client_api::config::RpcSendTransactionConfig;
 use solana_rpc_client_api::{client_error::ErrorKind, request::RpcError};
 use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
-use solana_transaction_status_client_types::TransactionConfirmationStatus;
+use solana_transaction_status_client_types::{TransactionConfirmationStatus, TransactionStatus};
 
 use crate::{
     error::ClientError,
@@ -191,6 +191,9 @@ async fn settle(
 ) -> Result<(), ClientError> {
     let (mut confirmed, mut expired_at, mut cause) = (false, None, None);
     let mut indexed = false;
+    // One ledger search after the blockhash expires is enough: the transaction
+    // can no longer land, so a miss will not become a hit.
+    let mut ledger_miss = false;
     let result = tokio::time::timeout(timeout, async {
         for delay in std::iter::once(Duration::ZERO).chain(poll.backoff()) {
             tokio::time::sleep(delay).await;
@@ -218,7 +221,8 @@ async fn settle(
                     signature,
                     last_valid_block_height,
                     &mut confirmed,
-                    &mut expired_at
+                    &mut expired_at,
+                    &mut ledger_miss,
                 ),
             );
             let (found, chain) = match round {
@@ -279,17 +283,19 @@ struct ChainRound {
     unsupported: Option<ClientError>,
 }
 
-/// Solana's half of a round: the signature's status, then, while the RPC does
-/// not know the signature, whether its blockhash expired. Confirmation and the
-/// expiry watermark are recorded as soon as they are read, so an indexer
-/// request still pending at the deadline cannot lose them. A confirmed failure
-/// is the error.
+/// Solana's half of a round. The recent status cache is polled every round.
+/// The ledger is searched only when that cache misses and the signature may
+/// already have left it: no expiry height was saved, or the blockhash has
+/// expired. Confirmation and the expiry watermark are recorded as soon as
+/// they are read, so an indexer request still pending at the deadline cannot
+/// lose them. A confirmed failure is the error.
 async fn chain_round(
     rpc: &impl AsyncRpc,
     signature: Signature,
     last_valid_block_height: Option<u64>,
     confirmed: &mut bool,
     expired_at: &mut Option<u64>,
+    ledger_miss: &mut bool,
 ) -> Result<ChainRound, ClientError> {
     let mut round = ChainRound::default();
     // A confirmed transaction neither fails nor expires later, so its status
@@ -297,12 +303,67 @@ async fn chain_round(
     if *confirmed {
         return Ok(round);
     }
-    match rpc
-        .get_signature_statuses_with_history(vec![signature])
-        .await
-    {
+    if apply_status(
+        &mut round,
+        confirmed,
+        rpc.get_signature_statuses(vec![signature]).await,
+    )? {
+        return Ok(round);
+    }
+    // The cache does not hold it. Before the blockhash expires that is enough:
+    // a transaction still able to land is in the recent cache once it does.
+    if *ledger_miss {
+        round.unseen = true;
+        return Ok(round);
+    }
+    match last_valid_block_height {
+        None => {
+            if !apply_status(
+                &mut round,
+                confirmed,
+                rpc.get_signature_statuses_with_history(vec![signature])
+                    .await,
+            )? {
+                round.unseen = true;
+            }
+        }
+        Some(height) => match rpc.get_epoch_info().await {
+            Ok(info) if info.block_height > height => {
+                // Height and slot of one bank: a transaction with this
+                // blockhash landed before that slot or never will.
+                if expired_at.is_none() {
+                    *expired_at = Some(info.absolute_slot);
+                }
+                if !apply_status(
+                    &mut round,
+                    confirmed,
+                    rpc.get_signature_statuses_with_history(vec![signature])
+                        .await,
+                )? {
+                    round.unseen = true;
+                    *ledger_miss = true;
+                }
+            }
+            Ok(_) => round.unseen = true,
+            Err(error @ ClientError::UnsupportedRpcMethod(_)) => round.unsupported = Some(error),
+            Err(_) => round.cause = Some("Solana blockhash expiry lookup failed"),
+        },
+    }
+    Ok(round)
+}
+
+/// Applies one status lookup. `Ok(true)` means the lookup decided the round
+/// (the signature is present, or the lookup itself failed). `Ok(false)` means
+/// the signature is absent from that view.
+fn apply_status(
+    round: &mut ChainRound,
+    confirmed: &mut bool,
+    statuses: Result<Vec<Option<TransactionStatus>>, ClientError>,
+) -> Result<bool, ClientError> {
+    match statuses {
         Ok(statuses) if statuses.len() != 1 => {
             round.cause = Some("invalid signature status response");
+            Ok(true)
         }
         Ok(statuses) => match statuses.into_iter().next().flatten() {
             Some(status)
@@ -315,33 +376,29 @@ async fn chain_round(
                 ) =>
             {
                 match status.err {
-                    Some(failure) => {
-                        return Err(ClientError::SolanaRpcTransaction {
-                            operation: "process_transaction",
-                            source: failure.into(),
-                        })
+                    Some(failure) => Err(ClientError::SolanaRpcTransaction {
+                        operation: "process_transaction",
+                        source: failure.into(),
+                    }),
+                    None => {
+                        *confirmed = true;
+                        Ok(true)
                     }
-                    None => *confirmed = true,
                 }
             }
             // A missing confirmationStatus is not proof of confirmation.
-            Some(_) => {}
-            None => round.unseen = true,
+            Some(_) => Ok(true),
+            None => Ok(false),
         },
-        Err(error @ ClientError::UnsupportedRpcMethod(_)) => round.unsupported = Some(error),
-        Err(_) => round.cause = Some("Solana signature status lookup failed"),
-    }
-    if let (true, None, Some(height)) = (round.unseen, *expired_at, last_valid_block_height) {
-        // Height and slot of one bank: a transaction with this blockhash
-        // landed before that slot or never will.
-        match rpc.get_epoch_info().await {
-            Ok(info) if info.block_height > height => *expired_at = Some(info.absolute_slot),
-            Ok(_) => {}
-            Err(error @ ClientError::UnsupportedRpcMethod(_)) => round.unsupported = Some(error),
-            Err(_) => round.cause = Some("Solana blockhash expiry lookup failed"),
+        Err(error @ ClientError::UnsupportedRpcMethod(_)) => {
+            round.unsupported = Some(error);
+            Ok(true)
+        }
+        Err(_) => {
+            round.cause = Some("Solana signature status lookup failed");
+            Ok(true)
         }
     }
-    Ok(round)
 }
 
 #[cfg(test)]
@@ -369,6 +426,7 @@ mod tests {
         indexed: bool,
         indexer_slot: u64,
         lookups: Mutex<u32>,
+        history: Mutex<u32>,
     }
 
     impl Chain {
@@ -379,6 +437,7 @@ mod tests {
                 indexed: false,
                 indexer_slot: 100,
                 lookups: Mutex::new(0),
+                history: Mutex::new(0),
             }
         }
     }
@@ -410,11 +469,19 @@ mod tests {
             Ok(epoch_info(self.height, 100))
         }
 
-        async fn get_signature_statuses_with_history(
+        async fn get_signature_statuses(
             &self,
             _: Vec<Signature>,
         ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
             *self.lookups.lock().unwrap() += 1;
+            Ok(vec![self.status.clone()])
+        }
+
+        async fn get_signature_statuses_with_history(
+            &self,
+            _: Vec<Signature>,
+        ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
+            *self.history.lock().unwrap() += 1;
             Ok(vec![self.status.clone()])
         }
 
@@ -499,6 +566,8 @@ mod tests {
             settled(&expired, Some(100)).await,
             Err(ClientError::TransactionExpired { .. })
         ));
+        assert_eq!(*expired.lookups.lock().unwrap(), 1);
+        assert_eq!(*expired.history.lock().unwrap(), 1);
 
         let behind = Chain {
             indexer_slot: 99,
@@ -508,6 +577,8 @@ mod tests {
             settled(&behind, Some(100)).await,
             Err(ClientError::TransactionOutcomeUnknown { .. })
         ));
+        assert_eq!(*behind.history.lock().unwrap(), 1);
+        assert_eq!(*behind.lookups.lock().unwrap(), QUICK.num_retries + 1);
     }
 
     /// A transaction Solana confirmed that the indexer never records, such as
@@ -531,6 +602,7 @@ mod tests {
             Err(ClientError::TransactionOutcomeUnknown { .. })
         ));
         assert_eq!(*frozen.lookups.lock().unwrap(), QUICK.num_retries + 1);
+        assert_eq!(*frozen.history.lock().unwrap(), 0);
     }
 
     #[tokio::test(start_paused = true)]
@@ -587,12 +659,12 @@ mod tests {
         struct FailingChain(Chain);
         #[async_trait]
         impl AsyncRpc for FailingChain {
-            async fn get_signature_statuses_with_history(
+            async fn get_signature_statuses(
                 &self,
                 signatures: Vec<Signature>,
             ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
                 tokio::task::yield_now().await;
-                self.0.get_signature_statuses_with_history(signatures).await
+                self.0.get_signature_statuses(signatures).await
             }
         }
 
@@ -677,13 +749,11 @@ mod tests {
                 *self.sent.lock().unwrap() += 1;
                 Ok(transaction.signatures[0])
             }
-            async fn get_signature_statuses_with_history(
+            async fn get_signature_statuses(
                 &self,
                 signatures: Vec<Signature>,
             ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
-                self.chain
-                    .get_signature_statuses_with_history(signatures)
-                    .await
+                self.chain.get_signature_statuses(signatures).await
             }
             async fn get_epoch_info(&self) -> Result<EpochInfo, ClientError> {
                 self.chain.get_epoch_info().await
@@ -794,13 +864,11 @@ mod tests {
             Err((self.failure)())
         }
 
-        async fn get_signature_statuses_with_history(
+        async fn get_signature_statuses(
             &self,
             signatures: Vec<Signature>,
         ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
-            self.chain
-                .get_signature_statuses_with_history(signatures)
-                .await
+            self.chain.get_signature_statuses(signatures).await
         }
     }
 
@@ -980,19 +1048,8 @@ mod tests {
         fn status_round(&self) -> &RecoveryRound {
             &self.rounds[self.status_reads.lock().unwrap().saturating_sub(1)]
         }
-    }
 
-    #[async_trait]
-    impl AsyncRpc for ScriptedChain {
-        fn should_retry(&self, _: &ClientError) -> bool {
-            true
-        }
-
-        async fn get_signature_statuses_with_history(
-            &self,
-            _: Vec<Signature>,
-        ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
-            *self.status_reads.lock().unwrap() += 1;
+        fn signature_status(&self) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
             let round = self.status_round();
             match round.status.as_str() {
                 "absent" => Ok(vec![None]),
@@ -1013,6 +1070,29 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[async_trait]
+    impl AsyncRpc for ScriptedChain {
+        fn should_retry(&self, _: &ClientError) -> bool {
+            true
+        }
+
+        async fn get_signature_statuses(
+            &self,
+            _: Vec<Signature>,
+        ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
+            *self.status_reads.lock().unwrap() += 1;
+            self.signature_status()
+        }
+
+        async fn get_signature_statuses_with_history(
+            &self,
+            _: Vec<Signature>,
+        ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
+            self.signature_status()
+        }
+
         async fn get_epoch_info(&self) -> Result<EpochInfo, ClientError> {
             let round = self.status_round();
             Ok(epoch_info(round.height, round.slot))
@@ -1086,7 +1166,7 @@ mod tests {
         struct HungRpc;
         #[async_trait]
         impl AsyncRpc for HungRpc {
-            async fn get_signature_statuses_with_history(
+            async fn get_signature_statuses(
                 &self,
                 _: Vec<Signature>,
             ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
@@ -1116,7 +1196,7 @@ mod tests {
         struct HungRpc;
         #[async_trait]
         impl AsyncRpc for HungRpc {
-            async fn get_signature_statuses_with_history(
+            async fn get_signature_statuses(
                 &self,
                 _: Vec<Signature>,
             ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
@@ -1206,7 +1286,7 @@ mod tests {
         assert_eq!(*chain.lookups.lock().unwrap(), 1);
     }
 
-    /// An RPC adapter without the history lookup fails loudly, but only once
+    /// An RPC adapter without the status cache fails loudly, but only once
     /// the indexer of the same round could not prove success.
     #[tokio::test(start_paused = true)]
     async fn an_rpc_without_the_status_lookup_is_returned_as_itself() {
@@ -1230,9 +1310,7 @@ mod tests {
         assert!(
             matches!(
                 result,
-                Err(ClientError::UnsupportedRpcMethod(
-                    "get_signature_statuses_with_history"
-                ))
+                Err(ClientError::UnsupportedRpcMethod("get_signature_statuses"))
             ),
             "{result:?}"
         );
@@ -1260,7 +1338,7 @@ mod tests {
         struct Down;
         #[async_trait]
         impl AsyncRpc for Down {
-            async fn get_signature_statuses_with_history(
+            async fn get_signature_statuses(
                 &self,
                 _: Vec<Signature>,
             ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {

@@ -54,7 +54,17 @@ function harness(
     methods.push(method);
     requests.push({ method, params: request["params"] });
     if (init?.signal) signals.set(method, init.signal);
-    if (method === "getSignatureStatuses") statusReads++;
+    if (method === "getSignatureStatuses") {
+      const params = Array.isArray(request["params"]) ? request["params"] : [];
+      const config = params[1];
+      const history =
+        typeof config === "object" &&
+        config !== null &&
+        "searchTransactionHistory" in config &&
+        config.searchTransactionHistory === true;
+      // A ledger search belongs to the cache read that preceded it.
+      if (!history) statusReads++;
+    }
     if (method === "getShieldedTransactionsBySignature") {
       indexerReads++;
       indexerAsked();
@@ -223,8 +233,16 @@ describe("private confirmation and recovery", () => {
     );
     expect(fixture.requests).toContainEqual({
       method: "getSignatureStatuses",
-      params: [[SIGNATURE], { searchTransactionHistory: true }],
+      params: [[SIGNATURE]],
     });
+    expect(
+      fixture.requests.filter(
+        (request) =>
+          request.method === "getSignatureStatuses" &&
+          JSON.stringify(request.params) ===
+            JSON.stringify([[SIGNATURE], { searchTransactionHistory: true }]),
+      ),
+    ).toHaveLength(1);
     expect(fixture.requests).toContainEqual({
       method: "getEpochInfo",
       params: [{ commitment: "confirmed" }],
@@ -239,7 +257,27 @@ describe("private confirmation and recovery", () => {
     expect(sorted(fixture.methods)).toEqual([
       "getShieldedTransactionsBySignature",
       "getSignatureStatuses",
+      "getSignatureStatuses",
     ]);
+    expect(fixture.requests).toContainEqual({
+      method: "getSignatureStatuses",
+      params: [[SIGNATURE], { searchTransactionHistory: true }],
+    });
+  });
+
+  it("does not search the ledger before the blockhash expires", async () => {
+    const fixture = harness([{ ...DEFAULT_ROUND, height: 100 }]);
+    await expect(outcome(fixture.client.waitForPrivateTransaction(SIGNATURE, 100n))).resolves.toBe(
+      "unknown",
+    );
+    expect(fixture.requests).toContainEqual({
+      method: "getSignatureStatuses",
+      params: [[SIGNATURE]],
+    });
+    expect(fixture.requests).not.toContainEqual({
+      method: "getSignatureStatuses",
+      params: [[SIGNATURE], { searchTransactionHistory: true }],
+    });
   });
 
   it("asks Solana and the indexer in the same round", async () => {
@@ -278,13 +316,21 @@ describe("private confirmation and recovery", () => {
     expect(isRetryable(error)).toBe(false);
   });
 
-  it("never carries free text from a transaction error", async () => {
-    const fixture = harness([{ ...DEFAULT_ROUND, status: "confirmed", failed: true }], {
-      transactionError: "secret text with spaces",
-    });
-    await expect(outcome(fixture.client.waitForPrivateTransaction(SIGNATURE, 100n))).resolves.toBe(
-      "unknown",
+  it("reports an unrecognized confirmed failure without its response text", async () => {
+    const fixture = harness(
+      [{ ...DEFAULT_ROUND, status: "confirmed", failed: true, indexed: true }],
+      {
+        transactionError: "secret text with spaces",
+      },
     );
+    const error = await rejection(fixture.client.waitForPrivateTransaction(SIGNATURE, 100n));
+    expect(error).toMatchObject({
+      code: "CLIENT_TRANSACTION_FAILED",
+      details: { signature: SIGNATURE, transactionError: "Unrecognized" },
+    });
+    expect(JSON.stringify(error)).not.toContain("secret");
+    expect(isRetryable(error)).toBe(false);
+    expect(fixture.methods).not.toContain("getEpochInfo");
   });
 
   it.each(transactionErrors)(
@@ -344,10 +390,12 @@ describe("private confirmation and recovery", () => {
     });
     expect(JSON.stringify(error)).not.toContain("SecretToken123");
     expect(fixture.methods).toEqual(["getSignatureStatuses"]);
-    await expect(fixture.client.waitForPrivateTransaction(SIGNATURE, 100n)).rejects.toMatchObject({
-      code: "CLIENT_TRANSACTION_OUTCOME_UNKNOWN",
-      details: { causeCode: "CLIENT_INVALID_RPC_RESPONSE" },
+    const waited = await rejection(fixture.client.waitForPrivateTransaction(SIGNATURE, 100n));
+    expect(waited).toMatchObject({
+      code: "CLIENT_TRANSACTION_FAILED",
+      details: { signature: SIGNATURE, transactionError: "Unrecognized" },
     });
+    expect(JSON.stringify(waited)).not.toContain("SecretToken123");
     expect(fixture.methods).not.toContain("sendTransaction");
     expect(fixture.methods).not.toContain("getEpochInfo");
   });

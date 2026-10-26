@@ -29,7 +29,7 @@ import {
   type ComposedSignal,
 } from "../services/signal.js";
 import { TransportFailure, checkedEndpoint } from "../services/transport.js";
-import { ClientError, hasherError } from "./error.js";
+import { ClientError, hasherError, isClientError } from "./error.js";
 
 /** The client's own tree id keeps its configured address, any other id is the pool's tree PDA. */
 export function inputTreeAddress(client: TreeContext, treeId: number): Address {
@@ -287,7 +287,8 @@ export function composeSignal(context: RequestContext | undefined, method: strin
 
 /**
  * Bounds the whole operation, even if an adapter ignores its abort signal.
- * `onTimeout` builds the error for this deadline only: a timeout that a
+ * `onTimeout` runs once, for this deadline only. A result `run` already
+ * produced stands, including a confirmed chain failure. A timeout that a
  * request inside `run` raised on its own timer passes through unchanged.
  */
 export async function runWithDeadline<T>(
@@ -297,17 +298,30 @@ export async function runWithDeadline<T>(
   onTimeout?: () => ClientError,
 ): Promise<T> {
   const operation = composeSignal(context, method);
-  const ended = (): ClientError =>
-    operation.timedOut() && onTimeout !== undefined ? onTimeout() : requestError(method, operation);
+  let deadlineError: ClientError | undefined;
+  const deadline = (): ClientError => {
+    deadlineError ??=
+      operation.timedOut() && onTimeout !== undefined
+        ? onTimeout()
+        : requestError(method, operation);
+    return deadlineError;
+  };
   let abort: () => void = () => {};
   const aborted = new Promise<never>((_resolve, reject) => {
-    abort = () => reject(ended());
+    abort = () => reject(deadline());
   });
   operation.signal.addEventListener("abort", abort, { once: true });
   try {
     return await Promise.race([run({ signal: operation.signal }), aborted]);
   } catch (cause) {
-    if (operation.signal.aborted) throw ended();
+    if (cause === deadlineError) throw cause;
+    if (
+      operation.timedOut() &&
+      isClientError(cause) &&
+      (cause.code === "CLIENT_ABORTED" || cause.code === "CLIENT_TIMEOUT")
+    ) {
+      throw deadline();
+    }
     throw cause;
   } finally {
     operation.signal.removeEventListener("abort", abort);

@@ -102,6 +102,31 @@ const invalid = (): ClientError =>
   });
 const decode = wireDecoder(invalid);
 
+/**
+ * A confirmed failure whose `err` is not a known Solana variant. The token is
+ * not a chain variant and carries none of the response.
+ */
+export const UNRECOGNIZED_TRANSACTION_ERROR = "Unrecognized";
+
+export type DecodedTransactionError =
+  | Readonly<{ kind: "success" }>
+  | Readonly<{ kind: "failed"; text: string }>
+  | Readonly<{ kind: "unrecognized" }>;
+
+/** `null` is success. Any other value that is not a known variant is unrecognized, not echoed. */
+export function decodeTransactionError(error: unknown): DecodedTransactionError {
+  if (error === null) return { kind: "success" };
+  try {
+    const text = transactionErrorText(error);
+    return text === null ? { kind: "success" } : { kind: "failed", text };
+  } catch (cause) {
+    if (cause instanceof ClientError && cause.code === "CLIENT_INVALID_RPC_RESPONSE") {
+      return { kind: "unrecognized" };
+    }
+    throw cause;
+  }
+}
+
 /** Validate the closed wire enum and serialize only decoded variants and bounded integers. */
 export function transactionErrorText(error: unknown): string | null {
   if (error === null) return null;

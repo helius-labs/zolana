@@ -875,7 +875,7 @@ impl Rpc for MockSubmitRpc {
         Ok(self.signature)
     }
 
-    fn get_signature_statuses_with_history(
+    fn get_signature_statuses(
         &self,
         signatures: Vec<Signature>,
     ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
@@ -893,6 +893,13 @@ impl Rpc for MockSubmitRpc {
             .collect())
     }
 
+    fn get_signature_statuses_with_history(
+        &self,
+        signatures: Vec<Signature>,
+    ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
+        Rpc::get_signature_statuses(self, signatures)
+    }
+
     fn confirm_transaction(&self, _signature: Signature) -> Result<bool, ClientError> {
         Ok(true)
     }
@@ -907,6 +914,13 @@ impl Rpc for MockSubmitRpc {
 
 #[async_trait]
 impl AsyncRpc for MockSubmitRpc {
+    async fn get_signature_statuses(
+        &self,
+        signatures: Vec<Signature>,
+    ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
+        Rpc::get_signature_statuses(self, signatures)
+    }
+
     async fn get_signature_statuses_with_history(
         &self,
         signatures: Vec<Signature>,

@@ -19,11 +19,12 @@ Added
 Changed
 
 - `ZolanaClient.confirmPrivateTransaction` and `waitForPrivateTransaction` stop at the poll limit or an overall 60-second deadline, adjustable with `RequestContext.timeoutMs`, including hung requests.
+- `ZolanaClient.confirmPrivateTransaction` and `waitForPrivateTransaction` poll the recent status cache. The ledger search runs when that cache misses and either no expiry height was saved or the blockhash has expired.
 - `ClientErrorDetailsMap.CLIENT_INDEXER_TIMEOUT` and the `indexerTimeout` retry cause remain available for compatibility and are deprecated in favor of transaction-specific unresolved outcomes.
 
 Fixed
 
-- `ZolanaClient.confirmPrivateTransaction` and `waitForPrivateTransaction` report a confirmed chain failure immediately even when the indexer hangs, and transaction failures accept only known Solana error variants and bounded numeric fields without exposing response text.
+- `ZolanaClient.confirmPrivateTransaction` and `waitForPrivateTransaction` report a confirmed chain failure immediately even when the indexer hangs. A known Solana error is returned as its canonical encoding; a confirmed `err` that is not a known variant is `transactionError: "Unrecognized"`. Neither path echoes response text. `confirmTransaction` still rejects an undecodable `err` as `CLIENT_INVALID_RPC_RESPONSE`.
 - `ZolanaClient.confirmPrivateTransaction` and `waitForPrivateTransaction` retain indexed success at their deadline when the RPC lookup hangs, while caller cancellation still throws `CLIENT_ABORTED`.
 - `ZolanaClient.confirmTransaction` checks the requested commitment before reporting a chain failure, so a processed failure no longer ends a confirmed wait.
 - `ZolanaClient` now retries Photon internal JSON-RPC errors during polling while malformed responses still stop the wait.
