@@ -247,6 +247,11 @@ name = "transact_settlement"
 path = "tests/transact/settlement.rs"
 required-features = ["proofs"]
 
+[[test]]
+name = "anonymous_layout_e2e"
+path = "tests/transact/anonymous_layout_e2e.rs"
+required-features = ["proofs"]
+
 # --- Localnet / Photon (needs a running validator + indexer) ---
 
 [[test]]
