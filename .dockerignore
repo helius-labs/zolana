@@ -10,3 +10,5 @@ prover/server/proving-keys/
 prover/server/formal-verification/
 test-ledger/
 .env
+
+proving-keys/
