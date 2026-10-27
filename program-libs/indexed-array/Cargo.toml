@@ -16,6 +16,6 @@ num-traits = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
-spr-hasher = { workspace = true }
+spr-hasher = { path = "../hasher", default-features = false }
 rand = { workspace = true }
 num-bigint = { workspace = true, features = ["rand"] }

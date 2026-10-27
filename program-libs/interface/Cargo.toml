@@ -36,5 +36,5 @@ serde_json = { workspace = true }
 solana-address = { workspace = true }
 solana-message = { workspace = true }
 solana-rent = { workspace = true }
-spr-hasher = { workspace = true }
-spr-tree = { workspace = true }
+spr-hasher = { path = "../hasher", default-features = false }
+spr-tree = { path = "../tree" }

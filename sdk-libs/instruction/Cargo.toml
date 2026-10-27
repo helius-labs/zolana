@@ -35,7 +35,7 @@ spr-tree = { workspace = true }
 borsh = { workspace = true }
 bytemuck = { workspace = true }
 serde_json = { workspace = true }
-spr-account-checks = { workspace = true, features = ["test-only"] }
+spr-account-checks = { path = "../../program-libs/account-checks", default-features = false, features = ["test-only"] }
 
 [lints.rust.unexpected_cfgs]
 level = "allow"

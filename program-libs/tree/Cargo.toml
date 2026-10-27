@@ -37,9 +37,9 @@ light-program-profiler = { workspace = true, optional = true }
 [dev-dependencies]
 rand = { workspace = true }
 serde_json = { workspace = true }
-spr-merkle-tree = { workspace = true }
-spr-client = { workspace = true }
-spr-indexed-array = { workspace = true }
+spr-merkle-tree = { path = "../../sdk-libs/merkle-tree" }
+spr-client = { path = "../../sdk-libs/client" }
+spr-indexed-array = { path = "../indexed-array" }
 num-bigint = { workspace = true }
 num-traits = { workspace = true }
 ark-bn254 = { workspace = true }
