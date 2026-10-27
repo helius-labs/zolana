@@ -4859,17 +4859,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "light-poseidon"
-version = "0.5.0"
-source = "git+https://github.com/Lightprotocol/light-poseidon?rev=08e037e20910e86aa62641217643540d1f902443#08e037e20910e86aa62641217643540d1f902443"
-dependencies = [
- "ark-bn254 0.6.0",
- "ark-ff 0.6.0",
- "num-bigint 0.4.8",
- "thiserror 1.0.69",
-]
-
-[[package]]
 name = "light-profiler-macro"
 version = "0.1.1"
 source = "git+https://github.com/Lightprotocol/light-program-profiler?rev=db49f3c801996a80e1cb7e4e92b13a694e962b65#db49f3c801996a80e1cb7e4e92b13a694e962b65"
@@ -5771,7 +5760,7 @@ dependencies = [
  "itertools 0.15.0",
  "jsonrpsee",
  "jsonwebtoken",
- "light-poseidon 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "light-poseidon 0.5.0",
  "log",
  "num-bigint 0.4.8",
  "once_cell",
@@ -10384,7 +10373,7 @@ dependencies = [
  "ark-bn254 0.6.0",
  "ark-ff 0.6.0",
  "hex",
- "light-poseidon 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "light-poseidon 0.5.0",
  "num-bigint 0.4.8",
  "rand 0.8.8",
  "serde",
@@ -10789,7 +10778,7 @@ dependencies = [
 [[package]]
 name = "spr-zk-dsl"
 version = "0.1.0"
-source = "git+https://github.com/helius-labs/zk-tools?rev=e48c98ec9ea45f8f92a78b63e5db12adf7fe1379#e48c98ec9ea45f8f92a78b63e5db12adf7fe1379"
+source = "git+https://github.com/helius-labs/zk-tools?rev=66155f0b98974c7c9b814519abaec6a6234ceb34#66155f0b98974c7c9b814519abaec6a6234ceb34"
 dependencies = [
  "ark-bn254 0.6.0",
  "ark-ec 0.6.0",
@@ -10826,19 +10815,19 @@ dependencies = [
 [[package]]
 name = "spr-zk-gadgets"
 version = "0.1.0"
-source = "git+https://github.com/helius-labs/zk-tools?rev=e48c98ec9ea45f8f92a78b63e5db12adf7fe1379#e48c98ec9ea45f8f92a78b63e5db12adf7fe1379"
+source = "git+https://github.com/helius-labs/zk-tools?rev=66155f0b98974c7c9b814519abaec6a6234ceb34#66155f0b98974c7c9b814519abaec6a6234ceb34"
 dependencies = [
  "ark-bn254 0.6.0",
  "ark-ff 0.6.0",
  "ark-r1cs-std",
- "light-poseidon 0.5.0 (git+https://github.com/Lightprotocol/light-poseidon?rev=08e037e20910e86aa62641217643540d1f902443)",
+ "light-poseidon 0.5.0",
  "spr-zk-dsl",
 ]
 
 [[package]]
 name = "spr-zk-macros"
 version = "0.1.0"
-source = "git+https://github.com/helius-labs/zk-tools?rev=e48c98ec9ea45f8f92a78b63e5db12adf7fe1379#e48c98ec9ea45f8f92a78b63e5db12adf7fe1379"
+source = "git+https://github.com/helius-labs/zk-tools?rev=66155f0b98974c7c9b814519abaec6a6234ceb34#66155f0b98974c7c9b814519abaec6a6234ceb34"
 dependencies = [
  "proc-macro2",
  "spr-zk-macros-core",
@@ -10848,7 +10837,7 @@ dependencies = [
 [[package]]
 name = "spr-zk-macros-core"
 version = "0.1.0"
-source = "git+https://github.com/helius-labs/zk-tools?rev=e48c98ec9ea45f8f92a78b63e5db12adf7fe1379#e48c98ec9ea45f8f92a78b63e5db12adf7fe1379"
+source = "git+https://github.com/helius-labs/zk-tools?rev=66155f0b98974c7c9b814519abaec6a6234ceb34#66155f0b98974c7c9b814519abaec6a6234ceb34"
 dependencies = [
  "proc-macro2",
  "quote",

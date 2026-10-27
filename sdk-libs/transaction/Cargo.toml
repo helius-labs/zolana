@@ -47,7 +47,7 @@ hex = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 # Pins the client address derivation to the on-chain `NewAddress::derive`.
-spr-program = { workspace = true, features = ["compression"] }
+spr-program = { path = "../program", features = ["compression"] }
 
 [[test]]
 name = "behavior"
