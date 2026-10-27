@@ -14,9 +14,9 @@ use timelock_escrow_program::{
     instructions::escrow::slot,
 };
 use zolana_hasher::primitives::solana_owner_identity;
-use zolana_program::{
-    DataUtxo, Groth16Prover, ProgramOwner, TxContext, UtxoOwner, ZkProgramCircuit,
-};
+use zolana_keypair::random_blinding;
+use zolana_program::{from_bytes, proof::compressed_proof, DataUtxo, InputRecords, ProgramOwner};
+use zolana_program_test::workspace_path;
 use zolana_transaction::{decrypt_spendable, AssetRegistry, WalletUtxo, SOL_MINT};
 
 #[test]
@@ -29,9 +29,9 @@ fn escrow_then_withdraw() -> Result<()> {
     let address = creator.shielded_address()?;
     let payer = creator.pubkey();
     let authority = escrow_authority(&payer);
-    let creator_identity = solana_owner_identity(payer.as_array())?;
+    let creator_identity = from_bytes(&solana_owner_identity(payer.as_array())?)?;
     let assets = AssetRegistry::default();
-    let tx_context = || TxContext::new().with_output_tree_id(Some(localnet.tree_id));
+    let tx_context = || InputRecords::context(&random_blinding(), Some(localnet.tree_id));
     let shielded = DEPOSITS.iter().sum::<u64>();
 
     let transactions = creator_transactions(&localnet, &creator, deposit_slot)?;
@@ -42,22 +42,26 @@ fn escrow_then_withdraw() -> Result<()> {
     assert_eq!(balance.amount, shielded);
     assert_eq!(balance.utxos.len(), DEPOSITS.len());
 
+    let mut records = InputRecords::new();
+    let creator_owner = *records.address(&address)?.owner();
     let escrow = Escrow {
         private: EscrowPrivateInputs {
-            tx_context: tx_context(),
-            token_utxos_asset_a: balance.utxos.clone(),
+            tx_context: tx_context()?,
+            token_utxos_asset_a: records.utxos(&balance.utxos)?,
             unlock: UNLOCK_TIMESTAMP,
             amount: LOCK_AMOUNT,
         },
         public: EscrowPublicInputs {
-            escrow_owner: authority.address(address.viewing_pubkey)?,
+            escrow_owner: records.address(&authority.address(address.viewing_pubkey)?)?,
             creator_identity,
         },
     };
-    let transaction = escrow.create_program_transaction(&address, payer)?;
-    let proof = Groth16Prover::<Escrow>::new_with_test_setup()?
-        .prove_inputs(&transaction.proof_inputs)?
-        .compressed()?;
+    let transaction =
+        records.create_program_transaction(&escrow, escrow.execute()?, &address, payer)?;
+    let result =
+        xark::prover::circuit_at(workspace_path("target/zk/timelock-escrow-program/escrow"))
+            .prove(transaction.proof_inputs)?;
+    let proof = compressed_proof(&result.proof).map_err(anyhow::Error::msg)?;
     let spp_proof_inputs = transaction.finalized.encrypt_with_keys(&creator)?;
     let escrow_output = spp_proof_inputs
         .output_utxos
@@ -107,16 +111,18 @@ fn escrow_then_withdraw() -> Result<()> {
     assert_eq!(
         terms,
         EscrowTerms {
-            creator: UtxoOwner::try_from(&address)?,
+            creator: creator_owner,
             unlock: UNLOCK_TIMESTAMP,
         }
     );
 
     let unlock_timestamp = terms.unlock;
+    let mut records = InputRecords::new();
+    records.address(&address)?;
     let withdraw = Withdraw {
         private: WithdrawPrivateInputs {
-            tx_context: tx_context(),
-            escrow: escrow_utxo,
+            tx_context: tx_context()?,
+            escrow: records.utxo(&escrow_utxo)?,
             terms,
         },
         public: WithdrawPublicInputs {
@@ -124,10 +130,12 @@ fn escrow_then_withdraw() -> Result<()> {
             creator_identity,
         },
     };
-    let transaction = withdraw.create_program_transaction(&address, payer)?;
-    let proof = Groth16Prover::<Withdraw>::new_with_test_setup()?
-        .prove_inputs(&transaction.proof_inputs)?
-        .compressed()?;
+    let transaction =
+        records.create_program_transaction(&withdraw, withdraw.execute()?, &address, payer)?;
+    let result =
+        xark::prover::circuit_at(workspace_path("target/zk/timelock-escrow-program/withdraw"))
+            .prove(transaction.proof_inputs)?;
+    let proof = compressed_proof(&result.proof).map_err(anyhow::Error::msg)?;
     let spp_proof_inputs = transaction.finalized.encrypt_with_keys(&creator)?;
     let transact =
         localnet
