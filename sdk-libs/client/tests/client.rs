@@ -31,12 +31,12 @@ use spr_client::{
     },
     ClientError, ProofAuthority,
 };
-use spr_interface::{instruction::InterfaceTransfer, pda};
-use spr_keypair::ShieldedKeypair;
-use spr_program::instruction::{
+use spr_instruction::instruction::{
     Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
     TransactSplDepositAccounts,
 };
+use spr_interface::{instruction::InterfaceTransfer, pda};
+use spr_keypair::ShieldedKeypair;
 use spr_transaction::{
     instructions::transact::ConfidentialTransaction, utxo::SppProofInputUtxo, Data, Mint, Utxo,
     WalletUtxo,

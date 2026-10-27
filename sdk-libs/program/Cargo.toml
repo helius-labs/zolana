@@ -5,7 +5,7 @@ description = "SPP SDK for Solana programs: the spr-instruction builders and der
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-publish = ["crates-io"]
+publish = false
 
 [dependencies]
 ark-bn254 = { version = "0.6", optional = true }

@@ -2,11 +2,11 @@ use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use spr_client::Rpc;
+use spr_instruction::instruction::CreateTree;
 use spr_interface::{
     pda,
     state::{state_root_offset, ProtocolConfig},
 };
-use spr_program::instruction::CreateTree;
 use spr_tree::{NullifierTreeInitParams, TreeFeeSchedule};
 
 use crate::ProgramTestError;

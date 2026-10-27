@@ -1419,7 +1419,7 @@ dependencies = [
  "bitflags 2.13.1",
  "cexpr",
  "clang-sys",
- "itertools 0.13.0",
+ "itertools 0.10.5",
  "log",
  "prettyplease",
  "proc-macro2",
@@ -4849,6 +4849,18 @@ dependencies = [
 [[package]]
 name = "light-poseidon"
 version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1a8988878057561648d6ff78522edf4fc0b43b75ca88d0f4da33c052880d6abf"
+dependencies = [
+ "ark-bn254 0.6.0",
+ "ark-ff 0.6.0",
+ "num-bigint 0.4.8",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "light-poseidon"
+version = "0.5.0"
 source = "git+https://github.com/Lightprotocol/light-poseidon?rev=08e037e20910e86aa62641217643540d1f902443#08e037e20910e86aa62641217643540d1f902443"
 dependencies = [
  "ark-bn254 0.6.0",
@@ -5740,7 +5752,7 @@ name = "photon-indexer"
 version = "0.51.2"
 dependencies = [
  "anyhow",
- "ark-bn254 0.5.0",
+ "ark-bn254 0.6.0",
  "async-stream",
  "async-trait",
  "base64 0.22.1",
@@ -5759,7 +5771,7 @@ dependencies = [
  "itertools 0.15.0",
  "jsonrpsee",
  "jsonwebtoken",
- "light-poseidon 0.4.0",
+ "light-poseidon 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "log",
  "num-bigint 0.4.8",
  "once_cell",
@@ -7695,8 +7707,8 @@ dependencies = [
 name = "shielded-pool-program"
 version = "0.1.0"
 dependencies = [
- "ark-bn254 0.5.0",
- "ark-ff 0.5.0",
+ "ark-bn254 0.6.0",
+ "ark-ff 0.6.0",
  "arrayvec",
  "bincode 2.0.1",
  "borsh",
@@ -10315,10 +10327,10 @@ dependencies = [
  "spr-event-parser",
  "spr-hasher",
  "spr-indexer-api",
+ "spr-instruction",
  "spr-interface",
  "spr-keypair",
  "spr-merkle-tree",
- "spr-program",
  "spr-prover-tee",
  "spr-transaction",
  "spr-tree",
@@ -10367,12 +10379,12 @@ version = "0.1.0"
 
 [[package]]
 name = "spr-hasher"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
- "ark-bn254 0.5.0",
- "ark-ff 0.5.0",
+ "ark-bn254 0.6.0",
+ "ark-ff 0.6.0",
  "hex",
- "light-poseidon 0.4.0",
+ "light-poseidon 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "num-bigint 0.4.8",
  "rand 0.8.8",
  "serde",
@@ -10581,10 +10593,10 @@ dependencies = [
  "spr-event",
  "spr-event-parser",
  "spr-hasher",
+ "spr-instruction",
  "spr-interface",
  "spr-keypair",
  "spr-merkle-tree",
- "spr-program",
  "spr-transaction",
  "spr-tree",
  "thiserror 2.0.20",
@@ -10731,8 +10743,8 @@ dependencies = [
 name = "spr-tree"
 version = "0.1.0"
 dependencies = [
- "ark-bn254 0.5.0",
- "ark-ff 0.5.0",
+ "ark-bn254 0.6.0",
+ "ark-ff 0.6.0",
  "borsh",
  "bytemuck",
  "groth16-solana",
@@ -10819,7 +10831,7 @@ dependencies = [
  "ark-bn254 0.6.0",
  "ark-ff 0.6.0",
  "ark-r1cs-std",
- "light-poseidon 0.5.0",
+ "light-poseidon 0.5.0 (git+https://github.com/Lightprotocol/light-poseidon?rev=08e037e20910e86aa62641217643540d1f902443)",
  "spr-zk-dsl",
 ]
 
@@ -11810,8 +11822,8 @@ dependencies = [
 name = "tree-bench"
 version = "0.1.0"
 dependencies = [
- "ark-bn254 0.5.0",
- "ark-ff 0.5.0",
+ "ark-bn254 0.6.0",
+ "ark-ff 0.6.0",
  "borsh",
  "bytemuck",
  "light-program-profiler",

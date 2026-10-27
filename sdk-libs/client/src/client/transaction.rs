@@ -6,11 +6,11 @@ use solana_keypair::Signer;
 use solana_message::VersionedMessage;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
+use spr_instruction::instruction::{Transact, TransactInterfaceTransferAccounts};
 use spr_interface::{
     instruction::{instruction_data::transact::TransactProof, TransactIxData},
     pda,
 };
-use spr_program::instruction::{Transact, TransactInterfaceTransferAccounts};
 use spr_transaction::instructions::transact::SppProofInputs;
 use tokio::time::Instant;
 

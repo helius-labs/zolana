@@ -3,8 +3,8 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use spr_event::SplTransfer;
+use spr_instruction::instruction::{AssetDeposit, Deposit};
 use spr_keypair::PublicKey;
-use spr_program::instruction::{AssetDeposit, Deposit};
 use spr_transaction::Utxo;
 
 use spr_event_parser::general_event_from_indexed;

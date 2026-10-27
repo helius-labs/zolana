@@ -4,15 +4,15 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use spr_event::SplTransfer;
+use spr_instruction::instruction::{
+    DepositAsset, DepositSplAccounts, RingAssetDeposit, RingDeposit, SetRingActivation,
+    UpdateRingConfig, UpdateRingConfigOwner,
+};
 use spr_interface::{
     instruction::{encode_instruction, tag, CreateRingConfigData, EncryptedRingDepositData},
     pda,
 };
 use spr_keypair::shielded::ShieldedAddress;
-use spr_program::instruction::{
-    DepositAsset, DepositSplAccounts, RingAssetDeposit, RingDeposit, SetRingActivation,
-    UpdateRingConfig, UpdateRingConfigOwner,
-};
 use spr_transaction::{owner_utxo_hash, serialization::RingDepositPlaintext, Blinding};
 
 use crate::{

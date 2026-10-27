@@ -9,9 +9,9 @@ use solana_instruction::Instruction;
 use solana_message::v1::MAX_TRANSACTION_SIZE;
 use solana_pubkey::Pubkey;
 use spr_client::{transaction_size, ComputeBudgetConfig, MergeProver, Rpc, TransactionSize};
+use spr_instruction::instruction::{MergeRing, MergeTransact};
 use spr_interface::instruction::instruction_data::merge_transact::MergeProof;
 use spr_keypair::{random_blinding, ShieldedKeypair, SigningKey};
-use spr_program::instruction::{MergeRing, MergeTransact};
 use spr_transaction::{
     instructions::merge::{
         merge_circuit_width, MergeTransaction, MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT,

@@ -1,9 +1,9 @@
 use solana_address::Address;
 use solana_pubkey::Pubkey;
 use spr_hasher::HasherError;
+use spr_instruction::instruction::DepositBuildError;
 use spr_interface::error::ShieldedPoolError;
 use spr_keypair::KeypairError;
-use spr_program::instruction::DepositBuildError;
 use spr_transaction::TransactionError;
 use thiserror::Error;
 

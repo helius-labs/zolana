@@ -25,7 +25,7 @@ proofs = ["reqwest"]
 
 [dependencies]
 spr-interface = { workspace = true }
-spr-program = { workspace = true }
+spr-instruction = { workspace = true }
 spr-indexer-api = { workspace = true }
 spr-event = { workspace = true }
 spr-event-parser = { workspace = true }
@@ -73,6 +73,7 @@ solana-transaction-status-client-types = { workspace = true }
 tokio = { workspace = true, features = ["time", "rt", "macros", "sync"] }
 
 [dev-dependencies]
+spr-instruction = { workspace = true, features = ["protocol"] }
 tokio = { workspace = true, features = ["test-util"] }
 spr-prover-tee = { workspace = true, features = ["test-fixtures"] }
 aes-gcm = { workspace = true }

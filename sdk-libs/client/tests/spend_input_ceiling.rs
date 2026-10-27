@@ -1,5 +1,8 @@
 use solana_pubkey::Pubkey;
 use spr_client::{transaction_size, ComputeBudgetConfig, TransactionSize};
+use spr_instruction::instruction::{
+    Transact, TransactInterfaceTransferAccounts, TransactSplWithdrawalAccounts,
+};
 use spr_interface::{
     instruction::{
         CircuitId, InputUtxo, InterfaceTransfer, OwnerTag, TransactIxData, TransactOutput,
@@ -8,9 +11,6 @@ use spr_interface::{
     MAX_INPUT_TREES, N_PUBLIC_SLOTS,
 };
 use spr_keypair::ViewingKey;
-use spr_program::instruction::{
-    Transact, TransactInterfaceTransferAccounts, TransactSplWithdrawalAccounts,
-};
 use spr_transaction::{
     instructions::transact::{canonical_shape, MAX_SPEND_INPUTS},
     serialization::{

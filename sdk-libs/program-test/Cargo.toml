@@ -37,7 +37,7 @@ solana-transaction-error = { workspace = true }
 thiserror = { workspace = true }
 spr-client = { workspace = true }
 spr-interface = { workspace = true }
-spr-program = { workspace = true, features = ["protocol-instructions"] }
+spr-instruction = { workspace = true, features = ["protocol"] }
 spr-event = { workspace = true }
 spr-event-parser = { workspace = true }
 spr-keypair = { workspace = true }

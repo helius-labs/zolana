@@ -9,9 +9,9 @@ use solana_address::Address;
 use solana_instruction::Instruction;
 use solana_keypair::Signer;
 use solana_signature::Signature;
+use spr_instruction::instruction::MergeTransact;
 use spr_interface::{instruction::instruction_data::merge_transact::MergeTransactIxData, pda};
 use spr_keypair::{NullifierKey, ShieldedAddress};
-use spr_program::instruction::MergeTransact;
 use spr_transaction::instructions::merge::MergeProofInputs;
 use spr_user_registry_interface::{user_record_pda, MergeEncryptionScheme, UserRecord};
 

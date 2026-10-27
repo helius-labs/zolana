@@ -5,7 +5,7 @@ description = "Derive macros for SPR zero-knowledge programs."
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-publish = ["crates-io"]
+publish = false
 
 [lib]
 proc-macro = true

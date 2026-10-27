@@ -91,7 +91,7 @@ pub enum ProgramTestError {
     #[error("transaction: {0}")]
     Transaction(#[from] spr_transaction::TransactionError),
     #[error("deposit builder: {0}")]
-    DepositBuild(#[from] spr_program::instruction::DepositBuildError),
+    DepositBuild(#[from] spr_instruction::instruction::DepositBuildError),
     #[error("indexer: {0}")]
     Indexer(#[from] IndexerError),
     #[error("event: {0}")]

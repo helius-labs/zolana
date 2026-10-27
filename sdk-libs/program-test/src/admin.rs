@@ -1,12 +1,12 @@
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
+use spr_instruction::instruction::{
+    ClaimTreeLamports, CreateProtocolConfig, PauseTree, SetTreeFees, UpdateProtocolConfig,
+};
 use spr_interface::{
     instruction::{CreateProtocolConfigData, UpdateProtocolConfigData},
     pda,
-};
-use spr_program::instruction::{
-    ClaimTreeLamports, CreateProtocolConfig, PauseTree, SetTreeFees, UpdateProtocolConfig,
 };
 
 use spr_interface::state::{default_tree_fees, nullifier_tree_params};
