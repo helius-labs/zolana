@@ -10,6 +10,7 @@ signatures are rejected by the wallet keys constructors.
 
 Breaking
 
+- `SHIELDED_POOL_PROGRAM_ID` is `ring1GaLCuJnkUMVkX2JeZLTTX17wKsV4fZmPVzXANW`, with new tree, custody and authority addresses → use the new deployment and fund new notes; accounts and notes from the earlier deployment remain separate.
 - `ed25519DerivationPayload()` is removed → sign the exact bytes from `ed25519DerivationMessage(publicKey)` and pass the signature to `LocalKeys.fromDerivationSeed()`.
 
 Added

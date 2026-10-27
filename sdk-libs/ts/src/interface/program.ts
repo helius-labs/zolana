@@ -20,18 +20,18 @@ export interface CreateTreeData {
   readonly fees: TreeFeeSchedule;
 }
 
-export const SHIELDED_POOL_PROGRAM_ID = address("spp3CfN2Y7se74A27bBpnAkmjXyEb2YmmZafhFrC9xt");
+export const SHIELDED_POOL_PROGRAM_ID = address("ring1GaLCuJnkUMVkX2JeZLTTX17wKsV4fZmPVzXANW");
 export const USER_REGISTRY_PROGRAM_ID = address("regy3WAeRXMYuMYxr5iK3Bf9Arr3PcxGxyzAddbiqDQ");
 export const SOL_INTERFACE = encodeBase58(
   Uint8Array.from([
-    57, 234, 222, 217, 123, 228, 230, 232, 84, 166, 31, 212, 32, 61, 124, 189, 111, 192, 176, 105,
-    98, 211, 150, 177, 42, 231, 139, 133, 216, 66, 188, 207,
+    174, 9, 251, 185, 56, 68, 80, 105, 187, 159, 161, 65, 25, 120, 15, 51, 227, 171, 191, 213, 18,
+    39, 39, 20, 57, 237, 147, 228, 185, 57, 125, 253,
   ]),
 );
 export const SHIELDED_POOL_CPI_AUTHORITY = encodeBase58(
   Uint8Array.from([
-    231, 159, 118, 137, 156, 23, 134, 42, 170, 73, 246, 220, 194, 211, 204, 77, 34, 241, 59, 125,
-    158, 152, 138, 84, 162, 33, 96, 26, 58, 253, 91, 23,
+    171, 251, 122, 72, 2, 39, 82, 91, 136, 185, 82, 1, 239, 236, 213, 162, 38, 77, 248, 238, 242,
+    103, 137, 104, 67, 64, 244, 78, 118, 136, 230, 59,
   ]),
 );
 export const SPL_TOKEN_PROGRAM_ID = address("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");

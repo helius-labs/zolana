@@ -11,7 +11,7 @@ use zolana_program::{cpi::SppTransactAccounts, program::SppTransactCpi};
 
 use crate::error::CompressionError;
 
-pub const DEFAULT_TREE: Address = address!("C37FDLpLGLvAUpywCJBjeb9HhGF6YZamYZ6uNqW9XnVD");
+pub const DEFAULT_TREE: Address = address!("777pvSGe5LaBd9nCczvE2FXEauiwtfGJ5XRpjKyniGor");
 
 #[cfg(any(target_os = "solana", target_arch = "bpf"))]
 pub fn derive_pda(authority: &Address) -> (Address, u8) {

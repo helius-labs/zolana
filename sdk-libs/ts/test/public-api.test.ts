@@ -113,8 +113,8 @@ describe("public package surface", () => {
     expect(ViewingKey).not.toHaveProperty("fromSeed");
     expect(wallet.identity).toEqual(keypair.shieldedAddress());
     expect(SOL_MINT).toBe("11111111111111111111111111111111");
-    expect(TREE).toBe("C37FDLpLGLvAUpywCJBjeb9HhGF6YZamYZ6uNqW9XnVD");
-    expect(SHIELDED_POOL_PROGRAM_ID).toBe("spp3CfN2Y7se74A27bBpnAkmjXyEb2YmmZafhFrC9xt");
+    expect(TREE).toBe("777pvSGe5LaBd9nCczvE2FXEauiwtfGJ5XRpjKyniGor");
+    expect(SHIELDED_POOL_PROGRAM_ID).toBe("ring1GaLCuJnkUMVkX2JeZLTTX17wKsV4fZmPVzXANW");
     expect(USER_REGISTRY_PROGRAM_ID).toBe("regy3WAeRXMYuMYxr5iK3Bf9Arr3PcxGxyzAddbiqDQ");
   });
 
@@ -381,10 +381,10 @@ describe("address and instruction builders", () => {
 
   it("derives tree PDAs the way Rust pda::tree does", async () => {
     // Rust: `Pubkey::find_program_address(&[b"tree", &tree_id.to_le_bytes()], &program_id)`.
-    expect(treeWithBump(0)).toEqual([TREE, 254]);
+    expect(treeWithBump(0)).toEqual([TREE, 255]);
     expect(treeWithBump(0)).toEqual(await kitTreePda(0));
     expect(treeWithBump(1)).toEqual(await kitTreePda(1));
-    expect(treeWithBump(7)).toEqual([address("VHGfKN8P5UW4FKAxt3JgxSanxGnVBKFstBukYygei6Z"), 255]);
+    expect(treeWithBump(7)).toEqual([address("2jBVxLnY4tDYJqV34EptnNkXQJtB1yuDfW3mYiApaUa7"), 255]);
     expect(getTreeAddress(7 << 8)).not.toBe(getTreeAddress(7));
     expect(() => getTreeAddress(0x1_0000)).toThrow();
   });
