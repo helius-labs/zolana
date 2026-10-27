@@ -86,10 +86,10 @@ spr-keypair = { path = "sdk-libs/keypair", version = "0.1.0" }
 spr-instruction = { path = "sdk-libs/instruction", version = "0.1.0" }
 spr-program = { path = "sdk-libs/program", version = "0.1.0" }
 # The zk crates live in helius-labs/zk-tools (zk-dsl/), pinned by rev.
-spr-zk-dsl = { version = "0.1.0", git = "https://github.com/helius-labs/zk-tools", rev = "a51b88e6b77d8a09d4fe1ee6b12c8526d309d282" }
-spr-zk-gadgets = { version = "0.1.0", git = "https://github.com/helius-labs/zk-tools", rev = "a51b88e6b77d8a09d4fe1ee6b12c8526d309d282" }
-spr-zk-macros = { version = "0.1.0", git = "https://github.com/helius-labs/zk-tools", rev = "a51b88e6b77d8a09d4fe1ee6b12c8526d309d282" }
-spr-zk-macros-core = { version = "0.1.0", git = "https://github.com/helius-labs/zk-tools", rev = "a51b88e6b77d8a09d4fe1ee6b12c8526d309d282" }
+spr-zk-dsl = { version = "0.1.0", git = "https://github.com/helius-labs/zk-tools", rev = "a4ebd1699ffa04545e3739f16a51e764992d07d6" }
+spr-zk-gadgets = { version = "0.1.0", git = "https://github.com/helius-labs/zk-tools", rev = "a4ebd1699ffa04545e3739f16a51e764992d07d6" }
+spr-zk-macros = { version = "0.1.0", git = "https://github.com/helius-labs/zk-tools", rev = "a4ebd1699ffa04545e3739f16a51e764992d07d6" }
+spr-zk-macros-core = { version = "0.1.0", git = "https://github.com/helius-labs/zk-tools", rev = "a4ebd1699ffa04545e3739f16a51e764992d07d6" }
 spr-api = { path = "sdk-libs/spr-api", version = "0.1.0", default-features = false }
 spr-program-test = { path = "sdk-libs/program-test", version = "0.1.0" }
 spr-transaction = { path = "sdk-libs/transaction", version = "0.1.0" }
@@ -104,7 +104,7 @@ spr-smart-account-client = { path = "sdk-libs/smart-account-client", version = "
 spr-test-utils = { path = "program-tests/test-utils", version = "0.1.0" }
 shielded-pool-program = { path = "programs/shielded-pool", version = "0.1.0" }
 spr-user-registry = { path = "programs/user-registry", version = "0.1.0", default-features = false, features = ["no-entrypoint"] }
-groth16-solana = { version = "0.3", git = "https://github.com/Lightprotocol/groth16-solana", rev = "d48df415f1f8348fdb8383b2cf84c03da15883e1", features = ["bsb22"] }
+groth16-solana = { version = "0.3.1", features = ["bsb22"] }
 
 # Published Light Protocol crates.
 light-array-map = "0.2.0"

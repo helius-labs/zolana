@@ -3745,12 +3745,13 @@ checksum = "e4eba85ea1d0a966a983acd07deee566e67395d2d96b6fb39e62b5a833f1eb0b"
 
 [[package]]
 name = "groth16-solana"
-version = "0.3.0"
-source = "git+https://github.com/Lightprotocol/groth16-solana?rev=d48df415f1f8348fdb8383b2cf84c03da15883e1#d48df415f1f8348fdb8383b2cf84c03da15883e1"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3445d72a7fe1f2d06aa93ae5ade8ad8900bce0559fd098ae3433e04173bc8d20"
 dependencies = [
- "ark-bn254 0.5.0",
- "ark-ff 0.5.0",
- "ark-serialize 0.5.0",
+ "ark-bn254 0.6.0",
+ "ark-ff 0.6.0",
+ "ark-serialize 0.6.0",
  "num-bigint 0.4.8",
  "pinocchio 0.10.2",
  "serde",
@@ -10778,7 +10779,7 @@ dependencies = [
 [[package]]
 name = "spr-zk-dsl"
 version = "0.1.0"
-source = "git+https://github.com/helius-labs/zk-tools?rev=a51b88e6b77d8a09d4fe1ee6b12c8526d309d282#a51b88e6b77d8a09d4fe1ee6b12c8526d309d282"
+source = "git+https://github.com/helius-labs/zk-tools?rev=a4ebd1699ffa04545e3739f16a51e764992d07d6#a4ebd1699ffa04545e3739f16a51e764992d07d6"
 dependencies = [
  "ark-bn254 0.6.0",
  "ark-ec 0.6.0",
@@ -10815,7 +10816,7 @@ dependencies = [
 [[package]]
 name = "spr-zk-gadgets"
 version = "0.1.0"
-source = "git+https://github.com/helius-labs/zk-tools?rev=a51b88e6b77d8a09d4fe1ee6b12c8526d309d282#a51b88e6b77d8a09d4fe1ee6b12c8526d309d282"
+source = "git+https://github.com/helius-labs/zk-tools?rev=a4ebd1699ffa04545e3739f16a51e764992d07d6#a4ebd1699ffa04545e3739f16a51e764992d07d6"
 dependencies = [
  "ark-bn254 0.6.0",
  "ark-ff 0.6.0",
@@ -10827,7 +10828,7 @@ dependencies = [
 [[package]]
 name = "spr-zk-macros"
 version = "0.1.0"
-source = "git+https://github.com/helius-labs/zk-tools?rev=a51b88e6b77d8a09d4fe1ee6b12c8526d309d282#a51b88e6b77d8a09d4fe1ee6b12c8526d309d282"
+source = "git+https://github.com/helius-labs/zk-tools?rev=a4ebd1699ffa04545e3739f16a51e764992d07d6#a4ebd1699ffa04545e3739f16a51e764992d07d6"
 dependencies = [
  "proc-macro2",
  "spr-zk-macros-core",
@@ -10837,7 +10838,7 @@ dependencies = [
 [[package]]
 name = "spr-zk-macros-core"
 version = "0.1.0"
-source = "git+https://github.com/helius-labs/zk-tools?rev=a51b88e6b77d8a09d4fe1ee6b12c8526d309d282#a51b88e6b77d8a09d4fe1ee6b12c8526d309d282"
+source = "git+https://github.com/helius-labs/zk-tools?rev=a4ebd1699ffa04545e3739f16a51e764992d07d6#a4ebd1699ffa04545e3739f16a51e764992d07d6"
 dependencies = [
  "proc-macro2",
  "quote",
