@@ -8,6 +8,10 @@ publish = false
 name = "timelock_escrow_program"
 crate-type = ["cdylib", "lib"]
 
+[target.'cfg(all(not(xark), not(xark_client)))'.dependencies]
+zolana-keypair = { workspace = true, optional = true }
+zolana-transaction = { workspace = true, optional = true }
+
 [features]
 # The committed verifying keys come from an example setup nobody vouches for,
 # so they are generated as SetupKind::InsecureTest and do not compile without
@@ -22,6 +26,7 @@ test-sbf = []
 profile-program = ["light-program-profiler/profile-program"]
 circuits = [
     "dep:borsh",
+    "dep:xark",
     "dep:solana-instruction",
     "dep:zolana-keypair",
     "dep:zolana-transaction",
@@ -31,6 +36,7 @@ circuits = [
 ]
 wasm = [
     "dep:borsh",
+    "dep:xark",
     "dep:zolana-keypair",
     "dep:zolana-transaction",
     "zolana-program/wasm",
@@ -39,6 +45,7 @@ localnet = ["circuits"]
 r1cs-export = ["zolana-program/r1cs-export"]
 
 [dependencies]
+xark = { git = "https://github.com/blueshift-gg/xark", rev = "b443d83ea8ec7f2253610887e9690623ad048aef", optional = true }
 borsh = { workspace = true, optional = true }
 light-program-profiler = { workspace = true }
 pinocchio = { workspace = true, features = ["cpi", "sha2"] }
@@ -49,11 +56,10 @@ wincode = { workspace = true }
 zolana-account-checks = { workspace = true }
 zolana-hasher = { workspace = true }
 zolana-interface = { workspace = true }
-zolana-keypair = { workspace = true, optional = true }
 zolana-program = { workspace = true, features = ["cpi", "compression", "verifier"] }
-zolana-transaction = { workspace = true, optional = true }
 
 [dev-dependencies]
+serde_json = { workspace = true }
 anyhow = { workspace = true }
 solana-address = { workspace = true }
 solana-instruction = { workspace = true }

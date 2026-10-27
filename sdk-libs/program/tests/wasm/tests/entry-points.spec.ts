@@ -1,44 +1,6 @@
-import { expect, test } from "./harness";
-import { fixture, keyUrl } from "./fixtures";
-
-test("proof inputs built on the main thread prove in the worker, twice with fresh randomness", async ({
-  harness,
-}) => {
-  const data = fixture("escrow");
-  const result = await harness.page.evaluate(
-    async ({ url, data }) => {
-      const { transaction } = await window.zkProgram.transaction(
-        "escrow",
-        data.inputs,
-        data.sender,
-        data.payer,
-      );
-      const first = await window.zkProgram.prove(
-        "escrow",
-        "arkworks",
-        url,
-        transaction.proofInputs,
-      );
-      const second = await window.zkProgram.prove(
-        "escrow",
-        "arkworks",
-        url,
-        transaction.proofInputs,
-      );
-      return {
-        firstVerifies: await window.zkProgram.verify(data.verifyingKey, first),
-        secondVerifies: await window.zkProgram.verify(data.verifyingKey, second),
-        proofsDiffer: JSON.stringify(first.proof) !== JSON.stringify(second.proof),
-        publicInputs: [first.publicInputs, second.publicInputs],
-      };
-    },
-    { url: keyUrl("escrow", "arkworks"), data },
-  );
-
-  expect(result).toEqual({
-    firstVerifies: true,
-    secondVerifies: true,
-    proofsDiffer: true,
-    publicInputs: [[data.transaction.publicHash], [data.transaction.publicHash]],
-  });
+import { test, expect } from "./harness";
+test("the SDK bridge exports transactions and state decoding while Xark owns proving", async ({ harness }) => {
+  const names = await harness.page.evaluate(async () => Object.keys(await import("/pkg/wasm_test_program.js")));
+  expect(names).toEqual(expect.arrayContaining(["escrowTransaction", "withdrawTransaction", "escrowTermsDataUtxo", "compactCounterDataUtxo", "compressedProgramProof"]));
+  expect(names).not.toContain("EscrowProver");
 });

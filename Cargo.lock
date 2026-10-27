@@ -2142,16 +2142,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "console_error_panic_hook"
-version = "0.1.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a06aeb73f470f66dcdbf7223caeebb85984942f22f1adb2a088cf9668146bbbc"
-dependencies = [
- "cfg-if",
- "wasm-bindgen",
-]
-
-[[package]]
 name = "const-oid"
 version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4847,17 +4837,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "light-poseidon"
-version = "0.5.0"
-source = "git+https://github.com/Lightprotocol/light-poseidon?rev=08e037e20910e86aa62641217643540d1f902443#08e037e20910e86aa62641217643540d1f902443"
-dependencies = [
- "ark-bn254 0.6.0",
- "ark-ff 0.6.0",
- "num-bigint 0.4.8",
- "thiserror 1.0.69",
-]
-
-[[package]]
 name = "light-profiler-macro"
 version = "0.1.1"
 source = "git+https://github.com/Lightprotocol/light-program-profiler?rev=db49f3c801996a80e1cb7e4e92b13a694e962b65#db49f3c801996a80e1cb7e4e92b13a694e962b65"
@@ -6533,7 +6512,6 @@ checksum = "fb39b166781f92d482534ef4b4b1b2568f42613b53e5b6c160e24cfbfa30926d"
 dependencies = [
  "either",
  "rayon-core",
- "wasm_sync",
 ]
 
 [[package]]
@@ -6544,7 +6522,6 @@ checksum = "22e18b0f0062d30d4230b2e85ff77fdfe4326feb054b9783a3460d8435c8ab91"
 dependencies = [
  "crossbeam-deque",
  "crossbeam-utils",
- "wasm_sync",
 ]
 
 [[package]]
@@ -10754,6 +10731,7 @@ dependencies = [
  "borsh",
  "light-program-profiler",
  "pinocchio 0.11.2",
+ "serde_json",
  "solana-address 2.6.1",
  "solana-instruction",
  "solana-keypair",
@@ -10762,6 +10740,7 @@ dependencies = [
  "solana-signer",
  "thiserror 2.0.20",
  "wincode",
+ "xark",
  "zolana-account-checks",
  "zolana-client",
  "zolana-hasher",
@@ -11577,18 +11556,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "wasm-bindgen-rayon"
-version = "1.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a16c60a56c81e4dc3b9c43d76ba5633e1c0278211d59a9cb07d61b6cd1c6583"
-dependencies = [
- "crossbeam-channel",
- "js-sys",
- "rayon",
- "wasm-bindgen",
-]
-
-[[package]]
 name = "wasm-bindgen-shared"
 version = "0.2.128"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11617,17 +11584,6 @@ dependencies = [
  "js-sys",
  "wasm-bindgen",
  "wasm-bindgen-futures",
- "web-sys",
-]
-
-[[package]]
-name = "wasm_sync"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cff360cade7fec41ff0e9d2cda57fe58258c5f16def0e21302394659e6bbb0ea"
-dependencies = [
- "js-sys",
- "wasm-bindgen",
  "web-sys",
 ]
 
@@ -12296,6 +12252,88 @@ dependencies = [
 ]
 
 [[package]]
+name = "xark"
+version = "0.3.0"
+source = "git+https://github.com/blueshift-gg/xark?rev=b443d83ea8ec7f2253610887e9690623ad048aef#b443d83ea8ec7f2253610887e9690623ad048aef"
+dependencies = [
+ "ark-bn254 0.6.0",
+ "ark-ff 0.6.0",
+ "num-bigint 0.4.8",
+ "serde_json",
+ "xark-macros",
+ "xark-prover",
+ "xark-schema",
+]
+
+[[package]]
+name = "xark-groth16"
+version = "0.3.0"
+source = "git+https://github.com/blueshift-gg/xark?rev=b443d83ea8ec7f2253610887e9690623ad048aef#b443d83ea8ec7f2253610887e9690623ad048aef"
+dependencies = [
+ "ark-bn254 0.6.0",
+ "ark-ec 0.6.0",
+ "ark-ff 0.6.0",
+ "ark-poly 0.6.0",
+ "ark-serialize 0.6.0",
+ "num-bigint 0.4.8",
+ "rand 0.8.8",
+ "rand_chacha 0.3.1",
+ "rayon",
+ "xark-ir",
+]
+
+[[package]]
+name = "xark-ir"
+version = "0.3.0"
+source = "git+https://github.com/blueshift-gg/xark?rev=b443d83ea8ec7f2253610887e9690623ad048aef#b443d83ea8ec7f2253610887e9690623ad048aef"
+dependencies = [
+ "ark-bn254 0.6.0",
+ "ark-ff 0.6.0",
+ "num-bigint 0.4.8",
+ "num-traits",
+ "rayon",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "xark-macros"
+version = "0.3.0"
+source = "git+https://github.com/blueshift-gg/xark?rev=b443d83ea8ec7f2253610887e9690623ad048aef#b443d83ea8ec7f2253610887e9690623ad048aef"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "xark-prover"
+version = "0.3.0"
+source = "git+https://github.com/blueshift-gg/xark?rev=b443d83ea8ec7f2253610887e9690623ad048aef#b443d83ea8ec7f2253610887e9690623ad048aef"
+dependencies = [
+ "ark-bn254 0.6.0",
+ "ark-ff 0.6.0",
+ "ark-serialize 0.6.0",
+ "num-bigint 0.4.8",
+ "rand 0.8.8",
+ "serde_json",
+ "sha2 0.11.0",
+ "xark-groth16",
+ "xark-ir",
+]
+
+[[package]]
+name = "xark-schema"
+version = "0.3.0"
+source = "git+https://github.com/blueshift-gg/xark?rev=b443d83ea8ec7f2253610887e9690623ad048aef#b443d83ea8ec7f2253610887e9690623ad048aef"
+dependencies = [
+ "ark-bn254 0.6.0",
+ "ark-ff 0.6.0",
+ "num-bigint 0.4.8",
+ "serde_json",
+]
+
+[[package]]
 name = "xattr"
 version = "1.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -12504,8 +12542,10 @@ dependencies = [
  "solana-instruction",
  "solana-keypair",
  "solana-signer",
+ "xark",
+ "zolana-circuit",
  "zolana-client",
- "zolana-zk-dsl",
+ "zolana-program",
  "zolana-zk-standalone-fixture",
 ]
 
@@ -12545,6 +12585,29 @@ dependencies = [
  "tokio",
  "zeroize",
  "zolana-indexer-api",
+]
+
+[[package]]
+name = "zolana-circuit"
+version = "0.1.0"
+dependencies = [
+ "ark-bn254 0.5.0",
+ "ark-ff 0.5.0",
+ "arrayvec",
+ "borsh",
+ "light-poseidon 0.4.0",
+ "xark",
+ "zolana-hasher",
+ "zolana-instruction",
+ "zolana-interface",
+]
+
+[[package]]
+name = "zolana-circuit-xark-fixture"
+version = "0.1.0"
+dependencies = [
+ "xark",
+ "zolana-circuit",
 ]
 
 [[package]]
@@ -12761,10 +12824,8 @@ name = "zolana-keypair"
 version = "0.1.0"
 dependencies = [
  "aes",
- "ark-bn254 0.6.0",
  "aws-sdk-kms",
  "aws-smithy-mocks",
- "borsh",
  "bs58",
  "ctr",
  "ed25519-dalek",
@@ -12787,8 +12848,6 @@ dependencies = [
  "x25519-dalek",
  "zeroize",
  "zolana-hasher",
- "zolana-zk-dsl",
- "zolana-zk-gadgets",
 ]
 
 [[package]]
@@ -12808,7 +12867,6 @@ dependencies = [
  "zolana-keypair",
  "zolana-program",
  "zolana-transaction",
- "zolana-zk-macros-core",
 ]
 
 [[package]]
@@ -12830,6 +12888,7 @@ dependencies = [
  "ark-bn254 0.6.0",
  "ark-circom",
  "ark-ff 0.6.0",
+ "ark-serialize 0.6.0",
  "borsh",
  "groth16-solana",
  "hex",
@@ -12841,6 +12900,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "solana-address 2.6.1",
+ "solana-bn254",
  "solana-program-error",
  "solana-signature",
  "thiserror 2.0.20",
@@ -12848,7 +12908,9 @@ dependencies = [
  "wasm-bindgen",
  "wasmer",
  "wincode",
+ "xark-groth16",
  "zolana-account-checks",
+ "zolana-circuit",
  "zolana-client",
  "zolana-event",
  "zolana-hasher",
@@ -12858,8 +12920,6 @@ dependencies = [
  "zolana-macros",
  "zolana-transaction",
  "zolana-tree",
- "zolana-zk-dsl",
- "zolana-zk-gadgets",
 ]
 
 [[package]]
@@ -12906,6 +12966,7 @@ dependencies = [
  "sha2 0.10.9",
  "solana-address 2.6.1",
  "solana-signature",
+ "xark",
  "zolana-hasher",
  "zolana-interface",
  "zolana-keypair",
@@ -13009,7 +13070,6 @@ dependencies = [
 name = "zolana-transaction"
 version = "0.1.0"
 dependencies = [
- "ark-bn254 0.6.0",
  "borsh",
  "criterion",
  "hex",
@@ -13028,8 +13088,6 @@ dependencies = [
  "zolana-interface",
  "zolana-keypair",
  "zolana-program",
- "zolana-zk-dsl",
- "zolana-zk-gadgets",
 ]
 
 [[package]]
@@ -13080,83 +13138,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "zolana-zk-dsl"
-version = "0.1.0"
-source = "git+https://github.com/helius-labs/zk-tools?rev=56d6e53616c26a69130c51f9a9084829eef514bd#56d6e53616c26a69130c51f9a9084829eef514bd"
-dependencies = [
- "ark-bn254 0.6.0",
- "ark-ec 0.6.0",
- "ark-ff 0.6.0",
- "ark-groth16",
- "ark-poly 0.6.0",
- "ark-r1cs-std",
- "ark-relations",
- "ark-serialize 0.6.0",
- "ark-std 0.6.0",
- "borsh",
- "console_error_panic_hook",
- "getrandom 0.2.17",
- "groth16-solana",
- "hex",
- "js-sys",
- "rayon",
- "serde",
- "serde-wasm-bindgen",
- "serde_bytes",
- "serde_json",
- "sha2 0.10.9",
- "solana-address 2.6.1",
- "solana-bn254",
- "thiserror 2.0.20",
- "tsify",
- "wasm-bindgen",
- "wasm-bindgen-rayon",
- "wincode",
- "zolana-hasher",
- "zolana-zk-macros",
-]
-
-[[package]]
-name = "zolana-zk-gadgets"
-version = "0.1.0"
-source = "git+https://github.com/helius-labs/zk-tools?rev=56d6e53616c26a69130c51f9a9084829eef514bd#56d6e53616c26a69130c51f9a9084829eef514bd"
-dependencies = [
- "ark-bn254 0.6.0",
- "ark-ff 0.6.0",
- "ark-r1cs-std",
- "light-poseidon 0.5.0",
- "zolana-zk-dsl",
-]
-
-[[package]]
-name = "zolana-zk-macros"
-version = "0.1.0"
-source = "git+https://github.com/helius-labs/zk-tools?rev=56d6e53616c26a69130c51f9a9084829eef514bd#56d6e53616c26a69130c51f9a9084829eef514bd"
-dependencies = [
- "proc-macro2",
- "syn 2.0.119",
- "zolana-zk-macros-core",
-]
-
-[[package]]
-name = "zolana-zk-macros-core"
-version = "0.1.0"
-source = "git+https://github.com/helius-labs/zk-tools?rev=56d6e53616c26a69130c51f9a9084829eef514bd#56d6e53616c26a69130c51f9a9084829eef514bd"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
 name = "zolana-zk-standalone-fixture"
 version = "0.1.0"
 dependencies = [
  "pinocchio 0.11.2",
  "serde_json",
- "solana-address 2.6.1",
- "zolana-zk-dsl",
- "zolana-zk-gadgets",
+ "xark",
+ "zolana-circuit",
+ "zolana-program",
 ]
 
 [[package]]

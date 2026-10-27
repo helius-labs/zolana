@@ -11,8 +11,6 @@ use zolana_keypair::{
 };
 
 pub mod asset;
-#[cfg(feature = "circuit")]
-pub mod circuit;
 pub mod data;
 pub mod decrypt;
 pub mod error;

@@ -1,39 +1,15 @@
-import { expect, test } from "./harness";
-import { fixture, keyUrl, zkeyVerifyingKeyUrl, type KeyFormat, type Program } from "./fixtures";
-
-const programs: Program[] = ["escrow", "withdraw"];
-const formats: KeyFormat[] = ["arkworks", "zkey"];
-
-for (const program of programs) {
-  for (const format of formats) {
-    test(`${program} proves in wasm and verifies with groth16-solana (${format} key)`, async ({
-      harness,
-    }) => {
-      const data = fixture(program);
-      const verifyingKey = format === "zkey" ? zkeyVerifyingKeyUrl(program) : data.verifyingKey;
-      const result = await harness.page.evaluate(
-        async ({ program, format, url, data, verifyingKey }) => {
-          const { transaction } = await window.zkProgram.transaction(
-            program,
-            data.inputs,
-            data.sender,
-            data.payer,
-          );
-          const proof = await window.zkProgram.prove(program, format, url, transaction.proofInputs);
-          return {
-            verified: await window.zkProgram.verify(verifyingKey, proof),
-            proofPublicInputs: proof.publicInputs,
-            transactionPublicHash: transaction.publicHash,
-          };
-        },
-        { program, format, url: keyUrl(program, format), data, verifyingKey },
-      );
-
-      expect(result).toEqual({
-        verified: true,
-        proofPublicInputs: [data.transaction.publicHash],
-        transactionPublicHash: data.transaction.publicHash,
-      });
-    });
-  }
+import { test, expect } from "./harness";
+import { fixture, keyUrl, type Program } from "./fixtures";
+for (const program of ["escrow", "withdraw"] as Program[]) {
+  test(`${program} preserves the native transaction and verifies its Xark proof`, async ({ harness }) => {
+    const data = fixture(program);
+    const result = await harness.page.evaluate(async ({ program, data, url }) => {
+      const tx = await window.zkProgram.transaction(program, data.inputs, data.sender, data.payer);
+      const proof = await window.zkProgram.prove(program, "streaming", url, tx.transaction.proofInputs);
+      return { tx: tx.transaction, verified: await window.zkProgram.verify(program, proof) };
+    }, { program, data, url: keyUrl(program, "streaming") });
+    expect(result.tx).toEqual(data.transaction);
+    expect(result.verified).toBe(true);
+    expect(result.tx.finalizedTx.outputHashes).toEqual(data.encrypted.utxoHashes);
+  });
 }

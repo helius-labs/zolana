@@ -12,7 +12,6 @@ proc-macro2 = { workspace = true }
 quote = { workspace = true }
 zolana-hasher = { workspace = true }
 syn = { workspace = true }
-zolana-zk-macros-core = { workspace = true }
 
 [dev-dependencies]
 anchor-syn = "1.1"

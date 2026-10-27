@@ -1,139 +1,50 @@
 import init, * as wasm from "./pkg/wasm_test_program.js";
-import { failure, fetchBytes, plain, toBytes } from "./util.js";
-
-const TRANSACTIONS = {
-  escrow: wasm.escrowTransaction,
-  withdraw: wasm.withdrawTransaction,
-};
-
-const moduleStart = performance.now();
+import { failure, plain, toBytes } from "./util.js";
+const start = performance.now();
 await init();
-const moduleLoadMs = performance.now() - moduleStart;
-
+const moduleLoadMs = performance.now() - start;
+const fixtures = Object.fromEntries(await Promise.all(["escrow", "withdraw"].map(async name => [name, await (await fetch(`/fixtures/${name}.json`)).json()])));
+const methods = { escrow: wasm.escrowTransaction, withdraw: wasm.withdrawTransaction };
 const worker = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
-const pending = new Map();
-let nextId = 0;
-let workerFailure = null;
-
-worker.addEventListener("message", ({ data }) => {
-  const request = pending.get(data.id);
-  pending.delete(data.id);
-  if (data.error) {
-    const error = new Error(data.error.message);
-    error.name = data.error.name;
-    if (data.error.location !== undefined) {
-      error.location = data.error.location;
-    }
-    request?.reject(error);
-  } else {
-    request?.resolve(data.result);
-  }
-});
-function failWorker(message) {
-  workerFailure = new Error(`the prover worker failed: ${message}`);
-  for (const request of pending.values()) {
-    request.reject(workerFailure);
-  }
-  pending.clear();
-}
-worker.addEventListener("error", (event) => failWorker(event.message));
-worker.addEventListener("messageerror", () => failWorker("a message could not be deserialized"));
-
-function callWorker(method, ...args) {
-  if (workerFailure !== null) {
-    return Promise.reject(workerFailure);
-  }
-  const id = nextId++;
-  return new Promise((resolve, reject) => {
-    pending.set(id, { resolve, reject });
-    worker.postMessage({ id, method, args });
+const requests = new Map();
+let sequence = 0;
+worker.onmessage = ({ data }) => {
+  const request = requests.get(data.id); requests.delete(data.id);
+  if (data.error) { const error = new Error(data.error.message); error.name = data.error.name; request.reject(error); }
+  else request.resolve(data.result);
+};
+worker.onerror = event => { for (const request of requests.values()) request.reject(new Error(event.message)); requests.clear(); };
+function call(method, ...args) { const id = sequence++; return new Promise((resolve, reject) => { requests.set(id, { resolve, reject }); worker.postMessage({ id, method, args }); }); }
+let snarkjsLoaded;
+function snarkjs() {
+  return snarkjsLoaded ??= new Promise((resolve, reject) => {
+    const script = document.createElement("script"); script.src = "/vendor/snarkjs/build/snarkjs.min.js";
+    script.onload = () => resolve(window.snarkjs); script.onerror = () => reject(new Error("snarkjs failed to load")); document.head.append(script);
   });
 }
-
-function kind(value) {
-  return value instanceof Uint8Array ? "Uint8Array" : typeof value;
-}
-
-async function sha256(bytes) {
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
-  return Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
 const api = {
   moduleLoadMs,
-  workerInfo: () => callWorker("info"),
+  workerInfo: () => call("info"),
   async transaction(program, inputs, sender, payer) {
-    const transaction = TRANSACTIONS[program](inputs, toBytes(sender), payer);
-    const finalized = transaction.finalizedTx;
-    return {
-      transaction: plain(transaction),
-      proofInputsSha256: await sha256(transaction.proofInputs),
-      encoding: {
-        proofInputs: kind(transaction.proofInputs),
-        publicHash: kind(transaction.publicHash),
-        outputHash: kind(finalized.outputHashes[0]),
-        outputAmount: kind(finalized.outputUtxos[0]?.amount),
-        outputBlinding: kind(finalized.outputUtxos[0]?.blinding),
-        inputLeafIndex: kind(finalized.inputUtxos[0]?.leafIndex),
-        inputAssetId: kind(finalized.inputUtxos[0]?.utxo.asset.assetId),
-        inputOwner: kind(finalized.inputUtxos[0]?.utxo.owner),
-        resolvedOwnerTag: kind(finalized.ownerTags[0]?.resolved),
-        sender: kind(finalized.sender),
-        payer: kind(finalized.payer),
-        outputTreeId: kind(finalized.outputTreeId),
-      },
-    };
-  },
-  prove(program, format, url, proofInputs) {
-    return callWorker("prove", program, format, url, proofInputs);
-  },
-  verify(source, proof) {
-    return callWorker("verify", source, proof);
-  },
-  async attempt(method, ...args) {
-    try {
-      return { value: await api[method](...args) };
-    } catch (error) {
-      return failure(error);
-    }
-  },
-  timeKeyLoad(program, format, url) {
-    return callWorker("timeKeyLoad", program, format, url);
-  },
-  timeProof(program, format, url, proofInputs) {
-    return callWorker("timeProof", program, format, url, proofInputs);
+    return { transaction: plain(methods[program](inputs, fixtures[program].records, toBytes(sender), payer)) };
   },
   timeTransaction(program, inputs, sender, payer) {
-    const start = performance.now();
-    TRANSACTIONS[program](inputs, toBytes(sender), payer);
-    return performance.now() - start;
+    const start = performance.now(); methods[program](inputs, fixtures[program].records, toBytes(sender), payer); return performance.now() - start;
   },
-  async timeSnarkjs(zkeyUrl, proofInputs, runs) {
-    const snarkjs = await loadSnarkjs();
-    const zkey = await fetchBytes(zkeyUrl);
-    const wtns = toBytes(proofInputs);
-    const first = await snarkjs.groth16.prove(zkey, wtns);
-    const proofMs = [];
-    for (let run = 0; run < runs; run += 1) {
-      const start = performance.now();
-      await snarkjs.groth16.prove(zkey, wtns);
-      proofMs.push(performance.now() - start);
-    }
-    return { proofMs, publicSignal: first.publicSignals[0] };
+  async verifyIndependent(program, proof, publicHash) {
+    const library = await snarkjs();
+    const bytes = new Uint8Array(await (await fetch(`/keys/${program}/vk.bin`)).arrayBuffer());
+    const vk = plain(wasm.verifyingKeyToSnarkjs(bytes));
+    const value = plain(wasm.proofToSnarkjs(toBytes(proof.proof)));
+    const signal = BigInt(`0x${publicHash.map(byte => byte.toString(16).padStart(2, "0")).join("")}`).toString();
+    return library.groth16.verify(vk, [signal], value);
   },
+  prove: (program, format, url, inputs) => call("prove", program, format, url, inputs),
+  verify: (program, proof) => call("verify", program, proof),
+  timeKeyLoad: (program, format, url) => call("timeKeyLoad", program, format, url),
+  timeProof: (program, format, url, inputs) => call("timeProof", program, format, url, inputs),
+  mutateKey: (program, inputs) => call("mutateKey", program, inputs),
+  randomness: (program, inputs, mode) => call("randomness", program, inputs, mode),
+  async attempt(method, ...args) { try { return { value: await api[method](...args) }; } catch (error) { return failure(error); } },
 };
-
-let snarkjsLoaded;
-function loadSnarkjs() {
-  snarkjsLoaded ??= new Promise((resolve, reject) => {
-    const script = document.createElement("script");
-    script.src = "/vendor/snarkjs/build/snarkjs.min.js";
-    script.onload = () => resolve(window.snarkjs);
-    script.onerror = () => reject(new Error("snarkjs failed to load"));
-    document.head.append(script);
-  });
-  return snarkjsLoaded;
-}
-
 window.zkProgram = api;
-document.getElementById("status").textContent = "ready";

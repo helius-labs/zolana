@@ -1,43 +1,16 @@
-type PlainProof = {
-  proof: { a: number[]; b: number[]; c: number[] };
-  compressedProof: { a: number[]; b: number[]; c: number[] };
-  publicInputs: number[][];
-};
-
-type PlainTransaction = {
-  finalizedTx: Record<string, unknown>;
-  proofInputs: number[];
-  publicHash: number[];
-};
-
-type Attempt<T> = { value: T } | { error: { name: string; message: string; location?: string } };
-
+type PlainProof = { proof: Uint8Array; publicInputs: Uint8Array; numPublicInputs: number };
+type PlainTransaction = { finalizedTx: Record<string, any>; proofInputs: Record<string, any>; publicHash: number[] };
+type Attempt<T> = { value?: T; error?: { name: string; message: string } };
 interface ProgramHarness {
   moduleLoadMs: number;
   workerInfo(): Promise<{ crossOriginIsolated: boolean; threads: number }>;
-  transaction(
-    program: string,
-    inputs: unknown,
-    sender: number[],
-    payer: string,
-  ): Promise<{
-    transaction: PlainTransaction;
-    proofInputsSha256: string;
-    encoding: Record<string, string>;
-  }>;
-  prove(program: string, format: string, url: string, proofInputs: number[]): Promise<PlainProof>;
-  verify(source: string | number[], proof: PlainProof): Promise<boolean>;
+  transaction(program: string, inputs: unknown, sender: number[], payer: string): Promise<{ transaction: PlainTransaction }>;
+  prove(program: string, format: string, url: string, inputs: Record<string, any>): Promise<PlainProof>;
+  verify(program: string, proof: PlainProof): Promise<boolean>;
+  verifyIndependent(program: string, proof: PlainProof, publicHash: number[]): Promise<boolean>;
   attempt<T>(method: string, ...args: unknown[]): Promise<Attempt<T>>;
   timeKeyLoad(program: string, format: string, url: string): Promise<number>;
-  timeProof(program: string, format: string, url: string, proofInputs: number[]): Promise<number>;
+  timeProof(program: string, format: string, url: string, inputs: Record<string, any>): Promise<number>;
   timeTransaction(program: string, inputs: unknown, sender: number[], payer: string): number;
-  timeSnarkjs(
-    zkeyUrl: string,
-    proofInputs: number[],
-    runs: number,
-  ): Promise<{ proofMs: number[]; publicSignal: string }>;
 }
-
-interface Window {
-  zkProgram: ProgramHarness;
-}
+interface Window { zkProgram: ProgramHarness; }

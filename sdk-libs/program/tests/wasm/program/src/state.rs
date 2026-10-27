@@ -1,14 +1,16 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use zolana_program::{circuit::UtxoState, EncryptionCodec, UtxoOwner};
+use zolana_program::{input, circuit::UtxoState, EncryptionCodec, UtxoOwner};
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, UtxoState)]
+#[input(no_derive)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, BorshSerialize, BorshDeserialize, UtxoState)]
 pub struct EscrowTerms {
     pub creator: UtxoOwner,
     pub unlock: u64,
 }
 
 /// Exercises a custom payload through the generated wasm state binding.
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, UtxoState)]
+#[input(no_derive)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, BorshSerialize, BorshDeserialize, UtxoState)]
 #[utxo_state(custom_codec)]
 pub struct CompactCounter {
     pub count: u64,

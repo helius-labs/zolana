@@ -1,5 +1,5 @@
 use zolana_program::{
-    verifier::{groth16_solana, integer, pack_be, verify_groth16, VerifyError},
+    verifier::{groth16_solana, integer, pack_be, verify_groth16_inputs, VerifyError},
     CompressedProof,
 };
 
@@ -24,5 +24,5 @@ impl PublicInputs {
 }
 
 pub fn verify(proof: &CompressedProof, public_inputs: &PublicInputs) -> Result<(), VerifyError> {
-    verify_groth16(proof, &public_inputs.public_inputs(), &VERIFYINGKEY)
+    verify_groth16_inputs(proof, &public_inputs.public_inputs(), &VERIFYINGKEY)
 }

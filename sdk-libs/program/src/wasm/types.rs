@@ -9,29 +9,28 @@ use zolana_transaction::{
     SppProofOutputUtxo, WalletUtxo,
 };
 
-use wasm_bindgen::JsValue;
 
-use crate::{ClientError, ClientErrorKind};
+use crate::ClientError;
+use crate::client::transaction::fail;
 
 #[derive(Serialize, Tsify)]
 #[serde(rename_all = "camelCase")]
 pub struct ProgramTransaction {
     pub finalized_tx: FinalizedTransaction,
-    #[serde(with = "zolana_keypair::serde_helpers::bytes")]
-    #[tsify(type = "Uint8Array")]
-    pub proof_inputs: Vec<u8>,
+    #[tsify(type = "Record<string, unknown>")]
+    pub proof_inputs: serde_json::Value,
     #[serde(with = "zolana_keypair::serde_helpers::bytes")]
     #[tsify(type = "Uint8Array")]
     pub public_hash: [u8; 32],
 }
 
 impl TryFrom<&crate::ProgramTransaction> for ProgramTransaction {
-    type Error = JsValue;
+    type Error = ClientError;
 
-    fn try_from(transaction: &crate::ProgramTransaction) -> Result<Self, JsValue> {
+    fn try_from(transaction: &crate::ProgramTransaction) -> Result<Self, ClientError> {
         Ok(Self {
             finalized_tx: FinalizedTransaction::try_from(&transaction.finalized)?,
-            proof_inputs: transaction.proof_inputs.to_bytes()?,
+            proof_inputs: transaction.proof_inputs.to_json(),
             public_hash: transaction.public_hash,
         })
     }
@@ -74,7 +73,7 @@ impl TryFrom<&transact::FinalizedTransaction> for FinalizedTransaction {
             output_utxos: finalized.output_utxos().to_vec(),
             output_hashes: finalized
                 .output_hashes()
-                .map_err(ClientErrorKind::Transaction)?
+                .map_err(fail)?
                 .into_iter()
                 .map(ByteArray::new)
                 .collect(),
@@ -86,14 +85,14 @@ impl TryFrom<&transact::FinalizedTransaction> for FinalizedTransaction {
             interface_transfers: finalized.interface_transfers().to_vec(),
             first_nullifier: finalized
                 .first_nullifier()
-                .map_err(ClientErrorKind::Transaction)?,
+                .map_err(fail)?,
             blinding_seed: *finalized.blinding_seed(),
             private_tx_blinding: finalized
                 .private_tx_blinding()
-                .map_err(ClientErrorKind::Transaction)?,
+                .map_err(fail)?,
             padding_independent_private_tx_hash: finalized
                 .padding_independent_private_tx_hash()
-                .map_err(ClientErrorKind::Transaction)?,
+                .map_err(fail)?,
             output_tree_id: finalized.output_tree_id(),
             payer: finalized.payer(),
             sender: *finalized.sender(),

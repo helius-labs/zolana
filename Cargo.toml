@@ -19,6 +19,8 @@ members = [
     "bench/tree",
     "cli",
     "sdk-libs/program",
+    "sdk-libs/circuit",
+    "sdk-libs/circuit/tests/xark-fixture",
     "sdk-libs/program/tests/wasm/program",
     "sdk-libs/macros",
     "sdk-libs/client",
@@ -85,11 +87,7 @@ zolana-tree = { path = "program-libs/tree", version = "0.1.0" }
 zolana-keypair = { path = "sdk-libs/keypair", version = "0.1.0" }
 zolana-instruction = { path = "sdk-libs/instruction", version = "0.1.0" }
 zolana-program = { path = "sdk-libs/program", version = "0.1.0" }
-# The zk crates live in helius-labs/zk-tools (zk-dsl/), pinned by rev.
-zolana-zk-dsl = { git = "https://github.com/helius-labs/zk-tools", rev = "56d6e53616c26a69130c51f9a9084829eef514bd" }
-zolana-zk-gadgets = { git = "https://github.com/helius-labs/zk-tools", rev = "56d6e53616c26a69130c51f9a9084829eef514bd" }
-zolana-zk-macros = { git = "https://github.com/helius-labs/zk-tools", rev = "56d6e53616c26a69130c51f9a9084829eef514bd" }
-zolana-zk-macros-core = { git = "https://github.com/helius-labs/zk-tools", rev = "56d6e53616c26a69130c51f9a9084829eef514bd" }
+zolana-circuit = { path = "sdk-libs/circuit", version = "0.1.0" }
 zolana-api = { path = "sdk-libs/zolana-api", version = "0.1.0", default-features = false }
 zolana-program-test = { path = "sdk-libs/program-test", version = "0.23.0" }
 zolana-transaction = { path = "sdk-libs/transaction", version = "0.1.0" }
@@ -361,7 +359,3 @@ opt-level = 3
 
 [profile.release]
 overflow-checks = true
-
-# Share the local hasher with the zk-tools git dependencies.
-[patch."https://github.com/helius-labs/zolana"]
-zolana-hasher = { path = "program-libs/hasher" }

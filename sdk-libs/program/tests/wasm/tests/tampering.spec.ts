@@ -1,48 +1,15 @@
-import { expect, test } from "./harness";
+import { test, expect } from "./harness";
 import { fixture, keyUrl } from "./fixtures";
-
-test("a proof with A and C swapped in either form, or checked against another public hash, fails", async ({
-  harness,
-}) => {
+test("the compiled circuit rejects public-hash, balance and ownership mutations", async ({ harness }) => {
   const data = fixture("escrow");
-  const result = await harness.page.evaluate(
-    async ({ url, data }) => {
-      const { transaction } = await window.zkProgram.transaction(
-        "escrow",
-        data.inputs,
-        data.sender,
-        data.payer,
-      );
-      const proof = await window.zkProgram.prove("escrow", "arkworks", url, transaction.proofInputs);
-      const swapped = { ...proof, proof: { a: proof.proof.c, b: proof.proof.b, c: proof.proof.a } };
-      const compressedSwapped = {
-        ...proof,
-        compressedProof: {
-          a: proof.compressedProof.c,
-          b: proof.compressedProof.b,
-          c: proof.compressedProof.a,
-        },
-      };
-      const otherHash = {
-        ...proof,
-        publicInputs: proof.publicInputs.map((input) =>
-          input.map((byte, index) => (index === 31 ? byte ^ 1 : byte)),
-        ),
-      };
-      return {
-        valid: await window.zkProgram.verify(data.verifyingKey, proof),
-        swapped: await window.zkProgram.verify(data.verifyingKey, swapped),
-        compressedSwapped: await window.zkProgram.verify(data.verifyingKey, compressedSwapped),
-        otherHash: await window.zkProgram.verify(data.verifyingKey, otherHash),
-      };
-    },
-    { url: keyUrl("escrow", "arkworks"), data },
-  );
-
-  expect(result).toEqual({
-    valid: true,
-    swapped: false,
-    compressedSwapped: false,
-    otherHash: false,
-  });
+  const outcomes = await harness.page.evaluate(async ({ data, url }) => {
+    const input = (await window.zkProgram.transaction("escrow", data.inputs, data.sender, data.payer)).transaction.proofInputs;
+    const changedHash = structuredClone(input); changedHash.public_hash = (BigInt(changedHash.public_hash) + 1n).toString();
+    const excessive = structuredClone(input); excessive.program.private.amount = 1001;
+    const changedOwner = structuredClone(input); changedOwner.program.private.token_utxos_asset_a[1].owner.key.bytes[0] ^= 1;
+    const out = [];
+    for (const altered of [changedHash, excessive, changedOwner]) out.push(await window.zkProgram.attempt("prove", "escrow", "streaming", url, altered));
+    return out;
+  }, { data, url: keyUrl("escrow", "streaming") });
+  for (const outcome of outcomes) expect(outcome).toHaveProperty("error");
 });

@@ -1,52 +1,45 @@
-use zolana_program::ZkProgramCircuit;
+use zolana_program::{input, Field, ZkProgram};
 use zolana_program::{
     circuit::{
-        Assert, CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo, PublicInputs,
+        require, require_eq, CheckedTransaction, ConfidentialTransaction, DataUtxo, PublicInputs,
         TokenUtxos, UtxoTrait,
     },
-    conversion::ProofInput,
     CircuitError, TxContext,
 };
-use zolana_transaction::WalletUtxo;
+use zolana_program::circuit::Utxo;
 
 use super::EscrowTerms;
 
-#[derive(Clone, ZkProgramCircuit)]
+#[input(no_derive)]
+#[derive(Clone, Debug, ZkProgram)]
+#[zk_program(path = "Withdraw")]
 pub struct Withdraw {
     pub private: WithdrawPrivateInputs,
     pub public: WithdrawPublicInputs,
 }
 
-#[derive(Clone, ProofInput)]
+#[input(no_derive)]
+#[derive(Clone, Debug)]
 pub struct WithdrawPrivateInputs {
     pub tx_context: TxContext,
-    pub escrow: WalletUtxo,
+    pub escrow: Utxo,
     pub terms: EscrowTerms,
 }
 
-#[derive(Clone, PublicInputs)]
+#[input(no_derive)]
+#[derive(Clone, Debug, PublicInputs)]
 pub struct WithdrawPublicInputs {
     pub unlock: u64,
-    pub owner_identity: [u8; 32],
+    pub owner_identity: Field,
 }
 
-#[deny(clippy::disallowed_types)]
-impl Circuit for WithdrawCircuit {
-    type Output = CheckedTransaction;
-
-    fn circuit(&self) -> Result<Self::Output, CircuitError> {
+impl Withdraw {
+    pub fn execute(&self) -> Result<CheckedTransaction, CircuitError> {
         let private = &self.private;
         let mut escrow = DataUtxo::new_mut(&private.escrow, &private.terms)?.close();
-        escrow
-            .amount()?
-            .assert_not_zero("the escrow utxo holds nothing")?;
-        escrow.creator.key().identity()?.assert_equal(
-            &self.public.owner_identity,
-            "the signer is not the escrow creator",
-        )?;
-        self.public
-            .unlock
-            .assert_equal(&escrow.unlock, "the unlock time is not the escrow's")?;
+        require(escrow.amount()? != 0);
+        require_eq(escrow.creator.key().identity()?, self.public.owner_identity);
+        require_eq(self.public.unlock, escrow.unlock);
         let mut payout = TokenUtxos::new_init(&escrow.creator, &escrow.asset());
         escrow.transfer_all(&mut payout)?;
 

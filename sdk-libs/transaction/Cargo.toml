@@ -7,9 +7,6 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-ark-bn254 = { version = "0.6", optional = true }
-zolana-zk-dsl = { workspace = true, optional = true, features = ["circuit"] }
-zolana-zk-gadgets = { workspace = true, optional = true }
 zolana-interface = { workspace = true }
 zolana-event = { workspace = true }
 zolana-hasher = { workspace = true }
@@ -26,13 +23,6 @@ tsify = { workspace = true, optional = true }
 wasm-bindgen = { workspace = true, optional = true }
 
 [features]
-# How mints and wallet utxos enter a zk circuit.
-circuit = [
-    "dep:ark-bn254",
-    "dep:zolana-zk-dsl",
-    "dep:zolana-zk-gadgets",
-    "zolana-keypair/circuit",
-]
 serde = ["dep:serde", "zolana-keypair/serde"]
 tsify = ["serde", "dep:tsify", "dep:wasm-bindgen", "zolana-keypair/tsify"]
 

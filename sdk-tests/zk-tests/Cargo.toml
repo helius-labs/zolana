@@ -17,5 +17,7 @@ solana-signer = { workspace = true }
 # The one implementation of the v1 header budget, so the test sends what the
 # SDK sends.
 zolana-client = { workspace = true }
-zolana-zk-dsl = { workspace = true, features = ["client", "setup"] }
+zolana-program = { workspace = true, features = ["client"] }
+zolana-circuit = { workspace = true }
+xark = { git = "https://github.com/blueshift-gg/xark", rev = "b443d83ea8ec7f2253610887e9690623ad048aef" }
 zolana-zk-standalone-fixture = { path = "../zk-standalone", features = ["circuits"] }

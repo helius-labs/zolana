@@ -1,44 +1,18 @@
-import { expect, test } from "./harness";
-import { fixture, type Program } from "./fixtures";
-
-const programs: Program[] = ["escrow", "withdraw"];
-
-for (const program of programs) {
-  test(`the ${program} transaction equals the native path field for field`, async ({
-    harness,
-  }) => {
+import { test, expect } from "./harness";
+import { fixture, keyUrl, type Program } from "./fixtures";
+for (const program of ["escrow", "withdraw"] as Program[]) {
+  test(`${program} streaming and resident proofs match native commitments and snarkjs`, async ({ harness }) => {
     const data = fixture(program);
-    const result = await harness.page.evaluate(
-      ({ program, data }) =>
-        window.zkProgram.transaction(program, data.inputs, data.sender, data.payer),
-      { program, data },
-    );
-    const transaction = {
-      finalizedTx: result.transaction.finalizedTx,
-      publicHash: result.transaction.publicHash,
-    };
-
-    expect({
-      transaction,
-      proofInputsSha256: result.proofInputsSha256,
-      encoding: result.encoding,
-    }).toEqual({
-      transaction: data.transaction,
-      proofInputsSha256: data.proofInputsSha256,
-      encoding: {
-        proofInputs: "Uint8Array",
-        publicHash: "Uint8Array",
-        outputHash: "Uint8Array",
-        outputAmount: "bigint",
-        outputBlinding: "Uint8Array",
-        inputLeafIndex: "bigint",
-        inputAssetId: "bigint",
-        inputOwner: "Uint8Array",
-        resolvedOwnerTag: "Uint8Array",
-        sender: "Uint8Array",
-        payer: "string",
-        outputTreeId: "number",
-      },
-    });
+    const result = await harness.page.evaluate(async ({ data, program, url }) => {
+      const input = (await window.zkProgram.transaction(program, data.inputs, data.sender, data.payer)).transaction.proofInputs;
+      const a = await window.zkProgram.prove(program, "streaming", url, input);
+      const b = await window.zkProgram.prove(program, "resident", url, input);
+      return { publicA: Array.from(a.publicInputs), publicB: Array.from(b.publicInputs),
+        independent: await window.zkProgram.verifyIndependent(program, a, data.transaction.publicHash),
+        resident: await window.zkProgram.verify(program, b) };
+    }, { data, program, url: keyUrl(program, "streaming") });
+    expect(result.publicA).toEqual(result.publicB);
+    expect(result.independent).toBe(true);
+    expect(result.resident).toBe(true);
   });
 }

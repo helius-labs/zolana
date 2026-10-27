@@ -1,7 +1,7 @@
 [package]
 name = "zolana-zk-standalone-fixture"
 version = "0.1.0"
-description = "Circuits built on the zk DSL and gadgets alone, without zolana-program, and the Solana program verifying them: pins that the derives, the DSL paths and the build work for standalone circuits."
+description = "A standalone Xark circuit and a Solana verifier for its public payout."
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -11,30 +11,20 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [features]
-default = ["insecure-test-setup"]
-# The committed verifying key comes from the deterministic test setup.
+default = ["insecure-test-setup", "circuits"]
 insecure-test-setup = []
-# The circuits and their prover, on the host. `zolana zk compile` builds the
-# circuits with this feature plus `r1cs-export`.
-circuits = [
-    "dep:solana-address",
-    "dep:zolana-zk-gadgets",
-    "zolana-zk-dsl/client",
-    "zolana-zk-dsl/setup",
-    "zolana-zk-dsl/serde",
-]
-r1cs-export = ["circuits", "zolana-zk-dsl/r1cs-export"]
-# The wasm package `zolana zk compile` builds: `withdrawalProofInputs`, and
-# with the prover features the build adds, `WithdrawalProver`.
-wasm = ["circuits", "zolana-zk-dsl/wasm"]
-# The SBF program's entrypoint, for `zolana build-zk-program --sbf-features`.
+circuits = ["dep:xark", "dep:zolana-circuit", "zolana-program/client"]
+r1cs-export = ["circuits"]
+wasm = ["circuits"]
 bpf-entrypoint = []
 
 [dependencies]
 pinocchio = { workspace = true }
-solana-address = { workspace = true, optional = true }
-zolana-zk-dsl = { workspace = true, features = ["verifier"] }
-zolana-zk-gadgets = { workspace = true, optional = true }
+zolana-program = { workspace = true, features = ["verifier"] }
+
+[target.'cfg(not(target_os = "solana"))'.dependencies]
+xark = { git = "https://github.com/blueshift-gg/xark", rev = "b443d83ea8ec7f2253610887e9690623ad048aef", optional = true }
+zolana-circuit = { workspace = true, optional = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }
@@ -49,3 +39,6 @@ required-features = ["circuits"]
 
 [lints.clippy]
 disallowed_types = "allow"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(xark)', 'cfg(xark_client)', 'cfg(target_os, values("solana"))'] }

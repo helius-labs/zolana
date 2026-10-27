@@ -9,7 +9,8 @@ const REPO_ROOT = resolve(PACKAGE_ROOT, "../../../..");
 const WEB_ROOT = join(PACKAGE_ROOT, "web");
 const FIXTURE_ROOT = join(PACKAGE_ROOT, "tests", "fixtures");
 const TARGET_ROOT = resolve(REPO_ROOT, process.env.CARGO_TARGET_DIR ?? "target");
-const KEY_ROOT = join(TARGET_ROOT, "zk-program-wasm-fixtures");
+const KEY_ROOT = join(TARGET_ROOT, "zk", "zolana-program-wasm-test-program");
+const XARK_ROOT = process.env.XARK_WASM_DIR ?? join(REPO_ROOT, ".tools/xark/crates/wasm");
 const PORT = Number(process.env.PORT ?? 4327);
 
 const CONTENT_TYPES = {
@@ -28,6 +29,7 @@ if (!existsSync(join(WEB_ROOT, "pkg", "wasm_test_program.js"))) {
 const MOUNTS = [
   ["/fixtures/", FIXTURE_ROOT],
   ["/keys/", KEY_ROOT],
+  ["/xark/", XARK_ROOT],
   ["/vendor/", join(PACKAGE_ROOT, "node_modules")],
 ];
 

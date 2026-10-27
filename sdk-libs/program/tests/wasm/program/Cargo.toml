@@ -9,6 +9,8 @@ name = "wasm_test_program"
 crate-type = ["cdylib", "rlib"]
 
 [features]
+circuits = []
+r1cs-export = ["zolana-program/r1cs-export"]
 wasm = ["zolana-program/wasm"]
 fixtures = [
     "wasm",
@@ -18,13 +20,14 @@ fixtures = [
 snarkjs = ["fixtures"]
 
 [dependencies]
+xark = { git = "https://github.com/blueshift-gg/xark", rev = "b443d83ea8ec7f2253610887e9690623ad048aef" }
 borsh = { workspace = true }
 solana-address = { workspace = true }
 zolana-program = { workspace = true, features = ["client"] }
-zolana-keypair = { workspace = true }
-zolana-transaction = { workspace = true }
 
 [dev-dependencies]
+zolana-keypair = { workspace = true, features = ["serde"] }
+zolana-transaction = { workspace = true, features = ["serde"] }
 hex = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -39,6 +42,9 @@ required-features = ["fixtures"]
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = ["-O4", "--enable-simd", "--enable-threads", "--enable-bulk-memory", "--enable-mutable-globals"]
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(xark)', 'cfg(xark_client)'] }
 
 [lints.clippy]
 disallowed_types = "allow"

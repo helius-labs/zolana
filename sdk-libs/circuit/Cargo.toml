@@ -1,0 +1,27 @@
+[package]
+name = "zolana-circuit"
+version = "0.1.0"
+edition = "2024"
+publish = false
+build = "build.rs"
+
+[dependencies]
+xark = { git = "https://github.com/blueshift-gg/xark", rev = "b443d83ea8ec7f2253610887e9690623ad048aef" }
+arrayvec = "0.7"
+borsh = { version = "1.6", features = ["derive"] }
+zolana-interface = { workspace = true }
+zolana-instruction = { workspace = true }
+zolana-hasher = { workspace = true }
+
+[build-dependencies]
+ark-bn254 = "0.5"
+ark-ff = "0.5"
+light-poseidon = "0.4"
+
+[dev-dependencies]
+ark-bn254 = "0.5"
+ark-ff = "0.5"
+light-poseidon = "0.4"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(xark)', 'cfg(xark_client)'] }

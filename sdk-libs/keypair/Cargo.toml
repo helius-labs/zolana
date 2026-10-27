@@ -8,10 +8,6 @@ repository.workspace = true
 
 [dependencies]
 x25519-dalek = { workspace = true }
-ark-bn254 = { version = "0.6", optional = true }
-borsh = { workspace = true, optional = true }
-zolana-zk-dsl = { workspace = true, optional = true, features = ["circuit"] }
-zolana-zk-gadgets = { workspace = true, optional = true }
 bs58 = { workspace = true }
 ed25519-dalek = { workspace = true }
 aes = { workspace = true }
@@ -31,8 +27,6 @@ tsify = { workspace = true, optional = true }
 wasm-bindgen = { workspace = true, optional = true }
 
 [features]
-# How shielded addresses enter a zk circuit.
-circuit = ["dep:ark-bn254", "dep:borsh", "dep:zolana-zk-dsl", "dep:zolana-zk-gadgets"]
 serde = ["dep:serde", "dep:serde_bytes"]
 tsify = ["serde", "dep:tsify", "dep:wasm-bindgen"]
 
