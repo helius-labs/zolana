@@ -1,9 +1,9 @@
 name: ring-compat
 
-# The custom ring happy path, built against this pull request's zolana.
+# The custom ring happy path on zolana main, the ring repository adopts a change by its own bump.
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
     paths:
       - "services/photon/**"
       - "prover/server/**"
@@ -33,11 +33,9 @@ jobs:
   enabled:
     name: ring compat / enabled
     runs-on: ubuntu-24.04
-    if: github.event.pull_request.draft == false
     outputs:
       enabled: ${{ steps.key.outputs.enabled }}
     steps:
-      # Fork pull requests get no secrets.
       - id: key
         env:
           RING_COMPAT_SSH_KEY: ${{ secrets.RING_COMPAT_SSH_KEY }}
@@ -59,7 +57,7 @@ jobs:
           ref: main
           ssh-key: ${{ secrets.RING_COMPAT_SSH_KEY }}
           persist-credentials: false
-      # This pull request takes the place of the ring repository's zolana submodule.
+      # This zolana commit takes the place of the ring repository's zolana submodule.
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           path: zolana
