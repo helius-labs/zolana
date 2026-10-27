@@ -500,6 +500,7 @@ jobs:
           version: ${{ env.SBF_TOOLS_VERSION }}
       - run: just test-zk-standalone-program
 
+  # Disabled in CI; run `just coverage` to collect coverage locally.
   # Line/region coverage over the library and binary crates: the program-libs,
   # the SDK crates, the CLI, forester, and photon. Informational — it renders a
   # summary table into the run's job summary and uploads lcov/HTML reports, but
@@ -511,7 +512,7 @@ jobs:
   coverage:
     name: coverage (llvm-cov)
     runs-on: ubuntu-latest
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    if: ${{ false }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: ./.github/actions/setup-rust
