@@ -40,14 +40,14 @@ pub struct CompileOptions {
     /// Cargo features of the wasm package.
     pub wasm_features: String,
     pub wasm_target: WasmTarget,
-    /// Prove on one thread: no thread pool, no cross-origin isolation and no
-    /// nightly toolchain.
+    /// Disable the JavaScript worker pool in the emitted runtime options.
     pub single_threaded: bool,
-    /// Toolchain for threaded builds; needs rust-src and the wasm32 target.
+    /// Obsolete: worker pools use the package's normal stable toolchain.
+    /// A nondefault value is rejected instead of selecting an unused toolchain.
     pub nightly: String,
     /// Build the package without the provers.
     pub no_prover: bool,
-    /// Also export `verifyProof`.
+    /// Also export the proof/key conversion helpers used by independent verifiers.
     pub verifier: bool,
     /// Run wasm-opt.
     pub wasm_opt: bool,

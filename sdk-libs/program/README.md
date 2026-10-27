@@ -43,7 +43,9 @@ No feature is on by default.
 | `verifier` | `no_std`: `VerifyError`, `public_hash` and `verify_groth16`, which the generated verifier modules call with a `CompressedProof`. `client` includes it. |
 | `parallel` | Proving on a rayon thread pool. |
 | `serde`, `tsify` | Serde and TypeScript types for the client types. |
-| `wasm`, `wasm-prover`, `wasm-threads`, `wasm-verify` | The wasm bindings, the wasm prover, its thread pool and a wasm verifier. |
+| `wasm` | JavaScript transaction and state-decoding bindings. |
+| `wasm-prover`, `wasm-threads` | Include Xark's proving runtime in the application's WASM module. JavaScript workers each load their own instance. |
+| `wasm-verify` | Proof and verifying-key conversion helpers for independent verification with snarkjs. |
 | `test-support` | Circuit diagnostics and internal inspection for SDK tests. |
 | `external-tools` | Test only: the unit suite's cross-checks that spawn circom and snarkjs. |
 
@@ -362,15 +364,49 @@ Rules a program keeps:
 
 ### `zolana_program::wasm` (feature `wasm`)
 
-The bindings a ZK program's wasm module exports to JavaScript, which `zolana zk compile`
-builds with wasm-pack: `ProgramTransaction`, `FinalizedTransaction` and `DataUtxo` as
-TypeScript types and a `<name>Transaction` function per program. The rest is the zk DSL's
-wasm runtime (`zolana_zk_dsl::wasm`), shared with standalone circuits: a `<Name>Prover` per
-program from a proving key or a zkey (feature `wasm-prover`) whose `prove` returns a `Proof`
-with `publicInputs` (a program has one, its public hash), `verifyProof` (feature
-`wasm-verify`), and `initProverThreads`, which starts a thread pool sized to the core count
-(feature `wasm-threads`). The TypeScript SDK's `decodeProgramTransaction` turns the
-transaction the module returns into SDK inputs and outputs.
+`zolana zk compile` builds the existing program crate with wasm-pack. Its module
+exports `ProgramTransaction`, `FinalizedTransaction` and `DataUtxo` TypeScript types,
+a `<name>Transaction` function per program, and state-decoding helpers. The TypeScript
+SDK's `decodeProgramTransaction` turns the returned transaction into SDK inputs and
+outputs.
+
+The default package directory is `<target>/zk/<package>/wasm/`. It contains the
+generated JavaScript/WASM/declarations, `runtime-options.json`, `xark/` pool scripts,
+and a `<circuit>/` directory of TypeScript client files per circuit. `--wasm-out`
+selects a different package directory. The build stages this package together before
+replacing the previous generation; circuit/key artifacts stay beside `wasm/`.
+
+The default build enables `wasm-prover` and includes Xark's runtime in that module,
+including `preloadStreaming`, `proveStreamingPreloaded` and `verify`. The build copies
+Xark's pool scripts into `xark/`; pass the combined glue URL or Node.js glue path to
+`createPool({ wasm })`. Browser proving with a pool runs inside a Web Worker and needs
+cross-origin isolation. Each pool worker initializes a separate WASM instance using
+the normal Rust toolchain.
+
+When using a generated circuit client, pass the initialized application module
+through Xark's existing `wasm` option so it does not load the stock prover module:
+
+```ts
+import init, * as runtime from "./wasm_test_program.js";
+import { Escrow } from "./escrow/escrow";
+
+await init();
+const prover = await Escrow.prover("/circuits/escrow/", { wasm: runtime });
+```
+
+`--single-threaded` writes `threads: false` in `runtime-options.json` for loaders to
+disable the pool. `--no-prover` builds the transaction/state bindings and also disables
+the pool. `--verifier` adds `proofToSnarkjs` and `verifyingKeyToSnarkjs`; Xark's `verify`
+is included with the proving runtime. `compressedProgramProof` remains available in
+the transaction-only build.
+
+`tools/xark/build.sh` prepares the pinned checkout and existing fixes. To use a local
+Xark branch, set `XARK_SOURCE` to its checkout; `XARK` can select a separate compiler
+executable. The build applies Cargo path overrides from that source to the application
+and generated circuit entries. The default compiler check retains the pinned revision;
+an explicit `XARK_SOURCE` permits a local compiler from the supported Xark 0.3.0 release.
+Combined prover builds check that the existing proof-randomness patch is applied to
+the selected source. A stock checkout must first be prepared with `tools/xark/build.sh`.
 
 ## Flow
 

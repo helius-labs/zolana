@@ -9,7 +9,7 @@ pub use options::*;
 
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::{fmt, fs, path::{Path, PathBuf}, process::Command};
+use std::{fmt, fs, io::Write, path::{Path, PathBuf}, process::{Command, Stdio}};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SetupKind { InsecureTest, SingleParty, Production }
@@ -67,19 +67,78 @@ fn output_dir(package: &Package, out: &Option<PathBuf>) -> PathBuf {
 
 fn compiler(package: &Package) -> Result<PathBuf> {
     let path = std::env::var_os("XARK").map(PathBuf::from).unwrap_or_else(|| {
+        if let Some(source) = std::env::var_os("XARK_SOURCE") {
+            return PathBuf::from(source).join("target/release/xark");
+        }
         let local = package.root.join(".tools/xark/target/release/xark");
         if local.is_file() { local } else { PathBuf::from("xark") }
     });
     let version = Command::new(&path).arg("--version").output()
         .map_err(|e| error(format!("Xark is required: run tools/xark/build.sh or set XARK ({e})")))?;
     let text = String::from_utf8_lossy(&version.stdout);
-    if !version.status.success() || !text.contains("0.3.0") || !text.contains("b443d83") {
-        return Err(error(format!("expected Xark 0.3.0 at b443d83, got {text}")));
+    let local_source = std::env::var_os("XARK_SOURCE").is_some();
+    if !version.status.success() || !text.contains("0.3.0") || (!local_source && !text.contains("b443d83")) {
+        return Err(error(format!("expected Xark 0.3.0{}; got {text}", if local_source { "" } else { " at b443d83" })));
     }
     Ok(path)
 }
 
-fn discover(package: &Package, out: &Path, features: &str) -> Result<Vec<ProgramMetadata>> {
+fn compiler_source(compiler: &Path) -> Result<Option<PathBuf>> {
+    if let Some(source) = std::env::var_os("XARK_SOURCE") {
+        return Ok(Some(fs::canonicalize(source)?));
+    }
+    let executable = match fs::canonicalize(compiler) {
+        Ok(executable) => executable,
+        Err(_) => return Ok(None),
+    };
+    Ok(executable.ancestors().skip(1).find(|directory| directory.join("crates/wasm/Cargo.toml").is_file()).map(Path::to_path_buf))
+}
+
+fn source_overrides(source: Option<&Path>) -> Result<String> {
+    let Some(source) = source else { return Ok(String::new()); };
+    let mut config = String::from("[patch.\"https://github.com/blueshift-gg/xark\"]\n");
+    for (name, directory) in [("xark", "lang"), ("xark-macros", "macros"), ("xark-ir", "ir"),
+        ("xark-prover", "prover"), ("xark-schema", "schema"), ("xark-groth16", "groth16"), ("xark-wasm", "wasm")] {
+        let directory = source.join("crates").join(directory);
+        if !directory.join("Cargo.toml").is_file() { return Err(error(format!("missing {name} in {}", source.display()))); }
+        let path = serde_json::to_string(directory.to_str().ok_or_else(|| error("non UTF-8 Xark source path"))?)?;
+        config.push_str(&format!("{name} = {{ path = {path} }}\n"));
+    }
+    Ok(config)
+}
+
+fn check_runtime_source(source: &Path) -> Result<()> {
+    let mut check = Command::new("git").arg("-C").arg(source)
+        .args(["apply", "--reverse", "--check", "-"])
+        .stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::piped()).spawn()?;
+    check.stdin.take().ok_or_else(|| error("cannot pass the randomness patch to git"))?
+        .write_all(include_bytes!("../../../../tools/xark/proof-randomness.patch"))?;
+    let checked = check.wait_with_output()?;
+    if !checked.status.success() {
+        return Err(error(format!("Xark source {} is missing the required proof-randomness fix; run tools/xark/build.sh with this checkout, then rebuild ({})", source.display(), String::from_utf8_lossy(&checked.stderr).trim())));
+    }
+    Ok(())
+}
+
+fn check_input_only(directory: &Path) -> Result<()> {
+    let mut declarations = false;
+    for file in fs::read_dir(directory)? {
+        let path = file?.path();
+        if path.file_name().is_some_and(|name| {
+            let name = name.to_string_lossy();
+            name.ends_with(".d.ts") && !name.ends_with(".wasm.d.ts")
+        }) {
+            declarations = true;
+            if fs::read_to_string(&path)?.contains("export function proveStreamingPreloaded(") {
+                return Err(error("--no-prover conflicts with a default or transitive feature that enables the Xark runtime; disable that feature in the package manifest or --wasm-features"));
+            }
+        }
+    }
+    if !declarations { return Err(error("wasm-pack generated no declarations to validate the --no-prover output")); }
+    Ok(())
+}
+
+fn discover(package: &Package, out: &Path, features: &str, source_config: &Path) -> Result<Vec<ProgramMetadata>> {
     let metadata = out.join(".metadata");
     fs::create_dir_all(&metadata)?;
     for file in fs::read_dir(&metadata)? {
@@ -87,7 +146,7 @@ fn discover(package: &Package, out: &Path, features: &str) -> Result<Vec<Program
         if file.extension().is_some_and(|extension| extension == "json") { fs::remove_file(file)?; }
     }
     let features = format!("{features},r1cs-export");
-    run(Command::new("cargo").args(["test", "--release", "--lib", "--manifest-path"]).arg(&package.manifest)
+    run(Command::new("cargo").args(["test", "--release", "--lib", "--config"]).arg(source_config).arg("--manifest-path").arg(&package.manifest)
         .args(["--features", &features, "__zk_export", "--", "--nocapture"])
         .env("ZOLANA_PROGRAM_EXPORT_DIR", fs::canonicalize(&metadata)?))?;
     let mut programs = Vec::new();
@@ -113,13 +172,13 @@ fn write_if_changed(path: &Path, bytes: impl AsRef<[u8]>) -> Result<()> {
     Ok(())
 }
 
-fn entry(package: &Package, out: &Path, program: &ProgramMetadata, features: &str) -> Result<PathBuf> {
+fn entry(package: &Package, out: &Path, program: &ProgramMetadata, features: &str, source_config: &str) -> Result<PathBuf> {
     let dir = out.join(".entries").join(&program.name);
     fs::create_dir_all(dir.join("src"))?;
     let path = serde_json::to_string(package.manifest.parent().unwrap().to_str().ok_or_else(|| error("non UTF-8 crate path"))?)?;
     let features = features.split(',').filter(|feature| !feature.is_empty())
         .map(serde_json::to_string).collect::<std::result::Result<Vec<_>, _>>()?.join(", ");
-    let manifest = format!("[package]\nname = \"zolana-generated-{}-{}\"\nversion = \"0.1.0\"\nedition = \"2024\"\npublish = false\n\n[workspace]\n\n[lib]\ncrate-type = [\"cdylib\", \"rlib\"]\n\n[dependencies]\nprogram = {{ package = \"{}\", path = {path}, features = [{features}] }}\nxark = {{ git = \"https://github.com/blueshift-gg/xark\", rev = \"b443d83ea8ec7f2253610887e9690623ad048aef\" }}\n\n[lints.rust]\nunexpected_cfgs = {{ level = \"warn\", check-cfg = [\"cfg(xark)\", \"cfg(xark_client)\"] }}\n", package.name, program.name, package.name);
+    let manifest = format!("[package]\nname = \"zolana-generated-{}-{}\"\nversion = \"0.1.0\"\nedition = \"2024\"\npublish = false\n\n[workspace]\n\n[lib]\ncrate-type = [\"cdylib\", \"rlib\"]\n\n[dependencies]\nprogram = {{ package = \"{}\", path = {path}, features = [{features}] }}\nxark = {{ git = \"https://github.com/blueshift-gg/xark\", rev = \"b443d83ea8ec7f2253610887e9690623ad048aef\" }}\n\n[lints.rust]\nunexpected_cfgs = {{ level = \"warn\", check-cfg = [\"cfg(xark)\", \"cfg(xark_client)\"] }}\n\n{source_config}", package.name, program.name, package.name);
     write_if_changed(&dir.join("Cargo.toml"), manifest)?;
     let source = format!("use xark::prelude::*;\n\n#[circuit]\npub fn r#{}(program: Private<program::{}>, public_hash: Public<Field>) {{\n    let checked = program.execute().expect(\"valid program transaction\");\n    require_eq(*checked.public_hash(), public_hash);\n}}\n", program.name, program.rust_type);
     write_if_changed(&dir.join("src/lib.rs"), source)?;
@@ -134,42 +193,99 @@ pub fn compile(options: &CompileOptions) -> Result<()> {
     let out = output_dir(&package, &options.r1cs_out);
     fs::create_dir_all(&out)?;
     let out = fs::canonicalize(out)?;
-    let programs = match discover(&package, &out, &options.r1cs_features) {
+    let xark = compiler(&package)?;
+    let source = compiler_source(&xark)?;
+    let source_config = source_overrides(source.as_deref())?;
+    let source_config_path = out.join(".xark-source.toml");
+    write_if_changed(&source_config_path, &source_config)?;
+    let programs = match discover(&package, &out, &options.r1cs_features, &source_config_path) {
         Ok(programs) => programs,
         Err(BuildError::NoCircuits(_)) => return compile_plain(&package, &out, options),
         Err(error) => return Err(error),
     };
-    let xark = compiler(&package)?;
     for program in &programs {
         let artifact = out.join(&program.name);
-        let entry = entry(&package, &out, program, &options.r1cs_features)?;
+        let entry = entry(&package, &out, program, &options.r1cs_features, &source_config)?;
         if !options.skip_r1cs || !artifact.join("circuit.xbc").is_file() {
             run(Command::new(&xark).arg("build").arg(&entry).arg("--out").arg(&artifact))?;
         }
         if !options.skip_keys { setup_one(&xark, &artifact, options.test)?; }
-        if !options.skip_wasm && !options.check {
-            let client_out = options.wasm_out.clone().unwrap_or_else(|| out.join("client")).join(&program.name);
-            fs::create_dir_all(&client_out)?;
-            run(Command::new(&xark).arg("client").arg(&artifact).arg("--out").arg(client_out))?;
-        }
         if !options.skip_keys && package.manifest.parent().unwrap().join("src/verifier").is_dir() {
             verifier::export(&package, &artifact, program, options.check)?;
         }
     }
-    if !options.skip_wasm && !options.check { bridge(&package, &out, options)?; }
+    if !options.skip_wasm && !options.check { bridge(&package, &out, options, source.as_deref(), &source_config_path, &xark, &programs)?; }
     Ok(())
 }
 
-fn bridge(package: &Package, out: &Path, options: &CompileOptions) -> Result<()> {
+fn bridge(package: &Package, out: &Path, options: &CompileOptions, source: Option<&Path>, source_config: &Path, xark: &Path, programs: &[ProgramMetadata]) -> Result<()> {
+    if options.nightly != CompileOptions::default().nightly {
+        return Err(error("--nightly no longer selects a toolchain: JavaScript pool workers use the normal Rust toolchain"));
+    }
+    if !options.no_prover && source.is_none() {
+        return Err(error("combined prover builds need the patched Xark source: set XARK_SOURCE to its checkout or run tools/xark/build.sh"));
+    }
+    if !options.no_prover {
+        if let Some(source) = source { check_runtime_source(source)?; }
+    }
     let directory = options.wasm_out.clone().unwrap_or_else(|| out.join("wasm"));
     let directory = std::path::absolute(directory)?;
-    let target = match options.wasm_target { WasmTarget::Web => "web", WasmTarget::Nodejs => "nodejs" };
+    let directory = if directory.exists() { fs::canonicalize(directory)? } else { directory };
+    if package.manifest.starts_with(&directory) || out.starts_with(&directory) {
+        return Err(error("wasm output cannot contain the program sources or circuit build directory"));
+    }
+    let parent = directory.parent().ok_or_else(|| error("wasm output needs a parent directory"))?;
+    fs::create_dir_all(parent)?;
+    let name = directory.file_name().ok_or_else(|| error("wasm output needs a directory name"))?.to_string_lossy();
+    let staging = parent.join(format!(".{name}.building-{}", std::process::id()));
+    let wasm_target = match options.wasm_target { WasmTarget::Web => "web", WasmTarget::Nodejs => "nodejs" };
+    let mut features = options.wasm_features.split(',').filter(|feature| !feature.is_empty()).map(str::to_owned).collect::<Vec<_>>();
+    if options.no_prover && features.iter().any(|feature| matches!(feature.as_str(), "wasm-prover" | "wasm-threads" | "zolana-program/wasm-prover" | "zolana-program/wasm-threads")) {
+        return Err(error("--no-prover conflicts with prover features in --wasm-features"));
+    }
+    if !options.no_prover { features.push("zolana-program/wasm-prover".into()); }
+    if options.verifier { features.push("zolana-program/wasm-verify".into()); }
+    features.sort();
+    features.dedup();
+    fs::create_dir(&staging)?;
     let mut command = Command::new("wasm-pack");
     command.arg("build").arg(package.manifest.parent().unwrap())
-        .args(["--release", "--target", target, "--no-pack", "--out-dir"]).arg(directory);
+        .args(["--release", "--target", wasm_target, "--no-pack", "--out-dir"]).arg(&staging);
     if !options.wasm_opt { command.arg("--no-opt"); }
-    command.arg("--features").arg(&options.wasm_features);
-    run(&mut command)
+    command.arg("--").arg("--features").arg(features.join(",")).arg("--config").arg(source_config);
+    let build = (|| -> Result<()> {
+        run(&mut command)?;
+        if options.no_prover { check_input_only(&staging)?; }
+        for program in programs {
+            let client_out = staging.join(&program.name);
+            fs::create_dir_all(&client_out)?;
+            run(Command::new(xark).arg("client").arg(out.join(&program.name)).arg("--no-functions").arg("--out").arg(client_out))?;
+        }
+        fs::write(staging.join("runtime-options.json"), serde_json::to_vec_pretty(&serde_json::json!({ "threads": options.threads() }))?)?;
+        if options.wasm_target == WasmTarget::Nodejs {
+            fs::write(staging.join("package.json"), "{\"type\":\"commonjs\"}\n")?;
+        }
+        if !options.no_prover {
+            if let Some(source) = source {
+                let pool = staging.join("xark");
+                fs::create_dir(&pool)?;
+                for file in ["pool.mjs", "pool-worker.mjs", "pool.d.ts", "client.mjs", "client.d.ts"] {
+                    fs::copy(source.join("crates/wasm/js").join(file), pool.join(file))?;
+                }
+            }
+        }
+        let previous = parent.join(format!(".{name}.previous-{}", std::process::id()));
+        let existed = directory.exists();
+        if existed { fs::rename(&directory, &previous)?; }
+        if let Err(failure) = fs::rename(&staging, &directory) {
+            if existed { fs::rename(&previous, &directory)?; }
+            return Err(error(failure));
+        }
+        if existed { fs::remove_dir_all(previous)?; }
+        Ok(())
+    })();
+    if staging.exists() { fs::remove_dir_all(staging)?; }
+    build
 }
 
 fn setup_one(xark: &Path, artifact: &Path, test: bool) -> Result<()> {

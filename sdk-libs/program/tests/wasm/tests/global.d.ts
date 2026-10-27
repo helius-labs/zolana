@@ -3,9 +3,10 @@ type PlainTransaction = { finalizedTx: Record<string, any>; proofInputs: Record<
 type Attempt<T> = { value?: T; error?: { name: string; message: string } };
 interface ProgramHarness {
   moduleLoadMs: number;
-  workerInfo(): Promise<{ crossOriginIsolated: boolean; threads: number }>;
+  workerInfo(): Promise<{ crossOriginIsolated: boolean; threads: number; stats?: { fftCalls: number; msmCalls: number } }>;
   transaction(program: string, inputs: unknown, sender: number[], payer: string): Promise<{ transaction: PlainTransaction }>;
   prove(program: string, format: string, url: string, inputs: Record<string, any>): Promise<PlainProof>;
+  proveWithClient(program: string, inputs: Record<string, unknown>): Promise<boolean>;
   verify(program: string, proof: PlainProof): Promise<boolean>;
   verifyIndependent(program: string, proof: PlainProof, publicHash: number[]): Promise<boolean>;
   attempt<T>(method: string, ...args: unknown[]): Promise<Attempt<T>>;

@@ -3,7 +3,7 @@ set -euo pipefail
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 xark_revision=b443d83ea8ec7f2253610887e9690623ad048aef
-xark_checkout=${1:-"$repo_root/.tools/xark"}
+xark_checkout=${1:-${XARK_SOURCE:-"$repo_root/.tools/xark"}}
 
 if [[ ! -e "$xark_checkout/.git" ]]; then
     mkdir -p "$(dirname "$xark_checkout")"
@@ -11,7 +11,7 @@ if [[ ! -e "$xark_checkout/.git" ]]; then
     git -C "$xark_checkout" checkout --detach "$xark_revision"
 fi
 
-if [[ $(git -C "$xark_checkout" rev-parse HEAD) != "$xark_revision" ]]; then
+if [[ $# -eq 0 && -z ${XARK_SOURCE:-} && $(git -C "$xark_checkout" rev-parse HEAD) != "$xark_revision" ]]; then
     echo "Xark checkout must be at $xark_revision: $xark_checkout" >&2
     exit 1
 fi
@@ -25,3 +25,4 @@ done
 
 cargo build --release --manifest-path "$xark_checkout/Cargo.toml" -p xark-cli
 "$xark_checkout/target/release/xark" --version
+echo "Xark source: $xark_checkout (set XARK_SOURCE to select this checkout for zk compile)"

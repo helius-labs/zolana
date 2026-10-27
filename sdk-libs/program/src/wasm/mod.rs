@@ -1,5 +1,9 @@
 //! Browser transaction construction; proof generation is supplied by Xark.
 
+/// Xark's proving runtime, linked into the application's existing WASM module.
+#[cfg(all(feature = "wasm-prover", target_arch = "wasm32"))]
+pub use xark_wasm as runtime;
+
 mod types;
 pub use types::{DataUtxo, FinalizedTransaction, OwnerTag, ProgramTransaction, ResolvedOwnerTag};
 
@@ -64,11 +68,13 @@ pub fn compressed_program_proof(proof: &[u8]) -> Result<Vec<u8>, JsValue> {
     wincode::serialize(&proof).map_err(js)
 }
 
+#[cfg(feature = "wasm-verify")]
 #[wasm_bindgen(js_name = proofToSnarkjs)]
 pub fn proof_to_snarkjs(proof: &[u8]) -> Result<JsValue, JsValue> {
     to_js(&crate::proof::snarkjs_proof(proof).map_err(js)?)
 }
 
+#[cfg(feature = "wasm-verify")]
 #[wasm_bindgen(js_name = verifyingKeyToSnarkjs)]
 pub fn verifying_key_to_snarkjs(key: &[u8]) -> Result<JsValue, JsValue> {
     to_js(&crate::proof::snarkjs_verifying_key(key).map_err(js)?)

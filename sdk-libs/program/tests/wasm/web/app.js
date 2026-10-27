@@ -5,7 +5,9 @@ await init();
 const moduleLoadMs = performance.now() - start;
 const fixtures = Object.fromEntries(await Promise.all(["escrow", "withdraw"].map(async name => [name, await (await fetch(`/fixtures/${name}.json`)).json()])));
 const methods = { escrow: wasm.escrowTransaction, withdraw: wasm.withdrawTransaction };
-const worker = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
+const workerUrl = new URL("./worker.js", import.meta.url);
+workerUrl.search = window.location.search;
+const worker = new Worker(workerUrl, { type: "module" });
 const requests = new Map();
 let sequence = 0;
 worker.onmessage = ({ data }) => {
@@ -40,6 +42,7 @@ const api = {
     return library.groth16.verify(vk, [signal], value);
   },
   prove: (program, format, url, inputs) => call("prove", program, format, url, inputs),
+  proveWithClient: (program, inputs) => call("proveWithClient", program, inputs),
   verify: (program, proof) => call("verify", program, proof),
   timeKeyLoad: (program, format, url) => call("timeKeyLoad", program, format, url),
   timeProof: (program, format, url, inputs) => call("timeProof", program, format, url, inputs),

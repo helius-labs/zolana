@@ -1,6 +1,6 @@
 import { test, expect } from "./harness";
-test("the SDK bridge exports transactions and state decoding while Xark owns proving", async ({ harness }) => {
+test("one application module exports SDK transactions and the Xark runtime", async ({ harness }) => {
   const names = await harness.page.evaluate(async () => Object.keys(await import("/pkg/wasm_test_program.js")));
-  expect(names).toEqual(expect.arrayContaining(["escrowTransaction", "withdrawTransaction", "escrowTermsDataUtxo", "compactCounterDataUtxo", "compressedProgramProof"]));
+  expect(names).toEqual(expect.arrayContaining(["escrowTransaction", "withdrawTransaction", "escrowTermsDataUtxo", "compactCounterDataUtxo", "compressedProgramProof", "preloadStreaming", "proveStreamingPreloaded", "Schema", "VerifyingKey", "StreamingProof", "KeyTranscoder", "kernel_cols", "kernel_rows", "kernel_msm", "kernel_decompress"]));
   expect(names).not.toContain("EscrowProver");
 });

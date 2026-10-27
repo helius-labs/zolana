@@ -12,6 +12,8 @@ crate-type = ["cdylib", "rlib"]
 circuits = []
 r1cs-export = ["zolana-program/r1cs-export"]
 wasm = ["zolana-program/wasm"]
+wasm-prover = ["wasm", "zolana-program/wasm-prover"]
+wasm-verify = ["wasm", "zolana-program/wasm-verify"]
 fixtures = [
     "wasm",
     "zolana-program/setup",

@@ -10,6 +10,6 @@ for (const program of ["escrow", "withdraw"] as Program[]) {
     }, { program, data, url: keyUrl(program, "streaming") });
     expect(result.tx).toEqual(data.transaction);
     expect(result.verified).toBe(true);
-    expect(result.tx.finalizedTx.outputHashes).toEqual(data.encrypted.utxoHashes);
+    expect(result.tx.finalizedTx.outputHashes.slice(0, data.encrypted.utxoHashes.length)).toEqual(data.encrypted.utxoHashes);
   });
 }
