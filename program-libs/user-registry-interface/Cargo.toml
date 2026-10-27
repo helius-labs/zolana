@@ -1,10 +1,11 @@
 [package]
 name = "spr-user-registry-interface"
 version = "0.1.0"
+description = "Account types and instructions for the SPR user registry."
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-publish = false
+publish = ["crates-io"]
 
 [features]
 default = []

@@ -1,8 +1,11 @@
 [package]
 name = "spr-macros"
 version = "0.1.0"
+description = "Derive macros for SPR zero-knowledge programs."
 edition.workspace = true
-publish = false
+license.workspace = true
+repository.workspace = true
+publish = ["crates-io"]
 
 [lib]
 proc-macro = true

@@ -6,6 +6,8 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+publish = ["crates-io"]
+
 [features]
 default = []
 # `localnet`: boot a surfpool validator and Photon through the `zolana` CLI and

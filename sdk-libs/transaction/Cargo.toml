@@ -6,6 +6,8 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+publish = ["crates-io"]
+
 [dependencies]
 ark-bn254 = { version = "0.6", optional = true }
 spr-zk-dsl = { workspace = true, optional = true, features = ["circuit"] }

@@ -7,6 +7,8 @@ repository.workspace = true
 license.workspace = true
 edition = "2021"
 
+publish = ["crates-io"]
+
 [features]
 default = ["std", "msg"]
 std = []

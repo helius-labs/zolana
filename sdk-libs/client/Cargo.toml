@@ -7,6 +7,8 @@ license.workspace = true
 repository.workspace = true
 autotests = false
 
+publish = ["crates-io"]
+
 [features]
 default = ["reqwest"]
 # The `reqwest` HTTP clients: the prover clients' `new` and `local`, proxies

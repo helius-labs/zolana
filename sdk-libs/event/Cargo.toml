@@ -5,7 +5,7 @@ description = "Locate shielded-pool events in a transaction and rebuild the inde
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-publish = false
+publish = ["crates-io"]
 
 [dependencies]
 borsh = { workspace = true }

@@ -6,6 +6,8 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+publish = ["crates-io"]
+
 [lib]
 name = "spr_instruction"
 

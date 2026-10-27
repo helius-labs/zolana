@@ -7,6 +7,8 @@ license.workspace = true
 repository.workspace = true
 
 
+publish = ["crates-io"]
+
 [dependencies]
 spr-hasher = { workspace = true }
 thiserror = { workspace = true }

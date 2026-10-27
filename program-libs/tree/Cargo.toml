@@ -1,10 +1,11 @@
 [package]
 name = "spr-tree"
 version = "0.1.0"
+description = "Merkle tree accounts and nullifier trees for the SPR protocol."
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-publish = false
+publish = ["crates-io"]
 
 [features]
 default = []

@@ -1,10 +1,11 @@
 [package]
 name = "spr-interface"
 version = "0.1.0"
+description = "Shared instructions, account layouts, and verification interfaces for the SPR shielded pool."
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-publish = false
+publish = ["crates-io"]
 
 [features]
 default = ["verifying-keys", "tree"]
