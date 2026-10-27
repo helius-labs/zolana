@@ -43,9 +43,11 @@ import {
 } from "../src/transaction/index.js";
 import {
   EncryptedScheme,
+  encodeAnonymousRecipient,
   encodeOutputData,
   encodeProofless,
   encodeSplitBundle,
+  encryptAnonymous,
   encryptConfidential,
   encryptSplit,
   readOutputData,
@@ -55,7 +57,6 @@ import {
   encryptMergeOutput,
 } from "../src/transaction/serialization/merge.js";
 import { encodeRingDepositPlaintext } from "../src/transaction/serialization/ring-deposit.js";
-import { SOL_ASSET_ID } from "../src/transaction/asset.js";
 import {
   anonymousRecipientUtxo,
   anonymousSenderFromUtxos,
@@ -1636,9 +1637,9 @@ describe("wallet sync", () => {
   });
 
   it("classifies an anonymous send whose only recipient is this wallet as a self transfer", async () => {
-    // The anonymous rail carries its recipient list in the sender's own change
-    // slot, so the sender-side row is classified from that list. It used to be
-    // hardcoded outbound while the matching receipt already said selfTransfer.
+    // The anonymous rail carries its recipient list in the sender bundle
+    // message, so the sender-side row is classified from that list. It used to
+    // be hardcoded outbound while the matching receipt already said selfTransfer.
     const keypair = ShieldedKeypair.generate();
     const identity = keypair.shieldedAddress();
     const wallet = new Wallet({ identity });
@@ -1668,14 +1669,14 @@ describe("wallet sync", () => {
     const outputSeed = outputBlindingSeed(nullifier, bytes(32));
     const change = anonymousSenderUtxos(
       {
-        ownerPublicKey: keypair.signingPublicKey(),
-        splAssetId: 0n,
-        splAmount: 0n,
-        solAmount: 60n,
-        blindingSeed: outputSeed,
-        recipientViewingPublicKeys: [keypair.viewingPublicKey()],
-        splData: new Data(),
-        solData: new Data(),
+        verified: {
+          ownerPublicKey: keypair.signingPublicKey(),
+          splMint: SOL_MINT,
+          splAmount: 0n,
+          solAmount: 60n,
+          recipientViewingPublicKeys: [keypair.viewingPublicKey()],
+        },
+        unverified: { blindingSeed: outputSeed, splData: new Data(), solData: new Data() },
       },
       wallet.registry,
       SOL_MINT,
@@ -1691,12 +1692,12 @@ describe("wallet sync", () => {
       },
     );
     const recipientPlaintext = {
-      ownerPublicKey: keypair.signingPublicKey(),
-      senderPublicKey: keypair.viewingPublicKey(),
-      assetId: SOL_ASSET_ID,
-      amount: 40n,
-      blinding: bytes(33),
-      data: new Data(),
+      verified: { ownerPublicKey: keypair.signingPublicKey(), mint: SOL_MINT, amount: 40n },
+      unverified: {
+        senderPublicKey: keypair.viewingPublicKey(),
+        blinding: bytes(33),
+        data: new Data(),
+      },
     };
     const recipientUtxo = anonymousRecipientUtxo(recipientPlaintext, wallet.registry);
 
@@ -1718,9 +1719,13 @@ describe("wallet sync", () => {
           plaintext: recipientPlaintext,
         },
       ],
+      outputCount: change.length + 1,
     });
     txKey!.destroy();
-    const slotUtxos = [...change, recipientUtxo];
+    const outputs = [
+      ...change.map((utxo) => ({ utxo, message: undefined })),
+      ...envelope.payload.recipients.map((message) => ({ utxo: recipientUtxo, message })),
+    ];
 
     await decryptWithKeys(keys, {
       wallet,
@@ -1730,16 +1735,16 @@ describe("wallet sync", () => {
           txSignature: SIGNATURE,
           txViewingPublicKey: envelope.txViewingPublicKey,
           salt: envelope.salt,
-          outputSlots: envelope.payload.map((slot, index) => ({
-            viewTag: slot?.viewTag ?? bytes(0),
+          outputSlots: outputs.map(({ utxo, message }, index) => ({
+            viewTag: message?.viewTag ?? bytes(0),
             outputContext: {
-              hash: slotUtxos[index]!.hash(keypair.nullifierPublicKey(), DEFAULT_TREE_ID),
+              hash: utxo.hash(keypair.nullifierPublicKey(), DEFAULT_TREE_ID),
               tree: TREE,
               leafIndex: BigInt(index + 1),
             },
-            payload: slot?.data ?? new Uint8Array(),
+            payload: message?.data ?? new Uint8Array(),
           })),
-          messages: [],
+          messages: [envelope.payload.sender],
           nullifiers: [nullifier],
           proofless: false,
         },
@@ -1755,6 +1760,64 @@ describe("wallet sync", () => {
       .filter((row) => row.kind === "privateTransfer" && row.amount === 40n);
     expect(moved.map((row) => row.direction)).toEqual(["selfTransfer", "selfTransfer"]);
     expect(wallet.privateTransactions().filter((row) => row.direction === "outbound")).toEqual([]);
+  });
+
+  it("reports an anonymous receipt's mint until the registry binds it", async () => {
+    const recipient = ShieldedKeypair.generate();
+    const sender = ShieldedKeypair.generate();
+    const salt = new Uint8Array(16).fill(3) as Bytes16;
+    const output = new Utxo({
+      owner: recipient.signingPublicKey(),
+      asset: SPL_MINT,
+      amount: 7n,
+      blinding: bytes(31),
+    });
+    const plaintext = encodeAnonymousRecipient({
+      verified: { ownerPublicKey: output.owner, mint: SPL_MINT, amount: output.amount },
+      unverified: {
+        senderPublicKey: sender.viewingPublicKey(),
+        blinding: output.blinding,
+        data: new Data(),
+      },
+    });
+    const transaction = {
+      slot: 2n,
+      txSignature: SIGNATURE,
+      txViewingPublicKey: sender.viewingPublicKey(),
+      salt,
+      outputSlots: [
+        {
+          viewTag: recipient.viewingKey().recipientBootstrapViewTag(),
+          outputContext: {
+            hash: output.hash(recipient.nullifierPublicKey(), DEFAULT_TREE_ID),
+            tree: TREE,
+            leafIndex: 0n,
+          },
+          payload: encodeOutputData(
+            EncryptedScheme.anonymousRecipient,
+            encryptAnonymous(sender, recipient.viewingPublicKey(), plaintext, salt, 0),
+            "encrypted",
+          ),
+        },
+      ],
+      messages: [],
+      nullifiers: [bytes(5)],
+      proofless: false,
+    };
+    const sync = (registry: AssetRegistry) => {
+      const wallet = new Wallet({ identity: recipient.shieldedAddress(), registry });
+      return decryptWithKeys(LocalShieldedKeys.fromKeypair(recipient), {
+        wallet,
+        transactions: [transaction],
+      }).then((report) => ({ report, utxos: wallet.utxos() }));
+    };
+
+    const unbound = await sync(new AssetRegistry());
+    expect(unbound.report).toMatchObject({ storedUtxos: 0, unknownMints: [SPL_MINT] });
+    expect(unbound.utxos).toEqual([]);
+    const bound = await sync(new AssetRegistry([[2n, SPL_MINT]]));
+    expect(bound.report).toMatchObject({ storedUtxos: 1, unknownMints: [] });
+    expect(bound.utxos.map((entry) => entry.utxo.asset)).toEqual([SPL_MINT]);
   });
 
   it("stores an inbound ring confidential output with its ring", async () => {

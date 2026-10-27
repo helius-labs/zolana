@@ -98,6 +98,7 @@ export {
 } from "./wallet/index.js";
 export type {
   AnonymousRecipientSlot,
+  AnonymousTransferPayload,
   ApprovalRequest,
   AssetBalance,
   DecodedProgramTransaction,
@@ -105,6 +106,7 @@ export type {
   DecryptRequest,
   DeriveRequest,
   PrivateBalances,
+  EncryptedAnonymousTransfer,
   EncryptedEnvelope,
   EncryptedSplit,
   EncryptedTransfer,
@@ -181,6 +183,10 @@ export {
   type ProoflessOutput,
   type SplitEncryptedUtxos,
   type TransferPlaintextUtxos,
+  type UnverifiedRecipientPlaintext,
+  type UnverifiedSenderPlaintext,
+  type VerifiedRecipientPlaintext,
+  type VerifiedSenderPlaintext,
 } from "./serialization/index.js";
 
 export { VIEW_TAG_LENGTH as VIEW_TAG_LEN } from "../keypair/constants.js";

@@ -12,6 +12,8 @@ export {
   encryptConfidentialTransfer,
   encryptSplit,
   type AnonymousRecipientSlot,
+  type AnonymousTransferPayload,
+  type EncryptedAnonymousTransfer,
   type EncryptedEnvelope,
   type EncryptedSplit,
   type EncryptedTransfer,

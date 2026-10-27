@@ -5,14 +5,20 @@ import type { Bytes32, Bytes64 } from "../src/interface/index.js";
 import { ShieldedKeypair, SigningKey, ViewingKey } from "../src/keypair/index.js";
 import {
   Data,
+  EncryptedScheme,
   LocalShieldedKeys,
   createProofOutput,
+  decodeOutputData,
   encryptAnonymousTransfer,
   encryptConfidentialTransfer,
   encryptSplit,
   type ShieldedKeys,
 } from "../src/transaction/index.js";
 import { AssetRegistry, SOL_MINT } from "../src/transaction/asset.js";
+import {
+  encodeAnonymousRecipient,
+  encodeAnonymousSender,
+} from "../src/transaction/serialization/index.js";
 import { withTransactionKey } from "../src/wallet/private-transaction.js";
 
 function filled(value: number): Bytes32 {
@@ -96,16 +102,17 @@ describe("encrypt rails run under a per-transaction key that is wiped after them
           viewingPublicKey: keys.address().viewingPublicKey,
           senderViewTag: filled(2),
           sender: {
-            ownerPublicKey: recipient.signingPublicKey(),
-            splAssetId: 0n,
-            splAmount: 0n,
-            solAmount: 5n,
-            blindingSeed: filled(4),
-            recipientViewingPublicKeys: [recipient.viewingPublicKey()],
-            splData: new Data(),
-            solData: new Data(),
+            verified: {
+              ownerPublicKey: recipient.signingPublicKey(),
+              splMint: SOL_MINT,
+              splAmount: 0n,
+              solAmount: 5n,
+              recipientViewingPublicKeys: [recipient.viewingPublicKey()],
+            },
+            unverified: { blindingSeed: filled(4), splData: new Data(), solData: new Data() },
           },
           recipients: [],
+          outputCount: 2,
         }),
       );
       expectWiped(minted);
@@ -164,5 +171,73 @@ describe("encrypt rails run under a per-transaction key that is wiped after them
       }),
     ).rejects.toThrow("refused");
     expectWiped(minted);
+  });
+});
+
+describe("anonymous transfer ciphertext slots", () => {
+  it("seals recipients after the change outputs and the sender message at the output count", async () => {
+    const owner = ShieldedKeypair.fromKeypair(signingKey());
+    const keys = LocalShieldedKeys.fromKeypair(owner);
+    const recipients = [ShieldedKeypair.generate(), ShieldedKeypair.generate()];
+    const sender = {
+      verified: {
+        ownerPublicKey: owner.signingPublicKey(),
+        splMint: getAddressDecoder().decode(filled(9)),
+        splAmount: 3n,
+        solAmount: 5n,
+        recipientViewingPublicKeys: recipients.map((recipient) => recipient.viewingPublicKey()),
+      },
+      unverified: { blindingSeed: filled(4), splData: new Data(), solData: new Data() },
+    };
+    const slots = recipients.map((recipient, index) => ({
+      viewTag: filled(20 + index),
+      recipientPublicKey: recipient.viewingPublicKey(),
+      plaintext: {
+        verified: { ownerPublicKey: recipient.signingPublicKey(), mint: SOL_MINT, amount: 1n },
+        unverified: {
+          senderPublicKey: owner.viewingPublicKey(),
+          blinding: filled(30 + index),
+          data: new Data(),
+        },
+      },
+    }));
+    const seal = (outputCount: number) =>
+      withTransactionKey(keys, filled(1), (tx) =>
+        encryptAnonymousTransfer(tx, {
+          viewingPublicKey: owner.viewingPublicKey(),
+          senderViewTag: filled(2),
+          sender,
+          recipients: slots,
+          outputCount,
+        }),
+      );
+    await expect(seal(3)).rejects.toMatchObject({
+      code: "TRANSACTION_TOO_MANY_OUTPUTS_FOR_SHAPE",
+      details: { got: 4, max: 3 },
+    });
+    // Two dummy outputs pad the four real ones.
+    const envelope = await seal(6);
+    const open = (key: ViewingKey, data: Uint8Array, slot: number) =>
+      key.decryptUtxo(
+        decodeOutputData(data).body,
+        envelope.txViewingPublicKey,
+        envelope.salt,
+        slot,
+      );
+
+    expect(envelope.payload.recipients.map((message) => message.viewTag)).toEqual(
+      slots.map((slot) => slot.viewTag),
+    );
+    for (const [index, message] of envelope.payload.recipients.entries()) {
+      const key = recipients[index]!.viewingKey();
+      const plaintext = encodeAnonymousRecipient(slots[index]!.plaintext);
+      expect(open(key, message.data, 2 + index)).toEqual(plaintext);
+      expect(open(key, message.data, 1 + index)).not.toEqual(plaintext);
+    }
+    const { viewTag, data } = envelope.payload.sender;
+    expect(viewTag).toEqual(filled(2));
+    expect(decodeOutputData(data).scheme).toBe(EncryptedScheme.anonymousSender);
+    expect(open(owner.viewingKey(), data, 6)).toEqual(encodeAnonymousSender(sender));
+    expect(open(owner.viewingKey(), data, 4)).not.toEqual(encodeAnonymousSender(sender));
   });
 });

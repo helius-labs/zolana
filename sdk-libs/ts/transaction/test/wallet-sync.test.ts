@@ -135,9 +135,9 @@ function reportRow(value: unknown): SyncReport {
     unparsedTransactions: Number(fixtureString(report, "unparsedTransactions")),
     undecryptableCandidates: Number(fixtureString(report, "undecryptableCandidates")),
     unknownAssetIds: fixtureArray(report, "unknownAssetIds").map((entry) => BigInt(String(entry))),
-    // These fixtures predate merge-field recovery; no case contains an
-    // unresolved merge asset.
+    // No fixture case holds an unresolved merge asset or mint.
     unknownAssetFields: [],
+    unknownMints: [],
   };
 }
 

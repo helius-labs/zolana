@@ -178,12 +178,8 @@ const serialization = readJson("transaction/serialization-v1.json");
   );
 
   const anonymousRecipient = {
-    ownerPublicKey: recipient.signingPublicKey(),
-    senderPublicKey: keypair.viewingPublicKey(),
-    assetId: 1n,
-    amount: 19n,
-    blinding: blinding(2),
-    data,
+    verified: { ownerPublicKey: recipient.signingPublicKey(), mint: SOL_MINT, amount: 19n },
+    unverified: { senderPublicKey: keypair.viewingPublicKey(), blinding: blinding(2), data },
   };
   const recipientBytes = encodeAnonymousRecipient(anonymousRecipient);
   const recipientBody = encryptAnonymous(tx, recipient.viewingPublicKey(), recipientBytes, salt, 1);
@@ -203,14 +199,14 @@ const serialization = readJson("transaction/serialization-v1.json");
   );
 
   const anonymousSender = {
-    ownerPublicKey: keypair.signingPublicKey(),
-    splAssetId: 0n,
-    splAmount: 0n,
-    solAmount: 36n,
-    blindingSeed: outputSeed,
-    recipientViewingPublicKeys: [recipient.viewingPublicKey()],
-    splData: new Data(),
-    solData: data,
+    verified: {
+      ownerPublicKey: keypair.signingPublicKey(),
+      splMint: SOL_MINT,
+      splAmount: 0n,
+      solAmount: 36n,
+      recipientViewingPublicKeys: [recipient.viewingPublicKey()],
+    },
+    unverified: { blindingSeed: outputSeed, splData: new Data(), solData: data },
   };
   const senderBytes = encodeAnonymousSender(anonymousSender);
   const senderBody = encryptAnonymous(tx, keypair.viewingPublicKey(), senderBytes, salt, 2);

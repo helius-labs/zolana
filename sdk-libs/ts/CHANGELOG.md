@@ -6,11 +6,15 @@ Packages that extend the protocol build on this one through an entry point
 outside semver, and the prover and indexer clients carry the requests such a
 package defines. External wallets use `ed25519DerivationMessage(publicKey)` to
 derive their shielded identity. The bare-payload helper is removed because its
-signatures are rejected by the wallet keys constructors.
+signatures are rejected by the wallet keys constructors. Anonymous transfers
+carry the token mint and publish the sender bundle as the first transaction
+message.
 
 Breaking
 
 - `ed25519DerivationPayload()` is removed → sign the exact bytes from `ed25519DerivationMessage(publicKey)` and pass the signature to `LocalKeys.fromDerivationSeed()`.
+- `AnonymousRecipientPlaintext` and `AnonymousSenderPlaintext` group their fields under `verified` and `unverified` and name the token by `mint` and `splMint` instead of an asset id, so anonymous transfers do not decode across this and earlier versions → build them in the new shape, with the zero address as `splMint` when there is no SPL change, and upgrade sending and receiving wallets together.
+- `encryptAnonymousTransfer` takes the transaction's `outputCount` and returns an `EncryptedAnonymousTransfer` with one `payload.recipients` ciphertext per recipient output and the sender bundle as the `payload.sender` message, and `syncWallet` reads a sender bundle only from the transaction messages → pass the output count with dummy outputs included, publish the change outputs first with no ciphertext and the recipient outputs after them, and send `payload.sender` as the first transaction message.
 
 Added
 
@@ -21,6 +25,9 @@ Added
   prover refusal through a `ProverRefusal` of the caller, and
   `checkProvingKeys` checks key pins the caller passes, so another package
   proves and indexes over the same transports.
+- `SyncReport.unknownMints` lists the anonymous transfer mints the wallet's
+  registry does not bind, and `syncWallet` fails without moving its cursors
+  until the shielded pool registers them.
 
 ## 0.5.0-alpha — 2026-10-23
 

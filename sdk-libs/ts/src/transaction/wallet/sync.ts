@@ -1,3 +1,5 @@
+import { isAddress } from "@solana/kit";
+
 import { equalBytes, bytesKey } from "../../interface/bytes.js";
 import { mergePaddedInputCount } from "../../interface/constants.js";
 import type { Address, Bytes16, Bytes32, Bytes33, RequestContext } from "../../interface/types.js";
@@ -109,6 +111,17 @@ interface Site {
   readonly slot: number;
 }
 
+interface MessageSite {
+  readonly transaction: number;
+  readonly message: number;
+}
+
+type UnknownAssets = Readonly<{
+  ids: Set<bigint>;
+  fields: Map<string, Bytes32>;
+  mints: Set<Address>;
+}>;
+
 /**
  * Where each view tag the fetched slots carry can be opened, split the way a
  * wallet reads them: a sender bundle covers the whole transaction, every other
@@ -117,6 +130,7 @@ interface Site {
  */
 interface TagIndex {
   readonly senderSites: ReadonlyMap<string, readonly number[]>;
+  readonly senderMessages: ReadonlyMap<string, readonly MessageSite[]>;
   readonly recipientSites: ReadonlyMap<string, readonly Site[]>;
   readonly mergeSites: readonly Site[];
   readonly unparsedTransactions: number;
@@ -130,6 +144,7 @@ function pushInto<T>(into: Map<string, T[]>, tag: string, value: T): void {
 
 function buildTagIndex(transactions: readonly IndexedShieldedTransaction[]): TagIndex {
   const senderSites = new Map<string, number[]>();
+  const senderMessages = new Map<string, MessageSite[]>();
   const recipientSites = new Map<string, Site[]>();
   const mergeSites: Site[] = [];
   let unparsedTransactions = 0;
@@ -150,17 +165,36 @@ function buildTagIndex(transactions: readonly IndexedShieldedTransaction[]): Tag
       } catch {
         continue;
       }
+      // A sender bundle is a message, never an output.
+      if (scheme === EncryptedScheme.anonymousSender) continue;
       const tag = bytesKey(slot.viewTag);
-      if (scheme === EncryptedScheme.anonymousSender || scheme === EncryptedScheme.split) {
+      if (scheme === EncryptedScheme.split) {
         pushInto(senderSites, tag, transaction);
       } else {
         pushInto(recipientSites, tag, { transaction, slot: index });
       }
       classified = true;
     }
+    for (const [message, { viewTag, data }] of tx.messages.entries()) {
+      if (senderBundle(data) === undefined) continue;
+      pushInto(senderMessages, bytesKey(viewTag), { transaction, message });
+      classified = true;
+    }
     if (!classified) unparsedTransactions++;
   }
-  return { senderSites, recipientSites, mergeSites, unparsedTransactions };
+  return { senderSites, senderMessages, recipientSites, mergeSites, unparsedTransactions };
+}
+
+function senderBundle(data: Uint8Array): Uint8Array | undefined {
+  let frame: ReturnType<typeof readOutputData>;
+  try {
+    frame = readOutputData(data);
+  } catch {
+    return undefined;
+  }
+  return frame.encoding === "encrypted" && frame.scheme === EncryptedScheme.anonymousSender
+    ? frame.body
+    : undefined;
 }
 
 function compareBigints(left: bigint, right: bigint): number {
@@ -255,10 +289,7 @@ class SyncPass {
   readonly #outputHashes: Set<string>;
   readonly #processedSlots = new Set<string>();
   readonly #processedOutbound = new Set<number>();
-  readonly #unknownAssetsBySite = new Map<
-    string,
-    Readonly<{ ids: Set<bigint>; fields: Map<string, Bytes32> }>
-  >();
+  readonly #unknownAssetsBySite = new Map<string, UnknownAssets>();
   storedUtxos = 0;
   undecryptableCandidates = 0;
 
@@ -306,6 +337,14 @@ class SyncPass {
       for (const id of candidate.ids) ids.add(id);
     }
     return [...ids].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
+  }
+
+  unknownMints(): readonly Address[] {
+    const mints = new Set<Address>();
+    for (const candidate of this.#unknownAssetsBySite.values()) {
+      for (const mint of candidate.mints) mints.add(mint);
+    }
+    return [...mints].sort(compareAssets);
   }
 
   unknownAssetFields(): readonly Bytes32[] {
@@ -422,12 +461,9 @@ class SyncPass {
   #recordUndecryptable(error: unknown, siteKey: string): void {
     if (error instanceof TransactionError) {
       let candidate = this.#unknownAssetsBySite.get(siteKey);
-      const assetCandidate = (): Readonly<{
-        ids: Set<bigint>;
-        fields: Map<string, Bytes32>;
-      }> => {
+      const assetCandidate = (): UnknownAssets => {
         if (candidate !== undefined) return candidate;
-        candidate = { ids: new Set(), fields: new Map() };
+        candidate = { ids: new Set(), fields: new Map(), mints: new Set() };
         this.#unknownAssetsBySite.set(siteKey, candidate);
         return candidate;
       };
@@ -446,6 +482,9 @@ class SyncPass {
           const field = new Uint8Array(value as number[]) as Bytes32;
           assetCandidate().fields.set(bytesKey(field), field);
         }
+      } else if (error.code === "TRANSACTION_UNKNOWN_MINT") {
+        const mint = error.details?.["mint"];
+        if (typeof mint === "string" && isAddress(mint)) assetCandidate().mints.add(mint);
       }
     }
     this.undecryptableCandidates++;
@@ -703,8 +742,8 @@ class SyncPass {
   /**
    * Decode one candidate slot, dispatching on its encoding and scheme byte.
    * Recipient and confidential slots are 1:1 and verified against the slot's
-   * committed leaf; the anonymous and split sender bundles, passed as slot 0,
-   * store their change against the whole transaction.
+   * committed leaf; the split sender bundle, passed as slot 0, stores its
+   * change against the whole transaction.
    */
   decodeSlot(viewingPublicKey: X25519PublicKey, site: Site): void {
     const siteKey = `${String(site.transaction)}:${String(site.slot)}`;
@@ -771,7 +810,7 @@ class SyncPass {
       if (decrypted === undefined) return;
       try {
         const plaintext = decodeAnonymousRecipient(decrypted);
-        sender = plaintext.senderPublicKey;
+        sender = plaintext.unverified.senderPublicKey;
         utxo = anonymousRecipientUtxo(plaintext, this.#assets);
       } catch (error) {
         this.#recordUndecryptable(error, siteKey);
@@ -868,37 +907,6 @@ class SyncPass {
       return;
     }
 
-    if (frame.encoding === "encrypted" && frame.scheme === EncryptedScheme.anonymousSender) {
-      let recipients: readonly X25519PublicKey[];
-      let change: readonly Utxo[];
-      const decrypted = this.#decryptSlot(viewingPublicKey, tx, body, site.slot, siteKey);
-      if (decrypted === undefined) return;
-      try {
-        const plaintext = decodeAnonymousSender(decrypted);
-        recipients = plaintext.recipientViewingPublicKeys;
-        change = anonymousSenderUtxos(plaintext, this.#assets, SOL_MINT, firstNullifierOf(tx));
-      } catch (error) {
-        this.#recordUndecryptable(error, siteKey);
-        return;
-      }
-      this.#resolveAssetCandidate(siteKey);
-      for (const utxo of change) this.#storeInTx(utxo, tx);
-      this.#processedSlots.add(siteKey);
-      if (!this.#processedOutbound.has(site.transaction)) {
-        this.#processedOutbound.add(site.transaction);
-        const kind = recipients.length === 0 ? "publicWithdrawal" : "privateTransfer";
-        this.#recordOutboundTransfer(
-          tx,
-          this.#spentAmounts(tx.nullifiers),
-          change,
-          kind,
-          recipients.length === 1 ? recipients[0] : undefined,
-          this.#transferDirection(recipients),
-        );
-      }
-      return;
-    }
-
     if (frame.encoding === "encrypted" && frame.scheme === EncryptedScheme.split) {
       let utxos: readonly Utxo[];
       const decrypted = this.#decryptSlot(viewingPublicKey, tx, body, site.slot, siteKey);
@@ -920,6 +928,51 @@ class SyncPass {
     }
 
     this.undecryptableCandidates++;
+  }
+
+  decodeSenderMessage(viewingPublicKey: X25519PublicKey, site: MessageSite): void {
+    const siteKey = `${String(site.transaction)}:message:${String(site.message)}`;
+    if (this.#processedSlots.has(siteKey)) return;
+    const tx = this.#transactions[site.transaction];
+    const message = tx?.messages[site.message];
+    const body = message === undefined ? undefined : senderBundle(message.data);
+    if (tx === undefined || body === undefined) {
+      this.undecryptableCandidates++;
+      return;
+    }
+    let recipients: readonly X25519PublicKey[];
+    let change: readonly Utxo[];
+    const decrypted = this.#decryptSlot(
+      viewingPublicKey,
+      tx,
+      body,
+      tx.outputSlots.length + site.message,
+      siteKey,
+    );
+    if (decrypted === undefined) return;
+    try {
+      const plaintext = decodeAnonymousSender(decrypted);
+      recipients = plaintext.verified.recipientViewingPublicKeys;
+      change = anonymousSenderUtxos(plaintext, this.#assets, SOL_MINT, firstNullifierOf(tx));
+    } catch (error) {
+      this.#recordUndecryptable(error, siteKey);
+      return;
+    }
+    this.#resolveAssetCandidate(siteKey);
+    for (const utxo of change) this.#storeInTx(utxo, tx);
+    this.#processedSlots.add(siteKey);
+    if (!this.#processedOutbound.has(site.transaction)) {
+      this.#processedOutbound.add(site.transaction);
+      const kind = recipients.length === 0 ? "publicWithdrawal" : "privateTransfer";
+      this.#recordOutboundTransfer(
+        tx,
+        this.#spentAmounts(tx.nullifiers),
+        change,
+        kind,
+        recipients.length === 1 ? recipients[0] : undefined,
+        this.#transferDirection(recipients),
+      );
+    }
   }
 
   /**
@@ -1087,6 +1140,9 @@ class SyncPass {
       for (const transaction of index.senderSites.get(identityTag) ?? []) {
         this.decodeSlot(viewingPublicKey, { transaction, slot: 0 });
       }
+      for (const site of index.senderMessages.get(identityTag) ?? []) {
+        this.decodeSenderMessage(viewingPublicKey, site);
+      }
       this.#transactions.forEach((tx, position) => {
         this.recordConfidentialSend(tx, position, viewingPublicKey);
       });
@@ -1187,6 +1243,7 @@ function commitPass(
     undecryptableCandidates: pass.undecryptableCandidates,
     unknownAssetIds: pass.unknownAssetIds(),
     unknownAssetFields: pass.unknownAssetFields(),
+    unknownMints: pass.unknownMints(),
   });
 }
 

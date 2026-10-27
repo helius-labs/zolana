@@ -1,4 +1,4 @@
-import { address } from "@solana/kit";
+import { address, getAddressEncoder } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 
 import type { Address, Bytes16, Bytes32 } from "../../src/interface/index.js";
@@ -172,12 +172,8 @@ describe("manifest-verified transaction serialization", () => {
     ).toEqual(confidential);
 
     const anonymousRecipient = {
-      ownerPublicKey: recipient.signingPublicKey(),
-      senderPublicKey: keypair.viewingPublicKey(),
-      assetId: 1n,
-      amount: 19n,
-      blinding: blinding(2),
-      data,
+      verified: { ownerPublicKey: recipient.signingPublicKey(), mint: SOL_MINT, amount: 19n },
+      unverified: { senderPublicKey: keypair.viewingPublicKey(), blinding: blinding(2), data },
     };
     const recipientBytes = encodeAnonymousRecipient(anonymousRecipient);
     const recipientExpected = family(families, "anonymousRecipient");
@@ -199,39 +195,36 @@ describe("manifest-verified transaction serialization", () => {
       ),
     ).toEqual(anonymousRecipient);
     expect(decodeAnonymousRecipient(recipientBytes)).toMatchObject({
-      assetId: 1n,
-      amount: 19n,
+      verified: { mint: SOL_MINT, amount: 19n },
+    });
+    const withData = (records: Data) => ({
+      ...anonymousRecipient,
+      unverified: { ...anonymousRecipient.unverified, data: records },
     });
     expect(
       anonymousRecipientUtxo(
-        {
-          ...anonymousRecipient,
-          data: new Data([{ kind: "utxoData", bytes: Uint8Array.of(1) }]),
-        },
+        withData(new Data([{ kind: "utxoData", bytes: Uint8Array.of(1) }])),
         new AssetRegistry(),
       ).data.utxoData(),
     ).toEqual(Uint8Array.of(1));
     const ringProgramId = "SysvarRent111111111111111111111111111111111" as Address;
     expect(
       anonymousRecipientUtxo(
-        {
-          ...anonymousRecipient,
-          data: new Data([{ kind: "ringData", bytes: Uint8Array.of(2) }]),
-        },
+        withData(new Data([{ kind: "ringData", bytes: Uint8Array.of(2) }])),
         new AssetRegistry(),
         ringProgramId,
       ).ringProgramId,
     ).toBe(ringProgramId);
 
     const anonymousSender = {
-      ownerPublicKey: keypair.signingPublicKey(),
-      splAssetId: 0n,
-      splAmount: 0n,
-      solAmount: 36n,
-      blindingSeed: outputSeed,
-      recipientViewingPublicKeys: [recipient.viewingPublicKey()],
-      splData: new Data(),
-      solData: data,
+      verified: {
+        ownerPublicKey: keypair.signingPublicKey(),
+        splMint: SOL_MINT,
+        splAmount: 0n,
+        solAmount: 36n,
+        recipientViewingPublicKeys: [recipient.viewingPublicKey()],
+      },
+      unverified: { blindingSeed: outputSeed, splData: new Data(), solData: data },
     };
     const senderBytes = encodeAnonymousSender(anonymousSender);
     const senderExpected = family(families, "anonymousSender");
@@ -246,8 +239,7 @@ describe("manifest-verified transaction serialization", () => {
     );
     expect(decodedSender).toEqual(anonymousSender);
     expect(decodeAnonymousSender(senderBytes)).toMatchObject({
-      splAmount: 0n,
-      solAmount: 36n,
+      verified: { splAmount: 0n, solAmount: 36n },
     });
     expect(
       anonymousSenderUtxos(decodedSender, assets, SOL_MINT, firstNullifier).map(
@@ -400,6 +392,73 @@ describe("manifest-verified transaction serialization", () => {
     }
   });
 
+  it("binds anonymous plaintexts to mints the registry resolves", () => {
+    const inputs = section(load(), "inputs");
+    const { keypair, recipient } = keys(inputs);
+    const { firstNullifier, outputSeed, blinding } = slotBlindings(inputs);
+    const mint = address("SysvarC1ock11111111111111111111111111111111");
+    const assets = new AssetRegistry([[2n, mint]]);
+    const unknownMint = expect.objectContaining({
+      code: "TRANSACTION_UNKNOWN_MINT",
+      details: { mint },
+    });
+    const view = (utxos: readonly Utxo[]) =>
+      utxos.map((utxo) => ({ asset: utxo.asset, amount: utxo.amount, blinding: utxo.blinding }));
+
+    const note = {
+      verified: { ownerPublicKey: recipient.signingPublicKey(), mint, amount: 5n },
+      unverified: {
+        senderPublicKey: keypair.viewingPublicKey(),
+        blinding: blinding(1),
+        data: new Data(),
+      },
+    };
+    expect(encodeAnonymousRecipient(note).slice(34, 66)).toEqual(
+      new Uint8Array(getAddressEncoder().encode(mint)),
+    );
+    expect(view([anonymousRecipientUtxo(note, assets)])).toEqual([
+      { asset: mint, amount: 5n, blinding: blinding(1) },
+    ]);
+    expect(() => anonymousRecipientUtxo(note, new AssetRegistry())).toThrow(unknownMint);
+
+    const sender = {
+      verified: {
+        ownerPublicKey: keypair.signingPublicKey(),
+        splMint: mint,
+        splAmount: 7n,
+        solAmount: 8n,
+        recipientViewingPublicKeys: [],
+      },
+      unverified: { blindingSeed: outputSeed, splData: new Data(), solData: new Data() },
+    };
+    expect(view(anonymousSenderUtxos(sender, assets, SOL_MINT, firstNullifier))).toEqual([
+      { asset: mint, amount: 7n, blinding: blinding(0) },
+      { asset: SOL_MINT, amount: 8n, blinding: blinding(1) },
+    ]);
+    expect(() =>
+      anonymousSenderUtxos(sender, new AssetRegistry(), SOL_MINT, firstNullifier),
+    ).toThrow(unknownMint);
+
+    // A bundle without SPL change names the zero address.
+    const solOnly = anonymousSenderFromUtxos(
+      [
+        new Utxo({
+          owner: keypair.signingPublicKey(),
+          asset: SOL_MINT,
+          amount: 8n,
+          blinding: blinding(0),
+          data: new Data(),
+        }),
+      ],
+      { owner: keypair.signingPublicKey(), assets },
+      { blindingSeed: outputSeed, firstNullifier, recipientViewingPublicKeys: [] },
+    );
+    expect(encodeAnonymousSender(solOnly).slice(34, 66)).toEqual(new Uint8Array(32));
+    expect(
+      view(anonymousSenderUtxos(solOnly, new AssetRegistry(), SOL_MINT, firstNullifier)),
+    ).toEqual([{ asset: SOL_MINT, amount: 8n, blinding: blinding(0) }]);
+  });
+
   it("matches proofless and split-encrypted fixed layouts", () => {
     const fixture = load();
     const inputs = section(fixture, "inputs");
@@ -465,12 +524,12 @@ describe("manifest-verified transaction serialization", () => {
     const { keypair, recipient } = keys(section(fixture, "inputs"));
     const { outputSeed, blinding } = slotBlindings(section(fixture, "inputs"));
     const plaintext = {
-      ownerPublicKey: recipient.signingPublicKey(),
-      senderPublicKey: keypair.viewingPublicKey(),
-      assetId: 1n,
-      amount: 19n,
-      blinding: blinding(2),
-      data: new Data([{ kind: "memo", bytes: new TextEncoder().encode("hi") }]),
+      verified: { ownerPublicKey: recipient.signingPublicKey(), mint: SOL_MINT, amount: 19n },
+      unverified: {
+        senderPublicKey: keypair.viewingPublicKey(),
+        blinding: blinding(2),
+        data: new Data([{ kind: "memo", bytes: new TextEncoder().encode("hi") }]),
+      },
     };
     const bytes = encodeAnonymousRecipient(plaintext);
 
@@ -487,10 +546,10 @@ describe("manifest-verified transaction serialization", () => {
       );
     }
 
-    // The record tag sits after owner (34), sender (33), asset id (8),
-    // amount (8), blinding (32) and the record count (1).
+    // The record tag sits after owner (34), mint (32), amount (8),
+    // sender (33), blinding (32) and the record count (1).
     const badTag = new Uint8Array(bytes);
-    const tagOffset = 34 + 33 + 8 + 8 + 32 + 1;
+    const tagOffset = 34 + 32 + 8 + 33 + 32 + 1;
     expect(badTag[tagOffset]).toBe(3);
     badTag[tagOffset] = 9;
     expect(() => decodeAnonymousRecipient(badTag)).toThrow(
@@ -504,14 +563,16 @@ describe("manifest-verified transaction serialization", () => {
     // scheme: u8"), not the output-count refusal.
     expect(() =>
       encodeAnonymousSender({
-        ownerPublicKey: keypair.signingPublicKey(),
-        splAssetId: 0n,
-        splAmount: 0n,
-        solAmount: 1n,
-        blindingSeed: outputSeed,
-        recipientViewingPublicKeys: Array.from({ length: 256 }, () => recipient.viewingPublicKey()),
-        splData: new Data(),
-        solData: new Data(),
+        verified: {
+          ownerPublicKey: keypair.signingPublicKey(),
+          splMint: SOL_MINT,
+          splAmount: 0n,
+          solAmount: 1n,
+          recipientViewingPublicKeys: Array.from({ length: 256 }, () =>
+            recipient.viewingPublicKey(),
+          ),
+        },
+        unverified: { blindingSeed: outputSeed, splData: new Data(), solData: new Data() },
       }),
     ).toThrow(
       expect.objectContaining({

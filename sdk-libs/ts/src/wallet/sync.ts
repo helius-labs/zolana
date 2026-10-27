@@ -189,6 +189,15 @@ function walletQueryNullifiers(wallet: Wallet): readonly Bytes32[] {
   return [...nullifiers.values()];
 }
 
+function hasUnresolvedAsset(report: SyncReport, wallet: Wallet): boolean {
+  return (
+    report.unknownAssetIds.length > 0 ||
+    report.unknownAssetFields.length > 0 ||
+    report.unknownMints.length > 0 ||
+    walletHasUnknownMint(wallet)
+  );
+}
+
 function walletHasUnknownMint(wallet: Wallet): boolean {
   const registry = wallet.registry;
   for (const entry of wallet.utxos()) {
@@ -624,11 +633,7 @@ async function runWalletSync(
       context,
     });
     let registryRefreshed = false;
-    if (
-      report.unknownAssetIds.length > 0 ||
-      report.unknownAssetFields.length > 0 ||
-      walletHasUnknownMint(session.staging)
-    ) {
+    if (hasUnresolvedAsset(report, session.staging)) {
       registryRefreshed = true;
       if ((await backfillSessionRegistry(session, input.client, context)) > 0) {
         report = await decryptTransactions({
@@ -659,12 +664,7 @@ async function runWalletSync(
         config: decryptConfig,
         context,
       });
-      if (
-        !registryRefreshed &&
-        (report.unknownAssetIds.length > 0 ||
-          report.unknownAssetFields.length > 0 ||
-          walletHasUnknownMint(session.staging))
-      ) {
+      if (!registryRefreshed && hasUnresolvedAsset(report, session.staging)) {
         if ((await backfillSessionRegistry(session, input.client, context)) > 0) {
           report = await decryptTransactions({
             wallet: session.staging,
@@ -678,11 +678,7 @@ async function runWalletSync(
     }
     // An unresolved asset means a fetched UTXO was not stored. A commit would
     // advance the cursors past it and lose the UTXO until a full rescan.
-    if (
-      report.unknownAssetIds.length > 0 ||
-      report.unknownAssetFields.length > 0 ||
-      walletHasUnknownMint(session.staging)
-    ) {
+    if (hasUnresolvedAsset(report, session.staging)) {
       throw new WalletError("WALLET_UNRESOLVED_ASSET", {
         details: { unknownAssetIds: report.unknownAssetIds.map(String) },
       });

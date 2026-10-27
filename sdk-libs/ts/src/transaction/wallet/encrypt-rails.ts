@@ -3,6 +3,7 @@ import { randomSalt } from "../../keypair/bytes.js";
 import type { X25519PublicKey } from "../../keypair/x25519.js";
 import type { ViewingKey } from "../../keypair/viewing-key.js";
 
+import { TransactionError } from "../error.js";
 import { encodeConfidentialSlots } from "../instructions/transact.js";
 import {
   EncryptedScheme,
@@ -46,6 +47,13 @@ export type EncryptedTransfer = EncryptedEnvelope<readonly (MessageData | undefi
  */
 export type EncryptedSplit = EncryptedEnvelope<MessageData>;
 
+export interface AnonymousTransferPayload {
+  readonly recipients: readonly MessageData[];
+  readonly sender: MessageData;
+}
+
+export type EncryptedAnonymousTransfer = EncryptedEnvelope<AnonymousTransferPayload>;
+
 export interface AnonymousRecipientSlot {
   readonly viewTag: Bytes32;
   readonly recipientPublicKey: X25519PublicKey;
@@ -70,12 +78,7 @@ export function encryptConfidentialTransfer(
   };
 }
 
-/**
- * Slot 0 carries the sender bundle encrypted to the wallet's own viewing
- * key; recipient `i` occupies slot `i + 1`. Both the order and the slot
- * indices are bound into each ciphertext, so they must match the layout the
- * transfer instruction publishes.
- */
+/** Recipient `i` binds slot `change + i`, the sender bundle binds `outputCount` as the first message. */
 export function encryptAnonymousTransfer(
   tx: ViewingKey,
   input: Readonly<{
@@ -84,8 +87,19 @@ export function encryptAnonymousTransfer(
     senderViewTag: Bytes32;
     sender: AnonymousSenderPlaintext;
     recipients: readonly AnonymousRecipientSlot[];
+    /** Every output slot the transaction publishes, dummies included. */
+    outputCount: number;
   }>,
-): EncryptedTransfer {
+): EncryptedAnonymousTransfer {
+  const { splAmount, solAmount } = input.sender.verified;
+  const change = [splAmount, solAmount].filter((amount) => amount > 0n).length;
+  const outputs = change + input.recipients.length;
+  if (input.outputCount < outputs) {
+    throw new TransactionError("TRANSACTION_TOO_MANY_OUTPUTS_FOR_SHAPE", {
+      got: outputs,
+      max: input.outputCount,
+    });
+  }
   const salt = randomSalt();
   const slot = (
     scheme: EncryptedScheme,
@@ -104,24 +118,24 @@ export function encryptAnonymousTransfer(
   return {
     txViewingPublicKey: tx.publicKey(),
     salt,
-    payload: [
-      slot(
-        EncryptedScheme.anonymousSender,
-        input.viewingPublicKey,
-        encodeAnonymousSender(input.sender),
-        0,
-        input.senderViewTag,
-      ),
-      ...input.recipients.map((recipient, index) =>
+    payload: {
+      recipients: input.recipients.map((recipient, index) =>
         slot(
           EncryptedScheme.anonymousRecipient,
           recipient.recipientPublicKey,
           encodeAnonymousRecipient(recipient.plaintext),
-          index + 1,
+          change + index,
           recipient.viewTag,
         ),
       ),
-    ],
+      sender: slot(
+        EncryptedScheme.anonymousSender,
+        input.viewingPublicKey,
+        encodeAnonymousSender(input.sender),
+        input.outputCount,
+        input.senderViewTag,
+      ),
+    },
   };
 }
 

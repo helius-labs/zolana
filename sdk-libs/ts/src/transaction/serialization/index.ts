@@ -52,4 +52,8 @@ export {
   type TransferPlaintextSender,
   type TransferPlaintextSplChange,
   type TransferPlaintextUtxos,
+  type UnverifiedRecipientPlaintext,
+  type UnverifiedSenderPlaintext,
+  type VerifiedRecipientPlaintext,
+  type VerifiedSenderPlaintext,
 } from "./codecs.js";
