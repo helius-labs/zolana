@@ -339,6 +339,10 @@ async fn fetch_matching_rings_transactions(
 ) -> Result<Vec<MatchedRingsTxRow>, PhotonApiError> {
     let backend = tx.get_database_backend();
     let mut params = Vec::new();
+    // Seek from the tag/nullifier indexes first. An `EXISTS` correlated against
+    // `rings_transactions` walks every historical row and probes children; cost
+    // then scales with chain length rather than page size (the same failure
+    // `idx_rings_outputs_view_tag_order` fixed for encrypted-UTXO fetches).
     let match_filter = match match_by {
         // Recipient tags are unknown until the deposit openings are decrypted.
         MatchBy::Tags if values.is_empty() && ring_config.is_some() => "TRUE".to_string(),
@@ -346,28 +350,24 @@ async fn fetch_matching_rings_transactions(
             let output_filter = tags_sql(values, backend, &mut params);
             let message_filter = tags_sql(values, backend, &mut params);
             format!(
-                "EXISTS (
-                    SELECT 1
+                "pt.rings_tx_id IN (
+                    SELECT po.rings_tx_id
                     FROM rings_outputs po
-                    WHERE po.rings_tx_id = pt.rings_tx_id
-                    AND po.view_tag IN ({output_filter})
-                )
-                OR EXISTS (
-                    SELECT 1
+                    WHERE po.view_tag IN ({output_filter})
+                    UNION
+                    SELECT pm.rings_tx_id
                     FROM rings_messages pm
-                    WHERE pm.rings_tx_id = pt.rings_tx_id
-                    AND pm.view_tag IN ({message_filter})
+                    WHERE pm.view_tag IN ({message_filter})
                 )"
             )
         }
         MatchBy::Nullifiers => {
             let nullifier_filter = tags_sql(values, backend, &mut params);
             format!(
-                "EXISTS (
-                    SELECT 1
+                "pt.rings_tx_id IN (
+                    SELECT pn.rings_tx_id
                     FROM rings_tx_nullifiers pn
-                    WHERE pn.rings_tx_id = pt.rings_tx_id
-                    AND pn.nullifier IN ({nullifier_filter})
+                    WHERE pn.nullifier IN ({nullifier_filter})
                 )"
             )
         }
