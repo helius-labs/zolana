@@ -32,6 +32,7 @@ ark-ff = { version = "0.6", optional = true }
 ark-serialize = { version = "0.6", optional = true }
 xark-groth16 = { workspace = true, optional = true }
 solana-bn254 = { workspace = true, optional = true }
+js-sys = { workspace = true, optional = true }
 serde-wasm-bindgen = { workspace = true, optional = true }
 tsify = { workspace = true, optional = true }
 wasm-bindgen = { workspace = true, optional = true }
@@ -50,12 +51,12 @@ circuit = ["dep:zolana-circuit", "dep:zolana-macros", "dep:borsh"]
 client = ["circuit", "verifier", "dep:zolana-keypair", "dep:zolana-transaction", "dep:sha2", "dep:serde_json", "dep:ark-bn254", "dep:ark-serialize", "dep:xark-groth16", "dep:solana-bn254", "solana-address/curve25519"]
 setup = ["client", "dep:serde_json"]
 parallel = ["client"]
-build = ["setup", "dep:serde"]
+build = ["setup", "dep:serde", "groth16-solana/circom-vk"]
 r1cs-export = ["build"]
 verifier = ["dep:groth16-solana", "dep:solana-program-error"]
 serde = ["client", "dep:serde", "zolana-keypair/serde", "zolana-transaction/serde"]
 tsify = ["serde", "dep:tsify", "dep:wasm-bindgen", "zolana-keypair/tsify", "zolana-transaction/tsify"]
-wasm = ["client", "tsify", "dep:serde-wasm-bindgen"]
+wasm = ["client", "tsify", "dep:serde-wasm-bindgen", "dep:js-sys"]
 wasm-prover = ["wasm", "dep:xark-wasm"]
 wasm-threads = ["wasm-prover"]
 wasm-verify = ["wasm"]

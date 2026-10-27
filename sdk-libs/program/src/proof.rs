@@ -4,8 +4,35 @@ use ark_bn254::Bn254;
 use ark_serialize::CanonicalDeserialize;
 use groth16_solana::groth16::Groth16Verifyingkey;
 use solana_bn254::compression::prelude::{alt_bn128_g1_compress_be, alt_bn128_g2_compress_be};
+use sha2::{Digest, Sha256};
 
 use crate::CompressedProof;
+
+/// The exact proving-key bytes do not match the application's trusted digest.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ProvingKeyChecksumMismatch;
+
+impl core::fmt::Display for ProvingKeyChecksumMismatch {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        formatter.write_str("proving key SHA-256 checksum mismatch")
+    }
+}
+
+impl core::error::Error for ProvingKeyChecksumMismatch {}
+
+/// Check the complete serialized key before parsing, transcoding, or preloading it.
+/// Obtain `expected_sha256` from trusted application build metadata.
+pub fn check_proving_key(
+    proving_key: &[u8],
+    expected_sha256: &[u8; 32],
+) -> Result<(), ProvingKeyChecksumMismatch> {
+    let actual: [u8; 32] = Sha256::digest(proving_key).into();
+    if &actual == expected_sha256 {
+        Ok(())
+    } else {
+        Err(ProvingKeyChecksumMismatch)
+    }
+}
 
 fn json_g1(point: &ark_bn254::G1Affine) -> serde_json::Value {
     serde_json::json!([point.x.to_string(), point.y.to_string(), "1"])

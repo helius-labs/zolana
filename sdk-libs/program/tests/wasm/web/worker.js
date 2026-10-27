@@ -15,8 +15,22 @@ if (parallelSupported() && requested > 1) {
 let pool;
 let loaded;
 const artifacts = new Map();
+// This manifest ships with the application module, independently of key downloads.
+let trustedKeys;
+async function checkKey(program, key) {
+  const pins = await (trustedKeys ??= fetch("./pkg/proving-keys.json").then(response => {
+    if (!response.ok) throw Object.assign(new Error(`proving key pins: ${response.status}`), { name: "InvalidProvingKeyHash" });
+    return response.json();
+  }));
+  const expected = pins?.[program]?.provingKeySha256;
+  if (!Array.isArray(expected) || expected.length !== 32 || expected.some(byte => !Number.isInteger(byte) || byte < 0 || byte > 255)) {
+    throw Object.assign(new Error(`missing or invalid proving key pin for ${program}`), { name: "InvalidProvingKeyHash" });
+  }
+  xark.checkProvingKey(key, Uint8Array.from(expected));
+}
 async function data(program) {
   if (!artifacts.has(program)) artifacts.set(program, Promise.all(["circuit.xbc", "pk.bin", "vk.bin"].map(name => fetchBytes(`/keys/${program}/${name}`))).then(async ([circuit, key, vk]) => {
+    await checkKey(program, key);
     const schema = await (await fetch(`/keys/${program}/schema.json`)).text();
     return { circuit, key, vk, schema,
       sources: await (await fetch(`/keys/${program}/sources.json`)).text(),
@@ -28,7 +42,7 @@ async function data(program) {
 async function preload(program, format) {
   const value = await data(program);
   const fixture = await (await fetch(`/fixtures/${program}.json`)).json();
-  for (const [name, bytes] of [["circuit.xbc", value.circuit], ["pk.bin", value.key], ["vk.bin", value.vk]]) {
+  for (const [name, bytes] of [["circuit.xbc", value.circuit], ["vk.bin", value.vk]]) {
     const actual = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), b => b.toString(16).padStart(2, "0")).join("");
     if (actual !== fixture.hashes[name]) throw Object.assign(new Error(`${name} checksum mismatch`), { name: "KeyChecksumMismatch" });
   }
@@ -58,9 +72,7 @@ const api = {
   async timeKeyLoad(program, format) { const value = await data(program); loaded = undefined; const start = performance.now(); xark.preloadStreaming(value.circuit, value.key, { residentKey: format === "resident", sources: value.sources }); loaded = `${program}:${format}`; return performance.now() - start; },
   async timeProof(program, format, url, inputs) { const value = await preload(program, format); entropy(); const encoded = value.codec.encodeInputs(JSON.stringify(inputs)); const start = performance.now(); const bundle = xark.proveStreamingPreloaded(encoded, options(format)); bundle.free(); return performance.now() - start; },
   async mutateKey(program, inputs) { const value = await data(program); const key = value.key.slice(); key[key.length - 1] ^= 1;
-    const digest = bytes => crypto.subtle.digest("SHA-256", bytes).then(value => Array.from(new Uint8Array(value), b => b.toString(16).padStart(2, "0")).join(""));
-    const expected = (await (await fetch(`/fixtures/${program}.json`)).json()).hashes["pk.bin"];
-    if (await digest(key) !== expected) throw Object.assign(new Error("pk.bin checksum mismatch"), { name: "KeyChecksumMismatch" });
+    await checkKey(program, key);
     return plainProof(xark.proveStreaming(value.circuit, key, value.codec.encodeInputs(JSON.stringify(inputs)), options("streaming"))); },
   async randomness(program, inputs, mode) {
     const value = await preload(program, "streaming");

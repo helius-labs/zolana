@@ -1,4 +1,5 @@
 use super::{PublicFieldKind, Package, ProgramMetadata, Result, error};
+use groth16_solana::vk::{circom::parse_vk_json_to_rust_string, setup::{SetupKind, proving_key_sha256}};
 use std::{fs, path::Path};
 use sha2::{Digest, Sha256};
 
@@ -155,24 +156,40 @@ pub(super) fn export_to(artifact: &Path, program: &ProgramMetadata, directory: &
     Ok(())
 }
 
+#[derive(Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct KeySetupMetadata {
+    pub proving_key_sha256: [u8; 32],
+    pub insecure_test_setup: bool,
+}
+
+pub(super) fn key_setup_metadata(artifact: &Path) -> Result<KeySetupMetadata> {
+    validated_key_source(artifact).map(|(_, metadata)| metadata)
+}
+
 fn key_source(artifact: &Path) -> Result<String> {
+    validated_key_source(artifact).map(|(source, _)| source)
+}
+
+fn validated_key_source(artifact: &Path) -> Result<(String, KeySetupMetadata)> {
     let key_bytes = fs::read(artifact.join("vk.bin"))?;
     let metadata: serde_json::Value = serde_json::from_slice(&fs::read(artifact.join("metadata.json"))?)?;
     let hash = format!("{:x}", Sha256::digest(&key_bytes));
     if metadata["verifying_key_sha256"].as_str() != Some(&hash) { return Err(error("verifying key differs from its setup metadata")); }
     let circuit_digest = fs::read_to_string(artifact.join("digest"))?;
     if metadata["digest"].as_str() != Some(circuit_digest.trim()) { return Err(error("verifying key belongs to a different circuit")); }
-    let key = crate::proof::SolanaVerifyingKey::from_xark(&key_bytes).map_err(error)?;
-    let key = key.as_key();
-    let production = metadata["production_safe"].as_bool() == Some(true);
-    let mut source = String::new();
-    if !production {
-        source.push_str("#[cfg(not(feature = \"insecure-test-setup\"))]\ncompile_error!(\"this verifying key is for testing only; enable insecure-test-setup\");\n\n");
-    }
-    source.push_str(&format!("pub const VERIFYINGKEY: groth16_solana::groth16::Groth16Verifyingkey<'static> = groth16_solana::groth16::Groth16Verifyingkey {{\n    nr_pubinputs: {},\n    vk_alpha_g1: {:?},\n    vk_beta_g2: {:?},\n    vk_gamma_g2: {:?},\n    vk_delta_g2: {:?},\n    vk_ic: &{:?},\n    vk_commitment: None,\n}};\n", key.nr_pubinputs, key.vk_alpha_g1, key.vk_beta_g2, key.vk_gamma_g2, key.vk_delta_g2, key.vk_ic));
+    let key = crate::proof::snarkjs_verifying_key(&key_bytes).map_err(error)?;
+    let insecure_test_setup = metadata["production_safe"].as_bool() != Some(true);
+    let setup = if insecure_test_setup { SetupKind::InsecureTest } else { SetupKind::Production };
+    let proving_key_sha256 = proving_key_sha256(artifact.join("pk.bin"))?;
+    let mut source = parse_vk_json_to_rust_string(&key.to_string(), setup, &proving_key_sha256).map_err(error)?;
     source.push_str(&format!("pub const ZOLANA_VK_SHA256: &str = \"{hash}\";\npub const ZOLANA_CIRCUIT_DIGEST: &str = \"{}\";\n", circuit_digest.trim()));
-    Ok(source)
+    Ok((source, KeySetupMetadata { proving_key_sha256, insecure_test_setup }))
 }
+
+#[cfg(test)]
+#[path = "verifier_test.rs"]
+mod tests;
 
 pub(super) fn export_plain(package: &Package, artifact: &Path, name: &str, check: bool) -> Result<()> {
     let directory = package.manifest.parent().unwrap().join("src/verifier");

@@ -275,6 +275,13 @@ fn bridge(package: &Package, out: &Path, options: &CompileOptions, source: Optio
     let build = (|| -> Result<()> {
         run(&mut command)?;
         if options.no_prover { check_input_only(&staging)?; }
+        if !options.no_prover {
+            let mut proving_keys = std::collections::BTreeMap::new();
+            for program in programs {
+                proving_keys.insert(&program.name, verifier::key_setup_metadata(&out.join(&program.name))?);
+            }
+            fs::write(staging.join("proving-keys.json"), serde_json::to_vec_pretty(&proving_keys)?)?;
+        }
         for program in programs {
             let client_out = staging.join(&program.name);
             fs::create_dir_all(&client_out)?;

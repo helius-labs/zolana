@@ -3745,12 +3745,13 @@ checksum = "e4eba85ea1d0a966a983acd07deee566e67395d2d96b6fb39e62b5a833f1eb0b"
 
 [[package]]
 name = "groth16-solana"
-version = "0.2.0"
-source = "git+https://github.com/Lightprotocol/groth16-solana?rev=70a93803e5f55b8425301d506c625169ef557c9d#70a93803e5f55b8425301d506c625169ef557c9d"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3445d72a7fe1f2d06aa93ae5ade8ad8900bce0559fd098ae3433e04173bc8d20"
 dependencies = [
- "ark-bn254 0.5.0",
- "ark-ff 0.5.0",
- "ark-serialize 0.5.0",
+ "ark-bn254 0.6.0",
+ "ark-ff 0.6.0",
+ "ark-serialize 0.6.0",
  "num-bigint 0.4.8",
  "pinocchio 0.10.2",
  "serde",
@@ -12927,6 +12928,7 @@ dependencies = [
  "borsh",
  "groth16-solana",
  "hex",
+ "js-sys",
  "num-bigint 0.4.8",
  "pinocchio 0.11.2",
  "proptest",

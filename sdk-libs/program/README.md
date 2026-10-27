@@ -412,6 +412,22 @@ source-override workflow.
 Combined prover builds check that the existing proof-randomness patch is applied to
 the selected source. A stock checkout must first be prepared with `tools/xark/build.sh`.
 
+Verifier generation uses `groth16-solana 0.3.1` to emit
+`VERIFYINGKEY_PROVING_KEY_SHA256`, `VERIFYINGKEY_INSECURE_TEST_SETUP`, and its standard
+retained setup marker. `zolana vks` can inspect that marker in a program binary.
+The hash covers the exact serialized `pk.bin` bytes; `ZOLANA_VK_SHA256` separately
+identifies `vk.bin`.
+
+Proving builds also write `proving-keys.json` beside the application module with
+the same proving-key hashes and setup flags. Obtain the expected hash from trusted
+application build output or an inspected program marker, then call
+`checkProvingKey(keyBytes, new Uint8Array(expectedSha256))` before preloading or
+transcoding a downloaded key. Missing or malformed hashes are rejected. Downloading
+a checksum alongside an untrusted key does not provide a trusted expected value.
+The setup classification comes from the trusted setup artifacts; a checksum alone
+does not establish ceremony provenance. Transcoding changes file bytes, so check
+the original download before deriving a different serialized cache format.
+
 ## Flow
 
 ```mermaid

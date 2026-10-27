@@ -17,6 +17,21 @@ use crate::{InputRecords, CircuitError, EncryptionCodec, hasher::DataHasher};
 
 fn js(error: impl core::fmt::Display) -> JsValue { JsValue::from_str(&error.to_string()) }
 
+fn named_error(name: &str, message: &str) -> JsValue {
+    let error = js_sys::Error::new(message);
+    error.set_name(name);
+    error.into()
+}
+
+/// Validate exact proving-key bytes against a SHA-256 pin from trusted build metadata.
+#[wasm_bindgen(js_name = checkProvingKey)]
+pub fn check_proving_key(proving_key: &[u8], expected_sha256: Option<Vec<u8>>) -> Result<(), JsValue> {
+    let expected: &[u8; 32] = expected_sha256.as_deref().and_then(|bytes| bytes.try_into().ok())
+        .ok_or_else(|| named_error("InvalidProvingKeyHash", "expected proving key SHA-256 must contain exactly 32 bytes"))?;
+    crate::proof::check_proving_key(proving_key, expected)
+        .map_err(|error| named_error("KeyChecksumMismatch", &error.to_string()))
+}
+
 pub fn from_js<T: serde::de::DeserializeOwned>(value: JsValue) -> Result<T, JsValue> {
     serde_wasm_bindgen::from_value(value).map_err(js)
 }

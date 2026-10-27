@@ -218,6 +218,18 @@ is checked.
 is an existing machine toolchain mismatch, not a source defect or a repository
 configuration change.
 
+## 17. Unused browser code still shows an obsolete prover and checksum path
+
+**Evidence:** `web/prover.js` had no importers but referred to removed
+`EscrowProver`/`WithdrawProver` and `fromKey` APIs. Its unused `keyChecksum` helper
+read a checksum sidecar alongside the key rather than receiving an application pin.
+
+**Impact:** Dead sample code described an unsupported loading interface and could
+mislead readers about the expected hash trust boundary.
+
+**Fix in this branch:** Remove the unused module/helper. The active loader uses
+build-owned `proving-keys.json` pins and the reusable SDK `checkProvingKey` export.
+
 ## Inherited Xark fixes already present before this implementation
 
 - Region removal invalidated parent indices during input renumbering. The
