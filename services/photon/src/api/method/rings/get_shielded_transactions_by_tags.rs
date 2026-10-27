@@ -427,6 +427,18 @@ async fn fetch_rings_outputs(
     let backend = tx.get_database_backend();
     let mut params = Vec::new();
     let ids = int_list_sql(rings_tx_ids, backend, &mut params);
+    // EXPLAIN on devnet-d shows the regular join scanning all payloads for
+    // medium pages. Bound PK lookups to the selected outputs in that range;
+    // keep the planner's existing strategy for singletons and large pages.
+    let payload_join =
+        if backend == DatabaseBackend::Postgres && (2..=200).contains(&rings_tx_ids.len()) {
+            "JOIN LATERAL (
+            SELECT payload FROM rings_output_payloads
+            WHERE output_id = po.output_id LIMIT 1
+         ) pop ON TRUE"
+        } else {
+            "JOIN rings_output_payloads pop ON pop.output_id = po.output_id"
+        };
     let sql = format!(
         "SELECT
             po.rings_tx_id AS rings_tx_id,
@@ -438,7 +450,7 @@ async fn fetch_rings_outputs(
             po.utxo_hash AS utxo_hash,
             pop.payload AS payload
          FROM rings_outputs po
-         JOIN rings_output_payloads pop ON pop.output_id = po.output_id
+         {payload_join}
          LEFT JOIN tree_metadata tm ON tm.tree_pubkey = po.output_tree
          WHERE po.rings_tx_id IN ({ids})
          ORDER BY po.rings_tx_id ASC, po.output_index ASC"
