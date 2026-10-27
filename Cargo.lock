@@ -10476,14 +10476,14 @@ dependencies = [
  "solana-keypair",
  "solana-signer",
  "spr-hasher",
+ "spr-zk-dsl",
+ "spr-zk-gadgets",
  "thiserror 2.0.20",
  "tokio",
  "tsify",
  "wasm-bindgen",
  "x25519-dalek",
  "zeroize",
- "spr-zk-dsl",
- "spr-zk-gadgets",
 ]
 
 [[package]]
@@ -10501,9 +10501,9 @@ dependencies = [
  "spr-keypair",
  "spr-program",
  "spr-transaction",
+ "spr-zk-macros-core",
  "syn 2.0.119",
  "trybuild",
- "spr-zk-macros-core",
 ]
 
 [[package]]
@@ -10548,13 +10548,13 @@ dependencies = [
  "spr-macros",
  "spr-transaction",
  "spr-tree",
+ "spr-zk-dsl",
+ "spr-zk-gadgets",
  "thiserror 2.0.20",
  "tsify",
  "wasm-bindgen",
  "wasmer",
  "wincode",
- "spr-zk-dsl",
- "spr-zk-gadgets",
 ]
 
 [[package]]
@@ -10719,12 +10719,12 @@ dependencies = [
  "spr-interface",
  "spr-keypair",
  "spr-program",
+ "spr-zk-dsl",
+ "spr-zk-gadgets",
  "thiserror 2.0.20",
  "tsify",
  "wasm-bindgen",
  "wincode",
- "spr-zk-dsl",
- "spr-zk-gadgets",
 ]
 
 [[package]]
@@ -10772,6 +10772,75 @@ dependencies = [
  "borsh",
  "solana-instruction",
  "solana-pubkey 4.2.1",
+]
+
+[[package]]
+name = "spr-zk-dsl"
+version = "0.1.0"
+source = "git+https://github.com/helius-labs/zk-tools?rev=b84ab7fcec1d00f52f0b3b963f4454a033a669c5#b84ab7fcec1d00f52f0b3b963f4454a033a669c5"
+dependencies = [
+ "ark-bn254 0.6.0",
+ "ark-ec 0.6.0",
+ "ark-ff 0.6.0",
+ "ark-groth16",
+ "ark-poly 0.6.0",
+ "ark-r1cs-std",
+ "ark-relations",
+ "ark-serialize 0.6.0",
+ "ark-std 0.6.0",
+ "borsh",
+ "console_error_panic_hook",
+ "getrandom 0.2.17",
+ "groth16-solana",
+ "hex",
+ "js-sys",
+ "rayon",
+ "serde",
+ "serde-wasm-bindgen",
+ "serde_bytes",
+ "serde_json",
+ "sha2 0.10.9",
+ "solana-address 2.6.1",
+ "solana-bn254",
+ "spr-hasher",
+ "spr-zk-macros",
+ "thiserror 2.0.20",
+ "tsify",
+ "wasm-bindgen",
+ "wasm-bindgen-rayon",
+ "wincode",
+]
+
+[[package]]
+name = "spr-zk-gadgets"
+version = "0.1.0"
+source = "git+https://github.com/helius-labs/zk-tools?rev=b84ab7fcec1d00f52f0b3b963f4454a033a669c5#b84ab7fcec1d00f52f0b3b963f4454a033a669c5"
+dependencies = [
+ "ark-bn254 0.6.0",
+ "ark-ff 0.6.0",
+ "ark-r1cs-std",
+ "light-poseidon 0.5.0",
+ "spr-zk-dsl",
+]
+
+[[package]]
+name = "spr-zk-macros"
+version = "0.1.0"
+source = "git+https://github.com/helius-labs/zk-tools?rev=b84ab7fcec1d00f52f0b3b963f4454a033a669c5#b84ab7fcec1d00f52f0b3b963f4454a033a669c5"
+dependencies = [
+ "proc-macro2",
+ "spr-zk-macros-core",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "spr-zk-macros-core"
+version = "0.1.0"
+source = "git+https://github.com/helius-labs/zk-tools?rev=b84ab7fcec1d00f52f0b3b963f4454a033a669c5#b84ab7fcec1d00f52f0b3b963f4454a033a669c5"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -13074,8 +13143,8 @@ dependencies = [
  "solana-keypair",
  "solana-signer",
  "spr-client",
- "spr-zk-standalone-fixture",
  "spr-zk-dsl",
+ "spr-zk-standalone-fixture",
 ]
 
 [[package]]
@@ -13089,90 +13158,6 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
-
-[[package]]
-name = "zolana-hasher"
-version = "5.0.0"
-source = "git+https://github.com/helius-labs/zolana?rev=26482c9a2ef1c82382bbc28bab4fc8cf2f194018#26482c9a2ef1c82382bbc28bab4fc8cf2f194018"
-dependencies = [
- "ark-bn254 0.5.0",
- "ark-ff 0.5.0",
- "light-poseidon 0.4.0",
- "num-bigint 0.4.8",
- "sha2 0.10.9",
- "sha3",
- "solana-program-error",
- "thiserror 2.0.20",
-]
-
-[[package]]
-name = "spr-zk-dsl"
-version = "0.1.0"
-source = "git+https://github.com/helius-labs/zk-tools?rev=56d6e53616c26a69130c51f9a9084829eef514bd#56d6e53616c26a69130c51f9a9084829eef514bd"
-dependencies = [
- "ark-bn254 0.6.0",
- "ark-ec 0.6.0",
- "ark-ff 0.6.0",
- "ark-groth16",
- "ark-poly 0.6.0",
- "ark-r1cs-std",
- "ark-relations",
- "ark-serialize 0.6.0",
- "ark-std 0.6.0",
- "borsh",
- "console_error_panic_hook",
- "getrandom 0.2.17",
- "groth16-solana",
- "hex",
- "js-sys",
- "rayon",
- "serde",
- "serde-wasm-bindgen",
- "serde_bytes",
- "serde_json",
- "sha2 0.10.9",
- "solana-address 2.6.1",
- "solana-bn254",
- "thiserror 2.0.20",
- "tsify",
- "wasm-bindgen",
- "wasm-bindgen-rayon",
- "wincode",
- "zolana-hasher",
- "spr-zk-macros",
-]
-
-[[package]]
-name = "spr-zk-gadgets"
-version = "0.1.0"
-source = "git+https://github.com/helius-labs/zk-tools?rev=56d6e53616c26a69130c51f9a9084829eef514bd#56d6e53616c26a69130c51f9a9084829eef514bd"
-dependencies = [
- "ark-bn254 0.6.0",
- "ark-ff 0.6.0",
- "ark-r1cs-std",
- "light-poseidon 0.5.0",
- "spr-zk-dsl",
-]
-
-[[package]]
-name = "spr-zk-macros"
-version = "0.1.0"
-source = "git+https://github.com/helius-labs/zk-tools?rev=56d6e53616c26a69130c51f9a9084829eef514bd#56d6e53616c26a69130c51f9a9084829eef514bd"
-dependencies = [
- "proc-macro2",
- "syn 2.0.119",
- "spr-zk-macros-core",
-]
-
-[[package]]
-name = "spr-zk-macros-core"
-version = "0.1.0"
-source = "git+https://github.com/helius-labs/zk-tools?rev=56d6e53616c26a69130c51f9a9084829eef514bd#56d6e53616c26a69130c51f9a9084829eef514bd"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
 
 [[package]]
 name = "zstd"
