@@ -178,20 +178,22 @@ pub(crate) fn recipient_request_view_tag(
     )
 }
 
-pub(crate) fn shared_view_tag(
+pub(crate) fn pair_domain(
     ecdh_shared: &[u8; 32],
     r_pubkey: &X25519Pubkey,
-    i: u64,
-) -> Result<ViewTag, KeypairError> {
-    let mut domain = [0u8; 32];
+) -> Result<Zeroizing<[u8; 32]>, KeypairError> {
+    let mut domain = Zeroizing::new([0u8; 32]);
     hkdf_expand(
         None,
         ecdh_shared,
         &[INFO_PAIR_DOMAIN_PREFIX, r_pubkey.as_bytes()],
-        &mut domain,
+        domain.as_mut_slice(),
     )?;
+    Ok(domain)
+}
 
-    expand_view_tag(&domain, &[INFO_PAIR_HINT_PREFIX, &i.to_be_bytes()])
+pub(crate) fn pair_hint_view_tag(domain: &[u8; 32], i: u64) -> Result<ViewTag, KeypairError> {
+    expand_view_tag(domain, &[INFO_PAIR_HINT_PREFIX, &i.to_be_bytes()])
 }
 
 /// Derives viewing roles from the canonical secret with a dedicated salt.

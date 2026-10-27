@@ -4,9 +4,16 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { type Bytes16, type Bytes32, checkedBytes, copyBytes, randomBytes } from "./bytes.js";
 import {
   ENC_INFO_RING_DEPOSIT,
+  INFO_PAIR_HINT_PREFIX,
+  INFO_RECIPIENT_REQUEST_VIEW_TAG_PREFIX,
+  INFO_RECIPIENT_VIEW_TAG_SECRET,
+  INFO_SENDER_VIEW_TAG_PREFIX,
+  INFO_SENDER_VIEW_TAG_SECRET,
   INFO_TX_VIEWING_X25519,
   clampViewingSecret,
+  counterViewTag,
   hkdfExpand,
+  pairDomain,
   roleExpansion,
   viewRoot,
   x25519Ecdh,
@@ -30,6 +37,43 @@ function checkSlotIndex(value: number): number {
     });
   }
   return value;
+}
+
+function checkCounter(value: bigint, name: string): bigint {
+  if (typeof value !== "bigint" || BigInt.asUintN(64, value) !== value) {
+    throw new KeypairError("KEYPAIR_INVALID_LENGTH", {
+      name,
+      minimum: "0",
+      maximum: "2^64-1",
+    });
+  }
+  return value;
+}
+
+/** Mirrors Rust `SharedViewTags`. */
+export class SharedViewTags {
+  #domain: Uint8Array;
+  #destroyed = false;
+
+  /** @internal Takes ownership of `domain`. */
+  constructor(domain: Uint8Array) {
+    this.#domain = checkedBytes<Bytes32>(domain, 32, "pair domain");
+    domain.fill(0);
+  }
+
+  /** `recipient_shared_view_tag` of transfer `i`. */
+  tag(i: bigint): ViewTag {
+    const checked = checkCounter(i, "i");
+    if (this.#destroyed) {
+      throw new KeypairError("KEYPAIR_INVALID_SECRET_KEY", { reason: "destroyed" });
+    }
+    return counterViewTag(this.#domain, INFO_PAIR_HINT_PREFIX, checked);
+  }
+
+  destroy(): void {
+    this.#domain.fill(0);
+    this.#destroyed = true;
+  }
 }
 
 export class ViewingKey implements ViewingKeyLike {
@@ -99,6 +143,36 @@ export class ViewingKey implements ViewingKeyLike {
 
   recipientBootstrapViewTag(): ViewTag {
     return this.publicKey().u();
+  }
+
+  /** Mirrors Rust `get_sender_view_tag`. */
+  senderViewTag(txCount: bigint): ViewTag {
+    return this.#counterTag(
+      INFO_SENDER_VIEW_TAG_SECRET,
+      INFO_SENDER_VIEW_TAG_PREFIX,
+      txCount,
+      "txCount",
+    );
+  }
+
+  /** Mirrors Rust `get_recipient_request_view_tag`. */
+  recipientRequestViewTag(requestCount: bigint): ViewTag {
+    return this.#counterTag(
+      INFO_RECIPIENT_VIEW_TAG_SECRET,
+      INFO_RECIPIENT_REQUEST_VIEW_TAG_PREFIX,
+      requestCount,
+      "requestCount",
+    );
+  }
+
+  /** Mirrors Rust `send_shared_view_tags`. */
+  sendSharedViewTags(recipient: X25519PublicKey): SharedViewTags {
+    return this.#sharedViewTags(recipient, recipient);
+  }
+
+  /** Mirrors Rust `recipient_shared_view_tags`. */
+  recipientSharedViewTags(sender: X25519PublicKey): SharedViewTags {
+    return this.#sharedViewTags(sender, this.publicKey());
   }
 
   transactionViewingKey(firstNullifier: Bytes32): ViewingKey {
@@ -211,6 +285,26 @@ export class ViewingKey implements ViewingKeyLike {
       return expand(sha256, this.#viewRoot, encoder.encode(info), 32);
     } catch (error) {
       throw new KeypairError("KEYPAIR_HKDF", { name: info }, error);
+    }
+  }
+
+  #counterTag(secretInfo: string, prefix: string, counter: bigint, name: string): ViewTag {
+    const checked = checkCounter(counter, name);
+    const secret = this.#viewSecret(secretInfo);
+    try {
+      return counterViewTag(secret, prefix, checked);
+    } finally {
+      secret.fill(0);
+    }
+  }
+
+  #sharedViewTags(counterparty: X25519PublicKey, rPubkey: X25519PublicKey): SharedViewTags {
+    this.#assertUsable();
+    const shared = x25519Ecdh(this.#secret, counterparty);
+    try {
+      return new SharedViewTags(pairDomain(shared, rPubkey));
+    } finally {
+      shared.fill(0);
     }
   }
 

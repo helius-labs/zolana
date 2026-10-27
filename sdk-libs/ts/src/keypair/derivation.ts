@@ -8,7 +8,8 @@
 import { expand, extract, hkdf } from "@noble/hashes/hkdf.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 
-import { type Bytes31, type Bytes32 } from "./bytes.js";
+import { concatBytes } from "../interface/bytes.js";
+import { type Bytes31, type Bytes32, u64be } from "./bytes.js";
 import { KeypairError } from "./error.js";
 import { X25519PublicKey, X25519Keypair } from "./x25519.js";
 
@@ -21,6 +22,18 @@ export const INFO_NF_KEY_ED25519 = "TSPP/nf_key/ed25519/v1";
 export const INFO_VIEW_KEY_ED25519_X25519 = "TSPP/view_key/ed25519/x25519/v1";
 
 export const INFO_TX_VIEWING_X25519 = "TSPP/tx_viewing/x25519/v1";
+
+export const INFO_SENDER_VIEW_TAG_SECRET = "TSPP/sender_view_tag";
+
+export const INFO_RECIPIENT_VIEW_TAG_SECRET = "TSPP/recipient_view_tag";
+
+export const INFO_SENDER_VIEW_TAG_PREFIX = "TSPP/sender_view_tag/";
+
+export const INFO_RECIPIENT_REQUEST_VIEW_TAG_PREFIX = "TSPP/recipient_request_view_tag/";
+
+export const INFO_PAIR_DOMAIN_PREFIX = "TSPP/pair-domain/";
+
+export const INFO_PAIR_HINT_PREFIX = "TSPP/pair-hint/";
 
 export const ED25519_DERIVATION_MSG = "TSPP/derive/v1";
 
@@ -178,6 +191,24 @@ export function viewRoot(secret: Uint8Array): Uint8Array {
 }
 
 /** A zero byte then 31 HKDF bytes, `info = prefix || u64_be(counter)`. */
+export function counterViewTag(ikm: Uint8Array, prefix: string, counter: bigint): Bytes32 {
+  const okm = hkdfExpand(undefined, ikm, concatBytes(encoder.encode(prefix), u64be(counter)), 31);
+  const tag = new Uint8Array(32);
+  tag.set(okm, 1);
+  okm.fill(0);
+  return tag as Bytes32;
+}
+
+/** Mirrors Rust `pair_domain`, `rPubkey` is the recipient's key on both sides. */
+export function pairDomain(shared: Uint8Array, rPubkey: X25519PublicKey): Uint8Array {
+  return hkdfExpand(
+    undefined,
+    shared,
+    concatBytes(encoder.encode(INFO_PAIR_DOMAIN_PREFIX), rPubkey.toBytes()),
+    32,
+  );
+}
+
 export type Rail = "ed25519";
 
 /** An ed25519 `derivationSeed` is the RFC 8032 signature over the derivation message. */

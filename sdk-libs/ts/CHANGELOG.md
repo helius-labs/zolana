@@ -22,6 +22,10 @@ Added
   prover refusal through a `ProverRefusal` of the caller, and
   `checkProvingKeys` checks key pins the caller passes, so another package
   proves and indexes over the same transports.
+- `ViewingKey` derives the anonymous policy ring view tags through
+  `senderViewTag`, `recipientRequestViewTag`, `sendSharedViewTags` and
+  `recipientSharedViewTags`, and a `SharedViewTags` derives the shared tag of
+  every transfer index from one key agreement.
 
 ## 0.5.0-alpha — 2026-10-23
 

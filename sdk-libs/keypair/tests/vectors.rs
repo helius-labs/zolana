@@ -31,6 +31,7 @@ struct KeyDerivationVectors {
     merge_recovery: MergeRecovery,
     derivation_input_guard: Vec<GuardCase>,
     counter_view_tags: Vec<CounterViewTagCase>,
+    shared_view_tags: Vec<SharedViewTagCase>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
@@ -109,6 +110,15 @@ struct CounterViewTagCase {
     viewing_pubkey: String,
     sender_view_tags: Vec<CounterTag>,
     recipient_request_view_tags: Vec<CounterTag>,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+struct SharedViewTagCase {
+    sender_secret: String,
+    recipient_secret: String,
+    sender_pubkey: String,
+    recipient_pubkey: String,
+    tags: Vec<CounterTag>,
 }
 
 /// The counter is a decimal string, u64::MAX exceeds the JSON number range TypeScript parses.
@@ -265,6 +275,57 @@ fn compute_counter_view_tags() -> Vec<CounterViewTagCase> {
         .collect()
 }
 
+fn compute_shared_view_tags() -> Vec<SharedViewTagCase> {
+    let counters = [0, 1, 1 << 32, u64::MAX];
+    [
+        ([0x05; 32], [0x06; 32]),
+        ([0x06; 32], [0x05; 32]),
+        ([0xff; 32], core::array::from_fn(|i| i as u8)),
+    ]
+    .into_iter()
+    .map(|(sender_secret, recipient_secret)| {
+        let sender = ViewingKey::from_bytes(&sender_secret);
+        let recipient = ViewingKey::from_bytes(&recipient_secret);
+        let sender_pubkey = sender.pubkey();
+        let recipient_pubkey = recipient.pubkey();
+        let send = sender.send_shared_view_tags(&recipient_pubkey).unwrap();
+        let receive = recipient
+            .recipient_shared_view_tags(&sender_pubkey)
+            .unwrap();
+        let tags = counters
+            .iter()
+            .map(|&counter| {
+                let tag = send.tag(counter).unwrap();
+                assert_eq!(tag, receive.tag(counter).unwrap());
+                assert_eq!(
+                    tag,
+                    sender
+                        .get_send_shared_view_tag(&recipient_pubkey, counter)
+                        .unwrap()
+                );
+                assert_eq!(
+                    tag,
+                    recipient
+                        .get_recipient_shared_view_tag(&sender_pubkey, counter)
+                        .unwrap()
+                );
+                CounterTag {
+                    counter: counter.to_string(),
+                    tag: hex::encode(tag),
+                }
+            })
+            .collect();
+        SharedViewTagCase {
+            sender_secret: hex::encode(sender_secret),
+            recipient_secret: hex::encode(recipient_secret),
+            sender_pubkey: hex::encode(sender_pubkey.as_bytes()),
+            recipient_pubkey: hex::encode(recipient_pubkey.as_bytes()),
+            tags,
+        }
+    })
+    .collect()
+}
+
 fn compute(merge_recovery: MergeRecovery) -> KeyDerivationVectors {
     KeyDerivationVectors {
         eddsa_rail: compute_eddsa_rail(),
@@ -275,6 +336,7 @@ fn compute(merge_recovery: MergeRecovery) -> KeyDerivationVectors {
         merge_recovery,
         derivation_input_guard: compute_derivation_input_guard(),
         counter_view_tags: compute_counter_view_tags(),
+        shared_view_tags: compute_shared_view_tags(),
     }
 }
 

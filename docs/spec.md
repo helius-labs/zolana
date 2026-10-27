@@ -405,6 +405,8 @@ Custom-ring anonymous outputs (scheme `9`, [Output UTXO Serialization](#output-u
 
 **Encoding.**  all view tags are constant length 32 bytes. Shorter view tags are prefixed with 0s.
 
+**Proof.** No proof derives a view tag or opens an anonymous body. A wrong tag or a body sealed to the wrong key costs the recipient the note, as a payment to a wrong address does, and gains the sender nothing because its inputs are already spent. A policy ring's auditor reads every output from its proven disclosure.
+
 #### Sender View Tag
 
 1. **`sender_view_tag`**
@@ -422,14 +424,17 @@ Custom-ring anonymous outputs (scheme `9`, [Output UTXO Serialization](#output-u
     - Derivation: two chained HKDFs over the ECDH shared secret.
 
       ```
-      shared := ECDH(self.viewing_sk, counterparty_pubkey)
+      S      := sender.viewing_pk
+      R      := recipient.viewing_pk
+      shared := ECDH(sender.viewing_sk, R)        // sender
+              = ECDH(recipient.viewing_sk, S)     // recipient
       domain := HKDF-SHA256(salt = ∅, IKM = shared,
-                           info = "TSPP/pair-domain/" || R_pubkey, L = 32)
+                           info = "TSPP/pair-domain/" || R, L = 32)
       return    HKDF-SHA256(salt = ∅, IKM = domain,
                            info = "TSPP/pair-hint/"   || u64_be(i), L = 31)
       ```
 
-      `R_pubkey` is the recipient of the direction: `counterparty_pubkey` on the sender side (`get_send_shared_view_tag`), `self.viewing_pk` on the recipient side (`get_recipient_shared_view_tag`). ECDH symmetry plus the matched direction label produces the same byte value across the pair.
+      The sender reads `R` from the recipient's address, the recipient reads `S` from the `sender_pubkey` of the first transfer between the pair.
 3. **`recipient_request_view_tag`**
     - Derived by: the recipient. The recipient shares the tag with the sender out-of-band as a `PaymentRequest`.
     - Tx sent by: the sender.
@@ -464,8 +469,8 @@ flowchart TD
 1. `decrypt(ciphertext, tx_viewing_pk) -> Result<Plaintext>` — AES-CTR decryption with key `KDF(ECDH(viewing_sk, tx_viewing_pk))`.
 2. `get_sender_view_tag(tx_count)` — policy-ring anonymous transfers only; tags the sender's own change UTXOs. The default ring tags change by the sender's owner pubkey.
 3. `get_recipient_request_view_tag(request_count)` — used by the recipient to create a view tag for a `PaymentRequest` shared with the sender out-of-band.
-4. `get_send_shared_view_tag(counterparty_pubkey, i)` — sender-side `recipient_shared_view_tag`; used for transfers to a recipient the sender has already paired with.
-5. `get_recipient_shared_view_tag(counterparty_pubkey, i)` — recipient-side `recipient_shared_view_tag`; used during sync to scan transfers from each known sender.
+4. `get_send_shared_view_tag(recipient_pubkey, i)` — sender-side `recipient_shared_view_tag`; used for transfers to a recipient the sender has already paired with.
+5. `get_recipient_shared_view_tag(sender_pubkey, i)` — recipient-side `recipient_shared_view_tag`; used during sync to scan transfers from each known sender.
 6. `merge_output_blinding(first_nullifier)` / `merge_dummy_nullifier(first_nullifier, slot_index)` / `merge_output_key(first_nullifier)` — deterministic merge derivations from the owner's nullifier secret (domain-separated Poseidon; the key is defined under [Merge](#merge)); used by the merge prover when building [`merge_transact`](#merge_transact) / [`merge_ring`](#merge_ring) and by the owner during sync to decrypt merged outputs. Replaces the removed `get_merge_view_tag(merge_count)`.
 7. `get_transaction_viewing_key(first_nullifier: [u8; 32]) -> X25519Keypair` — the per-transaction [X25519 keypair](#transaction-viewing-key) for ECDH encryption to recipients.
 
