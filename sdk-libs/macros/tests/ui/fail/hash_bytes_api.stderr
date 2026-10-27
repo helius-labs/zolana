@@ -1,8 +1,8 @@
 error[E0425]: cannot find function `hash_bytes` in module `spr_program::circuit`
- --> tests/ui/fail/hash_bytes_api.rs:7:30
+ --> tests/ui/fail/hash_bytes_api.rs:7:27
   |
 7 |     spr_program::circuit::hash_bytes(bytes)
-  |                              ^^^^^^^^^^ not found in `spr_program::circuit`
+  |                           ^^^^^^^^^^ not found in `spr_program::circuit`
 
 error[E0308]: mismatched types
   --> tests/ui/fail/hash_bytes_api.rs:16:18

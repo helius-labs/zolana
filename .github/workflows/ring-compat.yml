@@ -90,6 +90,10 @@ jobs:
         with:
           path: zolana/prover/server/proving-keys
           key: proving-keys-${{ hashFiles('zolana/prover/server/prover/provingkeys/proving-keys.lock', 'prover/ring/proving-keys.lock') }}
+      - name: Migrate SDK crate references in the ring fixture
+        run: |
+          python3 zolana/tools/ci/migrate-ring-crates.py .
+          cargo metadata --format-version 1 > /dev/null
       - run: npm ci
       - run: just test-ring-compat
       - name: Dump service logs on failure
