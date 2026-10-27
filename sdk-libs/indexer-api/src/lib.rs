@@ -162,7 +162,7 @@ impl Hash {
     }
 
     pub fn to_base58(&self) -> String {
-        bs58::encode(self.0).into_string()
+        Pubkey::new_from_array(self.0).to_string()
     }
 }
 
@@ -226,7 +226,7 @@ impl From<Hash> for Vec<u8> {
 
 impl fmt::Display for Hash {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.to_base58())
+        fmt::Display::fmt(&Pubkey::new_from_array(self.0), formatter)
     }
 }
 
@@ -241,7 +241,7 @@ impl Serialize for Hash {
     where
         S: Serializer,
     {
-        serializer.serialize_str(&self.to_base58())
+        serializer.collect_str(self)
     }
 }
 
@@ -843,6 +843,41 @@ pub struct GetUserRecordsResponse {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn hash_formatting_preserves_canonical_base58_and_json() {
+        let mut samples = vec![[0u8; 32], [255u8; 32]];
+        for zeros in 0..=32 {
+            let mut bytes = [127u8; 32];
+            bytes[..zeros].fill(0);
+            samples.push(bytes);
+        }
+        let mut state = 0x1234_5678u32;
+        for _ in 0..1024 {
+            let mut bytes = [0u8; 32];
+            for byte in &mut bytes {
+                state ^= state << 13;
+                state ^= state >> 17;
+                state ^= state << 5;
+                *byte = state as u8;
+            }
+            samples.push(bytes);
+        }
+        for bytes in samples {
+            let expected = bs58::encode(bytes).into_string();
+            let value = Hash::from(bytes);
+            assert_eq!(value.to_base58(), expected);
+            assert_eq!(value.to_string(), expected);
+            assert_eq!(
+                serde_json::to_value(&value).unwrap(),
+                serde_json::Value::String(expected.clone())
+            );
+            assert_eq!(
+                serde_json::from_value::<Hash>(serde_json::Value::String(expected)).unwrap(),
+                value
+            );
+        }
+    }
+
     use super::*;
 
     #[test]
