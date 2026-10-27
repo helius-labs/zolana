@@ -400,11 +400,15 @@ the pool. `--verifier` adds `proofToSnarkjs` and `verifyingKeyToSnarkjs`; Xark's
 is included with the proving runtime. `compressedProgramProof` remains available in
 the transaction-only build.
 
-`tools/xark/build.sh` prepares the pinned checkout and existing fixes. To use a local
-Xark branch, set `XARK_SOURCE` to its checkout; `XARK` can select a separate compiler
-executable. The build applies Cargo path overrides from that source to the application
-and generated circuit entries. The default compiler check retains the pinned revision;
-an explicit `XARK_SOURCE` permits a local compiler from the supported Xark 0.3.0 release.
+This development branch uses workspace path dependencies pointing at
+`/Users/jorrit/dev/experiments/xark-client-wasm`. The build discovers that checkout
+from Cargo metadata and selects its `target/release/xark` compiler automatically.
+Generated circuit entries use the same path dependency. To rebuild the local tool,
+run `tools/xark/build.sh /Users/jorrit/dev/experiments/xark-client-wasm`.
+`XARK` can select a separate compiler executable. An explicit `XARK_SOURCE` must
+match the workspace dependency checkout; change the workspace paths to select a
+different source. Git-backed workspaces still support the pinned checkout and
+source-override workflow.
 Combined prover builds check that the existing proof-randomness patch is applied to
 the selected source. A stock checkout must first be prepared with `tools/xark/build.sh`.
 

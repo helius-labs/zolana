@@ -6,7 +6,7 @@ publish = false
 build = "build.rs"
 
 [dependencies]
-xark = { git = "https://github.com/blueshift-gg/xark", rev = "b443d83ea8ec7f2253610887e9690623ad048aef" }
+xark = { workspace = true }
 arrayvec = "0.7"
 borsh = { version = "1.6", features = ["derive"] }
 zolana-interface = { workspace = true }

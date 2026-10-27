@@ -31,7 +31,7 @@ impl From<serde_json::Error> for BuildError { fn from(e: serde_json::Error) -> S
 type Result<T> = std::result::Result<T, BuildError>;
 fn error(e: impl fmt::Display) -> BuildError { BuildError::Message(e.to_string()) }
 
-struct Package { name: String, manifest: PathBuf, root: PathBuf, target: PathBuf }
+struct Package { name: String, manifest: PathBuf, root: PathBuf, target: PathBuf, xark_source: Option<PathBuf> }
 
 fn run(command: &mut Command) -> Result<()> {
     let display = format!("{command:?}");
@@ -57,8 +57,13 @@ fn package(selection: &PackageSelection) -> Result<Package> {
         packages.iter().filter(|p| p["manifest_path"].as_str().is_some_and(|p| current.starts_with(Path::new(p).parent().unwrap())))
             .max_by_key(|p| p["manifest_path"].as_str().unwrap().len())
     }.ok_or_else(|| error("select a circuit package with -p or --manifest-path"))?;
+    let xark_source = packages.iter().filter_map(|package| package["dependencies"].as_array())
+        .flatten().find_map(|dependency| {
+            if dependency["name"] != "xark" { return None; }
+            Path::new(dependency["path"].as_str()?).parent()?.parent().map(Path::to_path_buf)
+        });
     Ok(Package { name: selected["name"].as_str().unwrap().into(), manifest: selected["manifest_path"].as_str().unwrap().into(),
-        root: data["workspace_root"].as_str().unwrap().into(), target: data["target_directory"].as_str().unwrap().into() })
+        root: data["workspace_root"].as_str().unwrap().into(), target: data["target_directory"].as_str().unwrap().into(), xark_source })
 }
 
 fn output_dir(package: &Package, out: &Option<PathBuf>) -> PathBuf {
@@ -70,20 +75,30 @@ fn compiler(package: &Package) -> Result<PathBuf> {
         if let Some(source) = std::env::var_os("XARK_SOURCE") {
             return PathBuf::from(source).join("target/release/xark");
         }
+        if let Some(source) = &package.xark_source { return source.join("target/release/xark"); }
         let local = package.root.join(".tools/xark/target/release/xark");
         if local.is_file() { local } else { PathBuf::from("xark") }
     });
     let version = Command::new(&path).arg("--version").output()
         .map_err(|e| error(format!("Xark is required: run tools/xark/build.sh or set XARK ({e})")))?;
     let text = String::from_utf8_lossy(&version.stdout);
-    let local_source = std::env::var_os("XARK_SOURCE").is_some();
+    let local_source = std::env::var_os("XARK_SOURCE").is_some() || package.xark_source.is_some();
     if !version.status.success() || !text.contains("0.3.0") || (!local_source && !text.contains("b443d83")) {
         return Err(error(format!("expected Xark 0.3.0{}; got {text}", if local_source { "" } else { " at b443d83" })));
     }
     Ok(path)
 }
 
-fn compiler_source(compiler: &Path) -> Result<Option<PathBuf>> {
+fn compiler_source(package: &Package, compiler: &Path) -> Result<Option<PathBuf>> {
+    if let Some(source) = &package.xark_source {
+        let source = fs::canonicalize(source)?;
+        if let Some(explicit) = std::env::var_os("XARK_SOURCE") {
+            if fs::canonicalize(explicit)? != source {
+                return Err(error("XARK_SOURCE differs from the workspace Xark path dependency; update the workspace dependency paths to select another checkout"));
+            }
+        }
+        return Ok(Some(source));
+    }
     if let Some(source) = std::env::var_os("XARK_SOURCE") {
         return Ok(Some(fs::canonicalize(source)?));
     }
@@ -172,13 +187,17 @@ fn write_if_changed(path: &Path, bytes: impl AsRef<[u8]>) -> Result<()> {
     Ok(())
 }
 
-fn entry(package: &Package, out: &Path, program: &ProgramMetadata, features: &str, source_config: &str) -> Result<PathBuf> {
+fn entry(package: &Package, out: &Path, program: &ProgramMetadata, features: &str, source: Option<&Path>, source_config: &str) -> Result<PathBuf> {
     let dir = out.join(".entries").join(&program.name);
     fs::create_dir_all(dir.join("src"))?;
     let path = serde_json::to_string(package.manifest.parent().unwrap().to_str().ok_or_else(|| error("non UTF-8 crate path"))?)?;
     let features = features.split(',').filter(|feature| !feature.is_empty())
         .map(serde_json::to_string).collect::<std::result::Result<Vec<_>, _>>()?.join(", ");
-    let manifest = format!("[package]\nname = \"zolana-generated-{}-{}\"\nversion = \"0.1.0\"\nedition = \"2024\"\npublish = false\n\n[workspace]\n\n[lib]\ncrate-type = [\"cdylib\", \"rlib\"]\n\n[dependencies]\nprogram = {{ package = \"{}\", path = {path}, features = [{features}] }}\nxark = {{ git = \"https://github.com/blueshift-gg/xark\", rev = \"b443d83ea8ec7f2253610887e9690623ad048aef\" }}\n\n[lints.rust]\nunexpected_cfgs = {{ level = \"warn\", check-cfg = [\"cfg(xark)\", \"cfg(xark_client)\"] }}\n\n{source_config}", package.name, program.name, package.name);
+    let xark_dependency = match source {
+        Some(source) => format!("path = {}", serde_json::to_string(source.join("crates/lang").to_str().ok_or_else(|| error("non UTF-8 Xark source path"))?)?),
+        None => "git = \"https://github.com/blueshift-gg/xark\", rev = \"b443d83ea8ec7f2253610887e9690623ad048aef\"".into(),
+    };
+    let manifest = format!("[package]\nname = \"zolana-generated-{}-{}\"\nversion = \"0.1.0\"\nedition = \"2024\"\npublish = false\n\n[workspace]\n\n[lib]\ncrate-type = [\"cdylib\", \"rlib\"]\n\n[dependencies]\nprogram = {{ package = \"{}\", path = {path}, features = [{features}] }}\nxark = {{ {xark_dependency} }}\n\n[lints.rust]\nunexpected_cfgs = {{ level = \"warn\", check-cfg = [\"cfg(xark)\", \"cfg(xark_client)\"] }}\n\n{source_config}", package.name, program.name, package.name);
     write_if_changed(&dir.join("Cargo.toml"), manifest)?;
     let source = format!("use xark::prelude::*;\n\n#[circuit]\npub fn r#{}(program: Private<program::{}>, public_hash: Public<Field>) {{\n    let checked = program.execute().expect(\"valid program transaction\");\n    require_eq(*checked.public_hash(), public_hash);\n}}\n", program.name, program.rust_type);
     write_if_changed(&dir.join("src/lib.rs"), source)?;
@@ -194,8 +213,8 @@ pub fn compile(options: &CompileOptions) -> Result<()> {
     fs::create_dir_all(&out)?;
     let out = fs::canonicalize(out)?;
     let xark = compiler(&package)?;
-    let source = compiler_source(&xark)?;
-    let source_config = source_overrides(source.as_deref())?;
+    let source = compiler_source(&package, &xark)?;
+    let source_config = if package.xark_source.is_some() { String::new() } else { source_overrides(source.as_deref())? };
     let source_config_path = out.join(".xark-source.toml");
     write_if_changed(&source_config_path, &source_config)?;
     let programs = match discover(&package, &out, &options.r1cs_features, &source_config_path) {
@@ -205,7 +224,7 @@ pub fn compile(options: &CompileOptions) -> Result<()> {
     };
     for program in &programs {
         let artifact = out.join(&program.name);
-        let entry = entry(&package, &out, program, &options.r1cs_features, &source_config)?;
+        let entry = entry(&package, &out, program, &options.r1cs_features, source.as_deref(), &source_config)?;
         if !options.skip_r1cs || !artifact.join("circuit.xbc").is_file() {
             run(Command::new(&xark).arg("build").arg(&entry).arg("--out").arg(&artifact))?;
         }

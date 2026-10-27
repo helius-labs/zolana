@@ -9,7 +9,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 zolana-circuit = { path = "../.." }
-xark = { git = "https://github.com/blueshift-gg/xark", rev = "b443d83ea8ec7f2253610887e9690623ad048aef" }
+xark = { workspace = true }
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(xark)', 'cfg(xark_client)'] }

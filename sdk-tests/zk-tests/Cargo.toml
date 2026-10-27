@@ -19,5 +19,5 @@ solana-signer = { workspace = true }
 zolana-client = { workspace = true }
 zolana-program = { workspace = true, features = ["client"] }
 zolana-circuit = { workspace = true }
-xark = { git = "https://github.com/blueshift-gg/xark", rev = "b443d83ea8ec7f2253610887e9690623ad048aef" }
+xark = { workspace = true }
 zolana-zk-standalone-fixture = { path = "../zk-standalone", features = ["circuits"] }

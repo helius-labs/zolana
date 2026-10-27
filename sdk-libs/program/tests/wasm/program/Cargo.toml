@@ -22,7 +22,7 @@ fixtures = [
 snarkjs = ["fixtures"]
 
 [dependencies]
-xark = { git = "https://github.com/blueshift-gg/xark", rev = "b443d83ea8ec7f2253610887e9690623ad048aef" }
+xark = { workspace = true }
 borsh = { workspace = true }
 solana-address = { workspace = true }
 zolana-program = { workspace = true, features = ["client"] }

@@ -45,7 +45,7 @@ localnet = ["circuits"]
 r1cs-export = ["zolana-program/r1cs-export"]
 
 [dependencies]
-xark = { git = "https://github.com/blueshift-gg/xark", rev = "b443d83ea8ec7f2253610887e9690623ad048aef", optional = true }
+xark = { workspace = true, optional = true }
 borsh = { workspace = true, optional = true }
 light-program-profiler = { workspace = true }
 pinocchio = { workspace = true, features = ["cpi", "sha2"] }
