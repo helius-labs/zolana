@@ -1,7 +1,0 @@
-   Compiling xark-migration-baseline-constraint-counts v0.1.0 (/private/tmp/zolana-xark-count-baseline/constraint-counts)
-    Finished `release` profile [optimized] target(s) in 0.62s
-     Running `/Users/jorrit/orca/workspaces/zolana4/zolana-program-with-xark/target/release/xark-migration-baseline-constraint-counts`
-timelock escrow (capacity 5): 14880, H query elements: 16384
-timelock withdraw: 5638, H query elements: 8192
-browser escrow (capacity 5): 14858
-browser withdraw: 5638
