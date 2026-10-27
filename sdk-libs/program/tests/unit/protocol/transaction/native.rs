@@ -1,7 +1,7 @@
 use solana_address::Address;
-use zolana_keypair::ShieldedAddress;
-use zolana_program::{circuit::Field, ZkProgramCircuit};
-use zolana_transaction::{instructions::transact::SettlementTarget, Mint};
+use spr_keypair::ShieldedAddress;
+use spr_program::{circuit::Field, ZkProgramCircuit};
+use spr_transaction::{instructions::transact::SettlementTarget, Mint};
 
 use super::{
     fixtures::{

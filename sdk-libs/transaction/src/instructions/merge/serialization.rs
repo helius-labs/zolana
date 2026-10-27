@@ -1,9 +1,9 @@
 use solana_address::Address;
-use zolana_hasher::{
+use spr_hasher::{
     primitives::{is_canonical_bn254_scalar_be, pack_be, right_align, PACK_BE_CHUNK_BYTES},
     Hasher, Poseidon,
 };
-use zolana_keypair::{constants::SALT_LEN, viewing_key::Salt, PublicKey};
+use spr_keypair::{constants::SALT_LEN, viewing_key::Salt, PublicKey};
 
 use super::DOMAIN_MERGE_OUTPUT_CIPHERTEXT;
 use crate::{
@@ -14,8 +14,8 @@ use crate::{
     Mint,
 };
 
-use zolana_event::MERGE_OUTPUT_BODY_LEN;
-use zolana_interface::instruction::instruction_data::merge_transact::MERGE_OUTPUT_CIPHERTEXT_ELEMENTS;
+use spr_event::MERGE_OUTPUT_BODY_LEN;
+use spr_interface::instruction::instruction_data::merge_transact::MERGE_OUTPUT_CIPHERTEXT_ELEMENTS;
 
 /// The ciphertext elements a merge instruction carries.
 pub type MergeOutputCiphertext = [[u8; 32]; MERGE_OUTPUT_CIPHERTEXT_ELEMENTS];

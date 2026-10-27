@@ -3,8 +3,8 @@ mod public_hash;
 mod render;
 mod settlement;
 
-use zolana_keypair::{ShieldedAddress, ShieldedKeypair, SigningKey};
-use zolana_program::{
+use spr_keypair::{ShieldedAddress, ShieldedKeypair, SigningKey};
+use spr_program::{
     circuit::PublicInputs,
     conversion::{to_bytes, Allocator, ProofInput},
 };

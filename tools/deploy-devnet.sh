@@ -40,7 +40,7 @@ known_programs="shielded-pool user-registry"
 program_so() {
     case "$1" in
         shielded-pool) echo "target/deploy/shielded_pool_program.so" ;;
-        user-registry) echo "target/deploy/zolana_user_registry.so" ;;
+        user-registry) echo "target/deploy/spr_user_registry.so" ;;
         *) return 1 ;;
     esac
 }
@@ -126,7 +126,7 @@ program_data_len() {
 # production setup of a proving key this build pins, none missing. See
 # `zolana vks check --help`.
 check_verifying_keys() {
-    cargo run -q -p zolana-cli -- vks check --shielded-pool "$@"
+    cargo run -q -p spr-cli -- vks check --shielded-pool "$@"
 }
 
 program_authority() {

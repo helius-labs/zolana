@@ -1,7 +1,7 @@
 use solana_address::Address;
+use spr_event::EncryptedRingDepositData;
+use spr_keypair::{random_salt, PublicKey, ViewingKey, X25519Pubkey};
 use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
-use zolana_event::EncryptedRingDepositData;
-use zolana_keypair::{random_salt, PublicKey, ViewingKey, X25519Pubkey};
 
 use crate::{
     data::{Data, DataRecord},

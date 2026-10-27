@@ -1,8 +1,8 @@
 use solana_address::Address;
-use wincode::{SchemaRead, SchemaWrite};
-use zolana_keypair::{
+use spr_keypair::{
     constants::SALT_LEN, x25519::X25519_PUBKEY_LEN, PublicKey, ViewingKey, X25519Pubkey,
 };
+use wincode::{SchemaRead, SchemaWrite};
 
 use super::{DecodeCx, OwnerCx, UtxoSerialization};
 use crate::{data::Data, error::TransactionError, utxo::Utxo, AssetRegistry, EncryptedScheme};

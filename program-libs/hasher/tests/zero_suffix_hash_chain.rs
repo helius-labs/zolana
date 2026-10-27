@@ -1,4 +1,4 @@
-use zolana_hasher::{
+use spr_hasher::{
     hash_chain::create_right_hash_chain_4_from_slice,
     zero_suffix_hash_chain::{
         create_padded_right_hash_chain_4, create_zero_suffix_right_hash_chain_4,

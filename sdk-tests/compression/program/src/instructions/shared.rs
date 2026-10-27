@@ -5,9 +5,9 @@ use pinocchio::{
     AccountView, Address, ProgramResult,
 };
 use solana_address::address;
-use zolana_account_checks::AccountIterator;
-use zolana_interface::PROGRAM_ID_PUBKEY;
-use zolana_program::{cpi::SppTransactAccounts, program::SppTransactCpi};
+use spr_account_checks::AccountIterator;
+use spr_interface::PROGRAM_ID_PUBKEY;
+use spr_program::{cpi::SppTransactAccounts, program::SppTransactCpi};
 
 use crate::error::CompressionError;
 

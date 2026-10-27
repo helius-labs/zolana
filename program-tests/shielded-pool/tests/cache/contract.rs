@@ -4,8 +4,8 @@ use solana_address::Address;
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
 use solana_signer::Signer;
-use zolana_interface::instruction::instruction_data::MergeOutputEncryption;
-use zolana_interface::{
+use spr_interface::instruction::instruction_data::MergeOutputEncryption;
+use spr_interface::{
     error::ShieldedPoolError,
     instruction::instruction_data::{
         merge_transact::{MergeProof, MergeTransactIxData},
@@ -14,9 +14,9 @@ use zolana_interface::{
     pda,
     state::{cache::CacheAccount, discriminator::CACHE},
 };
-use zolana_program::instruction::{CacheWriteAccounts, CloseCache, CreateCache, MergeTransact};
-use zolana_program_test::{Rejection, ZolanaProgramTest};
-use zolana_test_utils::transact::fe;
+use spr_program::instruction::{CacheWriteAccounts, CloseCache, CreateCache, MergeTransact};
+use spr_program_test::{Rejection, ZolanaProgramTest};
+use spr_test_utils::transact::fe;
 
 fn create(payer: Address, nonce: u64, tree_id: u16, expires_at: i64) -> (Address, u8, Instruction) {
     let builder = CreateCache {
@@ -233,7 +233,7 @@ fn writer_can_close_before_expiry_and_only_refund_sponsor() {
     reject(
         &mut rpc,
         unsigned,
-        zolana_account_checks::AccountError::InvalidSigner,
+        spr_account_checks::AccountError::InvalidSigner,
     );
     let wrong_recipient = CloseCache {
         cache,

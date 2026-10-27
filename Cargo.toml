@@ -31,7 +31,7 @@ members = [
     "sdk-libs/merkle-tree",
     "sdk-libs/instruction",
     "sdk-libs/smart-account-client",
-    "sdk-libs/zolana-api",
+    "sdk-libs/spr-api",
     "sdk-libs/program-test",
     "sdk-libs/transaction",
     "services/photon",
@@ -77,40 +77,40 @@ form_urlencoded = "1.2.2"
 time = ">=0.3, <0.3.46"
 
 # Local workspace crates.
-zolana-event = { path = "program-libs/event", version = "0.1.0" }
-zolana-event-parser = { path = "sdk-libs/event", version = "0.1.0" }
-zolana-interface = { path = "program-libs/interface", version = "0.1.0" }
-zolana-user-registry-interface = { path = "program-libs/user-registry-interface", version = "0.1.0" }
-zolana-tree = { path = "program-libs/tree", version = "0.1.0" }
-zolana-keypair = { path = "sdk-libs/keypair", version = "0.1.0" }
-zolana-instruction = { path = "sdk-libs/instruction", version = "0.1.0" }
-zolana-program = { path = "sdk-libs/program", version = "0.1.0" }
+spr-event = { path = "program-libs/event", version = "0.1.0" }
+spr-event-parser = { path = "sdk-libs/event", version = "0.1.0" }
+spr-interface = { path = "program-libs/interface", version = "0.1.0" }
+spr-user-registry-interface = { path = "program-libs/user-registry-interface", version = "0.1.0" }
+spr-tree = { path = "program-libs/tree", version = "0.1.0" }
+spr-keypair = { path = "sdk-libs/keypair", version = "0.1.0" }
+spr-instruction = { path = "sdk-libs/instruction", version = "0.1.0" }
+spr-program = { path = "sdk-libs/program", version = "0.1.0" }
 # The zk crates live in helius-labs/zk-tools (zk-dsl/), pinned by rev.
-zolana-zk-dsl = { git = "https://github.com/helius-labs/zk-tools", rev = "56d6e53616c26a69130c51f9a9084829eef514bd" }
-zolana-zk-gadgets = { git = "https://github.com/helius-labs/zk-tools", rev = "56d6e53616c26a69130c51f9a9084829eef514bd" }
-zolana-zk-macros = { git = "https://github.com/helius-labs/zk-tools", rev = "56d6e53616c26a69130c51f9a9084829eef514bd" }
-zolana-zk-macros-core = { git = "https://github.com/helius-labs/zk-tools", rev = "56d6e53616c26a69130c51f9a9084829eef514bd" }
-zolana-api = { path = "sdk-libs/zolana-api", version = "0.1.0", default-features = false }
-zolana-program-test = { path = "sdk-libs/program-test", version = "0.23.0" }
-zolana-transaction = { path = "sdk-libs/transaction", version = "0.1.0" }
-zolana-client = { path = "sdk-libs/client", version = "0.1.0" }
-zolana-prover-tee = { path = "sdk-libs/prover-tee", version = "0.1.0" }
-zolana-gnark-ffi-prover = { path = "sdk-libs/gnark-ffi-prover", version = "0.1.0" }
-zolana-gnark-ffi-prover-build = { path = "sdk-libs/gnark-ffi-prover/build-helper", version = "0.1.0" }
-zolana-indexer-api = { path = "sdk-libs/indexer-api", version = "0.1.0" }
-zolana-rpc-http = { path = "services/rpc-http", version = "0.1.0" }
-zolana-merkle-tree = { path = "sdk-libs/merkle-tree", version = "4.0.0" }
-zolana-smart-account-client = { path = "sdk-libs/smart-account-client", version = "0.1.0" }
-zolana-test-utils = { path = "program-tests/test-utils", version = "0.1.0" }
+spr-zk-dsl = { git = "https://github.com/helius-labs/zk-tools", rev = "56d6e53616c26a69130c51f9a9084829eef514bd" }
+spr-zk-gadgets = { git = "https://github.com/helius-labs/zk-tools", rev = "56d6e53616c26a69130c51f9a9084829eef514bd" }
+spr-zk-macros = { git = "https://github.com/helius-labs/zk-tools", rev = "56d6e53616c26a69130c51f9a9084829eef514bd" }
+spr-zk-macros-core = { git = "https://github.com/helius-labs/zk-tools", rev = "56d6e53616c26a69130c51f9a9084829eef514bd" }
+spr-api = { path = "sdk-libs/spr-api", version = "0.1.0", default-features = false }
+spr-program-test = { path = "sdk-libs/program-test", version = "0.23.0" }
+spr-transaction = { path = "sdk-libs/transaction", version = "0.1.0" }
+spr-client = { path = "sdk-libs/client", version = "0.1.0" }
+spr-prover-tee = { path = "sdk-libs/prover-tee", version = "0.1.0" }
+spr-gnark-ffi-prover = { path = "sdk-libs/gnark-ffi-prover", version = "0.1.0" }
+spr-gnark-ffi-prover-build = { path = "sdk-libs/gnark-ffi-prover/build-helper", version = "0.1.0" }
+spr-indexer-api = { path = "sdk-libs/indexer-api", version = "0.1.0" }
+spr-rpc-http = { path = "services/rpc-http", version = "0.1.0" }
+spr-merkle-tree = { path = "sdk-libs/merkle-tree", version = "4.0.0" }
+spr-smart-account-client = { path = "sdk-libs/smart-account-client", version = "0.1.0" }
+spr-test-utils = { path = "program-tests/test-utils", version = "0.1.0" }
 shielded-pool-program = { path = "programs/shielded-pool", version = "0.1.0" }
-zolana-user-registry = { path = "programs/user-registry", version = "0.1.0", default-features = false, features = ["no-entrypoint"] }
+spr-user-registry = { path = "programs/user-registry", version = "0.1.0", default-features = false, features = ["no-entrypoint"] }
 groth16-solana = { git = "https://github.com/Lightprotocol/groth16-solana", rev = "70a93803e5f55b8425301d506c625169ef557c9d", features = ["bsb22"] }
 
 # Published Light Protocol crates.
 light-array-map = "0.2.0"
-zolana-account-checks = { path = "program-libs/account-checks", version = "0.8.0", default-features = false }
-zolana-hasher = { path = "program-libs/hasher", version = "5.0.0", default-features = false }
-zolana-indexed-array = { path = "program-libs/indexed-array", version = "0.3.0" }
+spr-account-checks = { path = "program-libs/account-checks", version = "0.8.0", default-features = false }
+spr-hasher = { path = "program-libs/hasher", version = "5.0.0", default-features = false }
+spr-indexed-array = { path = "program-libs/indexed-array", version = "0.3.0" }
 light-poseidon = "0.4.0"
 # Pinned to the head of the mollusk-0.15 branch (Lightprotocol/light-program-profiler).
 # Switch back to a released version once that lands upstream.
@@ -364,4 +364,4 @@ overflow-checks = true
 
 # Share the local hasher with the zk-tools git dependencies.
 [patch."https://github.com/helius-labs/zolana"]
-zolana-hasher = { path = "program-libs/hasher" }
+spr-hasher = { path = "program-libs/hasher" }

@@ -1,16 +1,16 @@
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_interface::{
+use spr_interface::{
     instruction::{CreateProtocolConfigData, UpdateProtocolConfigData},
     pda,
 };
-use zolana_program::instruction::{
+use spr_program::instruction::{
     ClaimTreeLamports, CreateProtocolConfig, PauseTree, SetTreeFees, UpdateProtocolConfig,
 };
 
-use zolana_interface::state::{default_tree_fees, nullifier_tree_params};
-use zolana_tree::{NullifierTreeInitParams, TreeFeeSchedule};
+use spr_interface::state::{default_tree_fees, nullifier_tree_params};
+use spr_tree::{NullifierTreeInitParams, TreeFeeSchedule};
 
 use crate::{instructions::create_tree_instructions, ProgramTestError, ZolanaProgramTest};
 

@@ -2,7 +2,7 @@
 //! Use `SolanaRpc`, `ZolanaIndexer`, or `ProverClient` (or their async counterparts)
 //! when you need direct access to an individual service.
 //!
-//! Note decryption lives in `zolana-transaction`; the SDK keeps no wallet
+//! Note decryption lives in `spr-transaction`; the SDK keeps no wallet
 //! state. The user registry helpers are in [`user_registry`].
 //!
 //! `ZOLANA_TIMING=1` prints per-phase timings to stderr; see [`timing`]. The

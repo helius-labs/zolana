@@ -1,7 +1,7 @@
 use solana_address::Address;
-use zolana_hasher::primitives::hash_bytes;
-use zolana_program::circuit::Field;
-use zolana_transaction::Mint;
+use spr_hasher::primitives::hash_bytes;
+use spr_program::circuit::Field;
+use spr_transaction::Mint;
 
 use crate::harness::fixture::Named;
 
@@ -45,7 +45,7 @@ impl Vector {
 }
 
 pub fn field_of(bytes: &[u8; 32]) -> Field {
-    zolana_program::conversion::field(bytes, "a native hash").expect("canonical native hash")
+    spr_program::conversion::field(bytes, "a native hash").expect("canonical native hash")
 }
 
 pub const MINTS: [Vector; 6] = [

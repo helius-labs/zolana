@@ -3,15 +3,15 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use solana_system_interface::error::SystemError;
-use zolana_account_checks::AccountError;
-use zolana_interface::{
+use spr_account_checks::AccountError;
+use spr_interface::{
     error::ShieldedPoolError,
     pda,
     state::{discriminator::SPL_ASSET_COUNTER, SplAssetCounter},
 };
-use zolana_program::instruction::CreateAssetCounter;
-use zolana_program_test::Rejection;
-use zolana_test_utils::backend::LiteSvmPoolBackend;
+use spr_program::instruction::CreateAssetCounter;
+use spr_program_test::Rejection;
+use spr_test_utils::backend::LiteSvmPoolBackend;
 
 #[test]
 fn asset_counter_assigns_distinct_canonical_interfaces() {

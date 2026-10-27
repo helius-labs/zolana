@@ -6,10 +6,10 @@ use solana_address::Address;
 use solana_commitment_config::CommitmentConfig;
 use solana_rpc_client::api::config::RpcTransactionConfig;
 use solana_transaction_status_client_types::UiTransactionEncoding;
-use zolana_client::Rpc;
-use zolana_test_utils::ring::RingHarness;
-use zolana_test_utils::test_validator_asserts::{fetch_account, token_amount};
-use zolana_transaction::SOL_MINT;
+use spr_client::Rpc;
+use spr_test_utils::ring::RingHarness;
+use spr_test_utils::test_validator_asserts::{fetch_account, token_amount};
+use spr_transaction::SOL_MINT;
 
 fn spl_mint(harness: &RingHarness) -> Result<Address> {
     Ok(Address::new_from_array(

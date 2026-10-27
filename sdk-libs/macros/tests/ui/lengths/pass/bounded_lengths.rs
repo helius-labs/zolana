@@ -1,5 +1,5 @@
-use zolana_program::conversion::{Allocator, ProofInput};
-use zolana_transaction::WalletUtxo;
+use spr_program::conversion::{Allocator, ProofInput};
+use spr_transaction::WalletUtxo;
 
 #[derive(ProofInput)]
 struct Exact {

@@ -4,9 +4,9 @@ use solana_account::Account;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_account_checks::AccountError;
-use zolana_client::ComputeBudgetConfig;
-use zolana_interface::{
+use spr_account_checks::AccountError;
+use spr_client::ComputeBudgetConfig;
+use spr_interface::{
     error::ShieldedPoolError,
     instruction::instruction_data::transact::{CircuitId, TransactIxData, TransactProof},
     pda,
@@ -16,9 +16,9 @@ use zolana_interface::{
     },
     NullifierPda, NULLIFIER_PDA_SIZE, N_PUBLIC_SLOTS,
 };
-use zolana_program::instruction::{CloseNullifierPdas, Transact};
-use zolana_program_test::{ProgramTestError, Rejection, Rpc, TransactionTrace, ZolanaProgramTest};
-use zolana_test_utils::{
+use spr_program::instruction::{CloseNullifierPdas, Transact};
+use spr_program_test::{ProgramTestError, Rejection, Rpc, TransactionTrace, ZolanaProgramTest};
+use spr_test_utils::{
     nullifier_pda::{
         assert_nullifier_pda, assert_nullifier_pdas, assert_nullifier_pdas_absent,
         nullifier_pda_addresses, nullifier_pda_rent, tree_close_before_index, tree_fees,
@@ -26,7 +26,7 @@ use zolana_test_utils::{
     },
     transact::{fe, inline_output, input_utxo, single_tree_context},
 };
-use zolana_tree::{TreeAccount, TreeAccountLayout, UTXO_TREE_HEIGHT};
+use spr_tree::{TreeAccount, TreeAccountLayout, UTXO_TREE_HEIGHT};
 
 const LAMPORTS_PER_SIGNATURE: u64 = 5_000;
 const CLOSE_TRANSACTION_FEE: u64 = 2 * LAMPORTS_PER_SIGNATURE;

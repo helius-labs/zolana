@@ -4,8 +4,8 @@
 //! the digest stays tag + prefix when every owner is inline.
 
 use shielded_pool_program::testing::hash_external_data;
-use zolana_hasher::{sha256::Sha256BE, Hasher};
-use zolana_interface::instruction::{
+use spr_hasher::{sha256::Sha256BE, Hasher};
+use spr_interface::instruction::{
     instruction_data::transact::{
         CircuitId, OwnerTag, ResolvedOutput, TransactIxData, TransactIxDataRef, TransactOutput,
         TransactProof, TreeContext,

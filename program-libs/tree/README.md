@@ -1,6 +1,6 @@
 <!-- cargo-rdme start -->
 
-# zolana-tree
+# spr-tree
 
 The shielded pool's tree account. A single Solana account holds both trees
 the pool maintains, cast in place as one `TreeAccountLayout`: an
@@ -40,7 +40,7 @@ under continuous updates. Its height is pinned to `UTXO_TREE_HEIGHT`, and
 queue. Spent-note nullifiers are queued instead of being applied a leaf at
 a time, and a queued batch is applied to the tree with a Groth16 proof that
 the values append correctly. A per-nullifier PDA
-(`zolana_interface::state::NullifierPda`) records the queue index a value
+(`spr_interface::state::NullifierPda`) records the queue index a value
 reserved, and rejects a second insertion of the same nullifier while it is
 pending. `nullifier_tree_spec.md` is the normative description of queue
 insertion, batch append, and PDA cleanup.

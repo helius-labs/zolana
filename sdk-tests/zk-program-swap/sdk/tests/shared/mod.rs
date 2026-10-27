@@ -1,5 +1,5 @@
-use zolana_hasher::primitives::solana_owner_identity;
-use zolana_keypair::{constants::BLINDING_LEN, hash::poseidon, NullifierKey};
+use spr_hasher::primitives::solana_owner_identity;
+use spr_keypair::{constants::BLINDING_LEN, hash::poseidon, NullifierKey};
 
 /// The order authority is a PDA, so its identity carries the Solana owner tag
 /// like the program's `PdaOwner` derivation.

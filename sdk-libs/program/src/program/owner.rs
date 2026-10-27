@@ -1,6 +1,6 @@
 use pinocchio::Address;
-use zolana_hasher::{primitives::solana_owner_identity, Hasher, Poseidon};
-pub use zolana_interface::ZERO_NULLIFIER_PUBKEY;
+use spr_hasher::{primitives::solana_owner_identity, Hasher, Poseidon};
+pub use spr_interface::ZERO_NULLIFIER_PUBKEY;
 
 use super::CompressedAccountError;
 

@@ -9,8 +9,8 @@ use solana_instruction::Instruction;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{prover::MergeCacheTarget, ComputeBudgetConfig};
-use zolana_interface::{
+use spr_client::{prover::MergeCacheTarget, ComputeBudgetConfig};
+use spr_interface::{
     error::ShieldedPoolError,
     instruction::instruction_data::{
         merge_transact::MERGE_DEFAULT_INPUT_COUNT,
@@ -23,10 +23,10 @@ use zolana_interface::{
         discriminator::CACHE,
     },
 };
-use zolana_program::instruction::CreateCache;
-use zolana_program_test::{test_blinding, Rejection, ZolanaProgramTest};
-use zolana_tree::TreeAccount;
-use zolana_user_registry_interface::state::UserRecord;
+use spr_program::instruction::CreateCache;
+use spr_program_test::{test_blinding, Rejection, ZolanaProgramTest};
+use spr_tree::TreeAccount;
+use spr_user_registry_interface::state::UserRecord;
 
 const MERGE_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
 
@@ -194,7 +194,7 @@ fn merge_writes_the_bound_slot() {
     store_cache(
         &mut pool.rpc,
         cache.address,
-        cache.holding(SLOT, zolana_test_utils::transact::fe(99)),
+        cache.holding(SLOT, spr_test_utils::transact::fe(99)),
     );
     send_merge_with_independent_payer(&mut pool, &cache, ix, 2);
 
@@ -263,7 +263,7 @@ fn ring_merge_writes_the_bound_slot() {
     store_cache(
         &mut pool.rpc,
         cache.address,
-        cache.holding(SLOT, zolana_test_utils::transact::fe(99)),
+        cache.holding(SLOT, spr_test_utils::transact::fe(99)),
     );
     send_merge_with_independent_payer(&mut pool, &cache, ix, 3);
 

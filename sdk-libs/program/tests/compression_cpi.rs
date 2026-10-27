@@ -1,18 +1,18 @@
 #![cfg(feature = "compression")]
 
 use pinocchio::{error::ProgramError, AccountView, Address};
-use zolana_account_checks::account_info::test_account_info::get_account_view;
-use zolana_hasher::primitives::right_align;
-use zolana_interface::{
+use spr_account_checks::account_info::test_account_info::get_account_view;
+use spr_hasher::primitives::right_align;
+use spr_interface::{
     instruction::instruction_data::transact::{TransactProof, TreeContext},
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_program::{
+use spr_program::{
     cpi::SppTransactAccounts,
     program::{AddressSeed, CompressedAccountError, PdaOwner, SppTransactCpi, UniqueDataUtxo},
 };
-use zolana_tree::{NullifierTreeInitParams, TreeAccount, TreeFeeSchedule};
+use spr_tree::{NullifierTreeInitParams, TreeAccount, TreeFeeSchedule};
 
 const OUTPUT_TREE: [u8; 32] = [21u8; 32];
 const PDA: [u8; 32] = [4u8; 32];
@@ -58,8 +58,8 @@ struct CountState {
     count: u8,
 }
 
-impl zolana_program::hasher::DataHasher for CountState {
-    fn hash(&self) -> Result<[u8; 32], zolana_hasher::HasherError> {
+impl spr_program::hasher::DataHasher for CountState {
+    fn hash(&self) -> Result<[u8; 32], spr_hasher::HasherError> {
         Ok(right_align(&[self.count]))
     }
 }

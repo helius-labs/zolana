@@ -6,12 +6,12 @@ use solana_instruction::Instruction;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{
+use spr_client::{
     ClientError, ComputeBudgetConfig, Proof, ProverClient, ProverExt, PublicInputs,
     PublicTransfers, TransferInputs, STATE_TREE_HEIGHT,
 };
-use zolana_hasher::Poseidon;
-use zolana_interface::{
+use spr_hasher::Poseidon;
+use spr_interface::{
     error::ShieldedPoolError,
     instruction::{
         CacheAccess, CacheWrite, CircuitId, CreateCacheData, InterfaceTransfer, TransactProof,
@@ -22,14 +22,14 @@ use zolana_interface::{
         read_tree_id,
     },
 };
-use zolana_keypair::{hash::owner_hash, NullifierKey, PublicKey};
-use zolana_merkle_tree::indexed::IndexedMerkleTree;
-use zolana_program::instruction::{
+use spr_keypair::{hash::owner_hash, NullifierKey, PublicKey};
+use spr_merkle_tree::indexed::IndexedMerkleTree;
+use spr_program::instruction::{
     CreateCache, Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
 };
-use zolana_program_test::{Rejection, ZolanaProgramTest};
-use zolana_test_utils::transact::*;
-use zolana_transaction::{instructions::transact::PrivateTxHash, Mint, Utxo};
+use spr_program_test::{Rejection, ZolanaProgramTest};
+use spr_test_utils::transact::*;
+use spr_transaction::{instructions::transact::PrivateTxHash, Mint, Utxo};
 
 type Step = (
     usize,
@@ -439,12 +439,12 @@ fn assert_rejected_atomically(
 fn with_circuit(ix: &Instruction, edit: impl FnOnce(&mut CacheAccess)) -> Instruction {
     let mut ix = ix.clone();
     let mut data =
-        zolana_interface::instruction::TransactIxData::deserialize(ix.data.get(1..).expect("body"))
+        spr_interface::instruction::TransactIxData::deserialize(ix.data.get(1..).expect("body"))
             .expect("decode");
     if let CircuitId::ConfidentialEddsaCached(_, _, _, access) = &mut data.circuit {
         edit(access);
     }
-    ix.data = std::iter::once(zolana_interface::instruction::tag::TRANSACT)
+    ix.data = std::iter::once(spr_interface::instruction::tag::TRANSACT)
         .chain(data.serialize().expect("encode"))
         .collect();
     ix
@@ -455,7 +455,7 @@ fn ten_proofs_in_parallel_then_sequential_splits_and_delayed_spends() {
     let mut pool = proof_env();
     let payer = pool.rpc.payer.pubkey();
     pool.rpc
-        .airdrop(&zolana_interface::SOL_INTERFACE_PUBKEY, 1_000_000)
+        .airdrop(&spr_interface::SOL_INTERFACE_PUBKEY, 1_000_000)
         .expect("fund SOL interface rent reserve");
     let writer = Keypair::new();
     pool.rpc
@@ -611,9 +611,7 @@ fn ten_proofs_in_parallel_then_sequential_splits_and_delayed_spends() {
         &mut pool.rpc,
         unsigned_writer,
         &writer,
-        Some(u32::from(
-            zolana_account_checks::AccountError::InvalidSigner,
-        )),
+        Some(u32::from(spr_account_checks::AccountError::InvalidSigner)),
     );
     let mut wrong_writer = first.clone();
     wrong_writer.accounts.last_mut().expect("writer").pubkey = payer;
@@ -667,12 +665,12 @@ fn ten_proofs_in_parallel_then_sequential_splits_and_delayed_spends() {
     // The writer, expiry and tree are checked before the proof, so even an
     // instruction whose proof cannot verify fails with the cache's own error.
     let mut unprovable = first.clone();
-    let mut data = zolana_interface::instruction::TransactIxData::deserialize(
+    let mut data = spr_interface::instruction::TransactIxData::deserialize(
         unprovable.data.get(1..).expect("body"),
     )
     .expect("decode");
     data.proof = TransactProof::zeroed();
-    unprovable.data = std::iter::once(zolana_interface::instruction::tag::TRANSACT)
+    unprovable.data = std::iter::once(spr_interface::instruction::tag::TRANSACT)
         .chain(data.serialize().expect("encode"))
         .collect();
     let mut unprovable_wrong_writer = unprovable.clone();
@@ -780,7 +778,7 @@ fn a_read_cache_and_a_write_cache_may_differ_in_tree_and_writer() {
     let mut pool = proof_env();
     let payer = pool.rpc.payer.pubkey();
     pool.rpc
-        .airdrop(&zolana_interface::SOL_INTERFACE_PUBKEY, 1_000_000)
+        .airdrop(&spr_interface::SOL_INTERFACE_PUBKEY, 1_000_000)
         .expect("fund SOL interface rent reserve");
     let writer_a = Keypair::new();
     let writer_b = Keypair::new();

@@ -1,5 +1,5 @@
-use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
-use zolana_interface::{
+use spr_hasher::{sha256::Sha256BE, Hasher, HasherError};
+use spr_interface::{
     error::ShieldedPoolError,
     instruction::{
         instruction_data::transact::{

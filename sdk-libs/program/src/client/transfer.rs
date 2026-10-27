@@ -1,6 +1,6 @@
 use solana_address::Address;
-use zolana_instruction::PublicTransfer;
-use zolana_transaction::{
+use spr_instruction::PublicTransfer;
+use spr_transaction::{
     instructions::transact::{PublicTransferRequest, SettlementTarget, SettlementTransfer},
     SOL_MINT,
 };

@@ -3,14 +3,14 @@ use std::{path::PathBuf, str::FromStr};
 use anyhow::{anyhow, bail, Context, Result};
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{ComputeBudgetConfig, Rpc, SolanaRpc};
-use zolana_interface::{
+use spr_client::{ComputeBudgetConfig, Rpc, SolanaRpc};
+use spr_interface::{
     pda,
     state::{ProtocolConfig, TreeFeeSchedule},
 };
-use zolana_program::instruction::SetTreeFees;
-use zolana_test_utils::smart_account::execute_sync_ix;
-use zolana_tree::TreeAccount;
+use spr_program::instruction::SetTreeFees;
+use spr_test_utils::smart_account::execute_sync_ix;
+use spr_tree::TreeAccount;
 
 use crate::{
     init_protocol::{load_keypair, to_address, Cluster},

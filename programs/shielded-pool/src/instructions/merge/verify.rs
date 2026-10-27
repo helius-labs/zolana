@@ -1,9 +1,9 @@
 use arrayvec::ArrayVec;
 use groth16_solana::groth16::Groth16Verifyingkey;
 use pinocchio::{error::ProgramError, ProgramResult};
-use zolana_hasher::hash_chain::create_hash_chain_4_from_slice;
-use zolana_hasher::zero_suffix_hash_chain::create_padded_right_hash_chain_4;
-use zolana_interface::{
+use spr_hasher::hash_chain::create_hash_chain_4_from_slice;
+use spr_hasher::zero_suffix_hash_chain::create_padded_right_hash_chain_4;
+use spr_interface::{
     error::ShieldedPoolError,
     instruction::{
         instruction_data::merge_transact::{

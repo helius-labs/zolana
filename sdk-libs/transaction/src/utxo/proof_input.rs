@@ -1,9 +1,9 @@
 use solana_address::Address;
-use zolana_hasher::{
+use spr_hasher::{
     primitives::{hash_bytes, right_align},
     Hasher, Poseidon,
 };
-use zolana_interface::tree_slot::tree_id_field;
+use spr_interface::tree_slot::tree_id_field;
 
 use super::{
     program_id_proof_input_hash, Blinding, SppProofInputUtxo, SppProofOutputUtxo, DUMMY_DOMAIN,
@@ -100,14 +100,14 @@ impl TryFrom<&SppProofInputUtxo> for ProofInputUtxo {
     fn try_from(input_utxo: &SppProofInputUtxo) -> Result<Self, Self::Error> {
         // An address slot hashes its owner and seed (the blinding) under the
         // address domain and its tree, every other field zero. On chain,
-        // `zolana_program::program::NewAddress::derive` computes the same
+        // `spr_program::program::NewAddress::derive` computes the same
         // hash; a test pins the two together.
         if input_utxo.is_address() {
             input_utxo.check_address_fields()?;
             return Ok(Self {
-                domain: right_align(&zolana_interface::ADDRESS_DOMAIN.to_be_bytes()),
+                domain: right_align(&spr_interface::ADDRESS_DOMAIN.to_be_bytes()),
                 tree_id: tree_id_field(input_utxo.tree_id),
-                owner_hash: zolana_keypair::hash::owner_hash(
+                owner_hash: spr_keypair::hash::owner_hash(
                     &input_utxo.utxo.owner,
                     &input_utxo.nullifier_pubkey,
                 )?,
@@ -122,7 +122,7 @@ impl TryFrom<&SppProofInputUtxo> for ProofInputUtxo {
             ));
         }
         let owner_hash =
-            zolana_keypair::hash::owner_hash(&input_utxo.utxo.owner, &input_utxo.nullifier_pubkey)?;
+            spr_keypair::hash::owner_hash(&input_utxo.utxo.owner, &input_utxo.nullifier_pubkey)?;
         ProofInputUtxo::new(
             owner_hash,
             &input_utxo.utxo.asset.asset,

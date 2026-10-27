@@ -13,15 +13,15 @@ solana-address = { workspace = true }
 solana-instruction = { workspace = true }
 solana-pubkey = { workspace = true }
 wincode = { workspace = true }
-zolana-client = { workspace = true }
-zolana-interface = { workspace = true }
-zolana-program = { workspace = true }
-zolana-hasher = { workspace = true }
-zolana-keypair = { workspace = true }
-zolana-transaction = { workspace = true }
+spr-client = { workspace = true }
+spr-interface = { workspace = true }
+spr-program = { workspace = true }
+spr-hasher = { workspace = true }
+spr-keypair = { workspace = true }
+spr-transaction = { workspace = true }
 
 [dev-dependencies]
-zolana-test-utils.workspace = true
+spr-test-utils.workspace = true
 groth16-solana = { workspace = true, features = ["bsb22"] }
 solana-keypair = { workspace = true }
 solana-signature = { workspace = true }

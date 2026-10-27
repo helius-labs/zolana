@@ -1,5 +1,5 @@
+use spr_hasher::HasherError;
 use thiserror::Error;
-use zolana_hasher::HasherError;
 
 #[derive(Debug, Error, PartialEq)]
 pub enum IndexedArrayError {

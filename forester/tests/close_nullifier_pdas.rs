@@ -8,14 +8,14 @@ use solana_message::{
     v1::{MAX_ADDRESSES, MAX_TRANSACTION_SIZE},
     VersionedMessage,
 };
-// `zolana_api::Hash` below is a queue element's hash, not a blockhash.
+// `spr_api::Hash` below is a queue element's hash, not a blockhash.
 use solana_hash::Hash as Blockhash;
 use solana_pubkey::Pubkey;
-use zolana_api::{Hash, NullifierQueueElement, PAGE_LIMIT};
-use zolana_client::{compile_message, ComputeBudgetConfig};
-use zolana_interface::{pda, NullifierPda, NULLIFIER_PDA_SIZE};
-use zolana_program::instruction::CloseNullifierPdas;
-use zolana_smart_account_client::SMART_ACCOUNT_PROGRAM_ID;
+use spr_api::{Hash, NullifierQueueElement, PAGE_LIMIT};
+use spr_client::{compile_message, ComputeBudgetConfig};
+use spr_interface::{pda, NullifierPda, NULLIFIER_PDA_SIZE};
+use spr_program::instruction::CloseNullifierPdas;
+use spr_smart_account_client::SMART_ACCOUNT_PROGRAM_ID;
 
 fn forester() -> ForesterSmartAccount {
     ForesterSmartAccount {

@@ -1,13 +1,13 @@
 use solana_address::Address;
 use solana_signature::Signature;
-use zolana_hasher::{Hasher, Poseidon};
-use zolana_keypair::{random_blinding, ShieldedAddress, ShieldedKeypair, SigningKey, X25519Pubkey};
-use zolana_program::{
+use spr_hasher::{Hasher, Poseidon};
+use spr_keypair::{random_blinding, ShieldedAddress, ShieldedKeypair, SigningKey, X25519Pubkey};
+use spr_program::{
     circuit::{poseidon, Bool, CircuitVar, DataHash},
     conversion::{to_bytes, Allocator, Placeholder, ProofInput},
     CircuitError, EncryptionCodec,
 };
-use zolana_transaction::{
+use spr_transaction::{
     decrypt,
     instructions::transact::SppProofInputs,
     utxo::{SppProofInputUtxo, Utxo},
@@ -127,7 +127,7 @@ pub fn state_hash<S: ProofInput<Circuit: DataHash>>(state: &S) -> [u8; 32] {
 }
 
 pub fn data_hash<S: ProofInput<Circuit: DataHash>>(state: &S) -> [u8; 32] {
-    zolana_program::hasher::data_hash(&state_hash(state)).expect("data hash")
+    spr_program::hasher::data_hash(&state_hash(state)).expect("data hash")
 }
 
 pub fn on_large_stack(run: impl FnOnce() + Send + 'static) {
@@ -247,11 +247,11 @@ fn placed(keys: &ShieldedKeypair, mut utxo: WalletUtxo, data_hash: [u8; 32]) -> 
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct ProgramOwner(zolana_program::ProgramOwner);
+pub struct ProgramOwner(spr_program::ProgramOwner);
 
 impl ProgramOwner {
     pub fn new(seed: u8) -> Self {
-        Self(zolana_program::ProgramOwner::new(Address::new_from_array(
+        Self(spr_program::ProgramOwner::new(Address::new_from_array(
             [seed; 32],
         )))
     }
@@ -348,7 +348,7 @@ pub struct CircuitMerklePath {
     pub bits: [Bool; MERKLE_DEPTH],
 }
 
-impl zolana_program::circuit::CircuitType for CircuitMerklePath {}
+impl spr_program::circuit::CircuitType for CircuitMerklePath {}
 
 impl ProofInput for MerklePath {
     type Circuit = CircuitMerklePath;
@@ -384,16 +384,16 @@ impl CircuitMerklePath {
 // Native state commitments for the hand-written circuit examples.
 macro_rules! native_state_hash {
     ($state:ty, [$($prefix:expr),*], $($field:ident),+ $(,)?) => {
-        impl zolana_program::hasher::DataHasher for $state {
-            fn hash(&self) -> Result<[u8; 32], zolana_program::hasher::HasherError> {
-                use zolana_program::hasher::{Hasher, Poseidon, ToByteArray};
+        impl spr_program::hasher::DataHasher for $state {
+            fn hash(&self) -> Result<[u8; 32], spr_program::hasher::HasherError> {
+                use spr_program::hasher::{Hasher, Poseidon, ToByteArray};
                 Poseidon::hashv(&[
                     $($prefix.to_byte_array()?.as_slice(),)*
                     $(self.$field.to_byte_array()?.as_slice(),)+
                 ])
             }
         }
-        impl zolana_program::EncryptionCodec for $state {
+        impl spr_program::EncryptionCodec for $state {
             fn serialize_for_encryption(&self) -> std::io::Result<Vec<u8>> {
                 borsh::to_vec(self)
             }
@@ -402,9 +402,9 @@ macro_rules! native_state_hash {
                 <Self as borsh::BorshDeserialize>::try_from_slice(bytes)
             }
         }
-        impl zolana_program::hasher::ToByteArray for $state {
-            fn to_byte_array(&self) -> Result<[u8; 32], zolana_program::hasher::HasherError> {
-                zolana_program::hasher::DataHasher::hash(self)
+        impl spr_program::hasher::ToByteArray for $state {
+            fn to_byte_array(&self) -> Result<[u8; 32], spr_program::hasher::HasherError> {
+                spr_program::hasher::DataHasher::hash(self)
             }
         }
     };

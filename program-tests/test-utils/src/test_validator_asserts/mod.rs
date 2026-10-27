@@ -19,14 +19,14 @@ use solana_address::Address;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 pub use spl_deposit::{assert_spl_deposit, SplDepositAssertArgs};
-use zolana_client::{
+use spr_client::{
     ClientError, EncryptedUtxoMatch, MerkleProof, NonInclusionProof, Rpc, ShieldedTransaction,
     SolanaRpc,
 };
-use zolana_interface::{instruction::deposit_blinding, pda, state::state_root_offset};
-use zolana_program::instruction::AssetDeposit;
-use zolana_program_test::DepositOutput;
-use zolana_tree::TreeAccount;
+use spr_interface::{instruction::deposit_blinding, pda, state::state_root_offset};
+use spr_program::instruction::AssetDeposit;
+use spr_program_test::DepositOutput;
+use spr_tree::TreeAccount;
 
 const INDEXER_TIMEOUT: Duration = Duration::from_secs(120);
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
@@ -70,7 +70,7 @@ pub fn expected_deposit_view(
         utxo_hash: event.utxo_hash,
         output_tree: expected.tree,
         leaf_index: expected.leaf_index,
-        output: zolana_event::ProoflessOutput {
+        output: spr_event::ProoflessOutput {
             owner: data.owner,
             blinding: deposit_blinding(&expected.tree, expected.leaf_index)
                 .expect("expected deposit blinding"),
@@ -396,9 +396,9 @@ pub fn wait_for_indexed_transaction<I: Rpc>(
 mod tests {
     use solana_instruction_error::InstructionError;
     use solana_transaction_error::TransactionError;
-    use zolana_client::ClientError;
-    use zolana_interface::error::ShieldedPoolError;
-    use zolana_program_test::Rejection;
+    use spr_client::ClientError;
+    use spr_interface::error::ShieldedPoolError;
+    use spr_program_test::Rejection;
 
     #[test]
     fn rejection_assert_client_matches_code_and_instruction_index() {

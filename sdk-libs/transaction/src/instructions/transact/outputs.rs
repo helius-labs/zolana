@@ -1,6 +1,6 @@
 use solana_address::Address;
-use zolana_interface::N_PUBLIC_SLOTS;
-use zolana_keypair::shielded::ShieldedAddress;
+use spr_interface::N_PUBLIC_SLOTS;
+use spr_keypair::shielded::ShieldedAddress;
 
 use super::{inputs::pad_inputs, ConfidentialTransaction};
 use crate::{

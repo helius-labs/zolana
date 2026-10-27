@@ -1,9 +1,9 @@
 use solana_address::Address;
-use zolana_program::{
+use spr_program::{
     conversion::{Allocator, Placeholder, ProofInput},
     CircuitError, Groth16Prover, TxContext, ZkProgramCircuit,
 };
-use zolana_transaction::{instructions::transact::SettlementTransfer, Mint, WalletUtxo};
+use spr_transaction::{instructions::transact::SettlementTransfer, Mint, WalletUtxo};
 
 use crate::{
     benchmark::prove,
@@ -28,7 +28,7 @@ struct WithdrawalPublicInputs {
     amount: u64,
 }
 
-impl zolana_program::circuit::CircuitType for circuit::Withdrawal {}
+impl spr_program::circuit::CircuitType for circuit::Withdrawal {}
 
 impl ProofInput for Withdrawal {
     type Circuit = circuit::Withdrawal;
@@ -64,7 +64,7 @@ impl Placeholder for Withdrawal {
 }
 
 mod circuit {
-    use zolana_program::{
+    use spr_program::{
         circuit::{
             poseidon, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
             PublicInputs, SolanaAddress, TokenUtxos, TxContext, Uint, Utxo, UtxoTrait,

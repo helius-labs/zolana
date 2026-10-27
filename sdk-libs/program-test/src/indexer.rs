@@ -6,20 +6,20 @@
 use std::collections::BTreeMap;
 
 use num_bigint::BigUint;
-use thiserror::Error;
-use zolana_client::{ProofInputUtxo, NULLIFIER_TREE_HEIGHT};
-use zolana_event::{encode_encrypted_ring_deposit_output, GeneralEvent};
-use zolana_hasher::Poseidon;
-use zolana_interface::state::STATE_HEIGHT;
-use zolana_keypair::{PublicKey, X25519Pubkey};
-use zolana_merkle_tree::{
+use spr_client::{ProofInputUtxo, NULLIFIER_TREE_HEIGHT};
+use spr_event::{encode_encrypted_ring_deposit_output, GeneralEvent};
+use spr_hasher::Poseidon;
+use spr_interface::state::STATE_HEIGHT;
+use spr_keypair::{PublicKey, X25519Pubkey};
+use spr_merkle_tree::{
     indexed::{IndexedMerkleTree, NonInclusionProof},
     MerkleTree,
 };
-use zolana_transaction::{
+use spr_transaction::{
     instructions::transact::BN254_MODULUS_DEC, owner_utxo_hash, Address, Data, DataRecord,
     OutputContext, OutputSlot, ShieldedTransaction, TransactionError, Utxo,
 };
+use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum IndexerError {
@@ -334,7 +334,7 @@ impl TestIndexer {
             .collect();
         Ok(Utxo {
             owner,
-            asset: zolana_transaction::Mint::new(Address::new_from_array(output.asset), asset_id),
+            asset: spr_transaction::Mint::new(Address::new_from_array(output.asset), asset_id),
             amount: output.amount,
             blinding: output.blinding,
             ring_program_id: None,

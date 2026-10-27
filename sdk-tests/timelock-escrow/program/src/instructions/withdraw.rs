@@ -3,10 +3,10 @@ use pinocchio::{
     sysvars::{clock::Clock, Sysvar},
     AccountView, ProgramResult,
 };
+use spr_account_checks::AccountIterator;
+use spr_hasher::primitives::solana_owner_identity;
+use spr_program::CompressedProof;
 use wincode::{SchemaRead, SchemaWrite};
-use zolana_account_checks::AccountIterator;
-use zolana_hasher::primitives::solana_owner_identity;
-use zolana_program::CompressedProof;
 
 use crate::{
     error::TimelockEscrowError,

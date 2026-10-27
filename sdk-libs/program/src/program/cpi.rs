@@ -2,14 +2,14 @@ use alloc::vec::Vec;
 
 use borsh::BorshSerialize;
 use pinocchio::{cpi::Signer, ProgramResult};
-use zolana_instruction::{
+use spr_instruction::{
     cpi::SppTransactAccounts,
     derivation::{
         derive_output_blinding_seed, derive_private_tx_blinding, derive_transact_output_blinding,
     },
     PrivateTxHash, TransactExternalData, TransactInputs,
 };
-use zolana_interface::{
+use spr_interface::{
     event::OutputDataEncoding,
     instruction::instruction_data::transact::{
         CircuitId, InputUtxo, OwnerTag, TransactIxData, TransactOutput, TransactProof, TreeContext,

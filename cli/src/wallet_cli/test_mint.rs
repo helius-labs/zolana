@@ -5,14 +5,14 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{fetch_asset_id, ComputeBudgetConfig, Rpc, SolanaRpc};
-use zolana_interface::{
+use spr_client::{fetch_asset_id, ComputeBudgetConfig, Rpc, SolanaRpc};
+use spr_interface::{
     pda, state::ProtocolConfig, SPL_TOKEN_2022_PROGRAM_ID,
     SPL_TOKEN_INITIALIZE_MINT2_DISCRIMINATOR, SPL_TOKEN_MINT_ACCOUNT_LEN,
     SPL_TOKEN_MINT_TO_DISCRIMINATOR, SPL_TOKEN_PROGRAM_ID,
 };
-use zolana_program::instruction::{CreateAssetCounter, CreateSplInterface};
-use zolana_transaction::Address;
+use spr_program::instruction::{CreateAssetCounter, CreateSplInterface};
+use spr_transaction::Address;
 
 use super::{
     material::{load_existing_wallet, load_sender_from_resolved_sync},
@@ -246,7 +246,7 @@ fn ensure_spl_interface(
 
 #[cfg(test)]
 mod tests {
-    use zolana_interface::state::discriminator::PROTOCOL_CONFIG;
+    use spr_interface::state::discriminator::PROTOCOL_CONFIG;
 
     use super::*;
 

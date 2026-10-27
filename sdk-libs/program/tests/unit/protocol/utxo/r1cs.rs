@@ -1,12 +1,12 @@
 use ark_bn254::Fr;
 use ark_ff::One;
 use solana_address::Address;
-use zolana_hasher::primitives::SOLANA_OWNER_TAG;
-use zolana_program::{
+use spr_hasher::primitives::SOLANA_OWNER_TAG;
+use spr_program::{
     circuit::VariableRole,
     testing::{FreeVariable, PrivateVariableReport},
 };
-use zolana_transaction::Mint;
+use spr_transaction::Mint;
 
 use super::{
     fixtures::{

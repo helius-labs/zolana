@@ -1,17 +1,17 @@
 use crate::output_blindings::assign_output_blindings;
-use zolana_transaction::{instructions::transact::SppProofInputs, SppProofOutputUtxo};
+use spr_transaction::{instructions::transact::SppProofInputs, SppProofOutputUtxo};
 
 pub fn finalized_transaction(
-    input_utxos: Vec<zolana_transaction::utxo::SppProofInputUtxo>,
+    input_utxos: Vec<spr_transaction::utxo::SppProofInputUtxo>,
     mut output_utxos: Vec<SppProofOutputUtxo>,
-    sender: &zolana_keypair::ShieldedKeypair,
+    sender: &spr_keypair::ShieldedKeypair,
     payer: solana_address::Address,
     output_tree_id: u16,
     blinding_seed: [u8; 32],
     salt: [u8; 16],
 ) -> SppProofInputs {
-    use zolana_interface::instruction::{OwnerTag, TransactOutput};
-    use zolana_transaction::serialization::{
+    use spr_interface::instruction::{OwnerTag, TransactOutput};
+    use spr_transaction::serialization::{
         confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
         UtxoSerialization,
     };
@@ -58,7 +58,7 @@ pub fn finalized_transaction(
         output_utxos,
         blinding_seed,
         output_tree_id,
-        external_data: zolana_transaction::ExternalData::new(
+        external_data: spr_transaction::ExternalData::new(
             *tx.pubkey().as_bytes(),
             salt,
             outputs,

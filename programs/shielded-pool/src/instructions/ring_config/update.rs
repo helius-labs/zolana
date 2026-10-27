@@ -1,8 +1,8 @@
 use crate::instructions::shared::caused_by;
 use borsh::BorshDeserialize;
 use pinocchio::{AccountView, ProgramResult};
-use zolana_account_checks::AccountIterator;
-use zolana_interface::{error::ShieldedPoolError, instruction::UpdateRingConfigData};
+use spr_account_checks::AccountIterator;
+use spr_interface::{error::ShieldedPoolError, instruction::UpdateRingConfigData};
 
 use crate::instructions::ring_config::loader::load_and_validate_ring_authority_mut;
 

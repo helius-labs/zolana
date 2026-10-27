@@ -1,7 +1,7 @@
 use solana_pubkey::Pubkey;
-use zolana_keypair::shielded::ShieldedAddress;
-use zolana_program::instruction::{AssetDeposit, DepositAsset, DepositSplAccounts};
-use zolana_transaction::TransactionError;
+use spr_keypair::shielded::ShieldedAddress;
+use spr_program::instruction::{AssetDeposit, DepositAsset, DepositSplAccounts};
+use spr_transaction::TransactionError;
 
 use crate::{ProgramTestError, ZolanaProgramTest};
 

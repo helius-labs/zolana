@@ -9,11 +9,11 @@ use shielded_pool_program::testing::{
     fixed_signer_hash_chain, OwnerHashCache, TransactAccounts, TransactProofInputs, MAX_SIGNERS,
     SIGNER_ZERO_SUFFIX_CHAINS,
 };
-use zolana_account_checks::account_info::test_account_info::get_account_view;
-use zolana_hasher::{
+use spr_account_checks::account_info::test_account_info::get_account_view;
+use spr_hasher::{
     hash_chain::create_right_hash_chain_from_slice, primitives::solana_owner_identity,
 };
-use zolana_interface::{
+use spr_interface::{
     error::ShieldedPoolError,
     instruction::instruction_data::transact::{
         CircuitId, InputUtxo, OwnerTag, ResolvedOutput, TransactIxData, TransactIxDataRef,

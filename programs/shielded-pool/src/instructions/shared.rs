@@ -9,9 +9,9 @@ use pinocchio::{
     sysvars::{clock::Clock, rent::Rent, Sysvar},
     AccountView, Address, ProgramResult,
 };
-use zolana_hasher::primitives::is_canonical_bn254_scalar_be;
-use zolana_interface::error::ShieldedPoolError;
-use zolana_tree::{nullifier_tree::error::NullifierTreeError, TreeError};
+use spr_hasher::primitives::is_canonical_bn254_scalar_be;
+use spr_interface::error::ShieldedPoolError;
+use spr_tree::{nullifier_tree::error::NullifierTreeError, TreeError};
 
 pub(crate) fn bool_field(value: bool) -> [u8; 32] {
     let mut field = [0u8; 32];

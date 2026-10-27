@@ -3,12 +3,12 @@ use ark_bn254::Fr;
 use ark_ff::PrimeField;
 use num_bigint::BigUint;
 use rand::{rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
-use zolana_client::{
+use spr_client::{
     spawn_prover, BatchAddressAppendInputs, ProofCompressed, ProverClient, ProverExt,
 };
-use zolana_hasher::{hash_chain::create_hash_chain_4_from_slice, Poseidon};
-use zolana_merkle_tree::indexed::IndexedMerkleTree;
-use zolana_tree::nullifier_tree::{
+use spr_hasher::{hash_chain::create_hash_chain_4_from_slice, Poseidon};
+use spr_merkle_tree::indexed::IndexedMerkleTree;
+use spr_tree::nullifier_tree::{
     access::get_merkle_tree_account_size,
     constants::{
         DEFAULT_NULLIFIER_BATCH_SIZE, DEFAULT_NULLIFIER_ZKP_BATCH_SIZE,

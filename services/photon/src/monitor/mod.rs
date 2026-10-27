@@ -30,7 +30,7 @@ use solana_account::Account as SolanaAccount;
 use crate::common::indexer_context::extract_slot;
 
 use solana_pubkey::Pubkey;
-use zolana_indexer_api::Hash;
+use spr_indexer_api::Hash;
 
 const CHUNK_SIZE: usize = 100;
 

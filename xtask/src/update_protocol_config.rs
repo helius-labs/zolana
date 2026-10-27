@@ -4,11 +4,11 @@ use anyhow::{anyhow, bail, Context, Result};
 use solana_address::Address;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{ComputeBudgetConfig, Rpc, SolanaRpc};
-use zolana_interface::{instruction::UpdateProtocolConfigData, pda, state::ProtocolConfig};
-use zolana_program::instruction::UpdateProtocolConfig;
-use zolana_smart_account_client::roles::Role;
-use zolana_test_utils::smart_account::{execute_sync_ix, settings_pda, smart_account_pda};
+use spr_client::{ComputeBudgetConfig, Rpc, SolanaRpc};
+use spr_interface::{instruction::UpdateProtocolConfigData, pda, state::ProtocolConfig};
+use spr_program::instruction::UpdateProtocolConfig;
+use spr_smart_account_client::roles::Role;
+use spr_test_utils::smart_account::{execute_sync_ix, settings_pda, smart_account_pda};
 
 use crate::init_protocol::{
     authorities, load_keypair, load_protocol_signers, read_program_config, to_address, Cluster,

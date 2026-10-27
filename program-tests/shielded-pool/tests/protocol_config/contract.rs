@@ -4,17 +4,17 @@ use solana_keypair::Keypair;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_account_checks::AccountError;
-use zolana_interface::{
+use spr_account_checks::AccountError;
+use spr_interface::{
     error::ShieldedPoolError,
     instruction::UpdateProtocolConfigData,
     pda,
     state::{discriminator, ProtocolConfig},
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_program::instruction::UpdateProtocolConfig;
-use zolana_program_test::{Rejection, ZolanaProgramTest};
-use zolana_test_utils::mollusk::{expect_err_exact, mollusk_with_program};
+use spr_program::instruction::UpdateProtocolConfig;
+use spr_program_test::{Rejection, ZolanaProgramTest};
+use spr_test_utils::mollusk::{expect_err_exact, mollusk_with_program};
 
 const SBF_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/deploy");
 

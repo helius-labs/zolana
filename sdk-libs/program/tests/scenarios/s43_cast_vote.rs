@@ -1,10 +1,10 @@
-use zolana_hasher::primitives::right_align;
-use zolana_keypair::ShieldedAddress;
-use zolana_program::{
+use spr_hasher::primitives::right_align;
+use spr_keypair::ShieldedAddress;
+use spr_program::{
     conversion::{Allocator, Placeholder, ProofInput},
     CircuitError, Groth16Prover, TxContext, ZkProgramCircuit,
 };
-use zolana_transaction::{Mint, WalletUtxo};
+use spr_transaction::{Mint, WalletUtxo};
 
 use crate::{
     benchmark::prove,
@@ -36,7 +36,7 @@ struct CastVotePublicInputs {
     nullifier: [u8; 32],
 }
 
-impl zolana_program::circuit::CircuitType for circuit::CastVote {}
+impl spr_program::circuit::CircuitType for circuit::CastVote {}
 
 impl ProofInput for CastVote {
     type Circuit = circuit::CastVote;
@@ -85,7 +85,7 @@ impl Placeholder for CastVote {
 }
 
 mod circuit {
-    use zolana_program::{
+    use spr_program::{
         circuit::{
             poseidon, Assert, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
             DataUtxo, PublicInputs, TxContext, Uint, Utxo, UtxoOwner, UtxoTrait,

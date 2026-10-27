@@ -3,9 +3,7 @@ use std::sync::Arc;
 use crate::api::root_index_cache::RootIndexCache;
 use crate::rpc::RpcClient;
 use sea_orm::{ConnectionTrait, DatabaseConnection, Statement};
-use utoipa::openapi::{RefOr, Schema};
-use utoipa::PartialSchema;
-use zolana_indexer_api::{
+use spr_indexer_api::{
     method::{
         GetEncryptedUtxosByTags, GetMerkleProofs, GetNonInclusionProofs, GetNullifierQueueElements,
         GetShieldedTransactionsByNullifiers, GetShieldedTransactionsBySignature,
@@ -18,6 +16,8 @@ use zolana_indexer_api::{
     GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
     GetUserRecordsRequest, GetUserRecordsResponse, RpcMethod,
 };
+use utoipa::openapi::{RefOr, Schema};
+use utoipa::PartialSchema;
 
 use super::{
     error::PhotonApiError,

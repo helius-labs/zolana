@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use zolana_hasher::{
+use spr_hasher::{
     hash_chain::{
         create_hash_chain_4, create_hash_chain_4_from_slice, create_hash_chain_from_slice,
         create_hash_chain_from_slice_ref, create_right_hash_chain_4_from_seed,
@@ -16,7 +16,7 @@ use zolana_hasher::{
 /// output:
 ///
 /// ```bash
-/// cargo test -p zolana-hasher --test hash_chain print_hash_chain_4_vectors -- --ignored --nocapture
+/// cargo test -p spr-hasher --test hash_chain print_hash_chain_4_vectors -- --ignored --nocapture
 /// ```
 const HASH_CHAIN_4_VECTORS_JSON: &str = include_str!("../../../test-vectors/hash_chain_4.json");
 
@@ -24,7 +24,7 @@ const HASH_CHAIN_4_VECTORS_JSON: &str = include_str!("../../../test-vectors/hash
 /// publishes. Regenerate with:
 ///
 /// ```bash
-/// cargo test -p zolana-hasher --test hash_chain print_right_hash_chain_4_vectors -- --ignored --nocapture
+/// cargo test -p spr-hasher --test hash_chain print_right_hash_chain_4_vectors -- --ignored --nocapture
 /// ```
 const RIGHT_HASH_CHAIN_4_VECTORS_JSON: &str =
     include_str!("../../../test-vectors/right_hash_chain_4.json");
@@ -305,7 +305,7 @@ fn hash_chain_4_rejects_inputs_larger_than_the_modulus() {
     use ark_ff::PrimeField;
     use light_poseidon::PoseidonError;
     use num_bigint::BigUint;
-    use zolana_hasher::bigint::bigint_to_be_bytes_array;
+    use spr_hasher::bigint::bigint_to_be_bytes_array;
     let modulus: BigUint = ark_bn254::Fr::MODULUS.into();
     let modulus_bytes: [u8; 32] = bigint_to_be_bytes_array(&modulus).unwrap();
     for inputs in [
@@ -402,7 +402,7 @@ fn test_create_hash_chain_from_slice() {
         use ark_ff::PrimeField;
         use light_poseidon::PoseidonError;
         use num_bigint::BigUint;
-        use zolana_hasher::bigint::bigint_to_be_bytes_array;
+        use spr_hasher::bigint::bigint_to_be_bytes_array;
         let modulus: BigUint = ark_bn254::Fr::MODULUS.into();
         let modulus_bytes: [u8; 32] = bigint_to_be_bytes_array(&modulus).unwrap();
         let huge_input = vec![modulus_bytes, modulus_bytes];

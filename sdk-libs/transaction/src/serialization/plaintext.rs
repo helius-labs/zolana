@@ -1,7 +1,7 @@
 use solana_address::Address;
+use spr_interface::MAX_OUTPUTS;
+use spr_keypair::{viewing_key::ViewTag, PublicKey};
 use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
-use zolana_interface::MAX_OUTPUTS;
-use zolana_keypair::{viewing_key::ViewTag, PublicKey};
 
 use super::{change_slots, ChangeSlots, DecodeCx, OwnerCx, UtxoSerialization};
 use crate::{

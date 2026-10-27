@@ -1,7 +1,7 @@
 use solana_address::Address;
-use zolana_hasher::primitives::{solana_owner_identity, SOLANA_OWNER_TAG};
-use zolana_keypair::{Curve, PublicKey, ShieldedAddress};
-use zolana_program::{
+use spr_hasher::primitives::{solana_owner_identity, SOLANA_OWNER_TAG};
+use spr_keypair::{Curve, PublicKey, ShieldedAddress};
+use spr_program::{
     circuit::{value, DataHash, Field, UtxoOwner},
     conversion::{Allocator, FromCircuit, Placeholder, ProofInput},
     CircuitError, UtxoOwner as ClientOwner,
@@ -36,7 +36,7 @@ fn circuit(owner: &impl ProofInput<Circuit = UtxoOwner>) -> UtxoOwner {
         .expect("native owner")
 }
 
-fn constant(var: &zolana_program::circuit::CircuitVar) -> Field {
+fn constant(var: &spr_program::circuit::CircuitVar) -> Field {
     value(var).expect("constant")
 }
 

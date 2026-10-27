@@ -10,7 +10,7 @@ use photon_indexer::{
 };
 use sea_orm::{sea_query::Expr, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 use solana_pubkey::Pubkey;
-use zolana_indexer_api::{GetRingsByTagsRequest, Hash, Limit, SerializablePubkey};
+use spr_indexer_api::{GetRingsByTagsRequest, Hash, Limit, SerializablePubkey};
 
 use crate::rings_fixtures::{
     fixture_tree, fresh_rings_database, seed_tagged_transaction_history, seed_tree_metadata,

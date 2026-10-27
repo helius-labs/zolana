@@ -4,16 +4,15 @@ mod common;
 use borsh::BorshDeserialize;
 use common::{keypair, wallet_utxo};
 use solana_address::Address;
-use std::cell::RefCell;
-use zolana_event::OutputDataEncoding;
-use zolana_hasher::{Hasher, Poseidon};
-use zolana_interface::{
+use spr_event::OutputDataEncoding;
+use spr_hasher::{Hasher, Poseidon};
+use spr_interface::{
     instruction::instruction_data::transact::OwnerTag, MAX_INPUT_TREES, N_PUBLIC_SLOTS,
 };
-use zolana_keypair::{
+use spr_keypair::{
     NullifierKey, PublicKey, ShieldedAddress, ShieldedKeypair, ViewingKey, X25519Pubkey,
 };
-use zolana_transaction::{
+use spr_transaction::{
     instructions::transact::{
         canonical_shape, pad_input_utxos, resolve_shape, ConfidentialTransaction,
         PublicTransferRequest, SettlementTarget, Shape, SppProofInputs, SppProofOutputUtxo,
@@ -25,6 +24,7 @@ use zolana_transaction::{
     AssetRegistry, Data, DataRecord, DecodeCx, EncryptedScheme, Mint, TransactionError as E,
     UtxoSerialization, WalletUtxo,
 };
+use std::cell::RefCell;
 
 fn payer(owner: &ShieldedKeypair) -> Address {
     owner.shielded_address().unwrap().solana_address().unwrap()

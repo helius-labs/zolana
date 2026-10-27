@@ -1,5 +1,5 @@
 [package]
-name = "zolana-program-wasm-test-program"
+name = "spr-program-wasm-test-program"
 version = "0.1.0"
 edition.workspace = true
 publish = false
@@ -9,20 +9,20 @@ name = "wasm_test_program"
 crate-type = ["cdylib", "rlib"]
 
 [features]
-wasm = ["zolana-program/wasm"]
+wasm = ["spr-program/wasm"]
 fixtures = [
     "wasm",
-    "zolana-program/setup",
-    "zolana-program/parallel",
+    "spr-program/setup",
+    "spr-program/parallel",
 ]
 snarkjs = ["fixtures"]
 
 [dependencies]
 borsh = { workspace = true }
 solana-address = { workspace = true }
-zolana-program = { workspace = true, features = ["client"] }
-zolana-keypair = { workspace = true }
-zolana-transaction = { workspace = true }
+spr-program = { workspace = true, features = ["client"] }
+spr-keypair = { workspace = true }
+spr-transaction = { workspace = true }
 
 [dev-dependencies]
 hex = { workspace = true }
@@ -30,8 +30,8 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 solana-signature = { workspace = true }
-zolana-hasher = { workspace = true }
-zolana-interface = { workspace = true }
+spr-hasher = { workspace = true }
+spr-interface = { workspace = true }
 
 [[test]]
 name = "fixtures"

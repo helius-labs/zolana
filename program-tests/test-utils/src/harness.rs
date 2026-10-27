@@ -18,19 +18,19 @@ use solana_keypair::{read_keypair_file, Keypair};
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{Rpc, SolanaRpc, TransactionSize, ZolanaIndexer};
-use zolana_interface::{
+use spr_client::{Rpc, SolanaRpc, TransactionSize, ZolanaIndexer};
+use spr_interface::{
     pda,
     state::{default_tree_fees, nullifier_tree_params},
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::{ShieldedKeypair, SigningKey};
-use zolana_program::instruction::{
+use spr_keypair::{ShieldedKeypair, SigningKey};
+use spr_program::instruction::{
     CreateAssetCounter, CreateProtocolConfig, CreateSplInterface, CreateTree,
 };
-use zolana_smart_account_client::execute_sync_each;
-use zolana_transaction::{AssetRegistry, ShieldedTransaction, Utxo, WalletUtxo};
-use zolana_tree::NullifierTreeInitParams;
+use spr_smart_account_client::execute_sync_each;
+use spr_transaction::{AssetRegistry, ShieldedTransaction, Utxo, WalletUtxo};
+use spr_tree::NullifierTreeInitParams;
 
 use crate::{
     localnet::{
@@ -188,7 +188,7 @@ pub struct LocalnetHarness<D> {
     pub merge_vault: Pubkey,
     /// What the last proof-bearing transaction (transact, ring transact, merge
     /// or ring merge) measured against the v1 ceilings, through
-    /// `zolana_client::transaction_size` with the budget it was sent with.
+    /// `spr_client::transaction_size` with the budget it was sent with.
     pub last_transaction_size: Option<TransactionSize>,
 }
 
@@ -232,7 +232,7 @@ impl<D> LocalnetHarness<D> {
         // The prover is independent of the validator and indexer, so start it
         // concurrently with the validator + Photon restart and join before use.
         let prover = std::thread::spawn(|| {
-            crate::prover::spawn_workspace_prover(zolana_client::IndexerRequirement::Required)
+            crate::prover::spawn_workspace_prover(spr_client::IndexerRequirement::Required)
         });
         let extra_programs: Vec<(String, &str)> = config
             .extra_programs
@@ -364,7 +364,7 @@ impl<D> LocalnetHarness<D> {
         setup: &ProtocolSetup,
         nullifier_params: Option<NullifierTreeInitParams>,
     ) -> Result<(Pubkey, Address, u16)> {
-        let tree_id = zolana_program_test::next_tree_id(rpc)?;
+        let tree_id = spr_program_test::next_tree_id(rpc)?;
         let create = CreateTree {
             payer: setup.payer.pubkey(),
             authority: setup.accounts.tree_vault,
@@ -468,7 +468,7 @@ impl<D> LocalnetHarness<D> {
             let ix = CreateSplInterface {
                 authority: protocol_vault,
                 mint,
-                token_program: zolana_interface::pda::spl_token_program_id(),
+                token_program: spr_interface::pda::spl_token_program_id(),
             }
             .instruction();
             let sync_ix = self.authority.execute_sync(&protocol_settings, &[ix]);

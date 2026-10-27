@@ -3,7 +3,7 @@
 //! The program records an event by re-invoking itself with an `EMIT_EVENT`
 //! instruction, so an event is an inner instruction. `deposit` emits the full
 //! `GeneralEvent`; `transact` and `merge` emit only the values assigned at
-//! execution ([`zolana_event::TransactEvent`], [`zolana_event::MergeEvent`]) and
+//! execution ([`spr_event::TransactEvent`], [`spr_event::MergeEvent`]) and
 //! this crate rebuilds the `GeneralEvent` from that body plus the data and
 //! account list of the instruction that emitted it.
 //!
@@ -55,7 +55,7 @@ pub enum EventDecodeError {
     /// The emitting instruction's account list is shorter than the settlement
     /// groups its interface transfers require.
     MissingSettlementAccount,
-    /// The event kind carries no [`GeneralEvent`](zolana_event::GeneralEvent) view
+    /// The event kind carries no [`GeneralEvent`](spr_event::GeneralEvent) view
     /// (nullifier-tree updates).
     NotAGeneralEvent,
     /// Queue sequence or leaf index arithmetic overflowed.

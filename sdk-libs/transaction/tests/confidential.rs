@@ -1,7 +1,7 @@
 use borsh::BorshDeserialize;
-use zolana_event::OutputDataEncoding;
-use zolana_keypair::{constants::SALT_LEN, x25519::X25519_PUBKEY_LEN, ViewingKey};
-use zolana_transaction::{
+use spr_event::OutputDataEncoding;
+use spr_keypair::{constants::SALT_LEN, x25519::X25519_PUBKEY_LEN, ViewingKey};
+use spr_transaction::{
     serialization::confidential::*, Data, DecodeCx, EncryptedScheme, TransactionError,
     UtxoSerialization, SOL_ASSET_ID,
 };

@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use solana_address::Address;
-use zolana_program::program::{PdaOwner, UniqueDataUtxo, UtxoMeta, ACCOUNT_BLINDING_SEED};
-use zolana_transaction::{
+use spr_program::program::{PdaOwner, UniqueDataUtxo, UtxoMeta, ACCOUNT_BLINDING_SEED};
+use spr_transaction::{
     instructions::transact::SppProofInputs, utxo::SppProofInputUtxo, Utxo, WalletUtxo,
 };
 

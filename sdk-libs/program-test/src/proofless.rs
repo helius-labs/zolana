@@ -2,12 +2,12 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_event::SplTransfer;
-use zolana_keypair::PublicKey;
-use zolana_program::instruction::{AssetDeposit, Deposit};
-use zolana_transaction::Utxo;
+use spr_event::SplTransfer;
+use spr_keypair::PublicKey;
+use spr_program::instruction::{AssetDeposit, Deposit};
+use spr_transaction::Utxo;
 
-use zolana_event_parser::general_event_from_indexed;
+use spr_event_parser::general_event_from_indexed;
 
 use crate::{
     deposit_outputs_from_event, single_deposit_view, DepositOutput, ProgramTestError,
@@ -119,18 +119,17 @@ impl ZolanaProgramTest {
         owner: PublicKey,
     ) -> Result<Utxo, ProgramTestError> {
         let mint = Pubkey::new_from_array(deposit.output.asset);
-        let asset_id = if mint == zolana_transaction::SOL_MINT {
-            zolana_transaction::SOL_ASSET_ID
+        let asset_id = if mint == spr_transaction::SOL_MINT {
+            spr_transaction::SOL_ASSET_ID
         } else {
-            let address = zolana_interface::pda::spl_asset_registry(&mint);
+            let address = spr_interface::pda::spl_asset_registry(&mint);
             let account = self.svm.get_account(&address).ok_or_else(|| {
                 ProgramTestError::Litesvm(format!("missing asset registry {address}"))
             })?;
             let registry =
-                zolana_interface::state::SplAssetRegistry::from_account_bytes(&account.data)
-                    .map_err(|error| {
-                        ProgramTestError::Litesvm(format!("invalid asset registry: {error:?}"))
-                    })?;
+                spr_interface::state::SplAssetRegistry::from_account_bytes(&account.data).map_err(
+                    |error| ProgramTestError::Litesvm(format!("invalid asset registry: {error:?}")),
+                )?;
             if registry.mint != mint {
                 return Err(ProgramTestError::Litesvm(
                     "asset registry mint mismatch".into(),

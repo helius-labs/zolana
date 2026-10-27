@@ -165,10 +165,10 @@ impl Release {
 fn program_id_for_role(role: &str) -> Result<String> {
     let id = match role {
         "shielded_pool" => {
-            Pubkey::new_from_array(zolana_interface::SHIELDED_POOL_PROGRAM_ID).to_string()
+            Pubkey::new_from_array(spr_interface::SHIELDED_POOL_PROGRAM_ID).to_string()
         }
         "user_registry" => {
-            Pubkey::new_from_array(zolana_user_registry_interface::USER_REGISTRY_PROGRAM_ID)
+            Pubkey::new_from_array(spr_user_registry_interface::USER_REGISTRY_PROGRAM_ID)
                 .to_string()
         }
         "smart_account" => SMART_ACCOUNT_PROGRAM_ID.to_string(),

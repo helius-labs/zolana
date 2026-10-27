@@ -28,7 +28,7 @@ use solana_rpc_client_api::{
 use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_status_client_types::EncodedConfirmedTransactionWithStatusMeta;
-use zolana_client::{
+use spr_client::{
     rpc::{compile_message, sign_transaction, ComputeBudgetConfig},
     AsyncRpc, AsyncSolanaRpc, ClientError, ConfirmedInstructionGroups, ProgramAccountsFilter, Rpc,
     SolanaRpc,

@@ -11,7 +11,7 @@ on:
       - "sdk-libs/event/**"
       - "sdk-libs/merkle-tree/**"
       - "sdk-libs/indexer-api/**"
-      - "sdk-libs/zolana-api/**"
+      - "sdk-libs/spr-api/**"
       - ".cargo/**"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -28,7 +28,7 @@ on:
       - "sdk-libs/event/**"
       - "sdk-libs/merkle-tree/**"
       - "sdk-libs/indexer-api/**"
-      - "sdk-libs/zolana-api/**"
+      - "sdk-libs/spr-api/**"
       - ".cargo/**"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -123,5 +123,5 @@ jobs:
           git diff --exit-code -- services/photon/src/openapi/specs/rings.yaml
       - name: Run contract and Photon tests
         run: |
-          cargo test --locked -p zolana-indexer-api
+          cargo test --locked -p spr-indexer-api
           cargo test --locked -p photon-indexer --all-targets

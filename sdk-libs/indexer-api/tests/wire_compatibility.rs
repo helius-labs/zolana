@@ -3,7 +3,7 @@
 //! The split is deliberate and load-bearing, so it is pinned rather than left
 //! to whoever next edits a `#[serde(..)]` attribute.
 
-use zolana_indexer_api::{
+use spr_indexer_api::{
     GetEncryptedUtxosByTagsResponse, GetMerkleProofsRequest, GetShieldedTransactionsByTagsResponse,
     SerializablePubkey,
 };

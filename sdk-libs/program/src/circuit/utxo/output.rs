@@ -1,4 +1,4 @@
-use zolana_interface::DUMMY_DOMAIN;
+use spr_interface::DUMMY_DOMAIN;
 
 use super::{utxo_domain, Utxo};
 use crate::{

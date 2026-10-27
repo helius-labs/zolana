@@ -1,7 +1,7 @@
 use alloc::vec;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
-use zolana_interface::{
+use spr_interface::{
     instruction::{encode_instruction, tag, BatchUpdateNullifierTreeData, NullifierTreeProof},
     pda, PROGRAM_ID_PUBKEY,
 };

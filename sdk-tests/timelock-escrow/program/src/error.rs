@@ -1,7 +1,7 @@
 use solana_program_error::ProgramError;
+use spr_hasher::HasherError;
+use spr_program::verifier::VerifyError;
 use thiserror::Error;
-use zolana_hasher::HasherError;
-use zolana_program::verifier::VerifyError;
 
 #[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
 #[repr(u32)]

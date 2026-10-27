@@ -1,11 +1,11 @@
 //! Enforces the dependency rules on the zk crates, which live in
 //! helius-labs/zk-tools (see the root CLAUDE.md):
 //!
-//! - `zolana-keypair` and `zolana-transaction` reach the zk crates only through
+//! - `spr-keypair` and `spr-transaction` reach the zk crates only through
 //!   optional dependencies (their `circuit` feature);
-//! - outside the crates that build zolana-program, no crate
-//!   depends on both `zolana-program` and a `zolana-zk-*` crate: ZK programs go
-//!   through `zolana-program`, standalone circuits use the zk crates directly.
+//! - outside the crates that build spr-program, no crate
+//!   depends on both `spr-program` and a `spr-zk-*` crate: ZK programs go
+//!   through `spr-program`, standalone circuits use the zk crates directly.
 //!
 //! Both rules cover the normal and build graph, so tests may pull in what they
 //! need.
@@ -15,13 +15,13 @@ use std::{path::Path, process::Command};
 use anyhow::{bail, Context, Result};
 use serde_json::Value;
 
-const ZK_PREFIX: &str = "zolana-zk-";
-const OPTIONAL_ZK: &[&str] = &["zolana-keypair", "zolana-transaction"];
+const ZK_PREFIX: &str = "spr-zk-";
+const OPTIONAL_ZK: &[&str] = &["spr-keypair", "spr-transaction"];
 const PROGRAM_LAYER: &[&str] = &[
-    "zolana-program",
-    "zolana-macros",
-    "zolana-keypair",
-    "zolana-transaction",
+    "spr-program",
+    "spr-macros",
+    "spr-keypair",
+    "spr-transaction",
 ];
 
 struct Dependency {
@@ -124,11 +124,11 @@ fn violations(packages: &[Package]) -> Vec<String> {
         let program = package
             .dependencies
             .iter()
-            .any(|dependency| !dependency.dev && dependency.name == "zolana-program");
+            .any(|dependency| !dependency.dev && dependency.name == "spr-program");
         if !PROGRAM_LAYER.contains(&package.name.as_str()) && program && !zk_dependencies.is_empty()
         {
             violations.push(format!(
-                "{} depends on zolana-program and on {}: a ZK program uses the zolana-program re-exports",
+                "{} depends on spr-program and on {}: a ZK program uses the spr-program re-exports",
                 package.name,
                 zk_dependencies
                     .iter()

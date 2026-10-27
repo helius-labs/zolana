@@ -3,23 +3,23 @@ use solana_keypair::Keypair;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_account_checks::AccountError;
-use zolana_interface::{
+use spr_account_checks::AccountError;
+use spr_interface::{
     error::ShieldedPoolError,
     instruction::UpdateProtocolConfigData,
     state::{nullifier_tree_params, TreeFeeSchedule, MAX_FEE_PER_NULLIFIER},
 };
-use zolana_program::instruction::SetTreeFees;
-use zolana_program_test::Rejection;
-use zolana_test_utils::mollusk::{
+use spr_program::instruction::SetTreeFees;
+use spr_program_test::Rejection;
+use spr_test_utils::mollusk::{
     expect_err_exact, mollusk_pubkey, sweep_account_matrix, AccountMutation, Expected,
 };
-use zolana_test_utils::nullifier_pda::tree_fees;
-use zolana_tree::{TreeAccountLayout, PAUSED, UTXO_TREE_HEIGHT};
+use spr_test_utils::nullifier_pda::tree_fees;
+use spr_tree::{TreeAccountLayout, PAUSED, UTXO_TREE_HEIGHT};
 
 type Layout = TreeAccountLayout<
     UTXO_TREE_HEIGHT,
-    { zolana_tree::nullifier_tree::constants::NULLIFIER_TREE_ZKP_BATCHES },
+    { spr_tree::nullifier_tree::constants::NULLIFIER_TREE_ZKP_BATCHES },
 >;
 
 use shielded_pool_tests::support::{

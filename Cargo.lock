@@ -1957,14 +1957,14 @@ dependencies = [
  "solana-pubkey 4.2.1",
  "solana-signature",
  "solana-signer",
- "zolana-client",
- "zolana-interface",
- "zolana-keypair",
- "zolana-program",
- "zolana-program-test",
- "zolana-test-utils",
- "zolana-transaction",
- "zolana-user-registry-interface",
+ "spr-client",
+ "spr-interface",
+ "spr-keypair",
+ "spr-program",
+ "spr-program-test",
+ "spr-test-utils",
+ "spr-transaction",
+ "spr-user-registry-interface",
 ]
 
 [[package]]
@@ -2069,22 +2069,22 @@ dependencies = [
  "pinocchio 0.11.2",
  "solana-address 2.6.1",
  "solana-program-error",
+ "spr-account-checks",
+ "spr-hasher",
+ "spr-interface",
+ "spr-program",
  "thiserror 2.0.20",
  "wincode",
- "zolana-account-checks",
- "zolana-hasher",
- "zolana-interface",
- "zolana-program",
 ]
 
 [[package]]
 name = "compression-example-prover"
 version = "0.1.0"
 dependencies = [
- "zolana-client",
- "zolana-gnark-ffi-prover",
- "zolana-gnark-ffi-prover-build",
- "zolana-program",
+ "spr-client",
+ "spr-gnark-ffi-prover",
+ "spr-gnark-ffi-prover-build",
+ "spr-program",
 ]
 
 [[package]]
@@ -2098,13 +2098,13 @@ dependencies = [
  "num-bigint 0.4.8",
  "solana-address 2.6.1",
  "solana-instruction",
+ "spr-client",
+ "spr-hasher",
+ "spr-interface",
+ "spr-keypair",
+ "spr-program",
+ "spr-transaction",
  "wincode",
- "zolana-client",
- "zolana-hasher",
- "zolana-interface",
- "zolana-keypair",
- "zolana-program",
- "zolana-transaction",
 ]
 
 [[package]]
@@ -2119,14 +2119,14 @@ dependencies = [
  "solana-keypair",
  "solana-signature",
  "solana-signer",
- "zolana-client",
- "zolana-interface",
- "zolana-keypair",
- "zolana-program",
- "zolana-program-test",
- "zolana-test-utils",
- "zolana-transaction",
- "zolana-tree",
+ "spr-client",
+ "spr-interface",
+ "spr-keypair",
+ "spr-program",
+ "spr-program-test",
+ "spr-test-utils",
+ "spr-transaction",
+ "spr-tree",
 ]
 
 [[package]]
@@ -3015,21 +3015,21 @@ dependencies = [
  "pinocchio 0.11.2",
  "pinocchio-system",
  "solana-program-error",
+ "spr-account-checks",
+ "spr-hasher",
+ "spr-interface",
+ "spr-program",
  "thiserror 2.0.20",
  "wincode",
- "zolana-account-checks",
- "zolana-hasher",
- "zolana-interface",
- "zolana-program",
 ]
 
 [[package]]
 name = "dynamic-swap-prover"
 version = "0.1.0"
 dependencies = [
- "zolana-client",
- "zolana-gnark-ffi-prover",
- "zolana-gnark-ffi-prover-build",
+ "spr-client",
+ "spr-gnark-ffi-prover",
+ "spr-gnark-ffi-prover-build",
 ]
 
 [[package]]
@@ -3044,13 +3044,13 @@ dependencies = [
  "solana-instruction",
  "solana-pubkey 4.2.1",
  "solana-system-interface 3.2.0",
+ "spr-client",
+ "spr-interface",
+ "spr-keypair",
+ "spr-program",
+ "spr-test-utils",
+ "spr-transaction",
  "wincode",
- "zolana-client",
- "zolana-interface",
- "zolana-keypair",
- "zolana-program",
- "zolana-test-utils",
- "zolana-transaction",
 ]
 
 [[package]]
@@ -3074,17 +3074,17 @@ dependencies = [
  "solana-rpc-client",
  "solana-signature",
  "solana-signer",
- "zolana-client",
- "zolana-hasher",
- "zolana-interface",
- "zolana-keypair",
- "zolana-merkle-tree",
- "zolana-program",
- "zolana-program-test",
- "zolana-test-utils",
- "zolana-transaction",
- "zolana-tree",
- "zolana-user-registry-interface",
+ "spr-client",
+ "spr-hasher",
+ "spr-interface",
+ "spr-keypair",
+ "spr-merkle-tree",
+ "spr-program",
+ "spr-program-test",
+ "spr-test-utils",
+ "spr-transaction",
+ "spr-tree",
+ "spr-user-registry-interface",
 ]
 
 [[package]]
@@ -3525,17 +3525,17 @@ dependencies = [
  "solana-signature",
  "solana-signer",
  "solana-transaction",
+ "spr-api",
+ "spr-client",
+ "spr-hasher",
+ "spr-interface",
+ "spr-merkle-tree",
+ "spr-program",
+ "spr-smart-account-client",
+ "spr-tree",
  "thiserror 2.0.20",
  "tracing",
  "tracing-subscriber",
- "zolana-api",
- "zolana-client",
- "zolana-hasher",
- "zolana-interface",
- "zolana-merkle-tree",
- "zolana-program",
- "zolana-smart-account-client",
- "zolana-tree",
 ]
 
 [[package]]
@@ -5778,6 +5778,13 @@ dependencies = [
  "solana-transaction",
  "solana-transaction-error",
  "solana-transaction-status-client-types",
+ "spr-event",
+ "spr-event-parser",
+ "spr-indexer-api",
+ "spr-interface",
+ "spr-rpc-http",
+ "spr-tree",
+ "spr-user-registry-interface",
  "sqlx",
  "thiserror 2.0.20",
  "tokio",
@@ -5789,13 +5796,6 @@ dependencies = [
  "utoipa",
  "wincode",
  "yellowstone-grpc-proto",
- "zolana-event",
- "zolana-event-parser",
- "zolana-indexer-api",
- "zolana-interface",
- "zolana-rpc-http",
- "zolana-tree",
- "zolana-user-registry-interface",
 ]
 
 [[package]]
@@ -6747,16 +6747,16 @@ dependencies = [
  "solana-pubkey 4.2.1",
  "solana-signature",
  "solana-signer",
- "zolana-client",
- "zolana-hasher",
- "zolana-interface",
- "zolana-keypair",
- "zolana-merkle-tree",
- "zolana-program",
- "zolana-program-test",
- "zolana-test-utils",
- "zolana-transaction",
- "zolana-tree",
+ "spr-client",
+ "spr-hasher",
+ "spr-interface",
+ "spr-keypair",
+ "spr-merkle-tree",
+ "spr-program",
+ "spr-program-test",
+ "spr-test-utils",
+ "spr-transaction",
+ "spr-tree",
 ]
 
 [[package]]
@@ -6793,16 +6793,16 @@ dependencies = [
  "solana-signer",
  "solana-transaction",
  "solana-transaction-status-client-types",
- "zolana-client",
- "zolana-event",
- "zolana-hasher",
- "zolana-interface",
- "zolana-keypair",
- "zolana-program-test",
- "zolana-smart-account-client",
- "zolana-test-utils",
- "zolana-transaction",
- "zolana-user-registry-interface",
+ "spr-client",
+ "spr-event",
+ "spr-hasher",
+ "spr-interface",
+ "spr-keypair",
+ "spr-program-test",
+ "spr-smart-account-client",
+ "spr-test-utils",
+ "spr-transaction",
+ "spr-user-registry-interface",
 ]
 
 [[package]]
@@ -7710,12 +7710,12 @@ dependencies = [
  "solana-loader-v3-interface 8.0.1",
  "solana-msg",
  "spl-token-2022-interface 2.1.0",
+ "spr-account-checks",
+ "spr-hasher",
+ "spr-interface",
+ "spr-tree",
+ "spr-user-registry-interface",
  "tinyvec",
- "zolana-account-checks",
- "zolana-hasher",
- "zolana-interface",
- "zolana-tree",
- "zolana-user-registry-interface",
 ]
 
 [[package]]
@@ -7750,23 +7750,23 @@ dependencies = [
  "solana-system-interface 3.2.0",
  "spl-token",
  "spl-token-2022-interface 2.1.0",
+ "spr-account-checks",
+ "spr-client",
+ "spr-event",
+ "spr-event-parser",
+ "spr-hasher",
+ "spr-interface",
+ "spr-keypair",
+ "spr-merkle-tree",
+ "spr-program",
+ "spr-program-test",
+ "spr-smart-account-client",
+ "spr-test-utils",
+ "spr-transaction",
+ "spr-tree",
+ "spr-user-registry-interface",
  "tokio",
  "wincode",
- "zolana-account-checks",
- "zolana-client",
- "zolana-event",
- "zolana-event-parser",
- "zolana-hasher",
- "zolana-interface",
- "zolana-keypair",
- "zolana-merkle-tree",
- "zolana-program",
- "zolana-program-test",
- "zolana-smart-account-client",
- "zolana-test-utils",
- "zolana-transaction",
- "zolana-tree",
- "zolana-user-registry-interface",
 ]
 
 [[package]]
@@ -10210,10 +10210,579 @@ dependencies = [
  "solana-signer",
  "solana-system-interface 3.2.0",
  "solana-transaction",
- "zolana-client",
- "zolana-smart-account-client",
- "zolana-test-utils",
- "zolana-transaction",
+ "spr-client",
+ "spr-smart-account-client",
+ "spr-test-utils",
+ "spr-transaction",
+]
+
+[[package]]
+name = "spr-account-checks"
+version = "0.8.0"
+dependencies = [
+ "rand 0.8.8",
+ "solana-account-view 2.0.0",
+ "solana-address 2.6.1",
+ "solana-msg",
+ "solana-program-error",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "spr-api"
+version = "0.1.0"
+dependencies = [
+ "http 1.5.0",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_path_to_error",
+ "spr-indexer-api",
+ "tokio",
+ "zeroize",
+]
+
+[[package]]
+name = "spr-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "groth16-solana",
+ "hex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "solana-address 2.6.1",
+ "solana-instruction",
+ "solana-keypair",
+ "solana-loader-v3-interface 8.0.1",
+ "solana-loader-v4-interface",
+ "solana-pubkey 4.2.1",
+ "solana-sdk-ids",
+ "solana-signature",
+ "solana-signer",
+ "spr-client",
+ "spr-interface",
+ "spr-keypair",
+ "spr-program",
+ "spr-transaction",
+ "spr-user-registry-interface",
+]
+
+[[package]]
+name = "spr-client"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm",
+ "async-trait",
+ "base64 0.22.1",
+ "bincode 1.3.3",
+ "borsh",
+ "bs58",
+ "futures",
+ "groth16-solana",
+ "hex",
+ "hpke",
+ "http 1.5.0",
+ "httpdate",
+ "num-bigint 0.4.8",
+ "num-traits",
+ "rand 0.8.8",
+ "rand_core 0.9.5",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "solana-account 4.3.2",
+ "solana-address 2.6.1",
+ "solana-bn254",
+ "solana-commitment-config",
+ "solana-hash",
+ "solana-instruction",
+ "solana-keypair",
+ "solana-message",
+ "solana-pubkey 4.2.1",
+ "solana-rpc-client",
+ "solana-rpc-client-api",
+ "solana-signature",
+ "solana-signer",
+ "solana-transaction",
+ "solana-transaction-status-client-types",
+ "spr-api",
+ "spr-event",
+ "spr-event-parser",
+ "spr-hasher",
+ "spr-indexer-api",
+ "spr-interface",
+ "spr-keypair",
+ "spr-merkle-tree",
+ "spr-program",
+ "spr-prover-tee",
+ "spr-transaction",
+ "spr-tree",
+ "spr-user-registry-interface",
+ "thiserror 2.0.20",
+ "tokio",
+ "url",
+ "wincode",
+ "zeroize",
+]
+
+[[package]]
+name = "spr-event"
+version = "0.1.0"
+dependencies = [
+ "borsh",
+ "wincode",
+]
+
+[[package]]
+name = "spr-event-parser"
+version = "0.1.0"
+dependencies = [
+ "borsh",
+ "proptest",
+ "solana-pubkey 4.2.1",
+ "spr-event",
+ "spr-interface",
+]
+
+[[package]]
+name = "spr-gnark-ffi-prover"
+version = "0.1.0"
+dependencies = [
+ "groth16-solana",
+ "num-bigint 0.4.8",
+ "serde_json",
+ "solana-bn254",
+ "spr-client",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "spr-gnark-ffi-prover-build"
+version = "0.1.0"
+
+[[package]]
+name = "spr-hasher"
+version = "5.0.0"
+dependencies = [
+ "ark-bn254 0.5.0",
+ "ark-ff 0.5.0",
+ "hex",
+ "light-poseidon 0.4.0",
+ "num-bigint 0.4.8",
+ "rand 0.8.8",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sha3",
+ "solana-program-error",
+ "solana-pubkey 4.2.1",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "spr-indexed-array"
+version = "0.3.0"
+dependencies = [
+ "num-bigint 0.4.8",
+ "num-traits",
+ "rand 0.8.8",
+ "spr-hasher",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "spr-indexer-api"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "bs58",
+ "serde",
+ "serde_json",
+ "solana-pubkey 4.2.1",
+ "solana-signature",
+ "thiserror 2.0.20",
+ "utoipa",
+]
+
+[[package]]
+name = "spr-instruction"
+version = "0.1.0"
+dependencies = [
+ "borsh",
+ "bytemuck",
+ "pinocchio 0.11.2",
+ "serde_json",
+ "solana-address 2.6.1",
+ "solana-instruction",
+ "solana-pubkey 4.2.1",
+ "spr-account-checks",
+ "spr-hasher",
+ "spr-interface",
+ "spr-tree",
+ "thiserror 2.0.20",
+ "wincode",
+]
+
+[[package]]
+name = "spr-interface"
+version = "0.1.0"
+dependencies = [
+ "arrayvec",
+ "borsh",
+ "bytemuck",
+ "groth16-solana",
+ "proptest",
+ "serde",
+ "serde_json",
+ "solana-address 2.6.1",
+ "solana-message",
+ "solana-program-error",
+ "solana-pubkey 4.2.1",
+ "solana-rent 4.3.0",
+ "spr-event",
+ "spr-hasher",
+ "spr-tree",
+ "thiserror 2.0.20",
+ "wincode",
+]
+
+[[package]]
+name = "spr-keypair"
+version = "0.1.0"
+dependencies = [
+ "aes",
+ "ark-bn254 0.6.0",
+ "aws-sdk-kms",
+ "aws-smithy-mocks",
+ "borsh",
+ "bs58",
+ "ctr",
+ "ed25519-dalek",
+ "getrandom 0.2.17",
+ "getrandom 0.3.4",
+ "hex",
+ "hkdf",
+ "rand 0.8.8",
+ "serde",
+ "serde_bytes",
+ "serde_json",
+ "sha2 0.10.9",
+ "solana-address 2.6.1",
+ "solana-keypair",
+ "solana-signer",
+ "spr-hasher",
+ "thiserror 2.0.20",
+ "tokio",
+ "tsify",
+ "wasm-bindgen",
+ "x25519-dalek",
+ "zeroize",
+ "spr-zk-dsl",
+ "spr-zk-gadgets",
+]
+
+[[package]]
+name = "spr-macros"
+version = "0.1.0"
+dependencies = [
+ "anchor-syn",
+ "borsh",
+ "proc-macro2",
+ "quote",
+ "solana-address 2.6.1",
+ "solana-signature",
+ "spr-hasher",
+ "spr-interface",
+ "spr-keypair",
+ "spr-program",
+ "spr-transaction",
+ "syn 2.0.119",
+ "trybuild",
+ "spr-zk-macros-core",
+]
+
+[[package]]
+name = "spr-merkle-tree"
+version = "4.0.0"
+dependencies = [
+ "num-bigint 0.4.8",
+ "num-traits",
+ "rand 0.8.8",
+ "spr-hasher",
+ "spr-indexed-array",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "spr-program"
+version = "0.1.0"
+dependencies = [
+ "ark-bn254 0.6.0",
+ "ark-circom",
+ "ark-ff 0.6.0",
+ "borsh",
+ "groth16-solana",
+ "hex",
+ "num-bigint 0.4.8",
+ "pinocchio 0.11.2",
+ "proptest",
+ "serde",
+ "serde-wasm-bindgen",
+ "serde_json",
+ "sha2 0.10.9",
+ "solana-address 2.6.1",
+ "solana-program-error",
+ "solana-signature",
+ "spr-account-checks",
+ "spr-client",
+ "spr-event",
+ "spr-hasher",
+ "spr-instruction",
+ "spr-interface",
+ "spr-keypair",
+ "spr-macros",
+ "spr-transaction",
+ "spr-tree",
+ "thiserror 2.0.20",
+ "tsify",
+ "wasm-bindgen",
+ "wasmer",
+ "wincode",
+ "spr-zk-dsl",
+ "spr-zk-gadgets",
+]
+
+[[package]]
+name = "spr-program-test"
+version = "0.23.0"
+dependencies = [
+ "base64 0.22.1",
+ "litesvm",
+ "num-bigint 0.4.8",
+ "sha2 0.10.9",
+ "solana-account 4.3.2",
+ "solana-address 2.6.1",
+ "solana-clock",
+ "solana-hash",
+ "solana-instruction",
+ "solana-keypair",
+ "solana-message",
+ "solana-pubkey 4.2.1",
+ "solana-signature",
+ "solana-signer",
+ "solana-transaction",
+ "solana-transaction-error",
+ "spr-client",
+ "spr-event",
+ "spr-event-parser",
+ "spr-hasher",
+ "spr-interface",
+ "spr-keypair",
+ "spr-merkle-tree",
+ "spr-program",
+ "spr-transaction",
+ "spr-tree",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "spr-program-wasm-test-program"
+version = "0.1.0"
+dependencies = [
+ "borsh",
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "solana-address 2.6.1",
+ "solana-signature",
+ "spr-hasher",
+ "spr-interface",
+ "spr-keypair",
+ "spr-program",
+ "spr-transaction",
+]
+
+[[package]]
+name = "spr-prover-tee"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm",
+ "ciborium",
+ "ciborium-ll",
+ "coset",
+ "dcap-qvl",
+ "form_urlencoded",
+ "hex",
+ "hpke",
+ "p384",
+ "rand_core 0.9.5",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.20",
+ "x509-cert",
+ "zeroize",
+]
+
+[[package]]
+name = "spr-rpc-http"
+version = "0.1.0"
+dependencies = [
+ "http-body-util",
+ "hyper 1.11.1",
+ "jsonrpsee",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower",
+]
+
+[[package]]
+name = "spr-smart-account-client"
+version = "0.1.0"
+dependencies = [
+ "borsh",
+ "sha2 0.10.9",
+ "solana-instruction",
+ "solana-pubkey 4.2.1",
+]
+
+[[package]]
+name = "spr-test-utils"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "borsh",
+ "bytemuck",
+ "futures",
+ "groth16-solana",
+ "mollusk-svm",
+ "num-bigint 0.4.8",
+ "proptest",
+ "rand 0.8.8",
+ "rayon",
+ "sha2 0.10.9",
+ "solana-account 4.3.2",
+ "solana-address 2.6.1",
+ "solana-hash",
+ "solana-instruction",
+ "solana-instruction-error",
+ "solana-keypair",
+ "solana-message",
+ "solana-program-error",
+ "solana-pubkey 4.2.1",
+ "solana-rpc-client-api",
+ "solana-signature",
+ "solana-signer",
+ "solana-transaction",
+ "solana-transaction-error",
+ "spr-client",
+ "spr-event",
+ "spr-event-parser",
+ "spr-hasher",
+ "spr-interface",
+ "spr-keypair",
+ "spr-merkle-tree",
+ "spr-program",
+ "spr-program-test",
+ "spr-smart-account-client",
+ "spr-transaction",
+ "spr-tree",
+ "spr-user-registry-interface",
+ "tokio",
+]
+
+[[package]]
+name = "spr-transaction"
+version = "0.1.0"
+dependencies = [
+ "ark-bn254 0.6.0",
+ "borsh",
+ "criterion",
+ "hex",
+ "num-bigint 0.4.8",
+ "serde",
+ "serde_json",
+ "solana-address 2.6.1",
+ "solana-signature",
+ "spr-event",
+ "spr-hasher",
+ "spr-instruction",
+ "spr-interface",
+ "spr-keypair",
+ "spr-program",
+ "thiserror 2.0.20",
+ "tsify",
+ "wasm-bindgen",
+ "wincode",
+ "spr-zk-dsl",
+ "spr-zk-gadgets",
+]
+
+[[package]]
+name = "spr-tree"
+version = "0.1.0"
+dependencies = [
+ "ark-bn254 0.5.0",
+ "ark-ff 0.5.0",
+ "borsh",
+ "bytemuck",
+ "groth16-solana",
+ "light-program-profiler",
+ "num-bigint 0.4.8",
+ "num-traits",
+ "pinocchio 0.11.2",
+ "rand 0.8.8",
+ "serde_json",
+ "solana-msg",
+ "spr-client",
+ "spr-event",
+ "spr-hasher",
+ "spr-indexed-array",
+ "spr-merkle-tree",
+ "thiserror 2.0.20",
+ "wincode",
+ "zerocopy",
+]
+
+[[package]]
+name = "spr-user-registry"
+version = "0.1.0"
+dependencies = [
+ "borsh",
+ "pinocchio 0.11.2",
+ "solana-address 2.6.1",
+ "solana-msg",
+ "spr-user-registry-interface",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "spr-user-registry-interface"
+version = "0.1.0"
+dependencies = [
+ "borsh",
+ "solana-instruction",
+ "solana-pubkey 4.2.1",
+]
+
+[[package]]
+name = "spr-zk-standalone-fixture"
+version = "0.1.0"
+dependencies = [
+ "pinocchio 0.11.2",
+ "serde_json",
+ "solana-address 2.6.1",
+ "spr-zk-dsl",
+ "spr-zk-gadgets",
 ]
 
 [[package]]
@@ -10463,23 +11032,23 @@ dependencies = [
  "solana-instruction",
  "solana-program-error",
  "solana-pubkey 4.2.1",
+ "spr-account-checks",
+ "spr-hasher",
+ "spr-interface",
+ "spr-program",
+ "spr-test-utils",
  "thiserror 2.0.20",
  "wincode",
- "zolana-account-checks",
- "zolana-hasher",
- "zolana-interface",
- "zolana-program",
- "zolana-test-utils",
 ]
 
 [[package]]
 name = "swap-prover"
 version = "0.1.0"
 dependencies = [
+ "spr-client",
+ "spr-gnark-ffi-prover",
+ "spr-gnark-ffi-prover-build",
  "swap-program",
- "zolana-client",
- "zolana-gnark-ffi-prover",
- "zolana-gnark-ffi-prover-build",
 ]
 
 [[package]]
@@ -10494,16 +11063,16 @@ dependencies = [
  "solana-keypair",
  "solana-pubkey 4.2.1",
  "solana-signature",
+ "spr-client",
+ "spr-hasher",
+ "spr-interface",
+ "spr-keypair",
+ "spr-program",
+ "spr-test-utils",
+ "spr-transaction",
  "swap-program",
  "swap-prover",
  "wincode",
- "zolana-client",
- "zolana-hasher",
- "zolana-interface",
- "zolana-keypair",
- "zolana-program",
- "zolana-test-utils",
- "zolana-transaction",
 ]
 
 [[package]]
@@ -10524,20 +11093,20 @@ dependencies = [
  "solana-pubkey 4.2.1",
  "solana-signature",
  "solana-signer",
+ "spr-client",
+ "spr-hasher",
+ "spr-interface",
+ "spr-keypair",
+ "spr-merkle-tree",
+ "spr-program",
+ "spr-program-test",
+ "spr-test-utils",
+ "spr-transaction",
+ "spr-tree",
+ "spr-user-registry-interface",
  "swap-program",
  "swap-prover",
  "swap-sdk",
- "zolana-client",
- "zolana-hasher",
- "zolana-interface",
- "zolana-keypair",
- "zolana-merkle-tree",
- "zolana-program",
- "zolana-program-test",
- "zolana-test-utils",
- "zolana-transaction",
- "zolana-tree",
- "zolana-user-registry-interface",
 ]
 
 [[package]]
@@ -10760,16 +11329,16 @@ dependencies = [
  "solana-program-error",
  "solana-signature",
  "solana-signer",
+ "spr-account-checks",
+ "spr-client",
+ "spr-hasher",
+ "spr-interface",
+ "spr-keypair",
+ "spr-program",
+ "spr-program-test",
+ "spr-transaction",
  "thiserror 2.0.20",
  "wincode",
- "zolana-account-checks",
- "zolana-client",
- "zolana-hasher",
- "zolana-interface",
- "zolana-keypair",
- "zolana-program",
- "zolana-program-test",
- "zolana-transaction",
 ]
 
 [[package]]
@@ -11184,11 +11753,11 @@ dependencies = [
  "solana-account 4.3.2",
  "solana-instruction",
  "solana-pubkey 4.2.1",
+ "spr-client",
+ "spr-hasher",
+ "spr-merkle-tree",
+ "spr-tree",
  "wincode",
- "zolana-client",
- "zolana-hasher",
- "zolana-merkle-tree",
- "zolana-tree",
 ]
 
 [[package]]
@@ -11392,11 +11961,11 @@ dependencies = [
  "solana-pubkey 4.2.1",
  "solana-signer",
  "solana-transaction-error",
- "zolana-client",
- "zolana-keypair",
- "zolana-program",
- "zolana-user-registry",
- "zolana-user-registry-interface",
+ "spr-client",
+ "spr-keypair",
+ "spr-program",
+ "spr-user-registry",
+ "spr-user-registry-interface",
 ]
 
 [[package]]
@@ -12334,19 +12903,19 @@ dependencies = [
  "solana-message",
  "solana-pubkey 4.2.1",
  "solana-signer",
+ "spr-client",
+ "spr-interface",
+ "spr-keypair",
+ "spr-program",
+ "spr-program-test",
+ "spr-smart-account-client",
+ "spr-test-utils",
+ "spr-transaction",
+ "spr-tree",
+ "spr-user-registry-interface",
  "swap-program",
  "tar",
  "zeroize",
- "zolana-client",
- "zolana-interface",
- "zolana-keypair",
- "zolana-program",
- "zolana-program-test",
- "zolana-smart-account-client",
- "zolana-test-utils",
- "zolana-transaction",
- "zolana-tree",
- "zolana-user-registry-interface",
 ]
 
 [[package]]
@@ -12504,9 +13073,9 @@ dependencies = [
  "solana-instruction",
  "solana-keypair",
  "solana-signer",
- "zolana-client",
- "zolana-zk-dsl",
- "zolana-zk-standalone-fixture",
+ "spr-client",
+ "spr-zk-standalone-fixture",
+ "spr-zk-dsl",
 ]
 
 [[package]]
@@ -12522,565 +13091,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
 
 [[package]]
-name = "zolana-account-checks"
-version = "0.8.0"
-dependencies = [
- "rand 0.8.8",
- "solana-account-view 2.0.0",
- "solana-address 2.6.1",
- "solana-msg",
- "solana-program-error",
- "thiserror 2.0.20",
-]
-
-[[package]]
-name = "zolana-api"
-version = "0.1.0"
-dependencies = [
- "http 1.5.0",
- "reqwest",
- "serde",
- "serde_json",
- "serde_path_to_error",
- "tokio",
- "zeroize",
- "zolana-indexer-api",
-]
-
-[[package]]
-name = "zolana-cli"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "groth16-solana",
- "hex",
- "reqwest",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "solana-address 2.6.1",
- "solana-instruction",
- "solana-keypair",
- "solana-loader-v3-interface 8.0.1",
- "solana-loader-v4-interface",
- "solana-pubkey 4.2.1",
- "solana-sdk-ids",
- "solana-signature",
- "solana-signer",
- "zolana-client",
- "zolana-interface",
- "zolana-keypair",
- "zolana-program",
- "zolana-transaction",
- "zolana-user-registry-interface",
-]
-
-[[package]]
-name = "zolana-client"
-version = "0.1.0"
-dependencies = [
- "aes-gcm",
- "async-trait",
- "base64 0.22.1",
- "bincode 1.3.3",
- "borsh",
- "bs58",
- "futures",
- "groth16-solana",
- "hex",
- "hpke",
- "http 1.5.0",
- "httpdate",
- "num-bigint 0.4.8",
- "num-traits",
- "rand 0.8.8",
- "rand_core 0.9.5",
- "reqwest",
- "serde",
- "serde_json",
- "serial_test",
- "solana-account 4.3.2",
- "solana-address 2.6.1",
- "solana-bn254",
- "solana-commitment-config",
- "solana-hash",
- "solana-instruction",
- "solana-keypair",
- "solana-message",
- "solana-pubkey 4.2.1",
- "solana-rpc-client",
- "solana-rpc-client-api",
- "solana-signature",
- "solana-signer",
- "solana-transaction",
- "solana-transaction-status-client-types",
- "thiserror 2.0.20",
- "tokio",
- "url",
- "wincode",
- "zeroize",
- "zolana-api",
- "zolana-event",
- "zolana-event-parser",
- "zolana-hasher",
- "zolana-indexer-api",
- "zolana-interface",
- "zolana-keypair",
- "zolana-merkle-tree",
- "zolana-program",
- "zolana-prover-tee",
- "zolana-transaction",
- "zolana-tree",
- "zolana-user-registry-interface",
-]
-
-[[package]]
-name = "zolana-event"
-version = "0.1.0"
-dependencies = [
- "borsh",
- "wincode",
-]
-
-[[package]]
-name = "zolana-event-parser"
-version = "0.1.0"
-dependencies = [
- "borsh",
- "proptest",
- "solana-pubkey 4.2.1",
- "zolana-event",
- "zolana-interface",
-]
-
-[[package]]
-name = "zolana-gnark-ffi-prover"
-version = "0.1.0"
-dependencies = [
- "groth16-solana",
- "num-bigint 0.4.8",
- "serde_json",
- "solana-bn254",
- "thiserror 2.0.20",
- "zolana-client",
-]
-
-[[package]]
-name = "zolana-gnark-ffi-prover-build"
-version = "0.1.0"
-
-[[package]]
 name = "zolana-hasher"
 version = "5.0.0"
+source = "git+https://github.com/helius-labs/zolana?rev=26482c9a2ef1c82382bbc28bab4fc8cf2f194018#26482c9a2ef1c82382bbc28bab4fc8cf2f194018"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ff 0.5.0",
- "hex",
  "light-poseidon 0.4.0",
  "num-bigint 0.4.8",
- "rand 0.8.8",
- "serde",
- "serde_json",
  "sha2 0.10.9",
  "sha3",
  "solana-program-error",
- "solana-pubkey 4.2.1",
  "thiserror 2.0.20",
 ]
 
 [[package]]
-name = "zolana-indexed-array"
-version = "0.3.0"
-dependencies = [
- "num-bigint 0.4.8",
- "num-traits",
- "rand 0.8.8",
- "thiserror 2.0.20",
- "zolana-hasher",
-]
-
-[[package]]
-name = "zolana-indexer-api"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
- "bs58",
- "serde",
- "serde_json",
- "solana-pubkey 4.2.1",
- "solana-signature",
- "thiserror 2.0.20",
- "utoipa",
-]
-
-[[package]]
-name = "zolana-instruction"
-version = "0.1.0"
-dependencies = [
- "borsh",
- "bytemuck",
- "pinocchio 0.11.2",
- "serde_json",
- "solana-address 2.6.1",
- "solana-instruction",
- "solana-pubkey 4.2.1",
- "thiserror 2.0.20",
- "wincode",
- "zolana-account-checks",
- "zolana-hasher",
- "zolana-interface",
- "zolana-tree",
-]
-
-[[package]]
-name = "zolana-interface"
-version = "0.1.0"
-dependencies = [
- "arrayvec",
- "borsh",
- "bytemuck",
- "groth16-solana",
- "proptest",
- "serde",
- "serde_json",
- "solana-address 2.6.1",
- "solana-message",
- "solana-program-error",
- "solana-pubkey 4.2.1",
- "solana-rent 4.3.0",
- "thiserror 2.0.20",
- "wincode",
- "zolana-event",
- "zolana-hasher",
- "zolana-tree",
-]
-
-[[package]]
-name = "zolana-keypair"
-version = "0.1.0"
-dependencies = [
- "aes",
- "ark-bn254 0.6.0",
- "aws-sdk-kms",
- "aws-smithy-mocks",
- "borsh",
- "bs58",
- "ctr",
- "ed25519-dalek",
- "getrandom 0.2.17",
- "getrandom 0.3.4",
- "hex",
- "hkdf",
- "rand 0.8.8",
- "serde",
- "serde_bytes",
- "serde_json",
- "sha2 0.10.9",
- "solana-address 2.6.1",
- "solana-keypair",
- "solana-signer",
- "thiserror 2.0.20",
- "tokio",
- "tsify",
- "wasm-bindgen",
- "x25519-dalek",
- "zeroize",
- "zolana-hasher",
- "zolana-zk-dsl",
- "zolana-zk-gadgets",
-]
-
-[[package]]
-name = "zolana-macros"
-version = "0.1.0"
-dependencies = [
- "anchor-syn",
- "borsh",
- "proc-macro2",
- "quote",
- "solana-address 2.6.1",
- "solana-signature",
- "syn 2.0.119",
- "trybuild",
- "zolana-hasher",
- "zolana-interface",
- "zolana-keypair",
- "zolana-program",
- "zolana-transaction",
- "zolana-zk-macros-core",
-]
-
-[[package]]
-name = "zolana-merkle-tree"
-version = "4.0.0"
-dependencies = [
- "num-bigint 0.4.8",
- "num-traits",
- "rand 0.8.8",
- "thiserror 2.0.20",
- "zolana-hasher",
- "zolana-indexed-array",
-]
-
-[[package]]
-name = "zolana-program"
-version = "0.1.0"
-dependencies = [
- "ark-bn254 0.6.0",
- "ark-circom",
- "ark-ff 0.6.0",
- "borsh",
- "groth16-solana",
- "hex",
- "num-bigint 0.4.8",
- "pinocchio 0.11.2",
- "proptest",
- "serde",
- "serde-wasm-bindgen",
- "serde_json",
- "sha2 0.10.9",
- "solana-address 2.6.1",
- "solana-program-error",
- "solana-signature",
- "thiserror 2.0.20",
- "tsify",
- "wasm-bindgen",
- "wasmer",
- "wincode",
- "zolana-account-checks",
- "zolana-client",
- "zolana-event",
- "zolana-hasher",
- "zolana-instruction",
- "zolana-interface",
- "zolana-keypair",
- "zolana-macros",
- "zolana-transaction",
- "zolana-tree",
- "zolana-zk-dsl",
- "zolana-zk-gadgets",
-]
-
-[[package]]
-name = "zolana-program-test"
-version = "0.23.0"
-dependencies = [
- "base64 0.22.1",
- "litesvm",
- "num-bigint 0.4.8",
- "sha2 0.10.9",
- "solana-account 4.3.2",
- "solana-address 2.6.1",
- "solana-clock",
- "solana-hash",
- "solana-instruction",
- "solana-keypair",
- "solana-message",
- "solana-pubkey 4.2.1",
- "solana-signature",
- "solana-signer",
- "solana-transaction",
- "solana-transaction-error",
- "thiserror 2.0.20",
- "zolana-client",
- "zolana-event",
- "zolana-event-parser",
- "zolana-hasher",
- "zolana-interface",
- "zolana-keypair",
- "zolana-merkle-tree",
- "zolana-program",
- "zolana-transaction",
- "zolana-tree",
-]
-
-[[package]]
-name = "zolana-program-wasm-test-program"
-version = "0.1.0"
-dependencies = [
- "borsh",
- "hex",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "solana-address 2.6.1",
- "solana-signature",
- "zolana-hasher",
- "zolana-interface",
- "zolana-keypair",
- "zolana-program",
- "zolana-transaction",
-]
-
-[[package]]
-name = "zolana-prover-tee"
-version = "0.1.0"
-dependencies = [
- "aes-gcm",
- "ciborium",
- "ciborium-ll",
- "coset",
- "dcap-qvl",
- "form_urlencoded",
- "hex",
- "hpke",
- "p384",
- "rand_core 0.9.5",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "thiserror 2.0.20",
- "x509-cert",
- "zeroize",
-]
-
-[[package]]
-name = "zolana-rpc-http"
-version = "0.1.0"
-dependencies = [
- "http-body-util",
- "hyper 1.11.1",
- "jsonrpsee",
- "serde",
- "serde_json",
- "tokio",
- "tower",
-]
-
-[[package]]
-name = "zolana-smart-account-client"
-version = "0.1.0"
-dependencies = [
- "borsh",
- "sha2 0.10.9",
- "solana-instruction",
- "solana-pubkey 4.2.1",
-]
-
-[[package]]
-name = "zolana-test-utils"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "base64 0.22.1",
- "borsh",
- "bytemuck",
- "futures",
- "groth16-solana",
- "mollusk-svm",
- "num-bigint 0.4.8",
- "proptest",
- "rand 0.8.8",
- "rayon",
- "sha2 0.10.9",
- "solana-account 4.3.2",
- "solana-address 2.6.1",
- "solana-hash",
- "solana-instruction",
- "solana-instruction-error",
- "solana-keypair",
- "solana-message",
- "solana-program-error",
- "solana-pubkey 4.2.1",
- "solana-rpc-client-api",
- "solana-signature",
- "solana-signer",
- "solana-transaction",
- "solana-transaction-error",
- "tokio",
- "zolana-client",
- "zolana-event",
- "zolana-event-parser",
- "zolana-hasher",
- "zolana-interface",
- "zolana-keypair",
- "zolana-merkle-tree",
- "zolana-program",
- "zolana-program-test",
- "zolana-smart-account-client",
- "zolana-transaction",
- "zolana-tree",
- "zolana-user-registry-interface",
-]
-
-[[package]]
-name = "zolana-transaction"
-version = "0.1.0"
-dependencies = [
- "ark-bn254 0.6.0",
- "borsh",
- "criterion",
- "hex",
- "num-bigint 0.4.8",
- "serde",
- "serde_json",
- "solana-address 2.6.1",
- "solana-signature",
- "thiserror 2.0.20",
- "tsify",
- "wasm-bindgen",
- "wincode",
- "zolana-event",
- "zolana-hasher",
- "zolana-instruction",
- "zolana-interface",
- "zolana-keypair",
- "zolana-program",
- "zolana-zk-dsl",
- "zolana-zk-gadgets",
-]
-
-[[package]]
-name = "zolana-tree"
-version = "0.1.0"
-dependencies = [
- "ark-bn254 0.5.0",
- "ark-ff 0.5.0",
- "borsh",
- "bytemuck",
- "groth16-solana",
- "light-program-profiler",
- "num-bigint 0.4.8",
- "num-traits",
- "pinocchio 0.11.2",
- "rand 0.8.8",
- "serde_json",
- "solana-msg",
- "thiserror 2.0.20",
- "wincode",
- "zerocopy",
- "zolana-client",
- "zolana-event",
- "zolana-hasher",
- "zolana-indexed-array",
- "zolana-merkle-tree",
-]
-
-[[package]]
-name = "zolana-user-registry"
-version = "0.1.0"
-dependencies = [
- "borsh",
- "pinocchio 0.11.2",
- "solana-address 2.6.1",
- "solana-msg",
- "thiserror 2.0.20",
- "zolana-user-registry-interface",
-]
-
-[[package]]
-name = "zolana-user-registry-interface"
-version = "0.1.0"
-dependencies = [
- "borsh",
- "solana-instruction",
- "solana-pubkey 4.2.1",
-]
-
-[[package]]
-name = "zolana-zk-dsl"
+name = "spr-zk-dsl"
 version = "0.1.0"
 source = "git+https://github.com/helius-labs/zk-tools?rev=56d6e53616c26a69130c51f9a9084829eef514bd#56d6e53616c26a69130c51f9a9084829eef514bd"
 dependencies = [
@@ -13113,11 +13139,11 @@ dependencies = [
  "wasm-bindgen-rayon",
  "wincode",
  "zolana-hasher",
- "zolana-zk-macros",
+ "spr-zk-macros",
 ]
 
 [[package]]
-name = "zolana-zk-gadgets"
+name = "spr-zk-gadgets"
 version = "0.1.0"
 source = "git+https://github.com/helius-labs/zk-tools?rev=56d6e53616c26a69130c51f9a9084829eef514bd#56d6e53616c26a69130c51f9a9084829eef514bd"
 dependencies = [
@@ -13125,38 +13151,27 @@ dependencies = [
  "ark-ff 0.6.0",
  "ark-r1cs-std",
  "light-poseidon 0.5.0",
- "zolana-zk-dsl",
+ "spr-zk-dsl",
 ]
 
 [[package]]
-name = "zolana-zk-macros"
+name = "spr-zk-macros"
 version = "0.1.0"
 source = "git+https://github.com/helius-labs/zk-tools?rev=56d6e53616c26a69130c51f9a9084829eef514bd#56d6e53616c26a69130c51f9a9084829eef514bd"
 dependencies = [
  "proc-macro2",
  "syn 2.0.119",
- "zolana-zk-macros-core",
+ "spr-zk-macros-core",
 ]
 
 [[package]]
-name = "zolana-zk-macros-core"
+name = "spr-zk-macros-core"
 version = "0.1.0"
 source = "git+https://github.com/helius-labs/zk-tools?rev=56d6e53616c26a69130c51f9a9084829eef514bd#56d6e53616c26a69130c51f9a9084829eef514bd"
 dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
-]
-
-[[package]]
-name = "zolana-zk-standalone-fixture"
-version = "0.1.0"
-dependencies = [
- "pinocchio 0.11.2",
- "serde_json",
- "solana-address 2.6.1",
- "zolana-zk-dsl",
- "zolana-zk-gadgets",
 ]
 
 [[package]]

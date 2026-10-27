@@ -1,9 +1,9 @@
 use crate::ClientError;
-use zolana_hasher::{
+use spr_hasher::{
     hash_chain::create_hash_chain_4_from_slice, primitives::right_align,
     zero_suffix_hash_chain::create_padded_right_hash_chain_4,
 };
-use zolana_interface::{
+use spr_interface::{
     instruction::instruction_data::MergeOutputEncryption, tree_slot::tree_id_field,
 };
 

@@ -1,4 +1,4 @@
-use zolana_zk_dsl::__private::{binding_base, rust_type};
+use spr_zk_dsl::__private::{binding_base, rust_type};
 
 use crate::PublicFieldKind;
 
@@ -25,7 +25,7 @@ impl Verifier<'_> {
 pub fn render_verifier(name: &str, layout: &[(&str, PublicFieldKind)]) -> String {
     let field_import = if layout.is_empty() { "" } else { "Field, " };
     let mut text = format!(
-        "use zolana_program::{{verifier::{{groth16_solana, public_hash, verify_groth16, {field_import}VerifyError}}, transaction_hash, CompressedProof, PublicTransfer}};\n"
+        "use spr_program::{{verifier::{{groth16_solana, public_hash, verify_groth16, {field_import}VerifyError}}, transaction_hash, CompressedProof, PublicTransfer}};\n"
     );
     text.push_str(&format!("\ninclude!(\"{name}.vk.rs\");\n\n"));
     if layout.is_empty() {

@@ -2,25 +2,25 @@ use anyhow::{anyhow, Result};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{
+use spr_client::{
     ComputeBudgetConfig, IndexerRequirement, IndexerRpcConfig, ProverLaunch, Rpc, SolanaRpc,
     ZolanaIndexer,
 };
-use zolana_interface::{
+use spr_interface::{
     pda,
     state::{default_tree_fees, nullifier_tree_params},
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::{ShieldedAddress, ShieldedKeypair};
-use zolana_program::instruction::{AssetDeposit, CreateProtocolConfig, Deposit, DepositAsset};
-use zolana_program_test::{
+use spr_keypair::{ShieldedAddress, ShieldedKeypair};
+use spr_program::instruction::{AssetDeposit, CreateProtocolConfig, Deposit, DepositAsset};
+use spr_program_test::{
     create_tree_instructions,
     localnet::{LocalnetPorts, LocalnetValidator, UpgradeableProgram},
     next_tree_id, workspace_path,
 };
-use zolana_test_utils::smart_account::{self, ProtocolSigners, StandardSigners};
-use zolana_transaction::{decrypt_spendable, AssetRegistry, WalletUtxo, SOL_MINT};
-use zolana_user_registry_interface::{
+use spr_test_utils::smart_account::{self, ProtocolSigners, StandardSigners};
+use spr_transaction::{decrypt_spendable, AssetRegistry, WalletUtxo, SOL_MINT};
+use spr_user_registry_interface::{
     instruction::{register, set_merge_encryption, RegisterData},
     user_record_pda, MergeEncryptionScheme,
 };
@@ -41,7 +41,7 @@ pub struct SetupContext {
 
 pub fn setup() -> Result<SetupContext> {
     let deploy = |file: &str| workspace_path("target/deploy").join(file);
-    let account_dir = std::env::temp_dir().join("zolana-client-example-accounts");
+    let account_dir = std::env::temp_dir().join("spr-client-example-accounts");
     smart_account::write_program_config_fixture(&account_dir);
     let ports = LocalnetPorts::checkout()?;
     let cli_bin = std::env::var("ZOLANA_CLI_BIN")
@@ -55,8 +55,8 @@ pub fn setup() -> Result<SetupContext> {
         log_dir: workspace_path("test-ledger"),
         programs: vec![
             (
-                zolana_user_registry_interface::user_registry_program_id(),
-                deploy("zolana_user_registry.so"),
+                spr_user_registry_interface::user_registry_program_id(),
+                deploy("spr_user_registry.so"),
             ),
             (
                 smart_account::SMART_ACCOUNT_PROGRAM_ID,
@@ -71,8 +71,8 @@ pub fn setup() -> Result<SetupContext> {
         authority: smart_account::standard_accounts().protocol_vault,
     }])?;
 
-    let rpc_url = zolana_test_utils::localnet::localnet_rpc_url();
-    let indexer_url = zolana_test_utils::localnet::localnet_indexer_url();
+    let rpc_url = spr_test_utils::localnet::localnet_rpc_url();
+    let indexer_url = spr_test_utils::localnet::localnet_indexer_url();
     ProverLaunch::new_with_cli(cli_bin)?
         .with_keys_dir(workspace_path("prover/server/proving-keys"))?
         .with_indexer(&indexer_url, IndexerRequirement::Required)

@@ -6,20 +6,20 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{
+use spr_client::{
     BatchAddressAppendInputs, ComputeBudgetConfig, ProofCompressed, ProverClient, ProverExt, Rpc,
     SolanaRpc, NULLIFIER_TREE_HEIGHT,
 };
-use zolana_hasher::hash_chain::create_hash_chain_4_from_slice;
-use zolana_interface::instruction::BatchUpdateNullifierTreeData;
-use zolana_merkle_tree::indexed::IndexedMerkleTree;
-use zolana_program::instruction::BatchUpdateNullifierTree;
-use zolana_smart_account_client::execute_sync_ix;
-use zolana_test_utils::localnet::{send_transaction, send_transaction_with_budget};
-use zolana_transaction::instructions::transact::BN254_MODULUS_DEC;
-use zolana_tree::TreeAccount;
+use spr_hasher::hash_chain::create_hash_chain_4_from_slice;
+use spr_interface::instruction::BatchUpdateNullifierTreeData;
+use spr_merkle_tree::indexed::IndexedMerkleTree;
+use spr_program::instruction::BatchUpdateNullifierTree;
+use spr_smart_account_client::execute_sync_ix;
+use spr_test_utils::localnet::{send_transaction, send_transaction_with_budget};
+use spr_transaction::instructions::transact::BN254_MODULUS_DEC;
+use spr_tree::TreeAccount;
 
-type NullifierTree = IndexedMerkleTree<zolana_hasher::Poseidon, usize>;
+type NullifierTree = IndexedMerkleTree<spr_hasher::Poseidon, usize>;
 
 #[derive(Default)]
 pub struct NullifierTestForester {
@@ -129,7 +129,7 @@ impl NullifierTestForester {
             new_root,
             old_root: plan.current_root,
             zkp_batch_index: plan.zkp_batch_index,
-            proof: zolana_interface::instruction::NullifierTreeProof {
+            proof: spr_interface::instruction::NullifierTreeProof {
                 a: compressed.a,
                 b: compressed.b,
                 c: compressed.c,
@@ -295,7 +295,7 @@ fn reference_nullifier_tree() -> Result<NullifierTree> {
         .context("parse bn254 modulus")?
         - 1u32;
     Ok(
-        IndexedMerkleTree::<zolana_hasher::Poseidon, usize>::new_with_next_value(
+        IndexedMerkleTree::<spr_hasher::Poseidon, usize>::new_with_next_value(
             NULLIFIER_TREE_HEIGHT,
             0,
             modulus_minus_one,

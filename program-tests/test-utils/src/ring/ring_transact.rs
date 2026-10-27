@@ -7,13 +7,13 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{
+use spr_client::{
     input_utxos_from_nullifiers,
     prover::transact::anonymous_ring_eddsa::anonymous_signer_pk_hashes, transaction_size,
     AnonymousRingEddsaProver, ComputeBudgetConfig, ProofAuthority, ProofCompressed, Prover,
     ProverClient, ProverExt, RingTransferProver, Shape, TransferInputUtxo,
 };
-use zolana_interface::{
+use spr_interface::{
     error::ShieldedPoolError,
     instruction::{
         instruction_data::transact::{
@@ -23,15 +23,15 @@ use zolana_interface::{
     },
     verifying_keys::{AnonymousRingEddsaProofData, Bsb22Commitment},
 };
-use zolana_program::instruction::{
+use spr_program::instruction::{
     RingTransact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
     TransactSplWithdrawalAccounts,
 };
-use zolana_program_test::Rejection;
-use zolana_transaction::instructions::transact::ConfidentialTransaction;
-use zolana_transaction::instructions::transact::SppProofInputs;
-use zolana_transaction::utxo::SppProofInputUtxo;
-use zolana_transaction::{
+use spr_program_test::Rejection;
+use spr_transaction::instructions::transact::ConfidentialTransaction;
+use spr_transaction::instructions::transact::SppProofInputs;
+use spr_transaction::utxo::SppProofInputUtxo;
+use spr_transaction::{
     instructions::transact::canonical_shape, Data, ShieldedTransaction, Utxo, SOL_MINT,
 };
 
@@ -135,9 +135,9 @@ impl RingWithdrawal {
                 recipient_token,
             } => TransactInterfaceTransferAccounts::SplWithdrawal(TransactSplWithdrawalAccounts {
                 mint: *mint,
-                spl_interface: zolana_interface::pda::spl_interface(mint),
+                spl_interface: spr_interface::pda::spl_interface(mint),
                 user_token_account: *recipient_token,
-                token_program: zolana_interface::pda::spl_token_program_id(),
+                token_program: spr_interface::pda::spl_token_program_id(),
             }),
         }
     }
@@ -632,7 +632,7 @@ impl RingHarness {
     fn prove_and_assemble(
         &self,
         proof_inputs: &SppProofInputs,
-        signer: &zolana_keypair::ShieldedKeypair,
+        signer: &spr_keypair::ShieldedKeypair,
         ring: Address,
         rail: RingRail,
         tamper: ProofTamper,
@@ -1075,7 +1075,7 @@ impl RingHarness {
             )),
             Err(error) => {
                 let client_error = error
-                    .downcast_ref::<zolana_client::ClientError>()
+                    .downcast_ref::<spr_client::ClientError>()
                     .unwrap_or_else(|| panic!("expected typed client error, got {error:?}"));
                 Rejection::pool(expected).at(0).assert_client(client_error);
                 assert_account_unchanged(&self.rpc, &self.tree, &tree_before)?;
@@ -1232,7 +1232,7 @@ impl RingHarness {
             )),
             Err(error) => {
                 let client_error = error
-                    .downcast_ref::<zolana_client::ClientError>()
+                    .downcast_ref::<spr_client::ClientError>()
                     .unwrap_or_else(|| panic!("expected typed client error, got {error:?}"));
                 Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed)
                     .at(0)
@@ -1272,7 +1272,7 @@ fn assemble_ix_data(
 
     let external = &proof_inputs.external_data;
     let n_outputs = u8::try_from(shape.n_outputs())?;
-    let n_slots = zolana_interface::N_PUBLIC_SLOTS as u8;
+    let n_slots = spr_interface::N_PUBLIC_SLOTS as u8;
     let circuit = match rail {
         RingRail::Eddsa => CircuitId::ConfidentialRingEddsa(n_inputs as u8, n_outputs, n_slots),
         RingRail::AnonymousEddsa => CircuitId::AnonymousRingEddsa(
@@ -1318,8 +1318,6 @@ fn hex32(bytes: &[u8; 32]) -> String {
 
 /// Split a committed anonymous proof into the unchanged transact proof triple and
 /// the BSB22 payload carried by `CircuitId::AnonymousRingEddsa`.
-fn committed_transact_proof(
-    proof: &zolana_client::Proof,
-) -> Result<(TransactProof, Bsb22Commitment)> {
+fn committed_transact_proof(proof: &spr_client::Proof) -> Result<(TransactProof, Bsb22Commitment)> {
     Ok(ProofCompressed::try_from(*proof)?.into_committed_transact_parts()?)
 }

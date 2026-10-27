@@ -1,9 +1,7 @@
 use anyhow::{bail, Result};
+use spr_client::ProofInputUtxo;
+use spr_transaction::instructions::transact::{PrivateTxHash, SppProofInputs, SppProofOutputUtxo};
 use swap_prover::{MakeProofInputs, OrderTermsProofInput};
-use zolana_client::ProofInputUtxo;
-use zolana_transaction::instructions::transact::{
-    PrivateTxHash, SppProofInputs, SppProofOutputUtxo,
-};
 
 use crate::{err, state::OrderUtxo};
 
@@ -89,9 +87,9 @@ impl MakeProofInputParams {
 mod tests {
     use solana_address::Address;
     use solana_keypair::Keypair;
+    use spr_keypair::shielded::ShieldedKeypair;
+    use spr_transaction::SOL_MINT;
     use swap_prover::TAKE_MODE_DERIVED;
-    use zolana_keypair::shielded::ShieldedKeypair;
-    use zolana_transaction::SOL_MINT;
 
     use super::*;
     use crate::state::{OrderTerms, OrderUtxo};
@@ -122,11 +120,11 @@ mod tests {
                 take_mode: TAKE_MODE_DERIVED,
             },
             blinding: crate::shared::test_blinding(11),
-            source_mint: zolana_transaction::Mint::SOL,
+            source_mint: spr_transaction::Mint::SOL,
             source_amount: 400_000,
             destination_asset_id: 1,
         };
-        let change = SppProofOutputUtxo::new(zolana_transaction::Mint::SOL, 0, destination)
+        let change = SppProofOutputUtxo::new(spr_transaction::Mint::SOL, 0, destination)
             .expect("change output");
         let spp_tx_hashes = SppTxHashes {
             source_input_hash: [3u8; 32],

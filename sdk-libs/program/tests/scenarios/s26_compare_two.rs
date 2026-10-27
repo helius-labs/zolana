@@ -1,8 +1,8 @@
-use zolana_program::{
+use spr_program::{
     conversion::{Allocator, Placeholder, ProofInput},
     CircuitError, Groth16Prover, TxContext, ZkProgramCircuit,
 };
-use zolana_transaction::{Mint, WalletUtxo};
+use spr_transaction::{Mint, WalletUtxo};
 
 use crate::{
     benchmark::prove,
@@ -30,7 +30,7 @@ struct CompareTwoPublicInputs {
     total: u64,
 }
 
-impl zolana_program::circuit::CircuitType for circuit::CompareTwo {}
+impl spr_program::circuit::CircuitType for circuit::CompareTwo {}
 
 impl ProofInput for CompareTwo {
     type Circuit = circuit::CompareTwo;
@@ -70,7 +70,7 @@ impl Placeholder for CompareTwo {
 }
 
 mod circuit {
-    use zolana_program::{
+    use spr_program::{
         circuit::{
             poseidon, Assert, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
             DataUtxo, PublicInputs, TxContext, Uint, Utxo,

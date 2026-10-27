@@ -1,8 +1,8 @@
 //! Post-instruction checks for the protocol config account.
 
 use solana_pubkey::Pubkey;
-use zolana_interface::state::ProtocolConfig;
-use zolana_program_test::ZolanaProgramTest;
+use spr_interface::state::ProtocolConfig;
+use spr_program_test::ZolanaProgramTest;
 
 /// Verify the protocol config account at `config`: canonical length, every role
 /// authority equals `authority`, and both permissionless flags are off.

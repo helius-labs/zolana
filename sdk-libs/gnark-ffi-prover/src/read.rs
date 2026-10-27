@@ -1,4 +1,4 @@
-use zolana_client::{MerkleProof, NonInclusionProof};
+use spr_client::{MerkleProof, NonInclusionProof};
 
 use crate::decimal;
 

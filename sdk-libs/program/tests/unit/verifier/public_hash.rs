@@ -1,4 +1,4 @@
-use zolana_program::{
+use spr_program::{
     transaction_hash,
     verifier::{public_hash, Field, VerifyError},
     CompressedProof, PublicTransfer,
@@ -53,7 +53,7 @@ fn a_viewing_key_change_changes_the_program_public_hash() {
 fn the_on_chain_address_hash_matches_the_client_address() {
     let recipient = super::address(6);
     assert_eq!(
-        zolana_program::verifier::address_hash(
+        spr_program::verifier::address_hash(
             &recipient.owner_hash().unwrap(),
             recipient.viewing_pubkey.as_bytes(),
         ),

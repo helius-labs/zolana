@@ -1,8 +1,8 @@
-use zolana_hasher::{sha256::Sha256BE, Hasher};
-use zolana_instruction::{
+use spr_hasher::{sha256::Sha256BE, Hasher};
+use spr_instruction::{
     ExternalDataHashError, SettlementAccounts, TransactExternalData, TransactInputs,
 };
-use zolana_interface::{
+use spr_interface::{
     instruction::{
         instruction_data::transact::{
             CircuitId, ExternalDataPreimage, InputUtxo, InterfaceTransfer, MessageData, OwnerTag,

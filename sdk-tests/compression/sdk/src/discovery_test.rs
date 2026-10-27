@@ -1,7 +1,7 @@
 use super::*;
 use crate::shared::DEFAULT_TREE_ID;
 use crate::{account_address, account_pda, state::AccountState};
-use zolana_transaction::{OutputContext, OutputSlot};
+use spr_transaction::{OutputContext, OutputSlot};
 
 const AUTHORITY: [u8; 32] = [7u8; 32];
 
@@ -28,7 +28,7 @@ fn tagged_plaintext(
     state: &AccountState,
     leaf_index: u64,
 ) -> (EncryptedUtxoMatch, [u8; 32], u32) {
-    let first_nullifier = zolana_hasher::primitives::right_align(&leaf_index.to_be_bytes());
+    let first_nullifier = spr_hasher::primitives::right_align(&leaf_index.to_be_bytes());
     let seed = derive_output_blinding_seed(&first_nullifier, &ACCOUNT_BLINDING_SEED).unwrap();
     let account = AccountUtxo {
         pda,
@@ -139,7 +139,7 @@ fn recovery_checks_the_creating_nullifier_and_output_position() {
     let state = account_state(&pda, 3, 1);
     let (indexed, first, index) = tagged_plaintext(pda, &state, 10);
     let actual = decode_wallet_utxo(indexed.clone(), &pda, &first, index).unwrap();
-    let wrong_first = zolana_hasher::primitives::right_align(&11u64.to_be_bytes());
+    let wrong_first = spr_hasher::primitives::right_align(&11u64.to_be_bytes());
     assert_eq!(
         (
             state_of(&actual),

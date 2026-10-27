@@ -1,5 +1,5 @@
 [package]
-name = "zolana-prover-tee"
+name = "spr-prover-tee"
 version = "0.1.0"
 description = "The encrypted prover wire contract: attestation verification, policy pins and HPKE request encryption for a prover in a confidential computing environment."
 edition.workspace = true

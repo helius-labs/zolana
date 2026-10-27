@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use anyhow::Result;
 use solana_pubkey::Pubkey;
-use zolana_transaction::{Address, SpendableDecryptionResult, SOL_MINT};
+use spr_transaction::{Address, SpendableDecryptionResult, SOL_MINT};
 
 use super::{
     sync::{sync_context, sync_rpc},

@@ -3,13 +3,13 @@
 
 use anyhow::{anyhow, Result};
 use solana_signature::Signature;
-use zolana_client::{
+use spr_client::{
     BlockingRpc, IndexerRpcConfig, MergeProofResult, Proof, ProofCompressed, Rpc,
     ShieldedTransaction, ZolanaClient,
 };
-use zolana_interface::instruction::instruction_data::MergeTransactIxData;
-use zolana_keypair::ShieldedKeypair;
-use zolana_transaction::{
+use spr_interface::instruction::instruction_data::MergeTransactIxData;
+use spr_keypair::ShieldedKeypair;
+use spr_transaction::{
     decrypt_spendable,
     instructions::{merge::MergeProofInputs, transact::canonical_shape},
     AssetRegistry, WalletUtxo, SOL_MINT,

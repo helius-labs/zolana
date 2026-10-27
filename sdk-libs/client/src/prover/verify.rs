@@ -1,7 +1,7 @@
 //! Local verification for proofs returned by a prover service.
 
 use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
-use zolana_interface::{verifying_keys::CircuitId, N_PUBLIC_SLOTS};
+use spr_interface::{verifying_keys::CircuitId, N_PUBLIC_SLOTS};
 
 use crate::{ClientError, Proof, TransferInputs, TransferProofResult};
 
@@ -97,7 +97,7 @@ pub(crate) struct MergeProofStatement {
 
 impl MergeProofStatement {
     pub fn verify_ring(self, proof: &Proof) -> Result<(), ClientError> {
-        use zolana_interface::verifying_keys::{merge_ring_24_1, merge_ring_52_1, merge_ring_8_1};
+        use spr_interface::verifying_keys::{merge_ring_24_1, merge_ring_52_1, merge_ring_8_1};
         let verifying_key = match self.n_inputs {
             8 => &merge_ring_8_1::VERIFYINGKEY,
             24 => &merge_ring_24_1::VERIFYINGKEY,
@@ -117,7 +117,7 @@ impl MergeProofStatement {
     }
 
     pub fn verify(self, proof: &Proof) -> Result<(), ClientError> {
-        use zolana_interface::verifying_keys::{merge_24_1, merge_52_1, merge_8_1};
+        use spr_interface::verifying_keys::{merge_24_1, merge_52_1, merge_8_1};
         let verifying_key = match self.n_inputs {
             8 => &merge_8_1::VERIFYINGKEY,
             24 => &merge_24_1::VERIFYINGKEY,

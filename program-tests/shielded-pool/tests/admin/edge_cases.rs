@@ -1,7 +1,7 @@
 use solana_keypair::Keypair;
 use solana_signer::Signer;
-use zolana_interface::pda;
-use zolana_test_utils::litesvm_asserts::litesvm_assert_protocol_config;
+use spr_interface::pda;
+use spr_test_utils::litesvm_asserts::litesvm_assert_protocol_config;
 
 use shielded_pool_tests::support::runtime::program_test;
 

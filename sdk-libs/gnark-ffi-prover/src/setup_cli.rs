@@ -25,7 +25,7 @@ struct Command<C> {
     insecure_test_keys: bool,
 }
 
-/// The binary's `main`: `fn main() -> ExitCode { zolana_gnark_ffi_prover::setup_cli::main(&PROVER) }`.
+/// The binary's `main`: `fn main() -> ExitCode { spr_gnark_ffi_prover::setup_cli::main(&PROVER) }`.
 pub fn main<C: Circuit>(prover: &Prover<C>) -> ExitCode {
     let mut args = std::env::args();
     let bin = args.next().unwrap_or_else(|| "setup".to_string());

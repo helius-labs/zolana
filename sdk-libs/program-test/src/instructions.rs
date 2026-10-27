@@ -1,13 +1,13 @@
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
-use zolana_client::Rpc;
-use zolana_interface::{
+use spr_client::Rpc;
+use spr_interface::{
     pda,
     state::{state_root_offset, ProtocolConfig},
 };
-use zolana_program::instruction::CreateTree;
-use zolana_tree::{NullifierTreeInitParams, TreeFeeSchedule};
+use spr_program::instruction::CreateTree;
+use spr_tree::{NullifierTreeInitParams, TreeFeeSchedule};
 
 use crate::ProgramTestError;
 

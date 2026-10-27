@@ -10,8 +10,8 @@
 //! derivation is verified.
 
 use borsh::BorshDeserialize;
-use zolana_event::tag;
-use zolana_interface::{instruction::CreateRingConfigData, pda};
+use spr_event::tag;
+use spr_interface::{instruction::CreateRingConfigData, pda};
 
 use super::state_update::{RingConfigUpdate, StateUpdate};
 use crate::ingester::{error::IngesterError, typedefs::block_info::TransactionInfo};

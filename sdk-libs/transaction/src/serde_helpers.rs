@@ -1,7 +1,7 @@
 pub(crate) mod signature {
     use serde::{Deserializer, Serializer};
     use solana_signature::Signature;
-    use zolana_keypair::serde_helpers::bytes;
+    use spr_keypair::serde_helpers::bytes;
 
     pub(crate) fn serialize<S: Serializer>(
         signature: &Signature,

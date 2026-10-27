@@ -4,6 +4,11 @@ use groth16_solana::{
     vk::gnark::{parse_gnark_vk_bytes, Groth16VerifyingkeyOwned},
 };
 use solana_address::Address;
+use spr_client::ProofInputUtxo;
+use spr_hasher::primitives::hash_bytes;
+use spr_interface::merge_utils::ciphertext_hash;
+use spr_keypair::{hash::poseidon, ViewingKey};
+use spr_transaction::{instructions::transact::PrivateTxHash, utxo::Blinding};
 use swap_program::{
     instructions::{
         take_verifiable_encryption::{
@@ -23,11 +28,6 @@ use swap_sdk::{
     },
     state::DataHash,
 };
-use zolana_client::ProofInputUtxo;
-use zolana_hasher::primitives::hash_bytes;
-use zolana_interface::merge_utils::ciphertext_hash;
-use zolana_keypair::{hash::poseidon, ViewingKey};
-use zolana_transaction::{instructions::transact::PrivateTxHash, utxo::Blinding};
 
 mod shared;
 use shared::order_utxo_owner_hash;

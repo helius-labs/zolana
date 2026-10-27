@@ -40,7 +40,7 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use solana_system_interface::instruction::transfer;
 use solana_transaction::versioned::VersionedTransaction;
-use zolana_client::{Rpc, SolanaRpc};
+use spr_client::{Rpc, SolanaRpc};
 
 /// The runtime's ceiling on the account data one transaction may load, and what
 /// a transaction carrying no `set_loaded_accounts_data_size_limit` instruction

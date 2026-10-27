@@ -6,9 +6,9 @@ use pinocchio::{
     AccountView, Address, ProgramResult,
 };
 #[cfg(any(target_os = "solana", target_arch = "bpf"))]
-use zolana_hasher::{primitives::solana_owner_identity, Hasher, Poseidon};
+use spr_hasher::{primitives::solana_owner_identity, Hasher, Poseidon};
 #[cfg(any(target_os = "solana", target_arch = "bpf"))]
-use zolana_program::cpi::{SppTransactAccounts, TransactAccountsError};
+use spr_program::cpi::{SppTransactAccounts, TransactAccountsError};
 
 #[cfg(any(target_os = "solana", target_arch = "bpf"))]
 use crate::error::DynamicSwapError;

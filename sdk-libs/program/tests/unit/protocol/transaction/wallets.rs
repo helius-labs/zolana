@@ -6,9 +6,9 @@ use ark_bn254::Fr;
 use ark_ff::PrimeField;
 use solana_address::Address;
 use solana_signature::Signature;
-use zolana_keypair::{ShieldedAddress, ShieldedKeypair, SigningKey};
-use zolana_program::circuit::Field;
-use zolana_transaction::{utxo::Utxo, Data, DataRecord, Mint, WalletUtxo};
+use spr_keypair::{ShieldedAddress, ShieldedKeypair, SigningKey};
+use spr_program::circuit::Field;
+use spr_transaction::{utxo::Utxo, Data, DataRecord, Mint, WalletUtxo};
 
 pub const TREE_ID: u16 = 3;
 pub const USDC: Mint = Mint::new(Address::new_from_array([4u8; 32]), 4);

@@ -1,4 +1,4 @@
-use zolana_transaction::{Address, AssetRegistry, Mint, TransactionError, SOL_ASSET_ID, SOL_MINT};
+use spr_transaction::{Address, AssetRegistry, Mint, TransactionError, SOL_ASSET_ID, SOL_MINT};
 
 #[test]
 fn asset_registry_is_bijective_and_reserves_sol() {
@@ -10,7 +10,7 @@ fn asset_registry_is_bijective_and_reserves_sol() {
         assert_eq!(registry.resolve(id).unwrap(), expected);
         assert_eq!(registry.mint(&address).unwrap(), expected);
         assert_eq!(registry.asset_id(&address).unwrap(), id);
-        let field = zolana_hasher::primitives::hash_bytes(address.as_array()).unwrap();
+        let field = spr_hasher::primitives::hash_bytes(address.as_array()).unwrap();
         assert_eq!(registry.address_for_field(&field).unwrap(), Some(address));
     }
     assert_eq!(registry.resolve(3), Err(TransactionError::UnknownAsset(3)));

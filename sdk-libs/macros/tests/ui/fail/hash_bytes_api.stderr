@@ -1,8 +1,8 @@
-error[E0425]: cannot find function `hash_bytes` in module `zolana_program::circuit`
+error[E0425]: cannot find function `hash_bytes` in module `spr_program::circuit`
  --> tests/ui/fail/hash_bytes_api.rs:7:30
   |
-7 |     zolana_program::circuit::hash_bytes(bytes)
-  |                              ^^^^^^^^^^ not found in `zolana_program::circuit`
+7 |     spr_program::circuit::hash_bytes(bytes)
+  |                              ^^^^^^^^^^ not found in `spr_program::circuit`
 
 error[E0308]: mismatched types
   --> tests/ui/fail/hash_bytes_api.rs:16:18
@@ -12,8 +12,8 @@ error[E0308]: mismatched types
    |     |
    |     arguments to this function are incorrect
    |
-   = note: expected reference `&zolana_program::circuit::Bytes<32>`
-              found reference `&zolana_program::circuit::Bytes<1>`
+   = note: expected reference `&spr_program::circuit::Bytes<32>`
+              found reference `&spr_program::circuit::Bytes<1>`
 note: function defined here
   --> tests/ui/fail/hash_bytes_api.rs:10:4
    |
@@ -28,8 +28,8 @@ error[E0308]: mismatched types
    |     |
    |     arguments to this function are incorrect
    |
-   = note: expected reference `&zolana_program::circuit::Bytes<32>`
-              found reference `&zolana_program::circuit::Bytes<2>`
+   = note: expected reference `&spr_program::circuit::Bytes<32>`
+              found reference `&spr_program::circuit::Bytes<2>`
 note: function defined here
   --> tests/ui/fail/hash_bytes_api.rs:10:4
    |

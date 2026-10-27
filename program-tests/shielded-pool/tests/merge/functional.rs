@@ -2,19 +2,19 @@ use shielded_pool_tests::support::{
     merge::{RealMerge, RealMergeProof},
     transact::{proof_env, tree_progress},
 };
-use zolana_interface::instruction::instruction_data::MergeOutputEncryption;
+use spr_interface::instruction::instruction_data::MergeOutputEncryption;
 
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::ComputeBudgetConfig;
-use zolana_interface::{
+use spr_client::ComputeBudgetConfig;
+use spr_interface::{
     error::ShieldedPoolError,
     instruction::instruction_data::merge_transact::{MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT},
     state::{default_tree_fees, NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE},
     NULLIFIER_PDA_SIZE, SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_program_test::Rejection;
-use zolana_test_utils::nullifier_pda::{
+use spr_program_test::Rejection;
+use spr_test_utils::nullifier_pda::{
     assert_nullifier_pdas, assert_nullifier_pdas_absent, nullifier_pda_addresses,
     nullifier_pda_rent, tree_fees,
 };

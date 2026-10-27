@@ -1,10 +1,10 @@
 //! Encrypts every prover call to the HPKE key verified TEE evidence binds.
-//! The wire contract is `zolana-prover-tee`; this module adds the session
+//! The wire contract is `spr-prover-tee`; this module adds the session
 //! that attests once and reuses the key across a client's calls.
 
 mod session;
 
-pub use zolana_prover_tee::{
+pub use spr_prover_tee::{
     inspect, verify, verify_with, Anchors, Attestation, AttestedIdentity, AttestedProver,
     DstackIdentity, DstackPolicy, EncryptedRequest, GpuRequirement, KeyProvider, NitroIdentity,
     NitroMeasurement, NitroPolicy, Platform, PlatformIdentity, PlatformPolicy, TdxMeasurement,
@@ -14,7 +14,7 @@ pub use zolana_prover_tee::{
 
 pub(crate) use session::TeeSession;
 #[cfg(test)]
-pub(crate) use zolana_prover_tee::NitroFixture;
+pub(crate) use spr_prover_tee::NitroFixture;
 
 #[cfg(test)]
 pub(crate) trait FixtureSession {

@@ -1,8 +1,8 @@
 use borsh::BorshDeserialize;
 use solana_address::Address;
-use zolana_event::{MessageData, OutputDataEncoding};
-use zolana_interface::instruction::instruction_data::transact::{OwnerTag, TransactOutput};
-use zolana_keypair::{constants::SALT_LEN, random_salt, PublicKey, ShieldedAddress, ViewingKey};
+use spr_event::{MessageData, OutputDataEncoding};
+use spr_interface::instruction::instruction_data::transact::{OwnerTag, TransactOutput};
+use spr_keypair::{constants::SALT_LEN, random_salt, PublicKey, ShieldedAddress, ViewingKey};
 
 use super::{sender_owner_tag, ConfidentialTransaction, FinalizedTransaction};
 use crate::{

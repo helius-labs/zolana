@@ -99,7 +99,7 @@ Tests are split by what has to be running.
   friends. They start a local validator, Photon, and a prover.
 
 Everything prover-backed is behind a Cargo feature, so a plain `cargo test -p
-<crate>` never starts a prover. `zolana-client` uses `proofs`, and
+<crate>` never starts a prover. `spr-client` uses `proofs`, and
 `shielded-pool-tests` uses `proofs` and `localnet`.
 
 The Cargo workspace's `default-members` is deliberately narrow — `forester`,
@@ -112,7 +112,7 @@ Install the `zolana` binary straight from the repository (builds from source, so
 it pulls the workspace's git dependencies; not published to crates.io):
 
 ```bash
-cargo install --git https://github.com/helius-labs/zolana --tag v0.4.0-alpha zolana-cli
+cargo install --git https://github.com/helius-labs/zolana --tag v0.4.0-alpha spr-cli
 ```
 
 `zolana dev start` then fetches a version-pinned, pre-initialized localnet

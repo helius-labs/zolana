@@ -1,6 +1,6 @@
 use solana_signature::Signature;
-use zolana_keypair::{ShieldedKeypair, SigningKey};
-use zolana_transaction::{Data, Mint, Utxo, WalletUtxo};
+use spr_keypair::{ShieldedKeypair, SigningKey};
+use spr_transaction::{Data, Mint, Utxo, WalletUtxo};
 
 pub fn keypair(seed: u8) -> ShieldedKeypair {
     ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&[seed; 32]))

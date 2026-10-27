@@ -1,23 +1,23 @@
 use anyhow::{anyhow, Result};
 use num_bigint::BigUint;
 use solana_address::Address;
-use zolana_client::ProofInputUtxo;
-use zolana_client::{
+use spr_client::ProofInputUtxo;
+use spr_client::{
     prover::field::be, NonInclusionProof, PublicInputs, PublicTransfers, TransferInput,
     TransferInputs, TransferOutput, STATE_TREE_HEIGHT,
 };
-use zolana_hasher::primitives::{right_align, solana_owner_identity};
-use zolana_interface::{
+use spr_hasher::primitives::{right_align, solana_owner_identity};
+use spr_interface::{
     instruction::instruction_data::transact::TreeContext,
     state::cache::empty_cached_input_fields,
     tree_slot::{pack_input_flags, tree_id_field, TreeSlot},
     ADDRESS_DOMAIN, INPUT_TREES,
 };
-use zolana_keypair::{hash::owner_hash, PublicKey};
-use zolana_program::program::{
+use spr_keypair::{hash::owner_hash, PublicKey};
+use spr_program::program::{
     AddressSeed, NewAddress, PdaOwner, UniqueDataUtxo, ACCOUNT_BLINDING_SEED,
 };
-use zolana_transaction::{utxo::SppProofInputUtxo, Utxo};
+use spr_transaction::{utxo::SppProofInputUtxo, Utxo};
 
 use crate::{
     account_pda, err,
@@ -196,7 +196,7 @@ impl CreateProofInputParams {
         let transfer_inputs = TransferInputs {
             inputs: vec![input, padding_input],
             outputs: vec![transfer_output, padding_transfer_output],
-            tree_slots: zolana_client::TreeSlotFields::encode_all(&tree_slots),
+            tree_slots: spr_client::TreeSlotFields::encode_all(&tree_slots),
             output_tree_id: BigUint::from(tree_id),
             blinding_seed: be(&ACCOUNT_BLINDING_SEED),
             external_data_hash: be(&external_hash),
@@ -206,7 +206,7 @@ impl CreateProofInputParams {
             ring_program_id: BigUint::ZERO,
             signer_pk_hashes: signer_hashes.iter().map(be).collect(),
             input_flags: be(&input_flags),
-            cache: zolana_client::CacheReadInputs::uncached(cached_inputs),
+            cache: spr_client::CacheReadInputs::uncached(cached_inputs),
             published_output_owner_pk_hashes: output_owner_hashes.iter().map(be).collect(),
             public_input_hash: be(&public_hash),
         };

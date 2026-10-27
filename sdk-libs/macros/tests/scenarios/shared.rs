@@ -1,13 +1,13 @@
 use solana_address::Address;
 use solana_signature::Signature;
-use zolana_hasher::{Hasher, Poseidon};
-use zolana_keypair::{random_blinding, ShieldedAddress, ShieldedKeypair, SigningKey, X25519Pubkey};
-use zolana_program::{
+use spr_hasher::{Hasher, Poseidon};
+use spr_keypair::{random_blinding, ShieldedAddress, ShieldedKeypair, SigningKey, X25519Pubkey};
+use spr_program::{
     circuit::{poseidon, Circuit, CircuitVar, ConstraintSystem, DataHash},
     conversion::{to_bytes, Allocator, ProofInput},
     CircuitError, EncryptionCodec, ZkProgramCircuit,
 };
-use zolana_transaction::{
+use spr_transaction::{
     decrypt,
     instructions::transact::SppProofInputs,
     utxo::{SppProofInputUtxo, Utxo},
@@ -129,7 +129,7 @@ pub fn state_hash<S: ProofInput<Circuit: DataHash>>(state: &S) -> [u8; 32] {
 }
 
 pub fn data_hash<S: ProofInput<Circuit: DataHash>>(state: &S) -> [u8; 32] {
-    zolana_program::hasher::data_hash(&state_hash(state)).expect("data hash")
+    spr_program::hasher::data_hash(&state_hash(state)).expect("data hash")
 }
 
 pub fn on_large_stack(run: impl FnOnce() + Send + 'static) {
@@ -249,11 +249,11 @@ fn placed(keys: &ShieldedKeypair, mut utxo: WalletUtxo, data_hash: [u8; 32]) -> 
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct ProgramOwner(zolana_program::ProgramOwner);
+pub struct ProgramOwner(spr_program::ProgramOwner);
 
 impl ProgramOwner {
     pub fn new(seed: u8) -> Self {
-        Self(zolana_program::ProgramOwner::new(Address::new_from_array(
+        Self(spr_program::ProgramOwner::new(Address::new_from_array(
             [seed; 32],
         )))
     }

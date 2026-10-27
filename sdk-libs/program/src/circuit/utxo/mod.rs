@@ -10,11 +10,11 @@ pub use balance::UtxoTrait;
 use balance::{Amount, Balance, HasBalance};
 pub use data::{DataHash, DataUtxo, UtxoData};
 pub(crate) use output::Output;
+use spr_interface::UTXO_DOMAIN;
+pub(crate) use spr_transaction::circuit::{SpentInput, Utxo};
 pub use token::TokenUtxos;
 pub use unique::UniqueDataUtxo;
 pub(crate) use unique::{derive_address, CreatedAddress};
-use zolana_interface::UTXO_DOMAIN;
-pub(crate) use zolana_transaction::circuit::{SpentInput, Utxo};
 
 use crate::circuit::{constant, CircuitVar};
 

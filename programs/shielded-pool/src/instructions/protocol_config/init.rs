@@ -1,6 +1,6 @@
 use crate::instructions::shared::caused_by;
 use pinocchio::{AccountView, Address, ProgramResult};
-use zolana_interface::{
+use spr_interface::{
     error::ShieldedPoolError,
     state::{discriminator::PROTOCOL_CONFIG, ProtocolConfig},
 };

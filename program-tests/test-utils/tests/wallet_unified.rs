@@ -1,20 +1,20 @@
 mod wallet_common;
 
-use wallet_common::{
-    build_unified_transfer, keypair_from_index, unique31, unique_nullifier, UnifiedTransferSpec,
-};
-use zolana_event::{encode_merge_output_data, MergeOutputDataRef};
-use zolana_keypair::NullifierKey;
+use spr_event::{encode_merge_output_data, MergeOutputDataRef};
+use spr_keypair::NullifierKey;
 #[cfg(feature = "parallel")]
-use zolana_test_utils::wallet::PrivateTransactionDirection;
-use zolana_test_utils::wallet::{KeypairWalletAuthority, Wallet};
-use zolana_transaction::{
+use spr_test_utils::wallet::PrivateTransactionDirection;
+use spr_test_utils::wallet::{KeypairWalletAuthority, Wallet};
+use spr_transaction::{
     instructions::merge::{
         merge_dummy_nullifier, merge_output_blinding, merge_output_key, MergeOutputPlaintext,
         MERGE_DEFAULT_INPUT_COUNT,
     },
     Address, AssetRegistry, Data, OutputContext, OutputSlot, ShieldedTransaction, Utxo, WalletUtxo,
     SOL_MINT,
+};
+use wallet_common::{
+    build_unified_transfer, keypair_from_index, unique31, unique_nullifier, UnifiedTransferSpec,
 };
 
 const WINDOW: u64 = 8;
@@ -123,7 +123,7 @@ fn fresh_sync_decrypts_chained_merges_seen_out_of_order() {
     let first_nullifier = input.nullifier(&input_context.hash, nullifier_key).unwrap();
     let output = Utxo {
         owner: alice.signing_pubkey(),
-        asset: zolana_transaction::Mint::SOL,
+        asset: spr_transaction::Mint::SOL,
         amount: input.amount,
         blinding: merge_output_blinding(nullifier_key, &first_nullifier).unwrap(),
         ring_program_id: None,
@@ -169,7 +169,7 @@ fn fresh_sync_decrypts_chained_merges_seen_out_of_order() {
         .unwrap();
     let chained_output = Utxo {
         owner: alice.signing_pubkey(),
-        asset: zolana_transaction::Mint::SOL,
+        asset: spr_transaction::Mint::SOL,
         amount: output.amount,
         blinding: merge_output_blinding(nullifier_key, &chained_nullifier).unwrap(),
         ring_program_id: None,
@@ -275,7 +275,7 @@ fn sync_recovers_a_compact_merge() {
     let first_nullifier = input.nullifier(&input_context.hash, nullifier_key).unwrap();
     let output = Utxo {
         owner: alice.signing_pubkey(),
-        asset: zolana_transaction::Mint::SOL,
+        asset: spr_transaction::Mint::SOL,
         amount: input.amount,
         blinding: merge_output_blinding(nullifier_key, &first_nullifier).unwrap(),
         ring_program_id: None,
@@ -340,7 +340,7 @@ fn sync_recovers_a_ring_merge_tagged_by_its_first_nullifier() {
     let mut counter = 0;
     let input = Utxo {
         owner: alice.signing_pubkey(),
-        asset: zolana_transaction::Mint::SOL,
+        asset: spr_transaction::Mint::SOL,
         amount: 42,
         blinding: unique31(&mut counter, 0x05),
         ring_program_id: Some(ring),
@@ -350,7 +350,7 @@ fn sync_recovers_a_ring_merge_tagged_by_its_first_nullifier() {
     let first_nullifier = input.nullifier(&input_hash, nullifier_key).unwrap();
     let output = Utxo {
         owner: alice.signing_pubkey(),
-        asset: zolana_transaction::Mint::SOL,
+        asset: spr_transaction::Mint::SOL,
         amount: input.amount,
         blinding: merge_output_blinding(nullifier_key, &first_nullifier).unwrap(),
         ring_program_id: Some(ring),

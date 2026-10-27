@@ -9,14 +9,14 @@ use solana_pubkey::Pubkey;
 use solana_rpc_client::rpc_client::RpcClient;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_api::{BlockingZolanaApi, NullifierQueueElement, SerializablePubkey, PAGE_LIMIT};
-use zolana_client::{
+use spr_api::{BlockingZolanaApi, NullifierQueueElement, SerializablePubkey, PAGE_LIMIT};
+use spr_client::{
     compile_message, sign_transaction, transaction_size, ComputeBudgetConfig, TransactionSize,
 };
-use zolana_interface::{pda, NullifierPda};
-use zolana_program::instruction::CloseNullifierPdas;
-use zolana_smart_account_client::{execute_sync_ix, smart_account_pda};
-use zolana_tree::TreeAccount;
+use spr_interface::{pda, NullifierPda};
+use spr_program::instruction::CloseNullifierPdas;
+use spr_smart_account_client::{execute_sync_ix, smart_account_pda};
+use spr_tree::TreeAccount;
 
 use crate::config::ForesterConfig;
 

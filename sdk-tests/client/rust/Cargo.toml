@@ -17,14 +17,14 @@ solana-keypair = { workspace = true }
 solana-pubkey = { workspace = true }
 solana-signature = { workspace = true }
 solana-signer = { workspace = true }
-zolana-client = { workspace = true, features = ["solana-rpc"] }
-zolana-interface = { workspace = true }
-zolana-program = { workspace = true, features = ["protocol-instructions"] }
-zolana-keypair = { workspace = true }
-zolana-program-test = { workspace = true, features = ["localnet"] }
-zolana-test-utils = { workspace = true }
-zolana-transaction = { workspace = true }
-zolana-user-registry-interface = { workspace = true, features = ["solana"] }
+spr-client = { workspace = true, features = ["solana-rpc"] }
+spr-interface = { workspace = true }
+spr-program = { workspace = true, features = ["protocol-instructions"] }
+spr-keypair = { workspace = true }
+spr-program-test = { workspace = true, features = ["localnet"] }
+spr-test-utils = { workspace = true }
+spr-transaction = { workspace = true }
+spr-user-registry-interface = { workspace = true, features = ["solana"] }
 
 [[example]]
 name = "deposit_transfer_withdraw"

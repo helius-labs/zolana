@@ -1,10 +1,10 @@
-use zolana_program::{
+use spr_program::{
     circuit::{constant, Bytes, CircuitVar, HashBytes},
     CircuitError,
 };
 
 fn raw_field_slice(bytes: &[CircuitVar]) -> Result<CircuitVar, CircuitError> {
-    zolana_program::circuit::hash_bytes(bytes)
+    spr_program::circuit::hash_bytes(bytes)
 }
 
 fn fixed_domain(bytes: &Bytes<32>) -> Result<CircuitVar, CircuitError> {

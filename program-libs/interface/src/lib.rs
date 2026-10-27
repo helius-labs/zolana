@@ -6,7 +6,7 @@ extern crate alloc;
 extern crate std;
 
 pub mod error;
-pub use zolana_event as event;
+pub use spr_event as event;
 pub mod instruction;
 pub mod merge_utils;
 pub mod pda;

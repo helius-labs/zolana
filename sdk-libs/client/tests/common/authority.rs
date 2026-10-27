@@ -1,7 +1,7 @@
-use zolana_keypair::NullifierKey;
+use spr_keypair::NullifierKey;
 
-pub fn complete_inputs(inputs: &mut [zolana_client::TransferInput], keys: &[NullifierKey]) {
-    use zolana_client::ProofAuthority;
+pub fn complete_inputs(inputs: &mut [spr_client::TransferInput], keys: &[NullifierKey]) {
+    use spr_client::ProofAuthority;
     for input in inputs {
         if input.nullifier_secret.is_some() {
             continue;

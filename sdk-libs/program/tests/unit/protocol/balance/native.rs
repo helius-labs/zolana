@@ -1,4 +1,4 @@
-use zolana_transaction::Mint;
+use spr_transaction::Mint;
 
 use super::{
     fixtures::{
@@ -248,7 +248,7 @@ fn a_balance_too_wide_to_check_points_at_the_circuit_line() {
         let error = result.expect_err("254-bit amount is refused");
         assert!(matches!(
             error.kind(),
-            zolana_program::CircuitErrorKind::BitWidthTooLarge { bits: 254 }
+            spr_program::CircuitErrorKind::BitWidthTooLarge { bits: 254 }
         ));
         assert_eq!(
             (
@@ -264,15 +264,13 @@ fn a_balance_too_wide_to_check_points_at_the_circuit_line() {
 
 #[test]
 fn emptying_a_data_utxo_does_not_make_its_asset_mutable_again() {
-    use zolana_program::{
+    use spr_program::{
         circuit::{DataUtxo, SolanaAddress, TokenUtxos, Uint, UtxoOwner, UtxoTrait},
         ProtocolCircuitErrorKind,
     };
     let owner = UtxoOwner::default();
-    let mut source = TokenUtxos::new_init(
-        &owner,
-        &SolanaAddress::constant(&zolana_transaction::SOL_MINT),
-    );
+    let mut source =
+        TokenUtxos::new_init(&owner, &SolanaAddress::constant(&spr_transaction::SOL_MINT));
     source
         .deposit(
             &Uint::constant(1).unwrap(),
@@ -280,14 +278,12 @@ fn emptying_a_data_utxo_does_not_make_its_asset_mutable_again() {
         )
         .unwrap();
     let mut account = DataUtxo::<()>::new_init(&owner);
-    let mut recipient = TokenUtxos::new_init(
-        &owner,
-        &SolanaAddress::constant(&zolana_transaction::SOL_MINT),
-    );
+    let mut recipient =
+        TokenUtxos::new_init(&owner, &SolanaAddress::constant(&spr_transaction::SOL_MINT));
     source.transfer_all(&mut account).unwrap();
     account.transfer_all(&mut recipient).unwrap();
     let error = account
-        .with_asset(&SolanaAddress::constant(&zolana_transaction::SOL_MINT))
+        .with_asset(&SolanaAddress::constant(&spr_transaction::SOL_MINT))
         .unwrap_err();
     assert!(matches!(
         error.protocol_kind(),
@@ -298,7 +294,7 @@ fn emptying_a_data_utxo_does_not_make_its_asset_mutable_again() {
 
 #[test]
 fn optional_token_groups_accept_incoming_transfers_until_closed() {
-    use zolana_program::circuit::{value, Field, TokenUtxos, Uint, Utxo, UtxoTrait};
+    use spr_program::circuit::{value, Field, TokenUtxos, Uint, Utxo, UtxoTrait};
 
     let mut real = super::fixtures::spendable_constant();
     real.amount = Uint::constant(77).expect("amount");

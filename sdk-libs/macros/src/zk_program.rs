@@ -1,6 +1,6 @@
 use quote::quote;
+use spr_zk_macros_core::{proof_input, shape::Shape};
 use syn::{DeriveInput, Result};
-use zolana_zk_macros_core::{proof_input, shape::Shape};
 
 use crate::{r1cs_hook, zk_program_wasm};
 

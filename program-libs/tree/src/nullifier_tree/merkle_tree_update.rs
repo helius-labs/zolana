@@ -1,7 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use zolana_event::NullifierTreeUpdateEvent;
+use spr_event::NullifierTreeUpdateEvent;
 #[cfg(feature = "verify")]
-use zolana_hasher::{primitives::is_canonical_bn254_scalar_be, Hasher, Poseidon};
+use spr_hasher::{primitives::is_canonical_bn254_scalar_be, Hasher, Poseidon};
 
 use crate::nullifier_tree::{
     batch::BatchState, error::NullifierTreeError, layout::NullifierTreeLayout,

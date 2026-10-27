@@ -1,10 +1,10 @@
-use zolana_hasher::{Hasher, Poseidon};
-use zolana_keypair::ShieldedAddress;
-use zolana_program::{
+use spr_hasher::{Hasher, Poseidon};
+use spr_keypair::ShieldedAddress;
+use spr_program::{
     conversion::{Allocator, Placeholder, ProofInput},
     CircuitError, Groth16Prover, TxContext, ZkProgramCircuit,
 };
-use zolana_transaction::{Mint, WalletUtxo};
+use spr_transaction::{Mint, WalletUtxo};
 
 use crate::{
     benchmark::prove,
@@ -23,7 +23,7 @@ struct PrivateSweepPrivateInputs {
     recipient: ShieldedAddress,
 }
 
-impl zolana_program::circuit::CircuitType for circuit::PrivateSweep {}
+impl spr_program::circuit::CircuitType for circuit::PrivateSweep {}
 
 impl ProofInput for PrivateSweep {
     type Circuit = circuit::PrivateSweep;
@@ -54,7 +54,7 @@ impl Placeholder for PrivateSweep {
 }
 
 mod circuit {
-    use zolana_program::{
+    use spr_program::{
         circuit::{
             poseidon, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
             PublicInputs, TokenUtxos, TxContext, Utxo, UtxoOwner, UtxoTrait,

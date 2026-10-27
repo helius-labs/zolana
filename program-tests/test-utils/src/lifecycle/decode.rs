@@ -2,8 +2,8 @@
 
 use anyhow::{anyhow, Result};
 use solana_pubkey::Pubkey;
-use zolana_event_parser::{general_event_from_indexed, indexed_events_from_instruction_groups};
-use zolana_interface::SHIELDED_POOL_PROGRAM_ID;
+use spr_event_parser::{general_event_from_indexed, indexed_events_from_instruction_groups};
+use spr_interface::SHIELDED_POOL_PROGRAM_ID;
 
 use super::LifecycleHarness;
 

@@ -10,12 +10,12 @@ use solana_instruction::Instruction;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{compile_message, sign_transaction, ComputeBudgetConfig};
-use zolana_user_registry_interface::{
+use spr_client::{compile_message, sign_transaction, ComputeBudgetConfig};
+use spr_user_registry_interface::{
     instruction::{self as user_registry_instruction, RegisterData, UpdateKeysData},
     user_record_pda, MergeEncryptionScheme,
 };
-pub use zolana_user_registry_interface::{user_registry_program_id, UserRecord};
+pub use spr_user_registry_interface::{user_registry_program_id, UserRecord};
 
 pub struct UserRegistryTestRig {
     pub svm: LiteSVM,
@@ -106,7 +106,7 @@ pub fn user_registry_program_path() -> PathBuf {
         .join("..")
         .join("target")
         .join("deploy")
-        .join("zolana_user_registry.so")
+        .join("spr_user_registry.so")
 }
 
 pub fn build_register_ix(

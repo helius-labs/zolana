@@ -1,5 +1,5 @@
 [package]
-name = "zolana-instruction"
+name = "spr-instruction"
 version = "0.1.0"
 description = "SPP instructions for Solana programs and clients: shielded-pool instruction builders, the transact CPI, and the derivations a program recomputes on-chain, buildable for the SBF target."
 edition.workspace = true
@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [lib]
-name = "zolana_instruction"
+name = "spr_instruction"
 
 [features]
 # Builders for protocol operations: protocol-authority and fee-authority
@@ -25,15 +25,15 @@ solana-instruction = { workspace = true }
 solana-pubkey = { workspace = true }
 thiserror = { workspace = true }
 wincode = { workspace = true }
-zolana-hasher = { workspace = true }
-zolana-interface = { workspace = true, features = ["borsh", "tree"] }
-zolana-tree = { workspace = true }
+spr-hasher = { workspace = true }
+spr-interface = { workspace = true, features = ["borsh", "tree"] }
+spr-tree = { workspace = true }
 
 [dev-dependencies]
 borsh = { workspace = true }
 bytemuck = { workspace = true }
 serde_json = { workspace = true }
-zolana-account-checks = { workspace = true, features = ["test-only"] }
+spr-account-checks = { workspace = true, features = ["test-only"] }
 
 [lints.rust.unexpected_cfgs]
 level = "allow"

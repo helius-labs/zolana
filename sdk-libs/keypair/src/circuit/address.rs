@@ -1,14 +1,14 @@
 use core::ops::Deref;
 use std::rc::Rc;
 
-use zolana_zk_dsl::{
+use spr_zk_dsl::{
     circuit::{
         builtins::field::var::system_of, Assert, Bool, Bytes, CircuitType, CircuitVar, Select,
     },
     conversion::{Allocator, ProofInput},
     Bytes as ClientBytes, CircuitError,
 };
-use zolana_zk_gadgets::{poseidon, HashBytes};
+use spr_zk_gadgets::{poseidon, HashBytes};
 
 use super::UtxoOwner;
 
@@ -31,9 +31,9 @@ enum Viewer {
 }
 
 impl Viewer {
-    fn cs(&self) -> zolana_zk_dsl::circuit::CircuitSystem {
+    fn cs(&self) -> spr_zk_dsl::circuit::CircuitSystem {
         match self {
-            Self::Key(_) => zolana_zk_dsl::circuit::CircuitSystem::None,
+            Self::Key(_) => spr_zk_dsl::circuit::CircuitSystem::None,
             Self::Selected {
                 condition,
                 if_true,
@@ -44,7 +44,7 @@ impl Viewer {
 
     fn instantiate(
         &self,
-        cs: &zolana_zk_dsl::circuit::CircuitSystem,
+        cs: &spr_zk_dsl::circuit::CircuitSystem,
     ) -> Result<Bytes<33>, CircuitError> {
         match self {
             Self::Key(bytes) => {
@@ -80,7 +80,7 @@ impl ShieldedAddressCircuit {
         &self.owner
     }
 
-    fn cs(&self) -> zolana_zk_dsl::circuit::CircuitSystem {
+    fn cs(&self) -> spr_zk_dsl::circuit::CircuitSystem {
         let key = self.owner.key();
         system_of(
             core::iter::once(key.tag())

@@ -8,8 +8,8 @@ use dynamic_swap_sdk::{
 };
 use shared::{escrow_authority_identity, setup, DESTINATION_ASSET_ID, SOURCE_ASSET_ID};
 use solana_signer::Signer;
-use zolana_client::{ComputeBudgetConfig, Rpc};
-use zolana_transaction::{instructions::transact::asset_field, SOL_MINT};
+use spr_client::{ComputeBudgetConfig, Rpc};
+use spr_transaction::{instructions::transact::asset_field, SOL_MINT};
 
 const INITIAL_PRICE: u64 = 100;
 

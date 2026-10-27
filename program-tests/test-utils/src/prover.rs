@@ -2,7 +2,7 @@
 
 use std::sync::OnceLock;
 
-use zolana_client::{IndexerRequirement, ProverLaunch};
+use spr_client::{IndexerRequirement, ProverLaunch};
 
 use crate::localnet::{localnet_indexer_url, WorkspaceArtifacts};
 

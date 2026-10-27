@@ -2,17 +2,17 @@
 
 use crate::wallet::{SyncWalletAuthority, Wallet};
 use solana_pubkey::Pubkey;
-use zolana_client::ProofInputUtxo;
-use zolana_hasher::Poseidon;
-use zolana_interface::instruction::deposit_blinding;
-use zolana_interface::{
+use spr_client::ProofInputUtxo;
+use spr_hasher::Poseidon;
+use spr_interface::instruction::deposit_blinding;
+use spr_interface::{
     pda,
     state::{read_tree_id, STATE_HEIGHT},
 };
-use zolana_merkle_tree::MerkleTree;
-use zolana_program::instruction::AssetDeposit;
-use zolana_program_test::{DepositOutput, ZolanaProgramTest};
-use zolana_transaction::SOL_MINT;
+use spr_merkle_tree::MerkleTree;
+use spr_program::instruction::AssetDeposit;
+use spr_program_test::{DepositOutput, ZolanaProgramTest};
+use spr_transaction::SOL_MINT;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SolDepositSnapshot {

@@ -11,7 +11,7 @@ pub use anonymous_ring_eddsa::{
 pub use assembly::{input_utxos_from_nullifiers, PublicInputs, TransferInputUtxo};
 pub use eddsa::{TransferProofResult, TransferProver};
 pub use ring_eddsa::{RingTransferProofResult, RingTransferProver};
+pub use spr_transaction::instructions::transact::PublicTransfers;
 pub use witness::{
     assemble, assemble_with_dummy_policy, attach_input_proofs, AssembledTransfer, SpendProof,
 };
-pub use zolana_transaction::instructions::transact::PublicTransfers;

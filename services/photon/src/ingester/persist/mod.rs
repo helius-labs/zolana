@@ -18,8 +18,8 @@ use sea_orm::{
     sea_query::OnConflict, ConnectionTrait, DatabaseTransaction, EntityTrait, QueryTrait, Set,
 };
 use solana_pubkey::Pubkey;
+use spr_indexer_api::Hash;
 use std::collections::HashMap;
-use zolana_indexer_api::Hash;
 
 use super::error;
 use ark_bn254::Fr;

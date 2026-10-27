@@ -56,7 +56,7 @@ Types used in this document. Shared SPP types are defined in [spec.md](../../doc
 | `escrow UTXO` | — | The SPP [UTXO](../../docs/spec.md#utxo) holding the locked funds: `asset = asset_id`, `amount = amount`, `owner = the creator's escrow-authority PDA` (seeds `[b"escrow_authority", creator]`), nullifier secret `= 0`, `utxo_data = escrow terms`. Spendable only by the timelock escrow program, and only in a withdraw the creator signs. See [Escrow Terms](#escrow-terms). |
 | `Escrow terms` | — | The fields committed in the escrow UTXO's `utxo_data` (record tag `0x02`), hashed into the escrow UTXO `utxo_hash` via `data_hash`: `owner_hash`, `unlock`. See [Escrow Terms](#escrow-terms). |
 | `private_tx_hash` | `[u8; 32]` | Commitment to the SPP `transact` an escrow proof authorizes: the link between an escrow proof and the SPP transaction. See [spec.md](../../docs/spec.md#zk-program-interface). |
-| `CompressedProof` | `[u8; 128]` | The escrow and withdraw Groth16 proofs (`zolana_program::CompressedProof`), verified by the timelock escrow program, each committing the transaction via `private_tx_hash`. Both use standard Groth16. The creator authorizes with a Solana transaction signature. |
+| `CompressedProof` | `[u8; 128]` | The escrow and withdraw Groth16 proofs (`spr_program::CompressedProof`), verified by the timelock escrow program, each committing the transaction via `private_tx_hash`. Both use standard Groth16. The creator authorizes with a Solana transaction signature. |
 | `TransactIxData` | — | SPP `transact` instruction data: the SPP proof, input nullifiers, output UTXO hashes, ciphertexts, and routing. See [spec.md](../../docs/spec.md#transact). |
 | `hash_bytes` | fn | `Poseidon` hash of a 32-byte value, folded into the field the circuits check over; used here to turn a Solana pubkey into a single value the proof can compare against a committed hash. |
 
@@ -259,7 +259,7 @@ Both are plain Groth16 proofs. The program verifies them through `verifier::escr
 `verifier::withdraw::Verifier::verify`, committed in [`program/src/verifier/`](program/src/verifier).
 `just build-escrow-program` generates them from the circuits' public inputs and the verifying keys
 of the SDK's deterministic insecure test setup (UNSAFE for production), whose proving keys it
-writes to `target/zk/timelock-escrow-program`. `just test-zolana-program-release` regenerates them
+writes to `target/zk/timelock-escrow-program`. `just test-spr-program-release` regenerates them
 and fails when they differ from the committed files. The program's tests check that the included
 keys are that setup's and that both circuits' proofs verify through the generated verifier and
 public-input hashes. The SPP transfer proof comes from the SPP prover. `just build-escrow-wasm`

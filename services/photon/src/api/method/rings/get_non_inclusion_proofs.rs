@@ -15,7 +15,7 @@ use sea_orm::{
     ColumnTrait, DatabaseConnection, DatabaseTransaction, EntityTrait, QueryFilter,
     TransactionTrait,
 };
-use zolana_indexer_api::{
+use spr_indexer_api::{
     GetNonInclusionProofsRequest, GetNonInclusionProofsResponse, Hash, SerializablePubkey,
 };
 

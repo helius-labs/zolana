@@ -1,8 +1,8 @@
 use solana_address::Address;
-use zolana_hasher::primitives::hash_bytes;
-use zolana_interface::UTXO_DOMAIN;
-use zolana_keypair::ShieldedAddress;
-use zolana_program::{
+use spr_hasher::primitives::hash_bytes;
+use spr_interface::UTXO_DOMAIN;
+use spr_keypair::ShieldedAddress;
+use spr_program::{
     circuit::{
         constant, poseidon, Assert, Circuit, CircuitVar, DataHash, DataUtxo, Field, SolanaAddress,
         TokenUtxos, Uint, Utxo, UtxoOwner, UtxoTrait,
@@ -11,7 +11,7 @@ use zolana_program::{
     hasher::DATA_HASH_DOMAIN,
     CircuitError,
 };
-use zolana_transaction::Mint;
+use spr_transaction::Mint;
 
 use super::vectors::Vector;
 use crate::{
@@ -67,7 +67,7 @@ pub fn oversized_operation(op: usize) -> (u32, Result<(), CircuitError>) {
     let amount = Uint::<64>::constant(1).expect("one fits in an amount");
     let mut holder = TokenUtxos::new_init(
         &UtxoOwner::default(),
-        &SolanaAddress::constant(&zolana_transaction::SOL_MINT),
+        &SolanaAddress::constant(&spr_transaction::SOL_MINT),
     );
     for _ in 0..191 {
         holder.deposit(&amount, &account).expect("nonzero deposit");
@@ -278,7 +278,7 @@ impl<const DESTINATION: usize, const ALL: bool> IntoClosedCircuit<DESTINATION, A
     fn into(&self, destination: &mut impl UtxoTrait) -> Result<(), CircuitError> {
         let mut source = TokenUtxos::new_init(
             &self.owner,
-            &SolanaAddress::constant(&zolana_transaction::SOL_MINT),
+            &SolanaAddress::constant(&spr_transaction::SOL_MINT),
         );
         source.deposit(&self.deposit, &self.account)?;
         if ALL {
@@ -403,7 +403,7 @@ impl Circuit for ArithmeticCircuit {
         let account = SolanaAddress::constant(&ACCOUNT);
         let mut source = TokenUtxos::new_init(
             &UtxoOwner::default(),
-            &SolanaAddress::constant(&zolana_transaction::SOL_MINT),
+            &SolanaAddress::constant(&spr_transaction::SOL_MINT),
         );
         let mut destination = TokenUtxos::new_init(&UtxoOwner::default(), &source.asset());
         source.deposit(&self.deposit, &account)?;

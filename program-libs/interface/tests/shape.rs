@@ -1,4 +1,4 @@
-use zolana_interface::shape::{
+use spr_interface::shape::{
     owner_signer_slots, Shape, FIXED_TRANSACT_ADDRESSES, MAX_SIGNERS, MAX_TRANSACTION_ADDRESSES,
     RING_AUTHORITY_WIDTHS, SPP_SUPPORTED_SHAPES,
 };

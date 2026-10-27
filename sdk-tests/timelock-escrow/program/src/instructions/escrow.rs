@@ -1,9 +1,9 @@
 use light_program_profiler::profile;
 use pinocchio::{AccountView, ProgramResult};
+use spr_account_checks::AccountIterator;
+use spr_hasher::primitives::solana_owner_identity;
+use spr_program::CompressedProof;
 use wincode::{SchemaRead, SchemaWrite};
-use zolana_account_checks::AccountIterator;
-use zolana_hasher::primitives::solana_owner_identity;
-use zolana_program::CompressedProof;
 
 use crate::{
     error::TimelockEscrowError,
@@ -44,7 +44,7 @@ pub fn process_escrow_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
     escrow::Verifier {
         proof: &proof,
         public_inputs: escrow::PublicInputs {
-            escrow_owner: zolana_program::verifier::address_hash(
+            escrow_owner: spr_program::verifier::address_hash(
                 &escrow_authority.owner_hash()?,
                 &viewing_pubkey,
             )

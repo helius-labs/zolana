@@ -3,11 +3,11 @@ use solana_account::Account;
 use solana_address::Address;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
-use zolana_client::{ClientError, Rpc};
-use zolana_interface::state::read_tree_id;
-use zolana_program::instruction::RingAssetDeposit;
-use zolana_program_test::RingDepositOutput;
-use zolana_transaction::{OutputContext, OutputSlot};
+use spr_client::{ClientError, Rpc};
+use spr_interface::state::read_tree_id;
+use spr_program::instruction::RingAssetDeposit;
+use spr_program_test::RingDepositOutput;
+use spr_transaction::{OutputContext, OutputSlot};
 
 use super::{
     fetch_account, state_root_from, to_address, wait_for_indexed_utxo, wait_for_merkle_proof,
@@ -48,14 +48,14 @@ pub fn assert_ring_deposit<R: Rpc, I: Rpc, A: SyncWalletAuthority + ?Sized>(
         utxo_hash: event.utxo_hash,
         output_tree: event.output_tree,
         leaf_index: event.leaf_index,
-        output: zolana_event::EncryptedRingDepositOutput {
+        output: spr_event::EncryptedRingDepositOutput {
             owner_utxo_hash: data.owner_utxo_hash,
             asset: expected_asset.to_bytes(),
             amount: expected_amount,
             data_hash: None,
             ring_program_id: expected_ring_program_id,
             ring_data_hash: data.ring_data_hash,
-            encrypted: zolana_event::EncryptedRingDepositData {
+            encrypted: spr_event::EncryptedRingDepositData {
                 tx_viewing_pk: data.encrypted.tx_viewing_pk,
                 salt: data.encrypted.salt,
                 ciphertext: data.encrypted.ciphertext.clone(),
@@ -75,7 +75,7 @@ pub fn assert_ring_deposit<R: Rpc, I: Rpc, A: SyncWalletAuthority + ?Sized>(
     let indexed = wait_for_indexed_utxo(indexer, data.view_tag, signature);
     assert_eq!(
         indexed,
-        zolana_client::EncryptedUtxoMatch {
+        spr_client::EncryptedUtxoMatch {
             slot: indexed.slot,
             tx_signature: signature,
             output_slot: OutputSlot {
@@ -85,9 +85,7 @@ pub fn assert_ring_deposit<R: Rpc, I: Rpc, A: SyncWalletAuthority + ?Sized>(
                     tree_id,
                     leaf_index: event.leaf_index,
                 },
-                payload: zolana_event::encode_encrypted_ring_deposit_output(
-                    expected.output.clone(),
-                ),
+                payload: spr_event::encode_encrypted_ring_deposit_output(expected.output.clone(),),
             },
             tx_viewing_pk: None,
             salt: None,

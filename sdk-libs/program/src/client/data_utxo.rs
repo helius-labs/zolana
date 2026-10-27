@@ -1,4 +1,4 @@
-use zolana_transaction::WalletUtxo;
+use spr_transaction::WalletUtxo;
 
 use crate::{
     hasher::{data_hash, unique_data_hash, DataHasher},

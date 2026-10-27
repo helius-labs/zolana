@@ -1,5 +1,5 @@
 [package]
-name = "zolana-interface"
+name = "spr-interface"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
@@ -11,7 +11,7 @@ default = ["verifying-keys", "tree"]
 borsh = ["dep:borsh", "solana-address/borsh"]
 events = []
 verifying-keys = ["dep:groth16-solana"]
-tree = ["dep:zolana-tree"]
+tree = ["dep:spr-tree"]
 
 [dependencies]
 arrayvec = { workspace = true }
@@ -20,12 +20,12 @@ bytemuck = { workspace = true, features = ["min_const_generics"] }
 solana-address = { workspace = true, features = ["bytemuck"] }
 solana-pubkey = { workspace = true }
 groth16-solana = { workspace = true, optional = true }
-zolana-hasher = { workspace = true }
+spr-hasher = { workspace = true }
 solana-program-error = { workspace = true }
 thiserror = { workspace = true }
 wincode = { workspace = true }
-zolana-event = { workspace = true }
-zolana-tree = { workspace = true, optional = true }
+spr-event = { workspace = true }
+spr-tree = { workspace = true, optional = true }
 
 [dev-dependencies]
 bytemuck = { workspace = true }
@@ -35,5 +35,5 @@ serde_json = { workspace = true }
 solana-address = { workspace = true }
 solana-message = { workspace = true }
 solana-rent = { workspace = true }
-zolana-hasher = { workspace = true }
-zolana-tree = { workspace = true }
+spr-hasher = { workspace = true }
+spr-tree = { workspace = true }

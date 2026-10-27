@@ -2,13 +2,13 @@ mod common;
 
 use common::{keypair, wallet_utxo};
 use solana_address::Address;
-use zolana_hasher::primitives::{hash_bytes, solana_owner_identity};
-use zolana_interface::{
+use spr_hasher::primitives::{hash_bytes, solana_owner_identity};
+use spr_interface::{
     state::cache::bind_cache_write,
     verifying_keys::{CacheAccess, CacheWrite},
 };
-use zolana_keypair::{hash::sha256, NullifierKey, PublicKey};
-use zolana_transaction::{
+use spr_keypair::{hash::sha256, NullifierKey, PublicKey};
+use spr_transaction::{
     instructions::transact::{CacheAccounts, PrivateTxHash, Shape, SppProofInputs},
     utxo::{
         derive_output_blinding_seed, derive_private_tx_blinding, derive_transact_output_blinding,
@@ -587,7 +587,7 @@ fn dummy_hash_has_fixed_domain_and_tree_bound_zero_secret_nullifier() {
     );
     assert_eq!(
         dummy.nullifier(),
-        NullifierKey::from_secret([0; zolana_keypair::constants::BLINDING_LEN])
+        NullifierKey::from_secret([0; spr_keypair::constants::BLINDING_LEN])
             .nullifier(&dummy.hash(), &field(7))
             .unwrap()
     );
@@ -596,7 +596,7 @@ fn dummy_hash_has_fixed_domain_and_tree_bound_zero_secret_nullifier() {
     assert_ne!(other_tree.nullifier(), dummy.nullifier());
     assert_eq!(
         other_tree.nullifier(),
-        NullifierKey::from_secret([0; zolana_keypair::constants::BLINDING_LEN])
+        NullifierKey::from_secret([0; spr_keypair::constants::BLINDING_LEN])
             .nullifier(&other_tree.hash(), &field(7))
             .unwrap()
     );

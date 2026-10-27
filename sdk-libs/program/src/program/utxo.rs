@@ -1,5 +1,5 @@
-use zolana_hasher::{primitives::right_align, Hasher, Poseidon};
-use zolana_interface::{tree_slot::tree_id_field, SOL_ASSET_FIELD, UTXO_DOMAIN};
+use spr_hasher::{primitives::right_align, Hasher, Poseidon};
+use spr_interface::{tree_slot::tree_id_field, SOL_ASSET_FIELD, UTXO_DOMAIN};
 
 use super::{CompressedAccountError, PdaOwner};
 

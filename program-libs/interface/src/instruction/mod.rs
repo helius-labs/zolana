@@ -20,7 +20,7 @@ pub use instruction_data::{
 pub use instruction_data::{
     BatchUpdateNullifierTreeData, CreateTreeData, NullifierTreeProof, SetTreeFeesData,
 };
-pub use zolana_event::{tag, tag::InstructionTag};
+pub use spr_event::{tag, tag::InstructionTag};
 
 #[cfg(feature = "borsh")]
 pub fn encode_instruction<T: BorshSerialize>(tag: u8, payload: &T) -> Vec<u8> {

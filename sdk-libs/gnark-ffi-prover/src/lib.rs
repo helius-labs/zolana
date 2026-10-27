@@ -7,7 +7,7 @@
 //! - `circuits/`: a Go `main` package whose `init` registers its circuits with
 //!   the `zolana/gnarkffiprover` bridge, plus the circuits themselves. Its
 //!   `go.mod` requires the bridge module without a `replace`.
-//! - `build.rs`: `zolana_gnark_ffi_prover_build::build_prover_archive()`, which
+//! - `build.rs`: `spr_gnark_ffi_prover_build::build_prover_archive()`, which
 //!   supplies the bridge, builds that package into a C archive and links it.
 //! - A [`Circuit`] enum and
 //!   `pub static PROVER: Prover<CircuitId> = prover!(<key root>);`.

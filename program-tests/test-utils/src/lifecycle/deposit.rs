@@ -5,10 +5,10 @@ use crate::wallet::{KeypairWalletAuthority, Wallet};
 use anyhow::{anyhow, Result};
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_event_parser::indexed_events_from_instruction_groups;
-use zolana_interface::SHIELDED_POOL_PROGRAM_ID;
-use zolana_program_test::deposit_output_from_event;
-use zolana_transaction::{Address, SOL_MINT};
+use spr_event_parser::indexed_events_from_instruction_groups;
+use spr_interface::SHIELDED_POOL_PROGRAM_ID;
+use spr_program_test::deposit_output_from_event;
+use spr_transaction::{Address, SOL_MINT};
 
 use super::{Deposit, DepositRecord, LifecycleHarness, SplDepositAccounts};
 use crate::{

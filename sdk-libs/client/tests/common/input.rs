@@ -1,6 +1,6 @@
 use solana_signature::Signature;
-use zolana_keypair::NullifierKey;
-use zolana_transaction::{Utxo, WalletUtxo};
+use spr_keypair::NullifierKey;
+use spr_transaction::{Utxo, WalletUtxo};
 
 pub fn wallet_utxo(
     utxo: Utxo,

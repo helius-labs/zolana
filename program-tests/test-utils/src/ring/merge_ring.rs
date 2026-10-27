@@ -3,14 +3,14 @@
 use anyhow::{anyhow, Result};
 use solana_address::Address;
 use solana_signer::Signer;
-use zolana_client::{transaction_size, ComputeBudgetConfig, MergeProver, ProverClient, ProverExt};
-use zolana_interface::{
+use spr_client::{transaction_size, ComputeBudgetConfig, MergeProver, ProverClient, ProverExt};
+use spr_interface::{
     error::ShieldedPoolError, instruction::instruction_data::merge_transact::MergeProof,
 };
-use zolana_keypair::ShieldedKeypair;
-use zolana_program::instruction::MergeRing;
-use zolana_program_test::Rejection;
-use zolana_transaction::Utxo;
+use spr_keypair::ShieldedKeypair;
+use spr_program::instruction::MergeRing;
+use spr_program_test::Rejection;
+use spr_transaction::Utxo;
 
 use super::{MergeRingRecord, RingHarness, SECOND_RING_TEST_PROGRAM_ID};
 use crate::{
@@ -54,10 +54,10 @@ impl RingHarness {
             })
             .collect::<Result<Vec<_>>>()?;
         let transaction = match ring {
-            Some(ring) => zolana_transaction::instructions::merge::MergeTransaction::new_with_ring(
+            Some(ring) => spr_transaction::instructions::merge::MergeTransaction::new_with_ring(
                 notes, ring, None,
             )?,
-            None => zolana_transaction::instructions::merge::MergeTransaction::new(notes)?,
+            None => spr_transaction::instructions::merge::MergeTransaction::new(notes)?,
         }
         .with_output_tree_id(self.tree_id)
         .encrypt(keypair)?;
@@ -76,7 +76,7 @@ impl RingHarness {
         let proofs = states
             .into_iter()
             .zip(proofs)
-            .map(|(state, nullifier)| zolana_client::SpendProof { state, nullifier })
+            .map(|(state, nullifier)| spr_client::SpendProof { state, nullifier })
             .collect();
         Ok(MergeProver {
             transaction,

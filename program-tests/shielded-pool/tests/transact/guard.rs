@@ -20,10 +20,10 @@ use solana_instruction::{error::InstructionError, AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_account_checks::AccountError;
-use zolana_client::ComputeBudgetConfig;
-use zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE;
-use zolana_interface::{
+use spr_account_checks::AccountError;
+use spr_client::ComputeBudgetConfig;
+use spr_hasher::primitives::BN254_SCALAR_MODULUS_BE;
+use spr_interface::{
     error::ShieldedPoolError,
     instruction::instruction_data::transact::{
         CircuitId, TransactIxData, TransactIxDataRef, TransactProof, NO_UTXO_ROOT,
@@ -32,9 +32,9 @@ use zolana_interface::{
     state::{discriminator::RING_CONFIG, RingConfig},
     MAX_INPUT_TREES, N_PUBLIC_SLOTS,
 };
-use zolana_program::instruction::{RingAuthorityTransact, RingTransact, Transact};
-use zolana_program_test::{Rejection, RING_TEST_PROGRAM_ID};
-use zolana_test_utils::transact::{
+use spr_program::instruction::{RingAuthorityTransact, RingTransact, Transact};
+use spr_program_test::{Rejection, RING_TEST_PROGRAM_ID};
+use spr_test_utils::transact::{
     fe, inline_output, input_utxo, input_utxo_in_tree, single_tree_context, tree_contexts,
 };
 

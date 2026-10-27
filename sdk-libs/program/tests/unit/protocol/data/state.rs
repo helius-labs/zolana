@@ -2,7 +2,7 @@
 //! agrees with its circuit hash, and `Skewed`, whose client hash does not.
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use zolana_program::{
+use spr_program::{
     circuit::{poseidon, CircuitType, CircuitVar, DataHash, Uint, UtxoData},
     conversion::{Allocator, FromCircuit, Placeholder, ProofInput},
     hasher::{data_hash, DataHasher, Hasher, HasherError, Poseidon, ToByteArray},
@@ -22,7 +22,7 @@ pub struct CounterState {
 
 impl Counter {
     pub fn bytes(&self) -> Vec<u8> {
-        zolana_program::EncryptionCodec::serialize_for_encryption(self).expect("counter bytes")
+        spr_program::EncryptionCodec::serialize_for_encryption(self).expect("counter bytes")
     }
 
     pub fn native_hash(&self) -> [u8; 32] {
@@ -139,7 +139,7 @@ impl DataHasher for Skewed {
     }
 }
 
-impl zolana_program::EncryptionCodec for Counter {
+impl spr_program::EncryptionCodec for Counter {
     fn serialize_for_encryption(&self) -> std::io::Result<Vec<u8>> {
         borsh::to_vec(self)
     }
@@ -149,7 +149,7 @@ impl zolana_program::EncryptionCodec for Counter {
     }
 }
 
-impl zolana_program::EncryptionCodec for Skewed {
+impl spr_program::EncryptionCodec for Skewed {
     fn serialize_for_encryption(&self) -> std::io::Result<Vec<u8>> {
         borsh::to_vec(self)
     }

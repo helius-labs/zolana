@@ -1,12 +1,12 @@
 use alloc::vec::Vec;
 use core::fmt;
 
-use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
-use zolana_hasher::HasherError;
-use zolana_interface::instruction::instruction_data::transact::{
+use spr_hasher::HasherError;
+use spr_interface::instruction::instruction_data::transact::{
     validate_interface_transfers, CircuitId, ExternalDataPreimage, InputUtxo, InterfaceTransfer,
     MessageData, TransactIxData, TransactOutput, TransactProof, TreeContext,
 };
+use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 
 pub type SettlementAccounts = [[u8; 32]; 2];
 

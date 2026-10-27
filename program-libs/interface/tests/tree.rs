@@ -1,7 +1,7 @@
 #![cfg(feature = "tree")]
 
 use solana_rent::Rent;
-use zolana_interface::{
+use spr_interface::{
     state::tree::{
         default_tree_fees, nullifier_tree_params, read_tree_id, tree_account_size,
         tree_creation_step_count, tree_id_offset, tree_liquid_working_capital_lamports,
@@ -13,7 +13,7 @@ use zolana_interface::{
     tree_slot::tree_id_field,
     NULLIFIER_PDA_SIZE,
 };
-use zolana_tree::{TreeAccount, TreeFeeSchedule};
+use spr_tree::{TreeAccount, TreeFeeSchedule};
 
 /// The sponsored default charges nothing, so nothing accrues to reimburse
 /// from either: a schedule that paid a forester out of an empty fee balance

@@ -1,5 +1,5 @@
-use zolana_program::{derive_output_blinding_seed, derive_transact_output_blinding};
-use zolana_program::{Groth16Prover, TxContext, ZkProgramCircuit};
+use spr_program::{derive_output_blinding_seed, derive_transact_output_blinding};
+use spr_program::{Groth16Prover, TxContext, ZkProgramCircuit};
 
 use crate::{
     benchmark::prove,

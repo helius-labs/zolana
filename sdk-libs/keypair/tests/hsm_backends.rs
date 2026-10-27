@@ -3,7 +3,7 @@ mod hsm;
 use hsm::kms::{
     ed25519_client, ed25519_client_failing_after_bootstrap, KmsShieldedKeypair, KEY_ID,
 };
-use zolana_keypair::{
+use spr_keypair::{
     derivation::{ed25519_derivation_message, ED25519_DERIVATION_MSG},
     Curve, KeypairError, ShieldedKeypair, ShieldedKeypairTrait, SigningKey,
 };

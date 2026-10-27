@@ -1,21 +1,21 @@
 use shielded_pool_tests::support::transact::{current_tree_roots, proof_env, Pool};
-use zolana_interface::state::cache::empty_cached_input_fields;
+use spr_interface::state::cache::empty_cached_input_fields;
 
 use num_bigint::BigUint;
 use solana_account::Account;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{PublicInputs, PublicTransfers, STATE_TREE_HEIGHT};
-use zolana_hasher::{primitives::solana_owner_identity, Poseidon};
-use zolana_interface::{
+use spr_client::{PublicInputs, PublicTransfers, STATE_TREE_HEIGHT};
+use spr_hasher::{primitives::solana_owner_identity, Poseidon};
+use spr_interface::{
     error::ShieldedPoolError, instruction::instruction_data::transact::TransactIxData, pda,
     state::TreeFeeSchedule, NullifierPda,
 };
-use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
-use zolana_merkle_tree::MerkleTree;
-use zolana_program::instruction::Transact;
-use zolana_program_test::{Rejection, Rpc, TransactionTrace};
-use zolana_test_utils::{
+use spr_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
+use spr_merkle_tree::MerkleTree;
+use spr_program::instruction::Transact;
+use spr_program_test::{Rejection, Rpc, TransactionTrace};
+use spr_test_utils::{
     nullifier_pda::{
         assert_nullifier_pda, assert_tree_lamports_after_spend, forester_fee_for_inputs,
         nullifier_pda_addresses, nullifier_pda_rent, nullifier_queue_next_index, tree_fees,
@@ -30,8 +30,8 @@ use zolana_test_utils::{
         TEST_BLINDING_SEED,
     },
 };
-use zolana_transaction::{instructions::transact::PrivateTxHash, SOL_MINT};
-use zolana_tree::TreeAccount;
+use spr_transaction::{instructions::transact::PrivateTxHash, SOL_MINT};
+use spr_tree::TreeAccount;
 
 const LAMPORTS_PER_SIGNATURE: u64 = 5_000;
 

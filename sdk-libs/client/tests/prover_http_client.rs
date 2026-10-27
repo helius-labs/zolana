@@ -1,4 +1,4 @@
-//! The prover clients send through any `zolana_api` HTTP client: a fake one
+//! The prover clients send through any `spr_api` HTTP client: a fake one
 //! here, in place of a prover. It records what the clients send and answers
 //! a proof in the response, a queued proof with its status polls, and the
 //! proving-keys read, or fails as a custom client can.
@@ -10,15 +10,15 @@ use std::{
 
 use reqwest::{header::HeaderMap, Method, StatusCode};
 use serde_json::{json, Value};
-use zeroize::Zeroizing;
-use zolana_api::{ApiError, BlockingHttpClient, HttpClient, HttpFuture, HttpRequest, HttpResponse};
-use zolana_client::{
+use spr_api::{ApiError, BlockingHttpClient, HttpClient, HttpFuture, HttpRequest, HttpResponse};
+use spr_client::{
     prover::{
         known_proving_keys, tee::TeePolicy, AsyncProverClient, Delivery, ExpectedProvingKey,
         ProveRequest, ProverClient,
     },
     ClientError, Prover,
 };
+use zeroize::Zeroizing;
 
 const PROVER_URL: &str = "http://127.0.0.1:3001/v1/zolana?api-key=secret";
 const PROVE_URL: &str = "http://127.0.0.1:3001/v1/zolana/prove/test?api-key=secret";

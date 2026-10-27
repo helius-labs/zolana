@@ -3,14 +3,14 @@ use solana_address::Address;
 use solana_instruction::Instruction;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{ComputeBudgetConfig, Rpc, SolanaRpc};
-use zolana_keypair::{ShieldedKeypair, SigningKey};
-use zolana_program_test::{
+use spr_client::{ComputeBudgetConfig, Rpc, SolanaRpc};
+use spr_keypair::{ShieldedKeypair, SigningKey};
+use spr_program_test::{
     fixture,
     localnet::{FixtureLocalnet, LocalnetPaths, LocalnetPorts},
 };
-use zolana_test_utils::wallet::{sync_wallet, Deposit, DepositParams, Wallet};
-use zolana_transaction::{AssetRegistry, SOL_MINT};
+use spr_test_utils::wallet::{sync_wallet, Deposit, DepositParams, Wallet};
+use spr_transaction::{AssetRegistry, SOL_MINT};
 
 // The whole per-transaction budget: the settlement verifies an SPP proof.
 const TRANSACT_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
@@ -82,7 +82,7 @@ pub fn setup(test: u16) -> Result<TestEnv> {
         asset: SOL_MINT,
         amount: MAKER_SHIELD_SOL,
         spl_token_account: None,
-        spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
+        spl_token_program: Some(spr_interface::pda::spl_token_program_id()),
         memo: None,
     })?
     .send(&localnet.client, &payer, localnet.tree, &payer)?;
@@ -91,7 +91,7 @@ pub fn setup(test: u16) -> Result<TestEnv> {
         asset: usdc_mint,
         amount: TAKER_SHIELD_USDC,
         spl_token_account: Some(usdc_funding),
-        spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
+        spl_token_program: Some(spr_interface::pda::spl_token_program_id()),
         memo: None,
     })?
     .send(&localnet.client, &payer, localnet.tree, &payer)?;

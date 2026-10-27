@@ -1,11 +1,11 @@
-use zolana_zk_dsl::verifier::VerifyError;
-use zolana_zk_dsl::{
+use spr_zk_dsl::verifier::VerifyError;
+use spr_zk_dsl::{
     circuit::{constant, value, Circuit, Field},
     conversion::{field_bytes, Allocator, FromCircuit, ProofInput},
     Groth16Prover, ZkCircuit,
 };
-use zolana_zk_gadgets::poseidon;
-use zolana_zk_standalone_fixture::{
+use spr_zk_gadgets::poseidon;
+use spr_zk_standalone_fixture::{
     verifier::withdrawal, Opening, Payout, Point, PublicOpening, Withdrawal, PAYOUT_RULE, RULE,
 };
 

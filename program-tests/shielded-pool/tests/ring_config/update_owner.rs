@@ -6,8 +6,8 @@
 use bytemuck::bytes_of;
 use pinocchio::error::ProgramError;
 use shielded_pool_program::testing::{load_ring_config, process_update_ring_config_owner};
-use zolana_account_checks::account_info::test_account_info::get_account_view;
-use zolana_interface::{
+use spr_account_checks::account_info::test_account_info::get_account_view;
+use spr_interface::{
     error::ShieldedPoolError,
     state::{discriminator::RING_CONFIG, RingConfig},
 };

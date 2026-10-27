@@ -1,4 +1,4 @@
-use zolana_interface::instruction::instruction_data::{
+use spr_interface::instruction::instruction_data::{
     merge_ring::{MergeRingIxData, MergeRingIxDataRef},
     merge_transact::{
         MergeOutputEncryption, MergeProof, MergeTransactIxData, MAX_MERGE_INPUTS,

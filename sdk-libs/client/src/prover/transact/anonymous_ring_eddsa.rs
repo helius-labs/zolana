@@ -4,15 +4,15 @@
 use num_bigint::BigUint;
 use serde_json::{Map, Value};
 use solana_address::Address;
-use zeroize::Zeroizing;
-use zolana_hasher::primitives::{hash_bytes, solana_owner_identity};
-use zolana_interface::instruction::instruction_data::transact::TreeContext;
-use zolana_keypair::{PublicKey, SigningKey};
-use zolana_transaction::{
+use spr_hasher::primitives::{hash_bytes, solana_owner_identity};
+use spr_interface::instruction::instruction_data::transact::TreeContext;
+use spr_keypair::{PublicKey, SigningKey};
+use spr_transaction::{
     instructions::transact::{transact_message_hash, PublicTransfers, SppProofInputs},
     utxo::program_id_proof_input_hash,
     ExternalData, SppProofOutputUtxo,
 };
+use zeroize::Zeroizing;
 
 use crate::{
     error::ClientError,

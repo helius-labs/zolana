@@ -1,6 +1,6 @@
-use zolana_hasher::primitives::right_align;
-use zolana_keypair::{ShieldedAddress, ShieldedKeypair, SigningKey};
-use zolana_program::{
+use spr_hasher::primitives::right_align;
+use spr_keypair::{ShieldedAddress, ShieldedKeypair, SigningKey};
+use spr_program::{
     circuit::{constant, poseidon, CircuitVar, PublicInputs},
     conversion::{to_bytes, Allocator, ProofInput},
     hasher::{Hasher, Poseidon},

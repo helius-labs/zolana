@@ -1,7 +1,6 @@
 use serde::Serialize;
-use zeroize::Zeroizing;
-use zolana_hasher::primitives::pack_be;
-use zolana_interface::instruction::{
+use spr_hasher::primitives::pack_be;
+use spr_interface::instruction::{
     instruction_data::{
         merge_ring::MergeRingIxData,
         merge_transact::{
@@ -11,14 +10,15 @@ use zolana_interface::instruction::{
     },
     tag::{MERGE_TRANSACT, RING_MERGE_TRANSACT},
 };
-use zolana_interface::tree_slot::tree_id_field;
-use zolana_keypair::NullifierKey;
-use zolana_transaction::instructions::{
+use spr_interface::tree_slot::tree_id_field;
+use spr_keypair::NullifierKey;
+use spr_transaction::instructions::{
     merge::{
         merge_dummy_nullifier, merge_output_blinding, merge_private_tx_blinding, MergeProofInputs,
     },
     transact::PrivateTxHash,
 };
+use zeroize::Zeroizing;
 
 use super::{
     hex_field, invalid, invalid_resolution, transfer::SecretField, IndexedCircuit, IndexedLookup,
@@ -69,7 +69,7 @@ impl IndexedMergePreparation {
         cache: Option<crate::prover::MergeCacheTarget>,
     ) -> Result<PreparedIndexedMerge, ClientError> {
         if cache.is_some_and(|target| {
-            usize::from(target.slot) >= zolana_interface::state::cache::CACHE_CAPACITY
+            usize::from(target.slot) >= spr_interface::state::cache::CACHE_CAPACITY
         }) {
             return Err(invalid());
         }
@@ -79,8 +79,7 @@ impl IndexedMergePreparation {
         } = self;
         merge.input_utxo_hashes()?;
         merge.check_padding()?;
-        let ring_hash =
-            zolana_transaction::utxo::program_id_proof_input_hash(&merge.ring_program_id)?;
+        let ring_hash = spr_transaction::utxo::program_id_proof_input_hash(&merge.ring_program_id)?;
         let ring_data_hash = merge.output_utxo.ring_data_hash.unwrap_or_default();
         let first = merge
             .input_utxos
@@ -122,7 +121,7 @@ impl IndexedMergePreparation {
             let commitment = utxo.hash()?;
             if commitment != input.utxo_hash {
                 return Err(
-                    zolana_transaction::TransactionError::InputCommitmentMismatch { index }.into(),
+                    spr_transaction::TransactionError::InputCommitmentMismatch { index }.into(),
                 );
             }
             let derived = if dummy {
@@ -168,7 +167,7 @@ impl IndexedMergePreparation {
             || output.utxo.data_hash != [0; 32]
             || output.utxo.ring_program_id != ring_hash
             || output.utxo.owner_hash
-                != zolana_keypair::hash::owner_hash(&merge.signing_pubkey, &nullifier_pk)?
+                != spr_keypair::hash::owner_hash(&merge.signing_pubkey, &nullifier_pk)?
         {
             return Err(invalid());
         }
@@ -246,7 +245,7 @@ impl IndexedMergePreparation {
         let request = IndexedProofRequest::new(IndexedProofData {
             witness: Zeroizing::new(serde_json::to_string(&witness).map_err(|_| invalid())?),
             trees: vec![IndexedTree {
-                tree: zolana_interface::pda::tree(tree_id).to_bytes().into(),
+                tree: spr_interface::pda::tree(tree_id).to_bytes().into(),
                 id: tree_id,
             }],
             inputs: lookups,
@@ -367,8 +366,8 @@ struct PreparedMergeJson {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zolana_keypair::{ShieldedKeypair, ShieldedKeypairTrait};
-    use zolana_transaction::{instructions::merge::MergeTransaction, Data, Mint, Utxo, WalletUtxo};
+    use spr_keypair::{ShieldedKeypair, ShieldedKeypairTrait};
+    use spr_transaction::{instructions::merge::MergeTransaction, Data, Mint, Utxo, WalletUtxo};
 
     fn input(owner: &ShieldedKeypair) -> WalletUtxo {
         let utxo = Utxo {
@@ -450,7 +449,7 @@ mod tests {
                 }
                 .prepare(),
                 Err(ClientError::Transaction(
-                    zolana_transaction::TransactionError::InputCommitmentMismatch { .. }
+                    spr_transaction::TransactionError::InputCommitmentMismatch { .. }
                 ))
             ));
             let mut merge = MergeTransaction::new(vec![input(&owner)])

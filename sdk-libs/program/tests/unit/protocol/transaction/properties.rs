@@ -1,6 +1,6 @@
 use proptest::prelude::*;
-use zolana_program::TxContext;
-use zolana_transaction::Mint;
+use spr_program::TxContext;
+use spr_transaction::Mint;
 
 use super::{
     fixtures::{Asserted, NoFields, Refresh},

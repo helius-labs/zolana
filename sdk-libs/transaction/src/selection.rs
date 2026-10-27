@@ -12,7 +12,7 @@ use std::{
 };
 
 use solana_address::Address;
-use zolana_interface::MAX_INPUT_TREES;
+use spr_interface::MAX_INPUT_TREES;
 
 use crate::{
     error::TransactionError,

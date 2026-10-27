@@ -4,7 +4,7 @@ use solana_pubkey::Pubkey;
 use crate::run::DEFAULT_PROOF_CONCURRENCY;
 
 pub fn default_tree() -> Pubkey {
-    zolana_interface::pda::tree(0)
+    spr_interface::pda::tree(0)
 }
 
 #[derive(Parser)]

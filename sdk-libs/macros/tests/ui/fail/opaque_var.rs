@@ -1,4 +1,4 @@
-use zolana_program::circuit::{constant, CircuitSystem, CircuitVar, Field};
+use spr_program::circuit::{constant, CircuitSystem, CircuitVar, Field};
 
 fn division(left: CircuitVar, right: &CircuitVar) -> CircuitVar {
     let quotient = left.clone() / right;

@@ -1,9 +1,9 @@
 use anyhow::{bail, Result};
+use spr_client::ProofInputUtxo;
+use spr_keypair::X25519Pubkey;
+use spr_transaction::instructions::transact::{PrivateTxHash, SppProofOutputUtxo};
 use swap_program::instructions::cancel::CancelPublicInput;
 use swap_prover::{CancelProofInputs, OrderTermsProofInput};
-use zolana_client::ProofInputUtxo;
-use zolana_keypair::X25519Pubkey;
-use zolana_transaction::instructions::transact::{PrivateTxHash, SppProofOutputUtxo};
 
 use crate::{err, shared::check_output_utxo, state::OrderUtxo};
 

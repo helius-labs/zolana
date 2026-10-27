@@ -1,4 +1,4 @@
-use zolana_keypair::{
+use spr_keypair::{
     constants::BLINDING_LEN,
     derivation::{ed25519_derivation_message, ED25519_DERIVATION_MSG},
     KeypairError, NullifierKey, ShieldedKeypair, SigningKey, ViewingKey, X25519Pubkey,
@@ -103,7 +103,7 @@ pub(crate) fn primitives_refuse_derivation_inputs() {
     );
     assert!(ed.sign_message(b"benign message").is_ok());
 
-    let vk = zolana_keypair::ViewingKey::new();
+    let vk = spr_keypair::ViewingKey::new();
     assert!(vk.ecdh(&ViewingKey::new().pubkey()).is_ok());
 }
 

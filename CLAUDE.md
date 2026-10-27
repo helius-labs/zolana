@@ -33,7 +33,7 @@ prover
 
 The generic ZK DSL, prover, gadgets and core derives live in
 `helius-labs/zk-tools` under `zk-dsl/`. The root Cargo manifest pins them to a
-Git revision. ZK programs use the `zolana-program` re-exports; standalone
+Git revision. ZK programs use the `spr-program` re-exports; standalone
 circuits use the zk crates directly. `just check-deps` enforces the SDK
 layering and optional circuit dependencies.
 
@@ -85,9 +85,9 @@ sdk-libs/
                           features `cpi` (transact CPI) and `protocol`
   keypair/             -- shielded key material and hashes; feature `circuit`
                           (owner circuit types, ShieldedAddress as proof input)
-  macros/              -- zolana-macros: the ZK program derives (UtxoState,
-                          ZkProgramCircuit, PublicInputs) over zolana-zk-macros-core
-  program/             -- SDK for programs: re-exports zolana-instruction and the
+  macros/              -- spr-macros: the ZK program derives (UtxoState,
+                          ZkProgramCircuit, PublicInputs) over spr-zk-macros-core
+  program/             -- SDK for programs: re-exports spr-instruction and the
                           zk crates; feature `compression` (compressed accounts,
                           SBF-buildable) and the host-only ZK program features
                           `circuit`, `client`, `setup`; no default features
@@ -160,7 +160,7 @@ port. Running `cargo test` directly (not via `just`) does not auto-load `.env`
 
 ### Parallel localnet tests (`LocalnetPorts::for_test`)
 
-Suites that boot through `zolana_program_test::localnet::FixtureLocalnet`
+Suites that boot through `spr_program_test::localnet::FixtureLocalnet`
 (swap, timelock escrow, dynamic swap, rfq, compression) run in parallel: each
 test passes its own number to `setup(n)`, which binds
 `LocalnetPorts::for_test(n)`, the default ports shifted by `ZOLANA_PORT_OFFSET +
@@ -182,7 +182,7 @@ carrying transaction simply fits.
   constant per language: `solana_message::v1::MAX_TRANSACTION_SIZE` in Rust,
   `TRANSACTION_SIZE_LIMIT` in `sdk-libs/ts`. Do not hand-roll a third.
 - **The budget lives in the message header**, not in compute-budget
-  instructions. Build through `zolana_client::compile_message` and
+  instructions. Build through `spr_client::compile_message` and
   `ComputeBudgetConfig`; never construct a `v1::TransactionConfig` at a call
   site.
 - **An unset header field is zero, not a default.** Omitting either the
@@ -194,7 +194,7 @@ carrying transaction simply fits.
   compute unit.
 - **Signing rejects a repeated signer**, where legacy partial signing tolerated
   one. That bites whenever the fee payer also owns a shielded input, so sign
-  through `zolana_client::sign_transaction`, which deduplicates. Signing and
+  through `spr_client::sign_transaction`, which deduplicates. Signing and
   sending refuse a message that is not version 1.
 - **Read back at `max_supported_transaction_version: 1`.** A v1 transaction
   requested at 0 comes back as an error rather than as the transaction. The
@@ -207,7 +207,7 @@ carrying transaction simply fits.
 
 There is a second ceiling that moves with the shape rather than the bytes:
 **v1 allows 64 account addresses**, and a wide spend adds one nullifier PDA per
-input. `zolana_client::transaction_size` reports both, and `xtask tx-size`
+input. `spr_client::transaction_size` reports both, and `xtask tx-size`
 prints them per shape.
 
 ### The localnet runtime is surfpool
@@ -321,7 +321,7 @@ Add discriminator constant to `program-libs/interface/src/state/discriminator.rs
 All program errors must be defined in the interface crate
 (`program-libs/interface/src/error.rs`), including the `From<...> for
 ProgramError` conversion. The program crate does not define its own error enum;
-it imports `zolana_interface::error::ShieldedPoolError`, and clients import the
+it imports `spr_interface::error::ShieldedPoolError`, and clients import the
 same definition.
 
 ```rust
@@ -363,23 +363,23 @@ pub enum ShieldedPoolError {
   be cfg-gated: use `Address::find_program_address` on Solana target and do not
   pretend host tests can derive it unless a host implementation exists.
 
-## Instruction Builder Pattern (zolana-instruction crate)
+## Instruction Builder Pattern (spr-instruction crate)
 
 Builders live in `sdk-libs/instruction/src/instruction/`, not in the interface
 crate: the shielded-pool program links the interface and must not carry client
-surface. `zolana-instruction` is `no_std` and SBF-buildable, so programs that
-CPI into SPP use the same builders as clients. `zolana-transaction` depends on
-`zolana-instruction`. It cannot depend on `zolana-program`, which depends on
-`zolana-transaction` for its ZK program features. The circuit types and proof
+surface. `spr-instruction` is `no_std` and SBF-buildable, so programs that
+CPI into SPP use the same builders as clients. `spr-transaction` depends on
+`spr-instruction`. It cannot depend on `spr-program`, which depends on
+`spr-transaction` for its ZK program features. The circuit types and proof
 input impls of the wallet types sit in the `circuit` features of
-`zolana-keypair` and `zolana-transaction`, on top of the zk crates, because the
-orphan rule keeps them out of `zolana-program`. Reference: `create_spl_interface.rs`
+`spr-keypair` and `spr-transaction`, on top of the zk crates, because the
+orphan rule keeps them out of `spr-program`. Reference: `create_spl_interface.rs`
 
 ```rust
 use alloc::vec;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
-use zolana_interface::{instruction::tag, pda, PROGRAM_ID_PUBKEY};
+use spr_interface::{instruction::tag, pda, PROGRAM_ID_PUBKEY};
 
 pub struct CreateSplInterface {
     pub authority: Pubkey,
@@ -405,13 +405,13 @@ impl CreateSplInterface {
 - Use canonical program ids from `program-libs/interface/src/lib.rs`, do not pass as parameter
 - Use fixed-size arrays for instruction data, not Vec, when the instruction data is fixed
 - Add `mod <name>;` + `pub use <name>::<item>;` to `sdk-libs/instruction/src/instruction/mod.rs`
-- Builders are imported as `zolana_program::instruction::<builder>` (re-exported
-  from `zolana_instruction`)
+- Builders are imported as `spr_program::instruction::<builder>` (re-exported
+  from `spr_instruction`)
 - Builders for protocol operations (protocol and fee authority administration,
   tree creation, ring activation, forester maintenance) go behind the
-  non-default `protocol` feature of `zolana-instruction`
+  non-default `protocol` feature of `spr-instruction`
   (`#[cfg(feature = "protocol")]` on the module or item and its re-export),
-  which `zolana-program` exposes as `protocol-instructions`.
+  which `spr-program` exposes as `protocol-instructions`.
   `CreateSplInterface` stays ungated: the protocol config can open it to
   everyone, and users register their own mints.
 
@@ -421,7 +421,7 @@ impl CreateSplInterface {
 2. default light-zero-copy
 3. if not hot path can use borsh
 
-### wincode length prefixes (zolana-transaction)
+### wincode length prefixes (spr-transaction)
 
 When choosing the length encoding for a wincode `containers::Vec<T, FixIntLen<..>>`:
 - `Vec<u8>` (byte vectors: ciphertexts, program/ring data, can exceed 255 bytes) use `FixIntLen<u16>`.
@@ -535,7 +535,7 @@ calls `groth16_solana::vk::gnark::generate_bsb22_vk_file` to emit a
 `pub const VERIFYINGKEY: Groth16Verifyingkey` per circuit, and `mod.rs` is
 regenerated. The codegen lives in the `xtask` crate, which depends on the
 `groth16-solana` fork pinned by git rev in the root `Cargo.toml`.
-`zolana-interface` depends on the same fork only to compile the committed
+`spr-interface` depends on the same fork only to compile the committed
 `verifying_keys/*.rs` constants.
 
 Next to each `VERIFYINGKEY` the generator writes `VERIFYINGKEY_PROVING_KEY_SHA256`
@@ -582,7 +582,7 @@ key set fails before a transaction is built instead of on-chain:
   name keys. `--shielded-pool`, implied when reading the shielded-pool program
   id without `--expect` and required by `--prover-url`, instead validates the
   exact shielded-pool key set: it fails on an unknown digest or a missing key. Every program that links
-  `zolana-interface` with default features embeds all interface markers (the
+  `spr-interface` with default features embeds all interface markers (the
   markers are exported statics), used or not.
   `tools/deploy-devnet.sh` runs it on the local build before deploying
   shielded-pool and on the deployed program after.
@@ -628,7 +628,7 @@ refuses an undated or missing entry.
 Photon lives at `services/photon` and is a member of this Cargo workspace. Build
 the operational binary with `just build-photon`; localnet and CI must run that
 same-revision binary rather than a downloaded release artifact. Photon consumes
-the workspace `zolana-event`, `zolana-interface`, and `zolana-tree` crates, so
+the workspace `spr-event`, `spr-interface`, and `spr-tree` crates, so
 program layouts and indexer parsing change atomically.
 
 Production containers are built from the repository root so Cargo can resolve

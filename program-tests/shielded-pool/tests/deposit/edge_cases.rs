@@ -1,5 +1,5 @@
 use solana_system_interface::error::SystemError;
-use zolana_program_test::{Rejection, ZolanaProgramTest};
+use spr_program_test::{Rejection, ZolanaProgramTest};
 
 use shielded_pool_tests::support::fixtures::Pool;
 

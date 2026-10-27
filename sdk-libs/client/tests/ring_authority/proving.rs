@@ -2,10 +2,10 @@
 
 use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
 use solana_address::Address;
-use zolana_client::{
+use spr_client::{
     ProverClient, ProverExt, PublicTransfers, RingAuthorityProver, Rpc, Shape, TransferInputUtxo,
 };
-use zolana_interface::{
+use spr_interface::{
     instruction::{
         instruction_data::transact::{OwnerTag, TransactOutput},
         tag::RING_AUTHORITY_TRANSACT,
@@ -13,8 +13,8 @@ use zolana_interface::{
     verifying_keys::CircuitId,
     N_PUBLIC_SLOTS,
 };
-use zolana_keypair::{random_blinding, NullifierKey, ShieldedKeypair, SigningKey};
-use zolana_transaction::{
+use spr_keypair::{random_blinding, NullifierKey, ShieldedKeypair, SigningKey};
+use spr_transaction::{
     utxo::SppProofInputUtxo, Data, ExternalData, Mint, SppProofOutputUtxo, Utxo,
 };
 

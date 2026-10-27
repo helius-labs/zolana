@@ -18,19 +18,19 @@
 //! spends; [`UtxoScan::with_indexer_config`] makes every read wait for a
 //! slot first. Every spendable UTXO carries the output tree the indexer
 //! named on the last page read, as its
-//! [`latest_tree_id`](zolana_transaction::WalletUtxo::latest_tree_id).
+//! [`latest_tree_id`](spr_transaction::WalletUtxo::latest_tree_id).
 
 use std::collections::HashSet;
 
 use solana_address::Address;
 use solana_signature::Signature;
-use zolana_interface::{
+use spr_interface::{
     pda,
     state::{discriminator::SPL_ASSET_REGISTRY, SplAssetRegistry},
     PROGRAM_ID_PUBKEY,
 };
-use zolana_keypair::X25519Pubkey;
-use zolana_transaction::{
+use spr_keypair::X25519Pubkey;
+use spr_transaction::{
     verify_owned, AssetRegistry, DecryptionResult, DepositPayload, History, Mint, OwnedUtxos,
     ShieldedKeys, SpendableDecryptionResult, SOL_ASSET_ID, SOL_MINT,
 };

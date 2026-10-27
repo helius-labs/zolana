@@ -4,9 +4,9 @@ use pinocchio::{
     error::ProgramError,
     AccountView,
 };
-use zolana_account_checks::AccountIterator;
-use zolana_hasher::primitives::hash_bytes;
-use zolana_interface::{
+use spr_account_checks::AccountIterator;
+use spr_hasher::primitives::hash_bytes;
+use spr_interface::{
     error::ShieldedPoolError,
     instruction::{DepositAssetKind, MAX_DEPOSIT_ASSETS},
     SOL_ASSET_FIELD,

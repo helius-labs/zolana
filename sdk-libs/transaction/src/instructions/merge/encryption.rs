@@ -1,4 +1,4 @@
-use zolana_keypair::{random_salt, ShieldedAddress};
+use spr_keypair::{random_salt, ShieldedAddress};
 
 use super::{
     inputs::{pad_with_compact, validate_merge_owner},

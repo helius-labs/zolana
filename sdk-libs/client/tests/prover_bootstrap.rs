@@ -2,7 +2,7 @@
 
 use std::sync::OnceLock;
 
-use zolana_client::{ClientError, ProverLaunch};
+use spr_client::{ClientError, ProverLaunch};
 
 pub(crate) fn start_prover() {
     static STARTED: OnceLock<()> = OnceLock::new();

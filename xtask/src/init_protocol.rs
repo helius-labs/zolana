@@ -8,8 +8,8 @@ use solana_keypair::{read_keypair_file, Keypair};
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{ComputeBudgetConfig, Rpc, SolanaRpc};
-use zolana_interface::{
+use spr_client::{ComputeBudgetConfig, Rpc, SolanaRpc};
+use spr_interface::{
     pda,
     state::{
         nullifier_tree_params, tree_account_size, tree_creation_lamports, ProtocolConfig,
@@ -17,18 +17,18 @@ use zolana_interface::{
     },
     BPF_LOADER_UPGRADEABLE_PUBKEY, NULLIFIER_PDA_SIZE, SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_program::instruction::{CreateAssetCounter, CreateProtocolConfig, CreateTree};
-use zolana_smart_account_client::{
+use spr_program::instruction::{CreateAssetCounter, CreateProtocolConfig, CreateTree};
+use spr_smart_account_client::{
     create_role_smart_account_ix,
     roles::Role,
     settings::{settings_member_keys, settings_seed, settings_threshold},
 };
-use zolana_test_utils::smart_account::{
+use spr_test_utils::smart_account::{
     execute_sync_each, execute_sync_ix, program_config_pda, settings_pda, smart_account_pda,
     Permissions, SmartAccountSigner, PROGRAM_CONFIG_ACCOUNT_DISCRIMINATOR,
     SMART_ACCOUNT_PROGRAM_ID,
 };
-use zolana_tree::TreeFeeSchedule;
+use spr_tree::TreeFeeSchedule;
 
 use crate::tree_fees::{at_cost_for_transaction_size, print_schedule, ForesterClose};
 
@@ -579,7 +579,7 @@ fn load_reused_roles(
 }
 
 /// Derive the five role accounts at the shared role table's seed offsets above
-/// `base_index` (`zolana_smart_account_client::roles`: protocol, tree, zone,
+/// `base_index` (`spr_smart_account_client::roles`: protocol, tree, zone,
 /// merge, forester at +1..=+5).
 fn derive_roles(base_index: u128) -> [RoleAddrs; 5] {
     Role::ALL.map(|role| {
@@ -1008,7 +1008,7 @@ fn next_tree_id(rpc: &SolanaRpc, initialized: bool) -> Result<u16> {
     if !initialized {
         return Ok(0);
     }
-    zolana_program_test::next_tree_id(rpc).context("reading next_tree_id from protocol_config")
+    spr_program_test::next_tree_id(rpc).context("reading next_tree_id from protocol_config")
 }
 
 /// The tree vault funds its own tree account, so the only signer the inner

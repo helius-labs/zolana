@@ -1,9 +1,9 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use zolana_program::{
+use spr_program::{
     conversion::{Allocator, FromCircuit, Placeholder, ProofInput},
     CircuitError, Groth16Prover, TxContext, ZkProgramCircuit,
 };
-use zolana_transaction::{Mint, WalletUtxo};
+use spr_transaction::{Mint, WalletUtxo};
 
 use crate::{
     benchmark::prove,
@@ -15,7 +15,7 @@ pub struct Account {
     pub balance: u64,
 }
 
-impl zolana_program::circuit::CircuitType for circuit::Account {}
+impl spr_program::circuit::CircuitType for circuit::Account {}
 
 impl ProofInput for Account {
     type Circuit = circuit::Account;
@@ -61,7 +61,7 @@ struct ReadThresholdPublicInputs {
     threshold: u64,
 }
 
-impl zolana_program::circuit::CircuitType for circuit::ReadThreshold {}
+impl spr_program::circuit::CircuitType for circuit::ReadThreshold {}
 
 impl ProofInput for ReadThreshold {
     type Circuit = circuit::ReadThreshold;
@@ -97,7 +97,7 @@ impl Placeholder for ReadThreshold {
 }
 
 pub(crate) mod circuit {
-    use zolana_program::{
+    use spr_program::{
         circuit::{
             poseidon, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction, DataHash,
             DataUtxo, PublicInputs, TxContext, Uint, Utxo, UtxoData,

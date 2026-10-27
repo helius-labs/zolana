@@ -1,8 +1,8 @@
 use light_program_profiler::profile;
 use pinocchio::{AccountView, ProgramResult};
+use spr_interface::instruction::instruction_data::transact::TransactProof;
+use spr_program::program::{load_tree_id, PdaOwner, SppTransactCpi, UniqueDataUtxo, UtxoMeta};
 use wincode::{SchemaRead, SchemaWrite};
-use zolana_interface::instruction::instruction_data::transact::TransactProof;
-use zolana_program::program::{load_tree_id, PdaOwner, SppTransactCpi, UniqueDataUtxo, UtxoMeta};
 
 use crate::{
     error::{compressed_account_error, CompressionError},

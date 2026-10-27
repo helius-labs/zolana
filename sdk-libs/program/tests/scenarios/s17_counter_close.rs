@@ -1,10 +1,10 @@
 use solana_address::Address;
-use zolana_keypair::ShieldedAddress;
-use zolana_program::{
+use spr_keypair::ShieldedAddress;
+use spr_program::{
     conversion::{Allocator, Placeholder, ProofInput},
     CircuitError, Groth16Prover, TxContext, ZkProgramCircuit,
 };
-use zolana_transaction::WalletUtxo;
+use spr_transaction::WalletUtxo;
 
 use crate::{
     benchmark::prove,
@@ -30,7 +30,7 @@ pub(crate) struct ClosePublicInputs {
     pub(crate) owner: ShieldedAddress,
 }
 
-impl zolana_program::circuit::CircuitType for circuit::Close {}
+impl spr_program::circuit::CircuitType for circuit::Close {}
 
 impl ProofInput for Close {
     type Circuit = circuit::Close;
@@ -66,7 +66,7 @@ impl Placeholder for Close {
 }
 
 mod circuit {
-    use zolana_program::{
+    use spr_program::{
         circuit::{
             poseidon, Assert, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
             DataUtxo, PublicInputs, TxContext, Utxo, UtxoOwner, UtxoTrait,

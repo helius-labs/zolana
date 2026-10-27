@@ -1,5 +1,5 @@
 use pinocchio::ProgramResult;
-use zolana_interface::{
+use spr_interface::{
     event::{
         encode_encrypted_ring_deposit_output_ref, encode_output_data_ref,
         EncryptedRingDepositOutputRef, EventKind, GeneralEvent, ProoflessOutputRef, SplTransfer,

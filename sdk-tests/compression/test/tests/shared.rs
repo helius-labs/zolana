@@ -4,13 +4,13 @@ use solana_instruction::Instruction;
 use solana_keypair::Keypair;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{ComputeBudgetConfig, Rpc};
-use zolana_program_test::{
+use spr_client::{ComputeBudgetConfig, Rpc};
+use spr_program_test::{
     fixture,
     localnet::{FixtureLocalnet, LocalnetPaths, LocalnetPorts},
     workspace_path,
 };
-use zolana_tree::TreeAccount;
+use spr_tree::TreeAccount;
 
 pub const TRANSACT_CU_LIMIT: u32 = 1_400_000;
 

@@ -2,11 +2,11 @@
 
 use borsh::BorshDeserialize;
 use solana_address::Address;
-use zolana_client::Rpc;
-use zolana_event::OutputDataEncoding;
-use zolana_interface::{instruction::OwnerTag, N_PUBLIC_SLOTS, SOL_ASSET_FIELD};
-use zolana_keypair::{ShieldedKeypair, SigningKey};
-use zolana_transaction::{
+use spr_client::Rpc;
+use spr_event::OutputDataEncoding;
+use spr_interface::{instruction::OwnerTag, N_PUBLIC_SLOTS, SOL_ASSET_FIELD};
+use spr_keypair::{ShieldedKeypair, SigningKey};
+use spr_transaction::{
     instructions::transact::{
         asset_field, signed_magnitude_to_field, ConfidentialTransaction, SettlementTransfer, Shape,
     },
@@ -59,7 +59,7 @@ impl TransferHarness {
                         owner: owner.signing_pubkey(),
                         asset: mint(spec.asset),
                         amount: spec.amount,
-                        blinding: zolana_keypair::random_blinding(),
+                        blinding: spr_keypair::random_blinding(),
                         ring_program_id: None,
                         data: Data::default(),
                     },

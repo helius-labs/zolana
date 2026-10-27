@@ -12,11 +12,11 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{ProverClient, ProverExt, PublicInputs, PublicTransfers, STATE_TREE_HEIGHT};
-use zolana_hasher::primitives::solana_owner_identity;
-use zolana_hasher::Poseidon;
-use zolana_interface::state::cache::empty_cached_input_fields;
-use zolana_interface::{
+use spr_client::{ProverClient, ProverExt, PublicInputs, PublicTransfers, STATE_TREE_HEIGHT};
+use spr_hasher::primitives::solana_owner_identity;
+use spr_hasher::Poseidon;
+use spr_interface::state::cache::empty_cached_input_fields;
+use spr_interface::{
     instruction::{
         instruction_data::transact::{CircuitId, InterfaceTransfer},
         TransactIxData,
@@ -25,13 +25,13 @@ use zolana_interface::{
     NULLIFIER_PDA_SIZE, N_PUBLIC_SLOTS, PROGRAM_ID_PUBKEY, SHIELDED_POOL_PROGRAM_ID,
     SPL_TOKEN_PROGRAM_ID,
 };
-use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey, ShieldedKeypair};
-use zolana_merkle_tree::MerkleTree;
-use zolana_program::instruction::{
+use spr_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey, ShieldedKeypair};
+use spr_merkle_tree::MerkleTree;
+use spr_program::instruction::{
     Deposit, Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
 };
-use zolana_program_test::ZolanaProgramTest;
-use zolana_transaction::{instructions::transact::PrivateTxHash, Mint, SOL_MINT};
+use spr_program_test::ZolanaProgramTest;
+use spr_transaction::{instructions::transact::PrivateTxHash, Mint, SOL_MINT};
 
 use shielded_pool_tests::support::{
     cache::CachedSpendFixture,
@@ -41,11 +41,11 @@ use shielded_pool_tests::support::{
     ring::{RealRingTransact, RingRail},
     transact::{current_tree_roots, tree_roots},
 };
-use zolana_interface::{
+use spr_interface::{
     instruction::instruction_data::merge_transact::MERGE_SUPPORTED_INPUT_COUNTS, pda, shape::Shape,
 };
-use zolana_program_test::RING_TEST_PROGRAM_ID;
-use zolana_test_utils::{
+use spr_program_test::RING_TEST_PROGRAM_ID;
+use spr_test_utils::{
     nullifier_pda::nullifier_pda_addresses,
     prover::spawn_workspace_prover,
     transact::{
@@ -573,7 +573,7 @@ fn bench_transfer_shape(
     bench: &mut CuBenchmark,
 ) {
     let (pt, _authority, tree, tree_id) = bench_setup();
-    spawn_workspace_prover(zolana_client::IndexerRequirement::Optional);
+    spawn_workspace_prover(spr_client::IndexerRequirement::Optional);
 
     let payer = pt.payer.insecure_clone();
     let payer_bytes = payer.pubkey().to_bytes();
@@ -778,7 +778,7 @@ fn bench_ring_transfer_shape(
 ) {
     std::env::set_var("SHIELDED_POOL_PROGRAM_PATH", PLAIN_PROGRAM_PATH);
     let mut pool = Pool::initialized();
-    spawn_workspace_prover(zolana_client::IndexerRequirement::Optional);
+    spawn_workspace_prover(spr_client::IndexerRequirement::Optional);
 
     let ring_program = Pubkey::new_from_array(RING_TEST_PROGRAM_ID);
     let proof = RealRingTransact {
@@ -816,7 +816,7 @@ fn bench_merge_shape(
 ) {
     std::env::set_var("SHIELDED_POOL_PROGRAM_PATH", PLAIN_PROGRAM_PATH);
     let mut pool = Pool::initialized();
-    spawn_workspace_prover(zolana_client::IndexerRequirement::Optional);
+    spawn_workspace_prover(spr_client::IndexerRequirement::Optional);
 
     let proof = RealMergeProof {
         input_count,
@@ -854,7 +854,7 @@ fn bench_merge_shape(
 // full amount to an external account. Mirrors `shield_withdraw::shield_then_withdraw_sol`.
 fn bench_withdrawal_sol(mollusk: &mut Mollusk, program_id: &Pubkey, bench: &mut CuBenchmark) {
     let (mut pt, _authority, tree, tree_id) = bench_setup();
-    spawn_workspace_prover(zolana_client::IndexerRequirement::Optional);
+    spawn_workspace_prover(spr_client::IndexerRequirement::Optional);
 
     const AMOUNT: u64 = 1_000_000_000;
     let payer = pt.payer.insecure_clone();
@@ -1034,7 +1034,7 @@ fn bench_withdrawal_spl(
     bench: &mut CuBenchmark,
 ) {
     let (mut pt, authority, tree, _tree_id) = bench_setup();
-    spawn_workspace_prover(zolana_client::IndexerRequirement::Optional);
+    spawn_workspace_prover(spr_client::IndexerRequirement::Optional);
 
     const AMOUNT: u64 = 1_000;
     let withdrawal =

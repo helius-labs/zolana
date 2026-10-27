@@ -11,7 +11,7 @@ use crate::harness::{
     digest::{r1cs_digest, sha256},
     fixture::{check_constraints, check_private_variables, size, Size},
 };
-use zolana_program::{
+use spr_program::{
     circuit::Field,
     testing::{check_tampered, Tamper},
     ZkProgramCircuit,
@@ -215,7 +215,7 @@ fn a_prover_cannot_flip_whether_a_token_output_is_empty_and_only_a_zero_amounts_
 
 #[test]
 fn no_variable_is_free_and_only_carried_spend_values_are_tolerated() {
-    let report = |free_and_tolerated: zolana_program::testing::PrivateVariableReport| {
+    let report = |free_and_tolerated: spr_program::testing::PrivateVariableReport| {
         (
             free_and_tolerated.free.len(),
             free_and_tolerated.tolerated.len(),

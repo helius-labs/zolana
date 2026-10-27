@@ -2,7 +2,7 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{DeriveInput, Result};
 
-use zolana_zk_macros_core::{
+use spr_zk_macros_core::{
     circuit_type::{self, CircuitTypeParts},
     shape::{twin_ident, Shape},
 };
@@ -28,10 +28,10 @@ pub(crate) fn expand(input: &DeriveInput) -> Result<TokenStream> {
         .make_where_clause()
         .predicates
         .push(syn::parse_quote!(
-            #ident #ty_generics: ::zolana_program::EncryptionCodec
+            #ident #ty_generics: ::spr_program::EncryptionCodec
         ));
     let (utxo_impl_generics, _, utxo_where_clause) = utxo_generics.split_for_impl();
-    let discriminator = zolana_hasher::state_discriminator(&ident.to_string())
+    let discriminator = spr_hasher::state_discriminator(&ident.to_string())
         .map_err(|error| syn::Error::new_spanned(ident, error.to_string()))?;
     let hasher = paths::hasher();
     let data_hash = paths::data_hash();

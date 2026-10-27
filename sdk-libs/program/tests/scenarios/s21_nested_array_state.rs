@@ -1,10 +1,10 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use zolana_keypair::ShieldedAddress;
-use zolana_program::{
+use spr_keypair::ShieldedAddress;
+use spr_program::{
     conversion::{Allocator, FromCircuit, Placeholder, ProofInput},
     CircuitError, Groth16Prover, TxContext, ZkProgramCircuit,
 };
-use zolana_transaction::{Mint, WalletUtxo};
+use spr_transaction::{Mint, WalletUtxo};
 
 use crate::{
     benchmark::prove,
@@ -20,7 +20,7 @@ pub struct Limits {
     pub tier: u16,
 }
 
-impl zolana_program::circuit::CircuitType for circuit::Limits {}
+impl spr_program::circuit::CircuitType for circuit::Limits {}
 
 impl ProofInput for Limits {
     type Circuit = circuit::Limits;
@@ -69,7 +69,7 @@ pub struct Portfolio {
     pub labels: [u16; 2],
 }
 
-impl zolana_program::circuit::CircuitType for circuit::Portfolio {}
+impl spr_program::circuit::CircuitType for circuit::Portfolio {}
 
 impl ProofInput for Portfolio {
     type Circuit = circuit::Portfolio;
@@ -130,7 +130,7 @@ struct PortfolioCreatePublicInputs {
     owner: ShieldedAddress,
 }
 
-impl zolana_program::circuit::CircuitType for circuit::PortfolioCreate {}
+impl spr_program::circuit::CircuitType for circuit::PortfolioCreate {}
 
 impl ProofInput for PortfolioCreate {
     type Circuit = circuit::PortfolioCreate;
@@ -172,7 +172,7 @@ impl Placeholder for PortfolioCreate {
 }
 
 mod circuit {
-    use zolana_program::{
+    use spr_program::{
         circuit::{
             poseidon, zero, Bool, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
             DataHash, DataUtxo, PublicInputs, TokenUtxos, TxContext, Uint, Utxo, UtxoData,

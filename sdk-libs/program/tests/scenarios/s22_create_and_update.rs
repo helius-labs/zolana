@@ -1,10 +1,10 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use zolana_keypair::ShieldedAddress;
-use zolana_program::{
+use spr_keypair::ShieldedAddress;
+use spr_program::{
     conversion::{Allocator, FromCircuit, Placeholder, ProofInput},
     CircuitError, Groth16Prover, TxContext, ZkProgramCircuit,
 };
-use zolana_transaction::{Mint, WalletUtxo};
+use spr_transaction::{Mint, WalletUtxo};
 
 use crate::{
     benchmark::prove,
@@ -16,7 +16,7 @@ pub struct Profile {
     pub score: u64,
 }
 
-impl zolana_program::circuit::CircuitType for circuit::Profile {}
+impl spr_program::circuit::CircuitType for circuit::Profile {}
 
 impl ProofInput for Profile {
     type Circuit = circuit::Profile;
@@ -49,7 +49,7 @@ pub struct Badge {
     pub level: u16,
 }
 
-impl zolana_program::circuit::CircuitType for circuit::Badge {}
+impl spr_program::circuit::CircuitType for circuit::Badge {}
 
 impl ProofInput for Badge {
     type Circuit = circuit::Badge;
@@ -96,7 +96,7 @@ struct CreateAndUpdatePublicInputs {
     badge_owner: ShieldedAddress,
 }
 
-impl zolana_program::circuit::CircuitType for circuit::CreateAndUpdate {}
+impl spr_program::circuit::CircuitType for circuit::CreateAndUpdate {}
 
 impl ProofInput for CreateAndUpdate {
     type Circuit = circuit::CreateAndUpdate;
@@ -139,7 +139,7 @@ impl Placeholder for CreateAndUpdate {
 }
 
 pub(crate) mod circuit {
-    use zolana_program::{
+    use spr_program::{
         circuit::{
             constant, poseidon, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
             DataHash, DataUtxo, PublicInputs, TxContext, Uint, Utxo, UtxoData, UtxoOwner,

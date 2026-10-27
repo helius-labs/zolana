@@ -3,17 +3,17 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use pinocchio::Address;
 use sha2::Digest;
-use zolana_account_checks::account_info::test_account_info::get_account_view;
-use zolana_client::ProofInputUtxo;
-use zolana_hasher::primitives::{is_canonical_bn254_scalar_be, right_align};
-use zolana_interface::{
+use spr_account_checks::account_info::test_account_info::get_account_view;
+use spr_client::ProofInputUtxo;
+use spr_hasher::primitives::{is_canonical_bn254_scalar_be, right_align};
+use spr_interface::{
     event::OutputDataEncoding,
     instruction::instruction_data::transact::{TransactProof, TreeContext},
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::NullifierKey;
-use zolana_program::{
+use spr_keypair::NullifierKey;
+use spr_program::{
     derive_output_blinding_seed, derive_transact_output_blinding,
     hasher::{unique_data_hash, DataHasher, Hasher, HasherError, Poseidon, Sha256BE},
     program::{
@@ -21,8 +21,8 @@ use zolana_program::{
         ACCOUNT_BLINDING_SEED,
     },
 };
-use zolana_transaction::SOL_MINT;
-use zolana_tree::{NullifierTreeInitParams, TreeAccount, TreeFeeSchedule};
+use spr_transaction::SOL_MINT;
+use spr_tree::{NullifierTreeInitParams, TreeAccount, TreeFeeSchedule};
 
 #[derive(Default, BorshSerialize)]
 struct ShaState {

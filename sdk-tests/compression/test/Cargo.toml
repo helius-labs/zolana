@@ -14,14 +14,14 @@ solana-instruction = { workspace = true }
 solana-keypair = { workspace = true }
 solana-signature = { workspace = true }
 solana-signer = { workspace = true }
-zolana-client = { workspace = true, features = ["solana-rpc"] }
-zolana-interface = { workspace = true }
-zolana-keypair = { workspace = true }
-zolana-program = { workspace = true, features = ["compression"] }
-zolana-program-test = { workspace = true, features = ["localnet"] }
-zolana-test-utils = { workspace = true }
-zolana-transaction = { workspace = true }
-zolana-tree = { workspace = true }
+spr-client = { workspace = true, features = ["solana-rpc"] }
+spr-interface = { workspace = true }
+spr-keypair = { workspace = true }
+spr-program = { workspace = true, features = ["compression"] }
+spr-program-test = { workspace = true, features = ["localnet"] }
+spr-test-utils = { workspace = true }
+spr-transaction = { workspace = true }
+spr-tree = { workspace = true }
 
 [[test]]
 name = "compression"

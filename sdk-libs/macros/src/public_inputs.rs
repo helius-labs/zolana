@@ -2,7 +2,7 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{DeriveInput, Result};
 
-use zolana_zk_macros_core::{
+use spr_zk_macros_core::{
     proof_input, public_inputs,
     shape::{twin_ident, Shape},
 };

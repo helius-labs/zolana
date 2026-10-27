@@ -4,23 +4,23 @@ use std::collections::HashSet;
 
 use borsh::BorshDeserialize;
 use pinocchio::Address;
-use zolana_client::ProofInputUtxo;
-use zolana_hasher::{primitives::right_align, Hasher, Poseidon};
-use zolana_interface::{
+use spr_client::ProofInputUtxo;
+use spr_hasher::{primitives::right_align, Hasher, Poseidon};
+use spr_interface::{
     event::OutputDataEncoding,
     instruction::instruction_data::transact::{
         CircuitId, InputUtxo, OwnerTag, TransactIxData, TransactProof, TreeContext,
     },
     N_PUBLIC_SLOTS,
 };
-use zolana_program::hasher::{unique_data_hash, DataHasher};
-use zolana_program::program::{
+use spr_program::hasher::{unique_data_hash, DataHasher};
+use spr_program::program::{
     AddressSeed, CompressedAccountError, NewAddress, PdaOwner, SppTransactCpi, UniqueDataUtxo,
     UtxoMeta, ACCOUNT_BLINDING_SEED,
 };
-use zolana_transaction::SOL_MINT;
+use spr_transaction::SOL_MINT;
 
-const ADDRESS_TREE_ID: u16 = zolana_program::ADDRESS_TREE_ID;
+const ADDRESS_TREE_ID: u16 = spr_program::ADDRESS_TREE_ID;
 const STATE_TREE_ID: u16 = 2;
 const OUTPUT_TREE_ID: u16 = 4;
 const ADDRESS_CONTEXT: TreeContext = TreeContext {
@@ -39,7 +39,7 @@ struct CounterState {
 }
 
 impl DataHasher for CounterState {
-    fn hash(&self) -> Result<[u8; 32], zolana_hasher::HasherError> {
+    fn hash(&self) -> Result<[u8; 32], spr_hasher::HasherError> {
         Poseidon::hashv(&[&right_align(b"COUNTER"), &right_align(&[self.count])])
     }
 }
@@ -182,7 +182,7 @@ fn new_mut_spends_the_state_with_the_meta_address_and_blinding() {
         &meta.blinding,
         STATE_TREE_ID,
     );
-    let current_nullifier = zolana_keypair::NullifierKey::from_secret([0u8; 31])
+    let current_nullifier = spr_keypair::NullifierKey::from_secret([0u8; 31])
         .nullifier(&current_hash, &meta.blinding)
         .unwrap();
     assert_eq!(

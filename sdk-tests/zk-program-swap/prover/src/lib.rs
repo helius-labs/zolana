@@ -9,9 +9,9 @@ pub use cancel::CancelProofInputs;
 pub use make::MakeProofInputs;
 pub use order_terms::{OrderTermsProofInput, TAKE_MODE_DERIVED, TAKE_MODE_VERIFIABLE};
 pub use proof::OrderProof;
+pub use spr_client::ProofInputUtxo;
 pub use take::TakeProofInputs;
 pub use take_verifiable_encryption::{TakeVerifiableEncryptionProofInputs, TAKE_ENC_KDF_DOMAIN};
-pub use zolana_client::ProofInputUtxo;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CircuitId {
@@ -21,7 +21,7 @@ pub enum CircuitId {
     TakeVerifiableEncryption,
 }
 
-impl zolana_gnark_ffi_prover::Circuit for CircuitId {
+impl spr_gnark_ffi_prover::Circuit for CircuitId {
     const ALL: &'static [Self] = &[
         Self::Make,
         Self::Cancel,
@@ -39,5 +39,5 @@ impl zolana_gnark_ffi_prover::Circuit for CircuitId {
     }
 }
 
-pub static PROVER: zolana_gnark_ffi_prover::Prover<CircuitId> =
-    zolana_gnark_ffi_prover::prover!(concat!(env!("CARGO_MANIFEST_DIR"), "/../build/gnark"));
+pub static PROVER: spr_gnark_ffi_prover::Prover<CircuitId> =
+    spr_gnark_ffi_prover::prover!(concat!(env!("CARGO_MANIFEST_DIR"), "/../build/gnark"));

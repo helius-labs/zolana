@@ -31,10 +31,10 @@ instructions, and circuits.
 - prover: `circuits/main.go` registers each circuit by name with the
   `zolana/gnarkffiprover` bridge, which `circuits/go.mod` requires without a
   `replace`; `build.rs` calls
-  `zolana_gnark_ffi_prover_build::build_prover_archive()`, which supplies the
+  `spr_gnark_ffi_prover_build::build_prover_archive()`, which supplies the
   bridge and compiles the package to a c-archive; `lib.rs` names the circuits
-  in a `zolana_gnark_ffi_prover::Circuit` enum and declares
-  `pub static PROVER = zolana_gnark_ffi_prover::prover!(<key root>)`, whose
+  in a `spr_gnark_ffi_prover::Circuit` enum and declares
+  `pub static PROVER = spr_gnark_ffi_prover::prover!(<key root>)`, whose
   `setup` / `preload` / `prove` the rest of the crate and the tests call.
   Proof input structs are pure containers whose only logic is witness-map
   encoding and a `prove()` method. Circuits take UTXOs as `gnarksdk.Utxo` and
@@ -46,25 +46,25 @@ instructions, and circuits.
   with a consuming `instruction()` method, not free functions) and
   `proof.rs` (a params struct with `to_proof_inputs()` doing validation and
   hashing); `mod.rs` only re-exports. Shared helpers in `shared.rs`. The
-  prover client mirrors `zolana_client::ProverClient`: one `prove_*` method
+  prover client mirrors `spr_client::ProverClient`: one `prove_*` method
   per circuit, no data processing.
 - test: Rust end-to-end flows against localnet + photon + prover; mollusk
   CU profiling that regenerates the benchmark doc.
 
 ## Dependencies
 
-- program: `pinocchio` (+`cpi`), `zolana-interface`, `zolana-account-checks`,
-  `zolana-hasher` (+`poseidon`), `groth16-solana` (+`bsb22`) for verification,
+- program: `pinocchio` (+`cpi`), `spr-interface`, `spr-account-checks`,
+  `spr-hasher` (+`poseidon`), `groth16-solana` (+`bsb22`) for verification,
   `wincode`/`borsh` for instruction data, `thiserror` +
   `solana-program-error` for errors. Never sdk crates.
-- prover: `zolana-gnark-ffi-prover` for the FFI, key loading, proof compression and
-  UTXO witness encoding (`zolana-gnark-ffi-prover-build` as the build dependency),
-  `zolana-client` for proof input UTXOs, the program crate for shared types.
-- sdk: `zolana-client`, `zolana-keypair`, `zolana-transaction`,
+- prover: `spr-gnark-ffi-prover` for the FFI, key loading, proof compression and
+  UTXO witness encoding (`spr-gnark-ffi-prover-build` as the build dependency),
+  `spr-client` for proof input UTXOs, the program crate for shared types.
+- sdk: `spr-client`, `spr-keypair`, `spr-transaction`,
   `solana-instruction`/`solana-address` for wire types, plus the program and
   prover crates.
-- test: `zolana-program-test` + `zolana-test-utils` for the harness,
-  `zolana-client` (+`solana-rpc`), `mollusk-svm` +
+- test: `spr-program-test` + `spr-test-utils` for the harness,
+  `spr-client` (+`solana-rpc`), `mollusk-svm` +
   `light-program-profiler` for benchmarks.
 
 ## Key Artifacts

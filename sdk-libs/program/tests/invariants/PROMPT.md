@@ -1,4 +1,4 @@
-# Invariant Extraction Prompt: zolana-program builtins and protocol types
+# Invariant Extraction Prompt: spr-program builtins and protocol types
 
 You are a Senior ZK Circuit & Testing Engineer with deep experience auditing arkworks R1CS gadgets, circom circuits and Groth16 toolchains (snarkjs, ark-groth16).
 
@@ -19,7 +19,7 @@ Analyze the following code (a builtin's behavior is spread between the DSL, the 
 For a protocol type, also analyze (mandatory):
 
 - `src/circuit/**` -- the protocol types (using `SolanaAddress` from zk-tools): `owner.rs` (`SigningPubkey`, `UtxoOwner`, `DataHash`), `transfer.rs` (`PublicTransfer`), `transaction.rs` (`TxContext`, `ConfidentialTransaction::check`, `PublicInputs`), `utxo/` (`Utxo`, `SpentInput`, `Output`, `UtxoTrait`, `TokenUtxos`, `DataUtxo`, `UtxoData`, `UtxoData::utxo_data`)
-- the native references every circuit value must equal: `zolana-hasher` (`program-libs/hasher`: Poseidon, `hash_bytes`), `zolana-keypair` (`sdk-libs/keypair`: the owner hash and the nullifier), `zolana-transaction` (`sdk-libs/transaction`: `Utxo::hash`, `OutputUtxo::hash`, `FinalizedTransaction`, `transaction_hash`), and `src/program/transfer.rs` (`PublicTransfer::hash`)
+- the native references every circuit value must equal: `spr-hasher` (`program-libs/hasher`: Poseidon, `hash_bytes`), `spr-keypair` (`sdk-libs/keypair`: the owner hash and the nullifier), `spr-transaction` (`sdk-libs/transaction`: `Utxo::hash`, `OutputUtxo::hash`, `FinalizedTransaction`, `transaction_hash`), and `src/program/transfer.rs` (`PublicTransfer::hash`)
 
 ### Hard Rules
 
@@ -114,7 +114,7 @@ When a test covering an invariant lands, tick its checkbox and append a `Covered
 `README.md` structure:
 
 ```markdown
-# zolana-program Invariants
+# spr-program Invariants
 
 Test-coverage checklist derived from the SDK builtins. Detailed invariants
 live in the per-type files; `../docs.md` remains the DSL source of truth.

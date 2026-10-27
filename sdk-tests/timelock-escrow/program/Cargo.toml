@@ -23,20 +23,20 @@ profile-program = ["light-program-profiler/profile-program"]
 circuits = [
     "dep:borsh",
     "dep:solana-instruction",
-    "dep:zolana-keypair",
-    "dep:zolana-transaction",
-    "zolana-program/client",
-    "zolana-program/setup",
-    "zolana-program/parallel",
+    "dep:spr-keypair",
+    "dep:spr-transaction",
+    "spr-program/client",
+    "spr-program/setup",
+    "spr-program/parallel",
 ]
 wasm = [
     "dep:borsh",
-    "dep:zolana-keypair",
-    "dep:zolana-transaction",
-    "zolana-program/wasm",
+    "dep:spr-keypair",
+    "dep:spr-transaction",
+    "spr-program/wasm",
 ]
 localnet = ["circuits"]
-r1cs-export = ["zolana-program/r1cs-export"]
+r1cs-export = ["spr-program/r1cs-export"]
 
 [dependencies]
 borsh = { workspace = true, optional = true }
@@ -46,12 +46,12 @@ solana-instruction = { workspace = true, optional = true }
 solana-program-error = { workspace = true }
 thiserror = { workspace = true }
 wincode = { workspace = true }
-zolana-account-checks = { workspace = true }
-zolana-hasher = { workspace = true }
-zolana-interface = { workspace = true }
-zolana-keypair = { workspace = true, optional = true }
-zolana-program = { workspace = true, features = ["cpi", "compression", "verifier"] }
-zolana-transaction = { workspace = true, optional = true }
+spr-account-checks = { workspace = true }
+spr-hasher = { workspace = true }
+spr-interface = { workspace = true }
+spr-keypair = { workspace = true, optional = true }
+spr-program = { workspace = true, features = ["cpi", "compression", "verifier"] }
+spr-transaction = { workspace = true, optional = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }
@@ -60,8 +60,8 @@ solana-instruction = { workspace = true }
 solana-keypair = { workspace = true }
 solana-signature = { workspace = true }
 solana-signer = { workspace = true }
-zolana-client = { workspace = true, features = ["solana-rpc"] }
-zolana-program-test = { workspace = true, features = ["localnet"] }
+spr-client = { workspace = true, features = ["solana-rpc"] }
+spr-program-test = { workspace = true, features = ["localnet"] }
 
 [[test]]
 name = "zk_functional"

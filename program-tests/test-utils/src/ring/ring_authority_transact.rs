@@ -4,11 +4,11 @@ use anyhow::{anyhow, Result};
 use solana_address::Address;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{
+use spr_client::{
     input_utxos_from_nullifiers, ComputeBudgetConfig, ProofAuthority, ProverClient, ProverExt,
     PublicTransfers, RingAuthorityProver, Shape, SpendProof, TransferInputUtxo,
 };
-use zolana_interface::{
+use spr_interface::{
     error::ShieldedPoolError,
     instruction::{
         instruction_data::transact::{CircuitId, OwnerTag, TransactOutput, TransactProof},
@@ -16,10 +16,10 @@ use zolana_interface::{
         TransactIxData,
     },
 };
-use zolana_keypair::{random_blinding, random_salt, ViewingKey};
-use zolana_program::instruction::RingAuthorityTransact;
-use zolana_program_test::Rejection;
-use zolana_transaction::{
+use spr_keypair::{random_blinding, random_salt, ViewingKey};
+use spr_program::instruction::RingAuthorityTransact;
+use spr_program_test::Rejection;
+use spr_transaction::{
     serialization::confidential::{Confidential, ConfidentialEncode},
     utxo::{derive_output_blinding_seed, derive_transact_output_blinding, SppProofInputUtxo},
     Data, ExternalData, OwnerCx, SppProofOutputUtxo, Utxo, UtxoSerialization,
@@ -341,7 +341,7 @@ impl RingHarness {
             circuit: CircuitId::RingAuthority(
                 inputs.len() as u8,
                 external_data.outputs.len() as u8,
-                zolana_interface::N_PUBLIC_SLOTS as u8,
+                spr_interface::N_PUBLIC_SLOTS as u8,
             ),
             inputs,
             tree_contexts: result.tree_contexts.clone(),

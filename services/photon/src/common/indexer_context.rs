@@ -8,7 +8,7 @@ use sea_orm::{
     QuerySelect, Select,
 };
 
-use zolana_indexer_api::Context;
+use spr_indexer_api::Context;
 
 #[derive(FromQueryResult)]
 struct ContextModel {

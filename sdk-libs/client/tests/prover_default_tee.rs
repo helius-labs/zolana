@@ -4,8 +4,7 @@
 use std::time::Duration;
 
 use serde::Deserialize;
-use zeroize::Zeroizing;
-use zolana_client::{
+use spr_client::{
     prover::{
         indexed::ProofDataSource,
         known_proving_keys,
@@ -16,7 +15,8 @@ use zolana_client::{
     },
     ClientError, Prover,
 };
-use zolana_interface::{verifying_keys::CircuitId, N_PUBLIC_SLOTS};
+use spr_interface::{verifying_keys::CircuitId, N_PUBLIC_SLOTS};
+use zeroize::Zeroizing;
 
 const RECORDED_ATTESTATION: &str =
     include_str!("../../../prover/tee/testdata/devnet_d_tee_3_attestation.json");

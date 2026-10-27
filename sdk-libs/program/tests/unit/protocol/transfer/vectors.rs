@@ -1,10 +1,10 @@
 use solana_address::Address;
-use zolana_hasher::{
+use spr_hasher::{
     primitives::{hash_bytes, right_align},
     Hasher, Poseidon,
 };
-use zolana_program::PublicTransfer;
-use zolana_transaction::SOL_MINT;
+use spr_program::PublicTransfer;
+use spr_transaction::SOL_MINT;
 
 use crate::{harness::fixture::Named, protocol::asset::vectors::USDC};
 
@@ -71,7 +71,7 @@ pub const TRANSFERS: [Vector; 5] = [
 ];
 
 /// The transfer hash written out from the protocol definition over
-/// `zolana_hasher`, independently of `PublicTransfer::hash`.
+/// `spr_hasher`, independently of `PublicTransfer::hash`.
 pub fn reference_hash(transfer: &PublicTransfer) -> [u8; 32] {
     Poseidon::hashv(&[
         &hash_bytes(transfer.mint.as_array()).expect("hash_bytes"),

@@ -1,6 +1,6 @@
 use crate::instructions::shared::caused_by;
 use pinocchio::{error::ProgramError, AccountView};
-use zolana_interface::{
+use spr_interface::{
     error::ShieldedPoolError, NullifierPda, NULLIFIER_PDA_SEED, NULLIFIER_PDA_SIZE,
 };
 

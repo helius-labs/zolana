@@ -6,7 +6,7 @@
 //! separated by 32-bit ASCII tags, which keeps a disclosed output blinding seed
 //! from reaching the private transaction blinding of the same root seed.
 
-use zolana_hasher::{primitives::right_align, Hasher, HasherError, Poseidon};
+use spr_hasher::{primitives::right_align, Hasher, HasherError, Poseidon};
 
 /// Domain separator for SPP transaction output blindings: ASCII `"TXOB"`.
 /// This must match `OutputBlindingDomainV1` in the Go circuit.

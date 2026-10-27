@@ -2,7 +2,7 @@
 //! the tests name a preimage field instead of a hand-counted index. A wire is
 //! a private variable index plus the constant one.
 
-use zolana_program::{
+use spr_program::{
     circuit::{CircuitLabel, LabelKind},
     testing, ZkCircuit,
 };

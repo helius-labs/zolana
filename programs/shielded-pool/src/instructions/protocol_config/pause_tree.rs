@@ -1,11 +1,11 @@
 use crate::instructions::shared::caused_by;
 use pinocchio::{AccountView, ProgramResult};
-use zolana_account_checks::AccountIterator;
-use zolana_interface::{
+use spr_account_checks::AccountIterator;
+use spr_interface::{
     error::ShieldedPoolError, instruction::PauseTreeData,
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
 };
-use zolana_tree::TreeAccount;
+use spr_tree::TreeAccount;
 
 use crate::instructions::protocol_config::loader::load_and_validate_protocol_authority;
 

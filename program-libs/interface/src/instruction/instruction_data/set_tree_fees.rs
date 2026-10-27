@@ -1,1 +1,1 @@
-pub use zolana_tree::TreeFeeSchedule as SetTreeFeesData;
+pub use spr_tree::TreeFeeSchedule as SetTreeFeesData;

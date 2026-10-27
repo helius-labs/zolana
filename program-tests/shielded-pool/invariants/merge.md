@@ -205,7 +205,7 @@ constrains the ciphertext, and SPP does not check it on `merge_ring`
   - Statement: for any accepted `merge_transact` of the owner's notes, the owner's wallet, given only the merge transaction and its own keys, derives `merge_output_key` and `merge_output_blinding` from the nullifier secret and the first nullifier, decrypts the amount and mint, rebuilds the output with `data_hash = 0` and the transaction's ring fields, and obtains a UTXO whose hash equals the published `output_utxo_hash`; it holds none of the merge's inputs to do so (Certora M-03). A decryption with an element out of range (`amount >= 2^64`, `mint_chunk_0 >= 2^248`, `mint_chunk_1 >= 2^8`) or a hash mismatch is not the owner's output. On `merge_ring` the ciphertext is unverified, so the owner may fail to decrypt the output (INV-RING-MERGE-15); the wallet's hash check rejects a wrong ciphertext.
   - Location: `sdk-libs/transaction/src/decrypt.rs:436-496` (`fn decode_merge`), `sdk-libs/transaction/src/instructions/merge/serialization.rs` (`MergeOutputPlaintext::decrypt`, `MergeOutputPlaintext::into_utxo`)
   - Severity: High (funds lock)
-  - Suggested test: positive (undisclosed first input) + negative (another wallet's merge does not decrypt); harness: `cargo test -p zolana-transaction`
+  - Suggested test: positive (undisclosed first input) + negative (another wallet's merge does not decrypt); harness: `cargo test -p spr-transaction`
 
 ## RingMergeTransact
 

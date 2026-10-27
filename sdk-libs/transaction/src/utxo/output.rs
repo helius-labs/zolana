@@ -1,10 +1,10 @@
 use solana_address::Address;
-use zolana_hasher::{
+use spr_hasher::{
     primitives::{hash_bytes, right_align},
     Hasher, Poseidon,
 };
-use zolana_interface::{state::cache::CACHE_CAPACITY, tree_slot::tree_id_field};
-use zolana_keypair::{random_blinding, shielded::ShieldedAddress};
+use spr_interface::{state::cache::CACHE_CAPACITY, tree_slot::tree_id_field};
+use spr_keypair::{random_blinding, shielded::ShieldedAddress};
 
 use super::{dummy_utxo_hash, owner_utxo_hash, program_id_proof_input_hash, Blinding, UTXO_DOMAIN};
 use crate::{
@@ -39,10 +39,7 @@ fn canonical_data_order(record: &DataRecord) -> u8 {
 pub struct SppProofOutputUtxo {
     pub asset: Mint,
     pub amount: u64,
-    #[cfg_attr(
-        feature = "serde",
-        serde(with = "zolana_keypair::serde_helpers::bytes")
-    )]
+    #[cfg_attr(feature = "serde", serde(with = "spr_keypair::serde_helpers::bytes"))]
     #[cfg_attr(feature = "tsify", tsify(type = "Uint8Array"))]
     pub blinding: Blinding,
     #[cfg_attr(
@@ -50,7 +47,7 @@ pub struct SppProofOutputUtxo {
         serde(
             default,
             skip_serializing_if = "Option::is_none",
-            with = "zolana_keypair::serde_helpers::option_address"
+            with = "spr_keypair::serde_helpers::option_address"
         )
     )]
     #[cfg_attr(feature = "tsify", tsify(optional, type = "string"))]
@@ -60,7 +57,7 @@ pub struct SppProofOutputUtxo {
         serde(
             default,
             skip_serializing_if = "Option::is_none",
-            with = "zolana_keypair::serde_helpers::bytes"
+            with = "spr_keypair::serde_helpers::bytes"
         )
     )]
     #[cfg_attr(feature = "tsify", tsify(optional, type = "Uint8Array"))]
@@ -70,7 +67,7 @@ pub struct SppProofOutputUtxo {
         serde(
             default,
             skip_serializing_if = "Option::is_none",
-            with = "zolana_keypair::serde_helpers::bytes"
+            with = "spr_keypair::serde_helpers::bytes"
         )
     )]
     #[cfg_attr(feature = "tsify", tsify(optional, type = "Uint8Array"))]
@@ -86,7 +83,7 @@ pub struct SppProofOutputUtxo {
         serde(
             default,
             skip_serializing_if = "Option::is_none",
-            with = "zolana_keypair::serde_helpers::bytes"
+            with = "spr_keypair::serde_helpers::bytes"
         )
     )]
     #[cfg_attr(feature = "tsify", tsify(optional, type = "Uint8Array"))]

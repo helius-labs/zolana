@@ -1,11 +1,11 @@
 use anyhow::{anyhow, bail, Result};
 use solana_address::Address;
-use zolana_client::{EncryptedUtxoMatch, Rpc};
-use zolana_interface::event::OutputDataEncoding;
-use zolana_program::{
+use spr_client::{EncryptedUtxoMatch, Rpc};
+use spr_interface::event::OutputDataEncoding;
+use spr_program::{
     derive_output_blinding_seed, derive_transact_output_blinding, program::ACCOUNT_BLINDING_SEED,
 };
-use zolana_transaction::WalletUtxo;
+use spr_transaction::WalletUtxo;
 
 use crate::{
     shared::zero_nullifier_key,

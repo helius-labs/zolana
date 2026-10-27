@@ -1,4 +1,4 @@
-use zolana_program::{
+use spr_program::{
     circuit::Circuit,
     conversion::ProofInput,
     CircuitError, ZkCircuit, ZkProgramCircuit,

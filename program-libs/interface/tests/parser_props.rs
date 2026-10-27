@@ -10,9 +10,9 @@
 //!    round-trip).
 
 use proptest::{prelude::*, test_runner::TestCaseError};
-use zolana_event::MessageData;
-use zolana_interface::instruction::instruction_data::MergeOutputEncryption;
-use zolana_interface::instruction::instruction_data::{
+use spr_event::MessageData;
+use spr_interface::instruction::instruction_data::MergeOutputEncryption;
+use spr_interface::instruction::instruction_data::{
     deposit::{
         DepositEntry, DepositIxData, EncryptedRingDepositData, RingDepositEntry, RingDepositIxData,
     },

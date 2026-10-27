@@ -1,8 +1,8 @@
 use crate::instructions::shared::caused_by;
 use borsh::BorshDeserialize;
 use pinocchio::{address::address_eq, AccountView, ProgramResult};
-use zolana_account_checks::AccountIterator;
-use zolana_interface::{error::ShieldedPoolError, instruction::UpdateProtocolConfigData};
+use spr_account_checks::AccountIterator;
+use spr_interface::{error::ShieldedPoolError, instruction::UpdateProtocolConfigData};
 
 use crate::instructions::protocol_config::loader::load_and_validate_protocol_authority_mut;
 

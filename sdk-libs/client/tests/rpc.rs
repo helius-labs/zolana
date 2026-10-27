@@ -3,18 +3,18 @@ use solana_instruction::Instruction;
 use solana_keypair::Signer;
 use solana_message::v1;
 use solana_pubkey::Pubkey;
-use zolana_client::rpc::{
+use spr_client::rpc::{
     compile_message, sign_transaction, ComputeBudgetConfig, MAX_LOADED_ACCOUNTS_DATA_SIZE,
 };
 
 #[tokio::test]
 async fn blocking_transaction_proofs_use_the_custom_reader() {
-    use std::thread::{self, ThreadId};
-    use zolana_client::{
+    use spr_client::{
         rpc::{Blocking, IndexerRpcConfig, Rpc},
         AsyncWitnessReader, ClientError, InputWitnesses, WitnessReader,
     };
-    use zolana_transaction::utxo::SppProofInputUtxo;
+    use spr_transaction::utxo::SppProofInputUtxo;
+    use std::thread::{self, ThreadId};
 
     struct CustomReader {
         caller: ThreadId,
@@ -144,7 +144,7 @@ fn a_repeated_signer_is_passed_once() {
 fn a_legacy_message_is_refused() {
     use solana_keypair::Keypair;
     use solana_message::{Message, VersionedMessage};
-    use zolana_client::ClientError;
+    use spr_client::ClientError;
 
     let payer = Keypair::new();
     let message = VersionedMessage::Legacy(Message::new(&[], Some(&payer.pubkey())));

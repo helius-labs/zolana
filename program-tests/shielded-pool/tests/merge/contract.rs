@@ -1,25 +1,25 @@
 use shielded_pool_tests::support::{
     fixtures::Pool, merge::write_user_record, transact::write_ring_config_account,
 };
-use zolana_interface::instruction::instruction_data::MergeOutputEncryption;
+use spr_interface::instruction::instruction_data::MergeOutputEncryption;
 
 use solana_account::Account;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::ComputeBudgetConfig;
-use zolana_interface::{
+use spr_client::ComputeBudgetConfig;
+use spr_interface::{
     error::ShieldedPoolError,
     instruction::instruction_data::merge_transact::{
         MergeProof, MergeTransactIxData, MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT,
     },
     state::{discriminator::RING_CONFIG, RingConfig},
 };
-use zolana_program::instruction::{MergeRing, MergeTransact};
-use zolana_program_test::{Rejection, ZolanaProgramTest};
-use zolana_test_utils::transact::fe;
-use zolana_tree::TreeAccount;
-use zolana_user_registry_interface::USER_REGISTRY_PROGRAM_ID;
+use spr_program::instruction::{MergeRing, MergeTransact};
+use spr_program_test::{Rejection, ZolanaProgramTest};
+use spr_test_utils::transact::fe;
+use spr_tree::TreeAccount;
+use spr_user_registry_interface::USER_REGISTRY_PROGRAM_ID;
 
 /// Wire-valid default-rail merge data with a zeroed proof: eight distinct
 /// nullifiers against root-history slot 0, so every parse and tree step
@@ -278,7 +278,7 @@ fn merge_rejects_a_non_writable_tree() {
         .create_and_send_default_payer_transaction(&[ix], &[])
         .expect_err("a read-only tree must be rejected");
     Rejection::custom(u32::from(
-        zolana_account_checks::AccountError::AccountNotMutable,
+        spr_account_checks::AccountError::AccountNotMutable,
     ))
     .assert_litesvm(error);
 }
@@ -305,19 +305,17 @@ fn merge_rejects_an_unsigned_payer() {
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[])
         .expect_err("an unsigned payer must be rejected");
-    Rejection::custom(u32::from(
-        zolana_account_checks::AccountError::InvalidSigner,
-    ))
-    .assert_litesvm(error);
+    Rejection::custom(u32::from(spr_account_checks::AccountError::InvalidSigner))
+        .assert_litesvm(error);
 }
 
 #[test]
 fn merge_ring_rejects_an_unsigned_ring_config() {
     let (mut rpc, tree) = merge_env();
-    let mut ix = zolana_program::instruction::MergeRing {
+    let mut ix = spr_program::instruction::MergeRing {
         input_tree: tree,
         output_tree: tree,
-        ring_program_id: Pubkey::new_from_array(zolana_program_test::RING_TEST_PROGRAM_ID),
+        ring_program_id: Pubkey::new_from_array(spr_program_test::RING_TEST_PROGRAM_ID),
         payer: rpc.payer.pubkey(),
         data: merge_ix_data(),
         output_ring_data_hash: fe(99),
@@ -332,10 +330,8 @@ fn merge_ring_rejects_an_unsigned_ring_config() {
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[])
         .expect_err("unsigned ring config must be rejected");
-    Rejection::custom(u32::from(
-        zolana_account_checks::AccountError::InvalidSigner,
-    ))
-    .assert_litesvm(error);
+    Rejection::custom(u32::from(spr_account_checks::AccountError::InvalidSigner))
+        .assert_litesvm(error);
     rpc.last_transaction_trace()
         .expect("rejected transaction trace")
         .assert_rolled_back_except(&[rpc.payer.pubkey()]);
@@ -511,7 +507,7 @@ fn merge_ring_cpi_instruction(
     MergeRing {
         input_tree: *tree,
         output_tree: *tree,
-        ring_program_id: Pubkey::new_from_array(zolana_program_test::RING_TEST_PROGRAM_ID),
+        ring_program_id: Pubkey::new_from_array(spr_program_test::RING_TEST_PROGRAM_ID),
         payer: rpc.payer.pubkey(),
         data,
         output_ring_data_hash,
@@ -534,7 +530,7 @@ fn write_fake_ring_config(
     let config = RingConfig {
         discriminator,
         authority: [0u8; 32].into(),
-        program_id: zolana_program_test::RING_TEST_PROGRAM_ID.into(),
+        program_id: spr_program_test::RING_TEST_PROGRAM_ID.into(),
         ring_authority_transact_is_enabled: 1,
         paused: u8::from(paused),
         activated: u8::from(activated),
@@ -603,7 +599,7 @@ fn merge_ring_rejects_an_unsigned_payer() {
     let mut ix = MergeRing {
         input_tree: tree,
         output_tree: tree,
-        ring_program_id: Pubkey::new_from_array(zolana_program_test::RING_TEST_PROGRAM_ID),
+        ring_program_id: Pubkey::new_from_array(spr_program_test::RING_TEST_PROGRAM_ID),
         payer: outsider,
         data: merge_ix_data(),
         output_ring_data_hash: fe(92),
@@ -615,10 +611,8 @@ fn merge_ring_rejects_an_unsigned_payer() {
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[&ring_config_signer])
         .expect_err("an unsigned ring merge payer must be rejected");
-    Rejection::custom(u32::from(
-        zolana_account_checks::AccountError::InvalidSigner,
-    ))
-    .assert_litesvm(error);
+    Rejection::custom(u32::from(spr_account_checks::AccountError::InvalidSigner))
+        .assert_litesvm(error);
     rpc.last_transaction_trace()
         .expect("rejected transaction trace")
         .assert_rolled_back_except(&[rpc.payer.pubkey()]);
@@ -699,7 +693,7 @@ fn merge_ring_rejects_a_paused_tree() {
     let ix = MergeRing {
         input_tree: tree,
         output_tree: tree,
-        ring_program_id: Pubkey::new_from_array(zolana_program_test::RING_TEST_PROGRAM_ID),
+        ring_program_id: Pubkey::new_from_array(spr_program_test::RING_TEST_PROGRAM_ID),
         payer: rpc.payer.pubkey(),
         data: merge_ix_data(),
         output_ring_data_hash: fe(95),
@@ -718,7 +712,7 @@ fn merge_ring_rejects_a_paused_tree() {
 mod program_unit {
     use pinocchio::error::ProgramError;
     use shielded_pool_program::{testing::MergeTransactAccounts, ID};
-    use zolana_account_checks::account_info::test_account_info::get_account_view;
+    use spr_account_checks::account_info::test_account_info::get_account_view;
 
     use super::*;
 

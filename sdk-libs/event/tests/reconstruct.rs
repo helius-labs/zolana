@@ -3,22 +3,22 @@
 mod support;
 
 use solana_pubkey::Pubkey;
+use spr_event::{
+    tag, EventKind, GeneralEvent, Input, InputTreeSequence, MessageData, NullifierTreeUpdateEvent,
+    OutputUtxo, SplTransfer, TransactEvent,
+};
+use spr_event_parser::{
+    indexed_events_from_instruction_groups, reconstruct_general_event, EventDecodeError,
+    InstructionGroup, ParsedInstruction,
+};
+use spr_interface::instruction::instruction_data::merge_transact::MERGE_DEFAULT_INPUT_COUNT;
+use spr_interface::instruction::{InputUtxo, InterfaceTransfer, OwnerTag, TransactOutput};
+use spr_interface::verifying_keys::{CacheAccess, CircuitId};
 use support::{
     emit_event_data, emit_instruction, input_trees, input_trees_in_order, merge_event, merge_ix,
     merge_output_data, merge_ring_ix, source, transact_ix, transact_source, INPUT_TREE,
     OUTPUT_TREE, SALT, TX_VIEWING_PK,
 };
-use zolana_event::{
-    tag, EventKind, GeneralEvent, Input, InputTreeSequence, MessageData, NullifierTreeUpdateEvent,
-    OutputUtxo, SplTransfer, TransactEvent,
-};
-use zolana_event_parser::{
-    indexed_events_from_instruction_groups, reconstruct_general_event, EventDecodeError,
-    InstructionGroup, ParsedInstruction,
-};
-use zolana_interface::instruction::instruction_data::merge_transact::MERGE_DEFAULT_INPUT_COUNT;
-use zolana_interface::instruction::{InputUtxo, InterfaceTransfer, OwnerTag, TransactOutput};
-use zolana_interface::verifying_keys::{CacheAccess, CircuitId};
 
 const OWNER_ACCOUNT_INDEX: u8 = 6;
 /// The second declared input tree of a multi-tree spend.
@@ -51,7 +51,7 @@ fn transfer_event() -> TransactEvent {
     }
 }
 
-fn transfer_ix() -> zolana_interface::instruction::TransactIxData {
+fn transfer_ix() -> spr_interface::instruction::TransactIxData {
     transact_ix(
         vec![input(0xA0), input(0xA1)],
         vec![

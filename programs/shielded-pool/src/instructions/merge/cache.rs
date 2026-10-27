@@ -1,7 +1,7 @@
 use crate::instructions::cache::write::CacheWrite;
 use pinocchio::{error::ProgramError, AccountView};
-use zolana_account_checks::AccountIterator;
-use zolana_interface::error::ShieldedPoolError;
+use spr_account_checks::AccountIterator;
+use spr_interface::error::ShieldedPoolError;
 
 /// The writable cache a merge names, the signer that must hold its write
 /// authority, and the destination slot.

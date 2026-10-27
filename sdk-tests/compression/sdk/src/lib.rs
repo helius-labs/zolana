@@ -5,7 +5,7 @@ pub mod state;
 
 use anyhow::Result;
 use solana_address::Address;
-use zolana_program::program::{AddressSeed, NewAddress, PdaOwner};
+use spr_program::program::{AddressSeed, NewAddress, PdaOwner};
 
 pub use compression_example_program::{
     instructions::{create::CreateIxData, read::ReadIxData, update::UpdateIxData},

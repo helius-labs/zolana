@@ -1,5 +1,5 @@
 use crate::common::{init_tree_account_data, load_tree_account_data};
-use zolana_tree::nullifier_tree::{
+use spr_tree::nullifier_tree::{
     access::get_merkle_tree_account_size, batch::BatchState, batch::CachedTreeUpdate,
     error::NullifierTreeError, layout::NullifierTreeLayout,
 };
@@ -237,7 +237,7 @@ fn full_queue_rejects_inserts_until_the_pending_batch_is_applied() {
 /// cached transitions through the normal root-history and cleanup paths.
 #[test]
 fn production_batches_retain_100_roots_before_pda_cleanup() {
-    use zolana_tree::nullifier_tree::constants::{
+    use spr_tree::nullifier_tree::constants::{
         DEFAULT_NULLIFIER_BATCH_SIZE, DEFAULT_NULLIFIER_ZKP_BATCH_SIZE,
         NULLIFIER_TREE_INIT_ROOT_40, NULLIFIER_TREE_ZKP_BATCHES,
     };

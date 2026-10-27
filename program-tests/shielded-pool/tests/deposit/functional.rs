@@ -3,24 +3,22 @@ use solana_clock::Clock;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_event::SplTransfer;
-use zolana_event_parser::general_event_from_indexed;
-use zolana_interface::{instruction::deposit_blinding, pda, state::STATE_ROOT_HISTORY_CAPACITY};
-use zolana_keypair::{ShieldedKeypair, ViewingKey};
-use zolana_program::instruction::{AssetDeposit, Deposit};
-use zolana_program_test::{
-    DepositOutput, RingDepositOutput, ZolanaProgramTest, RING_TEST_PROGRAM_ID,
-};
-use zolana_test_utils::litesvm_asserts::{
+use spr_event::SplTransfer;
+use spr_event_parser::general_event_from_indexed;
+use spr_interface::{instruction::deposit_blinding, pda, state::STATE_ROOT_HISTORY_CAPACITY};
+use spr_keypair::{ShieldedKeypair, ViewingKey};
+use spr_program::instruction::{AssetDeposit, Deposit};
+use spr_program_test::{DepositOutput, RingDepositOutput, ZolanaProgramTest, RING_TEST_PROGRAM_ID};
+use spr_test_utils::litesvm_asserts::{
     litesvm_assert_deposit, litesvm_assert_ring_deposit, DepositAssertArgs, RingDepositAssertArgs,
     SolDepositOracle,
 };
-use zolana_test_utils::wallet::{KeypairWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
-use zolana_transaction::{
+use spr_test_utils::wallet::{KeypairWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
+use spr_transaction::{
     derive_output_blinding_seed, owner_utxo_hash, serialization::RingDepositPlaintext,
     utxo::derive_transact_output_blinding, AssetRegistry, Data, Utxo,
 };
-use zolana_tree::TreeAccount;
+use spr_tree::TreeAccount;
 
 use shielded_pool_tests::support::{
     fixtures::{register_mint, spl_depositor, Pool},
@@ -628,7 +626,7 @@ fn ring_deposit_batch_binds_distinct_ring_data_per_entry() {
 
         let expected_utxo = Utxo {
             owner: recipient.signing_pubkey,
-            asset: zolana_transaction::Mint::SOL,
+            asset: spr_transaction::Mint::SOL,
             amount,
             blinding,
             ring_program_id: Some(ring_program_id),
@@ -649,14 +647,14 @@ fn ring_deposit_batch_binds_distinct_ring_data_per_entry() {
             leaf_index: first_leaf_index
                 .checked_add(u64::try_from(offset).expect("small ring deposit batch"))
                 .expect("ring deposit leaf index"),
-            output: zolana_event::EncryptedRingDepositOutput {
+            output: spr_event::EncryptedRingDepositOutput {
                 owner_utxo_hash: data.owner_utxo_hash,
                 asset: [0u8; 32],
                 amount,
                 data_hash: None,
                 ring_program_id: RING_TEST_PROGRAM_ID,
                 ring_data_hash,
-                encrypted: zolana_event::EncryptedRingDepositData {
+                encrypted: spr_event::EncryptedRingDepositData {
                     tx_viewing_pk: data.encrypted.tx_viewing_pk,
                     salt: data.encrypted.salt,
                     ciphertext: data.encrypted.ciphertext.clone(),
@@ -711,7 +709,7 @@ fn ring_spl_deposit_settles_and_indexes_the_exact_output() {
         .rpc
         .account_data(&registry_address)
         .expect("asset registry");
-    let asset = zolana_interface::state::SplAssetRegistry::from_account_bytes(&registry_data)
+    let asset = spr_interface::state::SplAssetRegistry::from_account_bytes(&registry_data)
         .expect("asset registry");
     let (depositor, user_token) = spl_depositor(&mut pool, mint, 1_000_000);
     let recipient_key = ShieldedKeypair::new_ed25519().expect("recipient keypair");

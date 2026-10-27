@@ -5,7 +5,7 @@ use pinocchio::{
     sysvars::{clock::Clock, Sysvar},
     AccountView, ProgramResult,
 };
-use zolana_interface::{
+use spr_interface::{
     error::ShieldedPoolError,
     event::{EventKind, InputTreeSequence},
     instruction::instruction_data::merge_transact::{
@@ -14,8 +14,8 @@ use zolana_interface::{
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
     tree_slot::TreeSlot,
 };
-use zolana_tree::TreeAccount;
-use zolana_user_registry_interface::MergeEncryptionScheme;
+use spr_tree::TreeAccount;
+use spr_user_registry_interface::MergeEncryptionScheme;
 
 use super::{
     account::{load_user_record, MergeTransactAccounts},

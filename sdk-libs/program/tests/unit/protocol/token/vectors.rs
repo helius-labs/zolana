@@ -1,5 +1,5 @@
 use solana_address::Address;
-use zolana_transaction::Mint;
+use spr_transaction::Mint;
 
 use super::fixtures::{spend, Spend, AS_GIVEN};
 use crate::protocol::{
@@ -9,22 +9,22 @@ use crate::protocol::{
 
 pub type Named<T> = Vec<(&'static str, T)>;
 
-pub fn sol(amount: u64, leaf_index: u64) -> zolana_transaction::WalletUtxo {
+pub fn sol(amount: u64, leaf_index: u64) -> spr_transaction::WalletUtxo {
     token_input(SENDER, Mint::SOL, amount, leaf_index)
 }
 
-pub fn usdc(amount: u64, leaf_index: u64) -> zolana_transaction::WalletUtxo {
+pub fn usdc(amount: u64, leaf_index: u64) -> spr_transaction::WalletUtxo {
     token_input(SENDER, USDC, amount, leaf_index)
 }
 
-pub fn with_state(leaf_index: u64) -> zolana_transaction::WalletUtxo {
+pub fn with_state(leaf_index: u64) -> spr_transaction::WalletUtxo {
     let state = Counter { count: 1 };
     Spent::token(SENDER, Mint::SOL, 5, leaf_index)
         .with_state(state.bytes(), state.native_hash())
         .wallet_utxo()
 }
 
-pub fn in_a_ring(leaf_index: u64) -> zolana_transaction::WalletUtxo {
+pub fn in_a_ring(leaf_index: u64) -> spr_transaction::WalletUtxo {
     Spent::token(SENDER, Mint::SOL, 5, leaf_index)
         .with_ring(blinding(22), Address::new_from_array([23u8; 32]))
         .wallet_utxo()

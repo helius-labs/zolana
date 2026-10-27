@@ -1,5 +1,5 @@
 use num_bigint::BigUint;
-use zolana_interface::{tree_slot::TreeSlot, INPUT_TREES, N_PUBLIC_SLOTS};
+use spr_interface::{tree_slot::TreeSlot, INPUT_TREES, N_PUBLIC_SLOTS};
 
 use super::ProofInputUtxo;
 
@@ -159,7 +159,7 @@ pub struct TransferInputs {
     pub ring_program_id: BigUint,
     pub signer_pk_hashes: Vec<BigUint>,
     /// The dummy-input policy packed with every input's tree index, from
-    /// `zolana_interface::tree_slot::pack_input_flags`.
+    /// `spr_interface::tree_slot::pack_input_flags`.
     pub input_flags: BigUint,
     pub published_output_owner_pk_hashes: Vec<BigUint>,
     pub cache: CacheReadInputs,

@@ -9,7 +9,7 @@
 //!
 //! Without it, the first caller fetches [`COMMIT`] alone (`git init`, then a
 //! depth-1 `git fetch` of the commit and a detached checkout) into
-//! `CARGO_TARGET_TMPDIR/zolana-program-unit/circomlib`, behind the harness file
+//! `CARGO_TARGET_TMPDIR/spr-program-unit/circomlib`, behind the harness file
 //! lock; later callers find `HEAD` at the commit and reuse it.
 
 #![cfg(feature = "external-tools")]

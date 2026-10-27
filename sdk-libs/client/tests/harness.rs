@@ -2,7 +2,7 @@
 
 use rand::{rngs::ThreadRng, RngCore};
 use solana_address::Address;
-use zolana_transaction::SOL_MINT;
+use spr_transaction::SOL_MINT;
 
 /// Registry id for the single test SPL mint (SOL is the reserved id 1).
 pub(crate) const SPL_ASSET_ID: u64 = 2;

@@ -4,9 +4,9 @@ use super::state_update::{
     StateUpdate,
 };
 use crate::ingester::{error::IngesterError, typedefs::block_info::TransactionInfo};
-use zolana_event::tag;
-use zolana_event_parser::reconstruct_general_event_from_payload;
-use zolana_interface::pda;
+use spr_event::tag;
+use spr_event_parser::reconstruct_general_event_from_payload;
+use spr_interface::pda;
 
 /// Version 4: `transact`/`merge` emit a minimal body and the `GeneralEvent` is
 /// rebuilt from it plus the emitting instruction, so `raw_event` holds that

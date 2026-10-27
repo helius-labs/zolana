@@ -3,8 +3,8 @@
 extern crate alloc;
 
 #[cfg(feature = "cpi")]
-pub use zolana_instruction::cpi;
-pub use zolana_instruction::{
+pub use spr_instruction::cpi;
+pub use spr_instruction::{
     derivation, derive_output_blinding_seed, derive_private_tx_blinding,
     derive_transact_output_blinding, external_data, instruction, private_tx, public_transfer,
     transaction_hash, ExternalDataHashError, PrivateTxHash, PublicTransfer, SettlementAccounts,
@@ -46,33 +46,33 @@ pub use client::{ProgramTransaction, ZkCircuit, ZkProgramCircuit};
 #[cfg(feature = "circuit")]
 pub use error::{ClientError, ClientErrorKind, ProtocolCircuitErrorKind, SlotKind};
 #[cfg(feature = "circuit")]
-pub use zolana_keypair::circuit::OwnerCircuitErrorKind;
+pub use spr_keypair::circuit::OwnerCircuitErrorKind;
 #[cfg(feature = "circuit")]
-pub use zolana_macros::ZkProgramCircuit;
+pub use spr_macros::ZkProgramCircuit;
 // The gates of the ZkCircuit derive, on the zk DSL's features, which this
 // crate's features forward.
 #[cfg(feature = "circuit")]
 #[doc(hidden)]
-pub use zolana_zk_dsl::{__zk_circuit_r1cs, __zk_circuit_wasm, __zk_circuit_wasm_prover};
-// The derive alone; with `client`, `zolana_zk_dsl::ZkCircuit` brings the
+pub use spr_zk_dsl::{__zk_circuit_r1cs, __zk_circuit_wasm, __zk_circuit_wasm_prover};
+// The derive alone; with `client`, `spr_zk_dsl::ZkCircuit` brings the
 // derive and the trait of the same name.
 #[cfg(feature = "circuit")]
-pub use zolana_transaction::circuit::UtxoCircuitErrorKind;
+pub use spr_transaction::circuit::UtxoCircuitErrorKind;
 #[cfg(feature = "build")]
-pub use zolana_zk_dsl::build;
+pub use spr_zk_dsl::build;
 #[cfg(all(feature = "circuit", not(feature = "client")))]
-pub use zolana_zk_dsl::circuit::ZkCircuit;
-pub use zolana_zk_dsl::CompressedProof;
+pub use spr_zk_dsl::circuit::ZkCircuit;
+pub use spr_zk_dsl::CompressedProof;
 #[cfg(feature = "setup")]
-pub use zolana_zk_dsl::R1cs;
+pub use spr_zk_dsl::R1cs;
 #[cfg(feature = "circuit")]
-pub use zolana_zk_dsl::{
+pub use spr_zk_dsl::{
     CircuitError, CircuitErrorKind, ProtocolError, ProtocolErrorKind, ProverError, ProverErrorKind,
     SourceLocation,
 };
 #[cfg(feature = "client")]
-pub use zolana_zk_dsl::{Groth16Keys, Proof, ProvingKey, SolanaVerifyingKey, VerifyingKey};
+pub use spr_zk_dsl::{Groth16Keys, Proof, ProvingKey, SolanaVerifyingKey, VerifyingKey};
 #[cfg(feature = "client")]
-pub use zolana_zk_dsl::{Groth16Prover, ProofInputs, ProofResult, SolanaProof};
+pub use spr_zk_dsl::{Groth16Prover, ProofInputs, ProofResult, SolanaProof};
 #[cfg(feature = "setup")]
-pub use zolana_zk_dsl::{SetupKind, VerifyingKeyExport};
+pub use spr_zk_dsl::{SetupKind, VerifyingKeyExport};

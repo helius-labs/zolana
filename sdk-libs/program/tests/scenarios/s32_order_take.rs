@@ -1,10 +1,10 @@
-use zolana_interface::shape::Shape;
-use zolana_keypair::ShieldedAddress;
-use zolana_program::{
+use spr_interface::shape::Shape;
+use spr_keypair::ShieldedAddress;
+use spr_program::{
     conversion::{Allocator, Placeholder, ProofInput},
     CircuitError, Groth16Prover, TxContext, ZkProgramCircuit,
 };
-use zolana_transaction::{Mint, WalletUtxo};
+use spr_transaction::{Mint, WalletUtxo};
 
 use crate::{
     benchmark::prove,
@@ -33,7 +33,7 @@ pub(crate) struct TakePublicInputs {
     pub(crate) ask_amount: u64,
 }
 
-impl zolana_program::circuit::CircuitType for circuit::Take {}
+impl spr_program::circuit::CircuitType for circuit::Take {}
 
 impl ProofInput for Take {
     type Circuit = circuit::Take;
@@ -75,7 +75,7 @@ impl Placeholder for Take {
 }
 
 mod circuit {
-    use zolana_program::{
+    use spr_program::{
         circuit::{
             poseidon, Assert, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
             DataUtxo, HashBytes, PublicInputs, SolanaAddress, TokenUtxos, TxContext, Uint, Utxo,

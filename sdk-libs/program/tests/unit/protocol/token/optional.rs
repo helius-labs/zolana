@@ -1,10 +1,10 @@
-use zolana_keypair::ShieldedAddress;
-use zolana_program::{
+use spr_keypair::ShieldedAddress;
+use spr_program::{
     circuit::{CheckedTransaction, Circuit, ConfidentialTransaction, TokenUtxos, Uint, UtxoTrait},
     conversion::ProofInput,
     CircuitError, TxContext, ZkProgramCircuit,
 };
-use zolana_transaction::{Mint, WalletUtxo};
+use spr_transaction::{Mint, WalletUtxo};
 
 use crate::{
     harness::fixture::{check_constraints, native},

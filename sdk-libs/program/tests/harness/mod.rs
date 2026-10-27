@@ -16,7 +16,7 @@ use std::{
 };
 
 pub fn artifacts() -> PathBuf {
-    Path::new(env!("CARGO_TARGET_TMPDIR")).join("zolana-program-unit")
+    Path::new(env!("CARGO_TARGET_TMPDIR")).join("spr-program-unit")
 }
 
 pub fn locked(dir: &Path) -> File {

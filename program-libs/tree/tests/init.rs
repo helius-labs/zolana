@@ -1,5 +1,5 @@
-use zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE;
-use zolana_tree::{
+use spr_hasher::primitives::BN254_SCALAR_MODULUS_BE;
+use spr_tree::{
     error::TreeError,
     smt::{UtxoTreeLayout, ROOT_HISTORY_CAPACITY},
     NullifierTreeInitParams, TreeAccount, TreeFeeSchedule, INITIALIZED,
@@ -24,7 +24,7 @@ fn leaf(i: u8) -> [u8; 32] {
 
 #[test]
 fn every_supported_proof_size_keeps_100_nullifier_roots() {
-    use zolana_tree::nullifier_tree::init::SUPPORTED_ZKP_BATCH_SIZES;
+    use spr_tree::nullifier_tree::init::SUPPORTED_ZKP_BATCH_SIZES;
 
     for zkp_batch_size in SUPPORTED_ZKP_BATCH_SIZES {
         let params = NullifierTreeInitParams {

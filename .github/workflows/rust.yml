@@ -174,8 +174,8 @@ jobs:
           shared-key: zk-program
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - run: rustup target add wasm32-unknown-unknown
-      - run: just test-zolana-program-unit
-      - run: just test-zolana-program-release
+      - run: just test-spr-program-unit
+      - run: just test-spr-program-release
       - run: just check-wasm
 
   test-programs:
@@ -505,7 +505,7 @@ jobs:
   # summary table into the run's job summary and uploads lcov/HTML reports, but
   # there is no `--fail-under-lines` gate yet; add one when the team picks a
   # target. The on-chain programs, the test/example crates, and xtask are
-  # excluded, and zolana-client is collected `--lib` only, so the job stays
+  # excluded, and spr-client is collected `--lib` only, so the job stays
   # hermetic — no prover, validator, or database. See tools/coverage-packages.py
   # for what is measured and why. Code executed inside the SVM is not measured.
   coverage:

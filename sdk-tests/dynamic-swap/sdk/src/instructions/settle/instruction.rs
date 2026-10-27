@@ -1,10 +1,10 @@
 use anyhow::Result;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
-use zolana_interface::{
+use spr_interface::{
     instruction::instruction_data::transact::TransactIxData, SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_program::instruction::nullifier_pda_accounts;
+use spr_program::instruction::nullifier_pda_accounts;
 
 use crate::{err, escrow_authority_pda, tag, SettleIxData, SettleProof};
 

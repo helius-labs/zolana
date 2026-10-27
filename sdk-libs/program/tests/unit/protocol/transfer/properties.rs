@@ -1,6 +1,6 @@
 use proptest::prelude::*;
 use solana_address::Address;
-use zolana_program::{transaction_hash, PublicTransfer};
+use spr_program::{transaction_hash, PublicTransfer};
 
 use super::vectors::{poseidon, reference_hash};
 

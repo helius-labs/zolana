@@ -1,7 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use zolana_hasher::primitives::hash_bytes;
-use zolana_keypair::{ShieldedAddress, ShieldedKeypair};
-use zolana_program::{
+use spr_hasher::primitives::hash_bytes;
+use spr_keypair::{ShieldedAddress, ShieldedKeypair};
+use spr_program::{
     circuit::{
         Assert, CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo, HashBytes,
         PublicInputs, TokenUtxos, UtxoState, UtxoTrait,
@@ -9,7 +9,7 @@ use zolana_program::{
     conversion::ProofInput,
     CircuitError, Groth16Prover, TxContext, ZkProgramCircuit,
 };
-use zolana_transaction::{Mint, WalletUtxo};
+use spr_transaction::{Mint, WalletUtxo};
 
 use crate::{
     benchmark::prove,

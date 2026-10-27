@@ -24,7 +24,7 @@ use solana_account::Account;
 use solana_address::Address;
 use solana_keypair::Keypair;
 use solana_signer::Signer;
-use zolana_interface::{pda, state::SplAssetRegistry};
+use spr_interface::{pda, state::SplAssetRegistry};
 
 use crate::{ProgramTestError, ZolanaProgramTest};
 

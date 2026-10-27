@@ -1,10 +1,10 @@
 use num_bigint::BigUint;
 use solana_address::Address;
-use zolana_interface::{
+use spr_interface::{
     state::cache::{cached_input_fields, empty_cached_input_fields, CACHE_CAPACITY},
     verifying_keys::CacheAccess,
 };
-use zolana_transaction::{
+use spr_transaction::{
     instructions::transact::{cache_bound_external_data_hash, cache_write_slots, CacheAccounts},
     ExternalData, SppProofOutputUtxo,
 };

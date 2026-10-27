@@ -6,8 +6,8 @@
 //! catch-all by construction — the per-variant rows here make that visible
 //! instead of silent.
 
-use zolana_interface::error::{InterfaceError, ShieldedPoolError};
-use zolana_tree::TreeError;
+use spr_interface::error::{InterfaceError, ShieldedPoolError};
+use spr_tree::TreeError;
 
 #[test]
 fn interface_error_conversions_are_stable() {

@@ -11,7 +11,7 @@
 use std::fmt::Debug;
 
 use ark_bn254::Fr;
-use zolana_program::{
+use spr_program::{
     circuit::{Circuit, Field},
     conversion::Allocator,
     testing::{self, PrivateVariableReport, Tamper},

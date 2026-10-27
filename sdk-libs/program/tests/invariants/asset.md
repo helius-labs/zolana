@@ -1,8 +1,8 @@
 # SolanaAddress Invariants
 
 Covers `SolanaAddress` of `zk-tools/zk-dsl/dsl/src/circuit/builtins/types/solana_address.rs`: `hash_bytes`, `constant`, `DataHash`, and
-its `Assert` and `Select` impls, against the native `zolana-hasher` `hash_bytes` and
-`zolana-transaction` `SOL_MINT`. Invariants every type shares live in `cross-cutting.md`. ID
+its `Assert` and `Select` impls, against the native `spr-hasher` `hash_bytes` and
+`spr-transaction` `SOL_MINT`. Invariants every type shares live in `cross-cutting.md`. ID
 prefix: `INV-ASSET`; the tests live in `tests/unit/protocol/asset/`.
 
 The fixtures in `tests/unit/protocol/asset/fixtures.rs` take `Mint` proof inputs, which
@@ -10,7 +10,7 @@ instantiate through `sdk-libs/transaction/src/circuit/conversion/asset.rs` into 
 range check "a byte proof input does not fit in 8 bits" (288 rows per mint, no hashing).
 `AssetHash` asserts `mint.hash_bytes() == hash` with "the asset hash is hash_bytes of the mint"
 (wire 1 is `hash`), `AssetDataHash` does so through `DataHash::hash`, `HashedTwice` asserts
-it for the mint and a clone, `SolHash` for `SolanaAddress::constant(&zolana_transaction::SOL_MINT)`, `Equal`, `EqualIf`, `IsEqual` and
+it for the mint and a clone, `SolHash` for `SolanaAddress::constant(&spr_transaction::SOL_MINT)`, `Equal`, `EqualIf`, `IsEqual` and
 `NotEqual` compare two mints with "the assets are equal" (`IsEqual`: "the claim is whether
 the assets are equal"), `EqualsConstant` compares a mint with `SolanaAddress::constant(USDC)`, and
 `Selected` hashes `SolanaAddress::select(condition, if_true, if_false)`. `Single` and `Pair` only
@@ -24,7 +24,7 @@ from ascending only in the first and only in the second packed chunk (31 + 1 byt
 - [x] **INV-ASSET-01: the hash of every mint is the native hash_bytes of its 32 bytes**
   - Covered by: `tests/unit/protocol/asset/native.rs` `every_mint_hashes_to_the_native_hash_bytes_of_its_32_bytes`; `tests/unit/protocol/asset/properties.rs` `every_mint_hashes_to_its_native_hash_natively_and_in_r1cs` (property)
   - Kind: native equivalence
-  - Statement: for every mint vector and every random mint, the native value of `SolanaAddress::hash_bytes` of the instantiated `Mint` is exactly `zolana_hasher::primitives::hash_bytes(mint.asset)`.
+  - Statement: for every mint vector and every random mint, the native value of `SolanaAddress::hash_bytes` of the instantiated `Mint` is exactly `spr_hasher::primitives::hash_bytes(mint.asset)`.
   - Location: `zk-tools/zk-dsl/gadgets/src/hash_bytes.rs` (`HashBytes::hash_bytes`), `sdk-libs/transaction/src/circuit/conversion/asset.rs:8-24` (`fn instantiate`), `zk/gadgets/src/hash_bytes.rs:10-32` (`fn hash_bytes`, `fn packed`)
   - Severity: Critical
   - Suggested test: positive + property; `tests/unit/protocol/asset/native.rs`, `tests/unit/protocol/asset/properties.rs`
@@ -57,7 +57,7 @@ from ascending only in the first and only in the second packed chunk (31 + 1 byt
 - [x] **INV-ASSET-05: sol is the all-zero SOL mint, the default and the placeholder**
   - Covered by: `tests/unit/protocol/asset/native.rs` `sol_is_the_all_zero_sol_mint_and_the_default_and_placeholder_asset`
   - Kind: semantics
-  - Statement: `SOL_MINT` is exactly 32 zero bytes and `Mint::SOL.asset`; `Mint::placeholder()` is exactly `Ok(Mint::SOL)`; `SolanaAddress::constant(&zolana_transaction::SOL_MINT)`, `SolanaAddress::default()` and `SolanaAddress::constant(&SOL_MINT)` all hash to exactly `hash_bytes([0; 32])`, which is not 0.
+  - Statement: `SOL_MINT` is exactly 32 zero bytes and `Mint::SOL.asset`; `Mint::placeholder()` is exactly `Ok(Mint::SOL)`; `SolanaAddress::constant(&spr_transaction::SOL_MINT)`, `SolanaAddress::default()` and `SolanaAddress::constant(&SOL_MINT)` all hash to exactly `hash_bytes([0; 32])`, which is not 0.
   - Location: `zk-tools/zk-dsl/dsl/src/circuit/builtins/types/solana_address.rs` (`fn constant`), `zk-tools/zk-dsl/dsl/src/circuit/builtins/types/solana_address.rs` (`impl Default`), `sdk-libs/transaction/src/circuit/conversion/asset.rs:26-30` (`impl Placeholder for Mint`)
   - Severity: High
   - Suggested test: positive; `tests/unit/protocol/asset/native.rs`

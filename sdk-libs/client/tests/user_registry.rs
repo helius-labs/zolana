@@ -2,13 +2,13 @@ use solana_account::Account;
 use solana_address::Address;
 use solana_message::VersionedMessage;
 use solana_pubkey::Pubkey;
-use zolana_client::user_registry::{
+use spr_client::user_registry::{
     build_registration_transaction_sync, set_merge_encryption_instruction,
 };
-use zolana_client::{check_merge_record, ClientError, Rpc};
-use zolana_keypair::{ShieldedAddress, ShieldedKeypair, SigningKey};
-use zolana_user_registry_interface::MergeEncryptionScheme;
-use zolana_user_registry_interface::{user_record_pda, UserRecord};
+use spr_client::{check_merge_record, ClientError, Rpc};
+use spr_keypair::{ShieldedAddress, ShieldedKeypair, SigningKey};
+use spr_user_registry_interface::MergeEncryptionScheme;
+use spr_user_registry_interface::{user_record_pda, UserRecord};
 
 struct RegistryAbsent;
 

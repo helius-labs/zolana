@@ -1,4 +1,4 @@
-use zolana_keypair::ShieldedAddress;
+use spr_keypair::ShieldedAddress;
 
 use super::{merge_circuit_width, MergeProofInputs, MAX_MERGE_INPUTS};
 use crate::{

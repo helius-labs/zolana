@@ -3,8 +3,8 @@ use solana_address::{address_eq, Address};
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::{Pubkey, PubkeyError};
 #[cfg(feature = "protocol")]
-use zolana_interface::instruction::SetRingActivationData;
-use zolana_interface::{
+use spr_interface::instruction::SetRingActivationData;
+use spr_interface::{
     instruction::{encode_instruction, tag, CreateRingConfigData, UpdateRingConfigData},
     pda, PROGRAM_ID_PUBKEY,
 };

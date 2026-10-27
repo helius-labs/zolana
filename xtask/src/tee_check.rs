@@ -4,13 +4,13 @@ use std::{fs, path::PathBuf};
 
 use anyhow::{bail, Context, Result};
 use reqwest::Url;
-use zeroize::Zeroizing;
-use zolana_client::{
+use spr_client::{
     error::ClientError,
     prover::{
         known_proving_keys, tee::TeePolicy, ExpectedProvingKey, ProveRequest, Prover, ProverClient,
     },
 };
+use zeroize::Zeroizing;
 
 pub struct TeeCheckOptions {
     pub prover_url: String,

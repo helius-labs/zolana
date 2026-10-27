@@ -5,6 +5,9 @@ use localnet::{
     creator_transactions, send, setup, TestEnv, DEPOSITS, LOCK_AMOUNT, UNLOCK_TIMESTAMP,
 };
 use solana_signer::Signer;
+use spr_hasher::primitives::solana_owner_identity;
+use spr_program::{DataUtxo, Groth16Prover, ProgramOwner, TxContext, UtxoOwner, ZkProgramCircuit};
+use spr_transaction::{decrypt_spendable, AssetRegistry, WalletUtxo, SOL_MINT};
 use timelock_escrow_program::{
     circuits::{
         escrow_authority, Escrow, EscrowPrivateInputs, EscrowPublicInputs, EscrowTerms, Withdraw,
@@ -13,11 +16,6 @@ use timelock_escrow_program::{
     client::{EscrowInstruction, WithdrawInstruction},
     instructions::escrow::slot,
 };
-use zolana_hasher::primitives::solana_owner_identity;
-use zolana_program::{
-    DataUtxo, Groth16Prover, ProgramOwner, TxContext, UtxoOwner, ZkProgramCircuit,
-};
-use zolana_transaction::{decrypt_spendable, AssetRegistry, WalletUtxo, SOL_MINT};
 
 #[test]
 fn escrow_then_withdraw() -> Result<()> {

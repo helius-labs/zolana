@@ -7,7 +7,7 @@ use std::{
 use anyhow::{anyhow, bail, Context, Result};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use zolana_program_test::fixture::write_protocol_snapshot;
+use spr_program_test::fixture::write_protocol_snapshot;
 
 const DEFAULT_SURFPOOL_TAG: &str = "v1.6.0-light";
 const DEFAULT_SURFPOOL_VERSION: &str = "1.6.0";
@@ -103,7 +103,7 @@ impl ReleaseSet for Localnet {
 
     fn cli_binaries(&self) -> &'static [CliBinary] {
         &[CliBinary {
-            package: "zolana-cli",
+            package: "spr-cli",
             bin: "zolana",
             asset_stem: "zolana",
         }]
@@ -134,8 +134,8 @@ const PROGRAM_SOURCES: [ProgramSource; 3] = [
     },
     ProgramSource {
         role: "user_registry",
-        file: "zolana_user_registry.so",
-        asset_stem: "zolana_user_registry",
+        file: "spr_user_registry.so",
+        asset_stem: "spr_user_registry",
     },
     ProgramSource {
         role: "smart_account",

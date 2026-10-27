@@ -1,14 +1,14 @@
 //! The one capability that consumes the nullifier secret.
 //!
 //! Every other use of the secret derives from it, and those live behind
-//! [`ShieldedKeys`](zolana_transaction::keys::ShieldedKeys), which returns
+//! [`ShieldedKeys`](spr_transaction::keys::ShieldedKeys), which returns
 //! results rather than key material. Proving is the exception: the circuit takes
 //! the raw secret as a witness field, so something has to put it there. That is
 //! this trait, and nothing else in the client holds a
 //! [`NullifierKey`].
 
 use num_bigint::BigUint;
-use zolana_keypair::{NullifierKey, ShieldedKeypair};
+use spr_keypair::{NullifierKey, ShieldedKeypair};
 
 use crate::{
     error::ClientError,
@@ -95,15 +95,15 @@ mod tests {
 
     fn wallet_input(
         utxo: Utxo,
-        key: &zolana_keypair::NullifierKey,
+        key: &spr_keypair::NullifierKey,
         tree_id: u16,
-    ) -> zolana_transaction::WalletUtxo {
+    ) -> spr_transaction::WalletUtxo {
         let nullifier_pubkey = key.pubkey().unwrap();
         let utxo_hash = utxo
             .hash(&nullifier_pubkey, &[0; 32], &[0; 32], tree_id)
             .unwrap();
         let nullifier = key.nullifier(&utxo_hash, &utxo.blinding).unwrap();
-        zolana_transaction::WalletUtxo {
+        spr_transaction::WalletUtxo {
             utxo,
             nullifier_pubkey,
             utxo_hash,
@@ -120,7 +120,7 @@ mod tests {
         }
     }
 
-    use zolana_transaction::{utxo::SppProofInputUtxo, Data, Utxo};
+    use spr_transaction::{utxo::SppProofInputUtxo, Data, Utxo};
 
     use super::*;
     use crate::ProofInputUtxo;
@@ -131,7 +131,7 @@ mod tests {
     };
 
     fn keypair() -> ShieldedKeypair {
-        ShieldedKeypair::from_keypair(zolana_keypair::SigningKey::from_ed25519_bytes(&[7u8; 32]))
+        ShieldedKeypair::from_keypair(spr_keypair::SigningKey::from_ed25519_bytes(&[7u8; 32]))
             .expect("ed25519 keypair")
     }
 
@@ -141,7 +141,7 @@ mod tests {
         let utxo: SppProofInputUtxo = wallet_input(
             Utxo {
                 owner: owner.signing_pubkey(),
-                asset: zolana_transaction::Mint::SOL,
+                asset: spr_transaction::Mint::SOL,
                 amount: 3,
                 blinding: [2u8; 32],
                 ring_program_id: None,
@@ -164,7 +164,7 @@ mod tests {
                         leaf: utxo.utxo_hash,
                         merkle_context: MerkleContext {
                             tree_type: 0,
-                            tree: zolana_interface::pda::tree(0),
+                            tree: spr_interface::pda::tree(0),
                         },
                         path: vec![[0u8; 32]; STATE_TREE_HEIGHT],
                         leaf_index: 0,
@@ -193,7 +193,7 @@ mod tests {
             leaf: [0u8; 32],
             merkle_context: MerkleContext {
                 tree_type: 0,
-                tree: zolana_interface::pda::tree(0),
+                tree: spr_interface::pda::tree(0),
             },
             path: vec![[0u8; 32]; NULLIFIER_TREE_HEIGHT],
             low_element: [0u8; 32],
@@ -252,10 +252,9 @@ mod tests {
     #[test]
     fn another_owners_secret_does_not_complete_this_input() {
         let owner = keypair();
-        let other = ShieldedKeypair::from_keypair(zolana_keypair::SigningKey::from_ed25519_bytes(
-            &[9u8; 32],
-        ))
-        .expect("ed25519 keypair");
+        let other =
+            ShieldedKeypair::from_keypair(spr_keypair::SigningKey::from_ed25519_bytes(&[9u8; 32]))
+                .expect("ed25519 keypair");
         let mut inputs = assembled_inputs(&owner);
 
         assert!(matches!(

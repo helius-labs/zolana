@@ -5,8 +5,8 @@ use solana_keypair::Signer;
 use solana_message::{v1, VersionedMessage};
 use solana_pubkey::Pubkey;
 use solana_transaction::versioned::VersionedTransaction;
-use zolana_interface::instruction::InterfaceTransfer;
-use zolana_program::instruction::TransactInterfaceTransferAccounts;
+use spr_interface::instruction::InterfaceTransfer;
+use spr_program::instruction::TransactInterfaceTransferAccounts;
 
 use crate::error::ClientError;
 

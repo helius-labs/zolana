@@ -5,7 +5,7 @@
 //!
 //! Usage:
 //! ```ignore
-//! use zolana_program_test::ZolanaProgramTest;
+//! use spr_program_test::ZolanaProgramTest;
 //! use solana_keypair::Keypair;
 //!
 //! let mut test = ZolanaProgramTest::new()?;
@@ -22,11 +22,11 @@ use solana_instruction::Instruction;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use thiserror::Error;
-use zolana_client::{ClientError, ComputeBudgetConfig};
-use zolana_interface::{
+use spr_client::{ClientError, ComputeBudgetConfig};
+use spr_interface::{
     pda, state::state_root_offset, BPF_LOADER_UPGRADEABLE_PUBKEY, SHIELDED_POOL_PROGRAM_ID,
 };
+use thiserror::Error;
 
 mod admin;
 pub mod client;
@@ -61,10 +61,10 @@ pub mod rpc;
 pub use rejection::Rejection;
 pub use rpc::IndexedTransaction;
 mod transaction_trace;
+pub use spr_client::Rpc;
 pub use transaction_trace::{
     AccountSnapshot, AccountTransition, InstructionTrace, TransactionOutcome, TransactionTrace,
 };
-pub use zolana_client::Rpc;
 mod ring;
 mod spl;
 mod wallet_data;
@@ -89,9 +89,9 @@ pub enum ProgramTestError {
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
     #[error("transaction: {0}")]
-    Transaction(#[from] zolana_transaction::TransactionError),
+    Transaction(#[from] spr_transaction::TransactionError),
     #[error("deposit builder: {0}")]
-    DepositBuild(#[from] zolana_program::instruction::DepositBuildError),
+    DepositBuild(#[from] spr_program::instruction::DepositBuildError),
     #[error("indexer: {0}")]
     Indexer(#[from] IndexerError),
     #[error("event: {0}")]

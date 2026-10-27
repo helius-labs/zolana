@@ -23,7 +23,7 @@
 //! So `drain_once` serialises witness construction alone and runs
 //! `proof_concurrency` prove-and-submit workers alongside it.
 
-use zolana_client::prover::indexed::{
+use spr_client::prover::indexed::{
     BatchAnchor, IndexedBatchRequest, ProofDataSource, ProvenIndexedBatch,
 };
 
@@ -43,13 +43,11 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_rpc_client::rpc_client::RpcClient;
 use solana_signer::Signer;
-use zolana_client::{
-    BatchAddressAppendInputs, ClientError, ProofCompressed, ProverClient, ProverExt,
-};
-use zolana_hasher::{hash_chain::create_hash_chain_4_from_slice, Poseidon};
-use zolana_interface::instruction::BatchUpdateNullifierTreeData;
-use zolana_merkle_tree::indexed::IndexedMerkleTree;
-use zolana_tree::{TreeAccount, TreeFeeSchedule};
+use spr_client::{BatchAddressAppendInputs, ClientError, ProofCompressed, ProverClient, ProverExt};
+use spr_hasher::{hash_chain::create_hash_chain_4_from_slice, Poseidon};
+use spr_interface::instruction::BatchUpdateNullifierTreeData;
+use spr_merkle_tree::indexed::IndexedMerkleTree;
+use spr_tree::{TreeAccount, TreeFeeSchedule};
 
 type ReferenceNullifierTree = IndexedMerkleTree<Poseidon, usize>;
 
@@ -57,7 +55,7 @@ use crate::{
     config::ForesterConfig,
     forest::{batch_update_nullifier_tree_once, ForestError, ForestParams},
 };
-use zolana_api::{BlockingZolanaApi, SerializablePubkey, PAGE_LIMIT};
+use spr_api::{BlockingZolanaApi, SerializablePubkey, PAGE_LIMIT};
 
 /// BN254 scalar field modulus minus one: the nullifier tree's initial
 /// `next_value` sentinel. Pinned by `reference_tree_matches_on_chain_init`
@@ -1015,7 +1013,7 @@ fn path_to_biguint(path: Vec<[u8; 32]>) -> Vec<BigUint> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zolana_tree::nullifier_tree::constants::NULLIFIER_TREE_INIT_ROOT_40;
+    use spr_tree::nullifier_tree::constants::NULLIFIER_TREE_INIT_ROOT_40;
 
     fn nullifier(byte: u8) -> [u8; 32] {
         let mut value = [0u8; 32];

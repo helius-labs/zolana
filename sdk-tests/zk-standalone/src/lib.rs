@@ -1,12 +1,12 @@
 //! A crate of zk circuits on the zk DSL and gadgets alone, without
-//! zolana-program, laid out like a Solana program that verifies them: the
+//! spr-program, laid out like a Solana program that verifies them: the
 //! circuits build on the host with the `circuits` feature, and the SBF program
 //! links only the DSL's on-chain verifier and the generated verifier modules.
 //!
-//! The derives generate paths under `::zolana_program`, so the crate root
+//! The derives generate paths under `::spr_program`, so the crate root
 //! names the DSL that way.
 
-extern crate zolana_zk_dsl as zolana_program;
+extern crate spr_zk_dsl as spr_program;
 
 #[cfg(feature = "circuits")]
 mod circuits;

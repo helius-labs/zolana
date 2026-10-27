@@ -1,6 +1,6 @@
 use solana_program_error::ProgramError;
+use spr_program::program::CompressedAccountError;
 use thiserror::Error;
-use zolana_program::program::CompressedAccountError;
 
 #[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
 #[repr(u32)]

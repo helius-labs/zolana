@@ -14,7 +14,7 @@ use sea_orm::{
     ColumnTrait, DatabaseBackend, DatabaseTransaction, EntityTrait, QueryFilter, QueryOrder, Value,
 };
 use solana_signature::{Signature, SIGNATURE_BYTES};
-use zolana_indexer_api::{
+use spr_indexer_api::{
     Base64String, Hash, MerkleContext, MerkleProof, NonInclusionProof, RingsOutputContext,
     RingsOutputSlot, SerializablePubkey, SerializableSignature, PAGE_LIMIT,
 };
@@ -496,14 +496,14 @@ mod tests {
     use super::*;
     use crate::monitor::tree_metadata_sync::rings_utxo_root_history;
     use solana_account::Account;
-    use zolana_interface::{
+    use spr_interface::{
         pda,
         state::{
             default_tree_fees, discriminator::TREE_ACCOUNT_DISCRIMINATOR, nullifier_tree_params,
             tree_account_size,
         },
     };
-    use zolana_tree::TreeAccount;
+    use spr_tree::TreeAccount;
 
     type SerializedRootHistory = Vec<(u16, [u8; 32])>;
     type UpdateRoots = Vec<[u8; 32]>;

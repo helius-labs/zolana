@@ -1,9 +1,9 @@
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_interface::error::ShieldedPoolError;
-use zolana_program_test::Rejection;
-use zolana_test_utils::backend::LiteSvmPoolBackend;
-use zolana_tree::{TreeAccount, INITIALIZED, PAUSED};
+use spr_interface::error::ShieldedPoolError;
+use spr_program_test::Rejection;
+use spr_test_utils::backend::LiteSvmPoolBackend;
+use spr_tree::{TreeAccount, INITIALIZED, PAUSED};
 
 /// TreeAccountLayout: discriminator at byte 0, state at byte 1.
 fn tree_state_byte(backend: &LiteSvmPoolBackend, tree: &Pubkey) -> u8 {
@@ -88,8 +88,8 @@ mod program_unit {
         testing::{check_reimbursement_recipient, pay_reimbursement_with_rent_minimum, tree_error},
         ID,
     };
-    use zolana_account_checks::account_info::test_account_info::get_account_view;
-    use zolana_interface::error::ShieldedPoolError;
+    use spr_account_checks::account_info::test_account_info::get_account_view;
+    use spr_interface::error::ShieldedPoolError;
 
     #[test]
     fn reimbursement_recipient_must_not_be_program_owned() {
@@ -163,7 +163,7 @@ mod program_unit {
     /// other variant hits the catch-all.
     #[test]
     fn tree_error_table_is_stable() {
-        use zolana_tree::TreeError;
+        use spr_tree::TreeError;
 
         let named = [
             (TreeError::Paused, ShieldedPoolError::TreePaused as u32),

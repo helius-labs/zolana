@@ -1,15 +1,15 @@
 use solana_address::Address;
-use zolana_hasher::{
+use spr_hasher::{
     primitives::{hash_bytes, right_align},
     Hasher, Poseidon,
 };
-use zolana_interface::{tree_slot::tree_id_field, DUMMY_DOMAIN, UTXO_DOMAIN};
-use zolana_program::{
+use spr_interface::{tree_slot::tree_id_field, DUMMY_DOMAIN, UTXO_DOMAIN};
+use spr_program::{
     circuit::{constant, value, CircuitVar, Field, HashBytes, SolanaAddress, Utxo},
     conversion::{Allocator, ProofInput},
     CircuitError,
 };
-use zolana_transaction::{
+use spr_transaction::{
     utxo::{ProofInputUtxo, SppProofInputUtxo, SppProofOutputUtxo},
     Mint, WalletUtxo,
 };
@@ -201,7 +201,7 @@ fn changes() -> [Change; 8] {
     ]
 }
 
-fn circuit_owner() -> zolana_program::circuit::UtxoOwner {
+fn circuit_owner() -> spr_program::circuit::UtxoOwner {
     keys::ed25519(99)
         .address
         .instantiate(&Allocator::native())
@@ -256,7 +256,7 @@ fn the_carried_nullifier_is_the_wallets_native_nullifier() {
     let preimages = preimages();
     assert_eq!(
         per_vector(&preimages, |preimage| (
-            constant_of(&zolana_program::testing::utxo_metadata(&circuit(&preimage.wallet())).0),
+            constant_of(&spr_program::testing::utxo_metadata(&circuit(&preimage.wallet())).0),
             field_of(&preimage.wallet().nullifier),
         )),
         per_vector(&preimages, |preimage| {
@@ -342,10 +342,10 @@ fn the_circuit_dummy_has_the_dummy_domain_and_no_nullifier_key() {
             constant_of(&utxo.ring_data_hash),
             constant_of(&utxo.ring_program_id),
             constant_of(&utxo.tree_id),
-            constant_of(&zolana_program::testing::utxo_metadata(utxo).0),
-            constant_of(&zolana_program::testing::utxo_metadata(utxo).1),
+            constant_of(&spr_program::testing::utxo_metadata(utxo).0),
+            constant_of(&spr_program::testing::utxo_metadata(utxo).1),
             constant_of(&CircuitVar::from(
-                zolana_program::testing::utxo_metadata(utxo).2,
+                spr_program::testing::utxo_metadata(utxo).2,
             )),
         ]
     };
@@ -354,7 +354,7 @@ fn the_circuit_dummy_has_the_dummy_domain_and_no_nullifier_key() {
     expected[3] = sol;
     let mut expected_default = expected;
     expected_default[0] = zero;
-    expected_default[1] = Field::from(u64::from(zolana_hasher::primitives::SOLANA_OWNER_TAG));
+    expected_default[1] = Field::from(u64::from(spr_hasher::primitives::SOLANA_OWNER_TAG));
     assert_eq!(
         (fields(&dummy), fields(&default), DUMMY_DOMAIN, UTXO_DOMAIN),
         (expected, expected_default, 1, 3)

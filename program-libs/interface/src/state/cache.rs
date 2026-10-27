@@ -1,6 +1,6 @@
 use bytemuck::{Pod, Zeroable};
 use solana_address::Address;
-use zolana_hasher::{
+use spr_hasher::{
     sha256::Sha256BE,
     zero_suffix_hash_chain::{
         create_padded_right_hash_chain_4, ZERO_SUFFIX_CHAINS, ZERO_SUFFIX_CHAIN_MAX_WIDTH,

@@ -2,8 +2,8 @@ use std::collections::{hash_map::Entry, BTreeSet, HashMap, HashSet};
 
 use borsh::BorshDeserialize;
 use solana_address::Address;
-use zolana_event::{split_merge_output_body, EncryptedRingDepositOutput, OutputDataEncoding};
-use zolana_keypair::{
+use spr_event::{split_merge_output_body, EncryptedRingDepositOutput, OutputDataEncoding};
+use spr_keypair::{
     shielded::ShieldedAddress, x25519::X25519_PUBKEY_LEN, KeypairError, X25519Pubkey,
 };
 

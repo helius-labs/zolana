@@ -2,10 +2,8 @@
 
 use anyhow::Result;
 use serial_test::serial;
-use zolana_test_utils::{
-    ring::RingHarness, test_validator_asserts::assert_transaction_compute_units,
-};
-use zolana_transaction::SOL_MINT;
+use spr_test_utils::{ring::RingHarness, test_validator_asserts::assert_transaction_compute_units};
+use spr_transaction::SOL_MINT;
 
 // Local-validator baselines (surfpool, 2026-10-06): EdDSA 2x4 = 153,949;
 // withdrawal = 150,162; ring-authority 2x2 = 142,468; merge-ring 8 inputs at

@@ -1,4 +1,4 @@
-use zolana_hasher::primitives::right_align;
+use spr_hasher::primitives::right_align;
 
 #[test]
 fn right_aligns_fixed_size_values() {

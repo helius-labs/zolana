@@ -1,4 +1,4 @@
-use zolana_keypair::{constants::PUBLIC_KEY_LEN, Curve, KeypairError, PublicKey};
+use spr_keypair::{constants::PUBLIC_KEY_LEN, Curve, KeypairError, PublicKey};
 
 use crate::KeypairWorld;
 

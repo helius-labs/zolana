@@ -1,5 +1,5 @@
 use sha2::{Digest, Sha256};
-use zolana_keypair::hash::{owner_hash, sha256, sha256_be};
+use spr_keypair::hash::{owner_hash, sha256, sha256_be};
 
 use crate::KeypairWorld;
 

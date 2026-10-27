@@ -2,13 +2,13 @@ use std::str::FromStr;
 
 use anyhow::{anyhow, bail, Context, Result};
 use solana_pubkey::Pubkey;
-use zolana_client::{Rpc, SolanaRpc};
-use zolana_interface::state::ProtocolConfig;
-use zolana_smart_account_client::{
+use spr_client::{Rpc, SolanaRpc};
+use spr_interface::state::ProtocolConfig;
+use spr_smart_account_client::{
     roles::Role,
     settings::{settings_member_keys, settings_threshold},
 };
-use zolana_test_utils::smart_account::SMART_ACCOUNT_PROGRAM_ID;
+use spr_test_utils::smart_account::SMART_ACCOUNT_PROGRAM_ID;
 
 use crate::init_protocol::{
     expected_role_members, read_program_config, to_address, verify_role_members, Cluster,

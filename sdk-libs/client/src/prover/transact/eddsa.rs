@@ -1,8 +1,8 @@
 use num_bigint::BigUint;
-use zolana_interface::{
+use spr_interface::{
     instruction::instruction_data::transact::TreeContext, verifying_keys::CacheAccess,
 };
-use zolana_transaction::{
+use spr_transaction::{
     instructions::transact::{CacheAccounts, PublicTransfers},
     ExternalData, SppProofOutputUtxo,
 };

@@ -4,16 +4,16 @@ mod transfer_fixtures;
 use std::hint::black_box;
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use transfer_fixtures::{
-    build_transfer, keypair_from_index, unique31, unique_nullifier, TransferSpec,
-};
-use zolana_keypair::ShieldedKeypair;
-use zolana_transaction::{
+use spr_keypair::ShieldedKeypair;
+use spr_transaction::{
     serialization::{
         anonymous::{AnonymousRecipient, AnonymousSenderBundle, AnonymousSenderEncode},
         confidential::Confidential,
     },
     AssetRegistry, Data, DecodeCx, Mint, OwnerCx, Utxo, UtxoSerialization,
+};
+use transfer_fixtures::{
+    build_transfer, keypair_from_index, unique31, unique_nullifier, TransferSpec,
 };
 
 const RECIPIENT_SLOT_INDEX: usize = 1;
@@ -199,9 +199,9 @@ fn decrypt(c: &mut Criterion) {
         .get(RECIPIENT_SLOT_INDEX)
         .expect("recipient slot");
     let recipient_body = match recipient_slot.output_data().expect("recipient output data") {
-        zolana_event::OutputDataEncoding::Encrypted(blob)
-        | zolana_event::OutputDataEncoding::VerifiablyEncrypted(blob)
-        | zolana_event::OutputDataEncoding::Plaintext(blob) => blob
+        spr_event::OutputDataEncoding::Encrypted(blob)
+        | spr_event::OutputDataEncoding::VerifiablyEncrypted(blob)
+        | spr_event::OutputDataEncoding::Plaintext(blob) => blob
             .get(1..)
             .map(<[u8]>::to_vec)
             .expect("recipient ciphertext body"),
@@ -221,8 +221,7 @@ fn decrypt(c: &mut Criterion) {
         .output_slots
         .iter()
         .map(|slot| {
-            let zolana_event::OutputDataEncoding::Encrypted(blob) = slot.output_data().unwrap()
-            else {
+            let spr_event::OutputDataEncoding::Encrypted(blob) = slot.output_data().unwrap() else {
                 panic!("encrypted output expected")
             };
             blob[1..].to_vec()

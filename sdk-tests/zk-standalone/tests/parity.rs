@@ -2,9 +2,9 @@
 //! and pins that they export the same R1CS as the built-ins: a gadget author
 //! has what the SDK has.
 
-extern crate zolana_zk_dsl as zolana_program;
+extern crate spr_zk_dsl as spr_program;
 
-use zolana_zk_dsl::{
+use spr_zk_dsl::{
     circuit::{system_of, zero, Assert, Bool, Circuit, CircuitVar, Field, Scope, U64},
     conversion::ProofInput,
     CircuitError, ZkCircuit,

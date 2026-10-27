@@ -11,7 +11,7 @@ use std::convert::TryFrom;
 use std::fmt;
 use std::str::FromStr;
 
-use zolana_indexer_api::Hash;
+use spr_indexer_api::Hash;
 
 use super::super::error::IngesterError;
 

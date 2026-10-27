@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use zolana_gnark_ffi_prover::{decimal, utxo_proof_inputs, ProofInputMap};
+use spr_gnark_ffi_prover::{decimal, utxo_proof_inputs, ProofInputMap};
 
 use crate::{CircuitId, OrderProof, ProofInputUtxo, PROVER};
 
@@ -104,7 +104,7 @@ impl EscrowSettleProofInputs {
         map
     }
 
-    pub fn prove(&self) -> zolana_gnark_ffi_prover::Result<OrderProof> {
+    pub fn prove(&self) -> spr_gnark_ffi_prover::Result<OrderProof> {
         Ok(PROVER
             .prove(CircuitId::EscrowSettle, &self.witness())?
             .compress()?
@@ -117,7 +117,7 @@ mod tests {
     use std::collections::HashSet;
 
     use super::*;
-    use zolana_gnark_ffi_prover::utxo_proof_input_keys;
+    use spr_gnark_ffi_prover::utxo_proof_input_keys;
 
     fn sample() -> EscrowSettleProofInputs {
         EscrowSettleProofInputs {

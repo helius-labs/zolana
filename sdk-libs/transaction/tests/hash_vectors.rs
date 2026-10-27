@@ -19,9 +19,9 @@
 //! `IN4_OUT4`, output tree 2, relayed fee payer (`Inline`).
 
 use solana_address::Address;
-use zolana_interface::instruction::instruction_data::transact::{OwnerTag, TransactOutput};
-use zolana_keypair::{constants::SALT_LEN, hash::sha256, shielded::ShieldedKeypair, SigningKey};
-use zolana_transaction::{
+use spr_interface::instruction::instruction_data::transact::{OwnerTag, TransactOutput};
+use spr_keypair::{constants::SALT_LEN, hash::sha256, shielded::ShieldedKeypair, SigningKey};
+use spr_transaction::{
     instructions::transact::{ExternalData, PrivateTxHash, Shape, SppProofInputs},
     serialization::{
         confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
@@ -754,7 +754,7 @@ fn a_padding_output_contributes_its_real_hash_while_a_dummy_input_contributes_ze
 /// The TypeScript SDK pins the same literals in `address-inputs.test.ts`.
 #[test]
 fn address_input_vectors() {
-    let owner = zolana_keypair::PublicKey::from_pda(&Address::new_from_array([9; 32]));
+    let owner = spr_keypair::PublicKey::from_pda(&Address::new_from_array([9; 32]));
     let vectors = [0u16, 3].map(|tree_id| {
         let input = SppProofInputUtxo::new_address(owner, [7; 32], tree_id).expect("address");
         input.validate_address().expect("valid address");

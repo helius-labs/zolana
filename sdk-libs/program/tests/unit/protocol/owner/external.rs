@@ -2,7 +2,7 @@
 
 use ark_bn254::Fr;
 use serde_json::json;
-use zolana_program::ZkCircuit;
+use spr_program::ZkCircuit;
 
 use super::{
     fixtures::{OwnerHash, CLAIM_WIRE},

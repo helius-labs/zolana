@@ -3,8 +3,8 @@ mod common;
 use std::cell::RefCell;
 
 use common::{keypair, wallet_utxo};
-use zolana_keypair::{ShieldedAddress, ShieldedKeypair, ViewingKey, X25519Pubkey};
-use zolana_transaction::{
+use spr_keypair::{ShieldedAddress, ShieldedKeypair, ViewingKey, X25519Pubkey};
+use spr_transaction::{
     decrypt_spendable,
     instructions::transact::ConfidentialTransaction,
     serialization::proofless::{Proofless, ProoflessEncode},

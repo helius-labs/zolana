@@ -2,7 +2,7 @@
 
 use crate::wallet::{KeypairWalletAuthority, DEFAULT_TAG_WINDOW};
 use anyhow::Result;
-use zolana_transaction::{Address, Utxo};
+use spr_transaction::{Address, Utxo};
 
 use super::LifecycleHarness;
 use crate::localnet::ZERO;

@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 
 use num_bigint::BigUint;
-use zolana_client::{
+use spr_client::{
     ClientError, MerkleContext, MerkleProof, NonInclusionProof, ProofCompressed, ProveResult,
     ProverClient, ProverExt, Rpc, SpendProof, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
-use zolana_hasher::Poseidon;
-use zolana_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
-use zolana_transaction::{
+use spr_hasher::Poseidon;
+use spr_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
+use spr_transaction::{
     instructions::transact::{SppProofInputs, BN254_MODULUS_DEC},
     utxo::SppProofInputUtxo,
 };
@@ -15,7 +15,7 @@ use zolana_transaction::{
 fn test_merkle_context() -> MerkleContext {
     MerkleContext {
         tree_type: 0,
-        tree: zolana_interface::pda::tree(0),
+        tree: spr_interface::pda::tree(0),
     }
 }
 
@@ -132,7 +132,7 @@ impl Rpc for TestIndexer {
     fn get_input_merkle_proofs(
         &self,
         input_utxo_commitments: &[&SppProofInputUtxo],
-        _config: Option<zolana_client::IndexerRpcConfig>,
+        _config: Option<spr_client::IndexerRpcConfig>,
     ) -> Result<Vec<SpendProof>, ClientError> {
         input_utxo_commitments
             .iter()
@@ -143,7 +143,7 @@ impl Rpc for TestIndexer {
     fn prove(
         &self,
         proof_inputs: SppProofInputs,
-        authority: &dyn zolana_client::ProofAuthority,
+        authority: &dyn spr_client::ProofAuthority,
     ) -> Result<ProveResult, ClientError> {
         let commitments = proof_inputs.input_utxo_hashes()?;
         let input_merkle_proofs = self.get_input_merkle_proofs(&commitments, None)?;
@@ -153,7 +153,7 @@ impl Rpc for TestIndexer {
             .map(|nullifier| self.dummy_nullifier_proof(nullifier))
             .collect();
         let mut assembled =
-            zolana_client::assemble(proof_inputs, &input_merkle_proofs, &dummy_proofs)?;
+            spr_client::assemble(proof_inputs, &input_merkle_proofs, &dummy_proofs)?;
         let inputs = &mut assembled.prover_inputs;
         authority.complete_inputs(&mut inputs.inputs)?;
         let proof = ProverClient::local().prove_transfer(inputs)?;

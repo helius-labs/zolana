@@ -1,14 +1,12 @@
 use serde::Deserialize;
 use solana_address::Address;
-use zolana_keypair::{
-    PublicKey, ShieldedAddress, ShieldedKeypair, SigningKey, SHIELDED_ADDRESS_LEN,
-};
+use spr_keypair::{PublicKey, ShieldedAddress, ShieldedKeypair, SigningKey, SHIELDED_ADDRESS_LEN};
 
 #[derive(Deserialize)]
 struct Holder {
-    #[serde(with = "zolana_keypair::serde_helpers::address")]
+    #[serde(with = "spr_keypair::serde_helpers::address")]
     address: Address,
-    #[serde(default, with = "zolana_keypair::serde_helpers::option_address")]
+    #[serde(default, with = "spr_keypair::serde_helpers::option_address")]
     ring_program_id: Option<Address>,
 }
 

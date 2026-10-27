@@ -1,11 +1,11 @@
 use solana_address::Address;
 use solana_pubkey::Pubkey;
+use spr_hasher::HasherError;
+use spr_interface::error::ShieldedPoolError;
+use spr_keypair::KeypairError;
+use spr_program::instruction::DepositBuildError;
+use spr_transaction::TransactionError;
 use thiserror::Error;
-use zolana_hasher::HasherError;
-use zolana_interface::error::ShieldedPoolError;
-use zolana_keypair::KeypairError;
-use zolana_program::instruction::DepositBuildError;
-use zolana_transaction::TransactionError;
 
 use crate::prover::tee::TeeError;
 
@@ -289,7 +289,7 @@ pub enum ClientError {
     Tee(#[from] TeeError),
 
     #[error("{0}")]
-    BlockingInsideRuntime(#[from] zolana_api::BlockingInsideRuntime),
+    BlockingInsideRuntime(#[from] spr_api::BlockingInsideRuntime),
 
     #[error("no committed verifying key for address append at tree height {tree_height}, batch size {batch_size}")]
     UnsupportedAddressAppendShape { tree_height: u32, batch_size: u32 },

@@ -15,8 +15,8 @@ use crate::ingester::{
     },
 };
 use solana_pubkey::Pubkey;
-use zolana_event::{tag, tag::InstructionTag};
-use zolana_event_parser::{
+use spr_event::{tag, tag::InstructionTag};
+use spr_event_parser::{
     event_parent, InstructionGroup as RingsInstructionGroup, ParsedInstruction as RingsInstruction,
 };
 
@@ -142,8 +142,8 @@ fn is_emit_event(rings_program_id: Pubkey, instruction: &RingsInstruction) -> bo
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zolana_event_parser::{InstructionGroup, ParsedInstruction};
-    use zolana_interface::pda;
+    use spr_event_parser::{InstructionGroup, ParsedInstruction};
+    use spr_interface::pda;
 
     fn spp() -> Pubkey {
         pda::shielded_pool_program_id()

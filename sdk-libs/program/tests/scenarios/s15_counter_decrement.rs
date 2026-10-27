@@ -1,8 +1,8 @@
-use zolana_program::{
+use spr_program::{
     conversion::{Allocator, Placeholder, ProofInput},
     CircuitError, Groth16Prover, TxContext, ZkProgramCircuit,
 };
-use zolana_transaction::{Mint, WalletUtxo};
+use spr_transaction::{Mint, WalletUtxo};
 
 use crate::{
     benchmark::prove,
@@ -28,7 +28,7 @@ pub(crate) struct DecrementPublicInputs {
     pub(crate) step: u64,
 }
 
-impl zolana_program::circuit::CircuitType for circuit::Decrement {}
+impl spr_program::circuit::CircuitType for circuit::Decrement {}
 
 impl ProofInput for Decrement {
     type Circuit = circuit::Decrement;
@@ -64,7 +64,7 @@ impl Placeholder for Decrement {
 }
 
 mod circuit {
-    use zolana_program::{
+    use spr_program::{
         circuit::{
             poseidon, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction, DataUtxo,
             PublicInputs, TxContext, Uint, Utxo,

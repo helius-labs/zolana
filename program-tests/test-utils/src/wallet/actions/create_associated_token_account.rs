@@ -5,9 +5,9 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_program::instruction::CreateAssociatedTokenAccount;
+use spr_program::instruction::CreateAssociatedTokenAccount;
 
-use zolana_client::{
+use spr_client::{
     error::ClientError,
     rpc::{ComputeBudgetConfig, Rpc},
 };
@@ -29,7 +29,7 @@ pub fn create_associated_token_account<R: Rpc>(
         payer,
         owner,
         mint,
-        &zolana_interface::pda::spl_token_program_id(),
+        &spr_interface::pda::spl_token_program_id(),
     )
 }
 
@@ -65,7 +65,7 @@ mod tests {
     use solana_hash::Hash;
     use solana_message::VersionedMessage;
     use solana_transaction::versioned::VersionedTransaction;
-    use zolana_interface::pda;
+    use spr_interface::pda;
 
     use super::*;
 

@@ -1,7 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use light_program_profiler::profile;
 use pinocchio::{AccountView, ProgramResult};
-use zolana_account_checks::AccountIterator;
+use spr_account_checks::AccountIterator;
 
 use crate::{
     error::DynamicSwapError,

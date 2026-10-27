@@ -85,7 +85,7 @@ pub fn throwaway_ptau(power: u32) -> PathBuf {
         path(&initial),
         path(&contributed),
         "--name=throwaway",
-        "-e=zolana-program throwaway phase 1",
+        "-e=spr-program throwaway phase 1",
     ]);
     run(&[
         "powersoftau",

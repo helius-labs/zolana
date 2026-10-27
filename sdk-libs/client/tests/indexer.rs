@@ -1,3 +1,4 @@
+use spr_user_registry_interface::MergeEncryptionScheme;
 use std::{
     io::{Read, Write},
     net::{TcpListener, TcpStream},
@@ -5,14 +6,13 @@ use std::{
     thread,
     time::Duration,
 };
-use zolana_user_registry_interface::MergeEncryptionScheme;
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde_json::{json, Value};
 
 use solana_address::Address;
 use solana_signature::Signature;
-use zolana_client::{
+use spr_client::{
     indexer::{AsyncZolanaIndexer, ZolanaIndexer},
     rpc::{
         AsyncRpc, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
@@ -23,8 +23,8 @@ use zolana_client::{
     },
     ClientError,
 };
-use zolana_keypair::{x25519::X25519_PUBKEY_LEN, ViewingKey, X25519Pubkey};
-use zolana_user_registry_interface::user_record_pda;
+use spr_keypair::{x25519::X25519_PUBKEY_LEN, ViewingKey, X25519Pubkey};
+use spr_user_registry_interface::user_record_pda;
 
 #[test]
 fn decodes_tagged_x25519_pubkey() {
@@ -78,7 +78,7 @@ fn get_encrypted_utxos_by_tags_encodes_request_and_decodes_matches() {
                 "viewTag": encode_hash_string(tag_a),
                 "outputContext": {
                     "hash": encode_hash_string(utxo_hash),
-                    "tree": encode_pubkey_string(zolana_interface::pda::tree(output_tree_id)),
+                    "tree": encode_pubkey_string(spr_interface::pda::tree(output_tree_id)),
                     "treeId": output_tree_id,
                     "leafIndex": 11,
                 },
@@ -153,7 +153,7 @@ fn get_shielded_transactions_by_tags_maps_output_hashes_and_nullifiers() {
                 "viewTag": encode_hash_string(tag),
                 "outputContext": {
                     "hash": encode_hash_string(output_hash),
-                    "tree": encode_pubkey_string(zolana_interface::pda::tree(output_tree_id)),
+                    "tree": encode_pubkey_string(spr_interface::pda::tree(output_tree_id)),
                     "treeId": output_tree_id,
                     "leafIndex": 16,
                 },
@@ -314,11 +314,11 @@ fn get_shielded_transactions_by_nullifiers_uses_dedicated_rpc() {
 #[derive(Debug)]
 struct ScriptedClient(std::sync::Mutex<Vec<Value>>);
 
-impl zolana_api::HttpClient for ScriptedClient {
-    fn send<'a>(&'a self, _request: zolana_api::HttpRequest) -> zolana_api::HttpFuture<'a> {
+impl spr_api::HttpClient for ScriptedClient {
+    fn send<'a>(&'a self, _request: spr_api::HttpRequest) -> spr_api::HttpFuture<'a> {
         let body = self.0.lock().unwrap().remove(0);
         Box::pin(async move {
-            Ok(zolana_api::HttpResponse {
+            Ok(spr_api::HttpResponse {
                 status: reqwest::StatusCode::OK,
                 headers: reqwest::header::HeaderMap::new(),
                 body: serde_json::to_vec(&body).unwrap(),
@@ -348,7 +348,7 @@ async fn merkle_proofs_wait_until_every_leaf_is_indexed() {
         rpc_result(json!({ "context": context, "proofs": [] })),
         rpc_result(json!({ "context": context, "proofs": [proof] })),
     ]));
-    let api = zolana_api::ZolanaApi::with_client("http://indexer.invalid", client);
+    let api = spr_api::ZolanaApi::with_client("http://indexer.invalid", client);
 
     let got = AsyncZolanaIndexer::with_api(api)
         .get_merkle_proofs(tree, vec![leaf], None)

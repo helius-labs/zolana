@@ -4,13 +4,13 @@
 use anyhow::{anyhow, Result};
 use solana_address::Address;
 use solana_instruction::Instruction;
-use zolana_client::{
+use spr_client::{
     assemble, transaction_size, AssembledTransfer, BlockingRpc, ComputeBudgetConfig, Rpc,
     ZolanaClient,
 };
-use zolana_interface::state::cache::CacheAccount;
-use zolana_program::instruction::MergeTransact;
-use zolana_transaction::instructions::{merge::MergeProofInputs, transact::SppProofInputs};
+use spr_interface::state::cache::CacheAccount;
+use spr_program::instruction::MergeTransact;
+use spr_transaction::instructions::{merge::MergeProofInputs, transact::SppProofInputs};
 
 pub fn assemble_cached_transfer<R: BlockingRpc>(
     client: &ZolanaClient<R>,

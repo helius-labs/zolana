@@ -1,9 +1,9 @@
 use anyhow::{bail, Result};
 use dynamic_swap_program::instructions::settle::SettlePublicInput;
 use dynamic_swap_prover::{EscrowSettleProofInputs, ProofInputUtxo};
-use zolana_transaction::instructions::transact::{PrivateTxHash, SppProofOutputUtxo};
-use zolana_transaction::utxo::SppProofInputUtxo;
-use zolana_transaction::utxo::{
+use spr_transaction::instructions::transact::{PrivateTxHash, SppProofOutputUtxo};
+use spr_transaction::utxo::SppProofInputUtxo;
+use spr_transaction::utxo::{
     derive_output_blinding_seed, derive_private_tx_blinding, derive_transact_output_blinding,
 };
 

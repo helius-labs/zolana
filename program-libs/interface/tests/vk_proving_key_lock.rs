@@ -8,7 +8,7 @@
 
 use std::collections::BTreeMap;
 
-use zolana_interface::{
+use spr_interface::{
     verifying_keys::{
         AnonymousRingEddsaProofData, Bsb22Commitment, CircuitId, PROVING_KEY_SHA256S,
     },

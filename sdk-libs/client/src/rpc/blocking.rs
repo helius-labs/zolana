@@ -1,5 +1,5 @@
 //! A blocking [`Rpc`] serving as an [`AsyncRpc`], each call run on Tokio's
-//! blocking pool, the way `zolana_api::OnBlockingPool` carries a blocking HTTP
+//! blocking pool, the way `spr_api::OnBlockingPool` carries a blocking HTTP
 //! client. The blocking `ZolanaClient` runs its `async` core over this.
 
 use std::sync::Arc;
@@ -12,7 +12,7 @@ use solana_rpc_client_api::config::RpcSendTransactionConfig;
 use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_status_client_types::TransactionStatus;
-use zolana_transaction::utxo::SppProofInputUtxo;
+use spr_transaction::utxo::SppProofInputUtxo;
 
 use crate::prover::witness::{AsyncWitnessReader, InputWitnesses, WitnessReader};
 use crate::{error::ClientError, prover::transact::witness::SpendProof};

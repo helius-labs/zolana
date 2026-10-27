@@ -629,7 +629,7 @@
     "treeId": 515,
     "writeAuthority": "3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3"
   },
-  "description": "Cache encodings the TypeScript SDK must reproduce: the create and close cache instructions, the cache PDA, the cache account layout, the cached input fields every owner-signed transfer publishes, the write binding of the transact external data hash, and the cached circuit selectors in transact instruction data. Regenerate with `cargo test -p zolana-program --test cache_vectors print_cache_vectors -- --ignored --nocapture`.",
+  "description": "Cache encodings the TypeScript SDK must reproduce: the create and close cache instructions, the cache PDA, the cache account layout, the cached input fields every owner-signed transfer publishes, the write binding of the transact external data hash, and the cached circuit selectors in transact instruction data. Regenerate with `cargo test -p spr-program --test cache_vectors print_cache_vectors -- --ignored --nocapture`.",
   "emptyCachedInputFields": [
     {
       "fields": [

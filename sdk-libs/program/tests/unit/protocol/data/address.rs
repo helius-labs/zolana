@@ -1,13 +1,13 @@
 use solana_address::Address;
-use zolana_keypair::ShieldedAddress;
-use zolana_program::{
+use spr_keypair::ShieldedAddress;
+use spr_program::{
     circuit::{
         CheckedTransaction, Circuit, ConfidentialTransaction, NewAddress, SolanaAddress, TokenUtxos,
     },
     conversion::ProofInput,
     CircuitError, ProgramOwner, TxContext, ZkProgramCircuit,
 };
-use zolana_transaction::WalletUtxo;
+use spr_transaction::WalletUtxo;
 
 use crate::{
     harness::fixture::check_constraints,
@@ -35,7 +35,7 @@ impl<const DUMMY_PADDING: bool> Circuit for ReservationCircuit<DUMMY_PADDING> {
         let tokens = TokenUtxos::new_mut(&self.inputs)?
             .with_optional(
                 &self.owner,
-                &SolanaAddress::constant(&zolana_transaction::SOL_MINT),
+                &SolanaAddress::constant(&spr_transaction::SOL_MINT),
             )
             .close();
         let transaction = ConfidentialTransaction::new(&self.tx_context, &self.public)

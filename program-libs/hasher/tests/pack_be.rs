@@ -1,4 +1,4 @@
-use zolana_hasher::primitives::{pack_be, pack_be_chunks};
+use spr_hasher::primitives::{pack_be, pack_be_chunks};
 
 #[test]
 fn packs_fixed_size_big_endian_chunks() {

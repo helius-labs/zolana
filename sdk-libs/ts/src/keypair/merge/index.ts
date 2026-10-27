@@ -42,7 +42,7 @@ function keySchedule(
 }
 
 /**
- * Mirrors `zolana_keypair::symmetric_apply`: the Poseidon key schedule over a
+ * Mirrors `spr_keypair::symmetric_apply`: the Poseidon key schedule over a
  * pre-shared secret, then AES-256-CTR. Encryption and decryption are the same
  * operation, so applying it twice returns the input.
  */

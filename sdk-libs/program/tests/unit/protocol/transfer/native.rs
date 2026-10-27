@@ -1,5 +1,5 @@
 use solana_address::Address;
-use zolana_program::{
+use spr_program::{
     circuit::{constant, poseidon, value, HashBytes, SolanaAddress},
     transaction_hash, PublicTransfer,
 };

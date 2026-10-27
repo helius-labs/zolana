@@ -1,4 +1,4 @@
-use zolana_keypair::ViewingKey;
+use spr_keypair::ViewingKey;
 
 use crate::KeypairWorld;
 

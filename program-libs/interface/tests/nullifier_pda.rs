@@ -1,4 +1,4 @@
-use zolana_interface::{state::discriminator::NULLIFIER_PDA, NullifierPda, NULLIFIER_PDA_SIZE};
+use spr_interface::{state::discriminator::NULLIFIER_PDA, NullifierPda, NULLIFIER_PDA_SIZE};
 
 const RECORD: NullifierPda = NullifierPda {
     queue_index: 0x0102_0304_0506_0708,

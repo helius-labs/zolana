@@ -6,13 +6,13 @@ use solana_keypair::Signer;
 use solana_message::VersionedMessage;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
-use tokio::time::Instant;
-use zolana_interface::{
+use spr_interface::{
     instruction::{instruction_data::transact::TransactProof, TransactIxData},
     pda,
 };
-use zolana_program::instruction::{Transact, TransactInterfaceTransferAccounts};
-use zolana_transaction::instructions::transact::SppProofInputs;
+use spr_program::instruction::{Transact, TransactInterfaceTransferAccounts};
+use spr_transaction::instructions::transact::SppProofInputs;
+use tokio::time::Instant;
 
 use crate::{
     authority::ProofAuthority,
@@ -374,7 +374,7 @@ fn build_unsigned_message(
     trees: TransactTrees,
     owner_signers: Vec<Pubkey>,
     settlement_transfers: Vec<TransactInterfaceTransferAccounts>,
-    transact_data: zolana_interface::instruction::instruction_data::transact::TransactIxData,
+    transact_data: spr_interface::instruction::instruction_data::transact::TransactIxData,
     recent_blockhash: Hash,
 ) -> Result<VersionedMessage, ClientError> {
     SettlementAccountValidation {

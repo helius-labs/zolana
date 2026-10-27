@@ -1,7 +1,7 @@
 # Utxo Invariants
 
-Covers `src/circuit/utxo/`, against the native `zolana-keypair` and
-`zolana-transaction` values. Invariants every type shares live in `cross-cutting.md`. ID
+Covers `src/circuit/utxo/`, against the native `spr-keypair` and
+`spr-transaction` values. Invariants every type shares live in `cross-cutting.md`. ID
 prefixes: `INV-UTXO`, `INV-LEDGER`, `INV-TOKEN`, `INV-DATA`; the tests live in
 `tests/unit/protocol/{utxo,balance,token,data}/`.
 
@@ -10,7 +10,7 @@ prefixes: `INV-UTXO`, `INV-LEDGER`, `INV-TOKEN`, `INV-DATA`; the tests live in
 `INV-UTXO`
 
 Covers `Utxo` of `sdk-libs/transaction/src/circuit/utxo.rs` as `WalletUtxo` instantiates it
-(`sdk-libs/transaction/src/circuit/conversion/utxo.rs`), against the native `zolana-transaction` commitment
+(`sdk-libs/transaction/src/circuit/conversion/utxo.rs`), against the native `spr-transaction` commitment
 (`ProofInputUtxo::hash`, `utxo::Utxo::hash`, `SppProofOutputUtxo::hash`, `WalletUtxo::utxo_hash`)
 and nullifier (`utxo::Utxo::nullifier`). In `tests/unit/protocol/utxo/fixtures.rs`,
 `UtxoHash` asserts `utxo.hash() == hash` with "the utxo hash is the native commitment"

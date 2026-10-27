@@ -3,17 +3,17 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_event::SplTransfer;
-use zolana_interface::{
+use spr_event::SplTransfer;
+use spr_interface::{
     instruction::{encode_instruction, tag, CreateRingConfigData, EncryptedRingDepositData},
     pda,
 };
-use zolana_keypair::shielded::ShieldedAddress;
-use zolana_program::instruction::{
+use spr_keypair::shielded::ShieldedAddress;
+use spr_program::instruction::{
     DepositAsset, DepositSplAccounts, RingAssetDeposit, RingDeposit, SetRingActivation,
     UpdateRingConfig, UpdateRingConfigOwner,
 };
-use zolana_transaction::{owner_utxo_hash, serialization::RingDepositPlaintext, Blinding};
+use spr_transaction::{owner_utxo_hash, serialization::RingDepositPlaintext, Blinding};
 
 use crate::{
     instructions::RING_TEST_PROGRAM_ID, paths::default_ring_test_program_path,
@@ -269,10 +269,9 @@ impl ZolanaProgramTest {
                 outcome.events.len()
             )));
         }
-        let general_event =
-            zolana_event_parser::general_event_from_indexed(event).map_err(|err| {
-                ProgramTestError::Event(format!("batch ring deposit event decode failed: {err:?}"))
-            })?;
+        let general_event = spr_event_parser::general_event_from_indexed(event).map_err(|err| {
+            ProgramTestError::Event(format!("batch ring deposit event decode failed: {err:?}"))
+        })?;
         Ok(RingDepositBatch {
             outputs: crate::ring_deposit_outputs_from_event(event)?,
             spl_transfers: general_event.spl_transfers.clone(),

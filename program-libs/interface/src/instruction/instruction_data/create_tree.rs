@@ -1,6 +1,6 @@
 #[cfg(feature = "borsh")]
 use borsh::{BorshDeserialize, BorshSerialize};
-use zolana_tree::{NullifierTreeInitParams, TreeFeeSchedule};
+use spr_tree::{NullifierTreeInitParams, TreeFeeSchedule};
 
 #[cfg_attr(feature = "borsh", derive(BorshDeserialize, BorshSerialize))]
 #[derive(Debug, Clone, Copy, PartialEq)]

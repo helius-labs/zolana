@@ -1,7 +1,7 @@
 use borsh::BorshSerialize;
 use pinocchio::{error::ProgramError, Address};
 use shielded_pool_program::{process_instruction, ID};
-use zolana_interface::{
+use spr_interface::{
     error::ShieldedPoolError,
     instruction::{
         instruction_data::transact::CircuitId, tag, InputUtxo, OwnerTag, TransactIxData,
@@ -40,10 +40,10 @@ fn rejects_empty_unknown_and_malformed_instruction_data_exactly() {
 #[test]
 fn valid_create_tree_payload_reaches_account_validation() {
     let mut data = vec![tag::CREATE_TREE];
-    zolana_interface::instruction::CreateTreeData {
+    spr_interface::instruction::CreateTreeData {
         tree_id: 0,
-        nullifier_params: zolana_tree::NullifierTreeInitParams::default(),
-        fees: zolana_tree::TreeFeeSchedule::default(),
+        nullifier_params: spr_tree::NullifierTreeInitParams::default(),
+        fees: spr_tree::TreeFeeSchedule::default(),
     }
     .serialize(&mut data)
     .unwrap();

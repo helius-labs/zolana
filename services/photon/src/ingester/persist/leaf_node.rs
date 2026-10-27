@@ -5,9 +5,9 @@ use crate::ingester::persist::persisted_state_tree::{get_proof_nodes, zero_hash_
 use crate::ingester::persist::{compute_parent_hash, get_node_direct_ancestors};
 use crate::migration::OnConflict;
 use sea_orm::{ConnectionTrait, DatabaseTransaction, EntityTrait, QueryTrait, Set};
+use spr_indexer_api::Hash;
 use std::cmp::max;
 use std::collections::HashMap;
-use zolana_indexer_api::Hash;
 
 #[derive(Clone, Debug)]
 pub struct LeafNode {

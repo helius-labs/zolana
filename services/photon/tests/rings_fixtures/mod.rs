@@ -24,11 +24,11 @@ use sea_orm::{Database, DatabaseConnection, EntityTrait, Set};
 use sea_orm_migration::MigratorTrait;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
-use zolana_indexer_api::{
+use spr_indexer_api::{
     Base64String, GetRingsByTagsRequest, GetShieldedTransactionsBySignatureRequest,
     GetShieldedTransactionsByTagsResponse, Hash, Limit, SerializableSignature,
 };
-use zolana_interface::pda;
+use spr_interface::pda;
 
 pub const VIEW_TAG: [u8; 32] = [77u8; 32];
 /// The page size the confirmation path used before the signature lookup.

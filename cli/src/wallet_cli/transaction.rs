@@ -2,12 +2,12 @@ use std::collections::HashSet;
 
 use anyhow::{bail, Result};
 use solana_signer::Signer;
-use zolana_client::{
+use spr_client::{
     check_service_url, indexer::ZolanaIndexer, prover::ProverClient,
     user_registry::try_resolve_registered_address, MergeSubmission, Rpc, SolanaRpc, ZolanaClient,
 };
-use zolana_interface::shape::Shape;
-use zolana_transaction::{
+use spr_interface::shape::Shape;
+use spr_transaction::{
     instructions::{
         merge::{MergeTransaction, MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT},
         transact::ConfidentialTransaction,

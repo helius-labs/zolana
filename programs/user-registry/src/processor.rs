@@ -1,6 +1,6 @@
 use borsh::BorshDeserialize;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
-use zolana_user_registry_interface::instruction::{
+use spr_user_registry_interface::instruction::{
     discriminator, RegisterData, SetMergeEncryptionData, UpdateKeysData,
 };
 

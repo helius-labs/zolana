@@ -2,13 +2,13 @@ use solana_address::Address;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
-use swap_prover::TAKE_MODE_DERIVED;
-use zolana_keypair::{ShieldedAddress, ShieldedKeypair, X25519Pubkey};
-use zolana_transaction::{
+use spr_keypair::{ShieldedAddress, ShieldedKeypair, X25519Pubkey};
+use spr_transaction::{
     instructions::transact::{OutputContext, OutputSlot, SppProofInputs, SppProofOutputUtxo},
     utxo::{SppProofInputUtxo, Utxo},
     AssetRegistry, Data, ShieldedTransaction, SOL_ASSET_ID, SOL_MINT,
 };
+use swap_prover::TAKE_MODE_DERIVED;
 
 use crate::{
     instructions::make::OrderMarker,
@@ -110,7 +110,7 @@ pub(crate) fn order_fixture() -> OrderFixture {
         ring_program_id: None,
         data: Data::default(),
     };
-    let input_utxo = zolana_test_utils::utxo::wallet(
+    let input_utxo = spr_test_utils::utxo::wallet(
         input_utxo,
         &maker_keypair.nullifier_key,
         INDEXED_TREE_ID,
@@ -134,14 +134,14 @@ pub(crate) fn order_fixture() -> OrderFixture {
         maker_address,
     )
     .expect("change output");
-    let mut spp_proof_inputs = zolana_test_utils::utxo::finalized_transaction(
+    let mut spp_proof_inputs = spr_test_utils::utxo::finalized_transaction(
         input_utxos,
         vec![change, order_output_utxo],
         &maker_keypair,
         Address::default(),
         INDEXED_TREE_ID,
-        zolana_keypair::random_blinding(),
-        zolana_keypair::random_salt(),
+        spr_keypair::random_blinding(),
+        spr_keypair::random_salt(),
     );
     let order_output_utxo = &spp_proof_inputs.output_utxos[1];
     order_utxo.blinding = order_output_utxo.blinding;

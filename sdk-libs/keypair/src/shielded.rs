@@ -120,8 +120,7 @@ pub struct CompressedShieldedAddress {
 
 impl CompressedShieldedAddress {
     pub fn hash(&self) -> Result<[u8; 32], KeypairError> {
-        let viewing_key_hash =
-            zolana_hasher::primitives::hash_bytes(self.viewing_pubkey.as_bytes())?;
+        let viewing_key_hash = spr_hasher::primitives::hash_bytes(self.viewing_pubkey.as_bytes())?;
         poseidon(&[&self.owner_hash, &viewing_key_hash])
     }
 }

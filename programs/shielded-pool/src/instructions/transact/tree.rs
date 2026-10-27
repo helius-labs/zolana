@@ -2,7 +2,7 @@ use crate::instructions::shared::caused_by;
 use arrayvec::ArrayVec;
 use light_program_profiler::profile;
 use pinocchio::{error::ProgramError, AccountView};
-use zolana_interface::{
+use spr_interface::{
     error::ShieldedPoolError,
     event::InputTreeSequence,
     instruction::instruction_data::transact::{TransactIxDataRef, TreeContext, NO_UTXO_ROOT},
@@ -10,7 +10,7 @@ use zolana_interface::{
     tree_slot::{pack_input_flags, resolve_tree_slot, TreeSlot},
     INPUT_TREES, MAX_INPUT_TREES,
 };
-use zolana_tree::TreeAccount;
+use spr_tree::TreeAccount;
 
 use super::{account::TransactAccounts, event::TreeWrite, verify::TransactProofInputs};
 use crate::instructions::{

@@ -22,7 +22,7 @@ const (
 
 // Utxo is the witness of one UTXO slot. It carries the slot domain, the
 // precomputed owner_hash, the data and ring-program hashes, and the raw id of
-// its tree; the circuit hashes the UTXO, matching zolana_transaction's
+// its tree; the circuit hashes the UTXO, matching spr_transaction's
 // Utxo::hash.
 //
 // Domain is the SPP slot domain (transaction.UtxoDomain, DummyDomain, or, for

@@ -7,8 +7,8 @@ use solana_pubkey::Pubkey;
 use crate::api::error::PhotonApiError;
 use crate::common::rings_tree::RingsTreeKind;
 use crate::dao::generated::{prelude::*, tree_metadata};
-use zolana_interface::{pda, state::discriminator::TREE_ACCOUNT_DISCRIMINATOR};
-use zolana_tree::TreeAccount;
+use spr_interface::{pda, state::discriminator::TREE_ACCOUNT_DISCRIMINATOR};
+use spr_tree::TreeAccount;
 
 /// Tree account data extracted from on-chain account
 pub struct TreeAccountData {

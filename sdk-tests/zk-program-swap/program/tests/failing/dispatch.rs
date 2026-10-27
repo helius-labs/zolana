@@ -1,6 +1,6 @@
 use solana_instruction::Instruction;
 use solana_program_error::ProgramError;
-use zolana_test_utils::mollusk::expect_err_exact;
+use spr_test_utils::mollusk::expect_err_exact;
 
 use crate::common::setup_mollusk;
 

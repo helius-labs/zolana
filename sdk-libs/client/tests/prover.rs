@@ -2,7 +2,7 @@
 //! keys. The `prove_and_verify_*` helpers are the infra the transfer step calls
 //! once it has built a rail-specific proof result.
 
-use zolana_client::{
+use spr_client::{
     spawn_prover, verify_confidential_transfer_proof, ProverClient, ProverExt, TransferProofResult,
 };
 

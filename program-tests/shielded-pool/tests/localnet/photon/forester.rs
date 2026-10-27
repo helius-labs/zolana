@@ -1,10 +1,10 @@
 use super::*;
 
 use ::forester::close_nullifier_pdas::plan_batches;
-use zolana_client::ClientError;
-use zolana_interface::error::ShieldedPoolError;
-use zolana_program_test::Rejection;
-use zolana_test_utils::nullifier_pda::{
+use spr_client::ClientError;
+use spr_interface::error::ShieldedPoolError;
+use spr_program_test::Rejection;
+use spr_test_utils::nullifier_pda::{
     assert_nullifier_pda, assert_nullifier_pdas, assert_tree_lamports_after_spend,
     nullifier_queue_next_index, tree_close_before_index, tree_fees,
 };
@@ -25,8 +25,8 @@ use zolana_test_utils::nullifier_pda::{
 fn forester_dry_run_reconstructs_from_photon() -> TestResult {
     restart_localnet();
 
-    let rpc_url = zolana_test_utils::localnet::localnet_rpc_url();
-    let indexer_url = zolana_test_utils::localnet::localnet_indexer_url();
+    let rpc_url = spr_test_utils::localnet::localnet_rpc_url();
+    let indexer_url = spr_test_utils::localnet::localnet_indexer_url();
 
     let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
     let mut rpc = SolanaRpc::new(rpc_url.clone());
@@ -140,8 +140,8 @@ struct ForesterEnv {
 /// config, and a pool tree with a small localnet nullifier batch: the shared
 /// harness bootstrap steps, with the suite's shrunken nullifier ZKP batch.
 fn phase_bootstrap() -> TestResult<ForesterEnv> {
-    let rpc_url = zolana_test_utils::localnet::localnet_rpc_url();
-    let indexer_url = zolana_test_utils::localnet::localnet_indexer_url();
+    let rpc_url = spr_test_utils::localnet::localnet_rpc_url();
+    let indexer_url = spr_test_utils::localnet::localnet_indexer_url();
 
     let config = BootstrapConfig {
         label: "zolana-photon",
@@ -323,7 +323,7 @@ fn queue_nullifiers_once(env: &mut ForesterEnv, ctx: &mut QueueContext, i: u64) 
 
     let wait_tag = ctx.payer_public_key.confidential_view_tag()?;
     let notes = vec![
-        zolana_test_utils::utxo::wallet(
+        spr_test_utils::utxo::wallet(
             first_utxo.utxo.clone(),
             &ctx.sender.nullifier_key,
             env.tree_id,
@@ -331,7 +331,7 @@ fn queue_nullifiers_once(env: &mut ForesterEnv, ctx: &mut QueueContext, i: u64) 
             None,
             None,
         )?,
-        zolana_test_utils::utxo::wallet(
+        spr_test_utils::utxo::wallet(
             second_utxo.utxo.clone(),
             &ctx.sender.nullifier_key,
             env.tree_id,
@@ -363,7 +363,7 @@ fn queue_nullifiers_once(env: &mut ForesterEnv, ctx: &mut QueueContext, i: u64) 
     // The payer owns the inputs, so it signs as their owner as well.
     let owner_signers = proof_inputs.owner_signer_pubkeys()?;
     // Both inputs are real (no dummy slots), so no dummy nullifier proofs.
-    let mut assembled = zolana_client::assemble(
+    let mut assembled = spr_client::assemble(
         proof_inputs,
         &[
             SpendProof {

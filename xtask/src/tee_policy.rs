@@ -10,7 +10,7 @@ use std::{
 use anyhow::{bail, Context, Result};
 use rand_core::{OsRng, TryRngCore};
 use reqwest::Url;
-use zolana_client::{
+use spr_client::{
     prover::tee::{
         inspect, Attestation, AttestedIdentity, DstackIdentity, DstackPolicy, GpuRequirement,
         NitroMeasurement, NitroPolicy, PlatformIdentity, PlatformPolicy, TeeError, TeePolicy,

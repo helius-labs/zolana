@@ -1,5 +1,5 @@
-use zolana_program::TxContext;
-use zolana_transaction::Mint;
+use spr_program::TxContext;
+use spr_transaction::Mint;
 
 use super::{
     fixtures::{Forgotten, Fund, NoFields, Payment, Recipient, Refresh, Settle, Swept, Unspent},

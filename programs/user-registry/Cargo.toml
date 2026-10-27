@@ -1,5 +1,5 @@
 [package]
-name = "zolana-user-registry"
+name = "spr-user-registry"
 version = "0.1.0"
 description = "On-chain user registry: Solana pubkey to shielded payment keys"
 edition.workspace = true
@@ -9,7 +9,7 @@ publish = false
 
 [lib]
 crate-type = ["cdylib", "lib"]
-name = "zolana_user_registry"
+name = "spr_user_registry"
 
 [features]
 default = []
@@ -24,7 +24,7 @@ pinocchio = { workspace = true, features = ["cpi"] }
 solana-address = { workspace = true, features = ["curve25519"] }
 solana-msg = { workspace = true, default-features = false }
 thiserror = { workspace = true }
-zolana-user-registry-interface = { workspace = true }
+spr-user-registry-interface = { workspace = true }
 
 [package.metadata.cargo-machete]
 ignored = ["solana-address"]

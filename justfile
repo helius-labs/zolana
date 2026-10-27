@@ -73,16 +73,16 @@ build-release:
 check:
     cargo check
 
-# Check the entire workspace. `zolana-client/proofs` keeps its prover-backed
+# Check the entire workspace. `spr-client/proofs` keeps its prover-backed
 # test binaries in the type check without letting `cargo test` run them.
 check-all:
-    cargo check --workspace --all-targets --features zolana-client/proofs
-    cargo check -p zolana-test-utils --features parallel --all-targets
+    cargo check --workspace --all-targets --features spr-client/proofs
+    cargo check -p spr-test-utils --features parallel --all-targets
     # A wallet that brings its own HTTP client links neither crate's reqwest.
-    cargo check -p zolana-api -p zolana-client --no-default-features
+    cargo check -p spr-api -p spr-client --no-default-features
     just check-deps
 
-# Enforce optional circuit dependencies and the zolana-program re-export boundary
+# Enforce optional circuit dependencies and the spr-program re-export boundary
 # (xtask/src/check_deps.rs).
 check-deps:
     cargo run -q -p xtask -- check-deps
@@ -92,12 +92,12 @@ test: test-shielded-pool test-sdk-libs test-photon
 
 # Everything that needs nothing running. No prover, no validator, no network,
 # and no proving keys. CI runs these same suites on every push, one job each.
-test-hermetic: test-cli test-tree test-program-fast test-user-registry-litesvm test-sdk-libs test-example-provers test-photon test-zk-standalone test-zolana-program-unit test-zolana-program-release
+test-hermetic: test-cli test-tree test-program-fast test-user-registry-litesvm test-sdk-libs test-example-provers test-photon test-zk-standalone test-spr-program-unit test-spr-program-release
 
 # The tests need the test-only feature. Keep the prover-backed
 # nullifier_tree::prover_e2e module out of this hermetic lane.
 test-tree:
-    cargo nextest run -p zolana-tree --features test-only,verify \
+    cargo nextest run -p spr-tree --features test-only,verify \
         -E 'not test(/^prover_e2e::/)'
 
 # Program/interface tests for the shielded-pool implementation.
@@ -105,27 +105,27 @@ test-tree:
 # run (without it `program_test()` finds no .so and the suite skips). Builds
 # the prover server and zolana CLI because transact tests spawn a local prover.
 test-shielded-pool: build-programs build-prover-server build-cli
-    cargo nextest run -p zolana-interface -p zolana-instruction --features zolana-instruction/protocol
+    cargo nextest run -p spr-interface -p spr-instruction --features spr-instruction/protocol
     cargo nextest run -p shielded-pool-program --lib --tests
     # Proof-backed binaries spawn a shared prover server on a fixed port; run
     # them serially because nextest isolates tests in separate processes, so a
     # process-local OnceLock does not prevent concurrent port grabs.
     cargo nextest run -p shielded-pool-tests --features proofs --test-threads 1
-    cargo nextest run -p zolana-user-registry --tests
+    cargo nextest run -p spr-user-registry --tests
     cargo nextest run -p user-registry-tests --test wire_layout
 
 # Fast SBF-backed state and failure tests. No proof server or local validator.
 # The proof-backed binaries are gated behind the `proofs` feature, so the plain
 # package run is hermetic by construction.
 test-program-fast: build-programs
-    cargo nextest run -p zolana-interface -p zolana-instruction --features zolana-instruction/protocol
+    cargo nextest run -p spr-interface -p spr-instruction --features spr-instruction/protocol
     cargo nextest run -p shielded-pool-program --lib --tests
-    cargo nextest run -p zolana-user-registry --tests
+    cargo nextest run -p spr-user-registry --tests
     cargo nextest run -p shielded-pool-tests
     cargo nextest run -p swap-program --tests
     # The account fixture boots the SBF build, which the hermetic coverage run
     # does not have, so its test is ignored there and run here.
-    cargo nextest run -p zolana-program-test --run-ignored all
+    cargo nextest run -p spr-program-test --run-ignored all
 
 # Run one shielded-pool intent-level binary, for example:
 # `just test-shielded-pool-case deposit_model`.
@@ -151,7 +151,7 @@ test-program-proofs-programs-only: build-programs build-prover-server build-cli
 # Groth16-backed program and client matrices, separated from fast state tests.
 # The full local gate; CI splits it (see test-program-proofs-programs-only).
 test-program-proofs: test-program-proofs-programs-only
-    cargo nextest run -p zolana-client --features proofs --test transaction_proving --test merge_proving --test merge_ring_proving --test ring_authority_proving --test ring_transfer_proving --test-threads 1
+    cargo nextest run -p spr-client --features proofs --test transaction_proving --test merge_proving --test merge_ring_proving --test ring_authority_proving --test ring_transfer_proving --test-threads 1
 
 # Export Mollusk's exact-error cases as replayable fuzz fixtures. Only the
 # Mollusk-backed cases in tests/deposit/rejection.rs (the `deposit_rejection`
@@ -173,7 +173,7 @@ test-user-registry-litesvm: build-programs
 # The standalone zk fixture's verifier program, built like any circuit crate:
 # circuits, test keys, verifier modules and the SBF program.
 build-zk-standalone:
-    cargo run --release -p zolana-cli -- build-zk-program --test --manifest-path sdk-tests/zk-standalone/Cargo.toml --skip-wasm --sbf-features bpf-entrypoint
+    cargo run --release -p spr-cli -- build-zk-program --test --manifest-path sdk-tests/zk-standalone/Cargo.toml --skip-wasm --sbf-features bpf-entrypoint
 
 # A standalone circuit's proof verified on-chain, in litesvm.
 test-zk-standalone-program: build-zk-standalone
@@ -181,29 +181,29 @@ test-zk-standalone-program: build-zk-standalone
 
 # Unit, integration, and property tests for the client-side SDK crates, which
 # all run against in-memory fakes. nextest skips doctests, so the `--doc` line keeps the
-# zolana-keypair doctest covered. The zolana-client proving binaries are behind
+# spr-keypair doctest covered. The spr-client proving binaries are behind
 # its `proofs` feature, so `--features client` stays hermetic.
 test-sdk-libs:
-    cargo nextest run -p zolana-instruction --features cpi
-    cargo nextest run -p zolana-program --features compression
-    cargo nextest run -p zolana-keypair
-    cargo test --doc -p zolana-keypair
-    cargo nextest run -p zolana-event-parser
-    cargo nextest run -p zolana-transaction
-    cargo nextest run -p zolana-client --features client
+    cargo nextest run -p spr-instruction --features cpi
+    cargo nextest run -p spr-program --features compression
+    cargo nextest run -p spr-keypair
+    cargo test --doc -p spr-keypair
+    cargo nextest run -p spr-event-parser
+    cargo nextest run -p spr-transaction
+    cargo nextest run -p spr-client --features client
     # The test harness wallet: its scan, indexer sync and transaction actions.
-    cargo nextest run -p zolana-test-utils
+    cargo nextest run -p spr-test-utils
     # `parallel` is off by default, so the default run compiles neither
     # the wallet's parallel scan nor the case that holds the two scan
     # strategies to the same results. Without this the strategies can drift
     # unnoticed.
-    cargo nextest run -p zolana-test-utils --features parallel
-    cargo nextest run -p zolana-rpc-http
+    cargo nextest run -p spr-test-utils --features parallel
+    cargo nextest run -p spr-rpc-http
 
 # The gnark SDK's Go tests and the example provers' tests. Needs Go.
 test-example-provers:
     cd sdk-libs/gnark-sdk && GOWORK=off go test ./... -count=1
-    cargo nextest run -p zolana-gnark-ffi-prover -p swap-prover -p dynamic-swap-prover
+    cargo nextest run -p spr-gnark-ffi-prover -p swap-prover -p dynamic-swap-prover
 
 # TypeScript SDK formatting, linting, types, unit tests, and package build.
 test-ts:
@@ -262,7 +262,7 @@ _test-ts-live test-script: build-programs build-prover-server build-cli ensure-p
       --rpc-port {{localnet-rpc-port}} --prover-port {{localnet-prover-port}} \
       --photon-port {{localnet-photon-port}} --account-dir "$accounts_dir" \
       --sbf-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so \
-      --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/zolana_user_registry.so
+      --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/spr_user_registry.so
     "$bin" config set --rpc-url {{localnet-rpc-url}} \
       --indexer-url {{localnet-photon-url}} --prover-url {{localnet-prover-url}} >/dev/null
     "$bin" wallet new --outfile "$workdir/authority.json"
@@ -289,7 +289,7 @@ _test-ts-live test-script: build-programs build-prover-server build-cli ensure-p
       ZOLANA_TEST_TOKEN_ACCOUNT="$token_account" \
       ZOLANA_TEST_TOKEN_2022_MINT="$token_2022_mint" \
       ZOLANA_TEST_TOKEN_2022_ACCOUNT="$token_2022_account" \
-      USER_REGISTRY_PROGRAM_SO="$PWD/target/deploy/zolana_user_registry.so" \
+      USER_REGISTRY_PROGRAM_SO="$PWD/target/deploy/spr_user_registry.so" \
       ZOLANA_TEST_AUTHORITY_WALLET="$PWD/$workdir/authority.json" npm run "{{test-script}}"
 
 test-ts-all: test-ts test-ts-e2e
@@ -314,19 +314,19 @@ coverage-ignore-paths := '(program-tests|sdk-tests|bench)/'
 # matching, and a test crate silently entered the coverage set and failed the
 # job. See that script for what each excluded directory is and why.
 #
-# `zolana-client/client` reaches its indexer and RPC surfaces. Its proving
+# `spr-client/client` reaches its indexer and RPC surfaces. Its proving
 # binaries need the `proofs` feature, which stays off, so this run is hermetic.
 coverage *args="--summary-only":
     #!/usr/bin/env bash
     # `set -e` matters here: without it a failing coverage-packages.py expands to
     # no `-p` flags at all, cargo silently falls back to the workspace's
-    # default-members (forester, zolana-interface, shielded-pool-program), and
+    # default-members (forester, spr-interface, shielded-pool-program), and
     # the job reports that as a successful coverage run.
     set -euo pipefail
     packages="$(python3 tools/coverage-packages.py)"
     cargo llvm-cov clean --workspace
     # Unquoted on purpose: the flags must word-split into separate arguments.
-    cargo llvm-cov --no-report $packages --features zolana-client/client,zolana-program/compression,zolana-program/client,zolana-program/setup,zolana-program/parallel,zolana-program/test-support
+    cargo llvm-cov --no-report $packages --features spr-client/client,spr-program/compression,spr-program/client,spr-program/setup,spr-program/parallel,spr-program/test-support
     just coverage-report {{args}}
 
 # Re-render the collected profile data. Split out so `just coverage` and the CI
@@ -340,14 +340,14 @@ coverage *args="--summary-only":
 coverage-report *args="--summary-only":
     cargo llvm-cov report --ignore-filename-regex '{{ coverage-ignore-paths }}' {{args}}
 
-# All zolana-client tests (lib unit tests and the proving/integration test
+# All spr-client tests (lib unit tests and the proving/integration test
 # binaries). The proving tests spawn the prover server
 # (via the zolana CLI), which lazily downloads any missing proving keys from
 # CloudFront (verified against the committed lockfile; no token). Builds the Go
 # prover binary and the zolana CLI the spawned server/test rely on.
 test-client-integration: build-prover-server build-cli
-    cargo nextest run -p zolana-client --all-features --test-threads 1
-    cargo test --doc -p zolana-client --all-features
+    cargo nextest run -p spr-client --all-features --test-threads 1
+    cargo test --doc -p spr-client --all-features
 
 # One real transfer proof through Redis, TransferQueueWorker, and the Rust
 # client's async /prove status polling. Requires a reachable Redis URL.
@@ -356,7 +356,7 @@ test-client-async-transfer-queue: build-prover-server build-cli
     set -euo pipefail
     : "${ZOLANA_PROVER_REDIS_URL:?set ZOLANA_PROVER_REDIS_URL to a reachable Redis instance}"
     ZOLANA_EXPECT_ASYNC_PROVER=true \
-        cargo nextest run -p zolana-client --features proofs --test transfer_dummy -E 'test(=dummy_transfer_2_4_proof_verifies)' --test-threads 1
+        cargo nextest run -p spr-client --features proofs --test transfer_dummy -E 'test(=dummy_transfer_2_4_proof_verifies)' --test-threads 1
 
 # Program integration tests backed by LiteSVM. Transact tests spawn the prover
 # through the zolana CLI.
@@ -369,7 +369,7 @@ test-programs: build-programs build-prover-server build-cli
 # proof-backed binaries are gated behind the `proofs` feature, so the plain
 # package run is hermetic by construction.
 test-proofless-programs: build-programs
-    cargo test -p zolana-interface -p zolana-instruction --features zolana-instruction/protocol
+    cargo test -p spr-interface -p spr-instruction --features spr-instruction/protocol
     cargo test -p shielded-pool-program --lib --tests
     cargo nextest run -p shielded-pool-tests
 
@@ -386,15 +386,15 @@ verify: verify-rust prover-server-test
 # === CLI ===
 
 cli *args:
-    cargo run -p zolana-cli -- {{args}}
+    cargo run -p spr-cli -- {{args}}
 
 build-cli:
     #!/usr/bin/env bash
     [[ -z "${ZOLANA_PREBUILT:-}" ]] || exit 0
-    cargo build -p zolana-cli --target-dir target
+    cargo build -p spr-cli --target-dir target
 
 test-cli:
-    cargo nextest run -p zolana-cli
+    cargo nextest run -p spr-cli
     cargo nextest run -p xtask
 
 # === Bench ===
@@ -405,7 +405,7 @@ test-cli:
 # --nocapture output is simplest via plain `cargo test`.
 
 # Build the tree bench program with profiling enabled, then run the mollusk
-# harness that profiles zolana-tree init/deserialize/append/nullifier-insert.
+# harness that profiles spr-tree init/deserialize/append/nullifier-insert.
 bench-tree:
     cargo build-sbf --manifest-path bench/tree/Cargo.toml --features bench
     cargo test -p tree-bench --test bench_cu -- --ignored --nocapture
@@ -487,12 +487,12 @@ regen-swap-keys: (_regen-example-keys "sdk-tests/zk-program-swap" "swap-prover" 
 # sdk-tests/timelock-escrow/program/src/verifier, the wasm module and the SBF
 # program.
 build-escrow-program:
-    cargo run --release -p zolana-cli -- build-zk-program --test -p timelock-escrow-program --sbf-features bpf-entrypoint
+    cargo run --release -p spr-cli -- build-zk-program --test -p timelock-escrow-program --sbf-features bpf-entrypoint
 
 # Writes only the escrow's r1cs and proving keys to target/zk, which its
 # zk_functional test loads, and regenerates its verifier modules in src/verifier.
 _escrow-zk-keys:
-    cargo run --release -p zolana-cli -- build-zk-program --test -p timelock-escrow-program --skip-wasm --skip-sbf
+    cargo run --release -p spr-cli -- build-zk-program --test -p timelock-escrow-program --skip-wasm --skip-sbf
 
 
 ensure-dynamic-swap-keys: (_ensure-example-keys "sdk-tests/dynamic-swap" "dynamic-swap-prover" "dynamic-swap-keys.CHECKSUM" "regen-dynamic-swap-keys" "escrow_open escrow_settle")
@@ -538,55 +538,55 @@ bench-rfq:
         -- --features bpf-entrypoint,profile-program
     cargo test -p rfq-test --test bench_cu -- --ignored --nocapture
 
-bench-zolana-program:
-    ZOLANA_PROGRAM_BENCHMARK=1 cargo test --release -p zolana-program --features test-support,setup,parallel,compression --test scenarios -- --test-threads=1
+bench-spr-program:
+    ZOLANA_PROGRAM_BENCHMARK=1 cargo test --release -p spr-program --features test-support,setup,parallel,compression --test scenarios -- --test-threads=1
 
-test-zolana-macros:
-    cargo test --release -p zolana-macros
+test-spr-macros:
+    cargo test --release -p spr-macros
 
 # The standalone fixture exercises the Zolana CLI against the pinned zk-tools
 # dependency. DSL, gadget and derive unit tests run in zk-tools CI.
 test-zk-standalone:
-    cargo test -p zolana-zk-standalone-fixture --features circuits
-    cargo run -q -p zolana-cli -- zk compile --test --manifest-path sdk-tests/zk-standalone/Cargo.toml --check --skip-wasm
+    cargo test -p spr-zk-standalone-fixture --features circuits
+    cargo run -q -p spr-cli -- zk compile --test --manifest-path sdk-tests/zk-standalone/Cargo.toml --check --skip-wasm
 
 # Full SDK validation: crate checks, hermetic units, two external runs, release tests.
-# External tool requirements are listed on test-zolana-program-external below.
-test-zolana-program:
-    cargo check --tests --all-features -p zolana-program -p zolana-macros
+# External tool requirements are listed on test-spr-program-external below.
+test-spr-program:
+    cargo check --tests --all-features -p spr-program -p spr-macros
     just test-zk-standalone
     cargo check --tests -p timelock-escrow-program --features localnet,wasm,bpf-entrypoint,cpi,test-sbf,profile-program
     cargo check --lib -p timelock-escrow-program --features circuits,r1cs-export
-    just test-zolana-program-unit
-    just test-zolana-program-external
-    just test-zolana-program-release
+    just test-spr-program-unit
+    just test-spr-program-external
+    just test-spr-program-release
 
 # The ZK program SDK scenarios, the macro tests and the escrow circuit tests,
 # in release, after writing the escrow's keys. Fails when the regenerated
 # escrow verifier modules differ from the committed ones.
-test-zolana-program-release: _escrow-zk-keys
+test-spr-program-release: _escrow-zk-keys
     git diff --exit-code -- sdk-tests/timelock-escrow/program/src/verifier
-    cargo test --release -p zolana-program -p zolana-macros -p timelock-escrow-program --features timelock-escrow-program/circuits,zolana-program/compression,zolana-program/test-support -- --test-threads=4
+    cargo test --release -p spr-program -p spr-macros -p timelock-escrow-program --features timelock-escrow-program/circuits,spr-program/compression,spr-program/test-support -- --test-threads=4
 
 # The ZK program SDK unit suite without the circom, snarkjs and Picus checks.
-test-zolana-program-unit filter="":
-    cargo test -p zolana-program --features test-support,setup,parallel --test unit "{{filter}}"
+test-spr-program-unit filter="":
+    cargo test -p spr-program --features test-support,setup,parallel --test unit "{{filter}}"
 
 # The ZK program SDK unit suite with the circom, snarkjs and Picus checks.
 # Needs circom, snarkjs, run-picus, Racket and cvc5 on PATH, plus ps/kill access.
 # CIRCOMLIB_DIR may name a clean checkout of the pinned circomlib revision.
 # An optional test filter also supports focused checks, such as harness::picus::timeout_cleanup.
-test-zolana-program-external filter="":
-    cargo test --release -p zolana-program --features test-support,setup,parallel,external-tools --test unit "{{filter}}" -- --test-threads=4
+test-spr-program-external filter="":
+    cargo test --release -p spr-program --features test-support,setup,parallel,external-tools --test unit "{{filter}}" -- --test-threads=4
 
 # Checks that the ZK program SDK, the zk DSL's wasm runtime, the escrow
 # circuits and the escrow wasm module build for wasm32-unknown-unknown. Kept out of check-all, which runs
 # without the wasm target; the zk-program CI job installs it.
 check-wasm:
-    cargo check -p zolana-program --no-default-features --features client --target wasm32-unknown-unknown
-    cargo check -p zolana-program --no-default-features --features wasm-prover,wasm-verify --target wasm32-unknown-unknown
+    cargo check -p spr-program --no-default-features --features client --target wasm32-unknown-unknown
+    cargo check -p spr-program --no-default-features --features wasm-prover,wasm-verify --target wasm32-unknown-unknown
     cargo check -p timelock-escrow-program --features wasm --target wasm32-unknown-unknown
-    cargo check -p timelock-escrow-program --features wasm,zolana-program/wasm-prover,zolana-program/wasm-verify --target wasm32-unknown-unknown
+    cargo check -p timelock-escrow-program --features wasm,spr-program/wasm-prover,spr-program/wasm-verify --target wasm32-unknown-unknown
 
 # Builds the escrow wasm module (escrowTransaction, withdrawTransaction and
 # their provers) into target/zk/timelock-escrow-program/wasm: multi-threaded,
@@ -594,13 +594,13 @@ check-wasm:
 # in a worker). Needs wasm-pack and nightly-2026-05-18 with rust-src and the
 # wasm32 target.
 build-escrow-wasm:
-    cargo run --release -q -p zolana-cli -- zk compile -p timelock-escrow-program --skip-r1cs --skip-keys
+    cargo run --release -q -p spr-cli -- zk compile -p timelock-escrow-program --skip-r1cs --skip-keys
 
 escrow-program-id := "2ehy1rrRKT3KEVNN6pLmHeiUedwazPZezXXhwaLjCt5G"
 escrow-wasm-node-dir := "target/zk/timelock-escrow-program/wasm-node"
 
 build-escrow-wasm-node:
-    cargo run --release -q -p zolana-cli -- zk compile -p timelock-escrow-program --skip-r1cs --skip-keys --wasm-target nodejs --wasm-out {{escrow-wasm-node-dir}}
+    cargo run --release -q -p spr-cli -- zk compile -p timelock-escrow-program --skip-r1cs --skip-keys --wasm-target nodejs --wasm-out {{escrow-wasm-node-dir}}
 
 test-escrow-ts: build-programs build-prover-server build-cli ensure-photon build-escrow-wasm-node
     #!/usr/bin/env bash
@@ -647,11 +647,11 @@ test-escrow-ts: build-programs build-prover-server build-cli ensure-photon build
 # committed), and the committed JSON fixtures the Playwright and TS SDK tests
 # compare against. Needs `snarkjs` on PATH.
 regen-zk-program-wasm-fixtures:
-    cargo test --release -p zolana-program-wasm-test-program --features snarkjs --test fixtures -- --ignored --nocapture
+    cargo test --release -p spr-program-wasm-test-program --features snarkjs --test fixtures -- --ignored --nocapture
 
 # Writes only the uncommitted keys the ZK program SDK wasm tests load.
 _zk-program-wasm-keys:
-    cargo test --release -p zolana-program-wasm-test-program --features snarkjs --test fixtures -- --ignored --exact write_wasm_keys
+    cargo test --release -p spr-program-wasm-test-program --features snarkjs --test fixtures -- --ignored --exact write_wasm_keys
 
 # Runs the ZK program SDK wasm tests in Chromium against the test program in
 # sdk-libs/program/tests/wasm: checks that the committed
@@ -662,12 +662,12 @@ _zk-program-wasm-keys:
 # A standalone circuit (zk DSL only) built to a Node.js wasm package with
 # `zolana zk compile`, proved and verified in Node.
 test-zk-wasm:
-    cargo test -p zolana-zk-standalone-fixture --features circuits --test standalone the_committed_wasm_fixture_matches_the_native_path
-    cargo run --release -q -p zolana-cli -- zk compile --test --manifest-path sdk-tests/zk-standalone/Cargo.toml --wasm-target nodejs --verifier --wasm-out target/zk/zolana-zk-standalone-fixture/wasm-node
+    cargo test -p spr-zk-standalone-fixture --features circuits --test standalone the_committed_wasm_fixture_matches_the_native_path
+    cargo run --release -q -p spr-cli -- zk compile --test --manifest-path sdk-tests/zk-standalone/Cargo.toml --wasm-target nodejs --verifier --wasm-out target/zk/spr-zk-standalone-fixture/wasm-node
     node --test sdk-tests/zk-standalone/wasm/standalone.test.mjs
 
 test-zk-program-wasm: _zk-program-wasm-keys
-    cargo test --release -p zolana-program-wasm-test-program --features fixtures --test fixtures
+    cargo test --release -p spr-program-wasm-test-program --features fixtures --test fixtures
     cd sdk-libs/program/tests/wasm && npm ci && npx playwright install chromium && npm run build:test && npm run build:inputs && npm run check:dts && npm test
 
 # Measures proving time (proof inputs + proof), key load and module size of
@@ -702,7 +702,7 @@ test-localnet-deposit: build-programs build-cli
     spp_authority="$PWD/target/localnet-spp-upgrade-authority.json"
     solana-keygen new --no-bip39-passphrase --silent --force --outfile "$spp_authority"
     spp_authority_pubkey="$(solana-keygen pubkey "$spp_authority")"
-    cargo run -p zolana-cli -- dev start --local --skip-prover --rpc-port {{localnet-rpc-port}} --upgradeable-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so "$spp_authority_pubkey" --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/zolana_user_registry.so --sbf-program "$RING_TEST_PROGRAM_ID" target/deploy/ring_test_program.so
+    cargo run -p spr-cli -- dev start --local --skip-prover --rpc-port {{localnet-rpc-port}} --upgradeable-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so "$spp_authority_pubkey" --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/spr_user_registry.so --sbf-program "$RING_TEST_PROGRAM_ID" target/deploy/ring_test_program.so
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_SPP_UPGRADE_AUTHORITY_KEYPAIR="$spp_authority" cargo test -p shielded-pool-tests --features localnet --test localnet_deposit -- --nocapture
 
 # Local-validator end-to-end SOL cycle.
@@ -724,7 +724,7 @@ test-localnet-e2e: build-programs build-prover-server build-cli
     solana-keygen new --no-bip39-passphrase --silent --force --outfile "$spp_authority"
     spp_authority_pubkey="$(solana-keygen pubkey "$spp_authority")"
     dev_start() {
-      cargo run -p zolana-cli -- dev start --local --skip-prover --rpc-port {{localnet-rpc-port}} --upgradeable-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so "$spp_authority_pubkey" --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/zolana_user_registry.so --sbf-program "$RING_TEST_PROGRAM_ID" target/deploy/ring_test_program.so
+      cargo run -p spr-cli -- dev start --local --skip-prover --rpc-port {{localnet-rpc-port}} --upgradeable-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so "$spp_authority_pubkey" --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/spr_user_registry.so --sbf-program "$RING_TEST_PROGRAM_ID" target/deploy/ring_test_program.so
     }
     dev_start
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_SPP_UPGRADE_AUTHORITY_KEYPAIR="$spp_authority" cargo nextest run -p shielded-pool-tests --features localnet --test localnet_e2e --no-capture
@@ -797,7 +797,7 @@ test-cli-smoke: build-programs build-prover-server build-cli ensure-photon
       --photon-port {{localnet-photon-port}} \
       --upgradeable-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so \
       "$spp_authority_pubkey" \
-      --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/zolana_user_registry.so \
+      --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/spr_user_registry.so \
       --sbf-program "$RING_TEST_PROGRAM_ID" target/deploy/ring_test_program.so
 
     # 2. Bootstrap: a funder keypair (funds the smoke wallets), an authority wallet
@@ -1068,7 +1068,7 @@ dump-ring-fixture: build-programs build-prover-server build-cli ensure-photon en
 # Fully-inlined create+fill (derived and verifiable-encryption take rails) and
 # create+cancel swap flows (sdk-tests/zk-program-swap/test/tests/{swap,
 # take_verifiable_encryption,cancel}.rs). Each test boots its own localnet
-# through zolana_program_test::localnet::FixtureLocalnet with the swap program
+# through spr_program_test::localnet::FixtureLocalnet with the swap program
 # and the shielded pool loaded, plus Photon and the shared SPP prover, on its
 # own ports, so the tests run in parallel.
 test-swap-validator: ensure-swap-keys build-programs build-prover-server build-cli ensure-photon
@@ -1090,7 +1090,7 @@ test-swap-and-escrow-validator: test-swap-validator test-escrow-validator
 test-compression-validator: ensure-compression-keys build-programs build-prover-server build-cli ensure-photon
     ZOLANA_PHOTON_BIN="{{photon-bin}}" tools/ci/nextest-suite.sh -p compression-example-test --test compression
 
-# Minimal zolana-client SDK example: deposit, shielded transfer, and withdrawal
+# Minimal spr-client SDK example: deposit, shielded transfer, and withdrawal
 # building the SPP instructions by hand and submitting them
 # (sdk-tests/client/rust/deposit_transfer_withdraw.rs). Boots
 # solana-test-validator via the `zolana` CLI with the shielded pool, the user
@@ -1380,10 +1380,10 @@ fmt-check:
     cargo fmt --all -- --check
 
 clippy:
-    cargo clippy --workspace --all-targets --features zolana-client/proofs -- -D warnings
+    cargo clippy --workspace --all-targets --features spr-client/proofs -- -D warnings
     # Not covered by `--workspace`: an optional feature's module is only
     # compiled when the feature is on.
-    cargo clippy -p zolana-test-utils --features parallel --all-targets -- -D warnings
+    cargo clippy -p spr-test-utils --features parallel --all-targets -- -D warnings
 
 check-test-hygiene:
     ./tools/check-test-hygiene.sh

@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use zolana_transaction::Mint;
+use spr_transaction::Mint;
 
 use super::{
     fixtures::{arithmetic, balance, Arithmetic, Balance, TOKEN, TRANSFER},

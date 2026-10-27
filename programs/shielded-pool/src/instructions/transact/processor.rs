@@ -5,8 +5,8 @@ use pinocchio::{
     sysvars::{clock::Clock, Sysvar},
     AccountView, ProgramResult,
 };
-use zolana_hasher::primitives::hash_bytes;
-use zolana_interface::{
+use spr_hasher::primitives::hash_bytes;
+use spr_interface::{
     error::ShieldedPoolError,
     event::EventKind,
     instruction::{

@@ -1,7 +1,7 @@
 use solana_address::Address;
-use zolana_hasher::primitives::hash_bytes;
-use zolana_keypair::{hash::owner_hash, ShieldedAddress};
-use zolana_program::{
+use spr_hasher::primitives::hash_bytes;
+use spr_keypair::{hash::owner_hash, ShieldedAddress};
+use spr_program::{
     circuit::{
         Assert, Circuit, CircuitVar, ConfidentialTransaction, DataUtxo, Field, HashBytes, UtxoData,
         UtxoTrait,
@@ -9,7 +9,7 @@ use zolana_program::{
     conversion::ProofInput,
     CircuitError, TxContext,
 };
-use zolana_transaction::{Mint, WalletUtxo};
+use spr_transaction::{Mint, WalletUtxo};
 
 use super::state::{Counter, CounterState};
 use crate::{

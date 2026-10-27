@@ -1,10 +1,10 @@
-use zolana_hasher::primitives::right_align;
-use zolana_keypair::ShieldedAddress;
-use zolana_program::{
+use spr_hasher::primitives::right_align;
+use spr_keypair::ShieldedAddress;
+use spr_program::{
     conversion::{Allocator, Placeholder, ProofInput},
     CircuitError, Groth16Prover, TxContext, ZkProgramCircuit,
 };
-use zolana_transaction::{Mint, WalletUtxo};
+use spr_transaction::{Mint, WalletUtxo};
 
 use crate::{
     benchmark::prove,
@@ -36,7 +36,7 @@ struct VerifyCredentialPublicInputs {
     threshold: u64,
 }
 
-impl zolana_program::circuit::CircuitType for circuit::VerifyCredential {}
+impl spr_program::circuit::CircuitType for circuit::VerifyCredential {}
 
 impl ProofInput for VerifyCredential {
     type Circuit = circuit::VerifyCredential;
@@ -88,7 +88,7 @@ impl Placeholder for VerifyCredential {
 }
 
 mod circuit {
-    use zolana_program::{
+    use spr_program::{
         circuit::{
             poseidon, Assert, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
             DataHash, DataUtxo, PublicInputs, TxContext, Uint, Utxo, UtxoOwner,

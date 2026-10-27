@@ -1,11 +1,11 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use zolana_hasher::primitives::hash_bytes;
-use zolana_keypair::{ShieldedAddress, ShieldedKeypair};
-use zolana_program::{
+use spr_hasher::primitives::hash_bytes;
+use spr_keypair::{ShieldedAddress, ShieldedKeypair};
+use spr_program::{
     conversion::{Allocator, FromCircuit, Placeholder, ProofInput},
     CircuitError, Groth16Prover, TxContext, ZkProgramCircuit,
 };
-use zolana_transaction::{Mint, WalletUtxo};
+use spr_transaction::{Mint, WalletUtxo};
 
 use crate::{
     benchmark::prove,
@@ -26,7 +26,7 @@ pub struct OrderTerms {
     pub expiry: u64,
 }
 
-impl zolana_program::circuit::CircuitType for circuit::OrderTerms {}
+impl spr_program::circuit::CircuitType for circuit::OrderTerms {}
 
 impl ProofInput for OrderTerms {
     type Circuit = circuit::OrderTerms;
@@ -84,7 +84,7 @@ struct MakePublicInputs {
     expiry: u64,
 }
 
-impl zolana_program::circuit::CircuitType for circuit::Make {}
+impl spr_program::circuit::CircuitType for circuit::Make {}
 
 impl ProofInput for Make {
     type Circuit = circuit::Make;
@@ -131,7 +131,7 @@ impl Placeholder for Make {
 }
 
 pub(crate) mod circuit {
-    use zolana_program::{
+    use spr_program::{
         circuit::{
             poseidon, zero, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
             DataHash, DataUtxo, HashBytes, PublicInputs, SolanaAddress, TokenUtxos, TxContext,

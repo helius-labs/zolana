@@ -1,6 +1,6 @@
 use solana_address::Address;
 use solana_signature::Signature;
-use zolana_transaction::{
+use spr_transaction::{
     instructions::transact::SettlementTransfer, Data, DataRecord, Mint, Utxo, WalletUtxo,
 };
 

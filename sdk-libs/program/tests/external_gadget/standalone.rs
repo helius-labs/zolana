@@ -1,4 +1,4 @@
-use zolana_program::{
+use spr_program::{
     circuit::{constant, Assert, Circuit, ConstraintSystem, Field, VariableRole},
     conversion::{Allocator, ProofInput},
     testing::{check_private_variables, FreeVariable},

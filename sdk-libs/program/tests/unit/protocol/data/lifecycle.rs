@@ -1,11 +1,11 @@
-use zolana_hasher::{primitives::right_align, Hasher, Poseidon};
-use zolana_program::{
+use spr_hasher::{primitives::right_align, Hasher, Poseidon};
+use spr_program::{
     circuit::{CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo, UniqueDataUtxo},
     conversion::ProofInput,
     hasher::{unique_data_hash, CLOSED_DATA_HASH_DOMAIN},
     CircuitError, TxContext, ZkProgramCircuit,
 };
-use zolana_transaction::{Mint, WalletUtxo};
+use spr_transaction::{Mint, WalletUtxo};
 
 use super::{
     fixtures::{CLOSE_LEAVES, COMMITS},

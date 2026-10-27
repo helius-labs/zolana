@@ -8,10 +8,10 @@ use spl_token_2022_interface::{
     instruction::{initialize_account3, initialize_mint2},
     pod::{PodAccount, PodMint},
 };
-use zolana_account_checks::AccountError;
-use zolana_interface::{error::ShieldedPoolError, pda};
-use zolana_program::instruction::CreateSplInterface;
-use zolana_program_test::{system_create_account_ix, Rejection, ZolanaProgramTest};
+use spr_account_checks::AccountError;
+use spr_interface::{error::ShieldedPoolError, pda};
+use spr_program::instruction::CreateSplInterface;
+use spr_program_test::{system_create_account_ix, Rejection, ZolanaProgramTest};
 
 use shielded_pool_tests::support::fixtures::{register_mint, spl_accounts, spl_depositor, Pool};
 

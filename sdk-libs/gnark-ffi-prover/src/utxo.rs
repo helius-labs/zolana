@@ -1,4 +1,4 @@
-use zolana_client::ProofInputUtxo;
+use spr_client::ProofInputUtxo;
 
 use crate::decimal;
 

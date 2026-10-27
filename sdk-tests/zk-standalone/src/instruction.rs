@@ -1,7 +1,7 @@
 //! The one instruction of the verifier program: verify a withdrawal proof.
 
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
-use zolana_zk_dsl::CompressedProof;
+use spr_zk_dsl::CompressedProof;
 
 use crate::verifier::withdrawal;
 
