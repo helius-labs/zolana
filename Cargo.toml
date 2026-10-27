@@ -86,10 +86,10 @@ spr-keypair = { path = "sdk-libs/keypair", version = "0.1.0" }
 spr-instruction = { path = "sdk-libs/instruction", version = "0.1.0" }
 spr-program = { path = "sdk-libs/program", version = "0.1.0" }
 # The zk crates live in helius-labs/zk-tools (zk-dsl/), pinned by rev.
-spr-zk-dsl = { version = "0.1.0", git = "https://github.com/helius-labs/zk-tools", rev = "756a41f0d35774d959214d9c00a229e60c37a33d" }
-spr-zk-gadgets = { version = "0.1.0", git = "https://github.com/helius-labs/zk-tools", rev = "756a41f0d35774d959214d9c00a229e60c37a33d" }
-spr-zk-macros = { version = "0.1.0", git = "https://github.com/helius-labs/zk-tools", rev = "756a41f0d35774d959214d9c00a229e60c37a33d" }
-spr-zk-macros-core = { version = "0.1.0", git = "https://github.com/helius-labs/zk-tools", rev = "756a41f0d35774d959214d9c00a229e60c37a33d" }
+spr-zk-dsl = { version = "0.1.0", git = "https://github.com/helius-labs/zk-tools", rev = "a51b88e6b77d8a09d4fe1ee6b12c8526d309d282" }
+spr-zk-gadgets = { version = "0.1.0", git = "https://github.com/helius-labs/zk-tools", rev = "a51b88e6b77d8a09d4fe1ee6b12c8526d309d282" }
+spr-zk-macros = { version = "0.1.0", git = "https://github.com/helius-labs/zk-tools", rev = "a51b88e6b77d8a09d4fe1ee6b12c8526d309d282" }
+spr-zk-macros-core = { version = "0.1.0", git = "https://github.com/helius-labs/zk-tools", rev = "a51b88e6b77d8a09d4fe1ee6b12c8526d309d282" }
 spr-api = { path = "sdk-libs/spr-api", version = "0.1.0", default-features = false }
 spr-program-test = { path = "sdk-libs/program-test", version = "0.1.0" }
 spr-transaction = { path = "sdk-libs/transaction", version = "0.1.0" }
