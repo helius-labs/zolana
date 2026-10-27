@@ -8,7 +8,13 @@ use jsonrpsee::{
     RpcModule,
 };
 use log::debug;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::{
+    compression::{
+        predicate::{DefaultPredicate, Predicate, SizeAbove},
+        CompressionLayer, CompressionLevel,
+    },
+    cors::{Any, CorsLayer},
+};
 use zolana_indexer_api::{
     method::{
         GetEncryptedUtxosByTags, GetMerkleProofs, GetNonInclusionProofs, GetNullifierQueueElements,
@@ -41,6 +47,12 @@ async fn start_server(
         .allow_headers([hyper::header::CONTENT_TYPE]);
     let middleware = tower::ServiceBuilder::new()
         .layer(cors)
+        .layer(
+            CompressionLayer::new()
+                .gzip(true)
+                .quality(CompressionLevel::Fastest)
+                .compress_when(DefaultPredicate::new().and(SizeAbove::new(1024))),
+        )
         .layer(ProxyGetRequestLayer::new([
             ("/liveness", "liveness"),
             ("/readiness", "readiness"),
@@ -286,6 +298,61 @@ mod tests {
         assert!(methods.contains(&"getNonInclusionProofs"));
         assert!(methods.contains(&"getNullifierQueueElements"));
         assert!(methods.contains(&"getUserRecords"));
+    }
+
+    #[tokio::test]
+    async fn large_rpc_responses_negotiate_gzip_and_decode_to_the_same_json() {
+        let (addr, server) = start_server(test_api().await, "127.0.0.1:0".parse().unwrap(), 10)
+            .await
+            .unwrap();
+        let url = format!("http://{addr}/");
+        let batch = (0..128)
+            .map(|id| serde_json::json!({"jsonrpc":"2.0", "method":"liveness", "id":id}))
+            .collect::<Vec<_>>();
+        let raw_client = reqwest::Client::builder().no_gzip().build().unwrap();
+        let identity = raw_client
+            .post(&url)
+            .header("accept-encoding", "identity")
+            .json(&batch)
+            .send()
+            .await
+            .unwrap();
+        assert!(identity.headers().get("content-encoding").is_none());
+        let expected: serde_json::Value = identity.json().await.unwrap();
+        let compressed = raw_client
+            .post(&url)
+            .header("accept-encoding", "gzip")
+            .json(&batch)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(compressed.headers()["content-encoding"], "gzip");
+        let bytes = compressed.bytes().await.unwrap();
+        assert_eq!(&bytes[..2], &[0x1f, 0x8b]);
+        let decoded: serde_json::Value = reqwest::Client::builder()
+            .gzip(true)
+            .build()
+            .unwrap()
+            .post(&url)
+            .json(&batch)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(decoded, expected);
+        assert!(bytes.len() < serde_json::to_vec(&expected).unwrap().len());
+        let small = raw_client
+            .post(&url)
+            .header("accept-encoding", "gzip")
+            .json(&serde_json::json!({"jsonrpc":"2.0", "method":"liveness", "id":1}))
+            .send()
+            .await
+            .unwrap();
+        assert!(small.headers().get("content-encoding").is_none());
+        server.stop().unwrap();
+        server.stopped().await;
     }
 
     async fn test_api() -> PhotonApi {
