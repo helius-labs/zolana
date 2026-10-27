@@ -2,8 +2,7 @@ use alloc::vec::Vec;
 use arrayvec::ArrayVec;
 pub use spr_event::{
     confidential_encrypted_output_body, is_confidential_encrypted_output,
-    ring_anonymous_encrypted_output_body, ring_confidential_encrypted_output_body, MessageData,
-    OutputUtxo,
+    ring_confidential_encrypted_output_body, MessageData, OutputUtxo,
 };
 use spr_hasher::{sha256::Sha256BE, Hasher, HasherError};
 use wincode::{containers, len::FixIntLen, ReadError, SchemaRead, SchemaWrite};

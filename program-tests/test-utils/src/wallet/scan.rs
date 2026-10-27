@@ -86,8 +86,6 @@ impl TxIndex {
                         sender_sites.entry(slot.view_tag).or_default().push(t);
                         classified = true;
                     }
-                    // Wallets do not discover anonymous ring outputs yet.
-                    EncryptedScheme::RingAnonymous => continue,
                 }
             }
             if !classified {

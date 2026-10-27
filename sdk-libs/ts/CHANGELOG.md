@@ -12,6 +12,7 @@ Breaking
 
 - `SHIELDED_POOL_PROGRAM_ID` is `ring1GaLCuJnkUMVkX2JeZLTTX17wKsV4fZmPVzXANW`, with new tree, custody and authority addresses → use the new deployment and fund new notes; accounts and notes from the earlier deployment remain separate.
 - `ed25519DerivationPayload()` is removed → sign the exact bytes from `ed25519DerivationMessage(publicKey)` and pass the signature to `LocalKeys.fromDerivationSeed()`.
+- `EncryptedScheme.ringAnonymous` is removed and `encryptedSchemeFromByte(9)` throws `TRANSACTION_BAD_DISCRIMINATOR` → decode anonymous ring transfers as `EncryptedScheme.anonymousRecipient` outputs and `EncryptedScheme.anonymousSender` messages.
 
 Added
 
