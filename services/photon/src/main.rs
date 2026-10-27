@@ -84,6 +84,16 @@ struct Args {
     #[arg(long, action = clap::ArgAction::SetTrue)]
     disable_api: bool,
 
+    /// Legacy ECS flag. Rings Photon builds do not run a separate custom-ring
+    /// indexer; accept the flag so wrappers that always pass it keep starting.
+    #[arg(long, action = clap::ArgAction::SetTrue)]
+    disable_custom_rings: bool,
+
+    /// Legacy ECS flag for the former custom-ring indexer start slot. Accepted
+    /// and ignored on Rings builds.
+    #[arg(long)]
+    custom_rings_start_slot: Option<u64>,
+
     /// Metrics endpoint in the format `host:port`
     /// If provided, metrics will be sent to the specified statsd server.
     #[arg(long, default_value = None)]
@@ -371,6 +381,12 @@ async fn main() -> Result<()> {
 
     let db_conn = setup_database_connection(args.db_url.clone(), args.max_db_conn).await?;
     info!("Running Photon as a Rings indexer");
+    if args.disable_custom_rings {
+        info!("--disable-custom-rings accepted (no-op on Rings Photon)");
+    }
+    if let Some(slot) = args.custom_rings_start_slot {
+        info!("--custom-rings-start-slot {slot} accepted (no-op on Rings Photon)");
+    }
 
     if args.db_url.is_none() {
         info!("Running migrations...");
