@@ -27,9 +27,9 @@ pub use actions::{
     WithdrawalLeg, WithdrawalParams,
 };
 pub use authority::{
-    AnonymousRecipientSlot, ApprovalRequest, ClientEd25519WalletAuthority, EncryptedEnvelope,
-    EncryptedTransfer, KeypairWalletAuthority, SyncWalletAuthority, WalletAuthority,
-    WalletSyncMaterial,
+    AnonymousRecipientSlot, AnonymousTransferPayload, ApprovalRequest,
+    ClientEd25519WalletAuthority, EncryptedAnonymousTransfer, EncryptedEnvelope, EncryptedTransfer,
+    KeypairWalletAuthority, SyncWalletAuthority, WalletAuthority, WalletSyncMaterial,
 };
 pub use scan::SyncConfig;
 pub use state::{

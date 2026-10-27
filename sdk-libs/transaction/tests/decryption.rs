@@ -714,9 +714,9 @@ fn anonymous_scanning_skips_noise_and_foreign_owners_then_accepts_first_eligible
     )
     .unwrap();
     let mut foreign = own.clone();
-    foreign.owner_pubkey = other.signing_pubkey();
+    foreign.verified.owner_pubkey = other.signing_pubkey();
     let mut later_eligible = own.clone();
-    later_eligible.amount = 999;
+    later_eligible.verified.amount = 999;
     let output = slot(
         &note,
         borsh::to_vec(&OutputDataEncoding::Encrypted(vec![1, 42])).unwrap(),

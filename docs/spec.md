@@ -730,11 +730,8 @@ Fields packed in declaration order. Byte vectors are prefixed with a `u16_le` le
 
 ```rust
 /// 50 B plaintext for confidential transfers with an empty `data` field and no
-/// `ring_program_id`. Anonymous transfers add `owner_pubkey: PublicKey` (34 B)
-/// and `sender_pubkey: X25519Pubkey` (33 B) before `asset_id` and omit
-/// `ring_program_id`. Ring Anonymous outputs (scheme `9`) use the confidential
-/// form. Each populated data record adds `3 + len` bytes. See
-/// [UTXO Data](#utxo-data).
+/// `ring_program_id`. Ring Anonymous outputs (scheme `9`) use this form. Each
+/// populated data record adds `3 + len` bytes. See [UTXO Data](#utxo-data).
 struct TransferRecipientPlaintext {
     /// `1` for SOL; SPL via per-mint Asset registry (`asset_id ≥ 2`).
     asset_id: u64,
@@ -761,10 +758,8 @@ and `first_nullifier` to derive their [blindings](#output-blinding).
 
 ```rust
 /// 58 B plaintext for confidential transfers with both `data` fields empty
-/// (fixed, independent of recipient count). Anonymous transfers additionally
-/// carry `owner_pubkey: PublicKey` (34 B) before `spl_asset_id` and
-/// `recipient_viewing_pks: Vec<X25519Pubkey>` (1 + 33·R B) after `blinding_seed`.
-/// Each populated data record adds `3 + len` bytes. See [UTXO Data](#utxo-data).
+/// (fixed, independent of recipient count). Each populated data record adds
+/// `3 + len` bytes. See [UTXO Data](#utxo-data).
 struct TransferSenderPlaintext {
     /// Per-mint Asset registry; `0` if no SPL change.
     spl_asset_id: u64,
@@ -782,6 +777,61 @@ struct TransferSenderPlaintext {
     spl_data: Data,
     /// Records for the SOL change UTXO (slot 1 after an SPL change, else
     /// slot 0), same scheme as `spl_data`.
+    sol_data: Data,
+}
+```
+
+#### Anonymous
+
+An anonymous policy-ring transfer publishes one recipient ciphertext (scheme
+`1`) at each recipient output and the sender change bundle (scheme `2`) as a
+[message](#transact) tagged by `sender_view_tag`. The change outputs carry no
+`data`. A recipient ciphertext takes its output position as the
+[slot](#aes-key-derivation) `i`. The sender message is the first message and
+takes the output count, dummies included. A
+policy ring's auditor reads the `verified` fields from its proved disclosure.
+The recipient checks the plaintext by rebuilding `utxo_hash`. The hash does not
+cover `sender_pubkey`, a sender can name any key.
+
+```rust
+struct AnonymousTransferRecipientPlaintext {
+    verified: VerifiedRecipientPlaintext,
+    unverified: UnverifiedRecipientPlaintext,
+}
+
+struct VerifiedRecipientPlaintext {
+    owner_pubkey: PublicKey,
+    mint: Address,
+    amount: u64,
+}
+
+struct UnverifiedRecipientPlaintext {
+    /// Establishes the pair, see [View Tags](#view-tags).
+    sender_pubkey: X25519Pubkey,
+    blinding: [u8; 32],
+    data: Data,
+}
+
+struct AnonymousTransferSenderPlaintext {
+    verified: VerifiedSenderPlaintext,
+    unverified: UnverifiedSenderPlaintext,
+}
+
+struct VerifiedSenderPlaintext {
+    owner_pubkey: PublicKey,
+    /// Zero if no SPL change.
+    spl_mint: Address,
+    /// `0` if no SPL change.
+    spl_amount: u64,
+    /// `0` if no SOL change.
+    sol_amount: u64,
+    /// One per recipient output, in output order.
+    recipient_viewing_pks: Vec<X25519Pubkey>,
+}
+
+struct UnverifiedSenderPlaintext {
+    blinding_seed: [u8; 32],
+    spl_data: Data,
     sol_data: Data,
 }
 ```
@@ -841,6 +891,8 @@ sender's encoding, including `Account(0)` when the sender also pays the fee;
 every other tag is `Inline`. This encoding rule applies to real and dummy outputs
 alike. The SPP allows `outputs[0].data = None`; which positions bear a ciphertext
 is a wallet concern.
+An [anonymous](#anonymous) transfer publishes the sender change bundle as a
+message.
 
 The logged [`GeneralEvent`](#general-event) keeps one entry per output, 1:1 with
 `outputs`; a covered position publishes an empty `data` under the covering output's

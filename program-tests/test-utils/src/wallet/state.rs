@@ -104,8 +104,8 @@ pub struct SyncReport {
     /// chain and retry; it stays empty when every id is known.
     pub unknown_asset_ids: BTreeSet<u64>,
     /// Mints a decoded note named that the registry could not give a compact id
-    /// for. Only the ring-deposit rail reaches this: every other rail takes its
-    /// mint back out of the registry, so the lookup cannot fail. Recorded for
+    /// for. Only the ring-deposit and anonymous rails reach this: every other
+    /// rail takes its mint back out of the registry, so the lookup cannot fail. Recorded for
     /// the same backfill-and-retry, because a note whose mint is unresolved is
     /// otherwise counted as undecryptable and lost.
     pub unknown_mints: BTreeSet<Address>,

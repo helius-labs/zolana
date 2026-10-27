@@ -11,6 +11,7 @@ use zolana_client::{
     ComputeBudgetConfig, ProofAuthority, ProofCompressed, Prover, ProverClient, Rpc, SpendProof,
     TransferInputUtxo,
 };
+use zolana_event::OutputDataEncoding;
 use zolana_hasher::{
     primitives::{pack_be, right_align},
     Hasher, Poseidon,
@@ -24,8 +25,7 @@ use zolana_interface::{
     N_PUBLIC_SLOTS,
 };
 use zolana_keypair::{
-    random_blinding, random_salt, viewing_key::Salt, PublicKey, ShieldedKeypair, SigningKey,
-    ViewingKey, X25519Pubkey,
+    random_blinding, random_salt, viewing_key::Salt, ShieldedKeypair, SigningKey, ViewingKey,
 };
 use zolana_program::instruction::RingTransact;
 use zolana_program_test::{ProgramTestHandle, ZolanaProgramTest, RING_TEST_PROGRAM_ID};
@@ -36,8 +36,15 @@ use zolana_test_utils::{
 use zolana_transaction::{
     derive_output_blinding_seed,
     instructions::transact::SppProofInputs,
+    serialization::anonymous::{
+        AnonymousRecipient, AnonymousRecipientEncode, AnonymousSenderBundle, AnonymousSenderEncode,
+        AnonymousTransferRecipientPlaintext, AnonymousTransferSenderPlaintext,
+        UnverifiedRecipientPlaintext, UnverifiedSenderPlaintext, VerifiedRecipientPlaintext,
+        VerifiedSenderPlaintext,
+    },
     utxo::{derive_transact_output_blinding, SppProofInputUtxo},
-    Blinding, Data, ExternalData, Mint, ShieldedTransaction, SppProofOutputUtxo, Utxo,
+    AssetRegistry, Blinding, Data, DecodeCx, ExternalData, Mint, ShieldedTransaction,
+    SppProofOutputUtxo, Utxo, UtxoSerialization,
 };
 
 const SENDER_SEED: [u8; 32] = [0x11; 32];
@@ -52,29 +59,46 @@ const RING: Address = Address::new_from_array(RING_TEST_PROGRAM_ID);
 fn sender_and_recipient_decrypt_their_outputs_from_the_indexer() -> Result<()> {
     let handle = send_transfer()?;
     let (sender, recipient) = (keypair(&SENDER_SEED)?, keypair(&RECIPIENT_SEED)?);
-    let recipient_owner = recipient.signing_pubkey();
+    let assets = AssetRegistry::default();
 
     let tx = fetch(&handle, recipient.recipient_bootstrap_view_tag())?;
-    let paid = RecipientBody::decode(&open(&tx, &recipient, 1)?)?;
-    assert_eq!(paid.sender, sender.viewing_pubkey());
-    assert_eq!((paid.owner, paid.amount), (recipient_owner, SENT));
-    let rebuilt = note(&recipient, paid.amount, paid.blinding)?;
-    assert_eq!(mint(&tx, 1, rebuilt)?, Mint::SOL);
+    let paid =
+        AnonymousRecipient::decode(&body(&tx.output_slots[1].payload)?, &cx(&recipient, &tx, 1))?;
+    assert_eq!(paid.unverified.sender_pubkey, sender.viewing_pubkey());
+    let paid = paid.into_utxo(&assets, Some(RING))?;
+    assert_eq!(
+        (paid.owner, paid.amount),
+        (recipient.signing_pubkey(), SENT)
+    );
+    rebuilds(&tx, 1, &recipient, &paid)?;
 
     let tx = fetch(&handle, sender.get_sender_view_tag(0)?)?;
+    let [message] = tx.messages.as_slice() else {
+        return Err(anyhow!("one sender message"));
+    };
+    let sender_slot = u32::try_from(tx.output_slots.len())?;
+    let bundle =
+        AnonymousSenderBundle::decode(&body(&message.data)?, &cx(&sender, &tx, sender_slot))?;
+    assert_eq!(
+        bundle.verified.recipient_viewing_pks,
+        [recipient.viewing_pubkey()]
+    );
+    let [change] =
+        <[Utxo; 1]>::try_from(bundle.into_utxos(&tx.nullifiers[0], &assets, Some(RING))?)
+            .map_err(|_| anyhow!("one change output"))?;
+    assert_eq!(change.amount, INPUT - SENT);
+    rebuilds(&tx, 0, &sender, &change)?;
+
     let salt = tx.salt.context("no salt")?;
     let secrets = TxSecrets::derive(&sender, tx.nullifiers[0], salt)?;
-    assert_eq!(Some(secrets.viewing_key.pubkey()), tx.tx_viewing_pk);
-    let change = ChangeBody::decode(&open(&tx, &sender, 0)?)?;
-    assert_eq!(change.amount, INPUT - SENT);
-    let rebuilt = note(&sender, change.amount, secrets.blindings[0])?;
-    assert_eq!(mint(&tx, 0, rebuilt)?, Mint::SOL);
-    assert_eq!(change.recipient_viewing_pks, [recipient.viewing_pubkey()]);
-    let to = &change.recipient_viewing_pks[0];
-    let payload = &tx.output_slots[1].payload;
-    let sent = ViewingKey::decrypt_slot_ephemeral(&secrets.viewing_key, to, payload, salt, 1)?;
-    let sent = RecipientBody::decode(&sent)?;
-    assert_eq!((sent.owner, sent.amount), (recipient_owner, SENT));
+    let to = recipient.viewing_pubkey();
+    let sealed = body(&tx.output_slots[1].payload)?;
+    let sent = ViewingKey::decrypt_slot_ephemeral(&secrets.viewing_key, &to, &sealed, salt, 1)?;
+    let sent = AnonymousTransferRecipientPlaintext::deserialize(&sent)?.verified;
+    assert_eq!(
+        (sent.owner_pubkey, sent.amount),
+        (recipient.signing_pubkey(), SENT)
+    );
     Ok(())
 }
 
@@ -103,34 +127,74 @@ fn send_transfer() -> Result<ProgramTestHandle> {
 
     let salt = random_salt();
     let secrets = TxSecrets::derive(&sender, note_in.nullifier, salt)?;
-    let (sender_vpk, recipient_vpk) = (sender.viewing_pubkey(), recipient.viewing_pubkey());
-    let mut change = (INPUT - SENT).to_be_bytes().to_vec();
-    change.extend([0, 1].iter().chain(recipient_vpk.as_bytes()));
-    let mut paid = recipient.signing_pubkey().as_bytes().to_vec();
-    paid.extend_from_slice(sender_vpk.as_bytes());
-    paid.extend_from_slice(&SENT.to_be_bytes());
-    paid.extend_from_slice(&secrets.blindings[1]);
-    paid.push(0);
-    let change_tag = sender.get_sender_view_tag(0)?;
-    let tags = [change_tag, recipient.recipient_bootstrap_view_tag()];
-    let bodies = [(&sender, INPUT - SENT, change), (&recipient, SENT, paid)];
-    let mut outputs = Vec::new();
+    let change = note(&sender, INPUT - SENT, secrets.blindings[0])?;
+    let paid = note(&recipient, SENT, secrets.blindings[1])?;
+    let (change_tag, paid_tag) = (
+        sender.get_sender_view_tag(0)?,
+        recipient.recipient_bootstrap_view_tag(),
+    );
+    let paid_body = AnonymousRecipient::encode_plaintext(
+        &AnonymousTransferRecipientPlaintext {
+            verified: VerifiedRecipientPlaintext {
+                owner_pubkey: recipient.signing_pubkey(),
+                mint: Mint::SOL.asset,
+                amount: SENT,
+            },
+            unverified: UnverifiedRecipientPlaintext {
+                sender_pubkey: sender.viewing_pubkey(),
+                blinding: secrets.blindings[1],
+                data: Data::default(),
+            },
+        },
+        paid_tag,
+        &AnonymousRecipientEncode {
+            tx: secrets.viewing_key.clone(),
+            recipient_pubkey: recipient.viewing_pubkey(),
+            sender_pubkey: sender.viewing_pubkey(),
+            salt,
+            slot_index: 1,
+        },
+    )?;
+    let bundle = AnonymousSenderBundle::encode_plaintext(
+        &AnonymousTransferSenderPlaintext {
+            verified: VerifiedSenderPlaintext {
+                owner_pubkey: sender.signing_pubkey(),
+                spl_mint: Address::default(),
+                spl_amount: 0,
+                sol_amount: INPUT - SENT,
+                recipient_viewing_pks: vec![recipient.viewing_pubkey()],
+            },
+            unverified: UnverifiedSenderPlaintext {
+                blinding_seed: secrets.output_seed,
+                spl_data: Data::default(),
+                sol_data: Data::default(),
+            },
+        },
+        change_tag,
+        &AnonymousSenderEncode {
+            tx: secrets.viewing_key.clone(),
+            self_pubkey: sender.viewing_pubkey(),
+            salt,
+            slot_index: 2,
+            blinding_seed: secrets.output_seed,
+            recipient_viewing_pks: vec![recipient.viewing_pubkey()],
+        },
+    )?;
+    let mut outputs = vec![change, paid];
+    let tags = [change_tag, paid_tag];
+    let bodies = [None, Some(paid_body.data)];
     let mut published = Vec::new();
-    for (slot, ((owner, amount, body), tag)) in (0u32..).zip(bodies.into_iter().zip(tags)) {
-        let mut output = note(owner, amount, secrets.blindings[slot as usize])?;
+    for ((output, tag), data) in outputs.iter_mut().zip(tags).zip(bodies) {
         output.owner_tag = Some(tag);
-        let to = owner.viewing_pubkey();
-        let data = Some(secrets.viewing_key.encrypt_slot(&to, &body, salt, slot)?);
-        let (utxo_hash, owner_tag) = (output.hash(tree_id)?, OwnerTag::Inline(tag));
         published.push(TransactOutput {
-            utxo_hash,
-            owner_tag,
+            utxo_hash: output.hash(tree_id)?,
+            owner_tag: OwnerTag::Inline(tag),
             data,
         });
-        outputs.push(output);
     }
     let tx_viewing_pk = *secrets.viewing_key.pubkey().as_bytes();
-    let mut external_data = ExternalData::new(tx_viewing_pk, salt, published, tags.into(), vec![]);
+    let mut external_data =
+        ExternalData::new(tx_viewing_pk, salt, published, tags.into(), vec![bundle]);
     external_data.instruction_discriminator = tag::RING_TRANSACT;
     let proof_inputs = SppProofInputs {
         input_utxos: vec![SppProofInputUtxo::from(&note_in)],
@@ -206,6 +270,7 @@ fn send_transfer() -> Result<ProgramTestHandle> {
 struct TxSecrets {
     viewing_key: ViewingKey,
     blinding_seed: [u8; 32],
+    output_seed: [u8; 32],
     blindings: [Blinding; 2],
 }
 
@@ -222,58 +287,10 @@ impl TxSecrets {
         Ok(Self {
             viewing_key,
             blinding_seed,
+            output_seed,
             blindings,
         })
     }
-}
-
-struct ChangeBody {
-    amount: u64,
-    recipient_viewing_pks: Vec<X25519Pubkey>,
-}
-
-impl ChangeBody {
-    fn decode(mut bytes: &[u8]) -> Result<Self> {
-        let amount = u64::from_be_bytes(take(&mut bytes)?);
-        let [data, count] = take(&mut bytes)?;
-        let (keys, rest) = bytes.as_chunks();
-        ensure!(data == 0 && rest.is_empty() && keys.len() == usize::from(count));
-        let keys = keys.iter().map(|key| X25519Pubkey::from_bytes(*key));
-        let recipient_viewing_pks = keys.collect::<Result<_, _>>()?;
-        Ok(Self {
-            amount,
-            recipient_viewing_pks,
-        })
-    }
-}
-
-struct RecipientBody {
-    owner: PublicKey,
-    sender: X25519Pubkey,
-    amount: u64,
-    blinding: Blinding,
-}
-
-impl RecipientBody {
-    fn decode(mut bytes: &[u8]) -> Result<Self> {
-        let owner = PublicKey::from_bytes(take(&mut bytes)?)?;
-        let sender = X25519Pubkey::from_bytes(take(&mut bytes)?)?;
-        let amount = u64::from_be_bytes(take(&mut bytes)?);
-        let blinding = take(&mut bytes)?;
-        ensure!(bytes == [0]);
-        Ok(Self {
-            owner,
-            sender,
-            amount,
-            blinding,
-        })
-    }
-}
-
-fn take<const N: usize>(bytes: &mut &[u8]) -> Result<[u8; N]> {
-    let (head, rest) = bytes.split_first_chunk().context("body is truncated")?;
-    *bytes = rest;
-    Ok(*head)
 }
 
 fn fetch(handle: &ProgramTestHandle, view_tag: [u8; 32]) -> Result<ShieldedTransaction> {
@@ -282,23 +299,33 @@ fn fetch(handle: &ProgramTestHandle, view_tag: [u8; 32]) -> Result<ShieldedTrans
     Ok(tx)
 }
 
-fn open(tx: &ShieldedTransaction, reader: &ShieldedKeypair, slot: u32) -> Result<Vec<u8>> {
-    let tx_viewing_pk = tx.tx_viewing_pk.context("no tx viewing key")?;
-    let payload = &tx.output_slots[slot as usize].payload;
-    Ok(reader.decrypt_utxo(payload, &tx_viewing_pk, tx.salt.context("no salt")?, slot)?)
+fn body(data: &[u8]) -> Result<Vec<u8>> {
+    let OutputDataEncoding::Encrypted(blob) = borsh::from_slice(data)? else {
+        return Err(anyhow!("not an encrypted payload"));
+    };
+    Ok(blob.get(1..).context("no scheme byte")?.to_vec())
 }
 
-/// The body carries no mint, a decoy ahead of SOL makes the trial real.
-fn mint(tx: &ShieldedTransaction, slot: usize, mut rebuilt: SppProofOutputUtxo) -> Result<Mint> {
+fn cx<'a>(reader: &'a ShieldedKeypair, tx: &ShieldedTransaction, slot: u32) -> DecodeCx<'a> {
+    DecodeCx::for_slot(&reader.viewing_key, tx, slot)
+}
+
+fn rebuilds(
+    tx: &ShieldedTransaction,
+    slot: usize,
+    owner: &ShieldedKeypair,
+    utxo: &Utxo,
+) -> Result<()> {
     let context = &tx.output_slots[slot].output_context;
-    let candidates = [Mint::new(Address::new_from_array([0xa1; 32]), 2), Mint::SOL];
-    for asset in candidates {
-        rebuilt.asset = asset;
-        if rebuilt.hash(context.tree_id)? == context.hash {
-            return Ok(asset);
-        }
-    }
-    Err(anyhow!("no ring mint rebuilds output {slot}"))
+    let rebuilt = SppProofOutputUtxo {
+        asset: utxo.asset,
+        ..note(owner, utxo.amount, utxo.blinding)?
+    };
+    ensure!(
+        rebuilt.hash(context.tree_id)? == context.hash,
+        "output {slot} does not rebuild"
+    );
+    Ok(())
 }
 
 fn note(owner: &ShieldedKeypair, amount: u64, blinding: Blinding) -> Result<SppProofOutputUtxo> {

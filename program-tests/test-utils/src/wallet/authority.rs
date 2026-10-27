@@ -48,6 +48,14 @@ pub struct EncryptedEnvelope<P> {
 /// carries a ciphertext its owner can decrypt.
 pub type EncryptedTransfer = EncryptedEnvelope<Vec<MessageData>>;
 
+#[derive(Clone, Debug)]
+pub struct AnonymousTransferPayload {
+    pub recipients: Vec<MessageData>,
+    pub sender: MessageData,
+}
+
+pub type EncryptedAnonymousTransfer = EncryptedEnvelope<AnonymousTransferPayload>;
+
 /// Ephemeral key material required by a wallet scan.
 ///
 /// Remote authorities may override `sync_material` to return one consistent
@@ -93,7 +101,8 @@ pub trait WalletAuthority: Send + Sync {
         sender_view_tag: ViewTag,
         sender: &AnonymousTransferSenderPlaintext,
         recipients: &[AnonymousRecipientSlot],
-    ) -> Result<EncryptedTransfer, TransactionError>;
+        output_count: usize,
+    ) -> Result<EncryptedAnonymousTransfer, TransactionError>;
 
     async fn request_user_approval(
         &self,
@@ -136,7 +145,8 @@ pub trait SyncWalletAuthority: Send + Sync {
         sender_view_tag: ViewTag,
         sender: &AnonymousTransferSenderPlaintext,
         recipients: &[AnonymousRecipientSlot],
-    ) -> Result<EncryptedTransfer, TransactionError>;
+        output_count: usize,
+    ) -> Result<EncryptedAnonymousTransfer, TransactionError>;
 
     fn request_user_approval(&self, _request: ApprovalRequest) -> Result<(), TransactionError> {
         Ok(())
@@ -180,13 +190,15 @@ where
         sender_view_tag: ViewTag,
         sender: &AnonymousTransferSenderPlaintext,
         recipients: &[AnonymousRecipientSlot],
-    ) -> Result<EncryptedTransfer, TransactionError> {
+        output_count: usize,
+    ) -> Result<EncryptedAnonymousTransfer, TransactionError> {
         SyncWalletAuthority::encrypt_anonymous_transfer(
             self,
             first_nullifier,
             sender_view_tag,
             sender,
             recipients,
+            output_count,
         )
     }
 
@@ -317,8 +329,7 @@ impl<'a, K: ViewingKeyTrait> KeypairWalletAuthority<'a, K> {
     }
 }
 
-fn recipient_slot_index(i: usize) -> Result<u32, TransactionError> {
-    let got = i.saturating_add(1);
+fn slot_index(got: usize) -> Result<u32, TransactionError> {
     u32::try_from(got).map_err(|_| TransactionError::TooManyOutputsForShape {
         got,
         max: u32::MAX as usize,
@@ -391,33 +402,31 @@ fn encrypt_anonymous_transfer_with<K: ViewingKeyTrait>(
     sender_view_tag: ViewTag,
     sender: &AnonymousTransferSenderPlaintext,
     recipients: &[AnonymousRecipientSlot],
-) -> Result<EncryptedTransfer, TransactionError> {
+    output_count: usize,
+) -> Result<EncryptedAnonymousTransfer, TransactionError> {
     let tx = keypair.get_transaction_viewing_key(first_nullifier)?;
     let salt = random_salt();
-    let self_pubkey = keypair.pubkey();
+    let change = [sender.verified.spl_amount, sender.verified.sol_amount]
+        .into_iter()
+        .filter(|amount| *amount > 0)
+        .count();
+    // A short count would put the sender message on a recipient's slot.
+    let got = change + recipients.len();
+    if output_count < got {
+        return Err(TransactionError::TooManyOutputsForShape {
+            got,
+            max: output_count,
+        });
+    }
 
-    let mut slots = Vec::with_capacity(1 + recipients.len());
-    let sender_cx = AnonymousSenderEncode {
-        tx: tx.clone(),
-        self_pubkey,
-        salt,
-        slot_index: 0,
-        blinding_seed: sender.blinding_seed,
-        recipient_viewing_pks: sender.recipient_viewing_pks.clone(),
-    };
-    slots.push(AnonymousSenderBundle::encode_plaintext(
-        sender,
-        sender_view_tag,
-        &sender_cx,
-    )?);
-
+    let mut slots = Vec::with_capacity(recipients.len());
     for (i, recipient) in recipients.iter().enumerate() {
         let cx = AnonymousRecipientEncode {
             tx: tx.clone(),
             recipient_pubkey: recipient.recipient_pubkey,
-            sender_pubkey: recipient.plaintext.sender_pubkey,
+            sender_pubkey: recipient.plaintext.unverified.sender_pubkey,
             salt,
-            slot_index: recipient_slot_index(i)?,
+            slot_index: slot_index(change + i)?,
         };
         slots.push(AnonymousRecipient::encode_plaintext(
             &recipient.plaintext,
@@ -425,11 +434,23 @@ fn encrypt_anonymous_transfer_with<K: ViewingKeyTrait>(
             &cx,
         )?);
     }
+    let sender_cx = AnonymousSenderEncode {
+        tx: tx.clone(),
+        self_pubkey: keypair.pubkey(),
+        salt,
+        slot_index: slot_index(output_count)?,
+        blinding_seed: sender.unverified.blinding_seed,
+        recipient_viewing_pks: sender.verified.recipient_viewing_pks.clone(),
+    };
+    let sender = AnonymousSenderBundle::encode_plaintext(sender, sender_view_tag, &sender_cx)?;
 
-    Ok(EncryptedTransfer {
+    Ok(EncryptedEnvelope {
         tx_viewing_pk: tx.pubkey(),
         salt,
-        payload: slots,
+        payload: AnonymousTransferPayload {
+            recipients: slots,
+            sender,
+        },
     })
 }
 
@@ -464,13 +485,15 @@ impl SyncWalletAuthority for ClientEd25519WalletAuthority {
         sender_view_tag: ViewTag,
         sender: &AnonymousTransferSenderPlaintext,
         recipients: &[AnonymousRecipientSlot],
-    ) -> Result<EncryptedTransfer, TransactionError> {
+        output_count: usize,
+    ) -> Result<EncryptedAnonymousTransfer, TransactionError> {
         encrypt_anonymous_transfer_with(
             &self.viewing_key,
             first_nullifier,
             sender_view_tag,
             sender,
             recipients,
+            output_count,
         )
     }
 
@@ -521,13 +544,15 @@ impl<K: ShieldedKeypairTrait + ViewingKeyTrait + Sync> SyncWalletAuthority
         sender_view_tag: ViewTag,
         sender: &AnonymousTransferSenderPlaintext,
         recipients: &[AnonymousRecipientSlot],
-    ) -> Result<EncryptedTransfer, TransactionError> {
+        output_count: usize,
+    ) -> Result<EncryptedAnonymousTransfer, TransactionError> {
         encrypt_anonymous_transfer_with(
             self.keypair,
             first_nullifier,
             sender_view_tag,
             sender,
             recipients,
+            output_count,
         )
     }
 
@@ -566,8 +591,16 @@ impl SyncWalletAuthority for ShieldedKeypair {
         sender_view_tag: ViewTag,
         sender: &AnonymousTransferSenderPlaintext,
         recipients: &[AnonymousRecipientSlot],
-    ) -> Result<EncryptedTransfer, TransactionError> {
-        encrypt_anonymous_transfer_with(self, first_nullifier, sender_view_tag, sender, recipients)
+        output_count: usize,
+    ) -> Result<EncryptedAnonymousTransfer, TransactionError> {
+        encrypt_anonymous_transfer_with(
+            self,
+            first_nullifier,
+            sender_view_tag,
+            sender,
+            recipients,
+            output_count,
+        )
     }
 
     fn spend_nullifier_key(&self) -> Result<NullifierKey, TransactionError> {

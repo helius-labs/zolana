@@ -23,8 +23,8 @@ use zolana_interface::{
 use zolana_keypair::{NullifierKey, ShieldedKeypair, SigningKey, ViewingKey};
 use zolana_test_utils::wallet::{
     create_transfer, create_withdrawal, sign_shielded_transaction, AnonymousRecipientSlot,
-    ApprovalRequest, EncryptedTransfer, KeypairWalletAuthority, SyncWalletAuthority,
-    TransferParams, Wallet, WalletAuthority, WithdrawalLeg, WithdrawalParams,
+    ApprovalRequest, EncryptedAnonymousTransfer, EncryptedTransfer, KeypairWalletAuthority,
+    SyncWalletAuthority, TransferParams, Wallet, WalletAuthority, WithdrawalLeg, WithdrawalParams,
 };
 use zolana_transaction::{
     instructions::transact::{
@@ -461,13 +461,15 @@ impl WalletAuthority for AsyncTestAuthority {
         sender_view_tag: [u8; 32],
         sender: &zolana_transaction::serialization::anonymous::AnonymousTransferSenderPlaintext,
         recipients: &[AnonymousRecipientSlot],
-    ) -> Result<EncryptedTransfer, TransactionError> {
+        output_count: usize,
+    ) -> Result<EncryptedAnonymousTransfer, TransactionError> {
         SyncWalletAuthority::encrypt_anonymous_transfer(
             &KeypairWalletAuthority::new(self.solana_pubkey(), &self.keypair),
             first_nullifier,
             sender_view_tag,
             sender,
             recipients,
+            output_count,
         )
     }
 

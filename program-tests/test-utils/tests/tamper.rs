@@ -3,18 +3,17 @@ mod wallet_common;
 use wallet_common::{
     build_transfer, keypair_from_index, local_authority, wallet_for, TransferSpec,
 };
+use zolana_keypair::constants::PUBLIC_KEY_LEN;
 use zolana_keypair::ShieldedKeypair;
-use zolana_keypair::{constants::PUBLIC_KEY_LEN, x25519::X25519_PUBKEY_LEN};
 use zolana_test_utils::wallet::{Wallet, DEFAULT_TAG_WINDOW};
 use zolana_transaction::{AssetRegistry, OutputContext, OutputSlot, ShieldedTransaction, Utxo};
 
 const BORSH_HEADER_LEN: usize = 5;
 const SCHEME_BYTE_LEN: usize = 1;
-const ASSET_ID_LEN: usize = 8;
+const MINT_LEN: usize = 32;
 const AMOUNT_LEN: usize = 8;
 const RECIPIENT_SLOT: usize = 1;
-const AMOUNT_OFFSET: usize =
-    BORSH_HEADER_LEN + SCHEME_BYTE_LEN + PUBLIC_KEY_LEN + X25519_PUBKEY_LEN + ASSET_ID_LEN;
+const AMOUNT_OFFSET: usize = BORSH_HEADER_LEN + SCHEME_BYTE_LEN + PUBLIC_KEY_LEN + MINT_LEN;
 
 fn transfer_alice_receives() -> (ShieldedTransaction, Utxo, AssetRegistry) {
     let assets = AssetRegistry::default();

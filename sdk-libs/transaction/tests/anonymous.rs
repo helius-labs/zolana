@@ -1,17 +1,22 @@
+use solana_address::Address;
 use zolana_keypair::{PublicKey, ViewingKey};
 use zolana_transaction::{
     serialization::anonymous::*, utxo::derive_transact_output_blinding, AssetRegistry, Data,
-    DataRecord, Mint, OwnerCx, TransactionError, Utxo, UtxoSerialization, SOL_ASSET_ID,
+    DataRecord, Mint, OwnerCx, TransactionError, Utxo, UtxoSerialization, SOL_MINT,
 };
 
 fn plaintext(data: Data) -> AnonymousTransferRecipientPlaintext {
     AnonymousTransferRecipientPlaintext {
-        owner_pubkey: PublicKey::zeroed(),
-        sender_pubkey: ViewingKey::new().pubkey(),
-        asset_id: SOL_ASSET_ID,
-        amount: 7,
-        blinding: [3u8; 32],
-        data,
+        verified: VerifiedRecipientPlaintext {
+            owner_pubkey: PublicKey::zeroed(),
+            mint: SOL_MINT,
+            amount: 7,
+        },
+        unverified: UnverifiedRecipientPlaintext {
+            sender_pubkey: ViewingKey::new().pubkey(),
+            blinding: [3u8; 32],
+            data,
+        },
     }
 }
 
@@ -26,14 +31,18 @@ fn memo_only_recipient_is_accepted() {
 
 fn sender_plaintext() -> AnonymousTransferSenderPlaintext {
     AnonymousTransferSenderPlaintext {
-        owner_pubkey: PublicKey::zeroed(),
-        spl_asset_id: 0,
-        spl_amount: 0,
-        sol_amount: 9,
-        blinding_seed: [5u8; 32],
-        recipient_viewing_pks: Vec::new(),
-        spl_data: Data::default(),
-        sol_data: Data::default(),
+        verified: VerifiedSenderPlaintext {
+            owner_pubkey: PublicKey::zeroed(),
+            spl_mint: Address::default(),
+            spl_amount: 0,
+            sol_amount: 9,
+            recipient_viewing_pks: Vec::new(),
+        },
+        unverified: UnverifiedSenderPlaintext {
+            blinding_seed: [5u8; 32],
+            spl_data: Data::default(),
+            sol_data: Data::default(),
+        },
     }
 }
 

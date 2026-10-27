@@ -7,7 +7,8 @@ use zolana_transaction::{
     serialization::{
         anonymous::{
             AnonymousRecipient, AnonymousSenderBundle, AnonymousTransferRecipientPlaintext,
-            AnonymousTransferSenderPlaintext,
+            AnonymousTransferSenderPlaintext, UnverifiedRecipientPlaintext,
+            UnverifiedSenderPlaintext, VerifiedRecipientPlaintext, VerifiedSenderPlaintext,
         },
         confidential::{Confidential, ConfidentialOutputPlaintext},
         plaintext::{
@@ -25,25 +26,33 @@ use zolana_transaction::{
 fn recipient() -> AnonymousTransferRecipientPlaintext {
     let owner = keypair(41);
     AnonymousTransferRecipientPlaintext {
-        owner_pubkey: owner.signing_pubkey(),
-        sender_pubkey: keypair(42).viewing_pubkey(),
-        asset_id: 1,
-        amount: 17,
-        blinding: [1; 32],
-        data: Data::default(),
+        verified: VerifiedRecipientPlaintext {
+            owner_pubkey: owner.signing_pubkey(),
+            mint: Mint::SOL.asset,
+            amount: 17,
+        },
+        unverified: UnverifiedRecipientPlaintext {
+            sender_pubkey: keypair(42).viewing_pubkey(),
+            blinding: [1; 32],
+            data: Data::default(),
+        },
     }
 }
 
 fn sender() -> AnonymousTransferSenderPlaintext {
     AnonymousTransferSenderPlaintext {
-        owner_pubkey: keypair(41).signing_pubkey(),
-        spl_asset_id: 9,
-        spl_amount: 23,
-        sol_amount: 31,
-        blinding_seed: [2; 32],
-        recipient_viewing_pks: vec![keypair(42).viewing_pubkey()],
-        spl_data: Data::default(),
-        sol_data: Data::default(),
+        verified: VerifiedSenderPlaintext {
+            owner_pubkey: keypair(41).signing_pubkey(),
+            spl_mint: Address::new_from_array([9; 32]),
+            spl_amount: 23,
+            sol_amount: 31,
+            recipient_viewing_pks: vec![keypair(42).viewing_pubkey()],
+        },
+        unverified: UnverifiedSenderPlaintext {
+            blinding_seed: [2; 32],
+            spl_data: Data::default(),
+            sol_data: Data::default(),
+        },
     }
 }
 
@@ -139,7 +148,7 @@ fn payload_wrappers_validate_all_record_kinds_on_write_and_read() {
             Err(error.clone())
         );
         let mut note = recipient();
-        note.data = invalid.clone();
+        note.unverified.data = invalid.clone();
         assert_eq!(note.serialize(), Err(error.clone()));
         assert_eq!(
             AnonymousTransferRecipientPlaintext::deserialize(&wincode::serialize(&note).unwrap()),
@@ -148,9 +157,9 @@ fn payload_wrappers_validate_all_record_kinds_on_write_and_read() {
         for spl in [true, false] {
             let mut note = sender();
             if spl {
-                note.spl_data = invalid.clone();
+                note.unverified.spl_data = invalid.clone();
             } else {
-                note.sol_data = invalid.clone();
+                note.unverified.sol_data = invalid.clone();
             }
             assert_eq!(note.serialize(), Err(error.clone()));
             assert_eq!(
@@ -218,8 +227,9 @@ fn exact_payload_decoders_reject_every_truncation_trailing_bytes_and_invalid_key
         Err(TransactionError::Deserialize(_))
     ));
     let mut bad_viewing_key = recipient().serialize().unwrap();
+    let sender_key = PUBLIC_KEY_LEN + 32 + 8;
     bad_viewing_key
-        .get_mut(PUBLIC_KEY_LEN..PUBLIC_KEY_LEN + X25519_PUBKEY_LEN)
+        .get_mut(sender_key..sender_key + X25519_PUBKEY_LEN)
         .unwrap()
         .fill(0);
     assert!(matches!(
@@ -282,17 +292,18 @@ fn encrypted_formats_require_both_context_fields_and_reconstruction_checks_asset
         Confidential::into_utxos(note, &owner_cx),
         Err(TransactionError::UnknownAsset(99))
     );
+    let unknown = Address::new_from_array([99; 32]);
     let mut note = recipient();
-    note.asset_id = 99;
+    note.verified.mint = unknown;
     assert_eq!(
         AnonymousRecipient::into_utxos(note, &owner_cx),
-        Err(TransactionError::UnknownAsset(99))
+        Err(TransactionError::UnknownMint(unknown))
     );
     let mut note = sender();
-    note.spl_asset_id = 99;
+    note.verified.spl_mint = unknown;
     assert_eq!(
         AnonymousSenderBundle::into_utxos(note, &owner_cx),
-        Err(TransactionError::UnknownAsset(99))
+        Err(TransactionError::UnknownMint(unknown))
     );
     let mut note = plaintext();
     note.recipient_slots.first_mut().unwrap().asset_id = 99;
@@ -308,7 +319,8 @@ fn encrypted_formats_require_both_context_fields_and_reconstruction_checks_asset
         Err(TransactionError::MissingRingProgramId)
     );
     let mut note = sender();
-    note.spl_data = ring_data.clone();
+    note.verified.spl_mint = spl.asset;
+    note.unverified.spl_data = ring_data.clone();
     assert_eq!(
         AnonymousSenderBundle::into_utxos(note, &owner_cx),
         Err(TransactionError::MissingRingProgramId)
@@ -346,13 +358,14 @@ fn present_change_outputs_lead_and_recipients_follow_them() {
                     Data::default()
                 };
                 let mut anonymous = sender();
-                anonymous.spl_amount = if spl_present { 23 } else { 0 };
-                anonymous.sol_amount = if sol_present { 31 } else { 0 };
+                anonymous.verified.spl_mint = spl.asset;
+                anonymous.verified.spl_amount = if spl_present { 23 } else { 0 };
+                anonymous.verified.sol_amount = if sol_present { 31 } else { 0 };
                 if spl_present {
-                    anonymous.spl_data = data.clone();
+                    anonymous.unverified.spl_data = data.clone();
                 }
                 if sol_present {
-                    anonymous.sol_data = data.clone();
+                    anonymous.unverified.sol_data = data.clone();
                 }
                 let mut plain = plaintext();
                 let plain_sender = plain.sender.as_mut().unwrap();
@@ -361,8 +374,8 @@ fn present_change_outputs_lead_and_recipients_follow_them() {
                     asset_id: 9,
                 });
                 plain_sender.sol_amount = sol_present.then_some(31);
-                plain_sender.spl_data = anonymous.spl_data.clone();
-                plain_sender.sol_data = anonymous.sol_data.clone();
+                plain_sender.spl_data = anonymous.unverified.spl_data.clone();
+                plain_sender.sol_data = anonymous.unverified.sol_data.clone();
                 let mut expected = vec![];
                 let sol_slot = u32::from(spl_present);
                 for (present, amount, mint, slot) in [
@@ -486,11 +499,11 @@ fn data_requires_a_present_sender_output_but_explicit_zero_plaintext_outputs_exi
     for spl in [true, false] {
         let mut anonymous = sender();
         if spl {
-            anonymous.spl_amount = 0;
-            anonymous.spl_data = Data::new(vec![DataRecord::Memo(vec![1])]);
+            anonymous.verified.spl_amount = 0;
+            anonymous.unverified.spl_data = Data::new(vec![DataRecord::Memo(vec![1])]);
         } else {
-            anonymous.sol_amount = 0;
-            anonymous.sol_data = Data::new(vec![DataRecord::Memo(vec![1])]);
+            anonymous.verified.sol_amount = 0;
+            anonymous.unverified.sol_data = Data::new(vec![DataRecord::Memo(vec![1])]);
         }
         assert_eq!(
             anonymous.into_utxos(&[1; 32], &assets, None),
@@ -719,20 +732,20 @@ fn data_and_payload_lengths_match_literal_little_endian_layouts() {
     assert_eq!(note.serialize().unwrap(), expected);
 
     let mut anonymous = sender();
-    anonymous.recipient_viewing_pks = vec![keypair(42).viewing_pubkey(); 255];
-    let mut prefix = anonymous.owner_pubkey.as_bytes().to_vec();
-    prefix.extend(9u64.to_le_bytes());
-    prefix.extend(23u64.to_le_bytes());
-    prefix.extend(31u64.to_le_bytes());
-    prefix.extend([2; 32]);
-    prefix.push(255);
-    let mut expected = prefix;
-    for key in &anonymous.recipient_viewing_pks {
+    anonymous.verified.recipient_viewing_pks = vec![keypair(42).viewing_pubkey(); 255];
+    let mut expected = anonymous.verified.owner_pubkey.as_bytes().to_vec();
+    expected.extend([9; 32]);
+    expected.extend(23u64.to_le_bytes());
+    expected.extend(31u64.to_le_bytes());
+    expected.push(255);
+    for key in &anonymous.verified.recipient_viewing_pks {
         expected.extend(key.as_bytes());
     }
+    expected.extend([2; 32]);
     expected.extend([0, 0]);
     assert_eq!(anonymous.serialize().unwrap(), expected);
     anonymous
+        .verified
         .recipient_viewing_pks
         .push(keypair(42).viewing_pubkey());
     assert!(matches!(

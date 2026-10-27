@@ -30,7 +30,7 @@ pub struct DecryptionResult {
     /// chain checks it, so it is unverified: register the assets that exist
     /// and decrypt again, and the commitment decides.
     pub unknown_asset_ids: BTreeSet<u64>,
-    /// Mints named by authenticated deposits or merge outputs this wallet owns
+    /// Mints named by authenticated deposits, merge or anonymous outputs this wallet owns
     /// that the asset registry has no id for. Those outputs are left out;
     /// register the mints and decrypt again.
     pub unknown_mints: BTreeSet<Address>,
@@ -473,7 +473,7 @@ fn decode_slot<K: ShieldedKeys + ?Sized>(
                         let Ok(plaintext) = AnonymousRecipient::deserialize(&bytes) else {
                             continue;
                         };
-                        if plaintext.owner_pubkey != address.signing_pubkey {
+                        if plaintext.verified.owner_pubkey != address.signing_pubkey {
                             continue;
                         }
                         AnonymousRecipient::into_utxos(plaintext, &owner_cx)

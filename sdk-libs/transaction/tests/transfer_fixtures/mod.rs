@@ -13,7 +13,8 @@ use zolana_transaction::{
     serialization::{
         anonymous::{
             AnonymousRecipient, AnonymousRecipientEncode, AnonymousSenderBundle,
-            AnonymousSenderEncode, AnonymousTransferSenderPlaintext,
+            AnonymousSenderEncode, AnonymousTransferSenderPlaintext, UnverifiedSenderPlaintext,
+            VerifiedSenderPlaintext,
         },
         confidential::{Confidential, ConfidentialEncode},
     },
@@ -116,14 +117,18 @@ pub fn build_transfer(
     };
 
     let sender_plaintext = AnonymousTransferSenderPlaintext {
-        owner_pubkey: spec.sender.signing_pubkey(),
-        spl_asset_id: 0,
-        spl_amount: 0,
-        sol_amount: spec.change_amount,
-        blinding_seed: spec.blinding_seed,
-        recipient_viewing_pks: vec![spec.recipient.viewing_pubkey()],
-        spl_data: Data::default(),
-        sol_data: Data::default(),
+        verified: VerifiedSenderPlaintext {
+            owner_pubkey: spec.sender.signing_pubkey(),
+            spl_mint: Default::default(),
+            spl_amount: 0,
+            sol_amount: spec.change_amount,
+            recipient_viewing_pks: vec![spec.recipient.viewing_pubkey()],
+        },
+        unverified: UnverifiedSenderPlaintext {
+            blinding_seed: spec.blinding_seed,
+            spl_data: Data::default(),
+            sol_data: Data::default(),
+        },
     };
 
     let sender_owner_cx = OwnerCx {
@@ -136,18 +141,6 @@ pub fn build_transfer(
     };
     let change =
         AnonymousSenderBundle::into_utxos(sender_plaintext.clone(), &sender_owner_cx).unwrap();
-
-    let sender_cx = AnonymousSenderEncode {
-        tx: tx_key.clone(),
-        self_pubkey: spec.sender.viewing_pubkey(),
-        salt,
-        slot_index: 0,
-        blinding_seed: spec.blinding_seed,
-        recipient_viewing_pks: vec![spec.recipient.viewing_pubkey()],
-    };
-    let sender_bytes = AnonymousSenderBundle::serialize(&sender_plaintext).unwrap();
-    let sender_ciphertext = AnonymousSenderBundle::encrypt(&sender_bytes, &sender_cx).unwrap();
-    let sender_payload = encrypted_payload(EncryptedScheme::AnonymousSender, sender_ciphertext);
 
     let nullifier_pk = spec.sender.nullifier_key.pubkey().unwrap();
     let sender_hash = change
@@ -166,7 +159,7 @@ pub fn build_transfer(
         first_nullifier: None,
     };
     let recipient_cx = AnonymousRecipientEncode {
-        tx: tx_key,
+        tx: tx_key.clone(),
         recipient_pubkey: spec.recipient.viewing_pubkey(),
         sender_pubkey: spec.sender.viewing_pubkey(),
         salt,
@@ -191,13 +184,28 @@ pub fn build_transfer(
         .unwrap();
 
     let output_slots = vec![
-        slot(spec.sender_view_tag, sender_hash, sender_payload),
+        slot(spec.sender_view_tag, sender_hash, Vec::new()),
         slot(
             recipient_ciphertext.view_tag,
             recipient_hash,
             recipient_ciphertext.data,
         ),
     ];
+
+    let sender_cx = AnonymousSenderEncode {
+        tx: tx_key,
+        self_pubkey: spec.sender.viewing_pubkey(),
+        salt,
+        slot_index: u32::try_from(output_slots.len()).unwrap(),
+        blinding_seed: spec.blinding_seed,
+        recipient_viewing_pks: vec![spec.recipient.viewing_pubkey()],
+    };
+    let sender_message = AnonymousSenderBundle::encode_plaintext(
+        &sender_plaintext,
+        spec.sender_view_tag,
+        &sender_cx,
+    )
+    .unwrap();
 
     let tx = ShieldedTransaction {
         slot: 0,
@@ -206,7 +214,7 @@ pub fn build_transfer(
         tx_viewing_pk: Some(tx_viewing_pk),
         salt: Some(salt),
         output_slots,
-        messages: Vec::new(),
+        messages: vec![sender_message],
         nullifiers: vec![spec.first_nullifier],
         proofless: false,
         ring_config: None,

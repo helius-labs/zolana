@@ -12,25 +12,36 @@ use crate::{
 
 #[derive(SchemaWrite, SchemaRead, Clone, Debug, PartialEq, Eq)]
 pub struct AnonymousTransferRecipientPlaintext {
+    pub verified: VerifiedRecipientPlaintext,
+    pub unverified: UnverifiedRecipientPlaintext,
+}
+
+#[derive(SchemaWrite, SchemaRead, Clone, Debug, PartialEq, Eq)]
+pub struct VerifiedRecipientPlaintext {
     #[wincode(with = "PublicKeySchema")]
     pub owner_pubkey: PublicKey,
+    pub mint: Address,
+    pub amount: u64,
+}
+
+#[derive(SchemaWrite, SchemaRead, Clone, Debug, PartialEq, Eq)]
+pub struct UnverifiedRecipientPlaintext {
+    /// Unauthenticated, the recipient pairs with whichever key the sender writes.
     #[wincode(with = "X25519PubkeySchema")]
     pub sender_pubkey: X25519Pubkey,
-    pub asset_id: u64,
-    pub amount: u64,
     pub blinding: [u8; 32],
     pub data: Data,
 }
 
 impl AnonymousTransferRecipientPlaintext {
     pub fn serialize(&self) -> Result<Vec<u8>, TransactionError> {
-        self.data.validate()?;
+        self.unverified.data.validate()?;
         Ok(wincode::serialize(self)?)
     }
 
     pub fn deserialize(bytes: &[u8]) -> Result<Self, TransactionError> {
         let parsed: Self = wincode::deserialize_exact(bytes)?;
-        parsed.data.validate()?;
+        parsed.unverified.data.validate()?;
         Ok(parsed)
     }
 
@@ -39,46 +50,62 @@ impl AnonymousTransferRecipientPlaintext {
         assets: &AssetRegistry,
         ring_program_id: Option<Address>,
     ) -> Result<Utxo, TransactionError> {
+        let Self {
+            verified,
+            unverified,
+        } = self;
         // Anonymous recipients may carry a memo, but not ring or utxo data.
-        if self.data.ring_data().is_some() || self.data.utxo_data().is_some() {
+        if unverified.data.ring_data().is_some() || unverified.data.utxo_data().is_some() {
             return Err(TransactionError::UnsupportedOutputData);
         }
         Ok(Utxo {
-            owner: self.owner_pubkey,
-            asset: assets.resolve(self.asset_id)?,
-            amount: self.amount,
-            blinding: self.blinding,
-            ring_program_id: resolve_ring_program_id(ring_program_id, &self.data)?,
-            data: self.data,
+            owner: verified.owner_pubkey,
+            asset: assets.mint(&verified.mint)?,
+            amount: verified.amount,
+            blinding: unverified.blinding,
+            ring_program_id: resolve_ring_program_id(ring_program_id, &unverified.data)?,
+            data: unverified.data,
         })
     }
 }
 
+/// Published as a message, its change outputs carry no ciphertext.
 #[derive(SchemaWrite, SchemaRead, Clone, Debug, PartialEq, Eq)]
 pub struct AnonymousTransferSenderPlaintext {
+    pub verified: VerifiedSenderPlaintext,
+    pub unverified: UnverifiedSenderPlaintext,
+}
+
+#[derive(SchemaWrite, SchemaRead, Clone, Debug, PartialEq, Eq)]
+pub struct VerifiedSenderPlaintext {
     #[wincode(with = "PublicKeySchema")]
     pub owner_pubkey: PublicKey,
-    pub spl_asset_id: u64,
+    pub spl_mint: Address,
     pub spl_amount: u64,
     pub sol_amount: u64,
-    pub blinding_seed: [u8; 32],
+    /// One per recipient output, in output order.
     #[wincode(with = "containers::Vec<X25519PubkeySchema, FixIntLen<u8>>")]
     pub recipient_viewing_pks: Vec<X25519Pubkey>,
+}
+
+#[derive(SchemaWrite, SchemaRead, Clone, Debug, PartialEq, Eq)]
+pub struct UnverifiedSenderPlaintext {
+    pub blinding_seed: [u8; 32],
     pub spl_data: Data,
     pub sol_data: Data,
 }
 
 impl AnonymousTransferSenderPlaintext {
     pub fn serialize(&self) -> Result<Vec<u8>, TransactionError> {
-        self.spl_data.validate()?;
-        self.sol_data.validate()?;
+        self.unverified.spl_data.validate()?;
+        self.unverified.sol_data.validate()?;
         Ok(wincode::serialize(self)?)
     }
 
     pub fn deserialize(bytes: &[u8]) -> Result<Self, TransactionError> {
         let parsed: Self = wincode::deserialize_exact(bytes)?;
-        parsed.spl_data.validate()?;
-        parsed.sol_data.validate()?;
+        parsed.unverified.spl_data.validate()?;
+        parsed.unverified.sol_data.validate()?;
         Ok(parsed)
     }
 
@@ -93,40 +120,39 @@ impl AnonymousTransferSenderPlaintext {
         assets: &AssetRegistry,
         ring_program_id: Option<Address>,
     ) -> Result<Vec<Utxo>, TransactionError> {
-        if self.spl_amount == 0 && !self.spl_data.is_empty() {
+        let Self {
+            verified,
+            unverified,
+        } = self;
+        if verified.spl_amount == 0 && !unverified.spl_data.is_empty() {
             return Err(TransactionError::DataWithoutOutput);
         }
-        if self.sol_amount == 0 && !self.sol_data.is_empty() {
+        if verified.sol_amount == 0 && !unverified.sol_data.is_empty() {
             return Err(TransactionError::DataWithoutOutput);
         }
-        let slots = change_slots(self.spl_amount > 0, self.sol_amount > 0);
+        let slots = change_slots(verified.spl_amount > 0, verified.sol_amount > 0);
+        let blinding = |slot| {
+            derive_transact_output_blinding(first_nullifier, &unverified.blinding_seed, slot)
+        };
         let mut utxos = Vec::new();
-        if self.spl_amount > 0 {
+        if verified.spl_amount > 0 {
             utxos.push(Utxo {
-                owner: self.owner_pubkey,
-                asset: assets.resolve(self.spl_asset_id)?,
-                amount: self.spl_amount,
-                blinding: derive_transact_output_blinding(
-                    first_nullifier,
-                    &self.blinding_seed,
-                    slots.spl,
-                )?,
-                ring_program_id: resolve_ring_program_id(ring_program_id, &self.spl_data)?,
-                data: self.spl_data,
+                owner: verified.owner_pubkey,
+                asset: assets.mint(&verified.spl_mint)?,
+                amount: verified.spl_amount,
+                blinding: blinding(slots.spl)?,
+                ring_program_id: resolve_ring_program_id(ring_program_id, &unverified.spl_data)?,
+                data: unverified.spl_data,
             });
         }
-        if self.sol_amount > 0 {
+        if verified.sol_amount > 0 {
             utxos.push(Utxo {
-                owner: self.owner_pubkey,
+                owner: verified.owner_pubkey,
                 asset: Mint::SOL,
-                amount: self.sol_amount,
-                blinding: derive_transact_output_blinding(
-                    first_nullifier,
-                    &self.blinding_seed,
-                    slots.sol,
-                )?,
-                ring_program_id: resolve_ring_program_id(ring_program_id, &self.sol_data)?,
-                data: self.sol_data,
+                amount: verified.sol_amount,
+                blinding: blinding(slots.sol)?,
+                ring_program_id: resolve_ring_program_id(ring_program_id, &unverified.sol_data)?,
+                data: unverified.sol_data,
             });
         }
         Ok(utxos)
@@ -173,12 +199,16 @@ impl UtxoSerialization for AnonymousRecipient {
     ) -> Result<Self::Plaintext, TransactionError> {
         let first = utxos.first().ok_or(TransactionError::MissingOutput)?;
         Ok(AnonymousTransferRecipientPlaintext {
-            owner_pubkey: first.owner,
-            sender_pubkey: cx.sender_pubkey,
-            asset_id: first.asset.asset_id,
-            amount: first.amount,
-            blinding: first.blinding,
-            data: first.data.clone(),
+            verified: VerifiedRecipientPlaintext {
+                owner_pubkey: first.owner,
+                mint: first.asset.asset,
+                amount: first.amount,
+            },
+            unverified: UnverifiedRecipientPlaintext {
+                sender_pubkey: cx.sender_pubkey,
+                blinding: first.blinding,
+                data: first.data.clone(),
+            },
         })
     }
 
@@ -236,31 +266,31 @@ impl UtxoSerialization for AnonymousSenderBundle {
         cx: &Self::EncodeCx,
     ) -> Result<Self::Plaintext, TransactionError> {
         let first = utxos.first().ok_or(TransactionError::MissingOutput)?;
-        let owner_pubkey = first.owner;
-        let mut spl_asset_id = 0u64;
-        let mut spl_amount = 0u64;
-        let mut spl_data = Data::default();
-        let mut sol_amount = 0u64;
-        let mut sol_data = Data::default();
+        let mut verified = VerifiedSenderPlaintext {
+            owner_pubkey: first.owner,
+            spl_mint: Address::default(),
+            spl_amount: 0,
+            sol_amount: 0,
+            recipient_viewing_pks: cx.recipient_viewing_pks.clone(),
+        };
+        let mut unverified = UnverifiedSenderPlaintext {
+            blinding_seed: cx.blinding_seed,
+            spl_data: Data::default(),
+            sol_data: Data::default(),
+        };
         for utxo in utxos {
             if utxo.asset.asset == Mint::SOL.asset {
-                sol_amount = utxo.amount;
-                sol_data = utxo.data.clone();
+                verified.sol_amount = utxo.amount;
+                unverified.sol_data = utxo.data.clone();
             } else {
-                spl_asset_id = utxo.asset.asset_id;
-                spl_amount = utxo.amount;
-                spl_data = utxo.data.clone();
+                verified.spl_mint = utxo.asset.asset;
+                verified.spl_amount = utxo.amount;
+                unverified.spl_data = utxo.data.clone();
             }
         }
         Ok(AnonymousTransferSenderPlaintext {
-            owner_pubkey,
-            spl_asset_id,
-            spl_amount,
-            sol_amount,
-            blinding_seed: cx.blinding_seed,
-            recipient_viewing_pks: cx.recipient_viewing_pks.clone(),
-            spl_data,
-            sol_data,
+            verified,
+            unverified,
         })
     }
 

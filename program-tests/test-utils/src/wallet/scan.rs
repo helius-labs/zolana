@@ -28,14 +28,15 @@ use super::state::{
 };
 
 pub(super) struct TxIndex {
-    pub(super) sender_sites: HashMap<ViewTag, Vec<usize>>,
+    /// Sender bundles by `(transaction, message)`.
+    pub(super) sender_sites: HashMap<ViewTag, Vec<(usize, usize)>>,
     pub(super) recipient_sites: HashMap<ViewTag, Vec<(usize, usize)>>,
     pub(super) merge_sites: Vec<(usize, usize)>,
 }
 
 impl TxIndex {
     pub(super) fn build(transactions: &[ShieldedTransaction], report: &mut SyncReport) -> Self {
-        let mut sender_sites: HashMap<ViewTag, Vec<usize>> = HashMap::new();
+        let mut sender_sites: HashMap<ViewTag, Vec<(usize, usize)>> = HashMap::new();
         let mut recipient_sites: HashMap<ViewTag, Vec<(usize, usize)>> = HashMap::new();
         let mut merge_sites = Vec::new();
         for (t, tx) in transactions.iter().enumerate() {
@@ -82,12 +83,19 @@ impl TxIndex {
                             .push((t, slot_index));
                         classified = true;
                     }
-                    EncryptedScheme::AnonymousSender => {
-                        sender_sites.entry(slot.view_tag).or_default().push(t);
-                        classified = true;
-                    }
+                    // A sender bundle is a message, never an output.
+                    EncryptedScheme::AnonymousSender => continue,
                     // Wallets do not discover anonymous ring outputs yet.
                     EncryptedScheme::RingAnonymous => continue,
+                }
+            }
+            for (message_index, message) in tx.messages.iter().enumerate() {
+                if sender_bundle(&message.data).is_some() {
+                    sender_sites
+                        .entry(message.view_tag)
+                        .or_default()
+                        .push((t, message_index));
+                    classified = true;
                 }
             }
             if !classified {
@@ -610,7 +618,7 @@ impl SyncCtx<'_> {
 
     /// Decode one candidate slot, dispatching on its scheme byte. Recipient and
     /// confidential slots are 1:1 and verified against the slot's committed leaf;
-    /// the anonymous/split sender bundles (passed as slot 0) store their change
+    /// the split sender bundle (passed as slot 0) stores its change
     /// against the whole transaction. The returned [`SlotOutcome`] carries the
     /// counterparty pubkeys that drive `known_senders` / `known_recipients`.
     pub(super) fn decode_slot(
@@ -754,7 +762,7 @@ impl SyncCtx<'_> {
                             self.report.undecryptable_candidates += 1;
                             return Ok(outcome);
                         };
-                        let sender = plaintext.sender_pubkey;
+                        let sender = plaintext.unverified.sender_pubkey;
                         let utxos = match AnonymousRecipient::into_utxos(plaintext, &owner_cx) {
                             Ok(utxos) => utxos,
                             Err(err) => {
@@ -800,46 +808,6 @@ impl SyncCtx<'_> {
                             }
                         }
                     }
-                    EncryptedScheme::AnonymousSender => {
-                        let Ok(plaintext) = AnonymousSenderBundle::decode(body, &cx) else {
-                            self.report.undecryptable_candidates += 1;
-                            return Ok(outcome);
-                        };
-                        let pks = plaintext.recipient_viewing_pks.clone();
-                        let real_recipient_count = pks.len();
-                        let change = match AnonymousSenderBundle::into_utxos(plaintext, &owner_cx) {
-                            Ok(change) => change,
-                            Err(err) => {
-                                self.note_undecryptable(&err);
-                                return Ok(outcome);
-                            }
-                        };
-                        for utxo in &change {
-                            self.store_in_tx(utxo.clone(), tx)?;
-                        }
-                        self.processed_slots.insert(site);
-                        outcome.recipients = pks.clone();
-                        if self.processed_outbound.insert(site.0) {
-                            let spent = self.spent_amounts(&tx.nullifiers);
-                            let kind = if real_recipient_count == 0 {
-                                PrivateTransactionKind::PublicWithdrawal
-                            } else {
-                                PrivateTransactionKind::PrivateTransfer
-                            };
-                            let counterparty = (real_recipient_count == 1)
-                                .then(|| pks.first().copied())
-                                .flatten();
-                            let direction = self.transfer_direction(&pks);
-                            self.record_outbound_transfer(
-                                tx,
-                                spent,
-                                &change,
-                                kind,
-                                counterparty,
-                                direction,
-                            );
-                        }
-                    }
                     _ => {
                         self.report.undecryptable_candidates += 1;
                     }
@@ -850,6 +818,66 @@ impl SyncCtx<'_> {
                 // every merge to `reconstruct_merge`; one here is malformed.
                 self.report.undecryptable_candidates += 1;
             }
+        }
+        Ok(outcome)
+    }
+
+    pub(super) fn decode_sender_message(
+        &mut self,
+        transactions: &[ShieldedTransaction],
+        key: &ViewingKey,
+        (t, message_index): (usize, usize),
+    ) -> Result<SlotOutcome, TransactionError> {
+        let mut outcome = SlotOutcome::default();
+        let Some(tx) = transactions.get(t) else {
+            self.report.undecryptable_candidates += 1;
+            return Ok(outcome);
+        };
+        let body = tx
+            .messages
+            .get(message_index)
+            .and_then(|message| sender_bundle(&message.data));
+        let slot_index = u32::try_from(tx.output_slots.len() + message_index).ok();
+        let (Some(body), Some(slot_index)) = (body, slot_index) else {
+            self.report.undecryptable_candidates += 1;
+            return Ok(outcome);
+        };
+        let cx = DecodeCx::for_slot(key, tx, slot_index);
+        let owner_cx = OwnerCx {
+            owner: self.owner,
+            assets: self.assets,
+            ring_program_id: None,
+            first_nullifier: cx.first_nullifier,
+        };
+        let Ok(plaintext) = AnonymousSenderBundle::decode(&body, &cx) else {
+            self.report.undecryptable_candidates += 1;
+            return Ok(outcome);
+        };
+        let pks = plaintext.verified.recipient_viewing_pks.clone();
+        let real_recipient_count = pks.len();
+        let change = match AnonymousSenderBundle::into_utxos(plaintext, &owner_cx) {
+            Ok(change) => change,
+            Err(err) => {
+                self.note_undecryptable(&err);
+                return Ok(outcome);
+            }
+        };
+        for utxo in &change {
+            self.store_in_tx(utxo.clone(), tx)?;
+        }
+        outcome.recipients = pks.clone();
+        if self.processed_outbound.insert(t) {
+            let spent = self.spent_amounts(&tx.nullifiers);
+            let kind = if real_recipient_count == 0 {
+                PrivateTransactionKind::PublicWithdrawal
+            } else {
+                PrivateTransactionKind::PrivateTransfer
+            };
+            let counterparty = (real_recipient_count == 1)
+                .then(|| pks.first().copied())
+                .flatten();
+            let direction = self.transfer_direction(&pks);
+            self.record_outbound_transfer(tx, spent, &change, kind, counterparty, direction);
         }
         Ok(outcome)
     }
@@ -1087,9 +1115,9 @@ impl Wallet {
                     ctx.decode_slot(transactions, key, *site)?;
                 }
             }
-            if let Some(txs) = index.sender_sites.get(&owner_tag) {
-                for &t in txs {
-                    ctx.decode_slot(transactions, key, (t, 0))?;
+            if let Some(sites) = index.sender_sites.get(&owner_tag) {
+                for &site in sites {
+                    ctx.decode_sender_message(transactions, key, site)?;
                 }
             }
 
@@ -1102,8 +1130,8 @@ impl Wallet {
                 *tx_count = *m + 1;
             }
             for (_, sites) in &sender_hits {
-                for &t in sites {
-                    let outcome = ctx.decode_slot(transactions, key, (t, 0))?;
+                for &site in sites {
+                    let outcome = ctx.decode_sender_message(transactions, key, site)?;
                     for pk in outcome.recipients {
                         known_recipients.entry(pk).or_insert(0);
                     }
@@ -1207,4 +1235,13 @@ impl Default for SyncConfig {
             window: DEFAULT_TAG_WINDOW,
         }
     }
+}
+
+/// The ciphertext of a message that carries a sender bundle.
+fn sender_bundle(data: &[u8]) -> Option<Vec<u8>> {
+    let OutputDataEncoding::Encrypted(mut blob) = borsh::from_slice(data).ok()? else {
+        return None;
+    };
+    (EncryptedScheme::from_byte(*blob.first()?).ok()? == EncryptedScheme::AnonymousSender)
+        .then(|| blob.split_off(1))
 }
