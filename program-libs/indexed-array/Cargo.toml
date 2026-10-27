@@ -1,6 +1,6 @@
 [package]
 name = "spr-indexed-array"
-version = "0.3.0"
+version = "0.1.0"
 description = "Implementation of indexed (and concurrent) Merkle tree in Rust"
 readme = "README.md"
 repository.workspace = true

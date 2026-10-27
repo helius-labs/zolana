@@ -1,6 +1,6 @@
 [package]
 name = "spr-hasher"
-version = "5.0.0"
+version = "0.1.0"
 description = "Trait for generic usage of hash functions on Solana"
 readme = "README.md"
 repository.workspace = true

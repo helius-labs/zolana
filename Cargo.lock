@@ -10218,7 +10218,7 @@ dependencies = [
 
 [[package]]
 name = "spr-account-checks"
-version = "0.8.0"
+version = "0.1.0"
 dependencies = [
  "rand 0.8.8",
  "solana-account-view 2.0.0",
@@ -10367,7 +10367,7 @@ version = "0.1.0"
 
 [[package]]
 name = "spr-hasher"
-version = "5.0.0"
+version = "0.1.0"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ff 0.5.0",
@@ -10386,7 +10386,7 @@ dependencies = [
 
 [[package]]
 name = "spr-indexed-array"
-version = "0.3.0"
+version = "0.1.0"
 dependencies = [
  "num-bigint 0.4.8",
  "num-traits",
@@ -10508,7 +10508,7 @@ dependencies = [
 
 [[package]]
 name = "spr-merkle-tree"
-version = "4.0.0"
+version = "0.1.0"
 dependencies = [
  "num-bigint 0.4.8",
  "num-traits",
@@ -10559,7 +10559,7 @@ dependencies = [
 
 [[package]]
 name = "spr-program-test"
-version = "0.23.0"
+version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "litesvm",

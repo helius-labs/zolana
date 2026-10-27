@@ -1,6 +1,6 @@
 [package]
 name = "spr-merkle-tree"
-version = "4.0.0"
+version = "0.1.0"
 description = "Non-sparse reference Merkle tree implementation"
 edition = "2021"
 license.workspace = true

@@ -11,6 +11,11 @@ from pathlib import Path
 def migrate(sdk_root: Path, ring_root: Path) -> None:
     sdk = tomllib.loads((sdk_root / "Cargo.toml").read_text())
     dependencies = sdk["workspace"]["dependencies"]
+    versions = {
+        name: dependency["version"]
+        for name, dependency in dependencies.items()
+        if name.startswith("spr-") and "version" in dependency
+    }
     names = {name for name in dependencies if name.startswith("spr-")}
     for member in sdk["workspace"]["members"]:
         package = tomllib.loads((sdk_root / member / "Cargo.toml").read_text())
@@ -28,13 +33,19 @@ def migrate(sdk_root: Path, ring_root: Path) -> None:
     )
     ring_manifest = ring_root / "Cargo.toml"
     original = tomllib.loads(ring_manifest.read_text())
-    revisions = {
-        original["workspace"]["dependencies"][old]["rev"]: dependencies[new]["rev"]
-        for old, new in replacements.items()
-        if new.startswith("spr-zk-")
-        and old in original["workspace"]["dependencies"]
-        and "rev" in original["workspace"]["dependencies"][old]
-    }
+    revisions = {}
+    previous_dependencies = original["workspace"]["dependencies"]
+    for name, dependency in dependencies.items():
+        if name.startswith("spr-zk-") and "rev" in dependency:
+            previous = previous_dependencies.get(name) or previous_dependencies.get(
+                name.replace("spr-", "zolana-", 1)
+            )
+            if previous and "rev" in previous:
+                revisions[previous["rev"]] = dependency["rev"]
+    version_pattern = re.compile(
+        r'(^\s*(spr-[a-z0-9-]+)\s*=\s*\{[^\n]*?\bversion\s*=\s*")([^\"]+)(")',
+        re.MULTILINE,
+    )
     tracked = subprocess.check_output(["git", "-C", str(ring_root), "ls-files", "-z"])
     changed = 0
     for filename in tracked.decode().split("\0"):
@@ -46,6 +57,10 @@ def migrate(sdk_root: Path, ring_root: Path) -> None:
         except UnicodeDecodeError:
             continue
         migrated = pattern.sub(lambda match: replacements[match[0]], source)
+        if path.name == "Cargo.toml":
+            migrated = version_pattern.sub(
+                lambda match: match[1] + versions.get(match[2], match[3]) + match[4], migrated
+            )
         for old, new in revisions.items():
             migrated = migrated.replace(old, new)
         if migrated != source:

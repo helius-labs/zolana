@@ -91,7 +91,7 @@ spr-zk-gadgets = { git = "https://github.com/helius-labs/zk-tools", rev = "f107f
 spr-zk-macros = { git = "https://github.com/helius-labs/zk-tools", rev = "f107fb70ec5a179619eedd30088774177ca07ccc" }
 spr-zk-macros-core = { git = "https://github.com/helius-labs/zk-tools", rev = "f107fb70ec5a179619eedd30088774177ca07ccc" }
 spr-api = { path = "sdk-libs/spr-api", version = "0.1.0", default-features = false }
-spr-program-test = { path = "sdk-libs/program-test", version = "0.23.0" }
+spr-program-test = { path = "sdk-libs/program-test", version = "0.1.0" }
 spr-transaction = { path = "sdk-libs/transaction", version = "0.1.0" }
 spr-client = { path = "sdk-libs/client", version = "0.1.0" }
 spr-prover-tee = { path = "sdk-libs/prover-tee", version = "0.1.0" }
@@ -99,7 +99,7 @@ spr-gnark-ffi-prover = { path = "sdk-libs/gnark-ffi-prover", version = "0.1.0" }
 spr-gnark-ffi-prover-build = { path = "sdk-libs/gnark-ffi-prover/build-helper", version = "0.1.0" }
 spr-indexer-api = { path = "sdk-libs/indexer-api", version = "0.1.0" }
 spr-rpc-http = { path = "services/rpc-http", version = "0.1.0" }
-spr-merkle-tree = { path = "sdk-libs/merkle-tree", version = "4.0.0" }
+spr-merkle-tree = { path = "sdk-libs/merkle-tree", version = "0.1.0" }
 spr-smart-account-client = { path = "sdk-libs/smart-account-client", version = "0.1.0" }
 spr-test-utils = { path = "program-tests/test-utils", version = "0.1.0" }
 shielded-pool-program = { path = "programs/shielded-pool", version = "0.1.0" }
@@ -108,9 +108,9 @@ groth16-solana = { git = "https://github.com/Lightprotocol/groth16-solana", rev 
 
 # Published Light Protocol crates.
 light-array-map = "0.2.0"
-spr-account-checks = { path = "program-libs/account-checks", version = "0.8.0", default-features = false }
-spr-hasher = { path = "program-libs/hasher", version = "5.0.0", default-features = false }
-spr-indexed-array = { path = "program-libs/indexed-array", version = "0.3.0" }
+spr-account-checks = { path = "program-libs/account-checks", version = "0.1.0", default-features = false }
+spr-hasher = { path = "program-libs/hasher", version = "0.1.0", default-features = false }
+spr-indexed-array = { path = "program-libs/indexed-array", version = "0.1.0" }
 light-poseidon = "0.4.0"
 # Pinned to the head of the mollusk-0.15 branch (Lightprotocol/light-program-profiler).
 # Switch back to a released version once that lands upstream.
