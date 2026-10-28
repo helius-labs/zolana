@@ -143,7 +143,7 @@ describe("default devnet TEE prover", () => {
     // freshness, measurements, HPKE pin and encrypted-response authentication.
     const client = new ZolanaClient({
       solanaRpcUrl: "https://devnet.helius-rpc.com",
-      indexerUrl: "https://d21d98xh5lgv3b.cloudfront.net",
+      indexerUrl: "https://d34xe1hqb2ibg2.cloudfront.net",
       fetch: observedFetch,
     });
     const attested = await client.attestProver({ timeoutMs: 120_000 });

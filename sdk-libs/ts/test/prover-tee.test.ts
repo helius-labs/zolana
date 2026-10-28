@@ -104,9 +104,9 @@ describe("TEE policy", () => {
     expect(DEFAULT_TEE_POLICY_FILE).toEqual(json("../../prover-tee/src/policy.json"));
   });
 
-  it("authenticates devnet-d-tee-3 with the default pin and refuses changed bindings", () => {
+  it("authenticates devnet-e-tee-1 with the default pin and refuses changed bindings", () => {
     const live = decode.record(
-      json("../../../prover/tee/testdata/devnet_d_tee_3_attestation.json"),
+      json("../../../prover/tee/testdata/devnet_e_tee_1_attestation.json"),
       "live",
     );
     const nonce = hexToBytes(decode.string(live["nonce"], "nonce"));
@@ -133,6 +133,18 @@ describe("TEE policy", () => {
     expect(
       check(() => verifyAttestation(live["attestation"], policy, nonce, at + 2 * 86_400)),
     ).toBe("certificate_validity");
+  });
+
+  it("refuses the retired devnet-d deployment with the default pin", () => {
+    const retired = decode.record(
+      json("../../../prover/tee/testdata/devnet_d_tee_3_attestation.json"),
+      "retired",
+    );
+    const nonce = hexToBytes(decode.string(retired["nonce"], "nonce"));
+    const at = Number(decode.integer(retired["captured_at"], "captured_at"));
+    expect(
+      check(() => verifyAttestation(retired["attestation"], defaultTeePolicy(), nonce, at)),
+    ).toBe("measurement");
   });
 
   it("accepts the archived deployment attestation", () => {

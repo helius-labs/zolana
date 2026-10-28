@@ -27,7 +27,7 @@ pub use verify::{inspect, verify, verify_with, AttestedIdentity, AttestedProver}
 use thiserror::Error;
 
 /// The devnet Nitro Enclave prover that `policy.json`, the default deployment, pins.
-pub const DEFAULT_PROVER_URL: &str = "https://d1unet9hn0mci0.cloudfront.net";
+pub const DEFAULT_PROVER_URL: &str = "https://dd73hh473h6ha.cloudfront.net";
 pub const ATTESTATION_PATH: &str = "/tee/v1/attestation";
 pub const HEADER_VERSION: &str = "Zolana-Tee";
 pub const HEADER_ENC: &str = "Zolana-Tee-Enc";

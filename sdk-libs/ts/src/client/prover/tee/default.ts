@@ -4,13 +4,13 @@ export const DEFAULT_TEE_POLICY_FILE: Readonly<{ deployment: unknown }> = Object
     platform: "aws-nitro",
     measurements: [
       {
-        pcr0: "659a43741fdbf38ffff53326499754ac1f6901d43eb0fe319362aa98f1743c1e2a61fd99d3f95ea86f539e14afe5b6d5",
+        pcr0: "30a5ca7cdaa68adc9802c57c7ef590cc4ea3cee981898de55c2aa2082d7980a7ca42c3daf6a0988aff5e6daaacd949ad",
         pcr1: "4b4d5b3661b3efc12920900c80e126e4ce783c522de6c02a2a5bf7af3a2b9327b86776f188e4be1c1c404a129dbda493",
-        pcr2: "2900a9860a2ccf135c61a7584b53ffd222637f4981c65c7351e298e61253cd7a7a608708801b2075d88549803841f618",
+        pcr2: "f389a946e669e3bef011d91189a542619a4dc9fe8578f9af66bc54f8f9347e1cf979a50a8c1f56e7a595bd935bf29cab",
       },
     ],
-    hpke_public_key: "270e90208e7f79a8fe1ca1b2eb6670421a3ae95b4119928a915cbd8977c2e055",
     gpu: "optional",
     max_age_secs: 600,
+    hpke_public_key: "cf2254cff568f3401272b0b5fc965917938498e0ae4a41391b04f6924a93e033",
   },
 });
