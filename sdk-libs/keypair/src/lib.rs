@@ -65,7 +65,7 @@ pub use shielded::{
 };
 pub use signing_key::SigningKey;
 pub use traits::{ShieldedKeypairTrait, ViewingKeyTrait};
-pub use viewing_key::{random_blinding, random_salt, ViewingKey};
+pub use viewing_key::{random_blinding, random_salt, SharedViewTags, ViewingKey};
 
 pub type Signature = [u8; 64];
 

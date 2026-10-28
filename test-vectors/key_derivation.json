@@ -284,5 +284,79 @@
         }
       ]
     }
+  ],
+  "shared_view_tags": [
+    {
+      "sender_secret": "0505050505050505050505050505050505050505050505050505050505050505",
+      "recipient_secret": "0606060606060606060606060606060606060606060606060606060606060606",
+      "sender_pubkey": "0450a61409b1ddd0325e9b16b700e719e9772c07000b1bd7786e907c653d20495d",
+      "recipient_pubkey": "04f5b2d6e60f9477e310c2982daaa6c9136c108a1777c5947e448fa37d68174557",
+      "tags": [
+        {
+          "counter": "0",
+          "tag": "00d313833091ad682026e27108584ec7d4cb3c846bfa74c59caad57cb3d865cc"
+        },
+        {
+          "counter": "1",
+          "tag": "004a115614cced2f927959a7f5147f651ad075f27267ab662bede5ad218ac098"
+        },
+        {
+          "counter": "4294967296",
+          "tag": "0020d255558f7d3f10b8147b49ba51d83e27871a5060bc268865398a724a2750"
+        },
+        {
+          "counter": "18446744073709551615",
+          "tag": "0000e3b352b011bf5876160e6e394482bbbccb5376e7a8905dcc1568400a2e9b"
+        }
+      ]
+    },
+    {
+      "sender_secret": "0606060606060606060606060606060606060606060606060606060606060606",
+      "recipient_secret": "0505050505050505050505050505050505050505050505050505050505050505",
+      "sender_pubkey": "04f5b2d6e60f9477e310c2982daaa6c9136c108a1777c5947e448fa37d68174557",
+      "recipient_pubkey": "0450a61409b1ddd0325e9b16b700e719e9772c07000b1bd7786e907c653d20495d",
+      "tags": [
+        {
+          "counter": "0",
+          "tag": "009250e6498e635f6b03d48913bfc12aab42e79b955ae06270a39b53145eca8e"
+        },
+        {
+          "counter": "1",
+          "tag": "00e33f244cfa5c9128b8608be7dea54f5c9d314472995afdf94661e90216bead"
+        },
+        {
+          "counter": "4294967296",
+          "tag": "006cfb3aebadf29fbee10808ea2a227e7a391e3a2a5fb9f3ea0a7568715f359a"
+        },
+        {
+          "counter": "18446744073709551615",
+          "tag": "001d9629d22d0f5060924db031d69ed8f820d1402a2e043f35d06771990ce049"
+        }
+      ]
+    },
+    {
+      "sender_secret": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "recipient_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "sender_pubkey": "04847c0d2c375234f365e660955187a3735a0f7613d1609d3a6a4d8c53aeaa5a22",
+      "recipient_pubkey": "048f40c5adb68f25624ae5b214ea767a6ec94d829d3d7b5e1ad1ba6f3e2138285f",
+      "tags": [
+        {
+          "counter": "0",
+          "tag": "00f496fe25ca519d893f39591599ea73035eaf0bce5826508fe3fe5a16afa727"
+        },
+        {
+          "counter": "1",
+          "tag": "00c832c20b6b9de794c2198323bdb32a0540370aae8f7695d7c64afc61413e20"
+        },
+        {
+          "counter": "4294967296",
+          "tag": "00e78daecb2a3d796eefcc4ea56ff7306dc8fd10ec0aa528c660922ffa3512f2"
+        },
+        {
+          "counter": "18446744073709551615",
+          "tag": "005843cace1f210b148f64b1012ba5c643d9a48690e57da0ebe815593d4abd07"
+        }
+      ]
+    }
   ]
 }

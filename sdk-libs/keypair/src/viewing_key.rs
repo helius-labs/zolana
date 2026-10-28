@@ -140,14 +140,20 @@ impl ViewingKey {
         derivation::recipient_request_view_tag(&secret, request_count)
     }
 
-    fn shared_view_tag(
+    /// Equals `recipient_shared_view_tags(self.pubkey())` on the recipient's key.
+    pub fn send_shared_view_tags(
         &self,
-        counterparty: &X25519Pubkey,
-        r_pubkey: &X25519Pubkey,
-        i: u64,
-    ) -> Result<ViewTag, KeypairError> {
-        let shared = self.ecdh(counterparty)?;
-        derivation::shared_view_tag(&shared, r_pubkey, i)
+        recipient: &X25519Pubkey,
+    ) -> Result<SharedViewTags, KeypairError> {
+        SharedViewTags::new(&*self.secret.ecdh(recipient)?, recipient)
+    }
+
+    /// Equals `send_shared_view_tags(self.pubkey())` on the sender's key.
+    pub fn recipient_shared_view_tags(
+        &self,
+        sender: &X25519Pubkey,
+    ) -> Result<SharedViewTags, KeypairError> {
+        SharedViewTags::new(&*self.secret.ecdh(sender)?, &self.pubkey())
     }
 
     /// Sender-side `recipient_shared_view_tag` for transfer `i` to a paired
@@ -157,7 +163,7 @@ impl ViewingKey {
         counterparty: &X25519Pubkey,
         i: u64,
     ) -> Result<ViewTag, KeypairError> {
-        self.shared_view_tag(counterparty, counterparty, i)
+        self.send_shared_view_tags(counterparty)?.tag(i)
     }
 
     /// Recipient-side `recipient_shared_view_tag`: scans transfers from a known
@@ -167,8 +173,7 @@ impl ViewingKey {
         counterparty: &X25519Pubkey,
         i: u64,
     ) -> Result<ViewTag, KeypairError> {
-        let r_pubkey = self.pubkey();
-        self.shared_view_tag(counterparty, &r_pubkey, i)
+        self.recipient_shared_view_tags(counterparty)?.tag(i)
     }
 
     /// Bootstrap view tag = this key's `viewing_pk` u-coordinate. Anyone can
@@ -272,6 +277,24 @@ impl ViewingKey {
 impl Default for ViewingKey {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// One sender to recipient direction, the reverse direction derives disjoint tags.
+pub struct SharedViewTags {
+    domain: Zeroizing<[u8; 32]>,
+}
+
+impl SharedViewTags {
+    fn new(ecdh_shared: &[u8; 32], r_pubkey: &X25519Pubkey) -> Result<Self, KeypairError> {
+        Ok(Self {
+            domain: derivation::pair_domain(ecdh_shared, r_pubkey)?,
+        })
+    }
+
+    /// `recipient_shared_view_tag` of transfer `i`.
+    pub fn tag(&self, i: u64) -> Result<ViewTag, KeypairError> {
+        derivation::pair_hint_view_tag(&self.domain, i)
     }
 }
 

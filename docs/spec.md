@@ -399,11 +399,11 @@ Policy rings hide the recipient, so a wallet cannot find its outputs by owner pu
 
 A recipients wallet cannot pre-derive shared tags for every possible sender. Therefore the wallet needs to know which senders to derive view tags for. The first transfer between a new sender-recipient pair uses a tag the recipient can find without prior knowledge of the sender: either `recipient_request_view_tag` (recipient minted, shared out-of-band) or `recipient_bootstrap_view_tag = recipient.viewing_pk` (no coordination required). This first transfer establishes the pair: on decryption the recipient reads `sender_pubkey` from the ciphertext and derives the shared ECDH key, and subsequent transfers from this sender use a shared tag (`recipient_shared_view_tag`) to find transaction. `sender → recipient` and `recipient → sender` produce disjoint tags.
 
-Custom-ring anonymous outputs (scheme `9`, [Output UTXO Serialization](#output-utxo-serialization)) carry no `sender_pubkey`, so they establish no pair.
-
 **Uniqueness.** View tags should not be reused. The indexer must handle the case that these may be used multiple times erroneously and return all ciphertexts matching a single tag value.
 
 **Encoding.**  all view tags are constant length 32 bytes. Shorter view tags are prefixed with 0s.
+
+**Proof.** No proof derives a view tag or opens an anonymous body. A wrong tag or a body sealed to the wrong key costs the recipient the note, as a payment to a wrong address does, and gains the sender nothing because its inputs are already spent. A policy ring's auditor reads every output from its proven disclosure.
 
 #### Sender View Tag
 
@@ -422,14 +422,17 @@ Custom-ring anonymous outputs (scheme `9`, [Output UTXO Serialization](#output-u
     - Derivation: two chained HKDFs over the ECDH shared secret.
 
       ```
-      shared := ECDH(self.viewing_sk, counterparty_pubkey)
+      S      := sender.viewing_pk
+      R      := recipient.viewing_pk
+      shared := ECDH(sender.viewing_sk, R)        // sender
+              = ECDH(recipient.viewing_sk, S)     // recipient
       domain := HKDF-SHA256(salt = ∅, IKM = shared,
-                           info = "TSPP/pair-domain/" || R_pubkey, L = 32)
+                           info = "TSPP/pair-domain/" || R, L = 32)
       return    HKDF-SHA256(salt = ∅, IKM = domain,
                            info = "TSPP/pair-hint/"   || u64_be(i), L = 31)
       ```
 
-      `R_pubkey` is the recipient of the direction: `counterparty_pubkey` on the sender side (`get_send_shared_view_tag`), `self.viewing_pk` on the recipient side (`get_recipient_shared_view_tag`). ECDH symmetry plus the matched direction label produces the same byte value across the pair.
+      The sender reads `R` from the recipient's address, the recipient reads `S` from the `sender_pubkey` of the first transfer between the pair.
 3. **`recipient_request_view_tag`**
     - Derived by: the recipient. The recipient shares the tag with the sender out-of-band as a `PaymentRequest`.
     - Tx sent by: the sender.
@@ -464,8 +467,8 @@ flowchart TD
 1. `decrypt(ciphertext, tx_viewing_pk) -> Result<Plaintext>` — AES-CTR decryption with key `KDF(ECDH(viewing_sk, tx_viewing_pk))`.
 2. `get_sender_view_tag(tx_count)` — policy-ring anonymous transfers only; tags the sender's own change UTXOs. The default ring tags change by the sender's owner pubkey.
 3. `get_recipient_request_view_tag(request_count)` — used by the recipient to create a view tag for a `PaymentRequest` shared with the sender out-of-band.
-4. `get_send_shared_view_tag(counterparty_pubkey, i)` — sender-side `recipient_shared_view_tag`; used for transfers to a recipient the sender has already paired with.
-5. `get_recipient_shared_view_tag(counterparty_pubkey, i)` — recipient-side `recipient_shared_view_tag`; used during sync to scan transfers from each known sender.
+4. `get_send_shared_view_tag(recipient_pubkey, i)` — sender-side `recipient_shared_view_tag`; used for transfers to a recipient the sender has already paired with.
+5. `get_recipient_shared_view_tag(sender_pubkey, i)` — recipient-side `recipient_shared_view_tag`; used during sync to scan transfers from each known sender.
 6. `merge_output_blinding(first_nullifier)` / `merge_dummy_nullifier(first_nullifier, slot_index)` / `merge_output_key(first_nullifier)` — deterministic merge derivations from the owner's nullifier secret (domain-separated Poseidon; the key is defined under [Merge](#merge)); used by the merge prover when building [`merge_transact`](#merge_transact) / [`merge_ring`](#merge_ring) and by the owner during sync to decrypt merged outputs. Replaces the removed `get_merge_view_tag(merge_count)`.
 7. `get_transaction_viewing_key(first_nullifier: [u8; 32]) -> X25519Keypair` — the per-transaction [X25519 keypair](#transaction-viewing-key) for ECDH encryption to recipients.
 
@@ -669,7 +672,6 @@ Schemes:
 2. UTXO Split — one ciphertext for M equal-amount outputs under the same owner.
 3. Merge — scheme byte `6`: the merged output's amount and mint encrypted for the owner with a key derived from the owner's nullifier secret (see [Merge](#merge)). On `merge_transact` the merge proof checks the ciphertext; on `merge_ring` SPP publishes it unverified.
 4. Plaintext Transfer — the Transfer layout with unencrypted payloads.
-5. Ring Anonymous — scheme byte `9`: a custom-ring output in anonymous mode. The body is a [recipient plaintext](#recipient) without `owner_pubkey` or `sender_pubkey`, encrypted under the per-slot schedule below and published without the recipient viewing key. The owner tag is a [view tag](#view-tags), `sender_view_tag` on the sender's own outputs and `recipient_bootstrap_view_tag` on a recipient's. Wallets skip this scheme. The ring auditor reads it through the [Ring RPC](#ring-rpc) with the recipient viewing key from the proved anonymous disclosure.
 
 ## AES Key derivation
 
@@ -732,8 +734,7 @@ Fields packed in declaration order. Byte vectors are prefixed with a `u16_le` le
 /// 50 B plaintext for confidential transfers with an empty `data` field and no
 /// `ring_program_id`. Anonymous transfers add `owner_pubkey: PublicKey` (34 B)
 /// and `sender_pubkey: X25519Pubkey` (33 B) before `asset_id` and omit
-/// `ring_program_id`. Ring Anonymous outputs (scheme `9`) use the confidential
-/// form. Each populated data record adds `3 + len` bytes. See
+/// `ring_program_id`. Each populated data record adds `3 + len` bytes. See
 /// [UTXO Data](#utxo-data).
 struct TransferRecipientPlaintext {
     /// `1` for SOL; SPL via per-mint Asset registry (`asset_id ≥ 2`).
@@ -2962,7 +2963,7 @@ Wallet {
 
     1. **Default-ring sync (confidential).** One call: `indexer.getShieldedTransactionsByTags` with the wallet's `owner_pubkey` tag and the `recipient_bootstrap_view_tag` of each retained viewing key. The owner tag matches the wallet's encrypted change bundles, encrypted recipient slots, and [plaintext transfer](#plaintext-transfer) slots. The bootstrap tags match ring deposits and anonymous recipient slots. Try the locally retained viewing keys against each encrypted ciphertext (plaintext slots need none); store the UTXOs with each transaction's `nullifiers`. The owner tag derives from the signing key, so discovery of default-ring outputs does not depend on the viewing key.
 
-    2. **Anonymous outputs.** Wallets query no `sender_view_tag`, `recipient_request_view_tag` or shared tag. A [Ring Anonymous](#output-utxo-serialization) output (scheme `9`) the bootstrap query returns is skipped, and the ring auditor reads it through the [Ring RPC](#ring-rpc).
+    2. **Anonymous outputs.** For each retained viewing key, query the [view tags](#view-tags) from index `0` to a window past each stored counter: `get_sender_view_tag(tx_count)`, `get_recipient_request_view_tag(request_count)`, `get_recipient_shared_view_tag(sender_pubkey, i)` for each key in `known_senders`, and `get_send_shared_view_tag(recipient_pubkey, i)` for each key in `known_recipients`. A [sender bundle](#anonymous) message gives the change and adds its `recipient_viewing_pks` to `known_recipients`. A recipient ciphertext gives the note, and under a request or bootstrap tag adds its `sender_pubkey` to `known_senders`. Each counter moves past the highest index found, and the queries repeat until a round fetches no new transaction.
 
     3. **Merge outputs.** On the default rail the event tags the output with the owner signing pubkey, so merges surface in the owner-pubkey fetch above. `merge_ring` indexes the output by the first input's published nullifier; `getShieldedTransactionsByNullifiers` returns a transaction for any of its nullifiers, so the wallet finds a ring merge whenever it holds any of its inputs. For each merge transaction, decrypt the output as defined under [Merge](#merge): derive `merge_output_key` and `merge_output_blinding` from the nullifier key and the first nullifier, decrypt the amount and mint, rebuild the UTXO, and check its hash against the published output commitment. The wallet needs none of the merge's inputs; a merge that spends none of its notes is income. Store the rebuilt UTXO with the transaction's `nullifiers`.
 

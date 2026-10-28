@@ -10,6 +10,7 @@ import {
   isDerivationInput,
 } from "../src/keypair/derivation.js";
 import {
+  KeypairError,
   NullifierKey,
   ShieldedKeypair,
   SigningKey,
@@ -92,6 +93,13 @@ type KeyDerivationVectors = Readonly<{
     viewing_pubkey: string;
     sender_view_tags: readonly CounterTag[];
     recipient_request_view_tags: readonly CounterTag[];
+  }>[];
+  shared_view_tags: readonly Readonly<{
+    sender_secret: string;
+    recipient_secret: string;
+    sender_pubkey: string;
+    recipient_pubkey: string;
+    tags: readonly CounterTag[];
   }>[];
 }>;
 
@@ -216,6 +224,52 @@ describe("shared key-derivation vectors (test-vectors/key_derivation.json)", () 
       ((element + (pads[index] ?? 0n)) % BN254_SCALAR_ORDER).toString(16).padStart(64, "0"),
     );
     expect(ciphertext).toEqual(section.output_ciphertext);
+  });
+
+  it("derives the counter view tags", () => {
+    for (const section of vectors.counter_view_tags) {
+      const viewing = ViewingKey.fromBytes(bytes(section.viewing_secret) as Bytes32);
+      expect(hex(viewing.publicKey().toBytes())).toBe(section.viewing_pubkey);
+      for (const { counter, tag } of section.sender_view_tags) {
+        expect(hex(viewing.senderViewTag(BigInt(counter))), counter).toBe(tag);
+      }
+      for (const { counter, tag } of section.recipient_request_view_tags) {
+        expect(hex(viewing.recipientRequestViewTag(BigInt(counter))), counter).toBe(tag);
+      }
+    }
+  });
+
+  it("derives both sides of the shared view tags", () => {
+    for (const section of vectors.shared_view_tags) {
+      const sender = ViewingKey.fromBytes(bytes(section.sender_secret) as Bytes32);
+      const recipient = ViewingKey.fromBytes(bytes(section.recipient_secret) as Bytes32);
+      const senderPubkey = sender.publicKey();
+      const recipientPubkey = recipient.publicKey();
+      expect(hex(senderPubkey.toBytes())).toBe(section.sender_pubkey);
+      expect(hex(recipientPubkey.toBytes())).toBe(section.recipient_pubkey);
+      const send = sender.sendSharedViewTags(recipientPubkey);
+      const receive = recipient.recipientSharedViewTags(senderPubkey);
+      for (const { counter, tag } of section.tags) {
+        const i = BigInt(counter);
+        expect(hex(send.tag(i)), counter).toBe(tag);
+        expect(hex(receive.tag(i)), counter).toBe(tag);
+      }
+      send.destroy();
+      expect(() => send.tag(0n)).toThrow(KeypairError);
+      receive.destroy();
+    }
+  });
+
+  it("refuses a counter outside u64", () => {
+    const viewing = ViewingKey.fromBytes(new Uint8Array(32).fill(5) as Bytes32);
+    expect(() => viewing.senderViewTag(-1n)).toThrow(KeypairError);
+    expect(() => viewing.recipientRequestViewTag(1n << 64n)).toThrow(KeypairError);
+    expect(() => viewing.sendSharedViewTags(viewing.publicKey()).tag(1n << 64n)).toThrow(
+      KeypairError,
+    );
+    expect(() => viewing.recipientSharedViewTags(viewing.publicKey()).tag(-1n)).toThrow(
+      KeypairError,
+    );
   });
 
   it("detects derivation inputs exactly like Rust", () => {
