@@ -125,8 +125,8 @@ Workflows under `.github/workflows/`:
 
 - `rust.yml` — fmt, clippy, machete, check-all, per-area unit tests
 - `photon.yml` — Photon contract tests, migrations, schema drift, and service tests
-- `publish-image.yml` — container smoke tests, and publishes photon, prover and forester images to ECR
-- `forester.yml` — forester compile check
+- `publish-image.yml` — builds and checks changed services, then publishes a complete signed release for GitOps deployment
+- `protocol-ops.yml` — forester, protocol tooling and forester prover checks
 - `prover-server.yml` — Go test suite
 - `xtask-verifying-keys.yml` — xtask verifying-key smoke against the Go prover
 - `gpu-deploy-scripts.yml` — GPU deployment script checks and gateway test
