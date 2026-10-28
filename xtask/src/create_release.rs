@@ -382,8 +382,8 @@ fn build_prover(repo: &Path, os: &str, arch: &str, out: &Path) -> Result<()> {
 
 /// Build a workspace binary (e.g. `photon`, `zolana`) for a target and stage it.
 /// The host build uses cargo directly; linux-x64 builds in a Docker container so
-/// no host cross-linker is needed. Both are cache-first via the shared
-/// `target`/`target-linux-x64` dirs, so building a second binary is incremental.
+/// no host cross-linker is needed. Host builds reuse `target`; Linux builds
+/// reuse Docker volumes and copy the binary into `target-linux-x64` for staging.
 pub fn build_rust_binary(
     repo: &Path,
     package: &str,
@@ -425,7 +425,7 @@ fn build_rust_binary_linux_x64(repo: &Path, package: &str, bin: &str, out: &Path
     println!("building {bin} linux-x64 (docker {PHOTON_LINUX_BUILDER_IMAGE})");
     let mount = format!("{}:/work", path_str(repo)?);
     let build = format!(
-        "set -e; apt-get update -qq && apt-get install -y -qq pkg-config libssl-dev protobuf-compiler cmake clang build-essential >/dev/null 2>&1; cargo build --locked --release -p {package} --bin {bin} --target-dir /work/target-linux-x64"
+        "set -e; apt-get update -qq && apt-get install -y -qq pkg-config libssl-dev protobuf-compiler cmake clang build-essential >/dev/null 2>&1; cargo build --locked --release -p {package} --bin {bin} --target-dir /build-target; mkdir -p /work/target-linux-x64/release; cp /build-target/release/{bin} /work/target-linux-x64/release/{bin}"
     );
     let status = Command::new("docker")
         .args([
@@ -435,6 +435,12 @@ fn build_rust_binary_linux_x64(repo: &Path, package: &str, bin: &str, out: &Path
             "linux/amd64",
             "-v",
             &mount,
+            // Keep compiler metadata on the Linux filesystem, avoiding shared
+            // filesystem races while rustc pipelines dependency builds.
+            "-v",
+            "spr-release-linux-target:/build-target",
+            "-v",
+            "spr-release-linux-cargo:/usr/local/cargo",
             "-w",
             "/work",
         ])
