@@ -402,7 +402,15 @@ fn build_rust_binary_host(repo: &Path, package: &str, bin: &str, out: &Path) -> 
     println!("building {bin} (host)");
     let status = Command::new("cargo")
         .current_dir(repo)
-        .args(["build", "--locked", "--release", "-p", package, "--bin", bin])
+        .args([
+            "build",
+            "--locked",
+            "--release",
+            "-p",
+            package,
+            "--bin",
+            bin,
+        ])
         .status()
         .with_context(|| format!("failed to run cargo build for {bin}"))?;
     if !status.success() {
