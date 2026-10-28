@@ -400,6 +400,12 @@ the pool. `--verifier` adds `proofToSnarkjs` and `verifyingKeyToSnarkjs`; Xark's
 is included with the proving runtime. `compressedProgramProof` remains available in
 the transaction-only build.
 
+Before a `--no-prover` build, Cargo resolves the selected package's normal WASM
+dependencies using the same feature selection as the build. A dependency on
+`xark-wasm`, including through aliases or default features, is rejected before
+compilation. Dev dependencies, build dependencies, host proc macros, native-only
+dependencies, and unrelated workspace packages do not trigger this check.
+
 This development branch uses workspace path dependencies pointing at
 `/Users/jorrit/dev/experiments/xark-client-wasm`. The build discovers that checkout
 from Cargo metadata and selects its `target/release/xark` compiler automatically.

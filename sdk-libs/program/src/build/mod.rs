@@ -83,23 +83,34 @@ fn compiler(package: &Package) -> Result<PathBuf> {
     Ok(path)
 }
 
-fn check_input_only(directory: &Path) -> Result<()> {
-    let mut declarations = false;
-    for file in fs::read_dir(directory)? {
-        let path = file?.path();
-        if path.file_name().is_some_and(|name| {
-            let name = name.to_string_lossy();
-            name.ends_with(".d.ts") && !name.ends_with(".wasm.d.ts")
-        }) {
-            declarations = true;
-            if fs::read_to_string(&path)?.contains("export function proveStreamingPreloaded(") {
-                return Err(error("--no-prover conflicts with a default or transitive feature that enables the Xark runtime; disable that feature in the package manifest or --wasm-features"));
-            }
-        }
+fn wasm_features(options: &CompileOptions) -> String {
+    let mut features = options.wasm_features.split(',').filter(|feature| !feature.is_empty()).map(str::to_owned).collect::<Vec<_>>();
+    if !options.no_prover { features.push("zolana-program/wasm-prover".into()); }
+    if options.verifier { features.push("zolana-program/wasm-verify".into()); }
+    features.sort();
+    features.dedup();
+    features.join(",")
+}
+
+fn check_input_only(package: &Package, features: &str) -> Result<()> {
+    let mut command = Command::new("cargo");
+    command.args(["tree", "--manifest-path"]).arg(&package.manifest)
+        .args(["--package", &package.name, "--target", "wasm32-unknown-unknown",
+            "--edges", "normal,no-proc-macro", "--prefix", "none", "--format", "{p}", "--color", "never"])
+        .current_dir(package.manifest.parent().unwrap());
+    if !features.is_empty() { command.args(["--features", features]); }
+    let output = command.output()?;
+    if !output.status.success() { return Err(error(String::from_utf8_lossy(&output.stderr))); }
+    if String::from_utf8_lossy(&output.stdout).lines()
+        .any(|package| package.split_whitespace().next() == Some("xark-wasm")) {
+        return Err(error("--no-prover conflicts with a resolved WASM dependency on xark-wasm; disable the feature or dependency that enables it"));
     }
-    if !declarations { return Err(error("wasm-pack generated no declarations to validate the --no-prover output")); }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "input_only_test.rs"]
+mod input_only_tests;
 
 fn discover(package: &Package, out: &Path, features: &str) -> Result<Vec<ProgramMetadata>> {
     let metadata = out.join(".metadata");
@@ -154,6 +165,10 @@ fn entry(package: &Package, out: &Path, program: &ProgramMetadata, features: &st
 pub fn compile(options: &CompileOptions) -> Result<()> {
     if options.skip_r1cs && options.skip_keys && options.skip_wasm { return Err(BuildError::NothingToCompile); }
     let package = package(&options.package)?;
+    let features = wasm_features(options);
+    if options.no_prover && !options.skip_wasm && !options.check {
+        check_input_only(&package, &features)?;
+    }
     let out = output_dir(&package, &options.r1cs_out);
     fs::create_dir_all(&out)?;
     let out = fs::canonicalize(out)?;
@@ -174,11 +189,11 @@ pub fn compile(options: &CompileOptions) -> Result<()> {
             verifier::export(&package, &artifact, program, options.check)?;
         }
     }
-    if !options.skip_wasm && !options.check { bridge(&package, &out, options, &xark, &programs)?; }
+    if !options.skip_wasm && !options.check { bridge(&package, &out, options, &features, &xark, &programs)?; }
     Ok(())
 }
 
-fn bridge(package: &Package, out: &Path, options: &CompileOptions, xark: &Path, programs: &[ProgramMetadata]) -> Result<()> {
+fn bridge(package: &Package, out: &Path, options: &CompileOptions, features: &str, xark: &Path, programs: &[ProgramMetadata]) -> Result<()> {
     if options.nightly != CompileOptions::default().nightly {
         return Err(error("--nightly no longer selects a toolchain: JavaScript pool workers use the normal Rust toolchain"));
     }
@@ -193,23 +208,14 @@ fn bridge(package: &Package, out: &Path, options: &CompileOptions, xark: &Path, 
     let name = directory.file_name().ok_or_else(|| error("wasm output needs a directory name"))?.to_string_lossy();
     let staging = parent.join(format!(".{name}.building-{}", std::process::id()));
     let wasm_target = match options.wasm_target { WasmTarget::Web => "web", WasmTarget::Nodejs => "nodejs" };
-    let mut features = options.wasm_features.split(',').filter(|feature| !feature.is_empty()).map(str::to_owned).collect::<Vec<_>>();
-    if options.no_prover && features.iter().any(|feature| matches!(feature.as_str(), "wasm-prover" | "wasm-threads" | "zolana-program/wasm-prover" | "zolana-program/wasm-threads")) {
-        return Err(error("--no-prover conflicts with prover features in --wasm-features"));
-    }
-    if !options.no_prover { features.push("zolana-program/wasm-prover".into()); }
-    if options.verifier { features.push("zolana-program/wasm-verify".into()); }
-    features.sort();
-    features.dedup();
     fs::create_dir(&staging)?;
     let mut command = Command::new("wasm-pack");
     command.arg("build").arg(package.manifest.parent().unwrap())
         .args(["--release", "--target", wasm_target, "--no-pack", "--out-dir"]).arg(&staging);
     if !options.wasm_opt { command.arg("--no-opt"); }
-    command.arg("--").arg("--features").arg(features.join(","));
+    if !features.is_empty() { command.arg("--").arg("--features").arg(features); }
     let build = (|| -> Result<()> {
         run(&mut command)?;
-        if options.no_prover { check_input_only(&staging)?; }
         if !options.no_prover {
             let mut proving_keys = std::collections::BTreeMap::new();
             for program in programs {
